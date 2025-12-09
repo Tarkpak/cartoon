@@ -1,6 +1,6 @@
 # 开发任务清单 (Nuxt.js 4 全栈)
 
-> 技术栈: Nuxt.js 4.2.1 + Vue 3 + Nitro + shadcn-vue + Tailwind CSS v4 + Google Gemini API  
+> 技术栈: Nuxt.js 4.2.1 + Vue 3 + Nitro + shadcn-vue + Tailwind CSS + Drizzle ORM + SQLite + Google Gemini API  
 > 按优先级排序，建议按顺序完成
 
 ---
@@ -22,7 +22,13 @@
 - [x] 创建 `server/utils/gemini.ts` - API客户端
 - [x] 配置 `runtimeConfig` 存储 API Key
 - [x] 创建测试API `server/api/test.get.ts`
-- [ ] 添加错误处理和重试机制
+- [x] 添加错误处理和重试机制
+  - [x] `GeminiError` 自定义错误类
+  - [x] `GeminiErrorCode` 错误码枚举 (400/403/404/429/500/503/504)
+  - [x] `withRetry()` 指数退避重试 (带抖动)
+  - [x] `generateText()` 文本生成辅助函数
+  - [x] `generateJSON()` JSON 结构化输出辅助函数
+  - [x] `generateImage()` 图片生成辅助函数
 
 **验收标准**: 访问 `/api/test` 能成功返回 Gemini 响应
 
@@ -35,18 +41,42 @@
 
 **验收标准**: 前后端都能正确导入类型
 
+### 1.4 数据库配置 ⏱️ 0.5天 ✅ 已完成
+- [x] 配置 Drizzle ORM + SQLite (`better-sqlite3`)
+- [x] 创建数据库 Schema (`server/db/schema.ts`)
+  - [x] `projects` - 项目表
+  - [x] `scripts` - 剧本表
+  - [x] `scenes` - 场景表
+  - [x] `characters` - 角色表
+  - [x] `videoTasks` - 视频任务表
+  - [x] `generatedVideos` - 生成视频表
+- [x] 创建数据库连接 (`server/db/index.ts`)
+- [x] 创建 Nitro 插件自动初始化 (`server/plugins/db.ts`)
+- [x] 配置 Drizzle Kit (`drizzle.config.ts`)
+
+**数据库命令**:
+```bash
+bun run db:generate  # 生成迁移文件
+bun run db:migrate   # 执行迁移
+bun run db:push      # 推送 schema 变更
+bun run db:studio    # 启动 Drizzle Studio
+```
+
+**验收标准**: 数据库表自动创建，API 可正常读写数据
+
 ---
 
 ## Phase 2: 后端API开发 (预计1.5周)
 
-### 2.1 剧本解析API ⏱️ 2天
+### 2.1 剧本解析API ⏱️ 2天 ✅ 已完成
 **文件**: `server/api/script/parse.post.ts`
 
-- [ ] 实现 `parseScript(text: string): Promise<Scene[]>`
-- [ ] 使用 Gemini 3 Pro 解析小说文本
-- [ ] 输出结构化的场景列表
-- [ ] 自动拆分对话、场景描述、角色信息
-- [ ] 支持 JSON 结构化输出
+- [x] 实现 `parseScript(text: string): Promise<Scene[]>`
+- [x] 使用 Gemini 3 Pro 解析小说文本
+- [x] 输出结构化的场景列表
+- [x] 自动拆分对话、场景描述、角色信息
+- [x] 支持 JSON 结构化输出
+- [x] 输出格式验证和自动修复
 
 **输入示例**:
 ```
@@ -70,14 +100,14 @@
 
 ---
 
-### 2.2 角色生成API ⏱️ 3天
+### 2.2 角色生成API ⏱️ 3天 ✅ 已完成
 **文件**: `server/api/character/generate.post.ts`
 
-- [ ] 实现 `generateCharacterAsset(character): Promise<CharacterAsset>`
-- [ ] 使用 Nano Banana Pro (`gemini-3-pro-image-preview`) 生成角色立绘 (4K高质量)
-- [ ] 生成多个表情变体 (happy, sad, angry, surprised, neutral)
-- [ ] 实现角色一致性保持（基于参考图编辑）
-- [ ] 图片缓存机制（避免重复生成）
+- [x] 实现 `generateCharacterAsset(character): Promise<CharacterAsset>`
+- [x] 使用 Nano Banana Pro (`gemini-3-pro-image-preview`) 生成角色立绘 (4K高质量)
+- [x] 生成多个表情变体 (happy, sad, angry, surprised, neutral)
+- [x] 实现角色一致性保持（基于参考图编辑）
+- [ ] 图片缓存机制（避免重复生成）- 后续优化
 
 **关键API调用**:
 ```typescript
@@ -92,29 +122,30 @@ generationConfig: { responseModalities: ['image', 'text'] }
 
 ---
 
-### 2.3 首尾帧生成API ⏱️ 2天
+### 2.3 首尾帧生成API ⏱️ 2天 ✅ 已完成
 **文件**: `server/api/frame/generate.post.ts`
 
-- [ ] 实现 `generateFramePair(scene): Promise<[firstFrame, lastFrame]>`
-- [ ] 基于场景描述生成首帧
-- [ ] 基于场景结束状态生成尾帧
-- [ ] 确保首尾帧风格、角色一致
-- [ ] 支持将角色资产融入场景
+- [x] 实现 `generateFramePair(scene): Promise<[firstFrame, lastFrame]>`
+- [x] 基于场景描述生成首帧
+- [x] 基于场景结束状态生成尾帧
+- [x] 确保首尾帧风格、角色一致
+- [x] 支持将角色资产融入场景
 
 **验收标准**: 首尾帧视觉风格统一，角色可辨识
 
 ---
 
-### 2.4 视频生成API ⭐核心 ⏱️ 3天
+### 2.4 视频生成API ⭐核心 ⏱️ 3天 ✅ 已完成
 **文件**: `server/api/video/generate.post.ts` + `server/api/video/status/[id].get.ts`
 
-- [ ] 实现 `generateVideoWithFrames(config): Promise<GeneratedVideo>`
-- [ ] 集成 Veo 3.1 API (`veo-3.1-generate-preview`)
-- [ ] 支持首尾帧输入 (插值模式)
-- [ ] 实现长轮询等待视频生成
-- [ ] 支持 4/6/8 秒时长选择
-- [ ] 支持 720p/1080p 分辨率 (注意: 1080p 仅支持 8 秒时长)
-- [ ] 支持原生音频生成
+- [x] 实现 `generateVideoWithFrames(config): Promise<GeneratedVideo>`
+- [x] 集成 Veo 3.1 API (`veo-3.1-generate-preview`)
+- [x] 支持首尾帧输入 (插值模式)
+- [x] 实现长轮询等待视频生成
+- [x] 支持 4/6/8 秒时长选择
+- [x] 支持 720p/1080p 分辨率 (注意: 1080p 仅支持 8 秒时长)
+- [x] 支持原生音频生成
+- [x] 任务状态查询 API
 
 **关键API调用**:
 ```typescript

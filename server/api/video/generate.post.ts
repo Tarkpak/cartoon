@@ -1,0 +1,254 @@
+import { eq } from 'drizzle-orm'
+import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, withRetry } from '../../utils/gemini'
+import { db, videoTasks as videoTasksTable } from '../../db'
+import {
+  GenerateVideoRequestSchema,
+  type GeneratedVideo,
+} from '../../../shared/types/video'
+
+/**
+ * 视频生成 API
+ * POST /api/video/generate
+ * 
+ * 使用 Veo 3.1 基于首尾帧生成视频
+ */
+export default defineEventHandler(async (event) => {
+  const startTime = Date.now()
+
+  // 1. 解析并验证请求
+  const body = await readBody(event)
+  const parseResult = GenerateVideoRequestSchema.safeParse(body)
+  
+  if (!parseResult.success) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: '请求参数无效',
+      message: parseResult.error.issues.map(i => i.message).join(', '),
+    })
+  }
+
+  const { sceneId, config } = parseResult.data
+
+  // 2. 创建任务并存入数据库
+  const taskId = `video_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const now = new Date().toISOString()
+  
+  await db.insert(videoTasksTable).values({
+    id: taskId,
+    sceneId,
+    status: 'pending',
+    progress: 0,
+    config: JSON.stringify(config),
+    createdAt: now,
+    updatedAt: now,
+  })
+
+  // 3. 异步启动视频生成 (不阻塞响应)
+  generateVideoAsync(taskId, sceneId, config).catch(async (error) => {
+    console.error(`[VideoGen] 任务 ${taskId} 失败:`, error)
+    await db.update(videoTasksTable)
+      .set({
+        status: 'failed',
+        error: error instanceof Error ? error.message : '未知错误',
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(videoTasksTable.id, taskId))
+  })
+
+  return {
+    success: true,
+    taskId,
+    message: '视频生成任务已启动',
+    latencyMs: Date.now() - startTime,
+  }
+})
+
+/**
+ * 更新任务进度
+ */
+type TaskStatus = 'pending' | 'processing' | 'completed' | 'failed'
+
+async function updateTaskProgress(taskId: string, progress: number, status?: TaskStatus) {
+  const updateData: Record<string, unknown> = {
+    progress,
+    updatedAt: new Date().toISOString(),
+  }
+  if (status) {
+    updateData.status = status
+  }
+  await db.update(videoTasksTable)
+    .set(updateData)
+    .where(eq(videoTasksTable.id, taskId))
+}
+
+/**
+ * 异步生成视频
+ */
+async function generateVideoAsync(
+  taskId: string,
+  sceneId: string,
+  config: typeof GenerateVideoRequestSchema._type['config'],
+): Promise<void> {
+  try {
+    // 更新状态为处理中
+    await updateTaskProgress(taskId, 10, 'processing')
+
+    const client = getGeminiClient()
+    console.log(`[VideoGen] 开始生成视频: ${taskId}`)
+
+    // 1. 调用 Veo API 开始生成
+    await updateTaskProgress(taskId, 20)
+
+    // 根据是否有首尾帧决定生成方式
+    const hasFrames = config.firstFrame && config.lastFrame
+    
+    let operation = await withRetry(async () => {
+      if (hasFrames) {
+        // 使用首尾帧插值模式
+        return await client.models.generateVideos({
+          model: VideoModels.VEO_3_1,
+          prompt: config.prompt,
+          image: {
+            imageBytes: config.firstFrame,
+            mimeType: 'image/png',
+          },
+          config: {
+            lastFrame: {
+              imageBytes: config.lastFrame,
+              mimeType: 'image/png',
+            },
+            aspectRatio: config.aspectRatio,
+            durationSeconds: config.duration,
+            resolution: config.resolution,
+            generateAudio: config.withAudio,
+          },
+        })
+      }
+      else {
+        // 纯文本生成模式
+        return await client.models.generateVideos({
+          model: VideoModels.VEO_3_1,
+          prompt: config.prompt,
+          config: {
+            aspectRatio: config.aspectRatio,
+            durationSeconds: config.duration,
+            resolution: config.resolution,
+            generateAudio: config.withAudio,
+          },
+        })
+      }
+    }, { maxRetries: 2 })
+
+    // 2. 轮询等待生成完成
+    console.log(`[VideoGen] 等待视频生成完成...`)
+    const maxWaitTime = 180000 // 最长等待 3 分钟
+    const pollInterval = 10000 // 每 10 秒检查一次
+    const startPollTime = Date.now()
+
+    while (!operation.done) {
+      // 检查超时
+      if (Date.now() - startPollTime > maxWaitTime) {
+        throw new GeminiError(
+          '视频生成超时',
+          GeminiErrorCode.DEADLINE_EXCEEDED,
+          504,
+          false,
+        )
+      }
+
+      // 更新进度 (20% - 90%)
+      const elapsed = Date.now() - startPollTime
+      const progressPercent = Math.min(90, 20 + (elapsed / maxWaitTime) * 70)
+      await updateTaskProgress(taskId, Math.round(progressPercent))
+
+      // 等待后再次检查
+      await new Promise(resolve => setTimeout(resolve, pollInterval))
+      
+      operation = await client.operations.getVideosOperation({
+        operation: operation,
+      })
+    }
+
+    // 3. 获取生成结果
+    await updateTaskProgress(taskId, 95)
+
+    const generatedVideos = operation.response?.generatedVideos
+    if (!generatedVideos || generatedVideos.length === 0) {
+      throw new GeminiError(
+        '未能生成视频',
+        GeminiErrorCode.INTERNAL,
+        500,
+        false,
+      )
+    }
+
+    // 4. 获取视频数据
+    const generatedVideo = generatedVideos[0]
+    let videoData = ''
+    
+    // 从生成结果中提取视频数据
+    // SDK 可能返回不同格式，需要灵活处理
+    try {
+      if (generatedVideo.video) {
+        // 如果有 URI，尝试通过 fetch 下载
+        const videoInfo = generatedVideo.video as { uri?: string; name?: string }
+        if (videoInfo.uri) {
+          const response = await fetch(videoInfo.uri)
+          const buffer = await response.arrayBuffer()
+          videoData = Buffer.from(buffer).toString('base64')
+        }
+        else if (videoInfo.name) {
+          // 如果只有 name，存储引用供后续下载
+          videoData = `ref:${videoInfo.name}`
+        }
+      }
+    }
+    catch (downloadError) {
+      console.warn(`[VideoGen] 视频下载失败:`, downloadError)
+      // 存储视频引用供后续处理
+      const videoInfo = generatedVideo.video as { name?: string }
+      videoData = videoInfo?.name ? `ref:${videoInfo.name}` : ''
+    }
+
+    // 5. 构建结果
+    const result: GeneratedVideo = {
+      id: `generated_${taskId}`,
+      sceneId,
+      videoData,
+      metadata: {
+        duration: config.duration,
+        resolution: config.resolution,
+        aspectRatio: config.aspectRatio,
+        fps: 24,
+        hasAudio: config.withAudio,
+      },
+      createdAt: new Date().toISOString(),
+    }
+
+    // 6. 完成任务 - 更新数据库
+    await db.update(videoTasksTable)
+      .set({
+        status: 'completed',
+        progress: 100,
+        videoData: result.videoData,
+        metadata: JSON.stringify(result.metadata),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(videoTasksTable.id, taskId))
+
+    console.log(`[VideoGen] 视频生成完成: ${taskId}`)
+  }
+  catch (error) {
+    console.error(`[VideoGen] 生成失败:`, error)
+    
+    await db.update(videoTasksTable)
+      .set({
+        status: 'failed',
+        error: error instanceof Error ? error.message : '未知错误',
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(videoTasksTable.id, taskId))
+    
+    throw error
+  }
+}

@@ -1,2 +1,30 @@
 node_modules/
 .nuxt
+.output
+.nitro
+dist
+
+# 环境变量
+.env
+.env.*
+!.env.example
+
+# 数据库
+data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# 日志
+*.log
+
+# 临时文件
+tmp/
+temp/
