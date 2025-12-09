@@ -1,35 +1,37 @@
 # 开发任务清单 (Nuxt.js 4 全栈)
 
-> 技术栈: Nuxt.js 4.2.1 + Vue 3 + Nitro + Google Gemini API  
+> 技术栈: Nuxt.js 4.2.1 + Vue 3 + Nitro + shadcn-vue + Tailwind CSS v4 + Google Gemini API  
 > 按优先级排序，建议按顺序完成
 
 ---
 
 ## Phase 1: 项目初始化 (预计2天)
 
-### 1.1 Nuxt项目搭建 ⏱️ 0.5天
-- [ ] 使用 `npx nuxi@latest init manju` 初始化项目
-- [ ] 配置 `nuxt.config.ts` (已提供)
-- [ ] 安装依赖 `pnpm install`
-- [ ] 配置 Nuxt UI 3 主题
-- [ ] 配置环境变量 `.env`
+### 1.1 Nuxt项目搭建 ⏱️ 0.5天 ✅ 已完成
+- [x] 使用 `npx nuxi@latest init manju` 初始化项目
+- [x] 配置 `nuxt.config.ts` (按官方脚手架格式)
+- [x] 安装依赖 `bun install`
+- [x] 配置 shadcn-vue (`shadcn-nuxt` 模块)
+- [x] 配置环境变量 `.env`
+- [x] 配置 ESLint (`eslint.config.mjs`)
+- [x] 配置 CSS (`app/assets/css/main.css`)
 
 **验收标准**: `pnpm dev` 能正常启动，访问 http://localhost:3000
 
-### 1.2 Gemini API 集成 ⏱️ 0.5天
-- [ ] 创建 `server/utils/gemini.ts` - API客户端
-- [ ] 配置 `runtimeConfig` 存储 API Key
-- [ ] 创建测试API `server/api/test.get.ts`
+### 1.2 Gemini API 集成 ⏱️ 0.5天 ✅ 已完成
+- [x] 创建 `server/utils/gemini.ts` - API客户端
+- [x] 配置 `runtimeConfig` 存储 API Key
+- [x] 创建测试API `server/api/test.get.ts`
 - [ ] 添加错误处理和重试机制
 
 **验收标准**: 访问 `/api/test` 能成功返回 Gemini 响应
 
-### 1.3 类型定义 ⏱️ 1天
-- [ ] `shared/types/script.ts` - 剧本/场景类型
-- [ ] `shared/types/character.ts` - 角色类型
-- [ ] `shared/types/video.ts` - 视频配置类型
-- [ ] `shared/types/audio.ts` - 音频类型
-- [ ] 使用 Zod 创建运行时校验 schema
+### 1.3 类型定义 ⏱️ 1天 ✅ 已完成
+- [x] `shared/types/script.ts` - 剧本/场景类型
+- [x] `shared/types/character.ts` - 角色类型
+- [x] `shared/types/video.ts` - 视频配置类型
+- [x] `shared/types/audio.ts` - 音频类型
+- [x] 使用 Zod 创建运行时校验 schema
 
 **验收标准**: 前后端都能正确导入类型
 
@@ -190,15 +192,15 @@ await client.models.generateVideos({
 
 ## Phase 5: 前端页面开发 (预计1周)
 
-### 5.1 页面路由 ⏱️ 2天
+### 5.1 页面路由 ⏱️ 2天 ✅ 已完成 (shadcn-vue)
 **目录**: `app/pages/`
 
-- [ ] `index.vue` - 首页 (项目概览)
-- [ ] `projects/index.vue` - 项目列表
+- [x] `index.vue` - 首页 (项目概览) - 使用 shadcn Card/Button 组件
+- [x] `projects.vue` - 项目列表 - 使用 shadcn Card/Badge/Input 组件
 - [ ] `projects/[id].vue` - 项目详情
-- [ ] `generate/script.vue` - 剧本编辑工作台
-- [ ] `generate/characters.vue` - 角色管理
-- [ ] `generate/video.vue` - 视频生成控制台
+- [x] `workbench.vue` - 剧本编辑工作台 - 使用 shadcn Card/Textarea/Badge 组件
+- [x] `characters.vue` - 角色管理 - 使用 shadcn Card/Badge 组件
+- [x] `video.vue` - 视频生成控制台 - 使用 shadcn Card/Switch 组件
 
 ### 5.2 核心组件 ⏱️ 3天
 **目录**: `app/components/`
