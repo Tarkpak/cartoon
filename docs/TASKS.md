@@ -72,14 +72,15 @@
 **文件**: `server/api/character/generate.post.ts`
 
 - [ ] 实现 `generateCharacterAsset(character): Promise<CharacterAsset>`
-- [ ] 使用 Nano Banana Pro 生成角色立绘
+- [ ] 使用 Nano Banana Pro (`gemini-3-pro-image-preview`) 生成角色立绘 (4K高质量)
 - [ ] 生成多个表情变体 (happy, sad, angry, surprised, neutral)
 - [ ] 实现角色一致性保持（基于参考图编辑）
 - [ ] 图片缓存机制（避免重复生成）
 
 **关键API调用**:
 ```typescript
-model: 'gemini-2.5-flash-preview-native-image-out'
+// Nano Banana Pro (4K高质量) 或 Nano Banana (快速)
+model: 'gemini-3-pro-image-preview' // 或 'gemini-2.5-flash-image'
 generationConfig: { responseModalities: ['image', 'text'] }
 ```
 
@@ -107,10 +108,10 @@ generationConfig: { responseModalities: ['image', 'text'] }
 
 - [ ] 实现 `generateVideoWithFrames(config): Promise<GeneratedVideo>`
 - [ ] 集成 Veo 3.1 API (`veo-3.1-generate-preview`)
-- [ ] 支持首尾帧输入
+- [ ] 支持首尾帧输入 (插值模式)
 - [ ] 实现长轮询等待视频生成
 - [ ] 支持 4/6/8 秒时长选择
-- [ ] 支持 720p/1080p 分辨率
+- [ ] 支持 720p/1080p 分辨率 (注意: 1080p 仅支持 8 秒时长)
 - [ ] 支持原生音频生成
 
 **关键API调用**:
@@ -118,9 +119,9 @@ generationConfig: { responseModalities: ['image', 'text'] }
 await client.models.generateVideos({
   model: 'veo-3.1-generate-preview',
   prompt: '...',
-  image: { imageBytes: firstFrame },
-  lastFrame: { imageBytes: lastFrame },
+  image: { imageBytes: firstFrame, mimeType: 'image/png' },  // 第一帧
   config: {
+    lastFrame: { imageBytes: lastFrame, mimeType: 'image/png' },  // 最后一帧
     aspectRatio: '16:9',
     durationSeconds: 8,
     resolution: '1080p',
@@ -141,10 +142,10 @@ await client.models.generateVideos({
 
 - [ ] 实现 `generateSceneChain(scenes): Promise<SceneChain>`
 - [ ] 上一场景尾帧 → 下一场景首帧 过渡
-- [ ] 生成场景间转场视频
+- [ ] 生成场景间转场视频 (使用首尾帧插值)
 - [ ] 维护整体叙事连贯性
 
-**验收标准**: 多个场景能平滑串联
+**验收标准**: 多个场景能平滑串联，转场自然
 
 ---
 
@@ -153,10 +154,12 @@ await client.models.generateVideos({
 ### 3.1 音频生成API ⏱️ 2天
 **文件**: `server/api/audio/generate.post.ts`
 
-- [ ] 集成 Lyria API 生成背景音乐
-- [ ] 使用 Gemini TTS 生成对话配音
+- [ ] 集成 Lyria API 生成背景音乐 (需要通过 Live API WebSocket 实现)
+- [ ] 使用 Gemini TTS (`gemini-2.5-flash` + `responseModalities: ['audio']`) 生成对话配音
 - [ ] 为不同角色配置不同音色
 - [ ] 情绪化语音调整
+
+> ⚠️ 注意: Lyria 音乐生成需要通过 Live API (WebSocket) 使用，不能直接 REST API 调用
 
 ### 3.2 音频合成 ⏱️ 1天
 - [ ] 对话音频时间轴对齐
@@ -244,8 +247,8 @@ await client.models.generateVideos({
 
 | 风险 | 影响 | 缓解措施 |
 |------|------|----------|
-| Veo API 生成慢 | 整体效率 | 并行生成多个场景 |
-| 角色一致性差 | 观感体验 | 使用参考图+强约束提示词 |
+| Veo API 生成慢 | 整体效率 | 并行生成多个场景，使用 Veo 3.1 Fast |
+| 角色一致性差 | 观感体验 | 使用统一角色资产生成参考图+强约束提示词 |
 | API 费用超支 | 成本 | 使用 Fast 版本，设置预算告警 |
 | 首尾帧不匹配 | 视频跳跃 | 加强首尾帧生成的风格约束 |
 

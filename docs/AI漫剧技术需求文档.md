@@ -32,8 +32,8 @@
 | **UI框架** | Nuxt UI 3 | 基于 Tailwind CSS 的组件库 |
 | **服务端** | Nitro | Nuxt内置服务引擎，支持API路由 |
 | **AI核心** | Google Gemini API | `@google/genai` SDK |
-| **视频生成** | Veo 3.1 API | 支持首尾帧、8秒视频 |
-| **图片生成** | Nano Banana Pro | 原生图片生成与编辑 |
+| **视频生成** | Veo 3.1 API | 支持首尾帧插值、8秒视频 |
+| **图片生成** | Nano Banana / Nano Banana Pro | 原生图片生成与编辑，支持 4K |
 | **文本理解** | Gemini 3 Pro | 100万token上下文窗口 |
 | **音频生成** | Lyria API | 背景音乐生成 |
 | **状态管理** | Pinia | Vue官方推荐 |
@@ -157,7 +157,9 @@ async function parseScript(novelText: string): Promise<Scene[]> {
 
 **功能**: 生成并维护角色一致性图片库
 
-**使用模型**: `gemini-2.5-flash-preview-native-image-out` (Nano Banana Pro)
+**使用模型**: 
+- `gemini-3-pro-image-preview` (Nano Banana Pro) - 4K 分辨率，专业制作
+- `gemini-2.5-flash-image` (Nano Banana) - 1024px，速度优化
 
 ```typescript
 // services/characterGenerator.ts
@@ -169,14 +171,17 @@ interface CharacterAsset {
   poses: Map<Pose, string>;
 }
 
+// 可选模型: 'gemini-3-pro-image-preview' (4K) 或 'gemini-2.5-flash-image' (快速)
+const IMAGE_MODEL = 'gemini-3-pro-image-preview'; // Nano Banana Pro
+
 async function generateCharacterAsset(
   character: Character
 ): Promise<CharacterAsset> {
   const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   
-  // 生成基础角色图
+  // 生成基础角色图 (使用 Nano Banana Pro 获得 4K 高质量)
   const baseResponse = await client.models.generateContent({
-    model: 'gemini-2.5-flash-preview-native-image-out',
+    model: IMAGE_MODEL,
     contents: `
       生成一个高质量的动漫角色立绘:
       - 角色描述: ${character.appearance}
@@ -196,7 +201,7 @@ async function generateCharacterAsset(
   const expressions = new Map<Emotion, string>();
   for (const emotion of ['happy', 'sad', 'angry', 'surprised', 'neutral']) {
     const exprResponse = await client.models.generateContent({
-      model: 'gemini-2.5-flash-preview-native-image-out',
+      model: IMAGE_MODEL,
       contents: [
         {
           inlineData: {
@@ -238,11 +243,13 @@ async function generateCharacterAsset(
 
 **核心技术**: **首尾帧插值** - 设定开头和结尾关键帧，AI自动补全中间动态过渡
 
+> ✅ **Veo 3.1 支持首尾帧功能**: 通过 `image` 参数设置第一帧，通过 `config.lastFrame` 参数设置最后一帧。
+
 ```typescript
 // services/videoGenerator.ts
 interface VideoGenerationConfig {
-  firstFrame: string;  // base64 图片
-  lastFrame: string;   // base64 图片
+  firstFrame: string;  // base64 图片 - 第一帧
+  lastFrame: string;   // base64 图片 - 最后一帧
   prompt: string;
   duration: 4 | 6 | 8; // 秒
   resolution: '720p' | '1080p';
@@ -262,23 +269,26 @@ async function generateVideoWithFrames(
 ): Promise<GeneratedVideo> {
   const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   
-  // 使用首尾帧生成视频
+  // 使用首尾帧生成视频 (插值模式)
   const operation = await client.models.generateVideos({
     model: 'veo-3.1-generate-preview',
     prompt: config.prompt,
+    // 第一帧
     image: {
       imageBytes: config.firstFrame,
       mimeType: 'image/png',
     },
-    lastFrame: {
-      imageBytes: config.lastFrame,
-      mimeType: 'image/png',
-    },
     config: {
+      // 最后一帧
+      lastFrame: {
+        imageBytes: config.lastFrame,
+        mimeType: 'image/png',
+      },
       aspectRatio: config.aspectRatio,
       numberOfVideos: 1,
       durationSeconds: config.duration,
-      resolution: config.resolution,
+      // 注意: 1080p 只在 8 秒时长时支持
+      resolution: config.duration === 8 ? config.resolution : '720p',
       personGeneration: 'allow_adult',
       generateAudio: config.withAudio,
     },
@@ -307,7 +317,7 @@ async function generateVideoWithFrames(
 
 ### 3.4 场景连贯性控制
 
-**核心策略**: 使用上一个场景的最后一帧作为下一个场景的参考
+**核心策略**: 使用上一个场景的最后一帧作为下一个场景的首帧，通过首尾帧插值实现无缝衔接
 
 ```typescript
 // services/sceneChainer.ts
@@ -332,27 +342,26 @@ async function generateSceneChain(
     // 生成场景尾帧
     const lastFrame = await generateSceneFrame(scene, characterAssets, 'last');
     
-    // 如果有前一个场景，创建过渡
+    // 如果有前一个场景，创建过渡视频
     if (previousLastFrame) {
-      // 使用首尾帧生成过渡视频
       const transitionVideo = await generateVideoWithFrames({
         firstFrame: previousLastFrame,
         lastFrame: firstFrame,
         prompt: `平滑过渡，从上一个场景切换到${scene.setting.location}`,
         duration: 4,
-        resolution: '1080p',
+        resolution: '720p',
         aspectRatio: '16:9',
         withAudio: false,
       });
     }
     
-    // 生成主场景视频
+    // 生成主场景视频 (使用首尾帧)
     const sceneVideo = await generateVideoWithFrames({
       firstFrame,
       lastFrame,
       prompt: buildScenePrompt(scene),
       duration: scene.duration as 4 | 6 | 8,
-      resolution: '1080p',
+      resolution: scene.duration === 8 ? '1080p' : '720p',
       aspectRatio: '16:9',
       withAudio: true,
     });
@@ -375,6 +384,8 @@ async function generateSceneChain(
 
 **功能**: AI语音合成 + 背景音乐生成
 
+> ⚠️ **注意**: Lyria 音乐生成需要通过 **Live API** (WebSocket) 使用，不能直接通过 REST API 调用。
+
 ```typescript
 // services/audioGenerator.ts
 interface AudioConfig {
@@ -386,18 +397,7 @@ interface AudioConfig {
 async function generateSceneAudio(config: AudioConfig): Promise<AudioAsset> {
   const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   
-  // 使用Lyria生成背景音乐
-  const bgmResponse = await client.models.generateContent({
-    model: 'lyria-realtime-exp',
-    contents: `
-      生成${config.duration}秒的背景音乐:
-      - 氛围: ${config.sceneMood}
-      - 风格: 动漫配乐
-      - 强度: 中等，不要盖过对话
-    `,
-  });
-  
-  // 对话语音合成 (使用Live API的TTS功能)
+  // 对话语音合成 (使用 Gemini TTS 功能)
   const dialogueAudios: DialogueAudio[] = [];
   for (const line of config.dialogue) {
     const ttsResponse = await client.models.generateContent({
@@ -421,10 +421,25 @@ async function generateSceneAudio(config: AudioConfig): Promise<AudioAsset> {
     });
   }
   
+  // 背景音乐生成 (Lyria 需要通过 Live API WebSocket 连接)
+  // 详见: https://ai.google.dev/gemini-api/docs/music-generation
+  const backgroundMusic = await generateMusicWithLyria({
+    prompt: `动漫配乐, ${config.sceneMood}氛围, ${config.duration}秒`,
+    bpm: 120,
+    density: 0.5,
+  });
+  
   return {
-    backgroundMusic: bgmResponse.candidates[0].content.parts[0].inlineData.data,
+    backgroundMusic,
     dialogues: dialogueAudios,
   };
+}
+
+// Lyria 音乐生成需要通过 Live API
+async function generateMusicWithLyria(config: MusicConfig): Promise<string> {
+  // Lyria 使用 WebSocket 连接，详见 Live API 文档
+  // 这里仅为接口示意，实际实现需要使用 Live API
+  throw new Error('Lyria 需要通过 Live API 实现，详见官方文档');
 }
 ```
 
@@ -438,7 +453,8 @@ async function generateSceneAudio(config: AudioConfig): Promise<AudioAsset> {
 |------|------|------|
 | `gemini-3-pro-preview` | 文本理解/剧本解析 | 100万token上下文，强推理能力 |
 | `gemini-2.5-flash` | 通用任务/TTS | 高速，100万token上下文 |
-| `gemini-2.5-flash-preview-native-image-out` | 图片生成 (Nano Banana Pro) | 原生图片生成与编辑 |
+| `gemini-2.5-flash-image` | 图片生成 (Nano Banana) | 1024px，速度优化，低延迟 |
+| `gemini-3-pro-image-preview` | 图片生成 (Nano Banana Pro) | 4K 分辨率，专业制作，带思考过程 |
 | `veo-3.1-generate-preview` | 视频生成 | 8秒1080p，支持首尾帧，带音频 |
 | `veo-3.1-fast-preview` | 快速视频生成 | 速度优化，适合批量 |
 | `lyria-realtime-exp` | 音乐生成 | 背景音乐 |
@@ -488,11 +504,13 @@ export interface GeminiConfig {
 
 ### 5.1 首尾帧功能说明
 
-**首尾帧 (First & Last Frame)** 是Veo 3.1的核心功能，允许创作者：
+> ✅ **Veo 3.1 支持首尾帧插值功能**: 通过 `image` 参数设置第一帧，通过 `config.lastFrame` 参数设置最后一帧。
+
+**首尾帧 (First & Last Frame)** 是 Veo 3.1 的核心功能，允许创作者：
 
 1. 设定视频**开头关键帧** - 明确起始状态
-2. 设定视频**结尾关键帧** - 明确目标状态  
-3. AI自动补全中间的**动态过渡和情节衔接**
+2. 设定视频**结尾关键帧** - 明确目标状态
+3. AI 自动补全中间的**动态过渡和情节衔接**
 
 ### 5.2 技术参数
 
@@ -500,7 +518,7 @@ export interface GeminiConfig {
 |------|---------|-------|-------|
 | 首尾帧支持 | ✅ 完整支持 | ✅ 支持 | ✅ 支持 |
 | 视频时长 | 4/6/8秒 | 8秒 | 5-8秒 |
-| 分辨率 | 720p/1080p | 720p/1080p(16:9) | 720p |
+| 分辨率 | 720p / 1080p(仅8秒) | 720p/1080p(16:9) | 720p |
 | 原生音频 | ✅ 对话+环境音 | ✅ | ❌ |
 | 帧速率 | 24fps | 24fps | 24fps |
 
@@ -518,17 +536,20 @@ const bestPractices = {
   // 3. 提示词要详细
   promptDetail: '描述动作过程，而不仅仅是结果',
   
-  // 4. 使用Nano Banana Pro生成首尾帧
-  frameGeneration: '使用gemini-2.5-flash-preview-native-image-out生成首尾帧，确保风格统一',
+  // 4. 使用 Gemini 2.5 Flash 生成首尾帧
+  frameGeneration: '使用 Nano Banana Pro (gemini-3-pro-image-preview) 生成首尾帧，确保风格统一',
 };
+
+// 可选模型: 'gemini-3-pro-image-preview' (4K) 或 'gemini-2.5-flash-image' (快速)
+const FRAME_MODEL = 'gemini-3-pro-image-preview'; // Nano Banana Pro
 
 // 示例：生成首尾帧
 async function generateFramePair(scene: Scene): Promise<[string, string]> {
   const client = getGeminiClient();
   
-  // 生成首帧
+  // 生成首帧 (使用 Nano Banana Pro 获得高质量)
   const firstFrameResponse = await client.models.generateContent({
-    model: 'gemini-2.5-flash-preview-native-image-out',
+    model: FRAME_MODEL,
     contents: `
       动漫风格场景:
       地点: ${scene.setting.location}
@@ -538,26 +559,26 @@ async function generateFramePair(scene: Scene): Promise<[string, string]> {
       氛围: ${scene.setting.mood}
     `,
     generationConfig: {
-      responseModalities: ['image'],
+      responseModalities: ['image', 'text'],
     },
   });
   
   // 生成尾帧
   const lastFrameResponse = await client.models.generateContent({
-    model: 'gemini-2.5-flash-preview-native-image-out',
+    model: FRAME_MODEL,
     contents: `
       基于相同的场景和角色，展示${scene.duration}秒后的状态:
       ${scene.description}
       保持角色外观完全一致，仅改变姿态和表情。
     `,
     generationConfig: {
-      responseModalities: ['image'],
+      responseModalities: ['image', 'text'],
     },
   });
   
   return [
-    firstFrameResponse.candidates[0].content.parts[0].inlineData.data,
-    lastFrameResponse.candidates[0].content.parts[0].inlineData.data,
+    firstFrameResponse.candidates[0].content.parts.find(p => p.inlineData)?.inlineData?.data,
+    lastFrameResponse.candidates[0].content.parts.find(p => p.inlineData)?.inlineData?.data,
   ];
 }
 ```
