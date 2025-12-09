@@ -4,14 +4,14 @@ import { z } from 'zod'
 
 /** 音乐风格 */
 export const MusicStyleSchema = z.enum([
-  'ambient',      // 环境音
-  'dramatic',     // 戏剧性
-  'romantic',     // 浪漫
-  'action',       // 动作
-  'mysterious',   // 神秘
-  'happy',        // 欢快
-  'sad',          // 悲伤
-  'tense',        // 紧张
+  'ambient', // 环境音
+  'dramatic', // 戏剧性
+  'romantic', // 浪漫
+  'action', // 动作
+  'mysterious', // 神秘
+  'happy', // 欢快
+  'sad', // 悲伤
+  'tense' // 紧张
 ])
 export type MusicStyle = z.infer<typeof MusicStyleSchema>
 
@@ -20,7 +20,7 @@ export const AudioGenerationConfigSchema = z.object({
   prompt: z.string().describe('音乐描述'),
   style: MusicStyleSchema.optional().describe('音乐风格'),
   duration: z.number().min(1).max(60).describe('时长(秒)'),
-  tempo: z.enum(['slow', 'medium', 'fast']).optional().default('medium').describe('节奏'),
+  tempo: z.enum(['slow', 'medium', 'fast']).optional().default('medium').describe('节奏')
 })
 export type AudioGenerationConfig = z.infer<typeof AudioGenerationConfigSchema>
 
@@ -31,7 +31,7 @@ export const GeneratedAudioSchema = z.object({
   format: z.enum(['mp3', 'wav', 'ogg']).default('mp3').describe('音频格式'),
   duration: z.number().describe('实际时长(秒)'),
   sampleRate: z.number().default(44100).describe('采样率'),
-  createdAt: z.string().datetime().describe('创建时间'),
+  createdAt: z.string().datetime().describe('创建时间')
 })
 export type GeneratedAudio = z.infer<typeof GeneratedAudioSchema>
 
@@ -43,7 +43,7 @@ export const TTSConfigSchema = z.object({
   voice: z.string().optional().describe('语音ID'),
   speed: z.number().min(0.5).max(2).default(1).describe('语速'),
   pitch: z.number().min(0.5).max(2).default(1).describe('音调'),
-  language: z.string().default('zh-CN').describe('语言'),
+  language: z.string().default('zh-CN').describe('语言')
 })
 export type TTSConfig = z.infer<typeof TTSConfigSchema>
 
@@ -54,6 +54,6 @@ export const GeneratedVoiceoverSchema = z.object({
   text: z.string().describe('原文本'),
   audioData: z.string().describe('音频数据 (base64)'),
   duration: z.number().describe('时长(秒)'),
-  createdAt: z.string().datetime().describe('创建时间'),
+  createdAt: z.string().datetime().describe('创建时间')
 })
 export type GeneratedVoiceover = z.infer<typeof GeneratedVoiceoverSchema>

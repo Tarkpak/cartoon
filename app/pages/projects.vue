@@ -1,45 +1,71 @@
 <script setup lang="ts">
-import { Plus, Video, Clock, Search } from 'lucide-vue-next'
+import { Plus, Video, Clock, Search, Loader2 } from 'lucide-vue-next'
 
 // 项目管理页面
 definePageMeta({
-  layout: 'default',
+  layout: 'default'
 })
 
-const projects = ref([
-  {
-    id: '1',
-    title: '都市修仙传',
-    description: '一个现代都市修仙故事，主角在繁华都市中踏上修仙之路...',
-    scenes: 12,
-    status: 'active',
-    updatedAt: '2小时前',
-    gradient: 'from-purple-400 to-pink-400',
-  },
-  {
-    id: '2',
-    title: '玄幻大陆',
-    description: '在这片神秘的大陆上，少年踏上了寻找真相的旅程...',
-    scenes: 8,
-    status: 'draft',
-    updatedAt: '1天前',
-    gradient: 'from-blue-400 to-cyan-400',
-  },
-  {
-    id: '3',
-    title: '甜蜜恋爱日记',
-    description: '校园甜蜜恋爱故事，青春与爱情的美好邂逅...',
-    scenes: 20,
-    status: 'completed',
-    updatedAt: '3天前',
-    gradient: 'from-green-400 to-emerald-400',
-  },
-])
+interface Project {
+  id: string
+  title: string
+  description: string | null
+  status: string | null
+  totalScenes: number
+  createdAt: string
+  updatedAt: string
+}
 
-const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'success' | 'warning' }> = {
-  active: { label: '进行中', variant: 'success' },
+const projects = ref<Project[]>([])
+const loading = ref(true)
+const error = ref<string | null>(null)
+
+// 获取项目列表
+async function fetchProjects() {
+  loading.value = true
+  error.value = null
+  try {
+    const data = await $fetch<{ success: boolean, projects: Project[] }>('/api/project/list')
+    projects.value = data.projects
+  } catch (e) {
+    error.value = '获取项目列表失败'
+    console.error(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 格式化时间
+function formatTime(dateStr: string): string {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  const hours = Math.floor(diff / (1000 * 60 * 60))
+  if (hours < 1) return '刚刚'
+  if (hours < 24) return `${hours}小时前`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}天前`
+  return date.toLocaleDateString()
+}
+
+// 获取渐变色
+function getGradient(index: number): string {
+  const gradients = [
+    'from-purple-400 to-pink-400',
+    'from-blue-400 to-cyan-400',
+    'from-green-400 to-emerald-400',
+    'from-orange-400 to-red-400',
+    'from-indigo-400 to-purple-400'
+  ]
+  return gradients[index % gradients.length]
+}
+
+onMounted(fetchProjects)
+
+const statusMap: Record<string, { label: string, variant: 'default' | 'secondary' | 'success' | 'warning' }> = {
+  in_progress: { label: '进行中', variant: 'success' },
   draft: { label: '草稿', variant: 'warning' },
-  completed: { label: '已完成', variant: 'secondary' },
+  completed: { label: '已完成', variant: 'secondary' }
 }
 </script>
 
@@ -47,8 +73,12 @@ const statusMap: Record<string, { label: string; variant: 'default' | 'secondary
   <div class="p-8">
     <div class="flex justify-between items-center mb-8">
       <div>
-        <h1 class="text-2xl font-bold">项目管理</h1>
-        <p class="text-muted-foreground">管理您的AI漫剧项目</p>
+        <h1 class="text-2xl font-bold">
+          项目管理
+        </h1>
+        <p class="text-muted-foreground">
+          管理您的AI漫剧项目
+        </p>
       </div>
       <Button size="lg">
         <Plus class="w-5 h-5 mr-2" />
@@ -82,10 +112,29 @@ const statusMap: Record<string, { label: string; variant: 'default' | 'secondary
       </CardContent>
     </Card>
 
+    <!-- 加载状态 -->
+    <div
+      v-if="loading"
+      class="flex items-center justify-center py-12"
+    >
+      <Loader2 class="w-8 h-8 animate-spin text-muted-foreground" />
+    </div>
+
+    <!-- 错误状态 -->
+    <div
+      v-else-if="error"
+      class="text-center py-12 text-destructive"
+    >
+      {{ error }}
+    </div>
+
     <!-- 项目列表 -->
-    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div
+      v-else
+      class="grid md:grid-cols-2 lg:grid-cols-3 gap-6"
+    >
       <NuxtLink
-        v-for="project in projects"
+        v-for="(project, index) in projects"
         :key="project.id"
         :to="`/workbench?project=${project.id}`"
         class="block"
@@ -93,26 +142,30 @@ const statusMap: Record<string, { label: string; variant: 'default' | 'secondary
         <Card class="overflow-hidden hover:shadow-lg transition cursor-pointer">
           <div
             class="h-32 bg-gradient-to-br relative"
-            :class="project.gradient"
+            :class="getGradient(index)"
           >
             <div class="absolute top-3 right-3">
-              <Badge :variant="statusMap[project.status].variant">
-                {{ statusMap[project.status].label }}
+              <Badge :variant="statusMap[project.status || 'draft']?.variant || 'secondary'">
+                {{ statusMap[project.status || 'draft']?.label || '草稿' }}
               </Badge>
             </div>
           </div>
           <CardContent class="pt-4">
-            <h3 class="font-semibold text-lg mb-2">{{ project.title }}</h3>
-            <p class="text-muted-foreground text-sm mb-4 line-clamp-2">{{ project.description }}</p>
-            
+            <h3 class="font-semibold text-lg mb-2">
+              {{ project.title }}
+            </h3>
+            <p class="text-muted-foreground text-sm mb-4 line-clamp-2">
+              {{ project.description || '暂无描述' }}
+            </p>
+
             <div class="flex items-center justify-between text-sm text-muted-foreground">
               <div class="flex items-center space-x-2">
                 <Video class="w-4 h-4" />
-                <span>{{ project.scenes }}个场景</span>
+                <span>{{ project.totalScenes }}个场景</span>
               </div>
               <div class="flex items-center space-x-2">
                 <Clock class="w-4 h-4" />
-                <span>{{ project.updatedAt }}</span>
+                <span>{{ formatTime(project.updatedAt) }}</span>
               </div>
             </div>
           </CardContent>
@@ -127,7 +180,9 @@ const statusMap: Record<string, { label: string; variant: 'default' | 'secondary
           <div class="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
             <Plus class="w-8 h-8 text-muted-foreground" />
           </div>
-          <div class="text-muted-foreground font-medium">新建项目</div>
+          <div class="text-muted-foreground font-medium">
+            新建项目
+          </div>
         </div>
       </div>
     </div>

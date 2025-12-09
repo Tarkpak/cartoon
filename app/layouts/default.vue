@@ -9,7 +9,7 @@ const navigation = [
   { name: '项目管理', path: '/projects', icon: Folder },
   { name: '生成工作台', path: '/workbench', icon: FileText },
   { name: '角色管理', path: '/characters', icon: Users },
-  { name: '视频生成', path: '/video', icon: Video },
+  { name: '视频生成', path: '/video', icon: Video }
 ]
 
 function isActive(path: string) {
@@ -23,7 +23,10 @@ function isActive(path: string) {
     <aside class="w-64 bg-card border-r flex flex-col">
       <!-- Logo -->
       <div class="h-16 flex items-center px-6 border-b">
-        <NuxtLink to="/" class="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+        <NuxtLink
+          to="/"
+          class="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent"
+        >
           🎬 Manju
         </NuxtLink>
       </div>
@@ -35,11 +38,14 @@ function isActive(path: string) {
           :key="item.path"
           :to="item.path"
           class="flex items-center space-x-3 px-4 py-3 rounded-xl transition"
-          :class="isActive(item.path) 
-            ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white' 
+          :class="isActive(item.path)
+            ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
             : 'text-muted-foreground hover:bg-accent'"
         >
-          <component :is="item.icon" class="w-5 h-5" />
+          <component
+            :is="item.icon"
+            class="w-5 h-5"
+          />
           <span class="font-medium">{{ item.name }}</span>
         </NuxtLink>
       </nav>
@@ -51,8 +57,12 @@ function isActive(path: string) {
             U
           </div>
           <div class="flex-1">
-            <div class="font-medium text-sm">用户名</div>
-            <div class="text-xs text-muted-foreground">免费版</div>
+            <div class="font-medium text-sm">
+              用户名
+            </div>
+            <div class="text-xs text-muted-foreground">
+              免费版
+            </div>
           </div>
           <Settings class="w-5 h-5 text-muted-foreground" />
         </div>

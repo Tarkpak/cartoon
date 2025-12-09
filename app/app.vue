@@ -1,14 +1,14 @@
 <script setup lang="ts">
 useHead({
   meta: [
-    { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+    { name: 'viewport', content: 'width=device-width, initial-scale=1' }
   ],
   link: [
-    { rel: 'icon', href: '/favicon.ico' },
+    { rel: 'icon', href: '/favicon.ico' }
   ],
   htmlAttrs: {
-    lang: 'zh-CN',
-  },
+    lang: 'zh-CN'
+  }
 })
 
 const title = 'Manju - AI漫剧生成系统'
@@ -18,7 +18,7 @@ useSeoMeta({
   title,
   description,
   ogTitle: title,
-  ogDescription: description,
+  ogDescription: description
 })
 </script>
 

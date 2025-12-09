@@ -8,7 +8,7 @@ export const projects = sqliteTable('projects', {
   description: text('description'),
   status: text('status', { enum: ['draft', 'in_progress', 'completed'] }).default('draft'),
   createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at').notNull(),
+  updatedAt: text('updated_at').notNull()
 })
 
 // ==================== 剧本表 ====================
@@ -21,7 +21,7 @@ export const scripts = sqliteTable('scripts', {
   parsedData: text('parsed_data'), // JSON 存储 ParsedScript
   totalDuration: integer('total_duration').default(0),
   createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at').notNull(),
+  updatedAt: text('updated_at').notNull()
 })
 
 // ==================== 场景表 ====================
@@ -41,7 +41,7 @@ export const scenes = sqliteTable('scenes', {
   lastFrame: text('last_frame'), // base64 或文件路径
   status: text('status', { enum: ['pending', 'frames_ready', 'video_ready'] }).default('pending'),
   createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at').notNull(),
+  updatedAt: text('updated_at').notNull()
 })
 
 // ==================== 角色表 ====================
@@ -58,7 +58,7 @@ export const characters = sqliteTable('characters', {
   baseImage: text('base_image'), // base64 或文件路径
   expressions: text('expressions'), // JSON 存储 Record<Emotion, string>
   createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at').notNull(),
+  updatedAt: text('updated_at').notNull()
 })
 
 // ==================== 视频任务表 ====================
@@ -74,7 +74,7 @@ export const videoTasks = sqliteTable('video_tasks', {
   metadata: text('metadata'), // JSON 存储 VideoMetadata
   error: text('error'),
   createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at').notNull(),
+  updatedAt: text('updated_at').notNull()
 })
 
 // ==================== 生成的视频表 ====================
@@ -91,7 +91,7 @@ export const generatedVideos = sqliteTable('generated_videos', {
   fps: integer('fps').default(24),
   hasAudio: integer('has_audio', { mode: 'boolean' }).default(true),
   fileSize: integer('file_size'),
-  createdAt: text('created_at').notNull(),
+  createdAt: text('created_at').notNull()
 })
 
 // ==================== 类型导出 ====================

@@ -11,7 +11,7 @@ export const EmotionSchema = z.enum([
   'surprised',
   'confused',
   'excited',
-  'scared',
+  'scared'
 ])
 export type Emotion = z.infer<typeof EmotionSchema>
 
@@ -22,7 +22,7 @@ export const TimeOfDaySchema = z.enum([
   'noon',
   'afternoon',
   'evening',
-  'night',
+  'night'
 ])
 export type TimeOfDay = z.infer<typeof TimeOfDaySchema>
 
@@ -33,7 +33,7 @@ export const SceneSettingSchema = z.object({
   location: z.string().describe('场景地点'),
   timeOfDay: TimeOfDaySchema.describe('时间段'),
   mood: z.string().optional().describe('氛围描述'),
-  weather: z.string().optional().describe('天气'),
+  weather: z.string().optional().describe('天气')
 })
 export type SceneSetting = z.infer<typeof SceneSettingSchema>
 
@@ -42,7 +42,7 @@ export const DialogueSchema = z.object({
   character: z.string().describe('说话角色名'),
   text: z.string().describe('对话内容'),
   emotion: EmotionSchema.optional().describe('情绪'),
-  isInnerThought: z.boolean().optional().describe('是否为内心独白'),
+  isInnerThought: z.boolean().optional().describe('是否为内心独白')
 })
 export type Dialogue = z.infer<typeof DialogueSchema>
 
@@ -51,7 +51,7 @@ export const SceneCharacterSchema = z.object({
   name: z.string().describe('角色名'),
   appearance: z.string().optional().describe('外观描述'),
   action: z.string().optional().describe('动作描述'),
-  emotion: EmotionSchema.optional().describe('情绪'),
+  emotion: EmotionSchema.optional().describe('情绪')
 })
 export type SceneCharacter = z.infer<typeof SceneCharacterSchema>
 
@@ -64,7 +64,7 @@ export const SceneSchema = z.object({
   characters: z.array(SceneCharacterSchema).describe('登场角色'),
   dialogues: z.array(DialogueSchema).optional().describe('对话列表'),
   duration: z.number().min(4).max(8).default(8).describe('视频时长(秒)'),
-  narration: z.string().optional().describe('旁白'),
+  narration: z.string().optional().describe('旁白')
 })
 export type Scene = z.infer<typeof SceneSchema>
 
@@ -77,15 +77,15 @@ export const ParsedScriptSchema = z.object({
   characters: z.array(z.object({
     name: z.string(),
     description: z.string(),
-    role: z.enum(['protagonist', 'antagonist', 'supporting']).optional(),
+    role: z.enum(['protagonist', 'antagonist', 'supporting']).optional()
   })).describe('角色列表'),
-  totalDuration: z.number().describe('总时长(秒)'),
+  totalDuration: z.number().describe('总时长(秒)')
 })
 export type ParsedScript = z.infer<typeof ParsedScriptSchema>
 
 /** 剧本解析请求 */
 export const ParseScriptRequestSchema = z.object({
   text: z.string().min(10).describe('原始小说文本'),
-  maxScenes: z.number().min(1).max(50).optional().default(10).describe('最大场景数'),
+  maxScenes: z.number().min(1).max(50).optional().default(10).describe('最大场景数')
 })
 export type ParseScriptRequest = z.infer<typeof ParseScriptRequestSchema>

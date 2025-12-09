@@ -5,30 +5,16 @@ export default defineNuxtConfig({
     '@nuxt/eslint',
     '@nuxtjs/tailwindcss',
     '@pinia/nuxt',
-    'shadcn-nuxt',
+    'shadcn-nuxt'
   ],
-
-  // shadcn-vue 配置
-  shadcn: {
-    prefix: '',
-    componentDir: '@/components/ui',
-  },
 
   // 开发工具
   devtools: {
-    enabled: true,
+    enabled: true
   },
 
   // CSS
   css: ['~/assets/css/main.css'],
-
-  // 路由规则
-  routeRules: {
-    '/': { prerender: true },
-  },
-
-  // Nuxt 4 兼容性设置
-  compatibilityDate: '2025-01-15',
 
   // 运行时配置
   runtimeConfig: {
@@ -38,15 +24,23 @@ export default defineNuxtConfig({
     // 客户端也可用的配置
     public: {
       appName: 'Manju',
-      appVersion: '1.0.0',
-    },
+      appVersion: '1.0.0'
+    }
   },
+
+  // 路由规则
+  routeRules: {
+    '/': { prerender: true }
+  },
+
+  // Nuxt 4 兼容性设置
+  compatibilityDate: '2025-01-15',
 
   // Nitro 服务器配置
   nitro: {
     experimental: {
-      asyncContext: true,
-    },
+      asyncContext: true
+    }
   },
 
   // ESLint 配置
@@ -54,8 +48,14 @@ export default defineNuxtConfig({
     config: {
       stylistic: {
         commaDangle: 'never',
-        braceStyle: '1tbs',
-      },
-    },
+        braceStyle: '1tbs'
+      }
+    }
   },
+
+  // shadcn-vue 配置
+  shadcn: {
+    prefix: '',
+    componentDir: '@/components/ui'
+  }
 })

@@ -17,7 +17,7 @@ export enum GeminiErrorCode {
   INTERNAL = 'INTERNAL',
   UNAVAILABLE = 'UNAVAILABLE',
   DEADLINE_EXCEEDED = 'DEADLINE_EXCEEDED',
-  UNKNOWN = 'UNKNOWN',
+  UNKNOWN = 'UNKNOWN'
 }
 
 /**
@@ -28,7 +28,7 @@ export class GeminiError extends Error {
     message: string,
     public code: GeminiErrorCode,
     public status?: number,
-    public retryable: boolean = false,
+    public retryable: boolean = false
   ) {
     super(message)
     this.name = 'GeminiError'
@@ -40,9 +40,9 @@ export class GeminiError extends Error {
  */
 const RETRYABLE_ERROR_CODES = new Set([
   GeminiErrorCode.RESOURCE_EXHAUSTED, // 429 - 速率限制
-  GeminiErrorCode.INTERNAL,           // 500 - 内部错误
-  GeminiErrorCode.UNAVAILABLE,        // 503 - 服务不可用
-  GeminiErrorCode.DEADLINE_EXCEEDED,  // 504 - 超时
+  GeminiErrorCode.INTERNAL, // 500 - 内部错误
+  GeminiErrorCode.UNAVAILABLE, // 503 - 服务不可用
+  GeminiErrorCode.DEADLINE_EXCEEDED // 504 - 超时
 ])
 
 // ============================================================
@@ -56,19 +56,19 @@ export function getGeminiClient(): GoogleGenAI {
   if (!client) {
     const config = useRuntimeConfig()
     const apiKey = config.geminiApiKey as string
-    
+
     if (!apiKey) {
       throw new GeminiError(
         'GEMINI_API_KEY 环境变量未设置',
         GeminiErrorCode.PERMISSION_DENIED,
         403,
-        false,
+        false
       )
     }
-    
+
     client = new GoogleGenAI({ apiKey })
   }
-  
+
   return client
 }
 
@@ -83,7 +83,7 @@ export const TextModels = {
   /** 剧本解析 - 强推理能力 */
   SCRIPT_PARSER: 'gemini-3-pro-preview',
   /** 通用任务 */
-  GENERAL: 'gemini-2.5-flash',
+  GENERAL: 'gemini-2.5-flash'
 } as const
 
 /**
@@ -93,7 +93,7 @@ export const ImageModels = {
   /** Nano Banana Pro - 4K高质量 */
   HIGH_QUALITY: 'gemini-3-pro-image-preview',
   /** Nano Banana - 快速生成 */
-  FAST: 'gemini-2.5-flash-image',
+  FAST: 'gemini-2.5-flash-image'
 } as const
 
 /**
@@ -103,7 +103,7 @@ export const VideoModels = {
   /** Veo 3.1 - 支持首尾帧 */
   VEO_3_1: 'veo-3.1-generate-preview',
   /** Veo 3.1 快速版 */
-  VEO_3_1_FAST: 'veo-3.1-fast-preview',
+  VEO_3_1_FAST: 'veo-3.1-fast-preview'
 } as const
 
 /**
@@ -111,7 +111,7 @@ export const VideoModels = {
  */
 export const AudioModels = {
   /** Lyria - 背景音乐 */
-  LYRIA: 'lyria-realtime-exp',
+  LYRIA: 'lyria-realtime-exp'
 } as const
 
 // ============================================================
@@ -133,7 +133,7 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxRetries: 3,
   initialDelayMs: 1000,
   maxDelayMs: 32000,
-  backoffMultiplier: 2,
+  backoffMultiplier: 2
 }
 
 /**
@@ -161,10 +161,10 @@ function parseError(error: unknown): GeminiError {
     return error
   }
 
-  const err = error as { status?: number; message?: string; code?: string }
+  const err = error as { status?: number, message?: string, code?: string }
   const status = err.status || 500
   const message = err.message || '未知错误'
-  
+
   let code: GeminiErrorCode
   switch (status) {
     case 400:
@@ -196,7 +196,7 @@ function parseError(error: unknown): GeminiError {
     message,
     code,
     status,
-    RETRYABLE_ERROR_CODES.has(code),
+    RETRYABLE_ERROR_CODES.has(code)
   )
 }
 
@@ -209,7 +209,7 @@ function parseError(error: unknown): GeminiError {
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
-  config: Partial<RetryConfig> = {},
+  config: Partial<RetryConfig> = {}
 ): Promise<T> {
   const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...config }
   let lastError: GeminiError | null = null
@@ -217,10 +217,9 @@ export async function withRetry<T>(
   for (let attempt = 0; attempt <= retryConfig.maxRetries; attempt++) {
     try {
       return await fn()
-    }
-    catch (error) {
+    } catch (error) {
       lastError = parseError(error)
-      
+
       // 如果不可重试或已达到最大重试次数，抛出错误
       if (!lastError.retryable || attempt === retryConfig.maxRetries) {
         throw lastError
@@ -229,8 +228,8 @@ export async function withRetry<T>(
       // 计算并等待退避时间
       const delay = calculateBackoffDelay(attempt, retryConfig)
       console.warn(
-        `[Gemini] 请求失败 (${lastError.code}), ` +
-        `${delay.toFixed(0)}ms 后重试 (${attempt + 1}/${retryConfig.maxRetries})...`,
+        `[Gemini] 请求失败 (${lastError.code}), `
+        + `${delay.toFixed(0)}ms 后重试 (${attempt + 1}/${retryConfig.maxRetries})...`
       )
       await sleep(delay)
     }
@@ -258,10 +257,10 @@ export async function generateText(options: {
       contents: options.prompt,
       config: {
         systemInstruction: options.systemInstruction,
-        temperature: options.temperature,
-      },
+        temperature: options.temperature
+      }
     })
-    
+
     return response.text || ''
   }, { maxRetries: options.maxRetries })
 }
@@ -286,10 +285,10 @@ export async function generateJSON<T>(options: {
       config: {
         systemInstruction: options.systemInstruction,
         temperature: options.temperature ?? 0.2, // JSON 生成使用较低温度
-        responseMimeType: 'application/json',
-      },
+        responseMimeType: 'application/json'
+      }
     })
-    
+
     const text = response.text || '{}'
     return JSON.parse(text) as T
   }, { maxRetries: options.maxRetries })
@@ -301,25 +300,25 @@ export async function generateJSON<T>(options: {
 export async function generateImage(options: {
   model?: string
   prompt: string
-  referenceImage?: { data: string; mimeType: string }
+  referenceImage?: { data: string, mimeType: string }
   maxRetries?: number
-}): Promise<{ imageData: string; mimeType: string; text?: string }> {
+}): Promise<{ imageData: string, mimeType: string, text?: string }> {
   const client = getGeminiClient()
   const model = options.model || ImageModels.HIGH_QUALITY
 
   return withRetry(async () => {
     // 构建请求内容
-    const parts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [
-      { text: options.prompt },
+    const parts: Array<{ text: string } | { inlineData: { data: string, mimeType: string } }> = [
+      { text: options.prompt }
     ]
-    
+
     // 如果有参考图片，添加到请求中
     if (options.referenceImage) {
       parts.push({
         inlineData: {
           data: options.referenceImage.data,
-          mimeType: options.referenceImage.mimeType,
-        },
+          mimeType: options.referenceImage.mimeType
+        }
       })
     }
 
@@ -327,8 +326,8 @@ export async function generateImage(options: {
       model,
       contents: [{ role: 'user', parts }],
       config: {
-        responseModalities: ['image', 'text'],
-      },
+        responseModalities: ['image', 'text']
+      }
     })
 
     // 提取图片数据
@@ -352,7 +351,7 @@ export async function generateImage(options: {
         '未能生成图片',
         GeminiErrorCode.INTERNAL,
         500,
-        true,
+        true
       )
     }
 

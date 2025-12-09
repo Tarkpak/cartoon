@@ -1,58 +1,70 @@
 <script setup lang="ts">
-import { FileText, Users, Video, Music, Sparkles, Plus, Pencil, Trash2, Wrench } from 'lucide-vue-next'
+import { FileText, Users, Video, Music, Sparkles, Plus, Pencil, Trash2, Wrench, Loader2 } from 'lucide-vue-next'
 
 // 生成工作台页面
 definePageMeta({
-  layout: 'default',
+  layout: 'default'
 })
 
+const route = useRoute()
+const projectId = computed(() => route.query.project as string | undefined)
+
 const activeTab = ref('script')
-
-const scriptText = ref(`清晨的阳光透过落地窗洒进办公室，林浩坐在工位上，盯着电脑屏幕发呆。
-
-"林浩，开会了！"同事的声音打断了他的思绪。
-
-他站起身，走向会议室。突然，一道奇异的光芒从他的胸口闪过...
-
-"这是...修仙功法？"林浩难以置信地看着脑海中浮现的古老文字。`)
-
-const scenes = ref([
-  {
-    id: 'scene_001',
-    title: '办公室 - 清晨',
-    description: '阳光透过落地窗洒进办公室，林浩坐在工位上发呆',
-    characters: ['林浩'],
-    duration: 8,
-    active: true,
-  },
-  {
-    id: 'scene_002',
-    title: '会议室走廊',
-    description: '林浩走向会议室，突然胸口闪过奇异光芒',
-    characters: ['林浩', '同事'],
-    duration: 6,
-    active: false,
-  },
-  {
-    id: 'scene_003',
-    title: '林浩内心世界',
-    description: '脑海中浮现古老文字，林浩震惊',
-    characters: ['林浩'],
-    duration: 8,
-    active: false,
-  },
-])
+const scriptText = ref('')
+const scenes = ref<Array<{
+  id: string
+  title: string
+  description: string
+  characters: string[]
+  duration: number
+  active: boolean
+}>>([])
+const parsing = ref(false)
 
 const tabs = [
   { key: 'script', label: '剧本编辑', icon: FileText },
   { key: 'characters', label: '角色管理', icon: Users },
   { key: 'video', label: '视频生成', icon: Video },
-  { key: 'audio', label: '音频配置', icon: Music },
+  { key: 'audio', label: '音频配置', icon: Music }
 ]
 
 async function parseScript() {
-  // TODO: 调用 API 解析剧本
-  console.log('解析剧本:', scriptText.value)
+  if (!scriptText.value.trim()) return
+
+  parsing.value = true
+  try {
+    const data = await $fetch<{
+      success: boolean
+      result: {
+        scenes: Array<{
+          id: string
+          title?: string
+          description: string
+          characters: Array<{ name: string }>
+          duration: number
+          setting?: { location: string, timeOfDay: string }
+        }>
+      }
+    }>('/api/script/parse', {
+      method: 'POST',
+      body: { text: scriptText.value }
+    })
+
+    if (data.success && data.result.scenes) {
+      scenes.value = data.result.scenes.map((s, i) => ({
+        id: s.id || `scene_${i + 1}`,
+        title: s.title || `${s.setting?.location || '场景'} - ${s.setting?.timeOfDay || ''}`,
+        description: s.description,
+        characters: s.characters.map(c => c.name),
+        duration: s.duration || 8,
+        active: i === 0
+      }))
+    }
+  } catch (e) {
+    console.error('解析失败:', e)
+  } finally {
+    parsing.value = false
+  }
 }
 </script>
 
@@ -60,11 +72,17 @@ async function parseScript() {
   <div class="p-8">
     <div class="flex justify-between items-center mb-8">
       <div>
-        <h1 class="text-2xl font-bold">生成工作台</h1>
-        <p class="text-muted-foreground">都市修仙传 - 第一章</p>
+        <h1 class="text-2xl font-bold">
+          生成工作台
+        </h1>
+        <p class="text-muted-foreground">
+          {{ projectId ? `项目 ${projectId}` : '新项目' }}
+        </p>
       </div>
       <div class="flex space-x-3">
-        <Button variant="outline">保存草稿</Button>
+        <Button variant="outline">
+          保存草稿
+        </Button>
         <Button>开始生成</Button>
       </div>
     </div>
@@ -81,25 +99,41 @@ async function parseScript() {
             : 'text-muted-foreground hover:bg-accent'"
           @click="activeTab = tab.key"
         >
-          <component :is="tab.icon" class="w-4 h-4" />
+          <component
+            :is="tab.icon"
+            class="w-4 h-4"
+          />
           <span>{{ tab.label }}</span>
         </button>
       </div>
 
       <CardContent class="pt-6">
         <!-- 剧本编辑面板 -->
-        <div v-if="activeTab === 'script'" class="grid lg:grid-cols-2 gap-6">
+        <div
+          v-if="activeTab === 'script'"
+          class="grid lg:grid-cols-2 gap-6"
+        >
           <!-- 左侧: 原文输入 -->
           <div>
             <div class="flex items-center justify-between mb-4">
-              <h3 class="font-semibold">原文输入</h3>
+              <h3 class="font-semibold">
+                原文输入
+              </h3>
               <Button
                 variant="ghost"
                 size="sm"
+                :disabled="parsing || !scriptText.trim()"
                 @click="parseScript"
               >
-                <Sparkles class="w-4 h-4 mr-2" />
-                AI解析
+                <Loader2
+                  v-if="parsing"
+                  class="w-4 h-4 mr-2 animate-spin"
+                />
+                <Sparkles
+                  v-else
+                  class="w-4 h-4 mr-2"
+                />
+                {{ parsing ? '解析中...' : 'AI解析' }}
               </Button>
             </div>
             <Textarea
@@ -112,8 +146,13 @@ async function parseScript() {
           <!-- 右侧: 解析结果 -->
           <div>
             <div class="flex items-center justify-between mb-4">
-              <h3 class="font-semibold">场景列表</h3>
-              <Button variant="ghost" size="sm">
+              <h3 class="font-semibold">
+                场景列表
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+              >
                 <Plus class="w-4 h-4" />
               </Button>
             </div>
@@ -131,16 +170,28 @@ async function parseScript() {
                     场景 {{ scenes.indexOf(scene) + 1 }}
                   </Badge>
                   <div class="flex space-x-1">
-                    <Button variant="ghost" size="sm" class="h-8 w-8 p-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      class="h-8 w-8 p-0"
+                    >
                       <Pencil class="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="sm" class="h-8 w-8 p-0 text-destructive">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      class="h-8 w-8 p-0 text-destructive"
+                    >
                       <Trash2 class="w-4 h-4" />
                     </Button>
                   </div>
                 </div>
-                <h4 class="font-medium mb-1">{{ scene.title }}</h4>
-                <p class="text-sm text-muted-foreground mb-2">{{ scene.description }}</p>
+                <h4 class="font-medium mb-1">
+                  {{ scene.title }}
+                </h4>
+                <p class="text-sm text-muted-foreground mb-2">
+                  {{ scene.description }}
+                </p>
                 <div class="flex flex-wrap gap-2">
                   <Badge
                     v-for="char in scene.characters"
@@ -159,7 +210,10 @@ async function parseScript() {
         </div>
 
         <!-- 其他标签页占位 -->
-        <div v-else class="text-center py-12 text-muted-foreground">
+        <div
+          v-else
+          class="text-center py-12 text-muted-foreground"
+        >
           <Wrench class="w-12 h-12 mx-auto mb-4" />
           <p>{{ tabs.find(t => t.key === activeTab)?.label }} 功能开发中...</p>
         </div>

@@ -3,23 +3,28 @@ import { Settings, Play, Check, Loader2, Image, ArrowDown, PlayCircle } from 'lu
 
 // 视频生成页面
 definePageMeta({
-  layout: 'default',
+  layout: 'default'
 })
 
-const scenes = ref([
-  { id: '1', title: '场景 1 - 办公室', status: 'completed', progress: 100 },
-  { id: '2', title: '场景 2 - 走廊', status: 'processing', progress: 45 },
-  { id: '3', title: '场景 3 - 内心世界', status: 'pending', progress: 0 },
-])
+interface SceneTask {
+  id: string
+  title: string
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  progress: number
+}
+
+const scenes = ref<SceneTask[]>([])
+const _loading = ref(false)
 
 const duration = ref(8)
 const resolution = ref('1080p')
 const audioEnabled = ref(true)
 
-const statusConfig: Record<string, { icon: typeof Check | typeof Loader2 | null; bg: string; spin?: boolean }> = {
+const statusConfig: Record<string, { icon: typeof Check | typeof Loader2 | null, bg: string, spin?: boolean }> = {
   completed: { icon: Check, bg: 'bg-green-50 border-green-200' },
   processing: { icon: Loader2, bg: 'bg-purple-50 border-purple-200', spin: true },
   pending: { icon: null, bg: 'bg-muted' },
+  failed: { icon: null, bg: 'bg-red-50 border-red-200' }
 }
 </script>
 
@@ -27,8 +32,12 @@ const statusConfig: Record<string, { icon: typeof Check | typeof Loader2 | null;
   <div class="p-8">
     <div class="flex justify-between items-center mb-8">
       <div>
-        <h1 class="text-2xl font-bold">视频生成</h1>
-        <p class="text-muted-foreground">预览和生成场景视频</p>
+        <h1 class="text-2xl font-bold">
+          视频生成
+        </h1>
+        <p class="text-muted-foreground">
+          预览和生成场景视频
+        </p>
       </div>
       <div class="flex space-x-3">
         <Button variant="outline">
@@ -46,7 +55,9 @@ const statusConfig: Record<string, { icon: typeof Check | typeof Loader2 | null;
       <!-- 左侧: 场景列表 -->
       <Card>
         <CardHeader>
-          <CardTitle class="text-base">场景队列</CardTitle>
+          <CardTitle class="text-base">
+            场景队列
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div class="space-y-3">
@@ -66,11 +77,19 @@ const statusConfig: Record<string, { icon: typeof Check | typeof Loader2 | null;
                   class="w-4 h-4 text-white"
                   :class="{ 'animate-spin': statusConfig[scene.status]?.spin }"
                 />
-                <span v-else class="text-white text-sm font-medium">{{ scene.id }}</span>
+                <span
+                  v-else
+                  class="text-white text-sm font-medium"
+                >{{ scene.id }}</span>
               </div>
               <div class="flex-1">
-                <div class="font-medium text-sm">{{ scene.title }}</div>
-                <div class="text-xs" :class="scene.status === 'processing' ? 'text-purple-600' : 'text-muted-foreground'">
+                <div class="font-medium text-sm">
+                  {{ scene.title }}
+                </div>
+                <div
+                  class="text-xs"
+                  :class="scene.status === 'processing' ? 'text-purple-600' : 'text-muted-foreground'"
+                >
                   {{ scene.status === 'completed' ? '已完成' : scene.status === 'processing' ? `生成中 ${scene.progress}%` : '等待中' }}
                 </div>
               </div>
@@ -82,16 +101,22 @@ const statusConfig: Record<string, { icon: typeof Check | typeof Loader2 | null;
       <!-- 中间: 首尾帧预览 -->
       <Card>
         <CardHeader>
-          <CardTitle class="text-base">首尾帧预览</CardTitle>
+          <CardTitle class="text-base">
+            首尾帧预览
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div class="space-y-4">
             <div>
-              <div class="text-xs text-muted-foreground mb-2">第一帧 (起始状态)</div>
+              <div class="text-xs text-muted-foreground mb-2">
+                第一帧 (起始状态)
+              </div>
               <div class="aspect-video bg-gradient-to-br from-blue-100 to-purple-100 rounded-xl flex items-center justify-center">
                 <div class="text-center text-muted-foreground">
                   <Image class="w-12 h-12 mx-auto mb-2" />
-                  <div class="text-sm">首帧预览</div>
+                  <div class="text-sm">
+                    首帧预览
+                  </div>
                 </div>
               </div>
             </div>
@@ -101,18 +126,25 @@ const statusConfig: Record<string, { icon: typeof Check | typeof Loader2 | null;
             </div>
 
             <div>
-              <div class="text-xs text-muted-foreground mb-2">最后一帧 (结束状态)</div>
+              <div class="text-xs text-muted-foreground mb-2">
+                最后一帧 (结束状态)
+              </div>
               <div class="aspect-video bg-gradient-to-br from-purple-100 to-pink-100 rounded-xl flex items-center justify-center">
                 <div class="text-center text-muted-foreground">
                   <Image class="w-12 h-12 mx-auto mb-2" />
-                  <div class="text-sm">尾帧预览</div>
+                  <div class="text-sm">
+                    尾帧预览
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </CardContent>
         <CardFooter>
-          <Button variant="outline" class="w-full">
+          <Button
+            variant="outline"
+            class="w-full"
+          >
             重新生成首尾帧
           </Button>
         </CardFooter>
@@ -121,17 +153,24 @@ const statusConfig: Record<string, { icon: typeof Check | typeof Loader2 | null;
       <!-- 右侧: 视频预览 -->
       <Card>
         <CardHeader>
-          <CardTitle class="text-base">视频预览</CardTitle>
+          <CardTitle class="text-base">
+            视频预览
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div class="aspect-video bg-gray-900 rounded-xl flex items-center justify-center relative overflow-hidden">
             <div class="text-center text-gray-400">
               <PlayCircle class="w-16 h-16 mx-auto mb-2" />
-              <div class="text-sm">等待视频生成...</div>
+              <div class="text-sm">
+                等待视频生成...
+              </div>
             </div>
             <!-- 进度条 -->
             <div class="absolute bottom-0 left-0 right-0 h-1 bg-gray-700">
-              <div class="h-full bg-purple-500 transition-all" style="width: 45%" />
+              <div
+                class="h-full bg-purple-500 transition-all"
+                style="width: 45%"
+              />
             </div>
           </div>
 

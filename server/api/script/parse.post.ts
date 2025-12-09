@@ -3,13 +3,13 @@ import {
   ParseScriptRequestSchema,
   ParsedScriptSchema,
   type ParsedScript,
-  type Scene,
+  type Scene
 } from '../../../shared/types/script'
 
 /**
  * 剧本解析 API
  * POST /api/script/parse
- * 
+ *
  * 使用 Gemini 3 Pro 智能解析小说文本，自动提取场景、角色、对话
  */
 export default defineEventHandler(async (event) => {
@@ -18,12 +18,12 @@ export default defineEventHandler(async (event) => {
   // 1. 解析并验证请求
   const body = await readBody(event)
   const parseResult = ParseScriptRequestSchema.safeParse(body)
-  
+
   if (!parseResult.success) {
     throw createError({
       statusCode: 400,
       statusMessage: '请求参数无效',
-      message: parseResult.error.issues.map(i => i.message).join(', '),
+      message: parseResult.error.issues.map(i => i.message).join(', ')
     })
   }
 
@@ -40,7 +40,7 @@ export default defineEventHandler(async (event) => {
       prompt,
       systemInstruction,
       temperature: 0.3, // 较低温度保证输出稳定
-      maxRetries: 2,
+      maxRetries: 2
     })
 
     // 4. 验证输出格式
@@ -54,28 +54,27 @@ export default defineEventHandler(async (event) => {
         throw createError({
           statusCode: 500,
           statusMessage: '解析结果格式错误',
-          message: revalidated.error.issues.map(i => `${i.path}: ${i.message}`).join(', '),
+          message: revalidated.error.issues.map(i => `${i.path}: ${i.message}`).join(', ')
         })
       }
       return {
         success: true,
         data: revalidated.data,
-        latencyMs: Date.now() - startTime,
+        latencyMs: Date.now() - startTime
       }
     }
 
     return {
       success: true,
       data: validated.data,
-      latencyMs: Date.now() - startTime,
+      latencyMs: Date.now() - startTime
     }
-  }
-  catch (error) {
+  } catch (error) {
     if (error instanceof GeminiError) {
       throw createError({
         statusCode: error.status || 500,
         statusMessage: `剧本解析失败: ${error.code}`,
-        message: error.message,
+        message: error.message
       })
     }
     throw error
@@ -182,10 +181,10 @@ ${text}
  */
 function fixParsedResult(result: unknown): ParsedScript {
   const data = result as Record<string, unknown>
-  
+
   // 确保 scenes 是数组
   let scenes = Array.isArray(data.scenes) ? data.scenes : []
-  
+
   // 修复每个场景
   scenes = scenes.map((scene: Record<string, unknown>, index: number) => {
     return {
@@ -193,16 +192,16 @@ function fixParsedResult(result: unknown): ParsedScript {
       title: scene.title || `场景 ${index + 1}`,
       description: scene.description || '',
       setting: fixSetting(scene.setting),
-      characters: Array.isArray(scene.characters) 
+      characters: Array.isArray(scene.characters)
         ? scene.characters.map(fixCharacter)
         : [],
-      dialogues: Array.isArray(scene.dialogues) 
+      dialogues: Array.isArray(scene.dialogues)
         ? scene.dialogues.map(fixDialogue)
         : [],
-      duration: typeof scene.duration === 'number' 
+      duration: typeof scene.duration === 'number'
         ? Math.min(8, Math.max(4, scene.duration))
         : 8,
-      narration: scene.narration,
+      narration: scene.narration
     }
   }) as Scene[]
 
@@ -212,12 +211,12 @@ function fixParsedResult(result: unknown): ParsedScript {
     scene.characters.forEach(c => characterNames.add(c.name))
   })
 
-  const characters = Array.isArray(data.characters) 
-    ? data.characters 
+  const characters = Array.isArray(data.characters)
+    ? data.characters
     : Array.from(characterNames).map(name => ({
         name,
         description: '',
-        role: 'supporting' as const,
+        role: 'supporting' as const
       }))
 
   // 计算总时长
@@ -227,48 +226,48 @@ function fixParsedResult(result: unknown): ParsedScript {
     title: data.title as string || undefined,
     scenes,
     characters,
-    totalDuration,
+    totalDuration
   }
 }
 
-function fixSetting(setting: unknown): { location: string; timeOfDay: string; mood?: string; weather?: string } {
+function fixSetting(setting: unknown): { location: string, timeOfDay: string, mood?: string, weather?: string } {
   const s = (setting || {}) as Record<string, unknown>
   const validTimeOfDay = ['dawn', 'morning', 'noon', 'afternoon', 'evening', 'night']
-  
+
   return {
     location: String(s.location || '未知地点'),
-    timeOfDay: validTimeOfDay.includes(String(s.timeOfDay)) 
-      ? String(s.timeOfDay) 
+    timeOfDay: validTimeOfDay.includes(String(s.timeOfDay))
+      ? String(s.timeOfDay)
       : 'morning',
     mood: s.mood ? String(s.mood) : undefined,
-    weather: s.weather ? String(s.weather) : undefined,
+    weather: s.weather ? String(s.weather) : undefined
   }
 }
 
-function fixCharacter(char: unknown): { name: string; appearance?: string; action?: string; emotion?: string } {
+function fixCharacter(char: unknown): { name: string, appearance?: string, action?: string, emotion?: string } {
   const c = (char || {}) as Record<string, unknown>
   const validEmotions = ['neutral', 'happy', 'sad', 'angry', 'surprised', 'confused', 'excited', 'scared']
-  
+
   return {
     name: String(c.name || '未知角色'),
     appearance: c.appearance ? String(c.appearance) : undefined,
     action: c.action ? String(c.action) : undefined,
-    emotion: validEmotions.includes(String(c.emotion)) 
-      ? String(c.emotion) 
-      : undefined,
+    emotion: validEmotions.includes(String(c.emotion))
+      ? String(c.emotion)
+      : undefined
   }
 }
 
-function fixDialogue(dialogue: unknown): { character: string; text: string; emotion?: string; isInnerThought?: boolean } {
+function fixDialogue(dialogue: unknown): { character: string, text: string, emotion?: string, isInnerThought?: boolean } {
   const d = (dialogue || {}) as Record<string, unknown>
   const validEmotions = ['neutral', 'happy', 'sad', 'angry', 'surprised', 'confused', 'excited', 'scared']
-  
+
   return {
     character: String(d.character || '未知'),
     text: String(d.text || ''),
-    emotion: validEmotions.includes(String(d.emotion)) 
-      ? String(d.emotion) 
+    emotion: validEmotions.includes(String(d.emotion))
+      ? String(d.emotion)
       : undefined,
-    isInnerThought: Boolean(d.isInnerThought),
+    isInnerThought: Boolean(d.isInnerThought)
   }
 }

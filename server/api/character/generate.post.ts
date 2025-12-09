@@ -2,14 +2,14 @@ import { generateImage, ImageModels, GeminiError } from '../../utils/gemini'
 import {
   GenerateCharacterRequestSchema,
   type CharacterAsset,
-  type Character,
+  type Character
 } from '../../../shared/types/character'
 import type { Emotion } from '../../../shared/types/script'
 
 /**
  * 角色生成 API
  * POST /api/character/generate
- * 
+ *
  * 使用 Nano Banana Pro 生成 4K 角色立绘，支持多表情变体
  */
 export default defineEventHandler(async (event) => {
@@ -18,12 +18,12 @@ export default defineEventHandler(async (event) => {
   // 1. 解析并验证请求
   const body = await readBody(event)
   const parseResult = GenerateCharacterRequestSchema.safeParse(body)
-  
+
   if (!parseResult.success) {
     throw createError({
       statusCode: 400,
       statusMessage: '请求参数无效',
-      message: parseResult.error.issues.map(i => i.message).join(', '),
+      message: parseResult.error.issues.map(i => i.message).join(', ')
     })
   }
 
@@ -33,17 +33,17 @@ export default defineEventHandler(async (event) => {
     // 2. 生成基础立绘
     console.log(`[CharacterGen] 开始生成角色: ${character.name}`)
     const baseResult = await generateBaseImage(character, style)
-    
+
     // 3. 生成表情变体
     let expressions: Partial<Record<Emotion, string>> = {}
-    
+
     if (generateExpressions) {
       console.log(`[CharacterGen] 开始生成表情变体...`)
       expressions = await generateExpressionVariants(
         character,
         style,
         baseResult.imageData,
-        baseResult.mimeType,
+        baseResult.mimeType
       )
     }
 
@@ -55,7 +55,7 @@ export default defineEventHandler(async (event) => {
       baseImage: baseResult.imageData,
       expressions: expressions as Record<Emotion, string>,
       createdAt: now,
-      updatedAt: now,
+      updatedAt: now
     }
 
     console.log(`[CharacterGen] 角色生成完成: ${character.name}, 耗时: ${Date.now() - startTime}ms`)
@@ -63,17 +63,16 @@ export default defineEventHandler(async (event) => {
     return {
       success: true,
       asset,
-      latencyMs: Date.now() - startTime,
+      latencyMs: Date.now() - startTime
     }
-  }
-  catch (error) {
+  } catch (error) {
     console.error(`[CharacterGen] 生成失败:`, error)
-    
+
     if (error instanceof GeminiError) {
       throw createError({
         statusCode: error.status || 500,
         statusMessage: `角色生成失败: ${error.code}`,
-        message: error.message,
+        message: error.message
       })
     }
     throw error
@@ -85,19 +84,19 @@ export default defineEventHandler(async (event) => {
  */
 async function generateBaseImage(
   character: Character,
-  style: string,
-): Promise<{ imageData: string; mimeType: string }> {
+  style: string
+): Promise<{ imageData: string, mimeType: string }> {
   const prompt = buildBaseImagePrompt(character, style)
-  
+
   const result = await generateImage({
     model: ImageModels.HIGH_QUALITY,
     prompt,
-    maxRetries: 2,
+    maxRetries: 2
   })
 
   return {
     imageData: result.imageData,
-    mimeType: result.mimeType,
+    mimeType: result.mimeType
   }
 }
 
@@ -108,7 +107,7 @@ async function generateExpressionVariants(
   character: Character,
   style: string,
   referenceImage: string,
-  referenceMimeType: string,
+  referenceMimeType: string
 ): Promise<Partial<Record<Emotion, string>>> {
   const emotions: Emotion[] = ['happy', 'sad', 'angry', 'surprised', 'neutral']
   const results: Partial<Record<Emotion, string>> = {}
@@ -117,31 +116,30 @@ async function generateExpressionVariants(
   const batchSize = 2
   for (let i = 0; i < emotions.length; i += batchSize) {
     const batch = emotions.slice(i, i + batchSize)
-    
+
     const batchResults = await Promise.allSettled(
       batch.map(async (emotion) => {
         const prompt = buildExpressionPrompt(character, style, emotion)
-        
+
         const result = await generateImage({
           model: ImageModels.HIGH_QUALITY,
           prompt,
           referenceImage: {
             data: referenceImage,
-            mimeType: referenceMimeType,
+            mimeType: referenceMimeType
           },
-          maxRetries: 1,
+          maxRetries: 1
         })
 
         return { emotion, imageData: result.imageData }
-      }),
+      })
     )
 
     // 收集成功的结果
     for (const result of batchResults) {
       if (result.status === 'fulfilled') {
         results[result.value.emotion] = result.value.imageData
-      }
-      else {
+      } else {
         console.warn(`[CharacterGen] 表情生成失败:`, result.reason)
       }
     }
@@ -159,12 +157,14 @@ async function generateExpressionVariants(
  * 构建基础立绘提示词
  */
 function buildBaseImagePrompt(character: Character, style: string): string {
-  const genderText = character.gender === 'male' ? '男性' 
-    : character.gender === 'female' ? '女性' 
-    : '人物'
-  
+  const genderText = character.gender === 'male'
+    ? '男性'
+    : character.gender === 'female'
+      ? '女性'
+      : '人物'
+
   const ageText = character.age ? `${character.age}岁` : ''
-  
+
   return `创作一幅高质量的${style}风格角色立绘。
 
 角色信息:
@@ -189,7 +189,7 @@ ${character.personality ? `- 性格: ${character.personality}` : ''}
 function buildExpressionPrompt(
   character: Character,
   style: string,
-  emotion: Emotion,
+  emotion: Emotion
 ): string {
   const emotionDescriptions: Record<Emotion, string> = {
     neutral: '平静、冷静、自然的表情',
@@ -199,7 +199,7 @@ function buildExpressionPrompt(
     surprised: '惊讶、震惊、意外的表情',
     confused: '困惑、疑惑、不解的表情',
     excited: '兴奋、激动、热情的表情',
-    scared: '害怕、恐惧、紧张的表情',
+    scared: '害怕、恐惧、紧张的表情'
   }
 
   return `基于参考图中的角色，生成一个表情变体。
