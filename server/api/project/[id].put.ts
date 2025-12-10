@@ -34,11 +34,11 @@ const SceneSchema = z.object({
 const CharacterSchema = z.object({
   id: z.string(),
   name: z.string(),
-  role: z.enum(['protagonist', 'antagonist', 'supporting', 'extra']).optional(),
+  role: z.string().optional(), // 接受任意角色类型
   appearance: z.string(),
   personality: z.string().optional(),
   age: z.number().optional(),
-  gender: z.enum(['male', 'female', 'other']).optional(),
+  gender: z.string().optional(), // 接受任意性别
   baseImage: z.string().optional(),
   expressions: z.record(z.string()).optional()
 })

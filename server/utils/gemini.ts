@@ -102,8 +102,8 @@ export const ImageModels = {
 export const VideoModels = {
   /** Veo 3.1 - 支持首尾帧 */
   VEO_3_1: 'veo-3.1-generate-preview',
-  /** Veo 3.1 快速版 */
-  VEO_3_1_FAST: 'veo-3.1-fast-preview'
+  /** Veo 3.1 快速版 - 速度优化 */
+  VEO_3_1_FAST: 'veo-3.1-fast-generate-preview'
 } as const
 
 /**

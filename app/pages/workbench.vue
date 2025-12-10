@@ -147,6 +147,9 @@ async function parseScript() {
           generating: false
         }
       })
+
+      // 自动保存
+      await saveProject()
     }
   } catch (e) {
     console.error('解析失败:', e)
@@ -176,6 +179,8 @@ async function generateCharacter(char: CharacterData) {
     })
     if (response.success) {
       char.baseImage = response.asset.baseImage
+      // 自动保存
+      await saveProject()
     }
   } catch (e) {
     console.error('角色生成失败:', e)
@@ -188,6 +193,14 @@ async function generateCharacter(char: CharacterData) {
 async function generateFrames(scene: SceneData) {
   scene.frameStatus = 'generating'
   try {
+    // 构建角色资产映射 (name -> base64)
+    const characterAssets: Record<string, string> = {}
+    characters.value.forEach((char) => {
+      if (char.baseImage) {
+        characterAssets[char.name] = char.baseImage
+      }
+    })
+
     const response = await $fetch<{
       success: boolean
       firstFrame: { imageData: string }
@@ -204,13 +217,16 @@ async function generateFrames(scene: SceneData) {
           duration: scene.duration,
           setting: scene.setting
         },
-        style: '日式动漫'
+        style: '日式动漫',
+        characterAssets
       }
     })
     if (response.success) {
       scene.firstFrame = response.firstFrame.imageData
       scene.lastFrame = response.lastFrame.imageData
       scene.frameStatus = 'done'
+      // 自动保存
+      await saveProject()
     }
   } catch (e) {
     console.error('首尾帧生成失败:', e)
@@ -241,7 +257,8 @@ async function generateVideo(scene: SceneData) {
           duration: scene.duration || 8,
           resolution: '720p',
           aspectRatio: '16:9',
-          withAudio: audioConfig.value.enabled
+          withAudio: audioConfig.value.enabled,
+          model: 'fast' // 使用 Veo 3.1 Fast 快速模型
         }
       }
     })
@@ -286,6 +303,8 @@ async function pollVideoStatus(scene: SceneData, taskId: string) {
           scene.videoUrl = `data:video/mp4;base64,${videoData}`
         }
         scene.videoStatus = 'done'
+        // 自动保存
+        await saveProject()
         return
       } else if (response.task.status === 'failed') {
         scene.videoStatus = 'error'
@@ -493,8 +512,8 @@ async function saveProject() {
 
     console.log('项目保存成功')
   } catch (e) {
+    // 保存失败只记录日志，不阻断流程
     console.error('保存项目失败:', e)
-    alert('保存失败，请重试')
   } finally {
     saving.value = false
   }

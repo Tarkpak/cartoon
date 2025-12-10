@@ -10,19 +10,29 @@ export type Resolution = z.infer<typeof ResolutionSchema>
 export const AspectRatioSchema = z.enum(['16:9', '9:16', '1:1'])
 export type AspectRatio = z.infer<typeof AspectRatioSchema>
 
-/** 视频时长 (秒) */
-export const DurationSchema = z.union([z.literal(4), z.literal(6), z.literal(8)])
-export type Duration = z.infer<typeof DurationSchema>
+/** 视频时长 (秒) - 支持 4-8 秒 */
+export const DurationSchema = z.number().min(4).max(8).transform((v) => {
+  // 将任意 4-8 秒的值映射到最近的有效值 (4, 6, 8)
+  if (v <= 5) return 4
+  if (v <= 7) return 6
+  return 8
+})
+export type Duration = 4 | 6 | 8
+
+/** 视频模型类型 */
+export const VideoModelSchema = z.enum(['standard', 'fast'])
+export type VideoModel = z.infer<typeof VideoModelSchema>
 
 /** 视频生成配置 */
 export const VideoGenerationConfigSchema = z.object({
-  firstFrame: z.string().describe('首帧图片 (base64)'),
-  lastFrame: z.string().describe('尾帧图片 (base64)'),
+  firstFrame: z.string().optional().describe('首帧图片 (base64) - 可选，不提供则纯文本生成'),
+  lastFrame: z.string().optional().describe('尾帧图片 (base64) - 可选，不提供则纯文本生成'),
   prompt: z.string().describe('视频描述提示词'),
   duration: DurationSchema.default(8).describe('视频时长'),
-  resolution: ResolutionSchema.default('1080p').describe('分辨率'),
+  resolution: ResolutionSchema.default('720p').describe('分辨率'),
   aspectRatio: AspectRatioSchema.default('16:9').describe('宽高比'),
-  withAudio: z.boolean().default(true).describe('是否生成音频')
+  withAudio: z.boolean().default(true).describe('是否生成音频'),
+  model: VideoModelSchema.default('standard').describe('模型类型: standard(高质量) / fast(快速)')
 })
 export type VideoGenerationConfig = z.infer<typeof VideoGenerationConfigSchema>
 

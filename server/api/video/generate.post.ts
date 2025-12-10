@@ -6,6 +6,9 @@ import {
   GenerateVideoRequestSchema,
   type GeneratedVideo
 } from '../../../shared/types/video'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import * as os from 'node:os'
 
 /**
  * 视频生成 API
@@ -120,8 +123,13 @@ async function generateVideoAsync(
     // 根据是否有首尾帧决定生成方式
     const hasFrames = config.firstFrame && config.lastFrame
 
+    // 根据配置选择模型
+    const selectedModel = config.model === 'fast'
+      ? VideoModels.VEO_3_1_FAST
+      : VideoModels.VEO_3_1
+
     console.log('[VideoGen] Veo API 请求参数:', {
-      model: VideoModels.VEO_3_1,
+      model: selectedModel,
       promptLength: config.prompt.length,
       promptPreview: config.prompt.slice(0, 200) + (config.prompt.length > 200 ? '...' : ''),
       hasFirstFrame: !!config.firstFrame,
@@ -139,7 +147,7 @@ async function generateVideoAsync(
         // 注意：使用插值时 durationSeconds 必须为 8 秒
         // 参考文档：https://ai.google.dev/gemini-api/docs/video#using-first-and-last-video-frames
         return await client.models.generateVideos({
-          model: VideoModels.VEO_3_1,
+          model: selectedModel,
           prompt: config.prompt,
           image: {
             imageBytes: config.firstFrame,
@@ -158,7 +166,7 @@ async function generateVideoAsync(
       } else {
         // 纯文本生成模式
         return await client.models.generateVideos({
-          model: VideoModels.VEO_3_1,
+          model: selectedModel,
           prompt: config.prompt,
           config: {
             aspectRatio: config.aspectRatio,
@@ -212,43 +220,37 @@ async function generateVideoAsync(
       )
     }
 
-    // 4. 获取视频数据
+    // 4. 获取视频数据 - 使用 SDK 的 files.download() 方法
     const generatedVideo = generatedVideos[0]
     let videoData = ''
 
-    // 从生成结果中提取视频数据
-    // 使用 SDK 的正确方式下载视频
     try {
       if (generatedVideo.video) {
-        const videoInfo = generatedVideo.video as { uri?: string, name?: string, downloadUri?: string }
-        console.log(`[VideoGen] 视频信息:`, JSON.stringify({
-          hasUri: !!videoInfo.uri,
-          hasName: !!videoInfo.name,
-          hasDownloadUri: !!videoInfo.downloadUri
-        }))
+        console.log(`[VideoGen] 视频对象:`, JSON.stringify(generatedVideo.video))
 
-        // 优先使用 downloadUri（官方推荐）
-        const downloadUrl = videoInfo.downloadUri || videoInfo.uri
-        if (downloadUrl) {
-          console.log(`[VideoGen] 下载视频: ${downloadUrl}`)
-          const response = await fetch(downloadUrl)
-          if (!response.ok) {
-            const errorText = await response.text()
-            console.error(`[VideoGen] 视频下载失败: ${response.status} - ${errorText.substring(0, 200)}`)
-            throw new Error(`视频下载失败: ${response.status}`)
-          }
-          const contentType = response.headers.get('content-type')
-          console.log(`[VideoGen] 响应类型: ${contentType}`)
-          if (!contentType?.includes('video') && !contentType?.includes('octet-stream')) {
-            console.warn(`[VideoGen] 响应可能不是视频类型: ${contentType}`)
-          }
-          const buffer = await response.arrayBuffer()
-          videoData = Buffer.from(buffer).toString('base64')
-          console.log(`[VideoGen] 视频下载成功, 大小: ${buffer.byteLength} bytes`)
-        } else if (videoInfo.name) {
-          // 如果只有 name，尝试使用 SDK 下载
-          console.log(`[VideoGen] 尝试通过 SDK 下载: ${videoInfo.name}`)
-          videoData = `ref:${videoInfo.name}`
+        // 使用 SDK 的 files.download() 方法下载视频到临时文件
+        const tempDir = os.tmpdir()
+        const tempFileName = `video_${taskId}_${Date.now()}.mp4`
+        const tempFilePath = path.join(tempDir, tempFileName)
+
+        console.log(`[VideoGen] 使用 SDK 下载视频到: ${tempFilePath}`)
+
+        await client.files.download({
+          file: generatedVideo.video,
+          downloadPath: tempFilePath
+        })
+
+        // 读取临时文件并转为 base64
+        if (fs.existsSync(tempFilePath)) {
+          const fileBuffer = fs.readFileSync(tempFilePath)
+          videoData = fileBuffer.toString('base64')
+          console.log(`[VideoGen] 视频下载成功, 大小: ${fileBuffer.byteLength} bytes`)
+
+          // 清理临时文件
+          fs.unlinkSync(tempFilePath)
+          console.log(`[VideoGen] 临时文件已清理`)
+        } else {
+          throw new Error('视频文件未能下载')
         }
       }
     } catch (downloadError) {
