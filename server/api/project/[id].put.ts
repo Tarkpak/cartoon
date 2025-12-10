@@ -25,10 +25,10 @@ const SceneSchema = z.object({
     isInnerThought: z.boolean().optional()
   })).optional(),
   duration: z.number().default(8),
-  narration: z.string().optional(),
-  firstFrame: z.string().optional(),
-  lastFrame: z.string().optional(),
-  status: z.string().optional()
+  narration: z.string().nullish(), // 接受 null 和 undefined
+  firstFrame: z.string().nullish(),
+  lastFrame: z.string().nullish(),
+  status: z.string().nullish()
 })
 
 const CharacterSchema = z.object({

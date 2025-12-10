@@ -9,7 +9,8 @@ import { SceneSchema } from '../../../shared/types/script'
 const GenerateFrameRequestSchema = z.object({
   scene: SceneSchema.describe('场景信息'),
   style: z.string().optional().default('日式动漫').describe('画风'),
-  characterAssets: z.record(z.string(), z.string()).optional().describe('角色资产 (name -> base64)')
+  characterAssets: z.record(z.string(), z.string()).optional().describe('角色资产 (name -> base64)'),
+  previousSceneLastFrame: z.string().optional().describe('上一场景的尾帧 (base64) - 用于保持场景连续性')
 })
 
 /**
@@ -33,13 +34,13 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { scene, style, characterAssets } = parseResult.data
+  const { scene, style, characterAssets, previousSceneLastFrame } = parseResult.data
 
   try {
     console.log(`[FrameGen] 开始生成首尾帧: ${scene.id}`)
 
-    // 2. 生成首帧
-    const firstFrameResult = await generateFirstFrame(scene, style, characterAssets)
+    // 2. 生成首帧 (优先使用上一场景尾帧保持连续性)
+    const firstFrameResult = await generateFirstFrame(scene, style, characterAssets, previousSceneLastFrame)
     console.log(`[FrameGen] 首帧生成完成`)
 
     // 3. 生成尾帧 (基于首帧保持一致性)
@@ -83,19 +84,32 @@ export default defineEventHandler(async (event) => {
 
 /**
  * 生成首帧
+ * @param previousSceneLastFrame 上一场景的尾帧，用于保持场景连续性
  */
 async function generateFirstFrame(
   scene: z.infer<typeof SceneSchema>,
   style: string,
-  characterAssets?: Record<string, string>
+  characterAssets?: Record<string, string>,
+  previousSceneLastFrame?: string
 ): Promise<{ imageData: string, mimeType: string }> {
-  const prompt = buildFirstFramePrompt(scene, style)
+  const prompt = buildFirstFramePrompt(scene, style, !!previousSceneLastFrame)
 
-  // 如果有主角资产，使用参考图
-  const mainCharacter = scene.characters[0]
-  const referenceImage = mainCharacter && characterAssets?.[mainCharacter.name]
-    ? { data: characterAssets[mainCharacter.name], mimeType: 'image/png' }
-    : undefined
+  // 优先级: 上一场景尾帧 > 角色立绘
+  // 这样可以保持场景之间的视觉连续性
+  let referenceImage: { data: string; mimeType: string } | undefined
+
+  if (previousSceneLastFrame) {
+    // 使用上一场景的尾帧作为参考，保持角色外观和画风一致
+    referenceImage = { data: previousSceneLastFrame, mimeType: 'image/jpeg' }
+    console.log('[FrameGen] 使用上一场景尾帧作为参考图')
+  } else {
+    // 第一个场景：使用角色立绘作为参考
+    const mainCharacter = scene.characters[0]
+    if (mainCharacter && characterAssets?.[mainCharacter.name]) {
+      referenceImage = { data: characterAssets[mainCharacter.name], mimeType: 'image/png' }
+      console.log('[FrameGen] 使用角色立绘作为参考图')
+    }
+  }
 
   // 使用并发限制器控制请求
   const result = await imageLimiter.execute(() =>
@@ -145,10 +159,12 @@ async function generateLastFrame(
 
 /**
  * 构建首帧提示词
+ * @param hasPreviousFrame 是否有上一场景的参考帧
  */
 function buildFirstFramePrompt(
   scene: z.infer<typeof SceneSchema>,
-  style: string
+  style: string,
+  hasPreviousFrame: boolean = false
 ): string {
   const { setting, characters, description, dialogues } = scene
 
@@ -165,6 +181,32 @@ function buildFirstFramePrompt(
     return parts.join(' ')
   }).join('；')
 
+  // 如果有上一场景的参考帧，使用完全不同的提示词结构
+  if (hasPreviousFrame) {
+    return `【关键任务】基于参考图创作连续动画的下一帧。
+
+⚠️ 严格要求 - 必须与参考图保持一致：
+1. 角色的脸部特征、发型、发色必须完全相同
+2. 角色的服装款式、颜色必须完全相同（如白色衬衫保持白色）
+3. 咖啡厅/场景的整体布局、装饰保持一致
+4. 画风、色调、光影效果保持统一
+5. 镜头角度/构图与参考图相似
+
+允许变化的部分：
+- 角色的表情变化
+- 角色的姿态/动作变化
+- 新增角色出场
+
+新场景内容：
+${description}
+
+登场角色: ${charactersDesc}
+
+画面要求: ${style}画风，16:9宽屏，高清质量
+情绪基调: ${getEmotionChinese(initialMood)}`
+  }
+
+  // 首个场景的提示词
   return `创作一幅${style}风格的场景首帧画面。
 
 场景设定:

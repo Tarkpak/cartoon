@@ -158,16 +158,48 @@ async function generateExpressionVariants(
 }
 
 /**
+ * 从外观描述推断性别
+ */
+function inferGender(name: string, appearance: string): string {
+  const text = `${name} ${appearance}`.toLowerCase()
+  // 女性关键词
+  if (/女|她|小姐|姑娘|女子|女孩|美女|少女|连衣裙|长裙|女性|妹|娘/.test(text)) {
+    return '女性'
+  }
+  // 男性关键词
+  if (/男|他|先生|男子|男孩|帅|少年|男性|哥|弟/.test(text)) {
+    return '男性'
+  }
+  return '人物'
+}
+
+/**
+ * 从外观描述推断年龄段
+ */
+function inferAgeRange(appearance: string): string {
+  const text = appearance.toLowerCase()
+  if (/幼|小孩|儿童|孩子/.test(text)) return '8-12岁'
+  if (/少年|少女|学生|高中|初中/.test(text)) return '14-18岁'
+  if (/青年|年轻|大学/.test(text)) return '20-28岁'
+  if (/中年/.test(text)) return '35-50岁'
+  if (/老|老人|老年/.test(text)) return '60岁以上'
+  return '20-30岁' // 默认青年
+}
+
+/**
  * 构建基础立绘提示词
  */
 function buildBaseImagePrompt(character: Character, style: string): string {
+  // 自动推断性别和年龄
   const genderText = character.gender === 'male'
     ? '男性'
     : character.gender === 'female'
       ? '女性'
-      : '人物'
+      : inferGender(character.name, character.appearance)
 
-  const ageText = character.age ? `${character.age}岁` : ''
+  const ageText = character.age
+    ? `${character.age}岁`
+    : inferAgeRange(character.appearance)
 
   return `创作一幅高质量的${style}风格角色立绘。
 
@@ -175,8 +207,8 @@ function buildBaseImagePrompt(character: Character, style: string): string {
 - 名称: ${character.name}
 - 性别: ${genderText}
 - 年龄: ${ageText}
-- 外观: ${character.appearance}
-${character.personality ? `- 性格: ${character.personality}` : ''}
+- 外观特征: ${character.appearance}
+${character.personality ? `- 性格气质: ${character.personality}` : ''}
 
 要求:
 1. 全身立绘，白色/透明背景

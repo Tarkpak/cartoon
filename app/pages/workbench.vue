@@ -190,7 +190,7 @@ async function generateCharacter(char: CharacterData) {
 }
 
 // ========== 首尾帧生成 ==========
-async function generateFrames(scene: SceneData) {
+async function generateFrames(scene: SceneData, previousSceneLastFrame?: string) {
   scene.frameStatus = 'generating'
   try {
     // 构建角色资产映射 (name -> base64)
@@ -218,7 +218,9 @@ async function generateFrames(scene: SceneData) {
           setting: scene.setting
         },
         style: '日式动漫',
-        characterAssets
+        characterAssets,
+        // 传递上一场景的尾帧，用于保持场景连续性
+        previousSceneLastFrame
       }
     })
     if (response.success) {
@@ -340,12 +342,15 @@ async function startPipeline() {
     }
     pipelineStatus.value.progress = 20
 
-    // 步骤2: 生成首尾帧 (50%)
+    // 步骤2: 生成首尾帧 (50%) - 按顺序生成，传递上一场景尾帧保持连续性
     pipelineStatus.value.currentStep = '生成首尾帧...'
     for (let i = 0; i < scenes.value.length; i++) {
       const scene = scenes.value[i]
       if (scene && scene.frameStatus !== 'done') {
-        await generateFrames(scene)
+        // 获取上一场景的尾帧（如果存在）
+        const prevScene = i > 0 ? scenes.value[i - 1] : undefined
+        const previousSceneLastFrame = prevScene?.lastFrame
+        await generateFrames(scene, previousSceneLastFrame)
       }
       pipelineStatus.value.progress = 20 + Math.round((i + 1) / scenes.value.length * 30)
     }
