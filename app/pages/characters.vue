@@ -1,5 +1,13 @@
 <script setup lang="ts">
 import { Plus, Loader2 } from 'lucide-vue-next'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 // 角色管理页面
 definePageMeta({
@@ -18,6 +26,15 @@ interface Character {
 const characters = ref<Character[]>([])
 const loading = ref(true)
 
+// 添加角色对话框
+const showAddDialog = ref(false)
+const newCharacter = ref({
+  name: '',
+  role: 'supporting',
+  appearance: ''
+})
+const creating = ref(false)
+
 // 获取角色列表
 async function fetchCharacters() {
   loading.value = true
@@ -29,6 +46,30 @@ async function fetchCharacters() {
   } finally {
     loading.value = false
   }
+}
+
+// 添加角色
+async function addCharacter() {
+  if (!newCharacter.value.name.trim()) return
+  
+  creating.value = true
+  try {
+    // TODO: 调用角色生成 API
+    console.log('创建角色:', newCharacter.value)
+    showAddDialog.value = false
+    newCharacter.value = { name: '', role: 'supporting', appearance: '' }
+    await fetchCharacters()
+  } catch (e) {
+    console.error('添加角色失败:', e)
+  } finally {
+    creating.value = false
+  }
+}
+
+// 打开添加对话框
+function openAddDialog() {
+  newCharacter.value = { name: '', role: 'supporting', appearance: '' }
+  showAddDialog.value = true
 }
 
 onMounted(fetchCharacters)
@@ -75,7 +116,7 @@ const roleVariants: Record<string, 'success' | 'default' | 'secondary'> = {
           管理项目中的角色资产
         </p>
       </div>
-      <Button size="lg">
+      <Button size="lg" @click="openAddDialog">
         <Plus class="w-5 h-5 mr-2" />
         添加角色
       </Button>
@@ -157,6 +198,7 @@ const roleVariants: Record<string, 'success' | 'default' | 'secondary'> = {
       <!-- 添加角色卡片 -->
       <div
         class="border-2 border-dashed rounded-xl flex items-center justify-center min-h-[400px] cursor-pointer hover:border-primary hover:bg-accent transition"
+        @click="openAddDialog"
       >
         <div class="text-center">
           <div class="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
@@ -171,5 +213,55 @@ const roleVariants: Record<string, 'success' | 'default' | 'secondary'> = {
         </div>
       </div>
     </div>
+
+    <!-- 添加角色对话框 -->
+    <Dialog v-model:open="showAddDialog">
+      <DialogContent class="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>添加角色</DialogTitle>
+          <DialogDescription>
+            创建新角色或从剧本中自动提取
+          </DialogDescription>
+        </DialogHeader>
+        <div class="grid gap-4 py-4">
+          <div class="grid gap-2">
+            <label class="text-sm font-medium">角色名称</label>
+            <Input
+              v-model="newCharacter.name"
+              placeholder="输入角色名称..."
+            />
+          </div>
+          <div class="grid gap-2">
+            <label class="text-sm font-medium">角色类型</label>
+            <select
+              v-model="newCharacter.role"
+              class="h-10 px-3 rounded-md border border-input bg-background text-sm"
+            >
+              <option value="protagonist">主角</option>
+              <option value="antagonist">反派</option>
+              <option value="supporting">配角</option>
+              <option value="extra">群演</option>
+            </select>
+          </div>
+          <div class="grid gap-2">
+            <label class="text-sm font-medium">外貌描述</label>
+            <Textarea
+              v-model="newCharacter.appearance"
+              placeholder="描述角色的外貌特征，用于生成角色立绘..."
+              rows="3"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="showAddDialog = false">
+            取消
+          </Button>
+          <Button @click="addCharacter" :disabled="!newCharacter.name.trim() || creating">
+            <Loader2 v-if="creating" class="w-4 h-4 mr-2 animate-spin" />
+            生成角色
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

@@ -1,5 +1,13 @@
 <script setup lang="ts">
 import { Plus, Video, Clock, Search, Loader2 } from 'lucide-vue-next'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 // 项目管理页面
 definePageMeta({
@@ -20,6 +28,14 @@ const projects = ref<Project[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 
+// 新建项目对话框
+const showCreateDialog = ref(false)
+const newProject = ref({
+  title: '',
+  description: ''
+})
+const creating = ref(false)
+
 // 获取项目列表
 async function fetchProjects() {
   loading.value = true
@@ -33,6 +49,35 @@ async function fetchProjects() {
   } finally {
     loading.value = false
   }
+}
+
+// 创建项目
+async function createProject() {
+  if (!newProject.value.title.trim()) return
+  
+  creating.value = true
+  try {
+    await $fetch('/api/project/create', {
+      method: 'POST',
+      body: {
+        title: newProject.value.title,
+        description: newProject.value.description || undefined
+      }
+    })
+    showCreateDialog.value = false
+    newProject.value = { title: '', description: '' }
+    await fetchProjects()
+  } catch (e) {
+    console.error('创建项目失败:', e)
+  } finally {
+    creating.value = false
+  }
+}
+
+// 打开新建对话框
+function openCreateDialog() {
+  newProject.value = { title: '', description: '' }
+  showCreateDialog.value = true
 }
 
 // 格式化时间
@@ -80,7 +125,7 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
           管理您的AI漫剧项目
         </p>
       </div>
-      <Button size="lg">
+      <Button size="lg" @click="openCreateDialog">
         <Plus class="w-5 h-5 mr-2" />
         新建项目
       </Button>
@@ -175,6 +220,7 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
       <!-- 新建项目卡片 -->
       <div
         class="border-2 border-dashed rounded-xl flex items-center justify-center min-h-[280px] cursor-pointer hover:border-primary hover:bg-accent transition"
+        @click="openCreateDialog"
       >
         <div class="text-center">
           <div class="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
@@ -186,5 +232,43 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
         </div>
       </div>
     </div>
+
+    <!-- 新建项目对话框 -->
+    <Dialog v-model:open="showCreateDialog">
+      <DialogContent class="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>新建项目</DialogTitle>
+          <DialogDescription>
+            创建一个新的AI漫剧项目，开始你的创作之旅
+          </DialogDescription>
+        </DialogHeader>
+        <div class="grid gap-4 py-4">
+          <div class="grid gap-2">
+            <label class="text-sm font-medium">项目名称</label>
+            <Input
+              v-model="newProject.title"
+              placeholder="输入项目名称..."
+            />
+          </div>
+          <div class="grid gap-2">
+            <label class="text-sm font-medium">项目描述 (可选)</label>
+            <Textarea
+              v-model="newProject.description"
+              placeholder="简单描述你的项目..."
+              rows="3"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="showCreateDialog = false">
+            取消
+          </Button>
+          <Button @click="createProject" :disabled="!newProject.title.trim() || creating">
+            <Loader2 v-if="creating" class="w-4 h-4 mr-2 animate-spin" />
+            创建项目
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

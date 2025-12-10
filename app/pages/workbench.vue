@@ -33,9 +33,10 @@ async function parseScript() {
 
   parsing.value = true
   try {
-    const data = await $fetch<{
+    const response = await $fetch<{
       success: boolean
-      result: {
+      data: {
+        title?: string
         scenes: Array<{
           id: string
           title?: string
@@ -50,12 +51,12 @@ async function parseScript() {
       body: { text: scriptText.value }
     })
 
-    if (data.success && data.result.scenes) {
-      scenes.value = data.result.scenes.map((s, i) => ({
+    if (response.success && response.data?.scenes) {
+      scenes.value = response.data.scenes.map((s, i) => ({
         id: s.id || `scene_${i + 1}`,
         title: s.title || `${s.setting?.location || '场景'} - ${s.setting?.timeOfDay || ''}`,
         description: s.description,
-        characters: s.characters.map(c => c.name),
+        characters: s.characters?.map(c => c.name) || [],
         duration: s.duration || 8,
         active: i === 0
       }))

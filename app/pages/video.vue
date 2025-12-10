@@ -1,5 +1,13 @@
 <script setup lang="ts">
 import { Settings, Play, Check, Loader2, Image, ArrowDown, PlayCircle } from 'lucide-vue-next'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 // 视频生成页面
 definePageMeta({
@@ -19,6 +27,39 @@ const _loading = ref(false)
 const duration = ref(8)
 const resolution = ref('1080p')
 const audioEnabled = ref(true)
+
+// 生成设置对话框
+const showSettingsDialog = ref(false)
+const settings = ref({
+  model: 'veo-3.1',
+  quality: 'high',
+  fps: 24,
+  interpolation: true
+})
+
+// 保存设置
+function saveSettings() {
+  console.log('保存设置:', settings.value)
+  showSettingsDialog.value = false
+}
+
+// 批量生成
+const generating = ref(false)
+async function batchGenerate() {
+  if (scenes.value.length === 0) {
+    alert('没有待生成的场景')
+    return
+  }
+  generating.value = true
+  try {
+    // TODO: 实现批量生成逻辑
+    console.log('开始批量生成')
+  } catch (e) {
+    console.error('批量生成失败:', e)
+  } finally {
+    generating.value = false
+  }
+}
 
 const statusConfig: Record<string, { icon: typeof Check | typeof Loader2 | null, bg: string, spin?: boolean }> = {
   completed: { icon: Check, bg: 'bg-green-50 border-green-200' },
@@ -40,12 +81,13 @@ const statusConfig: Record<string, { icon: typeof Check | typeof Loader2 | null,
         </p>
       </div>
       <div class="flex space-x-3">
-        <Button variant="outline">
+        <Button variant="outline" @click="showSettingsDialog = true">
           <Settings class="w-4 h-4 mr-2" />
           生成设置
         </Button>
-        <Button>
-          <Play class="w-4 h-4 mr-2" />
+        <Button @click="batchGenerate" :disabled="generating">
+          <Loader2 v-if="generating" class="w-4 h-4 mr-2 animate-spin" />
+          <Play v-else class="w-4 h-4 mr-2" />
           批量生成
         </Button>
       </div>
@@ -213,5 +255,66 @@ const statusConfig: Record<string, { icon: typeof Check | typeof Loader2 | null,
         </CardContent>
       </Card>
     </div>
+
+    <!-- 生成设置对话框 -->
+    <Dialog v-model:open="showSettingsDialog">
+      <DialogContent class="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>生成设置</DialogTitle>
+          <DialogDescription>
+            配置视频生成的高级参数
+          </DialogDescription>
+        </DialogHeader>
+        <div class="grid gap-4 py-4">
+          <div class="grid gap-2">
+            <label class="text-sm font-medium">生成模型</label>
+            <select
+              v-model="settings.model"
+              class="h-10 px-3 rounded-md border border-input bg-background text-sm"
+            >
+              <option value="veo-3.1">Veo 3.1 (高质量)</option>
+              <option value="veo-3.1-fast">Veo 3.1 Fast (快速)</option>
+            </select>
+          </div>
+          <div class="grid gap-2">
+            <label class="text-sm font-medium">输出质量</label>
+            <select
+              v-model="settings.quality"
+              class="h-10 px-3 rounded-md border border-input bg-background text-sm"
+            >
+              <option value="high">高质量</option>
+              <option value="medium">中等</option>
+              <option value="low">低质量 (快速预览)</option>
+            </select>
+          </div>
+          <div class="grid gap-2">
+            <label class="text-sm font-medium">帧率 (FPS)</label>
+            <select
+              v-model="settings.fps"
+              class="h-10 px-3 rounded-md border border-input bg-background text-sm"
+            >
+              <option :value="24">24 FPS (电影)</option>
+              <option :value="30">30 FPS (标准)</option>
+              <option :value="60">60 FPS (流畅)</option>
+            </select>
+          </div>
+          <div class="flex items-center justify-between">
+            <div>
+              <label class="text-sm font-medium">首尾帧插值</label>
+              <p class="text-xs text-muted-foreground">使用首尾帧控制视频生成</p>
+            </div>
+            <Switch v-model:checked="settings.interpolation" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="showSettingsDialog = false">
+            取消
+          </Button>
+          <Button @click="saveSettings">
+            保存设置
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

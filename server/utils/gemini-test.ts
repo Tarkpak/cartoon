@@ -16,7 +16,7 @@ function saveBinaryFile(fileName: string, content: Buffer) {
   })
 }
 
-const GEMINI_API_KEY = 'AIzaSyCANplDiOvk3go315hJwBvhHkyA5CB2ZO8'
+const GEMINI_API_KEY = 'AIzaSyCFvBGHpMAh8eqncjZSCtJL13DXLfM-nmk'
 
 async function main() {
   const ai = new GoogleGenAI({
