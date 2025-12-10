@@ -1,4 +1,5 @@
 import { generateImage, ImageModels, GeminiError } from '../../utils/gemini'
+import { imageLimiter, batchExecute } from '../../utils/concurrency'
 import {
   GenerateCharacterRequestSchema,
   type CharacterAsset,
@@ -80,7 +81,7 @@ export default defineEventHandler(async (event) => {
 })
 
 /**
- * 生成基础立绘
+ * 生成基础立绘（使用并发控制）
  */
 async function generateBaseImage(
   character: Character,
@@ -88,11 +89,14 @@ async function generateBaseImage(
 ): Promise<{ imageData: string, mimeType: string }> {
   const prompt = buildBaseImagePrompt(character, style)
 
-  const result = await generateImage({
-    model: ImageModels.HIGH_QUALITY,
-    prompt,
-    maxRetries: 2
-  })
+  // 使用并发限制器控制请求
+  const result = await imageLimiter.execute(() =>
+    generateImage({
+      model: ImageModels.HIGH_QUALITY,
+      prompt,
+      maxRetries: 2
+    })
+  )
 
   return {
     imageData: result.imageData,
@@ -101,7 +105,7 @@ async function generateBaseImage(
 }
 
 /**
- * 生成表情变体
+ * 生成表情变体（使用批量并发控制）
  */
 async function generateExpressionVariants(
   character: Character,
@@ -112,43 +116,43 @@ async function generateExpressionVariants(
   const emotions: Emotion[] = ['happy', 'sad', 'angry', 'surprised', 'neutral']
   const results: Partial<Record<Emotion, string>> = {}
 
-  // 并行生成所有表情（限制并发数为 2 避免速率限制）
-  const batchSize = 2
-  for (let i = 0; i < emotions.length; i += batchSize) {
-    const batch = emotions.slice(i, i + batchSize)
+  // 使用批量执行工具（带并发控制）
+  const batchResult = await batchExecute({
+    items: emotions,
+    limiter: imageLimiter,
+    continueOnError: true,
+    processor: async (emotion) => {
+      const prompt = buildExpressionPrompt(character, style, emotion)
 
-    const batchResults = await Promise.allSettled(
-      batch.map(async (emotion) => {
-        const prompt = buildExpressionPrompt(character, style, emotion)
-
-        const result = await generateImage({
-          model: ImageModels.HIGH_QUALITY,
-          prompt,
-          referenceImage: {
-            data: referenceImage,
-            mimeType: referenceMimeType
-          },
-          maxRetries: 1
-        })
-
-        return { emotion, imageData: result.imageData }
+      const result = await generateImage({
+        model: ImageModels.HIGH_QUALITY,
+        prompt,
+        referenceImage: {
+          data: referenceImage,
+          mimeType: referenceMimeType
+        },
+        maxRetries: 1
       })
-    )
 
-    // 收集成功的结果
-    for (const result of batchResults) {
-      if (result.status === 'fulfilled') {
-        results[result.value.emotion] = result.value.imageData
-      } else {
-        console.warn(`[CharacterGen] 表情生成失败:`, result.reason)
+      return { emotion, imageData: result.imageData }
+    },
+    onProgress: (completed, total, result, error) => {
+      if (error) {
+        console.warn(`[CharacterGen] 表情生成失败 (${completed}/${total}):`, error.message)
+      } else if (result) {
+        console.log(`[CharacterGen] 表情生成完成: ${result.emotion} (${completed}/${total})`)
       }
     }
+  })
 
-    // 批次间稍作延迟避免速率限制
-    if (i + batchSize < emotions.length) {
-      await new Promise(resolve => setTimeout(resolve, 500))
+  // 收集成功的结果
+  for (const result of batchResult.results) {
+    if (result) {
+      results[result.emotion] = result.imageData
     }
   }
+
+  console.log(`[CharacterGen] 表情生成统计: 成功 ${batchResult.successCount}, 失败 ${batchResult.errorCount}`)
 
   return results
 }

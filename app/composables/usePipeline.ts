@@ -114,7 +114,7 @@ export function usePipeline() {
     disconnectWebSocket()
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/pipeline?taskId=${taskId}`
+    const wsUrl = `${protocol}//${window.location.host}/_ws?taskId=${taskId}`
 
     try {
       ws.value = new WebSocket(wsUrl)

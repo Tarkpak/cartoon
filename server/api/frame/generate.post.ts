@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { generateImage, ImageModels, GeminiError } from '../../utils/gemini'
+import { imageLimiter } from '../../utils/concurrency'
 import { SceneSchema } from '../../../shared/types/script'
 
 /**
@@ -96,12 +97,15 @@ async function generateFirstFrame(
     ? { data: characterAssets[mainCharacter.name], mimeType: 'image/png' }
     : undefined
 
-  const result = await generateImage({
-    model: ImageModels.HIGH_QUALITY,
-    prompt,
-    referenceImage,
-    maxRetries: 2
-  })
+  // 使用并发限制器控制请求
+  const result = await imageLimiter.execute(() =>
+    generateImage({
+      model: ImageModels.HIGH_QUALITY,
+      prompt,
+      referenceImage,
+      maxRetries: 2
+    })
+  )
 
   return {
     imageData: result.imageData,
@@ -120,15 +124,18 @@ async function generateLastFrame(
 ): Promise<{ imageData: string, mimeType: string }> {
   const prompt = buildLastFramePrompt(scene, style)
 
-  const result = await generateImage({
-    model: ImageModels.HIGH_QUALITY,
-    prompt,
-    referenceImage: {
-      data: firstFrameData,
-      mimeType: firstFrameMimeType
-    },
-    maxRetries: 2
-  })
+  // 使用并发限制器控制请求
+  const result = await imageLimiter.execute(() =>
+    generateImage({
+      model: ImageModels.HIGH_QUALITY,
+      prompt,
+      referenceImage: {
+        data: firstFrameData,
+        mimeType: firstFrameMimeType
+      },
+      maxRetries: 2
+    })
+  )
 
   return {
     imageData: result.imageData,
@@ -186,7 +193,7 @@ function buildLastFramePrompt(
   scene: z.infer<typeof SceneSchema>,
   style: string
 ): string {
-  const { setting, characters, description, dialogues } = scene
+  const { setting, characters, dialogues } = scene
 
   // 提取最后一句对话的情绪
   const lastDialogue = dialogues?.[dialogues.length - 1]

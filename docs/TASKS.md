@@ -216,7 +216,7 @@ await client.models.generateVideos({
 
 - [x] 整合所有API的完整流程
 - [x] 进度查询 API (`/api/pipeline/status/:id`)
-- [ ] WebSocket 进度推送 (待实现)
+- [x] WebSocket 进度推送 (`server/routes/_ws.ts` + `server/utils/websocket.ts`)
 - [ ] 断点续传 (待实现)
 
 ---
@@ -236,7 +236,7 @@ await client.models.generateVideos({
 ### 5.2 核心组件 ⏱️ 3天 ✅ 已完成
 **目录**: `app/components/`
 
-- [ ] `script/ScriptEditor.vue` - 剧本富文本编辑器 (待实现)
+- [x] `script/ScriptEditor.vue` - 剧本富文本编辑器
 - [x] `script/SceneCard.vue` - 场景卡片
 - [x] `character/CharacterCard.vue` - 角色卡片展示
 - [x] `character/ExpressionGrid.vue` - 表情网格
@@ -262,7 +262,7 @@ await client.models.generateVideos({
 - [x] 中间结果缓存 (`server/utils/cache.ts`)
   - 角色资产缓存、首尾帧缓存、视频缓存、剧本解析缓存
 - [x] 失败重试策略 (已在 `server/utils/gemini.ts` 实现)
-- [ ] 批量请求并发控制 (待优化)
+- [x] 批量请求并发控制 (`server/utils/concurrency.ts`)
 - [ ] 使用 Veo 3.1 Fast 降低成本 (待配置)
 
 ### 6.2 质量提升

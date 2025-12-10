@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, withRetry } from '../../utils/gemini'
+import { videoLimiter } from '../../utils/concurrency'
 import { db, videoTasks as videoTasksTable } from '../../db'
 import {
   GenerateVideoRequestSchema,
@@ -22,7 +23,7 @@ export default defineEventHandler(async (event) => {
     hasConfig: !!body?.config,
     configKeys: body?.config ? Object.keys(body.config) : []
   }))
-  
+
   const parseResult = GenerateVideoRequestSchema.safeParse(body)
 
   if (!parseResult.success) {
@@ -131,7 +132,8 @@ async function generateVideoAsync(
       withAudio: config.withAudio
     })
 
-    let operation = await withRetry(async () => {
+    // 使用视频并发限制器控制请求
+    let operation = await videoLimiter.execute(() => withRetry(async () => {
       if (hasFrames) {
         // 使用首尾帧插值模式
         // 注意：使用插值时 durationSeconds 必须为 8 秒
@@ -165,7 +167,7 @@ async function generateVideoAsync(
           }
         })
       }
-    }, { maxRetries: 2 })
+    }, { maxRetries: 2 }))
 
     // 2. 轮询等待生成完成
     console.log(`[VideoGen] 等待视频生成完成...`)

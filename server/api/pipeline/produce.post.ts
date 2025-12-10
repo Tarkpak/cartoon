@@ -2,6 +2,13 @@ import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { db, projects as projectsTable } from '../../db'
 import { GeminiError } from '../../utils/gemini'
+import {
+  createPipelineTask,
+  updatePipelineTask,
+  updatePipelineStep,
+  getPipelineTaskWS,
+  type PipelineTaskInfo
+} from '../../utils/websocket'
 
 /**
  * 生产流水线请求 Schema
@@ -17,37 +24,20 @@ const ProducePipelineRequestSchema = z.object({
   }).optional()
 })
 
-/**
- * 流水线步骤
- */
+type PipelineOptions = {
+  generateFrames?: boolean
+  generateVideos?: boolean
+  generateTransitions?: boolean
+  generateAudio?: boolean
+  mergeOutput?: boolean
+}
+
 interface PipelineStep {
   id: string
   name: string
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'skipped'
   progress: number
-  message?: string
-  startedAt?: string
-  completedAt?: string
 }
-
-/**
- * 流水线任务状态
- */
-interface PipelineTask {
-  id: string
-  projectId: string
-  status: 'pending' | 'processing' | 'completed' | 'failed'
-  steps: PipelineStep[]
-  currentStep?: string
-  progress: number
-  outputPath?: string
-  error?: string
-  createdAt: string
-  updatedAt: string
-}
-
-// 内存中存储流水线任务状态
-const pipelineTasks = new Map<string, PipelineTask>()
 
 /**
  * 生产流水线 API
@@ -72,7 +62,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const { projectId, options } = parseResult.data
-  const opts = options || {}
+  const opts: PipelineOptions = options || {}
 
   try {
     // 2. 检查项目是否存在
@@ -98,27 +88,23 @@ export default defineEventHandler(async (event) => {
       { id: 'merge', name: '合成输出', status: opts.mergeOutput ? 'pending' : 'skipped', progress: 0 }
     ]
 
-    const task: PipelineTask = {
+    // 使用 WebSocket 工具创建任务
+    createPipelineTask({
       id: taskId,
       projectId,
       status: 'pending',
-      steps,
       progress: 0,
-      createdAt: now,
+      steps: steps.map(s => ({ id: s.id, name: s.name, status: s.status, progress: s.progress })),
       updatedAt: now
-    }
-
-    pipelineTasks.set(taskId, task)
+    })
 
     // 4. 异步启动流水线执行
-    executePipeline(taskId, projectId, opts).catch(async (error) => {
+    executePipeline(taskId, projectId, opts as PipelineOptions).catch(async (error) => {
       console.error(`[Pipeline] 任务 ${taskId} 失败:`, error)
-      const t = pipelineTasks.get(taskId)
-      if (t) {
-        t.status = 'failed'
-        t.error = error instanceof Error ? error.message : '未知错误'
-        t.updatedAt = new Date().toISOString()
-      }
+      updatePipelineTask(taskId, {
+        status: 'failed',
+        error: error instanceof Error ? error.message : '未知错误'
+      })
     })
 
     return {
@@ -143,34 +129,14 @@ export default defineEventHandler(async (event) => {
 })
 
 /**
- * 更新步骤状态
+ * 更新步骤状态（使用 WebSocket 工具）
  */
 function updateStep(
   taskId: string,
   stepId: string,
-  updates: Partial<PipelineStep>
+  updates: Partial<{ status: string, progress: number, message: string, startedAt: string, completedAt: string }>
 ) {
-  const task = pipelineTasks.get(taskId)
-  if (!task) return
-
-  const step = task.steps.find(s => s.id === stepId)
-  if (step) {
-    Object.assign(step, updates)
-  }
-
-  // 计算总进度
-  const activeSteps = task.steps.filter(s => s.status !== 'skipped')
-  const completedProgress = activeSteps.reduce((sum, s) => {
-    if (s.status === 'completed') return sum + 100
-    if (s.status === 'processing') return sum + s.progress
-    return sum
-  }, 0)
-  task.progress = Math.round(completedProgress / activeSteps.length)
-  task.updatedAt = new Date().toISOString()
-
-  if (updates.status === 'processing') {
-    task.currentStep = stepId
-  }
+  updatePipelineStep(taskId, stepId, updates)
 }
 
 /**
@@ -179,19 +145,12 @@ function updateStep(
 async function executePipeline(
   taskId: string,
   projectId: string,
-  options: {
-    generateFrames?: boolean
-    generateVideos?: boolean
-    generateTransitions?: boolean
-    generateAudio?: boolean
-    mergeOutput?: boolean
-  }
+  options: PipelineOptions
 ) {
-  const task = pipelineTasks.get(taskId)
+  const task = getPipelineTaskWS(taskId)
   if (!task) return
 
-  task.status = 'processing'
-  task.updatedAt = new Date().toISOString()
+  updatePipelineTask(taskId, { status: 'processing' })
 
   try {
     // Step 1: 解析剧本 (模拟 - 实际应从数据库获取)
@@ -240,14 +199,16 @@ async function executePipeline(
     }
 
     // 完成
-    task.status = 'completed'
-    task.progress = 100
-    task.outputPath = `/output/${projectId}/final.mp4`
-    task.updatedAt = new Date().toISOString()
+    updatePipelineTask(taskId, {
+      status: 'completed',
+      progress: 100,
+      outputPath: `/output/${projectId}/final.mp4`
+    })
 
     console.log(`[Pipeline] 任务 ${taskId} 完成`)
   } catch (error) {
-    const currentStep = task.currentStep
+    const currentTask = getPipelineTaskWS(taskId)
+    const currentStep = currentTask?.currentStep
     if (currentStep) {
       updateStep(taskId, currentStep, {
         status: 'failed',
@@ -274,6 +235,6 @@ async function simulateStep(taskId: string, stepId: string, duration: number) {
 /**
  * 获取流水线任务状态
  */
-export function getPipelineTask(taskId: string): PipelineTask | undefined {
-  return pipelineTasks.get(taskId)
+export function getPipelineTask(taskId: string): PipelineTaskInfo | undefined {
+  return getPipelineTaskWS(taskId)
 }

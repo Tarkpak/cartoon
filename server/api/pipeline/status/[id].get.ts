@@ -1,4 +1,4 @@
-import { getPipelineTask } from '../produce.post'
+import { getPipelineTaskWS } from '../../../utils/websocket'
 
 /**
  * 流水线状态查询 API
@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const task = getPipelineTask(taskId)
+  const task = getPipelineTaskWS(taskId)
 
   if (!task) {
     throw createError({
@@ -25,17 +25,6 @@ export default defineEventHandler(async (event) => {
 
   return {
     success: true,
-    task: {
-      id: task.id,
-      projectId: task.projectId,
-      status: task.status,
-      progress: task.progress,
-      currentStep: task.currentStep,
-      steps: task.steps,
-      outputPath: task.outputPath,
-      error: task.error,
-      createdAt: task.createdAt,
-      updatedAt: task.updatedAt
-    }
+    task
   }
 })

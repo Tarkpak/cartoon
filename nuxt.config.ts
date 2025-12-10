@@ -39,7 +39,8 @@ export default defineNuxtConfig({
   // Nitro 服务器配置
   nitro: {
     experimental: {
-      asyncContext: true
+      asyncContext: true,
+      websocket: true
     }
   },
 
