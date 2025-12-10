@@ -151,7 +151,15 @@ async function generateTTS(config: {
     ? (emotionAdjustments[config.emotion] || emotionAdjustments.neutral)
     : emotionAdjustments.neutral
 
-  console.log(`[AudioGen] 生成 TTS: "${config.text.slice(0, 50)}..." 角色: ${config.characterName || '默认'}`)
+  console.log('[AudioGen] TTS 请求参数:', {
+    model: TextModels.GENERAL,
+    textLength: config.text.length,
+    textPreview: config.text.slice(0, 100) + (config.text.length > 100 ? '...' : ''),
+    characterName: config.characterName || '默认',
+    voiceName: voiceConfig.voiceName,
+    emotion: config.emotion || 'neutral',
+    language: config.language || 'zh-CN'
+  })
 
   const result = await withRetry(async () => {
     const response = await client.models.generateContent({

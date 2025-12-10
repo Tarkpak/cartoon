@@ -243,6 +243,20 @@ async function generateTransitionVideoAsync(
 
     const prompt = buildTransitionPrompt(fromScene.sceneId, toScene.sceneId, transitionType)
 
+    console.log('[SceneChain] Veo API 转场视频请求参数:', {
+      model: VideoModels.VEO_3_1,
+      promptLength: prompt.length,
+      promptPreview: prompt.slice(0, 200) + (prompt.length > 200 ? '...' : ''),
+      fromSceneId: fromScene.sceneId,
+      toSceneId: toScene.sceneId,
+      transitionType,
+      duration,
+      fromFrameMimeType: fromScene.mimeType || 'image/png',
+      toFrameMimeType: toScene.mimeType || 'image/png',
+      aspectRatio: '16:9',
+      resolution: '1080p'
+    })
+
     let operation = await withRetry(async () => {
       return await client.models.generateVideos({
         model: VideoModels.VEO_3_1,

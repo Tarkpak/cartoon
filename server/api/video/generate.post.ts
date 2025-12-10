@@ -102,6 +102,18 @@ async function generateVideoAsync(
     // 根据是否有首尾帧决定生成方式
     const hasFrames = config.firstFrame && config.lastFrame
 
+    console.log('[VideoGen] Veo API 请求参数:', {
+      model: VideoModels.VEO_3_1,
+      promptLength: config.prompt.length,
+      promptPreview: config.prompt.slice(0, 200) + (config.prompt.length > 200 ? '...' : ''),
+      hasFirstFrame: !!config.firstFrame,
+      hasLastFrame: !!config.lastFrame,
+      aspectRatio: config.aspectRatio,
+      duration: config.duration,
+      resolution: config.resolution,
+      withAudio: config.withAudio
+    })
+
     let operation = await withRetry(async () => {
       if (hasFrames) {
         // 使用首尾帧插值模式

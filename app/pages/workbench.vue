@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileText, Users, Video, Music, Sparkles, Plus, Pencil, Trash2, Wrench, Loader2 } from 'lucide-vue-next'
+import { FileText, Users, Video, Music, Sparkles, Plus, Pencil, Trash2, Loader2, Play, Image, Check, AlertCircle } from 'lucide-vue-next'
 
 // 生成工作台页面
 definePageMeta({
@@ -11,15 +11,58 @@ const projectId = computed(() => route.query.project as string | undefined)
 
 const activeTab = ref('script')
 const scriptText = ref('')
-const scenes = ref<Array<{
+
+// 场景数据
+interface SceneData {
   id: string
   title: string
   description: string
-  characters: string[]
+  characters: Array<{ name: string; appearance?: string; emotion?: string }>
+  dialogues: Array<{ character: string; text: string; emotion?: string }>
   duration: number
+  setting?: { location: string; timeOfDay: string }
   active: boolean
-}>>([])
+  // 生成状态
+  firstFrame?: string
+  lastFrame?: string
+  videoUrl?: string
+  frameStatus: 'pending' | 'generating' | 'done' | 'error'
+  videoStatus: 'pending' | 'generating' | 'done' | 'error'
+}
+
+const scenes = ref<SceneData[]>([])
 const parsing = ref(false)
+
+// 角色数据
+interface CharacterData {
+  id: string
+  name: string
+  appearance: string
+  role: string
+  baseImage?: string
+  generating: boolean
+}
+const characters = ref<CharacterData[]>([])
+
+// 音频配置
+const audioConfig = ref({
+  enabled: true,
+  bgmEnabled: false,
+  voices: {} as Record<string, string>
+})
+
+// 流水线状态
+const pipelineStatus = ref<{
+  running: boolean
+  taskId?: string
+  progress: number
+  currentStep: string
+  error?: string
+}>({
+  running: false,
+  progress: 0,
+  currentStep: ''
+})
 
 const tabs = [
   { key: 'script', label: '剧本编辑', icon: FileText },
@@ -28,6 +71,7 @@ const tabs = [
   { key: 'audio', label: '音频配置', icon: Music }
 ]
 
+// ========== 剧本解析 ==========
 async function parseScript() {
   if (!scriptText.value.trim()) return
 
@@ -41,10 +85,12 @@ async function parseScript() {
           id: string
           title?: string
           description: string
-          characters: Array<{ name: string }>
+          characters: Array<{ name: string; appearance?: string; emotion?: string }>
+          dialogues?: Array<{ character: string; text: string; emotion?: string }>
           duration: number
-          setting?: { location: string, timeOfDay: string }
+          setting?: { location: string; timeOfDay: string }
         }>
+        characters?: Array<{ name: string; description?: string; role?: string }>
       }
     }>('/api/script/parse', {
       method: 'POST',
@@ -52,14 +98,35 @@ async function parseScript() {
     })
 
     if (response.success && response.data?.scenes) {
+      // 更新场景
       scenes.value = response.data.scenes.map((s, i) => ({
         id: s.id || `scene_${i + 1}`,
         title: s.title || `${s.setting?.location || '场景'} - ${s.setting?.timeOfDay || ''}`,
         description: s.description,
-        characters: s.characters?.map(c => c.name) || [],
+        characters: s.characters || [],
+        dialogues: s.dialogues || [],
         duration: s.duration || 8,
-        active: i === 0
+        setting: s.setting,
+        active: i === 0,
+        frameStatus: 'pending' as const,
+        videoStatus: 'pending' as const
       }))
+
+      // 提取角色
+      const charNames = new Set<string>()
+      scenes.value.forEach(s => s.characters.forEach(c => charNames.add(c.name)))
+      
+      characters.value = Array.from(charNames).map((name, i) => {
+        const charInfo = response.data.characters?.find(c => c.name === name)
+        const sceneChar = scenes.value.flatMap(s => s.characters).find(c => c.name === name)
+        return {
+          id: `char_${i + 1}`,
+          name,
+          appearance: sceneChar?.appearance || charInfo?.description || '',
+          role: charInfo?.role || 'supporting',
+          generating: false
+        }
+      })
     }
   } catch (e) {
     console.error('解析失败:', e)
@@ -67,6 +134,192 @@ async function parseScript() {
     parsing.value = false
   }
 }
+
+// ========== 角色生成 ==========
+async function generateCharacter(char: CharacterData) {
+  char.generating = true
+  try {
+    const response = await $fetch<{
+      success: boolean
+      asset: { baseImage: string }
+    }>('/api/character/generate', {
+      method: 'POST',
+      body: {
+        character: {
+          id: char.id,
+          name: char.name,
+          appearance: char.appearance || `${char.name}，动漫风格角色`
+        },
+        style: '日式动漫',
+        generateExpressions: false
+      }
+    })
+    if (response.success) {
+      char.baseImage = response.asset.baseImage
+    }
+  } catch (e) {
+    console.error('角色生成失败:', e)
+  } finally {
+    char.generating = false
+  }
+}
+
+// ========== 首尾帧生成 ==========
+async function generateFrames(scene: SceneData) {
+  scene.frameStatus = 'generating'
+  try {
+    const response = await $fetch<{
+      success: boolean
+      firstFrame: { imageData: string }
+      lastFrame: { imageData: string }
+    }>('/api/frame/generate', {
+      method: 'POST',
+      body: {
+        scene: {
+          id: scene.id,
+          title: scene.title,
+          description: scene.description,
+          characters: scene.characters,
+          dialogues: scene.dialogues,
+          duration: scene.duration,
+          setting: scene.setting
+        },
+        style: '日式动漫'
+      }
+    })
+    if (response.success) {
+      scene.firstFrame = response.firstFrame.imageData
+      scene.lastFrame = response.lastFrame.imageData
+      scene.frameStatus = 'done'
+    }
+  } catch (e) {
+    console.error('首尾帧生成失败:', e)
+    scene.frameStatus = 'error'
+  }
+}
+
+// ========== 视频生成 ==========
+async function generateVideo(scene: SceneData) {
+  if (!scene.firstFrame || !scene.lastFrame) {
+    await generateFrames(scene)
+  }
+  if (scene.frameStatus !== 'done') return
+
+  scene.videoStatus = 'generating'
+  try {
+    const response = await $fetch<{
+      success: boolean
+      taskId: string
+    }>('/api/video/generate', {
+      method: 'POST',
+      body: {
+        sceneId: scene.id,
+        prompt: scene.description,
+        firstFrame: scene.firstFrame,
+        lastFrame: scene.lastFrame,
+        duration: scene.duration,
+        resolution: '720p',
+        generateAudio: audioConfig.value.enabled
+      }
+    })
+    
+    if (response.success && response.taskId) {
+      // 轮询视频状态
+      await pollVideoStatus(scene, response.taskId)
+    }
+  } catch (e) {
+    console.error('视频生成失败:', e)
+    scene.videoStatus = 'error'
+  }
+}
+
+async function pollVideoStatus(scene: SceneData, taskId: string) {
+  const maxAttempts = 60
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, 5000))
+    try {
+      const status = await $fetch<{
+        status: string
+        videoUrl?: string
+      }>(`/api/video/status/${taskId}`)
+      
+      if (status.status === 'completed' && status.videoUrl) {
+        scene.videoUrl = status.videoUrl
+        scene.videoStatus = 'done'
+        return
+      } else if (status.status === 'failed') {
+        scene.videoStatus = 'error'
+        return
+      }
+    } catch (e) {
+      console.error('状态查询失败:', e)
+    }
+  }
+  scene.videoStatus = 'error'
+}
+
+// ========== 开始生成流水线 ==========
+async function startPipeline() {
+  if (scenes.value.length === 0) {
+    alert('请先解析剧本')
+    return
+  }
+
+  pipelineStatus.value = {
+    running: true,
+    progress: 0,
+    currentStep: '初始化...'
+  }
+
+  try {
+    // 步骤1: 生成角色 (20%)
+    pipelineStatus.value.currentStep = '生成角色立绘...'
+    for (const char of characters.value) {
+      if (!char.baseImage) {
+        await generateCharacter(char)
+      }
+    }
+    pipelineStatus.value.progress = 20
+
+    // 步骤2: 生成首尾帧 (50%)
+    pipelineStatus.value.currentStep = '生成首尾帧...'
+    for (let i = 0; i < scenes.value.length; i++) {
+      const scene = scenes.value[i]
+      if (scene && scene.frameStatus !== 'done') {
+        await generateFrames(scene)
+      }
+      pipelineStatus.value.progress = 20 + Math.round((i + 1) / scenes.value.length * 30)
+    }
+
+    // 步骤3: 生成视频 (90%)
+    pipelineStatus.value.currentStep = '生成场景视频...'
+    for (let i = 0; i < scenes.value.length; i++) {
+      const scene = scenes.value[i]
+      if (scene && scene.videoStatus !== 'done') {
+        await generateVideo(scene)
+      }
+      pipelineStatus.value.progress = 50 + Math.round((i + 1) / scenes.value.length * 40)
+    }
+
+    // 完成
+    pipelineStatus.value.progress = 100
+    pipelineStatus.value.currentStep = '生成完成!'
+    
+  } catch (e: any) {
+    pipelineStatus.value.error = e.message || '生成失败'
+    pipelineStatus.value.currentStep = '生成失败'
+  } finally {
+    pipelineStatus.value.running = false
+  }
+}
+
+// 选中场景
+function selectScene(scene: SceneData) {
+  scenes.value.forEach(s => s.active = false)
+  scene.active = true
+}
+
+const selectedScene = computed(() => scenes.value.find(s => s.active))
 </script>
 
 <template>
@@ -80,11 +333,21 @@ async function parseScript() {
           {{ projectId ? `项目 ${projectId}` : '新项目' }}
         </p>
       </div>
-      <div class="flex space-x-3">
-        <Button variant="outline">
+      <div class="flex items-center space-x-3">
+        <!-- 流水线进度 -->
+        <div v-if="pipelineStatus.running" class="flex items-center space-x-2 text-sm">
+          <Loader2 class="w-4 h-4 animate-spin" />
+          <span>{{ pipelineStatus.currentStep }}</span>
+          <span class="text-muted-foreground">{{ pipelineStatus.progress }}%</span>
+        </div>
+        <Button variant="outline" :disabled="pipelineStatus.running">
           保存草稿
         </Button>
-        <Button>开始生成</Button>
+        <Button @click="startPipeline" :disabled="scenes.length === 0 || pipelineStatus.running">
+          <Play v-if="!pipelineStatus.running" class="w-4 h-4 mr-2" />
+          <Loader2 v-else class="w-4 h-4 mr-2 animate-spin" />
+          {{ pipelineStatus.running ? '生成中...' : '开始生成' }}
+        </Button>
       </div>
     </div>
 
@@ -196,10 +459,10 @@ async function parseScript() {
                 <div class="flex flex-wrap gap-2">
                   <Badge
                     v-for="char in scene.characters"
-                    :key="char"
+                    :key="char.name"
                     variant="outline"
                   >
-                    {{ char }}
+                    {{ char.name }}
                   </Badge>
                   <Badge variant="outline">
                     {{ scene.duration }}秒
@@ -210,15 +473,229 @@ async function parseScript() {
           </div>
         </div>
 
-        <!-- 其他标签页占位 -->
-        <div
-          v-else
-          class="text-center py-12 text-muted-foreground"
-        >
-          <Wrench class="w-12 h-12 mx-auto mb-4" />
-          <p>{{ tabs.find(t => t.key === activeTab)?.label }} 功能开发中...</p>
+        <!-- 角色管理面板 -->
+        <div v-else-if="activeTab === 'characters'" class="space-y-6">
+          <div v-if="characters.length === 0" class="text-center py-12 text-muted-foreground">
+            <Users class="w-12 h-12 mx-auto mb-4" />
+            <p>请先在剧本编辑中解析文本，自动提取角色</p>
+          </div>
+          <div v-else class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div
+              v-for="char in characters"
+              :key="char.id"
+              class="border rounded-xl p-4"
+            >
+              <div class="flex items-start space-x-4">
+                <div class="w-20 h-20 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg flex items-center justify-center overflow-hidden">
+                  <img
+                    v-if="char.baseImage"
+                    :src="`data:image/png;base64,${char.baseImage}`"
+                    class="w-full h-full object-cover"
+                  />
+                  <Users v-else class="w-8 h-8 text-muted-foreground" />
+                </div>
+                <div class="flex-1">
+                  <h4 class="font-semibold">{{ char.name }}</h4>
+                  <p class="text-sm text-muted-foreground line-clamp-2">
+                    {{ char.appearance || '暂无外貌描述' }}
+                  </p>
+                  <Badge variant="outline" class="mt-2">
+                    {{ char.role === 'protagonist' ? '主角' : char.role === 'antagonist' ? '反派' : '配角' }}
+                  </Badge>
+                </div>
+              </div>
+              <div class="mt-4 flex space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="flex-1"
+                  @click="generateCharacter(char)"
+                  :disabled="char.generating"
+                >
+                  <Loader2 v-if="char.generating" class="w-4 h-4 mr-1 animate-spin" />
+                  <Sparkles v-else class="w-4 h-4 mr-1" />
+                  {{ char.baseImage ? '重新生成' : '生成立绘' }}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 视频生成面板 -->
+        <div v-else-if="activeTab === 'video'" class="grid lg:grid-cols-3 gap-6">
+          <!-- 场景列表 -->
+          <div class="space-y-4">
+            <h3 class="font-semibold">场景队列</h3>
+            <div v-if="scenes.length === 0" class="text-center py-8 text-muted-foreground">
+              <Video class="w-8 h-8 mx-auto mb-2" />
+              <p class="text-sm">请先解析剧本</p>
+            </div>
+            <div v-else class="space-y-2 max-h-[400px] overflow-y-auto">
+              <div
+                v-for="(scene, idx) in scenes"
+                :key="scene.id"
+                class="p-3 border rounded-lg cursor-pointer transition"
+                :class="scene.active ? 'border-primary bg-accent' : 'hover:border-primary/50'"
+                @click="selectScene(scene)"
+              >
+                <div class="flex items-center justify-between">
+                  <span class="font-medium text-sm">场景 {{ idx + 1 }}</span>
+                  <div class="flex items-center space-x-1">
+                    <Check v-if="scene.frameStatus === 'done'" class="w-4 h-4 text-green-500" />
+                    <Loader2 v-else-if="scene.frameStatus === 'generating'" class="w-4 h-4 animate-spin text-purple-500" />
+                    <AlertCircle v-else-if="scene.frameStatus === 'error'" class="w-4 h-4 text-red-500" />
+                    <div v-else class="w-4 h-4 rounded-full bg-muted" />
+                  </div>
+                </div>
+                <p class="text-xs text-muted-foreground mt-1 line-clamp-2">{{ scene.title }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 首尾帧预览 -->
+          <div class="space-y-4">
+            <h3 class="font-semibold">首尾帧预览</h3>
+            <div v-if="selectedScene" class="space-y-4">
+              <div>
+                <div class="text-xs text-muted-foreground mb-2">第一帧</div>
+                <div class="aspect-video bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg flex items-center justify-center overflow-hidden">
+                  <img
+                    v-if="selectedScene.firstFrame"
+                    :src="`data:image/png;base64,${selectedScene.firstFrame}`"
+                    class="w-full h-full object-cover"
+                  />
+                  <Image v-else class="w-8 h-8 text-muted-foreground" />
+                </div>
+              </div>
+              <div>
+                <div class="text-xs text-muted-foreground mb-2">最后一帧</div>
+                <div class="aspect-video bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg flex items-center justify-center overflow-hidden">
+                  <img
+                    v-if="selectedScene.lastFrame"
+                    :src="`data:image/png;base64,${selectedScene.lastFrame}`"
+                    class="w-full h-full object-cover"
+                  />
+                  <Image v-else class="w-8 h-8 text-muted-foreground" />
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                class="w-full"
+                @click="generateFrames(selectedScene)"
+                :disabled="selectedScene.frameStatus === 'generating'"
+              >
+                <Loader2 v-if="selectedScene.frameStatus === 'generating'" class="w-4 h-4 mr-2 animate-spin" />
+                <Sparkles v-else class="w-4 h-4 mr-2" />
+                {{ selectedScene.firstFrame ? '重新生成' : '生成首尾帧' }}
+              </Button>
+            </div>
+            <div v-else class="text-center py-8 text-muted-foreground">
+              <p class="text-sm">请选择一个场景</p>
+            </div>
+          </div>
+
+          <!-- 视频预览 -->
+          <div class="space-y-4">
+            <h3 class="font-semibold">视频预览</h3>
+            <div v-if="selectedScene" class="space-y-4">
+              <div class="aspect-video bg-gray-900 rounded-lg flex items-center justify-center overflow-hidden">
+                <video
+                  v-if="selectedScene.videoUrl"
+                  :src="selectedScene.videoUrl"
+                  controls
+                  class="w-full h-full"
+                />
+                <div v-else class="text-center text-gray-400">
+                  <Play class="w-12 h-12 mx-auto mb-2" />
+                  <p class="text-sm">等待视频生成</p>
+                </div>
+              </div>
+              <Button
+                class="w-full"
+                @click="generateVideo(selectedScene)"
+                :disabled="selectedScene.videoStatus === 'generating' || selectedScene.frameStatus !== 'done'"
+              >
+                <Loader2 v-if="selectedScene.videoStatus === 'generating'" class="w-4 h-4 mr-2 animate-spin" />
+                <Play v-else class="w-4 h-4 mr-2" />
+                {{ selectedScene.videoUrl ? '重新生成视频' : '生成视频' }}
+              </Button>
+              <p v-if="selectedScene.frameStatus !== 'done'" class="text-xs text-muted-foreground text-center">
+                请先生成首尾帧
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 音频配置面板 -->
+        <div v-else-if="activeTab === 'audio'" class="max-w-2xl mx-auto space-y-6">
+          <div class="space-y-4">
+            <h3 class="font-semibold">音频设置</h3>
+            <div class="flex items-center justify-between p-4 border rounded-lg">
+              <div>
+                <div class="font-medium">启用配音</div>
+                <p class="text-sm text-muted-foreground">为角色对话生成 AI 配音</p>
+              </div>
+              <Switch v-model:checked="audioConfig.enabled" />
+            </div>
+            <div class="flex items-center justify-between p-4 border rounded-lg">
+              <div>
+                <div class="font-medium">背景音乐</div>
+                <p class="text-sm text-muted-foreground">自动生成氛围背景音乐</p>
+              </div>
+              <Switch v-model:checked="audioConfig.bgmEnabled" />
+            </div>
+          </div>
+
+          <div v-if="audioConfig.enabled && characters.length > 0" class="space-y-4">
+            <h3 class="font-semibold">角色配音</h3>
+            <div class="space-y-3">
+              <div
+                v-for="char in characters"
+                :key="char.id"
+                class="flex items-center justify-between p-4 border rounded-lg"
+              >
+                <div class="flex items-center space-x-3">
+                  <div class="w-10 h-10 bg-gradient-to-br from-purple-100 to-pink-100 rounded-full flex items-center justify-center">
+                    <span class="text-sm font-medium">{{ char.name[0] }}</span>
+                  </div>
+                  <span class="font-medium">{{ char.name }}</span>
+                </div>
+                <select
+                  v-model="audioConfig.voices[char.name]"
+                  class="h-9 px-3 rounded-md border border-input bg-background text-sm"
+                >
+                  <option value="">自动选择</option>
+                  <option value="male_1">男声 1</option>
+                  <option value="male_2">男声 2</option>
+                  <option value="female_1">女声 1</option>
+                  <option value="female_2">女声 2</option>
+                </select>
+              </div>
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>
+
+    <!-- 流水线进度条 -->
+    <div v-if="pipelineStatus.running || pipelineStatus.progress === 100" class="mt-6">
+      <Card>
+        <CardContent class="pt-6">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-medium">{{ pipelineStatus.currentStep }}</span>
+            <span class="text-sm text-muted-foreground">{{ pipelineStatus.progress }}%</span>
+          </div>
+          <div class="h-2 bg-muted rounded-full overflow-hidden">
+            <div
+              class="h-full bg-primary transition-all duration-300"
+              :style="{ width: `${pipelineStatus.progress}%` }"
+            />
+          </div>
+          <p v-if="pipelineStatus.error" class="mt-2 text-sm text-destructive">
+            {{ pipelineStatus.error }}
+          </p>
+        </CardContent>
+      </Card>
+    </div>
   </div>
 </template>

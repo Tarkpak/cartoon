@@ -80,7 +80,7 @@ export function getGeminiClient(): GoogleGenAI {
  * 文本生成模型配置
  */
 export const TextModels = {
-  /** 剧本解析 - 强推理能力 */
+  /** 剧本解析 - 强推理能力 (备用: gemini-3-pro-preview) */
   SCRIPT_PARSER: 'gemini-3-pro-preview',
   /** 通用任务 */
   GENERAL: 'gemini-2.5-flash'
@@ -251,6 +251,15 @@ export async function generateText(options: {
   const client = getGeminiClient()
   const model = options.model || TextModels.GENERAL
 
+  console.log('[Gemini] generateText 请求参数:', {
+    model,
+    promptLength: options.prompt.length,
+    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
+    systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
+    temperature: options.temperature,
+    maxRetries: options.maxRetries
+  })
+
   return withRetry(async () => {
     const response = await client.models.generateContent({
       model,
@@ -277,6 +286,18 @@ export async function generateJSON<T>(options: {
 }): Promise<T> {
   const client = getGeminiClient()
   const model = options.model || TextModels.GENERAL
+
+  console.log('[Gemini] generateJSON 请求参数:', {
+    model,
+    promptLength: options.prompt.length,
+    // promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
+    // systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
+   
+    promptPreview: options.prompt,
+    systemInstruction: options.systemInstruction,
+    temperature: options.temperature ?? 0.2,
+    maxRetries: options.maxRetries
+  })
 
   return withRetry(async () => {
     const response = await client.models.generateContent({
@@ -305,6 +326,15 @@ export async function generateImage(options: {
 }): Promise<{ imageData: string, mimeType: string, text?: string }> {
   const client = getGeminiClient()
   const model = options.model || ImageModels.HIGH_QUALITY
+
+  console.log('[Gemini] generateImage 请求参数:', {
+    model,
+    promptLength: options.prompt.length,
+    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
+    hasReferenceImage: !!options.referenceImage,
+    referenceImageMimeType: options.referenceImage?.mimeType,
+    maxRetries: options.maxRetries
+  })
 
   return withRetry(async () => {
     // 构建请求内容
