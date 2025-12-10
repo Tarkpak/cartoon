@@ -80,8 +80,8 @@ export function getGeminiClient(): GoogleGenAI {
  * 文本生成模型配置
  */
 export const TextModels = {
-  /** 剧本解析 - 强推理能力 (备用: gemini-3-pro-preview) */
-  SCRIPT_PARSER: 'gemini-3-pro-preview',
+  /** 剧本解析 - 使用 gemini-2.5-flash (gemini-3-pro-preview 无免费层级) */
+  SCRIPT_PARSER: 'gemini-2.5-flash',
   /** 通用任务 */
   GENERAL: 'gemini-2.5-flash'
 } as const

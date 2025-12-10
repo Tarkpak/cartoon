@@ -65,7 +65,7 @@ export const characters = sqliteTable('characters', {
 
 export const videoTasks = sqliteTable('video_tasks', {
   id: text('id').primaryKey(),
-  sceneId: text('scene_id').references(() => scenes.id, { onDelete: 'cascade' }),
+  sceneId: text('scene_id'), // 移除外键约束，允许临时场景ID
   status: text('status', { enum: ['pending', 'processing', 'completed', 'failed'] }).default('pending'),
   progress: integer('progress').default(0),
   config: text('config'), // JSON 存储 VideoGenerationConfig

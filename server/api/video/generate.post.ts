@@ -17,9 +17,16 @@ export default defineEventHandler(async (event) => {
 
   // 1. 解析并验证请求
   const body = await readBody(event)
+  console.log('[VideoGen] 收到请求:', JSON.stringify({
+    sceneId: body?.sceneId,
+    hasConfig: !!body?.config,
+    configKeys: body?.config ? Object.keys(body.config) : []
+  }))
+  
   const parseResult = GenerateVideoRequestSchema.safeParse(body)
 
   if (!parseResult.success) {
+    console.error('[VideoGen] 请求验证失败:', parseResult.error.issues)
     throw createError({
       statusCode: 400,
       statusMessage: '请求参数无效',
@@ -33,15 +40,25 @@ export default defineEventHandler(async (event) => {
   const taskId = `video_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const now = new Date().toISOString()
 
-  await db.insert(videoTasksTable).values({
-    id: taskId,
-    sceneId,
-    status: 'pending',
-    progress: 0,
-    config: JSON.stringify(config),
-    createdAt: now,
-    updatedAt: now
-  })
+  try {
+    await db.insert(videoTasksTable).values({
+      id: taskId,
+      sceneId,
+      status: 'pending',
+      progress: 0,
+      config: JSON.stringify(config),
+      createdAt: now,
+      updatedAt: now
+    })
+    console.log('[VideoGen] 任务创建成功:', taskId)
+  } catch (dbError) {
+    console.error('[VideoGen] 数据库插入失败:', dbError)
+    throw createError({
+      statusCode: 500,
+      statusMessage: '任务创建失败',
+      message: dbError instanceof Error ? dbError.message : '数据库错误'
+    })
+  }
 
   // 3. 异步启动视频生成 (不阻塞响应)
   generateVideoAsync(taskId, sceneId, config).catch(async (error) => {
@@ -117,6 +134,8 @@ async function generateVideoAsync(
     let operation = await withRetry(async () => {
       if (hasFrames) {
         // 使用首尾帧插值模式
+        // 注意：使用插值时 durationSeconds 必须为 8 秒
+        // 参考文档：https://ai.google.dev/gemini-api/docs/video#using-first-and-last-video-frames
         return await client.models.generateVideos({
           model: VideoModels.VEO_3_1,
           prompt: config.prompt,
@@ -130,9 +149,8 @@ async function generateVideoAsync(
               mimeType: 'image/png'
             },
             aspectRatio: config.aspectRatio,
-            durationSeconds: config.duration,
-            resolution: config.resolution,
-            generateAudio: config.withAudio
+            durationSeconds: 8, // 插值模式必须为 8 秒
+            resolution: config.resolution
           }
         })
       } else {
@@ -143,8 +161,7 @@ async function generateVideoAsync(
           config: {
             aspectRatio: config.aspectRatio,
             durationSeconds: config.duration,
-            resolution: config.resolution,
-            generateAudio: config.withAudio
+            resolution: config.resolution
           }
         })
       }

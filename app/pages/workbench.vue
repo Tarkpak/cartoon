@@ -214,12 +214,15 @@ async function generateVideo(scene: SceneData) {
       method: 'POST',
       body: {
         sceneId: scene.id,
-        prompt: scene.description,
-        firstFrame: scene.firstFrame,
-        lastFrame: scene.lastFrame,
-        duration: scene.duration,
-        resolution: '720p',
-        generateAudio: audioConfig.value.enabled
+        config: {
+          prompt: scene.description,
+          firstFrame: scene.firstFrame,
+          lastFrame: scene.lastFrame,
+          duration: scene.duration || 8,
+          resolution: '720p',
+          aspectRatio: '16:9',
+          withAudio: audioConfig.value.enabled
+        }
       }
     })
     

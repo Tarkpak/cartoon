@@ -19,6 +19,9 @@ const sqlite = new Database(DB_PATH)
 // 启用 WAL 模式提高并发性能
 sqlite.pragma('journal_mode = WAL')
 
+// 禁用外键约束检查 (允许临时场景ID)
+sqlite.pragma('foreign_keys = OFF')
+
 // 创建 Drizzle 实例
 export const db = drizzle(sqlite, { schema })
 
@@ -92,11 +95,11 @@ export function initDatabase() {
     )
   `)
 
-  // 创建视频任务表
+  // 创建视频任务表 (移除外键约束以支持临时场景ID)
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS video_tasks (
       id TEXT PRIMARY KEY,
-      scene_id TEXT REFERENCES scenes(id) ON DELETE CASCADE,
+      scene_id TEXT,
       status TEXT DEFAULT 'pending',
       progress INTEGER DEFAULT 0,
       config TEXT,
