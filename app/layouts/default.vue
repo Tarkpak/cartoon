@@ -1,20 +1,18 @@
 <script setup lang="ts">
-import { Home, Folder, FileText, Users, Video, Settings } from 'lucide-vue-next'
+import { Home, Folder, Settings } from 'lucide-vue-next'
 
 // 默认布局
 const route = useRoute()
 
 const navigation = [
   { name: '首页概览', path: '/', icon: Home },
-  { name: '项目管理', path: '/projects', icon: Folder },
-  { name: '生成工作台', path: '/workbench', icon: FileText },
-  { name: '角色管理', path: '/characters', icon: Users },
-  { name: '视频生成', path: '/video', icon: Video }
+  { name: '项目管理', path: '/projects', icon: Folder }
 ]
 
-function isActive(path: string) {
-  return route.path === path
-}
+// 路由匹配
+const activeStates = computed(() => {
+  return navigation.map(item => route.path === item.path)
+})
 </script>
 
 <template>
@@ -34,11 +32,11 @@ function isActive(path: string) {
       <!-- 导航菜单 -->
       <nav class="flex-1 p-4 space-y-2">
         <NuxtLink
-          v-for="item in navigation"
+          v-for="(item, index) in navigation"
           :key="item.path"
           :to="item.path"
           class="flex items-center space-x-3 px-4 py-3 rounded-xl transition"
-          :class="isActive(item.path)
+          :class="activeStates[index]
             ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
             : 'text-muted-foreground hover:bg-accent'"
         >

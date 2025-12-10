@@ -201,7 +201,7 @@ function fixParsedResult(result: unknown): ParsedScript {
       duration: typeof scene.duration === 'number'
         ? Math.min(8, Math.max(4, scene.duration))
         : 8,
-      narration: scene.narration
+      narration: scene.narration ? String(scene.narration) : undefined
     }
   }) as Scene[]
 

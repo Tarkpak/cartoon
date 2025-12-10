@@ -7,9 +7,29 @@ definePageMeta({
 })
 
 const route = useRoute()
+const router = useRouter()
 const projectId = computed(() => route.query.project as string | undefined)
 
-const activeTab = ref('script')
+// 支持 URL 参数切换标签页
+const validTabs = ['script', 'characters', 'video', 'audio']
+const activeTab = ref((route.query.tab as string) || 'script')
+
+// 监听 URL 参数变化
+watch(() => route.query.tab, (newTab) => {
+  if (newTab && validTabs.includes(newTab as string)) {
+    activeTab.value = newTab as string
+  } else if (!newTab) {
+    activeTab.value = 'script'
+  }
+})
+
+// 切换标签时更新 URL
+function setActiveTab(tab: string) {
+  activeTab.value = tab
+  router.replace({
+    query: { ...route.query, tab: tab === 'script' ? undefined : tab }
+  })
+}
 const scriptText = ref('')
 
 // 场景数据
@@ -241,16 +261,33 @@ async function pollVideoStatus(scene: SceneData, taskId: string) {
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 5000))
     try {
-      const status = await $fetch<{
-        status: string
-        videoUrl?: string
+      const response = await $fetch<{
+        success: boolean
+        task: {
+          status: string
+          result?: {
+            videoData?: string
+          }
+        }
       }>(`/api/video/status/${taskId}`)
-      
-      if (status.status === 'completed' && status.videoUrl) {
-        scene.videoUrl = status.videoUrl
+
+      if (response.task.status === 'completed' && response.task.result?.videoData) {
+        const videoData = response.task.result.videoData
+        // 格式化视频 URL
+        if (videoData.startsWith('data:') || videoData.startsWith('http')) {
+          scene.videoUrl = videoData
+        } else if (videoData.startsWith('ref:')) {
+          // 引用类型，需要单独下载
+          console.warn('视频为引用类型，暂不支持播放')
+          scene.videoStatus = 'error'
+          return
+        } else {
+          // 假设是 base64 数据
+          scene.videoUrl = `data:video/mp4;base64,${videoData}`
+        }
         scene.videoStatus = 'done'
         return
-      } else if (status.status === 'failed') {
+      } else if (response.task.status === 'failed') {
         scene.videoStatus = 'error'
         return
       }
@@ -323,6 +360,152 @@ function selectScene(scene: SceneData) {
 }
 
 const selectedScene = computed(() => scenes.value.find(s => s.active))
+
+// ========== 项目持久化 ==========
+const projectName = ref('新项目')
+const saving = ref(false)
+const loading = ref(false)
+
+// 加载项目数据
+async function loadProject(id: string) {
+  loading.value = true
+  try {
+    const response = await $fetch<{
+      success: boolean
+      data: {
+        project: { name: string; description?: string }
+        script?: { rawText: string }
+        scenes: Array<{
+          id: string
+          title?: string
+          description: string
+          setting?: { location: string; timeOfDay: string; mood?: string }
+          characters: Array<{ name: string; appearance?: string; emotion?: string }>
+          dialogues?: Array<{ character: string; text: string; emotion?: string }>
+          duration: number
+          firstFrame?: string
+          lastFrame?: string
+          status?: string
+        }>
+        characters: Array<{
+          id: string
+          name: string
+          role?: string
+          appearance: string
+          baseImage?: string
+        }>
+      }
+    }>(`/api/project/${id}`)
+
+    if (response.success && response.data) {
+      projectName.value = response.data.project.name
+      scriptText.value = response.data.script?.rawText || ''
+
+      // 加载场景
+      scenes.value = response.data.scenes.map((s, i) => ({
+        id: s.id,
+        title: s.title || `场景 ${i + 1}`,
+        description: s.description,
+        characters: s.characters || [],
+        dialogues: s.dialogues || [],
+        duration: s.duration || 8,
+        setting: s.setting,
+        active: i === 0,
+        firstFrame: s.firstFrame,
+        lastFrame: s.lastFrame,
+        frameStatus: s.firstFrame ? 'done' as const : 'pending' as const,
+        videoStatus: 'pending' as const
+      }))
+
+      // 加载角色
+      characters.value = response.data.characters.map(c => ({
+        id: c.id,
+        name: c.name,
+        appearance: c.appearance,
+        role: c.role || 'supporting',
+        baseImage: c.baseImage,
+        generating: false
+      }))
+    }
+  } catch (e) {
+    console.error('加载项目失败:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 保存项目
+async function saveProject() {
+  saving.value = true
+  try {
+    let id = projectId.value
+
+    // 如果没有项目ID，先创建项目
+    if (!id) {
+      const createRes = await $fetch<{
+        success: boolean
+        project: { id: string }
+      }>('/api/project/create', {
+        method: 'POST',
+        body: {
+          title: projectName.value || '未命名项目',
+          description: ''
+        }
+      })
+      if (createRes.success) {
+        id = createRes.project.id
+        // 更新 URL 添加项目ID
+        router.replace({ query: { ...route.query, project: id } })
+      }
+    }
+
+    if (!id) {
+      throw new Error('创建项目失败')
+    }
+
+    // 保存项目数据
+    await $fetch(`/api/project/${id}`, {
+      method: 'PUT',
+      body: {
+        name: projectName.value,
+        rawText: scriptText.value,
+        scenes: scenes.value.map(s => ({
+          id: s.id,
+          title: s.title,
+          description: s.description,
+          setting: s.setting,
+          characters: s.characters,
+          dialogues: s.dialogues,
+          duration: s.duration,
+          firstFrame: s.firstFrame,
+          lastFrame: s.lastFrame,
+          status: s.frameStatus === 'done' ? 'frames_ready' : 'pending'
+        })),
+        characters: characters.value.map(c => ({
+          id: c.id,
+          name: c.name,
+          role: c.role,
+          appearance: c.appearance,
+          baseImage: c.baseImage
+        }))
+      }
+    })
+
+    console.log('项目保存成功')
+  } catch (e) {
+    console.error('保存项目失败:', e)
+    alert('保存失败，请重试')
+  } finally {
+    saving.value = false
+  }
+}
+
+// 页面加载时加载项目
+onMounted(() => {
+  if (projectId.value) {
+    loadProject(projectId.value)
+  }
+})
 </script>
 
 <template>
@@ -343,8 +526,9 @@ const selectedScene = computed(() => scenes.value.find(s => s.active))
           <span>{{ pipelineStatus.currentStep }}</span>
           <span class="text-muted-foreground">{{ pipelineStatus.progress }}%</span>
         </div>
-        <Button variant="outline" :disabled="pipelineStatus.running">
-          保存草稿
+        <Button variant="outline" :disabled="pipelineStatus.running || saving" @click="saveProject">
+          <Loader2 v-if="saving" class="w-4 h-4 mr-2 animate-spin" />
+          {{ saving ? '保存中...' : '保存草稿' }}
         </Button>
         <Button @click="startPipeline" :disabled="scenes.length === 0 || pipelineStatus.running">
           <Play v-if="!pipelineStatus.running" class="w-4 h-4 mr-2" />
@@ -364,7 +548,7 @@ const selectedScene = computed(() => scenes.value.find(s => s.active))
           :class="activeTab === tab.key
             ? 'text-primary border-b-2 border-primary bg-accent'
             : 'text-muted-foreground hover:bg-accent'"
-          @click="activeTab = tab.key"
+          @click="setActiveTab(tab.key)"
         >
           <component
             :is="tab.icon"

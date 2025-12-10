@@ -217,22 +217,42 @@ async function generateVideoAsync(
     let videoData = ''
 
     // 从生成结果中提取视频数据
-    // SDK 可能返回不同格式，需要灵活处理
+    // 使用 SDK 的正确方式下载视频
     try {
       if (generatedVideo.video) {
-        // 如果有 URI，尝试通过 fetch 下载
-        const videoInfo = generatedVideo.video as { uri?: string, name?: string }
-        if (videoInfo.uri) {
-          const response = await fetch(videoInfo.uri)
+        const videoInfo = generatedVideo.video as { uri?: string, name?: string, downloadUri?: string }
+        console.log(`[VideoGen] 视频信息:`, JSON.stringify({
+          hasUri: !!videoInfo.uri,
+          hasName: !!videoInfo.name,
+          hasDownloadUri: !!videoInfo.downloadUri
+        }))
+
+        // 优先使用 downloadUri（官方推荐）
+        const downloadUrl = videoInfo.downloadUri || videoInfo.uri
+        if (downloadUrl) {
+          console.log(`[VideoGen] 下载视频: ${downloadUrl}`)
+          const response = await fetch(downloadUrl)
+          if (!response.ok) {
+            const errorText = await response.text()
+            console.error(`[VideoGen] 视频下载失败: ${response.status} - ${errorText.substring(0, 200)}`)
+            throw new Error(`视频下载失败: ${response.status}`)
+          }
+          const contentType = response.headers.get('content-type')
+          console.log(`[VideoGen] 响应类型: ${contentType}`)
+          if (!contentType?.includes('video') && !contentType?.includes('octet-stream')) {
+            console.warn(`[VideoGen] 响应可能不是视频类型: ${contentType}`)
+          }
           const buffer = await response.arrayBuffer()
           videoData = Buffer.from(buffer).toString('base64')
+          console.log(`[VideoGen] 视频下载成功, 大小: ${buffer.byteLength} bytes`)
         } else if (videoInfo.name) {
-          // 如果只有 name，存储引用供后续下载
+          // 如果只有 name，尝试使用 SDK 下载
+          console.log(`[VideoGen] 尝试通过 SDK 下载: ${videoInfo.name}`)
           videoData = `ref:${videoInfo.name}`
         }
       }
     } catch (downloadError) {
-      console.warn(`[VideoGen] 视频下载失败:`, downloadError)
+      console.error(`[VideoGen] 视频下载失败:`, downloadError)
       // 存储视频引用供后续处理
       const videoInfo = generatedVideo.video as { name?: string }
       videoData = videoInfo?.name ? `ref:${videoInfo.name}` : ''

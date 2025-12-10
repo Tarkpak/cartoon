@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Video, Clock, Search, Loader2 } from 'lucide-vue-next'
+import { Plus, Video, Clock, Search, Loader2, Trash2 } from 'lucide-vue-next'
 import {
   Dialog,
   DialogContent,
@@ -35,6 +35,9 @@ const newProject = ref({
   description: ''
 })
 const creating = ref(false)
+const deleting = ref<string | null>(null)
+const showDeleteDialog = ref(false)
+const projectToDelete = ref<Project | null>(null)
 
 // 获取项目列表
 async function fetchProjects() {
@@ -103,6 +106,34 @@ function getGradient(index: number): string {
     'from-indigo-400 to-purple-400'
   ]
   return gradients[index % gradients.length]
+}
+
+// 删除项目
+async function deleteProject() {
+  if (!projectToDelete.value) return
+  
+  deleting.value = projectToDelete.value.id
+  try {
+    await $fetch(`/api/project/${projectToDelete.value.id}`, {
+      method: 'DELETE'
+    })
+    showDeleteDialog.value = false
+    projectToDelete.value = null
+    await fetchProjects()
+  } catch (e) {
+    console.error('删除项目失败:', e)
+    alert('删除失败，请重试')
+  } finally {
+    deleting.value = null
+  }
+}
+
+// 打开删除确认对话框
+function confirmDelete(project: Project, event: Event) {
+  event.preventDefault()
+  event.stopPropagation()
+  projectToDelete.value = project
+  showDeleteDialog.value = true
 }
 
 onMounted(fetchProjects)
@@ -189,10 +220,16 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
             class="h-32 bg-gradient-to-br relative"
             :class="getGradient(index)"
           >
-            <div class="absolute top-3 right-3">
+            <div class="absolute top-3 right-3 flex items-center space-x-2">
               <Badge :variant="statusMap[project.status || 'draft']?.variant || 'secondary'">
                 {{ statusMap[project.status || 'draft']?.label || '草稿' }}
               </Badge>
+              <button
+                class="p-1.5 rounded-md bg-white/20 hover:bg-red-500 text-white transition"
+                @click="confirmDelete(project, $event)"
+              >
+                <Trash2 class="w-4 h-4" />
+              </button>
             </div>
           </div>
           <CardContent class="pt-4">
@@ -232,6 +269,27 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
         </div>
       </div>
     </div>
+
+    <!-- 删除确认对话框 -->
+    <Dialog v-model:open="showDeleteDialog">
+      <DialogContent class="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle>确认删除</DialogTitle>
+          <DialogDescription>
+            确定要删除项目「{{ projectToDelete?.title }}」吗？此操作不可撤销，所有相关数据将被永久删除。
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" @click="showDeleteDialog = false">
+            取消
+          </Button>
+          <Button variant="destructive" @click="deleteProject" :disabled="!!deleting">
+            <Loader2 v-if="deleting" class="w-4 h-4 mr-2 animate-spin" />
+            确认删除
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <!-- 新建项目对话框 -->
     <Dialog v-model:open="showCreateDialog">
