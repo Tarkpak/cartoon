@@ -73,6 +73,7 @@ export default defineEventHandler(async (event) => {
           narration: s.narration,
           firstFrame: s.firstFrame,
           lastFrame: s.lastFrame,
+          videoUrl: s.videoUrl, // 返回视频 URL
           status: s.status
         })),
         characters: projectCharacters.map(c => ({

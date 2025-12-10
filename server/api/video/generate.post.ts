@@ -8,7 +8,6 @@ import {
 } from '../../../shared/types/video'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import * as os from 'node:os'
 
 /**
  * 视频生成 API
@@ -220,7 +219,7 @@ async function generateVideoAsync(
       )
     }
 
-    // 4. 获取视频数据 - 使用 SDK 的 files.download() 方法
+    // 4. 获取视频数据 - 保存到 public/videos 目录
     const generatedVideo = generatedVideos[0]
     let videoData = ''
 
@@ -228,29 +227,32 @@ async function generateVideoAsync(
       if (generatedVideo.video) {
         console.log(`[VideoGen] 视频对象:`, JSON.stringify(generatedVideo.video))
 
-        // 使用 SDK 的 files.download() 方法下载视频到临时文件
-        const tempDir = os.tmpdir()
-        const tempFileName = `video_${taskId}_${Date.now()}.mp4`
-        const tempFilePath = path.join(tempDir, tempFileName)
+        // 确保视频目录存在
+        const videosDir = path.join(process.cwd(), 'public', 'videos')
+        if (!fs.existsSync(videosDir)) {
+          fs.mkdirSync(videosDir, { recursive: true })
+        }
 
-        console.log(`[VideoGen] 使用 SDK 下载视频到: ${tempFilePath}`)
+        // 生成唯一文件名
+        const videoFileName = `${taskId}.mp4`
+        const videoFilePath = path.join(videosDir, videoFileName)
+        const videoUrl = `/videos/${videoFileName}`
+
+        console.log(`[VideoGen] 保存视频到: ${videoFilePath}`)
 
         await client.files.download({
           file: generatedVideo.video,
-          downloadPath: tempFilePath
+          downloadPath: videoFilePath
         })
 
-        // 读取临时文件并转为 base64
-        if (fs.existsSync(tempFilePath)) {
-          const fileBuffer = fs.readFileSync(tempFilePath)
-          videoData = fileBuffer.toString('base64')
-          console.log(`[VideoGen] 视频下载成功, 大小: ${fileBuffer.byteLength} bytes`)
-
-          // 清理临时文件
-          fs.unlinkSync(tempFilePath)
-          console.log(`[VideoGen] 临时文件已清理`)
+        // 验证文件是否下载成功
+        if (fs.existsSync(videoFilePath)) {
+          const stats = fs.statSync(videoFilePath)
+          console.log(`[VideoGen] 视频保存成功, 大小: ${stats.size} bytes, URL: ${videoUrl}`)
+          // 返回 URL 而不是 base64
+          videoData = `url:${videoUrl}`
         } else {
-          throw new Error('视频文件未能下载')
+          throw new Error('视频文件未能保存')
         }
       }
     } catch (downloadError) {

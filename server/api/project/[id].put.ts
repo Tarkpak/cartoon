@@ -25,9 +25,10 @@ const SceneSchema = z.object({
     isInnerThought: z.boolean().optional()
   })).optional(),
   duration: z.number().default(8),
-  narration: z.string().nullish(), // 接受 null 和 undefined
+  narration: z.string().nullish(),
   firstFrame: z.string().nullish(),
   lastFrame: z.string().nullish(),
+  videoUrl: z.string().nullish(), // 视频 URL
   status: z.string().nullish()
 })
 
@@ -151,6 +152,7 @@ export default defineEventHandler(async (event) => {
             narration: scene.narration || null,
             firstFrame: scene.firstFrame || null,
             lastFrame: scene.lastFrame || null,
+            videoUrl: scene.videoUrl || null,
             status: (scene.status as 'pending' | 'frames_ready' | 'video_ready') || 'pending',
             createdAt: now,
             updatedAt: now

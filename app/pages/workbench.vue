@@ -293,7 +293,10 @@ async function pollVideoStatus(scene: SceneData, taskId: string) {
       if (response.task.status === 'completed' && response.task.result?.videoData) {
         const videoData = response.task.result.videoData
         // 格式化视频 URL
-        if (videoData.startsWith('data:') || videoData.startsWith('http')) {
+        if (videoData.startsWith('url:')) {
+          // 服务端返回的 URL 路径
+          scene.videoUrl = videoData.substring(4)
+        } else if (videoData.startsWith('data:') || videoData.startsWith('http')) {
           scene.videoUrl = videoData
         } else if (videoData.startsWith('ref:')) {
           // 引用类型，需要单独下载
@@ -438,7 +441,8 @@ async function loadProject(id: string) {
         firstFrame: s.firstFrame,
         lastFrame: s.lastFrame,
         frameStatus: s.firstFrame ? 'done' as const : 'pending' as const,
-        videoStatus: 'pending' as const
+        videoUrl: s.videoUrl, // 加载视频 URL
+        videoStatus: s.videoUrl ? 'done' as const : 'pending' as const
       }))
 
       // 加载角色
@@ -503,7 +507,8 @@ async function saveProject() {
           duration: s.duration,
           firstFrame: s.firstFrame,
           lastFrame: s.lastFrame,
-          status: s.frameStatus === 'done' ? 'frames_ready' : 'pending'
+          videoUrl: s.videoUrl, // 保存视频 URL
+          status: s.videoStatus === 'done' ? 'video_ready' : (s.frameStatus === 'done' ? 'frames_ready' : 'pending')
         })),
         characters: characters.value.map(c => ({
           id: c.id,
