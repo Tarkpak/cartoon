@@ -11,7 +11,15 @@ export const EmotionSchema = z.enum([
   'surprised',
   'confused',
   'excited',
-  'scared'
+  'scared',
+  'worried',
+  'concerned',
+  'determined',
+  'thoughtful',
+  'nervous',
+  'relieved',
+  'hopeful',
+  'disappointed'
 ])
 export type Emotion = z.infer<typeof EmotionSchema>
 
@@ -64,7 +72,7 @@ export const SceneSchema = z.object({
   characters: z.array(SceneCharacterSchema).describe('登场角色'),
   dialogues: z.array(DialogueSchema).optional().describe('对话列表'),
   duration: z.number().min(4).max(8).default(8).describe('视频时长(秒)'),
-  narration: z.string().optional().describe('旁白')
+  narration: z.string().nullable().optional().describe('旁白')
 })
 export type Scene = z.infer<typeof SceneSchema>
 

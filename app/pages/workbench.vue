@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileText, Users, Video, Music, Sparkles, Plus, Pencil, Trash2, Loader2, Play, Image, Check, AlertCircle } from 'lucide-vue-next'
+import { FileText, Users, Video, Music, Sparkles, Plus, Pencil, Trash2, Loader2, Play, Image, Check, AlertCircle, Merge, Split, ChevronDown } from 'lucide-vue-next'
 
 // 生成工作台页面
 definePageMeta({
@@ -60,6 +60,7 @@ interface CharacterData {
   appearance: string
   role: string
   baseImage?: string
+  expressions?: Record<string, string> // 表情图片: { happy: 'base64...', sad: 'base64...' }
   generating: boolean
 }
 const characters = ref<CharacterData[]>([])
@@ -83,6 +84,17 @@ const pipelineStatus = ref<{
   progress: 0,
   currentStep: ''
 })
+
+// 图片预览状态
+const imagePreviewOpen = ref(false)
+const imagePreviewSrc = ref('')
+const imagePreviewAlt = ref('')
+
+function openImagePreview(src: string, alt = '图片预览') {
+  imagePreviewSrc.value = src
+  imagePreviewAlt.value = alt
+  imagePreviewOpen.value = true
+}
 
 const tabs = [
   { key: 'script', label: '剧本编辑', icon: FileText },
@@ -118,6 +130,11 @@ async function parseScript() {
     })
 
     if (response.success && response.data?.scenes) {
+      // 自动设置项目名称（基于解析出的标题）
+      if (response.data.title && projectName.value === '新项目') {
+        projectName.value = response.data.title
+      }
+
       // 更新场景
       scenes.value = response.data.scenes.map((s, i) => ({
         id: s.id || `scene_${i + 1}`,
@@ -158,7 +175,43 @@ async function parseScript() {
   }
 }
 
-// ========== 角色生成 ==========
+// ========== 角色管理 ==========
+const characterEditDialogOpen = ref(false)
+const editingCharacter = ref<CharacterData | null>(null)
+const characterEditDialogRef = ref<{ updateExpression: (emotion: string, imageData: string) => void } | null>(null)
+
+function openCharacterEdit(char: CharacterData) {
+  editingCharacter.value = char
+  characterEditDialogOpen.value = true
+}
+
+function handleCharacterSave(updatedChar: {
+  id: string
+  name: string
+  appearance: string
+  role: string
+  baseImage?: string
+  expressions?: Record<string, string>
+}) {
+  const charIndex = characters.value.findIndex(c => c.id === updatedChar.id)
+  if (charIndex !== -1) {
+    const existingChar = characters.value[charIndex]
+    if (existingChar) {
+      characters.value[charIndex] = {
+        ...existingChar,
+        name: updatedChar.name,
+        appearance: updatedChar.appearance,
+        role: updatedChar.role,
+        expressions: updatedChar.expressions
+      }
+      saveProject()
+    }
+  }
+  characterEditDialogOpen.value = false
+  editingCharacter.value = null
+}
+
+// 生成角色立绘
 async function generateCharacter(char: CharacterData) {
   char.generating = true
   try {
@@ -186,6 +239,48 @@ async function generateCharacter(char: CharacterData) {
     console.error('角色生成失败:', e)
   } finally {
     char.generating = false
+  }
+}
+
+// 生成角色表情变体
+async function generateCharacterExpression(characterId: string, emotion: string) {
+  const char = characters.value.find(c => c.id === characterId)
+  if (!char || !char.baseImage) {
+    console.warn('需要先生成角色基础立绘')
+    return
+  }
+
+  try {
+    const response = await $fetch<{
+      success: boolean
+      expressionImage: string
+    }>('/api/character/expression', {
+      method: 'POST',
+      body: {
+        characterId,
+        baseImage: char.baseImage,
+        emotion,
+        appearance: char.appearance
+      }
+    })
+
+    if (response.success) {
+      // 更新角色表情
+      if (!char.expressions) {
+        char.expressions = {}
+      }
+      char.expressions[emotion] = response.expressionImage
+
+      // 更新编辑对话框中的表情
+      if (characterEditDialogRef.value) {
+        characterEditDialogRef.value.updateExpression(emotion, response.expressionImage)
+      }
+
+      // 保存项目
+      await saveProject()
+    }
+  } catch (e) {
+    console.error('表情生成失败:', e)
   }
 }
 
@@ -322,6 +417,76 @@ async function pollVideoStatus(scene: SceneData, taskId: string) {
   scene.videoStatus = 'error'
 }
 
+// ========== 批量生成首尾帧 ==========
+const batchFrameStatus = ref({
+  running: false,
+  current: 0,
+  total: 0
+})
+
+async function batchGenerateFrames() {
+  const pendingScenes = scenes.value.filter(s => s.frameStatus !== 'done')
+  if (pendingScenes.length === 0) {
+    alert('所有场景已完成首尾帧生成')
+    return
+  }
+
+  batchFrameStatus.value = {
+    running: true,
+    current: 0,
+    total: pendingScenes.length
+  }
+
+  try {
+    for (let i = 0; i < scenes.value.length; i++) {
+      const scene = scenes.value[i]
+      if (scene && scene.frameStatus !== 'done') {
+        // 获取上一场景的尾帧保持连续性
+        const prevScene = i > 0 ? scenes.value[i - 1] : undefined
+        const previousSceneLastFrame = prevScene?.lastFrame
+        await generateFrames(scene, previousSceneLastFrame)
+        batchFrameStatus.value.current++
+      }
+    }
+    await saveProject()
+  } finally {
+    batchFrameStatus.value.running = false
+  }
+}
+
+// ========== 批量生成视频 ==========
+const batchVideoStatus = ref({
+  running: false,
+  current: 0,
+  total: 0
+})
+
+async function batchGenerateVideos() {
+  const readyScenes = scenes.value.filter(s => s.frameStatus === 'done' && s.videoStatus !== 'done')
+  if (readyScenes.length === 0) {
+    alert('没有可生成视频的场景（请先生成首尾帧）')
+    return
+  }
+
+  batchVideoStatus.value = {
+    running: true,
+    current: 0,
+    total: readyScenes.length
+  }
+
+  try {
+    for (const scene of scenes.value) {
+      if (scene.frameStatus === 'done' && scene.videoStatus !== 'done') {
+        await generateVideo(scene)
+        batchVideoStatus.value.current++
+      }
+    }
+    await saveProject()
+  } finally {
+    batchVideoStatus.value.running = false
+  }
+}
+
 // ========== 开始生成流水线 ==========
 async function startPipeline() {
   if (scenes.value.length === 0) {
@@ -388,10 +553,273 @@ function selectScene(scene: SceneData) {
 
 const selectedScene = computed(() => scenes.value.find(s => s.active))
 
+// ========== 场景编辑 ==========
+const editDialogOpen = ref(false)
+const editingScene = ref<SceneData | null>(null)
+
+function openSceneEdit(scene: SceneData) {
+  editingScene.value = scene
+  editDialogOpen.value = true
+}
+
+function handleSceneSave(updatedScene: {
+  id: string
+  title: string
+  description: string
+  characters: Array<{ name: string; appearance?: string; emotion?: string }>
+  dialogues: Array<{ character: string; text: string; emotion?: string }>
+  duration: number
+  setting?: { location: string; timeOfDay: string }
+}) {
+  const sceneIndex = scenes.value.findIndex(s => s.id === updatedScene.id)
+  if (sceneIndex !== -1) {
+    const existingScene = scenes.value[sceneIndex]
+    if (existingScene) {
+      // 检查描述是否变化
+      const descriptionChanged = existingScene.description !== updatedScene.description
+      // 更新场景数据
+      scenes.value[sceneIndex] = {
+        ...existingScene,
+        title: updatedScene.title,
+        description: updatedScene.description,
+        characters: updatedScene.characters,
+        dialogues: updatedScene.dialogues,
+        duration: updatedScene.duration,
+        setting: updatedScene.setting,
+        // 如果描述变了，需要重新生成首尾帧
+        frameStatus: descriptionChanged ? 'pending' as const : existingScene.frameStatus
+      }
+      // 自动保存
+      saveProject()
+    }
+  }
+  editDialogOpen.value = false
+  editingScene.value = null
+}
+
+// 删除场景
+function deleteScene(scene: SceneData) {
+  if (confirm(`确定要删除场景"${scene.title}"吗？`)) {
+    const index = scenes.value.findIndex(s => s.id === scene.id)
+    if (index !== -1) {
+      scenes.value.splice(index, 1)
+      // 如果删除的是当前选中的场景，选中第一个
+      if (scene.active && scenes.value.length > 0) {
+        scenes.value[0].active = true
+      }
+      saveProject()
+    }
+  }
+}
+
+// 添加新场景
+function addNewScene() {
+  const newId = `scene_${Date.now()}`
+  const newScene: SceneData = {
+    id: newId,
+    title: '新场景',
+    description: '请输入场景描述...',
+    characters: [],
+    dialogues: [],
+    duration: 8,
+    setting: { location: '未知', timeOfDay: 'day' },
+    active: false,
+    frameStatus: 'pending',
+    videoStatus: 'pending'
+  }
+  scenes.value.push(newScene)
+  // 打开编辑对话框
+  openSceneEdit(newScene)
+}
+
+// ========== 场景拖拽排序 ==========
+const draggedSceneIndex = ref<number | null>(null)
+const dragOverIndex = ref<number | null>(null)
+
+function handleDragStart(event: DragEvent, index: number) {
+  draggedSceneIndex.value = index
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(index))
+  }
+}
+
+function handleDragOver(event: DragEvent, index: number) {
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  dragOverIndex.value = index
+}
+
+function handleDragLeave() {
+  dragOverIndex.value = null
+}
+
+function handleDrop(event: DragEvent, targetIndex: number) {
+  event.preventDefault()
+  const sourceIndex = draggedSceneIndex.value
+  
+  if (sourceIndex !== null && sourceIndex !== targetIndex) {
+    // 移动场景
+    const [movedScene] = scenes.value.splice(sourceIndex, 1)
+    if (movedScene) {
+      scenes.value.splice(targetIndex, 0, movedScene)
+      // 保存项目
+      saveProject()
+    }
+  }
+  
+  draggedSceneIndex.value = null
+  dragOverIndex.value = null
+}
+
+function handleDragEnd() {
+  draggedSceneIndex.value = null
+  dragOverIndex.value = null
+}
+
+// ========== 场景合并/拆分 ==========
+// 合并当前场景与下一个场景
+function mergeWithNextScene(sceneIndex: number) {
+  if (sceneIndex >= scenes.value.length - 1) {
+    alert('这是最后一个场景，无法向后合并')
+    return
+  }
+
+  const currentScene = scenes.value[sceneIndex]
+  const nextScene = scenes.value[sceneIndex + 1]
+
+  if (!currentScene || !nextScene) return
+
+  if (!confirm(`确定要将"${currentScene.title}"与"${nextScene.title}"合并吗？`)) {
+    return
+  }
+
+  // 合并场景数据
+  const mergedScene: SceneData = {
+    id: currentScene.id,
+    title: `${currentScene.title} + ${nextScene.title}`,
+    description: `${currentScene.description}\n\n${nextScene.description}`,
+    characters: [...currentScene.characters],
+    dialogues: [...currentScene.dialogues, ...nextScene.dialogues],
+    duration: currentScene.duration + nextScene.duration,
+    setting: currentScene.setting,
+    active: currentScene.active || nextScene.active,
+    frameStatus: 'pending', // 需要重新生成
+    videoStatus: 'pending'
+  }
+
+  // 合并角色（去重）
+  nextScene.characters.forEach(char => {
+    if (!mergedScene.characters.find(c => c.name === char.name)) {
+      mergedScene.characters.push(char)
+    }
+  })
+
+  // 更新场景列表
+  scenes.value.splice(sceneIndex, 2, mergedScene)
+
+  // 保存项目
+  saveProject()
+}
+
+// 拆分场景（在描述中间位置拆分）
+function splitScene(sceneIndex: number) {
+  const scene = scenes.value[sceneIndex]
+  if (!scene) return
+
+  // 找到描述的中间位置（按句号分割）
+  const sentences = scene.description.split(/(?<=[。！？.!?])/g).filter(s => s.trim())
+  
+  if (sentences.length < 2) {
+    alert('场景描述太短，无法拆分。请先在编辑对话框中添加更多内容。')
+    return
+  }
+
+  if (!confirm(`确定要将"${scene.title}"拆分为两个场景吗？`)) {
+    return
+  }
+
+  const midPoint = Math.ceil(sentences.length / 2)
+  const firstHalf = sentences.slice(0, midPoint).join('')
+  const secondHalf = sentences.slice(midPoint).join('')
+
+  // 按对话数量也进行拆分
+  const dialogueMidPoint = Math.ceil(scene.dialogues.length / 2)
+
+  // 创建两个新场景
+  const firstScene: SceneData = {
+    id: scene.id,
+    title: `${scene.title} (上)`,
+    description: firstHalf,
+    characters: [...scene.characters],
+    dialogues: scene.dialogues.slice(0, dialogueMidPoint),
+    duration: Math.ceil(scene.duration / 2),
+    setting: scene.setting,
+    active: scene.active,
+    frameStatus: 'pending',
+    videoStatus: 'pending'
+  }
+
+  const secondScene: SceneData = {
+    id: `scene_${Date.now()}`,
+    title: `${scene.title} (下)`,
+    description: secondHalf,
+    characters: [...scene.characters],
+    dialogues: scene.dialogues.slice(dialogueMidPoint),
+    duration: Math.floor(scene.duration / 2),
+    setting: scene.setting,
+    active: false,
+    frameStatus: 'pending',
+    videoStatus: 'pending'
+  }
+
+  // 更新场景列表
+  scenes.value.splice(sceneIndex, 1, firstScene, secondScene)
+
+  // 保存项目
+  saveProject()
+}
+
 // ========== 项目持久化 ==========
 const projectName = ref('新项目')
+const projectDescription = ref('')
 const saving = ref(false)
 const loading = ref(false)
+
+// ========== 成本预估 ==========
+const costEstimate = computed(() => {
+  const sceneCount = scenes.value.length
+  const charCount = characters.value.length
+  
+  // 预估成本（基于API调用次数）
+  const frameCost = sceneCount * 2 * 0.02 // 每个场景2张图，每张约$0.02
+  const videoCost = sceneCount * 0.15 // 每个场景视频约$0.15
+  const characterCost = charCount * 0.02 // 每个角色立绘约$0.02
+  const expressionCost = charCount * 5 * 0.01 // 每角色5个表情，每个约$0.01
+  
+  const totalCost = frameCost + videoCost + characterCost + expressionCost
+  
+  // 预估时间（秒）
+  const frameTime = sceneCount * 2 * 15 // 每张图约15秒
+  const videoTime = sceneCount * 60 // 每个视频约60秒
+  const characterTime = charCount * 20 // 每个角色约20秒
+  
+  const totalTime = frameTime + videoTime + characterTime
+  
+  return {
+    sceneCount,
+    charCount,
+    totalCost: totalCost.toFixed(2),
+    totalTime: Math.ceil(totalTime / 60), // 转为分钟
+    breakdown: {
+      frames: { count: sceneCount * 2, cost: frameCost.toFixed(2) },
+      videos: { count: sceneCount, cost: videoCost.toFixed(2) },
+      characters: { count: charCount, cost: characterCost.toFixed(2) }
+    }
+  }
+})
 
 // 加载项目数据
 async function loadProject(id: string) {
@@ -426,6 +854,7 @@ async function loadProject(id: string) {
 
     if (response.success && response.data) {
       projectName.value = response.data.project.name
+      projectDescription.value = response.data.project.description || ''
       scriptText.value = response.data.script?.rawText || ''
 
       // 加载场景
@@ -496,6 +925,7 @@ async function saveProject() {
       method: 'PUT',
       body: {
         name: projectName.value,
+        description: projectDescription.value,
         rawText: scriptText.value,
         scenes: scenes.value.map(s => ({
           id: s.id,
@@ -539,16 +969,44 @@ onMounted(() => {
 
 <template>
   <div class="p-8">
-    <div class="flex justify-between items-center mb-8">
-      <div>
-        <h1 class="text-2xl font-bold">
-          生成工作台
-        </h1>
-        <p class="text-muted-foreground">
-          {{ projectId ? `项目 ${projectId}` : '新项目' }}
-        </p>
+    <div class="flex justify-between items-start mb-8">
+      <div class="space-y-2">
+        <div class="flex items-center space-x-3">
+          <Input
+            v-model="projectName"
+            class="text-2xl font-bold h-auto py-1 px-2 w-64 border-transparent hover:border-input focus:border-primary"
+            placeholder="输入项目名称..."
+          />
+          <Badge v-if="projectId" variant="secondary" class="text-xs">
+            {{ projectId }}
+          </Badge>
+        </div>
+        <Input
+          v-model="projectDescription"
+          class="text-sm text-muted-foreground h-auto py-1 px-2 w-96 border-transparent hover:border-input focus:border-primary"
+          placeholder="添加项目描述..."
+        />
       </div>
-      <div class="flex items-center space-x-3">
+
+      <div class="flex items-center space-x-4">
+        <!-- 成本预估 -->
+        <div v-if="scenes.length > 0" class="text-right text-sm space-y-1">
+          <div class="flex items-center space-x-2 text-muted-foreground">
+            <span>{{ costEstimate.sceneCount }} 场景</span>
+            <span>·</span>
+            <span>{{ costEstimate.charCount }} 角色</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="text-xs text-muted-foreground">预估:</span>
+            <Badge variant="outline" class="text-xs">
+              ~${{ costEstimate.totalCost }}
+            </Badge>
+            <Badge variant="outline" class="text-xs">
+              ~{{ costEstimate.totalTime }}分钟
+            </Badge>
+          </div>
+        </div>
+
         <!-- 流水线进度 -->
         <div v-if="pipelineStatus.running" class="flex items-center space-x-2 text-sm">
           <Loader2 class="w-4 h-4 animate-spin" />
@@ -632,44 +1090,83 @@ onMounted(() => {
               <Button
                 variant="ghost"
                 size="sm"
+                @click="addNewScene"
               >
                 <Plus class="w-4 h-4" />
               </Button>
             </div>
             <div class="space-y-4 max-h-[400px] overflow-y-auto">
               <div
-                v-for="scene in scenes"
+                v-for="(scene, sceneIndex) in scenes"
                 :key="scene.id"
-                class="border rounded-xl p-4 cursor-pointer transition"
-                :class="scene.active
-                  ? 'border-primary bg-accent'
-                  : 'hover:border-primary/50'"
+                class="border rounded-xl p-4 cursor-pointer transition group"
+                :class="[
+                  scene.active ? 'border-primary bg-accent' : 'hover:border-primary/50',
+                  dragOverIndex === sceneIndex && draggedSceneIndex !== sceneIndex ? 'border-dashed border-2 border-primary' : '',
+                  draggedSceneIndex === sceneIndex ? 'opacity-50' : ''
+                ]"
+                draggable="true"
+                @click="selectScene(scene)"
+                @dragstart="handleDragStart($event, sceneIndex)"
+                @dragover="handleDragOver($event, sceneIndex)"
+                @dragleave="handleDragLeave"
+                @drop="handleDrop($event, sceneIndex)"
+                @dragend="handleDragEnd"
               >
                 <div class="flex items-start justify-between mb-2">
-                  <Badge :variant="scene.active ? 'default' : 'secondary'">
-                    场景 {{ scenes.indexOf(scene) + 1 }}
-                  </Badge>
-                  <div class="flex space-x-1">
+                  <div class="flex items-center space-x-2">
+                    <!-- 拖拽手柄 -->
+                    <div class="cursor-grab opacity-0 group-hover:opacity-100 transition text-muted-foreground">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+                    </div>
+                    <Badge :variant="scene.active ? 'default' : 'secondary'">
+                      场景 {{ sceneIndex + 1 }}
+                    </Badge>
+                  </div>
+                  <div class="flex space-x-1 opacity-0 group-hover:opacity-100 transition">
                     <Button
                       variant="ghost"
                       size="sm"
-                      class="h-8 w-8 p-0"
+                      class="h-7 w-7 p-0"
+                      title="拆分场景"
+                      @click.stop="splitScene(sceneIndex)"
                     >
-                      <Pencil class="w-4 h-4" />
+                      <Split class="w-3.5 h-3.5" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
-                      class="h-8 w-8 p-0 text-destructive"
+                      class="h-7 w-7 p-0"
+                      title="与下一场景合并"
+                      :disabled="sceneIndex >= scenes.length - 1"
+                      @click.stop="mergeWithNextScene(sceneIndex)"
                     >
-                      <Trash2 class="w-4 h-4" />
+                      <Merge class="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      class="h-7 w-7 p-0"
+                      title="编辑场景"
+                      @click.stop="openSceneEdit(scene)"
+                    >
+                      <Pencil class="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      class="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                      title="删除场景"
+                      @click.stop="deleteScene(scene)"
+                    >
+                      <Trash2 class="w-3.5 h-3.5" />
                     </Button>
                   </div>
                 </div>
                 <h4 class="font-medium mb-1">
                   {{ scene.title }}
                 </h4>
-                <p class="text-sm text-muted-foreground mb-2">
+                <p class="text-sm text-muted-foreground mb-2 line-clamp-2">
                   {{ scene.description }}
                 </p>
                 <div class="flex flex-wrap gap-2">
@@ -699,27 +1196,47 @@ onMounted(() => {
             <div
               v-for="char in characters"
               :key="char.id"
-              class="border rounded-xl p-4"
+              class="border rounded-xl p-4 hover:border-primary/50 transition"
             >
               <div class="flex items-start space-x-4">
                 <div class="w-20 h-20 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg flex items-center justify-center overflow-hidden">
                   <img
                     v-if="char.baseImage"
                     :src="`data:image/png;base64,${char.baseImage}`"
-                    class="w-full h-full object-cover"
+                    class="w-full h-full object-cover cursor-pointer hover:opacity-80 transition"
+                    @click.stop="openImagePreview(`data:image/png;base64,${char.baseImage}`, `${char.name} 立绘`)"
                   />
                   <Users v-else class="w-8 h-8 text-muted-foreground" />
                 </div>
-                <div class="flex-1">
+                <div class="flex-1 min-w-0">
                   <h4 class="font-semibold">{{ char.name }}</h4>
                   <p class="text-sm text-muted-foreground line-clamp-2">
                     {{ char.appearance || '暂无外貌描述' }}
                   </p>
-                  <Badge variant="outline" class="mt-2">
-                    {{ char.role === 'protagonist' ? '主角' : char.role === 'antagonist' ? '反派' : '配角' }}
-                  </Badge>
+                  <div class="flex items-center space-x-2 mt-2">
+                    <Badge variant="outline">
+                      {{ char.role === 'protagonist' ? '主角' : char.role === 'antagonist' ? '反派' : '配角' }}
+                    </Badge>
+                    <Badge v-if="char.expressions && Object.keys(char.expressions).length > 0" variant="secondary">
+                      {{ Object.keys(char.expressions).length }} 表情
+                    </Badge>
+                  </div>
                 </div>
               </div>
+
+              <!-- 表情预览条 -->
+              <div v-if="char.expressions && Object.keys(char.expressions).length > 0" class="mt-3 flex space-x-1">
+                <div
+                  v-for="(imgData, emotion) in char.expressions"
+                  :key="emotion"
+                  class="w-8 h-8 rounded border overflow-hidden cursor-pointer hover:ring-2 ring-primary transition"
+                  :title="emotion"
+                  @click.stop="openImagePreview(`data:image/png;base64,${imgData}`, `${char.name} - ${emotion}`)"
+                >
+                  <img :src="`data:image/png;base64,${imgData}`" class="w-full h-full object-cover" />
+                </div>
+              </div>
+
               <div class="mt-4 flex space-x-2">
                 <Button
                   variant="outline"
@@ -732,13 +1249,56 @@ onMounted(() => {
                   <Sparkles v-else class="w-4 h-4 mr-1" />
                   {{ char.baseImage ? '重新生成' : '生成立绘' }}
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  @click="openCharacterEdit(char)"
+                >
+                  <Pencil class="w-4 h-4" />
+                </Button>
               </div>
             </div>
           </div>
         </div>
 
         <!-- 视频生成面板 -->
-        <div v-else-if="activeTab === 'video'" class="grid lg:grid-cols-3 gap-6">
+        <div v-else-if="activeTab === 'video'" class="space-y-6">
+          <!-- 批量操作栏 -->
+          <div v-if="scenes.length > 0" class="flex items-center justify-between p-4 bg-accent rounded-lg">
+            <div class="flex items-center space-x-4">
+              <div class="text-sm">
+                <span class="font-medium">{{ scenes.length }}</span> 个场景
+                <span class="text-muted-foreground mx-2">·</span>
+                <span class="text-green-600">{{ scenes.filter(s => s.frameStatus === 'done').length }}</span> 首尾帧完成
+                <span class="text-muted-foreground mx-2">·</span>
+                <span class="text-blue-600">{{ scenes.filter(s => s.videoStatus === 'done').length }}</span> 视频完成
+              </div>
+            </div>
+            <div class="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                @click="batchGenerateFrames"
+                :disabled="batchFrameStatus.running || batchVideoStatus.running"
+              >
+                <Loader2 v-if="batchFrameStatus.running" class="w-4 h-4 mr-2 animate-spin" />
+                <Image v-else class="w-4 h-4 mr-2" />
+                {{ batchFrameStatus.running ? `生成中 (${batchFrameStatus.current}/${batchFrameStatus.total})` : '批量生成首尾帧' }}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                @click="batchGenerateVideos"
+                :disabled="batchFrameStatus.running || batchVideoStatus.running || scenes.filter(s => s.frameStatus === 'done').length === 0"
+              >
+                <Loader2 v-if="batchVideoStatus.running" class="w-4 h-4 mr-2 animate-spin" />
+                <Video v-else class="w-4 h-4 mr-2" />
+                {{ batchVideoStatus.running ? `生成中 (${batchVideoStatus.current}/${batchVideoStatus.total})` : '批量生成视频' }}
+              </Button>
+            </div>
+          </div>
+
+          <div class="grid lg:grid-cols-3 gap-6">
           <!-- 场景列表 -->
           <div class="space-y-4">
             <h3 class="font-semibold">场景队列</h3>
@@ -778,7 +1338,8 @@ onMounted(() => {
                   <img
                     v-if="selectedScene.firstFrame"
                     :src="`data:image/png;base64,${selectedScene.firstFrame}`"
-                    class="w-full h-full object-cover"
+                    class="w-full h-full object-cover cursor-pointer hover:opacity-90 transition"
+                    @click="openImagePreview(`data:image/png;base64,${selectedScene.firstFrame}`, `${selectedScene.title} - 第一帧`)"
                   />
                   <Image v-else class="w-8 h-8 text-muted-foreground" />
                 </div>
@@ -789,7 +1350,8 @@ onMounted(() => {
                   <img
                     v-if="selectedScene.lastFrame"
                     :src="`data:image/png;base64,${selectedScene.lastFrame}`"
-                    class="w-full h-full object-cover"
+                    class="w-full h-full object-cover cursor-pointer hover:opacity-90 transition"
+                    @click="openImagePreview(`data:image/png;base64,${selectedScene.lastFrame}`, `${selectedScene.title} - 最后一帧`)"
                   />
                   <Image v-else class="w-8 h-8 text-muted-foreground" />
                 </div>
@@ -839,6 +1401,7 @@ onMounted(() => {
                 请先生成首尾帧
               </p>
             </div>
+          </div>
           </div>
         </div>
 
@@ -913,5 +1476,29 @@ onMounted(() => {
         </CardContent>
       </Card>
     </div>
+
+    <!-- 场景编辑对话框 -->
+    <ScriptSceneEditDialog
+      v-model:open="editDialogOpen"
+      :scene="editingScene"
+      :available-characters="characters.map(c => c.name)"
+      @save="handleSceneSave"
+    />
+
+    <!-- 角色编辑对话框 -->
+    <CharacterEditDialog
+      ref="characterEditDialogRef"
+      v-model:open="characterEditDialogOpen"
+      :character="editingCharacter"
+      @save="handleCharacterSave"
+      @generate-expression="generateCharacterExpression"
+    />
+
+    <!-- 图片预览弹窗 -->
+    <ImagePreview
+      v-model:open="imagePreviewOpen"
+      :src="imagePreviewSrc"
+      :alt="imagePreviewAlt"
+    />
   </div>
 </template>

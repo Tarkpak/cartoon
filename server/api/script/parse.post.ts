@@ -109,7 +109,7 @@ function buildSystemPrompt(): string {
           "name": "角色名",
           "appearance": "外观描述",
           "action": "动作描述",
-          "emotion": "neutral|happy|sad|angry|surprised|confused|excited|scared"
+          "emotion": "neutral|happy|sad|angry|surprised|confused|excited|scared|worried|concerned|determined|thoughtful|nervous|relieved|hopeful|disappointed"
         }
       ],
       "dialogues": [
@@ -141,6 +141,16 @@ function buildSystemPrompt(): string {
 3. **画面可描述**: 场景描述应具体、视觉化，便于 AI 图片生成
 4. **情节完整**: 每个场景应有完整的小情节或情感表达
 
+## 对话提取规则 (重要!)
+
+1. **必须提取所有对话**: 文本中所有引号内的内容都是对话，必须提取到 dialogues 数组
+2. **识别对话格式**: 
+   - 中文引号："xxx" 或 「xxx」
+   - 英文引号: "xxx" 或 'xxx'
+3. **对话归属**: 根据上下文判断对话属于哪个角色
+4. **内心独白**: 如果是心理活动而非说出的话，设置 isInnerThought: true
+5. **不要遗漏**: 即使场景很短，只要有对话就必须提取
+
 ## 角色情绪识别
 
 - neutral: 平静、正常
@@ -151,6 +161,14 @@ function buildSystemPrompt(): string {
 - confused: 困惑、疑惑
 - excited: 兴奋、激动
 - scared: 害怕、恐惧
+- worried: 担心、忧虑
+- concerned: 关切、担心他人
+- determined: 坚定、决心
+- thoughtful: 沉思、若有所思
+- nervous: 紧张、不安
+- relieved: 如释重负、松了口气
+- hopeful: 满怀希望、期待
+- disappointed: 失望、沮丧
 
 ## 内心独白处理
 
@@ -173,7 +191,11 @@ ${text}
 3. 时间段 (timeOfDay) 是有效的枚举值
 4. 角色角色 (role) 是有效的枚举值
 5. 场景时长在 4-8 秒之间
-6. totalDuration 等于所有场景时长之和`
+6. totalDuration 等于所有场景时长之和
+7. **重要**: 必须提取文本中所有的对话内容到 dialogues 数组，包括：
+   - 引号内的对话 (如 "xxx" 或 "xxx")
+   - 说话动作后的内容 (如 xxx说道："...")
+   - 每条对话必须包含 character(说话人)、text(台词)、emotion(情绪)字段`
 }
 
 /**
@@ -246,7 +268,7 @@ function fixSetting(setting: unknown): { location: string, timeOfDay: string, mo
 
 function fixCharacter(char: unknown): { name: string, appearance?: string, action?: string, emotion?: string } {
   const c = (char || {}) as Record<string, unknown>
-  const validEmotions = ['neutral', 'happy', 'sad', 'angry', 'surprised', 'confused', 'excited', 'scared']
+  const validEmotions = ['neutral', 'happy', 'sad', 'angry', 'surprised', 'confused', 'excited', 'scared', 'worried', 'concerned', 'determined', 'thoughtful', 'nervous', 'relieved', 'hopeful', 'disappointed']
 
   return {
     name: String(c.name || '未知角色'),
@@ -260,7 +282,7 @@ function fixCharacter(char: unknown): { name: string, appearance?: string, actio
 
 function fixDialogue(dialogue: unknown): { character: string, text: string, emotion?: string, isInnerThought?: boolean } {
   const d = (dialogue || {}) as Record<string, unknown>
-  const validEmotions = ['neutral', 'happy', 'sad', 'angry', 'surprised', 'confused', 'excited', 'scared']
+  const validEmotions = ['neutral', 'happy', 'sad', 'angry', 'surprised', 'confused', 'excited', 'scared', 'worried', 'concerned', 'determined', 'thoughtful', 'nervous', 'relieved', 'hopeful', 'disappointed']
 
   return {
     character: String(d.character || '未知'),
