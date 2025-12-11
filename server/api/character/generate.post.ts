@@ -235,7 +235,15 @@ function buildExpressionPrompt(
     surprised: '惊讶、震惊、意外的表情',
     confused: '困惑、疑惑、不解的表情',
     excited: '兴奋、激动、热情的表情',
-    scared: '害怕、恐惧、紧张的表情'
+    scared: '害怕、恐惧、紧张的表情',
+    worried: '担忧、焦虑、不安的表情',
+    concerned: '关切、担心、在意的表情',
+    determined: '坚定、果断、决心的表情',
+    thoughtful: '沉思、思考、若有所思的表情',
+    nervous: '紧张、不安、局促的表情',
+    relieved: '如释重负、放松的表情',
+    hopeful: '充满希望、期待的表情',
+    disappointed: '失望、沮丧、落寞的表情'
   }
 
   return `基于参考图中的角色，生成一个表情变体。

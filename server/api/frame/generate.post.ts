@@ -96,7 +96,7 @@ async function generateFirstFrame(
 
   // 优先级: 上一场景尾帧 > 角色立绘
   // 这样可以保持场景之间的视觉连续性
-  let referenceImage: { data: string; mimeType: string } | undefined
+  let referenceImage: { data: string, mimeType: string } | undefined
 
   if (previousSceneLastFrame) {
     // 使用上一场景的尾帧作为参考，保持角色外观和画风一致
@@ -105,8 +105,9 @@ async function generateFirstFrame(
   } else {
     // 第一个场景：使用角色立绘作为参考
     const mainCharacter = scene.characters[0]
-    if (mainCharacter && characterAssets?.[mainCharacter.name]) {
-      referenceImage = { data: characterAssets[mainCharacter.name], mimeType: 'image/png' }
+    const characterImage = mainCharacter ? characterAssets?.[mainCharacter.name] : undefined
+    if (characterImage) {
+      referenceImage = { data: characterImage, mimeType: 'image/png' }
       console.log('[FrameGen] 使用角色立绘作为参考图')
     }
   }

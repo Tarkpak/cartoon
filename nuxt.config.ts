@@ -21,6 +21,28 @@ export default defineNuxtConfig({
     // 仅服务端可用的配置
     geminiApiKey: process.env.GEMINI_API_KEY || '',
 
+    // 代理配置（国内访问需要）
+    httpProxy: process.env.HTTP_PROXY || '',
+    httpsProxy: process.env.HTTPS_PROXY || '',
+
+    // 输出目录配置
+    outputDir: process.env.OUTPUT_DIR || './output',
+    tempDir: process.env.TEMP_DIR || './temp',
+
+    // 视频默认参数
+    defaultResolution: process.env.DEFAULT_RESOLUTION || '1080p',
+    defaultAspectRatio: process.env.DEFAULT_ASPECT_RATIO || '16:9',
+    defaultDuration: parseInt(process.env.DEFAULT_DURATION || '8', 10),
+
+    // 并发控制
+    maxConcurrentRequests: parseInt(process.env.MAX_CONCURRENT_REQUESTS || '3', 10),
+
+    // 日志级别
+    logLevel: process.env.LOG_LEVEL || 'info',
+
+    // 成本控制（单位：美元）
+    dailyBudgetLimit: parseInt(process.env.DAILY_BUDGET_LIMIT || '50', 10),
+
     // 客户端也可用的配置
     public: {
       appName: 'Manju',

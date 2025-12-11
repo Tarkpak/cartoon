@@ -292,7 +292,7 @@ export async function generateJSON<T>(options: {
     promptLength: options.prompt.length,
     // promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
     // systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
-   
+
     promptPreview: options.prompt,
     systemInstruction: options.systemInstruction,
     temperature: options.temperature ?? 0.2,

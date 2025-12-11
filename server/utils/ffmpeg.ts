@@ -103,12 +103,17 @@ export async function concatVideos(
 
     if (clips.length === 1) {
       // 单个视频直接复制
-      fs.copyFile(clips[0].path, outputPath)
+      const clip = clips[0]
+      if (!clip) {
+        reject(new Error('视频片段无效'))
+        return
+      }
+      fs.copyFile(clip.path, outputPath)
         .then(async () => {
           const stats = await fs.stat(outputPath)
           resolve({
             outputPath,
-            duration: clips[0].duration,
+            duration: clip.duration,
             size: stats.size
           })
         })

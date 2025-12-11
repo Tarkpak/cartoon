@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { X, Plus, Trash2 } from 'lucide-vue-next'
+import { Plus, Trash2 } from 'lucide-vue-next'
 
 interface DialogueItem {
   character: string
@@ -20,7 +20,7 @@ interface SceneEditData {
   characters: CharacterItem[]
   dialogues: DialogueItem[]
   duration: number
-  setting?: { location: string; timeOfDay: string }
+  setting?: { location: string, timeOfDay: string }
 }
 
 const props = defineProps<{
@@ -107,7 +107,10 @@ function handleCancel() {
 </script>
 
 <template>
-  <Dialog :open="open" @update:open="$emit('update:open', $event)">
+  <Dialog
+    :open="open"
+    @update:open="$emit('update:open', $event)"
+  >
     <DialogContent class="max-w-2xl max-h-[90vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle>编辑场景</DialogTitle>
@@ -151,7 +154,11 @@ function handleCancel() {
               v-model="editForm.setting!.timeOfDay"
               class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
             >
-              <option v-for="opt in timeOfDayOptions" :key="opt.value" :value="opt.value">
+              <option
+                v-for="opt in timeOfDayOptions"
+                :key="opt.value"
+                :value="opt.value"
+              >
                 {{ opt.label }}
               </option>
             </select>
@@ -168,7 +175,7 @@ function handleCancel() {
               min="4"
               max="12"
               class="flex-1"
-            />
+            >
             <span class="w-12 text-center font-medium">{{ editForm.duration }}秒</span>
           </div>
         </div>
@@ -177,14 +184,23 @@ function handleCancel() {
         <div class="space-y-3">
           <div class="flex items-center justify-between">
             <label class="text-sm font-medium">对话内容</label>
-            <Button variant="ghost" size="sm" @click="addDialogue">
+            <Button
+              variant="ghost"
+              size="sm"
+              @click="addDialogue"
+            >
               <Plus class="w-4 h-4 mr-1" />
               添加对话
             </Button>
           </div>
 
-          <div v-if="editForm.dialogues.length === 0" class="text-center py-6 text-muted-foreground border-2 border-dashed rounded-lg">
-            <p class="text-sm">暂无对话，点击上方按钮添加</p>
+          <div
+            v-if="editForm.dialogues.length === 0"
+            class="text-center py-6 text-muted-foreground border-2 border-dashed rounded-lg"
+          >
+            <p class="text-sm">
+              暂无对话，点击上方按钮添加
+            </p>
           </div>
 
           <div
@@ -236,7 +252,11 @@ function handleCancel() {
                   v-model="dialogue.emotion"
                   class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
                 >
-                  <option v-for="opt in emotionOptions" :key="opt.value" :value="opt.value">
+                  <option
+                    v-for="opt in emotionOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                  >
                     {{ opt.label }}
                   </option>
                 </select>
@@ -257,7 +277,10 @@ function handleCancel() {
       </div>
 
       <DialogFooter>
-        <Button variant="outline" @click="handleCancel">
+        <Button
+          variant="outline"
+          @click="handleCancel"
+        >
           取消
         </Button>
         <Button @click="handleSave">

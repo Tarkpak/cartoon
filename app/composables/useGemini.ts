@@ -1,4 +1,4 @@
-import type { ParsedScript } from '../../shared/types/script'
+import type { ParsedScript, Scene } from '../../shared/types/script'
 import type { VideoModel } from '../../shared/types/video'
 
 /**
@@ -112,15 +112,7 @@ export function useGemini() {
 
   // ==================== 首尾帧生成 ====================
 
-  interface Scene {
-    id: string
-    title: string
-    description: string
-    characters: Array<{ name: string, appearance?: string, emotion?: string, action?: string }>
-    dialogues: Array<{ character: string, text: string, emotion?: string }>
-    duration: number
-    setting?: { location: string, timeOfDay: string, mood?: string, weather?: string }
-  }
+  // Scene 类型从 shared/types/script 导入
 
   interface GenerateFramesOptions {
     scene: Scene

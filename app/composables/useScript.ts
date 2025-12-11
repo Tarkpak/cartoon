@@ -74,9 +74,10 @@ export function useScript() {
    */
   function updateScene(id: string, updates: Partial<Scene>) {
     const index = scenes.value.findIndex(s => s.id === id)
-    if (index !== -1) {
-      scenes.value[index] = { ...scenes.value[index], ...updates }
-      return scenes.value[index]
+    const existingScene = scenes.value[index]
+    if (index !== -1 && existingScene) {
+      scenes.value[index] = { ...existingScene, ...updates }
+      return scenes.value[index] ?? null
     }
     return null
   }
@@ -97,8 +98,10 @@ export function useScript() {
    * 重新排序场景
    */
   function reorderScenes(fromIndex: number, toIndex: number) {
-    const scene = scenes.value.splice(fromIndex, 1)[0]
-    scenes.value.splice(toIndex, 0, scene)
+    const [scene] = scenes.value.splice(fromIndex, 1)
+    if (scene) {
+      scenes.value.splice(toIndex, 0, scene)
+    }
   }
 
   /**

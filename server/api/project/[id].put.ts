@@ -128,7 +128,7 @@ export default defineEventHandler(async (event) => {
       if (data.scenes !== undefined) {
         // 删除所有相关场景（包括旧的 scriptId 和当前的场景 ID）
         await db.delete(scenes).where(eq(scenes.scriptId, script.id))
-        
+
         // 同时删除可能存在的同 ID 场景
         for (const scene of data.scenes) {
           await db.delete(scenes).where(eq(scenes.id, scene.id))
@@ -139,6 +139,7 @@ export default defineEventHandler(async (event) => {
 
         for (let i = 0; i < data.scenes.length; i++) {
           const scene = data.scenes[i]
+          if (!scene) continue
           await db.insert(scenes).values({
             id: scene.id,
             scriptId: script.id,
@@ -178,15 +179,16 @@ export default defineEventHandler(async (event) => {
 
       // 插入新角色
       for (const char of data.characters) {
+        if (!char) continue
         await db.insert(characters).values({
           id: char.id,
           projectId: id,
           name: char.name,
-          role: char.role || 'supporting',
+          role: (char.role as 'protagonist' | 'antagonist' | 'supporting' | 'extra') || 'supporting',
           appearance: char.appearance,
           personality: char.personality || null,
           age: char.age || null,
-          gender: char.gender || null,
+          gender: (char.gender as 'male' | 'female' | 'other') || null,
           baseImage: char.baseImage || null,
           expressions: char.expressions ? JSON.stringify(char.expressions) : null,
           createdAt: now,

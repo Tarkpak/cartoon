@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { X, ZoomIn, ZoomOut, RotateCw, Download, Move } from 'lucide-vue-next'
+import { X, ZoomIn, ZoomOut, RotateCw, Download } from 'lucide-vue-next'
 
 interface ImagePreviewProps {
   src: string
@@ -64,7 +64,6 @@ function download() {
 // 鼠标滚轮缩放
 function handleWheel(e: WheelEvent) {
   e.preventDefault()
-  const oldScale = scale.value
   if (e.deltaY < 0) {
     scale.value = Math.min(scale.value + 0.15, 5)
   } else {
@@ -109,14 +108,14 @@ function handleKeydown(e: KeyboardEvent) {
 // 计算缩略图视口位置
 const viewportStyle = computed(() => {
   if (scale.value <= 1) return { display: 'none' }
-  
+
   const viewportWidth = 100 / scale.value
   const viewportHeight = 100 / scale.value
-  
+
   // 计算偏移（需要考虑图片实际尺寸）
   const offsetX = 50 - viewportWidth / 2 - (translateX.value / (scale.value * 3))
   const offsetY = 50 - viewportHeight / 2 - (translateY.value / (scale.value * 3))
-  
+
   return {
     width: `${viewportWidth}%`,
     height: `${viewportHeight}%`,

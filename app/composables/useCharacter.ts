@@ -4,20 +4,7 @@
  */
 
 import type { Emotion } from '../../shared/types/script'
-
-export interface Character {
-  id: string
-  name: string
-  description: string
-  role?: 'protagonist' | 'antagonist' | 'supporting'
-  avatar?: string
-  expressions?: Array<{
-    emotion: Emotion
-    imageData?: string
-    mimeType?: string
-  }>
-  generating?: boolean
-}
+import type { CharacterState } from '../../shared/types/character'
 
 export interface GenerateCharacterOptions {
   style?: string
@@ -27,7 +14,7 @@ export interface GenerateCharacterOptions {
 const DEFAULT_EMOTIONS: Emotion[] = ['neutral', 'happy', 'sad', 'angry', 'surprised']
 
 export function useCharacter() {
-  const characters = ref<Character[]>([])
+  const characters = ref<CharacterState[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
   const generatingIds = ref<Set<string>>(new Set())
@@ -36,14 +23,14 @@ export function useCharacter() {
    * 生成角色资产
    */
   async function generateCharacter(
-    character: { name: string, description: string, role?: Character['role'] },
+    character: { name: string, description: string, role?: CharacterState['role'] },
     options: GenerateCharacterOptions = {}
   ) {
     const characterId = `char_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
     const emotions = options.emotions || DEFAULT_EMOTIONS
 
     // 添加角色到列表（生成中状态）
-    const newCharacter: Character = {
+    const newCharacter: CharacterState = {
       id: characterId,
       name: character.name,
       description: character.description,
@@ -80,27 +67,31 @@ export function useCharacter() {
       // 更新角色信息
       const index = characters.value.findIndex(c => c.id === characterId)
       if (index !== -1) {
-        characters.value[index] = {
-          ...characters.value[index],
-          avatar: `data:${data.baseImage.mimeType};base64,${data.baseImage.imageData}`,
-          expressions: data.expressions.map(e => ({
-            emotion: e.emotion as Emotion,
-            imageData: e.imageData,
-            mimeType: e.mimeType
-          })),
-          generating: false
+        const existingChar = characters.value[index]
+        if (existingChar) {
+          characters.value[index] = {
+            ...existingChar,
+            avatar: `data:${data.baseImage.mimeType};base64,${data.baseImage.imageData}`,
+            expressions: data.expressions.map(e => ({
+              emotion: e.emotion as Emotion,
+              imageData: e.imageData,
+              mimeType: e.mimeType
+            })),
+            generating: false
+          }
         }
       }
 
-      return characters.value[index]
+      return characters.value[index] ?? null
     } catch (e) {
       error.value = e instanceof Error ? e.message : '角色生成失败'
       console.error('[useCharacter] generateCharacter error:', e)
 
       // 移除失败的角色或标记为失败
       const index = characters.value.findIndex(c => c.id === characterId)
-      if (index !== -1) {
-        characters.value[index].generating = false
+      const failedChar = characters.value[index]
+      if (index !== -1 && failedChar) {
+        failedChar.generating = false
       }
       return null
     } finally {
@@ -144,8 +135,9 @@ export function useCharacter() {
 
       // 更新表情
       const charIndex = characters.value.findIndex(c => c.id === characterId)
-      if (charIndex !== -1 && data.expression) {
-        const expressions = characters.value[charIndex].expressions || []
+      const targetChar = characters.value[charIndex]
+      if (charIndex !== -1 && data.expression && targetChar) {
+        const expressions = targetChar.expressions || []
         const exprIndex = expressions.findIndex(e => e.emotion === emotion)
 
         const newExpr = {
@@ -160,7 +152,7 @@ export function useCharacter() {
           expressions.push(newExpr)
         }
 
-        characters.value[charIndex].expressions = expressions
+        targetChar.expressions = expressions
       }
 
       return data.expression
@@ -176,11 +168,12 @@ export function useCharacter() {
   /**
    * 更新角色信息
    */
-  function updateCharacter(id: string, updates: Partial<Character>) {
+  function updateCharacter(id: string, updates: Partial<CharacterState>) {
     const index = characters.value.findIndex(c => c.id === id)
-    if (index !== -1) {
-      characters.value[index] = { ...characters.value[index], ...updates }
-      return characters.value[index]
+    const existingChar = characters.value[index]
+    if (index !== -1 && existingChar) {
+      characters.value[index] = { ...existingChar, ...updates }
+      return characters.value[index] ?? null
     }
     return null
   }

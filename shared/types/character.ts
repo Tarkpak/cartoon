@@ -53,3 +53,20 @@ export const GenerateCharacterResponseSchema = z.object({
   error: z.string().optional()
 })
 export type GenerateCharacterResponse = z.infer<typeof GenerateCharacterResponseSchema>
+
+// ==================== 前端状态类型 ====================
+
+/** 前端角色状态 - 用于 Composable */
+export interface CharacterState {
+  id: string
+  name: string
+  description: string
+  role?: 'protagonist' | 'antagonist' | 'supporting'
+  avatar?: string
+  expressions?: Array<{
+    emotion: string
+    imageData?: string
+    mimeType?: string
+  }>
+  generating?: boolean
+}

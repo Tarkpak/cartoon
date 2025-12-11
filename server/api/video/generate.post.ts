@@ -223,6 +223,15 @@ async function generateVideoAsync(
     const generatedVideo = generatedVideos[0]
     let videoData = ''
 
+    if (!generatedVideo) {
+      throw new GeminiError(
+        '视频数据为空',
+        GeminiErrorCode.INTERNAL,
+        500,
+        false
+      )
+    }
+
     try {
       if (generatedVideo.video) {
         console.log(`[VideoGen] 视频对象:`, JSON.stringify(generatedVideo.video))

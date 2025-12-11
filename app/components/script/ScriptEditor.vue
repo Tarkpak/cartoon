@@ -74,7 +74,7 @@ function saveHistory() {
 function undo() {
   if (historyIndex.value > 0) {
     historyIndex.value--
-    localValue.value = history.value[historyIndex.value]
+    localValue.value = history.value[historyIndex.value] ?? ''
   }
 }
 
@@ -82,7 +82,7 @@ function undo() {
 function redo() {
   if (historyIndex.value < history.value.length - 1) {
     historyIndex.value++
-    localValue.value = history.value[historyIndex.value]
+    localValue.value = history.value[historyIndex.value] ?? ''
   }
 }
 

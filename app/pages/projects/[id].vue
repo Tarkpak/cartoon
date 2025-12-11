@@ -146,8 +146,8 @@ const progressPercent = computed(() => {
             :class="project.gradient"
           >
             <div class="absolute top-4 right-4 flex space-x-2">
-              <Badge :variant="statusMap[project.status].variant">
-                {{ statusMap[project.status].label }}
+              <Badge :variant="statusMap[project.status || 'draft']?.variant ?? 'secondary'">
+                {{ statusMap[project.status || 'draft']?.label ?? '草稿' }}
               </Badge>
             </div>
             <div class="absolute bottom-4 left-6">

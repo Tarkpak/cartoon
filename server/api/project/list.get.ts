@@ -1,5 +1,5 @@
 import { db, projects as projectsTable, scripts as scriptsTable, scenes as scenesTable } from '../../db'
-import { desc, eq, sql } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 
 /**
  * 获取项目列表

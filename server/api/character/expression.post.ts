@@ -87,7 +87,15 @@ function buildExpressionPrompt(emotion: Emotion, appearance?: string): string {
     surprised: '惊讶、震惊、意外的表情，眼睛睁大，嘴巴微张',
     confused: '困惑、疑惑、不解的表情，歪头，眉头微皱',
     excited: '兴奋、激动、热情的表情，眼睛发亮，充满活力',
-    scared: '害怕、恐惧、紧张的表情，眼神闪躲，身体僵硬'
+    scared: '害怕、恐惧、紧张的表情，眼神闪躲，身体僵硬',
+    worried: '担忧、焦虑、不安的表情，眉头紧蹙，嘴唇紧闭',
+    concerned: '关切、担心、在意的表情，眉头微皱，眼神专注',
+    determined: '坚定、果断、决心的表情，眼神坚毅，下巴微抬',
+    thoughtful: '沉思、思考、若有所思的表情，眼神望向远方',
+    nervous: '紧张、不安、局促的表情，眼神飘忽，微微冒汗',
+    relieved: '如释重负、放松、松了一口气的表情，眉头舒展',
+    hopeful: '充满希望、期待、憧憬的表情，眼中闪烁光芒',
+    disappointed: '失望、沮丧、落寞的表情，眼神黯淡，肩膀下垂'
   }
 
   return `基于参考图中的动漫角色，生成一个表情变体。

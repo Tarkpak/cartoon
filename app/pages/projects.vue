@@ -6,7 +6,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle,
+  DialogTitle
 } from '@/components/ui/dialog'
 
 // 项目管理页面
@@ -57,7 +57,7 @@ async function fetchProjects() {
 // 创建项目
 async function createProject() {
   if (!newProject.value.title.trim()) return
-  
+
   creating.value = true
   try {
     await $fetch('/api/project/create', {
@@ -105,13 +105,13 @@ function getGradient(index: number): string {
     'from-orange-400 to-red-400',
     'from-indigo-400 to-purple-400'
   ]
-  return gradients[index % gradients.length]
+  return gradients[index % gradients.length] ?? 'from-gray-400 to-gray-500'
 }
 
 // 删除项目
 async function deleteProject() {
   if (!projectToDelete.value) return
-  
+
   deleting.value = projectToDelete.value.id
   try {
     await $fetch(`/api/project/${projectToDelete.value.id}`, {
@@ -156,7 +156,10 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
           管理您的AI漫剧项目
         </p>
       </div>
-      <Button size="lg" @click="openCreateDialog">
+      <Button
+        size="lg"
+        @click="openCreateDialog"
+      >
         <Plus class="w-5 h-5 mr-2" />
         新建项目
       </Button>
@@ -280,11 +283,21 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" @click="showDeleteDialog = false">
+          <Button
+            variant="outline"
+            @click="showDeleteDialog = false"
+          >
             取消
           </Button>
-          <Button variant="destructive" @click="deleteProject" :disabled="!!deleting">
-            <Loader2 v-if="deleting" class="w-4 h-4 mr-2 animate-spin" />
+          <Button
+            variant="destructive"
+            :disabled="!!deleting"
+            @click="deleteProject"
+          >
+            <Loader2
+              v-if="deleting"
+              class="w-4 h-4 mr-2 animate-spin"
+            />
             确认删除
           </Button>
         </DialogFooter>
@@ -318,11 +331,20 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" @click="showCreateDialog = false">
+          <Button
+            variant="outline"
+            @click="showCreateDialog = false"
+          >
             取消
           </Button>
-          <Button @click="createProject" :disabled="!newProject.title.trim() || creating">
-            <Loader2 v-if="creating" class="w-4 h-4 mr-2 animate-spin" />
+          <Button
+            :disabled="!newProject.title.trim() || creating"
+            @click="createProject"
+          >
+            <Loader2
+              v-if="creating"
+              class="w-4 h-4 mr-2 animate-spin"
+            />
             创建项目
           </Button>
         </DialogFooter>

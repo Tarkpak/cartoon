@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Sparkles, Loader2 } from 'lucide-vue-next'
+import { Loader2 } from 'lucide-vue-next'
 
 interface CharacterEditData {
   id: string
@@ -93,7 +93,10 @@ defineExpose({
 </script>
 
 <template>
-  <Dialog :open="open" @update:open="$emit('update:open', $event)">
+  <Dialog
+    :open="open"
+    @update:open="$emit('update:open', $event)"
+  >
     <DialogContent class="max-w-2xl max-h-[90vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle>编辑角色</DialogTitle>
@@ -112,8 +115,11 @@ defineExpose({
                 v-if="editForm.baseImage"
                 :src="`data:image/png;base64,${editForm.baseImage}`"
                 class="w-full h-full object-cover"
-              />
-              <span v-else class="text-4xl">👤</span>
+              >
+              <span
+                v-else
+                class="text-4xl"
+              >👤</span>
             </div>
           </div>
 
@@ -133,7 +139,11 @@ defineExpose({
                 v-model="editForm.role"
                 class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
               >
-                <option v-for="opt in roleOptions" :key="opt.value" :value="opt.value">
+                <option
+                  v-for="opt in roleOptions"
+                  :key="opt.value"
+                  :value="opt.value"
+                >
                   {{ opt.label }}
                 </option>
               </select>
@@ -175,26 +185,38 @@ defineExpose({
                 ]"
                 @click="requestGenerateExpression(emotion.value)"
               >
-                <Loader2 v-if="generatingEmotions.has(emotion.value)" class="w-6 h-6 animate-spin text-muted-foreground" />
+                <Loader2
+                  v-if="generatingEmotions.has(emotion.value)"
+                  class="w-6 h-6 animate-spin text-muted-foreground"
+                />
                 <img
                   v-else-if="editForm.expressions?.[emotion.value]"
                   :src="`data:image/png;base64,${editForm.expressions[emotion.value]}`"
                   class="w-full h-full object-cover"
-                />
-                <span v-else class="text-2xl opacity-50">{{ emotion.emoji }}</span>
+                >
+                <span
+                  v-else
+                  class="text-2xl opacity-50"
+                >{{ emotion.emoji }}</span>
               </div>
               <span class="text-xs text-muted-foreground">{{ emotion.label }}</span>
             </div>
           </div>
 
-          <p v-if="!editForm.baseImage" class="text-xs text-amber-600 text-center">
+          <p
+            v-if="!editForm.baseImage"
+            class="text-xs text-amber-600 text-center"
+          >
             请先生成角色基础立绘，才能生成表情变体
           </p>
         </div>
       </div>
 
       <DialogFooter>
-        <Button variant="outline" @click="handleCancel">
+        <Button
+          variant="outline"
+          @click="handleCancel"
+        >
           取消
         </Button>
         <Button @click="handleSave">

@@ -1,4 +1,4 @@
-import { generateText, TextModels, GeminiError, GeminiErrorCode } from '../utils/gemini'
+import { generateText, TextModels, GeminiError } from '../utils/gemini'
 
 /**
  * 测试 Gemini API 连接

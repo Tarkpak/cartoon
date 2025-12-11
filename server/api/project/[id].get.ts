@@ -54,13 +54,15 @@ export default defineEventHandler(async (event) => {
           createdAt: project.createdAt,
           updatedAt: project.updatedAt
         },
-        script: script ? {
-          id: script.id,
-          title: script.title,
-          rawText: script.rawText,
-          parsedData: script.parsedData ? JSON.parse(script.parsedData) : null,
-          totalDuration: script.totalDuration
-        } : null,
+        script: script
+          ? {
+              id: script.id,
+              title: script.title,
+              rawText: script.rawText,
+              parsedData: script.parsedData ? JSON.parse(script.parsedData) : null,
+              totalDuration: script.totalDuration
+            }
+          : null,
         scenes: projectScenes.map(s => ({
           id: s.id,
           orderIndex: s.orderIndex,

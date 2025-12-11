@@ -143,8 +143,15 @@ async function generateTTS(config: {
 
   // 获取角色语音配置
   const voiceConfig = config.characterName
-    ? (characterVoiceMap[config.characterName.toLowerCase()] || characterVoiceMap.default_male)
+    ? (characterVoiceMap[config.characterName.toLowerCase()] ?? characterVoiceMap.default_male)
     : characterVoiceMap.default_male
+
+  if (!voiceConfig) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: '语音配置无效'
+    })
+  }
 
   // 获取情绪调整 (预留用于后续音频后处理)
   const _emotionAdj = config.emotion

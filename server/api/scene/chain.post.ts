@@ -55,6 +55,11 @@ export default defineEventHandler(async (event) => {
       const fromScene = sceneFrames[i]
       const toScene = sceneFrames[i + 1]
 
+      if (!fromScene || !toScene) {
+        console.warn(`[SceneChain] 跳过无效场景: index ${i}`)
+        continue
+      }
+
       // 创建转场任务
       const taskId = await createTransitionTask(
         fromScene,
@@ -78,6 +83,11 @@ export default defineEventHandler(async (event) => {
       const transition = transitions[i]
       const fromScene = sceneFrames[i]
       const toScene = sceneFrames[i + 1]
+
+      if (!transition || !fromScene || !toScene) {
+        console.warn(`[SceneChain] 跳过无效转场: index ${i}`)
+        continue
+      }
 
       // 异步生成转场视频（不阻塞响应）
       generateTransitionVideoAsync(
@@ -324,6 +334,15 @@ async function generateTransitionVideoAsync(
     // 5. 获取视频数据
     const generatedVideo = generatedVideos[0]
     let videoData = ''
+
+    if (!generatedVideo) {
+      throw new GeminiError(
+        '视频数据为空',
+        GeminiErrorCode.INTERNAL,
+        500,
+        false
+      )
+    }
 
     try {
       if (generatedVideo.video) {
