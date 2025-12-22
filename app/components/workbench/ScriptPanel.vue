@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Sparkles, Plus, Pencil, Trash2, Merge, Split } from 'lucide-vue-next'
+import { Loader2, Sparkles, Plus, Pencil, Trash2, Merge, Split, Film, Eye } from 'lucide-vue-next'
 import type { SceneData } from '~/composables/useWorkbench'
 
 const props = defineProps<{
@@ -18,6 +18,10 @@ const emit = defineEmits<{
   'splitScene': [index: number]
   'mergeScene': [index: number]
   'reorderScenes': [fromIndex: number, toIndex: number]
+  'generateStoryboard': [scene: SceneData]
+  'extractSceneVisual': [scene: SceneData]
+  'viewStoryboard': [scene: SceneData]
+  'viewSceneVisual': [scene: SceneData]
 }>()
 
 const localScriptText = computed({
@@ -239,6 +243,43 @@ function handleDragEnd() {
             <Badge variant="outline">
               {{ scene.duration }}秒
             </Badge>
+          </div>
+          <!-- 新增：分镜和场景视觉操作按钮 -->
+          <div class="flex items-center space-x-2 mt-3 pt-3 border-t">
+            <Button
+              variant="outline"
+              size="sm"
+              class="flex-1 h-7 text-xs"
+              :disabled="scene.storyboardStatus === 'generating'"
+              @click.stop="scene.storyboard ? $emit('viewStoryboard', scene) : $emit('generateStoryboard', scene)"
+            >
+              <Loader2
+                v-if="scene.storyboardStatus === 'generating'"
+                class="w-3 h-3 mr-1 animate-spin"
+              />
+              <Film
+                v-else
+                class="w-3 h-3 mr-1"
+              />
+              {{ scene.storyboard ? '查看分镜' : '生成分镜' }}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              class="flex-1 h-7 text-xs"
+              :disabled="scene.sceneVisualStatus === 'generating'"
+              @click.stop="scene.sceneVisual ? $emit('viewSceneVisual', scene) : $emit('extractSceneVisual', scene)"
+            >
+              <Loader2
+                v-if="scene.sceneVisualStatus === 'generating'"
+                class="w-3 h-3 mr-1 animate-spin"
+              />
+              <Eye
+                v-else
+                class="w-3 h-3 mr-1"
+              />
+              {{ scene.sceneVisual ? '查看视觉' : '提取视觉' }}
+            </Button>
           </div>
         </div>
       </div>

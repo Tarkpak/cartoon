@@ -3,6 +3,37 @@
  * 提供场景、角色、音频配置等核心功能
  */
 
+// 分镜数据接口
+export interface StoryboardShot {
+  shotNumber: number
+  shotType: 'wide' | 'medium' | 'close' | 'extreme_close' | 'detail'
+  cameraMovement: 'static' | 'push' | 'pull' | 'pan_left' | 'pan_right' | 'track' | 'dolly' | 'zoom_in' | 'zoom_out'
+  visualContent: string
+  dialogue?: string | null
+  character?: string | null
+  emotion?: string
+  duration: number
+  notes?: string
+}
+
+export interface Storyboard {
+  sceneId: string
+  sceneTitle: string
+  shots: StoryboardShot[]
+  totalDuration: number
+}
+
+// 场景视觉数据接口
+export interface SceneVisual {
+  sceneId: string
+  time: string
+  location: string
+  visualElements: string[]
+  atmosphere: string
+  sensoryDetails: string
+  imagePrompt: string
+}
+
 // 场景数据接口
 export interface SceneData {
   id: string
@@ -11,7 +42,7 @@ export interface SceneData {
   characters: Array<{ name: string, appearance?: string, emotion?: string }>
   dialogues: Array<{ character: string, text: string, emotion?: string }>
   duration: number
-  setting?: { location: string, timeOfDay: string }
+  setting?: { location: string, timeOfDay: string, mood?: string, weather?: string }
   active: boolean
   // 生成状态
   firstFrame?: string
@@ -19,7 +50,15 @@ export interface SceneData {
   videoUrl?: string
   frameStatus: 'pending' | 'generating' | 'done' | 'error'
   videoStatus: 'pending' | 'generating' | 'done' | 'error'
+  // 新增：分镜和场景视觉
+  storyboard?: Storyboard
+  storyboardStatus: 'pending' | 'generating' | 'done' | 'error'
+  sceneVisual?: SceneVisual
+  sceneVisualStatus: 'pending' | 'generating' | 'done' | 'error'
 }
+
+// 角色视角类型
+export type CharacterView = 'front' | 'three_quarter' | 'side' | 'back' | 'top_down' | 'bottom_up'
 
 // 角色数据接口
 export interface CharacterData {
@@ -29,7 +68,9 @@ export interface CharacterData {
   role: string
   baseImage?: string
   expressions?: Record<string, string>
+  views?: Partial<Record<CharacterView, string>>
   generating: boolean
+  generatingViews: boolean
 }
 
 // 音频配置接口
@@ -150,7 +191,9 @@ export function useWorkbench() {
       setting: { location: '未知', timeOfDay: 'day' },
       active: false,
       frameStatus: 'pending',
-      videoStatus: 'pending'
+      videoStatus: 'pending',
+      storyboardStatus: 'pending',
+      sceneVisualStatus: 'pending'
     }
     scenes.value.push(newScene)
     return newScene
@@ -211,7 +254,9 @@ export function useWorkbench() {
       setting: currentScene.setting,
       active: currentScene.active || nextScene.active,
       frameStatus: 'pending',
-      videoStatus: 'pending'
+      videoStatus: 'pending',
+      storyboardStatus: 'pending',
+      sceneVisualStatus: 'pending'
     }
 
     nextScene.characters.forEach((char) => {
@@ -254,7 +299,9 @@ export function useWorkbench() {
       setting: scene.setting,
       active: scene.active,
       frameStatus: 'pending',
-      videoStatus: 'pending'
+      videoStatus: 'pending',
+      storyboardStatus: 'pending',
+      sceneVisualStatus: 'pending'
     }
 
     const secondScene: SceneData = {
@@ -267,7 +314,9 @@ export function useWorkbench() {
       setting: scene.setting,
       active: false,
       frameStatus: 'pending',
-      videoStatus: 'pending'
+      videoStatus: 'pending',
+      storyboardStatus: 'pending',
+      sceneVisualStatus: 'pending'
     }
 
     scenes.value.splice(sceneIndex, 1, firstScene, secondScene)
@@ -315,7 +364,9 @@ export function useWorkbench() {
           setting: s.setting,
           active: i === 0,
           frameStatus: 'pending' as const,
-          videoStatus: 'pending' as const
+          videoStatus: 'pending' as const,
+          storyboardStatus: 'pending' as const,
+          sceneVisualStatus: 'pending' as const
         }))
 
         const charNames = new Set<string>()
@@ -329,7 +380,8 @@ export function useWorkbench() {
             name,
             appearance: sceneChar?.appearance || charInfo?.description || '',
             role: charInfo?.role || 'supporting',
-            generating: false
+            generating: false,
+            generatingViews: false
           }
         })
 
@@ -416,6 +468,156 @@ export function useWorkbench() {
         saveProject()
       }
     }
+  }
+
+  // ========== 角色提取 (新增API) ==========
+  async function extractCharactersFromScript() {
+    if (!scriptText.value.trim()) return
+
+    try {
+      const response = await $fetch<{
+        success: boolean
+        characters: Array<{ role: string, role_content: string }>
+      }>('/api/character/extract', {
+        method: 'POST',
+        body: {
+          content: scriptText.value,
+          style: '日式动漫'
+        }
+      })
+
+      if (response.success && response.characters) {
+        // 合并提取的角色信息到现有角色
+        response.characters.forEach((extracted) => {
+          const existingChar = characters.value.find(c => c.name === extracted.role)
+          if (existingChar) {
+            // 更新现有角色的外貌描述
+            existingChar.appearance = extracted.role_content
+          } else {
+            // 添加新角色
+            characters.value.push({
+              id: `char_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              name: extracted.role,
+              appearance: extracted.role_content,
+              role: 'supporting',
+              generating: false,
+              generatingViews: false
+            })
+          }
+        })
+        await saveProject()
+      }
+      return response
+    } catch (e) {
+      console.error('角色提取失败:', e)
+      throw e
+    }
+  }
+
+  // ========== 角色多视角生成 (新增API) ==========
+  async function generateCharacterViews(char: CharacterData) {
+    if (!char.baseImage) {
+      console.warn('需要先生成角色基础立绘')
+      return null
+    }
+
+    char.generatingViews = true
+    try {
+      const response = await $fetch<{
+        success: boolean
+        views: Partial<Record<CharacterView, string>>
+        successCount: number
+        errorCount: number
+      }>('/api/character/views', {
+        method: 'POST',
+        body: {
+          characterName: char.name,
+          baseImage: char.baseImage,
+          baseMimeType: 'image/png',
+          style: '日式动漫',
+          views: ['front', 'three_quarter', 'side', 'back']
+        }
+      })
+
+      if (response.success) {
+        char.views = response.views
+        await saveProject()
+        return response.views
+      }
+    } catch (e) {
+      console.error('角色视角生成失败:', e)
+    } finally {
+      char.generatingViews = false
+    }
+    return null
+  }
+
+  // ========== 分镜脚本生成 (新增API) ==========
+  async function generateStoryboard(scene: SceneData) {
+    scene.storyboardStatus = 'generating'
+    try {
+      const response = await $fetch<{
+        success: boolean
+        data: Storyboard
+      }>('/api/storyboard/generate', {
+        method: 'POST',
+        body: {
+          sceneId: scene.id,
+          sceneDescription: scene.description,
+          dialogues: scene.dialogues,
+          style: '日式动漫'
+        }
+      })
+
+      if (response.success && response.data) {
+        scene.storyboard = response.data
+        scene.storyboardStatus = 'done'
+        await saveProject()
+        return response.data
+      }
+    } catch (e) {
+      console.error('分镜生成失败:', e)
+      scene.storyboardStatus = 'error'
+    }
+    return null
+  }
+
+  // ========== 场景视觉提取 (新增API) ==========
+  async function extractSceneVisual(scene: SceneData) {
+    scene.sceneVisualStatus = 'generating'
+    try {
+      // 确保 setting 有默认值
+      const setting = scene.setting || { location: '未知地点', timeOfDay: 'day' }
+
+      const response = await $fetch<{
+        success: boolean
+        data: SceneVisual
+      }>('/api/scene/visual', {
+        method: 'POST',
+        body: {
+          sceneId: scene.id,
+          sceneDescription: scene.description,
+          setting: {
+            location: setting.location || '未知地点',
+            timeOfDay: setting.timeOfDay || 'day',
+            mood: setting.mood,
+            weather: setting.weather
+          },
+          style: '日式动漫'
+        }
+      })
+
+      if (response.success && response.data) {
+        scene.sceneVisual = response.data
+        scene.sceneVisualStatus = 'done'
+        await saveProject()
+        return response.data
+      }
+    } catch (e) {
+      console.error('场景视觉提取失败:', e)
+      scene.sceneVisualStatus = 'error'
+    }
+    return null
   }
 
   // ========== 首尾帧生成 ==========
@@ -686,7 +888,11 @@ export function useWorkbench() {
           lastFrame: s.lastFrame,
           frameStatus: s.firstFrame ? 'done' as const : 'pending' as const,
           videoUrl: (s as { videoUrl?: string }).videoUrl,
-          videoStatus: (s as { videoUrl?: string }).videoUrl ? 'done' as const : 'pending' as const
+          videoStatus: (s as { videoUrl?: string }).videoUrl ? 'done' as const : 'pending' as const,
+          storyboard: (s as { storyboard?: Storyboard }).storyboard,
+          storyboardStatus: (s as { storyboard?: Storyboard }).storyboard ? 'done' as const : 'pending' as const,
+          sceneVisual: (s as { sceneVisual?: SceneVisual }).sceneVisual,
+          sceneVisualStatus: (s as { sceneVisual?: SceneVisual }).sceneVisual ? 'done' as const : 'pending' as const
         }))
 
         characters.value = response.data.characters.map(c => ({
@@ -695,7 +901,9 @@ export function useWorkbench() {
           appearance: c.appearance,
           role: c.role || 'supporting',
           baseImage: c.baseImage,
-          generating: false
+          views: (c as { views?: Partial<Record<CharacterView, string>> }).views,
+          generating: false,
+          generatingViews: false
         }))
       }
     } catch (e) {
@@ -748,6 +956,8 @@ export function useWorkbench() {
             firstFrame: s.firstFrame,
             lastFrame: s.lastFrame,
             videoUrl: s.videoUrl,
+            storyboard: s.storyboard,
+            sceneVisual: s.sceneVisual,
             status: s.videoStatus === 'done' ? 'video_ready' : (s.frameStatus === 'done' ? 'frames_ready' : 'pending')
           })),
           characters: characters.value.map(c => ({
@@ -755,7 +965,8 @@ export function useWorkbench() {
             name: c.name,
             role: c.role,
             appearance: c.appearance,
-            baseImage: c.baseImage
+            baseImage: c.baseImage,
+            views: c.views
           }))
         }
       })
@@ -789,11 +1000,17 @@ export function useWorkbench() {
     splitScene,
     parseScript,
 
+    // 分镜和场景视觉 (新增)
+    generateStoryboard,
+    extractSceneVisual,
+
     // 角色
     characters,
     generateCharacter,
     generateCharacterExpression,
     updateCharacter,
+    extractCharactersFromScript,
+    generateCharacterViews,
 
     // 首尾帧和视频
     generateFrames,

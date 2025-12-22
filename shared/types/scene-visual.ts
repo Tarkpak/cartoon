@@ -7,9 +7,9 @@ export const SceneVisualSchema = z.object({
   sceneId: z.string().describe('场景ID'),
   time: z.string().describe('时间描述 (如: 深冬傍晚、明末夜晚)'),
   location: z.string().describe('地点描述'),
-  visualElements: z.array(z.string()).describe('视觉元素列表'),
+  visualElements: z.array(z.string()).or(z.array(z.object({ element: z.string(), detail: z.string().optional() }))).describe('视觉元素列表'),
   atmosphere: z.string().describe('氛围描述'),
-  sensoryDetails: z.string().optional().describe('感官细节 (增强代入感)'),
+  sensoryDetails: z.string().nullable().optional().describe('感官细节 (增强代入感)'),
   imagePrompt: z.string().describe('生成的文生图提示词')
 })
 export type SceneVisual = z.infer<typeof SceneVisualSchema>

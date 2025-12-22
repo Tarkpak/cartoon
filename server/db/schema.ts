@@ -40,6 +40,8 @@ export const scenes = sqliteTable('scenes', {
   firstFrame: text('first_frame'), // base64 或文件路径
   lastFrame: text('last_frame'), // base64 或文件路径
   videoUrl: text('video_url'), // 视频 URL 路径
+  storyboard: text('storyboard'), // JSON 存储分镜脚本
+  sceneVisual: text('scene_visual'), // JSON 存储场景视觉
   status: text('status', { enum: ['pending', 'frames_ready', 'video_ready'] }).default('pending'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull()
@@ -58,6 +60,7 @@ export const characters = sqliteTable('characters', {
   gender: text('gender', { enum: ['male', 'female', 'other'] }),
   baseImage: text('base_image'), // base64 或文件路径
   expressions: text('expressions'), // JSON 存储 Record<Emotion, string>
+  views: text('views'), // JSON 存储多视角图像 Record<CharacterView, string>
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull()
 })

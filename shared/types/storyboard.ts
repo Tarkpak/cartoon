@@ -41,11 +41,11 @@ export const StoryboardShotSchema = z.object({
   shotType: ShotTypeSchema.describe('景别'),
   cameraMovement: CameraMovementSchema.describe('运镜方式'),
   visualContent: z.string().describe('画面内容描述'),
-  dialogue: z.string().optional().describe('台词/旁白'),
-  character: z.string().optional().describe('说话角色'),
-  emotion: EmotionSchema.optional().describe('情绪'),
+  dialogue: z.string().nullable().optional().describe('台词/旁白'),
+  character: z.string().nullable().optional().describe('说话角色'),
+  emotion: EmotionSchema.nullable().optional().describe('情绪'),
   duration: z.number().min(1).max(10).describe('时长(秒)'),
-  notes: z.string().optional().describe('备注')
+  notes: z.string().nullable().optional().describe('备注')
 })
 export type StoryboardShot = z.infer<typeof StoryboardShotSchema>
 

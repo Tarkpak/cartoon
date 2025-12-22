@@ -28,20 +28,25 @@ const SceneSchema = z.object({
   narration: z.string().nullish(),
   firstFrame: z.string().nullish(),
   lastFrame: z.string().nullish(),
-  videoUrl: z.string().nullish(), // 视频 URL
-  status: z.string().nullish()
+  videoUrl: z.string().nullish(),
+  status: z.string().nullish(),
+  // 新增：分镜和场景视觉
+  storyboard: z.any().nullish(),
+  sceneVisual: z.any().nullish()
 })
 
 const CharacterSchema = z.object({
   id: z.string(),
   name: z.string(),
-  role: z.string().optional(), // 接受任意角色类型
+  role: z.string().optional(),
   appearance: z.string(),
   personality: z.string().optional(),
   age: z.number().optional(),
-  gender: z.string().optional(), // 接受任意性别
+  gender: z.string().optional(),
   baseImage: z.string().optional(),
-  expressions: z.record(z.string()).optional()
+  expressions: z.record(z.string()).optional(),
+  // 新增：多视角
+  views: z.record(z.string()).optional()
 })
 
 const UpdateProjectSchema = z.object({
@@ -154,6 +159,8 @@ export default defineEventHandler(async (event) => {
             firstFrame: scene.firstFrame || null,
             lastFrame: scene.lastFrame || null,
             videoUrl: scene.videoUrl || null,
+            storyboard: scene.storyboard ? JSON.stringify(scene.storyboard) : null,
+            sceneVisual: scene.sceneVisual ? JSON.stringify(scene.sceneVisual) : null,
             status: (scene.status as 'pending' | 'frames_ready' | 'video_ready') || 'pending',
             createdAt: now,
             updatedAt: now
@@ -191,6 +198,7 @@ export default defineEventHandler(async (event) => {
           gender: (char.gender as 'male' | 'female' | 'other') || null,
           baseImage: char.baseImage || null,
           expressions: char.expressions ? JSON.stringify(char.expressions) : null,
+          views: char.views ? JSON.stringify(char.views) : null,
           createdAt: now,
           updatedAt: now
         })

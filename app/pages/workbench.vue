@@ -32,6 +32,10 @@ const {
   generateCharacter,
   generateCharacterExpression,
   updateCharacter,
+  extractCharactersFromScript,
+  generateCharacterViews,
+  generateStoryboard,
+  extractSceneVisual,
   generateFrames,
   generateVideo,
   batchGenerateFrames,
@@ -45,6 +49,9 @@ const {
   loadProject,
   saveProject
 } = useWorkbench()
+
+// 角色提取状态
+const extractingCharacters = ref(false)
 
 // 标签页管理
 const validTabs = ['script', 'characters', 'video', 'audio']
@@ -150,6 +157,45 @@ async function handleGenerateExpression(characterId: string, emotion: string) {
   }
 }
 
+// 角色提取
+async function handleExtractCharacters() {
+  if (!scriptText.value.trim()) {
+    alert('请先输入剧本内容')
+    return
+  }
+  extractingCharacters.value = true
+  try {
+    await extractCharactersFromScript()
+  } finally {
+    extractingCharacters.value = false
+  }
+}
+
+// 分镜和场景视觉对话框
+const storyboardDialogOpen = ref(false)
+const viewingStoryboardScene = ref<SceneData | null>(null)
+
+const sceneVisualDialogOpen = ref(false)
+const viewingSceneVisualScene = ref<SceneData | null>(null)
+
+function handleGenerateStoryboard(scene: SceneData) {
+  generateStoryboard(scene)
+}
+
+function handleViewStoryboard(scene: SceneData) {
+  viewingStoryboardScene.value = scene
+  storyboardDialogOpen.value = true
+}
+
+function handleExtractSceneVisual(scene: SceneData) {
+  extractSceneVisual(scene)
+}
+
+function handleViewSceneVisual(scene: SceneData) {
+  viewingSceneVisualScene.value = scene
+  sceneVisualDialogOpen.value = true
+}
+
 // 页面加载时加载项目
 onMounted(() => {
   if (projectId.value) {
@@ -214,15 +260,22 @@ onMounted(() => {
           @split-scene="splitScene"
           @merge-scene="mergeWithNextScene"
           @reorder-scenes="handleReorderScenes"
+          @generate-storyboard="handleGenerateStoryboard"
+          @extract-scene-visual="handleExtractSceneVisual"
+          @view-storyboard="handleViewStoryboard"
+          @view-scene-visual="handleViewSceneVisual"
         />
 
         <!-- 角色管理面板 -->
         <WorkbenchCharacterPanel
           v-else-if="activeTab === 'characters'"
           :characters="characters"
+          :extracting="extractingCharacters"
           @generate-character="generateCharacter"
           @edit-character="openCharacterEdit"
           @preview-image="openImagePreview"
+          @extract-characters="handleExtractCharacters"
+          @generate-views="generateCharacterViews"
         />
 
         <!-- 视频生成面板 -->
@@ -276,5 +329,113 @@ onMounted(() => {
       :src="imagePreviewSrc"
       :alt="imagePreviewAlt"
     />
+
+    <!-- 分镜查看对话框 -->
+    <Dialog v-model:open="storyboardDialogOpen">
+      <DialogContent class="max-w-3xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>分镜脚本 - {{ viewingStoryboardScene?.title }}</DialogTitle>
+        </DialogHeader>
+        <div
+          v-if="viewingStoryboardScene?.storyboard"
+          class="space-y-4"
+        >
+          <div class="text-sm text-muted-foreground">
+            总时长: {{ viewingStoryboardScene.storyboard.totalDuration }}秒
+          </div>
+          <div
+            v-for="shot in viewingStoryboardScene.storyboard.shots"
+            :key="shot.shotNumber"
+            class="border rounded-lg p-4 space-y-2"
+          >
+            <div class="flex items-center justify-between">
+              <Badge>镜头 {{ shot.shotNumber }}</Badge>
+              <div class="flex space-x-2">
+                <Badge variant="outline">
+                  {{ shot.shotType }}
+                </Badge>
+                <Badge variant="outline">
+                  {{ shot.cameraMovement }}
+                </Badge>
+                <Badge variant="secondary">
+                  {{ shot.duration }}秒
+                </Badge>
+              </div>
+            </div>
+            <p class="text-sm">
+              {{ shot.visualContent }}
+            </p>
+            <div
+              v-if="shot.dialogue"
+              class="text-sm text-muted-foreground italic"
+            >
+              {{ shot.character }}: "{{ shot.dialogue }}"
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    <!-- 场景视觉查看对话框 -->
+    <Dialog v-model:open="sceneVisualDialogOpen">
+      <DialogContent class="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>场景视觉 - {{ viewingSceneVisualScene?.title }}</DialogTitle>
+        </DialogHeader>
+        <div
+          v-if="viewingSceneVisualScene?.sceneVisual"
+          class="space-y-4"
+        >
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span class="text-muted-foreground">时间:</span>
+              {{ viewingSceneVisualScene.sceneVisual.time }}
+            </div>
+            <div>
+              <span class="text-muted-foreground">地点:</span>
+              {{ viewingSceneVisualScene.sceneVisual.location }}
+            </div>
+          </div>
+          <div>
+            <h4 class="font-medium mb-2">
+              视觉元素
+            </h4>
+            <div class="flex flex-wrap gap-2">
+              <Badge
+                v-for="(element, idx) in viewingSceneVisualScene.sceneVisual.visualElements"
+                :key="idx"
+                variant="outline"
+              >
+                {{ element }}
+              </Badge>
+            </div>
+          </div>
+          <div>
+            <h4 class="font-medium mb-2">
+              氛围
+            </h4>
+            <p class="text-sm text-muted-foreground">
+              {{ viewingSceneVisualScene.sceneVisual.atmosphere }}
+            </p>
+          </div>
+          <div>
+            <h4 class="font-medium mb-2">
+              感官细节
+            </h4>
+            <p class="text-sm text-muted-foreground">
+              {{ viewingSceneVisualScene.sceneVisual.sensoryDetails }}
+            </p>
+          </div>
+          <div>
+            <h4 class="font-medium mb-2">
+              文生图提示词
+            </h4>
+            <div class="bg-muted p-3 rounded-lg text-sm">
+              {{ viewingSceneVisualScene.sceneVisual.imagePrompt }}
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
