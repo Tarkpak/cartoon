@@ -4,13 +4,15 @@ import { imageLimiter } from '../../utils/concurrency'
 import { SceneSchema } from '../../../shared/types/script'
 
 /**
- * 首尾帧生成请求
+ * 首尾帧生成请求 (基于飞书文档 2.6 优化)
  */
 const GenerateFrameRequestSchema = z.object({
   scene: SceneSchema.describe('场景信息'),
   style: z.string().optional().default('日式动漫').describe('画风'),
   characterAssets: z.record(z.string(), z.string()).optional().describe('角色资产 (name -> base64)'),
-  previousSceneLastFrame: z.string().optional().describe('上一场景的尾帧 (base64) - 用于保持场景连续性')
+  sceneBackground: z.string().optional().describe('场景背景图 (base64) - 用于角色+场景融合'),
+  previousSceneLastFrame: z.string().optional().describe('上一场景的尾帧 (base64) - 用于保持场景连续性'),
+  fusionMode: z.enum(['character_scene', 'reference', 'text_only']).optional().default('reference').describe('融合模式')
 })
 
 /**
@@ -34,13 +36,15 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { scene, style, characterAssets, previousSceneLastFrame } = parseResult.data
+  const { scene, style, characterAssets, sceneBackground, previousSceneLastFrame, fusionMode } = parseResult.data
 
   try {
-    console.log(`[FrameGen] 开始生成首尾帧: ${scene.id}`)
+    console.log(`[FrameGen] 开始生成首尾帧: ${scene.id}, 融合模式: ${fusionMode}`)
 
-    // 2. 生成首帧 (优先使用上一场景尾帧保持连续性)
-    const firstFrameResult = await generateFirstFrame(scene, style, characterAssets, previousSceneLastFrame)
+    // 2. 生成首帧 (根据融合模式选择策略)
+    const firstFrameResult = await generateFirstFrame(
+      scene, style, characterAssets, sceneBackground, previousSceneLastFrame, fusionMode
+    )
     console.log(`[FrameGen] 首帧生成完成`)
 
     // 3. 生成尾帧 (基于首帧保持一致性)
@@ -83,33 +87,59 @@ export default defineEventHandler(async (event) => {
 })
 
 /**
- * 生成首帧
+ * 生成首帧 (基于飞书文档 2.6.1.1 优化)
+ * @param sceneBackground 场景背景图，用于角色+场景融合
  * @param previousSceneLastFrame 上一场景的尾帧，用于保持场景连续性
+ * @param fusionMode 融合模式
  */
 async function generateFirstFrame(
   scene: z.infer<typeof SceneSchema>,
   style: string,
   characterAssets?: Record<string, string>,
-  previousSceneLastFrame?: string
+  sceneBackground?: string,
+  previousSceneLastFrame?: string,
+  fusionMode: 'character_scene' | 'reference' | 'text_only' = 'reference'
 ): Promise<{ imageData: string, mimeType: string }> {
-  const prompt = buildFirstFramePrompt(scene, style, !!previousSceneLastFrame)
-
-  // 优先级: 上一场景尾帧 > 角色立绘
-  // 这样可以保持场景之间的视觉连续性
+  let prompt: string
   let referenceImage: { data: string, mimeType: string } | undefined
 
-  if (previousSceneLastFrame) {
-    // 使用上一场景的尾帧作为参考，保持角色外观和画风一致
+  // 根据融合模式选择策略
+  if (fusionMode === 'character_scene' && sceneBackground && characterAssets) {
+    // 模式1: 角色+场景融合 (基于飞书文档 2.6.1.1)
+    // 将角色立绘融合到场景背景中
+    const mainCharacter = scene.characters[0]
+    const characterImage = mainCharacter ? characterAssets[mainCharacter.name] : undefined
+
+    if (characterImage) {
+      prompt = buildCharacterSceneFusionPrompt(scene, style, mainCharacter)
+      // 使用场景背景作为参考，提示词中描述角色融合
+      referenceImage = { data: sceneBackground, mimeType: 'image/png' }
+      console.log('[FrameGen] 使用角色+场景融合模式')
+    } else {
+      // 降级到场景背景参考模式
+      prompt = buildFirstFramePrompt(scene, style, false)
+      referenceImage = { data: sceneBackground, mimeType: 'image/png' }
+    }
+  } else if (previousSceneLastFrame) {
+    // 模式2: 使用上一场景尾帧保持连续性 (基于飞书文档 2.7.4)
+    prompt = buildFirstFramePrompt(scene, style, true)
     referenceImage = { data: previousSceneLastFrame, mimeType: 'image/jpeg' }
     console.log('[FrameGen] 使用上一场景尾帧作为参考图')
-  } else {
-    // 第一个场景：使用角色立绘作为参考
+  } else if (characterAssets) {
+    // 模式3: 使用角色立绘作为参考
     const mainCharacter = scene.characters[0]
-    const characterImage = mainCharacter ? characterAssets?.[mainCharacter.name] : undefined
+    const characterImage = mainCharacter ? characterAssets[mainCharacter.name] : undefined
     if (characterImage) {
+      prompt = buildFirstFramePrompt(scene, style, false)
       referenceImage = { data: characterImage, mimeType: 'image/png' }
       console.log('[FrameGen] 使用角色立绘作为参考图')
+    } else {
+      prompt = buildFirstFramePrompt(scene, style, false)
     }
+  } else {
+    // 模式4: 纯文本生成
+    prompt = buildFirstFramePrompt(scene, style, false)
+    console.log('[FrameGen] 使用纯文本生成模式')
   }
 
   // 使用并发限制器控制请求
@@ -126,6 +156,33 @@ async function generateFirstFrame(
     imageData: result.imageData,
     mimeType: result.mimeType
   }
+}
+
+/**
+ * 构建角色+场景融合提示词 (基于飞书文档 2.6.1.1)
+ */
+function buildCharacterSceneFusionPrompt(
+  scene: z.infer<typeof SceneSchema>,
+  style: string,
+  mainCharacter: { name: string, appearance?: string, action?: string, emotion?: string }
+): string {
+  return `将角色融合到参考图的场景中。
+
+角色信息:
+- 名称: ${mainCharacter.name}
+${mainCharacter.appearance ? `- 外观: ${mainCharacter.appearance}` : ''}
+${mainCharacter.action ? `- 动作: ${mainCharacter.action}` : ''}
+${mainCharacter.emotion ? `- 表情: ${getEmotionChinese(mainCharacter.emotion)}` : ''}
+
+场景描述: ${scene.description}
+
+要求:
+1. 将角色自然地融入参考图的场景中
+2. 保持${style}画风一致
+3. 角色的位置、大小要与场景协调
+4. 光影效果要与场景环境匹配
+5. 16:9 宽屏比例，高清质量
+6. 角色姿态要符合场景氛围`
 }
 
 /**

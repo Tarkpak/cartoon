@@ -82,10 +82,26 @@ export default defineEventHandler(async (event) => {
 })
 
 /**
- * 构建系统提示词
+ * 构建系统提示词 (基于飞书文档 2.2.1 剧本创作提示词优化)
  */
 function buildSystemPrompt(): string {
   return `你是一个专业的剧本分析师和编剧助手。你的任务是将小说文本解析为结构化的场景数据，用于生成AI漫剧视频。
+
+## 剧本内容要求 (基于飞书文档)
+
+一、「内容逻辑」：用「绝境 + 强钩子」戳中人性痛点，形成 "爽点闭环"
+1. 视频的底层逻辑：把主角逼到 "生存 + 繁衍" 的双重绝境，再抛出一个 "能同时解决两个问题" 的强钩子
+2. 绝境铺垫：主角处于一个绝境的环境中
+3. 强钩子抛出：剧情能激起观众追剧的欲望
+4. 爽点闭环：情绪层层递进，最后用 "未完待续" 留悬念
+
+二、「角色设计」：用「反差感 + 真实感」打造 "接地气的角色"
+1. 主角：角色越 "真实" 越有代入感
+2. 配角：完美还原真实性格，让观众产生共鸣
+
+三、「视觉风格」：用「写实细节 + 科幻反差」营造 "沉浸式感觉"
+1. 场景的 "写实感"：细节要强化真实感
+2. 设定的 "科幻反差"：增加科幻/奇幻的场景与要点
 
 ## 输出要求
 
@@ -97,7 +113,7 @@ function buildSystemPrompt(): string {
     {
       "id": "scene_001",
       "title": "场景标题",
-      "description": "场景的视觉描述，用于生成首尾帧图片",
+      "description": "场景的视觉描述，用于生成首尾帧图片，要具体、可视化",
       "setting": {
         "location": "具体地点",
         "timeOfDay": "dawn|morning|noon|afternoon|evening|night",
@@ -127,7 +143,7 @@ function buildSystemPrompt(): string {
   "characters": [
     {
       "name": "角色名",
-      "description": "角色描述",
+      "description": "角色描述（包含外观、性格、年龄等）",
       "role": "protagonist|antagonist|supporting"
     }
   ],

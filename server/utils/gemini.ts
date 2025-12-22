@@ -81,9 +81,9 @@ export function getGeminiClient(): GoogleGenAI {
  */
 export const TextModels = {
   /** 剧本解析 - 使用 gemini-2.5-flash (gemini-3-pro-preview 无免费层级) */
-  SCRIPT_PARSER: 'gemini-2.5-flash',
+  SCRIPT_PARSER: 'gemini-3-flash-preview',
   /** 通用任务 */
-  GENERAL: 'gemini-2.5-flash'
+  GENERAL: 'gemini-3-flash-preview'
 } as const
 
 /**
