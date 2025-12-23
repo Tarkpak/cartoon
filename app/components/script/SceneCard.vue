@@ -8,8 +8,20 @@ import {
   Loader2,
   Clock,
   Users,
-  GripVertical
+  GripVertical,
+  Camera,
+  Move,
+  Layers
 } from 'lucide-vue-next'
+
+// 景别类型
+type ShotType = 'extreme_wide' | 'wide' | 'medium_wide' | 'medium' | 'medium_close' | 'close' | 'extreme_close' | 'detail'
+
+// 运镜方式
+type CameraMovement = 'static' | 'push' | 'pull' | 'pan_left' | 'pan_right' | 'tilt_up' | 'tilt_down' | 'track' | 'dolly' | 'zoom_in' | 'zoom_out' | 'crane' | 'handheld' | 'arc'
+
+// 转场效果
+type TransitionType = 'cut' | 'fade' | 'dissolve' | 'wipe' | 'slide' | 'zoom' | 'blur' | 'flash' | 'none'
 
 interface SceneCardProps {
   scene: {
@@ -20,6 +32,12 @@ interface SceneCardProps {
     duration: number
     characters?: string[]
     thumbnail?: string
+    // 镜头语言
+    shotType?: ShotType
+    cameraMovement?: CameraMovement
+    // 转场
+    transitionIn?: TransitionType
+    transitionOut?: TransitionType
   }
   index: number
   active?: boolean
@@ -45,7 +63,69 @@ const statusConfig = {
   failed: { icon: Circle, color: 'text-red-500', bg: 'bg-red-100', label: '失败', spin: false }
 }
 
+// 景别标签映射
+const shotTypeLabels: Record<ShotType, string> = {
+  extreme_wide: '大远景',
+  wide: '全景',
+  medium_wide: '中全景',
+  medium: '中景',
+  medium_close: '中近景',
+  close: '近景',
+  extreme_close: '特写',
+  detail: '细节'
+}
+
+// 运镜标签映射
+const cameraMovementLabels: Record<CameraMovement, string> = {
+  static: '定镜',
+  push: '推',
+  pull: '拉',
+  pan_left: '左摇',
+  pan_right: '右摇',
+  tilt_up: '上摇',
+  tilt_down: '下摇',
+  track: '跟',
+  dolly: '移',
+  zoom_in: '变焦推',
+  zoom_out: '变焦拉',
+  crane: '升降',
+  handheld: '手持',
+  arc: '环绕'
+}
+
+// 转场标签映射
+const transitionLabels: Record<TransitionType, string> = {
+  cut: '硬切',
+  fade: '淡变',
+  dissolve: '叠化',
+  wipe: '划变',
+  slide: '滑动',
+  zoom: '缩放',
+  blur: '模糊',
+  flash: '闪白',
+  none: '无'
+}
+
 const currentStatus = computed(() => statusConfig[props.scene.status] || statusConfig.pending)
+
+// 获取景别标签
+const shotTypeLabel = computed(() => {
+  return props.scene.shotType ? shotTypeLabels[props.scene.shotType] : null
+})
+
+// 获取运镜标签
+const cameraMovementLabel = computed(() => {
+  return props.scene.cameraMovement ? cameraMovementLabels[props.scene.cameraMovement] : null
+})
+
+// 获取转场标签
+const transitionLabel = computed(() => {
+  const transIn = props.scene.transitionIn
+  const transOut = props.scene.transitionOut
+  if (!transIn && !transOut) return null
+  if (transIn === transOut) return transitionLabels[transIn || 'cut']
+  return `${transitionLabels[transIn || 'cut']}→${transitionLabels[transOut || 'cut']}`
+})
 </script>
 
 <template>
@@ -140,9 +220,35 @@ const currentStatus = computed(() => statusConfig[props.scene.status] || statusC
 
     <!-- 底部信息 -->
     <div class="flex flex-wrap items-center gap-2">
+      <!-- 镜头语言标签 -->
+      <Badge
+        v-if="shotTypeLabel"
+        variant="outline"
+        class="text-xs bg-blue-50 border-blue-200 text-blue-700"
+      >
+        <Camera class="w-3 h-3 mr-1" />
+        {{ shotTypeLabel }}
+      </Badge>
+      <Badge
+        v-if="cameraMovementLabel && cameraMovementLabel !== '定镜'"
+        variant="outline"
+        class="text-xs bg-green-50 border-green-200 text-green-700"
+      >
+        <Move class="w-3 h-3 mr-1" />
+        {{ cameraMovementLabel }}
+      </Badge>
+      <Badge
+        v-if="transitionLabel && transitionLabel !== '硬切'"
+        variant="outline"
+        class="text-xs bg-purple-50 border-purple-200 text-purple-700"
+      >
+        <Layers class="w-3 h-3 mr-1" />
+        {{ transitionLabel }}
+      </Badge>
+
       <!-- 角色标签 -->
       <Badge
-        v-for="char in scene.characters?.slice(0, 3)"
+        v-for="char in scene.characters?.slice(0, 2)"
         :key="char"
         variant="outline"
         class="text-xs"
@@ -151,11 +257,11 @@ const currentStatus = computed(() => statusConfig[props.scene.status] || statusC
         {{ char }}
       </Badge>
       <Badge
-        v-if="(scene.characters?.length || 0) > 3"
+        v-if="(scene.characters?.length || 0) > 2"
         variant="outline"
         class="text-xs"
       >
-        +{{ (scene.characters?.length || 0) - 3 }}
+        +{{ (scene.characters?.length || 0) - 2 }}
       </Badge>
 
       <!-- 时长 -->

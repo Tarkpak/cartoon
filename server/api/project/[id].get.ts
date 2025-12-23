@@ -43,6 +43,17 @@ export default defineEventHandler(async (event) => {
       .where(eq(characters.projectId, id))
       .all()
 
+    // 解析剧本内容（支持新旧格式）
+    let scriptData: { storyIdea?: string, novelText?: string, rawText?: string } | null = null
+    if (script?.rawText) {
+      try {
+        scriptData = JSON.parse(script.rawText)
+      } catch {
+        // 旧格式，rawText 是纯文本
+        scriptData = { rawText: script.rawText, storyIdea: script.rawText, novelText: '' }
+      }
+    }
+
     return {
       success: true,
       data: {
@@ -58,7 +69,11 @@ export default defineEventHandler(async (event) => {
           ? {
               id: script.id,
               title: script.title,
-              rawText: script.rawText,
+              // 返回分离的字段
+              storyIdea: scriptData?.storyIdea || scriptData?.rawText || '',
+              novelText: scriptData?.novelText || '',
+              // 兼容旧字段
+              rawText: scriptData?.storyIdea || scriptData?.rawText || '',
               parsedData: script.parsedData ? JSON.parse(script.parsedData) : null,
               totalDuration: script.totalDuration
             }
@@ -73,9 +88,20 @@ export default defineEventHandler(async (event) => {
           dialogues: s.dialogues ? JSON.parse(s.dialogues) : [],
           duration: s.duration,
           narration: s.narration,
+          // 镜头语言
+          shotType: s.shotType,
+          cameraMovement: s.cameraMovement,
+          cameraNote: s.cameraNote,
+          // 转场
+          transitionIn: s.transitionIn,
+          transitionOut: s.transitionOut,
+          transitionDuration: s.transitionDuration,
+          // 帧和视频
           firstFrame: s.firstFrame,
           lastFrame: s.lastFrame,
-          videoUrl: s.videoUrl, // 返回视频 URL
+          videoUrl: s.videoUrl,
+          storyboard: s.storyboard ? JSON.parse(s.storyboard) : null,
+          sceneVisual: s.sceneVisual ? JSON.parse(s.sceneVisual) : null,
           status: s.status
         })),
         characters: projectCharacters.map(c => ({

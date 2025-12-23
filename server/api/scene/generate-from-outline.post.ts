@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { getGeminiClient } from '../../utils/gemini'
+import { generateJSON, getSelectedModels } from '../../utils/model-provider'
 
 const RequestSchema = z.object({
   outline: z.object({
@@ -135,22 +135,14 @@ ${actsInfo}
 请直接输出 JSON 数组，不要包含其他内容。`
 
   try {
-    const response = await client.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        temperature: 0.8
-      }
+    const selectedModels = getSelectedModels()
+    const parsed = await generateJSON<z.infer<typeof SceneSchema>[]>({
+      modelId: selectedModels.text,
+      prompt,
+      temperature: 0.8,
+      maxRetries: 2
     })
 
-    const text = response.text || ''
-    const jsonMatch = text.match(/\[[\s\S]*\]/)
-    if (!jsonMatch) {
-      throw new Error('无法解析 AI 响应')
-    }
-
-    const parsed = JSON.parse(jsonMatch[0])
     const scenes = z.array(SceneSchema).parse(parsed)
 
     // 计算总时长

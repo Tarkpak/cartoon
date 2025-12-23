@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Sparkles, Plus, Pencil, Trash2, Merge, Split, Film, Eye, BookOpen } from 'lucide-vue-next'
+import { Loader2, Sparkles, Plus, Pencil, Trash2, Merge, Split, Film, Eye, BookOpen, Camera, Move, Layers } from 'lucide-vue-next'
 import type { SceneData } from '~/composables/useWorkbench'
 
 const props = defineProps<{
@@ -31,6 +31,49 @@ const localScriptText = computed({
   get: () => props.scriptText,
   set: v => emit('update:scriptText', v)
 })
+
+// 景别标签映射
+const shotTypeLabels: Record<string, string> = {
+  extreme_wide: '大远景',
+  wide: '全景',
+  medium_wide: '中全景',
+  medium: '中景',
+  medium_close: '中近景',
+  close: '近景',
+  extreme_close: '特写',
+  detail: '细节'
+}
+
+// 运镜标签映射
+const cameraMovementLabels: Record<string, string> = {
+  static: '定镜',
+  push: '推',
+  pull: '拉',
+  pan_left: '左摇',
+  pan_right: '右摇',
+  tilt_up: '上摇',
+  tilt_down: '下摇',
+  track: '跟',
+  dolly: '移',
+  zoom_in: '变焦推',
+  zoom_out: '变焦拉',
+  crane: '升降',
+  handheld: '手持',
+  arc: '环绕'
+}
+
+// 转场标签映射
+const transitionLabels: Record<string, string> = {
+  cut: '硬切',
+  fade: '淡变',
+  dissolve: '叠化',
+  wipe: '划变',
+  slide: '滑动',
+  zoom: '缩放',
+  blur: '模糊',
+  flash: '闪白',
+  none: '无'
+}
 
 // 拖拽排序
 const draggedSceneIndex = ref<number | null>(null)
@@ -266,12 +309,44 @@ function handleDragEnd() {
             {{ scene.description }}
           </p>
           <div class="flex flex-wrap gap-2">
+            <!-- 镜头语言标签 -->
             <Badge
-              v-for="char in scene.characters"
+              v-if="scene.shotType && scene.shotType !== 'medium'"
+              variant="outline"
+              class="bg-blue-50 border-blue-200 text-blue-700"
+            >
+              <Camera class="w-3 h-3 mr-1" />
+              {{ shotTypeLabels[scene.shotType] || scene.shotType }}
+            </Badge>
+            <Badge
+              v-if="scene.cameraMovement && scene.cameraMovement !== 'static'"
+              variant="outline"
+              class="bg-green-50 border-green-200 text-green-700"
+            >
+              <Move class="w-3 h-3 mr-1" />
+              {{ cameraMovementLabels[scene.cameraMovement] || scene.cameraMovement }}
+            </Badge>
+            <Badge
+              v-if="scene.transitionIn && scene.transitionIn !== 'cut'"
+              variant="outline"
+              class="bg-purple-50 border-purple-200 text-purple-700"
+            >
+              <Layers class="w-3 h-3 mr-1" />
+              {{ transitionLabels[scene.transitionIn] || scene.transitionIn }}
+            </Badge>
+            <!-- 角色标签 -->
+            <Badge
+              v-for="char in scene.characters.slice(0, 2)"
               :key="char.name"
               variant="outline"
             >
               {{ char.name }}
+            </Badge>
+            <Badge
+              v-if="scene.characters.length > 2"
+              variant="outline"
+            >
+              +{{ scene.characters.length - 2 }}
             </Badge>
             <Badge variant="outline">
               {{ scene.duration }}秒

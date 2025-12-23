@@ -13,6 +13,15 @@ interface CharacterItem {
   emotion?: string
 }
 
+// 景别类型
+type ShotType = 'extreme_wide' | 'wide' | 'medium_wide' | 'medium' | 'medium_close' | 'close' | 'extreme_close' | 'detail'
+
+// 运镜方式
+type CameraMovement = 'static' | 'push' | 'pull' | 'pan_left' | 'pan_right' | 'tilt_up' | 'tilt_down' | 'track' | 'dolly' | 'zoom_in' | 'zoom_out' | 'crane' | 'handheld' | 'arc'
+
+// 转场效果
+type TransitionType = 'cut' | 'fade' | 'dissolve' | 'wipe' | 'slide' | 'zoom' | 'blur' | 'flash' | 'none'
+
 interface SceneEditData {
   id: string
   title: string
@@ -21,6 +30,14 @@ interface SceneEditData {
   dialogues: DialogueItem[]
   duration: number
   setting?: { location: string, timeOfDay: string }
+  // 镜头语言
+  shotType?: ShotType
+  cameraMovement?: CameraMovement
+  cameraNote?: string
+  // 转场
+  transitionIn?: TransitionType
+  transitionOut?: TransitionType
+  transitionDuration?: number
 }
 
 const props = defineProps<{
@@ -41,7 +58,13 @@ const editForm = ref<SceneEditData>({
   description: '',
   characters: [],
   dialogues: [],
-  duration: 8
+  duration: 8,
+  shotType: 'medium',
+  cameraMovement: 'static',
+  cameraNote: '',
+  transitionIn: 'cut',
+  transitionOut: 'cut',
+  transitionDuration: 0.5
 })
 
 // 监听 scene 变化，初始化表单
@@ -54,7 +77,13 @@ watch(() => props.scene, (newScene) => {
       characters: [...newScene.characters],
       dialogues: newScene.dialogues.map(d => ({ ...d })),
       duration: newScene.duration,
-      setting: newScene.setting ? { ...newScene.setting } : undefined
+      setting: newScene.setting ? { ...newScene.setting } : undefined,
+      shotType: newScene.shotType || 'medium',
+      cameraMovement: newScene.cameraMovement || 'static',
+      cameraNote: newScene.cameraNote || '',
+      transitionIn: newScene.transitionIn || 'cut',
+      transitionOut: newScene.transitionOut || 'cut',
+      transitionDuration: newScene.transitionDuration || 0.5
     }
   }
 }, { immediate: true })
@@ -78,6 +107,49 @@ const timeOfDayOptions = [
   { value: 'afternoon', label: '下午' },
   { value: 'evening', label: '傍晚' },
   { value: 'night', label: '夜晚' }
+]
+
+// 景别选项
+const shotTypeOptions = [
+  { value: 'extreme_wide', label: '大远景', desc: '展示宏大场景' },
+  { value: 'wide', label: '全景', desc: '展示完整环境' },
+  { value: 'medium_wide', label: '中全景', desc: '人物全身+环境' },
+  { value: 'medium', label: '中景', desc: '人物膝盖以上' },
+  { value: 'medium_close', label: '中近景', desc: '人物胸部以上' },
+  { value: 'close', label: '近景', desc: '人物肩部以上' },
+  { value: 'extreme_close', label: '特写', desc: '面部或局部' },
+  { value: 'detail', label: '细节特写', desc: '物品或细节' }
+]
+
+// 运镜选项
+const cameraMovementOptions = [
+  { value: 'static', label: '定镜', desc: '固定机位' },
+  { value: 'push', label: '推镜头', desc: '向前推进' },
+  { value: 'pull', label: '拉镜头', desc: '向后拉远' },
+  { value: 'pan_left', label: '左摇', desc: '水平左移' },
+  { value: 'pan_right', label: '右摇', desc: '水平右移' },
+  { value: 'tilt_up', label: '上摇', desc: '垂直上移' },
+  { value: 'tilt_down', label: '下摇', desc: '垂直下移' },
+  { value: 'track', label: '跟镜头', desc: '跟随主体' },
+  { value: 'dolly', label: '移镜头', desc: '平行移动' },
+  { value: 'zoom_in', label: '变焦推进', desc: '镜头拉近' },
+  { value: 'zoom_out', label: '变焦拉远', desc: '镜头拉远' },
+  { value: 'crane', label: '升降镜头', desc: '垂直升降' },
+  { value: 'handheld', label: '手持晃动', desc: '真实感' },
+  { value: 'arc', label: '环绕镜头', desc: '绕主体旋转' }
+]
+
+// 转场选项
+const transitionOptions = [
+  { value: 'cut', label: '硬切', desc: '直接切换' },
+  { value: 'fade', label: '淡入淡出', desc: '渐变黑场' },
+  { value: 'dissolve', label: '叠化', desc: '画面融合' },
+  { value: 'wipe', label: '划变', desc: '擦除切换' },
+  { value: 'slide', label: '滑动', desc: '滑入滑出' },
+  { value: 'zoom', label: '缩放', desc: '放大缩小' },
+  { value: 'blur', label: '模糊', desc: '虚焦过渡' },
+  { value: 'flash', label: '闪白', desc: '白场过渡' },
+  { value: 'none', label: '无', desc: '不使用转场' }
 ]
 
 // 添加对话
@@ -172,11 +244,126 @@ function handleCancel() {
             <input
               v-model.number="editForm.duration"
               type="range"
-              min="4"
-              max="12"
+              min="2"
+              max="15"
+              step="0.5"
               class="flex-1"
             >
-            <span class="w-12 text-center font-medium">{{ editForm.duration }}秒</span>
+            <span class="w-16 text-center font-medium">{{ editForm.duration }}秒</span>
+          </div>
+          <p class="text-xs text-muted-foreground">支持 2-15 秒灵活时长</p>
+        </div>
+
+        <!-- 镜头语言设置 -->
+        <div class="space-y-4 border-t pt-4">
+          <h4 class="text-sm font-medium flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-blue-500" />
+            镜头语言
+          </h4>
+
+          <div class="grid grid-cols-2 gap-4">
+            <!-- 景别 -->
+            <div class="space-y-2">
+              <label class="text-sm font-medium">景别</label>
+              <select
+                v-model="editForm.shotType"
+                class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
+              >
+                <option
+                  v-for="opt in shotTypeOptions"
+                  :key="opt.value"
+                  :value="opt.value"
+                >
+                  {{ opt.label }} - {{ opt.desc }}
+                </option>
+              </select>
+            </div>
+
+            <!-- 运镜 -->
+            <div class="space-y-2">
+              <label class="text-sm font-medium">运镜方式</label>
+              <select
+                v-model="editForm.cameraMovement"
+                class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
+              >
+                <option
+                  v-for="opt in cameraMovementOptions"
+                  :key="opt.value"
+                  :value="opt.value"
+                >
+                  {{ opt.label }} - {{ opt.desc }}
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <!-- 镜头备注 -->
+          <div class="space-y-2">
+            <label class="text-sm font-medium">镜头备注</label>
+            <Input
+              v-model="editForm.cameraNote"
+              placeholder="可选：补充镜头运动细节，如 缓慢推进至角色面部"
+            />
+          </div>
+        </div>
+
+        <!-- 转场设置 -->
+        <div class="space-y-4 border-t pt-4">
+          <h4 class="text-sm font-medium flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-purple-500" />
+            转场效果
+          </h4>
+
+          <div class="grid grid-cols-3 gap-4">
+            <!-- 入场转场 -->
+            <div class="space-y-2">
+              <label class="text-sm font-medium">入场转场</label>
+              <select
+                v-model="editForm.transitionIn"
+                class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
+              >
+                <option
+                  v-for="opt in transitionOptions"
+                  :key="opt.value"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+
+            <!-- 出场转场 -->
+            <div class="space-y-2">
+              <label class="text-sm font-medium">出场转场</label>
+              <select
+                v-model="editForm.transitionOut"
+                class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
+              >
+                <option
+                  v-for="opt in transitionOptions"
+                  :key="opt.value"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+
+            <!-- 转场时长 -->
+            <div class="space-y-2">
+              <label class="text-sm font-medium">转场时长</label>
+              <div class="flex items-center space-x-2">
+                <input
+                  v-model.number="editForm.transitionDuration"
+                  type="range"
+                  min="0.2"
+                  max="2"
+                  step="0.1"
+                  class="flex-1"
+                >
+                <span class="w-12 text-center text-sm">{{ editForm.transitionDuration }}s</span>
+              </div>
+            </div>
           </div>
         </div>
 

@@ -10,29 +10,44 @@ export type Resolution = z.infer<typeof ResolutionSchema>
 export const AspectRatioSchema = z.enum(['16:9', '9:16', '1:1'])
 export type AspectRatio = z.infer<typeof AspectRatioSchema>
 
-/** 视频时长 (秒) - 支持 4-8 秒 */
-export const DurationSchema = z.number().min(4).max(8).transform((v) => {
-  // 将任意 4-8 秒的值映射到最近的有效值 (4, 6, 8)
-  if (v <= 5) return 4
-  if (v <= 7) return 6
-  return 8
+/** 视频时长 (秒) - 支持 4-15 秒 */
+export const DurationSchema = z.number().min(4).max(15).transform((v) => {
+  // Gemini: 4, 6, 8 秒
+  // Qwen: 5, 10, 15 秒
+  if (v <= 5) return 5
+  if (v <= 8) return 8
+  if (v <= 10) return 10
+  return 15
 })
-export type Duration = 4 | 6 | 8
+export type Duration = 4 | 5 | 6 | 8 | 10 | 15
 
 /** 视频模型类型 */
 export const VideoModelSchema = z.enum(['standard', 'fast'])
 export type VideoModel = z.infer<typeof VideoModelSchema>
 
+/** 视频提供商 */
+export const VideoProviderSchema = z.enum(['gemini', 'qwen'])
+export type VideoProvider = z.infer<typeof VideoProviderSchema>
+
 /** 视频生成配置 */
 export const VideoGenerationConfigSchema = z.object({
-  firstFrame: z.string().optional().describe('首帧图片 (base64) - 可选，不提供则纯文本生成'),
-  lastFrame: z.string().optional().describe('尾帧图片 (base64) - 可选，不提供则纯文本生成'),
+  firstFrame: z.string().optional().describe('首帧图片 (base64) - Gemini 使用'),
+  lastFrame: z.string().optional().describe('尾帧图片 (base64) - Gemini 使用'),
+  imageUrl: z.string().optional().describe('输入图片 URL - Qwen 图生视频使用'),
+  audioUrl: z.string().optional().describe('自定义音频 URL - Qwen 使用'),
   prompt: z.string().describe('视频描述提示词'),
+  negativePrompt: z.string().optional().describe('负面提示词 - Qwen 使用'),
   duration: DurationSchema.default(8).describe('视频时长'),
   resolution: ResolutionSchema.default('720p').describe('分辨率'),
   aspectRatio: AspectRatioSchema.default('16:9').describe('宽高比'),
+  size: z.string().optional().describe('视频尺寸 - Qwen 使用，如 1280*720'),
   withAudio: z.boolean().default(true).describe('是否生成音频'),
-  model: VideoModelSchema.default('standard').describe('模型类型: standard(高质量) / fast(快速)')
+  promptExtend: z.boolean().optional().describe('是否启用提示词扩展 - Qwen 使用'),
+  watermark: z.boolean().optional().describe('是否添加水印 - Qwen 使用'),
+  seed: z.number().optional().describe('随机种子'),
+  model: VideoModelSchema.default('standard').describe('模型类型: standard(高质量) / fast(快速)'),
+  provider: VideoProviderSchema.optional().describe('模型提供商'),
+  modelId: z.string().optional().describe('具体模型ID')
 })
 export type VideoGenerationConfig = z.infer<typeof VideoGenerationConfigSchema>
 

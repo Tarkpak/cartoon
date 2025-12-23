@@ -16,7 +16,8 @@ const {
   projectId,
   projectName,
   projectDescription,
-  scriptText,
+  storyIdea,
+  novelText,
   saving,
   // 工作流步骤
   currentStep,
@@ -199,8 +200,8 @@ async function handleGenerateExpression(characterId: string, emotion: string) {
 
 // 角色提取
 async function handleExtractCharacters() {
-  if (!scriptText.value.trim()) {
-    alert('请先输入剧本内容')
+  if (!novelText.value.trim()) {
+    alert('请先输入小说原文')
     return
   }
   extractingCharacters.value = true
@@ -302,9 +303,9 @@ onMounted(() => {
         <WorkbenchOutlinePanel
           v-if="currentStep === 'outline'"
           :outline="outline"
-          :raw-text="scriptText"
+          :raw-text="storyIdea"
           :generating="generatingOutline"
-          @update:raw-text="scriptText = $event"
+          @update:raw-text="storyIdea = $event"
           @update:outline="handleOutlineUpdate"
           @generate-outline="generateOutline"
           @proceed-to-characters="setCurrentStep('characters')"
@@ -332,12 +333,12 @@ onMounted(() => {
         <!-- 剧本编辑面板 -->
         <WorkbenchScriptPanel
           v-else-if="currentStep === 'script'"
-          :script-text="scriptText"
+          :script-text="novelText"
           :scenes="scenes"
           :parsing="parsing"
           :has-outline="!!outline"
           :has-characters="characters.length > 0"
-          @update:script-text="scriptText = $event"
+          @update:script-text="novelText = $event"
           @parse-script="parseScript"
           @generate-from-outline="generateScenesFromOutline"
           @select-scene="selectScene"
@@ -372,6 +373,19 @@ onMounted(() => {
 
     <!-- 流水线进度条 -->
     <WorkbenchPipelineProgress :status="pipelineStatus" />
+
+    <!-- 时间线视图 -->
+    <div
+      v-if="scenes.length > 0"
+      class="mt-6"
+    >
+      <WorkbenchTimelineView
+        :scenes="scenes"
+        :selected-scene-id="selectedScene?.id"
+        @select-scene="selectScene"
+        @edit-scene="openSceneEdit"
+      />
+    </div>
 
     <!-- 场景编辑对话框 -->
     <ScriptSceneEditDialog

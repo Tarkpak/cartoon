@@ -20,3 +20,6 @@ export * from './storyboard'
 
 // 场景画面类型 (基于飞书文档 2.5)
 export * from './scene-visual'
+
+// 模型提供商类型
+export * from './provider'

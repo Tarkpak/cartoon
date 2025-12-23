@@ -1,5 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, withRetry } from '../../utils/gemini'
+import * as qwen from '../../utils/qwen'
+import { getSelectedModels, findVideoModel } from '../../utils/model-provider'
 import { videoLimiter } from '../../utils/concurrency'
 import { db, videoTasks as videoTasksTable } from '../../db'
 import {
@@ -13,7 +15,7 @@ import * as path from 'node:path'
  * 视频生成 API
  * POST /api/video/generate
  *
- * 使用 Veo 3.1 基于首尾帧生成视频
+ * 支持 Gemini Veo 和 千问万相 视频生成
  */
 export default defineEventHandler(async (event) => {
   const startTime = Date.now()
@@ -23,7 +25,9 @@ export default defineEventHandler(async (event) => {
   console.log('[VideoGen] 收到请求:', JSON.stringify({
     sceneId: body?.sceneId,
     hasConfig: !!body?.config,
-    configKeys: body?.config ? Object.keys(body.config) : []
+    configKeys: body?.config ? Object.keys(body.config) : [],
+    provider: body?.config?.provider,
+    modelId: body?.config?.modelId
   }))
 
   const parseResult = GenerateVideoRequestSchema.safeParse(body)
@@ -102,9 +106,198 @@ async function updateTaskProgress(taskId: string, progress: number, status?: Tas
 }
 
 /**
+ * 确定使用哪个提供商
+ */
+function determineProvider(config: typeof GenerateVideoRequestSchema._type['config']): 'gemini' | 'qwen' {
+  // 1. 如果明确指定了 provider
+  if (config.provider === 'gemini' || config.provider === 'qwen') {
+    return config.provider
+  }
+  
+  // 2. 如果指定了 modelId，从模型配置中获取
+  if (config.modelId) {
+    const modelConfig = findVideoModel(config.modelId)
+    if (modelConfig && (modelConfig.provider === 'gemini' || modelConfig.provider === 'qwen')) {
+      return modelConfig.provider
+    }
+  }
+  
+  // 3. 使用当前选择的模型
+  const selected = getSelectedModels()
+  const selectedModel = findVideoModel(selected.video)
+  if (selectedModel && (selectedModel.provider === 'gemini' || selectedModel.provider === 'qwen')) {
+    return selectedModel.provider
+  }
+  
+  // 4. 默认使用 Gemini
+  return 'gemini'
+}
+
+/**
  * 异步生成视频
  */
 async function generateVideoAsync(
+  taskId: string,
+  sceneId: string,
+  config: typeof GenerateVideoRequestSchema._type['config']
+): Promise<void> {
+  const provider = determineProvider(config)
+  console.log(`[VideoGen] 使用提供商: ${provider}`)
+
+  if (provider === 'qwen') {
+    await generateVideoWithQwen(taskId, sceneId, config)
+  } else {
+    await generateVideoWithGemini(taskId, sceneId, config)
+  }
+}
+
+/**
+ * 使用千问万相生成视频
+ */
+async function generateVideoWithQwen(
+  taskId: string,
+  sceneId: string,
+  config: typeof GenerateVideoRequestSchema._type['config']
+): Promise<void> {
+  try {
+    await updateTaskProgress(taskId, 10, 'processing')
+
+    // 确定模型
+    let modelId = config.modelId
+    if (!modelId) {
+      const selected = getSelectedModels()
+      const selectedModel = findVideoModel(selected.video)
+      if (selectedModel?.provider === 'qwen') {
+        modelId = selectedModel.model
+      } else {
+        // 根据是否有图片选择模型
+        modelId = config.imageUrl ? qwen.QwenVideoModels.WAN_2_6_I2V : qwen.QwenVideoModels.WAN_2_6_T2V
+      }
+    }
+
+    // 转换分辨率为 size 格式
+    let size = config.size
+    if (!size) {
+      // 根据 resolution 和 aspectRatio 计算 size
+      if (config.resolution === '1080p') {
+        switch (config.aspectRatio) {
+          case '16:9': size = '1920*1080'; break
+          case '9:16': size = '1080*1920'; break
+          case '1:1': size = '1440*1440'; break
+          default: size = '1920*1080'
+        }
+      } else {
+        switch (config.aspectRatio) {
+          case '16:9': size = '1280*720'; break
+          case '9:16': size = '720*1280'; break
+          case '1:1': size = '960*960'; break
+          default: size = '1280*720'
+        }
+      }
+    }
+
+    // 转换时长 (Qwen 支持 5, 10, 15)
+    let duration = config.duration
+    if (duration <= 5) duration = 5
+    else if (duration <= 10) duration = 10
+    else duration = 15
+
+    console.log('[VideoGen] Qwen API 请求参数:', {
+      model: modelId,
+      promptLength: config.prompt.length,
+      hasImageUrl: !!config.imageUrl,
+      hasAudioUrl: !!config.audioUrl,
+      size,
+      duration,
+      withAudio: config.withAudio
+    })
+
+    await updateTaskProgress(taskId, 20)
+
+    // 调用千问视频生成
+    const result = await qwen.generateVideo({
+      model: modelId,
+      prompt: config.prompt,
+      imageUrl: config.imageUrl,
+      audioUrl: config.audioUrl,
+      duration,
+      size,
+      negativePrompt: config.negativePrompt,
+      promptExtend: config.promptExtend ?? true,
+      audio: config.withAudio,
+      watermark: config.watermark ?? false,
+      seed: config.seed
+    })
+
+    await updateTaskProgress(taskId, 95)
+
+    // 下载视频到本地
+    let videoData = ''
+    if (result.videoUrl) {
+      try {
+        const videosDir = path.join(process.cwd(), 'public', 'videos')
+        if (!fs.existsSync(videosDir)) {
+          fs.mkdirSync(videosDir, { recursive: true })
+        }
+
+        const videoFileName = `${taskId}.mp4`
+        const videoFilePath = path.join(videosDir, videoFileName)
+        const localVideoUrl = `/videos/${videoFileName}`
+
+        // 下载视频
+        const response = await fetch(result.videoUrl)
+        if (response.ok) {
+          const buffer = await response.arrayBuffer()
+          fs.writeFileSync(videoFilePath, Buffer.from(buffer))
+          console.log(`[VideoGen] 视频下载成功: ${videoFilePath}`)
+          videoData = `url:${localVideoUrl}`
+        } else {
+          // 保存远程 URL
+          videoData = `url:${result.videoUrl}`
+        }
+      } catch (downloadError) {
+        console.error('[VideoGen] 视频下载失败:', downloadError)
+        videoData = `url:${result.videoUrl}`
+      }
+    }
+
+    // 构建结果
+    const generatedVideo: GeneratedVideo = {
+      id: `generated_${taskId}`,
+      sceneId,
+      videoData,
+      metadata: {
+        duration,
+        resolution: config.resolution,
+        aspectRatio: config.aspectRatio,
+        fps: 24,
+        hasAudio: config.withAudio
+      },
+      createdAt: new Date().toISOString()
+    }
+
+    // 完成任务
+    await db.update(videoTasksTable)
+      .set({
+        status: 'completed',
+        progress: 100,
+        videoData: generatedVideo.videoData,
+        metadata: JSON.stringify(generatedVideo.metadata),
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(videoTasksTable.id, taskId))
+
+    console.log(`[VideoGen] 千问视频生成完成: ${taskId}`)
+  } catch (error) {
+    console.error(`[VideoGen] 千问生成失败:`, error)
+    throw error
+  }
+}
+
+/**
+ * 使用 Gemini Veo 生成视频
+ */
+async function generateVideoWithGemini(
   taskId: string,
   sceneId: string,
   config: typeof GenerateVideoRequestSchema._type['config']

@@ -3,11 +3,14 @@
  * 提供场景、角色等核心功能
  */
 
-// 类型从 shared/types 自动导入，无需重复导出
-import type { Storyboard } from '#shared/types/storyboard'
+// 类型从 shared/types 自动导入
+import type { Storyboard, ShotType, CameraMovement } from '#shared/types/storyboard'
 import type { SceneVisual } from '#shared/types/scene-visual'
 import type { CharacterView } from '#shared/types/character'
 import type { StoryOutline, CharacterRelationship } from '#shared/types/outline'
+
+// 转场效果（扩展 video.ts 中的基础类型）
+export type TransitionType = 'cut' | 'fade' | 'dissolve' | 'wipe' | 'slide' | 'zoom' | 'blur' | 'flash' | 'none'
 
 // 场景数据接口
 export interface SceneData {
@@ -19,6 +22,14 @@ export interface SceneData {
   duration: number
   setting?: { location: string, timeOfDay: string, mood?: string, weather?: string }
   active: boolean
+  // 镜头语言设置
+  shotType?: ShotType
+  cameraMovement?: CameraMovement
+  cameraNote?: string
+  // 转场设置
+  transitionIn?: TransitionType
+  transitionOut?: TransitionType
+  transitionDuration?: number
   // 生成状态
   firstFrame?: string
   lastFrame?: string
@@ -81,7 +92,10 @@ export function useWorkbench() {
   const projectId = computed(() => route.query.project as string | undefined)
   const projectName = ref('新项目')
   const projectDescription = ref('')
-  const scriptText = ref('')
+  // 故事创意（用于生成大纲，简短的概念描述）
+  const storyIdea = ref('')
+  // 小说原文（用于直接解析场景，详细的文本内容）
+  const novelText = ref('')
   const saving = ref(false)
   const loading = ref(false)
 
@@ -170,6 +184,15 @@ export function useWorkbench() {
       duration: 8,
       setting: { location: '未知', timeOfDay: 'day' },
       active: false,
+      // 镜头语言默认值
+      shotType: 'medium',
+      cameraMovement: 'static',
+      cameraNote: '',
+      // 转场默认值
+      transitionIn: 'cut',
+      transitionOut: 'cut',
+      transitionDuration: 0.5,
+      // 状态
       frameStatus: 'pending',
       videoStatus: 'pending',
       storyboardStatus: 'pending',
@@ -305,7 +328,7 @@ export function useWorkbench() {
 
   // ========== 剧本解析 ==========
   async function parseScript() {
-    if (!scriptText.value.trim()) return
+    if (!novelText.value.trim()) return
 
     parsing.value = true
     try {
@@ -326,7 +349,7 @@ export function useWorkbench() {
         }
       }>('/api/script/parse', {
         method: 'POST',
-        body: { text: scriptText.value }
+        body: { text: novelText.value }
       })
 
       if (response.success && response.data?.scenes) {
@@ -527,7 +550,7 @@ export function useWorkbench() {
 
   // ========== 故事大纲生成 (新增) ==========
   async function generateOutline() {
-    if (!scriptText.value.trim()) return
+    if (!storyIdea.value.trim()) return
 
     generatingOutline.value = true
     try {
@@ -538,7 +561,7 @@ export function useWorkbench() {
       }>('/api/outline/generate', {
         method: 'POST',
         body: {
-          rawText: scriptText.value,
+          rawText: storyIdea.value,
           targetLength: 'medium'
         }
       })
@@ -660,7 +683,7 @@ export function useWorkbench() {
 
   // ========== 角色提取 (新增API) ==========
   async function extractCharactersFromScript() {
-    if (!scriptText.value.trim()) return
+    if (!novelText.value.trim()) return
 
     try {
       const response = await $fetch<{
@@ -669,7 +692,7 @@ export function useWorkbench() {
       }>('/api/character/extract', {
         method: 'POST',
         body: {
-          content: scriptText.value,
+          content: novelText.value,
           style: '日式动漫'
         }
       })
@@ -861,6 +884,58 @@ export function useWorkbench() {
 
     scene.videoStatus = 'generating'
     try {
+      // 构建增强的视频生成 prompt，包含镜头语言信息
+      let enhancedPrompt = scene.description
+
+      // 添加镜头语言描述
+      const shotTypeDescriptions: Record<ShotType, string> = {
+        extreme_wide: 'extreme wide shot showing vast landscape',
+        wide: 'wide shot showing full environment',
+        medium_wide: 'medium wide shot showing full body with environment',
+        medium: 'medium shot from waist up',
+        medium_close: 'medium close-up from chest up',
+        close: 'close-up shot from shoulders up',
+        extreme_close: 'extreme close-up on face or detail',
+        detail: 'detail shot focusing on specific object'
+      }
+
+      const cameraMovementDescriptions: Record<CameraMovement, string> = {
+        static: 'static camera',
+        push: 'camera pushing forward slowly',
+        pull: 'camera pulling back slowly',
+        pan_left: 'camera panning left',
+        pan_right: 'camera panning right',
+        tilt_up: 'camera tilting up',
+        tilt_down: 'camera tilting down',
+        track: 'camera tracking the subject',
+        dolly: 'camera moving parallel to subject',
+        zoom_in: 'zooming in',
+        zoom_out: 'zooming out',
+        crane: 'crane shot moving vertically',
+        handheld: 'handheld camera with slight shake',
+        arc: 'camera arcing around subject'
+      }
+
+      // 构建镜头语言提示
+      const cinematicHints: string[] = []
+
+      if (scene.shotType && scene.shotType !== 'medium') {
+        cinematicHints.push(shotTypeDescriptions[scene.shotType])
+      }
+
+      if (scene.cameraMovement && scene.cameraMovement !== 'static') {
+        cinematicHints.push(cameraMovementDescriptions[scene.cameraMovement])
+      }
+
+      if (scene.cameraNote) {
+        cinematicHints.push(scene.cameraNote)
+      }
+
+      // 如果有镜头语言提示，添加到 prompt
+      if (cinematicHints.length > 0) {
+        enhancedPrompt = `[Cinematography: ${cinematicHints.join(', ')}] ${enhancedPrompt}`
+      }
+
       const response = await $fetch<{
         success: boolean
         taskId: string
@@ -869,7 +944,7 @@ export function useWorkbench() {
         body: {
           sceneId: scene.id,
           config: {
-            prompt: scene.description,
+            prompt: enhancedPrompt,
             firstFrame: scene.firstFrame,
             lastFrame: scene.lastFrame,
             duration: scene.duration || 8,
@@ -1061,27 +1136,42 @@ export function useWorkbench() {
       if (response.success && response.data) {
         projectName.value = response.data.project.name
         projectDescription.value = response.data.project.description || ''
-        scriptText.value = response.data.script?.rawText || ''
+        // 加载保存的故事创意和小说原文
+        const scriptData = response.data.script as { rawText?: string, storyIdea?: string, novelText?: string } | undefined
+        storyIdea.value = scriptData?.storyIdea || scriptData?.rawText || ''
+        novelText.value = scriptData?.novelText || ''
 
-        scenes.value = response.data.scenes.map((s, i) => ({
-          id: s.id,
-          title: s.title || `场景 ${i + 1}`,
-          description: s.description,
-          characters: s.characters || [],
-          dialogues: s.dialogues || [],
-          duration: s.duration || 8,
-          setting: s.setting,
-          active: i === 0,
-          firstFrame: s.firstFrame,
-          lastFrame: s.lastFrame,
-          frameStatus: s.firstFrame ? 'done' as const : 'pending' as const,
-          videoUrl: (s as { videoUrl?: string }).videoUrl,
-          videoStatus: (s as { videoUrl?: string }).videoUrl ? 'done' as const : 'pending' as const,
-          storyboard: (s as { storyboard?: Storyboard }).storyboard,
-          storyboardStatus: (s as { storyboard?: Storyboard }).storyboard ? 'done' as const : 'pending' as const,
-          sceneVisual: (s as { sceneVisual?: SceneVisual }).sceneVisual,
-          sceneVisualStatus: (s as { sceneVisual?: SceneVisual }).sceneVisual ? 'done' as const : 'pending' as const
-        }))
+        scenes.value = response.data.scenes.map((s, i) => {
+          const sceneAny = s as Record<string, unknown>
+          return {
+            id: s.id,
+            title: s.title || `场景 ${i + 1}`,
+            description: s.description,
+            characters: s.characters || [],
+            dialogues: s.dialogues || [],
+            duration: s.duration || 8,
+            setting: s.setting,
+            active: i === 0,
+            // 镜头语言
+            shotType: (sceneAny.shotType as ShotType) || 'medium',
+            cameraMovement: (sceneAny.cameraMovement as CameraMovement) || 'static',
+            cameraNote: (sceneAny.cameraNote as string) || '',
+            // 转场
+            transitionIn: (sceneAny.transitionIn as TransitionType) || 'cut',
+            transitionOut: (sceneAny.transitionOut as TransitionType) || 'cut',
+            transitionDuration: (sceneAny.transitionDuration as number) || 0.5,
+            // 帧和视频
+            firstFrame: s.firstFrame,
+            lastFrame: s.lastFrame,
+            frameStatus: s.firstFrame ? 'done' as const : 'pending' as const,
+            videoUrl: (sceneAny.videoUrl as string),
+            videoStatus: sceneAny.videoUrl ? 'done' as const : 'pending' as const,
+            storyboard: (sceneAny.storyboard as Storyboard),
+            storyboardStatus: sceneAny.storyboard ? 'done' as const : 'pending' as const,
+            sceneVisual: (sceneAny.sceneVisual as SceneVisual),
+            sceneVisualStatus: sceneAny.sceneVisual ? 'done' as const : 'pending' as const
+          }
+        })
 
         characters.value = response.data.characters.map(c => ({
           id: c.id,
@@ -1132,7 +1222,8 @@ export function useWorkbench() {
         body: {
           name: projectName.value,
           description: projectDescription.value,
-          rawText: scriptText.value,
+          storyIdea: storyIdea.value,
+          novelText: novelText.value,
           scenes: scenes.value.map(s => ({
             id: s.id,
             title: s.title,
@@ -1141,6 +1232,15 @@ export function useWorkbench() {
             characters: s.characters,
             dialogues: s.dialogues,
             duration: s.duration,
+            // 镜头语言
+            shotType: s.shotType,
+            cameraMovement: s.cameraMovement,
+            cameraNote: s.cameraNote,
+            // 转场
+            transitionIn: s.transitionIn,
+            transitionOut: s.transitionOut,
+            transitionDuration: s.transitionDuration,
+            // 帧和视频
             firstFrame: s.firstFrame,
             lastFrame: s.lastFrame,
             videoUrl: s.videoUrl,
@@ -1172,7 +1272,8 @@ export function useWorkbench() {
     projectId,
     projectName,
     projectDescription,
-    scriptText,
+    storyIdea,
+    novelText,
     saving,
     loading,
 

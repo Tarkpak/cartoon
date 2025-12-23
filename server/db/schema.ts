@@ -37,6 +37,15 @@ export const scenes = sqliteTable('scenes', {
   dialogues: text('dialogues'), // JSON 存储 Dialogue[]
   duration: integer('duration').default(8),
   narration: text('narration'),
+  // 镜头语言
+  shotType: text('shot_type'), // 景别
+  cameraMovement: text('camera_movement'), // 运镜方式
+  cameraNote: text('camera_note'), // 镜头备注
+  // 转场
+  transitionIn: text('transition_in'), // 入场转场
+  transitionOut: text('transition_out'), // 出场转场
+  transitionDuration: real('transition_duration'), // 转场时长
+  // 帧和视频
   firstFrame: text('first_frame'), // base64 或文件路径
   lastFrame: text('last_frame'), // base64 或文件路径
   videoUrl: text('video_url'), // 视频 URL 路径

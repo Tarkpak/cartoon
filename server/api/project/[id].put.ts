@@ -30,7 +30,15 @@ const SceneSchema = z.object({
   lastFrame: z.string().nullish(),
   videoUrl: z.string().nullish(),
   status: z.string().nullish(),
-  // 新增：分镜和场景视觉
+  // 镜头语言
+  shotType: z.enum(['extreme_wide', 'wide', 'medium_wide', 'medium', 'medium_close', 'close', 'extreme_close', 'detail']).nullish(),
+  cameraMovement: z.enum(['static', 'push', 'pull', 'pan_left', 'pan_right', 'tilt_up', 'tilt_down', 'track', 'dolly', 'zoom_in', 'zoom_out', 'crane', 'handheld', 'arc']).nullish(),
+  cameraNote: z.string().nullish(),
+  // 转场
+  transitionIn: z.enum(['cut', 'fade', 'dissolve', 'wipe', 'slide', 'zoom', 'blur', 'flash', 'none']).nullish(),
+  transitionOut: z.enum(['cut', 'fade', 'dissolve', 'wipe', 'slide', 'zoom', 'blur', 'flash', 'none']).nullish(),
+  transitionDuration: z.number().nullish(),
+  // 分镜和场景视觉
   storyboard: z.any().nullish(),
   sceneVisual: z.any().nullish()
 })
@@ -53,7 +61,11 @@ const UpdateProjectSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   status: z.enum(['draft', 'in_progress', 'completed']).optional(),
+  // 兼容旧字段
   rawText: z.string().optional(),
+  // 新字段：分离故事创意和小说原文
+  storyIdea: z.string().optional(),
+  novelText: z.string().optional(),
   scenes: z.array(SceneSchema).optional(),
   characters: z.array(CharacterSchema).optional()
 })
@@ -109,23 +121,46 @@ export default defineEventHandler(async (event) => {
     }
 
     // 处理剧本和场景
-    if (data.rawText !== undefined || data.scenes !== undefined) {
+    if (data.rawText !== undefined || data.storyIdea !== undefined || data.novelText !== undefined || data.scenes !== undefined) {
       // 获取或创建剧本
       let script = await db.select().from(scripts).where(eq(scripts.projectId, id)).get()
+
+      // 构建存储的 rawText（JSON 格式存储两个字段）
+      const scriptContent = JSON.stringify({
+        storyIdea: data.storyIdea ?? '',
+        novelText: data.novelText ?? '',
+        // 兼容旧数据
+        rawText: data.rawText ?? ''
+      })
 
       if (!script) {
         const scriptId = `script_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
         await db.insert(scripts).values({
           id: scriptId,
           projectId: id,
-          rawText: data.rawText || '',
+          rawText: scriptContent,
           createdAt: now,
           updatedAt: now
         })
-        script = { id: scriptId, projectId: id, rawText: data.rawText || '', title: null, parsedData: null, totalDuration: 0, createdAt: now, updatedAt: now }
-      } else if (data.rawText !== undefined) {
+        script = { id: scriptId, projectId: id, rawText: scriptContent, title: null, parsedData: null, totalDuration: 0, createdAt: now, updatedAt: now }
+      } else if (data.storyIdea !== undefined || data.novelText !== undefined || data.rawText !== undefined) {
+        // 读取现有数据并合并
+        let existingData: { storyIdea?: string, novelText?: string, rawText?: string } = {}
+        try {
+          existingData = JSON.parse(script.rawText || '{}')
+        } catch {
+          // 旧格式，rawText 是纯文本
+          existingData = { rawText: script.rawText || '' }
+        }
+
+        const mergedContent = JSON.stringify({
+          storyIdea: data.storyIdea ?? existingData.storyIdea ?? '',
+          novelText: data.novelText ?? existingData.novelText ?? '',
+          rawText: data.rawText ?? existingData.rawText ?? ''
+        })
+
         await db.update(scripts)
-          .set({ rawText: data.rawText, updatedAt: now })
+          .set({ rawText: mergedContent, updatedAt: now })
           .where(eq(scripts.id, script.id))
       }
 
@@ -156,6 +191,15 @@ export default defineEventHandler(async (event) => {
             dialogues: scene.dialogues ? JSON.stringify(scene.dialogues) : null,
             duration: scene.duration || 8,
             narration: scene.narration || null,
+            // 镜头语言
+            shotType: scene.shotType || null,
+            cameraMovement: scene.cameraMovement || null,
+            cameraNote: scene.cameraNote || null,
+            // 转场
+            transitionIn: scene.transitionIn || null,
+            transitionOut: scene.transitionOut || null,
+            transitionDuration: scene.transitionDuration || null,
+            // 帧和视频
             firstFrame: scene.firstFrame || null,
             lastFrame: scene.lastFrame || null,
             videoUrl: scene.videoUrl || null,

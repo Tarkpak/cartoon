@@ -1,4 +1,6 @@
-import { generateJSON, TextModels, GeminiError } from '../../utils/gemini'
+import { generateJSON, getSelectedModels } from '../../utils/model-provider'
+import { GeminiError } from '../../utils/gemini'
+import { QwenError } from '../../utils/qwen'
 import {
   ParseScriptRequestSchema,
   ParsedScriptSchema,
@@ -10,7 +12,7 @@ import {
  * 剧本解析 API
  * POST /api/script/parse
  *
- * 使用 Gemini 3 Pro 智能解析小说文本，自动提取场景、角色、对话
+ * 使用统一模型提供商智能解析小说文本，自动提取场景、角色、对话
  */
 export default defineEventHandler(async (event) => {
   const startTime = Date.now()
@@ -34,9 +36,10 @@ export default defineEventHandler(async (event) => {
     const systemInstruction = buildSystemPrompt()
     const prompt = buildParsePrompt(text, maxScenes)
 
-    // 3. 调用 Gemini 解析
+    // 3. 使用统一模型提供商解析
+    const selectedModels = getSelectedModels()
     const result = await generateJSON<ParsedScript>({
-      model: TextModels.SCRIPT_PARSER,
+      modelId: selectedModels.text,
       prompt,
       systemInstruction,
       temperature: 0.3, // 较低温度保证输出稳定
@@ -70,11 +73,12 @@ export default defineEventHandler(async (event) => {
       latencyMs: Date.now() - startTime
     }
   } catch (error) {
-    if (error instanceof GeminiError) {
+    if (error instanceof GeminiError || error instanceof QwenError) {
+      const err = error as { status?: number, code?: string, message?: string }
       throw createError({
-        statusCode: error.status || 500,
-        statusMessage: `剧本解析失败: ${error.code}`,
-        message: error.message
+        statusCode: err.status || 500,
+        statusMessage: `剧本解析失败: ${err.code}`,
+        message: err.message || '未知错误'
       })
     }
     throw error

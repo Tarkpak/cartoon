@@ -20,6 +20,7 @@ export default defineNuxtConfig({
   runtimeConfig: {
     // 仅服务端可用的配置
     geminiApiKey: process.env.GEMINI_API_KEY || '',
+    qwenApiKey: process.env.QWEN_API_KEY || '',
 
     // 代理配置（国内访问需要）
     httpProxy: process.env.HTTP_PROXY || '',
