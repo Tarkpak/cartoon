@@ -8,6 +8,7 @@ import type { Storyboard, ShotType, CameraMovement } from '#shared/types/storybo
 import type { SceneVisual } from '#shared/types/scene-visual'
 import type { CharacterView } from '#shared/types/character'
 import type { StoryOutline, CharacterRelationship } from '#shared/types/outline'
+import type { SelectedModels } from '#shared/types/provider'
 import { getStyleById } from '#shared/types/styles'
 
 // 转场效果（扩展 video.ts 中的基础类型）
@@ -119,6 +120,14 @@ export function useWorkbench() {
 
   // ========== 风格选择 ==========
   const selectedStyleId = ref<string>('')
+
+  // ========== 模型选择 ==========
+  const selectedModels = ref<SelectedModels>({
+    text: 'qwen-flash',
+    image: 'wan2.6-t2i',
+    video: 'wan2.6-t2v',
+    tts: 'qwen3-tts-flash'
+  })
 
   // ========== 流水线状态 ==========
   const pipelineStatus = ref<PipelineStatus>({
@@ -1158,6 +1167,11 @@ export function useWorkbench() {
         novelText.value = scriptData?.novelText || ''
         // 加载保存的风格选择
         selectedStyleId.value = scriptData?.selectedStyleId || ''
+        // 加载保存的模型选择
+        const savedModels = scriptData as { selectedModels?: SelectedModels } | undefined
+        if (savedModels?.selectedModels) {
+          selectedModels.value = { ...selectedModels.value, ...savedModels.selectedModels }
+        }
 
         scenes.value = response.data.scenes.map((s, i) => {
           const sceneAny = s as Record<string, unknown>
@@ -1243,6 +1257,7 @@ export function useWorkbench() {
           storyIdea: storyIdea.value,
           novelText: novelText.value,
           selectedStyleId: selectedStyleId.value,
+          selectedModels: selectedModels.value,
           scenes: scenes.value.map(s => ({
             id: s.id,
             title: s.title,
@@ -1304,6 +1319,9 @@ export function useWorkbench() {
     // 风格选择
     selectedStyleId,
     currentStylePrompt,
+
+    // 模型选择
+    selectedModels,
 
     // 故事大纲 (新增)
     outline,

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Loader2, Play } from 'lucide-vue-next'
 import type { PipelineStatus } from '~/composables/useWorkbench'
+import type { SelectedModels } from '#shared/types/provider'
 
 const props = defineProps<{
   projectId?: string
@@ -13,11 +14,13 @@ const props = defineProps<{
   pipelineStatus: PipelineStatus
   saving: boolean
   canStart: boolean
+  selectedModels: SelectedModels
 }>()
 
 const emit = defineEmits<{
   'update:projectName': [value: string]
   'update:projectDescription': [value: string]
+  'update:selectedModels': [value: SelectedModels]
   'save': []
   'startPipeline': []
 }>()
@@ -58,6 +61,12 @@ const localDescription = computed({
     </div>
 
     <div class="flex items-center space-x-4">
+      <!-- 模型设置 -->
+      <ModelSettingsPanel
+        :selected-models="selectedModels"
+        @update:selected-models="$emit('update:selectedModels', $event)"
+      />
+
       <!-- 成本预估 -->
       <div
         v-if="sceneCount > 0"
