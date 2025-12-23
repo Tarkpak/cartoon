@@ -23,6 +23,8 @@ const {
   currentStep,
   setCurrentStep,
   proceedToNextStep,
+  // 风格选择
+  selectedStyleId,
   // 故事大纲
   outline,
   generatingOutline,
@@ -305,8 +307,10 @@ onMounted(() => {
           :outline="outline"
           :raw-text="storyIdea"
           :generating="generatingOutline"
+          :selected-style-id="selectedStyleId"
           @update:raw-text="storyIdea = $event"
           @update:outline="handleOutlineUpdate"
+          @update:selected-style-id="selectedStyleId = $event"
           @generate-outline="generateOutline"
           @proceed-to-characters="setCurrentStep('characters')"
         />

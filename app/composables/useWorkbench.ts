@@ -8,6 +8,7 @@ import type { Storyboard, ShotType, CameraMovement } from '#shared/types/storybo
 import type { SceneVisual } from '#shared/types/scene-visual'
 import type { CharacterView } from '#shared/types/character'
 import type { StoryOutline, CharacterRelationship } from '#shared/types/outline'
+import { getStyleById } from '#shared/types/styles'
 
 // 转场效果（扩展 video.ts 中的基础类型）
 export type WorkbenchTransitionType = 'cut' | 'fade' | 'dissolve' | 'wipe' | 'slide' | 'zoom' | 'blur' | 'flash' | 'none'
@@ -116,6 +117,9 @@ export function useWorkbench() {
   // ========== 工作流步骤 (新增) ==========
   const currentStep = ref<'outline' | 'characters' | 'script' | 'video'>('outline')
 
+  // ========== 风格选择 ==========
+  const selectedStyleId = ref<string>('')
+
   // ========== 流水线状态 ==========
   const pipelineStatus = ref<PipelineStatus>({
     running: false,
@@ -138,6 +142,18 @@ export function useWorkbench() {
 
   // ========== 计算属性 ==========
   const selectedScene = computed(() => scenes.value.find(s => s.active))
+
+  // 获取当前选中风格的提示词，默认为"日式动漫"
+  const currentStylePrompt = computed(() => {
+    if (selectedStyleId.value) {
+      const style = getStyleById(selectedStyleId.value)
+      if (style) {
+        // 返回风格名称 + 英文提示词，用于更好的生成效果
+        return `${style.name}, ${style.prompt} style`
+      }
+    }
+    return '日式动漫'
+  })
 
   const costEstimate = computed(() => {
     const sceneCount = scenes.value.length
@@ -487,7 +503,7 @@ export function useWorkbench() {
             name: char.name,
             appearance: char.appearance || `${char.name}，动漫风格角色`
           },
-          style: '日式动漫',
+          style: currentStylePrompt.value,
           generateExpressions: false
         }
       })
@@ -612,7 +628,7 @@ export function useWorkbench() {
         method: 'POST',
         body: {
           outline: outline.value,
-          style: '日式动漫'
+          style: currentStylePrompt.value
         }
       })
 
@@ -693,7 +709,7 @@ export function useWorkbench() {
         method: 'POST',
         body: {
           content: novelText.value,
-          style: '日式动漫'
+          style: currentStylePrompt.value
         }
       })
 
@@ -745,7 +761,7 @@ export function useWorkbench() {
           characterName: char.name,
           baseImage: char.baseImage,
           baseMimeType: 'image/png',
-          style: '日式动漫',
+          style: currentStylePrompt.value,
           views: ['front', 'three_quarter', 'side', 'back']
         }
       })
@@ -776,7 +792,7 @@ export function useWorkbench() {
           sceneId: scene.id,
           sceneDescription: scene.description,
           dialogues: scene.dialogues,
-          style: '日式动漫'
+          style: currentStylePrompt.value
         }
       })
 
@@ -814,7 +830,7 @@ export function useWorkbench() {
             mood: setting.mood,
             weather: setting.weather
           },
-          style: '日式动漫'
+          style: currentStylePrompt.value
         }
       })
 
@@ -858,7 +874,7 @@ export function useWorkbench() {
             duration: scene.duration,
             setting: scene.setting
           },
-          style: '日式动漫',
+          style: currentStylePrompt.value,
           characterAssets,
           previousSceneLastFrame
         }
@@ -1137,9 +1153,11 @@ export function useWorkbench() {
         projectName.value = response.data.project.name
         projectDescription.value = response.data.project.description || ''
         // 加载保存的故事创意和小说原文
-        const scriptData = response.data.script as { rawText?: string, storyIdea?: string, novelText?: string } | undefined
+        const scriptData = response.data.script as { rawText?: string, storyIdea?: string, novelText?: string, selectedStyleId?: string } | undefined
         storyIdea.value = scriptData?.storyIdea || scriptData?.rawText || ''
         novelText.value = scriptData?.novelText || ''
+        // 加载保存的风格选择
+        selectedStyleId.value = scriptData?.selectedStyleId || ''
 
         scenes.value = response.data.scenes.map((s, i) => {
           const sceneAny = s as Record<string, unknown>
@@ -1224,6 +1242,7 @@ export function useWorkbench() {
           description: projectDescription.value,
           storyIdea: storyIdea.value,
           novelText: novelText.value,
+          selectedStyleId: selectedStyleId.value,
           scenes: scenes.value.map(s => ({
             id: s.id,
             title: s.title,
@@ -1281,6 +1300,10 @@ export function useWorkbench() {
     currentStep,
     setCurrentStep,
     proceedToNextStep,
+
+    // 风格选择
+    selectedStyleId,
+    currentStylePrompt,
 
     // 故事大纲 (新增)
     outline,
