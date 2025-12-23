@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { FileText, Users, Video, Music } from 'lucide-vue-next'
+import { FileText, Users, Video, BookOpen } from 'lucide-vue-next'
 import type { SceneData, CharacterData } from '~/composables/useWorkbench'
+import type { StoryOutline } from '#shared/types/outline'
 
 // 生成工作台页面
 definePageMeta({
@@ -17,7 +18,15 @@ const {
   projectDescription,
   scriptText,
   saving,
-  // loading, // 未来可用于加载状态展示
+  // 工作流步骤
+  currentStep,
+  setCurrentStep,
+  proceedToNextStep,
+  // 故事大纲
+  outline,
+  generatingOutline,
+  generateOutline,
+  // 场景
   scenes,
   parsing,
   selectedScene,
@@ -28,24 +37,36 @@ const {
   mergeWithNextScene,
   splitScene,
   parseScript,
+  generateScenesFromOutline,
+  // 角色
   characters,
   generateCharacter,
   generateCharacterExpression,
   updateCharacter,
   extractCharactersFromScript,
+  extractCharactersFromOutline,
   generateCharacterViews,
+  // 角色关系
+  relationships,
+  addRelationship,
+  updateRelationship,
+  removeRelationship,
+  // 分镜
   generateStoryboard,
   extractSceneVisual,
+  // 视频
   generateFrames,
   generateVideo,
   batchGenerateFrames,
   batchGenerateVideos,
   batchFrameStatus,
   batchVideoStatus,
+  // 流水线
   pipelineStatus,
   startPipeline,
-  audioConfig,
+  // 成本
   costEstimate,
+  // 项目
   loadProject,
   saveProject
 } = useWorkbench()
@@ -53,31 +74,41 @@ const {
 // 角色提取状态
 const extractingCharacters = ref(false)
 
-// 标签页管理
-const validTabs = ['script', 'characters', 'video', 'audio']
-const activeTab = ref((route.query.tab as string) || 'script')
-
-watch(() => route.query.tab, (newTab) => {
-  if (newTab && validTabs.includes(newTab as string)) {
-    activeTab.value = newTab as string
-  } else if (!newTab) {
-    activeTab.value = 'script'
+// 工作流步骤定义
+const workflowSteps = computed(() => [
+  {
+    key: 'outline',
+    label: '故事大纲',
+    icon: BookOpen,
+    description: '构建故事结构',
+    completed: !!outline.value,
+    active: currentStep.value === 'outline'
+  },
+  {
+    key: 'characters',
+    label: '角色设定',
+    icon: Users,
+    description: '创建角色形象',
+    completed: characters.value.length > 0 && characters.value.some(c => c.baseImage),
+    active: currentStep.value === 'characters'
+  },
+  {
+    key: 'script',
+    label: '剧本编辑',
+    icon: FileText,
+    description: '编写场景对话',
+    completed: scenes.value.length > 0,
+    active: currentStep.value === 'script'
+  },
+  {
+    key: 'video',
+    label: '视频生成',
+    icon: Video,
+    description: '生成动画视频',
+    completed: scenes.value.some(s => s.videoStatus === 'done'),
+    active: currentStep.value === 'video'
   }
-})
-
-function setActiveTab(tab: string) {
-  activeTab.value = tab
-  router.replace({
-    query: { ...route.query, tab: tab === 'script' ? undefined : tab }
-  })
-}
-
-const tabs = [
-  { key: 'script', label: '剧本编辑', icon: FileText },
-  { key: 'characters', label: '角色管理', icon: Users },
-  { key: 'video', label: '视频生成', icon: Video },
-  { key: 'audio', label: '音频配置', icon: Music }
-]
+])
 
 // 图片预览状态
 const imagePreviewOpen = ref(false)
@@ -144,6 +175,15 @@ function handleCharacterSave(updatedChar: {
   role: string
   baseImage?: string
   expressions?: Record<string, string>
+  personality?: string
+  traits?: string[]
+  background?: string
+  motivation?: string
+  speakingStyle?: string
+  catchphrase?: string
+  voiceTone?: string
+  age?: number
+  gender?: string
 }) {
   updateCharacter(updatedChar)
   characterEditDialogOpen.value = false
@@ -171,6 +211,26 @@ async function handleExtractCharacters() {
   }
 }
 
+// 从大纲提取角色
+async function handleExtractFromOutline() {
+  if (!outline.value) {
+    alert('请先生成故事大纲')
+    return
+  }
+  extractingCharacters.value = true
+  try {
+    await extractCharactersFromOutline()
+  } finally {
+    extractingCharacters.value = false
+  }
+}
+
+// 大纲更新
+function handleOutlineUpdate(newOutline: StoryOutline) {
+  outline.value = newOutline
+  saveProject()
+}
+
 // 分镜和场景视觉对话框
 const storyboardDialogOpen = ref(false)
 const viewingStoryboardScene = ref<SceneData | null>(null)
@@ -194,6 +254,11 @@ function handleExtractSceneVisual(scene: SceneData) {
 function handleViewSceneVisual(scene: SceneData) {
   viewingSceneVisualScene.value = scene
   sceneVisualDialogOpen.value = true
+}
+
+// 步骤导航
+function handleStepChange(step: string) {
+  setCurrentStep(step as 'outline' | 'characters' | 'script' | 'video')
 }
 
 // 页面加载时加载项目
@@ -224,35 +289,57 @@ onMounted(() => {
       @start-pipeline="startPipeline"
     />
 
-    <Card>
-      <!-- 标签栏 -->
-      <div class="flex border-b">
-        <button
-          v-for="tab in tabs"
-          :key="tab.key"
-          class="px-6 py-4 font-medium flex items-center space-x-2 transition"
-          :class="activeTab === tab.key
-            ? 'text-primary border-b-2 border-primary bg-accent'
-            : 'text-muted-foreground hover:bg-accent'"
-          @click="setActiveTab(tab.key)"
-        >
-          <component
-            :is="tab.icon"
-            class="w-4 h-4"
-          />
-          <span>{{ tab.label }}</span>
-        </button>
-      </div>
+    <!-- 步骤导航 -->
+    <WorkbenchStepNav
+      :steps="workflowSteps"
+      :current-step="currentStep"
+      @update:current-step="handleStepChange"
+    />
 
+    <Card>
       <CardContent class="pt-6">
+        <!-- 故事大纲面板 -->
+        <WorkbenchOutlinePanel
+          v-if="currentStep === 'outline'"
+          :outline="outline"
+          :raw-text="scriptText"
+          :generating="generatingOutline"
+          @update:raw-text="scriptText = $event"
+          @update:outline="handleOutlineUpdate"
+          @generate-outline="generateOutline"
+          @proceed-to-characters="setCurrentStep('characters')"
+        />
+
+        <!-- 角色管理面板 (增强版) -->
+        <WorkbenchCharacterPanelEnhanced
+          v-else-if="currentStep === 'characters'"
+          :characters="characters"
+          :relationships="relationships"
+          :extracting="extractingCharacters"
+          :has-outline="!!outline"
+          @generate-character="generateCharacter"
+          @edit-character="openCharacterEdit"
+          @preview-image="openImagePreview"
+          @extract-characters="handleExtractCharacters"
+          @extract-from-outline="handleExtractFromOutline"
+          @generate-views="generateCharacterViews"
+          @update-relationship="updateRelationship"
+          @add-relationship="addRelationship"
+          @remove-relationship="removeRelationship"
+          @proceed-to-script="setCurrentStep('script')"
+        />
+
         <!-- 剧本编辑面板 -->
         <WorkbenchScriptPanel
-          v-if="activeTab === 'script'"
+          v-else-if="currentStep === 'script'"
           :script-text="scriptText"
           :scenes="scenes"
           :parsing="parsing"
+          :has-outline="!!outline"
+          :has-characters="characters.length > 0"
           @update:script-text="scriptText = $event"
           @parse-script="parseScript"
+          @generate-from-outline="generateScenesFromOutline"
           @select-scene="selectScene"
           @add-scene="handleSceneAdd"
           @edit-scene="openSceneEdit"
@@ -266,21 +353,9 @@ onMounted(() => {
           @view-scene-visual="handleViewSceneVisual"
         />
 
-        <!-- 角色管理面板 -->
-        <WorkbenchCharacterPanel
-          v-else-if="activeTab === 'characters'"
-          :characters="characters"
-          :extracting="extractingCharacters"
-          @generate-character="generateCharacter"
-          @edit-character="openCharacterEdit"
-          @preview-image="openImagePreview"
-          @extract-characters="handleExtractCharacters"
-          @generate-views="generateCharacterViews"
-        />
-
         <!-- 视频生成面板 -->
         <WorkbenchVideoPanel
-          v-else-if="activeTab === 'video'"
+          v-else-if="currentStep === 'video'"
           :scenes="scenes"
           :selected-scene="selectedScene"
           :batch-frame-status="batchFrameStatus"
@@ -291,14 +366,6 @@ onMounted(() => {
           @batch-generate-frames="batchGenerateFrames"
           @batch-generate-videos="batchGenerateVideos"
           @preview-image="openImagePreview"
-        />
-
-        <!-- 音频配置面板 -->
-        <WorkbenchAudioPanel
-          v-else-if="activeTab === 'audio'"
-          :audio-config="audioConfig"
-          :characters="characters"
-          @update:audio-config="audioConfig = $event"
         />
       </CardContent>
     </Card>
@@ -314,8 +381,8 @@ onMounted(() => {
       @save="handleSceneSave"
     />
 
-    <!-- 角色编辑对话框 -->
-    <CharacterEditDialog
+    <!-- 角色编辑对话框 (增强版) -->
+    <CharacterEditDialogEnhanced
       ref="characterEditDialogRef"
       v-model:open="characterEditDialogOpen"
       :character="editingCharacter"

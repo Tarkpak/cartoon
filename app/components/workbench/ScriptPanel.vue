@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { Loader2, Sparkles, Plus, Pencil, Trash2, Merge, Split, Film, Eye } from 'lucide-vue-next'
+import { Loader2, Sparkles, Plus, Pencil, Trash2, Merge, Split, Film, Eye, BookOpen } from 'lucide-vue-next'
 import type { SceneData } from '~/composables/useWorkbench'
 
 const props = defineProps<{
   scriptText: string
   scenes: SceneData[]
   parsing: boolean
+  hasOutline?: boolean
+  hasCharacters?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:scriptText': [value: string]
   'parseScript': []
+  'generateFromOutline': []
   'selectScene': [scene: SceneData]
   'addScene': []
   'editScene': [scene: SceneData]
@@ -79,27 +82,57 @@ function handleDragEnd() {
         <h3 class="font-semibold">
           原文输入
         </h3>
-        <Button
-          variant="ghost"
-          size="sm"
-          :disabled="parsing || !scriptText.trim()"
-          @click="$emit('parseScript')"
-        >
-          <Loader2
-            v-if="parsing"
-            class="w-4 h-4 mr-2 animate-spin"
-          />
-          <Sparkles
-            v-else
-            class="w-4 h-4 mr-2"
-          />
-          {{ parsing ? '解析中...' : 'AI解析' }}
-        </Button>
+        <div class="flex items-center space-x-2">
+          <!-- 从大纲生成场景按钮 -->
+          <Button
+            v-if="hasOutline && hasCharacters"
+            variant="default"
+            size="sm"
+            :disabled="parsing"
+            @click="$emit('generateFromOutline')"
+          >
+            <Loader2
+              v-if="parsing"
+              class="w-4 h-4 mr-2 animate-spin"
+            />
+            <BookOpen
+              v-else
+              class="w-4 h-4 mr-2"
+            />
+            {{ parsing ? '生成中...' : '从大纲生成' }}
+          </Button>
+          <!-- 从文本解析按钮 -->
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="parsing || !scriptText.trim()"
+            @click="$emit('parseScript')"
+          >
+            <Loader2
+              v-if="parsing"
+              class="w-4 h-4 mr-2 animate-spin"
+            />
+            <Sparkles
+              v-else
+              class="w-4 h-4 mr-2"
+            />
+            {{ parsing ? '解析中...' : 'AI解析文本' }}
+          </Button>
+        </div>
+      </div>
+      <!-- 提示信息 -->
+      <div
+        v-if="hasOutline && hasCharacters && scenes.length === 0"
+        class="mb-4 p-3 bg-accent rounded-lg text-sm"
+      >
+        💡 推荐：点击"从大纲生成"按钮，AI 将根据故事大纲和角色设定自动生成场景
       </div>
       <Textarea
         v-model="localScriptText"
         class="min-h-[300px]"
-        placeholder="粘贴或输入小说文本..."
+        placeholder="粘贴或输入小说文本...
+
+或者点击上方「从大纲生成」按钮，AI 将根据故事大纲自动生成场景剧本。"
       />
     </div>
 

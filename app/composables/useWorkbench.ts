@@ -1,38 +1,13 @@
 /**
  * Workbench 工作台共享状态和逻辑
- * 提供场景、角色、音频配置等核心功能
+ * 提供场景、角色等核心功能
  */
 
-// 分镜数据接口
-export interface StoryboardShot {
-  shotNumber: number
-  shotType: 'wide' | 'medium' | 'close' | 'extreme_close' | 'detail'
-  cameraMovement: 'static' | 'push' | 'pull' | 'pan_left' | 'pan_right' | 'track' | 'dolly' | 'zoom_in' | 'zoom_out'
-  visualContent: string
-  dialogue?: string | null
-  character?: string | null
-  emotion?: string
-  duration: number
-  notes?: string
-}
-
-export interface Storyboard {
-  sceneId: string
-  sceneTitle: string
-  shots: StoryboardShot[]
-  totalDuration: number
-}
-
-// 场景视觉数据接口
-export interface SceneVisual {
-  sceneId: string
-  time: string
-  location: string
-  visualElements: string[]
-  atmosphere: string
-  sensoryDetails: string
-  imagePrompt: string
-}
+// 类型从 shared/types 自动导入，无需重复导出
+import type { Storyboard } from '#shared/types/storyboard'
+import type { SceneVisual } from '#shared/types/scene-visual'
+import type { CharacterView } from '#shared/types/character'
+import type { StoryOutline, CharacterRelationship } from '#shared/types/outline'
 
 // 场景数据接口
 export interface SceneData {
@@ -50,17 +25,14 @@ export interface SceneData {
   videoUrl?: string
   frameStatus: 'pending' | 'generating' | 'done' | 'error'
   videoStatus: 'pending' | 'generating' | 'done' | 'error'
-  // 新增：分镜和场景视觉
+  // 分镜和场景视觉
   storyboard?: Storyboard
   storyboardStatus: 'pending' | 'generating' | 'done' | 'error'
   sceneVisual?: SceneVisual
   sceneVisualStatus: 'pending' | 'generating' | 'done' | 'error'
 }
 
-// 角色视角类型
-export type CharacterView = 'front' | 'three_quarter' | 'side' | 'back' | 'top_down' | 'bottom_up'
-
-// 角色数据接口
+// 角色数据接口 - 增强版
 export interface CharacterData {
   id: string
   name: string
@@ -71,13 +43,18 @@ export interface CharacterData {
   views?: Partial<Record<CharacterView, string>>
   generating: boolean
   generatingViews: boolean
-}
-
-// 音频配置接口
-export interface AudioConfig {
-  enabled: boolean
-  bgmEnabled: boolean
-  voices: Record<string, string>
+  // 性格与背景
+  personality?: string
+  traits?: string[]
+  background?: string
+  motivation?: string
+  // 说话风格
+  speakingStyle?: string
+  catchphrase?: string
+  voiceTone?: string
+  // 基本信息
+  age?: number
+  gender?: string
 }
 
 // 流水线状态接口
@@ -112,15 +89,18 @@ export function useWorkbench() {
   const scenes = ref<SceneData[]>([])
   const parsing = ref(false)
 
+  // ========== 故事大纲 (新增) ==========
+  const outline = ref<StoryOutline | null>(null)
+  const generatingOutline = ref(false)
+
   // ========== 角色数据 ==========
   const characters = ref<CharacterData[]>([])
 
-  // ========== 音频配置 ==========
-  const audioConfig = ref<AudioConfig>({
-    enabled: true,
-    bgmEnabled: false,
-    voices: {}
-  })
+  // ========== 角色关系 (新增) ==========
+  const relationships = ref<CharacterRelationship[]>([])
+
+  // ========== 工作流步骤 (新增) ==========
+  const currentStep = ref<'outline' | 'characters' | 'script' | 'video'>('outline')
 
   // ========== 流水线状态 ==========
   const pipelineStatus = ref<PipelineStatus>({
@@ -369,21 +349,24 @@ export function useWorkbench() {
           sceneVisualStatus: 'pending' as const
         }))
 
-        const charNames = new Set<string>()
-        scenes.value.forEach(s => s.characters.forEach(c => charNames.add(c.name)))
+        // 只有在没有角色时才从场景中提取
+        if (characters.value.length === 0) {
+          const charNames = new Set<string>()
+          scenes.value.forEach(s => s.characters.forEach(c => charNames.add(c.name)))
 
-        characters.value = Array.from(charNames).map((name, i) => {
-          const charInfo = response.data.characters?.find(c => c.name === name)
-          const sceneChar = scenes.value.flatMap(s => s.characters).find(c => c.name === name)
-          return {
-            id: `char_${i + 1}`,
-            name,
-            appearance: sceneChar?.appearance || charInfo?.description || '',
-            role: charInfo?.role || 'supporting',
-            generating: false,
-            generatingViews: false
-          }
-        })
+          characters.value = Array.from(charNames).map((name, i) => {
+            const charInfo = response.data.characters?.find(c => c.name === name)
+            const sceneChar = scenes.value.flatMap(s => s.characters).find(c => c.name === name)
+            return {
+              id: `char_${i + 1}`,
+              name,
+              appearance: sceneChar?.appearance || charInfo?.description || '',
+              role: charInfo?.role || 'supporting',
+              generating: false,
+              generatingViews: false
+            }
+          })
+        }
 
         await saveProject()
       }
@@ -392,6 +375,78 @@ export function useWorkbench() {
     } finally {
       parsing.value = false
     }
+  }
+
+  // ========== 从大纲生成场景 (新增) ==========
+  async function generateScenesFromOutline() {
+    if (!outline.value) {
+      console.warn('请先生成故事大纲')
+      return
+    }
+
+    parsing.value = true
+    try {
+      const response = await $fetch<{
+        success: boolean
+        scenes: Array<{
+          id: string
+          title: string
+          description: string
+          setting: { location: string, timeOfDay: string, mood?: string, weather?: string }
+          characters: Array<{ name: string, emotion?: string, action?: string }>
+          dialogues: Array<{ character: string, text: string, emotion?: string }>
+          duration: number
+          actId?: string
+        }>
+        totalDuration: number
+        error?: string
+      }>('/api/scene/generate-from-outline', {
+        method: 'POST',
+        body: {
+          outline: outline.value,
+          characters: characters.value.map(c => ({
+            name: c.name,
+            role: c.role,
+            appearance: c.appearance,
+            personality: c.personality,
+            speakingStyle: c.speakingStyle
+          })),
+          targetSceneCount: 8
+        }
+      })
+
+      if (response.success && response.scenes) {
+        scenes.value = response.scenes.map((s, i) => ({
+          id: s.id,
+          title: s.title,
+          description: s.description,
+          characters: s.characters.map(c => ({
+            name: c.name,
+            emotion: c.emotion,
+            appearance: characters.value.find(ch => ch.name === c.name)?.appearance
+          })),
+          dialogues: s.dialogues,
+          duration: s.duration,
+          setting: s.setting,
+          active: i === 0,
+          frameStatus: 'pending' as const,
+          videoStatus: 'pending' as const,
+          storyboardStatus: 'pending' as const,
+          sceneVisualStatus: 'pending' as const
+        }))
+
+        await saveProject()
+        return response.scenes
+      } else {
+        console.error('场景生成失败:', response.error)
+      }
+    } catch (e) {
+      console.error('从大纲生成场景失败:', e)
+      throw e
+    } finally {
+      parsing.value = false
+    }
+    return null
   }
 
   // ========== 角色生成 ==========
@@ -466,6 +521,139 @@ export function useWorkbench() {
       if (existingChar) {
         characters.value[charIndex] = { ...existingChar, ...updatedChar }
         saveProject()
+      }
+    }
+  }
+
+  // ========== 故事大纲生成 (新增) ==========
+  async function generateOutline() {
+    if (!scriptText.value.trim()) return
+
+    generatingOutline.value = true
+    try {
+      const response = await $fetch<{
+        success: boolean
+        outline: StoryOutline
+        error?: string
+      }>('/api/outline/generate', {
+        method: 'POST',
+        body: {
+          rawText: scriptText.value,
+          targetLength: 'medium'
+        }
+      })
+
+      if (response.success && response.outline) {
+        outline.value = response.outline
+        // 如果大纲有标题，更新项目名称
+        if (response.outline.title && projectName.value === '新项目') {
+          projectName.value = response.outline.title
+        }
+        await saveProject()
+        return response.outline
+      } else {
+        console.error('大纲生成失败:', response.error)
+      }
+    } catch (e) {
+      console.error('大纲生成失败:', e)
+      throw e
+    } finally {
+      generatingOutline.value = false
+    }
+    return null
+  }
+
+  // ========== 从大纲提取角色 (新增) ==========
+  async function extractCharactersFromOutline() {
+    if (!outline.value) return
+
+    try {
+      const response = await $fetch<{
+        success: boolean
+        characters: Array<{
+          id: string
+          name: string
+          role: string
+          appearance: string
+          personality?: string
+          traits?: string[]
+          background?: string
+          motivation?: string
+          speakingStyle?: string
+          catchphrase?: string
+          age?: number
+          gender?: string
+        }>
+        error?: string
+      }>('/api/character/extract-from-outline', {
+        method: 'POST',
+        body: {
+          outline: outline.value,
+          style: '日式动漫'
+        }
+      })
+
+      if (response.success && response.characters) {
+        // 替换或合并角色
+        characters.value = response.characters.map(char => ({
+          ...char,
+          generating: false,
+          generatingViews: false
+        }))
+        await saveProject()
+        return response.characters
+      }
+    } catch (e) {
+      console.error('从大纲提取角色失败:', e)
+      throw e
+    }
+    return null
+  }
+
+  // ========== 角色关系管理 (新增) ==========
+  function addRelationship() {
+    if (characters.value.length < 2) return
+
+    const firstChar = characters.value[0]
+    const secondChar = characters.value[1]
+    if (!firstChar || !secondChar) return
+
+    relationships.value.push({
+      fromCharacterId: firstChar.id,
+      toCharacterId: secondChar.id,
+      type: 'friend',
+      intensity: 3
+    })
+    saveProject()
+  }
+
+  function updateRelationship(rel: CharacterRelationship) {
+    const index = relationships.value.findIndex(
+      (r: CharacterRelationship) => r.fromCharacterId === rel.fromCharacterId && r.toCharacterId === rel.toCharacterId
+    )
+    if (index !== -1) {
+      relationships.value[index] = rel
+      saveProject()
+    }
+  }
+
+  function removeRelationship(index: number) {
+    relationships.value.splice(index, 1)
+    saveProject()
+  }
+
+  // ========== 工作流步骤导航 (新增) ==========
+  function setCurrentStep(step: 'outline' | 'characters' | 'script' | 'video') {
+    currentStep.value = step
+  }
+
+  function proceedToNextStep() {
+    const steps: Array<'outline' | 'characters' | 'script' | 'video'> = ['outline', 'characters', 'script', 'video']
+    const currentIndex = steps.indexOf(currentStep.value)
+    if (currentIndex < steps.length - 1) {
+      const nextStep = steps[currentIndex + 1]
+      if (nextStep) {
+        currentStep.value = nextStep
       }
     }
   }
@@ -687,7 +875,7 @@ export function useWorkbench() {
             duration: scene.duration || 8,
             resolution: '720p',
             aspectRatio: '16:9',
-            withAudio: audioConfig.value.enabled,
+            withAudio: true,
             model: 'fast'
           }
         }
@@ -988,6 +1176,16 @@ export function useWorkbench() {
     saving,
     loading,
 
+    // 工作流步骤 (新增)
+    currentStep,
+    setCurrentStep,
+    proceedToNextStep,
+
+    // 故事大纲 (新增)
+    outline,
+    generatingOutline,
+    generateOutline,
+
     // 场景
     scenes,
     parsing,
@@ -999,6 +1197,7 @@ export function useWorkbench() {
     mergeWithNextScene,
     splitScene,
     parseScript,
+    generateScenesFromOutline,
 
     // 分镜和场景视觉 (新增)
     generateStoryboard,
@@ -1010,7 +1209,14 @@ export function useWorkbench() {
     generateCharacterExpression,
     updateCharacter,
     extractCharactersFromScript,
+    extractCharactersFromOutline,
     generateCharacterViews,
+
+    // 角色关系 (新增)
+    relationships,
+    addRelationship,
+    updateRelationship,
+    removeRelationship,
 
     // 首尾帧和视频
     generateFrames,
@@ -1023,9 +1229,6 @@ export function useWorkbench() {
     // 流水线
     pipelineStatus,
     startPipeline,
-
-    // 音频
-    audioConfig,
 
     // 成本预估
     costEstimate,

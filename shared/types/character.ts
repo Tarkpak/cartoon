@@ -32,15 +32,40 @@ export const CharacterOutfitSchema = z.object({
 })
 export type CharacterOutfit = z.infer<typeof CharacterOutfitSchema>
 
-/** 角色定义 */
+/** 说话风格 */
+export const SpeakingStyleSchema = z.enum([
+  'formal',      // 正式
+  'casual',      // 随意
+  'polite',      // 礼貌
+  'rude',        // 粗鲁
+  'childish',    // 孩子气
+  'mature',      // 成熟
+  'humorous',    // 幽默
+  'serious',     // 严肃
+  'mysterious',  // 神秘
+  'energetic'    // 活泼
+])
+export type SpeakingStyle = z.infer<typeof SpeakingStyleSchema>
+
+/** 角色定义 - 增强版 */
 export const CharacterSchema = z.object({
   id: z.string().describe('角色ID'),
   name: z.string().describe('角色名'),
   role: CharacterRoleSchema.optional().describe('角色类型'),
+  // 外观相关
   appearance: z.string().describe('外观描述'),
-  personality: z.string().optional().describe('性格描述'),
   age: z.number().optional().describe('年龄'),
-  gender: z.enum(['male', 'female', 'other']).optional().describe('性别')
+  gender: z.enum(['male', 'female', 'other']).optional().describe('性别'),
+  // 性格相关 (新增)
+  personality: z.string().optional().describe('性格描述'),
+  traits: z.array(z.string()).optional().describe('性格特点标签'),
+  // 背景相关 (新增)
+  background: z.string().optional().describe('角色背景故事'),
+  motivation: z.string().optional().describe('角色动机/目标'),
+  // 说话风格 (新增)
+  speakingStyle: SpeakingStyleSchema.optional().describe('说话风格'),
+  catchphrase: z.string().optional().describe('口头禅'),
+  voiceTone: z.string().optional().describe('声音特点描述')
 })
 export type Character = z.infer<typeof CharacterSchema>
 

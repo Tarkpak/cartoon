@@ -1,22 +1,52 @@
 import { z } from 'zod'
 import { generateImage, ImageModels, GeminiError } from '../../utils/gemini'
 import { imageLimiter } from '../../utils/concurrency'
-import { SceneSchema } from '../../../shared/types/script'
+
+// 定义本地的场景Schema，使 setting 可选
+const SceneSettingSchema = z.object({
+  location: z.string().describe('场景地点'),
+  timeOfDay: z.string().describe('时间段'),
+  mood: z.string().optional().describe('氛围描述'),
+  weather: z.string().optional().describe('天气')
+})
+
+const SceneCharacterSchema = z.object({
+  name: z.string().describe('角色名'),
+  appearance: z.string().optional().describe('外观描述'),
+  action: z.string().optional().describe('动作描述'),
+  emotion: z.string().optional().describe('情绪')
+})
+
+const DialogueSchema = z.object({
+  character: z.string().describe('说话角色名'),
+  text: z.string().describe('对话内容'),
+  emotion: z.string().optional().describe('情绪')
+})
+
+const LocalSceneSchema = z.object({
+  id: z.string().describe('场景ID'),
+  title: z.string().optional().describe('场景标题'),
+  description: z.string().describe('场景描述'),
+  setting: SceneSettingSchema.optional().describe('场景设定'),
+  characters: z.array(SceneCharacterSchema).describe('登场角色'),
+  dialogues: z.array(DialogueSchema).optional().describe('对话列表'),
+  duration: z.number().optional().default(8).describe('视频时长(秒)')
+})
 
 /**
- * 首尾帧生成请求 (基于飞书文档 2.6 优化)
+ * 首尾帧生成请求(基于飞书文档 2.6 优化)
  */
 const GenerateFrameRequestSchema = z.object({
-  scene: SceneSchema.describe('场景信息'),
+  scene: LocalSceneSchema.describe('场景信息'),
   style: z.string().optional().default('日式动漫').describe('画风'),
   characterAssets: z.record(z.string(), z.string()).optional().describe('角色资产 (name -> base64)'),
-  sceneBackground: z.string().optional().describe('场景背景图 (base64) - 用于角色+场景融合'),
-  previousSceneLastFrame: z.string().optional().describe('上一场景的尾帧 (base64) - 用于保持场景连续性'),
+  sceneBackground: z.string().optional().describe('场景背景图(base64) - 用于角色+场景融合'),
+  previousSceneLastFrame: z.string().optional().describe('上一场景的尾帧(base64) - 用于保持场景连续性'),
   fusionMode: z.enum(['character_scene', 'reference', 'text_only']).optional().default('reference').describe('融合模式')
 })
 
 /**
- * 首尾帧生成 API
+ * 首尾帧生成API
  * POST /api/frame/generate
  *
  * 基于场景描述生成首帧和尾帧，确保风格一致
@@ -86,6 +116,7 @@ export default defineEventHandler(async (event) => {
   }
 })
 
+
 /**
  * 生成首帧 (基于飞书文档 2.6.1.1 优化)
  * @param sceneBackground 场景背景图，用于角色+场景融合
@@ -93,7 +124,7 @@ export default defineEventHandler(async (event) => {
  * @param fusionMode 融合模式
  */
 async function generateFirstFrame(
-  scene: z.infer<typeof SceneSchema>,
+  scene: z.infer<typeof LocalSceneSchema>,
   style: string,
   characterAssets?: Record<string, string>,
   sceneBackground?: string,
@@ -121,7 +152,7 @@ async function generateFirstFrame(
       referenceImage = { data: sceneBackground, mimeType: 'image/png' }
     }
   } else if (previousSceneLastFrame) {
-    // 模式2: 使用上一场景尾帧保持连续性 (基于飞书文档 2.7.4)
+    // 模式2: 使用上一场景尾帧保持连续性(基于飞书文档 2.7.4)
     prompt = buildFirstFramePrompt(scene, style, true)
     referenceImage = { data: previousSceneLastFrame, mimeType: 'image/jpeg' }
     console.log('[FrameGen] 使用上一场景尾帧作为参考图')
@@ -159,10 +190,10 @@ async function generateFirstFrame(
 }
 
 /**
- * 构建角色+场景融合提示词 (基于飞书文档 2.6.1.1)
+ * 构建角色+场景融合提示词(基于飞书文档 2.6.1.1)
  */
 function buildCharacterSceneFusionPrompt(
-  scene: z.infer<typeof SceneSchema>,
+  scene: z.infer<typeof LocalSceneSchema>,
   style: string,
   mainCharacter: { name: string, appearance?: string, action?: string, emotion?: string }
 ): string {
@@ -185,11 +216,12 @@ ${mainCharacter.emotion ? `- 表情: ${getEmotionChinese(mainCharacter.emotion)}
 6. 角色姿态要符合场景氛围`
 }
 
+
 /**
  * 生成尾帧
  */
 async function generateLastFrame(
-  scene: z.infer<typeof SceneSchema>,
+  scene: z.infer<typeof LocalSceneSchema>,
   style: string,
   firstFrameData: string,
   firstFrameMimeType: string
@@ -220,7 +252,7 @@ async function generateLastFrame(
  * @param hasPreviousFrame 是否有上一场景的参考帧
  */
 function buildFirstFramePrompt(
-  scene: z.infer<typeof SceneSchema>,
+  scene: z.infer<typeof LocalSceneSchema>,
   style: string,
   hasPreviousFrame: boolean = false
 ): string {
@@ -237,7 +269,7 @@ function buildFirstFramePrompt(
     if (c.emotion) parts.push(`表情${getEmotionChinese(c.emotion)}`)
     if (c.action) parts.push(c.action)
     return parts.join(' ')
-  }).join('；')
+  }).join('、')
 
   // 如果有上一场景的参考帧，使用完全不同的提示词结构
   if (hasPreviousFrame) {
@@ -246,13 +278,13 @@ function buildFirstFramePrompt(
 ⚠️ 严格要求 - 必须与参考图保持一致：
 1. 角色的脸部特征、发型、发色必须完全相同
 2. 角色的服装款式、颜色必须完全相同（如白色衬衫保持白色）
-3. 咖啡厅/场景的整体布局、装饰保持一致
+3. 咖啡厅场景的整体布局、装饰保持一致
 4. 画风、色调、光影效果保持统一
 5. 镜头角度/构图与参考图相似
 
 允许变化的部分：
 - 角色的表情变化
-- 角色的姿态/动作变化
+- 角色的姿势/动作变化
 - 新增角色出场
 
 新场景内容：
@@ -264,14 +296,20 @@ ${description}
 情绪基调: ${getEmotionChinese(initialMood)}`
   }
 
+  // 处理可选的 setting 字段
+  const location = setting?.location || '未知地点'
+  const timeOfDay = setting?.timeOfDay || 'morning'
+  const mood = setting?.mood || '正常'
+  const weather = setting?.weather
+
   // 首个场景的提示词
   return `创作一幅${style}风格的场景首帧画面。
 
 场景设定:
-- 地点: ${setting.location}
-- 时间: ${getTimeOfDayChinese(setting.timeOfDay)}
-- 氛围: ${setting.mood || '正常'}
-${setting.weather ? `- 天气: ${setting.weather}` : ''}
+- 地点: ${location}
+- 时间: ${getTimeOfDayChinese(timeOfDay)}
+- 氛围: ${mood}
+${weather ? `- 天气: ${weather}` : ''}
 
 场景描述: ${description}
 
@@ -286,14 +324,19 @@ ${setting.weather ? `- 天气: ${setting.weather}` : ''}
 6. 情绪基调: ${getEmotionChinese(initialMood)}`
 }
 
+
 /**
  * 构建尾帧提示词
  */
 function buildLastFramePrompt(
-  scene: z.infer<typeof SceneSchema>,
+  scene: z.infer<typeof LocalSceneSchema>,
   style: string
 ): string {
   const { setting, characters, dialogues } = scene
+
+  // 处理可选的 setting 字段
+  const location = setting?.location || '未知地点'
+  const timeOfDay = setting?.timeOfDay || 'morning'
 
   // 提取最后一句对话的情绪
   const lastDialogue = dialogues?.[dialogues.length - 1]
@@ -306,13 +349,13 @@ function buildLastFramePrompt(
     // 使用最终情绪
     parts.push(`表情${getEmotionChinese(finalMood)}`)
     return parts.join(' ')
-  }).join('；')
+  }).join('、')
 
   return `基于参考图，创作场景的【结束状态】画面。
 
 保持一致:
-1. 相同的场景地点: ${setting.location}
-2. 相同的时间段: ${getTimeOfDayChinese(setting.timeOfDay)}
+1. 相同的场景地点: ${location}
+2. 相同的时间段: ${getTimeOfDayChinese(timeOfDay)}
 3. 相同的角色外观和服装
 4. 相同的${style}画风
 5. 相同的构图视角
