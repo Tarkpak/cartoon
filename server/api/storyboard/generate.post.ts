@@ -1,4 +1,4 @@
-import { generateJSON, TextModels, GeminiError } from '../../utils/gemini'
+import { _geminiGenerateJSON, TextModels, GeminiError } from '../../utils/gemini'
 import {
   GenerateStoryboardRequestSchema,
   StoryboardSchema,
@@ -32,7 +32,7 @@ export default defineEventHandler(async (event) => {
     const systemInstruction = buildStoryboardSystemPrompt()
     const prompt = buildStoryboardPrompt(sceneDescription, dialogues, style)
 
-    const result = await generateJSON<Storyboard>({
+    const result = await _geminiGenerateJSON<Storyboard>({
       model: TextModels.SCRIPT_PARSER,
       prompt,
       systemInstruction,

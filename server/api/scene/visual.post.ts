@@ -1,4 +1,4 @@
-import { generateJSON, TextModels, GeminiError } from '../../utils/gemini'
+import { _geminiGenerateJSON, TextModels, GeminiError } from '../../utils/gemini'
 import {
   ExtractSceneVisualRequestSchema,
   SceneVisualSchema,
@@ -32,7 +32,7 @@ export default defineEventHandler(async (event) => {
     const systemInstruction = buildSceneVisualSystemPrompt()
     const prompt = buildSceneVisualPrompt(sceneDescription, setting, style)
 
-    const result = await generateJSON<SceneVisual>({
+    const result = await _geminiGenerateJSON<SceneVisual>({
       model: TextModels.SCRIPT_PARSER,
       prompt,
       systemInstruction,

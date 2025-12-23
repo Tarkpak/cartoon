@@ -10,7 +10,7 @@ import type { CharacterView } from '#shared/types/character'
 import type { StoryOutline, CharacterRelationship } from '#shared/types/outline'
 
 // 转场效果（扩展 video.ts 中的基础类型）
-export type TransitionType = 'cut' | 'fade' | 'dissolve' | 'wipe' | 'slide' | 'zoom' | 'blur' | 'flash' | 'none'
+export type WorkbenchTransitionType = 'cut' | 'fade' | 'dissolve' | 'wipe' | 'slide' | 'zoom' | 'blur' | 'flash' | 'none'
 
 // 场景数据接口
 export interface SceneData {
@@ -27,8 +27,8 @@ export interface SceneData {
   cameraMovement?: CameraMovement
   cameraNote?: string
   // 转场设置
-  transitionIn?: TransitionType
-  transitionOut?: TransitionType
+  transitionIn?: WorkbenchTransitionType
+  transitionOut?: WorkbenchTransitionType
   transitionDuration?: number
   // 生成状态
   firstFrame?: string
@@ -1157,8 +1157,8 @@ export function useWorkbench() {
             cameraMovement: (sceneAny.cameraMovement as CameraMovement) || 'static',
             cameraNote: (sceneAny.cameraNote as string) || '',
             // 转场
-            transitionIn: (sceneAny.transitionIn as TransitionType) || 'cut',
-            transitionOut: (sceneAny.transitionOut as TransitionType) || 'cut',
+            transitionIn: (sceneAny.transitionIn as WorkbenchTransitionType) || 'cut',
+            transitionOut: (sceneAny.transitionOut as WorkbenchTransitionType) || 'cut',
             transitionDuration: (sceneAny.transitionDuration as number) || 0.5,
             // 帧和视频
             firstFrame: s.firstFrame,

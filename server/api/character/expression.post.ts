@@ -1,4 +1,4 @@
-import { generateImage, ImageModels, GeminiError } from '../../utils/gemini'
+import { _geminiGenerateImage, ImageModels, GeminiError } from '../../utils/gemini'
 import { imageLimiter } from '../../utils/concurrency'
 import { z } from 'zod'
 import type { Emotion } from '../../../shared/types/script'
@@ -42,7 +42,7 @@ export default defineEventHandler(async (event) => {
 
     // 3. 调用图片生成 API（带并发控制）
     const result = await imageLimiter.execute(() =>
-      generateImage({
+      _geminiGenerateImage({
         model: ImageModels.HIGH_QUALITY,
         prompt,
         referenceImage: {

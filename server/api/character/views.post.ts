@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { generateImage, ImageModels, GeminiError } from '../../utils/gemini'
+import { _geminiGenerateImage, ImageModels, GeminiError } from '../../utils/gemini'
 import { imageLimiter, batchExecute } from '../../utils/concurrency'
 import { CharacterViewSchema, type CharacterView } from '../../../shared/types/character'
 
@@ -50,7 +50,7 @@ export default defineEventHandler(async (event) => {
       processor: async (view) => {
         const prompt = buildViewPrompt(characterName, style, view)
 
-        const result = await generateImage({
+        const result = await _geminiGenerateImage({
           model: ImageModels.HIGH_QUALITY,
           prompt,
           referenceImage: {

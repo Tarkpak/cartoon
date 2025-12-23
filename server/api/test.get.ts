@@ -1,4 +1,4 @@
-import { generateText, TextModels, GeminiError } from '../utils/gemini'
+import { _geminiGenerateText, TextModels, GeminiError } from '../utils/gemini'
 
 /**
  * 测试 Gemini API 连接
@@ -8,7 +8,7 @@ export default defineEventHandler(async () => {
   const startTime = Date.now()
 
   try {
-    const response = await generateText({
+    const response = await _geminiGenerateText({
       model: TextModels.GENERAL,
       prompt: '你好，请用一句话介绍自己。',
       maxRetries: 2

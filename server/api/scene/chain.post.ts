@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, withRetry, generateImage, ImageModels } from '../../utils/gemini'
+import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry, _geminiGenerateImage, ImageModels } from '../../utils/gemini'
 import { db, videoTasks as videoTasksTable } from '../../db'
 import {
   ChainScenesRequestSchema,
@@ -267,7 +267,7 @@ async function generateTransitionVideoAsync(
       resolution: '1080p'
     })
 
-    let operation = await withRetry(async () => {
+    let operation = await _geminiWithRetry(async () => {
       return await client.models.generateVideos({
         model: VideoModels.VEO_3_1,
         prompt,
@@ -426,7 +426,7 @@ async function generateTransitionFrame(
 
 这是两个场景之间的过渡帧，需要在视觉上连接这两个画面。`
 
-    const result = await generateImage({
+    const result = await _geminiGenerateImage({
       model: ImageModels.HIGH_QUALITY,
       prompt,
       referenceImage: {

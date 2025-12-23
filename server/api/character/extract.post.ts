@@ -1,4 +1,4 @@
-import { generateJSON, TextModels, GeminiError } from '../../utils/gemini'
+import { _geminiGenerateJSON, TextModels, GeminiError } from '../../utils/gemini'
 import { z } from 'zod'
 
 /**
@@ -44,7 +44,7 @@ export default defineEventHandler(async (event) => {
     const systemInstruction = buildCharacterExtractSystemPrompt(style)
     const prompt = `请从以下内容中提取角色形象：\n\n${content}`
 
-    const result = await generateJSON<{ characters: Array<{ role: string, role_content: string }> }>({
+    const result = await _geminiGenerateJSON<{ characters: Array<{ role: string, role_content: string }> }>({
       model: TextModels.SCRIPT_PARSER,
       prompt,
       systemInstruction,

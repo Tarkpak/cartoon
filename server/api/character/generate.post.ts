@@ -1,4 +1,4 @@
-import { generateImage, ImageModels, GeminiError } from '../../utils/gemini'
+import { _geminiGenerateImage, ImageModels, GeminiError } from '../../utils/gemini'
 import { imageLimiter, batchExecute } from '../../utils/concurrency'
 import {
   GenerateCharacterRequestSchema,
@@ -91,7 +91,7 @@ async function generateBaseImage(
 
   // 使用并发限制器控制请求
   const result = await imageLimiter.execute(() =>
-    generateImage({
+    _geminiGenerateImage({
       model: ImageModels.HIGH_QUALITY,
       prompt,
       maxRetries: 2
@@ -124,7 +124,7 @@ async function generateExpressionVariants(
     processor: async (emotion) => {
       const prompt = buildExpressionPrompt(character, style, emotion)
 
-      const result = await generateImage({
+      const result = await _geminiGenerateImage({
         model: ImageModels.HIGH_QUALITY,
         prompt,
         referenceImage: {

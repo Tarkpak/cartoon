@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { getGeminiClient, GeminiError, GeminiErrorCode, withRetry, TextModels } from '../../utils/gemini'
+import { getGeminiClient, GeminiError, GeminiErrorCode, _geminiWithRetry, TextModels } from '../../utils/gemini'
 import type { Emotion } from '../../../shared/types/script'
 
 /**
@@ -168,7 +168,7 @@ async function generateTTS(config: {
     language: config.language || 'zh-CN'
   })
 
-  const result = await withRetry(async () => {
+  const result = await _geminiWithRetry(async () => {
     const response = await client.models.generateContent({
       model: TextModels.GENERAL,
       contents: config.text,

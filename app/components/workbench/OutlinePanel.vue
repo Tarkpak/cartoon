@@ -1,19 +1,36 @@
 <script setup lang="ts">
-import { Loader2, Sparkles, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-vue-next'
+import { Loader2, Sparkles, Plus, Trash2, ChevronDown, ChevronUp, Palette } from 'lucide-vue-next'
 import type { StoryOutline, Act, StoryGenre, StoryPace } from '#shared/types/outline'
+import { getStyleById, type StylePreset } from '#shared/types/styles'
 
 const props = defineProps<{
   outline: StoryOutline | null
   rawText: string
   generating: boolean
+  selectedStyleId?: string
 }>()
+
+// 风格选择对话框
+const styleDialogOpen = ref(false)
+const localStyleId = ref(props.selectedStyleId || '')
+
+const selectedStyle = computed(() =>
+  localStyleId.value ? getStyleById(localStyleId.value) : null
+)
 
 const emit = defineEmits<{
   'update:rawText': [value: string]
   'update:outline': [value: StoryOutline]
+  'update:selectedStyleId': [value: string]
   'generateOutline': []
   'proceedToCharacters': []
 }>()
+
+function handleStyleSelect(style: StylePreset) {
+  localStyleId.value = style.id
+  emit('update:selectedStyleId', style.id)
+  styleDialogOpen.value = false
+}
 
 const localRawText = computed({
   get: () => props.rawText,
@@ -154,6 +171,52 @@ function removeKeyEvent(actIndex: number, eventIndex: number) {
       <p class="text-xs text-muted-foreground">
         提示：输入越详细，生成的大纲越精准。可以包含人物设定、世界观、核心冲突等。
       </p>
+
+      <!-- 风格选择 -->
+      <div class="space-y-2">
+        <div class="flex items-center justify-between">
+          <label class="text-sm font-medium flex items-center gap-2">
+            <Palette class="w-4 h-4" />
+            视觉风格
+          </label>
+          <Button
+            variant="outline"
+            size="sm"
+            @click="styleDialogOpen = true"
+          >
+            {{ selectedStyle ? '更换风格' : '选择风格' }}
+          </Button>
+        </div>
+        <div
+          v-if="selectedStyle"
+          class="p-3 bg-accent rounded-lg flex items-center gap-3"
+        >
+          <div class="w-12 h-12 bg-gradient-to-br from-purple-200 to-pink-200 rounded-lg flex items-center justify-center">
+            <span class="text-xl">🎨</span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="font-medium">{{ selectedStyle.name }}</span>
+              <span
+                v-if="selectedStyle.isNew"
+                class="px-1 py-0.5 text-[10px] bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded"
+              >
+                NEW
+              </span>
+            </div>
+            <p class="text-xs text-muted-foreground truncate">{{ selectedStyle.description }}</p>
+          </div>
+        </div>
+        <div
+          v-else
+          class="p-3 border-2 border-dashed rounded-lg text-center text-muted-foreground cursor-pointer hover:border-primary/50 transition"
+          @click="styleDialogOpen = true"
+        >
+          <Palette class="w-6 h-6 mx-auto mb-1 opacity-50" />
+          <p class="text-sm">点击选择视觉风格</p>
+          <p class="text-xs">支持100+种风格预设</p>
+        </div>
+      </div>
     </div>
 
     <!-- 右侧: 大纲编辑 -->
@@ -413,5 +476,26 @@ function removeKeyEvent(actIndex: number, eventIndex: number) {
         </Card>
       </div>
     </div>
+
+    <!-- 风格选择对话框 -->
+    <Dialog v-model:open="styleDialogOpen">
+      <DialogContent class="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle class="flex items-center gap-2">
+            <Palette class="w-5 h-5" />
+            选择视觉风格
+          </DialogTitle>
+          <DialogDescription>
+            选择一种风格预设，将应用于角色立绘和视频生成
+          </DialogDescription>
+        </DialogHeader>
+        <div class="flex-1 overflow-y-auto py-4">
+          <StyleSelector
+            v-model="localStyleId"
+            @select="handleStyleSelect"
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

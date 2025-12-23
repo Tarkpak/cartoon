@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { generateImage, ImageModels, GeminiError } from '../../utils/gemini'
+import { _geminiGenerateImage, ImageModels, GeminiError } from '../../utils/gemini'
 import { imageLimiter } from '../../utils/concurrency'
 
 // 定义本地的场景Schema，使 setting 可选
@@ -175,7 +175,7 @@ async function generateFirstFrame(
 
   // 使用并发限制器控制请求
   const result = await imageLimiter.execute(() =>
-    generateImage({
+    _geminiGenerateImage({
       model: ImageModels.HIGH_QUALITY,
       prompt,
       referenceImage,
@@ -230,7 +230,7 @@ async function generateLastFrame(
 
   // 使用并发限制器控制请求
   const result = await imageLimiter.execute(() =>
-    generateImage({
+    _geminiGenerateImage({
       model: ImageModels.HIGH_QUALITY,
       prompt,
       referenceImage: {

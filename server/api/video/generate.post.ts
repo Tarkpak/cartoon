@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, withRetry } from '../../utils/gemini'
+import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../../utils/gemini'
 import * as qwen from '../../utils/qwen'
 import { getSelectedModels, findVideoModel } from '../../utils/model-provider'
 import { videoLimiter } from '../../utils/concurrency'
@@ -215,7 +215,7 @@ async function generateVideoWithQwen(
     await updateTaskProgress(taskId, 20)
 
     // 调用千问视频生成
-    const result = await qwen.generateVideo({
+    const result = await qwen._qwenGenerateVideo({
       model: modelId,
       prompt: config.prompt,
       imageUrl: config.imageUrl,
@@ -333,7 +333,7 @@ async function generateVideoWithGemini(
     })
 
     // 使用视频并发限制器控制请求
-    let operation = await videoLimiter.execute(() => withRetry(async () => {
+    let operation = await videoLimiter.execute(() => _geminiWithRetry(async () => {
       if (hasFrames) {
         // 使用首尾帧插值模式
         // 注意：使用插值时 durationSeconds 必须为 8 秒

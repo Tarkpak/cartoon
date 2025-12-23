@@ -118,7 +118,8 @@ export const AudioModels = {
 // 重试配置
 // ============================================================
 
-export interface RetryConfig {
+/** @internal */
+interface RetryConfig {
   /** 最大重试次数 */
   maxRetries: number
   /** 初始延迟 (毫秒) */
@@ -206,8 +207,9 @@ function parseError(error: unknown): GeminiError {
 
 /**
  * 带重试的 API 调用
+ * @internal
  */
-export async function withRetry<T>(
+export async function _geminiWithRetry<T>(
   fn: () => Promise<T>,
   config: Partial<RetryConfig> = {}
 ): Promise<T> {
@@ -240,8 +242,9 @@ export async function withRetry<T>(
 
 /**
  * 生成文本内容
+ * @internal 仅供 model-provider.ts 使用
  */
-export async function generateText(options: {
+export async function _geminiGenerateText(options: {
   model?: string
   prompt: string
   systemInstruction?: string
@@ -260,7 +263,7 @@ export async function generateText(options: {
     maxRetries: options.maxRetries
   })
 
-  return withRetry(async () => {
+  return _geminiWithRetry(async () => {
     const response = await client.models.generateContent({
       model,
       contents: options.prompt,
@@ -276,8 +279,9 @@ export async function generateText(options: {
 
 /**
  * 生成 JSON 结构化输出
+ * @internal 仅供 model-provider.ts 使用
  */
-export async function generateJSON<T>(options: {
+export async function _geminiGenerateJSON<T>(options: {
   model?: string
   prompt: string
   systemInstruction?: string
@@ -299,7 +303,7 @@ export async function generateJSON<T>(options: {
     maxRetries: options.maxRetries
   })
 
-  return withRetry(async () => {
+  return _geminiWithRetry(async () => {
     const response = await client.models.generateContent({
       model,
       contents: options.prompt,
@@ -317,8 +321,9 @@ export async function generateJSON<T>(options: {
 
 /**
  * 生成图片
+ * @internal 仅供 model-provider.ts 使用
  */
-export async function generateImage(options: {
+export async function _geminiGenerateImage(options: {
   model?: string
   prompt: string
   referenceImage?: { data: string, mimeType: string }
@@ -336,7 +341,7 @@ export async function generateImage(options: {
     maxRetries: options.maxRetries
   })
 
-  return withRetry(async () => {
+  return _geminiWithRetry(async () => {
     // 构建请求内容
     const parts: Array<{ text: string } | { inlineData: { data: string, mimeType: string } }> = [
       { text: options.prompt }

@@ -128,7 +128,8 @@ function getConfig(): DashScopeConfig {
 // 重试配置
 // ============================================================
 
-export interface RetryConfig {
+/** @internal */
+interface RetryConfig {
   maxRetries: number
   initialDelayMs: number
   maxDelayMs: number
@@ -176,7 +177,8 @@ function parseError(error: unknown): QwenError {
   return new QwenError(message, code, status, RETRYABLE_ERROR_CODES.has(code))
 }
 
-export async function withRetry<T>(
+/** @internal */
+async function withRetry<T>(
   fn: () => Promise<T>,
   retryConfig: Partial<RetryConfig> = {}
 ): Promise<T> {
@@ -301,7 +303,7 @@ interface ChatCompletionResponse {
   }
 }
 
-export async function generateText(options: {
+export async function _qwenGenerateText(options: {
   model?: string
   prompt: string
   systemInstruction?: string
@@ -342,7 +344,7 @@ export async function generateText(options: {
   }, { maxRetries: options.maxRetries })
 }
 
-export async function generateJSON<T>(options: {
+export async function _qwenGenerateJSON<T>(options: {
   model?: string
   prompt: string
   systemInstruction?: string
@@ -386,15 +388,15 @@ export async function generateJSON<T>(options: {
     if (codeBlockMatch && codeBlockMatch[1]) {
       jsonStr = codeBlockMatch[1].trim()
     } else {
-      // 2. 尝试匹配 JSON 数组
-      const arrayMatch = text.match(/\[[\s\S]*\]/)
-      if (arrayMatch) {
-        jsonStr = arrayMatch[0]
-      } else {
-        // 3. 尝试匹配 JSON 对象
-        const objectMatch = text.match(/\{[\s\S]*\}/)
-        if (objectMatch) {
-          jsonStr = objectMatch[0]
+      // 2. 尝试直接解析整个文本（如果是纯 JSON）
+      try {
+        JSON.parse(jsonStr)
+        // 如果成功，直接使用
+      } catch {
+        // 3. 尝试匹配 JSON 对象（使用平衡括号匹配）
+        const jsonMatch = extractJsonObject(text) || extractJsonArray(text)
+        if (jsonMatch) {
+          jsonStr = jsonMatch
         }
       }
     }
@@ -402,10 +404,96 @@ export async function generateJSON<T>(options: {
     try {
       return JSON.parse(jsonStr) as T
     } catch (parseError) {
-      console.error('[Qwen] JSON 解析失败，原始文本:', text.slice(0, 500))
+      console.error('[Qwen] JSON 解析失败，原始文本:', text.slice(0, 1000))
       throw parseError
     }
   }, { maxRetries: options.maxRetries })
+}
+
+/**
+ * 提取平衡的 JSON 对象
+ */
+function extractJsonObject(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start === -1) return null
+  
+  let depth = 0
+  let inString = false
+  let escape = false
+  
+  for (let i = start; i < text.length; i++) {
+    const char = text[i]
+    
+    if (escape) {
+      escape = false
+      continue
+    }
+    
+    if (char === '\\' && inString) {
+      escape = true
+      continue
+    }
+    
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+    
+    if (inString) continue
+    
+    if (char === '{') depth++
+    else if (char === '}') {
+      depth--
+      if (depth === 0) {
+        return text.slice(start, i + 1)
+      }
+    }
+  }
+  
+  return null
+}
+
+/**
+ * 提取平衡的 JSON 数组
+ */
+function extractJsonArray(text: string): string | null {
+  const start = text.indexOf('[')
+  if (start === -1) return null
+  
+  let depth = 0
+  let inString = false
+  let escape = false
+  
+  for (let i = start; i < text.length; i++) {
+    const char = text[i]
+    
+    if (escape) {
+      escape = false
+      continue
+    }
+    
+    if (char === '\\' && inString) {
+      escape = true
+      continue
+    }
+    
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+    
+    if (inString) continue
+    
+    if (char === '[') depth++
+    else if (char === ']') {
+      depth--
+      if (depth === 0) {
+        return text.slice(start, i + 1)
+      }
+    }
+  }
+  
+  return null
 }
 
 // ============================================================
@@ -429,7 +517,7 @@ interface ImageTaskStatusResponse {
   request_id: string
 }
 
-export async function generateImage(options: {
+export async function _qwenGenerateImage(options: {
   model?: string
   prompt: string
   negativePrompt?: string
@@ -528,7 +616,7 @@ interface VideoTaskStatusResponse {
   request_id: string
 }
 
-export async function generateVideo(options: {
+export async function _qwenGenerateVideo(options: {
   model?: string
   prompt: string
   imageUrl?: string  // 图生视频时的输入图片
@@ -655,7 +743,7 @@ interface TTSResponse {
   request_id: string
 }
 
-export async function textToSpeech(options: {
+export async function _qwenTextToSpeech(options: {
   model?: string
   text: string
   voice?: string
@@ -712,7 +800,7 @@ interface ASRResponse {
   request_id: string
 }
 
-export async function speechToText(options: {
+export async function _qwenSpeechToText(options: {
   model?: string
   audioUrl?: string
   audioData?: string  // base64

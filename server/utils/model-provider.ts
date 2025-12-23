@@ -15,9 +15,8 @@ import type {
 import * as gemini from './gemini'
 import * as qwen from './qwen'
 
-// 重新导出错误类型，方便其他模块使用
-export { GeminiError, GeminiErrorCode } from './gemini'
-export { QwenError, QwenErrorCode } from './qwen'
+// 注意: GeminiError/GeminiErrorCode 请从 './gemini' 导入
+// 注意: QwenError/QwenErrorCode 请从 './qwen' 导入
 
 // ============================================================
 // 可用模型配置
@@ -267,7 +266,7 @@ export async function generateText(options: {
   console.log(`[ModelProvider] generateText - provider: ${provider}, model: ${modelId}`)
 
   if (provider === 'qwen') {
-    return qwen.generateText({
+    return qwen._qwenGenerateText({
       model: modelId,
       prompt: options.prompt,
       systemInstruction: options.systemInstruction,
@@ -278,7 +277,7 @@ export async function generateText(options: {
   }
 
   // 默认使用 Gemini
-  return gemini.generateText({
+  return gemini._geminiGenerateText({
     model: modelId,
     prompt: options.prompt,
     systemInstruction: options.systemInstruction,
@@ -300,7 +299,7 @@ export async function generateJSON<T>(options: {
   console.log(`[ModelProvider] generateJSON - provider: ${provider}, model: ${modelId}`)
 
   if (provider === 'qwen') {
-    return qwen.generateJSON<T>({
+    return qwen._qwenGenerateJSON<T>({
       model: modelId,
       prompt: options.prompt,
       systemInstruction: options.systemInstruction,
@@ -309,7 +308,7 @@ export async function generateJSON<T>(options: {
     })
   }
 
-  return gemini.generateJSON<T>({
+  return gemini._geminiGenerateJSON<T>({
     model: modelId,
     prompt: options.prompt,
     systemInstruction: options.systemInstruction,
@@ -343,7 +342,7 @@ export async function generateImage(options: {
   console.log(`[ModelProvider] generateImage - provider: ${provider}, model: ${modelId}`)
 
   if (provider === 'qwen') {
-    const result = await qwen.generateImage({
+    const result = await qwen._qwenGenerateImage({
       model: modelId,
       prompt: options.prompt,
       negativePrompt: options.negativePrompt,
@@ -354,7 +353,7 @@ export async function generateImage(options: {
   }
 
   // Gemini
-  const result = await gemini.generateImage({
+  const result = await gemini._geminiGenerateImage({
     model: modelId,
     prompt: options.prompt,
     referenceImage: options.referenceImage,
@@ -401,7 +400,7 @@ export async function generateVideo(options: {
   console.log(`[ModelProvider] generateVideo - provider: ${provider}, model: ${modelId}`)
 
   if (provider === 'qwen') {
-    const result = await qwen.generateVideo({
+    const result = await qwen._qwenGenerateVideo({
       model: modelId,
       prompt: options.prompt,
       imageUrl: options.imageUrl,
@@ -443,7 +442,7 @@ export async function textToSpeech(options: {
   console.log(`[ModelProvider] textToSpeech - provider: ${provider}, model: ${modelId}`)
 
   if (provider === 'qwen') {
-    return qwen.textToSpeech({
+    return qwen._qwenTextToSpeech({
       model: modelId,
       text: options.text,
       voice: options.voice,
@@ -453,7 +452,7 @@ export async function textToSpeech(options: {
   }
 
   // Gemini 暂不支持 TTS，使用千问
-  return qwen.textToSpeech({
+  return qwen._qwenTextToSpeech({
     model: qwen.QwenVoiceModels.QWEN3_TTS_FLASH,
     text: options.text,
     voice: options.voice,
@@ -479,7 +478,7 @@ export async function speechToText(options: {
   console.log(`[ModelProvider] speechToText - provider: ${provider}, model: ${modelId}`)
 
   if (provider === 'qwen') {
-    return qwen.speechToText({
+    return qwen._qwenSpeechToText({
       model: modelId,
       audioUrl: options.audioUrl,
       audioData: options.audioData,
@@ -489,7 +488,7 @@ export async function speechToText(options: {
   }
 
   // Gemini 暂不支持 ASR，使用千问
-  return qwen.speechToText({
+  return qwen._qwenSpeechToText({
     model: qwen.QwenVoiceModels.QWEN3_ASR_FLASH,
     audioUrl: options.audioUrl,
     audioData: options.audioData,
