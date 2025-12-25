@@ -1,835 +1,555 @@
-# AI漫剧技术需求文档
+# Manju - AI漫剧自动化生成系统
 
-> **版本**: 1.1  
-> **日期**: 2025年12月9日  
-> **技术栈**: Nuxt.js 4 全栈 + Google Gemini API  
+> **版本**: 2.0  
+> **更新日期**: 2025年12月26日  
+> **技术栈**: Nuxt.js 4 + Google Gemini API + 阿里千问 API
 
 ---
 
 ## 一、项目概述
 
-### 1.1 项目背景
+### 1.1 项目简介
 
-2025年被业内公认为"漫剧元年"和"AI Agent元年"。AI漫剧市场规模预估达200亿，正处于爆发期。本项目旨在基于Google系列LLM构建一个完整的AI漫剧生成系统。
+Manju 是一个 AI 驱动的漫剧创作平台，实现从文本到视频的全自动化生成流程。支持首尾帧控制、角色一致性、智能配音，目标是降低漫剧制作门槛和成本。
 
-### 1.2 核心目标
+### 1.2 核心功能
 
-- 实现文本到视频的端到端AI漫剧生成
-- 支持首尾帧控制，确保场景连贯性
-- 提供角色一致性保障
-- 降低单分钟制作成本至200-500元
+- **故事大纲生成**: 从创意文本生成三幕结构大纲
+- **剧本智能解析**: 自动提取场景、角色、对话
+- **角色立绘生成**: 4K 高质量立绘 + 多表情/多视角变体
+- **分镜脚本生成**: 专业镜头语言设计
+- **首尾帧生成**: 场景关键帧图片生成
+- **视频生成**: 首尾帧插值生成连贯视频
+- **场景串联**: 多场景视频拼接与转场
 
 ---
 
 ## 二、技术架构
 
-### 2.1 技术栈选型
+### 2.1 技术栈
 
 | 层级 | 技术选型 | 说明 |
 |------|----------|------|
-| **全栈框架** | Nuxt.js 4.2.1 | Vue 3 + Nitro Server + 自动路由 |
-| **语言** | TypeScript | 类型安全、生态丰富 |
-| **UI框架** | Nuxt UI 3 | 基于 Tailwind CSS 的组件库 |
-| **服务端** | Nitro | Nuxt内置服务引擎，支持API路由 |
-| **AI核心** | Google Gemini API | `@google/genai` SDK |
-| **视频生成** | Veo 3.1 API | 支持首尾帧插值、8秒视频 |
-| **图片生成** | Nano Banana / Nano Banana Pro | 原生图片生成与编辑，支持 4K |
-| **文本理解** | Gemini 3 Pro | 100万token上下文窗口 |
-| **音频生成** | Lyria API | 背景音乐生成 |
-| **状态管理** | Pinia | Vue官方推荐 |
-| **数据库** | SQLite / PostgreSQL | 项目管理、任务队列 |
+| **全栈框架** | Nuxt.js 4.2.1 | Vue 3 + Nitro Server |
+| **语言** | TypeScript | 类型安全 |
+| **UI框架** | shadcn-vue + Tailwind CSS | 现代化组件库 |
+| **状态管理** | Pinia | Vue 官方推荐 |
+| **数据库** | SQLite + Drizzle ORM | 轻量级本地存储 |
+| **数据验证** | Zod | 运行时类型校验 |
+| **视频处理** | FFmpeg (fluent-ffmpeg) | 视频合成与转场 |
+| **图片处理** | Sharp | 图片优化 |
 
-### 2.2 系统架构图
+### 2.2 AI 模型
+
+| 用途 | 提供商 | 模型 | 说明 |
+|------|--------|------|------|
+| **文本生成** | Gemini | gemini-2.5-flash | 剧本解析、大纲生成 |
+| **文本生成** | 千问 | qwen-plus | 备选文本模型 |
+| **图片生成** | Gemini | gemini-3-pro-image-preview | Nano Banana Pro, 4K |
+| **图片生成** | 千问 | wanx2.1-t2i-turbo | 通义万相图片生成 |
+| **视频生成** | Gemini | veo-3.1-generate-preview | 首尾帧插值, 8秒 |
+| **视频生成** | 千问 | wanx2.1-i2v-turbo | 图生视频, 5-15秒 |
+| **TTS** | Gemini | gemini-2.5-flash | 语音合成 |
+
+### 2.3 系统架构图
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                   Nuxt.js 4 全栈架构                          │
+│                      Nuxt.js 4 全栈架构                          │
 ├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌───────────────────────────────────────────────────────────┐   │
-│  │                    前端 (Vue 3 + Nuxt UI)                    │   │
-│  │  pages/           │ components/      │ composables/         │   │
-│  │  - index.vue      │ - ScriptEditor   │ - useGemini()        │   │
-│  │  - projects/      │ - VideoPreview   │ - useVideoGen()      │   │
-│  │  - generate/      │ - CharacterCard  │ - useProject()       │   │
-│  └───────────────────────────────────────────────────────────┘   │
-│                              │                                     │
-│                              ▼                                     │
-│  ┌───────────────────────────────────────────────────────────┐   │
-│  │                   后端 API (Nitro Server)                    │   │
-│  │  server/api/                                                 │   │
-│  │  - script/parse.post.ts      剧本解析 (Gemini 3)            │   │
-│  │  - character/generate.post.ts 角色生成 (Nano Banana)         │   │
-│  │  - video/generate.post.ts    视频生成 (Veo 3.1)             │   │
-│  │  - video/status/[id].get.ts  生成状态查询                   │   │
-│  │  - audio/generate.post.ts    音频生成 (Lyria)               │   │
-│  └───────────────────────────────────────────────────────────┘   │
-│                              │                                     │
-│                              ▼                                     │
-│  ┌───────────────────────────────────────────────────────────┐   │
-│  │                   AI 服务层 (server/utils/)                  │   │
-│  │  - gemini.ts         Google Gemini 客户端                   │   │
-│  │  - veo.ts            Veo 视频生成服务                       │   │
-│  │  - nanoBanana.ts     Nano Banana 图片生成                   │   │
-│  │  - lyria.ts          Lyria 音频生成                         │   │
-│  └───────────────────────────────────────────────────────────┘   │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                 前端 (Vue 3 + shadcn-vue)                  │  │
+│  │  pages/           │ components/      │ composables/        │  │
+│  │  - index.vue      │ - ScriptEditor   │ - useProject()      │  │
+│  │  - projects.vue   │ - CharacterCard  │ - useScript()       │  │
+│  │  - workbench.vue  │ - VideoPreview   │ - useCharacter()    │  │
+│  │  - settings.vue   │ - Timeline       │ - useVideoGen()     │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                              │                                   │
+│                              ▼                                   │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                  后端 API (Nitro Server)                   │  │
+│  │  server/api/                                               │  │
+│  │  - outline/generate      故事大纲生成                       │  │
+│  │  - script/parse          剧本解析                          │  │
+│  │  - character/generate    角色生成                          │  │
+│  │  - storyboard/generate   分镜脚本生成                       │  │
+│  │  - frame/generate        首尾帧生成                         │  │
+│  │  - video/generate        视频生成                          │  │
+│  │  - scene/chain           场景串联                          │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                              │                                   │
+│                              ▼                                   │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                   AI 服务层 (server/utils/)                │  │
+│  │  - gemini.ts          Google Gemini 客户端                 │  │
+│  │  - qwen.ts            阿里千问客户端                        │  │
+│  │  - model-provider.ts  统一模型调度                          │  │
+│  │  - ffmpeg.ts          视频处理工具                          │  │
+│  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 三、核心模块设计
+## 三、核心业务流程
 
-### 3.1 剧本解析模块
+### 3.1 完整创作流程
 
-**功能**: 将小说/剧本文本解析为结构化的分镜脚本
-
-**使用模型**: `gemini-3-pro-preview`
-
-```typescript
-// types/script.ts
-interface Scene {
-  id: string;
-  description: string;
-  dialogue: DialogueLine[];
-  characters: Character[];
-  setting: SceneSetting;
-  duration: number; // 秒
-  cameraMovement: CameraMovement;
-}
-
-interface DialogueLine {
-  character: string;
-  text: string;
-  emotion: Emotion;
-  voiceStyle?: VoiceStyle;
-}
-
-interface Character {
-  name: string;
-  appearance: string;
-  referenceImageId?: string;
-}
-
-interface SceneSetting {
-  location: string;
-  timeOfDay: 'day' | 'night' | 'dawn' | 'dusk';
-  weather?: string;
-  mood: string;
-}
+```
+1. 创建项目
+   ↓
+2. 输入故事创意 → 生成故事大纲 (三幕结构)
+   ↓
+3. 从大纲提取角色 → 生成角色立绘和表情变体
+   ↓
+4. 输入小说文本 → 解析为结构化场景
+   ↓
+5. 编辑场景内容 (对话、角色、设定)
+   ↓
+6. 生成分镜脚本和场景视觉
+   ↓
+7. 生成首尾帧图片
+   ↓
+8. 生成视频 (Gemini Veo 或 千问万相)
+   ↓
+9. 场景串联 → 完整漫剧视频
 ```
 
-**API调用示例**:
+### 3.2 工作台四步工作流
 
-```typescript
-import { GoogleGenAI } from '@google/genai';
-
-const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-async function parseScript(novelText: string): Promise<Scene[]> {
-  const response = await client.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: `
-      你是一个专业的漫剧分镜师。请将以下小说文本转换为分镜脚本。
-      
-      要求:
-      1. 每个场景时长控制在6-8秒
-      2. 明确描述角色外观、表情、动作
-      3. 指定场景氛围和镜头运动
-      4. 提取对话并标注情绪
-      
-      小说文本:
-      ${novelText}
-      
-      请以JSON格式输出分镜脚本。
-    `,
-    generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: SceneArraySchema,
-    },
-  });
-  
-  return JSON.parse(response.text);
-}
-```
-
-### 3.2 角色资产生成模块 (Nano Banana Pro)
-
-**功能**: 生成并维护角色一致性图片库
-
-**使用模型**: 
-- `gemini-3-pro-image-preview` (Nano Banana Pro) - 4K 分辨率，专业制作
-- `gemini-2.5-flash-image` (Nano Banana) - 1024px，速度优化
-
-```typescript
-// services/characterGenerator.ts
-interface CharacterAsset {
-  characterId: string;
-  name: string;
-  baseImage: string; // base64
-  expressions: Map<Emotion, string>;
-  poses: Map<Pose, string>;
-}
-
-// 可选模型: 'gemini-3-pro-image-preview' (4K) 或 'gemini-2.5-flash-image' (快速)
-const IMAGE_MODEL = 'gemini-3-pro-image-preview'; // Nano Banana Pro
-
-async function generateCharacterAsset(
-  character: Character
-): Promise<CharacterAsset> {
-  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  
-  // 生成基础角色图 (使用 Nano Banana Pro 获得 4K 高质量)
-  const baseResponse = await client.models.generateContent({
-    model: IMAGE_MODEL,
-    contents: `
-      生成一个高质量的动漫角色立绘:
-      - 角色描述: ${character.appearance}
-      - 风格: 日式动漫，高清，精致细节
-      - 视角: 正面半身像
-      - 背景: 纯色透明
-    `,
-    generationConfig: {
-      responseModalities: ['image', 'text'],
-    },
-  });
-  
-  const baseImage = baseResponse.candidates[0].content.parts
-    .find(part => part.inlineData)?.inlineData?.data;
-  
-  // 生成不同表情变体
-  const expressions = new Map<Emotion, string>();
-  for (const emotion of ['happy', 'sad', 'angry', 'surprised', 'neutral']) {
-    const exprResponse = await client.models.generateContent({
-      model: IMAGE_MODEL,
-      contents: [
-        {
-          inlineData: {
-            mimeType: 'image/png',
-            data: baseImage,
-          },
-        },
-        {
-          text: `基于这个角色，生成${emotion}表情的版本，保持角色特征完全一致。`,
-        },
-      ],
-      generationConfig: {
-        responseModalities: ['image', 'text'],
-      },
-    });
-    
-    expressions.set(
-      emotion as Emotion,
-      exprResponse.candidates[0].content.parts
-        .find(part => part.inlineData)?.inlineData?.data
-    );
-  }
-  
-  return {
-    characterId: generateId(),
-    name: character.name,
-    baseImage,
-    expressions,
-    poses: new Map(),
-  };
-}
-```
-
-### 3.3 首尾帧视频生成模块 (Veo 3.1)
-
-**功能**: 基于首尾帧生成连贯的动态视频片段
-
-**使用模型**: `veo-3.1-generate-preview`
-
-**核心技术**: **首尾帧插值** - 设定开头和结尾关键帧，AI自动补全中间动态过渡
-
-> ✅ **Veo 3.1 支持首尾帧功能**: 通过 `image` 参数设置第一帧，通过 `config.lastFrame` 参数设置最后一帧。
-
-```typescript
-// services/videoGenerator.ts
-interface VideoGenerationConfig {
-  firstFrame: string;  // base64 图片 - 第一帧
-  lastFrame: string;   // base64 图片 - 最后一帧
-  prompt: string;
-  duration: 4 | 6 | 8; // 秒
-  resolution: '720p' | '1080p';
-  aspectRatio: '16:9' | '9:16' | '1:1';
-  withAudio: boolean;
-}
-
-interface GeneratedVideo {
-  videoData: string; // base64
-  audioData?: string;
-  duration: number;
-  metadata: VideoMetadata;
-}
-
-async function generateVideoWithFrames(
-  config: VideoGenerationConfig
-): Promise<GeneratedVideo> {
-  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  
-  // 使用首尾帧生成视频 (插值模式)
-  const operation = await client.models.generateVideos({
-    model: 'veo-3.1-generate-preview',
-    prompt: config.prompt,
-    // 第一帧
-    image: {
-      imageBytes: config.firstFrame,
-      mimeType: 'image/png',
-    },
-    config: {
-      // 最后一帧
-      lastFrame: {
-        imageBytes: config.lastFrame,
-        mimeType: 'image/png',
-      },
-      aspectRatio: config.aspectRatio,
-      numberOfVideos: 1,
-      durationSeconds: config.duration,
-      // 注意: 1080p 只在 8 秒时长时支持
-      resolution: config.duration === 8 ? config.resolution : '720p',
-      personGeneration: 'allow_adult',
-      generateAudio: config.withAudio,
-    },
-  });
-  
-  // 轮询等待视频生成完成
-  let result = await client.operations.get({ name: operation.name });
-  while (!result.done) {
-    await sleep(5000);
-    result = await client.operations.get({ name: operation.name });
-  }
-  
-  const video = result.response.generatedVideos[0];
-  
-  return {
-    videoData: video.video.videoBytes,
-    audioData: video.audio?.audioBytes,
-    duration: config.duration,
-    metadata: {
-      model: 'veo-3.1-generate-preview',
-      generatedAt: new Date().toISOString(),
-    },
-  };
-}
-```
-
-### 3.4 场景连贯性控制
-
-**核心策略**: 使用上一个场景的最后一帧作为下一个场景的首帧，通过首尾帧插值实现无缝衔接
-
-```typescript
-// services/sceneChainer.ts
-interface SceneChain {
-  scenes: GeneratedScene[];
-  transitions: Transition[];
-}
-
-async function generateSceneChain(
-  scenes: Scene[],
-  characterAssets: Map<string, CharacterAsset>
-): Promise<SceneChain> {
-  const generatedScenes: GeneratedScene[] = [];
-  let previousLastFrame: string | null = null;
-  
-  for (let i = 0; i < scenes.length; i++) {
-    const scene = scenes[i];
-    
-    // 生成场景首帧
-    const firstFrame = await generateSceneFrame(scene, characterAssets, 'first');
-    
-    // 生成场景尾帧
-    const lastFrame = await generateSceneFrame(scene, characterAssets, 'last');
-    
-    // 如果有前一个场景，创建过渡视频
-    if (previousLastFrame) {
-      const transitionVideo = await generateVideoWithFrames({
-        firstFrame: previousLastFrame,
-        lastFrame: firstFrame,
-        prompt: `平滑过渡，从上一个场景切换到${scene.setting.location}`,
-        duration: 4,
-        resolution: '720p',
-        aspectRatio: '16:9',
-        withAudio: false,
-      });
-    }
-    
-    // 生成主场景视频 (使用首尾帧)
-    const sceneVideo = await generateVideoWithFrames({
-      firstFrame,
-      lastFrame,
-      prompt: buildScenePrompt(scene),
-      duration: scene.duration as 4 | 6 | 8,
-      resolution: scene.duration === 8 ? '1080p' : '720p',
-      aspectRatio: '16:9',
-      withAudio: true,
-    });
-    
-    generatedScenes.push({
-      sceneId: scene.id,
-      video: sceneVideo,
-      firstFrame,
-      lastFrame,
-    });
-    
-    previousLastFrame = lastFrame;
-  }
-  
-  return { scenes: generatedScenes, transitions: [] };
-}
-```
-
-### 3.5 配音与音效模块
-
-**功能**: AI语音合成 + 背景音乐生成
-
-> ⚠️ **注意**: Lyria 音乐生成需要通过 **Live API** (WebSocket) 使用，不能直接通过 REST API 调用。
-
-```typescript
-// services/audioGenerator.ts
-interface AudioConfig {
-  dialogue: DialogueLine[];
-  sceneMood: string;
-  duration: number;
-}
-
-async function generateSceneAudio(config: AudioConfig): Promise<AudioAsset> {
-  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  
-  // 对话语音合成 (使用 Gemini TTS 功能)
-  const dialogueAudios: DialogueAudio[] = [];
-  for (const line of config.dialogue) {
-    const ttsResponse = await client.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: line.text,
-      generationConfig: {
-        responseModalities: ['audio'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: getVoiceForCharacter(line.character),
-            },
-          },
-        },
-      },
-    });
-    
-    dialogueAudios.push({
-      characterName: line.character,
-      audioData: ttsResponse.candidates[0].content.parts[0].inlineData.data,
-    });
-  }
-  
-  // 背景音乐生成 (Lyria 需要通过 Live API WebSocket 连接)
-  // 详见: https://ai.google.dev/gemini-api/docs/music-generation
-  const backgroundMusic = await generateMusicWithLyria({
-    prompt: `动漫配乐, ${config.sceneMood}氛围, ${config.duration}秒`,
-    bpm: 120,
-    density: 0.5,
-  });
-  
-  return {
-    backgroundMusic,
-    dialogues: dialogueAudios,
-  };
-}
-
-// Lyria 音乐生成需要通过 Live API
-async function generateMusicWithLyria(config: MusicConfig): Promise<string> {
-  // Lyria 使用 WebSocket 连接，详见 Live API 文档
-  // 这里仅为接口示意，实际实现需要使用 Live API
-  throw new Error('Lyria 需要通过 Live API 实现，详见官方文档');
-}
-```
-
----
-
-## 四、API参考
-
-### 4.1 Google Gemini API 模型列表
-
-| 模型 | 用途 | 特点 |
+| 步骤 | 功能 | 说明 |
 |------|------|------|
-| `gemini-3-pro-preview` | 文本理解/剧本解析 | 100万token上下文，强推理能力 |
-| `gemini-2.5-flash` | 通用任务/TTS | 高速，100万token上下文 |
-| `gemini-2.5-flash-image` | 图片生成 (Nano Banana) | 1024px，速度优化，低延迟 |
-| `gemini-3-pro-image-preview` | 图片生成 (Nano Banana Pro) | 4K 分辨率，专业制作，带思考过程 |
-| `veo-3.1-generate-preview` | 视频生成 | 8秒1080p，支持首尾帧，带音频 |
-| `veo-3.1-fast-preview` | 快速视频生成 | 速度优化，适合批量 |
-| `lyria-realtime-exp` | 音乐生成 | 背景音乐 |
+| 1 | 故事大纲 | 构建故事结构，生成三幕大纲 |
+| 2 | 角色设定 | 创建角色形象，生成立绘和表情 |
+| 3 | 剧本编辑 | 编写场景对话，调整场景顺序 |
+| 4 | 视频生成 | 生成首尾帧和视频，场景串联 |
 
-### 4.2 TypeScript SDK 安装
+---
 
-```bash
-# 推荐的新版SDK (2025年5月GA)
-npm install @google/genai
+## 四、数据模型
 
-# 或使用 pnpm/yarn
-pnpm add @google/genai
-yarn add @google/genai
-```
+### 4.1 核心类型定义
 
-### 4.3 SDK初始化
-
+#### 场景 (Scene)
 ```typescript
-// lib/gemini.ts
-import { GoogleGenAI } from '@google/genai';
-
-// 单例模式
-let client: GoogleGenAI | null = null;
-
-export function getGeminiClient(): GoogleGenAI {
-  if (!client) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error('GEMINI_API_KEY environment variable is required');
-    }
-    client = new GoogleGenAI({ apiKey });
+interface Scene {
+  id: string
+  title?: string
+  description: string
+  setting: {
+    location: string
+    timeOfDay: 'dawn' | 'morning' | 'noon' | 'afternoon' | 'evening' | 'night'
+    mood?: string
+    weather?: string
   }
-  return client;
-}
-
-// 配置类型
-export interface GeminiConfig {
-  apiKey: string;
-  maxRetries?: number;
-  timeout?: number;
+  characters: Array<{
+    name: string
+    appearance?: string
+    action?: string
+    emotion?: Emotion
+  }>
+  dialogues?: Array<{
+    character: string
+    text: string
+    emotion?: Emotion
+    isInnerThought?: boolean
+  }>
+  duration: number // 4-8秒
+  narration?: string
 }
 ```
 
----
-
-## 五、Veo 3.1 首尾帧技术详解
-
-### 5.1 首尾帧功能说明
-
-> ✅ **Veo 3.1 支持首尾帧插值功能**: 通过 `image` 参数设置第一帧，通过 `config.lastFrame` 参数设置最后一帧。
-
-**首尾帧 (First & Last Frame)** 是 Veo 3.1 的核心功能，允许创作者：
-
-1. 设定视频**开头关键帧** - 明确起始状态
-2. 设定视频**结尾关键帧** - 明确目标状态
-3. AI 自动补全中间的**动态过渡和情节衔接**
-
-### 5.2 技术参数
-
-| 参数 | Veo 3.1 | Veo 3 | Veo 2 |
-|------|---------|-------|-------|
-| 首尾帧支持 | ✅ 完整支持 | ✅ 支持 | ✅ 支持 |
-| 视频时长 | 4/6/8秒 | 8秒 | 5-8秒 |
-| 分辨率 | 720p / 1080p(仅8秒) | 720p/1080p(16:9) | 720p |
-| 原生音频 | ✅ 对话+环境音 | ✅ | ❌ |
-| 帧速率 | 24fps | 24fps | 24fps |
-
-### 5.3 最佳实践
-
+#### 角色 (Character)
 ```typescript
-// 首尾帧生成的最佳实践
-const bestPractices = {
-  // 1. 首尾帧应使用相同的角色和场景
-  consistency: '确保首尾帧的角色外观、服装、场景保持一致',
-  
-  // 2. 动作变化要合理
-  motionRange: '8秒视频内，角色位置变化不要过大',
-  
-  // 3. 提示词要详细
-  promptDetail: '描述动作过程，而不仅仅是结果',
-  
-  // 4. 使用 Gemini 2.5 Flash 生成首尾帧
-  frameGeneration: '使用 Nano Banana Pro (gemini-3-pro-image-preview) 生成首尾帧，确保风格统一',
-};
+interface Character {
+  id: string
+  name: string
+  role?: 'protagonist' | 'antagonist' | 'supporting' | 'extra'
+  appearance: string
+  personality?: string
+  traits?: string[]
+  background?: string
+  speakingStyle?: SpeakingStyle
+}
 
-// 可选模型: 'gemini-3-pro-image-preview' (4K) 或 'gemini-2.5-flash-image' (快速)
-const FRAME_MODEL = 'gemini-3-pro-image-preview'; // Nano Banana Pro
-
-// 示例：生成首尾帧
-async function generateFramePair(scene: Scene): Promise<[string, string]> {
-  const client = getGeminiClient();
-  
-  // 生成首帧 (使用 Nano Banana Pro 获得高质量)
-  const firstFrameResponse = await client.models.generateContent({
-    model: FRAME_MODEL,
-    contents: `
-      动漫风格场景:
-      地点: ${scene.setting.location}
-      时间: ${scene.setting.timeOfDay}
-      角色: ${scene.characters.map(c => c.appearance).join(', ')}
-      动作: 场景开始时的姿态
-      氛围: ${scene.setting.mood}
-    `,
-    generationConfig: {
-      responseModalities: ['image', 'text'],
-    },
-  });
-  
-  // 生成尾帧
-  const lastFrameResponse = await client.models.generateContent({
-    model: FRAME_MODEL,
-    contents: `
-      基于相同的场景和角色，展示${scene.duration}秒后的状态:
-      ${scene.description}
-      保持角色外观完全一致，仅改变姿态和表情。
-    `,
-    generationConfig: {
-      responseModalities: ['image', 'text'],
-    },
-  });
-  
-  return [
-    firstFrameResponse.candidates[0].content.parts.find(p => p.inlineData)?.inlineData?.data,
-    lastFrameResponse.candidates[0].content.parts.find(p => p.inlineData)?.inlineData?.data,
-  ];
+interface CharacterAsset {
+  characterId: string
+  name: string
+  baseImage: string // base64
+  expressions: Record<Emotion, string> // 表情变体
+  views?: Record<CharacterView, string> // 视角变体
 }
 ```
 
+#### 分镜脚本 (Storyboard)
+```typescript
+interface StoryboardShot {
+  shotNumber: number
+  shotType: ShotType // 景别: 大远景/全景/中景/近景/特写等
+  cameraMovement: CameraMovement // 运镜: 定镜/推/拉/摇/跟等
+  visualContent: string
+  dialogue?: string
+  character?: string
+  emotion?: Emotion
+  duration: number
+}
+```
+
+#### 视频配置 (VideoGenerationConfig)
+```typescript
+interface VideoGenerationConfig {
+  firstFrame?: string // 首帧 base64
+  lastFrame?: string // 尾帧 base64
+  prompt: string
+  duration: 4 | 5 | 6 | 8 | 10 | 15
+  resolution: '720p' | '1080p'
+  aspectRatio: '16:9' | '9:16' | '1:1'
+  withAudio: boolean
+  provider?: 'gemini' | 'qwen'
+}
+```
+
+### 4.2 数据库表结构
+
+| 表名 | 说明 | 主要字段 |
+|------|------|----------|
+| `projects` | 项目表 | id, name, description, status |
+| `scripts` | 剧本表 | id, projectId, rawText, parsedData |
+| `scenes` | 场景表 | id, scriptId, description, setting, dialogues, firstFrame, lastFrame, videoUrl |
+| `characters` | 角色表 | id, projectId, name, appearance, baseImage, expressions, views |
+| `video_tasks` | 视频任务表 | id, sceneId, status, progress, config, error |
+
 ---
 
-## 六、项目结构 (Nuxt.js 4)
+## 五、API 接口
+
+### 5.1 项目管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/project/create` | 创建项目 |
+| GET | `/api/project/list` | 获取项目列表 |
+| GET | `/api/project/[id]` | 获取项目详情 |
+| PUT | `/api/project/[id]` | 更新项目 |
+| DELETE | `/api/project/[id]` | 删除项目 |
+
+### 5.2 剧本处理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/outline/generate` | 生成故事大纲 |
+| POST | `/api/script/parse` | 解析剧本文本 |
+| POST | `/api/scene/generate-from-outline` | 从大纲生成场景 |
+| POST | `/api/scene/visual` | 提取场景视觉 |
+| POST | `/api/storyboard/generate` | 生成分镜脚本 |
+
+### 5.3 角色管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/character/extract` | 从剧本提取角色 |
+| POST | `/api/character/extract-from-outline` | 从大纲提取角色 |
+| POST | `/api/character/generate` | 生成角色立绘 |
+| POST | `/api/character/expression` | 生成表情变体 |
+| POST | `/api/character/views` | 生成多视角变体 |
+
+### 5.4 视频生成
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/frame/generate` | 生成首尾帧 |
+| POST | `/api/video/generate` | 启动视频生成任务 |
+| GET | `/api/video/status/[id]` | 查询任务状态 |
+| POST | `/api/scene/chain` | 场景串联 |
+
+### 5.5 模型管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/models/list` | 获取可用模型列表 |
+| POST | `/api/models/switch` | 切换模型 |
+| POST | `/api/models/test` | 测试模型连接 |
+
+### 5.6 流水线
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/pipeline/produce` | 基础生产流水线 |
+| POST | `/api/pipeline/full` | 完整生产流水线 |
+
+---
+
+## 六、前端页面
+
+### 6.1 页面路由
+
+| 路径 | 页面 | 说明 |
+|------|------|------|
+| `/` | 首页 | 功能介绍、快速入口 |
+| `/projects` | 项目管理 | 项目列表、创建、删除 |
+| `/workbench` | 创作工作台 | 核心创作界面 (四步工作流) |
+| `/settings` | 模型设置 | 选择和测试 AI 模型 |
+
+### 6.2 核心组件
+
+| 组件 | 说明 |
+|------|------|
+| `ScriptEditor` | 剧本编辑器 |
+| `SceneCard` | 场景卡片 |
+| `CharacterCard` | 角色卡片 |
+| `ExpressionGrid` | 表情网格 |
+| `VideoPreview` | 视频预览 |
+| `FramePair` | 首尾帧展示 |
+| `Timeline` | 场景时间轴 |
+
+### 6.3 Composables
+
+| 函数 | 说明 |
+|------|------|
+| `useProject()` | 项目 CRUD |
+| `useScript()` | 剧本解析 |
+| `useCharacter()` | 角色生成 |
+| `useVideoGen()` | 视频生成 + 状态轮询 |
+| `useWorkbench()` | 工作台集成 |
+
+---
+
+## 七、风格系统
+
+### 7.1 风格分类
+
+系统内置 100+ 种预设风格，分为 10 大类：
+
+| 分类 | 说明 | 示例 |
+|------|------|------|
+| 日系动漫 | 日本动画风格 | 吉卜力、藤本树、赛璐璐 |
+| 国风 | 中国传统风格 | 水墨、东方淡彩、3D国创 |
+| 3D渲染 | 3D 动画风格 | 皮克斯、乐高、粘土 |
+| 插画 | 插画艺术风格 | 水彩、彩铅、厚涂 |
+| 复古 | 复古怀旧风格 | 80年代、胶片、蒸汽波 |
+| Q萌可爱 | 可爱卡通风格 | Q版、马卡龙、治愈系 |
+| 艺术风格 | 艺术流派风格 | 印象派、文艺复兴、浮世绘 |
+| 漫画 | 漫画风格 | 美漫、欧漫、墨线 |
+| 像素游戏 | 像素艺术风格 | 像素、故障艺术、赛博 |
+| 特殊IP | 知名IP风格 | 海贼王、柯南、史努比 |
+
+---
+
+## 八、项目结构
 
 ```
 manju/
-├── app/                          # Nuxt 4 应用目录
+├── app/                          # 前端应用
 │   ├── pages/                    # 页面路由
 │   │   ├── index.vue             # 首页
-│   │   ├── projects/             # 项目管理
-│   │   │   ├── index.vue         # 项目列表
-│   │   │   └── [id].vue          # 项目详情
-│   │   └── generate/             # 生成工作台
-│   │       ├── script.vue        # 剧本编辑
-│   │       ├── characters.vue    # 角色管理
-│   │       └── video.vue         # 视频生成
+│   │   ├── projects.vue          # 项目列表
+│   │   ├── workbench.vue         # 创作工作台
+│   │   └── settings.vue          # 模型设置
 │   ├── components/               # Vue 组件
-│   │   ├── script/
-│   │   │   ├── ScriptEditor.vue  # 剧本编辑器
-│   │   │   └── SceneCard.vue     # 场景卡片
-│   │   ├── character/
-│   │   │   ├── CharacterCard.vue # 角色卡片
-│   │   │   └── ExpressionGrid.vue# 表情网格
-│   │   ├── video/
-│   │   │   ├── VideoPreview.vue  # 视频预览
-│   │   │   ├── FramePair.vue     # 首尾帧展示
-│   │   │   └── Timeline.vue      # 时间轴
-│   │   └── ui/                   # 通用UI组件
+│   │   ├── script/               # 剧本相关
+│   │   ├── character/            # 角色相关
+│   │   ├── video/                # 视频相关
+│   │   └── ui/                   # 通用UI (shadcn)
 │   ├── composables/              # 组合式函数
-│   │   ├── useProject.ts         # 项目管理
-│   │   ├── useScript.ts          # 剧本操作
-│   │   ├── useCharacter.ts       # 角色操作
-│   │   ├── useVideoGen.ts        # 视频生成
-│   │   └── useGemini.ts          # Gemini API调用
 │   ├── layouts/                  # 布局
-│   │   └── default.vue
-│   └── app.vue                   # 根组件
-├── server/                       # Nitro 服务端
+│   └── assets/                   # 静态资源
+├── server/                       # 后端服务
 │   ├── api/                      # API 路由
-│   │   ├── script/
-│   │   │   └── parse.post.ts     # POST /api/script/parse
-│   │   ├── character/
-│   │   │   └── generate.post.ts  # POST /api/character/generate
-│   │   ├── video/
-│   │   │   ├── generate.post.ts  # POST /api/video/generate
-│   │   │   └── status/
-│   │   │       └── [id].get.ts   # GET /api/video/status/:id
-│   │   └── audio/
-│   │       └── generate.post.ts  # POST /api/audio/generate
-│   ├── utils/                    # 服务端工具
-│   │   ├── gemini.ts             # Gemini 客户端
-│   │   ├── veo.ts                # Veo 视频生成
-│   │   ├── nanoBanana.ts         # Nano Banana 图片
-│   │   ├── lyria.ts              # Lyria 音频
-│   │   └── ffmpeg.ts             # FFmpeg 视频处理
-│   └── middleware/               # 服务端中间件
+│   │   ├── project/              # 项目管理
+│   │   ├── script/               # 剧本处理
+│   │   ├── outline/              # 大纲生成
+│   │   ├── character/            # 角色管理
+│   │   ├── storyboard/           # 分镜脚本
+│   │   ├── frame/                # 首尾帧
+│   │   ├── video/                # 视频生成
+│   │   ├── scene/                # 场景处理
+│   │   ├── audio/                # 音频生成
+│   │   ├── models/               # 模型管理
+│   │   └── pipeline/             # 流水线
+│   ├── db/                       # 数据库
+│   │   ├── index.ts              # 数据库连接
+│   │   └── schema.ts             # 表结构定义
+│   └── utils/                    # 工具函数
+│       ├── gemini.ts             # Gemini 客户端
+│       ├── qwen.ts               # 千问客户端
+│       ├── model-provider.ts     # 统一模型调度
+│       ├── ffmpeg.ts             # 视频处理
+│       ├── concurrency.ts        # 并发控制
+│       ├── cache.ts              # 缓存管理
+│       └── logger.ts             # 日志系统
 ├── shared/                       # 前后端共享
 │   └── types/                    # 类型定义
-│       ├── script.ts
-│       ├── character.ts
-│       ├── video.ts
-│       └── audio.ts
-├── public/                       # 静态资源
-├── output/                       # 生成输出
+│       ├── script.ts             # 剧本类型
+│       ├── character.ts          # 角色类型
+│       ├── video.ts              # 视频类型
+│       ├── audio.ts              # 音频类型
+│       ├── outline.ts            # 大纲类型
+│       ├── storyboard.ts         # 分镜类型
+│       ├── scene-visual.ts       # 场景视觉类型
+│       ├── styles.ts             # 风格预设
+│       └── provider.ts           # 模型提供商类型
+├── public/                       # 静态文件
+│   └── videos/                   # 生成的视频
+├── data/                         # SQLite 数据库
 ├── nuxt.config.ts                # Nuxt 配置
-├── package.json
-├── tsconfig.json
-└── .env
+├── drizzle.config.ts             # Drizzle 配置
+├── tailwind.config.js            # Tailwind 配置
+└── package.json
 ```
 
 ---
 
-## 七、依赖清单 (Nuxt.js 4)
+## 九、环境配置
 
-```json
-{
-  "name": "manju-ai-manga",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "nuxt dev",
-    "build": "nuxt build",
-    "generate": "nuxt generate",
-    "preview": "nuxt preview",
-    "postinstall": "nuxt prepare",
-    "lint": "eslint .",
-    "typecheck": "nuxt typecheck"
-  },
-  "dependencies": {
-    "@google/genai": "^1.0.0",
-    "@nuxt/ui": "^3.0.0",
-    "@pinia/nuxt": "^0.9.0",
-    "nuxt": "^4.2.1",
-    "pinia": "^3.0.0",
-    "vue": "^3.5.0",
-    "zod": "^3.23.0",
-    "sharp": "^0.33.0",
-    "fluent-ffmpeg": "^2.1.3"
-  },
-  "devDependencies": {
-    "@nuxt/eslint": "^1.0.0",
-    "@nuxt/test-utils": "^3.15.0",
-    "@types/fluent-ffmpeg": "^2.1.24",
-    "@vue/test-utils": "^2.4.0",
-    "typescript": "^5.6.0",
-    "vitest": "^2.1.0"
-  }
-}
-```
-
----
-
-## 八、环境变量配置
+### 9.1 环境变量
 
 ```bash
-# .env.example
+# .env
 
 # Google Gemini API
-GEMINI_API_KEY=your_api_key_here
+GEMINI_API_KEY=your_gemini_api_key
 
-# 可选：代理配置
-# HTTP_PROXY=http://127.0.0.1:7890
-# HTTPS_PROXY=http://127.0.0.1:7890
+# 阿里千问 API
+QWEN_API_KEY=your_qwen_api_key
+
+# 代理配置 (可选)
+HTTP_PROXY=http://127.0.0.1:7890
+HTTPS_PROXY=http://127.0.0.1:7890
 
 # 输出配置
 OUTPUT_DIR=./output
 TEMP_DIR=./temp
 
-# 视频参数
+# 视频默认参数
 DEFAULT_RESOLUTION=1080p
 DEFAULT_ASPECT_RATIO=16:9
 DEFAULT_DURATION=8
+
+# 并发控制
+MAX_CONCURRENT_REQUESTS=3
+
+# 成本控制
+DAILY_BUDGET_LIMIT=50
 
 # 日志级别
 LOG_LEVEL=info
 ```
 
+### 9.2 开发命令
+
+```bash
+# 安装依赖
+bun install
+
+# 开发模式
+bun run dev
+
+# 构建
+bun run build
+
+# 预览
+bun run preview
+
+# 数据库操作
+bun run db:generate  # 生成迁移
+bun run db:migrate   # 执行迁移
+bun run db:push      # 推送变更
+bun run db:studio    # 启动 Studio
+
+# 代码检查
+bun run lint
+bun run typecheck
+```
+
 ---
 
-## 九、API定价参考 (2025年12月)
+## 十、依赖清单
 
-| 模型 | 输入价格 | 输出价格 | 备注 |
-|------|----------|----------|------|
-| Gemini 3 Pro | $1.25/1M tokens | $10/1M tokens | 文本处理 |
-| Gemini 2.5 Flash | $0.075/1M tokens | $0.30/1M tokens | 通用任务 |
-| Nano Banana Pro | - | $0.02/图片 | 图片生成 |
-| Veo 3.1 | - | ~$0.35/秒 | 8秒≈$2.8 |
-| Veo 3.1 Fast | - | ~$0.10/秒 | 速度优化版 |
+```json
+{
+  "dependencies": {
+    "@google/genai": "^1.32.0",
+    "@pinia/nuxt": "^0.9.0",
+    "@vueuse/core": "^13.5.0",
+    "better-sqlite3": "^12.5.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.0",
+    "fluent-ffmpeg": "^2.1.3",
+    "lucide-vue-next": "^0.511.0",
+    "nuxt": "^4.2.1",
+    "pinia": "^3.0.4",
+    "radix-vue": "^1.9.17",
+    "sharp": "^0.33.5",
+    "tailwind-merge": "^3.1.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@nuxt/eslint": "^1.10.0",
+    "@nuxt/test-utils": "^3.21.0",
+    "@nuxtjs/tailwindcss": "^6.14.0",
+    "drizzle-kit": "^0.31.8",
+    "eslint": "^9.39.1",
+    "shadcn-nuxt": "^2.4.2",
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.9"
+  }
+}
+```
 
-**成本估算** (1分钟漫剧 ≈ 8个8秒片段):
-- 视频生成: 8 × $2.8 = $22.4
-- 图片生成: 约20张 × $0.02 = $0.4
-- 文本处理: 约$0.5
+---
+
+## 十一、成本估算
+
+### 11.1 API 定价参考
+
+| 模型 | 价格 | 备注 |
+|------|------|------|
+| Gemini 2.5 Flash | $0.075/1M tokens (输入) | 文本处理 |
+| Nano Banana Pro | ~$0.02/图片 | 图片生成 |
+| Veo 3.1 | ~$0.35/秒 | 8秒≈$2.8 |
+| 千问万相 (图片) | ¥0.02/张 | 图片生成 |
+| 千问万相 (视频) | ¥0.3/秒 | 视频生成 |
+
+### 11.2 单分钟漫剧成本估算
+
+- 视频生成 (8个8秒片段): ~$22
+- 图片生成 (20张): ~$0.4
+- 文本处理: ~$0.5
 - **总计**: ≈$23/分钟 ≈ ¥165/分钟
 
 ---
 
-## 十、开发路线图
+## 十二、已实现功能
 
-### Phase 1 - MVP (2周)
-- [x] 技术调研与选型
-- [ ] 项目脚手架搭建
-- [ ] Gemini API集成
-- [ ] 基础剧本解析
+### ✅ 已完成
 
-### Phase 2 - 核心功能 (4周)
-- [ ] Nano Banana Pro角色生成
-- [ ] 首尾帧生成模块
-- [ ] Veo 3.1视频生成集成
-- [ ] 场景串联逻辑
+- [x] 项目管理 (CRUD)
+- [x] 故事大纲生成 (三幕结构)
+- [x] 剧本智能解析
+- [x] 角色提取与生成
+- [x] 多表情/多视角变体
+- [x] 分镜脚本生成
+- [x] 场景视觉提取
+- [x] 首尾帧生成
+- [x] 视频生成 (Gemini Veo + 千问万相)
+- [x] 场景串联与转场
+- [x] 模型切换与测试
+- [x] 批量生成支持
+- [x] 成本/时间预估
+- [x] 100+ 风格预设
+- [x] 并发控制
+- [x] 缓存机制
+- [x] 日志系统
 
-### Phase 3 - 完善 (2周)
-- [ ] 音频生成与合成
-- [ ] 视频后处理流水线
-- [ ] 批量处理优化
-- [ ] 错误处理与重试机制
+### 🔄 待优化
 
-### Phase 4 - 优化 (2周)
-- [ ] 成本优化（使用Veo 3.1 Fast）
-- [ ] 质量提升
-- [ ] Agent自动化流程
-- [ ] 监控与日志
-
----
-
-## 十一、参考资源
-
-- [Gemini API 官方文档](https://ai.google.dev/gemini-api/docs)
-- [Veo 视频生成指南](https://ai.google.dev/gemini-api/docs/video)
-- [Nano Banana Pro 图片生成](https://ai.google.dev/gemini-api/docs/imagen)
-- [@google/genai TypeScript SDK](https://github.com/googleapis/js-genai)
-- [Gemini API Cookbook](https://github.com/google-gemini/cookbook)
-
----
-
-## 附录A: 完整生产流水线示例
-
-```typescript
-// pipeline/productionPipeline.ts
-import { getGeminiClient } from '../lib/gemini';
-import { parseScript } from '../services/scriptParser';
-import { generateCharacterAsset } from '../services/characterGenerator';
-import { generateSceneChain } from '../services/sceneChainer';
-import { mergeVideos } from '../utils/videoUtils';
-
-export async function produceEpisode(
-  novelText: string,
-  outputPath: string
-): Promise<void> {
-  const client = getGeminiClient();
-  
-  console.log('📖 Step 1: 解析剧本...');
-  const scenes = await parseScript(novelText);
-  console.log(`   生成 ${scenes.length} 个场景`);
-  
-  console.log('🎨 Step 2: 生成角色资产...');
-  const allCharacters = new Set(scenes.flatMap(s => s.characters));
-  const characterAssets = new Map();
-  for (const character of allCharacters) {
-    const asset = await generateCharacterAsset(character);
-    characterAssets.set(character.name, asset);
-  }
-  console.log(`   生成 ${characterAssets.size} 个角色`);
-  
-  console.log('🎬 Step 3: 生成视频片段...');
-  const sceneChain = await generateSceneChain(scenes, characterAssets);
-  console.log(`   生成 ${sceneChain.scenes.length} 个视频片段`);
-  
-  console.log('🔗 Step 4: 合并视频...');
-  const videos = sceneChain.scenes.map(s => s.video.videoData);
-  await mergeVideos(videos, outputPath);
-  
-  console.log(`✅ 完成! 输出: ${outputPath}`);
-}
-
-// 使用示例
-produceEpisode(
-  `
-  第一章：觉醒
-  林凡从昏迷中醒来，发现自己身处一片陌生的森林。
-  "这是哪里？"他困惑地环顾四周。
-  突然，一道金光从天而降...
-  `,
-  './output/episode_001.mp4'
-);
-```
+- [ ] 角色一致性增强
+- [ ] Lyria 背景音乐生成 (需 Live API)
+- [ ] 断点续传
+- [ ] 协作功能
+- [ ] 移动端支持
 
 ---
 

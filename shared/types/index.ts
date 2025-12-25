@@ -23,3 +23,6 @@ export * from './scene-visual'
 
 // 模型提供商类型
 export * from './provider'
+
+// 业务流程模型配置类型
+export * from './workflow-models'

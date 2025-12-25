@@ -288,10 +288,8 @@ onMounted(() => {
       :pipeline-status="pipelineStatus"
       :saving="saving"
       :can-start="scenes.length > 0"
-      :selected-models="selectedModels"
       @update:project-name="projectName = $event"
       @update:project-description="projectDescription = $event"
-      @update:selected-models="selectedModels = $event"
       @save="saveProject"
       @start-pipeline="startPipeline"
     />
