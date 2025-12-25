@@ -1,4 +1,6 @@
-import { _geminiGenerateImage, ImageModels, GeminiError } from '../../utils/gemini'
+import { generateImage } from '../../utils/model-provider'
+import { GeminiError } from '../../utils/gemini'
+import { QwenError } from '../../utils/qwen'
 import { imageLimiter } from '../../utils/concurrency'
 import { z } from 'zod'
 import type { Emotion } from '../../../shared/types/script'
@@ -32,7 +34,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { characterId, baseImage, emotion, appearance } = parseResult.data
+  const { characterId, baseImage: _baseImage, emotion, appearance } = parseResult.data
 
   try {
     console.log(`[ExpressionGen] 开始生成表情: ${characterId} - ${emotion}`)
@@ -41,32 +43,36 @@ export default defineEventHandler(async (event) => {
     const prompt = buildExpressionPrompt(emotion as Emotion, appearance)
 
     // 3. 调用图片生成 API（带并发控制）
+    // 注意：千问不支持参考图
     const result = await imageLimiter.execute(() =>
-      _geminiGenerateImage({
-        model: ImageModels.HIGH_QUALITY,
+      generateImage({
         prompt,
-        referenceImage: {
-          data: baseImage,
-          mimeType: 'image/png'
-        },
         maxRetries: 2
       })
     )
+
+    // 处理千问返回的 URL 或 Gemini 返回的 base64
+    let expressionImage = result.imageData || ''
+    if (result.imageUrl) {
+      const response = await fetch(result.imageUrl)
+      const buffer = await response.arrayBuffer()
+      expressionImage = Buffer.from(buffer).toString('base64')
+    }
 
     console.log(`[ExpressionGen] 表情生成完成: ${characterId} - ${emotion}, 耗时: ${Date.now() - startTime}ms`)
 
     return {
       success: true,
-      expressionImage: result.imageData,
+      expressionImage,
       emotion,
       latencyMs: Date.now() - startTime
     }
   } catch (error) {
     console.error(`[ExpressionGen] 生成失败:`, error)
 
-    if (error instanceof GeminiError) {
+    if (error instanceof GeminiError || error instanceof QwenError) {
       throw createError({
-        statusCode: error.status || 500,
+        statusCode: (error as GeminiError).status || 500,
         statusMessage: `表情生成失败: ${error.code}`,
         message: error.message
       })

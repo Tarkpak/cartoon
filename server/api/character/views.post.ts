@@ -1,5 +1,7 @@
 import { z } from 'zod'
-import { _geminiGenerateImage, ImageModels, GeminiError } from '../../utils/gemini'
+import { generateImage } from '../../utils/model-provider'
+import { GeminiError } from '../../utils/gemini'
+import { QwenError } from '../../utils/qwen'
 import { imageLimiter, batchExecute } from '../../utils/concurrency'
 import { CharacterViewSchema, type CharacterView } from '../../../shared/types/character'
 
@@ -35,7 +37,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { characterName, baseImage, baseMimeType, style, views } = parseResult.data
+  const { characterName, baseImage: _baseImage, baseMimeType: _baseMimeType, style, views } = parseResult.data
 
   try {
     console.log(`[CharacterViews] 开始生成角色视角变体: ${characterName}`)
@@ -50,17 +52,22 @@ export default defineEventHandler(async (event) => {
       processor: async (view) => {
         const prompt = buildViewPrompt(characterName, style, view)
 
-        const result = await _geminiGenerateImage({
-          model: ImageModels.HIGH_QUALITY,
+        // 使用统一的 generateImage 函数
+        // 注意：千问不支持参考图
+        const result = await generateImage({
           prompt,
-          referenceImage: {
-            data: baseImage,
-            mimeType: baseMimeType
-          },
           maxRetries: 1
         })
 
-        return { view, imageData: result.imageData }
+        // 处理千问返回的 URL 或 Gemini 返回的 base64
+        let imageData = result.imageData || ''
+        if (result.imageUrl) {
+          const response = await fetch(result.imageUrl)
+          const buffer = await response.arrayBuffer()
+          imageData = Buffer.from(buffer).toString('base64')
+        }
+
+        return { view, imageData }
       },
       onProgress: (completed, total, result, error) => {
         if (error) {
@@ -91,9 +98,9 @@ export default defineEventHandler(async (event) => {
   } catch (error) {
     console.error(`[CharacterViews] 生成失败:`, error)
 
-    if (error instanceof GeminiError) {
+    if (error instanceof GeminiError || error instanceof QwenError) {
       throw createError({
-        statusCode: error.status || 500,
+        statusCode: (error as GeminiError).status || 500,
         statusMessage: `角色视角生成失败: ${error.code}`,
         message: error.message
       })

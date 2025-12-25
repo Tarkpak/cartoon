@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
-import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry, _geminiGenerateImage, ImageModels } from '../../utils/gemini'
+import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../../utils/gemini'
+import { generateImage } from '../../utils/model-provider'
 import { db, videoTasks as videoTasksTable } from '../../db'
 import {
   ChainScenesRequestSchema,
@@ -404,9 +405,9 @@ async function generateTransitionVideoAsync(
  * 通过混合两帧的风格来创建更平滑的过渡
  */
 async function generateTransitionFrame(
-  lastFrameData: string,
-  firstFrameData: string,
-  mimeType: string,
+  _lastFrameData: string,
+  _firstFrameData: string,
+  _mimeType: string,
   transitionType: TransitionType
 ): Promise<{ imageData: string, mimeType: string } | null> {
   try {
@@ -426,19 +427,26 @@ async function generateTransitionFrame(
 
 这是两个场景之间的过渡帧，需要在视觉上连接这两个画面。`
 
-    const result = await _geminiGenerateImage({
-      model: ImageModels.HIGH_QUALITY,
+    // 使用统一的 generateImage 函数
+    // 注意：千问不支持参考图
+    const result = await generateImage({
       prompt,
-      referenceImage: {
-        data: lastFrameData,
-        mimeType
-      },
       maxRetries: 1
     })
 
+    // 处理千问返回的 URL 或 Gemini 返回的 base64
+    if (result.imageUrl) {
+      const response = await fetch(result.imageUrl)
+      const buffer = await response.arrayBuffer()
+      return {
+        imageData: Buffer.from(buffer).toString('base64'),
+        mimeType: 'image/png'
+      }
+    }
+
     return {
-      imageData: result.imageData,
-      mimeType: result.mimeType
+      imageData: result.imageData || '',
+      mimeType: result.mimeType || 'image/png'
     }
   } catch (error) {
     // 中间帧生成失败不影响主流程

@@ -67,7 +67,8 @@ export const QwenVisionModels = {
 /** 千问图片生成模型 */
 export const QwenImageModels = {
   QWEN_IMAGE_PLUS: 'qwen-image-plus',
-  WAN_2_6_T2I: 'wan2.6-t2i',
+  WAN_2_6_T2I: 'wanx2.1-t2i-turbo',  // 通义万相文生图
+  WAN_2_6_IMAGE: 'wan2.6-image',      // 通义万相图像编辑 (支持参考图)
   Z_IMAGE_TURBO: 'z-image-turbo'
 } as const
 
@@ -182,19 +183,24 @@ async function withRetry<T>(
   fn: () => Promise<T>,
   retryConfig: Partial<RetryConfig> = {}
 ): Promise<T> {
-  const cfg = { ...DEFAULT_RETRY_CONFIG, ...retryConfig }
-  let lastError: QwenError | null = null
+  // 过滤掉 undefined 值，避免覆盖默认配置
+  const filteredConfig = Object.fromEntries(
+    Object.entries(retryConfig).filter(([, v]) => v !== undefined)
+  )
+  const cfg = { ...DEFAULT_RETRY_CONFIG, ...filteredConfig }
+  let lastError: QwenError = new QwenError('未知错误', QwenErrorCode.UNKNOWN, 500, false)
 
   for (let attempt = 0; attempt <= cfg.maxRetries; attempt++) {
     try {
       return await fn()
     } catch (error) {
       lastError = parseError(error)
+      console.warn(`[Qwen] 请求失败 (attempt ${attempt + 1}/${cfg.maxRetries + 1}):`, lastError.message)
       if (!lastError.retryable || attempt === cfg.maxRetries) {
         throw lastError
       }
       const delay = calculateBackoffDelay(attempt, cfg)
-      console.warn(`[Qwen] 请求失败 (${lastError.code}), ${delay.toFixed(0)}ms 后重试...`)
+      console.warn(`[Qwen] ${delay.toFixed(0)}ms 后重试...`)
       await sleep(delay)
     }
   }
@@ -238,7 +244,13 @@ async function request<T>(
     const response = await fetch(url, fetchOptions)
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
+      const errorData = await response.json().catch(() => ({})) as { message?: string, code?: string, request_id?: string }
+      console.error('[Qwen] API 错误响应:', {
+        status: response.status,
+        errorData,
+        url,
+        body: JSON.stringify(body).slice(0, 500)
+      })
       throw new QwenError(
         errorData.message || `HTTP ${response.status}`,
         QwenErrorCode.UNKNOWN,
@@ -248,6 +260,10 @@ async function request<T>(
     }
 
     return await response.json() as T
+  } catch (error) {
+    if (error instanceof QwenError) throw error
+    console.error('[Qwen] 请求异常:', error instanceof Error ? error.message : String(error))
+    throw error
   } finally {
     if (timeoutId) clearTimeout(timeoutId)
   }
@@ -312,15 +328,6 @@ export async function _qwenGenerateText(options: {
   enableThinking?: boolean
 }): Promise<string> {
   const model = options.model || QwenTextModels.QWEN_FLASH
-
-  console.log('[Qwen] generateText 请求参数:', {
-    model,
-    promptLength: options.prompt.length,
-    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
-    systemInstruction: options.systemInstruction?.slice(0, 100),
-    temperature: options.temperature,
-    enableThinking: options.enableThinking
-  })
 
   return withRetry(async () => {
     const messages: Array<{ role: string, content: string }> = []
@@ -523,6 +530,7 @@ export async function _qwenGenerateImage(options: {
   negativePrompt?: string
   size?: string
   n?: number
+  referenceImages?: string[]  // 参考图 URL 或 base64 (wan2.6-image 支持 1-4 张)
   maxRetries?: number
 }): Promise<{ imageUrl: string, taskId: string }> {
   const model = options.model || QwenImageModels.WAN_2_6_T2I
@@ -530,19 +538,135 @@ export async function _qwenGenerateImage(options: {
   console.log('[Qwen] generateImage 请求参数:', {
     model,
     promptLength: options.prompt.length,
+    promptPreview: options.prompt.slice(0, 200),
     size: options.size || '1024*1024',
-    n: options.n || 1
+    n: options.n || 1,
+    referenceImagesCount: options.referenceImages?.length || 0
   })
 
   return withRetry(async () => {
-    // 1. 提交生成任务
+    // wan2.6-image 使用 messages 格式，支持参考图
+    // 文档: https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference
+    // 注意: wan2.6-image 是图像编辑模型，必须提供参考图
+    // 如需纯文生图，请使用 wanx2.1-t2i-turbo 或其他文生图模型
+    if (model === QwenImageModels.WAN_2_6_IMAGE) {
+      // 检查是否有参考图
+      if (!options.referenceImages || options.referenceImages.length === 0) {
+        throw new QwenError(
+          '通义万相2.6-图像编辑是图像编辑模型，需要至少1张参考图。如需纯文生图，请选择"通义万相2.6-文生图"模型',
+          QwenErrorCode.INVALID_PARAM,
+          400,
+          false
+        )
+      }
+
+      const content: Array<{ text?: string, image?: string }> = [
+        { text: options.prompt }
+      ]
+      
+      // 添加参考图 (1-4 张)
+      for (const img of options.referenceImages.slice(0, 4)) {
+        content.push({ image: img })
+      }
+
+      // wan2.6-image 要求总像素在 [768*768, 1280*1280] 之间
+      const size = options.size || '1280*1280'
+
+      const response = await request<{
+        output: {
+          choices: Array<{
+            message: {
+              content: Array<{ image?: string, text?: string, type?: string }>
+            }
+          }>
+        }
+        request_id: string
+      }>(
+        '/services/aigc/multimodal-generation/generation',
+        {
+          model,
+          input: {
+            messages: [
+              {
+                role: 'user',
+                content
+              }
+            ]
+          },
+          parameters: {
+            prompt_extend: true,
+            negative_prompt: options.negativePrompt || '',
+            size,
+            n: options.n || 1,
+            enable_interleave: false,  // 图像编辑模式
+            watermark: false
+          }
+        }
+      )
+
+      const imageUrl = response.output?.choices?.[0]?.message?.content?.find(c => c.image)?.image
+      if (!imageUrl) {
+        console.error(`[Qwen] ${model} 响应:`, JSON.stringify(response, null, 2))
+        throw new QwenError(`${model} 图片生成失败`, QwenErrorCode.INTERNAL, 500, false)
+      }
+      console.log(`[Qwen] ${model} 图片生成成功: ${imageUrl.slice(0, 100)}...`)
+      return { imageUrl, taskId: '' }
+    }
+    
+    // qwen-image-plus 和 z-image-turbo 都使用同步 multimodal-generation 端点
+    // 文档: https://help.aliyun.com/zh/model-studio/qwen-image-api
+    // 文档: https://help.aliyun.com/zh/model-studio/z-image-turbo
+    if (model === QwenImageModels.QWEN_IMAGE_PLUS || model === QwenImageModels.Z_IMAGE_TURBO) {
+      // 根据模型设置默认尺寸
+      const defaultSize = model === QwenImageModels.QWEN_IMAGE_PLUS ? '1328*1328' : '1024*1024'
+      const size = options.size || defaultSize
+
+      const response = await request<{
+        output: {
+          choices: Array<{
+            message: {
+              content: Array<{ image?: string, text?: string }>
+            }
+          }>
+        }
+        request_id: string
+      }>(
+        '/services/aigc/multimodal-generation/generation',
+        {
+          model,
+          input: {
+            messages: [
+              {
+                role: 'user',
+                content: [{ text: options.prompt }]
+              }
+            ]
+          },
+          parameters: {
+            prompt_extend: model === QwenImageModels.QWEN_IMAGE_PLUS, // qwen-image-plus 默认开启
+            negative_prompt: options.negativePrompt || '',
+            size
+          }
+        }
+      )
+
+      const imageUrl = response.output?.choices?.[0]?.message?.content?.[0]?.image
+      if (!imageUrl) {
+        console.error(`[Qwen] ${model} 响应:`, JSON.stringify(response, null, 2))
+        throw new QwenError(`${model} 图片生成失败`, QwenErrorCode.INTERNAL, 500, false)
+      }
+      console.log(`[Qwen] ${model} 图片生成成功: ${imageUrl.slice(0, 100)}...`)
+      return { imageUrl, taskId: '' }
+    }
+    
+    // wanx 系列模型使用异步任务模式
     const submitResponse = await request<ImageGenerationResponse>(
       '/services/aigc/text2image/image-synthesis',
       {
         model,
         input: {
           prompt: options.prompt,
-          negative_prompt: options.negativePrompt
+          negative_prompt: options.negativePrompt || ''
         },
         parameters: {
           size: options.size || '1024*1024',
@@ -553,6 +677,7 @@ export async function _qwenGenerateImage(options: {
     )
 
     const taskId = submitResponse.output.task_id
+    console.log(`[Qwen] 图片任务已创建: ${taskId}`)
 
     // 2. 轮询任务状态
     const maxWaitTime = 120000 // 2分钟
@@ -563,12 +688,14 @@ export async function _qwenGenerateImage(options: {
       await sleep(pollInterval)
 
       const statusResponse = await getTaskStatus<ImageTaskStatusResponse>(taskId)
+      console.log(`[Qwen] 图片任务状态: ${statusResponse.output.task_status}`)
 
       if (statusResponse.output.task_status === 'SUCCEEDED') {
         const imageUrl = statusResponse.output.results?.[0]?.url
         if (!imageUrl) {
           throw new QwenError('图片生成成功但未返回URL', QwenErrorCode.INTERNAL, 500, false)
         }
+        console.log(`[Qwen] 图片生成成功: ${imageUrl.slice(0, 100)}...`)
         return { imageUrl, taskId }
       }
 

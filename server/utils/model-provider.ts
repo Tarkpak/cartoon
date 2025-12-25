@@ -30,14 +30,16 @@ export const TEXT_MODELS: TextModelConfig[] = [
     model: gemini.TextModels.GENERAL,
     displayName: 'Gemini 3 Flash',
     description: '快速响应，适合通用任务',
-    supportThinking: false
+    supportThinking: false,
+    docUrl: 'https://ai.google.dev/gemini-api/docs'
   },
   {
     provider: 'gemini',
     model: gemini.TextModels.SCRIPT_PARSER,
-    displayName: 'Gemini 3 Flash (剧本解析)',
+    displayName: 'Gemini 3 Pro',
     description: '针对剧本解析优化',
-    supportThinking: false
+    supportThinking: false,
+    docUrl: 'https://ai.google.dev/gemini-api/docs'
   },
   // 千问模型
   {
@@ -45,35 +47,40 @@ export const TEXT_MODELS: TextModelConfig[] = [
     model: qwen.QwenTextModels.QWEN3_MAX,
     displayName: '通义千问3-Max',
     description: '适配复杂场景，达到领域SOTA水平',
-    supportThinking: false
+    supportThinking: false,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference'
   },
   {
     provider: 'qwen',
     model: qwen.QwenTextModels.QWEN_FLASH,
     displayName: '通义千问-Flash',
     description: '小尺寸，低延时，高性价比',
-    supportThinking: false
+    supportThinking: false,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference'
   },
   {
     provider: 'qwen',
     model: qwen.QwenTextModels.QWEN_PLUS_THINKING,
     displayName: '通义千问-Plus (深度思考)',
     description: '百万上下文，混合模式随心切',
-    supportThinking: true
+    supportThinking: true,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference'
   },
   {
     provider: 'qwen',
     model: qwen.QwenTextModels.QWEN_FLASH_THINKING,
     displayName: '通义千问-Flash (深度思考)',
     description: 'Flash最新快照，超高性价比',
-    supportThinking: true
+    supportThinking: true,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference'
   },
   {
     provider: 'qwen',
     model: qwen.QwenTextModels.DEEPSEEK_V3_2,
     displayName: 'DeepSeek-V3.2',
     description: '全新混合推理架构模型',
-    supportThinking: true
+    supportThinking: true,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/deepseek-api'
   }
 ]
 
@@ -85,14 +92,16 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: gemini.ImageModels.HIGH_QUALITY,
     displayName: 'Gemini 3 Pro Image',
     description: '4K高质量图片生成',
-    supportReferenceImage: true
+    supportReferenceImage: true,
+    docUrl: 'https://ai.google.dev/gemini-api/docs/image-generation'
   },
   {
     provider: 'gemini',
     model: gemini.ImageModels.FAST,
     displayName: 'Gemini 2.5 Flash Image',
     description: '快速生成',
-    supportReferenceImage: true
+    supportReferenceImage: true,
+    docUrl: 'https://ai.google.dev/gemini-api/docs/image-generation'
   },
   // 千问模型
   {
@@ -100,21 +109,33 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: qwen.QwenImageModels.QWEN_IMAGE_PLUS,
     displayName: '通义千问-Image-Plus',
     description: '文生图，文本卓越渲染出画',
-    supportReferenceImage: false
+    supportReferenceImage: false,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
+  },
+  {
+    provider: 'qwen',
+    model: qwen.QwenImageModels.WAN_2_6_IMAGE,
+    displayName: '通义万相2.6-图像编辑',
+    description: '图像编辑/风格迁移，需1-4张参考图',
+    supportReferenceImage: true,
+    requireReferenceImage: true,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference'
   },
   {
     provider: 'qwen',
     model: qwen.QwenImageModels.WAN_2_6_T2I,
     displayName: '通义万相2.6-文生图',
     description: '精准指令遵循，真实质感显著提升',
-    supportReferenceImage: false
+    supportReferenceImage: false,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/text-to-image-v2-api-reference'
   },
   {
     provider: 'qwen',
     model: qwen.QwenImageModels.Z_IMAGE_TURBO,
     displayName: 'Z-Image-Turbo',
     description: '高性价比，照片级品质',
-    supportReferenceImage: false
+    supportReferenceImage: false,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/z-image-api-reference'
   }
 ]
 
@@ -129,7 +150,8 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     maxDuration: 8,
     supportFirstLastFrame: true,
     supportImageToVideo: true,
-    supportTextToVideo: true
+    supportTextToVideo: true,
+    docUrl: 'https://ai.google.dev/gemini-api/docs/video'
   },
   {
     provider: 'gemini',
@@ -139,7 +161,8 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     maxDuration: 8,
     supportFirstLastFrame: true,
     supportImageToVideo: true,
-    supportTextToVideo: true
+    supportTextToVideo: true,
+    docUrl: 'https://ai.google.dev/gemini-api/docs/video'
   },
   // 千问模型 (通义万相)
   {
@@ -150,7 +173,8 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     maxDuration: 15,
     supportFirstLastFrame: false,
     supportImageToVideo: false,
-    supportTextToVideo: true
+    supportTextToVideo: true,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/text-to-video-api-reference'
   },
   {
     provider: 'qwen',
@@ -160,7 +184,8 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     maxDuration: 15,
     supportFirstLastFrame: false,
     supportImageToVideo: true,
-    supportTextToVideo: false
+    supportTextToVideo: false,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/image-to-video-api-reference'
   }
 ]
 
@@ -172,7 +197,8 @@ export const VOICE_MODELS: VoiceModelConfig[] = [
     model: gemini.AudioModels.LYRIA,
     displayName: 'Lyria',
     description: '背景音乐生成',
-    type: 'tts'
+    type: 'tts',
+    docUrl: 'https://ai.google.dev/gemini-api/docs/audio'
   },
   // 千问模型
   {
@@ -181,7 +207,8 @@ export const VOICE_MODELS: VoiceModelConfig[] = [
     displayName: '通义千问3-TTS-Flash',
     description: '高表现力多语言拟人音色',
     type: 'tts',
-    supportedLanguages: ['zh', 'en', 'ja', 'ko']
+    supportedLanguages: ['zh', 'en', 'ja', 'ko'],
+    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-tts-api'
   },
   {
     provider: 'qwen',
@@ -189,7 +216,8 @@ export const VOICE_MODELS: VoiceModelConfig[] = [
     displayName: '通义千问3-ASR-Flash',
     description: '精准多语言转写与情绪识别',
     type: 'asr',
-    supportedLanguages: ['zh', 'en', 'ja', 'ko']
+    supportedLanguages: ['zh', 'en', 'ja', 'ko'],
+    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference'
   },
   {
     provider: 'qwen',
@@ -197,7 +225,8 @@ export const VOICE_MODELS: VoiceModelConfig[] = [
     displayName: '百聆-FUN-ASR-Mtl',
     description: '高准确率方言及多语言语音识别',
     type: 'asr',
-    supportedLanguages: ['zh', 'en', 'ja', 'ko', 'yue', 'wuu']
+    supportedLanguages: ['zh', 'en', 'ja', 'ko', 'yue', 'wuu'],
+    docUrl: 'https://help.aliyun.com/zh/model-studio/fun-asr-recorded-speech-recognition-api-reference'
   }
 ]
 
@@ -332,6 +361,7 @@ export async function generateImage(options: {
   modelId?: string
   prompt: string
   referenceImage?: { data: string, mimeType: string }
+  referenceImages?: string[]  // base64 图片数组 (用于 wan2.6-image 等支持多参考图的模型)
   negativePrompt?: string
   size?: string
   maxRetries?: number
@@ -339,7 +369,7 @@ export async function generateImage(options: {
   const modelId = options.modelId || currentModels.image
   const provider = getProviderFromModel(modelId)
 
-  console.log(`[ModelProvider] generateImage - provider: ${provider}, model: ${modelId}`)
+  console.log(`[ModelProvider] generateImage - provider: ${provider}, model: ${modelId}, refImages: ${options.referenceImages?.length || 0}`)
 
   if (provider === 'qwen') {
     const result = await qwen._qwenGenerateImage({
@@ -347,6 +377,7 @@ export async function generateImage(options: {
       prompt: options.prompt,
       negativePrompt: options.negativePrompt,
       size: options.size,
+      referenceImages: options.referenceImages,
       maxRetries: options.maxRetries
     })
     return { imageUrl: result.imageUrl }

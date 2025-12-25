@@ -80,10 +80,10 @@ export function getGeminiClient(): GoogleGenAI {
  * 文本生成模型配置
  */
 export const TextModels = {
-  /** 剧本解析 - 使用 gemini-2.5-flash (gemini-3-pro-preview 无免费层级) */
-  SCRIPT_PARSER: 'gemini-3-flash-preview',
+  /** 剧本解析 */
+  SCRIPT_PARSER: 'gemini-3-pro-preview',
   /** 通用任务 */
-  GENERAL: 'gemini-3-flash-preview'
+  GENERAL: 'gemini-2.5-flash'
 } as const
 
 /**
@@ -213,13 +213,25 @@ export async function _geminiWithRetry<T>(
   fn: () => Promise<T>,
   config: Partial<RetryConfig> = {}
 ): Promise<T> {
-  const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...config }
+  // 过滤掉 undefined 值，避免覆盖默认配置
+  const filteredConfig = Object.fromEntries(
+    Object.entries(config).filter(([_, v]) => v !== undefined)
+  ) as Partial<RetryConfig>
+  
+  const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...filteredConfig }
   let lastError: GeminiError | null = null
+
+  console.log(`[Gemini] _geminiWithRetry 开始, maxRetries: ${retryConfig.maxRetries}`)
 
   for (let attempt = 0; attempt <= retryConfig.maxRetries; attempt++) {
     try {
-      return await fn()
+      console.log(`[Gemini] _geminiWithRetry 尝试 ${attempt + 1}/${retryConfig.maxRetries + 1}`)
+      const result = await fn()
+      console.log('[Gemini] _geminiWithRetry 成功返回')
+      return result
     } catch (error) {
+      console.error('[Gemini] _geminiWithRetry 捕获错误:', error)
+      console.error('[Gemini] 错误类型:', typeof error, '错误值:', String(error))
       lastError = parseError(error)
 
       // 如果不可重试或已达到最大重试次数，抛出错误
@@ -329,7 +341,17 @@ export async function _geminiGenerateImage(options: {
   referenceImage?: { data: string, mimeType: string }
   maxRetries?: number
 }): Promise<{ imageData: string, mimeType: string, text?: string }> {
-  const client = getGeminiClient()
+  console.log('[Gemini] _geminiGenerateImage 开始执行')
+  
+  let client
+  try {
+    client = getGeminiClient()
+    console.log('[Gemini] 客户端获取成功')
+  } catch (clientError) {
+    console.error('[Gemini] 获取客户端失败:', clientError)
+    throw clientError
+  }
+  
   const model = options.model || ImageModels.HIGH_QUALITY
 
   console.log('[Gemini] generateImage 请求参数:', {
@@ -342,6 +364,8 @@ export async function _geminiGenerateImage(options: {
   })
 
   return _geminiWithRetry(async () => {
+    console.log('[Gemini] _geminiWithRetry 回调函数开始执行')
+    
     // 构建请求内容
     const parts: Array<{ text: string } | { inlineData: { data: string, mimeType: string } }> = [
       { text: options.prompt }
@@ -357,13 +381,36 @@ export async function _geminiGenerateImage(options: {
       })
     }
 
-    const response = await client.models.generateContent({
-      model,
-      contents: [{ role: 'user', parts }],
-      config: {
-        responseModalities: ['image', 'text']
-      }
-    })
+    let response
+    try {
+      // gemini-3-pro-image-preview 需要 responseModalities 配置
+      const config = model.includes('3-pro') ? { responseModalities: ['image', 'text'] } : undefined
+      
+      console.log('[Gemini] 准备调用 API, model:', model, 'config:', JSON.stringify(config))
+      
+      response = await client.models.generateContent({
+        model,
+        contents: [{ role: 'user', parts }],
+        config
+      })
+      
+      console.log('[Gemini] API 调用成功, response:', !!response)
+    } catch (apiError) {
+      console.error('[Gemini] API 调用失败:', apiError instanceof Error ? apiError.message : String(apiError))
+      console.error('[Gemini] 错误类型:', typeof apiError)
+      console.error('[Gemini] 错误详情:', JSON.stringify(apiError, null, 2))
+      throw apiError
+    }
+
+    console.log('[Gemini] generateImage 响应:', JSON.stringify({
+      hasResponse: !!response,
+      hasCandidates: !!response.candidates,
+      candidatesLength: response.candidates?.length,
+      firstCandidate: response.candidates?.[0] ? {
+        hasContent: !!response.candidates[0].content,
+        partsLength: response.candidates[0].content?.parts?.length
+      } : null
+    }))
 
     // 提取图片数据
     const responseParts = response.candidates?.[0]?.content?.parts || []

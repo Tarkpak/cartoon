@@ -1,4 +1,6 @@
-import { _geminiGenerateImage, ImageModels, GeminiError } from '../../utils/gemini'
+import { generateImage } from '../../utils/model-provider'
+import { GeminiError } from '../../utils/gemini'
+import { QwenError } from '../../utils/qwen'
 import { imageLimiter, batchExecute } from '../../utils/concurrency'
 import {
   GenerateCharacterRequestSchema,
@@ -69,9 +71,9 @@ export default defineEventHandler(async (event) => {
   } catch (error) {
     console.error(`[CharacterGen] 生成失败:`, error)
 
-    if (error instanceof GeminiError) {
+    if (error instanceof GeminiError || error instanceof QwenError) {
       throw createError({
-        statusCode: error.status || 500,
+        statusCode: (error as GeminiError).status || 500,
         statusMessage: `角色生成失败: ${error.code}`,
         message: error.message
       })
@@ -89,29 +91,40 @@ async function generateBaseImage(
 ): Promise<{ imageData: string, mimeType: string }> {
   const prompt = buildBaseImagePrompt(character, style)
 
-  // 使用并发限制器控制请求
+  // 使用并发限制器控制请求，使用统一的 generateImage 函数
   const result = await imageLimiter.execute(() =>
-    _geminiGenerateImage({
-      model: ImageModels.HIGH_QUALITY,
+    generateImage({
       prompt,
       maxRetries: 2
     })
   )
 
+  // 处理千问返回的 URL 或 Gemini 返回的 base64
+  if (result.imageUrl) {
+    // 千问返回 URL，需要下载转换为 base64
+    const response = await fetch(result.imageUrl)
+    const buffer = await response.arrayBuffer()
+    return {
+      imageData: Buffer.from(buffer).toString('base64'),
+      mimeType: 'image/png'
+    }
+  }
+
   return {
-    imageData: result.imageData,
-    mimeType: result.mimeType
+    imageData: result.imageData || '',
+    mimeType: result.mimeType || 'image/png'
   }
 }
 
 /**
  * 生成表情变体（使用批量并发控制）
+ * 注意：千问图片模型不支持参考图，表情变体功能仅在使用 Gemini 时可用
  */
 async function generateExpressionVariants(
   character: Character,
   style: string,
-  referenceImage: string,
-  referenceMimeType: string
+  _referenceImage: string,
+  _referenceMimeType: string
 ): Promise<Partial<Record<Emotion, string>>> {
   const emotions: Emotion[] = ['happy', 'sad', 'angry', 'surprised', 'neutral']
   const results: Partial<Record<Emotion, string>> = {}
@@ -124,17 +137,22 @@ async function generateExpressionVariants(
     processor: async (emotion) => {
       const prompt = buildExpressionPrompt(character, style, emotion)
 
-      const result = await _geminiGenerateImage({
-        model: ImageModels.HIGH_QUALITY,
+      // 使用统一的 generateImage 函数
+      // 注意：千问不支持参考图，所以这里不传 referenceImage
+      const result = await generateImage({
         prompt,
-        referenceImage: {
-          data: referenceImage,
-          mimeType: referenceMimeType
-        },
         maxRetries: 1
       })
 
-      return { emotion, imageData: result.imageData }
+      // 处理千问返回的 URL 或 Gemini 返回的 base64
+      let imageData = result.imageData || ''
+      if (result.imageUrl) {
+        const response = await fetch(result.imageUrl)
+        const buffer = await response.arrayBuffer()
+        imageData = Buffer.from(buffer).toString('base64')
+      }
+
+      return { emotion, imageData }
     },
     onProgress: (completed, total, result, error) => {
       if (error) {

@@ -1,5 +1,7 @@
 import { z } from 'zod'
-import { _geminiGenerateImage, ImageModels, GeminiError } from '../../utils/gemini'
+import { generateImage } from '../../utils/model-provider'
+import { GeminiError } from '../../utils/gemini'
+import { QwenError } from '../../utils/qwen'
 import { imageLimiter } from '../../utils/concurrency'
 
 // 定义本地的场景Schema，使 setting 可选
@@ -105,9 +107,9 @@ export default defineEventHandler(async (event) => {
   } catch (error) {
     console.error(`[FrameGen] 生成失败:`, error)
 
-    if (error instanceof GeminiError) {
+    if (error instanceof GeminiError || error instanceof QwenError) {
       throw createError({
-        statusCode: error.status || 500,
+        statusCode: (error as GeminiError).status || 500,
         statusMessage: `首尾帧生成失败: ${error.code}`,
         message: error.message
       })
@@ -173,19 +175,28 @@ async function generateFirstFrame(
     console.log('[FrameGen] 使用纯文本生成模式')
   }
 
-  // 使用并发限制器控制请求
+  // 使用并发限制器控制请求，使用统一的 generateImage 函数
+  // 注意：千问不支持参考图，所以这里不传 referenceImage
   const result = await imageLimiter.execute(() =>
-    _geminiGenerateImage({
-      model: ImageModels.HIGH_QUALITY,
+    generateImage({
       prompt,
-      referenceImage,
       maxRetries: 2
     })
   )
 
+  // 处理千问返回的 URL 或 Gemini 返回的 base64
+  if (result.imageUrl) {
+    const response = await fetch(result.imageUrl)
+    const buffer = await response.arrayBuffer()
+    return {
+      imageData: Buffer.from(buffer).toString('base64'),
+      mimeType: 'image/png'
+    }
+  }
+
   return {
-    imageData: result.imageData,
-    mimeType: result.mimeType
+    imageData: result.imageData || '',
+    mimeType: result.mimeType || 'image/png'
   }
 }
 
@@ -223,27 +234,33 @@ ${mainCharacter.emotion ? `- 表情: ${getEmotionChinese(mainCharacter.emotion)}
 async function generateLastFrame(
   scene: z.infer<typeof LocalSceneSchema>,
   style: string,
-  firstFrameData: string,
-  firstFrameMimeType: string
+  _firstFrameData: string,
+  _firstFrameMimeType: string
 ): Promise<{ imageData: string, mimeType: string }> {
   const prompt = buildLastFramePrompt(scene, style)
 
-  // 使用并发限制器控制请求
+  // 使用并发限制器控制请求，使用统一的 generateImage 函数
+  // 注意：千问不支持参考图
   const result = await imageLimiter.execute(() =>
-    _geminiGenerateImage({
-      model: ImageModels.HIGH_QUALITY,
+    generateImage({
       prompt,
-      referenceImage: {
-        data: firstFrameData,
-        mimeType: firstFrameMimeType
-      },
       maxRetries: 2
     })
   )
 
+  // 处理千问返回的 URL 或 Gemini 返回的 base64
+  if (result.imageUrl) {
+    const response = await fetch(result.imageUrl)
+    const buffer = await response.arrayBuffer()
+    return {
+      imageData: Buffer.from(buffer).toString('base64'),
+      mimeType: 'image/png'
+    }
+  }
+
   return {
-    imageData: result.imageData,
-    mimeType: result.mimeType
+    imageData: result.imageData || '',
+    mimeType: result.mimeType || 'image/png'
   }
 }
 

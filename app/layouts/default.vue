@@ -6,7 +6,8 @@ const route = useRoute()
 
 const navigation = [
   { name: '首页概览', path: '/', icon: Home },
-  { name: '项目管理', path: '/projects', icon: Folder }
+  { name: '项目管理', path: '/projects', icon: Folder },
+  { name: '模型设置', path: '/settings', icon: Settings }
 ]
 
 // 路由匹配

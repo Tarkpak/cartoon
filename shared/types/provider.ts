@@ -20,7 +20,8 @@ export const TextModelConfigSchema = z.object({
   displayName: z.string(),
   description: z.string().optional(),
   maxTokens: z.number().optional(),
-  supportThinking: z.boolean().default(false).describe('是否支持深度思考模式')
+  supportThinking: z.boolean().default(false).describe('是否支持深度思考模式'),
+  docUrl: z.string().optional().describe('API文档链接')
 })
 export type TextModelConfig = z.infer<typeof TextModelConfigSchema>
 
@@ -33,7 +34,9 @@ export const ImageModelConfigSchema = z.object({
   displayName: z.string(),
   description: z.string().optional(),
   supportedSizes: z.array(z.string()).optional(),
-  supportReferenceImage: z.boolean().default(false).describe('是否支持参考图')
+  supportReferenceImage: z.boolean().default(false).describe('是否支持参考图'),
+  requireReferenceImage: z.boolean().default(false).describe('是否必须需要参考图'),
+  docUrl: z.string().optional().describe('API文档链接')
 })
 export type ImageModelConfig = z.infer<typeof ImageModelConfigSchema>
 
@@ -48,7 +51,8 @@ export const VideoModelConfigSchema = z.object({
   maxDuration: z.number().optional().describe('最大时长(秒)'),
   supportFirstLastFrame: z.boolean().default(false).describe('是否支持首尾帧'),
   supportImageToVideo: z.boolean().default(false).describe('是否支持图生视频'),
-  supportTextToVideo: z.boolean().default(true).describe('是否支持文生视频')
+  supportTextToVideo: z.boolean().default(true).describe('是否支持文生视频'),
+  docUrl: z.string().optional().describe('API文档链接')
 })
 export type VideoModelConfig = z.infer<typeof VideoModelConfigSchema>
 
@@ -65,7 +69,8 @@ export const VoiceModelConfigSchema = z.object({
   displayName: z.string(),
   description: z.string().optional(),
   type: VoiceModelTypeSchema,
-  supportedLanguages: z.array(z.string()).optional()
+  supportedLanguages: z.array(z.string()).optional(),
+  docUrl: z.string().optional().describe('API文档链接')
 })
 export type VoiceModelConfig = z.infer<typeof VoiceModelConfigSchema>
 
