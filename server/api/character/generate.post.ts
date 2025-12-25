@@ -219,22 +219,78 @@ function buildBaseImagePrompt(character: Character, style: string): string {
     ? `${character.age}岁`
     : inferAgeRange(character.appearance)
 
+  // 提取关键视觉特征
+  const visualFeatures = extractVisualFeatures(character.appearance)
+
   return `创作一幅高质量的${style}风格角色立绘。
 
-角色信息:
+## 角色基本信息
 - 名称: ${character.name}
 - 性别: ${genderText}
 - 年龄: ${ageText}
-- 外观特征: ${character.appearance}
-${character.personality ? `- 性格气质: ${character.personality}` : ''}
+- 角色类型: ${character.role === 'protagonist' ? '主角' : character.role === 'antagonist' ? '反派' : '配角'}
 
-要求:
-1. 全身立绘，白色/透明背景
-2. 角色面向镜头，表情自然中性
-3. 高清 4K 质量，细节丰富
-4. ${style}画风，色彩鲜明
-5. 适合作为动漫/漫画角色
-6. 姿态自然，双手可见`
+## 外观特征（必须严格遵循）
+${character.appearance}
+
+## 关键视觉特征（必须体现）
+${visualFeatures}
+
+${character.personality ? `## 性格气质\n${character.personality}\n（通过表情、姿态、眼神体现性格）` : ''}
+
+## 画风要求
+- 风格: ${style}
+- 画质: 高清 4K，细节丰富，线条清晰
+- 色彩: 鲜明饱和，符合${style}风格
+
+## 构图要求
+1. 全身立绘，从头到脚完整呈现
+2. 角色居中，占画面 70-80%
+3. 纯白色背景，无任何装饰
+4. 角色正面朝向镜头，略微侧身（约 15 度）增加立体感
+5. 表情自然中性，眼神看向镜头
+6. 姿态自然放松，双手可见
+7. 光源从左上方 45 度照射，产生柔和阴影
+
+## 禁止事项
+- 不要添加任何背景元素
+- 不要裁切角色任何部分
+- 不要添加文字或水印
+- 不要生成多个角色
+- 不要改变指定的外观特征`
+}
+
+/**
+ * 提取关键视觉特征
+ */
+function extractVisualFeatures(appearance: string): string {
+  const features: string[] = []
+
+  // 发型发色
+  const hairMatch = appearance.match(/([黑白金银红蓝绿紫粉棕灰青橙]色?)?[的]?(长发|短发|中长发|马尾|双马尾|丸子头|披肩发|卷发|直发|波浪|刘海|齐刘海|斜刘海|碎发|寸头|平头|背头|辫子|麻花辫)/g)
+  if (hairMatch) features.push(`发型: ${hairMatch.join('、')}`)
+
+  // 眼睛
+  const eyeMatch = appearance.match(/([黑蓝绿红金紫棕琥珀]色?)?[的]?(眼睛|眼眸|瞳孔|双眼)/g)
+  if (eyeMatch) features.push(`眼睛: ${eyeMatch.join('、')}`)
+
+  // 服装
+  const clothMatch = appearance.match(/(校服|制服|西装|和服|汉服|连衣裙|衬衫|T恤|外套|大衣|风衣|夹克|卫衣|毛衣|裙子|短裙|长裙|裤子|牛仔裤|运动服|战斗服|铠甲|盔甲|斗篷|披风)/g)
+  if (clothMatch) features.push(`服装: ${clothMatch.join('、')}`)
+
+  // 配饰
+  const accessoryMatch = appearance.match(/(眼镜|耳环|项链|手表|手链|戒指|发带|发卡|帽子|围巾|领带|领结|蝴蝶结)/g)
+  if (accessoryMatch) features.push(`配饰: ${accessoryMatch.join('、')}`)
+
+  // 体型
+  const bodyMatch = appearance.match(/(高挑|矮小|纤细|健壮|丰满|苗条|娇小|魁梧|修长)/g)
+  if (bodyMatch) features.push(`体型: ${bodyMatch.join('、')}`)
+
+  if (features.length === 0) {
+    return '- 请根据角色描述自行设计合理的视觉特征'
+  }
+
+  return features.map(f => `- ${f}`).join('\n')
 }
 
 /**

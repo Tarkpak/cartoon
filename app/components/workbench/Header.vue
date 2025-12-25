@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Loader2, Play } from 'lucide-vue-next'
+import { Loader2, Play, Palette } from 'lucide-vue-next'
 import type { PipelineStatus } from '~/composables/useWorkbench'
+import { getStyleById, type StylePreset } from '#shared/types/styles'
 
 const props = defineProps<{
   projectId?: string
@@ -13,11 +14,13 @@ const props = defineProps<{
   pipelineStatus: PipelineStatus
   saving: boolean
   canStart: boolean
+  selectedStyleId?: string
 }>()
 
 const emit = defineEmits<{
   'update:projectName': [value: string]
   'update:projectDescription': [value: string]
+  'update:selectedStyleId': [value: string]
   'save': []
   'startPipeline': []
 }>()
@@ -31,6 +34,17 @@ const localDescription = computed({
   get: () => props.projectDescription,
   set: v => emit('update:projectDescription', v)
 })
+
+// 风格选择
+const styleDialogOpen = ref(false)
+const selectedStyle = computed(() =>
+  props.selectedStyleId ? getStyleById(props.selectedStyleId) : null
+)
+
+function handleStyleSelect(style: StylePreset) {
+  emit('update:selectedStyleId', style.id)
+  styleDialogOpen.value = false
+}
 </script>
 
 <template>
@@ -52,6 +66,20 @@ const localDescription = computed({
     </div>
 
     <div class="flex items-center space-x-4">
+      <!-- 视觉风格选择 -->
+      <div
+        class="flex items-center space-x-2 px-3 py-2 rounded-lg border cursor-pointer hover:bg-accent transition"
+        @click="styleDialogOpen = true"
+      >
+        <Palette class="w-4 h-4 text-muted-foreground" />
+        <div v-if="selectedStyle" class="text-sm">
+          <span class="font-medium">{{ selectedStyle.name }}</span>
+        </div>
+        <div v-else class="text-sm text-muted-foreground">
+          选择风格
+        </div>
+      </div>
+
       <!-- 成本预估 -->
       <div v-if="sceneCount > 0" class="text-right text-sm space-y-1">
         <div class="flex items-center space-x-2 text-muted-foreground">
@@ -84,5 +112,26 @@ const localDescription = computed({
         {{ pipelineStatus.running ? '生成中...' : '开始生成' }}
       </Button>
     </div>
+
+    <!-- 风格选择对话框 -->
+    <Dialog v-model:open="styleDialogOpen">
+      <DialogContent class="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle class="flex items-center gap-2">
+            <Palette class="w-5 h-5" />
+            选择视觉风格
+          </DialogTitle>
+          <DialogDescription>
+            选择一种风格预设，将应用于角色立绘和视频生成
+          </DialogDescription>
+        </DialogHeader>
+        <div class="flex-1 overflow-y-auto py-4">
+          <StyleSelector
+            :model-value="selectedStyleId || ''"
+            @select="handleStyleSelect"
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

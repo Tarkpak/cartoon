@@ -3,7 +3,6 @@ import { Loader2, Sparkles, Plus, Pencil, Trash2, Merge, Split, Film, Eye, BookO
 import type { SceneData } from '~/composables/useWorkbench'
 
 const props = defineProps<{
-  scriptText: string
   scenes: SceneData[]
   parsing: boolean
   hasOutline?: boolean
@@ -11,8 +10,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'update:scriptText': [value: string]
-  'parseScript': []
   'generateFromOutline': []
   'selectScene': [scene: SceneData]
   'addScene': []
@@ -26,11 +23,6 @@ const emit = defineEmits<{
   'viewStoryboard': [scene: SceneData]
   'viewSceneVisual': [scene: SceneData]
 }>()
-
-const localScriptText = computed({
-  get: () => props.scriptText,
-  set: v => emit('update:scriptText', v)
-})
 
 // 景别标签映射
 const shotTypeLabels: Record<string, string> = {
@@ -123,7 +115,7 @@ function handleDragEnd() {
     <div>
       <div class="flex items-center justify-between mb-4">
         <h3 class="font-semibold">
-          原文输入
+          场景生成
         </h3>
         <div class="flex items-center space-x-2">
           <!-- 从大纲生成场景按钮 -->
@@ -142,24 +134,7 @@ function handleDragEnd() {
               v-else
               class="w-4 h-4 mr-2"
             />
-            {{ parsing ? '生成中...' : '从大纲生成' }}
-          </Button>
-          <!-- 从文本解析按钮 -->
-          <Button
-            variant="outline"
-            size="sm"
-            :disabled="parsing || !scriptText.trim()"
-            @click="$emit('parseScript')"
-          >
-            <Loader2
-              v-if="parsing"
-              class="w-4 h-4 mr-2 animate-spin"
-            />
-            <Sparkles
-              v-else
-              class="w-4 h-4 mr-2"
-            />
-            {{ parsing ? '解析中...' : 'AI解析文本' }}
+            {{ parsing ? '生成中...' : '从大纲生成场景' }}
           </Button>
         </div>
       </div>
@@ -168,15 +143,36 @@ function handleDragEnd() {
         v-if="hasOutline && hasCharacters && scenes.length === 0"
         class="mb-4 p-3 bg-accent rounded-lg text-sm"
       >
-        💡 推荐：点击"从大纲生成"按钮，AI 将根据故事大纲和角色设定自动生成场景
+        💡 推荐：点击"从大纲生成场景"按钮，AI 将根据故事大纲和角色设定自动生成详细场景
       </div>
-      <Textarea
-        v-model="localScriptText"
-        class="min-h-[300px]"
-        placeholder="粘贴或输入小说文本...
+      <div
+        v-else-if="scenes.length > 0"
+        class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700"
+      >
+        ✅ 已有 {{ scenes.length }} 个场景，可以在右侧编辑场景内容，或生成分镜脚本
+      </div>
+      <div
+        v-else
+        class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700"
+      >
+        ⚠️ 请先在第一步生成大纲或解析剧本，然后在第二步提取角色
+      </div>
 
-或者点击上方「从大纲生成」按钮，AI 将根据故事大纲自动生成场景剧本。"
-      />
+      <!-- 场景操作提示 -->
+      <Card class="bg-accent/50">
+        <CardContent class="pt-4">
+          <h4 class="font-medium text-sm mb-2">
+            💡 场景编辑提示
+          </h4>
+          <ul class="text-xs text-muted-foreground space-y-1">
+            <li>• 拖拽场景卡片可以调整顺序</li>
+            <li>• 点击编辑按钮可以修改场景内容和对话</li>
+            <li>• 生成分镜脚本可以获得专业的镜头语言设计</li>
+            <li>• 提取场景视觉可以生成用于图片生成的提示词</li>
+            <li>• 场景描述越详细，生成的图片和视频效果越好</li>
+          </ul>
+        </CardContent>
+      </Card>
     </div>
 
     <!-- 右侧: 解析结果 -->

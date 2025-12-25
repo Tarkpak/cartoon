@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Users, Loader2, Sparkles, Pencil, Scan, RotateCcw, Link2, ArrowRight } from 'lucide-vue-next'
+import { Users, Loader2, Sparkles, Pencil, Scan, RotateCcw, Link2, ArrowRight, ImagePlus } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useWorkbench'
 import type { CharacterRelationship } from '#shared/types/outline'
 
@@ -7,21 +7,29 @@ const props = defineProps<{
   characters: CharacterData[]
   relationships: CharacterRelationship[]
   extracting?: boolean
+  batchGenerating?: boolean
+  batchProgress?: { current: number, total: number, name: string }
   hasOutline?: boolean
+  hasScenes?: boolean
 }>()
 
 const emit = defineEmits<{
   generateCharacter: [char: CharacterData]
   editCharacter: [char: CharacterData]
   previewImage: [src: string, alt: string]
-  extractCharacters: []
-  extractFromOutline: []
+  extractFromScenes: []
+  batchGenerateCharacters: []
   generateViews: [char: CharacterData]
   updateRelationship: [rel: CharacterRelationship]
   addRelationship: []
   removeRelationship: [index: number]
   proceedToScript: []
 }>()
+
+// 计算未生成立绘的角色数量
+const charsWithoutImage = computed(() =>
+  props.characters.filter(c => !c.baseImage).length
+)
 
 // 关系类型选项
 const relationshipTypes = [
@@ -71,39 +79,71 @@ function getRelationshipEmoji(type: string): string {
     <div class="flex items-center justify-between">
       <div class="flex items-center space-x-2">
         <Button
-          v-if="hasOutline"
+          v-if="hasScenes"
           variant="default"
           size="sm"
           :disabled="extracting"
-          @click="$emit('extractFromOutline')"
+          @click="$emit('extractFromScenes')"
         >
           <Loader2
             v-if="extracting"
             class="w-4 h-4 mr-2 animate-spin"
           />
-          <Sparkles
+          <Scan
             v-else
             class="w-4 h-4 mr-2"
           />
-          从大纲提取角色
+          {{ extracting ? '提取中...' : '从场景提取角色' }}
         </Button>
+        <!-- 批量生成立绘按钮 -->
         <Button
+          v-if="characters.length > 0 && charsWithoutImage > 0"
           variant="outline"
           size="sm"
-          :disabled="extracting"
-          @click="$emit('extractCharacters')"
+          :disabled="batchGenerating"
+          @click="$emit('batchGenerateCharacters')"
         >
-          <Scan class="w-4 h-4 mr-2" />
-          从剧本提取
+          <Loader2
+            v-if="batchGenerating"
+            class="w-4 h-4 mr-2 animate-spin"
+          />
+          <ImagePlus
+            v-else
+            class="w-4 h-4 mr-2"
+          />
+          {{ batchGenerating ? `生成中 (${batchProgress?.current || 0}/${batchProgress?.total || 0})` : `一键生成立绘 (${charsWithoutImage})` }}
         </Button>
+        <span
+          v-if="!hasScenes"
+          class="text-sm text-muted-foreground"
+        >
+          请先在上一步生成或解析场景
+        </span>
       </div>
       <Button
         v-if="characters.length > 0"
         size="sm"
         @click="$emit('proceedToScript')"
       >
-        下一步：剧本编辑 →
+        下一步：场景编辑 →
       </Button>
+    </div>
+
+    <!-- 批量生成进度条 -->
+    <div
+      v-if="batchGenerating && batchProgress"
+      class="bg-accent rounded-lg p-3"
+    >
+      <div class="flex items-center justify-between text-sm mb-2">
+        <span>正在生成: {{ batchProgress.name }}</span>
+        <span class="text-muted-foreground">{{ batchProgress.current }}/{{ batchProgress.total }}</span>
+      </div>
+      <div class="w-full bg-muted rounded-full h-2">
+        <div
+          class="bg-primary h-2 rounded-full transition-all duration-300"
+          :style="{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }"
+        />
+      </div>
     </div>
 
     <!-- 空状态 -->
@@ -114,7 +154,7 @@ function getRelationshipEmoji(type: string): string {
       <Users class="w-12 h-12 mx-auto mb-4" />
       <p class="font-medium">还没有角色</p>
       <p class="text-sm mt-1">
-        {{ hasOutline ? '点击"从大纲提取角色"自动生成角色设定' : '请先完成故事大纲，或手动添加角色' }}
+        {{ hasScenes ? '点击"从场景提取角色"自动识别角色信息' : '请先完成故事/剧本步骤，生成或解析场景' }}
       </p>
     </div>
 

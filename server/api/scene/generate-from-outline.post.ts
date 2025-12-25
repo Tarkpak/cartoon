@@ -59,13 +59,12 @@ export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const { outline, characters, targetSceneCount } = RequestSchema.parse(body)
 
-  const client = getGeminiClient()
-
-  // 构建角色信息
+  // 构建角色信息（包含外貌描述，用于场景描述中保持一致性）
   const characterInfo = characters.map(c => {
     let info = `- ${c.name} (${c.role})`
-    if (c.personality) info += `：${c.personality}`
-    if (c.speakingStyle) info += `，说话风格：${c.speakingStyle}`
+    if (c.appearance) info += `\n  外貌：${c.appearance}`
+    if (c.personality) info += `\n  性格：${c.personality}`
+    if (c.speakingStyle) info += `\n  说话风格：${c.speakingStyle}`
     return info
   }).join('\n')
 
@@ -91,44 +90,58 @@ ${outline.setting.world}
 ${outline.setting.era ? `时代：${outline.setting.era}` : ''}
 主要场景：${outline.setting.mainLocations.join('、')}
 
-## 角色设定
+## 角色设定（重要：场景描述中出现角色时，必须使用这里的外貌描述）
 ${characterInfo}
 
 ## 三幕结构
 ${actsInfo}
 
-## 要求
-1. 生成 ${targetSceneCount} 个场景，均匀分布在三幕中
-2. 每个场景包含：
-   - 清晰的视觉描述（用于生成图片）
-   - 具体的地点和时间
-   - 出场角色及其情绪/动作
-   - 自然的对话（符合角色性格和说话风格）
-3. 场景之间要有连贯性
-4. 每个场景时长 6-8 秒
-5. 对话要简洁有力，适合漫剧呈现
+## 场景生成要求
+
+### 数量和分布
+- 生成 ${targetSceneCount} 个场景
+- 第一幕（铺垫）：约 ${Math.floor(targetSceneCount * 0.25)} 个场景
+- 第二幕（对抗）：约 ${Math.floor(targetSceneCount * 0.5)} 个场景
+- 第三幕（解决）：约 ${Math.ceil(targetSceneCount * 0.25)} 个场景
+
+### 视觉描述要求（用于 AI 图片生成）
+1. 每个场景的 description 必须是具体、可视化的画面描述
+2. 包含：环境细节、光线效果、色调氛围、角色位置和姿态
+3. 角色出现时，必须包含其外貌特征（参考上方角色设定）
+4. 描述长度：100-200字
+
+### 对话要求
+1. 对话要简洁有力，每句不超过20字
+2. 符合角色性格和说话风格
+3. 推动剧情发展，避免废话
+4. 每个场景 1-3 句对话为宜
+
+### 场景连贯性
+1. 场景之间要有逻辑连接
+2. 时间线要清晰
+3. 角色情绪变化要自然
 
 ## 输出格式
 请输出 JSON 数组：
 [
   {
     "id": "scene_1",
-    "title": "场景标题",
-    "description": "详细的视觉描述，包括环境、光线、氛围等（100-200字）",
+    "title": "场景标题（简短概括）",
+    "description": "详细的视觉描述，包括环境、光线、氛围、角色外貌和动作等（100-200字）",
     "setting": {
       "location": "具体地点",
       "timeOfDay": "dawn|morning|noon|afternoon|evening|night",
-      "mood": "氛围描述",
+      "mood": "氛围描述（如：紧张、温馨、神秘）",
       "weather": "天气（可选）"
     },
     "characters": [
-      { "name": "角色名", "emotion": "情绪", "action": "动作描述" }
+      { "name": "角色名", "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined", "action": "具体动作描述" }
     ],
     "dialogues": [
-      { "character": "角色名", "text": "台词内容", "emotion": "情绪" }
+      { "character": "角色名", "text": "台词内容（简洁有力）", "emotion": "情绪" }
     ],
-    "duration": 8,
-    "actId": "act_1"
+    "duration": 6,
+    "actId": "act_1|act_2|act_3"
   }
 ]
 

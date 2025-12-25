@@ -46,10 +46,10 @@ const {
   // 角色
   characters,
   generateCharacter,
+  batchGenerateCharacters,
   generateCharacterExpression,
   updateCharacter,
-  extractCharactersFromScript,
-  extractCharactersFromOutline,
+  extractCharactersFromScenes,
   generateCharacterViews,
   // 角色关系
   relationships,
@@ -79,37 +79,56 @@ const {
 // 角色提取状态
 const extractingCharacters = ref(false)
 
-// 工作流步骤定义
+// 批量生成角色立绘状态
+const batchGeneratingCharacters = ref(false)
+const batchCharacterProgress = ref<{ current: number, total: number, name: string } | null>(null)
+
+// 批量生成角色立绘
+async function handleBatchGenerateCharacters() {
+  batchGeneratingCharacters.value = true
+  batchCharacterProgress.value = { current: 0, total: 0, name: '' }
+
+  try {
+    await batchGenerateCharacters((current, total, name) => {
+      batchCharacterProgress.value = { current, total, name }
+    })
+  } finally {
+    batchGeneratingCharacters.value = false
+    batchCharacterProgress.value = null
+  }
+}
+
+// 工作流步骤定义 - 修正后的四步流程
 const workflowSteps = computed(() => [
   {
     key: 'outline',
-    label: '故事大纲',
+    label: '故事/剧本',
     icon: BookOpen,
-    description: '构建故事结构',
-    completed: !!outline.value,
+    description: '创意生成或文本输入',
+    completed: !!outline.value || scenes.value.length > 0,
     active: currentStep.value === 'outline'
   },
   {
     key: 'characters',
     label: '角色设定',
     icon: Users,
-    description: '创建角色形象',
+    description: '提取角色生成立绘',
     completed: characters.value.length > 0 && characters.value.some(c => c.baseImage),
     active: currentStep.value === 'characters'
   },
   {
     key: 'script',
-    label: '剧本编辑',
+    label: '场景编辑',
     icon: FileText,
-    description: '编写场景对话',
-    completed: scenes.value.length > 0,
+    description: '编辑分镜生成图片',
+    completed: scenes.value.length > 0 && scenes.value.some(s => s.firstFrame),
     active: currentStep.value === 'script'
   },
   {
     key: 'video',
     label: '视频生成',
     icon: Video,
-    description: '生成动画视频',
+    description: '生成视频场景串联',
     completed: scenes.value.some(s => s.videoStatus === 'done'),
     active: currentStep.value === 'video'
   }
@@ -202,29 +221,15 @@ async function handleGenerateExpression(characterId: string, emotion: string) {
   }
 }
 
-// 角色提取
-async function handleExtractCharacters() {
-  if (!novelText.value.trim()) {
-    alert('请先输入小说原文')
+// 角色提取 - 统一从场景中提取
+async function handleExtractFromScenes() {
+  if (scenes.value.length === 0) {
+    alert('请先生成或解析场景')
     return
   }
   extractingCharacters.value = true
   try {
-    await extractCharactersFromScript()
-  } finally {
-    extractingCharacters.value = false
-  }
-}
-
-// 从大纲提取角色
-async function handleExtractFromOutline() {
-  if (!outline.value) {
-    alert('请先生成故事大纲')
-    return
-  }
-  extractingCharacters.value = true
-  try {
-    await extractCharactersFromOutline()
+    await extractCharactersFromScenes()
   } finally {
     extractingCharacters.value = false
   }
@@ -288,8 +293,10 @@ onMounted(() => {
       :pipeline-status="pipelineStatus"
       :saving="saving"
       :can-start="scenes.length > 0"
+      :selected-style-id="selectedStyleId"
       @update:project-name="projectName = $event"
       @update:project-description="projectDescription = $event"
+      @update:selected-style-id="selectedStyleId = $event"
       @save="saveProject"
       @start-pipeline="startPipeline"
     />
@@ -303,32 +310,38 @@ onMounted(() => {
 
     <Card>
       <CardContent class="pt-6">
-        <!-- 故事大纲面板 -->
+        <!-- 故事大纲面板 (支持两种输入模式) -->
         <WorkbenchOutlinePanel
           v-if="currentStep === 'outline'"
           :outline="outline"
           :raw-text="storyIdea"
+          :script-text="novelText"
           :generating="generatingOutline"
-          :selected-style-id="selectedStyleId"
+          :parsing="parsing"
+          :has-scenes="scenes.length > 0"
           @update:raw-text="storyIdea = $event"
+          @update:script-text="novelText = $event"
           @update:outline="handleOutlineUpdate"
-          @update:selected-style-id="selectedStyleId = $event"
           @generate-outline="generateOutline"
+          @parse-script="parseScript"
           @proceed-to-characters="setCurrentStep('characters')"
         />
 
-        <!-- 角色管理面板 (增强版) -->
+        <!-- 角色管理面板 (从场景提取角色) -->
         <WorkbenchCharacterPanelEnhanced
           v-else-if="currentStep === 'characters'"
           :characters="characters"
           :relationships="relationships"
           :extracting="extractingCharacters"
+          :batch-generating="batchGeneratingCharacters"
+          :batch-progress="batchCharacterProgress"
           :has-outline="!!outline"
+          :has-scenes="scenes.length > 0"
           @generate-character="generateCharacter"
           @edit-character="openCharacterEdit"
           @preview-image="openImagePreview"
-          @extract-characters="handleExtractCharacters"
-          @extract-from-outline="handleExtractFromOutline"
+          @extract-from-scenes="handleExtractFromScenes"
+          @batch-generate-characters="handleBatchGenerateCharacters"
           @generate-views="generateCharacterViews"
           @update-relationship="updateRelationship"
           @add-relationship="addRelationship"
@@ -336,16 +349,13 @@ onMounted(() => {
           @proceed-to-script="setCurrentStep('script')"
         />
 
-        <!-- 剧本编辑面板 -->
+        <!-- 场景编辑面板 -->
         <WorkbenchScriptPanel
           v-else-if="currentStep === 'script'"
-          :script-text="novelText"
           :scenes="scenes"
           :parsing="parsing"
           :has-outline="!!outline"
           :has-characters="characters.length > 0"
-          @update:script-text="novelText = $event"
-          @parse-script="parseScript"
           @generate-from-outline="generateScenesFromOutline"
           @select-scene="selectScene"
           @add-scene="handleSceneAdd"

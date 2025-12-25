@@ -1,40 +1,45 @@
 <script setup lang="ts">
-import { Loader2, Sparkles, Plus, Trash2, ChevronDown, ChevronUp, Palette } from 'lucide-vue-next'
+import { Loader2, Sparkles, Plus, Trash2, ChevronDown, ChevronUp, FileText, BookOpen } from 'lucide-vue-next'
 import type { StoryOutline, Act, StoryGenre, StoryPace } from '#shared/types/outline'
-import { getStyleById, type StylePreset } from '#shared/types/styles'
 
 const props = defineProps<{
   outline: StoryOutline | null
   rawText: string
+  scriptText: string
   generating: boolean
-  selectedStyleId?: string
+  parsing: boolean
+  hasScenes: boolean
 }>()
 
-// 风格选择对话框
-const styleDialogOpen = ref(false)
-const localStyleId = ref(props.selectedStyleId || '')
-
-const selectedStyle = computed(() =>
-  localStyleId.value ? getStyleById(localStyleId.value) : null
-)
+// 输入模式：'idea' 从创意生成大纲，'script' 直接输入剧本文本
+const inputMode = ref<'idea' | 'script'>('idea')
 
 const emit = defineEmits<{
   'update:rawText': [value: string]
+  'update:scriptText': [value: string]
   'update:outline': [value: StoryOutline]
-  'update:selectedStyleId': [value: string]
   'generateOutline': []
+  'parseScript': []
   'proceedToCharacters': []
 }>()
-
-function handleStyleSelect(style: StylePreset) {
-  localStyleId.value = style.id
-  emit('update:selectedStyleId', style.id)
-  styleDialogOpen.value = false
-}
 
 const localRawText = computed({
   get: () => props.rawText,
   set: v => emit('update:rawText', v)
+})
+
+const localScriptText = computed({
+  get: () => props.scriptText,
+  set: v => emit('update:scriptText', v)
+})
+
+// 判断是否可以进入下一步
+const canProceed = computed(() => {
+  if (inputMode.value === 'idea') {
+    return !!props.outline
+  } else {
+    return props.hasScenes
+  }
 })
 
 // 展开/折叠状态
@@ -137,96 +142,114 @@ function removeKeyEvent(actIndex: number, eventIndex: number) {
 
 <template>
   <div class="grid lg:grid-cols-2 gap-6">
-    <!-- 左侧: 原始创意/文本输入 -->
+    <!-- 左侧: 输入区域 -->
     <div class="space-y-4">
+      <!-- 输入模式切换 -->
       <div class="flex items-center justify-between">
-        <h3 class="font-semibold">
-          故事创意
-        </h3>
-        <Button
-          variant="default"
-          size="sm"
-          :disabled="generating || !rawText.trim()"
-          @click="$emit('generateOutline')"
-        >
-          <Loader2
-            v-if="generating"
-            class="w-4 h-4 mr-2 animate-spin"
-          />
-          <Sparkles
-            v-else
-            class="w-4 h-4 mr-2"
-          />
-          {{ generating ? '生成中...' : 'AI生成大纲' }}
-        </Button>
+        <div class="flex items-center space-x-2">
+          <Button
+            :variant="inputMode === 'idea' ? 'default' : 'outline'"
+            size="sm"
+            @click="inputMode = 'idea'"
+          >
+            <BookOpen class="w-4 h-4 mr-2" />
+            从创意生成
+          </Button>
+          <Button
+            :variant="inputMode === 'script' ? 'default' : 'outline'"
+            size="sm"
+            @click="inputMode = 'script'"
+          >
+            <FileText class="w-4 h-4 mr-2" />
+            直接输入剧本
+          </Button>
+        </div>
       </div>
-      <Textarea
-        v-model="localRawText"
-        class="min-h-[400px]"
-        placeholder="输入你的故事创意、小说片段或剧本草稿...
+
+      <!-- 模式 A: 从创意生成大纲 -->
+      <div v-if="inputMode === 'idea'" class="space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="font-semibold">
+            故事创意
+          </h3>
+          <Button
+            variant="default"
+            size="sm"
+            :disabled="generating || !rawText.trim()"
+            @click="$emit('generateOutline')"
+          >
+            <Loader2
+              v-if="generating"
+              class="w-4 h-4 mr-2 animate-spin"
+            />
+            <Sparkles
+              v-else
+              class="w-4 h-4 mr-2"
+            />
+            {{ generating ? '生成中...' : 'AI生成大纲' }}
+          </Button>
+        </div>
+        <Textarea
+          v-model="localRawText"
+          class="min-h-[300px]"
+          placeholder="输入你的故事创意、小说片段或剧本草稿...
 
 示例：
 一个普通高中生意外获得了能看到他人命运红线的能力，却发现自己的红线连接着班上最不起眼的女生。当他试图改变命运时，却发现每一次干预都会带来意想不到的后果..."
-      />
-      <p class="text-xs text-muted-foreground">
-        提示：输入越详细，生成的大纲越精准。可以包含人物设定、世界观、核心冲突等。
-      </p>
+        />
+        <p class="text-xs text-muted-foreground">
+          提示：输入越详细，生成的大纲越精准。可以包含人物设定、世界观、核心冲突等。
+        </p>
+      </div>
 
-      <!-- 风格选择 -->
-      <div class="space-y-2">
+      <!-- 模式 B: 直接输入剧本文本 -->
+      <div v-else class="space-y-4">
         <div class="flex items-center justify-between">
-          <label class="text-sm font-medium flex items-center gap-2">
-            <Palette class="w-4 h-4" />
-            视觉风格
-          </label>
+          <h3 class="font-semibold">
+            剧本/小说文本
+          </h3>
           <Button
-            variant="outline"
+            variant="default"
             size="sm"
-            @click="styleDialogOpen = true"
+            :disabled="parsing || !scriptText.trim()"
+            @click="$emit('parseScript')"
           >
-            {{ selectedStyle ? '更换风格' : '选择风格' }}
+            <Loader2
+              v-if="parsing"
+              class="w-4 h-4 mr-2 animate-spin"
+            />
+            <Sparkles
+              v-else
+              class="w-4 h-4 mr-2"
+            />
+            {{ parsing ? '解析中...' : 'AI解析场景' }}
           </Button>
         </div>
-        <div
-          v-if="selectedStyle"
-          class="p-3 bg-accent rounded-lg flex items-center gap-3"
-        >
-          <div class="w-12 h-12 bg-gradient-to-br from-purple-200 to-pink-200 rounded-lg flex items-center justify-center">
-            <span class="text-xl">🎨</span>
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
-              <span class="font-medium">{{ selectedStyle.name }}</span>
-              <span
-                v-if="selectedStyle.isNew"
-                class="px-1 py-0.5 text-[10px] bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded"
-              >
-                NEW
-              </span>
-            </div>
-            <p class="text-xs text-muted-foreground truncate">{{ selectedStyle.description }}</p>
-          </div>
-        </div>
-        <div
-          v-else
-          class="p-3 border-2 border-dashed rounded-lg text-center text-muted-foreground cursor-pointer hover:border-primary/50 transition"
-          @click="styleDialogOpen = true"
-        >
-          <Palette class="w-6 h-6 mx-auto mb-1 opacity-50" />
-          <p class="text-sm">点击选择视觉风格</p>
-          <p class="text-xs">支持100+种风格预设</p>
-        </div>
+        <Textarea
+          v-model="localScriptText"
+          class="min-h-[300px]"
+          placeholder="直接粘贴小说文本或剧本内容...
+
+AI 将自动解析出：
+- 场景划分
+- 角色列表
+- 对话内容
+- 场景描述"
+        />
+        <p class="text-xs text-muted-foreground">
+          提示：支持小说、剧本、对话等多种格式，AI 会智能识别并解析为结构化场景。
+        </p>
       </div>
     </div>
 
-    <!-- 右侧: 大纲编辑 -->
+    <!-- 右侧: 结果展示 -->
     <div class="space-y-4">
       <div class="flex items-center justify-between">
         <h3 class="font-semibold">
-          故事大纲
+          {{ inputMode === 'idea' ? '故事大纲' : '解析结果' }}
         </h3>
         <Button
-          v-if="outline"
+          v-if="canProceed"
           size="sm"
           @click="$emit('proceedToCharacters')"
         >
@@ -234,23 +257,25 @@ function removeKeyEvent(actIndex: number, eventIndex: number) {
         </Button>
       </div>
 
-      <div
-        v-if="!outline"
-        class="border-2 border-dashed rounded-xl p-12 text-center text-muted-foreground"
-      >
-        <div class="text-4xl mb-4">
-          📝
+      <!-- 模式 A 结果: 大纲展示 -->
+      <template v-if="inputMode === 'idea'">
+        <div
+          v-if="!outline"
+          class="border-2 border-dashed rounded-xl p-12 text-center text-muted-foreground"
+        >
+          <div class="text-4xl mb-4">
+            📝
+          </div>
+          <p>输入故事创意后，点击"AI生成大纲"</p>
+          <p class="text-sm mt-2">
+            系统将自动生成三幕结构的故事大纲
+          </p>
         </div>
-        <p>输入故事创意后，点击"AI生成大纲"</p>
-        <p class="text-sm mt-2">
-          系统将自动生成三幕结构的故事大纲
-        </p>
-      </div>
 
-      <div
-        v-else
-        class="space-y-4 max-h-[600px] overflow-y-auto pr-2"
-      >
+        <div
+          v-else
+          class="space-y-4 max-h-[600px] overflow-y-auto pr-2"
+        >
         <!-- 基本信息 -->
         <Card>
           <CardContent class="pt-4 space-y-4">
@@ -475,27 +500,39 @@ function removeKeyEvent(actIndex: number, eventIndex: number) {
           </CardContent>
         </Card>
       </div>
-    </div>
+      </template>
 
-    <!-- 风格选择对话框 -->
-    <Dialog v-model:open="styleDialogOpen">
-      <DialogContent class="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle class="flex items-center gap-2">
-            <Palette class="w-5 h-5" />
-            选择视觉风格
-          </DialogTitle>
-          <DialogDescription>
-            选择一种风格预设，将应用于角色立绘和视频生成
-          </DialogDescription>
-        </DialogHeader>
-        <div class="flex-1 overflow-y-auto py-4">
-          <StyleSelector
-            v-model="localStyleId"
-            @select="handleStyleSelect"
-          />
+      <!-- 模式 B 结果: 场景解析结果预览 -->
+      <template v-else>
+        <div
+          v-if="!hasScenes"
+          class="border-2 border-dashed rounded-xl p-12 text-center text-muted-foreground"
+        >
+          <div class="text-4xl mb-4">
+            📄
+          </div>
+          <p>粘贴剧本文本后，点击"AI解析场景"</p>
+          <p class="text-sm mt-2">
+            系统将自动识别场景、角色和对话
+          </p>
         </div>
-      </DialogContent>
-    </Dialog>
+
+        <div
+          v-else
+          class="border-2 border-green-200 bg-green-50 rounded-xl p-8 text-center"
+        >
+          <div class="text-4xl mb-4">
+            ✅
+          </div>
+          <p class="font-medium text-green-700">场景解析完成</p>
+          <p class="text-sm mt-2 text-green-600">
+            已成功解析出场景和角色，点击"下一步"继续
+          </p>
+          <p class="text-xs mt-4 text-muted-foreground">
+            你可以在后续步骤中编辑场景内容
+          </p>
+        </div>
+      </template>
+    </div>
   </div>
 </template>

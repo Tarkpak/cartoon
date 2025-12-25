@@ -17,7 +17,9 @@ const RequestSchema = z.object({
       motivation: z.string().optional()
     })).optional()
   }),
-  style: z.string().optional().default('日式动漫')
+  style: z.string().optional().default('日式动漫'),
+  // 新增：从场景中提取的角色名称列表，用于增强角色信息
+  existingCharacters: z.array(z.string()).optional()
 })
 
 const CharacterSchema = z.object({
@@ -36,28 +38,51 @@ const CharacterSchema = z.object({
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
-  const { outline, style } = RequestSchema.parse(body)
+  const { outline, style, existingCharacters } = RequestSchema.parse(body)
 
-  // 如果大纲已经有建议的角色，直接增强它们
+  const client = getGeminiClient()
+
+  // 合并角色来源：大纲建议的角色 + 场景中提取的角色名称
+  const suggestedNames = outline.suggestedCharacters?.map(c => c.name) || []
+  const allCharacterNames = [...new Set([...suggestedNames, ...(existingCharacters || [])])]
+
+  // 构建角色信息上下文
+  let characterContext = ''
   if (outline.suggestedCharacters && outline.suggestedCharacters.length > 0) {
-    const client = getGeminiClient()
+    characterContext = `\n## 已知角色信息\n${JSON.stringify(outline.suggestedCharacters, null, 2)}`
+  }
+  if (existingCharacters && existingCharacters.length > 0) {
+    const newNames = existingCharacters.filter(n => !suggestedNames.includes(n))
+    if (newNames.length > 0) {
+      characterContext += `\n\n## 场景中出现的其他角色\n${newNames.join(', ')}`
+    }
+  }
 
-    const prompt = `你是一位专业的角色设计师。请根据以下故事大纲和初步角色信息，为每个角色生成详细的设定。
+  const prompt = `你是一位专业的角色设计师。请根据以下故事大纲和角色信息，为每个角色生成详细的设定。
+
+## 故事标题
+${outline.title}
 
 ## 故事概要
 ${outline.synopsis}
 
-## 初步角色列表
-${JSON.stringify(outline.suggestedCharacters, null, 2)}
+## 故事结构
+${outline.acts.map((act, i) => `第${i + 1}幕: ${act.summary}`).join('\n')}
+${characterContext}
 
 ## 画风
 ${style}
 
+## 需要生成设定的角色
+${allCharacterNames.join(', ')}
+
 ## 要求
-1. 为每个角色生成详细的外貌描述（适合 ${style} 风格）
-2. 完善性格描述和性格标签
+1. 为每个角色生成详细的外貌描述（适合 ${style} 风格，包含发型、发色、眼睛颜色、服装等，100-200字）
+2. 完善性格描述和性格标签（3-5个标签）
 3. 推断合适的说话风格和可能的口头禅
-4. 如果能推断，给出年龄和性别
+4. 根据故事内容推断年龄和性别
+5. 确保角色设定与故事背景和风格一致
+6. 主角的外貌描述要更详细，配角可以简略一些
 
 ## 输出格式
 请输出 JSON 数组：
@@ -79,93 +104,9 @@ ${style}
 
 请直接输出 JSON 数组，不要包含其他内容。`
 
-    try {
-      const response = await client.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.7
-        }
-      })
-
-      const text = response.text || ''
-      const jsonMatch = text.match(/\[[\s\S]*\]/)
-      if (!jsonMatch) {
-        throw new Error('无法解析 AI 响应')
-      }
-
-      const parsed = JSON.parse(jsonMatch[0])
-      const characters = z.array(CharacterSchema).parse(parsed)
-
-      return {
-        success: true,
-        characters: characters.map((char, idx) => ({
-          id: `char_${Date.now()}_${idx}`,
-          ...char
-        }))
-      }
-    } catch (error: unknown) {
-      console.error('角色提取失败:', error)
-      // 降级：返回原始建议角色
-      return {
-        success: true,
-        characters: outline.suggestedCharacters.map((char, idx) => ({
-          id: `char_${Date.now()}_${idx}`,
-          name: char.name,
-          role: char.role as 'protagonist' | 'antagonist' | 'supporting',
-          appearance: char.description,
-          personality: char.personality || '',
-          traits: [],
-          motivation: char.motivation
-        }))
-      }
-    }
-  }
-
-  // 如果没有建议角色，从大纲内容提取
-  const client = getGeminiClient()
-  const allContent = [
-    outline.synopsis,
-    ...outline.acts.map(a => a.summary),
-    ...outline.acts.flatMap(a => a.keyEvents)
-  ].join('\n')
-
-  const prompt = `你是一位专业的角色设计师。请从以下故事内容中提取所有角色，并为每个角色生成详细设定。
-
-## 故事内容
-${allContent}
-
-## 画风
-${style}
-
-## 要求
-1. 识别所有出现的角色（主角、反派、配角）
-2. 为每个角色生成详细的外貌描述（适合 ${style} 风格）
-3. 推断性格特点和说话风格
-4. 如果能推断，给出年龄和性别
-
-## 输出格式
-请输出 JSON 数组：
-[
-  {
-    "name": "角色名",
-    "role": "protagonist|antagonist|supporting",
-    "appearance": "详细外貌描述",
-    "personality": "性格描述",
-    "traits": ["性格标签1", "性格标签2"],
-    "motivation": "角色动机",
-    "speakingStyle": "formal|casual|polite|rude|childish|mature|humorous|serious|mysterious|energetic",
-    "age": 18,
-    "gender": "male|female|other"
-  }
-]
-
-请直接输出 JSON 数组。`
-
   try {
     const response = await client.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -191,10 +132,25 @@ ${style}
     }
   } catch (error: unknown) {
     console.error('角色提取失败:', error)
+
+    // 降级：返回基础角色信息
+    const fallbackCharacters = allCharacterNames.map((name, idx) => {
+      const suggested = outline.suggestedCharacters?.find(c => c.name === name)
+      return {
+        id: `char_${Date.now()}_${idx}`,
+        name,
+        role: (suggested?.role as 'protagonist' | 'antagonist' | 'supporting') || 'supporting',
+        appearance: suggested?.description || '',
+        personality: suggested?.personality || '',
+        traits: [] as string[],
+        motivation: suggested?.motivation
+      }
+    })
+
     return {
-      success: false,
-      error: error instanceof Error ? error.message : '角色提取失败',
-      characters: []
+      success: true,
+      characters: fallbackCharacters,
+      warning: '使用降级模式，角色信息可能不完整'
     }
   }
 })

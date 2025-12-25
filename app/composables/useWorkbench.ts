@@ -510,7 +510,12 @@ export function useWorkbench() {
           character: {
             id: char.id,
             name: char.name,
-            appearance: char.appearance || `${char.name}，动漫风格角色`
+            appearance: char.appearance || `${char.name}，动漫风格角色`,
+            role: char.role || 'supporting',
+            gender: char.gender,
+            age: char.age,
+            personality: char.personality,
+            traits: char.traits
           },
           style: currentStylePrompt.value,
           generateExpressions: false
@@ -522,9 +527,41 @@ export function useWorkbench() {
       }
     } catch (e) {
       console.error('角色生成失败:', e)
+      throw e
     } finally {
       char.generating = false
     }
+  }
+
+  // 批量生成所有角色立绘
+  async function batchGenerateCharacters(onProgress?: (current: number, total: number, name: string) => void) {
+    const charsToGenerate = characters.value.filter(c => !c.baseImage)
+    const total = charsToGenerate.length
+
+    if (total === 0) {
+      console.log('所有角色已有立绘')
+      return { success: true, generated: 0, failed: 0 }
+    }
+
+    let generated = 0
+    let failed = 0
+
+    for (let i = 0; i < charsToGenerate.length; i++) {
+      const char = charsToGenerate[i]
+      if (!char) continue
+
+      onProgress?.(i + 1, total, char.name)
+
+      try {
+        await generateCharacter(char)
+        generated++
+      } catch (e) {
+        console.error(`角色 ${char.name} 生成失败:`, e)
+        failed++
+      }
+    }
+
+    return { success: true, generated, failed, total }
   }
 
   async function generateCharacterExpression(characterId: string, emotion: string) {
@@ -656,6 +693,103 @@ export function useWorkbench() {
       throw e
     }
     return null
+  }
+
+  // ========== 从场景提取角色 (新增) ==========
+  async function extractCharactersFromScenes() {
+    if (scenes.value.length === 0) return
+
+    try {
+      // 收集场景中的所有角色名称和信息
+      const charMap = new Map<string, { name: string, appearances: string[], emotions: string[] }>()
+
+      scenes.value.forEach(scene => {
+        scene.characters.forEach(char => {
+          const existing = charMap.get(char.name)
+          if (existing) {
+            if (char.appearance && !existing.appearances.includes(char.appearance)) {
+              existing.appearances.push(char.appearance)
+            }
+            if (char.emotion && !existing.emotions.includes(char.emotion)) {
+              existing.emotions.push(char.emotion)
+            }
+          } else {
+            charMap.set(char.name, {
+              name: char.name,
+              appearances: char.appearance ? [char.appearance] : [],
+              emotions: char.emotion ? [char.emotion] : []
+            })
+          }
+        })
+
+        // 也从对话中提取角色
+        scene.dialogues.forEach(dialogue => {
+          if (!charMap.has(dialogue.character)) {
+            charMap.set(dialogue.character, {
+              name: dialogue.character,
+              appearances: [],
+              emotions: dialogue.emotion ? [dialogue.emotion] : []
+            })
+          }
+        })
+      })
+
+      // 如果有大纲，调用 API 增强角色信息
+      if (outline.value) {
+        const response = await $fetch<{
+          success: boolean
+          characters: Array<{
+            id: string
+            name: string
+            role: string
+            appearance: string
+            personality?: string
+            traits?: string[]
+            background?: string
+            motivation?: string
+            speakingStyle?: string
+            catchphrase?: string
+            age?: number
+            gender?: string
+          }>
+          error?: string
+        }>('/api/character/extract-from-outline', {
+          method: 'POST',
+          body: {
+            outline: outline.value,
+            style: currentStylePrompt.value,
+            existingCharacters: Array.from(charMap.keys())
+          }
+        })
+
+        if (response.success && response.characters) {
+          characters.value = response.characters.map(char => ({
+            ...char,
+            generating: false,
+            generatingViews: false
+          }))
+          await saveProject()
+          return response.characters
+        }
+      }
+
+      // 没有大纲时，直接从场景信息创建角色
+      const newCharacters = Array.from(charMap.values()).map((char, i) => ({
+        id: `char_${Date.now()}_${i}`,
+        name: char.name,
+        appearance: char.appearances.join('；') || '',
+        role: i === 0 ? 'protagonist' : 'supporting',
+        generating: false,
+        generatingViews: false
+      }))
+
+      characters.value = newCharacters
+      await saveProject()
+      return newCharacters
+    } catch (e) {
+      console.error('从场景提取角色失败:', e)
+      throw e
+    }
   }
 
   // ========== 角色关系管理 (新增) ==========
@@ -1348,10 +1482,12 @@ export function useWorkbench() {
     // 角色
     characters,
     generateCharacter,
+    batchGenerateCharacters,
     generateCharacterExpression,
     updateCharacter,
     extractCharactersFromScript,
     extractCharactersFromOutline,
+    extractCharactersFromScenes,
     generateCharacterViews,
 
     // 角色关系 (新增)
