@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { getGeminiClient } from '../../utils/gemini'
+import { generateJSON, getSelectedModels } from '../../utils/model-provider'
 
 const RequestSchema = z.object({
   outline: z.object({
@@ -39,8 +39,6 @@ const CharacterSchema = z.object({
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const { outline, style, existingCharacters } = RequestSchema.parse(body)
-
-  const client = getGeminiClient()
 
   // 合并角色来源：大纲建议的角色 + 场景中提取的角色名称
   const suggestedNames = outline.suggestedCharacters?.map(c => c.name) || []
@@ -105,22 +103,14 @@ ${allCharacterNames.join(', ')}
 请直接输出 JSON 数组，不要包含其他内容。`
 
   try {
-    const response = await client.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        temperature: 0.7
-      }
+    const selectedModels = getSelectedModels()
+    const parsed = await generateJSON<z.infer<typeof CharacterSchema>[]>({
+      modelId: selectedModels.text,
+      prompt,
+      temperature: 0.7,
+      maxRetries: 2
     })
 
-    const text = response.text || ''
-    const jsonMatch = text.match(/\[[\s\S]*\]/)
-    if (!jsonMatch) {
-      throw new Error('无法解析 AI 响应')
-    }
-
-    const parsed = JSON.parse(jsonMatch[0])
     const characters = z.array(CharacterSchema).parse(parsed)
 
     return {

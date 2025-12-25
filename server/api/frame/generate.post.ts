@@ -143,7 +143,7 @@ async function generateFirstFrame(
     const mainCharacter = scene.characters[0]
     const characterImage = mainCharacter ? characterAssets[mainCharacter.name] : undefined
 
-    if (characterImage) {
+    if (characterImage && mainCharacter) {
       prompt = buildCharacterSceneFusionPrompt(scene, style, mainCharacter)
       // 使用场景背景作为参考，提示词中描述角色融合
       referenceImage = { data: sceneBackground, mimeType: 'image/png' }

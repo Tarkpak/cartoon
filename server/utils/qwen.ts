@@ -554,7 +554,7 @@ export async function _qwenGenerateImage(options: {
       if (!options.referenceImages || options.referenceImages.length === 0) {
         throw new QwenError(
           '通义万相2.6-图像编辑是图像编辑模型，需要至少1张参考图。如需纯文生图，请选择"通义万相2.6-文生图"模型',
-          QwenErrorCode.INVALID_PARAM,
+          QwenErrorCode.INVALID_ARGUMENT,
           400,
           false
         )

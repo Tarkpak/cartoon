@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../../utils/gemini'
-import { generateImage } from '../../utils/model-provider'
+import * as qwen from '../../utils/qwen'
+import { generateImage, getSelectedModels, findVideoModel } from '../../utils/model-provider'
 import { db, videoTasks as videoTasksTable } from '../../db'
 import {
   ChainScenesRequestSchema,
@@ -223,9 +224,118 @@ async function updateTaskProgress(taskId: string, progress: number, status?: Tas
 }
 
 /**
+ * 确定使用哪个视频提供商
+ */
+function determineVideoProvider(): 'gemini' | 'qwen' {
+  const selected = getSelectedModels()
+  const selectedModel = findVideoModel(selected.video)
+  if (selectedModel && (selectedModel.provider === 'gemini' || selectedModel.provider === 'qwen')) {
+    return selectedModel.provider
+  }
+  return 'gemini'
+}
+
+/**
  * 异步生成转场视频
  */
 async function generateTransitionVideoAsync(
+  taskId: string,
+  fromScene: SceneFrameData,
+  toScene: SceneFrameData,
+  transitionType: TransitionType,
+  duration: Duration
+): Promise<void> {
+  const provider = determineVideoProvider()
+  console.log(`[SceneChain] 使用提供商: ${provider}`)
+
+  if (provider === 'qwen') {
+    await generateTransitionWithQwen(taskId, fromScene, toScene, transitionType, duration)
+  } else {
+    await generateTransitionWithGemini(taskId, fromScene, toScene, transitionType, duration)
+  }
+}
+
+/**
+ * 使用千问万相生成转场视频
+ */
+async function generateTransitionWithQwen(
+  taskId: string,
+  fromScene: SceneFrameData,
+  toScene: SceneFrameData,
+  transitionType: TransitionType,
+  duration: Duration
+): Promise<void> {
+  try {
+    await updateTaskProgress(taskId, 10, 'processing')
+
+    const selected = getSelectedModels()
+    const modelId = selected.video || qwen.QwenVideoModels.WAN_2_6_T2V
+
+    // 千问不支持首尾帧插值，使用文生视频
+    const prompt = buildTransitionPrompt(fromScene.sceneId, toScene.sceneId, transitionType)
+
+    // 转换时长
+    let qwenDuration = duration
+    if (qwenDuration <= 5) qwenDuration = 5
+    else if (qwenDuration <= 10) qwenDuration = 10
+    else qwenDuration = 15
+
+    console.log('[SceneChain] Qwen API 转场视频请求参数:', {
+      model: modelId,
+      promptLength: prompt.length,
+      fromSceneId: fromScene.sceneId,
+      toSceneId: toScene.sceneId,
+      transitionType,
+      duration: qwenDuration
+    })
+
+    await updateTaskProgress(taskId, 20)
+
+    const result = await qwen._qwenGenerateVideo({
+      model: modelId,
+      prompt,
+      duration: qwenDuration,
+      size: '1280*720',
+      promptExtend: true,
+      audio: false,
+      watermark: false
+    })
+
+    await updateTaskProgress(taskId, 95)
+
+    // 保存结果
+    const metadata = {
+      duration: qwenDuration,
+      resolution: '720p',
+      aspectRatio: '16:9',
+      fps: 24,
+      hasAudio: false,
+      isTransition: true,
+      fromSceneId: fromScene.sceneId,
+      toSceneId: toScene.sceneId
+    }
+
+    await db.update(videoTasksTable)
+      .set({
+        status: 'completed',
+        progress: 100,
+        videoData: result.videoUrl ? `url:${result.videoUrl}` : '',
+        metadata: JSON.stringify(metadata),
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(videoTasksTable.id, taskId))
+
+    console.log(`[SceneChain] 千问转场视频生成完成: ${taskId}`)
+  } catch (error) {
+    console.error(`[SceneChain] 千问转场生成失败:`, error)
+    throw error
+  }
+}
+
+/**
+ * 使用 Gemini Veo 生成转场视频
+ */
+async function generateTransitionWithGemini(
   taskId: string,
   fromScene: SceneFrameData,
   toScene: SceneFrameData,

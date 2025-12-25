@@ -81,7 +81,7 @@ const extractingCharacters = ref(false)
 
 // 批量生成角色立绘状态
 const batchGeneratingCharacters = ref(false)
-const batchCharacterProgress = ref<{ current: number, total: number, name: string } | null>(null)
+const batchCharacterProgress = ref<{ current: number, total: number, name: string } | undefined>(undefined)
 
 // 批量生成角色立绘
 async function handleBatchGenerateCharacters() {
@@ -94,7 +94,7 @@ async function handleBatchGenerateCharacters() {
     })
   } finally {
     batchGeneratingCharacters.value = false
-    batchCharacterProgress.value = null
+    batchCharacterProgress.value = undefined
   }
 }
 

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { getGeminiClient, GeminiError, GeminiErrorCode, _geminiWithRetry, TextModels } from '../../utils/gemini'
+import { textToSpeech, getSelectedModels } from '../../utils/model-provider'
 import type { Emotion } from '../../../shared/types/script'
 
 /**
@@ -111,14 +111,6 @@ export default defineEventHandler(async (event) => {
     }
   } catch (error) {
     console.error(`[AudioGen] 生成失败:`, error)
-
-    if (error instanceof GeminiError) {
-      throw createError({
-        statusCode: error.status || 500,
-        statusMessage: `音频生成失败: ${error.code}`,
-        message: error.message
-      })
-    }
     throw error
   }
 })
@@ -139,7 +131,7 @@ async function generateTTS(config: {
   characterName?: string
   text: string
 }> {
-  const client = getGeminiClient()
+  const selectedModels = getSelectedModels()
 
   // 获取角色语音配置
   const voiceConfig = config.characterName
@@ -159,7 +151,7 @@ async function generateTTS(config: {
     : emotionAdjustments.neutral
 
   console.log('[AudioGen] TTS 请求参数:', {
-    model: TextModels.GENERAL,
+    model: selectedModels.tts,
     textLength: config.text.length,
     textPreview: config.text.slice(0, 100) + (config.text.length > 100 ? '...' : ''),
     characterName: config.characterName || '默认',
@@ -168,46 +160,13 @@ async function generateTTS(config: {
     language: config.language || 'zh-CN'
   })
 
-  const result = await _geminiWithRetry(async () => {
-    const response = await client.models.generateContent({
-      model: TextModels.GENERAL,
-      contents: config.text,
-      config: {
-        responseModalities: ['audio'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: voiceConfig.voiceName
-            }
-          }
-        }
-      }
-    })
-
-    // 提取音频数据
-    const parts = response.candidates?.[0]?.content?.parts || []
-    let audioData = ''
-    let mimeType = 'audio/mp3'
-
-    for (const part of parts) {
-      if (part.inlineData) {
-        audioData = part.inlineData.data || ''
-        mimeType = part.inlineData.mimeType || 'audio/mp3'
-        break
-      }
-    }
-
-    if (!audioData) {
-      throw new GeminiError(
-        '未能生成音频',
-        GeminiErrorCode.INTERNAL,
-        500,
-        true
-      )
-    }
-
-    return { audioData, mimeType }
-  }, { maxRetries: 2 })
+  // 使用统一的 textToSpeech 函数
+  const result = await textToSpeech({
+    modelId: selectedModels.tts,
+    text: config.text,
+    voice: voiceConfig.voiceName,
+    maxRetries: 2
+  })
 
   // 估算时长 (中文大约每秒4-5个字)
   const estimatedDuration = Math.ceil(config.text.length / 4.5)
@@ -215,7 +174,7 @@ async function generateTTS(config: {
   return {
     id: `tts_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     audioData: result.audioData,
-    mimeType: result.mimeType,
+    mimeType: 'audio/mp3',
     duration: estimatedDuration,
     characterName: config.characterName,
     text: config.text
