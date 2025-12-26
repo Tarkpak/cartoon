@@ -107,7 +107,18 @@ export const generatedVideos = sqliteTable('generated_videos', {
   createdAt: text('created_at').notNull()
 })
 
+// ==================== 系统配置表 ====================
+
+export const systemConfig = sqliteTable('system_config', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(), // JSON 存储
+  updatedAt: text('updated_at').notNull()
+})
+
 // ==================== 类型导出 ====================
+
+export type SystemConfig = typeof systemConfig.$inferSelect
+export type NewSystemConfig = typeof systemConfig.$inferInsert
 
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert

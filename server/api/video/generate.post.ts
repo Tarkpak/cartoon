@@ -1,7 +1,9 @@
 import { eq } from 'drizzle-orm'
 import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../../utils/gemini'
 import * as qwen from '../../utils/qwen'
+import * as volcengine from '../../utils/volcengine'
 import { getSelectedModels, findVideoModel } from '../../utils/model-provider'
+import { getWorkflowModels } from '../models/workflow.get'
 import { videoLimiter } from '../../utils/concurrency'
 import { db, videoTasks as videoTasksTable } from '../../db'
 import {
@@ -15,7 +17,7 @@ import * as path from 'node:path'
  * 视频生成 API
  * POST /api/video/generate
  *
- * 支持 Gemini Veo 和 千问万相 视频生成
+ * 支持 Gemini Veo、千问万相、火山引擎 视频生成
  */
 export default defineEventHandler(async (event) => {
   const startTime = Date.now()
@@ -108,29 +110,64 @@ async function updateTaskProgress(taskId: string, progress: number, status?: Tas
 /**
  * 确定使用哪个提供商
  */
-function determineProvider(config: typeof GenerateVideoRequestSchema._type['config']): 'gemini' | 'qwen' {
+async function determineProvider(config: typeof GenerateVideoRequestSchema._type['config']): Promise<'gemini' | 'qwen' | 'volcengine'> {
   // 1. 如果明确指定了 provider
-  if (config.provider === 'gemini' || config.provider === 'qwen') {
+  if (config.provider === 'gemini' || config.provider === 'qwen' || config.provider === 'volcengine') {
     return config.provider
   }
   
   // 2. 如果指定了 modelId，从模型配置中获取
   if (config.modelId) {
     const modelConfig = findVideoModel(config.modelId)
-    if (modelConfig && (modelConfig.provider === 'gemini' || modelConfig.provider === 'qwen')) {
+    if (modelConfig && (modelConfig.provider === 'gemini' || modelConfig.provider === 'qwen' || modelConfig.provider === 'volcengine')) {
       return modelConfig.provider
+    }
+  }
+  
+  // 3. 优先使用业务流程配置的模型 (从数据库读取)
+  const workflowModels = await getWorkflowModels()
+  const workflowVideoModel = workflowModels.video_generation
+  if (workflowVideoModel) {
+    const workflowModelConfig = findVideoModel(workflowVideoModel)
+    if (workflowModelConfig && (workflowModelConfig.provider === 'gemini' || workflowModelConfig.provider === 'qwen' || workflowModelConfig.provider === 'volcengine')) {
+      console.log(`[VideoGen] 使用业务流程配置的模型: ${workflowVideoModel} (${workflowModelConfig.provider})`)
+      return workflowModelConfig.provider
+    }
+  }
+  
+  // 4. 使用当前选择的模型
+  const selected = getSelectedModels()
+  const selectedModel = findVideoModel(selected.video)
+  if (selectedModel && (selectedModel.provider === 'gemini' || selectedModel.provider === 'qwen' || selectedModel.provider === 'volcengine')) {
+    return selectedModel.provider
+  }
+  
+  // 5. 默认使用 Gemini
+  return 'gemini'
+}
+
+/**
+ * 获取实际使用的模型 ID
+ */
+async function getActualModelId(config: typeof GenerateVideoRequestSchema._type['config']): Promise<string | undefined> {
+  // 1. 如果明确指定了 modelId
+  if (config.modelId) {
+    return config.modelId
+  }
+  
+  // 2. 优先使用业务流程配置的模型 (从数据库读取)
+  const workflowModels = await getWorkflowModels()
+  const workflowVideoModel = workflowModels.video_generation
+  if (workflowVideoModel) {
+    const modelConfig = findVideoModel(workflowVideoModel)
+    if (modelConfig) {
+      return workflowVideoModel
     }
   }
   
   // 3. 使用当前选择的模型
   const selected = getSelectedModels()
-  const selectedModel = findVideoModel(selected.video)
-  if (selectedModel && (selectedModel.provider === 'gemini' || selectedModel.provider === 'qwen')) {
-    return selectedModel.provider
-  }
-  
-  // 4. 默认使用 Gemini
-  return 'gemini'
+  return selected.video
 }
 
 /**
@@ -141,11 +178,13 @@ async function generateVideoAsync(
   sceneId: string,
   config: typeof GenerateVideoRequestSchema._type['config']
 ): Promise<void> {
-  const provider = determineProvider(config)
+  const provider = await determineProvider(config)
   console.log(`[VideoGen] 使用提供商: ${provider}`)
 
   if (provider === 'qwen') {
     await generateVideoWithQwen(taskId, sceneId, config)
+  } else if (provider === 'volcengine') {
+    await generateVideoWithVolcengine(taskId, sceneId, config)
   } else {
     await generateVideoWithGemini(taskId, sceneId, config)
   }
@@ -162,17 +201,13 @@ async function generateVideoWithQwen(
   try {
     await updateTaskProgress(taskId, 10, 'processing')
 
-    // 确定模型
-    let modelId = config.modelId
-    if (!modelId) {
-      const selected = getSelectedModels()
-      const selectedModel = findVideoModel(selected.video)
-      if (selectedModel?.provider === 'qwen') {
-        modelId = selectedModel.model
-      } else {
-        // 根据是否有图片选择模型
-        modelId = config.imageUrl ? qwen.QwenVideoModels.WAN_2_6_I2V : qwen.QwenVideoModels.WAN_2_6_T2V
-      }
+    // 确定模型 - 优先使用业务流程配置 (从数据库读取)
+    let modelId = await getActualModelId(config)
+    const modelConfig = modelId ? findVideoModel(modelId) : null
+    
+    // 如果模型不是 qwen 的，使用默认 qwen 模型
+    if (!modelConfig || modelConfig.provider !== 'qwen') {
+      modelId = config.imageUrl ? qwen.QwenVideoModels.WAN_2_6_I2V : qwen.QwenVideoModels.WAN_2_6_T2V
     }
 
     // 转换分辨率为 size 格式
@@ -215,10 +250,38 @@ async function generateVideoWithQwen(
     await updateTaskProgress(taskId, 20)
 
     // 调用千问视频生成
+    // 检查是否是首尾帧模型
+    const isKf2vModel = modelId?.includes('kf2v')
+    
+    // 准备首尾帧 URL (如果有 base64 数据，转换为 data URL)
+    let firstFrameUrl: string | undefined
+    let lastFrameUrl: string | undefined
+    
+    if (config.firstFrame) {
+      firstFrameUrl = config.firstFrame.startsWith('data:') 
+        ? config.firstFrame 
+        : `data:image/png;base64,${config.firstFrame}`
+    }
+    if (config.lastFrame) {
+      lastFrameUrl = config.lastFrame.startsWith('data:') 
+        ? config.lastFrame 
+        : `data:image/png;base64,${config.lastFrame}`
+    }
+    
+    console.log('[VideoGen] 首尾帧信息:', {
+      isKf2vModel,
+      hasFirstFrame: !!firstFrameUrl,
+      hasLastFrame: !!lastFrameUrl,
+      firstFrameLength: firstFrameUrl?.length,
+      lastFrameLength: lastFrameUrl?.length
+    })
+    
     const result = await qwen._qwenGenerateVideo({
       model: modelId,
       prompt: config.prompt,
       imageUrl: config.imageUrl,
+      firstFrameUrl,  // 首尾帧模型需要
+      lastFrameUrl,   // 首尾帧模型需要
       audioUrl: config.audioUrl,
       duration,
       size,
@@ -502,6 +565,119 @@ async function generateVideoWithGemini(
       })
       .where(eq(videoTasksTable.id, taskId))
 
+    throw error
+  }
+}
+
+/**
+ * 使用火山引擎生成视频
+ */
+async function generateVideoWithVolcengine(
+  taskId: string,
+  sceneId: string,
+  config: typeof GenerateVideoRequestSchema._type['config']
+): Promise<void> {
+  try {
+    await updateTaskProgress(taskId, 10, 'processing')
+
+    // 确定模型 - 优先使用业务流程配置 (从数据库读取)
+    let modelId = await getActualModelId(config)
+    const modelConfig = modelId ? findVideoModel(modelId) : null
+    
+    // 如果模型不是 volcengine 的，使用默认 volcengine 模型
+    if (!modelConfig || modelConfig.provider !== 'volcengine') {
+      // 火山引擎只有图生视频模型，没有纯文生视频
+      modelId = volcengine.VolcengineVideoModels.SEEDANCE_1_0_LITE_I2V
+    }
+
+    // 转换时长 (火山引擎支持 2-12 秒)
+    let duration = config.duration
+    if (duration < 2) duration = 2
+    else if (duration > 12) duration = 12
+
+    console.log('[VideoGen] Volcengine API 请求参数:', {
+      model: modelId,
+      promptLength: config.prompt.length,
+      hasImageUrl: !!config.imageUrl,
+      hasFirstFrame: !!config.firstFrame,
+      hasLastFrame: !!config.lastFrame,
+      duration
+    })
+
+    await updateTaskProgress(taskId, 20)
+
+    // 调用火山引擎视频生成
+    const result = await volcengine._volcengineGenerateVideo({
+      model: modelId,
+      prompt: config.prompt,
+      imageUrl: config.imageUrl,
+      firstFrameUrl: config.firstFrame ? `data:image/png;base64,${config.firstFrame}` : undefined,
+      lastFrameUrl: config.lastFrame ? `data:image/png;base64,${config.lastFrame}` : undefined,
+      duration,
+      resolution: config.resolution
+    })
+
+    await updateTaskProgress(taskId, 95)
+
+    // 下载视频到本地
+    let videoData = ''
+    if (result.videoUrl) {
+      try {
+        const videosDir = path.join(process.cwd(), 'public', 'videos')
+        if (!fs.existsSync(videosDir)) {
+          fs.mkdirSync(videosDir, { recursive: true })
+        }
+
+        const videoFileName = `${taskId}.mp4`
+        const videoFilePath = path.join(videosDir, videoFileName)
+        const localVideoUrl = `/videos/${videoFileName}`
+
+        // 下载视频
+        const response = await fetch(result.videoUrl)
+        if (response.ok) {
+          const buffer = await response.arrayBuffer()
+          fs.writeFileSync(videoFilePath, Buffer.from(buffer))
+          console.log(`[VideoGen] 视频下载成功: ${videoFilePath}`)
+          videoData = `url:${localVideoUrl}`
+        } else {
+          // 保存远程 URL
+          videoData = `url:${result.videoUrl}`
+        }
+      } catch (downloadError) {
+        console.error('[VideoGen] 视频下载失败:', downloadError)
+        videoData = `url:${result.videoUrl}`
+      }
+    }
+
+    // 构建结果
+    const generatedVideo: GeneratedVideo = {
+      id: `generated_${taskId}`,
+      sceneId,
+      videoData,
+      metadata: {
+        duration,
+        resolution: config.resolution,
+        aspectRatio: config.aspectRatio,
+        fps: 24,
+        hasAudio: false // 火山引擎 1.5 pro 支持音频，其他不支持
+      },
+      createdAt: new Date().toISOString()
+    }
+
+    // 完成任务
+    await db.update(videoTasksTable)
+      .set({
+        status: 'completed',
+        progress: 100,
+        videoData: generatedVideo.videoData,
+        metadata: JSON.stringify(generatedVideo.metadata),
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(videoTasksTable.id, taskId))
+
+    console.log(`[VideoGen] 火山引擎视频生成完成: ${taskId}`)
+  } catch (error) {
+    console.error(`[VideoGen] 火山引擎生成失败:`, error)
     throw error
   }
 }

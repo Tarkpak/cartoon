@@ -1,4 +1,4 @@
-import { _geminiGenerateJSON, TextModels, GeminiError } from '../../utils/gemini'
+import { generateJSONForWorkflow } from '../../utils/workflow-model'
 import { z } from 'zod'
 
 /**
@@ -44,8 +44,8 @@ export default defineEventHandler(async (event) => {
     const systemInstruction = buildCharacterExtractSystemPrompt(style)
     const prompt = `请从以下内容中提取角色形象：\n\n${content}`
 
-    const result = await _geminiGenerateJSON<{ characters: Array<{ role: string, role_content: string }> }>({
-      model: TextModels.SCRIPT_PARSER,
+    // 使用业务流程配置的模型
+    const result = await generateJSONForWorkflow<{ characters: Array<{ role: string, role_content: string }> }>('character_extraction', {
       prompt,
       systemInstruction,
       temperature: 0.4,
@@ -70,14 +70,12 @@ export default defineEventHandler(async (event) => {
       latencyMs: Date.now() - startTime
     }
   } catch (error) {
-    if (error instanceof GeminiError) {
-      throw createError({
-        statusCode: error.status || 500,
-        statusMessage: `角色提取失败: ${error.code}`,
-        message: error.message
-      })
-    }
-    throw error
+    console.error('[CharacterExtract] 提取失败:', error)
+    throw createError({
+      statusCode: 500,
+      statusMessage: '角色提取失败',
+      message: error instanceof Error ? error.message : '未知错误'
+    })
   }
 })
 

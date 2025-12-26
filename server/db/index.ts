@@ -130,6 +130,15 @@ export function initDatabase() {
     )
   `)
 
+  // 创建系统配置表
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS system_config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `)
+
   // 创建索引
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS idx_scripts_project ON scripts(project_id);

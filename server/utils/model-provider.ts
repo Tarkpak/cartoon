@@ -14,6 +14,7 @@ import type {
 
 import * as gemini from './gemini'
 import * as qwen from './qwen'
+import * as volcengine from './volcengine'
 
 // 注意: GeminiError/GeminiErrorCode 请从 './gemini' 导入
 // 注意: QwenError/QwenErrorCode 请从 './qwen' 导入
@@ -81,6 +82,47 @@ export const TEXT_MODELS: TextModelConfig[] = [
     description: '全新混合推理架构模型',
     supportThinking: true,
     docUrl: 'https://help.aliyun.com/zh/model-studio/deepseek-api'
+  },
+  // 火山引擎 (豆包) 模型
+  {
+    provider: 'volcengine',
+    model: volcengine.VolcengineTextModels.DOUBAO_SEED_1_8,
+    displayName: '豆包 Seed 1.8',
+    description: '最强多模态 Agent 模型，256k上下文，支持深度思考/工具调用',
+    supportThinking: true,
+    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
+  },
+  {
+    provider: 'volcengine',
+    model: volcengine.VolcengineTextModels.DOUBAO_SEED_CODE,
+    displayName: '豆包 Seed Code',
+    description: '编程场景增强，256k上下文',
+    supportThinking: false,
+    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
+  },
+  {
+    provider: 'volcengine',
+    model: volcengine.VolcengineTextModels.DOUBAO_SEED_FLASH,
+    displayName: '豆包 Seed Flash',
+    description: '快速版，支持视觉定位',
+    supportThinking: false,
+    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
+  },
+  {
+    provider: 'volcengine',
+    model: volcengine.VolcengineTextModels.DEEPSEEK_V3_2,
+    displayName: 'DeepSeek-V3.2 (火山)',
+    description: 'DeepSeek最新版 (火山引擎)',
+    supportThinking: true,
+    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
+  },
+  {
+    provider: 'volcengine',
+    model: volcengine.VolcengineTextModels.KIMI_K2_THINKING,
+    displayName: 'Kimi K2 深度思考',
+    description: 'Kimi深度思考模型',
+    supportThinking: true,
+    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   }
 ]
 
@@ -136,6 +178,31 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     description: '高性价比，照片级品质',
     supportReferenceImage: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/z-image-api-reference'
+  },
+  // 火山引擎 (豆包 Seedream) 图片模型
+  {
+    provider: 'volcengine',
+    model: volcengine.VolcengineImageModels.SEEDREAM_4_5,
+    displayName: '豆包 Seedream 4.5',
+    description: '最强图片生成，支持文生图/图生图/多参考图',
+    supportReferenceImage: true,
+    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
+  },
+  {
+    provider: 'volcengine',
+    model: volcengine.VolcengineImageModels.SEEDREAM_4_0,
+    displayName: '豆包 Seedream 4.0',
+    description: '高质量图片生成',
+    supportReferenceImage: true,
+    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
+  },
+  {
+    provider: 'volcengine',
+    model: volcengine.VolcengineImageModels.SEEDREAM_3_0_T2I,
+    displayName: '豆包 Seedream 3.0 文生图',
+    description: '文生图专用模型',
+    supportReferenceImage: false,
+    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   }
 ]
 
@@ -208,6 +275,40 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     supportImageToVideo: true,
     supportTextToVideo: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/image-to-video-api-reference'
+  },
+  // 火山引擎 (豆包 Seedance) 视频模型 - 仅保留支持首尾帧的模型
+  {
+    provider: 'volcengine',
+    model: volcengine.VolcengineVideoModels.SEEDANCE_1_5_PRO,
+    displayName: '豆包 Seedance 1.5 Pro',
+    description: '最强视频生成，支持首尾帧/首帧/文生视频，4-12秒',
+    maxDuration: 12,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: true,
+    docUrl: 'https://www.volcengine.com/docs/82379/1520757'
+  },
+  {
+    provider: 'volcengine',
+    model: volcengine.VolcengineVideoModels.SEEDANCE_1_0_PRO,
+    displayName: '豆包 Seedance 1.0 Pro',
+    description: '支持480p/720p/1080p，支持首尾帧',
+    maxDuration: 8,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: true,
+    docUrl: 'https://www.volcengine.com/docs/82379/1520757'
+  },
+  {
+    provider: 'volcengine',
+    model: volcengine.VolcengineVideoModels.SEEDANCE_1_0_LITE_I2V,
+    displayName: '豆包 Seedance Lite 图生视频',
+    description: '轻量图生视频，支持首尾帧',
+    maxDuration: 5,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: false,
+    docUrl: 'https://www.volcengine.com/docs/82379/1520757'
   }
 ]
 
@@ -327,6 +428,17 @@ export async function generateText(options: {
     })
   }
 
+  if (provider === 'volcengine') {
+    return volcengine._volcengineGenerateText({
+      model: modelId,
+      prompt: options.prompt,
+      systemInstruction: options.systemInstruction,
+      temperature: options.temperature,
+      maxRetries: options.maxRetries,
+      enableThinking: options.enableThinking
+    })
+  }
+
   // 默认使用 Gemini
   return gemini._geminiGenerateText({
     model: modelId,
@@ -351,6 +463,16 @@ export async function generateJSON<T>(options: {
 
   if (provider === 'qwen') {
     return qwen._qwenGenerateJSON<T>({
+      model: modelId,
+      prompt: options.prompt,
+      systemInstruction: options.systemInstruction,
+      temperature: options.temperature,
+      maxRetries: options.maxRetries
+    })
+  }
+
+  if (provider === 'volcengine') {
+    return volcengine._volcengineGenerateJSON<T>({
       model: modelId,
       prompt: options.prompt,
       systemInstruction: options.systemInstruction,
@@ -395,6 +517,18 @@ export async function generateImage(options: {
 
   if (provider === 'qwen') {
     const result = await qwen._qwenGenerateImage({
+      model: modelId,
+      prompt: options.prompt,
+      negativePrompt: options.negativePrompt,
+      size: options.size,
+      referenceImages: options.referenceImages,
+      maxRetries: options.maxRetries
+    })
+    return { imageUrl: result.imageUrl }
+  }
+
+  if (provider === 'volcengine') {
+    const result = await volcengine._volcengineGenerateImage({
       model: modelId,
       prompt: options.prompt,
       negativePrompt: options.negativePrompt,
@@ -470,6 +604,25 @@ export async function generateVideo(options: {
       audio: options.audio,
       watermark: options.watermark,
       seed: options.seed,
+      maxRetries: options.maxRetries
+    })
+    return {
+      videoUrl: result.videoUrl,
+      taskId: result.taskId
+    }
+  }
+
+  if (provider === 'volcengine') {
+    const result = await volcengine._volcengineGenerateVideo({
+      model: modelId,
+      prompt: options.prompt,
+      imageUrl: options.imageUrl,
+      firstFrameUrl: options.firstFrameUrl,
+      lastFrameUrl: options.lastFrameUrl,
+      duration: options.duration,
+      size: options.size,
+      resolution: options.resolution,
+      negativePrompt: options.negativePrompt,
       maxRetries: options.maxRetries
     })
     return {

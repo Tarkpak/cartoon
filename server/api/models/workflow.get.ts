@@ -1,8 +1,10 @@
 /**
  * 获取业务流程模型配置
- * 返回各业务流程的模型需求和当前选择
+ * 从数据库读取配置，返回各业务流程的模型需求和当前选择
  */
 
+import { eq } from 'drizzle-orm'
+import { db, systemConfig } from '../../db'
 import {
   TEXT_MODELS,
   IMAGE_MODELS,
@@ -21,8 +23,11 @@ import type {
   VoiceModelConfig
 } from '#shared/types/provider'
 
-// 内存存储业务流程模型选择
-let workflowModels: Record<WorkflowStep, string> = {
+// 配置键名
+const WORKFLOW_MODELS_KEY = 'workflow_models'
+
+// 默认配置
+const DEFAULT_WORKFLOW_MODELS: Record<WorkflowStep, string> = {
   // 文本生成类 - 默认使用千问
   outline_generation: 'qwen-flash',
   script_parsing: 'qwen-flash',
@@ -30,24 +35,90 @@ let workflowModels: Record<WorkflowStep, string> = {
   storyboard_generation: 'qwen-flash',
   scene_visual_extraction: 'qwen-flash',
   
-  // 图片生成类
+  // 图片生成类 - 默认使用千问
   character_portrait: 'wanx2.1-t2i-turbo',
-  character_views: 'gemini-3-pro-image-preview',  // 需要参考图
-  frame_generation: 'gemini-3-pro-image-preview', // 需要参考图
+  character_views: 'wan2.6-image',
+  frame_generation: 'wan2.6-image',
   
-  // 视频生成类
-  video_generation: 'veo-3.1-generate-preview',   // 需要首尾帧
+  // 视频生成类 - 默认使用千问
+  video_generation: 'wan2.2-kf2v-flash',
   
-  // 语音生成类
+  // 语音生成类 - 默认使用千问
   voice_synthesis: 'qwen3-tts-flash'
 }
 
-export function getWorkflowModels() {
-  return { ...workflowModels }
+/**
+ * 从数据库获取业务流程模型配置
+ */
+export async function getWorkflowModels(): Promise<Record<WorkflowStep, string>> {
+  try {
+    const result = await db.select()
+      .from(systemConfig)
+      .where(eq(systemConfig.key, WORKFLOW_MODELS_KEY))
+      .limit(1)
+    
+    if (result.length > 0 && result[0].value) {
+      const saved = JSON.parse(result[0].value) as Partial<Record<WorkflowStep, string>>
+      // 合并默认配置和保存的配置
+      return { ...DEFAULT_WORKFLOW_MODELS, ...saved }
+    }
+  } catch (error) {
+    console.error('[WorkflowModels] 读取配置失败:', error)
+  }
+  
+  return { ...DEFAULT_WORKFLOW_MODELS }
 }
 
-export function setWorkflowModel(step: WorkflowStep, modelId: string) {
-  workflowModels[step] = modelId
+/**
+ * 保存业务流程模型配置到数据库
+ */
+export async function setWorkflowModel(step: WorkflowStep, modelId: string): Promise<void> {
+  const current = await getWorkflowModels()
+  current[step] = modelId
+  
+  const now = new Date().toISOString()
+  
+  await db.insert(systemConfig)
+    .values({
+      key: WORKFLOW_MODELS_KEY,
+      value: JSON.stringify(current),
+      updatedAt: now
+    })
+    .onConflictDoUpdate({
+      target: systemConfig.key,
+      set: {
+        value: JSON.stringify(current),
+        updatedAt: now
+      }
+    })
+  
+  console.log(`[WorkflowModels] 已保存配置: ${step} = ${modelId}`)
+}
+
+/**
+ * 批量保存业务流程模型配置
+ */
+export async function setWorkflowModels(models: Partial<Record<WorkflowStep, string>>): Promise<void> {
+  const current = await getWorkflowModels()
+  const updated = { ...current, ...models }
+  
+  const now = new Date().toISOString()
+  
+  await db.insert(systemConfig)
+    .values({
+      key: WORKFLOW_MODELS_KEY,
+      value: JSON.stringify(updated),
+      updatedAt: now
+    })
+    .onConflictDoUpdate({
+      target: systemConfig.key,
+      set: {
+        value: JSON.stringify(updated),
+        updatedAt: now
+      }
+    })
+  
+  console.log(`[WorkflowModels] 已批量保存配置:`, models)
 }
 
 /** 检查模型是否满足能力要求 */
@@ -58,7 +129,6 @@ function checkModelCapabilities(
   for (const cap of requiredCapabilities) {
     switch (cap) {
       case 'text_generation':
-        // 所有文本模型都支持
         break
       case 'reference_image':
         if ('supportReferenceImage' in model && !model.supportReferenceImage) {
@@ -125,34 +195,6 @@ function getCompatibleModels(
   return models.filter(m => checkModelCapabilities(m, requiredCapabilities))
 }
 
-export default defineEventHandler(async () => {
-  // 构建每个业务流程的可用模型列表
-  const workflowConfigs = WORKFLOW_STEP_CONFIGS.map(config => {
-    const compatibleModels = getCompatibleModels(config.category, config.requiredCapabilities)
-    
-    return {
-      ...config,
-      compatibleModels: compatibleModels.map(m => ({
-        model: m.model,
-        displayName: m.displayName,
-        provider: m.provider,
-        description: m.description,
-        // 添加能力标签
-        capabilities: getModelCapabilityTags(m)
-      })),
-      selectedModel: workflowModels[config.id] || null
-    }
-  })
-  
-  return {
-    success: true,
-    data: {
-      workflows: workflowConfigs,
-      currentSelections: workflowModels
-    }
-  }
-})
-
 /** 获取模型的能力标签 */
 function getModelCapabilityTags(
   model: TextModelConfig | ImageModelConfig | VideoModelConfig | VoiceModelConfig
@@ -183,3 +225,33 @@ function getModelCapabilityTags(
   
   return tags
 }
+
+export default defineEventHandler(async () => {
+  // 从数据库读取当前配置
+  const workflowModels = await getWorkflowModels()
+  
+  // 构建每个业务流程的可用模型列表
+  const workflowConfigs = WORKFLOW_STEP_CONFIGS.map(config => {
+    const compatibleModels = getCompatibleModels(config.category, config.requiredCapabilities)
+    
+    return {
+      ...config,
+      compatibleModels: compatibleModels.map(m => ({
+        model: m.model,
+        displayName: m.displayName,
+        provider: m.provider,
+        description: m.description,
+        capabilities: getModelCapabilityTags(m)
+      })),
+      selectedModel: workflowModels[config.id] || null
+    }
+  })
+  
+  return {
+    success: true,
+    data: {
+      workflows: workflowConfigs,
+      currentSelections: workflowModels
+    }
+  }
+})

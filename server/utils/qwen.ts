@@ -992,6 +992,7 @@ export async function _qwenTextToSpeech(options: {
   speed?: number
   format?: string  // mp3, wav, pcm
   sampleRate?: number
+  languageType?: string  // Chinese, English, etc.
   maxRetries?: number
 }): Promise<{ audioData: string, audioUrl?: string }> {
   const model = options.model || QwenVoiceModels.QWEN3_TTS_FLASH
@@ -1004,6 +1005,48 @@ export async function _qwenTextToSpeech(options: {
   })
 
   return withRetry(async () => {
+    // qwen3-tts-flash 使用新的 multimodal-generation 端点
+    // 文档: https://help.aliyun.com/zh/model-studio/qwen-tts-api
+    if (model === QwenVoiceModels.QWEN3_TTS_FLASH) {
+      const response = await request<{
+        output: {
+          audio?: {
+            data?: string
+            url?: string
+            id?: string
+            expires_at?: number
+          }
+          finish_reason?: string
+        }
+        usage?: {
+          characters?: number
+        }
+        request_id: string
+      }>(
+        '/services/aigc/multimodal-generation/generation',
+        {
+          model,
+          input: {
+            text: options.text,
+            voice: options.voice || 'Cherry',
+            language_type: options.languageType || 'Chinese'
+          }
+        }
+      )
+
+      const audioUrl = response.output?.audio?.url
+      const audioData = response.output?.audio?.data || ''
+      
+      if (!audioUrl && !audioData) {
+        console.error('[Qwen] TTS 响应:', JSON.stringify(response, null, 2))
+        throw new QwenError('TTS 生成失败', QwenErrorCode.INTERNAL, 500, false)
+      }
+
+      console.log(`[Qwen] TTS 生成成功: ${audioUrl?.slice(0, 100)}...`)
+      return { audioData, audioUrl }
+    }
+
+    // 旧版 TTS 模型使用原有端点
     const response = await request<TTSResponse>(
       '/services/aigc/text2audio/speech-synthesis',
       {

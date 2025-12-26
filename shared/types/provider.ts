@@ -4,10 +4,11 @@ import { z } from 'zod'
 
 /** 模型提供商 */
 export const ModelProviderSchema = z.enum([
-  'gemini',   // Google Gemini
-  'qwen',     // 阿里云千问
-  'openai',   // OpenAI (预留)
-  'deepseek'  // DeepSeek (预留)
+  'gemini',      // Google Gemini
+  'qwen',        // 阿里云千问
+  'volcengine',  // 火山引擎 (豆包)
+  'openai',      // OpenAI (预留)
+  'deepseek'     // DeepSeek (预留)
 ])
 export type ModelProvider = z.infer<typeof ModelProviderSchema>
 

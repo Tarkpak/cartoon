@@ -1,0 +1,618 @@
+/**
+ * 火山引擎 (Volcengine) 方舟平台 API 封装
+ * 基于火山引擎方舟大模型服务平台
+ * 
+ * 文档参考: https://www.volcengine.com/docs/82379/1330310
+ * 更新日期: 2025.12.25
+ */
+
+// ============================================================
+// 错误类型定义
+// ============================================================
+
+export enum VolcengineErrorCode {
+  INVALID_ARGUMENT = 'INVALID_ARGUMENT',
+  PERMISSION_DENIED = 'PERMISSION_DENIED',
+  NOT_FOUND = 'NOT_FOUND',
+  RESOURCE_EXHAUSTED = 'RESOURCE_EXHAUSTED',
+  INTERNAL = 'INTERNAL',
+  UNAVAILABLE = 'UNAVAILABLE',
+  DEADLINE_EXCEEDED = 'DEADLINE_EXCEEDED',
+  UNKNOWN = 'UNKNOWN'
+}
+
+export class VolcengineError extends Error {
+  constructor(
+    message: string,
+    public code: VolcengineErrorCode,
+    public status?: number,
+    public retryable: boolean = false
+  ) {
+    super(message)
+    this.name = 'VolcengineError'
+  }
+}
+
+const RETRYABLE_ERROR_CODES = new Set([
+  VolcengineErrorCode.RESOURCE_EXHAUSTED,
+  VolcengineErrorCode.INTERNAL,
+  VolcengineErrorCode.UNAVAILABLE,
+  VolcengineErrorCode.DEADLINE_EXCEEDED
+])
+
+// ============================================================
+// 模型配置 (基于火山引擎方舟平台 2025.12.25 更新)
+// ============================================================
+
+/** 火山引擎文本模型 (豆包系列) */
+export const VolcengineTextModels = {
+  // 豆包最强多模态 Agent 模型
+  DOUBAO_SEED_1_8: 'doubao-seed-1-8-251215',
+  // 编程场景增强
+  DOUBAO_SEED_CODE: 'doubao-seed-code-preview-251028',
+  // 轻量版
+  DOUBAO_SEED_LITE: 'doubao-seed-1-6-lite-251015',
+  // 快速版 (支持视觉定位)
+  DOUBAO_SEED_FLASH: 'doubao-seed-1-6-flash-250828',
+  // 视觉增强版 (支持GUI任务)
+  DOUBAO_SEED_VISION: 'doubao-seed-1-6-vision-250815',
+  // DeepSeek 最新版
+  DEEPSEEK_V3_2: 'deepseek-v3-2-251201',
+  // Kimi 深度思考模型
+  KIMI_K2_THINKING: 'kimi-k2-thinking-251104'
+} as const
+
+/** 火山引擎图片生成模型 (豆包 Seedream 系列) */
+export const VolcengineImageModels = {
+  // 最强图片生成，支持文生图/图生图/多参考图/生成组图
+  SEEDREAM_4_5: 'doubao-seedream-4-5-251128',
+  SEEDREAM_4_0: 'doubao-seedream-4-0-250828',
+  // 文生图
+  SEEDREAM_3_0_T2I: 'doubao-seedream-3-0-t2i-250415'
+} as const
+
+/** 火山引擎视频生成模型 (豆包 Seedance 系列) - 仅保留支持首尾帧的模型 */
+export const VolcengineVideoModels = {
+  // 最强视频生成，支持首尾帧/首帧/文生视频，4-12秒
+  SEEDANCE_1_5_PRO: 'doubao-seedance-1-5-pro-251215',
+  // 支持480p/720p/1080p，支持首尾帧
+  SEEDANCE_1_0_PRO: 'doubao-seedance-1-0-pro-250528',
+  // 轻量图生视频，支持首尾帧
+  SEEDANCE_1_0_LITE_I2V: 'doubao-seedance-1-0-lite-i2v-250428'
+} as const
+
+/** 火山引擎向量化模型 */
+export const VolcengineEmbeddingModels = {
+  // 多模态向量化，128k上下文
+  EMBEDDING_VISION: 'doubao-embedding-vision-251215'
+} as const
+
+// ============================================================
+// API 配置
+// ============================================================
+
+// 火山引擎方舟平台 API 基础 URL (OpenAI 兼容模式)
+const VOLCENGINE_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
+
+interface VolcengineConfig {
+  apiKey: string
+  baseUrl: string
+}
+
+let config: VolcengineConfig | null = null
+
+function getConfig(): VolcengineConfig {
+  if (!config) {
+    const runtimeConfig = useRuntimeConfig()
+    const apiKey = runtimeConfig.volcengineApiKey as string
+
+    if (!apiKey) {
+      throw new VolcengineError(
+        'VOLCENGINE_API_KEY 环境变量未设置',
+        VolcengineErrorCode.PERMISSION_DENIED,
+        403,
+        false
+      )
+    }
+
+    config = {
+      apiKey,
+      baseUrl: VOLCENGINE_BASE_URL
+    }
+  }
+  return config
+}
+
+
+// ============================================================
+// 重试配置
+// ============================================================
+
+interface RetryConfig {
+  maxRetries: number
+  initialDelayMs: number
+  maxDelayMs: number
+  backoffMultiplier: number
+}
+
+const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  initialDelayMs: 1000,
+  maxDelayMs: 32000,
+  backoffMultiplier: 2
+}
+
+function calculateBackoffDelay(attempt: number, config: RetryConfig): number {
+  const delay = config.initialDelayMs * Math.pow(config.backoffMultiplier, attempt)
+  const jitter = delay * 0.2 * (Math.random() - 0.5)
+  return Math.min(delay + jitter, config.maxDelayMs)
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function parseError(error: unknown): VolcengineError {
+  if (error instanceof VolcengineError) {
+    return error
+  }
+
+  const err = error as { status?: number, message?: string, code?: string }
+  const status = err.status || 500
+  const message = err.message || '未知错误'
+
+  let code: VolcengineErrorCode
+  switch (status) {
+    case 400: code = VolcengineErrorCode.INVALID_ARGUMENT; break
+    case 403: code = VolcengineErrorCode.PERMISSION_DENIED; break
+    case 404: code = VolcengineErrorCode.NOT_FOUND; break
+    case 429: code = VolcengineErrorCode.RESOURCE_EXHAUSTED; break
+    case 500: code = VolcengineErrorCode.INTERNAL; break
+    case 503: code = VolcengineErrorCode.UNAVAILABLE; break
+    case 504: code = VolcengineErrorCode.DEADLINE_EXCEEDED; break
+    default: code = VolcengineErrorCode.UNKNOWN
+  }
+
+  return new VolcengineError(message, code, status, RETRYABLE_ERROR_CODES.has(code))
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  retryConfig: Partial<RetryConfig> = {}
+): Promise<T> {
+  const filteredConfig = Object.fromEntries(
+    Object.entries(retryConfig).filter(([, v]) => v !== undefined)
+  )
+  const cfg = { ...DEFAULT_RETRY_CONFIG, ...filteredConfig }
+  let lastError: VolcengineError = new VolcengineError('未知错误', VolcengineErrorCode.UNKNOWN, 500, false)
+
+  for (let attempt = 0; attempt <= cfg.maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = parseError(error)
+      console.warn(`[Volcengine] 请求失败 (attempt ${attempt + 1}/${cfg.maxRetries + 1}):`, lastError.message)
+      if (!lastError.retryable || attempt === cfg.maxRetries) {
+        throw lastError
+      }
+      const delay = calculateBackoffDelay(attempt, cfg)
+      console.warn(`[Volcengine] ${delay.toFixed(0)}ms 后重试...`)
+      await sleep(delay)
+    }
+  }
+  throw lastError
+}
+
+// ============================================================
+// HTTP 请求封装
+// ============================================================
+
+async function request<T>(
+  endpoint: string,
+  body: Record<string, unknown>,
+  options: { timeout?: number, method?: 'POST' | 'GET' } = {}
+): Promise<T> {
+  const cfg = getConfig()
+  const url = `${cfg.baseUrl}${endpoint}`
+  const method = options.method || 'POST'
+
+  const controller = new AbortController()
+  const timeoutId = options.timeout
+    ? setTimeout(() => controller.abort(), options.timeout)
+    : null
+
+  try {
+    const fetchOptions: RequestInit = {
+      method,
+      headers: {
+        'Authorization': `Bearer ${cfg.apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      signal: controller.signal
+    }
+
+    if (method === 'POST' && body) {
+      fetchOptions.body = JSON.stringify(body)
+    }
+
+    const response = await fetch(url, fetchOptions)
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({})) as { error?: { message?: string, code?: string } }
+      console.error('[Volcengine] API 错误响应:', {
+        status: response.status,
+        errorData,
+        url,
+        body: JSON.stringify(body).slice(0, 500)
+      })
+      throw new VolcengineError(
+        errorData.error?.message || `HTTP ${response.status}`,
+        VolcengineErrorCode.UNKNOWN,
+        response.status,
+        response.status >= 500 || response.status === 429
+      )
+    }
+
+    return await response.json() as T
+  } catch (error) {
+    if (error instanceof VolcengineError) throw error
+    console.error('[Volcengine] 请求异常:', error instanceof Error ? error.message : String(error))
+    throw error
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
+}
+
+// ============================================================
+// 文本生成 API (OpenAI 兼容模式)
+// ============================================================
+
+interface ChatCompletionResponse {
+  id: string
+  object: string
+  created: number
+  model: string
+  choices: Array<{
+    index: number
+    message: {
+      role: string
+      content: string
+    }
+    finish_reason: string
+  }>
+  usage?: {
+    prompt_tokens: number
+    completion_tokens: number
+    total_tokens: number
+  }
+}
+
+export async function _volcengineGenerateText(options: {
+  model?: string
+  prompt: string
+  systemInstruction?: string
+  temperature?: number
+  maxRetries?: number
+  enableThinking?: boolean
+}): Promise<string> {
+  const model = options.model || VolcengineTextModels.DOUBAO_SEED_FLASH
+
+  return withRetry(async () => {
+    const messages: Array<{ role: string, content: string }> = []
+    
+    if (options.systemInstruction) {
+      messages.push({ role: 'system', content: options.systemInstruction })
+    }
+    messages.push({ role: 'user', content: options.prompt })
+
+    const response = await request<ChatCompletionResponse>(
+      '/chat/completions',
+      {
+        model,
+        messages,
+        temperature: options.temperature ?? 0.7
+      }
+    )
+
+    return response.choices?.[0]?.message?.content || ''
+  }, { maxRetries: options.maxRetries })
+}
+
+export async function _volcengineGenerateJSON<T>(options: {
+  model?: string
+  prompt: string
+  systemInstruction?: string
+  temperature?: number
+  maxRetries?: number
+}): Promise<T> {
+  const model = options.model || VolcengineTextModels.DOUBAO_SEED_FLASH
+
+  console.log('[Volcengine] generateJSON 请求参数:', {
+    model,
+    promptLength: options.prompt.length,
+    temperature: options.temperature ?? 0.2
+  })
+
+  return withRetry(async () => {
+    const messages: Array<{ role: string, content: string }> = []
+    
+    if (options.systemInstruction) {
+      messages.push({ role: 'system', content: options.systemInstruction })
+    }
+    messages.push({ role: 'user', content: options.prompt })
+
+    const response = await request<ChatCompletionResponse>(
+      '/chat/completions',
+      {
+        model,
+        messages,
+        temperature: options.temperature ?? 0.2,
+        response_format: { type: 'json_object' }
+      }
+    )
+
+    const text = response.choices?.[0]?.message?.content || '{}'
+    
+    // 尝试提取 JSON
+    let jsonStr = text.trim()
+    
+    const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+    if (codeBlockMatch && codeBlockMatch[1]) {
+      jsonStr = codeBlockMatch[1].trim()
+    }
+    
+    try {
+      return JSON.parse(jsonStr) as T
+    } catch (parseError) {
+      console.error('[Volcengine] JSON 解析失败，原始文本:', text.slice(0, 1000))
+      throw parseError
+    }
+  }, { maxRetries: options.maxRetries })
+}
+
+
+// ============================================================
+// 图片生成 API (豆包 Seedream)
+// ============================================================
+
+interface ImageGenerationResponse {
+  data: Array<{
+    url?: string
+    b64_json?: string
+  }>
+  created: number
+}
+
+export async function _volcengineGenerateImage(options: {
+  model?: string
+  prompt: string
+  negativePrompt?: string
+  size?: string
+  n?: number
+  referenceImages?: string[]
+  maxRetries?: number
+}): Promise<{ imageUrl: string }> {
+  const model = options.model || VolcengineImageModels.SEEDREAM_4_5
+
+  console.log('[Volcengine] generateImage 请求参数:', {
+    model,
+    promptLength: options.prompt.length,
+    size: options.size || '1024x1024',
+    n: options.n || 1
+  })
+
+  return withRetry(async () => {
+    // 火山引擎要求尺寸格式为 WIDTHxHEIGHT (小写x)
+    let size = options.size || '1024x1024'
+    // 兼容 * 分隔符
+    size = size.replace('*', 'x')
+    
+    // Seedream 4.5 和 4.0 要求图片尺寸至少 3686400 像素 (约 1920x1920)
+    // 如果使用默认尺寸且是高版本模型，自动升级到 2048x2048
+    if (model.includes('seedream-4-5') || model.includes('seedream-4-0')) {
+      const [width, height] = size.split('x').map(Number)
+      if (width * height < 3686400) {
+        size = '2048x2048'
+        console.log(`[Volcengine] 模型 ${model} 要求更大尺寸，自动调整为 ${size}`)
+      }
+    }
+    
+    const requestBody: Record<string, unknown> = {
+      model,
+      prompt: options.prompt,
+      n: options.n || 1,
+      size
+    }
+
+    if (options.negativePrompt) {
+      requestBody.negative_prompt = options.negativePrompt
+    }
+
+    // 参考图支持 (图生图模式)
+    if (options.referenceImages && options.referenceImages.length > 0) {
+      requestBody.image = options.referenceImages[0]
+    }
+
+    const response = await request<ImageGenerationResponse>(
+      '/images/generations',
+      requestBody
+    )
+
+    const imageUrl = response.data?.[0]?.url
+    if (!imageUrl) {
+      throw new VolcengineError('图片生成失败', VolcengineErrorCode.INTERNAL, 500, false)
+    }
+
+    console.log(`[Volcengine] 图片生成成功: ${imageUrl.slice(0, 100)}...`)
+    return { imageUrl }
+  }, { maxRetries: options.maxRetries })
+}
+
+// ============================================================
+// 视频生成 API (豆包 Seedance)
+// 使用异步任务 API: /contents/generations/tasks
+// 文档: https://www.volcengine.com/docs/82379/1520757
+// ============================================================
+
+// 创建任务的响应
+interface CreateTaskResponse {
+  id: string
+  model?: string
+  status?: string
+}
+
+// 查询任务的响应 (根据官方文档: https://www.volcengine.com/docs/82379/1521309)
+interface QueryTaskResponse {
+  id: string
+  model: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired'
+  content?: {
+    video_url?: string
+    last_frame_url?: string
+  }
+  error?: { 
+    code?: string
+    message?: string 
+  }
+  seed?: number
+  resolution?: string
+  ratio?: string
+  duration?: number
+  framespersecond?: number
+  created_at?: number
+  updated_at?: number
+}
+
+export async function _volcengineGenerateVideo(options: {
+  model?: string
+  prompt: string
+  imageUrl?: string
+  firstFrameUrl?: string
+  lastFrameUrl?: string
+  duration?: number
+  size?: string
+  resolution?: string
+  negativePrompt?: string
+  maxRetries?: number
+}): Promise<{ videoUrl: string, taskId: string }> {
+  // 根据输入选择模型 (仅使用支持首尾帧的模型)
+  let model = options.model
+  if (!model) {
+    if (options.firstFrameUrl && options.lastFrameUrl) {
+      model = VolcengineVideoModels.SEEDANCE_1_5_PRO  // 首尾帧模型
+    } else if (options.imageUrl || options.firstFrameUrl) {
+      model = VolcengineVideoModels.SEEDANCE_1_0_LITE_I2V  // 图生视频
+    } else {
+      model = VolcengineVideoModels.SEEDANCE_1_5_PRO  // 文生视频也使用 1.5 Pro (支持首尾帧)
+    }
+  }
+
+  console.log('[Volcengine] generateVideo 请求参数:', {
+    model,
+    promptLength: options.prompt.length,
+    hasImageUrl: !!options.imageUrl,
+    hasFirstFrameUrl: !!options.firstFrameUrl,
+    hasLastFrameUrl: !!options.lastFrameUrl,
+    duration: options.duration
+  })
+
+  return withRetry(async () => {
+    // 构建 content 数组 (根据官方文档格式)
+    const content: Array<{ type: string, text?: string, image_url?: { url: string } }> = []
+    
+    // 添加文本提示
+    content.push({
+      type: 'text',
+      text: options.prompt
+    })
+    
+    // 添加图片 (图生视频模式)
+    if (options.imageUrl) {
+      content.push({
+        type: 'image_url',
+        image_url: { url: options.imageUrl }
+      })
+    }
+    
+    // 首帧图片
+    if (options.firstFrameUrl && !options.imageUrl) {
+      content.push({
+        type: 'image_url',
+        image_url: { url: options.firstFrameUrl }
+      })
+    }
+
+    const requestBody: Record<string, unknown> = {
+      model,
+      content
+    }
+
+    // 可选参数
+    if (options.duration) {
+      requestBody.duration = options.duration
+    }
+    if (options.resolution) {
+      requestBody.resolution = options.resolution
+    }
+
+    console.log('[Volcengine] 视频生成请求体:', JSON.stringify(requestBody, null, 2))
+
+    // 提交视频生成任务 (异步任务 API)
+    const submitResponse = await request<CreateTaskResponse>(
+      '/contents/generations/tasks',
+      requestBody
+    )
+
+    const taskId = submitResponse.id
+    console.log(`[Volcengine] 视频任务已创建: ${taskId}`)
+
+    // 轮询任务状态
+    const maxWaitTime = 600000 // 10分钟
+    const pollInterval = 10000
+    const startTime = Date.now()
+
+    while (Date.now() - startTime < maxWaitTime) {
+      await sleep(pollInterval)
+
+      const cfg = getConfig()
+      const statusUrl = `${cfg.baseUrl}/contents/generations/tasks/${taskId}`
+      
+      const statusResponse = await fetch(statusUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${cfg.apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!statusResponse.ok) {
+        const errorData = await statusResponse.json().catch(() => ({})) as { error?: { message?: string } }
+        throw new VolcengineError(
+          errorData.error?.message || `HTTP ${statusResponse.status}`,
+          VolcengineErrorCode.UNKNOWN,
+          statusResponse.status,
+          statusResponse.status >= 500
+        )
+      }
+
+      const statusData = await statusResponse.json() as QueryTaskResponse
+      console.log(`[Volcengine] 视频任务状态: ${statusData.status}`, statusData.content ? `video_url: ${statusData.content.video_url?.slice(0, 50)}...` : '')
+
+      if (statusData.status === 'succeeded') {
+        const videoUrl = statusData.content?.video_url
+        if (!videoUrl) {
+          console.error('[Volcengine] 响应数据:', JSON.stringify(statusData, null, 2))
+          throw new VolcengineError('视频生成成功但未返回URL', VolcengineErrorCode.INTERNAL, 500, false)
+        }
+        return { videoUrl, taskId }
+      }
+
+      if (statusData.status === 'failed' || statusData.status === 'cancelled' || statusData.status === 'expired') {
+        const errorMsg = statusData.error?.message || '视频生成失败'
+        throw new VolcengineError(errorMsg, VolcengineErrorCode.INTERNAL, 500, false)
+      }
+    }
+
+    throw new VolcengineError('视频生成超时', VolcengineErrorCode.DEADLINE_EXCEEDED, 504, false)
+  }, { maxRetries: options.maxRetries })
+}

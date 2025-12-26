@@ -1,4 +1,4 @@
-import { _geminiGenerateJSON, TextModels, GeminiError } from '../../utils/gemini'
+import { generateJSONForWorkflow } from '../../utils/workflow-model'
 import {
   GenerateStoryboardRequestSchema,
   StoryboardSchema,
@@ -32,8 +32,8 @@ export default defineEventHandler(async (event) => {
     const systemInstruction = buildStoryboardSystemPrompt()
     const prompt = buildStoryboardPrompt(sceneDescription, dialogues, style)
 
-    const result = await _geminiGenerateJSON<Storyboard>({
-      model: TextModels.SCRIPT_PARSER,
+    // 使用业务流程配置的模型
+    const result = await generateJSONForWorkflow<Storyboard>('storyboard_generation', {
       prompt,
       systemInstruction,
       temperature: 0.3,
@@ -58,14 +58,12 @@ export default defineEventHandler(async (event) => {
       latencyMs: Date.now() - startTime
     }
   } catch (error) {
-    if (error instanceof GeminiError) {
-      throw createError({
-        statusCode: error.status || 500,
-        statusMessage: `分镜脚本生成失败: ${error.code}`,
-        message: error.message
-      })
-    }
-    throw error
+    console.error('[Storyboard] 生成失败:', error)
+    throw createError({
+      statusCode: 500,
+      statusMessage: '分镜脚本生成失败',
+      message: error instanceof Error ? error.message : '未知错误'
+    })
   }
 })
 

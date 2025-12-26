@@ -1,4 +1,4 @@
-import { generateJSON, getSelectedModels } from '../../utils/model-provider'
+import { generateJSONForWorkflow } from '../../utils/workflow-model'
 import { GeminiError } from '../../utils/gemini'
 import { QwenError } from '../../utils/qwen'
 import {
@@ -12,7 +12,7 @@ import {
  * 剧本解析 API
  * POST /api/script/parse
  *
- * 使用统一模型提供商智能解析小说文本，自动提取场景、角色、对话
+ * 使用业务流程配置的模型智能解析小说文本，自动提取场景、角色、对话
  */
 export default defineEventHandler(async (event) => {
   const startTime = Date.now()
@@ -36,13 +36,11 @@ export default defineEventHandler(async (event) => {
     const systemInstruction = buildSystemPrompt()
     const prompt = buildParsePrompt(text, maxScenes)
 
-    // 3. 使用统一模型提供商解析
-    const selectedModels = getSelectedModels()
-    const result = await generateJSON<ParsedScript>({
-      modelId: selectedModels.text,
+    // 3. 使用业务流程配置的模型解析
+    const result = await generateJSONForWorkflow<ParsedScript>('script_parsing', {
       prompt,
       systemInstruction,
-      temperature: 0.3, // 较低温度保证输出稳定
+      temperature: 0.3,
       maxRetries: 2
     })
 

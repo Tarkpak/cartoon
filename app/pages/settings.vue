@@ -112,8 +112,9 @@ const testResults = ref<{
 const providerConfig: Record<string, { displayName: string; color: string; order: number }> = {
   gemini: { displayName: 'Google Gemini', color: 'blue', order: 1 },
   qwen: { displayName: '阿里千问', color: 'orange', order: 2 },
-  openai: { displayName: 'OpenAI', color: 'green', order: 3 },
-  deepseek: { displayName: 'DeepSeek', color: 'purple', order: 4 }
+  volcengine: { displayName: '火山引擎', color: 'red', order: 3 },
+  openai: { displayName: 'OpenAI', color: 'green', order: 4 },
+  deepseek: { displayName: 'DeepSeek', color: 'purple', order: 5 }
 }
 
 // ==================== 业务流程配置相关状态 ====================
@@ -218,7 +219,7 @@ function getCapabilityLabel(cap: string): string {
 }
 
 function getProviderLabel(provider: string): string {
-  return { gemini: 'Gemini', qwen: '千问', openai: 'OpenAI', deepseek: 'DeepSeek' }[provider] || provider
+  return { gemini: 'Gemini', qwen: '千问', volcengine: '火山', openai: 'OpenAI', deepseek: 'DeepSeek' }[provider] || provider
 }
 
 function hasCompatibleModels(workflow: WorkflowConfig): boolean {
@@ -470,7 +471,7 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
               <div class="flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-accent/50 transition-colors" @click="toggleProvider(group.provider)">
                 <component :is="group.expanded ? ChevronDown : ChevronRight" class="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 <div class="w-2 h-2 rounded-full flex-shrink-0"
-                  :class="{ 'bg-blue-500': getProviderColor(group.provider) === 'blue', 'bg-orange-500': getProviderColor(group.provider) === 'orange', 'bg-green-500': getProviderColor(group.provider) === 'green', 'bg-purple-500': getProviderColor(group.provider) === 'purple' }" />
+                  :class="{ 'bg-blue-500': getProviderColor(group.provider) === 'blue', 'bg-orange-500': getProviderColor(group.provider) === 'orange', 'bg-green-500': getProviderColor(group.provider) === 'green', 'bg-purple-500': getProviderColor(group.provider) === 'purple', 'bg-red-500': getProviderColor(group.provider) === 'red' }" />
                 <span class="text-sm font-medium flex-1 truncate">{{ group.displayName }}</span>
                 <span class="text-xs text-muted-foreground">{{ group.models.length }}</span>
               </div>

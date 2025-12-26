@@ -1,4 +1,4 @@
-import { _geminiGenerateJSON, TextModels, GeminiError } from '../../utils/gemini'
+import { generateJSONForWorkflow } from '../../utils/workflow-model'
 import {
   ExtractSceneVisualRequestSchema,
   SceneVisualSchema,
@@ -32,8 +32,8 @@ export default defineEventHandler(async (event) => {
     const systemInstruction = buildSceneVisualSystemPrompt()
     const prompt = buildSceneVisualPrompt(sceneDescription, setting, style)
 
-    const result = await _geminiGenerateJSON<SceneVisual>({
-      model: TextModels.SCRIPT_PARSER,
+    // 使用业务流程配置的模型
+    const result = await generateJSONForWorkflow<SceneVisual>('scene_visual_extraction', {
       prompt,
       systemInstruction,
       temperature: 0.4,
@@ -58,14 +58,12 @@ export default defineEventHandler(async (event) => {
       latencyMs: Date.now() - startTime
     }
   } catch (error) {
-    if (error instanceof GeminiError) {
-      throw createError({
-        statusCode: error.status || 500,
-        statusMessage: `场景画面提取失败: ${error.code}`,
-        message: error.message
-      })
-    }
-    throw error
+    console.error('[SceneVisual] 提取失败:', error)
+    throw createError({
+      statusCode: 500,
+      statusMessage: '场景画面提取失败',
+      message: error instanceof Error ? error.message : '未知错误'
+    })
   }
 })
 

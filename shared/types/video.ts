@@ -10,23 +10,16 @@ export type Resolution = z.infer<typeof ResolutionSchema>
 export const AspectRatioSchema = z.enum(['16:9', '9:16', '1:1'])
 export type AspectRatio = z.infer<typeof AspectRatioSchema>
 
-/** 视频时长 (秒) - 支持 4-15 秒 */
-export const DurationSchema = z.number().min(4).max(15).transform((v) => {
-  // Gemini: 4, 6, 8 秒
-  // Qwen: 5, 10, 15 秒
-  if (v <= 5) return 5
-  if (v <= 8) return 8
-  if (v <= 10) return 10
-  return 15
-})
-export type Duration = 4 | 5 | 6 | 8 | 10 | 15
+/** 视频时长 (秒) - 支持 2-15 秒 */
+export const DurationSchema = z.number().min(2).max(15)
+export type Duration = number
 
 /** 视频模型类型 */
 export const VideoModelSchema = z.enum(['standard', 'fast'])
 export type VideoModel = z.infer<typeof VideoModelSchema>
 
 /** 视频提供商 */
-export const VideoProviderSchema = z.enum(['gemini', 'qwen'])
+export const VideoProviderSchema = z.enum(['gemini', 'qwen', 'volcengine'])
 export type VideoProvider = z.infer<typeof VideoProviderSchema>
 
 /** 视频生成配置 */
