@@ -82,7 +82,9 @@ function buildSceneVisualSystemPrompt(): string {
 4. 补充感官细节（虽图片无声音，但能增强画面代入感）：比如"咸湿海风""豆浆香气"
 5. 优化提示词结构：用「核心场景 + 视觉元素 + 氛围情绪 + 技术风格」的公式
 
-## 输出格式
+## 输出要求
+
+你必须输出有效的 JSON 格式，结构如下：
 
 {
   "sceneId": "场景ID",
@@ -117,7 +119,7 @@ function buildSceneVisualPrompt(
   setting: { location: string, timeOfDay: string, mood?: string, weather?: string },
   style?: string
 ): string {
-  return `请分析以下场景，提取视觉元素并生成文生图提示词：
+  return `请分析以下场景，提取视觉元素并生成文生图提示词，输出 JSON 格式：
 
 ## 场景描述
 ${sceneDescription}
@@ -136,5 +138,6 @@ ${style || '日式动漫'}
 2. 每个视觉元素要具体、有细节（如"灰色砖墙（顶有薄雪）"）
 3. 氛围描述要能引导画面情绪
 4. 生成的 imagePrompt 要包含画风、场景、视觉元素、氛围、技术参数
-5. 不要包含人物角色描述`
+5. 不要包含人物角色描述
+6. 请严格按照 JSON 格式输出`
 }

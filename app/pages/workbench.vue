@@ -50,6 +50,7 @@ const {
   generateCharacterExpression,
   updateCharacter,
   extractCharactersFromScenes,
+  extractCharactersFromOutline,
   generateCharacterViews,
   // 角色关系
   relationships,
@@ -235,6 +236,20 @@ async function handleExtractFromScenes() {
   }
 }
 
+// 角色提取 - 从大纲中提取
+async function handleExtractFromOutline() {
+  if (!outline.value) {
+    alert('请先生成故事大纲')
+    return
+  }
+  extractingCharacters.value = true
+  try {
+    await extractCharactersFromOutline()
+  } finally {
+    extractingCharacters.value = false
+  }
+}
+
 // 大纲更新
 function handleOutlineUpdate(newOutline: StoryOutline) {
   outline.value = newOutline
@@ -341,6 +356,7 @@ onMounted(() => {
           @edit-character="openCharacterEdit"
           @preview-image="openImagePreview"
           @extract-from-scenes="handleExtractFromScenes"
+          @extract-from-outline="handleExtractFromOutline"
           @batch-generate-characters="handleBatchGenerateCharacters"
           @generate-views="generateCharacterViews"
           @update-relationship="updateRelationship"

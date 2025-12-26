@@ -83,18 +83,38 @@ function buildStoryboardSystemPrompt(): string {
   "shots": [
     {
       "shotNumber": 1,
-      "shotType": "wide|medium|close|extreme_close|detail",
-      "cameraMovement": "static|push|pull|pan_left|pan_right|track|dolly|zoom_in|zoom_out",
+      "shotType": "wide|medium|close|extreme_close|detail|extreme_wide|medium_wide|medium_close",
+      "cameraMovement": "static|push|pull|pan_left|pan_right|track|dolly|zoom_in|zoom_out|tilt_up|tilt_down|crane|handheld|arc",
       "visualContent": "详细的画面内容描述",
-      "dialogue": "台词内容（可选）",
-      "character": "说话角色（可选）",
-      "emotion": "neutral|happy|sad|angry|surprised|confused|excited|scared",
+      "dialogue": "台词内容（可选，可为null）",
+      "character": "说话角色（可选，可为null）",
+      "emotion": "neutral|happy|sad|angry|surprised|confused|excited|scared|worried|concerned|determined|thoughtful|nervous|relieved|hopeful|disappointed",
       "duration": 3,
-      "notes": "备注（可选）"
+      "notes": "备注（可选，可为null）"
     }
   ],
   "totalDuration": 24
 }
+
+## 重要：emotion 字段只能使用以下值之一
+- neutral (中性)
+- happy (开心)
+- sad (悲伤)
+- angry (愤怒)
+- surprised (惊讶)
+- confused (困惑)
+- excited (兴奋)
+- scared (害怕)
+- worried (担忧)
+- concerned (关切)
+- determined (坚定)
+- thoughtful (沉思)
+- nervous (紧张)
+- relieved (释然)
+- hopeful (希望)
+- disappointed (失望)
+
+如果角色情绪不明确，请使用 "neutral"。不要使用其他值如 tired, focused, anxious 等。
 
 ## 分镜设计原则
 
@@ -108,9 +128,11 @@ function buildStoryboardSystemPrompt(): string {
 
 - extreme_wide (大远景): 展示环境全貌，建立空间感
 - wide (全景): 展示人物全身与环境关系
-- medium (中景): 展示人物膝盖以上，适合对话场景
-- close (近景): 展示人物胸部以上，强调表情
-- extreme_close (特写): 展示面部或物品细节，强调情绪
+- medium_wide (中全景): 展示人物膝盖以上
+- medium (中景): 展示人物腰部以上，适合对话场景
+- medium_close (中近景): 展示人物胸部以上
+- close (近景): 展示人物肩部以上，强调表情
+- extreme_close (特写): 展示面部细节，强调情绪
 - detail (细节特写): 展示特定物品或身体部位
 
 ## 运镜方式指南
@@ -119,9 +141,13 @@ function buildStoryboardSystemPrompt(): string {
 - push (推镜头): 从远到近，强调主体或情绪升级
 - pull (拉镜头): 从近到远，展示环境或情绪舒缓
 - pan_left/pan_right (摇镜头): 水平移动，展示空间或跟随动作
+- tilt_up/tilt_down (俯仰): 垂直移动镜头
 - track (跟镜头): 跟随人物移动
 - dolly (移镜头): 镜头整体移动，增加动感
-- zoom_in/zoom_out (变焦): 快速聚焦或展开`
+- zoom_in/zoom_out (变焦): 快速聚焦或展开
+- crane (升降): 垂直升降镜头
+- handheld (手持): 手持晃动效果
+- arc (环绕): 环绕主体拍摄`
 }
 
 /**

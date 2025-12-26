@@ -18,6 +18,7 @@ const emit = defineEmits<{
   editCharacter: [char: CharacterData]
   previewImage: [src: string, alt: string]
   extractFromScenes: []
+  extractFromOutline: []
   batchGenerateCharacters: []
   generateViews: [char: CharacterData]
   updateRelationship: [rel: CharacterRelationship]
@@ -78,9 +79,28 @@ function getRelationshipIcon(type: string) {
     <!-- 操作栏 -->
     <div class="flex items-center justify-between">
       <div class="flex items-center space-x-2">
+        <!-- 从大纲提取角色按钮 -->
+        <Button
+          v-if="hasOutline && characters.length === 0"
+          variant="default"
+          size="sm"
+          :disabled="extracting"
+          @click="$emit('extractFromOutline')"
+        >
+          <Loader2
+            v-if="extracting"
+            class="w-4 h-4 mr-2 animate-spin"
+          />
+          <BookOpen
+            v-else
+            class="w-4 h-4 mr-2"
+          />
+          {{ extracting ? '提取中...' : '从大纲提取角色' }}
+        </Button>
+        <!-- 从场景提取角色按钮 -->
         <Button
           v-if="hasScenes"
-          variant="default"
+          variant="outline"
           size="sm"
           :disabled="extracting"
           @click="$emit('extractFromScenes')"
@@ -114,10 +134,10 @@ function getRelationshipIcon(type: string) {
           {{ batchGenerating ? `生成中 (${batchProgress?.current || 0}/${batchProgress?.total || 0})` : `一键生成立绘 (${charsWithoutImage})` }}
         </Button>
         <span
-          v-if="!hasScenes"
+          v-if="!hasScenes && !hasOutline"
           class="text-sm text-muted-foreground"
         >
-          请先在上一步生成或解析场景
+          请先在上一步生成大纲或解析剧本
         </span>
       </div>
       <Button
@@ -154,7 +174,7 @@ function getRelationshipIcon(type: string) {
       <Users class="w-12 h-12 mx-auto mb-4" />
       <p class="font-medium">还没有角色</p>
       <p class="text-sm mt-1">
-        {{ hasScenes ? '点击"从场景提取角色"自动识别角色信息' : '请先完成故事/剧本步骤，生成或解析场景' }}
+        {{ hasOutline ? '点击"从大纲提取角色"自动识别角色信息' : hasScenes ? '点击"从场景提取角色"自动识别角色信息' : '请先完成故事/剧本步骤，生成大纲或解析场景' }}
       </p>
     </div>
 
