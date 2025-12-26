@@ -96,16 +96,9 @@ function formatTime(dateStr: string): string {
   return date.toLocaleDateString()
 }
 
-// 获取渐变色
-function getGradient(index: number): string {
-  const gradients = [
-    'from-purple-400 to-pink-400',
-    'from-blue-400 to-cyan-400',
-    'from-green-400 to-emerald-400',
-    'from-orange-400 to-red-400',
-    'from-indigo-400 to-purple-400'
-  ]
-  return gradients[index % gradients.length] ?? 'from-gray-400 to-gray-500'
+// 获取背景色
+function getBackground(index: number): string {
+  return 'bg-muted'
 }
 
 // 删除项目
@@ -218,17 +211,17 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
         :to="`/workbench?project=${project.id}`"
         class="block"
       >
-        <Card class="overflow-hidden hover:shadow-lg transition cursor-pointer">
+        <Card class="overflow-hidden hover:shadow-md transition cursor-pointer">
           <div
-            class="h-32 bg-gradient-to-br relative"
-            :class="getGradient(index)"
+            class="h-32 relative"
+            :class="getBackground(index)"
           >
             <div class="absolute top-3 right-3 flex items-center space-x-2">
               <Badge :variant="statusMap[project.status || 'draft']?.variant || 'secondary'">
                 {{ statusMap[project.status || 'draft']?.label || '草稿' }}
               </Badge>
               <button
-                class="p-1.5 rounded-md bg-white/20 hover:bg-red-500 text-white transition"
+                class="p-1.5 rounded-md bg-muted hover:bg-destructive hover:text-destructive-foreground transition"
                 @click="confirmDelete(project, $event)"
               >
                 <Trash2 class="w-4 h-4" />
@@ -259,7 +252,7 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
 
       <!-- 新建项目卡片 -->
       <div
-        class="border-2 border-dashed rounded-xl flex items-center justify-center min-h-[280px] cursor-pointer hover:border-primary hover:bg-accent transition"
+        class="border-2 border-dashed rounded-lg flex items-center justify-center min-h-[280px] cursor-pointer hover:border-foreground/50 hover:bg-accent transition"
         @click="openCreateDialog"
       >
         <div class="text-center">

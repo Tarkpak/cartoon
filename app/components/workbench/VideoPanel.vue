@@ -109,7 +109,7 @@ const videosCompleted = computed(() => props.scenes.filter(s => s.videoStatus ==
                 />
                 <Loader2
                   v-else-if="scene.frameStatus === 'generating'"
-                  class="w-4 h-4 animate-spin text-purple-500"
+                  class="w-4 h-4 animate-spin text-muted-foreground"
                 />
                 <AlertCircle
                   v-else-if="scene.frameStatus === 'error'"
@@ -141,7 +141,7 @@ const videosCompleted = computed(() => props.scenes.filter(s => s.videoStatus ==
             <div class="text-xs text-muted-foreground mb-2">
               第一帧
             </div>
-            <div class="aspect-video bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg flex items-center justify-center overflow-hidden">
+            <div class="aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden">
               <img
                 v-if="selectedScene.firstFrame"
                 :src="`data:image/png;base64,${selectedScene.firstFrame}`"
@@ -158,7 +158,7 @@ const videosCompleted = computed(() => props.scenes.filter(s => s.videoStatus ==
             <div class="text-xs text-muted-foreground mb-2">
               最后一帧
             </div>
-            <div class="aspect-video bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg flex items-center justify-center overflow-hidden">
+            <div class="aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden">
               <img
                 v-if="selectedScene.lastFrame"
                 :src="`data:image/png;base64,${selectedScene.lastFrame}`"

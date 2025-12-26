@@ -325,7 +325,6 @@ function handleDragEnd() {
             <Badge
               v-if="scene.transitionIn && scene.transitionIn !== 'cut'"
               variant="outline"
-              class="bg-purple-50 border-purple-200 text-purple-700"
             >
               <Layers class="w-3 h-3 mr-1" />
               {{ transitionLabels[scene.transitionIn] || scene.transitionIn }}

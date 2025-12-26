@@ -43,7 +43,7 @@ onMounted(() => {
       <div class="h-16 flex items-center border-b" :class="isCollapsed ? 'justify-center px-2' : 'px-6'">
         <NuxtLink
           to="/"
-          class="font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center"
+          class="font-bold text-foreground flex items-center"
           :class="isCollapsed ? 'text-xl' : 'text-2xl'"
         >
           <span class="text-2xl">🎬</span>
@@ -52,57 +52,53 @@ onMounted(() => {
       </div>
 
       <!-- 导航菜单 -->
-      <nav class="flex-1 p-4 space-y-2">
+      <nav class="flex-1 p-4 space-y-1">
         <NuxtLink
           v-for="(item, index) in navigation"
           :key="item.path"
           :to="item.path"
-          class="flex items-center rounded-xl transition-all duration-200"
+          class="flex items-center rounded-md transition-colors duration-200"
           :class="[
-            isCollapsed ? 'justify-center px-2 py-3' : 'space-x-3 px-4 py-3',
+            isCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5',
             activeStates[index]
-              ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/25'
+              ? 'bg-accent text-foreground font-medium'
               : 'text-muted-foreground hover:bg-accent hover:text-foreground'
           ]"
           :title="isCollapsed ? item.name : undefined"
         >
           <component :is="item.icon" class="w-5 h-5 flex-shrink-0" />
-          <span v-if="!isCollapsed" class="font-medium">{{ item.name }}</span>
+          <span v-if="!isCollapsed">{{ item.name }}</span>
         </NuxtLink>
       </nav>
 
       <!-- 主题切换 -->
       <div class="px-4 pb-2">
         <button
-          class="w-full flex items-center rounded-xl transition-all duration-200 text-muted-foreground hover:bg-accent hover:text-foreground"
-          :class="isCollapsed ? 'justify-center px-2 py-3' : 'space-x-3 px-4 py-3'"
+          class="w-full flex items-center rounded-md transition-colors duration-200 text-muted-foreground hover:bg-accent hover:text-foreground"
+          :class="isCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5'"
           @click="toggleTheme"
         >
           <Moon v-if="!isDark" class="w-5 h-5 flex-shrink-0" />
           <Sun v-else class="w-5 h-5 flex-shrink-0" />
-          <span v-if="!isCollapsed" class="font-medium">{{ isDark ? '浅色模式' : '深色模式' }}</span>
+          <span v-if="!isCollapsed">{{ isDark ? '浅色模式' : '深色模式' }}</span>
         </button>
       </div>
 
       <!-- 底部用户信息 -->
       <div class="p-4 border-t">
         <div
-          class="flex items-center rounded-xl hover:bg-accent cursor-pointer transition-all duration-200"
-          :class="isCollapsed ? 'justify-center p-2' : 'space-x-3 px-4 py-3'"
+          class="flex items-center rounded-md hover:bg-accent cursor-pointer transition-colors duration-200"
+          :class="isCollapsed ? 'justify-center p-2' : 'space-x-3 px-3 py-2.5'"
         >
-          <div class="w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center text-white font-medium shadow-lg shadow-purple-500/25 flex-shrink-0">
+          <div class="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-foreground font-medium flex-shrink-0">
             U
           </div>
           <template v-if="!isCollapsed">
             <div class="flex-1 min-w-0">
               <div class="font-medium text-sm truncate">用户名</div>
-              <div class="text-xs text-muted-foreground">
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 text-purple-700 dark:text-purple-300">
-                  免费版
-                </span>
-              </div>
+              <div class="text-xs text-muted-foreground">免费版</div>
             </div>
-            <Settings class="w-5 h-5 text-muted-foreground flex-shrink-0" />
+            <Settings class="w-4 h-4 text-muted-foreground flex-shrink-0" />
           </template>
         </div>
       </div>

@@ -45,9 +45,9 @@ const relationshipTypes = [
 
 // 角色类型标签
 const roleLabels: Record<string, { label: string, color: string }> = {
-  protagonist: { label: '主角', color: 'bg-purple-100 text-purple-700' },
-  antagonist: { label: '反派', color: 'bg-red-100 text-red-700' },
-  supporting: { label: '配角', color: 'bg-gray-100 text-gray-700' }
+  protagonist: { label: '主角', color: 'bg-primary/10 text-primary' },
+  antagonist: { label: '反派', color: 'bg-destructive/10 text-destructive' },
+  supporting: { label: '配角', color: 'bg-muted text-muted-foreground' }
 }
 
 // 说话风格标签
@@ -177,7 +177,7 @@ function getRelationshipEmoji(type: string): string {
           >
             <div class="flex items-start space-x-4">
               <!-- 角色头像 -->
-              <div class="w-20 h-20 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0">
+              <div class="w-20 h-20 bg-muted rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0">
                 <img
                   v-if="char.baseImage"
                   :src="`data:image/png;base64,${char.baseImage}`"

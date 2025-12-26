@@ -36,7 +36,6 @@ const project = ref({
   status: 'active',
   createdAt: '2024-12-01',
   updatedAt: '2小时前',
-  gradient: 'from-purple-400 to-pink-400',
   totalScenes: 12,
   completedScenes: 5,
   totalDuration: 96,
@@ -141,17 +140,14 @@ const progressPercent = computed(() => {
       <!-- 左侧：项目信息 -->
       <div class="lg:col-span-2">
         <Card class="overflow-hidden">
-          <div
-            class="h-40 bg-gradient-to-br relative"
-            :class="project.gradient"
-          >
+          <div class="h-40 bg-muted relative">
             <div class="absolute top-4 right-4 flex space-x-2">
               <Badge :variant="statusMap[project.status || 'draft']?.variant ?? 'secondary'">
                 {{ statusMap[project.status || 'draft']?.label ?? '草稿' }}
               </Badge>
             </div>
             <div class="absolute bottom-4 left-6">
-              <h1 class="text-3xl font-bold text-white drop-shadow-lg">
+              <h1 class="text-3xl font-bold text-foreground">
                 {{ project.title }}
               </h1>
             </div>
@@ -294,7 +290,7 @@ const progressPercent = computed(() => {
 
                 <!-- 缩略图占位 -->
                 <div class="flex-shrink-0 w-20 h-12 bg-muted rounded overflow-hidden">
-                  <div class="w-full h-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center text-slate-400 text-xs">
+                  <div class="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
                     {{ index + 1 }}
                   </div>
                 </div>
@@ -363,7 +359,7 @@ const progressPercent = computed(() => {
                 :key="character.id"
                 class="flex items-center space-x-3"
               >
-                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center font-medium">
+                <div class="w-10 h-10 rounded-full bg-muted flex items-center justify-center font-medium text-foreground">
                   {{ character.name.charAt(0) }}
                 </div>
                 <div>

@@ -55,7 +55,7 @@ defineEmits<{
         class="border rounded-xl p-4 hover:border-primary/50 transition"
       >
         <div class="flex items-start space-x-4">
-          <div class="w-20 h-20 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg flex items-center justify-center overflow-hidden">
+          <div class="w-20 h-20 bg-muted rounded-lg flex items-center justify-center overflow-hidden">
             <img
               v-if="char.baseImage"
               :src="`data:image/png;base64,${char.baseImage}`"

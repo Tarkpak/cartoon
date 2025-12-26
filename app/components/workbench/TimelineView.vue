@@ -377,10 +377,10 @@ onUnmounted(() => {
           :style="getTransitionStyle(index)"
         >
           <div
-            class="w-full h-full bg-purple-200/50 dark:bg-purple-800/30 rounded flex items-center justify-center"
+            class="w-full h-full bg-muted rounded flex items-center justify-center"
             :title="`转场: ${transitionLabels[scene.transitionOut || 'cut']}`"
           >
-            <Layers class="w-3 h-3 text-purple-500" />
+            <Layers class="w-3 h-3 text-muted-foreground" />
           </div>
         </div>
         
@@ -469,14 +469,12 @@ onUnmounted(() => {
             <Badge
               v-if="scene.transitionIn && scene.transitionIn !== 'cut'"
               variant="outline"
-              class="bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/30 dark:border-purple-700 dark:text-purple-300"
             >
               入: {{ transitionLabels[scene.transitionIn] || scene.transitionIn }}
             </Badge>
             <Badge
               v-if="scene.transitionOut && scene.transitionOut !== 'cut'"
               variant="outline"
-              class="bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/30 dark:border-purple-700 dark:text-purple-300"
             >
               出: {{ transitionLabels[scene.transitionOut] || scene.transitionOut }}
             </Badge>
@@ -511,7 +509,7 @@ onUnmounted(() => {
           <span>待处理</span>
         </div>
         <div class="flex items-center space-x-1">
-          <div class="w-3 h-3 rounded bg-purple-500" />
+          <div class="w-3 h-3 rounded bg-muted-foreground" />
           <span>转场</span>
         </div>
       </div>
