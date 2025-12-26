@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Plus, X } from 'lucide-vue-next'
+import { Loader2, Plus, X, User, Meh, Smile, Frown, Angry, Zap, AlertTriangle } from 'lucide-vue-next'
 
 interface CharacterEditData {
   id: string
@@ -98,11 +98,11 @@ const genderOptions = [
 
 // 表情选项
 const emotionOptions = [
-  { value: 'neutral', label: '平静', emoji: '😐' },
-  { value: 'happy', label: '开心', emoji: '😊' },
-  { value: 'sad', label: '悲伤', emoji: '😢' },
-  { value: 'angry', label: '愤怒', emoji: '😠' },
-  { value: 'surprised', label: '惊讶', emoji: '😲' }
+  { value: 'neutral', label: '平静', icon: Meh },
+  { value: 'happy', label: '开心', icon: Smile },
+  { value: 'sad', label: '悲伤', icon: Frown },
+  { value: 'angry', label: '愤怒', icon: Angry },
+  { value: 'surprised', label: '惊讶', icon: Zap }
 ]
 
 // 预设性格特点
@@ -225,10 +225,10 @@ defineExpose({
                   :src="`data:image/png;base64,${editForm.baseImage}`"
                   class="w-full h-full object-cover"
                 >
-                <span
+                <User
                   v-else
-                  class="text-4xl"
-                >👤</span>
+                  class="w-10 h-10 text-muted-foreground"
+                />
               </div>
             </div>
 
@@ -447,10 +447,11 @@ defineExpose({
                   :src="`data:image/png;base64,${editForm.expressions[emotion.value]}`"
                   class="w-full h-full object-cover"
                 >
-                <span
+                <component
                   v-else
-                  class="text-3xl opacity-50"
-                >{{ emotion.emoji }}</span>
+                  :is="emotion.icon"
+                  class="w-8 h-8 text-muted-foreground opacity-50"
+                />
               </div>
               <span class="text-sm text-muted-foreground">{{ emotion.label }}</span>
             </div>
@@ -458,9 +459,10 @@ defineExpose({
 
           <p
             v-if="!editForm.baseImage"
-            class="text-sm text-amber-600 text-center py-4"
+            class="text-sm text-amber-600 text-center py-4 flex items-center justify-center gap-1"
           >
-            ⚠️ 请先生成角色基础立绘，才能生成表情变体
+            <AlertTriangle class="w-4 h-4" />
+            请先生成角色基础立绘，才能生成表情变体
           </p>
         </div>
       </div>

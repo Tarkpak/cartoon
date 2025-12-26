@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Moon, Sun, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { Home, Folder, Settings, Moon, Sun, ChevronLeft, ChevronRight, Clapperboard } from 'lucide-vue-next'
 
 const route = useRoute()
 const { isDark, toggleTheme, initTheme } = useTheme()
@@ -46,7 +46,7 @@ onMounted(() => {
           class="font-bold text-foreground flex items-center"
           :class="isCollapsed ? 'text-xl' : 'text-2xl'"
         >
-          <span class="text-2xl">🎬</span>
+          <Clapperboard class="w-6 h-6 text-primary" />
           <span v-if="!isCollapsed" class="ml-1">Manju</span>
         </NuxtLink>
       </div>

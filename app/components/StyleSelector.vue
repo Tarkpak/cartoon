@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, Sparkles, Check } from 'lucide-vue-next'
+import { Search, Sparkles, Check, Palette } from 'lucide-vue-next'
 import {
   STYLE_CATEGORIES,
   STYLE_PRESETS,
@@ -101,7 +101,7 @@ function selectStyle(style: StylePreset) {
       >
         <div class="aspect-square bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center overflow-hidden">
           <img v-if="style.thumbnail" :src="style.thumbnail" :alt="style.name" class="w-full h-full object-cover" loading="lazy" />
-          <span v-else class="text-3xl">🎨</span>
+          <Palette v-else class="w-8 h-8 text-muted-foreground" />
         </div>
         <div class="p-2 bg-background">
           <div class="flex items-center gap-1">
@@ -129,7 +129,7 @@ function selectStyle(style: StylePreset) {
       <div class="flex items-center gap-3">
         <div class="w-16 h-16 bg-gradient-to-br from-purple-200 to-pink-200 rounded-lg flex items-center justify-center overflow-hidden">
           <img v-if="selectedStyle.thumbnail" :src="selectedStyle.thumbnail" :alt="selectedStyle.name" class="w-full h-full object-cover" />
-          <span v-else class="text-2xl">🎨</span>
+          <Palette v-else class="w-6 h-6 text-muted-foreground" />
         </div>
         <div class="flex-1">
           <h4 class="font-medium">{{ selectedStyle.name }}</h4>

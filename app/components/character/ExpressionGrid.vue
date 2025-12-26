@@ -5,7 +5,16 @@ import {
   ZoomIn,
   Check,
   Loader2,
-  Plus
+  Plus,
+  Meh,
+  Smile,
+  Frown,
+  Angry,
+  Zap,
+  CircleHelp,
+  Sparkles,
+  Ghost,
+  Theater
 } from 'lucide-vue-next'
 
 interface Expression {
@@ -36,15 +45,15 @@ const emit = defineEmits<{
 }>()
 
 // 情绪标签映射
-const emotionLabels: Record<string, { label: string, emoji: string }> = {
-  neutral: { label: '平静', emoji: '😐' },
-  happy: { label: '开心', emoji: '😊' },
-  sad: { label: '悲伤', emoji: '😢' },
-  angry: { label: '愤怒', emoji: '😠' },
-  surprised: { label: '惊讶', emoji: '😲' },
-  confused: { label: '困惑', emoji: '🤔' },
-  excited: { label: '兴奋', emoji: '🤩' },
-  scared: { label: '害怕', emoji: '😨' }
+const emotionLabels: Record<string, { label: string, icon: any }> = {
+  neutral: { label: '平静', icon: Meh },
+  happy: { label: '开心', icon: Smile },
+  sad: { label: '悲伤', icon: Frown },
+  angry: { label: '愤怒', icon: Angry },
+  surprised: { label: '惊讶', icon: Zap },
+  confused: { label: '困惑', icon: CircleHelp },
+  excited: { label: '兴奋', icon: Sparkles },
+  scared: { label: '害怕', icon: Ghost }
 }
 
 // 获取图片源
@@ -56,7 +65,7 @@ function getImageSrc(expr: Expression): string {
 
 // 获取情绪信息
 function getEmotionInfo(emotion: string) {
-  return emotionLabels[emotion] || { label: emotion, emoji: '🎭' }
+  return emotionLabels[emotion] || { label: emotion, icon: Theater }
 }
 </script>
 
@@ -108,7 +117,7 @@ function getEmotionInfo(emotion: string) {
             v-else-if="!expr.imageData"
             class="w-full h-full bg-muted flex items-center justify-center"
           >
-            <span class="text-4xl">{{ getEmotionInfo(expr.emotion).emoji }}</span>
+            <component :is="getEmotionInfo(expr.emotion).icon" class="w-10 h-10 text-muted-foreground" />
           </div>
 
           <!-- 有图片 -->
@@ -162,11 +171,11 @@ function getEmotionInfo(emotion: string) {
         </div>
 
         <!-- 标签 -->
-        <div class="mt-2 text-center">
+        <div class="mt-2 text-center flex items-center justify-center gap-1">
           <span class="text-sm font-medium">
             {{ getEmotionInfo(expr.emotion).label }}
           </span>
-          <span class="ml-1">{{ getEmotionInfo(expr.emotion).emoji }}</span>
+          <component :is="getEmotionInfo(expr.emotion).icon" class="w-4 h-4" />
         </div>
       </div>
     </div>
@@ -176,7 +185,7 @@ function getEmotionInfo(emotion: string) {
       v-if="expressions.length === 0"
       class="text-center py-12 text-muted-foreground"
     >
-      <span class="text-4xl mb-4 block">🎭</span>
+      <Theater class="w-10 h-10 mx-auto mb-4" />
       <p>暂无表情资产</p>
       <Button
         v-if="editable"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Sparkles, Plus, Trash2, ChevronDown, ChevronUp, FileText, BookOpen } from 'lucide-vue-next'
+import { Loader2, Sparkles, Plus, Trash2, ChevronDown, ChevronUp, FileText, BookOpen, FileEdit, CheckCircle } from 'lucide-vue-next'
 import type { StoryOutline, Act, StoryGenre, StoryPace } from '#shared/types/outline'
 
 const props = defineProps<{
@@ -263,8 +263,8 @@ AI 将自动解析出：
           v-if="!outline"
           class="border-2 border-dashed rounded-xl p-12 text-center text-muted-foreground"
         >
-          <div class="text-4xl mb-4">
-            📝
+          <div class="mb-4 flex justify-center">
+            <FileEdit class="w-12 h-12" />
           </div>
           <p>输入故事创意后，点击"AI生成大纲"</p>
           <p class="text-sm mt-2">
@@ -508,8 +508,8 @@ AI 将自动解析出：
           v-if="!hasScenes"
           class="border-2 border-dashed rounded-xl p-12 text-center text-muted-foreground"
         >
-          <div class="text-4xl mb-4">
-            📄
+          <div class="mb-4 flex justify-center">
+            <FileText class="w-12 h-12" />
           </div>
           <p>粘贴剧本文本后，点击"AI解析场景"</p>
           <p class="text-sm mt-2">
@@ -521,8 +521,8 @@ AI 将自动解析出：
           v-else
           class="border-2 border-green-200 bg-green-50 rounded-xl p-8 text-center"
         >
-          <div class="text-4xl mb-4">
-            ✅
+          <div class="mb-4 flex justify-center">
+            <CheckCircle class="w-12 h-12 text-green-600" />
           </div>
           <p class="font-medium text-green-700">场景解析完成</p>
           <p class="text-sm mt-2 text-green-600">

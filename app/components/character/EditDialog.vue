@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2 } from 'lucide-vue-next'
+import { Loader2, User, Meh, Smile, Frown, Angry, Zap } from 'lucide-vue-next'
 
 interface CharacterEditData {
   id: string
@@ -52,11 +52,11 @@ const roleOptions = [
 
 // 表情选项
 const emotionOptions = [
-  { value: 'neutral', label: '平静', emoji: '😐' },
-  { value: 'happy', label: '开心', emoji: '😊' },
-  { value: 'sad', label: '悲伤', emoji: '😢' },
-  { value: 'angry', label: '愤怒', emoji: '😠' },
-  { value: 'surprised', label: '惊讶', emoji: '😲' }
+  { value: 'neutral', label: '平静', icon: Meh },
+  { value: 'happy', label: '开心', icon: Smile },
+  { value: 'sad', label: '悲伤', icon: Frown },
+  { value: 'angry', label: '愤怒', icon: Angry },
+  { value: 'surprised', label: '惊讶', icon: Zap }
 ]
 
 // 生成中的表情
@@ -116,10 +116,10 @@ defineExpose({
                 :src="`data:image/png;base64,${editForm.baseImage}`"
                 class="w-full h-full object-cover"
               >
-              <span
+              <User
                 v-else
-                class="text-4xl"
-              >👤</span>
+                class="w-10 h-10 text-muted-foreground"
+              />
             </div>
           </div>
 
@@ -194,10 +194,11 @@ defineExpose({
                   :src="`data:image/png;base64,${editForm.expressions[emotion.value]}`"
                   class="w-full h-full object-cover"
                 >
-                <span
+                <component
                   v-else
-                  class="text-2xl opacity-50"
-                >{{ emotion.emoji }}</span>
+                  :is="emotion.icon"
+                  class="w-6 h-6 text-muted-foreground opacity-50"
+                />
               </div>
               <span class="text-xs text-muted-foreground">{{ emotion.label }}</span>
             </div>

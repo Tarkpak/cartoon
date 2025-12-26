@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Sparkles, Plus, Pencil, Trash2, Merge, Split, Film, Eye, BookOpen, Camera, Move, Layers } from 'lucide-vue-next'
+import { Loader2, Sparkles, Plus, Pencil, Trash2, Merge, Split, Film, Eye, BookOpen, Camera, Move, Layers, Lightbulb, CheckCircle, AlertTriangle } from 'lucide-vue-next'
 import type { SceneData } from '~/composables/useWorkbench'
 
 const props = defineProps<{
@@ -141,28 +141,32 @@ function handleDragEnd() {
       <!-- 提示信息 -->
       <div
         v-if="hasOutline && hasCharacters && scenes.length === 0"
-        class="mb-4 p-3 bg-accent rounded-lg text-sm"
+        class="mb-4 p-3 bg-accent rounded-lg text-sm flex items-start gap-2"
       >
-        💡 推荐：点击"从大纲生成场景"按钮，AI 将根据故事大纲和角色设定自动生成详细场景
+        <Lightbulb class="w-4 h-4 mt-0.5 flex-shrink-0" />
+        <span>推荐：点击"从大纲生成场景"按钮，AI 将根据故事大纲和角色设定自动生成详细场景</span>
       </div>
       <div
         v-else-if="scenes.length > 0"
-        class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700"
+        class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 flex items-start gap-2"
       >
-        ✅ 已有 {{ scenes.length }} 个场景，可以在右侧编辑场景内容，或生成分镜脚本
+        <CheckCircle class="w-4 h-4 mt-0.5 flex-shrink-0" />
+        <span>已有 {{ scenes.length }} 个场景，可以在右侧编辑场景内容，或生成分镜脚本</span>
       </div>
       <div
         v-else
-        class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700"
+        class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-start gap-2"
       >
-        ⚠️ 请先在第一步生成大纲或解析剧本，然后在第二步提取角色
+        <AlertTriangle class="w-4 h-4 mt-0.5 flex-shrink-0" />
+        <span>请先在第一步生成大纲或解析剧本，然后在第二步提取角色</span>
       </div>
 
       <!-- 场景操作提示 -->
       <Card class="bg-accent/50">
         <CardContent class="pt-4">
-          <h4 class="font-medium text-sm mb-2">
-            💡 场景编辑提示
+          <h4 class="font-medium text-sm mb-2 flex items-center gap-1">
+            <Lightbulb class="w-4 h-4" />
+            场景编辑提示
           </h4>
           <ul class="text-xs text-muted-foreground space-y-1">
             <li>• 拖拽场景卡片可以调整顺序</li>

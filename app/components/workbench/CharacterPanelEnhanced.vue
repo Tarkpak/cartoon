@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Users, Loader2, Sparkles, Pencil, Scan, RotateCcw, Link2, ArrowRight, ImagePlus } from 'lucide-vue-next'
+import { Users, Loader2, Sparkles, Pencil, Scan, RotateCcw, Link2, ArrowRight, ImagePlus, Heart, Handshake, Swords, BookOpen, Trophy, Briefcase, HelpCircle, MessageCircle, Quote, Lightbulb } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useWorkbench'
 import type { CharacterRelationship } from '#shared/types/outline'
 
@@ -33,14 +33,14 @@ const charsWithoutImage = computed(() =>
 
 // 关系类型选项
 const relationshipTypes = [
-  { value: 'lover', label: '恋人', emoji: '💕' },
-  { value: 'friend', label: '朋友', emoji: '🤝' },
-  { value: 'enemy', label: '敌人', emoji: '⚔️' },
-  { value: 'family', label: '家人', emoji: '👨‍👩‍👧' },
-  { value: 'mentor', label: '师徒', emoji: '📚' },
-  { value: 'rival', label: '对手', emoji: '🏆' },
-  { value: 'colleague', label: '同事', emoji: '💼' },
-  { value: 'stranger', label: '陌生人', emoji: '❓' }
+  { value: 'lover', label: '恋人', icon: Heart },
+  { value: 'friend', label: '朋友', icon: Handshake },
+  { value: 'enemy', label: '敌人', icon: Swords },
+  { value: 'family', label: '家人', icon: Users },
+  { value: 'mentor', label: '师徒', icon: BookOpen },
+  { value: 'rival', label: '对手', icon: Trophy },
+  { value: 'colleague', label: '同事', icon: Briefcase },
+  { value: 'stranger', label: '陌生人', icon: HelpCircle }
 ]
 
 // 角色类型标签
@@ -68,8 +68,8 @@ function getCharacterName(id: string): string {
   return props.characters.find(c => c.id === id)?.name || '未知'
 }
 
-function getRelationshipEmoji(type: string): string {
-  return relationshipTypes.find(r => r.value === type)?.emoji || '❓'
+function getRelationshipIcon(type: string) {
+  return relationshipTypes.find(r => r.value === type)?.icon || HelpCircle
 }
 </script>
 
@@ -235,16 +235,18 @@ function getRelationshipEmoji(type: string): string {
                 <!-- 说话风格 -->
                 <div
                   v-if="char.speakingStyle || char.catchphrase"
-                  class="text-xs text-muted-foreground"
+                  class="text-xs text-muted-foreground flex items-center"
                 >
-                  <span v-if="char.speakingStyle">
-                    🗣️ {{ speakingStyleLabels[char.speakingStyle] || char.speakingStyle }}
+                  <span v-if="char.speakingStyle" class="flex items-center">
+                    <MessageCircle class="w-3 h-3 mr-1" />
+                    {{ speakingStyleLabels[char.speakingStyle] || char.speakingStyle }}
                   </span>
                   <span
                     v-if="char.catchphrase"
-                    class="ml-2"
+                    class="ml-2 flex items-center"
                   >
-                    💬 "{{ char.catchphrase }}"
+                    <Quote class="w-3 h-3 mr-1" />
+                    "{{ char.catchphrase }}"
                   </span>
                 </div>
               </div>
@@ -355,7 +357,7 @@ function getRelationshipEmoji(type: string): string {
                 {{ getCharacterName(rel.fromCharacterId) }}
               </Badge>
               <div class="flex items-center space-x-1 text-muted-foreground">
-                <span>{{ getRelationshipEmoji(rel.type) }}</span>
+                <component :is="getRelationshipIcon(rel.type)" class="w-4 h-4" />
                 <ArrowRight class="w-4 h-4" />
               </div>
               <Badge variant="outline">
@@ -372,7 +374,7 @@ function getRelationshipEmoji(type: string): string {
                 :key="rt.value"
                 :value="rt.value"
               >
-                {{ rt.emoji }} {{ rt.label }}
+                {{ rt.label }}
               </option>
             </select>
             <Button
@@ -399,8 +401,9 @@ function getRelationshipEmoji(type: string): string {
         <!-- 角色背景提示 -->
         <Card class="bg-accent/50">
           <CardContent class="pt-4">
-            <h4 class="font-medium text-sm mb-2">
-              💡 角色设定提示
+            <h4 class="font-medium text-sm mb-2 flex items-center gap-1">
+              <Lightbulb class="w-4 h-4" />
+              角色设定提示
             </h4>
             <ul class="text-xs text-muted-foreground space-y-1">
               <li>• 点击角色卡片的编辑按钮可以完善角色设定</li>
