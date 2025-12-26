@@ -75,7 +75,9 @@ export const QwenImageModels = {
 /** 千问视频生成模型 (通义万相) */
 export const QwenVideoModels = {
   WAN_2_6_T2V: 'wan2.6-t2v',      // 文生视频
-  WAN_2_6_I2V: 'wan2.6-i2v'       // 图生视频
+  WAN_2_6_I2V: 'wan2.6-i2v',      // 图生视频
+  WAN_2_2_KF2V_FLASH: 'wan2.2-kf2v-flash',  // 首尾帧生视频 (推荐)
+  WAN_2_1_KF2V_PLUS: 'wanx2.1-kf2v-plus'    // 首尾帧生视频 (专业版)
 } as const
 
 /** 千问语音模型 */
@@ -747,9 +749,12 @@ export async function _qwenGenerateVideo(options: {
   model?: string
   prompt: string
   imageUrl?: string  // 图生视频时的输入图片
+  firstFrameUrl?: string  // 首帧图片 (首尾帧模型)
+  lastFrameUrl?: string   // 尾帧图片 (首尾帧模型)
   audioUrl?: string  // 自定义音频
   duration?: number  // 5, 10, 15
   size?: string      // 如 '1280*720', '1920*1080'
+  resolution?: string // 分辨率档位: 480P, 720P, 1080P (首尾帧模型)
   negativePrompt?: string
   promptExtend?: boolean
   audio?: boolean    // 是否自动配音
@@ -757,19 +762,129 @@ export async function _qwenGenerateVideo(options: {
   seed?: number
   maxRetries?: number
 }): Promise<{ videoUrl: string, taskId: string }> {
-  // 根据是否有图片选择模型
-  const model = options.model || (options.imageUrl ? QwenVideoModels.WAN_2_6_I2V : QwenVideoModels.WAN_2_6_T2V)
+  // 判断是否使用首尾帧模型
+  const isKf2vModel = options.model === QwenVideoModels.WAN_2_2_KF2V_FLASH || 
+                      options.model === QwenVideoModels.WAN_2_1_KF2V_PLUS ||
+                      (options.firstFrameUrl && options.lastFrameUrl)
+  
+  // 根据模型类型选择默认模型
+  let model = options.model
+  if (!model) {
+    if (isKf2vModel || (options.firstFrameUrl && options.lastFrameUrl)) {
+      model = QwenVideoModels.WAN_2_2_KF2V_FLASH  // 默认使用推荐的首尾帧模型
+    } else if (options.imageUrl) {
+      model = QwenVideoModels.WAN_2_6_I2V
+    } else {
+      model = QwenVideoModels.WAN_2_6_T2V
+    }
+  }
 
   console.log('[Qwen] generateVideo 请求参数:', {
     model,
     promptLength: options.prompt.length,
     hasImageUrl: !!options.imageUrl,
+    hasFirstFrameUrl: !!options.firstFrameUrl,
+    hasLastFrameUrl: !!options.lastFrameUrl,
     hasAudioUrl: !!options.audioUrl,
     duration: options.duration,
-    size: options.size
+    size: options.size,
+    resolution: options.resolution
   })
 
   return withRetry(async () => {
+    // 首尾帧模型使用不同的 API 端点和参数格式
+    if (model === QwenVideoModels.WAN_2_2_KF2V_FLASH || model === QwenVideoModels.WAN_2_1_KF2V_PLUS) {
+      if (!options.firstFrameUrl) {
+        throw new QwenError(
+          '首尾帧模型需要提供首帧图片 (firstFrameUrl)',
+          QwenErrorCode.INVALID_ARGUMENT,
+          400,
+          false
+        )
+      }
+
+      const input: Record<string, unknown> = {
+        first_frame_url: options.firstFrameUrl
+      }
+      
+      // 尾帧图片可选
+      if (options.lastFrameUrl) {
+        input.last_frame_url = options.lastFrameUrl
+      }
+      
+      // 提示词可选
+      if (options.prompt) {
+        input.prompt = options.prompt
+      }
+      
+      // 负面提示词
+      if (options.negativePrompt) {
+        input.negative_prompt = options.negativePrompt
+      }
+
+      const parameters: Record<string, unknown> = {}
+      
+      // 分辨率档位 (480P, 720P, 1080P)
+      if (options.resolution) {
+        parameters.resolution = options.resolution
+      }
+      if (options.promptExtend !== undefined) {
+        parameters.prompt_extend = options.promptExtend
+      }
+      if (options.watermark !== undefined) {
+        parameters.watermark = options.watermark
+      }
+      if (options.seed !== undefined) {
+        parameters.seed = options.seed
+      }
+
+      // 首尾帧模型使用 image2video 端点
+      const submitResponse = await request<VideoGenerationResponse>(
+        '/services/aigc/image2video/video-synthesis',
+        {
+          model,
+          input,
+          parameters
+        },
+        { headers: { 'X-DashScope-Async': 'enable' } }
+      )
+
+      const taskId = submitResponse.output.task_id
+      console.log(`[Qwen] 首尾帧视频任务已创建: ${taskId}`)
+
+      // 轮询任务状态
+      const maxWaitTime = 600000 // 10分钟
+      const pollInterval = 15000  // 首尾帧模型建议 15 秒轮询
+      const startTime = Date.now()
+
+      while (Date.now() - startTime < maxWaitTime) {
+        await sleep(pollInterval)
+
+        const statusResponse = await getTaskStatus<VideoTaskStatusResponse>(taskId)
+        console.log(`[Qwen] 首尾帧视频任务状态: ${statusResponse.output.task_status}`)
+
+        if (statusResponse.output.task_status === 'SUCCEEDED') {
+          const videoUrl = statusResponse.output.video_url
+          if (!videoUrl) {
+            throw new QwenError('视频生成成功但未返回URL', QwenErrorCode.INTERNAL, 500, false)
+          }
+          return { videoUrl, taskId }
+        }
+
+        if (statusResponse.output.task_status === 'FAILED') {
+          const errorMsg = statusResponse.output.message || '视频生成失败'
+          throw new QwenError(errorMsg, QwenErrorCode.INTERNAL, 500, false)
+        }
+
+        if (statusResponse.output.task_status === 'UNKNOWN') {
+          throw new QwenError('任务不存在或已过期', QwenErrorCode.NOT_FOUND, 404, false)
+        }
+      }
+
+      throw new QwenError('视频生成超时', QwenErrorCode.DEADLINE_EXCEEDED, 504, false)
+    }
+
+    // 原有的文生视频/图生视频逻辑
     // 构建请求体
     const input: Record<string, unknown> = {
       prompt: options.prompt

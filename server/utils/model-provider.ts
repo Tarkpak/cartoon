@@ -167,6 +167,28 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
   // 千问模型 (通义万相)
   {
     provider: 'qwen',
+    model: qwen.QwenVideoModels.WAN_2_2_KF2V_FLASH,
+    displayName: '通义万相2.2-首尾帧生视频(推荐)',
+    description: '极速版，较2.1速度提升50%，支持480P/720P/1080P',
+    maxDuration: 5,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: false,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/wanx-keyframe-to-video-api-reference'
+  },
+  {
+    provider: 'qwen',
+    model: qwen.QwenVideoModels.WAN_2_1_KF2V_PLUS,
+    displayName: '通义万相2.1-首尾帧生视频(专业版)',
+    description: '复杂运动，物理规律还原，画面细腻，720P',
+    maxDuration: 5,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: false,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/wanx-keyframe-to-video-api-reference'
+  },
+  {
+    provider: 'qwen',
     model: qwen.QwenVideoModels.WAN_2_6_T2V,
     displayName: '通义万相2.6-文生视频',
     description: '全新参考生视频，智能多镜，15秒时长',
@@ -412,12 +434,14 @@ export async function generateVideo(options: {
   prompt: string
   firstFrame?: string     // base64 (Gemini)
   lastFrame?: string      // base64 (Gemini)
+  firstFrameUrl?: string  // 首帧图片 URL (Qwen 首尾帧模型)
+  lastFrameUrl?: string   // 尾帧图片 URL (Qwen 首尾帧模型)
   imageUrl?: string       // 图生视频输入 (Qwen)
   audioUrl?: string       // 自定义音频 (Qwen)
   duration?: number
   aspectRatio?: string
   size?: string           // Qwen 使用 size 如 '1280*720'
-  resolution?: string
+  resolution?: string     // 分辨率档位: 480P, 720P, 1080P (Qwen 首尾帧模型)
   negativePrompt?: string
   promptExtend?: boolean
   audio?: boolean
@@ -435,9 +459,12 @@ export async function generateVideo(options: {
       model: modelId,
       prompt: options.prompt,
       imageUrl: options.imageUrl,
+      firstFrameUrl: options.firstFrameUrl,
+      lastFrameUrl: options.lastFrameUrl,
       audioUrl: options.audioUrl,
       duration: options.duration,
       size: options.size,
+      resolution: options.resolution,
       negativePrompt: options.negativePrompt,
       promptExtend: options.promptExtend,
       audio: options.audio,
