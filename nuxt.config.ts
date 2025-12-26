@@ -51,6 +51,12 @@ export default defineNuxtConfig({
     }
   },
 
+  // 页面过渡动画
+  app: {
+    pageTransition: { name: 'page', mode: 'out-in' },
+    layoutTransition: { name: 'layout', mode: 'out-in' }
+  },
+
   // 路由规则
   routeRules: {
     '/': { prerender: true }
