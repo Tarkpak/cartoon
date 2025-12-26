@@ -69,14 +69,26 @@ export const CharacterSchema = z.object({
 })
 export type Character = z.infer<typeof CharacterSchema>
 
-/** 角色资产 - 包含生成的图片 (基于飞书文档 2.7.2 角色库) */
+/** 角色设定图类型 */
+export const CharacterSheetTypeSchema = z.enum([
+  'full',        // 完整设定图（三视图+表情）
+  'turnaround',  // 仅三视图
+  'expressions', // 仅表情集
+  'legacy'       // 旧版单图
+])
+export type CharacterSheetType = z.infer<typeof CharacterSheetTypeSchema>
+
+/** 角色资产 - 包含生成的图片 */
 export const CharacterAssetSchema = z.object({
   characterId: z.string().describe('角色ID'),
   name: z.string().describe('角色名'),
-  baseImage: z.string().describe('基础立绘 (base64)'),
-  expressions: z.record(EmotionSchema, z.string()).describe('表情变体 (emotion -> base64)'),
-  poses: z.record(z.string(), z.string()).optional().describe('姿态变体 (pose -> base64)'),
-  views: z.record(CharacterViewSchema, z.string()).optional().describe('视角变体 (view -> base64)'),
+  // 角色设定图（一张图包含三视图+表情）
+  baseImage: z.string().describe('角色设定图 (base64) - 包含三视图和表情'),
+  sheetType: CharacterSheetTypeSchema.optional().default('full').describe('设定图类型'),
+  // 以下字段保留用于兼容旧数据，新生成的角色不再使用
+  expressions: z.record(EmotionSchema, z.string()).optional().describe('表情变体 (已废弃，表情包含在设定图中)'),
+  poses: z.record(z.string(), z.string()).optional().describe('姿态变体 (已废弃)'),
+  views: z.record(CharacterViewSchema, z.string()).optional().describe('视角变体 (已废弃，三视图包含在设定图中)'),
   outfits: z.array(CharacterOutfitSchema).optional().describe('服装变体列表'),
   createdAt: z.string().datetime().describe('创建时间'),
   updatedAt: z.string().datetime().describe('更新时间')

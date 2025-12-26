@@ -305,20 +305,25 @@ onUnmounted(() => {
     
     <!-- 时间线主体 -->
     <div
-      class="p-4"
-      :class="isExpanded ? 'h-[calc(100%-60px)] overflow-auto' : ''"
+      class="p-4 overflow-x-auto"
+      :class="isExpanded ? 'h-[calc(100%-60px)] overflow-y-auto' : ''"
     >
-      <!-- 时间刻度 -->
-      <div class="relative h-6 mb-2">
-        <div
-          v-for="i in Math.ceil(totalDuration / 5) + 1"
-          :key="i"
-          class="absolute text-xs text-muted-foreground"
-          :style="{ left: `${((i - 1) * 5 / totalDuration) * 100}%` }"
-        >
-          {{ formatTime((i - 1) * 5) }}
+      <!-- 时间线内容容器 -->
+      <div
+        class="min-w-fit"
+        :style="{ width: totalDuration > 60 ? `${Math.max(100, totalDuration * 15)}px` : '100%' }"
+      >
+        <!-- 时间刻度 -->
+        <div class="relative h-6 mb-2">
+          <div
+            v-for="i in Math.ceil(totalDuration / 5) + 1"
+            :key="i"
+            class="absolute text-xs text-muted-foreground whitespace-nowrap"
+            :style="{ left: `${((i - 1) * 5 / totalDuration) * 100}%` }"
+          >
+            {{ formatTime((i - 1) * 5) }}
+          </div>
         </div>
-      </div>
       
       <!-- 时间线轨道 -->
       <div
@@ -392,7 +397,8 @@ onUnmounted(() => {
           <div class="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-red-500 rounded-full" />
         </div>
       </div>
-      
+      </div>
+
       <!-- 详细场景列表（展开模式） -->
       <div
         v-if="isExpanded"
@@ -489,7 +495,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      
+
       <!-- 图例 -->
       <div class="flex items-center justify-center space-x-6 mt-4 text-xs text-muted-foreground">
         <div class="flex items-center space-x-1">

@@ -74,24 +74,26 @@ const videosCompleted = computed(() => props.scenes.filter(s => s.videoStatus ==
       </div>
     </div>
 
-    <div class="grid lg:grid-cols-3 gap-6">
+    <div class="grid lg:grid-cols-3 gap-6 min-h-[500px]">
       <!-- 场景列表 -->
-      <div class="space-y-4">
-        <h3 class="font-semibold">
+      <div class="flex flex-col">
+        <h3 class="font-semibold mb-4">
           场景队列
         </h3>
         <div
           v-if="scenes.length === 0"
-          class="text-center py-8 text-muted-foreground"
+          class="flex-1 flex items-center justify-center text-muted-foreground border rounded-lg"
         >
-          <Video class="w-8 h-8 mx-auto mb-2" />
-          <p class="text-sm">
-            请先解析剧本
-          </p>
+          <div class="text-center">
+            <Video class="w-8 h-8 mx-auto mb-2" />
+            <p class="text-sm">
+              请先解析剧本
+            </p>
+          </div>
         </div>
         <div
           v-else
-          class="space-y-2 max-h-[400px] overflow-y-auto"
+          class="flex-1 space-y-2 overflow-y-auto"
         >
           <div
             v-for="(scene, idx) in scenes"
@@ -129,13 +131,13 @@ const videosCompleted = computed(() => props.scenes.filter(s => s.videoStatus ==
       </div>
 
       <!-- 首尾帧预览 -->
-      <div class="space-y-4">
-        <h3 class="font-semibold">
+      <div class="flex flex-col">
+        <h3 class="font-semibold mb-4">
           首尾帧预览
         </h3>
         <div
           v-if="selectedScene"
-          class="space-y-4"
+          class="flex-1 flex flex-col space-y-4"
         >
           <div>
             <div class="text-xs text-muted-foreground mb-2">
@@ -190,7 +192,7 @@ const videosCompleted = computed(() => props.scenes.filter(s => s.videoStatus ==
         </div>
         <div
           v-else
-          class="text-center py-8 text-muted-foreground"
+          class="flex-1 flex items-center justify-center text-muted-foreground border rounded-lg"
         >
           <p class="text-sm">
             请选择一个场景
@@ -199,13 +201,13 @@ const videosCompleted = computed(() => props.scenes.filter(s => s.videoStatus ==
       </div>
 
       <!-- 视频预览 -->
-      <div class="space-y-4">
-        <h3 class="font-semibold">
+      <div class="flex flex-col">
+        <h3 class="font-semibold mb-4">
           视频预览
         </h3>
         <div
           v-if="selectedScene"
-          class="space-y-4"
+          class="flex-1 flex flex-col space-y-4"
         >
           <div class="aspect-video bg-gray-900 rounded-lg flex items-center justify-center overflow-hidden">
             <video
