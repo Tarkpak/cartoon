@@ -36,6 +36,60 @@ const LocalSceneSchema = z.object({
 })
 
 /**
+ * 分镜镜头 Schema (宽松版本，接受 null 值)
+ */
+const StoryboardShotSchema = z.object({
+  shotNumber: z.number(),
+  shotType: z.string(),
+  cameraMovement: z.string(),
+  visualContent: z.string(),
+  dialogue: z.string().nullable().optional(),
+  character: z.string().nullable().optional(),
+  emotion: z.string().nullable().optional(),
+  duration: z.number(),
+  notes: z.string().nullable().optional()
+})
+
+/**
+ * 分镜脚本 Schema
+ */
+const StoryboardSchema = z.object({
+  sceneId: z.string(),
+  shots: z.array(StoryboardShotSchema),
+  totalDuration: z.number(),
+  style: z.string().optional()
+})
+
+/**
+ * 场景视觉 Schema (宽松版本，兼容不同格式)
+ */
+const SceneVisualSchema = z.object({
+  sceneId: z.string(),
+  time: z.string().optional(),
+  location: z.string().optional(),
+  visualElements: z.union([
+    z.array(z.string()),
+    z.array(z.object({
+      element: z.string(),
+      description: z.string().optional(),
+      detail: z.string().optional(),
+      importance: z.string().optional()
+    }))
+  ]).optional(),
+  atmosphere: z.string().optional(),
+  sensoryDetails: z.union([
+    z.string(),
+    z.object({
+      visual: z.string().optional(),
+      auditory: z.string().optional(),
+      tactile: z.string().optional(),
+      olfactory: z.string().optional()
+    })
+  ]).optional().nullable(),
+  imagePrompt: z.string().optional()
+})
+
+/**
  * 首尾帧生成请求(基于飞书文档 2.6 优化)
  */
 const GenerateFrameRequestSchema = z.object({
@@ -44,7 +98,10 @@ const GenerateFrameRequestSchema = z.object({
   characterAssets: z.record(z.string(), z.string()).optional().describe('角色资产 (name -> base64)'),
   sceneBackground: z.string().optional().describe('场景背景图(base64) - 用于角色+场景融合'),
   previousSceneLastFrame: z.string().optional().describe('上一场景的尾帧(base64) - 用于保持场景连续性'),
-  fusionMode: z.enum(['character_scene', 'reference', 'text_only']).optional().default('reference').describe('融合模式')
+  fusionMode: z.enum(['character_scene', 'reference', 'text_only']).optional().default('reference').describe('融合模式'),
+  // 新增：分镜脚本和场景视觉数据
+  storyboard: StoryboardSchema.optional().describe('分镜脚本数据'),
+  sceneVisual: SceneVisualSchema.optional().describe('场景视觉提取数据')
 })
 
 /**
@@ -61,21 +118,24 @@ export default defineEventHandler(async (event) => {
   const parseResult = GenerateFrameRequestSchema.safeParse(body)
 
   if (!parseResult.success) {
+    console.error('[FrameGen] 请求验证失败:', parseResult.error.issues)
     throw createError({
       statusCode: 400,
       statusMessage: '请求参数无效',
-      message: parseResult.error.issues.map(i => i.message).join(', ')
+      message: parseResult.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ')
     })
   }
 
-  const { scene, style, characterAssets, sceneBackground, previousSceneLastFrame, fusionMode } = parseResult.data
+  const { scene, style, characterAssets, sceneBackground, previousSceneLastFrame, fusionMode, storyboard, sceneVisual } = parseResult.data
 
   try {
     console.log(`[FrameGen] 开始生成首尾帧: ${scene.id}, 融合模式: ${fusionMode}`)
+    console.log(`[FrameGen] 分镜数据: ${storyboard ? `${storyboard.shots.length}个镜头` : '无'}`)
+    console.log(`[FrameGen] 视觉提取: ${sceneVisual?.imagePrompt ? '有imagePrompt' : '无'}`)
 
     // 2. 生成首帧 (根据融合模式选择策略)
     const firstFrameResult = await generateFirstFrame(
-      scene, style, characterAssets, sceneBackground, previousSceneLastFrame, fusionMode
+      scene, style, characterAssets, sceneBackground, previousSceneLastFrame, fusionMode, storyboard, sceneVisual
     )
     console.log(`[FrameGen] 首帧生成完成`)
 
@@ -84,7 +144,9 @@ export default defineEventHandler(async (event) => {
       scene,
       style,
       firstFrameResult.imageData,
-      firstFrameResult.mimeType
+      firstFrameResult.mimeType,
+      storyboard,
+      sceneVisual
     )
     console.log(`[FrameGen] 尾帧生成完成`)
 
@@ -124,6 +186,8 @@ export default defineEventHandler(async (event) => {
  * @param sceneBackground 场景背景图，用于角色+场景融合
  * @param previousSceneLastFrame 上一场景的尾帧，用于保持场景连续性
  * @param fusionMode 融合模式
+ * @param storyboard 分镜脚本数据
+ * @param sceneVisual 场景视觉提取数据
  */
 async function generateFirstFrame(
   scene: z.infer<typeof LocalSceneSchema>,
@@ -131,13 +195,18 @@ async function generateFirstFrame(
   characterAssets?: Record<string, string>,
   sceneBackground?: string,
   previousSceneLastFrame?: string,
-  fusionMode: 'character_scene' | 'reference' | 'text_only' = 'reference'
+  fusionMode: 'character_scene' | 'reference' | 'text_only' = 'reference',
+  storyboard?: z.infer<typeof StoryboardSchema>,
+  sceneVisual?: z.infer<typeof SceneVisualSchema>
 ): Promise<{ imageData: string, mimeType: string }> {
   let prompt: string
   let referenceImage: { data: string, mimeType: string } | undefined
 
-  // 根据融合模式选择策略
-  if (fusionMode === 'character_scene' && sceneBackground && characterAssets) {
+  // 优先使用场景视觉提取的 imagePrompt
+  if (sceneVisual?.imagePrompt) {
+    console.log('[FrameGen] 使用场景视觉提取的 imagePrompt')
+    prompt = buildPromptFromSceneVisual(scene, style, sceneVisual, storyboard, false)
+  } else if (fusionMode === 'character_scene' && sceneBackground && characterAssets) {
     // 模式1: 角色+场景融合 (基于飞书文档 2.6.1.1)
     // 将角色立绘融合到场景背景中
     const mainCharacter = scene.characters[0]
@@ -155,7 +224,7 @@ async function generateFirstFrame(
     }
   } else if (previousSceneLastFrame) {
     // 模式2: 使用上一场景尾帧保持连续性(基于飞书文档 2.7.4)
-    prompt = buildFirstFramePrompt(scene, style, true)
+    prompt = buildFirstFramePrompt(scene, style, true, storyboard)
     referenceImage = { data: previousSceneLastFrame, mimeType: 'image/jpeg' }
     console.log('[FrameGen] 使用上一场景尾帧作为参考图')
   } else if (characterAssets) {
@@ -163,15 +232,15 @@ async function generateFirstFrame(
     const mainCharacter = scene.characters[0]
     const characterImage = mainCharacter ? characterAssets[mainCharacter.name] : undefined
     if (characterImage) {
-      prompt = buildFirstFramePrompt(scene, style, false)
+      prompt = buildFirstFramePrompt(scene, style, false, storyboard)
       referenceImage = { data: characterImage, mimeType: 'image/png' }
       console.log('[FrameGen] 使用角色立绘作为参考图')
     } else {
-      prompt = buildFirstFramePrompt(scene, style, false)
+      prompt = buildFirstFramePrompt(scene, style, false, storyboard)
     }
   } else {
     // 模式4: 纯文本生成
-    prompt = buildFirstFramePrompt(scene, style, false)
+    prompt = buildFirstFramePrompt(scene, style, false, storyboard)
     console.log('[FrameGen] 使用纯文本生成模式')
   }
 
@@ -227,6 +296,82 @@ ${mainCharacter.emotion ? `- 表情: ${getEmotionChinese(mainCharacter.emotion)}
 6. 角色姿态要符合场景氛围`
 }
 
+/**
+ * 基于场景视觉提取数据构建提示词 (优先使用 imagePrompt)
+ */
+function buildPromptFromSceneVisual(
+  scene: z.infer<typeof LocalSceneSchema>,
+  style: string,
+  sceneVisual: z.infer<typeof SceneVisualSchema>,
+  storyboard?: z.infer<typeof StoryboardSchema>,
+  isLastFrame: boolean = false
+): string {
+  const { characters, dialogues } = scene
+  
+  // 获取分镜信息
+  let shotInfo = ''
+  if (storyboard && storyboard.shots.length > 0) {
+    const shot = isLastFrame 
+      ? storyboard.shots[storyboard.shots.length - 1] 
+      : storyboard.shots[0]
+    if (shot) {
+      shotInfo = `
+镜头设计:
+- 景别: ${getShotTypeChinese(shot.shotType)}
+- 运镜: ${getCameraMovementChinese(shot.cameraMovement)}
+- 画面内容: ${shot.visualContent}`
+    }
+  }
+
+  // 构建角色描述
+  const charactersDesc = characters.map((c) => {
+    const parts = [c.name]
+    if (c.appearance) parts.push(`(${c.appearance})`)
+    if (c.emotion) parts.push(`表情${getEmotionChinese(c.emotion)}`)
+    if (c.action) parts.push(c.action)
+    return parts.join(' ')
+  }).join('、')
+
+  // 提取情绪
+  const emotion = isLastFrame 
+    ? (dialogues?.[dialogues.length - 1]?.emotion || characters[0]?.emotion || 'neutral')
+    : (dialogues?.[0]?.emotion || characters[0]?.emotion || 'neutral')
+
+  // 使用 imagePrompt 作为核心提示词
+  const basePrompt = sceneVisual.imagePrompt || scene.description
+
+  // 处理 sensoryDetails (可能是字符串或对象)
+  let sensoryDetailsStr = ''
+  if (sceneVisual.sensoryDetails) {
+    if (typeof sceneVisual.sensoryDetails === 'string') {
+      sensoryDetailsStr = sceneVisual.sensoryDetails
+    } else if (typeof sceneVisual.sensoryDetails === 'object' && sceneVisual.sensoryDetails.visual) {
+      sensoryDetailsStr = sceneVisual.sensoryDetails.visual
+    }
+  }
+
+  return `创作一幅${style}风格的${isLastFrame ? '场景结束' : '场景开始'}画面。
+
+【AI优化的图像提示词】
+${basePrompt}
+
+【场景氛围】
+${sceneVisual.atmosphere || ''}
+
+【感官细节】
+${sensoryDetailsStr}
+${shotInfo}
+
+【登场角色】
+${charactersDesc}
+
+【画面要求】
+1. ${style}画风，高清质量
+2. 宽屏 16:9 比例
+3. 情绪基调: ${getEmotionChinese(emotion)}
+4. ${isLastFrame ? '体现场景发展后的结束状态' : '体现场景开始时的初始状态'}`
+}
+
 
 /**
  * 生成尾帧
@@ -235,9 +380,17 @@ async function generateLastFrame(
   scene: z.infer<typeof LocalSceneSchema>,
   style: string,
   _firstFrameData: string,
-  _firstFrameMimeType: string
+  _firstFrameMimeType: string,
+  storyboard?: z.infer<typeof StoryboardSchema>,
+  sceneVisual?: z.infer<typeof SceneVisualSchema>
 ): Promise<{ imageData: string, mimeType: string }> {
-  const prompt = buildLastFramePrompt(scene, style)
+  // 优先使用场景视觉提取的 imagePrompt 构建尾帧提示词
+  let prompt: string
+  if (sceneVisual?.imagePrompt) {
+    prompt = buildPromptFromSceneVisual(scene, style, sceneVisual, storyboard, true)
+  } else {
+    prompt = buildLastFramePrompt(scene, style, storyboard)
+  }
 
   // 使用并发限制器控制请求，使用统一的 generateImage 函数
   // 注意：千问不支持参考图
@@ -267,11 +420,13 @@ async function generateLastFrame(
 /**
  * 构建首帧提示词
  * @param hasPreviousFrame 是否有上一场景的参考帧
+ * @param storyboard 分镜脚本数据
  */
 function buildFirstFramePrompt(
   scene: z.infer<typeof LocalSceneSchema>,
   style: string,
-  hasPreviousFrame: boolean = false
+  hasPreviousFrame: boolean = false,
+  storyboard?: z.infer<typeof StoryboardSchema>
 ): string {
   const { setting, characters, description, dialogues } = scene
 
@@ -287,6 +442,19 @@ function buildFirstFramePrompt(
     if (c.action) parts.push(c.action)
     return parts.join(' ')
   }).join('、')
+
+  // 获取分镜信息
+  let shotInfo = ''
+  if (storyboard && storyboard.shots.length > 0) {
+    const firstShot = storyboard.shots[0]
+    if (firstShot) {
+      shotInfo = `
+【镜头设计】
+- 景别: ${getShotTypeChinese(firstShot.shotType)}
+- 运镜: ${getCameraMovementChinese(firstShot.cameraMovement)}
+- 画面内容: ${firstShot.visualContent}`
+    }
+  }
 
   // 如果有上一场景的参考帧，使用完全不同的提示词结构
   if (hasPreviousFrame) {
@@ -306,6 +474,7 @@ function buildFirstFramePrompt(
 
 新场景内容：
 ${description}
+${shotInfo}
 
 登场角色: ${charactersDesc}
 
@@ -329,6 +498,7 @@ ${description}
 ${weather ? `- 天气: ${weather}` : ''}
 
 场景描述: ${description}
+${shotInfo}
 
 登场角色: ${charactersDesc}
 
@@ -347,7 +517,8 @@ ${weather ? `- 天气: ${weather}` : ''}
  */
 function buildLastFramePrompt(
   scene: z.infer<typeof LocalSceneSchema>,
-  style: string
+  style: string,
+  storyboard?: z.infer<typeof StoryboardSchema>
 ): string {
   const { setting, characters, dialogues } = scene
 
@@ -368,6 +539,19 @@ function buildLastFramePrompt(
     return parts.join(' ')
   }).join('、')
 
+  // 获取分镜信息
+  let shotInfo = ''
+  if (storyboard && storyboard.shots.length > 0) {
+    const lastShot = storyboard.shots[storyboard.shots.length - 1]
+    if (lastShot) {
+      shotInfo = `
+【镜头设计】
+- 景别: ${getShotTypeChinese(lastShot.shotType)}
+- 运镜: ${getCameraMovementChinese(lastShot.cameraMovement)}
+- 画面内容: ${lastShot.visualContent}`
+    }
+  }
+
   return `基于参考图，创作场景的【结束状态】画面。
 
 保持一致:
@@ -381,6 +565,7 @@ function buildLastFramePrompt(
 1. 角色表情变化为: ${getEmotionChinese(finalMood)}
 2. 角色姿态可有轻微变化
 3. 体现场景发展后的状态
+${shotInfo}
 
 角色: ${charactersDesc}
 
@@ -402,6 +587,46 @@ function getEmotionChinese(emotion: string): string {
     scared: '害怕'
   }
   return map[emotion] || '平静'
+}
+
+/**
+ * 景别中文映射
+ */
+function getShotTypeChinese(shotType: string): string {
+  const map: Record<string, string> = {
+    extreme_wide: '大远景',
+    wide: '远景/全景',
+    medium_wide: '中全景',
+    medium: '中景',
+    medium_close: '中近景',
+    close: '近景',
+    extreme_close: '特写',
+    detail: '细节特写'
+  }
+  return map[shotType] || shotType
+}
+
+/**
+ * 运镜中文映射
+ */
+function getCameraMovementChinese(cameraMovement: string): string {
+  const map: Record<string, string> = {
+    static: '定镜/固定机位',
+    push: '推镜头',
+    pull: '拉镜头',
+    pan_left: '左摇',
+    pan_right: '右摇',
+    tilt_up: '上摇',
+    tilt_down: '下摇',
+    track: '跟镜头',
+    dolly: '移动镜头',
+    zoom_in: '变焦推进',
+    zoom_out: '变焦拉远',
+    crane: '升降镜头',
+    handheld: '手持镜头',
+    arc: '环绕镜头'
+  }
+  return map[cameraMovement] || cameraMovement
 }
 
 /**

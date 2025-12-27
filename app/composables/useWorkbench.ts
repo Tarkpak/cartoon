@@ -1019,7 +1019,10 @@ export function useWorkbench() {
           },
           style: currentStylePrompt.value,
           characterAssets,
-          previousSceneLastFrame
+          previousSceneLastFrame,
+          // 传递分镜和视觉提取数据
+          storyboard: scene.storyboard,
+          sceneVisual: scene.sceneVisual
         }
       })
       if (response.success) {
@@ -1043,56 +1046,113 @@ export function useWorkbench() {
 
     scene.videoStatus = 'generating'
     try {
-      // 构建增强的视频生成 prompt，包含镜头语言信息
+      // 构建增强的视频生成 prompt，优先使用分镜脚本中的信息
       let enhancedPrompt = scene.description
 
-      // 添加镜头语言描述
-      const shotTypeDescriptions: Record<ShotType, string> = {
-        extreme_wide: 'extreme wide shot showing vast landscape',
-        wide: 'wide shot showing full environment',
-        medium_wide: 'medium wide shot showing full body with environment',
-        medium: 'medium shot from waist up',
-        medium_close: 'medium close-up from chest up',
-        close: 'close-up shot from shoulders up',
-        extreme_close: 'extreme close-up on face or detail',
-        detail: 'detail shot focusing on specific object'
+      // 如果有分镜脚本，使用分镜中的镜头信息
+      if (scene.storyboard && scene.storyboard.shots.length > 0) {
+        const cinematicHints: string[] = []
+        
+        // 从分镜脚本中提取镜头信息
+        const firstShot = scene.storyboard.shots[0]
+        if (firstShot) {
+          if (firstShot.shotType) {
+            const shotTypeDescriptions: Record<string, string> = {
+              extreme_wide: 'extreme wide shot showing vast landscape',
+              wide: 'wide shot showing full environment',
+              medium_wide: 'medium wide shot showing full body with environment',
+              medium: 'medium shot from waist up',
+              medium_close: 'medium close-up from chest up',
+              close: 'close-up shot from shoulders up',
+              extreme_close: 'extreme close-up on face or detail',
+              detail: 'detail shot focusing on specific object'
+            }
+            cinematicHints.push(shotTypeDescriptions[firstShot.shotType] || firstShot.shotType)
+          }
+          
+          if (firstShot.cameraMovement && firstShot.cameraMovement !== 'static') {
+            const cameraMovementDescriptions: Record<string, string> = {
+              static: 'static camera',
+              push: 'camera pushing forward slowly',
+              pull: 'camera pulling back slowly',
+              pan_left: 'camera panning left',
+              pan_right: 'camera panning right',
+              tilt_up: 'camera tilting up',
+              tilt_down: 'camera tilting down',
+              track: 'camera tracking the subject',
+              dolly: 'camera moving parallel to subject',
+              zoom_in: 'zooming in',
+              zoom_out: 'zooming out',
+              crane: 'crane shot moving vertically',
+              handheld: 'handheld camera with slight shake',
+              arc: 'camera arcing around subject'
+            }
+            cinematicHints.push(cameraMovementDescriptions[firstShot.cameraMovement] || firstShot.cameraMovement)
+          }
+          
+          // 使用分镜中的视觉内容描述
+          if (firstShot.visualContent) {
+            enhancedPrompt = firstShot.visualContent
+          }
+        }
+        
+        if (cinematicHints.length > 0) {
+          enhancedPrompt = `[Cinematography: ${cinematicHints.join(', ')}] ${enhancedPrompt}`
+        }
+      } else {
+        // 没有分镜脚本时，使用场景级别的镜头设置
+        const shotTypeDescriptions: Record<ShotType, string> = {
+          extreme_wide: 'extreme wide shot showing vast landscape',
+          wide: 'wide shot showing full environment',
+          medium_wide: 'medium wide shot showing full body with environment',
+          medium: 'medium shot from waist up',
+          medium_close: 'medium close-up from chest up',
+          close: 'close-up shot from shoulders up',
+          extreme_close: 'extreme close-up on face or detail',
+          detail: 'detail shot focusing on specific object'
+        }
+
+        const cameraMovementDescriptions: Record<CameraMovement, string> = {
+          static: 'static camera',
+          push: 'camera pushing forward slowly',
+          pull: 'camera pulling back slowly',
+          pan_left: 'camera panning left',
+          pan_right: 'camera panning right',
+          tilt_up: 'camera tilting up',
+          tilt_down: 'camera tilting down',
+          track: 'camera tracking the subject',
+          dolly: 'camera moving parallel to subject',
+          zoom_in: 'zooming in',
+          zoom_out: 'zooming out',
+          crane: 'crane shot moving vertically',
+          handheld: 'handheld camera with slight shake',
+          arc: 'camera arcing around subject'
+        }
+
+        // 构建镜头语言提示
+        const cinematicHints: string[] = []
+
+        if (scene.shotType && scene.shotType !== 'medium') {
+          cinematicHints.push(shotTypeDescriptions[scene.shotType])
+        }
+
+        if (scene.cameraMovement && scene.cameraMovement !== 'static') {
+          cinematicHints.push(cameraMovementDescriptions[scene.cameraMovement])
+        }
+
+        if (scene.cameraNote) {
+          cinematicHints.push(scene.cameraNote)
+        }
+
+        // 如果有镜头语言提示，添加到 prompt
+        if (cinematicHints.length > 0) {
+          enhancedPrompt = `[Cinematography: ${cinematicHints.join(', ')}] ${enhancedPrompt}`
+        }
       }
 
-      const cameraMovementDescriptions: Record<CameraMovement, string> = {
-        static: 'static camera',
-        push: 'camera pushing forward slowly',
-        pull: 'camera pulling back slowly',
-        pan_left: 'camera panning left',
-        pan_right: 'camera panning right',
-        tilt_up: 'camera tilting up',
-        tilt_down: 'camera tilting down',
-        track: 'camera tracking the subject',
-        dolly: 'camera moving parallel to subject',
-        zoom_in: 'zooming in',
-        zoom_out: 'zooming out',
-        crane: 'crane shot moving vertically',
-        handheld: 'handheld camera with slight shake',
-        arc: 'camera arcing around subject'
-      }
-
-      // 构建镜头语言提示
-      const cinematicHints: string[] = []
-
-      if (scene.shotType && scene.shotType !== 'medium') {
-        cinematicHints.push(shotTypeDescriptions[scene.shotType])
-      }
-
-      if (scene.cameraMovement && scene.cameraMovement !== 'static') {
-        cinematicHints.push(cameraMovementDescriptions[scene.cameraMovement])
-      }
-
-      if (scene.cameraNote) {
-        cinematicHints.push(scene.cameraNote)
-      }
-
-      // 如果有镜头语言提示，添加到 prompt
-      if (cinematicHints.length > 0) {
-        enhancedPrompt = `[Cinematography: ${cinematicHints.join(', ')}] ${enhancedPrompt}`
+      // 如果有场景视觉提取的 imagePrompt，也可以参考
+      if (scene.sceneVisual?.imagePrompt) {
+        console.log('[VideoGen] 场景有视觉提取数据，imagePrompt 长度:', scene.sceneVisual.imagePrompt.length)
       }
 
       const response = await $fetch<{

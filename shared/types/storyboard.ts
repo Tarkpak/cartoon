@@ -43,7 +43,7 @@ export const StoryboardShotSchema = z.object({
   visualContent: z.string().describe('画面内容描述'),
   dialogue: z.string().nullable().optional().describe('台词/旁白'),
   character: z.string().nullable().optional().describe('说话角色'),
-  emotion: EmotionSchema.nullable().optional().describe('情绪'),
+  emotion: z.string().nullable().optional().describe('情绪'), // 使用 string 而不是 EmotionSchema，因为 AI 可能生成非标准情绪值
   duration: z.number().min(1).max(10).describe('时长(秒)'),
   notes: z.string().nullable().optional().describe('备注')
 })
@@ -65,7 +65,7 @@ export const GenerateStoryboardRequestSchema = z.object({
   dialogues: z.array(z.object({
     character: z.string(),
     text: z.string(),
-    emotion: EmotionSchema.optional()
+    emotion: z.string().optional() // 使用 string 而不是 EmotionSchema，因为场景数据可能包含非标准情绪值
   })).optional().describe('对话列表'),
   style: z.string().optional().default('日式动漫').describe('画风')
 })
