@@ -135,7 +135,17 @@ export const SceneFrameDataSchema = z.object({
   sceneId: z.string().describe('场景ID'),
   firstFrame: z.string().describe('首帧 base64'),
   lastFrame: z.string().describe('尾帧 base64'),
-  mimeType: z.string().default('image/png')
+  mimeType: z.string().default('image/png'),
+  // 场景视觉描述 (用于转场提示词)
+  title: z.string().optional().describe('场景标题'),
+  description: z.string().optional().describe('场景描述'),
+  setting: z.object({
+    location: z.string(),
+    timeOfDay: z.string(),
+    mood: z.string().optional(),
+    weather: z.string().optional()
+  }).optional().describe('场景设定'),
+  imagePrompt: z.string().optional().describe('英文图片提示词 (来自 sceneVisual)')
 })
 export type SceneFrameData = z.infer<typeof SceneFrameDataSchema>
 

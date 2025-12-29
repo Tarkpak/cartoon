@@ -160,7 +160,7 @@ async function createTransitionTask(
   const config = {
     firstFrame: fromScene.lastFrame, // 上一场景的尾帧
     lastFrame: toScene.firstFrame, // 下一场景的首帧
-    prompt: buildTransitionPrompt(fromScene.sceneId, toScene.sceneId, transitionType, style),
+    prompt: buildTransitionPrompt(fromScene, toScene, transitionType, style),
     duration,
     resolution: '1080p' as const,
     aspectRatio: '16:9' as const,
@@ -181,33 +181,53 @@ async function createTransitionTask(
 }
 
 /**
- * 构建转场视频提示词
+ * 构建转场视频提示词 (英文，使用实际场景描述)
  */
 function buildTransitionPrompt(
-  fromSceneId: string,
-  toSceneId: string,
+  fromScene: SceneFrameData,
+  toScene: SceneFrameData,
   transitionType: TransitionType,
   style: string
 ): string {
   const transitionDescriptions: Record<TransitionType, string> = {
-    fade: '画面逐渐淡出，然后新画面淡入，形成柔和的过渡效果',
-    dissolve: '两个画面交叉溶解，前一个画面逐渐消失的同时后一个画面逐渐出现',
-    cut: '快速切换到下一个画面，保持动作的连贯性',
-    wipe: '新画面从一侧擦入，覆盖原有画面'
+    fade: 'smooth fade transition with gradual opacity change',
+    dissolve: 'cross-dissolve effect where scenes blend together seamlessly',
+    cut: 'quick cut maintaining action continuity and visual flow',
+    wipe: 'wipe transition with new scene sliding in from one side'
   }
 
-  return `创作一段场景转场动画。
+  // 优先使用英文 imagePrompt，否则使用场景描述
+  const fromDescription = fromScene.imagePrompt || fromScene.description || 'previous scene'
+  const toDescription = toScene.imagePrompt || toScene.description || 'next scene'
 
-这是从场景 [${fromSceneId}] 到场景 [${toSceneId}] 的过渡。
+  // 构建场景设定描述
+  const fromSetting = fromScene.setting
+    ? `${fromScene.setting.location}, ${fromScene.setting.timeOfDay}${fromScene.setting.mood ? `, ${fromScene.setting.mood} mood` : ''}`
+    : ''
+  const toSetting = toScene.setting
+    ? `${toScene.setting.location}, ${toScene.setting.timeOfDay}${toScene.setting.mood ? `, ${toScene.setting.mood} mood` : ''}`
+    : ''
 
-转场效果: ${transitionDescriptions[transitionType]}
+  return `Create a cinematic transition video between two scenes.
 
-要求:
-1. 保持两个场景之间的视觉连贯性
-2. 转场过程自然流畅
-3. 动作和角色运动要平滑衔接
-4. 光影和色调要协调过渡
-5. ${style}风格，高清质量`
+FROM SCENE: ${fromScene.title || 'Scene A'}
+${fromSetting ? `Setting: ${fromSetting}` : ''}
+Visual: ${fromDescription}
+
+TO SCENE: ${toScene.title || 'Scene B'}
+${toSetting ? `Setting: ${toSetting}` : ''}
+Visual: ${toDescription}
+
+TRANSITION STYLE: ${transitionDescriptions[transitionType]}
+
+REQUIREMENTS:
+1. Maintain visual continuity between the two scenes
+2. Smooth and natural camera movement
+3. Consistent lighting and color grading transition
+4. Character movements should flow naturally if present
+5. ${style} style, high quality cinematic look
+
+The transition should feel seamless and professional, guiding the viewer's eye from one scene to the next.`
 }
 
 /**
@@ -279,7 +299,7 @@ async function generateTransitionWithQwen(
     const modelId = selected.video || qwen.QwenVideoModels.WAN_2_6_T2V
 
     // 千问不支持首尾帧插值，使用文生视频
-    const prompt = buildTransitionPrompt(fromScene.sceneId, toScene.sceneId, transitionType, style)
+    const prompt = buildTransitionPrompt(fromScene, toScene, transitionType, style)
 
     // 转换时长
     let qwenDuration = duration
@@ -290,8 +310,11 @@ async function generateTransitionWithQwen(
     console.log('[SceneChain] Qwen API 转场视频请求参数:', {
       model: modelId,
       promptLength: prompt.length,
+      promptPreview: prompt.slice(0, 300) + (prompt.length > 300 ? '...' : ''),
       fromSceneId: fromScene.sceneId,
       toSceneId: toScene.sceneId,
+      fromSceneTitle: fromScene.title,
+      toSceneTitle: toScene.title,
       transitionType,
       duration: qwenDuration
     })
@@ -371,14 +394,16 @@ async function generateTransitionWithGemini(
     // 2. 调用 Veo API 生成转场视频
     await updateTaskProgress(taskId, 25)
 
-    const prompt = buildTransitionPrompt(fromScene.sceneId, toScene.sceneId, transitionType, style)
+    const prompt = buildTransitionPrompt(fromScene, toScene, transitionType, style)
 
     console.log('[SceneChain] Veo API 转场视频请求参数:', {
       model: VideoModels.VEO_3_1,
       promptLength: prompt.length,
-      promptPreview: prompt.slice(0, 200) + (prompt.length > 200 ? '...' : ''),
+      promptPreview: prompt.slice(0, 300) + (prompt.length > 300 ? '...' : ''),
       fromSceneId: fromScene.sceneId,
       toSceneId: toScene.sceneId,
+      fromSceneTitle: fromScene.title,
+      toSceneTitle: toScene.title,
       transitionType,
       duration,
       fromFrameMimeType: fromScene.mimeType || 'image/png',
