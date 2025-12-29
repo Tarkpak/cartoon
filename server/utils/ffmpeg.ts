@@ -90,71 +90,106 @@ export async function readFileAsBase64(filePath: string): Promise<string> {
 
 /**
  * 拼接多个视频片段
+ * 支持有音频和无音频的视频混合拼接
  */
 export async function concatVideos(
   clips: VideoClip[],
   outputPath: string
 ): Promise<ConcatResult> {
+  if (clips.length === 0) {
+    throw new Error('没有视频片段')
+  }
+
+  if (clips.length === 1) {
+    // 单个视频直接复制
+    const clip = clips[0]
+    if (!clip) {
+      throw new Error('视频片段无效')
+    }
+    await fs.copyFile(clip.path, outputPath)
+    const stats = await fs.stat(outputPath)
+    return {
+      outputPath,
+      duration: clip.duration,
+      size: stats.size
+    }
+  }
+
+  // 在输出文件所在目录创建 concat 列表文件
+  const outputDir = outputPath.substring(0, outputPath.lastIndexOf('/'))
+  const listFile = join(outputDir, 'concat_list.txt')
+
+  // 创建 concat 列表文件
+  const listContent = clips.map(clip => `file '${clip.path}'`).join('\n')
+  await fs.writeFile(listFile, listContent, 'utf-8')
+
+  console.log(`[FFmpeg] concat 列表文件: ${listFile}`)
+  console.log(`[FFmpeg] concat 列表内容:\n${listContent}`)
+  console.log(`[FFmpeg] 输出路径: ${outputPath}`)
+
   return new Promise((resolve, reject) => {
-    if (clips.length === 0) {
-      reject(new Error('没有视频片段'))
-      return
-    }
+    let stderrOutput = ''
 
-    if (clips.length === 1) {
-      // 单个视频直接复制
-      const clip = clips[0]
-      if (!clip) {
-        reject(new Error('视频片段无效'))
-        return
-      }
-      fs.copyFile(clip.path, outputPath)
-        .then(async () => {
-          const stats = await fs.stat(outputPath)
-          resolve({
-            outputPath,
-            duration: clip.duration,
-            size: stats.size
-          })
-        })
-        .catch(reject)
-      return
-    }
-
-    // 多个视频使用 concat demuxer
-    const command = ffmpeg()
-
-    // 添加所有输入
-    clips.forEach((clip) => {
-      command.input(clip.path)
-    })
-
-    // 使用 concat filter
-    const filterComplex = clips
-      .map((_, i) => `[${i}:v][${i}:a]`)
-      .join('') + `concat=n=${clips.length}:v=1:a=1[outv][outa]`
-
-    command
-      .complexFilter(filterComplex)
-      .outputOptions(['-map', '[outv]', '-map', '[outa]'])
+    ffmpeg()
+      .input(listFile)
+      .inputOptions(['-f', 'concat', '-safe', '0'])
+      .outputOptions(['-c', 'copy', '-y'])
       .output(outputPath)
       .on('start', (cmd) => {
         console.log(`[FFmpeg] 开始拼接: ${cmd}`)
       })
+      .on('stderr', (stderrLine) => {
+        stderrOutput += stderrLine + '\n'
+      })
       .on('progress', (progress) => {
-        console.log(`[FFmpeg] 拼接进度: ${progress.percent?.toFixed(1)}%`)
+        if (progress.percent && progress.percent > 0) {
+          console.log(`[FFmpeg] 拼接进度: ${progress.percent.toFixed(1)}%`)
+        }
       })
       .on('end', async () => {
-        const stats = await fs.stat(outputPath)
-        const totalDuration = clips.reduce((sum, c) => sum + c.duration, 0)
-        resolve({
-          outputPath,
-          duration: totalDuration,
-          size: stats.size
-        })
+        try {
+          console.log(`[FFmpeg] end 事件触发，检查输出文件: ${outputPath}`)
+
+          // 删除 concat 列表文件（不删除整个目录）
+          try {
+            await fs.unlink(listFile)
+          } catch {
+            // 忽略删除失败
+          }
+
+          // 检查输出文件
+          let stats
+          try {
+            stats = await fs.stat(outputPath)
+            console.log(`[FFmpeg] 输出文件存在，大小: ${stats.size}`)
+          } catch (statErr) {
+            console.error(`[FFmpeg] 输出文件不存在: ${outputPath}`)
+            console.error(`[FFmpeg] stderr 输出:\n${stderrOutput}`)
+            reject(new Error(`FFmpeg 完成但输出文件不存在。stderr: ${stderrOutput}`))
+            return
+          }
+
+          const totalDuration = clips.reduce((sum, c) => sum + c.duration, 0)
+          console.log(`[FFmpeg] 拼接完成，输出文件: ${outputPath}, 大小: ${stats.size}`)
+          resolve({
+            outputPath,
+            duration: totalDuration,
+            size: stats.size
+          })
+        } catch (err) {
+          console.error(`[FFmpeg] end 事件处理错误:`, err)
+          reject(err)
+        }
       })
-      .on('error', (err) => {
+      .on('error', async (err, stdout, stderr) => {
         console.error(`[FFmpeg] 拼接失败:`, err)
+        console.error(`[FFmpeg] stderr:`, stderr || stderrOutput)
+        // 尝试删除 concat 列表文件
+        try {
+          await fs.unlink(listFile)
+        } catch {
+          // 忽略
+        }
         reject(err)
       })
       .run()

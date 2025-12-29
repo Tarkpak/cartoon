@@ -23,7 +23,7 @@ export function useVideoGen() {
     description: string
     setting: { location: string, timeOfDay: string }
     characters: Array<{ name: string, emotion?: string }>
-  }, style = '日式动漫') {
+  }, style: string) {
     loading.value = true
     error.value = null
 

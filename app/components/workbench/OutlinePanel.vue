@@ -9,19 +9,25 @@ const props = defineProps<{
   generating: boolean
   parsing: boolean
   hasScenes: boolean
+  inputMode: 'idea' | 'script'
 }>()
-
-// 输入模式：'idea' 从创意生成大纲，'script' 直接输入剧本文本
-const inputMode = ref<'idea' | 'script'>('idea')
 
 const emit = defineEmits<{
   'update:rawText': [value: string]
   'update:scriptText': [value: string]
   'update:outline': [value: StoryOutline]
+  'update:inputMode': [value: 'idea' | 'script']
   'generateOutline': []
   'parseScript': []
   'proceedToCharacters': []
 }>()
+
+// 输入模式：'idea' 从创意生成大纲，'script' 直接输入剧本文本
+// 使用 v-model 模式，支持外部控制
+const localInputMode = computed({
+  get: () => props.inputMode,
+  set: v => emit('update:inputMode', v)
+})
 
 const localRawText = computed({
   get: () => props.rawText,
@@ -35,7 +41,7 @@ const localScriptText = computed({
 
 // 判断是否可以进入下一步
 const canProceed = computed(() => {
-  if (inputMode.value === 'idea') {
+  if (localInputMode.value === 'idea') {
     return !!props.outline
   } else {
     return props.hasScenes
@@ -148,17 +154,17 @@ function removeKeyEvent(actIndex: number, eventIndex: number) {
       <div class="flex items-center justify-between">
         <div class="flex items-center space-x-2">
           <Button
-            :variant="inputMode === 'idea' ? 'default' : 'outline'"
+            :variant="localInputMode === 'idea' ? 'default' : 'outline'"
             size="sm"
-            @click="inputMode = 'idea'"
+            @click="localInputMode = 'idea'"
           >
             <BookOpen class="w-4 h-4 mr-2" />
             从创意生成
           </Button>
           <Button
-            :variant="inputMode === 'script' ? 'default' : 'outline'"
+            :variant="localInputMode === 'script' ? 'default' : 'outline'"
             size="sm"
-            @click="inputMode = 'script'"
+            @click="localInputMode = 'script'"
           >
             <FileText class="w-4 h-4 mr-2" />
             直接输入剧本
@@ -167,7 +173,7 @@ function removeKeyEvent(actIndex: number, eventIndex: number) {
       </div>
 
       <!-- 模式 A: 从创意生成大纲 -->
-      <div v-if="inputMode === 'idea'" class="space-y-4">
+      <div v-if="localInputMode === 'idea'" class="space-y-4">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold">
             故事创意
@@ -246,7 +252,7 @@ AI 将自动解析出：
     <div class="space-y-4">
       <div class="flex items-center justify-between">
         <h3 class="font-semibold">
-          {{ inputMode === 'idea' ? '故事大纲' : '解析结果' }}
+          {{ localInputMode === 'idea' ? '故事大纲' : '解析结果' }}
         </h3>
         <Button
           v-if="canProceed"
@@ -258,7 +264,7 @@ AI 将自动解析出：
       </div>
 
       <!-- 模式 A 结果: 大纲展示 -->
-      <template v-if="inputMode === 'idea'">
+      <template v-if="localInputMode === 'idea'">
         <div
           v-if="!outline"
           class="border-2 border-dashed rounded-xl p-12 text-center text-muted-foreground"

@@ -272,8 +272,8 @@ async function generateVideoWithQwen(
       isKf2vModel,
       hasFirstFrame: !!firstFrameUrl,
       hasLastFrame: !!lastFrameUrl,
-      firstFrameLength: firstFrameUrl?.length,
-      lastFrameLength: lastFrameUrl?.length
+      firstFrameLength: firstFrameUrl?.length || 0,
+      lastFrameLength: lastFrameUrl?.length || 0
     })
     
     const result = await qwen._qwenGenerateVideo({

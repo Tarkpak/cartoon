@@ -7,6 +7,8 @@ export interface Project {
   id: string
   title: string
   description: string
+  styleId: string  // 风格预设 ID
+  aspectRatio: '16:9' | '9:16' | '1:1'  // 视频比例
   status: 'draft' | 'active' | 'completed'
   totalScenes: number
   completedScenes: number
@@ -18,11 +20,15 @@ export interface Project {
 export interface CreateProjectInput {
   title: string
   description?: string
+  styleId: string  // 必填
+  aspectRatio: '16:9' | '9:16' | '1:1'  // 必填
 }
 
 export interface UpdateProjectInput {
   title?: string
   description?: string
+  styleId?: string
+  aspectRatio?: '16:9' | '9:16' | '1:1'
   status?: Project['status']
 }
 

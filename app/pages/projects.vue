@@ -8,6 +8,8 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { STYLE_PRESETS, type StylePreset } from '#shared/types/styles'
+import StyleSelector from '@/components/StyleSelector.vue'
 
 // 项目管理页面
 definePageMeta({
@@ -18,6 +20,8 @@ interface Project {
   id: string
   title: string
   description: string | null
+  styleId: string
+  aspectRatio: string
   status: string | null
   totalScenes: number
   createdAt: string
@@ -32,12 +36,21 @@ const error = ref<string | null>(null)
 const showCreateDialog = ref(false)
 const newProject = ref({
   title: '',
-  description: ''
+  description: '',
+  styleId: '',
+  aspectRatio: '16:9' as '16:9' | '9:16' | '1:1'
 })
 const creating = ref(false)
 const deleting = ref<string | null>(null)
 const showDeleteDialog = ref(false)
 const projectToDelete = ref<Project | null>(null)
+
+// 视频比例选项
+const aspectRatioOptions = [
+  { value: '16:9', label: '16:9 横屏', description: '适合电脑/电视' },
+  { value: '9:16', label: '9:16 竖屏', description: '适合手机/短视频' },
+  { value: '1:1', label: '1:1 方形', description: '适合社交媒体' }
+]
 
 // 获取项目列表
 async function fetchProjects() {
@@ -54,9 +67,12 @@ async function fetchProjects() {
   }
 }
 
+// 创建项目步骤
+const createStep = ref<'basic' | 'style'>('basic')
+
 // 创建项目
 async function createProject() {
-  if (!newProject.value.title.trim()) return
+  if (!newProject.value.title.trim() || !newProject.value.styleId) return
 
   creating.value = true
   try {
@@ -64,11 +80,14 @@ async function createProject() {
       method: 'POST',
       body: {
         title: newProject.value.title,
-        description: newProject.value.description || undefined
+        description: newProject.value.description || undefined,
+        styleId: newProject.value.styleId,
+        aspectRatio: newProject.value.aspectRatio
       }
     })
     showCreateDialog.value = false
-    newProject.value = { title: '', description: '' }
+    createStep.value = 'basic'
+    newProject.value = { title: '', description: '', styleId: '', aspectRatio: '16:9' }
     await fetchProjects()
   } catch (e) {
     console.error('创建项目失败:', e)
@@ -79,8 +98,20 @@ async function createProject() {
 
 // 打开新建对话框
 function openCreateDialog() {
-  newProject.value = { title: '', description: '' }
+  newProject.value = { title: '', description: '', styleId: '', aspectRatio: '16:9' }
+  createStep.value = 'basic'
   showCreateDialog.value = true
+}
+
+// 处理风格选择
+function handleStyleSelect(style: StylePreset) {
+  newProject.value.styleId = style.id
+}
+
+// 获取风格名称
+function getStyleName(styleId: string): string {
+  const style = STYLE_PRESETS.find(s => s.id === styleId)
+  return style?.name || styleId
 }
 
 // 格式化时间
@@ -299,16 +330,18 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
 
     <!-- 新建项目对话框 -->
     <Dialog v-model:open="showCreateDialog">
-      <DialogContent class="sm:max-w-[425px]">
+      <DialogContent class="sm:max-w-[800px] max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>新建项目</DialogTitle>
           <DialogDescription>
-            创建一个新的AI漫剧项目，开始你的创作之旅
+            {{ createStep === 'basic' ? '填写项目基本信息' : '选择画风预设' }}
           </DialogDescription>
         </DialogHeader>
-        <div class="grid gap-4 py-4">
+        
+        <!-- 步骤 1: 基本信息 -->
+        <div v-if="createStep === 'basic'" class="grid gap-4 py-4">
           <div class="grid gap-2">
-            <label class="text-sm font-medium">项目名称</label>
+            <label class="text-sm font-medium">项目名称 <span class="text-destructive">*</span></label>
             <Input
               v-model="newProject.title"
               placeholder="输入项目名称..."
@@ -319,19 +352,61 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
             <Textarea
               v-model="newProject.description"
               placeholder="简单描述你的项目..."
-              rows="3"
+              rows="2"
             />
           </div>
+          <div class="grid gap-2">
+            <label class="text-sm font-medium">视频比例 <span class="text-destructive">*</span></label>
+            <div class="grid grid-cols-3 gap-2">
+              <button
+                v-for="option in aspectRatioOptions"
+                :key="option.value"
+                type="button"
+                class="p-3 rounded-md border text-center transition"
+                :class="newProject.aspectRatio === option.value ? 'border-primary bg-primary/10' : 'border-input hover:border-primary/50'"
+                @click="newProject.aspectRatio = option.value as '16:9' | '9:16' | '1:1'"
+              >
+                <div class="font-medium text-sm">{{ option.label }}</div>
+                <div class="text-xs text-muted-foreground">{{ option.description }}</div>
+              </button>
+            </div>
+          </div>
         </div>
-        <DialogFooter>
+
+        <!-- 步骤 2: 选择画风 -->
+        <div v-else class="flex-1 overflow-y-auto py-4 min-h-[400px]">
+          <StyleSelector
+            v-model="newProject.styleId"
+            :show-search="true"
+            @select="handleStyleSelect"
+          />
+        </div>
+
+        <DialogFooter class="flex-shrink-0">
           <Button
+            v-if="createStep === 'style'"
+            variant="outline"
+            @click="createStep = 'basic'"
+          >
+            上一步
+          </Button>
+          <Button
+            v-else
             variant="outline"
             @click="showCreateDialog = false"
           >
             取消
           </Button>
           <Button
-            :disabled="!newProject.title.trim() || creating"
+            v-if="createStep === 'basic'"
+            :disabled="!newProject.title.trim()"
+            @click="createStep = 'style'"
+          >
+            下一步：选择画风
+          </Button>
+          <Button
+            v-else
+            :disabled="!newProject.styleId || creating"
             @click="createProject"
           >
             <Loader2

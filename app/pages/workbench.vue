@@ -23,8 +23,11 @@ const {
   currentStep,
   setCurrentStep,
   proceedToNextStep,
+  // 输入模式
+  inputMode,
   // 风格选择
   selectedStyleId,
+  projectStyleId,
   // 模型选择
   selectedModels,
   // 故事大纲
@@ -49,7 +52,6 @@ const {
   batchGenerateCharacters,
   generateCharacterExpression,
   updateCharacter,
-  extractCharactersFromScenes,
   extractCharactersFromOutline,
   generateCharacterViews,
   // 角色关系
@@ -67,6 +69,10 @@ const {
   batchGenerateVideos,
   batchFrameStatus,
   batchVideoStatus,
+  // 视频合成
+  mergeAllVideos,
+  mergeStatus,
+  finalVideo,
   // 流水线
   pipelineStatus,
   startPipeline,
@@ -79,6 +85,40 @@ const {
 
 // 角色提取状态
 const extractingCharacters = ref(false)
+
+// 错误提示状态
+const errorMessage = ref<string | null>(null)
+const errorTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
+
+// 显示错误提示
+function showError(message: string, duration = 5000) {
+  errorMessage.value = message
+  if (errorTimeout.value) {
+    clearTimeout(errorTimeout.value)
+  }
+  errorTimeout.value = setTimeout(() => {
+    errorMessage.value = null
+  }, duration)
+}
+
+// 关闭错误提示
+function closeError() {
+  errorMessage.value = null
+  if (errorTimeout.value) {
+    clearTimeout(errorTimeout.value)
+  }
+}
+
+// 包装 generateCharacter，添加错误处理
+async function handleGenerateCharacter(char: CharacterData) {
+  try {
+    await generateCharacter(char)
+  } catch (e: unknown) {
+    const error = e as { data?: { message?: string }, message?: string }
+    const message = error.data?.message || error.message || '角色生成失败，请重试'
+    showError(message)
+  }
+}
 
 // 批量生成角色立绘状态
 const batchGeneratingCharacters = ref(false)
@@ -222,20 +262,6 @@ async function handleGenerateExpression(characterId: string, emotion: string) {
   }
 }
 
-// 角色提取 - 统一从场景中提取
-async function handleExtractFromScenes() {
-  if (scenes.value.length === 0) {
-    alert('请先生成或解析场景')
-    return
-  }
-  extractingCharacters.value = true
-  try {
-    await extractCharactersFromScenes()
-  } finally {
-    extractingCharacters.value = false
-  }
-}
-
 // 角色提取 - 从大纲中提取
 async function handleExtractFromOutline() {
   if (!outline.value) {
@@ -296,6 +322,27 @@ onMounted(() => {
 
 <template>
   <div class="p-8">
+    <!-- 全局错误提示 -->
+    <Transition name="slide-down">
+      <div
+        v-if="errorMessage"
+        class="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-lg w-full px-4"
+      >
+        <div class="bg-destructive text-destructive-foreground px-4 py-3 rounded-lg shadow-lg flex items-start justify-between">
+          <div class="flex-1 pr-4">
+            <p class="font-medium">生成失败</p>
+            <p class="text-sm opacity-90 mt-1">{{ errorMessage }}</p>
+          </div>
+          <button
+            class="text-destructive-foreground/80 hover:text-destructive-foreground"
+            @click="closeError"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+    </Transition>
+
     <!-- 头部 -->
     <WorkbenchHeader
       :project-id="projectId"
@@ -311,7 +358,7 @@ onMounted(() => {
       :selected-style-id="selectedStyleId"
       @update:project-name="projectName = $event"
       @update:project-description="projectDescription = $event"
-      @update:selected-style-id="selectedStyleId = $event"
+      @update:selected-style-id="selectedStyleId = $event; projectStyleId = $event"
       @save="saveProject"
       @start-pipeline="startPipeline"
     />
@@ -334,9 +381,11 @@ onMounted(() => {
           :generating="generatingOutline"
           :parsing="parsing"
           :has-scenes="scenes.length > 0"
+          :input-mode="inputMode"
           @update:raw-text="storyIdea = $event"
           @update:script-text="novelText = $event"
           @update:outline="handleOutlineUpdate"
+          @update:input-mode="inputMode = $event"
           @generate-outline="generateOutline"
           @parse-script="parseScript"
           @proceed-to-characters="setCurrentStep('characters')"
@@ -352,10 +401,9 @@ onMounted(() => {
           :batch-progress="batchCharacterProgress"
           :has-outline="!!outline"
           :has-scenes="scenes.length > 0"
-          @generate-character="generateCharacter"
+          @generate-character="handleGenerateCharacter"
           @edit-character="openCharacterEdit"
           @preview-image="openImagePreview"
-          @extract-from-scenes="handleExtractFromScenes"
           @extract-from-outline="handleExtractFromOutline"
           @batch-generate-characters="handleBatchGenerateCharacters"
           @generate-views="generateCharacterViews"
@@ -393,11 +441,14 @@ onMounted(() => {
           :selected-scene="selectedScene"
           :batch-frame-status="batchFrameStatus"
           :batch-video-status="batchVideoStatus"
+          :merge-status="mergeStatus"
+          :final-video="finalVideo"
           @select-scene="selectScene"
           @generate-frames="generateFrames"
           @generate-video="generateVideo"
           @batch-generate-frames="batchGenerateFrames"
           @batch-generate-videos="batchGenerateVideos"
+          @merge-all-videos="mergeAllVideos"
           @preview-image="openImagePreview"
         />
       </CardContent>
@@ -552,3 +603,17 @@ onMounted(() => {
     </Dialog>
   </div>
 </template>
+
+
+<style scoped>
+.slide-down-enter-active,
+.slide-down-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-down-enter-from,
+.slide-down-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -20px);
+}
+</style>

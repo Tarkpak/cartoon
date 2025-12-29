@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm'
 import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../../utils/gemini'
 import * as qwen from '../../utils/qwen'
-import { generateImage, getSelectedModels, findVideoModel } from '../../utils/model-provider'
+import { generateImage, findVideoModel } from '../../utils/model-provider'
+import { getWorkflowModels } from '../models/workflow.get'
 import { db, videoTasks as videoTasksTable } from '../../db'
 import {
   ChainScenesRequestSchema,
@@ -35,7 +36,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { sceneFrames, transitionType, transitionDuration } = parseResult.data
+  const { sceneFrames, transitionType, transitionDuration, style } = parseResult.data
 
   if (sceneFrames.length < 2) {
     throw createError({
@@ -45,7 +46,7 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    console.log(`[SceneChain] 开始串联 ${sceneFrames.length} 个场景`)
+    console.log(`[SceneChain] 开始串联 ${sceneFrames.length} 个场景, 风格: ${style}`)
 
     // 2. 生成场景链 ID
     const chainId = `chain_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -67,7 +68,8 @@ export default defineEventHandler(async (event) => {
         fromScene,
         toScene,
         transitionType || 'dissolve',
-        transitionDuration || 4
+        transitionDuration || 4,
+        style
       )
 
       transitions.push({
@@ -97,7 +99,8 @@ export default defineEventHandler(async (event) => {
         fromScene,
         toScene,
         transitionType || 'dissolve',
-        transitionDuration || 4
+        transitionDuration || 4,
+        style
       ).catch(async (error) => {
         console.error(`[SceneChain] 转场任务 ${transition.taskId} 失败:`, error)
         await db.update(videoTasksTable)
@@ -148,7 +151,8 @@ async function createTransitionTask(
   fromScene: SceneFrameData,
   toScene: SceneFrameData,
   transitionType: TransitionType,
-  duration: Duration
+  duration: Duration,
+  style: string
 ): Promise<string> {
   const taskId = `transition_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const now = new Date().toISOString()
@@ -156,7 +160,7 @@ async function createTransitionTask(
   const config = {
     firstFrame: fromScene.lastFrame, // 上一场景的尾帧
     lastFrame: toScene.firstFrame, // 下一场景的首帧
-    prompt: buildTransitionPrompt(fromScene.sceneId, toScene.sceneId, transitionType),
+    prompt: buildTransitionPrompt(fromScene.sceneId, toScene.sceneId, transitionType, style),
     duration,
     resolution: '1080p' as const,
     aspectRatio: '16:9' as const,
@@ -182,7 +186,8 @@ async function createTransitionTask(
 function buildTransitionPrompt(
   fromSceneId: string,
   toSceneId: string,
-  transitionType: TransitionType
+  transitionType: TransitionType,
+  style: string
 ): string {
   const transitionDescriptions: Record<TransitionType, string> = {
     fade: '画面逐渐淡出，然后新画面淡入，形成柔和的过渡效果',
@@ -202,7 +207,7 @@ function buildTransitionPrompt(
 2. 转场过程自然流畅
 3. 动作和角色运动要平滑衔接
 4. 光影和色调要协调过渡
-5. 日式动漫风格，高清质量`
+5. ${style}风格，高清质量`
 }
 
 /**
@@ -243,15 +248,16 @@ async function generateTransitionVideoAsync(
   fromScene: SceneFrameData,
   toScene: SceneFrameData,
   transitionType: TransitionType,
-  duration: Duration
+  duration: Duration,
+  style: string
 ): Promise<void> {
   const provider = determineVideoProvider()
   console.log(`[SceneChain] 使用提供商: ${provider}`)
 
   if (provider === 'qwen') {
-    await generateTransitionWithQwen(taskId, fromScene, toScene, transitionType, duration)
+    await generateTransitionWithQwen(taskId, fromScene, toScene, transitionType, duration, style)
   } else {
-    await generateTransitionWithGemini(taskId, fromScene, toScene, transitionType, duration)
+    await generateTransitionWithGemini(taskId, fromScene, toScene, transitionType, duration, style)
   }
 }
 
@@ -263,7 +269,8 @@ async function generateTransitionWithQwen(
   fromScene: SceneFrameData,
   toScene: SceneFrameData,
   transitionType: TransitionType,
-  duration: Duration
+  duration: Duration,
+  style: string
 ): Promise<void> {
   try {
     await updateTaskProgress(taskId, 10, 'processing')
@@ -272,7 +279,7 @@ async function generateTransitionWithQwen(
     const modelId = selected.video || qwen.QwenVideoModels.WAN_2_6_T2V
 
     // 千问不支持首尾帧插值，使用文生视频
-    const prompt = buildTransitionPrompt(fromScene.sceneId, toScene.sceneId, transitionType)
+    const prompt = buildTransitionPrompt(fromScene.sceneId, toScene.sceneId, transitionType, style)
 
     // 转换时长
     let qwenDuration = duration
@@ -340,7 +347,8 @@ async function generateTransitionWithGemini(
   fromScene: SceneFrameData,
   toScene: SceneFrameData,
   transitionType: TransitionType,
-  duration: Duration
+  duration: Duration,
+  style: string
 ): Promise<void> {
   try {
     // 更新状态为处理中
@@ -355,14 +363,15 @@ async function generateTransitionWithGemini(
       fromScene.lastFrame,
       toScene.firstFrame,
       fromScene.mimeType,
-      transitionType
+      transitionType,
+      style
     )
     console.log(`[SceneChain] 过渡中间帧生成完成`)
 
     // 2. 调用 Veo API 生成转场视频
     await updateTaskProgress(taskId, 25)
 
-    const prompt = buildTransitionPrompt(fromScene.sceneId, toScene.sceneId, transitionType)
+    const prompt = buildTransitionPrompt(fromScene.sceneId, toScene.sceneId, transitionType, style)
 
     console.log('[SceneChain] Veo API 转场视频请求参数:', {
       model: VideoModels.VEO_3_1,
@@ -518,7 +527,8 @@ async function generateTransitionFrame(
   _lastFrameData: string,
   _firstFrameData: string,
   _mimeType: string,
-  transitionType: TransitionType
+  transitionType: TransitionType,
+  style: string
 ): Promise<{ imageData: string, mimeType: string } | null> {
   try {
     // 对于直切类型，不需要中间帧
@@ -530,16 +540,21 @@ async function generateTransitionFrame(
 
 要求:
 1. 融合两张图片的视觉元素
-2. 保持日式动漫风格
+2. 保持${style}风格
 3. 画面要自然协调
 4. 光影效果要平滑过渡
 5. 16:9 宽屏比例
 
 这是两个场景之间的过渡帧，需要在视觉上连接这两个画面。`
 
+    // 从工作流配置获取首尾帧生成模型
+    const workflowModels = await getWorkflowModels()
+    const modelId = workflowModels.frame_generation
+    console.log(`[SceneChain] 过渡帧使用图片模型: ${modelId}`)
+
     // 使用统一的 generateImage 函数
-    // 注意：千问不支持参考图
     const result = await generateImage({
+      modelId,
       prompt,
       maxRetries: 1
     })

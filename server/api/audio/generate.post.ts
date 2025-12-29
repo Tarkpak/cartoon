@@ -15,7 +15,9 @@ const GenerateAudioRequestSchema = z.object({
   // BGM 配置
   prompt: z.string().optional().describe('BGM 描述'),
   style: z.enum(['ambient', 'dramatic', 'romantic', 'action', 'mysterious', 'happy', 'sad', 'tense']).optional(),
-  duration: z.number().min(1).max(60).optional().default(10).describe('时长(秒)')
+  duration: z.number().min(1).max(60).optional().default(10).describe('时长(秒)'),
+  // 项目画风 (用于 BGM 风格匹配)
+  projectStyle: z.string().optional().describe('项目画风 (用于 BGM 风格匹配)')
 })
 
 /**
@@ -69,7 +71,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { type, text, characterName, emotion, language, prompt, style, duration } = parseResult.data
+  const { type, text, characterName, emotion, language, prompt, style, duration, projectStyle } = parseResult.data
 
   try {
     if (type === 'tts') {
@@ -97,7 +99,7 @@ export default defineEventHandler(async (event) => {
     } else {
       // BGM 生成 - 返回优化后的提示词
       // 注意: 实际 Lyria 音乐生成需要通过 Live API WebSocket
-      const bgmPrompt = buildBGMPrompt(prompt || '', style, duration)
+      const bgmPrompt = buildBGMPrompt(prompt || '', style, duration, projectStyle)
 
       return {
         success: true,
@@ -187,7 +189,8 @@ async function generateTTS(config: {
 function buildBGMPrompt(
   description: string,
   style?: string,
-  duration?: number
+  duration?: number,
+  projectStyle?: string
 ): string {
   const styleDescriptions: Record<string, string> = {
     ambient: '舒缓的环境音乐，轻柔的背景氛围',
@@ -201,6 +204,7 @@ function buildBGMPrompt(
   }
 
   const styleDesc = style ? styleDescriptions[style] || '' : ''
+  const musicStyle = projectStyle ? `${projectStyle}风格配乐` : '动漫风格配乐'
 
   return `生成一段${duration || 10}秒的背景音乐。
 
@@ -209,7 +213,7 @@ function buildBGMPrompt(
 场景描述: ${description || '动漫场景背景音乐'}
 
 要求:
-1. 日式动漫风格配乐
+1. ${musicStyle}
 2. 适合作为视频背景音乐
 3. 音乐情绪与场景匹配
 4. 无人声，纯音乐`

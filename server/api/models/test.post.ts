@@ -87,7 +87,15 @@ export default defineEventHandler(async (event) => {
             size: testSize,
             referenceImages: referenceImages  // 传递参考图
           })
-          console.log(`[ModelTest] generateImage 返回:`, JSON.stringify(imageResult))
+          // 只输出摘要信息，避免 base64 数据占满控制台
+          console.log(`[ModelTest] generateImage 返回:`, JSON.stringify({
+            hasImageUrl: !!imageResult.imageUrl,
+            imageUrlPreview: imageResult.imageUrl?.slice(0, 100),
+            hasImageData: !!imageResult.imageData,
+            imageDataLength: imageResult.imageData?.length || 0,
+            mimeType: imageResult.mimeType,
+            text: imageResult.text?.slice(0, 100)
+          }))
         } catch (imgError) {
           console.error(`[ModelTest] generateImage 抛出错误:`, imgError)
           throw imgError

@@ -44,7 +44,7 @@ export default defineEventHandler(async (event) => {
       .all()
 
     // 解析剧本内容（支持新旧格式）
-    let scriptData: { storyIdea?: string, novelText?: string, rawText?: string } | null = null
+    let scriptData: { storyIdea?: string, novelText?: string, rawText?: string, selectedStyleId?: string, selectedModels?: unknown } | null = null
     if (script?.rawText) {
       try {
         scriptData = JSON.parse(script.rawText)
@@ -61,6 +61,8 @@ export default defineEventHandler(async (event) => {
           id: project.id,
           name: project.name,
           description: project.description,
+          styleId: project.styleId,
+          aspectRatio: project.aspectRatio,
           status: project.status,
           createdAt: project.createdAt,
           updatedAt: project.updatedAt
@@ -74,6 +76,9 @@ export default defineEventHandler(async (event) => {
               novelText: scriptData?.novelText || '',
               // 兼容旧字段
               rawText: scriptData?.storyIdea || scriptData?.rawText || '',
+              // 风格和模型选择
+              selectedStyleId: scriptData?.selectedStyleId || '',
+              selectedModels: scriptData?.selectedModels || null,
               parsedData: script.parsedData ? JSON.parse(script.parsedData) : null,
               totalDuration: script.totalDuration
             }

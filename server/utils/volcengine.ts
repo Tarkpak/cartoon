@@ -297,6 +297,17 @@ export async function _volcengineGenerateText(options: {
 }): Promise<string> {
   const model = options.model || VolcengineTextModels.DOUBAO_SEED_FLASH
 
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [Volcengine] generateText 请求参数:`, {
+    model,
+    promptLength: options.prompt.length,
+    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
+    systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
+    temperature: options.temperature ?? 0.7,
+    enableThinking: options.enableThinking,
+    maxRetries: options.maxRetries
+  })
+
   return withRetry(async () => {
     const messages: Array<{ role: string, content: string }> = []
     
@@ -327,10 +338,14 @@ export async function _volcengineGenerateJSON<T>(options: {
 }): Promise<T> {
   const model = options.model || VolcengineTextModels.DOUBAO_SEED_FLASH
 
-  console.log('[Volcengine] generateJSON 请求参数:', {
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [Volcengine] generateJSON 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    temperature: options.temperature ?? 0.2
+    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
+    systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
+    temperature: options.temperature ?? 0.2,
+    maxRetries: options.maxRetries
   })
 
   return withRetry(async () => {
@@ -394,11 +409,16 @@ export async function _volcengineGenerateImage(options: {
 }): Promise<{ imageUrl: string }> {
   const model = options.model || VolcengineImageModels.SEEDREAM_4_5
 
-  console.log('[Volcengine] generateImage 请求参数:', {
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [Volcengine] generateImage 请求参数:`, {
     model,
     promptLength: options.prompt.length,
+    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
+    negativePrompt: options.negativePrompt ? options.negativePrompt.slice(0, 100) + '...' : undefined,
     size: options.size || '1024x1024',
-    n: options.n || 1
+    n: options.n || 1,
+    referenceImagesCount: options.referenceImages?.length || 0,
+    maxRetries: options.maxRetries
   })
 
   return withRetry(async () => {
@@ -421,7 +441,8 @@ export async function _volcengineGenerateImage(options: {
       model,
       prompt: options.prompt,
       n: options.n || 1,
-      size
+      size,
+      watermark: false  // 去掉水印
     }
 
     if (options.negativePrompt) {
@@ -429,8 +450,35 @@ export async function _volcengineGenerateImage(options: {
     }
 
     // 参考图支持 (图生图模式)
+    // 火山引擎 API 要求:
+    // - URL: 必须是公网可访问的 URL
+    // - Base64: 必须是 data:image/<格式>;base64,<数据> 格式
     if (options.referenceImages && options.referenceImages.length > 0) {
-      requestBody.image = options.referenceImages[0]
+      const refImage = options.referenceImages[0]
+
+      // 判断是否已经是正确格式
+      if (refImage.startsWith('http://') || refImage.startsWith('https://')) {
+        // URL 格式 - 直接使用 (注意: 必须是公网可访问的 URL)
+        requestBody.image = refImage
+      } else if (refImage.startsWith('data:image/')) {
+        // 已经是正确的 data URI 格式
+        requestBody.image = refImage
+      } else {
+        // 纯 base64 字符串，需要添加 data URI 前缀
+        // 尝试检测图片格式 (通过 base64 头部特征)
+        let mimeType = 'png' // 默认 png
+        if (refImage.startsWith('/9j/')) {
+          mimeType = 'jpeg'
+        } else if (refImage.startsWith('iVBOR')) {
+          mimeType = 'png'
+        } else if (refImage.startsWith('R0lGOD')) {
+          mimeType = 'gif'
+        } else if (refImage.startsWith('UklGR')) {
+          mimeType = 'webp'
+        }
+        requestBody.image = `data:image/${mimeType};base64,${refImage}`
+        console.log(`[Volcengine] 参考图转换为 data URI 格式: image/${mimeType}`)
+      }
     }
 
     const response = await request<ImageGenerationResponse>(
@@ -507,13 +555,22 @@ export async function _volcengineGenerateVideo(options: {
     }
   }
 
-  console.log('[Volcengine] generateVideo 请求参数:', {
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [Volcengine] generateVideo 请求参数:`, {
     model,
     promptLength: options.prompt.length,
+    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
     hasImageUrl: !!options.imageUrl,
+    imageUrl: options.imageUrl ? options.imageUrl.slice(0, 80) + '...' : undefined,
     hasFirstFrameUrl: !!options.firstFrameUrl,
+    firstFrameUrl: options.firstFrameUrl ? options.firstFrameUrl.slice(0, 80) + '...' : undefined,
     hasLastFrameUrl: !!options.lastFrameUrl,
-    duration: options.duration
+    lastFrameUrl: options.lastFrameUrl ? options.lastFrameUrl.slice(0, 80) + '...' : undefined,
+    duration: options.duration,
+    size: options.size,
+    resolution: options.resolution,
+    negativePrompt: options.negativePrompt ? options.negativePrompt.slice(0, 100) + '...' : undefined,
+    maxRetries: options.maxRetries
   })
 
   return withRetry(async () => {
@@ -544,7 +601,8 @@ export async function _volcengineGenerateVideo(options: {
 
     const requestBody: Record<string, unknown> = {
       model,
-      content
+      content,
+      watermark: false  // 去掉水印
     }
 
     // 可选参数
@@ -555,7 +613,16 @@ export async function _volcengineGenerateVideo(options: {
       requestBody.resolution = options.resolution
     }
 
-    console.log('[Volcengine] 视频生成请求体:', JSON.stringify(requestBody, null, 2))
+    // 输出请求体摘要 (避免 base64 数据占满控制台)
+    const requestSummary = {
+      model: requestBody.model,
+      contentTypes: content.map(c => c.type),
+      textPrompt: content.find(c => c.type === 'text')?.text?.slice(0, 100) + '...',
+      hasImages: content.filter(c => c.type === 'image_url').length,
+      duration: requestBody.duration,
+      resolution: requestBody.resolution
+    }
+    console.log('[Volcengine] 视频生成请求体摘要:', JSON.stringify(requestSummary, null, 2))
 
     // 提交视频生成任务 (异步任务 API)
     const submitResponse = await request<CreateTaskResponse>(

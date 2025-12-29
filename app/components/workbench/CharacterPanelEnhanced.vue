@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Users, Loader2, Sparkles, Pencil, Scan, RotateCcw, Link2, ArrowRight, ImagePlus, Heart, Handshake, Swords, BookOpen, Trophy, Briefcase, HelpCircle, MessageCircle, Quote, Lightbulb } from 'lucide-vue-next'
+import { Users, Loader2, Sparkles, Pencil, RotateCcw, Link2, ArrowRight, ImagePlus, Heart, Handshake, Swords, BookOpen, Trophy, Briefcase, HelpCircle, MessageCircle, Quote, Lightbulb } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useWorkbench'
 import type { CharacterRelationship } from '#shared/types/outline'
 
@@ -17,7 +17,6 @@ const emit = defineEmits<{
   generateCharacter: [char: CharacterData]
   editCharacter: [char: CharacterData]
   previewImage: [src: string, alt: string]
-  extractFromScenes: []
   extractFromOutline: []
   batchGenerateCharacters: []
   generateViews: [char: CharacterData]
@@ -97,24 +96,6 @@ function getRelationshipIcon(type: string) {
           />
           {{ extracting ? '提取中...' : '从大纲提取角色' }}
         </Button>
-        <!-- 从场景提取角色按钮 -->
-        <Button
-          v-if="hasScenes"
-          variant="outline"
-          size="sm"
-          :disabled="extracting"
-          @click="$emit('extractFromScenes')"
-        >
-          <Loader2
-            v-if="extracting"
-            class="w-4 h-4 mr-2 animate-spin"
-          />
-          <Scan
-            v-else
-            class="w-4 h-4 mr-2"
-          />
-          {{ extracting ? '提取中...' : '从场景提取角色' }}
-        </Button>
         <!-- 批量生成立绘按钮 -->
         <Button
           v-if="characters.length > 0 && charsWithoutImage > 0"
@@ -174,7 +155,7 @@ function getRelationshipIcon(type: string) {
       <Users class="w-12 h-12 mx-auto mb-4" />
       <p class="font-medium">还没有角色</p>
       <p class="text-sm mt-1">
-        {{ hasOutline ? '点击"从大纲提取角色"自动识别角色信息' : hasScenes ? '点击"从场景提取角色"自动识别角色信息' : '请先完成故事/剧本步骤，生成大纲或解析场景' }}
+        {{ hasOutline ? '点击"从大纲提取角色"自动识别角色信息' : '请先完成故事/剧本步骤，生成大纲' }}
       </p>
     </div>
 

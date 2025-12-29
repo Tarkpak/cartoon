@@ -331,6 +331,17 @@ export async function _qwenGenerateText(options: {
 }): Promise<string> {
   const model = options.model || QwenTextModels.QWEN_FLASH
 
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [Qwen] generateText 请求参数:`, {
+    model,
+    promptLength: options.prompt.length,
+    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
+    systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
+    temperature: options.temperature ?? 0.7,
+    enableThinking: options.enableThinking,
+    maxRetries: options.maxRetries
+  })
+
   return withRetry(async () => {
     const messages: Array<{ role: string, content: string }> = []
     
@@ -362,10 +373,14 @@ export async function _qwenGenerateJSON<T>(options: {
 }): Promise<T> {
   const model = options.model || QwenTextModels.QWEN_FLASH
 
-  console.log('[Qwen] generateJSON 请求参数:', {
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [Qwen] generateJSON 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    temperature: options.temperature ?? 0.2
+    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
+    systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
+    temperature: options.temperature ?? 0.2,
+    maxRetries: options.maxRetries
   })
 
   return withRetry(async () => {
@@ -537,13 +552,16 @@ export async function _qwenGenerateImage(options: {
 }): Promise<{ imageUrl: string, taskId: string }> {
   const model = options.model || QwenImageModels.WAN_2_6_T2I
 
-  console.log('[Qwen] generateImage 请求参数:', {
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [Qwen] generateImage 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    promptPreview: options.prompt.slice(0, 200),
+    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
+    negativePrompt: options.negativePrompt ? options.negativePrompt.slice(0, 100) + '...' : undefined,
     size: options.size || '1024*1024',
     n: options.n || 1,
-    referenceImagesCount: options.referenceImages?.length || 0
+    referenceImagesCount: options.referenceImages?.length || 0,
+    maxRetries: options.maxRetries
   })
 
   return withRetry(async () => {
@@ -779,16 +797,27 @@ export async function _qwenGenerateVideo(options: {
     }
   }
 
-  console.log('[Qwen] generateVideo 请求参数:', {
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [Qwen] generateVideo 请求参数:`, {
     model,
     promptLength: options.prompt.length,
+    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
     hasImageUrl: !!options.imageUrl,
+    imageUrl: options.imageUrl ? options.imageUrl.slice(0, 80) + '...' : undefined,
     hasFirstFrameUrl: !!options.firstFrameUrl,
+    firstFrameUrl: options.firstFrameUrl ? options.firstFrameUrl.slice(0, 80) + '...' : undefined,
     hasLastFrameUrl: !!options.lastFrameUrl,
+    lastFrameUrl: options.lastFrameUrl ? options.lastFrameUrl.slice(0, 80) + '...' : undefined,
     hasAudioUrl: !!options.audioUrl,
     duration: options.duration,
     size: options.size,
-    resolution: options.resolution
+    resolution: options.resolution,
+    negativePrompt: options.negativePrompt ? options.negativePrompt.slice(0, 100) + '...' : undefined,
+    promptExtend: options.promptExtend,
+    audio: options.audio,
+    watermark: options.watermark,
+    seed: options.seed,
+    maxRetries: options.maxRetries
   })
 
   return withRetry(async () => {
@@ -997,11 +1026,17 @@ export async function _qwenTextToSpeech(options: {
 }): Promise<{ audioData: string, audioUrl?: string }> {
   const model = options.model || QwenVoiceModels.QWEN3_TTS_FLASH
 
-  console.log('[Qwen] textToSpeech 请求参数:', {
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [Qwen] textToSpeech 请求参数:`, {
     model,
     textLength: options.text.length,
+    textPreview: options.text.slice(0, 100) + (options.text.length > 100 ? '...' : ''),
     voice: options.voice,
-    speed: options.speed
+    speed: options.speed,
+    format: options.format,
+    sampleRate: options.sampleRate,
+    languageType: options.languageType,
+    maxRetries: options.maxRetries
   })
 
   return withRetry(async () => {

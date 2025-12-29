@@ -61,11 +61,27 @@ const UpdateProjectSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   status: z.enum(['draft', 'in_progress', 'completed']).optional(),
+  // 项目预设配置 (可更新)
+  styleId: z.string().optional(),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1']).optional(),
   // 兼容旧字段
   rawText: z.string().optional(),
   // 新字段：分离故事创意和小说原文
   storyIdea: z.string().optional(),
   novelText: z.string().optional(),
+  // 故事大纲
+  outline: z.any().optional(),
+  // 输入模式
+  inputMode: z.enum(['idea', 'script']).optional(),
+  // 风格和模型选择 (已废弃，保留兼容)
+  selectedStyleId: z.string().optional(),
+  selectedModels: z.object({
+    text: z.string().optional(),
+    image: z.string().optional(),
+    video: z.string().optional(),
+    tts: z.string().optional(),
+    asr: z.string().optional()
+  }).optional(),
   scenes: z.array(SceneSchema).optional(),
   characters: z.array(CharacterSchema).optional()
 })
@@ -109,28 +125,43 @@ export default defineEventHandler(async (event) => {
     }
 
     // 更新项目基本信息
-    if (data.name || data.description || data.status) {
+    if (data.name || data.description || data.status || data.styleId || data.aspectRatio) {
       await db.update(projects)
         .set({
           name: data.name ?? project.name,
           description: data.description ?? project.description,
           status: data.status ?? project.status,
+          styleId: data.styleId ?? project.styleId,
+          aspectRatio: data.aspectRatio ?? project.aspectRatio,
           updatedAt: now
         })
         .where(eq(projects.id, id))
     }
 
     // 处理剧本和场景
-    if (data.rawText !== undefined || data.storyIdea !== undefined || data.novelText !== undefined || data.scenes !== undefined) {
+    if (data.rawText !== undefined || data.storyIdea !== undefined || data.novelText !== undefined || data.selectedStyleId !== undefined || data.selectedModels !== undefined || data.scenes !== undefined) {
       // 获取或创建剧本
       let script = await db.select().from(scripts).where(eq(scripts.projectId, id)).get()
 
-      // 构建存储的 rawText（JSON 格式存储两个字段）
+      // 读取现有数据
+      let existingData: { storyIdea?: string, novelText?: string, rawText?: string, selectedStyleId?: string, selectedModels?: unknown, outline?: unknown, inputMode?: string } = {}
+      if (script?.rawText) {
+        try {
+          existingData = JSON.parse(script.rawText)
+        } catch {
+          existingData = { rawText: script.rawText }
+        }
+      }
+
+      // 构建存储的 rawText（JSON 格式存储所有字段）
       const scriptContent = JSON.stringify({
-        storyIdea: data.storyIdea ?? '',
-        novelText: data.novelText ?? '',
-        // 兼容旧数据
-        rawText: data.rawText ?? ''
+        storyIdea: data.storyIdea ?? existingData.storyIdea ?? '',
+        novelText: data.novelText ?? existingData.novelText ?? '',
+        rawText: data.rawText ?? existingData.rawText ?? '',
+        selectedStyleId: data.selectedStyleId ?? existingData.selectedStyleId ?? '',
+        selectedModels: data.selectedModels ?? existingData.selectedModels ?? null,
+        outline: data.outline ?? existingData.outline ?? null,
+        inputMode: data.inputMode ?? existingData.inputMode ?? 'idea'
       })
 
       if (!script) {
@@ -143,24 +174,9 @@ export default defineEventHandler(async (event) => {
           updatedAt: now
         })
         script = { id: scriptId, projectId: id, rawText: scriptContent, title: null, parsedData: null, totalDuration: 0, createdAt: now, updatedAt: now }
-      } else if (data.storyIdea !== undefined || data.novelText !== undefined || data.rawText !== undefined) {
-        // 读取现有数据并合并
-        let existingData: { storyIdea?: string, novelText?: string, rawText?: string } = {}
-        try {
-          existingData = JSON.parse(script.rawText || '{}')
-        } catch {
-          // 旧格式，rawText 是纯文本
-          existingData = { rawText: script.rawText || '' }
-        }
-
-        const mergedContent = JSON.stringify({
-          storyIdea: data.storyIdea ?? existingData.storyIdea ?? '',
-          novelText: data.novelText ?? existingData.novelText ?? '',
-          rawText: data.rawText ?? existingData.rawText ?? ''
-        })
-
+      } else {
         await db.update(scripts)
-          .set({ rawText: mergedContent, updatedAt: now })
+          .set({ rawText: scriptContent, updatedAt: now })
           .where(eq(scripts.id, script.id))
       }
 

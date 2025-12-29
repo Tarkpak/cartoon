@@ -60,7 +60,7 @@ export function useGemini() {
     id: string
     name: string
     appearance: string
-    style?: string
+    style: string  // 必填，由项目配置决定
     generateExpressions?: boolean
   }
 
@@ -93,7 +93,7 @@ export function useGemini() {
             name: options.name,
             appearance: options.appearance
           },
-          style: options.style ?? '日式动漫',
+          style: options.style,
           generateExpressions: options.generateExpressions ?? false
         }
       })
@@ -116,7 +116,7 @@ export function useGemini() {
 
   interface GenerateFramesOptions {
     scene: Scene
-    style?: string
+    style: string  // 必填，由项目配置决定
     characterAssets?: Record<string, string>
   }
 
@@ -147,7 +147,7 @@ export function useGemini() {
         method: 'POST',
         body: {
           scene: options.scene,
-          style: options.style ?? '日式动漫',
+          style: options.style,
           characterAssets: options.characterAssets
         }
       })

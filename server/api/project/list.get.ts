@@ -44,6 +44,8 @@ export default defineEventHandler(async () => {
           id: p.id,
           title: p.name,
           description: p.description,
+          styleId: p.styleId,
+          aspectRatio: p.aspectRatio,
           status: p.status,
           totalScenes,
           completedScenes,

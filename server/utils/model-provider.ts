@@ -415,7 +415,8 @@ export async function generateText(options: {
   const modelId = options.modelId || currentModels.text
   const provider = getProviderFromModel(modelId)
 
-  console.log(`[ModelProvider] generateText - provider: ${provider}, model: ${modelId}`)
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [ModelProvider] generateText - provider: ${provider}, model: ${modelId}`)
 
   if (provider === 'qwen') {
     return qwen._qwenGenerateText({
@@ -459,7 +460,8 @@ export async function generateJSON<T>(options: {
   const modelId = options.modelId || currentModels.text
   const provider = getProviderFromModel(modelId)
 
-  console.log(`[ModelProvider] generateJSON - provider: ${provider}, model: ${modelId}`)
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [ModelProvider] generateJSON - provider: ${provider}, model: ${modelId}`)
 
   if (provider === 'qwen') {
     return qwen._qwenGenerateJSON<T>({
@@ -513,7 +515,8 @@ export async function generateImage(options: {
   const modelId = options.modelId || currentModels.image
   const provider = getProviderFromModel(modelId)
 
-  console.log(`[ModelProvider] generateImage - provider: ${provider}, model: ${modelId}, refImages: ${options.referenceImages?.length || 0}`)
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [ModelProvider] generateImage - provider: ${provider}, model: ${modelId}, refImages: ${options.referenceImages?.length || 0}`)
 
   if (provider === 'qwen') {
     const result = await qwen._qwenGenerateImage({
@@ -586,7 +589,8 @@ export async function generateVideo(options: {
   const modelId = options.modelId || currentModels.video
   const provider = getProviderFromModel(modelId)
 
-  console.log(`[ModelProvider] generateVideo - provider: ${provider}, model: ${modelId}`)
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [ModelProvider] generateVideo - provider: ${provider}, model: ${modelId}`)
 
   if (provider === 'qwen') {
     const result = await qwen._qwenGenerateVideo({
@@ -650,7 +654,8 @@ export async function textToSpeech(options: {
   const modelId = options.modelId || currentModels.tts || qwen.QwenVoiceModels.QWEN3_TTS_FLASH
   const provider = getProviderFromModel(modelId)
 
-  console.log(`[ModelProvider] textToSpeech - provider: ${provider}, model: ${modelId}`)
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [ModelProvider] textToSpeech - provider: ${provider}, model: ${modelId}`)
 
   if (provider === 'qwen') {
     return qwen._qwenTextToSpeech({
@@ -686,7 +691,8 @@ export async function speechToText(options: {
   const modelId = options.modelId || currentModels.asr || qwen.QwenVoiceModels.QWEN3_ASR_FLASH
   const provider = getProviderFromModel(modelId)
 
-  console.log(`[ModelProvider] speechToText - provider: ${provider}, model: ${modelId}`)
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [ModelProvider] speechToText - provider: ${provider}, model: ${modelId}`)
 
   if (provider === 'qwen') {
     return qwen._qwenSpeechToText({

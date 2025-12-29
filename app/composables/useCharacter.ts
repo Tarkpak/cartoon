@@ -7,7 +7,7 @@ import type { Emotion } from '../../shared/types/script'
 import type { CharacterState } from '../../shared/types/character'
 
 export interface GenerateCharacterOptions {
-  style?: string
+  style: string  // 必填，由项目配置决定
   emotions?: Emotion[]
 }
 
@@ -60,7 +60,7 @@ export function useCharacter() {
             description: character.description
           },
           emotions,
-          style: options.style || '日式动漫'
+          style: options.style
         }
       })
 

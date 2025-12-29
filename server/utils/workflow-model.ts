@@ -67,7 +67,8 @@ export async function generateJSONForWorkflow<T>(
   const modelConfig = findTextModel(modelId)
   const provider = modelConfig?.provider || 'qwen'
   
-  console.log(`[${step}] 使用模型: ${modelId} (${provider})`)
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [${step}] 使用模型: ${modelId} (${provider})`)
   
   if (provider === 'qwen') {
     return qwen._qwenGenerateJSON<T>({
@@ -117,7 +118,8 @@ export async function generateImageForWorkflow(
   const modelConfig = findImageModel(modelId)
   const provider = modelConfig?.provider || 'qwen'
   
-  console.log(`[${step}] 使用模型: ${modelId} (${provider})`)
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [${step}] 使用模型: ${modelId} (${provider})`)
   
   if (provider === 'qwen') {
     const result = await qwen._qwenGenerateImage({
@@ -182,7 +184,8 @@ export async function generateVideoForWorkflow(
   const modelConfig = findVideoModel(modelId)
   const provider = modelConfig?.provider || 'qwen'
   
-  console.log(`[${step}] 使用模型: ${modelId} (${provider})`)
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [${step}] 使用模型: ${modelId} (${provider})`)
   
   if (provider === 'qwen') {
     return qwen._qwenGenerateVideo({
@@ -239,7 +242,8 @@ export async function generateVoiceForWorkflow(
   const modelConfig = findVoiceModel(modelId)
   const provider = modelConfig?.provider || 'qwen'
   
-  console.log(`[${step}] 使用模型: ${modelId} (${provider})`)
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [${step}] 使用模型: ${modelId} (${provider})`)
   
   // 目前只有千问支持 TTS
   return qwen._qwenTextToSpeech({

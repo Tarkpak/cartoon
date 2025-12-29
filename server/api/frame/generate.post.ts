@@ -3,6 +3,7 @@ import { generateImage } from '../../utils/model-provider'
 import { GeminiError } from '../../utils/gemini'
 import { QwenError } from '../../utils/qwen'
 import { imageLimiter } from '../../utils/concurrency'
+import { getWorkflowModels } from '../models/workflow.get'
 
 // 定义本地的场景Schema，使 setting 可选
 const SceneSettingSchema = z.object({
@@ -94,14 +95,14 @@ const SceneVisualSchema = z.object({
  */
 const GenerateFrameRequestSchema = z.object({
   scene: LocalSceneSchema.describe('场景信息'),
-  style: z.string().optional().default('日式动漫').describe('画风'),
+  style: z.string().describe('画风 (必填，由项目配置决定)'),
   characterAssets: z.record(z.string(), z.string()).optional().describe('角色资产 (name -> base64)'),
   sceneBackground: z.string().optional().describe('场景背景图(base64) - 用于角色+场景融合'),
   previousSceneLastFrame: z.string().optional().describe('上一场景的尾帧(base64) - 用于保持场景连续性'),
   fusionMode: z.enum(['character_scene', 'reference', 'text_only']).optional().default('reference').describe('融合模式'),
-  // 新增：分镜脚本和场景视觉数据
-  storyboard: StoryboardSchema.optional().describe('分镜脚本数据'),
-  sceneVisual: SceneVisualSchema.optional().describe('场景视觉提取数据')
+  // 分镜脚本和场景视觉数据 (必填，前端需要先生成这些数据)
+  storyboard: StoryboardSchema.describe('分镜脚本数据'),
+  sceneVisual: SceneVisualSchema.describe('场景视觉提取数据')
 })
 
 /**
@@ -130,8 +131,8 @@ export default defineEventHandler(async (event) => {
 
   try {
     console.log(`[FrameGen] 开始生成首尾帧: ${scene.id}, 融合模式: ${fusionMode}`)
-    console.log(`[FrameGen] 分镜数据: ${storyboard ? `${storyboard.shots.length}个镜头` : '无'}`)
-    console.log(`[FrameGen] 视觉提取: ${sceneVisual?.imagePrompt ? '有imagePrompt' : '无'}`)
+    console.log(`[FrameGen] 分镜数据: ${storyboard?.shots?.length || 0}个镜头`)
+    console.log(`[FrameGen] 视觉提取: ${sceneVisual?.imagePrompt ? '有imagePrompt' : '无imagePrompt'}`)
 
     // 2. 生成首帧 (根据融合模式选择策略)
     const firstFrameResult = await generateFirstFrame(
@@ -146,7 +147,8 @@ export default defineEventHandler(async (event) => {
       firstFrameResult.imageData,
       firstFrameResult.mimeType,
       storyboard,
-      sceneVisual
+      sceneVisual,
+      characterAssets
     )
     console.log(`[FrameGen] 尾帧生成完成`)
 
@@ -192,65 +194,95 @@ export default defineEventHandler(async (event) => {
 async function generateFirstFrame(
   scene: z.infer<typeof LocalSceneSchema>,
   style: string,
-  characterAssets?: Record<string, string>,
-  sceneBackground?: string,
-  previousSceneLastFrame?: string,
+  characterAssets: Record<string, string> | undefined,
+  sceneBackground: string | undefined,
+  previousSceneLastFrame: string | undefined,
   fusionMode: 'character_scene' | 'reference' | 'text_only' = 'reference',
-  storyboard?: z.infer<typeof StoryboardSchema>,
-  sceneVisual?: z.infer<typeof SceneVisualSchema>
+  storyboard: z.infer<typeof StoryboardSchema>,
+  sceneVisual: z.infer<typeof SceneVisualSchema>
 ): Promise<{ imageData: string, mimeType: string }> {
   let prompt: string
-  let referenceImage: { data: string, mimeType: string } | undefined
+  let referenceImages: string[] = []
+
+  // 收集角色立绘作为参考图
+  if (characterAssets) {
+    for (const char of scene.characters) {
+      const charImage = characterAssets[char.name]
+      if (charImage) {
+        referenceImages.push(charImage)
+        console.log(`[FrameGen] 添加角色立绘参考图: ${char.name}`)
+      }
+    }
+  }
 
   // 优先使用场景视觉提取的 imagePrompt
   if (sceneVisual?.imagePrompt) {
     console.log('[FrameGen] 使用场景视觉提取的 imagePrompt')
-    prompt = buildPromptFromSceneVisual(scene, style, sceneVisual, storyboard, false)
+    prompt = buildPromptFromSceneVisual(scene, style, sceneVisual, storyboard, false, characterAssets)
   } else if (fusionMode === 'character_scene' && sceneBackground && characterAssets) {
     // 模式1: 角色+场景融合 (基于飞书文档 2.6.1.1)
-    // 将角色立绘融合到场景背景中
     const mainCharacter = scene.characters[0]
-    const characterImage = mainCharacter ? characterAssets[mainCharacter.name] : undefined
-
-    if (characterImage && mainCharacter) {
+    if (mainCharacter) {
       prompt = buildCharacterSceneFusionPrompt(scene, style, mainCharacter)
-      // 使用场景背景作为参考，提示词中描述角色融合
-      referenceImage = { data: sceneBackground, mimeType: 'image/png' }
+      // 场景背景也加入参考图
+      referenceImages.unshift(sceneBackground)
       console.log('[FrameGen] 使用角色+场景融合模式')
     } else {
-      // 降级到场景背景参考模式
       prompt = buildFirstFramePrompt(scene, style, false)
-      referenceImage = { data: sceneBackground, mimeType: 'image/png' }
+      referenceImages.unshift(sceneBackground)
     }
   } else if (previousSceneLastFrame) {
     // 模式2: 使用上一场景尾帧保持连续性(基于飞书文档 2.7.4)
     prompt = buildFirstFramePrompt(scene, style, true, storyboard)
-    referenceImage = { data: previousSceneLastFrame, mimeType: 'image/jpeg' }
+    referenceImages.unshift(previousSceneLastFrame)
     console.log('[FrameGen] 使用上一场景尾帧作为参考图')
-  } else if (characterAssets) {
+  } else if (characterAssets && referenceImages.length > 0) {
     // 模式3: 使用角色立绘作为参考
-    const mainCharacter = scene.characters[0]
-    const characterImage = mainCharacter ? characterAssets[mainCharacter.name] : undefined
-    if (characterImage) {
-      prompt = buildFirstFramePrompt(scene, style, false, storyboard)
-      referenceImage = { data: characterImage, mimeType: 'image/png' }
-      console.log('[FrameGen] 使用角色立绘作为参考图')
-    } else {
-      prompt = buildFirstFramePrompt(scene, style, false, storyboard)
-    }
+    prompt = buildFirstFramePrompt(scene, style, false, storyboard)
+    console.log(`[FrameGen] 使用${referenceImages.length}张角色立绘作为参考图`)
   } else {
     // 模式4: 纯文本生成
     prompt = buildFirstFramePrompt(scene, style, false, storyboard)
     console.log('[FrameGen] 使用纯文本生成模式')
   }
 
-  // 使用并发限制器控制请求，使用统一的 generateImage 函数
-  // 注意：千问不支持参考图，所以这里不传 referenceImage
-  const result = await imageLimiter.execute(() =>
-    generateImage({
-      prompt,
-      maxRetries: 2
+  // 限制参考图数量 (最多4张)
+  if (referenceImages.length > 4) {
+    referenceImages = referenceImages.slice(0, 4)
+    console.log('[FrameGen] 参考图数量超过4张，已截取前4张')
+  }
+
+  console.log(`[FrameGen] 生成首帧，参考图数量: ${referenceImages.length}`)
+
+  // 从工作流配置获取首尾帧生成模型
+  const workflowModels = await getWorkflowModels()
+  const modelId = workflowModels.frame_generation
+  console.log(`[FrameGen] 使用图片模型: ${modelId}`)
+
+  // 构建请求体
+  const firstFrameRequest = {
+    modelId,
+    prompt,
+    referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+    maxRetries: 2
+  }
+
+  // 输出完整请求体 (参考图只输出数量和前100字符用于调试)
+  console.log(`[FrameGen] ========== 首帧生成请求体 ==========`)
+  console.log(`[FrameGen] modelId: ${firstFrameRequest.modelId}`)
+  console.log(`[FrameGen] prompt: ${firstFrameRequest.prompt}`)
+  console.log(`[FrameGen] referenceImages: ${firstFrameRequest.referenceImages ? `[${firstFrameRequest.referenceImages.length}张图片]` : 'undefined'}`)
+  if (firstFrameRequest.referenceImages) {
+    firstFrameRequest.referenceImages.forEach((img, idx) => {
+      console.log(`[FrameGen]   - 参考图${idx + 1}: ${img.substring(0, 100)}... (长度: ${img.length})`)
     })
+  }
+  console.log(`[FrameGen] maxRetries: ${firstFrameRequest.maxRetries}`)
+  console.log(`[FrameGen] ========================================`)
+
+  // 使用并发限制器控制请求，传递参考图
+  const result = await imageLimiter.execute(() =>
+    generateImage(firstFrameRequest)
   )
 
   // 处理千问返回的 URL 或 Gemini 返回的 base64
@@ -304,7 +336,8 @@ function buildPromptFromSceneVisual(
   style: string,
   sceneVisual: z.infer<typeof SceneVisualSchema>,
   storyboard?: z.infer<typeof StoryboardSchema>,
-  isLastFrame: boolean = false
+  isLastFrame: boolean = false,
+  characterAssets?: Record<string, string>
 ): string {
   const { characters, dialogues } = scene
   
@@ -320,12 +353,17 @@ function buildPromptFromSceneVisual(
 - 景别: ${getShotTypeChinese(shot.shotType)}
 - 运镜: ${getCameraMovementChinese(shot.cameraMovement)}
 - 画面内容: ${shot.visualContent}`
+      console.log(`[FrameGen] 使用分镜信息: 景别=${shot.shotType}, 运镜=${shot.cameraMovement}`)
     }
+  } else {
+    console.log(`[FrameGen] 未使用分镜信息: storyboard=${storyboard ? 'exists' : 'undefined'}, shots=${storyboard?.shots?.length || 0}`)
   }
 
-  // 构建角色描述
+  // 构建角色描述，标注哪些角色有参考立绘
   const charactersDesc = characters.map((c) => {
     const parts = [c.name]
+    const hasAsset = characterAssets && characterAssets[c.name]
+    if (hasAsset) parts.push('(参考图中的角色)')
     if (c.appearance) parts.push(`(${c.appearance})`)
     if (c.emotion) parts.push(`表情${getEmotionChinese(c.emotion)}`)
     if (c.action) parts.push(c.action)
@@ -350,6 +388,12 @@ function buildPromptFromSceneVisual(
     }
   }
 
+  // 如果有角色参考图，添加特殊说明
+  const hasCharacterRefs = characterAssets && characters.some(c => characterAssets[c.name])
+  const refNote = hasCharacterRefs 
+    ? '\n\n【重要】请严格参考提供的角色立绘图片，保持角色的外观、服装、发型、发色完全一致。' 
+    : ''
+
   return `创作一幅${style}风格的${isLastFrame ? '场景结束' : '场景开始'}画面。
 
 【AI优化的图像提示词】
@@ -369,7 +413,7 @@ ${charactersDesc}
 1. ${style}画风，高清质量
 2. 宽屏 16:9 比例
 3. 情绪基调: ${getEmotionChinese(emotion)}
-4. ${isLastFrame ? '体现场景发展后的结束状态' : '体现场景开始时的初始状态'}`
+4. ${isLastFrame ? '体现场景发展后的结束状态' : '体现场景开始时的初始状态'}${refNote}`
 }
 
 
@@ -379,26 +423,68 @@ ${charactersDesc}
 async function generateLastFrame(
   scene: z.infer<typeof LocalSceneSchema>,
   style: string,
-  _firstFrameData: string,
+  firstFrameData: string,
   _firstFrameMimeType: string,
-  storyboard?: z.infer<typeof StoryboardSchema>,
-  sceneVisual?: z.infer<typeof SceneVisualSchema>
+  storyboard: z.infer<typeof StoryboardSchema>,
+  sceneVisual: z.infer<typeof SceneVisualSchema>,
+  characterAssets?: Record<string, string>
 ): Promise<{ imageData: string, mimeType: string }> {
+  // 收集参考图：首帧 + 角色立绘
+  let referenceImages: string[] = [firstFrameData]  // 首帧作为第一张参考图
+  
+  if (characterAssets) {
+    for (const char of scene.characters) {
+      const charImage = characterAssets[char.name]
+      if (charImage) {
+        referenceImages.push(charImage)
+        console.log(`[FrameGen] 尾帧添加角色立绘参考图: ${char.name}`)
+      }
+    }
+  }
+
+  // 限制参考图数量 (最多4张)
+  if (referenceImages.length > 4) {
+    referenceImages = referenceImages.slice(0, 4)
+    console.log('[FrameGen] 尾帧参考图数量超过4张，已截取前4张')
+  }
+
   // 优先使用场景视觉提取的 imagePrompt 构建尾帧提示词
   let prompt: string
   if (sceneVisual?.imagePrompt) {
-    prompt = buildPromptFromSceneVisual(scene, style, sceneVisual, storyboard, true)
+    prompt = buildPromptFromSceneVisual(scene, style, sceneVisual, storyboard, true, characterAssets)
   } else {
     prompt = buildLastFramePrompt(scene, style, storyboard)
   }
 
-  // 使用并发限制器控制请求，使用统一的 generateImage 函数
-  // 注意：千问不支持参考图
+  console.log(`[FrameGen] 生成尾帧，参考图数量: ${referenceImages.length}`)
+
+  // 从工作流配置获取首尾帧生成模型
+  const workflowModels = await getWorkflowModels()
+  const modelId = workflowModels.frame_generation
+  console.log(`[FrameGen] 尾帧使用图片模型: ${modelId}`)
+
+  // 构建请求体
+  const lastFrameRequest = {
+    modelId,
+    prompt,
+    referenceImages,
+    maxRetries: 2
+  }
+
+  // 输出完整请求体 (参考图只输出数量和前100字符用于调试)
+  console.log(`[FrameGen] ========== 尾帧生成请求体 ==========`)
+  console.log(`[FrameGen] modelId: ${lastFrameRequest.modelId}`)
+  console.log(`[FrameGen] prompt: ${lastFrameRequest.prompt}`)
+  console.log(`[FrameGen] referenceImages: [${lastFrameRequest.referenceImages.length}张图片]`)
+  lastFrameRequest.referenceImages.forEach((img, idx) => {
+    console.log(`[FrameGen]   - 参考图${idx + 1}: ${img.substring(0, 100)}... (长度: ${img.length})`)
+  })
+  console.log(`[FrameGen] maxRetries: ${lastFrameRequest.maxRetries}`)
+  console.log(`[FrameGen] ========================================`)
+
+  // 使用并发限制器控制请求，传递参考图
   const result = await imageLimiter.execute(() =>
-    generateImage({
-      prompt,
-      maxRetries: 2
-    })
+    generateImage(lastFrameRequest)
   )
 
   // 处理千问返回的 URL 或 Gemini 返回的 base64

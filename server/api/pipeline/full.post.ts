@@ -15,7 +15,7 @@ import {
 const FullPipelineRequestSchema = z.object({
   projectId: z.string().describe('项目ID'),
   scriptText: z.string().optional().describe('剧本文本 (如果项目没有剧本)'),
-  style: z.string().optional().default('日式动漫').describe('画风'),
+  style: z.string().describe('画风 (必填，由项目配置决定)'),
   options: z.object({
     // 基于飞书文档的完整流程
     parseScript: z.boolean().default(true).describe('1. 解析剧本'),
@@ -122,7 +122,7 @@ export default defineEventHandler(async (event) => {
     })
 
     // 异步执行流水线
-    executeFullPipeline(taskId, projectId, scriptText, style || '日式动漫', opts).catch(async (error) => {
+    executeFullPipeline(taskId, projectId, scriptText, style, opts).catch(async (error) => {
       console.error(`[FullPipeline] 任务 ${taskId} 失败:`, error)
       updatePipelineTask(taskId, {
         status: 'failed',

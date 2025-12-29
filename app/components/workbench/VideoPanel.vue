@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Video, Loader2, Image, Check, AlertCircle, Sparkles, Play } from 'lucide-vue-next'
+import { Video, Loader2, Image, Check, AlertCircle, Sparkles, Play, Film, Download } from 'lucide-vue-next'
 import type { SceneData, BatchStatus } from '~/composables/useWorkbench'
 
 const props = defineProps<{
@@ -7,6 +7,8 @@ const props = defineProps<{
   selectedScene: SceneData | undefined
   batchFrameStatus: BatchStatus
   batchVideoStatus: BatchStatus
+  mergeStatus?: { running: boolean, progress: number, error?: string }
+  finalVideo?: { videoData?: string, duration?: number, size?: number } | null
 }>()
 
 defineEmits<{
@@ -15,11 +17,31 @@ defineEmits<{
   generateVideo: [scene: SceneData]
   batchGenerateFrames: []
   batchGenerateVideos: []
+  mergeAllVideos: []
   previewImage: [src: string, alt: string]
 }>()
 
 const framesCompleted = computed(() => props.scenes.filter(s => s.frameStatus === 'done').length)
 const videosCompleted = computed(() => props.scenes.filter(s => s.videoStatus === 'done').length)
+
+// 下载最终视频
+function downloadFinalVideo() {
+  if (!props.finalVideo?.videoData) return
+
+  const link = document.createElement('a')
+  link.href = props.finalVideo.videoData
+  link.download = `final_video_${Date.now()}.mp4`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
+// 格式化文件大小
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
 </script>
 
 <template>
@@ -70,6 +92,21 @@ const videosCompleted = computed(() => props.scenes.filter(s => s.videoStatus ==
             class="w-4 h-4 mr-2"
           />
           {{ batchVideoStatus.running ? `生成中 (${batchVideoStatus.current}/${batchVideoStatus.total})` : '批量生成视频' }}
+        </Button>
+        <Button
+          size="sm"
+          :disabled="batchFrameStatus.running || batchVideoStatus.running || mergeStatus?.running || videosCompleted < 2"
+          @click="$emit('mergeAllVideos')"
+        >
+          <Loader2
+            v-if="mergeStatus?.running"
+            class="w-4 h-4 mr-2 animate-spin"
+          />
+          <Film
+            v-else
+            class="w-4 h-4 mr-2"
+          />
+          {{ mergeStatus?.running ? `合成中 ${mergeStatus.progress}%` : '合成最终视频' }}
         </Button>
       </div>
     </div>
@@ -247,6 +284,73 @@ const videosCompleted = computed(() => props.scenes.filter(s => s.videoStatus ==
           >
             请先生成首尾帧
           </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 最终视频预览 -->
+    <div
+      v-if="finalVideo?.videoData || mergeStatus?.running || mergeStatus?.error"
+      class="mt-6 p-4 border rounded-lg bg-accent/50"
+    >
+      <h3 class="font-semibold mb-4 flex items-center">
+        <Film class="w-5 h-5 mr-2" />
+        最终合成视频
+      </h3>
+
+      <!-- 合成进度 -->
+      <div
+        v-if="mergeStatus?.running"
+        class="space-y-2"
+      >
+        <div class="flex items-center justify-between text-sm">
+          <span>正在合成视频...</span>
+          <span class="text-muted-foreground">{{ mergeStatus.progress }}%</span>
+        </div>
+        <div class="w-full bg-muted rounded-full h-2">
+          <div
+            class="bg-primary h-2 rounded-full transition-all duration-300"
+            :style="{ width: `${mergeStatus.progress}%` }"
+          />
+        </div>
+      </div>
+
+      <!-- 合成错误 -->
+      <div
+        v-else-if="mergeStatus?.error"
+        class="flex items-center space-x-2 text-destructive"
+      >
+        <AlertCircle class="w-5 h-5" />
+        <span>合成失败: {{ mergeStatus.error }}</span>
+      </div>
+
+      <!-- 视频预览和下载 -->
+      <div
+        v-else-if="finalVideo?.videoData"
+        class="space-y-4"
+      >
+        <div class="aspect-video bg-gray-900 rounded-lg overflow-hidden max-w-2xl mx-auto">
+          <video
+            :src="finalVideo.videoData"
+            controls
+            class="w-full h-full"
+          />
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="text-sm text-muted-foreground">
+            <span v-if="finalVideo.duration">时长: {{ finalVideo.duration.toFixed(1) }}秒</span>
+            <span
+              v-if="finalVideo.size"
+              class="ml-4"
+            >大小: {{ formatSize(finalVideo.size) }}</span>
+          </div>
+          <Button
+            size="sm"
+            @click="downloadFinalVideo"
+          >
+            <Download class="w-4 h-4 mr-2" />
+            下载视频
+          </Button>
         </div>
       </div>
     </div>

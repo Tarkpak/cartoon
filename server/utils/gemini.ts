@@ -83,7 +83,7 @@ export const TextModels = {
   /** 剧本解析 */
   SCRIPT_PARSER: 'gemini-3-pro-preview',
   /** 通用任务 */
-  GENERAL: 'gemini-2.5-flash'
+  GENERAL: 'gemini-3-flash-preview'
 } as const
 
 /**
@@ -266,7 +266,8 @@ export async function _geminiGenerateText(options: {
   const client = getGeminiClient()
   const model = options.model || TextModels.GENERAL
 
-  console.log('[Gemini] generateText 请求参数:', {
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [Gemini] generateText 请求参数:`, {
     model,
     promptLength: options.prompt.length,
     promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
@@ -303,14 +304,12 @@ export async function _geminiGenerateJSON<T>(options: {
   const client = getGeminiClient()
   const model = options.model || TextModels.GENERAL
 
-  console.log('[Gemini] generateJSON 请求参数:', {
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [Gemini] generateJSON 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    // promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
-    // systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
-
-    promptPreview: options.prompt,
-    systemInstruction: options.systemInstruction,
+    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
+    systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
     temperature: options.temperature ?? 0.2,
     maxRetries: options.maxRetries
   })
@@ -354,12 +353,14 @@ export async function _geminiGenerateImage(options: {
   
   const model = options.model || ImageModels.HIGH_QUALITY
 
-  console.log('[Gemini] generateImage 请求参数:', {
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [Gemini] generateImage 请求参数:`, {
     model,
     promptLength: options.prompt.length,
     promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
     hasReferenceImage: !!options.referenceImage,
     referenceImageMimeType: options.referenceImage?.mimeType,
+    referenceImageDataLength: options.referenceImage?.data?.length,
     maxRetries: options.maxRetries
   })
 

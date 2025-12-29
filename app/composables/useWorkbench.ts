@@ -118,6 +118,10 @@ export function useWorkbench() {
   // ========== 工作流步骤 (新增) ==========
   const currentStep = ref<'outline' | 'characters' | 'script' | 'video'>('outline')
 
+  // ========== 输入模式 (新增) ==========
+  // 'idea' 从创意生成大纲，'script' 直接输入剧本文本
+  const inputMode = ref<'idea' | 'script'>('idea')
+
   // ========== 风格选择 ==========
   const selectedStyleId = ref<string>('')
 
@@ -152,7 +156,7 @@ export function useWorkbench() {
   // ========== 计算属性 ==========
   const selectedScene = computed(() => scenes.value.find(s => s.active))
 
-  // 获取当前选中风格的提示词，默认为"日式动漫"
+  // 获取当前选中风格的提示词，如果未选择则返回空字符串
   const currentStylePrompt = computed(() => {
     if (selectedStyleId.value) {
       const style = getStyleById(selectedStyleId.value)
@@ -161,7 +165,7 @@ export function useWorkbench() {
         return `${style.name}, ${style.prompt} style`
       }
     }
-    return '日式动漫'
+    return ''  // 未选择风格时返回空字符串，强制用户选择
   })
 
   const costEstimate = computed(() => {
@@ -994,6 +998,24 @@ export function useWorkbench() {
   async function generateFrames(scene: SceneData, previousSceneLastFrame?: string) {
     scene.frameStatus = 'generating'
     try {
+      // 自动生成分镜脚本（如果没有）
+      if (!scene.storyboard) {
+        console.log(`[generateFrames] 场景 ${scene.id} 缺少分镜脚本，自动生成...`)
+        await generateStoryboard(scene)
+        if (!scene.storyboard) {
+          throw new Error('分镜脚本生成失败')
+        }
+      }
+
+      // 自动提取场景视觉（如果没有）
+      if (!scene.sceneVisual) {
+        console.log(`[generateFrames] 场景 ${scene.id} 缺少场景视觉数据，自动提取...`)
+        await extractSceneVisual(scene)
+        if (!scene.sceneVisual) {
+          throw new Error('场景视觉提取失败')
+        }
+      }
+
       const characterAssets: Record<string, string> = {}
       characters.value.forEach((char) => {
         if (char.baseImage) {
@@ -1271,6 +1293,82 @@ export function useWorkbench() {
     }
   }
 
+  // ========== 视频合成 ==========
+  const mergeStatus = ref<{
+    running: boolean
+    progress: number
+    error?: string
+  }>({
+    running: false,
+    progress: 0
+  })
+
+  const finalVideo = ref<{
+    videoData?: string
+    duration?: number
+    size?: number
+  } | null>(null)
+
+  async function mergeAllVideos() {
+    const readyScenes = scenes.value.filter(s => s.videoStatus === 'done' && s.videoUrl)
+    if (readyScenes.length === 0) {
+      alert('没有可合成的视频（请先生成场景视频）')
+      return null
+    }
+
+    mergeStatus.value = { running: true, progress: 10 }
+    finalVideo.value = null
+
+    try {
+      mergeStatus.value.progress = 30
+
+      const response = await $fetch<{
+        success: boolean
+        data: {
+          videoData: string
+          duration: number
+          size: number
+          sceneCount: number
+        }
+        error?: string
+      }>('/api/video/merge', {
+        method: 'POST',
+        body: {
+          projectId: projectId.value,
+          scenes: readyScenes.map(s => ({
+            id: s.id,
+            title: s.title,
+            videoUrl: s.videoUrl,
+            duration: s.duration,
+            dialogues: s.dialogues
+          }))
+          // 暂时不使用转场效果，直接拼接
+        }
+      })
+
+      mergeStatus.value.progress = 90
+
+      if (response.success && response.data) {
+        finalVideo.value = {
+          videoData: response.data.videoData,
+          duration: response.data.duration,
+          size: response.data.size
+        }
+        mergeStatus.value.progress = 100
+        console.log(`[VideoMerge] 合成完成，${response.data.sceneCount} 个场景，时长 ${response.data.duration}秒`)
+        return response.data
+      } else {
+        throw new Error(response.error || '合成失败')
+      }
+    } catch (e) {
+      console.error('视频合成失败:', e)
+      mergeStatus.value.error = e instanceof Error ? e.message : '合成失败'
+      return null
+    } finally {
+      mergeStatus.value.running = false
+    }
+  }
+
   // ========== 流水线 ==========
   async function startPipeline() {
     if (scenes.value.length === 0) {
@@ -1322,13 +1420,18 @@ export function useWorkbench() {
   }
 
   // ========== 项目持久化 ==========
+  
+  // 项目预设配置 (从项目数据库字段读取)
+  const projectStyleId = ref<string>('')
+  const projectAspectRatio = ref<'16:9' | '9:16' | '1:1'>('16:9')
+  
   async function loadProject(id: string) {
     loading.value = true
     try {
       const response = await $fetch<{
         success: boolean
         data: {
-          project: { name: string, description?: string }
+          project: { name: string, description?: string, styleId: string, aspectRatio: '16:9' | '9:16' | '1:1' }
           script?: { rawText: string }
           scenes: Array<{
             id: string
@@ -1355,16 +1458,34 @@ export function useWorkbench() {
       if (response.success && response.data) {
         projectName.value = response.data.project.name
         projectDescription.value = response.data.project.description || ''
+        // 加载项目预设配置
+        projectStyleId.value = response.data.project.styleId || ''
+        projectAspectRatio.value = response.data.project.aspectRatio || '16:9'
+        // 同步到 selectedStyleId (兼容旧逻辑)
+        selectedStyleId.value = response.data.project.styleId || ''
         // 加载保存的故事创意和小说原文
-        const scriptData = response.data.script as { rawText?: string, storyIdea?: string, novelText?: string, selectedStyleId?: string } | undefined
+        const scriptData = response.data.script as { 
+          rawText?: string
+          storyIdea?: string
+          novelText?: string
+          selectedStyleId?: string
+          selectedModels?: SelectedModels
+          outline?: StoryOutline
+          inputMode?: 'idea' | 'script'
+        } | undefined
         storyIdea.value = scriptData?.storyIdea || scriptData?.rawText || ''
         novelText.value = scriptData?.novelText || ''
-        // 加载保存的风格选择
-        selectedStyleId.value = scriptData?.selectedStyleId || ''
+        // 加载故事大纲
+        if (scriptData?.outline) {
+          outline.value = scriptData.outline
+        }
+        // 加载输入模式
+        if (scriptData?.inputMode) {
+          inputMode.value = scriptData.inputMode
+        }
         // 加载保存的模型选择
-        const savedModels = scriptData as { selectedModels?: SelectedModels } | undefined
-        if (savedModels?.selectedModels) {
-          selectedModels.value = { ...selectedModels.value, ...savedModels.selectedModels }
+        if (scriptData?.selectedModels) {
+          selectedModels.value = { ...selectedModels.value, ...scriptData.selectedModels }
         }
 
         scenes.value = response.data.scenes.map((s, i) => {
@@ -1409,6 +1530,26 @@ export function useWorkbench() {
           generating: false,
           generatingViews: false
         }))
+
+        // 根据数据自动切换输入模式和工作流步骤
+        // 如果有小说原文 (novelText)，说明是"直接输入剧本"模式
+        // 如果有故事创意 (storyIdea)，说明是"从创意生成"模式
+        if (novelText.value) {
+          inputMode.value = 'script'
+        } else if (storyIdea.value) {
+          inputMode.value = 'idea'
+        }
+
+        // 根据项目进度自动切换到对应步骤
+        if (scenes.value.some(s => s.videoStatus === 'done')) {
+          currentStep.value = 'video'
+        } else if (scenes.value.some(s => s.firstFrame)) {
+          currentStep.value = 'video'
+        } else if (characters.value.length > 0) {
+          currentStep.value = 'characters'
+        } else if (scenes.value.length > 0 || outline.value) {
+          currentStep.value = 'outline'
+        }
       }
     } catch (e) {
       console.error('加载项目失败:', e)
@@ -1423,6 +1564,10 @@ export function useWorkbench() {
       let id = projectId.value
 
       if (!id) {
+        // 新建项目时必须有风格和比例
+        if (!projectStyleId.value) {
+          throw new Error('请先选择画风预设')
+        }
         const createRes = await $fetch<{
           success: boolean
           project: { id: string }
@@ -1430,7 +1575,9 @@ export function useWorkbench() {
           method: 'POST',
           body: {
             title: projectName.value || '未命名项目',
-            description: ''
+            description: '',
+            styleId: projectStyleId.value,
+            aspectRatio: projectAspectRatio.value
           }
         })
         if (createRes.success) {
@@ -1448,9 +1595,12 @@ export function useWorkbench() {
         body: {
           name: projectName.value,
           description: projectDescription.value,
+          styleId: projectStyleId.value,
+          aspectRatio: projectAspectRatio.value,
           storyIdea: storyIdea.value,
           novelText: novelText.value,
-          selectedStyleId: selectedStyleId.value,
+          outline: outline.value,
+          inputMode: inputMode.value,
           selectedModels: selectedModels.value,
           scenes: scenes.value.map(s => ({
             id: s.id,
@@ -1505,12 +1655,19 @@ export function useWorkbench() {
     saving,
     loading,
 
+    // 项目预设配置
+    projectStyleId,
+    projectAspectRatio,
+
     // 工作流步骤 (新增)
     currentStep,
     setCurrentStep,
     proceedToNextStep,
 
-    // 风格选择
+    // 输入模式 (新增)
+    inputMode,
+
+    // 风格选择 (兼容旧逻辑，实际使用 projectStyleId)
     selectedStyleId,
     currentStylePrompt,
 
@@ -1547,7 +1704,6 @@ export function useWorkbench() {
     updateCharacter,
     extractCharactersFromScript,
     extractCharactersFromOutline,
-    extractCharactersFromScenes,
     generateCharacterViews,
 
     // 角色关系 (新增)
@@ -1563,6 +1719,11 @@ export function useWorkbench() {
     batchGenerateVideos,
     batchFrameStatus,
     batchVideoStatus,
+
+    // 视频合成
+    mergeAllVideos,
+    mergeStatus,
+    finalVideo,
 
     // 流水线
     pipelineStatus,

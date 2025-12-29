@@ -157,6 +157,7 @@ export type SceneChain = z.infer<typeof SceneChainSchema>
 export const ChainScenesRequestSchema = z.object({
   sceneFrames: z.array(SceneFrameDataSchema).min(2).describe('场景帧数据列表(按顺序)'),
   transitionType: TransitionTypeSchema.optional().default('dissolve'),
-  transitionDuration: DurationSchema.optional().default(4)
+  transitionDuration: DurationSchema.optional().default(4),
+  style: z.string().describe('画风 (必填，由项目配置决定)')
 })
 export type ChainScenesRequest = z.infer<typeof ChainScenesRequestSchema>
