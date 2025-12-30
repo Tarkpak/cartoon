@@ -9,7 +9,8 @@ import {
   AlertCircle,
   Loader2,
   Plus,
-  Eye
+  Eye,
+  Globe
 } from 'lucide-vue-next'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
@@ -34,6 +35,19 @@ const loadingVersions = ref(false)
 const versions = ref<PromptVersion[]>([])
 const previewMode = ref(false)
 const previewVariables = ref<Record<string, string>>({})
+
+// 语言配置状态
+const langConfig = ref<Record<string, 'zh' | 'en'>>({})
+const langConfigLoading = ref(false)
+const langConfigSaving = ref(false)
+
+// 当前模板使用的语言
+const currentTemplateLang = computed({
+  get: () => langConfig.value[props.template.id] || 'zh',
+  set: (val) => {
+    langConfig.value[props.template.id] = val
+  }
+})
 
 // 本地编辑内容
 const localContent = ref({
@@ -261,6 +275,45 @@ function formatDate(dateStr: string): string {
   })
 }
 
+// 加载语言配置
+async function loadLangConfig() {
+  langConfigLoading.value = true
+  try {
+    const response = await $fetch<{ success: boolean; data: Record<string, 'zh' | 'en'> }>('/api/prompts/lang-config')
+    if (response.success && response.data) {
+      langConfig.value = response.data
+    }
+  } catch (e) {
+    console.error('加载语言配置失败:', e)
+  } finally {
+    langConfigLoading.value = false
+  }
+}
+
+// 保存语言配置
+async function saveLangConfig() {
+  langConfigSaving.value = true
+  try {
+    const response = await $fetch<{ success: boolean }>('/api/prompts/lang-config', {
+      method: 'PUT',
+      body: { [props.template.id]: currentTemplateLang.value }
+    })
+    if (response.success) {
+      // 可以添加成功提示
+    }
+  } catch (e) {
+    console.error('保存语言配置失败:', e)
+  } finally {
+    langConfigSaving.value = false
+  }
+}
+
+// 切换运行时语言
+async function toggleRuntimeLang(lang: 'zh' | 'en') {
+  currentTemplateLang.value = lang
+  await saveLangConfig()
+}
+
 // 获取变量标签显示文本
 function getVariableTag(name: string): string {
   return `{{${name}}}`
@@ -276,6 +329,7 @@ const categoryColors: Record<string, string> = {
 
 onMounted(() => {
   initPreviewVariables()
+  loadLangConfig()
 })
 
 onBeforeUnmount(() => {
@@ -428,6 +482,41 @@ onBeforeUnmount(() => {
           <div v-if="template.variables.length === 0" class="p-4 text-center text-sm text-muted-foreground">
             此模板没有变量
           </div>
+        </div>
+
+        <!-- 运行时语言配置 -->
+        <div class="flex-shrink-0 px-4 py-3 border-t">
+          <div class="flex items-center gap-2 mb-2">
+            <Globe class="h-4 w-4 text-muted-foreground" />
+            <h3 class="text-sm font-medium">运行时语言</h3>
+          </div>
+          <p class="text-xs text-muted-foreground mb-3">选择 AI 调用时使用的提示词语言</p>
+          <div class="flex gap-1 p-1 bg-muted rounded-lg">
+            <button
+              class="flex-1 px-3 py-1.5 text-sm rounded-md transition-colors"
+              :class="currentTemplateLang === 'zh' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'"
+              :disabled="langConfigSaving"
+              @click="toggleRuntimeLang('zh')"
+            >
+              中文
+            </button>
+            <button
+              class="flex-1 px-3 py-1.5 text-sm rounded-md transition-colors"
+              :class="currentTemplateLang === 'en' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'"
+              :disabled="langConfigSaving"
+              @click="toggleRuntimeLang('en')"
+            >
+              English
+            </button>
+          </div>
+          <p class="text-xs text-muted-foreground mt-2">
+            <span v-if="template.category === 'image' || template.category === 'video'" class="text-amber-600 dark:text-amber-400">
+              💡 图片/视频生成建议使用英文
+            </span>
+            <span v-else>
+              💡 文本生成建议使用中文
+            </span>
+          </p>
         </div>
       </div>
     </div>
