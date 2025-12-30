@@ -13,16 +13,10 @@ export interface PromptVariable {
   example?: string      // 示例值
 }
 
-// 双语内容
+// 双语内容（简化版：合并系统提示词和用户提示词）
 export interface BilingualContent {
-  zh: {
-    systemPrompt?: string   // 中文系统提示词
-    userPrompt: string      // 中文用户提示词模板
-  }
-  en: {
-    systemPrompt?: string   // 英文系统提示词
-    userPrompt: string      // 英文用户提示词模板
-  }
+  zh: string   // 中文提示词
+  en: string   // 英文提示词
 }
 
 // 提示词模板

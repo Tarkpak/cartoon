@@ -9,14 +9,8 @@ import type { PromptTemplateId, BilingualContent } from '../../../shared/types/p
 
 const UpdateSchema = z.object({
   content: z.object({
-    zh: z.object({
-      systemPrompt: z.string().optional(),
-      userPrompt: z.string()
-    }),
-    en: z.object({
-      systemPrompt: z.string().optional(),
-      userPrompt: z.string()
-    })
+    zh: z.string(),
+    en: z.string()
   }),
   note: z.string().optional()
 })

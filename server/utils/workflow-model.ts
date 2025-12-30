@@ -21,6 +21,7 @@ const DEFAULT_WORKFLOW_MODELS: Record<WorkflowStep, string> = {
   character_extraction: 'qwen-flash',
   storyboard_generation: 'qwen-flash',
   scene_visual_extraction: 'qwen-flash',
+  text_translation: 'qwen-flash',
   character_portrait: 'wanx2.1-t2i-turbo',
   character_views: 'wan2.6-image',
   frame_generation: 'wan2.6-image',
@@ -49,6 +50,55 @@ export async function getWorkflowModel(step: WorkflowStep): Promise<string> {
   }
   
   return DEFAULT_WORKFLOW_MODELS[step]
+}
+
+/**
+ * 根据业务流程生成纯文本 (文本生成类)
+ */
+export async function generateTextForWorkflow(
+  step: WorkflowStep,
+  options: {
+    prompt: string
+    systemInstruction?: string
+    temperature?: number
+    maxRetries?: number
+  }
+): Promise<string> {
+  const modelId = await getWorkflowModel(step)
+  const modelConfig = findTextModel(modelId)
+  const provider = modelConfig?.provider || 'qwen'
+  
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [${step}] 使用模型: ${modelId} (${provider})`)
+  
+  if (provider === 'qwen') {
+    return qwen._qwenGenerateText({
+      model: modelId,
+      prompt: options.prompt,
+      systemInstruction: options.systemInstruction,
+      temperature: options.temperature,
+      maxRetries: options.maxRetries
+    })
+  }
+  
+  if (provider === 'volcengine') {
+    return volcengine._volcengineGenerateText({
+      model: modelId,
+      prompt: options.prompt,
+      systemInstruction: options.systemInstruction,
+      temperature: options.temperature,
+      maxRetries: options.maxRetries
+    })
+  }
+  
+  // Gemini
+  return gemini._geminiGenerateText({
+    model: modelId,
+    prompt: options.prompt,
+    systemInstruction: options.systemInstruction,
+    temperature: options.temperature,
+    maxRetries: options.maxRetries
+  })
 }
 
 /**

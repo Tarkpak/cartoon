@@ -150,18 +150,15 @@ ${actsInfo}
 请直接输出 JSON 数组，不要包含其他内容。`
 
   try {
-    // 从数据库获取提示词模板
-    const promptContent = await getInterpolatedPrompt(
+    // 从数据库获取提示词模板（已合并系统提示词和用户提示词）
+    const finalPrompt = await getInterpolatedPrompt(
       PROMPT_TEMPLATE_IDS.SCENE_GENERATION,
       {
         outline: JSON.stringify(outline),
         characters: characterInfo,
         targetSceneCount: String(targetSceneCount)
       }
-    )
-
-    // 如果数据库有配置，使用数据库的提示词；否则使用默认提示词
-    const finalPrompt = promptContent?.userPrompt || prompt
+    ) || prompt
 
     const selectedModels = getSelectedModels()
     const parsed = await generateJSON<z.infer<typeof SceneSchema>[]>({

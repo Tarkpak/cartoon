@@ -15,6 +15,7 @@ export const WorkflowStepSchema = z.enum([
   'character_extraction',    // 角色提取
   'storyboard_generation',   // 分镜脚本生成
   'scene_visual_extraction', // 场景视觉提取
+  'text_translation',        // 文本翻译
   
   // 图片生成类
   'character_portrait',      // 角色立绘生成
@@ -62,6 +63,7 @@ export const WorkflowModelsSchema = z.object({
   character_extraction: z.string().optional(),
   storyboard_generation: z.string().optional(),
   scene_visual_extraction: z.string().optional(),
+  text_translation: z.string().optional(),
   
   // 图片生成类
   character_portrait: z.string().optional(),
@@ -120,6 +122,14 @@ export const WORKFLOW_STEP_CONFIGS: WorkflowStepConfig[] = [
     category: 'text',
     requiredCapabilities: ['text_generation'],
     tips: '需要丰富的视觉描述能力'
+  },
+  {
+    id: 'text_translation',
+    name: '文本翻译',
+    description: '中英文提示词互译',
+    category: 'text',
+    requiredCapabilities: ['text_generation'],
+    tips: '用于提示词的中英文互译，推荐使用多语言能力强的模型'
   },
   
   // 图片生成类

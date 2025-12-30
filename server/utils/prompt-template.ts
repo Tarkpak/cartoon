@@ -163,7 +163,7 @@ export async function getPromptTemplate(
 export async function getPromptContent(
   id: PromptTemplateId,
   lang: 'zh' | 'en' = 'zh'
-): Promise<{ systemPrompt?: string; userPrompt: string } | null> {
+): Promise<string | null> {
   const template = await getPromptTemplate(id)
   if (!template) {
     return null
@@ -349,7 +349,7 @@ export async function getInterpolatedPrompt(
   id: PromptTemplateId,
   variables: Record<string, string | number | boolean | undefined>,
   lang?: 'zh' | 'en'
-): Promise<{ systemPrompt?: string; userPrompt: string } | null> {
+): Promise<string | null> {
   // 如果没有指定语言，从配置读取
   const actualLang = lang || await getPromptLang(id)
   
@@ -358,12 +358,7 @@ export async function getInterpolatedPrompt(
     return null
   }
 
-  return {
-    systemPrompt: content.systemPrompt
-      ? interpolateTemplate(content.systemPrompt, variables)
-      : undefined,
-    userPrompt: interpolateTemplate(content.userPrompt, variables)
-  }
+  return interpolateTemplate(content, variables)
 }
 
 // ========== 内部函数 ==========

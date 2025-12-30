@@ -110,18 +110,15 @@ async function generateCharacterSheet(
   style: string,
   includeExpressions: boolean
 ): Promise<{ imageData: string, mimeType: string }> {
-  // 从数据库获取提示词模板
-  const promptContent = await getInterpolatedPrompt(
+  // 从数据库获取提示词模板（已合并系统提示词和用户提示词）
+  const prompt = await getInterpolatedPrompt(
     PROMPT_TEMPLATE_IDS.CHARACTER_SHEET,
     {
       characterName: character.name,
       appearance: character.appearance,
       style
     }
-  )
-
-  // 如果数据库没有配置，使用默认提示词
-  const prompt = promptContent?.userPrompt || buildCharacterSheetPrompt(character, style, includeExpressions)
+  ) || buildCharacterSheetPrompt(character, style, includeExpressions)
 
   // 从工作流配置获取角色立绘生成模型
   const workflowModels = await getWorkflowModels()

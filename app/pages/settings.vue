@@ -551,7 +551,7 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
                   >
                     <span class="truncate">{{ prompt.name }}</span>
                     <span
-                      v-if="promptTemplates.find(t => t.id === prompt.id)?.isCustomized"
+                      v-if="promptTemplates?.find?.(t => t.id === prompt.id)?.isCustomized"
                       class="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-amber-500"
                     />
                   </button>

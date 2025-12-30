@@ -1,6 +1,7 @@
 /**
  * 默认提示词模板
  * 包含所有模块的中英双语默认提示词
+ * 已合并系统提示词和用户提示词为单一提示词
  */
 
 import type { PromptTemplate } from '../../shared/types/prompt-template'
@@ -53,16 +54,16 @@ function getDefaultContent(id: string): PromptTemplate['content'] {
       return SCENE_VISUAL_CONTENT
     default:
       return {
-        zh: { userPrompt: '请完成任务。' },
-        en: { userPrompt: 'Please complete the task.' }
+        zh: '请完成任务。',
+        en: 'Please complete the task.'
       }
   }
 }
 
+
 // ========== 故事大纲生成 ==========
 const OUTLINE_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: {
-    userPrompt: `你是一位专业的编剧和故事架构师。请根据以下故事创意，生成一个完整的故事大纲。
+  zh: `你是一位专业的编剧和故事架构师。请根据以下故事创意，生成一个完整的故事大纲。
 
 ## 故事创意
 {{storyIdea}}
@@ -130,10 +131,8 @@ const OUTLINE_GENERATION_CONTENT: PromptTemplate['content'] = {
   ]
 }
 
-请直接输出 JSON，不要包含其他内容。`
-  },
-  en: {
-    userPrompt: `You are a professional screenwriter and story architect. Please generate a complete story outline based on the following story concept.
+请直接输出 JSON，不要包含其他内容。`,
+  en: `You are a professional screenwriter and story architect. Please generate a complete story outline based on the following story concept.
 
 ## Story Concept
 {{storyIdea}}
@@ -184,13 +183,12 @@ Please output strictly in the following JSON format:
 }
 
 Output JSON only, no other content.`
-  }
 }
+
 
 // ========== 剧本解析 ==========
 const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
-  zh: {
-    systemPrompt: `你是一位专业的漫剧分镜师，擅长将小说文本转换为可视化的场景描述。
+  zh: `你是一位专业的漫剧分镜师，擅长将小说文本转换为可视化的场景描述。
 
 ## 核心任务
 将输入的小说/剧本文本拆分成适合漫剧制作的场景序列。
@@ -217,17 +215,16 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 ### 4. 情节完整性
 - 每个场景应该有明确的开始和结束
-- 保持叙事的连贯性`,
-    userPrompt: `请将以下文本解析为场景序列：
+- 保持叙事的连贯性
 
+## 输入文本
 {{novelText}}
 
-画风参考：{{style}}
+## 画风参考
+{{style}}
 
-请输出 JSON 格式的场景列表。`
-  },
-  en: {
-    systemPrompt: `You are a professional manga storyboard artist, skilled at converting novel text into visual scene descriptions.
+请输出 JSON 格式的场景列表。`,
+  en: `You are a professional manga storyboard artist, skilled at converting novel text into visual scene descriptions.
 
 ## Core Task
 Split the input novel/script text into scene sequences suitable for manga production.
@@ -254,21 +251,21 @@ Each scene description must be convertible to a static image, including:
 
 ### 4. Plot Completeness
 - Each scene should have a clear beginning and end
-- Maintain narrative continuity`,
-    userPrompt: `Please parse the following text into scene sequences:
+- Maintain narrative continuity
 
+## Input Text
 {{novelText}}
 
-Style reference: {{style}}
+## Style Reference
+{{style}}
 
 Output in JSON format.`
-  }
 }
+
 
 // ========== 场景生成 ==========
 const SCENE_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: {
-    userPrompt: `你是一位专业的漫剧编剧。请根据以下故事大纲和角色设定，生成详细的分场剧本。
+  zh: `你是一位专业的漫剧编剧。请根据以下故事大纲和角色设定，生成详细的分场剧本。
 
 ## 故事信息
 {{outline}}
@@ -296,10 +293,8 @@ const SCENE_GENERATION_CONTENT: PromptTemplate['content'] = {
 3. 推动剧情发展，避免废话
 4. 每个场景 1-3 句对话为宜
 
-请输出 JSON 数组格式的场景列表。`
-  },
-  en: {
-    userPrompt: `You are a professional manga screenwriter. Please generate detailed scene scripts based on the following story outline and character settings.
+请输出 JSON 数组格式的场景列表。`,
+  en: `You are a professional manga screenwriter. Please generate detailed scene scripts based on the following story outline and character settings.
 
 ## Story Information
 {{outline}}
@@ -328,13 +323,12 @@ const SCENE_GENERATION_CONTENT: PromptTemplate['content'] = {
 4. 1-3 lines of dialogue per scene is ideal
 
 Output as JSON array of scenes.`
-  }
 }
+
 
 // ========== 分镜脚本生成 ==========
 const STORYBOARD_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: {
-    systemPrompt: `你是一位专业的分镜师，擅长将场景描述转换为详细的分镜脚本。
+  zh: `你是一位非常资深的分镜师，擅长将场景描述转换为详细的分镜脚本。
 
 ## 分镜脚本要素
 每个镜头需要包含：
@@ -348,19 +342,19 @@ const STORYBOARD_GENERATION_CONTENT: PromptTemplate['content'] = {
 ## 重要提示
 - 第一个镜头的 visualContent 将用于生成首帧图片
 - 最后一个镜头的 visualContent 将用于生成尾帧图片
-- 这两个镜头的描述必须特别详细和具体`,
-    userPrompt: `请为以下场景生成分镜脚本：
+- 这两个镜头的描述必须特别详细和具体
 
-场景描述：{{sceneDescription}}
+## 场景描述
+{{sceneDescription}}
 
-对话：{{dialogues}}
+## 对话
+{{dialogues}}
 
-画风：{{style}}
+## 画风
+{{style}}
 
-请输出 JSON 格式的分镜脚本。`
-  },
-  en: {
-    systemPrompt: `You are a professional storyboard artist, skilled at converting scene descriptions into detailed storyboard scripts.
+请输出 JSON 格式的分镜脚本。`,
+  en: `You are a professional storyboard artist, skilled at converting scene descriptions into detailed storyboard scripts.
 
 ## Storyboard Elements
 Each shot needs to include:
@@ -374,23 +368,24 @@ Each shot needs to include:
 ## Important Notes
 - The first shot's visualContent will be used to generate the first frame image
 - The last shot's visualContent will be used to generate the last frame image
-- These two shots' descriptions must be particularly detailed and specific`,
-    userPrompt: `Please generate a storyboard for the following scene:
+- These two shots' descriptions must be particularly detailed and specific
 
-Scene description: {{sceneDescription}}
+## Scene Description
+{{sceneDescription}}
 
-Dialogues: {{dialogues}}
+## Dialogues
+{{dialogues}}
 
-Style: {{style}}
+## Style
+{{style}}
 
 Output in JSON format.`
-  }
 }
+
 
 // ========== 角色提取 ==========
 const CHARACTER_EXTRACTION_CONTENT: PromptTemplate['content'] = {
-  zh: {
-    systemPrompt: `你是一位专业的角色设计师，擅长从文本中提取角色信息并生成详细的外貌描述。
+  zh: `你是一名专业的角色形象设计师，擅长从文本中识别角色并生成详细的视觉描述。
 
 ## 外貌描述要求
 生成的外貌描述（role_content）必须包含以下要素，用于文生图：
@@ -403,17 +398,16 @@ const CHARACTER_EXTRACTION_CONTENT: PromptTemplate['content'] = {
 6. **整体气质**：气质描述、主色调
 
 ## 字数要求
-每个角色的外貌描述：300-400字`,
-    userPrompt: `请从以下内容中提取角色信息：
+每个角色的外貌描述：300-400字
 
+## 输入内容
 {{content}}
 
-画风参考：{{style}}
+## 画风参考
+{{style}}
 
-请输出 JSON 格式的角色列表，每个角色包含 role（角色名）和 role_content（外貌描述）。`
-  },
-  en: {
-    systemPrompt: `You are a professional character designer, skilled at extracting character information from text and generating detailed appearance descriptions.
+请输出 JSON 格式的角色列表，每个角色包含 role（角色名）和 role_content（外貌描述）。`,
+  en: `You are a professional character designer, skilled at extracting character information from text and generating detailed appearance descriptions.
 
 ## Appearance Description Requirements
 The generated appearance description (role_content) must include the following elements for text-to-image:
@@ -426,21 +420,21 @@ The generated appearance description (role_content) must include the following e
 6. **Overall Vibe**: temperament description, main color scheme
 
 ## Word Count
-Each character's appearance description: 300-400 words`,
-    userPrompt: `Please extract character information from the following content:
+Each character's appearance description: 300-400 words
 
+## Input Content
 {{content}}
 
-Style reference: {{style}}
+## Style Reference
+{{style}}
 
 Output as JSON array with role (character name) and role_content (appearance description).`
-  }
 }
+
 
 // ========== 角色设计(大纲) ==========
 const CHARACTER_FROM_OUTLINE_CONTENT: PromptTemplate['content'] = {
-  zh: {
-    userPrompt: `你是一位专业的角色设计师。请根据故事大纲为角色设计详细的外貌特征。
+  zh: `你是一位专业的角色设计师。请根据故事大纲为角色设计详细的外貌特征。
 
 ## 故事大纲
 {{outline}}
@@ -468,10 +462,8 @@ const CHARACTER_FROM_OUTLINE_CONTENT: PromptTemplate['content'] = {
 - motivation: 动机
 - speakingStyle: 说话风格
 - age: 年龄
-- gender: 性别`
-  },
-  en: {
-    userPrompt: `You are a professional character designer. Please design detailed appearance features for characters based on the story outline.
+- gender: 性别`,
+  en: `You are a professional character designer. Please design detailed appearance features for characters based on the story outline.
 
 ## Story Outline
 {{outline}}
@@ -491,13 +483,29 @@ Must include: gender/age, face shape/skin tone, eye features, hairstyle/color, c
 ## Output Format
 Output as JSON array, each character containing:
 - name, role, appearance, personality, traits, background, motivation, speakingStyle, age, gender`
-  }
 }
+
 
 // ========== 角色设定图 ==========
 const CHARACTER_SHEET_CONTENT: PromptTemplate['content'] = {
-  zh: {
-    userPrompt: `Create a professional anime character reference sheet for {{characterName}}.
+  zh: `为 {{characterName}} 创建一张专业的动漫角色设定图。
+
+角色外貌：{{appearance}}
+
+画风：{{style}}
+
+布局要求：
+- 画布比例：16:9 横向
+- 背景：纯白色或浅灰色渐变
+- 主要内容：三视图（占画布 65-75%）
+  - 左侧：正面视图
+  - 中间：3/4 侧面视图
+  - 右侧：背面视图
+- 三个视图高度一致，头部和脚部对齐
+- 高质量，线条清晰锐利
+
+禁止包含：复杂背景、角色被裁切、视图不一致、大段文字、多个角色、过于复杂的姿势`,
+  en: `Create a professional anime character reference sheet for {{characterName}}.
 
 Character appearance: {{appearance}}
 
@@ -514,32 +522,28 @@ Layout requirements:
 - High quality, clean sharp lines
 
 DO NOT include: complex backgrounds, cropped characters, inconsistent views, large text blocks, multiple characters, overly complex poses`
-  },
-  en: {
-    userPrompt: `Create a professional anime character reference sheet for {{characterName}}.
-
-Character appearance: {{appearance}}
-
-Style: {{style}}
-
-Layout requirements:
-- Canvas ratio: 16:9 horizontal
-- Background: pure white or light gray gradient
-- Main content: Three-view (65-75% of canvas)
-  - Left: Front view
-  - Center: 3/4 view
-  - Right: Back view
-- All three views should have equal height, aligned at head and feet
-- High quality, clean sharp lines
-
-DO NOT include: complex backgrounds, cropped characters, inconsistent views, large text blocks, multiple characters, overly complex poses`
-  }
 }
+
 
 // ========== 首尾帧生成 ==========
 const FRAME_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: {
-    userPrompt: `Generate a high-quality anime scene image.
+  zh: `生成一张高质量的动漫场景图片。
+
+场景：{{sceneDescription}}
+
+场景中的角色：{{characters}}
+
+画风：{{style}}
+
+这是场景的 {{isFirstFrame}} 帧。
+
+要求：
+- 电影级构图
+- 详细的环境和光影效果
+- 角色表情和姿势与场景氛围匹配
+- 16:9 宽高比
+- 高质量插画`,
+  en: `Generate a high-quality anime scene image.
 
 Scene: {{sceneDescription}}
 
@@ -555,31 +559,30 @@ Requirements:
 - Character expressions and poses matching the scene mood
 - 16:9 aspect ratio
 - High quality illustration`
-  },
-  en: {
-    userPrompt: `Generate a high-quality anime scene image.
-
-Scene: {{sceneDescription}}
-
-Characters in scene: {{characters}}
-
-Style: {{style}}
-
-This is the {{isFirstFrame}} frame of the scene.
-
-Requirements:
-- Cinematic composition
-- Detailed environment and lighting
-- Character expressions and poses matching the scene mood
-- 16:9 aspect ratio
-- High quality illustration`
-  }
 }
+
 
 // ========== 转场视频 ==========
 const TRANSITION_CONTENT: PromptTemplate['content'] = {
-  zh: {
-    userPrompt: `Create a cinematic transition video between two scenes.
+  zh: `创建两个场景之间的电影级转场视频。
+
+起始场景：
+{{fromScene}}
+
+目标场景：
+{{toScene}}
+
+转场风格：{{transitionType}}
+
+要求：
+1. 保持两个场景之间的视觉连续性
+2. 平滑自然的镜头运动
+3. 一致的光线和色彩过渡
+4. 如有角色，动作应自然流畅
+5. {{style}} 风格，高质量电影级画面
+
+转场应该流畅专业，引导观众的视线从一个场景过渡到下一个场景。`,
+  en: `Create a cinematic transition video between two scenes.
 
 FROM SCENE:
 {{fromScene}}
@@ -597,33 +600,12 @@ REQUIREMENTS:
 5. {{style}} style, high quality cinematic look
 
 The transition should feel seamless and professional, guiding the viewer's eye from one scene to the next.`
-  },
-  en: {
-    userPrompt: `Create a cinematic transition video between two scenes.
-
-FROM SCENE:
-{{fromScene}}
-
-TO SCENE:
-{{toScene}}
-
-TRANSITION STYLE: {{transitionType}}
-
-REQUIREMENTS:
-1. Maintain visual continuity between the two scenes
-2. Smooth and natural camera movement
-3. Consistent lighting and color grading transition
-4. Character movements should flow naturally if present
-5. {{style}} style, high quality cinematic look
-
-The transition should feel seamless and professional, guiding the viewer's eye from one scene to the next.`
-  }
 }
+
 
 // ========== 背景音乐 ==========
 const BGM_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: {
-    userPrompt: `生成一段{{duration}}秒的背景音乐。
+  zh: `生成一段{{duration}}秒的背景音乐。
 
 风格: {{mood}}
 
@@ -633,10 +615,8 @@ const BGM_GENERATION_CONTENT: PromptTemplate['content'] = {
 1. 适合作为视频背景音乐
 2. 音乐情绪与场景匹配
 3. 无人声，纯音乐
-4. 高品质音频`
-  },
-  en: {
-    userPrompt: `Generate a {{duration}}-second background music track.
+4. 高品质音频`,
+  en: `Generate a {{duration}}-second background music track.
 
 Style: {{mood}}
 
@@ -647,13 +627,12 @@ Requirements:
 2. Music mood matches the scene
 3. No vocals, instrumental only
 4. High quality audio`
-  }
 }
+
 
 // ========== 场景视觉提取 ==========
 const SCENE_VISUAL_CONTENT: PromptTemplate['content'] = {
-  zh: {
-    systemPrompt: `你是一位专业的视觉设计师，擅长从场景描述中提取视觉元素。
+  zh: `你是一位专业的视觉设计师，擅长从场景描述中提取视觉元素。
 
 ## 分析思路
 1. **时空定位**：时间、地点、季节/天气
@@ -665,19 +644,19 @@ const SCENE_VISUAL_CONTENT: PromptTemplate['content'] = {
 - 结构：画风 + 场景主体 + 环境细节 + 光影氛围 + 技术参数
 - 长度：150-250字（英文）
 - 具体性：每个元素都要有具体描述
-- 技术参数：结尾加上"高清质量，16:9宽屏"`,
-    userPrompt: `请分析以下场景并提取视觉元素：
+- 技术参数：结尾加上"高清质量，16:9宽屏"
 
-场景描述：{{sceneDescription}}
+## 场景描述
+{{sceneDescription}}
 
-场景设定：{{setting}}
+## 场景设定
+{{setting}}
 
-画风：{{style}}
+## 画风
+{{style}}
 
-请输出 JSON 格式，包含 time, location, visualElements, atmosphere, sensoryDetails, imagePrompt 字段。`
-  },
-  en: {
-    systemPrompt: `You are a professional visual designer, skilled at extracting visual elements from scene descriptions.
+请输出 JSON 格式，包含 time, location, visualElements, atmosphere, sensoryDetails, imagePrompt 字段。`,
+  en: `You are a professional visual designer, skilled at extracting visual elements from scene descriptions.
 
 ## Analysis Approach
 1. **Time-Space Positioning**: time, location, season/weather
@@ -689,15 +668,16 @@ const SCENE_VISUAL_CONTENT: PromptTemplate['content'] = {
 - Structure: style + scene subject + environment details + lighting atmosphere + technical parameters
 - Length: 150-250 words (English)
 - Specificity: each element should have concrete description
-- Technical parameters: end with "high quality, 16:9 widescreen"`,
-    userPrompt: `Please analyze the following scene and extract visual elements:
+- Technical parameters: end with "high quality, 16:9 widescreen"
 
-Scene description: {{sceneDescription}}
+## Scene Description
+{{sceneDescription}}
 
-Scene setting: {{setting}}
+## Scene Setting
+{{setting}}
 
-Style: {{style}}
+## Style
+{{style}}
 
 Output in JSON format with time, location, visualElements, atmosphere, sensoryDetails, imagePrompt fields.`
-  }
 }

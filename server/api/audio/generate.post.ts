@@ -102,18 +102,15 @@ export default defineEventHandler(async (event) => {
       // BGM 生成 - 返回优化后的提示词
       // 注意: 实际 Lyria 音乐生成需要通过 Live API WebSocket
       
-      // 从数据库获取提示词模板
-      const promptContent = await getInterpolatedPrompt(
+      // 从数据库获取提示词模板（已合并系统提示词和用户提示词）
+      const bgmPrompt = await getInterpolatedPrompt(
         PROMPT_TEMPLATE_IDS.BGM_GENERATION,
         {
           sceneDescription: prompt || '',
           mood: style || 'ambient',
           duration: String(duration || 10)
         }
-      )
-
-      // 如果数据库没有配置，使用默认提示词
-      const bgmPrompt = promptContent?.userPrompt || buildBGMPrompt(prompt || '', style, duration, projectStyle)
+      ) || buildBGMPrompt(prompt || '', style, duration, projectStyle)
 
       return {
         success: true,

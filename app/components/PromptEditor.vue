@@ -4,18 +4,60 @@ import {
   RotateCcw,
   History,
   X,
-  ChevronRight,
-  Check,
-  AlertCircle,
   Loader2,
   Plus,
   Eye,
-  Globe
+  Globe,
+  Languages,
+  Undo2,
+  Redo2,
+  Maximize2,
+  Minimize2,
+  AlertTriangle,
+  CheckCircle2,
+  FileText,
+  Download,
+  Upload,
+  GitCompare
 } from 'lucide-vue-next'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
+import { Mark, mergeAttributes } from '@tiptap/core'
 import type { PromptTemplate, PromptVersion, PromptVariable } from '#shared/types/prompt-template'
+
+// 自定义变量高亮 Mark 扩展
+const VariableMark = Mark.create({
+  name: 'variable',
+  
+  addAttributes() {
+    return {
+      name: {
+        default: null,
+        parseHTML: element => element.getAttribute('data-variable'),
+        renderHTML: attributes => {
+          if (!attributes.name) return {}
+          return { 'data-variable': attributes.name }
+        }
+      },
+      valid: {
+        default: true,
+        parseHTML: element => element.classList.contains('valid'),
+        renderHTML: attributes => {
+          return { class: attributes.valid ? 'variable-tag valid' : 'variable-tag invalid' }
+        }
+      }
+    }
+  },
+  
+  parseHTML() {
+    return [{ tag: 'span[data-variable]' }]
+  },
+  
+  renderHTML({ HTMLAttributes }) {
+    return ['span', mergeAttributes(HTMLAttributes), 0]
+  }
+})
 
 const props = defineProps<{
   template: PromptTemplate
@@ -35,11 +77,16 @@ const loadingVersions = ref(false)
 const versions = ref<PromptVersion[]>([])
 const previewMode = ref(false)
 const previewVariables = ref<Record<string, string>>({})
+const isFullscreen = ref(false)
+const showDiff = ref(false)
 
 // 语言配置状态
 const langConfig = ref<Record<string, 'zh' | 'en'>>({})
-const langConfigLoading = ref(false)
 const langConfigSaving = ref(false)
+const translating = ref(false)
+
+// 文件导入
+const fileInputRef = ref<HTMLInputElement | null>(null)
 
 // 当前模板使用的语言
 const currentTemplateLang = computed({
@@ -51,48 +98,36 @@ const currentTemplateLang = computed({
 
 // 本地编辑内容
 const localContent = ref({
-  zh: {
-    systemPrompt: props.template.content.zh.systemPrompt || '',
-    userPrompt: props.template.content.zh.userPrompt
-  },
-  en: {
-    systemPrompt: props.template.content.en.systemPrompt || '',
-    userPrompt: props.template.content.en.userPrompt
-  }
+  zh: props.template.content.zh || '',
+  en: props.template.content.en || ''
 })
-
-// 当前编辑的是系统提示词还是用户提示词
-const editingField = ref<'system' | 'user'>('user')
 
 // 编辑器实例
 const editor = useEditor({
-  content: localContent.value[activeLanguage.value].userPrompt,
+  content: textToHtmlWithHighlight(localContent.value[activeLanguage.value]),
   extensions: [
     StarterKit,
     Placeholder.configure({
       placeholder: '输入提示词内容...'
-    })
+    }),
+    VariableMark
   ],
   editorProps: {
     attributes: {
       class: 'prose prose-sm max-w-none focus:outline-none min-h-[200px] p-4'
     }
   },
-  onUpdate: ({ editor }) => {
-    const html = editor.getHTML()
-    // 将 HTML 转换为纯文本（保留换行）
+  onUpdate: ({ editor: ed }) => {
+    const html = ed.getHTML()
     const text = htmlToText(html)
-    if (editingField.value === 'system') {
-      localContent.value[activeLanguage.value].systemPrompt = text
-    } else {
-      localContent.value[activeLanguage.value].userPrompt = text
-    }
+    localContent.value[activeLanguage.value] = text
   }
 })
 
 // HTML 转纯文本
 function htmlToText(html: string): string {
   return html
+    .replace(/<span[^>]*data-variable="([^"]*)"[^>]*>[^<]*<\/span>/gi, '{{$1}}')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p><p>/gi, '\n\n')
     .replace(/<[^>]+>/g, '')
@@ -102,49 +137,50 @@ function htmlToText(html: string): string {
     .replace(/&amp;/g, '&')
 }
 
-// 纯文本转 HTML
-function textToHtml(text: string): string {
-  return text
+// 纯文本转 HTML（带变量高亮）
+function textToHtmlWithHighlight(text: string): string {
+  // 从变量定义中提取实际变量名（去掉 {{ 和 }}）
+  const validVars = new Set(props.template.variables.map(v => {
+    const match = v.name.match(/\{\{(\w+)\}\}/)
+    return match?.[1] ?? v.name
+  }))
+  
+  const escaped = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
+  
+  // 高亮变量
+  const highlighted = escaped.replace(/\{\{(\w+)\}\}/g, (match, name) => {
+    const isValid = validVars.has(name)
+    const className = isValid ? 'variable-tag valid' : 'variable-tag invalid'
+    return `<span data-variable="${name}" class="${className}">${match}</span>`
+  })
+  
+  return highlighted
     .split('\n\n')
     .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
     .join('')
 }
 
 // 切换语言时更新编辑器内容
-watch(activeLanguage, (lang) => {
-  updateEditorContent()
-})
-
-// 切换编辑字段时更新编辑器内容
-watch(editingField, () => {
+watch(activeLanguage, () => {
   updateEditorContent()
 })
 
 function updateEditorContent() {
   if (!editor.value) return
-  const content = editingField.value === 'system'
-    ? localContent.value[activeLanguage.value].systemPrompt
-    : localContent.value[activeLanguage.value].userPrompt
-  editor.value.commands.setContent(textToHtml(content || ''))
+  const content = localContent.value[activeLanguage.value]
+  editor.value.commands.setContent(textToHtmlWithHighlight(content || ''))
 }
 
 // 监听 props 变化
 watch(() => props.template, (newTemplate) => {
   localContent.value = {
-    zh: {
-      systemPrompt: newTemplate.content.zh.systemPrompt || '',
-      userPrompt: newTemplate.content.zh.userPrompt
-    },
-    en: {
-      systemPrompt: newTemplate.content.en.systemPrompt || '',
-      userPrompt: newTemplate.content.en.userPrompt
-    }
+    zh: newTemplate.content.zh || '',
+    en: newTemplate.content.en || ''
   }
   updateEditorContent()
-  // 初始化预览变量
   initPreviewVariables()
 }, { immediate: true })
 
@@ -161,18 +197,90 @@ function initPreviewVariables() {
 const hasChanges = computed(() => {
   const orig = props.template.content
   const local = localContent.value
-  return (
-    (orig.zh.systemPrompt || '') !== local.zh.systemPrompt ||
-    orig.zh.userPrompt !== local.zh.userPrompt ||
-    (orig.en.systemPrompt || '') !== local.en.systemPrompt ||
-    orig.en.userPrompt !== local.en.userPrompt
-  )
+  return orig.zh !== local.zh || orig.en !== local.en
 })
+
+// 变量校验
+const variableValidation = computed(() => {
+  const content = localContent.value[activeLanguage.value]
+  // 从变量定义中提取实际变量名（去掉 {{ 和 }}）
+  const definedVars = new Set(props.template.variables.map(v => {
+    const match = v.name.match(/\{\{(\w+)\}\}/)
+    return match?.[1] ?? v.name
+  }))
+  const usedVars = new Set<string>()
+  
+  // 提取使用的变量
+  const regex = /\{\{(\w+)\}\}/g
+  let match
+  while ((match = regex.exec(content)) !== null) {
+    const varName = match[1]
+    if (varName) usedVars.add(varName)
+  }
+  
+  // 未定义但使用的变量
+  const undefinedVars = [...usedVars].filter(v => !definedVars.has(v))
+  // 已定义但未使用的变量
+  const unusedVars = [...definedVars].filter(v => !usedVars.has(v))
+  
+  return { undefinedVars, unusedVars, isValid: undefinedVars.length === 0 }
+})
+
+// 字数统计
+const charCount = computed(() => {
+  const content = localContent.value[activeLanguage.value]
+  return {
+    chars: content.length,
+    words: content.trim() ? content.trim().split(/\s+/).length : 0,
+    // 粗略估算 token（中文约 2 字符/token，英文约 4 字符/token）
+    tokens: Math.ceil(content.length / (activeLanguage.value === 'zh' ? 2 : 4))
+  }
+})
+
+// Diff 计算
+const diffLines = computed(() => {
+  if (!showDiff.value) return []
+  
+  const original = props.template.content[activeLanguage.value].split('\n')
+  const current = localContent.value[activeLanguage.value].split('\n')
+  const result: Array<{ type: 'same' | 'add' | 'remove', content: string }> = []
+  
+  // 简单的逐行对比
+  const maxLen = Math.max(original.length, current.length)
+  for (let i = 0; i < maxLen; i++) {
+    const origLine = original[i] ?? ''
+    const currLine = current[i] ?? ''
+    
+    if (origLine === currLine) {
+      result.push({ type: 'same', content: currLine })
+    } else {
+      if (origLine) result.push({ type: 'remove', content: origLine })
+      if (currLine) result.push({ type: 'add', content: currLine })
+    }
+  }
+  
+  return result
+})
+
+// 撤销/重做
+function undo() {
+  editor.value?.commands.undo()
+}
+
+function redo() {
+  editor.value?.commands.redo()
+}
+
+const canUndo = computed(() => editor.value?.can().undo() ?? false)
+const canRedo = computed(() => editor.value?.can().redo() ?? false)
 
 // 插入变量
 function insertVariable(variable: PromptVariable) {
   if (!editor.value) return
-  editor.value.commands.insertContent(`{{${variable.name}}}`)
+  const pureName = extractVarName(variable.name)
+  const varTag = '\u007B\u007B' + pureName + '\u007D\u007D'
+  const varHtml = `<span data-variable="${pureName}" class="variable-tag valid">${varTag}</span>`
+  editor.value.commands.insertContent(varHtml)
 }
 
 // 保存
@@ -189,6 +297,7 @@ async function save() {
     if ((response as any).success) {
       emit('update', (response as any).data)
       emit('saved')
+      showDiff.value = false
     }
   } catch (e) {
     console.error('保存失败:', e)
@@ -255,11 +364,10 @@ async function restoreVersion(versionId: string) {
 
 // 预览内容
 const previewContent = computed(() => {
-  let content = localContent.value[activeLanguage.value].userPrompt
+  let content = localContent.value[activeLanguage.value]
   for (const [key, value] of Object.entries(previewVariables.value)) {
-    // key 已经是 {{variableName}} 格式，需要转义特殊字符后直接替换
-    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    content = content.replace(new RegExp(escapedKey, 'g'), value || `[${key}]`)
+    const placeholder = '{{' + key + '}}'
+    content = content.split(placeholder).join(value || `[${key}]`)
   }
   return content
 })
@@ -277,7 +385,6 @@ function formatDate(dateStr: string): string {
 
 // 加载语言配置
 async function loadLangConfig() {
-  langConfigLoading.value = true
   try {
     const response = await $fetch<{ success: boolean; data: Record<string, 'zh' | 'en'> }>('/api/prompts/lang-config')
     if (response.success && response.data) {
@@ -285,8 +392,6 @@ async function loadLangConfig() {
     }
   } catch (e) {
     console.error('加载语言配置失败:', e)
-  } finally {
-    langConfigLoading.value = false
   }
 }
 
@@ -294,13 +399,10 @@ async function loadLangConfig() {
 async function saveLangConfig() {
   langConfigSaving.value = true
   try {
-    const response = await $fetch<{ success: boolean }>('/api/prompts/lang-config', {
+    await $fetch('/api/prompts/lang-config', {
       method: 'PUT',
       body: { [props.template.id]: currentTemplateLang.value }
     })
-    if (response.success) {
-      // 可以添加成功提示
-    }
   } catch (e) {
     console.error('保存语言配置失败:', e)
   } finally {
@@ -314,9 +416,99 @@ async function toggleRuntimeLang(lang: 'zh' | 'en') {
   await saveLangConfig()
 }
 
-// 获取变量标签显示文本
+// 翻译当前内容到另一种语言
+async function translateContent() {
+  const fromLang = activeLanguage.value
+  const toLang = fromLang === 'zh' ? 'en' : 'zh'
+  const sourceText = localContent.value[fromLang]
+  
+  if (!sourceText.trim()) return
+  
+  translating.value = true
+  try {
+    const response = await $fetch<{ success: boolean; data: { translatedText: string } }>('/api/prompts/translate', {
+      method: 'POST',
+      body: { text: sourceText, from: fromLang, to: toLang }
+    })
+    
+    if (response.success && response.data?.translatedText) {
+      localContent.value[toLang] = response.data.translatedText
+    }
+  } catch (e) {
+    console.error('翻译失败:', e)
+  } finally {
+    translating.value = false
+  }
+}
+
+// 导出当前模板
+function exportTemplate() {
+  const data = {
+    id: props.template.id,
+    name: props.template.name,
+    content: localContent.value,
+    exportedAt: new Date().toISOString()
+  }
+  
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `prompt-${props.template.id}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// 导入模板
+function triggerImport() {
+  fileInputRef.value?.click()
+}
+
+function handleImport(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target?.result as string)
+      if (data.content?.zh) localContent.value.zh = data.content.zh
+      if (data.content?.en) localContent.value.en = data.content.en
+      updateEditorContent()
+    } catch (err) {
+      console.error('导入失败:', err)
+      alert('导入失败：文件格式不正确')
+    }
+  }
+  reader.readAsText(file)
+  input.value = ''
+}
+
+// 全屏切换
+function toggleFullscreen() {
+  isFullscreen.value = !isFullscreen.value
+}
+
+// 获取变量标签显示文本（使用 Unicode 转义避免 Vue 模板解析）
 function getVariableTag(name: string): string {
-  return `{{${name}}}`
+  // 如果已经是 {{name}} 格式，直接返回
+  if (name.startsWith('{{') && name.endsWith('}}')) {
+    return name
+  }
+  return '\u007B\u007B' + name + '\u007D\u007D'
+}
+
+// 从变量名中提取纯名称（去掉 {{ 和 }}）
+function extractVarName(name: string): string {
+  const match = name.match(/\{\{(\w+)\}\}/)
+  return match?.[1] ?? name
+}
+
+// 检查变量是否未使用
+function isVarUnused(varName: string): boolean {
+  const pureName = extractVarName(varName)
+  return variableValidation.value.unusedVars.includes(pureName)
 }
 
 // 分类颜色
@@ -327,18 +519,28 @@ const categoryColors: Record<string, string> = {
   audio: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300'
 }
 
+// 快捷键
+function handleKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault()
+    if (hasChanges.value) save()
+  }
+}
+
 onMounted(() => {
   initPreviewVariables()
   loadLangConfig()
+  window.addEventListener('keydown', handleKeydown)
 })
 
 onBeforeUnmount(() => {
   editor.value?.destroy()
+  window.removeEventListener('keydown', handleKeydown)
 })
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
+  <div :class="['h-full flex flex-col', isFullscreen ? 'fixed inset-0 z-50 bg-background' : '']">
     <!-- 头部 -->
     <div class="flex-shrink-0 px-6 py-4 border-b">
       <div class="flex items-start justify-between gap-4">
@@ -358,6 +560,16 @@ onBeforeUnmount(() => {
           <p class="text-sm text-muted-foreground mt-1">{{ template.description }}</p>
         </div>
         <div class="flex items-center gap-2 flex-shrink-0">
+          <!-- 导入导出 -->
+          <input ref="fileInputRef" type="file" accept=".json" class="hidden" @change="handleImport" />
+          <Button variant="ghost" size="icon" @click="triggerImport" title="导入">
+            <Upload class="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" @click="exportTemplate" title="导出">
+            <Download class="h-4 w-4" />
+          </Button>
+          <div class="w-px h-6 bg-border mx-1" />
+          
           <Button variant="outline" size="sm" @click="openHistory">
             <History class="h-4 w-4 mr-1.5" />
             历史
@@ -367,236 +579,251 @@ onBeforeUnmount(() => {
             <RotateCcw v-else class="h-4 w-4 mr-1.5" />
             重置
           </Button>
+          <Button v-if="hasChanges" variant="outline" size="sm" @click="showDiff = !showDiff">
+            <GitCompare class="h-4 w-4 mr-1.5" />
+            {{ showDiff ? '隐藏差异' : '查看差异' }}
+          </Button>
           <Button size="sm" @click="save" :disabled="saving || !hasChanges">
             <Loader2 v-if="saving" class="h-4 w-4 mr-1.5 animate-spin" />
             <Save v-else class="h-4 w-4 mr-1.5" />
             保存
           </Button>
+          <Button variant="ghost" size="icon" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏编辑'">
+            <Minimize2 v-if="isFullscreen" class="h-4 w-4" />
+            <Maximize2 v-else class="h-4 w-4" />
+          </Button>
         </div>
       </div>
     </div>
 
-    <!-- 内容区 -->
-    <div class="flex-1 overflow-hidden flex">
-      <!-- 主编辑区 -->
+    <!-- 主内容区 -->
+    <div class="flex-1 flex overflow-hidden">
+      <!-- 左侧编辑区 -->
       <div class="flex-1 flex flex-col overflow-hidden">
-        <!-- 语言切换 + 字段切换 -->
-        <div class="flex-shrink-0 px-6 py-3 border-b flex items-center justify-between">
-          <div class="flex gap-1 p-1 bg-muted rounded-lg">
-            <button
-              class="px-3 py-1.5 text-sm rounded-md transition-colors"
-              :class="activeLanguage === 'zh' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'"
-              @click="activeLanguage = 'zh'"
-            >
-              中文
-            </button>
-            <button
-              class="px-3 py-1.5 text-sm rounded-md transition-colors"
-              :class="activeLanguage === 'en' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'"
-              @click="activeLanguage = 'en'"
-            >
-              English
-            </button>
-          </div>
-
-          <div class="flex items-center gap-4">
-            <div class="flex gap-1 p-1 bg-muted rounded-lg">
+        <!-- 工具栏 -->
+        <div class="flex-shrink-0 px-6 py-3 border-b flex items-center justify-between gap-4">
+          <div class="flex items-center gap-2">
+            <!-- 语言切换 -->
+            <span class="text-sm text-muted-foreground">编辑语言:</span>
+            <div class="flex rounded-md border overflow-hidden">
               <button
-                class="px-3 py-1.5 text-sm rounded-md transition-colors"
-                :class="editingField === 'user' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'"
-                @click="editingField = 'user'"
+                :class="['px-3 py-1 text-sm transition-colors', activeLanguage === 'zh' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted']"
+                @click="activeLanguage = 'zh'"
               >
-                用户提示词
+                中文
               </button>
               <button
-                class="px-3 py-1.5 text-sm rounded-md transition-colors"
-                :class="editingField === 'system' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'"
-                @click="editingField = 'system'"
+                :class="['px-3 py-1 text-sm transition-colors', activeLanguage === 'en' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted']"
+                @click="activeLanguage = 'en'"
               >
-                系统提示词
+                English
               </button>
             </div>
-
-            <button
-              class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors"
-              :class="previewMode ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'"
-              @click="previewMode = !previewMode"
-            >
-              <Eye class="h-4 w-4" />
-              预览
-            </button>
+            
+            <!-- 翻译 -->
+            <Button variant="outline" size="sm" @click="translateContent" :disabled="translating" class="ml-2">
+              <Loader2 v-if="translating" class="h-4 w-4 mr-1.5 animate-spin" />
+              <Languages v-else class="h-4 w-4 mr-1.5" />
+              {{ activeLanguage === 'zh' ? '翻译到英文' : '翻译到中文' }}
+            </Button>
+            
+            <div class="w-px h-6 bg-border mx-2" />
+            
+            <!-- 撤销/重做 -->
+            <Button variant="ghost" size="icon" @click="undo" :disabled="!canUndo" title="撤销 (Ctrl+Z)">
+              <Undo2 class="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" @click="redo" :disabled="!canRedo" title="重做 (Ctrl+Y)">
+              <Redo2 class="h-4 w-4" />
+            </Button>
+          </div>
+          
+          <div class="flex items-center gap-3">
+            <!-- 字数统计 -->
+            <div class="text-xs text-muted-foreground">
+              {{ charCount.chars }} 字符 · ~{{ charCount.tokens }} tokens
+            </div>
+            
+            <!-- 预览切换 -->
+            <Button variant="ghost" size="sm" @click="previewMode = !previewMode">
+              <Eye class="h-4 w-4 mr-1.5" />
+              {{ previewMode ? '编辑' : '预览' }}
+            </Button>
           </div>
         </div>
 
-        <!-- 编辑器 / 预览 -->
-        <div class="flex-1 overflow-y-auto">
-          <div v-if="!previewMode" class="h-full">
-            <EditorContent :editor="editor" class="h-full" />
+        <!-- 变量校验提示 -->
+        <div v-if="!variableValidation.isValid || variableValidation.unusedVars.length > 0" class="flex-shrink-0 px-6 py-2 border-b bg-muted/30">
+          <div v-if="variableValidation.undefinedVars.length > 0" class="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
+            <AlertTriangle class="h-4 w-4 flex-shrink-0" />
+            <span>未定义的变量: {{ variableValidation.undefinedVars.map(v => getVariableTag(v)).join(', ') }}</span>
           </div>
-          <div v-else class="p-6">
-            <div class="p-4 rounded-lg bg-muted/50 border">
-              <h4 class="text-sm font-medium mb-3">预览效果</h4>
-              <div class="space-y-3">
-                <div v-for="variable in template.variables" :key="variable.name" class="flex items-center gap-2">
-                  <label class="text-sm text-muted-foreground w-32 flex-shrink-0">{{ variable.name }}:</label>
-                  <input
-                    v-model="previewVariables[variable.name]"
-                    type="text"
-                    class="flex-1 h-8 px-2 text-sm border rounded bg-background"
-                    :placeholder="variable.example || '输入值...'"
-                  />
-                </div>
-              </div>
-              <div class="mt-4 p-4 rounded bg-background border">
-                <pre class="text-sm whitespace-pre-wrap">{{ previewContent }}</pre>
-              </div>
+          <div v-if="variableValidation.unusedVars.length > 0" class="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+            <FileText class="h-4 w-4 flex-shrink-0" />
+            <span>未使用的变量: {{ variableValidation.unusedVars.map(v => getVariableTag(v)).join(', ') }}</span>
+          </div>
+        </div>
+
+        <!-- 编辑器/预览/差异对比 -->
+        <div class="flex-1 overflow-auto">
+          <!-- 差异对比视图 -->
+          <div v-if="showDiff" class="p-6 font-mono text-sm">
+            <div v-for="(line, idx) in diffLines" :key="idx" :class="[
+              'px-2 py-0.5 whitespace-pre-wrap',
+              line.type === 'add' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' : '',
+              line.type === 'remove' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' : ''
+            ]">
+              <span class="inline-block w-6 text-muted-foreground">{{ line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' ' }}</span>
+              {{ line.content || ' ' }}
             </div>
           </div>
+          <!-- 预览视图 -->
+          <div v-else-if="previewMode" class="p-6">
+            <div class="prose prose-sm max-w-none dark:prose-invert whitespace-pre-wrap">{{ previewContent }}</div>
+          </div>
+          <!-- 编辑器 -->
+          <EditorContent v-else :editor="editor" class="h-full" />
         </div>
       </div>
 
-      <!-- 右侧变量面板 -->
-      <div class="w-64 flex-shrink-0 border-l bg-muted/30 flex flex-col">
-        <div class="flex-shrink-0 px-4 py-3 border-b">
-          <h3 class="text-sm font-medium">可用变量</h3>
-          <p class="text-xs text-muted-foreground mt-0.5">点击插入到编辑器</p>
-        </div>
-        <div class="flex-1 overflow-y-auto p-2">
-          <div
-            v-for="variable in template.variables"
-            :key="variable.name"
-            class="p-3 rounded-lg hover:bg-accent cursor-pointer transition-colors mb-2"
-            @click="insertVariable(variable)"
-          >
-            <div class="flex items-center gap-2">
-              <code class="px-1.5 py-0.5 text-xs rounded bg-primary/10 text-primary font-mono">
-                {{ getVariableTag(variable.name) }}
-              </code>
-              <Plus class="h-3 w-3 text-muted-foreground" />
-            </div>
-            <p class="text-xs text-muted-foreground mt-1.5">{{ variable.description }}</p>
-            <p v-if="variable.example" class="text-xs text-muted-foreground/70 mt-1 italic">
-              例: {{ variable.example.slice(0, 50) }}{{ variable.example.length > 50 ? '...' : '' }}
-            </p>
-          </div>
-          <div v-if="template.variables.length === 0" class="p-4 text-center text-sm text-muted-foreground">
-            此模板没有变量
-          </div>
-        </div>
-
+      <!-- 右侧面板 -->
+      <div class="w-72 flex-shrink-0 border-l flex flex-col overflow-hidden">
         <!-- 运行时语言配置 -->
-        <div class="flex-shrink-0 px-4 py-3 border-t">
+        <div class="p-4 border-b">
           <div class="flex items-center gap-2 mb-2">
             <Globe class="h-4 w-4 text-muted-foreground" />
-            <h3 class="text-sm font-medium">运行时语言</h3>
+            <span class="text-sm font-medium">运行时语言</span>
           </div>
-          <p class="text-xs text-muted-foreground mb-3">选择 AI 调用时使用的提示词语言</p>
-          <div class="flex gap-1 p-1 bg-muted rounded-lg">
+          <p class="text-xs text-muted-foreground mb-2">实际调用 AI 时使用的语言版本</p>
+          <div class="flex rounded-md border overflow-hidden">
             <button
-              class="flex-1 px-3 py-1.5 text-sm rounded-md transition-colors"
-              :class="currentTemplateLang === 'zh' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'"
+              :class="['flex-1 px-3 py-1.5 text-sm transition-colors', currentTemplateLang === 'zh' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted']"
               :disabled="langConfigSaving"
               @click="toggleRuntimeLang('zh')"
             >
               中文
             </button>
             <button
-              class="flex-1 px-3 py-1.5 text-sm rounded-md transition-colors"
-              :class="currentTemplateLang === 'en' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'"
+              :class="['flex-1 px-3 py-1.5 text-sm transition-colors', currentTemplateLang === 'en' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted']"
               :disabled="langConfigSaving"
               @click="toggleRuntimeLang('en')"
             >
               English
             </button>
           </div>
-          <p class="text-xs text-muted-foreground mt-2">
-            <span v-if="template.category === 'image' || template.category === 'video'" class="text-amber-600 dark:text-amber-400">
-              💡 图片/视频生成建议使用英文
+        </div>
+
+        <!-- 可用变量 -->
+        <div class="flex-1 overflow-auto p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <Plus class="h-4 w-4 text-muted-foreground" />
+              <span class="text-sm font-medium">可用变量</span>
+            </div>
+            <span v-if="variableValidation.isValid" class="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+              <CheckCircle2 class="h-3 w-3" />
+              校验通过
             </span>
-            <span v-else>
-              💡 文本生成建议使用中文
-            </span>
-          </p>
+          </div>
+          <div class="space-y-2">
+            <div
+              v-for="variable in template.variables"
+              :key="variable.name"
+              class="group"
+            >
+              <button
+                :class="[
+                  'w-full text-left p-2 rounded border transition-colors',
+                  isVarUnused(variable.name) 
+                    ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20' 
+                    : 'hover:bg-muted'
+                ]"
+                @click="insertVariable(variable)"
+              >
+                <code class="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{{ getVariableTag(variable.name) }}</code>
+                <p class="text-xs text-muted-foreground mt-1">{{ variable.description }}</p>
+                <p v-if="variable.example" class="text-xs text-muted-foreground/70 mt-0.5 truncate">
+                  示例: {{ variable.example }}
+                </p>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 预览变量值 -->
+        <div v-if="previewMode" class="border-t p-4">
+          <div class="text-sm font-medium mb-2">预览变量值</div>
+          <div class="space-y-2 max-h-40 overflow-auto">
+            <div v-for="variable in template.variables" :key="variable.name">
+              <label class="text-xs text-muted-foreground">{{ variable.name }}</label>
+              <Input
+                v-model="previewVariables[variable.name]"
+                :placeholder="variable.example"
+                class="h-7 text-xs"
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- 版本历史抽屉 -->
-    <Teleport to="body">
-      <Transition name="drawer">
-        <div v-if="showHistory" class="fixed inset-0 z-50 flex justify-end">
-          <div class="absolute inset-0 bg-black/50" @click="showHistory = false" />
-          <div class="relative w-96 bg-background shadow-xl flex flex-col">
-            <div class="flex items-center justify-between px-4 py-3 border-b">
-              <h3 class="font-medium">版本历史</h3>
-              <button class="p-1 rounded hover:bg-accent" @click="showHistory = false">
-                <X class="h-4 w-4" />
-              </button>
-            </div>
-            <div class="flex-1 overflow-y-auto">
-              <div v-if="loadingVersions" class="flex items-center justify-center py-12">
-                <Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-              <div v-else-if="versions.length === 0" class="p-4 text-center text-sm text-muted-foreground">
-                暂无版本历史
-              </div>
-              <div v-else class="divide-y">
-                <div
-                  v-for="version in versions"
-                  :key="version.id"
-                  class="p-4 hover:bg-accent/50 transition-colors"
-                >
-                  <div class="flex items-start justify-between gap-2">
-                    <div class="flex-1 min-w-0">
-                      <p class="text-sm font-medium">{{ formatDate(version.createdAt) }}</p>
-                      <p v-if="version.note" class="text-xs text-muted-foreground mt-0.5 truncate">
-                        {{ version.note }}
-                      </p>
-                    </div>
-                    <Button variant="outline" size="sm" @click="restoreVersion(version.id)">
-                      恢复
-                    </Button>
+    <div
+      v-if="showHistory"
+      class="fixed inset-0 z-50 flex justify-end"
+      @click.self="showHistory = false"
+    >
+      <div class="absolute inset-0 bg-black/50" @click="showHistory = false" />
+      <div class="relative w-96 bg-background h-full shadow-xl flex flex-col">
+        <div class="flex items-center justify-between p-4 border-b">
+          <h3 class="font-semibold">版本历史</h3>
+          <Button variant="ghost" size="icon" @click="showHistory = false">
+            <X class="h-4 w-4" />
+          </Button>
+        </div>
+        <div class="flex-1 overflow-auto p-4">
+          <div v-if="loadingVersions" class="flex items-center justify-center py-8">
+            <Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+          <div v-else-if="versions.length === 0" class="text-center py-8 text-muted-foreground">
+            暂无版本历史
+          </div>
+          <div v-else class="space-y-3">
+            <div
+              v-for="version in versions"
+              :key="version.id"
+              class="p-3 rounded-lg border hover:bg-muted/50 transition-colors"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium">{{ formatDate(version.createdAt) }}</div>
+                  <div v-if="version.note" class="text-xs text-muted-foreground mt-0.5 truncate">
+                    {{ version.note }}
                   </div>
                 </div>
+                <Button variant="outline" size="sm" @click="restoreVersion(version.id)">
+                  恢复
+                </Button>
               </div>
             </div>
           </div>
         </div>
-      </Transition>
-    </Teleport>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.drawer-enter-active,
-.drawer-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.drawer-enter-active > div:last-child,
-.drawer-leave-active > div:last-child {
-  transition: transform 0.2s ease;
-}
-
-.drawer-enter-from,
-.drawer-leave-to {
-  opacity: 0;
-}
-
-.drawer-enter-from > div:last-child,
-.drawer-leave-to > div:last-child {
-  transform: translateX(100%);
-}
-
 :deep(.ProseMirror) {
-  min-height: 200px;
+  min-height: 100%;
+  padding: 1.5rem;
   outline: none;
 }
 
 :deep(.ProseMirror p.is-editor-empty:first-child::before) {
   content: attr(data-placeholder);
   float: left;
-  color: #adb5bd;
+  color: hsl(var(--muted-foreground));
   pointer-events: none;
   height: 0;
 }
@@ -605,8 +832,25 @@ onBeforeUnmount(() => {
   margin: 0.5em 0;
 }
 
-:deep(.ProseMirror ul),
-:deep(.ProseMirror ol) {
-  padding-left: 1.5em;
+/* 变量高亮样式 */
+:deep(.variable-tag) {
+  display: inline;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.875em;
+  font-weight: 500;
+}
+
+:deep(.variable-tag.valid) {
+  background-color: hsl(var(--primary) / 0.15);
+  color: hsl(var(--primary));
+  border: 1px solid hsl(var(--primary) / 0.3);
+}
+
+:deep(.variable-tag.invalid) {
+  background-color: hsl(var(--destructive) / 0.15);
+  color: hsl(var(--destructive));
+  border: 1px solid hsl(var(--destructive) / 0.3);
 }
 </style>
