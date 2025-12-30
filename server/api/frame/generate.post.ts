@@ -4,6 +4,8 @@ import { GeminiError } from '../../utils/gemini'
 import { QwenError } from '../../utils/qwen'
 import { imageLimiter } from '../../utils/concurrency'
 import { getWorkflowModels } from '../models/workflow.get'
+import { getInterpolatedPrompt } from '../../utils/prompt-template'
+import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 
 // 定义本地的场景Schema，使 setting 可选
 const SceneSettingSchema = z.object({

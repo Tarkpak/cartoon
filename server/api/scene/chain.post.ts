@@ -3,6 +3,8 @@ import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, _geminiWith
 import * as qwen from '../../utils/qwen'
 import { generateImage, findVideoModel } from '../../utils/model-provider'
 import { getWorkflowModels } from '../models/workflow.get'
+import { getInterpolatedPrompt } from '../../utils/prompt-template'
+import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 import { db, videoTasks as videoTasksTable } from '../../db'
 import {
   ChainScenesRequestSchema,

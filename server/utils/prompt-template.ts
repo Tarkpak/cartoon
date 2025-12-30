@@ -16,6 +16,96 @@ import { getDefaultPromptTemplates } from './prompt-defaults'
 // 数据库 key
 const PROMPT_TEMPLATES_KEY = 'prompt_templates'
 const PROMPT_VERSIONS_KEY = 'prompt_versions'
+const PROMPT_LANG_CONFIG_KEY = 'prompt_lang_config'
+
+/**
+ * 提示词语言配置类型
+ */
+export type PromptLangConfig = Record<PromptTemplateId, 'zh' | 'en'>
+
+/**
+ * 获取提示词语言配置
+ */
+export async function getPromptLangConfig(): Promise<PromptLangConfig> {
+  try {
+    const result = await db.select()
+      .from(systemConfig)
+      .where(eq(systemConfig.key, PROMPT_LANG_CONFIG_KEY))
+      .limit(1)
+
+    if (result.length > 0 && result[0]?.value) {
+      return JSON.parse(result[0].value) as PromptLangConfig
+    }
+
+    // 返回默认配置（全部使用中文）
+    return getDefaultLangConfig()
+  } catch (error) {
+    console.error('[PromptTemplate] 获取语言配置失败:', error)
+    return getDefaultLangConfig()
+  }
+}
+
+/**
+ * 获取默认语言配置
+ * 文本生成类默认中文，图片/视频生成类默认英文（效果更好）
+ */
+function getDefaultLangConfig(): PromptLangConfig {
+  return {
+    outline_generation: 'zh',
+    script_parsing: 'zh',
+    scene_generation: 'zh',
+    storyboard_generation: 'zh',
+    character_extraction: 'zh',
+    character_from_outline: 'zh',
+    character_sheet: 'en',      // 图片生成用英文
+    scene_visual: 'zh',
+    frame_generation: 'en',     // 图片生成用英文
+    transition: 'en',           // 视频生成用英文
+    bgm_generation: 'zh'
+  } as PromptLangConfig
+}
+
+/**
+ * 更新提示词语言配置
+ */
+export async function updatePromptLangConfig(config: Partial<PromptLangConfig>): Promise<PromptLangConfig> {
+  try {
+    const current = await getPromptLangConfig()
+    const updated = { ...current, ...config }
+    const now = new Date().toISOString()
+    const value = JSON.stringify(updated)
+
+    const existing = await db.select()
+      .from(systemConfig)
+      .where(eq(systemConfig.key, PROMPT_LANG_CONFIG_KEY))
+      .limit(1)
+
+    if (existing.length > 0) {
+      await db.update(systemConfig)
+        .set({ value, updatedAt: now })
+        .where(eq(systemConfig.key, PROMPT_LANG_CONFIG_KEY))
+    } else {
+      await db.insert(systemConfig).values({
+        key: PROMPT_LANG_CONFIG_KEY,
+        value,
+        updatedAt: now
+      })
+    }
+
+    return updated
+  } catch (error) {
+    console.error('[PromptTemplate] 更新语言配置失败:', error)
+    throw error
+  }
+}
+
+/**
+ * 获取单个模板的语言配置
+ */
+export async function getPromptLang(id: PromptTemplateId): Promise<'zh' | 'en'> {
+  const config = await getPromptLangConfig()
+  return config[id] || 'zh'
+}
 
 /**
  * 获取所有提示词模板
@@ -231,6 +321,7 @@ export async function restorePromptVersion(
 
 /**
  * 插值模板变量
+ * 将模板中的 {{variableName}} 替换为实际值
  */
 export function interpolateTemplate(
   template: string,
@@ -239,11 +330,40 @@ export function interpolateTemplate(
   let result = template
 
   for (const [key, value] of Object.entries(variables)) {
-    const placeholder = `{{${key}}}`
-    result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), String(value ?? ''))
+    // 使用简单的字符串替换，避免正则表达式特殊字符问题
+    const placeholder = '{{' + key + '}}'
+    result = result.split(placeholder).join(String(value ?? ''))
   }
 
   return result
+}
+
+/**
+ * 获取插值后的提示词（便捷函数）
+ * 从数据库读取模板，根据语言配置替换变量后返回
+ * @param id 模板 ID
+ * @param variables 变量值
+ * @param lang 可选，强制指定语言（不指定则从配置读取）
+ */
+export async function getInterpolatedPrompt(
+  id: PromptTemplateId,
+  variables: Record<string, string | number | boolean | undefined>,
+  lang?: 'zh' | 'en'
+): Promise<{ systemPrompt?: string; userPrompt: string } | null> {
+  // 如果没有指定语言，从配置读取
+  const actualLang = lang || await getPromptLang(id)
+  
+  const content = await getPromptContent(id, actualLang)
+  if (!content) {
+    return null
+  }
+
+  return {
+    systemPrompt: content.systemPrompt
+      ? interpolateTemplate(content.systemPrompt, variables)
+      : undefined,
+    userPrompt: interpolateTemplate(content.userPrompt, variables)
+  }
 }
 
 // ========== 内部函数 ==========

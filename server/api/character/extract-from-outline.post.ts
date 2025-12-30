@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { generateJSON, getSelectedModels } from '../../utils/model-provider'
+import { getInterpolatedPrompt } from '../../utils/prompt-template'
+import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 
 const RequestSchema = z.object({
   outline: z.object({
@@ -166,10 +168,22 @@ ${allCharacterNames.join(', ')}
 请直接输出 JSON 数组，不要包含其他内容。`
 
   try {
+    // 从数据库获取提示词模板
+    const promptContent = await getInterpolatedPrompt(
+      PROMPT_TEMPLATE_IDS.CHARACTER_FROM_OUTLINE,
+      {
+        outline: JSON.stringify(outline),
+        style
+      }
+    )
+
+    // 如果数据库有配置，使用数据库的提示词；否则使用默认提示词
+    const finalPrompt = promptContent?.userPrompt || prompt
+
     const selectedModels = getSelectedModels()
     const parsed = await generateJSON<z.infer<typeof CharacterSchema>[]>({
       modelId: selectedModels.text,
-      prompt,
+      prompt: finalPrompt,
       temperature: 0.7,
       maxRetries: 2
     })

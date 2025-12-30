@@ -1,4 +1,6 @@
 import { generateJSONForWorkflow } from '../../utils/workflow-model'
+import { getInterpolatedPrompt } from '../../utils/prompt-template'
+import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 import {
   ExtractSceneVisualRequestSchema,
   SceneVisualSchema,
@@ -29,8 +31,19 @@ export default defineEventHandler(async (event) => {
   const { sceneId, sceneDescription, setting, style } = parseResult.data
 
   try {
-    const systemInstruction = buildSceneVisualSystemPrompt()
-    const prompt = buildSceneVisualPrompt(sceneDescription, setting, style)
+    // 从数据库获取提示词模板
+    const promptContent = await getInterpolatedPrompt(
+      PROMPT_TEMPLATE_IDS.SCENE_VISUAL,
+      {
+        sceneDescription,
+        setting: JSON.stringify(setting),
+        style
+      }
+    )
+
+    // 如果数据库没有配置，使用默认提示词
+    const systemInstruction = promptContent?.systemPrompt || buildSceneVisualSystemPrompt()
+    const prompt = promptContent?.userPrompt || buildSceneVisualPrompt(sceneDescription, setting, style)
 
     // 使用业务流程配置的模型
     const result = await generateJSONForWorkflow<SceneVisual>('scene_visual_extraction', {

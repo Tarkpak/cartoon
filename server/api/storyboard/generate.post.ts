@@ -1,4 +1,6 @@
 import { generateJSONForWorkflow } from '../../utils/workflow-model'
+import { getInterpolatedPrompt } from '../../utils/prompt-template'
+import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 import {
   GenerateStoryboardRequestSchema,
   StoryboardSchema,
@@ -29,8 +31,19 @@ export default defineEventHandler(async (event) => {
   const { sceneId, sceneDescription, dialogues, style } = parseResult.data
 
   try {
-    const systemInstruction = buildStoryboardSystemPrompt()
-    const prompt = buildStoryboardPrompt(sceneDescription, dialogues, style)
+    // 从数据库获取提示词模板
+    const promptContent = await getInterpolatedPrompt(
+      PROMPT_TEMPLATE_IDS.STORYBOARD_GENERATION,
+      {
+        sceneDescription,
+        dialogues: dialogues ? JSON.stringify(dialogues) : '[]',
+        style
+      }
+    )
+
+    // 如果数据库没有配置，使用默认提示词
+    const systemInstruction = promptContent?.systemPrompt || buildStoryboardSystemPrompt()
+    const prompt = promptContent?.userPrompt || buildStoryboardPrompt(sceneDescription, dialogues, style)
 
     // 使用业务流程配置的模型
     let result = await generateJSONForWorkflow<Storyboard | Array<unknown>>('storyboard_generation', {

@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { textToSpeech, getSelectedModels } from '../../utils/model-provider'
+import { getInterpolatedPrompt } from '../../utils/prompt-template'
+import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 import type { Emotion } from '../../../shared/types/script'
 
 /**
@@ -99,7 +101,19 @@ export default defineEventHandler(async (event) => {
     } else {
       // BGM 生成 - 返回优化后的提示词
       // 注意: 实际 Lyria 音乐生成需要通过 Live API WebSocket
-      const bgmPrompt = buildBGMPrompt(prompt || '', style, duration, projectStyle)
+      
+      // 从数据库获取提示词模板
+      const promptContent = await getInterpolatedPrompt(
+        PROMPT_TEMPLATE_IDS.BGM_GENERATION,
+        {
+          sceneDescription: prompt || '',
+          mood: style || 'ambient',
+          duration: String(duration || 10)
+        }
+      )
+
+      // 如果数据库没有配置，使用默认提示词
+      const bgmPrompt = promptContent?.userPrompt || buildBGMPrompt(prompt || '', style, duration, projectStyle)
 
       return {
         success: true,

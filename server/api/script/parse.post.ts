@@ -1,6 +1,8 @@
 import { generateJSONForWorkflow } from '../../utils/workflow-model'
 import { GeminiError } from '../../utils/gemini'
 import { QwenError } from '../../utils/qwen'
+import { getInterpolatedPrompt } from '../../utils/prompt-template'
+import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 import {
   ParseScriptRequestSchema,
   ParsedScriptSchema,
@@ -32,9 +34,18 @@ export default defineEventHandler(async (event) => {
   const { text, maxScenes } = parseResult.data
 
   try {
-    // 2. 构建解析提示词
-    const systemInstruction = buildSystemPrompt()
-    const prompt = buildParsePrompt(text, maxScenes)
+    // 2. 从数据库获取提示词模板
+    const promptContent = await getInterpolatedPrompt(
+      PROMPT_TEMPLATE_IDS.SCRIPT_PARSING,
+      {
+        novelText: text,
+        style: '默认画风' // 剧本解析阶段可能还没有画风设置
+      }
+    )
+
+    // 如果数据库没有配置，使用默认提示词
+    const systemInstruction = promptContent?.systemPrompt || buildSystemPrompt()
+    const prompt = promptContent?.userPrompt || buildParsePrompt(text, maxScenes)
 
     // 3. 使用业务流程配置的模型解析
     const result = await generateJSONForWorkflow<ParsedScript>('script_parsing', {

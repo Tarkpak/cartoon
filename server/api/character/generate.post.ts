@@ -4,6 +4,8 @@ import { QwenError } from '../../utils/qwen'
 import { VolcengineError } from '../../utils/volcengine'
 import { imageLimiter } from '../../utils/concurrency'
 import { getWorkflowModels } from '../models/workflow.get'
+import { getInterpolatedPrompt } from '../../utils/prompt-template'
+import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 import {
   GenerateCharacterRequestSchema,
   type CharacterAsset,
@@ -108,7 +110,18 @@ async function generateCharacterSheet(
   style: string,
   includeExpressions: boolean
 ): Promise<{ imageData: string, mimeType: string }> {
-  const prompt = buildCharacterSheetPrompt(character, style, includeExpressions)
+  // 从数据库获取提示词模板
+  const promptContent = await getInterpolatedPrompt(
+    PROMPT_TEMPLATE_IDS.CHARACTER_SHEET,
+    {
+      characterName: character.name,
+      appearance: character.appearance,
+      style
+    }
+  )
+
+  // 如果数据库没有配置，使用默认提示词
+  const prompt = promptContent?.userPrompt || buildCharacterSheetPrompt(character, style, includeExpressions)
 
   // 从工作流配置获取角色立绘生成模型
   const workflowModels = await getWorkflowModels()
