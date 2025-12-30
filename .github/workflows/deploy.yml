@@ -41,10 +41,12 @@ jobs:
           ssh -p ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "
             cd ${{ secrets.DEPLOY_PATH }} && \
             mv data /tmp/manju_data_backup 2>/dev/null || true && \
+            mv public /tmp/manju_public_backup 2>/dev/null || true && \
             rm -rf * && \
             tar -xzf /tmp/deploy.tar.gz && \
             cp /tmp/package.json /tmp/bun.lock /tmp/ecosystem.config.cjs . && \
             mv /tmp/manju_data_backup data 2>/dev/null || mkdir -p data && \
+            mv /tmp/manju_public_backup public 2>/dev/null || mkdir -p public && \
             rm -f /tmp/deploy.tar.gz /tmp/package.json /tmp/bun.lock /tmp/ecosystem.config.cjs
           "
 
