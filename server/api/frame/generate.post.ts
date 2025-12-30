@@ -217,6 +217,17 @@ async function generateFirstFrame(
     }
   }
 
+  // 尝试从数据库获取提示词模板
+  const templatePrompt = await getInterpolatedPrompt(
+    PROMPT_TEMPLATE_IDS.FRAME_GENERATION,
+    {
+      sceneDescription: scene.description,
+      characters: JSON.stringify(scene.characters),
+      style,
+      isFirstFrame: '首'
+    }
+  )
+
   // 优先使用场景视觉提取的 imagePrompt
   if (sceneVisual?.imagePrompt) {
     console.log('[FrameGen] 使用场景视觉提取的 imagePrompt')
@@ -230,21 +241,21 @@ async function generateFirstFrame(
       referenceImages.unshift(sceneBackground)
       console.log('[FrameGen] 使用角色+场景融合模式')
     } else {
-      prompt = buildFirstFramePrompt(scene, style, false)
+      prompt = templatePrompt || buildFirstFramePrompt(scene, style, false)
       referenceImages.unshift(sceneBackground)
     }
   } else if (previousSceneLastFrame) {
     // 模式2: 使用上一场景尾帧保持连续性(基于飞书文档 2.7.4)
-    prompt = buildFirstFramePrompt(scene, style, true, storyboard)
+    prompt = templatePrompt || buildFirstFramePrompt(scene, style, true, storyboard)
     referenceImages.unshift(previousSceneLastFrame)
     console.log('[FrameGen] 使用上一场景尾帧作为参考图')
   } else if (characterAssets && referenceImages.length > 0) {
     // 模式3: 使用角色立绘作为参考
-    prompt = buildFirstFramePrompt(scene, style, false, storyboard)
+    prompt = templatePrompt || buildFirstFramePrompt(scene, style, false, storyboard)
     console.log(`[FrameGen] 使用${referenceImages.length}张角色立绘作为参考图`)
   } else {
     // 模式4: 纯文本生成
-    prompt = buildFirstFramePrompt(scene, style, false, storyboard)
+    prompt = templatePrompt || buildFirstFramePrompt(scene, style, false, storyboard)
     console.log('[FrameGen] 使用纯文本生成模式')
   }
 
@@ -450,12 +461,23 @@ async function generateLastFrame(
     console.log('[FrameGen] 尾帧参考图数量超过4张，已截取前4张')
   }
 
+  // 尝试从数据库获取提示词模板
+  const templatePrompt = await getInterpolatedPrompt(
+    PROMPT_TEMPLATE_IDS.FRAME_GENERATION,
+    {
+      sceneDescription: scene.description,
+      characters: JSON.stringify(scene.characters),
+      style,
+      isFirstFrame: '尾'
+    }
+  )
+
   // 优先使用场景视觉提取的 imagePrompt 构建尾帧提示词
   let prompt: string
   if (sceneVisual?.imagePrompt) {
     prompt = buildPromptFromSceneVisual(scene, style, sceneVisual, storyboard, true, characterAssets)
   } else {
-    prompt = buildLastFramePrompt(scene, style, storyboard)
+    prompt = templatePrompt || buildLastFramePrompt(scene, style, storyboard)
   }
 
   console.log(`[FrameGen] 生成尾帧，参考图数量: ${referenceImages.length}`)

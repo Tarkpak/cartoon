@@ -10,12 +10,15 @@ const isCollapsed = useState('sidebar-collapsed', () => false)
 const navigation = [
   { name: '首页概览', path: '/', icon: Home },
   { name: '项目管理', path: '/projects', icon: Folder },
-  { name: '模型设置', path: '/settings', icon: Settings }
+  { name: '设置', path: '/settings', icon: Settings }
 ]
 
 const activeStates = computed(() => {
   return navigation.map(item => route.path === item.path)
 })
+
+// 是否显示页脚（设置页面不显示）
+const showFooter = computed(() => route.path !== '/settings')
 
 // 初始化主题
 onMounted(() => {
@@ -30,13 +33,18 @@ onMounted(() => {
       class="bg-card border-r flex flex-col transition-all duration-300 relative"
       :class="isCollapsed ? 'w-20' : 'w-64'"
     >
-      <!-- 折叠按钮 -->
+      <!-- 折叠按钮 - 使用双箭头图标避免与返回按钮混淆 -->
       <button
-        class="absolute -right-3 top-20 w-6 h-6 bg-card border rounded-full flex items-center justify-center shadow-sm hover:bg-accent transition z-10"
+        class="absolute -right-3 top-20 w-6 h-6 bg-muted border rounded-full flex items-center justify-center shadow-sm hover:bg-accent transition z-10"
+        :title="isCollapsed ? '展开菜单' : '收起菜单'"
         @click="isCollapsed = !isCollapsed"
       >
-        <ChevronLeft v-if="!isCollapsed" class="w-4 h-4 text-muted-foreground" />
-        <ChevronRight v-else class="w-4 h-4 text-muted-foreground" />
+        <svg v-if="!isCollapsed" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground">
+          <path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/>
+        </svg>
+        <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground">
+          <path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/>
+        </svg>
       </button>
 
       <!-- Logo -->
@@ -105,11 +113,13 @@ onMounted(() => {
     </aside>
 
     <!-- 右侧内容区 -->
-    <main class="flex-1 overflow-y-auto">
-      <slot />
+    <main class="flex-1 overflow-hidden flex flex-col">
+      <div class="flex-1 overflow-y-auto" :class="{ 'overflow-hidden': !showFooter }">
+        <slot />
+      </div>
       
-      <!-- 页脚 -->
-      <footer class="px-8 py-6 border-t bg-card/50 mt-8">
+      <!-- 页脚 - 设置页面不显示 -->
+      <footer v-if="showFooter" class="flex-shrink-0 px-8 py-6 border-t bg-card/50">
         <div class="flex items-center justify-between text-sm text-muted-foreground">
           <div class="flex items-center space-x-4">
             <span>© 2025 Manju</span>

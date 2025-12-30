@@ -8,6 +8,14 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table'
 import { STYLE_PRESETS, type StylePreset } from '#shared/types/styles'
 import StyleSelector from '@/components/StyleSelector.vue'
 
@@ -127,11 +135,6 @@ function formatTime(dateStr: string): string {
   return date.toLocaleDateString()
 }
 
-// 获取背景色
-function getBackground(index: number): string {
-  return 'bg-muted'
-}
-
 // 删除项目
 async function deleteProject() {
   if (!projectToDelete.value) return
@@ -231,71 +234,80 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
       {{ error }}
     </div>
 
-    <!-- 项目列表 -->
-    <div
-      v-else
-      class="grid md:grid-cols-2 lg:grid-cols-3 gap-6"
-    >
-      <NuxtLink
-        v-for="(project, index) in projects"
-        :key="project.id"
-        :to="`/workbench?project=${project.id}`"
-        class="block"
-      >
-        <Card class="overflow-hidden hover:shadow-md transition cursor-pointer">
-          <div
-            class="h-32 relative"
-            :class="getBackground(index)"
+    <!-- 项目列表 - 表格展示 -->
+    <Card v-else>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead class="w-[250px]">项目名称</TableHead>
+            <TableHead>描述</TableHead>
+            <TableHead class="w-[100px]">画风</TableHead>
+            <TableHead class="w-[80px]">比例</TableHead>
+            <TableHead class="w-[80px]">场景数</TableHead>
+            <TableHead class="w-[80px]">状态</TableHead>
+            <TableHead class="w-[120px]">更新时间</TableHead>
+            <TableHead class="w-[80px] text-right">操作</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow
+            v-for="project in projects"
+            :key="project.id"
+            class="cursor-pointer hover:bg-muted/50"
+            @click="$router.push(`/workbench?project=${project.id}`)"
           >
-            <div class="absolute top-3 right-3 flex items-center space-x-2">
+            <TableCell class="font-medium">
+              {{ project.title }}
+            </TableCell>
+            <TableCell class="text-muted-foreground max-w-[300px] truncate">
+              {{ project.description || '暂无描述' }}
+            </TableCell>
+            <TableCell>
+              <span class="text-sm">{{ getStyleName(project.styleId) }}</span>
+            </TableCell>
+            <TableCell>
+              <Badge variant="outline">{{ project.aspectRatio }}</Badge>
+            </TableCell>
+            <TableCell>
+              <div class="flex items-center gap-1">
+                <Video class="w-3.5 h-3.5 text-muted-foreground" />
+                <span>{{ project.totalScenes }}</span>
+              </div>
+            </TableCell>
+            <TableCell>
               <Badge :variant="statusMap[project.status || 'draft']?.variant || 'secondary'">
                 {{ statusMap[project.status || 'draft']?.label || '草稿' }}
               </Badge>
-              <button
-                class="p-1.5 rounded-md bg-muted hover:bg-destructive hover:text-destructive-foreground transition"
+            </TableCell>
+            <TableCell class="text-muted-foreground text-sm">
+              {{ formatTime(project.updatedAt) }}
+            </TableCell>
+            <TableCell class="text-right">
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8 text-muted-foreground hover:text-destructive"
                 @click="confirmDelete(project, $event)"
               >
                 <Trash2 class="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-          <CardContent class="pt-4">
-            <h3 class="font-semibold text-lg mb-2">
-              {{ project.title }}
-            </h3>
-            <p class="text-muted-foreground text-sm mb-4 line-clamp-2">
-              {{ project.description || '暂无描述' }}
-            </p>
-
-            <div class="flex items-center justify-between text-sm text-muted-foreground">
-              <div class="flex items-center space-x-2">
-                <Video class="w-4 h-4" />
-                <span>{{ project.totalScenes }}个场景</span>
+              </Button>
+            </TableCell>
+          </TableRow>
+          <!-- 空状态 -->
+          <TableRow v-if="projects.length === 0">
+            <TableCell colspan="8" class="h-32 text-center">
+              <div class="flex flex-col items-center justify-center text-muted-foreground">
+                <Video class="w-10 h-10 mb-2 opacity-50" />
+                <p>暂无项目</p>
+                <Button variant="link" class="mt-2" @click="openCreateDialog">
+                  创建第一个项目
+                </Button>
               </div>
-              <div class="flex items-center space-x-2">
-                <Clock class="w-4 h-4" />
-                <span>{{ formatTime(project.updatedAt) }}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </NuxtLink>
-
-      <!-- 新建项目卡片 -->
-      <div
-        class="border-2 border-dashed rounded-lg flex items-center justify-center min-h-[280px] cursor-pointer hover:border-foreground/50 hover:bg-accent transition"
-        @click="openCreateDialog"
-      >
-        <div class="text-center">
-          <div class="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
-            <Plus class="w-8 h-8 text-muted-foreground" />
-          </div>
-          <div class="text-muted-foreground font-medium">
-            新建项目
-          </div>
-        </div>
-      </div>
-    </div>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    </Card>
 
     <!-- 删除确认对话框 -->
     <Dialog v-model:open="showDeleteDialog">

@@ -123,16 +123,23 @@ const progressPercent = computed(() => {
 <template>
   <div class="p-8">
     <!-- 顶部导航 -->
-    <div class="flex items-center space-x-2 text-sm text-muted-foreground mb-6">
-      <NuxtLink
-        to="/projects"
-        class="hover:text-foreground transition flex items-center"
-      >
-        <ArrowLeft class="w-4 h-4 mr-1" />
-        返回项目列表
+    <div class="flex items-center gap-4 mb-6">
+      <NuxtLink to="/projects">
+        <Button variant="outline" size="sm" class="gap-2">
+          <ArrowLeft class="w-4 h-4" />
+          返回
+        </Button>
       </NuxtLink>
-      <ChevronRight class="w-4 h-4" />
-      <span class="text-foreground">{{ project.title }}</span>
+      <div class="flex items-center space-x-2 text-sm text-muted-foreground">
+        <NuxtLink
+          to="/projects"
+          class="hover:text-foreground transition"
+        >
+          项目列表
+        </NuxtLink>
+        <ChevronRight class="w-4 h-4" />
+        <span class="text-foreground">{{ project.title }}</span>
+      </div>
     </div>
 
     <!-- 项目头部 -->

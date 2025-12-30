@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Play, Palette } from 'lucide-vue-next'
+import { Loader2, Play, Palette, ArrowLeft } from 'lucide-vue-next'
 import type { PipelineStatus } from '~/composables/useWorkbench'
 import { getStyleById, type StylePreset } from '#shared/types/styles'
 
@@ -51,6 +51,11 @@ function handleStyleSelect(style: StylePreset) {
   <div class="flex justify-between items-start mb-8">
     <div class="space-y-2">
       <div class="flex items-center space-x-3">
+        <NuxtLink to="/projects">
+          <Button variant="outline" size="icon" class="h-9 w-9" title="返回项目列表">
+            <ArrowLeft class="w-4 h-4" />
+          </Button>
+        </NuxtLink>
         <Input
           v-model="localName"
           class="text-2xl font-bold h-auto py-1 px-2 w-64 border-transparent hover:border-input focus:border-primary"
@@ -60,7 +65,7 @@ function handleStyleSelect(style: StylePreset) {
       </div>
       <Input
         v-model="localDescription"
-        class="text-sm text-muted-foreground h-auto py-1 px-2 w-96 border-transparent hover:border-input focus:border-primary"
+        class="text-sm text-muted-foreground h-auto py-1 px-2 w-96 border-transparent hover:border-input focus:border-primary ml-12"
         placeholder="添加项目描述..."
       />
     </div>

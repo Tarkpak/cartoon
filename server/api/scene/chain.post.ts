@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../../utils/gemini'
 import * as qwen from '../../utils/qwen'
-import { generateImage, findVideoModel } from '../../utils/model-provider'
+import { generateImage, findVideoModel, getSelectedModels } from '../../utils/model-provider'
 import { getWorkflowModels } from '../models/workflow.get'
 import { getInterpolatedPrompt } from '../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
@@ -162,7 +162,7 @@ async function createTransitionTask(
   const config = {
     firstFrame: fromScene.lastFrame, // 上一场景的尾帧
     lastFrame: toScene.firstFrame, // 下一场景的首帧
-    prompt: buildTransitionPrompt(fromScene, toScene, transitionType, style),
+    prompt: await buildTransitionPrompt(fromScene, toScene, transitionType, style),
     duration,
     resolution: '1080p' as const,
     aspectRatio: '16:9' as const,
@@ -185,12 +185,12 @@ async function createTransitionTask(
 /**
  * 构建转场视频提示词 (英文，使用实际场景描述)
  */
-function buildTransitionPrompt(
+async function buildTransitionPrompt(
   fromScene: SceneFrameData,
   toScene: SceneFrameData,
   transitionType: TransitionType,
   style: string
-): string {
+): Promise<string> {
   const transitionDescriptions: Record<TransitionType, string> = {
     fade: 'smooth fade transition with gradual opacity change',
     dissolve: 'cross-dissolve effect where scenes blend together seamlessly',
@@ -210,6 +210,22 @@ function buildTransitionPrompt(
     ? `${toScene.setting.location}, ${toScene.setting.timeOfDay}${toScene.setting.mood ? `, ${toScene.setting.mood} mood` : ''}`
     : ''
 
+  // 尝试从数据库获取提示词模板
+  const templatePrompt = await getInterpolatedPrompt(
+    PROMPT_TEMPLATE_IDS.TRANSITION,
+    {
+      fromScene: `${fromScene.title || 'Scene A'}\n${fromSetting ? `Setting: ${fromSetting}\n` : ''}Visual: ${fromDescription}`,
+      toScene: `${toScene.title || 'Scene B'}\n${toSetting ? `Setting: ${toSetting}\n` : ''}Visual: ${toDescription}`,
+      transitionType: transitionDescriptions[transitionType],
+      style
+    }
+  )
+
+  if (templatePrompt) {
+    return templatePrompt
+  }
+
+  // 备用默认提示词
   return `Create a cinematic transition video between two scenes.
 
 FROM SCENE: ${fromScene.title || 'Scene A'}
@@ -301,7 +317,7 @@ async function generateTransitionWithQwen(
     const modelId = selected.video || qwen.QwenVideoModels.WAN_2_6_T2V
 
     // 千问不支持首尾帧插值，使用文生视频
-    const prompt = buildTransitionPrompt(fromScene, toScene, transitionType, style)
+    const prompt = await buildTransitionPrompt(fromScene, toScene, transitionType, style)
 
     // 转换时长
     let qwenDuration = duration
@@ -396,7 +412,7 @@ async function generateTransitionWithGemini(
     // 2. 调用 Veo API 生成转场视频
     await updateTaskProgress(taskId, 25)
 
-    const prompt = buildTransitionPrompt(fromScene, toScene, transitionType, style)
+    const prompt = await buildTransitionPrompt(fromScene, toScene, transitionType, style)
 
     console.log('[SceneChain] Veo API 转场视频请求参数:', {
       model: VideoModels.VEO_3_1,

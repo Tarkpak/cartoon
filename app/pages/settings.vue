@@ -92,6 +92,13 @@ const activeSection = ref<MenuSection>('models')
 const activeModelSubMenu = ref<ModelSubMenu>('workflow')
 const selectedPromptId = ref<string | null>(null)
 
+// 业务流程菜单展开状态和选中分类
+const workflowMenuExpanded = ref(true)
+const selectedWorkflowCategory = ref<string | null>(null)
+
+// 模型测试菜单展开状态
+const testMenuExpanded = ref(false)
+
 // 下拉树展开状态
 const expandedSections = ref<Set<string>>(new Set(['models']))
 const expandedPromptCategories = ref<Set<string>>(new Set(['text']))
@@ -109,6 +116,35 @@ function toggleSection(section: string) {
 function selectModelSubMenu(subMenu: ModelSubMenu) {
   activeSection.value = 'models'
   activeModelSubMenu.value = subMenu
+}
+
+// 切换业务流程菜单展开/折叠
+function toggleWorkflowMenu() {
+  workflowMenuExpanded.value = !workflowMenuExpanded.value
+}
+
+// 选择业务流程分类
+function selectWorkflowCategory(category: string) {
+  activeSection.value = 'models'
+  activeModelSubMenu.value = 'workflow'
+  selectedWorkflowCategory.value = category
+  // 展开对应分类，折叠其他分类
+  expandedCategories.value.clear()
+  expandedCategories.value.add(category)
+  // 滚动到对应分类
+  scrollToCategory(category)
+}
+
+// 切换模型测试菜单展开/折叠
+function toggleTestMenu() {
+  testMenuExpanded.value = !testMenuExpanded.value
+}
+
+// 选择模型测试分类
+function selectTestCategory(tab: 'text' | 'image' | 'video' | 'tts') {
+  activeSection.value = 'models'
+  activeModelSubMenu.value = 'test'
+  activeTab.value = tab
 }
 
 // 切换提示词分类展开/折叠
@@ -309,6 +345,16 @@ const groupedWorkflows = computed(() => {
   return groups
 })
 
+// 根据选中的分类过滤显示的工作流
+const filteredWorkflows = computed(() => {
+  if (!selectedWorkflowCategory.value) return groupedWorkflows.value
+  const category = selectedWorkflowCategory.value
+  if (groupedWorkflows.value[category]) {
+    return { [category]: groupedWorkflows.value[category] }
+  }
+  return groupedWorkflows.value
+})
+
 function getCapabilityLabel(cap: string): string {
   const labels: Record<string, string> = {
     'reference_image': '需参考图',
@@ -343,9 +389,10 @@ async function loadModels() {
 }
 
 function autoExpandSelectedProviders() {
+  // 展开所有供应商
   const currentModels = getCurrentModelList()
-  const selectedModel = currentModels.find(m => m.model === currentSelectedModel.value)
-  if (selectedModel) expandedProviders.value.add(selectedModel.provider)
+  const providers = new Set(currentModels.map(m => m.provider))
+  providers.forEach(p => expandedProviders.value.add(p))
 }
 
 async function selectModel(type: 'text' | 'image' | 'video' | 'tts', modelId: string) {
@@ -432,7 +479,16 @@ function toggleCategory(category: string) {
   else expandedCategories.value.add(category)
 }
 
-watch(activeTab, () => { expandedProviders.value.clear(); autoExpandSelectedProviders() })
+function scrollToCategory(category: string) {
+  nextTick(() => {
+    const element = document.getElementById(`workflow-category-${category}`)
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  })
+}
+
+watch(activeTab, () => { autoExpandSelectedProviders() })
 
 // 切换到提示词配置时加载数据
 watch(activeSection, (section) => {
@@ -452,9 +508,9 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
 </script>
 
 <template>
-  <div class="h-full flex">
+  <div class="h-full flex overflow-hidden">
     <!-- 左侧菜单 -->
-    <div class="w-64 flex-shrink-0 border-r bg-muted/30 flex flex-col">
+    <div class="w-64 flex-shrink-0 border-r bg-muted/30 flex flex-col overflow-hidden">
       <!-- 标题 -->
       <div class="flex-shrink-0 px-4 py-4 border-b">
         <div class="flex items-center gap-3">
@@ -484,22 +540,56 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
 
           <!-- 模型设置子菜单 -->
           <div v-show="expandedSections.has('models')" class="ml-6 mt-1 space-y-0.5 border-l pl-2">
-            <button
-              class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left"
-              :class="activeSection === 'models' && activeModelSubMenu === 'workflow' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'"
-              @click="selectModelSubMenu('workflow')"
-            >
-              <Workflow class="h-3.5 w-3.5" />
-              业务流程配置
-            </button>
-            <button
-              class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left"
-              :class="activeSection === 'models' && activeModelSubMenu === 'test' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'"
-              @click="selectModelSubMenu('test')"
-            >
-              <FlaskConical class="h-3.5 w-3.5" />
-              模型测试
-            </button>
+            <div>
+              <button
+                class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left"
+                :class="activeSection === 'models' && activeModelSubMenu === 'workflow' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'"
+                @click="selectModelSubMenu('workflow'); toggleWorkflowMenu()"
+              >
+                <component :is="workflowMenuExpanded ? ChevronDown : ChevronRight" class="h-3 w-3" />
+                <Workflow class="h-3.5 w-3.5" />
+                业务流程配置
+              </button>
+              <!-- 业务流程分类子菜单 -->
+              <div v-show="workflowMenuExpanded && workflowData" class="ml-4 mt-1 space-y-0.5 border-l pl-2">
+                <button
+                  v-for="(workflows, category) in groupedWorkflows"
+                  :key="category"
+                  class="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors text-left"
+                  :class="selectedWorkflowCategory === category ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'"
+                  @click="selectWorkflowCategory(category)"
+                >
+                  <component :is="categoryConfig[category as keyof typeof categoryConfig]?.icon || Cpu" class="h-3 w-3"
+                    :class="{ 'text-blue-500': category === 'text', 'text-green-500': category === 'image', 'text-purple-500': category === 'video', 'text-orange-500': category === 'voice' }" />
+                  {{ categoryConfig[category as keyof typeof categoryConfig]?.name || category }}
+                </button>
+              </div>
+            </div>
+            <div>
+              <button
+                class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left"
+                :class="activeSection === 'models' && activeModelSubMenu === 'test' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'"
+                @click="selectModelSubMenu('test'); toggleTestMenu()"
+              >
+                <component :is="testMenuExpanded ? ChevronDown : ChevronRight" class="h-3 w-3" />
+                <FlaskConical class="h-3.5 w-3.5" />
+                模型测试
+              </button>
+              <!-- 模型测试分类子菜单 -->
+              <div v-show="testMenuExpanded" class="ml-4 mt-1 space-y-0.5 border-l pl-2">
+                <button
+                  v-for="tab in tabs"
+                  :key="tab.key"
+                  class="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors text-left"
+                  :class="activeModelSubMenu === 'test' && activeTab === tab.key ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'"
+                  @click="selectTestCategory(tab.key)"
+                >
+                  <component :is="tab.icon" class="h-3 w-3"
+                    :class="{ 'text-blue-500': tab.key === 'text', 'text-green-500': tab.key === 'image', 'text-purple-500': tab.key === 'video', 'text-orange-500': tab.key === 'tts' }" />
+                  {{ tab.label }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -587,8 +677,8 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
               </div>
             </div>
 
-            <!-- 按分类显示 -->
-            <div v-for="(workflows, category) in groupedWorkflows" :key="category" class="border rounded-lg overflow-hidden">
+            <!-- 按分类显示 - 如果选择了某个分类则只显示该分类 -->
+            <div v-for="(workflows, category) in filteredWorkflows" :key="category" :id="`workflow-category-${category}`" class="border rounded-lg overflow-hidden">
               <div class="flex items-center gap-3 px-4 py-3 bg-muted/50 cursor-pointer hover:bg-muted/70 transition-colors" @click="toggleCategory(category)">
                 <component :is="expandedCategories.has(category) ? ChevronDown : ChevronRight" class="h-4 w-4 text-muted-foreground" />
                 <component :is="categoryConfig[category as keyof typeof categoryConfig]?.icon || Cpu" class="h-5 w-5"
@@ -654,18 +744,6 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
       <template v-else-if="models">
         <!-- 左侧：模型选择 -->
         <div class="w-72 flex-shrink-0 border-r flex flex-col bg-muted/30">
-          <div class="flex-shrink-0 p-2 border-b bg-background">
-            <div class="grid grid-cols-4 gap-1">
-              <button v-for="tab in tabs" :key="tab.key"
-                class="flex flex-col items-center gap-1 p-2 rounded-lg text-xs transition-colors"
-                :class="activeTab === tab.key ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground'"
-                @click="activeTab = tab.key">
-                <component :is="tab.icon" class="h-4 w-4" />
-                <span class="truncate">{{ tab.label.slice(0, 2) }}</span>
-              </button>
-            </div>
-          </div>
-
           <div class="flex-1 overflow-y-auto py-1">
             <div v-for="group in groupedModels" :key="group.provider" class="select-none">
               <div class="flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-accent/50 transition-colors" @click="toggleProvider(group.provider)">
