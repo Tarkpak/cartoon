@@ -36,7 +36,9 @@ jobs:
 
       - name: Deploy to server
         run: |
-          scp -P ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key -r .output/* ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }}:${{ secrets.DEPLOY_PATH }}/
+          tar -czf deploy.tar.gz -C .output .
+          scp -P ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key deploy.tar.gz ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }}:/tmp/
+          ssh -p ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "rm -rf ${{ secrets.DEPLOY_PATH }}/* && tar -xzf /tmp/deploy.tar.gz -C ${{ secrets.DEPLOY_PATH }} && rm /tmp/deploy.tar.gz"
 
       - name: Restart PM2
         run: |
