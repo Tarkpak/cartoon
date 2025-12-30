@@ -37,8 +37,8 @@ jobs:
       - name: Deploy to server
         run: |
           tar -czf deploy.tar.gz -C .output .
-          scp -P ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key deploy.tar.gz package.json bun.lock ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }}:/tmp/
-          ssh -p ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "rm -rf ${{ secrets.DEPLOY_PATH }}/* && tar -xzf /tmp/deploy.tar.gz -C ${{ secrets.DEPLOY_PATH }} && cp /tmp/package.json /tmp/bun.lock ${{ secrets.DEPLOY_PATH }}/ && rm /tmp/deploy.tar.gz /tmp/package.json /tmp/bun.lock"
+          scp -P ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key deploy.tar.gz package.json bun.lock ecosystem.config.cjs ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }}:/tmp/
+          ssh -p ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "rm -rf ${{ secrets.DEPLOY_PATH }}/* && tar -xzf /tmp/deploy.tar.gz -C ${{ secrets.DEPLOY_PATH }} && cp /tmp/package.json /tmp/bun.lock /tmp/ecosystem.config.cjs ${{ secrets.DEPLOY_PATH }}/ && rm /tmp/deploy.tar.gz /tmp/package.json /tmp/bun.lock /tmp/ecosystem.config.cjs"
 
       - name: Install server dependencies
         run: |
@@ -46,4 +46,4 @@ jobs:
 
       - name: Restart PM2
         run: |
-          ssh -p ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "source ~/.bashrc; cd ${{ secrets.DEPLOY_PATH }} && pm2 restart manju || pm2 start server/index.mjs --name manju"
+          ssh -p ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "source ~/.bashrc; cd ${{ secrets.DEPLOY_PATH }} && pm2 delete manju 2>/dev/null; pm2 start ecosystem.config.cjs"
