@@ -83,7 +83,7 @@ export const CharacterAssetSchema = z.object({
   characterId: z.string().describe('角色ID'),
   name: z.string().describe('角色名'),
   // 角色设定图（一张图包含三视图+表情）
-  baseImage: z.string().describe('角色设定图 (base64) - 包含三视图和表情'),
+  baseImage: z.string().nullable().optional().describe('角色设定图 (base64 或 URL) - 包含三视图和表情'),
   sheetType: CharacterSheetTypeSchema.optional().default('full').describe('设定图类型'),
   // 以下字段保留用于兼容旧数据，新生成的角色不再使用
   expressions: z.record(EmotionSchema, z.string()).optional().describe('表情变体 (已废弃，表情包含在设定图中)'),
