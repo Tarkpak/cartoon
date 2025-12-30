@@ -2,8 +2,8 @@ import { z } from 'zod'
 
 // ==================== 基础类型 ====================
 
-/** 情绪类型 */
-export const EmotionSchema = z.enum([
+/** 常用情绪类型（用于 UI 提示，实际接受任意字符串） */
+export const CommonEmotions = [
   'neutral',
   'happy',
   'sad',
@@ -19,9 +19,18 @@ export const EmotionSchema = z.enum([
   'nervous',
   'relieved',
   'hopeful',
-  'disappointed'
-])
-export type Emotion = z.infer<typeof EmotionSchema>
+  'disappointed',
+  'anxious',
+  'fearful',
+  'terrified',
+  'calm',
+  'shocked',
+  'suspicious'
+] as const
+
+/** 情绪类型 - 接受任意字符串以兼容 AI 生成的多样化情绪 */
+export const EmotionSchema = z.string().describe('情绪')
+export type Emotion = string
 
 /** 时间段 */
 export const TimeOfDaySchema = z.enum([
