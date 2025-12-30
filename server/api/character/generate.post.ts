@@ -137,13 +137,32 @@ async function generateCharacterSheet(
     })
   )
 
-  // 处理千问返回的 URL 或 Gemini 返回的 base64
+  // 处理返回的 URL 或 base64
   if (result.imageUrl) {
-    const response = await fetch(result.imageUrl)
-    const buffer = await response.arrayBuffer()
-    return {
-      imageData: Buffer.from(buffer).toString('base64'),
-      mimeType: 'image/png'
+    console.log(`[CharacterGen] 下载图片: ${result.imageUrl.slice(0, 80)}...`)
+    try {
+      const response = await fetch(result.imageUrl)
+      if (!response.ok) {
+        console.error(`[CharacterGen] 图片下载失败: ${response.status} ${response.statusText}`)
+        // 下载失败时直接返回 URL，让前端处理
+        return {
+          imageData: result.imageUrl,
+          mimeType: 'image/url'
+        }
+      }
+      const buffer = await response.arrayBuffer()
+      console.log(`[CharacterGen] 图片下载成功, 大小: ${buffer.byteLength} bytes`)
+      return {
+        imageData: Buffer.from(buffer).toString('base64'),
+        mimeType: 'image/png'
+      }
+    } catch (fetchError) {
+      console.error(`[CharacterGen] 图片下载异常:`, fetchError)
+      // 下载失败时直接返回 URL，让前端处理
+      return {
+        imageData: result.imageUrl,
+        mimeType: 'image/url'
+      }
     }
   }
 
