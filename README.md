@@ -58,6 +58,24 @@ bun lint:fix               # 修复 ESLint 问题
 bun typecheck              # TypeScript 类型检查
 ```
 
+## 发布版本
+
+使用自动发版脚本发布新版本：
+
+```bash
+bun run release          # patch 版本 +1 (1.0.0 → 1.0.1)
+bun run release minor    # minor 版本 +1 (1.0.0 → 1.1.0)
+bun run release major    # major 版本 +1 (1.0.0 → 2.0.0)
+```
+
+脚本会自动：
+1. 更新 `package.json` 版本号
+2. 创建 git commit 和 tag
+3. 推送到 GitHub 触发 Actions 构建
+4. 如果配置了 `GITHUB_TOKEN`，临时将私有仓库设为公开（免费使用 Actions），构建完成后自动恢复私有
+
+**私有仓库免费构建**：在环境变量中设置 `GITHUB_TOKEN`（需要 repo 权限），脚本会在构建期间临时公开仓库。
+
 ## 自动部署
 
 项目配置了 GitHub Actions，推送到 `master` 分支时自动构建并部署到服务器。
