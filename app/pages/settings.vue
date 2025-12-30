@@ -18,7 +18,9 @@ import {
   Workflow,
   FlaskConical,
   Info,
-  AlertCircle
+  AlertCircle,
+  FileText,
+  Sliders
 } from 'lucide-vue-next'
 import type {
   TextModelConfig,
@@ -27,6 +29,8 @@ import type {
   VoiceModelConfig
 } from '#shared/types/provider'
 import type { WorkflowStep, WorkflowStepConfig } from '#shared/types/workflow-models'
+import type { PromptTemplate } from '#shared/types/prompt-template'
+import { PROMPT_TEMPLATE_METADATA } from '#shared/types/prompt-template'
 
 type ModelConfig = TextModelConfig | ImageModelConfig | VideoModelConfig | VoiceModelConfig
 
@@ -80,7 +84,76 @@ interface WorkflowData {
 
 definePageMeta({ layout: 'default' })
 
-// ==================== 页面级 Tab ====================
+// ==================== 左侧菜单导航 ====================
+type MenuSection = 'models' | 'prompts'
+type ModelSubMenu = 'workflow' | 'test'
+
+const activeSection = ref<MenuSection>('models')
+const activeModelSubMenu = ref<ModelSubMenu>('workflow')
+const selectedPromptId = ref<string | null>(null)
+
+// ==================== 提示词配置相关状态 ====================
+const promptsLoading = ref(false)
+const promptTemplates = ref<PromptTemplate[]>([])
+const selectedPromptTemplate = ref<PromptTemplate | null>(null)
+
+// 提示词分类配置
+const promptCategoryConfig: Record<string, { name: string; color: string }> = {
+  text: { name: '文本生成', color: 'blue' },
+  image: { name: '图片生成', color: 'green' },
+  video: { name: '视频生成', color: 'purple' },
+  audio: { name: '音频生成', color: 'orange' }
+}
+
+// 按分类分组的提示词
+const groupedPrompts = computed(() => {
+  const groups: Record<string, typeof PROMPT_TEMPLATE_METADATA[number][]> = {}
+  for (const meta of PROMPT_TEMPLATE_METADATA) {
+    if (!groups[meta.category]) groups[meta.category] = []
+    groups[meta.category]!.push(meta)
+  }
+  return groups
+})
+
+// 加载提示词模板
+async function loadPromptTemplates() {
+  promptsLoading.value = true
+  try {
+    const response = await $fetch<{ success: boolean; data: PromptTemplate[] }>('/api/prompts')
+    if (response.success) {
+      promptTemplates.value = response.data
+    }
+  } catch (e) {
+    console.error('加载提示词模板失败:', e)
+  } finally {
+    promptsLoading.value = false
+  }
+}
+
+// 选择提示词模板
+function selectPrompt(id: string) {
+  selectedPromptId.value = id
+  const template = promptTemplates.value.find(t => t.id === id)
+  if (template) {
+    selectedPromptTemplate.value = template
+  }
+}
+
+// 处理提示词更新
+function handlePromptUpdate(template: PromptTemplate) {
+  const index = promptTemplates.value.findIndex(t => t.id === template.id)
+  if (index !== -1) {
+    promptTemplates.value[index] = template
+  }
+  selectedPromptTemplate.value = template
+}
+
+// 处理提示词保存
+function handlePromptSaved() {
+  // 可以添加 toast 提示
+}
+
+// ==================== 页面级 Tab (保留兼容) ====================
 const pageTab = ref<'workflow' | 'test'>('workflow')
 
 // ==================== 模型测试相关状态 ====================
@@ -332,111 +405,101 @@ function toggleCategory(category: string) {
 
 watch(activeTab, () => { expandedProviders.value.clear(); autoExpandSelectedProviders() })
 
+// 切换到提示词配置时加载数据
+watch(activeSection, (section) => {
+  if (section === 'prompts' && promptTemplates.value.length === 0) {
+    loadPromptTemplates()
+  }
+})
+
 onMounted(() => { loadModels(); loadWorkflowModels() })
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <!-- 页面标题 -->
-    <div class="flex-shrink-0 px-6 py-4 border-b">
-      <div class="flex items-center justify-between">
+  <div class="h-full flex">
+    <!-- 左侧菜单 -->
+    <div class="w-64 flex-shrink-0 border-r bg-muted/30 flex flex-col">
+      <!-- 标题 -->
+      <div class="flex-shrink-0 px-4 py-4 border-b">
         <div class="flex items-center gap-3">
           <div class="p-2 rounded-lg bg-primary/10">
             <Settings class="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 class="text-xl font-semibold">模型设置</h1>
-            <p class="text-sm text-muted-foreground">配置业务流程模型和测试 AI 模型</p>
+            <h1 class="text-lg font-semibold">设置</h1>
+            <p class="text-xs text-muted-foreground">系统配置管理</p>
           </div>
         </div>
-        <!-- 页面级 Tab 切换 -->
-        <div class="flex gap-1 p-1 bg-muted rounded-lg">
-          <button
-            class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors"
-            :class="pageTab === 'workflow' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-            @click="pageTab = 'workflow'"
-          >
-            <Workflow class="h-4 w-4" />
-            业务流程配置
-          </button>
-          <button
-            class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors"
-            :class="pageTab === 'test' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-            @click="pageTab = 'test'"
-          >
-            <FlaskConical class="h-4 w-4" />
-            模型测试
-          </button>
-        </div>
       </div>
-    </div>
 
-    <!-- 业务流程配置 Tab -->
-    <div v-if="pageTab === 'workflow'" class="flex-1 overflow-y-auto p-6">
-      <div v-if="workflowLoading" class="flex items-center justify-center py-12">
-        <Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
-        <span class="ml-2 text-muted-foreground">加载配置中...</span>
-      </div>
-      
-      <div v-else-if="workflowData" class="max-w-4xl mx-auto space-y-4">
-        <!-- 说明 -->
-        <div class="flex items-start gap-2 p-4 rounded-lg bg-muted/50 text-sm text-muted-foreground">
-          <Info class="h-4 w-4 mt-0.5 flex-shrink-0" />
-          <div>
-            <p>为每个业务流程选择合适的 AI 模型，系统会根据能力要求自动筛选可用模型。</p>
-            <p class="mt-1">红色标签表示该流程的必需能力要求，配置会自动保存。</p>
+      <!-- 菜单列表 -->
+      <div class="flex-1 overflow-y-auto py-2">
+        <!-- 模型设置 -->
+        <div class="px-2">
+          <button
+            class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+            :class="activeSection === 'models' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'"
+            @click="activeSection = 'models'"
+          >
+            <Sliders class="h-4 w-4" />
+            模型设置
+          </button>
+
+          <!-- 模型设置子菜单 -->
+          <div v-show="activeSection === 'models'" class="ml-4 mt-1 space-y-1">
+            <button
+              class="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors"
+              :class="activeModelSubMenu === 'workflow' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground'"
+              @click="activeModelSubMenu = 'workflow'"
+            >
+              <Workflow class="h-3.5 w-3.5" />
+              业务流程配置
+            </button>
+            <button
+              class="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors"
+              :class="activeModelSubMenu === 'test' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground'"
+              @click="activeModelSubMenu = 'test'"
+            >
+              <FlaskConical class="h-3.5 w-3.5" />
+              模型测试
+            </button>
           </div>
         </div>
 
-        <!-- 按分类显示 -->
-        <div v-for="(workflows, category) in groupedWorkflows" :key="category" class="border rounded-lg overflow-hidden">
-          <div class="flex items-center gap-3 px-4 py-3 bg-muted/50 cursor-pointer hover:bg-muted/70 transition-colors" @click="toggleCategory(category)">
-            <component :is="expandedCategories.has(category) ? ChevronDown : ChevronRight" class="h-4 w-4 text-muted-foreground" />
-            <component :is="categoryConfig[category as keyof typeof categoryConfig]?.icon || Cpu" class="h-5 w-5"
-              :class="{ 'text-blue-500': category === 'text', 'text-green-500': category === 'image', 'text-purple-500': category === 'video', 'text-orange-500': category === 'voice' }" />
-            <span class="font-medium">{{ categoryConfig[category as keyof typeof categoryConfig]?.name || category }}</span>
-            <span class="text-xs text-muted-foreground">({{ workflows.length }} 个流程)</span>
-          </div>
-          
-          <div v-show="expandedCategories.has(category)" class="divide-y">
-            <div v-for="workflow in workflows" :key="workflow.id" class="p-4 space-y-3">
-              <div class="flex items-start justify-between gap-4">
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <h4 class="font-medium">{{ workflow.name }}</h4>
-                    <span v-for="cap in workflow.requiredCapabilities" :key="cap"
-                      class="px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300">
-                      {{ getCapabilityLabel(cap) }}
-                    </span>
-                  </div>
-                  <p class="text-sm text-muted-foreground mt-0.5">{{ workflow.description }}</p>
-                  <div v-if="workflow.tips" class="flex items-start gap-1.5 mt-2 text-xs text-muted-foreground">
-                    <Info class="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                    <span>{{ workflow.tips }}</span>
-                  </div>
+        <!-- 提示词配置 -->
+        <div class="px-2 mt-2">
+          <button
+            class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+            :class="activeSection === 'prompts' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'"
+            @click="activeSection = 'prompts'"
+          >
+            <FileText class="h-4 w-4" />
+            提示词配置
+          </button>
+
+          <!-- 提示词列表 -->
+          <div v-show="activeSection === 'prompts'" class="ml-2 mt-1">
+            <div v-if="promptsLoading" class="flex items-center justify-center py-4">
+              <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+            <div v-else>
+              <div v-for="(prompts, category) in groupedPrompts" :key="category" class="mb-2">
+                <div class="px-2 py-1 text-xs font-medium text-muted-foreground">
+                  {{ promptCategoryConfig[category]?.name || category }}
                 </div>
-                <CheckCircle2 v-if="workflow.selectedModel && hasCompatibleModels(workflow)" class="h-4 w-4 text-green-500 flex-shrink-0" />
-                <AlertCircle v-else-if="!hasCompatibleModels(workflow)" class="h-4 w-4 text-amber-500 flex-shrink-0" />
-              </div>
-              
-              <div v-if="hasCompatibleModels(workflow)">
-                <select :value="workflow.selectedModel || ''" :disabled="workflowSaving"
-                  class="w-full h-10 px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-                  @change="updateWorkflowModel(workflow.id, ($event.target as HTMLSelectElement).value)">
-                  <option value="" disabled>选择模型...</option>
-                  <option v-for="model in workflow.compatibleModels" :key="model.model" :value="model.model">
-                    [{{ getProviderLabel(model.provider) }}] {{ model.displayName }}
-                    <template v-if="model.capabilities.length"> - {{ model.capabilities.slice(0, 2).join(', ') }}</template>
-                  </option>
-                </select>
-                <div v-if="workflow.selectedModel" class="mt-2 flex flex-wrap gap-1">
-                  <span v-for="cap in (workflow.compatibleModels.find(m => m.model === workflow.selectedModel)?.capabilities || [])" :key="cap"
-                    class="px-1.5 py-0.5 text-[10px] rounded bg-muted text-muted-foreground">{{ cap }}</span>
-                </div>
-              </div>
-              <div v-else class="flex items-center gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 text-sm">
-                <AlertCircle class="h-4 w-4 flex-shrink-0" />
-                <span>没有满足能力要求的模型</span>
+                <button
+                  v-for="prompt in prompts"
+                  :key="prompt.id"
+                  class="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors text-left"
+                  :class="selectedPromptId === prompt.id ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground'"
+                  @click="selectPrompt(prompt.id)"
+                >
+                  <span class="truncate">{{ prompt.name }}</span>
+                  <span
+                    v-if="promptTemplates.find(t => t.id === prompt.id)?.isCustomized"
+                    class="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-amber-500"
+                  />
+                </button>
               </div>
             </div>
           </div>
@@ -444,8 +507,89 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
       </div>
     </div>
 
-    <!-- 模型测试 Tab -->
-    <div v-else-if="pageTab === 'test'" class="flex-1 flex overflow-hidden">
+    <!-- 右侧内容区 -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <!-- 模型设置 - 业务流程配置 -->
+      <div v-if="activeSection === 'models' && activeModelSubMenu === 'workflow'" class="h-full flex flex-col">
+        <div class="flex-shrink-0 px-6 py-4 border-b">
+          <h2 class="text-lg font-semibold">业务流程配置</h2>
+          <p class="text-sm text-muted-foreground">为每个业务流程选择合适的 AI 模型</p>
+        </div>
+        <div class="flex-1 overflow-y-auto p-6">
+          <div v-if="workflowLoading" class="flex items-center justify-center py-12">
+            <Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
+            <span class="ml-2 text-muted-foreground">加载配置中...</span>
+          </div>
+
+          <div v-else-if="workflowData" class="max-w-4xl mx-auto space-y-4">
+            <!-- 说明 -->
+            <div class="flex items-start gap-2 p-4 rounded-lg bg-muted/50 text-sm text-muted-foreground">
+              <Info class="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <p>为每个业务流程选择合适的 AI 模型，系统会根据能力要求自动筛选可用模型。</p>
+                <p class="mt-1">红色标签表示该流程的必需能力要求，配置会自动保存。</p>
+              </div>
+            </div>
+
+            <!-- 按分类显示 -->
+            <div v-for="(workflows, category) in groupedWorkflows" :key="category" class="border rounded-lg overflow-hidden">
+              <div class="flex items-center gap-3 px-4 py-3 bg-muted/50 cursor-pointer hover:bg-muted/70 transition-colors" @click="toggleCategory(category)">
+                <component :is="expandedCategories.has(category) ? ChevronDown : ChevronRight" class="h-4 w-4 text-muted-foreground" />
+                <component :is="categoryConfig[category as keyof typeof categoryConfig]?.icon || Cpu" class="h-5 w-5"
+                  :class="{ 'text-blue-500': category === 'text', 'text-green-500': category === 'image', 'text-purple-500': category === 'video', 'text-orange-500': category === 'voice' }" />
+                <span class="font-medium">{{ categoryConfig[category as keyof typeof categoryConfig]?.name || category }}</span>
+                <span class="text-xs text-muted-foreground">({{ workflows.length }} 个流程)</span>
+              </div>
+
+              <div v-show="expandedCategories.has(category)" class="divide-y">
+                <div v-for="workflow in workflows" :key="workflow.id" class="p-4 space-y-3">
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <h4 class="font-medium">{{ workflow.name }}</h4>
+                        <span v-for="cap in workflow.requiredCapabilities" :key="cap"
+                          class="px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300">
+                          {{ getCapabilityLabel(cap) }}
+                        </span>
+                      </div>
+                      <p class="text-sm text-muted-foreground mt-0.5">{{ workflow.description }}</p>
+                      <div v-if="workflow.tips" class="flex items-start gap-1.5 mt-2 text-xs text-muted-foreground">
+                        <Info class="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                        <span>{{ workflow.tips }}</span>
+                      </div>
+                    </div>
+                    <CheckCircle2 v-if="workflow.selectedModel && hasCompatibleModels(workflow)" class="h-4 w-4 text-green-500 flex-shrink-0" />
+                    <AlertCircle v-else-if="!hasCompatibleModels(workflow)" class="h-4 w-4 text-amber-500 flex-shrink-0" />
+                  </div>
+
+                  <div v-if="hasCompatibleModels(workflow)">
+                    <select :value="workflow.selectedModel || ''" :disabled="workflowSaving"
+                      class="w-full h-10 px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                      @change="updateWorkflowModel(workflow.id, ($event.target as HTMLSelectElement).value)">
+                      <option value="" disabled>选择模型...</option>
+                      <option v-for="model in workflow.compatibleModels" :key="model.model" :value="model.model">
+                        [{{ getProviderLabel(model.provider) }}] {{ model.displayName }}
+                        <template v-if="model.capabilities.length"> - {{ model.capabilities.slice(0, 2).join(', ') }}</template>
+                      </option>
+                    </select>
+                    <div v-if="workflow.selectedModel" class="mt-2 flex flex-wrap gap-1">
+                      <span v-for="cap in (workflow.compatibleModels.find(m => m.model === workflow.selectedModel)?.capabilities || [])" :key="cap"
+                        class="px-1.5 py-0.5 text-[10px] rounded bg-muted text-muted-foreground">{{ cap }}</span>
+                    </div>
+                  </div>
+                  <div v-else class="flex items-center gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 text-sm">
+                    <AlertCircle class="h-4 w-4 flex-shrink-0" />
+                    <span>没有满足能力要求的模型</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 模型设置 - 模型测试 -->
+      <div v-else-if="activeSection === 'models' && activeModelSubMenu === 'test'" class="h-full flex overflow-hidden">
       <div v-if="loading" class="flex-1 flex items-center justify-center">
         <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
         <span class="ml-2 text-muted-foreground">加载模型配置...</span>
@@ -558,6 +702,21 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
           </div>
         </div>
       </template>
+      </div>
+
+      <!-- 提示词配置 -->
+      <div v-else-if="activeSection === 'prompts'" class="h-full flex flex-col">
+        <div v-if="!selectedPromptTemplate" class="h-full flex flex-col items-center justify-center text-muted-foreground">
+          <FileText class="h-12 w-12 mb-3 opacity-20" />
+          <p class="text-sm">请从左侧选择一个提示词模板进行编辑</p>
+        </div>
+        <PromptEditor
+          v-else
+          :template="selectedPromptTemplate"
+          @update="handlePromptUpdate"
+          @saved="handlePromptSaved"
+        />
+      </div>
     </div>
   </div>
 </template>
