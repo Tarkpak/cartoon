@@ -148,9 +148,9 @@ const hasChanges = computed(() => {
   const orig = props.template.content
   const local = localContent.value
   return (
-    orig.zh.systemPrompt !== local.zh.systemPrompt ||
+    (orig.zh.systemPrompt || '') !== local.zh.systemPrompt ||
     orig.zh.userPrompt !== local.zh.userPrompt ||
-    orig.en.systemPrompt !== local.en.systemPrompt ||
+    (orig.en.systemPrompt || '') !== local.en.systemPrompt ||
     orig.en.userPrompt !== local.en.userPrompt
   )
 })
@@ -243,7 +243,9 @@ async function restoreVersion(versionId: string) {
 const previewContent = computed(() => {
   let content = localContent.value[activeLanguage.value].userPrompt
   for (const [key, value] of Object.entries(previewVariables.value)) {
-    content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value || `[${key}]`)
+    // key 已经是 {{variableName}} 格式，需要转义特殊字符后直接替换
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    content = content.replace(new RegExp(escapedKey, 'g'), value || `[${key}]`)
   }
   return content
 })

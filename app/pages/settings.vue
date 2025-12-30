@@ -92,6 +92,34 @@ const activeSection = ref<MenuSection>('models')
 const activeModelSubMenu = ref<ModelSubMenu>('workflow')
 const selectedPromptId = ref<string | null>(null)
 
+// 下拉树展开状态
+const expandedSections = ref<Set<string>>(new Set(['models']))
+const expandedPromptCategories = ref<Set<string>>(new Set(['text']))
+
+// 切换菜单展开/折叠
+function toggleSection(section: string) {
+  if (expandedSections.value.has(section)) {
+    expandedSections.value.delete(section)
+  } else {
+    expandedSections.value.add(section)
+  }
+}
+
+// 选择模型子菜单
+function selectModelSubMenu(subMenu: ModelSubMenu) {
+  activeSection.value = 'models'
+  activeModelSubMenu.value = subMenu
+}
+
+// 切换提示词分类展开/折叠
+function togglePromptCategory(category: string) {
+  if (expandedPromptCategories.value.has(category)) {
+    expandedPromptCategories.value.delete(category)
+  } else {
+    expandedPromptCategories.value.add(category)
+  }
+}
+
 // ==================== 提示词配置相关状态 ====================
 const promptsLoading = ref(false)
 const promptTemplates = ref<PromptTemplate[]>([])
@@ -119,9 +147,9 @@ const groupedPrompts = computed(() => {
 async function loadPromptTemplates() {
   promptsLoading.value = true
   try {
-    const response = await $fetch<{ success: boolean; data: PromptTemplate[] }>('/api/prompts')
-    if (response.success) {
-      promptTemplates.value = response.data
+    const response = await $fetch<{ success: boolean; data: { templates: PromptTemplate[] } }>('/api/prompts')
+    if (response.success && response.data?.templates) {
+      promptTemplates.value = response.data.templates
     }
   } catch (e) {
     console.error('加载提示词模板失败:', e)
@@ -132,6 +160,7 @@ async function loadPromptTemplates() {
 
 // 选择提示词模板
 function selectPrompt(id: string) {
+  activeSection.value = 'prompts'
   selectedPromptId.value = id
   const template = promptTemplates.value.find(t => t.id === id)
   if (template) {
@@ -412,6 +441,13 @@ watch(activeSection, (section) => {
   }
 })
 
+// 展开提示词菜单时加载数据
+watch(() => expandedSections.value.has('prompts'), (expanded) => {
+  if (expanded && promptTemplates.value.length === 0) {
+    loadPromptTemplates()
+  }
+})
+
 onMounted(() => { loadModels(); loadWorkflowModels() })
 </script>
 
@@ -432,33 +468,34 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
         </div>
       </div>
 
-      <!-- 菜单列表 -->
+      <!-- 菜单列表 - 下拉树形式 -->
       <div class="flex-1 overflow-y-auto py-2">
         <!-- 模型设置 -->
         <div class="px-2">
           <button
             class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
             :class="activeSection === 'models' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'"
-            @click="activeSection = 'models'"
+            @click="toggleSection('models')"
           >
+            <component :is="expandedSections.has('models') ? ChevronDown : ChevronRight" class="h-4 w-4 transition-transform" />
             <Sliders class="h-4 w-4" />
             模型设置
           </button>
 
           <!-- 模型设置子菜单 -->
-          <div v-show="activeSection === 'models'" class="ml-4 mt-1 space-y-1">
+          <div v-show="expandedSections.has('models')" class="ml-6 mt-1 space-y-0.5 border-l pl-2">
             <button
-              class="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors"
-              :class="activeModelSubMenu === 'workflow' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground'"
-              @click="activeModelSubMenu = 'workflow'"
+              class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left"
+              :class="activeSection === 'models' && activeModelSubMenu === 'workflow' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'"
+              @click="selectModelSubMenu('workflow')"
             >
               <Workflow class="h-3.5 w-3.5" />
               业务流程配置
             </button>
             <button
-              class="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors"
-              :class="activeModelSubMenu === 'test' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground'"
-              @click="activeModelSubMenu = 'test'"
+              class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left"
+              :class="activeSection === 'models' && activeModelSubMenu === 'test' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'"
+              @click="selectModelSubMenu('test')"
             >
               <FlaskConical class="h-3.5 w-3.5" />
               模型测试
@@ -467,39 +504,58 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
         </div>
 
         <!-- 提示词配置 -->
-        <div class="px-2 mt-2">
+        <div class="px-2 mt-1">
           <button
             class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
             :class="activeSection === 'prompts' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'"
-            @click="activeSection = 'prompts'"
+            @click="toggleSection('prompts')"
           >
+            <component :is="expandedSections.has('prompts') ? ChevronDown : ChevronRight" class="h-4 w-4 transition-transform" />
             <FileText class="h-4 w-4" />
             提示词配置
           </button>
 
-          <!-- 提示词列表 -->
-          <div v-show="activeSection === 'prompts'" class="ml-2 mt-1">
+          <!-- 提示词列表 - 树形结构 -->
+          <div v-show="expandedSections.has('prompts')" class="ml-6 mt-1 border-l pl-2">
             <div v-if="promptsLoading" class="flex items-center justify-center py-4">
               <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
             </div>
-            <div v-else>
-              <div v-for="(prompts, category) in groupedPrompts" :key="category" class="mb-2">
-                <div class="px-2 py-1 text-xs font-medium text-muted-foreground">
-                  {{ promptCategoryConfig[category]?.name || category }}
-                </div>
+            <div v-else class="space-y-1">
+              <div v-for="(prompts, category) in groupedPrompts" :key="category">
+                <!-- 分类标题 - 可折叠 -->
                 <button
-                  v-for="prompt in prompts"
-                  :key="prompt.id"
-                  class="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors text-left"
-                  :class="selectedPromptId === prompt.id ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground'"
-                  @click="selectPrompt(prompt.id)"
+                  class="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors text-left"
+                  :class="expandedPromptCategories.has(category) ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'"
+                  @click="togglePromptCategory(category)"
                 >
-                  <span class="truncate">{{ prompt.name }}</span>
+                  <component :is="expandedPromptCategories.has(category) ? ChevronDown : ChevronRight" class="h-3 w-3" />
                   <span
-                    v-if="promptTemplates.find(t => t.id === prompt.id)?.isCustomized"
-                    class="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-amber-500"
+                    class="w-2 h-2 rounded-full"
+                    :class="{
+                      'bg-blue-500': category === 'text',
+                      'bg-green-500': category === 'image',
+                      'bg-purple-500': category === 'video',
+                      'bg-orange-500': category === 'audio'
+                    }"
                   />
+                  {{ promptCategoryConfig[category]?.name || category }}
                 </button>
+                <!-- 分类下的提示词 -->
+                <div v-show="expandedPromptCategories.has(category)" class="ml-4 space-y-0.5">
+                  <button
+                    v-for="prompt in prompts"
+                    :key="prompt.id"
+                    class="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-sm transition-colors text-left"
+                    :class="selectedPromptId === prompt.id ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'"
+                    @click="selectPrompt(prompt.id)"
+                  >
+                    <span class="truncate">{{ prompt.name }}</span>
+                    <span
+                      v-if="promptTemplates.find(t => t.id === prompt.id)?.isCustomized"
+                      class="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-amber-500"
+                    />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
