@@ -50,7 +50,8 @@ export const PROMPT_TEMPLATE_IDS = {
   CHARACTER_FROM_OUTLINE: 'character_from_outline',
   CHARACTER_SHEET: 'character_sheet',
   SCENE_VISUAL: 'scene_visual',
-  FRAME_GENERATION: 'frame_generation',
+  FIRST_FRAME_GENERATION: 'first_frame_generation',
+  LAST_FRAME_GENERATION: 'last_frame_generation',
   TRANSITION: 'transition',
   BGM_GENERATION: 'bgm_generation'
 } as const
@@ -98,7 +99,8 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     variables: [
       { name: '{{outline}}', description: '故事大纲JSON', example: '{"title": "...", "acts": [...]}' },
       { name: '{{characters}}', description: '角色列表JSON', example: '[{"name": "...", "appearance": "..."}]' },
-      { name: '{{targetSceneCount}}', description: '目标场景数量', example: '8' }
+      { name: '{{targetSceneCount}}', description: '目标场景数量', example: '8' },
+      { name: '{{style}}', description: '画风描述', example: '日系动漫风格' }
     ]
   },
   {
@@ -132,6 +134,17 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{style}}', description: '画风描述', example: '日系动漫风格' }
     ]
   },
+  {
+    id: 'scene_visual',
+    name: '场景视觉提取',
+    category: 'text',
+    description: '从场景描述中提取视觉元素，生成图片提示词',
+    variables: [
+      { name: '{{sceneDescription}}', description: '场景描述', example: '夕阳下的海边，金色的阳光洒在沙滩上...' },
+      { name: '{{setting}}', description: '场景设定JSON', example: '{"location": "海边", "timeOfDay": "evening"}' },
+      { name: '{{style}}', description: '画风描述', example: '宫崎骏风格' }
+    ]
+  },
   // 图片生成类
   {
     id: 'character_sheet',
@@ -145,15 +158,31 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     ]
   },
   {
-    id: 'frame_generation',
-    name: '首尾帧生成',
+    id: 'first_frame_generation',
+    name: '首帧生成',
     category: 'image',
-    description: '基于场景描述生成首帧和尾帧图片',
+    description: '生成场景的开始状态图片（首帧）',
     variables: [
       { name: '{{sceneDescription}}', description: '场景描述', example: '夕阳下的海边，主角望向远方...' },
-      { name: '{{characters}}', description: '场景中的角色', example: '[{"name": "小明", "emotion": "sad"}]' },
+      { name: '{{characters}}', description: '场景中的角色JSON', example: '[{"name": "小明", "emotion": "sad", "appearance": "..."}]' },
       { name: '{{style}}', description: '画风描述', example: '宫崎骏风格' },
-      { name: '{{isFirstFrame}}', description: '是否为首帧', example: 'true' }
+      { name: '{{setting}}', description: '场景设定JSON', example: '{"location": "海边", "timeOfDay": "evening"}' },
+      { name: '{{storyboardShot}}', description: '分镜镜头信息JSON', example: '{"shotType": "wide", "cameraMovement": "static"}' }
+    ]
+  },
+  {
+    id: 'last_frame_generation',
+    name: '尾帧生成',
+    category: 'image',
+    description: '基于首帧生成场景的结束状态图片（尾帧）',
+    variables: [
+      { name: '{{sceneDescription}}', description: '场景描述', example: '夕阳下的海边，主角转身离开...' },
+      { name: '{{characters}}', description: '场景中的角色JSON', example: '[{"name": "小明", "emotion": "determined"}]' },
+      { name: '{{style}}', description: '画风描述', example: '宫崎骏风格' },
+      { name: '{{setting}}', description: '场景设定JSON', example: '{"location": "海边", "timeOfDay": "evening"}' },
+      { name: '{{storyboardShot}}', description: '分镜镜头信息JSON', example: '{"shotType": "medium", "cameraMovement": "pull"}' },
+      { name: '{{initialEmotion}}', description: '首帧情绪', example: 'sad' },
+      { name: '{{finalEmotion}}', description: '尾帧情绪', example: 'determined' }
     ]
   },
   // 视频生成类

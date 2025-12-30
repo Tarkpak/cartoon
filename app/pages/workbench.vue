@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileText, Users, Video, BookOpen } from 'lucide-vue-next'
+import { FileText, Users, Video, BookOpen, RefreshCw, Loader2 } from 'lucide-vue-next'
 import type { SceneData, CharacterData } from '~/composables/useWorkbench'
 import type { StoryOutline } from '#shared/types/outline'
 
@@ -498,7 +498,26 @@ onMounted(() => {
     <Dialog v-model:open="storyboardDialogOpen">
       <DialogContent class="max-w-3xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>分镜脚本 - {{ viewingStoryboardScene?.title }}</DialogTitle>
+          <div class="flex items-center justify-between pr-8">
+            <DialogTitle>分镜脚本 - {{ viewingStoryboardScene?.title }}</DialogTitle>
+            <Button
+              v-if="viewingStoryboardScene"
+              variant="outline"
+              size="sm"
+              :disabled="viewingStoryboardScene?.storyboardStatus === 'generating'"
+              @click="handleGenerateStoryboard(viewingStoryboardScene)"
+            >
+              <Loader2
+                v-if="viewingStoryboardScene?.storyboardStatus === 'generating'"
+                class="w-4 h-4 mr-2 animate-spin"
+              />
+              <RefreshCw
+                v-else
+                class="w-4 h-4 mr-2"
+              />
+              重新生成
+            </Button>
+          </div>
         </DialogHeader>
         <div
           v-if="viewingStoryboardScene?.storyboard"
@@ -544,7 +563,26 @@ onMounted(() => {
     <Dialog v-model:open="sceneVisualDialogOpen">
       <DialogContent class="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>场景视觉 - {{ viewingSceneVisualScene?.title }}</DialogTitle>
+          <div class="flex items-center justify-between pr-8">
+            <DialogTitle>场景视觉 - {{ viewingSceneVisualScene?.title }}</DialogTitle>
+            <Button
+              v-if="viewingSceneVisualScene"
+              variant="outline"
+              size="sm"
+              :disabled="viewingSceneVisualScene?.sceneVisualStatus === 'generating'"
+              @click="handleExtractSceneVisual(viewingSceneVisualScene)"
+            >
+              <Loader2
+                v-if="viewingSceneVisualScene?.sceneVisualStatus === 'generating'"
+                class="w-4 h-4 mr-2 animate-spin"
+              />
+              <RefreshCw
+                v-else
+                class="w-4 h-4 mr-2"
+              />
+              重新生成
+            </Button>
+          </div>
         </DialogHeader>
         <div
           v-if="viewingSceneVisualScene?.sceneVisual"

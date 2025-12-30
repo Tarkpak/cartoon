@@ -166,7 +166,7 @@ async function generateTTS(config: {
   console.log('[AudioGen] TTS 请求参数:', {
     model: selectedModels.tts,
     textLength: config.text.length,
-    textPreview: config.text.slice(0, 100) + (config.text.length > 100 ? '...' : ''),
+    text: config.text,
     characterName: config.characterName || '默认',
     voiceName: voiceConfig.voiceName,
     emotion: config.emotion || 'neutral',

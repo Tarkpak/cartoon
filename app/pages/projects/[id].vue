@@ -17,8 +17,10 @@ import {
   MoreVertical,
   CheckCircle2,
   Circle,
-  Loader2
+  Loader2,
+  Palette
 } from 'lucide-vue-next'
+import { getStyleById } from '#shared/types/styles'
 
 // 项目详情页
 definePageMeta({
@@ -28,12 +30,21 @@ definePageMeta({
 const route = useRoute()
 const projectId = computed(() => route.params.id as string)
 
+// 获取风格信息
+const projectStyle = computed(() => {
+  if (project.value.styleId) {
+    return getStyleById(project.value.styleId)
+  }
+  return null
+})
+
 // 模拟项目数据
 const project = ref({
   id: projectId.value,
   title: '都市修仙传',
   description: '一个现代都市修仙故事，主角在繁华都市中踏上修仙之路，经历重重考验，最终成为一代强者。',
   status: 'active',
+  styleId: 'ghibli',
   createdAt: '2024-12-01',
   updatedAt: '2小时前',
   totalScenes: 12,
@@ -160,6 +171,29 @@ const progressPercent = computed(() => {
             </div>
           </div>
           <CardContent class="pt-6">
+            <!-- 视觉风格展示 -->
+            <div v-if="projectStyle" class="flex items-center gap-4 mb-4 p-3 bg-accent/50 rounded-lg">
+              <div class="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border bg-muted">
+                <img
+                  v-if="projectStyle.thumbnail"
+                  :src="projectStyle.thumbnail"
+                  :alt="projectStyle.name"
+                  class="w-full h-full object-cover"
+                >
+                <div v-else class="w-full h-full flex items-center justify-center">
+                  <Palette class="w-6 h-6 text-muted-foreground" />
+                </div>
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-muted-foreground">视觉风格</span>
+                  <Badge v-if="projectStyle.isNew" variant="secondary" class="text-xs">NEW</Badge>
+                </div>
+                <div class="font-medium">{{ projectStyle.name }}</div>
+                <div class="text-sm text-muted-foreground">{{ projectStyle.description }}</div>
+              </div>
+            </div>
+
             <p class="text-muted-foreground mb-6">
               {{ project.description }}
             </p>

@@ -59,7 +59,8 @@ function getDefaultLangConfig(): PromptLangConfig {
     character_from_outline: 'zh',
     character_sheet: 'en',      // 图片生成用英文
     scene_visual: 'zh',
-    frame_generation: 'en',     // 图片生成用英文
+    first_frame_generation: 'en',  // 图片生成用英文
+    last_frame_generation: 'en',   // 图片生成用英文
     transition: 'en',           // 视频生成用英文
     bgm_generation: 'zh'
   } as PromptLangConfig

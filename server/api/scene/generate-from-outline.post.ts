@@ -30,7 +30,8 @@ const RequestSchema = z.object({
     personality: z.string().optional(),
     speakingStyle: z.string().optional()
   })),
-  targetSceneCount: z.number().min(3).max(20).optional().default(8)
+  targetSceneCount: z.number().min(3).max(20).optional().default(8),
+  style: z.string().optional().default('默认画风')
 })
 
 const SceneSchema = z.object({
@@ -59,7 +60,7 @@ const SceneSchema = z.object({
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
-  const { outline, characters, targetSceneCount } = RequestSchema.parse(body)
+  const { outline, characters, targetSceneCount, style } = RequestSchema.parse(body)
 
   // 构建角色信息（包含外貌描述，用于场景描述中保持一致性）
   const characterInfo = characters.map(c => {
@@ -70,95 +71,21 @@ export default defineEventHandler(async (event) => {
     return info
   }).join('\n')
 
-  // 构建幕结构信息
-  const actsInfo = outline.acts.map(act => {
-    return `### ${act.name} (${act.type})
-概要：${act.summary}
-关键事件：
-${act.keyEvents.map((e, i) => `${i + 1}. ${e}`).join('\n')}
-${act.emotionalArc ? `情感走向：${act.emotionalArc}` : ''}`
-  }).join('\n\n')
-
-  const prompt = `你是一位专业的漫剧编剧。请根据以下故事大纲和角色设定，生成详细的分场剧本。
-
-## 故事信息
-标题：${outline.title}
-类型：${outline.genre}
-节奏：${outline.pace}
-梗概：${outline.synopsis}
-
-## 世界观
-${outline.setting.world}
-${outline.setting.era ? `时代：${outline.setting.era}` : ''}
-主要场景：${outline.setting.mainLocations.join('、')}
-
-## 角色设定（重要：场景描述中出现角色时，必须使用这里的外貌描述）
-${characterInfo}
-
-## 三幕结构
-${actsInfo}
-
-## 场景生成要求
-
-### 数量和分布
-- 生成 ${targetSceneCount} 个场景
-- 第一幕（铺垫）：约 ${Math.floor(targetSceneCount * 0.25)} 个场景
-- 第二幕（对抗）：约 ${Math.floor(targetSceneCount * 0.5)} 个场景
-- 第三幕（解决）：约 ${Math.ceil(targetSceneCount * 0.25)} 个场景
-
-### 视觉描述要求（用于 AI 图片生成）
-1. 每个场景的 description 必须是具体、可视化的画面描述
-2. 包含：环境细节、光线效果、色调氛围、角色位置和姿态
-3. 角色出现时，必须包含其外貌特征（参考上方角色设定）
-4. 描述长度：100-200字
-
-### 对话要求
-1. 对话要简洁有力，每句不超过20字
-2. 符合角色性格和说话风格
-3. 推动剧情发展，避免废话
-4. 每个场景 1-3 句对话为宜
-
-### 场景连贯性
-1. 场景之间要有逻辑连接
-2. 时间线要清晰
-3. 角色情绪变化要自然
-
-## 输出格式
-请输出 JSON 数组：
-[
-  {
-    "id": "scene_1",
-    "title": "场景标题（简短概括）",
-    "description": "详细的视觉描述，包括环境、光线、氛围、角色外貌和动作等（100-200字）",
-    "setting": {
-      "location": "具体地点",
-      "timeOfDay": "dawn|morning|noon|afternoon|evening|night",
-      "mood": "氛围描述（如：紧张、温馨、神秘）",
-      "weather": "天气（可选）"
-    },
-    "characters": [
-      { "name": "角色名", "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined", "action": "具体动作描述" }
-    ],
-    "dialogues": [
-      { "character": "角色名", "text": "台词内容（简洁有力）", "emotion": "情绪" }
-    ],
-    "duration": 6,
-    "actId": "act_1|act_2|act_3"
-  }
-]
-
-请直接输出 JSON 数组，不要包含其他内容。`
-
   try {
-    // 从数据库获取提示词模板（已合并系统提示词和用户提示词）
+    // 从数据库获取提示词模板
     const finalPrompt = await getInterpolatedPrompt(
       PROMPT_TEMPLATE_IDS.SCENE_GENERATION,
       {
         outline: JSON.stringify(outline),
         characters: characterInfo,
-        targetSceneCount: String(targetSceneCount)
+        targetSceneCount: String(targetSceneCount),
+        style: style
       }
-    ) || prompt
+    )
+
+    if (!finalPrompt) {
+      throw new Error('无法获取提示词模板，请检查数据库配置')
+    }
 
     const selectedModels = getSelectedModels()
     const parsed = await generateJSON<z.infer<typeof SceneSchema>[]>({

@@ -154,20 +154,20 @@ function removeKeyEvent(actIndex: number, eventIndex: number) {
       <div class="flex items-center justify-between">
         <div class="flex items-center space-x-2">
           <Button
-            :variant="localInputMode === 'idea' ? 'default' : 'outline'"
-            size="sm"
-            @click="localInputMode = 'idea'"
-          >
-            <BookOpen class="w-4 h-4 mr-2" />
-            从创意生成
-          </Button>
-          <Button
             :variant="localInputMode === 'script' ? 'default' : 'outline'"
             size="sm"
             @click="localInputMode = 'script'"
           >
             <FileText class="w-4 h-4 mr-2" />
             直接输入剧本
+          </Button>
+          <Button
+            :variant="localInputMode === 'idea' ? 'default' : 'outline'"
+            size="sm"
+            @click="localInputMode = 'idea'"
+          >
+            <BookOpen class="w-4 h-4 mr-2" />
+            从创意生成
           </Button>
         </div>
       </div>

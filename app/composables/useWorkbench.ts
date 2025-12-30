@@ -120,7 +120,7 @@ export function useWorkbench() {
 
   // ========== 输入模式 (新增) ==========
   // 'idea' 从创意生成大纲，'script' 直接输入剧本文本
-  const inputMode = ref<'idea' | 'script'>('idea')
+  const inputMode = ref<'idea' | 'script'>('script')
 
   // ========== 风格选择 ==========
   const selectedStyleId = ref<string>('')
@@ -386,6 +386,12 @@ export function useWorkbench() {
           projectName.value = response.data.title
         }
 
+        console.log('[parseScript] 解析结果:', {
+          scenesCount: response.data.scenes.length,
+          charactersCount: response.data.characters?.length || 0,
+          characters: response.data.characters
+        })
+
         scenes.value = response.data.scenes.map((s, i) => ({
           id: s.id || `scene_${i + 1}`,
           title: s.title || `${s.setting?.location || '场景'} - ${s.setting?.timeOfDay || ''}`,
@@ -401,24 +407,40 @@ export function useWorkbench() {
           sceneVisualStatus: 'pending' as const
         }))
 
-        // 只有在没有角色时才从场景中提取
-        if (characters.value.length === 0) {
-          const charNames = new Set<string>()
-          scenes.value.forEach(s => s.characters.forEach(c => charNames.add(c.name)))
+        // 从 API 返回的角色或场景中提取角色
+        const charNames = new Set<string>()
+        scenes.value.forEach(s => s.characters.forEach(c => charNames.add(c.name)))
 
+        console.log('[parseScript] 从场景提取角色:', {
+          charNames: Array.from(charNames),
+          responseCharacters: response.data.characters
+        })
+
+        // 优先使用 API 返回的角色列表，如果没有则从场景中提取
+        if (response.data.characters && response.data.characters.length > 0) {
+          characters.value = response.data.characters.map((c, i) => ({
+            id: `char_${i + 1}`,
+            name: c.name,
+            appearance: c.description || '',
+            role: c.role || 'supporting',
+            generating: false,
+            generatingViews: false
+          }))
+        } else if (charNames.size > 0) {
           characters.value = Array.from(charNames).map((name, i) => {
-            const charInfo = response.data.characters?.find(c => c.name === name)
             const sceneChar = scenes.value.flatMap(s => s.characters).find(c => c.name === name)
             return {
               id: `char_${i + 1}`,
               name,
-              appearance: sceneChar?.appearance || charInfo?.description || '',
-              role: charInfo?.role || 'supporting',
+              appearance: sceneChar?.appearance || '',
+              role: 'supporting',
               generating: false,
               generatingViews: false
             }
           })
         }
+
+        console.log('[parseScript] 最终角色列表:', characters.value)
 
         await saveProject()
       }
@@ -463,7 +485,8 @@ export function useWorkbench() {
             personality: c.personality,
             speakingStyle: c.speakingStyle
           })),
-          targetSceneCount: 8
+          targetSceneCount: 8,
+          style: currentStylePrompt.value
         }
       })
 

@@ -328,7 +328,7 @@ async function generateTransitionWithQwen(
     console.log('[SceneChain] Qwen API 转场视频请求参数:', {
       model: modelId,
       promptLength: prompt.length,
-      promptPreview: prompt.slice(0, 300) + (prompt.length > 300 ? '...' : ''),
+      prompt: prompt,
       fromSceneId: fromScene.sceneId,
       toSceneId: toScene.sceneId,
       fromSceneTitle: fromScene.title,
@@ -417,7 +417,7 @@ async function generateTransitionWithGemini(
     console.log('[SceneChain] Veo API 转场视频请求参数:', {
       model: VideoModels.VEO_3_1,
       promptLength: prompt.length,
-      promptPreview: prompt.slice(0, 300) + (prompt.length > 300 ? '...' : ''),
+      prompt: prompt,
       fromSceneId: fromScene.sceneId,
       toSceneId: toScene.sceneId,
       fromSceneTitle: fromScene.title,

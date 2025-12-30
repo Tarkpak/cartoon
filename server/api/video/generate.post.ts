@@ -386,7 +386,7 @@ async function generateVideoWithGemini(
     console.log('[VideoGen] Veo API 请求参数:', {
       model: selectedModel,
       promptLength: config.prompt.length,
-      promptPreview: config.prompt.slice(0, 200) + (config.prompt.length > 200 ? '...' : ''),
+      prompt: config.prompt,
       hasFirstFrame: !!config.firstFrame,
       hasLastFrame: !!config.lastFrame,
       aspectRatio: config.aspectRatio,

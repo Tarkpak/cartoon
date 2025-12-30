@@ -217,14 +217,20 @@ async function generateFirstFrame(
     }
   }
 
-  // 尝试从数据库获取提示词模板
+  // 尝试从数据库获取首帧提示词模板
+  const firstShot = storyboard?.shots?.[0]
   const templatePrompt = await getInterpolatedPrompt(
-    PROMPT_TEMPLATE_IDS.FRAME_GENERATION,
+    PROMPT_TEMPLATE_IDS.FIRST_FRAME_GENERATION,
     {
       sceneDescription: scene.description,
       characters: JSON.stringify(scene.characters),
       style,
-      isFirstFrame: '首'
+      setting: JSON.stringify(scene.setting || {}),
+      storyboardShot: firstShot ? JSON.stringify({
+        shotType: firstShot.shotType,
+        cameraMovement: firstShot.cameraMovement,
+        visualContent: firstShot.visualContent
+      }) : '{}'
     }
   )
 
@@ -280,14 +286,14 @@ async function generateFirstFrame(
     maxRetries: 2
   }
 
-  // 输出完整请求体 (参考图只输出数量和前100字符用于调试)
+  // 输出完整请求体 (参考图只输出数量和长度)
   console.log(`[FrameGen] ========== 首帧生成请求体 ==========`)
   console.log(`[FrameGen] modelId: ${firstFrameRequest.modelId}`)
   console.log(`[FrameGen] prompt: ${firstFrameRequest.prompt}`)
   console.log(`[FrameGen] referenceImages: ${firstFrameRequest.referenceImages ? `[${firstFrameRequest.referenceImages.length}张图片]` : 'undefined'}`)
   if (firstFrameRequest.referenceImages) {
     firstFrameRequest.referenceImages.forEach((img, idx) => {
-      console.log(`[FrameGen]   - 参考图${idx + 1}: ${img.substring(0, 100)}... (长度: ${img.length})`)
+      console.log(`[FrameGen]   - 参考图${idx + 1}: 长度=${img.length}`)
     })
   }
   console.log(`[FrameGen] maxRetries: ${firstFrameRequest.maxRetries}`)
@@ -461,14 +467,27 @@ async function generateLastFrame(
     console.log('[FrameGen] 尾帧参考图数量超过4张，已截取前4张')
   }
 
-  // 尝试从数据库获取提示词模板
+  // 尝试从数据库获取尾帧提示词模板
+  const lastShot = storyboard?.shots?.[storyboard.shots.length - 1]
+  const firstDialogue = scene.dialogues?.[0]
+  const lastDialogue = scene.dialogues?.[scene.dialogues.length - 1]
+  const initialEmotion = firstDialogue?.emotion || scene.characters[0]?.emotion || 'neutral'
+  const finalEmotion = lastDialogue?.emotion || scene.characters[0]?.emotion || 'neutral'
+
   const templatePrompt = await getInterpolatedPrompt(
-    PROMPT_TEMPLATE_IDS.FRAME_GENERATION,
+    PROMPT_TEMPLATE_IDS.LAST_FRAME_GENERATION,
     {
       sceneDescription: scene.description,
       characters: JSON.stringify(scene.characters),
       style,
-      isFirstFrame: '尾'
+      setting: JSON.stringify(scene.setting || {}),
+      storyboardShot: lastShot ? JSON.stringify({
+        shotType: lastShot.shotType,
+        cameraMovement: lastShot.cameraMovement,
+        visualContent: lastShot.visualContent
+      }) : '{}',
+      initialEmotion: getEmotionChinese(initialEmotion),
+      finalEmotion: getEmotionChinese(finalEmotion)
     }
   )
 
@@ -495,13 +514,13 @@ async function generateLastFrame(
     maxRetries: 2
   }
 
-  // 输出完整请求体 (参考图只输出数量和前100字符用于调试)
+  // 输出完整请求体 (参考图只输出数量和长度)
   console.log(`[FrameGen] ========== 尾帧生成请求体 ==========`)
   console.log(`[FrameGen] modelId: ${lastFrameRequest.modelId}`)
   console.log(`[FrameGen] prompt: ${lastFrameRequest.prompt}`)
   console.log(`[FrameGen] referenceImages: [${lastFrameRequest.referenceImages.length}张图片]`)
   lastFrameRequest.referenceImages.forEach((img, idx) => {
-    console.log(`[FrameGen]   - 参考图${idx + 1}: ${img.substring(0, 100)}... (长度: ${img.length})`)
+    console.log(`[FrameGen]   - 参考图${idx + 1}: 长度=${img.length}`)
   })
   console.log(`[FrameGen] maxRetries: ${lastFrameRequest.maxRetries}`)
   console.log(`[FrameGen] ========================================`)

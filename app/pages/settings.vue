@@ -108,19 +108,40 @@ function toggleSection(section: string) {
   if (expandedSections.value.has(section)) {
     expandedSections.value.delete(section)
   } else {
+    // 折叠其他主菜单，保持互斥
+    expandedSections.value.clear()
     expandedSections.value.add(section)
+  }
+  // 切换到对应的 section
+  if (section === 'models') {
+    activeSection.value = 'models'
+  } else if (section === 'prompts') {
+    activeSection.value = 'prompts'
   }
 }
 
-// 选择模型子菜单
+// 选择模型子菜单并管理展开状态
 function selectModelSubMenu(subMenu: ModelSubMenu) {
+  const wasSelected = activeSection.value === 'models' && activeModelSubMenu.value === subMenu
   activeSection.value = 'models'
   activeModelSubMenu.value = subMenu
-}
 
-// 切换业务流程菜单展开/折叠
-function toggleWorkflowMenu() {
-  workflowMenuExpanded.value = !workflowMenuExpanded.value
+  // 如果是新选中，则展开对应菜单；如果已选中，则切换展开状态
+  if (subMenu === 'workflow') {
+    if (wasSelected) {
+      workflowMenuExpanded.value = !workflowMenuExpanded.value
+    } else {
+      workflowMenuExpanded.value = true
+      testMenuExpanded.value = false // 折叠其他子菜单
+    }
+  } else if (subMenu === 'test') {
+    if (wasSelected) {
+      testMenuExpanded.value = !testMenuExpanded.value
+    } else {
+      testMenuExpanded.value = true
+      workflowMenuExpanded.value = false // 折叠其他子菜单
+    }
+  }
 }
 
 // 选择业务流程分类
@@ -133,11 +154,6 @@ function selectWorkflowCategory(category: string) {
   expandedCategories.value.add(category)
   // 滚动到对应分类
   scrollToCategory(category)
-}
-
-// 切换模型测试菜单展开/折叠
-function toggleTestMenu() {
-  testMenuExpanded.value = !testMenuExpanded.value
 }
 
 // 选择模型测试分类
@@ -544,7 +560,7 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
               <button
                 class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left"
                 :class="activeSection === 'models' && activeModelSubMenu === 'workflow' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'"
-                @click="selectModelSubMenu('workflow'); toggleWorkflowMenu()"
+                @click="selectModelSubMenu('workflow')"
               >
                 <component :is="workflowMenuExpanded ? ChevronDown : ChevronRight" class="h-3 w-3" />
                 <Workflow class="h-3.5 w-3.5" />
@@ -569,7 +585,7 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
               <button
                 class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left"
                 :class="activeSection === 'models' && activeModelSubMenu === 'test' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'"
-                @click="selectModelSubMenu('test'); toggleTestMenu()"
+                @click="selectModelSubMenu('test')"
               >
                 <component :is="testMenuExpanded ? ChevronDown : ChevronRight" class="h-3 w-3" />
                 <FlaskConical class="h-3.5 w-3.5" />
@@ -606,36 +622,37 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
           </button>
 
           <!-- 提示词列表 - 树形结构 -->
-          <div v-show="expandedSections.has('prompts')" class="ml-6 mt-1 border-l pl-2">
+          <div v-show="expandedSections.has('prompts')" class="ml-6 mt-1 space-y-0.5 border-l pl-2">
             <div v-if="promptsLoading" class="flex items-center justify-center py-4">
               <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
             </div>
-            <div v-else class="space-y-1">
+            <div v-else class="space-y-0.5">
               <div v-for="(prompts, category) in groupedPrompts" :key="category">
                 <!-- 分类标题 - 可折叠 -->
                 <button
-                  class="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors text-left"
-                  :class="expandedPromptCategories.has(category) ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'"
+                  class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left"
+                  :class="expandedPromptCategories.has(category) ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'"
                   @click="togglePromptCategory(category)"
                 >
                   <component :is="expandedPromptCategories.has(category) ? ChevronDown : ChevronRight" class="h-3 w-3" />
-                  <span
-                    class="w-2 h-2 rounded-full"
+                  <component
+                    :is="categoryConfig[category as keyof typeof categoryConfig]?.icon || FileText"
+                    class="h-3.5 w-3.5"
                     :class="{
-                      'bg-blue-500': category === 'text',
-                      'bg-green-500': category === 'image',
-                      'bg-purple-500': category === 'video',
-                      'bg-orange-500': category === 'audio'
+                      'text-blue-500': category === 'text',
+                      'text-green-500': category === 'image',
+                      'text-purple-500': category === 'video',
+                      'text-orange-500': category === 'audio'
                     }"
                   />
                   {{ promptCategoryConfig[category]?.name || category }}
                 </button>
                 <!-- 分类下的提示词 -->
-                <div v-show="expandedPromptCategories.has(category)" class="ml-4 space-y-0.5">
+                <div v-show="expandedPromptCategories.has(category)" class="ml-4 mt-1 space-y-0.5 border-l pl-2">
                   <button
                     v-for="prompt in prompts"
                     :key="prompt.id"
-                    class="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-sm transition-colors text-left"
+                    class="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors text-left"
                     :class="selectedPromptId === prompt.id ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'"
                     @click="selectPrompt(prompt.id)"
                   >

@@ -301,8 +301,8 @@ export async function _volcengineGenerateText(options: {
   console.log(`[${timestamp}] [Volcengine] generateText 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
-    systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
+    prompt: options.prompt,
+    systemInstruction: options.systemInstruction,
     temperature: options.temperature ?? 0.7,
     enableThinking: options.enableThinking,
     maxRetries: options.maxRetries
@@ -342,8 +342,8 @@ export async function _volcengineGenerateJSON<T>(options: {
   console.log(`[${timestamp}] [Volcengine] generateJSON 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
-    systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
+    prompt: options.prompt,
+    systemInstruction: options.systemInstruction,
     temperature: options.temperature ?? 0.2,
     maxRetries: options.maxRetries
   })
@@ -413,8 +413,8 @@ export async function _volcengineGenerateImage(options: {
   console.log(`[${timestamp}] [Volcengine] generateImage 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
-    negativePrompt: options.negativePrompt ? options.negativePrompt.slice(0, 100) + '...' : undefined,
+    prompt: options.prompt,
+    negativePrompt: options.negativePrompt,
     size: options.size || '1024x1024',
     n: options.n || 1,
     referenceImagesCount: options.referenceImages?.length || 0,
@@ -559,23 +559,23 @@ export async function _volcengineGenerateVideo(options: {
   console.log(`[${timestamp}] [Volcengine] generateVideo 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
+    prompt: options.prompt,
     hasImageUrl: !!options.imageUrl,
-    imageUrl: options.imageUrl ? options.imageUrl.slice(0, 80) + '...' : undefined,
+    imageUrlLength: options.imageUrl?.length || 0,
     hasFirstFrameUrl: !!options.firstFrameUrl,
-    firstFrameUrl: options.firstFrameUrl ? options.firstFrameUrl.slice(0, 80) + '...' : undefined,
+    firstFrameUrlLength: options.firstFrameUrl?.length || 0,
     hasLastFrameUrl: !!options.lastFrameUrl,
-    lastFrameUrl: options.lastFrameUrl ? options.lastFrameUrl.slice(0, 80) + '...' : undefined,
+    lastFrameUrlLength: options.lastFrameUrl?.length || 0,
     duration: options.duration,
     size: options.size,
     resolution: options.resolution,
-    negativePrompt: options.negativePrompt ? options.negativePrompt.slice(0, 100) + '...' : undefined,
+    negativePrompt: options.negativePrompt,
     maxRetries: options.maxRetries
   })
 
   return withRetry(async () => {
     // 构建 content 数组 (根据官方文档格式)
-    const content: Array<{ type: string, text?: string, image_url?: { url: string } }> = []
+    const content: Array<{ type: string, text?: string, role?: string, image_url?: { url: string } }> = []
     
     // 添加文本提示
     content.push({
@@ -590,9 +590,23 @@ export async function _volcengineGenerateVideo(options: {
         image_url: { url: options.imageUrl }
       })
     }
-    
-    // 首帧图片
-    if (options.firstFrameUrl && !options.imageUrl) {
+
+    // 首尾帧模式: 需要同时传入首帧和尾帧
+    if (options.firstFrameUrl && options.lastFrameUrl && !options.imageUrl) {
+      // 首帧
+      content.push({
+        type: 'image_url',
+        role: 'first_frame',
+        image_url: { url: options.firstFrameUrl }
+      })
+      // 尾帧
+      content.push({
+        type: 'image_url',
+        role: 'last_frame',
+        image_url: { url: options.lastFrameUrl }
+      })
+    } else if (options.firstFrameUrl && !options.imageUrl) {
+      // 仅首帧模式
       content.push({
         type: 'image_url',
         image_url: { url: options.firstFrameUrl }
@@ -602,6 +616,7 @@ export async function _volcengineGenerateVideo(options: {
     const requestBody: Record<string, unknown> = {
       model,
       content,
+      duration: -1,
       watermark: false  // 去掉水印
     }
 

@@ -353,40 +353,72 @@ function handleDragEnd() {
           </div>
           <!-- 新增：分镜和场景视觉操作按钮 -->
           <div class="flex items-center space-x-2 mt-3 pt-3 border-t">
-            <Button
-              variant="outline"
-              size="sm"
-              class="flex-1 h-7 text-xs"
-              :disabled="scene.storyboardStatus === 'generating'"
-              @click.stop="scene.storyboard ? $emit('viewStoryboard', scene) : $emit('generateStoryboard', scene)"
-            >
-              <Loader2
-                v-if="scene.storyboardStatus === 'generating'"
-                class="w-3 h-3 mr-1 animate-spin"
-              />
-              <Film
-                v-else
-                class="w-3 h-3 mr-1"
-              />
-              {{ scene.storyboard ? '查看分镜' : '生成分镜' }}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              class="flex-1 h-7 text-xs"
-              :disabled="scene.sceneVisualStatus === 'generating'"
-              @click.stop="scene.sceneVisual ? $emit('viewSceneVisual', scene) : $emit('extractSceneVisual', scene)"
-            >
-              <Loader2
-                v-if="scene.sceneVisualStatus === 'generating'"
-                class="w-3 h-3 mr-1 animate-spin"
-              />
-              <Eye
-                v-else
-                class="w-3 h-3 mr-1"
-              />
-              {{ scene.sceneVisual ? '查看视觉' : '提取视觉' }}
-            </Button>
+            <!-- 分镜按钮组 -->
+            <div class="flex-1 flex items-center space-x-1">
+              <Button
+                v-if="scene.storyboard"
+                variant="outline"
+                size="sm"
+                class="flex-1 h-7 text-xs"
+                @click.stop="$emit('viewStoryboard', scene)"
+              >
+                <Eye class="w-3 h-3 mr-1" />
+                查看分镜
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                :class="scene.storyboard ? 'h-7 w-7 p-0' : 'flex-1 h-7 text-xs'"
+                :disabled="scene.storyboardStatus === 'generating'"
+                :title="scene.storyboard ? '重新生成分镜' : ''"
+                @click.stop="$emit('generateStoryboard', scene)"
+              >
+                <Loader2
+                  v-if="scene.storyboardStatus === 'generating'"
+                  class="w-3 h-3 animate-spin"
+                  :class="scene.storyboard ? '' : 'mr-1'"
+                />
+                <Sparkles
+                  v-else
+                  class="w-3 h-3"
+                  :class="scene.storyboard ? '' : 'mr-1'"
+                />
+                <span v-if="!scene.storyboard">生成分镜</span>
+              </Button>
+            </div>
+            <!-- 视觉按钮组 -->
+            <div class="flex-1 flex items-center space-x-1">
+              <Button
+                v-if="scene.sceneVisual"
+                variant="outline"
+                size="sm"
+                class="flex-1 h-7 text-xs"
+                @click.stop="$emit('viewSceneVisual', scene)"
+              >
+                <Eye class="w-3 h-3 mr-1" />
+                查看视觉
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                :class="scene.sceneVisual ? 'h-7 w-7 p-0' : 'flex-1 h-7 text-xs'"
+                :disabled="scene.sceneVisualStatus === 'generating'"
+                :title="scene.sceneVisual ? '重新提取视觉' : ''"
+                @click.stop="$emit('extractSceneVisual', scene)"
+              >
+                <Loader2
+                  v-if="scene.sceneVisualStatus === 'generating'"
+                  class="w-3 h-3 animate-spin"
+                  :class="scene.sceneVisual ? '' : 'mr-1'"
+                />
+                <Sparkles
+                  v-else
+                  class="w-3 h-3"
+                  :class="scene.sceneVisual ? '' : 'mr-1'"
+                />
+                <span v-if="!scene.sceneVisual">提取视觉</span>
+              </Button>
+            </div>
           </div>
         </div>
       </div>

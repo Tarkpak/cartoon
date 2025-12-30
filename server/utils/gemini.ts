@@ -270,8 +270,8 @@ export async function _geminiGenerateText(options: {
   console.log(`[${timestamp}] [Gemini] generateText 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
-    systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
+    prompt: options.prompt,
+    systemInstruction: options.systemInstruction,
     temperature: options.temperature,
     maxRetries: options.maxRetries
   })
@@ -308,8 +308,8 @@ export async function _geminiGenerateJSON<T>(options: {
   console.log(`[${timestamp}] [Gemini] generateJSON 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
-    systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
+    prompt: options.prompt,
+    systemInstruction: options.systemInstruction,
     temperature: options.temperature ?? 0.2,
     maxRetries: options.maxRetries
   })
@@ -357,7 +357,7 @@ export async function _geminiGenerateImage(options: {
   console.log(`[${timestamp}] [Gemini] generateImage 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
+    prompt: options.prompt,
     hasReferenceImage: !!options.referenceImage,
     referenceImageMimeType: options.referenceImage?.mimeType,
     referenceImageDataLength: options.referenceImage?.data?.length,

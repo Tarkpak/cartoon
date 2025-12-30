@@ -335,8 +335,8 @@ export async function _qwenGenerateText(options: {
   console.log(`[${timestamp}] [Qwen] generateText 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
-    systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
+    prompt: options.prompt,
+    systemInstruction: options.systemInstruction,
     temperature: options.temperature ?? 0.7,
     enableThinking: options.enableThinking,
     maxRetries: options.maxRetries
@@ -377,8 +377,8 @@ export async function _qwenGenerateJSON<T>(options: {
   console.log(`[${timestamp}] [Qwen] generateJSON 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
-    systemInstruction: options.systemInstruction ? options.systemInstruction.slice(0, 100) + '...' : undefined,
+    prompt: options.prompt,
+    systemInstruction: options.systemInstruction,
     temperature: options.temperature ?? 0.2,
     maxRetries: options.maxRetries
   })
@@ -556,8 +556,8 @@ export async function _qwenGenerateImage(options: {
   console.log(`[${timestamp}] [Qwen] generateImage 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
-    negativePrompt: options.negativePrompt ? options.negativePrompt.slice(0, 100) + '...' : undefined,
+    prompt: options.prompt,
+    negativePrompt: options.negativePrompt,
     size: options.size || '1024*1024',
     n: options.n || 1,
     referenceImagesCount: options.referenceImages?.length || 0,
@@ -801,18 +801,18 @@ export async function _qwenGenerateVideo(options: {
   console.log(`[${timestamp}] [Qwen] generateVideo 请求参数:`, {
     model,
     promptLength: options.prompt.length,
-    promptPreview: options.prompt.slice(0, 200) + (options.prompt.length > 200 ? '...' : ''),
+    prompt: options.prompt,
     hasImageUrl: !!options.imageUrl,
-    imageUrl: options.imageUrl ? options.imageUrl.slice(0, 80) + '...' : undefined,
+    imageUrlLength: options.imageUrl?.length || 0,
     hasFirstFrameUrl: !!options.firstFrameUrl,
-    firstFrameUrl: options.firstFrameUrl ? options.firstFrameUrl.slice(0, 80) + '...' : undefined,
+    firstFrameUrlLength: options.firstFrameUrl?.length || 0,
     hasLastFrameUrl: !!options.lastFrameUrl,
-    lastFrameUrl: options.lastFrameUrl ? options.lastFrameUrl.slice(0, 80) + '...' : undefined,
+    lastFrameUrlLength: options.lastFrameUrl?.length || 0,
     hasAudioUrl: !!options.audioUrl,
     duration: options.duration,
     size: options.size,
     resolution: options.resolution,
-    negativePrompt: options.negativePrompt ? options.negativePrompt.slice(0, 100) + '...' : undefined,
+    negativePrompt: options.negativePrompt,
     promptExtend: options.promptExtend,
     audio: options.audio,
     watermark: options.watermark,
@@ -1030,7 +1030,7 @@ export async function _qwenTextToSpeech(options: {
   console.log(`[${timestamp}] [Qwen] textToSpeech 请求参数:`, {
     model,
     textLength: options.text.length,
-    textPreview: options.text.slice(0, 100) + (options.text.length > 100 ? '...' : ''),
+    text: options.text,
     voice: options.voice,
     speed: options.speed,
     format: options.format,
