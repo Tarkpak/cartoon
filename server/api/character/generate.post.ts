@@ -55,7 +55,7 @@ export default defineEventHandler(async (event) => {
       updatedAt: now
     }
 
-    console.log(`[CharacterGen] 角色设定图生成完成: ${character.name}, 耗时: ${Date.now() - startTime}ms`)
+    console.log(`[CharacterGen] 角色设定图生成完成: ${character.name}, 耗时: ${Date.now() - startTime}ms, imageData长度: ${sheetResult.imageData?.length || 0}`)
 
     return {
       success: true,
