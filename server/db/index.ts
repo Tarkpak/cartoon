@@ -36,6 +36,8 @@ export function initDatabase() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       description TEXT,
+      style_id TEXT NOT NULL,
+      aspect_ratio TEXT NOT NULL DEFAULT '16:9',
       status TEXT DEFAULT 'draft',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -69,8 +71,17 @@ export function initDatabase() {
       dialogues TEXT,
       duration INTEGER DEFAULT 8,
       narration TEXT,
+      shot_type TEXT,
+      camera_movement TEXT,
+      camera_note TEXT,
+      transition_in TEXT,
+      transition_out TEXT,
+      transition_duration REAL,
       first_frame TEXT,
       last_frame TEXT,
+      video_url TEXT,
+      storyboard TEXT,
+      scene_visual TEXT,
       status TEXT DEFAULT 'pending',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -90,6 +101,7 @@ export function initDatabase() {
       gender TEXT,
       base_image TEXT,
       expressions TEXT,
+      views TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )
