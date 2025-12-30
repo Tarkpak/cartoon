@@ -42,7 +42,7 @@ jobs:
 
       - name: Install server dependencies
         run: |
-          ssh -p ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "source ~/.bashrc; cd ${{ secrets.DEPLOY_PATH }} && bun install --production"
+          ssh -p ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "source ~/.bashrc; cd ${{ secrets.DEPLOY_PATH }}/server && npm rebuild better-sqlite3"
 
       - name: Restart PM2
         run: |
