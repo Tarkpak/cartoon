@@ -23,41 +23,71 @@ import {
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
-import { Mark, mergeAttributes } from '@tiptap/core'
+import { Extension } from '@tiptap/core'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { PromptTemplate, PromptVersion, PromptVariable } from '#shared/types/prompt-template'
 
-// 自定义变量高亮 Mark 扩展
-const VariableMark = Mark.create({
-  name: 'variable',
-  
-  addAttributes() {
-    return {
-      name: {
-        default: null,
-        parseHTML: element => element.getAttribute('data-variable'),
-        renderHTML: attributes => {
-          if (!attributes.name) return {}
-          return { 'data-variable': attributes.name }
-        }
+// 变量高亮插件 - 使用 Decoration 实时高亮
+function createVariableHighlightPlugin(getValidVars: () => Set<string>) {
+  return new Plugin({
+    key: new PluginKey('variableHighlight'),
+    state: {
+      init(_, { doc }) {
+        return findVariables(doc, getValidVars())
       },
-      valid: {
-        default: true,
-        parseHTML: element => element.classList.contains('valid'),
-        renderHTML: attributes => {
-          return { class: attributes.valid ? 'variable-tag valid' : 'variable-tag invalid' }
+      apply(tr, oldState) {
+        if (tr.docChanged) {
+          return findVariables(tr.doc, getValidVars())
         }
+        return oldState
+      }
+    },
+    props: {
+      decorations(state) {
+        return this.getState(state)
       }
     }
-  },
+  })
+}
+
+function findVariables(doc: any, validVars: Set<string>): DecorationSet {
+  const decorations: Decoration[] = []
+  const regex = /\{\{(\w+)\}\}/g
   
-  parseHTML() {
-    return [{ tag: 'span[data-variable]' }]
-  },
+  doc.descendants((node: any, pos: number) => {
+    if (!node.isText) return
+    
+    const text = node.text || ''
+    let match
+    
+    while ((match = regex.exec(text)) !== null) {
+      const start = pos + match.index
+      const end = start + match[0].length
+      const varName = match[1]
+      const isValid = validVars.has(varName)
+      
+      decorations.push(
+        Decoration.inline(start, end, {
+          class: isValid ? 'variable-tag valid' : 'variable-tag invalid',
+          'data-variable': varName
+        })
+      )
+    }
+  })
   
-  renderHTML({ HTMLAttributes }) {
-    return ['span', mergeAttributes(HTMLAttributes), 0]
-  }
-})
+  return DecorationSet.create(doc, decorations)
+}
+
+// 创建变量高亮扩展
+const createVariableHighlight = (getValidVars: () => Set<string>) => {
+  return Extension.create({
+    name: 'variableHighlight',
+    addProseMirrorPlugins() {
+      return [createVariableHighlightPlugin(getValidVars)]
+    }
+  })
+}
 
 const props = defineProps<{
   template: PromptTemplate
@@ -102,15 +132,23 @@ const localContent = ref({
   en: props.template.content.en || ''
 })
 
+// 获取有效变量名集合
+const getValidVars = () => {
+  return new Set(props.template.variables.map(v => {
+    const match = v.name.match(/\{\{(\w+)\}\}/)
+    return match?.[1] ?? v.name
+  }))
+}
+
 // 编辑器实例
 const editor = useEditor({
-  content: textToHtmlWithHighlight(localContent.value[activeLanguage.value]),
+  content: textToHtml(localContent.value[activeLanguage.value]),
   extensions: [
     StarterKit,
     Placeholder.configure({
       placeholder: '输入提示词内容...'
     }),
-    VariableMark
+    createVariableHighlight(getValidVars)
   ],
   editorProps: {
     attributes: {
@@ -118,16 +156,16 @@ const editor = useEditor({
     }
   },
   onUpdate: ({ editor: ed }) => {
+    const text = ed.getText()
+    // 保留换行
     const html = ed.getHTML()
-    const text = htmlToText(html)
-    localContent.value[activeLanguage.value] = text
+    localContent.value[activeLanguage.value] = htmlToText(html)
   }
 })
 
 // HTML 转纯文本
 function htmlToText(html: string): string {
   return html
-    .replace(/<span[^>]*data-variable="([^"]*)"[^>]*>[^<]*<\/span>/gi, '{{$1}}')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p><p>/gi, '\n\n')
     .replace(/<[^>]+>/g, '')
@@ -137,27 +175,14 @@ function htmlToText(html: string): string {
     .replace(/&amp;/g, '&')
 }
 
-// 纯文本转 HTML（带变量高亮）
-function textToHtmlWithHighlight(text: string): string {
-  // 从变量定义中提取实际变量名（去掉 {{ 和 }}）
-  const validVars = new Set(props.template.variables.map(v => {
-    const match = v.name.match(/\{\{(\w+)\}\}/)
-    return match?.[1] ?? v.name
-  }))
-  
+// 纯文本转 HTML（不需要高亮，Decoration 会处理）
+function textToHtml(text: string): string {
   const escaped = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
   
-  // 高亮变量
-  const highlighted = escaped.replace(/\{\{(\w+)\}\}/g, (match, name) => {
-    const isValid = validVars.has(name)
-    const className = isValid ? 'variable-tag valid' : 'variable-tag invalid'
-    return `<span data-variable="${name}" class="${className}">${match}</span>`
-  })
-  
-  return highlighted
+  return escaped
     .split('\n\n')
     .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
     .join('')
@@ -171,7 +196,7 @@ watch(activeLanguage, () => {
 function updateEditorContent() {
   if (!editor.value) return
   const content = localContent.value[activeLanguage.value]
-  editor.value.commands.setContent(textToHtmlWithHighlight(content || ''))
+  editor.value.commands.setContent(textToHtml(content || ''))
 }
 
 // 监听 props 变化
@@ -279,8 +304,8 @@ function insertVariable(variable: PromptVariable) {
   if (!editor.value) return
   const pureName = extractVarName(variable.name)
   const varTag = '\u007B\u007B' + pureName + '\u007D\u007D'
-  const varHtml = `<span data-variable="${pureName}" class="variable-tag valid">${varTag}</span>`
-  editor.value.commands.insertContent(varHtml)
+  // 直接插入文本，Decoration 会自动高亮
+  editor.value.commands.insertContent(varTag)
 }
 
 // 保存
@@ -843,14 +868,29 @@ onBeforeUnmount(() => {
 }
 
 :deep(.variable-tag.valid) {
-  background-color: hsl(var(--primary) / 0.15);
-  color: hsl(var(--primary));
-  border: 1px solid hsl(var(--primary) / 0.3);
+  background-color: rgb(219 234 254); /* blue-100 */
+  color: rgb(29 78 216); /* blue-700 */
+  border: 1px solid rgb(147 197 253); /* blue-300 */
 }
 
 :deep(.variable-tag.invalid) {
-  background-color: hsl(var(--destructive) / 0.15);
-  color: hsl(var(--destructive));
-  border: 1px solid hsl(var(--destructive) / 0.3);
+  background-color: rgb(254 226 226); /* red-100 */
+  color: rgb(185 28 28); /* red-700 */
+  border: 1px solid rgb(252 165 165); /* red-300 */
+}
+
+/* 深色模式 */
+:deep(.dark .variable-tag.valid),
+.dark :deep(.variable-tag.valid) {
+  background-color: rgb(30 58 138 / 0.3); /* blue-900/30 */
+  color: rgb(147 197 253); /* blue-300 */
+  border: 1px solid rgb(59 130 246 / 0.5); /* blue-500/50 */
+}
+
+:deep(.dark .variable-tag.invalid),
+.dark :deep(.variable-tag.invalid) {
+  background-color: rgb(127 29 29 / 0.3); /* red-900/30 */
+  color: rgb(252 165 165); /* red-300 */
+  border: 1px solid rgb(239 68 68 / 0.5); /* red-500/50 */
 }
 </style>
