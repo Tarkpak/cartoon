@@ -468,7 +468,7 @@ async function main(): Promise<void> {
 
     // 同步远程
     console.log("正在同步远程仓库...");
-    run("git pull --rebase origin main");
+    run("git pull --rebase origin master");
 
     // 删除旧 tag
     deleteTag(currentVersion);
@@ -478,7 +478,7 @@ async function main(): Promise<void> {
     console.log(`✅ 创建 tag: v${currentVersion}`);
 
     // 推送
-    run("git push origin main");
+    run("git push origin master");
     run("git push --tags");
     console.log(`✅ 推送完成`);
 
@@ -514,7 +514,7 @@ async function main(): Promise<void> {
 
   // 先拉取远程更改
   console.log("正在同步远程仓库...");
-  run("git pull --rebase origin main");
+  run("git pull --rebase origin master");
   console.log(`✅ 远程同步完成`);
 
   // 更新 package.json
@@ -532,7 +532,7 @@ async function main(): Promise<void> {
   console.log(`✅ 创建 tag: v${newVersion}`);
 
   // 推送
-  run("git push origin main");
+  run("git push origin master");
   run("git push --tags");
   console.log(`✅ 推送完成`);
 
