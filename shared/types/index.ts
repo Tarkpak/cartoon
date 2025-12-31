@@ -26,3 +26,6 @@ export * from './provider'
 
 // 业务流程模型配置类型
 export * from './workflow-models'
+
+// 场景连续性类型 (用于保持场景间视觉和叙事连贯性)
+export * from './continuity'
