@@ -1,6 +1,6 @@
 {
   "name": "manju-ai-manga",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "type": "module",
   "description": "AI漫剧自动化生成系统 - 基于Nuxt.js 4 + Google Gemini API",
