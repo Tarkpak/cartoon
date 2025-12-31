@@ -71,7 +71,14 @@ export default defineNuxtConfig({
     experimental: {
       asyncContext: true,
       websocket: true
-    }
+    },
+    // 配置运行时静态资源目录
+    publicAssets: [
+      {
+        dir: 'public/videos',
+        baseURL: '/videos',
+      }
+    ]
   },
 
   // ESLint 配置

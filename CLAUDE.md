@@ -163,6 +163,16 @@ bun lint                   # Run ESLint
 bun lint:fix               # Fix ESLint issues
 bun typecheck              # Run TypeScript check
 bun test                   # Run Vitest tests
+bun test:coverage          # Run tests with coverage
+
+# Release & Deployment
+bun run release            # Release patch version (1.0.0 → 1.0.1)
+bun run release minor      # Release minor version (1.0.0 → 1.1.0)
+bun run release major      # Release major version (1.0.0 → 2.0.0)
+bun run release 1.2.3      # Release specific version
+bun run release --force    # Force re-release current version (deletes old tag)
+bun run release -y         # Skip confirmation prompt
+bun scripts/deploy.ts      # Manual deployment to server (local build + upload)
 ```
 
 ## Environment Variables
@@ -200,9 +210,53 @@ DAILY_BUDGET_LIMIT=50
 6. **Frames** → `POST /api/video/generate` → **Scene Video**
 7. **All Videos** → `POST /api/video/merge` → **Final Video**
 
+## Deployment
+
+### Automated Deployment (GitHub Actions)
+
+The project uses GitHub Actions for CI/CD. On push to `master`:
+1. Builds the project with Bun
+2. Deploys `.output/` to server via SSH + rsync
+3. Conditionally reinstalls `better-sqlite3` if `bun.lock` changed (uses MD5 checksum)
+4. Restarts PM2 process
+
+Required GitHub Secrets:
+- `SSH_PRIVATE_KEY` - Server SSH private key
+- `REMOTE_HOST` - Server IP/domain
+- `REMOTE_USER` - SSH username
+- `REMOTE_PORT` - SSH port (optional, default 22)
+- `DEPLOY_PATH` - Deployment directory on server
+
+### Manual Deployment
+
+Use `bun scripts/deploy.ts` for manual deployment:
+- Builds locally
+- Uploads to server via SCP
+- Preserves `data/`, `public/`, and `ecosystem.config.cjs`
+- Restarts PM2
+
+Configure via environment variables:
+- `DEPLOY_HOST` - Server IP/domain
+- `DEPLOY_USER` - SSH username (default: root)
+- `DEPLOY_PORT` - SSH port (default: 22)
+- `DEPLOY_PATH` - Deployment path (default: ~/project/cartoon)
+- `SSH_KEY` - SSH key path (default: ~/.ssh/oaks.pem)
+
+### Release Process
+
+The `scripts/release.ts` script automates versioning and deployment:
+- Updates `package.json` version
+- Creates git commit and tag
+- Pushes to GitHub to trigger Actions
+- **Private Repo Feature**: If `GITHUB_TOKEN` is set in `.env`, temporarily makes private repos public during Actions build (free tier), then restores privacy after completion
+
 ## Important Rules
 
 - **Prompt Template Sync**: When modifying `server/utils/prompt-defaults.ts`, the changes must be synced to the database. Users need to reset prompts via the settings page, or the database `system_config` table needs to be updated to reflect the new default templates.
+
+- **Security**: The `ecosystem.config.cjs` file contains production environment variables including API keys. This file should be managed on the server and NOT committed with real credentials. Use `.env` for local development.
+
+- **SQLite Native Module**: The `better-sqlite3` package requires native compilation. The deployment process handles this by reinstalling it on the server when dependencies change.
 
 ## Notes
 
@@ -210,3 +264,4 @@ DAILY_BUDGET_LIMIT=50
 - WebSocket support for real-time pipeline progress updates (`server/routes/_ws.ts`)
 - Supports multiple aspect ratios: 16:9, 9:16, 1:1
 - Video generation is async with task polling
+- PM2 is used for process management in production (not the default Nuxt deployment)
