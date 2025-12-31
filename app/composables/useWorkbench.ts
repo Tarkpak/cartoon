@@ -1018,7 +1018,13 @@ export function useWorkbench() {
   }
 
   // ========== 首尾帧生成 ==========
-  async function generateFrames(scene: SceneData, previousSceneLastFrame?: string) {
+  /**
+   * 生成场景首尾帧（增强版，支持连续性上下文）
+   * @param scene 当前场景
+   * @param previousSceneLastFrame 上一场景尾帧（可选，如果不传会自动从 scenes 中获取）
+   * @param sceneIndex 场景索引（可选，如果不传会自动计算）
+   */
+  async function generateFrames(scene: SceneData, previousSceneLastFrame?: string, sceneIndex?: number) {
     scene.frameStatus = 'generating'
     try {
       // 自动生成分镜脚本（如果没有）
@@ -1039,6 +1045,23 @@ export function useWorkbench() {
         }
       }
 
+      // 计算场景索引
+      const currentSceneIndex = sceneIndex ?? scenes.value.findIndex(s => s.id === scene.id)
+      const totalScenes = scenes.value.length
+
+      // 自动获取上一场景尾帧（如果未传入且不是第一个场景）
+      let prevLastFrame = previousSceneLastFrame
+      if (!prevLastFrame && currentSceneIndex > 0) {
+        const prevScene = scenes.value[currentSceneIndex - 1]
+        if (prevScene?.lastFrame) {
+          prevLastFrame = prevScene.lastFrame
+          console.log(`[generateFrames] 自动获取上一场景(${prevScene.id})的尾帧`)
+        } else {
+          console.warn(`[generateFrames] ⚠️ 上一场景(${prevScene?.id})没有尾帧，可能导致画面不连续`)
+        }
+      }
+
+      // 构建角色资产映射
       const characterAssets: Record<string, string> = {}
       characters.value.forEach((char) => {
         if (char.baseImage) {
@@ -1046,10 +1069,41 @@ export function useWorkbench() {
         }
       })
 
+      // 构建角色视觉锚点（用于强制角色一致性）
+      const characterAnchors = characters.value
+        .filter(char => char.baseImage)
+        .map(char => ({
+          name: char.name,
+          coreFeatures: {
+            hairStyle: extractFeatureFromAppearance(char.appearance, 'hair'),
+            hairColor: extractFeatureFromAppearance(char.appearance, 'hairColor'),
+            eyeColor: extractFeatureFromAppearance(char.appearance, 'eye'),
+            facialFeatures: extractFeatureFromAppearance(char.appearance, 'face'),
+            bodyType: extractFeatureFromAppearance(char.appearance, 'body')
+          },
+          outfit: {
+            description: extractFeatureFromAppearance(char.appearance, 'outfit') || char.appearance || ''
+          },
+          referenceImage: char.baseImage,
+          consistencyWeight: 0.9
+        }))
+
+      // 构建连续性上下文
+      const continuityContext = buildContinuityContext(currentSceneIndex, totalScenes, !!prevLastFrame)
+
+      console.log(`[generateFrames] 场景 ${scene.id} (${currentSceneIndex + 1}/${totalScenes})`)
+      console.log(`[generateFrames] 上一场景尾帧: ${prevLastFrame ? '有' : '无'}`)
+      console.log(`[generateFrames] 角色锚点: ${characterAnchors.length}个`)
+
       const response = await $fetch<{
         success: boolean
         firstFrame: { imageData: string }
         lastFrame: { imageData: string }
+        continuityInfo?: {
+          sceneIndex: number
+          hadPreviousFrame: boolean
+          characterAnchorsUsed: number
+        }
       }>('/api/frame/generate', {
         method: 'POST',
         body: {
@@ -1064,22 +1118,116 @@ export function useWorkbench() {
           },
           style: currentStylePrompt.value,
           characterAssets,
-          previousSceneLastFrame,
+          previousSceneLastFrame: prevLastFrame,
+          fusionMode: prevLastFrame ? 'continuity' : 'reference',
           // 传递分镜和视觉提取数据
           storyboard: scene.storyboard,
-          sceneVisual: scene.sceneVisual
+          sceneVisual: scene.sceneVisual,
+          // 新增：连续性上下文
+          continuityContext,
+          characterAnchors,
+          enforceCharacterConsistency: true,
+          enforcePreviousFrameConnection: true
         }
       })
       if (response.success) {
         scene.firstFrame = response.firstFrame.imageData
         scene.lastFrame = response.lastFrame.imageData
         scene.frameStatus = 'done'
+        console.log(`[generateFrames] 场景 ${scene.id} 首尾帧生成成功`, response.continuityInfo)
         await saveProject()
       }
     } catch (e) {
       console.error('首尾帧生成失败:', e)
       scene.frameStatus = 'error'
     }
+  }
+
+  /**
+   * 构建连续性上下文
+   */
+  function buildContinuityContext(currentSceneIndex: number, totalScenes: number, hasPreviousFrame: boolean) {
+    const prevScene = currentSceneIndex > 0 ? scenes.value[currentSceneIndex - 1] : undefined
+    const nextScene = currentSceneIndex < totalScenes - 1 ? scenes.value[currentSceneIndex + 1] : undefined
+
+    // 构建上一场景摘要
+    const previousSceneSummary = prevScene ? {
+      sceneId: prevScene.id,
+      title: prevScene.title,
+      description: prevScene.description,
+      setting: prevScene.setting,
+      characters: prevScene.characters.map(c => ({
+        name: c.name,
+        appearance: c.appearance,
+        emotion: c.emotion
+      })),
+      narrativeState: {
+        emotionalTone: prevScene.dialogues?.[prevScene.dialogues.length - 1]?.emotion || 'neutral',
+        plotPoint: prevScene.title
+      }
+    } : undefined
+
+    // 构建下一场景摘要
+    const nextSceneSummary = nextScene ? {
+      sceneId: nextScene.id,
+      title: nextScene.title,
+      description: nextScene.description,
+      setting: nextScene.setting,
+      characters: nextScene.characters.map(c => ({
+        name: c.name,
+        appearance: c.appearance,
+        emotion: c.emotion
+      }))
+    } : undefined
+
+    // 构建全局角色描述
+    const globalCharacterDescriptions: Record<string, { appearance: string }> = {}
+    characters.value.forEach(char => {
+      globalCharacterDescriptions[char.name] = {
+        appearance: char.appearance || ''
+      }
+    })
+
+    return {
+      previousScene: previousSceneSummary,
+      previousSceneLastFrame: hasPreviousFrame ? 'provided' : undefined,
+      nextScene: nextSceneSummary,
+      globalCharacterDescriptions,
+      sceneIndex: currentSceneIndex,
+      totalScenes,
+      storyContext: {
+        title: projectName.value,
+        style: currentStylePrompt.value,
+        overallMood: outline.value?.theme || undefined
+      }
+    }
+  }
+
+  /**
+   * 从外观描述中提取特定特征
+   */
+  function extractFeatureFromAppearance(appearance: string | undefined, featureType: string): string | undefined {
+    if (!appearance) return undefined
+
+    const patterns: Record<string, RegExp[]> = {
+      hair: [/(?:头发|发型)[：:是]?\s*([^，,。.；;]+)/i, /([^，,。.；;]*(?:长发|短发|卷发|直发|马尾|双马尾|披肩发)[^，,。.；;]*)/i],
+      hairColor: [/(?:发色|头发颜色)[：:是]?\s*([^，,。.；;]+)/i, /([黑金棕红白银蓝紫粉]色?(?:头发|发))/i],
+      eye: [/(?:眼睛|眼眸|瞳孔)[：:是]?\s*([^，,。.；;]+)/i, /([^，,。.；;]*(?:大眼|小眼|丹凤眼|杏眼)[^，,。.；;]*)/i],
+      face: [/(?:脸型|面部|五官)[：:是]?\s*([^，,。.；;]+)/i],
+      body: [/(?:身材|体型)[：:是]?\s*([^，,。.；;]+)/i, /([^，,。.；;]*(?:高挑|娇小|苗条|健壮)[^，,。.；;]*)/i],
+      outfit: [/(?:服装|穿着|衣服)[：:是]?\s*([^，,。.；;]+)/i, /(?:穿|着)([^，,。.；;]+)/i]
+    }
+
+    const featurePatterns = patterns[featureType]
+    if (!featurePatterns) return undefined
+
+    for (const pattern of featurePatterns) {
+      const match = appearance.match(pattern)
+      if (match && match[1]) {
+        return match[1].trim()
+      }
+    }
+    return undefined
   }
 
   // ========== 视频生成 ==========
@@ -1270,6 +1418,10 @@ export function useWorkbench() {
   }
 
   // ========== 批量操作 ==========
+  /**
+   * 批量生成首尾帧（按顺序，确保连续性）
+   * 重要：必须按场景顺序生成，以确保每个场景都能获取到上一场景的尾帧
+   */
   async function batchGenerateFrames() {
     const pendingScenes = scenes.value.filter(s => s.frameStatus !== 'done')
     if (pendingScenes.length === 0) {
@@ -1279,16 +1431,27 @@ export function useWorkbench() {
 
     batchFrameStatus.value = { running: true, current: 0, total: pendingScenes.length }
 
+    console.log(`[batchGenerateFrames] 开始批量生成，共 ${pendingScenes.length} 个待处理场景`)
+
     try {
+      // 必须按顺序遍历所有场景，确保连续性
       for (let i = 0; i < scenes.value.length; i++) {
         const scene = scenes.value[i]
         if (scene && scene.frameStatus !== 'done') {
-          const prevScene = i > 0 ? scenes.value[i - 1] : undefined
-          await generateFrames(scene, prevScene?.lastFrame)
+          console.log(`[batchGenerateFrames] 处理场景 ${i + 1}/${scenes.value.length}: ${scene.id}`)
+
+          // 传递场景索引，让 generateFrames 自动获取上一场景尾帧
+          await generateFrames(scene, undefined, i)
           batchFrameStatus.value.current++
+
+          // 检查是否成功生成，如果失败则记录但继续
+          if (scene.frameStatus === 'error') {
+            console.error(`[batchGenerateFrames] 场景 ${scene.id} 生成失败，继续处理下一个`)
+          }
         }
       }
       await saveProject()
+      console.log(`[batchGenerateFrames] 批量生成完成`)
     } finally {
       batchFrameStatus.value.running = false
     }
@@ -1411,13 +1574,15 @@ export function useWorkbench() {
       }
       pipelineStatus.value.progress = 20
 
-      // 步骤2: 生成首尾帧 (50%)
-      pipelineStatus.value.currentStep = '生成首尾帧...'
+      // 步骤2: 生成首尾帧 (50%) - 使用连续性生成
+      pipelineStatus.value.currentStep = '生成首尾帧（连续性模式）...'
+      console.log('[Pipeline] 开始按顺序生成首尾帧，确保场景连续性')
       for (let i = 0; i < scenes.value.length; i++) {
         const scene = scenes.value[i]
         if (scene && scene.frameStatus !== 'done') {
-          const prevScene = i > 0 ? scenes.value[i - 1] : undefined
-          await generateFrames(scene, prevScene?.lastFrame)
+          pipelineStatus.value.currentStep = `生成首尾帧 (${i + 1}/${scenes.value.length})...`
+          // 传递场景索引，让 generateFrames 自动获取上一场景尾帧和构建连续性上下文
+          await generateFrames(scene, undefined, i)
         }
         pipelineStatus.value.progress = 20 + Math.round((i + 1) / scenes.value.length * 30)
       }

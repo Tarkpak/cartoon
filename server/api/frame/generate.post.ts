@@ -6,6 +6,12 @@ import { imageLimiter } from '../../utils/concurrency'
 import { getWorkflowModels } from '../models/workflow.get'
 import { getInterpolatedPrompt } from '../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
+import {
+  SceneContinuityContextSchema,
+  CharacterVisualAnchorSchema,
+  type SceneContinuityContext,
+  type CharacterVisualAnchor
+} from '../../../shared/types/continuity'
 
 // 定义本地的场景Schema，使 setting 可选
 const SceneSettingSchema = z.object({
@@ -93,7 +99,7 @@ const SceneVisualSchema = z.object({
 })
 
 /**
- * 首尾帧生成请求(基于飞书文档 2.6 优化)
+ * 首尾帧生成请求(基于飞书文档 2.6 优化 + 连续性增强)
  */
 const GenerateFrameRequestSchema = z.object({
   scene: LocalSceneSchema.describe('场景信息'),
@@ -101,10 +107,17 @@ const GenerateFrameRequestSchema = z.object({
   characterAssets: z.record(z.string(), z.string()).optional().describe('角色资产 (name -> base64)'),
   sceneBackground: z.string().optional().describe('场景背景图(base64) - 用于角色+场景融合'),
   previousSceneLastFrame: z.string().optional().describe('上一场景的尾帧(base64) - 用于保持场景连续性'),
-  fusionMode: z.enum(['character_scene', 'reference', 'text_only']).optional().default('reference').describe('融合模式'),
+  fusionMode: z.enum(['character_scene', 'reference', 'text_only', 'continuity']).optional().default('continuity').describe('融合模式'),
   // 分镜脚本和场景视觉数据 (必填，前端需要先生成这些数据)
   storyboard: StoryboardSchema.describe('分镜脚本数据'),
-  sceneVisual: SceneVisualSchema.describe('场景视觉提取数据')
+  sceneVisual: SceneVisualSchema.describe('场景视觉提取数据'),
+  // 新增：连续性上下文
+  continuityContext: SceneContinuityContextSchema.optional().describe('场景连续性上下文'),
+  // 新增：角色视觉锚点
+  characterAnchors: z.array(CharacterVisualAnchorSchema).optional().describe('角色视觉锚点'),
+  // 新增：强制选项
+  enforceCharacterConsistency: z.boolean().default(true).describe('是否强制角色一致性'),
+  enforcePreviousFrameConnection: z.boolean().default(true).describe('是否强制与上一场景尾帧连接')
 })
 
 /**
@@ -112,6 +125,11 @@ const GenerateFrameRequestSchema = z.object({
  * POST /api/frame/generate
  *
  * 基于场景描述生成首帧和尾帧，确保风格一致
+ *
+ * 连续性增强功能：
+ * 1. 强制尾帧连接：非首个场景必须传入上一场景尾帧
+ * 2. 角色一致性锚定：通过角色视觉锚点强制保持角色外观一致
+ * 3. 全局上下文：携带前后场景摘要信息，保持叙事连贯
  */
 export default defineEventHandler(async (event) => {
   const startTime = Date.now()
@@ -129,20 +147,57 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { scene, style, characterAssets, sceneBackground, previousSceneLastFrame, fusionMode, storyboard, sceneVisual } = parseResult.data
+  const {
+    scene,
+    style,
+    characterAssets,
+    sceneBackground,
+    previousSceneLastFrame,
+    fusionMode,
+    storyboard,
+    sceneVisual,
+    continuityContext,
+    characterAnchors,
+    enforceCharacterConsistency,
+    enforcePreviousFrameConnection
+  } = parseResult.data
 
   try {
-    console.log(`[FrameGen] 开始生成首尾帧: ${scene.id}, 融合模式: ${fusionMode}`)
+    // 2. 连续性检查
+    const sceneIndex = continuityContext?.sceneIndex ?? 0
+    const isFirstScene = sceneIndex === 0
+
+    console.log(`[FrameGen] 开始生成首尾帧: ${scene.id}`)
+    console.log(`[FrameGen] 场景索引: ${sceneIndex}/${continuityContext?.totalScenes ?? '?'}, 是否首场景: ${isFirstScene}`)
+    console.log(`[FrameGen] 融合模式: ${fusionMode}, 强制尾帧连接: ${enforcePreviousFrameConnection}, 强制角色一致性: ${enforceCharacterConsistency}`)
     console.log(`[FrameGen] 分镜数据: ${storyboard?.shots?.length || 0}个镜头`)
     console.log(`[FrameGen] 视觉提取: ${sceneVisual?.imagePrompt ? '有imagePrompt' : '无imagePrompt'}`)
+    console.log(`[FrameGen] 上一场景尾帧: ${previousSceneLastFrame ? '有' : '无'}`)
+    console.log(`[FrameGen] 角色锚点: ${characterAnchors?.length || 0}个`)
 
-    // 2. 生成首帧 (根据融合模式选择策略)
+    // 3. 强制尾帧连接检查（非首场景必须有上一场景尾帧）
+    if (enforcePreviousFrameConnection && !isFirstScene && !previousSceneLastFrame) {
+      console.warn(`[FrameGen] ⚠️ 警告: 非首场景(${sceneIndex})缺少上一场景尾帧，可能导致画面不连续`)
+      // 不抛错，但记录警告，让生成继续
+    }
+
+    // 4. 生成首帧 (根据融合模式选择策略)
     const firstFrameResult = await generateFirstFrame(
-      scene, style, characterAssets, sceneBackground, previousSceneLastFrame, fusionMode, storyboard, sceneVisual
+      scene,
+      style,
+      characterAssets,
+      sceneBackground,
+      previousSceneLastFrame,
+      fusionMode || 'continuity',
+      storyboard,
+      sceneVisual,
+      continuityContext,
+      characterAnchors,
+      enforceCharacterConsistency
     )
     console.log(`[FrameGen] 首帧生成完成`)
 
-    // 3. 生成尾帧 (基于首帧保持一致性)
+    // 5. 生成尾帧 (基于首帧保持一致性)
     const lastFrameResult = await generateLastFrame(
       scene,
       style,
@@ -150,7 +205,9 @@ export default defineEventHandler(async (event) => {
       firstFrameResult.mimeType,
       storyboard,
       sceneVisual,
-      characterAssets
+      characterAssets,
+      characterAnchors,
+      enforceCharacterConsistency
     )
     console.log(`[FrameGen] 尾帧生成完成`)
 
@@ -167,6 +224,12 @@ export default defineEventHandler(async (event) => {
       lastFrame: {
         imageData: lastFrameResult.imageData,
         mimeType: lastFrameResult.mimeType
+      },
+      // 返回连续性信息，供前端使用
+      continuityInfo: {
+        sceneIndex,
+        hadPreviousFrame: !!previousSceneLastFrame,
+        characterAnchorsUsed: characterAnchors?.length || 0
       },
       latencyMs
     }
@@ -186,12 +249,15 @@ export default defineEventHandler(async (event) => {
 
 
 /**
- * 生成首帧 (基于飞书文档 2.6.1.1 优化)
+ * 生成首帧 (基于飞书文档 2.6.1.1 优化 + 连续性增强)
  * @param sceneBackground 场景背景图，用于角色+场景融合
  * @param previousSceneLastFrame 上一场景的尾帧，用于保持场景连续性
  * @param fusionMode 融合模式
  * @param storyboard 分镜脚本数据
  * @param sceneVisual 场景视觉提取数据
+ * @param continuityContext 连续性上下文
+ * @param characterAnchors 角色视觉锚点
+ * @param enforceCharacterConsistency 是否强制角色一致性
  */
 async function generateFirstFrame(
   scene: z.infer<typeof LocalSceneSchema>,
@@ -199,12 +265,32 @@ async function generateFirstFrame(
   characterAssets: Record<string, string> | undefined,
   sceneBackground: string | undefined,
   previousSceneLastFrame: string | undefined,
-  fusionMode: 'character_scene' | 'reference' | 'text_only' = 'reference',
+  fusionMode: 'character_scene' | 'reference' | 'text_only' | 'continuity' = 'continuity',
   storyboard: z.infer<typeof StoryboardSchema>,
-  sceneVisual: z.infer<typeof SceneVisualSchema>
+  sceneVisual: z.infer<typeof SceneVisualSchema>,
+  continuityContext?: SceneContinuityContext,
+  characterAnchors?: CharacterVisualAnchor[],
+  enforceCharacterConsistency: boolean = true
 ): Promise<{ imageData: string, mimeType: string }> {
   let prompt: string
   let referenceImages: string[] = []
+
+  // 1. 构建角色一致性约束提示词
+  const characterConsistencyPrompt = enforceCharacterConsistency
+    ? buildCharacterConsistencyPrompt(scene.characters, characterAnchors, characterAssets)
+    : ''
+
+  // 2. 构建全局上下文提示词
+  const contextPrompt = continuityContext
+    ? buildContinuityContextPrompt(continuityContext, !!previousSceneLastFrame)
+    : ''
+
+  // 3. 收集参考图（优先级：上一场景尾帧 > 角色立绘）
+  // 如果有上一场景尾帧，必须放在第一位作为主要参考
+  if (previousSceneLastFrame) {
+    referenceImages.push(previousSceneLastFrame)
+    console.log('[FrameGen] 添加上一场景尾帧作为首要参考图')
+  }
 
   // 收集角色立绘作为参考图
   if (characterAssets) {
@@ -234,34 +320,56 @@ async function generateFirstFrame(
     }
   )
 
-  // 优先使用场景视觉提取的 imagePrompt
-  if (sceneVisual?.imagePrompt) {
+  // 4. 根据融合模式选择提示词构建策略
+  if (fusionMode === 'continuity' && previousSceneLastFrame) {
+    // 连续性模式：强制与上一场景连接
+    console.log('[FrameGen] 使用连续性模式（强制尾帧连接）')
+    prompt = buildContinuityFirstFramePrompt(
+      scene,
+      style,
+      storyboard,
+      sceneVisual,
+      continuityContext,
+      characterConsistencyPrompt,
+      contextPrompt,
+      characterAssets
+    )
+  } else if (sceneVisual?.imagePrompt) {
+    // 优先使用场景视觉提取的 imagePrompt
     console.log('[FrameGen] 使用场景视觉提取的 imagePrompt')
-    prompt = buildPromptFromSceneVisual(scene, style, sceneVisual, storyboard, false, characterAssets)
+    prompt = buildPromptFromSceneVisual(scene, style, sceneVisual, storyboard, false, characterAssets, characterConsistencyPrompt, contextPrompt)
   } else if (fusionMode === 'character_scene' && sceneBackground && characterAssets) {
     // 模式1: 角色+场景融合 (基于飞书文档 2.6.1.1)
     const mainCharacter = scene.characters[0]
     if (mainCharacter) {
-      prompt = buildCharacterSceneFusionPrompt(scene, style, mainCharacter)
+      prompt = buildCharacterSceneFusionPrompt(scene, style, mainCharacter, characterConsistencyPrompt)
       // 场景背景也加入参考图
       referenceImages.unshift(sceneBackground)
       console.log('[FrameGen] 使用角色+场景融合模式')
     } else {
-      prompt = templatePrompt || buildFirstFramePrompt(scene, style, false)
+      prompt = templatePrompt || buildFirstFramePrompt(scene, style, false, storyboard, characterConsistencyPrompt, contextPrompt)
       referenceImages.unshift(sceneBackground)
     }
   } else if (previousSceneLastFrame) {
     // 模式2: 使用上一场景尾帧保持连续性(基于飞书文档 2.7.4)
-    prompt = templatePrompt || buildFirstFramePrompt(scene, style, true, storyboard)
-    referenceImages.unshift(previousSceneLastFrame)
+    prompt = buildContinuityFirstFramePrompt(
+      scene,
+      style,
+      storyboard,
+      sceneVisual,
+      continuityContext,
+      characterConsistencyPrompt,
+      contextPrompt,
+      characterAssets
+    )
     console.log('[FrameGen] 使用上一场景尾帧作为参考图')
   } else if (characterAssets && referenceImages.length > 0) {
     // 模式3: 使用角色立绘作为参考
-    prompt = templatePrompt || buildFirstFramePrompt(scene, style, false, storyboard)
+    prompt = templatePrompt || buildFirstFramePrompt(scene, style, false, storyboard, characterConsistencyPrompt, contextPrompt)
     console.log(`[FrameGen] 使用${referenceImages.length}张角色立绘作为参考图`)
   } else {
     // 模式4: 纯文本生成
-    prompt = templatePrompt || buildFirstFramePrompt(scene, style, false, storyboard)
+    prompt = templatePrompt || buildFirstFramePrompt(scene, style, false, storyboard, characterConsistencyPrompt, contextPrompt)
     console.log('[FrameGen] 使用纯文本生成模式')
   }
 
@@ -321,14 +429,200 @@ async function generateFirstFrame(
 }
 
 /**
+ * 构建角色一致性约束提示词
+ */
+function buildCharacterConsistencyPrompt(
+  sceneCharacters: Array<{ name: string, appearance?: string, emotion?: string, action?: string }>,
+  characterAnchors?: CharacterVisualAnchor[],
+  characterAssets?: Record<string, string>
+): string {
+  if (!characterAnchors || characterAnchors.length === 0) {
+    // 没有角色锚点时，使用基础的一致性提示
+    if (!characterAssets || Object.keys(characterAssets).length === 0) {
+      return ''
+    }
+    const charNames = sceneCharacters.filter(c => characterAssets[c.name]).map(c => c.name)
+    if (charNames.length === 0) return ''
+
+    return `
+【角色一致性要求 - 严格遵守】
+参考图中包含以下角色的立绘，必须严格保持一致：
+${charNames.map(name => `- ${name}: 保持发型、发色、服装、面部特征完全一致`).join('\n')}
+⚠️ 禁止改变角色的任何外观特征，包括发型、发色、服装颜色和款式。`
+  }
+
+  // 有角色锚点时，使用详细的一致性约束
+  const anchorsInScene = characterAnchors.filter(anchor =>
+    sceneCharacters.some(c => c.name === anchor.name)
+  )
+
+  if (anchorsInScene.length === 0) return ''
+
+  const anchorDescriptions = anchorsInScene.map(anchor => {
+    const features = anchor.coreFeatures
+    const parts = [`【${anchor.name}】`]
+    if (features.hairStyle) parts.push(`发型: ${features.hairStyle}`)
+    if (features.hairColor) parts.push(`发色: ${features.hairColor}`)
+    if (features.eyeColor) parts.push(`眼睛: ${features.eyeColor}`)
+    if (features.skinTone) parts.push(`肤色: ${features.skinTone}`)
+    if (features.facialFeatures) parts.push(`面部: ${features.facialFeatures}`)
+    if (anchor.outfit) {
+      parts.push(`服装: ${anchor.outfit.description}`)
+      if (anchor.outfit.colors?.length) parts.push(`服装颜色: ${anchor.outfit.colors.join('、')}`)
+    }
+    return parts.join('\n  ')
+  }).join('\n\n')
+
+  return `
+【角色一致性要求 - 最高优先级】
+以下角色特征必须与参考图完全一致，不允许任何偏差：
+
+${anchorDescriptions}
+
+⚠️ 严格要求：
+1. 角色的发型、发色必须与参考图100%一致
+2. 角色的服装款式、颜色必须与参考图100%一致
+3. 角色的面部特征必须与参考图保持一致
+4. 只允许改变角色的表情和姿势，不允许改变外观`
+}
+
+/**
+ * 构建连续性上下文提示词
+ */
+function buildContinuityContextPrompt(
+  context: SceneContinuityContext,
+  hasPreviousFrame: boolean
+): string {
+  const parts: string[] = []
+
+  // 场景位置信息
+  parts.push(`【场景位置】第 ${context.sceneIndex + 1} 场 / 共 ${context.totalScenes} 场`)
+
+  // 上一场景信息
+  if (context.previousScene && hasPreviousFrame) {
+    const prev = context.previousScene
+    parts.push(`
+【上一场景摘要】
+- 标题: ${prev.title || '无'}
+- 地点: ${prev.setting?.location || '未知'}
+- 时间: ${prev.setting?.timeOfDay || '未知'}
+- 氛围: ${prev.setting?.mood || '正常'}
+- 角色状态: ${prev.characters.map(c => `${c.name}(${c.emotion || '平静'})`).join('、')}
+${prev.narrativeState?.plotPoint ? `- 剧情要点: ${prev.narrativeState.plotPoint}` : ''}`)
+  }
+
+  // 下一场景预告（如果有）
+  if (context.nextScene) {
+    const next = context.nextScene
+    parts.push(`
+【下一场景预告】
+- 地点: ${next.setting?.location || '未知'}
+- 氛围变化: ${next.setting?.mood || '正常'}`)
+  }
+
+  // 故事全局信息
+  if (context.storyContext) {
+    const story = context.storyContext
+    if (story.overallMood) {
+      parts.push(`【故事基调】${story.overallMood}`)
+    }
+  }
+
+  return parts.join('\n')
+}
+
+/**
+ * 构建连续性首帧提示词（强制与上一场景连接）
+ */
+function buildContinuityFirstFramePrompt(
+  scene: z.infer<typeof LocalSceneSchema>,
+  style: string,
+  storyboard: z.infer<typeof StoryboardSchema>,
+  sceneVisual: z.infer<typeof SceneVisualSchema>,
+  continuityContext?: SceneContinuityContext,
+  characterConsistencyPrompt: string = '',
+  contextPrompt: string = '',
+  characterAssets?: Record<string, string>
+): string {
+  const { setting, characters, description, dialogues } = scene
+
+  // 提取第一句对话的情绪
+  const firstDialogue = dialogues?.[0]
+  const initialMood = firstDialogue?.emotion || characters[0]?.emotion || 'neutral'
+
+  // 构建角色描述
+  const charactersDesc = characters.map((c) => {
+    const parts = [c.name]
+    const hasAsset = characterAssets && characterAssets[c.name]
+    if (hasAsset) parts.push('(必须与参考图一致)')
+    if (c.appearance) parts.push(`(${c.appearance})`)
+    if (c.emotion) parts.push(`表情${getEmotionChinese(c.emotion)}`)
+    if (c.action) parts.push(c.action)
+    return parts.join(' ')
+  }).join('、')
+
+  // 获取分镜信息
+  let shotInfo = ''
+  if (storyboard && storyboard.shots.length > 0) {
+    const firstShot = storyboard.shots[0]
+    if (firstShot) {
+      shotInfo = `
+【镜头设计】
+- 景别: ${getShotTypeChinese(firstShot.shotType)}
+- 运镜: ${getCameraMovementChinese(firstShot.cameraMovement)}
+- 画面内容: ${firstShot.visualContent}`
+    }
+  }
+
+  // 处理可选的 setting 字段
+  const location = setting?.location || '未知地点'
+  const timeOfDay = setting?.timeOfDay || 'morning'
+  const mood = setting?.mood || '正常'
+
+  // 使用场景视觉的 imagePrompt（如果有）
+  const visualPrompt = sceneVisual?.imagePrompt || description
+
+  return `【最高优先级任务】基于参考图（上一场景尾帧）创作连续动画的下一帧。
+${contextPrompt}
+${characterConsistencyPrompt}
+
+【严格要求 - 必须与参考图保持一致】
+1. 角色的脸部特征、发型、发色必须完全相同
+2. 角色的服装款式、颜色必须完全相同
+3. 整体画风、色调、光影效果保持统一
+4. 镜头角度/构图与参考图相似或自然过渡
+
+【允许变化的部分】
+- 角色的表情变化（从上一场景过渡到: ${getEmotionChinese(initialMood)}）
+- 角色的姿势/动作变化
+- 场景环境的自然变化（如果场景切换）
+
+【新场景内容】
+- 地点: ${location}
+- 时间: ${getTimeOfDayChinese(timeOfDay)}
+- 氛围: ${mood}
+- 描述: ${visualPrompt}
+${shotInfo}
+
+【登场角色】${charactersDesc}
+
+【画面要求】
+- ${style}画风，16:9宽屏，高清质量
+- 情绪基调: ${getEmotionChinese(initialMood)}
+- 这是场景的【开始状态】，需要与上一场景自然衔接`
+}
+
+/**
  * 构建角色+场景融合提示词(基于飞书文档 2.6.1.1)
  */
 function buildCharacterSceneFusionPrompt(
   scene: z.infer<typeof LocalSceneSchema>,
   style: string,
-  mainCharacter: { name: string, appearance?: string, action?: string, emotion?: string }
+  mainCharacter: { name: string, appearance?: string, action?: string, emotion?: string },
+  characterConsistencyPrompt: string = ''
 ): string {
   return `将角色融合到参考图的场景中。
+${characterConsistencyPrompt}
 
 角色信息:
 - 名称: ${mainCharacter.name}
@@ -356,15 +650,17 @@ function buildPromptFromSceneVisual(
   sceneVisual: z.infer<typeof SceneVisualSchema>,
   storyboard?: z.infer<typeof StoryboardSchema>,
   isLastFrame: boolean = false,
-  characterAssets?: Record<string, string>
+  characterAssets?: Record<string, string>,
+  characterConsistencyPrompt: string = '',
+  contextPrompt: string = ''
 ): string {
   const { characters, dialogues } = scene
-  
+
   // 获取分镜信息
   let shotInfo = ''
   if (storyboard && storyboard.shots.length > 0) {
-    const shot = isLastFrame 
-      ? storyboard.shots[storyboard.shots.length - 1] 
+    const shot = isLastFrame
+      ? storyboard.shots[storyboard.shots.length - 1]
       : storyboard.shots[0]
     if (shot) {
       shotInfo = `
@@ -382,7 +678,7 @@ function buildPromptFromSceneVisual(
   const charactersDesc = characters.map((c) => {
     const parts = [c.name]
     const hasAsset = characterAssets && characterAssets[c.name]
-    if (hasAsset) parts.push('(参考图中的角色)')
+    if (hasAsset) parts.push('(必须与参考图一致)')
     if (c.appearance) parts.push(`(${c.appearance})`)
     if (c.emotion) parts.push(`表情${getEmotionChinese(c.emotion)}`)
     if (c.action) parts.push(c.action)
@@ -390,7 +686,7 @@ function buildPromptFromSceneVisual(
   }).join('、')
 
   // 提取情绪
-  const emotion = isLastFrame 
+  const emotion = isLastFrame
     ? (dialogues?.[dialogues.length - 1]?.emotion || characters[0]?.emotion || 'neutral')
     : (dialogues?.[0]?.emotion || characters[0]?.emotion || 'neutral')
 
@@ -407,13 +703,9 @@ function buildPromptFromSceneVisual(
     }
   }
 
-  // 如果有角色参考图，添加特殊说明
-  const hasCharacterRefs = characterAssets && characters.some(c => characterAssets[c.name])
-  const refNote = hasCharacterRefs 
-    ? '\n\n【重要】请严格参考提供的角色立绘图片，保持角色的外观、服装、发型、发色完全一致。' 
-    : ''
-
   return `创作一幅${style}风格的${isLastFrame ? '场景结束' : '场景开始'}画面。
+${contextPrompt}
+${characterConsistencyPrompt}
 
 【AI优化的图像提示词】
 ${basePrompt}
@@ -432,12 +724,12 @@ ${charactersDesc}
 1. ${style}画风，高清质量
 2. 宽屏 16:9 比例
 3. 情绪基调: ${getEmotionChinese(emotion)}
-4. ${isLastFrame ? '体现场景发展后的结束状态' : '体现场景开始时的初始状态'}${refNote}`
+4. ${isLastFrame ? '体现场景发展后的结束状态' : '体现场景开始时的初始状态'}`
 }
 
 
 /**
- * 生成尾帧
+ * 生成尾帧（增强版，支持角色一致性）
  */
 async function generateLastFrame(
   scene: z.infer<typeof LocalSceneSchema>,
@@ -446,11 +738,18 @@ async function generateLastFrame(
   _firstFrameMimeType: string,
   storyboard: z.infer<typeof StoryboardSchema>,
   sceneVisual: z.infer<typeof SceneVisualSchema>,
-  characterAssets?: Record<string, string>
+  characterAssets?: Record<string, string>,
+  characterAnchors?: CharacterVisualAnchor[],
+  enforceCharacterConsistency: boolean = true
 ): Promise<{ imageData: string, mimeType: string }> {
-  // 收集参考图：首帧 + 角色立绘
+  // 1. 构建角色一致性约束提示词
+  const characterConsistencyPrompt = enforceCharacterConsistency
+    ? buildCharacterConsistencyPrompt(scene.characters, characterAnchors, characterAssets)
+    : ''
+
+  // 2. 收集参考图：首帧 + 角色立绘
   let referenceImages: string[] = [firstFrameData]  // 首帧作为第一张参考图
-  
+
   if (characterAssets) {
     for (const char of scene.characters) {
       const charImage = characterAssets[char.name]
@@ -494,9 +793,9 @@ async function generateLastFrame(
   // 优先使用场景视觉提取的 imagePrompt 构建尾帧提示词
   let prompt: string
   if (sceneVisual?.imagePrompt) {
-    prompt = buildPromptFromSceneVisual(scene, style, sceneVisual, storyboard, true, characterAssets)
+    prompt = buildPromptFromSceneVisual(scene, style, sceneVisual, storyboard, true, characterAssets, characterConsistencyPrompt, '')
   } else {
-    prompt = templatePrompt || buildLastFramePrompt(scene, style, storyboard)
+    prompt = templatePrompt || buildLastFramePrompt(scene, style, storyboard, characterConsistencyPrompt)
   }
 
   console.log(`[FrameGen] 生成尾帧，参考图数量: ${referenceImages.length}`)
@@ -550,12 +849,16 @@ async function generateLastFrame(
  * 构建首帧提示词
  * @param hasPreviousFrame 是否有上一场景的参考帧
  * @param storyboard 分镜脚本数据
+ * @param characterConsistencyPrompt 角色一致性提示词
+ * @param contextPrompt 上下文提示词
  */
 function buildFirstFramePrompt(
   scene: z.infer<typeof LocalSceneSchema>,
   style: string,
   hasPreviousFrame: boolean = false,
-  storyboard?: z.infer<typeof StoryboardSchema>
+  storyboard?: z.infer<typeof StoryboardSchema>,
+  characterConsistencyPrompt: string = '',
+  contextPrompt: string = ''
 ): string {
   const { setting, characters, description, dialogues } = scene
 
@@ -588,13 +891,15 @@ function buildFirstFramePrompt(
   // 如果有上一场景的参考帧，使用完全不同的提示词结构
   if (hasPreviousFrame) {
     return `【关键任务】基于参考图创作连续动画的下一帧。
+${contextPrompt}
+${characterConsistencyPrompt}
 
 ⚠️ 严格要求 - 必须与参考图保持一致：
 1. 角色的脸部特征、发型、发色必须完全相同
-2. 角色的服装款式、颜色必须完全相同（如白色衬衫保持白色）
-3. 咖啡厅场景的整体布局、装饰保持一致
+2. 角色的服装款式、颜色必须完全相同
+3. 场景的整体布局、装饰保持一致
 4. 画风、色调、光影效果保持统一
-5. 镜头角度/构图与参考图相似
+5. 镜头角度/构图与参考图相似或自然过渡
 
 允许变化的部分：
 - 角色的表情变化
@@ -619,6 +924,8 @@ ${shotInfo}
 
   // 首个场景的提示词
   return `创作一幅${style}风格的场景首帧画面。
+${contextPrompt}
+${characterConsistencyPrompt}
 
 场景设定:
 - 地点: ${location}
@@ -643,11 +950,13 @@ ${shotInfo}
 
 /**
  * 构建尾帧提示词
+ * @param characterConsistencyPrompt 角色一致性提示词
  */
 function buildLastFramePrompt(
   scene: z.infer<typeof LocalSceneSchema>,
   style: string,
-  storyboard?: z.infer<typeof StoryboardSchema>
+  storyboard?: z.infer<typeof StoryboardSchema>,
+  characterConsistencyPrompt: string = ''
 ): string {
   const { setting, characters, dialogues } = scene
 
@@ -682,11 +991,12 @@ function buildLastFramePrompt(
   }
 
   return `基于参考图，创作场景的【结束状态】画面。
+${characterConsistencyPrompt}
 
 保持一致:
 1. 相同的场景地点: ${location}
 2. 相同的时间段: ${getTimeOfDayChinese(timeOfDay)}
-3. 相同的角色外观和服装
+3. 相同的角色外观和服装（必须与参考图完全一致）
 4. 相同的${style}画风
 5. 相同的构图视角
 
