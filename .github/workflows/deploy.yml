@@ -52,9 +52,22 @@ jobs:
             rm -f /tmp/deploy.tar.gz /tmp/package.json /tmp/bun.lock
           "
 
-      - name: Install server dependencies
+      - name: Install server dependencies (if lockfile changed)
         run: |
-          ssh -p ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "source ~/.bashrc; cd ${{ secrets.DEPLOY_PATH }}/server && rm -rf node_modules/better-sqlite3 && npm install better-sqlite3"
+          ssh -p ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} '
+            cd ${{ secrets.DEPLOY_PATH }}
+            
+            # 检查 bun.lock 是否变化
+            if [ -f .bun.lock.md5 ] && md5sum -c .bun.lock.md5 --status 2>/dev/null; then
+              echo "依赖未变化，跳过安装"
+            else
+              echo "依赖有变化，重新安装 better-sqlite3"
+              source ~/.bashrc
+              cd server && rm -rf node_modules/better-sqlite3 && npm install better-sqlite3
+              cd ..
+              md5sum bun.lock > .bun.lock.md5
+            fi
+          '
 
       - name: Restart PM2
         run: |
