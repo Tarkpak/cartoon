@@ -3,6 +3,14 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
+// 设置 FFmpeg 路径（仅在环境变量指定时覆盖，否则使用系统 PATH）
+if (process.env.FFMPEG_PATH) {
+  ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH)
+}
+if (process.env.FFPROBE_PATH) {
+  ffmpeg.setFfprobePath(process.env.FFPROBE_PATH)
+}
+
 /**
  * FFmpeg 视频合成工具
  * 用于拼接视频片段、添加转场、叠加字幕、混音等

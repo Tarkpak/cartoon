@@ -37,17 +37,19 @@ jobs:
       - name: Deploy to server
         run: |
           tar -czf deploy.tar.gz -C .output .
-          scp -P ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key deploy.tar.gz package.json bun.lock ecosystem.config.cjs ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }}:/tmp/
+          scp -P ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key deploy.tar.gz package.json bun.lock ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }}:/tmp/
           ssh -p ${{ secrets.REMOTE_PORT || 22 }} -i ~/.ssh/deploy_key ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "
             cd ${{ secrets.DEPLOY_PATH }} && \
             mv data /tmp/manju_data_backup 2>/dev/null || true && \
             mv public /tmp/manju_public_backup 2>/dev/null || true && \
+            mv ecosystem.config.cjs /tmp/manju_ecosystem_backup 2>/dev/null || true && \
             rm -rf * && \
             tar -xzf /tmp/deploy.tar.gz && \
-            cp /tmp/package.json /tmp/bun.lock /tmp/ecosystem.config.cjs . && \
+            cp /tmp/package.json /tmp/bun.lock . && \
+            mv /tmp/manju_ecosystem_backup ecosystem.config.cjs 2>/dev/null || true && \
             mv /tmp/manju_data_backup data 2>/dev/null || mkdir -p data && \
             mv /tmp/manju_public_backup public 2>/dev/null || mkdir -p public && \
-            rm -f /tmp/deploy.tar.gz /tmp/package.json /tmp/bun.lock /tmp/ecosystem.config.cjs
+            rm -f /tmp/deploy.tar.gz /tmp/package.json /tmp/bun.lock
           "
 
       - name: Install server dependencies
