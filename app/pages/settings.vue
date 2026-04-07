@@ -75,6 +75,7 @@ interface CompatibleModel {
 interface WorkflowConfig extends WorkflowStepConfig {
   compatibleModels: CompatibleModel[]
   selectedModel: string | null
+  isOverridden?: boolean
 }
 
 interface WorkflowData {
@@ -487,12 +488,24 @@ async function updateWorkflowModel(step: WorkflowStep, modelId: string) {
   try {
     const response = await $fetch<{ success: boolean; data: { currentSelections: Record<WorkflowStep, string> } }>('/api/models/workflow', { method: 'POST', body: { step, modelId } })
     if (response.success) {
-      workflowData.value.currentSelections = response.data.currentSelections
-      const workflow = workflowData.value.workflows.find(w => w.id === step)
-      if (workflow) workflow.selectedModel = modelId
+      await loadWorkflowModels()
     }
   } catch (e) { console.error('更新模型选择失败:', e) }
   finally { workflowSaving.value = false }
+}
+
+async function updateGlobalWorkflowDefault(type: 'text' | 'image' | 'video', modelId: string) {
+  if (selectedModels.value[type] === modelId) return
+  try {
+    await $fetch('/api/models/switch', {
+      method: 'POST',
+      body: { type, modelId }
+    })
+    selectedModels.value[type] = modelId
+    await loadWorkflowModels()
+  } catch (e) {
+    console.error('更新全局默认模型失败:', e)
+  }
 }
 
 function toggleCategory(category: string) {
@@ -695,7 +708,53 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
               <Info class="h-4 w-4 mt-0.5 flex-shrink-0" />
               <div>
                 <p>为每个业务流程选择合适的 AI 模型，系统会根据能力要求自动筛选可用模型。</p>
-                <p class="mt-1">红色标签表示该流程的必需能力要求，配置会自动保存。</p>
+                <p class="mt-1">未单独配置的流程会继承全局默认模型，红色标签表示该流程的必需能力要求。</p>
+              </div>
+            </div>
+
+            <!-- 全局默认模型 -->
+            <div v-if="models" class="p-4 border rounded-lg bg-background space-y-3">
+              <div>
+                <h3 class="text-sm font-medium">全局默认模型</h3>
+                <p class="text-xs text-muted-foreground mt-1">用于文本/图片/视频流程的统一默认值，流程可按需局部覆盖。</p>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div class="space-y-1.5">
+                  <label class="text-xs text-muted-foreground">文本生成</label>
+                  <select
+                    :value="selectedModels.text"
+                    class="w-full h-9 px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                    @change="updateGlobalWorkflowDefault('text', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option v-for="model in models.text" :key="model.model" :value="model.model">
+                      [{{ getProviderLabel(model.provider) }}] {{ model.displayName }}
+                    </option>
+                  </select>
+                </div>
+                <div class="space-y-1.5">
+                  <label class="text-xs text-muted-foreground">图片生成</label>
+                  <select
+                    :value="selectedModels.image"
+                    class="w-full h-9 px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                    @change="updateGlobalWorkflowDefault('image', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option v-for="model in models.image" :key="model.model" :value="model.model">
+                      [{{ getProviderLabel(model.provider) }}] {{ model.displayName }}
+                    </option>
+                  </select>
+                </div>
+                <div class="space-y-1.5">
+                  <label class="text-xs text-muted-foreground">视频生成</label>
+                  <select
+                    :value="selectedModels.video"
+                    class="w-full h-9 px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                    @change="updateGlobalWorkflowDefault('video', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option v-for="model in models.video" :key="model.model" :value="model.model">
+                      [{{ getProviderLabel(model.provider) }}] {{ model.displayName }}
+                    </option>
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -715,6 +774,12 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-2 flex-wrap">
                         <h4 class="font-medium">{{ workflow.name }}</h4>
+                        <span
+                          class="px-1.5 py-0.5 text-[10px] rounded"
+                          :class="workflow.isOverridden ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300'"
+                        >
+                          {{ workflow.isOverridden ? '局部覆盖' : '继承全局' }}
+                        </span>
                         <span v-for="cap in workflow.requiredCapabilities" :key="cap"
                           class="px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300">
                           {{ getCapabilityLabel(cap) }}

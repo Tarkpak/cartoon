@@ -3,54 +3,23 @@
  * 每次调用都从数据库读取最新配置
  */
 
-import { eq } from 'drizzle-orm'
-import { db, systemConfig } from '../db'
 import type { WorkflowStep } from '#shared/types/workflow-models'
 import { findTextModel, findImageModel, findVideoModel, findVoiceModel } from './model-provider'
 import * as gemini from './gemini'
 import * as qwen from './qwen'
 import * as volcengine from './volcengine'
-
-// 配置键名
-const WORKFLOW_MODELS_KEY = 'workflow_models'
-
-// 默认配置
-const DEFAULT_WORKFLOW_MODELS: Record<WorkflowStep, string> = {
-  outline_generation: 'qwen-flash',
-  script_parsing: 'qwen-flash',
-  character_extraction: 'qwen-flash',
-  storyboard_generation: 'qwen-flash',
-  scene_visual_extraction: 'qwen-flash',
-  text_translation: 'qwen-flash',
-  character_portrait: 'wan2.6-t2i',
-  character_views: 'wan2.6-image',
-  frame_generation: 'wan2.6-image',
-  video_generation: 'wan2.2-kf2v-flash',
-  voice_synthesis: 'qwen3-tts-instruct-flash'
-}
+import { getWorkflowModels } from '../api/models/workflow.get'
 
 /**
  * 从数据库获取指定业务流程的模型配置
  */
 export async function getWorkflowModel(step: WorkflowStep): Promise<string> {
-  try {
-    const result = await db.select()
-      .from(systemConfig)
-      .where(eq(systemConfig.key, WORKFLOW_MODELS_KEY))
-      .limit(1)
-    
-    const row = result[0]
-    if (row?.value) {
-      const saved = JSON.parse(row.value) as Partial<Record<WorkflowStep, string>>
-      if (saved[step]) {
-        return saved[step]!
-      }
-    }
-  } catch (error) {
-    console.error(`[WorkflowModel] 读取配置失败 (${step}):`, error)
+  const models = await getWorkflowModels()
+  const modelId = models[step]
+  if (!modelId) {
+    throw new Error(`[WorkflowModel] 未找到流程模型配置: ${step}`)
   }
-  
-  return DEFAULT_WORKFLOW_MODELS[step]
+  return modelId
 }
 
 /**
@@ -68,10 +37,10 @@ export async function generateTextForWorkflow(
   const modelId = await getWorkflowModel(step)
   const modelConfig = findTextModel(modelId)
   const provider = modelConfig?.provider || 'qwen'
-  
+
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [${step}] 使用模型: ${modelId} (${provider})`)
-  
+
   if (provider === 'qwen') {
     return qwen._qwenGenerateText({
       model: modelId,
@@ -81,7 +50,7 @@ export async function generateTextForWorkflow(
       maxRetries: options.maxRetries
     })
   }
-  
+
   if (provider === 'volcengine') {
     return volcengine._volcengineGenerateText({
       model: modelId,
@@ -91,7 +60,7 @@ export async function generateTextForWorkflow(
       maxRetries: options.maxRetries
     })
   }
-  
+
   // Gemini
   return gemini._geminiGenerateText({
     model: modelId,
@@ -117,10 +86,10 @@ export async function generateJSONForWorkflow<T>(
   const modelId = await getWorkflowModel(step)
   const modelConfig = findTextModel(modelId)
   const provider = modelConfig?.provider || 'qwen'
-  
+
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [${step}] 使用模型: ${modelId} (${provider})`)
-  
+
   if (provider === 'qwen') {
     return qwen._qwenGenerateJSON<T>({
       model: modelId,
@@ -130,7 +99,7 @@ export async function generateJSONForWorkflow<T>(
       maxRetries: options.maxRetries
     })
   }
-  
+
   if (provider === 'volcengine') {
     return volcengine._volcengineGenerateJSON<T>({
       model: modelId,
@@ -140,7 +109,7 @@ export async function generateJSONForWorkflow<T>(
       maxRetries: options.maxRetries
     })
   }
-  
+
   // Gemini
   return gemini._geminiGenerateJSON<T>({
     model: modelId,
@@ -168,10 +137,10 @@ export async function generateImageForWorkflow(
   const modelId = await getWorkflowModel(step)
   const modelConfig = findImageModel(modelId)
   const provider = modelConfig?.provider || 'qwen'
-  
+
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [${step}] 使用模型: ${modelId} (${provider})`)
-  
+
   if (provider === 'qwen') {
     const result = await qwen._qwenGenerateImage({
       model: modelId,
@@ -183,7 +152,7 @@ export async function generateImageForWorkflow(
     })
     return { imageUrl: result.imageUrl }
   }
-  
+
   if (provider === 'volcengine') {
     const result = await volcengine._volcengineGenerateImage({
       model: modelId,
@@ -195,7 +164,7 @@ export async function generateImageForWorkflow(
     })
     return { imageUrl: result.imageUrl }
   }
-  
+
   // Gemini
   const result = await gemini._geminiGenerateImage({
     model: modelId,
@@ -234,10 +203,10 @@ export async function generateVideoForWorkflow(
   const modelId = await getWorkflowModel(step)
   const modelConfig = findVideoModel(modelId)
   const provider = modelConfig?.provider || 'qwen'
-  
+
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [${step}] 使用模型: ${modelId} (${provider})`)
-  
+
   if (provider === 'qwen') {
     return qwen._qwenGenerateVideo({
       model: modelId,
@@ -257,7 +226,7 @@ export async function generateVideoForWorkflow(
       maxRetries: options.maxRetries
     })
   }
-  
+
   if (provider === 'volcengine') {
     return volcengine._volcengineGenerateVideo({
       model: modelId,
@@ -272,7 +241,7 @@ export async function generateVideoForWorkflow(
       maxRetries: options.maxRetries
     })
   }
-  
+
   // Gemini 视频生成需要通过专门的 API
   throw new Error('Gemini 视频生成请使用 /api/video/generate API')
 }
@@ -292,10 +261,10 @@ export async function generateVoiceForWorkflow(
   const modelId = await getWorkflowModel(step)
   const modelConfig = findVoiceModel(modelId)
   const provider = modelConfig?.provider || 'qwen'
-  
+
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [${step}] 使用模型: ${modelId} (${provider})`)
-  
+
   // 目前只有千问支持 TTS
   return qwen._qwenTextToSpeech({
     model: modelId,
