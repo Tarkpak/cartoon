@@ -24,10 +24,10 @@ export function useCharacter() {
    */
   async function generateCharacter(
     character: { name: string, description: string, role?: CharacterState['role'] },
-    options: GenerateCharacterOptions = {}
+    options?: GenerateCharacterOptions
   ) {
     const characterId = `char_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-    const emotions = options.emotions || DEFAULT_EMOTIONS
+    const emotions = options?.emotions || DEFAULT_EMOTIONS
 
     // 添加角色到列表（生成中状态）
     const newCharacter: CharacterState = {
@@ -60,7 +60,7 @@ export function useCharacter() {
             description: character.description
           },
           emotions,
-          style: options.style
+          style: options?.style || ''
         }
       })
 

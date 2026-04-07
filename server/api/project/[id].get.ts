@@ -44,7 +44,15 @@ export default defineEventHandler(async (event) => {
       .all()
 
     // 解析剧本内容（支持新旧格式）
-    let scriptData: { storyIdea?: string, novelText?: string, rawText?: string, selectedStyleId?: string, selectedModels?: unknown } | null = null
+    let scriptData: {
+      storyIdea?: string
+      novelText?: string
+      rawText?: string
+      selectedStyleId?: string
+      selectedModels?: unknown
+      outline?: unknown
+      inputMode?: 'idea' | 'script'
+    } | null = null
     if (script?.rawText) {
       try {
         scriptData = JSON.parse(script.rawText)
@@ -79,6 +87,8 @@ export default defineEventHandler(async (event) => {
               // 风格和模型选择
               selectedStyleId: scriptData?.selectedStyleId || '',
               selectedModels: scriptData?.selectedModels || null,
+              outline: scriptData?.outline || null,
+              inputMode: scriptData?.inputMode || 'idea',
               parsedData: script.parsedData ? JSON.parse(script.parsedData) : null,
               totalDuration: script.totalDuration
             }
@@ -115,10 +125,17 @@ export default defineEventHandler(async (event) => {
           role: c.role,
           appearance: c.appearance,
           personality: c.personality,
+          traits: c.traits ? JSON.parse(c.traits) : null,
+          background: c.background,
+          motivation: c.motivation,
+          speakingStyle: c.speakingStyle,
+          catchphrase: c.catchphrase,
+          voiceTone: c.voiceTone,
           age: c.age,
           gender: c.gender,
           baseImage: c.baseImage,
-          expressions: c.expressions ? JSON.parse(c.expressions) : null
+          expressions: c.expressions ? JSON.parse(c.expressions) : null,
+          views: c.views ? JSON.parse(c.views) : null
         }))
       }
     }

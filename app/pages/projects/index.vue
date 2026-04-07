@@ -39,6 +39,9 @@ interface Project {
 const projects = ref<Project[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
+const searchKeyword = ref('')
+const statusFilter = ref<'all' | 'in_progress' | 'completed' | 'draft'>('all')
+const sortBy = ref<'updated' | 'created' | 'name'>('updated')
 
 // 新建项目对话框
 const showCreateDialog = ref(false)
@@ -170,6 +173,32 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
   draft: { label: '草稿', variant: 'warning' },
   completed: { label: '已完成', variant: 'secondary' }
 }
+
+const filteredProjects = computed(() => {
+  const keyword = searchKeyword.value.trim().toLowerCase()
+  const withFilter = projects.value.filter((project) => {
+    const statusOk = statusFilter.value === 'all' || (project.status || 'draft') === statusFilter.value
+    if (!statusOk) return false
+    if (!keyword) return true
+
+    const styleName = getStyleName(project.styleId).toLowerCase()
+    return [
+      project.title,
+      project.description || '',
+      styleName
+    ].some(text => text.toLowerCase().includes(keyword))
+  })
+
+  return withFilter.sort((a, b) => {
+    if (sortBy.value === 'name') {
+      return a.title.localeCompare(b.title, 'zh-CN')
+    }
+    if (sortBy.value === 'created') {
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    }
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  })
+})
 </script>
 
 <template>
@@ -199,20 +228,27 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
           <div class="flex-1 min-w-[200px] relative">
             <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
+              v-model="searchKeyword"
               class="pl-10"
               placeholder="搜索项目..."
             />
           </div>
-          <select class="h-10 px-3 rounded-md border border-input bg-background text-sm">
-            <option>全部状态</option>
-            <option>进行中</option>
-            <option>已完成</option>
-            <option>草稿</option>
+          <select
+            v-model="statusFilter"
+            class="h-10 px-3 rounded-md border border-input bg-background text-sm"
+          >
+            <option value="all">全部状态</option>
+            <option value="in_progress">进行中</option>
+            <option value="completed">已完成</option>
+            <option value="draft">草稿</option>
           </select>
-          <select class="h-10 px-3 rounded-md border border-input bg-background text-sm">
-            <option>最近更新</option>
-            <option>创建时间</option>
-            <option>名称排序</option>
+          <select
+            v-model="sortBy"
+            class="h-10 px-3 rounded-md border border-input bg-background text-sm"
+          >
+            <option value="updated">最近更新</option>
+            <option value="created">创建时间</option>
+            <option value="name">名称排序</option>
           </select>
         </div>
       </CardContent>
@@ -251,7 +287,7 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
         </TableHeader>
         <TableBody>
           <TableRow
-            v-for="project in projects"
+            v-for="project in filteredProjects"
             :key="project.id"
             class="cursor-pointer hover:bg-muted/50"
             @click="$router.push(`/workbench?project=${project.id}`)"
@@ -294,12 +330,17 @@ const statusMap: Record<string, { label: string, variant: 'default' | 'secondary
             </TableCell>
           </TableRow>
           <!-- 空状态 -->
-          <TableRow v-if="projects.length === 0">
-            <TableCell colspan="8" class="h-32 text-center">
+          <TableRow v-if="filteredProjects.length === 0">
+            <TableCell :colspan="8" class="h-32 text-center">
               <div class="flex flex-col items-center justify-center text-muted-foreground">
                 <Video class="w-10 h-10 mb-2 opacity-50" />
-                <p>暂无项目</p>
-                <Button variant="link" class="mt-2" @click="openCreateDialog">
+                <p>{{ projects.length === 0 ? '暂无项目' : '没有匹配结果' }}</p>
+                <Button
+                  v-if="projects.length === 0"
+                  variant="link"
+                  class="mt-2"
+                  @click="openCreateDialog"
+                >
                   创建第一个项目
                 </Button>
               </div>
