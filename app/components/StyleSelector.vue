@@ -99,8 +99,8 @@ function selectStyle(style: StylePreset) {
         :class="modelValue === style.id ? 'border-primary ring-2 ring-primary/30' : 'border-transparent hover:border-primary/50'"
         @click="selectStyle(style)"
       >
-        <div class="aspect-square bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center overflow-hidden">
-          <img v-if="style.thumbnail" :src="style.thumbnail" :alt="style.name" class="w-full h-full object-cover" loading="lazy" />
+        <div class="aspect-[9/16] bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center overflow-hidden">
+          <img v-if="style.thumbnail" :src="style.thumbnail" :alt="style.name" class="w-full h-full object-contain" loading="lazy" />
           <Palette v-else class="w-8 h-8 text-muted-foreground" />
         </div>
         <div class="p-2 bg-background">
@@ -114,7 +114,7 @@ function selectStyle(style: StylePreset) {
           <Check class="w-3 h-3 text-primary-foreground" />
         </div>
         <div class="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-3">
-          <p class="text-white text-xs text-center">{{ style.description }}</p>
+          <p class="text-white text-xs text-center leading-relaxed max-h-[85%] overflow-y-auto pr-1">{{ style.description }}</p>
         </div>
       </div>
     </div>
@@ -127,14 +127,14 @@ function selectStyle(style: StylePreset) {
     <!-- 已选风格预览 -->
     <div v-if="selectedStyle" class="p-4 bg-accent rounded-lg">
       <div class="flex items-center gap-3">
-        <div class="w-16 h-16 bg-gradient-to-br from-purple-200 to-pink-200 rounded-lg flex items-center justify-center overflow-hidden">
-          <img v-if="selectedStyle.thumbnail" :src="selectedStyle.thumbnail" :alt="selectedStyle.name" class="w-full h-full object-cover" />
+        <div class="w-14 sm:w-16 aspect-[9/16] bg-gradient-to-br from-purple-200 to-pink-200 rounded-lg flex items-center justify-center overflow-hidden">
+          <img v-if="selectedStyle.thumbnail" :src="selectedStyle.thumbnail" :alt="selectedStyle.name" class="w-full h-full object-contain" />
           <Palette v-else class="w-6 h-6 text-muted-foreground" />
         </div>
         <div class="flex-1">
           <h4 class="font-medium">{{ selectedStyle.name }}</h4>
           <p class="text-sm text-muted-foreground">{{ selectedStyle.nameEn }}</p>
-          <p class="text-xs text-muted-foreground mt-1">{{ selectedStyle.description }}</p>
+          <p class="text-xs text-muted-foreground mt-1 leading-relaxed max-h-20 overflow-y-auto pr-1">{{ selectedStyle.description }}</p>
         </div>
       </div>
     </div>

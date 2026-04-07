@@ -49,6 +49,12 @@ const CharacterSchema = z.object({
   role: z.string().optional(),
   appearance: z.string(),
   personality: z.string().optional(),
+  traits: z.array(z.string()).optional(),
+  background: z.string().optional(),
+  motivation: z.string().optional(),
+  speakingStyle: z.string().optional(),
+  catchphrase: z.string().optional(),
+  voiceTone: z.string().optional(),
   age: z.number().optional(),
   gender: z.string().optional(),
   baseImage: z.string().optional(),
@@ -113,6 +119,11 @@ export default defineEventHandler(async (event) => {
 
   const data = parseResult.data
   const now = new Date().toISOString()
+  const normalizeScopedId = (entity: 'scene' | 'char', sourceId: string) => {
+    const scopedPrefix = `${entity}_${id}_`
+    if (sourceId.startsWith(scopedPrefix)) return sourceId
+    return `${scopedPrefix}${sourceId}`
+  }
 
   try {
     // 检查项目是否存在
@@ -139,7 +150,16 @@ export default defineEventHandler(async (event) => {
     }
 
     // 处理剧本和场景
-    if (data.rawText !== undefined || data.storyIdea !== undefined || data.novelText !== undefined || data.selectedStyleId !== undefined || data.selectedModels !== undefined || data.scenes !== undefined) {
+    if (
+      data.rawText !== undefined
+      || data.storyIdea !== undefined
+      || data.novelText !== undefined
+      || data.outline !== undefined
+      || data.inputMode !== undefined
+      || data.selectedStyleId !== undefined
+      || data.selectedModels !== undefined
+      || data.scenes !== undefined
+    ) {
       // 获取或创建剧本
       let script = await db.select().from(scripts).where(eq(scripts.projectId, id)).get()
 
@@ -182,13 +202,8 @@ export default defineEventHandler(async (event) => {
 
       // 处理场景
       if (data.scenes !== undefined) {
-        // 删除所有相关场景（包括旧的 scriptId 和当前的场景 ID）
+        // 删除当前项目旧场景（仅按 scriptId 作用域）
         await db.delete(scenes).where(eq(scenes.scriptId, script.id))
-
-        // 同时删除可能存在的同 ID 场景
-        for (const scene of data.scenes) {
-          await db.delete(scenes).where(eq(scenes.id, scene.id))
-        }
 
         // 插入新场景
         const totalDuration = data.scenes.reduce((sum, s) => sum + (s.duration || 8), 0)
@@ -197,7 +212,7 @@ export default defineEventHandler(async (event) => {
           const scene = data.scenes[i]
           if (!scene) continue
           await db.insert(scenes).values({
-            id: scene.id,
+            id: normalizeScopedId('scene', scene.id),
             scriptId: script.id,
             orderIndex: i,
             title: scene.title || null,
@@ -239,21 +254,22 @@ export default defineEventHandler(async (event) => {
       // 删除旧角色
       await db.delete(characters).where(eq(characters.projectId, id))
 
-      // 同时删除可能存在的同 ID 角色
-      for (const char of data.characters) {
-        await db.delete(characters).where(eq(characters.id, char.id))
-      }
-
       // 插入新角色
       for (const char of data.characters) {
         if (!char) continue
         await db.insert(characters).values({
-          id: char.id,
+          id: normalizeScopedId('char', char.id),
           projectId: id,
           name: char.name,
           role: (char.role as 'protagonist' | 'antagonist' | 'supporting' | 'extra') || 'supporting',
           appearance: char.appearance,
           personality: char.personality || null,
+          traits: char.traits ? JSON.stringify(char.traits) : null,
+          background: char.background || null,
+          motivation: char.motivation || null,
+          speakingStyle: char.speakingStyle || null,
+          catchphrase: char.catchphrase || null,
+          voiceTone: char.voiceTone || null,
           age: char.age || null,
           gender: (char.gender as 'male' | 'female' | 'other') || null,
           baseImage: char.baseImage || null,

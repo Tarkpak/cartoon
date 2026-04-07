@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { FileText, Users, Video, BookOpen, RefreshCw, Loader2 } from 'lucide-vue-next'
+import { useDebounceFn } from '@vueuse/core'
 import type { SceneData, CharacterData } from '~/composables/useWorkbench'
 import type { StoryOutline } from '#shared/types/outline'
 
@@ -19,6 +20,7 @@ const {
   storyIdea,
   novelText,
   saving,
+  saveError,
   // 工作流步骤
   currentStep,
   setCurrentStep,
@@ -226,7 +228,10 @@ function handleReorderScenes(fromIndex: number, toIndex: number) {
 // 角色编辑对话框
 const characterEditDialogOpen = ref(false)
 const editingCharacter = ref<CharacterData | null>(null)
-const characterEditDialogRef = ref<{ updateExpression: (emotion: string, imageData: string) => void } | null>(null)
+const characterEditDialogRef = ref<{
+  updateExpression: (emotion: string, imageData: string) => void
+  clearGeneratingEmotion: (emotion: string) => void
+} | null>(null)
 
 function openCharacterEdit(char: CharacterData) {
   editingCharacter.value = char
@@ -256,9 +261,15 @@ function handleCharacterSave(updatedChar: {
 }
 
 async function handleGenerateExpression(characterId: string, emotion: string) {
-  const imageData = await generateCharacterExpression(characterId, emotion)
-  if (imageData && characterEditDialogRef.value) {
-    characterEditDialogRef.value.updateExpression(emotion, imageData)
+  try {
+    const imageData = await generateCharacterExpression(characterId, emotion)
+    if (imageData && characterEditDialogRef.value) {
+      characterEditDialogRef.value.updateExpression(emotion, imageData)
+      return
+    }
+    showError('表情生成失败，请重试')
+  } finally {
+    characterEditDialogRef.value?.clearGeneratingEmotion(emotion)
   }
 }
 
@@ -277,9 +288,13 @@ async function handleExtractFromOutline() {
 }
 
 // 大纲更新
+const debouncedSaveOutline = useDebounceFn(() => {
+  saveProject()
+}, 800)
+
 function handleOutlineUpdate(newOutline: StoryOutline) {
   outline.value = newOutline
-  saveProject()
+  debouncedSaveOutline()
 }
 
 // 分镜和场景视觉对话框
@@ -312,10 +327,28 @@ function handleStepChange(step: string) {
   setCurrentStep(step as 'outline' | 'characters' | 'script' | 'video')
 }
 
+function applyStepFromRoute(step: unknown) {
+  const validSteps = new Set(['outline', 'characters', 'script', 'video'])
+  if (typeof step === 'string' && validSteps.has(step)) {
+    setCurrentStep(step as 'outline' | 'characters' | 'script' | 'video')
+  }
+}
+
 // 页面加载时加载项目
-onMounted(() => {
+onMounted(async () => {
   if (projectId.value) {
-    loadProject(projectId.value)
+    await loadProject(projectId.value)
+  }
+  applyStepFromRoute(route.query.step)
+})
+
+watch(() => route.query.step, (newStep) => {
+  applyStepFromRoute(newStep)
+})
+
+watch(saveError, (message) => {
+  if (message) {
+    showError(`保存失败：${message}`)
   }
 })
 </script>
@@ -354,7 +387,7 @@ onMounted(() => {
       :total-time="costEstimate.totalTime"
       :pipeline-status="pipelineStatus"
       :saving="saving"
-      :can-start="scenes.length > 0"
+      :can-start="scenes.length > 0 && !!(projectStyleId || selectedStyleId)"
       :selected-style-id="selectedStyleId"
       @update:project-name="projectName = $event"
       @update:project-description="projectDescription = $event"

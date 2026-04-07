@@ -19,8 +19,8 @@ const sqlite = new Database(DB_PATH)
 // 启用 WAL 模式提高并发性能
 sqlite.pragma('journal_mode = WAL')
 
-// 禁用外键约束检查 (允许临时场景ID)
-sqlite.pragma('foreign_keys = OFF')
+// 启用外键约束，确保删除项目时级联清理数据
+sqlite.pragma('foreign_keys = ON')
 
 // 创建 Drizzle 实例
 export const db = drizzle(sqlite, { schema })
@@ -97,6 +97,12 @@ export function initDatabase() {
       role TEXT,
       appearance TEXT NOT NULL,
       personality TEXT,
+      traits TEXT,
+      background TEXT,
+      motivation TEXT,
+      speaking_style TEXT,
+      catchphrase TEXT,
+      voice_tone TEXT,
       age INTEGER,
       gender TEXT,
       base_image TEXT,
@@ -106,6 +112,16 @@ export function initDatabase() {
       updated_at TEXT NOT NULL
     )
   `)
+
+  // 兼容旧数据库：补充新增角色字段
+  const characterColumns = sqlite.prepare('PRAGMA table_info(characters)').all() as Array<{ name: string }>
+  const hasCharacterColumn = (name: string) => characterColumns.some(c => c.name === name)
+  if (!hasCharacterColumn('traits')) sqlite.exec('ALTER TABLE characters ADD COLUMN traits TEXT')
+  if (!hasCharacterColumn('background')) sqlite.exec('ALTER TABLE characters ADD COLUMN background TEXT')
+  if (!hasCharacterColumn('motivation')) sqlite.exec('ALTER TABLE characters ADD COLUMN motivation TEXT')
+  if (!hasCharacterColumn('speaking_style')) sqlite.exec('ALTER TABLE characters ADD COLUMN speaking_style TEXT')
+  if (!hasCharacterColumn('catchphrase')) sqlite.exec('ALTER TABLE characters ADD COLUMN catchphrase TEXT')
+  if (!hasCharacterColumn('voice_tone')) sqlite.exec('ALTER TABLE characters ADD COLUMN voice_tone TEXT')
 
   // 创建视频任务表 (移除外键约束以支持临时场景ID)
   sqlite.exec(`

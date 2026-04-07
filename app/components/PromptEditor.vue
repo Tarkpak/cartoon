@@ -65,6 +65,7 @@ function findVariables(doc: any, validVars: Set<string>): DecorationSet {
       const start = pos + match.index
       const end = start + match[0].length
       const varName = match[1]
+      if (!varName) continue
       const isValid = validVars.has(varName)
       
       decorations.push(
