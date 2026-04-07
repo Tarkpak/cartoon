@@ -343,6 +343,11 @@ const currentSelectedModel = computed(() => {
   }
 })
 
+const currentTtsAudioUrl = computed(() => {
+  const result = testResults.value.tts.result as { audioUrl?: string } | undefined
+  return result?.audioUrl
+})
+
 const tabs = [
   { key: 'text' as const, label: '文本生成', icon: Cpu },
   { key: 'image' as const, label: '图片生成', icon: Image },
@@ -846,6 +851,10 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
               <div v-if="activeTab === 'text' && testResults.text.result" class="p-4 rounded-lg bg-muted/50 border"><p class="text-sm whitespace-pre-wrap">{{ testResults.text.result }}</p></div>
               <img v-if="activeTab === 'image' && (testResults.image.result as any)?.imageUrl" :src="(testResults.image.result as any).imageUrl" class="max-w-full max-h-[400px] rounded-lg border shadow-sm" />
               <video v-if="activeTab === 'video' && (testResults.video.result as any)?.videoUrl" :src="(testResults.video.result as any).videoUrl" controls class="max-w-full max-h-[400px] rounded-lg border shadow-sm" />
+              <audio v-if="activeTab === 'tts' && currentTtsAudioUrl" :src="currentTtsAudioUrl" controls class="w-full max-w-xl" />
+              <div v-else-if="activeTab === 'tts'" class="p-3 rounded-lg border bg-muted/40 text-sm text-muted-foreground">
+                测试成功，但未获取到可预览的音频地址
+              </div>
             </div>
             <div v-else-if="testResults[activeTab].status === 'error'" class="p-4 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800">
               <div class="flex items-start gap-2"><XCircle class="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" /><div><p class="font-medium text-red-700 dark:text-red-300">测试失败</p><p class="text-sm text-red-600 dark:text-red-400 mt-1">{{ testResults[activeTab].message }}</p></div></div>

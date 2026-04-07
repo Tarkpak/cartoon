@@ -50,6 +50,30 @@ function extractVideoUrl(videoData?: string): string | undefined {
   return undefined
 }
 
+function inferAudioMimeType(audioData?: string): string {
+  if (!audioData) {
+    return 'audio/mpeg'
+  }
+  if (audioData.startsWith('UklGR')) {
+    return 'audio/wav'
+  }
+  if (audioData.startsWith('T2dnUw')) {
+    return 'audio/ogg'
+  }
+  return 'audio/mpeg'
+}
+
+function toAudioPreviewUrl(audioUrl?: string, audioData?: string): string | undefined {
+  if (audioUrl) {
+    return audioUrl
+  }
+  if (!audioData) {
+    return undefined
+  }
+  const mimeType = inferAudioMimeType(audioData)
+  return `data:${mimeType};base64,${audioData}`
+}
+
 async function waitForVideoTask(
   localFetch: (request: string, opts?: Record<string, unknown>) => Promise<unknown>,
   taskId: string,
@@ -249,10 +273,12 @@ export default defineEventHandler(async (event) => {
           modelId: usedModelId,
           text: testText
         })
+        const previewAudioUrl = toAudioPreviewUrl(ttsResult.audioUrl, ttsResult.audioData)
 
         result = {
           hasAudioData: !!ttsResult.audioData,
-          audioUrl: ttsResult.audioUrl
+          audioUrl: previewAudioUrl,
+          audioMimeType: inferAudioMimeType(ttsResult.audioData)
         }
         break
       }
