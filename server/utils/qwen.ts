@@ -46,13 +46,13 @@ const RETRYABLE_ERROR_CODES = new Set([
 /** 千问文本模型 */
 export const QwenTextModels = {
   // 深度思考模型
-  QWEN_PLUS_THINKING: 'qwen-plus-2025-07-28',
-  QWEN_FLASH_THINKING: 'qwen-flash-2025-07-28',
+  QWEN_PLUS_THINKING: 'qwen3.6-plus',
+  QWEN_FLASH_THINKING: 'qwen3.5-flash-2026-02-23',
   
   // 通用文本模型
-  QWEN3_MAX: 'qwen3-max',
+  QWEN3_MAX: 'qwen3-max-2026-01-23',
   QWEN_FLASH: 'qwen-flash',
-  QWEN_TURBO: 'qwen-turbo',
+  QWEN_TURBO: 'qwen-turbo-latest',
   
   // DeepSeek (通过百炼平台)
   DEEPSEEK_V3_2: 'deepseek-v3.2'
@@ -66,8 +66,10 @@ export const QwenVisionModels = {
 
 /** 千问图片生成模型 */
 export const QwenImageModels = {
+  QWEN_IMAGE_2_PRO: 'qwen-image-2.0-pro',
+  QWEN_IMAGE_2: 'qwen-image-2.0',
   QWEN_IMAGE_PLUS: 'qwen-image-plus',
-  WAN_2_6_T2I: 'wanx2.1-t2i-turbo',  // 通义万相文生图
+  WAN_2_6_T2I: 'wan2.6-t2i',          // 通义万相文生图
   WAN_2_6_IMAGE: 'wan2.6-image',      // 通义万相图像编辑 (支持参考图)
   Z_IMAGE_TURBO: 'z-image-turbo'
 } as const
@@ -82,7 +84,7 @@ export const QwenVideoModels = {
 
 /** 千问语音模型 */
 export const QwenVoiceModels = {
-  QWEN3_TTS_FLASH: 'qwen3-tts-flash',
+  QWEN3_TTS_FLASH: 'qwen3-tts-instruct-flash',
   QWEN3_ASR_FLASH: 'qwen3-asr-flash',
   FUN_ASR_MTL: 'fun-asr-mtl'
 } as const
@@ -568,7 +570,7 @@ export async function _qwenGenerateImage(options: {
     // wan2.6-image 使用 messages 格式，支持参考图
     // 文档: https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference
     // 注意: wan2.6-image 是图像编辑模型，必须提供参考图
-    // 如需纯文生图，请使用 wanx2.1-t2i-turbo 或其他文生图模型
+    // 如需纯文生图，请使用 wan2.6-t2i 或其他文生图模型
     if (model === QwenImageModels.WAN_2_6_IMAGE) {
       // 检查是否有参考图
       if (!options.referenceImages || options.referenceImages.length === 0) {
@@ -633,12 +635,22 @@ export async function _qwenGenerateImage(options: {
       return { imageUrl, taskId: '' }
     }
     
-    // qwen-image-plus 和 z-image-turbo 都使用同步 multimodal-generation 端点
+    // qwen-image 系列和 z-image-turbo 使用同步 multimodal-generation 端点
     // 文档: https://help.aliyun.com/zh/model-studio/qwen-image-api
     // 文档: https://help.aliyun.com/zh/model-studio/z-image-turbo
-    if (model === QwenImageModels.QWEN_IMAGE_PLUS || model === QwenImageModels.Z_IMAGE_TURBO) {
+    if (
+      model === QwenImageModels.QWEN_IMAGE_2_PRO
+      || model === QwenImageModels.QWEN_IMAGE_2
+      || model === QwenImageModels.QWEN_IMAGE_PLUS
+      || model === QwenImageModels.Z_IMAGE_TURBO
+    ) {
       // 根据模型设置默认尺寸
-      const defaultSize = model === QwenImageModels.QWEN_IMAGE_PLUS ? '1328*1328' : '1024*1024'
+      const defaultSize = (
+        model === QwenImageModels.QWEN_IMAGE_2_PRO
+        || model === QwenImageModels.QWEN_IMAGE_PLUS
+      )
+        ? '1328*1328'
+        : '1024*1024'
       const size = options.size || defaultSize
 
       const response = await request<{
@@ -663,7 +675,10 @@ export async function _qwenGenerateImage(options: {
             ]
           },
           parameters: {
-            prompt_extend: model === QwenImageModels.QWEN_IMAGE_PLUS, // qwen-image-plus 默认开启
+            prompt_extend: (
+              model === QwenImageModels.QWEN_IMAGE_2_PRO
+              || model === QwenImageModels.QWEN_IMAGE_PLUS
+            ),
             negative_prompt: options.negativePrompt || '',
             size
           }
@@ -1040,7 +1055,7 @@ export async function _qwenTextToSpeech(options: {
   })
 
   return withRetry(async () => {
-    // qwen3-tts-flash 使用新的 multimodal-generation 端点
+    // qwen3-tts-instruct-flash 使用新的 multimodal-generation 端点
     // 文档: https://help.aliyun.com/zh/model-studio/qwen-tts-api
     if (model === QwenVoiceModels.QWEN3_TTS_FLASH) {
       const response = await request<{

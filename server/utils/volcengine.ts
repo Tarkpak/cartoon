@@ -3,7 +3,7 @@
  * 基于火山引擎方舟大模型服务平台
  * 
  * 文档参考: https://www.volcengine.com/docs/82379/1330310
- * 更新日期: 2025.12.25
+ * 更新日期: 2026.04.03
  */
 
 // ============================================================
@@ -41,44 +41,46 @@ const RETRYABLE_ERROR_CODES = new Set([
 ])
 
 // ============================================================
-// 模型配置 (基于火山引擎方舟平台 2025.12.25 更新)
+// 模型配置 (基于火山引擎方舟平台 2026.04.03 更新)
 // ============================================================
 
 /** 火山引擎文本模型 (豆包系列) */
 export const VolcengineTextModels = {
-  // 豆包最强多模态 Agent 模型
-  DOUBAO_SEED_1_8: 'doubao-seed-1-8-251215',
-  // 编程场景增强
+  // 最新 Seed 2.0 系列
+  DOUBAO_SEED_2_0_PRO: 'doubao-seed-2-0-pro-260215',
+  DOUBAO_SEED_2_0_MINI: 'doubao-seed-2-0-mini-260215',
+  DOUBAO_SEED_2_0_LITE: 'doubao-seed-2-0-lite-260215',
+  // 编程场景增强（最新可用）
   DOUBAO_SEED_CODE: 'doubao-seed-code-preview-251028',
-  // 轻量版
-  DOUBAO_SEED_LITE: 'doubao-seed-1-6-lite-251015',
-  // 快速版 (支持视觉定位)
-  DOUBAO_SEED_FLASH: 'doubao-seed-1-6-flash-250828',
-  // 视觉增强版 (支持GUI任务)
-  DOUBAO_SEED_VISION: 'doubao-seed-1-6-vision-250815',
   // DeepSeek 最新版
   DEEPSEEK_V3_2: 'deepseek-v3-2-251201',
-  // Kimi 深度思考模型
-  KIMI_K2_THINKING: 'kimi-k2-thinking-251104'
+  // 兼容旧字段，映射到可用新模型
+  DOUBAO_SEED_1_8: 'doubao-seed-2-0-pro-260215',
+  DOUBAO_SEED_LITE: 'doubao-seed-2-0-lite-260215',
+  DOUBAO_SEED_FLASH: 'doubao-seed-2-0-mini-260215'
 } as const
 
 /** 火山引擎图片生成模型 (豆包 Seedream 系列) */
 export const VolcengineImageModels = {
-  // 最强图片生成，支持文生图/图生图/多参考图/生成组图
+  // 最新 Seedream 5.0 系列
+  SEEDREAM_5_0: 'doubao-seedream-5-0-260128',
+  SEEDREAM_5_0_LITE: 'doubao-seedream-5-0-lite-260128',
+  // 高质量模型
   SEEDREAM_4_5: 'doubao-seedream-4-5-251128',
-  SEEDREAM_4_0: 'doubao-seedream-4-0-250828',
-  // 文生图
-  SEEDREAM_3_0_T2I: 'doubao-seedream-3-0-t2i-250415'
+  // 兼容旧字段
+  SEEDREAM_4_0: 'doubao-seedream-4-5-251128',
+  SEEDREAM_3_0_T2I: 'doubao-seedream-5-0-lite-260128'
 } as const
 
 /** 火山引擎视频生成模型 (豆包 Seedance 系列) - 仅保留支持首尾帧的模型 */
 export const VolcengineVideoModels = {
-  // 最强视频生成，支持首尾帧/首帧/文生视频，4-12秒
-  SEEDANCE_1_5_PRO: 'doubao-seedance-1-5-pro-251215',
-  // 支持480p/720p/1080p，支持首尾帧
-  SEEDANCE_1_0_PRO: 'doubao-seedance-1-0-pro-250528',
-  // 轻量图生视频，支持首尾帧
-  SEEDANCE_1_0_LITE_I2V: 'doubao-seedance-1-0-lite-i2v-250428'
+  // 最新 Seedance 2.0 系列
+  SEEDANCE_2_0: 'doubao-seedance-2-0-260128',
+  SEEDANCE_2_0_FAST: 'doubao-seedance-2-0-fast-260128',
+  // 兼容旧字段，映射到可用新模型
+  SEEDANCE_1_5_PRO: 'doubao-seedance-2-0-260128',
+  SEEDANCE_1_0_PRO: 'doubao-seedance-2-0-fast-260128',
+  SEEDANCE_1_0_LITE_I2V: 'doubao-seedance-2-0-fast-260128'
 } as const
 
 /** 火山引擎向量化模型 */
@@ -295,7 +297,7 @@ export async function _volcengineGenerateText(options: {
   maxRetries?: number
   enableThinking?: boolean
 }): Promise<string> {
-  const model = options.model || VolcengineTextModels.DOUBAO_SEED_FLASH
+  const model = options.model || VolcengineTextModels.DOUBAO_SEED_2_0_MINI
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Volcengine] generateText 请求参数:`, {
@@ -336,7 +338,7 @@ export async function _volcengineGenerateJSON<T>(options: {
   temperature?: number
   maxRetries?: number
 }): Promise<T> {
-  const model = options.model || VolcengineTextModels.DOUBAO_SEED_FLASH
+  const model = options.model || VolcengineTextModels.DOUBAO_SEED_2_0_MINI
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Volcengine] generateJSON 请求参数:`, {
@@ -407,7 +409,7 @@ export async function _volcengineGenerateImage(options: {
   referenceImages?: string[]
   maxRetries?: number
 }): Promise<{ imageUrl: string }> {
-  const model = options.model || VolcengineImageModels.SEEDREAM_4_5
+  const model = options.model || VolcengineImageModels.SEEDREAM_5_0
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Volcengine] generateImage 请求参数:`, {
@@ -427,10 +429,14 @@ export async function _volcengineGenerateImage(options: {
     // 兼容 * 分隔符
     size = size.replace('*', 'x')
     
-    // Seedream 4.5 和 4.0 要求图片尺寸至少 3686400 像素 (约 1920x1920)
+    // Seedream 5.0/4.5/4.0 要求图片尺寸至少 3686400 像素 (约 1920x1920)
     // 如果使用默认尺寸且是高版本模型，自动升级到 2048x2048
-    if (model.includes('seedream-4-5') || model.includes('seedream-4-0')) {
-      const [width, height] = size.split('x').map(Number)
+    if (
+      model.includes('seedream-5-0')
+      || model.includes('seedream-4-5')
+      || model.includes('seedream-4-0')
+    ) {
+      const [width = 0, height = 0] = size.split('x').map(v => Number(v) || 0)
       if (width * height < 3686400) {
         size = '2048x2048'
         console.log(`[Volcengine] 模型 ${model} 要求更大尺寸，自动调整为 ${size}`)
@@ -455,6 +461,9 @@ export async function _volcengineGenerateImage(options: {
     // - Base64: 必须是 data:image/<格式>;base64,<数据> 格式
     if (options.referenceImages && options.referenceImages.length > 0) {
       const refImage = options.referenceImages[0]
+      if (!refImage) {
+        throw new VolcengineError('参考图不能为空', VolcengineErrorCode.INVALID_ARGUMENT, 400, false)
+      }
 
       // 判断是否已经是正确格式
       if (refImage.startsWith('http://') || refImage.startsWith('https://')) {
@@ -547,11 +556,11 @@ export async function _volcengineGenerateVideo(options: {
   let model = options.model
   if (!model) {
     if (options.firstFrameUrl && options.lastFrameUrl) {
-      model = VolcengineVideoModels.SEEDANCE_1_5_PRO  // 首尾帧模型
+      model = VolcengineVideoModels.SEEDANCE_2_0  // 首尾帧模型
     } else if (options.imageUrl || options.firstFrameUrl) {
-      model = VolcengineVideoModels.SEEDANCE_1_0_LITE_I2V  // 图生视频
+      model = VolcengineVideoModels.SEEDANCE_2_0_FAST  // 图生视频
     } else {
-      model = VolcengineVideoModels.SEEDANCE_1_5_PRO  // 文生视频也使用 1.5 Pro (支持首尾帧)
+      model = VolcengineVideoModels.SEEDANCE_2_0  // 文生视频默认使用 2.0
     }
   }
 

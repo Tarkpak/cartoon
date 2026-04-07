@@ -34,9 +34,10 @@ const DEFAULT_WORKFLOW_MODELS: Record<WorkflowStep, string> = {
   character_extraction: 'qwen-flash',
   storyboard_generation: 'qwen-flash',
   scene_visual_extraction: 'qwen-flash',
+  text_translation: 'qwen-flash',
   
   // 图片生成类 - 默认使用千问
-  character_portrait: 'wanx2.1-t2i-turbo',
+  character_portrait: 'wan2.6-t2i',
   character_views: 'wan2.6-image',
   frame_generation: 'wan2.6-image',
   
@@ -44,7 +45,7 @@ const DEFAULT_WORKFLOW_MODELS: Record<WorkflowStep, string> = {
   video_generation: 'wan2.2-kf2v-flash',
   
   // 语音生成类 - 默认使用千问
-  voice_synthesis: 'qwen3-tts-flash'
+  voice_synthesis: 'qwen3-tts-instruct-flash'
 }
 
 /**
@@ -57,8 +58,9 @@ export async function getWorkflowModels(): Promise<Record<WorkflowStep, string>>
       .where(eq(systemConfig.key, WORKFLOW_MODELS_KEY))
       .limit(1)
     
-    if (result.length > 0 && result[0].value) {
-      const saved = JSON.parse(result[0].value) as Partial<Record<WorkflowStep, string>>
+    const row = result[0]
+    if (row?.value) {
+      const saved = JSON.parse(row.value) as Partial<Record<WorkflowStep, string>>
       // 合并默认配置和保存的配置
       return { ...DEFAULT_WORKFLOW_MODELS, ...saved }
     }

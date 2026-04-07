@@ -22,11 +22,11 @@ const DEFAULT_WORKFLOW_MODELS: Record<WorkflowStep, string> = {
   storyboard_generation: 'qwen-flash',
   scene_visual_extraction: 'qwen-flash',
   text_translation: 'qwen-flash',
-  character_portrait: 'wanx2.1-t2i-turbo',
+  character_portrait: 'wan2.6-t2i',
   character_views: 'wan2.6-image',
   frame_generation: 'wan2.6-image',
   video_generation: 'wan2.2-kf2v-flash',
-  voice_synthesis: 'qwen3-tts-flash'
+  voice_synthesis: 'qwen3-tts-instruct-flash'
 }
 
 /**
@@ -39,8 +39,9 @@ export async function getWorkflowModel(step: WorkflowStep): Promise<string> {
       .where(eq(systemConfig.key, WORKFLOW_MODELS_KEY))
       .limit(1)
     
-    if (result.length > 0 && result[0].value) {
-      const saved = JSON.parse(result[0].value) as Partial<Record<WorkflowStep, string>>
+    const row = result[0]
+    if (row?.value) {
+      const saved = JSON.parse(row.value) as Partial<Record<WorkflowStep, string>>
       if (saved[step]) {
         return saved[step]!
       }

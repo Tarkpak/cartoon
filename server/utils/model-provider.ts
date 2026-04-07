@@ -37,8 +37,8 @@ export const TEXT_MODELS: TextModelConfig[] = [
   {
     provider: 'gemini',
     model: gemini.TextModels.SCRIPT_PARSER,
-    displayName: 'Gemini 3 Pro',
-    description: '针对剧本解析优化',
+    displayName: 'Gemini 3.1 Pro Preview',
+    description: '高级推理能力，适合复杂剧本解析',
     supportThinking: false,
     docUrl: 'https://ai.google.dev/gemini-api/docs'
   },
@@ -46,7 +46,7 @@ export const TEXT_MODELS: TextModelConfig[] = [
   {
     provider: 'qwen',
     model: qwen.QwenTextModels.QWEN3_MAX,
-    displayName: '通义千问3-Max',
+    displayName: '通义千问3-Max (2026-01)',
     description: '适配复杂场景，达到领域SOTA水平',
     supportThinking: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference'
@@ -62,16 +62,16 @@ export const TEXT_MODELS: TextModelConfig[] = [
   {
     provider: 'qwen',
     model: qwen.QwenTextModels.QWEN_PLUS_THINKING,
-    displayName: '通义千问-Plus (深度思考)',
-    description: '百万上下文，混合模式随心切',
+    displayName: '通义千问3.6-Plus (深度思考)',
+    description: '新一代高性能深度思考模型',
     supportThinking: true,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference'
   },
   {
     provider: 'qwen',
     model: qwen.QwenTextModels.QWEN_FLASH_THINKING,
-    displayName: '通义千问-Flash (深度思考)',
-    description: 'Flash最新快照，超高性价比',
+    displayName: '通义千问3.5-Flash (深度思考)',
+    description: '低延时深度思考版本，适合高并发场景',
     supportThinking: true,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference'
   },
@@ -86,25 +86,33 @@ export const TEXT_MODELS: TextModelConfig[] = [
   // 火山引擎 (豆包) 模型
   {
     provider: 'volcengine',
-    model: volcengine.VolcengineTextModels.DOUBAO_SEED_1_8,
-    displayName: '豆包 Seed 1.8',
-    description: '最强多模态 Agent 模型，256k上下文，支持深度思考/工具调用',
+    model: volcengine.VolcengineTextModels.DOUBAO_SEED_2_0_PRO,
+    displayName: '豆包 Seed 2.0 Pro',
+    description: '旗舰文本模型，复杂任务表现最强',
     supportThinking: true,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   },
   {
     provider: 'volcengine',
-    model: volcengine.VolcengineTextModels.DOUBAO_SEED_CODE,
-    displayName: '豆包 Seed Code',
-    description: '编程场景增强，256k上下文',
+    model: volcengine.VolcengineTextModels.DOUBAO_SEED_2_0_MINI,
+    displayName: '豆包 Seed 2.0 Mini',
+    description: '高性价比通用模型，适合日常生产任务',
+    supportThinking: true,
+    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
+  },
+  {
+    provider: 'volcengine',
+    model: volcengine.VolcengineTextModels.DOUBAO_SEED_2_0_LITE,
+    displayName: '豆包 Seed 2.0 Lite',
+    description: '轻量低成本模型，适合简单文本任务',
     supportThinking: false,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   },
   {
     provider: 'volcengine',
-    model: volcengine.VolcengineTextModels.DOUBAO_SEED_FLASH,
-    displayName: '豆包 Seed Flash',
-    description: '快速版，支持视觉定位',
+    model: volcengine.VolcengineTextModels.DOUBAO_SEED_CODE,
+    displayName: '豆包 Seed Code Preview',
+    description: '代码生成与修复场景增强',
     supportThinking: false,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   },
@@ -113,14 +121,6 @@ export const TEXT_MODELS: TextModelConfig[] = [
     model: volcengine.VolcengineTextModels.DEEPSEEK_V3_2,
     displayName: 'DeepSeek-V3.2 (火山)',
     description: 'DeepSeek最新版 (火山引擎)',
-    supportThinking: true,
-    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
-  },
-  {
-    provider: 'volcengine',
-    model: volcengine.VolcengineTextModels.KIMI_K2_THINKING,
-    displayName: 'Kimi K2 深度思考',
-    description: 'Kimi深度思考模型',
     supportThinking: true,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   }
@@ -140,12 +140,28 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
   {
     provider: 'gemini',
     model: gemini.ImageModels.FAST,
-    displayName: 'Gemini 2.5 Flash Image',
+    displayName: 'Gemini 3.1 Flash Image',
     description: '快速生成',
     supportReferenceImage: true,
     docUrl: 'https://ai.google.dev/gemini-api/docs/image-generation'
   },
   // 千问模型
+  {
+    provider: 'qwen',
+    model: qwen.QwenImageModels.QWEN_IMAGE_2_PRO,
+    displayName: '通义千问-Image-2.0-Pro',
+    description: '新一代高质量图像生成与编辑',
+    supportReferenceImage: false,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
+  },
+  {
+    provider: 'qwen',
+    model: qwen.QwenImageModels.QWEN_IMAGE_2,
+    displayName: '通义千问-Image-2.0',
+    description: '高性能图像生成模型，兼顾质量和速度',
+    supportReferenceImage: false,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
+  },
   {
     provider: 'qwen',
     model: qwen.QwenImageModels.QWEN_IMAGE_PLUS,
@@ -182,26 +198,26 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
   // 火山引擎 (豆包 Seedream) 图片模型
   {
     provider: 'volcengine',
+    model: volcengine.VolcengineImageModels.SEEDREAM_5_0,
+    displayName: '豆包 Seedream 5.0',
+    description: '最新旗舰图片模型，支持文生图/图生图/多参考图',
+    supportReferenceImage: true,
+    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
+  },
+  {
+    provider: 'volcengine',
+    model: volcengine.VolcengineImageModels.SEEDREAM_5_0_LITE,
+    displayName: '豆包 Seedream 5.0 Lite',
+    description: '高速高性价比图片生成',
+    supportReferenceImage: true,
+    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
+  },
+  {
+    provider: 'volcengine',
     model: volcengine.VolcengineImageModels.SEEDREAM_4_5,
     displayName: '豆包 Seedream 4.5',
-    description: '最强图片生成，支持文生图/图生图/多参考图',
+    description: '高质量图片生成模型',
     supportReferenceImage: true,
-    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
-  },
-  {
-    provider: 'volcengine',
-    model: volcengine.VolcengineImageModels.SEEDREAM_4_0,
-    displayName: '豆包 Seedream 4.0',
-    description: '高质量图片生成',
-    supportReferenceImage: true,
-    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
-  },
-  {
-    provider: 'volcengine',
-    model: volcengine.VolcengineImageModels.SEEDREAM_3_0_T2I,
-    displayName: '豆包 Seedream 3.0 文生图',
-    description: '文生图专用模型',
-    supportReferenceImage: false,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   }
 ]
@@ -223,8 +239,8 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
   {
     provider: 'gemini',
     model: gemini.VideoModels.VEO_3_1_FAST,
-    displayName: 'Veo 3.1 Fast',
-    description: '速度优化版本',
+    displayName: 'Veo 3.1 Lite',
+    description: '速度优化版本（Lite）',
     maxDuration: 8,
     supportFirstLastFrame: true,
     supportImageToVideo: true,
@@ -279,36 +295,25 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
   // 火山引擎 (豆包 Seedance) 视频模型 - 仅保留支持首尾帧的模型
   {
     provider: 'volcengine',
-    model: volcengine.VolcengineVideoModels.SEEDANCE_1_5_PRO,
-    displayName: '豆包 Seedance 1.5 Pro',
-    description: '最强视频生成，支持首尾帧/首帧/文生视频，4-12秒',
+    model: volcengine.VolcengineVideoModels.SEEDANCE_2_0,
+    displayName: '豆包 Seedance 2.0',
+    description: '最新视频模型，支持首尾帧/首帧/文生视频',
     maxDuration: 12,
     supportFirstLastFrame: true,
     supportImageToVideo: true,
     supportTextToVideo: true,
-    docUrl: 'https://www.volcengine.com/docs/82379/1520757'
+    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   },
   {
     provider: 'volcengine',
-    model: volcengine.VolcengineVideoModels.SEEDANCE_1_0_PRO,
-    displayName: '豆包 Seedance 1.0 Pro',
-    description: '支持480p/720p/1080p，支持首尾帧',
+    model: volcengine.VolcengineVideoModels.SEEDANCE_2_0_FAST,
+    displayName: '豆包 Seedance 2.0 Fast',
+    description: '高速视频模型，支持首尾帧与图生视频',
     maxDuration: 8,
     supportFirstLastFrame: true,
     supportImageToVideo: true,
     supportTextToVideo: true,
-    docUrl: 'https://www.volcengine.com/docs/82379/1520757'
-  },
-  {
-    provider: 'volcengine',
-    model: volcengine.VolcengineVideoModels.SEEDANCE_1_0_LITE_I2V,
-    displayName: '豆包 Seedance Lite 图生视频',
-    description: '轻量图生视频，支持首尾帧',
-    maxDuration: 5,
-    supportFirstLastFrame: true,
-    supportImageToVideo: true,
-    supportTextToVideo: false,
-    docUrl: 'https://www.volcengine.com/docs/82379/1520757'
+    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   }
 ]
 
@@ -327,7 +332,7 @@ export const VOICE_MODELS: VoiceModelConfig[] = [
   {
     provider: 'qwen',
     model: qwen.QwenVoiceModels.QWEN3_TTS_FLASH,
-    displayName: '通义千问3-TTS-Flash',
+    displayName: '通义千问3-TTS-Instruct-Flash',
     description: '高表现力多语言拟人音色',
     type: 'tts',
     supportedLanguages: ['zh', 'en', 'ja', 'ko'],
@@ -357,7 +362,7 @@ export const VOICE_MODELS: VoiceModelConfig[] = [
 // 当前选择的模型 (内存存储，可改为数据库)
 // ============================================================
 
-let currentModels: SelectedModels = {
+const currentModels: SelectedModels = {
   text: qwen.QwenTextModels.QWEN_FLASH,  // 默认使用千问
   image: qwen.QwenImageModels.WAN_2_6_T2I,  // 默认使用千问
   video: qwen.QwenVideoModels.WAN_2_6_T2V,  // 默认使用千问
