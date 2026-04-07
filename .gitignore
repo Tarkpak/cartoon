@@ -3,6 +3,7 @@ node_modules/
 .output
 .nitro
 dist
+.playwright-mcp
 
 # 环境变量
 .env

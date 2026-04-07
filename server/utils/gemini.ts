@@ -81,7 +81,7 @@ export function getGeminiClient(): GoogleGenAI {
  */
 export const TextModels = {
   /** 剧本解析 */
-  SCRIPT_PARSER: 'gemini-3-pro-preview',
+  SCRIPT_PARSER: 'gemini-3.1-pro-preview',
   /** 通用任务 */
   GENERAL: 'gemini-3-flash-preview'
 } as const
@@ -93,7 +93,7 @@ export const ImageModels = {
   /** Nano Banana Pro - 4K高质量 */
   HIGH_QUALITY: 'gemini-3-pro-image-preview',
   /** Nano Banana - 快速生成 */
-  FAST: 'gemini-2.5-flash-image'
+  FAST: 'gemini-3.1-flash-image-preview'
 } as const
 
 /**
@@ -102,8 +102,8 @@ export const ImageModels = {
 export const VideoModels = {
   /** Veo 3.1 - 支持首尾帧 */
   VEO_3_1: 'veo-3.1-generate-preview',
-  /** Veo 3.1 快速版 - 速度优化 */
-  VEO_3_1_FAST: 'veo-3.1-fast-generate-preview'
+  /** Veo 3.1 Lite - 速度优化 */
+  VEO_3_1_FAST: 'veo-3.1-lite-generate-preview'
 } as const
 
 /**

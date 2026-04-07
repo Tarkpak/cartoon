@@ -25,6 +25,67 @@ const TestRequestSchema = z.object({
   referenceImages: z.array(z.string()).optional()  // base64 图片数组
 })
 
+interface VideoStatusResponse {
+  success: boolean
+  task: {
+    status: 'pending' | 'processing' | 'completed' | 'failed'
+    progress: number
+    error?: string | null
+    result?: {
+      videoData?: string
+    }
+  }
+}
+
+function extractVideoUrl(videoData?: string): string | undefined {
+  if (!videoData) {
+    return undefined
+  }
+  if (videoData.startsWith('url:')) {
+    return videoData.slice(4)
+  }
+  if (videoData.startsWith('http://') || videoData.startsWith('https://') || videoData.startsWith('data:') || videoData.startsWith('/')) {
+    return videoData
+  }
+  return undefined
+}
+
+async function waitForVideoTask(
+  localFetch: (request: string, opts?: Record<string, unknown>) => Promise<unknown>,
+  taskId: string,
+  maxWaitMs: number = 60000,
+  intervalMs: number = 5000
+): Promise<{ status: string, progress: number, videoUrl?: string }> {
+  const startTime = Date.now()
+  let lastStatus: 'pending' | 'processing' | 'completed' | 'failed' = 'pending'
+  let lastProgress = 0
+
+  while (Date.now() - startTime < maxWaitMs) {
+    await new Promise(resolve => setTimeout(resolve, intervalMs))
+
+    const statusResponse = await localFetch(`/api/video/status/${taskId}`) as VideoStatusResponse
+    lastStatus = statusResponse.task.status
+    lastProgress = statusResponse.task.progress || lastProgress
+
+    if (lastStatus === 'completed') {
+      return {
+        status: lastStatus,
+        progress: lastProgress,
+        videoUrl: extractVideoUrl(statusResponse.task.result?.videoData)
+      }
+    }
+
+    if (lastStatus === 'failed') {
+      throw new Error(statusResponse.task.error || '视频生成失败')
+    }
+  }
+
+  return {
+    status: lastStatus,
+    progress: lastProgress
+  }
+}
+
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const parseResult = TestRequestSchema.safeParse(body || {})
@@ -124,16 +185,56 @@ export default defineEventHandler(async (event) => {
         const testPrompt = prompt || '一只小猫在草地上奔跑，阳光明媚'
         console.log(`[ModelTest] 测试视频模型: ${usedModelId} (${modelInfo?.provider})`)
 
-        const videoResult = await generateVideo({
-          modelId: usedModelId,
-          prompt: testPrompt,
-          duration: 5,  // 测试用最短时长
-          size: '1280*720'
-        })
+        if (modelInfo?.provider === 'gemini') {
+          const testSceneId = `model_test_${Date.now()}`
+          const isFastModel = usedModelId.includes('lite') || usedModelId.includes('fast')
+          const localFetch = (event.$fetch as unknown) as (request: string, opts?: Record<string, unknown>) => Promise<unknown>
 
-        result = {
-          videoUrl: videoResult.videoUrl,
-          taskId: videoResult.taskId
+          const generateResponse = await localFetch('/api/video/generate', {
+            method: 'POST',
+            body: {
+              sceneId: testSceneId,
+              config: {
+                prompt: testPrompt,
+                duration: 5,
+                resolution: '720p',
+                aspectRatio: '16:9',
+                withAudio: false,
+                provider: 'gemini',
+                modelId: usedModelId,
+                model: isFastModel ? 'fast' : 'standard'
+              }
+            }
+          }) as {
+            success: boolean
+            taskId?: string
+            message?: string
+            error?: string
+          }
+
+          if (!generateResponse.success || !generateResponse.taskId) {
+            throw new Error(generateResponse.error || 'Gemini 视频测试任务创建失败')
+          }
+
+          const taskResult = await waitForVideoTask(localFetch, generateResponse.taskId)
+          result = {
+            taskId: generateResponse.taskId,
+            status: taskResult.status,
+            progress: taskResult.progress,
+            videoUrl: taskResult.videoUrl
+          }
+        } else {
+          const videoResult = await generateVideo({
+            modelId: usedModelId,
+            prompt: testPrompt,
+            duration: 5,  // 测试用最短时长
+            size: '1280*720'
+          })
+
+          result = {
+            videoUrl: videoResult.videoUrl,
+            taskId: videoResult.taskId
+          }
         }
         break
       }

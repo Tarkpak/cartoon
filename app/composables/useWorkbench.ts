@@ -130,7 +130,7 @@ export function useWorkbench() {
     text: 'qwen-flash',
     image: 'wan2.6-t2i',
     video: 'wan2.6-t2v',
-    tts: 'qwen3-tts-flash'
+    tts: 'qwen3-tts-instruct-flash'
   })
 
   // ========== 流水线状态 ==========
