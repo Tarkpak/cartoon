@@ -1,3 +1,5 @@
+import { STYLE_DESCRIPTION_OVERRIDES } from './style-descriptions.generated'
+
 // 风格分类
 export type StyleCategory =
   | 'japanese_anime' | 'chinese_style' | '3d_render' | 'illustration'
@@ -36,7 +38,7 @@ export const STYLE_CATEGORIES: StyleCategoryInfo[] = [
   { id: 'special', name: '特殊IP', nameEn: 'Special IP', icon: '⭐' },
 ]
 
-export const STYLE_PRESETS: StylePreset[] = [
+const STYLE_PRESETS_BASE: StylePreset[] = [
   // 日系动漫
   { id: 'cel_shading', name: '三渲二', nameEn: 'Cel Shading', category: 'japanese_anime', description: '3D渲染2D效果', prompt: 'cel shading', thumbnail: '/styles/cel_shading.webp' },
   { id: 'fujimoto_tatsuki', name: '藤本树', nameEn: 'Fujimoto', category: 'japanese_anime', description: '电锯人风格', prompt: 'Fujimoto style', thumbnail: '/styles/fujimoto_tatsuki.webp' },
@@ -64,8 +66,13 @@ export const STYLE_PRESETS: StylePreset[] = [
   { id: 'plush_toy', name: '毛绒玩具质感', nameEn: 'Plush Toy', category: '3d_render', description: '毛绒质感', prompt: 'plush toy', thumbnail: '/styles/plush_toy.webp' },
   { id: 'origami', name: '折纸艺术', nameEn: 'Origami', category: '3d_render', description: '折纸风格', prompt: 'origami', thumbnail: '/styles/origami.webp' },
   { id: 'laika_stop_motion', name: '莱卡定格动画', nameEn: 'Laika', category: '3d_render', description: '定格动画', prompt: 'Laika style', thumbnail: '/styles/laika_stop_motion.webp' },
+  { id: 'game_cg', name: '游戏CG', nameEn: 'Game CG', category: '3d_render', description: '次世代游戏CG质感', prompt: 'game cg', thumbnail: '/styles/game_cg.webp', isNew: true },
+  { id: 'interactive_3d_dating', name: '3D乙游', nameEn: 'Interactive 3D Dating', category: '3d_render', description: '乙女向3D风格', prompt: 'interactive 3d dating', thumbnail: '/styles/interactive_3d_dating.webp', isNew: true },
+  { id: 'live_action', name: 'AI真人(建议垫图)', nameEn: 'Live-Action', category: '3d_render', description: '影视级写实风格', prompt: 'live action', thumbnail: '/styles/live_action.webp', isNew: true },
+  { id: 'western_3d_cg', name: '欧美CG', nameEn: '3D CG', category: '3d_render', description: '欧美写实CG风格', prompt: 'western 3d cg', thumbnail: '/styles/western_3d_cg.webp', isNew: true },
   // 插画
   { id: 'healing_q_cute', name: '治愈Q萌', nameEn: 'Healing Cute', category: 'illustration', description: '治愈系', prompt: 'healing cute', thumbnail: '/styles/healing_q_cute.webp' },
+  { id: 'city_romance', name: '都市言情', nameEn: 'City Romance', category: 'illustration', description: '都市恋爱叙事氛围', prompt: 'city romance', thumbnail: '/styles/city_romance.webp' },
   { id: 'warm_colorful', name: '温馨彩绘', nameEn: 'Warm Colorful', category: 'illustration', description: '温馨彩绘', prompt: 'warm colorful', thumbnail: '/styles/warm_colorful.webp' },
   { id: 'air_colored_pencil', name: '空气彩铅', nameEn: 'Air Pencil', category: 'illustration', description: '轻盈彩铅', prompt: 'air pencil', thumbnail: '/styles/air_colored_pencil.webp' },
   { id: 'light_shadow_flat', name: '光影平涂', nameEn: 'Light Flat', category: 'illustration', description: '光影平涂', prompt: 'light flat', thumbnail: '/styles/light_shadow_flat.webp' },
@@ -156,6 +163,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   { id: 'retro_dreamy_cel', name: '复古梦幻赛璐璐', nameEn: 'Dreamy Cel', category: 'artistic', description: '梦幻赛璐璐', prompt: 'dreamy cel', thumbnail: '/styles/retro_dreamy_cel.webp' },
   // 漫画
   { id: 'cartoon_flat', name: '卡通平涂漫画', nameEn: 'Cartoon Flat', category: 'comic', description: '卡通平涂', prompt: 'cartoon flat', thumbnail: '/styles/cartoon_flat.webp' },
+  { id: 'shoujo_dream', name: '女频漫画', nameEn: 'Shoujo Dream', category: 'comic', description: '少女向叙事漫画', prompt: 'shoujo dream', thumbnail: '/styles/shoujo_dream.webp' },
   { id: 'rough_ink_line', name: '粗犷墨线', nameEn: 'Rough Ink', category: 'comic', description: '粗犷墨线', prompt: 'rough ink', thumbnail: '/styles/rough_ink_line.webp' },
   { id: 'charcoal_dark_punk', name: '炭笔暗黑朋克', nameEn: 'Dark Punk', category: 'comic', description: '暗黑朋克', prompt: 'dark punk', thumbnail: '/styles/charcoal_dark_punk.webp' },
   { id: 'euro_concept_art', name: '欧漫概念艺术', nameEn: 'Euro Concept', category: 'comic', description: '欧漫概念', prompt: 'euro concept', thumbnail: '/styles/euro_concept_art.webp' },
@@ -184,6 +192,12 @@ export const STYLE_PRESETS: StylePreset[] = [
   { id: 'stylized_cyber', name: '风格化撞色赛博', nameEn: 'Stylized Cyber', category: 'pixel_game', description: '赛博朋克', prompt: 'stylized cyber', thumbnail: '/styles/stylized_cyber.webp' },
   // 特殊IP
   { id: 'detective_anan', name: '名侦探阿楠', nameEn: 'Detective', category: 'special', description: '柯南风格', prompt: 'Detective Conan', thumbnail: '/styles/detective_anan.webp' },
+  { id: 'vicecity_game', name: '给他爱', nameEn: 'Vicecity Game', category: 'special', description: '美式开放世界IP风格', prompt: 'vicecity game', thumbnail: '/styles/vicecity_game.webp', isNew: true },
+  { id: 'eternal_journey', name: '辛逝季-芙莉莲', nameEn: 'Eternal Journey', category: 'special', description: '日系治愈冒险IP风格', prompt: 'eternal journey', thumbnail: '/styles/eternal_journey.webp' },
+  { id: 'south_park', name: '南方公园', nameEn: 'South Park', category: 'special', description: '美式讽刺动画IP风格', prompt: 'south park', thumbnail: '/styles/south_park.webp' },
+  { id: 'bizarre_contour', name: 'JoJo', nameEn: 'Bizarre Contour', category: 'special', description: '热血漫画IP风格', prompt: 'bizarre contour', thumbnail: '/styles/bizarre_contour.webp' },
+  { id: 'springfield_yellow', name: '辛普森', nameEn: 'Springfield Yellow', category: 'special', description: '经典美式家庭动画风格', prompt: 'springfield yellow', thumbnail: '/styles/springfield_yellow.webp' },
+  { id: 'spirit_samurai', name: '尸魂界-死神', nameEn: 'Spirit Samurai', category: 'special', description: '和风热血战斗IP风格', prompt: 'spirit samurai', thumbnail: '/styles/spirit_samurai.webp' },
   { id: 'snoopy', name: '史努比', nameEn: 'Snoopy', category: 'special', description: '史努比', prompt: 'Snoopy', thumbnail: '/styles/snoopy.webp' },
   { id: 'straw_hat_crew', name: '草帽团', nameEn: 'Straw Hat', category: 'special', description: '海贼王', prompt: 'One Piece', thumbnail: '/styles/straw_hat_crew.webp' },
   { id: 'crayon_shinchan', name: '蜡笔小新', nameEn: 'Shin-chan', category: 'special', description: '蜡笔小新', prompt: 'Shin-chan', thumbnail: '/styles/crayon_shinchan.webp' },
@@ -191,6 +205,11 @@ export const STYLE_PRESETS: StylePreset[] = [
   { id: 'stick_figure', name: '火柴人', nameEn: 'Stick Figure', category: 'special', description: '火柴人', prompt: 'stick figure', thumbnail: '/styles/stick_figure.webp' },
   { id: 'japanese_chibi', name: '日本小人', nameEn: 'Japanese Chibi', category: 'special', description: '日本小人', prompt: 'Japanese chibi', thumbnail: '/styles/japanese_chibi.webp' },
 ]
+
+export const STYLE_PRESETS: StylePreset[] = STYLE_PRESETS_BASE.map((style) => ({
+  ...style,
+  description: STYLE_DESCRIPTION_OVERRIDES[style.id] || style.description,
+}))
 
 export function getStylesByCategory(category: StyleCategory): StylePreset[] {
   return STYLE_PRESETS.filter(style => style.category === category)

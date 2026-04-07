@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm'
-import { db, projects } from '../../db'
+import { eq, inArray } from 'drizzle-orm'
+import { db, projects, scripts, scenes, characters } from '../../db'
 
 /**
  * 删除项目
@@ -28,7 +28,20 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 删除项目（关联数据会通过 cascade 自动删除）
+    // 显式清理关联数据，兼容历史数据库中的外键配置差异
+    const scriptRows = await db
+      .select({ id: scripts.id })
+      .from(scripts)
+      .where(eq(scripts.projectId, id))
+      .all()
+
+    const scriptIds = scriptRows.map(s => s.id)
+    if (scriptIds.length > 0) {
+      await db.delete(scenes).where(inArray(scenes.scriptId, scriptIds))
+    }
+
+    await db.delete(characters).where(eq(characters.projectId, id))
+    await db.delete(scripts).where(eq(scripts.projectId, id))
     await db.delete(projects).where(eq(projects.id, id))
 
     return {

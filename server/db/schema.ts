@@ -68,6 +68,12 @@ export const characters = sqliteTable('characters', {
   role: text('role', { enum: ['protagonist', 'antagonist', 'supporting', 'extra'] }),
   appearance: text('appearance').notNull(),
   personality: text('personality'),
+  traits: text('traits'), // JSON 存储 string[]
+  background: text('background'),
+  motivation: text('motivation'),
+  speakingStyle: text('speaking_style'),
+  catchphrase: text('catchphrase'),
+  voiceTone: text('voice_tone'),
   age: integer('age'),
   gender: text('gender', { enum: ['male', 'female', 'other'] }),
   baseImage: text('base_image'), // base64 或文件路径

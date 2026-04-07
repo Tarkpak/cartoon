@@ -168,6 +168,9 @@ defineExpose({
     }
     editForm.value.expressions[emotion] = imageData
     generatingEmotions.value.delete(emotion)
+  },
+  clearGeneratingEmotion(emotion: string) {
+    generatingEmotions.value.delete(emotion)
   }
 })
 </script>

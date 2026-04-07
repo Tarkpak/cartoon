@@ -99,6 +99,7 @@ export function useWorkbench() {
   // 小说原文（用于直接解析场景，详细的文本内容）
   const novelText = ref('')
   const saving = ref(false)
+  const saveError = ref<string | null>(null)
   const loading = ref(false)
 
   // ========== 场景数据 ==========
@@ -1361,7 +1362,7 @@ export function useWorkbench() {
             lastFrame: scene.lastFrame,
             duration: scene.duration || 8,
             resolution: '720p',
-            aspectRatio: '16:9',
+            aspectRatio: projectAspectRatio.value,
             withAudio: true,
             model: 'fast'
           }
@@ -1561,6 +1562,10 @@ export function useWorkbench() {
       alert('请先解析剧本')
       return
     }
+    if (!currentStylePrompt.value) {
+      alert('请先选择画风预设')
+      return
+    }
 
     pipelineStatus.value = { running: true, progress: 0, currentStep: '初始化...' }
 
@@ -1620,7 +1625,15 @@ export function useWorkbench() {
         success: boolean
         data: {
           project: { name: string, description?: string, styleId: string, aspectRatio: '16:9' | '9:16' | '1:1' }
-          script?: { rawText: string }
+          script?: {
+            rawText?: string
+            storyIdea?: string
+            novelText?: string
+            selectedStyleId?: string
+            selectedModels?: SelectedModels
+            outline?: StoryOutline
+            inputMode?: 'idea' | 'script'
+          }
           scenes: Array<{
             id: string
             title?: string
@@ -1638,7 +1651,18 @@ export function useWorkbench() {
             name: string
             role?: string
             appearance: string
+            personality?: string
+            traits?: string[]
+            background?: string
+            motivation?: string
+            speakingStyle?: string
+            catchphrase?: string
+            voiceTone?: string
+            age?: number
+            gender?: string
             baseImage?: string
+            expressions?: Record<string, string>
+            views?: Partial<Record<CharacterView, string>>
           }>
         }
       }>(`/api/project/${id}`)
@@ -1652,15 +1676,7 @@ export function useWorkbench() {
         // 同步到 selectedStyleId (兼容旧逻辑)
         selectedStyleId.value = response.data.project.styleId || ''
         // 加载保存的故事创意和小说原文
-        const scriptData = response.data.script as { 
-          rawText?: string
-          storyIdea?: string
-          novelText?: string
-          selectedStyleId?: string
-          selectedModels?: SelectedModels
-          outline?: StoryOutline
-          inputMode?: 'idea' | 'script'
-        } | undefined
+        const scriptData = response.data.script
         storyIdea.value = scriptData?.storyIdea || scriptData?.rawText || ''
         novelText.value = scriptData?.novelText || ''
         // 加载故事大纲
@@ -1713,8 +1729,18 @@ export function useWorkbench() {
           name: c.name,
           appearance: c.appearance,
           role: c.role || 'supporting',
+          personality: (c as { personality?: string }).personality,
+          age: (c as { age?: number }).age,
+          gender: (c as { gender?: string }).gender,
           baseImage: c.baseImage,
+          expressions: (c as { expressions?: Record<string, string> }).expressions || undefined,
           views: (c as { views?: Partial<Record<CharacterView, string>> }).views,
+          traits: (c as { traits?: string[] }).traits || undefined,
+          background: (c as { background?: string }).background,
+          motivation: (c as { motivation?: string }).motivation,
+          speakingStyle: (c as { speakingStyle?: string }).speakingStyle,
+          catchphrase: (c as { catchphrase?: string }).catchphrase,
+          voiceTone: (c as { voiceTone?: string }).voiceTone,
           generating: false,
           generatingViews: false
         }))
@@ -1748,6 +1774,7 @@ export function useWorkbench() {
 
   async function saveProject() {
     saving.value = true
+    saveError.value = null
     try {
       let id = projectId.value
 
@@ -1776,6 +1803,36 @@ export function useWorkbench() {
 
       if (!id) {
         throw new Error('创建项目失败')
+      }
+
+      const normalizeScopedId = (entity: 'scene' | 'char', sourceId: string) => {
+        const scopedPrefix = `${entity}_${id}_`
+        if (sourceId.startsWith(scopedPrefix)) return sourceId
+        return `${scopedPrefix}${sourceId}`
+      }
+
+      // 统一规范 ID，避免不同项目间 ID 冲突
+      const charIdMap = new Map<string, string>()
+      scenes.value.forEach((scene) => {
+        const nextId = normalizeScopedId('scene', scene.id)
+        if (nextId !== scene.id) {
+          scene.id = nextId
+        }
+      })
+      characters.value.forEach((char) => {
+        const previousId = char.id
+        const nextId = normalizeScopedId('char', previousId)
+        if (nextId !== previousId) {
+          char.id = nextId
+          charIdMap.set(previousId, nextId)
+        }
+      })
+      if (charIdMap.size > 0) {
+        relationships.value = relationships.value.map(rel => ({
+          ...rel,
+          fromCharacterId: charIdMap.get(rel.fromCharacterId) || rel.fromCharacterId,
+          toCharacterId: charIdMap.get(rel.toCharacterId) || rel.toCharacterId
+        }))
       }
 
       await $fetch(`/api/project/${id}`, {
@@ -1819,7 +1876,17 @@ export function useWorkbench() {
             name: c.name,
             role: c.role,
             appearance: c.appearance,
+            personality: c.personality,
+            traits: c.traits,
+            background: c.background,
+            motivation: c.motivation,
+            speakingStyle: c.speakingStyle,
+            catchphrase: c.catchphrase,
+            voiceTone: c.voiceTone,
+            age: c.age,
+            gender: c.gender,
             baseImage: c.baseImage,
+            expressions: c.expressions,
             views: c.views
           }))
         }
@@ -1827,6 +1894,7 @@ export function useWorkbench() {
 
       console.log('项目保存成功')
     } catch (e) {
+      saveError.value = e instanceof Error ? e.message : '未知错误'
       console.error('保存项目失败:', e)
     } finally {
       saving.value = false
@@ -1841,6 +1909,7 @@ export function useWorkbench() {
     storyIdea,
     novelText,
     saving,
+    saveError,
     loading,
 
     // 项目预设配置
