@@ -1,5 +1,91 @@
-import { eq } from 'drizzle-orm'
-import { db, projects, scripts, scenes, characters } from '../../db'
+import { and, desc, eq, inArray } from 'drizzle-orm'
+import { db, projects, scripts, scenes, characters, videoTasks } from '../../db'
+
+function normalizeSceneVideoUrl(rawValue?: string | null): string | null {
+  const raw = rawValue?.trim()
+  if (!raw) return null
+
+  if (raw.startsWith('url:')) {
+    return normalizeSceneVideoUrl(raw.slice(4))
+  }
+
+  if (raw.startsWith('/videos/')) {
+    const filename = raw.slice('/videos/'.length)
+    return filename ? `/api/video/file/${filename}` : null
+  }
+
+  if (raw.startsWith('/api/video/file/')) return raw
+  if (raw.startsWith('http')) return raw
+  if (raw.startsWith('data:video')) return raw
+  if (raw.startsWith('/')) return raw
+  if (raw.startsWith('ref:')) return null
+
+  return `data:video/mp4;base64,${raw}`
+}
+
+async function hydrateSceneVideoUrlsFromTasks(projectScenes: typeof scenes.$inferSelect[]): Promise<void> {
+  if (projectScenes.length === 0) return
+
+  const missingVideoSceneIds = projectScenes
+    .filter(scene => !normalizeSceneVideoUrl(scene.videoUrl))
+    .map(scene => scene.id)
+
+  if (missingVideoSceneIds.length === 0) return
+
+  const completedTasks = await db.select({
+    sceneId: videoTasks.sceneId,
+    videoData: videoTasks.videoData,
+    updatedAt: videoTasks.updatedAt
+  })
+    .from(videoTasks)
+    .where(and(
+      inArray(videoTasks.sceneId, missingVideoSceneIds),
+      eq(videoTasks.status, 'completed')
+    ))
+    .orderBy(desc(videoTasks.updatedAt))
+    .all()
+
+  const latestVideoByScene = new Map<string, string>()
+  for (const task of completedTasks) {
+    const sceneId = task.sceneId
+    if (!sceneId || latestVideoByScene.has(sceneId)) continue
+
+    const normalized = normalizeSceneVideoUrl(task.videoData)
+    if (normalized) {
+      latestVideoByScene.set(sceneId, normalized)
+    }
+  }
+
+  const sceneUpdates: Array<{ id: string, videoUrl: string }> = []
+
+  for (const scene of projectScenes) {
+    const normalizedCurrent = normalizeSceneVideoUrl(scene.videoUrl)
+    const recovered = normalizedCurrent || latestVideoByScene.get(scene.id)
+    if (!recovered) continue
+
+    if (scene.videoUrl !== recovered) {
+      scene.videoUrl = recovered
+      sceneUpdates.push({ id: scene.id, videoUrl: recovered })
+    }
+
+    if (scene.status !== 'video_ready') {
+      scene.status = 'video_ready'
+    }
+  }
+
+  if (sceneUpdates.length === 0) return
+
+  const now = new Date().toISOString()
+  await Promise.all(sceneUpdates.map(scene =>
+    db.update(scenes)
+      .set({
+        videoUrl: scene.videoUrl,
+        status: 'video_ready',
+        updatedAt: now
+      })
+      .where(eq(scenes.id, scene.id))
+  ))
+}
 
 /**
  * 获取项目详情
@@ -36,6 +122,9 @@ export default defineEventHandler(async (event) => {
         .where(eq(scenes.scriptId, script.id))
         .orderBy(scenes.orderIndex)
         .all()
+
+      // 兜底修复：若 scene.video_url 丢失，尝试从已完成的 video_tasks 回填
+      await hydrateSceneVideoUrlsFromTasks(projectScenes)
     }
 
     // 获取项目的角色
@@ -93,32 +182,36 @@ export default defineEventHandler(async (event) => {
               totalDuration: script.totalDuration
             }
           : null,
-        scenes: projectScenes.map(s => ({
-          id: s.id,
-          orderIndex: s.orderIndex,
-          title: s.title,
-          description: s.description,
-          setting: s.setting ? JSON.parse(s.setting) : null,
-          characters: s.characters ? JSON.parse(s.characters) : [],
-          dialogues: s.dialogues ? JSON.parse(s.dialogues) : [],
-          duration: s.duration,
-          narration: s.narration,
-          // 镜头语言
-          shotType: s.shotType,
-          cameraMovement: s.cameraMovement,
-          cameraNote: s.cameraNote,
-          // 转场
-          transitionIn: s.transitionIn,
-          transitionOut: s.transitionOut,
-          transitionDuration: s.transitionDuration,
-          // 帧和视频
-          firstFrame: s.firstFrame,
-          lastFrame: s.lastFrame,
-          videoUrl: s.videoUrl,
-          storyboard: s.storyboard ? JSON.parse(s.storyboard) : null,
-          sceneVisual: s.sceneVisual ? JSON.parse(s.sceneVisual) : null,
-          status: s.status
-        })),
+        scenes: projectScenes.map((s) => {
+          const normalizedVideoUrl = normalizeSceneVideoUrl(s.videoUrl)
+
+          return {
+            id: s.id,
+            orderIndex: s.orderIndex,
+            title: s.title,
+            description: s.description,
+            setting: s.setting ? JSON.parse(s.setting) : null,
+            characters: s.characters ? JSON.parse(s.characters) : [],
+            dialogues: s.dialogues ? JSON.parse(s.dialogues) : [],
+            duration: s.duration,
+            narration: s.narration,
+            // 镜头语言
+            shotType: s.shotType,
+            cameraMovement: s.cameraMovement,
+            cameraNote: s.cameraNote,
+            // 转场
+            transitionIn: s.transitionIn,
+            transitionOut: s.transitionOut,
+            transitionDuration: s.transitionDuration,
+            // 帧和视频
+            firstFrame: s.firstFrame,
+            lastFrame: s.lastFrame,
+            videoUrl: normalizedVideoUrl,
+            storyboard: s.storyboard ? JSON.parse(s.storyboard) : null,
+            sceneVisual: s.sceneVisual ? JSON.parse(s.sceneVisual) : null,
+            status: normalizedVideoUrl ? 'video_ready' : s.status
+          }
+        }),
         characters: projectCharacters.map(c => ({
           id: c.id,
           name: c.name,

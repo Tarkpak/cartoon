@@ -338,6 +338,7 @@ export async function _geminiGenerateImage(options: {
   model?: string
   prompt: string
   referenceImage?: { data: string, mimeType: string }
+  referenceImages?: string[]
   maxRetries?: number
 }): Promise<{ imageData: string, mimeType: string, text?: string }> {
   console.log('[Gemini] _geminiGenerateImage 开始执行')
@@ -353,14 +354,46 @@ export async function _geminiGenerateImage(options: {
   
   const model = options.model || ImageModels.HIGH_QUALITY
 
+  // 统一收集参考图：兼容单图(referenceImage)和多图(referenceImages)
+  const normalizedReferences: Array<{ data: string, mimeType: string }> = []
+  const seenReferenceData = new Set<string>()
+
+  const addReference = (data: string, mimeType: string) => {
+    if (!data || seenReferenceData.has(data)) return
+    seenReferenceData.add(data)
+    normalizedReferences.push({ data, mimeType: mimeType || 'image/png' })
+  }
+
+  if (options.referenceImage?.data) {
+    addReference(options.referenceImage.data, options.referenceImage.mimeType)
+  }
+
+  if (options.referenceImages?.length) {
+    for (const rawImage of options.referenceImages) {
+      if (!rawImage) continue
+
+      // 支持 data URL 和纯 base64 两种格式
+      const dataUrlMatch = rawImage.match(/^data:([^;]+);base64,(.+)$/)
+      if (dataUrlMatch?.[1] && dataUrlMatch[2]) {
+        addReference(dataUrlMatch[2], dataUrlMatch[1])
+      } else {
+        addReference(rawImage, 'image/png')
+      }
+
+      // 控制上限，避免请求体过大
+      if (normalizedReferences.length >= 4) break
+    }
+  }
+
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Gemini] generateImage 请求参数:`, {
     model,
     promptLength: options.prompt.length,
     prompt: options.prompt,
-    hasReferenceImage: !!options.referenceImage,
-    referenceImageMimeType: options.referenceImage?.mimeType,
-    referenceImageDataLength: options.referenceImage?.data?.length,
+    hasReferenceImage: normalizedReferences.length > 0,
+    referenceImageCount: normalizedReferences.length,
+    referenceImageMimeTypes: Array.from(new Set(normalizedReferences.map(img => img.mimeType))),
+    referenceImageDataLengths: normalizedReferences.map(img => img.data.length).slice(0, 4),
     maxRetries: options.maxRetries
   })
 
@@ -373,11 +406,11 @@ export async function _geminiGenerateImage(options: {
     ]
 
     // 如果有参考图片，添加到请求中
-    if (options.referenceImage) {
+    for (const refImage of normalizedReferences) {
       parts.push({
         inlineData: {
-          data: options.referenceImage.data,
-          mimeType: options.referenceImage.mimeType
+          data: refImage.data,
+          mimeType: refImage.mimeType
         }
       })
     }

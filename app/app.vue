@@ -11,8 +11,8 @@ useHead({
   }
 })
 
-const title = 'Manju - AI漫剧生成系统'
-const description = 'AI驱动的漫剧创作平台。从文本到视频，一键生成专业级AI漫剧。'
+const title = 'Manju - AI影视生成系统'
+const description = 'AI驱动的影视创作平台。从文本到视频，一键生成专业级AI影视内容。'
 
 useSeoMeta({
   title,

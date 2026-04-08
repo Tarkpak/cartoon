@@ -206,6 +206,7 @@ function handleSceneSave(updatedScene: {
   id: string
   title: string
   description: string
+  narration?: string
   characters: Array<{ name: string, appearance?: string, emotion?: string }>
   dialogues: Array<{ character: string, text: string, emotion?: string }>
   duration: number

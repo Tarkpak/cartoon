@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Manju** is an AI-powered manga/video generation system built with Nuxt.js 4. It automates the creation of animated manga content from story ideas or scripts using multiple AI providers (Google Gemini, Alibaba Qwen, Volcengine/Doubao).
+**Manju** is an AI-powered film/video generation system built with Nuxt.js 4. It automates the creation of dynamic visual content from story ideas or scripts using multiple AI providers (Google Gemini, Alibaba Qwen, Volcengine/Doubao).
 
 ## Tech Stack
 

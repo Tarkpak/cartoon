@@ -308,6 +308,12 @@ function handleDragEnd() {
           <p class="text-sm text-muted-foreground mb-2 line-clamp-2">
             {{ scene.description }}
           </p>
+          <p
+            v-if="scene.narration"
+            class="text-xs text-muted-foreground mb-2 line-clamp-2"
+          >
+            旁白：{{ scene.narration }}
+          </p>
           <div class="flex flex-wrap gap-2">
             <!-- 镜头语言标签 -->
             <Badge

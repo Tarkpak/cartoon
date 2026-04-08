@@ -5,7 +5,7 @@ import * as volcengine from '../../utils/volcengine'
 import { getSelectedModels, findVideoModel } from '../../utils/model-provider'
 import { getWorkflowModels } from '../models/workflow.get'
 import { videoLimiter } from '../../utils/concurrency'
-import { db, videoTasks as videoTasksTable } from '../../db'
+import { db, scenes as scenesTable, videoTasks as videoTasksTable } from '../../db'
 import {
   GenerateVideoRequestSchema,
   type GeneratedVideo
@@ -105,6 +105,48 @@ async function updateTaskProgress(taskId: string, progress: number, status?: Tas
   await db.update(videoTasksTable)
     .set(updateData)
     .where(eq(videoTasksTable.id, taskId))
+}
+
+function normalizeSceneVideoUrlFromTask(videoData?: string | null): string | null {
+  const raw = videoData?.trim()
+  if (!raw) return null
+
+  if (raw.startsWith('url:')) {
+    return normalizeSceneVideoUrlFromTask(raw.slice(4))
+  }
+
+  if (raw.startsWith('/videos/')) {
+    const filename = raw.slice('/videos/'.length)
+    return filename ? `/api/video/file/${filename}` : null
+  }
+
+  if (raw.startsWith('/api/video/file/')) return raw
+  if (raw.startsWith('http')) return raw
+  if (raw.startsWith('data:video')) return raw
+  if (raw.startsWith('/')) return raw
+  if (raw.startsWith('ref:')) return null
+
+  // 兜底兼容：如果是纯 base64，补充 data URI
+  return `data:video/mp4;base64,${raw}`
+}
+
+async function syncSceneVideoResult(sceneId: string, videoData?: string | null): Promise<void> {
+  if (!sceneId) return
+
+  const normalizedVideoUrl = normalizeSceneVideoUrlFromTask(videoData)
+  if (!normalizedVideoUrl) return
+
+  try {
+    await db.update(scenesTable)
+      .set({
+        videoUrl: normalizedVideoUrl,
+        status: 'video_ready',
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(scenesTable.id, sceneId))
+  } catch (error) {
+    console.warn(`[VideoGen] 场景视频状态回写失败: ${sceneId}`, error)
+  }
 }
 
 /**
@@ -349,6 +391,7 @@ async function generateVideoWithQwen(
         updatedAt: new Date().toISOString()
       })
       .where(eq(videoTasksTable.id, taskId))
+    await syncSceneVideoResult(sceneId, generatedVideo.videoData)
 
     console.log(`[VideoGen] 千问视频生成完成: ${taskId}`)
   } catch (error) {
@@ -552,6 +595,7 @@ async function generateVideoWithGemini(
         updatedAt: new Date().toISOString()
       })
       .where(eq(videoTasksTable.id, taskId))
+    await syncSceneVideoResult(sceneId, result.videoData)
 
     console.log(`[VideoGen] 视频生成完成: ${taskId}`)
   } catch (error) {
@@ -674,6 +718,7 @@ async function generateVideoWithVolcengine(
         updatedAt: new Date().toISOString()
       })
       .where(eq(videoTasksTable.id, taskId))
+    await syncSceneVideoResult(sceneId, generatedVideo.videoData)
 
     console.log(`[VideoGen] 火山引擎视频生成完成: ${taskId}`)
   } catch (error) {
