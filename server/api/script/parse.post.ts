@@ -46,9 +46,29 @@ export default defineEventHandler(async (event) => {
       throw new Error('无法获取提示词模板，请检查数据库配置')
     }
 
+    const textLength = text.trim().length
+    let recommendedMinScenes = 6
+    if (textLength > 3200) recommendedMinScenes = 20
+    else if (textLength > 2400) recommendedMinScenes = 16
+    else if (textLength > 1600) recommendedMinScenes = 12
+    else if (textLength > 900) recommendedMinScenes = 8
+
+    // 兜底约束：确保旁白不丢失（兼容旧模板未显式要求 narration 字段的情况）
+    const promptWithNarration = `${prompt}
+
+【补充约束 - narration 字段】
+1. 场景中的旁白/画外音/内心独白需要输出到 scenes[i].narration（字符串或 null）。
+2. dialogues 仅保留真实角色台词，不要把“旁白”作为角色写入 dialogues。
+3. 若某场景无旁白，narration 返回 null 或空字符串。
+
+【补充约束 - 剧情覆盖与场景密度】
+1. 必须覆盖输入文本的完整主线，不要省略关键事件和关键旁白信息。
+2. 本次输入文本长度约 ${textLength} 字，场景数量不少于 ${recommendedMinScenes} 场。
+3. 若同一场景包含多个动作转折、情绪转折或叙事跳跃，必须拆分成连续多个场景。`
+
     // 3. 使用业务流程配置的模型解析
     const result = await generateJSONForWorkflow<ParsedScript>('script_parsing', {
-      prompt,
+      prompt: promptWithNarration,
       temperature: 0.3,
       maxRetries: 2
     })

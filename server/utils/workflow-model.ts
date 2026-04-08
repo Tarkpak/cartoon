@@ -170,6 +170,7 @@ export async function generateImageForWorkflow(
     model: modelId,
     prompt: options.prompt,
     referenceImage: options.referenceImage,
+    referenceImages: options.referenceImages,
     maxRetries: options.maxRetries
   })
   return {

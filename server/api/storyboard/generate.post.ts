@@ -28,7 +28,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { sceneId, sceneDescription, dialogues, style } = parseResult.data
+  const { sceneId, sceneDescription, dialogues, narration, style } = parseResult.data
 
   try {
     // 从数据库获取提示词模板（已合并系统提示词和用户提示词）
@@ -37,16 +37,26 @@ export default defineEventHandler(async (event) => {
       {
         sceneDescription,
         dialogues: dialogues ? JSON.stringify(dialogues) : '[]',
+        narration: narration || '',
         style
       }
-    ) || buildStoryboardPrompt(sceneDescription, dialogues, style)
+    ) || buildStoryboardPrompt(sceneDescription, dialogues, narration, style)
+
+    const promptWithNarration = narration?.trim()
+      ? `${prompt}
+
+【补充信息 - 场景旁白】
+${narration.trim()}
+
+要求：若镜头存在旁白，请将其合理分配到对应 shot.dialogue 字段（可使用角色名“旁白”或 character=null）。`
+      : prompt
 
     // 不再需要单独的系统提示词
     const systemInstruction = undefined
 
     // 使用业务流程配置的模型
     let result = await generateJSONForWorkflow<Storyboard | Array<unknown>>('storyboard_generation', {
-      prompt,
+      prompt: promptWithNarration,
       systemInstruction,
       temperature: 0.3,
       maxRetries: 2
@@ -107,6 +117,7 @@ export default defineEventHandler(async (event) => {
 function buildStoryboardPrompt(
   sceneDescription: string,
   dialogues?: Array<{ character: string, text: string, emotion?: string }>,
+  narration?: string | null,
   style?: string
 ): string {
   if (!style) {
@@ -121,6 +132,13 @@ ${sceneDescription}
 ## 画风
 ${style}
 `
+
+  if (narration && narration.trim()) {
+    prompt += `
+## 场景旁白
+${narration.trim()}
+`
+  }
 
   if (dialogues && dialogues.length > 0) {
     prompt += `

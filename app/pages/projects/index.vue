@@ -209,7 +209,7 @@ const filteredProjects = computed(() => {
           项目管理
         </h1>
         <p class="text-muted-foreground">
-          管理您的AI漫剧项目
+          管理您的AI影视项目
         </p>
       </div>
       <Button

@@ -21,6 +21,7 @@ export interface SceneData {
   description: string
   characters: Array<{ name: string, appearance?: string, emotion?: string }>
   dialogues: Array<{ character: string, text: string, emotion?: string }>
+  narration?: string
   duration: number
   setting?: { location: string, timeOfDay: string, mood?: string, weather?: string }
   active: boolean
@@ -211,6 +212,7 @@ export function useWorkbench() {
       description: '请输入场景描述...',
       characters: [],
       dialogues: [],
+      narration: '',
       duration: 8,
       setting: { location: '未知', timeOfDay: 'day' },
       active: false,
@@ -263,6 +265,34 @@ export function useWorkbench() {
   }
 
   // 合并场景
+  function mergeNarrationTexts(...parts: Array<string | null | undefined>): string | undefined {
+    const merged = parts
+      .map(part => part?.trim())
+      .filter((part): part is string => !!part)
+
+    if (merged.length === 0) return undefined
+    return Array.from(new Set(merged)).join('\n\n')
+  }
+
+  function splitNarrationText(narration?: string | null): [string | undefined, string | undefined] {
+    if (!narration?.trim()) return [undefined, undefined]
+
+    const segments = narration
+      .split(/(?<=[。！？.!?])/g)
+      .map(segment => segment.trim())
+      .filter(Boolean)
+
+    if (segments.length <= 1) {
+      return [narration.trim(), undefined]
+    }
+
+    const mid = Math.ceil(segments.length / 2)
+    return [
+      segments.slice(0, mid).join(''),
+      segments.slice(mid).join('')
+    ]
+  }
+
   function mergeWithNextScene(sceneIndex: number) {
     if (sceneIndex >= scenes.value.length - 1) {
       alert('这是最后一个场景，无法向后合并')
@@ -283,6 +313,7 @@ export function useWorkbench() {
       description: `${currentScene.description}\n\n${nextScene.description}`,
       characters: [...currentScene.characters],
       dialogues: [...currentScene.dialogues, ...nextScene.dialogues],
+      narration: mergeNarrationTexts(currentScene.narration, nextScene.narration),
       duration: currentScene.duration + nextScene.duration,
       setting: currentScene.setting,
       active: currentScene.active || nextScene.active,
@@ -321,6 +352,7 @@ export function useWorkbench() {
     const firstHalf = sentences.slice(0, midPoint).join('')
     const secondHalf = sentences.slice(midPoint).join('')
     const dialogueMidPoint = Math.ceil(scene.dialogues.length / 2)
+    const [firstNarration, secondNarration] = splitNarrationText(scene.narration)
 
     const firstScene: SceneData = {
       id: scene.id,
@@ -328,6 +360,7 @@ export function useWorkbench() {
       description: firstHalf,
       characters: [...scene.characters],
       dialogues: scene.dialogues.slice(0, dialogueMidPoint),
+      narration: firstNarration,
       duration: Math.ceil(scene.duration / 2),
       setting: scene.setting,
       active: scene.active,
@@ -343,6 +376,7 @@ export function useWorkbench() {
       description: secondHalf,
       characters: [...scene.characters],
       dialogues: scene.dialogues.slice(dialogueMidPoint),
+      narration: secondNarration,
       duration: Math.floor(scene.duration / 2),
       setting: scene.setting,
       active: false,
@@ -372,6 +406,7 @@ export function useWorkbench() {
             description: string
             characters: Array<{ name: string, appearance?: string, emotion?: string }>
             dialogues?: Array<{ character: string, text: string, emotion?: string }>
+            narration?: string | null
             duration: number
             setting?: { location: string, timeOfDay: string }
           }>
@@ -393,20 +428,39 @@ export function useWorkbench() {
           characters: response.data.characters
         })
 
-        scenes.value = response.data.scenes.map((s, i) => ({
-          id: s.id || `scene_${i + 1}`,
-          title: s.title || `${s.setting?.location || '场景'} - ${s.setting?.timeOfDay || ''}`,
-          description: s.description,
-          characters: s.characters || [],
-          dialogues: s.dialogues || [],
-          duration: s.duration || 8,
-          setting: s.setting,
-          active: i === 0,
-          frameStatus: 'pending' as const,
-          videoStatus: 'pending' as const,
-          storyboardStatus: 'pending' as const,
-          sceneVisualStatus: 'pending' as const
-        }))
+        scenes.value = response.data.scenes.map((s, i) => {
+          const normalizedDialogues = (s.dialogues || []).filter(dialogue => {
+            const speaker = normalizeCharacterName(dialogue.character)
+            return !['旁白', 'narration', 'voiceover', '画外音', 'os', 'vo', '内心独白'].includes(speaker)
+          })
+
+          const narrationFromDialogues = (s.dialogues || [])
+            .filter(dialogue => {
+              const speaker = normalizeCharacterName(dialogue.character)
+              return ['旁白', 'narration', 'voiceover', '画外音', 'os', 'vo', '内心独白'].includes(speaker)
+            })
+            .map(dialogue => dialogue.text?.trim())
+            .filter((text): text is string => !!text)
+            .join('\n')
+
+          const normalizedNarration = mergeNarrationTexts(s.narration, narrationFromDialogues)
+
+          return {
+            id: s.id || `scene_${i + 1}`,
+            title: s.title || `${s.setting?.location || '场景'} - ${s.setting?.timeOfDay || ''}`,
+            description: s.description,
+            characters: s.characters || [],
+            dialogues: normalizedDialogues,
+            narration: normalizedNarration,
+            duration: s.duration || 8,
+            setting: s.setting,
+            active: i === 0,
+            frameStatus: 'pending' as const,
+            videoStatus: 'pending' as const,
+            storyboardStatus: 'pending' as const,
+            sceneVisualStatus: 'pending' as const
+          }
+        })
 
         // 从 API 返回的角色或场景中提取角色
         const charNames = new Set<string>()
@@ -461,6 +515,24 @@ export function useWorkbench() {
 
     parsing.value = true
     try {
+      const totalKeyEvents = outline.value.acts.reduce((sum, act) => sum + (act.keyEvents?.length || 0), 0)
+      const synopsisLength = outline.value.synopsis?.length || 0
+      const novelLength = novelText.value.trim().length
+
+      // 动态估算场景数量，避免固定 8 场导致长剧情被压缩
+      const estimatedByEvents = Math.max(8, totalKeyEvents * 2)
+      const estimatedByLength = novelLength > 0
+        ? Math.ceil(novelLength / 220)
+        : Math.ceil(synopsisLength / 180)
+      const targetSceneCount = Math.max(8, Math.min(20, Math.max(estimatedByEvents, estimatedByLength)))
+
+      console.log('[generateScenesFromOutline] 动态场景数量估算:', {
+        totalKeyEvents,
+        synopsisLength,
+        novelLength,
+        targetSceneCount
+      })
+
       const response = await $fetch<{
         success: boolean
         scenes: Array<{
@@ -470,6 +542,7 @@ export function useWorkbench() {
           setting: { location: string, timeOfDay: string, mood?: string, weather?: string }
           characters: Array<{ name: string, emotion?: string, action?: string }>
           dialogues: Array<{ character: string, text: string, emotion?: string }>
+          narration?: string | null
           duration: number
           actId?: string
         }>
@@ -486,7 +559,7 @@ export function useWorkbench() {
             personality: c.personality,
             speakingStyle: c.speakingStyle
           })),
-          targetSceneCount: 8,
+          targetSceneCount,
           style: currentStylePrompt.value
         }
       })
@@ -502,6 +575,7 @@ export function useWorkbench() {
             appearance: characters.value.find(ch => ch.name === c.name)?.appearance
           })),
           dialogues: s.dialogues,
+          narration: s.narration || undefined,
           duration: s.duration,
           setting: s.setting,
           active: i === 0,
@@ -963,6 +1037,7 @@ export function useWorkbench() {
           sceneId: scene.id,
           sceneDescription: scene.description,
           dialogues: scene.dialogues,
+          narration: scene.narration,
           style: currentStylePrompt.value
         }
       })
@@ -1062,32 +1137,25 @@ export function useWorkbench() {
         }
       }
 
-      // 构建角色资产映射
-      const characterAssets: Record<string, string> = {}
-      characters.value.forEach((char) => {
-        if (char.baseImage) {
-          characterAssets[char.name] = char.baseImage
+      // 只有相邻场景角色有重叠时，才使用上一场景尾帧作为首要参考
+      if (prevLastFrame && currentSceneIndex > 0) {
+        const prevScene = scenes.value[currentSceneIndex - 1]
+        const frameUsageDecision = shouldUsePreviousSceneLastFrame(scene, prevScene)
+        if (!frameUsageDecision.use) {
+          console.log(`[generateFrames] 跳过上一场景尾帧参考: ${frameUsageDecision.reason}`)
+          prevLastFrame = undefined
+        } else if (frameUsageDecision.overlaps.length > 0) {
+          console.log(`[generateFrames] 保留上一场景尾帧参考，重叠角色: ${frameUsageDecision.overlaps.join('、')}`)
         }
-      })
+      }
 
-      // 构建角色视觉锚点（用于强制角色一致性）
-      const characterAnchors = characters.value
-        .filter(char => char.baseImage)
-        .map(char => ({
-          name: char.name,
-          coreFeatures: {
-            hairStyle: extractFeatureFromAppearance(char.appearance, 'hair'),
-            hairColor: extractFeatureFromAppearance(char.appearance, 'hairColor'),
-            eyeColor: extractFeatureFromAppearance(char.appearance, 'eye'),
-            facialFeatures: extractFeatureFromAppearance(char.appearance, 'face'),
-            bodyType: extractFeatureFromAppearance(char.appearance, 'body')
-          },
-          outfit: {
-            description: extractFeatureFromAppearance(char.appearance, 'outfit') || char.appearance || ''
-          },
-          referenceImage: char.baseImage,
-          consistencyWeight: 0.9
-        }))
+      // 构建角色资产映射与锚点（支持场景角色名与角色设定名不完全一致）
+      const {
+        characterAssets,
+        characterAnchors,
+        mappedCharacters,
+        unmatchedCharacters
+      } = buildCharacterReferencesForScene(scene)
 
       // 构建连续性上下文
       const continuityContext = buildContinuityContext(currentSceneIndex, totalScenes, !!prevLastFrame)
@@ -1095,6 +1163,12 @@ export function useWorkbench() {
       console.log(`[generateFrames] 场景 ${scene.id} (${currentSceneIndex + 1}/${totalScenes})`)
       console.log(`[generateFrames] 上一场景尾帧: ${prevLastFrame ? '有' : '无'}`)
       console.log(`[generateFrames] 角色锚点: ${characterAnchors.length}个`)
+      if (mappedCharacters.length > 0) {
+        console.log(`[generateFrames] 角色映射: ${mappedCharacters.join(' | ')}`)
+      }
+      if (unmatchedCharacters.length > 0) {
+        console.warn(`[generateFrames] 未匹配到角色立绘: ${unmatchedCharacters.join('、')}`)
+      }
 
       const response = await $fetch<{
         success: boolean
@@ -1128,7 +1202,7 @@ export function useWorkbench() {
           continuityContext,
           characterAnchors,
           enforceCharacterConsistency: true,
-          enforcePreviousFrameConnection: true
+          enforcePreviousFrameConnection: !!prevLastFrame
         }
       })
       if (response.success) {
@@ -1141,6 +1215,355 @@ export function useWorkbench() {
     } catch (e) {
       console.error('首尾帧生成失败:', e)
       scene.frameStatus = 'error'
+    }
+  }
+
+  /**
+   * 归一化角色名（用于模糊匹配）
+   */
+  function normalizeCharacterName(name?: string): string {
+    if (!name) return ''
+    return name
+      .toLowerCase()
+      .trim()
+      .replace(/[\s\u3000]/g, '')
+      .replace(/[^\p{L}\p{N}\u4E00-\u9FFF]/gu, '')
+  }
+
+  /**
+   * 拆分角色名中的别名（如 "张三/阿三"）
+   */
+  function splitCharacterAliases(name: string): string[] {
+    const trimmed = name.trim()
+    if (!trimmed) return []
+
+    const parts = trimmed
+      .split(/[/／|｜,，、\s]+/g)
+      .map(part => part.trim())
+      .filter(Boolean)
+
+    return Array.from(new Set([trimmed, ...parts]))
+  }
+
+  /**
+   * 字符级 Jaccard 相似度（0-1）
+   */
+  function calculateTextSimilarity(textA?: string, textB?: string): number {
+    const a = normalizeCharacterName(textA)
+    const b = normalizeCharacterName(textB)
+    if (!a || !b) return 0
+
+    const setA = new Set(a.split(''))
+    const setB = new Set(b.split(''))
+    if (setA.size === 0 || setB.size === 0) return 0
+
+    let intersection = 0
+    for (const char of setA) {
+      if (setB.has(char)) intersection++
+    }
+    const union = new Set([...setA, ...setB]).size
+    return union > 0 ? intersection / union : 0
+  }
+
+  /**
+   * 根据场景角色信息匹配已生成立绘的角色
+   */
+  function resolveCharacterForScene(
+    sceneCharacter: SceneData['characters'][number],
+    scene: SceneData
+  ): CharacterData | undefined {
+    const availableCharacters = characters.value.filter(char => !!char.baseImage)
+    if (availableCharacters.length === 0) return undefined
+
+    const aliases = splitCharacterAliases(sceneCharacter.name)
+    const aliasNormSet = new Set(aliases.map(alias => normalizeCharacterName(alias)).filter(Boolean))
+
+    // 1) 精确匹配（原始名）
+    for (const alias of aliases) {
+      const exact = availableCharacters.find(char => char.name === alias)
+      if (exact) return exact
+    }
+
+    // 2) 归一化精确匹配
+    for (const char of availableCharacters) {
+      const normalized = normalizeCharacterName(char.name)
+      if (normalized && aliasNormSet.has(normalized)) {
+        return char
+      }
+    }
+
+    // 3) 包含关系匹配（例如“小秀娥” -> “秀娥”）
+    for (const char of availableCharacters) {
+      const charNorm = normalizeCharacterName(char.name)
+      if (!charNorm) continue
+
+      for (const aliasNorm of aliasNormSet) {
+        if (aliasNorm.length >= 2 && charNorm.length >= 2 && (aliasNorm.includes(charNorm) || charNorm.includes(aliasNorm))) {
+          return char
+        }
+      }
+    }
+
+    // 4) 外观/上下文相似度匹配（阈值过滤，避免误匹配）
+    let bestMatch: CharacterData | undefined
+    let bestScore = 0
+
+    for (const char of availableCharacters) {
+      let score = 0
+
+      // 外观描述相似度
+      const appearanceScore = calculateTextSimilarity(sceneCharacter.appearance, char.appearance)
+      score += appearanceScore * 0.6
+
+      // 场景描述或对话中显式提到该角色，提升置信度
+      if (scene.description.includes(char.name)) {
+        score += 0.2
+      }
+      if (scene.dialogues.some(dialogue => dialogue.character === char.name)) {
+        score += 0.3
+      }
+
+      if (score > bestScore) {
+        bestScore = score
+        bestMatch = char
+      }
+    }
+
+    return bestScore >= 0.45 ? bestMatch : undefined
+  }
+
+  /**
+   * 为当前场景构建角色资产和锚点
+   * - 资产 key 同时包含角色设定名与场景角色名，保证后端按场景名取图时也能命中
+   * - 锚点 name 使用场景角色名，保证一致性提示词可命中
+   */
+  function buildCharacterReferencesForScene(scene: SceneData) {
+    const characterAssets: Record<string, string> = {}
+    const characterAnchors: Array<{
+      name: string
+      coreFeatures: {
+        hairStyle?: string
+        hairColor?: string
+        eyeColor?: string
+        facialFeatures?: string
+        bodyType?: string
+      }
+      outfit: { description: string }
+      referenceImage?: string
+      consistencyWeight: number
+    }> = []
+
+    // 保留角色设定名 -> 立绘映射（兼容旧逻辑）
+    characters.value.forEach((char) => {
+      if (char.baseImage) {
+        characterAssets[char.name] = char.baseImage
+      }
+    })
+
+    const mappedCharacters: string[] = []
+    const unmatchedCharacters: string[] = []
+    const usedAnchorNames = new Set<string>()
+
+    scene.characters.forEach((sceneCharacter) => {
+      const matchedCharacter = resolveCharacterForScene(sceneCharacter, scene)
+      if (!matchedCharacter?.baseImage) {
+        unmatchedCharacters.push(sceneCharacter.name)
+        return
+      }
+
+      // 用场景角色名作为 key，确保后端按 scene.characters 取 referenceImages 时能命中
+      characterAssets[sceneCharacter.name] = matchedCharacter.baseImage
+
+      if (!usedAnchorNames.has(sceneCharacter.name)) {
+        usedAnchorNames.add(sceneCharacter.name)
+        characterAnchors.push({
+          name: sceneCharacter.name,
+          coreFeatures: {
+            hairStyle: extractFeatureFromAppearance(matchedCharacter.appearance, 'hair'),
+            hairColor: extractFeatureFromAppearance(matchedCharacter.appearance, 'hairColor'),
+            eyeColor: extractFeatureFromAppearance(matchedCharacter.appearance, 'eye'),
+            facialFeatures: extractFeatureFromAppearance(matchedCharacter.appearance, 'face'),
+            bodyType: extractFeatureFromAppearance(matchedCharacter.appearance, 'body')
+          },
+          outfit: {
+            description: extractFeatureFromAppearance(matchedCharacter.appearance, 'outfit') || matchedCharacter.appearance || ''
+          },
+          referenceImage: matchedCharacter.baseImage,
+          consistencyWeight: 0.95
+        })
+      }
+
+      mappedCharacters.push(
+        sceneCharacter.name === matchedCharacter.name
+          ? `${sceneCharacter.name}`
+          : `${sceneCharacter.name} -> ${matchedCharacter.name}`
+      )
+    })
+
+    return {
+      characterAssets,
+      characterAnchors,
+      mappedCharacters: Array.from(new Set(mappedCharacters)),
+      unmatchedCharacters: Array.from(new Set(unmatchedCharacters))
+    }
+  }
+
+  /**
+   * 计算场景角色身份映射（用于相邻场景角色重叠判定）
+   */
+  function getSceneCharacterIdentityMap(scene: SceneData): Map<string, string> {
+    const identityMap = new Map<string, string>()
+
+    scene.characters.forEach((sceneCharacter) => {
+      const matchedCharacter = resolveCharacterForScene(sceneCharacter, scene)
+
+      if (matchedCharacter?.id) {
+        identityMap.set(`id:${matchedCharacter.id}`, matchedCharacter.name)
+      }
+
+      const normalizedSceneName = normalizeCharacterName(sceneCharacter.name)
+      if (normalizedSceneName) {
+        identityMap.set(`name:${normalizedSceneName}`, matchedCharacter?.name || sceneCharacter.name)
+      }
+    })
+
+    return identityMap
+  }
+
+  /**
+   * 归一化场景文本（用于地点/时间比较）
+   */
+  function normalizeSceneText(text?: string): string {
+    if (!text) return ''
+    return text
+      .toLowerCase()
+      .trim()
+      .replace(/[\s\u3000]/g, '')
+      .replace(/[^\p{L}\p{N}\u4E00-\u9FFF]/gu, '')
+  }
+
+  /**
+   * 将时间描述归一化到统一时段桶
+   */
+  function normalizeTimeOfDayBucket(timeOfDay?: string): string {
+    const normalized = normalizeSceneText(timeOfDay)
+    if (!normalized) return ''
+
+    if (normalized.includes('dawn') || normalized.includes('凌晨') || normalized.includes('黎明')) return 'dawn'
+    if (normalized.includes('morning') || normalized.includes('早上') || normalized.includes('上午') || normalized.includes('清晨')) return 'morning'
+    if (normalized.includes('noon') || normalized.includes('中午') || normalized.includes('正午')) return 'noon'
+    if (normalized.includes('afternoon') || normalized.includes('下午')) return 'afternoon'
+    if (normalized.includes('evening') || normalized.includes('傍晚') || normalized.includes('黄昏')) return 'evening'
+    if (normalized.includes('night') || normalized.includes('晚上') || normalized.includes('夜晚') || normalized.includes('深夜')) return 'night'
+    if (normalized.includes('day') || normalized.includes('白天')) return 'day'
+
+    return normalized
+  }
+
+  /**
+   * 地点是否发生强切换（几乎无连续性）
+   */
+  function isLocationStronglyDifferent(currentLocation?: string, previousLocation?: string): boolean {
+    const current = normalizeSceneText(currentLocation)
+    const previous = normalizeSceneText(previousLocation)
+    if (!current || !previous) return false
+    if (current === previous || current.includes(previous) || previous.includes(current)) return false
+
+    return calculateTextSimilarity(currentLocation, previousLocation) < 0.3
+  }
+
+  /**
+   * 时间是否发生强切换（昼夜级别变化）
+   */
+  function isTimeStronglyDifferent(currentTime?: string, previousTime?: string): boolean {
+    const currentBucket = normalizeTimeOfDayBucket(currentTime)
+    const previousBucket = normalizeTimeOfDayBucket(previousTime)
+    if (!currentBucket || !previousBucket) return false
+    if (currentBucket === previousBucket) return false
+
+    const dayBuckets = new Set(['dawn', 'morning', 'noon', 'afternoon', 'day'])
+    const nightBuckets = new Set(['evening', 'night'])
+
+    const isCurrentDay = dayBuckets.has(currentBucket)
+    const isCurrentNight = nightBuckets.has(currentBucket)
+    const isPreviousDay = dayBuckets.has(previousBucket)
+    const isPreviousNight = nightBuckets.has(previousBucket)
+
+    if ((isCurrentDay && isPreviousNight) || (isCurrentNight && isPreviousDay)) {
+      return true
+    }
+
+    const currentRaw = normalizeSceneText(currentTime)
+    const previousRaw = normalizeSceneText(previousTime)
+    if (!currentRaw || !previousRaw) return false
+    if (currentRaw.includes(previousRaw) || previousRaw.includes(currentRaw)) return false
+
+    return calculateTextSimilarity(currentTime, previousTime) < 0.25
+  }
+
+  /**
+   * 判定当前场景是否应该使用上一场景尾帧
+   * 规则：相邻场景角色不重叠 -> 不使用上一场景尾帧
+   */
+  function shouldUsePreviousSceneLastFrame(
+    currentScene: SceneData,
+    previousScene?: SceneData
+  ): { use: boolean, overlaps: string[], reason: string } {
+    if (!previousScene?.lastFrame) {
+      return {
+        use: false,
+        overlaps: [],
+        reason: '上一场景没有可用尾帧'
+      }
+    }
+
+    if (currentScene.characters.length === 0 || previousScene.characters.length === 0) {
+      return {
+        use: false,
+        overlaps: [],
+        reason: '相邻场景缺少角色信息，无法建立角色连续性'
+      }
+    }
+
+    const currentIdentityMap = getSceneCharacterIdentityMap(currentScene)
+    const previousIdentityMap = getSceneCharacterIdentityMap(previousScene)
+
+    const overlaps = Array.from(currentIdentityMap.entries())
+      .filter(([identityKey]) => previousIdentityMap.has(identityKey))
+      .map(([, label]) => label)
+
+    const uniqueOverlaps = Array.from(new Set(overlaps))
+
+    if (uniqueOverlaps.length === 0) {
+      return {
+        use: false,
+        overlaps: [],
+        reason: '相邻场景角色不重叠'
+      }
+    }
+
+    // 仅有极少重叠角色时，若地点+时间都发生强切换，则放弃尾帧连接
+    const locationStronglyDifferent = isLocationStronglyDifferent(
+      currentScene.setting?.location,
+      previousScene.setting?.location
+    )
+    const timeStronglyDifferent = isTimeStronglyDifferent(
+      currentScene.setting?.timeOfDay,
+      previousScene.setting?.timeOfDay
+    )
+
+    if (uniqueOverlaps.length <= 1 && locationStronglyDifferent && timeStronglyDifferent) {
+      return {
+        use: false,
+        overlaps: uniqueOverlaps,
+        reason: '仅少量角色重叠且地点、时间发生强切换'
+      }
+    }
+
+    return {
+      use: true,
+      overlaps: uniqueOverlaps,
+      reason: '存在重叠角色'
     }
   }
 
@@ -1258,87 +1681,99 @@ export function useWorkbench() {
     try {
       // 构建增强的视频生成 prompt，优先使用分镜脚本中的信息
       let enhancedPrompt = scene.description
+      const shotTypeDescriptions: Record<ShotType, string> = {
+        extreme_wide: 'extreme wide shot showing vast landscape',
+        wide: 'wide shot showing full environment',
+        medium_wide: 'medium wide shot showing full body with environment',
+        medium: 'medium shot from waist up',
+        medium_close: 'medium close-up from chest up',
+        close: 'close-up shot from shoulders up',
+        extreme_close: 'extreme close-up on face or detail',
+        detail: 'detail shot focusing on specific object'
+      }
+
+      const cameraMovementDescriptions: Record<CameraMovement, string> = {
+        static: 'static camera',
+        push: 'camera pushing forward slowly',
+        pull: 'camera pulling back slowly',
+        pan_left: 'camera panning left',
+        pan_right: 'camera panning right',
+        tilt_up: 'camera tilting up',
+        tilt_down: 'camera tilting down',
+        track: 'camera tracking the subject',
+        dolly: 'camera moving parallel to subject',
+        zoom_in: 'zooming in',
+        zoom_out: 'zooming out',
+        crane: 'crane shot moving vertically',
+        handheld: 'handheld camera with slight shake',
+        arc: 'camera arcing around subject'
+      }
+
+      const narrationBlock = scene.narration?.trim()
+        ? `【场景旁白（必须体现）】\n${scene.narration.trim()}\n请通过人物动作、镜头推进和环境变化把旁白信息明确表现出来。`
+        : ''
+
+      const dialogueBlock = scene.dialogues.length > 0
+        ? `【核心对白】\n${scene.dialogues
+          .map(dialogue => `${dialogue.character}: ${dialogue.text}`)
+          .join('\n')}`
+        : ''
 
       // 如果有分镜脚本，使用分镜中的镜头信息
       if (scene.storyboard && scene.storyboard.shots.length > 0) {
         const cinematicHints: string[] = []
-        
-        // 从分镜脚本中提取镜头信息
+
+        // 从首镜头提取全局镜头语气
         const firstShot = scene.storyboard.shots[0]
         if (firstShot) {
           if (firstShot.shotType) {
-            const shotTypeDescriptions: Record<string, string> = {
-              extreme_wide: 'extreme wide shot showing vast landscape',
-              wide: 'wide shot showing full environment',
-              medium_wide: 'medium wide shot showing full body with environment',
-              medium: 'medium shot from waist up',
-              medium_close: 'medium close-up from chest up',
-              close: 'close-up shot from shoulders up',
-              extreme_close: 'extreme close-up on face or detail',
-              detail: 'detail shot focusing on specific object'
-            }
             cinematicHints.push(shotTypeDescriptions[firstShot.shotType] || firstShot.shotType)
           }
-          
+
           if (firstShot.cameraMovement && firstShot.cameraMovement !== 'static') {
-            const cameraMovementDescriptions: Record<string, string> = {
-              static: 'static camera',
-              push: 'camera pushing forward slowly',
-              pull: 'camera pulling back slowly',
-              pan_left: 'camera panning left',
-              pan_right: 'camera panning right',
-              tilt_up: 'camera tilting up',
-              tilt_down: 'camera tilting down',
-              track: 'camera tracking the subject',
-              dolly: 'camera moving parallel to subject',
-              zoom_in: 'zooming in',
-              zoom_out: 'zooming out',
-              crane: 'crane shot moving vertically',
-              handheld: 'handheld camera with slight shake',
-              arc: 'camera arcing around subject'
-            }
             cinematicHints.push(cameraMovementDescriptions[firstShot.cameraMovement] || firstShot.cameraMovement)
           }
-          
-          // 使用分镜中的视觉内容描述
-          if (firstShot.visualContent) {
-            enhancedPrompt = firstShot.visualContent
-          }
         }
-        
+
+        const shotSequence = scene.storyboard.shots
+          .map((shot, index) => {
+            const shotType = shotTypeDescriptions[shot.shotType] || shot.shotType
+            const camera = cameraMovementDescriptions[shot.cameraMovement] || shot.cameraMovement
+            const dialogue = shot.dialogue?.trim()
+            const character = shot.character?.trim()
+            const dialogueLine = dialogue
+              ? `对白/旁白: ${character ? `${character}: ` : ''}${dialogue}`
+              : ''
+
+            return [
+              `${index + 1}. ${shot.visualContent}`,
+              `   - Shot: ${shotType}`,
+              `   - Camera: ${camera}`,
+              dialogueLine ? `   - ${dialogueLine}` : '',
+              shot.duration ? `   - Duration hint: ${shot.duration}s` : ''
+            ]
+              .filter(Boolean)
+              .join('\n')
+          })
+          .join('\n')
+
+        const requiredChanges = Math.max(1, Math.min(4, scene.storyboard.shots.length - 1))
+        enhancedPrompt = [
+          '【分镜序列（必须按顺序覆盖，不得只表现首镜头）】',
+          shotSequence,
+          `【镜头推进要求】本段视频至少出现 ${requiredChanges} 次清晰的构图/机位变化，体现完整叙事推进。`,
+          narrationBlock,
+          dialogueBlock,
+          `【场景主描述】\n${scene.description}`
+        ]
+          .filter(Boolean)
+          .join('\n\n')
+
         if (cinematicHints.length > 0) {
           enhancedPrompt = `[Cinematography: ${cinematicHints.join(', ')}] ${enhancedPrompt}`
         }
       } else {
         // 没有分镜脚本时，使用场景级别的镜头设置
-        const shotTypeDescriptions: Record<ShotType, string> = {
-          extreme_wide: 'extreme wide shot showing vast landscape',
-          wide: 'wide shot showing full environment',
-          medium_wide: 'medium wide shot showing full body with environment',
-          medium: 'medium shot from waist up',
-          medium_close: 'medium close-up from chest up',
-          close: 'close-up shot from shoulders up',
-          extreme_close: 'extreme close-up on face or detail',
-          detail: 'detail shot focusing on specific object'
-        }
-
-        const cameraMovementDescriptions: Record<CameraMovement, string> = {
-          static: 'static camera',
-          push: 'camera pushing forward slowly',
-          pull: 'camera pulling back slowly',
-          pan_left: 'camera panning left',
-          pan_right: 'camera panning right',
-          tilt_up: 'camera tilting up',
-          tilt_down: 'camera tilting down',
-          track: 'camera tracking the subject',
-          dolly: 'camera moving parallel to subject',
-          zoom_in: 'zooming in',
-          zoom_out: 'zooming out',
-          crane: 'crane shot moving vertically',
-          handheld: 'handheld camera with slight shake',
-          arc: 'camera arcing around subject'
-        }
-
         // 构建镜头语言提示
         const cinematicHints: string[] = []
 
@@ -1358,12 +1793,39 @@ export function useWorkbench() {
         if (cinematicHints.length > 0) {
           enhancedPrompt = `[Cinematography: ${cinematicHints.join(', ')}] ${enhancedPrompt}`
         }
+
+        if (narrationBlock || dialogueBlock) {
+          enhancedPrompt = [enhancedPrompt, narrationBlock, dialogueBlock]
+            .filter(Boolean)
+            .join('\n\n')
+        }
       }
 
       // 如果有场景视觉提取的 imagePrompt，也可以参考
       if (scene.sceneVisual?.imagePrompt) {
         console.log('[VideoGen] 场景有视觉提取数据，imagePrompt 长度:', scene.sceneVisual.imagePrompt.length)
+        enhancedPrompt = `${enhancedPrompt}\n\n【场景视觉参考】\n${scene.sceneVisual.imagePrompt}`
       }
+
+      // 强化角色一致性：明确要求视频必须遵循首尾帧中的角色身份
+      const characterReferenceLines = scene.characters.map((sceneCharacter) => {
+        const matched = resolveCharacterForScene(sceneCharacter, scene)
+        const namePart = matched && matched.name !== sceneCharacter.name
+          ? `${sceneCharacter.name}(对应角色设定: ${matched.name})`
+          : sceneCharacter.name
+        const appearancePart = matched?.appearance || sceneCharacter.appearance || '保持与首尾帧一致'
+        return `- ${namePart}: ${appearancePart}`
+      })
+
+      const consistencyPrompt = [
+        '【角色一致性要求-最高优先级】',
+        '必须严格参考输入的首帧和尾帧，保持同一角色的脸部特征、发型、发色、服装款式和服装颜色全程一致。',
+        '禁止替换角色、禁止新增与场景无关主角、禁止在中途改变人物身份。',
+        '本场景角色设定:',
+        ...characterReferenceLines
+      ].join('\n')
+
+      enhancedPrompt = `${consistencyPrompt}\n\n${enhancedPrompt}`
 
       const response = await $fetch<{
         success: boolean
@@ -1519,6 +1981,23 @@ export function useWorkbench() {
       return null
     }
 
+    const pendingScenes = scenes.value.filter(s => !(s.videoStatus === 'done' && s.videoUrl))
+    if (pendingScenes.length > 0) {
+      const previewTitles = pendingScenes
+        .slice(0, 3)
+        .map(scene => scene.title)
+        .join('、')
+      const hasMore = pendingScenes.length > 3 ? ' 等' : ''
+      const shouldContinue = confirm(
+        `当前仅 ${readyScenes.length}/${scenes.value.length} 个场景视频可用。\n` +
+        `未就绪场景：${previewTitles}${hasMore}。\n\n` +
+        '继续合成将导致最终视频缺少部分剧情，是否继续？'
+      )
+      if (!shouldContinue) {
+        return null
+      }
+    }
+
     mergeStatus.value = { running: true, progress: 10 }
     finalVideo.value = null
 
@@ -1657,6 +2136,7 @@ export function useWorkbench() {
             setting?: { location: string, timeOfDay: string, mood?: string }
             characters: Array<{ name: string, appearance?: string, emotion?: string }>
             dialogues?: Array<{ character: string, text: string, emotion?: string }>
+            narration?: string | null
             duration: number
             firstFrame?: string
             lastFrame?: string
@@ -1716,6 +2196,7 @@ export function useWorkbench() {
             description: s.description,
             characters: s.characters || [],
             dialogues: s.dialogues || [],
+            narration: s.narration || undefined,
             duration: s.duration || 8,
             setting: s.setting,
             active: i === 0,
@@ -1870,6 +2351,7 @@ export function useWorkbench() {
             setting: s.setting,
             characters: s.characters,
             dialogues: s.dialogues,
+            narration: s.narration,
             duration: s.duration,
             // 镜头语言
             shotType: s.shotType,

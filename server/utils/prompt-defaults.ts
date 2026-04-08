@@ -77,7 +77,7 @@ const OUTLINE_GENERATION_CONTENT: PromptTemplate['content'] = {
 2. 目标长度：{{targetLength}}
 {{genre}}
 
-### 内容要求（基于漫剧创作原则）
+### 内容要求（基于影视短内容创作原则）
 
 **内容逻辑**：用「绝境 + 强钩子」戳中人性痛点
 - 把主角逼到困境，再抛出能解决问题的强钩子
@@ -190,10 +190,10 @@ Output JSON only, no other content.`
 
 // ========== 剧本解析 ==========
 const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
-  zh: `你是一位专业的漫剧分镜师，擅长将小说文本转换为可视化的场景描述。
+  zh: `你是一位专业的影视分镜师，支持短剧、动画、影视短片等多种内容形态，擅长将文本转换为可视化场景描述。
 
 ## 核心任务
-将输入的小说/剧本文本拆分成适合漫剧制作的场景序列。
+将输入的小说/剧本文本拆分成适合视频内容制作的场景序列。
 
 ## 场景拆分原则
 
@@ -225,8 +225,9 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
    - 系统提示、规则说明
    - 音效、背景音乐
    - 任何非人物的描述
-2. 从对话中提取说话人时，格式为"角色名：台词"
-3. 第一人称"我"也是角色，需要根据上下文推断身份
+2. 场景中的旁白/画外音请提取到 scene.narration 字段，不要混入角色对话
+3. 从对话中提取说话人时，格式为"角色名：台词"
+4. 第一人称"我"也是角色，需要根据上下文推断身份
 
 ## 输入文本
 {{novelText}}
@@ -262,6 +263,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
           "emotion": "情绪"
         }
       ],
+      "narration": "场景旁白/画外音（可选）",
       "duration": 6
     }
   ],
@@ -281,10 +283,10 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 2. scenes 和 characters 都是数组
 3. duration 是数字（秒），不是字符串
 4. totalDuration 等于所有场景 duration 之和`,
-  en: `You are a professional manga storyboard artist, skilled at converting novel text into visual scene descriptions.
+  en: `You are a professional visual storyboard artist for multiple formats (animation, short drama, comic-style video), skilled at converting text into visual scene descriptions.
 
 ## Core Task
-Split the input novel/script text into scene sequences suitable for manga production.
+Split the input novel/script text into scene sequences suitable for general video production.
 
 ## Scene Splitting Principles
 
@@ -316,8 +318,9 @@ Each scene description must be convertible to a static image, including:
    - System prompts, rule descriptions
    - Sound effects, background music
    - Any non-person descriptions
-2. When extracting speakers from dialogue, format is "CharacterName: dialogue"
-3. First-person "I" is also a character, infer identity from context
+2. Extract narration/voice-over into scene.narration, do not mix it into character dialogues
+3. When extracting speakers from dialogue, format is "CharacterName: dialogue"
+4. First-person "I" is also a character, infer identity from context
 
 ## Input Text
 {{novelText}}
@@ -353,6 +356,7 @@ Output the following JSON format:
           "emotion": "emotion"
         }
       ],
+      "narration": "Scene narration / voice-over (optional)",
       "duration": 6
     }
   ],
@@ -377,7 +381,7 @@ Notes:
 
 // ========== 场景生成 ==========
 const SCENE_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: `你是一位专业的漫剧编剧。请根据以下故事大纲和角色设定，生成详细的分场剧本。
+  zh: `你是一位专业的影视编剧。请根据以下故事大纲和角色设定，生成详细的分场剧本。
 
 ## 故事信息
 {{outline}}
@@ -408,6 +412,7 @@ const SCENE_GENERATION_CONTENT: PromptTemplate['content'] = {
 2. 符合角色性格和说话风格
 3. 推动剧情发展，避免废话
 4. 每个场景 1-3 句对话为宜
+5. 若有旁白/画外音，请输出到 narration 字段（不要写成角色台词）
 
 ## 输出格式
 请严格按照以下 JSON 数组格式输出：
@@ -438,6 +443,7 @@ const SCENE_GENERATION_CONTENT: PromptTemplate['content'] = {
         "emotion": "情绪"
       }
     ],
+    "narration": "旁白/画外音（可选）",
     "duration": 6
   }
 ]
@@ -447,7 +453,7 @@ const SCENE_GENERATION_CONTENT: PromptTemplate['content'] = {
 1. 必须返回 JSON 数组
 2. duration 是数字（秒），建议 4-8 秒
 3. emotion 必须使用指定的枚举值`,
-  en: `You are a professional manga screenwriter. Please generate detailed scene scripts based on the following story outline and character settings.
+  en: `You are a professional screenwriter for multi-format visual content. Please generate detailed scene scripts based on the following story outline and character settings.
 
 ## Story Information
 {{outline}}
@@ -478,6 +484,7 @@ const SCENE_GENERATION_CONTENT: PromptTemplate['content'] = {
 2. Match character personality and speaking style
 3. Drive the plot forward, avoid filler
 4. 1-3 lines of dialogue per scene is ideal
+5. If narration/voice-over exists, output it in narration field (not as character dialogue)
 
 ## Output Format
 Please output strictly in the following JSON array format:
@@ -508,6 +515,7 @@ Please output strictly in the following JSON array format:
         "emotion": "emotion"
       }
     ],
+    "narration": "Narration / voice-over (optional)",
     "duration": 6
   }
 ]
@@ -563,6 +571,9 @@ const STORYBOARD_GENERATION_CONTENT: PromptTemplate['content'] = {
 
 ## 对话
 {{dialogues}}
+
+## 旁白（如有）
+{{narration}}
 
 ## 画风
 {{style}}
@@ -637,6 +648,9 @@ Each shot needs to include:
 
 ## Dialogues
 {{dialogues}}
+
+## Narration (if any)
+{{narration}}
 
 ## Style
 {{style}}

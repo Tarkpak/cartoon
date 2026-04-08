@@ -111,6 +111,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     variables: [
       { name: '{{sceneDescription}}', description: '场景描述', example: '主角站在雨中的街道上...' },
       { name: '{{dialogues}}', description: '对话列表JSON', example: '[{"character": "...", "text": "..."}]' },
+      { name: '{{narration}}', description: '场景旁白（可选）', example: '旁白：夜色渐深，街道空无一人。' },
       { name: '{{style}}', description: '画风描述', example: '赛博朋克风格' }
     ]
   },

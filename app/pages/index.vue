@@ -48,10 +48,10 @@ const quickActions = [
     <div class="bg-card border rounded-lg p-8 md:p-12 mb-8">
       <div class="max-w-3xl">
         <h1 class="text-3xl md:text-4xl lg:text-5xl font-bold mb-4 leading-tight text-foreground">
-          AI驱动的漫剧创作平台
+          AI驱动的影视创作平台
         </h1>
         <p class="text-lg md:text-xl text-muted-foreground mb-8 leading-relaxed">
-          从文本到视频，一键生成专业级AI漫剧。<br class="hidden sm:block">
+          从文本到视频，一键生成专业级AI影视内容。<br class="hidden sm:block">
           支持首尾帧控制、角色一致性、智能配音。
         </p>
         <div class="flex flex-wrap gap-4">

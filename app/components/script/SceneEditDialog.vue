@@ -26,6 +26,7 @@ interface SceneEditData {
   id: string
   title: string
   description: string
+  narration?: string
   characters: CharacterItem[]
   dialogues: DialogueItem[]
   duration: number
@@ -56,6 +57,7 @@ const editForm = ref<SceneEditData>({
   id: '',
   title: '',
   description: '',
+  narration: '',
   characters: [],
   dialogues: [],
   duration: 8,
@@ -74,6 +76,7 @@ watch(() => props.scene, (newScene) => {
       id: newScene.id,
       title: newScene.title,
       description: newScene.description,
+      narration: newScene.narration || '',
       characters: [...newScene.characters],
       dialogues: newScene.dialogues.map(d => ({ ...d })),
       duration: newScene.duration,
@@ -208,6 +211,16 @@ function handleCancel() {
             v-model="editForm.description"
             placeholder="描述场景的画面内容..."
             class="min-h-[100px]"
+          />
+        </div>
+
+        <!-- 旁白 -->
+        <div class="space-y-2">
+          <label class="text-sm font-medium">旁白（可选）</label>
+          <Textarea
+            v-model="editForm.narration"
+            placeholder="输入画外音/旁白内容..."
+            class="min-h-[80px]"
           />
         </div>
 

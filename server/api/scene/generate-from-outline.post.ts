@@ -54,6 +54,7 @@ const SceneSchema = z.object({
     text: z.string(),
     emotion: z.string().optional()
   })),
+  narration: z.string().nullable().optional(),
   duration: z.number(),
   actId: z.string().optional()
 })
