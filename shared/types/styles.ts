@@ -51,7 +51,7 @@ const STYLE_PRESETS_BASE: StylePreset[] = [
   { id: 'korean_webtoon', name: '韩式漫画厚涂', nameEn: 'Korean Webtoon', category: 'japanese_anime', description: '韩漫风格', prompt: 'Korean webtoon', thumbnail: '/styles/korean_webtoon.webp' },
   // 国风
   { id: '3d_guochuang', name: '3D国创', nameEn: '3D Chinese', category: 'chinese_style', description: '中国3D动画', prompt: 'Chinese 3D', thumbnail: '/styles/3d_guochuang.webp', isNew: true },
-  { id: '2d_manju', name: '2D漫剧', nameEn: '2D Drama', category: 'chinese_style', description: '中国2D漫剧', prompt: 'Chinese 2D', thumbnail: '/styles/2d_manju.webp', isNew: true },
+  { id: '2d_manju', name: '2D叙事影视', nameEn: '2D Cinematic', category: 'chinese_style', description: '中国2D叙事影视', prompt: 'Chinese 2D', thumbnail: '/styles/2d_manju.webp', isNew: true },
   { id: 'chinese_ink', name: '国风水墨', nameEn: 'Chinese Ink', category: 'chinese_style', description: '水墨画风格', prompt: 'Chinese ink', thumbnail: '/styles/chinese_ink.webp', isNew: true },
   { id: 'oriental_light_color', name: '东方淡彩', nameEn: 'Oriental Light', category: 'chinese_style', description: '东方淡雅', prompt: 'oriental light', thumbnail: '/styles/oriental_light_color.webp' },
   { id: 'oriental_classical_deco', name: '东方古典装饰', nameEn: 'Oriental Deco', category: 'chinese_style', description: '古典装饰', prompt: 'oriental deco', thumbnail: '/styles/oriental_classical_deco.webp' },

@@ -67,6 +67,7 @@ export const GenerateStoryboardRequestSchema = z.object({
     text: z.string(),
     emotion: z.string().optional() // 使用 string 而不是 EmotionSchema，因为场景数据可能包含非标准情绪值
   })).optional().describe('对话列表'),
+  narration: z.string().nullish().describe('场景旁白'),
   style: z.string().describe('画风 (必填，由项目配置决定)')
 })
 export type GenerateStoryboardRequest = z.infer<typeof GenerateStoryboardRequestSchema>

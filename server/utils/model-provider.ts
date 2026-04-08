@@ -649,6 +649,7 @@ export async function generateImage(options: {
     model: modelId,
     prompt: options.prompt,
     referenceImage: options.referenceImage,
+    referenceImages: options.referenceImages,
     maxRetries: options.maxRetries
   })
   return {
