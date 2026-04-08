@@ -1,7 +1,5 @@
 import { GoogleGenAI } from '@google/genai'
 
-let client: GoogleGenAI | null = null
-
 // ============================================================
 // 错误类型定义
 // ============================================================
@@ -45,31 +43,197 @@ const RETRYABLE_ERROR_CODES = new Set([
   GeminiErrorCode.DEADLINE_EXCEEDED // 504 - 超时
 ])
 
+const KEY_AUTH_ERROR_PATTERNS = [
+  /api[_\s-]?key/i,
+  /invalid.*key/i,
+  /unauthorized/i,
+  /permission denied/i,
+  /unregistered callers/i,
+  /credential/i
+]
+
+interface GeminiClientEntry {
+  apiKey: string
+  client: GoogleGenAI
+  disabledUntil: number
+  disabledPermanently: boolean
+}
+
+interface GeminiClientSelection {
+  index: number
+  keyAlias: string
+  client: GoogleGenAI
+}
+
+let clientPool: GeminiClientEntry[] = []
+let clientPoolRawKey = ''
+let clientRoundRobinIndex = 0
+
 // ============================================================
 // 客户端初始化
 // ============================================================
 
-/**
- * 获取 Gemini API 客户端实例 (单例模式)
- */
-export function getGeminiClient(): GoogleGenAI {
-  if (!client) {
-    const config = useRuntimeConfig()
-    const apiKey = config.geminiApiKey as string
+function splitGeminiApiKeys(rawApiKey: string): string[] {
+  return Array.from(
+    new Set(
+      rawApiKey
+        .split(/[\n,;]+/)
+        .map(key => key.trim())
+        .filter(Boolean)
+    )
+  )
+}
 
-    if (!apiKey) {
-      throw new GeminiError(
-        'GEMINI_API_KEY 环境变量未设置',
-        GeminiErrorCode.PERMISSION_DENIED,
-        403,
-        false
-      )
-    }
+function maskApiKey(apiKey: string): string {
+  if (apiKey.length <= 10) {
+    return `${apiKey.slice(0, 2)}***`
+  }
+  return `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`
+}
 
-    client = new GoogleGenAI({ apiKey })
+function isCredentialError(error: GeminiError): boolean {
+  const message = error.message || ''
+  if (error.status === 401 || error.status === 403) {
+    return true
+  }
+  if (error.status === 400) {
+    return KEY_AUTH_ERROR_PATTERNS.some(pattern => pattern.test(message))
+  }
+  return false
+}
+
+function ensureClientPool(): GeminiClientEntry[] {
+  const config = useRuntimeConfig()
+  const rawApiKey = String(config.geminiApiKey || '').trim()
+
+  if (!rawApiKey) {
+    throw new GeminiError(
+      'GEMINI_API_KEY 环境变量未设置',
+      GeminiErrorCode.PERMISSION_DENIED,
+      403,
+      false
+    )
   }
 
-  return client
+  if (clientPool.length > 0 && clientPoolRawKey === rawApiKey) {
+    return clientPool
+  }
+
+  const apiKeys = splitGeminiApiKeys(rawApiKey)
+
+  if (apiKeys.length === 0) {
+    throw new GeminiError(
+      'GEMINI_API_KEY 环境变量为空',
+      GeminiErrorCode.PERMISSION_DENIED,
+      403,
+      false
+    )
+  }
+
+  clientPool = apiKeys.map(apiKey => ({
+    apiKey,
+    client: new GoogleGenAI({ apiKey }),
+    disabledUntil: 0,
+    disabledPermanently: false
+  }))
+  clientPoolRawKey = rawApiKey
+  clientRoundRobinIndex = 0
+
+  const keyAliases = clientPool.map(entry => maskApiKey(entry.apiKey))
+  console.log(`[Gemini] 已初始化 API Key 池，共 ${clientPool.length} 个: ${keyAliases.join(', ')}`)
+
+  return clientPool
+}
+
+function getNextGeminiClientSelection(): GeminiClientSelection {
+  const pool = ensureClientPool()
+  const now = Date.now()
+  const poolLength = pool.length
+
+  let earliestCooldown: { index: number, disabledUntil: number } | null = null
+
+  for (let offset = 0; offset < poolLength; offset++) {
+    const index = (clientRoundRobinIndex + offset) % poolLength
+    const entry = pool[index]
+    if (!entry || entry.disabledPermanently) {
+      continue
+    }
+
+    if (entry.disabledUntil > now) {
+      if (!earliestCooldown || entry.disabledUntil < earliestCooldown.disabledUntil) {
+        earliestCooldown = { index, disabledUntil: entry.disabledUntil }
+      }
+      continue
+    }
+
+    clientRoundRobinIndex = (index + 1) % poolLength
+    return {
+      index,
+      keyAlias: maskApiKey(entry.apiKey),
+      client: entry.client
+    }
+  }
+
+  if (earliestCooldown) {
+    const waitSeconds = Math.max(1, Math.ceil((earliestCooldown.disabledUntil - now) / 1000))
+    throw new GeminiError(
+      `所有 Gemini API Key 正在冷却中，请约 ${waitSeconds}s 后重试`,
+      GeminiErrorCode.RESOURCE_EXHAUSTED,
+      429,
+      true
+    )
+  }
+
+  throw new GeminiError(
+    '所有 Gemini API Key 均不可用，请检查配置',
+    GeminiErrorCode.PERMISSION_DENIED,
+    403,
+    false
+  )
+}
+
+function markClientSuccess(selection: GeminiClientSelection): void {
+  const entry = clientPool[selection.index]
+  if (!entry || entry.disabledPermanently) return
+  entry.disabledUntil = 0
+}
+
+function markClientFailure(
+  selection: GeminiClientSelection,
+  error: GeminiError,
+  cooldownMs: number
+): void {
+  const entry = clientPool[selection.index]
+  if (!entry) return
+
+  if (isCredentialError(error)) {
+    entry.disabledPermanently = true
+    entry.disabledUntil = Number.POSITIVE_INFINITY
+    console.warn(`[Gemini] API Key ${selection.keyAlias} 认证失败，已永久禁用`)
+    return
+  }
+
+  if (cooldownMs > 0) {
+    const nextUntil = Date.now() + cooldownMs
+    entry.disabledUntil = Math.max(entry.disabledUntil, nextUntil)
+    console.warn(`[Gemini] API Key ${selection.keyAlias} 暂时冷却 ${Math.ceil(cooldownMs / 1000)}s`)
+  }
+}
+
+function hasAlternativeReadyClient(currentIndex: number): boolean {
+  const now = Date.now()
+  return ensureClientPool().some((entry, index) =>
+    index !== currentIndex
+    && !entry.disabledPermanently
+    && entry.disabledUntil <= now
+  )
+}
+
+/**
+ * 获取 Gemini API 客户端实例（轮询模式）
+ */
+export function getGeminiClient(): GoogleGenAI {
+  return getNextGeminiClientSelection().client
 }
 
 // ============================================================
@@ -171,6 +335,9 @@ function parseError(error: unknown): GeminiError {
     case 400:
       code = GeminiErrorCode.INVALID_ARGUMENT
       break
+    case 401:
+      code = GeminiErrorCode.PERMISSION_DENIED
+      break
     case 403:
       code = GeminiErrorCode.PERMISSION_DENIED
       break
@@ -205,28 +372,70 @@ function parseError(error: unknown): GeminiError {
 // 核心 API 封装
 // ============================================================
 
+export interface GeminiRetryContext {
+  client: GoogleGenAI
+  keyIndex: number
+  keyAlias: string
+  attempt: number
+  totalAttempts: number
+}
+
 /**
  * 带重试的 API 调用
  * @internal
  */
 export async function _geminiWithRetry<T>(
-  fn: () => Promise<T>,
+  fn: (context: GeminiRetryContext) => Promise<T>,
   config: Partial<RetryConfig> = {}
 ): Promise<T> {
   // 过滤掉 undefined 值，避免覆盖默认配置
   const filteredConfig = Object.fromEntries(
     Object.entries(config).filter(([_, v]) => v !== undefined)
   ) as Partial<RetryConfig>
-  
+
   const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...filteredConfig }
   let lastError: GeminiError | null = null
+  const totalAttempts = retryConfig.maxRetries + 1
 
-  console.log(`[Gemini] _geminiWithRetry 开始, maxRetries: ${retryConfig.maxRetries}`)
+  console.log(`[Gemini] _geminiWithRetry 开始, maxRetries: ${retryConfig.maxRetries}, totalAttempts: ${totalAttempts}`)
 
-  for (let attempt = 0; attempt <= retryConfig.maxRetries; attempt++) {
+  for (let attempt = 0; attempt < totalAttempts; attempt++) {
+    let selection: GeminiClientSelection
     try {
-      console.log(`[Gemini] _geminiWithRetry 尝试 ${attempt + 1}/${retryConfig.maxRetries + 1}`)
-      const result = await fn()
+      selection = getNextGeminiClientSelection()
+    } catch (selectError) {
+      const parsedSelectError = parseError(selectError)
+      lastError = parsedSelectError
+
+      const hasNextAttempt = attempt < retryConfig.maxRetries
+      if (!hasNextAttempt || !parsedSelectError.retryable) {
+        throw parsedSelectError
+      }
+
+      const delay = calculateBackoffDelay(attempt, retryConfig)
+      console.warn(
+        `[Gemini] 暂无可用 API Key (${parsedSelectError.code}), `
+        + `${delay.toFixed(0)}ms 后重试 (${attempt + 1}/${retryConfig.maxRetries})...`
+      )
+      await sleep(delay)
+      continue
+    }
+
+    try {
+      console.log(
+        `[Gemini] _geminiWithRetry 尝试 ${attempt + 1}/${totalAttempts}, `
+        + `使用 key#${selection.index + 1}(${selection.keyAlias})`
+      )
+
+      const result = await fn({
+        client: selection.client,
+        keyIndex: selection.index,
+        keyAlias: selection.keyAlias,
+        attempt,
+        totalAttempts
+      })
+
+      markClientSuccess(selection)
       console.log('[Gemini] _geminiWithRetry 成功返回')
       return result
     } catch (error) {
@@ -234,18 +443,35 @@ export async function _geminiWithRetry<T>(
       console.error('[Gemini] 错误类型:', typeof error, '错误值:', String(error))
       lastError = parseError(error)
 
-      // 如果不可重试或已达到最大重试次数，抛出错误
-      if (!lastError.retryable || attempt === retryConfig.maxRetries) {
+      const hasNextAttempt = attempt < retryConfig.maxRetries
+      const shouldRetry = lastError.retryable || isCredentialError(lastError)
+      const cooldownMs = lastError.retryable
+        ? calculateBackoffDelay(attempt, retryConfig)
+        : 0
+      const retryDelayMs = lastError.retryable && !hasAlternativeReadyClient(selection.index)
+        ? cooldownMs
+        : 0
+
+      if (shouldRetry) {
+        markClientFailure(selection, lastError, cooldownMs)
+      }
+
+      if (!hasNextAttempt || !shouldRetry) {
         throw lastError
       }
 
-      // 计算并等待退避时间
-      const delay = calculateBackoffDelay(attempt, retryConfig)
-      console.warn(
-        `[Gemini] 请求失败 (${lastError.code}), `
-        + `${delay.toFixed(0)}ms 后重试 (${attempt + 1}/${retryConfig.maxRetries})...`
-      )
-      await sleep(delay)
+      if (retryDelayMs > 0) {
+        console.warn(
+          `[Gemini] 请求失败 (${lastError.code}), `
+          + `${retryDelayMs.toFixed(0)}ms 后切换 Key 重试 (${attempt + 1}/${retryConfig.maxRetries})...`
+        )
+        await sleep(retryDelayMs)
+      } else {
+        console.warn(
+          `[Gemini] 请求失败 (${lastError.code}), `
+          + `立即切换 Key 重试 (${attempt + 1}/${retryConfig.maxRetries})...`
+        )
+      }
     }
   }
 
@@ -263,7 +489,6 @@ export async function _geminiGenerateText(options: {
   temperature?: number
   maxRetries?: number
 }): Promise<string> {
-  const client = getGeminiClient()
   const model = options.model || TextModels.GENERAL
 
   const timestamp = new Date().toLocaleTimeString()
@@ -276,7 +501,8 @@ export async function _geminiGenerateText(options: {
     maxRetries: options.maxRetries
   })
 
-  return _geminiWithRetry(async () => {
+  return _geminiWithRetry(async ({ client, keyAlias }) => {
+    console.log(`[Gemini] generateText 使用 key: ${keyAlias}`)
     const response = await client.models.generateContent({
       model,
       contents: options.prompt,
@@ -301,7 +527,6 @@ export async function _geminiGenerateJSON<T>(options: {
   temperature?: number
   maxRetries?: number
 }): Promise<T> {
-  const client = getGeminiClient()
   const model = options.model || TextModels.GENERAL
 
   const timestamp = new Date().toLocaleTimeString()
@@ -314,7 +539,8 @@ export async function _geminiGenerateJSON<T>(options: {
     maxRetries: options.maxRetries
   })
 
-  return _geminiWithRetry(async () => {
+  return _geminiWithRetry(async ({ client, keyAlias }) => {
+    console.log(`[Gemini] generateJSON 使用 key: ${keyAlias}`)
     const response = await client.models.generateContent({
       model,
       contents: options.prompt,
@@ -342,16 +568,7 @@ export async function _geminiGenerateImage(options: {
   maxRetries?: number
 }): Promise<{ imageData: string, mimeType: string, text?: string }> {
   console.log('[Gemini] _geminiGenerateImage 开始执行')
-  
-  let client
-  try {
-    client = getGeminiClient()
-    console.log('[Gemini] 客户端获取成功')
-  } catch (clientError) {
-    console.error('[Gemini] 获取客户端失败:', clientError)
-    throw clientError
-  }
-  
+
   const model = options.model || ImageModels.HIGH_QUALITY
 
   // 统一收集参考图：兼容单图(referenceImage)和多图(referenceImages)
@@ -397,9 +614,9 @@ export async function _geminiGenerateImage(options: {
     maxRetries: options.maxRetries
   })
 
-  return _geminiWithRetry(async () => {
-    console.log('[Gemini] _geminiWithRetry 回调函数开始执行')
-    
+  return _geminiWithRetry(async ({ client, keyAlias }) => {
+    console.log(`[Gemini] _geminiWithRetry 回调函数开始执行, 使用 key: ${keyAlias}`)
+
     // 构建请求内容
     const parts: Array<{ text: string } | { inlineData: { data: string, mimeType: string } }> = [
       { text: options.prompt }
@@ -418,16 +635,18 @@ export async function _geminiGenerateImage(options: {
     let response
     try {
       // gemini-3-pro-image-preview 需要 responseModalities 配置
-      const config = model.includes('3-pro') ? { responseModalities: ['image', 'text'] } : undefined
-      
+      const config = model.includes('3-pro')
+        ? { responseModalities: ['image', 'text'] }
+        : undefined
+
       console.log('[Gemini] 准备调用 API, model:', model, 'config:', JSON.stringify(config))
-      
+
       response = await client.models.generateContent({
         model,
         contents: [{ role: 'user', parts }],
         config
       })
-      
+
       console.log('[Gemini] API 调用成功, response:', !!response)
     } catch (apiError) {
       console.error('[Gemini] API 调用失败:', apiError instanceof Error ? apiError.message : String(apiError))
@@ -440,10 +659,12 @@ export async function _geminiGenerateImage(options: {
       hasResponse: !!response,
       hasCandidates: !!response.candidates,
       candidatesLength: response.candidates?.length,
-      firstCandidate: response.candidates?.[0] ? {
-        hasContent: !!response.candidates[0].content,
-        partsLength: response.candidates[0].content?.parts?.length
-      } : null
+      firstCandidate: response.candidates?.[0]
+        ? {
+            hasContent: !!response.candidates[0].content,
+            partsLength: response.candidates[0].content?.parts?.length
+          }
+        : null
     }))
 
     // 提取图片数据

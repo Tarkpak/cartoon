@@ -71,6 +71,26 @@ export interface CharacterData {
   gender?: string
 }
 
+function toOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed ? trimmed : undefined
+}
+
+function toOptionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : undefined
+}
+
+function toOptionalStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const normalized = value
+    .map(item => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean)
+  return normalized.length > 0 ? normalized : undefined
+}
+
 // 流水线状态接口
 export interface PipelineStatus {
   running: boolean
@@ -614,10 +634,10 @@ export function useWorkbench() {
             name: char.name,
             appearance: char.appearance || `${char.name}，动漫风格角色`,
             role: char.role || 'supporting',
-            gender: char.gender,
-            age: char.age,
-            personality: char.personality,
-            traits: char.traits
+            gender: toOptionalString(char.gender),
+            age: toOptionalNumber(char.age),
+            personality: toOptionalString(char.personality),
+            traits: toOptionalStringArray(char.traits)
           },
           style: currentStylePrompt.value,
           generateExpressions: false
@@ -2226,18 +2246,18 @@ export function useWorkbench() {
           name: c.name,
           appearance: c.appearance,
           role: c.role || 'supporting',
-          personality: (c as { personality?: string }).personality,
-          age: (c as { age?: number }).age,
-          gender: (c as { gender?: string }).gender,
+          personality: toOptionalString((c as { personality?: string | null }).personality),
+          age: toOptionalNumber((c as { age?: number | null }).age),
+          gender: toOptionalString((c as { gender?: string | null }).gender),
           baseImage: c.baseImage,
           expressions: (c as { expressions?: Record<string, string> }).expressions || undefined,
           views: (c as { views?: Partial<Record<CharacterView, string>> }).views,
-          traits: (c as { traits?: string[] }).traits || undefined,
-          background: (c as { background?: string }).background,
-          motivation: (c as { motivation?: string }).motivation,
-          speakingStyle: (c as { speakingStyle?: string }).speakingStyle,
-          catchphrase: (c as { catchphrase?: string }).catchphrase,
-          voiceTone: (c as { voiceTone?: string }).voiceTone,
+          traits: toOptionalStringArray((c as { traits?: string[] | null }).traits),
+          background: toOptionalString((c as { background?: string | null }).background),
+          motivation: toOptionalString((c as { motivation?: string | null }).motivation),
+          speakingStyle: toOptionalString((c as { speakingStyle?: string | null }).speakingStyle),
+          catchphrase: toOptionalString((c as { catchphrase?: string | null }).catchphrase),
+          voiceTone: toOptionalString((c as { voiceTone?: string | null }).voiceTone),
           generating: false,
           generatingViews: false
         }))
