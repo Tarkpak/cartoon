@@ -289,6 +289,25 @@ interface ChatCompletionResponse {
   }
 }
 
+const VOLCENGINE_STRUCTURED_OUTPUT_MODELS = new Set<string>([
+  VolcengineTextModels.DOUBAO_SEED_2_0_MINI,
+  VolcengineTextModels.DOUBAO_SEED_2_0_LITE,
+  VolcengineTextModels.DEEPSEEK_V3_2
+])
+
+const VOLCENGINE_DEFAULT_STRUCTURED_JSON_MODEL = VolcengineTextModels.DOUBAO_SEED_2_0_MINI
+
+function resolveStructuredJsonModel(model: string): string {
+  if (VOLCENGINE_STRUCTURED_OUTPUT_MODELS.has(model)) {
+    return model
+  }
+
+  console.warn(
+    `[Volcengine] 模型 ${model} 不支持 response_format=json_schema，JSON 任务自动切换到 ${VOLCENGINE_DEFAULT_STRUCTURED_JSON_MODEL}`
+  )
+  return VOLCENGINE_DEFAULT_STRUCTURED_JSON_MODEL
+}
+
 export async function _volcengineGenerateText(options: {
   model?: string
   prompt: string
@@ -331,109 +350,6 @@ export async function _volcengineGenerateText(options: {
   }, { maxRetries: options.maxRetries })
 }
 
-function extractJsonObject(text: string): string | null {
-  const start = text.indexOf('{')
-  if (start === -1) return null
-
-  let depth = 0
-  let inString = false
-  let escape = false
-
-  for (let i = start; i < text.length; i++) {
-    const char = text[i]
-
-    if (escape) {
-      escape = false
-      continue
-    }
-
-    if (char === '\\' && inString) {
-      escape = true
-      continue
-    }
-
-    if (char === '"') {
-      inString = !inString
-      continue
-    }
-
-    if (inString) continue
-
-    if (char === '{') depth++
-    else if (char === '}') {
-      depth--
-      if (depth === 0) {
-        return text.slice(start, i + 1)
-      }
-    }
-  }
-
-  return null
-}
-
-function extractJsonArray(text: string): string | null {
-  const start = text.indexOf('[')
-  if (start === -1) return null
-
-  let depth = 0
-  let inString = false
-  let escape = false
-
-  for (let i = start; i < text.length; i++) {
-    const char = text[i]
-
-    if (escape) {
-      escape = false
-      continue
-    }
-
-    if (char === '\\' && inString) {
-      escape = true
-      continue
-    }
-
-    if (char === '"') {
-      inString = !inString
-      continue
-    }
-
-    if (inString) continue
-
-    if (char === '[') depth++
-    else if (char === ']') {
-      depth--
-      if (depth === 0) {
-        return text.slice(start, i + 1)
-      }
-    }
-  }
-
-  return null
-}
-
-function normalizeJsonCandidate(text: string): string {
-  let jsonStr = text.trim()
-
-  const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-  if (codeBlockMatch && codeBlockMatch[1]) {
-    return codeBlockMatch[1].trim()
-  }
-
-  if (jsonStr.startsWith('```')) {
-    jsonStr = jsonStr
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```$/i, '')
-      .trim()
-  }
-
-  try {
-    JSON.parse(jsonStr)
-    return jsonStr
-  } catch {
-    return extractJsonObject(jsonStr) || extractJsonArray(jsonStr) || jsonStr
-  }
-}
-
 export async function _volcengineGenerateJSON<T>(options: {
   model?: string
   prompt: string
@@ -441,10 +357,12 @@ export async function _volcengineGenerateJSON<T>(options: {
   temperature?: number
   maxRetries?: number
 }): Promise<T> {
-  const model = options.model || VolcengineTextModels.DOUBAO_SEED_2_0_MINI
+  const requestedModel = options.model || VolcengineTextModels.DOUBAO_SEED_2_0_MINI
+  const model = resolveStructuredJsonModel(requestedModel)
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Volcengine] generateJSON 请求参数:`, {
+    requestedModel,
     model,
     promptLength: options.prompt.length,
     prompt: options.prompt,
@@ -455,7 +373,6 @@ export async function _volcengineGenerateJSON<T>(options: {
 
   return withRetry(async () => {
     const messages: Array<{ role: string, content: string }> = []
-
     if (options.systemInstruction) {
       messages.push({ role: 'system', content: options.systemInstruction })
     }
@@ -466,17 +383,28 @@ export async function _volcengineGenerateJSON<T>(options: {
       {
         model,
         messages,
-        temperature: options.temperature ?? 0.2
+        temperature: Math.min(options.temperature ?? 0.2, 0.2),
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'structured_response',
+            strict: true,
+            schema: {
+              anyOf: [
+                { type: 'object' },
+                { type: 'array' }
+              ]
+            }
+          }
+        }
       }
     )
 
-    const text = response.choices?.[0]?.message?.content || '{}'
-    const jsonStr = normalizeJsonCandidate(text)
-
+    const text = response.choices?.[0]?.message?.content || ''
     try {
-      return JSON.parse(jsonStr) as T
+      return JSON.parse(text) as T
     } catch (parseError) {
-      console.error('[Volcengine] JSON 解析失败，原始文本:', text.slice(0, 1000))
+      console.error('[Volcengine] JSON 解析失败，响应内容:', text.slice(0, 1000))
       throw parseError
     }
   }, { maxRetries: options.maxRetries })
