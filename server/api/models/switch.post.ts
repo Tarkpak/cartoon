@@ -5,6 +5,7 @@
 
 import { z } from 'zod'
 import {
+  initializeSelectedModels,
   setSelectedModel,
   getSelectedModels,
   findTextModel,
@@ -19,6 +20,8 @@ const SwitchModelRequestSchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
+  await initializeSelectedModels()
+
   const body = await readBody(event)
   const parseResult = SwitchModelRequestSchema.safeParse(body)
 
@@ -65,7 +68,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // 切换模型
-  setSelectedModel(type, modelId)
+  await setSelectedModel(type, modelId)
 
   console.log(`[Models] 切换 ${type} 模型为: ${modelId} (${modelInfo?.displayName})`)
 

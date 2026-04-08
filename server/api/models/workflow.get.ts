@@ -10,6 +10,7 @@ import {
   IMAGE_MODELS,
   VIDEO_MODELS,
   VOICE_MODELS,
+  initializeSelectedModels,
   getSelectedModels
 } from '../../utils/model-provider'
 import {
@@ -189,6 +190,8 @@ export async function getWorkflowModelOverrides(): Promise<Partial<Record<Workfl
  */
 export async function getWorkflowModels(): Promise<Record<WorkflowStep, string>> {
   try {
+    await initializeSelectedModels()
+
     const selected = getSelectedModels()
     const overrides = await readWorkflowModelOverridesFromDB()
     const resolved = {} as Record<WorkflowStep, string>
@@ -215,6 +218,8 @@ export async function getWorkflowModels(): Promise<Record<WorkflowStep, string>>
  * 保存业务流程模型配置到数据库
  */
 export async function setWorkflowModel(step: WorkflowStep, modelId: string): Promise<void> {
+  await initializeSelectedModels()
+
   const selected = getSelectedModels()
   const defaultModel = getDefaultModelForStep(step, selected)
   const overrides = await getWorkflowModelOverrides()
@@ -233,6 +238,8 @@ export async function setWorkflowModel(step: WorkflowStep, modelId: string): Pro
  * 批量保存业务流程模型配置
  */
 export async function setWorkflowModels(models: Partial<Record<WorkflowStep, string>>): Promise<void> {
+  await initializeSelectedModels()
+
   const selected = getSelectedModels()
   const overrides = await getWorkflowModelOverrides()
 
