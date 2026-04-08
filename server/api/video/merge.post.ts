@@ -119,10 +119,28 @@ export default defineEventHandler(async (event) => {
         videoPath = join(tempDir, `scene_${i}.mp4`)
         await fs.writeFile(videoPath, Buffer.from(buffer))
       } else if (scene.videoUrl.startsWith('/')) {
-        // 本地路径 (如 /videos/xxx.mp4)，解析为实际文件路径
         const publicDir = getPublicDir()
-        videoPath = join(publicDir, scene.videoUrl)
-        // 检查文件是否存在
+        const apiPrefix = '/api/video/file/'
+        const staticPrefix = '/videos/'
+
+        // 本地 API 路径: /api/video/file/:filename
+        if (scene.videoUrl.startsWith(apiPrefix)) {
+          const filename = decodeURIComponent(scene.videoUrl.slice(apiPrefix.length))
+          if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+            console.warn(`[VideoMerge] 场景 ${scene.id} 文件名非法: ${scene.videoUrl}，跳过`)
+            continue
+          }
+          videoPath = join(publicDir, 'videos', filename)
+        } else if (scene.videoUrl.startsWith(staticPrefix)) {
+          // 兼容旧格式: /videos/:filename
+          const relativePath = scene.videoUrl.replace(/^\/+/, '')
+          videoPath = join(publicDir, relativePath)
+        } else {
+          // 其他以 / 开头的路径，按 public 相对路径处理
+          const relativePath = scene.videoUrl.replace(/^\/+/, '')
+          videoPath = join(publicDir, relativePath)
+        }
+
         try {
           await fs.access(videoPath)
           console.log(`[VideoMerge] 场景 ${scene.id} 使用本地文件: ${videoPath}`)

@@ -8,10 +8,13 @@ import {
   IMAGE_MODELS,
   VIDEO_MODELS,
   VOICE_MODELS,
+  initializeSelectedModels,
   getSelectedModels
 } from '../../utils/model-provider'
 
 export default defineEventHandler(async () => {
+  await initializeSelectedModels()
+
   return {
     success: true,
     data: {

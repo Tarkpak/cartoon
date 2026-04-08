@@ -305,7 +305,7 @@ async function generateVideoWithQwen(
 
         const videoFileName = `${taskId}.mp4`
         const videoFilePath = path.join(videosDir, videoFileName)
-        const localVideoUrl = `/videos/${videoFileName}`
+        const localVideoUrl = `/api/video/file/${videoFileName}`
 
         // 下载视频
         const response = await fetch(result.videoUrl)
@@ -501,7 +501,7 @@ async function generateVideoWithGemini(
         // 生成唯一文件名
         const videoFileName = `${taskId}.mp4`
         const videoFilePath = path.join(videosDir, videoFileName)
-        const videoUrl = `/videos/${videoFileName}`
+        const videoUrl = `/api/video/file/${videoFileName}`
 
         console.log(`[VideoGen] 保存视频到: ${videoFilePath}`)
 
@@ -630,7 +630,7 @@ async function generateVideoWithVolcengine(
 
         const videoFileName = `${taskId}.mp4`
         const videoFilePath = path.join(videosDir, videoFileName)
-        const localVideoUrl = `/videos/${videoFileName}`
+        const localVideoUrl = `/api/video/file/${videoFileName}`
 
         // 下载视频
         const response = await fetch(result.videoUrl)

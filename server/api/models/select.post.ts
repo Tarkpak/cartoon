@@ -3,7 +3,7 @@
  * POST /api/models/select
  */
 import { z } from 'zod'
-import { setSelectedModel, getSelectedModels } from '../../utils/model-provider'
+import { initializeSelectedModels, setSelectedModel, getSelectedModels } from '../../utils/model-provider'
 
 const RequestSchema = z.object({
   type: z.enum(['text', 'image', 'video', 'tts', 'asr']),
@@ -11,6 +11,8 @@ const RequestSchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
+  await initializeSelectedModels()
+
   const body = await readBody(event)
   const parseResult = RequestSchema.safeParse(body)
 
@@ -23,7 +25,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const { type, modelId } = parseResult.data
-  setSelectedModel(type, modelId)
+  await setSelectedModel(type, modelId)
 
   console.log(`[Models] 切换 ${type} 模型为: ${modelId}`)
 

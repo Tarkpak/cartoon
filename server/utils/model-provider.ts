@@ -11,6 +11,8 @@ import type {
   VoiceModelConfig,
   SelectedModels
 } from '../../shared/types/provider'
+import { eq } from 'drizzle-orm'
+import { db, systemConfig } from '../db'
 
 import * as gemini from './gemini'
 import * as qwen from './qwen'
@@ -359,10 +361,12 @@ export const VOICE_MODELS: VoiceModelConfig[] = [
 ]
 
 // ============================================================
-// 当前选择的模型 (内存存储，可改为数据库)
+// 当前选择的模型（内存 + 数据库存储）
 // ============================================================
 
-const currentModels: SelectedModels = {
+const SELECTED_MODELS_KEY = 'selected_models'
+
+const DEFAULT_SELECTED_MODELS: SelectedModels = {
   text: qwen.QwenTextModels.QWEN_FLASH,  // 默认使用千问
   image: qwen.QwenImageModels.WAN_2_6_T2I,  // 默认使用千问
   video: qwen.QwenVideoModels.WAN_2_6_T2V,  // 默认使用千问
@@ -370,12 +374,105 @@ const currentModels: SelectedModels = {
   asr: qwen.QwenVoiceModels.QWEN3_ASR_FLASH
 }
 
+const currentModels: SelectedModels = { ...DEFAULT_SELECTED_MODELS }
+let selectedModelsInitialized = false
+
+function isValidModelForType(type: keyof SelectedModels, modelId: string): boolean {
+  switch (type) {
+    case 'text':
+      return !!findTextModel(modelId)
+    case 'image':
+      return !!findImageModel(modelId)
+    case 'video':
+      return !!findVideoModel(modelId)
+    case 'tts': {
+      const voice = findVoiceModel(modelId)
+      return !!voice && voice.type === 'tts'
+    }
+    case 'asr': {
+      const voice = findVoiceModel(modelId)
+      return !!voice && voice.type === 'asr'
+    }
+    default:
+      return false
+  }
+}
+
+function normalizeSelectedModels(raw: unknown): SelectedModels {
+  const normalized: SelectedModels = { ...DEFAULT_SELECTED_MODELS }
+
+  if (!raw || typeof raw !== 'object') {
+    return normalized
+  }
+
+  const source = raw as Partial<Record<keyof SelectedModels, unknown>>
+  const keys: Array<keyof SelectedModels> = ['text', 'image', 'video', 'tts', 'asr']
+
+  for (const key of keys) {
+    const value = source[key]
+    if (typeof value === 'string' && isValidModelForType(key, value)) {
+      normalized[key] = value
+    }
+  }
+
+  return normalized
+}
+
+async function saveSelectedModelsToDB(models: SelectedModels): Promise<void> {
+  const now = new Date().toISOString()
+  await db.insert(systemConfig)
+    .values({
+      key: SELECTED_MODELS_KEY,
+      value: JSON.stringify(models),
+      updatedAt: now
+    })
+    .onConflictDoUpdate({
+      target: systemConfig.key,
+      set: {
+        value: JSON.stringify(models),
+        updatedAt: now
+      }
+    })
+}
+
+/**
+ * 初始化全局模型选择（从数据库恢复）
+ */
+export async function initializeSelectedModels(): Promise<void> {
+  if (selectedModelsInitialized) {
+    return
+  }
+
+  try {
+    const rows = await db.select()
+      .from(systemConfig)
+      .where(eq(systemConfig.key, SELECTED_MODELS_KEY))
+      .limit(1)
+
+    const row = rows[0]
+    if (row?.value) {
+      const parsed = JSON.parse(row.value)
+      const normalized = normalizeSelectedModels(parsed)
+      Object.assign(currentModels, normalized)
+      console.log('[Models] 已从数据库加载全局模型配置')
+    } else {
+      await saveSelectedModelsToDB(currentModels)
+      console.log('[Models] 已写入默认全局模型配置')
+    }
+  } catch (error) {
+    console.error('[Models] 初始化全局模型配置失败，使用默认值:', error)
+  } finally {
+    selectedModelsInitialized = true
+  }
+}
+
 export function getSelectedModels(): SelectedModels {
   return { ...currentModels }
 }
 
-export function setSelectedModel(type: keyof SelectedModels, modelId: string): void {
+export async function setSelectedModel(type: keyof SelectedModels, modelId: string): Promise<void> {
   currentModels[type] = modelId
+  await saveSelectedModelsToDB(currentModels)
 }
 
 // ============================================================
