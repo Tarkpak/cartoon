@@ -23,6 +23,17 @@ defineEmits<{
 
 const framesCompleted = computed(() => props.scenes.filter(s => s.frameStatus === 'done').length)
 const videosCompleted = computed(() => props.scenes.filter(s => s.videoStatus === 'done').length)
+const selectedScenePreviewUrl = computed(() => {
+  const url = props.selectedScene?.videoUrl
+  if (!url) return ''
+
+  if (url.startsWith('/videos/')) {
+    const filename = url.slice('/videos/'.length)
+    return filename ? `/api/video/file/${filename}` : url
+  }
+
+  return url
+})
 
 // 下载最终视频
 function downloadFinalVideo() {
@@ -248,8 +259,8 @@ function formatSize(bytes: number): string {
         >
           <div class="aspect-video bg-gray-900 rounded-lg flex items-center justify-center overflow-hidden">
             <video
-              v-if="selectedScene.videoUrl"
-              :src="selectedScene.videoUrl"
+              v-if="selectedScenePreviewUrl"
+              :src="selectedScenePreviewUrl"
               controls
               class="w-full h-full"
             />
@@ -276,7 +287,7 @@ function formatSize(bytes: number): string {
               v-else
               class="w-4 h-4 mr-2"
             />
-            {{ selectedScene.videoUrl ? '重新生成视频' : '生成视频' }}
+            {{ selectedScenePreviewUrl ? '重新生成视频' : '生成视频' }}
           </Button>
           <p
             v-if="selectedScene.frameStatus !== 'done'"

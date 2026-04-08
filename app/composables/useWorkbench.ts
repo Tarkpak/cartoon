@@ -1231,6 +1231,22 @@ export function useWorkbench() {
     return undefined
   }
 
+  /**
+   * 统一视频 URL:
+   * - 新格式: /api/video/file/:filename
+   * - 兼容旧格式: /videos/:filename -> /api/video/file/:filename
+   */
+  function normalizeVideoUrl(videoUrl?: string): string | undefined {
+    if (!videoUrl) return videoUrl
+
+    if (videoUrl.startsWith('/videos/')) {
+      const filename = videoUrl.slice('/videos/'.length)
+      return filename ? `/api/video/file/${filename}` : videoUrl
+    }
+
+    return videoUrl
+  }
+
   // ========== 视频生成 ==========
   async function generateVideo(scene: SceneData) {
     if (!scene.firstFrame || !scene.lastFrame) {
@@ -1394,7 +1410,7 @@ export function useWorkbench() {
         if (response.task.status === 'completed' && response.task.result?.videoData) {
           const videoData = response.task.result.videoData
           if (videoData.startsWith('url:')) {
-            scene.videoUrl = videoData.substring(4)
+            scene.videoUrl = normalizeVideoUrl(videoData.substring(4))
           } else if (videoData.startsWith('data:') || videoData.startsWith('http')) {
             scene.videoUrl = videoData
           } else if (videoData.startsWith('ref:')) {
@@ -1715,7 +1731,7 @@ export function useWorkbench() {
             firstFrame: s.firstFrame,
             lastFrame: s.lastFrame,
             frameStatus: s.firstFrame ? 'done' as const : 'pending' as const,
-            videoUrl: (sceneAny.videoUrl as string),
+            videoUrl: normalizeVideoUrl(sceneAny.videoUrl as string),
             videoStatus: sceneAny.videoUrl ? 'done' as const : 'pending' as const,
             storyboard: (sceneAny.storyboard as Storyboard),
             storyboardStatus: sceneAny.storyboard ? 'done' as const : 'pending' as const,
