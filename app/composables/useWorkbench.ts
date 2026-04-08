@@ -37,6 +37,8 @@ export interface SceneData {
   firstFrame?: string
   lastFrame?: string
   videoUrl?: string
+  frameError?: string
+  videoError?: string
   frameStatus: 'pending' | 'generating' | 'done' | 'error'
   videoStatus: 'pending' | 'generating' | 'done' | 'error'
   // 分镜和场景视觉
@@ -89,6 +91,19 @@ function toOptionalStringArray(value: unknown): string[] | undefined {
     .map(item => (typeof item === 'string' ? item.trim() : ''))
     .filter(Boolean)
   return normalized.length > 0 ? normalized : undefined
+}
+
+function getDisplayErrorMessage(error: unknown, fallback: string): string {
+  const payload = error as {
+    data?: { message?: string }
+    statusMessage?: string
+    message?: string
+  }
+
+  return payload?.data?.message
+    || payload?.statusMessage
+    || payload?.message
+    || fallback
 }
 
 // 流水线状态接口
@@ -245,6 +260,8 @@ export function useWorkbench() {
       transitionOut: 'cut',
       transitionDuration: 0.5,
       // 状态
+      frameError: undefined,
+      videoError: undefined,
       frameStatus: 'pending',
       videoStatus: 'pending',
       storyboardStatus: 'pending',
@@ -337,6 +354,8 @@ export function useWorkbench() {
       duration: currentScene.duration + nextScene.duration,
       setting: currentScene.setting,
       active: currentScene.active || nextScene.active,
+      frameError: undefined,
+      videoError: undefined,
       frameStatus: 'pending',
       videoStatus: 'pending',
       storyboardStatus: 'pending',
@@ -384,6 +403,8 @@ export function useWorkbench() {
       duration: Math.ceil(scene.duration / 2),
       setting: scene.setting,
       active: scene.active,
+      frameError: undefined,
+      videoError: undefined,
       frameStatus: 'pending',
       videoStatus: 'pending',
       storyboardStatus: 'pending',
@@ -400,6 +421,8 @@ export function useWorkbench() {
       duration: Math.floor(scene.duration / 2),
       setting: scene.setting,
       active: false,
+      frameError: undefined,
+      videoError: undefined,
       frameStatus: 'pending',
       videoStatus: 'pending',
       storyboardStatus: 'pending',
@@ -475,6 +498,8 @@ export function useWorkbench() {
             duration: s.duration || 8,
             setting: s.setting,
             active: i === 0,
+            frameError: undefined,
+            videoError: undefined,
             frameStatus: 'pending' as const,
             videoStatus: 'pending' as const,
             storyboardStatus: 'pending' as const,
@@ -507,8 +532,8 @@ export function useWorkbench() {
             return {
               id: `char_${i + 1}`,
               name,
-              appearance: sceneChar?.appearance || '',
-              role: 'supporting',
+            appearance: sceneChar?.appearance || '',
+            role: 'supporting',
               generating: false,
               generatingViews: false
             }
@@ -1121,6 +1146,7 @@ export function useWorkbench() {
    * @param sceneIndex 场景索引（可选，如果不传会自动计算）
    */
   async function generateFrames(scene: SceneData, previousSceneLastFrame?: string, sceneIndex?: number) {
+    scene.frameError = undefined
     scene.frameStatus = 'generating'
     try {
       // 自动生成分镜脚本（如果没有）
@@ -1228,12 +1254,14 @@ export function useWorkbench() {
       if (response.success) {
         scene.firstFrame = response.firstFrame.imageData
         scene.lastFrame = response.lastFrame.imageData
+        scene.frameError = undefined
         scene.frameStatus = 'done'
         console.log(`[generateFrames] 场景 ${scene.id} 首尾帧生成成功`, response.continuityInfo)
         await saveProject()
       }
     } catch (e) {
       console.error('首尾帧生成失败:', e)
+      scene.frameError = getDisplayErrorMessage(e, '首尾帧生成失败')
       scene.frameStatus = 'error'
     }
   }
@@ -1697,6 +1725,7 @@ export function useWorkbench() {
     }
     if (scene.frameStatus !== 'done') return
 
+    scene.videoError = undefined
     scene.videoStatus = 'generating'
     try {
       // 构建增强的视频生成 prompt，优先使用分镜脚本中的信息
@@ -1872,6 +1901,7 @@ export function useWorkbench() {
       }
     } catch (e) {
       console.error('视频生成失败:', e)
+      scene.videoError = getDisplayErrorMessage(e, '视频生成失败')
       scene.videoStatus = 'error'
     }
   }
@@ -1885,6 +1915,7 @@ export function useWorkbench() {
           success: boolean
           task: {
             status: string
+            error?: string
             result?: { videoData?: string }
           }
         }>(`/api/video/status/${taskId}`)
@@ -1897,15 +1928,18 @@ export function useWorkbench() {
             scene.videoUrl = videoData
           } else if (videoData.startsWith('ref:')) {
             console.warn('视频为引用类型，暂不支持播放')
+            scene.videoError = '视频已生成，但当前返回的是引用资源，页面暂不支持直接预览。'
             scene.videoStatus = 'error'
             return
           } else {
             scene.videoUrl = `data:video/mp4;base64,${videoData}`
           }
+          scene.videoError = undefined
           scene.videoStatus = 'done'
           await saveProject()
           return
         } else if (response.task.status === 'failed') {
+          scene.videoError = response.task.error || '视频生成失败'
           scene.videoStatus = 'error'
           return
         }
@@ -1913,6 +1947,7 @@ export function useWorkbench() {
         console.error('状态查询失败:', e)
       }
     }
+    scene.videoError = '视频生成超时或状态查询失败，请稍后重试。'
     scene.videoStatus = 'error'
   }
 
@@ -2220,6 +2255,8 @@ export function useWorkbench() {
             duration: s.duration || 8,
             setting: s.setting,
             active: i === 0,
+            frameError: undefined,
+            videoError: undefined,
             // 镜头语言
             shotType: (sceneAny.shotType as ShotType) || 'medium',
             cameraMovement: (sceneAny.cameraMovement as CameraMovement) || 'static',

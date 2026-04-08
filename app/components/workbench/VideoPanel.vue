@@ -124,7 +124,7 @@ function formatSize(bytes: number): string {
 
     <div class="grid lg:grid-cols-3 gap-6 min-h-[500px]">
       <!-- 场景列表 -->
-      <div class="flex flex-col">
+      <div class="flex flex-col min-h-0">
         <h3 class="font-semibold mb-4">
           场景队列
         </h3>
@@ -141,7 +141,7 @@ function formatSize(bytes: number): string {
         </div>
         <div
           v-else
-          class="flex-1 space-y-2 overflow-y-auto"
+          class="flex-1 space-y-2 overflow-y-auto pr-1 max-h-[45vh] lg:max-h-[32rem]"
         >
           <div
             v-for="(scene, idx) in scenes"
@@ -295,6 +295,12 @@ function formatSize(bytes: number): string {
           >
             请先生成首尾帧
           </p>
+          <div
+            v-else-if="selectedScene.videoStatus === 'error' && selectedScene.videoError"
+            class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          >
+            {{ selectedScene.videoError }}
+          </div>
         </div>
       </div>
     </div>
