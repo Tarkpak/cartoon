@@ -331,6 +331,109 @@ export async function _volcengineGenerateText(options: {
   }, { maxRetries: options.maxRetries })
 }
 
+function extractJsonObject(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start === -1) return null
+
+  let depth = 0
+  let inString = false
+  let escape = false
+
+  for (let i = start; i < text.length; i++) {
+    const char = text[i]
+
+    if (escape) {
+      escape = false
+      continue
+    }
+
+    if (char === '\\' && inString) {
+      escape = true
+      continue
+    }
+
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+
+    if (inString) continue
+
+    if (char === '{') depth++
+    else if (char === '}') {
+      depth--
+      if (depth === 0) {
+        return text.slice(start, i + 1)
+      }
+    }
+  }
+
+  return null
+}
+
+function extractJsonArray(text: string): string | null {
+  const start = text.indexOf('[')
+  if (start === -1) return null
+
+  let depth = 0
+  let inString = false
+  let escape = false
+
+  for (let i = start; i < text.length; i++) {
+    const char = text[i]
+
+    if (escape) {
+      escape = false
+      continue
+    }
+
+    if (char === '\\' && inString) {
+      escape = true
+      continue
+    }
+
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+
+    if (inString) continue
+
+    if (char === '[') depth++
+    else if (char === ']') {
+      depth--
+      if (depth === 0) {
+        return text.slice(start, i + 1)
+      }
+    }
+  }
+
+  return null
+}
+
+function normalizeJsonCandidate(text: string): string {
+  let jsonStr = text.trim()
+
+  const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+  if (codeBlockMatch && codeBlockMatch[1]) {
+    return codeBlockMatch[1].trim()
+  }
+
+  if (jsonStr.startsWith('```')) {
+    jsonStr = jsonStr
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim()
+  }
+
+  try {
+    JSON.parse(jsonStr)
+    return jsonStr
+  } catch {
+    return extractJsonObject(jsonStr) || extractJsonArray(jsonStr) || jsonStr
+  }
+}
+
 export async function _volcengineGenerateJSON<T>(options: {
   model?: string
   prompt: string
@@ -368,15 +471,8 @@ export async function _volcengineGenerateJSON<T>(options: {
     )
 
     const text = response.choices?.[0]?.message?.content || '{}'
+    const jsonStr = normalizeJsonCandidate(text)
 
-    // 尝试提取 JSON
-    let jsonStr = text.trim()
-
-    const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-    if (codeBlockMatch && codeBlockMatch[1]) {
-      jsonStr = codeBlockMatch[1].trim()
-    }
-    
     try {
       return JSON.parse(jsonStr) as T
     } catch (parseError) {
