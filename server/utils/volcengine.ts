@@ -352,7 +352,7 @@ export async function _volcengineGenerateJSON<T>(options: {
 
   return withRetry(async () => {
     const messages: Array<{ role: string, content: string }> = []
-    
+
     if (options.systemInstruction) {
       messages.push({ role: 'system', content: options.systemInstruction })
     }
@@ -363,16 +363,15 @@ export async function _volcengineGenerateJSON<T>(options: {
       {
         model,
         messages,
-        temperature: options.temperature ?? 0.2,
-        response_format: { type: 'json_object' }
+        temperature: options.temperature ?? 0.2
       }
     )
 
     const text = response.choices?.[0]?.message?.content || '{}'
-    
+
     // 尝试提取 JSON
     let jsonStr = text.trim()
-    
+
     const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
     if (codeBlockMatch && codeBlockMatch[1]) {
       jsonStr = codeBlockMatch[1].trim()
