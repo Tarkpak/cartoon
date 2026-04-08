@@ -75,7 +75,7 @@ export default defineEventHandler(async (event) => {
     await db.update(videoTasksTable)
       .set({
         status: 'failed',
-        error: error instanceof Error ? error.message : '未知错误',
+        error: normalizeVideoTaskError(error),
         updatedAt: new Date().toISOString()
       })
       .where(eq(videoTasksTable.id, taskId))
@@ -93,6 +93,31 @@ export default defineEventHandler(async (event) => {
  * 更新任务进度
  */
 type TaskStatus = 'pending' | 'processing' | 'completed' | 'failed'
+
+function normalizeVideoTaskError(error: unknown): string {
+  const rawMessage = error instanceof Error ? error.message : String(error || '未知错误')
+  const message = rawMessage.trim()
+
+  if (!message) return '视频生成失败'
+
+  if (/input image may contain real person/i.test(message)) {
+    return '输入图片可能包含真人内容，当前视频模型不支持，请改用非真人角色图或切换其他模型。'
+  }
+
+  if (/sensitive/i.test(message)) {
+    return '输入内容可能触发安全限制，请调整提示词或参考图后重试。'
+  }
+
+  if (/quota|rate limit|resource_exhausted/i.test(message)) {
+    return '模型调用次数已达上限，请稍后重试。'
+  }
+
+  if (/timeout|deadline exceeded/i.test(message)) {
+    return '视频生成超时，请稍后重试。'
+  }
+
+  return message
+}
 
 async function updateTaskProgress(taskId: string, progress: number, status?: TaskStatus) {
   const updateData: Record<string, unknown> = {
@@ -609,7 +634,7 @@ async function generateVideoWithGemini(
     await db.update(videoTasksTable)
       .set({
         status: 'failed',
-        error: error instanceof Error ? error.message : '未知错误',
+        error: normalizeVideoTaskError(error),
         updatedAt: new Date().toISOString()
       })
       .where(eq(videoTasksTable.id, taskId))
