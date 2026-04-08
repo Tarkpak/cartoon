@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { EmotionSchema } from './script'
 
+const nullToUndefined = (value: unknown) => (value === null ? undefined : value)
+
 // ==================== 角色资产 ====================
 
 /** 角色类型 */
@@ -51,21 +53,21 @@ export type SpeakingStyle = z.infer<typeof SpeakingStyleSchema>
 export const CharacterSchema = z.object({
   id: z.string().describe('角色ID'),
   name: z.string().describe('角色名'),
-  role: CharacterRoleSchema.optional().describe('角色类型'),
+  role: z.preprocess(nullToUndefined, CharacterRoleSchema.optional()).describe('角色类型'),
   // 外观相关
   appearance: z.string().describe('外观描述'),
-  age: z.number().optional().describe('年龄'),
-  gender: z.enum(['male', 'female', 'other']).optional().describe('性别'),
+  age: z.preprocess(nullToUndefined, z.number().optional()).describe('年龄'),
+  gender: z.preprocess(nullToUndefined, z.enum(['male', 'female', 'other']).optional()).describe('性别'),
   // 性格相关 (新增)
-  personality: z.string().optional().describe('性格描述'),
-  traits: z.array(z.string()).optional().describe('性格特点标签'),
+  personality: z.preprocess(nullToUndefined, z.string().optional()).describe('性格描述'),
+  traits: z.preprocess(nullToUndefined, z.array(z.string()).optional()).describe('性格特点标签'),
   // 背景相关 (新增)
-  background: z.string().optional().describe('角色背景故事'),
-  motivation: z.string().optional().describe('角色动机/目标'),
+  background: z.preprocess(nullToUndefined, z.string().optional()).describe('角色背景故事'),
+  motivation: z.preprocess(nullToUndefined, z.string().optional()).describe('角色动机/目标'),
   // 说话风格 (新增)
-  speakingStyle: SpeakingStyleSchema.optional().describe('说话风格'),
-  catchphrase: z.string().optional().describe('口头禅'),
-  voiceTone: z.string().optional().describe('声音特点描述')
+  speakingStyle: z.preprocess(nullToUndefined, SpeakingStyleSchema.optional()).describe('说话风格'),
+  catchphrase: z.preprocess(nullToUndefined, z.string().optional()).describe('口头禅'),
+  voiceTone: z.preprocess(nullToUndefined, z.string().optional()).describe('声音特点描述')
 })
 export type Character = z.infer<typeof CharacterSchema>
 

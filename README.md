@@ -28,7 +28,8 @@ bun build
 在 `.env` 文件中配置：
 
 ```env
-GEMINI_API_KEY=            # Google Gemini API 密钥
+GEMINI_API_KEY=            # Google Gemini API 密钥，支持多个（逗号/分号/换行分隔）
+# GEMINI_API_KEY=key1,key2,key3
 QWEN_API_KEY=              # 阿里云 Qwen (DashScope) API 密钥
 VOLCENGINE_API_KEY=        # 火山引擎 (Doubao) API 密钥
 

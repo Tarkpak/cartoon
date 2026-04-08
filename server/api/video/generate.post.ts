@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../../utils/gemini'
+import { VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../../utils/gemini'
 import * as qwen from '../../utils/qwen'
 import * as volcengine from '../../utils/volcengine'
 import { getSelectedModels, findVideoModel } from '../../utils/model-provider'
@@ -412,7 +412,6 @@ async function generateVideoWithGemini(
     // 更新状态为处理中
     await updateTaskProgress(taskId, 10, 'processing')
 
-    const client = getGeminiClient()
     console.log(`[VideoGen] 开始生成视频: ${taskId}`)
 
     // 1. 调用 Veo API 开始生成
@@ -439,12 +438,13 @@ async function generateVideoWithGemini(
     })
 
     // 使用视频并发限制器控制请求
-    let operation = await videoLimiter.execute(() => _geminiWithRetry(async () => {
+    const startResult = await videoLimiter.execute(() => _geminiWithRetry(async ({ client, keyAlias }) => {
+      console.log(`[VideoGen] 本次视频请求使用 key: ${keyAlias}`)
       if (hasFrames) {
         // 使用首尾帧插值模式
         // 注意：使用插值时 durationSeconds 必须为 8 秒
         // 参考文档：https://ai.google.dev/gemini-api/docs/video#using-first-and-last-video-frames
-        return await client.models.generateVideos({
+        const operation = await client.models.generateVideos({
           model: selectedModel,
           prompt: config.prompt,
           image: {
@@ -461,9 +461,10 @@ async function generateVideoWithGemini(
             resolution: config.resolution
           }
         })
+        return { operation, client }
       } else {
         // 纯文本生成模式
-        return await client.models.generateVideos({
+        const operation = await client.models.generateVideos({
           model: selectedModel,
           prompt: config.prompt,
           config: {
@@ -472,8 +473,12 @@ async function generateVideoWithGemini(
             resolution: config.resolution
           }
         })
+        return { operation, client }
       }
     }, { maxRetries: 2 }))
+
+    let operation = startResult.operation
+    const operationClient = startResult.client
 
     // 2. 轮询等待生成完成
     console.log(`[VideoGen] 等待视频生成完成...`)
@@ -500,7 +505,7 @@ async function generateVideoWithGemini(
       // 等待后再次检查
       await new Promise(resolve => setTimeout(resolve, pollInterval))
 
-      operation = await client.operations.getVideosOperation({
+      operation = await operationClient.operations.getVideosOperation({
         operation: operation
       })
     }
@@ -548,7 +553,7 @@ async function generateVideoWithGemini(
 
         console.log(`[VideoGen] 保存视频到: ${videoFilePath}`)
 
-        await client.files.download({
+        await operationClient.files.download({
           file: generatedVideo.video,
           downloadPath: videoFilePath
         })

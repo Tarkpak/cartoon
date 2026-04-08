@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { getGeminiClient, VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../../utils/gemini'
+import { VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../../utils/gemini'
 import * as qwen from '../../utils/qwen'
 import { generateImage, findVideoModel, getSelectedModels } from '../../utils/model-provider'
 import { getWorkflowModels } from '../models/workflow.get'
@@ -395,7 +395,6 @@ async function generateTransitionWithGemini(
     // 更新状态为处理中
     await updateTaskProgress(taskId, 10, 'processing')
 
-    const client = getGeminiClient()
     console.log(`[SceneChain] 开始生成转场视频: ${taskId}`)
 
     // 1. 可选：生成过渡中间帧以增强连贯性（当前仅用于日志，后续可用于优化）
@@ -430,8 +429,9 @@ async function generateTransitionWithGemini(
       resolution: '1080p'
     })
 
-    let operation = await _geminiWithRetry(async () => {
-      return await client.models.generateVideos({
+    const startResult = await _geminiWithRetry(async ({ client, keyAlias }) => {
+      console.log(`[SceneChain] 本次转场请求使用 key: ${keyAlias}`)
+      const operation = await client.models.generateVideos({
         model: VideoModels.VEO_3_1,
         prompt,
         image: {
@@ -449,7 +449,11 @@ async function generateTransitionWithGemini(
           generateAudio: false
         }
       })
+      return { operation, client }
     }, { maxRetries: 2 })
+
+    let operation = startResult.operation
+    const operationClient = startResult.client
 
     // 3. 轮询等待生成完成
     console.log(`[SceneChain] 等待转场视频生成完成...`)
@@ -476,7 +480,7 @@ async function generateTransitionWithGemini(
       // 等待后再次检查
       await new Promise(resolve => setTimeout(resolve, pollInterval))
 
-      operation = await client.operations.getVideosOperation({
+      operation = await operationClient.operations.getVideosOperation({
         operation
       })
     }
