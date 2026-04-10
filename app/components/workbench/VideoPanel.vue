@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Video, Loader2, Image, Check, AlertCircle, Sparkles, Play, Film, Download } from 'lucide-vue-next'
 import type { SceneData, BatchStatus } from '~/composables/useWorkbench'
+import { toImageSrc } from '~/lib/media'
 
 const props = defineProps<{
   scenes: SceneData[]
@@ -23,6 +24,8 @@ defineEmits<{
 
 const framesCompleted = computed(() => props.scenes.filter(s => s.frameStatus === 'done').length)
 const videosCompleted = computed(() => props.scenes.filter(s => s.videoStatus === 'done').length)
+const selectedSceneFirstFrameSrc = computed(() => toImageSrc(props.selectedScene?.firstFrame))
+const selectedSceneLastFrameSrc = computed(() => toImageSrc(props.selectedScene?.lastFrame))
 const selectedScenePreviewUrl = computed(() => {
   const url = props.selectedScene?.videoUrl
   if (!url) return ''
@@ -194,9 +197,9 @@ function formatSize(bytes: number): string {
             <div class="aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden">
               <img
                 v-if="selectedScene.firstFrame"
-                :src="`data:image/png;base64,${selectedScene.firstFrame}`"
+                :src="selectedSceneFirstFrameSrc"
                 class="w-full h-full object-cover cursor-pointer hover:opacity-90 transition"
-                @click="$emit('previewImage', `data:image/png;base64,${selectedScene.firstFrame}`, `${selectedScene.title} - 第一帧`)"
+                @click="$emit('previewImage', selectedSceneFirstFrameSrc, `${selectedScene.title} - 第一帧`)"
               >
               <Image
                 v-else
@@ -211,9 +214,9 @@ function formatSize(bytes: number): string {
             <div class="aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden">
               <img
                 v-if="selectedScene.lastFrame"
-                :src="`data:image/png;base64,${selectedScene.lastFrame}`"
+                :src="selectedSceneLastFrameSrc"
                 class="w-full h-full object-cover cursor-pointer hover:opacity-90 transition"
-                @click="$emit('previewImage', `data:image/png;base64,${selectedScene.lastFrame}`, `${selectedScene.title} - 最后一帧`)"
+                @click="$emit('previewImage', selectedSceneLastFrameSrc, `${selectedScene.title} - 最后一帧`)"
               >
               <Image
                 v-else

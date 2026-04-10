@@ -4,6 +4,8 @@ node_modules/
 .nitro
 dist
 .playwright-mcp
+.DS_Store
+app/.DS_Store
 
 # 环境变量
 .env

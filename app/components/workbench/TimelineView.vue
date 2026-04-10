@@ -16,6 +16,7 @@ import {
   AlertCircle
 } from 'lucide-vue-next'
 import type { SceneData } from '~/composables/useWorkbench'
+import { toImageSrc } from '~/lib/media'
 
 const props = defineProps<{
   scenes: SceneData[]
@@ -428,7 +429,7 @@ onUnmounted(() => {
           <div class="w-20 h-12 bg-muted rounded overflow-hidden flex-shrink-0">
             <img
               v-if="scene.firstFrame"
-              :src="scene.firstFrame.startsWith('data:') ? scene.firstFrame : `data:image/png;base64,${scene.firstFrame}`"
+              :src="toImageSrc(scene.firstFrame)"
               :alt="scene.title"
               class="w-full h-full object-cover"
             >

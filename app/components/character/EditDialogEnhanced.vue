@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Loader2, Plus, X, User, Meh, Smile, Frown, Angry, Zap, AlertTriangle } from 'lucide-vue-next'
+import { toImageSrc } from '~/lib/media'
 
 interface CharacterEditData {
   id: string
@@ -225,7 +226,7 @@ defineExpose({
               <div class="w-32 h-32 bg-gradient-to-br from-purple-100 to-pink-100 rounded-xl flex items-center justify-center overflow-hidden">
                 <img
                   v-if="editForm.baseImage"
-                  :src="`data:image/png;base64,${editForm.baseImage}`"
+                  :src="toImageSrc(editForm.baseImage)"
                   class="w-full h-full object-cover"
                 >
                 <User
@@ -447,7 +448,7 @@ defineExpose({
                 />
                 <img
                   v-else-if="editForm.expressions?.[emotion.value]"
-                  :src="`data:image/png;base64,${editForm.expressions[emotion.value]}`"
+                  :src="toImageSrc(editForm.expressions[emotion.value])"
                   class="w-full h-full object-cover"
                 >
                 <component

@@ -2449,7 +2449,14 @@ export function useWorkbench() {
 
       console.log('项目保存成功')
     } catch (e) {
-      saveError.value = e instanceof Error ? e.message : '未知错误'
+      const message = getDisplayErrorMessage(e, '未知错误')
+      const isPayloadTooLarge = /413|payload too large|request entity too large/i.test(message)
+
+      if (isPayloadTooLarge) {
+        saveError.value = '图片数据过大，项目未完整保存。请增大反向代理请求体限制（例如 Nginx client_max_body_size 50m）后重试。'
+      } else {
+        saveError.value = message
+      }
       console.error('保存项目失败:', e)
     } finally {
       saving.value = false
