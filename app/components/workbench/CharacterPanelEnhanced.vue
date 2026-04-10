@@ -2,6 +2,7 @@
 import { Users, Loader2, Sparkles, Pencil, RotateCcw, Link2, ArrowRight, ImagePlus, Heart, Handshake, Swords, BookOpen, Trophy, Briefcase, HelpCircle, MessageCircle, Quote, Lightbulb } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useWorkbench'
 import type { CharacterRelationship } from '#shared/types/outline'
+import { toImageSrc } from '~/lib/media'
 
 const props = defineProps<{
   characters: CharacterData[]
@@ -70,6 +71,12 @@ function getCharacterName(id: string): string {
 
 function getRelationshipIcon(type: string) {
   return relationshipTypes.find(r => r.value === type)?.icon || HelpCircle
+}
+
+function previewImage(imageData: string | undefined, alt: string) {
+  const src = toImageSrc(imageData)
+  if (!src) return
+  emit('previewImage', src, alt)
 }
 </script>
 
@@ -181,9 +188,9 @@ function getRelationshipIcon(type: string) {
               <div class="w-20 h-20 bg-muted rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0">
                 <img
                   v-if="char.baseImage"
-                  :src="`data:image/png;base64,${char.baseImage}`"
+                  :src="toImageSrc(char.baseImage)"
                   class="w-full h-full object-cover cursor-pointer hover:opacity-80 transition"
-                  @click.stop="$emit('previewImage', `data:image/png;base64,${char.baseImage}`, `${char.name} 立绘`)"
+                  @click.stop="previewImage(char.baseImage, `${char.name} 立绘`)"
                 >
                 <Users
                   v-else
@@ -263,10 +270,10 @@ function getRelationshipIcon(type: string) {
                 :key="emotion"
                 class="w-8 h-8 rounded border overflow-hidden cursor-pointer hover:ring-2 ring-primary transition"
                 :title="String(emotion)"
-                @click.stop="$emit('previewImage', `data:image/png;base64,${imgData}`, `${char.name} - ${emotion}`)"
+                @click.stop="previewImage(typeof imgData === 'string' ? imgData : undefined, `${char.name} - ${emotion}`)"
               >
                 <img
-                  :src="`data:image/png;base64,${imgData}`"
+                  :src="toImageSrc(typeof imgData === 'string' ? imgData : undefined)"
                   class="w-full h-full object-cover"
                 >
               </div>

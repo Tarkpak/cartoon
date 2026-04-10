@@ -1,19 +1,26 @@
 <script setup lang="ts">
 import { Users, Loader2, Sparkles, Pencil, Scan, RotateCcw } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useWorkbench'
+import { toImageSrc } from '~/lib/media'
 
 defineProps<{
   characters: CharacterData[]
   extracting?: boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   generateCharacter: [char: CharacterData]
   editCharacter: [char: CharacterData]
   previewImage: [src: string, alt: string]
   extractCharacters: []
   generateViews: [char: CharacterData]
 }>()
+
+function previewImage(imageData: string | undefined, alt: string) {
+  const src = toImageSrc(imageData)
+  if (!src) return
+  emit('previewImage', src, alt)
+}
 </script>
 
 <template>
@@ -58,9 +65,9 @@ defineEmits<{
           <div class="w-20 h-20 bg-muted rounded-lg flex items-center justify-center overflow-hidden">
             <img
               v-if="char.baseImage"
-              :src="`data:image/png;base64,${char.baseImage}`"
+              :src="toImageSrc(char.baseImage)"
               class="w-full h-full object-cover cursor-pointer hover:opacity-80 transition"
-              @click.stop="$emit('previewImage', `data:image/png;base64,${char.baseImage}`, `${char.name} 立绘`)"
+              @click.stop="previewImage(char.baseImage, `${char.name} 立绘`)"
             >
             <Users
               v-else
@@ -98,10 +105,10 @@ defineEmits<{
             :key="emotion"
             class="w-8 h-8 rounded border overflow-hidden cursor-pointer hover:ring-2 ring-primary transition"
             :title="String(emotion)"
-            @click.stop="$emit('previewImage', `data:image/png;base64,${imgData}`, `${char.name} - ${emotion}`)"
+            @click.stop="previewImage(typeof imgData === 'string' ? imgData : undefined, `${char.name} - ${emotion}`)"
           >
             <img
-              :src="`data:image/png;base64,${imgData}`"
+              :src="toImageSrc(typeof imgData === 'string' ? imgData : undefined)"
               class="w-full h-full object-cover"
             >
           </div>
@@ -119,10 +126,10 @@ defineEmits<{
               :key="view"
               class="w-10 h-10 rounded border overflow-hidden cursor-pointer hover:ring-2 ring-primary transition"
               :title="String(view)"
-              @click.stop="$emit('previewImage', `data:image/png;base64,${imgData}`, `${char.name} - ${view}`)"
+              @click.stop="previewImage(typeof imgData === 'string' ? imgData : undefined, `${char.name} - ${view}`)"
             >
               <img
-                :src="`data:image/png;base64,${imgData}`"
+                :src="toImageSrc(typeof imgData === 'string' ? imgData : undefined)"
                 class="w-full h-full object-cover"
               >
             </div>
