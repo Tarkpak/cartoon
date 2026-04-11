@@ -9,6 +9,66 @@ import {
   type ParsedScript
 } from '../../../shared/types/script'
 
+const SCRIPT_MIN_DURATION = 2
+const SCRIPT_MAX_DURATION = 15
+const DEFAULT_SCENE_DURATION = 8
+
+function normalizeSceneDuration(rawDuration: unknown): number {
+  const numericDuration = typeof rawDuration === 'number'
+    ? rawDuration
+    : typeof rawDuration === 'string'
+      ? Number(rawDuration)
+      : Number.NaN
+
+  if (!Number.isFinite(numericDuration)) return DEFAULT_SCENE_DURATION
+
+  const clamped = Math.min(SCRIPT_MAX_DURATION, Math.max(SCRIPT_MIN_DURATION, numericDuration))
+  return Math.round(clamped * 2) / 2
+}
+
+function normalizeParsedScriptOutput(output: unknown): unknown {
+  let parsedObject: Record<string, unknown>
+
+  if (Array.isArray(output)) {
+    const firstItem = output[0]
+    if (firstItem && typeof firstItem === 'object' && !Array.isArray(firstItem) && 'scenes' in firstItem) {
+      parsedObject = firstItem as Record<string, unknown>
+    } else {
+      parsedObject = { scenes: output, characters: [] }
+    }
+  } else if (output && typeof output === 'object') {
+    parsedObject = output as Record<string, unknown>
+  } else {
+    return output
+  }
+
+  const rawScenes = Array.isArray(parsedObject.scenes) ? parsedObject.scenes : []
+  const normalizedScenes = rawScenes.map((scene, index) => {
+    if (!scene || typeof scene !== 'object' || Array.isArray(scene)) return scene
+    const sceneObj = scene as Record<string, unknown>
+    return {
+      ...sceneObj,
+      id: typeof sceneObj.id === 'string' && sceneObj.id.trim().length > 0
+        ? sceneObj.id
+        : `scene_${String(index + 1).padStart(3, '0')}`,
+      duration: normalizeSceneDuration(sceneObj.duration)
+    }
+  })
+
+  const totalDuration = normalizedScenes.reduce((sum, scene) => {
+    if (!scene || typeof scene !== 'object' || Array.isArray(scene)) return sum
+    const duration = (scene as Record<string, unknown>).duration
+    return sum + (typeof duration === 'number' && Number.isFinite(duration) ? duration : DEFAULT_SCENE_DURATION)
+  }, 0)
+
+  return {
+    ...parsedObject,
+    scenes: normalizedScenes,
+    characters: Array.isArray(parsedObject.characters) ? parsedObject.characters : [],
+    totalDuration: Math.round(totalDuration * 10) / 10
+  }
+}
+
 /**
  * 剧本解析 API
  * POST /api/script/parse
@@ -64,7 +124,9 @@ export default defineEventHandler(async (event) => {
 【补充约束 - 剧情覆盖与场景密度】
 1. 必须覆盖输入文本的完整主线，不要省略关键事件和关键旁白信息。
 2. 本次输入文本长度约 ${textLength} 字，场景数量不少于 ${recommendedMinScenes} 场。
-3. 若同一场景包含多个动作转折、情绪转折或叙事跳跃，必须拆分成连续多个场景。`
+3. 若同一场景包含多个动作转折、情绪转折或叙事跳跃，必须拆分成连续多个场景。
+4. 每个场景的 duration 必须是数字，且在 ${SCRIPT_MIN_DURATION}-${SCRIPT_MAX_DURATION} 秒之间。
+5. totalDuration 必须严格等于所有 scenes[i].duration 的总和。`
 
     // 3. 使用业务流程配置的模型解析
     const result = await generateJSONForWorkflow<ParsedScript>('script_parsing', {
@@ -73,8 +135,9 @@ export default defineEventHandler(async (event) => {
       maxRetries: 2
     })
 
-    // 4. 验证输出格式
-    const validated = ParsedScriptSchema.safeParse(result)
+    // 4. 归一化并验证输出格式
+    const normalizedResult = normalizeParsedScriptOutput(result)
+    const validated = ParsedScriptSchema.safeParse(normalizedResult)
     if (!validated.success) {
       console.error('[ScriptParse] 输出格式验证失败:', validated.error)
       throw createError({
