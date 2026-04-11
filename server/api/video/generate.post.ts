@@ -2,16 +2,18 @@ import { eq } from 'drizzle-orm'
 import { VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../../utils/gemini'
 import * as qwen from '../../utils/qwen'
 import * as volcengine from '../../utils/volcengine'
-import { getSelectedModels, findVideoModel } from '../../utils/model-provider'
+import { getSelectedModels, findVideoModel, generateImage } from '../../utils/model-provider'
 import { getWorkflowModels } from '../models/workflow.get'
 import { videoLimiter } from '../../utils/concurrency'
 import { db, scenes as scenesTable, videoTasks as videoTasksTable } from '../../db'
+import { createCache } from '../../utils/cache'
 import {
   GenerateVideoRequestSchema,
   type GeneratedVideo
 } from '../../../shared/types/video'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { createHash } from 'node:crypto'
 
 /**
  * 视频生成 API
@@ -93,6 +95,175 @@ export default defineEventHandler(async (event) => {
  * 更新任务进度
  */
 type TaskStatus = 'pending' | 'processing' | 'completed' | 'failed'
+const VOLCENGINE_REAL_PERSON_BLOCK_RE = /InputImageSensitiveContentDetected\.PrivacyInformation|input image may contain real person/i
+const VOLCENGINE_REALISM_PROMPT_PREFIX = [
+  '【真人实拍要求】',
+  '@图1（若有@图2同样适用）角色必须保持同一人物身份',
+  '真人实拍，电影级光影，真实皮肤质感，4K高清，面部稳定',
+  '禁止换脸、禁止变更发型发色、禁止新增主角'
+].join('\n')
+const SEEDANCE_SAFETY_STYLIZE_PROMPT = [
+  '把输入参考图转换成非真人手绘风格图（彩铅插画/线稿上色），整体必须看起来像绘画，不要照片质感。',
+  '严格保留人物身份特征：脸型、五官比例、发际线、发型、发色、服装轮廓与主色。',
+  '保持原图构图与视角，不要新增人物，不要文字，不要水印，背景简洁。',
+  '输出单张高质量手绘角色图。'
+].join(' ')
+const SEEDANCE_SAFETY_STYLIZE_NEGATIVE_PROMPT =
+  'photo, realistic skin, camera, watermark, text, logo, extra person, low quality, blurry'
+const seedanceSafetyImageCache = createCache<string>({
+  ttl: 24 * 60 * 60 * 1000,
+  maxSize: 500
+})
+
+function isVolcengineRealPersonBlockError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || '')
+  return VOLCENGINE_REAL_PERSON_BLOCK_RE.test(message)
+}
+
+function withVolcengineRealismPrompt(prompt: string): string {
+  if (/真人实拍|真人写实|写实风格|photoreal|realistic skin|cinematic lighting/i.test(prompt)) {
+    return prompt
+  }
+  return `${VOLCENGINE_REALISM_PROMPT_PREFIX}\n${prompt}`
+}
+
+function normalizeImageInputForStyleTransfer(image?: string): string | undefined {
+  if (!image) return undefined
+  const value = image.trim()
+  if (!value) return undefined
+
+  if (value.startsWith('data:image/')) return value
+  if (value.startsWith('http://') || value.startsWith('https://')) return value
+
+  // 纯 base64，补齐 data URL
+  if (value.startsWith('/9j/')) return `data:image/jpeg;base64,${value}`
+  if (value.startsWith('iVBOR')) return `data:image/png;base64,${value}`
+  if (value.startsWith('R0lGOD')) return `data:image/gif;base64,${value}`
+  if (value.startsWith('UklGR')) return `data:image/webp;base64,${value}`
+
+  // 相对路径等不可直传给图片生成接口，跳过自动转换
+  return undefined
+}
+
+function buildSeedanceSafetyCacheKey(image: string): string {
+  const hash = createHash('sha256').update(image).digest('hex')
+  return `seedance:safe:${hash}`
+}
+
+async function stylizeImageForVolcengineSafety(
+  sourceImage: string | undefined,
+  label: 'image' | 'first' | 'last'
+): Promise<string | undefined> {
+  const normalized = normalizeImageInputForStyleTransfer(sourceImage)
+  if (!normalized) {
+    console.warn(`[VideoGen] ${label} 无法转换为可用参考图格式，跳过风格化`)
+    return undefined
+  }
+
+  const cacheKey = buildSeedanceSafetyCacheKey(normalized)
+  const cached = seedanceSafetyImageCache.get(cacheKey)
+  if (cached) {
+    console.log(`[VideoGen] ${label} 风格化命中缓存`)
+    return cached
+  }
+
+  try {
+    const stylized = await generateImage({
+      modelId: volcengine.VolcengineImageModels.SEEDREAM_5_0,
+      prompt: SEEDANCE_SAFETY_STYLIZE_PROMPT,
+      negativePrompt: SEEDANCE_SAFETY_STYLIZE_NEGATIVE_PROMPT,
+      referenceImages: [normalized],
+      size: '2K',
+      maxRetries: 1
+    })
+
+    if (stylized.imageUrl) {
+      console.log(`[VideoGen] ${label} 风格化成功(URL)`)
+      seedanceSafetyImageCache.set(cacheKey, stylized.imageUrl)
+      return stylized.imageUrl
+    }
+
+    if (stylized.imageData) {
+      const mimeType = stylized.mimeType || 'image/png'
+      const styledData = `data:${mimeType};base64,${stylized.imageData}`
+      console.log(`[VideoGen] ${label} 风格化成功(base64)`)
+      seedanceSafetyImageCache.set(cacheKey, styledData)
+      return styledData
+    }
+
+    return undefined
+  } catch (error) {
+    console.warn(`[VideoGen] ${label} 风格化失败:`, error)
+    return undefined
+  }
+}
+
+async function preprocessSeedanceInputs(
+  modelId: string,
+  prompt: string,
+  imageUrl?: string,
+  firstFrameUrl?: string,
+  lastFrameUrl?: string
+): Promise<{
+  prompt: string
+  imageUrl?: string
+  firstFrameUrl?: string
+  lastFrameUrl?: string
+  appliedSafetyImages: boolean
+}> {
+  const isSeedanceModel = modelId.includes('seedance')
+  if (!isSeedanceModel) {
+    return { prompt, imageUrl, firstFrameUrl, lastFrameUrl, appliedSafetyImages: false }
+  }
+
+  if (!imageUrl && !firstFrameUrl && !lastFrameUrl) {
+    return { prompt, imageUrl, firstFrameUrl, lastFrameUrl, appliedSafetyImages: false }
+  }
+
+  const patchedPrompt = withVolcengineRealismPrompt(prompt)
+  let nextImageUrl = imageUrl
+  let nextFirstFrameUrl = firstFrameUrl
+  let nextLastFrameUrl = lastFrameUrl
+  let applied = false
+
+  if (firstFrameUrl && lastFrameUrl) {
+    const [safeFirstFrame, safeLastFrame] = await Promise.all([
+      stylizeImageForVolcengineSafety(firstFrameUrl, 'first'),
+      stylizeImageForVolcengineSafety(lastFrameUrl, 'last')
+    ])
+    if (safeFirstFrame && safeLastFrame) {
+      nextFirstFrameUrl = safeFirstFrame
+      nextLastFrameUrl = safeLastFrame
+      applied = true
+    } else {
+      console.warn('[VideoGen] Seedance 预处理：首尾帧风格化未完整成功，保留原图继续尝试')
+    }
+  } else if (imageUrl) {
+    const safeImage = await stylizeImageForVolcengineSafety(imageUrl, 'image')
+    if (safeImage) {
+      nextImageUrl = safeImage
+      applied = true
+    } else {
+      console.warn('[VideoGen] Seedance 预处理：图生视频风格化失败，保留原图继续尝试')
+    }
+  } else if (firstFrameUrl) {
+    const safeFirstFrame = await stylizeImageForVolcengineSafety(firstFrameUrl, 'first')
+    if (safeFirstFrame) {
+      nextFirstFrameUrl = safeFirstFrame
+      applied = true
+    } else {
+      console.warn('[VideoGen] Seedance 预处理：首帧风格化失败，保留原图继续尝试')
+    }
+  }
+
+  return {
+    prompt: patchedPrompt,
+    imageUrl: nextImageUrl,
+    firstFrameUrl: nextFirstFrameUrl,
+    lastFrameUrl: nextLastFrameUrl,
+    appliedSafetyImages: applied
+  }
+}
 
 function normalizeVideoTaskError(error: unknown): string {
   const rawMessage = error instanceof Error ? error.message : String(error || '未知错误')
@@ -101,7 +272,7 @@ function normalizeVideoTaskError(error: unknown): string {
   if (!message) return '视频生成失败'
 
   if (/input image may contain real person/i.test(message)) {
-    return '输入图片可能包含真人内容，当前视频模型不支持，请改用非真人角色图或切换其他模型。'
+    return '输入图片触发真人隐私拦截。建议先将角色图转为插画/素描等非真人风格，再在提示词中加入“真人写实、电影级光影、真实皮肤质感、面部稳定”后重试。'
   }
 
   if (/sensitive/i.test(message)) {
@@ -659,18 +830,23 @@ async function generateVideoWithVolcengine(
     const modelConfig = modelId ? findVideoModel(modelId) : null
     
     // 如果模型不是 volcengine 的，使用默认 volcengine 模型
-    if (!modelConfig || modelConfig.provider !== 'volcengine') {
-      // 火山引擎只有图生视频模型，没有纯文生视频
-      modelId = volcengine.VolcengineVideoModels.SEEDANCE_1_0_LITE_I2V
+    if (!modelConfig || modelConfig.provider !== 'volcengine' || !modelId) {
+      modelId = volcengine.VolcengineVideoModels.SEEDANCE_2_0_FAST
     }
+    const resolvedModelId = modelId
 
-    // 转换时长 (火山引擎支持 2-12 秒)
+    // 转换时长
+    // Seedance 2.0/2.0 fast: 4-15 秒；历史模型: 2-12 秒
+    const isSeedance2 = resolvedModelId.includes('seedance-2-0')
+    const isSeedanceModel = resolvedModelId.includes('seedance')
+    const minDuration = isSeedance2 ? 4 : 2
+    const maxDuration = isSeedance2 ? 15 : 12
     let duration = config.duration
-    if (duration < 2) duration = 2
-    else if (duration > 12) duration = 12
+    if (duration < minDuration) duration = minDuration
+    else if (duration > maxDuration) duration = maxDuration
 
     console.log('[VideoGen] Volcengine API 请求参数:', {
-      model: modelId,
+      model: resolvedModelId,
       promptLength: config.prompt.length,
       hasImageUrl: !!config.imageUrl,
       hasFirstFrame: !!config.firstFrame,
@@ -680,16 +856,99 @@ async function generateVideoWithVolcengine(
 
     await updateTaskProgress(taskId, 20)
 
-    // 调用火山引擎视频生成
-    const result = await volcengine._volcengineGenerateVideo({
-      model: modelId,
-      prompt: config.prompt,
-      imageUrl: config.imageUrl,
-      firstFrameUrl: config.firstFrame ? `data:image/png;base64,${config.firstFrame}` : undefined,
-      lastFrameUrl: config.lastFrame ? `data:image/png;base64,${config.lastFrame}` : undefined,
-      duration,
-      resolution: config.resolution
+    let imageUrl = config.imageUrl
+    let firstFrameUrl = config.firstFrame ? `data:image/png;base64,${config.firstFrame}` : undefined
+    let lastFrameUrl = config.lastFrame ? `data:image/png;base64,${config.lastFrame}` : undefined
+
+    // 主流程前置预处理：Seedance 模型先将参考图风格化为非真人，减少隐私拦截
+    const preprocessed = await preprocessSeedanceInputs(
+      resolvedModelId,
+      config.prompt,
+      imageUrl,
+      firstFrameUrl,
+      lastFrameUrl
+    )
+    const effectivePrompt = preprocessed.prompt
+    imageUrl = preprocessed.imageUrl
+    firstFrameUrl = preprocessed.firstFrameUrl
+    lastFrameUrl = preprocessed.lastFrameUrl
+
+    console.log('[VideoGen] Seedance 预处理结果:', {
+      isSeedanceModel,
+      appliedSafetyImages: preprocessed.appliedSafetyImages,
+      promptPatched: effectivePrompt !== config.prompt,
+      hasImageUrl: !!imageUrl,
+      hasFirstFrame: !!firstFrameUrl,
+      hasLastFrame: !!lastFrameUrl
     })
+
+    let result: { videoUrl: string, taskId: string }
+    try {
+      result = await volcengine._volcengineGenerateVideo({
+        model: resolvedModelId,
+        prompt: effectivePrompt,
+        imageUrl,
+        firstFrameUrl,
+        lastFrameUrl,
+        duration,
+        resolution: config.resolution
+      })
+    } catch (error) {
+      // 自动兜底：命中真人隐私拦截时，先将参考图风格化，再重试一次
+      if (
+        !isSeedanceModel
+        || !isVolcengineRealPersonBlockError(error)
+        || preprocessed.appliedSafetyImages
+      ) {
+        throw error
+      }
+
+      console.warn('[VideoGen] 命中真人隐私拦截，尝试自动风格化参考图后重试...')
+      await updateTaskProgress(taskId, 35)
+
+      const [safeImageUrl, safeFirstFrameUrl, safeLastFrameUrl] = await Promise.all([
+        stylizeImageForVolcengineSafety(imageUrl, 'image'),
+        stylizeImageForVolcengineSafety(firstFrameUrl, 'first'),
+        stylizeImageForVolcengineSafety(lastFrameUrl, 'last')
+      ])
+
+      // 首尾帧模式要求成对输入，避免单边替换导致角色漂移
+      if (firstFrameUrl && lastFrameUrl) {
+        if (!safeFirstFrameUrl || !safeLastFrameUrl) {
+          throw error
+        }
+        firstFrameUrl = safeFirstFrameUrl
+        lastFrameUrl = safeLastFrameUrl
+      } else if (imageUrl) {
+        if (!safeImageUrl) {
+          throw error
+        }
+        imageUrl = safeImageUrl
+      } else if (firstFrameUrl) {
+        if (!safeFirstFrameUrl) {
+          throw error
+        }
+        firstFrameUrl = safeFirstFrameUrl
+      }
+
+      const retryPrompt = withVolcengineRealismPrompt(effectivePrompt)
+      console.log('[VideoGen] 自动重试参数:', {
+        hasImageUrl: !!imageUrl,
+        hasFirstFrame: !!firstFrameUrl,
+        hasLastFrame: !!lastFrameUrl,
+        promptPatched: retryPrompt !== config.prompt
+      })
+
+      result = await volcengine._volcengineGenerateVideo({
+        model: resolvedModelId,
+        prompt: retryPrompt,
+        imageUrl,
+        firstFrameUrl,
+        lastFrameUrl,
+        duration,
+        resolution: config.resolution
+      })
+    }
 
     await updateTaskProgress(taskId, 95)
 

@@ -227,8 +227,8 @@ export default defineEventHandler(async (event) => {
           age: c.age,
           gender: c.gender,
           baseImage: c.baseImage,
-          expressions: c.expressions ? JSON.parse(c.expressions) : null,
-          views: c.views ? JSON.parse(c.views) : null
+          expressions: c.expressions ? JSON.parse(c.expressions) : undefined,
+          views: c.views ? JSON.parse(c.views) : undefined
         }))
       }
     }

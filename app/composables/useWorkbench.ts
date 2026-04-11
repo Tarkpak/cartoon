@@ -93,6 +93,18 @@ function toOptionalStringArray(value: unknown): string[] | undefined {
   return normalized.length > 0 ? normalized : undefined
 }
 
+function toOptionalStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+
+  const normalized = Object.fromEntries(
+    Object.entries(value).filter(([, item]) => typeof item === 'string' && item.length > 0)
+  )
+
+  return Object.keys(normalized).length > 0
+    ? normalized as Record<string, string>
+    : undefined
+}
+
 function getDisplayErrorMessage(error: unknown, fallback: string): string {
   const payload = error as {
     data?: { message?: string }
@@ -120,6 +132,16 @@ export interface BatchStatus {
   running: boolean
   current: number
   total: number
+}
+
+type WorkbenchStep = 'outline' | 'characters' | 'script'
+type LegacyWorkbenchStep = WorkbenchStep | 'video'
+
+type VideoInputMode = 'first_last' | 'first_only' | 'text_only'
+
+interface VideoInputDecision {
+  mode: VideoInputMode
+  reason: string
 }
 
 export function useWorkbench() {
@@ -153,7 +175,7 @@ export function useWorkbench() {
   const relationships = ref<CharacterRelationship[]>([])
 
   // ========== 工作流步骤 (新增) ==========
-  const currentStep = ref<'outline' | 'characters' | 'script' | 'video'>('outline')
+  const currentStep = ref<WorkbenchStep>('outline')
 
   // ========== 输入模式 (新增) ==========
   // 'idea' 从创意生成大纲，'script' 直接输入剧本文本
@@ -972,12 +994,13 @@ export function useWorkbench() {
   }
 
   // ========== 工作流步骤导航 (新增) ==========
-  function setCurrentStep(step: 'outline' | 'characters' | 'script' | 'video') {
-    currentStep.value = step
+  function setCurrentStep(step: LegacyWorkbenchStep) {
+    // 兼容旧步骤名 video，统一映射到 script
+    currentStep.value = step === 'video' ? 'script' : step
   }
 
   function proceedToNextStep() {
-    const steps: Array<'outline' | 'characters' | 'script' | 'video'> = ['outline', 'characters', 'script', 'video']
+    const steps: WorkbenchStep[] = ['outline', 'characters', 'script']
     const currentIndex = steps.indexOf(currentStep.value)
     if (currentIndex < steps.length - 1) {
       const nextStep = steps[currentIndex + 1]
@@ -1549,19 +1572,15 @@ export function useWorkbench() {
     return calculateTextSimilarity(currentTime, previousTime) < 0.25
   }
 
-  /**
-   * 判定当前场景是否应该使用上一场景尾帧
-   * 规则：相邻场景角色不重叠 -> 不使用上一场景尾帧
-   */
-  function shouldUsePreviousSceneLastFrame(
+  function evaluateSceneContinuity(
     currentScene: SceneData,
     previousScene?: SceneData
   ): { use: boolean, overlaps: string[], reason: string } {
-    if (!previousScene?.lastFrame) {
+    if (!previousScene) {
       return {
         use: false,
         overlaps: [],
-        reason: '上一场景没有可用尾帧'
+        reason: '上一场景不存在'
       }
     }
 
@@ -1612,6 +1631,75 @@ export function useWorkbench() {
       use: true,
       overlaps: uniqueOverlaps,
       reason: '存在重叠角色'
+    }
+  }
+
+  /**
+   * 判定当前场景是否应该使用上一场景尾帧
+   * 规则：相邻场景角色不重叠 -> 不使用上一场景尾帧
+   */
+  function shouldUsePreviousSceneLastFrame(
+    currentScene: SceneData,
+    previousScene?: SceneData
+  ): { use: boolean, overlaps: string[], reason: string } {
+    if (!previousScene?.lastFrame) {
+      return {
+        use: false,
+        overlaps: [],
+        reason: '上一场景没有可用尾帧'
+      }
+    }
+
+    return evaluateSceneContinuity(currentScene, previousScene)
+  }
+
+  /**
+   * 自动选择视频输入模式，避免每个场景都强制首尾帧
+   */
+  function resolveVideoInputMode(scene: SceneData, sceneIndex?: number): VideoInputDecision {
+    const index = sceneIndex ?? scenes.value.findIndex(s => s.id === scene.id)
+    const previousScene = index > 0 ? scenes.value[index - 1] : undefined
+    const continuity = evaluateSceneContinuity(scene, previousScene)
+    const hasCharacters = scene.characters.length > 0
+    const hasDialogue = scene.dialogues.some(d => normalizeSceneText(d.text).length > 0)
+    const hasNarration = normalizeSceneText(scene.narration).length > 0
+    const storyboardShotCount = scene.storyboard?.shots.length || 0
+
+    if (!hasCharacters) {
+      return {
+        mode: 'text_only',
+        reason: '场景无角色，使用文生视频'
+      }
+    }
+
+    if (continuity.use) {
+      return {
+        mode: 'first_last',
+        reason: `相邻场景存在角色连续性（${continuity.overlaps.join('、')}）`
+      }
+    }
+
+    if (hasDialogue || hasNarration || storyboardShotCount >= 3) {
+      return {
+        mode: 'first_last',
+        reason: '场景叙事密度较高，使用首尾帧约束人物稳定'
+      }
+    }
+
+    if (
+      previousScene
+      && isLocationStronglyDifferent(scene.setting?.location, previousScene.setting?.location)
+      && isTimeStronglyDifferent(scene.setting?.timeOfDay, previousScene.setting?.timeOfDay)
+    ) {
+      return {
+        mode: 'text_only',
+        reason: '地点与时间均强切换，按新场景文生视频'
+      }
+    }
+
+    return {
+      mode: 'first_only',
+      reason: '使用首帧作为角色锚点'
     }
   }
 
@@ -1720,10 +1808,29 @@ export function useWorkbench() {
 
   // ========== 视频生成 ==========
   async function generateVideo(scene: SceneData) {
-    if (!scene.firstFrame || !scene.lastFrame) {
-      await generateFrames(scene)
+    const sceneIndex = scenes.value.findIndex(s => s.id === scene.id)
+    const modeDecision = resolveVideoInputMode(scene, sceneIndex)
+    const videoInputMode = modeDecision.mode
+
+    if (videoInputMode === 'first_last' && (!scene.firstFrame || !scene.lastFrame)) {
+      await generateFrames(scene, undefined, sceneIndex)
+    } else if (videoInputMode === 'first_only' && !scene.firstFrame) {
+      await generateFrames(scene, undefined, sceneIndex)
     }
-    if (scene.frameStatus !== 'done') return
+
+    if (videoInputMode === 'first_last' && (!scene.firstFrame || !scene.lastFrame)) {
+      scene.videoError = '首尾帧未就绪，无法生成视频'
+      scene.videoStatus = 'error'
+      return
+    }
+
+    if (videoInputMode === 'first_only' && !scene.firstFrame) {
+      scene.videoError = '首帧未就绪，无法生成视频'
+      scene.videoStatus = 'error'
+      return
+    }
+
+    console.log(`[VideoGen] 场景 ${scene.id} 输入模式: ${videoInputMode} (${modeDecision.reason})`)
 
     scene.videoError = undefined
     scene.videoStatus = 'generating'
@@ -1866,15 +1973,56 @@ export function useWorkbench() {
         return `- ${namePart}: ${appearancePart}`
       })
 
-      const consistencyPrompt = [
-        '【角色一致性要求-最高优先级】',
-        '必须严格参考输入的首帧和尾帧，保持同一角色的脸部特征、发型、发色、服装款式和服装颜色全程一致。',
-        '禁止替换角色、禁止新增与场景无关主角、禁止在中途改变人物身份。',
-        '本场景角色设定:',
-        ...characterReferenceLines
-      ].join('\n')
+      const characterSettingBlock = characterReferenceLines.length > 0
+        ? ['本场景角色设定:', ...characterReferenceLines].join('\n')
+        : '本场景以环境和镜头叙事为主，不要新增无关角色。'
+
+      const consistencyPrompt = videoInputMode === 'first_last'
+        ? [
+            '【角色一致性要求-最高优先级】',
+            '必须严格参考输入的首帧和尾帧，保持同一角色的脸部特征、发型、发色、服装款式和服装颜色全程一致。',
+            '禁止替换角色、禁止新增与场景无关主角、禁止在中途改变人物身份。',
+            characterSettingBlock
+          ].join('\n')
+        : videoInputMode === 'first_only'
+          ? [
+              '【角色一致性要求-高优先级】',
+              '必须严格参考输入首帧保持角色身份稳定，保持脸部特征、发型发色与服装款式一致。',
+              '禁止新增主角、禁止换脸或改变人物身份。',
+              characterSettingBlock
+            ].join('\n')
+          : [
+              '【角色一致性要求】',
+              '按场景描述保持角色身份和服装一致，不要新增无关主角。',
+              characterSettingBlock
+            ].join('\n')
 
       enhancedPrompt = `${consistencyPrompt}\n\n${enhancedPrompt}`
+
+      const videoConfig: {
+        prompt: string
+        firstFrame?: string
+        lastFrame?: string
+        duration: number
+        resolution: '720p'
+        aspectRatio: '16:9' | '9:16' | '1:1'
+        withAudio: boolean
+        model: 'fast'
+      } = {
+        prompt: enhancedPrompt,
+        duration: scene.duration || 8,
+        resolution: '720p',
+        aspectRatio: projectAspectRatio.value,
+        withAudio: true,
+        model: 'fast'
+      }
+
+      if (videoInputMode === 'first_last') {
+        videoConfig.firstFrame = scene.firstFrame
+        videoConfig.lastFrame = scene.lastFrame
+      } else if (videoInputMode === 'first_only') {
+        videoConfig.firstFrame = scene.firstFrame
+      }
 
       const response = await $fetch<{
         success: boolean
@@ -1883,16 +2031,7 @@ export function useWorkbench() {
         method: 'POST',
         body: {
           sceneId: scene.id,
-          config: {
-            prompt: enhancedPrompt,
-            firstFrame: scene.firstFrame,
-            lastFrame: scene.lastFrame,
-            duration: scene.duration || 8,
-            resolution: '720p',
-            aspectRatio: projectAspectRatio.value,
-            withAudio: true,
-            model: 'fast'
-          }
+          config: videoConfig
         }
       })
 
@@ -1992,17 +2131,20 @@ export function useWorkbench() {
   }
 
   async function batchGenerateVideos() {
-    const readyScenes = scenes.value.filter(s => s.frameStatus === 'done' && s.videoStatus !== 'done')
+    const readyScenes = scenes.value.filter(s => s.videoStatus !== 'done' && s.videoStatus !== 'generating')
     if (readyScenes.length === 0) {
-      alert('没有可生成视频的场景（请先生成首尾帧）')
+      alert('没有可生成视频的场景')
       return
     }
 
     batchVideoStatus.value = { running: true, current: 0, total: readyScenes.length }
 
     try {
-      for (const scene of scenes.value) {
-        if (scene.frameStatus === 'done' && scene.videoStatus !== 'done') {
+      for (let i = 0; i < scenes.value.length; i++) {
+        const scene = scenes.value[i]
+        if (scene && scene.videoStatus !== 'done' && scene.videoStatus !== 'generating') {
+          const modeDecision = resolveVideoInputMode(scene, i)
+          console.log(`[batchGenerateVideos] 场景 ${scene.id} 输入模式: ${modeDecision.mode} (${modeDecision.reason})`)
           await generateVideo(scene)
           batchVideoStatus.value.current++
         }
@@ -2129,17 +2271,38 @@ export function useWorkbench() {
       }
       pipelineStatus.value.progress = 20
 
-      // 步骤2: 生成首尾帧 (50%) - 使用连续性生成
-      pipelineStatus.value.currentStep = '生成首尾帧（连续性模式）...'
-      console.log('[Pipeline] 开始按顺序生成首尾帧，确保场景连续性')
-      for (let i = 0; i < scenes.value.length; i++) {
-        const scene = scenes.value[i]
-        if (scene && scene.frameStatus !== 'done') {
-          pipelineStatus.value.currentStep = `生成首尾帧 (${i + 1}/${scenes.value.length})...`
-          // 传递场景索引，让 generateFrames 自动获取上一场景尾帧和构建连续性上下文
-          await generateFrames(scene, undefined, i)
+      // 步骤2: 按需生成锚点帧 (50%)
+      const frameRequiredScenes = scenes.value
+        .map((scene, index) => ({
+          scene,
+          index,
+          decision: resolveVideoInputMode(scene, index)
+        }))
+        .filter(item => item.decision.mode !== 'text_only')
+
+      pipelineStatus.value.currentStep = '按场景模式准备视频锚点帧...'
+      console.log(`[Pipeline] 需预生成帧场景: ${frameRequiredScenes.length}/${scenes.value.length}`)
+
+      if (frameRequiredScenes.length === 0) {
+        pipelineStatus.value.progress = 50
+      } else {
+        for (let i = 0; i < frameRequiredScenes.length; i++) {
+          const frameItem = frameRequiredScenes[i]
+          if (!frameItem) continue
+
+          const { scene, index, decision } = frameItem
+          const needFirst = decision.mode === 'first_last' || decision.mode === 'first_only'
+          const needLast = decision.mode === 'first_last'
+          const hasRequiredFrames = (!needFirst || !!scene.firstFrame) && (!needLast || !!scene.lastFrame)
+
+          if (!hasRequiredFrames) {
+            pipelineStatus.value.currentStep = `准备锚点帧 (${i + 1}/${frameRequiredScenes.length})...`
+            console.log(`[Pipeline] 场景 ${scene.id} 生成锚点帧: ${decision.mode} (${decision.reason})`)
+            // 传递场景索引，让 generateFrames 自动获取上一场景尾帧和构建连续性上下文
+            await generateFrames(scene, undefined, index)
+          }
+          pipelineStatus.value.progress = 20 + Math.round((i + 1) / frameRequiredScenes.length * 30)
         }
-        pipelineStatus.value.progress = 20 + Math.round((i + 1) / scenes.value.length * 30)
       }
 
       // 步骤3: 生成视频 (90%)
@@ -2287,8 +2450,8 @@ export function useWorkbench() {
           age: toOptionalNumber((c as { age?: number | null }).age),
           gender: toOptionalString((c as { gender?: string | null }).gender),
           baseImage: c.baseImage,
-          expressions: (c as { expressions?: Record<string, string> }).expressions || undefined,
-          views: (c as { views?: Partial<Record<CharacterView, string>> }).views,
+          expressions: toOptionalStringRecord((c as { expressions?: unknown }).expressions),
+          views: toOptionalStringRecord((c as { views?: unknown }).views) as Partial<Record<CharacterView, string>> | undefined,
           traits: toOptionalStringArray((c as { traits?: string[] | null }).traits),
           background: toOptionalString((c as { background?: string | null }).background),
           motivation: toOptionalString((c as { motivation?: string | null }).motivation),
@@ -2310,9 +2473,9 @@ export function useWorkbench() {
 
         // 根据项目进度自动切换到对应步骤
         if (scenes.value.some(s => s.videoStatus === 'done')) {
-          currentStep.value = 'video'
+          currentStep.value = 'script'
         } else if (scenes.value.some(s => s.firstFrame)) {
-          currentStep.value = 'video'
+          currentStep.value = 'script'
         } else if (characters.value.length > 0) {
           currentStep.value = 'characters'
         } else if (scenes.value.length > 0 || outline.value) {
@@ -2441,8 +2604,8 @@ export function useWorkbench() {
             age: c.age,
             gender: c.gender,
             baseImage: c.baseImage,
-            expressions: c.expressions,
-            views: c.views
+            expressions: toOptionalStringRecord(c.expressions),
+            views: toOptionalStringRecord(c.views)
           }))
         }
       })

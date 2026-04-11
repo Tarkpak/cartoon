@@ -6,6 +6,7 @@ const { isDark, toggleTheme, initTheme } = useTheme()
 
 // 侧边栏折叠状态
 const isCollapsed = useState('sidebar-collapsed', () => false)
+const SIDEBAR_COLLAPSE_STORAGE_KEY = 'manju:sidebar-collapsed'
 
 const navigation = [
   { name: '首页概览', path: '/', icon: Home },
@@ -23,6 +24,20 @@ const showFooter = computed(() => route.path !== '/settings')
 // 初始化主题
 onMounted(() => {
   initTheme()
+
+  if (typeof window === 'undefined') return
+
+  const stored = window.localStorage.getItem(SIDEBAR_COLLAPSE_STORAGE_KEY)
+  if (stored === '1' || stored === 'true') {
+    isCollapsed.value = true
+  } else if (stored === '0' || stored === 'false') {
+    isCollapsed.value = false
+  }
+})
+
+watch(isCollapsed, (value) => {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(SIDEBAR_COLLAPSE_STORAGE_KEY, value ? '1' : '0')
 })
 </script>
 

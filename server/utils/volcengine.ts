@@ -296,6 +296,14 @@ const VOLCENGINE_STRUCTURED_OUTPUT_MODELS = new Set<string>([
 ])
 
 const VOLCENGINE_DEFAULT_STRUCTURED_JSON_MODEL = VolcengineTextModels.DOUBAO_SEED_2_0_MINI
+const VOLCENGINE_DEFAULT_MAX_TOKENS = 4096
+const VOLCENGINE_MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
+  [VolcengineTextModels.DOUBAO_SEED_2_0_PRO]: 128 * 1024,
+  [VolcengineTextModels.DOUBAO_SEED_2_0_LITE]: 128 * 1024,
+  [VolcengineTextModels.DOUBAO_SEED_2_0_MINI]: 128 * 1024,
+  [VolcengineTextModels.DOUBAO_SEED_CODE]: 128 * 1024,
+  [VolcengineTextModels.DEEPSEEK_V3_2]: 32 * 1024
+}
 
 function resolveStructuredJsonModel(model: string): string {
   if (VOLCENGINE_STRUCTURED_OUTPUT_MODELS.has(model)) {
@@ -306,6 +314,10 @@ function resolveStructuredJsonModel(model: string): string {
     `[Volcengine] 模型 ${model} 不支持 response_format=json_schema，JSON 任务自动切换到 ${VOLCENGINE_DEFAULT_STRUCTURED_JSON_MODEL}`
   )
   return VOLCENGINE_DEFAULT_STRUCTURED_JSON_MODEL
+}
+
+function resolveModelMaxTokens(model: string): number {
+  return VOLCENGINE_MODEL_MAX_OUTPUT_TOKENS[model] ?? VOLCENGINE_DEFAULT_MAX_TOKENS
 }
 
 export async function _volcengineGenerateText(options: {
@@ -359,11 +371,13 @@ export async function _volcengineGenerateJSON<T>(options: {
 }): Promise<T> {
   const requestedModel = options.model || VolcengineTextModels.DOUBAO_SEED_2_0_MINI
   const model = resolveStructuredJsonModel(requestedModel)
+  const maxTokens = resolveModelMaxTokens(model)
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Volcengine] generateJSON 请求参数:`, {
     requestedModel,
     model,
+    maxTokens,
     promptLength: options.prompt.length,
     prompt: options.prompt,
     systemInstruction: options.systemInstruction,
@@ -384,6 +398,8 @@ export async function _volcengineGenerateJSON<T>(options: {
         model,
         messages,
         temperature: Math.min(options.temperature ?? 0.2, 0.2),
+        // 按模型支持上限设置，避免长 JSON 输出被默认值截断
+        max_tokens: maxTokens,
         response_format: {
           type: 'json_schema',
           json_schema: {
@@ -401,13 +417,149 @@ export async function _volcengineGenerateJSON<T>(options: {
     )
 
     const text = response.choices?.[0]?.message?.content || ''
+    const finishReason = response.choices?.[0]?.finish_reason
+    let jsonStr = normalizeJsonCandidate(text)
+
+    // 优先提取 markdown 代码块中的 JSON，兼容模型偶发包裹 ```json ... ```
+    const codeBlockMatch =
+      text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+      || text.match(/``(?:json)?\s*([\s\S]*?)\s*``/i)
+
+    if (codeBlockMatch && codeBlockMatch[1]) {
+      jsonStr = normalizeJsonCandidate(codeBlockMatch[1])
+    } else {
+      // 兼容仅有起始代码块、没有结束代码块的情况
+      const openFenceMatch = text.match(/^\s*`{2,3}(?:json)?\s*([\s\S]*)$/i)
+      if (openFenceMatch && openFenceMatch[1]) {
+        jsonStr = normalizeJsonCandidate(openFenceMatch[1])
+      }
+
+      // 若非纯 JSON，尝试从文本中提取平衡对象/数组
+      try {
+        JSON.parse(jsonStr)
+      } catch {
+        const extracted = extractJsonObject(jsonStr)
+          || extractJsonArray(jsonStr)
+          || extractJsonObject(text)
+          || extractJsonArray(text)
+        if (extracted) {
+          jsonStr = normalizeJsonCandidate(extracted)
+        }
+      }
+    }
+
     try {
-      return JSON.parse(text) as T
+      return JSON.parse(jsonStr) as T
     } catch (parseError) {
       console.error('[Volcengine] JSON 解析失败，响应内容:', text.slice(0, 1000))
+
+      if (finishReason === 'length') {
+        throw new VolcengineError(
+          `模型输出被截断（finish_reason=length），当前 max_tokens=${maxTokens}。请缩短输出内容或分批生成。`,
+          VolcengineErrorCode.INVALID_ARGUMENT,
+          400,
+          false
+        )
+      }
+
       throw parseError
     }
   }, { maxRetries: options.maxRetries })
+}
+
+function normalizeJsonCandidate(text: string): string {
+  return text
+    .replace(/^\uFEFF/, '')
+    .replace(/^\s*`{2,3}\s*json\b/i, '')
+    .replace(/^\s*`{2,3}/, '')
+    .replace(/\s*`{2,3}\s*$/, '')
+    .trim()
+}
+
+/**
+ * 提取平衡的 JSON 对象
+ */
+function extractJsonObject(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start === -1) return null
+
+  let depth = 0
+  let inString = false
+  let escape = false
+
+  for (let i = start; i < text.length; i++) {
+    const char = text[i]
+
+    if (escape) {
+      escape = false
+      continue
+    }
+
+    if (char === '\\' && inString) {
+      escape = true
+      continue
+    }
+
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+
+    if (inString) continue
+
+    if (char === '{') depth++
+    else if (char === '}') {
+      depth--
+      if (depth === 0) {
+        return text.slice(start, i + 1)
+      }
+    }
+  }
+
+  return null
+}
+
+/**
+ * 提取平衡的 JSON 数组
+ */
+function extractJsonArray(text: string): string | null {
+  const start = text.indexOf('[')
+  if (start === -1) return null
+
+  let depth = 0
+  let inString = false
+  let escape = false
+
+  for (let i = start; i < text.length; i++) {
+    const char = text[i]
+
+    if (escape) {
+      escape = false
+      continue
+    }
+
+    if (char === '\\' && inString) {
+      escape = true
+      continue
+    }
+
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+
+    if (inString) continue
+
+    if (char === '[') depth++
+    else if (char === ']') {
+      depth--
+      if (depth === 0) {
+        return text.slice(start, i + 1)
+      }
+    }
+  }
+
+  return null
 }
 
 
@@ -433,6 +585,11 @@ export async function _volcengineGenerateImage(options: {
   maxRetries?: number
 }): Promise<{ imageUrl: string }> {
   const model = options.model || VolcengineImageModels.SEEDREAM_5_0
+  const isSeedreamHighModel =
+    model.includes('seedream-5-0')
+    || model.includes('seedream-4-5')
+    || model.includes('seedream-4-0')
+  const defaultSize = isSeedreamHighModel ? '2K' : '1024x1024'
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Volcengine] generateImage 请求参数:`, {
@@ -440,28 +597,24 @@ export async function _volcengineGenerateImage(options: {
     promptLength: options.prompt.length,
     prompt: options.prompt,
     negativePrompt: options.negativePrompt,
-    size: options.size || '1024x1024',
+    size: options.size || defaultSize,
     n: options.n || 1,
     referenceImagesCount: options.referenceImages?.length || 0,
     maxRetries: options.maxRetries
   })
 
   return withRetry(async () => {
-    // 火山引擎要求尺寸格式为 WIDTHxHEIGHT (小写x)
-    let size = options.size || '1024x1024'
+    // Seedream 5.0/4.5/4.0 推荐使用 2K/4K，由模型结合提示词决定更合适的宽高比
+    let size = options.size || defaultSize
     // 兼容 * 分隔符
     size = size.replace('*', 'x')
     
     // Seedream 5.0/4.5/4.0 要求图片尺寸至少 3686400 像素 (约 1920x1920)
-    // 如果使用默认尺寸且是高版本模型，自动升级到 2048x2048
-    if (
-      model.includes('seedream-5-0')
-      || model.includes('seedream-4-5')
-      || model.includes('seedream-4-0')
-    ) {
+    // 仅当传入的是明确宽高值时进行像素校验；2K/4K 由平台自行处理
+    if (isSeedreamHighModel && /^\d+x\d+$/i.test(size)) {
       const [width = 0, height = 0] = size.split('x').map(v => Number(v) || 0)
       if (width * height < 3686400) {
-        size = '2048x2048'
+        size = '2K'
         console.log(`[Volcengine] 模型 ${model} 要求更大尺寸，自动调整为 ${size}`)
       }
     }
@@ -619,6 +772,7 @@ export async function _volcengineGenerateVideo(options: {
     if (options.imageUrl) {
       content.push({
         type: 'image_url',
+        role: 'first_frame',
         image_url: { url: options.imageUrl }
       })
     }
@@ -641,6 +795,7 @@ export async function _volcengineGenerateVideo(options: {
       // 仅首帧模式
       content.push({
         type: 'image_url',
+        role: 'first_frame',
         image_url: { url: options.firstFrameUrl }
       })
     }
