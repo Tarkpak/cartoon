@@ -141,6 +141,10 @@ function selectModelSubMenu(subMenu: ModelSubMenu) {
     } else {
       testMenuExpanded.value = true
       workflowMenuExpanded.value = false // 折叠其他子菜单
+      // 可灵当前仅支持视频模型，首次进入测试页优先展示视频测试
+      if (activeTab.value === 'text') {
+        activeTab.value = 'video'
+      }
     }
   }
 }
@@ -244,7 +248,7 @@ const models = ref<ModelsData | null>(null)
 const selectedModels = ref<SelectedModels>({
   text: '', image: '', video: '', tts: '', asr: ''
 })
-const activeTab = ref<'text' | 'image' | 'video' | 'tts'>('text')
+const activeTab = ref<'text' | 'image' | 'video' | 'tts'>('video')
 const expandedProviders = ref<Set<string>>(new Set())
 const customPrompts = ref({ text: '', image: '', video: '', tts: '' })
 const referenceImages = ref<string[]>([])
@@ -267,9 +271,10 @@ const testResults = ref<{
 const providerConfig: Record<string, { displayName: string; color: string; order: number }> = {
   gemini: { displayName: 'Google Gemini', color: 'blue', order: 1 },
   qwen: { displayName: '阿里千问', color: 'orange', order: 2 },
-  volcengine: { displayName: '火山引擎', color: 'red', order: 3 },
-  openai: { displayName: 'OpenAI', color: 'green', order: 4 },
-  deepseek: { displayName: 'DeepSeek', color: 'purple', order: 5 }
+  kling: { displayName: '可灵 AI', color: 'cyan', order: 3 },
+  volcengine: { displayName: '火山引擎', color: 'red', order: 4 },
+  openai: { displayName: 'OpenAI', color: 'green', order: 5 },
+  deepseek: { displayName: 'DeepSeek', color: 'purple', order: 6 }
 }
 
 // ==================== 业务流程配置相关状态 ====================
@@ -389,7 +394,7 @@ function getCapabilityLabel(cap: string): string {
 }
 
 function getProviderLabel(provider: string): string {
-  return { gemini: 'Gemini', qwen: '千问', volcengine: '火山', openai: 'OpenAI', deepseek: 'DeepSeek' }[provider] || provider
+  return { gemini: 'Gemini', qwen: '千问', kling: '可灵', volcengine: '火山', openai: 'OpenAI', deepseek: 'DeepSeek' }[provider] || provider
 }
 
 function hasCompatibleModels(workflow: WorkflowConfig): boolean {
@@ -836,7 +841,7 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
               <div class="flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-accent/50 transition-colors" @click="toggleProvider(group.provider)">
                 <component :is="group.expanded ? ChevronDown : ChevronRight" class="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 <div class="w-2 h-2 rounded-full flex-shrink-0"
-                  :class="{ 'bg-blue-500': getProviderColor(group.provider) === 'blue', 'bg-orange-500': getProviderColor(group.provider) === 'orange', 'bg-green-500': getProviderColor(group.provider) === 'green', 'bg-purple-500': getProviderColor(group.provider) === 'purple', 'bg-red-500': getProviderColor(group.provider) === 'red' }" />
+                  :class="{ 'bg-blue-500': getProviderColor(group.provider) === 'blue', 'bg-orange-500': getProviderColor(group.provider) === 'orange', 'bg-cyan-500': getProviderColor(group.provider) === 'cyan', 'bg-green-500': getProviderColor(group.provider) === 'green', 'bg-purple-500': getProviderColor(group.provider) === 'purple', 'bg-red-500': getProviderColor(group.provider) === 'red' }" />
                 <span class="text-sm font-medium flex-1 truncate">{{ group.displayName }}</span>
                 <span class="text-xs text-muted-foreground">{{ group.models.length }}</span>
               </div>
