@@ -48,32 +48,31 @@ function handleStyleSelect(style: StylePreset) {
 </script>
 
 <template>
-  <div class="flex justify-between items-start mb-8">
-    <div class="space-y-2">
-      <div class="flex items-center space-x-3">
-        <NuxtLink to="/projects">
-          <Button variant="outline" size="icon" class="h-9 w-9" title="返回项目列表">
+  <div class="mb-4 rounded-xl border bg-card/60 p-3">
+    <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+      <div class="min-w-0 flex flex-1 items-center gap-2">
+        <NuxtLink to="/projects" class="shrink-0">
+          <Button variant="outline" size="icon" class="h-8 w-8" title="返回项目列表">
             <ArrowLeft class="w-4 h-4" />
           </Button>
         </NuxtLink>
         <Input
           v-model="localName"
-          class="text-2xl font-bold h-auto py-1 px-2 w-64 border-transparent hover:border-input focus:border-primary"
+          class="h-9 w-44 md:w-56 text-lg font-semibold border-transparent hover:border-input focus:border-primary"
           placeholder="输入项目名称..."
         />
-        <Badge v-if="projectId" variant="secondary" class="text-xs">{{ projectId }}</Badge>
+        <Badge v-if="projectId" variant="secondary" class="text-xs shrink-0">{{ projectId }}</Badge>
+        <Input
+          v-model="localDescription"
+          class="h-9 min-w-0 flex-1 text-sm text-muted-foreground border-transparent hover:border-input focus:border-primary"
+          placeholder="添加项目描述..."
+        />
       </div>
-      <Input
-        v-model="localDescription"
-        class="text-sm text-muted-foreground h-auto py-1 px-2 w-96 border-transparent hover:border-input focus:border-primary ml-12"
-        placeholder="添加项目描述..."
-      />
-    </div>
 
-    <div class="flex items-center space-x-4">
+      <div class="flex items-center gap-2 flex-wrap xl:justify-end">
       <!-- 视觉风格选择 -->
       <div
-        class="flex items-center space-x-2 px-3 py-2 rounded-lg border cursor-pointer hover:bg-accent transition"
+        class="h-9 flex items-center space-x-2 px-3 rounded-lg border cursor-pointer hover:bg-accent transition shrink-0"
         @click="styleDialogOpen = true"
       >
         <Palette class="w-4 h-4 text-muted-foreground" />
@@ -86,36 +85,31 @@ function handleStyleSelect(style: StylePreset) {
       </div>
 
       <!-- 成本预估 -->
-      <div v-if="sceneCount > 0" class="text-right text-sm space-y-1">
-        <div class="flex items-center space-x-2 text-muted-foreground">
-          <span>{{ sceneCount }} 场景</span>
-          <span>·</span>
-          <span>{{ charCount }} 角色</span>
-        </div>
-        <div class="flex items-center space-x-2">
-          <span class="text-xs text-muted-foreground">预估:</span>
-          <Badge variant="outline" class="text-xs">~${{ totalCost }}</Badge>
-          <Badge variant="outline" class="text-xs">~{{ totalTime }}分钟</Badge>
-        </div>
+      <div v-if="sceneCount > 0" class="flex items-center gap-1.5 shrink-0">
+        <Badge variant="secondary" class="h-7 text-xs">{{ sceneCount }} 场景</Badge>
+        <Badge variant="secondary" class="h-7 text-xs">{{ charCount }} 角色</Badge>
+        <Badge variant="outline" class="h-7 text-xs">~${{ totalCost }}</Badge>
+        <Badge variant="outline" class="h-7 text-xs">~{{ totalTime }}分钟</Badge>
       </div>
 
       <!-- 流水线进度 -->
-      <div v-if="pipelineStatus.running" class="flex items-center space-x-2 text-sm">
+      <div v-if="pipelineStatus.running" class="h-9 px-3 rounded-lg border bg-muted/30 flex items-center space-x-2 text-xs shrink-0">
         <Loader2 class="w-4 h-4 animate-spin" />
-        <span>{{ pipelineStatus.currentStep }}</span>
+        <span class="max-w-40 truncate">{{ pipelineStatus.currentStep }}</span>
         <span class="text-muted-foreground">{{ pipelineStatus.progress }}%</span>
       </div>
 
-      <Button variant="outline" :disabled="pipelineStatus.running || saving" @click="$emit('save')">
+      <Button variant="outline" size="sm" :disabled="pipelineStatus.running || saving" @click="$emit('save')">
         <Loader2 v-if="saving" class="w-4 h-4 mr-2 animate-spin" />
         {{ saving ? '保存中...' : '保存草稿' }}
       </Button>
 
-      <Button :disabled="!canStart || pipelineStatus.running" @click="$emit('startPipeline')">
+      <Button size="sm" class="px-4" :disabled="!canStart || pipelineStatus.running" @click="$emit('startPipeline')">
         <Play v-if="!pipelineStatus.running" class="w-4 h-4 mr-2" />
         <Loader2 v-else class="w-4 h-4 mr-2 animate-spin" />
         {{ pipelineStatus.running ? '生成中...' : '开始生成' }}
       </Button>
+    </div>
     </div>
 
     <!-- 风格选择对话框 -->

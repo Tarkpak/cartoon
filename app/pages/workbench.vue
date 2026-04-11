@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileText, Users, Video, BookOpen, RefreshCw, Loader2 } from 'lucide-vue-next'
+import { Users, Video, BookOpen, RefreshCw, Loader2 } from 'lucide-vue-next'
 import { useDebounceFn } from '@vueuse/core'
 import type { SceneData, CharacterData } from '~/composables/useWorkbench'
 import type { StoryOutline } from '#shared/types/outline'
@@ -24,14 +24,11 @@ const {
   // 工作流步骤
   currentStep,
   setCurrentStep,
-  proceedToNextStep,
   // 输入模式
   inputMode,
   // 风格选择
   selectedStyleId,
   projectStyleId,
-  // 模型选择
-  selectedModels,
   // 故事大纲
   outline,
   generatingOutline,
@@ -141,7 +138,7 @@ async function handleBatchGenerateCharacters() {
   }
 }
 
-// 工作流步骤定义 - 修正后的四步流程
+// 工作流步骤定义 - 场景编辑与视频生成合并
 const workflowSteps = computed(() => [
   {
     key: 'outline',
@@ -161,19 +158,11 @@ const workflowSteps = computed(() => [
   },
   {
     key: 'script',
-    label: '场景编辑',
-    icon: FileText,
-    description: '编辑分镜生成图片',
-    completed: scenes.value.length > 0 && scenes.value.some(s => s.firstFrame),
-    active: currentStep.value === 'script'
-  },
-  {
-    key: 'video',
-    label: '视频生成',
     icon: Video,
-    description: '生成视频场景串联',
-    completed: scenes.value.some(s => s.videoStatus === 'done'),
-    active: currentStep.value === 'video'
+    label: '场景与视频',
+    description: '编辑场景并生成视频',
+    completed: scenes.value.length > 0 && scenes.value.some(s => s.firstFrame || s.videoStatus === 'done'),
+    active: currentStep.value === 'script'
   }
 ])
 
@@ -329,9 +318,15 @@ function handleStepChange(step: string) {
 }
 
 function applyStepFromRoute(step: unknown) {
-  const validSteps = new Set(['outline', 'characters', 'script', 'video'])
+  if (step === 'video') {
+    // 兼容旧链接: /workbench?step=video
+    setCurrentStep('script')
+    return
+  }
+
+  const validSteps = new Set(['outline', 'characters', 'script'])
   if (typeof step === 'string' && validSteps.has(step)) {
-    setCurrentStep(step as 'outline' | 'characters' | 'script' | 'video')
+    setCurrentStep(step as 'outline' | 'characters' | 'script')
   }
 }
 
@@ -447,44 +442,33 @@ watch(saveError, (message) => {
           @proceed-to-script="setCurrentStep('script')"
         />
 
-        <!-- 场景编辑面板 -->
-        <WorkbenchScriptPanel
-          v-else-if="currentStep === 'script'"
-          :scenes="scenes"
-          :parsing="parsing"
-          :has-outline="!!outline"
-          :has-characters="characters.length > 0"
-          @generate-from-outline="generateScenesFromOutline"
-          @select-scene="selectScene"
-          @add-scene="handleSceneAdd"
-          @edit-scene="openSceneEdit"
-          @delete-scene="deleteScene"
-          @split-scene="splitScene"
-          @merge-scene="mergeWithNextScene"
-          @reorder-scenes="handleReorderScenes"
-          @generate-storyboard="handleGenerateStoryboard"
-          @extract-scene-visual="handleExtractSceneVisual"
-          @view-storyboard="handleViewStoryboard"
-          @view-scene-visual="handleViewSceneVisual"
-        />
-
-        <!-- 视频生成面板 -->
-        <WorkbenchVideoPanel
-          v-else-if="currentStep === 'video'"
-          :scenes="scenes"
-          :selected-scene="selectedScene"
-          :batch-frame-status="batchFrameStatus"
-          :batch-video-status="batchVideoStatus"
-          :merge-status="mergeStatus"
-          :final-video="finalVideo"
-          @select-scene="selectScene"
-          @generate-frames="generateFrames"
-          @generate-video="generateVideo"
-          @batch-generate-frames="batchGenerateFrames"
-          @batch-generate-videos="batchGenerateVideos"
-          @merge-all-videos="mergeAllVideos"
-          @preview-image="openImagePreview"
-        />
+        <!-- 场景编辑 + 视频生成（合并工作区） -->
+        <template v-else-if="currentStep === 'script'">
+          <WorkbenchVideoPanel
+            :scenes="scenes"
+            :selected-scene="selectedScene"
+            :batch-frame-status="batchFrameStatus"
+            :batch-video-status="batchVideoStatus"
+            :merge-status="mergeStatus"
+            :final-video="finalVideo"
+            @select-scene="selectScene"
+            @add-scene="handleSceneAdd"
+            @edit-scene="openSceneEdit"
+            @delete-scene="deleteScene"
+            @split-scene="splitScene"
+            @merge-scene="mergeWithNextScene"
+            @generate-storyboard="handleGenerateStoryboard"
+            @extract-scene-visual="handleExtractSceneVisual"
+            @view-storyboard="handleViewStoryboard"
+            @view-scene-visual="handleViewSceneVisual"
+            @generate-frames="generateFrames"
+            @generate-video="generateVideo"
+            @batch-generate-frames="batchGenerateFrames"
+            @batch-generate-videos="batchGenerateVideos"
+            @merge-all-videos="mergeAllVideos"
+            @preview-image="openImagePreview"
+          />
+        </template>
       </CardContent>
     </Card>
 
