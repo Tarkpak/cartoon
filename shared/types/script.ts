@@ -72,6 +72,10 @@ export const SceneCharacterSchema = z.object({
 })
 export type SceneCharacter = z.infer<typeof SceneCharacterSchema>
 
+/** 场景时长（秒） */
+export const SceneDurationSchema = z.coerce.number().min(2).max(15).default(8).describe('视频时长(秒，2-15)')
+export type SceneDuration = z.infer<typeof SceneDurationSchema>
+
 /** 场景定义 */
 export const SceneSchema = z.object({
   id: z.string().describe('场景ID'),
@@ -80,7 +84,7 @@ export const SceneSchema = z.object({
   setting: SceneSettingSchema.describe('场景设定'),
   characters: z.array(SceneCharacterSchema).describe('登场角色'),
   dialogues: z.array(DialogueSchema).optional().describe('对话列表'),
-  duration: z.number().min(4).max(8).default(8).describe('视频时长(秒)'),
+  duration: SceneDurationSchema,
   narration: z.string().nullable().optional().describe('旁白')
 })
 export type Scene = z.infer<typeof SceneSchema>
