@@ -16,6 +16,7 @@ import { db, systemConfig } from '../db'
 
 import * as gemini from './gemini'
 import * as qwen from './qwen'
+import * as kling from './kling'
 import * as volcengine from './volcengine'
 
 // 注意: GeminiError/GeminiErrorCode 请从 './gemini' 导入
@@ -293,6 +294,51 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     supportImageToVideo: true,
     supportTextToVideo: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/image-to-video-api-reference'
+  },
+  // 可灵 AI 视频模型
+  {
+    provider: 'kling',
+    model: kling.KlingVideoModels.KLING_V3,
+    displayName: '可灵 Kling v3',
+    description: '可灵最新视频模型，支持文生/图生/首尾帧，3-15秒',
+    maxDuration: 15,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
+  },
+  {
+    provider: 'kling',
+    model: kling.KlingVideoModels.KLING_V2_6,
+    displayName: '可灵 Kling v2.6',
+    description: '通用高质量视频模型，支持文生/图生/首尾帧，3-15秒',
+    maxDuration: 15,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
+  },
+  {
+    provider: 'kling',
+    model: kling.KlingVideoModels.KLING_V2_5_TURBO,
+    displayName: '可灵 Kling v2.5 Turbo',
+    description: '可灵高性价比视频模型，适合快速生成',
+    maxDuration: 15,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
+  },
+  {
+    provider: 'kling',
+    model: kling.KlingVideoModels.KLING_V2_1,
+    displayName: '可灵 Kling v2.1',
+    description: '可灵稳定版图生视频模型，支持首尾帧控制',
+    maxDuration: 15,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: false,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
   },
   // 火山引擎 (豆包 Seedance) 视频模型 - 仅保留支持首尾帧的模型
   {
@@ -665,7 +711,7 @@ export async function generateImage(options: {
 
 export interface GenerateVideoResult {
   videoData?: string      // base64 或 ref (Gemini)
-  videoUrl?: string       // URL (Qwen)
+  videoUrl?: string       // URL (Qwen/Kling/Volcengine)
   taskId: string
 }
 
@@ -729,6 +775,26 @@ export async function generateVideo(options: {
       duration: options.duration,
       size: options.size,
       resolution: options.resolution,
+      negativePrompt: options.negativePrompt,
+      maxRetries: options.maxRetries
+    })
+    return {
+      videoUrl: result.videoUrl,
+      taskId: result.taskId
+    }
+  }
+
+  if (provider === 'kling') {
+    const result = await kling._klingGenerateVideo({
+      model: modelId,
+      prompt: options.prompt,
+      imageUrl: options.imageUrl,
+      firstFrameUrl: options.firstFrameUrl,
+      lastFrameUrl: options.lastFrameUrl,
+      duration: options.duration,
+      aspectRatio: options.aspectRatio,
+      withAudio: options.audio,
+      mode: 'pro',
       negativePrompt: options.negativePrompt,
       maxRetries: options.maxRetries
     })

@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../../utils/gemini'
 import * as qwen from '../../utils/qwen'
+import * as kling from '../../utils/kling'
 import * as volcengine from '../../utils/volcengine'
 import { getSelectedModels, findVideoModel, generateImage } from '../../utils/model-provider'
 import { getWorkflowModels } from '../models/workflow.get'
@@ -19,7 +20,7 @@ import { createHash } from 'node:crypto'
  * 视频生成 API
  * POST /api/video/generate
  *
- * 支持 Gemini Veo、千问万相、火山引擎 视频生成
+ * 支持 Gemini Veo、千问万相、可灵 AI、火山引擎 视频生成
  */
 export default defineEventHandler(async (event) => {
   const startTime = Date.now()
@@ -348,16 +349,16 @@ async function syncSceneVideoResult(sceneId: string, videoData?: string | null):
 /**
  * 确定使用哪个提供商
  */
-async function determineProvider(config: typeof GenerateVideoRequestSchema._type['config']): Promise<'gemini' | 'qwen' | 'volcengine'> {
+async function determineProvider(config: typeof GenerateVideoRequestSchema._type['config']): Promise<'gemini' | 'qwen' | 'kling' | 'volcengine'> {
   // 1. 如果明确指定了 provider
-  if (config.provider === 'gemini' || config.provider === 'qwen' || config.provider === 'volcengine') {
+  if (config.provider === 'gemini' || config.provider === 'qwen' || config.provider === 'kling' || config.provider === 'volcengine') {
     return config.provider
   }
   
   // 2. 如果指定了 modelId，从模型配置中获取
   if (config.modelId) {
     const modelConfig = findVideoModel(config.modelId)
-    if (modelConfig && (modelConfig.provider === 'gemini' || modelConfig.provider === 'qwen' || modelConfig.provider === 'volcengine')) {
+    if (modelConfig && (modelConfig.provider === 'gemini' || modelConfig.provider === 'qwen' || modelConfig.provider === 'kling' || modelConfig.provider === 'volcengine')) {
       return modelConfig.provider
     }
   }
@@ -367,7 +368,7 @@ async function determineProvider(config: typeof GenerateVideoRequestSchema._type
   const workflowVideoModel = workflowModels.video_generation
   if (workflowVideoModel) {
     const workflowModelConfig = findVideoModel(workflowVideoModel)
-    if (workflowModelConfig && (workflowModelConfig.provider === 'gemini' || workflowModelConfig.provider === 'qwen' || workflowModelConfig.provider === 'volcengine')) {
+    if (workflowModelConfig && (workflowModelConfig.provider === 'gemini' || workflowModelConfig.provider === 'qwen' || workflowModelConfig.provider === 'kling' || workflowModelConfig.provider === 'volcengine')) {
       console.log(`[VideoGen] 使用业务流程配置的模型: ${workflowVideoModel} (${workflowModelConfig.provider})`)
       return workflowModelConfig.provider
     }
@@ -376,7 +377,7 @@ async function determineProvider(config: typeof GenerateVideoRequestSchema._type
   // 4. 使用当前选择的模型
   const selected = getSelectedModels()
   const selectedModel = findVideoModel(selected.video)
-  if (selectedModel && (selectedModel.provider === 'gemini' || selectedModel.provider === 'qwen' || selectedModel.provider === 'volcengine')) {
+  if (selectedModel && (selectedModel.provider === 'gemini' || selectedModel.provider === 'qwen' || selectedModel.provider === 'kling' || selectedModel.provider === 'volcengine')) {
     return selectedModel.provider
   }
   
@@ -421,6 +422,8 @@ async function generateVideoAsync(
 
   if (provider === 'qwen') {
     await generateVideoWithQwen(taskId, sceneId, config)
+  } else if (provider === 'kling') {
+    await generateVideoWithKling(taskId, sceneId, config)
   } else if (provider === 'volcengine') {
     await generateVideoWithVolcengine(taskId, sceneId, config)
   } else {
@@ -592,6 +595,129 @@ async function generateVideoWithQwen(
     console.log(`[VideoGen] 千问视频生成完成: ${taskId}`)
   } catch (error) {
     console.error(`[VideoGen] 千问生成失败:`, error)
+    throw error
+  }
+}
+
+/**
+ * 使用可灵 AI 生成视频
+ */
+async function generateVideoWithKling(
+  taskId: string,
+  sceneId: string,
+  config: typeof GenerateVideoRequestSchema._type['config']
+): Promise<void> {
+  try {
+    await updateTaskProgress(taskId, 10, 'processing')
+
+    let modelId = await getActualModelId(config)
+    const modelConfig = modelId ? findVideoModel(modelId) : null
+    if (!modelConfig || modelConfig.provider !== 'kling' || !modelId) {
+      modelId = kling.KlingVideoModels.KLING_V2_6
+    }
+
+    const duration = Math.min(15, Math.max(3, Math.round(config.duration)))
+    const mode: 'std' | 'pro' = config.model === 'fast' ? 'std' : 'pro'
+
+    const normalizeKlingImageInput = (value?: string): string | undefined => {
+      if (!value) return undefined
+      const trimmed = value.trim()
+      if (!trimmed) return undefined
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed
+      if (trimmed.startsWith('data:')) {
+        const commaIndex = trimmed.indexOf(',')
+        return commaIndex >= 0 ? trimmed.slice(commaIndex + 1) : trimmed
+      }
+      return trimmed
+    }
+
+    const firstFrame = normalizeKlingImageInput(config.firstFrame)
+    const lastFrame = normalizeKlingImageInput(config.lastFrame)
+    const imageInput = normalizeKlingImageInput(config.imageUrl)
+
+    console.log('[VideoGen] Kling API 请求参数:', {
+      model: modelId,
+      mode,
+      duration,
+      aspectRatio: config.aspectRatio,
+      hasImageUrl: !!imageInput,
+      hasFirstFrame: !!firstFrame,
+      hasLastFrame: !!lastFrame,
+      withAudio: config.withAudio
+    })
+
+    await updateTaskProgress(taskId, 20)
+
+    const result = await kling._klingGenerateVideo({
+      model: modelId,
+      prompt: config.prompt,
+      imageUrl: imageInput,
+      firstFrameUrl: firstFrame,
+      lastFrameUrl: lastFrame,
+      duration,
+      aspectRatio: config.aspectRatio,
+      withAudio: config.withAudio,
+      mode,
+      negativePrompt: config.negativePrompt
+    })
+
+    await updateTaskProgress(taskId, 95)
+
+    let videoData = ''
+    if (result.videoUrl) {
+      try {
+        const videosDir = path.join(process.cwd(), 'public', 'videos')
+        if (!fs.existsSync(videosDir)) {
+          fs.mkdirSync(videosDir, { recursive: true })
+        }
+
+        const videoFileName = `${taskId}.mp4`
+        const videoFilePath = path.join(videosDir, videoFileName)
+        const localVideoUrl = `/api/video/file/${videoFileName}`
+
+        const response = await fetch(result.videoUrl)
+        if (response.ok) {
+          const buffer = await response.arrayBuffer()
+          fs.writeFileSync(videoFilePath, Buffer.from(buffer))
+          console.log(`[VideoGen] 视频下载成功: ${videoFilePath}`)
+          videoData = `url:${localVideoUrl}`
+        } else {
+          videoData = `url:${result.videoUrl}`
+        }
+      } catch (downloadError) {
+        console.error('[VideoGen] 视频下载失败:', downloadError)
+        videoData = `url:${result.videoUrl}`
+      }
+    }
+
+    const generatedVideo: GeneratedVideo = {
+      id: `generated_${taskId}`,
+      sceneId,
+      videoData,
+      metadata: {
+        duration,
+        resolution: config.resolution,
+        aspectRatio: config.aspectRatio,
+        fps: 24,
+        hasAudio: config.withAudio
+      },
+      createdAt: new Date().toISOString()
+    }
+
+    await db.update(videoTasksTable)
+      .set({
+        status: 'completed',
+        progress: 100,
+        videoData: generatedVideo.videoData,
+        metadata: JSON.stringify(generatedVideo.metadata),
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(videoTasksTable.id, taskId))
+    await syncSceneVideoResult(sceneId, generatedVideo.videoData)
+
+    console.log(`[VideoGen] 可灵视频生成完成: ${taskId}`)
+  } catch (error) {
+    console.error('[VideoGen] 可灵生成失败:', error)
     throw error
   }
 }
