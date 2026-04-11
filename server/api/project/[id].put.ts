@@ -58,9 +58,9 @@ const CharacterSchema = z.object({
   age: z.number().optional(),
   gender: z.string().optional(),
   baseImage: z.string().optional(),
-  expressions: z.record(z.string()).optional(),
+  expressions: z.record(z.string()).nullish(),
   // 新增：多视角
-  views: z.record(z.string()).optional()
+  views: z.record(z.string()).nullish()
 })
 
 const UpdateProjectSchema = z.object({

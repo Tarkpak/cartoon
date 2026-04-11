@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Video, Loader2, Image, Check, AlertCircle, Sparkles, Play, Film, Download } from 'lucide-vue-next'
+import { Video, Loader2, Image, Check, AlertCircle, Sparkles, Play, Film, Download, Plus, Pencil, Trash2, Merge, Split, Eye } from 'lucide-vue-next'
 import type { SceneData, BatchStatus } from '~/composables/useWorkbench'
 import { toImageSrc } from '~/lib/media'
 
@@ -8,12 +8,22 @@ const props = defineProps<{
   selectedScene: SceneData | undefined
   batchFrameStatus: BatchStatus
   batchVideoStatus: BatchStatus
+  hideSceneQueue?: boolean
   mergeStatus?: { running: boolean, progress: number, error?: string }
   finalVideo?: { videoData?: string, duration?: number, size?: number } | null
 }>()
 
 defineEmits<{
   selectScene: [scene: SceneData]
+  addScene: []
+  editScene: [scene: SceneData]
+  deleteScene: [scene: SceneData]
+  splitScene: [index: number]
+  mergeScene: [index: number]
+  generateStoryboard: [scene: SceneData]
+  extractSceneVisual: [scene: SceneData]
+  viewStoryboard: [scene: SceneData]
+  viewSceneVisual: [scene: SceneData]
   generateFrames: [scene: SceneData]
   generateVideo: [scene: SceneData]
   batchGenerateFrames: []
@@ -24,10 +34,12 @@ defineEmits<{
 
 const framesCompleted = computed(() => props.scenes.filter(s => s.frameStatus === 'done').length)
 const videosCompleted = computed(() => props.scenes.filter(s => s.videoStatus === 'done').length)
-const selectedSceneFirstFrameSrc = computed(() => toImageSrc(props.selectedScene?.firstFrame))
-const selectedSceneLastFrameSrc = computed(() => toImageSrc(props.selectedScene?.lastFrame))
+const videosPending = computed(() => props.scenes.filter(s => s.videoStatus !== 'done').length)
+const activeScene = computed(() => props.selectedScene || props.scenes[0])
+const selectedSceneFirstFrameSrc = computed(() => toImageSrc(activeScene.value?.firstFrame))
+const selectedSceneLastFrameSrc = computed(() => toImageSrc(activeScene.value?.lastFrame))
 const selectedScenePreviewUrl = computed(() => {
-  const url = props.selectedScene?.videoUrl
+  const url = activeScene.value?.videoUrl
   if (!url) return ''
 
   if (url.startsWith('/videos/')) {
@@ -37,6 +49,52 @@ const selectedScenePreviewUrl = computed(() => {
 
   return url
 })
+
+const panelGridClass = computed(() => (
+  props.hideSceneQueue
+    ? 'grid lg:grid-cols-2 items-start gap-6 min-h-[500px]'
+    : 'grid lg:grid-cols-3 items-start gap-6 min-h-[500px]'
+))
+
+const framePreviewColumnRef = ref<HTMLElement | null>(null)
+const sceneQueueMaxHeight = ref<number | null>(null)
+
+const sceneQueueColumnStyle = computed(() => {
+  if (props.hideSceneQueue || !sceneQueueMaxHeight.value) return undefined
+  return {
+    height: `${sceneQueueMaxHeight.value}px`,
+    maxHeight: `${sceneQueueMaxHeight.value}px`
+  }
+})
+
+function syncSceneQueueMaxHeight() {
+  if (props.hideSceneQueue || typeof window === 'undefined') {
+    sceneQueueMaxHeight.value = null
+    return
+  }
+
+  if (!window.matchMedia('(min-width: 1024px)').matches) {
+    sceneQueueMaxHeight.value = null
+    return
+  }
+
+  const height = framePreviewColumnRef.value?.offsetHeight || framePreviewColumnRef.value?.getBoundingClientRect().height || 0
+  sceneQueueMaxHeight.value = height > 0 ? Math.round(height) : null
+}
+
+onMounted(() => {
+  nextTick(syncSceneQueueMaxHeight)
+  window.addEventListener('resize', syncSceneQueueMaxHeight)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', syncSceneQueueMaxHeight)
+})
+
+watch(
+  [activeScene, () => props.scenes.length, () => props.hideSceneQueue],
+  () => nextTick(syncSceneQueueMaxHeight)
+)
 
 // 下载最终视频
 function downloadFinalVideo() {
@@ -94,7 +152,7 @@ function formatSize(bytes: number): string {
         <Button
           variant="outline"
           size="sm"
-          :disabled="batchFrameStatus.running || batchVideoStatus.running || framesCompleted === 0"
+          :disabled="batchFrameStatus.running || batchVideoStatus.running || videosPending === 0"
           @click="$emit('batchGenerateVideos')"
         >
           <Loader2
@@ -125,12 +183,25 @@ function formatSize(bytes: number): string {
       </div>
     </div>
 
-    <div class="grid lg:grid-cols-3 gap-6 min-h-[500px]">
+    <div :class="panelGridClass">
       <!-- 场景列表 -->
-      <div class="flex flex-col min-h-0">
-        <h3 class="font-semibold mb-4">
-          场景队列
-        </h3>
+      <div
+        v-if="!hideSceneQueue"
+        class="flex min-h-0 flex-col overflow-hidden"
+        :style="sceneQueueColumnStyle"
+      >
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-semibold">
+            场景列表
+          </h3>
+          <Button
+            variant="ghost"
+            size="sm"
+            @click="$emit('addScene')"
+          >
+            <Plus class="w-4 h-4" />
+          </Button>
+        </div>
         <div
           v-if="scenes.length === 0"
           class="flex-1 flex items-center justify-center text-muted-foreground border rounded-lg"
@@ -144,101 +215,238 @@ function formatSize(bytes: number): string {
         </div>
         <div
           v-else
-          class="flex-1 space-y-2 overflow-y-auto pr-1 max-h-[45vh] lg:max-h-[32rem]"
+          class="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1"
         >
           <div
             v-for="(scene, idx) in scenes"
             :key="scene.id"
-            class="p-3 border rounded-lg cursor-pointer transition"
+            class="p-3 border rounded-lg cursor-pointer transition group"
             :class="scene.active ? 'border-primary bg-accent' : 'hover:border-primary/50'"
+            title="单击选中，双击编辑"
             @click="$emit('selectScene', scene)"
+            @dblclick.stop="$emit('editScene', scene)"
           >
-            <div class="flex items-center justify-between">
-              <span class="font-medium text-sm">场景 {{ idx + 1 }}</span>
-              <div class="flex items-center space-x-1">
-                <Check
-                  v-if="scene.frameStatus === 'done'"
-                  class="w-4 h-4 text-green-500"
-                />
-                <Loader2
-                  v-else-if="scene.frameStatus === 'generating'"
-                  class="w-4 h-4 animate-spin text-muted-foreground"
-                />
-                <AlertCircle
-                  v-else-if="scene.frameStatus === 'error'"
-                  class="w-4 h-4 text-red-500"
-                />
-                <div
-                  v-else
-                  class="w-4 h-4 rounded-full bg-muted"
-                />
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center space-x-2">
+                  <span class="font-medium text-sm">场景 {{ idx + 1 }}</span>
+                  <div class="flex items-center space-x-1">
+                    <Check
+                      v-if="scene.frameStatus === 'done'"
+                      class="w-4 h-4 text-green-500"
+                    />
+                    <Loader2
+                      v-else-if="scene.frameStatus === 'generating'"
+                      class="w-4 h-4 animate-spin text-muted-foreground"
+                    />
+                    <AlertCircle
+                      v-else-if="scene.frameStatus === 'error'"
+                      class="w-4 h-4 text-red-500"
+                    />
+                    <div
+                      v-else
+                      class="w-4 h-4 rounded-full bg-muted"
+                    />
+                  </div>
+                </div>
+                <p class="text-sm font-medium mt-1 line-clamp-1">
+                  {{ scene.title }}
+                </p>
+                <p class="text-xs text-muted-foreground mt-1 line-clamp-2">
+                  {{ scene.description }}
+                </p>
+              </div>
+              <div class="flex space-x-1 opacity-0 group-hover:opacity-100 transition">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 w-7 p-0"
+                  title="拆分场景"
+                  @click.stop="$emit('splitScene', idx)"
+                >
+                  <Split class="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 w-7 p-0"
+                  title="与下一场景合并"
+                  :disabled="idx >= scenes.length - 1"
+                  @click.stop="$emit('mergeScene', idx)"
+                >
+                  <Merge class="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 w-7 p-0"
+                  title="编辑场景"
+                  @click.stop="$emit('editScene', scene)"
+                >
+                  <Pencil class="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                  title="删除场景"
+                  @click.stop="$emit('deleteScene', scene)"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                </Button>
               </div>
             </div>
-            <p class="text-xs text-muted-foreground mt-1 line-clamp-2">
-              {{ scene.title }}
-            </p>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <Badge
+                v-for="char in scene.characters.slice(0, 2)"
+                :key="char.name"
+                variant="outline"
+              >
+                {{ char.name }}
+              </Badge>
+              <Badge
+                v-if="scene.characters.length > 2"
+                variant="outline"
+              >
+                +{{ scene.characters.length - 2 }}
+              </Badge>
+              <Badge variant="outline">
+                {{ scene.duration }}秒
+              </Badge>
+            </div>
+            <div class="flex items-center space-x-2 mt-3 pt-3 border-t">
+              <div class="flex-1 flex items-center space-x-1">
+                <Button
+                  v-if="scene.storyboard"
+                  variant="outline"
+                  size="sm"
+                  class="flex-1 h-7 text-xs"
+                  @click.stop="$emit('viewStoryboard', scene)"
+                >
+                  <Eye class="w-3 h-3 mr-1" />
+                  查看分镜
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :class="scene.storyboard ? 'h-7 w-7 p-0' : 'flex-1 h-7 text-xs'"
+                  :disabled="scene.storyboardStatus === 'generating'"
+                  :title="scene.storyboard ? '重新生成分镜' : ''"
+                  @click.stop="$emit('generateStoryboard', scene)"
+                >
+                  <Loader2
+                    v-if="scene.storyboardStatus === 'generating'"
+                    class="w-3 h-3 animate-spin"
+                    :class="scene.storyboard ? '' : 'mr-1'"
+                  />
+                  <Sparkles
+                    v-else
+                    class="w-3 h-3"
+                    :class="scene.storyboard ? '' : 'mr-1'"
+                  />
+                  <span v-if="!scene.storyboard">生成分镜</span>
+                </Button>
+              </div>
+              <div class="flex-1 flex items-center space-x-1">
+                <Button
+                  v-if="scene.sceneVisual"
+                  variant="outline"
+                  size="sm"
+                  class="flex-1 h-7 text-xs"
+                  @click.stop="$emit('viewSceneVisual', scene)"
+                >
+                  <Eye class="w-3 h-3 mr-1" />
+                  查看视觉
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :class="scene.sceneVisual ? 'h-7 w-7 p-0' : 'flex-1 h-7 text-xs'"
+                  :disabled="scene.sceneVisualStatus === 'generating'"
+                  :title="scene.sceneVisual ? '重新提取视觉' : ''"
+                  @click.stop="$emit('extractSceneVisual', scene)"
+                >
+                  <Loader2
+                    v-if="scene.sceneVisualStatus === 'generating'"
+                    class="w-3 h-3 animate-spin"
+                    :class="scene.sceneVisual ? '' : 'mr-1'"
+                  />
+                  <Sparkles
+                    v-else
+                    class="w-3 h-3"
+                    :class="scene.sceneVisual ? '' : 'mr-1'"
+                  />
+                  <span v-if="!scene.sceneVisual">提取视觉</span>
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       <!-- 首尾帧预览 -->
-      <div class="flex flex-col">
+      <div
+        ref="framePreviewColumnRef"
+        class="flex min-h-0 flex-col"
+      >
         <h3 class="font-semibold mb-4">
           首尾帧预览
         </h3>
         <div
-          v-if="selectedScene"
-          class="flex-1 flex flex-col space-y-4"
+          v-if="activeScene"
+          class="flex-1 min-h-0 flex flex-col"
         >
-          <div>
-            <div class="text-xs text-muted-foreground mb-2">
-              第一帧
+          <div class="space-y-4">
+            <div>
+              <div class="text-xs text-muted-foreground mb-2">
+                第一帧
+              </div>
+              <div class="aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden">
+                <img
+                  v-if="activeScene.firstFrame"
+                  :src="selectedSceneFirstFrameSrc"
+                  class="w-full h-full object-cover cursor-pointer hover:opacity-90 transition"
+                  @click="$emit('previewImage', selectedSceneFirstFrameSrc, `${activeScene.title} - 第一帧`)"
+                >
+                <Image
+                  v-else
+                  class="w-8 h-8 text-muted-foreground"
+                />
+              </div>
             </div>
-            <div class="aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden">
-              <img
-                v-if="selectedScene.firstFrame"
-                :src="selectedSceneFirstFrameSrc"
-                class="w-full h-full object-cover cursor-pointer hover:opacity-90 transition"
-                @click="$emit('previewImage', selectedSceneFirstFrameSrc, `${selectedScene.title} - 第一帧`)"
-              >
-              <Image
-                v-else
-                class="w-8 h-8 text-muted-foreground"
-              />
-            </div>
-          </div>
-          <div>
-            <div class="text-xs text-muted-foreground mb-2">
-              最后一帧
-            </div>
-            <div class="aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden">
-              <img
-                v-if="selectedScene.lastFrame"
-                :src="selectedSceneLastFrameSrc"
-                class="w-full h-full object-cover cursor-pointer hover:opacity-90 transition"
-                @click="$emit('previewImage', selectedSceneLastFrameSrc, `${selectedScene.title} - 最后一帧`)"
-              >
-              <Image
-                v-else
-                class="w-8 h-8 text-muted-foreground"
-              />
+            <div>
+              <div class="text-xs text-muted-foreground mb-2">
+                最后一帧
+              </div>
+              <div class="aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden">
+                <img
+                  v-if="activeScene.lastFrame"
+                  :src="selectedSceneLastFrameSrc"
+                  class="w-full h-full object-cover cursor-pointer hover:opacity-90 transition"
+                  @click="$emit('previewImage', selectedSceneLastFrameSrc, `${activeScene.title} - 最后一帧`)"
+                >
+                <Image
+                  v-else
+                  class="w-8 h-8 text-muted-foreground"
+                />
+              </div>
             </div>
           </div>
           <Button
             variant="outline"
-            class="w-full"
-            :disabled="selectedScene.frameStatus === 'generating'"
-            @click="$emit('generateFrames', selectedScene)"
+            class="w-full mt-4 shrink-0"
+            :disabled="activeScene.frameStatus === 'generating'"
+            @click="$emit('generateFrames', activeScene)"
           >
             <Loader2
-              v-if="selectedScene.frameStatus === 'generating'"
+              v-if="activeScene.frameStatus === 'generating'"
               class="w-4 h-4 mr-2 animate-spin"
             />
             <Sparkles
               v-else
               class="w-4 h-4 mr-2"
             />
-            {{ selectedScene.firstFrame ? '重新生成' : '生成首尾帧' }}
+            {{ activeScene.firstFrame ? '重新生成' : '生成首尾帧' }}
           </Button>
         </div>
         <div
@@ -252,13 +460,13 @@ function formatSize(bytes: number): string {
       </div>
 
       <!-- 视频预览 -->
-      <div class="flex flex-col">
+      <div class="flex min-h-0 flex-col">
         <h3 class="font-semibold mb-4">
           视频预览
         </h3>
         <div
-          v-if="selectedScene"
-          class="flex-1 flex flex-col space-y-4"
+          v-if="activeScene"
+          class="flex-1 min-h-0 flex flex-col space-y-4"
         >
           <div class="aspect-video bg-gray-900 rounded-lg flex items-center justify-center overflow-hidden">
             <video
@@ -279,11 +487,11 @@ function formatSize(bytes: number): string {
           </div>
           <Button
             class="w-full"
-            :disabled="selectedScene.videoStatus === 'generating' || selectedScene.frameStatus !== 'done'"
-            @click="$emit('generateVideo', selectedScene)"
+            :disabled="activeScene.videoStatus === 'generating'"
+            @click="$emit('generateVideo', activeScene)"
           >
             <Loader2
-              v-if="selectedScene.videoStatus === 'generating'"
+              v-if="activeScene.videoStatus === 'generating'"
               class="w-4 h-4 mr-2 animate-spin"
             />
             <Play
@@ -293,16 +501,16 @@ function formatSize(bytes: number): string {
             {{ selectedScenePreviewUrl ? '重新生成视频' : '生成视频' }}
           </Button>
           <p
-            v-if="selectedScene.frameStatus !== 'done'"
+            v-if="!selectedScenePreviewUrl && activeScene.frameStatus !== 'done'"
             class="text-xs text-muted-foreground text-center"
           >
-            请先生成首尾帧
+            可直接生成视频，系统会按场景自动决定是否需要补帧
           </p>
           <div
-            v-else-if="selectedScene.videoStatus === 'error' && selectedScene.videoError"
+            v-else-if="activeScene.videoStatus === 'error' && activeScene.videoError"
             class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
           >
-            {{ selectedScene.videoError }}
+            {{ activeScene.videoError }}
           </div>
         </div>
       </div>
