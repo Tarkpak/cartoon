@@ -7,6 +7,7 @@ import type { WorkflowStep } from '#shared/types/workflow-models'
 import { findTextModel, findImageModel, findVideoModel, findVoiceModel } from './model-provider'
 import * as gemini from './gemini'
 import * as qwen from './qwen'
+import * as kling from './kling'
 import * as volcengine from './volcengine'
 import { getWorkflowModels } from '../api/models/workflow.get'
 
@@ -238,6 +239,21 @@ export async function generateVideoForWorkflow(
       duration: options.duration,
       size: options.size,
       resolution: options.resolution,
+      negativePrompt: options.negativePrompt,
+      maxRetries: options.maxRetries
+    })
+  }
+
+  if (provider === 'kling') {
+    return kling._klingGenerateVideo({
+      model: modelId,
+      prompt: options.prompt,
+      imageUrl: options.imageUrl,
+      firstFrameUrl: options.firstFrameUrl,
+      lastFrameUrl: options.lastFrameUrl,
+      duration: options.duration,
+      withAudio: options.audio,
+      mode: 'pro',
       negativePrompt: options.negativePrompt,
       maxRetries: options.maxRetries
     })

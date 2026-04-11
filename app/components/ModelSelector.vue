@@ -55,6 +55,8 @@ function getProviderBadge(provider: string) {
   switch (provider) {
     case 'gemini': return { text: 'Gemini', class: 'bg-blue-100 text-blue-700' }
     case 'qwen': return { text: '千问', class: 'bg-orange-100 text-orange-700' }
+    case 'kling': return { text: '可灵', class: 'bg-cyan-100 text-cyan-700' }
+    case 'volcengine': return { text: '火山', class: 'bg-red-100 text-red-700' }
     case 'openai': return { text: 'OpenAI', class: 'bg-green-100 text-green-700' }
     case 'deepseek': return { text: 'DeepSeek', class: 'bg-purple-100 text-purple-700' }
     default: return { text: provider, class: 'bg-gray-100 text-gray-700' }
