@@ -1924,12 +1924,12 @@ onMounted(async () => {
           请先完成“剧本解析”步骤。
         </div>
         <template v-else>
-          <p class="text-xs text-muted-foreground">
+          <p class="shrink-0 text-xs text-muted-foreground">
             角色图就绪 {{ characterReadyCount }}/{{ characters.length }}
             <span v-if="characterGeneratingCount > 0"> · 生成中 {{ characterGeneratingCount }}</span>
             <span v-if="characterMissingCount > 0"> · 待生成 {{ characterMissingCount }}</span>
           </p>
-          <div class="flex flex-wrap items-center gap-2">
+          <div class="shrink-0 flex flex-wrap items-center gap-2">
             <Button
               :disabled="autoRunning"
               @click="runSimpleAssetsStep"
@@ -1949,7 +1949,7 @@ onMounted(async () => {
               仅生成角色图
             </Button>
           </div>
-          <div class="flex flex-wrap items-center gap-2">
+          <div class="shrink-0 flex flex-wrap items-center gap-2">
             <button
               type="button"
               class="h-8 rounded-md border px-3 text-xs font-medium transition"
@@ -1976,341 +1976,343 @@ onMounted(async () => {
             </button>
           </div>
 
-          <template v-if="assetTab === 'characters'">
-            <div
-              v-if="characters.length === 0"
-              class="rounded-md border border-dashed p-4 text-sm text-muted-foreground"
-            >
-              暂未识别到角色。可返回“剧本解析”补充人物信息后重新解析。
-            </div>
-            <div
-              v-else
-              class="grid grid-cols-1 md:grid-cols-2 gap-3"
-            >
+          <div class="flex-1 min-h-0 overflow-y-auto pr-1">
+            <template v-if="assetTab === 'characters'">
               <div
-                v-for="char in characters"
-                :key="char.id"
-                class="rounded-md border p-3"
+                v-if="characters.length === 0"
+                class="rounded-md border border-dashed p-4 text-sm text-muted-foreground"
               >
-                <div class="flex items-start gap-3">
-                  <div class="h-20 w-20 rounded-md border bg-muted/30 overflow-hidden flex items-center justify-center shrink-0">
-                    <img
-                      v-if="char.baseImage"
-                      :src="toImageSrc(char.baseImage)"
-                      :alt="`${char.name} 角色图`"
-                      class="h-full w-full object-cover cursor-zoom-in"
-                      @click="openImagePreview(char.baseImage, `${char.name} 角色图`)"
-                    >
-                    <Users
-                      v-else
-                      class="h-8 w-8 text-muted-foreground"
-                    />
-                  </div>
-
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-2">
-                      <span class="font-medium truncate">{{ char.name }}</span>
-                      <Badge
-                        variant="outline"
-                        class="text-[10px]"
+                暂未识别到角色。可返回“剧本解析”补充人物信息后重新解析。
+              </div>
+              <div
+                v-else
+                class="grid grid-cols-1 md:grid-cols-2 gap-3"
+              >
+                <div
+                  v-for="char in characters"
+                  :key="char.id"
+                  class="rounded-md border p-3"
+                >
+                  <div class="flex items-start gap-3">
+                    <div class="h-20 w-20 rounded-md border bg-muted/30 overflow-hidden flex items-center justify-center shrink-0">
+                      <img
+                        v-if="char.baseImage"
+                        :src="toImageSrc(char.baseImage)"
+                        :alt="`${char.name} 角色图`"
+                        class="h-full w-full object-cover cursor-zoom-in"
+                        @click="openImagePreview(char.baseImage, `${char.name} 角色图`)"
                       >
-                        {{ resolveCharacterRoleLabel(char.role) }}
-                      </Badge>
+                      <Users
+                        v-else
+                        class="h-8 w-8 text-muted-foreground"
+                      />
                     </div>
 
-                    <template v-if="editingCharacterId === char.id">
-                      <div class="mt-2 space-y-2">
-                        <Input
-                          v-model="characterEditDraft.name"
-                          class="h-8 text-xs"
-                          placeholder="角色名称"
-                        />
-                        <select
-                          v-model="characterEditDraft.role"
-                          class="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"
-                        >
-                          <option
-                            v-for="opt in characterRoleOptions"
-                            :key="opt.value"
-                            :value="opt.value"
-                          >
-                            {{ opt.label }}
-                          </option>
-                        </select>
-                        <Textarea
-                          v-model="characterEditDraft.appearance"
-                          class="min-h-[72px] text-xs"
-                          placeholder="角色外观描述（可人工补充）"
-                        />
-                      </div>
-                    </template>
-                    <template v-else>
-                      <p class="mt-1 text-xs text-muted-foreground line-clamp-2">
-                        {{ char.appearance || '暂无外观描述' }}
-                      </p>
-                      <div class="mt-2 flex flex-wrap gap-1">
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium truncate">{{ char.name }}</span>
                         <Badge
                           variant="outline"
                           class="text-[10px]"
                         >
-                          涉及场景 {{ resolveCharacterSceneCount(char) }}
-                        </Badge>
-                        <Badge
-                          :variant="char.generating ? 'default' : char.baseImage ? 'secondary' : 'outline'"
-                          class="text-[10px]"
-                        >
-                          {{ char.generating ? '生成中' : char.baseImage ? '已就绪' : '待生成' }}
+                          {{ resolveCharacterRoleLabel(char.role) }}
                         </Badge>
                       </div>
+
+                      <template v-if="editingCharacterId === char.id">
+                        <div class="mt-2 space-y-2">
+                          <Input
+                            v-model="characterEditDraft.name"
+                            class="h-8 text-xs"
+                            placeholder="角色名称"
+                          />
+                          <select
+                            v-model="characterEditDraft.role"
+                            class="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"
+                          >
+                            <option
+                              v-for="opt in characterRoleOptions"
+                              :key="opt.value"
+                              :value="opt.value"
+                            >
+                              {{ opt.label }}
+                            </option>
+                          </select>
+                          <Textarea
+                            v-model="characterEditDraft.appearance"
+                            class="min-h-[72px] text-xs"
+                            placeholder="角色外观描述（可人工补充）"
+                          />
+                        </div>
+                      </template>
+                      <template v-else>
+                        <p class="mt-1 text-xs text-muted-foreground line-clamp-2">
+                          {{ char.appearance || '暂无外观描述' }}
+                        </p>
+                        <div class="mt-2 flex flex-wrap gap-1">
+                          <Badge
+                            variant="outline"
+                            class="text-[10px]"
+                          >
+                            涉及场景 {{ resolveCharacterSceneCount(char) }}
+                          </Badge>
+                          <Badge
+                            :variant="char.generating ? 'default' : char.baseImage ? 'secondary' : 'outline'"
+                            class="text-[10px]"
+                          >
+                            {{ char.generating ? '生成中' : char.baseImage ? '已就绪' : '待生成' }}
+                          </Badge>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+
+                  <div class="mt-3 flex flex-wrap items-center gap-2">
+                    <template v-if="editingCharacterId === char.id">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        class="h-8 px-3 text-xs"
+                        :disabled="autoRunning || char.generating"
+                        @click="saveCharacterEdit()"
+                      >
+                        保存
+                      </Button>
+                      <Button
+                        size="sm"
+                        class="h-8 px-3 text-xs"
+                        :disabled="autoRunning || char.generating"
+                        @click="saveCharacterEdit({ regenerate: true })"
+                      >
+                        <Loader2
+                          v-if="char.generating"
+                          class="h-3.5 w-3.5 mr-1 animate-spin"
+                        />
+                        保存并重生成
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        class="h-8 px-2 text-xs"
+                        :disabled="autoRunning || char.generating"
+                        @click="cancelEditCharacter"
+                      >
+                        取消
+                      </Button>
+                    </template>
+                    <template v-else>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        class="h-8 px-3 text-xs"
+                        :disabled="autoRunning || char.generating"
+                        @click="startEditCharacter(char)"
+                      >
+                        <Pencil class="h-3.5 w-3.5 mr-1" />
+                        编辑
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        class="h-8 px-3 text-xs"
+                        :disabled="autoRunning || char.generating"
+                        @click="handleGenerateCharacter(char.id)"
+                      >
+                        <Loader2
+                          v-if="char.generating"
+                          class="h-3.5 w-3.5 mr-1 animate-spin"
+                        />
+                        {{ char.baseImage ? '重生成角色图' : '生成角色图' }}
+                      </Button>
                     </template>
                   </div>
                 </div>
+              </div>
+            </template>
 
-                <div class="mt-3 flex flex-wrap items-center gap-2">
-                  <template v-if="editingCharacterId === char.id">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      class="h-8 px-3 text-xs"
-                      :disabled="autoRunning || char.generating"
-                      @click="saveCharacterEdit()"
-                    >
-                      保存
-                    </Button>
-                    <Button
-                      size="sm"
-                      class="h-8 px-3 text-xs"
-                      :disabled="autoRunning || char.generating"
-                      @click="saveCharacterEdit({ regenerate: true })"
-                    >
-                      <Loader2
-                        v-if="char.generating"
-                        class="h-3.5 w-3.5 mr-1 animate-spin"
-                      />
-                      保存并重生成
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      class="h-8 px-2 text-xs"
-                      :disabled="autoRunning || char.generating"
-                      @click="cancelEditCharacter"
-                    >
-                      取消
-                    </Button>
-                  </template>
-                  <template v-else>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      class="h-8 px-3 text-xs"
-                      :disabled="autoRunning || char.generating"
-                      @click="startEditCharacter(char)"
-                    >
-                      <Pencil class="h-3.5 w-3.5 mr-1" />
-                      编辑
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      class="h-8 px-3 text-xs"
-                      :disabled="autoRunning || char.generating"
-                      @click="handleGenerateCharacter(char.id)"
-                    >
-                      <Loader2
-                        v-if="char.generating"
-                        class="h-3.5 w-3.5 mr-1 animate-spin"
-                      />
-                      {{ char.baseImage ? '重生成角色图' : '生成角色图' }}
-                    </Button>
-                  </template>
+            <template v-else-if="assetTab === 'scenes'">
+              <div class="rounded-md border p-3 space-y-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="text-sm font-medium">
+                    环境资产总览
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="h-7 px-2 text-xs"
+                    @click="selectAutoStage('videos')"
+                  >
+                    去场景视频步骤
+                  </Button>
+                </div>
+
+                <p class="text-xs text-muted-foreground">
+                  {{ environmentAssetCards.length }} 个环境，按剧本环境聚合展示，可直接编辑并重生成环境图。
+                </p>
+
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-2">
+                  <div
+                    v-for="(asset, idx) in environmentAssetCards"
+                    :key="`asset_env_${asset.id}`"
+                    class="rounded-lg border bg-card p-3 space-y-2"
+                  >
+                    <div class="flex items-start justify-between gap-2">
+                      <div class="min-w-0">
+                        <div class="text-[11px] text-muted-foreground">
+                          环境 {{ idx + 1 }}
+                        </div>
+                        <div class="text-sm font-medium truncate">
+                          {{ asset.name }}
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-1">
+                        <Badge
+                          :variant="asset.frameStatus === 'done' ? 'secondary' : asset.frameStatus === 'error' ? 'destructive' : asset.frameStatus === 'generating' ? 'default' : 'outline'"
+                          class="text-[11px]"
+                        >
+                          {{ asset.frameStatus === 'done' ? '环境图就绪' : asset.frameStatus === 'error' ? '环境图失败' : asset.frameStatus === 'generating' ? '生成中' : '待生成' }}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    <p class="text-[11px] text-muted-foreground truncate">
+                      {{ resolveEnvironmentSceneSummary(asset) }}
+                    </p>
+
+                    <div>
+                      <button
+                        type="button"
+                        class="relative aspect-video rounded border bg-muted/30 overflow-hidden flex items-center justify-center"
+                        :class="asset.referenceImage ? 'cursor-zoom-in hover:border-primary/50' : 'cursor-not-allowed opacity-70'"
+                        :disabled="!asset.referenceImage"
+                        @click="openImagePreview(asset.referenceImage, `${asset.name} - 环境图`)"
+                      >
+                        <img
+                          v-if="asset.referenceImage"
+                          :src="toImageSrc(asset.referenceImage)"
+                          :alt="`${asset.name} 环境图`"
+                          class="h-full w-full object-cover"
+                        >
+                        <span
+                          v-else
+                          class="text-[10px] text-muted-foreground"
+                        >暂无环境图</span>
+                      </button>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        class="h-7 px-2 text-xs"
+                        :disabled="!resolveEnvironmentRepresentativeScene(asset.id)"
+                        @click="openEnvironmentAssetSceneEditor(asset.id)"
+                      >
+                        <Pencil class="h-3.5 w-3.5 mr-1" />
+                        编辑代表场景
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        class="h-7 px-2 text-xs"
+                        :disabled="asset.frameStatus === 'generating'"
+                        @click="regenerateEnvironmentAsset(asset.id)"
+                      >
+                        <Loader2
+                          v-if="asset.frameStatus === 'generating'"
+                          class="h-3.5 w-3.5 mr-1 animate-spin"
+                        />
+                        <RefreshCw
+                          v-else
+                          class="h-3.5 w-3.5 mr-1"
+                        />
+                        重生成环境图
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </template>
+            </template>
 
-          <template v-else-if="assetTab === 'scenes'">
-            <div class="rounded-md border p-3 space-y-3">
-              <div class="flex flex-wrap items-center justify-between gap-2">
+            <template v-else>
+              <div class="rounded-md border p-3 space-y-3">
                 <div class="text-sm font-medium">
-                  环境资产总览
+                  道具资产总览
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 px-2 text-xs"
-                  @click="selectAutoStage('videos')"
-                >
-                  去场景视频步骤
-                </Button>
-              </div>
+                <p class="text-xs text-muted-foreground">
+                  支持人工补充道具并修改描述，系统会按名称自动匹配场景引用。
+                </p>
 
-              <p class="text-xs text-muted-foreground">
-                {{ environmentAssetCards.length }} 个环境，按剧本环境聚合展示，可直接编辑并重生成环境图。
-              </p>
+                <div class="grid grid-cols-1 md:grid-cols-[1.3fr_1.7fr_auto] gap-2">
+                  <Input
+                    v-model="newPropName"
+                    class="h-8 text-xs"
+                    placeholder="道具名称，如：手电筒"
+                  />
+                  <Input
+                    v-model="newPropDescription"
+                    class="h-8 text-xs"
+                    placeholder="可选描述，如：金属外壳，冷白光"
+                  />
+                  <Button
+                    size="sm"
+                    class="h-8 px-3 text-xs"
+                    :disabled="!newPropName.trim()"
+                    @click="addPropAsset"
+                  >
+                    添加道具
+                  </Button>
+                </div>
 
-              <div class="grid grid-cols-1 xl:grid-cols-2 gap-2">
                 <div
-                  v-for="(asset, idx) in environmentAssetCards"
-                  :key="`asset_env_${asset.id}`"
-                  class="rounded-lg border bg-card p-3 space-y-2"
+                  v-if="propAssets.length === 0"
+                  class="rounded-md border border-dashed p-3 text-xs text-muted-foreground"
                 >
-                  <div class="flex items-start justify-between gap-2">
-                    <div class="min-w-0">
-                      <div class="text-[11px] text-muted-foreground">
-                        环境 {{ idx + 1 }}
-                      </div>
-                      <div class="text-sm font-medium truncate">
-                        {{ asset.name }}
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-1">
+                  当前暂无道具资产。你可以手动新增需要保持一致的道具。
+                </div>
+
+                <div
+                  v-else
+                  class="grid grid-cols-1 md:grid-cols-2 gap-2"
+                >
+                  <div
+                    v-for="prop in propAssets"
+                    :key="prop.id"
+                    class="rounded-md border p-2"
+                  >
+                    <div class="flex items-start justify-between gap-2">
                       <Badge
-                        :variant="asset.frameStatus === 'done' ? 'secondary' : asset.frameStatus === 'error' ? 'destructive' : asset.frameStatus === 'generating' ? 'default' : 'outline'"
-                        class="text-[11px]"
+                        variant="outline"
+                        class="text-[10px]"
                       >
-                        {{ asset.frameStatus === 'done' ? '环境图就绪' : asset.frameStatus === 'error' ? '环境图失败' : asset.frameStatus === 'generating' ? '生成中' : '待生成' }}
+                        引用场景 {{ resolvePropUsageCount(prop.id) }}
                       </Badge>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        class="h-6 px-1.5 text-xs text-muted-foreground hover:text-destructive"
+                        @click="removePropAsset(prop.id)"
+                      >
+                        <Trash2 class="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <div class="mt-2 space-y-2">
+                      <Input
+                        v-model="prop.name"
+                        class="h-8 text-xs"
+                        placeholder="道具名称"
+                      />
+                      <Input
+                        v-model="prop.description"
+                        class="h-8 text-xs"
+                        placeholder="道具描述（可选）"
+                      />
                     </div>
                   </div>
-
-                  <p class="text-[11px] text-muted-foreground truncate">
-                    {{ resolveEnvironmentSceneSummary(asset) }}
-                  </p>
-
-                  <div>
-                    <button
-                      type="button"
-                      class="relative aspect-video rounded border bg-muted/30 overflow-hidden flex items-center justify-center"
-                      :class="asset.referenceImage ? 'cursor-zoom-in hover:border-primary/50' : 'cursor-not-allowed opacity-70'"
-                      :disabled="!asset.referenceImage"
-                      @click="openImagePreview(asset.referenceImage, `${asset.name} - 环境图`)"
-                    >
-                      <img
-                        v-if="asset.referenceImage"
-                        :src="toImageSrc(asset.referenceImage)"
-                        :alt="`${asset.name} 环境图`"
-                        class="h-full w-full object-cover"
-                      >
-                      <span
-                        v-else
-                        class="text-[10px] text-muted-foreground"
-                      >暂无环境图</span>
-                    </button>
-                  </div>
-
-                  <div class="flex flex-wrap items-center gap-1.5">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      class="h-7 px-2 text-xs"
-                      :disabled="!resolveEnvironmentRepresentativeScene(asset.id)"
-                      @click="openEnvironmentAssetSceneEditor(asset.id)"
-                    >
-                      <Pencil class="h-3.5 w-3.5 mr-1" />
-                      编辑代表场景
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      class="h-7 px-2 text-xs"
-                      :disabled="asset.frameStatus === 'generating'"
-                      @click="regenerateEnvironmentAsset(asset.id)"
-                    >
-                      <Loader2
-                        v-if="asset.frameStatus === 'generating'"
-                        class="h-3.5 w-3.5 mr-1 animate-spin"
-                      />
-                      <RefreshCw
-                        v-else
-                        class="h-3.5 w-3.5 mr-1"
-                      />
-                      重生成环境图
-                    </Button>
-                  </div>
                 </div>
               </div>
-            </div>
-          </template>
-
-          <template v-else>
-            <div class="rounded-md border p-3 space-y-3">
-              <div class="text-sm font-medium">
-                道具资产总览
-              </div>
-              <p class="text-xs text-muted-foreground">
-                支持人工补充道具并修改描述，系统会按名称自动匹配场景引用。
-              </p>
-
-              <div class="grid grid-cols-1 md:grid-cols-[1.3fr_1.7fr_auto] gap-2">
-                <Input
-                  v-model="newPropName"
-                  class="h-8 text-xs"
-                  placeholder="道具名称，如：手电筒"
-                />
-                <Input
-                  v-model="newPropDescription"
-                  class="h-8 text-xs"
-                  placeholder="可选描述，如：金属外壳，冷白光"
-                />
-                <Button
-                  size="sm"
-                  class="h-8 px-3 text-xs"
-                  :disabled="!newPropName.trim()"
-                  @click="addPropAsset"
-                >
-                  添加道具
-                </Button>
-              </div>
-
-              <div
-                v-if="propAssets.length === 0"
-                class="rounded-md border border-dashed p-3 text-xs text-muted-foreground"
-              >
-                当前暂无道具资产。你可以手动新增需要保持一致的道具。
-              </div>
-
-              <div
-                v-else
-                class="grid grid-cols-1 md:grid-cols-2 gap-2"
-              >
-                <div
-                  v-for="prop in propAssets"
-                  :key="prop.id"
-                  class="rounded-md border p-2"
-                >
-                  <div class="flex items-start justify-between gap-2">
-                    <Badge
-                      variant="outline"
-                      class="text-[10px]"
-                    >
-                      引用场景 {{ resolvePropUsageCount(prop.id) }}
-                    </Badge>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      class="h-6 px-1.5 text-xs text-muted-foreground hover:text-destructive"
-                      @click="removePropAsset(prop.id)"
-                    >
-                      <Trash2 class="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                  <div class="mt-2 space-y-2">
-                    <Input
-                      v-model="prop.name"
-                      class="h-8 text-xs"
-                      placeholder="道具名称"
-                    />
-                    <Input
-                      v-model="prop.description"
-                      class="h-8 text-xs"
-                      placeholder="道具描述（可选）"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </template>
+            </template>
+          </div>
         </template>
       </CardContent>
     </Card>
