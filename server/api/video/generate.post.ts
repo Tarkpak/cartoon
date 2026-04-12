@@ -115,7 +115,7 @@ function normalizeVideoTaskError(error: unknown): string {
   if (!message) return '视频生成失败'
 
   if (/input image may contain real person/i.test(message)) {
-    return '输入图片触发真人隐私拦截。若当前使用 Seedance，请先在前置步骤生成线稿参考图（角色立绘/首尾帧）后重试。'
+    return '输入图片触发真人隐私拦截。请更换参考图（避免高风险真实人脸）或调整提示词后重试。'
   }
 
   if (/sensitive/i.test(message)) {
@@ -1259,7 +1259,6 @@ async function generateVideoWithVolcengine(
     console.log('[VideoGen] Seedance 输入策略:', {
       isSeedanceModel,
       promptPatched: effectivePrompt !== config.prompt,
-      autoLineartPreprocess: false,
       inputMode: hasReferenceImages ? 'reference_images' : (firstFrameUrl && lastFrameUrl ? 'first_last_frame' : imageUrl ? 'single_image' : 'text_only'),
       hasImageUrl: !!imageUrl,
       hasFirstFrame: !!firstFrameUrl,

@@ -87,6 +87,7 @@ const {
   characters,
   parsing,
   saving,
+  saveError,
   saveProject,
   loadProject,
   parseScript,
@@ -1877,6 +1878,12 @@ onMounted(async () => {
           class="text-xs text-destructive"
         >
           {{ autoRunError }}
+        </p>
+        <p
+          v-if="saveError"
+          class="text-xs text-destructive"
+        >
+          {{ saveError }}
         </p>
       </CardContent>
     </Card>

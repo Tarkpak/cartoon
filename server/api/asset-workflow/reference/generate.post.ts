@@ -6,6 +6,7 @@ import {
   type GenerateImageResult
 } from '../../../utils/model-provider'
 import { imageLimiter } from '../../../utils/concurrency'
+import { persistImageToPublic } from '../../../utils/image-storage'
 import { getWorkflowModels } from '../../models/workflow.get'
 import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
@@ -127,32 +128,25 @@ function resolveImageSizeByAspectRatio(aspectRatio: z.infer<typeof AspectRatioSc
 }
 
 async function resolveGeneratedImage(result: GenerateImageResult): Promise<{ imageData: string, mimeType: string }> {
-  if (result.imageData) {
-    return {
-      imageData: result.imageData,
-      mimeType: result.mimeType || 'image/png'
-    }
-  }
-
-  if (!result.imageUrl) {
+  const source = result.imageData || result.imageUrl || ''
+  if (!source) {
     throw new Error('未返回可用图片数据')
   }
 
   try {
-    const response = await fetch(result.imageUrl)
-    if (!response.ok) {
-      throw new Error(`下载失败: ${response.status}`)
-    }
-
-    const buffer = await response.arrayBuffer()
+    const localImagePath = await persistImageToPublic({
+      source,
+      prefix: 'scene_ref'
+    })
     return {
-      imageData: Buffer.from(buffer).toString('base64'),
-      mimeType: 'image/png'
-    }
-  } catch {
-    return {
-      imageData: result.imageUrl,
+      imageData: localImagePath,
       mimeType: 'image/url'
+    }
+  } catch (persistError) {
+    console.error('[AssetWorkflow/Reference] 图片本地持久化失败，降级为原始返回:', persistError)
+    return {
+      imageData: source,
+      mimeType: result.imageUrl ? 'image/url' : (result.mimeType || 'image/png')
     }
   }
 }
