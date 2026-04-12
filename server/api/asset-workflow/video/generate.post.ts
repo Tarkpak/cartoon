@@ -45,13 +45,17 @@ const RequestSchema = z.object({
   aspectRatio: AspectRatioSchema.optional().default('16:9'),
   references: z.object({
     environmentImage: z.string().optional(),
-    characterImage: z.string().optional()
+    characterImage: z.string().optional(),
+    characterImages: z.array(z.string()).optional()
   })
 }).superRefine((payload, ctx) => {
   const hasEnvironment = typeof payload.references.environmentImage === 'string'
     && payload.references.environmentImage.trim().length > 0
-  const hasCharacter = typeof payload.references.characterImage === 'string'
+  const hasLegacyCharacter = typeof payload.references.characterImage === 'string'
     && payload.references.characterImage.trim().length > 0
+  const hasCharacterArray = Array.isArray(payload.references.characterImages)
+    && payload.references.characterImages.some(item => typeof item === 'string' && item.trim().length > 0)
+  const hasCharacter = hasLegacyCharacter || hasCharacterArray
 
   if (!hasEnvironment && !hasCharacter) {
     ctx.addIssue({
@@ -72,6 +76,34 @@ function normalizeImageInput(value?: string | null): string | undefined {
   if (!value) return undefined
   const trimmed = value.trim()
   return trimmed || undefined
+}
+
+function normalizeImageInputList(values?: string[] | null): string[] {
+  if (!Array.isArray(values)) return []
+
+  const unique = new Set<string>()
+  for (const value of values) {
+    const normalized = normalizeImageInput(value)
+    if (!normalized) continue
+    unique.add(normalized)
+  }
+
+  return Array.from(unique)
+}
+
+function resolveCharacterReferenceImages(options: {
+  legacyCharacterImage?: string
+  characterImages?: string[]
+}): string[] {
+  const normalizedArray = normalizeImageInputList(options.characterImages)
+  const unique = new Set<string>(normalizedArray)
+
+  const legacy = normalizeImageInput(options.legacyCharacterImage)
+  if (legacy) {
+    unique.add(legacy)
+  }
+
+  return Array.from(unique)
 }
 
 function detectImageMimeType(base64Payload: string): string {
@@ -132,21 +164,37 @@ function hasSceneCharacters(scene: z.infer<typeof SceneSchema>): boolean {
 }
 
 function buildVideoReferenceImages(options: {
-  characterImage?: string
+  characterImages?: string[]
   environmentImage?: string
+  maxReferenceImages?: number
 }): string[] {
-  const { characterImage, environmentImage } = options
-  const unique = new Set<string>()
+  const { characterImages = [], environmentImage } = options
+  const maxReferenceImages = Math.max(1, Math.min(9, Math.round(options.maxReferenceImages ?? 3)))
+  const normalizedCharacters: string[] = []
+  const seenReference = new Set<string>()
 
-  // 角色放前，优先约束身份
-  for (const image of [characterImage, environmentImage]) {
-    if (!image) continue
+  for (const image of characterImages) {
     const normalized = toImageUrlInput(image)
-    if (!normalized) continue
-    unique.add(normalized)
+    if (!normalized || seenReference.has(normalized)) continue
+    seenReference.add(normalized)
+    normalizedCharacters.push(normalized)
   }
 
-  return Array.from(unique).slice(0, 3)
+  const normalizedEnvironment = toImageUrlInput(environmentImage)
+
+  // 多参考图模式优先将环境图放在第一位，后续补角色图
+  const ordered: string[] = []
+  if (normalizedEnvironment && !seenReference.has(normalizedEnvironment)) {
+    ordered.push(normalizedEnvironment)
+    seenReference.add(normalizedEnvironment)
+  }
+
+  for (const characterImage of normalizedCharacters) {
+    if (ordered.length >= maxReferenceImages) break
+    ordered.push(characterImage)
+  }
+
+  return ordered.slice(0, maxReferenceImages)
 }
 
 function buildReferenceGuide(options: {
@@ -306,19 +354,24 @@ export default defineEventHandler(async (event) => {
   const { scene, style, aspectRatio, references } = parseResult.data
 
   const environmentImage = normalizeImageInput(references.environmentImage)
-  const characterImage = normalizeImageInput(references.characterImage)
-  const hasCharactersInScene = hasSceneCharacters(scene)
-  const hasCharacterRef = !!characterImage
-  const hasEnvironmentRef = !!environmentImage
-  const candidateReferenceImages = buildVideoReferenceImages({
-    characterImage,
-    environmentImage
+  const characterImages = resolveCharacterReferenceImages({
+    legacyCharacterImage: references.characterImage,
+    characterImages: references.characterImages
   })
-  const wantsMultiReference = hasCharactersInScene && candidateReferenceImages.length > 1
+  const primaryCharacterImage = characterImages[0]
+  const hasCharactersInScene = hasSceneCharacters(scene)
+  const hasCharacterRef = characterImages.length > 0
+  const hasEnvironmentRef = !!environmentImage
+  const candidateReferenceImagesForDecision = buildVideoReferenceImages({
+    characterImages,
+    environmentImage,
+    maxReferenceImages: 9
+  })
+  const wantsMultiReference = hasCharactersInScene && candidateReferenceImagesForDecision.length > 1
 
   const workflowModels = await getWorkflowModels()
   const preferredModelId = workflowModels.video_generation
-  const primaryReferenceCandidate = environmentImage || characterImage
+  const primaryReferenceCandidate = environmentImage || primaryCharacterImage
 
   const modelDecision = resolveCompatibleModel(preferredModelId, {
     needImageInput: !!primaryReferenceCandidate,
@@ -326,7 +379,22 @@ export default defineEventHandler(async (event) => {
   })
 
   const selectedModel = findVideoModel(modelDecision.modelId)
-  const supportsMultiReferenceImages = !!selectedModel?.supportReferenceImages
+  const referenceLimit = Math.max(
+    1,
+    Math.min(
+      9,
+      Math.round(
+        selectedModel?.maxReferenceImages
+          ?? (selectedModel?.supportReferenceImages ? 3 : 1)
+      )
+    )
+  )
+  const candidateReferenceImages = buildVideoReferenceImages({
+    characterImages,
+    environmentImage,
+    maxReferenceImages: referenceLimit
+  })
+  const supportsMultiReferenceImages = !!selectedModel?.supportReferenceImages && referenceLimit > 1
   const multiReferenceImages = supportsMultiReferenceImages && wantsMultiReference
     ? candidateReferenceImages
     : []
@@ -334,9 +402,9 @@ export default defineEventHandler(async (event) => {
   // Gemini 多参考图时优先环境图作为单图输入，保留空间构图；其它模型仍优先角色图锁身份
   const primaryReference = hasCharactersInScene
     ? (supportsMultiReferenceImages
-        ? (environmentImage || characterImage)
-        : (characterImage || environmentImage))
-    : (environmentImage || characterImage)
+        ? (environmentImage || primaryCharacterImage)
+        : (primaryCharacterImage || environmentImage))
+    : (environmentImage || primaryCharacterImage)
 
   let inputMode: InputMode = 'text_only'
   if (selectedModel?.supportImageToVideo && primaryReference) {
@@ -438,12 +506,14 @@ export default defineEventHandler(async (event) => {
         actualModelId: modelDecision.modelId,
         modelDecision: modelDecision.reason,
         supportsMultiReferenceImages,
+        referenceImageLimit: referenceLimit,
         referenceImagesCount: multiReferenceImages.length,
+        characterReferenceCount: characterImages.length,
         primaryReferenceType: hasCharactersInScene
           ? (supportsMultiReferenceImages
-              ? (environmentImage ? 'environment' : characterImage ? 'character' : 'none')
-              : (characterImage ? 'character' : environmentImage ? 'environment' : 'none'))
-          : (environmentImage ? 'environment' : characterImage ? 'character' : 'none'),
+              ? (environmentImage ? 'environment' : primaryCharacterImage ? 'character' : 'none')
+              : (primaryCharacterImage ? 'character' : environmentImage ? 'environment' : 'none'))
+          : (environmentImage ? 'environment' : primaryCharacterImage ? 'character' : 'none'),
         hasCharacterRef,
         hasEnvironmentRef
       }

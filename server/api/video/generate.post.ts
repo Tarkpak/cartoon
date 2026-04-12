@@ -268,12 +268,14 @@ async function resolveGeminiImageInput(imageUrl?: string): Promise<{ imageBytes:
 }
 
 async function resolveGeminiReferenceImages(
-  referenceImages?: string[]
+  referenceImages?: string[],
+  maxImages: number = 3
 ): Promise<Array<{ imageBytes: string, mimeType: string }>> {
   if (!Array.isArray(referenceImages) || referenceImages.length === 0) {
     return []
   }
 
+  const limit = Math.max(1, Math.min(9, Math.round(maxImages || 3)))
   const normalized: Array<{ imageBytes: string, mimeType: string }> = []
   const seen = new Set<string>()
 
@@ -286,7 +288,7 @@ async function resolveGeminiReferenceImages(
     seen.add(dedupeKey)
 
     normalized.push(parsed)
-    if (normalized.length >= 3) break
+    if (normalized.length >= limit) break
   }
 
   return normalized
@@ -754,8 +756,25 @@ async function generateVideoWithGemini(
 
     // 根据输入决定生成方式：首尾帧 > 单图参考/多参考图 > 纯文本
     const hasFrames = !!(config.firstFrame && config.lastFrame)
+    // 优先尊重前端传入的 gemini 模型ID，否则根据快/高质量选择默认模型
+    const selectedModel = resolveGeminiModelId(config)
+    const selectedVideoModel = findVideoModel(selectedModel)
+    const modelSupportsReferenceImages = !!selectedVideoModel?.supportReferenceImages
+    const modelReferenceImageLimit = Math.max(
+      1,
+      Math.min(
+        3,
+        Math.round(
+          selectedVideoModel?.maxReferenceImages
+            ?? 3
+        )
+      )
+    )
+
     const resolvedSingleReferenceImage = hasFrames ? null : await resolveGeminiImageInput(config.imageUrl)
-    const referenceImages = hasFrames ? [] : await resolveGeminiReferenceImages(config.referenceImages)
+    const referenceImages = hasFrames
+      ? []
+      : await resolveGeminiReferenceImages(config.referenceImages, modelReferenceImageLimit)
     const hasReferenceImages = referenceImages.length > 0
     const fallbackSingleReferenceImage = resolvedSingleReferenceImage || referenceImages[0] || null
     const hasSingleImage = !hasReferenceImages && !!resolvedSingleReferenceImage
@@ -766,10 +785,6 @@ async function generateVideoWithGemini(
       ? 8
       : clampGeminiDuration(config.duration)
 
-    // 优先尊重前端传入的 gemini 模型ID，否则根据快/高质量选择默认模型
-    const selectedModel = resolveGeminiModelId(config)
-    const selectedVideoModel = findVideoModel(selectedModel)
-    const modelSupportsReferenceImages = !!selectedVideoModel?.supportReferenceImages
     const initialModel = hasReferenceImages && !modelSupportsReferenceImages
       ? VideoModels.VEO_3_1
       : selectedModel
@@ -787,6 +802,7 @@ async function generateVideoWithGemini(
       hasLastFrame: !!config.lastFrame,
       hasImageUrl: !!config.imageUrl,
       hasReferenceImages,
+      referenceImageLimit: modelReferenceImageLimit,
       referenceImagesCount: referenceImages.length,
       hasSingleImage,
       hasFallbackSingleImage: !!fallbackSingleReferenceImage,
@@ -1183,6 +1199,17 @@ async function generateVideoWithVolcengine(
       modelId = volcengine.VolcengineVideoModels.SEEDANCE_2_0_FAST
     }
     const resolvedModelId = modelId
+    const selectedVideoModel = findVideoModel(resolvedModelId)
+    const referenceImageLimit = Math.max(
+      1,
+      Math.min(
+        9,
+        Math.round(
+          selectedVideoModel?.maxReferenceImages
+            ?? (selectedVideoModel?.supportReferenceImages ? 9 : 1)
+        )
+      )
+    )
 
     // 转换时长
     // Seedance 2.0/2.0 fast: 4-15 秒；历史模型: 2-12 秒
@@ -1194,20 +1221,37 @@ async function generateVideoWithVolcengine(
     if (duration < minDuration) duration = minDuration
     else if (duration > maxDuration) duration = maxDuration
 
+    const mergedReferenceImages = Array.from(new Set(
+      [
+        ...(config.imageUrl ? [config.imageUrl] : []),
+        ...(Array.isArray(config.referenceImages) ? config.referenceImages : [])
+      ]
+        .map(item => (typeof item === 'string' ? item.trim() : ''))
+        .filter(Boolean)
+    ))
+    const canUseReferenceImages = !!selectedVideoModel?.supportReferenceImages && mergedReferenceImages.length > 0
+    const referenceImages = canUseReferenceImages
+      ? mergedReferenceImages.slice(0, referenceImageLimit)
+      : []
+    const hasReferenceImages = referenceImages.length > 0
+
     console.log('[VideoGen] Volcengine API 请求参数:', {
       model: resolvedModelId,
       promptLength: config.prompt.length,
       hasImageUrl: !!config.imageUrl,
       hasFirstFrame: !!config.firstFrame,
       hasLastFrame: !!config.lastFrame,
+      hasReferenceImages,
+      referenceImagesCount: referenceImages.length,
+      referenceImageLimit,
       duration
     })
 
     await updateTaskProgress(taskId, 20)
 
-    const imageUrl = config.imageUrl
-    const firstFrameUrl = config.firstFrame
-    const lastFrameUrl = config.lastFrame
+    const imageUrl = hasReferenceImages ? undefined : config.imageUrl
+    const firstFrameUrl = hasReferenceImages ? undefined : config.firstFrame
+    const lastFrameUrl = hasReferenceImages ? undefined : config.lastFrame
     const effectivePrompt = isSeedanceModel
       ? withVolcengineRealismPrompt(config.prompt)
       : config.prompt
@@ -1216,9 +1260,12 @@ async function generateVideoWithVolcengine(
       isSeedanceModel,
       promptPatched: effectivePrompt !== config.prompt,
       autoLineartPreprocess: false,
+      inputMode: hasReferenceImages ? 'reference_images' : (firstFrameUrl && lastFrameUrl ? 'first_last_frame' : imageUrl ? 'single_image' : 'text_only'),
       hasImageUrl: !!imageUrl,
       hasFirstFrame: !!firstFrameUrl,
-      hasLastFrame: !!lastFrameUrl
+      hasLastFrame: !!lastFrameUrl,
+      hasReferenceImages,
+      referenceImagesCount: referenceImages.length
     })
 
     const result = await volcengine._volcengineGenerateVideo({
@@ -1227,6 +1274,8 @@ async function generateVideoWithVolcengine(
       imageUrl,
       firstFrameUrl,
       lastFrameUrl,
+      referenceImages: hasReferenceImages ? referenceImages : undefined,
+      maxReferenceImages: referenceImageLimit,
       duration,
       resolution: config.resolution
     })

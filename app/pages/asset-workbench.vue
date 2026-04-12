@@ -582,7 +582,7 @@ function collectSceneCharacterReferenceImages(scene: SceneData): string[] {
     }
   }
 
-  return images.slice(0, 2)
+  return images
 }
 
 function findCharacterByAssetRefId(rawCharacterId: string): CharacterData | undefined {
@@ -606,15 +606,28 @@ function resolveConfiguredCharacterReferences(scene: SceneData): CharacterData[]
     .filter((character): character is CharacterData => !!character)
 }
 
-function resolveSceneVideoCharacterReference(scene: SceneData): string | undefined {
-  const configuredRefs = resolveConfiguredCharacterReferences(scene)
-  for (const character of configuredRefs) {
-    const image = character.baseImage?.trim()
-    if (image) return image
+function resolveSceneVideoCharacterReferences(scene: SceneData): string[] {
+  const images: string[] = []
+  const seen = new Set<string>()
+
+  const pushImage = (raw?: string) => {
+    const image = raw?.trim()
+    if (!image || seen.has(image)) return
+    seen.add(image)
+    images.push(image)
   }
 
-  const refs = collectSceneCharacterReferenceImages(scene)
-  return refs[0]
+  const configuredRefs = resolveConfiguredCharacterReferences(scene)
+  for (const character of configuredRefs) {
+    pushImage(character.baseImage)
+  }
+
+  const fallbackRefs = collectSceneCharacterReferenceImages(scene)
+  for (const image of fallbackRefs) {
+    pushImage(image)
+  }
+
+  return images
 }
 
 async function ensureSceneReferencedAssetsReady(scene: SceneData): Promise<void> {
@@ -1463,6 +1476,7 @@ async function generateSingleSceneVideo(sceneId: string) {
   if (!environmentImage) {
     throw new Error('场景环境图未就绪，无法生成视频')
   }
+  const characterImages = resolveSceneVideoCharacterReferences(scene)
 
   scene.videoStatus = 'generating'
   scene.videoError = undefined
@@ -1480,7 +1494,8 @@ async function generateSingleSceneVideo(sceneId: string) {
         aspectRatio: projectAspectRatio.value,
         references: {
           environmentImage,
-          characterImage: resolveSceneVideoCharacterReference(scene)
+          characterImage: characterImages[0],
+          characterImages
         }
       }
     })
