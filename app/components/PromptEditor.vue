@@ -27,6 +27,7 @@ import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { PromptTemplate, PromptVersion, PromptVariable } from '#shared/types/prompt-template'
+import type { ProjectWorkflowType } from '#shared/types/project'
 
 // 变量高亮插件 - 使用 Decoration 实时高亮
 function createVariableHighlightPlugin(getValidVars: () => Set<string>) {
@@ -92,6 +93,7 @@ const createVariableHighlight = (getValidVars: () => Set<string>) => {
 
 const props = defineProps<{
   template: PromptTemplate
+  workflow?: ProjectWorkflowType
 }>()
 
 const emit = defineEmits<{
@@ -110,6 +112,7 @@ const previewMode = ref(false)
 const previewVariables = ref<Record<string, string>>({})
 const isFullscreen = ref(false)
 const showDiff = ref(false)
+const currentWorkflow = computed<ProjectWorkflowType>(() => props.workflow || 'classic')
 
 // 语言配置状态
 const langConfig = ref<Record<string, 'zh' | 'en'>>({})
@@ -315,6 +318,7 @@ async function save() {
   try {
     const response = await $fetch(`/api/prompts/${props.template.id}`, {
       method: 'PUT',
+      query: { workflow: currentWorkflow.value },
       body: {
         content: localContent.value,
         note: `手动编辑 - ${new Date().toLocaleString('zh-CN')}`
@@ -338,7 +342,8 @@ async function reset() {
   resetting.value = true
   try {
     const response = await $fetch(`/api/prompts/${props.template.id}/reset`, {
-      method: 'POST'
+      method: 'POST',
+      query: { workflow: currentWorkflow.value }
     })
     if ((response as any).success) {
       emit('update', (response as any).data)
@@ -354,7 +359,9 @@ async function reset() {
 async function loadVersions() {
   loadingVersions.value = true
   try {
-    const response = await $fetch(`/api/prompts/${props.template.id}/versions`)
+    const response = await $fetch(`/api/prompts/${props.template.id}/versions`, {
+      query: { workflow: currentWorkflow.value }
+    })
     if ((response as any).success) {
       versions.value = (response as any).data.versions
     }
@@ -377,6 +384,7 @@ async function restoreVersion(versionId: string) {
   try {
     const response = await $fetch(`/api/prompts/${props.template.id}/restore`, {
       method: 'POST',
+      query: { workflow: currentWorkflow.value },
       body: { versionId }
     })
     if ((response as any).success) {
@@ -412,7 +420,9 @@ function formatDate(dateStr: string): string {
 // 加载语言配置
 async function loadLangConfig() {
   try {
-    const response = await $fetch<{ success: boolean; data: Record<string, 'zh' | 'en'> }>('/api/prompts/lang-config')
+    const response = await $fetch<{ success: boolean; data: Record<string, 'zh' | 'en'> }>('/api/prompts/lang-config', {
+      query: { workflow: currentWorkflow.value }
+    })
     if (response.success && response.data) {
       langConfig.value = response.data
     }
@@ -427,6 +437,7 @@ async function saveLangConfig() {
   try {
     await $fetch('/api/prompts/lang-config', {
       method: 'PUT',
+      query: { workflow: currentWorkflow.value },
       body: { [props.template.id]: currentTemplateLang.value }
     })
   } catch (e) {

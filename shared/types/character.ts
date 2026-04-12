@@ -103,7 +103,8 @@ export type CharacterAsset = z.infer<typeof CharacterAssetSchema>
 export const GenerateCharacterRequestSchema = z.object({
   character: CharacterSchema.describe('角色信息'),
   style: z.string().describe('画风 (必填，由项目配置决定)'),
-  generateExpressions: z.boolean().optional().default(true).describe('是否生成表情变体')
+  generateExpressions: z.boolean().optional().default(true).describe('是否生成表情变体'),
+  workflowType: z.enum(['classic', 'asset_consistency']).optional().default('classic').describe('工作流类型')
 })
 export type GenerateCharacterRequest = z.infer<typeof GenerateCharacterRequestSchema>
 

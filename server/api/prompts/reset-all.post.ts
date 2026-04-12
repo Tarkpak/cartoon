@@ -4,10 +4,12 @@
  */
 
 import { resetAllPromptTemplates, getAllPromptTemplates } from '../../utils/prompt-template'
+import { resolvePromptWorkflowFromEvent } from '../../utils/prompt-workflow'
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
   try {
-    const success = await resetAllPromptTemplates()
+    const workflow = resolvePromptWorkflowFromEvent(event)
+    const success = await resetAllPromptTemplates(workflow)
 
     if (!success) {
       throw createError({
@@ -17,11 +19,12 @@ export default defineEventHandler(async () => {
     }
 
     // 返回重置后的模板
-    const templates = await getAllPromptTemplates()
+    const templates = await getAllPromptTemplates(workflow)
 
     return {
       success: true,
       data: templates,
+      workflow,
       message: '所有模板已重置为默认值'
     }
   } catch (error) {

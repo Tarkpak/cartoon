@@ -138,6 +138,7 @@ type WorkbenchStep = 'outline' | 'characters' | 'script'
 type LegacyWorkbenchStep = WorkbenchStep | 'video'
 
 type VideoInputMode = 'first_last' | 'first_only' | 'text_only'
+type WorkflowType = 'classic' | 'asset_consistency'
 
 interface VideoInputDecision {
   mode: VideoInputMode
@@ -456,8 +457,11 @@ export function useWorkbench() {
   }
 
   // ========== 剧本解析 ==========
-  async function parseScript() {
-    if (!novelText.value.trim()) return
+  async function parseScript(options?: {
+    workflowType?: WorkflowType
+    style?: string
+  }): Promise<boolean> {
+    if (!novelText.value.trim()) return false
 
     parsing.value = true
     try {
@@ -479,7 +483,11 @@ export function useWorkbench() {
         }
       }>('/api/script/parse', {
         method: 'POST',
-        body: { text: novelText.value }
+        body: {
+          text: novelText.value,
+          workflowType: options?.workflowType || 'classic',
+          style: options?.style || currentStylePrompt.value || undefined
+        }
       })
 
       if (response.success && response.data?.scenes) {
@@ -565,12 +573,16 @@ export function useWorkbench() {
         console.log('[parseScript] 最终角色列表:', characters.value)
 
         await saveProject()
+        return true
       }
     } catch (e) {
       console.error('解析失败:', e)
+      return false
     } finally {
       parsing.value = false
     }
+
+    return false
   }
 
   // ========== 从大纲生成场景 (新增) ==========
@@ -667,7 +679,12 @@ export function useWorkbench() {
   }
 
   // ========== 角色生成 ==========
-  async function generateCharacter(char: CharacterData) {
+  async function generateCharacter(
+    char: CharacterData,
+    options?: {
+      workflowType?: WorkflowType
+    }
+  ) {
     char.generating = true
     try {
       const response = await $fetch<{
@@ -687,7 +704,8 @@ export function useWorkbench() {
             traits: toOptionalStringArray(char.traits)
           },
           style: currentStylePrompt.value,
-          generateExpressions: false
+          generateExpressions: false,
+          workflowType: options?.workflowType || 'classic'
         }
       })
       if (response.success) {
@@ -703,7 +721,12 @@ export function useWorkbench() {
   }
 
   // 批量生成所有角色立绘
-  async function batchGenerateCharacters(onProgress?: (current: number, total: number, name: string) => void) {
+  async function batchGenerateCharacters(
+    onProgress?: (current: number, total: number, name: string) => void,
+    options?: {
+      workflowType?: WorkflowType
+    }
+  ) {
     const charsToGenerate = characters.value.filter(c => !c.baseImage)
     const total = charsToGenerate.length
 
@@ -722,7 +745,7 @@ export function useWorkbench() {
       onProgress?.(i + 1, total, char.name)
 
       try {
-        await generateCharacter(char)
+        await generateCharacter(char, options)
         generated++
       } catch (e) {
         console.error(`角色 ${char.name} 生成失败:`, e)
@@ -1261,6 +1284,7 @@ export function useWorkbench() {
             setting: scene.setting
           },
           style: currentStylePrompt.value,
+          aspectRatio: projectAspectRatio.value,
           characterAssets,
           previousSceneLastFrame: prevLastFrame,
           fusionMode: prevLastFrame ? 'continuity' : 'reference',
@@ -1807,10 +1831,22 @@ export function useWorkbench() {
   }
 
   // ========== 视频生成 ==========
-  async function generateVideo(scene: SceneData) {
+  async function generateVideo(
+    scene: SceneData,
+    options?: { ensureFramePreview?: boolean }
+  ) {
     const sceneIndex = scenes.value.findIndex(s => s.id === scene.id)
     const modeDecision = resolveVideoInputMode(scene, sceneIndex)
     const videoInputMode = modeDecision.mode
+    const ensureFramePreview = options?.ensureFramePreview ?? true
+
+    if (ensureFramePreview && (!scene.firstFrame || !scene.lastFrame)) {
+      const previousFrameStatus = scene.frameStatus
+      await generateFrames(scene, undefined, sceneIndex)
+      if (scene.frameStatus !== 'done') {
+        console.warn(`[VideoGen] 场景 ${scene.id} 首尾帧补齐失败，继续按模式生成视频（mode=${videoInputMode}, prevStatus=${previousFrameStatus}）`)
+      }
+    }
 
     if (videoInputMode === 'first_last' && (!scene.firstFrame || !scene.lastFrame)) {
       await generateFrames(scene, undefined, sceneIndex)
@@ -2145,7 +2181,7 @@ export function useWorkbench() {
         if (scene && scene.videoStatus !== 'done' && scene.videoStatus !== 'generating') {
           const modeDecision = resolveVideoInputMode(scene, i)
           console.log(`[batchGenerateVideos] 场景 ${scene.id} 输入模式: ${modeDecision.mode} (${modeDecision.reason})`)
-          await generateVideo(scene)
+          await generateVideo(scene, { ensureFramePreview: false })
           batchVideoStatus.value.current++
         }
       }
@@ -2310,7 +2346,7 @@ export function useWorkbench() {
       for (let i = 0; i < scenes.value.length; i++) {
         const scene = scenes.value[i]
         if (scene && scene.videoStatus !== 'done') {
-          await generateVideo(scene)
+          await generateVideo(scene, { ensureFramePreview: false })
         }
         pipelineStatus.value.progress = 50 + Math.round((i + 1) / scenes.value.length * 40)
       }

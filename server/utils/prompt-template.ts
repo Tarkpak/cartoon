@@ -1,6 +1,6 @@
 /**
  * 提示词模板工具函数
- * 支持从数据库读取/保存提示词模板，支持版本历史
+ * 支持按工作流读取/保存提示词模板，并维护版本历史
  */
 
 import { db, systemConfig } from '../db'
@@ -11,87 +11,152 @@ import type {
   PromptTemplateId,
   BilingualContent
 } from '../../shared/types/prompt-template'
+import {
+  applyPromptTemplateWorkflowDisplay,
+  isPromptTemplateVisibleForWorkflow
+} from '../../shared/types/prompt-template'
+import {
+  normalizeProjectWorkflowType,
+  type ProjectWorkflowType
+} from '../../shared/types/project'
 import { getDefaultPromptTemplates } from './prompt-defaults'
 
-// 数据库 key
-const PROMPT_TEMPLATES_KEY = 'prompt_templates'
-const PROMPT_VERSIONS_KEY = 'prompt_versions'
-const PROMPT_LANG_CONFIG_KEY = 'prompt_lang_config'
+// 历史全局 key（兼容旧版本）
+const LEGACY_PROMPT_TEMPLATES_KEY = 'prompt_templates'
+const LEGACY_PROMPT_VERSIONS_KEY = 'prompt_versions'
+const LEGACY_PROMPT_LANG_CONFIG_KEY = 'prompt_lang_config'
+
+// 新版按工作流分离 key
+const PROMPT_TEMPLATES_KEY_PREFIX = 'prompt_templates'
+const PROMPT_VERSIONS_KEY_PREFIX = 'prompt_versions'
+const PROMPT_LANG_CONFIG_KEY_PREFIX = 'prompt_lang_config'
+
+type PromptWorkflowInput = ProjectWorkflowType | string | null | undefined
+
+interface PromptStorageKeys {
+  workflow: ProjectWorkflowType
+  templatesKey: string
+  versionsKey: string
+  langConfigKey: string
+  legacyTemplatesKey?: string
+  legacyVersionsKey?: string
+  legacyLangConfigKey?: string
+}
 
 /**
  * 提示词语言配置类型
  */
 export type PromptLangConfig = Record<PromptTemplateId, 'zh' | 'en'>
 
-/**
- * 获取提示词语言配置
- */
-export async function getPromptLangConfig(): Promise<PromptLangConfig> {
-  try {
-    const result = await db.select()
-      .from(systemConfig)
-      .where(eq(systemConfig.key, PROMPT_LANG_CONFIG_KEY))
-      .limit(1)
+function resolvePromptStorageKeys(workflow?: PromptWorkflowInput): PromptStorageKeys {
+  const normalized = normalizeProjectWorkflowType(workflow)
 
-    if (result.length > 0 && result[0]?.value) {
-      return JSON.parse(result[0].value) as PromptLangConfig
-    }
-
-    // 返回默认配置（全部使用中文）
-    return getDefaultLangConfig()
-  } catch (error) {
-    console.error('[PromptTemplate] 获取语言配置失败:', error)
-    return getDefaultLangConfig()
+  return {
+    workflow: normalized,
+    templatesKey: `${PROMPT_TEMPLATES_KEY_PREFIX}_${normalized}`,
+    versionsKey: `${PROMPT_VERSIONS_KEY_PREFIX}_${normalized}`,
+    langConfigKey: `${PROMPT_LANG_CONFIG_KEY_PREFIX}_${normalized}`,
+    legacyTemplatesKey: normalized === 'classic' ? LEGACY_PROMPT_TEMPLATES_KEY : undefined,
+    legacyVersionsKey: normalized === 'classic' ? LEGACY_PROMPT_VERSIONS_KEY : undefined,
+    legacyLangConfigKey: normalized === 'classic' ? LEGACY_PROMPT_LANG_CONFIG_KEY : undefined
   }
 }
 
 /**
  * 获取默认语言配置
- * 文本生成类默认中文，图片/视频生成类默认英文（效果更好）
+ * classic: 文本生成默认中文，部分图片/视频模块默认英文
+ * asset_consistency: 为了降低理解成本，统一中文优先
  */
-function getDefaultLangConfig(): PromptLangConfig {
-  return {
+function getDefaultLangConfig(workflow: PromptWorkflowInput = 'classic'): PromptLangConfig {
+  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+
+  const classicDefaults: PromptLangConfig = {
     outline_generation: 'zh',
     script_parsing: 'zh',
     scene_generation: 'zh',
     storyboard_generation: 'zh',
     character_extraction: 'zh',
     character_from_outline: 'zh',
-    character_sheet: 'en',      // 图片生成用英文
+    character_sheet: 'en',
     scene_visual: 'zh',
-    first_frame_generation: 'en',  // 图片生成用英文
-    last_frame_generation: 'en',   // 图片生成用英文
-    transition: 'en',           // 视频生成用英文
+    first_frame_generation: 'en',
+    last_frame_generation: 'en',
+    scene_video_generation: 'en',
+    transition: 'en',
     bgm_generation: 'zh'
-  } as PromptLangConfig
+  }
+
+  if (normalizedWorkflow === 'asset_consistency') {
+    return {
+      ...classicDefaults,
+      character_sheet: 'zh',
+      first_frame_generation: 'zh',
+      last_frame_generation: 'zh',
+      scene_video_generation: 'zh',
+      transition: 'zh'
+    } as PromptLangConfig
+  }
+
+  return classicDefaults
+}
+
+function mergeWithDefaultTemplates(
+  templates: PromptTemplate[],
+  workflow: ProjectWorkflowType
+): PromptTemplate[] {
+  const defaults = getDefaultPromptTemplates(workflow)
+  const templateMap = new Map(templates.map(t => [t.id, t]))
+
+  for (const def of defaults) {
+    if (!templateMap.has(def.id)) {
+      templateMap.set(def.id, def)
+    }
+  }
+
+  return Array.from(templateMap.values())
+    .filter(template => isPromptTemplateVisibleForWorkflow(template.id as PromptTemplateId, workflow))
+    .map(template => applyPromptTemplateWorkflowDisplay(template, workflow))
+}
+
+/**
+ * 获取提示词语言配置
+ */
+export async function getPromptLangConfig(
+  workflow: PromptWorkflowInput = 'classic'
+): Promise<PromptLangConfig> {
+  try {
+    const keys = resolvePromptStorageKeys(workflow)
+    const defaultConfig = getDefaultLangConfig(workflow)
+    const value = await readSystemConfigValue(keys.langConfigKey, keys.legacyLangConfigKey)
+
+    if (value) {
+      const saved = JSON.parse(value) as Partial<PromptLangConfig>
+      return {
+        ...defaultConfig,
+        ...saved
+      } as PromptLangConfig
+    }
+
+    return defaultConfig
+  } catch (error) {
+    console.error('[PromptTemplate] 获取语言配置失败:', error)
+    return getDefaultLangConfig(workflow)
+  }
 }
 
 /**
  * 更新提示词语言配置
  */
-export async function updatePromptLangConfig(config: Partial<PromptLangConfig>): Promise<PromptLangConfig> {
+export async function updatePromptLangConfig(
+  config: Partial<PromptLangConfig>,
+  workflow: PromptWorkflowInput = 'classic'
+): Promise<PromptLangConfig> {
   try {
-    const current = await getPromptLangConfig()
+    const keys = resolvePromptStorageKeys(workflow)
+    const current = await getPromptLangConfig(workflow)
     const updated = { ...current, ...config }
-    const now = new Date().toISOString()
-    const value = JSON.stringify(updated)
 
-    const existing = await db.select()
-      .from(systemConfig)
-      .where(eq(systemConfig.key, PROMPT_LANG_CONFIG_KEY))
-      .limit(1)
-
-    if (existing.length > 0) {
-      await db.update(systemConfig)
-        .set({ value, updatedAt: now })
-        .where(eq(systemConfig.key, PROMPT_LANG_CONFIG_KEY))
-    } else {
-      await db.insert(systemConfig).values({
-        key: PROMPT_LANG_CONFIG_KEY,
-        value,
-        updatedAt: now
-      })
-    }
+    await upsertSystemConfigValue(keys.langConfigKey, JSON.stringify(updated))
 
     return updated
   } catch (error) {
@@ -103,41 +168,35 @@ export async function updatePromptLangConfig(config: Partial<PromptLangConfig>):
 /**
  * 获取单个模板的语言配置
  */
-export async function getPromptLang(id: PromptTemplateId): Promise<'zh' | 'en'> {
-  const config = await getPromptLangConfig()
+export async function getPromptLang(
+  id: PromptTemplateId,
+  workflow: PromptWorkflowInput = 'classic'
+): Promise<'zh' | 'en'> {
+  const config = await getPromptLangConfig(workflow)
   return config[id] || 'zh'
 }
 
 /**
  * 获取所有提示词模板
  */
-export async function getAllPromptTemplates(): Promise<PromptTemplate[]> {
+export async function getAllPromptTemplates(
+  workflow: PromptWorkflowInput = 'classic'
+): Promise<PromptTemplate[]> {
   try {
-    const result = await db.select()
-      .from(systemConfig)
-      .where(eq(systemConfig.key, PROMPT_TEMPLATES_KEY))
-      .limit(1)
+    const keys = resolvePromptStorageKeys(workflow)
+    const normalizedWorkflow = keys.workflow
+    const value = await readSystemConfigValue(keys.templatesKey, keys.legacyTemplatesKey)
 
-    if (result.length > 0 && result[0]?.value) {
-      const templates = JSON.parse(result[0].value) as PromptTemplate[]
-      // 合并默认模板（确保新增的模板也能显示）
-      const defaults = getDefaultPromptTemplates()
-      const templateMap = new Map(templates.map(t => [t.id, t]))
-
-      for (const def of defaults) {
-        if (!templateMap.has(def.id)) {
-          templateMap.set(def.id, def)
-        }
-      }
-
-      return Array.from(templateMap.values())
+    if (value) {
+      const parsed = JSON.parse(value) as PromptTemplate[]
+      return mergeWithDefaultTemplates(parsed, normalizedWorkflow)
     }
 
-    // 返回默认模板
-    return getDefaultPromptTemplates()
+    return getDefaultPromptTemplates(normalizedWorkflow)
   } catch (error) {
     console.error('[PromptTemplate] 获取模板失败:', error)
-    return getDefaultPromptTemplates()
+    const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+    return getDefaultPromptTemplates(normalizedWorkflow)
   }
 }
 
@@ -146,16 +205,11 @@ export async function getAllPromptTemplates(): Promise<PromptTemplate[]> {
  */
 export async function getPromptTemplate(
   id: PromptTemplateId,
-  lang?: 'zh' | 'en'
+  _lang?: 'zh' | 'en',
+  workflow: PromptWorkflowInput = 'classic'
 ): Promise<PromptTemplate | null> {
-  const templates = await getAllPromptTemplates()
-  const template = templates.find(t => t.id === id)
-
-  if (!template) {
-    return null
-  }
-
-  return template
+  const templates = await getAllPromptTemplates(workflow)
+  return templates.find(t => t.id === id) || null
 }
 
 /**
@@ -163,9 +217,10 @@ export async function getPromptTemplate(
  */
 export async function getPromptContent(
   id: PromptTemplateId,
-  lang: 'zh' | 'en' = 'zh'
+  lang: 'zh' | 'en' = 'zh',
+  workflow: PromptWorkflowInput = 'classic'
 ): Promise<string | null> {
-  const template = await getPromptTemplate(id)
+  const template = await getPromptTemplate(id, undefined, workflow)
   if (!template) {
     return null
   }
@@ -179,10 +234,11 @@ export async function getPromptContent(
 export async function updatePromptTemplate(
   id: PromptTemplateId,
   content: BilingualContent,
-  note?: string
+  note?: string,
+  workflow: PromptWorkflowInput = 'classic'
 ): Promise<PromptTemplate | null> {
   try {
-    const templates = await getAllPromptTemplates()
+    const templates = await getAllPromptTemplates(workflow)
     const index = templates.findIndex(t => t.id === id)
 
     if (index === -1) {
@@ -192,10 +248,8 @@ export async function updatePromptTemplate(
     const oldTemplate = templates[index]!
     const now = new Date().toISOString()
 
-    // 保存版本历史
-    await saveVersion(id, oldTemplate.content, note)
+    await saveVersion(id, oldTemplate.content, note, workflow)
 
-    // 更新模板
     const updatedTemplate: PromptTemplate = {
       ...oldTemplate,
       content,
@@ -205,8 +259,7 @@ export async function updatePromptTemplate(
 
     templates[index] = updatedTemplate
 
-    // 保存到数据库
-    await saveTemplates(templates)
+    await saveTemplates(templates, workflow)
 
     return updatedTemplate
   } catch (error) {
@@ -218,10 +271,14 @@ export async function updatePromptTemplate(
 /**
  * 重置单个提示词模板为默认值
  */
-export async function resetPromptTemplate(id: PromptTemplateId): Promise<PromptTemplate | null> {
+export async function resetPromptTemplate(
+  id: PromptTemplateId,
+  workflow: PromptWorkflowInput = 'classic'
+): Promise<PromptTemplate | null> {
   try {
-    const templates = await getAllPromptTemplates()
-    const defaults = getDefaultPromptTemplates()
+    const templates = await getAllPromptTemplates(workflow)
+    const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+    const defaults = getDefaultPromptTemplates(normalizedWorkflow)
 
     const defaultTemplate = defaults.find(t => t.id === id)
     if (!defaultTemplate) {
@@ -234,18 +291,15 @@ export async function resetPromptTemplate(id: PromptTemplateId): Promise<PromptT
     }
 
     const oldTemplate = templates[index]!
+    await saveVersion(id, oldTemplate.content, '重置前的版本', workflow)
 
-    // 保存当前版本到历史
-    await saveVersion(id, oldTemplate.content, '重置前的版本')
-
-    // 重置为默认
     templates[index] = {
       ...defaultTemplate,
       isCustomized: false,
       updatedAt: new Date().toISOString()
     }
 
-    await saveTemplates(templates)
+    await saveTemplates(templates, workflow)
 
     return templates[index]!
   } catch (error) {
@@ -257,14 +311,19 @@ export async function resetPromptTemplate(id: PromptTemplateId): Promise<PromptT
 /**
  * 重置所有提示词模板为默认值
  */
-export async function resetAllPromptTemplates(): Promise<boolean> {
+export async function resetAllPromptTemplates(
+  workflow: PromptWorkflowInput = 'classic'
+): Promise<boolean> {
   try {
-    const defaults = getDefaultPromptTemplates()
-    await saveTemplates(defaults)
+    const keys = resolvePromptStorageKeys(workflow)
+    const defaults = getDefaultPromptTemplates(keys.workflow)
 
-    // 清空版本历史
-    await db.delete(systemConfig)
-      .where(eq(systemConfig.key, PROMPT_VERSIONS_KEY))
+    await saveTemplates(defaults, workflow)
+    await deleteSystemConfigValue(keys.versionsKey)
+
+    if (keys.legacyVersionsKey) {
+      await deleteSystemConfigValue(keys.legacyVersionsKey)
+    }
 
     return true
   } catch (error) {
@@ -276,21 +335,15 @@ export async function resetAllPromptTemplates(): Promise<boolean> {
 /**
  * 获取版本历史
  */
-export async function getPromptVersions(id: PromptTemplateId): Promise<PromptVersion[]> {
+export async function getPromptVersions(
+  id: PromptTemplateId,
+  workflow: PromptWorkflowInput = 'classic'
+): Promise<PromptVersion[]> {
   try {
-    const result = await db.select()
-      .from(systemConfig)
-      .where(eq(systemConfig.key, PROMPT_VERSIONS_KEY))
-      .limit(1)
-
-    if (result.length > 0 && result[0]?.value) {
-      const allVersions = JSON.parse(result[0].value) as PromptVersion[]
-      return allVersions
-        .filter(v => v.templateId === id)
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    }
-
-    return []
+    const allVersions = await getAllVersions(workflow)
+    return allVersions
+      .filter(v => v.templateId === id)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   } catch (error) {
     console.error('[PromptTemplate] 获取版本历史失败:', error)
     return []
@@ -302,18 +355,18 @@ export async function getPromptVersions(id: PromptTemplateId): Promise<PromptVer
  */
 export async function restorePromptVersion(
   id: PromptTemplateId,
-  versionId: string
+  versionId: string,
+  workflow: PromptWorkflowInput = 'classic'
 ): Promise<PromptTemplate | null> {
   try {
-    const versions = await getPromptVersions(id)
+    const versions = await getPromptVersions(id, workflow)
     const version = versions.find(v => v.id === versionId)
 
     if (!version) {
       return null
     }
 
-    // 使用版本内容更新模板
-    return await updatePromptTemplate(id, version.content, `恢复到版本 ${versionId}`)
+    return await updatePromptTemplate(id, version.content, `恢复到版本 ${versionId}`, workflow)
   } catch (error) {
     console.error('[PromptTemplate] 恢复版本失败:', error)
     return null
@@ -331,7 +384,6 @@ export function interpolateTemplate(
   let result = template
 
   for (const [key, value] of Object.entries(variables)) {
-    // 使用简单的字符串替换，避免正则表达式特殊字符问题
     const placeholder = '{{' + key + '}}'
     result = result.split(placeholder).join(String(value ?? ''))
   }
@@ -341,20 +393,15 @@ export function interpolateTemplate(
 
 /**
  * 获取插值后的提示词（便捷函数）
- * 从数据库读取模板，根据语言配置替换变量后返回
- * @param id 模板 ID
- * @param variables 变量值
- * @param lang 可选，强制指定语言（不指定则从配置读取）
  */
 export async function getInterpolatedPrompt(
   id: PromptTemplateId,
   variables: Record<string, string | number | boolean | undefined>,
-  lang?: 'zh' | 'en'
+  lang?: 'zh' | 'en',
+  workflow: PromptWorkflowInput = 'classic'
 ): Promise<string | null> {
-  // 如果没有指定语言，从配置读取
-  const actualLang = lang || await getPromptLang(id)
-  
-  const content = await getPromptContent(id, actualLang)
+  const actualLang = lang || await getPromptLang(id, workflow)
+  const content = await getPromptContent(id, actualLang, workflow)
   if (!content) {
     return null
   }
@@ -367,27 +414,12 @@ export async function getInterpolatedPrompt(
 /**
  * 保存模板到数据库
  */
-async function saveTemplates(templates: PromptTemplate[]): Promise<void> {
-  const now = new Date().toISOString()
-  const value = JSON.stringify(templates)
-
-  // 使用 upsert
-  const existing = await db.select()
-    .from(systemConfig)
-    .where(eq(systemConfig.key, PROMPT_TEMPLATES_KEY))
-    .limit(1)
-
-  if (existing.length > 0) {
-    await db.update(systemConfig)
-      .set({ value, updatedAt: now })
-      .where(eq(systemConfig.key, PROMPT_TEMPLATES_KEY))
-  } else {
-    await db.insert(systemConfig).values({
-      key: PROMPT_TEMPLATES_KEY,
-      value,
-      updatedAt: now
-    })
-  }
+async function saveTemplates(
+  templates: PromptTemplate[],
+  workflow: PromptWorkflowInput = 'classic'
+): Promise<void> {
+  const keys = resolvePromptStorageKeys(workflow)
+  await upsertSystemConfigValue(keys.templatesKey, JSON.stringify(templates))
 }
 
 /**
@@ -396,10 +428,11 @@ async function saveTemplates(templates: PromptTemplate[]): Promise<void> {
 async function saveVersion(
   templateId: PromptTemplateId,
   content: BilingualContent,
-  note?: string
+  note?: string,
+  workflow: PromptWorkflowInput = 'classic'
 ): Promise<void> {
   try {
-    const versions = await getAllVersions()
+    const versions = await getAllVersions(workflow)
 
     const newVersion: PromptVersion = {
       id: `v_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -411,7 +444,6 @@ async function saveVersion(
 
     versions.push(newVersion)
 
-    // 每个模板最多保留 20 个版本
     const templateVersions = versions.filter(v => v.templateId === templateId)
     if (templateVersions.length > 20) {
       const toRemove = templateVersions
@@ -420,9 +452,9 @@ async function saveVersion(
 
       const removeIds = new Set(toRemove.map(v => v.id))
       const filteredVersions = versions.filter(v => !removeIds.has(v.id))
-      await saveVersions(filteredVersions)
+      await saveVersions(filteredVersions, workflow)
     } else {
-      await saveVersions(versions)
+      await saveVersions(versions, workflow)
     }
   } catch (error) {
     console.error('[PromptTemplate] 保存版本失败:', error)
@@ -432,19 +464,19 @@ async function saveVersion(
 /**
  * 获取所有版本
  */
-async function getAllVersions(): Promise<PromptVersion[]> {
+async function getAllVersions(
+  workflow: PromptWorkflowInput = 'classic'
+): Promise<PromptVersion[]> {
   try {
-    const result = await db.select()
-      .from(systemConfig)
-      .where(eq(systemConfig.key, PROMPT_VERSIONS_KEY))
-      .limit(1)
+    const keys = resolvePromptStorageKeys(workflow)
+    const value = await readSystemConfigValue(keys.versionsKey, keys.legacyVersionsKey)
 
-    if (result.length > 0 && result[0]?.value) {
-      return JSON.parse(result[0].value) as PromptVersion[]
+    if (value) {
+      return JSON.parse(value) as PromptVersion[]
     }
 
     return []
-  } catch (error) {
+  } catch {
     return []
   }
 }
@@ -452,24 +484,56 @@ async function getAllVersions(): Promise<PromptVersion[]> {
 /**
  * 保存版本到数据库
  */
-async function saveVersions(versions: PromptVersion[]): Promise<void> {
-  const now = new Date().toISOString()
-  const value = JSON.stringify(versions)
+async function saveVersions(
+  versions: PromptVersion[],
+  workflow: PromptWorkflowInput = 'classic'
+): Promise<void> {
+  const keys = resolvePromptStorageKeys(workflow)
+  await upsertSystemConfigValue(keys.versionsKey, JSON.stringify(versions))
+}
 
+async function readSystemConfigValue(key: string, fallbackKey?: string): Promise<string | null> {
+  const primary = await readSystemConfigValueByKey(key)
+  if (primary !== null) {
+    return primary
+  }
+
+  if (fallbackKey && fallbackKey !== key) {
+    return readSystemConfigValueByKey(fallbackKey)
+  }
+
+  return null
+}
+
+async function readSystemConfigValueByKey(key: string): Promise<string | null> {
+  const result = await db.select()
+    .from(systemConfig)
+    .where(eq(systemConfig.key, key))
+    .limit(1)
+
+  return result.length > 0 && result[0]?.value ? result[0].value : null
+}
+
+async function upsertSystemConfigValue(key: string, value: string): Promise<void> {
+  const now = new Date().toISOString()
   const existing = await db.select()
     .from(systemConfig)
-    .where(eq(systemConfig.key, PROMPT_VERSIONS_KEY))
+    .where(eq(systemConfig.key, key))
     .limit(1)
 
   if (existing.length > 0) {
     await db.update(systemConfig)
       .set({ value, updatedAt: now })
-      .where(eq(systemConfig.key, PROMPT_VERSIONS_KEY))
+      .where(eq(systemConfig.key, key))
   } else {
     await db.insert(systemConfig).values({
-      key: PROMPT_VERSIONS_KEY,
+      key,
       value,
       updatedAt: now
     })
   }
+}
+
+async function deleteSystemConfigValue(key: string): Promise<void> {
+  await db.delete(systemConfig).where(eq(systemConfig.key, key))
 }

@@ -104,6 +104,7 @@ const SceneVisualSchema = z.object({
 const GenerateFrameRequestSchema = z.object({
   scene: LocalSceneSchema.describe('场景信息'),
   style: z.string().describe('画风 (必填，由项目配置决定)'),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1']).optional().default('16:9').describe('视频比例'),
   characterAssets: z.record(z.string(), z.string()).optional().describe('角色资产 (name -> base64)'),
   sceneBackground: z.string().optional().describe('场景背景图(base64) - 用于角色+场景融合'),
   previousSceneLastFrame: z.string().optional().describe('上一场景的尾帧(base64) - 用于保持场景连续性'),
@@ -119,6 +120,81 @@ const GenerateFrameRequestSchema = z.object({
   enforceCharacterConsistency: z.boolean().default(true).describe('是否强制角色一致性'),
   enforcePreviousFrameConnection: z.boolean().default(true).describe('是否强制与上一场景尾帧连接')
 })
+
+const SEEDANCE_VIDEO_MODEL_RE = /seedance/i
+const LINEART_PROMPT_RE = /(线稿|line\s*art|black\s*and\s*white)/i
+const SCENE_DYNAMIC_CUE_RE = /(走向|转身|离开|起身|奔跑|追逐|跌倒|冲刺|挥手|拥抱|打斗|爆炸|变换|切换|推进|拉远|pan|tilt|zoom|track|dolly|arc|run|walk|turn|leave|enter|move)/i
+const SEEDANCE_LINEART_PROMPT_SUFFIX = [
+  '【Seedance 参考图规范】',
+  '输出必须为黑白线稿（black and white line art），仅保留轮廓线与结构线，不要彩色填充，不要照片质感。',
+  '角色身份、服装轮廓、发型和构图需要与参考图保持一致，不要新增人物，不要文字和水印。'
+].join('\n')
+
+type FrameGenerationOptions = {
+  frameModelId: string
+  useSeedanceLineart: boolean
+}
+
+type AspectRatio = '16:9' | '9:16' | '1:1'
+
+function resolveFrameImageSize(aspectRatio: AspectRatio): string {
+  switch (aspectRatio) {
+    case '9:16':
+      return '720*1280'
+    case '1:1':
+      return '960*960'
+    case '16:9':
+    default:
+      return '1280*720'
+  }
+}
+
+function resolveAspectRatioHint(aspectRatio: AspectRatio): string {
+  if (aspectRatio === '9:16') return '竖屏 9:16'
+  if (aspectRatio === '1:1') return '方形 1:1'
+  return '横屏 16:9'
+}
+
+function isSeedanceVideoModel(modelId?: string): boolean {
+  if (!modelId) return false
+  return SEEDANCE_VIDEO_MODEL_RE.test(modelId)
+}
+
+function withSeedanceLineartPrompt(prompt: string, enabled: boolean): string {
+  if (!enabled) return prompt
+  if (LINEART_PROMPT_RE.test(prompt)) return prompt
+  return `${prompt}\n\n${SEEDANCE_LINEART_PROMPT_SUFFIX}`
+}
+
+function hasText(value?: string | null): boolean {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+/**
+ * 静态场景优化：
+ * 若场景缺少明显“变化信号”，直接复用首帧作为尾帧，避免额外一次图片生成。
+ */
+function shouldReuseFirstFrameAsLastFrame(
+  scene: z.infer<typeof LocalSceneSchema>,
+  storyboard: z.infer<typeof StoryboardSchema>,
+  sceneVisual: z.infer<typeof SceneVisualSchema>
+): boolean {
+  const shotCount = storyboard?.shots?.length || 0
+  if (shotCount > 1) return false
+
+  const hasDialogue = (scene.dialogues || []).some(dialogue => hasText(dialogue.text))
+  if (hasDialogue) return false
+
+  const hasAction = scene.characters.some(char => hasText(char.action))
+  if (hasAction) return false
+
+  const descriptionText = [scene.description, sceneVisual?.imagePrompt]
+    .filter(Boolean)
+    .join('\n')
+  if (SCENE_DYNAMIC_CUE_RE.test(descriptionText)) return false
+
+  return true
+}
 
 /**
  * 首尾帧生成API
@@ -150,6 +226,7 @@ export default defineEventHandler(async (event) => {
   const {
     scene,
     style,
+    aspectRatio,
     characterAssets,
     sceneBackground,
     previousSceneLastFrame,
@@ -163,6 +240,15 @@ export default defineEventHandler(async (event) => {
   } = parseResult.data
 
   try {
+    const workflowModels = await getWorkflowModels()
+    const frameModelId = workflowModels.frame_generation
+    const videoModelId = workflowModels.video_generation
+    const useSeedanceLineart = isSeedanceVideoModel(videoModelId)
+    const generationOptions: FrameGenerationOptions = {
+      frameModelId,
+      useSeedanceLineart
+    }
+
     // 2. 连续性检查
     const sceneIndex = continuityContext?.sceneIndex ?? 0
     const isFirstScene = sceneIndex === 0
@@ -174,6 +260,8 @@ export default defineEventHandler(async (event) => {
     console.log(`[FrameGen] 视觉提取: ${sceneVisual?.imagePrompt ? '有imagePrompt' : '无imagePrompt'}`)
     console.log(`[FrameGen] 上一场景尾帧: ${previousSceneLastFrame ? '有' : '无'}`)
     console.log(`[FrameGen] 角色锚点: ${characterAnchors?.length || 0}个`)
+    console.log(`[FrameGen] 图片模型: ${frameModelId}, 视频模型: ${videoModelId}, 线稿模式: ${useSeedanceLineart}`)
+    console.log(`[FrameGen] 目标比例: ${aspectRatio}`)
 
     // 3. 强制尾帧连接检查（非首场景必须有上一场景尾帧）
     if (enforcePreviousFrameConnection && !isFirstScene && !previousSceneLastFrame) {
@@ -193,23 +281,35 @@ export default defineEventHandler(async (event) => {
       sceneVisual,
       continuityContext,
       characterAnchors,
-      enforceCharacterConsistency
+      enforceCharacterConsistency,
+      aspectRatio,
+      generationOptions
     )
     console.log(`[FrameGen] 首帧生成完成`)
 
-    // 5. 生成尾帧 (基于首帧保持一致性)
-    const lastFrameResult = await generateLastFrame(
-      scene,
-      style,
-      firstFrameResult.imageData,
-      firstFrameResult.mimeType,
-      storyboard,
-      sceneVisual,
-      characterAssets,
-      characterAnchors,
-      enforceCharacterConsistency
-    )
-    console.log(`[FrameGen] 尾帧生成完成`)
+    const reuseFirstFrame = shouldReuseFirstFrameAsLastFrame(scene, storyboard, sceneVisual)
+    let lastFrameResult: { imageData: string, mimeType: string }
+
+    if (reuseFirstFrame) {
+      lastFrameResult = firstFrameResult
+      console.log('[FrameGen] 检测为静态场景，复用首帧作为尾帧（跳过尾帧生成）')
+    } else {
+      // 5. 生成尾帧 (基于首帧保持一致性)
+      lastFrameResult = await generateLastFrame(
+        scene,
+        style,
+        firstFrameResult.imageData,
+        firstFrameResult.mimeType,
+        storyboard,
+        sceneVisual,
+        characterAssets,
+        characterAnchors,
+        enforceCharacterConsistency,
+        aspectRatio,
+        generationOptions
+      )
+      console.log(`[FrameGen] 尾帧生成完成`)
+    }
 
     const latencyMs = Date.now() - startTime
     console.log(`[FrameGen] 首尾帧生成完成: ${scene.id}, 耗时: ${latencyMs}ms`)
@@ -229,7 +329,8 @@ export default defineEventHandler(async (event) => {
       continuityInfo: {
         sceneIndex,
         hadPreviousFrame: !!previousSceneLastFrame,
-        characterAnchorsUsed: characterAnchors?.length || 0
+        characterAnchorsUsed: characterAnchors?.length || 0,
+        lastFrameReused: reuseFirstFrame
       },
       latencyMs
     }
@@ -314,7 +415,9 @@ async function generateFirstFrame(
   sceneVisual: z.infer<typeof SceneVisualSchema>,
   continuityContext?: SceneContinuityContext,
   characterAnchors?: CharacterVisualAnchor[],
-  enforceCharacterConsistency: boolean = true
+  enforceCharacterConsistency: boolean = true,
+  aspectRatio: AspectRatio = '16:9',
+  generationOptions?: FrameGenerationOptions
 ): Promise<{ imageData: string, mimeType: string }> {
   let prompt: string
   let referenceImages: string[] = []
@@ -360,11 +463,13 @@ async function generateFirstFrame(
       characters: JSON.stringify(scene.characters),
       style,
       setting: JSON.stringify(scene.setting || {}),
-      storyboardShot: firstShot ? JSON.stringify({
-        shotType: firstShot.shotType,
-        cameraMovement: firstShot.cameraMovement,
-        visualContent: firstShot.visualContent
-      }) : '{}'
+      storyboardShot: firstShot
+        ? JSON.stringify({
+            shotType: firstShot.shotType,
+            cameraMovement: firstShot.cameraMovement,
+            visualContent: firstShot.visualContent
+          })
+        : '{}'
     }
   )
 
@@ -380,22 +485,40 @@ async function generateFirstFrame(
       continuityContext,
       characterConsistencyPrompt,
       contextPrompt,
-      characterAssets
+      characterAssets,
+      aspectRatio
     )
   } else if (sceneVisual?.imagePrompt) {
     // 优先使用场景视觉提取的 imagePrompt
     console.log('[FrameGen] 使用场景视觉提取的 imagePrompt')
-    prompt = buildPromptFromSceneVisual(scene, style, sceneVisual, storyboard, false, characterAssets, characterConsistencyPrompt, contextPrompt)
+    prompt = buildPromptFromSceneVisual(
+      scene,
+      style,
+      sceneVisual,
+      storyboard,
+      false,
+      characterAssets,
+      characterConsistencyPrompt,
+      contextPrompt,
+      aspectRatio
+    )
   } else if (fusionMode === 'character_scene' && sceneBackground && characterAssets) {
     // 模式1: 角色+场景融合 (基于飞书文档 2.6.1.1)
     const mainCharacter = scene.characters[0]
     if (mainCharacter) {
-      prompt = buildCharacterSceneFusionPrompt(scene, style, mainCharacter, characterConsistencyPrompt)
+      prompt = buildCharacterSceneFusionPrompt(
+        scene,
+        style,
+        mainCharacter,
+        characterConsistencyPrompt,
+        aspectRatio
+      )
       // 场景背景也加入参考图
       referenceImages.unshift(sceneBackground)
       console.log('[FrameGen] 使用角色+场景融合模式')
     } else {
-      prompt = templatePrompt || buildFirstFramePrompt(scene, style, false, storyboard, characterConsistencyPrompt, contextPrompt)
+      prompt = templatePrompt
+        || buildFirstFramePrompt(scene, style, false, storyboard, characterConsistencyPrompt, contextPrompt, aspectRatio)
       referenceImages.unshift(sceneBackground)
     }
   } else if (previousSceneLastFrame) {
@@ -408,16 +531,19 @@ async function generateFirstFrame(
       continuityContext,
       characterConsistencyPrompt,
       contextPrompt,
-      characterAssets
+      characterAssets,
+      aspectRatio
     )
     console.log('[FrameGen] 使用上一场景尾帧作为参考图')
   } else if (characterAssets && referenceImages.length > 0) {
     // 模式3: 使用角色立绘作为参考
-    prompt = templatePrompt || buildFirstFramePrompt(scene, style, false, storyboard, characterConsistencyPrompt, contextPrompt)
+    prompt = templatePrompt
+      || buildFirstFramePrompt(scene, style, false, storyboard, characterConsistencyPrompt, contextPrompt, aspectRatio)
     console.log(`[FrameGen] 使用${referenceImages.length}张角色立绘作为参考图`)
   } else {
     // 模式4: 纯文本生成
-    prompt = templatePrompt || buildFirstFramePrompt(scene, style, false, storyboard, characterConsistencyPrompt, contextPrompt)
+    prompt = templatePrompt
+      || buildFirstFramePrompt(scene, style, false, storyboard, characterConsistencyPrompt, contextPrompt, aspectRatio)
     console.log('[FrameGen] 使用纯文本生成模式')
   }
 
@@ -427,17 +553,16 @@ async function generateFirstFrame(
     console.log('[FrameGen] 参考图数量超过4张，已截取前4张')
   }
 
+  const effectivePrompt = withSeedanceLineartPrompt(prompt, !!generationOptions?.useSeedanceLineart)
   console.log(`[FrameGen] 生成首帧，参考图数量: ${referenceImages.length}`)
-
-  // 从工作流配置获取首尾帧生成模型
-  const workflowModels = await getWorkflowModels()
-  const modelId = workflowModels.frame_generation
+  const modelId = generationOptions?.frameModelId || (await getWorkflowModels()).frame_generation
   console.log(`[FrameGen] 使用图片模型: ${modelId}`)
 
   // 构建请求体
   const firstFrameRequest = {
     modelId,
-    prompt,
+    prompt: effectivePrompt,
+    size: resolveFrameImageSize(aspectRatio),
     referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
     maxRetries: 2
   }
@@ -446,6 +571,7 @@ async function generateFirstFrame(
   console.log(`[FrameGen] ========== 首帧生成请求体 ==========`)
   console.log(`[FrameGen] modelId: ${firstFrameRequest.modelId}`)
   console.log(`[FrameGen] prompt: ${firstFrameRequest.prompt}`)
+  console.log(`[FrameGen] size: ${firstFrameRequest.size}`)
   console.log(`[FrameGen] referenceImages: ${firstFrameRequest.referenceImages ? `[${firstFrameRequest.referenceImages.length}张图片]` : 'undefined'}`)
   if (firstFrameRequest.referenceImages) {
     firstFrameRequest.referenceImages.forEach((img, idx) => {
@@ -506,7 +632,7 @@ ${charNames.map(name => `- ${name}: 保持发型、发色、服装、面部特�
 
   if (anchorsInScene.length === 0) return ''
 
-  const anchorDescriptions = anchorsInScene.map(anchor => {
+  const anchorDescriptions = anchorsInScene.map((anchor) => {
     const features = anchor.coreFeatures
     const parts = [`【${anchor.name}】`]
     if (features.hairStyle) parts.push(`发型: ${features.hairStyle}`)
@@ -590,7 +716,8 @@ function buildContinuityFirstFramePrompt(
   continuityContext?: SceneContinuityContext,
   characterConsistencyPrompt: string = '',
   contextPrompt: string = '',
-  characterAssets?: Record<string, string>
+  characterAssets?: Record<string, string>,
+  aspectRatio: AspectRatio = '16:9'
 ): string {
   const { setting, characters, description, dialogues } = scene
 
@@ -655,7 +782,7 @@ ${shotInfo}
 【登场角色】${charactersDesc}
 
 【画面要求】
-- ${style}画风，16:9宽屏，高清质量
+- ${style}画风，${resolveAspectRatioHint(aspectRatio)} 比例，高清质量
 - 情绪基调: ${getEmotionChinese(initialMood)}
 - 这是场景的【开始状态】，需要与上一场景自然衔接`
 }
@@ -667,7 +794,8 @@ function buildCharacterSceneFusionPrompt(
   scene: z.infer<typeof LocalSceneSchema>,
   style: string,
   mainCharacter: { name: string, appearance?: string, action?: string, emotion?: string },
-  characterConsistencyPrompt: string = ''
+  characterConsistencyPrompt: string = '',
+  aspectRatio: AspectRatio = '16:9'
 ): string {
   return `将角色融合到参考图的场景中。
 ${characterConsistencyPrompt}
@@ -685,7 +813,7 @@ ${mainCharacter.emotion ? `- 表情: ${getEmotionChinese(mainCharacter.emotion)}
 2. 保持${style}画风一致
 3. 角色的位置、大小要与场景协调
 4. 光影效果要与场景环境匹配
-5. 16:9 宽屏比例，高清质量
+5. ${resolveAspectRatioHint(aspectRatio)} 比例，高清质量
 6. 角色姿态要符合场景氛围`
 }
 
@@ -700,7 +828,8 @@ function buildPromptFromSceneVisual(
   isLastFrame: boolean = false,
   characterAssets?: Record<string, string>,
   characterConsistencyPrompt: string = '',
-  contextPrompt: string = ''
+  contextPrompt: string = '',
+  aspectRatio: AspectRatio = '16:9'
 ): string {
   const { characters, dialogues } = scene
 
@@ -770,7 +899,7 @@ ${charactersDesc}
 
 【画面要求】
 1. ${style}画风，高清质量
-2. 宽屏 16:9 比例
+2. ${resolveAspectRatioHint(aspectRatio)} 比例
 3. 情绪基调: ${getEmotionChinese(emotion)}
 4. ${isLastFrame ? '体现场景发展后的结束状态' : '体现场景开始时的初始状态'}`
 }
@@ -787,7 +916,9 @@ async function generateLastFrame(
   sceneVisual: z.infer<typeof SceneVisualSchema>,
   characterAssets?: Record<string, string>,
   characterAnchors?: CharacterVisualAnchor[],
-  enforceCharacterConsistency: boolean = true
+  enforceCharacterConsistency: boolean = true,
+  aspectRatio: AspectRatio = '16:9',
+  generationOptions?: FrameGenerationOptions
 ): Promise<{ imageData: string, mimeType: string }> {
   // 1. 构建角色一致性约束提示词
   const characterConsistencyPrompt = enforceCharacterConsistency
@@ -795,7 +926,7 @@ async function generateLastFrame(
     : ''
 
   // 2. 收集参考图：首帧 + 角色立绘
-  let referenceImages: string[] = [firstFrameData]  // 首帧作为第一张参考图
+  let referenceImages: string[] = [firstFrameData] // 首帧作为第一张参考图
 
   if (characterAssets) {
     for (const char of scene.characters) {
@@ -831,11 +962,13 @@ async function generateLastFrame(
       characters: JSON.stringify(scene.characters),
       style,
       setting: JSON.stringify(scene.setting || {}),
-      storyboardShot: lastShot ? JSON.stringify({
-        shotType: lastShot.shotType,
-        cameraMovement: lastShot.cameraMovement,
-        visualContent: lastShot.visualContent
-      }) : '{}',
+      storyboardShot: lastShot
+        ? JSON.stringify({
+            shotType: lastShot.shotType,
+            cameraMovement: lastShot.cameraMovement,
+            visualContent: lastShot.visualContent
+          })
+        : '{}',
       initialEmotion: getEmotionChinese(initialEmotion),
       finalEmotion: getEmotionChinese(finalEmotion)
     }
@@ -844,22 +977,31 @@ async function generateLastFrame(
   // 优先使用场景视觉提取的 imagePrompt 构建尾帧提示词
   let prompt: string
   if (sceneVisual?.imagePrompt) {
-    prompt = buildPromptFromSceneVisual(scene, style, sceneVisual, storyboard, true, characterAssets, characterConsistencyPrompt, '')
+    prompt = buildPromptFromSceneVisual(
+      scene,
+      style,
+      sceneVisual,
+      storyboard,
+      true,
+      characterAssets,
+      characterConsistencyPrompt,
+      '',
+      aspectRatio
+    )
   } else {
-    prompt = templatePrompt || buildLastFramePrompt(scene, style, storyboard, characterConsistencyPrompt)
+    prompt = templatePrompt || buildLastFramePrompt(scene, style, storyboard, characterConsistencyPrompt, aspectRatio)
   }
 
+  const effectivePrompt = withSeedanceLineartPrompt(prompt, !!generationOptions?.useSeedanceLineart)
   console.log(`[FrameGen] 生成尾帧，参考图数量: ${referenceImages.length}`)
-
-  // 从工作流配置获取首尾帧生成模型
-  const workflowModels = await getWorkflowModels()
-  const modelId = workflowModels.frame_generation
+  const modelId = generationOptions?.frameModelId || (await getWorkflowModels()).frame_generation
   console.log(`[FrameGen] 尾帧使用图片模型: ${modelId}`)
 
   // 构建请求体
   const lastFrameRequest = {
     modelId,
-    prompt,
+    prompt: effectivePrompt,
+    size: resolveFrameImageSize(aspectRatio),
     referenceImages,
     maxRetries: 2
   }
@@ -868,6 +1010,7 @@ async function generateLastFrame(
   console.log(`[FrameGen] ========== 尾帧生成请求体 ==========`)
   console.log(`[FrameGen] modelId: ${lastFrameRequest.modelId}`)
   console.log(`[FrameGen] prompt: ${lastFrameRequest.prompt}`)
+  console.log(`[FrameGen] size: ${lastFrameRequest.size}`)
   console.log(`[FrameGen] referenceImages: [${lastFrameRequest.referenceImages.length}张图片]`)
   lastFrameRequest.referenceImages.forEach((img, idx) => {
     console.log(`[FrameGen]   - 参考图${idx + 1}: 长度=${img.length}`)
@@ -909,7 +1052,8 @@ function buildFirstFramePrompt(
   hasPreviousFrame: boolean = false,
   storyboard?: z.infer<typeof StoryboardSchema>,
   characterConsistencyPrompt: string = '',
-  contextPrompt: string = ''
+  contextPrompt: string = '',
+  aspectRatio: AspectRatio = '16:9'
 ): string {
   const { setting, characters, description, dialogues } = scene
 
@@ -963,7 +1107,7 @@ ${shotInfo}
 
 登场角色: ${charactersDesc}
 
-画面要求: ${style}画风，16:9宽屏，高清质量
+画面要求: ${style}画风，${resolveAspectRatioHint(aspectRatio)} 比例，高清质量
 情绪基调: ${getEmotionChinese(initialMood)}`
   }
 
@@ -991,13 +1135,12 @@ ${shotInfo}
 
 这是场景的【开始状态】，画面要求:
 1. ${style}画风，高清质量
-2. 宽屏 16:9 比例
+2. ${resolveAspectRatioHint(aspectRatio)} 比例
 3. 角色表情和姿态符合场景开始时的状态
 4. 环境细节丰富，光影效果自然
 5. 画面构图清晰，主体突出
 6. 情绪基调: ${getEmotionChinese(initialMood)}`
 }
-
 
 /**
  * 构建尾帧提示词
@@ -1007,7 +1150,8 @@ function buildLastFramePrompt(
   scene: z.infer<typeof LocalSceneSchema>,
   style: string,
   storyboard?: z.infer<typeof StoryboardSchema>,
-  characterConsistencyPrompt: string = ''
+  characterConsistencyPrompt: string = '',
+  aspectRatio: AspectRatio = '16:9'
 ): string {
   const { setting, characters, dialogues } = scene
 
@@ -1050,6 +1194,7 @@ ${characterConsistencyPrompt}
 3. 相同的角色外观和服装（必须与参考图完全一致）
 4. 相同的${style}画风
 5. 相同的构图视角
+6. 输出比例保持 ${resolveAspectRatioHint(aspectRatio)}
 
 变化部分:
 1. 角色表情变化为: ${getEmotionChinese(finalMood)}
