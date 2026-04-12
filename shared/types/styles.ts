@@ -68,7 +68,7 @@ const STYLE_PRESETS_BASE: StylePreset[] = [
   { id: 'laika_stop_motion', name: '莱卡定格动画', nameEn: 'Laika', category: '3d_render', description: '定格动画', prompt: 'Laika style', thumbnail: '/styles/laika_stop_motion.webp' },
   { id: 'game_cg', name: '游戏CG', nameEn: 'Game CG', category: '3d_render', description: '次世代游戏CG质感', prompt: 'game cg', thumbnail: '/styles/game_cg.webp', isNew: true },
   { id: 'interactive_3d_dating', name: '3D乙游', nameEn: 'Interactive 3D Dating', category: '3d_render', description: '乙女向3D风格', prompt: 'interactive 3d dating', thumbnail: '/styles/interactive_3d_dating.webp', isNew: true },
-  { id: 'live_action', name: 'AI真人(建议垫图)', nameEn: 'Live-Action', category: '3d_render', description: '影视级写实风格', prompt: 'live action', thumbnail: '/styles/live_action.webp', isNew: true },
+  { id: 'live_action', name: 'AI真人', nameEn: 'Live-Action', category: '3d_render', description: '影视级写实风格', prompt: 'live action', thumbnail: '/styles/live_action.webp', isNew: true },
   { id: 'western_3d_cg', name: '欧美CG', nameEn: '3D CG', category: '3d_render', description: '欧美写实CG风格', prompt: 'western 3d cg', thumbnail: '/styles/western_3d_cg.webp', isNew: true },
   // 插画
   { id: 'healing_q_cute', name: '治愈Q萌', nameEn: 'Healing Cute', category: 'illustration', description: '治愈系', prompt: 'healing cute', thumbnail: '/styles/healing_q_cute.webp' },
