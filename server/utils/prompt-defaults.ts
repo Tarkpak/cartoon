@@ -957,42 +957,34 @@ Notes:
 
 // ========== 角色设定图 ==========
 const CHARACTER_SHEET_CONTENT: PromptTemplate['content'] = {
-  zh: `为 {{characterName}} 创建一张专业的角色设定图。
+  zh: `为 {{characterName}} 创建一张专业角色设定图（Character Sheet）。
 
 画风：{{style}}
-
 角色外貌：{{appearance}}
 
-布局要求：
-- 画布比例：16:9 横向
-- 背景：纯白色或浅灰色渐变
-- 主要内容：三视图（占画布 65-75%）
-  - 左侧：正面视图
-  - 中间：3/4 侧面视图
-  - 右侧：背面视图
-- 三个视图高度一致，头部和脚部对齐
-- 保持 {{style}} 风格一致性
-- 高质量，线条清晰锐利
+核心要求：
+1. 16:9 横版构图，角色严格按照输入设定生成；若存在参考图，必须以参考图为最高优先级。
+2. 左侧 1/3 区域：超大高清面部特写（头肩构图），清晰展示五官、皮肤质感与发丝细节。
+3. 右侧 2/3 区域：整齐排布三张全身三视图，均为全身站姿，依次为正面（Front）、侧面（Profile）、背面（Back）。
+4. 背景必须为纯白色背景，不要任何场景元素、道具堆叠或装饰图形。
+5. 视觉对齐：三视图比例严格一致，确保角色身高、头身比、五官位置、服装结构与褶皱在不同视角下完美对应。
+6. 画质要求：超高清、超写实、8K 级别、CG 建模渲染质感；整体风格统一，边缘清晰。
 
-禁止包含：复杂背景、角色被裁切、视图不一致、大段文字、多个角色、过于复杂的姿势`,
-  en: `Create a professional character reference sheet for {{characterName}}.
+禁止包含：复杂背景、角色被裁切、视角缺失、多人同框、大段文字、水印、Logo、低清晰度、夸张透视变形`,
+  en: `Create a professional character sheet for {{characterName}}.
 
 Style: {{style}}
-
 Character appearance: {{appearance}}
 
-Layout requirements:
-- Canvas ratio: 16:9 horizontal
-- Background: pure white or light gray gradient
-- Main content: Three-view (65-75% of canvas)
-  - Left: Front view
-  - Center: 3/4 view
-  - Right: Back view
-- All three views should have equal height, aligned at head and feet
-- Maintain consistent {{style}} style across all views
-- High quality, clean sharp lines
+Core requirements:
+1. Use a 16:9 horizontal layout. Follow the provided character definition strictly; if a reference image exists, treat it as the highest-priority constraint.
+2. Left 1/3 area: an ultra-clear large facial close-up (head-and-shoulders framing), with readable facial features, skin texture, and hair details.
+3. Right 2/3 area: neatly arrange three full-body standing turnaround views in order: Front, Profile, and Back.
+4. Background must be pure white only. No scene elements, decorative graphics, or prop clutter.
+5. Visual alignment: keep strict scale consistency across all views so height, facial landmark positions, outfit structure, and clothing folds match perfectly between angles.
+6. Quality target: ultra high-definition, ultra-realistic, 8K-level CG render quality, with consistent style and crisp edges.
 
-DO NOT include: complex backgrounds, cropped characters, inconsistent views, large text blocks, multiple characters, overly complex poses`
+DO NOT include: complex backgrounds, cropped body parts, missing required views, multiple characters, large text blocks, watermarks, logos, low quality artifacts, or exaggerated perspective distortion`
 }
 
 
