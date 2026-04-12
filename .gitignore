@@ -34,6 +34,7 @@ temp/
 
 # 生成的视频文件
 public/videos/
+public/generated-images/
 
 
 ecosystem.config.cjs

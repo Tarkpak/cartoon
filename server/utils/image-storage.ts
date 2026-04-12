@@ -2,12 +2,28 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const PUBLIC_SUBDIR = 'generated-images'
+const STORAGE_SUBDIR = 'generated-images'
+const IMAGE_API_PREFIX = '/api/image/file/'
 
 function ensureOutputDir(): string {
-  const outputDir = join(process.cwd(), 'public', PUBLIC_SUBDIR)
+  const outputDir = join(process.cwd(), 'data', STORAGE_SUBDIR)
   mkdirSync(outputDir, { recursive: true })
   return outputDir
+}
+
+function extractFilenameFromUrlPath(urlPath: string): string | null {
+  const trimmed = urlPath.trim()
+  if (!trimmed) return null
+
+  if (trimmed.startsWith('/generated-images/')) {
+    return decodeURIComponent(trimmed.slice('/generated-images/'.length))
+  }
+
+  if (trimmed.startsWith(IMAGE_API_PREFIX)) {
+    return decodeURIComponent(trimmed.slice(IMAGE_API_PREFIX.length))
+  }
+
+  return null
 }
 
 function looksLikeBase64Image(value: string): boolean {
@@ -78,10 +94,6 @@ async function resolveImageSource(source: string): Promise<{ buffer: Buffer, mim
     throw new Error('图片内容为空，无法持久化')
   }
 
-  if (raw.startsWith('/generated-images/')) {
-    throw new Error('图片已是本地文件路径，无需重复持久化')
-  }
-
   if (raw.startsWith('http://') || raw.startsWith('https://')) {
     const response = await fetch(raw)
     if (!response.ok) {
@@ -124,7 +136,10 @@ export async function persistImageToPublic(options: {
     throw new Error('图片内容为空，无法持久化')
   }
 
-  if (source.startsWith('/generated-images/')) return source
+  const existingFilename = extractFilenameFromUrlPath(source)
+  if (existingFilename) {
+    return `${IMAGE_API_PREFIX}${encodeURIComponent(existingFilename)}`
+  }
   if (source.startsWith('/') && !looksLikeBase64Image(source)) return source
 
   const { buffer, mimeType } = await resolveImageSource(source)
@@ -136,6 +151,13 @@ export async function persistImageToPublic(options: {
 
   writeFileSync(filePath, buffer)
 
-  return `/${PUBLIC_SUBDIR}/${filename}`
+  return `${IMAGE_API_PREFIX}${encodeURIComponent(filename)}`
 }
 
+export function getGeneratedImageCandidatePaths(filename: string): string[] {
+  return [
+    join(process.cwd(), 'data', STORAGE_SUBDIR, filename),
+    join(process.cwd(), 'public', STORAGE_SUBDIR, filename),
+    join(process.cwd(), '.output', 'public', STORAGE_SUBDIR, filename)
+  ]
+}
