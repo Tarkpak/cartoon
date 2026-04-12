@@ -43,6 +43,10 @@ export function toImageSrc(image?: string | null): string {
     || value.startsWith('/')
     || value.startsWith('blob:')
   ) {
+    if (value.startsWith('/generated-images/')) {
+      const filename = value.slice('/generated-images/'.length)
+      return filename ? `/api/image/file/${encodeURIComponent(filename)}` : ''
+    }
     return value
   }
 

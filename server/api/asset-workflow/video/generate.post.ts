@@ -128,28 +128,38 @@ function isLikelyBase64Image(value: string): boolean {
     || compact.startsWith('TU0A')
 }
 
+function normalizeLegacyImagePath(raw: string): string {
+  if (raw.startsWith('/generated-images/')) {
+    const filename = raw.slice('/generated-images/'.length)
+    return filename ? `/api/image/file/${encodeURIComponent(filename)}` : raw
+  }
+  return raw
+}
+
 function toImageUrlInput(value?: string): string | undefined {
   if (!value) return undefined
 
   const raw = value.trim()
   if (!raw) return undefined
 
-  if (raw.startsWith('http://') || raw.startsWith('https://')) {
-    return raw
-  }
+  const normalizedPath = normalizeLegacyImagePath(raw)
 
-  if (raw.startsWith('/') && !isLikelyBase64Image(raw)) {
-    return raw
-  }
-
-  const dataUriMatch = raw.match(/^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/s)
+  const dataUriMatch = normalizedPath.match(/^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/s)
   if (dataUriMatch?.[2]) {
     const payload = dataUriMatch[2].replace(/\s+/g, '')
     const mimeType = detectImageMimeType(payload)
     return `data:${mimeType};base64,${payload}`
   }
 
-  const payload = raw.replace(/\s+/g, '')
+  if (normalizedPath.startsWith('http://') || normalizedPath.startsWith('https://')) {
+    return normalizedPath
+  }
+
+  if (normalizedPath.startsWith('/') && !isLikelyBase64Image(normalizedPath)) {
+    return normalizedPath
+  }
+
+  const payload = normalizedPath.replace(/\s+/g, '')
   const mimeType = detectImageMimeType(payload)
   return `data:${mimeType};base64,${payload}`
 }

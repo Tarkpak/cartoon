@@ -11,6 +11,7 @@ import {
   GenerateVideoRequestSchema,
   type GeneratedVideo
 } from '../../../shared/types/video'
+import { getGeneratedImageCandidatePaths } from '../../utils/image-storage'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -44,7 +45,19 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { sceneId, config } = parseResult.data
+  const { sceneId, config: rawConfig } = parseResult.data
+  const requestOrigin = extractRequestOrigin(event)
+  let config: typeof GenerateVideoRequestSchema._type['config']
+  try {
+    config = await normalizeVideoConfigImageInputs(rawConfig, requestOrigin)
+  } catch (normalizeError) {
+    console.error('[VideoGen] 图片输入归一化失败:', normalizeError)
+    throw createError({
+      statusCode: 400,
+      statusMessage: '图片输入无效',
+      message: normalizeError instanceof Error ? normalizeError.message : '参考图格式错误或不可访问'
+    })
+  }
 
   // 2. 创建任务并存入数据库
   const taskId = `video_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -100,6 +113,234 @@ const VOLCENGINE_REALISM_PROMPT_PREFIX = [
   '真人实拍，电影级光影，真实皮肤质感，4K高清，面部稳定',
   '禁止换脸、禁止变更发型发色、禁止新增主角'
 ].join('\n')
+
+function isLikelyBase64Image(value: string): boolean {
+  const compact = value.replace(/\s+/g, '')
+  return compact.startsWith('/9j/')
+    || compact.startsWith('iVBOR')
+    || compact.startsWith('R0lGOD')
+    || compact.startsWith('UklGR')
+    || compact.startsWith('Qk')
+    || compact.startsWith('SUkq')
+    || compact.startsWith('TU0A')
+}
+
+function normalizeLegacyImagePath(raw: string): string {
+  if (raw.startsWith('/generated-images/')) {
+    const filename = raw.slice('/generated-images/'.length)
+    return filename ? `/api/image/file/${encodeURIComponent(filename)}` : raw
+  }
+  return raw
+}
+
+function detectImageMimeType(base64Payload: string): string {
+  const head = base64Payload.trim()
+  if (head.startsWith('/9j/')) return 'image/jpeg'
+  if (head.startsWith('iVBOR')) return 'image/png'
+  if (head.startsWith('R0lGOD')) return 'image/gif'
+  if (head.startsWith('UklGR')) return 'image/webp'
+  if (head.startsWith('Qk')) return 'image/bmp'
+  if (head.startsWith('SUkq') || head.startsWith('TU0A')) return 'image/tiff'
+  return 'image/png'
+}
+
+function detectImageMimeTypeFromBuffer(buffer: Buffer): string {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg'
+  if (
+    buffer.length >= 8
+    && buffer[0] === 0x89
+    && buffer[1] === 0x50
+    && buffer[2] === 0x4e
+    && buffer[3] === 0x47
+    && buffer[4] === 0x0d
+    && buffer[5] === 0x0a
+    && buffer[6] === 0x1a
+    && buffer[7] === 0x0a
+  ) return 'image/png'
+  if (
+    buffer.length >= 6
+    && buffer[0] === 0x47
+    && buffer[1] === 0x49
+    && buffer[2] === 0x46
+    && buffer[3] === 0x38
+  ) return 'image/gif'
+  if (
+    buffer.length >= 12
+    && buffer.toString('ascii', 0, 4) === 'RIFF'
+    && buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) return 'image/webp'
+  if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4d) return 'image/bmp'
+  if (buffer.length >= 4 && buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2a && buffer[3] === 0x00) return 'image/tiff'
+  if (buffer.length >= 4 && buffer[0] === 0x4d && buffer[1] === 0x4d && buffer[2] === 0x00 && buffer[3] === 0x2a) return 'image/tiff'
+  return 'image/png'
+}
+
+function toDataUriFromPayload(payload: string, mimeType?: string): string {
+  const compact = payload.replace(/\s+/g, '')
+  if (!compact) {
+    throw new Error('图片 base64 内容为空')
+  }
+  const resolvedMimeType = (mimeType || detectImageMimeType(compact)).split(';')[0]?.trim() || 'image/png'
+  return `data:${resolvedMimeType};base64,${compact}`
+}
+
+function toDataUriFromBuffer(buffer: Buffer, mimeType?: string): string {
+  if (!buffer.length) {
+    throw new Error('图片内容为空')
+  }
+  const resolvedMimeType = (mimeType || detectImageMimeTypeFromBuffer(buffer)).split(';')[0]?.trim() || 'image/png'
+  return `data:${resolvedMimeType};base64,${buffer.toString('base64')}`
+}
+
+function normalizeOriginValue(value?: string | null): string | undefined {
+  const trimmed = (value || '').trim()
+  if (!trimmed) return undefined
+  const normalized = trimmed.replace(/\/+$/, '')
+  if (/^https?:\/\//i.test(normalized)) return normalized
+  return undefined
+}
+
+function extractRequestOrigin(event: Parameters<typeof getHeader>[0]): string | undefined {
+  const xfProto = getHeader(event, 'x-forwarded-proto')?.split(',')[0]?.trim()
+  const xfHost = getHeader(event, 'x-forwarded-host')?.split(',')[0]?.trim()
+  const host = getHeader(event, 'host')?.trim()
+  const candidateHost = xfHost || host
+  if (!candidateHost) return undefined
+  const protocol = xfProto || 'https'
+  return normalizeOriginValue(`${protocol}://${candidateHost}`)
+}
+
+function resolveGeneratedImageFilename(imagePath: string): string | null {
+  if (!imagePath) return null
+  const cleanPath = imagePath.split('?')[0]?.split('#')[0] || ''
+  if (!cleanPath) return null
+
+  if (cleanPath.startsWith('/api/image/file/')) {
+    const encoded = cleanPath.slice('/api/image/file/'.length)
+    if (!encoded) return null
+    try {
+      return decodeURIComponent(encoded)
+    } catch {
+      return encoded
+    }
+  }
+
+  if (cleanPath.startsWith('/generated-images/')) {
+    const encoded = cleanPath.slice('/generated-images/'.length)
+    if (!encoded) return null
+    try {
+      return decodeURIComponent(encoded)
+    } catch {
+      return encoded
+    }
+  }
+
+  return null
+}
+
+function resolveGeneratedImageDataUri(imagePath: string): string | null {
+  const filename = resolveGeneratedImageFilename(imagePath)
+  if (!filename) return null
+  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) return null
+
+  const filePath = getGeneratedImageCandidatePaths(filename)
+    .find(candidate => fs.existsSync(candidate) && fs.statSync(candidate).isFile())
+  if (!filePath) return null
+
+  const buffer = fs.readFileSync(filePath)
+  const ext = path.extname(filePath).toLowerCase()
+  const mimeType = ext === '.jpg' || ext === '.jpeg'
+    ? 'image/jpeg'
+    : ext === '.gif'
+      ? 'image/gif'
+      : ext === '.webp'
+        ? 'image/webp'
+        : ext === '.bmp'
+          ? 'image/bmp'
+          : ext === '.tiff' || ext === '.tif'
+            ? 'image/tiff'
+            : detectImageMimeTypeFromBuffer(buffer)
+
+  return toDataUriFromBuffer(buffer, mimeType)
+}
+
+async function fetchImageAsDataUri(targetUrl: string): Promise<string> {
+  const response = await fetch(targetUrl)
+  if (!response.ok) {
+    throw new Error(`参考图下载失败: ${response.status} (${targetUrl})`)
+  }
+  const mimeTypeHeader = response.headers.get('content-type')?.split(';')[0]?.trim()
+  const buffer = Buffer.from(await response.arrayBuffer())
+  return toDataUriFromBuffer(buffer, mimeTypeHeader && mimeTypeHeader.startsWith('image/') ? mimeTypeHeader : undefined)
+}
+
+async function resolveImageInputToDataUri(rawValue: string | undefined, requestOrigin?: string): Promise<string | undefined> {
+  const raw = rawValue?.trim()
+  if (!raw) return undefined
+
+  const normalized = normalizeLegacyImagePath(raw)
+
+  const dataUriMatch = normalized.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s)
+  if (dataUriMatch?.[1] && dataUriMatch[2]) {
+    return toDataUriFromPayload(dataUriMatch[2], dataUriMatch[1])
+  }
+
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    return fetchImageAsDataUri(normalized)
+  }
+
+  if (normalized.startsWith('/') && !isLikelyBase64Image(normalized)) {
+    const localDataUri = resolveGeneratedImageDataUri(normalized)
+    if (localDataUri) return localDataUri
+
+    const origin = normalizeOriginValue(requestOrigin)
+    if (origin) {
+      return fetchImageAsDataUri(`${origin}${normalized}`)
+    }
+
+    throw new Error(`无法读取站内图片路径: ${normalized}`)
+  }
+
+  if (normalized.startsWith('asset://') || normalized.startsWith('ref:')) {
+    throw new Error(`不支持的图片引用格式: ${normalized.slice(0, 32)}`)
+  }
+
+  return toDataUriFromPayload(normalized)
+}
+
+async function normalizeVideoConfigImageInputs(
+  config: typeof GenerateVideoRequestSchema._type['config'],
+  requestOrigin?: string
+): Promise<typeof GenerateVideoRequestSchema._type['config']> {
+  const cache = new Map<string, string>()
+  const normalizeOne = async (input?: string): Promise<string | undefined> => {
+    const key = input?.trim()
+    if (!key) return undefined
+    if (cache.has(key)) return cache.get(key)
+    const resolved = await resolveImageInputToDataUri(key, requestOrigin)
+    if (resolved) cache.set(key, resolved)
+    return resolved
+  }
+
+  const referenceImagesRaw = Array.isArray(config.referenceImages) ? config.referenceImages : []
+  const normalizedReferences = await Promise.all(referenceImagesRaw.map(item => normalizeOne(item)))
+  const dedupe = new Set<string>()
+  const referenceImages = normalizedReferences
+    .filter((item): item is string => !!item)
+    .filter((item) => {
+      if (dedupe.has(item)) return false
+      dedupe.add(item)
+      return true
+    })
+
+  return {
+    ...config,
+    imageUrl: await normalizeOne(config.imageUrl),
+    firstFrame: await normalizeOne(config.firstFrame),
+    lastFrame: await normalizeOne(config.lastFrame),
+    referenceImages: referenceImages.length > 0 ? referenceImages : undefined
+  }
+}
 
 function withVolcengineRealismPrompt(prompt: string): string {
   if (/真人实拍|真人写实|写实风格|photoreal|realistic skin|cinematic lighting/i.test(prompt)) {
@@ -865,17 +1106,22 @@ async function generateVideoWithGemini(
         // 使用首尾帧插值模式
         // 注意：使用插值时 durationSeconds 必须为 8 秒
         // 参考文档：https://ai.google.dev/gemini-api/docs/video#using-first-and-last-video-frames
+        const firstFrame = await resolveGeminiImageInput(config.firstFrame)
+        const lastFrame = await resolveGeminiImageInput(config.lastFrame)
+        if (!firstFrame || !lastFrame) {
+          throw new Error('首尾帧模式要求可用的首帧与尾帧图片')
+        }
         const operation = await client.models.generateVideos({
           model: initialModel,
           prompt: config.prompt,
           image: {
-            imageBytes: config.firstFrame,
-            mimeType: 'image/png'
+            imageBytes: firstFrame.imageBytes,
+            mimeType: firstFrame.mimeType
           },
           config: {
             lastFrame: {
-              imageBytes: config.lastFrame,
-              mimeType: 'image/png'
+              imageBytes: lastFrame.imageBytes,
+              mimeType: lastFrame.mimeType
             },
             aspectRatio: config.aspectRatio,
             durationSeconds: 8, // 插值模式必须为 8 秒

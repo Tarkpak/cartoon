@@ -147,21 +147,43 @@ async function generateCharacterSheet(
     throw new Error('角色图生成失败：未返回可用图片数据')
   }
 
-  try {
-    const localImagePath = await persistImageToPublic({
-      source: imageSource,
-      prefix: `char_${character.id}`
-    })
+  if (workflowType === 'asset_consistency') {
+    try {
+      const localImagePath = await persistImageToPublic({
+        source: imageSource,
+        prefix: `char_${character.id}`
+      })
 
+      return {
+        imageData: localImagePath,
+        mimeType: 'image/url'
+      }
+    } catch (persistError) {
+      console.error('[CharacterGen] 图片本地持久化失败，降级为原始返回:', persistError)
+      return {
+        imageData: imageSource,
+        mimeType: result.imageUrl ? 'image/url' : (result.mimeType || 'image/png')
+      }
+    }
+  }
+
+  // 经典工作流维持历史行为，优先返回 base64
+  if (result.imageData) {
     return {
-      imageData: localImagePath,
+      imageData: result.imageData,
+      mimeType: result.mimeType || 'image/png'
+    }
+  }
+
+  if (result.imageUrl) {
+    return {
+      imageData: result.imageUrl,
       mimeType: 'image/url'
     }
-  } catch (persistError) {
-    console.error('[CharacterGen] 图片本地持久化失败，降级为原始返回:', persistError)
-    return {
-      imageData: imageSource,
-      mimeType: result.imageUrl ? 'image/url' : (result.mimeType || 'image/png')
-    }
+  }
+
+  return {
+    imageData: imageSource,
+    mimeType: result.mimeType || 'image/png'
   }
 }
