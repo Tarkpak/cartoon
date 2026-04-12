@@ -957,34 +957,48 @@ Notes:
 
 // ========== 角色设定图 ==========
 const CHARACTER_SHEET_CONTENT: PromptTemplate['content'] = {
-  zh: `为 {{characterName}} 创建一张专业角色设定图（Character Sheet）。
+  zh: `为 {{characterName}} 创建一张 3D 彩绘角色设定图（Character Sheet）。
 
-画风：{{style}}
-角色外貌：{{appearance}}
+风格要求：
+- 主风格：3D 彩绘（3D painted illustration），电影级光影与体积感，保留绘画质感，不要照片感。
+- 兼容风格：{{style}}
+- 角色外貌严格依据：{{appearance}}
+- 若存在参考图，必须优先保持角色身份一致（脸型、五官、发型、服装、配饰）。
 
-核心要求：
-1. 16:9 横版构图，角色严格按照输入设定生成；若存在参考图，必须以参考图为最高优先级。
-2. 左侧 1/3 区域：超大高清面部特写（头肩构图），清晰展示五官、皮肤质感与发丝细节。
-3. 右侧 2/3 区域：整齐排布三张全身三视图，均为全身站姿，依次为正面（Front）、侧面（Profile）、背面（Back）。
-4. 背景必须为纯白色背景，不要任何场景元素、道具堆叠或装饰图形。
-5. 视觉对齐：三视图比例严格一致，确保角色身高、头身比、五官位置、服装结构与褶皱在不同视角下完美对应。
-6. 画质要求：超高清、超写实、8K 级别、CG 建模渲染质感；整体风格统一，边缘清晰。
+画面与布局：
+1. 16:9 横版构图，单角色。
+2. 背景为纯白或极浅灰，干净无场景元素。
+3. 同一张图内包含三视图全身站姿：正面（Front）、侧面（Profile）、背面（Back）。
+4. 可加入一个主视觉半身彩绘像（用于展示材质与光影），但不得遮挡三视图主体信息。
+5. 三视图比例必须严格一致，头身比、服装结构、纹理细节在不同视角保持对应。
 
-禁止包含：复杂背景、角色被裁切、视角缺失、多人同框、大段文字、水印、Logo、低清晰度、夸张透视变形`,
-  en: `Create a professional character sheet for {{characterName}}.
+质量要求：
+- 超高清、8K 质感、边缘清晰、色彩层次丰富
+- 材质表达明确（皮肤、布料、金属、皮革等）
+- 适合后续作为角色一致性参考资产
 
-Style: {{style}}
-Character appearance: {{appearance}}
+禁止包含：多人同框、角色裁切、复杂背景、大段文字、水印、Logo、低清晰度、严重透视畸变`,
+  en: `Create a 3D painted character sheet for {{characterName}}.
 
-Core requirements:
-1. Use a 16:9 horizontal layout. Follow the provided character definition strictly; if a reference image exists, treat it as the highest-priority constraint.
-2. Left 1/3 area: an ultra-clear large facial close-up (head-and-shoulders framing), with readable facial features, skin texture, and hair details.
-3. Right 2/3 area: neatly arrange three full-body standing turnaround views in order: Front, Profile, and Back.
-4. Background must be pure white only. No scene elements, decorative graphics, or prop clutter.
-5. Visual alignment: keep strict scale consistency across all views so height, facial landmark positions, outfit structure, and clothing folds match perfectly between angles.
-6. Quality target: ultra high-definition, ultra-realistic, 8K-level CG render quality, with consistent style and crisp edges.
+Style requirements:
+- Primary style: 3D painted illustration with cinematic lighting and volumetric depth, painterly finish (not photoreal).
+- Compatible style context: {{style}}
+- Follow character appearance strictly: {{appearance}}
+- If reference images exist, preserve identity consistency first (face shape, facial features, hairstyle, outfit, accessories).
 
-DO NOT include: complex backgrounds, cropped body parts, missing required views, multiple characters, large text blocks, watermarks, logos, low quality artifacts, or exaggerated perspective distortion`
+Composition and layout:
+1. 16:9 horizontal composition, single character only.
+2. Background must be pure white or very light gray, clean and minimal.
+3. Include full-body turnaround views in one image: Front, Profile, and Back.
+4. You may add one half-body hero portrait to showcase materials and lighting, but it must not block turnaround readability.
+5. Keep strict scale consistency across the turnaround views, including head-body ratio, outfit structure, and texture details.
+
+Quality target:
+- Ultra high definition, 8K-grade quality, crisp edges, rich color layering
+- Clear material rendering (skin, fabric, metal, leather, etc.)
+- Suitable as reusable identity-consistency reference assets
+
+DO NOT include: multiple characters, cropped body parts, complex backgrounds, large text blocks, watermarks, logos, low-quality artifacts, or severe perspective distortion`
 }
 
 

@@ -121,18 +121,10 @@ const GenerateFrameRequestSchema = z.object({
   enforcePreviousFrameConnection: z.boolean().default(true).describe('是否强制与上一场景尾帧连接')
 })
 
-const SEEDANCE_VIDEO_MODEL_RE = /seedance/i
-const LINEART_PROMPT_RE = /(线稿|line\s*art|black\s*and\s*white)/i
 const SCENE_DYNAMIC_CUE_RE = /(走向|转身|离开|起身|奔跑|追逐|跌倒|冲刺|挥手|拥抱|打斗|爆炸|变换|切换|推进|拉远|pan|tilt|zoom|track|dolly|arc|run|walk|turn|leave|enter|move)/i
-const SEEDANCE_LINEART_PROMPT_SUFFIX = [
-  '【Seedance 参考图规范】',
-  '输出必须为黑白线稿（black and white line art），仅保留轮廓线与结构线，不要彩色填充，不要照片质感。',
-  '角色身份、服装轮廓、发型和构图需要与参考图保持一致，不要新增人物，不要文字和水印。'
-].join('\n')
 
 type FrameGenerationOptions = {
   frameModelId: string
-  useSeedanceLineart: boolean
 }
 
 type AspectRatio = '16:9' | '9:16' | '1:1'
@@ -153,17 +145,6 @@ function resolveAspectRatioHint(aspectRatio: AspectRatio): string {
   if (aspectRatio === '9:16') return '竖屏 9:16'
   if (aspectRatio === '1:1') return '方形 1:1'
   return '横屏 16:9'
-}
-
-function isSeedanceVideoModel(modelId?: string): boolean {
-  if (!modelId) return false
-  return SEEDANCE_VIDEO_MODEL_RE.test(modelId)
-}
-
-function withSeedanceLineartPrompt(prompt: string, enabled: boolean): string {
-  if (!enabled) return prompt
-  if (LINEART_PROMPT_RE.test(prompt)) return prompt
-  return `${prompt}\n\n${SEEDANCE_LINEART_PROMPT_SUFFIX}`
 }
 
 function hasText(value?: string | null): boolean {
@@ -243,10 +224,8 @@ export default defineEventHandler(async (event) => {
     const workflowModels = await getWorkflowModels()
     const frameModelId = workflowModels.frame_generation
     const videoModelId = workflowModels.video_generation
-    const useSeedanceLineart = isSeedanceVideoModel(videoModelId)
     const generationOptions: FrameGenerationOptions = {
-      frameModelId,
-      useSeedanceLineart
+      frameModelId
     }
 
     // 2. 连续性检查
@@ -260,7 +239,7 @@ export default defineEventHandler(async (event) => {
     console.log(`[FrameGen] 视觉提取: ${sceneVisual?.imagePrompt ? '有imagePrompt' : '无imagePrompt'}`)
     console.log(`[FrameGen] 上一场景尾帧: ${previousSceneLastFrame ? '有' : '无'}`)
     console.log(`[FrameGen] 角色锚点: ${characterAnchors?.length || 0}个`)
-    console.log(`[FrameGen] 图片模型: ${frameModelId}, 视频模型: ${videoModelId}, 线稿模式: ${useSeedanceLineart}`)
+    console.log(`[FrameGen] 图片模型: ${frameModelId}, 视频模型: ${videoModelId}, Seedance线稿约束: disabled`)
     console.log(`[FrameGen] 目标比例: ${aspectRatio}`)
 
     // 3. 强制尾帧连接检查（非首场景必须有上一场景尾帧）
@@ -553,7 +532,7 @@ async function generateFirstFrame(
     console.log('[FrameGen] 参考图数量超过4张，已截取前4张')
   }
 
-  const effectivePrompt = withSeedanceLineartPrompt(prompt, !!generationOptions?.useSeedanceLineart)
+  const effectivePrompt = prompt
   console.log(`[FrameGen] 生成首帧，参考图数量: ${referenceImages.length}`)
   const modelId = generationOptions?.frameModelId || (await getWorkflowModels()).frame_generation
   console.log(`[FrameGen] 使用图片模型: ${modelId}`)
@@ -992,7 +971,7 @@ async function generateLastFrame(
     prompt = templatePrompt || buildLastFramePrompt(scene, style, storyboard, characterConsistencyPrompt, aspectRatio)
   }
 
-  const effectivePrompt = withSeedanceLineartPrompt(prompt, !!generationOptions?.useSeedanceLineart)
+  const effectivePrompt = prompt
   console.log(`[FrameGen] 生成尾帧，参考图数量: ${referenceImages.length}`)
   const modelId = generationOptions?.frameModelId || (await getWorkflowModels()).frame_generation
   console.log(`[FrameGen] 尾帧使用图片模型: ${modelId}`)
