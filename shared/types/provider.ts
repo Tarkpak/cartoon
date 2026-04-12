@@ -54,6 +54,7 @@ export const VideoModelConfigSchema = z.object({
   supportFirstLastFrame: z.boolean().default(false).describe('是否支持首尾帧'),
   supportImageToVideo: z.boolean().default(false).describe('是否支持图生视频'),
   supportReferenceImages: z.boolean().optional().describe('是否支持多参考图（referenceImages）'),
+  maxReferenceImages: z.number().int().positive().optional().describe('多参考图最大数量（按模型能力）'),
   supportTextToVideo: z.boolean().default(true).describe('是否支持文生视频'),
   docUrl: z.string().optional().describe('API文档链接')
 })

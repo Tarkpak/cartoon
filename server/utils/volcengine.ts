@@ -783,10 +783,12 @@ export async function _volcengineGenerateVideo(options: {
   imageUrl?: string
   firstFrameUrl?: string
   lastFrameUrl?: string
+  referenceImages?: string[]
   duration?: number
   size?: string
   resolution?: string
   negativePrompt?: string
+  maxReferenceImages?: number
   maxRetries?: number
 }): Promise<{ videoUrl: string, taskId: string }> {
   const normalizedImageUrl = normalizeVideoImageInput(options.imageUrl)
@@ -805,11 +807,33 @@ export async function _volcengineGenerateVideo(options: {
     }
   }
 
+  const maxReferenceImages = Math.max(
+    1,
+    Math.min(
+      9,
+      Math.round(
+        options.maxReferenceImages
+          ?? (model.includes('seedance-2-0') ? 9 : 4)
+      )
+    )
+  )
+
+  const normalizedReferenceImages = Array.from(new Set(
+    (options.referenceImages || [])
+      .map(item => normalizeVideoImageInput(item))
+      .filter((item): item is string => !!item)
+  )).slice(0, maxReferenceImages)
+
+  const hasReferenceImages = normalizedReferenceImages.length > 0
+  const usingFirstLastFrame = !hasReferenceImages && !!normalizedFirstFrameUrl && !!normalizedLastFrameUrl
+  const usingSingleImage = !hasReferenceImages && !usingFirstLastFrame && !!(normalizedImageUrl || normalizedFirstFrameUrl)
+
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Volcengine] generateVideo 请求参数:`, {
     model,
     promptLength: options.prompt.length,
     prompt: options.prompt,
+    inputMode: hasReferenceImages ? 'reference_images' : usingFirstLastFrame ? 'first_last_frame' : usingSingleImage ? 'single_image' : 'text_only',
     hasImageUrl: !!normalizedImageUrl,
     imageUrlLength: normalizedImageUrl?.length || 0,
     imageUrlKind: resolveImageInputKind(normalizedImageUrl),
@@ -820,6 +844,9 @@ export async function _volcengineGenerateVideo(options: {
     hasLastFrameUrl: !!normalizedLastFrameUrl,
     lastFrameUrlLength: normalizedLastFrameUrl?.length || 0,
     lastFrameUrlKind: resolveImageInputKind(normalizedLastFrameUrl),
+    hasReferenceImages,
+    referenceImagesCount: normalizedReferenceImages.length,
+    maxReferenceImages,
     duration: options.duration,
     size: options.size,
     resolution: options.resolution,
@@ -837,36 +864,35 @@ export async function _volcengineGenerateVideo(options: {
       text: options.prompt
     })
     
-    // 添加图片 (图生视频模式)
-    if (normalizedImageUrl) {
+    // 参考图模式与首帧/首尾帧模式互斥
+    if (hasReferenceImages) {
+      for (const referenceImage of normalizedReferenceImages) {
+        content.push({
+          type: 'image_url',
+          role: 'reference_image',
+          image_url: { url: referenceImage }
+        })
+      }
+    } else if (usingFirstLastFrame) {
       content.push({
         type: 'image_url',
         role: 'first_frame',
-        image_url: { url: normalizedImageUrl }
+        image_url: { url: normalizedFirstFrameUrl! }
       })
-    }
-
-    // 首尾帧模式: 需要同时传入首帧和尾帧
-    if (normalizedFirstFrameUrl && normalizedLastFrameUrl && !normalizedImageUrl) {
-      // 首帧
-      content.push({
-        type: 'image_url',
-        role: 'first_frame',
-        image_url: { url: normalizedFirstFrameUrl }
-      })
-      // 尾帧
       content.push({
         type: 'image_url',
         role: 'last_frame',
-        image_url: { url: normalizedLastFrameUrl }
+        image_url: { url: normalizedLastFrameUrl! }
       })
-    } else if (normalizedFirstFrameUrl && !normalizedImageUrl) {
-      // 仅首帧模式
-      content.push({
-        type: 'image_url',
-        role: 'first_frame',
-        image_url: { url: normalizedFirstFrameUrl }
-      })
+    } else if (usingSingleImage) {
+      const singleImage = normalizedImageUrl || normalizedFirstFrameUrl
+      if (singleImage) {
+        content.push({
+          type: 'image_url',
+          role: 'first_frame',
+          image_url: { url: singleImage }
+        })
+      }
     }
 
     const requestBody: Record<string, unknown> = {
@@ -888,8 +914,10 @@ export async function _volcengineGenerateVideo(options: {
     const requestSummary = {
       model: requestBody.model,
       contentTypes: content.map(c => c.type),
+      contentRoles: content.filter(c => c.type === 'image_url').map(c => c.role || 'none'),
       textPrompt: content.find(c => c.type === 'text')?.text?.slice(0, 100) + '...',
       hasImages: content.filter(c => c.type === 'image_url').length,
+      referenceImagesCount: content.filter(c => c.role === 'reference_image').length,
       duration: requestBody.duration,
       resolution: requestBody.resolution
     }

@@ -237,14 +237,28 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     supportFirstLastFrame: true,
     supportImageToVideo: true,
     supportReferenceImages: true,
+    maxReferenceImages: 3,
     supportTextToVideo: true,
     docUrl: 'https://ai.google.dev/gemini-api/docs/video'
   },
   {
     provider: 'gemini',
     model: gemini.VideoModels.VEO_3_1_FAST,
+    displayName: 'Veo 3.1 Fast',
+    description: '速度优化版本（Fast）',
+    maxDuration: 8,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportReferenceImages: true,
+    maxReferenceImages: 3,
+    supportTextToVideo: true,
+    docUrl: 'https://ai.google.dev/gemini-api/docs/video'
+  },
+  {
+    provider: 'gemini',
+    model: gemini.VideoModels.VEO_3_1_LITE,
     displayName: 'Veo 3.1 Lite',
-    description: '速度优化版本（Lite）',
+    description: '轻量版本（不支持多参考图）',
     maxDuration: 8,
     supportFirstLastFrame: true,
     supportImageToVideo: true,
@@ -351,6 +365,8 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     maxDuration: 15,
     supportFirstLastFrame: true,
     supportImageToVideo: true,
+    supportReferenceImages: true,
+    maxReferenceImages: 9,
     supportTextToVideo: true,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   },
@@ -362,6 +378,8 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     maxDuration: 15,
     supportFirstLastFrame: true,
     supportImageToVideo: true,
+    supportReferenceImages: true,
+    maxReferenceImages: 9,
     supportTextToVideo: true,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   }
