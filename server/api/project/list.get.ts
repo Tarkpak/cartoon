@@ -44,6 +44,7 @@ export default defineEventHandler(async () => {
           id: p.id,
           title: p.name,
           description: p.description,
+          workflowType: p.workflowType || 'classic',
           styleId: p.styleId,
           aspectRatio: p.aspectRatio,
           status: p.status,

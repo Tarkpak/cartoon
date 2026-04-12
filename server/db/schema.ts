@@ -6,9 +6,10 @@ export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description'),
+  workflowType: text('workflow_type', { enum: ['classic', 'asset_consistency'] }).notNull().default('classic'),
   // 项目预设配置 (必填)
-  styleId: text('style_id').notNull(),  // 风格预设 ID
-  aspectRatio: text('aspect_ratio', { enum: ['16:9', '9:16', '1:1'] }).notNull().default('16:9'),  // 视频比例
+  styleId: text('style_id').notNull(), // 风格预设 ID
+  aspectRatio: text('aspect_ratio', { enum: ['16:9', '9:16', '1:1'] }).notNull().default('16:9'), // 视频比例
   status: text('status', { enum: ['draft', 'in_progress', 'completed'] }).default('draft'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull()

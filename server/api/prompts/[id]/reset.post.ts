@@ -4,10 +4,12 @@
  */
 
 import { resetPromptTemplate } from '../../../utils/prompt-template'
+import { resolvePromptWorkflowFromEvent } from '../../../utils/prompt-workflow'
 import type { PromptTemplateId } from '../../../../shared/types/prompt-template'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id') as PromptTemplateId
+  const workflow = resolvePromptWorkflowFromEvent(event)
 
   if (!id) {
     throw createError({
@@ -17,7 +19,7 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const template = await resetPromptTemplate(id)
+    const template = await resetPromptTemplate(id, workflow)
 
     if (!template) {
       throw createError({
@@ -29,6 +31,7 @@ export default defineEventHandler(async (event) => {
     return {
       success: true,
       data: template,
+      workflow,
       message: '模板已重置为默认值'
     }
   } catch (error) {

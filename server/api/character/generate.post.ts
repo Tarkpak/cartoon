@@ -6,11 +6,26 @@ import { imageLimiter } from '../../utils/concurrency'
 import { getWorkflowModels } from '../models/workflow.get'
 import { getInterpolatedPrompt } from '../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
+import { normalizeProjectWorkflowType, type ProjectWorkflowType } from '../../../shared/types/project'
 import {
   GenerateCharacterRequestSchema,
   type CharacterAsset,
   type Character
 } from '../../../shared/types/character'
+
+const SEEDANCE_VIDEO_MODEL_RE = /seedance/i
+const LINEART_PROMPT_RE = /(线稿|line\s*art|black\s*and\s*white)/i
+const CHARACTER_LINEART_PROMPT_SUFFIX = [
+  '【Seedance 参考图规范】',
+  '输出必须为黑白线稿（black and white line art），仅保留轮廓线与结构线，不要彩色填充，不要照片质感。',
+  '保持角色身份特征与服装轮廓一致，不要新增人物，不要文字和水印。'
+].join('\n')
+
+function withCharacterLineartPrompt(prompt: string, enabled: boolean): string {
+  if (!enabled) return prompt
+  if (LINEART_PROMPT_RE.test(prompt)) return prompt
+  return `${prompt}\n\n${CHARACTER_LINEART_PROMPT_SUFFIX}`
+}
 
 /**
  * 角色生成 API
@@ -36,12 +51,13 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { character, style, generateExpressions } = parseResult.data
+  const { character, style, generateExpressions, workflowType } = parseResult.data
+  const normalizedWorkflow = normalizeProjectWorkflowType(workflowType)
 
   try {
     // 生成角色设定图（一张图包含所有信息）
     console.log(`[CharacterGen] 开始生成角色设定图: ${character.name}`)
-    const sheetResult = await generateCharacterSheet(character, style, generateExpressions)
+    const sheetResult = await generateCharacterSheet(character, style, generateExpressions, normalizedWorkflow)
 
     // 构建资产对象
     const now = new Date().toISOString()
@@ -71,17 +87,15 @@ export default defineEventHandler(async (event) => {
       // 解析错误信息，提供更友好的提示
       let userMessage = error.message
       const errorCode = String((error as GeminiError).code || 'UNKNOWN')
-      
+
       // 敏感内容检测错误
       if (error.message.includes('sensitive') || errorCode.includes('Sensitive')) {
         userMessage = '输入内容可能包含敏感信息，请修改角色描述后重试'
-      }
-      // 配额/限流错误
-      else if (errorCode === 'RESOURCE_EXHAUSTED' || error.message.includes('quota') || error.message.includes('rate limit')) {
+      } else if (errorCode === 'RESOURCE_EXHAUSTED' || error.message.includes('quota') || error.message.includes('rate limit')) {
+        // 配额/限流错误
         userMessage = 'API 调用次数已达上限，请稍后重试'
-      }
-      // 模型不可用
-      else if (errorCode === 'UNAVAILABLE' || error.message.includes('unavailable')) {
+      } else if (errorCode === 'UNAVAILABLE' || error.message.includes('unavailable')) {
+        // 模型不可用
         userMessage = 'AI 服务暂时不可用，请稍后重试'
       }
 
@@ -91,7 +105,7 @@ export default defineEventHandler(async (event) => {
         message: userMessage
       })
     }
-    
+
     // 其他未知错误
     throw createError({
       statusCode: 500,
@@ -108,8 +122,13 @@ export default defineEventHandler(async (event) => {
 async function generateCharacterSheet(
   character: Character,
   style: string,
-  _includeExpressions: boolean
+  _includeExpressions: boolean,
+  workflowType: ProjectWorkflowType
 ): Promise<{ imageData: string, mimeType: string }> {
+  const workflowModels = await getWorkflowModels()
+  const modelId = workflowModels.character_portrait
+  const useSeedanceLineart = SEEDANCE_VIDEO_MODEL_RE.test(workflowModels.video_generation || '')
+
   // 从数据库获取提示词模板
   const prompt = await getInterpolatedPrompt(
     PROMPT_TEMPLATE_IDS.CHARACTER_SHEET,
@@ -117,22 +136,22 @@ async function generateCharacterSheet(
       characterName: character.name,
       appearance: character.appearance,
       style
-    }
+    },
+    undefined,
+    workflowType
   )
 
   if (!prompt) {
     throw new Error('无法获取提示词模板，请检查数据库配置')
   }
-
-  // 从工作流配置获取角色立绘生成模型
-  const workflowModels = await getWorkflowModels()
-  const modelId = workflowModels.character_portrait
+  const effectivePrompt = withCharacterLineartPrompt(prompt, useSeedanceLineart)
   console.log(`[CharacterGen] 使用图片模型: ${modelId}`)
+  console.log(`[CharacterGen] 视频模型: ${workflowModels.video_generation}, 线稿模式: ${useSeedanceLineart}`)
 
   const result = await imageLimiter.execute(() =>
     generateImage({
       modelId,
-      prompt,
+      prompt: effectivePrompt,
       maxRetries: 2
     })
   )

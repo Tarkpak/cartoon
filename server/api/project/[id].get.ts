@@ -141,6 +141,7 @@ export default defineEventHandler(async (event) => {
       selectedModels?: unknown
       outline?: unknown
       inputMode?: 'idea' | 'script'
+      assetWorkflow?: unknown
     } | null = null
     if (script?.rawText) {
       try {
@@ -158,6 +159,7 @@ export default defineEventHandler(async (event) => {
           id: project.id,
           name: project.name,
           description: project.description,
+          workflowType: project.workflowType || 'classic',
           styleId: project.styleId,
           aspectRatio: project.aspectRatio,
           status: project.status,
@@ -178,6 +180,7 @@ export default defineEventHandler(async (event) => {
               selectedModels: scriptData?.selectedModels || null,
               outline: scriptData?.outline || null,
               inputMode: scriptData?.inputMode || 'idea',
+              assetWorkflow: scriptData?.assetWorkflow || null,
               parsedData: script.parsedData ? JSON.parse(script.parsedData) : null,
               totalDuration: script.totalDuration
             }

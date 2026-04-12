@@ -154,6 +154,67 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+function detectImageMimeType(base64Payload: string): string {
+  const head = base64Payload.trim()
+  if (head.startsWith('/9j/')) return 'image/jpeg'
+  if (head.startsWith('iVBOR')) return 'image/png'
+  if (head.startsWith('R0lGOD')) return 'image/gif'
+  if (head.startsWith('UklGR')) return 'image/webp'
+  if (head.startsWith('Qk')) return 'image/bmp'
+  if (head.startsWith('SUkq') || head.startsWith('TU0A')) return 'image/tiff'
+  return 'image/png'
+}
+
+function isLikelyBase64Image(value: string): boolean {
+  const compact = value.replace(/\s+/g, '')
+  return compact.startsWith('/9j/')
+    || compact.startsWith('iVBOR')
+    || compact.startsWith('R0lGOD')
+    || compact.startsWith('UklGR')
+    || compact.startsWith('Qk')
+    || compact.startsWith('SUkq')
+    || compact.startsWith('TU0A')
+}
+
+function normalizeVideoImageInput(value?: string): string | undefined {
+  if (!value) return undefined
+  const raw = value.trim()
+  if (!raw) return undefined
+
+  if (
+    raw.startsWith('http://')
+    || raw.startsWith('https://')
+    || raw.startsWith('asset://')
+  ) {
+    return raw
+  }
+
+  if (raw.startsWith('/') && !isLikelyBase64Image(raw)) {
+    return raw
+  }
+
+  const dataUriMatch = raw.match(/^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/s)
+  if (dataUriMatch?.[2]) {
+    const payload = dataUriMatch[2].replace(/\s+/g, '')
+    const detectedMime = detectImageMimeType(payload)
+    return `data:${detectedMime};base64,${payload}`
+  }
+
+  // 兜底：按纯 base64 输入处理
+  const payload = raw.replace(/\s+/g, '')
+  const detectedMime = detectImageMimeType(payload)
+  return `data:${detectedMime};base64,${payload}`
+}
+
+function resolveImageInputKind(value?: string): 'none' | 'http' | 'asset' | 'data-uri' | 'path' | 'raw' {
+  if (!value) return 'none'
+  if (value.startsWith('http://') || value.startsWith('https://')) return 'http'
+  if (value.startsWith('asset://')) return 'asset'
+  if (value.startsWith('data:image/')) return 'data-uri'
+  if (value.startsWith('/')) return 'path'
+  return 'raw'
+}
+
 function parseError(error: unknown): VolcengineError {
   if (error instanceof VolcengineError) {
     return error
@@ -728,12 +789,16 @@ export async function _volcengineGenerateVideo(options: {
   negativePrompt?: string
   maxRetries?: number
 }): Promise<{ videoUrl: string, taskId: string }> {
+  const normalizedImageUrl = normalizeVideoImageInput(options.imageUrl)
+  const normalizedFirstFrameUrl = normalizeVideoImageInput(options.firstFrameUrl)
+  const normalizedLastFrameUrl = normalizeVideoImageInput(options.lastFrameUrl)
+
   // 根据输入选择模型 (仅使用支持首尾帧的模型)
   let model = options.model
   if (!model) {
-    if (options.firstFrameUrl && options.lastFrameUrl) {
+    if (normalizedFirstFrameUrl && normalizedLastFrameUrl) {
       model = VolcengineVideoModels.SEEDANCE_2_0  // 首尾帧模型
-    } else if (options.imageUrl || options.firstFrameUrl) {
+    } else if (normalizedImageUrl || normalizedFirstFrameUrl) {
       model = VolcengineVideoModels.SEEDANCE_2_0_FAST  // 图生视频
     } else {
       model = VolcengineVideoModels.SEEDANCE_2_0  // 文生视频默认使用 2.0
@@ -745,12 +810,16 @@ export async function _volcengineGenerateVideo(options: {
     model,
     promptLength: options.prompt.length,
     prompt: options.prompt,
-    hasImageUrl: !!options.imageUrl,
-    imageUrlLength: options.imageUrl?.length || 0,
-    hasFirstFrameUrl: !!options.firstFrameUrl,
-    firstFrameUrlLength: options.firstFrameUrl?.length || 0,
-    hasLastFrameUrl: !!options.lastFrameUrl,
-    lastFrameUrlLength: options.lastFrameUrl?.length || 0,
+    hasImageUrl: !!normalizedImageUrl,
+    imageUrlLength: normalizedImageUrl?.length || 0,
+    imageUrlKind: resolveImageInputKind(normalizedImageUrl),
+    imageUrlPreview: normalizedImageUrl?.slice(0, 40),
+    hasFirstFrameUrl: !!normalizedFirstFrameUrl,
+    firstFrameUrlLength: normalizedFirstFrameUrl?.length || 0,
+    firstFrameUrlKind: resolveImageInputKind(normalizedFirstFrameUrl),
+    hasLastFrameUrl: !!normalizedLastFrameUrl,
+    lastFrameUrlLength: normalizedLastFrameUrl?.length || 0,
+    lastFrameUrlKind: resolveImageInputKind(normalizedLastFrameUrl),
     duration: options.duration,
     size: options.size,
     resolution: options.resolution,
@@ -769,34 +838,34 @@ export async function _volcengineGenerateVideo(options: {
     })
     
     // 添加图片 (图生视频模式)
-    if (options.imageUrl) {
+    if (normalizedImageUrl) {
       content.push({
         type: 'image_url',
         role: 'first_frame',
-        image_url: { url: options.imageUrl }
+        image_url: { url: normalizedImageUrl }
       })
     }
 
     // 首尾帧模式: 需要同时传入首帧和尾帧
-    if (options.firstFrameUrl && options.lastFrameUrl && !options.imageUrl) {
+    if (normalizedFirstFrameUrl && normalizedLastFrameUrl && !normalizedImageUrl) {
       // 首帧
       content.push({
         type: 'image_url',
         role: 'first_frame',
-        image_url: { url: options.firstFrameUrl }
+        image_url: { url: normalizedFirstFrameUrl }
       })
       // 尾帧
       content.push({
         type: 'image_url',
         role: 'last_frame',
-        image_url: { url: options.lastFrameUrl }
+        image_url: { url: normalizedLastFrameUrl }
       })
-    } else if (options.firstFrameUrl && !options.imageUrl) {
+    } else if (normalizedFirstFrameUrl && !normalizedImageUrl) {
       // 仅首帧模式
       content.push({
         type: 'image_url',
         role: 'first_frame',
-        image_url: { url: options.firstFrameUrl }
+        image_url: { url: normalizedFirstFrameUrl }
       })
     }
 

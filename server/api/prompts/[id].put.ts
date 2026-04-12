@@ -5,6 +5,7 @@
 
 import { z } from 'zod'
 import { updatePromptTemplate } from '../../utils/prompt-template'
+import { resolvePromptWorkflowFromEvent } from '../../utils/prompt-workflow'
 import type { PromptTemplateId, BilingualContent } from '../../../shared/types/prompt-template'
 
 const UpdateSchema = z.object({
@@ -17,6 +18,7 @@ const UpdateSchema = z.object({
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id') as PromptTemplateId
+  const workflow = resolvePromptWorkflowFromEvent(event)
 
   if (!id) {
     throw createError({
@@ -40,7 +42,7 @@ export default defineEventHandler(async (event) => {
   const { content, note } = parseResult.data
 
   try {
-    const template = await updatePromptTemplate(id, content as BilingualContent, note)
+    const template = await updatePromptTemplate(id, content as BilingualContent, note, workflow)
 
     if (!template) {
       throw createError({
@@ -52,6 +54,7 @@ export default defineEventHandler(async (event) => {
     return {
       success: true,
       data: template,
+      workflow,
       message: '模板更新成功'
     }
   } catch (error) {

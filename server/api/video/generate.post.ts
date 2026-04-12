@@ -3,18 +3,16 @@ import { VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../
 import * as qwen from '../../utils/qwen'
 import * as kling from '../../utils/kling'
 import * as volcengine from '../../utils/volcengine'
-import { getSelectedModels, findVideoModel, generateImage } from '../../utils/model-provider'
+import { getSelectedModels, findVideoModel } from '../../utils/model-provider'
 import { getWorkflowModels } from '../models/workflow.get'
 import { videoLimiter } from '../../utils/concurrency'
 import { db, scenes as scenesTable, videoTasks as videoTasksTable } from '../../db'
-import { createCache } from '../../utils/cache'
 import {
   GenerateVideoRequestSchema,
   type GeneratedVideo
 } from '../../../shared/types/video'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { createHash } from 'node:crypto'
 
 /**
  * 视频生成 API
@@ -96,174 +94,18 @@ export default defineEventHandler(async (event) => {
  * 更新任务进度
  */
 type TaskStatus = 'pending' | 'processing' | 'completed' | 'failed'
-const VOLCENGINE_REAL_PERSON_BLOCK_RE = /InputImageSensitiveContentDetected\.PrivacyInformation|input image may contain real person/i
 const VOLCENGINE_REALISM_PROMPT_PREFIX = [
   '【真人实拍要求】',
   '@图1（若有@图2同样适用）角色必须保持同一人物身份',
   '真人实拍，电影级光影，真实皮肤质感，4K高清，面部稳定',
   '禁止换脸、禁止变更发型发色、禁止新增主角'
 ].join('\n')
-const SEEDANCE_SAFETY_STYLIZE_PROMPT = [
-  '把输入参考图转换成非真人手绘风格图（彩铅插画/线稿上色），整体必须看起来像绘画，不要照片质感。',
-  '严格保留人物身份特征：脸型、五官比例、发际线、发型、发色、服装轮廓与主色。',
-  '保持原图构图与视角，不要新增人物，不要文字，不要水印，背景简洁。',
-  '输出单张高质量手绘角色图。'
-].join(' ')
-const SEEDANCE_SAFETY_STYLIZE_NEGATIVE_PROMPT =
-  'photo, realistic skin, camera, watermark, text, logo, extra person, low quality, blurry'
-const seedanceSafetyImageCache = createCache<string>({
-  ttl: 24 * 60 * 60 * 1000,
-  maxSize: 500
-})
-
-function isVolcengineRealPersonBlockError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error || '')
-  return VOLCENGINE_REAL_PERSON_BLOCK_RE.test(message)
-}
 
 function withVolcengineRealismPrompt(prompt: string): string {
   if (/真人实拍|真人写实|写实风格|photoreal|realistic skin|cinematic lighting/i.test(prompt)) {
     return prompt
   }
   return `${VOLCENGINE_REALISM_PROMPT_PREFIX}\n${prompt}`
-}
-
-function normalizeImageInputForStyleTransfer(image?: string): string | undefined {
-  if (!image) return undefined
-  const value = image.trim()
-  if (!value) return undefined
-
-  if (value.startsWith('data:image/')) return value
-  if (value.startsWith('http://') || value.startsWith('https://')) return value
-
-  // 纯 base64，补齐 data URL
-  if (value.startsWith('/9j/')) return `data:image/jpeg;base64,${value}`
-  if (value.startsWith('iVBOR')) return `data:image/png;base64,${value}`
-  if (value.startsWith('R0lGOD')) return `data:image/gif;base64,${value}`
-  if (value.startsWith('UklGR')) return `data:image/webp;base64,${value}`
-
-  // 相对路径等不可直传给图片生成接口，跳过自动转换
-  return undefined
-}
-
-function buildSeedanceSafetyCacheKey(image: string): string {
-  const hash = createHash('sha256').update(image).digest('hex')
-  return `seedance:safe:${hash}`
-}
-
-async function stylizeImageForVolcengineSafety(
-  sourceImage: string | undefined,
-  label: 'image' | 'first' | 'last'
-): Promise<string | undefined> {
-  const normalized = normalizeImageInputForStyleTransfer(sourceImage)
-  if (!normalized) {
-    console.warn(`[VideoGen] ${label} 无法转换为可用参考图格式，跳过风格化`)
-    return undefined
-  }
-
-  const cacheKey = buildSeedanceSafetyCacheKey(normalized)
-  const cached = seedanceSafetyImageCache.get(cacheKey)
-  if (cached) {
-    console.log(`[VideoGen] ${label} 风格化命中缓存`)
-    return cached
-  }
-
-  try {
-    const stylized = await generateImage({
-      modelId: volcengine.VolcengineImageModels.SEEDREAM_5_0,
-      prompt: SEEDANCE_SAFETY_STYLIZE_PROMPT,
-      negativePrompt: SEEDANCE_SAFETY_STYLIZE_NEGATIVE_PROMPT,
-      referenceImages: [normalized],
-      size: '2K',
-      maxRetries: 1
-    })
-
-    if (stylized.imageUrl) {
-      console.log(`[VideoGen] ${label} 风格化成功(URL)`)
-      seedanceSafetyImageCache.set(cacheKey, stylized.imageUrl)
-      return stylized.imageUrl
-    }
-
-    if (stylized.imageData) {
-      const mimeType = stylized.mimeType || 'image/png'
-      const styledData = `data:${mimeType};base64,${stylized.imageData}`
-      console.log(`[VideoGen] ${label} 风格化成功(base64)`)
-      seedanceSafetyImageCache.set(cacheKey, styledData)
-      return styledData
-    }
-
-    return undefined
-  } catch (error) {
-    console.warn(`[VideoGen] ${label} 风格化失败:`, error)
-    return undefined
-  }
-}
-
-async function preprocessSeedanceInputs(
-  modelId: string,
-  prompt: string,
-  imageUrl?: string,
-  firstFrameUrl?: string,
-  lastFrameUrl?: string
-): Promise<{
-  prompt: string
-  imageUrl?: string
-  firstFrameUrl?: string
-  lastFrameUrl?: string
-  appliedSafetyImages: boolean
-}> {
-  const isSeedanceModel = modelId.includes('seedance')
-  if (!isSeedanceModel) {
-    return { prompt, imageUrl, firstFrameUrl, lastFrameUrl, appliedSafetyImages: false }
-  }
-
-  if (!imageUrl && !firstFrameUrl && !lastFrameUrl) {
-    return { prompt, imageUrl, firstFrameUrl, lastFrameUrl, appliedSafetyImages: false }
-  }
-
-  const patchedPrompt = withVolcengineRealismPrompt(prompt)
-  let nextImageUrl = imageUrl
-  let nextFirstFrameUrl = firstFrameUrl
-  let nextLastFrameUrl = lastFrameUrl
-  let applied = false
-
-  if (firstFrameUrl && lastFrameUrl) {
-    const [safeFirstFrame, safeLastFrame] = await Promise.all([
-      stylizeImageForVolcengineSafety(firstFrameUrl, 'first'),
-      stylizeImageForVolcengineSafety(lastFrameUrl, 'last')
-    ])
-    if (safeFirstFrame && safeLastFrame) {
-      nextFirstFrameUrl = safeFirstFrame
-      nextLastFrameUrl = safeLastFrame
-      applied = true
-    } else {
-      console.warn('[VideoGen] Seedance 预处理：首尾帧风格化未完整成功，保留原图继续尝试')
-    }
-  } else if (imageUrl) {
-    const safeImage = await stylizeImageForVolcengineSafety(imageUrl, 'image')
-    if (safeImage) {
-      nextImageUrl = safeImage
-      applied = true
-    } else {
-      console.warn('[VideoGen] Seedance 预处理：图生视频风格化失败，保留原图继续尝试')
-    }
-  } else if (firstFrameUrl) {
-    const safeFirstFrame = await stylizeImageForVolcengineSafety(firstFrameUrl, 'first')
-    if (safeFirstFrame) {
-      nextFirstFrameUrl = safeFirstFrame
-      applied = true
-    } else {
-      console.warn('[VideoGen] Seedance 预处理：首帧风格化失败，保留原图继续尝试')
-    }
-  }
-
-  return {
-    prompt: patchedPrompt,
-    imageUrl: nextImageUrl,
-    firstFrameUrl: nextFirstFrameUrl,
-    lastFrameUrl: nextLastFrameUrl,
-    appliedSafetyImages: applied
-  }
 }
 
 function normalizeVideoTaskError(error: unknown): string {
@@ -273,7 +115,7 @@ function normalizeVideoTaskError(error: unknown): string {
   if (!message) return '视频生成失败'
 
   if (/input image may contain real person/i.test(message)) {
-    return '输入图片触发真人隐私拦截。建议先将角色图转为插画/素描等非真人风格，再在提示词中加入“真人写实、电影级光影、真实皮肤质感、面部稳定”后重试。'
+    return '输入图片触发真人隐私拦截。若当前使用 Seedance，请先在前置步骤生成线稿参考图（角色立绘/首尾帧）后重试。'
   }
 
   if (/sensitive/i.test(message)) {
@@ -289,6 +131,165 @@ function normalizeVideoTaskError(error: unknown): string {
   }
 
   return message
+}
+
+function isGeminiDurationBoundError(error: unknown): boolean {
+  const rawMessage = error instanceof Error ? error.message : JSON.stringify(error)
+  if (!rawMessage) return false
+  return /durationSeconds.*out of bound|between\s+4\s+and\s+8/i.test(rawMessage)
+}
+
+function isGeminiUnsupportedVideoRequestError(error: unknown): boolean {
+  const rawMessage = error instanceof Error ? error.message : JSON.stringify(error)
+  if (!rawMessage) return false
+  return /unsupported video generation request|referenceimages\s+isn['’]?t\s+supported/i.test(rawMessage)
+}
+
+function clampGeminiDuration(duration: unknown): number {
+  const value = typeof duration === 'number' && Number.isFinite(duration)
+    ? Math.round(duration)
+    : 8
+  return Math.max(4, Math.min(8, value))
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(item => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean)
+}
+
+function extractGeminiErrorMessage(error: unknown): string | undefined {
+  if (!error) return undefined
+  if (error instanceof Error) {
+    const message = error.message?.trim()
+    if (message) return message
+  }
+  if (typeof error === 'string') {
+    const message = error.trim()
+    if (message) return message
+  }
+
+  const record = toRecord(error)
+  if (!record) return undefined
+
+  const directMessage = typeof record.message === 'string' ? record.message.trim() : ''
+  if (directMessage) return directMessage
+
+  const statusMessage = typeof record.statusMessage === 'string' ? record.statusMessage.trim() : ''
+  if (statusMessage) return statusMessage
+
+  const nestedError = extractGeminiErrorMessage(record.error)
+  if (nestedError) return nestedError
+
+  const details = Array.isArray(record.details) ? record.details : []
+  for (const detail of details) {
+    const detailMessage = extractGeminiErrorMessage(detail)
+    if (detailMessage) return detailMessage
+  }
+
+  return undefined
+}
+
+function parseGeminiOperationResponse(operation: { response?: unknown }): {
+  generatedVideos: Array<{ video?: unknown }>
+  raiMediaFilteredCount: number
+  raiMediaFilteredReasons: string[]
+} {
+  const responseRecord = toRecord(operation.response)
+
+  const generatedVideosRaw = responseRecord?.generatedVideos ?? responseRecord?.videos
+  const generatedVideos = Array.isArray(generatedVideosRaw)
+    ? (generatedVideosRaw as Array<{ video?: unknown }>)
+    : []
+
+  const filteredCountRaw = responseRecord?.raiMediaFilteredCount
+  const parsedCount = typeof filteredCountRaw === 'number'
+    ? filteredCountRaw
+    : Number(filteredCountRaw ?? 0)
+  const raiMediaFilteredCount = Number.isFinite(parsedCount) ? parsedCount : 0
+
+  const raiMediaFilteredReasons = toStringArray(responseRecord?.raiMediaFilteredReasons)
+
+  return {
+    generatedVideos,
+    raiMediaFilteredCount,
+    raiMediaFilteredReasons
+  }
+}
+
+function resolveGeminiModelId(config: typeof GenerateVideoRequestSchema._type['config']): string {
+  if (config.modelId) {
+    const modelConfig = findVideoModel(config.modelId)
+    if (modelConfig?.provider === 'gemini') {
+      return config.modelId
+    }
+  }
+
+  return config.model === 'fast'
+    ? VideoModels.VEO_3_1_FAST
+    : VideoModels.VEO_3_1
+}
+
+async function resolveGeminiImageInput(imageUrl?: string): Promise<{ imageBytes: string, mimeType: string } | null> {
+  const raw = imageUrl?.trim()
+  if (!raw) return null
+
+  const dataUriMatch = raw.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s)
+  if (dataUriMatch?.[1] && dataUriMatch[2]) {
+    return {
+      imageBytes: dataUriMatch[2],
+      mimeType: dataUriMatch[1]
+    }
+  }
+
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    const response = await fetch(raw)
+    if (!response.ok) {
+      throw new Error(`参考图下载失败: ${response.status}`)
+    }
+    const buffer = await response.arrayBuffer()
+    const mimeType = response.headers.get('content-type') || 'image/png'
+    return {
+      imageBytes: Buffer.from(buffer).toString('base64'),
+      mimeType
+    }
+  }
+
+  return {
+    imageBytes: raw,
+    mimeType: 'image/png'
+  }
+}
+
+async function resolveGeminiReferenceImages(
+  referenceImages?: string[]
+): Promise<Array<{ imageBytes: string, mimeType: string }>> {
+  if (!Array.isArray(referenceImages) || referenceImages.length === 0) {
+    return []
+  }
+
+  const normalized: Array<{ imageBytes: string, mimeType: string }> = []
+  const seen = new Set<string>()
+
+  for (const raw of referenceImages) {
+    const parsed = await resolveGeminiImageInput(raw)
+    if (!parsed) continue
+
+    const dedupeKey = `${parsed.mimeType}:${parsed.imageBytes}`
+    if (seen.has(dedupeKey)) continue
+    seen.add(dedupeKey)
+
+    normalized.push(parsed)
+    if (normalized.length >= 3) break
+  }
+
+  return normalized
 }
 
 async function updateTaskProgress(taskId: string, progress: number, status?: TaskStatus) {
@@ -354,7 +355,7 @@ async function determineProvider(config: typeof GenerateVideoRequestSchema._type
   if (config.provider === 'gemini' || config.provider === 'qwen' || config.provider === 'kling' || config.provider === 'volcengine') {
     return config.provider
   }
-  
+
   // 2. 如果指定了 modelId，从模型配置中获取
   if (config.modelId) {
     const modelConfig = findVideoModel(config.modelId)
@@ -362,7 +363,7 @@ async function determineProvider(config: typeof GenerateVideoRequestSchema._type
       return modelConfig.provider
     }
   }
-  
+
   // 3. 优先使用业务流程配置的模型 (从数据库读取)
   const workflowModels = await getWorkflowModels()
   const workflowVideoModel = workflowModels.video_generation
@@ -373,14 +374,14 @@ async function determineProvider(config: typeof GenerateVideoRequestSchema._type
       return workflowModelConfig.provider
     }
   }
-  
+
   // 4. 使用当前选择的模型
   const selected = getSelectedModels()
   const selectedModel = findVideoModel(selected.video)
   if (selectedModel && (selectedModel.provider === 'gemini' || selectedModel.provider === 'qwen' || selectedModel.provider === 'kling' || selectedModel.provider === 'volcengine')) {
     return selectedModel.provider
   }
-  
+
   // 5. 默认使用 Gemini
   return 'gemini'
 }
@@ -393,7 +394,7 @@ async function getActualModelId(config: typeof GenerateVideoRequestSchema._type[
   if (config.modelId) {
     return config.modelId
   }
-  
+
   // 2. 优先使用业务流程配置的模型 (从数据库读取)
   const workflowModels = await getWorkflowModels()
   const workflowVideoModel = workflowModels.video_generation
@@ -403,7 +404,7 @@ async function getActualModelId(config: typeof GenerateVideoRequestSchema._type[
       return workflowVideoModel
     }
   }
-  
+
   // 3. 使用当前选择的模型
   const selected = getSelectedModels()
   return selected.video
@@ -445,7 +446,7 @@ async function generateVideoWithQwen(
     // 确定模型 - 优先使用业务流程配置 (从数据库读取)
     let modelId = await getActualModelId(config)
     const modelConfig = modelId ? findVideoModel(modelId) : null
-    
+
     // 如果模型不是 qwen 的，使用默认 qwen 模型
     if (!modelConfig || modelConfig.provider !== 'qwen') {
       modelId = config.imageUrl ? qwen.QwenVideoModels.WAN_2_6_I2V : qwen.QwenVideoModels.WAN_2_6_T2V
@@ -457,16 +458,28 @@ async function generateVideoWithQwen(
       // 根据 resolution 和 aspectRatio 计算 size
       if (config.resolution === '1080p') {
         switch (config.aspectRatio) {
-          case '16:9': size = '1920*1080'; break
-          case '9:16': size = '1080*1920'; break
-          case '1:1': size = '1440*1440'; break
+          case '16:9':
+            size = '1920*1080'
+            break
+          case '9:16':
+            size = '1080*1920'
+            break
+          case '1:1':
+            size = '1440*1440'
+            break
           default: size = '1920*1080'
         }
       } else {
         switch (config.aspectRatio) {
-          case '16:9': size = '1280*720'; break
-          case '9:16': size = '720*1280'; break
-          case '1:1': size = '960*960'; break
+          case '16:9':
+            size = '1280*720'
+            break
+          case '9:16':
+            size = '720*1280'
+            break
+          case '1:1':
+            size = '960*960'
+            break
           default: size = '1280*720'
         }
       }
@@ -493,22 +506,22 @@ async function generateVideoWithQwen(
     // 调用千问视频生成
     // 检查是否是首尾帧模型
     const isKf2vModel = modelId?.includes('kf2v')
-    
+
     // 准备首尾帧 URL (如果有 base64 数据，转换为 data URL)
     let firstFrameUrl: string | undefined
     let lastFrameUrl: string | undefined
-    
+
     if (config.firstFrame) {
-      firstFrameUrl = config.firstFrame.startsWith('data:') 
-        ? config.firstFrame 
+      firstFrameUrl = config.firstFrame.startsWith('data:')
+        ? config.firstFrame
         : `data:image/png;base64,${config.firstFrame}`
     }
     if (config.lastFrame) {
-      lastFrameUrl = config.lastFrame.startsWith('data:') 
-        ? config.lastFrame 
+      lastFrameUrl = config.lastFrame.startsWith('data:')
+        ? config.lastFrame
         : `data:image/png;base64,${config.lastFrame}`
     }
-    
+
     console.log('[VideoGen] 首尾帧信息:', {
       isKf2vModel,
       hasFirstFrame: !!firstFrameUrl,
@@ -516,13 +529,13 @@ async function generateVideoWithQwen(
       firstFrameLength: firstFrameUrl?.length || 0,
       lastFrameLength: lastFrameUrl?.length || 0
     })
-    
+
     const result = await qwen._qwenGenerateVideo({
       model: modelId,
       prompt: config.prompt,
       imageUrl: config.imageUrl,
-      firstFrameUrl,  // 首尾帧模型需要
-      lastFrameUrl,   // 首尾帧模型需要
+      firstFrameUrl, // 首尾帧模型需要
+      lastFrameUrl, // 首尾帧模型需要
       audioUrl: config.audioUrl,
       duration,
       size,
@@ -739,22 +752,47 @@ async function generateVideoWithGemini(
     // 1. 调用 Veo API 开始生成
     await updateTaskProgress(taskId, 20)
 
-    // 根据是否有首尾帧决定生成方式
-    const hasFrames = config.firstFrame && config.lastFrame
+    // 根据输入决定生成方式：首尾帧 > 单图参考/多参考图 > 纯文本
+    const hasFrames = !!(config.firstFrame && config.lastFrame)
+    const resolvedSingleReferenceImage = hasFrames ? null : await resolveGeminiImageInput(config.imageUrl)
+    const referenceImages = hasFrames ? [] : await resolveGeminiReferenceImages(config.referenceImages)
+    const hasReferenceImages = referenceImages.length > 0
+    const fallbackSingleReferenceImage = resolvedSingleReferenceImage || referenceImages[0] || null
+    const hasSingleImage = !hasReferenceImages && !!resolvedSingleReferenceImage
 
-    // 根据配置选择模型
-    const selectedModel = config.model === 'fast'
-      ? VideoModels.VEO_3_1_FAST
-      : VideoModels.VEO_3_1
+    // Gemini 当前 Veo 3.1 系列稳定支持 4-8 秒
+    // 首尾帧插值模式固定 8 秒；使用 referenceImages 时官方要求也为 8 秒
+    let effectiveDurationSeconds = hasFrames || hasReferenceImages
+      ? 8
+      : clampGeminiDuration(config.duration)
+
+    // 优先尊重前端传入的 gemini 模型ID，否则根据快/高质量选择默认模型
+    const selectedModel = resolveGeminiModelId(config)
+    const selectedVideoModel = findVideoModel(selectedModel)
+    const modelSupportsReferenceImages = !!selectedVideoModel?.supportReferenceImages
+    const initialModel = hasReferenceImages && !modelSupportsReferenceImages
+      ? VideoModels.VEO_3_1
+      : selectedModel
+
+    if (hasReferenceImages && initialModel !== selectedModel) {
+      console.warn(`[VideoGen] 模型 ${selectedModel} 不支持 referenceImages，预切换到 ${initialModel}`)
+    }
 
     console.log('[VideoGen] Veo API 请求参数:', {
-      model: selectedModel,
+      requestedModel: selectedModel,
+      model: initialModel,
       promptLength: config.prompt.length,
       prompt: config.prompt,
       hasFirstFrame: !!config.firstFrame,
       hasLastFrame: !!config.lastFrame,
+      hasImageUrl: !!config.imageUrl,
+      hasReferenceImages,
+      referenceImagesCount: referenceImages.length,
+      hasSingleImage,
+      hasFallbackSingleImage: !!fallbackSingleReferenceImage,
       aspectRatio: config.aspectRatio,
       duration: config.duration,
+      effectiveDurationSeconds,
       resolution: config.resolution,
       withAudio: config.withAudio
     })
@@ -762,12 +800,57 @@ async function generateVideoWithGemini(
     // 使用视频并发限制器控制请求
     const startResult = await videoLimiter.execute(() => _geminiWithRetry(async ({ client, keyAlias }) => {
       console.log(`[VideoGen] 本次视频请求使用 key: ${keyAlias}`)
+      const submitNonInterpolation = async (options: {
+        durationSeconds: number
+        modelId?: string
+        withReferenceImages?: boolean
+        singleImage?: { imageBytes: string, mimeType: string } | null
+      }) => {
+        const modelId = options.modelId || initialModel
+        const withReferenceImages = options.withReferenceImages ?? hasReferenceImages
+        const singleImage = options.singleImage ?? (withReferenceImages ? null : resolvedSingleReferenceImage)
+        const requestConfig: Record<string, unknown> = {
+          aspectRatio: config.aspectRatio,
+          durationSeconds: options.durationSeconds,
+          resolution: config.resolution
+        }
+
+        if (withReferenceImages) {
+          requestConfig.referenceImages = referenceImages.map((item) => {
+            return {
+              image: {
+                imageBytes: item.imageBytes,
+                mimeType: item.mimeType
+              },
+              referenceType: 'ASSET'
+            }
+          })
+        }
+
+        const request = {
+          model: modelId,
+          prompt: config.prompt,
+          config: requestConfig
+        } as Parameters<typeof client.models.generateVideos>[0]
+
+        if (singleImage) {
+          Object.assign(request, {
+            image: {
+              imageBytes: singleImage.imageBytes,
+              mimeType: singleImage.mimeType
+            }
+          })
+        }
+
+        return client.models.generateVideos(request)
+      }
+
       if (hasFrames) {
         // 使用首尾帧插值模式
         // 注意：使用插值时 durationSeconds 必须为 8 秒
         // 参考文档：https://ai.google.dev/gemini-api/docs/video#using-first-and-last-video-frames
         const operation = await client.models.generateVideos({
-          model: selectedModel,
+          model: initialModel,
           prompt: config.prompt,
           image: {
             imageBytes: config.firstFrame,
@@ -783,19 +866,68 @@ async function generateVideoWithGemini(
             resolution: config.resolution
           }
         })
+        effectiveDurationSeconds = 8
         return { operation, client }
-      } else {
-        // 纯文本生成模式
-        const operation = await client.models.generateVideos({
-          model: selectedModel,
-          prompt: config.prompt,
-          config: {
-            aspectRatio: config.aspectRatio,
-            durationSeconds: config.duration,
-            resolution: config.resolution
-          }
+      }
+
+      // 单图参考或纯文本模式
+      try {
+        const operation = await submitNonInterpolation({
+          durationSeconds: effectiveDurationSeconds
         })
         return { operation, client }
+      } catch (error) {
+        // referenceImages 不可用时：先重试 veo-3.1，再自动降级为单图输入
+        if (hasReferenceImages && isGeminiUnsupportedVideoRequestError(error)) {
+          let fallbackError: unknown = error
+
+          if (initialModel !== VideoModels.VEO_3_1) {
+            try {
+              console.warn('[VideoGen] 当前模型不支持 referenceImages，自动回退 veo-3.1 重试')
+              const operation = await submitNonInterpolation({
+                durationSeconds: 8,
+                modelId: VideoModels.VEO_3_1,
+                withReferenceImages: true,
+                singleImage: null
+              })
+              effectiveDurationSeconds = 8
+              return { operation, client }
+            } catch (retryError) {
+              fallbackError = retryError
+            }
+          }
+
+          if (fallbackSingleReferenceImage) {
+            const singleImageDuration = clampGeminiDuration(config.duration)
+            try {
+              console.warn('[VideoGen] referenceImages 不可用，自动降级为单图模式重试')
+              const operation = await submitNonInterpolation({
+                durationSeconds: singleImageDuration,
+                modelId: VideoModels.VEO_3_1,
+                withReferenceImages: false,
+                singleImage: fallbackSingleReferenceImage
+              })
+              effectiveDurationSeconds = singleImageDuration
+              return { operation, client }
+            } catch (singleImageError) {
+              fallbackError = singleImageError
+            }
+          }
+
+          throw fallbackError
+        }
+
+        // 遇到 duration 边界错误时自动回退到 8 秒重试一次
+        if (isGeminiDurationBoundError(error) && effectiveDurationSeconds !== 8) {
+          console.warn(`[VideoGen] durationSeconds=${effectiveDurationSeconds} 被模型拒绝，自动回退到 8 秒重试`)
+          const fallbackDuration = 8
+          const operation = await submitNonInterpolation({
+            durationSeconds: fallbackDuration
+          })
+          effectiveDurationSeconds = fallbackDuration
+          return { operation, client }
+        }
+        throw error
       }
     }, { maxRetries: 2 }))
 
@@ -835,10 +967,64 @@ async function generateVideoWithGemini(
     // 3. 获取生成结果
     await updateTaskProgress(taskId, 95)
 
-    const generatedVideos = operation.response?.generatedVideos
+    let parsedResponse = parseGeminiOperationResponse(operation)
+
+    // done=true 但 response 仍为空时，短轮询两次避免短暂竞态
+    if (
+      parsedResponse.generatedVideos.length === 0
+      && parsedResponse.raiMediaFilteredCount === 0
+      && !extractGeminiErrorMessage(operation.error)
+    ) {
+      for (let retry = 0; retry < 2; retry++) {
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        operation = await operationClient.operations.getVideosOperation({
+          operation
+        })
+        parsedResponse = parseGeminiOperationResponse(operation)
+        if (
+          parsedResponse.generatedVideos.length > 0
+          || parsedResponse.raiMediaFilteredCount > 0
+          || extractGeminiErrorMessage(operation.error)
+        ) {
+          break
+        }
+      }
+    }
+
+    const generatedVideos = parsedResponse.generatedVideos
     if (!generatedVideos || generatedVideos.length === 0) {
+      if (parsedResponse.raiMediaFilteredCount > 0) {
+        const reasonSuffix = parsedResponse.raiMediaFilteredReasons.length > 0
+          ? `（${parsedResponse.raiMediaFilteredReasons.join(' / ')}）`
+          : ''
+        throw new GeminiError(
+          `视频被安全策略过滤，未返回可用结果${reasonSuffix}。请降低敏感描述后重试。`,
+          GeminiErrorCode.INTERNAL,
+          500,
+          false
+        )
+      }
+
+      const operationErrorMessage = extractGeminiErrorMessage(operation.error)
+      if (operationErrorMessage) {
+        throw new GeminiError(
+          operationErrorMessage,
+          GeminiErrorCode.INTERNAL,
+          500,
+          false
+        )
+      }
+
+      console.warn('[VideoGen] Veo 返回空结果:', {
+        operationName: operation.name,
+        done: operation.done,
+        hasError: !!operation.error,
+        raiMediaFilteredCount: parsedResponse.raiMediaFilteredCount,
+        raiMediaFilteredReasons: parsedResponse.raiMediaFilteredReasons
+      })
+
       throw new GeminiError(
-        '未能生成视频',
+        'Veo 返回空结果（无视频、无错误）。可能触发平台过滤或临时异常，请稍后重试。',
         GeminiErrorCode.INTERNAL,
         500,
         false
@@ -892,9 +1078,46 @@ async function generateVideoWithGemini(
       }
     } catch (downloadError) {
       console.error(`[VideoGen] 视频下载失败:`, downloadError)
-      // 存储视频引用供后续处理
-      const videoInfo = generatedVideo.video as { name?: string }
-      videoData = videoInfo?.name ? `ref:${videoInfo.name}` : ''
+      // 回退处理：优先使用返回的 URI / videoBytes / 引用标识
+      const videoInfo = generatedVideo.video as {
+        name?: string
+        uri?: string
+        videoBytes?: string
+        mimeType?: string
+      }
+
+      try {
+        const videosDir = path.join(process.cwd(), 'public', 'videos')
+        if (!fs.existsSync(videosDir)) {
+          fs.mkdirSync(videosDir, { recursive: true })
+        }
+        const videoFileName = `${taskId}.mp4`
+        const videoFilePath = path.join(videosDir, videoFileName)
+        const videoUrl = `/api/video/file/${videoFileName}`
+
+        if (videoInfo?.videoBytes) {
+          fs.writeFileSync(videoFilePath, Buffer.from(videoInfo.videoBytes, 'base64'))
+          videoData = `url:${videoUrl}`
+        } else if (videoInfo?.uri?.startsWith('http://') || videoInfo?.uri?.startsWith('https://')) {
+          const response = await fetch(videoInfo.uri)
+          if (response.ok) {
+            const buffer = await response.arrayBuffer()
+            fs.writeFileSync(videoFilePath, Buffer.from(buffer))
+            videoData = `url:${videoUrl}`
+          } else {
+            videoData = `url:${videoInfo.uri}`
+          }
+        } else if (videoInfo?.uri) {
+          videoData = `url:${videoInfo.uri}`
+        } else if (videoInfo?.name) {
+          videoData = `ref:${videoInfo.name}`
+        } else {
+          videoData = ''
+        }
+      } catch (fallbackError) {
+        console.error('[VideoGen] 视频回退处理失败:', fallbackError)
+        videoData = videoInfo?.name ? `ref:${videoInfo.name}` : ''
+      }
     }
 
     // 5. 构建结果
@@ -903,7 +1126,7 @@ async function generateVideoWithGemini(
       sceneId,
       videoData,
       metadata: {
-        duration: config.duration,
+        duration: effectiveDurationSeconds,
         resolution: config.resolution,
         aspectRatio: config.aspectRatio,
         fps: 24,
@@ -954,7 +1177,7 @@ async function generateVideoWithVolcengine(
     // 确定模型 - 优先使用业务流程配置 (从数据库读取)
     let modelId = await getActualModelId(config)
     const modelConfig = modelId ? findVideoModel(modelId) : null
-    
+
     // 如果模型不是 volcengine 的，使用默认 volcengine 模型
     if (!modelConfig || modelConfig.provider !== 'volcengine' || !modelId) {
       modelId = volcengine.VolcengineVideoModels.SEEDANCE_2_0_FAST
@@ -982,99 +1205,31 @@ async function generateVideoWithVolcengine(
 
     await updateTaskProgress(taskId, 20)
 
-    let imageUrl = config.imageUrl
-    let firstFrameUrl = config.firstFrame ? `data:image/png;base64,${config.firstFrame}` : undefined
-    let lastFrameUrl = config.lastFrame ? `data:image/png;base64,${config.lastFrame}` : undefined
+    const imageUrl = config.imageUrl
+    const firstFrameUrl = config.firstFrame
+    const lastFrameUrl = config.lastFrame
+    const effectivePrompt = isSeedanceModel
+      ? withVolcengineRealismPrompt(config.prompt)
+      : config.prompt
 
-    // 主流程前置预处理：Seedance 模型先将参考图风格化为非真人，减少隐私拦截
-    const preprocessed = await preprocessSeedanceInputs(
-      resolvedModelId,
-      config.prompt,
-      imageUrl,
-      firstFrameUrl,
-      lastFrameUrl
-    )
-    const effectivePrompt = preprocessed.prompt
-    imageUrl = preprocessed.imageUrl
-    firstFrameUrl = preprocessed.firstFrameUrl
-    lastFrameUrl = preprocessed.lastFrameUrl
-
-    console.log('[VideoGen] Seedance 预处理结果:', {
+    console.log('[VideoGen] Seedance 输入策略:', {
       isSeedanceModel,
-      appliedSafetyImages: preprocessed.appliedSafetyImages,
       promptPatched: effectivePrompt !== config.prompt,
+      autoLineartPreprocess: false,
       hasImageUrl: !!imageUrl,
       hasFirstFrame: !!firstFrameUrl,
       hasLastFrame: !!lastFrameUrl
     })
 
-    let result: { videoUrl: string, taskId: string }
-    try {
-      result = await volcengine._volcengineGenerateVideo({
-        model: resolvedModelId,
-        prompt: effectivePrompt,
-        imageUrl,
-        firstFrameUrl,
-        lastFrameUrl,
-        duration,
-        resolution: config.resolution
-      })
-    } catch (error) {
-      // 自动兜底：命中真人隐私拦截时，先将参考图风格化，再重试一次
-      if (
-        !isSeedanceModel
-        || !isVolcengineRealPersonBlockError(error)
-        || preprocessed.appliedSafetyImages
-      ) {
-        throw error
-      }
-
-      console.warn('[VideoGen] 命中真人隐私拦截，尝试自动风格化参考图后重试...')
-      await updateTaskProgress(taskId, 35)
-
-      const [safeImageUrl, safeFirstFrameUrl, safeLastFrameUrl] = await Promise.all([
-        stylizeImageForVolcengineSafety(imageUrl, 'image'),
-        stylizeImageForVolcengineSafety(firstFrameUrl, 'first'),
-        stylizeImageForVolcengineSafety(lastFrameUrl, 'last')
-      ])
-
-      // 首尾帧模式要求成对输入，避免单边替换导致角色漂移
-      if (firstFrameUrl && lastFrameUrl) {
-        if (!safeFirstFrameUrl || !safeLastFrameUrl) {
-          throw error
-        }
-        firstFrameUrl = safeFirstFrameUrl
-        lastFrameUrl = safeLastFrameUrl
-      } else if (imageUrl) {
-        if (!safeImageUrl) {
-          throw error
-        }
-        imageUrl = safeImageUrl
-      } else if (firstFrameUrl) {
-        if (!safeFirstFrameUrl) {
-          throw error
-        }
-        firstFrameUrl = safeFirstFrameUrl
-      }
-
-      const retryPrompt = withVolcengineRealismPrompt(effectivePrompt)
-      console.log('[VideoGen] 自动重试参数:', {
-        hasImageUrl: !!imageUrl,
-        hasFirstFrame: !!firstFrameUrl,
-        hasLastFrame: !!lastFrameUrl,
-        promptPatched: retryPrompt !== config.prompt
-      })
-
-      result = await volcengine._volcengineGenerateVideo({
-        model: resolvedModelId,
-        prompt: retryPrompt,
-        imageUrl,
-        firstFrameUrl,
-        lastFrameUrl,
-        duration,
-        resolution: config.resolution
-      })
-    }
+    const result = await volcengine._volcengineGenerateVideo({
+      model: resolvedModelId,
+      prompt: effectivePrompt,
+      imageUrl,
+      firstFrameUrl,
+      lastFrameUrl,
+      duration,
+      resolution: config.resolution
+    })
 
     await updateTaskProgress(taskId, 95)
 

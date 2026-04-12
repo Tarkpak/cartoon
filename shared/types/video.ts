@@ -27,6 +27,7 @@ export const VideoGenerationConfigSchema = z.object({
   firstFrame: z.string().optional().describe('首帧图片 (base64) - Gemini 使用'),
   lastFrame: z.string().optional().describe('尾帧图片 (base64) - Gemini 使用'),
   imageUrl: z.string().optional().describe('输入图片 URL - Qwen 图生视频使用'),
+  referenceImages: z.array(z.string()).max(3).optional().describe('多参考图（Veo 3.1）'),
   audioUrl: z.string().optional().describe('自定义音频 URL - Qwen 使用'),
   prompt: z.string().describe('视频描述提示词'),
   negativePrompt: z.string().optional().describe('负面提示词 - Qwen 使用'),

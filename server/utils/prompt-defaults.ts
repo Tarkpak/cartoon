@@ -5,21 +5,29 @@
  */
 
 import type { PromptTemplate } from '../../shared/types/prompt-template'
-import { PROMPT_TEMPLATE_METADATA } from '../../shared/types/prompt-template'
+import { getPromptTemplateMetadataForWorkflow } from '../../shared/types/prompt-template'
+import {
+  normalizeProjectWorkflowType,
+  type ProjectWorkflowType
+} from '../../shared/types/project'
+
+type PromptWorkflowInput = ProjectWorkflowType | string | null | undefined
 
 /**
  * 获取所有默认提示词模板
  */
-export function getDefaultPromptTemplates(): PromptTemplate[] {
+export function getDefaultPromptTemplates(workflow: PromptWorkflowInput = 'classic'): PromptTemplate[] {
+  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
   const now = new Date().toISOString()
+  const metadataList = getPromptTemplateMetadataForWorkflow(normalizedWorkflow)
 
-  return PROMPT_TEMPLATE_METADATA.map(meta => ({
+  return metadataList.map(meta => ({
     id: meta.id,
     name: meta.name,
     category: meta.category,
     description: meta.description,
     variables: meta.variables,
-    content: getDefaultContent(meta.id),
+    content: getDefaultContent(meta.id, normalizedWorkflow),
     isCustomized: false,
     updatedAt: now
   }))
@@ -28,7 +36,16 @@ export function getDefaultPromptTemplates(): PromptTemplate[] {
 /**
  * 获取指定模板的默认内容
  */
-function getDefaultContent(id: string): PromptTemplate['content'] {
+function getDefaultContent(id: string, workflow: ProjectWorkflowType): PromptTemplate['content'] {
+  const baseContent = getClassicDefaultContent(id)
+  if (workflow !== 'asset_consistency') {
+    return baseContent
+  }
+
+  return getAssetConsistencyDefaultContent(id, baseContent)
+}
+
+function getClassicDefaultContent(id: string): PromptTemplate['content'] {
   switch (id) {
     case 'outline_generation':
       return OUTLINE_GENERATION_CONTENT
@@ -48,6 +65,8 @@ function getDefaultContent(id: string): PromptTemplate['content'] {
       return FIRST_FRAME_GENERATION_CONTENT
     case 'last_frame_generation':
       return LAST_FRAME_GENERATION_CONTENT
+    case 'scene_video_generation':
+      return SCENE_VIDEO_GENERATION_CONTENT
     case 'transition':
       return TRANSITION_CONTENT
     case 'bgm_generation':
@@ -59,6 +78,53 @@ function getDefaultContent(id: string): PromptTemplate['content'] {
         zh: '请完成任务。',
         en: 'Please complete the task.'
       }
+  }
+}
+
+function getAssetConsistencyDefaultContent(
+  id: string,
+  base: PromptTemplate['content']
+): PromptTemplate['content'] {
+  const additions: Partial<Record<string, PromptTemplate['content']>> = {
+    script_parsing: {
+      zh: '【资产抽取要求】解析时要同时明确每个场景的资产需求（角色、环境、关键道具），描述需可直接用于后续资产生成。',
+      en: 'Asset extraction requirement: identify required assets per scene (characters, environment, key props) in a generation-ready format.'
+    },
+    character_extraction: {
+      zh: '【一致性要求】角色描述必须稳定且可复用，避免在不同场景出现身份、服装、体态冲突。',
+      en: 'Consistency requirement: character descriptions must be stable and reusable across scenes without identity or costume conflicts.'
+    },
+    first_frame_generation: {
+      zh: '【环境资产图要求（覆盖下文角色规则）】该图是“纯环境参考图”，禁止出现人物/人脸/肢体；仅保留环境空间、材质、灯光与构图基准。',
+      en: 'Environment asset requirement (overrides character rules below): this must be a pure environment reference image. No people/faces/body parts; keep only spatial layout, materials, lighting, and composition baseline.'
+    },
+    last_frame_generation: {
+      zh: '【资产延续】尾帧需与场景参考资产保持同一角色与环境语义，不得替换主体身份。',
+      en: 'Asset continuity: the last frame must preserve the same character/environment semantics and identity.'
+    },
+    scene_visual: {
+      zh: '【场景资产化】输出需强调可复用环境元素（地标、材质、灯光、色调）用于后续场景资产复用。',
+      en: 'Scene assetization: emphasize reusable environment elements (landmarks, materials, lighting, palette) for reuse.'
+    },
+    transition: {
+      zh: '【转场一致性】转场过程不得破坏角色身份与环境风格连续性。',
+      en: 'Transition consistency: do not break character identity or environment style continuity during transitions.'
+    },
+    scene_video_generation: {
+      zh: '【视频一致性】保持角色身份与场景空间关系稳定，动作演化自然，镜头语言连贯。',
+      en: 'Video consistency: keep character identity and spatial continuity stable with natural motion and coherent camera language.'
+    }
+  }
+
+  const addition = additions[id]
+
+  if (!addition) {
+    return base
+  }
+
+  return {
+    zh: [addition.zh, base.zh].filter(Boolean).join('\n\n'),
+    en: [addition.en, base.en].filter(Boolean).join('\n\n')
   }
 }
 
@@ -1115,6 +1181,75 @@ Adjust the frame based on the shot type in storyboard:
 - Do not change the overall scene layout
 - Do not significantly change camera angle
 - Do not add new characters not present in the first frame`
+}
+
+
+// ========== 场景视频生成（资产一致性） ==========
+const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
+  zh: `【目标】生成单场景视频片段，确保人物与场景资产一致。
+
+【场景】{{sceneTitle}}
+【风格】{{style}}
+【时长】约 {{duration}} 秒
+【输入模式】{{inputMode}}
+【参考图说明】{{referenceGuide}}
+
+【一致性约束】
+- 角色参考图：{{hasCharacterRef}}
+- 环境参考图：{{hasEnvironmentRef}}
+- 如存在参考图，必须保持角色身份、服装、发型、体态及环境空间关系稳定
+- 不新增与剧情无关的新人物或关键物体
+- 不突变时间、地点和光线逻辑
+
+【场景设定】
+{{setting}}
+
+【场景描述】
+{{sceneDescription}}
+
+【旁白】
+{{narration}}
+
+【对白】
+{{dialogues}}
+
+【画面要求】
+1. 镜头稳定，动作自然，叙事连贯
+2. 主体清晰，空间关系明确，景别与构图合理
+3. 风格统一，色调和光照连续
+4. 适配 {{aspectRatio}} 视频输出`,
+  en: `[Goal] Generate a single-scene video clip while preserving character and environment asset consistency.
+
+[Scene] {{sceneTitle}}
+[Style] {{style}}
+[Duration] around {{duration}} seconds
+[Input Mode] {{inputMode}}
+[Reference Guide] {{referenceGuide}}
+
+[Consistency Constraints]
+- Character reference: {{hasCharacterRef}}
+- Environment reference: {{hasEnvironmentRef}}
+- When references exist, keep identity, outfit, hairstyle, body shape, and spatial layout stable
+- Do not introduce unrelated new people or key objects
+- Avoid abrupt jumps in time, location, and lighting logic
+
+[Scene Setting]
+{{setting}}
+
+[Scene Description]
+{{sceneDescription}}
+
+[Narration]
+{{narration}}
+
+[Dialogues]
+{{dialogues}}
+
+[Visual Requirements]
+1. Stable camera, natural motion, coherent storytelling
+2. Clear subject, readable spatial relationship, proper framing
+3. Unified style, continuous color tone and lighting
+4. Suitable for {{aspectRatio}} video output`
 }
 
 

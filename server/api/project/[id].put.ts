@@ -67,6 +67,7 @@ const UpdateProjectSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   status: z.enum(['draft', 'in_progress', 'completed']).optional(),
+  workflowType: z.enum(['classic', 'asset_consistency']).optional(),
   // 项目预设配置 (可更新)
   styleId: z.string().optional(),
   aspectRatio: z.enum(['16:9', '9:16', '1:1']).optional(),
@@ -88,6 +89,8 @@ const UpdateProjectSchema = z.object({
     tts: z.string().optional(),
     asr: z.string().optional()
   }).optional(),
+  // 资产一致性工作流扩展字段
+  assetWorkflow: z.any().optional(),
   scenes: z.array(SceneSchema).optional(),
   characters: z.array(CharacterSchema).optional()
 })
@@ -136,12 +139,20 @@ export default defineEventHandler(async (event) => {
     }
 
     // 更新项目基本信息
-    if (data.name || data.description || data.status || data.styleId || data.aspectRatio) {
+    const shouldUpdateProject = data.name !== undefined
+      || data.description !== undefined
+      || data.status !== undefined
+      || data.workflowType !== undefined
+      || data.styleId !== undefined
+      || data.aspectRatio !== undefined
+
+    if (shouldUpdateProject) {
       await db.update(projects)
         .set({
           name: data.name ?? project.name,
           description: data.description ?? project.description,
           status: data.status ?? project.status,
+          workflowType: data.workflowType ?? project.workflowType,
           styleId: data.styleId ?? project.styleId,
           aspectRatio: data.aspectRatio ?? project.aspectRatio,
           updatedAt: now
@@ -158,13 +169,23 @@ export default defineEventHandler(async (event) => {
       || data.inputMode !== undefined
       || data.selectedStyleId !== undefined
       || data.selectedModels !== undefined
+      || data.assetWorkflow !== undefined
       || data.scenes !== undefined
     ) {
       // 获取或创建剧本
       let script = await db.select().from(scripts).where(eq(scripts.projectId, id)).get()
 
       // 读取现有数据
-      let existingData: { storyIdea?: string, novelText?: string, rawText?: string, selectedStyleId?: string, selectedModels?: unknown, outline?: unknown, inputMode?: string } = {}
+      let existingData: {
+        storyIdea?: string
+        novelText?: string
+        rawText?: string
+        selectedStyleId?: string
+        selectedModels?: unknown
+        outline?: unknown
+        inputMode?: string
+        assetWorkflow?: unknown
+      } = {}
       if (script?.rawText) {
         try {
           existingData = JSON.parse(script.rawText)
@@ -181,7 +202,8 @@ export default defineEventHandler(async (event) => {
         selectedStyleId: data.selectedStyleId ?? existingData.selectedStyleId ?? '',
         selectedModels: data.selectedModels ?? existingData.selectedModels ?? null,
         outline: data.outline ?? existingData.outline ?? null,
-        inputMode: data.inputMode ?? existingData.inputMode ?? 'idea'
+        inputMode: data.inputMode ?? existingData.inputMode ?? 'idea',
+        assetWorkflow: data.assetWorkflow ?? existingData.assetWorkflow ?? null
       })
 
       if (!script) {

@@ -18,8 +18,8 @@ const activeStates = computed(() => {
   return navigation.map(item => route.path === item.path)
 })
 
-// 是否显示页脚（设置页面不显示）
-const showFooter = computed(() => route.path !== '/settings')
+// 是否显示页脚（设置页与自动工作台不显示）
+const showFooter = computed(() => !['/settings', '/asset-workbench'].includes(route.path))
 
 // 初始化主题
 onMounted(() => {

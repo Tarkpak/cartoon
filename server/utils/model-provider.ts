@@ -236,6 +236,7 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     maxDuration: 8,
     supportFirstLastFrame: true,
     supportImageToVideo: true,
+    supportReferenceImages: true,
     supportTextToVideo: true,
     docUrl: 'https://ai.google.dev/gemini-api/docs/video'
   },
@@ -247,6 +248,7 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     maxDuration: 8,
     supportFirstLastFrame: true,
     supportImageToVideo: true,
+    supportReferenceImages: false,
     supportTextToVideo: true,
     docUrl: 'https://ai.google.dev/gemini-api/docs/video'
   },
