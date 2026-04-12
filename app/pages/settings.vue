@@ -30,7 +30,11 @@ import type {
 } from '#shared/types/provider'
 import type { WorkflowStep, WorkflowStepConfig } from '#shared/types/workflow-models'
 import type { PromptTemplate } from '#shared/types/prompt-template'
-import { PROMPT_TEMPLATE_METADATA } from '#shared/types/prompt-template'
+import { getPromptTemplateMetadataForWorkflow } from '#shared/types/prompt-template'
+import {
+  PROJECT_WORKFLOW_LABELS,
+  type ProjectWorkflowType
+} from '#shared/types/project'
 
 type ModelConfig = TextModelConfig | ImageModelConfig | VideoModelConfig | VoiceModelConfig
 
@@ -181,6 +185,14 @@ function togglePromptCategory(category: string) {
 const promptsLoading = ref(false)
 const promptTemplates = ref<PromptTemplate[]>([])
 const selectedPromptTemplate = ref<PromptTemplate | null>(null)
+const selectedPromptWorkflow = ref<ProjectWorkflowType>('classic')
+
+const promptWorkflowOptions: Array<{ value: ProjectWorkflowType, label: string }> = [
+  { value: 'classic', label: PROJECT_WORKFLOW_LABELS.classic },
+  { value: 'asset_consistency', label: PROJECT_WORKFLOW_LABELS.asset_consistency }
+]
+
+const selectedPromptWorkflowLabel = computed(() => PROJECT_WORKFLOW_LABELS[selectedPromptWorkflow.value])
 
 // 提示词分类配置
 const promptCategoryConfig: Record<string, { name: string; color: string }> = {
@@ -192,8 +204,9 @@ const promptCategoryConfig: Record<string, { name: string; color: string }> = {
 
 // 按分类分组的提示词
 const groupedPrompts = computed(() => {
-  const groups: Record<string, typeof PROMPT_TEMPLATE_METADATA[number][]> = {}
-  for (const meta of PROMPT_TEMPLATE_METADATA) {
+  const workflowMetadata = getPromptTemplateMetadataForWorkflow(selectedPromptWorkflow.value)
+  const groups: Record<string, typeof workflowMetadata> = {}
+  for (const meta of workflowMetadata) {
     if (!groups[meta.category]) groups[meta.category] = []
     groups[meta.category]!.push(meta)
   }
@@ -204,9 +217,20 @@ const groupedPrompts = computed(() => {
 async function loadPromptTemplates() {
   promptsLoading.value = true
   try {
-    const response = await $fetch<{ success: boolean; data: { templates: PromptTemplate[] } }>('/api/prompts')
+    const response = await $fetch<{
+      success: boolean
+      data: { templates: PromptTemplate[] }
+    }>('/api/prompts', {
+      query: { workflow: selectedPromptWorkflow.value }
+    })
     if (response.success && response.data?.templates) {
       promptTemplates.value = response.data.templates
+
+      if (selectedPromptId.value) {
+        selectedPromptTemplate.value = response.data.templates.find(
+          t => t.id === selectedPromptId.value
+        ) || null
+      }
     }
   } catch (e) {
     console.error('加载提示词模板失败:', e)
@@ -220,9 +244,7 @@ function selectPrompt(id: string) {
   activeSection.value = 'prompts'
   selectedPromptId.value = id
   const template = promptTemplates.value.find(t => t.id === id)
-  if (template) {
-    selectedPromptTemplate.value = template
-  }
+  selectedPromptTemplate.value = template || null
 }
 
 // 处理提示词更新
@@ -543,6 +565,10 @@ watch(() => expandedSections.value.has('prompts'), (expanded) => {
   }
 })
 
+watch(selectedPromptWorkflow, () => {
+  loadPromptTemplates()
+})
+
 onMounted(() => { loadModels(); loadWorkflowModels() })
 </script>
 
@@ -646,6 +672,20 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
 
           <!-- 提示词列表 - 树形结构 -->
           <div v-show="expandedSections.has('prompts')" class="ml-6 mt-1 space-y-0.5 border-l pl-2">
+            <div class="p-2 rounded-md border bg-background/70 mb-1">
+              <p class="text-[11px] text-muted-foreground mb-1.5">工作流</p>
+              <div class="space-y-1">
+                <button
+                  v-for="workflow in promptWorkflowOptions"
+                  :key="workflow.value"
+                  class="w-full px-2 py-1.5 rounded text-xs text-left transition-colors"
+                  :class="selectedPromptWorkflow === workflow.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground'"
+                  @click="selectedPromptWorkflow = workflow.value"
+                >
+                  {{ workflow.label }}
+                </button>
+              </div>
+            </div>
             <div v-if="promptsLoading" class="flex items-center justify-center py-4">
               <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
             </div>
@@ -939,10 +979,13 @@ onMounted(() => { loadModels(); loadWorkflowModels() })
         <div v-if="!selectedPromptTemplate" class="h-full flex flex-col items-center justify-center text-muted-foreground">
           <FileText class="h-12 w-12 mb-3 opacity-20" />
           <p class="text-sm">请从左侧选择一个提示词模板进行编辑</p>
+          <p class="text-xs mt-1">当前工作流：{{ selectedPromptWorkflowLabel }}</p>
         </div>
         <PromptEditor
           v-else
+          :key="`${selectedPromptWorkflow}-${selectedPromptTemplate.id}`"
           :template="selectedPromptTemplate"
+          :workflow="selectedPromptWorkflow"
           @update="handlePromptUpdate"
           @saved="handlePromptSaved"
         />

@@ -795,6 +795,10 @@ export async function _qwenGenerateVideo(options: {
   seed?: number
   maxRetries?: number
 }): Promise<{ videoUrl: string, taskId: string }> {
+  const normalizedResolution = typeof options.resolution === 'string'
+    ? options.resolution.replace(/p$/i, 'P')
+    : undefined
+
   // 判断是否使用首尾帧模型
   const isKf2vModel = options.model === QwenVideoModels.WAN_2_2_KF2V_FLASH || 
                       options.model === QwenVideoModels.WAN_2_1_KF2V_PLUS ||
@@ -826,7 +830,7 @@ export async function _qwenGenerateVideo(options: {
     hasAudioUrl: !!options.audioUrl,
     duration: options.duration,
     size: options.size,
-    resolution: options.resolution,
+    resolution: normalizedResolution,
     negativePrompt: options.negativePrompt,
     promptExtend: options.promptExtend,
     audio: options.audio,
@@ -869,8 +873,8 @@ export async function _qwenGenerateVideo(options: {
       const parameters: Record<string, unknown> = {}
       
       // 分辨率档位 (480P, 720P, 1080P)
-      if (options.resolution) {
-        parameters.resolution = options.resolution
+      if (normalizedResolution) {
+        parameters.resolution = normalizedResolution
       }
       if (options.promptExtend !== undefined) {
         parameters.prompt_extend = options.promptExtend

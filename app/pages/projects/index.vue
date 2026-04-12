@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Video, Clock, Search, Loader2, Trash2 } from 'lucide-vue-next'
+import { Plus, Video, Search, Loader2, Trash2 } from 'lucide-vue-next'
 import {
   Dialog,
   DialogContent,
@@ -17,6 +17,12 @@ import {
   TableRow
 } from '@/components/ui/table'
 import { STYLE_PRESETS, type StylePreset } from '#shared/types/styles'
+import {
+  PROJECT_WORKFLOW_LABELS,
+  PROJECT_WORKFLOW_DESCRIPTIONS,
+  type ProjectWorkflowType,
+  resolveProjectWorkbenchPath
+} from '#shared/types/project'
 import StyleSelector from '@/components/StyleSelector.vue'
 
 // 项目管理页面
@@ -24,10 +30,13 @@ definePageMeta({
   layout: 'default'
 })
 
+const router = useRouter()
+
 interface Project {
   id: string
   title: string
   description: string | null
+  workflowType: ProjectWorkflowType
   styleId: string
   aspectRatio: string
   status: string | null
@@ -48,8 +57,9 @@ const showCreateDialog = ref(false)
 const newProject = ref({
   title: '',
   description: '',
+  workflowType: 'asset_consistency' as ProjectWorkflowType,
   styleId: '',
-  aspectRatio: '16:9' as '16:9' | '9:16' | '1:1'
+  aspectRatio: '9:16' as '16:9' | '9:16' | '1:1'
 })
 const creating = ref(false)
 const deleting = ref<string | null>(null)
@@ -61,6 +71,19 @@ const aspectRatioOptions = [
   { value: '16:9', label: '16:9 横屏', description: '适合电脑/电视' },
   { value: '9:16', label: '9:16 竖屏', description: '适合手机/短视频' },
   { value: '1:1', label: '1:1 方形', description: '适合社交媒体' }
+]
+
+const workflowOptions = [
+  {
+    value: 'classic' as ProjectWorkflowType,
+    label: PROJECT_WORKFLOW_LABELS.classic,
+    description: PROJECT_WORKFLOW_DESCRIPTIONS.classic
+  },
+  {
+    value: 'asset_consistency' as ProjectWorkflowType,
+    label: PROJECT_WORKFLOW_LABELS.asset_consistency,
+    description: PROJECT_WORKFLOW_DESCRIPTIONS.asset_consistency
+  }
 ]
 
 // 获取项目列表
@@ -87,18 +110,40 @@ async function createProject() {
 
   creating.value = true
   try {
-    await $fetch('/api/project/create', {
+    const selectedWorkflowType = newProject.value.workflowType
+    const response = await $fetch<{
+      success: boolean
+      project: {
+        id: string
+        workflowType?: ProjectWorkflowType
+      }
+    }>('/api/project/create', {
       method: 'POST',
       body: {
         title: newProject.value.title,
         description: newProject.value.description || undefined,
+        workflowType: newProject.value.workflowType,
         styleId: newProject.value.styleId,
         aspectRatio: newProject.value.aspectRatio
       }
     })
     showCreateDialog.value = false
     createStep.value = 'basic'
-    newProject.value = { title: '', description: '', styleId: '', aspectRatio: '16:9' }
+    newProject.value = {
+      title: '',
+      description: '',
+      workflowType: 'asset_consistency',
+      styleId: '',
+      aspectRatio: '9:16'
+    }
+
+    const createdId = response?.project?.id
+    if (createdId) {
+      const workflowType = response.project.workflowType || selectedWorkflowType
+      await router.push(resolveProjectWorkbenchPath(createdId, workflowType))
+      return
+    }
+
     await fetchProjects()
   } catch (e) {
     console.error('创建项目失败:', e)
@@ -109,7 +154,13 @@ async function createProject() {
 
 // 打开新建对话框
 function openCreateDialog() {
-  newProject.value = { title: '', description: '', styleId: '', aspectRatio: '16:9' }
+  newProject.value = {
+    title: '',
+    description: '',
+    workflowType: 'asset_consistency',
+    styleId: '',
+    aspectRatio: '9:16'
+  }
   createStep.value = 'basic'
   showCreateDialog.value = true
 }
@@ -123,6 +174,14 @@ function handleStyleSelect(style: StylePreset) {
 function getStyleName(styleId: string): string {
   const style = STYLE_PRESETS.find(s => s.id === styleId)
   return style?.name || styleId
+}
+
+function getWorkflowName(workflowType: ProjectWorkflowType): string {
+  return PROJECT_WORKFLOW_LABELS[workflowType] || PROJECT_WORKFLOW_LABELS.classic
+}
+
+function openProject(project: Project) {
+  router.push(resolveProjectWorkbenchPath(project.id, project.workflowType))
 }
 
 // 格式化时间
@@ -185,6 +244,7 @@ const filteredProjects = computed(() => {
     return [
       project.title,
       project.description || '',
+      getWorkflowName(project.workflowType),
       styleName
     ].some(text => text.toLowerCase().includes(keyword))
   })
@@ -237,18 +297,32 @@ const filteredProjects = computed(() => {
             v-model="statusFilter"
             class="h-10 px-3 rounded-md border border-input bg-background text-sm"
           >
-            <option value="all">全部状态</option>
-            <option value="in_progress">进行中</option>
-            <option value="completed">已完成</option>
-            <option value="draft">草稿</option>
+            <option value="all">
+              全部状态
+            </option>
+            <option value="in_progress">
+              进行中
+            </option>
+            <option value="completed">
+              已完成
+            </option>
+            <option value="draft">
+              草稿
+            </option>
           </select>
           <select
             v-model="sortBy"
             class="h-10 px-3 rounded-md border border-input bg-background text-sm"
           >
-            <option value="updated">最近更新</option>
-            <option value="created">创建时间</option>
-            <option value="name">名称排序</option>
+            <option value="updated">
+              最近更新
+            </option>
+            <option value="created">
+              创建时间
+            </option>
+            <option value="name">
+              名称排序
+            </option>
           </select>
         </div>
       </CardContent>
@@ -275,14 +349,31 @@ const filteredProjects = computed(() => {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead class="w-[250px]">项目名称</TableHead>
+            <TableHead class="w-[250px]">
+              项目名称
+            </TableHead>
             <TableHead>描述</TableHead>
-            <TableHead class="w-[100px]">画风</TableHead>
-            <TableHead class="w-[80px]">比例</TableHead>
-            <TableHead class="w-[80px]">场景数</TableHead>
-            <TableHead class="w-[80px]">状态</TableHead>
-            <TableHead class="w-[120px]">更新时间</TableHead>
-            <TableHead class="w-[80px] text-right">操作</TableHead>
+            <TableHead class="w-[150px]">
+              工作流
+            </TableHead>
+            <TableHead class="w-[100px]">
+              画风
+            </TableHead>
+            <TableHead class="w-[80px]">
+              比例
+            </TableHead>
+            <TableHead class="w-[80px]">
+              场景数
+            </TableHead>
+            <TableHead class="w-[80px]">
+              状态
+            </TableHead>
+            <TableHead class="w-[120px]">
+              更新时间
+            </TableHead>
+            <TableHead class="w-[80px] text-right">
+              操作
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -290,7 +381,7 @@ const filteredProjects = computed(() => {
             v-for="project in filteredProjects"
             :key="project.id"
             class="cursor-pointer hover:bg-muted/50"
-            @click="$router.push(`/workbench?project=${project.id}`)"
+            @click="openProject(project)"
           >
             <TableCell class="font-medium">
               {{ project.title }}
@@ -299,10 +390,20 @@ const filteredProjects = computed(() => {
               {{ project.description || '暂无描述' }}
             </TableCell>
             <TableCell>
+              <Badge
+                variant="outline"
+                class="text-xs"
+              >
+                {{ getWorkflowName(project.workflowType) }}
+              </Badge>
+            </TableCell>
+            <TableCell>
               <span class="text-sm">{{ getStyleName(project.styleId) }}</span>
             </TableCell>
             <TableCell>
-              <Badge variant="outline">{{ project.aspectRatio }}</Badge>
+              <Badge variant="outline">
+                {{ project.aspectRatio }}
+              </Badge>
             </TableCell>
             <TableCell>
               <div class="flex items-center gap-1">
@@ -331,7 +432,10 @@ const filteredProjects = computed(() => {
           </TableRow>
           <!-- 空状态 -->
           <TableRow v-if="filteredProjects.length === 0">
-            <TableCell :colspan="8" class="h-32 text-center">
+            <TableCell
+              :colspan="9"
+              class="h-32 text-center"
+            >
               <div class="flex flex-col items-center justify-center text-muted-foreground">
                 <Video class="w-10 h-10 mb-2 opacity-50" />
                 <p>{{ projects.length === 0 ? '暂无项目' : '没有匹配结果' }}</p>
@@ -387,12 +491,15 @@ const filteredProjects = computed(() => {
         <DialogHeader>
           <DialogTitle>新建项目</DialogTitle>
           <DialogDescription>
-            {{ createStep === 'basic' ? '填写项目基本信息' : '选择画风预设' }}
+            {{ createStep === 'basic' ? '填写项目信息并选择工作流' : '选择画风预设' }}
           </DialogDescription>
         </DialogHeader>
-        
+
         <!-- 步骤 1: 基本信息 -->
-        <div v-if="createStep === 'basic'" class="grid gap-4 py-4">
+        <div
+          v-if="createStep === 'basic'"
+          class="grid gap-4 py-4"
+        >
           <div class="grid gap-2">
             <label class="text-sm font-medium">项目名称 <span class="text-destructive">*</span></label>
             <Input
@@ -419,15 +526,42 @@ const filteredProjects = computed(() => {
                 :class="newProject.aspectRatio === option.value ? 'border-primary bg-primary/10' : 'border-input hover:border-primary/50'"
                 @click="newProject.aspectRatio = option.value as '16:9' | '9:16' | '1:1'"
               >
-                <div class="font-medium text-sm">{{ option.label }}</div>
-                <div class="text-xs text-muted-foreground">{{ option.description }}</div>
+                <div class="font-medium text-sm">
+                  {{ option.label }}
+                </div>
+                <div class="text-xs text-muted-foreground">
+                  {{ option.description }}
+                </div>
+              </button>
+            </div>
+          </div>
+          <div class="grid gap-2">
+            <label class="text-sm font-medium">工作流模式 <span class="text-destructive">*</span></label>
+            <div class="grid gap-2">
+              <button
+                v-for="option in workflowOptions"
+                :key="option.value"
+                type="button"
+                class="rounded-md border p-3 text-left transition"
+                :class="newProject.workflowType === option.value ? 'border-primary bg-primary/10' : 'border-input hover:border-primary/50'"
+                @click="newProject.workflowType = option.value"
+              >
+                <div class="font-medium text-sm">
+                  {{ option.label }}
+                </div>
+                <div class="text-xs text-muted-foreground mt-1">
+                  {{ option.description }}
+                </div>
               </button>
             </div>
           </div>
         </div>
 
         <!-- 步骤 2: 选择画风 -->
-        <div v-else class="flex-1 overflow-y-auto py-4 min-h-[400px]">
+        <div
+          v-else
+          class="flex-1 overflow-y-auto py-4 min-h-[400px]"
+        >
           <StyleSelector
             v-model="newProject.styleId"
             :show-search="true"

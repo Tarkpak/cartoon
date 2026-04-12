@@ -4,6 +4,7 @@
  */
 
 import { getAllPromptTemplates, updatePromptTemplate } from '../../utils/prompt-template'
+import { resolvePromptWorkflowFromEvent } from '../../utils/prompt-workflow'
 import { generateTextForWorkflow } from '../../utils/workflow-model'
 import type { PromptTemplateId } from '../../../shared/types/prompt-template'
 
@@ -14,6 +15,7 @@ interface TranslateAllRequest {
 }
 
 export default defineEventHandler(async (event) => {
+  const workflow = resolvePromptWorkflowFromEvent(event)
   const body = await readBody<TranslateAllRequest>(event)
   
   if (!body.from || !body.to) {
@@ -31,7 +33,7 @@ export default defineEventHandler(async (event) => {
   const toLang = body.to === 'zh' ? '中文' : 'English'
 
   // 获取所有模板
-  const templates = await getAllPromptTemplates()
+  const templates = await getAllPromptTemplates(workflow)
   
   let translated = 0
   let skipped = 0
@@ -83,7 +85,8 @@ ${sourceText}`
       await updatePromptTemplate(
         template.id as PromptTemplateId,
         newContent,
-        `批量翻译 ${body.from} -> ${body.to}`
+        `批量翻译 ${body.from} -> ${body.to}`,
+        workflow
       )
 
       translated++
@@ -100,6 +103,7 @@ ${sourceText}`
   return {
     success: true,
     data: {
+      workflow,
       translated,
       skipped,
       errors: errors.length > 0 ? errors : undefined

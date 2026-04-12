@@ -4,10 +4,12 @@
  */
 
 import { getPromptVersions } from '../../../utils/prompt-template'
+import { resolvePromptWorkflowFromEvent } from '../../../utils/prompt-workflow'
 import type { PromptTemplateId } from '../../../../shared/types/prompt-template'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id') as PromptTemplateId
+  const workflow = resolvePromptWorkflowFromEvent(event)
 
   if (!id) {
     throw createError({
@@ -17,11 +19,12 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const versions = await getPromptVersions(id)
+    const versions = await getPromptVersions(id, workflow)
 
     return {
       success: true,
       data: {
+        workflow,
         templateId: id,
         versions,
         count: versions.length

@@ -4,6 +4,7 @@ import { db, projects as projectsTable } from '../../db'
 const CreateProjectSchema = z.object({
   title: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
+  workflowType: z.enum(['classic', 'asset_consistency']).default('classic'),
   // 项目预设配置 (必填)
   styleId: z.string().min(1).describe('风格预设 ID (必填)'),
   aspectRatio: z.enum(['16:9', '9:16', '1:1']).describe('视频比例 (必填)')
@@ -25,7 +26,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { title, description, styleId, aspectRatio } = parseResult.data
+  const { title, description, workflowType, styleId, aspectRatio } = parseResult.data
   const now = new Date().toISOString()
   const id = `proj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 
@@ -34,6 +35,7 @@ export default defineEventHandler(async (event) => {
       id,
       name: title,
       description: description || null,
+      workflowType,
       styleId,
       aspectRatio,
       status: 'draft',
@@ -47,6 +49,7 @@ export default defineEventHandler(async (event) => {
         id,
         title,
         description,
+        workflowType,
         styleId,
         aspectRatio,
         status: 'draft',

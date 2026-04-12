@@ -4,11 +4,23 @@
  */
 
 import { getAllPromptTemplates } from '../../utils/prompt-template'
-import { PROMPT_TEMPLATES_BY_CATEGORY, CATEGORY_NAMES } from '../../../shared/types/prompt-template'
+import { resolvePromptWorkflowFromEvent } from '../../utils/prompt-workflow'
+import {
+  CATEGORY_NAMES,
+  getPromptTemplateMetadataForWorkflow
+} from '../../../shared/types/prompt-template'
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
   try {
-    const templates = await getAllPromptTemplates()
+    const workflow = resolvePromptWorkflowFromEvent(event)
+    const templates = await getAllPromptTemplates(workflow)
+    const metadataList = getPromptTemplateMetadataForWorkflow(workflow)
+    const metadata = {
+      text: metadataList.filter(t => t.category === 'text'),
+      image: metadataList.filter(t => t.category === 'image'),
+      video: metadataList.filter(t => t.category === 'video'),
+      audio: metadataList.filter(t => t.category === 'audio')
+    }
 
     // 按分类分组
     const grouped = {
@@ -21,10 +33,11 @@ export default defineEventHandler(async () => {
     return {
       success: true,
       data: {
+        workflow,
         templates,
         grouped,
         categoryNames: CATEGORY_NAMES,
-        metadata: PROMPT_TEMPLATES_BY_CATEGORY
+        metadata
       }
     }
   } catch (error) {

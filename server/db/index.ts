@@ -36,6 +36,7 @@ export function initDatabase() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       description TEXT,
+      workflow_type TEXT NOT NULL DEFAULT 'classic',
       style_id TEXT NOT NULL,
       aspect_ratio TEXT NOT NULL DEFAULT '16:9',
       status TEXT DEFAULT 'draft',
@@ -43,6 +44,11 @@ export function initDatabase() {
       updated_at TEXT NOT NULL
     )
   `)
+
+  // 兼容旧数据库：补充项目工作流字段
+  const projectColumns = sqlite.prepare('PRAGMA table_info(projects)').all() as Array<{ name: string }>
+  const hasProjectColumn = (name: string) => projectColumns.some(c => c.name === name)
+  if (!hasProjectColumn('workflow_type')) sqlite.exec('ALTER TABLE projects ADD COLUMN workflow_type TEXT NOT NULL DEFAULT \'classic\'')
 
   // 创建剧本表
   sqlite.exec(`

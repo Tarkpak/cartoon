@@ -5,6 +5,7 @@
 
 import { z } from 'zod'
 import { restorePromptVersion } from '../../../utils/prompt-template'
+import { resolvePromptWorkflowFromEvent } from '../../../utils/prompt-workflow'
 import type { PromptTemplateId } from '../../../../shared/types/prompt-template'
 
 const RestoreSchema = z.object({
@@ -13,6 +14,7 @@ const RestoreSchema = z.object({
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id') as PromptTemplateId
+  const workflow = resolvePromptWorkflowFromEvent(event)
 
   if (!id) {
     throw createError({
@@ -36,7 +38,7 @@ export default defineEventHandler(async (event) => {
   const { versionId } = parseResult.data
 
   try {
-    const template = await restorePromptVersion(id, versionId)
+    const template = await restorePromptVersion(id, versionId, workflow)
 
     if (!template) {
       throw createError({
@@ -48,6 +50,7 @@ export default defineEventHandler(async (event) => {
     return {
       success: true,
       data: template,
+      workflow,
       message: '已恢复到指定版本'
     }
   } catch (error) {
