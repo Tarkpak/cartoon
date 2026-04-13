@@ -166,6 +166,24 @@ export async function generateImageForWorkflow(
     return { imageUrl: result.imageUrl }
   }
 
+  if (provider === 'kling') {
+    const klingReferenceImages = options.referenceImages && options.referenceImages.length > 0
+      ? options.referenceImages
+      : options.referenceImage?.data
+        ? [options.referenceImage.data]
+        : undefined
+
+    const result = await kling._klingGenerateImage({
+      model: modelId,
+      prompt: options.prompt,
+      negativePrompt: options.negativePrompt,
+      size: options.size,
+      referenceImages: klingReferenceImages,
+      maxRetries: options.maxRetries
+    })
+    return { imageUrl: result.imageUrl }
+  }
+
   // Gemini
   const result = await gemini._geminiGenerateImage({
     model: modelId,
