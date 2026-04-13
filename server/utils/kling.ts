@@ -44,6 +44,8 @@ const RETRYABLE_ERROR_CODES = new Set([
 // ============================================================
 
 export const KlingVideoModels = {
+  KLING_VIDEO_O1: 'kling-video-o1',
+  KLING_V3_OMNI: 'kling-v3-omni',
   KLING_V1: 'kling-v1',
   KLING_V1_5: 'kling-v1-5',
   KLING_V1_6: 'kling-v1-6',
@@ -56,9 +58,14 @@ export const KlingVideoModels = {
 } as const
 
 export const KlingImageModels = {
+  KLING_IMAGE_O1: 'kling-image-o1',
+  KLING_V3_OMNI: 'kling-v3-omni',
   KLING_V1: 'kling-v1',
   KLING_V1_5: 'kling-v1-5',
-  KLING_V2: 'kling-v2'
+  KLING_V2: 'kling-v2',
+  KLING_V2_NEW: 'kling-v2-new',
+  KLING_V2_1: 'kling-v2-1',
+  KLING_V3: 'kling-v3'
 } as const
 
 // ============================================================
@@ -250,10 +257,10 @@ function normalizeImageInput(image?: string): string | undefined {
   return stripDataUrlPrefix(trimmed)
 }
 
-function normalizeDuration(duration?: number): string {
+function normalizeDuration(duration?: number, maxDuration: number = 15): string {
   const fallback = 5
   const numeric = typeof duration === 'number' && Number.isFinite(duration) ? duration : fallback
-  const clamped = Math.min(15, Math.max(3, Math.round(numeric)))
+  const clamped = Math.min(maxDuration, Math.max(3, Math.round(numeric)))
   return String(clamped)
 }
 
@@ -269,6 +276,22 @@ const SUPPORTED_IMAGE_ASPECT_RATIOS = [
 ] as const
 
 type KlingImageAspectRatio = (typeof SUPPORTED_IMAGE_ASPECT_RATIOS)[number]
+type KlingOmniImageAspectRatio = KlingImageAspectRatio | 'auto'
+
+const KLING_OMNI_IMAGE_MODELS = new Set<string>([
+  KlingImageModels.KLING_IMAGE_O1,
+  KlingImageModels.KLING_V3_OMNI
+])
+
+const KLING_MULTI_IMAGE_MODELS = new Set<string>([
+  KlingImageModels.KLING_V2,
+  KlingImageModels.KLING_V2_1
+])
+
+const KLING_OMNI_VIDEO_MODELS = new Set<string>([
+  KlingVideoModels.KLING_VIDEO_O1,
+  KlingVideoModels.KLING_V3_OMNI
+])
 
 const IMAGE_ASPECT_RATIO_VALUES: Array<{ ratio: KlingImageAspectRatio, value: number }> = SUPPORTED_IMAGE_ASPECT_RATIOS.map((ratio) => {
   const [w = 1, h = 1] = ratio.split(':').map(v => Number(v) || 1)
@@ -318,6 +341,64 @@ function resolveImageAspectRatio(options: { aspectRatio?: string, size?: string 
     }
   }
   return best.ratio
+}
+
+function resolveOmniImageAspectRatio(options: { aspectRatio?: string, size?: string }): KlingOmniImageAspectRatio {
+  const explicitRatio = normalizeAspectRatioInput(options.aspectRatio)
+  if (explicitRatio) {
+    return explicitRatio
+  }
+
+  const ratioFromSize = parseSizeRatio(options.size)
+  if (!ratioFromSize) {
+    return 'auto'
+  }
+
+  let best = IMAGE_ASPECT_RATIO_VALUES[0]!
+  for (const candidate of IMAGE_ASPECT_RATIO_VALUES) {
+    if (Math.abs(candidate.value - ratioFromSize) < Math.abs(best.value - ratioFromSize)) {
+      best = candidate
+    }
+  }
+  return best.ratio
+}
+
+function resolveOmniImageResolution(size?: string, model?: string): '1k' | '2k' | '4k' {
+  const normalized = (size || '').trim().toLowerCase()
+  let resolution: '1k' | '2k' | '4k' = '1k'
+
+  if (normalized.includes('4k')) {
+    resolution = '4k'
+  } else if (normalized.includes('2k')) {
+    resolution = '2k'
+  } else if (normalized) {
+    const matched = normalized.replace(/\*/g, 'x').match(/^(\d+)\s*x\s*(\d+)$/i)
+    if (matched) {
+      const width = Number(matched[1]) || 0
+      const height = Number(matched[2]) || 0
+      const maxEdge = Math.max(width, height)
+      if (maxEdge >= 3000) {
+        resolution = '4k'
+      } else if (maxEdge >= 1800) {
+        resolution = '2k'
+      }
+    }
+  }
+
+  // kling-image-o1 当前仅支持 1k/2k
+  if (model === KlingImageModels.KLING_IMAGE_O1 && resolution === '4k') {
+    resolution = '2k'
+  }
+
+  return resolution
+}
+
+function isOmniImageModel(model: string): boolean {
+  return KLING_OMNI_IMAGE_MODELS.has(model)
+}
+
+function isOmniVideoModel(model: string): boolean {
+  return KLING_OMNI_VIDEO_MODELS.has(model)
 }
 
 // ============================================================
@@ -436,6 +517,7 @@ interface KlingImageTaskQueryData {
   task_status_msg?: string
   task_result?: {
     images?: KlingTaskImage[]
+    series_images?: KlingTaskImage[]
   }
 }
 
@@ -450,10 +532,6 @@ export async function _klingGenerateImage(options: {
   maxRetries?: number
 }): Promise<{ imageUrl: string, taskId: string }> {
   const model = options.model || KlingImageModels.KLING_V2
-  const aspectRatio = resolveImageAspectRatio({
-    aspectRatio: options.aspectRatio,
-    size: options.size
-  })
   const n = normalizeImageCount(options.n)
   const normalizedReferenceImages = Array.from(new Set(
     (options.referenceImages || [])
@@ -461,8 +539,12 @@ export async function _klingGenerateImage(options: {
       .filter((item): item is string => !!item)
   ))
   const referenceImage = normalizedReferenceImages[0]
+  const useOmniImageEndpoint = isOmniImageModel(model)
   const hasMultipleReferenceImages = normalizedReferenceImages.length > 1
-  const useMultiImageEndpoint = hasMultipleReferenceImages && model === KlingImageModels.KLING_V2
+  const useMultiImageEndpoint = !useOmniImageEndpoint && hasMultipleReferenceImages && KLING_MULTI_IMAGE_MODELS.has(model)
+  const aspectRatio = useOmniImageEndpoint
+    ? resolveOmniImageAspectRatio({ aspectRatio: options.aspectRatio, size: options.size })
+    : resolveImageAspectRatio({ aspectRatio: options.aspectRatio, size: options.size })
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Kling] generateImage 请求参数:`, {
@@ -473,16 +555,35 @@ export async function _klingGenerateImage(options: {
     aspectRatio,
     n,
     referenceImagesCount: normalizedReferenceImages.length,
+    useOmniImageEndpoint,
     useMultiImageEndpoint,
     maxRetries: options.maxRetries
   })
 
   let endpoint = '/v1/images/generations'
   let body: Record<string, unknown>
-  if (useMultiImageEndpoint) {
+  if (useOmniImageEndpoint) {
+    endpoint = '/v1/images/omni-image'
+    body = {
+      model_name: model,
+      prompt: options.prompt,
+      resolution: resolveOmniImageResolution(options.size, model),
+      aspect_ratio: aspectRatio,
+      result_type: 'single',
+      n
+    }
+
+    if (normalizedReferenceImages.length > 0) {
+      body.image_list = normalizedReferenceImages.slice(0, 9).map(image => ({ image }))
+    }
+
+    if (options.negativePrompt) {
+      console.warn('[Kling] omni-image 不支持 negative_prompt 字段，已忽略该参数')
+    }
+  } else if (useMultiImageEndpoint) {
     endpoint = '/v1/images/multi-image2image'
     body = {
-      model_name: KlingImageModels.KLING_V2,
+      model_name: model,
       prompt: options.prompt,
       aspect_ratio: aspectRatio,
       n,
@@ -494,7 +595,7 @@ export async function _klingGenerateImage(options: {
       console.warn('[Kling] multi-image2image 不支持 negative_prompt，已忽略该参数')
     }
   } else {
-    if (hasMultipleReferenceImages && model !== KlingImageModels.KLING_V2) {
+    if (hasMultipleReferenceImages && !KLING_MULTI_IMAGE_MODELS.has(model)) {
       console.warn(`[Kling] 模型 ${model} 暂不支持 multi-image2image，已自动回退单参考图模式`)
     }
 
@@ -547,6 +648,7 @@ export async function _klingGenerateImage(options: {
     const status = statusResponse.data?.task_status
     if (status === 'succeed') {
       const imageUrl = statusResponse.data?.task_result?.images?.[0]?.url
+        || statusResponse.data?.task_result?.series_images?.[0]?.url
       if (!imageUrl) {
         throw new KlingError('图片任务成功但未返回 URL', KlingErrorCode.INTERNAL, 500, false)
       }
@@ -581,33 +683,60 @@ export async function _klingGenerateVideo(options: {
   maxRetries?: number
 }): Promise<{ videoUrl: string, taskId: string }> {
   const model = options.model || KlingVideoModels.KLING_V2_6
+  const useOmniVideoEndpoint = isOmniVideoModel(model)
   const mode = options.mode || 'pro'
   const sound = options.withAudio ? 'on' : 'off'
-  const duration = normalizeDuration(options.duration)
+  const duration = normalizeDuration(
+    options.duration,
+    model === KlingVideoModels.KLING_VIDEO_O1 ? 10 : 15
+  )
   const aspectRatio = options.aspectRatio || '16:9'
 
   const image = normalizeImageInput(options.imageUrl || options.firstFrameUrl)
   const imageTail = normalizeImageInput(options.lastFrameUrl)
   const hasImageInput = !!image || !!imageTail
 
-  const endpoint = hasImageInput ? '/v1/videos/image2video' : '/v1/videos/text2video'
+  const endpoint = useOmniVideoEndpoint
+    ? '/v1/videos/omni-video'
+    : hasImageInput
+      ? '/v1/videos/image2video'
+      : '/v1/videos/text2video'
   const body: Record<string, unknown> = {
     model_name: model,
     prompt: options.prompt,
     duration,
     mode,
-    sound,
-    aspect_ratio: aspectRatio
+    sound
   }
 
-  if (options.negativePrompt) {
+  if (options.negativePrompt && !useOmniVideoEndpoint) {
     body.negative_prompt = options.negativePrompt
+  } else if (options.negativePrompt && useOmniVideoEndpoint) {
+    console.warn('[Kling] omni-video 不支持 negative_prompt 字段，已忽略该参数')
   }
 
-  if (hasImageInput) {
-    if (image) body.image = image
-    if (imageTail) body.image_tail = imageTail
-    delete body.aspect_ratio
+  if (useOmniVideoEndpoint) {
+    if (image && imageTail) {
+      body.image_list = [
+        { image_url: image, type: 'first_frame' },
+        { image_url: imageTail, type: 'end_frame' }
+      ]
+    } else if (image) {
+      body.image_list = [{ image_url: image }]
+    } else if (imageTail) {
+      console.warn('[Kling] omni-video 不支持仅尾帧输入，已自动忽略尾帧参数')
+    }
+
+    if (!hasImageInput || image) {
+      body.aspect_ratio = aspectRatio
+    }
+  } else {
+    body.aspect_ratio = aspectRatio
+    if (hasImageInput) {
+      if (image) body.image = image
+      if (imageTail) body.image_tail = imageTail
+      delete body.aspect_ratio
+    }
   }
 
   const submit = await withRetry(

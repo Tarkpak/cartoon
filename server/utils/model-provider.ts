@@ -201,11 +201,52 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
   // 可灵 AI 图片模型
   {
     provider: 'kling',
+    model: kling.KlingImageModels.KLING_IMAGE_O1,
+    displayName: '可灵 Kling Image O1',
+    description: 'Omni 图像模型，支持多图参考、主体融合与组图',
+    supportReferenceImage: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/OmniImage'
+  },
+  {
+    provider: 'kling',
+    model: kling.KlingImageModels.KLING_V3_OMNI,
+    displayName: '可灵 Kling v3 Omni（图像）',
+    description: 'Omni 图像模型，支持 1K/2K/4K 与主体/图片混合参考',
+    supportReferenceImage: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/OmniImage'
+  },
+  {
+    provider: 'kling',
+    model: kling.KlingImageModels.KLING_V3,
+    displayName: '可灵 Kling v3（图像）',
+    description: '新一代图像模型，支持文生图/图生图',
+    supportReferenceImage: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
+  },
+  {
+    provider: 'kling',
+    model: kling.KlingImageModels.KLING_V2_1,
+    displayName: '可灵 Kling v2.1（图像）',
+    description: '支持文生图/图生图/多图参考生图',
+    supportReferenceImage: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
+  },
+  {
+    provider: 'kling',
+    model: kling.KlingImageModels.KLING_V2_NEW,
+    displayName: '可灵 Kling v2 New（图像）',
+    description: '风格转绘模型，建议搭配参考图使用',
+    supportReferenceImage: true,
+    requireReferenceImage: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
+  },
+  {
+    provider: 'kling',
     model: kling.KlingImageModels.KLING_V2,
     displayName: '可灵 Kling v2',
-    description: '可灵高质量图片模型，支持文生图/图生图',
+    description: '可灵高质量图片模型，支持文生图/图生图/多图参考',
     supportReferenceImage: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/imageModels'
+    docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
   },
   {
     provider: 'kling',
@@ -213,7 +254,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     displayName: '可灵 Kling v1.5',
     description: '可灵图片模型，支持角色/人脸一致性控制',
     supportReferenceImage: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/imageModels'
+    docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
   },
   {
     provider: 'kling',
@@ -221,7 +262,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     displayName: '可灵 Kling v1',
     description: '可灵经典图片模型，适合通用图片生成',
     supportReferenceImage: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/imageModels'
+    docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
   },
   // 火山引擎 (豆包 Seedream) 图片模型
   {
@@ -339,6 +380,28 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
   // 可灵 AI 视频模型
   {
     provider: 'kling',
+    model: kling.KlingVideoModels.KLING_VIDEO_O1,
+    displayName: '可灵 Kling Video O1',
+    description: 'Omni 视频模型，支持文本/图片/视频混合参考与多镜头',
+    maxDuration: 10,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/OmniVideo'
+  },
+  {
+    provider: 'kling',
+    model: kling.KlingVideoModels.KLING_V3_OMNI,
+    displayName: '可灵 Kling v3 Omni（视频）',
+    description: 'Omni 3.0 视频模型，支持多镜头与复杂主体控制',
+    maxDuration: 15,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/OmniVideo'
+  },
+  {
+    provider: 'kling',
     model: kling.KlingVideoModels.KLING_V3,
     displayName: '可灵 Kling v3',
     description: '可灵最新视频模型，支持文生/图生/首尾帧，3-15秒',
@@ -372,6 +435,28 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
   },
   {
     provider: 'kling',
+    model: kling.KlingVideoModels.KLING_V2_1_MASTER,
+    displayName: '可灵 Kling v2.1 Master',
+    description: '可灵高画质视频模型，支持文生/图生/首尾帧',
+    maxDuration: 15,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
+  },
+  {
+    provider: 'kling',
+    model: kling.KlingVideoModels.KLING_V2_MASTER,
+    displayName: '可灵 Kling v2 Master',
+    description: '可灵 v2 主力模型，支持文生/图生视频',
+    maxDuration: 15,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
+  },
+  {
+    provider: 'kling',
     model: kling.KlingVideoModels.KLING_V2_1,
     displayName: '可灵 Kling v2.1',
     description: '可灵稳定版图生视频模型，支持首尾帧控制',
@@ -379,6 +464,17 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     supportFirstLastFrame: true,
     supportImageToVideo: true,
     supportTextToVideo: false,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
+  },
+  {
+    provider: 'kling',
+    model: kling.KlingVideoModels.KLING_V1_6,
+    displayName: '可灵 Kling v1.6',
+    description: '可灵稳定版视频模型，支持文生/图生视频',
+    maxDuration: 10,
+    supportFirstLastFrame: true,
+    supportImageToVideo: true,
+    supportTextToVideo: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
   },
   // 火山引擎 (豆包 Seedance) 视频模型 - 仅保留支持首尾帧的模型
