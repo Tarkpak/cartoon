@@ -107,12 +107,6 @@ export default defineEventHandler(async (event) => {
  * 更新任务进度
  */
 type TaskStatus = 'pending' | 'processing' | 'completed' | 'failed'
-const VOLCENGINE_REALISM_PROMPT_PREFIX = [
-  '【真人实拍要求】',
-  '@图1（若有@图2同样适用）角色必须保持同一人物身份',
-  '真人实拍，电影级光影，真实皮肤质感，4K高清，面部稳定',
-  '禁止换脸、禁止变更发型发色、禁止新增主角'
-].join('\n')
 
 function isLikelyBase64Image(value: string): boolean {
   const compact = value.replace(/\s+/g, '')
@@ -340,13 +334,6 @@ async function normalizeVideoConfigImageInputs(
     lastFrame: await normalizeOne(config.lastFrame),
     referenceImages: referenceImages.length > 0 ? referenceImages : undefined
   }
-}
-
-function withVolcengineRealismPrompt(prompt: string): string {
-  if (/真人实拍|真人写实|写实风格|photoreal|realistic skin|cinematic lighting/i.test(prompt)) {
-    return prompt
-  }
-  return `${VOLCENGINE_REALISM_PROMPT_PREFIX}\n${prompt}`
 }
 
 function normalizeVideoTaskError(error: unknown): string {
@@ -1460,7 +1447,6 @@ async function generateVideoWithVolcengine(
     // 转换时长
     // Seedance 2.0/2.0 fast: 4-15 秒；历史模型: 2-12 秒
     const isSeedance2 = resolvedModelId.includes('seedance-2-0')
-    const isSeedanceModel = resolvedModelId.includes('seedance')
     const minDuration = isSeedance2 ? 4 : 2
     const maxDuration = isSeedance2 ? 15 : 12
     let duration = config.duration
@@ -1498,13 +1484,8 @@ async function generateVideoWithVolcengine(
     const imageUrl = hasReferenceImages ? undefined : config.imageUrl
     const firstFrameUrl = hasReferenceImages ? undefined : config.firstFrame
     const lastFrameUrl = hasReferenceImages ? undefined : config.lastFrame
-    const effectivePrompt = isSeedanceModel
-      ? withVolcengineRealismPrompt(config.prompt)
-      : config.prompt
 
     console.log('[VideoGen] Seedance 输入策略:', {
-      isSeedanceModel,
-      promptPatched: effectivePrompt !== config.prompt,
       inputMode: hasReferenceImages ? 'reference_images' : (firstFrameUrl && lastFrameUrl ? 'first_last_frame' : imageUrl ? 'single_image' : 'text_only'),
       hasImageUrl: !!imageUrl,
       hasFirstFrame: !!firstFrameUrl,
@@ -1515,7 +1496,7 @@ async function generateVideoWithVolcengine(
 
     const result = await volcengine._volcengineGenerateVideo({
       model: resolvedModelId,
-      prompt: effectivePrompt,
+      prompt: config.prompt,
       imageUrl,
       firstFrameUrl,
       lastFrameUrl,
