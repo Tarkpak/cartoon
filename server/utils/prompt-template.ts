@@ -131,12 +131,16 @@ function mergeWithDefaultTemplates(
       const def = defaultMap.get(template.id)
       if (!def) return template
 
+      const isCustomized = template.isCustomized === true
       return {
         ...template,
         name: def.name,
         category: def.category,
         description: def.description,
-        variables: def.variables
+        variables: def.variables,
+        // 非自定义模板自动跟随最新默认内容，避免历史默认值造成行为偏差
+        content: isCustomized ? template.content : def.content,
+        isCustomized
       }
     })
     .filter(template => isPromptTemplateVisibleForWorkflow(template.id as PromptTemplateId, workflow))

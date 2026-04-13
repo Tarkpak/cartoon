@@ -676,6 +676,7 @@ export async function generateImage(options: {
   prompt: string
   referenceImage?: { data: string, mimeType: string }
   referenceImages?: string[]  // base64 图片数组 (用于 wan2.6-image 等支持多参考图的模型)
+  allowTextOnlyResult?: boolean
   negativePrompt?: string
   size?: string
   maxRetries?: number
@@ -716,6 +717,7 @@ export async function generateImage(options: {
     prompt: options.prompt,
     referenceImage: options.referenceImage,
     referenceImages: options.referenceImages,
+    allowTextOnlyResult: options.allowTextOnlyResult,
     maxRetries: options.maxRetries
   })
   return {
