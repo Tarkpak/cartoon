@@ -2017,30 +2017,49 @@ onMounted(async () => {
           请先完成“剧本解析”步骤。
         </div>
         <template v-else>
-          <p class="shrink-0 text-xs text-muted-foreground">
-            角色图就绪 {{ characterReadyCount }}/{{ characters.length }}
-            <span v-if="characterGeneratingCount > 0"> · 生成中 {{ characterGeneratingCount }}</span>
-            <span v-if="characterMissingCount > 0"> · 待生成 {{ characterMissingCount }}</span>
-          </p>
-          <div class="shrink-0 flex flex-wrap items-center gap-2">
-            <Button
-              :disabled="autoRunning"
-              @click="runSimpleAssetsStep"
-            >
-              <Loader2
-                v-if="autoRunning && autoRunCurrentStage === 'assets'"
-                class="h-4 w-4 mr-2 animate-spin"
-              />
-              {{ assetsPrimaryActionLabel }}
-            </Button>
-            <Button
-              v-if="characterMissingCount > 0"
-              variant="outline"
-              :disabled="autoRunning || characters.length === 0"
-              @click="handleBatchGenerateCharacters"
-            >
-              仅生成角色图
-            </Button>
+          <div class="shrink-0 rounded-md border bg-muted/20 px-3 py-2">
+            <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <Badge variant="secondary" class="text-[11px]">
+                  角色图就绪 {{ characterReadyCount }}/{{ characters.length }}
+                </Badge>
+                <Badge
+                  v-if="characterGeneratingCount > 0"
+                  variant="outline"
+                  class="text-[11px]"
+                >
+                  生成中 {{ characterGeneratingCount }}
+                </Badge>
+                <Badge
+                  v-if="characterMissingCount > 0"
+                  variant="outline"
+                  class="text-[11px]"
+                >
+                  待生成 {{ characterMissingCount }}
+                </Badge>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2 lg:justify-end">
+                <Button
+                  :disabled="autoRunning"
+                  @click="runSimpleAssetsStep"
+                >
+                  <Loader2
+                    v-if="autoRunning && autoRunCurrentStage === 'assets'"
+                    class="h-4 w-4 mr-2 animate-spin"
+                  />
+                  {{ assetsPrimaryActionLabel }}
+                </Button>
+                <Button
+                  v-if="characterMissingCount > 0"
+                  variant="outline"
+                  :disabled="autoRunning || characters.length === 0"
+                  @click="handleBatchGenerateCharacters"
+                >
+                  仅生成角色图
+                </Button>
+              </div>
+            </div>
           </div>
           <div class="shrink-0 flex flex-wrap items-center gap-2">
             <button
