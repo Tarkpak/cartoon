@@ -133,6 +133,7 @@ watch(isCollapsed, (value) => {
         <div
           v-for="(item, index) in navigation"
           :key="item.path"
+          class="relative group"
         >
           <NuxtLink
             :to="item.path"
@@ -156,6 +157,24 @@ watch(isCollapsed, (value) => {
             <NuxtLink
               v-for="sub in settingsSubNavigation"
               :key="`${sub.section}-${sub.sub || 'root'}`"
+              :to="getSettingsSubRoute(sub)"
+              class="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
+              :class="isSettingsSubActive(sub)
+                ? 'bg-primary/10 text-primary font-medium'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+            >
+              <component :is="sub.icon" class="w-3.5 h-3.5 flex-shrink-0" />
+              <span>{{ sub.name }}</span>
+            </NuxtLink>
+          </div>
+
+          <div
+            v-if="item.path === '/settings' && isCollapsed"
+            class="absolute left-full top-0 z-30 w-48 rounded-md border bg-popover p-1 shadow-md opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
+          >
+            <NuxtLink
+              v-for="sub in settingsSubNavigation"
+              :key="`collapsed-${sub.section}-${sub.sub || 'root'}`"
               :to="getSettingsSubRoute(sub)"
               class="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
               :class="isSettingsSubActive(sub)
