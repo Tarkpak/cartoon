@@ -53,6 +53,7 @@ export const PROMPT_TEMPLATE_IDS = {
   CHARACTER_EXTRACTION: 'character_extraction',
   CHARACTER_FROM_OUTLINE: 'character_from_outline',
   CHARACTER_SHEET: 'character_sheet',
+  CHARACTER_REGENERATION: 'character_regeneration',
   SCENE_VISUAL: 'scene_visual',
   FIRST_FRAME_GENERATION: 'first_frame_generation',
   LAST_FRAME_GENERATION: 'last_frame_generation',
@@ -172,6 +173,18 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{characterName}}', description: '角色名称', example: '小明' },
       { name: '{{appearance}}', description: '角色外貌描述', example: '黑色短发，戴眼镜的年轻男性...' },
       { name: '{{style}}', description: '画风描述', example: '日系动漫风格' }
+    ]
+  },
+  {
+    id: 'character_regeneration',
+    name: '角色二次生成',
+    category: 'image',
+    description: '基于已生成角色图进行定向二次修改',
+    variables: [
+      { name: '{{characterName}}', description: '角色名称', example: '小明' },
+      { name: '{{appearance}}', description: '角色外貌描述', example: '黑色短发，戴眼镜的年轻男性...' },
+      { name: '{{style}}', description: '画风描述', example: '彩铅真人风格' },
+      { name: '{{customPrompt}}', description: '用户自定义修改要求', example: '将服装改为浅灰风衣，并增强冷色氛围' }
     ]
   },
   {

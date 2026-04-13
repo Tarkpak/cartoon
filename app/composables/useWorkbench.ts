@@ -685,8 +685,17 @@ export function useWorkbench() {
     char: CharacterData,
     options?: {
       workflowType?: WorkflowType
+      regenerationPrompt?: string
+      referenceImage?: string
     }
   ) {
+    const regenerationPrompt = options?.regenerationPrompt?.trim()
+    const referenceImage = options?.referenceImage?.trim()
+
+    if (regenerationPrompt && !referenceImage) {
+      throw new Error('二次生成需要参考图，请先生成角色图后再试')
+    }
+
     char.generating = true
     try {
       const response = await $fetch<{
@@ -707,7 +716,13 @@ export function useWorkbench() {
           },
           style: currentStylePrompt.value,
           generateExpressions: false,
-          workflowType: options?.workflowType || 'classic'
+          workflowType: options?.workflowType || 'classic',
+          regeneration: regenerationPrompt
+            ? {
+                customPrompt: regenerationPrompt,
+                referenceImage
+              }
+            : undefined
         }
       })
       if (response.success) {
