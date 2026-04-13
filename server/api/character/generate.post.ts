@@ -1,4 +1,4 @@
-import { generateImage } from '../../utils/model-provider'
+import { findImageModel, generateImage } from '../../utils/model-provider'
 import { GeminiError } from '../../utils/gemini'
 import { QwenError } from '../../utils/qwen'
 import { VolcengineError } from '../../utils/volcengine'
@@ -13,6 +13,129 @@ import {
   type CharacterAsset,
   type Character
 } from '../../../shared/types/character'
+
+interface CharacterRegenerationOptions {
+  customPrompt?: string
+  referenceImage?: string
+}
+
+interface NormalizedReferenceImage {
+  geminiReference: {
+    data: string
+    mimeType: string
+  }
+  providerReference: string
+}
+
+function looksLikeBase64Image(value: string): boolean {
+  const compact = value.replace(/\s+/g, '')
+  return compact.startsWith('/9j/')
+    || compact.startsWith('iVBOR')
+    || compact.startsWith('R0lGOD')
+    || compact.startsWith('UklGR')
+    || compact.startsWith('Qk')
+    || compact.startsWith('SUkq')
+    || compact.startsWith('TU0A')
+}
+
+function detectImageMimeTypeFromBuffer(buffer: Buffer): string {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg'
+  if (
+    buffer.length >= 8
+    && buffer[0] === 0x89
+    && buffer[1] === 0x50
+    && buffer[2] === 0x4e
+    && buffer[3] === 0x47
+    && buffer[4] === 0x0d
+    && buffer[5] === 0x0a
+    && buffer[6] === 0x1a
+    && buffer[7] === 0x0a
+  ) return 'image/png'
+  if (
+    buffer.length >= 6
+    && buffer[0] === 0x47
+    && buffer[1] === 0x49
+    && buffer[2] === 0x46
+    && buffer[3] === 0x38
+  ) return 'image/gif'
+  if (
+    buffer.length >= 12
+    && buffer.toString('ascii', 0, 4) === 'RIFF'
+    && buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) return 'image/webp'
+  if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4d) return 'image/bmp'
+  return 'image/png'
+}
+
+function normalizeImageMimeType(value?: string): string | null {
+  const normalized = (value || '').split(';')[0]?.trim().toLowerCase()
+  if (!normalized?.startsWith('image/')) return null
+  return normalized
+}
+
+function parseDataUri(value: string): { mimeType: string, data: string } | null {
+  const match = value.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s)
+  if (!match?.[1] || !match[2]) return null
+  return {
+    mimeType: match[1],
+    data: match[2].replace(/\s+/g, '')
+  }
+}
+
+async function normalizeReferenceImageInput(source: string): Promise<NormalizedReferenceImage> {
+  const raw = source.trim()
+  if (!raw) {
+    throw new Error('参考图为空，无法进行角色二次生成')
+  }
+
+  const dataUri = parseDataUri(raw)
+  if (dataUri) {
+    return {
+      geminiReference: {
+        data: dataUri.data,
+        mimeType: dataUri.mimeType
+      },
+      providerReference: `data:${dataUri.mimeType};base64,${dataUri.data}`
+    }
+  }
+
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    const response = await fetch(raw)
+    if (!response.ok) {
+      throw new Error(`下载参考图失败: ${response.status}`)
+    }
+    const buffer = Buffer.from(await response.arrayBuffer())
+    const mimeTypeHeader = normalizeImageMimeType(response.headers.get('content-type') || '')
+    const mimeType = mimeTypeHeader || detectImageMimeTypeFromBuffer(buffer)
+    const data = buffer.toString('base64')
+    return {
+      geminiReference: {
+        data,
+        mimeType
+      },
+      providerReference: raw
+    }
+  }
+
+  if (raw.startsWith('/') && !looksLikeBase64Image(raw)) {
+    throw new Error('检测到站内路径参考图，请先使用可访问的 URL 或 base64 数据')
+  }
+
+  const compact = raw.replace(/\s+/g, '')
+  const buffer = Buffer.from(compact, 'base64')
+  if (!buffer.length) {
+    throw new Error('参考图格式无效，请提供有效的 URL 或 base64 数据')
+  }
+  const mimeType = detectImageMimeTypeFromBuffer(buffer)
+
+  return {
+    geminiReference: {
+      data: compact,
+      mimeType
+    },
+    providerReference: `data:${mimeType};base64,${compact}`
+  }
+}
 
 /**
  * 角色生成 API
@@ -38,13 +161,25 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { character, style, generateExpressions, workflowType } = parseResult.data
+  const {
+    character,
+    style,
+    generateExpressions,
+    workflowType,
+    regeneration
+  } = parseResult.data
   const normalizedWorkflow = normalizeProjectWorkflowType(workflowType)
 
   try {
     // 生成角色设定图（一张图包含所有信息）
     console.log(`[CharacterGen] 开始生成角色设定图: ${character.name}`)
-    const sheetResult = await generateCharacterSheet(character, style, generateExpressions, normalizedWorkflow)
+    const sheetResult = await generateCharacterSheet(
+      character,
+      style,
+      generateExpressions,
+      normalizedWorkflow,
+      regeneration
+    )
 
     // 构建资产对象
     const now = new Date().toISOString()
@@ -110,18 +245,30 @@ async function generateCharacterSheet(
   character: Character,
   style: string,
   _includeExpressions: boolean,
-  workflowType: ProjectWorkflowType
+  workflowType: ProjectWorkflowType,
+  regeneration?: CharacterRegenerationOptions
 ): Promise<{ imageData: string, mimeType: string }> {
   const workflowModels = await getWorkflowModels()
   const modelId = workflowModels.character_portrait
+  const modelConfig = modelId ? findImageModel(modelId) : undefined
+  const customPrompt = regeneration?.customPrompt?.trim()
+  const isRegeneration = !!customPrompt
 
-  // 从数据库获取提示词模板
+  if (isRegeneration && modelConfig?.supportReferenceImage === false) {
+    throw new Error(`当前角色模型「${modelConfig.displayName}」不支持参考图。请在设置中切换到支持图生图的图片模型后重试。`)
+  }
+
+  const promptTemplateId = isRegeneration
+    ? PROMPT_TEMPLATE_IDS.CHARACTER_REGENERATION
+    : PROMPT_TEMPLATE_IDS.CHARACTER_SHEET
+
   const prompt = await getInterpolatedPrompt(
-    PROMPT_TEMPLATE_IDS.CHARACTER_SHEET,
+    promptTemplateId,
     {
       characterName: character.name,
       appearance: character.appearance,
-      style
+      style,
+      customPrompt: customPrompt || ''
     },
     undefined,
     workflowType
@@ -132,12 +279,36 @@ async function generateCharacterSheet(
   }
   const effectivePrompt = prompt
   console.log(`[CharacterGen] 使用图片模型: ${modelId}`)
+  console.log(`[CharacterGen] 生成模式: ${isRegeneration ? '角色二次生成' : '角色初次生成'}`)
   console.log(`[CharacterGen] 视频模型: ${workflowModels.video_generation}, Seedance线稿约束: disabled`)
+
+  let referenceImageOptions: {
+    referenceImage?: { data: string, mimeType: string }
+    referenceImages?: string[]
+  } = {}
+
+  if (isRegeneration) {
+    const referenceImageRaw = regeneration?.referenceImage?.trim()
+    if (!referenceImageRaw) {
+      throw new Error('角色二次生成需要参考图，请先生成角色图后再试')
+    }
+
+    const normalizedReference = await normalizeReferenceImageInput(referenceImageRaw)
+    const provider = modelConfig?.provider || 'gemini'
+    referenceImageOptions = provider === 'gemini'
+      ? {
+          referenceImage: normalizedReference.geminiReference
+        }
+      : {
+          referenceImages: [normalizedReference.providerReference]
+        }
+  }
 
   const result = await imageLimiter.execute(() =>
     generateImage({
       modelId,
       prompt: effectivePrompt,
+      ...referenceImageOptions,
       maxRetries: 2
     })
   )

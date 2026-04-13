@@ -6,6 +6,7 @@
 
 import type { PromptTemplate } from '../../shared/types/prompt-template'
 import { getPromptTemplateMetadataForWorkflow } from '../../shared/types/prompt-template'
+import { CHARACTER_REGENERATION_TEMPLATE_HINT } from '../../shared/constants/character-prompts'
 import {
   normalizeProjectWorkflowType,
   type ProjectWorkflowType
@@ -61,6 +62,8 @@ function getClassicDefaultContent(id: string): PromptTemplate['content'] {
       return CHARACTER_FROM_OUTLINE_CONTENT
     case 'character_sheet':
       return CHARACTER_SHEET_CONTENT
+    case 'character_regeneration':
+      return CHARACTER_REGENERATION_CONTENT
     case 'first_frame_generation':
       return FIRST_FRAME_GENERATION_CONTENT
     case 'last_frame_generation':
@@ -93,6 +96,10 @@ function getAssetConsistencyDefaultContent(
     character_extraction: {
       zh: '【一致性要求】角色描述必须稳定且可复用，避免在不同场景出现身份、服装、体态冲突。',
       en: 'Consistency requirement: character descriptions must be stable and reusable across scenes without identity or costume conflicts.'
+    },
+    character_regeneration: {
+      zh: '【二次生成一致性】必须基于同一角色参考图做定向修改，禁止替换主体身份。',
+      en: 'Regeneration consistency: apply targeted edits on the same referenced character identity, never replace the subject.'
     },
     first_frame_generation: {
       zh: '【环境资产图要求（覆盖下文角色规则）】该图是“纯环境参考图”，禁止出现人物/人脸/肢体；仅保留环境空间、材质、灯光与构图基准。',
@@ -1001,6 +1008,48 @@ Quality target:
 - Suitable as reusable identity-consistency reference assets for video generation
 
 DO NOT include: multiple characters, cropped body parts, complex backgrounds, large text blocks, watermarks, logos, low-quality artifacts, severe perspective distortion, chibi exaggeration, or heavy painterly style`
+}
+
+// ========== 角色二次生成 ==========
+const CHARACTER_REGENERATION_CONTENT: PromptTemplate['content'] = {
+  zh: `你正在执行“角色二次生成（参考图编辑）”任务。请严格以参考图中的同一角色为基准，输出可直接用于图像编辑模型的提示词。
+
+角色信息：
+- 角色名：{{characterName}}
+- 外貌描述：{{appearance}}
+- 风格基线：{{style}}
+
+用户修改要求：
+{{customPrompt}}
+
+默认风格约束：
+${CHARACTER_REGENERATION_TEMPLATE_HINT}
+
+执行要求：
+1. 身份锁定：必须保持同一人，禁止改变年龄段、性别呈现、脸型与核心五官结构。
+2. 服饰/发型锁定：除非用户明确要求，否则不得修改发型、发色、服装结构与关键配饰。
+3. 定向修改：仅执行用户明确提出的变更项，不扩展额外创作，不新增无关元素。
+4. 画面质量：保持构图稳定、主体清晰、光影自然，避免过饱和、过锐化和塑料质感。
+5. 输出约束：只输出最终提示词正文，不要解释、不要分段标题、不要 JSON。`,
+  en: `You are performing a "character regeneration with reference image" task. Keep the same character identity from the reference image and output a direct image-editing prompt.
+
+Character info:
+- Name: {{characterName}}
+- Appearance: {{appearance}}
+- Style baseline: {{style}}
+
+User requested edits:
+{{customPrompt}}
+
+Default style baseline:
+Colored-pencil realistic style with hand-drawn pencil texture and natural lighting; preserve identity and only apply requested edits.
+
+Requirements:
+1. Identity lock: keep the same person (face shape and key facial features).
+2. Hair/outfit lock: do not change hairstyle, hair color, outfit structure, or key accessories unless explicitly requested.
+3. Targeted edits only: apply only requested changes; do not add unrelated creativity.
+4. Quality: clean composition, natural light/shadow, avoid oversharpening or oversaturation.
+5. Output only the final prompt text, with no explanation, headings, or JSON.`
 }
 
 
