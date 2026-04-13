@@ -6,6 +6,8 @@ import { imageLimiter } from '../../utils/concurrency'
 import { getWorkflowModels } from '../models/workflow.get'
 import { getInterpolatedPrompt } from '../../utils/prompt-template'
 import { persistImageToPublic } from '../../utils/image-storage'
+import { db, characters as charactersTable } from '../../db'
+import { eq } from 'drizzle-orm'
 import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 import { normalizeProjectWorkflowType, type ProjectWorkflowType } from '../../../shared/types/project'
 import { CHARACTER_REGENERATION_TEMPLATE_HINT } from '../../../shared/constants/character-prompts'
@@ -138,6 +140,37 @@ async function normalizeReferenceImageInput(source: string): Promise<NormalizedR
   }
 }
 
+async function resolveLatestRegenerationOptions(
+  characterId: string,
+  regeneration?: CharacterRegenerationOptions
+): Promise<CharacterRegenerationOptions | undefined> {
+  const customPrompt = regeneration?.customPrompt?.trim()
+  if (!customPrompt) return undefined
+
+  let referenceImage = regeneration?.referenceImage?.trim()
+
+  try {
+    const latestCharacter = await db.select({
+      baseImage: charactersTable.baseImage
+    })
+      .from(charactersTable)
+      .where(eq(charactersTable.id, characterId))
+      .limit(1)
+
+    const latestBaseImage = latestCharacter[0]?.baseImage?.trim()
+    if (latestBaseImage) {
+      referenceImage = latestBaseImage
+    }
+  } catch (error) {
+    console.warn('[CharacterGen] 读取角色最新参考图失败，回退请求参数:', error)
+  }
+
+  return {
+    customPrompt,
+    referenceImage
+  }
+}
+
 /**
  * 角色生成 API
  * POST /api/character/generate
@@ -170,6 +203,7 @@ export default defineEventHandler(async (event) => {
     regeneration
   } = parseResult.data
   const normalizedWorkflow = normalizeProjectWorkflowType(workflowType)
+  const latestRegeneration = await resolveLatestRegenerationOptions(character.id, regeneration)
 
   try {
     // 生成角色设定图（一张图包含所有信息）
@@ -179,7 +213,7 @@ export default defineEventHandler(async (event) => {
       style,
       generateExpressions,
       normalizedWorkflow,
-      regeneration
+      latestRegeneration
     )
 
     // 构建资产对象
