@@ -409,9 +409,16 @@ export default defineEventHandler(async (event) => {
     ? candidateReferenceImages
     : []
 
-  // Gemini 多参考图时优先环境图作为单图输入，保留空间构图；其它模型仍优先角色图锁身份
+  // 说明：
+  // - 可灵非多参考图模式下，imageUrl 会进入 image2video，被当作“首帧”而非纯参考图
+  // - 资产一致性流程里优先用环境图做单图输入，避免角色参考图意外变成首帧
+  const preferEnvironmentAsPrimary = selectedModel?.provider === 'kling' && !supportsMultiReferenceImages
+
+  // Gemini 多参考图时优先环境图作为单图输入，保留空间构图；
+  // 可灵单图模式也优先环境图，防止角色图被强制首帧化；
+  // 其它模型仍优先角色图锁身份。
   const primaryReference = hasCharactersInScene
-    ? (supportsMultiReferenceImages
+    ? (supportsMultiReferenceImages || preferEnvironmentAsPrimary
         ? (environmentImage || primaryCharacterImage)
         : (primaryCharacterImage || environmentImage))
     : (environmentImage || primaryCharacterImage)
@@ -520,7 +527,7 @@ export default defineEventHandler(async (event) => {
         referenceImagesCount: multiReferenceImages.length,
         characterReferenceCount: characterImages.length,
         primaryReferenceType: hasCharactersInScene
-          ? (supportsMultiReferenceImages
+          ? (supportsMultiReferenceImages || preferEnvironmentAsPrimary
               ? (environmentImage ? 'environment' : primaryCharacterImage ? 'character' : 'none')
               : (primaryCharacterImage ? 'character' : environmentImage ? 'environment' : 'none'))
           : (environmentImage ? 'environment' : primaryCharacterImage ? 'character' : 'none'),
