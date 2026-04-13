@@ -184,7 +184,8 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{characterName}}', description: '角色名称', example: '小明' },
       { name: '{{appearance}}', description: '角色外貌描述', example: '黑色短发，戴眼镜的年轻男性...' },
       { name: '{{style}}', description: '画风描述', example: '彩铅真人风格' },
-      { name: '{{customPrompt}}', description: '用户自定义修改要求', example: '将服装改为浅灰风衣，并增强冷色氛围' }
+      { name: '{{activeStyleConstraint}}', description: '实际生效的风格约束（用户要求优先，否则回退默认约束）', example: '将服装改为浅灰风衣，并增强冷色氛围' },
+      { name: '{{customPrompt}}', description: '用户自定义修改要求（兼容旧模板）', example: '将服装改为浅灰风衣，并增强冷色氛围' }
     ]
   },
   {
