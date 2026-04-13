@@ -105,15 +105,39 @@ function mergeWithDefaultTemplates(
   workflow: ProjectWorkflowType
 ): PromptTemplate[] {
   const defaults = getDefaultPromptTemplates(workflow)
+  const defaultMap = new Map(defaults.map(template => [template.id, template]))
   const templateMap = new Map(templates.map(t => [t.id, t]))
 
   for (const def of defaults) {
-    if (!templateMap.has(def.id)) {
+    const existing = templateMap.get(def.id)
+    if (!existing) {
       templateMap.set(def.id, def)
+      continue
     }
+
+    // 同步模板元数据，避免历史存量模板缺少新变量定义导致编辑器误报
+    templateMap.set(def.id, {
+      ...existing,
+      name: def.name,
+      category: def.category,
+      description: def.description,
+      variables: def.variables
+    })
   }
 
   return Array.from(templateMap.values())
+    .map((template) => {
+      const def = defaultMap.get(template.id)
+      if (!def) return template
+
+      return {
+        ...template,
+        name: def.name,
+        category: def.category,
+        description: def.description,
+        variables: def.variables
+      }
+    })
     .filter(template => isPromptTemplateVisibleForWorkflow(template.id as PromptTemplateId, workflow))
     .map(template => applyPromptTemplateWorkflowDisplay(template, workflow))
 }

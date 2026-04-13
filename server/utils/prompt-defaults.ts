@@ -957,48 +957,50 @@ Notes:
 
 // ========== 角色设定图 ==========
 const CHARACTER_SHEET_CONTENT: PromptTemplate['content'] = {
-  zh: `为 {{characterName}} 创建一张 3D 彩绘角色设定图（Character Sheet）。
+  zh: `为 {{characterName}} 创建一张半写实角色设定板（Character Sheet），风格参考“韩系/日系半写实数字角色卡”。
 
 风格要求：
-- 主风格：3D 彩绘（3D painted illustration），电影级光影与体积感，保留绘画质感，不要照片感。
+- 主风格：半写实数字插画（semi-realistic digital character design sheet），干净、克制、清晰，不要强动画感。
 - 兼容风格：{{style}}
 - 角色外貌严格依据：{{appearance}}
 - 若存在参考图，必须优先保持角色身份一致（脸型、五官、发型、服装、配饰）。
+- 不是真人照片：不要摄影质感、不要毛孔级写实；也不要厚涂油绘、夸张动漫笔触。
 
 画面与布局：
-1. 16:9 横版构图，单角色。
-2. 背景为纯白或极浅灰，干净无场景元素。
-3. 同一张图内包含三视图全身站姿：正面（Front）、侧面（Profile）、背面（Back）。
-4. 可加入一个主视觉半身彩绘像（用于展示材质与光影），但不得遮挡三视图主体信息。
-5. 三视图比例必须严格一致，头身比、服装结构、纹理细节在不同视角保持对应。
+1. 16:9 横版构图，单角色，纯白或浅灰背景。
+2. 左侧约 1/3 区域：角色脸部近景（肩部以上），五官清晰、光线柔和。
+3. 右侧约 2/3 区域：三张全身站姿三视图，依次为 Front / Profile / Back。
+4. 三视图严格等比例、等身高、等服装结构，对齐整齐，可读性高。
+5. 整体像专业角色设定卡，信息明确，不做戏剧化场景叙事。
 
 质量要求：
-- 超高清、8K 质感、边缘清晰、色彩层次丰富
-- 材质表达明确（皮肤、布料、金属、皮革等）
-- 适合后续作为角色一致性参考资产
+- 高清细节、边缘清晰、色彩自然、明暗过渡柔和
+- 皮肤与布料质感自然，避免过度锐化和过饱和
+- 适合作为后续视频角色一致性参考资产
 
-禁止包含：多人同框、角色裁切、复杂背景、大段文字、水印、Logo、低清晰度、严重透视畸变`,
-  en: `Create a 3D painted character sheet for {{characterName}}.
+禁止包含：多人同框、角色裁切、复杂背景、大段文字、水印、Logo、低清晰度、严重透视畸变、Q版夸张比例、重彩绘厚涂风格`,
+  en: `Create a semi-realistic character design sheet for {{characterName}}, matching a clean Korean/Japanese semi-realistic character card style.
 
 Style requirements:
-- Primary style: 3D painted illustration with cinematic lighting and volumetric depth, painterly finish (not photoreal).
+- Primary style: semi-realistic digital character design sheet, clean and controlled, with clear structure and low animation stylization.
 - Compatible style context: {{style}}
 - Follow character appearance strictly: {{appearance}}
 - If reference images exist, preserve identity consistency first (face shape, facial features, hairstyle, outfit, accessories).
+- Not photoreal human-photo: avoid camera-photo texture and pore-level realism; also avoid heavy painterly/anime brush rendering.
 
 Composition and layout:
-1. 16:9 horizontal composition, single character only.
-2. Background must be pure white or very light gray, clean and minimal.
-3. Include full-body turnaround views in one image: Front, Profile, and Back.
-4. You may add one half-body hero portrait to showcase materials and lighting, but it must not block turnaround readability.
-5. Keep strict scale consistency across the turnaround views, including head-body ratio, outfit structure, and texture details.
+1. 16:9 horizontal composition, single character only, pure white or light-gray background.
+2. Left 1/3 area: close-up facial portrait (above shoulders), clear features, soft studio-like lighting.
+3. Right 2/3 area: three full-body turnaround views in order: Front / Profile / Back.
+4. Turnaround views must be strictly aligned with consistent scale, height, and outfit structure.
+5. Overall presentation should look like a professional character design card, not a dramatic scene illustration.
 
 Quality target:
-- Ultra high definition, 8K-grade quality, crisp edges, rich color layering
-- Clear material rendering (skin, fabric, metal, leather, etc.)
-- Suitable as reusable identity-consistency reference assets
+- High detail, crisp edges, natural color tone, soft and controlled shading transitions
+- Natural skin/fabric material expression without oversharpening or oversaturation
+- Suitable as reusable identity-consistency reference assets for video generation
 
-DO NOT include: multiple characters, cropped body parts, complex backgrounds, large text blocks, watermarks, logos, low-quality artifacts, or severe perspective distortion`
+DO NOT include: multiple characters, cropped body parts, complex backgrounds, large text blocks, watermarks, logos, low-quality artifacts, severe perspective distortion, chibi exaggeration, or heavy painterly style`
 }
 
 
