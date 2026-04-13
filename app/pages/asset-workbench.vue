@@ -1604,8 +1604,7 @@ async function submitCharacterRegeneration() {
     return
   }
 
-  const referenceImage = target.baseImage?.trim()
-  if (!referenceImage) {
+  if (!target.baseImage?.trim()) {
     characterRegenerateError.value = '角色参考图不存在，请先生成角色图'
     return
   }
@@ -1615,8 +1614,7 @@ async function submitCharacterRegeneration() {
   try {
     await generateCharacter(target, {
       workflowType: 'asset_consistency',
-      regenerationPrompt: prompt,
-      referenceImage
+      regenerationPrompt: prompt
     })
     closeCharacterRegenerateDialog()
   } catch (error) {

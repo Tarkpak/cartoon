@@ -690,7 +690,7 @@ export function useWorkbench() {
     }
   ) {
     const regenerationPrompt = options?.regenerationPrompt?.trim()
-    const referenceImage = options?.referenceImage?.trim()
+    const referenceImage = options?.referenceImage?.trim() || char.baseImage?.trim()
 
     if (regenerationPrompt && !referenceImage) {
       throw new Error('二次生成需要参考图，请先生成角色图后再试')
