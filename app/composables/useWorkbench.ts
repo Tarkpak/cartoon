@@ -2383,6 +2383,7 @@ export function useWorkbench() {
   // 项目预设配置 (从项目数据库字段读取)
   const projectStyleId = ref<string>('')
   const projectAspectRatio = ref<'16:9' | '9:16' | '1:1'>('16:9')
+  const projectAssetWorkflow = ref<unknown | null>(null)
   
   async function loadProject(id: string) {
     loading.value = true
@@ -2399,6 +2400,7 @@ export function useWorkbench() {
             selectedModels?: SelectedModels
             outline?: StoryOutline
             inputMode?: 'idea' | 'script'
+            assetWorkflow?: unknown
           }
           scenes: Array<{
             id: string
@@ -2427,6 +2429,7 @@ export function useWorkbench() {
             voiceTone?: string
             age?: number
             gender?: string
+            imageUrl?: string | null
             baseImage?: string | null
             expressions?: Record<string, string>
             views?: Partial<Record<CharacterView, string>>
@@ -2446,6 +2449,7 @@ export function useWorkbench() {
         const scriptData = response.data.script
         storyIdea.value = scriptData?.storyIdea || scriptData?.rawText || ''
         novelText.value = scriptData?.novelText || ''
+        projectAssetWorkflow.value = scriptData?.assetWorkflow ?? null
         // 加载故事大纲
         if (scriptData?.outline) {
           outline.value = scriptData.outline
@@ -2502,7 +2506,8 @@ export function useWorkbench() {
           personality: toOptionalString((c as { personality?: string | null }).personality),
           age: toOptionalNumber((c as { age?: number | null }).age),
           gender: toOptionalString((c as { gender?: string | null }).gender),
-          baseImage: toOptionalString((c as { baseImage?: string | null }).baseImage),
+          baseImage: toOptionalString((c as { imageUrl?: string | null }).imageUrl)
+            || toOptionalString((c as { baseImage?: string | null }).baseImage),
           expressions: toOptionalStringRecord((c as { expressions?: unknown }).expressions),
           views: toOptionalStringRecord((c as { views?: unknown }).views) as Partial<Record<CharacterView, string>> | undefined,
           traits: toOptionalStringArray((c as { traits?: string[] | null }).traits),
@@ -2693,6 +2698,7 @@ export function useWorkbench() {
     // 项目预设配置
     projectStyleId,
     projectAspectRatio,
+    projectAssetWorkflow,
 
     // 工作流步骤 (新增)
     currentStep,

@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Sparkles,
   Trash2,
+  Upload,
   Users
 } from 'lucide-vue-next'
 import { useDebounceFn } from '@vueuse/core'
@@ -84,6 +85,7 @@ const {
   projectDescription,
   projectStyleId,
   projectAspectRatio,
+  projectAssetWorkflow,
   selectedStyleId,
   novelText,
   scenes,
@@ -172,6 +174,7 @@ const newPropDescription = ref('')
 const loadingWorkflowMeta = ref(false)
 const savingWorkflowMeta = ref(false)
 const workflowMetaReady = ref(false)
+const hydratingWorkflowMeta = ref(false)
 const workflowError = ref<string | null>(null)
 
 const batchRunning = ref(false)
@@ -190,6 +193,8 @@ const characterRegenerateDialogOpen = ref(false)
 const characterRegenerateTargetId = ref<string | null>(null)
 const characterRegeneratePrompt = ref(CHARACTER_REGENERATION_DEFAULT_PROMPT)
 const characterRegenerateError = ref<string | null>(null)
+const uploadingCharacterId = ref<string | null>(null)
+const uploadingEnvironmentAssetId = ref<string | null>(null)
 const characterEditDraft = reactive({
   id: '',
   name: '',
@@ -461,6 +466,161 @@ const characterRoleOptions = [
   { value: 'supporting', label: '配角' },
   { value: 'extra', label: '群演' }
 ]
+
+const MAX_ASSET_UPLOAD_SIZE = 20 * 1024 * 1024
+
+function buildUploadInputId(type: 'char' | 'env', rawId: string): string {
+  const normalized = rawId.replace(/[^a-zA-Z0-9_-]+/g, '_')
+  return `${type}_upload_${normalized}`
+}
+
+function triggerUploadInput(type: 'char' | 'env', rawId: string) {
+  if (typeof document === 'undefined') return
+  const inputId = buildUploadInputId(type, rawId)
+  const input = document.getElementById(inputId) as HTMLInputElement | null
+  input?.click()
+}
+
+function resetFileInput(event: Event) {
+  const input = event.target as HTMLInputElement | null
+  if (input) {
+    input.value = ''
+  }
+}
+
+async function fileToDataUrl(file: File): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => {
+      reject(new Error('读取图片文件失败，请重试'))
+    }
+    reader.onload = () => {
+      if (typeof reader.result !== 'string' || !reader.result.startsWith('data:image/')) {
+        reject(new Error('仅支持图片文件上传'))
+        return
+      }
+      resolve(reader.result)
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+async function uploadAssetImage(source: string, prefix: string): Promise<string> {
+  const response = await $fetch<{
+    success: boolean
+    imageUrl?: string
+  }>('/api/asset-workflow/upload-image', {
+    method: 'POST',
+    body: {
+      imageData: source,
+      prefix
+    }
+  })
+
+  if (!response.success || !response.imageUrl) {
+    throw new Error('图片上传失败，请稍后重试')
+  }
+
+  return response.imageUrl
+}
+
+async function handleCharacterImageUpload(characterId: string, event: Event) {
+  const input = event.target as HTMLInputElement | null
+  const file = input?.files?.[0]
+  if (!file) {
+    resetFileInput(event)
+    return
+  }
+
+  if (!file.type.startsWith('image/')) {
+    resetFileInput(event)
+    autoRunError.value = '仅支持上传图片文件'
+    return
+  }
+
+  if (file.size > MAX_ASSET_UPLOAD_SIZE) {
+    resetFileInput(event)
+    autoRunError.value = '图片大小不能超过 20MB'
+    return
+  }
+
+  const target = characters.value.find(char => char.id === characterId)
+  if (!target) {
+    resetFileInput(event)
+    return
+  }
+
+  uploadingCharacterId.value = characterId
+  autoRunError.value = null
+
+  try {
+    const dataUrl = await fileToDataUrl(file)
+    const imageUrl = await uploadAssetImage(dataUrl, `char_${target.id}`)
+    target.baseImage = imageUrl
+    await saveProject()
+  } catch (error) {
+    autoRunError.value = resolveUiError(error, '角色图片上传失败')
+  } finally {
+    uploadingCharacterId.value = null
+    resetFileInput(event)
+  }
+}
+
+async function handleEnvironmentImageUpload(assetId: string, event: Event) {
+  const input = event.target as HTMLInputElement | null
+  const file = input?.files?.[0]
+  if (!file) {
+    resetFileInput(event)
+    return
+  }
+
+  if (!file.type.startsWith('image/')) {
+    resetFileInput(event)
+    autoRunError.value = '仅支持上传图片文件'
+    return
+  }
+
+  if (file.size > MAX_ASSET_UPLOAD_SIZE) {
+    resetFileInput(event)
+    autoRunError.value = '图片大小不能超过 20MB'
+    return
+  }
+
+  const asset = resolveEnvironmentCard(assetId)
+  if (!asset) {
+    resetFileInput(event)
+    return
+  }
+
+  uploadingEnvironmentAssetId.value = assetId
+  autoRunError.value = null
+
+  try {
+    const dataUrl = await fileToDataUrl(file)
+    const imageUrl = await uploadAssetImage(dataUrl, `env_${asset.sceneIds[0] || assetId}`)
+
+    for (const sceneId of asset.sceneIds) {
+      const scene = scenes.value.find(item => item.id === sceneId)
+      if (!scene) continue
+
+      scene.firstFrame = imageUrl
+      scene.lastFrame = undefined
+      scene.frameStatus = 'done'
+      scene.frameError = undefined
+      scene.videoUrl = undefined
+      scene.videoStatus = 'pending'
+      scene.videoError = undefined
+    }
+
+    synchronizeQueueItems()
+    await saveProject()
+  } catch (error) {
+    autoRunError.value = resolveUiError(error, '环境图片上传失败')
+  } finally {
+    uploadingEnvironmentAssetId.value = null
+    resetFileInput(event)
+  }
+}
 
 function resolvePropUsageCount(propId: string): number {
   const targetAssetId = `prop:${propId}`
@@ -1135,7 +1295,7 @@ watch(
 watch(
   [sceneConfigs, propAssets],
   () => {
-    if (!workflowMetaReady.value) return
+    if (!workflowMetaReady.value || hydratingWorkflowMeta.value) return
     debouncedSaveWorkflowMeta()
   },
   { deep: true }
@@ -1735,22 +1895,14 @@ async function runSimpleFinalStep() {
   }
 }
 
-async function loadWorkflowMeta(targetProjectId: string): Promise<boolean> {
+async function loadWorkflowMeta(rawMetaInput?: unknown): Promise<boolean> {
   loadingWorkflowMeta.value = true
   workflowError.value = null
+  hydratingWorkflowMeta.value = true
   let hasMeta = false
 
   try {
-    const response = await $fetch<{
-      success: boolean
-      data?: {
-        script?: {
-          assetWorkflow?: unknown
-        }
-      }
-    }>(`/api/project/${targetProjectId}`)
-
-    const rawMeta = response?.data?.script?.assetWorkflow
+    const rawMeta = rawMetaInput
     if (!rawMeta || typeof rawMeta !== 'object' || Array.isArray(rawMeta)) {
       return false
     }
@@ -1796,9 +1948,10 @@ async function loadWorkflowMeta(targetProjectId: string): Promise<boolean> {
     workflowError.value = '读取流程配置失败，已使用默认配置。'
   } finally {
     loadingWorkflowMeta.value = false
-    workflowMetaReady.value = true
     synchronizeSceneConfigs()
     synchronizeQueueItems()
+    workflowMetaReady.value = true
+    hydratingWorkflowMeta.value = false
   }
 
   return hasMeta
@@ -1844,7 +1997,7 @@ onMounted(async () => {
     selectedStyleId.value = projectStyleId.value
   }
 
-  const hasMeta = await loadWorkflowMeta(id)
+  const hasMeta = await loadWorkflowMeta(projectAssetWorkflow.value)
 
   const autoPlanResult = applyAutomaticAssetPlan({
     overwriteExistingConfigs: !hasMeta
@@ -2237,6 +2390,23 @@ onMounted(async () => {
                         {{ char.baseImage ? '重生成角色图' : '生成角色图' }}
                       </Button>
                       <Button
+                        size="sm"
+                        variant="outline"
+                        class="h-8 px-3 text-xs"
+                        :disabled="autoRunning || char.generating || !!uploadingCharacterId"
+                        @click="triggerUploadInput('char', char.id)"
+                      >
+                        <Loader2
+                          v-if="uploadingCharacterId === char.id"
+                          class="h-3.5 w-3.5 mr-1 animate-spin"
+                        />
+                        <Upload
+                          v-else
+                          class="h-3.5 w-3.5 mr-1"
+                        />
+                        上传角色图
+                      </Button>
+                      <Button
                         v-if="char.baseImage"
                         size="sm"
                         variant="outline"
@@ -2247,6 +2417,13 @@ onMounted(async () => {
                         <Sparkles class="h-3.5 w-3.5 mr-1" />
                         二次生成
                       </Button>
+                      <input
+                        :id="buildUploadInputId('char', char.id)"
+                        type="file"
+                        accept="image/*"
+                        class="hidden"
+                        @change="handleCharacterImageUpload(char.id, $event)"
+                      >
                     </template>
                   </div>
                 </div>
@@ -2338,6 +2515,23 @@ onMounted(async () => {
                         size="sm"
                         variant="outline"
                         class="h-7 px-2 text-xs"
+                        :disabled="autoRunning || asset.frameStatus === 'generating' || !!uploadingEnvironmentAssetId"
+                        @click="triggerUploadInput('env', asset.id)"
+                      >
+                        <Loader2
+                          v-if="uploadingEnvironmentAssetId === asset.id"
+                          class="h-3.5 w-3.5 mr-1 animate-spin"
+                        />
+                        <Upload
+                          v-else
+                          class="h-3.5 w-3.5 mr-1"
+                        />
+                        上传环境图
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        class="h-7 px-2 text-xs"
                         :disabled="asset.frameStatus === 'generating'"
                         @click="regenerateEnvironmentAsset(asset.id)"
                       >
@@ -2351,6 +2545,13 @@ onMounted(async () => {
                         />
                         重生成环境图
                       </Button>
+                      <input
+                        :id="buildUploadInputId('env', asset.id)"
+                        type="file"
+                        accept="image/*"
+                        class="hidden"
+                        @change="handleEnvironmentImageUpload(asset.id, $event)"
+                      >
                     </div>
                   </div>
                 </div>
