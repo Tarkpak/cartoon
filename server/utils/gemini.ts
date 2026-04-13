@@ -567,6 +567,7 @@ export async function _geminiGenerateImage(options: {
   prompt: string
   referenceImage?: { data: string, mimeType: string }
   referenceImages?: string[]
+  allowTextOnlyResult?: boolean
   maxRetries?: number
 }): Promise<{ imageData: string, mimeType: string, text?: string }> {
   console.log('[Gemini] _geminiGenerateImage 开始执行')
@@ -683,6 +684,11 @@ export async function _geminiGenerateImage(options: {
       if (part.text) {
         text = part.text
       }
+    }
+
+    if (!imageData && options.allowTextOnlyResult && text.trim()) {
+      console.warn('[Gemini] 本次返回文本结果，按 allowTextOnlyResult 返回给上层处理')
+      return { imageData: '', mimeType, text }
     }
 
     if (!imageData) {

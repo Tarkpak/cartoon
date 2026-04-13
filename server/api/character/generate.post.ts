@@ -8,6 +8,7 @@ import { getInterpolatedPrompt } from '../../utils/prompt-template'
 import { persistImageToPublic } from '../../utils/image-storage'
 import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 import { normalizeProjectWorkflowType, type ProjectWorkflowType } from '../../../shared/types/project'
+import { CHARACTER_REGENERATION_TEMPLATE_HINT } from '../../../shared/constants/character-prompts'
 import {
   GenerateCharacterRequestSchema,
   type CharacterAsset,
@@ -261,6 +262,7 @@ async function generateCharacterSheet(
   const promptTemplateId = isRegeneration
     ? PROMPT_TEMPLATE_IDS.CHARACTER_REGENERATION
     : PROMPT_TEMPLATE_IDS.CHARACTER_SHEET
+  const activeStyleConstraint = customPrompt || CHARACTER_REGENERATION_TEMPLATE_HINT
 
   const prompt = await getInterpolatedPrompt(
     promptTemplateId,
@@ -268,7 +270,8 @@ async function generateCharacterSheet(
       characterName: character.name,
       appearance: character.appearance,
       style,
-      customPrompt: customPrompt || ''
+      customPrompt: customPrompt || '',
+      activeStyleConstraint
     },
     undefined,
     workflowType
@@ -304,14 +307,27 @@ async function generateCharacterSheet(
         }
   }
 
-  const result = await imageLimiter.execute(() =>
-    generateImage({
-      modelId,
-      prompt: effectivePrompt,
-      ...referenceImageOptions,
-      maxRetries: 2
-    })
-  )
+  const generateWithPrompt = async (promptText: string, allowTextOnlyResult = false) => {
+    return await imageLimiter.execute(() =>
+      generateImage({
+        modelId,
+        prompt: promptText,
+        ...referenceImageOptions,
+        allowTextOnlyResult,
+        maxRetries: 2
+      })
+    )
+  }
+
+  let result = await generateWithPrompt(effectivePrompt, isRegeneration)
+  const hasImageResult = !!(result.imageData || result.imageUrl)
+
+  // 兼容“提示词生成型”模板：若模型先返回了文本提示词，则自动再尝试一次出图
+  if (isRegeneration && !hasImageResult && result.text?.trim()) {
+    const fallbackPrompt = result.text.trim()
+    console.warn('[CharacterGen] 二次生成返回文本结果，已自动使用该文本重试生成图片')
+    result = await generateWithPrompt(fallbackPrompt)
+  }
 
   const imageSource = result.imageData || result.imageUrl || ''
   if (!imageSource) {
