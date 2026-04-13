@@ -104,7 +104,14 @@ export const GenerateCharacterRequestSchema = z.object({
   character: CharacterSchema.describe('角色信息'),
   style: z.string().describe('画风 (必填，由项目配置决定)'),
   generateExpressions: z.boolean().optional().default(true).describe('是否生成表情变体'),
-  workflowType: z.enum(['classic', 'asset_consistency']).optional().default('classic').describe('工作流类型')
+  workflowType: z.enum(['classic', 'asset_consistency']).optional().default('classic').describe('工作流类型'),
+  regeneration: z.preprocess(
+    nullToUndefined,
+    z.object({
+      customPrompt: z.preprocess(nullToUndefined, z.string().optional()).describe('角色二次生成自定义提示词'),
+      referenceImage: z.preprocess(nullToUndefined, z.string().optional()).describe('角色二次生成参考图（通常使用已生成角色图）')
+    }).optional()
+  ).describe('角色二次生成参数')
 })
 export type GenerateCharacterRequest = z.infer<typeof GenerateCharacterRequestSchema>
 

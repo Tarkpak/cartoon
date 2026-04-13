@@ -8,12 +8,14 @@ import {
   Loader2,
   Pencil,
   RefreshCw,
+  Sparkles,
   Trash2,
   Users
 } from 'lucide-vue-next'
 import { useDebounceFn } from '@vueuse/core'
 import type { CharacterData, SceneData } from '~/composables/useWorkbench'
 import { toImageSrc } from '~/lib/media'
+import { CHARACTER_REGENERATION_DEFAULT_PROMPT } from '#shared/constants/character-prompts'
 
 // 资产一致性工作流页面
 definePageMeta({
@@ -184,11 +186,21 @@ const imagePreviewOpen = ref(false)
 const imagePreviewSrc = ref('')
 const imagePreviewAlt = ref('')
 const editingCharacterId = ref<string | null>(null)
+const characterRegenerateDialogOpen = ref(false)
+const characterRegenerateTargetId = ref<string | null>(null)
+const characterRegeneratePrompt = ref(CHARACTER_REGENERATION_DEFAULT_PROMPT)
+const characterRegenerateError = ref<string | null>(null)
 const characterEditDraft = reactive({
   id: '',
   name: '',
   appearance: '',
   role: 'supporting'
+})
+
+watch(characterRegenerateDialogOpen, (open) => {
+  if (open) return
+  characterRegenerateTargetId.value = null
+  characterRegenerateError.value = null
 })
 
 const selectedScene = computed<SceneData | null>(() => {
@@ -198,6 +210,11 @@ const selectedScene = computed<SceneData | null>(() => {
   if (matched) return matched
 
   return scenes.value[0] || null
+})
+
+const characterRegenerateTarget = computed(() => {
+  if (!characterRegenerateTargetId.value) return null
+  return characters.value.find(char => char.id === characterRegenerateTargetId.value) || null
 })
 
 const characterAssets = computed<DisplayAsset[]>(() => {
@@ -1394,6 +1411,59 @@ async function handleGenerateCharacter(characterId: string) {
   })
 }
 
+function openCharacterRegenerateDialog(char: CharacterData) {
+  if (!char.baseImage?.trim()) {
+    alert('请先生成角色图，再进行二次生成')
+    return
+  }
+  characterRegenerateTargetId.value = char.id
+  characterRegeneratePrompt.value = CHARACTER_REGENERATION_DEFAULT_PROMPT
+  characterRegenerateError.value = null
+  characterRegenerateDialogOpen.value = true
+}
+
+function closeCharacterRegenerateDialog() {
+  characterRegenerateDialogOpen.value = false
+  characterRegenerateTargetId.value = null
+  characterRegenerateError.value = null
+}
+
+async function submitCharacterRegeneration() {
+  const targetId = characterRegenerateTargetId.value
+  if (!targetId) return
+
+  const target = characters.value.find(char => char.id === targetId)
+  if (!target) {
+    closeCharacterRegenerateDialog()
+    return
+  }
+
+  const prompt = characterRegeneratePrompt.value.trim()
+  if (!prompt) {
+    characterRegenerateError.value = '请输入二次生成提示词'
+    return
+  }
+
+  const referenceImage = target.baseImage?.trim()
+  if (!referenceImage) {
+    characterRegenerateError.value = '角色参考图不存在，请先生成角色图'
+    return
+  }
+
+  characterRegenerateError.value = null
+
+  try {
+    await generateCharacter(target, {
+      workflowType: 'asset_consistency',
+      regenerationPrompt: prompt,
+      referenceImage
+    })
+    closeCharacterRegenerateDialog()
+  } catch (error) {
+    characterRegenerateError.value = resolveUiError(error, '角色二次生成失败')
+  }
+}
+
 async function handleBatchGenerateCharacters() {
   await batchGenerateCharacters(undefined, {
     workflowType: 'asset_consistency'
@@ -2147,6 +2217,17 @@ onMounted(async () => {
                         />
                         {{ char.baseImage ? '重生成角色图' : '生成角色图' }}
                       </Button>
+                      <Button
+                        v-if="char.baseImage"
+                        size="sm"
+                        variant="outline"
+                        class="h-8 px-3 text-xs"
+                        :disabled="autoRunning || char.generating"
+                        @click="openCharacterRegenerateDialog(char)"
+                      >
+                        <Sparkles class="h-3.5 w-3.5 mr-1" />
+                        二次生成
+                      </Button>
                     </template>
                   </div>
                 </div>
@@ -2631,6 +2712,54 @@ onMounted(async () => {
         </div>
       </CardContent>
     </Card>
+
+    <Dialog v-model:open="characterRegenerateDialogOpen">
+      <DialogContent class="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>角色二次生成</DialogTitle>
+          <DialogDescription>
+            使用当前角色图作为参考图，按自定义提示词定向修改。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-3">
+          <div class="text-xs text-muted-foreground">
+            目标角色：{{ characterRegenerateTarget?.name || '-' }}
+          </div>
+          <Textarea
+            v-model="characterRegeneratePrompt"
+            class="min-h-[140px] text-sm"
+            placeholder="输入二次生成提示词"
+          />
+          <p
+            v-if="characterRegenerateError"
+            class="text-xs text-destructive"
+          >
+            {{ characterRegenerateError }}
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            :disabled="characterRegenerateTarget?.generating"
+            @click="closeCharacterRegenerateDialog"
+          >
+            取消
+          </Button>
+          <Button
+            :disabled="!characterRegeneratePrompt.trim() || !characterRegenerateTarget || characterRegenerateTarget.generating"
+            @click="submitCharacterRegeneration"
+          >
+            <Loader2
+              v-if="characterRegenerateTarget?.generating"
+              class="h-4 w-4 mr-2 animate-spin"
+            />
+            开始二次生成
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <ScriptSceneEditDialog
       v-model:open="sceneEditDialogOpen"

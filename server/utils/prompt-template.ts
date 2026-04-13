@@ -78,6 +78,7 @@ function getDefaultLangConfig(workflow: PromptWorkflowInput = 'classic'): Prompt
     character_extraction: 'zh',
     character_from_outline: 'zh',
     character_sheet: 'en',
+    character_regeneration: 'zh',
     scene_visual: 'zh',
     first_frame_generation: 'en',
     last_frame_generation: 'en',
