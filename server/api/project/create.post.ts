@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { db, projects as projectsTable } from '../../db'
+import { isStyleIdEnabled } from '../../utils/style-config'
 
 const CreateProjectSchema = z.object({
   title: z.string().min(1).max(100),
@@ -31,6 +32,15 @@ export default defineEventHandler(async (event) => {
   const id = `proj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 
   try {
+    const styleEnabled = await isStyleIdEnabled(styleId)
+    if (!styleEnabled) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: '画风预设不可用',
+        message: `当前后台配置未启用该画风: ${styleId}`
+      })
+    }
+
     await db.insert(projectsTable).values({
       id,
       name: title,
@@ -61,6 +71,9 @@ export default defineEventHandler(async (event) => {
       }
     }
   } catch (error) {
+    if ((error as { statusCode?: number }).statusCode) {
+      throw error
+    }
     console.error('[ProjectCreate] 创建失败:', error)
     throw createError({
       statusCode: 500,

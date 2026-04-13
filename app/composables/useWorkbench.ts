@@ -9,7 +9,6 @@ import type { SceneVisual } from '#shared/types/scene-visual'
 import type { CharacterView } from '#shared/types/character'
 import type { StoryOutline, CharacterRelationship } from '#shared/types/outline'
 import type { SelectedModels } from '#shared/types/provider'
-import { getStyleById } from '#shared/types/styles'
 
 // 转场效果（扩展 video.ts 中的基础类型）
 export type WorkbenchTransitionType = 'cut' | 'fade' | 'dissolve' | 'wipe' | 'slide' | 'zoom' | 'blur' | 'flash' | 'none'
@@ -148,6 +147,8 @@ interface VideoInputDecision {
 export function useWorkbench() {
   const route = useRoute()
   const router = useRouter()
+  const { resolveStyleById, loadStylePresets } = useStylePresets()
+  void loadStylePresets()
 
   // ========== 项目基础信息 ==========
   const projectId = computed(() => route.query.project as string | undefined)
@@ -219,11 +220,12 @@ export function useWorkbench() {
   // 获取当前选中风格的提示词，如果未选择则返回空字符串
   const currentStylePrompt = computed(() => {
     if (selectedStyleId.value) {
-      const style = getStyleById(selectedStyleId.value)
+      const style = resolveStyleById(selectedStyleId.value)
       if (style) {
         // 返回风格名称 + 英文提示词，用于更好的生成效果
         return `${style.name}, ${style.prompt} style`
       }
+      return `${selectedStyleId.value} style`
     }
     return ''  // 未选择风格时返回空字符串，强制用户选择
   })
@@ -2410,7 +2412,7 @@ export function useWorkbench() {
             voiceTone?: string
             age?: number
             gender?: string
-            baseImage?: string
+            baseImage?: string | null
             expressions?: Record<string, string>
             views?: Partial<Record<CharacterView, string>>
           }>
@@ -2485,7 +2487,7 @@ export function useWorkbench() {
           personality: toOptionalString((c as { personality?: string | null }).personality),
           age: toOptionalNumber((c as { age?: number | null }).age),
           gender: toOptionalString((c as { gender?: string | null }).gender),
-          baseImage: c.baseImage,
+          baseImage: toOptionalString((c as { baseImage?: string | null }).baseImage),
           expressions: toOptionalStringRecord((c as { expressions?: unknown }).expressions),
           views: toOptionalStringRecord((c as { views?: unknown }).views) as Partial<Record<CharacterView, string>> | undefined,
           traits: toOptionalStringArray((c as { traits?: string[] | null }).traits),

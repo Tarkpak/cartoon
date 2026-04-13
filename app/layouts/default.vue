@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Moon, Sun, ChevronLeft, ChevronRight, Clapperboard } from 'lucide-vue-next'
+import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FlaskConical, FileText, Palette } from 'lucide-vue-next'
 
 const route = useRoute()
 const { isDark, toggleTheme, initTheme } = useTheme()
@@ -13,6 +13,60 @@ const navigation = [
   { name: '项目管理', path: '/projects', icon: Folder },
   { name: '设置', path: '/settings', icon: Settings }
 ]
+
+type SettingsSection = 'models' | 'prompts' | 'styles'
+type SettingsModelSub = 'workflow' | 'test'
+
+const settingsSubNavigation: Array<{
+  name: string
+  section: SettingsSection
+  sub?: SettingsModelSub
+  icon: unknown
+}> = [
+  { name: '业务流程配置', section: 'models', sub: 'workflow', icon: Workflow },
+  { name: '模型测试', section: 'models', sub: 'test', icon: FlaskConical },
+  { name: '提示词配置', section: 'prompts', icon: FileText },
+  { name: '画风预设', section: 'styles', icon: Palette }
+]
+
+function getSingleQueryValue(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0]
+  return value
+}
+
+const currentSettingsSection = computed<SettingsSection>(() => {
+  const raw = getSingleQueryValue(route.query.section as string | string[] | undefined)
+  if (raw === 'prompts' || raw === 'styles' || raw === 'models') {
+    return raw
+  }
+  return 'models'
+})
+
+const currentSettingsModelSub = computed<SettingsModelSub>(() => {
+  const raw = getSingleQueryValue(route.query.sub as string | string[] | undefined)
+  return raw === 'test' ? 'test' : 'workflow'
+})
+
+function isSettingsSubActive(item: { section: SettingsSection, sub?: SettingsModelSub }): boolean {
+  if (route.path !== '/settings') return false
+  if (currentSettingsSection.value !== item.section) return false
+  if (item.section !== 'models') return true
+  return currentSettingsModelSub.value === (item.sub || 'workflow')
+}
+
+function getSettingsSubRoute(item: { section: SettingsSection, sub?: SettingsModelSub }) {
+  if (item.section === 'models') {
+    return {
+      path: '/settings',
+      query: { section: item.section, sub: item.sub || 'workflow' }
+    }
+  }
+
+  return {
+    path: '/settings',
+    query: { section: item.section }
+  }
+}
 
 const activeStates = computed(() => {
   return navigation.map(item => route.path === item.path)
@@ -76,22 +130,43 @@ watch(isCollapsed, (value) => {
 
       <!-- 导航菜单 -->
       <nav class="flex-1 p-4 space-y-1">
-        <NuxtLink
+        <div
           v-for="(item, index) in navigation"
           :key="item.path"
-          :to="item.path"
-          class="flex items-center rounded-md transition-colors duration-200"
-          :class="[
-            isCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5',
-            activeStates[index]
-              ? 'bg-accent text-foreground font-medium'
-              : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-          ]"
-          :title="isCollapsed ? item.name : undefined"
         >
-          <component :is="item.icon" class="w-5 h-5 flex-shrink-0" />
-          <span v-if="!isCollapsed">{{ item.name }}</span>
-        </NuxtLink>
+          <NuxtLink
+            :to="item.path"
+            class="flex items-center rounded-md transition-colors duration-200"
+            :class="[
+              isCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5',
+              activeStates[index]
+                ? 'bg-accent text-foreground font-medium'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+            ]"
+            :title="isCollapsed ? item.name : undefined"
+          >
+            <component :is="item.icon" class="w-5 h-5 flex-shrink-0" />
+            <span v-if="!isCollapsed">{{ item.name }}</span>
+          </NuxtLink>
+
+          <div
+            v-if="item.path === '/settings' && route.path === '/settings' && !isCollapsed"
+            class="mt-1 ml-8 space-y-0.5"
+          >
+            <NuxtLink
+              v-for="sub in settingsSubNavigation"
+              :key="`${sub.section}-${sub.sub || 'root'}`"
+              :to="getSettingsSubRoute(sub)"
+              class="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
+              :class="isSettingsSubActive(sub)
+                ? 'bg-primary/10 text-primary font-medium'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+            >
+              <component :is="sub.icon" class="w-3.5 h-3.5 flex-shrink-0" />
+              <span>{{ sub.name }}</span>
+            </NuxtLink>
+          </div>
+        </div>
       </nav>
 
       <!-- 主题切换 -->

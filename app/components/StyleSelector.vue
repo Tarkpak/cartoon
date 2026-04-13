@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { Search, Sparkles, Check, Palette } from 'lucide-vue-next'
+import { Search, Sparkles, Check, Palette, Loader2 } from 'lucide-vue-next'
 import {
   STYLE_CATEGORIES,
   STYLE_PRESETS,
-  getStylesByCategory,
   type StylePreset,
-  type StyleCategory
+  type StyleCategory,
+  type StyleCategoryInfo
 } from '#shared/types/styles'
 
 const props = defineProps<{
   modelValue?: string
   showSearch?: boolean
+  styles?: StylePreset[]
+  categories?: StyleCategoryInfo[]
 }>()
 
 const emit = defineEmits<{
@@ -21,12 +23,39 @@ const emit = defineEmits<{
 const searchQuery = ref('')
 const activeCategory = ref<StyleCategory | 'all' | 'new'>('all')
 
+const {
+  presets: remoteStyles,
+  categories: remoteCategories,
+  loading: remoteLoading,
+  loadStylePresets
+} = useStylePresets()
+
+const availableStyles = computed(() => {
+  if (props.styles && props.styles.length > 0) {
+    return props.styles
+  }
+  if (remoteStyles.value.length > 0) {
+    return remoteStyles.value
+  }
+  return STYLE_PRESETS
+})
+
+const availableCategories = computed(() => {
+  const categorySet = new Set(availableStyles.value.map(style => style.category))
+
+  const sourceCategories = props.categories && props.categories.length > 0
+    ? props.categories
+    : (remoteCategories.value.length > 0 ? remoteCategories.value : STYLE_CATEGORIES)
+
+  return sourceCategories.filter(category => categorySet.has(category.id))
+})
+
 const filteredStyles = computed(() => {
-  let styles = STYLE_PRESETS
+  let styles = availableStyles.value
   if (activeCategory.value === 'new') {
     styles = styles.filter(s => s.isNew)
   } else if (activeCategory.value !== 'all') {
-    styles = getStylesByCategory(activeCategory.value)
+    styles = styles.filter(style => style.category === activeCategory.value)
   }
   if (searchQuery.value.trim()) {
     const query = searchQuery.value.toLowerCase()
@@ -40,17 +69,31 @@ const filteredStyles = computed(() => {
 })
 
 const selectedStyle = computed(() =>
-  STYLE_PRESETS.find(s => s.id === props.modelValue)
+  availableStyles.value.find(s => s.id === props.modelValue)
 )
 
 function selectStyle(style: StylePreset) {
   emit('update:modelValue', style.id)
   emit('select', style)
 }
+
+onMounted(async () => {
+  if (!props.styles) {
+    await loadStylePresets()
+  }
+})
 </script>
 
 <template>
   <div class="space-y-4">
+    <div
+      v-if="!props.styles && remoteLoading && filteredStyles.length === 0"
+      class="flex items-center justify-center py-8 text-muted-foreground text-sm"
+    >
+      <Loader2 class="w-4 h-4 mr-2 animate-spin" />
+      加载画风配置中...
+    </div>
+
     <!-- 搜索框 -->
     <div v-if="showSearch !== false" class="relative">
       <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -80,7 +123,7 @@ function selectStyle(style: StylePreset) {
         新增
       </button>
       <button
-        v-for="cat in STYLE_CATEGORIES"
+        v-for="cat in availableCategories"
         :key="cat.id"
         class="px-3 py-1.5 text-sm rounded-full transition-colors"
         :class="activeCategory === cat.id ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'"
