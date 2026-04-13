@@ -1,15 +1,13 @@
 import { createHash } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import {
+  buildCloudObjectKey,
+  uploadBufferToCloudStorageOrThrow
+} from './cloud-storage'
 
 const STORAGE_SUBDIR = 'generated-images'
 const IMAGE_API_PREFIX = '/api/image/file/'
-
-function ensureOutputDir(): string {
-  const outputDir = join(process.cwd(), 'data', STORAGE_SUBDIR)
-  mkdirSync(outputDir, { recursive: true })
-  return outputDir
-}
 
 function extractFilenameFromUrlPath(urlPath: string): string | null {
   const trimmed = urlPath.trim()
@@ -24,6 +22,24 @@ function extractFilenameFromUrlPath(urlPath: string): string | null {
   }
 
   return null
+}
+
+function readLocalGeneratedImage(filename: string): Buffer | null {
+  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    return null
+  }
+
+  const filePath = getGeneratedImageCandidatePaths(filename)
+    .find(candidate => {
+      try {
+        return statSync(candidate).isFile()
+      } catch {
+        return false
+      }
+    })
+
+  if (!filePath) return null
+  return readFileSync(filePath)
 }
 
 function looksLikeBase64Image(value: string): boolean {
@@ -138,20 +154,35 @@ export async function persistImageToPublic(options: {
 
   const existingFilename = extractFilenameFromUrlPath(source)
   if (existingFilename) {
-    return `${IMAGE_API_PREFIX}${encodeURIComponent(existingFilename)}`
+    const localBuffer = readLocalGeneratedImage(existingFilename)
+    if (!localBuffer) {
+      throw new Error(`本地图片不存在或不可读，无法迁移到云端: ${existingFilename}`)
+    }
+    const cloudObjectKey = buildCloudObjectKey({
+      category: 'images',
+      filename: existingFilename
+    })
+    return await uploadBufferToCloudStorageOrThrow({
+      key: cloudObjectKey,
+      buffer: localBuffer
+    })
   }
-  if (source.startsWith('/') && !looksLikeBase64Image(source)) return source
+  if (source.startsWith('/') && !looksLikeBase64Image(source)) {
+    throw new Error('检测到站内本地图片路径，已禁用本地媒体写入/读取，请先迁移至云存储')
+  }
 
   const { buffer, mimeType } = await resolveImageSource(source)
-  const outputDir = ensureOutputDir()
   const ext = extFromMimeType(mimeType)
   const hash = createHash('sha1').update(buffer).digest('hex').slice(0, 16)
   const filename = `${sanitizePrefix(options.prefix)}_${Date.now()}_${hash}.${ext}`
-  const filePath = join(outputDir, filename)
-
-  writeFileSync(filePath, buffer)
-
-  return `${IMAGE_API_PREFIX}${encodeURIComponent(filename)}`
+  const cloudObjectKey = buildCloudObjectKey({
+    category: 'images',
+    filename
+  })
+  return await uploadBufferToCloudStorageOrThrow({
+    key: cloudObjectKey,
+    buffer
+  })
 }
 
 export function getGeneratedImageCandidatePaths(filename: string): string[] {

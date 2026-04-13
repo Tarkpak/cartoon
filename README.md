@@ -36,6 +36,17 @@ KLING_SECRET_KEY=          # 可灵 AI Secret Key
 KLING_BASE_URL=            # 可选，默认 https://api-beijing.klingai.com
 VOLCENGINE_API_KEY=        # 火山引擎 (Doubao) API 密钥
 
+# 可选：火山云对象存储 TOS（启用后图片/视频优先上传云端）
+# TOS_ENABLED=true
+# TOS_ACCESS_KEY=
+# TOS_SECRET_KEY=
+# TOS_REGION=cn-beijing
+# TOS_ENDPOINT=tos-cn-beijing.volces.com
+# TOS_BUCKET=
+# TOS_KEY_PREFIX=manju-assets
+# TOS_PUBLIC_BASE_URL=      # 可选，建议填写 CDN/自定义域名
+# TOS_IS_CUSTOM_DOMAIN=false
+
 # 可选
 HTTP_PROXY=                # Gemini 代理（国内需要）
 HTTPS_PROXY=

@@ -12,6 +12,10 @@ import {
   type GeneratedVideo
 } from '../../../shared/types/video'
 import { getGeneratedImageCandidatePaths } from '../../utils/image-storage'
+import {
+  buildCloudObjectKey,
+  uploadBufferToCloudStorageOrThrow
+} from '../../utils/cloud-storage'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -107,6 +111,74 @@ export default defineEventHandler(async (event) => {
  * 更新任务进度
  */
 type TaskStatus = 'pending' | 'processing' | 'completed' | 'failed'
+
+function ensureVideoTempDir(): string {
+  const tempDir = path.join(process.cwd(), 'data', 'tmp', 'videos')
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true })
+  }
+  return tempDir
+}
+
+function createVideoFileName(taskId: string): string {
+  return `${taskId}.mp4`
+}
+
+function createVideoTempFilePath(taskId: string): string {
+  const tempDir = ensureVideoTempDir()
+  const randomSuffix = Math.random().toString(36).slice(2, 10)
+  return path.join(tempDir, `${taskId}_${Date.now()}_${randomSuffix}.mp4`)
+}
+
+function cleanupTempFile(filePath: string): void {
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath)
+    }
+  } catch (error) {
+    console.warn('[VideoGen] 清理临时文件失败:', filePath, error)
+  }
+}
+
+async function persistGeneratedVideoBuffer(options: {
+  taskId: string
+  buffer: Buffer
+}): Promise<string> {
+  const fileName = createVideoFileName(options.taskId)
+  const cloudObjectKey = buildCloudObjectKey({
+    category: 'videos',
+    filename: fileName
+  })
+
+  const cloudUrl = await uploadBufferToCloudStorageOrThrow({
+    key: cloudObjectKey,
+    buffer: options.buffer
+  })
+  return `url:${cloudUrl}`
+}
+
+async function persistGeneratedVideoFromRemoteUrl(options: {
+  taskId: string
+  videoUrl: string
+}): Promise<string> {
+  const remoteUrl = options.videoUrl.trim()
+  if (!remoteUrl) return ''
+
+  try {
+    const response = await fetch(remoteUrl)
+    if (!response.ok) {
+      return `url:${remoteUrl}`
+    }
+    const buffer = Buffer.from(await response.arrayBuffer())
+    return await persistGeneratedVideoBuffer({
+      taskId: options.taskId,
+      buffer
+    })
+  } catch (error) {
+    console.error('[VideoGen] 远程视频下载失败，回退原始 URL:', error)
+    return `url:${remoteUrl}`
+  }
+}
 
 function isLikelyBase64Image(value: string): boolean {
   const compact = value.replace(/\s+/g, '')
@@ -778,34 +850,12 @@ async function generateVideoWithQwen(
 
     await updateTaskProgress(taskId, 95)
 
-    // 下载视频到本地
     let videoData = ''
     if (result.videoUrl) {
-      try {
-        const videosDir = path.join(process.cwd(), 'public', 'videos')
-        if (!fs.existsSync(videosDir)) {
-          fs.mkdirSync(videosDir, { recursive: true })
-        }
-
-        const videoFileName = `${taskId}.mp4`
-        const videoFilePath = path.join(videosDir, videoFileName)
-        const localVideoUrl = `/api/video/file/${videoFileName}`
-
-        // 下载视频
-        const response = await fetch(result.videoUrl)
-        if (response.ok) {
-          const buffer = await response.arrayBuffer()
-          fs.writeFileSync(videoFilePath, Buffer.from(buffer))
-          console.log(`[VideoGen] 视频下载成功: ${videoFilePath}`)
-          videoData = `url:${localVideoUrl}`
-        } else {
-          // 保存远程 URL
-          videoData = `url:${result.videoUrl}`
-        }
-      } catch (downloadError) {
-        console.error('[VideoGen] 视频下载失败:', downloadError)
-        videoData = `url:${result.videoUrl}`
-      }
+      videoData = await persistGeneratedVideoFromRemoteUrl({
+        taskId,
+        videoUrl: result.videoUrl
+      })
     }
 
     // 构建结果
@@ -908,29 +958,10 @@ async function generateVideoWithKling(
 
     let videoData = ''
     if (result.videoUrl) {
-      try {
-        const videosDir = path.join(process.cwd(), 'public', 'videos')
-        if (!fs.existsSync(videosDir)) {
-          fs.mkdirSync(videosDir, { recursive: true })
-        }
-
-        const videoFileName = `${taskId}.mp4`
-        const videoFilePath = path.join(videosDir, videoFileName)
-        const localVideoUrl = `/api/video/file/${videoFileName}`
-
-        const response = await fetch(result.videoUrl)
-        if (response.ok) {
-          const buffer = await response.arrayBuffer()
-          fs.writeFileSync(videoFilePath, Buffer.from(buffer))
-          console.log(`[VideoGen] 视频下载成功: ${videoFilePath}`)
-          videoData = `url:${localVideoUrl}`
-        } else {
-          videoData = `url:${result.videoUrl}`
-        }
-      } catch (downloadError) {
-        console.error('[VideoGen] 视频下载失败:', downloadError)
-        videoData = `url:${result.videoUrl}`
-      }
+      videoData = await persistGeneratedVideoFromRemoteUrl({
+        taskId,
+        videoUrl: result.videoUrl
+      })
     }
 
     const generatedVideo: GeneratedVideo = {
@@ -1280,7 +1311,7 @@ async function generateVideoWithGemini(
       )
     }
 
-    // 4. 获取视频数据 - 保存到 public/videos 目录
+    // 4. 获取视频数据并持久化（优先 TOS，失败回退本地）
     const generatedVideo = generatedVideos[0]
     let videoData = ''
 
@@ -1293,34 +1324,26 @@ async function generateVideoWithGemini(
       )
     }
 
+    let tempVideoPath: string | null = null
     try {
       if (generatedVideo.video) {
         console.log(`[VideoGen] 视频对象:`, JSON.stringify(generatedVideo.video))
-
-        // 确保视频目录存在
-        const videosDir = path.join(process.cwd(), 'public', 'videos')
-        if (!fs.existsSync(videosDir)) {
-          fs.mkdirSync(videosDir, { recursive: true })
-        }
-
-        // 生成唯一文件名
-        const videoFileName = `${taskId}.mp4`
-        const videoFilePath = path.join(videosDir, videoFileName)
-        const videoUrl = `/api/video/file/${videoFileName}`
-
-        console.log(`[VideoGen] 保存视频到: ${videoFilePath}`)
+        tempVideoPath = createVideoTempFilePath(taskId)
+        console.log(`[VideoGen] 下载视频到临时路径: ${tempVideoPath}`)
 
         await operationClient.files.download({
           file: generatedVideo.video,
-          downloadPath: videoFilePath
+          downloadPath: tempVideoPath
         })
 
-        // 验证文件是否下载成功
-        if (fs.existsSync(videoFilePath)) {
-          const stats = fs.statSync(videoFilePath)
-          console.log(`[VideoGen] 视频保存成功, 大小: ${stats.size} bytes, URL: ${videoUrl}`)
-          // 返回 URL 而不是 base64
-          videoData = `url:${videoUrl}`
+        if (fs.existsSync(tempVideoPath)) {
+          const stats = fs.statSync(tempVideoPath)
+          const buffer = fs.readFileSync(tempVideoPath)
+          videoData = await persistGeneratedVideoBuffer({
+            taskId,
+            buffer
+          })
+          console.log(`[VideoGen] 视频持久化成功, 大小: ${stats.size} bytes`)
         } else {
           throw new Error('视频文件未能保存')
         }
@@ -1336,26 +1359,16 @@ async function generateVideoWithGemini(
       }
 
       try {
-        const videosDir = path.join(process.cwd(), 'public', 'videos')
-        if (!fs.existsSync(videosDir)) {
-          fs.mkdirSync(videosDir, { recursive: true })
-        }
-        const videoFileName = `${taskId}.mp4`
-        const videoFilePath = path.join(videosDir, videoFileName)
-        const videoUrl = `/api/video/file/${videoFileName}`
-
         if (videoInfo?.videoBytes) {
-          fs.writeFileSync(videoFilePath, Buffer.from(videoInfo.videoBytes, 'base64'))
-          videoData = `url:${videoUrl}`
+          videoData = await persistGeneratedVideoBuffer({
+            taskId,
+            buffer: Buffer.from(videoInfo.videoBytes, 'base64')
+          })
         } else if (videoInfo?.uri?.startsWith('http://') || videoInfo?.uri?.startsWith('https://')) {
-          const response = await fetch(videoInfo.uri)
-          if (response.ok) {
-            const buffer = await response.arrayBuffer()
-            fs.writeFileSync(videoFilePath, Buffer.from(buffer))
-            videoData = `url:${videoUrl}`
-          } else {
-            videoData = `url:${videoInfo.uri}`
-          }
+          videoData = await persistGeneratedVideoFromRemoteUrl({
+            taskId,
+            videoUrl: videoInfo.uri
+          })
         } else if (videoInfo?.uri) {
           videoData = `url:${videoInfo.uri}`
         } else if (videoInfo?.name) {
@@ -1366,6 +1379,10 @@ async function generateVideoWithGemini(
       } catch (fallbackError) {
         console.error('[VideoGen] 视频回退处理失败:', fallbackError)
         videoData = videoInfo?.name ? `ref:${videoInfo.name}` : ''
+      }
+    } finally {
+      if (tempVideoPath) {
+        cleanupTempFile(tempVideoPath)
       }
     }
 
@@ -1508,34 +1525,12 @@ async function generateVideoWithVolcengine(
 
     await updateTaskProgress(taskId, 95)
 
-    // 下载视频到本地
     let videoData = ''
     if (result.videoUrl) {
-      try {
-        const videosDir = path.join(process.cwd(), 'public', 'videos')
-        if (!fs.existsSync(videosDir)) {
-          fs.mkdirSync(videosDir, { recursive: true })
-        }
-
-        const videoFileName = `${taskId}.mp4`
-        const videoFilePath = path.join(videosDir, videoFileName)
-        const localVideoUrl = `/api/video/file/${videoFileName}`
-
-        // 下载视频
-        const response = await fetch(result.videoUrl)
-        if (response.ok) {
-          const buffer = await response.arrayBuffer()
-          fs.writeFileSync(videoFilePath, Buffer.from(buffer))
-          console.log(`[VideoGen] 视频下载成功: ${videoFilePath}`)
-          videoData = `url:${localVideoUrl}`
-        } else {
-          // 保存远程 URL
-          videoData = `url:${result.videoUrl}`
-        }
-      } catch (downloadError) {
-        console.error('[VideoGen] 视频下载失败:', downloadError)
-        videoData = `url:${result.videoUrl}`
-      }
+      videoData = await persistGeneratedVideoFromRemoteUrl({
+        taskId,
+        videoUrl: result.videoUrl
+      })
     }
 
     // 构建结果

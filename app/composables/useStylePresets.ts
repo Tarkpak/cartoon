@@ -14,6 +14,24 @@ interface StylePresetResponse {
   }
 }
 
+function stripLocalThumbnail(style: StylePreset): StylePreset {
+  const thumbnail = style.thumbnail?.trim()
+  if (!thumbnail) return style
+
+  if (
+    thumbnail.startsWith('/styles/')
+    || thumbnail.startsWith('/generated-images/')
+    || thumbnail.startsWith('/api/image/file/')
+  ) {
+    return {
+      ...style,
+      thumbnail: undefined
+    }
+  }
+
+  return style
+}
+
 export function useStylePresets() {
   const presets = useState<StylePreset[]>('style-presets:items', () => [])
   const categories = useState<StyleCategoryInfo[]>('style-presets:categories', () => [])
@@ -28,7 +46,12 @@ export function useStylePresets() {
   })
 
   function resolveStyleById(styleId: string): StylePreset | undefined {
-    return styleMap.value.get(styleId) || getStaticStyleById(styleId)
+    const remote = styleMap.value.get(styleId)
+    if (remote) return remote
+
+    const local = getStaticStyleById(styleId)
+    if (!local) return undefined
+    return stripLocalThumbnail(local)
   }
 
   async function loadStylePresets(force = false): Promise<void> {
