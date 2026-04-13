@@ -55,6 +55,12 @@ export const KlingVideoModels = {
   KLING_V3: 'kling-v3'
 } as const
 
+export const KlingImageModels = {
+  KLING_V1: 'kling-v1',
+  KLING_V1_5: 'kling-v1-5',
+  KLING_V2: 'kling-v2'
+} as const
+
 // ============================================================
 // 配置
 // ============================================================
@@ -251,6 +257,69 @@ function normalizeDuration(duration?: number): string {
   return String(clamped)
 }
 
+const SUPPORTED_IMAGE_ASPECT_RATIOS = [
+  '16:9',
+  '9:16',
+  '1:1',
+  '4:3',
+  '3:4',
+  '3:2',
+  '2:3',
+  '21:9'
+] as const
+
+type KlingImageAspectRatio = (typeof SUPPORTED_IMAGE_ASPECT_RATIOS)[number]
+
+const IMAGE_ASPECT_RATIO_VALUES: Array<{ ratio: KlingImageAspectRatio, value: number }> = SUPPORTED_IMAGE_ASPECT_RATIOS.map((ratio) => {
+  const [w = 1, h = 1] = ratio.split(':').map(v => Number(v) || 1)
+  return {
+    ratio,
+    value: w / h
+  }
+})
+
+function normalizeImageCount(n?: number): number {
+  const fallback = 1
+  const numeric = typeof n === 'number' && Number.isFinite(n) ? n : fallback
+  return Math.min(9, Math.max(1, Math.round(numeric)))
+}
+
+function parseSizeRatio(size?: string): number | null {
+  if (!size) return null
+  const matched = size.trim().replace(/\*/g, 'x').match(/^(\d+)\s*x\s*(\d+)$/i)
+  if (!matched) return null
+  const width = Number(matched[1])
+  const height = Number(matched[2])
+  if (!width || !height) return null
+  return width / height
+}
+
+function normalizeAspectRatioInput(aspectRatio?: string): KlingImageAspectRatio | null {
+  if (!aspectRatio) return null
+  const normalized = aspectRatio.trim() as KlingImageAspectRatio
+  return SUPPORTED_IMAGE_ASPECT_RATIOS.includes(normalized) ? normalized : null
+}
+
+function resolveImageAspectRatio(options: { aspectRatio?: string, size?: string }): KlingImageAspectRatio {
+  const explicitRatio = normalizeAspectRatioInput(options.aspectRatio)
+  if (explicitRatio) {
+    return explicitRatio
+  }
+
+  const ratioFromSize = parseSizeRatio(options.size)
+  if (!ratioFromSize) {
+    return '1:1'
+  }
+
+  let best = IMAGE_ASPECT_RATIO_VALUES[0]!
+  for (const candidate of IMAGE_ASPECT_RATIO_VALUES) {
+    if (Math.abs(candidate.value - ratioFromSize) < Math.abs(best.value - ratioFromSize)) {
+      best = candidate
+    }
+  }
+  return best.ratio
+}
+
 // ============================================================
 // HTTP 请求
 // ============================================================
@@ -353,6 +422,149 @@ interface KlingTaskQueryData {
   task_result?: {
     videos?: KlingTaskVideo[]
   }
+}
+
+interface KlingTaskImage {
+  id?: string
+  url: string
+  index?: number
+}
+
+interface KlingImageTaskQueryData {
+  task_id: string
+  task_status: 'submitted' | 'processing' | 'succeed' | 'failed'
+  task_status_msg?: string
+  task_result?: {
+    images?: KlingTaskImage[]
+  }
+}
+
+export async function _klingGenerateImage(options: {
+  model?: string
+  prompt: string
+  negativePrompt?: string
+  size?: string
+  aspectRatio?: string
+  n?: number
+  referenceImages?: string[]
+  maxRetries?: number
+}): Promise<{ imageUrl: string, taskId: string }> {
+  const model = options.model || KlingImageModels.KLING_V2
+  const aspectRatio = resolveImageAspectRatio({
+    aspectRatio: options.aspectRatio,
+    size: options.size
+  })
+  const n = normalizeImageCount(options.n)
+  const normalizedReferenceImages = Array.from(new Set(
+    (options.referenceImages || [])
+      .map(item => normalizeImageInput(item))
+      .filter((item): item is string => !!item)
+  ))
+  const referenceImage = normalizedReferenceImages[0]
+  const hasMultipleReferenceImages = normalizedReferenceImages.length > 1
+  const useMultiImageEndpoint = hasMultipleReferenceImages && model === KlingImageModels.KLING_V2
+
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [Kling] generateImage 请求参数:`, {
+    model,
+    promptLength: options.prompt.length,
+    prompt: options.prompt,
+    negativePrompt: options.negativePrompt,
+    aspectRatio,
+    n,
+    referenceImagesCount: normalizedReferenceImages.length,
+    useMultiImageEndpoint,
+    maxRetries: options.maxRetries
+  })
+
+  let endpoint = '/v1/images/generations'
+  let body: Record<string, unknown>
+  if (useMultiImageEndpoint) {
+    endpoint = '/v1/images/multi-image2image'
+    body = {
+      model_name: KlingImageModels.KLING_V2,
+      prompt: options.prompt,
+      aspect_ratio: aspectRatio,
+      n,
+      subject_image_list: normalizedReferenceImages.slice(0, 4).map(subjectImage => ({
+        subject_image: subjectImage
+      }))
+    }
+    if (options.negativePrompt) {
+      console.warn('[Kling] multi-image2image 不支持 negative_prompt，已忽略该参数')
+    }
+  } else {
+    if (hasMultipleReferenceImages && model !== KlingImageModels.KLING_V2) {
+      console.warn(`[Kling] 模型 ${model} 暂不支持 multi-image2image，已自动回退单参考图模式`)
+    }
+
+    body = {
+      model_name: model,
+      prompt: options.prompt,
+      aspect_ratio: aspectRatio,
+      n
+    }
+
+    if (referenceImage) {
+      body.image = referenceImage
+    }
+
+    // 可灵图生图模式下不支持 negative_prompt，避免发送无效参数
+    if (options.negativePrompt && !referenceImage) {
+      body.negative_prompt = options.negativePrompt
+    }
+
+    // kling-v1-5 图生图常用的参考图控制参数
+    if (referenceImage && model === KlingImageModels.KLING_V1_5) {
+      body.image_reference = 'subject'
+      body.image_fidelity = 0.5
+      body.human_fidelity = 0.45
+    }
+  }
+
+  const submit = await withRetry(
+    () => request<KlingCreateTaskData>('POST', endpoint, body, { timeout: 30000 }),
+    { maxRetries: options.maxRetries }
+  )
+
+  const taskId = submit.data?.task_id
+  if (!taskId) {
+    throw new KlingError('创建图片任务成功但未返回 task_id', KlingErrorCode.INTERNAL, 500, false)
+  }
+
+  const maxWaitTime = 5 * 60 * 1000
+  const pollInterval = 5000
+  const startedAt = Date.now()
+  const queryEndpoint = `${endpoint}/${taskId}`
+
+  while (Date.now() - startedAt < maxWaitTime) {
+    await sleep(pollInterval)
+    const statusResponse = await withRetry(
+      () => request<KlingImageTaskQueryData>('GET', queryEndpoint, undefined, { timeout: 30000 }),
+      { maxRetries: 2 }
+    )
+
+    const status = statusResponse.data?.task_status
+    if (status === 'succeed') {
+      const imageUrl = statusResponse.data?.task_result?.images?.[0]?.url
+      if (!imageUrl) {
+        throw new KlingError('图片任务成功但未返回 URL', KlingErrorCode.INTERNAL, 500, false)
+      }
+      console.log(`[Kling] 图片生成成功: ${imageUrl.slice(0, 100)}...`)
+      return { imageUrl, taskId }
+    }
+
+    if (status === 'failed') {
+      throw new KlingError(
+        statusResponse.data?.task_status_msg || statusResponse.message || '图片生成失败',
+        KlingErrorCode.INTERNAL,
+        500,
+        false
+      )
+    }
+  }
+
+  throw new KlingError('图片生成超时', KlingErrorCode.DEADLINE_EXCEEDED, 504, false)
 }
 
 export async function _klingGenerateVideo(options: {

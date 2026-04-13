@@ -172,6 +172,7 @@ async function main() {
     accessKeySecret,
     region,
     endpoint: endpointInfo.endpoint,
+    secure: endpointInfo.protocol === 'https',
     isCustomDomain
   })
 
