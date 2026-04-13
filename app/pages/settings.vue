@@ -39,6 +39,7 @@ import {
   type StylePreset,
   type StyleCategory
 } from '#shared/types/styles'
+import { resolveStyleCategoryIcon } from '@/lib/style-category-icons'
 import {
   PROJECT_WORKFLOW_LABELS,
   type ProjectWorkflowType
@@ -335,10 +336,6 @@ const currentDefaultStyle = computed(() => {
 
 function getStyleCategoryName(category: StyleCategory): string {
   return STYLE_CATEGORIES.find(item => item.id === category)?.name || category
-}
-
-function getStyleCategoryIcon(category: StyleCategory): string {
-  return STYLE_CATEGORIES.find(item => item.id === category)?.icon || '🎨'
 }
 
 function resetStyleForm() {
@@ -1420,7 +1417,7 @@ onMounted(() => {
                         :key="cat.id"
                         :value="cat.id"
                       >
-                        {{ cat.icon }} {{ cat.name }}
+                        {{ cat.name }}
                       </option>
                     </select>
                   </div>
@@ -1459,7 +1456,10 @@ onMounted(() => {
                   </div>
                   <div class="space-y-1.5">
                     <label class="text-xs text-muted-foreground">缩略图地址（可选）</label>
-                    <Input v-model="styleForm.thumbnail" placeholder="/styles/example.webp" />
+                    <Input v-model="styleForm.thumbnail" placeholder="https://playlet-ai.tos-cn-guangzhou.volces.com/manju-assets/styles/example.webp" />
+                    <p class="text-[11px] text-muted-foreground">
+                      请填写云存储 URL，避免使用本地路径（如 /styles/...）
+                    </p>
                   </div>
                 </div>
 
@@ -1524,8 +1524,9 @@ onMounted(() => {
                     <div v-else class="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
                       无缩略图
                     </div>
-                    <div class="absolute left-2 top-2 px-1.5 py-0.5 rounded bg-black/60 text-white text-[10px]">
-                      {{ getStyleCategoryIcon(style.category) }} {{ getStyleCategoryName(style.category) }}
+                    <div class="absolute left-2 top-2 px-1.5 py-0.5 rounded bg-black/60 text-white text-[10px] inline-flex items-center gap-1">
+                      <component :is="resolveStyleCategoryIcon(style.category)" class="h-3 w-3" />
+                      <span>{{ getStyleCategoryName(style.category) }}</span>
                     </div>
                   </div>
 

@@ -7,6 +7,7 @@ import {
   type StyleCategory,
   type StyleCategoryInfo
 } from '#shared/types/styles'
+import { resolveStyleCategoryIconByName } from '@/lib/style-category-icons'
 
 const props = defineProps<{
   modelValue?: string
@@ -30,6 +31,26 @@ const {
   loadStylePresets
 } = useStylePresets()
 
+function stripLocalThumbnail(style: StylePreset): StylePreset {
+  const thumbnail = style.thumbnail?.trim()
+  if (!thumbnail) return style
+
+  if (
+    thumbnail.startsWith('/styles/')
+    || thumbnail.startsWith('/generated-images/')
+    || thumbnail.startsWith('/api/image/file/')
+  ) {
+    return {
+      ...style,
+      thumbnail: undefined
+    }
+  }
+
+  return style
+}
+
+const localFallbackStyles = computed(() => STYLE_PRESETS.map(stripLocalThumbnail))
+
 const availableStyles = computed(() => {
   if (props.styles && props.styles.length > 0) {
     return props.styles
@@ -37,7 +58,7 @@ const availableStyles = computed(() => {
   if (remoteStyles.value.length > 0) {
     return remoteStyles.value
   }
-  return STYLE_PRESETS
+  return localFallbackStyles.value
 })
 
 const availableCategories = computed(() => {
@@ -125,11 +146,12 @@ onMounted(async () => {
       <button
         v-for="cat in availableCategories"
         :key="cat.id"
-        class="px-3 py-1.5 text-sm rounded-full transition-colors"
+        class="px-3 py-1.5 text-sm rounded-full transition-colors inline-flex items-center gap-1"
         :class="activeCategory === cat.id ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'"
         @click="activeCategory = cat.id"
       >
-        {{ cat.icon }} {{ cat.name }}
+        <component :is="resolveStyleCategoryIconByName(cat.icon)" class="w-3.5 h-3.5" />
+        <span>{{ cat.name }}</span>
       </button>
     </div>
 

@@ -5,6 +5,18 @@ export type StyleCategory =
   | 'japanese_anime' | 'chinese_style' | '3d_render' | 'illustration'
   | 'retro' | 'cute_q' | 'artistic' | 'comic' | 'pixel_game' | 'special'
 
+export type StyleCategoryIcon =
+  | 'sparkles'
+  | 'landmark'
+  | 'box'
+  | 'palette'
+  | 'clock3'
+  | 'heart'
+  | 'pen_tool'
+  | 'message_square'
+  | 'gamepad2'
+  | 'star'
+
 export interface StylePreset {
   id: string
   name: string
@@ -22,20 +34,20 @@ export interface StyleCategoryInfo {
   id: StyleCategory
   name: string
   nameEn: string
-  icon: string
+  icon: StyleCategoryIcon
 }
 
 export const STYLE_CATEGORIES: StyleCategoryInfo[] = [
-  { id: 'japanese_anime', name: '日系动漫', nameEn: 'Japanese Anime', icon: '🎌' },
-  { id: 'chinese_style', name: '国风', nameEn: 'Chinese Style', icon: '🏯' },
-  { id: '3d_render', name: '3D渲染', nameEn: '3D Render', icon: '🎮' },
-  { id: 'illustration', name: '插画', nameEn: 'Illustration', icon: '🎨' },
-  { id: 'retro', name: '复古', nameEn: 'Retro', icon: '📼' },
-  { id: 'cute_q', name: 'Q萌可爱', nameEn: 'Cute & Chibi', icon: '🧸' },
-  { id: 'artistic', name: '艺术风格', nameEn: 'Artistic', icon: '🖼️' },
-  { id: 'comic', name: '漫画', nameEn: 'Comic', icon: '💬' },
-  { id: 'pixel_game', name: '像素游戏', nameEn: 'Pixel & Game', icon: '👾' },
-  { id: 'special', name: '特殊IP', nameEn: 'Special IP', icon: '⭐' },
+  { id: 'japanese_anime', name: '日系动漫', nameEn: 'Japanese Anime', icon: 'sparkles' },
+  { id: 'chinese_style', name: '国风', nameEn: 'Chinese Style', icon: 'landmark' },
+  { id: '3d_render', name: '3D渲染', nameEn: '3D Render', icon: 'box' },
+  { id: 'illustration', name: '插画', nameEn: 'Illustration', icon: 'palette' },
+  { id: 'retro', name: '复古', nameEn: 'Retro', icon: 'clock3' },
+  { id: 'cute_q', name: 'Q萌可爱', nameEn: 'Cute & Chibi', icon: 'heart' },
+  { id: 'artistic', name: '艺术风格', nameEn: 'Artistic', icon: 'pen_tool' },
+  { id: 'comic', name: '漫画', nameEn: 'Comic', icon: 'message_square' },
+  { id: 'pixel_game', name: '像素游戏', nameEn: 'Pixel & Game', icon: 'gamepad2' },
+  { id: 'special', name: '特殊IP', nameEn: 'Special IP', icon: 'star' },
 ]
 
 const STYLE_PRESETS_BASE: StylePreset[] = [
