@@ -7,6 +7,11 @@ import {
   type StyleCategoryInfo,
   type StylePreset
 } from '../../shared/types/styles'
+import {
+  buildCloudObjectKey,
+  buildCloudPublicUrlByObjectKey,
+  isCloudStorageEnabled
+} from './cloud-storage'
 
 const STYLE_PRESET_CONFIG_KEY = 'style_preset_config'
 const STYLE_PRESET_DATA_KEY = 'style_preset_data'
@@ -37,7 +42,10 @@ type RawStylePreset = Partial<StylePreset> & Record<string, unknown>
 const validCategorySet = new Set(STYLE_CATEGORIES.map(category => category.id))
 
 function cloneStylePreset(style: StylePreset): StylePreset {
-  return { ...style }
+  return {
+    ...style,
+    thumbnail: normalizeStyleThumbnail(style.thumbnail)
+  }
 }
 
 function getDefaultStylePresets(): StylePreset[] {
@@ -62,6 +70,53 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return normalized || undefined
 }
 
+function normalizeStyleThumbnail(value: unknown): string | undefined {
+  const normalized = normalizeOptionalString(value)
+  if (!normalized) return undefined
+
+  if (!isCloudStorageEnabled()) {
+    return normalized
+  }
+
+  if (normalized.startsWith('/styles/')) {
+    const relativePath = normalized.slice('/styles/'.length).replace(/^\/+/, '')
+    if (!relativePath) return undefined
+    const key = buildCloudObjectKey({
+      category: 'styles',
+      filename: relativePath
+    })
+    return buildCloudPublicUrlByObjectKey(key) || normalized
+  }
+
+  if (normalized.startsWith('/generated-images/')) {
+    const filename = normalized.slice('/generated-images/'.length).replace(/^\/+/, '')
+    if (!filename) return undefined
+    const key = buildCloudObjectKey({
+      category: 'images',
+      filename
+    })
+    return buildCloudPublicUrlByObjectKey(key) || normalized
+  }
+
+  if (normalized.startsWith('/api/image/file/')) {
+    const encoded = normalized.slice('/api/image/file/'.length).replace(/^\/+/, '')
+    let filename = ''
+    try {
+      filename = encoded ? decodeURIComponent(encoded) : ''
+    } catch {
+      filename = encoded
+    }
+    if (!filename) return undefined
+    const key = buildCloudObjectKey({
+      category: 'images',
+      filename
+    })
+    return buildCloudPublicUrlByObjectKey(key) || normalized
+  }
+
+  return normalized
+}
+
 function normalizeStylePresetItem(raw: unknown): StylePreset | null {
   if (!raw || typeof raw !== 'object') return null
   const source = raw as RawStylePreset
@@ -82,7 +137,7 @@ function normalizeStylePresetItem(raw: unknown): StylePreset | null {
   const nameEn = normalizeString(source.nameEn) || name
   const description = normalizeString(source.description) || name
   const negativePrompt = normalizeOptionalString(source.negativePrompt)
-  const thumbnail = normalizeOptionalString(source.thumbnail)
+  const thumbnail = normalizeStyleThumbnail(source.thumbnail)
 
   return {
     id,
