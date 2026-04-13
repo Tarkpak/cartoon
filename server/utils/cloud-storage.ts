@@ -145,6 +145,7 @@ function getClient(config: TosStorageConfig): TosClient | null {
       accessKeySecret: config.accessKeySecret,
       region: config.region,
       endpoint: config.endpoint,
+      secure: config.endpointProtocol === 'https',
       isCustomDomain: config.isCustomDomain
     })
   } catch (error) {

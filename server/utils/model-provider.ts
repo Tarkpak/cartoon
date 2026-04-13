@@ -198,6 +198,31 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     supportReferenceImage: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/z-image-api-reference'
   },
+  // 可灵 AI 图片模型
+  {
+    provider: 'kling',
+    model: kling.KlingImageModels.KLING_V2,
+    displayName: '可灵 Kling v2',
+    description: '可灵高质量图片模型，支持文生图/图生图',
+    supportReferenceImage: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/imageModels'
+  },
+  {
+    provider: 'kling',
+    model: kling.KlingImageModels.KLING_V1_5,
+    displayName: '可灵 Kling v1.5',
+    description: '可灵图片模型，支持角色/人脸一致性控制',
+    supportReferenceImage: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/imageModels'
+  },
+  {
+    provider: 'kling',
+    model: kling.KlingImageModels.KLING_V1,
+    displayName: '可灵 Kling v1',
+    description: '可灵经典图片模型，适合通用图片生成',
+    supportReferenceImage: true,
+    docUrl: 'https://klingai.com/document-api/apiReference/model/imageModels'
+  },
   // 火山引擎 (豆包 Seedream) 图片模型
   {
     provider: 'volcengine',
@@ -666,7 +691,7 @@ export async function generateJSON<T>(options: {
 
 export interface GenerateImageResult {
   imageData?: string      // base64 (Gemini)
-  imageUrl?: string       // URL (Qwen)
+  imageUrl?: string       // URL (Qwen/Kling/Volcengine)
   mimeType?: string
   text?: string
 }
@@ -706,6 +731,24 @@ export async function generateImage(options: {
       negativePrompt: options.negativePrompt,
       size: options.size,
       referenceImages: options.referenceImages,
+      maxRetries: options.maxRetries
+    })
+    return { imageUrl: result.imageUrl }
+  }
+
+  if (provider === 'kling') {
+    const klingReferenceImages = options.referenceImages && options.referenceImages.length > 0
+      ? options.referenceImages
+      : options.referenceImage?.data
+        ? [options.referenceImage.data]
+        : undefined
+
+    const result = await kling._klingGenerateImage({
+      model: modelId,
+      prompt: options.prompt,
+      negativePrompt: options.negativePrompt,
+      size: options.size,
+      referenceImages: klingReferenceImages,
       maxRetries: options.maxRetries
     })
     return { imageUrl: result.imageUrl }
