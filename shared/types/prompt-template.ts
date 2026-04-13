@@ -226,6 +226,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{hasCharacterRef}}', description: '是否有角色参考图', example: 'yes' },
       { name: '{{hasEnvironmentRef}}', description: '是否有环境参考图', example: 'yes' },
       { name: '{{duration}}', description: '目标时长（秒）', example: '8' },
+      { name: '{{aspectRatio}}', description: '输出画面比例', example: '16:9' },
       { name: '{{narration}}', description: '旁白文本', example: '雨势渐大，空气里弥漫着紧张。' },
       { name: '{{dialogues}}', description: '对白文本', example: '阿青: 你终于来了。' }
     ]

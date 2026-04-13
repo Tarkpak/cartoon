@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import { STYLE_PRESETS, type StylePreset } from '#shared/types/styles'
+import type { StylePreset } from '#shared/types/styles'
 import {
   PROJECT_WORKFLOW_LABELS,
   PROJECT_WORKFLOW_DESCRIPTIONS,
@@ -31,6 +31,14 @@ definePageMeta({
 })
 
 const router = useRouter()
+const {
+  presets: availableStylePresets,
+  categories: availableStyleCategories,
+  defaultStyleId,
+  loading: styleConfigLoading,
+  resolveStyleById,
+  loadStylePresets
+} = useStylePresets()
 
 interface Project {
   id: string
@@ -75,16 +83,55 @@ const aspectRatioOptions = [
 
 const workflowOptions = [
   {
-    value: 'classic' as ProjectWorkflowType,
-    label: PROJECT_WORKFLOW_LABELS.classic,
-    description: PROJECT_WORKFLOW_DESCRIPTIONS.classic
-  },
-  {
     value: 'asset_consistency' as ProjectWorkflowType,
     label: PROJECT_WORKFLOW_LABELS.asset_consistency,
     description: PROJECT_WORKFLOW_DESCRIPTIONS.asset_consistency
+  },
+  {
+    value: 'classic' as ProjectWorkflowType,
+    label: PROJECT_WORKFLOW_LABELS.classic,
+    description: PROJECT_WORKFLOW_DESCRIPTIONS.classic
   }
 ]
+
+function resolveDefaultStyleId(): string {
+  return defaultStyleId.value || availableStylePresets.value[0]?.id || ''
+}
+
+function resolveCreateStyleId(preferDefault = false): string {
+  const availableIds = new Set(availableStylePresets.value.map(style => style.id))
+  if (availableIds.size === 0) return ''
+
+  const preferredDefaultId = resolveDefaultStyleId()
+  if (preferDefault && preferredDefaultId && availableIds.has(preferredDefaultId)) {
+    return preferredDefaultId
+  }
+
+  if (newProject.value.styleId && availableIds.has(newProject.value.styleId)) {
+    return newProject.value.styleId
+  }
+
+  if (preferredDefaultId && availableIds.has(preferredDefaultId)) {
+    return preferredDefaultId
+  }
+
+  return availableStylePresets.value[0]?.id || ''
+}
+
+function hasAvailableStyle(styleId: string): boolean {
+  if (!styleId) return false
+  return availableStylePresets.value.some(style => style.id === styleId)
+}
+
+function ensureCreateStyleId(preferDefault = false): string {
+  if (!preferDefault && hasAvailableStyle(newProject.value.styleId)) {
+    return newProject.value.styleId
+  }
+
+  const resolved = resolveCreateStyleId(preferDefault)
+  newProject.value.styleId = resolved
+  return resolved
+}
 
 // 获取项目列表
 async function fetchProjects() {
@@ -106,7 +153,10 @@ const createStep = ref<'basic' | 'style'>('basic')
 
 // 创建项目
 async function createProject() {
-  if (!newProject.value.title.trim() || !newProject.value.styleId) return
+  if (!newProject.value.title.trim()) return
+
+  const styleId = ensureCreateStyleId(false)
+  if (!styleId) return
 
   creating.value = true
   try {
@@ -123,7 +173,7 @@ async function createProject() {
         title: newProject.value.title,
         description: newProject.value.description || undefined,
         workflowType: newProject.value.workflowType,
-        styleId: newProject.value.styleId,
+        styleId,
         aspectRatio: newProject.value.aspectRatio
       }
     })
@@ -133,7 +183,7 @@ async function createProject() {
       title: '',
       description: '',
       workflowType: 'asset_consistency',
-      styleId: '',
+      styleId: ensureCreateStyleId(true),
       aspectRatio: '9:16'
     }
 
@@ -153,16 +203,23 @@ async function createProject() {
 }
 
 // 打开新建对话框
-function openCreateDialog() {
+async function openCreateDialog() {
+  await loadStylePresets(true)
+
   newProject.value = {
     title: '',
     description: '',
     workflowType: 'asset_consistency',
-    styleId: '',
+    styleId: ensureCreateStyleId(true),
     aspectRatio: '9:16'
   }
   createStep.value = 'basic'
   showCreateDialog.value = true
+}
+
+function goToStyleStep() {
+  ensureCreateStyleId(false)
+  createStep.value = 'style'
 }
 
 // 处理风格选择
@@ -172,7 +229,7 @@ function handleStyleSelect(style: StylePreset) {
 
 // 获取风格名称
 function getStyleName(styleId: string): string {
-  const style = STYLE_PRESETS.find(s => s.id === styleId)
+  const style = resolveStyleById(styleId)
   return style?.name || styleId
 }
 
@@ -225,7 +282,24 @@ function confirmDelete(project: Project, event: Event) {
   showDeleteDialog.value = true
 }
 
-onMounted(fetchProjects)
+onMounted(async () => {
+  await Promise.all([
+    fetchProjects(),
+    loadStylePresets()
+  ])
+
+  if (!newProject.value.styleId) {
+    ensureCreateStyleId(true)
+  }
+})
+
+watch([defaultStyleId, availableStylePresets], () => {
+  if (!showCreateDialog.value) return
+  if (createStep.value !== 'style') return
+  if (!hasAvailableStyle(newProject.value.styleId)) {
+    ensureCreateStyleId(true)
+  }
+})
 
 const statusMap: Record<string, { label: string, variant: 'default' | 'secondary' | 'success' | 'warning' }> = {
   in_progress: { label: '进行中', variant: 'success' },
@@ -562,9 +636,19 @@ const filteredProjects = computed(() => {
           v-else
           class="flex-1 overflow-y-auto py-4 min-h-[400px]"
         >
+          <div
+            v-if="styleConfigLoading && availableStylePresets.length === 0"
+            class="h-full flex items-center justify-center text-muted-foreground text-sm"
+          >
+            <Loader2 class="w-4 h-4 mr-2 animate-spin" />
+            加载画风配置中...
+          </div>
           <StyleSelector
+            v-else
             v-model="newProject.styleId"
             :show-search="true"
+            :styles="availableStylePresets"
+            :categories="availableStyleCategories"
             @select="handleStyleSelect"
           />
         </div>
@@ -587,7 +671,7 @@ const filteredProjects = computed(() => {
           <Button
             v-if="createStep === 'basic'"
             :disabled="!newProject.title.trim()"
-            @click="createStep = 'style'"
+            @click="goToStyleStep"
           >
             下一步：选择画风
           </Button>

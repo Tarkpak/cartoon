@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Loader2, Play, Palette, ArrowLeft } from 'lucide-vue-next'
 import type { PipelineStatus } from '~/composables/useWorkbench'
-import { getStyleById, type StylePreset } from '#shared/types/styles'
+import type { StylePreset } from '#shared/types/styles'
 
 const props = defineProps<{
   projectId?: string
@@ -37,14 +37,21 @@ const localDescription = computed({
 
 // 风格选择
 const styleDialogOpen = ref(false)
-const selectedStyle = computed(() =>
-  props.selectedStyleId ? getStyleById(props.selectedStyleId) : null
-)
+const { resolveStyleById, loadStylePresets } = useStylePresets()
+const selectedStyle = computed(() => (
+  props.selectedStyleId
+    ? (resolveStyleById(props.selectedStyleId) || null)
+    : null
+))
 
 function handleStyleSelect(style: StylePreset) {
   emit('update:selectedStyleId', style.id)
   styleDialogOpen.value = false
 }
+
+onMounted(() => {
+  loadStylePresets()
+})
 </script>
 
 <template>

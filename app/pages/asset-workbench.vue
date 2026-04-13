@@ -12,7 +12,6 @@ import {
   Users
 } from 'lucide-vue-next'
 import { useDebounceFn } from '@vueuse/core'
-import { getStyleById } from '#shared/types/styles'
 import type { CharacterData, SceneData } from '~/composables/useWorkbench'
 import { toImageSrc } from '~/lib/media'
 
@@ -74,6 +73,8 @@ interface EnvironmentAssetCard {
 
 const route = useRoute()
 const router = useRouter()
+const { resolveStyleById, loadStylePresets } = useStylePresets()
+void loadStylePresets()
 
 const {
   projectId,
@@ -324,7 +325,7 @@ const workflowStylePrompt = computed(() => {
   const styleId = selectedStyleId.value || projectStyleId.value
   if (!styleId) return ''
 
-  const style = getStyleById(styleId)
+  const style = resolveStyleById(styleId)
   if (!style) return styleId
 
   return `${style.name}, ${style.prompt} style`

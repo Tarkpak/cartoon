@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { db, projects, scripts, scenes, characters } from '../../db'
+import { isStyleIdEnabled } from '../../utils/style-config'
+
+const nullToUndefined = (value: unknown) => (value === null ? undefined : value)
 
 const SceneSchema = z.object({
   id: z.string(),
@@ -57,7 +60,7 @@ const CharacterSchema = z.object({
   voiceTone: z.string().optional(),
   age: z.number().optional(),
   gender: z.string().optional(),
-  baseImage: z.string().optional(),
+  baseImage: z.preprocess(nullToUndefined, z.string().optional()),
   expressions: z.record(z.string()).nullish(),
   // 新增：多视角
   views: z.record(z.string()).nullish()
@@ -136,6 +139,17 @@ export default defineEventHandler(async (event) => {
         statusCode: 404,
         statusMessage: '项目不存在'
       })
+    }
+
+    if (data.styleId !== undefined) {
+      const styleEnabled = await isStyleIdEnabled(data.styleId)
+      if (!styleEnabled) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: '画风预设不可用',
+          message: `当前后台配置未启用该画风: ${data.styleId}`
+        })
+      }
     }
 
     // 更新项目基本信息
