@@ -643,18 +643,24 @@ onBeforeUnmount(() => {
             <!-- 语言切换 -->
             <span class="text-sm text-muted-foreground">编辑语言:</span>
             <div class="flex rounded-md border overflow-hidden">
-              <button
-                :class="['px-3 py-1 text-sm transition-colors', activeLanguage === 'zh' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted']"
+              <Button
+                variant="ghost"
+                size="sm"
+                class="px-3 py-1 h-auto rounded-none text-sm transition-colors"
+                :class="activeLanguage === 'zh' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
                 @click="activeLanguage = 'zh'"
               >
                 中文
-              </button>
-              <button
-                :class="['px-3 py-1 text-sm transition-colors', activeLanguage === 'en' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted']"
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="px-3 py-1 h-auto rounded-none text-sm transition-colors"
+                :class="activeLanguage === 'en' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
                 @click="activeLanguage = 'en'"
               >
                 English
-              </button>
+              </Button>
             </div>
             
             <!-- 翻译 -->
@@ -733,20 +739,26 @@ onBeforeUnmount(() => {
           </div>
           <p class="text-xs text-muted-foreground mb-2">实际调用 AI 时使用的语言版本</p>
           <div class="flex rounded-md border overflow-hidden">
-            <button
-              :class="['flex-1 px-3 py-1.5 text-sm transition-colors', currentTemplateLang === 'zh' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted']"
+            <Button
+              variant="ghost"
+              size="sm"
+              class="flex-1 px-3 py-1.5 h-auto rounded-none text-sm transition-colors"
+              :class="currentTemplateLang === 'zh' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
               :disabled="langConfigSaving"
               @click="toggleRuntimeLang('zh')"
             >
               中文
-            </button>
-            <button
-              :class="['flex-1 px-3 py-1.5 text-sm transition-colors', currentTemplateLang === 'en' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted']"
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="flex-1 px-3 py-1.5 h-auto rounded-none text-sm transition-colors"
+              :class="currentTemplateLang === 'en' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
               :disabled="langConfigSaving"
               @click="toggleRuntimeLang('en')"
             >
               English
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -768,9 +780,11 @@ onBeforeUnmount(() => {
               :key="variable.name"
               class="group"
             >
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 :class="[
-                  'w-full text-left p-2 rounded border transition-colors',
+                  'w-full h-auto justify-start text-left p-2 rounded border transition-colors',
                   isVarUnused(variable.name) 
                     ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20' 
                     : 'hover:bg-muted'
@@ -782,7 +796,7 @@ onBeforeUnmount(() => {
                 <p v-if="variable.example" class="text-xs text-muted-foreground/70 mt-0.5 truncate">
                   示例: {{ variable.example }}
                 </p>
-              </button>
+              </Button>
             </div>
           </div>
         </div>

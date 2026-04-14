@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileText, User, Video, FolderOpen, Sparkles, Users, Clapperboard } from 'lucide-vue-next'
+import { FileText, User, Video, FolderOpen, Sparkles, Users, Clapperboard, ScrollText } from 'lucide-vue-next'
 
 definePageMeta({
   layout: 'default'
@@ -38,7 +38,8 @@ const quickActions = [
   { icon: FolderOpen, label: '项目管理', path: '/projects' },
   { icon: Sparkles, label: '开始创作', path: '/workbench' },
   { icon: Users, label: '角色管理', path: '/characters' },
-  { icon: Clapperboard, label: '视频生成', path: '/video' }
+  { icon: Clapperboard, label: '视频生成', path: '/video' },
+  { icon: ScrollText, label: '模型日志', path: '/model-logs' }
 ]
 </script>
 
@@ -107,7 +108,7 @@ const quickActions = [
     <!-- 快速入口 -->
     <Card>
       <CardContent class="pt-6">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-6">
           <div
             v-for="action in quickActions"
             :key="action.label"

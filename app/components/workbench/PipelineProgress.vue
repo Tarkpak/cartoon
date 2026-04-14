@@ -17,12 +17,7 @@ defineProps<{
           <span class="text-sm font-medium">{{ status.currentStep }}</span>
           <span class="text-sm text-muted-foreground">{{ status.progress }}%</span>
         </div>
-        <div class="h-2 bg-muted rounded-full overflow-hidden">
-          <div
-            class="h-full bg-primary transition-all duration-300"
-            :style="{ width: `${status.progress}%` }"
-          />
-        </div>
+        <Progress :model-value="status.progress" />
         <p
           v-if="status.error"
           class="mt-2 text-sm text-destructive"

@@ -235,18 +235,20 @@ function handleCancel() {
           </div>
           <div class="space-y-2">
             <label class="text-sm font-medium">时间</label>
-            <select
-              v-model="editForm.setting!.timeOfDay"
-              class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
-            >
-              <option
-                v-for="opt in timeOfDayOptions"
-                :key="opt.value"
-                :value="opt.value"
-              >
-                {{ opt.label }}
-              </option>
-            </select>
+            <Select v-model="editForm.setting!.timeOfDay">
+              <SelectTrigger class="w-full">
+                <SelectValue placeholder="选择时间" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="opt in timeOfDayOptions"
+                  :key="opt.value"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -254,14 +256,14 @@ function handleCancel() {
         <div class="space-y-2">
           <label class="text-sm font-medium">预计时长 (秒)</label>
           <div class="flex items-center space-x-4">
-            <input
-              v-model.number="editForm.duration"
-              type="range"
-              min="2"
-              max="15"
-              step="0.5"
+            <Slider
+              :model-value="[editForm.duration]"
+              :min="2"
+              :max="15"
+              :step="0.5"
               class="flex-1"
-            >
+              @update:model-value="editForm.duration = Number($event?.[0] ?? editForm.duration)"
+            />
             <span class="w-16 text-center font-medium">{{ editForm.duration }}秒</span>
           </div>
           <p class="text-xs text-muted-foreground">支持 2-15 秒灵活时长</p>
@@ -278,35 +280,39 @@ function handleCancel() {
             <!-- 景别 -->
             <div class="space-y-2">
               <label class="text-sm font-medium">景别</label>
-              <select
-                v-model="editForm.shotType"
-                class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
-              >
-                <option
-                  v-for="opt in shotTypeOptions"
-                  :key="opt.value"
-                  :value="opt.value"
-                >
-                  {{ opt.label }} - {{ opt.desc }}
-                </option>
-              </select>
+              <Select v-model="editForm.shotType">
+                <SelectTrigger class="w-full">
+                  <SelectValue placeholder="选择景别" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="opt in shotTypeOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                  >
+                    {{ opt.label }} - {{ opt.desc }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <!-- 运镜 -->
             <div class="space-y-2">
               <label class="text-sm font-medium">运镜方式</label>
-              <select
-                v-model="editForm.cameraMovement"
-                class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
-              >
-                <option
-                  v-for="opt in cameraMovementOptions"
-                  :key="opt.value"
-                  :value="opt.value"
-                >
-                  {{ opt.label }} - {{ opt.desc }}
-                </option>
-              </select>
+              <Select v-model="editForm.cameraMovement">
+                <SelectTrigger class="w-full">
+                  <SelectValue placeholder="选择运镜方式" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="opt in cameraMovementOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                  >
+                    {{ opt.label }} - {{ opt.desc }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -331,49 +337,53 @@ function handleCancel() {
             <!-- 入场转场 -->
             <div class="space-y-2">
               <label class="text-sm font-medium">入场转场</label>
-              <select
-                v-model="editForm.transitionIn"
-                class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
-              >
-                <option
-                  v-for="opt in transitionOptions"
-                  :key="opt.value"
-                  :value="opt.value"
-                >
-                  {{ opt.label }}
-                </option>
-              </select>
+              <Select v-model="editForm.transitionIn">
+                <SelectTrigger class="w-full">
+                  <SelectValue placeholder="选择入场转场" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="opt in transitionOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                  >
+                    {{ opt.label }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <!-- 出场转场 -->
             <div class="space-y-2">
               <label class="text-sm font-medium">出场转场</label>
-              <select
-                v-model="editForm.transitionOut"
-                class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
-              >
-                <option
-                  v-for="opt in transitionOptions"
-                  :key="opt.value"
-                  :value="opt.value"
-                >
-                  {{ opt.label }}
-                </option>
-              </select>
+              <Select v-model="editForm.transitionOut">
+                <SelectTrigger class="w-full">
+                  <SelectValue placeholder="选择出场转场" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="opt in transitionOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                  >
+                    {{ opt.label }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <!-- 转场时长 -->
             <div class="space-y-2">
               <label class="text-sm font-medium">转场时长</label>
               <div class="flex items-center space-x-2">
-                <input
-                  v-model.number="editForm.transitionDuration"
-                  type="range"
-                  min="0.2"
-                  max="2"
-                  step="0.1"
+                <Slider
+                  :model-value="[editForm.transitionDuration || 0.5]"
+                  :min="0.2"
+                  :max="2"
+                  :step="0.1"
                   class="flex-1"
-                >
+                  @update:model-value="editForm.transitionDuration = Number($event?.[0] ?? editForm.transitionDuration)"
+                />
                 <span class="w-12 text-center text-sm">{{ editForm.transitionDuration }}s</span>
               </div>
             </div>
@@ -424,42 +434,49 @@ function handleCancel() {
               <!-- 角色选择 -->
               <div class="space-y-1">
                 <label class="text-xs text-muted-foreground">角色</label>
-                <select
-                  v-model="dialogue.character"
-                  class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
-                >
-                  <option
-                    v-for="char in editForm.characters"
-                    :key="char.name"
-                    :value="char.name"
-                  >
-                    {{ char.name }}
-                  </option>
-                  <option
-                    v-for="char in (availableCharacters || []).filter(c => !editForm.characters.find(ec => ec.name === c))"
-                    :key="char"
-                    :value="char"
-                  >
-                    {{ char }}
-                  </option>
-                </select>
+                <Select v-model="dialogue.character">
+                  <SelectTrigger class="w-full">
+                    <SelectValue placeholder="选择角色" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem
+                      v-for="char in editForm.characters"
+                      :key="char.name"
+                      :value="char.name"
+                    >
+                      {{ char.name }}
+                    </SelectItem>
+                    <SelectItem
+                      v-for="char in (availableCharacters || []).filter(c => !editForm.characters.find(ec => ec.name === c))"
+                      :key="char"
+                      :value="char"
+                    >
+                      {{ char }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <!-- 情绪选择 -->
               <div class="space-y-1">
                 <label class="text-xs text-muted-foreground">情绪</label>
-                <select
-                  v-model="dialogue.emotion"
-                  class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
+                <Select
+                  :model-value="dialogue.emotion || '__default__'"
+                  @update:model-value="dialogue.emotion = String($event) === '__default__' ? '' : String($event)"
                 >
-                  <option
-                    v-for="opt in emotionOptions"
-                    :key="opt.value"
-                    :value="opt.value"
-                  >
-                    {{ opt.label }}
-                  </option>
-                </select>
+                  <SelectTrigger class="w-full">
+                    <SelectValue placeholder="选择情绪" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem
+                      v-for="opt in emotionOptions"
+                      :key="opt.value || '__default__'"
+                      :value="opt.value || '__default__'"
+                    >
+                      {{ opt.label }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

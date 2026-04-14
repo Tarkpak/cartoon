@@ -359,10 +359,10 @@ function onInput() {
 
     <!-- 编辑区域 -->
     <div class="relative">
-      <textarea
+      <Textarea
         ref="editorRef"
         v-model="localValue"
-        class="w-full min-h-[400px] p-4 resize-none focus:outline-none bg-transparent font-mono text-sm leading-relaxed"
+        class="w-full min-h-[400px] p-4 resize-none bg-transparent font-mono text-sm leading-relaxed border-0 rounded-none shadow-none focus-visible:ring-0"
         :placeholder="placeholder"
         :readonly="readonly"
         @keydown="handleKeydown"

@@ -535,12 +535,7 @@ function formatSize(bytes: number): string {
           <span>正在合成视频...</span>
           <span class="text-muted-foreground">{{ mergeStatus.progress }}%</span>
         </div>
-        <div class="w-full bg-muted rounded-full h-2">
-          <div
-            class="bg-primary h-2 rounded-full transition-all duration-300"
-            :style="{ width: `${mergeStatus.progress}%` }"
-          />
-        </div>
+        <Progress :model-value="mergeStatus.progress" />
       </div>
 
       <!-- 合成错误 -->

@@ -136,18 +136,20 @@ defineExpose({
 
             <div class="space-y-2">
               <label class="text-sm font-medium">角色类型</label>
-              <select
-                v-model="editForm.role"
-                class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
-              >
-                <option
-                  v-for="opt in roleOptions"
-                  :key="opt.value"
-                  :value="opt.value"
-                >
-                  {{ opt.label }}
-                </option>
-              </select>
+              <Select v-model="editForm.role">
+                <SelectTrigger class="w-full">
+                  <SelectValue placeholder="选择角色类型" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="opt in roleOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                  >
+                    {{ opt.label }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </div>
