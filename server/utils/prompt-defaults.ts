@@ -963,14 +963,15 @@ Notes:
 
 // ========== 角色设定图 ==========
 const CHARACTER_SHEET_CONTENT: PromptTemplate['content'] = {
-  zh: `为 {{characterName}} 创建一张半写实角色设定板（Character Sheet），风格参考“韩系/日系半写实数字角色卡”。
+  zh: `为 {{characterName}} 创建一张 {{style}} 风格的角色设定板（Character Sheet）。
 
 风格要求：
-- 主风格：半写实数字插画（semi-realistic digital character design sheet），干净、克制、清晰，不要强动画感。
-- 兼容风格：{{style}}
+- 主风格基线：{{style}}
+- 表现形式：专业角色设定卡（character design sheet）表达，画面干净、克制、结构清晰。
+- 禁止风格漂移：不得额外套用与 {{style}} 冲突的固定美术流派。
 - 角色外貌严格依据：{{appearance}}
 - 若存在参考图，必须优先保持角色身份一致（脸型、五官、发型、服装、配饰）。
-- 不是真人照片：不要摄影质感、不要毛孔级写实；也不要厚涂油绘、夸张动漫笔触。
+- 根据 {{style}} 控制写实程度：避免无依据地向“摄影级写实”或“夸张卡通”偏移。
 
 画面与布局：
 1. 16:9 横版构图，单角色，纯白或浅灰背景。
@@ -985,14 +986,15 @@ const CHARACTER_SHEET_CONTENT: PromptTemplate['content'] = {
 - 适合作为后续视频角色一致性参考资产
 
 禁止包含：多人同框、角色裁切、复杂背景、大段文字、水印、Logo、低清晰度、严重透视畸变、Q版夸张比例、重彩绘厚涂风格`,
-  en: `Create a semi-realistic character design sheet for {{characterName}}, matching a clean Korean/Japanese semi-realistic character card style.
+  en: `Create a {{style}} style character design sheet for {{characterName}}.
 
 Style requirements:
-- Primary style: semi-realistic digital character design sheet, clean and controlled, with clear structure and low animation stylization.
-- Compatible style context: {{style}}
+- Primary style baseline: {{style}}
+- Presentation format: professional character design sheet, clean composition, controlled details, and clear structure.
+- No style drift: do not apply unrelated fixed art trends that conflict with {{style}}.
 - Follow character appearance strictly: {{appearance}}
 - If reference images exist, preserve identity consistency first (face shape, facial features, hairstyle, outfit, accessories).
-- Not photoreal human-photo: avoid camera-photo texture and pore-level realism; also avoid heavy painterly/anime brush rendering.
+- Keep realism/stylization level aligned with {{style}}; avoid arbitrary shifts to hyper-photoreal or exaggerated cartoon rendering.
 
 Composition and layout:
 1. 16:9 horizontal composition, single character only, pure white or light-gray background.
