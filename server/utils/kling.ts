@@ -4,6 +4,7 @@
  */
 
 import { createHmac } from 'node:crypto'
+import { withModelDebugLog } from './model-debug-log'
 
 // ============================================================
 // 错误类型定义
@@ -609,6 +610,7 @@ export async function _klingGenerateImage(options: {
   const aspectRatio = useOmniImageEndpoint
     ? resolveOmniImageAspectRatio({ aspectRatio: options.aspectRatio, size: options.size })
     : resolveImageAspectRatio({ aspectRatio: options.aspectRatio, size: options.size })
+  let upstreamRequestBody: unknown
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Kling] generateImage 请求参数:`, {
@@ -624,113 +626,122 @@ export async function _klingGenerateImage(options: {
     maxRetries: options.maxRetries
   })
 
-  let endpoint = '/v1/images/generations'
-  let body: Record<string, unknown>
-  if (useOmniImageEndpoint) {
-    endpoint = '/v1/images/omni-image'
-    body = {
-      model_name: model,
-      prompt: options.prompt,
-      resolution: resolveOmniImageResolution(options.size, model),
-      aspect_ratio: aspectRatio,
-      result_type: 'single',
-      n
-    }
+  return withModelDebugLog({
+    provider: 'kling',
+    model,
+    operation: 'generateImage',
+    request: () => upstreamRequestBody,
+    execute: async () => {
+      let endpoint = '/v1/images/generations'
+      let body: Record<string, unknown>
+      if (useOmniImageEndpoint) {
+        endpoint = '/v1/images/omni-image'
+        body = {
+          model_name: model,
+          prompt: options.prompt,
+          resolution: resolveOmniImageResolution(options.size, model),
+          aspect_ratio: aspectRatio,
+          result_type: 'single',
+          n
+        }
 
-    if (normalizedReferenceImages.length > 0) {
-      body.image_list = normalizedReferenceImages.slice(0, 9).map(image => ({ image }))
-    }
+        if (normalizedReferenceImages.length > 0) {
+          body.image_list = normalizedReferenceImages.slice(0, 9).map(image => ({ image }))
+        }
 
-    if (options.negativePrompt) {
-      console.warn('[Kling] omni-image 不支持 negative_prompt 字段，已忽略该参数')
-    }
-  } else if (useMultiImageEndpoint) {
-    endpoint = '/v1/images/multi-image2image'
-    body = {
-      model_name: model,
-      prompt: options.prompt,
-      aspect_ratio: aspectRatio,
-      n,
-      subject_image_list: normalizedReferenceImages.slice(0, 4).map(subjectImage => ({
-        subject_image: subjectImage
-      }))
-    }
-    if (options.negativePrompt) {
-      console.warn('[Kling] multi-image2image 不支持 negative_prompt，已忽略该参数')
-    }
-  } else {
-    if (hasMultipleReferenceImages && !KLING_MULTI_IMAGE_MODELS.has(model)) {
-      console.warn(`[Kling] 模型 ${model} 暂不支持 multi-image2image，已自动回退单参考图模式`)
-    }
+        if (options.negativePrompt) {
+          console.warn('[Kling] omni-image 不支持 negative_prompt 字段，已忽略该参数')
+        }
+      } else if (useMultiImageEndpoint) {
+        endpoint = '/v1/images/multi-image2image'
+        body = {
+          model_name: model,
+          prompt: options.prompt,
+          aspect_ratio: aspectRatio,
+          n,
+          subject_image_list: normalizedReferenceImages.slice(0, 4).map(subjectImage => ({
+            subject_image: subjectImage
+          }))
+        }
+        if (options.negativePrompt) {
+          console.warn('[Kling] multi-image2image 不支持 negative_prompt，已忽略该参数')
+        }
+      } else {
+        if (hasMultipleReferenceImages && !KLING_MULTI_IMAGE_MODELS.has(model)) {
+          console.warn(`[Kling] 模型 ${model} 暂不支持 multi-image2image，已自动回退单参考图模式`)
+        }
 
-    body = {
-      model_name: model,
-      prompt: options.prompt,
-      aspect_ratio: aspectRatio,
-      n
-    }
+        body = {
+          model_name: model,
+          prompt: options.prompt,
+          aspect_ratio: aspectRatio,
+          n
+        }
 
-    if (referenceImage) {
-      body.image = referenceImage
-    }
+        if (referenceImage) {
+          body.image = referenceImage
+        }
 
-    // 可灵图生图模式下不支持 negative_prompt，避免发送无效参数
-    if (options.negativePrompt && !referenceImage) {
-      body.negative_prompt = options.negativePrompt
-    }
+        // 可灵图生图模式下不支持 negative_prompt，避免发送无效参数
+        if (options.negativePrompt && !referenceImage) {
+          body.negative_prompt = options.negativePrompt
+        }
 
-    // kling-v1-5 图生图常用的参考图控制参数
-    if (referenceImage && model === KlingImageModels.KLING_V1_5) {
-      body.image_reference = 'subject'
-      body.image_fidelity = 0.5
-      body.human_fidelity = 0.45
-    }
-  }
-
-  const submit = await withRetry(
-    () => request<KlingCreateTaskData>('POST', endpoint, body, { timeout: 30000 }),
-    { maxRetries: options.maxRetries }
-  )
-
-  const taskId = submit.data?.task_id
-  if (!taskId) {
-    throw new KlingError('创建图片任务成功但未返回 task_id', KlingErrorCode.INTERNAL, 500, false)
-  }
-
-  const maxWaitTime = 5 * 60 * 1000
-  const pollInterval = 5000
-  const startedAt = Date.now()
-  const queryEndpoint = `${endpoint}/${taskId}`
-
-  while (Date.now() - startedAt < maxWaitTime) {
-    await sleep(pollInterval)
-    const statusResponse = await withRetry(
-      () => request<KlingImageTaskQueryData>('GET', queryEndpoint, undefined, { timeout: 30000 }),
-      { maxRetries: 2 }
-    )
-
-    const status = statusResponse.data?.task_status
-    if (status === 'succeed') {
-      const imageUrl = statusResponse.data?.task_result?.images?.[0]?.url
-        || statusResponse.data?.task_result?.series_images?.[0]?.url
-      if (!imageUrl) {
-        throw new KlingError('图片任务成功但未返回 URL', KlingErrorCode.INTERNAL, 500, false)
+        // kling-v1-5 图生图常用的参考图控制参数
+        if (referenceImage && model === KlingImageModels.KLING_V1_5) {
+          body.image_reference = 'subject'
+          body.image_fidelity = 0.5
+          body.human_fidelity = 0.45
+        }
       }
-      console.log(`[Kling] 图片生成成功: ${imageUrl.slice(0, 100)}...`)
-      return { imageUrl, taskId }
-    }
 
-    if (status === 'failed') {
-      throw new KlingError(
-        statusResponse.data?.task_status_msg || statusResponse.message || '图片生成失败',
-        KlingErrorCode.INTERNAL,
-        500,
-        false
+      upstreamRequestBody = body
+      const submit = await withRetry(
+        () => request<KlingCreateTaskData>('POST', endpoint, body, { timeout: 30000 }),
+        { maxRetries: options.maxRetries }
       )
-    }
-  }
 
-  throw new KlingError('图片生成超时', KlingErrorCode.DEADLINE_EXCEEDED, 504, false)
+      const taskId = submit.data?.task_id
+      if (!taskId) {
+        throw new KlingError('创建图片任务成功但未返回 task_id', KlingErrorCode.INTERNAL, 500, false)
+      }
+
+      const maxWaitTime = 5 * 60 * 1000
+      const pollInterval = 5000
+      const startedAt = Date.now()
+      const queryEndpoint = `${endpoint}/${taskId}`
+
+      while (Date.now() - startedAt < maxWaitTime) {
+        await sleep(pollInterval)
+        const statusResponse = await withRetry(
+          () => request<KlingImageTaskQueryData>('GET', queryEndpoint, undefined, { timeout: 30000 }),
+          { maxRetries: 2 }
+        )
+
+        const status = statusResponse.data?.task_status
+        if (status === 'succeed') {
+          const imageUrl = statusResponse.data?.task_result?.images?.[0]?.url
+            || statusResponse.data?.task_result?.series_images?.[0]?.url
+          if (!imageUrl) {
+            throw new KlingError('图片任务成功但未返回 URL', KlingErrorCode.INTERNAL, 500, false)
+          }
+          console.log(`[Kling] 图片生成成功: ${imageUrl.slice(0, 100)}...`)
+          return { imageUrl, taskId }
+        }
+
+        if (status === 'failed') {
+          throw new KlingError(
+            statusResponse.data?.task_status_msg || statusResponse.message || '图片生成失败',
+            KlingErrorCode.INTERNAL,
+            500,
+            false
+          )
+        }
+      }
+
+      throw new KlingError('图片生成超时', KlingErrorCode.DEADLINE_EXCEEDED, 504, false)
+    }
+  })
 }
 
 export async function _klingGenerateVideo(options: {
@@ -833,46 +844,54 @@ export async function _klingGenerateVideo(options: {
     }
   }
 
-  const submit = await withRetry(
-    () => request<KlingCreateTaskData>('POST', endpoint, body, { timeout: 30000 }),
-    { maxRetries: options.maxRetries }
-  )
-
-  const taskId = submit.data?.task_id
-  if (!taskId) {
-    throw new KlingError('创建任务成功但未返回 task_id', KlingErrorCode.INTERNAL, 500, false)
-  }
-
-  const maxWaitTime = 12 * 60 * 1000
-  const pollInterval = 10000
-  const startedAt = Date.now()
-  const queryEndpoint = `${endpoint}/${taskId}`
-
-  while (Date.now() - startedAt < maxWaitTime) {
-    await sleep(pollInterval)
-    const statusResponse = await withRetry(
-      () => request<KlingTaskQueryData>('GET', queryEndpoint, undefined, { timeout: 30000 }),
-      { maxRetries: 2 }
-    )
-
-    const status = statusResponse.data?.task_status
-    if (status === 'succeed') {
-      const videoUrl = statusResponse.data?.task_result?.videos?.[0]?.url
-      if (!videoUrl) {
-        throw new KlingError('任务成功但未返回视频 URL', KlingErrorCode.INTERNAL, 500, false)
-      }
-      return { videoUrl, taskId }
-    }
-
-    if (status === 'failed') {
-      throw new KlingError(
-        statusResponse.data?.task_status_msg || statusResponse.message || '视频生成失败',
-        KlingErrorCode.INTERNAL,
-        500,
-        false
+  return withModelDebugLog({
+    provider: 'kling',
+    model,
+    operation: 'generateVideo',
+    request: body,
+    execute: async () => {
+      const submit = await withRetry(
+        () => request<KlingCreateTaskData>('POST', endpoint, body, { timeout: 30000 }),
+        { maxRetries: options.maxRetries }
       )
-    }
-  }
 
-  throw new KlingError('视频生成超时', KlingErrorCode.DEADLINE_EXCEEDED, 504, false)
+      const taskId = submit.data?.task_id
+      if (!taskId) {
+        throw new KlingError('创建任务成功但未返回 task_id', KlingErrorCode.INTERNAL, 500, false)
+      }
+
+      const maxWaitTime = 12 * 60 * 1000
+      const pollInterval = 10000
+      const startedAt = Date.now()
+      const queryEndpoint = `${endpoint}/${taskId}`
+
+      while (Date.now() - startedAt < maxWaitTime) {
+        await sleep(pollInterval)
+        const statusResponse = await withRetry(
+          () => request<KlingTaskQueryData>('GET', queryEndpoint, undefined, { timeout: 30000 }),
+          { maxRetries: 2 }
+        )
+
+        const status = statusResponse.data?.task_status
+        if (status === 'succeed') {
+          const videoUrl = statusResponse.data?.task_result?.videos?.[0]?.url
+          if (!videoUrl) {
+            throw new KlingError('任务成功但未返回视频 URL', KlingErrorCode.INTERNAL, 500, false)
+          }
+          return { videoUrl, taskId }
+        }
+
+        if (status === 'failed') {
+          throw new KlingError(
+            statusResponse.data?.task_status_msg || statusResponse.message || '视频生成失败',
+            KlingErrorCode.INTERNAL,
+            500,
+            false
+          )
+        }
+      }
+
+      throw new KlingError('视频生成超时', KlingErrorCode.DEADLINE_EXCEEDED, 504, false)
+    }
+  })
 }

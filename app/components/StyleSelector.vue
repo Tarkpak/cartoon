@@ -118,41 +118,46 @@ onMounted(async () => {
     <!-- 搜索框 -->
     <div v-if="showSearch !== false" class="relative">
       <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-      <input
+      <Input
         v-model="searchQuery"
-        type="text"
         placeholder="搜索风格..."
-        class="w-full pl-10 pr-4 py-2 border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
-      >
+        class="h-10 pl-10 pr-4 rounded-lg"
+      />
     </div>
 
     <!-- 分类标签 -->
     <div class="flex flex-wrap gap-2">
-      <button
-        class="px-3 py-1.5 text-sm rounded-full transition-colors"
+      <Button
+        variant="ghost"
+        size="sm"
+        class="px-3 py-1.5 h-auto rounded-full transition-colors"
         :class="activeCategory === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'"
         @click="activeCategory = 'all'"
       >
         全部
-      </button>
-      <button
-        class="px-3 py-1.5 text-sm rounded-full transition-colors flex items-center gap-1"
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        class="px-3 py-1.5 h-auto rounded-full transition-colors flex items-center gap-1"
         :class="activeCategory === 'new' ? 'bg-primary text-primary-foreground' : 'bg-gradient-to-r from-pink-500 to-purple-500 text-white hover:opacity-90'"
         @click="activeCategory = 'new'"
       >
         <Sparkles class="w-3 h-3" />
         新增
-      </button>
-      <button
+      </Button>
+      <Button
         v-for="cat in availableCategories"
         :key="cat.id"
-        class="px-3 py-1.5 text-sm rounded-full transition-colors inline-flex items-center gap-1"
+        variant="ghost"
+        size="sm"
+        class="px-3 py-1.5 h-auto rounded-full transition-colors inline-flex items-center gap-1"
         :class="activeCategory === cat.id ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'"
         @click="activeCategory = cat.id"
       >
         <component :is="resolveStyleCategoryIconByName(cat.icon)" class="w-3.5 h-3.5" />
         <span>{{ cat.name }}</span>
-      </button>
+      </Button>
     </div>
 
     <!-- 风格网格 -->

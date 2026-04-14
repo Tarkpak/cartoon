@@ -16,6 +16,13 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import type { StylePreset } from '#shared/types/styles'
 import {
   PROJECT_WORKFLOW_LABELS,
@@ -367,37 +374,45 @@ const filteredProjects = computed(() => {
               placeholder="搜索项目..."
             />
           </div>
-          <select
+          <Select
             v-model="statusFilter"
-            class="h-10 px-3 rounded-md border border-input bg-background text-sm"
           >
-            <option value="all">
-              全部状态
-            </option>
-            <option value="in_progress">
-              进行中
-            </option>
-            <option value="completed">
-              已完成
-            </option>
-            <option value="draft">
-              草稿
-            </option>
-          </select>
-          <select
+            <SelectTrigger class="h-10 min-w-[130px]">
+              <SelectValue placeholder="全部状态" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">
+                全部状态
+              </SelectItem>
+              <SelectItem value="in_progress">
+                进行中
+              </SelectItem>
+              <SelectItem value="completed">
+                已完成
+              </SelectItem>
+              <SelectItem value="draft">
+                草稿
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
             v-model="sortBy"
-            class="h-10 px-3 rounded-md border border-input bg-background text-sm"
           >
-            <option value="updated">
-              最近更新
-            </option>
-            <option value="created">
-              创建时间
-            </option>
-            <option value="name">
-              名称排序
-            </option>
-          </select>
+            <SelectTrigger class="h-10 min-w-[130px]">
+              <SelectValue placeholder="最近更新" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="updated">
+                最近更新
+              </SelectItem>
+              <SelectItem value="created">
+                创建时间
+              </SelectItem>
+              <SelectItem value="name">
+                名称排序
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </CardContent>
     </Card>
@@ -592,11 +607,12 @@ const filteredProjects = computed(() => {
           <div class="grid gap-2">
             <label class="text-sm font-medium">视频比例 <span class="text-destructive">*</span></label>
             <div class="grid grid-cols-3 gap-2">
-              <button
+              <Button
                 v-for="option in aspectRatioOptions"
                 :key="option.value"
                 type="button"
-                class="p-3 rounded-md border text-center transition"
+                variant="ghost"
+                class="h-auto whitespace-normal p-3 rounded-md border text-center transition"
                 :class="newProject.aspectRatio === option.value ? 'border-primary bg-primary/10' : 'border-input hover:border-primary/50'"
                 @click="newProject.aspectRatio = option.value as '16:9' | '9:16' | '1:1'"
               >
@@ -606,17 +622,18 @@ const filteredProjects = computed(() => {
                 <div class="text-xs text-muted-foreground">
                   {{ option.description }}
                 </div>
-              </button>
+              </Button>
             </div>
           </div>
           <div class="grid gap-2">
             <label class="text-sm font-medium">工作流模式 <span class="text-destructive">*</span></label>
             <div class="grid gap-2">
-              <button
+              <Button
                 v-for="option in workflowOptions"
                 :key="option.value"
                 type="button"
-                class="rounded-md border p-3 text-left transition"
+                variant="ghost"
+                class="h-auto whitespace-normal rounded-md border p-3 text-left transition"
                 :class="newProject.workflowType === option.value ? 'border-primary bg-primary/10' : 'border-input hover:border-primary/50'"
                 @click="newProject.workflowType = option.value"
               >
@@ -626,7 +643,7 @@ const filteredProjects = computed(() => {
                 <div class="text-xs text-muted-foreground mt-1">
                   {{ option.description }}
                 </div>
-              </button>
+              </Button>
             </div>
           </div>
         </div>

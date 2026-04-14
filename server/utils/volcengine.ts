@@ -1,10 +1,11 @@
 /**
  * 火山引擎 (Volcengine) 方舟平台 API 封装
  * 基于火山引擎方舟大模型服务平台
- * 
+ *
  * 文档参考: https://www.volcengine.com/docs/82379/1330310
  * 更新日期: 2026.04.03
  */
+import { withModelDebugLog } from './model-debug-log'
 
 // ============================================================
 // 错误类型定义
@@ -124,7 +125,6 @@ function getConfig(): VolcengineConfig {
   }
   return config
 }
-
 
 // ============================================================
 // 重试配置
@@ -390,6 +390,16 @@ export async function _volcengineGenerateText(options: {
   enableThinking?: boolean
 }): Promise<string> {
   const model = options.model || VolcengineTextModels.DOUBAO_SEED_2_0_MINI
+  const messages: Array<{ role: string, content: string }> = []
+  if (options.systemInstruction) {
+    messages.push({ role: 'system', content: options.systemInstruction })
+  }
+  messages.push({ role: 'user', content: options.prompt })
+  const requestBody = {
+    model,
+    messages,
+    temperature: options.temperature ?? 0.7
+  }
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Volcengine] generateText 请求参数:`, {
@@ -402,25 +412,24 @@ export async function _volcengineGenerateText(options: {
     maxRetries: options.maxRetries
   })
 
-  return withRetry(async () => {
-    const messages: Array<{ role: string, content: string }> = []
-    
-    if (options.systemInstruction) {
-      messages.push({ role: 'system', content: options.systemInstruction })
-    }
-    messages.push({ role: 'user', content: options.prompt })
+  return withModelDebugLog({
+    provider: 'volcengine',
+    model,
+    operation: 'generateText',
+    request: requestBody,
+    summarizeResponse: text => ({
+      text,
+      textLength: text.length
+    }),
+    execute: async () => withRetry(async () => {
+      const response = await request<ChatCompletionResponse>(
+        '/chat/completions',
+        requestBody
+      )
 
-    const response = await request<ChatCompletionResponse>(
-      '/chat/completions',
-      {
-        model,
-        messages,
-        temperature: options.temperature ?? 0.7
-      }
-    )
-
-    return response.choices?.[0]?.message?.content || ''
-  }, { maxRetries: options.maxRetries })
+      return response.choices?.[0]?.message?.content || ''
+    }, { maxRetries: options.maxRetries })
+  })
 }
 
 export async function _volcengineGenerateJSON<T>(options: {
@@ -433,6 +442,30 @@ export async function _volcengineGenerateJSON<T>(options: {
   const requestedModel = options.model || VolcengineTextModels.DOUBAO_SEED_2_0_MINI
   const model = resolveStructuredJsonModel(requestedModel)
   const maxTokens = resolveModelMaxTokens(model)
+  const messages: Array<{ role: string, content: string }> = []
+  if (options.systemInstruction) {
+    messages.push({ role: 'system', content: options.systemInstruction })
+  }
+  messages.push({ role: 'user', content: options.prompt })
+  const requestBody = {
+    model,
+    messages,
+    temperature: Math.min(options.temperature ?? 0.2, 0.2),
+    max_tokens: maxTokens,
+    response_format: {
+      type: 'json_schema' as const,
+      json_schema: {
+        name: 'structured_response',
+        strict: true,
+        schema: {
+          anyOf: [
+            { type: 'object' },
+            { type: 'array' }
+          ]
+        }
+      }
+    }
+  }
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Volcengine] generateJSON 请求参数:`, {
@@ -446,86 +479,67 @@ export async function _volcengineGenerateJSON<T>(options: {
     maxRetries: options.maxRetries
   })
 
-  return withRetry(async () => {
-    const messages: Array<{ role: string, content: string }> = []
-    if (options.systemInstruction) {
-      messages.push({ role: 'system', content: options.systemInstruction })
-    }
-    messages.push({ role: 'user', content: options.prompt })
+  return withModelDebugLog({
+    provider: 'volcengine',
+    model,
+    operation: 'generateJSON',
+    request: requestBody,
+    execute: async () => withRetry(async () => {
+      const response = await request<ChatCompletionResponse>(
+        '/chat/completions',
+        requestBody
+      )
 
-    const response = await request<ChatCompletionResponse>(
-      '/chat/completions',
-      {
-        model,
-        messages,
-        temperature: Math.min(options.temperature ?? 0.2, 0.2),
-        // 按模型支持上限设置，避免长 JSON 输出被默认值截断
-        max_tokens: maxTokens,
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'structured_response',
-            strict: true,
-            schema: {
-              anyOf: [
-                { type: 'object' },
-                { type: 'array' }
-              ]
-            }
+      const text = response.choices?.[0]?.message?.content || ''
+      const finishReason = response.choices?.[0]?.finish_reason
+      let jsonStr = normalizeJsonCandidate(text)
+
+      // 优先提取 markdown 代码块中的 JSON，兼容模型偶发包裹 ```json ... ```
+      const codeBlockMatch
+        = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+          || text.match(/``(?:json)?\s*([\s\S]*?)\s*``/i)
+
+      if (codeBlockMatch && codeBlockMatch[1]) {
+        jsonStr = normalizeJsonCandidate(codeBlockMatch[1])
+      } else {
+      // 兼容仅有起始代码块、没有结束代码块的情况
+        const openFenceMatch = text.match(/^\s*`{2,3}(?:json)?\s*([\s\S]*)$/i)
+        if (openFenceMatch && openFenceMatch[1]) {
+          jsonStr = normalizeJsonCandidate(openFenceMatch[1])
+        }
+
+        // 若非纯 JSON，尝试从文本中提取平衡对象/数组
+        try {
+          JSON.parse(jsonStr)
+        } catch {
+          const extracted = extractJsonObject(jsonStr)
+            || extractJsonArray(jsonStr)
+            || extractJsonObject(text)
+            || extractJsonArray(text)
+          if (extracted) {
+            jsonStr = normalizeJsonCandidate(extracted)
           }
         }
       }
-    )
 
-    const text = response.choices?.[0]?.message?.content || ''
-    const finishReason = response.choices?.[0]?.finish_reason
-    let jsonStr = normalizeJsonCandidate(text)
-
-    // 优先提取 markdown 代码块中的 JSON，兼容模型偶发包裹 ```json ... ```
-    const codeBlockMatch =
-      text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
-      || text.match(/``(?:json)?\s*([\s\S]*?)\s*``/i)
-
-    if (codeBlockMatch && codeBlockMatch[1]) {
-      jsonStr = normalizeJsonCandidate(codeBlockMatch[1])
-    } else {
-      // 兼容仅有起始代码块、没有结束代码块的情况
-      const openFenceMatch = text.match(/^\s*`{2,3}(?:json)?\s*([\s\S]*)$/i)
-      if (openFenceMatch && openFenceMatch[1]) {
-        jsonStr = normalizeJsonCandidate(openFenceMatch[1])
-      }
-
-      // 若非纯 JSON，尝试从文本中提取平衡对象/数组
       try {
-        JSON.parse(jsonStr)
-      } catch {
-        const extracted = extractJsonObject(jsonStr)
-          || extractJsonArray(jsonStr)
-          || extractJsonObject(text)
-          || extractJsonArray(text)
-        if (extracted) {
-          jsonStr = normalizeJsonCandidate(extracted)
+        return JSON.parse(jsonStr) as T
+      } catch (parseError) {
+        console.error('[Volcengine] JSON 解析失败，响应内容:', text.slice(0, 1000))
+
+        if (finishReason === 'length') {
+          throw new VolcengineError(
+            `模型输出被截断（finish_reason=length），当前 max_tokens=${maxTokens}。请缩短输出内容或分批生成。`,
+            VolcengineErrorCode.INVALID_ARGUMENT,
+            400,
+            false
+          )
         }
+
+        throw parseError
       }
-    }
-
-    try {
-      return JSON.parse(jsonStr) as T
-    } catch (parseError) {
-      console.error('[Volcengine] JSON 解析失败，响应内容:', text.slice(0, 1000))
-
-      if (finishReason === 'length') {
-        throw new VolcengineError(
-          `模型输出被截断（finish_reason=length），当前 max_tokens=${maxTokens}。请缩短输出内容或分批生成。`,
-          VolcengineErrorCode.INVALID_ARGUMENT,
-          400,
-          false
-        )
-      }
-
-      throw parseError
-    }
-  }, { maxRetries: options.maxRetries })
+    }, { maxRetries: options.maxRetries })
+  })
 }
 
 function normalizeJsonCandidate(text: string): string {
@@ -623,7 +637,6 @@ function extractJsonArray(text: string): string | null {
   return null
 }
 
-
 // ============================================================
 // 图片生成 API (豆包 Seedream)
 // ============================================================
@@ -646,11 +659,12 @@ export async function _volcengineGenerateImage(options: {
   maxRetries?: number
 }): Promise<{ imageUrl: string }> {
   const model = options.model || VolcengineImageModels.SEEDREAM_5_0
-  const isSeedreamHighModel =
-    model.includes('seedream-5-0')
-    || model.includes('seedream-4-5')
-    || model.includes('seedream-4-0')
+  const isSeedreamHighModel
+    = model.includes('seedream-5-0')
+      || model.includes('seedream-4-5')
+      || model.includes('seedream-4-0')
   const defaultSize = isSeedreamHighModel ? '2K' : '1024x1024'
+  let upstreamRequestBody: unknown
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Volcengine] generateImage 请求参数:`, {
@@ -664,82 +678,89 @@ export async function _volcengineGenerateImage(options: {
     maxRetries: options.maxRetries
   })
 
-  return withRetry(async () => {
+  return withModelDebugLog({
+    provider: 'volcengine',
+    model,
+    operation: 'generateImage',
+    request: () => upstreamRequestBody,
+    execute: async () => withRetry(async () => {
     // Seedream 5.0/4.5/4.0 推荐使用 2K/4K，由模型结合提示词决定更合适的宽高比
-    let size = options.size || defaultSize
-    // 兼容 * 分隔符
-    size = size.replace('*', 'x')
-    
-    // Seedream 5.0/4.5/4.0 要求图片尺寸至少 3686400 像素 (约 1920x1920)
-    // 仅当传入的是明确宽高值时进行像素校验；2K/4K 由平台自行处理
-    if (isSeedreamHighModel && /^\d+x\d+$/i.test(size)) {
-      const [width = 0, height = 0] = size.split('x').map(v => Number(v) || 0)
-      if (width * height < 3686400) {
-        size = '2K'
-        console.log(`[Volcengine] 模型 ${model} 要求更大尺寸，自动调整为 ${size}`)
-      }
-    }
-    
-    const requestBody: Record<string, unknown> = {
-      model,
-      prompt: options.prompt,
-      n: options.n || 1,
-      size,
-      watermark: false  // 去掉水印
-    }
+      let size = options.size || defaultSize
+      // 兼容 * 分隔符
+      size = size.replace('*', 'x')
 
-    if (options.negativePrompt) {
-      requestBody.negative_prompt = options.negativePrompt
-    }
-
-    // 参考图支持 (图生图模式)
-    // 火山引擎 API 要求:
-    // - URL: 必须是公网可访问的 URL
-    // - Base64: 必须是 data:image/<格式>;base64,<数据> 格式
-    if (options.referenceImages && options.referenceImages.length > 0) {
-      const refImage = options.referenceImages[0]
-      if (!refImage) {
-        throw new VolcengineError('参考图不能为空', VolcengineErrorCode.INVALID_ARGUMENT, 400, false)
+      // Seedream 5.0/4.5/4.0 要求图片尺寸至少 3686400 像素 (约 1920x1920)
+      // 仅当传入的是明确宽高值时进行像素校验；2K/4K 由平台自行处理
+      if (isSeedreamHighModel && /^\d+x\d+$/i.test(size)) {
+        const [width = 0, height = 0] = size.split('x').map(v => Number(v) || 0)
+        if (width * height < 3686400) {
+          size = '2K'
+          console.log(`[Volcengine] 模型 ${model} 要求更大尺寸，自动调整为 ${size}`)
+        }
       }
 
-      // 判断是否已经是正确格式
-      if (refImage.startsWith('http://') || refImage.startsWith('https://')) {
+      const requestBody: Record<string, unknown> = {
+        model,
+        prompt: options.prompt,
+        n: options.n || 1,
+        size,
+        watermark: false // 去掉水印
+      }
+
+      if (options.negativePrompt) {
+        requestBody.negative_prompt = options.negativePrompt
+      }
+
+      // 参考图支持 (图生图模式)
+      // 火山引擎 API 要求:
+      // - URL: 必须是公网可访问的 URL
+      // - Base64: 必须是 data:image/<格式>;base64,<数据> 格式
+      if (options.referenceImages && options.referenceImages.length > 0) {
+        const refImage = options.referenceImages[0]
+        if (!refImage) {
+          throw new VolcengineError('参考图不能为空', VolcengineErrorCode.INVALID_ARGUMENT, 400, false)
+        }
+
+        // 判断是否已经是正确格式
+        if (refImage.startsWith('http://') || refImage.startsWith('https://')) {
         // URL 格式 - 直接使用 (注意: 必须是公网可访问的 URL)
-        requestBody.image = refImage
-      } else if (refImage.startsWith('data:image/')) {
+          requestBody.image = refImage
+        } else if (refImage.startsWith('data:image/')) {
         // 已经是正确的 data URI 格式
-        requestBody.image = refImage
-      } else {
+          requestBody.image = refImage
+        } else {
         // 纯 base64 字符串，需要添加 data URI 前缀
         // 尝试检测图片格式 (通过 base64 头部特征)
-        let mimeType = 'png' // 默认 png
-        if (refImage.startsWith('/9j/')) {
-          mimeType = 'jpeg'
-        } else if (refImage.startsWith('iVBOR')) {
-          mimeType = 'png'
-        } else if (refImage.startsWith('R0lGOD')) {
-          mimeType = 'gif'
-        } else if (refImage.startsWith('UklGR')) {
-          mimeType = 'webp'
+          let mimeType = 'png' // 默认 png
+          if (refImage.startsWith('/9j/')) {
+            mimeType = 'jpeg'
+          } else if (refImage.startsWith('iVBOR')) {
+            mimeType = 'png'
+          } else if (refImage.startsWith('R0lGOD')) {
+            mimeType = 'gif'
+          } else if (refImage.startsWith('UklGR')) {
+            mimeType = 'webp'
+          }
+          requestBody.image = `data:image/${mimeType};base64,${refImage}`
+          console.log(`[Volcengine] 参考图转换为 data URI 格式: image/${mimeType}`)
         }
-        requestBody.image = `data:image/${mimeType};base64,${refImage}`
-        console.log(`[Volcengine] 参考图转换为 data URI 格式: image/${mimeType}`)
       }
-    }
 
-    const response = await request<ImageGenerationResponse>(
-      '/images/generations',
-      requestBody
-    )
+      upstreamRequestBody = requestBody
+      const response = await request<ImageGenerationResponse>(
+        '/images/generations',
+        requestBody
+      )
 
-    const imageUrl = response.data?.[0]?.url
-    if (!imageUrl) {
-      throw new VolcengineError('图片生成失败', VolcengineErrorCode.INTERNAL, 500, false)
-    }
+      const imageUrl = response.data?.[0]?.url
+      if (!imageUrl) {
+        throw new VolcengineError('图片生成失败', VolcengineErrorCode.INTERNAL, 500, false)
+      }
 
-    console.log(`[Volcengine] 图片生成成功: ${imageUrl.slice(0, 100)}...`)
-    return { imageUrl }
-  }, { maxRetries: options.maxRetries })
+      console.log(`[Volcengine] 图片生成成功: ${imageUrl.slice(0, 100)}...`)
+      return { imageUrl }
+    }, { maxRetries: options.maxRetries })
+  })
 }
 
 // ============================================================
@@ -764,9 +785,9 @@ interface QueryTaskResponse {
     video_url?: string
     last_frame_url?: string
   }
-  error?: { 
+  error?: {
     code?: string
-    message?: string 
+    message?: string
   }
   seed?: number
   resolution?: string
@@ -799,11 +820,11 @@ export async function _volcengineGenerateVideo(options: {
   let model = options.model
   if (!model) {
     if (normalizedFirstFrameUrl && normalizedLastFrameUrl) {
-      model = VolcengineVideoModels.SEEDANCE_2_0  // 首尾帧模型
+      model = VolcengineVideoModels.SEEDANCE_2_0 // 首尾帧模型
     } else if (normalizedImageUrl || normalizedFirstFrameUrl) {
-      model = VolcengineVideoModels.SEEDANCE_2_0_FAST  // 图生视频
+      model = VolcengineVideoModels.SEEDANCE_2_0_FAST // 图生视频
     } else {
-      model = VolcengineVideoModels.SEEDANCE_2_0  // 文生视频默认使用 2.0
+      model = VolcengineVideoModels.SEEDANCE_2_0 // 文生视频默认使用 2.0
     }
   }
 
@@ -813,7 +834,7 @@ export async function _volcengineGenerateVideo(options: {
       9,
       Math.round(
         options.maxReferenceImages
-          ?? (model.includes('seedance-2-0') ? 9 : 4)
+        ?? (model.includes('seedance-2-0') ? 9 : 4)
       )
     )
   )
@@ -823,6 +844,7 @@ export async function _volcengineGenerateVideo(options: {
       .map(item => normalizeVideoImageInput(item))
       .filter((item): item is string => !!item)
   )).slice(0, maxReferenceImages)
+  let upstreamRequestBody: unknown
 
   const hasReferenceImages = normalizedReferenceImages.length > 0
   const usingFirstLastFrame = !hasReferenceImages && !!normalizedFirstFrameUrl && !!normalizedLastFrameUrl
@@ -854,131 +876,138 @@ export async function _volcengineGenerateVideo(options: {
     maxRetries: options.maxRetries
   })
 
-  return withRetry(async () => {
+  return withModelDebugLog({
+    provider: 'volcengine',
+    model,
+    operation: 'generateVideo',
+    request: () => upstreamRequestBody,
+    execute: async () => withRetry(async () => {
     // 构建 content 数组 (根据官方文档格式)
-    const content: Array<{ type: string, text?: string, role?: string, image_url?: { url: string } }> = []
-    
-    // 添加文本提示
-    content.push({
-      type: 'text',
-      text: options.prompt
-    })
-    
-    // 参考图模式与首帧/首尾帧模式互斥
-    if (hasReferenceImages) {
-      for (const referenceImage of normalizedReferenceImages) {
-        content.push({
-          type: 'image_url',
-          role: 'reference_image',
-          image_url: { url: referenceImage }
-        })
-      }
-    } else if (usingFirstLastFrame) {
+      const content: Array<{ type: string, text?: string, role?: string, image_url?: { url: string } }> = []
+
+      // 添加文本提示
       content.push({
-        type: 'image_url',
-        role: 'first_frame',
-        image_url: { url: normalizedFirstFrameUrl! }
+        type: 'text',
+        text: options.prompt
       })
-      content.push({
-        type: 'image_url',
-        role: 'last_frame',
-        image_url: { url: normalizedLastFrameUrl! }
-      })
-    } else if (usingSingleImage) {
-      const singleImage = normalizedImageUrl || normalizedFirstFrameUrl
-      if (singleImage) {
+
+      // 参考图模式与首帧/首尾帧模式互斥
+      if (hasReferenceImages) {
+        for (const referenceImage of normalizedReferenceImages) {
+          content.push({
+            type: 'image_url',
+            role: 'reference_image',
+            image_url: { url: referenceImage }
+          })
+        }
+      } else if (usingFirstLastFrame) {
         content.push({
           type: 'image_url',
           role: 'first_frame',
-          image_url: { url: singleImage }
+          image_url: { url: normalizedFirstFrameUrl! }
         })
-      }
-    }
-
-    const requestBody: Record<string, unknown> = {
-      model,
-      content,
-      duration: -1,
-      watermark: false  // 去掉水印
-    }
-
-    // 可选参数
-    if (options.duration) {
-      requestBody.duration = options.duration
-    }
-    if (options.resolution) {
-      requestBody.resolution = options.resolution
-    }
-
-    // 输出请求体摘要 (避免 base64 数据占满控制台)
-    const requestSummary = {
-      model: requestBody.model,
-      contentTypes: content.map(c => c.type),
-      contentRoles: content.filter(c => c.type === 'image_url').map(c => c.role || 'none'),
-      textPrompt: content.find(c => c.type === 'text')?.text?.slice(0, 100) + '...',
-      hasImages: content.filter(c => c.type === 'image_url').length,
-      referenceImagesCount: content.filter(c => c.role === 'reference_image').length,
-      duration: requestBody.duration,
-      resolution: requestBody.resolution
-    }
-    console.log('[Volcengine] 视频生成请求体摘要:', JSON.stringify(requestSummary, null, 2))
-
-    // 提交视频生成任务 (异步任务 API)
-    const submitResponse = await request<CreateTaskResponse>(
-      '/contents/generations/tasks',
-      requestBody
-    )
-
-    const taskId = submitResponse.id
-    console.log(`[Volcengine] 视频任务已创建: ${taskId}`)
-
-    // 轮询任务状态
-    const maxWaitTime = 600000 // 10分钟
-    const pollInterval = 10000
-    const startTime = Date.now()
-
-    while (Date.now() - startTime < maxWaitTime) {
-      await sleep(pollInterval)
-
-      const cfg = getConfig()
-      const statusUrl = `${cfg.baseUrl}/contents/generations/tasks/${taskId}`
-      
-      const statusResponse = await fetch(statusUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${cfg.apiKey}`,
-          'Content-Type': 'application/json'
+        content.push({
+          type: 'image_url',
+          role: 'last_frame',
+          image_url: { url: normalizedLastFrameUrl! }
+        })
+      } else if (usingSingleImage) {
+        const singleImage = normalizedImageUrl || normalizedFirstFrameUrl
+        if (singleImage) {
+          content.push({
+            type: 'image_url',
+            role: 'first_frame',
+            image_url: { url: singleImage }
+          })
         }
-      })
-
-      if (!statusResponse.ok) {
-        const errorData = await statusResponse.json().catch(() => ({})) as { error?: { message?: string } }
-        throw new VolcengineError(
-          errorData.error?.message || `HTTP ${statusResponse.status}`,
-          VolcengineErrorCode.UNKNOWN,
-          statusResponse.status,
-          statusResponse.status >= 500
-        )
       }
 
-      const statusData = await statusResponse.json() as QueryTaskResponse
-      console.log(`[Volcengine] 视频任务状态: ${statusData.status}`, statusData.content ? `video_url: ${statusData.content.video_url?.slice(0, 50)}...` : '')
+      const requestBody: Record<string, unknown> = {
+        model,
+        content,
+        duration: -1,
+        watermark: false // 去掉水印
+      }
 
-      if (statusData.status === 'succeeded') {
-        const videoUrl = statusData.content?.video_url
-        if (!videoUrl) {
-          console.error('[Volcengine] 响应数据:', JSON.stringify(statusData, null, 2))
-          throw new VolcengineError('视频生成成功但未返回URL', VolcengineErrorCode.INTERNAL, 500, false)
+      // 可选参数
+      if (options.duration) {
+        requestBody.duration = options.duration
+      }
+      if (options.resolution) {
+        requestBody.resolution = options.resolution
+      }
+      upstreamRequestBody = requestBody
+
+      // 输出请求体摘要 (避免 base64 数据占满控制台)
+      const requestSummary = {
+        model: requestBody.model,
+        contentTypes: content.map(c => c.type),
+        contentRoles: content.filter(c => c.type === 'image_url').map(c => c.role || 'none'),
+        textPrompt: content.find(c => c.type === 'text')?.text?.slice(0, 100) + '...',
+        hasImages: content.filter(c => c.type === 'image_url').length,
+        referenceImagesCount: content.filter(c => c.role === 'reference_image').length,
+        duration: requestBody.duration,
+        resolution: requestBody.resolution
+      }
+      console.log('[Volcengine] 视频生成请求体摘要:', JSON.stringify(requestSummary, null, 2))
+
+      // 提交视频生成任务 (异步任务 API)
+      const submitResponse = await request<CreateTaskResponse>(
+        '/contents/generations/tasks',
+        requestBody
+      )
+
+      const taskId = submitResponse.id
+      console.log(`[Volcengine] 视频任务已创建: ${taskId}`)
+
+      // 轮询任务状态
+      const maxWaitTime = 600000 // 10分钟
+      const pollInterval = 10000
+      const startTime = Date.now()
+
+      while (Date.now() - startTime < maxWaitTime) {
+        await sleep(pollInterval)
+
+        const cfg = getConfig()
+        const statusUrl = `${cfg.baseUrl}/contents/generations/tasks/${taskId}`
+
+        const statusResponse = await fetch(statusUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${cfg.apiKey}`,
+            'Content-Type': 'application/json'
+          }
+        })
+
+        if (!statusResponse.ok) {
+          const errorData = await statusResponse.json().catch(() => ({})) as { error?: { message?: string } }
+          throw new VolcengineError(
+            errorData.error?.message || `HTTP ${statusResponse.status}`,
+            VolcengineErrorCode.UNKNOWN,
+            statusResponse.status,
+            statusResponse.status >= 500
+          )
         }
-        return { videoUrl, taskId }
+
+        const statusData = await statusResponse.json() as QueryTaskResponse
+        console.log(`[Volcengine] 视频任务状态: ${statusData.status}`, statusData.content ? `video_url: ${statusData.content.video_url?.slice(0, 50)}...` : '')
+
+        if (statusData.status === 'succeeded') {
+          const videoUrl = statusData.content?.video_url
+          if (!videoUrl) {
+            console.error('[Volcengine] 响应数据:', JSON.stringify(statusData, null, 2))
+            throw new VolcengineError('视频生成成功但未返回URL', VolcengineErrorCode.INTERNAL, 500, false)
+          }
+          return { videoUrl, taskId }
+        }
+
+        if (statusData.status === 'failed' || statusData.status === 'cancelled' || statusData.status === 'expired') {
+          const errorMsg = statusData.error?.message || '视频生成失败'
+          throw new VolcengineError(errorMsg, VolcengineErrorCode.INTERNAL, 500, false)
+        }
       }
 
-      if (statusData.status === 'failed' || statusData.status === 'cancelled' || statusData.status === 'expired') {
-        const errorMsg = statusData.error?.message || '视频生成失败'
-        throw new VolcengineError(errorMsg, VolcengineErrorCode.INTERNAL, 500, false)
-      }
-    }
-
-    throw new VolcengineError('视频生成超时', VolcengineErrorCode.DEADLINE_EXCEEDED, 504, false)
-  }, { maxRetries: options.maxRetries })
+      throw new VolcengineError('视频生成超时', VolcengineErrorCode.DEADLINE_EXCEEDED, 504, false)
+    }, { maxRetries: options.maxRetries })
+  })
 }

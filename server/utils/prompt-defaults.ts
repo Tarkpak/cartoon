@@ -1238,70 +1238,36 @@ Adjust the frame based on the shot type in storyboard:
 
 // ========== 场景视频生成（资产一致性） ==========
 const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: `【目标】生成单场景视频片段，确保人物与场景资产一致。
+  zh: `镜头 {{shotNumber}}
+{{sceneSummary}}
 
-【场景】{{sceneTitle}}
-【风格】{{style}}
-【时长】约 {{duration}} 秒
-【输入模式】{{inputMode}}
-【参考图说明】{{referenceGuide}}
+视频提示词
+风格：{{style}}
+时长：约 {{duration}} 秒
+画幅：{{aspectRatio}}
+{{timelineLines}}
+{{audioConstraint}}
 
-【一致性约束】
-- 角色参考图：{{hasCharacterRef}}
-- 环境参考图：{{hasEnvironmentRef}}
-- 如存在参考图，必须保持角色身份、服装、发型、体态及环境空间关系稳定
-- 不新增与剧情无关的新人物或关键物体
-- 不突变时间、地点和光线逻辑
+参考素材
+{{referenceMaterials}}
 
-【场景设定】
-{{setting}}
+执行约束
+{{executionConstraints}}`,
+  en: `Shot {{shotNumber}}
+{{sceneSummary}}
 
-【场景描述】
-{{sceneDescription}}
+Video Prompt
+Style: {{style}}
+Duration: around {{duration}} seconds
+Aspect Ratio: {{aspectRatio}}
+{{timelineLines}}
+{{audioConstraint}}
 
-【旁白】
-{{narration}}
+Reference Materials
+{{referenceMaterials}}
 
-【对白】
-{{dialogues}}
-
-【画面要求】
-1. 镜头稳定，动作自然，叙事连贯
-2. 主体清晰，空间关系明确，景别与构图合理
-3. 风格统一，色调和光照连续
-4. 适配 {{aspectRatio}} 视频输出`,
-  en: `[Goal] Generate a single-scene video clip while preserving character and environment asset consistency.
-
-[Scene] {{sceneTitle}}
-[Style] {{style}}
-[Duration] around {{duration}} seconds
-[Input Mode] {{inputMode}}
-[Reference Guide] {{referenceGuide}}
-
-[Consistency Constraints]
-- Character reference: {{hasCharacterRef}}
-- Environment reference: {{hasEnvironmentRef}}
-- When references exist, keep identity, outfit, hairstyle, body shape, and spatial layout stable
-- Do not introduce unrelated new people or key objects
-- Avoid abrupt jumps in time, location, and lighting logic
-
-[Scene Setting]
-{{setting}}
-
-[Scene Description]
-{{sceneDescription}}
-
-[Narration]
-{{narration}}
-
-[Dialogues]
-{{dialogues}}
-
-[Visual Requirements]
-1. Stable camera, natural motion, coherent storytelling
-2. Clear subject, readable spatial relationship, proper framing
-3. Unified style, continuous color tone and lighting
-4. Suitable for {{aspectRatio}} video output`
+Execution Constraints
+{{executionConstraints}}`
 }
 
 

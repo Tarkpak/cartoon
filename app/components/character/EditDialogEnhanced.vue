@@ -191,27 +191,33 @@ defineExpose({
 
       <!-- 标签页切换 -->
       <div class="flex border-b -mx-6 px-6">
-        <button
-          class="px-4 py-2 text-sm font-medium transition"
+        <Button
+          variant="ghost"
+          size="sm"
+          class="px-4 py-2 h-auto rounded-none text-sm font-medium transition"
           :class="activeTab === 'basic' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground'"
           @click="activeTab = 'basic'"
         >
           基本信息
-        </button>
-        <button
-          class="px-4 py-2 text-sm font-medium transition"
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="px-4 py-2 h-auto rounded-none text-sm font-medium transition"
           :class="activeTab === 'personality' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground'"
           @click="activeTab = 'personality'"
         >
           性格与背景
-        </button>
-        <button
-          class="px-4 py-2 text-sm font-medium transition"
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="px-4 py-2 h-auto rounded-none text-sm font-medium transition"
           :class="activeTab === 'expression' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground'"
           @click="activeTab = 'expression'"
         >
           表情变体
-        </button>
+        </Button>
       </div>
 
       <div class="flex-1 overflow-y-auto py-4 space-y-6">
@@ -248,18 +254,20 @@ defineExpose({
                 </div>
                 <div class="space-y-2">
                   <label class="text-sm font-medium">角色类型</label>
-                  <select
-                    v-model="editForm.role"
-                    class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
-                  >
-                    <option
-                      v-for="opt in roleOptions"
-                      :key="opt.value"
-                      :value="opt.value"
-                    >
-                      {{ opt.label }}
-                    </option>
-                  </select>
+                  <Select v-model="editForm.role">
+                    <SelectTrigger class="w-full">
+                      <SelectValue placeholder="选择角色类型" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem
+                        v-for="opt in roleOptions"
+                        :key="opt.value"
+                        :value="opt.value"
+                      >
+                        {{ opt.label }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -274,18 +282,23 @@ defineExpose({
                 </div>
                 <div class="space-y-2">
                   <label class="text-sm font-medium">性别</label>
-                  <select
-                    v-model="editForm.gender"
-                    class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
+                  <Select
+                    :model-value="editForm.gender || '__unset__'"
+                    @update:model-value="editForm.gender = String($event) === '__unset__' ? '' : String($event)"
                   >
-                    <option
-                      v-for="opt in genderOptions"
-                      :key="opt.value"
-                      :value="opt.value"
-                    >
-                      {{ opt.label }}
-                    </option>
-                  </select>
+                    <SelectTrigger class="w-full">
+                      <SelectValue placeholder="选择性别" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem
+                        v-for="opt in genderOptions"
+                        :key="opt.value || '__unset__'"
+                        :value="opt.value || '__unset__'"
+                      >
+                        {{ opt.label }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>
@@ -351,15 +364,17 @@ defineExpose({
               </Button>
             </div>
             <div class="flex flex-wrap gap-1 mt-2">
-              <button
+              <Button
                 v-for="trait in presetTraits"
                 :key="trait"
-                class="text-xs px-2 py-1 rounded-full border hover:bg-accent transition"
+                variant="ghost"
+                size="sm"
+                class="text-xs h-auto px-2 py-1 rounded-full border hover:bg-accent transition"
                 :class="editForm.traits?.includes(trait) ? 'bg-primary text-primary-foreground' : ''"
                 @click="addPresetTrait(trait)"
               >
                 {{ trait }}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -386,18 +401,23 @@ defineExpose({
           <div class="grid grid-cols-2 gap-4">
             <div class="space-y-2">
               <label class="text-sm font-medium">说话风格</label>
-              <select
-                v-model="editForm.speakingStyle"
-                class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
+              <Select
+                :model-value="editForm.speakingStyle || '__unset__'"
+                @update:model-value="editForm.speakingStyle = String($event) === '__unset__' ? '' : String($event)"
               >
-                <option
-                  v-for="opt in speakingStyleOptions"
-                  :key="opt.value"
-                  :value="opt.value"
-                >
-                  {{ opt.label }}
-                </option>
-              </select>
+                <SelectTrigger class="w-full">
+                  <SelectValue placeholder="选择说话风格" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="opt in speakingStyleOptions"
+                    :key="opt.value || '__unset__'"
+                    :value="opt.value || '__unset__'"
+                  >
+                    {{ opt.label }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div class="space-y-2">
               <label class="text-sm font-medium">口头禅</label>

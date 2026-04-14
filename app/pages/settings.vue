@@ -225,6 +225,10 @@ function selectPrompt(id: string) {
   selectedPromptTemplate.value = template || null
 }
 
+function toSelectString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
 // 处理提示词更新
 function handlePromptUpdate(template: PromptTemplate) {
   const index = promptTemplates.value.findIndex(t => t.id === template.id)
@@ -1565,39 +1569,51 @@ onMounted(() => {
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div class="space-y-1.5">
                   <label class="text-xs text-muted-foreground">文本生成</label>
-                  <select
-                    :value="selectedModels.text"
-                    class="w-full h-9 px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                    @change="updateGlobalWorkflowDefault('text', ($event.target as HTMLSelectElement).value)"
+                  <Select
+                    :model-value="selectedModels.text"
+                    @update:model-value="(value) => updateGlobalWorkflowDefault('text', toSelectString(value))"
                   >
-                    <option v-for="model in models.text" :key="model.model" :value="model.model">
-                      [{{ getProviderLabel(model.provider) }}] {{ model.displayName }}
-                    </option>
-                  </select>
+                    <SelectTrigger class="w-full h-9 text-sm">
+                      <SelectValue placeholder="选择文本模型" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem v-for="model in models.text" :key="model.model" :value="model.model">
+                        [{{ getProviderLabel(model.provider) }}] {{ model.displayName }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div class="space-y-1.5">
                   <label class="text-xs text-muted-foreground">图片生成</label>
-                  <select
-                    :value="selectedModels.image"
-                    class="w-full h-9 px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                    @change="updateGlobalWorkflowDefault('image', ($event.target as HTMLSelectElement).value)"
+                  <Select
+                    :model-value="selectedModels.image"
+                    @update:model-value="(value) => updateGlobalWorkflowDefault('image', toSelectString(value))"
                   >
-                    <option v-for="model in models.image" :key="model.model" :value="model.model">
-                      [{{ getProviderLabel(model.provider) }}] {{ model.displayName }}
-                    </option>
-                  </select>
+                    <SelectTrigger class="w-full h-9 text-sm">
+                      <SelectValue placeholder="选择图片模型" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem v-for="model in models.image" :key="model.model" :value="model.model">
+                        [{{ getProviderLabel(model.provider) }}] {{ model.displayName }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div class="space-y-1.5">
                   <label class="text-xs text-muted-foreground">视频生成</label>
-                  <select
-                    :value="selectedModels.video"
-                    class="w-full h-9 px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                    @change="updateGlobalWorkflowDefault('video', ($event.target as HTMLSelectElement).value)"
+                  <Select
+                    :model-value="selectedModels.video"
+                    @update:model-value="(value) => updateGlobalWorkflowDefault('video', toSelectString(value))"
                   >
-                    <option v-for="model in models.video" :key="model.model" :value="model.model">
-                      [{{ getProviderLabel(model.provider) }}] {{ model.displayName }}
-                    </option>
-                  </select>
+                    <SelectTrigger class="w-full h-9 text-sm">
+                      <SelectValue placeholder="选择视频模型" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem v-for="model in models.video" :key="model.model" :value="model.model">
+                        [{{ getProviderLabel(model.provider) }}] {{ model.displayName }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>
@@ -1640,15 +1656,21 @@ onMounted(() => {
                   </div>
 
                   <div v-if="hasCompatibleModels(workflow)">
-                    <select :value="workflow.selectedModel || ''" :disabled="workflowSaving"
-                      class="w-full h-10 px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-                      @change="updateWorkflowModel(workflow.id, ($event.target as HTMLSelectElement).value)">
-                      <option value="" disabled>选择模型...</option>
-                      <option v-for="model in workflow.compatibleModels" :key="model.model" :value="model.model">
-                        [{{ getProviderLabel(model.provider) }}] {{ model.displayName }}
-                        <template v-if="model.capabilities.length"> - {{ model.capabilities.slice(0, 2).join(', ') }}</template>
-                      </option>
-                    </select>
+                    <Select
+                      :model-value="workflow.selectedModel || undefined"
+                      :disabled="workflowSaving"
+                      @update:model-value="(value) => updateWorkflowModel(workflow.id, toSelectString(value))"
+                    >
+                      <SelectTrigger class="w-full h-10 text-sm disabled:opacity-50">
+                        <SelectValue placeholder="选择模型..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem v-for="model in workflow.compatibleModels" :key="model.model" :value="model.model">
+                          [{{ getProviderLabel(model.provider) }}] {{ model.displayName }}
+                          <template v-if="model.capabilities.length"> - {{ model.capabilities.slice(0, 2).join(', ') }}</template>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
                     <div v-if="workflow.selectedModel" class="mt-2 flex flex-wrap gap-1">
                       <span v-for="cap in (workflow.compatibleModels.find(m => m.model === workflow.selectedModel)?.capabilities || [])" :key="cap"
                         class="px-1.5 py-0.5 text-[10px] rounded bg-muted text-muted-foreground">{{ cap }}</span>
@@ -1718,10 +1740,12 @@ onMounted(() => {
         <div class="flex-1 flex flex-col overflow-hidden">
           <div class="flex-shrink-0 p-4 border-b space-y-3">
             <div class="flex items-center gap-1 overflow-x-auto pb-1">
-              <button
+              <Button
                 v-for="tab in tabs"
                 :key="tab.key"
-                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors whitespace-nowrap"
+                type="button"
+                variant="ghost"
+                class="h-auto px-3 py-1.5 rounded-md text-xs transition-colors whitespace-nowrap"
                 :class="activeTab === tab.key
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-muted text-muted-foreground hover:text-foreground hover:bg-accent'"
@@ -1729,7 +1753,7 @@ onMounted(() => {
               >
                 <component :is="tab.icon" class="h-3.5 w-3.5" />
                 <span>{{ tab.label }}</span>
-              </button>
+              </Button>
             </div>
 
             <div class="flex items-center justify-between">
@@ -1789,11 +1813,12 @@ onMounted(() => {
                 v-if="activeTab === 'image' && imageMentionOpen"
                 class="mt-2 rounded-md border bg-background shadow-sm max-h-48 overflow-y-auto"
               >
-                <button
+                <Button
                   v-for="(item, mentionIndex) in imageMentionCandidates"
                   :key="`image_mention_${item.index}`"
                   type="button"
-                  class="w-full px-2 py-1.5 flex items-center gap-2 text-left hover:bg-accent"
+                  variant="ghost"
+                  class="w-full h-auto px-2 py-1.5 justify-start gap-2 rounded-none font-normal hover:bg-accent"
                   :class="mentionIndex === imageMentionActiveIndex ? 'bg-accent' : ''"
                   @mousedown.prevent="insertImageMention(item.index)"
                 >
@@ -1802,7 +1827,7 @@ onMounted(() => {
                     class="w-10 h-10 rounded border object-cover"
                   >
                   <span class="text-xs">{{ item.token }}</span>
-                </button>
+                </Button>
                 <div
                   v-if="imageMentionCandidates.length === 0"
                   class="px-3 py-2 text-xs text-muted-foreground"
@@ -1824,9 +1849,25 @@ onMounted(() => {
                   <span class="absolute left-0.5 top-0.5 px-1 py-0.5 rounded bg-black/60 text-white text-[10px] leading-none">
                     图{{ index + 1 }}
                   </span>
-                  <button class="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity" @click.stop="removeReferenceImage(index)"><X class="h-3 w-3" /></button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    class="absolute top-0.5 right-0.5 h-5 w-5 rounded-full bg-black/60 p-0 text-white opacity-0 transition-opacity hover:bg-black/70 hover:text-white group-hover:opacity-100"
+                    @click.stop="removeReferenceImage(index)"
+                  >
+                    <X class="h-3 w-3" />
+                  </Button>
                 </div>
-                <button v-if="referenceImages.length < MAX_IMAGE_TEST_REFERENCES" class="w-16 h-16 rounded-lg border-2 border-dashed border-muted-foreground/30 hover:border-primary/50 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors" @click="triggerFileInput"><ImagePlus class="h-5 w-5" /></button>
+                <Button
+                  v-if="referenceImages.length < MAX_IMAGE_TEST_REFERENCES"
+                  type="button"
+                  variant="ghost"
+                  class="h-16 w-16 rounded-lg border-2 border-dashed border-muted-foreground/30 p-0 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                  @click="triggerFileInput"
+                >
+                  <ImagePlus class="h-5 w-5" />
+                </Button>
               </div>
               <input ref="fileInputRef" type="file" accept="image/*" multiple class="hidden" @change="handleReferenceImageUpload" />
             </div>
@@ -1976,24 +2017,26 @@ onMounted(() => {
                   class="md:flex-1"
                   placeholder="搜索画风名称 / ID"
                 />
-                <select
-                  v-model="styleCategoryFilter"
-                  class="h-10 px-3 rounded-md border border-input bg-background text-sm md:w-48"
-                >
-                  <option value="all">
-                    全部分类
-                  </option>
-                  <option value="enabled">
-                    仅看已启用
-                  </option>
-                  <option
-                    v-for="cat in STYLE_CATEGORIES"
-                    :key="cat.id"
-                    :value="cat.id"
-                  >
-                    {{ cat.name }}
-                  </option>
-                </select>
+                <Select v-model="styleCategoryFilter">
+                  <SelectTrigger class="h-10 text-sm md:w-48">
+                    <SelectValue placeholder="全部分类" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      全部分类
+                    </SelectItem>
+                    <SelectItem value="enabled">
+                      仅看已启用
+                    </SelectItem>
+                    <SelectItem
+                      v-for="cat in STYLE_CATEGORIES"
+                      :key="cat.id"
+                      :value="cat.id"
+                    >
+                      {{ cat.name }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div v-if="filteredStylePresets.length === 0" class="py-10 text-center text-sm text-muted-foreground">
@@ -2037,9 +2080,10 @@ onMounted(() => {
                     </div>
 
                     <div class="pt-2 border-t flex items-center justify-between gap-2">
-                      <button
+                      <Button
                         type="button"
-                        class="inline-flex items-center gap-2 text-xs"
+                        variant="ghost"
+                        class="h-auto px-0 text-xs hover:bg-transparent"
                         @click="toggleStyleEnabled(style.id)"
                       >
                         <span
@@ -2052,7 +2096,7 @@ onMounted(() => {
                           />
                         </span>
                         <span class="text-muted-foreground">{{ enabledStyleIdSet.has(style.id) ? '已启用' : '未启用' }}</span>
-                      </button>
+                      </Button>
 
                       <Button
                         size="sm"
@@ -2131,18 +2175,20 @@ onMounted(() => {
                 </div>
                 <div class="space-y-1.5">
                   <label class="text-xs text-muted-foreground">分类</label>
-                  <select
-                    v-model="styleForm.category"
-                    class="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
-                  >
-                    <option
-                      v-for="cat in STYLE_CATEGORIES"
-                      :key="cat.id"
-                      :value="cat.id"
-                    >
-                      {{ cat.name }}
-                    </option>
-                  </select>
+                  <Select v-model="styleForm.category">
+                    <SelectTrigger class="w-full h-10 text-sm">
+                      <SelectValue placeholder="选择分类" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem
+                        v-for="cat in STYLE_CATEGORIES"
+                        :key="cat.id"
+                        :value="cat.id"
+                      >
+                        {{ cat.name }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div class="space-y-1.5">
                   <label class="text-xs text-muted-foreground">中文名称</label>
@@ -2188,19 +2234,19 @@ onMounted(() => {
 
               <div class="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
                 <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                  <input v-model="styleForm.enabled" type="checkbox">
+                  <Checkbox v-model:checked="styleForm.enabled" />
                   启用
                 </label>
                 <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                  <input v-model="styleForm.setAsDefault" type="checkbox">
+                  <Checkbox v-model:checked="styleForm.setAsDefault" />
                   设为默认
                 </label>
                 <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                  <input v-model="styleForm.isNew" type="checkbox">
+                  <Checkbox v-model:checked="styleForm.isNew" />
                   NEW 标记
                 </label>
                 <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                  <input v-model="styleForm.isPro" type="checkbox">
+                  <Checkbox v-model:checked="styleForm.isPro" />
                   PRO 标记
                 </label>
               </div>
@@ -2232,43 +2278,53 @@ onMounted(() => {
           <div class="flex flex-col lg:flex-row lg:items-end gap-3">
             <div class="space-y-1.5 lg:w-56">
               <label class="text-xs text-muted-foreground">工作流</label>
-              <select
-                v-model="selectedPromptWorkflow"
-                class="w-full h-10 px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option
-                  v-for="option in promptWorkflowOptions"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </select>
+              <Select v-model="selectedPromptWorkflow">
+                <SelectTrigger class="w-full h-10 text-sm">
+                  <SelectValue placeholder="选择工作流" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="option in promptWorkflowOptions"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div class="space-y-1.5 flex-1 min-w-0">
               <label class="text-xs text-muted-foreground">提示词模板</label>
-              <select
-                :value="selectedPromptId || ''"
+              <Select
+                :model-value="selectedPromptId || undefined"
                 :disabled="promptsLoading || groupedPromptTemplates.length === 0"
-                class="w-full h-10 px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-                @change="selectPrompt(($event.target as HTMLSelectElement).value)"
+                @update:model-value="(value) => { const nextValue = toSelectString(value); if (nextValue) selectPrompt(nextValue) }"
               >
-                <option value="" disabled>{{ promptsLoading ? '加载模板中...' : '请选择提示词模板' }}</option>
-                <optgroup
-                  v-for="group in groupedPromptTemplates"
-                  :key="group.category"
-                  :label="group.name"
-                >
-                  <option
-                    v-for="template in group.templates"
-                    :key="template.id"
-                    :value="template.id"
+                <SelectTrigger class="w-full h-10 text-sm disabled:opacity-50">
+                  <SelectValue :placeholder="promptsLoading ? '加载模板中...' : '请选择提示词模板'" />
+                </SelectTrigger>
+                <SelectContent>
+                  <template
+                    v-for="(group, groupIndex) in groupedPromptTemplates"
+                    :key="group.category"
                   >
-                    {{ template.name }}
-                  </option>
-                </optgroup>
-              </select>
+                    <SelectGroup>
+                      <SelectLabel>{{ group.name }}</SelectLabel>
+                      <SelectItem
+                        v-for="template in group.templates"
+                        :key="template.id"
+                        :value="template.id"
+                      >
+                        {{ template.name }}
+                      </SelectItem>
+                    </SelectGroup>
+                    <SelectSeparator
+                      v-if="groupIndex < groupedPromptTemplates.length - 1"
+                    />
+                  </template>
+                </SelectContent>
+              </Select>
             </div>
 
             <div class="text-xs text-muted-foreground whitespace-nowrap">
