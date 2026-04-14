@@ -754,6 +754,18 @@ async function generateVideoWithQwen(
       modelId = config.imageUrl ? qwen.QwenVideoModels.WAN_2_6_I2V : qwen.QwenVideoModels.WAN_2_6_T2V
     }
 
+    const requestedDuration = typeof config.duration === 'number' && Number.isFinite(config.duration)
+      ? config.duration
+      : 8
+
+    // Qwen 首尾帧模型当前通常仅支持固定短时长（约 5s）。
+    // 当请求时长超过 5s 时，自动切换到长时长文生模型，优先保证叙事完整。
+    if (modelId?.includes('kf2v') && requestedDuration > 5) {
+      const fallbackModel = qwen.QwenVideoModels.WAN_2_6_T2V
+      console.warn(`[VideoGen] Qwen 模型 ${modelId} 无法满足 ${requestedDuration}s，自动切换到 ${fallbackModel}`)
+      modelId = fallbackModel
+    }
+
     // 转换分辨率为 size 格式
     let size = config.size
     if (!size) {
@@ -788,13 +800,14 @@ async function generateVideoWithQwen(
     }
 
     // 转换时长 (Qwen 支持 5, 10, 15)
-    let duration = config.duration
+    let duration = requestedDuration
     if (duration <= 5) duration = 5
     else if (duration <= 10) duration = 10
     else duration = 15
 
     console.log('[VideoGen] Qwen API 请求参数:', {
       model: modelId,
+      requestedDuration,
       promptLength: config.prompt.length,
       hasImageUrl: !!config.imageUrl,
       hasAudioUrl: !!config.audioUrl,
@@ -806,7 +819,7 @@ async function generateVideoWithQwen(
     await updateTaskProgress(taskId, 20)
 
     // 调用千问视频生成
-    // 检查是否是首尾帧模型
+    // 检查是否是首尾帧模型（仅该类模型使用首尾帧参数）
     const isKf2vModel = modelId?.includes('kf2v')
 
     // 准备首尾帧 URL (如果有 base64 数据，转换为 data URL)
@@ -836,8 +849,8 @@ async function generateVideoWithQwen(
       model: modelId,
       prompt: config.prompt,
       imageUrl: config.imageUrl,
-      firstFrameUrl, // 首尾帧模型需要
-      lastFrameUrl, // 首尾帧模型需要
+      firstFrameUrl: isKf2vModel ? firstFrameUrl : undefined,
+      lastFrameUrl: isKf2vModel ? lastFrameUrl : undefined,
       audioUrl: config.audioUrl,
       duration,
       size,
