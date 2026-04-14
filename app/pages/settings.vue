@@ -381,6 +381,12 @@ function closeStyleEditor() {
   styleEditingId.value = null
 }
 
+function handleStyleEditorOpenChange(open: boolean) {
+  if (open) return
+  if (styleCrudSaving.value) return
+  closeStyleEditor()
+}
+
 function buildStyleFormPayload() {
   return {
     id: styleForm.id.trim() || undefined,
@@ -673,6 +679,19 @@ const expandedProviders = ref<Set<string>>(new Set())
 const customPrompts = ref({ text: '', image: '', video: '', tts: '' })
 const referenceImages = ref<string[]>([])
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const promptEditorRef = ref<HTMLDivElement | null>(null)
+const syncingImagePromptFromEditor = ref(false)
+const imagePromptEditorFocused = ref(false)
+const imagePromptComposing = ref(false)
+const MAX_IMAGE_TEST_REFERENCES = 4
+const imageMentionOpen = ref(false)
+const imageMentionQuery = ref('')
+const imageMentionStart = ref<number | null>(null)
+const imageMentionCaret = ref(0)
+const imageMentionActiveIndex = ref(0)
+const referencePreviewOpen = ref(false)
+const referencePreviewSrc = ref('')
+const referencePreviewAlt = ref('参考图预览')
 
 const defaultPrompts = {
   text: '你好，请用一句话介绍你自己。',
@@ -729,6 +748,10 @@ const canRunImageTest = computed(() => {
   if (activeTab.value !== 'image') return true
   if (!currentImageModelRequiresReference.value) return true
   return referenceImages.value.length > 0
+})
+
+const imagePromptIsEmpty = computed(() => {
+  return !(customPrompts.value.image || '').trim()
 })
 
 function getCurrentModelList(): ModelConfig[] {
@@ -852,7 +875,10 @@ function selectTestModel(type: 'text' | 'image' | 'video' | 'tts', modelId: stri
   if (testSelectedModels.value[type] === modelId) return
   testSelectedModels.value[type] = modelId
   testResults.value[type] = { status: 'idle' }
-  if (type === 'image') referenceImages.value = []
+  if (type === 'image') {
+    referenceImages.value = []
+  }
+  closeImageMention()
 }
 
 function getTestModelId(modelType: 'text' | 'image' | 'video' | 'tts'): string {
@@ -868,17 +894,483 @@ function getProviderColor(provider: string) {
   return providerConfig[provider]?.color || 'gray'
 }
 
+const imageMentionCandidates = computed(() => {
+  if (activeTab.value !== 'image') return []
+  const rawQuery = imageMentionQuery.value.trim().toLowerCase()
+
+  return referenceImages.value
+    .map((image, index) => {
+      const numeric = String(index + 1)
+      const aliases = [
+        numeric,
+        `图${numeric}`,
+        `img${numeric}`,
+        `image${numeric}`
+      ]
+      return {
+        index,
+        image,
+        token: `@图${numeric}`,
+        aliases
+      }
+    })
+    .filter((item) => {
+      if (!rawQuery) return true
+      return item.aliases.some(alias => alias.includes(rawQuery) || rawQuery.includes(alias))
+    })
+})
+
+function closeImageMention() {
+  imageMentionOpen.value = false
+  imageMentionQuery.value = ''
+  imageMentionStart.value = null
+  imageMentionActiveIndex.value = 0
+}
+
+function getImageMentionToken(index: number): string {
+  return `@图${index + 1}`
+}
+
+function resolvePromptEditorElement(): HTMLDivElement | null {
+  return promptEditorRef.value
+}
+
+function serializePromptNode(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return (node.textContent || '')
+  }
+
+  if (node.nodeType !== Node.ELEMENT_NODE) {
+    let fallback = ''
+    for (const child of Array.from(node.childNodes)) {
+      fallback += serializePromptNode(child)
+    }
+    return fallback
+  }
+
+  const element = node as HTMLElement
+  const mentionToken = element.dataset?.mentionToken
+  if (mentionToken) return mentionToken
+
+  if (element.tagName === 'BR') return '\n'
+
+  let text = ''
+  for (const child of Array.from(element.childNodes)) {
+    text += serializePromptNode(child)
+  }
+
+  if (element.tagName === 'DIV' || element.tagName === 'P') {
+    text += '\n'
+  }
+
+  return text
+}
+
+function getSerializedTextFromNodes(nodes: NodeList | Node[]): string {
+  return Array.from(nodes).map(node => serializePromptNode(node)).join('')
+}
+
+function getImagePromptEditorState(): { text: string, caret: number } {
+  const editor = resolvePromptEditorElement()
+  const fallbackText = customPrompts.value.image || ''
+  if (!editor) {
+    return { text: fallbackText, caret: fallbackText.length }
+  }
+
+  const text = getSerializedTextFromNodes(editor.childNodes)
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) {
+    return { text, caret: text.length }
+  }
+
+  const range = selection.getRangeAt(0)
+  if (!editor.contains(range.endContainer)) {
+    return { text, caret: text.length }
+  }
+
+  const preRange = range.cloneRange()
+  preRange.selectNodeContents(editor)
+  preRange.setEnd(range.endContainer, range.endOffset)
+  const fragment = preRange.cloneContents()
+  const caret = getSerializedTextFromNodes(fragment.childNodes)
+
+  return {
+    text,
+    caret: caret.length
+  }
+}
+
+function getNodeSerializedLength(node: Node): number {
+  return serializePromptNode(node).length
+}
+
+interface CaretSegment {
+  type: 'text' | 'mention'
+  node: Node
+  start: number
+  end: number
+}
+
+function collectCaretSegments(nodes: Node[], start = 0): { segments: CaretSegment[], end: number } {
+  const segments: CaretSegment[] = []
+  let offset = start
+
+  for (const node of nodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const length = getNodeSerializedLength(node)
+      const next = offset + length
+      segments.push({
+        type: 'text',
+        node,
+        start: offset,
+        end: next
+      })
+      offset = next
+      continue
+    }
+
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const element = node as HTMLElement
+      if (element.dataset?.mentionToken) {
+        const length = getNodeSerializedLength(node)
+        const next = offset + length
+        segments.push({
+          type: 'mention',
+          node,
+          start: offset,
+          end: next
+        })
+        offset = next
+        continue
+      }
+
+      const nested = collectCaretSegments(Array.from(node.childNodes), offset)
+      segments.push(...nested.segments)
+      offset = nested.end
+      continue
+    }
+
+    offset += getNodeSerializedLength(node)
+  }
+
+  return {
+    segments,
+    end: offset
+  }
+}
+
+function setImagePromptEditorCaret(offset: number) {
+  const editor = resolvePromptEditorElement()
+  if (!editor) return
+
+  const selection = window.getSelection()
+  if (!selection) return
+
+  editor.focus()
+
+  const { segments, end } = collectCaretSegments(Array.from(editor.childNodes))
+  const targetOffset = Math.max(0, Math.min(offset, end))
+
+  const range = document.createRange()
+  if (segments.length === 0) {
+    range.selectNodeContents(editor)
+    range.collapse(false)
+  } else {
+    let placed = false
+    for (const segment of segments) {
+      if (targetOffset > segment.end) continue
+
+      if (segment.type === 'text' && segment.node.nodeType === Node.TEXT_NODE) {
+        const node = segment.node as Text
+        range.setStart(node, Math.max(0, targetOffset - segment.start))
+        range.collapse(true)
+        placed = true
+      } else {
+        if (targetOffset <= segment.start) {
+          range.setStartBefore(segment.node)
+        } else {
+          range.setStartAfter(segment.node)
+        }
+        range.collapse(true)
+        placed = true
+      }
+      break
+    }
+
+    if (!placed) {
+      range.selectNodeContents(editor)
+      range.collapse(false)
+    }
+  }
+
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function createImageMentionNode(imageIndex: number): HTMLSpanElement {
+  const token = getImageMentionToken(imageIndex)
+  const mention = document.createElement('span')
+  mention.className = 'inline-flex items-center gap-1 rounded-md border bg-muted/70 px-1.5 py-0.5 align-middle'
+  mention.contentEditable = 'false'
+  mention.dataset.mentionToken = token
+  mention.dataset.mentionIndex = String(imageIndex)
+
+  const image = document.createElement('img')
+  image.src = referenceImages.value[imageIndex] || ''
+  image.className = 'h-4 w-4 rounded object-cover'
+  image.alt = token
+
+  const label = document.createElement('span')
+  label.className = 'text-xs'
+  label.textContent = token
+
+  mention.append(image, label)
+  return mention
+}
+
+const IMAGE_REFERENCE_INLINE_PATTERN = String.raw`(?:@(?:图|img|image)?\s*([1-9]\d*)|\[(?:图|img|image)\s*([1-9]\d*)\])`
+
+function renderImagePromptEditor(text: string, caretOffset?: number) {
+  const editor = resolvePromptEditorElement()
+  if (!editor) return
+
+  const fragment = document.createDocumentFragment()
+  const matcher = new RegExp(IMAGE_REFERENCE_INLINE_PATTERN, 'giu')
+  let lastIndex = 0
+
+  for (const match of text.matchAll(matcher)) {
+    const fullMatch = match[0] || ''
+    const matchIndex = match.index ?? -1
+    if (matchIndex < 0) continue
+
+    if (matchIndex > lastIndex) {
+      fragment.append(document.createTextNode(text.slice(lastIndex, matchIndex)))
+    }
+
+    const rawIndex = Number(match[1] || match[2] || NaN)
+    const imageIndex = Number.isInteger(rawIndex) ? rawIndex - 1 : -1
+    if (imageIndex >= 0 && imageIndex < referenceImages.value.length) {
+      fragment.append(createImageMentionNode(imageIndex))
+    } else {
+      fragment.append(document.createTextNode(fullMatch))
+    }
+
+    lastIndex = matchIndex + fullMatch.length
+  }
+
+  if (lastIndex < text.length) {
+    fragment.append(document.createTextNode(text.slice(lastIndex)))
+  }
+
+  if (fragment.childNodes.length === 0) {
+    fragment.append(document.createTextNode(''))
+  }
+
+  editor.replaceChildren(fragment)
+
+  if (typeof caretOffset === 'number') {
+    nextTick(() => {
+      setImagePromptEditorCaret(caretOffset)
+    })
+  }
+}
+
+function syncImagePromptFromEditor() {
+  const state = getImagePromptEditorState()
+  syncingImagePromptFromEditor.value = true
+  customPrompts.value.image = state.text
+  syncingImagePromptFromEditor.value = false
+  return state
+}
+
+function updateImageMentionState(state?: { text: string, caret: number }) {
+  if (activeTab.value !== 'image' || referenceImages.value.length === 0 || imagePromptComposing.value) {
+    closeImageMention()
+    return
+  }
+
+  const currentState = state || getImagePromptEditorState()
+  imageMentionCaret.value = currentState.caret
+
+  const beforeCaret = currentState.text.slice(0, currentState.caret)
+  const atIndex = beforeCaret.lastIndexOf('@')
+  if (atIndex < 0) {
+    closeImageMention()
+    return
+  }
+
+  const query = beforeCaret.slice(atIndex + 1)
+  if (query.length > 24 || /[\s\r\n]/.test(query)) {
+    closeImageMention()
+    return
+  }
+
+  const charBeforeAt = beforeCaret[atIndex - 1]
+  if (charBeforeAt && /[a-zA-Z0-9_]/.test(charBeforeAt)) {
+    closeImageMention()
+    return
+  }
+
+  imageMentionStart.value = atIndex
+  imageMentionQuery.value = query
+  imageMentionOpen.value = true
+  if (imageMentionActiveIndex.value >= imageMentionCandidates.value.length) {
+    imageMentionActiveIndex.value = 0
+  }
+}
+
+function insertImageMention(imageIndex: number) {
+  if (activeTab.value !== 'image') return
+
+  const state = getImagePromptEditorState()
+  const start = imageMentionStart.value
+  if (start === null) return
+
+  const safeStart = Math.max(0, Math.min(start, state.text.length))
+  const safeCaret = Math.max(safeStart, Math.min(state.caret, state.text.length))
+  const before = state.text.slice(0, safeStart)
+  const after = state.text.slice(safeCaret)
+  const token = getImageMentionToken(imageIndex)
+  const needsLeadingSpace = before.length > 0 && !/\s$/.test(before)
+  const needsTrailingSpace = after.length > 0 && !/^\s/.test(after)
+  const insertion = `${needsLeadingSpace ? ' ' : ''}${token}${needsTrailingSpace ? ' ' : ''}`
+  const nextText = `${before}${insertion}${after}`
+  const nextCaret = before.length + insertion.length
+
+  syncingImagePromptFromEditor.value = true
+  customPrompts.value.image = nextText
+  syncingImagePromptFromEditor.value = false
+
+  closeImageMention()
+  renderImagePromptEditor(nextText, nextCaret)
+}
+
+function handlePromptTextareaInput() {
+  if (activeTab.value !== 'image') return
+  if (imagePromptComposing.value) return
+  const state = syncImagePromptFromEditor()
+  updateImageMentionState(state)
+}
+
+function handlePromptTextareaCursorChange() {
+  if (activeTab.value !== 'image') return
+  if (imagePromptComposing.value) return
+  updateImageMentionState()
+}
+
+function handlePromptTextareaFocus() {
+  if (activeTab.value !== 'image') return
+  imagePromptEditorFocused.value = true
+  if (!imagePromptComposing.value) {
+    updateImageMentionState()
+  }
+}
+
+function handlePromptTextareaCompositionStart() {
+  if (activeTab.value !== 'image') return
+  imagePromptComposing.value = true
+  closeImageMention()
+}
+
+function handlePromptTextareaCompositionEnd() {
+  if (activeTab.value !== 'image') return
+  imagePromptComposing.value = false
+  const state = syncImagePromptFromEditor()
+  updateImageMentionState(state)
+}
+
+function handlePromptTextareaBlur() {
+  if (activeTab.value !== 'image') return
+  imagePromptEditorFocused.value = false
+
+  syncImagePromptFromEditor()
+  const state = getImagePromptEditorState()
+  renderImagePromptEditor(state.text, state.caret)
+
+  setTimeout(() => {
+    closeImageMention()
+  }, 120)
+}
+
+function handlePromptTextareaKeydown(event: KeyboardEvent) {
+  if (imagePromptComposing.value) return
+  if (activeTab.value !== 'image' || !imageMentionOpen.value) return
+
+  const candidates = imageMentionCandidates.value
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    if (candidates.length === 0) return
+    imageMentionActiveIndex.value = (imageMentionActiveIndex.value + 1) % candidates.length
+    return
+  }
+
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    if (candidates.length === 0) return
+    imageMentionActiveIndex.value = (imageMentionActiveIndex.value - 1 + candidates.length) % candidates.length
+    return
+  }
+
+  if (event.key === 'Enter' || event.key === 'Tab') {
+    event.preventDefault()
+    if (candidates.length === 0) {
+      closeImageMention()
+      return
+    }
+    const target = candidates[imageMentionActiveIndex.value] || candidates[0]
+    if (target) {
+      insertImageMention(target.index)
+    }
+    return
+  }
+
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeImageMention()
+  }
+}
+
+const IMAGE_REFERENCE_EXTRACT_PATTERN = String.raw`(?:\[(?:图|img|image)\s*([1-9]\d*)\]|@(?:图|img|image)?\s*([1-9]\d*))`
+
+function resolveImagePromptWithReferenceTokens(rawPrompt: string): string {
+  const prompt = rawPrompt || defaultPrompts.image
+  const total = referenceImages.value.length
+  if (total === 0) return prompt
+
+  const referencedIndexes: number[] = []
+  const matcher = new RegExp(IMAGE_REFERENCE_EXTRACT_PATTERN, 'giu')
+  for (const match of prompt.matchAll(matcher)) {
+    const rawIndex = Number(match[1] || match[2] || NaN)
+    if (!Number.isInteger(rawIndex)) continue
+    const imageIndex = rawIndex - 1
+    if (imageIndex < 0 || imageIndex >= total) continue
+    if (!referencedIndexes.includes(imageIndex)) {
+      referencedIndexes.push(imageIndex)
+    }
+  }
+
+  if (referencedIndexes.length === 0) return prompt
+
+  const mappingText = referencedIndexes
+    .map(imageIndex => `- @图${imageIndex + 1} 表示第 ${imageIndex + 1} 张上传参考图`)
+    .join('\n')
+
+  return `${prompt}\n\n[参考图标签映射]\n${mappingText}`
+}
+
 function handleReferenceImageUpload(event: Event) {
   const input = event.target as HTMLInputElement
   const files = input.files
   if (!files || files.length === 0) return
-  const remainingSlots = 4 - referenceImages.value.length
+  const remainingSlots = MAX_IMAGE_TEST_REFERENCES - referenceImages.value.length
   Array.from(files).slice(0, remainingSlots).forEach(file => {
     if (!file.type.startsWith('image/')) return
     const reader = new FileReader()
     reader.onload = (e) => {
       const base64 = e.target?.result as string
-      if (base64 && referenceImages.value.length < 4) referenceImages.value.push(base64)
+      if (base64 && referenceImages.value.length < MAX_IMAGE_TEST_REFERENCES) {
+        referenceImages.value.push(base64)
+      }
     }
     reader.readAsDataURL(file)
   })
@@ -888,12 +1380,24 @@ function handleReferenceImageUpload(event: Event) {
 function removeReferenceImage(index: number) { referenceImages.value.splice(index, 1) }
 function triggerFileInput() { fileInputRef.value?.click() }
 
+function openReferenceImagePreview(src: string, index?: number) {
+  if (!src) return
+  referencePreviewSrc.value = src
+  referencePreviewAlt.value = typeof index === 'number' ? `参考图 ${index + 1}` : '参考图预览'
+  referencePreviewOpen.value = true
+}
+
 async function testModel(modelType: 'text' | 'image' | 'video' | 'tts') {
   testResults.value[modelType] = { status: 'testing' }
-  const prompt = customPrompts.value[modelType] || defaultPrompts[modelType]
+  const rawPrompt = customPrompts.value[modelType] || defaultPrompts[modelType]
   const modelId = getTestModelId(modelType)
   try {
-    const body: Record<string, unknown> = { modelType, prompt }
+    const body: Record<string, unknown> = {
+      modelType,
+      prompt: modelType === 'image'
+        ? resolveImagePromptWithReferenceTokens(rawPrompt)
+        : rawPrompt
+    }
     if (modelId) body.modelId = modelId
     if (modelType === 'image' && referenceImages.value.length > 0) body.referenceImages = referenceImages.value
     const response = await $fetch<{ success: boolean; data?: { result: unknown; latencyMs: number }; error?: string }>('/api/models/test', { method: 'POST', body })
@@ -958,7 +1462,49 @@ function scrollToCategory(category: string) {
   })
 }
 
-watch(activeTab, () => { autoExpandSelectedProviders() })
+watch(activeTab, () => {
+  autoExpandSelectedProviders()
+  closeImageMention()
+  if (activeTab.value === 'image') {
+    nextTick(() => {
+      const prompt = customPrompts.value.image || ''
+      renderImagePromptEditor(prompt, prompt.length)
+    })
+  }
+})
+
+watch(referenceImages, () => {
+  if (activeTab.value !== 'image') {
+    if (referenceImages.value.length === 0) {
+      closeImageMention()
+    }
+    return
+  }
+
+  nextTick(() => {
+    const state = getImagePromptEditorState()
+    const prompt = customPrompts.value.image || ''
+    renderImagePromptEditor(prompt, Math.min(state.caret, prompt.length))
+    if (referenceImages.value.length === 0) {
+      closeImageMention()
+    } else {
+      updateImageMentionState()
+    }
+  })
+})
+
+watch(() => customPrompts.value.image, (prompt) => {
+  if (activeTab.value !== 'image') return
+  if (syncingImagePromptFromEditor.value) return
+  if (imagePromptEditorFocused.value || imagePromptComposing.value) return
+
+  nextTick(() => {
+    const state = getImagePromptEditorState()
+    const safePrompt = prompt || ''
+    renderImagePromptEditor(safePrompt, Math.min(state.caret, safePrompt.length))
+    updateImageMentionState()
+  })
+})
 
 watch(() => [route.query.section, route.query.sub], () => {
   applyRouteMenuState()
@@ -1115,8 +1661,10 @@ onMounted(() => {
                 </div>
               </div>
             </div>
+
           </div>
         </div>
+
       </div>
 
       <!-- 模型设置 - 模型测试 -->
@@ -1200,16 +1748,85 @@ onMounted(() => {
             </div>
             <div>
               <label class="text-xs text-muted-foreground mb-1.5 block">{{ activeTab === 'tts' ? '测试文本' : '测试提示词' }}</label>
-              <Textarea v-model="customPrompts[activeTab]" :placeholder="defaultPrompts[activeTab]" class="resize-none text-sm" :rows="activeTab === 'image' || activeTab === 'video' ? 3 : 2" />
+              <template v-if="activeTab === 'image'">
+                <div class="relative min-h-[92px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                  <div
+                    ref="promptEditorRef"
+                    contenteditable="true"
+                    class="min-h-[72px] whitespace-pre-wrap break-words outline-none"
+                    @keydown="handlePromptTextareaKeydown"
+                    @input="handlePromptTextareaInput"
+                    @click="handlePromptTextareaCursorChange"
+                    @keyup="handlePromptTextareaCursorChange"
+                    @focus="handlePromptTextareaFocus"
+                    @compositionstart="handlePromptTextareaCompositionStart"
+                    @compositionend="handlePromptTextareaCompositionEnd"
+                    @blur="handlePromptTextareaBlur"
+                  ></div>
+                  <span
+                    v-if="imagePromptIsEmpty"
+                    class="pointer-events-none absolute left-3 top-2 text-sm text-muted-foreground"
+                  >
+                    {{ defaultPrompts.image }}
+                  </span>
+                </div>
+              </template>
+              <template v-else>
+                <Textarea
+                  v-model="customPrompts[activeTab]"
+                  :placeholder="defaultPrompts[activeTab]"
+                  class="resize-none text-sm"
+                  :rows="activeTab === 'video' ? 3 : 2"
+                />
+              </template>
+              <p
+                v-if="activeTab === 'image' && currentImageModelSupportsReference"
+                class="mt-1 text-[11px] text-muted-foreground"
+              >
+                输入 `@` 可直接选择参考图；选中后会在输入框中以内联缩略图显示。
+              </p>
+              <div
+                v-if="activeTab === 'image' && imageMentionOpen"
+                class="mt-2 rounded-md border bg-background shadow-sm max-h-48 overflow-y-auto"
+              >
+                <button
+                  v-for="(item, mentionIndex) in imageMentionCandidates"
+                  :key="`image_mention_${item.index}`"
+                  type="button"
+                  class="w-full px-2 py-1.5 flex items-center gap-2 text-left hover:bg-accent"
+                  :class="mentionIndex === imageMentionActiveIndex ? 'bg-accent' : ''"
+                  @mousedown.prevent="insertImageMention(item.index)"
+                >
+                  <img
+                    :src="item.image"
+                    class="w-10 h-10 rounded border object-cover"
+                  >
+                  <span class="text-xs">{{ item.token }}</span>
+                </button>
+                <div
+                  v-if="imageMentionCandidates.length === 0"
+                  class="px-3 py-2 text-xs text-muted-foreground"
+                >
+                  没有匹配的参考图
+                </div>
+              </div>
             </div>
             <div v-if="activeTab === 'image' && currentImageModelSupportsReference" class="space-y-2">
-              <label class="text-xs text-muted-foreground flex items-center gap-1"><ImagePlus class="h-3 w-3" />参考图片 (可选，最多4张)</label>
+              <label class="text-xs text-muted-foreground flex items-center gap-1"><ImagePlus class="h-3 w-3" />参考图片 (可选，最多 {{ MAX_IMAGE_TEST_REFERENCES }} 张)</label>
               <div class="flex flex-wrap gap-2">
-                <div v-for="(img, index) in referenceImages" :key="index" class="relative w-16 h-16 rounded-lg overflow-hidden border group">
+                <div
+                  v-for="(img, index) in referenceImages"
+                  :key="index"
+                  class="relative w-16 h-16 rounded-lg overflow-hidden border group cursor-zoom-in"
+                  @click="openReferenceImagePreview(img, index)"
+                >
                   <img :src="img" class="w-full h-full object-cover" />
-                  <button class="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity" @click="removeReferenceImage(index)"><X class="h-3 w-3" /></button>
+                  <span class="absolute left-0.5 top-0.5 px-1 py-0.5 rounded bg-black/60 text-white text-[10px] leading-none">
+                    图{{ index + 1 }}
+                  </span>
+                  <button class="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity" @click.stop="removeReferenceImage(index)"><X class="h-3 w-3" /></button>
                 </div>
-                <button v-if="referenceImages.length < 4" class="w-16 h-16 rounded-lg border-2 border-dashed border-muted-foreground/30 hover:border-primary/50 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors" @click="triggerFileInput"><ImagePlus class="h-5 w-5" /></button>
+                <button v-if="referenceImages.length < MAX_IMAGE_TEST_REFERENCES" class="w-16 h-16 rounded-lg border-2 border-dashed border-muted-foreground/30 hover:border-primary/50 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors" @click="triggerFileInput"><ImagePlus class="h-5 w-5" /></button>
               </div>
               <input ref="fileInputRef" type="file" accept="image/*" multiple class="hidden" @change="handleReferenceImageUpload" />
             </div>
@@ -1379,129 +1996,6 @@ onMounted(() => {
                 </select>
               </div>
 
-              <div
-                v-if="styleEditorMode"
-                class="rounded-lg border bg-muted/20 p-4 space-y-3"
-              >
-                <div class="flex items-center justify-between gap-3">
-                  <h3 class="text-sm font-medium">
-                    {{ styleEditorMode === 'create' ? '新增画风预设' : `编辑画风预设 · ${styleEditingId}` }}
-                  </h3>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    :disabled="styleCrudSaving"
-                    @click="closeStyleEditor"
-                  >
-                    取消
-                  </Button>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div class="space-y-1.5">
-                    <label class="text-xs text-muted-foreground">预设ID</label>
-                    <Input
-                      v-model="styleForm.id"
-                      :disabled="styleEditorMode === 'edit'"
-                      placeholder="如: custom_style_demo"
-                    />
-                  </div>
-                  <div class="space-y-1.5">
-                    <label class="text-xs text-muted-foreground">分类</label>
-                    <select
-                      v-model="styleForm.category"
-                      class="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
-                    >
-                      <option
-                        v-for="cat in STYLE_CATEGORIES"
-                        :key="cat.id"
-                        :value="cat.id"
-                      >
-                        {{ cat.name }}
-                      </option>
-                    </select>
-                  </div>
-                  <div class="space-y-1.5">
-                    <label class="text-xs text-muted-foreground">中文名称</label>
-                    <Input v-model="styleForm.name" placeholder="输入中文名称" />
-                  </div>
-                  <div class="space-y-1.5">
-                    <label class="text-xs text-muted-foreground">英文名称</label>
-                    <Input v-model="styleForm.nameEn" placeholder="输入英文名称（可选）" />
-                  </div>
-                </div>
-
-                <div class="space-y-1.5">
-                  <label class="text-xs text-muted-foreground">描述</label>
-                  <Textarea
-                    v-model="styleForm.description"
-                    rows="2"
-                    placeholder="输入画风描述"
-                  />
-                </div>
-
-                <div class="space-y-1.5">
-                  <label class="text-xs text-muted-foreground">预设词（Prompt）</label>
-                  <Textarea
-                    v-model="styleForm.prompt"
-                    rows="3"
-                    placeholder="输入预设词"
-                  />
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div class="space-y-1.5">
-                    <label class="text-xs text-muted-foreground">反向预设词（可选）</label>
-                    <Input v-model="styleForm.negativePrompt" placeholder="negative prompt" />
-                  </div>
-                  <div class="space-y-1.5">
-                    <label class="text-xs text-muted-foreground">缩略图地址（可选）</label>
-                    <Input v-model="styleForm.thumbnail" placeholder="https://playlet-ai.tos-cn-guangzhou.volces.com/manju-assets/styles/example.webp" />
-                    <p class="text-[11px] text-muted-foreground">
-                      请填写云存储 URL，避免使用本地路径（如 /styles/...）
-                    </p>
-                  </div>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-                  <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                    <input v-model="styleForm.enabled" type="checkbox">
-                    启用
-                  </label>
-                  <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                    <input v-model="styleForm.setAsDefault" type="checkbox">
-                    设为默认
-                  </label>
-                  <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                    <input v-model="styleForm.isNew" type="checkbox">
-                    NEW 标记
-                  </label>
-                  <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                    <input v-model="styleForm.isPro" type="checkbox">
-                    PRO 标记
-                  </label>
-                </div>
-
-                <div class="flex items-center justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    :disabled="styleCrudSaving"
-                    @click="closeStyleEditor"
-                  >
-                    取消
-                  </Button>
-                  <Button
-                    size="sm"
-                    :disabled="styleCrudSaving || !styleForm.name.trim() || !styleForm.prompt.trim() || !styleForm.description.trim()"
-                    @click="submitStyleEditor"
-                  >
-                    <Loader2 v-if="styleCrudSaving" class="h-4 w-4 mr-1.5 animate-spin" />
-                    {{ styleEditorMode === 'create' ? '创建预设' : '保存修改' }}
-                  </Button>
-                </div>
-              </div>
-
               <div v-if="filteredStylePresets.length === 0" class="py-10 text-center text-sm text-muted-foreground">
                 当前筛选条件下没有画风
               </div>
@@ -1511,7 +2005,10 @@ onMounted(() => {
                   v-for="style in filteredStylePresets"
                   :key="style.id"
                   class="rounded-xl border overflow-hidden bg-background transition-colors"
-                  :class="enabledStyleIdSet.has(style.id) ? 'border-primary/50' : 'border-border'"
+                  :class="[
+                    enabledStyleIdSet.has(style.id) ? 'border-primary/50' : 'border-border',
+                    styleEditorMode === 'edit' && styleEditingId === style.id ? 'ring-2 ring-primary/40' : ''
+                  ]"
                 >
                   <div class="relative aspect-[4/5] bg-muted/30">
                     <img
@@ -1577,7 +2074,7 @@ onMounted(() => {
                         @click="openEditStyleEditor(style)"
                       >
                         <Pencil class="h-3.5 w-3.5 mr-1.5" />
-                        编辑
+                        {{ styleEditorMode === 'edit' && styleEditingId === style.id ? '编辑中' : '编辑' }}
                       </Button>
                       <Button
                         variant="outline"
@@ -1607,6 +2104,126 @@ onMounted(() => {
             </div>
           </div>
         </div>
+
+        <Dialog
+          :open="Boolean(styleEditorMode)"
+          @update:open="handleStyleEditorOpenChange"
+        >
+          <DialogContent class="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                {{ styleEditorMode === 'create' ? '新增画风预设' : `编辑画风预设 · ${styleEditingId}` }}
+              </DialogTitle>
+              <DialogDescription>
+                配置画风预设信息，并可同步启用状态与默认画风。
+              </DialogDescription>
+            </DialogHeader>
+
+            <div class="space-y-4 py-2">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="space-y-1.5">
+                  <label class="text-xs text-muted-foreground">预设ID</label>
+                  <Input
+                    v-model="styleForm.id"
+                    :disabled="styleEditorMode === 'edit'"
+                    placeholder="如: custom_style_demo"
+                  />
+                </div>
+                <div class="space-y-1.5">
+                  <label class="text-xs text-muted-foreground">分类</label>
+                  <select
+                    v-model="styleForm.category"
+                    class="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+                  >
+                    <option
+                      v-for="cat in STYLE_CATEGORIES"
+                      :key="cat.id"
+                      :value="cat.id"
+                    >
+                      {{ cat.name }}
+                    </option>
+                  </select>
+                </div>
+                <div class="space-y-1.5">
+                  <label class="text-xs text-muted-foreground">中文名称</label>
+                  <Input v-model="styleForm.name" placeholder="输入中文名称" />
+                </div>
+                <div class="space-y-1.5">
+                  <label class="text-xs text-muted-foreground">英文名称</label>
+                  <Input v-model="styleForm.nameEn" placeholder="输入英文名称（可选）" />
+                </div>
+              </div>
+
+              <div class="space-y-1.5">
+                <label class="text-xs text-muted-foreground">描述</label>
+                <Textarea
+                  v-model="styleForm.description"
+                  rows="2"
+                  placeholder="输入画风描述"
+                />
+              </div>
+
+              <div class="space-y-1.5">
+                <label class="text-xs text-muted-foreground">预设词（Prompt）</label>
+                <Textarea
+                  v-model="styleForm.prompt"
+                  rows="3"
+                  placeholder="输入预设词"
+                />
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="space-y-1.5">
+                  <label class="text-xs text-muted-foreground">反向预设词（可选）</label>
+                  <Input v-model="styleForm.negativePrompt" placeholder="negative prompt" />
+                </div>
+                <div class="space-y-1.5">
+                  <label class="text-xs text-muted-foreground">缩略图地址（可选）</label>
+                  <Input v-model="styleForm.thumbnail" placeholder="https://playlet-ai.tos-cn-guangzhou.volces.com/manju-assets/styles/example.webp" />
+                  <p class="text-[11px] text-muted-foreground">
+                    请填写云存储 URL，避免使用本地路径（如 /styles/...）
+                  </p>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input v-model="styleForm.enabled" type="checkbox">
+                  启用
+                </label>
+                <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input v-model="styleForm.setAsDefault" type="checkbox">
+                  设为默认
+                </label>
+                <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input v-model="styleForm.isNew" type="checkbox">
+                  NEW 标记
+                </label>
+                <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input v-model="styleForm.isPro" type="checkbox">
+                  PRO 标记
+                </label>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                :disabled="styleCrudSaving"
+                @click="closeStyleEditor"
+              >
+                取消
+              </Button>
+              <Button
+                :disabled="styleCrudSaving || !styleForm.name.trim() || !styleForm.prompt.trim() || !styleForm.description.trim()"
+                @click="submitStyleEditor"
+              >
+                <Loader2 v-if="styleCrudSaving" class="h-4 w-4 mr-1.5 animate-spin" />
+                {{ styleEditorMode === 'create' ? '创建预设' : '保存修改' }}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <!-- 提示词配置 -->
@@ -1678,6 +2295,12 @@ onMounted(() => {
           @saved="handlePromptSaved"
         />
       </div>
+
+      <ImagePreview
+        v-model:open="referencePreviewOpen"
+        :src="referencePreviewSrc"
+        :alt="referencePreviewAlt"
+      />
     </div>
   </div>
 </template>
