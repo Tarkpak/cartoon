@@ -277,9 +277,9 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 - 情绪转折（从欢乐到悲伤、从平静到紧张）
 
 ### 2. 时长控制
-- 每个场景建议时长：4-8秒
-- 对话密集的场景可以适当延长
-- 动作场景保持紧凑
+- 每个场景建议时长：8-15秒（优先保证叙事完整）
+- 若所用视频模型上限低于目标时长（例如仅 4-8 秒），必须拆分为更多连续场景并覆盖完整剧情
+- 对话密集场景可适当延长，动作场景保持紧凑但不能牺牲关键信息
 
 ### 3. 画面可描述性
 每个场景的描述必须能够被转换为一张静态图片，包含：
@@ -370,9 +370,9 @@ Start a new scene when any of the following occurs:
 - Emotional shift (joy to sadness, calm to tension)
 
 ### 2. Duration Control
-- Recommended duration per scene: 4-8 seconds
-- Dialogue-heavy scenes can be longer
-- Action scenes should be compact
+- Recommended duration per scene: 8-15 seconds (prioritize narrative completeness)
+- If the selected video model has a lower cap (for example only 4-8s), split into more consecutive scenes while preserving full plot coverage
+- Dialogue-heavy scenes can be longer; action scenes should stay compact without losing key story beats
 
 ### 3. Visual Describability
 Each scene description must be convertible to a static image, including:
@@ -523,7 +523,7 @@ const SCENE_GENERATION_CONTENT: PromptTemplate['content'] = {
 
 注意：
 1. 必须返回 JSON 数组
-2. duration 是数字（秒），建议 4-8 秒
+2. duration 是数字（秒），建议 8-15 秒；若模型时长上限不足，请通过增加场景数量保证剧情完整
 3. emotion 必须使用指定的枚举值`,
   en: `You are a professional screenwriter for multi-format visual content. Please generate detailed scene scripts based on the following story outline and character settings.
 
@@ -595,7 +595,7 @@ Please output strictly in the following JSON array format:
 
 Notes:
 1. Must return JSON array
-2. duration is a number (seconds), recommended 4-8 seconds
+2. duration is a number (seconds), recommended 8-15 seconds; if model duration is capped lower, increase scene count to preserve full storytelling
 3. emotion must use the specified enum values`
 }
 

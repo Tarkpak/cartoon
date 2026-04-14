@@ -163,11 +163,11 @@ export const WORKFLOW_STEP_CONFIGS: WorkflowStepConfig[] = [
   {
     id: 'video_generation',
     name: '视频生成',
-    description: '从首尾帧生成场景视频',
+    description: '从文本、参考图或首尾帧生成场景视频',
     category: 'video',
-    requiredCapabilities: ['first_last_frame'],
-    optionalCapabilities: ['image_to_video'],
-    tips: '必须支持首尾帧插值，确保场景连贯性'
+    requiredCapabilities: [],
+    optionalCapabilities: ['first_last_frame', 'image_to_video', 'text_to_video'],
+    tips: '优先选择支持 10-15 秒时长的模型；若强调角色一致性，再选择支持首尾帧的模型'
   },
   
   // 语音生成类
