@@ -44,10 +44,23 @@ const SceneSchema = z.object({
   dialogues: z.array(SceneDialogueSchema).optional().default([])
 })
 
+const EnvironmentContextSchema = z.object({
+  environmentRoot: z.string().optional(),
+  anchorSceneId: z.string().optional(),
+  anchorSceneTitle: z.string().optional(),
+  anchorLocation: z.string().optional(),
+  anchorDescription: z.string().optional(),
+  siblingLocations: z.array(z.string()).optional().default([])
+}).optional()
+
 const GenerateReferenceRequestSchema = z.object({
   scene: SceneSchema,
   style: z.string().optional().default(''),
   aspectRatio: AspectRatioSchema.optional().default('16:9'),
+  environmentContext: EnvironmentContextSchema,
+  regeneration: z.object({
+    customPrompt: z.string().optional()
+  }).optional(),
   // 兼容旧字段：资产一致性新流程下该字段将被忽略（场景资产必须为纯环境）
   characterReferenceImages: z.array(z.string()).optional().default([])
 })
@@ -73,6 +86,80 @@ const ENVIRONMENT_ONLY_NEGATIVE_PROMPT = [
   'logo',
   'text'
 ].join(', ')
+
+const LOCATION_SUBSPACE_SUFFIXES = [
+  '走廊',
+  '长廊',
+  '大厅',
+  '前台',
+  '办公室',
+  '病房',
+  '病区',
+  '手术室',
+  '诊室',
+  '急诊室',
+  '候诊区',
+  '会议室',
+  '休息室',
+  '楼梯间',
+  '电梯间',
+  '停车场',
+  '天台',
+  '仓库',
+  '门厅',
+  '通道',
+  '后巷',
+  '教室',
+  '宿舍',
+  '食堂',
+  '实验室',
+  '审讯室',
+  '指挥室',
+  '机房',
+  '车间',
+  '包厢',
+  '吧台',
+  '客厅',
+  '卧室',
+  '厨房',
+  '浴室',
+  '阳台',
+  '庭院'
+]
+const LOCATION_ANCHOR_KEYWORDS = [
+  '医院',
+  '诊所',
+  '医务室',
+  '警察局',
+  '警局',
+  '派出所',
+  '学校',
+  '校园',
+  '大学',
+  '中学',
+  '小学',
+  '公司',
+  '写字楼',
+  '工厂',
+  '商场',
+  '酒店',
+  '旅馆',
+  '餐厅',
+  '咖啡馆',
+  '酒吧',
+  '公寓',
+  '别墅',
+  '车站',
+  '地铁站',
+  '火车站',
+  '机场',
+  '码头',
+  '港口',
+  '法庭',
+  '监狱',
+  '图书馆'
+]
+const LOCATION_STYLE_PREFIX_REGEX = /^(?:豪华|奢华|现代|陈旧|老旧|破旧|残破|高端|高级|复古|阴暗|明亮|干净|凌乱|宽敞|狭窄|未来感|futuristic|modern|luxury|run[- ]?down|dilapidated|abandoned|vintage|old)\s*/i
 
 function resolveEnvironmentReferenceModel(preferredModelId: string): { modelId: string, reason: string } {
   const preferred = findImageModel(preferredModelId)
@@ -115,6 +202,90 @@ function hasText(value?: string | null): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function stripLocationStylePrefix(value: string): string {
+  let output = value.trim()
+  while (LOCATION_STYLE_PREFIX_REGEX.test(output)) {
+    output = output.replace(LOCATION_STYLE_PREFIX_REGEX, '').trim()
+  }
+  return output
+}
+
+function inferEnvironmentRoot(location?: string): string {
+  if (!hasText(location)) return ''
+
+  let normalized = location
+    .trim()
+    .replace(/[（(][^()（）]{0,24}[)）]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/[，,。.!！？；;]+$/g, '')
+    .trim()
+
+  if (!normalized) return ''
+
+  normalized = stripLocationStylePrefix(normalized)
+  const primary = normalized.split(/[，,。.;；/\\|｜>]+/)[0]?.trim() || normalized
+  const compact = stripLocationStylePrefix(primary)
+
+  for (const keyword of LOCATION_ANCHOR_KEYWORDS) {
+    const index = compact.indexOf(keyword)
+    if (index >= 0) {
+      return compact.slice(0, index + keyword.length).trim()
+    }
+  }
+
+  let candidate = compact.replace(/\s+/g, '')
+  for (const suffix of LOCATION_SUBSPACE_SUFFIXES) {
+    if (candidate.endsWith(suffix) && candidate.length > suffix.length) {
+      candidate = candidate.slice(0, -suffix.length)
+      break
+    }
+  }
+
+  candidate = stripLocationStylePrefix(candidate)
+  return candidate || compact
+}
+
+function buildEnvironmentConsistencyText(
+  scene: z.infer<typeof SceneSchema>,
+  environmentContext?: z.infer<typeof EnvironmentContextSchema>
+): string {
+  const explicitRoot = environmentContext?.environmentRoot?.trim() || ''
+  const inferredRoot = inferEnvironmentRoot(scene.setting?.location)
+  const environmentRoot = explicitRoot || inferredRoot
+
+  const siblingLocations = Array.from(
+    new Set(
+      (environmentContext?.siblingLocations || [])
+        .map(item => item?.trim())
+        .filter((item): item is string => !!item)
+    )
+  ).slice(0, 8)
+
+  const anchorTitle = environmentContext?.anchorSceneTitle?.trim()
+  const anchorLocation = environmentContext?.anchorLocation?.trim()
+  const anchorDescription = environmentContext?.anchorDescription?.trim()
+
+  if (!environmentRoot && !anchorDescription && siblingLocations.length === 0) return ''
+
+  const lines = [
+    '【主环境一致性约束】',
+    environmentRoot ? `主环境锚点：${environmentRoot}` : '',
+    anchorTitle || anchorLocation
+      ? `母体参考场景：${anchorTitle || '未命名场景'}${anchorLocation ? `（${anchorLocation}）` : ''}`
+      : '',
+    anchorDescription
+      ? `母体环境描述（需保持同一建筑年代/装修档次/材质语言/照明逻辑）：${anchorDescription}`
+      : '',
+    siblingLocations.length > 1
+      ? `同组子空间：${siblingLocations.join('、')}`
+      : '',
+    '当前画面视为同一主环境下的子空间，不得出现互相冲突的装修与维护状态。',
+    '除非场景文本明确出现“翻修区/废弃区/新旧分区”，否则禁止出现“走廊豪华现代、办公室破旧老化”这类冲突。'
+  ].filter(Boolean)
+
+  return lines.join('\n')
+}
+
 function resolveImageSizeByAspectRatio(aspectRatio: z.infer<typeof AspectRatioSchema>): string {
   switch (aspectRatio) {
     case '9:16':
@@ -154,8 +325,11 @@ async function resolveGeneratedImage(result: GenerateImageResult): Promise<{ ima
 async function buildSceneReferencePrompt(
   scene: z.infer<typeof SceneSchema>,
   style: string,
-  aspectRatio: z.infer<typeof AspectRatioSchema>
+  aspectRatio: z.infer<typeof AspectRatioSchema>,
+  environmentContext: z.infer<typeof EnvironmentContextSchema>,
+  customPrompt?: string
 ): Promise<string> {
+  const normalizedCustomPrompt = customPrompt?.trim() || ''
   const templatePrompt = await getInterpolatedPrompt(
     PROMPT_TEMPLATE_IDS.FIRST_FRAME_GENERATION,
     {
@@ -182,6 +356,11 @@ async function buildSceneReferencePrompt(
     ? `【镜头与资产备注】\n${scene.cameraNote!.trim()}`
     : ''
 
+  const regenerationText = normalizedCustomPrompt
+    ? `【二次生成要求】\n${normalizedCustomPrompt}`
+    : ''
+  const environmentConsistencyText = buildEnvironmentConsistencyText(scene, environmentContext)
+
   const extraRules = [
     '【输出规则】',
     '仅生成 1 张环境资产参考图，不要拼图，不要分镜排版。',
@@ -193,7 +372,15 @@ async function buildSceneReferencePrompt(
   ].join('\n')
 
   if (templatePrompt) {
-    return [templatePrompt, cameraNoteText, narrationText, dialogueText, extraRules]
+    return [
+      templatePrompt,
+      environmentConsistencyText,
+      cameraNoteText,
+      narrationText,
+      dialogueText,
+      regenerationText,
+      extraRules
+    ]
       .filter(Boolean)
       .join('\n\n')
   }
@@ -210,9 +397,11 @@ async function buildSceneReferencePrompt(
     `场景标题: ${scene.title || '未命名场景'}`,
     `场景设定: ${settingText}`,
     `场景描述: ${scene.description}`,
+    environmentConsistencyText,
     cameraNoteText,
     narrationText,
     dialogueText,
+    regenerationText,
     extraRules
   ]
     .filter(Boolean)
@@ -232,13 +421,14 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { scene, style, aspectRatio } = parseResult.data
+  const { scene, style, aspectRatio, environmentContext, regeneration } = parseResult.data
+  const customPrompt = regeneration?.customPrompt?.trim()
 
   try {
     const workflowModels = await getWorkflowModels()
     const modelDecision = resolveEnvironmentReferenceModel(workflowModels.frame_generation)
     const modelId = modelDecision.modelId
-    const prompt = await buildSceneReferencePrompt(scene, style, aspectRatio)
+    const prompt = await buildSceneReferencePrompt(scene, style, aspectRatio, environmentContext, customPrompt)
 
     const generated = await imageLimiter.execute(() =>
       generateImage({

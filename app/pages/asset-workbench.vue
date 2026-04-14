@@ -112,6 +112,188 @@ function normalizeEnvironmentToken(value?: string): string {
   return (value || '').trim().toLowerCase()
 }
 
+const LOCATION_STYLE_PREFIX_REGEX = /^(?:豪华|奢华|现代|陈旧|老旧|破旧|残破|高端|高级|复古|阴暗|明亮|干净|凌乱|宽敞|狭窄|未来感|futuristic|modern|luxury|run[- ]?down|dilapidated|abandoned|vintage|old)\s*/i
+const LOCATION_SUBSPACE_SUFFIXES = [
+  '走廊',
+  '长廊',
+  '大厅',
+  '前台',
+  '办公室',
+  '病房',
+  '病区',
+  '手术室',
+  '诊室',
+  '急诊室',
+  '候诊区',
+  '会议室',
+  '休息室',
+  '楼梯间',
+  '电梯间',
+  '停车场',
+  '天台',
+  '仓库',
+  '门厅',
+  '通道',
+  '后巷',
+  '教室',
+  '宿舍',
+  '食堂',
+  '实验室',
+  '审讯室',
+  '指挥室',
+  '机房',
+  '车间',
+  '包厢',
+  '吧台',
+  '客厅',
+  '卧室',
+  '厨房',
+  '浴室',
+  '阳台',
+  '庭院'
+]
+const LOCATION_ANCHOR_KEYWORDS = [
+  '医院',
+  '诊所',
+  '医务室',
+  '警察局',
+  '警局',
+  '派出所',
+  '学校',
+  '校园',
+  '大学',
+  '中学',
+  '小学',
+  '公司',
+  '写字楼',
+  '工厂',
+  '商场',
+  '酒店',
+  '旅馆',
+  '餐厅',
+  '咖啡馆',
+  '酒吧',
+  '公寓',
+  '别墅',
+  '车站',
+  '地铁站',
+  '火车站',
+  '机场',
+  '码头',
+  '港口',
+  '法庭',
+  '监狱',
+  '图书馆'
+]
+const LOCATION_ENGLISH_ANCHORS = [
+  { keyword: 'hospital', root: 'hospital' },
+  { keyword: 'clinic', root: 'clinic' },
+  { keyword: 'police station', root: 'police station' },
+  { keyword: 'school', root: 'school' },
+  { keyword: 'campus', root: 'campus' },
+  { keyword: 'office', root: 'office' },
+  { keyword: 'factory', root: 'factory' },
+  { keyword: 'mall', root: 'mall' },
+  { keyword: 'hotel', root: 'hotel' },
+  { keyword: 'restaurant', root: 'restaurant' },
+  { keyword: 'apartment', root: 'apartment' },
+  { keyword: 'station', root: 'station' },
+  { keyword: 'airport', root: 'airport' },
+  { keyword: 'port', root: 'port' },
+  { keyword: 'court', root: 'court' },
+  { keyword: 'prison', root: 'prison' },
+  { keyword: 'library', root: 'library' }
+]
+
+function stripLocationStylePrefix(value: string): string {
+  let output = value.trim()
+  while (LOCATION_STYLE_PREFIX_REGEX.test(output)) {
+    output = output.replace(LOCATION_STYLE_PREFIX_REGEX, '').trim()
+  }
+  return output
+}
+
+function resolveEnvironmentRootFromLocation(rawLocation?: string): string {
+  if (!rawLocation) return ''
+
+  let normalized = rawLocation
+    .trim()
+    .replace(/[（(][^()（）]{0,24}[)）]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/[，,。.!！？；;]+$/g, '')
+    .trim()
+
+  if (!normalized) return ''
+
+  normalized = stripLocationStylePrefix(normalized)
+  const primary = normalized.split(/[，,。.;；/\\|｜>]+/)[0]?.trim() || normalized
+  const compact = stripLocationStylePrefix(primary)
+
+  for (const keyword of LOCATION_ANCHOR_KEYWORDS) {
+    const index = compact.indexOf(keyword)
+    if (index >= 0) {
+      return compact.slice(0, index + keyword.length).trim()
+    }
+  }
+
+  const compactLower = compact.toLowerCase()
+  for (const anchor of LOCATION_ENGLISH_ANCHORS) {
+    if (compactLower.includes(anchor.keyword)) {
+      return anchor.root
+    }
+  }
+
+  let candidate = compact.replace(/\s+/g, '')
+  for (const suffix of LOCATION_SUBSPACE_SUFFIXES) {
+    if (candidate.endsWith(suffix) && candidate.length > suffix.length) {
+      candidate = candidate.slice(0, -suffix.length)
+      break
+    }
+  }
+
+  candidate = stripLocationStylePrefix(candidate)
+  return candidate || compact
+}
+
+function resolveSceneEnvironmentRoot(scene: SceneData): string {
+  const locationRoot = resolveEnvironmentRootFromLocation(scene.setting?.location)
+  if (locationRoot) return locationRoot
+
+  const titleRoot = resolveEnvironmentRootFromLocation(scene.title)
+  if (titleRoot) return titleRoot
+
+  return ''
+}
+
+function buildSceneEnvironmentConsistencyContext(scene: SceneData): {
+  environmentRoot: string
+  anchorSceneId?: string
+  anchorSceneTitle?: string
+  anchorLocation?: string
+  anchorDescription?: string
+  siblingLocations?: string[]
+} | undefined {
+  const environmentRoot = resolveSceneEnvironmentRoot(scene)
+  if (!environmentRoot) return undefined
+
+  const relatedScenes = scenes.value.filter(item => resolveSceneEnvironmentRoot(item) === environmentRoot)
+  const anchorScene = relatedScenes[0] || scene
+  const siblingLocations = uniqueSorted(
+    relatedScenes
+      .map(item => item.setting?.location?.trim() || '')
+      .filter(Boolean)
+  ).slice(0, 8)
+
+  return {
+    environmentRoot,
+    anchorSceneId: anchorScene.id,
+    anchorSceneTitle: anchorScene.title?.trim() || anchorScene.id,
+    anchorLocation: anchorScene.setting?.location?.trim() || undefined,
+    anchorDescription: anchorScene.description?.trim() || undefined,
+    siblingLocations: siblingLocations.length > 0 ? siblingLocations : undefined
+  }
+}
+
 function buildSceneEnvironmentKey(scene: SceneData): string {
   const location = normalizeEnvironmentToken(scene.setting?.location)
   const timeOfDay = normalizeEnvironmentToken(scene.setting?.timeOfDay)
@@ -193,6 +375,10 @@ const characterRegenerateDialogOpen = ref(false)
 const characterRegenerateTargetId = ref<string | null>(null)
 const characterRegeneratePrompt = ref(CHARACTER_REGENERATION_DEFAULT_PROMPT)
 const characterRegenerateError = ref<string | null>(null)
+const environmentRegenerateDialogOpen = ref(false)
+const environmentRegenerateTargetId = ref<string | null>(null)
+const environmentRegeneratePrompt = ref('')
+const environmentRegenerateError = ref<string | null>(null)
 const uploadingCharacterId = ref<string | null>(null)
 const uploadingEnvironmentAssetId = ref<string | null>(null)
 const characterEditDraft = reactive({
@@ -208,6 +394,12 @@ watch(characterRegenerateDialogOpen, (open) => {
   characterRegenerateError.value = null
 })
 
+watch(environmentRegenerateDialogOpen, (open) => {
+  if (open) return
+  environmentRegenerateTargetId.value = null
+  environmentRegenerateError.value = null
+})
+
 const selectedScene = computed<SceneData | null>(() => {
   if (scenes.value.length === 0) return null
 
@@ -220,6 +412,11 @@ const selectedScene = computed<SceneData | null>(() => {
 const characterRegenerateTarget = computed(() => {
   if (!characterRegenerateTargetId.value) return null
   return characters.value.find(char => char.id === characterRegenerateTargetId.value) || null
+})
+
+const environmentRegenerateTarget = computed(() => {
+  if (!environmentRegenerateTargetId.value) return null
+  return environmentAssetCards.value.find(asset => asset.id === environmentRegenerateTargetId.value) || null
 })
 
 const characterAssets = computed<DisplayAsset[]>(() => {
@@ -469,9 +666,22 @@ const characterRoleOptions = [
 
 const MAX_ASSET_UPLOAD_SIZE = 20 * 1024 * 1024
 
+function hashForDomId(value: string): string {
+  let hash = 0
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0
+  }
+  return hash.toString(36)
+}
+
 function buildUploadInputId(type: 'char' | 'env', rawId: string): string {
-  const normalized = rawId.replace(/[^a-zA-Z0-9_-]+/g, '_')
-  return `${type}_upload_${normalized}`
+  const normalized = rawId
+    .toLowerCase()
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40)
+  const suffix = hashForDomId(rawId)
+  return `${type}_upload_${normalized || 'asset'}_${suffix}`
 }
 
 function triggerUploadInput(type: 'char' | 'env', rawId: string) {
@@ -1622,6 +1832,86 @@ async function submitCharacterRegeneration() {
   }
 }
 
+function openEnvironmentRegenerateDialog(assetId: string) {
+  const asset = resolveEnvironmentCard(assetId)
+  if (!asset) return
+
+  if (!asset.referenceImage?.trim()) {
+    alert('请先生成或上传环境图，再进行二次生成')
+    return
+  }
+
+  environmentRegenerateTargetId.value = asset.id
+  environmentRegeneratePrompt.value = ''
+  environmentRegenerateError.value = null
+  environmentRegenerateDialogOpen.value = true
+}
+
+function closeEnvironmentRegenerateDialog() {
+  environmentRegenerateDialogOpen.value = false
+  environmentRegenerateTargetId.value = null
+  environmentRegenerateError.value = null
+}
+
+async function submitEnvironmentRegeneration() {
+  const targetAssetId = environmentRegenerateTargetId.value
+  if (!targetAssetId) return
+
+  const targetAsset = resolveEnvironmentCard(targetAssetId)
+  if (!targetAsset) {
+    closeEnvironmentRegenerateDialog()
+    return
+  }
+
+  const prompt = environmentRegeneratePrompt.value.trim()
+  if (!prompt) {
+    environmentRegenerateError.value = '请输入二次生成提示词'
+    return
+  }
+
+  const targetScene = resolveEnvironmentRepresentativeScene(targetAsset.id)
+  if (!targetScene) {
+    environmentRegenerateError.value = '未找到代表场景，无法二次生成'
+    return
+  }
+
+  if (!resolveSceneReferenceImage(targetScene)?.trim() && !targetAsset.referenceImage?.trim()) {
+    environmentRegenerateError.value = '环境参考图不存在，请先生成环境图'
+    return
+  }
+
+  environmentRegenerateError.value = null
+
+  try {
+    await generateSceneBaseline(targetScene.id, {
+      customPrompt: prompt
+    })
+
+    const updatedImage = resolveSceneReferenceImage(targetScene)
+    if (updatedImage) {
+      for (const sceneId of targetAsset.sceneIds) {
+        if (sceneId === targetScene.id) continue
+        const scene = scenes.value.find(item => item.id === sceneId)
+        if (!scene) continue
+
+        scene.firstFrame = updatedImage
+        scene.lastFrame = undefined
+        scene.frameStatus = 'done'
+        scene.frameError = undefined
+        scene.videoUrl = undefined
+        scene.videoStatus = 'pending'
+        scene.videoError = undefined
+      }
+      synchronizeQueueItems()
+      await saveProject()
+    }
+
+    closeEnvironmentRegenerateDialog()
+  } catch (error) {
+    environmentRegenerateError.value = resolveUiError(error, '环境二次生成失败')
+  }
+}
+
 async function handleBatchGenerateCharacters() {
   await batchGenerateCharacters(undefined, {
     workflowType: 'asset_consistency'
@@ -1630,13 +1920,15 @@ async function handleBatchGenerateCharacters() {
 
 async function generateSceneBaseline(
   sceneId: string,
-  options: { preferReuse?: boolean } = {}
+  options: { preferReuse?: boolean, customPrompt?: string } = {}
 ) {
   const scene = scenes.value.find(item => item.id === sceneId)
   if (!scene) return
   if (scene.frameStatus === 'generating' || scene.videoStatus === 'generating') return
 
-  if (options.preferReuse) {
+  const customPrompt = options.customPrompt?.trim()
+
+  if (options.preferReuse && !customPrompt) {
     const reusableImage = findReusableEnvironmentImage(scene)
     if (reusableImage) {
       scene.firstFrame = reusableImage
@@ -1656,6 +1948,7 @@ async function generateSceneBaseline(
   scene.frameError = undefined
 
   try {
+    const environmentContext = buildSceneEnvironmentConsistencyContext(scene)
     const response = await $fetch<{
       success: boolean
       referenceImage?: string
@@ -1665,7 +1958,13 @@ async function generateSceneBaseline(
       body: {
         scene: buildAssetWorkflowScenePayload(scene),
         style: workflowStylePrompt.value,
-        aspectRatio: projectAspectRatio.value
+        aspectRatio: projectAspectRatio.value,
+        environmentContext,
+        regeneration: customPrompt
+          ? {
+              customPrompt
+            }
+          : undefined
       }
     })
 
@@ -2527,6 +2826,17 @@ onMounted(async () => {
                         上传环境图
                       </Button>
                       <Button
+                        v-if="asset.referenceImage"
+                        size="sm"
+                        variant="outline"
+                        class="h-7 px-2 text-xs"
+                        :disabled="asset.frameStatus === 'generating'"
+                        @click="openEnvironmentRegenerateDialog(asset.id)"
+                      >
+                        <Sparkles class="h-3.5 w-3.5 mr-1" />
+                        二次生成
+                      </Button>
+                      <Button
                         size="sm"
                         variant="outline"
                         class="h-7 px-2 text-xs"
@@ -2971,6 +3281,54 @@ onMounted(async () => {
           >
             <Loader2
               v-if="characterRegenerateTarget?.generating"
+              class="h-4 w-4 mr-2 animate-spin"
+            />
+            开始二次生成
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="environmentRegenerateDialogOpen">
+      <DialogContent class="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>环境二次生成</DialogTitle>
+          <DialogDescription>
+            基于当前环境资产，按你输入的提示词重新生成环境图。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-3">
+          <div class="text-xs text-muted-foreground">
+            目标环境：{{ environmentRegenerateTarget?.name || '-' }}
+          </div>
+          <Textarea
+            v-model="environmentRegeneratePrompt"
+            class="min-h-[140px] text-sm"
+            placeholder="输入环境二次生成提示词"
+          />
+          <p
+            v-if="environmentRegenerateError"
+            class="text-xs text-destructive"
+          >
+            {{ environmentRegenerateError }}
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            :disabled="environmentRegenerateTarget?.frameStatus === 'generating'"
+            @click="closeEnvironmentRegenerateDialog"
+          >
+            取消
+          </Button>
+          <Button
+            :disabled="!environmentRegeneratePrompt.trim() || !environmentRegenerateTarget || environmentRegenerateTarget.frameStatus === 'generating'"
+            @click="submitEnvironmentRegeneration"
+          >
+            <Loader2
+              v-if="environmentRegenerateTarget?.frameStatus === 'generating'"
               class="h-4 w-4 mr-2 animate-spin"
             />
             开始二次生成

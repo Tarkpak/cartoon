@@ -386,6 +386,8 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     maxDuration: 10,
     supportFirstLastFrame: true,
     supportImageToVideo: true,
+    supportReferenceImages: true,
+    maxReferenceImages: 7,
     supportTextToVideo: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/OmniVideo'
   },
@@ -397,6 +399,8 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     maxDuration: 15,
     supportFirstLastFrame: true,
     supportImageToVideo: true,
+    supportReferenceImages: true,
+    maxReferenceImages: 7,
     supportTextToVideo: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/OmniVideo'
   },

@@ -927,6 +927,11 @@ async function generateVideoWithKling(
     const firstFrame = normalizeKlingImageInput(config.firstFrame)
     const lastFrame = normalizeKlingImageInput(config.lastFrame)
     const imageInput = normalizeKlingImageInput(config.imageUrl)
+    const referenceImages = Array.from(new Set(
+      (Array.isArray(config.referenceImages) ? config.referenceImages : [])
+        .map(item => normalizeKlingImageInput(item))
+        .filter((item): item is string => !!item)
+    ))
 
     console.log('[VideoGen] Kling API 请求参数:', {
       model: modelId,
@@ -936,6 +941,8 @@ async function generateVideoWithKling(
       hasImageUrl: !!imageInput,
       hasFirstFrame: !!firstFrame,
       hasLastFrame: !!lastFrame,
+      hasReferenceImages: referenceImages.length > 0,
+      referenceImagesCount: referenceImages.length,
       withAudio: config.withAudio
     })
 
@@ -947,6 +954,7 @@ async function generateVideoWithKling(
       imageUrl: imageInput,
       firstFrameUrl: firstFrame,
       lastFrameUrl: lastFrame,
+      referenceImages,
       duration,
       aspectRatio: config.aspectRatio,
       withAudio: config.withAudio,
