@@ -306,35 +306,43 @@ AI 将自动解析出：
             <div class="grid grid-cols-2 gap-4">
               <div class="space-y-2">
                 <label class="text-sm font-medium">故事类型</label>
-                <select
-                  :value="outline.genre"
-                  class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
-                  @change="updateOutlineField('genre', ($event.target as HTMLSelectElement).value as StoryGenre)"
+                <Select
+                  :model-value="outline.genre"
+                  @update:model-value="updateOutlineField('genre', String($event) as StoryGenre)"
                 >
-                  <option
-                    v-for="opt in genreOptions"
-                    :key="opt.value"
-                    :value="opt.value"
-                  >
-                    {{ opt.label }}
-                  </option>
-                </select>
+                  <SelectTrigger class="w-full">
+                    <SelectValue placeholder="选择故事类型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem
+                      v-for="opt in genreOptions"
+                      :key="opt.value"
+                      :value="opt.value"
+                    >
+                      {{ opt.label }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div class="space-y-2">
                 <label class="text-sm font-medium">故事节奏</label>
-                <select
-                  :value="outline.pace"
-                  class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
-                  @change="updateOutlineField('pace', ($event.target as HTMLSelectElement).value as StoryPace)"
+                <Select
+                  :model-value="outline.pace"
+                  @update:model-value="updateOutlineField('pace', String($event) as StoryPace)"
                 >
-                  <option
-                    v-for="opt in paceOptions"
-                    :key="opt.value"
-                    :value="opt.value"
-                  >
-                    {{ opt.label }}
-                  </option>
-                </select>
+                  <SelectTrigger class="w-full">
+                    <SelectValue placeholder="选择故事节奏" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem
+                      v-for="opt in paceOptions"
+                      :key="opt.value"
+                      :value="opt.value"
+                    >
+                      {{ opt.label }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

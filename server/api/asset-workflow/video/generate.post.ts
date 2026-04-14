@@ -31,6 +31,7 @@ const SceneDialogueSchema = z.object({
 const SceneSchema = z.object({
   id: z.string(),
   title: z.string().optional(),
+  sceneIndex: z.number().int().min(1).optional(),
   description: z.string(),
   cameraNote: z.string().optional(),
   duration: z.number().optional(),
@@ -247,9 +248,254 @@ function buildSettingText(setting?: z.infer<typeof SceneSettingSchema>): string 
     .join(' / ') || '未提供'
 }
 
-function buildDialogueLines(dialogues: z.infer<typeof SceneDialogueSchema>[]): string {
-  if (dialogues.length === 0) return ''
-  return dialogues.map(item => `${item.character}: ${item.text}`).join('\n')
+function compactText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function clipText(value: string, maxChars = 120): string {
+  const compacted = compactText(value)
+  if (compacted.length <= maxChars) return compacted
+  return `${compacted.slice(0, maxChars)}...`
+}
+
+function resolveSceneShotNumber(scene: z.infer<typeof SceneSchema>): number {
+  if (typeof scene.sceneIndex === 'number' && Number.isFinite(scene.sceneIndex) && scene.sceneIndex >= 1) {
+    return Math.max(1, Math.round(scene.sceneIndex))
+  }
+
+  const candidates = [scene.title, scene.id]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    const match = candidate.match(/(\d+)/)
+    if (!match?.[1]) continue
+    const parsed = Number.parseInt(match[1], 10)
+    if (Number.isFinite(parsed) && parsed >= 1) {
+      return parsed
+    }
+  }
+
+  return 1
+}
+
+function resolveTimelineSegmentCount(options: {
+  duration: number
+  dialogueCount: number
+  hasNarration: boolean
+}): number {
+  const baseByDuration = options.duration >= 12
+    ? 4
+    : options.duration >= 8
+      ? 3
+      : 2
+
+  const contentHints = Math.min(4, Math.max(2, options.dialogueCount + (options.hasNarration ? 1 : 0) + 1))
+  return Math.max(2, Math.min(4, Math.max(baseByDuration, contentHints)))
+}
+
+function splitTimeline(duration: number, segmentCount: number): Array<{ start: number, end: number }> {
+  const safeDuration = Math.max(2, Math.round(duration))
+  const safeSegments = Math.max(2, Math.min(4, Math.round(segmentCount)))
+
+  const base = Math.floor(safeDuration / safeSegments)
+  const remainder = safeDuration % safeSegments
+  const ranges: Array<{ start: number, end: number }> = []
+
+  let cursor = 0
+  for (let index = 0; index < safeSegments; index++) {
+    const extra = index < remainder ? 1 : 0
+    const span = Math.max(1, base + extra)
+    const end = index === safeSegments - 1
+      ? safeDuration
+      : Math.min(safeDuration - (safeSegments - index - 1), cursor + span)
+    ranges.push({ start: cursor, end })
+    cursor = end
+  }
+
+  return ranges
+}
+
+function buildTimelineBeats(options: {
+  scene: z.infer<typeof SceneSchema>
+  segmentCount: number
+}): string[] {
+  const beats: string[] = []
+  const { scene, segmentCount } = options
+  const settingText = buildSettingText(scene.setting)
+  const characterNames = scene.characters.map(item => item.name).filter(Boolean).join('、')
+
+  beats.push([
+    clipText(scene.description, 140),
+    characterNames ? `人物：${characterNames}` : '',
+    settingText !== '未提供' ? `环境：${settingText}` : ''
+  ]
+    .filter(Boolean)
+    .join(' '))
+
+  if (hasText(scene.narration)) {
+    beats.push(`通过动作与环境变化体现旁白信息：${clipText(scene.narration!, 100)}`)
+  }
+
+  for (const dialogue of scene.dialogues) {
+    const line = `${dialogue.character}说：“${clipText(dialogue.text, 72)}”，口型与表情必须明确匹配台词。`
+    beats.push(line)
+  }
+
+  if (hasText(scene.cameraNote)) {
+    beats.push(`镜头执行备注：${clipText(scene.cameraNote!, 100)}`)
+  }
+
+  while (beats.length < segmentCount) {
+    beats.push('动作与情绪持续推进，构图/景别有清晰变化，保持时空与人物身份连续。')
+  }
+
+  return beats.slice(0, segmentCount)
+}
+
+function resolveShotLabels(segmentCount: number): string[] {
+  if (segmentCount <= 2) return ['中景', '近景']
+  if (segmentCount === 3) return ['中景', '近景', '特写']
+  return ['中景', '近景', '中景', '近景']
+}
+
+function buildReferenceMaterialLines(options: {
+  hasEnvironmentRef: boolean
+  characterRefCount: number
+  useMultiReference: boolean
+}): string[] {
+  const lines: string[] = []
+  let figure = 1
+
+  if (options.hasEnvironmentRef) {
+    lines.push(`图${figure}：环境参考图（锁定空间布局、光照与色调）`)
+    figure += 1
+  }
+
+  if (options.characterRefCount > 0) {
+    const total = Math.max(1, options.characterRefCount)
+    if (options.useMultiReference && total > 1) {
+      lines.push(`图${figure}-图${figure + total - 1}：角色参考图（锁定角色身份、发型、服饰、体态）`)
+    } else {
+      lines.push(`图${figure}：角色参考图（锁定角色身份、发型、服饰、体态）`)
+    }
+  }
+
+  if (lines.length === 0) {
+    lines.push('仅文本生成，无可用参考图。')
+  }
+
+  return lines
+}
+
+interface StructuredPromptSections {
+  shotNumber: number
+  sceneTitle: string
+  sceneSummary: string
+  style: string
+  duration: number
+  aspectRatio: z.infer<typeof AspectRatioSchema>
+  timelineLines: string
+  audioConstraint: string
+  referenceMaterials: string
+  executionConstraints: string
+}
+
+function buildStructuredPromptSections(options: {
+  scene: z.infer<typeof SceneSchema>
+  style: string
+  aspectRatio: z.infer<typeof AspectRatioSchema>
+  duration: number
+  inputMode: InputMode
+  referenceGuide: string
+  hasCharacterRef: boolean
+  hasEnvironmentRef: boolean
+  useMultiReference: boolean
+  characterReferenceCount: number
+}): StructuredPromptSections {
+  const {
+    scene,
+    style,
+    aspectRatio,
+    duration,
+    inputMode,
+    referenceGuide,
+    hasCharacterRef,
+    hasEnvironmentRef,
+    useMultiReference,
+    characterReferenceCount
+  } = options
+
+  const shotNumber = resolveSceneShotNumber(scene)
+  const sceneTitle = scene.title || scene.id
+  const segmentCount = resolveTimelineSegmentCount({
+    duration,
+    dialogueCount: scene.dialogues.length,
+    hasNarration: hasText(scene.narration)
+  })
+  const timeRanges = splitTimeline(duration, segmentCount)
+  const beatTexts = buildTimelineBeats({ scene, segmentCount })
+  const shotLabels = resolveShotLabels(segmentCount)
+  const timelineLines = timeRanges.map((range, index) => {
+    const shot = shotLabels[index] || '中景'
+    const beat = beatTexts[index] || '保持动作与镜头自然过渡。'
+    return `${range.start}-${range.end}s: 【${shot}】${beat}`
+  })
+  const referenceMaterialLines = buildReferenceMaterialLines({
+    hasEnvironmentRef,
+    characterRefCount: characterReferenceCount,
+    useMultiReference
+  })
+
+  const executionConstraints = [
+    `- 输入模式：${inputMode}。${referenceGuide}`,
+    `- 角色参考图：${hasCharacterRef ? 'yes' : 'no'}；环境参考图：${hasEnvironmentRef ? 'yes' : 'no'}`,
+    '- 严格保持角色身份、服装、发型与体态连续，禁止中途换脸或替换主角。',
+    '- 严格保持环境空间关系、光照与主色调稳定，不新增无关关键物体。'
+  ].join('\n')
+
+  return {
+    shotNumber,
+    sceneTitle,
+    sceneSummary: `${sceneTitle}，${clipText(scene.description, 90)}`,
+    style: style || '保持项目风格一致',
+    duration,
+    aspectRatio,
+    timelineLines: timelineLines.join('\n'),
+    audioConstraint: '不添加字幕，不添加BGM。',
+    referenceMaterials: referenceMaterialLines.join('\n'),
+    executionConstraints
+  }
+}
+
+function buildStructuredVideoPrompt(options: {
+  scene: z.infer<typeof SceneSchema>
+  style: string
+  aspectRatio: z.infer<typeof AspectRatioSchema>
+  duration: number
+  inputMode: InputMode
+  referenceGuide: string
+  hasCharacterRef: boolean
+  hasEnvironmentRef: boolean
+  useMultiReference: boolean
+  characterReferenceCount: number
+}): string {
+  const sections = buildStructuredPromptSections(options)
+  return [
+    `镜头 ${sections.shotNumber}`,
+    sections.sceneSummary,
+    '',
+    '视频提示词',
+    `风格：${sections.style}`,
+    `时长：约 ${sections.duration} 秒`,
+    `画幅：${sections.aspectRatio}`,
+    sections.timelineLines,
+    sections.audioConstraint,
+    '',
+    '参考素材',
+    sections.referenceMaterials,
+    '',
+    '执行约束',
+    sections.executionConstraints
+  ].join('\n')
 }
 
 function resolveCompatibleModel(
@@ -309,65 +555,6 @@ function resolveCompatibleModel(
   }
 }
 
-function buildVideoPrompt(options: {
-  scene: z.infer<typeof SceneSchema>
-  style: string
-  hasCharacterRef: boolean
-  hasEnvironmentRef: boolean
-  inputMode: InputMode
-  useMultiReference?: boolean
-  aspectRatio: z.infer<typeof AspectRatioSchema>
-}): string {
-  const {
-    scene,
-    style,
-    hasCharacterRef,
-    hasEnvironmentRef,
-    inputMode,
-    useMultiReference,
-    aspectRatio
-  } = options
-
-  const referenceGuide = buildReferenceGuide({
-    inputMode,
-    hasCharacterRef,
-    hasEnvironmentRef,
-    useMultiReference
-  })
-  const settingText = buildSettingText(scene.setting)
-  const dialogueLines = buildDialogueLines(scene.dialogues)
-
-  const dialogueText = dialogueLines
-    ? `【对白】\n${dialogueLines}`
-    : ''
-
-  const narrationText = hasText(scene.narration)
-    ? `【旁白】\n${scene.narration!.trim()}`
-    : ''
-
-  const cameraNoteText = hasText(scene.cameraNote)
-    ? `【镜头与资产备注】\n${scene.cameraNote!.trim()}`
-    : ''
-
-  return [
-    `【风格】${style || '保持项目风格一致'}`,
-    `【场景】${scene.title || scene.id}`,
-    `【设定】${settingText}`,
-    '【目标】生成一个连贯的单场景视频片段，镜头稳定、动作自然、时空一致。',
-    referenceGuide,
-    hasCharacterRef
-      ? '角色一致性：保持角色脸部特征、发型、服装与体型稳定，不替换人物身份。'
-      : '角色策略：本场景可无角色出镜，重点保持环境和镜头叙事连续。',
-    `输出比例：${aspectRatio}`,
-    `【场景描述】\n${scene.description}`,
-    cameraNoteText,
-    narrationText,
-    dialogueText
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-}
-
 export default defineEventHandler(async (event) => {
   const startTime = Date.now()
   const body = await readBody(event)
@@ -413,10 +600,7 @@ export default defineEventHandler(async (event) => {
     1,
     Math.min(
       9,
-      Math.round(
-        selectedModel?.maxReferenceImages
-          ?? (selectedModel?.supportReferenceImages ? 3 : 1)
-      )
+      Math.round(selectedModel?.maxReferenceImages ?? (selectedModel?.supportReferenceImages ? 3 : 1))
     )
   )
   const candidateReferenceImages = buildVideoReferenceImages({
@@ -454,46 +638,66 @@ export default defineEventHandler(async (event) => {
     hasEnvironmentRef,
     useMultiReference: multiReferenceImages.length > 0
   })
-  const fallbackPrompt = buildVideoPrompt({
+  const finalDuration = clampDuration(scene.duration)
+  const promptSections = buildStructuredPromptSections({
     scene,
     style,
+    aspectRatio,
+    duration: finalDuration,
+    inputMode,
+    referenceGuide,
     hasCharacterRef,
     hasEnvironmentRef,
-    inputMode,
     useMultiReference: multiReferenceImages.length > 0,
-    aspectRatio
+    characterReferenceCount: characterImages.length
   })
-  const finalDuration = clampDuration(scene.duration)
   const settingText = buildSettingText(scene.setting)
-  const dialogueLines = buildDialogueLines(scene.dialogues)
+  const dialogueLines = scene.dialogues
+    .map(item => `${item.character}: ${item.text}`)
+    .join('\n')
   const narrationText = hasText(scene.narration) ? scene.narration.trim() : ''
-
-  const templatedPrompt = await getInterpolatedPrompt(
+  const interpolatedPrompt = await getInterpolatedPrompt(
     PROMPT_TEMPLATE_IDS.SCENE_VIDEO_GENERATION,
     {
-      sceneTitle: scene.title || scene.id,
-      sceneDescription: scene.description,
-      style: style || '保持项目风格一致',
-      referenceGuide,
-      inputMode,
-      hasCharacterRef: hasCharacterRef ? 'yes' : 'no',
-      hasEnvironmentRef: hasEnvironmentRef ? 'yes' : 'no',
+      shotNumber: String(promptSections.shotNumber),
+      sceneTitle: promptSections.sceneTitle,
+      sceneSummary: promptSections.sceneSummary,
+      style: promptSections.style,
       duration: String(finalDuration),
       aspectRatio,
-      // 将场景的镜头与资产备注并入 setting 字段，避免新增模板变量导致兼容复杂度增加
+      timelineLines: promptSections.timelineLines,
+      audioConstraint: promptSections.audioConstraint,
+      referenceMaterials: promptSections.referenceMaterials,
+      executionConstraints: promptSections.executionConstraints,
+      // 兼容旧模板变量（让历史自定义模板继续可用）
+      sceneDescription: scene.description,
       setting: [
         settingText,
         multiReferenceImages.length > 0 ? `参考图策略：多参考图模式（${multiReferenceImages.length} 张）` : '',
         hasText(scene.cameraNote) ? `镜头与资产备注：${scene.cameraNote!.trim()}` : ''
       ].filter(Boolean).join('\n'),
+      referenceGuide,
+      inputMode,
+      hasCharacterRef: hasCharacterRef ? 'yes' : 'no',
+      hasEnvironmentRef: hasEnvironmentRef ? 'yes' : 'no',
       narration: narrationText || '无',
       dialogues: dialogueLines || '无'
     },
     undefined,
     'asset_consistency'
   )
-
-  const prompt = `${templatedPrompt || fallbackPrompt}\n\n[Aspect Ratio Override]\nStrict output ratio: ${aspectRatio}`
+  const prompt = interpolatedPrompt || buildStructuredVideoPrompt({
+    scene,
+    style,
+    aspectRatio,
+    duration: finalDuration,
+    inputMode,
+    referenceGuide,
+    hasCharacterRef,
+    hasEnvironmentRef,
+    useMultiReference: multiReferenceImages.length > 0,
+    characterReferenceCount: characterImages.length
+  })
 
   const config: Record<string, unknown> = {
     prompt,

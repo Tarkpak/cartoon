@@ -362,12 +362,15 @@ watch(saveError, (message) => {
             <p class="font-medium">生成失败</p>
             <p class="text-sm opacity-90 mt-1">{{ errorMessage }}</p>
           </div>
-          <button
-            class="text-destructive-foreground/80 hover:text-destructive-foreground"
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            class="h-7 w-7 text-destructive-foreground/80 hover:text-destructive-foreground"
             @click="closeError"
           >
             ✕
-          </button>
+          </Button>
         </div>
       </div>
     </Transition>

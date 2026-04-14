@@ -1,9 +1,10 @@
 /**
  * 阿里云千问 (Qwen) API 封装
  * 基于阿里云百炼平台 DashScope API
- * 
+ *
  * 文档参考: https://help.aliyun.com/zh/model-studio/
  */
+import { withModelDebugLog } from './model-debug-log'
 
 // ============================================================
 // 错误类型定义
@@ -48,12 +49,12 @@ export const QwenTextModels = {
   // 深度思考模型
   QWEN_PLUS_THINKING: 'qwen3.6-plus',
   QWEN_FLASH_THINKING: 'qwen3.5-flash-2026-02-23',
-  
+
   // 通用文本模型
   QWEN3_MAX: 'qwen3-max-2026-01-23',
   QWEN_FLASH: 'qwen-flash',
   QWEN_TURBO: 'qwen-turbo-latest',
-  
+
   // DeepSeek (通过百炼平台)
   DEEPSEEK_V3_2: 'deepseek-v3.2'
 } as const
@@ -69,17 +70,17 @@ export const QwenImageModels = {
   QWEN_IMAGE_2_PRO: 'qwen-image-2.0-pro',
   QWEN_IMAGE_2: 'qwen-image-2.0',
   QWEN_IMAGE_PLUS: 'qwen-image-plus',
-  WAN_2_6_T2I: 'wan2.6-t2i',          // 通义万相文生图
-  WAN_2_6_IMAGE: 'wan2.6-image',      // 通义万相图像编辑 (支持参考图)
+  WAN_2_6_T2I: 'wan2.6-t2i', // 通义万相文生图
+  WAN_2_6_IMAGE: 'wan2.6-image', // 通义万相图像编辑 (支持参考图)
   Z_IMAGE_TURBO: 'z-image-turbo'
 } as const
 
 /** 千问视频生成模型 (通义万相) */
 export const QwenVideoModels = {
-  WAN_2_6_T2V: 'wan2.6-t2v',      // 文生视频
-  WAN_2_6_I2V: 'wan2.6-i2v',      // 图生视频
-  WAN_2_2_KF2V_FLASH: 'wan2.2-kf2v-flash',  // 首尾帧生视频 (推荐)
-  WAN_2_1_KF2V_PLUS: 'wanx2.1-kf2v-plus'    // 首尾帧生视频 (专业版)
+  WAN_2_6_T2V: 'wan2.6-t2v', // 文生视频
+  WAN_2_6_I2V: 'wan2.6-i2v', // 图生视频
+  WAN_2_2_KF2V_FLASH: 'wan2.2-kf2v-flash', // 首尾帧生视频 (推荐)
+  WAN_2_1_KF2V_PLUS: 'wanx2.1-kf2v-plus' // 首尾帧生视频 (专业版)
 } as const
 
 /** 千问语音模型 */
@@ -281,7 +282,7 @@ async function getTaskStatus<T>(taskId: string): Promise<T> {
   const response = await fetch(url, {
     method: 'GET',
     headers: {
-      'Authorization': `Bearer ${cfg.apiKey}`
+      Authorization: `Bearer ${cfg.apiKey}`
     }
   })
 
@@ -297,7 +298,6 @@ async function getTaskStatus<T>(taskId: string): Promise<T> {
 
   return await response.json() as T
 }
-
 
 // ============================================================
 // 文本生成 API (使用 OpenAI 兼容模式)
@@ -332,6 +332,16 @@ export async function _qwenGenerateText(options: {
   enableThinking?: boolean
 }): Promise<string> {
   const model = options.model || QwenTextModels.QWEN_FLASH
+  const messages: Array<{ role: string, content: string }> = []
+  if (options.systemInstruction) {
+    messages.push({ role: 'system', content: options.systemInstruction })
+  }
+  messages.push({ role: 'user', content: options.prompt })
+  const requestBody = {
+    model,
+    messages,
+    temperature: options.temperature ?? 0.7
+  }
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Qwen] generateText 请求参数:`, {
@@ -344,26 +354,25 @@ export async function _qwenGenerateText(options: {
     maxRetries: options.maxRetries
   })
 
-  return withRetry(async () => {
-    const messages: Array<{ role: string, content: string }> = []
-    
-    if (options.systemInstruction) {
-      messages.push({ role: 'system', content: options.systemInstruction })
-    }
-    messages.push({ role: 'user', content: options.prompt })
+  return withModelDebugLog({
+    provider: 'qwen',
+    model,
+    operation: 'generateText',
+    request: requestBody,
+    summarizeResponse: text => ({
+      text,
+      textLength: text.length
+    }),
+    execute: async () => withRetry(async () => {
+      const response = await request<ChatCompletionResponse>(
+        '/chat/completions',
+        requestBody,
+        { useCompatible: true }
+      )
 
-    const response = await request<ChatCompletionResponse>(
-      '/chat/completions',
-      {
-        model,
-        messages,
-        temperature: options.temperature ?? 0.7
-      },
-      { useCompatible: true }
-    )
-
-    return response.choices?.[0]?.message?.content || ''
-  }, { maxRetries: options.maxRetries })
+      return response.choices?.[0]?.message?.content || ''
+    }, { maxRetries: options.maxRetries })
+  })
 }
 
 export async function _qwenGenerateJSON<T>(options: {
@@ -374,6 +383,17 @@ export async function _qwenGenerateJSON<T>(options: {
   maxRetries?: number
 }): Promise<T> {
   const model = options.model || QwenTextModels.QWEN_FLASH
+  const messages: Array<{ role: string, content: string }> = []
+  if (options.systemInstruction) {
+    messages.push({ role: 'system', content: options.systemInstruction })
+  }
+  messages.push({ role: 'user', content: options.prompt })
+  const requestBody = {
+    model,
+    messages,
+    temperature: options.temperature ?? 0.2,
+    response_format: { type: 'json_object' as const }
+  }
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Qwen] generateJSON 请求参数:`, {
@@ -385,55 +405,49 @@ export async function _qwenGenerateJSON<T>(options: {
     maxRetries: options.maxRetries
   })
 
-  return withRetry(async () => {
-    const messages: Array<{ role: string, content: string }> = []
-    
-    if (options.systemInstruction) {
-      messages.push({ role: 'system', content: options.systemInstruction })
-    }
-    messages.push({ role: 'user', content: options.prompt })
+  return withModelDebugLog({
+    provider: 'qwen',
+    model,
+    operation: 'generateJSON',
+    request: requestBody,
+    execute: async () => withRetry(async () => {
+      const response = await request<ChatCompletionResponse>(
+        '/chat/completions',
+        requestBody,
+        { useCompatible: true }
+      )
 
-    const response = await request<ChatCompletionResponse>(
-      '/chat/completions',
-      {
-        model,
-        messages,
-        temperature: options.temperature ?? 0.2,
-        response_format: { type: 'json_object' }
-      },
-      { useCompatible: true }
-    )
+      const text = response.choices?.[0]?.message?.content || '{}'
 
-    const text = response.choices?.[0]?.message?.content || '{}'
-    
-    // 尝试提取 JSON (支持对象和数组)
-    let jsonStr = text.trim()
-    
-    // 1. 尝试匹配 markdown 代码块中的 JSON
-    const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-    if (codeBlockMatch && codeBlockMatch[1]) {
-      jsonStr = codeBlockMatch[1].trim()
-    } else {
-      // 2. 尝试直接解析整个文本（如果是纯 JSON）
-      try {
-        JSON.parse(jsonStr)
-        // 如果成功，直接使用
-      } catch {
-        // 3. 尝试匹配 JSON 对象（使用平衡括号匹配）
-        const jsonMatch = extractJsonObject(text) || extractJsonArray(text)
-        if (jsonMatch) {
-          jsonStr = jsonMatch
+      // 尝试提取 JSON (支持对象和数组)
+      let jsonStr = text.trim()
+
+      // 1. 尝试匹配 markdown 代码块中的 JSON
+      const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+      if (codeBlockMatch && codeBlockMatch[1]) {
+        jsonStr = codeBlockMatch[1].trim()
+      } else {
+        // 2. 尝试直接解析整个文本（如果是纯 JSON）
+        try {
+          JSON.parse(jsonStr)
+          // 如果成功，直接使用
+        } catch {
+          // 3. 尝试匹配 JSON 对象（使用平衡括号匹配）
+          const jsonMatch = extractJsonObject(text) || extractJsonArray(text)
+          if (jsonMatch) {
+            jsonStr = jsonMatch
+          }
         }
       }
-    }
-    
-    try {
-      return JSON.parse(jsonStr) as T
-    } catch (parseError) {
-      console.error('[Qwen] JSON 解析失败，原始文本:', text.slice(0, 1000))
-      throw parseError
-    }
-  }, { maxRetries: options.maxRetries })
+
+      try {
+        return JSON.parse(jsonStr) as T
+      } catch (parseError) {
+        console.error('[Qwen] JSON 解析失败，原始文本:', text.slice(0, 1000))
+        throw parseError
+      }
+    }, { maxRetries: options.maxRetries })
+  })
 }
 
 /**
@@ -442,31 +456,31 @@ export async function _qwenGenerateJSON<T>(options: {
 function extractJsonObject(text: string): string | null {
   const start = text.indexOf('{')
   if (start === -1) return null
-  
+
   let depth = 0
   let inString = false
   let escape = false
-  
+
   for (let i = start; i < text.length; i++) {
     const char = text[i]
-    
+
     if (escape) {
       escape = false
       continue
     }
-    
+
     if (char === '\\' && inString) {
       escape = true
       continue
     }
-    
+
     if (char === '"') {
       inString = !inString
       continue
     }
-    
+
     if (inString) continue
-    
+
     if (char === '{') depth++
     else if (char === '}') {
       depth--
@@ -475,7 +489,7 @@ function extractJsonObject(text: string): string | null {
       }
     }
   }
-  
+
   return null
 }
 
@@ -485,31 +499,31 @@ function extractJsonObject(text: string): string | null {
 function extractJsonArray(text: string): string | null {
   const start = text.indexOf('[')
   if (start === -1) return null
-  
+
   let depth = 0
   let inString = false
   let escape = false
-  
+
   for (let i = start; i < text.length; i++) {
     const char = text[i]
-    
+
     if (escape) {
       escape = false
       continue
     }
-    
+
     if (char === '\\' && inString) {
       escape = true
       continue
     }
-    
+
     if (char === '"') {
       inString = !inString
       continue
     }
-    
+
     if (inString) continue
-    
+
     if (char === '[') depth++
     else if (char === ']') {
       depth--
@@ -518,7 +532,7 @@ function extractJsonArray(text: string): string | null {
       }
     }
   }
-  
+
   return null
 }
 
@@ -549,10 +563,11 @@ export async function _qwenGenerateImage(options: {
   negativePrompt?: string
   size?: string
   n?: number
-  referenceImages?: string[]  // 参考图 URL 或 base64 (wan2.6-image 支持 1-4 张)
+  referenceImages?: string[] // 参考图 URL 或 base64 (wan2.6-image 支持 1-4 张)
   maxRetries?: number
 }): Promise<{ imageUrl: string, taskId: string }> {
   const model = options.model || QwenImageModels.WAN_2_6_T2I
+  let upstreamRequestBody: unknown
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Qwen] generateImage 请求参数:`, {
@@ -566,46 +581,40 @@ export async function _qwenGenerateImage(options: {
     maxRetries: options.maxRetries
   })
 
-  return withRetry(async () => {
+  return withModelDebugLog({
+    provider: 'qwen',
+    model,
+    operation: 'generateImage',
+    request: () => upstreamRequestBody,
+    execute: async () => withRetry(async () => {
     // wan2.6-image 使用 messages 格式，支持参考图
     // 文档: https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference
     // 注意: wan2.6-image 是图像编辑模型，必须提供参考图
     // 如需纯文生图，请使用 wan2.6-t2i 或其他文生图模型
-    if (model === QwenImageModels.WAN_2_6_IMAGE) {
+      if (model === QwenImageModels.WAN_2_6_IMAGE) {
       // 检查是否有参考图
-      if (!options.referenceImages || options.referenceImages.length === 0) {
-        throw new QwenError(
-          '通义万相2.6-图像编辑是图像编辑模型，需要至少1张参考图。如需纯文生图，请选择"通义万相2.6-文生图"模型',
-          QwenErrorCode.INVALID_ARGUMENT,
-          400,
-          false
-        )
-      }
-
-      const content: Array<{ text?: string, image?: string }> = [
-        { text: options.prompt }
-      ]
-      
-      // 添加参考图 (1-4 张)
-      for (const img of options.referenceImages.slice(0, 4)) {
-        content.push({ image: img })
-      }
-
-      // wan2.6-image 要求总像素在 [768*768, 1280*1280] 之间
-      const size = options.size || '1280*1280'
-
-      const response = await request<{
-        output: {
-          choices: Array<{
-            message: {
-              content: Array<{ image?: string, text?: string, type?: string }>
-            }
-          }>
+        if (!options.referenceImages || options.referenceImages.length === 0) {
+          throw new QwenError(
+            '通义万相2.6-图像编辑是图像编辑模型，需要至少1张参考图。如需纯文生图，请选择"通义万相2.6-文生图"模型',
+            QwenErrorCode.INVALID_ARGUMENT,
+            400,
+            false
+          )
         }
-        request_id: string
-      }>(
-        '/services/aigc/multimodal-generation/generation',
-        {
+
+        const content: Array<{ text?: string, image?: string }> = [
+          { text: options.prompt }
+        ]
+
+        // 添加参考图 (1-4 张)
+        for (const img of options.referenceImages.slice(0, 4)) {
+          content.push({ image: img })
+        }
+
+        // wan2.6-image 要求总像素在 [768*768, 1280*1280] 之间
+        const size = options.size || '1280*1280'
+
+        const requestBody = {
           model,
           input: {
             messages: [
@@ -620,51 +629,54 @@ export async function _qwenGenerateImage(options: {
             negative_prompt: options.negativePrompt || '',
             size,
             n: options.n || 1,
-            enable_interleave: false,  // 图像编辑模式
+            enable_interleave: false, // 图像编辑模式
             watermark: false
           }
         }
-      )
+        upstreamRequestBody = requestBody
 
-      const imageUrl = response.output?.choices?.[0]?.message?.content?.find(c => c.image)?.image
-      if (!imageUrl) {
-        console.error(`[Qwen] ${model} 响应:`, JSON.stringify(response, null, 2))
-        throw new QwenError(`${model} 图片生成失败`, QwenErrorCode.INTERNAL, 500, false)
-      }
-      console.log(`[Qwen] ${model} 图片生成成功: ${imageUrl.slice(0, 100)}...`)
-      return { imageUrl, taskId: '' }
-    }
-    
-    // qwen-image 系列和 z-image-turbo 使用同步 multimodal-generation 端点
-    // 文档: https://help.aliyun.com/zh/model-studio/qwen-image-api
-    // 文档: https://help.aliyun.com/zh/model-studio/z-image-turbo
-    if (
-      model === QwenImageModels.QWEN_IMAGE_2_PRO
-      || model === QwenImageModels.QWEN_IMAGE_2
-      || model === QwenImageModels.QWEN_IMAGE_PLUS
-      || model === QwenImageModels.Z_IMAGE_TURBO
-    ) {
-      // 根据模型设置默认尺寸
-      const defaultSize = (
-        model === QwenImageModels.QWEN_IMAGE_2_PRO
-        || model === QwenImageModels.QWEN_IMAGE_PLUS
-      )
-        ? '1328*1328'
-        : '1024*1024'
-      const size = options.size || defaultSize
+        const response = await request<{
+          output: {
+            choices: Array<{
+              message: {
+                content: Array<{ image?: string, text?: string, type?: string }>
+              }
+            }>
+          }
+          request_id: string
+        }>(
+          '/services/aigc/multimodal-generation/generation',
+          requestBody
+        )
 
-      const response = await request<{
-        output: {
-          choices: Array<{
-            message: {
-              content: Array<{ image?: string, text?: string }>
-            }
-          }>
+        const imageUrl = response.output?.choices?.[0]?.message?.content?.find(c => c.image)?.image
+        if (!imageUrl) {
+          console.error(`[Qwen] ${model} 响应:`, JSON.stringify(response, null, 2))
+          throw new QwenError(`${model} 图片生成失败`, QwenErrorCode.INTERNAL, 500, false)
         }
-        request_id: string
-      }>(
-        '/services/aigc/multimodal-generation/generation',
-        {
+        console.log(`[Qwen] ${model} 图片生成成功: ${imageUrl.slice(0, 100)}...`)
+        return { imageUrl, taskId: '' }
+      }
+
+      // qwen-image 系列和 z-image-turbo 使用同步 multimodal-generation 端点
+      // 文档: https://help.aliyun.com/zh/model-studio/qwen-image-api
+      // 文档: https://help.aliyun.com/zh/model-studio/z-image-turbo
+      if (
+        model === QwenImageModels.QWEN_IMAGE_2_PRO
+        || model === QwenImageModels.QWEN_IMAGE_2
+        || model === QwenImageModels.QWEN_IMAGE_PLUS
+        || model === QwenImageModels.Z_IMAGE_TURBO
+      ) {
+      // 根据模型设置默认尺寸
+        const defaultSize = (
+          model === QwenImageModels.QWEN_IMAGE_2_PRO
+          || model === QwenImageModels.QWEN_IMAGE_PLUS
+        )
+          ? '1328*1328'
+          : '1024*1024'
+        const size = options.size || defaultSize
+
+        const requestBody = {
           model,
           input: {
             messages: [
@@ -683,21 +695,33 @@ export async function _qwenGenerateImage(options: {
             size
           }
         }
-      )
+        upstreamRequestBody = requestBody
 
-      const imageUrl = response.output?.choices?.[0]?.message?.content?.[0]?.image
-      if (!imageUrl) {
-        console.error(`[Qwen] ${model} 响应:`, JSON.stringify(response, null, 2))
-        throw new QwenError(`${model} 图片生成失败`, QwenErrorCode.INTERNAL, 500, false)
+        const response = await request<{
+          output: {
+            choices: Array<{
+              message: {
+                content: Array<{ image?: string, text?: string }>
+              }
+            }>
+          }
+          request_id: string
+        }>(
+          '/services/aigc/multimodal-generation/generation',
+          requestBody
+        )
+
+        const imageUrl = response.output?.choices?.[0]?.message?.content?.[0]?.image
+        if (!imageUrl) {
+          console.error(`[Qwen] ${model} 响应:`, JSON.stringify(response, null, 2))
+          throw new QwenError(`${model} 图片生成失败`, QwenErrorCode.INTERNAL, 500, false)
+        }
+        console.log(`[Qwen] ${model} 图片生成成功: ${imageUrl.slice(0, 100)}...`)
+        return { imageUrl, taskId: '' }
       }
-      console.log(`[Qwen] ${model} 图片生成成功: ${imageUrl.slice(0, 100)}...`)
-      return { imageUrl, taskId: '' }
-    }
-    
-    // wanx 系列模型使用异步任务模式
-    const submitResponse = await request<ImageGenerationResponse>(
-      '/services/aigc/text2image/image-synthesis',
-      {
+
+      // wanx 系列模型使用异步任务模式
+      const requestBody = {
         model,
         input: {
           prompt: options.prompt,
@@ -707,40 +731,46 @@ export async function _qwenGenerateImage(options: {
           size: options.size || '1024*1024',
           n: options.n || 1
         }
-      },
-      { headers: { 'X-DashScope-Async': 'enable' } }
-    )
+      }
+      upstreamRequestBody = requestBody
 
-    const taskId = submitResponse.output.task_id
-    console.log(`[Qwen] 图片任务已创建: ${taskId}`)
+      const submitResponse = await request<ImageGenerationResponse>(
+        '/services/aigc/text2image/image-synthesis',
+        requestBody,
+        { headers: { 'X-DashScope-Async': 'enable' } }
+      )
 
-    // 2. 轮询任务状态
-    const maxWaitTime = 120000 // 2分钟
-    const pollInterval = 3000
-    const startTime = Date.now()
+      const taskId = submitResponse.output.task_id
+      console.log(`[Qwen] 图片任务已创建: ${taskId}`)
 
-    while (Date.now() - startTime < maxWaitTime) {
-      await sleep(pollInterval)
+      // 2. 轮询任务状态
+      const maxWaitTime = 120000 // 2分钟
+      const pollInterval = 3000
+      const startTime = Date.now()
 
-      const statusResponse = await getTaskStatus<ImageTaskStatusResponse>(taskId)
-      console.log(`[Qwen] 图片任务状态: ${statusResponse.output.task_status}`)
+      while (Date.now() - startTime < maxWaitTime) {
+        await sleep(pollInterval)
 
-      if (statusResponse.output.task_status === 'SUCCEEDED') {
-        const imageUrl = statusResponse.output.results?.[0]?.url
-        if (!imageUrl) {
-          throw new QwenError('图片生成成功但未返回URL', QwenErrorCode.INTERNAL, 500, false)
+        const statusResponse = await getTaskStatus<ImageTaskStatusResponse>(taskId)
+        console.log(`[Qwen] 图片任务状态: ${statusResponse.output.task_status}`)
+
+        if (statusResponse.output.task_status === 'SUCCEEDED') {
+          const imageUrl = statusResponse.output.results?.[0]?.url
+          if (!imageUrl) {
+            throw new QwenError('图片生成成功但未返回URL', QwenErrorCode.INTERNAL, 500, false)
+          }
+          console.log(`[Qwen] 图片生成成功: ${imageUrl.slice(0, 100)}...`)
+          return { imageUrl, taskId }
         }
-        console.log(`[Qwen] 图片生成成功: ${imageUrl.slice(0, 100)}...`)
-        return { imageUrl, taskId }
+
+        if (statusResponse.output.task_status === 'FAILED') {
+          throw new QwenError('图片生成失败', QwenErrorCode.INTERNAL, 500, false)
+        }
       }
 
-      if (statusResponse.output.task_status === 'FAILED') {
-        throw new QwenError('图片生成失败', QwenErrorCode.INTERNAL, 500, false)
-      }
-    }
-
-    throw new QwenError('图片生成超时', QwenErrorCode.DEADLINE_EXCEEDED, 504, false)
-  }, { maxRetries: options.maxRetries })
+      throw new QwenError('图片生成超时', QwenErrorCode.DEADLINE_EXCEEDED, 504, false)
+    }, { maxRetries: options.maxRetries })
+  })
 }
 
 // ============================================================
@@ -781,16 +811,16 @@ interface VideoTaskStatusResponse {
 export async function _qwenGenerateVideo(options: {
   model?: string
   prompt: string
-  imageUrl?: string  // 图生视频时的输入图片
-  firstFrameUrl?: string  // 首帧图片 (首尾帧模型)
-  lastFrameUrl?: string   // 尾帧图片 (首尾帧模型)
-  audioUrl?: string  // 自定义音频
-  duration?: number  // 5, 10, 15
-  size?: string      // 如 '1280*720', '1920*1080'
+  imageUrl?: string // 图生视频时的输入图片
+  firstFrameUrl?: string // 首帧图片 (首尾帧模型)
+  lastFrameUrl?: string // 尾帧图片 (首尾帧模型)
+  audioUrl?: string // 自定义音频
+  duration?: number // 5, 10, 15
+  size?: string // 如 '1280*720', '1920*1080'
   resolution?: string // 分辨率档位: 480P, 720P, 1080P (首尾帧模型)
   negativePrompt?: string
   promptExtend?: boolean
-  audio?: boolean    // 是否自动配音
+  audio?: boolean // 是否自动配音
   watermark?: boolean
   seed?: number
   maxRetries?: number
@@ -800,15 +830,15 @@ export async function _qwenGenerateVideo(options: {
     : undefined
 
   // 判断是否使用首尾帧模型
-  const isKf2vModel = options.model === QwenVideoModels.WAN_2_2_KF2V_FLASH || 
-                      options.model === QwenVideoModels.WAN_2_1_KF2V_PLUS ||
-                      (options.firstFrameUrl && options.lastFrameUrl)
-  
+  const isKf2vModel = options.model === QwenVideoModels.WAN_2_2_KF2V_FLASH
+    || options.model === QwenVideoModels.WAN_2_1_KF2V_PLUS
+    || (options.firstFrameUrl && options.lastFrameUrl)
+
   // 根据模型类型选择默认模型
   let model = options.model
   if (!model) {
     if (isKf2vModel || (options.firstFrameUrl && options.lastFrameUrl)) {
-      model = QwenVideoModels.WAN_2_2_KF2V_FLASH  // 默认使用推荐的首尾帧模型
+      model = QwenVideoModels.WAN_2_2_KF2V_FLASH // 默认使用推荐的首尾帧模型
     } else if (options.imageUrl) {
       model = QwenVideoModels.WAN_2_6_I2V
     } else {
@@ -839,45 +869,143 @@ export async function _qwenGenerateVideo(options: {
     maxRetries: options.maxRetries
   })
 
-  return withRetry(async () => {
+  let upstreamRequestBody: unknown
+
+  return withModelDebugLog({
+    provider: 'qwen',
+    model,
+    operation: 'generateVideo',
+    request: () => upstreamRequestBody,
+    execute: async () => withRetry(async () => {
     // 首尾帧模型使用不同的 API 端点和参数格式
-    if (model === QwenVideoModels.WAN_2_2_KF2V_FLASH || model === QwenVideoModels.WAN_2_1_KF2V_PLUS) {
-      if (!options.firstFrameUrl) {
-        throw new QwenError(
-          '首尾帧模型需要提供首帧图片 (firstFrameUrl)',
-          QwenErrorCode.INVALID_ARGUMENT,
-          400,
-          false
+      if (model === QwenVideoModels.WAN_2_2_KF2V_FLASH || model === QwenVideoModels.WAN_2_1_KF2V_PLUS) {
+        if (!options.firstFrameUrl) {
+          throw new QwenError(
+            '首尾帧模型需要提供首帧图片 (firstFrameUrl)',
+            QwenErrorCode.INVALID_ARGUMENT,
+            400,
+            false
+          )
+        }
+
+        const input: Record<string, unknown> = {
+          first_frame_url: options.firstFrameUrl
+        }
+
+        // 尾帧图片可选
+        if (options.lastFrameUrl) {
+          input.last_frame_url = options.lastFrameUrl
+        }
+
+        // 提示词可选
+        if (options.prompt) {
+          input.prompt = options.prompt
+        }
+
+        // 负面提示词
+        if (options.negativePrompt) {
+          input.negative_prompt = options.negativePrompt
+        }
+
+        const parameters: Record<string, unknown> = {}
+
+        // 分辨率档位 (480P, 720P, 1080P)
+        if (normalizedResolution) {
+          parameters.resolution = normalizedResolution
+        }
+        if (options.promptExtend !== undefined) {
+          parameters.prompt_extend = options.promptExtend
+        }
+        if (options.watermark !== undefined) {
+          parameters.watermark = options.watermark
+        }
+        if (options.seed !== undefined) {
+          parameters.seed = options.seed
+        }
+
+        // 首尾帧模型使用 image2video 端点
+        const requestBody = {
+          model,
+          input,
+          parameters
+        }
+        upstreamRequestBody = requestBody
+
+        const submitResponse = await request<VideoGenerationResponse>(
+          '/services/aigc/image2video/video-synthesis',
+          requestBody,
+          { headers: { 'X-DashScope-Async': 'enable' } }
         )
+
+        const taskId = submitResponse.output.task_id
+        console.log(`[Qwen] 首尾帧视频任务已创建: ${taskId}`)
+
+        // 轮询任务状态
+        const maxWaitTime = 600000 // 10分钟
+        const pollInterval = 15000 // 首尾帧模型建议 15 秒轮询
+        const startTime = Date.now()
+
+        while (Date.now() - startTime < maxWaitTime) {
+          await sleep(pollInterval)
+
+          const statusResponse = await getTaskStatus<VideoTaskStatusResponse>(taskId)
+          console.log(`[Qwen] 首尾帧视频任务状态: ${statusResponse.output.task_status}`)
+
+          if (statusResponse.output.task_status === 'SUCCEEDED') {
+            const videoUrl = statusResponse.output.video_url
+            if (!videoUrl) {
+              throw new QwenError('视频生成成功但未返回URL', QwenErrorCode.INTERNAL, 500, false)
+            }
+            return { videoUrl, taskId }
+          }
+
+          if (statusResponse.output.task_status === 'FAILED') {
+            const errorMsg = statusResponse.output.message || '视频生成失败'
+            throw new QwenError(errorMsg, QwenErrorCode.INTERNAL, 500, false)
+          }
+
+          if (statusResponse.output.task_status === 'UNKNOWN') {
+            throw new QwenError('任务不存在或已过期', QwenErrorCode.NOT_FOUND, 404, false)
+          }
+        }
+
+        throw new QwenError('视频生成超时', QwenErrorCode.DEADLINE_EXCEEDED, 504, false)
       }
 
+      // 原有的文生视频/图生视频逻辑
+      // 构建请求体
       const input: Record<string, unknown> = {
-        first_frame_url: options.firstFrameUrl
+        prompt: options.prompt
       }
-      
-      // 尾帧图片可选
-      if (options.lastFrameUrl) {
-        input.last_frame_url = options.lastFrameUrl
+
+      // 图生视频模式
+      if (options.imageUrl) {
+        input.img_url = options.imageUrl
       }
-      
-      // 提示词可选
-      if (options.prompt) {
-        input.prompt = options.prompt
+
+      // 自定义音频
+      if (options.audioUrl) {
+        input.audio_url = options.audioUrl
       }
-      
+
       // 负面提示词
       if (options.negativePrompt) {
         input.negative_prompt = options.negativePrompt
       }
 
       const parameters: Record<string, unknown> = {}
-      
-      // 分辨率档位 (480P, 720P, 1080P)
-      if (normalizedResolution) {
-        parameters.resolution = normalizedResolution
+
+      if (options.size) {
+        parameters.size = options.size
+      }
+      if (options.duration) {
+        parameters.duration = options.duration
       }
       if (options.promptExtend !== undefined) {
         parameters.prompt_extend = options.promptExtend
+      }
+      if (options.audio !== undefined) {
+        parameters.audio = options.audio
       }
       if (options.watermark !== undefined) {
         parameters.watermark = options.watermark
@@ -886,30 +1014,33 @@ export async function _qwenGenerateVideo(options: {
         parameters.seed = options.seed
       }
 
-      // 首尾帧模型使用 image2video 端点
+      // 1. 提交生成任务
+      const requestBody = {
+        model,
+        input,
+        parameters
+      }
+      upstreamRequestBody = requestBody
+
       const submitResponse = await request<VideoGenerationResponse>(
-        '/services/aigc/image2video/video-synthesis',
-        {
-          model,
-          input,
-          parameters
-        },
+        '/services/aigc/video-generation/video-synthesis',
+        requestBody,
         { headers: { 'X-DashScope-Async': 'enable' } }
       )
 
       const taskId = submitResponse.output.task_id
-      console.log(`[Qwen] 首尾帧视频任务已创建: ${taskId}`)
+      console.log(`[Qwen] 视频任务已创建: ${taskId}`)
 
-      // 轮询任务状态
+      // 2. 轮询任务状态 (视频生成时间较长)
       const maxWaitTime = 600000 // 10分钟
-      const pollInterval = 15000  // 首尾帧模型建议 15 秒轮询
+      const pollInterval = 10000
       const startTime = Date.now()
 
       while (Date.now() - startTime < maxWaitTime) {
         await sleep(pollInterval)
 
         const statusResponse = await getTaskStatus<VideoTaskStatusResponse>(taskId)
-        console.log(`[Qwen] 首尾帧视频任务状态: ${statusResponse.output.task_status}`)
+        console.log(`[Qwen] 视频任务状态: ${statusResponse.output.task_status}`)
 
         if (statusResponse.output.task_status === 'SUCCEEDED') {
           const videoUrl = statusResponse.output.video_url
@@ -930,95 +1061,8 @@ export async function _qwenGenerateVideo(options: {
       }
 
       throw new QwenError('视频生成超时', QwenErrorCode.DEADLINE_EXCEEDED, 504, false)
-    }
-
-    // 原有的文生视频/图生视频逻辑
-    // 构建请求体
-    const input: Record<string, unknown> = {
-      prompt: options.prompt
-    }
-
-    // 图生视频模式
-    if (options.imageUrl) {
-      input.img_url = options.imageUrl
-    }
-
-    // 自定义音频
-    if (options.audioUrl) {
-      input.audio_url = options.audioUrl
-    }
-
-    // 负面提示词
-    if (options.negativePrompt) {
-      input.negative_prompt = options.negativePrompt
-    }
-
-    const parameters: Record<string, unknown> = {}
-    
-    if (options.size) {
-      parameters.size = options.size
-    }
-    if (options.duration) {
-      parameters.duration = options.duration
-    }
-    if (options.promptExtend !== undefined) {
-      parameters.prompt_extend = options.promptExtend
-    }
-    if (options.audio !== undefined) {
-      parameters.audio = options.audio
-    }
-    if (options.watermark !== undefined) {
-      parameters.watermark = options.watermark
-    }
-    if (options.seed !== undefined) {
-      parameters.seed = options.seed
-    }
-
-    // 1. 提交生成任务
-    const submitResponse = await request<VideoGenerationResponse>(
-      '/services/aigc/video-generation/video-synthesis',
-      {
-        model,
-        input,
-        parameters
-      },
-      { headers: { 'X-DashScope-Async': 'enable' } }
-    )
-
-    const taskId = submitResponse.output.task_id
-    console.log(`[Qwen] 视频任务已创建: ${taskId}`)
-
-    // 2. 轮询任务状态 (视频生成时间较长)
-    const maxWaitTime = 600000 // 10分钟
-    const pollInterval = 10000
-    const startTime = Date.now()
-
-    while (Date.now() - startTime < maxWaitTime) {
-      await sleep(pollInterval)
-
-      const statusResponse = await getTaskStatus<VideoTaskStatusResponse>(taskId)
-      console.log(`[Qwen] 视频任务状态: ${statusResponse.output.task_status}`)
-
-      if (statusResponse.output.task_status === 'SUCCEEDED') {
-        const videoUrl = statusResponse.output.video_url
-        if (!videoUrl) {
-          throw new QwenError('视频生成成功但未返回URL', QwenErrorCode.INTERNAL, 500, false)
-        }
-        return { videoUrl, taskId }
-      }
-
-      if (statusResponse.output.task_status === 'FAILED') {
-        const errorMsg = statusResponse.output.message || '视频生成失败'
-        throw new QwenError(errorMsg, QwenErrorCode.INTERNAL, 500, false)
-      }
-
-      if (statusResponse.output.task_status === 'UNKNOWN') {
-        throw new QwenError('任务不存在或已过期', QwenErrorCode.NOT_FOUND, 404, false)
-      }
-    }
-
-    throw new QwenError('视频生成超时', QwenErrorCode.DEADLINE_EXCEEDED, 504, false)
-  }, { maxRetries: options.maxRetries })
+    }, { maxRetries: options.maxRetries })
+  })
 }
 
 // ============================================================
@@ -1027,7 +1071,7 @@ export async function _qwenGenerateVideo(options: {
 
 interface TTSResponse {
   output: {
-    audio?: string  // base64
+    audio?: string // base64
     audio_url?: string
   }
   request_id: string
@@ -1038,12 +1082,13 @@ export async function _qwenTextToSpeech(options: {
   text: string
   voice?: string
   speed?: number
-  format?: string  // mp3, wav, pcm
+  format?: string // mp3, wav, pcm
   sampleRate?: number
-  languageType?: string  // Chinese, English, etc.
+  languageType?: string // Chinese, English, etc.
   maxRetries?: number
 }): Promise<{ audioData: string, audioUrl?: string }> {
   const model = options.model || QwenVoiceModels.QWEN3_TTS_FLASH
+  let upstreamRequestBody: unknown
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Qwen] textToSpeech 请求参数:`, {
@@ -1058,27 +1103,20 @@ export async function _qwenTextToSpeech(options: {
     maxRetries: options.maxRetries
   })
 
-  return withRetry(async () => {
+  return withModelDebugLog({
+    provider: 'qwen',
+    model,
+    operation: 'textToSpeech',
+    request: () => upstreamRequestBody,
+    summarizeResponse: result => ({
+      audioUrl: result.audioUrl,
+      audioDataLength: result.audioData?.length || 0
+    }),
+    execute: async () => withRetry(async () => {
     // qwen3-tts-instruct-flash 使用新的 multimodal-generation 端点
     // 文档: https://help.aliyun.com/zh/model-studio/qwen-tts-api
-    if (model === QwenVoiceModels.QWEN3_TTS_FLASH) {
-      const response = await request<{
-        output: {
-          audio?: {
-            data?: string
-            url?: string
-            id?: string
-            expires_at?: number
-          }
-          finish_reason?: string
-        }
-        usage?: {
-          characters?: number
-        }
-        request_id: string
-      }>(
-        '/services/aigc/multimodal-generation/generation',
-        {
+      if (model === QwenVoiceModels.QWEN3_TTS_FLASH) {
+        const requestBody = {
           model,
           input: {
             text: options.text,
@@ -1086,24 +1124,41 @@ export async function _qwenTextToSpeech(options: {
             language_type: options.languageType || 'Chinese'
           }
         }
-      )
+        upstreamRequestBody = requestBody
 
-      const audioUrl = response.output?.audio?.url
-      const audioData = response.output?.audio?.data || ''
-      
-      if (!audioUrl && !audioData) {
-        console.error('[Qwen] TTS 响应:', JSON.stringify(response, null, 2))
-        throw new QwenError('TTS 生成失败', QwenErrorCode.INTERNAL, 500, false)
+        const response = await request<{
+          output: {
+            audio?: {
+              data?: string
+              url?: string
+              id?: string
+              expires_at?: number
+            }
+            finish_reason?: string
+          }
+          usage?: {
+            characters?: number
+          }
+          request_id: string
+        }>(
+          '/services/aigc/multimodal-generation/generation',
+          requestBody
+        )
+
+        const audioUrl = response.output?.audio?.url
+        const audioData = response.output?.audio?.data || ''
+
+        if (!audioUrl && !audioData) {
+          console.error('[Qwen] TTS 响应:', JSON.stringify(response, null, 2))
+          throw new QwenError('TTS 生成失败', QwenErrorCode.INTERNAL, 500, false)
+        }
+
+        console.log(`[Qwen] TTS 生成成功: ${audioUrl?.slice(0, 100)}...`)
+        return { audioData, audioUrl }
       }
 
-      console.log(`[Qwen] TTS 生成成功: ${audioUrl?.slice(0, 100)}...`)
-      return { audioData, audioUrl }
-    }
-
-    // 旧版 TTS 模型使用原有端点
-    const response = await request<TTSResponse>(
-      '/services/aigc/text2audio/speech-synthesis',
-      {
+      // 旧版 TTS 模型使用原有端点
+      const requestBody = {
         model,
         input: {
           text: options.text
@@ -1115,17 +1170,23 @@ export async function _qwenTextToSpeech(options: {
           sample_rate: options.sampleRate || 22050
         }
       }
-    )
+      upstreamRequestBody = requestBody
 
-    const audioData = response.output.audio || ''
-    const audioUrl = response.output.audio_url
+      const response = await request<TTSResponse>(
+        '/services/aigc/text2audio/speech-synthesis',
+        requestBody
+      )
 
-    if (!audioData && !audioUrl) {
-      throw new QwenError('TTS 生成失败', QwenErrorCode.INTERNAL, 500, false)
-    }
+      const audioData = response.output.audio || ''
+      const audioUrl = response.output.audio_url
 
-    return { audioData, audioUrl }
-  }, { maxRetries: options.maxRetries })
+      if (!audioData && !audioUrl) {
+        throw new QwenError('TTS 生成失败', QwenErrorCode.INTERNAL, 500, false)
+      }
+
+      return { audioData, audioUrl }
+    }, { maxRetries: options.maxRetries })
+  })
 }
 
 // ============================================================
@@ -1142,11 +1203,12 @@ interface ASRResponse {
 export async function _qwenSpeechToText(options: {
   model?: string
   audioUrl?: string
-  audioData?: string  // base64
+  audioData?: string // base64
   language?: string
   maxRetries?: number
 }): Promise<{ text: string }> {
   const model = options.model || QwenVoiceModels.QWEN3_ASR_FLASH
+  let upstreamRequestBody: unknown
 
   console.log('[Qwen] speechToText 请求参数:', {
     model,
@@ -1155,25 +1217,38 @@ export async function _qwenSpeechToText(options: {
     language: options.language
   })
 
-  return withRetry(async () => {
-    const input: Record<string, unknown> = {}
-    if (options.audioUrl) {
-      input.file_urls = [options.audioUrl]
-    } else if (options.audioData) {
-      input.audio = options.audioData
-    }
+  return withModelDebugLog({
+    provider: 'qwen',
+    model,
+    operation: 'speechToText',
+    request: () => upstreamRequestBody,
+    summarizeResponse: result => ({
+      text: result.text,
+      textLength: result.text.length
+    }),
+    execute: async () => withRetry(async () => {
+      const input: Record<string, unknown> = {}
+      if (options.audioUrl) {
+        input.file_urls = [options.audioUrl]
+      } else if (options.audioData) {
+        input.audio = options.audioData
+      }
 
-    const response = await request<ASRResponse>(
-      '/services/aigc/audio2text/speech-recognition',
-      {
+      const requestBody = {
         model,
         input,
         parameters: {
           language_hints: options.language ? [options.language] : ['zh', 'en']
         }
       }
-    )
+      upstreamRequestBody = requestBody
 
-    return { text: response.output.text }
-  }, { maxRetries: options.maxRetries })
+      const response = await request<ASRResponse>(
+        '/services/aigc/audio2text/speech-recognition',
+        requestBody
+      )
+
+      return { text: response.output.text }
+    }, { maxRetries: options.maxRetries })
+  })
 }

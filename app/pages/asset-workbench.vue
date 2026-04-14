@@ -1113,9 +1113,12 @@ function buildSceneGenerationCameraNote(scene: SceneData): string | undefined {
 }
 
 function buildAssetWorkflowScenePayload(scene: SceneData) {
+  const sceneIndex = scenes.value.findIndex(item => item.id === scene.id)
+
   return {
     id: scene.id,
     title: scene.title,
+    sceneIndex: sceneIndex >= 0 ? sceneIndex + 1 : undefined,
     description: scene.description,
     cameraNote: buildSceneGenerationCameraNote(scene),
     duration: scene.duration,
@@ -2354,11 +2357,12 @@ onMounted(async () => {
     <Card class="shrink-0 border-primary/20 bg-primary/[0.04]">
       <CardContent class="py-2 space-y-1.5">
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
-          <button
+          <Button
             v-for="stage in autoStages"
             :key="stage.key"
             type="button"
-            class="rounded-md border px-2 py-1 text-left transition focus-visible:outline-none"
+            variant="ghost"
+            class="h-auto rounded-md border px-2 py-1 text-left transition focus-visible:outline-none"
             :class="[
               activeAutoStage === stage.key
                 ? 'border-primary/40 bg-accent text-foreground shadow-sm'
@@ -2391,7 +2395,7 @@ onMounted(async () => {
             >
               {{ stage.detail }}
             </p>
-          </button>
+          </Button>
         </div>
 
         <p
@@ -2512,30 +2516,33 @@ onMounted(async () => {
             </div>
           </div>
           <div class="shrink-0 flex flex-wrap items-center gap-2">
-            <button
+            <Button
               type="button"
+              variant="ghost"
               class="h-8 rounded-md border px-3 text-xs font-medium transition"
               :class="assetTab === 'characters' ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-input bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground'"
               @click="assetTab = 'characters'"
             >
               角色资产（{{ characters.length }}）
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="ghost"
               class="h-8 rounded-md border px-3 text-xs font-medium transition"
               :class="assetTab === 'scenes' ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-input bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground'"
               @click="assetTab = 'scenes'"
             >
               环境资产（{{ environmentAssetCards.length }}）
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="ghost"
               class="h-8 rounded-md border px-3 text-xs font-medium transition"
               :class="assetTab === 'props' ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-input bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground'"
               @click="assetTab = 'props'"
             >
               道具资产（{{ propAssets.length }}）
-            </button>
+            </Button>
           </div>
 
           <div class="flex-1 min-h-0 overflow-y-auto pr-1">
@@ -2588,18 +2595,20 @@ onMounted(async () => {
                             class="h-8 text-xs"
                             placeholder="角色名称"
                           />
-                          <select
-                            v-model="characterEditDraft.role"
-                            class="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"
-                          >
-                            <option
-                              v-for="opt in characterRoleOptions"
-                              :key="opt.value"
-                              :value="opt.value"
-                            >
-                              {{ opt.label }}
-                            </option>
-                          </select>
+                          <Select v-model="characterEditDraft.role">
+                            <SelectTrigger class="h-8 w-full text-xs">
+                              <SelectValue placeholder="选择角色类型" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem
+                                v-for="opt in characterRoleOptions"
+                                :key="opt.value"
+                                :value="opt.value"
+                              >
+                                {{ opt.label }}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
                           <Textarea
                             v-model="characterEditDraft.appearance"
                             class="min-h-[72px] text-xs"
@@ -2777,9 +2786,10 @@ onMounted(async () => {
                     </p>
 
                     <div>
-                      <button
+                      <Button
                         type="button"
-                        class="relative aspect-video rounded border bg-muted/30 overflow-hidden flex items-center justify-center"
+                        variant="ghost"
+                        class="relative h-auto aspect-video rounded border bg-muted/30 p-0 overflow-hidden flex items-center justify-center"
                         :class="asset.referenceImage ? 'cursor-zoom-in hover:border-primary/50' : 'cursor-not-allowed opacity-70'"
                         :disabled="!asset.referenceImage"
                         @click="openImagePreview(asset.referenceImage, `${asset.name} - 环境图`)"
@@ -2794,7 +2804,7 @@ onMounted(async () => {
                           v-else
                           class="text-[10px] text-muted-foreground"
                         >暂无环境图</span>
-                      </button>
+                      </Button>
                     </div>
 
                     <div class="flex flex-wrap items-center gap-1.5">

@@ -55,12 +55,7 @@ const statusColors = {
         <span class="font-medium">生成进度</span>
         <span class="text-muted-foreground">{{ totalProgress }}%</span>
       </div>
-      <div class="h-2 bg-muted rounded-full overflow-hidden">
-        <div
-          class="h-full bg-primary transition-all duration-500 ease-out"
-          :style="{ width: `${totalProgress}%` }"
-        />
-      </div>
+      <Progress :model-value="totalProgress" />
     </div>
 
     <!-- 步骤详情 -->
@@ -107,12 +102,10 @@ const statusColors = {
             v-if="step.status === 'processing'"
             class="mt-1.5"
           >
-            <div class="h-1 bg-muted rounded-full overflow-hidden">
-              <div
-                class="h-full bg-blue-500 transition-all duration-300"
-                :style="{ width: `${step.progress || 0}%` }"
-              />
-            </div>
+            <Progress
+              :model-value="step.progress || 0"
+              class="h-1 [&>div]:bg-blue-500"
+            />
           </div>
 
           <!-- 消息 -->

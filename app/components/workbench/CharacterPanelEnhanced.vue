@@ -146,12 +146,7 @@ function previewImage(imageData: string | undefined, alt: string) {
         <span>正在生成: {{ batchProgress.name }}</span>
         <span class="text-muted-foreground">{{ batchProgress.current }}/{{ batchProgress.total }}</span>
       </div>
-      <div class="w-full bg-muted rounded-full h-2">
-        <div
-          class="bg-primary h-2 rounded-full transition-all duration-300"
-          :style="{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }"
-        />
-      </div>
+      <Progress :model-value="(batchProgress.current / batchProgress.total) * 100" />
     </div>
 
     <!-- 空状态 -->
@@ -372,19 +367,23 @@ function previewImage(imageData: string | undefined, alt: string) {
                 {{ getCharacterName(rel.toCharacterId) }}
               </Badge>
             </div>
-            <select
-              :value="rel.type"
-              class="h-8 px-2 rounded border text-sm"
-              @change="$emit('updateRelationship', { ...rel, type: ($event.target as HTMLSelectElement).value as any })"
+            <Select
+              :model-value="rel.type"
+              @update:model-value="$emit('updateRelationship', { ...rel, type: String($event) as any })"
             >
-              <option
-                v-for="rt in relationshipTypes"
-                :key="rt.value"
-                :value="rt.value"
-              >
-                {{ rt.label }}
-              </option>
-            </select>
+              <SelectTrigger class="h-8 w-[110px] text-sm">
+                <SelectValue placeholder="关系" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="rt in relationshipTypes"
+                  :key="rt.value"
+                  :value="rt.value"
+                >
+                  {{ rt.label }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
             <Button
               variant="ghost"
               size="sm"
