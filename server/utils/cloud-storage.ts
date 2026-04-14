@@ -8,6 +8,9 @@ type TosStorageConfig = {
   region: string
   endpoint: string
   endpointProtocol: 'http' | 'https'
+  requestSecure: boolean
+  proxyHost?: string
+  proxyPort?: number
   bucket: string
   keyPrefix?: string
   publicBaseUrl?: string
@@ -27,6 +30,7 @@ type UploadFileOptions = {
 let cachedConfig: TosStorageConfig | null = null
 let cachedClient: TosClient | null = null
 let hasWarnedMissingConfig = false
+let hasWarnedInvalidProxy = false
 
 function parseBooleanEnv(value?: string): boolean | undefined {
   const normalized = (value || '').trim().toLowerCase()
@@ -82,6 +86,73 @@ function normalizeObjectPath(value: string): string {
   return trimSlashes(value).replace(/\/{2,}/g, '/')
 }
 
+function getFirstEnvValue(keys: string[]): string {
+  for (const key of keys) {
+    const value = (process.env[key] || '').trim()
+    if (value) return value
+  }
+  return ''
+}
+
+function resolveProxyHostPort(): {
+  host: string
+  port: number
+} | null {
+  const rawProxy = getFirstEnvValue([
+    'TOS_PROXY',
+    'tos_proxy',
+    'HTTPS_PROXY',
+    'https_proxy',
+    'HTTP_PROXY',
+    'http_proxy',
+    'ALL_PROXY',
+    'all_proxy'
+  ])
+
+  if (!rawProxy) return null
+
+  const normalizedProxy = /^[a-z][a-z0-9+.-]*:\/\//i.test(rawProxy)
+    ? rawProxy
+    : `http://${rawProxy}`
+
+  let parsed: URL
+  try {
+    parsed = new URL(normalizedProxy)
+  } catch {
+    if (!hasWarnedInvalidProxy) {
+      hasWarnedInvalidProxy = true
+      console.warn('[CloudStorage] 代理地址格式无效，已忽略代理配置')
+    }
+    return null
+  }
+
+  if (parsed.protocol !== 'http:') {
+    if (!hasWarnedInvalidProxy) {
+      hasWarnedInvalidProxy = true
+      console.warn('[CloudStorage] TOS 仅支持 HTTP 代理（http://host:port），已忽略当前代理配置')
+    }
+    return null
+  }
+
+  const host = parsed.hostname.trim()
+  const portRaw = parsed.port || '80'
+  const port = Number(portRaw)
+  if (!host || !Number.isInteger(port) || port <= 0 || port > 65535) {
+    if (!hasWarnedInvalidProxy) {
+      hasWarnedInvalidProxy = true
+      console.warn('[CloudStorage] 代理 host/port 无效，已忽略代理配置')
+    }
+    return null
+  }
+
+  if ((parsed.username || parsed.password) && !hasWarnedInvalidProxy) {
+    hasWarnedInvalidProxy = true
+    console.warn('[CloudStorage] TOS 代理暂不支持账号密码，已忽略代理认证信息')
+  }
+
+  return { host, port }
+}
+
 function joinObjectPath(...parts: Array<string | undefined>): string {
   const normalized = parts
     .map(part => normalizeObjectPath(part || ''))
@@ -105,6 +176,7 @@ function createConfig(): TosStorageConfig {
   const publicBaseUrl = normalizeBaseUrl(process.env.TOS_PUBLIC_BASE_URL)
   const isCustomDomain = parseBooleanEnv(process.env.TOS_IS_CUSTOM_DOMAIN) ?? false
   const endpointConfig = normalizeEndpoint(process.env.TOS_ENDPOINT || '')
+  const proxyConfig = resolveProxyHostPort()
   const hasRequired = !!(accessKeyId && accessKeySecret && region && bucket && endpointConfig.endpoint)
   const enabledByEnv = parseBooleanEnv(process.env.TOS_ENABLED)
   const enabled = (enabledByEnv ?? true) && hasRequired
@@ -121,6 +193,9 @@ function createConfig(): TosStorageConfig {
     region,
     endpoint: endpointConfig.endpoint,
     endpointProtocol: endpointConfig.protocol,
+    requestSecure: proxyConfig ? false : endpointConfig.protocol === 'https',
+    proxyHost: proxyConfig?.host,
+    proxyPort: proxyConfig?.port,
     bucket,
     keyPrefix: keyPrefix || undefined,
     publicBaseUrl,
@@ -140,14 +215,21 @@ function getClient(config: TosStorageConfig): TosClient | null {
   if (cachedClient) return cachedClient
 
   try {
-    cachedClient = new TosClient({
+    const clientOptions: ConstructorParameters<typeof TosClient>[0] = {
       accessKeyId: config.accessKeyId,
       accessKeySecret: config.accessKeySecret,
       region: config.region,
       endpoint: config.endpoint,
-      secure: config.endpointProtocol === 'https',
+      secure: config.requestSecure,
       isCustomDomain: config.isCustomDomain
-    })
+    }
+
+    if (config.proxyHost && config.proxyPort) {
+      clientOptions.proxyHost = config.proxyHost
+      clientOptions.proxyPort = config.proxyPort
+    }
+
+    cachedClient = new TosClient(clientOptions)
   } catch (error) {
     console.error('[CloudStorage] 初始化 TOS 客户端失败:', error)
     cachedClient = null
