@@ -170,7 +170,12 @@ export default defineEventHandler(async (event) => {
 3. 若同一场景包含多个动作转折、情绪转折或叙事跳跃，必须拆分成连续多个场景。
 4. 每个场景的 duration 必须是数字，且在 ${SCRIPT_MIN_DURATION}-${SCRIPT_MAX_DURATION} 秒之间。
 5. totalDuration 必须严格等于所有 scenes[i].duration 的总和。
-6. scenes[i].setting.timeOfDay 只能是 dawn、morning、noon、afternoon、evening、night 之一，严禁输出 none/unknown/day。`
+6. scenes[i].setting.timeOfDay 只能是 dawn、morning、noon、afternoon、evening、night 之一，严禁输出 none/unknown/day。
+
+【补充约束 - 主环境风格一致性】
+1. 同一主环境（如“医院”“学校”“警局”）在不同子空间（如“走廊”“办公室”“病房”）必须保持同一建筑年代、装修档次、材质语言和维护状态。
+2. 除非原文明确写出“翻修区/废弃区/新旧分区”，禁止输出冲突风格（例如同一医院里“走廊豪华现代”但“办公室破旧老化”）。
+3. setting.location 请优先使用“主环境-子空间”或“主环境/子空间”的中性命名，不要把“豪华、破旧、现代、老旧”等风格形容词写进地点名。`
 
     // 3. 使用业务流程配置的模型解析
     const result = await generateJSONForWorkflow<ParsedScript>('script_parsing', {

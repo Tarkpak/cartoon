@@ -257,6 +257,62 @@ function normalizeImageInput(image?: string): string | undefined {
   return stripDataUrlPrefix(trimmed)
 }
 
+function sanitizeKlingLogValue(
+  value: unknown,
+  keyHint: string = '',
+  depth: number = 0
+): unknown {
+  if (depth > 4) return '[depth-limited]'
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    const key = keyHint.toLowerCase()
+    const isMediaField = key.includes('image') || key.includes('video') || key.includes('audio')
+    const isHttpUrl = trimmed.startsWith('http://') || trimmed.startsWith('https://')
+    const isDataUri = trimmed.startsWith('data:')
+    const looksLikeBase64 = /^[A-Za-z0-9+/=\s]+$/.test(trimmed) && trimmed.length > 256
+
+    if (isDataUri) return `[data-uri len=${trimmed.length}]`
+    if (looksLikeBase64) return `[base64 len=${trimmed.length}]`
+
+    if (isMediaField && isHttpUrl && trimmed.length > 140) {
+      return `${trimmed.slice(0, 140)}... (len=${trimmed.length})`
+    }
+
+    if (trimmed.length > 600) {
+      return `${trimmed.slice(0, 220)}... (len=${trimmed.length})`
+    }
+
+    return trimmed
+  }
+
+  if (Array.isArray(value)) {
+    const maxItems = 4
+    const preview = value
+      .slice(0, maxItems)
+      .map(item => sanitizeKlingLogValue(item, keyHint, depth + 1))
+    if (value.length > maxItems) {
+      preview.push(`[+${value.length - maxItems} items]`)
+    }
+    return preview
+  }
+
+  if (value && typeof value === 'object') {
+    const output: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      output[key] = sanitizeKlingLogValue(item, key, depth + 1)
+    }
+    return output
+  }
+
+  return value
+}
+
+function sanitizeKlingLogPayload(payload?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!payload) return undefined
+  return sanitizeKlingLogValue(payload) as Record<string, unknown>
+}
+
 function normalizeDuration(duration?: number, maxDuration: number = 15): string {
   const fallback = 5
   const numeric = typeof duration === 'number' && Number.isFinite(duration) ? duration : fallback
@@ -421,6 +477,14 @@ async function request<T>(
   const cfg = getConfig()
   const token = buildJwtToken(cfg.accessKey, cfg.secretKey)
   const url = `${cfg.baseUrl}${endpoint}`
+
+  if (method === 'POST') {
+    console.log('[Kling] HTTP 请求参数:', {
+      method,
+      endpoint,
+      body: sanitizeKlingLogPayload(body)
+    })
+  }
 
   const controller = new AbortController()
   const timeoutId = options.timeout
@@ -675,6 +739,7 @@ export async function _klingGenerateVideo(options: {
   imageUrl?: string
   firstFrameUrl?: string
   lastFrameUrl?: string
+  referenceImages?: string[]
   duration?: number
   aspectRatio?: string
   withAudio?: boolean
@@ -692,9 +757,22 @@ export async function _klingGenerateVideo(options: {
   )
   const aspectRatio = options.aspectRatio || '16:9'
 
-  const image = normalizeImageInput(options.imageUrl || options.firstFrameUrl)
+  let image = normalizeImageInput(options.imageUrl || options.firstFrameUrl)
   const imageTail = normalizeImageInput(options.lastFrameUrl)
-  const hasImageInput = !!image || !!imageTail
+  const normalizedReferenceImages = Array.from(new Set(
+    (options.referenceImages || [])
+      .map(item => normalizeImageInput(item))
+      .filter((item): item is string => !!item)
+  ))
+  let hasImageInput = !!image || !!imageTail
+
+  if (!useOmniVideoEndpoint && !hasImageInput && normalizedReferenceImages.length > 0) {
+    image = normalizedReferenceImages[0]
+    hasImageInput = true
+    console.warn('[Kling] image2video/text2video 不支持多参考图，已使用 referenceImages[0] 作为 image 输入')
+  } else if (!useOmniVideoEndpoint && normalizedReferenceImages.length > 0) {
+    console.warn('[Kling] 当前模型不支持多参考图，referenceImages 已忽略（仅保留 image/首尾帧）')
+  }
 
   const endpoint = useOmniVideoEndpoint
     ? '/v1/videos/omni-video'
@@ -716,15 +794,31 @@ export async function _klingGenerateVideo(options: {
   }
 
   if (useOmniVideoEndpoint) {
+    const imageList: Array<{ image_url: string, type?: 'first_frame' | 'end_frame' }> = []
+
     if (image && imageTail) {
-      body.image_list = [
+      imageList.push(
         { image_url: image, type: 'first_frame' },
         { image_url: imageTail, type: 'end_frame' }
-      ]
+      )
     } else if (image) {
-      body.image_list = [{ image_url: image }]
+      imageList.push({ image_url: image })
     } else if (imageTail) {
       console.warn('[Kling] omni-video 不支持仅尾帧输入，已自动忽略尾帧参数')
+    }
+
+    const existingUrls = new Set(imageList.map(item => item.image_url))
+    for (const refImage of normalizedReferenceImages) {
+      if (existingUrls.has(refImage)) continue
+      imageList.push({ image_url: refImage })
+      existingUrls.add(refImage)
+    }
+
+    if (model === KlingVideoModels.KLING_VIDEO_O1 && image && imageTail && imageList.length > 2) {
+      console.warn('[Kling] kling-video-o1 在首尾帧模式下不支持 >2 张参考图，已忽略额外 referenceImages')
+      body.image_list = imageList.slice(0, 2)
+    } else if (imageList.length > 0) {
+      body.image_list = imageList.slice(0, 9)
     }
 
     if (!hasImageInput || image) {

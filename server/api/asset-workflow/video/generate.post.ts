@@ -2,6 +2,7 @@ import { z } from 'zod'
 import {
   findVideoModel
 } from '../../../utils/model-provider'
+import * as kling from '../../../utils/kling'
 import { getWorkflowModels } from '../../models/workflow.get'
 import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
@@ -267,9 +268,28 @@ function resolveCompatibleModel(
     }
   }
 
-  // 资产一致性流程优先尊重工作流/全局模型配置，不自动切换到其它模型。
-  // 不支持多参考图或图生视频时仅降级输入策略（多参考 -> 单图/文本）。
+  // 资产一致性流程优先尊重工作流/全局模型配置：
+  // - 非关键能力缺失时仅降级输入策略（多参考 -> 单图/文本）
+  // - 仅在“需要多参考图且可灵普通模型不支持”时自动切到 Omni
   if (options.needReferenceImages && !preferred.supportReferenceImages) {
+    // 可灵普通模型（如 kling-v3）不支持 referenceImages；
+    // 当场景明确需要多参考图时，自动切换到可灵 Omni 以确保参考图真正生效。
+    if (preferred.provider === 'kling') {
+      const omniFallbacks = [
+        kling.KlingVideoModels.KLING_V3_OMNI,
+        kling.KlingVideoModels.KLING_VIDEO_O1
+      ]
+      for (const fallbackModelId of omniFallbacks) {
+        const fallbackModel = findVideoModel(fallbackModelId)
+        if (fallbackModel?.supportReferenceImages) {
+          return {
+            modelId: fallbackModel.model,
+            reason: `fallback-to-omni:${fallbackModel.model}`
+          }
+        }
+      }
+    }
+
     return {
       modelId: preferred.model,
       reason: 'workflow-selected:no-multi-reference'
