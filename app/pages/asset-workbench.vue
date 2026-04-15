@@ -6,8 +6,10 @@ import {
   Film,
   Layers3,
   Loader2,
+  Merge,
   Pencil,
   RefreshCw,
+  Split,
   Sparkles,
   Trash2,
   Upload,
@@ -95,7 +97,10 @@ const {
   saveError,
   saveProject,
   loadProject,
+  deleteScene,
+  mergeWithNextScene,
   parseScript,
+  splitScene,
   updateScene,
   generateCharacter,
   batchGenerateCharacters,
@@ -1611,15 +1616,55 @@ function resolveSceneReferenceAssets(sceneId: string): DisplayAsset[] {
 }
 
 function resolveSceneReferenceSummary(sceneId: string): string {
-  const assets = resolveSceneReferenceAssets(sceneId)
-  if (assets.length === 0) return '参考资产：自动匹配'
+  const config = ensureSceneConfig(sceneId)
+  const names = uniqueSorted(
+    config.mustReferenceAssetIds
+      .map(resolveAssetName)
+      .filter(Boolean)
+  )
+  if (names.length === 0) return '参考资产：自动匹配'
 
-  const names = assets.map(asset => asset.name)
   if (names.length <= 3) {
     return `参考资产：${names.join('、')}`
   }
 
   return `参考资产：${names.slice(0, 3).join('、')} 等 ${names.length} 项`
+}
+
+function resolveSceneReferencePreviewAssets(sceneId: string, limit = 4): DisplayAsset[] {
+  return resolveSceneReferenceAssets(sceneId).slice(0, limit)
+}
+
+function resolveSceneReferenceRemainingCount(sceneId: string, limit = 4): number {
+  const total = resolveSceneReferenceAssets(sceneId).length
+  return total > limit ? total - limit : 0
+}
+
+function resolveSceneReferenceAssetIds(sceneId: string): string[] {
+  const config = ensureSceneConfig(sceneId)
+  return uniqueSorted(config.mustReferenceAssetIds)
+}
+
+function setSceneAssetReferences(sceneId: string, nextAssetIds: string[]) {
+  const config = ensureSceneConfig(sceneId)
+  const validAssetIds = getValidAssetIdSet()
+  const normalized = uniqueSorted(nextAssetIds.filter(assetId => validAssetIds.has(assetId)))
+  const previous = uniqueSorted(config.mustReferenceAssetIds)
+
+  if (previous.join('||') === normalized.join('||')) return
+
+  config.mustReferenceAssetIds = normalized
+
+  if (config.mustReferenceAssetIds.length === 0 && config.consistencyLevel === 'lock') {
+    config.consistencyLevel = 'soft'
+  }
+
+  const scene = scenes.value.find(item => item.id === sceneId)
+  if (scene && scene.videoStatus === 'done') {
+    scene.videoStatus = 'pending'
+    scene.videoError = undefined
+    scene.videoUrl = undefined
+  }
 }
 
 function resolveQueueItem(sceneId: string): QueueItem | undefined {
@@ -1692,6 +1737,15 @@ function selectScene(sceneId: string) {
   selectedSceneId.value = sceneId
 }
 
+const sceneEditAssetReferenceOptions = computed<DisplayAsset[]>(() => {
+  return allAssets.value
+})
+
+const sceneEditSelectedAssetIds = computed<string[]>(() => {
+  if (!editingScene.value?.id) return []
+  return resolveSceneReferenceAssetIds(editingScene.value.id)
+})
+
 function openSceneEdit(scene: SceneData) {
   editingScene.value = {
     ...scene,
@@ -1708,6 +1762,120 @@ function handleSceneSave(updatedScene: Partial<SceneData> & { id: string }) {
   updateScene(updatedScene)
   sceneEditDialogOpen.value = false
   editingScene.value = null
+}
+
+function handleSceneAssetReferencesSave(payload: { sceneId: string, assetIds: string[] }) {
+  setSceneAssetReferences(payload.sceneId, payload.assetIds)
+}
+
+async function handleSplitScene(sceneId: string) {
+  const targetIndex = scenes.value.findIndex(scene => scene.id === sceneId)
+  if (targetIndex < 0) return
+
+  const beforeIds = scenes.value.map(scene => scene.id)
+  const previousConfig = sceneConfigs.value[sceneId]
+    ? {
+        ...sceneConfigs.value[sceneId],
+        mustReferenceAssetIds: [...sceneConfigs.value[sceneId]!.mustReferenceAssetIds]
+      }
+    : null
+
+  splitScene(targetIndex)
+
+  const afterIds = scenes.value.map(scene => scene.id)
+  if (afterIds.length !== beforeIds.length + 1) return
+
+  const firstSplitScene = scenes.value[targetIndex]
+  const secondSplitScene = scenes.value[targetIndex + 1]
+  if (!firstSplitScene || !secondSplitScene || firstSplitScene.id !== sceneId) return
+
+  if (previousConfig) {
+    sceneConfigs.value[secondSplitScene.id] = {
+      ...previousConfig,
+      sceneId: secondSplitScene.id,
+      mustReferenceAssetIds: uniqueSorted(previousConfig.mustReferenceAssetIds)
+    }
+  }
+
+  synchronizeSceneConfigs()
+  synchronizeQueueItems()
+  await saveWorkflowMeta()
+}
+
+function resolveSceneConfigSnapshot(sceneId: string): SceneConsistencyConfig | null {
+  const config = sceneConfigs.value[sceneId]
+  if (!config) return null
+  return {
+    ...config,
+    mustReferenceAssetIds: [...config.mustReferenceAssetIds]
+  }
+}
+
+function canMergeSceneByIndex(sceneIndex: number): boolean {
+  const scene = scenes.value[sceneIndex]
+  const nextScene = scenes.value[sceneIndex + 1]
+  if (!scene || !nextScene) return false
+  return !isSceneBusy(scene) && !isSceneBusy(nextScene)
+}
+
+async function handleMergeWithNextScene(sceneId: string) {
+  const targetIndex = scenes.value.findIndex(scene => scene.id === sceneId)
+  if (targetIndex < 0 || targetIndex >= scenes.value.length - 1) return
+  if (!canMergeSceneByIndex(targetIndex)) return
+
+  const currentScene = scenes.value[targetIndex]
+  const nextScene = scenes.value[targetIndex + 1]
+  if (!currentScene || !nextScene) return
+
+  const currentConfig = resolveSceneConfigSnapshot(currentScene.id)
+  const nextConfig = resolveSceneConfigSnapshot(nextScene.id)
+
+  mergeWithNextScene(targetIndex)
+
+  const mergedScene = scenes.value[targetIndex]
+  if (!mergedScene || mergedScene.id !== currentScene.id) return
+
+  const mergedAssetIds = uniqueSorted([
+    ...(currentConfig?.mustReferenceAssetIds || []),
+    ...(nextConfig?.mustReferenceAssetIds || [])
+  ])
+  const mergedNotes = Array.from(new Set([
+    currentConfig?.continuityNotes?.trim() || '',
+    nextConfig?.continuityNotes?.trim() || ''
+  ].filter(Boolean))).join('；')
+
+  if (currentConfig || nextConfig) {
+    sceneConfigs.value[mergedScene.id] = {
+      sceneId: mergedScene.id,
+      mustReferenceAssetIds: mergedAssetIds,
+      consistencyLevel: mergedAssetIds.length === 0
+        ? 'soft'
+        : (
+            currentConfig?.consistencyLevel === 'lock'
+            || nextConfig?.consistencyLevel === 'lock'
+              ? 'lock'
+              : 'soft'
+          ),
+      continuityNotes: mergedNotes
+    }
+  }
+
+  const { [nextScene.id]: _removedConfig, ...remainingConfigs } = sceneConfigs.value
+  void _removedConfig
+  sceneConfigs.value = remainingConfigs
+  synchronizeSceneConfigs()
+  synchronizeQueueItems()
+  await saveWorkflowMeta()
+}
+
+function handleDeleteScene(scene: SceneData) {
+  const beforeLength = scenes.value.length
+  deleteScene(scene)
+
+  if (scenes.value.length !== beforeLength) {
+    synchronizeSceneConfigs()
+    synchronizeQueueItems()
+  }
 }
 
 function addPropAsset() {
@@ -2474,7 +2642,10 @@ onMounted(async () => {
           <div class="shrink-0 rounded-md border bg-muted/20 px-3 py-2">
             <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
               <div class="flex flex-wrap items-center gap-1.5">
-                <Badge variant="secondary" class="text-[11px]">
+                <Badge
+                  variant="secondary"
+                  class="text-[11px]"
+                >
                   角色图就绪 {{ characterReadyCount }}/{{ characters.length }}
                 </Badge>
                 <Badge
@@ -2969,7 +3140,7 @@ onMounted(async () => {
           步骤三：场景视频
         </CardTitle>
         <CardDescription>
-          批量生成场景视频并自动重试失败场景一次。
+          批量生成场景视频并自动重试失败场景一次；生成效果不理想时可拆分或合并场景后再重试。
         </CardDescription>
       </CardHeader>
       <CardContent class="flex-1 min-h-0 overflow-hidden flex flex-col gap-3">
@@ -3025,7 +3196,7 @@ onMounted(async () => {
               <div
                 v-for="(scene, idx) in scenes"
                 :key="scene.id"
-                class="rounded-md border p-3 transition cursor-pointer"
+                class="rounded-md border p-3 transition cursor-pointer group"
                 :class="selectedSceneId === scene.id ? 'border-primary bg-primary/5' : 'hover:border-primary/50'"
                 title="单击选中，双击编辑场景详情"
                 @click="selectScene(scene.id)"
@@ -3053,6 +3224,39 @@ onMounted(async () => {
                     >
                       {{ resolveSceneVideoBadge(scene).label }}
                     </Badge>
+
+                    <div class="flex max-w-0 items-center gap-1 overflow-hidden opacity-0 transition-all duration-200 group-hover:max-w-40 group-hover:opacity-100">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        class="h-7 w-7 p-0"
+                        title="拆分场景"
+                        :disabled="isSceneBusy(scene)"
+                        @click.stop="handleSplitScene(scene.id)"
+                      >
+                        <Split class="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        class="h-7 w-7 p-0"
+                        title="与下一场景合并"
+                        :disabled="!canMergeSceneByIndex(idx)"
+                        @click.stop="handleMergeWithNextScene(scene.id)"
+                      >
+                        <Merge class="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        class="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                        title="删除场景"
+                        :disabled="isSceneBusy(scene)"
+                        @click.stop="handleDeleteScene(scene)"
+                      >
+                        <Trash2 class="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
 
@@ -3063,6 +3267,30 @@ onMounted(async () => {
                 <p class="mt-1 text-[11px] text-muted-foreground">
                   {{ resolveSceneReferenceSummary(scene.id) }}
                 </p>
+
+                <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                  <Button
+                    v-for="asset in resolveSceneReferencePreviewAssets(scene.id)"
+                    :key="`ref_preview_${scene.id}_${asset.id}`"
+                    type="button"
+                    variant="ghost"
+                    class="h-8 w-8 rounded border bg-muted/30 p-0 overflow-hidden"
+                    @click.stop="openImagePreview(asset.referenceImage, `${scene.title} · ${asset.name}`)"
+                  >
+                    <img
+                      :src="toImageSrc(asset.referenceImage)"
+                      :alt="`${asset.name} 参考图`"
+                      class="h-full w-full object-cover"
+                    >
+                  </Button>
+                  <Badge
+                    v-if="resolveSceneReferenceRemainingCount(scene.id) > 0"
+                    variant="outline"
+                    class="text-[10px]"
+                  >
+                    +{{ resolveSceneReferenceRemainingCount(scene.id) }}
+                  </Badge>
+                </div>
 
                 <div class="mt-2 flex flex-wrap gap-1">
                   <Badge
@@ -3141,15 +3369,6 @@ onMounted(async () => {
 
             <div class="rounded-md border p-3 space-y-3 min-h-0">
               <template v-if="selectedScene">
-                <div>
-                  <div class="text-sm font-medium">
-                    {{ selectedScene.title }}
-                  </div>
-                  <p class="text-xs text-muted-foreground mt-1 line-clamp-3">
-                    {{ selectedScene.description }}
-                  </p>
-                </div>
-
                 <div class="space-y-1">
                   <div class="text-[11px] text-muted-foreground">
                     视频预览
@@ -3167,39 +3386,6 @@ onMounted(async () => {
                     >等待生成视频</span>
                   </div>
                 </div>
-
-                <div class="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    :disabled="isSceneBusy(selectedScene)"
-                    @click="generateSceneBaseline(selectedScene.id)"
-                  >
-                    <Loader2
-                      v-if="selectedScene.frameStatus === 'generating'"
-                      class="h-3.5 w-3.5 mr-1 animate-spin"
-                    />
-                    {{ resolveSceneReferenceImage(selectedScene) ? '重生成环境图' : '生成环境图' }}
-                  </Button>
-                  <Button
-                    size="sm"
-                    :disabled="isSceneBusy(selectedScene)"
-                    @click="retryScene(selectedScene.id)"
-                  >
-                    <Loader2
-                      v-if="selectedScene.videoStatus === 'generating' || isScenePreparing(selectedScene)"
-                      class="h-3.5 w-3.5 mr-1 animate-spin"
-                    />
-                    {{ isScenePreparing(selectedScene) ? '准备中' : selectedScene.videoUrl ? '重生成视频' : '生成视频' }}
-                  </Button>
-                </div>
-
-                <p
-                  v-if="selectedScene.videoStatus === 'error' && selectedScene.videoError"
-                  class="text-xs text-destructive"
-                >
-                  {{ normalizeWorkflowText(selectedScene.videoError) }}
-                </p>
               </template>
               <p
                 v-else
@@ -3351,7 +3537,10 @@ onMounted(async () => {
       v-model:open="sceneEditDialogOpen"
       :scene="editingScene"
       :available-characters="characters.map(char => char.name)"
+      :asset-reference-options="sceneEditAssetReferenceOptions"
+      :selected-asset-reference-ids="sceneEditSelectedAssetIds"
       @save="handleSceneSave"
+      @save-asset-references="handleSceneAssetReferencesSave"
     />
 
     <ImagePreview
