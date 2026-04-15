@@ -215,6 +215,12 @@ function handleReorderScenes(fromIndex: number, toIndex: number) {
   }
 }
 
+async function handleParseScriptWithTimeline() {
+  await parseScript({
+    descriptionFormat: 'timeline'
+  })
+}
+
 // 角色编辑对话框
 const characterEditDialogOpen = ref(false)
 const editingCharacter = ref<CharacterData | null>(null)
@@ -419,7 +425,7 @@ watch(saveError, (message) => {
           @update:outline="handleOutlineUpdate"
           @update:input-mode="inputMode = $event"
           @generate-outline="generateOutline"
-          @parse-script="parseScript"
+          @parse-script="handleParseScriptWithTimeline"
           @proceed-to-characters="setCurrentStep('characters')"
         />
 

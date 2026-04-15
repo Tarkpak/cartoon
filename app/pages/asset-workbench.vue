@@ -8,6 +8,7 @@ import {
   Film,
   Layers3,
   Loader2,
+  MessageCircle,
   Merge,
   Pencil,
   RefreshCw,
@@ -15,6 +16,7 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  X,
   Users
 } from 'lucide-vue-next'
 import { useDebounceFn } from '@vueuse/core'
@@ -45,6 +47,7 @@ interface PropAsset {
   id: string
   name: string
   description: string
+  referenceImage?: string
 }
 
 interface AssetWorkflowMeta {
@@ -67,6 +70,25 @@ interface DisplayAsset {
   referenceImage?: string
 }
 
+interface SceneDescriptionMentionItem {
+  token: string
+  asset?: DisplayAsset
+}
+
+interface SceneDescriptionRenderSegment {
+  type: 'text' | 'asset'
+  text?: string
+  asset?: DisplayAsset
+}
+
+interface SceneVideoReferenceAsset {
+  assetId: string
+  name: string
+  type: 'character' | 'prop'
+  image: string
+  source: 'configured' | 'fallback'
+}
+
 interface EnvironmentAssetCard {
   id: string
   name: string
@@ -76,6 +98,20 @@ interface EnvironmentAssetCard {
   sceneTitles: string[]
   representativeSceneId: string
   frameStatus: 'pending' | 'generating' | 'done' | 'error'
+}
+
+interface SceneChatMentionCandidate {
+  asset: DisplayAsset
+  token: string
+  searchText: string
+}
+
+interface SceneChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  assetIds: string[]
+  createdAt: number
 }
 
 const route = useRoute()
@@ -95,6 +131,7 @@ const {
   scenes,
   characters,
   parsing,
+  parsedTimelineText,
   saveError,
   saveProject,
   loadProject,
@@ -387,6 +424,20 @@ const environmentRegeneratePrompt = ref('')
 const environmentRegenerateError = ref<string | null>(null)
 const uploadingCharacterId = ref<string | null>(null)
 const uploadingEnvironmentAssetId = ref<string | null>(null)
+const uploadingPropId = ref<string | null>(null)
+const sceneChatOpenSceneId = ref<string | null>(null)
+const sceneChatMessages = ref<Record<string, SceneChatMessage[]>>({})
+const sceneChatComposerText = ref('')
+const sceneChatComposerAssetIds = ref<string[]>([])
+const sceneChatMentionOpen = ref(false)
+const sceneChatMentionQuery = ref('')
+const sceneChatMentionStart = ref<number | null>(null)
+const sceneChatMentionActiveIndex = ref(0)
+const sceneChatMentionListRef = ref<HTMLDivElement | null>(null)
+const sceneChatUploading = ref(false)
+const sceneChatApplying = ref(false)
+const sceneChatError = ref<string | null>(null)
+const sceneChatInputRef = ref<HTMLTextAreaElement | null>(null)
 const characterEditDraft = reactive({
   id: '',
   name: '',
@@ -404,6 +455,29 @@ watch(environmentRegenerateDialogOpen, (open) => {
   if (open) return
   environmentRegenerateTargetId.value = null
   environmentRegenerateError.value = null
+})
+
+watch(sceneChatOpenSceneId, (sceneId) => {
+  sceneChatComposerText.value = ''
+  sceneChatComposerAssetIds.value = []
+  sceneChatMentionOpen.value = false
+  sceneChatMentionQuery.value = ''
+  sceneChatMentionStart.value = null
+  sceneChatMentionActiveIndex.value = 0
+  sceneChatError.value = null
+
+  if (!sceneId) return
+  if (sceneChatMessages.value[sceneId]) return
+
+  sceneChatMessages.value[sceneId] = [
+    {
+      id: `scene_chat_msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      role: 'assistant',
+      content: '请输入二次修改指令，支持 @资产 mention，也可以上传图片资产后一起调整场景。',
+      assetIds: [],
+      createdAt: Date.now()
+    }
+  ]
 })
 
 const selectedScene = computed<SceneData | null>(() => {
@@ -447,7 +521,7 @@ const environmentAssetCards = computed<EnvironmentAssetCard[]>(() => {
       map.set(assetId, {
         id: assetId,
         name: resolveSceneEnvironmentLabel(scene),
-        description: scene.setting?.mood?.trim() || scene.description?.trim() || undefined,
+        description: scene.setting?.mood?.trim() || resolveSceneDescriptionWithoutAssetMentions(scene.description)?.trim() || undefined,
         referenceImage: sceneImage,
         sceneIds: [scene.id],
         sceneTitles: [scene.title || scene.id],
@@ -496,7 +570,8 @@ const propDisplayAssets = computed<DisplayAsset[]>(() => {
     id: `prop:${prop.id}`,
     name: prop.name,
     type: 'prop' as const,
-    description: prop.description
+    description: prop.description,
+    referenceImage: prop.referenceImage
   }))
 })
 
@@ -506,6 +581,61 @@ const allAssets = computed<DisplayAsset[]>(() => {
     ...environmentAssets.value,
     ...propDisplayAssets.value
   ]
+})
+
+const sceneChatCurrentMessages = computed<SceneChatMessage[]>(() => {
+  const sceneId = sceneChatOpenSceneId.value
+  if (!sceneId) return []
+  return sceneChatMessages.value[sceneId] || []
+})
+
+const sceneChatComposerAssets = computed<DisplayAsset[]>(() => {
+  const assetMap = new Map(allAssets.value.map(asset => [asset.id, asset] as const))
+  return sceneChatComposerAssetIds.value
+    .map(assetId => assetMap.get(assetId))
+    .filter((asset): asset is DisplayAsset => !!asset)
+})
+
+const sceneChatMentionCandidates = computed<SceneChatMentionCandidate[]>(() => {
+  const query = sceneChatMentionQuery.value.trim().toLowerCase()
+  const tokenMap = resolveAssetMentionTokenMap()
+
+  return allAssets.value
+    .slice()
+    .sort((left, right) => {
+      const typeSort = resolveDisplayAssetTypeOrder(left.type) - resolveDisplayAssetTypeOrder(right.type)
+      if (typeSort !== 0) return typeSort
+      return left.name.localeCompare(right.name)
+    })
+    .map((asset) => {
+      const token = tokenMap.get(asset.id) || ''
+      return {
+        asset,
+        token,
+        searchText: `${asset.name} ${resolveDisplayAssetTypeLabel(asset.type)} ${asset.id} ${token}`.toLowerCase()
+      }
+    })
+    .filter(item => !!item.token)
+    .filter((item) => {
+      if (!query) return true
+      return item.searchText.includes(query)
+    })
+})
+
+watch(sceneChatMentionCandidates, (candidates) => {
+  if (!sceneChatMentionOpen.value) return
+
+  if (candidates.length === 0) {
+    sceneChatMentionOpen.value = false
+    sceneChatMentionActiveIndex.value = 0
+    return
+  }
+
+  if (sceneChatMentionActiveIndex.value >= candidates.length) {
+    sceneChatMentionActiveIndex.value = candidates.length - 1
+  }
+
+  syncSceneChatMentionActiveItemIntoView()
 })
 
 const queueSummary = computed(() => {
@@ -596,7 +726,7 @@ const autoStages = computed(() => {
 
 const stageHints: Record<AutoStageKey, string> = {
   parse: '粘贴剧本后点击解析，系统会自动拆分场景并补齐资产规划。',
-  assets: '默认自动补齐资产；如需人工干预，可编辑资产后重新生成。',
+  assets: '默认自动补齐资产；也支持用户手动上传角色图、环境图、道具图并随时替换。',
   videos: '批量生成场景视频并自动重试失败场景一次；生成效果不理想时可拆分或合并场景后再重试。',
   final: '合成并下载最终视频（可选）。'
 }
@@ -679,7 +809,7 @@ function hashForDomId(value: string): string {
   return hash.toString(36)
 }
 
-function buildUploadInputId(type: 'char' | 'env', rawId: string): string {
+function buildUploadInputId(type: 'char' | 'env' | 'prop', rawId: string): string {
   const normalized = rawId
     .toLowerCase()
     .replace(/[^a-zA-Z0-9_-]+/g, '_')
@@ -689,7 +819,7 @@ function buildUploadInputId(type: 'char' | 'env', rawId: string): string {
   return `${type}_upload_${normalized || 'asset'}_${suffix}`
 }
 
-function triggerUploadInput(type: 'char' | 'env', rawId: string) {
+function triggerUploadInput(type: 'char' | 'env' | 'prop', rawId: string) {
   if (typeof document === 'undefined') return
   const inputId = buildUploadInputId(type, rawId)
   const input = document.getElementById(inputId) as HTMLInputElement | null
@@ -837,6 +967,48 @@ async function handleEnvironmentImageUpload(assetId: string, event: Event) {
   }
 }
 
+async function handlePropImageUpload(propId: string, event: Event) {
+  const input = event.target as HTMLInputElement | null
+  const file = input?.files?.[0]
+  if (!file) {
+    resetFileInput(event)
+    return
+  }
+
+  if (!file.type.startsWith('image/')) {
+    resetFileInput(event)
+    autoRunError.value = '仅支持上传图片文件'
+    return
+  }
+
+  if (file.size > MAX_ASSET_UPLOAD_SIZE) {
+    resetFileInput(event)
+    autoRunError.value = '图片大小不能超过 20MB'
+    return
+  }
+
+  const target = propAssets.value.find(item => item.id === propId)
+  if (!target) {
+    resetFileInput(event)
+    return
+  }
+
+  uploadingPropId.value = propId
+  autoRunError.value = null
+
+  try {
+    const dataUrl = await fileToDataUrl(file)
+    const imageUrl = await uploadAssetImage(dataUrl, `prop_${target.id}`)
+    target.referenceImage = imageUrl
+    await saveWorkflowMeta()
+  } catch (error) {
+    autoRunError.value = resolveUiError(error, '道具图片上传失败')
+  } finally {
+    uploadingPropId.value = null
+    resetFileInput(event)
+  }
+}
+
 function resolvePropUsageCount(propId: string): number {
   const targetAssetId = `prop:${propId}`
   return scenes.value.filter((scene) => {
@@ -855,6 +1027,787 @@ function openImagePreview(imageData: string | undefined, alt = '图片预览') {
 
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b))
+}
+
+const SCENE_ASSET_MENTION_MARKER = '[引用资产]'
+const SCENE_ASSET_MENTION_SECTION_REGEX = /\n{0,2}\[引用资产\]\n(?:@[^\n]*\n?)+$/u
+const SCENE_ASSET_MENTION_SECTION_CAPTURE_REGEX = /\n{0,2}\[引用资产\]\n((?:@[^\n]*\n?)+)$/u
+const SCENE_TIMELINE_LINE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?s\s*[：:]/m
+const SCENE_IMAGE_TAG_REGEX = /\[(?:图片|Image\s*#)\s*\d+\]/giu
+const SCENE_LEGACY_AUDIO_CONSTRAINT_REGEX = /\n?\s*不添加字幕，不添加BGM[。.]?\s*$/gu
+
+function resolveDisplayAssetTypeOrder(type: DisplayAsset['type']): number {
+  if (type === 'character') return 1
+  if (type === 'environment') return 2
+  if (type === 'prop') return 3
+  return 9
+}
+
+function resolveDisplayAssetTypeLabel(type: DisplayAsset['type']): string {
+  if (type === 'character') return '角色'
+  if (type === 'environment') return '环境'
+  if (type === 'prop') return '道具'
+  return '资产'
+}
+
+function buildAssetMentionToken(asset: DisplayAsset, duplicatedName: boolean): string {
+  const name = asset.name.trim()
+  if (!name) return ''
+  return duplicatedName
+    ? `@${resolveDisplayAssetTypeLabel(asset.type)}:${name}`
+    : `@${name}`
+}
+
+function resolveAssetMentionTokenMap(): Map<string, string> {
+  const assets = allAssets.value
+    .filter(asset => !!asset.name?.trim())
+    .slice()
+    .sort((left, right) => {
+      const typeSort = resolveDisplayAssetTypeOrder(left.type) - resolveDisplayAssetTypeOrder(right.type)
+      if (typeSort !== 0) return typeSort
+      return left.name.localeCompare(right.name)
+    })
+
+  const nameCounter = new Map<string, number>()
+  for (const asset of assets) {
+    const key = asset.name.trim()
+    nameCounter.set(key, (nameCounter.get(key) || 0) + 1)
+  }
+
+  const tokenMap = new Map<string, string>()
+  for (const asset of assets) {
+    const key = asset.name.trim()
+    const duplicatedName = (nameCounter.get(key) || 0) > 1
+    const token = buildAssetMentionToken(asset, duplicatedName)
+    if (token) {
+      tokenMap.set(asset.id, token)
+    }
+  }
+
+  return tokenMap
+}
+
+function stripSceneAssetMentionSection(description: string): string {
+  return description.replace(SCENE_ASSET_MENTION_SECTION_REGEX, '').trimEnd()
+}
+
+function resolveSceneDescriptionWithoutAssetMentions(raw?: string): string {
+  return stripSceneAssetMentionSection(raw || '')
+    .replace(SCENE_LEGACY_AUDIO_CONSTRAINT_REGEX, '')
+    .trim()
+}
+
+function isTimelineSceneDescription(text: string): boolean {
+  return SCENE_TIMELINE_LINE_REGEX.test(text)
+}
+
+function extractSceneDescriptionMentionTokens(raw?: string): string[] {
+  const text = raw || ''
+  const match = text.match(SCENE_ASSET_MENTION_SECTION_CAPTURE_REGEX)
+  const block = match?.[1] || ''
+  if (!block) return []
+
+  const seen = new Set<string>()
+  const tokens: string[] = []
+  for (const line of block.split('\n')) {
+    const token = line.trim()
+    if (!token.startsWith('@')) continue
+    if (seen.has(token)) continue
+    seen.add(token)
+    tokens.push(token)
+  }
+
+  return tokens
+}
+
+function resolveAssetByMentionTokenMap(): Map<string, DisplayAsset> {
+  const tokenMap = resolveAssetMentionTokenMap()
+  const assetMap = new Map(allAssets.value.map(asset => [asset.id, asset] as const))
+  const mentionMap = new Map<string, DisplayAsset>()
+
+  for (const [assetId, token] of tokenMap) {
+    const asset = assetMap.get(assetId)
+    if (asset) {
+      mentionMap.set(token, asset)
+    }
+  }
+
+  return mentionMap
+}
+
+function resolveSceneMentionTokensWithFallback(scene: SceneData): string[] {
+  const describedTokens = extractSceneDescriptionMentionTokens(scene.description)
+  const tokenMap = resolveAssetMentionTokenMap()
+  const config = sceneConfigs.value[scene.id]
+  const configTokens = config
+    ? uniqueSorted(config.mustReferenceAssetIds)
+        .map(assetId => tokenMap.get(assetId) || '')
+        .filter(Boolean)
+    : []
+
+  if (describedTokens.length === 0) return configTokens
+  if (configTokens.length === 0) return describedTokens
+
+  const merged = new Set<string>()
+  const ordered: string[] = []
+
+  for (const token of describedTokens) {
+    if (merged.has(token)) continue
+    merged.add(token)
+    ordered.push(token)
+  }
+
+  for (const token of configTokens) {
+    if (merged.has(token)) continue
+    merged.add(token)
+    ordered.push(token)
+  }
+
+  return ordered
+}
+
+function resolveSceneDescriptionMentionItems(scene: SceneData): SceneDescriptionMentionItem[] {
+  const mentionMap = resolveAssetByMentionTokenMap()
+  return resolveSceneMentionTokensWithFallback(scene).map((token) => {
+    return {
+      token,
+      asset: mentionMap.get(token)
+    }
+  })
+}
+
+function resolveSceneDescriptionSecondaryMentionItems(scene: SceneData): SceneDescriptionMentionItem[] {
+  const deduplicated = new Set<string>()
+  const items: SceneDescriptionMentionItem[] = []
+
+  for (const item of resolveSceneDescriptionMentionItems(scene)) {
+    if (item.asset?.type === 'character') continue
+
+    const key = item.asset?.id || item.token
+    if (!key || deduplicated.has(key)) continue
+
+    deduplicated.add(key)
+    items.push(item)
+  }
+
+  return items
+}
+
+function normalizeSceneDescriptionForDisplay(text: string): string {
+  if (!text) return ''
+  return text
+    .replace(SCENE_IMAGE_TAG_REGEX, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .trim()
+}
+
+function escapeRegExpForSceneDescription(raw: string): string {
+  return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function stripRedundantBracketedCharacterTags(text: string, characterNames: string[]): string {
+  if (!text || characterNames.length === 0) return text
+
+  let normalized = text
+  const names = Array.from(new Set(
+    characterNames
+      .map(name => name.trim())
+      .filter(Boolean)
+  ))
+    .sort((left, right) => right.length - left.length)
+
+  for (const name of names) {
+    const escaped = escapeRegExpForSceneDescription(name)
+    const bracketTagPattern = new RegExp(`\\[\\s*${escaped}\\s*\\]`, 'gu')
+    const adjacentDuplicatePattern = new RegExp(`(${escaped})\\s*\\1`, 'gu')
+    normalized = normalized.replace(bracketTagPattern, '')
+    normalized = normalized.replace(adjacentDuplicatePattern, '$1')
+  }
+
+  return normalized
+}
+
+function findNextCharacterMentionIndex(text: string, name: string, start: number): number {
+  if (!text || !name) return -1
+
+  let index = text.indexOf(name, start)
+  while (index >= 0) {
+    const prevChar = index > 0 ? text[index - 1] : ''
+    const nextChar = text[index + name.length] || ''
+    const insideSquareBracket = prevChar === '[' || nextChar === ']'
+    const mentionTokenFragment = prevChar === '@'
+
+    if (!insideSquareBracket && !mentionTokenFragment) {
+      return index
+    }
+
+    index = text.indexOf(name, index + name.length)
+  }
+
+  return -1
+}
+
+function resolveSceneDescriptionCharacterMentionAssets(scene: SceneData): DisplayAsset[] {
+  const assets = resolveSceneDescriptionMentionItems(scene)
+    .map(item => item.asset)
+    .filter((asset): asset is DisplayAsset => {
+      return !!asset
+        && asset.type === 'character'
+        && !!asset.name?.trim()
+    })
+
+  const nameCount = new Map<string, number>()
+  for (const asset of assets) {
+    const key = asset.name.trim()
+    nameCount.set(key, (nameCount.get(key) || 0) + 1)
+  }
+
+  const resolved = new Map<string, DisplayAsset>()
+  for (const asset of assets) {
+    const name = asset.name.trim()
+    if ((nameCount.get(name) || 0) > 1) continue
+    if (!resolved.has(asset.id)) {
+      resolved.set(asset.id, asset)
+    }
+  }
+
+  return Array.from(resolved.values())
+}
+
+function resolveSceneDescriptionRenderSegments(scene: SceneData): SceneDescriptionRenderSegment[] {
+  const characterAssets = resolveSceneDescriptionCharacterMentionAssets(scene)
+    .slice()
+    .sort((left, right) => right.name.length - left.name.length)
+
+  const description = stripRedundantBracketedCharacterTags(
+    normalizeSceneDescriptionForDisplay(
+      resolveSceneDescriptionWithoutAssetMentions(scene.description || '')
+    ),
+    characterAssets.map(asset => asset.name)
+  )
+  if (!description) return []
+
+  if (characterAssets.length === 0) {
+    return [{ type: 'text', text: description }]
+  }
+
+  const segments: SceneDescriptionRenderSegment[] = []
+  let cursor = 0
+
+  while (cursor < description.length) {
+    let nextMatchIndex = -1
+    let nextAsset: DisplayAsset | undefined
+
+    for (const asset of characterAssets) {
+      const name = asset.name.trim()
+      if (!name) continue
+
+      const index = findNextCharacterMentionIndex(description, name, cursor)
+      if (index < 0) continue
+
+      if (
+        nextMatchIndex < 0
+        || index < nextMatchIndex
+        || (index === nextMatchIndex && (nextAsset?.name.length || 0) < name.length)
+      ) {
+        nextMatchIndex = index
+        nextAsset = asset
+      }
+    }
+
+    if (nextMatchIndex < 0 || !nextAsset) {
+      const remain = description.slice(cursor)
+      if (remain) {
+        segments.push({ type: 'text', text: remain })
+      }
+      break
+    }
+
+    if (nextMatchIndex > cursor) {
+      segments.push({
+        type: 'text',
+        text: description.slice(cursor, nextMatchIndex)
+      })
+    }
+
+    segments.push({
+      type: 'asset',
+      asset: nextAsset
+    })
+
+    cursor = nextMatchIndex + nextAsset.name.length
+  }
+
+  return segments.length > 0 ? segments : [{ type: 'text', text: description }]
+}
+
+function buildSceneMentionDescription(baseDescription: string, mentionTokens: string[]): string {
+  const base = resolveSceneDescriptionWithoutAssetMentions(baseDescription)
+  if (isTimelineSceneDescription(base)) return base
+  if (mentionTokens.length === 0) return base
+
+  const section = `${SCENE_ASSET_MENTION_MARKER}\n${mentionTokens.join('\n')}`
+  return base ? `${base}\n\n${section}` : section
+}
+
+function synchronizeSceneDescriptionsWithAssetMentions(): boolean {
+  const tokenMap = resolveAssetMentionTokenMap()
+  let changed = false
+
+  for (const scene of scenes.value) {
+    const config = sceneConfigs.value[scene.id]
+    if (!config) continue
+
+    const mentionTokens = uniqueSorted(config.mustReferenceAssetIds)
+      .map(assetId => tokenMap.get(assetId) || '')
+      .filter(Boolean)
+
+    const nextDescription = buildSceneMentionDescription(
+      scene.description || '',
+      mentionTokens
+    )
+
+    if ((scene.description || '') !== nextDescription) {
+      scene.description = nextDescription
+      changed = true
+    }
+  }
+
+  return changed
+}
+
+function resolveDisplayAssetById(assetId: string): DisplayAsset | undefined {
+  return allAssets.value.find(asset => asset.id === assetId)
+}
+
+function ensureSceneChatHistory(sceneId: string): SceneChatMessage[] {
+  if (!sceneChatMessages.value[sceneId]) {
+    sceneChatMessages.value[sceneId] = []
+  }
+  return sceneChatMessages.value[sceneId]!
+}
+
+function appendSceneChatMessage(
+  sceneId: string,
+  role: SceneChatMessage['role'],
+  content: string,
+  assetIds: string[] = []
+) {
+  const history = ensureSceneChatHistory(sceneId)
+  history.push({
+    id: `scene_chat_msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    role,
+    content,
+    assetIds: uniqueSorted(assetIds),
+    createdAt: Date.now()
+  })
+}
+
+function closeSceneChatMention() {
+  sceneChatMentionOpen.value = false
+  sceneChatMentionQuery.value = ''
+  sceneChatMentionStart.value = null
+  sceneChatMentionActiveIndex.value = 0
+}
+
+function syncSceneChatMentionActiveItemIntoView() {
+  if (!sceneChatMentionOpen.value) return
+
+  nextTick(() => {
+    const listElement = sceneChatMentionListRef.value
+    if (!listElement) return
+
+    const target = listElement.querySelector<HTMLElement>(
+      `[data-scene-chat-mention-index="${sceneChatMentionActiveIndex.value}"]`
+    )
+    target?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function closeSceneChat() {
+  sceneChatOpenSceneId.value = null
+  sceneChatError.value = null
+  closeSceneChatMention()
+}
+
+function toggleSceneChat(scene: SceneData) {
+  if (sceneChatOpenSceneId.value === scene.id) {
+    closeSceneChat()
+    return
+  }
+  sceneChatOpenSceneId.value = scene.id
+}
+
+function resolveChatUploadAssetName(fileName: string): string {
+  const base = fileName
+    .replace(/\.[^./\\]+$/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 32)
+
+  const fallback = base || `上传图_${new Date().toISOString().slice(11, 19).replace(/:/g, '')}`
+  const used = new Set(propAssets.value.map(item => item.name))
+  if (!used.has(fallback)) return fallback
+
+  for (let index = 2; index < 100; index += 1) {
+    const candidate = `${fallback}_${index}`
+    if (!used.has(candidate)) return candidate
+  }
+  return `${fallback}_${Date.now().toString().slice(-4)}`
+}
+
+function updateSceneChatMentionState() {
+  const textarea = sceneChatInputRef.value
+  if (!textarea) {
+    closeSceneChatMention()
+    return
+  }
+
+  const cursor = textarea.selectionStart ?? sceneChatComposerText.value.length
+  const prefix = sceneChatComposerText.value.slice(0, cursor)
+  const mentionStart = prefix.lastIndexOf('@')
+
+  if (mentionStart < 0) {
+    closeSceneChatMention()
+    return
+  }
+
+  const prevChar = mentionStart > 0 ? prefix[mentionStart - 1] : ''
+  if (prevChar && !/[\s\n,，。.!！?？;；:：()（）【】]/u.test(prevChar)) {
+    closeSceneChatMention()
+    return
+  }
+
+  const query = prefix.slice(mentionStart + 1)
+  if (/[\s\n]/u.test(query)) {
+    closeSceneChatMention()
+    return
+  }
+
+  sceneChatMentionStart.value = mentionStart
+  sceneChatMentionQuery.value = query
+  sceneChatMentionOpen.value = sceneChatMentionCandidates.value.length > 0
+  if (!sceneChatMentionOpen.value) {
+    sceneChatMentionActiveIndex.value = 0
+  } else {
+    syncSceneChatMentionActiveItemIntoView()
+  }
+}
+
+function applySceneChatMention(candidate: SceneChatMentionCandidate) {
+  const textarea = sceneChatInputRef.value
+  const start = sceneChatMentionStart.value
+  if (!textarea || start === null) return
+
+  const cursor = textarea.selectionStart ?? sceneChatComposerText.value.length
+  const before = sceneChatComposerText.value.slice(0, start)
+  const after = sceneChatComposerText.value.slice(cursor)
+  const insert = `${candidate.token} `
+
+  sceneChatComposerText.value = `${before}${insert}${after}`
+  closeSceneChatMention()
+
+  nextTick(() => {
+    const nextCursor = before.length + insert.length
+    textarea.focus()
+    textarea.setSelectionRange(nextCursor, nextCursor)
+  })
+}
+
+function handleSceneChatComposerInput() {
+  updateSceneChatMentionState()
+}
+
+function handleSceneChatComposerCursor() {
+  updateSceneChatMentionState()
+}
+
+function handleSceneChatComposerKeydown(event: KeyboardEvent) {
+  if (sceneChatMentionOpen.value && sceneChatMentionCandidates.value.length > 0) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      sceneChatMentionActiveIndex.value = (sceneChatMentionActiveIndex.value + 1) % sceneChatMentionCandidates.value.length
+      syncSceneChatMentionActiveItemIntoView()
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      const lastIndex = sceneChatMentionCandidates.value.length - 1
+      sceneChatMentionActiveIndex.value = sceneChatMentionActiveIndex.value <= 0
+        ? lastIndex
+        : sceneChatMentionActiveIndex.value - 1
+      syncSceneChatMentionActiveItemIntoView()
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const candidate = sceneChatMentionCandidates.value[sceneChatMentionActiveIndex.value]
+      if (candidate) {
+        applySceneChatMention(candidate)
+      }
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeSceneChatMention()
+      return
+    }
+  }
+
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    if (sceneChatOpenSceneId.value) {
+      void submitSceneChat(sceneChatOpenSceneId.value)
+    }
+  }
+}
+
+function extractAssetIdsFromSceneChatText(text: string): string[] {
+  const tokenMatches = text.match(/@[^\s,，。.!！？;；:：()（）【】]+/gu) || []
+  if (tokenMatches.length === 0) return []
+
+  const mentionMap = resolveAssetByMentionTokenMap()
+  const ids = new Set<string>()
+
+  for (const rawToken of tokenMatches) {
+    const token = rawToken.replace(/[，,。.!！？;；:：]+$/u, '')
+    const asset = mentionMap.get(token)
+    if (asset) {
+      ids.add(asset.id)
+    }
+  }
+
+  return Array.from(ids)
+}
+
+function applySceneChatAssetRefs(sceneId: string, assetIds: string[]): {
+  configChanged: boolean
+} {
+  if (assetIds.length === 0) {
+    return { configChanged: false }
+  }
+
+  const previousIds = resolveSceneReferenceAssetIds(sceneId)
+  const merged = uniqueSorted([...previousIds, ...assetIds])
+  setSceneAssetReferences(sceneId, merged)
+
+  const nextIds = resolveSceneReferenceAssetIds(sceneId)
+  const configChanged = previousIds.join('||') !== nextIds.join('||')
+  return { configChanged }
+}
+
+function ensureSceneDescriptionMentionTokens(sceneId: string, preferredAssetIds: string[] = []): boolean {
+  const scene = scenes.value.find(item => item.id === sceneId)
+  if (!scene) return false
+
+  const config = ensureSceneConfig(sceneId)
+  const tokenMap = resolveAssetMentionTokenMap()
+
+  const mentionTokens = uniqueSorted([
+    ...config.mustReferenceAssetIds,
+    ...preferredAssetIds
+  ])
+    .map(assetId => tokenMap.get(assetId) || '')
+    .filter(Boolean)
+
+  const nextDescription = buildSceneMentionDescription(
+    resolveSceneDescriptionWithoutAssetMentions(scene.description || ''),
+    mentionTokens
+  )
+
+  if ((scene.description || '') === nextDescription) return false
+  scene.description = nextDescription
+  return true
+}
+
+async function rewriteSceneDescriptionByChat(options: {
+  scene: SceneData
+  userMessage: string
+  history: SceneChatMessage[]
+  mentionedAssets: DisplayAsset[]
+}): Promise<string> {
+  const response = await $fetch<{
+    success: boolean
+    data?: {
+      description?: string
+    }
+    error?: string
+  }>('/api/asset-workflow/scene/refine-description', {
+    method: 'POST',
+    body: {
+      scene: buildAssetWorkflowScenePayload(options.scene),
+      userMessage: options.userMessage,
+      history: options.history
+        .filter(item => !!item.content?.trim())
+        .slice(-8)
+        .map(item => ({
+          role: item.role,
+          content: item.content.trim()
+        })),
+      mentionedAssets: options.mentionedAssets.map(asset => ({
+        id: asset.id,
+        name: asset.name,
+        type: asset.type,
+        description: asset.description,
+        hasReferenceImage: !!asset.referenceImage
+      })),
+      style: workflowStylePrompt.value
+    }
+  })
+
+  if (!response.success || !response.data?.description?.trim()) {
+    throw new Error(response.error || '模型未返回有效的场景描述')
+  }
+
+  return response.data.description.trim()
+}
+
+function removeSceneChatComposerAsset(assetId: string) {
+  sceneChatComposerAssetIds.value = sceneChatComposerAssetIds.value.filter(id => id !== assetId)
+}
+
+function triggerSceneChatUpload() {
+  if (typeof document === 'undefined') return
+  const input = document.getElementById('scene_chat_upload_input') as HTMLInputElement | null
+  input?.click()
+}
+
+async function handleSceneChatImageUpload(event: Event) {
+  const input = event.target as HTMLInputElement | null
+  const files = Array.from(input?.files || [])
+  const sceneId = sceneChatOpenSceneId.value
+
+  if (!sceneId || files.length === 0) {
+    resetFileInput(event)
+    return
+  }
+
+  sceneChatUploading.value = true
+  sceneChatError.value = null
+
+  try {
+    const createdAssetIds: string[] = []
+
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) {
+        throw new Error('仅支持上传图片文件')
+      }
+      if (file.size > MAX_ASSET_UPLOAD_SIZE) {
+        throw new Error('图片大小不能超过 20MB')
+      }
+
+      const dataUrl = await fileToDataUrl(file)
+      const imageUrl = await uploadAssetImage(dataUrl, `scene_chat_${sceneId}`)
+      const name = resolveChatUploadAssetName(file.name)
+      const propId = `prop_upload_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+
+      propAssets.value.push({
+        id: propId,
+        name,
+        description: '用户上传图片资产',
+        referenceImage: imageUrl
+      })
+
+      createdAssetIds.push(`prop:${propId}`)
+    }
+
+    sceneChatComposerAssetIds.value = uniqueSorted([
+      ...sceneChatComposerAssetIds.value,
+      ...createdAssetIds
+    ])
+
+    await saveWorkflowMeta()
+
+    const tokenMap = resolveAssetMentionTokenMap()
+    const addedTokens = createdAssetIds
+      .map(assetId => tokenMap.get(assetId) || '')
+      .filter(Boolean)
+
+    if (addedTokens.length > 0) {
+      const base = sceneChatComposerText.value.trimEnd()
+      const appendText = addedTokens.join(' ')
+      sceneChatComposerText.value = base ? `${base}\n${appendText} ` : `${appendText} `
+      await nextTick()
+      updateSceneChatMentionState()
+    }
+  } catch (error) {
+    sceneChatError.value = resolveUiError(error, '上传图片资产失败')
+  } finally {
+    sceneChatUploading.value = false
+    resetFileInput(event)
+  }
+}
+
+async function submitSceneChat(sceneId: string) {
+  const scene = scenes.value.find(item => item.id === sceneId)
+  if (!scene) return
+  if (sceneChatApplying.value) return
+
+  const rawText = sceneChatComposerText.value
+  const text = rawText.trim()
+  const composerAssetIds = uniqueSorted(sceneChatComposerAssetIds.value)
+  if (!text && composerAssetIds.length === 0) return
+
+  const mentionAssetIds = extractAssetIdsFromSceneChatText(rawText)
+  const relatedAssetIds = uniqueSorted([...composerAssetIds, ...mentionAssetIds])
+  const relatedAssets = relatedAssetIds
+    .map(resolveDisplayAssetById)
+    .filter((asset): asset is DisplayAsset => !!asset)
+  const historyBeforeSubmit = ensureSceneChatHistory(sceneId)
+    .slice(-8)
+    .map(item => ({ ...item }))
+  const normalizedMessage = text || '请结合本次提及资产，优化该场景描述并保持剧情连续。'
+
+  appendSceneChatMessage(
+    sceneId,
+    'user',
+    text || '上传图片资产并执行场景二次修改',
+    relatedAssetIds
+  )
+
+  sceneChatComposerText.value = ''
+  sceneChatComposerAssetIds.value = []
+  sceneChatError.value = null
+  closeSceneChatMention()
+
+  sceneChatApplying.value = true
+
+  try {
+    const previousBaseDescription = resolveSceneDescriptionWithoutAssetMentions(scene.description || '')
+    const rewrittenDescription = await rewriteSceneDescriptionByChat({
+      scene,
+      userMessage: normalizedMessage,
+      history: historyBeforeSubmit,
+      mentionedAssets: relatedAssets
+    })
+    const descriptionChanged = previousBaseDescription !== rewrittenDescription
+    scene.description = rewrittenDescription
+
+    const { configChanged } = applySceneChatAssetRefs(sceneId, relatedAssetIds)
+    const mentionChanged = ensureSceneDescriptionMentionTokens(sceneId, relatedAssetIds)
+
+    if (descriptionChanged || mentionChanged || configChanged) {
+      await saveProject()
+    }
+    if (configChanged) {
+      await saveWorkflowMeta()
+    }
+
+    appendSceneChatMessage(
+      sceneId,
+      'assistant',
+      '已使用配置文本模型更新该场景描述，并同步了资产引用（未自动重生成环境图）。',
+      relatedAssetIds
+    )
+  } catch (error) {
+    const message = resolveUiError(error, '场景二次修改失败')
+    sceneChatError.value = message
+    appendSceneChatMessage(sceneId, 'assistant', `处理失败：${message}`)
+  } finally {
+    sceneChatApplying.value = false
+  }
 }
 
 function startEditCharacter(char: CharacterData) {
@@ -961,22 +1914,30 @@ function normalizeVideoUrlFromTask(videoData?: string | null): string | undefine
   return `data:video/mp4;base64,${raw}`
 }
 
-function collectSceneCharacterReferenceImages(scene: SceneData): string[] {
+function collectSceneCharacterReferenceAssets(scene: SceneData): SceneVideoReferenceAsset[] {
   const { refs } = resolveCharacterRefsFromScene(scene)
-  const images: string[] = []
+  const assets: SceneVideoReferenceAsset[] = []
   const seen = new Set<string>()
 
   for (const ref of refs) {
     const characterId = ref.replace('char:', '')
     const matched = characters.value.find(character => character.id === characterId)
     const image = matched?.baseImage?.trim()
-    if (image && !seen.has(image)) {
-      seen.add(image)
-      images.push(image)
-    }
+    if (!matched || !image) continue
+
+    const assetId = `char:${matched.id}`
+    if (seen.has(assetId)) continue
+    seen.add(assetId)
+    assets.push({
+      assetId,
+      name: matched.name.trim() || '角色',
+      type: 'character',
+      image,
+      source: 'fallback'
+    })
   }
 
-  return images
+  return assets
 }
 
 function findCharacterByAssetRefId(rawCharacterId: string): CharacterData | undefined {
@@ -1000,28 +1961,91 @@ function resolveConfiguredCharacterReferences(scene: SceneData): CharacterData[]
     .filter((character): character is CharacterData => !!character)
 }
 
-function resolveSceneVideoCharacterReferences(scene: SceneData): string[] {
-  const images: string[] = []
+function resolveConfiguredCharacterReferenceAssets(scene: SceneData): SceneVideoReferenceAsset[] {
+  const assets: SceneVideoReferenceAsset[] = []
   const seen = new Set<string>()
 
-  const pushImage = (raw?: string) => {
-    const image = raw?.trim()
-    if (!image || seen.has(image)) return
-    seen.add(image)
-    images.push(image)
+  for (const character of resolveConfiguredCharacterReferences(scene)) {
+    const image = character.baseImage?.trim()
+    if (!image) continue
+
+    const assetId = `char:${character.id}`
+    if (seen.has(assetId)) continue
+    seen.add(assetId)
+    assets.push({
+      assetId,
+      name: character.name.trim() || '角色',
+      type: 'character',
+      image,
+      source: 'configured'
+    })
   }
 
-  const configuredRefs = resolveConfiguredCharacterReferences(scene)
-  for (const character of configuredRefs) {
-    pushImage(character.baseImage)
+  return assets
+}
+
+function resolveConfiguredPropReferenceAssets(scene: SceneData): SceneVideoReferenceAsset[] {
+  const config = sceneConfigs.value[scene.id]
+  if (!config) return []
+
+  const propIds = uniqueSorted(
+    config.mustReferenceAssetIds
+      .filter(assetId => assetId.startsWith('prop:'))
+      .map(assetId => assetId.slice('prop:'.length))
+      .filter(Boolean)
+  )
+
+  const assets: SceneVideoReferenceAsset[] = []
+  const seen = new Set<string>()
+  for (const propId of propIds) {
+    const prop = propAssets.value.find(item => item.id === propId)
+    const image = prop?.referenceImage?.trim()
+    if (!image) continue
+
+    const assetId = `prop:${propId}`
+    if (seen.has(assetId)) continue
+    seen.add(assetId)
+    assets.push({
+      assetId,
+      name: prop?.name?.trim() || '道具',
+      type: 'prop',
+      image,
+      source: 'configured'
+    })
   }
 
-  const fallbackRefs = collectSceneCharacterReferenceImages(scene)
-  for (const image of fallbackRefs) {
-    pushImage(image)
+  return assets
+}
+
+function resolveSceneVideoReferenceAssets(scene: SceneData): SceneVideoReferenceAsset[] {
+  const assets: SceneVideoReferenceAsset[] = []
+  const seenImage = new Set<string>()
+
+  const appendAsset = (asset: SceneVideoReferenceAsset) => {
+    const image = asset.image?.trim()
+    if (!image || seenImage.has(image)) return
+    seenImage.add(image)
+    assets.push({
+      ...asset,
+      image
+    })
   }
 
-  return images
+  for (const asset of resolveConfiguredCharacterReferenceAssets(scene)) {
+    appendAsset(asset)
+  }
+  for (const asset of collectSceneCharacterReferenceAssets(scene)) {
+    appendAsset(asset)
+  }
+  for (const asset of resolveConfiguredPropReferenceAssets(scene)) {
+    appendAsset(asset)
+  }
+
+  return assets
+}
+
+function resolveSceneVideoCharacterReferences(scene: SceneData): string[] {
+  return resolveSceneVideoReferenceAssets(scene).map(item => item.image)
 }
 
 async function ensureSceneReferencedAssetsReady(scene: SceneData): Promise<void> {
@@ -1124,7 +2148,7 @@ function buildAssetWorkflowScenePayload(scene: SceneData) {
     id: scene.id,
     title: scene.title,
     sceneIndex: sceneIndex >= 0 ? sceneIndex + 1 : undefined,
-    description: scene.description,
+    description: resolveSceneDescriptionWithoutAssetMentions(scene.description),
     cameraNote: buildSceneGenerationCameraNote(scene),
     duration: scene.duration,
     setting: scene.setting,
@@ -1268,7 +2292,7 @@ function collectSceneCharacterCandidates(scene: SceneData): SceneCharacterCandid
 function getSceneText(scene: SceneData): string {
   return [
     scene.title || '',
-    scene.description || '',
+    resolveSceneDescriptionWithoutAssetMentions(scene.description),
     scene.narration || '',
     scene.dialogues.map(item => `${item.character}:${item.text}`).join('\n')
   ]
@@ -1503,9 +2527,18 @@ function applyAutomaticAssetPlan(
 
 watch(
   () => scenes.value.map(scene => scene.id),
-  () => {
+  (sceneIds) => {
     synchronizeSceneConfigs()
     synchronizeQueueItems()
+
+    if (sceneChatOpenSceneId.value && !sceneIds.includes(sceneChatOpenSceneId.value)) {
+      closeSceneChat()
+    }
+
+    const validSceneIdSet = new Set(sceneIds)
+    sceneChatMessages.value = Object.fromEntries(
+      Object.entries(sceneChatMessages.value).filter(([sceneId]) => validSceneIdSet.has(sceneId))
+    )
   },
   { immediate: true }
 )
@@ -1602,42 +2635,6 @@ function resolveAssetName(assetId: string): string {
   if (assetId.startsWith('prop:')) return '道具'
 
   return assetId
-}
-
-function resolveSceneReferenceAssets(sceneId: string): DisplayAsset[] {
-  const config = ensureSceneConfig(sceneId)
-  const assets = config.mustReferenceAssetIds
-    .map(assetId => allAssets.value.find(item => item.id === assetId))
-    .filter((asset): asset is DisplayAsset => !!asset && !!asset.referenceImage)
-
-  return uniqueSorted(assets.map(asset => asset.name))
-    .map(name => assets.find(asset => asset.name === name))
-    .filter((asset): asset is DisplayAsset => !!asset)
-}
-
-function resolveSceneReferenceSummary(sceneId: string): string {
-  const config = ensureSceneConfig(sceneId)
-  const names = uniqueSorted(
-    config.mustReferenceAssetIds
-      .map(resolveAssetName)
-      .filter(Boolean)
-  )
-  if (names.length === 0) return '参考资产：自动匹配'
-
-  if (names.length <= 3) {
-    return `参考资产：${names.join('、')}`
-  }
-
-  return `参考资产：${names.slice(0, 3).join('、')} 等 ${names.length} 项`
-}
-
-function resolveSceneReferencePreviewAssets(sceneId: string, limit = 4): DisplayAsset[] {
-  return resolveSceneReferenceAssets(sceneId).slice(0, limit)
-}
-
-function resolveSceneReferenceRemainingCount(sceneId: string, limit = 4): number {
-  const total = resolveSceneReferenceAssets(sceneId).length
-  return total > limit ? total - limit : 0
 }
 
 function resolveSceneReferenceAssetIds(sceneId: string): string[] {
@@ -1749,6 +2746,7 @@ const sceneEditSelectedAssetIds = computed<string[]>(() => {
 function openSceneEdit(scene: SceneData) {
   editingScene.value = {
     ...scene,
+    description: resolveSceneDescriptionWithoutAssetMentions(scene.description || ''),
     setting: scene.setting
       ? { ...scene.setting }
       : { location: '未知', timeOfDay: 'morning' },
@@ -1914,7 +2912,8 @@ async function handleParseScript() {
   try {
     const parsed = await parseScript({
       workflowType: 'asset_consistency',
-      style: workflowStylePrompt.value
+      style: workflowStylePrompt.value,
+      descriptionFormat: 'timeline'
     })
 
     if (!parsed) {
@@ -1925,7 +2924,9 @@ async function handleParseScript() {
       overwriteExistingConfigs: true
     })
 
-    if (autoPlanResult.characterChanged) {
+    const descriptionMentionChanged = synchronizeSceneDescriptionsWithAssetMentions()
+
+    if (autoPlanResult.characterChanged || descriptionMentionChanged) {
       await saveProject()
     }
     if (autoPlanResult.configChanged) {
@@ -1940,6 +2941,22 @@ async function handleParseScript() {
     }
   } catch (error) {
     autoRunError.value = resolveUiError(error, '剧本解析失败')
+  }
+}
+
+async function copyParsedTimelineText() {
+  const text = parsedTimelineText.value.trim()
+  if (!text) return
+
+  if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+    autoRunError.value = '当前环境不支持自动复制，请手动复制下方时间轴文案'
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch (error) {
+    autoRunError.value = resolveUiError(error, '复制时间轴文案失败，请手动复制')
   }
 }
 
@@ -2176,6 +3193,7 @@ async function generateSingleSceneVideo(sceneId: string) {
   if (!environmentImage) {
     throw new Error('场景环境图未就绪，无法生成视频')
   }
+  const characterReferenceAssets = resolveSceneVideoReferenceAssets(scene)
   const characterImages = resolveSceneVideoCharacterReferences(scene)
 
   scene.videoStatus = 'generating'
@@ -2195,7 +3213,19 @@ async function generateSingleSceneVideo(sceneId: string) {
         references: {
           environmentImage,
           characterImage: characterImages[0],
-          characterImages
+          characterImages,
+          environmentAsset: {
+            id: resolveSceneEnvironmentAssetId(scene),
+            name: resolveSceneEnvironmentLabel(scene),
+            type: 'environment',
+            image: environmentImage
+          },
+          characterAssets: characterReferenceAssets.map(item => ({
+            id: item.assetId,
+            name: item.name,
+            type: item.type,
+            image: item.image
+          }))
         }
       }
     })
@@ -2216,7 +3246,9 @@ async function runBatchSceneGeneration() {
   if (batchRunning.value) return
 
   const autoPlanResult = applyAutomaticAssetPlan()
-  if (autoPlanResult.characterChanged) {
+  const descriptionMentionChanged = synchronizeSceneDescriptionsWithAssetMentions()
+
+  if (autoPlanResult.characterChanged || descriptionMentionChanged) {
     await saveProject()
   }
   if (autoPlanResult.configChanged) {
@@ -2297,7 +3329,9 @@ async function runSimpleAssetsStep() {
     }
 
     const autoPlanResult = applyAutomaticAssetPlan()
-    if (autoPlanResult.characterChanged) {
+    const descriptionMentionChanged = synchronizeSceneDescriptionsWithAssetMentions()
+
+    if (autoPlanResult.characterChanged || descriptionMentionChanged) {
       await saveProject()
     }
     if (autoPlanResult.configChanged) {
@@ -2403,7 +3437,8 @@ async function loadWorkflowMeta(rawMetaInput?: unknown): Promise<boolean> {
             return {
               id: typeof prop.id === 'string' ? prop.id : `prop_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
               name: typeof prop.name === 'string' ? prop.name : '未命名道具',
-              description: typeof prop.description === 'string' ? prop.description : ''
+              description: typeof prop.description === 'string' ? prop.description : '',
+              referenceImage: typeof prop.referenceImage === 'string' ? prop.referenceImage : undefined
             }
           })
       : []
@@ -2470,7 +3505,9 @@ onMounted(async () => {
   const autoPlanResult = applyAutomaticAssetPlan({
     overwriteExistingConfigs: !hasMeta
   })
-  if (autoPlanResult.characterChanged) {
+  const descriptionMentionChanged = synchronizeSceneDescriptionsWithAssetMentions()
+
+  if (autoPlanResult.characterChanged || descriptionMentionChanged) {
     await saveProject()
   }
   if (autoPlanResult.configChanged) {
@@ -2590,6 +3627,25 @@ onMounted(async () => {
           class="flex-1 min-h-[280px] resize-none overflow-y-auto"
           placeholder="粘贴完整剧本原文..."
         />
+        <div
+          v-if="parsedTimelineText.trim()"
+          class="shrink-0 rounded-md border bg-muted/20 p-3 space-y-2"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-xs font-medium">
+              标准时间轴文案（含图片标记）
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              class="h-7 px-2 text-xs"
+              @click="copyParsedTimelineText"
+            >
+              复制文案
+            </Button>
+          </div>
+          <pre class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded border bg-background px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">{{ parsedTimelineText }}</pre>
+        </div>
         <div class="shrink-0 flex flex-wrap items-center gap-2">
           <Button
             :disabled="parsing || !novelText.trim()"
@@ -3052,7 +4108,7 @@ onMounted(async () => {
                   道具资产总览
                 </div>
                 <p class="text-xs text-muted-foreground">
-                  支持人工补充道具并修改描述，系统会按名称自动匹配场景引用。
+                  支持人工补充道具并修改描述；可在此直接上传道具图，场景对话窗上传的资产也会同步展示。
                 </p>
 
                 <div class="grid grid-cols-1 md:grid-cols-[1.3fr_1.7fr_auto] gap-2">
@@ -3099,16 +4155,51 @@ onMounted(async () => {
                       >
                         引用场景 {{ resolvePropUsageCount(prop.id) }}
                       </Badge>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        class="h-6 px-1.5 text-xs text-muted-foreground hover:text-destructive"
-                        @click="removePropAsset(prop.id)"
-                      >
-                        <Trash2 class="h-3.5 w-3.5" />
-                      </Button>
+                      <div class="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          class="h-6 px-2 text-[11px]"
+                          :disabled="autoRunning || !!uploadingPropId"
+                          @click="triggerUploadInput('prop', prop.id)"
+                        >
+                          <Loader2
+                            v-if="uploadingPropId === prop.id"
+                            class="mr-1 h-3 w-3 animate-spin"
+                          />
+                          <Upload
+                            v-else
+                            class="mr-1 h-3 w-3"
+                          />
+                          {{ prop.referenceImage ? '更换图片' : '上传图片' }}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          class="h-6 px-1.5 text-xs text-muted-foreground hover:text-destructive"
+                          @click="removePropAsset(prop.id)"
+                        >
+                          <Trash2 class="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
                     <div class="mt-2 space-y-2">
+                      <Button
+                        v-if="prop.referenceImage"
+                        type="button"
+                        variant="ghost"
+                        class="h-auto w-full justify-start gap-2 rounded border bg-muted/20 p-1.5"
+                        @click="openImagePreview(prop.referenceImage, `${prop.name} 参考图`)"
+                      >
+                        <img
+                          :src="toImageSrc(prop.referenceImage)"
+                          :alt="`${prop.name} 参考图`"
+                          class="h-8 w-8 rounded border object-cover"
+                        >
+                        <span class="truncate text-[11px] text-muted-foreground">
+                          已上传图片资产
+                        </span>
+                      </Button>
                       <Input
                         v-model="prop.name"
                         class="h-8 text-xs"
@@ -3119,6 +4210,13 @@ onMounted(async () => {
                         class="h-8 text-xs"
                         placeholder="道具描述（可选）"
                       />
+                      <input
+                        :id="buildUploadInputId('prop', prop.id)"
+                        type="file"
+                        accept="image/*"
+                        class="hidden"
+                        @change="handlePropImageUpload(prop.id, $event)"
+                      >
                     </div>
                   </div>
                 </div>
@@ -3204,7 +4302,7 @@ onMounted(async () => {
               <div
                 v-for="(scene, idx) in scenes"
                 :key="scene.id"
-                class="rounded-md border p-3 transition cursor-pointer group"
+                class="relative rounded-md border p-3 transition cursor-pointer group"
                 :class="selectedSceneId === scene.id ? 'border-primary bg-primary/5' : 'hover:border-primary/50'"
                 title="单击选中，双击编辑场景详情"
                 @click="selectScene(scene.id)"
@@ -3234,6 +4332,16 @@ onMounted(async () => {
                     </Badge>
 
                     <div class="flex max-w-0 items-center gap-1 overflow-hidden opacity-0 transition-all duration-200 group-hover:max-w-40 group-hover:opacity-100">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        class="h-7 w-7 p-0"
+                        title="对话修改场景"
+                        :disabled="isSceneBusy(scene)"
+                        @click.stop="toggleSceneChat(scene)"
+                      >
+                        <MessageCircle class="h-3.5 w-3.5" />
+                      </Button>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -3268,54 +4376,82 @@ onMounted(async () => {
                   </div>
                 </div>
 
-                <p class="mt-1 text-xs text-muted-foreground line-clamp-2">
-                  {{ scene.description }}
-                </p>
-
-                <p class="mt-1 text-[11px] text-muted-foreground">
-                  {{ resolveSceneReferenceSummary(scene.id) }}
-                </p>
-
-                <div class="mt-2 flex flex-wrap items-center gap-1.5">
-                  <Button
-                    v-for="asset in resolveSceneReferencePreviewAssets(scene.id)"
-                    :key="`ref_preview_${scene.id}_${asset.id}`"
-                    type="button"
-                    variant="ghost"
-                    class="h-8 w-8 rounded border bg-muted/30 p-0 overflow-hidden"
-                    @click.stop="openImagePreview(asset.referenceImage, `${scene.title} · ${asset.name}`)"
+                <div class="mt-1 text-xs text-muted-foreground leading-6 break-words">
+                  <template
+                    v-for="(segment, segmentIndex) in resolveSceneDescriptionRenderSegments(scene)"
+                    :key="`scene_desc_segment_${scene.id}_${segmentIndex}`"
                   >
-                    <img
-                      :src="toImageSrc(asset.referenceImage)"
-                      :alt="`${asset.name} 参考图`"
-                      class="h-full w-full object-cover"
+                    <span
+                      v-if="segment.type === 'text'"
+                      class="whitespace-pre-wrap"
                     >
-                  </Button>
-                  <Badge
-                    v-if="resolveSceneReferenceRemainingCount(scene.id) > 0"
-                    variant="outline"
-                    class="text-[10px]"
+                      {{ segment.text }}
+                    </span>
+                    <Button
+                      v-else-if="segment.asset?.referenceImage"
+                      type="button"
+                      variant="ghost"
+                      class="mx-0.5 inline-flex h-7 max-w-[140px] items-center gap-1 rounded border bg-muted/30 px-1 align-middle"
+                      @click.stop="openImagePreview(segment.asset.referenceImage, `${scene.title} · ${segment.asset.name}`)"
+                    >
+                      <img
+                        :src="toImageSrc(segment.asset.referenceImage)"
+                        :alt="`${segment.asset.name} 参考图`"
+                        class="h-5 w-5 rounded border object-cover"
+                      >
+                      <span class="truncate text-[10px]">
+                        {{ segment.asset.name }}
+                      </span>
+                    </Button>
+                    <Badge
+                      v-else-if="segment.asset"
+                      variant="outline"
+                      class="mx-0.5 inline-flex max-w-[140px] align-middle text-[10px]"
+                    >
+                      <span class="truncate">
+                        {{ segment.asset.name }}
+                      </span>
+                    </Badge>
+                  </template>
+                </div>
+
+                <div
+                  v-if="resolveSceneDescriptionSecondaryMentionItems(scene).length > 0"
+                  class="mt-1 flex flex-wrap items-center gap-1.5"
+                >
+                  <template
+                    v-for="mention in resolveSceneDescriptionSecondaryMentionItems(scene)"
+                    :key="`scene_mention_${scene.id}_${mention.token}`"
                   >
-                    +{{ resolveSceneReferenceRemainingCount(scene.id) }}
-                  </Badge>
+                    <Button
+                      v-if="mention.asset?.referenceImage"
+                      type="button"
+                      variant="ghost"
+                      class="h-8 max-w-[180px] gap-1 rounded border bg-muted/30 px-1.5"
+                      @click.stop="openImagePreview(mention.asset.referenceImage, `${scene.title} · ${mention.asset.name}`)"
+                    >
+                      <img
+                        :src="toImageSrc(mention.asset.referenceImage)"
+                        :alt="`${mention.asset.name} 参考图`"
+                        class="h-6 w-6 rounded border object-cover"
+                      >
+                      <span class="truncate text-[10px]">
+                        {{ mention.asset.name }}
+                      </span>
+                    </Button>
+                    <Badge
+                      v-else
+                      variant="outline"
+                      class="max-w-[180px] text-[10px]"
+                    >
+                      <span class="truncate">
+                        {{ mention.asset?.name || mention.token }}
+                      </span>
+                    </Badge>
+                  </template>
                 </div>
 
                 <div class="mt-2 flex flex-wrap gap-1">
-                  <Badge
-                    v-for="char in scene.characters.slice(0, 2)"
-                    :key="`${scene.id}_${char.name}`"
-                    variant="outline"
-                    class="text-[10px]"
-                  >
-                    {{ char.name }}
-                  </Badge>
-                  <Badge
-                    v-if="scene.characters.length > 2"
-                    variant="outline"
-                    class="text-[10px]"
-                  >
-                    +{{ scene.characters.length - 2 }}
-                  </Badge>
                   <Badge
                     v-if="scene.setting?.location"
                     variant="outline"
@@ -3364,6 +4500,211 @@ onMounted(async () => {
                     />
                     {{ isScenePreparing(scene) ? '准备中' : scene.videoUrl ? '重生成视频' : '生成视频' }}
                   </Button>
+                </div>
+
+                <div
+                  v-if="sceneChatOpenSceneId === scene.id"
+                  class="absolute right-2 top-12 z-30 w-[min(92vw,420px)] rounded-md border bg-background/95 p-3 shadow-xl backdrop-blur"
+                  @click.stop
+                >
+                  <div class="flex items-center justify-between gap-2 border-b pb-2">
+                    <div class="min-w-0">
+                      <p class="text-xs font-medium truncate">
+                        对话修改场景
+                      </p>
+                      <p class="text-[11px] text-muted-foreground truncate">
+                        {{ scene.title }}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      class="h-7 w-7 p-0"
+                      @click.stop="closeSceneChat"
+                    >
+                      <X class="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+
+                  <div class="mt-2 max-h-56 space-y-2 overflow-y-auto pr-1">
+                    <div
+                      v-for="msg in sceneChatCurrentMessages"
+                      :key="msg.id"
+                      :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'"
+                    >
+                      <div
+                        class="max-w-[92%] space-y-1 rounded-md border px-2 py-1.5 text-xs"
+                        :class="msg.role === 'user' ? 'border-primary/40 bg-primary/10' : 'bg-muted/40'"
+                      >
+                        <p class="whitespace-pre-wrap leading-relaxed">
+                          {{ msg.content }}
+                        </p>
+                        <div
+                          v-if="msg.assetIds.length > 0"
+                          class="flex flex-wrap gap-1"
+                        >
+                          <template
+                            v-for="assetId in msg.assetIds"
+                            :key="`${msg.id}_${assetId}`"
+                          >
+                            <Button
+                              v-if="resolveDisplayAssetById(assetId)?.referenceImage"
+                              type="button"
+                              variant="ghost"
+                              class="h-7 max-w-[140px] gap-1 rounded border bg-background px-1.5"
+                              @click.stop="openImagePreview(resolveDisplayAssetById(assetId)?.referenceImage, resolveDisplayAssetById(assetId)?.name || '上传资产')"
+                            >
+                              <img
+                                :src="toImageSrc(resolveDisplayAssetById(assetId)?.referenceImage)"
+                                :alt="resolveDisplayAssetById(assetId)?.name || '上传资产'"
+                                class="h-5 w-5 rounded border object-cover"
+                              >
+                              <span class="truncate text-[10px]">
+                                {{ resolveDisplayAssetById(assetId)?.name || assetId }}
+                              </span>
+                            </Button>
+                            <Badge
+                              v-else
+                              variant="outline"
+                              class="max-w-[140px] text-[10px]"
+                            >
+                              <span class="truncate">
+                                {{ resolveDisplayAssetById(assetId)?.name || assetId }}
+                              </span>
+                            </Badge>
+                          </template>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="relative mt-2 space-y-2 border-t pt-2">
+                    <div
+                      v-if="sceneChatComposerAssets.length > 0"
+                      class="flex flex-wrap items-center gap-1"
+                    >
+                      <Badge
+                        v-for="asset in sceneChatComposerAssets"
+                        :key="`scene_chat_composer_${asset.id}`"
+                        variant="secondary"
+                        class="gap-1 text-[10px]"
+                      >
+                        <span class="truncate max-w-[110px]">
+                          {{ asset.name }}
+                        </span>
+                        <button
+                          type="button"
+                          class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm"
+                          @click.stop="removeSceneChatComposerAsset(asset.id)"
+                        >
+                          <X class="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    </div>
+
+                    <Textarea
+                      ref="sceneChatInputRef"
+                      v-model="sceneChatComposerText"
+                      class="min-h-[100px] text-xs"
+                      placeholder="输入修改指令，支持 @资产；回车发送，Shift+回车换行"
+                      @input="handleSceneChatComposerInput"
+                      @click="handleSceneChatComposerCursor"
+                      @keyup="handleSceneChatComposerCursor"
+                      @keydown="handleSceneChatComposerKeydown"
+                    />
+
+                    <div
+                      v-if="sceneChatMentionOpen && sceneChatMentionCandidates.length > 0"
+                      ref="sceneChatMentionListRef"
+                      class="absolute bottom-full left-0 right-0 mb-1 max-h-40 overflow-y-auto rounded-md border bg-popover p-1 shadow-md"
+                    >
+                      <button
+                        v-for="(item, mentionIndex) in sceneChatMentionCandidates"
+                        :key="`scene_chat_mention_${item.asset.id}`"
+                        type="button"
+                        :data-scene-chat-mention-index="mentionIndex"
+                        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs"
+                        :class="mentionIndex === sceneChatMentionActiveIndex ? 'bg-accent' : 'hover:bg-accent/60'"
+                        @mousedown.prevent="applySceneChatMention(item)"
+                      >
+                        <img
+                          v-if="item.asset.referenceImage"
+                          :src="toImageSrc(item.asset.referenceImage)"
+                          :alt="item.asset.name"
+                          class="h-5 w-5 rounded border object-cover"
+                        >
+                        <span
+                          v-else
+                          class="inline-flex h-5 w-5 items-center justify-center rounded border text-[10px]"
+                        >
+                          {{ resolveDisplayAssetTypeLabel(item.asset.type).slice(0, 1) }}
+                        </span>
+                        <span class="truncate">
+                          {{ item.asset.name }}
+                        </span>
+                        <span class="ml-auto text-[10px] text-muted-foreground">
+                          {{ item.token }}
+                        </span>
+                      </button>
+                    </div>
+
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                      <p class="text-[10px] text-muted-foreground">
+                        可 @角色/@环境/@道具，上传图片后会自动加入可引用资产。
+                      </p>
+                      <div class="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          class="h-7 px-2 text-xs"
+                          :disabled="sceneChatUploading || sceneChatApplying"
+                          @click.stop="triggerSceneChatUpload"
+                        >
+                          <Loader2
+                            v-if="sceneChatUploading"
+                            class="h-3.5 w-3.5 mr-1 animate-spin"
+                          />
+                          <Upload
+                            v-else
+                            class="h-3.5 w-3.5 mr-1"
+                          />
+                          上传图片资产
+                        </Button>
+                        <Button
+                          size="sm"
+                          class="h-7 px-2 text-xs"
+                          :disabled="sceneChatUploading || sceneChatApplying || (!sceneChatComposerText.trim() && sceneChatComposerAssetIds.length === 0)"
+                          @click.stop="submitSceneChat(scene.id)"
+                        >
+                          <Loader2
+                            v-if="sceneChatApplying"
+                            class="h-3.5 w-3.5 mr-1 animate-spin"
+                          />
+                          <Sparkles
+                            v-else
+                            class="h-3.5 w-3.5 mr-1"
+                          />
+                          发送并二次修改
+                        </Button>
+                      </div>
+                    </div>
+
+                    <p
+                      v-if="sceneChatError"
+                      class="text-[11px] text-destructive"
+                    >
+                      {{ sceneChatError }}
+                    </p>
+
+                    <input
+                      id="scene_chat_upload_input"
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      class="hidden"
+                      @change="handleSceneChatImageUpload"
+                    >
+                  </div>
                 </div>
 
                 <p

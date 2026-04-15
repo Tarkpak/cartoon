@@ -7,7 +7,7 @@ import {
 } from '../../../utils/model-provider'
 import { imageLimiter } from '../../../utils/concurrency'
 import { persistImageToPublic } from '../../../utils/image-storage'
-import { getWorkflowModels } from '../../models/workflow.get'
+import { getWorkflowModels, getWorkflowModelOptions } from '../../models/workflow.get'
 import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
 
@@ -425,15 +425,20 @@ export default defineEventHandler(async (event) => {
   const customPrompt = regeneration?.customPrompt?.trim()
 
   try {
-    const workflowModels = await getWorkflowModels()
+    const [workflowModels, workflowModelOptions] = await Promise.all([
+      getWorkflowModels(),
+      getWorkflowModelOptions()
+    ])
     const modelDecision = resolveEnvironmentReferenceModel(workflowModels.frame_generation)
     const modelId = modelDecision.modelId
+    const geminiImageSize = workflowModelOptions.image_generation.geminiImageSize
     const prompt = await buildSceneReferencePrompt(scene, style, aspectRatio, environmentContext, customPrompt)
 
     const generated = await imageLimiter.execute(() =>
       generateImage({
         modelId,
         prompt,
+        imageSize: geminiImageSize,
         negativePrompt: ENVIRONMENT_ONLY_NEGATIVE_PROMPT,
         size: resolveImageSizeByAspectRatio(aspectRatio),
         maxRetries: 2

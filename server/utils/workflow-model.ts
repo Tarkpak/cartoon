@@ -130,6 +130,8 @@ export async function generateImageForWorkflow(
     prompt: string
     negativePrompt?: string
     size?: string
+    imageSize?: gemini.GeminiImageSize | string
+    aspectRatio?: string
     referenceImages?: string[]
     referenceImage?: { data: string, mimeType: string }
     maxRetries?: number
@@ -185,9 +187,14 @@ export async function generateImageForWorkflow(
   }
 
   // Gemini
+  const workflowModelOptions = await getWorkflowModelOptions()
+  const geminiImageSize = options.imageSize || workflowModelOptions.image_generation.geminiImageSize
   const result = await gemini._geminiGenerateImage({
     model: modelId,
     prompt: options.prompt,
+    imageSize: geminiImageSize,
+    aspectRatio: options.aspectRatio,
+    size: options.size,
     referenceImage: options.referenceImage,
     referenceImages: options.referenceImages,
     maxRetries: options.maxRetries

@@ -281,11 +281,13 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 - 若所用视频模型上限低于目标时长（例如仅 4-8 秒），必须拆分为更多连续场景并覆盖完整剧情
 - 对话密集场景可适当延长，动作场景保持紧凑但不能牺牲关键信息
 
-### 3. 画面可描述性
-每个场景的描述必须能够被转换为一张静态图片，包含：
-- 具体的环境/背景
-- 角色的位置和姿态
-- 光线和氛围
+### 3. 场景描述格式（重点）
+每个场景的 description 必须是「多行时间轴镜头脚本」，不要写成单段散文。要求：
+- 每行格式：起始-结束s：【景别】画面动作与对白
+- 每个场景至少 2 行，建议 3-6 行，时间轴从 0s 开始并覆盖该场景 duration
+- 对话直接写在对应镜头行中，例如：陆哲说："..."
+- 若使用行内引用标签，只允许标准格式 [图片N]（如 角色名[图片2] / 护士站[图片1]），禁止 [角色名] / [地点名] 这类自定义方括号标签
+- 禁止写“添加字幕/BGM/音效”等制作指令
 
 ### 4. 情节完整性
 - 每个场景应该有明确的开始和结束
@@ -316,7 +318,8 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
     {
       "id": "scene_001",
       "title": "场景标题",
-      "description": "详细的视觉描述，100-200字，描述画面中的环境、人物、动作",
+      "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
+      "description": "0-3s：【中景】护士站[图片1]人来人往，陆哲[图片2]抬手整理白大褂。\n3-8s：【近景】陆哲[图片2]嘴角上扬。陆哲说：“你们等着看...”。\n8-12s：【中景】护士1附和并追问，语气半信半疑。",
       "setting": {
         "location": "具体地点",
         "timeOfDay": "dawn|morning|noon|afternoon|evening|night"
@@ -328,13 +331,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
           "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
         }
       ],
-      "dialogues": [
-        {
-          "character": "说话角色名",
-          "text": "台词内容",
-          "emotion": "情绪"
-        }
-      ],
+      "dialogues": [],
       "narration": "场景旁白/画外音（可选）",
       "duration": 6
     }
@@ -353,8 +350,9 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 注意：
 1. 必须返回完整的 JSON 对象，不是数组
 2. scenes 和 characters 都是数组
-3. duration 是数字（秒），不是字符串
-4. totalDuration 等于所有场景 duration 之和`,
+3. shotType 必须使用枚举值：extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail
+4. duration 是数字（秒），不是字符串
+5. totalDuration 等于所有场景 duration 之和`,
   en: `You are a professional visual storyboard artist for multiple formats (animation, short drama, comic-style video), skilled at converting text into visual scene descriptions.
 
 ## Core Task
@@ -374,11 +372,13 @@ Start a new scene when any of the following occurs:
 - If the selected video model has a lower cap (for example only 4-8s), split into more consecutive scenes while preserving full plot coverage
 - Dialogue-heavy scenes can be longer; action scenes should stay compact without losing key story beats
 
-### 3. Visual Describability
-Each scene description must be convertible to a static image, including:
-- Specific environment/background
-- Character positions and poses
-- Lighting and atmosphere
+### 3. Scene Description Format (Critical)
+Each scene "description" must be a multi-line timeline shot script, not a prose paragraph:
+- Line format: "start-ends: [shot size] visual action and dialogue"
+- At least 2 lines per scene, preferably 3-6 lines, timeline starts at "0s" and covers scene "duration"
+- Put dialogue directly in timeline lines, e.g. "Lu Zhe says: ..."
+- If you use inline reference tags, only use the standard format "[ImageN]" (e.g. "CharacterName[Image2]"); do not output custom tags like "[CharacterName]" or "[LocationName]"
+- Do NOT include production instructions such as subtitles/BGM/SFX
 
 ### 4. Plot Completeness
 - Each scene should have a clear beginning and end
@@ -409,7 +409,8 @@ Output the following JSON format:
     {
       "id": "scene_001",
       "title": "Scene title",
-      "description": "Detailed visual description, 100-200 words",
+      "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
+      "description": "0-3s: [medium] Busy nurse station[Image1], Lu Zhe[Image2] adjusts his white coat.\n3-8s: [close] Lu Zhe[Image2] smirks. Lu Zhe says: 'Wait and see...'.\n8-12s: [medium] Nurse 1 responds with doubt and curiosity.",
       "setting": {
         "location": "Specific location",
         "timeOfDay": "dawn|morning|noon|afternoon|evening|night"
@@ -421,13 +422,7 @@ Output the following JSON format:
           "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
         }
       ],
-      "dialogues": [
-        {
-          "character": "Speaker name",
-          "text": "Dialogue content",
-          "emotion": "emotion"
-        }
-      ],
+      "dialogues": [],
       "narration": "Scene narration / voice-over (optional)",
       "duration": 6
     }
@@ -446,8 +441,9 @@ Output the following JSON format:
 Notes:
 1. Must return complete JSON object, not array
 2. scenes and characters are both arrays
-3. duration is a number (seconds), not string
-4. totalDuration equals sum of all scene durations`
+3. shotType must use enum: extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail
+4. duration is a number (seconds), not string
+5. totalDuration equals sum of all scene durations`
 }
 
 
@@ -1246,7 +1242,6 @@ const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
 时长：约 {{duration}} 秒
 画幅：{{aspectRatio}}
 {{timelineLines}}
-{{audioConstraint}}
 
 参考素材
 {{referenceMaterials}}
@@ -1261,7 +1256,6 @@ Style: {{style}}
 Duration: around {{duration}} seconds
 Aspect Ratio: {{aspectRatio}}
 {{timelineLines}}
-{{audioConstraint}}
 
 Reference Materials
 {{referenceMaterials}}

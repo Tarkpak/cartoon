@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { VideoModels, GeminiError, GeminiErrorCode, _geminiWithRetry } from '../../utils/gemini'
 import * as qwen from '../../utils/qwen'
 import { generateImage, findVideoModel, getSelectedModels } from '../../utils/model-provider'
-import { getWorkflowModels } from '../models/workflow.get'
+import { getWorkflowModels, getWorkflowModelOptions } from '../models/workflow.get'
 import { getInterpolatedPrompt } from '../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 import { db, videoTasks as videoTasksTable } from '../../db'
@@ -595,14 +595,19 @@ async function generateTransitionFrame(
 这是两个场景之间的过渡帧，需要在视觉上连接这两个画面。`
 
     // 从工作流配置获取首尾帧生成模型
-    const workflowModels = await getWorkflowModels()
+    const [workflowModels, workflowModelOptions] = await Promise.all([
+      getWorkflowModels(),
+      getWorkflowModelOptions()
+    ])
     const modelId = workflowModels.frame_generation
+    const geminiImageSize = workflowModelOptions.image_generation.geminiImageSize
     console.log(`[SceneChain] 过渡帧使用图片模型: ${modelId}`)
 
     // 使用统一的 generateImage 函数
     const result = await generateImage({
       modelId,
       prompt,
+      imageSize: geminiImageSize,
       maxRetries: 1
     })
 
