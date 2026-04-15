@@ -35,6 +35,8 @@ import type {
   WorkflowStep,
   WorkflowStepConfig,
   WorkflowModelOptions,
+  WorkflowGeminiImageSize,
+  WorkflowImageGenerationModelOptions,
   WorkflowVideoGenerationModelOptions,
   KlingV3OmniVideoOptions
 } from '#shared/types/workflow-models'
@@ -89,6 +91,8 @@ interface ProviderGroup {
   expanded: boolean
 }
 
+const GEMINI_IMAGE_SIZES: WorkflowGeminiImageSize[] = ['512', '1K', '2K', '4K']
+
 // 业务流程配置相关类型
 interface CompatibleModel {
   model: string
@@ -128,6 +132,10 @@ const selectedWorkflowCategory = ref<string | null>(null)
 const DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS: KlingV3OmniVideoOptions = {
   sound: 'off',
   mode: 'pro'
+}
+
+const DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS: WorkflowImageGenerationModelOptions = {
+  geminiImageSize: '1K'
 }
 
 function normalizeMenuSection(value: unknown): MenuSection {
@@ -747,18 +755,18 @@ const categoryConfig = {
 }
 
 // ==================== 模型测试计算属性 ====================
-const currentImageModelSupportsReference = computed(() => {
-  if (activeTab.value !== 'image' || !models.value) return false
+const currentImageModel = computed(() => {
+  if (activeTab.value !== 'image' || !models.value) return null
   const modelId = testSelectedModels.value.image
-  const model = models.value.image.find(m => m.model === modelId)
-  return model?.supportReferenceImage === true
+  return models.value.image.find(m => m.model === modelId) || null
+})
+
+const currentImageModelSupportsReference = computed(() => {
+  return currentImageModel.value?.supportReferenceImage === true
 })
 
 const currentImageModelRequiresReference = computed(() => {
-  if (activeTab.value !== 'image' || !models.value) return false
-  const modelId = testSelectedModels.value.image
-  const model = models.value.image.find(m => m.model === modelId)
-  return (model as any)?.requireReferenceImage === true
+  return (currentImageModel.value as any)?.requireReferenceImage === true
 })
 
 const canRunImageTest = computed(() => {
@@ -1444,8 +1452,18 @@ function getVideoGenerationModelOptions(): WorkflowVideoGenerationModelOptions {
   }
 }
 
+function getImageGenerationModelOptions(): WorkflowImageGenerationModelOptions {
+  return workflowData.value?.modelOptions?.image_generation || {
+    ...DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS
+  }
+}
+
 const klingV3OmniOptions = computed<KlingV3OmniVideoOptions>(() => {
   return getVideoGenerationModelOptions().klingV3Omni
+})
+
+const imageGenerationOptions = computed<WorkflowImageGenerationModelOptions>(() => {
+  return getImageGenerationModelOptions()
 })
 
 async function updateWorkflowModel(step: WorkflowStep, modelId: string) {
@@ -1490,6 +1508,52 @@ async function updateVideoGenerationModelOptions(
   } finally {
     workflowSaving.value = false
   }
+}
+
+async function updateImageGenerationModelOptions(
+  patch: Partial<WorkflowImageGenerationModelOptions>
+) {
+  if (!workflowData.value) return
+
+  const current = getImageGenerationModelOptions()
+  const next: WorkflowImageGenerationModelOptions = {
+    ...current,
+    ...patch
+  }
+
+  workflowSaving.value = true
+  try {
+    const response = await $fetch<{
+      success: boolean
+      data?: {
+        modelOptions?: WorkflowModelOptions
+        currentSelections?: Record<WorkflowStep, string>
+      }
+    }>('/api/models/workflow', {
+      method: 'POST',
+      body: {
+        step: 'image_generation',
+        modelOptions: next
+      }
+    })
+
+    if (response.success) {
+      await loadWorkflowModels()
+    }
+  } catch (e) {
+    console.error('更新图片流程模型扩展配置失败:', e)
+  } finally {
+    workflowSaving.value = false
+  }
+}
+
+function updateWorkflowGeminiImageSize(value: unknown) {
+  const normalized = toSelectString(value).toUpperCase()
+  const isValid = GEMINI_IMAGE_SIZES.includes(normalized as WorkflowGeminiImageSize)
+  if (!isValid) return
+  updateImageGenerationModelOptions({
+    geminiImageSize: normalized as WorkflowGeminiImageSize
+  })
 }
 
 async function updateGlobalWorkflowDefault(type: 'text' | 'image' | 'video', modelId: string) {
@@ -1786,6 +1850,43 @@ onMounted(() => {
                         </div>
                       </div>
                     </div>
+
+                    <div
+                      v-if="workflow.id === 'character_portrait'"
+                      class="mt-3 space-y-3 rounded-lg border bg-muted/30 p-3"
+                    >
+                      <div>
+                        <h5 class="text-xs font-medium">图片生成额外配置</h5>
+                        <p class="mt-1 text-[11px] text-muted-foreground">
+                          对角色立绘/角色多视角/首尾帧流程统一生效；仅 Gemini 图片模型会使用该设置。
+                        </p>
+                      </div>
+
+                      <div class="space-y-1.5">
+                        <label class="text-xs text-muted-foreground">Gemini 画质（image_size）</label>
+                        <Select
+                          :model-value="imageGenerationOptions.geminiImageSize"
+                          :disabled="workflowSaving"
+                          @update:model-value="updateWorkflowGeminiImageSize"
+                        >
+                          <SelectTrigger class="w-full h-9 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem
+                              v-for="size in GEMINI_IMAGE_SIZES"
+                              :key="`workflow_gemini_image_size_${size}`"
+                              :value="size"
+                            >
+                              {{ size }}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p class="text-[11px] text-muted-foreground">
+                          支持 `1K` / `2K` / `4K`；`512` 仅 `Gemini 3.1 Flash Image` 支持，其他模型会自动回退到 `1K`。
+                        </p>
+                      </div>
+                    </div>
                   </div>
                   <div v-else class="flex items-center gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 text-sm">
                     <AlertCircle class="h-4 w-4 flex-shrink-0" />
@@ -1946,6 +2047,7 @@ onMounted(() => {
                   没有匹配的参考图
                 </div>
               </div>
+
             </div>
             <div v-if="activeTab === 'image' && currentImageModelSupportsReference" class="space-y-2">
               <label class="text-xs text-muted-foreground flex items-center gap-1"><ImagePlus class="h-3 w-3" />参考图片 (可选，最多 {{ MAX_IMAGE_TEST_REFERENCES }} 张)</label>

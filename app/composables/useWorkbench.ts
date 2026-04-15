@@ -165,6 +165,7 @@ export function useWorkbench() {
   // ========== 场景数据 ==========
   const scenes = ref<SceneData[]>([])
   const parsing = ref(false)
+  const parsedTimelineText = ref('')
 
   // ========== 故事大纲 (新增) ==========
   const outline = ref<StoryOutline | null>(null)
@@ -462,10 +463,12 @@ export function useWorkbench() {
   async function parseScript(options?: {
     workflowType?: WorkflowType
     style?: string
+    descriptionFormat?: 'visual' | 'timeline'
   }): Promise<boolean> {
     if (!novelText.value.trim()) return false
 
     parsing.value = true
+    parsedTimelineText.value = ''
     try {
       const response = await $fetch<{
         success: boolean
@@ -474,6 +477,7 @@ export function useWorkbench() {
           scenes: Array<{
             id: string
             title?: string
+            shotType?: SceneData['shotType']
             description: string
             characters: Array<{ name: string, appearance?: string, emotion?: string }>
             dialogues?: Array<{ character: string, text: string, emotion?: string }>
@@ -482,6 +486,11 @@ export function useWorkbench() {
             setting?: { location: string, timeOfDay: string }
           }>
           characters?: Array<{ name: string, description?: string, role?: string }>
+        }
+        formattedTimeline?: {
+          lines?: string[]
+          text?: string
+          constraints?: string
         }
       }>('/api/script/parse', {
         method: 'POST',
@@ -493,6 +502,13 @@ export function useWorkbench() {
       })
 
       if (response.success && response.data?.scenes) {
+        parsedTimelineText.value = response.formattedTimeline?.text?.trim() || ''
+        const timelineLines = Array.isArray(response.formattedTimeline?.lines)
+          ? response.formattedTimeline.lines
+              .filter((line): line is string => typeof line === 'string')
+              .map(line => line.trim())
+          : []
+
         if (response.data.title && projectName.value === '新项目') {
           projectName.value = response.data.title
         }
@@ -504,6 +520,9 @@ export function useWorkbench() {
         })
 
         scenes.value = response.data.scenes.map((s, i) => {
+          const normalizedDescription = (s.description || '').trim()
+          const hasTimelineStructure = /(^|\n)\s*\d+(?:\.\d+)?-\d+(?:\.\d+)?s[:：]?\s*【[^】]+】/.test(normalizedDescription)
+          const fallbackTimelineLine = timelineLines[i] || normalizedDescription
           const normalizedDialogues = (s.dialogues || []).filter(dialogue => {
             const speaker = normalizeCharacterName(dialogue.character)
             return !['旁白', 'narration', 'voiceover', '画外音', 'os', 'vo', '内心独白'].includes(speaker)
@@ -523,7 +542,10 @@ export function useWorkbench() {
           return {
             id: s.id || `scene_${i + 1}`,
             title: s.title || `${s.setting?.location || '场景'} - ${s.setting?.timeOfDay || ''}`,
-            description: s.description,
+            shotType: s.shotType || 'medium',
+            description: options?.descriptionFormat === 'timeline'
+              ? (hasTimelineStructure ? normalizedDescription : fallbackTimelineLine)
+              : s.description,
             characters: s.characters || [],
             dialogues: normalizedDialogues,
             narration: normalizedNarration,
@@ -2723,6 +2745,7 @@ export function useWorkbench() {
     // 场景
     scenes,
     parsing,
+    parsedTimelineText,
     selectedScene,
     selectScene,
     addNewScene,

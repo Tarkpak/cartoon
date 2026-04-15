@@ -80,6 +80,16 @@ export type WorkflowModels = z.infer<typeof WorkflowModelsSchema>
 
 // ==================== 业务流程模型扩展配置 ====================
 
+/** Gemini 图片画质档位（对应 imageConfig.imageSize） */
+export const WorkflowGeminiImageSizeSchema = z.enum(['512', '1K', '2K', '4K'])
+export type WorkflowGeminiImageSize = z.infer<typeof WorkflowGeminiImageSizeSchema>
+
+/** 图片生成流程模型扩展配置 */
+export const WorkflowImageGenerationModelOptionsSchema = z.object({
+  geminiImageSize: WorkflowGeminiImageSizeSchema.default('1K')
+})
+export type WorkflowImageGenerationModelOptions = z.infer<typeof WorkflowImageGenerationModelOptionsSchema>
+
 /** Kling v3 Omni 声音开关 */
 export const KlingV3OmniSoundSchema = z.enum(['on', 'off'])
 export type KlingV3OmniSound = z.infer<typeof KlingV3OmniSoundSchema>
@@ -106,6 +116,9 @@ export type WorkflowVideoGenerationModelOptions = z.infer<typeof WorkflowVideoGe
 
 /** 业务流程模型扩展配置 */
 export const WorkflowModelOptionsSchema = z.object({
+  image_generation: WorkflowImageGenerationModelOptionsSchema.default({
+    geminiImageSize: '1K'
+  }),
   video_generation: WorkflowVideoGenerationModelOptionsSchema.default({
     klingV3Omni: {
       sound: 'off',

@@ -5,6 +5,7 @@
 import { z } from 'zod'
 import {
   WorkflowStepSchema,
+  WorkflowImageGenerationModelOptionsSchema,
   WorkflowVideoGenerationModelOptionsSchema
 } from '#shared/types/workflow-models'
 import {
@@ -12,6 +13,7 @@ import {
   setWorkflowModels,
   getWorkflowModels,
   getWorkflowModelOptions,
+  setWorkflowImageGenerationModelOptions,
   setWorkflowVideoGenerationModelOptions
 } from './workflow.get'
 
@@ -32,6 +34,12 @@ const VideoOptionsUpdateSchema = z.object({
   modelOptions: WorkflowVideoGenerationModelOptionsSchema
 })
 
+// 图片流程扩展配置更新
+const ImageOptionsUpdateSchema = z.object({
+  step: z.literal('image_generation'),
+  modelOptions: WorkflowImageGenerationModelOptionsSchema
+})
+
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
 
@@ -46,6 +54,21 @@ export default defineEventHandler(async (event) => {
         updated: batchParsed.data.models,
         currentSelections: await getWorkflowModels(),
         modelOptions: await getWorkflowModelOptions()
+      }
+    }
+  }
+
+  // 尝试图片流程扩展配置更新
+  const imageOptionsParsed = ImageOptionsUpdateSchema.safeParse(body)
+  if (imageOptionsParsed.success) {
+    await setWorkflowImageGenerationModelOptions(imageOptionsParsed.data.modelOptions)
+
+    return {
+      success: true,
+      data: {
+        step: 'image_generation',
+        modelOptions: await getWorkflowModelOptions(),
+        currentSelections: await getWorkflowModels()
       }
     }
   }
@@ -84,6 +107,6 @@ export default defineEventHandler(async (event) => {
 
   throw createError({
     statusCode: 400,
-    message: '参数错误: 需要 {step, modelId}、{models: {...}} 或 {step:"video_generation", modelOptions:{...}}'
+    message: '参数错误: 需要 {step, modelId}、{models: {...}}、{step:"image_generation", modelOptions:{...}} 或 {step:"video_generation", modelOptions:{...}}'
   })
 })

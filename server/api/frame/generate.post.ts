@@ -3,7 +3,7 @@ import { generateImage } from '../../utils/model-provider'
 import { GeminiError } from '../../utils/gemini'
 import { QwenError } from '../../utils/qwen'
 import { imageLimiter } from '../../utils/concurrency'
-import { getWorkflowModels } from '../models/workflow.get'
+import { getWorkflowModels, getWorkflowModelOptions } from '../models/workflow.get'
 import { getInterpolatedPrompt } from '../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 import {
@@ -125,6 +125,7 @@ const SCENE_DYNAMIC_CUE_RE = /(走向|转身|离开|起身|奔跑|追逐|跌倒|
 
 type FrameGenerationOptions = {
   frameModelId: string
+  geminiImageSize?: string
 }
 
 type AspectRatio = '16:9' | '9:16' | '1:1'
@@ -221,11 +222,16 @@ export default defineEventHandler(async (event) => {
   } = parseResult.data
 
   try {
-    const workflowModels = await getWorkflowModels()
+    const [workflowModels, workflowModelOptions] = await Promise.all([
+      getWorkflowModels(),
+      getWorkflowModelOptions()
+    ])
     const frameModelId = workflowModels.frame_generation
     const videoModelId = workflowModels.video_generation
+    const geminiImageSize = workflowModelOptions.image_generation.geminiImageSize
     const generationOptions: FrameGenerationOptions = {
-      frameModelId
+      frameModelId,
+      geminiImageSize
     }
 
     // 2. 连续性检查
@@ -239,7 +245,7 @@ export default defineEventHandler(async (event) => {
     console.log(`[FrameGen] 视觉提取: ${sceneVisual?.imagePrompt ? '有imagePrompt' : '无imagePrompt'}`)
     console.log(`[FrameGen] 上一场景尾帧: ${previousSceneLastFrame ? '有' : '无'}`)
     console.log(`[FrameGen] 角色锚点: ${characterAnchors?.length || 0}个`)
-    console.log(`[FrameGen] 图片模型: ${frameModelId}, 视频模型: ${videoModelId}, Seedance线稿约束: disabled`)
+    console.log(`[FrameGen] 图片模型: ${frameModelId}, 图片画质: ${geminiImageSize}, 视频模型: ${videoModelId}, Seedance线稿约束: disabled`)
     console.log(`[FrameGen] 目标比例: ${aspectRatio}`)
 
     // 3. 强制尾帧连接检查（非首场景必须有上一场景尾帧）
@@ -534,13 +540,23 @@ async function generateFirstFrame(
 
   const effectivePrompt = prompt
   console.log(`[FrameGen] 生成首帧，参考图数量: ${referenceImages.length}`)
-  const modelId = generationOptions?.frameModelId || (await getWorkflowModels()).frame_generation
+  let modelId = generationOptions?.frameModelId
+  let geminiImageSize = generationOptions?.geminiImageSize
+  if (!modelId || !geminiImageSize) {
+    const [workflowModels, workflowModelOptions] = await Promise.all([
+      getWorkflowModels(),
+      getWorkflowModelOptions()
+    ])
+    modelId = modelId || workflowModels.frame_generation
+    geminiImageSize = geminiImageSize || workflowModelOptions.image_generation.geminiImageSize
+  }
   console.log(`[FrameGen] 使用图片模型: ${modelId}`)
 
   // 构建请求体
   const firstFrameRequest = {
     modelId,
     prompt: effectivePrompt,
+    imageSize: geminiImageSize,
     size: resolveFrameImageSize(aspectRatio),
     referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
     maxRetries: 2
@@ -550,6 +566,7 @@ async function generateFirstFrame(
   console.log(`[FrameGen] ========== 首帧生成请求体 ==========`)
   console.log(`[FrameGen] modelId: ${firstFrameRequest.modelId}`)
   console.log(`[FrameGen] prompt: ${firstFrameRequest.prompt}`)
+  console.log(`[FrameGen] imageSize: ${firstFrameRequest.imageSize}`)
   console.log(`[FrameGen] size: ${firstFrameRequest.size}`)
   console.log(`[FrameGen] referenceImages: ${firstFrameRequest.referenceImages ? `[${firstFrameRequest.referenceImages.length}张图片]` : 'undefined'}`)
   if (firstFrameRequest.referenceImages) {
@@ -973,13 +990,23 @@ async function generateLastFrame(
 
   const effectivePrompt = prompt
   console.log(`[FrameGen] 生成尾帧，参考图数量: ${referenceImages.length}`)
-  const modelId = generationOptions?.frameModelId || (await getWorkflowModels()).frame_generation
+  let modelId = generationOptions?.frameModelId
+  let geminiImageSize = generationOptions?.geminiImageSize
+  if (!modelId || !geminiImageSize) {
+    const [workflowModels, workflowModelOptions] = await Promise.all([
+      getWorkflowModels(),
+      getWorkflowModelOptions()
+    ])
+    modelId = modelId || workflowModels.frame_generation
+    geminiImageSize = geminiImageSize || workflowModelOptions.image_generation.geminiImageSize
+  }
   console.log(`[FrameGen] 尾帧使用图片模型: ${modelId}`)
 
   // 构建请求体
   const lastFrameRequest = {
     modelId,
     prompt: effectivePrompt,
+    imageSize: geminiImageSize,
     size: resolveFrameImageSize(aspectRatio),
     referenceImages,
     maxRetries: 2
@@ -989,6 +1016,7 @@ async function generateLastFrame(
   console.log(`[FrameGen] ========== 尾帧生成请求体 ==========`)
   console.log(`[FrameGen] modelId: ${lastFrameRequest.modelId}`)
   console.log(`[FrameGen] prompt: ${lastFrameRequest.prompt}`)
+  console.log(`[FrameGen] imageSize: ${lastFrameRequest.imageSize}`)
   console.log(`[FrameGen] size: ${lastFrameRequest.size}`)
   console.log(`[FrameGen] referenceImages: [${lastFrameRequest.referenceImages.length}张图片]`)
   lastFrameRequest.referenceImages.forEach((img, idx) => {

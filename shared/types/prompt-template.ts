@@ -238,7 +238,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{setting}}', description: '场景设定文本', example: '城市天桥 / night / tense / rain' },
       { name: '{{style}}', description: '画风描述', example: '电影写实风格' },
       { name: '{{timelineLines}}', description: '分段时间轴镜头描述', example: '0-3s:【中景】...\n3-8s:【近景】...' },
-      { name: '{{audioConstraint}}', description: '音频/字幕约束', example: '不添加字幕，不添加BGM。' },
+      { name: '{{audioConstraint}}', description: '音频/字幕约束（建议留空）', example: '' },
       { name: '{{referenceMaterials}}', description: '参考素材列表文本', example: '图1：环境参考图...\n图2：角色参考图...' },
       { name: '{{executionConstraints}}', description: '执行约束列表文本', example: '- 输入模式：single_image\n- 严格保持角色一致性...' },
       { name: '{{referenceGuide}}', description: '参考图说明', example: '参考图说明：图1为角色，图2为环境。' },

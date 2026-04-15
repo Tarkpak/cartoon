@@ -19,6 +19,7 @@ import {
   type ModelCapability,
   WorkflowModelOptionsSchema,
   type WorkflowModelOptions,
+  type WorkflowImageGenerationModelOptions,
   type WorkflowVideoGenerationModelOptions
 } from '#shared/types/workflow-models'
 import type {
@@ -179,6 +180,9 @@ async function saveWorkflowModelOverrides(
 
 function resolveDefaultWorkflowModelOptions(): WorkflowModelOptions {
   return {
+    image_generation: {
+      geminiImageSize: '1K'
+    },
     video_generation: {
       klingV3Omni: {
         sound: 'off',
@@ -277,6 +281,24 @@ export async function setWorkflowVideoGenerationModelOptions(
   })
   await saveWorkflowModelOptions(merged)
   console.log('[WorkflowModels] 已保存视频流程模型扩展配置:', merged.video_generation)
+}
+
+/**
+ * 设置图片生成流程的模型扩展配置
+ */
+export async function setWorkflowImageGenerationModelOptions(
+  options: WorkflowImageGenerationModelOptions
+): Promise<void> {
+  const current = await getWorkflowModelOptions()
+  const merged: WorkflowModelOptions = normalizeWorkflowModelOptions({
+    ...current,
+    image_generation: {
+      ...current.image_generation,
+      ...options
+    }
+  })
+  await saveWorkflowModelOptions(merged)
+  console.log('[WorkflowModels] 已保存图片流程模型扩展配置:', merged.image_generation)
 }
 
 /**

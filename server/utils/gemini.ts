@@ -261,6 +261,107 @@ export const ImageModels = {
   FAST: 'gemini-3.1-flash-image-preview'
 } as const
 
+/** Gemini 图片分辨率档位（imageConfig.imageSize） */
+export const GeminiImageSizes = ['512', '1K', '2K', '4K'] as const
+export type GeminiImageSize = typeof GeminiImageSizes[number]
+
+const GEMINI_IMAGE_SIZE_SET = new Set<string>(GeminiImageSizes)
+
+const SUPPORTED_GEMINI_IMAGE_ASPECT_RATIOS = [
+  '1:1',
+  '1:4',
+  '1:8',
+  '2:3',
+  '3:2',
+  '3:4',
+  '4:1',
+  '4:3',
+  '4:5',
+  '5:4',
+  '8:1',
+  '9:16',
+  '16:9',
+  '21:9'
+] as const
+
+const SUPPORTED_GEMINI_IMAGE_ASPECT_RATIO_SET = new Set<string>(SUPPORTED_GEMINI_IMAGE_ASPECT_RATIOS)
+
+function normalizeGeminiImageSize(
+  raw?: string,
+  supportsHalfK: boolean = false
+): GeminiImageSize | undefined {
+  if (!raw) return undefined
+
+  const normalized = raw.trim().toUpperCase()
+  if (!GEMINI_IMAGE_SIZE_SET.has(normalized)) {
+    return undefined
+  }
+
+  if (normalized === '512' && !supportsHalfK) {
+    return '1K'
+  }
+
+  return normalized as GeminiImageSize
+}
+
+function normalizeGeminiAspectRatio(raw?: string): string | undefined {
+  if (!raw) return undefined
+  const normalized = raw.replace(/\s+/g, '')
+  if (!SUPPORTED_GEMINI_IMAGE_ASPECT_RATIO_SET.has(normalized)) {
+    return undefined
+  }
+  return normalized
+}
+
+function parseSize(size?: string): { width: number, height: number } | null {
+  if (!size) return null
+  const match = size.trim().match(/^(\d+)\s*[*xX]\s*(\d+)$/)
+  if (!match) return null
+
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null
+  }
+  return { width, height }
+}
+
+function inferGeminiImageSizeFromPixels(
+  width: number,
+  height: number,
+  supportsHalfK: boolean = false
+): GeminiImageSize {
+  const longerSide = Math.max(width, height)
+  if (supportsHalfK && longerSide <= 768) {
+    return '512'
+  }
+  if (longerSide <= 1536) {
+    return '1K'
+  }
+  if (longerSide <= 3072) {
+    return '2K'
+  }
+  return '4K'
+}
+
+function inferGeminiAspectRatioFromPixels(width: number, height: number): string {
+  const target = width / height
+  let best: string = SUPPORTED_GEMINI_IMAGE_ASPECT_RATIOS[0]
+  let bestDiff = Number.POSITIVE_INFINITY
+
+  for (const ratio of SUPPORTED_GEMINI_IMAGE_ASPECT_RATIOS) {
+    const [w, h] = ratio.split(':').map(Number)
+    if (!w || !h) continue
+    const diff = Math.abs((w / h) - target)
+    if (diff < bestDiff) {
+      bestDiff = diff
+      best = ratio
+    }
+  }
+
+  return best
+}
+
 /**
  * 视频生成模型配置
  */
@@ -586,12 +687,29 @@ export async function _geminiGenerateImage(options: {
   prompt: string
   referenceImage?: { data: string, mimeType: string }
   referenceImages?: string[]
+  imageSize?: GeminiImageSize | string
+  aspectRatio?: string
+  size?: string
   allowTextOnlyResult?: boolean
   maxRetries?: number
 }): Promise<{ imageData: string, mimeType: string, text?: string }> {
   console.log('[Gemini] _geminiGenerateImage 开始执行')
 
   const model = options.model || ImageModels.HIGH_QUALITY
+  const supportsHalfK = model === ImageModels.FAST
+  const parsedSize = parseSize(options.size)
+  const imageSize = normalizeGeminiImageSize(options.imageSize, supportsHalfK)
+    || (parsedSize ? inferGeminiImageSizeFromPixels(parsedSize.width, parsedSize.height, supportsHalfK) : undefined)
+  const aspectRatio = normalizeGeminiAspectRatio(options.aspectRatio)
+    || (parsedSize ? inferGeminiAspectRatioFromPixels(parsedSize.width, parsedSize.height) : undefined)
+
+  if (options.imageSize?.trim().toUpperCase() === '512' && !supportsHalfK) {
+    console.warn(`[Gemini] 模型 ${model} 不支持 512 分辨率，已自动回退到 1K`)
+  }
+
+  if (options.aspectRatio && !normalizeGeminiAspectRatio(options.aspectRatio)) {
+    console.warn(`[Gemini] 不支持的 aspectRatio: ${options.aspectRatio}，已自动忽略`)
+  }
 
   // 统一收集参考图：兼容单图(referenceImage)和多图(referenceImages)
   const normalizedReferences: Array<{ data: string, mimeType: string }> = []
@@ -633,6 +751,9 @@ export async function _geminiGenerateImage(options: {
     referenceImageCount: normalizedReferences.length,
     referenceImageMimeTypes: Array.from(new Set(normalizedReferences.map(img => img.mimeType))),
     referenceImageDataLengths: normalizedReferences.map(img => img.data.length).slice(0, 4),
+    imageSize,
+    aspectRatio,
+    sourceSize: options.size,
     maxRetries: options.maxRetries
   })
 
@@ -647,13 +768,26 @@ export async function _geminiGenerateImage(options: {
       }
     })
   }
-  const config = model.includes('3-pro')
-    ? { responseModalities: ['image', 'text'] }
-    : undefined
+  const config: {
+    responseModalities?: string[]
+    imageConfig?: { imageSize?: GeminiImageSize, aspectRatio?: string }
+  } = {}
+
+  if (model.includes('3-pro')) {
+    config.responseModalities = ['image', 'text']
+  }
+
+  if (imageSize || aspectRatio) {
+    config.imageConfig = {}
+    if (imageSize) config.imageConfig.imageSize = imageSize
+    if (aspectRatio) config.imageConfig.aspectRatio = aspectRatio
+  }
+
+  const finalConfig = Object.keys(config).length > 0 ? config : undefined
   const requestBody = {
     model,
     contents: [{ role: 'user', parts }],
-    config
+    config: finalConfig
   }
 
   return withModelDebugLog({
@@ -671,7 +805,7 @@ export async function _geminiGenerateImage(options: {
 
       let response
       try {
-        console.log('[Gemini] 准备调用 API, model:', model, 'config:', JSON.stringify(config))
+        console.log('[Gemini] 准备调用 API, model:', model, 'config:', JSON.stringify(finalConfig))
 
         response = await client.models.generateContent(requestBody)
 
