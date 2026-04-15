@@ -31,7 +31,13 @@ import type {
   VideoModelConfig,
   VoiceModelConfig
 } from '#shared/types/provider'
-import type { WorkflowStep, WorkflowStepConfig } from '#shared/types/workflow-models'
+import type {
+  WorkflowStep,
+  WorkflowStepConfig,
+  WorkflowModelOptions,
+  WorkflowVideoGenerationModelOptions,
+  KlingV3OmniVideoOptions
+} from '#shared/types/workflow-models'
 import type { PromptCategory, PromptTemplate } from '#shared/types/prompt-template'
 import { getPromptTemplateMetadataForWorkflow } from '#shared/types/prompt-template'
 import {
@@ -96,11 +102,13 @@ interface WorkflowConfig extends WorkflowStepConfig {
   compatibleModels: CompatibleModel[]
   selectedModel: string | null
   isOverridden?: boolean
+  modelOptions?: WorkflowVideoGenerationModelOptions
 }
 
 interface WorkflowData {
   workflows: WorkflowConfig[]
   currentSelections: Record<WorkflowStep, string>
+  modelOptions?: WorkflowModelOptions
 }
 
 definePageMeta({ layout: 'default' })
@@ -116,6 +124,11 @@ const { loadStylePresets: refreshAvailableStyles } = useStylePresets()
 const route = useRoute()
 
 const selectedWorkflowCategory = ref<string | null>(null)
+
+const DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS: KlingV3OmniVideoOptions = {
+  sound: 'off',
+  mode: 'pro'
+}
 
 function normalizeMenuSection(value: unknown): MenuSection {
   if (value === 'prompts' || value === 'styles' || value === 'models') return value
@@ -1425,6 +1438,16 @@ async function loadWorkflowModels() {
   finally { workflowLoading.value = false }
 }
 
+function getVideoGenerationModelOptions(): WorkflowVideoGenerationModelOptions {
+  return workflowData.value?.modelOptions?.video_generation || {
+    klingV3Omni: { ...DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS }
+  }
+}
+
+const klingV3OmniOptions = computed<KlingV3OmniVideoOptions>(() => {
+  return getVideoGenerationModelOptions().klingV3Omni
+})
+
 async function updateWorkflowModel(step: WorkflowStep, modelId: string) {
   if (!workflowData.value) return
   workflowSaving.value = true
@@ -1435,6 +1458,38 @@ async function updateWorkflowModel(step: WorkflowStep, modelId: string) {
     }
   } catch (e) { console.error('更新模型选择失败:', e) }
   finally { workflowSaving.value = false }
+}
+
+async function updateVideoGenerationModelOptions(
+  patch: Partial<KlingV3OmniVideoOptions>
+) {
+  if (!workflowData.value) return
+
+  const current = getVideoGenerationModelOptions()
+  const next: WorkflowVideoGenerationModelOptions = {
+    klingV3Omni: {
+      ...current.klingV3Omni,
+      ...patch
+    }
+  }
+
+  workflowSaving.value = true
+  try {
+    const response = await $fetch<{ success: boolean }>('/api/models/workflow', {
+      method: 'POST',
+      body: {
+        step: 'video_generation',
+        modelOptions: next
+      }
+    })
+    if (response.success) {
+      await loadWorkflowModels()
+    }
+  } catch (e) {
+    console.error('更新视频模型扩展配置失败:', e)
+  } finally {
+    workflowSaving.value = false
+  }
 }
 
 async function updateGlobalWorkflowDefault(type: 'text' | 'image' | 'video', modelId: string) {
@@ -1674,6 +1729,62 @@ onMounted(() => {
                     <div v-if="workflow.selectedModel" class="mt-2 flex flex-wrap gap-1">
                       <span v-for="cap in (workflow.compatibleModels.find(m => m.model === workflow.selectedModel)?.capabilities || [])" :key="cap"
                         class="px-1.5 py-0.5 text-[10px] rounded bg-muted text-muted-foreground">{{ cap }}</span>
+                    </div>
+
+                    <div
+                      v-if="workflow.id === 'video_generation' && workflow.selectedModel === 'kling-v3-omni'"
+                      class="mt-3 space-y-3 rounded-lg border bg-muted/30 p-3"
+                    >
+                      <div>
+                        <h5 class="text-xs font-medium">Kling v3 Omni 额外配置</h5>
+                        <p class="mt-1 text-[11px] text-muted-foreground">
+                          仅对 `kling-v3-omni` 生效，会覆盖该模型默认的声音与模式参数。
+                        </p>
+                      </div>
+
+                      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <div class="space-y-1.5">
+                          <label class="text-xs text-muted-foreground">sound（是否生成声音）</label>
+                          <Select
+                            :model-value="klingV3OmniOptions.sound"
+                            :disabled="workflowSaving"
+                            @update:model-value="(value) => updateVideoGenerationModelOptions({ sound: toSelectString(value) === 'on' ? 'on' : 'off' })"
+                          >
+                            <SelectTrigger class="w-full h-9 text-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="off">
+                                off（默认，不生成声音）
+                              </SelectItem>
+                              <SelectItem value="on">
+                                on（同时生成声音）
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div class="space-y-1.5">
+                          <label class="text-xs text-muted-foreground">mode（生成模式）</label>
+                          <Select
+                            :model-value="klingV3OmniOptions.mode"
+                            :disabled="workflowSaving"
+                            @update:model-value="(value) => updateVideoGenerationModelOptions({ mode: toSelectString(value) === 'std' ? 'std' : 'pro' })"
+                          >
+                            <SelectTrigger class="w-full h-9 text-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="std">
+                                std（标准模式，性价比高）
+                              </SelectItem>
+                              <SelectItem value="pro">
+                                pro（专家模式，画质更高）
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <div v-else class="flex items-center gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 text-sm">

@@ -16,7 +16,10 @@ import {
 import {
   WORKFLOW_STEP_CONFIGS,
   type WorkflowStep,
-  type ModelCapability
+  type ModelCapability,
+  WorkflowModelOptionsSchema,
+  type WorkflowModelOptions,
+  type WorkflowVideoGenerationModelOptions
 } from '#shared/types/workflow-models'
 import type {
   TextModelConfig,
@@ -27,6 +30,7 @@ import type {
 
 // 配置键名
 const WORKFLOW_MODELS_KEY = 'workflow_models'
+const WORKFLOW_MODEL_OPTIONS_KEY = 'workflow_model_options'
 
 // 历史默认配置（用于兼容旧数据）
 const LEGACY_DEFAULT_WORKFLOW_MODELS: Record<WorkflowStep, string> = {
@@ -173,6 +177,62 @@ async function saveWorkflowModelOverrides(
     })
 }
 
+function resolveDefaultWorkflowModelOptions(): WorkflowModelOptions {
+  return {
+    video_generation: {
+      klingV3Omni: {
+        sound: 'off',
+        mode: 'pro'
+      }
+    }
+  }
+}
+
+function normalizeWorkflowModelOptions(raw: unknown): WorkflowModelOptions {
+  const parsed = WorkflowModelOptionsSchema.safeParse(raw)
+  if (parsed.success) return parsed.data
+  return resolveDefaultWorkflowModelOptions()
+}
+
+async function readWorkflowModelOptionsFromDB(): Promise<WorkflowModelOptions> {
+  const result = await db.select()
+    .from(systemConfig)
+    .where(eq(systemConfig.key, WORKFLOW_MODEL_OPTIONS_KEY))
+    .limit(1)
+
+  const row = result[0]
+  if (!row?.value) {
+    return resolveDefaultWorkflowModelOptions()
+  }
+
+  try {
+    const parsed = JSON.parse(row.value)
+    return normalizeWorkflowModelOptions(parsed)
+  } catch {
+    return resolveDefaultWorkflowModelOptions()
+  }
+}
+
+async function saveWorkflowModelOptions(
+  options: WorkflowModelOptions
+): Promise<void> {
+  const normalized = normalizeWorkflowModelOptions(options)
+  const now = new Date().toISOString()
+  await db.insert(systemConfig)
+    .values({
+      key: WORKFLOW_MODEL_OPTIONS_KEY,
+      value: JSON.stringify(normalized),
+      updatedAt: now
+    })
+    .onConflictDoUpdate({
+      target: systemConfig.key,
+      set: {
+        value: JSON.stringify(normalized),
+        updatedAt: now
+      }
+    })
+}
+
 /**
  * 获取业务流程模型覆盖配置（仅保存局部覆盖）
  */
@@ -183,6 +243,40 @@ export async function getWorkflowModelOverrides(): Promise<Partial<Record<Workfl
     console.error('[WorkflowModels] 读取覆盖配置失败:', error)
     return {}
   }
+}
+
+/**
+ * 获取业务流程模型扩展配置
+ */
+export async function getWorkflowModelOptions(): Promise<WorkflowModelOptions> {
+  try {
+    return await readWorkflowModelOptionsFromDB()
+  } catch (error) {
+    console.error('[WorkflowModels] 读取模型扩展配置失败:', error)
+    return resolveDefaultWorkflowModelOptions()
+  }
+}
+
+/**
+ * 设置视频生成流程的模型扩展配置
+ */
+export async function setWorkflowVideoGenerationModelOptions(
+  options: WorkflowVideoGenerationModelOptions
+): Promise<void> {
+  const current = await getWorkflowModelOptions()
+  const merged: WorkflowModelOptions = normalizeWorkflowModelOptions({
+    ...current,
+    video_generation: {
+      ...current.video_generation,
+      ...options,
+      klingV3Omni: {
+        ...current.video_generation.klingV3Omni,
+        ...options.klingV3Omni
+      }
+    }
+  })
+  await saveWorkflowModelOptions(merged)
+  console.log('[WorkflowModels] 已保存视频流程模型扩展配置:', merged.video_generation)
 }
 
 /**
@@ -367,9 +461,10 @@ function getModelCapabilityTags(
 
 export default defineEventHandler(async () => {
   // 从数据库读取当前配置
-  const [workflowModels, workflowOverrides] = await Promise.all([
+  const [workflowModels, workflowOverrides, workflowModelOptions] = await Promise.all([
     getWorkflowModels(),
-    getWorkflowModelOverrides()
+    getWorkflowModelOverrides(),
+    getWorkflowModelOptions()
   ])
 
   // 构建每个业务流程的可用模型列表
@@ -386,7 +481,8 @@ export default defineEventHandler(async () => {
         capabilities: getModelCapabilityTags(m)
       })),
       selectedModel: workflowModels[config.id] || null,
-      isOverridden: !!workflowOverrides[config.id]
+      isOverridden: !!workflowOverrides[config.id],
+      modelOptions: config.id === 'video_generation' ? workflowModelOptions.video_generation : undefined
     }
   })
 
@@ -394,7 +490,8 @@ export default defineEventHandler(async () => {
     success: true,
     data: {
       workflows: workflowConfigs,
-      currentSelections: workflowModels
+      currentSelections: workflowModels,
+      modelOptions: workflowModelOptions
     }
   }
 })
