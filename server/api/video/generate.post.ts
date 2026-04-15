@@ -4,7 +4,7 @@ import * as qwen from '../../utils/qwen'
 import * as kling from '../../utils/kling'
 import * as volcengine from '../../utils/volcengine'
 import { getSelectedModels, findVideoModel } from '../../utils/model-provider'
-import { getWorkflowModels } from '../models/workflow.get'
+import { getWorkflowModels, getWorkflowModelOptions } from '../models/workflow.get'
 import { videoLimiter } from '../../utils/concurrency'
 import { db, scenes as scenesTable, videoTasks as videoTasksTable } from '../../db'
 import {
@@ -923,7 +923,15 @@ async function generateVideoWithKling(
     }
 
     const duration = Math.min(15, Math.max(3, Math.round(config.duration)))
-    const mode: 'std' | 'pro' = config.model === 'fast' ? 'std' : 'pro'
+    const isKlingV3Omni = modelId === kling.KlingVideoModels.KLING_V3_OMNI
+    let mode: 'std' | 'pro' = config.model === 'fast' ? 'std' : 'pro'
+    let withAudio = config.withAudio
+
+    if (isKlingV3Omni) {
+      const workflowOptions = await getWorkflowModelOptions()
+      mode = workflowOptions.video_generation.klingV3Omni.mode
+      withAudio = workflowOptions.video_generation.klingV3Omni.sound === 'on'
+    }
 
     const normalizeKlingImageInput = (value?: string): string | undefined => {
       if (!value) return undefined
@@ -956,7 +964,7 @@ async function generateVideoWithKling(
       hasLastFrame: !!lastFrame,
       hasReferenceImages: referenceImages.length > 0,
       referenceImagesCount: referenceImages.length,
-      withAudio: config.withAudio
+      withAudio
     })
 
     await updateTaskProgress(taskId, 20)
@@ -970,7 +978,7 @@ async function generateVideoWithKling(
       referenceImages,
       duration,
       aspectRatio: config.aspectRatio,
-      withAudio: config.withAudio,
+      withAudio,
       mode,
       negativePrompt: config.negativePrompt
     })
@@ -994,7 +1002,7 @@ async function generateVideoWithKling(
         resolution: config.resolution,
         aspectRatio: config.aspectRatio,
         fps: 24,
-        hasAudio: config.withAudio
+        hasAudio: withAudio
       },
       createdAt: new Date().toISOString()
     }
@@ -1044,10 +1052,7 @@ async function generateVideoWithGemini(
       1,
       Math.min(
         3,
-        Math.round(
-          selectedVideoModel?.maxReferenceImages
-            ?? 3
-        )
+        Math.round(selectedVideoModel?.maxReferenceImages ?? 3)
       )
     )
 
@@ -1475,10 +1480,7 @@ async function generateVideoWithVolcengine(
       1,
       Math.min(
         9,
-        Math.round(
-          selectedVideoModel?.maxReferenceImages
-            ?? (selectedVideoModel?.supportReferenceImages ? 9 : 1)
-        )
+        Math.round(selectedVideoModel?.maxReferenceImages ?? (selectedVideoModel?.supportReferenceImages ? 9 : 1))
       )
     )
 

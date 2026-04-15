@@ -9,7 +9,7 @@ import * as gemini from './gemini'
 import * as qwen from './qwen'
 import * as kling from './kling'
 import * as volcengine from './volcengine'
-import { getWorkflowModels } from '../api/models/workflow.get'
+import { getWorkflowModels, getWorkflowModelOptions } from '../api/models/workflow.get'
 
 /**
  * 从数据库获取指定业务流程的模型配置
@@ -263,6 +263,16 @@ export async function generateVideoForWorkflow(
   }
 
   if (provider === 'kling') {
+    const isKlingV3Omni = modelId === kling.KlingVideoModels.KLING_V3_OMNI
+    let klingMode: 'std' | 'pro' = 'pro'
+    let klingWithAudio = options.audio
+
+    if (isKlingV3Omni) {
+      const workflowOptions = await getWorkflowModelOptions()
+      klingMode = workflowOptions.video_generation.klingV3Omni.mode
+      klingWithAudio = workflowOptions.video_generation.klingV3Omni.sound === 'on'
+    }
+
     return kling._klingGenerateVideo({
       model: modelId,
       prompt: options.prompt,
@@ -270,8 +280,8 @@ export async function generateVideoForWorkflow(
       firstFrameUrl: options.firstFrameUrl,
       lastFrameUrl: options.lastFrameUrl,
       duration: options.duration,
-      withAudio: options.audio,
-      mode: 'pro',
+      withAudio: klingWithAudio,
+      mode: klingMode,
       negativePrompt: options.negativePrompt,
       maxRetries: options.maxRetries
     })
