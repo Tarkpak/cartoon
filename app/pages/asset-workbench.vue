@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {
+  ArrowLeft,
   BookOpen,
+  CircleHelp,
   CheckCircle2,
   Download,
   Film,
@@ -93,7 +95,6 @@ const {
   scenes,
   characters,
   parsing,
-  saving,
   saveError,
   saveProject,
   loadProject,
@@ -573,33 +574,32 @@ const autoStages = computed(() => {
     {
       key: 'parse' as const,
       label: '剧本解析',
-      detail: parseDone ? `已拆解 ${scenes.value.length} 个场景` : '等待输入剧本',
       status: resolveAutoStageStatus('parse', parseDone)
     },
     {
       key: 'assets' as const,
       label: '资产准备',
-      detail: characters.value.length === 0
-        ? '自动按场景补齐角色'
-        : `角色图 ${characters.value.filter(char => !!char.baseImage).length}/${characters.value.length}`,
       status: resolveAutoStageStatus('assets', parseDone && assetsReady.value)
     },
     {
       key: 'videos' as const,
       label: '场景视频',
-      detail: queueSummary.value.total > 0
-        ? `已完成 ${queueSummary.value.done}/${queueSummary.value.total}`
-        : '等待开始生成',
       status: resolveAutoStageStatus('videos', videosDone)
     },
     {
       key: 'final' as const,
       label: '最终成片',
-      detail: finalVideo.value?.videoData ? '已可下载' : '可选：自动合成',
       status: resolveAutoStageStatus('final', !!finalVideo.value?.videoData)
     }
   ]
 })
+
+const stageHints: Record<AutoStageKey, string> = {
+  parse: '粘贴剧本后点击解析，系统会自动拆分场景并补齐资产规划。',
+  assets: '默认自动补齐资产；如需人工干预，可编辑资产后重新生成。',
+  videos: '批量生成场景视频并自动重试失败场景一次；生成效果不理想时可拆分或合并场景后再重试。',
+  final: '合成并下载最终视频（可选）。'
+}
 
 function inferActiveAutoStage(): AutoStageKey {
   if (scenes.value.length === 0) return 'parse'
@@ -2488,49 +2488,37 @@ onMounted(async () => {
 
 <template>
   <div class="h-full min-h-0 overflow-hidden p-3 flex flex-col gap-2">
-    <div class="shrink-0 flex flex-wrap items-center justify-between gap-1.5">
-      <div class="min-w-0">
-        <h1 class="text-lg font-bold leading-tight">
-          自动剧本视频工作台
-        </h1>
-        <p class="text-[11px] text-muted-foreground mt-0.5">
-          {{ projectName }}<span v-if="projectDescription"> · {{ projectDescription }}</span> · 画风：{{ selectedStyleId || projectStyleId || '未选择' }} · 比例：{{ projectAspectRatio }}
-        </p>
+    <div class="shrink-0 flex flex-col gap-1.5 xl:flex-row xl:items-start">
+      <div class="min-w-0 xl:w-[360px]">
+        <div class="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="icon"
+            class="h-8 w-8 shrink-0"
+            aria-label="返回项目列表"
+            title="返回项目列表"
+            @click="router.push('/projects')"
+          >
+            <ArrowLeft class="h-4 w-4" />
+          </Button>
+          <div class="min-w-0">
+            <h1 class="text-lg font-bold leading-tight">
+              自动剧本视频工作台
+            </h1>
+            <p class="text-[11px] text-muted-foreground mt-0.5">
+              {{ projectName }}<span v-if="projectDescription"> · {{ projectDescription }}</span> · 画风：{{ selectedStyleId || projectStyleId || '未选择' }} · 比例：{{ projectAspectRatio }}
+            </p>
+          </div>
+        </div>
       </div>
-      <div class="flex items-center gap-1.5 shrink-0">
-        <Button
-          variant="outline"
-          size="sm"
-          class="h-8 px-2.5 text-xs"
-          :disabled="saving || savingWorkflowMeta"
-          @click="saveProject"
-        >
-          <Loader2
-            v-if="saving"
-            class="h-4 w-4 mr-1 animate-spin"
-          />
-          保存项目
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          class="h-8 px-2.5 text-xs"
-          @click="router.push('/projects')"
-        >
-          返回项目列表
-        </Button>
-      </div>
-    </div>
-
-    <Card class="shrink-0 border-primary/20 bg-primary/[0.04]">
-      <CardContent class="py-2 space-y-1.5">
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
+      <div class="min-w-0 flex-1 space-y-1.5">
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-1.5 rounded-md border border-primary/20 bg-primary/[0.04] p-1.5">
           <Button
             v-for="stage in autoStages"
             :key="stage.key"
             type="button"
             variant="ghost"
-            class="h-auto rounded-md border px-2 py-1 text-left transition focus-visible:outline-none"
+            class="h-9 rounded-md border px-2 text-left transition focus-visible:outline-none"
             :class="[
               activeAutoStage === stage.key
                 ? 'border-primary/40 bg-accent text-foreground shadow-sm'
@@ -2543,29 +2531,22 @@ onMounted(async () => {
             @click="selectAutoStage(stage.key)"
           >
             <div class="flex items-center justify-between gap-1.5">
-              <span class="text-[12px] font-medium">{{ stage.label }}</span>
+              <span class="text-[12px] font-medium truncate">{{ stage.label }}</span>
               <CheckCircle2
                 v-if="stage.status === 'done'"
-                class="h-3.5 w-3.5 text-emerald-600"
+                class="h-3.5 w-3.5 shrink-0 text-emerald-600"
               />
               <Loader2
                 v-else-if="stage.status === 'running'"
-                class="h-3.5 w-3.5 animate-spin text-primary"
+                class="h-3.5 w-3.5 shrink-0 animate-spin text-primary"
               />
               <span
                 v-else
-                class="text-[10px] text-muted-foreground"
+                class="text-[10px] shrink-0 text-muted-foreground"
               >待执行</span>
             </div>
-            <p
-              v-if="activeAutoStage === stage.key"
-              class="mt-0.5 text-[10px] text-muted-foreground truncate"
-            >
-              {{ stage.detail }}
-            </p>
           </Button>
         </div>
-
         <p
           v-if="autoRunError"
           class="text-xs text-destructive"
@@ -2578,8 +2559,8 @@ onMounted(async () => {
         >
           {{ saveError }}
         </p>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
 
     <Card
       v-if="activeAutoStage === 'parse'"
@@ -2589,10 +2570,19 @@ onMounted(async () => {
         <CardTitle class="text-base flex items-center gap-2">
           <BookOpen class="h-4 w-4" />
           步骤一：剧本解析
+          <span class="relative inline-flex items-center group">
+            <button
+              type="button"
+              class="inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+              aria-label="步骤提示"
+            >
+              <CircleHelp class="h-3.5 w-3.5" />
+            </button>
+            <span class="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-72 rounded-md border bg-popover px-2.5 py-2 text-[11px] font-normal leading-relaxed text-popover-foreground shadow-md group-hover:block group-focus-within:block">
+              {{ stageHints.parse }}
+            </span>
+          </span>
         </CardTitle>
-        <CardDescription class="text-xs">
-          粘贴剧本后点击解析，系统会自动拆分场景并补齐资产规划。
-        </CardDescription>
       </CardHeader>
       <CardContent class="flex-1 min-h-0 flex flex-col gap-3 overflow-hidden">
         <Textarea
@@ -2626,10 +2616,19 @@ onMounted(async () => {
         <CardTitle class="text-base flex items-center gap-2">
           <Layers3 class="h-4 w-4" />
           步骤二：资产准备
+          <span class="relative inline-flex items-center group">
+            <button
+              type="button"
+              class="inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+              aria-label="步骤提示"
+            >
+              <CircleHelp class="h-3.5 w-3.5" />
+            </button>
+            <span class="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-72 rounded-md border bg-popover px-2.5 py-2 text-[11px] font-normal leading-relaxed text-popover-foreground shadow-md group-hover:block group-focus-within:block">
+              {{ stageHints.assets }}
+            </span>
+          </span>
         </CardTitle>
-        <CardDescription>
-          默认自动补齐资产；如需人工干预，可编辑资产后重新生成。
-        </CardDescription>
       </CardHeader>
       <CardContent class="flex-1 min-h-0 overflow-hidden flex flex-col gap-3">
         <div
@@ -3138,10 +3137,19 @@ onMounted(async () => {
         <CardTitle class="text-base flex items-center gap-2">
           <Film class="h-4 w-4" />
           步骤三：场景视频
+          <span class="relative inline-flex items-center group">
+            <button
+              type="button"
+              class="inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+              aria-label="步骤提示"
+            >
+              <CircleHelp class="h-3.5 w-3.5" />
+            </button>
+            <span class="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-72 rounded-md border bg-popover px-2.5 py-2 text-[11px] font-normal leading-relaxed text-popover-foreground shadow-md group-hover:block group-focus-within:block">
+              {{ stageHints.videos }}
+            </span>
+          </span>
         </CardTitle>
-        <CardDescription>
-          批量生成场景视频并自动重试失败场景一次；生成效果不理想时可拆分或合并场景后再重试。
-        </CardDescription>
       </CardHeader>
       <CardContent class="flex-1 min-h-0 overflow-hidden flex flex-col gap-3">
         <div
@@ -3407,10 +3415,19 @@ onMounted(async () => {
         <CardTitle class="text-base flex items-center gap-2">
           <Download class="h-4 w-4" />
           步骤四：最终成片
+          <span class="relative inline-flex items-center group">
+            <button
+              type="button"
+              class="inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+              aria-label="步骤提示"
+            >
+              <CircleHelp class="h-3.5 w-3.5" />
+            </button>
+            <span class="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-72 rounded-md border bg-popover px-2.5 py-2 text-[11px] font-normal leading-relaxed text-popover-foreground shadow-md group-hover:block group-focus-within:block">
+              {{ stageHints.final }}
+            </span>
+          </span>
         </CardTitle>
-        <CardDescription>
-          合成并下载最终视频（可选）。
-        </CardDescription>
       </CardHeader>
       <CardContent class="flex-1 min-h-0 space-y-3 overflow-y-auto">
         <div class="text-sm text-muted-foreground">
