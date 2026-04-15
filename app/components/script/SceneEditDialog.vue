@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Plus, Trash2 } from 'lucide-vue-next'
+import { toImageSrc } from '~/lib/media'
 
 interface DialogueItem {
   character: string
@@ -41,15 +42,31 @@ interface SceneEditData {
   transitionDuration?: number
 }
 
+type AssetReferenceType = 'character' | 'environment' | 'prop'
+
+interface AssetReferenceOption {
+  id: string
+  name: string
+  type: AssetReferenceType
+  referenceImage?: string
+  description?: string
+}
+
+type DragDropZone = 'pool' | 'selected'
+type EditPanelKey = 'basic' | 'assets' | 'camera' | 'dialogues'
+
 const props = defineProps<{
   open: boolean
   scene: SceneEditData | null
   availableCharacters?: string[]
+  assetReferenceOptions?: AssetReferenceOption[]
+  selectedAssetReferenceIds?: string[]
 }>()
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
   'save': [scene: SceneEditData]
+  'save-asset-references': [payload: { sceneId: string, assetIds: string[] }]
 }>()
 
 // 本地编辑状态
@@ -68,6 +85,8 @@ const editForm = ref<SceneEditData>({
   transitionOut: 'cut',
   transitionDuration: 0.5
 })
+const selectedAssetReferenceIdsInternal = ref<string[]>([])
+const activePanel = ref<EditPanelKey>('basic')
 
 // 监听 scene 变化，初始化表单
 watch(() => props.scene, (newScene) => {
@@ -88,8 +107,188 @@ watch(() => props.scene, (newScene) => {
       transitionOut: newScene.transitionOut || 'cut',
       transitionDuration: newScene.transitionDuration || 0.5
     }
+    activePanel.value = 'basic'
   }
 }, { immediate: true })
+
+watch(
+  () => [props.scene?.id, props.selectedAssetReferenceIds],
+  () => {
+    const ids = Array.isArray(props.selectedAssetReferenceIds)
+      ? props.selectedAssetReferenceIds.filter(Boolean)
+      : []
+    selectedAssetReferenceIdsInternal.value = Array.from(new Set(ids))
+  },
+  { immediate: true, deep: true }
+)
+
+const assetReferenceOptions = computed<AssetReferenceOption[]>(() => {
+  return Array.isArray(props.assetReferenceOptions) ? props.assetReferenceOptions : []
+})
+
+const selectedAssetReferenceIdSet = computed(() => {
+  return new Set(selectedAssetReferenceIdsInternal.value)
+})
+
+const draggingAssetId = ref('')
+const activeDropZone = ref<DragDropZone | null>(null)
+
+const selectedAssetReferences = computed<AssetReferenceOption[]>(() => {
+  const optionMap = new Map(assetReferenceOptions.value.map(asset => [asset.id, asset]))
+  const resolved = selectedAssetReferenceIdsInternal.value
+    .map((id) => {
+      const matched = optionMap.get(id)
+      if (matched) return matched
+      return {
+        id,
+        name: id,
+        type: 'prop' as const
+      }
+    })
+
+  return resolved.sort((left, right) => {
+    const typeSort = resolveAssetTypeOrder(left.type) - resolveAssetTypeOrder(right.type)
+    if (typeSort !== 0) return typeSort
+    return left.name.localeCompare(right.name)
+  })
+})
+
+const assetPoolReferences = computed<AssetReferenceOption[]>(() => {
+  return assetReferenceOptions.value
+    .filter(asset => !selectedAssetReferenceIdSet.value.has(asset.id))
+    .sort((left, right) => {
+      const typeSort = resolveAssetTypeOrder(left.type) - resolveAssetTypeOrder(right.type)
+      if (typeSort !== 0) return typeSort
+      return left.name.localeCompare(right.name)
+    })
+})
+
+const poolCharacterAssets = computed<AssetReferenceOption[]>(() => {
+  return assetPoolReferences.value.filter(asset => asset.type === 'character')
+})
+
+const poolEnvironmentAssets = computed<AssetReferenceOption[]>(() => {
+  return assetPoolReferences.value.filter(asset => asset.type === 'environment')
+})
+
+const poolPropAssets = computed<AssetReferenceOption[]>(() => {
+  return assetPoolReferences.value.filter(asset => asset.type === 'prop')
+})
+
+const selectedCharacterAssets = computed<AssetReferenceOption[]>(() => {
+  return assetReferenceOptions.value
+    .filter(asset => asset.type === 'character' && selectedAssetReferenceIdSet.value.has(asset.id))
+    .sort((left, right) => left.name.localeCompare(right.name))
+})
+
+const selectedEnvironmentAssets = computed<AssetReferenceOption[]>(() => {
+  return assetReferenceOptions.value
+    .filter(asset => asset.type === 'environment' && selectedAssetReferenceIdSet.value.has(asset.id))
+    .sort((left, right) => left.name.localeCompare(right.name))
+})
+
+const selectedPropAssets = computed<AssetReferenceOption[]>(() => {
+  return assetReferenceOptions.value
+    .filter(asset => asset.type === 'prop' && selectedAssetReferenceIdSet.value.has(asset.id))
+    .sort((left, right) => left.name.localeCompare(right.name))
+})
+
+const selectedUnknownAssets = computed<AssetReferenceOption[]>(() => {
+  const knownIds = new Set(assetReferenceOptions.value.map(asset => asset.id))
+  return selectedAssetReferences.value.filter(asset => !knownIds.has(asset.id))
+})
+
+const panelTabs = [
+  { key: 'basic' as const, label: '基础信息' },
+  { key: 'assets' as const, label: '引用资产' },
+  { key: 'camera' as const, label: '镜头转场' },
+  { key: 'dialogues' as const, label: '对话' }
+]
+
+function resolveAssetTypeOrder(type: AssetReferenceType): number {
+  if (type === 'character') return 1
+  if (type === 'environment') return 2
+  if (type === 'prop') return 3
+  return 9
+}
+
+function resolveAssetTypeLabel(type: AssetReferenceType): string {
+  if (type === 'character') return '角色'
+  if (type === 'environment') return '环境'
+  if (type === 'prop') return '道具'
+  return '资产'
+}
+
+function writeDraggedAssetId(assetId: string, event: DragEvent) {
+  const transfer = event.dataTransfer
+  if (!transfer) return
+
+  transfer.effectAllowed = 'move'
+  transfer.setData('application/x-scene-asset-id', assetId)
+  transfer.setData('text/plain', assetId)
+}
+
+function readDraggedAssetId(event: DragEvent): string {
+  const transfer = event.dataTransfer
+  if (!transfer) return draggingAssetId.value
+
+  return transfer.getData('application/x-scene-asset-id')
+    || transfer.getData('text/plain')
+    || draggingAssetId.value
+}
+
+function moveAssetReference(assetId: string, targetZone: DragDropZone) {
+  const existsInPool = assetReferenceOptions.value.some(asset => asset.id === assetId)
+  const existsInSelected = selectedAssetReferenceIdSet.value.has(assetId)
+  if (!existsInPool && !existsInSelected) return
+
+  const next = new Set(selectedAssetReferenceIdsInternal.value)
+
+  if (targetZone === 'selected') {
+    next.add(assetId)
+  } else {
+    next.delete(assetId)
+  }
+
+  selectedAssetReferenceIdsInternal.value = Array.from(next)
+}
+
+function handleAssetDragStart(assetId: string, event: DragEvent) {
+  draggingAssetId.value = assetId
+  writeDraggedAssetId(assetId, event)
+}
+
+function handleAssetDragEnd() {
+  draggingAssetId.value = ''
+  activeDropZone.value = null
+}
+
+function handleDropZoneDragOver(zone: DragDropZone, event: DragEvent) {
+  event.preventDefault()
+  activeDropZone.value = zone
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+}
+
+function handleDropZoneDrop(zone: DragDropZone, event: DragEvent) {
+  event.preventDefault()
+  const assetId = readDraggedAssetId(event)
+  if (!assetId) return
+
+  moveAssetReference(assetId, zone)
+  draggingAssetId.value = ''
+  activeDropZone.value = null
+}
+
+function handleDropZoneDragLeave(zone: DragDropZone, event: DragEvent) {
+  const target = event.currentTarget as HTMLElement | null
+  const related = event.relatedTarget as Node | null
+  if (target && related && target.contains(related)) return
+  if (activeDropZone.value === zone) {
+    activeDropZone.value = null
+  }
+}
 
 // 情绪选项
 const emotionOptions = [
@@ -172,6 +371,13 @@ function removeDialogue(index: number) {
 // 保存
 function handleSave() {
   emit('save', { ...editForm.value })
+  if (editForm.value.id) {
+    const ids = Array.from(new Set(selectedAssetReferenceIdsInternal.value.filter(Boolean)))
+    emit('save-asset-references', {
+      sceneId: editForm.value.id,
+      assetIds: ids
+    })
+  }
   emit('update:open', false)
 }
 
@@ -195,8 +401,27 @@ function handleCancel() {
       </DialogHeader>
 
       <div class="space-y-6 py-4">
+        <div class="rounded-md border bg-muted/30 p-1">
+          <div class="grid grid-cols-2 gap-1 sm:grid-cols-4">
+            <Button
+              v-for="tab in panelTabs"
+              :key="tab.key"
+              type="button"
+              size="sm"
+              :variant="activePanel === tab.key ? 'default' : 'ghost'"
+              class="h-8 text-xs"
+              @click="activePanel = tab.key"
+            >
+              {{ tab.label }}
+            </Button>
+          </div>
+        </div>
+
         <!-- 场景标题 -->
-        <div class="space-y-2">
+        <div
+          v-if="activePanel === 'basic'"
+          class="space-y-2"
+        >
           <label class="text-sm font-medium">场景标题</label>
           <Input
             v-model="editForm.title"
@@ -205,7 +430,10 @@ function handleCancel() {
         </div>
 
         <!-- 场景描述 -->
-        <div class="space-y-2">
+        <div
+          v-if="activePanel === 'basic'"
+          class="space-y-2"
+        >
           <label class="text-sm font-medium">场景描述</label>
           <Textarea
             v-model="editForm.description"
@@ -214,8 +442,385 @@ function handleCancel() {
           />
         </div>
 
+        <div
+          v-if="activePanel === 'assets' && assetReferenceOptions.length > 0"
+          class="space-y-3 border-t pt-4"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <h4 class="text-sm font-medium">
+              引用资产（拖拽增删）
+            </h4>
+            <Badge
+              variant="outline"
+              class="text-[10px]"
+            >
+              已选 {{ selectedAssetReferenceIdsInternal.length }}
+            </Badge>
+          </div>
+
+          <p class="text-xs text-muted-foreground">
+            拖动卡片到右侧可添加引用；拖回左侧可移除引用。
+          </p>
+
+          <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div
+              class="space-y-2 rounded-md border p-2 transition"
+              :class="activeDropZone === 'pool' ? 'border-primary bg-primary/5' : 'border-input'"
+              @dragover="handleDropZoneDragOver('pool', $event)"
+              @dragleave="handleDropZoneDragLeave('pool', $event)"
+              @drop="handleDropZoneDrop('pool', $event)"
+            >
+              <div class="text-xs font-medium text-muted-foreground">
+                资产池（拖到右侧添加）
+              </div>
+
+              <div
+                v-if="assetPoolReferences.length === 0"
+                class="rounded border border-dashed px-2 py-4 text-center text-xs text-muted-foreground"
+              >
+                没有可添加的资产
+              </div>
+
+              <div
+                v-else
+                class="max-h-72 space-y-2 overflow-y-auto pr-1"
+              >
+                <div
+                  v-if="poolCharacterAssets.length > 0"
+                  class="space-y-1"
+                >
+                  <div class="text-[11px] text-muted-foreground">
+                    角色
+                  </div>
+                  <div class="space-y-1">
+                    <div
+                      v-for="asset in poolCharacterAssets"
+                      :key="`pool_character_${asset.id}`"
+                      draggable="true"
+                      class="flex cursor-grab items-center gap-2 rounded border bg-background px-2 py-1.5 text-xs transition active:cursor-grabbing"
+                      :class="draggingAssetId === asset.id ? 'opacity-60 ring-1 ring-primary' : 'hover:border-primary/40'"
+                      @dragstart="handleAssetDragStart(asset.id, $event)"
+                      @dragend="handleAssetDragEnd"
+                    >
+                      <img
+                        v-if="asset.referenceImage"
+                        :src="toImageSrc(asset.referenceImage)"
+                        :alt="`${asset.name} 参考图`"
+                        class="h-8 w-8 rounded border object-cover"
+                      >
+                      <div
+                        v-else
+                        class="flex h-8 w-8 items-center justify-center rounded border bg-muted/30 text-[10px] text-muted-foreground"
+                      >
+                        无图
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <p class="truncate">
+                          {{ asset.name }}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        class="text-[10px]"
+                      >
+                        {{ resolveAssetTypeLabel(asset.type) }}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="poolEnvironmentAssets.length > 0"
+                  class="space-y-1"
+                >
+                  <div class="text-[11px] text-muted-foreground">
+                    环境
+                  </div>
+                  <div class="space-y-1">
+                    <div
+                      v-for="asset in poolEnvironmentAssets"
+                      :key="`pool_environment_${asset.id}`"
+                      draggable="true"
+                      class="flex cursor-grab items-center gap-2 rounded border bg-background px-2 py-1.5 text-xs transition active:cursor-grabbing"
+                      :class="draggingAssetId === asset.id ? 'opacity-60 ring-1 ring-primary' : 'hover:border-primary/40'"
+                      @dragstart="handleAssetDragStart(asset.id, $event)"
+                      @dragend="handleAssetDragEnd"
+                    >
+                      <img
+                        v-if="asset.referenceImage"
+                        :src="toImageSrc(asset.referenceImage)"
+                        :alt="`${asset.name} 参考图`"
+                        class="h-8 w-8 rounded border object-cover"
+                      >
+                      <div
+                        v-else
+                        class="flex h-8 w-8 items-center justify-center rounded border bg-muted/30 text-[10px] text-muted-foreground"
+                      >
+                        无图
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <p class="truncate">
+                          {{ asset.name }}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        class="text-[10px]"
+                      >
+                        {{ resolveAssetTypeLabel(asset.type) }}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="poolPropAssets.length > 0"
+                  class="space-y-1"
+                >
+                  <div class="text-[11px] text-muted-foreground">
+                    道具
+                  </div>
+                  <div class="space-y-1">
+                    <div
+                      v-for="asset in poolPropAssets"
+                      :key="`pool_prop_${asset.id}`"
+                      draggable="true"
+                      class="flex cursor-grab items-center gap-2 rounded border bg-background px-2 py-1.5 text-xs transition active:cursor-grabbing"
+                      :class="draggingAssetId === asset.id ? 'opacity-60 ring-1 ring-primary' : 'hover:border-primary/40'"
+                      @dragstart="handleAssetDragStart(asset.id, $event)"
+                      @dragend="handleAssetDragEnd"
+                    >
+                      <div class="flex h-8 w-8 items-center justify-center rounded border bg-muted/30 text-[10px] text-muted-foreground">
+                        道具
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <p class="truncate">
+                          {{ asset.name }}
+                        </p>
+                        <p
+                          v-if="asset.description"
+                          class="truncate text-[10px] text-muted-foreground"
+                        >
+                          {{ asset.description }}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        class="text-[10px]"
+                      >
+                        {{ resolveAssetTypeLabel(asset.type) }}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="space-y-2 rounded-md border p-2 transition"
+              :class="activeDropZone === 'selected' ? 'border-primary bg-primary/5' : 'border-input'"
+              @dragover="handleDropZoneDragOver('selected', $event)"
+              @dragleave="handleDropZoneDragLeave('selected', $event)"
+              @drop="handleDropZoneDrop('selected', $event)"
+            >
+              <div class="text-xs font-medium text-muted-foreground">
+                已引用资产（拖回左侧移除）
+              </div>
+
+              <div
+                v-if="selectedAssetReferenceIdsInternal.length === 0"
+                class="rounded border border-dashed px-2 py-4 text-center text-xs text-muted-foreground"
+              >
+                暂无引用资产
+              </div>
+
+              <div
+                v-else
+                class="max-h-72 space-y-2 overflow-y-auto pr-1"
+              >
+                <div
+                  v-if="selectedCharacterAssets.length > 0"
+                  class="space-y-1"
+                >
+                  <div class="text-[11px] text-muted-foreground">
+                    角色
+                  </div>
+                  <div class="space-y-1">
+                    <div
+                      v-for="asset in selectedCharacterAssets"
+                      :key="`selected_character_${asset.id}`"
+                      draggable="true"
+                      class="flex cursor-grab items-center gap-2 rounded border bg-background px-2 py-1.5 text-xs transition active:cursor-grabbing"
+                      :class="draggingAssetId === asset.id ? 'opacity-60 ring-1 ring-primary' : 'hover:border-primary/40'"
+                      @dragstart="handleAssetDragStart(asset.id, $event)"
+                      @dragend="handleAssetDragEnd"
+                    >
+                      <img
+                        v-if="asset.referenceImage"
+                        :src="toImageSrc(asset.referenceImage)"
+                        :alt="`${asset.name} 参考图`"
+                        class="h-8 w-8 rounded border object-cover"
+                      >
+                      <div
+                        v-else
+                        class="flex h-8 w-8 items-center justify-center rounded border bg-muted/30 text-[10px] text-muted-foreground"
+                      >
+                        无图
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <p class="truncate">
+                          {{ asset.name }}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="secondary"
+                        class="text-[10px]"
+                      >
+                        {{ resolveAssetTypeLabel(asset.type) }}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="selectedEnvironmentAssets.length > 0"
+                  class="space-y-1"
+                >
+                  <div class="text-[11px] text-muted-foreground">
+                    环境
+                  </div>
+                  <div class="space-y-1">
+                    <div
+                      v-for="asset in selectedEnvironmentAssets"
+                      :key="`selected_environment_${asset.id}`"
+                      draggable="true"
+                      class="flex cursor-grab items-center gap-2 rounded border bg-background px-2 py-1.5 text-xs transition active:cursor-grabbing"
+                      :class="draggingAssetId === asset.id ? 'opacity-60 ring-1 ring-primary' : 'hover:border-primary/40'"
+                      @dragstart="handleAssetDragStart(asset.id, $event)"
+                      @dragend="handleAssetDragEnd"
+                    >
+                      <img
+                        v-if="asset.referenceImage"
+                        :src="toImageSrc(asset.referenceImage)"
+                        :alt="`${asset.name} 参考图`"
+                        class="h-8 w-8 rounded border object-cover"
+                      >
+                      <div
+                        v-else
+                        class="flex h-8 w-8 items-center justify-center rounded border bg-muted/30 text-[10px] text-muted-foreground"
+                      >
+                        无图
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <p class="truncate">
+                          {{ asset.name }}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="secondary"
+                        class="text-[10px]"
+                      >
+                        {{ resolveAssetTypeLabel(asset.type) }}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="selectedPropAssets.length > 0"
+                  class="space-y-1"
+                >
+                  <div class="text-[11px] text-muted-foreground">
+                    道具
+                  </div>
+                  <div class="space-y-1">
+                    <div
+                      v-for="asset in selectedPropAssets"
+                      :key="`selected_prop_${asset.id}`"
+                      draggable="true"
+                      class="flex cursor-grab items-center gap-2 rounded border bg-background px-2 py-1.5 text-xs transition active:cursor-grabbing"
+                      :class="draggingAssetId === asset.id ? 'opacity-60 ring-1 ring-primary' : 'hover:border-primary/40'"
+                      @dragstart="handleAssetDragStart(asset.id, $event)"
+                      @dragend="handleAssetDragEnd"
+                    >
+                      <div class="flex h-8 w-8 items-center justify-center rounded border bg-muted/30 text-[10px] text-muted-foreground">
+                        道具
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <p class="truncate">
+                          {{ asset.name }}
+                        </p>
+                        <p
+                          v-if="asset.description"
+                          class="truncate text-[10px] text-muted-foreground"
+                        >
+                          {{ asset.description }}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="secondary"
+                        class="text-[10px]"
+                      >
+                        {{ resolveAssetTypeLabel(asset.type) }}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="selectedUnknownAssets.length > 0"
+                  class="space-y-1"
+                >
+                  <div class="text-[11px] text-muted-foreground">
+                    其他
+                  </div>
+                  <div class="space-y-1">
+                    <div
+                      v-for="asset in selectedUnknownAssets"
+                      :key="`selected_unknown_${asset.id}`"
+                      draggable="true"
+                      class="flex cursor-grab items-center gap-2 rounded border bg-background px-2 py-1.5 text-xs transition active:cursor-grabbing"
+                      :class="draggingAssetId === asset.id ? 'opacity-60 ring-1 ring-primary' : 'hover:border-primary/40'"
+                      @dragstart="handleAssetDragStart(asset.id, $event)"
+                      @dragend="handleAssetDragEnd"
+                    >
+                      <div class="flex h-8 w-8 items-center justify-center rounded border bg-muted/30 text-[10px] text-muted-foreground">
+                        未知
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <p class="truncate">
+                          {{ asset.name }}
+                        </p>
+                        <p class="truncate text-[10px] text-muted-foreground">
+                          该资产已不在当前资产池中
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        class="text-[10px]"
+                      >
+                        {{ resolveAssetTypeLabel(asset.type) }}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          v-else-if="activePanel === 'assets'"
+          class="rounded-md border border-dashed p-4 text-sm text-muted-foreground"
+        >
+          当前没有可管理的引用资产，请先在工作流中准备角色/环境/道具资产。
+        </div>
+
         <!-- 旁白 -->
-        <div class="space-y-2">
+        <div
+          v-if="activePanel === 'basic'"
+          class="space-y-2"
+        >
           <label class="text-sm font-medium">旁白（可选）</label>
           <Textarea
             v-model="editForm.narration"
@@ -225,7 +830,10 @@ function handleCancel() {
         </div>
 
         <!-- 场景设定 -->
-        <div class="grid grid-cols-2 gap-4">
+        <div
+          v-if="activePanel === 'basic'"
+          class="grid grid-cols-2 gap-4"
+        >
           <div class="space-y-2">
             <label class="text-sm font-medium">地点</label>
             <Input
@@ -253,7 +861,10 @@ function handleCancel() {
         </div>
 
         <!-- 时长 -->
-        <div class="space-y-2">
+        <div
+          v-if="activePanel === 'basic'"
+          class="space-y-2"
+        >
           <label class="text-sm font-medium">预计时长 (秒)</label>
           <div class="flex items-center space-x-4">
             <Slider
@@ -266,11 +877,16 @@ function handleCancel() {
             />
             <span class="w-16 text-center font-medium">{{ editForm.duration }}秒</span>
           </div>
-          <p class="text-xs text-muted-foreground">支持 2-15 秒灵活时长</p>
+          <p class="text-xs text-muted-foreground">
+            支持 2-15 秒灵活时长
+          </p>
         </div>
 
         <!-- 镜头语言设置 -->
-        <div class="space-y-4 border-t pt-4">
+        <div
+          v-if="activePanel === 'camera'"
+          class="space-y-4 border-t pt-4"
+        >
           <h4 class="text-sm font-medium flex items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-blue-500" />
             镜头语言
@@ -327,7 +943,10 @@ function handleCancel() {
         </div>
 
         <!-- 转场设置 -->
-        <div class="space-y-4 border-t pt-4">
+        <div
+          v-if="activePanel === 'camera'"
+          class="space-y-4 border-t pt-4"
+        >
           <h4 class="text-sm font-medium flex items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-purple-500" />
             转场效果
@@ -391,7 +1010,10 @@ function handleCancel() {
         </div>
 
         <!-- 对话列表 -->
-        <div class="space-y-3">
+        <div
+          v-if="activePanel === 'dialogues'"
+          class="space-y-3"
+        >
           <div class="flex items-center justify-between">
             <label class="text-sm font-medium">对话内容</label>
             <Button
