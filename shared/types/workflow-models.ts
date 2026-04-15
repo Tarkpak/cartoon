@@ -78,6 +78,43 @@ export const WorkflowModelsSchema = z.object({
 })
 export type WorkflowModels = z.infer<typeof WorkflowModelsSchema>
 
+// ==================== 业务流程模型扩展配置 ====================
+
+/** Kling v3 Omni 声音开关 */
+export const KlingV3OmniSoundSchema = z.enum(['on', 'off'])
+export type KlingV3OmniSound = z.infer<typeof KlingV3OmniSoundSchema>
+
+/** Kling v3 Omni 生成模式 */
+export const KlingV3OmniModeSchema = z.enum(['std', 'pro'])
+export type KlingV3OmniMode = z.infer<typeof KlingV3OmniModeSchema>
+
+/** Kling v3 Omni 视频配置 */
+export const KlingV3OmniVideoOptionsSchema = z.object({
+  sound: KlingV3OmniSoundSchema.default('off'),
+  mode: KlingV3OmniModeSchema.default('pro')
+})
+export type KlingV3OmniVideoOptions = z.infer<typeof KlingV3OmniVideoOptionsSchema>
+
+/** 视频生成流程模型扩展配置 */
+export const WorkflowVideoGenerationModelOptionsSchema = z.object({
+  klingV3Omni: KlingV3OmniVideoOptionsSchema.default({
+    sound: 'off',
+    mode: 'pro'
+  })
+})
+export type WorkflowVideoGenerationModelOptions = z.infer<typeof WorkflowVideoGenerationModelOptionsSchema>
+
+/** 业务流程模型扩展配置 */
+export const WorkflowModelOptionsSchema = z.object({
+  video_generation: WorkflowVideoGenerationModelOptionsSchema.default({
+    klingV3Omni: {
+      sound: 'off',
+      mode: 'pro'
+    }
+  })
+})
+export type WorkflowModelOptions = z.infer<typeof WorkflowModelOptionsSchema>
+
 // ==================== 业务流程配置常量 ====================
 
 /** 所有业务流程配置 */
