@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Plus, Video, Search, Loader2, Trash2 } from 'lucide-vue-next'
+import { useDebounceFn } from '@vueuse/core'
 import {
   Dialog,
   DialogContent,
@@ -60,12 +61,27 @@ interface Project {
   updatedAt: string
 }
 
+interface ProjectListResponse {
+  success: boolean
+  projects: Project[]
+  pagination?: {
+    page: number
+    pageSize: number
+    total: number
+    totalPages: number
+  }
+}
+
 const projects = ref<Project[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 const searchKeyword = ref('')
 const statusFilter = ref<'all' | 'in_progress' | 'completed' | 'draft'>('all')
 const sortBy = ref<'updated' | 'created' | 'name'>('updated')
+const currentPage = ref(1)
+const pageSize = ref(20)
+const totalProjects = ref(0)
+const pageSizeOptions = [10, 20, 50]
 
 // 新建项目对话框
 const showCreateDialog = ref(false)
@@ -141,12 +157,24 @@ function ensureCreateStyleId(preferDefault = false): string {
 }
 
 // 获取项目列表
-async function fetchProjects() {
+async function fetchProjects(targetPage = currentPage.value) {
   loading.value = true
   error.value = null
   try {
-    const data = await $fetch<{ success: boolean, projects: Project[] }>('/api/project/list')
+    const normalizedPage = Math.max(1, targetPage)
+    const keyword = searchKeyword.value.trim()
+    const data = await $fetch<ProjectListResponse>('/api/project/list', {
+      query: {
+        page: normalizedPage,
+        pageSize: pageSize.value,
+        status: statusFilter.value,
+        sortBy: sortBy.value,
+        keyword: keyword || undefined
+      }
+    })
     projects.value = data.projects
+    currentPage.value = data.pagination?.page ?? normalizedPage
+    totalProjects.value = data.pagination?.total ?? data.projects.length
   } catch (e) {
     error.value = '获取项目列表失败'
     console.error(e)
@@ -201,7 +229,7 @@ async function createProject() {
       return
     }
 
-    await fetchProjects()
+    await fetchProjects(1)
   } catch (e) {
     console.error('创建项目失败:', e)
   } finally {
@@ -261,6 +289,19 @@ function formatTime(dateStr: string): string {
   return date.toLocaleDateString()
 }
 
+function formatDateTime(dateStr: string): string {
+  const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) return '--'
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+
+  return `${year}-${month}-${day} ${hours}:${minutes}`
+}
+
 // 删除项目
 async function deleteProject() {
   if (!projectToDelete.value) return
@@ -272,7 +313,7 @@ async function deleteProject() {
     })
     showDeleteDialog.value = false
     projectToDelete.value = null
-    await fetchProjects()
+    await fetchProjects(currentPage.value)
   } catch (e) {
     console.error('删除项目失败:', e)
     alert('删除失败，请重试')
@@ -288,6 +329,29 @@ function confirmDelete(project: Project, event: Event) {
   projectToDelete.value = project
   showDeleteDialog.value = true
 }
+
+const totalPages = computed(() => Math.max(1, Math.ceil(totalProjects.value / pageSize.value)))
+const filteredProjects = computed(() => projects.value)
+const hasActiveFilters = computed(() => {
+  return searchKeyword.value.trim().length > 0 || statusFilter.value !== 'all'
+})
+
+function goToPage(page: number) {
+  const nextPage = Math.min(totalPages.value, Math.max(1, page))
+  if (nextPage === currentPage.value && projects.value.length > 0) return
+  void fetchProjects(nextPage)
+}
+
+function handlePageSizeChange(value: unknown) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return
+  pageSize.value = parsed
+}
+
+const debouncedRefreshFirstPage = useDebounceFn(() => {
+  currentPage.value = 1
+  void fetchProjects(1)
+}, 300)
 
 onMounted(async () => {
   await Promise.all([
@@ -308,38 +372,20 @@ watch([defaultStyleId, availableStylePresets], () => {
   }
 })
 
+watch(searchKeyword, () => {
+  debouncedRefreshFirstPage()
+})
+
+watch([statusFilter, sortBy, pageSize], () => {
+  currentPage.value = 1
+  void fetchProjects(1)
+})
+
 const statusMap: Record<string, { label: string, variant: 'default' | 'secondary' | 'success' | 'warning' }> = {
   in_progress: { label: '进行中', variant: 'success' },
   draft: { label: '草稿', variant: 'warning' },
   completed: { label: '已完成', variant: 'secondary' }
 }
-
-const filteredProjects = computed(() => {
-  const keyword = searchKeyword.value.trim().toLowerCase()
-  const withFilter = projects.value.filter((project) => {
-    const statusOk = statusFilter.value === 'all' || (project.status || 'draft') === statusFilter.value
-    if (!statusOk) return false
-    if (!keyword) return true
-
-    const styleName = getStyleName(project.styleId).toLowerCase()
-    return [
-      project.title,
-      project.description || '',
-      getWorkflowName(project.workflowType),
-      styleName
-    ].some(text => text.toLowerCase().includes(keyword))
-  })
-
-  return withFilter.sort((a, b) => {
-    if (sortBy.value === 'name') {
-      return a.title.localeCompare(b.title, 'zh-CN')
-    }
-    if (sortBy.value === 'created') {
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    }
-    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-  })
-})
 </script>
 
 <template>
@@ -365,8 +411,8 @@ const filteredProjects = computed(() => {
     <!-- 搜索和筛选 -->
     <Card class="mb-6">
       <CardContent class="pt-6">
-        <div class="flex flex-wrap gap-4">
-          <div class="flex-1 min-w-[200px] relative">
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(280px,1fr)_160px_160px_auto] lg:items-center">
+          <div class="relative">
             <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               v-model="searchKeyword"
@@ -377,7 +423,7 @@ const filteredProjects = computed(() => {
           <Select
             v-model="statusFilter"
           >
-            <SelectTrigger class="h-10 min-w-[130px]">
+            <SelectTrigger class="h-10 w-full">
               <SelectValue placeholder="全部状态" />
             </SelectTrigger>
             <SelectContent>
@@ -398,7 +444,7 @@ const filteredProjects = computed(() => {
           <Select
             v-model="sortBy"
           >
-            <SelectTrigger class="h-10 min-w-[130px]">
+            <SelectTrigger class="h-10 w-full">
               <SelectValue placeholder="最近更新" />
             </SelectTrigger>
             <SelectContent>
@@ -413,6 +459,9 @@ const filteredProjects = computed(() => {
               </SelectItem>
             </SelectContent>
           </Select>
+          <div class="text-xs text-muted-foreground lg:text-right">
+            当前页 {{ filteredProjects.length }} 条 · 共 {{ totalProjects }} 条
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -457,10 +506,10 @@ const filteredProjects = computed(() => {
             <TableHead class="w-[80px]">
               状态
             </TableHead>
-            <TableHead class="w-[120px]">
+            <TableHead class="w-[180px]">
               更新时间
             </TableHead>
-            <TableHead class="w-[80px] text-right">
+            <TableHead class="w-[140px] text-right">
               操作
             </TableHead>
           </TableRow>
@@ -469,7 +518,7 @@ const filteredProjects = computed(() => {
           <TableRow
             v-for="project in filteredProjects"
             :key="project.id"
-            class="cursor-pointer hover:bg-muted/50"
+            class="group cursor-pointer hover:bg-muted/50"
             @click="openProject(project)"
           >
             <TableCell class="font-medium">
@@ -505,18 +554,33 @@ const filteredProjects = computed(() => {
                 {{ statusMap[project.status || 'draft']?.label || '草稿' }}
               </Badge>
             </TableCell>
-            <TableCell class="text-muted-foreground text-sm">
-              {{ formatTime(project.updatedAt) }}
+            <TableCell class="text-sm">
+              <div class="flex flex-col">
+                <span>{{ formatTime(project.updatedAt) }}</span>
+                <span class="text-xs text-muted-foreground">
+                  {{ formatDateTime(project.updatedAt) }}
+                </span>
+              </div>
             </TableCell>
             <TableCell class="text-right">
-              <Button
-                variant="ghost"
-                size="icon"
-                class="h-8 w-8 text-muted-foreground hover:text-destructive"
-                @click="confirmDelete(project, $event)"
-              >
-                <Trash2 class="w-4 h-4" />
-              </Button>
+              <div class="inline-flex items-center gap-1">
+                <Button
+                  size="sm"
+                  class="h-8 px-3 text-xs"
+                  @click.stop="openProject(project)"
+                >
+                  进入
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-8 w-8 text-muted-foreground hover:text-destructive opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 focus-visible:opacity-100"
+                  title="删除项目"
+                  @click="confirmDelete(project, $event)"
+                >
+                  <Trash2 class="w-4 h-4" />
+                </Button>
+              </div>
             </TableCell>
           </TableRow>
           <!-- 空状态 -->
@@ -527,9 +591,9 @@ const filteredProjects = computed(() => {
             >
               <div class="flex flex-col items-center justify-center text-muted-foreground">
                 <Video class="w-10 h-10 mb-2 opacity-50" />
-                <p>{{ projects.length === 0 ? '暂无项目' : '没有匹配结果' }}</p>
+                <p>{{ hasActiveFilters ? '没有匹配结果' : '暂无项目' }}</p>
                 <Button
-                  v-if="projects.length === 0"
+                  v-if="!hasActiveFilters"
                   variant="link"
                   class="mt-2"
                   @click="openCreateDialog"
@@ -541,6 +605,51 @@ const filteredProjects = computed(() => {
           </TableRow>
         </TableBody>
       </Table>
+      <div class="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="text-xs text-muted-foreground">
+          第 {{ currentPage }} / {{ totalPages }} 页，共 {{ totalProjects }} 条
+        </div>
+        <div class="flex items-center gap-2 self-end sm:self-auto">
+          <div class="flex items-center gap-1 text-xs text-muted-foreground">
+            <span>每页</span>
+            <Select
+              :model-value="String(pageSize)"
+              @update:model-value="handlePageSizeChange"
+            >
+              <SelectTrigger class="h-8 w-[88px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="size in pageSizeOptions"
+                  :key="size"
+                  :value="String(size)"
+                >
+                  {{ size }} 条
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            class="h-8 px-2.5 text-xs"
+            :disabled="loading || currentPage <= 1"
+            @click="goToPage(currentPage - 1)"
+          >
+            上一页
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            class="h-8 px-2.5 text-xs"
+            :disabled="loading || currentPage >= totalPages"
+            @click="goToPage(currentPage + 1)"
+          >
+            下一页
+          </Button>
+        </div>
+      </div>
     </Card>
 
     <!-- 删除确认对话框 -->
