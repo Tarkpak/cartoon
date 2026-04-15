@@ -1,5 +1,6 @@
-import { promises as fs } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync, renameSync } from 'node:fs'
+import { join } from 'node:path'
+import { sqlite } from '../db'
 
 export type ModelDebugStatus = 'success' | 'error'
 
@@ -33,8 +34,10 @@ export interface ModelDebugLogQuery {
 
 type ModelDebugRequestValue = unknown | (() => unknown)
 
-const MODEL_DEBUG_LOG_LIMIT = Number.parseInt(process.env.MODEL_DEBUG_MAX_LOGS || '2000', 10)
-const MODEL_DEBUG_LOG_FILE = join(process.cwd(), 'data', 'logs', 'model-debug.jsonl')
+const parsedLogLimit = Number.parseInt(process.env.MODEL_DEBUG_MAX_LOGS || '2000', 10)
+const MODEL_DEBUG_LOG_LIMIT = Number.isFinite(parsedLogLimit) && parsedLogLimit > 0 ? parsedLogLimit : 2000
+const LEGACY_MODEL_DEBUG_LOG_FILE = join(process.cwd(), 'data', 'logs', 'model-debug.jsonl')
+const LEGACY_MODEL_DEBUG_LOG_MIGRATED_FILE = `${LEGACY_MODEL_DEBUG_LOG_FILE}.migrated`
 const MAX_STRING_LENGTH = 2000
 const MAX_OBJECT_KEYS = 50
 const MAX_ARRAY_LENGTH = 25
@@ -51,8 +54,56 @@ const SENSITIVE_KEY_PATTERNS = [
   'secret_key'
 ]
 
-const entries: ModelDebugLogEntry[] = []
 let persistQueue: Promise<void> = Promise.resolve()
+let legacyMigrationAttempted = false
+
+const insertLogStmt = sqlite.prepare(`
+  INSERT OR REPLACE INTO model_debug_logs (
+    id, timestamp, provider, model, operation, status, duration_ms,
+    request_json, response_json, error_json, created_at
+  ) VALUES (
+    @id, @timestamp, @provider, @model, @operation, @status, @durationMs,
+    @requestJson, @responseJson, @errorJson, @createdAt
+  )
+`)
+
+const pruneLogStmt = sqlite.prepare(`
+  DELETE FROM model_debug_logs
+  WHERE id NOT IN (
+    SELECT id FROM model_debug_logs
+    ORDER BY timestamp DESC
+    LIMIT ?
+  )
+`)
+
+const clearLogsStmt = sqlite.prepare('DELETE FROM model_debug_logs')
+
+interface ModelDebugLogRow {
+  id: string
+  timestamp: string
+  provider: string
+  model: string
+  operation: string
+  status: string
+  duration_ms: number
+  request_json: string | null
+  response_json: string | null
+  error_json: string | null
+}
+
+interface ModelDebugLogPersistParams {
+  id: string
+  timestamp: string
+  provider: string
+  model: string
+  operation: string
+  status: ModelDebugStatus
+  durationMs: number
+  requestJson: string | null
+  responseJson: string | null
+  errorJson: string | null
+  createdAt: string
+}
 
 function isSensitiveKey(key: string): boolean {
   const lower = key.toLowerCase()
@@ -152,19 +203,177 @@ function normalizeError(error: unknown): ModelDebugErrorInfo {
 }
 
 function pushEntry(entry: ModelDebugLogEntry) {
-  entries.push(entry)
-  while (entries.length > MODEL_DEBUG_LOG_LIMIT) {
-    entries.shift()
-  }
-
+  migrateLegacyLogsIfNeeded()
   persistQueue = persistQueue
-    .then(async () => {
-      await fs.mkdir(dirname(MODEL_DEBUG_LOG_FILE), { recursive: true })
-      await fs.appendFile(MODEL_DEBUG_LOG_FILE, `${JSON.stringify(entry)}\n`, 'utf8')
+    .then(() => {
+      insertLogStmt.run(toPersistParams(entry))
+      pruneLogStmt.run(MODEL_DEBUG_LOG_LIMIT)
     })
     .catch((error) => {
-      console.warn('[ModelDebugLog] 写入日志文件失败:', error)
+      console.warn('[ModelDebugLog] 写入数据库失败:', error)
     })
+}
+
+function serializeForStorage(value: unknown): string | null {
+  if (value === undefined) return null
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return JSON.stringify({
+      __serialize_error__: 'value cannot be serialized'
+    })
+  }
+}
+
+function toPersistParams(entry: ModelDebugLogEntry): ModelDebugLogPersistParams {
+  return {
+    id: entry.id,
+    timestamp: entry.timestamp,
+    provider: entry.provider,
+    model: entry.model,
+    operation: entry.operation,
+    status: entry.status,
+    durationMs: entry.durationMs,
+    requestJson: serializeForStorage(entry.request),
+    responseJson: serializeForStorage(entry.response),
+    errorJson: serializeForStorage(entry.error),
+    createdAt: entry.timestamp
+  }
+}
+
+function parseStoredJson(value: string | null): unknown {
+  if (!value) return undefined
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
+function normalizeStoredError(value: unknown): ModelDebugErrorInfo | undefined {
+  if (!value) return undefined
+  if (typeof value === 'string') {
+    return { message: sanitizeString(value) }
+  }
+
+  if (typeof value === 'object') {
+    const raw = value as Record<string, unknown>
+    if (typeof raw.message === 'string') {
+      return {
+        name: typeof raw.name === 'string' ? raw.name : undefined,
+        message: sanitizeString(raw.message),
+        stack: typeof raw.stack === 'string' ? sanitizeString(raw.stack) : undefined
+      }
+    }
+  }
+
+  return {
+    message: sanitizeString(JSON.stringify(sanitizeValue(value)))
+  }
+}
+
+function rowToLogEntry(row: ModelDebugLogRow): ModelDebugLogEntry {
+  return {
+    id: row.id,
+    timestamp: row.timestamp,
+    provider: row.provider,
+    model: row.model,
+    operation: row.operation,
+    status: row.status === 'error' ? 'error' : 'success',
+    durationMs: Number.isFinite(row.duration_ms) ? row.duration_ms : 0,
+    request: parseStoredJson(row.request_json),
+    response: parseStoredJson(row.response_json),
+    error: normalizeStoredError(parseStoredJson(row.error_json))
+  }
+}
+
+function migrateLegacyLogsIfNeeded() {
+  if (legacyMigrationAttempted) return
+  legacyMigrationAttempted = true
+
+  try {
+    if (!existsSync(LEGACY_MODEL_DEBUG_LOG_FILE)) return
+
+    const row = sqlite.prepare('SELECT COUNT(1) as count FROM model_debug_logs').get() as { count?: number } | undefined
+    if ((row?.count || 0) > 0) {
+      renameLegacyLogFile()
+      return
+    }
+
+    const content = readFileSync(LEGACY_MODEL_DEBUG_LOG_FILE, 'utf8')
+    const lines = content
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+
+    if (lines.length === 0) {
+      renameLegacyLogFile()
+      return
+    }
+
+    const entries: ModelDebugLogEntry[] = []
+    for (const line of lines.slice(-MODEL_DEBUG_LOG_LIMIT)) {
+      try {
+        const raw = JSON.parse(line) as Partial<ModelDebugLogEntry>
+        if (
+          typeof raw.provider !== 'string'
+          || typeof raw.model !== 'string'
+          || typeof raw.operation !== 'string'
+        ) {
+          continue
+        }
+
+        const duration = typeof raw.durationMs === 'number' && Number.isFinite(raw.durationMs)
+          ? Math.max(0, Math.round(raw.durationMs))
+          : 0
+        const timestamp = typeof raw.timestamp === 'string' && raw.timestamp
+          ? raw.timestamp
+          : new Date().toISOString()
+
+        entries.push({
+          id: typeof raw.id === 'string' && raw.id ? raw.id : createLogId(),
+          timestamp,
+          provider: raw.provider,
+          model: raw.model,
+          operation: raw.operation,
+          status: raw.status === 'error' ? 'error' : 'success',
+          durationMs: duration,
+          request: sanitizeValue(raw.request),
+          response: sanitizeValue(raw.response),
+          error: raw.error ? normalizeStoredError(raw.error) : undefined
+        })
+      } catch {
+        continue
+      }
+    }
+
+    if (entries.length === 0) {
+      renameLegacyLogFile()
+      return
+    }
+
+    const insertInTransaction = sqlite.transaction((records: ModelDebugLogPersistParams[]) => {
+      for (const record of records) {
+        insertLogStmt.run(record)
+      }
+    })
+
+    insertInTransaction(entries.map(toPersistParams))
+    pruneLogStmt.run(MODEL_DEBUG_LOG_LIMIT)
+    renameLegacyLogFile()
+    console.log(`[ModelDebugLog] 已迁移 ${entries.length} 条历史日志到 SQLite`)
+  } catch (error) {
+    console.warn('[ModelDebugLog] 迁移旧日志失败:', error)
+  }
+}
+
+function renameLegacyLogFile() {
+  try {
+    if (!existsSync(LEGACY_MODEL_DEBUG_LOG_FILE)) return
+    renameSync(LEGACY_MODEL_DEBUG_LOG_FILE, LEGACY_MODEL_DEBUG_LOG_MIGRATED_FILE)
+  } catch {
+    // 忽略重命名失败，避免影响主流程
+  }
 }
 
 function createLogId(): string {
@@ -205,7 +414,7 @@ export async function withModelDebugLog<T>(params: {
       operation: params.operation,
       status: 'success',
       durationMs: Date.now() - startedAt,
-      request: resolveRequest(),
+      request: sanitizeValue(resolveRequest()),
       response: sanitizeValue(params.summarizeResponse ? params.summarizeResponse(result) : result)
     })
     return result
@@ -218,7 +427,7 @@ export async function withModelDebugLog<T>(params: {
       operation: params.operation,
       status: 'error',
       durationMs: Date.now() - startedAt,
-      request: resolveRequest(),
+      request: sanitizeValue(resolveRequest()),
       error: normalizeError(error)
     })
     throw error
@@ -226,47 +435,68 @@ export async function withModelDebugLog<T>(params: {
 }
 
 export function listModelDebugLogs(query: ModelDebugLogQuery = {}): ModelDebugLogEntry[] {
+  migrateLegacyLogsIfNeeded()
   const limit = Math.max(1, Math.min(500, query.limit || 100))
-  let result = [...entries].reverse()
+  const whereParts: string[] = []
+  const params: Array<string | number> = []
 
   if (query.provider) {
-    result = result.filter(item => item.provider === query.provider)
+    whereParts.push('provider = ?')
+    params.push(query.provider)
   }
 
   if (query.operation) {
-    result = result.filter(item => item.operation === query.operation)
+    whereParts.push('operation = ?')
+    params.push(query.operation)
   }
 
   if (query.status) {
-    result = result.filter(item => item.status === query.status)
+    whereParts.push('status = ?')
+    params.push(query.status)
   }
 
   if (query.model) {
-    const modelKeyword = query.model.toLowerCase()
-    result = result.filter(item => item.model.toLowerCase().includes(modelKeyword))
+    whereParts.push('LOWER(model) LIKE ?')
+    params.push(`%${query.model.toLowerCase()}%`)
   }
 
   if (query.keyword) {
-    const keyword = query.keyword.toLowerCase()
-    result = result.filter((item) => {
-      const haystack = JSON.stringify({
-        model: item.model,
-        request: item.request,
-        response: item.response,
-        error: item.error
-      }).toLowerCase()
-      return haystack.includes(keyword)
-    })
+    const keyword = `%${query.keyword.toLowerCase()}%`
+    whereParts.push(`
+      (
+        LOWER(model) LIKE ?
+        OR LOWER(COALESCE(request_json, '')) LIKE ?
+        OR LOWER(COALESCE(response_json, '')) LIKE ?
+        OR LOWER(COALESCE(error_json, '')) LIKE ?
+      )
+    `)
+    params.push(keyword, keyword, keyword, keyword)
   }
 
-  return result.slice(0, limit)
+  const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : ''
+  const rows = sqlite.prepare(`
+    SELECT
+      id,
+      timestamp,
+      provider,
+      model,
+      operation,
+      status,
+      duration_ms,
+      request_json,
+      response_json,
+      error_json
+    FROM model_debug_logs
+    ${whereClause}
+    ORDER BY timestamp DESC
+    LIMIT ?
+  `).all(...params, limit) as ModelDebugLogRow[]
+
+  return rows.map(rowToLogEntry)
 }
 
 export async function clearModelDebugLogs(): Promise<void> {
-  entries.length = 0
-  try {
-    await fs.rm(MODEL_DEBUG_LOG_FILE, { force: true })
-  } catch (error) {
-    console.warn('[ModelDebugLog] 清理日志文件失败:', error)
-  }
+  migrateLegacyLogsIfNeeded()
+  await persistQueue
+  clearLogsStmt.run()
 }

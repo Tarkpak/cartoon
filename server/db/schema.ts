@@ -125,6 +125,22 @@ export const systemConfig = sqliteTable('system_config', {
   updatedAt: text('updated_at').notNull()
 })
 
+// ==================== 模型调试日志表 ====================
+
+export const modelDebugLogs = sqliteTable('model_debug_logs', {
+  id: text('id').primaryKey(),
+  timestamp: text('timestamp').notNull(),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  operation: text('operation').notNull(),
+  status: text('status', { enum: ['success', 'error'] }).notNull(),
+  durationMs: integer('duration_ms').notNull(),
+  requestJson: text('request_json'),
+  responseJson: text('response_json'),
+  errorJson: text('error_json'),
+  createdAt: text('created_at').notNull()
+})
+
 // ==================== 类型导出 ====================
 
 export type SystemConfig = typeof systemConfig.$inferSelect
@@ -147,3 +163,6 @@ export type NewVideoTask = typeof videoTasks.$inferInsert
 
 export type GeneratedVideo = typeof generatedVideos.$inferSelect
 export type NewGeneratedVideo = typeof generatedVideos.$inferInsert
+
+export type ModelDebugLog = typeof modelDebugLogs.$inferSelect
+export type NewModelDebugLog = typeof modelDebugLogs.$inferInsert
