@@ -173,6 +173,23 @@ export function initDatabase() {
     )
   `)
 
+  // 创建模型调试日志表
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS model_debug_logs (
+      id TEXT PRIMARY KEY,
+      timestamp TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      operation TEXT NOT NULL,
+      status TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      request_json TEXT,
+      response_json TEXT,
+      error_json TEXT,
+      created_at TEXT NOT NULL
+    )
+  `)
+
   // 创建索引
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS idx_scripts_project ON scripts(project_id);
@@ -181,6 +198,10 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_video_tasks_scene ON video_tasks(scene_id);
     CREATE INDEX IF NOT EXISTS idx_video_tasks_status ON video_tasks(status);
     CREATE INDEX IF NOT EXISTS idx_generated_videos_scene ON generated_videos(scene_id);
+    CREATE INDEX IF NOT EXISTS idx_model_debug_logs_timestamp ON model_debug_logs(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_model_debug_logs_provider ON model_debug_logs(provider);
+    CREATE INDEX IF NOT EXISTS idx_model_debug_logs_operation ON model_debug_logs(operation);
+    CREATE INDEX IF NOT EXISTS idx_model_debug_logs_status ON model_debug_logs(status);
   `)
 
   console.log('[DB] 数据库初始化完成')
