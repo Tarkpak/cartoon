@@ -170,7 +170,7 @@ export default defineEventHandler(async (event) => {
             modelId: usedModelId,
             prompt: testPrompt,
             size: testSize,
-            referenceImages: referenceImages  // 传递参考图
+            referenceImages: referenceImages // 传递参考图
           })
           // 只输出摘要信息，避免 base64 数据占满控制台
           console.log(`[ModelTest] generateImage 返回:`, JSON.stringify({

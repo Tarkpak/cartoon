@@ -14,6 +14,7 @@ const SCRIPT_MIN_DURATION = 2
 const SCRIPT_MAX_DURATION = 15
 const DEFAULT_SCENE_DURATION = 8
 const DEFAULT_TIME_OF_DAY = 'morning'
+const DEFAULT_SHOT_TYPE = 'medium'
 const VALID_TIME_OF_DAY = new Set([
   'dawn',
   'morning',
@@ -22,6 +23,26 @@ const VALID_TIME_OF_DAY = new Set([
   'evening',
   'night'
 ])
+const VALID_SHOT_TYPE = new Set([
+  'extreme_wide',
+  'wide',
+  'medium_wide',
+  'medium',
+  'medium_close',
+  'close',
+  'extreme_close',
+  'detail'
+])
+const SHOT_TYPE_LABEL_MAP: Record<string, string> = {
+  extreme_wide: '大远景',
+  wide: '全景',
+  medium_wide: '中全景',
+  medium: '中景',
+  medium_close: '中近景',
+  close: '近景',
+  extreme_close: '特写',
+  detail: '细节特写'
+}
 
 function normalizeSceneDuration(rawDuration: unknown): number {
   const numericDuration = typeof rawDuration === 'number'
@@ -55,6 +76,155 @@ function normalizeTimeOfDay(rawTimeOfDay: unknown): string {
   return DEFAULT_TIME_OF_DAY
 }
 
+function inferShotTypeFromText(text: string): string {
+  const value = text.toLowerCase()
+
+  if (/大远景|极远景|establishing|extreme wide/.test(value)) return 'extreme_wide'
+  if (/全景|远景|\bwide\b/.test(value)) return 'wide'
+  if (/中全景|medium wide/.test(value)) return 'medium_wide'
+  if (/中近景|medium close/.test(value)) return 'medium_close'
+  if (/特写|close-up|close up|extreme close/.test(value)) return 'extreme_close'
+  if (/近景|\bclose\b/.test(value)) return 'close'
+  if (/细节|detail/.test(value)) return 'detail'
+  if (/中景|\bmedium\b/.test(value)) return 'medium'
+
+  return DEFAULT_SHOT_TYPE
+}
+
+function normalizeShotType(rawShotType: unknown, fallbackText = ''): string {
+  if (typeof rawShotType === 'string') {
+    const value = rawShotType.trim().toLowerCase()
+    if (VALID_SHOT_TYPE.has(value)) return value
+    if (value) {
+      return inferShotTypeFromText(value)
+    }
+  }
+
+  return inferShotTypeFromText(fallbackText)
+}
+
+function formatTimelineSeconds(seconds: number): string {
+  const normalized = Math.round(Math.max(0, seconds) * 10) / 10
+  return Number.isInteger(normalized)
+    ? String(normalized)
+    : normalized.toFixed(1).replace(/\.0$/, '')
+}
+
+function escapeRegExp(raw: string): string {
+  return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function annotateFirstOccurrenceWithImageTag(text: string, keyword: string, imageIndex: number): string {
+  const safeKeyword = keyword.trim()
+  if (!safeKeyword) return text
+
+  // Normalize any existing bracket tag chain after keyword (e.g. 角色名[角色名][图片2]) to a single [图片N].
+  const matcher = new RegExp(`${escapeRegExp(safeKeyword)}(?:\\s*\\[[^\\]\\n]+\\])*`)
+  if (!matcher.test(text)) return text
+  return text.replace(matcher, `${safeKeyword}[图片${imageIndex}]`)
+}
+
+function buildFormattedTimelineScript(data: ParsedScript): {
+  lines: string[]
+  text: string
+  constraints: string
+} {
+  const characterImageRef = new Map<string, number>()
+  const locationImageRef = new Map<string, number>()
+  let nextImageIndex = 1
+
+  for (const scene of data.scenes) {
+    const location = scene.setting?.location?.trim()
+    if (location && !locationImageRef.has(location)) {
+      locationImageRef.set(location, nextImageIndex)
+      nextImageIndex += 1
+    }
+
+    for (const character of scene.characters || []) {
+      const name = character.name?.trim()
+      if (name && !characterImageRef.has(name)) {
+        characterImageRef.set(name, nextImageIndex)
+        nextImageIndex += 1
+      }
+    }
+  }
+
+  let cursorSeconds = 0
+  const lines = data.scenes.map((scene) => {
+    const start = cursorSeconds
+    const duration = normalizeSceneDuration(scene.duration)
+    const end = start + duration
+    cursorSeconds = end
+
+    const shotType = normalizeShotType(scene.shotType, `${scene.title || ''} ${scene.description || ''}`)
+    const shotLabel = SHOT_TYPE_LABEL_MAP[shotType] || SHOT_TYPE_LABEL_MAP[DEFAULT_SHOT_TYPE]
+
+    let annotatedDescription = (scene.description || '').trim()
+    const location = scene.setting?.location?.trim() || ''
+    const locationImageIndex = locationImageRef.get(location)
+    if (locationImageIndex) {
+      const locationTag = `${location}[图片${locationImageIndex}]`
+      annotatedDescription = annotateFirstOccurrenceWithImageTag(
+        annotatedDescription,
+        location,
+        locationImageIndex
+      )
+      if (location && !annotatedDescription.includes(locationTag)) {
+        annotatedDescription = annotatedDescription
+          ? `${locationTag}，${annotatedDescription}`
+          : locationTag
+      }
+    }
+
+    const sceneCharacterNames = Array.from(new Set(
+      (scene.characters || [])
+        .map(character => character.name?.trim() || '')
+        .filter(Boolean)
+    ))
+    for (const characterName of sceneCharacterNames) {
+      const imageIndex = characterImageRef.get(characterName)
+      if (!imageIndex) continue
+      annotatedDescription = annotateFirstOccurrenceWithImageTag(
+        annotatedDescription,
+        characterName,
+        imageIndex
+      )
+    }
+
+    const dialogueText = (scene.dialogues || [])
+      .map((dialogue) => {
+        const speaker = dialogue.character?.trim() || '角色'
+        const imageIndex = characterImageRef.get(speaker)
+        const speakerWithTag = imageIndex
+          ? `${speaker}[图片${imageIndex}]`
+          : speaker
+        const content = dialogue.text?.trim() || ''
+        if (!content) return ''
+        return `${speakerWithTag}说："${content}"`
+      })
+      .filter(Boolean)
+      .join(' ')
+
+    const narrationText = scene.narration?.trim()
+      ? `旁白：${scene.narration.trim()}`
+      : ''
+
+    const content = [
+      annotatedDescription,
+      dialogueText,
+      narrationText
+    ].filter(Boolean).join(' ')
+
+    return `${formatTimelineSeconds(start)}-${formatTimelineSeconds(end)}s：【${shotLabel}】${content}`
+  })
+
+  return {
+    lines,
+    text: lines.join('\n'),
+    constraints: ''
+  }
+}
+
 function normalizeParsedScriptOutput(output: unknown): unknown {
   let parsedObject: Record<string, unknown>
 
@@ -81,11 +251,16 @@ function normalizeParsedScriptOutput(output: unknown): unknown {
     const location = typeof rawSetting.location === 'string' && rawSetting.location.trim().length > 0
       ? rawSetting.location
       : '未知地点'
+    const fallbackText = [
+      typeof sceneObj.title === 'string' ? sceneObj.title : '',
+      typeof sceneObj.description === 'string' ? sceneObj.description : ''
+    ].join(' ')
     return {
       ...sceneObj,
       id: typeof sceneObj.id === 'string' && sceneObj.id.trim().length > 0
         ? sceneObj.id
         : `scene_${String(index + 1).padStart(3, '0')}`,
+      shotType: normalizeShotType(sceneObj.shotType ?? sceneObj.shot_type, fallbackText),
       duration: normalizeSceneDuration(sceneObj.duration),
       setting: {
         ...rawSetting,
@@ -171,6 +346,13 @@ export default defineEventHandler(async (event) => {
 4. 每个场景的 duration 必须是数字，且在 ${SCRIPT_MIN_DURATION}-${SCRIPT_MAX_DURATION} 秒之间。
 5. totalDuration 必须严格等于所有 scenes[i].duration 的总和。
 6. scenes[i].setting.timeOfDay 只能是 dawn、morning、noon、afternoon、evening、night 之一，严禁输出 none/unknown/day。
+7. scenes[i].shotType 必须输出：extreme_wide、wide、medium_wide、medium、medium_close、close、extreme_close、detail 之一。
+8. scenes[i].description 必须是多行时间轴镜头脚本，不得输出单段散文。
+9. description 每行格式为“起始-结束s：【景别】画面动作与对白”，且每个场景至少 2 行、建议 3-6 行。
+10. 每个场景 description 的时间轴从 0s 开始，最后一行结束时间应与该场景 duration 对齐或接近（误差 <= 0.5s）。
+11. 对话请直接写在 description 对应镜头行（示例：角色名说："台词"）；dialogues 字段可留空数组。
+12. description 中不要写“添加字幕/BGM/音效”等制作指令。
+13. description 中若使用引用标签，只允许 [图片N]（如 [图片1]）；禁止 [角色名]、[地点名] 等自定义方括号标签。
 
 【补充约束 - 主环境风格一致性】
 1. 同一主环境（如“医院”“学校”“警局”）在不同子空间（如“走廊”“办公室”“病房”）必须保持同一建筑年代、装修档次、材质语言和维护状态。
@@ -196,9 +378,12 @@ export default defineEventHandler(async (event) => {
       })
     }
 
+    const timelineScript = buildFormattedTimelineScript(validated.data)
+
     return {
       success: true,
       data: validated.data,
+      formattedTimeline: timelineScript,
       latencyMs: Date.now() - startTime
     }
   } catch (error) {

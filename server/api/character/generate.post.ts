@@ -3,7 +3,7 @@ import { GeminiError } from '../../utils/gemini'
 import { QwenError } from '../../utils/qwen'
 import { VolcengineError } from '../../utils/volcengine'
 import { imageLimiter } from '../../utils/concurrency'
-import { getWorkflowModels } from '../models/workflow.get'
+import { getWorkflowModels, getWorkflowModelOptions } from '../models/workflow.get'
 import { getInterpolatedPrompt } from '../../utils/prompt-template'
 import { persistImageToPublic } from '../../utils/image-storage'
 import { db, characters as charactersTable } from '../../db'
@@ -283,8 +283,12 @@ async function generateCharacterSheet(
   workflowType: ProjectWorkflowType,
   regeneration?: CharacterRegenerationOptions
 ): Promise<{ imageData: string, mimeType: string }> {
-  const workflowModels = await getWorkflowModels()
+  const [workflowModels, workflowModelOptions] = await Promise.all([
+    getWorkflowModels(),
+    getWorkflowModelOptions()
+  ])
   const modelId = workflowModels.character_portrait
+  const geminiImageSize = workflowModelOptions.image_generation.geminiImageSize
   const modelConfig = modelId ? findImageModel(modelId) : undefined
   const customPrompt = regeneration?.customPrompt?.trim()
   const isRegeneration = !!customPrompt
@@ -346,6 +350,7 @@ async function generateCharacterSheet(
       generateImage({
         modelId,
         prompt: promptText,
+        imageSize: geminiImageSize,
         ...referenceImageOptions,
         allowTextOnlyResult,
         maxRetries: 2

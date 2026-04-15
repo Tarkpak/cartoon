@@ -72,6 +72,19 @@ export const SceneCharacterSchema = z.object({
 })
 export type SceneCharacter = z.infer<typeof SceneCharacterSchema>
 
+/** 场景景别（与 storyboard 保持一致） */
+export const SceneShotTypeSchema = z.enum([
+  'extreme_wide',
+  'wide',
+  'medium_wide',
+  'medium',
+  'medium_close',
+  'close',
+  'extreme_close',
+  'detail'
+]).describe('景别')
+export type SceneShotType = z.infer<typeof SceneShotTypeSchema>
+
 /** 场景时长（秒） */
 export const SceneDurationSchema = z.coerce.number().min(2).max(15).default(8).describe('视频时长(秒，2-15)')
 export type SceneDuration = z.infer<typeof SceneDurationSchema>
@@ -80,6 +93,7 @@ export type SceneDuration = z.infer<typeof SceneDurationSchema>
 export const SceneSchema = z.object({
   id: z.string().describe('场景ID'),
   title: z.string().optional().describe('场景标题'),
+  shotType: SceneShotTypeSchema.optional(),
   description: z.string().describe('场景描述'),
   setting: SceneSettingSchema.describe('场景设定'),
   characters: z.array(SceneCharacterSchema).describe('登场角色'),

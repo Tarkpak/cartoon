@@ -41,6 +41,19 @@ const SceneSchema = z.object({
   dialogues: z.array(SceneDialogueSchema).optional().default([])
 })
 
+const EnvironmentReferenceAssetSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().optional(),
+  type: z.literal('environment').optional(),
+  image: z.string().optional()
+}).optional()
+const CharacterReferenceAssetSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().optional(),
+  type: z.enum(['character', 'prop']).optional(),
+  image: z.string()
+})
+
 const RequestSchema = z.object({
   scene: SceneSchema,
   style: z.string().optional().default(''),
@@ -48,16 +61,25 @@ const RequestSchema = z.object({
   references: z.object({
     environmentImage: z.string().optional(),
     characterImage: z.string().optional(),
-    characterImages: z.array(z.string()).optional()
+    characterImages: z.array(z.string()).optional(),
+    environmentAsset: EnvironmentReferenceAssetSchema,
+    characterAssets: z.array(CharacterReferenceAssetSchema).optional()
   })
 }).superRefine((payload, ctx) => {
-  const hasEnvironment = typeof payload.references.environmentImage === 'string'
+  const hasEnvironment = (
+    typeof payload.references.environmentImage === 'string'
     && payload.references.environmentImage.trim().length > 0
+  ) || (
+    typeof payload.references.environmentAsset?.image === 'string'
+    && payload.references.environmentAsset.image.trim().length > 0
+  )
   const hasLegacyCharacter = typeof payload.references.characterImage === 'string'
     && payload.references.characterImage.trim().length > 0
   const hasCharacterArray = Array.isArray(payload.references.characterImages)
     && payload.references.characterImages.some(item => typeof item === 'string' && item.trim().length > 0)
-  const hasCharacter = hasLegacyCharacter || hasCharacterArray
+  const hasCharacterAssets = Array.isArray(payload.references.characterAssets)
+    && payload.references.characterAssets.some(item => typeof item.image === 'string' && item.image.trim().length > 0)
+  const hasCharacter = hasLegacyCharacter || hasCharacterArray || hasCharacterAssets
 
   if (!hasEnvironment && !hasCharacter) {
     ctx.addIssue({
@@ -69,6 +91,15 @@ const RequestSchema = z.object({
 })
 
 type InputMode = 'single_image' | 'text_only'
+type ReferenceAssetKind = 'environment' | 'character' | 'prop'
+
+interface ReferenceAssetBinding {
+  assetId: string
+  name: string
+  type: ReferenceAssetKind
+  image: string
+  normalizedImage: string
+}
 
 function hasText(value?: string | null): value is string {
   return typeof value === 'string' && value.trim().length > 0
@@ -175,38 +206,138 @@ function hasSceneCharacters(scene: z.infer<typeof SceneSchema>): boolean {
   return Array.isArray(scene.characters) && scene.characters.length > 0
 }
 
-function buildVideoReferenceImages(options: {
-  characterImages?: string[]
+function resolveReferenceTypeLabel(type: ReferenceAssetKind): string {
+  if (type === 'environment') return '环境'
+  if (type === 'prop') return '道具'
+  return '角色'
+}
+
+function normalizeReferenceAssetName(name: string | undefined, fallback: string): string {
+  const normalized = name?.trim()
+  return normalized || fallback
+}
+
+function resolveEnvironmentReferenceBinding(options: {
+  scene: z.infer<typeof SceneSchema>
   environmentImage?: string
+  environmentAsset?: z.infer<typeof EnvironmentReferenceAssetSchema>
+}): ReferenceAssetBinding | undefined {
+  const rawImage = normalizeImageInput(options.environmentImage || options.environmentAsset?.image)
+  const normalizedImage = toImageUrlInput(rawImage)
+  if (!rawImage || !normalizedImage) return undefined
+
+  const assetId = options.environmentAsset?.id?.trim() || `env:${options.scene.id}`
+  const fallbackName = options.scene.setting?.location?.trim() || options.scene.title || '环境'
+  const name = normalizeReferenceAssetName(options.environmentAsset?.name, fallbackName)
+
+  return {
+    assetId,
+    name,
+    type: 'environment',
+    image: rawImage,
+    normalizedImage
+  }
+}
+
+function resolveCharacterReferenceBindings(options: {
+  scene: z.infer<typeof SceneSchema>
+  characterImages: string[]
+  characterAssets?: z.infer<typeof CharacterReferenceAssetSchema>[]
+}): ReferenceAssetBinding[] {
+  const { scene, characterImages } = options
+  const characterAssets = Array.isArray(options.characterAssets) ? options.characterAssets : []
+
+  const metadataBuckets = new Map<string, z.infer<typeof CharacterReferenceAssetSchema>[]>()
+  for (const item of characterAssets) {
+    const rawImage = normalizeImageInput(item.image)
+    const normalizedImage = toImageUrlInput(rawImage)
+    if (!rawImage || !normalizedImage) continue
+
+    const existing = metadataBuckets.get(normalizedImage) || []
+    existing.push(item)
+    metadataBuckets.set(normalizedImage, existing)
+  }
+
+  const bindings: ReferenceAssetBinding[] = []
+  const seenNormalized = new Set<string>()
+
+  const appendBinding = (rawImage: string, fallbackIndex: number) => {
+    const normalizedImage = toImageUrlInput(rawImage)
+    if (!normalizedImage || seenNormalized.has(normalizedImage)) return
+
+    const bucket = metadataBuckets.get(normalizedImage) || []
+    const metadata = bucket.shift()
+    if (bucket.length === 0) {
+      metadataBuckets.delete(normalizedImage)
+    } else {
+      metadataBuckets.set(normalizedImage, bucket)
+    }
+
+    const type: ReferenceAssetKind = metadata?.type === 'prop' ? 'prop' : 'character'
+    const fallbackName = scene.characters[fallbackIndex]?.name?.trim() || `角色参考${fallbackIndex + 1}`
+    const name = normalizeReferenceAssetName(metadata?.name, fallbackName)
+    const assetId = metadata?.id?.trim() || `${type}:auto_${fallbackIndex + 1}`
+
+    seenNormalized.add(normalizedImage)
+    bindings.push({
+      assetId,
+      name,
+      type,
+      image: rawImage,
+      normalizedImage
+    })
+  }
+
+  characterImages.forEach((rawImage, index) => appendBinding(rawImage, index))
+
+  for (const bucket of metadataBuckets.values()) {
+    for (const metadata of bucket) {
+      const rawImage = normalizeImageInput(metadata.image)
+      if (!rawImage) continue
+      appendBinding(rawImage, bindings.length)
+    }
+  }
+
+  return bindings
+}
+
+function buildVideoReferenceBindings(options: {
+  environmentBinding?: ReferenceAssetBinding
+  characterBindings?: ReferenceAssetBinding[]
   maxReferenceImages?: number
-}): string[] {
-  const { characterImages = [], environmentImage } = options
+}): ReferenceAssetBinding[] {
+  const { environmentBinding, characterBindings = [] } = options
   const maxReferenceImages = Math.max(1, Math.min(9, Math.round(options.maxReferenceImages ?? 3)))
-  const normalizedCharacters: string[] = []
   const seenReference = new Set<string>()
+  const ordered: ReferenceAssetBinding[] = []
 
-  for (const image of characterImages) {
-    const normalized = toImageUrlInput(image)
-    if (!normalized || seenReference.has(normalized)) continue
-    seenReference.add(normalized)
-    normalizedCharacters.push(normalized)
+  const appendBinding = (binding?: ReferenceAssetBinding) => {
+    if (!binding) return
+    if (seenReference.has(binding.normalizedImage)) return
+    seenReference.add(binding.normalizedImage)
+    ordered.push({
+      ...binding,
+      image: binding.normalizedImage
+    })
   }
 
-  const normalizedEnvironment = toImageUrlInput(environmentImage)
-
-  // 多参考图模式优先将环境图放在第一位，后续补角色图
-  const ordered: string[] = []
-  if (normalizedEnvironment && !seenReference.has(normalizedEnvironment)) {
-    ordered.push(normalizedEnvironment)
-    seenReference.add(normalizedEnvironment)
-  }
-
-  for (const characterImage of normalizedCharacters) {
+  appendBinding(environmentBinding)
+  for (const characterBinding of characterBindings) {
     if (ordered.length >= maxReferenceImages) break
-    ordered.push(characterImage)
+    appendBinding(characterBinding)
   }
 
   return ordered.slice(0, maxReferenceImages)
+}
+
+function resolveReferenceBindingByImage(
+  image: string | undefined,
+  bindings: ReferenceAssetBinding[]
+): ReferenceAssetBinding | undefined {
+  const normalized = toImageUrlInput(image)
+  if (!normalized) return undefined
+
+  return bindings.find(item => item.normalizedImage === normalized)
 }
 
 function buildReferenceGuide(options: {
@@ -358,30 +489,30 @@ function resolveShotLabels(segmentCount: number): string[] {
 }
 
 function buildReferenceMaterialLines(options: {
-  hasEnvironmentRef: boolean
-  characterRefCount: number
-  useMultiReference: boolean
+  primaryReferenceBinding?: ReferenceAssetBinding
+  multiReferenceBindings: ReferenceAssetBinding[]
 }): string[] {
+  const { primaryReferenceBinding, multiReferenceBindings } = options
+  const activeBindings = multiReferenceBindings.length > 0
+    ? multiReferenceBindings
+    : (primaryReferenceBinding ? [primaryReferenceBinding] : [])
   const lines: string[] = []
-  let figure = 1
 
-  if (options.hasEnvironmentRef) {
-    lines.push(`图${figure}：环境参考图（锁定空间布局、光照与色调）`)
-    figure += 1
-  }
-
-  if (options.characterRefCount > 0) {
-    const total = Math.max(1, options.characterRefCount)
-    if (options.useMultiReference && total > 1) {
-      lines.push(`图${figure}-图${figure + total - 1}：角色参考图（锁定角色身份、发型、服饰、体态）`)
-    } else {
-      lines.push(`图${figure}：角色参考图（锁定角色身份、发型、服饰、体态）`)
-    }
-  }
-
-  if (lines.length === 0) {
+  if (activeBindings.length === 0) {
     lines.push('仅文本生成，无可用参考图。')
+    return lines
   }
+
+  activeBindings.forEach((binding, index) => {
+    const figure = index + 1
+    const label = resolveReferenceTypeLabel(binding.type)
+    const detail = binding.type === 'environment'
+      ? '锁定空间布局、光照与色调'
+      : binding.type === 'prop'
+        ? '锁定关键道具形态、材质与尺度'
+        : '锁定角色身份、发型、服饰与体态'
+    lines.push(`图${figure}：${label}参考图（${binding.name}，${detail}）`)
+  })
 
   return lines
 }
@@ -394,7 +525,6 @@ interface StructuredPromptSections {
   duration: number
   aspectRatio: z.infer<typeof AspectRatioSchema>
   timelineLines: string
-  audioConstraint: string
   referenceMaterials: string
   executionConstraints: string
 }
@@ -408,8 +538,8 @@ function buildStructuredPromptSections(options: {
   referenceGuide: string
   hasCharacterRef: boolean
   hasEnvironmentRef: boolean
-  useMultiReference: boolean
-  characterReferenceCount: number
+  primaryReferenceBinding?: ReferenceAssetBinding
+  multiReferenceBindings: ReferenceAssetBinding[]
 }): StructuredPromptSections {
   const {
     scene,
@@ -420,8 +550,8 @@ function buildStructuredPromptSections(options: {
     referenceGuide,
     hasCharacterRef,
     hasEnvironmentRef,
-    useMultiReference,
-    characterReferenceCount
+    primaryReferenceBinding,
+    multiReferenceBindings
   } = options
 
   const shotNumber = resolveSceneShotNumber(scene)
@@ -440,9 +570,8 @@ function buildStructuredPromptSections(options: {
     return `${range.start}-${range.end}s: 【${shot}】${beat}`
   })
   const referenceMaterialLines = buildReferenceMaterialLines({
-    hasEnvironmentRef,
-    characterRefCount: characterReferenceCount,
-    useMultiReference
+    primaryReferenceBinding,
+    multiReferenceBindings
   })
 
   const executionConstraints = [
@@ -460,7 +589,6 @@ function buildStructuredPromptSections(options: {
     duration,
     aspectRatio,
     timelineLines: timelineLines.join('\n'),
-    audioConstraint: '不添加字幕，不添加BGM。',
     referenceMaterials: referenceMaterialLines.join('\n'),
     executionConstraints
   }
@@ -475,8 +603,8 @@ function buildStructuredVideoPrompt(options: {
   referenceGuide: string
   hasCharacterRef: boolean
   hasEnvironmentRef: boolean
-  useMultiReference: boolean
-  characterReferenceCount: number
+  primaryReferenceBinding?: ReferenceAssetBinding
+  multiReferenceBindings: ReferenceAssetBinding[]
 }): string {
   const sections = buildStructuredPromptSections(options)
   return [
@@ -488,7 +616,6 @@ function buildStructuredVideoPrompt(options: {
     `时长：约 ${sections.duration} 秒`,
     `画幅：${sections.aspectRatio}`,
     sections.timelineLines,
-    sections.audioConstraint,
     '',
     '参考素材',
     sections.referenceMaterials,
@@ -570,25 +697,36 @@ export default defineEventHandler(async (event) => {
 
   const { scene, style, aspectRatio, references } = parseResult.data
 
-  const environmentImage = normalizeImageInput(references.environmentImage)
-  const characterImages = resolveCharacterReferenceImages({
+  const environmentImage = normalizeImageInput(references.environmentImage || references.environmentAsset?.image)
+  const rawCharacterImages = resolveCharacterReferenceImages({
     legacyCharacterImage: references.characterImage,
     characterImages: references.characterImages
   })
+  const environmentReferenceBinding = resolveEnvironmentReferenceBinding({
+    scene,
+    environmentImage,
+    environmentAsset: references.environmentAsset
+  })
+  const characterReferenceBindings = resolveCharacterReferenceBindings({
+    scene,
+    characterImages: rawCharacterImages,
+    characterAssets: references.characterAssets
+  })
+  const characterImages = characterReferenceBindings.map(item => item.image)
   const primaryCharacterImage = characterImages[0]
   const hasCharactersInScene = hasSceneCharacters(scene)
-  const hasCharacterRef = characterImages.length > 0
-  const hasEnvironmentRef = !!environmentImage
-  const candidateReferenceImagesForDecision = buildVideoReferenceImages({
-    characterImages,
-    environmentImage,
+  const hasCharacterRef = characterReferenceBindings.length > 0
+  const hasEnvironmentRef = !!environmentReferenceBinding
+  const candidateReferenceBindingsForDecision = buildVideoReferenceBindings({
+    characterBindings: characterReferenceBindings,
+    environmentBinding: environmentReferenceBinding,
     maxReferenceImages: 9
   })
-  const wantsMultiReference = hasCharactersInScene && candidateReferenceImagesForDecision.length > 1
+  const wantsMultiReference = hasCharactersInScene && candidateReferenceBindingsForDecision.length > 1
 
   const workflowModels = await getWorkflowModels()
   const preferredModelId = workflowModels.video_generation
-  const primaryReferenceCandidate = environmentImage || primaryCharacterImage
+  const primaryReferenceCandidate = environmentReferenceBinding?.image || primaryCharacterImage
 
   const modelDecision = resolveCompatibleModel(preferredModelId, {
     needImageInput: !!primaryReferenceCandidate,
@@ -603,15 +741,16 @@ export default defineEventHandler(async (event) => {
       Math.round(selectedModel?.maxReferenceImages ?? (selectedModel?.supportReferenceImages ? 3 : 1))
     )
   )
-  const candidateReferenceImages = buildVideoReferenceImages({
-    characterImages,
-    environmentImage,
+  const candidateReferenceBindings = buildVideoReferenceBindings({
+    characterBindings: characterReferenceBindings,
+    environmentBinding: environmentReferenceBinding,
     maxReferenceImages: referenceLimit
   })
   const supportsMultiReferenceImages = !!selectedModel?.supportReferenceImages && referenceLimit > 1
-  const multiReferenceImages = supportsMultiReferenceImages && wantsMultiReference
-    ? candidateReferenceImages
+  const multiReferenceBindings = supportsMultiReferenceImages && wantsMultiReference
+    ? candidateReferenceBindings
     : []
+  const multiReferenceImages = multiReferenceBindings.map(item => item.image)
 
   // 说明：
   // - 可灵非多参考图模式下，imageUrl 会进入 image2video，被当作“首帧”而非纯参考图
@@ -623,9 +762,15 @@ export default defineEventHandler(async (event) => {
   // 其它模型仍优先角色图锁身份。
   const primaryReference = hasCharactersInScene
     ? (supportsMultiReferenceImages || preferEnvironmentAsPrimary
-        ? (environmentImage || primaryCharacterImage)
-        : (primaryCharacterImage || environmentImage))
-    : (environmentImage || primaryCharacterImage)
+        ? (environmentReferenceBinding?.image || primaryCharacterImage)
+        : (primaryCharacterImage || environmentReferenceBinding?.image))
+    : (environmentReferenceBinding?.image || primaryCharacterImage)
+
+  const allReferenceBindings = [
+    ...(environmentReferenceBinding ? [environmentReferenceBinding] : []),
+    ...characterReferenceBindings
+  ]
+  const primaryReferenceBinding = resolveReferenceBindingByImage(primaryReference, allReferenceBindings)
 
   let inputMode: InputMode = 'text_only'
   if (selectedModel?.supportImageToVideo && primaryReference) {
@@ -648,8 +793,8 @@ export default defineEventHandler(async (event) => {
     referenceGuide,
     hasCharacterRef,
     hasEnvironmentRef,
-    useMultiReference: multiReferenceImages.length > 0,
-    characterReferenceCount: characterImages.length
+    primaryReferenceBinding,
+    multiReferenceBindings
   })
   const settingText = buildSettingText(scene.setting)
   const dialogueLines = scene.dialogues
@@ -666,7 +811,7 @@ export default defineEventHandler(async (event) => {
       duration: String(finalDuration),
       aspectRatio,
       timelineLines: promptSections.timelineLines,
-      audioConstraint: promptSections.audioConstraint,
+      audioConstraint: '',
       referenceMaterials: promptSections.referenceMaterials,
       executionConstraints: promptSections.executionConstraints,
       // 兼容旧模板变量（让历史自定义模板继续可用）
@@ -695,8 +840,8 @@ export default defineEventHandler(async (event) => {
     referenceGuide,
     hasCharacterRef,
     hasEnvironmentRef,
-    useMultiReference: multiReferenceImages.length > 0,
-    characterReferenceCount: characterImages.length
+    primaryReferenceBinding,
+    multiReferenceBindings
   })
 
   const config: Record<string, unknown> = {
@@ -749,14 +894,23 @@ export default defineEventHandler(async (event) => {
         supportsMultiReferenceImages,
         referenceImageLimit: referenceLimit,
         referenceImagesCount: multiReferenceImages.length,
-        characterReferenceCount: characterImages.length,
+        characterReferenceCount: characterReferenceBindings.length,
         primaryReferenceType: hasCharactersInScene
           ? (supportsMultiReferenceImages || preferEnvironmentAsPrimary
-              ? (environmentImage ? 'environment' : primaryCharacterImage ? 'character' : 'none')
-              : (primaryCharacterImage ? 'character' : environmentImage ? 'environment' : 'none'))
-          : (environmentImage ? 'environment' : primaryCharacterImage ? 'character' : 'none'),
+              ? (environmentReferenceBinding ? 'environment' : primaryCharacterImage ? 'character' : 'none')
+              : (primaryCharacterImage ? 'character' : environmentReferenceBinding ? 'environment' : 'none'))
+          : (environmentReferenceBinding ? 'environment' : primaryCharacterImage ? 'character' : 'none'),
         hasCharacterRef,
-        hasEnvironmentRef
+        hasEnvironmentRef,
+        referenceBindings: (multiReferenceBindings.length > 0
+          ? multiReferenceBindings
+          : (primaryReferenceBinding ? [primaryReferenceBinding] : [])
+        ).map((binding, index) => ({
+          figure: `图${index + 1}`,
+          assetId: binding.assetId,
+          assetName: binding.name,
+          assetType: binding.type
+        }))
       }
     }
   } catch (error) {

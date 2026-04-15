@@ -804,6 +804,8 @@ export async function generateImage(options: {
   allowTextOnlyResult?: boolean
   negativePrompt?: string
   size?: string
+  imageSize?: gemini.GeminiImageSize | string
+  aspectRatio?: string
   maxRetries?: number
 }): Promise<GenerateImageResult> {
   const modelId = options.modelId || currentModels.image
@@ -860,6 +862,9 @@ export async function generateImage(options: {
     prompt: options.prompt,
     referenceImage: options.referenceImage,
     referenceImages: options.referenceImages,
+    imageSize: options.imageSize,
+    aspectRatio: options.aspectRatio,
+    size: options.size,
     allowTextOnlyResult: options.allowTextOnlyResult,
     maxRetries: options.maxRetries
   })
