@@ -32,86 +32,99 @@ const videoResultUrl = computed(() => {
 
 <template>
   <div class="flex-1 overflow-y-auto p-4">
+    <!-- Idle state -->
     <div
       v-if="activeResult.status === 'idle'"
-      class="flex h-full flex-col items-center justify-center text-muted-foreground"
+      class="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground"
     >
       <component
         :is="activeTabIcon"
-        class="mb-3 h-12 w-12 opacity-20"
+        class="h-10 w-10 opacity-15"
       />
-      <p class="text-sm">
-        点击"运行测试"查看结果
-      </p>
+      <p class="text-sm">选择模型并运行测试</p>
     </div>
 
+    <!-- Testing state -->
     <div
       v-else-if="activeResult.status === 'testing'"
-      class="flex h-full flex-col items-center justify-center"
+      class="flex h-full flex-col items-center justify-center gap-3"
     >
-      <Loader2 class="mb-3 h-10 w-10 animate-spin text-primary" />
-      <p class="text-sm text-muted-foreground">
-        正在测试模型...
-      </p>
+      <div class="relative">
+        <Loader2 class="h-10 w-10 animate-spin text-primary/60" />
+      </div>
+      <p class="text-sm text-muted-foreground">模型测试中...</p>
     </div>
 
+    <!-- Success state -->
     <div
       v-else-if="activeResult.status === 'success'"
       class="space-y-4"
     >
-      <div class="flex items-center gap-2 text-green-600 dark:text-green-400">
-        <CheckCircle2 class="h-5 w-5" />
-        <span class="font-medium">{{ activeResult.message }}</span>
+      <div class="flex items-center gap-2 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+        <CheckCircle2 class="h-4 w-4 shrink-0" />
+        <span>{{ activeResult.message }}</span>
       </div>
 
+      <!-- Text result -->
       <div
         v-if="props.activeTab === 'text' && props.testResults.text.result"
-        class="rounded-lg border bg-muted/50 p-4"
+        class="rounded-lg border bg-muted/20 p-4"
       >
-        <p class="whitespace-pre-wrap text-sm">
+        <p class="whitespace-pre-wrap text-sm leading-relaxed">
           {{ props.testResults.text.result }}
         </p>
       </div>
 
-      <img
-        v-if="props.activeTab === 'image' && imageResultUrl"
-        :src="imageResultUrl"
-        class="max-h-[400px] max-w-full rounded-lg border shadow-sm"
-      >
-
-      <video
-        v-if="props.activeTab === 'video' && videoResultUrl"
-        :src="videoResultUrl"
-        class="max-h-[400px] max-w-full rounded-lg border shadow-sm"
-        controls
-      />
-
-      <audio
-        v-if="props.activeTab === 'tts' && props.currentTtsAudioUrl"
-        :src="props.currentTtsAudioUrl"
-        class="w-full max-w-xl"
-        controls
-      />
-
+      <!-- Image result -->
       <div
-        v-else-if="props.activeTab === 'tts'"
-        class="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground"
+        v-if="props.activeTab === 'image' && imageResultUrl"
+        class="overflow-hidden rounded-lg border"
       >
-        测试成功，但未获取到可预览的音频地址
+        <img
+          :src="imageResultUrl"
+          class="max-h-[400px] max-w-full"
+        >
+      </div>
+
+      <!-- Video result -->
+      <div
+        v-if="props.activeTab === 'video' && videoResultUrl"
+        class="overflow-hidden rounded-lg border bg-black/90"
+      >
+        <video
+          :src="videoResultUrl"
+          class="max-h-[400px] max-w-full"
+          controls
+        />
+      </div>
+
+      <!-- TTS result -->
+      <div v-if="props.activeTab === 'tts'">
+        <audio
+          v-if="props.currentTtsAudioUrl"
+          :src="props.currentTtsAudioUrl"
+          class="w-full max-w-xl"
+          controls
+        />
+        <div
+          v-else
+          class="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground"
+        >
+          测试成功，但未获取到可预览的音频地址
+        </div>
       </div>
     </div>
 
+    <!-- Error state -->
     <div
       v-else-if="activeResult.status === 'error'"
-      class="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950"
+      class="rounded-lg border border-destructive/20 bg-destructive/5 p-4"
     >
       <div class="flex items-start gap-2">
-        <XCircle class="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+        <XCircle class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
         <div>
-          <p class="font-medium text-red-700 dark:text-red-300">
-            测试失败
-          </p>
-          <p class="mt-1 text-sm text-red-600 dark:text-red-400">
+          <p class="text-sm font-medium text-destructive">测试失败</p>
+          <p class="mt-1 text-xs text-destructive/80">
             {{ activeResult.message }}
           </p>
         </div>
