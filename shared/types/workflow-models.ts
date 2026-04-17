@@ -80,7 +80,7 @@ export const WorkflowVideoGenerationModelOptionsSchema = z.object({
 export type WorkflowVideoGenerationModelOptions = z.infer<typeof WorkflowVideoGenerationModelOptionsSchema>
 
 export const WorkflowModelOptionsSchema = z.object({
-  image_generation: WorkflowImageGenerationModelOptionsSchema.default({
+  image_options: WorkflowImageGenerationModelOptionsSchema.default({
     geminiImageSize: '1K'
   }),
   video_generation: WorkflowVideoGenerationModelOptionsSchema.default({

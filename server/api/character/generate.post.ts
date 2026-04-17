@@ -283,7 +283,7 @@ async function generateCharacterSheet(
     getWorkflowModelOptions()
   ])
   const modelId = workflowModels.character_portrait
-  const geminiImageSize = workflowModelOptions.image_generation.geminiImageSize
+  const geminiImageSize = workflowModelOptions.image_options.geminiImageSize
   const modelConfig = modelId ? findImageModel(modelId) : undefined
   const customPrompt = regeneration?.customPrompt?.trim()
   const isRegeneration = !!customPrompt

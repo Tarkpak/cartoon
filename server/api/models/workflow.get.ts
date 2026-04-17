@@ -166,7 +166,7 @@ async function saveWorkflowModelOverrides(
 
 function resolveDefaultWorkflowModelOptions(): WorkflowModelOptions {
   return {
-    image_generation: {
+    image_options: {
       geminiImageSize: '1K'
     },
     video_generation: {
@@ -179,6 +179,14 @@ function resolveDefaultWorkflowModelOptions(): WorkflowModelOptions {
 }
 
 function normalizeWorkflowModelOptions(raw: unknown): WorkflowModelOptions {
+  // 兼容旧版存量数据：将 image_generation 键迁移为 image_options
+  if (raw && typeof raw === 'object' && 'image_generation' in raw && !('image_options' in raw)) {
+    const legacy = raw as Record<string, unknown>
+    const migrated: Record<string, unknown> = { ...legacy, image_options: legacy.image_generation }
+    delete migrated.image_generation
+    const parsed = WorkflowModelOptionsSchema.safeParse(migrated)
+    if (parsed.success) return parsed.data
+  }
   const parsed = WorkflowModelOptionsSchema.safeParse(raw)
   if (parsed.success) return parsed.data
   return resolveDefaultWorkflowModelOptions()
@@ -278,13 +286,13 @@ export async function setWorkflowImageGenerationModelOptions(
   const current = await getWorkflowModelOptions()
   const merged: WorkflowModelOptions = normalizeWorkflowModelOptions({
     ...current,
-    image_generation: {
-      ...current.image_generation,
+    image_options: {
+      ...current.image_options,
       ...options
     }
   })
   await saveWorkflowModelOptions(merged)
-  console.log('[WorkflowModels] 已保存图片流程模型扩展配置:', merged.image_generation)
+  console.log('[WorkflowModels] 已保存图片流程模型扩展配置:', merged.image_options)
 }
 
 /**

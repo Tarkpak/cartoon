@@ -36,7 +36,7 @@ const VideoOptionsUpdateSchema = z.object({
 
 // 图片流程扩展配置更新
 const ImageOptionsUpdateSchema = z.object({
-  step: z.literal('image_generation'),
+  step: z.literal('image_options'),
   modelOptions: WorkflowImageGenerationModelOptionsSchema
 })
 
@@ -66,7 +66,7 @@ export default defineEventHandler(async (event) => {
     return {
       success: true,
       data: {
-        step: 'image_generation',
+        step: 'image_options',
         modelOptions: await getWorkflowModelOptions(),
         currentSelections: await getWorkflowModels()
       }
@@ -107,6 +107,6 @@ export default defineEventHandler(async (event) => {
 
   throw createError({
     statusCode: 400,
-    message: '参数错误: 需要 {step, modelId}、{models: {...}}、{step:"image_generation", modelOptions:{...}} 或 {step:"video_generation", modelOptions:{...}}'
+    message: '参数错误: 需要 {step, modelId}、{models: {...}}、{step:"image_options", modelOptions:{...}} 或 {step:"video_generation", modelOptions:{...}}'
   })
 })

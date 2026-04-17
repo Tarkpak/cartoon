@@ -165,7 +165,7 @@ export function useSettingsWorkflowModels() {
   }
 
   function getImageGenerationModelOptions(): WorkflowImageGenerationModelOptions {
-    return workflowData.value?.modelOptions?.image_generation || {
+    return workflowData.value?.modelOptions?.image_options || {
       ...DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS
     }
   }
@@ -248,7 +248,7 @@ export function useSettingsWorkflowModels() {
       const response = await $fetch<{ success: boolean }>('/api/models/workflow', {
         method: 'POST',
         body: {
-          step: 'image_generation',
+          step: 'image_options',
           modelOptions: next
         }
       })
