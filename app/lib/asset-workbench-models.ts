@@ -31,9 +31,9 @@ export interface SceneData {
   firstFrame?: string
   lastFrame?: string
   videoUrl?: string
-  frameError?: string
+  referenceError?: string
   videoError?: string
-  frameStatus: 'pending' | 'generating' | 'done' | 'error'
+  referenceStatus: 'pending' | 'generating' | 'done' | 'error'
   videoStatus: 'pending' | 'generating' | 'done' | 'error'
 }
 

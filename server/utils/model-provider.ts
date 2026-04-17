@@ -49,7 +49,7 @@ export const TEXT_MODELS: TextModelConfig[] = [
   {
     provider: 'qwen',
     model: qwen.QwenTextModels.QWEN3_MAX,
-    displayName: '通义千问3-Max (2026-01)',
+    displayName: '通义千问3-Max',
     description: '适配复杂场景，达到领域SOTA水平',
     supportThinking: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference'

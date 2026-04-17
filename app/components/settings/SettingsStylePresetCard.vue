@@ -120,7 +120,7 @@ const categoryIcon = computed(() => resolveStyleCategoryIcon(props.stylePreset.c
             class="scale-75 origin-left"
             @update:checked="$emit('toggle-enabled', stylePreset.id)"
           />
-          <span class="text-muted-foreground">{{ enabled ? '启用' : '关闭' }}</span>
+          <span class="text-muted-foreground">{{ enabled ? '已启用' : '已停用' }}</span>
         </label>
 
         <Button

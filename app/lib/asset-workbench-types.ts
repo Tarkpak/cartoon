@@ -1,4 +1,4 @@
-export type AssetTab = 'characters' | 'scenes' | 'props'
+export type AssetTab = 'characters' | 'environments' | 'props'
 
 export type QueueStatus = 'pending' | 'running' | 'done' | 'error'
 export type AutoStageKey = 'parse' | 'assets' | 'videos' | 'final'
@@ -60,7 +60,7 @@ export interface EnvironmentAssetCard {
   sceneIds: string[]
   sceneTitles: string[]
   representativeSceneId: string
-  frameStatus: 'pending' | 'generating' | 'done' | 'error'
+  referenceStatus: 'pending' | 'generating' | 'done' | 'error'
 }
 
 export interface SceneChatMentionCandidate {

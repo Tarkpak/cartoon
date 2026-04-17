@@ -98,7 +98,7 @@ function resolveStatusText(char: CharacterData): string {
       暂未识别到角色
     </p>
     <p class="text-xs">
-      返回"剧本解析"补充人物信息后重新解析
+      返回"剧本解析"补充角色信息后重新解析
     </p>
   </div>
   <div
@@ -236,7 +236,7 @@ function resolveStatusText(char: CharacterData): string {
               v-else
               class="mr-1 h-3 w-3"
             />
-            {{ char.baseImage ? '重生成' : '生成' }}
+            {{ char.baseImage ? '重新生成' : '生成' }}
           </Button>
           <Button
             size="sm"
@@ -264,7 +264,7 @@ function resolveStatusText(char: CharacterData): string {
             @click="emit('open-regenerate', char)"
           >
             <Sparkles class="mr-1 h-3 w-3" />
-            二次生成
+            定向修改
           </Button>
           <Button
             size="sm"

@@ -149,7 +149,7 @@ function updateGeminiImageSize(value: unknown) {
 
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div class="space-y-1.5">
-          <label class="text-xs text-muted-foreground">sound（是否生成声音）</label>
+          <label class="text-xs text-muted-foreground">配音选项</label>
           <Select
             :model-value="props.klingV3OmniOptions.sound"
             :disabled="props.workflowSaving"
@@ -160,17 +160,17 @@ function updateGeminiImageSize(value: unknown) {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="off">
-                off（默认，不生成声音）
+                不生成声音（默认）
               </SelectItem>
               <SelectItem value="on">
-                on（同时生成声音）
+                同时生成声音
               </SelectItem>
             </SelectContent>
           </Select>
         </div>
 
         <div class="space-y-1.5">
-          <label class="text-xs text-muted-foreground">mode（生成模式）</label>
+          <label class="text-xs text-muted-foreground">生成模式</label>
           <Select
             :model-value="props.klingV3OmniOptions.mode"
             :disabled="props.workflowSaving"
@@ -181,10 +181,10 @@ function updateGeminiImageSize(value: unknown) {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="std">
-                std（标准模式，性价比高）
+                标准模式（性价比高）
               </SelectItem>
               <SelectItem value="pro">
-                pro（专家模式，画质更高）
+                专业模式（画质更高）
               </SelectItem>
             </SelectContent>
           </Select>
@@ -227,7 +227,7 @@ function updateGeminiImageSize(value: unknown) {
           </SelectContent>
         </Select>
         <p class="text-[11px] text-muted-foreground">
-          支持 `1K` / `2K` / `4K`；`512` 仅 `Gemini 3.1 Flash Image` 支持，其他模型会自动回退到 `1K`。
+          支持 1K / 2K / 4K；512 仅 Gemini 3.1 Flash Image 支持，其他模型会自动回退到 1K。
         </p>
       </div>
     </div>

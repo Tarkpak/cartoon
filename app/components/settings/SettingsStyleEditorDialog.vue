@@ -64,7 +64,7 @@ const styleIsPro = useStyleFormField('isPro')
       <div class="space-y-4 py-2">
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div class="space-y-1.5">
-            <label class="text-xs text-muted-foreground">预设ID</label>
+            <label class="text-xs text-muted-foreground">预设 ID</label>
             <Input
               v-model="styleId"
               :disabled="props.styleEditorMode === 'edit'"

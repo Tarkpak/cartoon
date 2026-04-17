@@ -65,7 +65,7 @@ const props = defineProps<{
 }>()
 
 const readySceneCount = computed(() => {
-  return props.scenes.filter(scene => scene.frameStatus === 'done').length
+  return props.scenes.filter(scene => scene.referenceStatus === 'done').length
 })
 </script>
 

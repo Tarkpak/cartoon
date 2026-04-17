@@ -51,7 +51,7 @@ export interface ProviderGroup {
 
 export const SETTINGS_PROVIDER_CONFIG: Record<string, { displayName: string, color: string, order: number }> = {
   gemini: { displayName: 'Google Gemini', color: 'blue', order: 1 },
-  qwen: { displayName: '阿里千问', color: 'orange', order: 2 },
+  qwen: { displayName: '通义千问', color: 'orange', order: 2 },
   kling: { displayName: '可灵 AI', color: 'cyan', order: 3 },
   volcengine: { displayName: '火山引擎', color: 'red', order: 4 },
   openai: { displayName: 'OpenAI', color: 'green', order: 5 },

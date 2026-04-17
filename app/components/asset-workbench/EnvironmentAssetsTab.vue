@@ -90,9 +90,9 @@ function resolveStatusText(status: string): string {
           >
             <span
               class="inline-block h-1.5 w-1.5 rounded-full"
-              :class="resolveStatusColor(asset.frameStatus)"
+              :class="resolveStatusColor(asset.referenceStatus)"
             />
-            {{ resolveStatusText(asset.frameStatus) }}
+            {{ resolveStatusText(asset.referenceStatus) }}
           </span>
         </div>
 
@@ -117,24 +117,24 @@ function resolveStatusText(status: string): string {
             size="sm"
             variant="ghost"
             class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="asset.frameStatus === 'generating'"
+            :disabled="asset.referenceStatus === 'generating'"
             @click="emit('regenerate', asset.id)"
           >
             <Loader2
-              v-if="asset.frameStatus === 'generating'"
+              v-if="asset.referenceStatus === 'generating'"
               class="mr-1 h-3 w-3 animate-spin"
             />
             <RefreshCw
               v-else
               class="mr-1 h-3 w-3"
             />
-            重生成
+            重新生成
           </Button>
           <Button
             size="sm"
             variant="ghost"
             class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="autoRunning || asset.frameStatus === 'generating' || !!uploadingEnvironmentAssetId"
+            :disabled="autoRunning || asset.referenceStatus === 'generating' || !!uploadingEnvironmentAssetId"
             @click="triggerUploadInput(asset.id)"
           >
             <Loader2
@@ -152,11 +152,11 @@ function resolveStatusText(status: string): string {
             size="sm"
             variant="ghost"
             class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="asset.frameStatus === 'generating'"
+            :disabled="asset.referenceStatus === 'generating'"
             @click="emit('open-regenerate', asset.id)"
           >
             <Sparkles class="mr-1 h-3 w-3" />
-            二次生成
+            定向修改
           </Button>
           <Button
             size="sm"

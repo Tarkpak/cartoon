@@ -16,7 +16,7 @@ const features = [
   {
     icon: FileText,
     title: '剧本解析',
-    description: 'Gemini 3 Pro 智能解析小说文本，自动提取场景、角色、对话',
+    description: 'AI 智能解析小说/剧本文本，自动提取场景、角色、对话',
     path: '/projects'
   },
   {
@@ -27,8 +27,8 @@ const features = [
   },
   {
     icon: Film,
-    title: '场景成片',
-    description: '批量生成场景视频并导出最终成片，直接走现有资产工作流',
+    title: '视频生成',
+    description: '批量生成场景视频并导出最终成片',
     path: '/projects'
   }
 ]
@@ -37,7 +37,7 @@ const features = [
 const quickActions = [
   { icon: FolderOpen, label: '项目管理', path: '/projects' },
   { icon: Sparkles, label: '开始创作', path: '/projects' },
-  { icon: Layers3, label: '资产工作流', path: '/projects' },
+  { icon: Layers3, label: '资产工作台', path: '/projects' },
   { icon: Settings, label: '系统设置', path: '/settings' },
   { icon: ScrollText, label: '模型日志', path: '/model-logs' }
 ]
@@ -67,9 +67,9 @@ const quickActions = [
             variant="outline"
             size="lg"
             class="font-semibold px-8"
-            @click="navigateTo('/projects')"
+            @click="navigateTo('/settings')"
           >
-            查看演示
+            系统设置
           </Button>
         </div>
       </div>

@@ -63,7 +63,7 @@ function setAspectRatio(value: string) {
       <DialogHeader>
         <DialogTitle>新建项目</DialogTitle>
         <DialogDescription>
-          {{ createStep === 'basic' ? '填写项目信息并选择工作流' : '选择画风预设' }}
+          {{ createStep === 'basic' ? '填写项目基本信息' : '选择画风预设' }}
         </DialogDescription>
       </DialogHeader>
 
@@ -79,10 +79,10 @@ function setAspectRatio(value: string) {
           />
         </div>
         <div class="grid gap-2">
-          <label class="text-sm font-medium">项目描述 (可选)</label>
+          <label class="text-sm font-medium">项目描述（可选）</label>
           <Textarea
             v-model="descriptionModel"
-            placeholder="简单描述你的项目..."
+            placeholder="项目简介（可选）"
             rows="2"
           />
         </div>
