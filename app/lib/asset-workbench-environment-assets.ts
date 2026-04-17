@@ -6,10 +6,10 @@ import {
   resolveSceneReferenceImage
 } from '~/lib/asset-workbench-environment-core'
 
-function mergeEnvironmentFrameStatus(
-  current: EnvironmentAssetCard['frameStatus'],
-  next: SceneData['frameStatus']
-): EnvironmentAssetCard['frameStatus'] {
+function mergeEnvironmentReferenceStatus(
+  current: EnvironmentAssetCard['referenceStatus'],
+  next: SceneData['referenceStatus']
+): EnvironmentAssetCard['referenceStatus'] {
   if (current !== 'generating' && next === 'generating') {
     return 'generating'
   }
@@ -47,7 +47,7 @@ export function buildEnvironmentAssetCards(options: {
         sceneIds: [scene.id],
         sceneTitles: [scene.title || scene.id],
         representativeSceneId: scene.id,
-        frameStatus: scene.frameStatus
+        referenceStatus: scene.referenceStatus
       })
       continue
     }
@@ -60,7 +60,7 @@ export function buildEnvironmentAssetCards(options: {
       existing.representativeSceneId = scene.id
     }
 
-    existing.frameStatus = mergeEnvironmentFrameStatus(existing.frameStatus, scene.frameStatus)
+    existing.referenceStatus = mergeEnvironmentReferenceStatus(existing.referenceStatus, scene.referenceStatus)
   }
 
   return Array.from(map.values())

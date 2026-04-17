@@ -102,21 +102,21 @@ export function useAssetWorkbenchSceneGeneration(
       if (relatedScenes.length === 0) continue
 
       const readyScene = relatedScenes.find((item) => {
-        return !!resolveSceneReferenceImage(item) && item.frameStatus === 'done'
+        return !!resolveSceneReferenceImage(item) && item.referenceStatus === 'done'
       })
       if (readyScene) continue
 
       const fallbackScene = relatedScenes.find((item) => {
-        return item.frameStatus !== 'generating' && item.videoStatus !== 'generating'
+        return item.referenceStatus !== 'generating' && item.videoStatus !== 'generating'
       }) || relatedScenes[0]
       if (!fallbackScene) continue
 
       await generateSceneBaseline(fallbackScene.id, { preferReuse: true })
 
-      if (fallbackScene.frameStatus === 'error') {
+      if (fallbackScene.referenceStatus === 'error') {
         throw new Error(
           options.normalizeWorkflowText(
-            fallbackScene.frameError || `引用环境「${resolveSceneEnvironmentLabel(fallbackScene)}」生成失败`
+            fallbackScene.referenceError || `引用环境「${resolveSceneEnvironmentLabel(fallbackScene)}」生成失败`
           )
         )
       }
@@ -139,14 +139,14 @@ export function useAssetWorkbenchSceneGeneration(
       if (!referencedScene) continue
 
       const referenceImage = resolveSceneReferenceImage(referencedScene)
-      if (referenceImage && referencedScene.frameStatus === 'done') continue
+      if (referenceImage && referencedScene.referenceStatus === 'done') continue
 
       await generateSceneBaseline(referencedSceneId, { preferReuse: true })
 
-      if (referencedScene.frameStatus === 'error') {
+      if (referencedScene.referenceStatus === 'error') {
         throw new Error(
           options.normalizeWorkflowText(
-            referencedScene.frameError || `引用场景「${referencedScene.title}」环境图生成失败`
+            referencedScene.referenceError || `引用场景「${referencedScene.title}」环境图生成失败`
           )
         )
       }
@@ -212,7 +212,7 @@ export function useAssetWorkbenchSceneGeneration(
   ) {
     const scene = options.scenes.value.find(item => item.id === sceneId)
     if (!scene) return
-    if (scene.frameStatus === 'generating' || scene.videoStatus === 'generating') return
+    if (scene.referenceStatus === 'generating' || scene.videoStatus === 'generating') return
 
     const customPrompt = generationOptions.customPrompt?.trim()
 
@@ -229,8 +229,8 @@ export function useAssetWorkbenchSceneGeneration(
     const generationKey = buildSceneBaselineGenerationKey(scene, generationOptions)
     pendingBaselineGenerationKeys.set(scene.id, generationKey)
 
-    scene.frameStatus = 'generating'
-    scene.frameError = undefined
+    scene.referenceStatus = 'generating'
+    scene.referenceError = undefined
 
     try {
       const referenceImage = await requestSceneBaselineGeneration({
@@ -260,9 +260,9 @@ export function useAssetWorkbenchSceneGeneration(
       options.synchronizeQueueItems()
       await options.saveProject()
     } catch (error) {
-      scene.frameStatus = 'error'
-      scene.frameError = options.resolveUiError(error, '环境图生成失败')
-      throw new Error(scene.frameError)
+      scene.referenceStatus = 'error'
+      scene.referenceError = options.resolveUiError(error, '环境图生成失败')
+      throw new Error(scene.referenceError)
     } finally {
       if (pendingBaselineGenerationKeys.get(scene.id) === generationKey) {
         pendingBaselineGenerationKeys.delete(scene.id)
@@ -279,8 +279,8 @@ export function useAssetWorkbenchSceneGeneration(
     if (!resolveSceneReferenceImage(scene)) {
       await generateSceneBaseline(scene.id, { preferReuse: true })
     }
-    if (scene.frameStatus === 'error') {
-      throw new Error(options.normalizeWorkflowText(scene.frameError || '场景环境图生成失败'))
+    if (scene.referenceStatus === 'error') {
+      throw new Error(options.normalizeWorkflowText(scene.referenceError || '场景环境图生成失败'))
     }
 
     const environmentImage = resolveSceneReferenceImage(scene)

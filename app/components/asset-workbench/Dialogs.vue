@@ -35,11 +35,11 @@ defineProps<{
 <template>
   <AssetWorkbenchRegenerateDialog
     :open="characterRegenerateDialogOpen"
-    title="角色二次生成"
+    title="角色定向修改"
     description="使用当前角色图作为参考图，按自定义提示词定向修改。"
     :target-label="characterRegenerateTarget?.name || ''"
     :prompt="characterRegeneratePrompt"
-    prompt-placeholder="输入二次生成提示词"
+    prompt-placeholder="输入定向修改提示词"
     :error="characterRegenerateError"
     :loading="!!characterRegenerateTarget?.generating"
     @update:open="setCharacterRegenerateDialogOpen"
@@ -49,13 +49,13 @@ defineProps<{
 
   <AssetWorkbenchRegenerateDialog
     :open="environmentRegenerateDialogOpen"
-    title="环境二次生成"
-    description="基于当前环境资产，按你输入的提示词重新生成环境图。"
+    title="环境定向修改"
+    description="基于当前环境资产，按输入的提示词重新生成环境图。"
     :target-label="environmentRegenerateTarget?.name || ''"
     :prompt="environmentRegeneratePrompt"
-    prompt-placeholder="输入环境二次生成提示词"
+    prompt-placeholder="输入定向修改提示词"
     :error="environmentRegenerateError"
-    :loading="environmentRegenerateTarget?.frameStatus === 'generating'"
+    :loading="environmentRegenerateTarget?.referenceStatus === 'generating'"
     @update:open="setEnvironmentRegenerateDialogOpen"
     @update:prompt="setEnvironmentRegeneratePrompt"
     @submit="submitEnvironmentRegeneration"

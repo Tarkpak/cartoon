@@ -32,7 +32,7 @@ const emit = defineEmits<{
     >
       <div class="flex items-center justify-between gap-2">
         <p class="text-xs font-medium text-muted-foreground">
-          标准时间轴文案（含图片标记）
+          标准时间轴脚本（含图片标记）
         </p>
         <Button
           size="sm"
@@ -61,7 +61,7 @@ const emit = defineEmits<{
           v-else
           class="h-4 w-4"
         />
-        解析并自动准备资产
+        解析剧本
       </Button>
       <div
         v-if="scenesCount > 0 || charactersCount > 0"

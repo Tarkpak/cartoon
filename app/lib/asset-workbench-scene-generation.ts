@@ -130,8 +130,8 @@ export function buildAssetWorkflowScenePayload(
 export function applySceneBaselineReference(scene: SceneData, referenceImage: string) {
   scene.firstFrame = referenceImage
   scene.lastFrame = undefined
-  scene.frameStatus = 'done'
-  scene.frameError = undefined
+  scene.referenceStatus = 'done'
+  scene.referenceError = undefined
   scene.videoUrl = undefined
   scene.videoStatus = 'pending'
   scene.videoError = undefined

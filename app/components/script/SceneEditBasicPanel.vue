@@ -132,7 +132,7 @@ defineProps<{
       <label class="text-sm font-medium">旁白（可选）</label>
       <Textarea
         v-model="editForm.narration"
-        placeholder="可选：补充画外音/旁白（建议关键信息也写入场景描述）"
+        placeholder="输入场景旁白文本..."
         class="min-h-[80px]"
       />
     </div>
@@ -165,7 +165,7 @@ defineProps<{
     </div>
 
     <div class="space-y-2">
-      <label class="text-sm font-medium">预计时长 (秒)</label>
+      <label class="text-sm font-medium">预计时长（秒）</label>
       <div class="flex items-center space-x-4">
         <Slider
           :model-value="[editForm.duration]"

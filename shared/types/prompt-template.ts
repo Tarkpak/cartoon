@@ -15,7 +15,7 @@ export type PromptFlowStage = (typeof PROMPT_FLOW_STAGES)[number]
 export const PROMPT_FLOW_STAGE_LABELS: Record<PromptFlowStage, string> = {
   parse: '解析',
   assets: '资产',
-  videos: '视频'
+  videos: '场景视频'
 }
 
 export interface PromptVariable {
@@ -81,7 +81,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     stage: 'parse',
     description: '将原文解析为结构化场景、角色和后续可直接生成的视频时间轴',
     variables: [
-      { name: '{{novelText}}', description: '小说/剧本原文', example: '第一章 相遇...' },
+      { name: '{{novelText}}', description: '剧本/原文内容', example: '第一章 相遇...' },
       { name: '{{style}}', description: '项目画风描述', example: '电影写实风格' },
       { name: '{{textLength}}', description: '输入文本长度（字数）', example: '1580' },
       { name: '{{recommendedMinScenes}}', description: '建议最少场景数', example: '12' },

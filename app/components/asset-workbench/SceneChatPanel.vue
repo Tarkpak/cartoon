@@ -160,7 +160,7 @@ function triggerUpload() {
         :ref="setInputElement"
         v-model="composerTextModel"
         class="min-h-[100px] text-xs"
-        placeholder="输入修改指令，支持 @资产；回车发送，Shift+回车换行"
+        placeholder="输入修改指令，支持 @资产，回车发送，Shift+回车换行"
         @input="onComposerInput()"
         @click="onComposerCursor()"
         @keyup="onComposerCursor()"
@@ -238,7 +238,7 @@ function triggerUpload() {
               v-else
               class="mr-1 h-3.5 w-3.5"
             />
-            发送并二次修改
+            发送修改指令
           </Button>
         </div>
       </div>

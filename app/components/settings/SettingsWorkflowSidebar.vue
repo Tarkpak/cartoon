@@ -25,7 +25,7 @@ function getIconClass(color: string) {
   <div class="flex w-64 flex-shrink-0 flex-col border-r bg-muted/30">
     <div class="border-b px-4 py-4">
       <h2 class="text-base font-semibold">
-        业务流程配置
+        工作流配置
       </h2>
       <p class="mt-1 text-sm text-muted-foreground">
         左侧切换模型类型，右侧查看对应流程详情。

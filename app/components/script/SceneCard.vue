@@ -13,31 +13,22 @@ import {
   Move,
   Layers
 } from 'lucide-vue-next'
-
-// 景别类型
-type ShotType = 'extreme_wide' | 'wide' | 'medium_wide' | 'medium' | 'medium_close' | 'close' | 'extreme_close' | 'detail'
-
-// 运镜方式
-type CameraMovement = 'static' | 'push' | 'pull' | 'pan_left' | 'pan_right' | 'tilt_up' | 'tilt_down' | 'track' | 'dolly' | 'zoom_in' | 'zoom_out' | 'crane' | 'handheld' | 'arc'
-
-// 转场效果
-type TransitionType = 'cut' | 'fade' | 'dissolve' | 'wipe' | 'slide' | 'zoom' | 'blur' | 'flash' | 'none'
+import type { SceneShotType, SceneCameraMovement } from '#shared/types/script'
+import type { AssetWorkbenchTransitionType } from '~/lib/asset-workbench-models'
 
 interface SceneCardProps {
   scene: {
     id: string
     title: string
     description: string
-    status: 'pending' | 'processing' | 'completed' | 'failed'
+    status: 'pending' | 'generating' | 'completed' | 'failed'
     duration: number
     characters?: string[]
     thumbnail?: string
-    // 镜头语言
-    shotType?: ShotType
-    cameraMovement?: CameraMovement
-    // 转场
-    transitionIn?: TransitionType
-    transitionOut?: TransitionType
+    shotType?: SceneShotType
+    cameraMovement?: SceneCameraMovement
+    transitionIn?: AssetWorkbenchTransitionType
+    transitionOut?: AssetWorkbenchTransitionType
   }
   index: number
   active?: boolean
@@ -58,13 +49,13 @@ const emit = defineEmits<{
 
 const statusConfig = {
   pending: { icon: Circle, color: 'text-muted-foreground', bg: 'bg-muted', label: '待处理', spin: false },
-  processing: { icon: Loader2, color: 'text-blue-500', bg: 'bg-blue-100', label: '生成中', spin: true },
+  generating: { icon: Loader2, color: 'text-blue-500', bg: 'bg-blue-100', label: '生成中', spin: true },
   completed: { icon: CheckCircle2, color: 'text-green-500', bg: 'bg-green-100', label: '已完成', spin: false },
   failed: { icon: Circle, color: 'text-red-500', bg: 'bg-red-100', label: '失败', spin: false }
 }
 
 // 景别标签映射
-const shotTypeLabels: Record<ShotType, string> = {
+const shotTypeLabels: Record<SceneShotType, string> = {
   extreme_wide: '大远景',
   wide: '全景',
   medium_wide: '中全景',
@@ -76,8 +67,8 @@ const shotTypeLabels: Record<ShotType, string> = {
 }
 
 // 运镜标签映射
-const cameraMovementLabels: Record<CameraMovement, string> = {
-  static: '定镜',
+const cameraMovementLabels: Record<SceneCameraMovement, string> = {
+  static: '固定镜头',
   push: '推',
   pull: '拉',
   pan_left: '左摇',
@@ -94,7 +85,7 @@ const cameraMovementLabels: Record<CameraMovement, string> = {
 }
 
 // 转场标签映射
-const transitionLabels: Record<TransitionType, string> = {
+const transitionLabels: Record<AssetWorkbenchTransitionType, string> = {
   cut: '硬切',
   fade: '淡变',
   dissolve: '叠化',
@@ -276,7 +267,7 @@ const transitionLabel = computed(() => {
 
     <!-- 进度条（生成中时显示） -->
     <div
-      v-if="scene.status === 'processing'"
+      v-if="scene.status === 'generating'"
       class="mt-3"
     >
       <div class="h-1 bg-muted rounded-full overflow-hidden">

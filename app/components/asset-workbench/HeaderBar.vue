@@ -38,7 +38,7 @@ const emit = defineEmits<{
       </Button>
       <div class="min-w-0">
         <h1 class="text-lg font-semibold leading-tight tracking-tight">
-          {{ projectName || '自动剧本视频工作台' }}
+          {{ projectName || 'AI 视频创作工作台' }}
         </h1>
         <div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
           <span

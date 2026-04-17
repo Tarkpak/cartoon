@@ -138,7 +138,7 @@ export function isScenePreparing(scene: SceneData, queueItems: QueueItem[]): boo
 }
 
 export function isSceneBusy(scene: SceneData, queueItems: QueueItem[]): boolean {
-  return scene.frameStatus === 'generating'
+  return scene.referenceStatus === 'generating'
     || scene.videoStatus === 'generating'
     || isSceneQueueRunning(scene.id, queueItems)
 }

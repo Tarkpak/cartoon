@@ -246,7 +246,7 @@ export function findReusableEnvironmentImage(
     if (key !== targetKey) continue
 
     const reference = resolveSceneReferenceImage(candidate)
-    if (reference && candidate.frameStatus === 'done') {
+    if (reference && candidate.referenceStatus === 'done') {
       return reference
     }
   }
