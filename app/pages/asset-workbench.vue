@@ -1,9 +1,5 @@
 <script setup lang="ts">
 import { useDebounceFn } from '@vueuse/core'
-import {
-  Film,
-  Layers3
-} from 'lucide-vue-next'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import type {
@@ -791,9 +787,6 @@ async function handleBatchGenerateCharacters() {
 
     <AssetWorkbenchStagePanel
       v-else-if="activeAutoStage === 'assets'"
-      title="步骤二：资产准备"
-      :icon="Layers3"
-      :hint="stageHints.assets"
     >
       <AssetWorkbenchAssetsStage
         :scenes-count="scenes.length"
@@ -840,9 +833,6 @@ async function handleBatchGenerateCharacters() {
 
     <AssetWorkbenchStagePanel
       v-else-if="activeAutoStage === 'videos'"
-      title="步骤三：场景视频"
-      :icon="Film"
-      :hint="stageHints.videos"
     >
       <AssetWorkbenchVideosStage
         :scenes="scenes"

@@ -72,52 +72,67 @@ const readySceneCount = computed(() => {
 <template>
   <div
     v-if="scenes.length === 0"
-    class="text-sm text-muted-foreground"
+    class="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground"
   >
-    请先完成“剧本解析”步骤。
+    <p class="text-sm">请先完成"剧本解析"步骤</p>
   </div>
   <template v-else>
-    <div class="flex flex-wrap items-center gap-2 text-xs">
-      <Badge variant="secondary">
-        场景 {{ scenes.length }}
-      </Badge>
-      <Badge variant="outline">
-        环境图就绪 {{ readySceneCount }}
-      </Badge>
-      <Badge variant="outline">
-        视频完成 {{ queueSummary.done }}
-      </Badge>
-      <Badge
-        v-if="queueSummary.error > 0"
-        variant="destructive"
-      >
-        失败 {{ queueSummary.error }}
-      </Badge>
-      <span class="text-muted-foreground">
-        运行中 {{ queueSummary.running }}
-      </span>
+    <!-- Stats & actions -->
+    <div class="shrink-0 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span class="inline-block h-2 w-2 rounded-full bg-blue-500" />
+          场景 {{ scenes.length }}
+        </div>
+        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span class="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+          环境图就绪 {{ readySceneCount }}
+        </div>
+        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span class="inline-block h-2 w-2 rounded-full bg-violet-500" />
+          视频完成 {{ queueSummary.done }}
+        </div>
+        <div
+          v-if="queueSummary.error > 0"
+          class="flex items-center gap-1.5 text-xs text-destructive"
+        >
+          <span class="inline-block h-2 w-2 rounded-full bg-destructive" />
+          失败 {{ queueSummary.error }}
+        </div>
+        <div
+          v-if="queueSummary.running > 0"
+          class="flex items-center gap-1.5 text-xs text-muted-foreground"
+        >
+          <Loader2 class="h-3 w-3 animate-spin text-primary" />
+          运行中 {{ queueSummary.running }}
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <Button
+          size="sm"
+          :disabled="autoRunning"
+          class="gap-2"
+          @click="onRunVideosStep()"
+        >
+          <Loader2
+            v-if="autoRunning && autoRunCurrentStage === 'videos'"
+            class="h-3.5 w-3.5 animate-spin"
+          />
+          批量生成场景视频
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          :disabled="autoRunning || queueSummary.error === 0"
+          @click="onRetryFailedQueueItems()"
+        >
+          重试失败场景
+        </Button>
+      </div>
     </div>
 
-    <div class="flex flex-wrap items-center gap-2">
-      <Button
-        :disabled="autoRunning"
-        @click="onRunVideosStep()"
-      >
-        <Loader2
-          v-if="autoRunning && autoRunCurrentStage === 'videos'"
-          class="mr-2 h-4 w-4 animate-spin"
-        />
-        批量生成场景视频
-      </Button>
-      <Button
-        variant="outline"
-        :disabled="autoRunning || queueSummary.error === 0"
-        @click="onRetryFailedQueueItems()"
-      >
-        重试失败场景
-      </Button>
-    </div>
-
+    <!-- Scene grid -->
     <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-2">
       <div class="min-h-0 space-y-2 overflow-y-auto pr-1">
         <AssetWorkbenchSceneVideoCard
@@ -170,32 +185,35 @@ const readySceneCount = computed(() => {
         />
       </div>
 
-      <div class="min-h-0 space-y-3 rounded-md border p-3">
+      <!-- Video preview panel -->
+      <div class="min-h-0 flex flex-col rounded-lg border bg-muted/5">
         <template v-if="selectedScene">
-          <div class="space-y-1">
-            <div class="text-[11px] text-muted-foreground">
-              视频预览
-            </div>
-            <div class="flex aspect-video items-center justify-center overflow-hidden rounded bg-black/90">
+          <div class="px-4 py-3 border-b">
+            <div class="text-xs font-medium text-muted-foreground">视频预览</div>
+          </div>
+          <div class="flex-1 flex items-center justify-center p-4">
+            <div class="w-full aspect-video overflow-hidden rounded-lg bg-black/90">
               <video
                 v-if="selectedScene.videoUrl"
                 :src="selectedScene.videoUrl"
                 controls
                 class="h-full w-full"
               />
-              <span
+              <div
                 v-else
-                class="text-xs text-gray-300"
-              >等待生成视频</span>
+                class="flex h-full w-full items-center justify-center"
+              >
+                <span class="text-xs text-gray-400">等待生成视频</span>
+              </div>
             </div>
           </div>
         </template>
-        <p
+        <div
           v-else
-          class="text-sm text-muted-foreground"
+          class="flex flex-1 items-center justify-center"
         >
-          请先选择场景
-        </p>
+          <p class="text-sm text-muted-foreground/60">选择场景以预览视频</p>
+        </div>
       </div>
     </div>
   </template>
