@@ -42,7 +42,8 @@ export function useAssetWorkbench() {
     loadProject,
     mergeAllVideos,
     mergeStatus,
-    finalVideo
+    finalVideo,
+    resolveProjectStatus
   } = useAssetWorkbenchProjectIO({
     route,
     router,
@@ -119,6 +120,7 @@ export function useAssetWorkbench() {
     batchGenerateCharacters,
     mergeAllVideos,
     mergeStatus,
-    finalVideo
+    finalVideo,
+    resolveProjectStatus
   }
 }

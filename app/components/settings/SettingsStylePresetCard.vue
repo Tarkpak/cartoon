@@ -4,7 +4,7 @@ import type { StyleCategory, StylePreset } from '#shared/types/styles'
 import { resolveStyleCategoryIcon } from '@/lib/style-category-icons'
 
 const props = defineProps<{
-  style: StylePreset
+  stylePreset: StylePreset
   enabled: boolean
   isDefault: boolean
   isEditing: boolean
@@ -17,134 +17,124 @@ defineEmits<{
   (event: 'edit', style: StylePreset): void
 }>()
 
-const categoryIcon = computed(() => resolveStyleCategoryIcon(props.style.category))
+const categoryIcon = computed(() => resolveStyleCategoryIcon(props.stylePreset.category))
 </script>
 
 <template>
   <div
-    class="overflow-hidden rounded-xl border bg-background transition-colors"
+    class="group overflow-hidden rounded-lg border bg-card transition-all duration-200 hover:shadow-md"
     :class="[
-      enabled ? 'border-primary/50' : 'border-border',
-      isEditing ? 'ring-2 ring-primary/40' : ''
+      enabled ? 'border-primary/40' : 'border-border',
+      isEditing ? 'ring-2 ring-primary/30' : ''
     ]"
   >
-    <div class="relative aspect-[4/5] bg-muted/30">
+    <!-- Thumbnail -->
+    <div class="relative aspect-[3/4] overflow-hidden bg-muted/20">
       <img
-        v-if="style.thumbnail"
-        :src="style.thumbnail"
-        :alt="style.name"
-        class="h-full w-full object-contain"
+        v-if="stylePreset.thumbnail"
+        :src="stylePreset.thumbnail"
+        :alt="stylePreset.name"
+        class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
         loading="lazy"
       >
       <div
         v-else
-        class="flex h-full w-full items-center justify-center text-xs text-muted-foreground"
+        class="flex h-full w-full items-center justify-center text-[11px] text-muted-foreground/50"
       >
         无缩略图
       </div>
 
-      <div class="absolute left-2 top-2 inline-flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+      <!-- Category badge -->
+      <div class="absolute left-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
         <component
           :is="categoryIcon"
-          class="h-3 w-3"
+          class="h-2.5 w-2.5"
         />
-        <span>{{ getCategoryName(style.category) }}</span>
+        <span>{{ getCategoryName(stylePreset.category) }}</span>
+      </div>
+
+      <!-- Default badge -->
+      <div
+        v-if="isDefault"
+        class="absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-yellow-500/90 px-1.5 py-0.5 text-[10px] font-medium text-white"
+      >
+        <Star class="h-2.5 w-2.5" />
+        默认
+      </div>
+
+      <!-- Hover overlay with quick actions -->
+      <div class="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100">
+        <div class="flex w-full items-center gap-1 p-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            class="h-7 flex-1 gap-1 bg-white/90 text-[11px] font-medium text-foreground shadow-sm backdrop-blur-sm hover:bg-white"
+            @click="$emit('edit', stylePreset)"
+          >
+            <Pencil class="h-3 w-3" />
+            {{ isEditing ? '编辑中' : '编辑' }}
+          </Button>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            class="h-7 w-7 bg-white/90 p-0 text-destructive shadow-sm backdrop-blur-sm hover:bg-red-50"
+            :disabled="isDeleting"
+            @click="$emit('delete', stylePreset.id)"
+          >
+            <Loader2
+              v-if="isDeleting"
+              class="h-3 w-3 animate-spin"
+            />
+            <Trash2
+              v-else
+              class="h-3 w-3"
+            />
+          </Button>
+        </div>
       </div>
     </div>
 
-    <div class="space-y-3 p-3">
+    <!-- Info -->
+    <div class="space-y-1.5 p-2.5">
       <div class="min-w-0">
-        <div class="truncate text-sm font-medium">
-          {{ style.name }}
+        <div class="truncate text-xs font-semibold leading-tight">
+          {{ stylePreset.name }}
         </div>
-        <div class="truncate text-[12px] text-muted-foreground">
-          {{ style.nameEn }}
+        <div
+          v-if="stylePreset.nameEn"
+          class="mt-0.5 truncate text-[11px] text-muted-foreground"
+        >
+          {{ stylePreset.nameEn }}
         </div>
       </div>
 
-      <div class="line-clamp-2 min-h-[36px] text-[12px] text-muted-foreground">
-        {{ style.description }}
-      </div>
+      <!-- Footer actions -->
+      <div class="flex items-center justify-between border-t pt-2">
+        <label
+          class="inline-flex cursor-pointer items-center gap-1.5 text-[11px]"
+          @click.stop
+        >
+          <Switch
+            :checked="enabled"
+            class="scale-75 origin-left"
+            @update:checked="$emit('toggle-enabled', stylePreset.id)"
+          />
+          <span class="text-muted-foreground">{{ enabled ? '启用' : '关闭' }}</span>
+        </label>
 
-      <div class="flex items-center justify-between gap-2 border-t pt-2">
         <Button
-          type="button"
+          v-if="!isDefault"
+          size="sm"
           variant="ghost"
-          class="h-auto px-0 text-xs hover:bg-transparent"
-          @click="$emit('toggle-enabled', style.id)"
-        >
-          <span
-            class="relative inline-flex h-5 w-9 rounded-full transition-colors"
-            :class="enabled ? 'bg-primary/80' : 'bg-muted-foreground/30'"
-          >
-            <span
-              class="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform"
-              :class="enabled ? 'translate-x-4' : 'translate-x-0'"
-            />
-          </span>
-          <span class="text-muted-foreground">{{ enabled ? '已启用' : '未启用' }}</span>
-        </Button>
-
-        <Button
-          size="sm"
-          :variant="isDefault ? 'default' : 'outline'"
-          class="h-7 px-2 text-xs"
+          class="h-6 gap-0.5 px-1.5 text-[11px] text-muted-foreground"
           :disabled="!enabled"
-          @click="$emit('set-default', style.id)"
+          @click="$emit('set-default', stylePreset.id)"
         >
-          <Star class="mr-1 h-3.5 w-3.5" />
-          {{ isDefault ? '默认' : '设为默认' }}
+          <Star class="h-3 w-3" />
+          默认
         </Button>
       </div>
-
-      <div class="flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          class="h-7 flex-1 text-xs"
-          @click="$emit('edit', style)"
-        >
-          <Pencil class="mr-1.5 h-3.5 w-3.5" />
-          {{ isEditing ? '编辑中' : '编辑' }}
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          class="h-7 px-2 text-xs text-destructive"
-          :disabled="isDeleting"
-          @click="$emit('delete', style.id)"
-        >
-          <Loader2
-            v-if="isDeleting"
-            class="h-3.5 w-3.5 animate-spin"
-          />
-          <Trash2
-            v-else
-            class="h-3.5 w-3.5"
-          />
-        </Button>
-      </div>
-
-      <details class="rounded-md border bg-muted/20 px-2 py-1.5">
-        <summary class="cursor-pointer select-none text-xs text-muted-foreground">
-          查看预设详情
-        </summary>
-        <div class="mt-1.5 space-y-1 text-[11px] text-muted-foreground">
-          <p class="break-all">
-            ID：{{ style.id }}
-          </p>
-          <p class="break-words">
-            预设词：{{ style.prompt }}
-          </p>
-          <p
-            v-if="style.negativePrompt"
-            class="break-words"
-          >
-            反向词：{{ style.negativePrompt }}
-          </p>
-        </div>
-      </details>
     </div>
   </div>
 </template>

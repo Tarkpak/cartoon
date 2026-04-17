@@ -46,6 +46,7 @@ interface RequestSceneBaselineGenerationOptions {
   style: string
   aspectRatio: AssetWorkbenchAspectRatio
   customPrompt?: string
+  referenceImage?: string
 }
 
 interface AssetWorkflowVideoReferences {
@@ -183,7 +184,8 @@ export async function requestSceneBaselineGeneration(
       environmentContext: buildSceneEnvironmentConsistencyContext(options.scene, options.scenes),
       regeneration: options.customPrompt
         ? {
-            customPrompt: options.customPrompt
+            customPrompt: options.customPrompt,
+            referenceImage: options.referenceImage
           }
         : undefined
     }

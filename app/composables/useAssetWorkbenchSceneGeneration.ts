@@ -11,6 +11,10 @@ import {
   requestSceneVideoTask,
   type GenerateSceneBaselineOptions
 } from '~/lib/asset-workbench-scene-generation'
+import {
+  invalidateSceneGenerationState,
+  invalidateSceneVideoState
+} from '~/lib/asset-workbench-scenes'
 import type { QueueItem } from '~/lib/asset-workbench-types'
 import { uniqueSorted } from '~/lib/asset-workbench-strings'
 import {
@@ -61,6 +65,9 @@ interface UseAssetWorkbenchSceneGenerationOptions {
 export function useAssetWorkbenchSceneGeneration(
   options: UseAssetWorkbenchSceneGenerationOptions
 ) {
+  const pendingBaselineGenerationKeys = new Map<string, string>()
+  const pendingVideoGenerationKeys = new Map<string, string>()
+
   async function ensureSceneReferencedAssetsReady(scene: SceneData): Promise<void> {
     const config = options.ensureSceneConfig(scene.id)
 
@@ -160,6 +167,45 @@ export function useAssetWorkbenchSceneGeneration(
     })
   }
 
+  function buildSceneBaselineGenerationKey(
+    scene: SceneData,
+    generationOptions: GenerateSceneBaselineOptions = {}
+  ): string {
+    const customPrompt = generationOptions.customPrompt?.trim() || ''
+
+    return JSON.stringify({
+      scenePayload: buildAssetWorkflowScenePayload(scene),
+      style: options.workflowStylePrompt.value,
+      aspectRatio: options.projectAspectRatio.value,
+      customPrompt,
+      referenceImage: customPrompt
+        ? (resolveSceneReferenceImage(scene) || scene.firstFrame || '')
+        : ''
+    })
+  }
+
+  function buildSceneVideoGenerationKey(
+    scene: SceneData,
+    environmentImage: string,
+    characterImages: string[],
+    characterReferenceAssets: ReturnType<typeof resolveSceneVideoReferenceAssets>
+  ): string {
+    return JSON.stringify({
+      scenePayload: buildAssetWorkflowScenePayload(scene),
+      style: options.workflowStylePrompt.value,
+      aspectRatio: options.projectAspectRatio.value,
+      environmentImage,
+      characterImages,
+      characterAssets: characterReferenceAssets.map(asset => ({
+        assetId: asset.assetId,
+        name: asset.name,
+        type: asset.type,
+        image: asset.image,
+        source: asset.source
+      }))
+    })
+  }
+
   async function generateSceneBaseline(
     sceneId: string,
     generationOptions: GenerateSceneBaselineOptions = {}
@@ -180,6 +226,9 @@ export function useAssetWorkbenchSceneGeneration(
       }
     }
 
+    const generationKey = buildSceneBaselineGenerationKey(scene, generationOptions)
+    pendingBaselineGenerationKeys.set(scene.id, generationKey)
+
     scene.frameStatus = 'generating'
     scene.frameError = undefined
 
@@ -190,8 +239,23 @@ export function useAssetWorkbenchSceneGeneration(
         scenePayload: buildAssetWorkflowScenePayload(scene),
         style: options.workflowStylePrompt.value,
         aspectRatio: options.projectAspectRatio.value,
-        customPrompt
+        customPrompt,
+        referenceImage: customPrompt
+          ? (resolveSceneReferenceImage(scene) || scene.firstFrame)
+          : undefined
       })
+
+      const latestGenerationKey = pendingBaselineGenerationKeys.get(scene.id)
+      const currentGenerationKey = buildSceneBaselineGenerationKey(scene, generationOptions)
+      if (latestGenerationKey !== generationKey || currentGenerationKey !== generationKey) {
+        const invalidated = invalidateSceneGenerationState(scene)
+        if (invalidated) {
+          options.synchronizeQueueItems()
+          await options.saveProject()
+        }
+        return
+      }
+
       applySceneBaselineReference(scene, referenceImage)
       options.synchronizeQueueItems()
       await options.saveProject()
@@ -199,6 +263,10 @@ export function useAssetWorkbenchSceneGeneration(
       scene.frameStatus = 'error'
       scene.frameError = options.resolveUiError(error, '环境图生成失败')
       throw new Error(scene.frameError)
+    } finally {
+      if (pendingBaselineGenerationKeys.get(scene.id) === generationKey) {
+        pendingBaselineGenerationKeys.delete(scene.id)
+      }
     }
   }
 
@@ -232,6 +300,13 @@ export function useAssetWorkbenchSceneGeneration(
       propAssets: options.propAssets.value,
       sceneConfigs: options.sceneConfigs.value
     })
+    const generationKey = buildSceneVideoGenerationKey(
+      scene,
+      environmentImage,
+      characterImages,
+      characterReferenceAssets
+    )
+    pendingVideoGenerationKeys.set(scene.id, generationKey)
 
     scene.videoStatus = 'generating'
     scene.videoError = undefined
@@ -249,12 +324,43 @@ export function useAssetWorkbenchSceneGeneration(
         })
       })
       const videoUrl = await pollSceneVideoTask(taskId)
+
+      const latestGenerationKey = pendingVideoGenerationKeys.get(scene.id)
+      const currentGenerationKey = buildSceneVideoGenerationKey(
+        scene,
+        environmentImage,
+        resolveSceneVideoCharacterReferences({
+          scene,
+          characters: options.characters.value,
+          propAssets: options.propAssets.value,
+          sceneConfigs: options.sceneConfigs.value
+        }),
+        resolveSceneVideoReferenceAssets({
+          scene,
+          characters: options.characters.value,
+          propAssets: options.propAssets.value,
+          sceneConfigs: options.sceneConfigs.value
+        })
+      )
+      if (latestGenerationKey !== generationKey || currentGenerationKey !== generationKey) {
+        const invalidated = invalidateSceneVideoState(scene)
+        if (invalidated) {
+          options.synchronizeQueueItems()
+          await options.saveProject()
+        }
+        return
+      }
+
       applySceneVideoUrl(scene, videoUrl)
       await options.saveProject()
     } catch (error) {
       scene.videoStatus = 'error'
       scene.videoError = options.resolveUiError(error, '视频生成失败')
       throw new Error(scene.videoError)
+    } finally {
+      if (pendingVideoGenerationKeys.get(scene.id) === generationKey) {
+        pendingVideoGenerationKeys.delete(scene.id)
+      }
     }
   }
 
@@ -273,7 +379,8 @@ export function useAssetWorkbenchSceneGeneration(
 
     try {
       await generateSingleSceneVideo(item.sceneId)
-      item.status = 'done'
+      const scene = options.scenes.value.find(candidate => candidate.id === item.sceneId)
+      item.status = scene?.videoStatus === 'done' ? 'done' : 'pending'
     } catch (error) {
       item.status = 'error'
       item.error = options.resolveUiError(error, '生成失败')

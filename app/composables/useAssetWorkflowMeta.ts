@@ -1,5 +1,6 @@
 import { useDebounceFn } from '@vueuse/core'
 import type { Ref } from 'vue'
+import type { FinalVideoAsset } from '~/lib/asset-workbench-types'
 
 type ConsistencyLevel = 'lock' | 'soft'
 
@@ -21,12 +22,15 @@ export interface AssetWorkflowMeta {
   version: number
   sceneConfigs: Record<string, SceneConsistencyConfig>
   props: PropAsset[]
+  finalVideo?: FinalVideoAsset | null
 }
 
 interface UseAssetWorkflowMetaOptions {
   projectId: Ref<string | undefined>
   sceneConfigs: Ref<Record<string, SceneConsistencyConfig>>
   propAssets: Ref<PropAsset[]>
+  finalVideo: Ref<FinalVideoAsset | null>
+  resolveProjectStatus: () => 'draft' | 'in_progress' | 'completed'
   onHydrated?: () => void
   debounceMs?: number
 }
@@ -38,6 +42,28 @@ function createFallbackPropId() {
 export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
   const workflowMetaReady = ref(false)
   const hydratingWorkflowMeta = ref(false)
+
+  function normalizeFinalVideo(rawValue: unknown): FinalVideoAsset | null {
+    if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
+      return null
+    }
+
+    const item = rawValue as Partial<FinalVideoAsset> & { videoData?: unknown }
+    const videoUrl = typeof item.videoUrl === 'string' && item.videoUrl.trim()
+      ? item.videoUrl.trim()
+      : typeof item.videoData === 'string' && item.videoData.trim()
+        ? item.videoData.trim()
+        : ''
+
+    if (!videoUrl) return null
+
+    return {
+      videoUrl,
+      duration: typeof item.duration === 'number' ? item.duration : undefined,
+      size: typeof item.size === 'number' ? item.size : undefined,
+      updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : undefined
+    }
+  }
 
   async function loadWorkflowMeta(rawMetaInput?: unknown): Promise<boolean> {
     hydratingWorkflowMeta.value = true
@@ -51,6 +77,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
       const meta = rawMetaInput as {
         sceneConfigs?: Record<string, unknown>
         props?: unknown
+        finalVideo?: unknown
       }
 
       const loadedConfigs: Record<string, SceneConsistencyConfig> = {}
@@ -82,9 +109,14 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
             })
         : []
 
-      hasMeta = Object.keys(loadedConfigs).length > 0 || loadedProps.length > 0
+      const loadedFinalVideo = normalizeFinalVideo(meta.finalVideo)
+
+      hasMeta = Object.keys(loadedConfigs).length > 0
+        || loadedProps.length > 0
+        || !!loadedFinalVideo
       options.sceneConfigs.value = loadedConfigs
       options.propAssets.value = loadedProps
+      options.finalVideo.value = loadedFinalVideo
     } catch (error) {
       console.error('[useAssetWorkflowMeta] 读取工作流元数据失败:', error)
     } finally {
@@ -103,13 +135,15 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
     const payload: AssetWorkflowMeta = {
       version: 1,
       sceneConfigs: options.sceneConfigs.value,
-      props: options.propAssets.value
+      props: options.propAssets.value,
+      finalVideo: options.finalVideo.value
     }
 
     try {
       await $fetch(`/api/project/${currentProjectId}`, {
         method: 'PUT',
         body: {
+          status: options.resolveProjectStatus(),
           assetWorkflow: payload
         }
       })
