@@ -113,6 +113,7 @@ export const SceneSchema = z.object({
   id: z.string().describe('场景ID'),
   title: z.string().optional().describe('场景标题'),
   shotType: SceneShotTypeSchema.optional(),
+  cameraMovement: SceneCameraMovementSchema.optional(),
   description: z.string().describe('场景描述'),
   setting: SceneSettingSchema.describe('场景设定'),
   characters: z.array(SceneCharacterSchema).describe('登场角色'),

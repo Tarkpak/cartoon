@@ -79,10 +79,11 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 【场景字段规则】
 1. scenes[i].shotType 只能是：extreme_wide、wide、medium_wide、medium、medium_close、close、extreme_close、detail。
-2. scenes[i].setting.timeOfDay 只能是：dawn、morning、noon、afternoon、evening、night。
-3. scenes[i].setting.location 请优先使用“主环境-子空间”或“主环境/子空间”的中性命名。
-4. 同一主环境在不同子空间中必须保持一致的建筑年代、装修档次、材质语言和维护状态。
-5. 除非原文明确说明新旧分区或废弃区，禁止输出互相冲突的环境风格。
+2. scenes[i].cameraMovement 只能是：static、push、pull、pan_left、pan_right、tilt_up、tilt_down、track、dolly、zoom_in、zoom_out、crane、handheld、arc。选择最能代表该场景主运镜方式的值。
+3. scenes[i].setting.timeOfDay 只能是：dawn、morning、noon、afternoon、evening、night。
+4. scenes[i].setting.location 请优先使用”主环境-子空间”或”主环境/子空间”的中性命名。
+5. 同一主环境在不同子空间中必须保持一致的建筑年代、装修档次、材质语言和维护状态。
+6. 除非原文明确说明新旧分区或废弃区，禁止输出互相冲突的环境风格。
 
 【description 时间轴规则】
 1. 每个场景的 description 必须是多行时间轴镜头脚本，不得写成散文段落。
@@ -115,6 +116,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
       "id": "scene_001",
       "title": "场景标题",
       "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
+      "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
       "description": "0-3秒：，中景，固定镜头。护士站[图片1]走廊白炽灯映出冷硬的墙面，人来人往，陆哲[图片2]抬手整理白大褂，动作从容。\\n3-6秒：，近景，缓慢推近。陆哲[图片2]嘴角上扬，眼神中透着志在必得的冷傲。陆哲说：'你们等着看。'\\n6-8秒：，中景，固定镜头。画外音（音色：男性，30岁左右，语调沉稳，音高偏低，语速适中，情绪克制，无口音）说：'他的目光穿过人群，像一把隐忍的刀。'",
       "setting": {
         "location": "医院-护士站",
@@ -179,10 +181,11 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 ## Scene Field Rules
 1. scenes[i].shotType must be one of: extreme_wide, wide, medium_wide, medium, medium_close, close, extreme_close, detail.
-2. scenes[i].setting.timeOfDay must be one of: dawn, morning, noon, afternoon, evening, night.
-3. scenes[i].setting.location should use neutral naming such as "root environment - subspace".
-4. The same root environment must keep consistent era, material language, maintenance level, and renovation grade across scenes.
-5. Do not output conflicting environment styles unless the source explicitly describes different zones.
+2. scenes[i].cameraMovement must be one of: static, push, pull, pan_left, pan_right, tilt_up, tilt_down, track, dolly, zoom_in, zoom_out, crane, handheld, arc. Pick the dominant camera movement for the scene.
+3. scenes[i].setting.timeOfDay must be one of: dawn, morning, noon, afternoon, evening, night.
+4. scenes[i].setting.location should use neutral naming such as "root environment - subspace".
+5. The same root environment must keep consistent era, material language, maintenance level, and renovation grade across scenes.
+6. Do not output conflicting environment styles unless the source explicitly describes different zones.
 
 ## Timeline Description Rules
 1. Each scene description must be a multi-line timeline shot script, not prose.
@@ -214,6 +217,7 @@ Output strict JSON only:
       "id": "scene_001",
       "title": "Scene title",
       "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
+      "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
       "description": "0-3秒：，中景，固定镜头。Busy nurse station[Image1] under cold fluorescent light, Lu Zhe[Image2] adjusts his white coat.\\n3-6秒：，近景，缓慢推近。Lu Zhe[Image2] smirks with cold confidence. Lu Zhe says: 'Wait and see.'\\n6-8秒：，中景，固定镜头。画外音（音色：male，around 30，steady tone，low-mid pitch，moderate pace，restrained，no accent）says: 'His gaze cuts through the crowd like a hidden blade.'",
       "setting": {
         "location": "Hospital - nurse station",
@@ -324,7 +328,7 @@ Requirements:
 }
 
 const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: `你正在为“素材一致性场景视频”生成单张纯环境参考图。请直接生成图片，不要输出文字说明。
+  zh: `你正在为”资产一致性场景视频”生成单张纯环境参考图。请直接生成图片，不要输出文字说明。
 
 【项目画风】
 {{style}}
