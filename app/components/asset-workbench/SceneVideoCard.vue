@@ -84,10 +84,10 @@ const scenePreparing = computed(() => props.isScenePreparing(props.scene))
       </div>
       <div class="flex items-center gap-1">
         <Badge
-          :variant="scene.frameStatus === 'done' ? 'secondary' : scene.frameStatus === 'error' ? 'destructive' : scene.frameStatus === 'generating' ? 'default' : 'outline'"
+          :variant="scene.referenceStatus === 'done' ? 'secondary' : scene.referenceStatus === 'error' ? 'destructive' : scene.referenceStatus === 'generating' ? 'default' : 'outline'"
           class="text-[10px]"
         >
-          {{ scene.frameStatus === 'done' ? '环境图就绪' : scene.frameStatus === 'error' ? '环境图失败' : scene.frameStatus === 'generating' ? '环境图生成中' : '待生成环境图' }}
+          {{ scene.referenceStatus === 'done' ? '环境图就绪' : scene.referenceStatus === 'error' ? '环境图失败' : scene.referenceStatus === 'generating' ? '环境图生成中' : '环境图待生成' }}
         </Badge>
         <Badge
           :variant="videoBadge.variant"
@@ -248,10 +248,10 @@ const scenePreparing = computed(() => props.isScenePreparing(props.scene))
         @click.stop="onGenerateSceneBaseline(scene.id)"
       >
         <Loader2
-          v-if="scene.frameStatus === 'generating'"
+          v-if="scene.referenceStatus === 'generating'"
           class="mr-1 h-3.5 w-3.5 animate-spin"
         />
-        {{ resolveSceneReferenceImage(scene) ? '重生成环境图' : '生成环境图' }}
+        {{ resolveSceneReferenceImage(scene) ? '重新生成环境图' : '生成环境图' }}
       </Button>
       <Button
         size="sm"

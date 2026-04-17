@@ -52,7 +52,7 @@ function getDefaultContent(id: string): PromptTemplate['content'] {
 }
 
 const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
-  zh: `你是一位负责短视频影视化生产的资深编剧拆解师。请把输入文本解析成可直接进入“资产准备 → 场景视频生成”的结构化数据。
+  zh: `你是一位资深分镜师，专注于短视频影视化生产。请把输入文本解析成可直接进入”资产准备 → 场景视频生成”的结构化数据。
 
 【输入文本】
 {{novelText}}
@@ -186,9 +186,9 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 ## Timeline Description Rules
 1. Each scene description must be a multi-line timeline shot script, not prose.
-2. Each line must follow: start-end秒：，shot size，camera movement. Visual action and dialogue.
-   - Shot sizes: 中景, 近景, 特写镜头, 中近景, 全景, 大远景, etc.
-   - Camera movements: 固定镜头, 缓慢推近, 缓慢拉远, 镜头左摇, 镜头右摇, 跟随镜头, 手持镜头, etc.
+2. Each line must follow the format (use Chinese tokens exactly): start-end秒：，景别，运镜方式。Visual action and dialogue.
+   - 景别 (shot sizes): 中景, 近景, 特写镜头, 中近景, 全景, 大远景, etc.
+   - 运镜方式 (camera movements): 固定镜头, 缓慢推近, 缓慢拉远, 镜头左摇, 镜头右摇, 跟随镜头, 手持镜头, etc.
    - Additional camera info may follow, e.g.: ，镜头角度略低于XX的视线。
 3. Each scene needs at least 2 lines, preferably 3-6. Timeline starts at 0 and the final line should align with duration within 0.5 seconds.
 4. Put dialogue directly inside the relevant timeline line, wrapped in single quotes.
@@ -487,7 +487,7 @@ const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
 1. Output JSON only, with no explanation.
 2. description must stay in multi-line timeline format, not prose.
 3. The target duration is about {{durationHint}} seconds; output at least one timeline line and usually 2-6 lines.
-4. Each line must follow: start-end秒：，shot size，camera movement. Visual description. Camera movements include: 固定镜头, 缓慢推近, 缓慢拉远, etc.
+4. Each line must follow the format (use Chinese tokens exactly): start-end秒：，景别，运镜方式。Visual description. 运镜方式 includes: 固定镜头, 缓慢推近, 缓慢拉远, etc.
 5. Integrate the user's requested changes while preserving plot continuity, character identity, and environment logic.
 6. If assets are mentioned, reflect them in the scene description, but do not output @mentions or asset-reference blocks.
 7. Preserve the [ImageN] tag style. If existing tags are already present, reuse them whenever possible.

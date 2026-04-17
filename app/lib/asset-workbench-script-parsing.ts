@@ -70,9 +70,9 @@ export function buildParsedScenes(options: {
       transitionIn: 'cut',
       transitionOut: 'cut',
       transitionDuration: 0.5,
-      frameError: undefined,
+      referenceError: undefined,
       videoError: undefined,
-      frameStatus: 'pending',
+      referenceStatus: 'pending',
       videoStatus: 'pending'
     }
   })

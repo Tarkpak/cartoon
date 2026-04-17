@@ -34,9 +34,9 @@ export function resetSceneGenerationState(scene: SceneData): SceneData {
     firstFrame: undefined,
     lastFrame: undefined,
     videoUrl: undefined,
-    frameError: undefined,
+    referenceError: undefined,
     videoError: undefined,
-    frameStatus: 'pending',
+    referenceStatus: 'pending',
     videoStatus: 'pending'
   }
 }
@@ -57,9 +57,9 @@ export function invalidateSceneGenerationState(scene: SceneData): boolean {
   const changed = !!scene.firstFrame
     || !!scene.lastFrame
     || !!scene.videoUrl
-    || !!scene.frameError
+    || !!scene.referenceError
     || !!scene.videoError
-    || scene.frameStatus !== 'pending'
+    || scene.referenceStatus !== 'pending'
     || scene.videoStatus !== 'pending'
 
   if (!changed) return false

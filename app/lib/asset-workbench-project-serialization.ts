@@ -73,9 +73,9 @@ export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
     firstFrame: scene.firstFrame || undefined,
     lastFrame: scene.lastFrame || undefined,
     videoUrl: normalizeProjectVideoUrl(scene.videoUrl) || undefined,
-    frameError: undefined,
+    referenceError: undefined,
     videoError: undefined,
-    frameStatus: scene.firstFrame ? 'done' : 'pending',
+    referenceStatus: scene.firstFrame ? 'done' : 'pending',
     videoStatus: scene.videoUrl ? 'done' : 'pending'
   }))
 }
@@ -148,7 +148,7 @@ export function buildSaveScenesPayload(scenes: SceneData[]) {
     videoUrl: scene.videoUrl,
     status: scene.videoStatus === 'done'
       ? 'video_ready'
-      : (scene.frameStatus === 'done' ? 'frames_ready' : 'pending')
+      : (scene.referenceStatus === 'done' ? 'frames_ready' : 'pending')
   }))
 }
 

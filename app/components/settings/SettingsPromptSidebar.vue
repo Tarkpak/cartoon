@@ -118,7 +118,7 @@ function getIconClass(color: string) {
                   v-if="template.isCustomized"
                   class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900 dark:text-amber-300"
                 >
-                  已改
+                  已自定义
                 </span>
               </div>
               <p class="mt-0.5 line-clamp-2 text-xs text-muted-foreground">

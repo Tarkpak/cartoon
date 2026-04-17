@@ -58,7 +58,7 @@ const assetTab = ref<AssetTab>('characters')
 
 const tabs = computed(() => [
   { key: 'characters' as AssetTab, label: '角色', count: props.characters.length },
-  { key: 'scenes' as AssetTab, label: '环境', count: props.environmentAssetCards.length },
+  { key: 'environments' as AssetTab, label: '环境', count: props.environmentAssetCards.length },
   { key: 'props' as AssetTab, label: '道具', count: props.propAssets.length }
 ])
 </script>
@@ -170,7 +170,7 @@ const tabs = computed(() => [
       />
 
       <AssetWorkbenchEnvironmentAssetsTab
-        v-else-if="assetTab === 'scenes'"
+        v-else-if="assetTab === 'environments'"
         :environment-asset-cards="environmentAssetCards"
         :auto-running="autoRunning"
         :uploading-environment-asset-id="uploadingEnvironmentAssetId"
