@@ -16,6 +16,7 @@ interface ParsedScriptScene {
   id: string
   title?: string
   shotType?: SceneData['shotType']
+  cameraMovement?: SceneData['cameraMovement']
   description: string
   characters: Array<{ name: string, appearance?: string, emotion?: string }>
   dialogues?: Array<{ character: string, text: string, emotion?: string }>
@@ -65,7 +66,7 @@ export function buildParsedScenes(options: {
       setting: scene.setting,
       active: index === 0,
       shotType: scene.shotType || 'medium',
-      cameraMovement: 'static',
+      cameraMovement: scene.cameraMovement || 'static',
       cameraNote: '',
       transitionIn: 'cut',
       transitionOut: 'cut',
