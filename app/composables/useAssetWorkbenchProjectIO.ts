@@ -1,6 +1,7 @@
 import type { ComputedRef, Ref } from 'vue'
 import type { CharacterView } from '#shared/types/character'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
+import type { FinalVideoAsset } from '~/lib/asset-workbench-types'
 import {
   applyScopedEntityIds,
   buildLoadedCharacters,
@@ -38,11 +39,23 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     running: false,
     progress: 0
   })
-  const finalVideo = ref<{
-    videoData?: string
-    duration?: number
-    size?: number
-  } | null>(null)
+  const finalVideo = ref<FinalVideoAsset | null>(null)
+
+  function resolveProjectStatus(): 'draft' | 'in_progress' | 'completed' {
+    if (finalVideo.value?.videoUrl) {
+      return 'completed'
+    }
+
+    if (
+      options.novelText.value.trim()
+      || options.scenes.value.length > 0
+      || options.characters.value.length > 0
+    ) {
+      return 'in_progress'
+    }
+
+    return 'draft'
+  }
 
   async function mergeAllVideos() {
     const readyScenes = options.scenes.value.filter(scene => scene.videoStatus === 'done' && scene.videoUrl)
@@ -79,7 +92,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       const response = await $fetch<{
         success: boolean
         data?: {
-          videoData: string
+          videoUrl: string
           duration: number
           size: number
           sceneCount: number
@@ -106,9 +119,10 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       }
 
       finalVideo.value = {
-        videoData: response.data.videoData,
+        videoUrl: response.data.videoUrl,
         duration: response.data.duration,
-        size: response.data.size
+        size: response.data.size,
+        updatedAt: new Date().toISOString()
       }
       mergeStatus.value.progress = 100
       return response.data
@@ -210,6 +224,10 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     saveError.value = null
 
     try {
+      if (finalVideo.value) {
+        finalVideo.value = null
+      }
+
       let id = options.projectId.value
 
       if (!id) {
@@ -250,6 +268,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         body: {
           name: options.projectName.value,
           description: options.projectDescription.value,
+          status: resolveProjectStatus(),
           styleId: options.projectStyleId.value,
           aspectRatio: options.projectAspectRatio.value,
           novelText: options.novelText.value,
@@ -277,6 +296,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     loadProject,
     mergeAllVideos,
     mergeStatus,
-    finalVideo
+    finalVideo,
+    resolveProjectStatus
   }
 }

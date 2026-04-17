@@ -22,7 +22,6 @@ export function useAssetWorkbenchSceneEditing(
 
   function updateScene(updatedScene: Partial<SceneData> & { id: string }) {
     options.scenes.value = updateSceneInList(options.scenes.value, updatedScene)
-    void options.saveProject()
   }
 
   function mergeWithNextScene(sceneIndex: number) {

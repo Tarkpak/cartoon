@@ -54,7 +54,9 @@ async function hydrateSceneVideoUrlsFromTasks(projectScenes: typeof scenes.$infe
   if (projectScenes.length === 0) return
 
   const missingVideoSceneIds = projectScenes
-    .filter(scene => !normalizeProjectVideoUrl(scene.videoUrl))
+    .filter(scene => {
+      return scene.status === 'video_ready' && !normalizeProjectVideoUrl(scene.videoUrl)
+    })
     .map(scene => scene.id)
 
   if (missingVideoSceneIds.length === 0) return

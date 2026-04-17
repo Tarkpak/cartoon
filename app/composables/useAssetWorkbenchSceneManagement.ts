@@ -2,6 +2,7 @@ import type { ComputedRef, Ref } from 'vue'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import type { DisplayAsset } from '~/lib/asset-workbench-types'
+import { invalidateSceneGenerationState } from '~/lib/asset-workbench-scenes'
 
 export function useAssetWorkbenchSceneManagement(options: {
   selectedSceneId: Ref<string>
@@ -29,11 +30,46 @@ export function useAssetWorkbenchSceneManagement(options: {
   deleteScene: (scene: SceneData) => void
   splitScene: (sceneIndex: number) => void
   mergeWithNextScene: (sceneIndex: number) => void
+  saveProject: () => Promise<unknown>
   saveWorkflowMeta: () => Promise<unknown>
   synchronizeQueueItems: () => void
   createPropAssetId: () => string
   isSceneBusy: (scene: SceneData) => boolean
 }) {
+  let pendingSceneEditSave: { sceneId: string, sceneChanged: boolean } | null = null
+
+  function hasSceneEditChanged(currentScene: SceneData, nextScene: SceneData): boolean {
+    return JSON.stringify({
+      title: currentScene.title,
+      description: currentScene.description,
+      characters: currentScene.characters,
+      dialogues: currentScene.dialogues,
+      narration: currentScene.narration || '',
+      duration: currentScene.duration,
+      setting: currentScene.setting || null,
+      shotType: currentScene.shotType || null,
+      cameraMovement: currentScene.cameraMovement || null,
+      cameraNote: currentScene.cameraNote || '',
+      transitionIn: currentScene.transitionIn || null,
+      transitionOut: currentScene.transitionOut || null,
+      transitionDuration: currentScene.transitionDuration ?? null
+    }) !== JSON.stringify({
+      title: nextScene.title,
+      description: nextScene.description,
+      characters: nextScene.characters,
+      dialogues: nextScene.dialogues,
+      narration: nextScene.narration || '',
+      duration: nextScene.duration,
+      setting: nextScene.setting || null,
+      shotType: nextScene.shotType || null,
+      cameraMovement: nextScene.cameraMovement || null,
+      cameraNote: nextScene.cameraNote || '',
+      transitionIn: nextScene.transitionIn || null,
+      transitionOut: nextScene.transitionOut || null,
+      transitionDuration: nextScene.transitionDuration ?? null
+    })
+  }
+
   function resolveCharacterSceneCount(character: CharacterData): number {
     const target = options.normalizeToken(character.name)
     if (!target) return 0
@@ -114,7 +150,7 @@ export function useAssetWorkbenchSceneManagement(options: {
     return options.uniqueSorted(config.mustReferenceAssetIds)
   }
 
-  function setSceneAssetReferences(sceneId: string, nextAssetIds: string[]) {
+  function setSceneAssetReferences(sceneId: string, nextAssetIds: string[]): boolean {
     const config = ensureSceneConfig(sceneId)
     const validAssetIds = options.getValidAssetIdSet(
       options.characters.value,
@@ -124,7 +160,7 @@ export function useAssetWorkbenchSceneManagement(options: {
     const normalized = options.uniqueSorted(nextAssetIds.filter(assetId => validAssetIds.has(assetId)))
     const previous = options.uniqueSorted(config.mustReferenceAssetIds)
 
-    if (previous.join('||') === normalized.join('||')) return
+    if (previous.join('||') === normalized.join('||')) return false
 
     config.mustReferenceAssetIds = normalized
 
@@ -133,11 +169,11 @@ export function useAssetWorkbenchSceneManagement(options: {
     }
 
     const scene = options.scenes.value.find(item => item.id === sceneId)
-    if (scene && scene.videoStatus === 'done') {
-      scene.videoStatus = 'pending'
-      scene.videoError = undefined
-      scene.videoUrl = undefined
+    if (scene) {
+      invalidateSceneGenerationState(scene)
     }
+
+    return true
   }
 
   function selectScene(sceneId: string) {
@@ -167,13 +203,39 @@ export function useAssetWorkbenchSceneManagement(options: {
   }
 
   function handleSceneSave(updatedScene: Partial<SceneData> & { id: string }) {
+    const currentScene = options.scenes.value.find(scene => scene.id === updatedScene.id)
+    const nextScene = currentScene
+      ? {
+          ...currentScene,
+          ...updatedScene
+        }
+      : null
+
+    pendingSceneEditSave = {
+      sceneId: updatedScene.id,
+      sceneChanged: !!(currentScene && nextScene && hasSceneEditChanged(currentScene, nextScene))
+    }
+
     options.updateScene(updatedScene)
     options.sceneEditDialogOpen.value = false
     options.editingScene.value = null
   }
 
-  function handleSceneAssetReferencesSave(payload: { sceneId: string, assetIds: string[] }) {
-    setSceneAssetReferences(payload.sceneId, payload.assetIds)
+  async function handleSceneAssetReferencesSave(payload: { sceneId: string, assetIds: string[] }) {
+    const refsChanged = setSceneAssetReferences(payload.sceneId, payload.assetIds)
+    const sceneChanged = pendingSceneEditSave?.sceneId === payload.sceneId
+      ? pendingSceneEditSave.sceneChanged
+      : false
+
+    pendingSceneEditSave = null
+
+    if (!sceneChanged && !refsChanged) return
+
+    await options.saveProject()
+
+    if (refsChanged) {
+      await options.saveWorkflowMeta()
+    }
   }
 
   async function handleSplitScene(sceneId: string) {
@@ -299,12 +361,30 @@ export function useAssetWorkbenchSceneManagement(options: {
   }
 
   function removePropAsset(propId: string) {
-    options.propAssets.value = options.propAssets.value.filter(prop => prop.id !== propId)
-
     const fullAssetId = `prop:${propId}`
+    const affectedSceneIds = options.scenes.value
+      .filter((scene) => {
+        const refs = options.sceneConfigs.value[scene.id]?.mustReferenceAssetIds || []
+        return refs.includes(fullAssetId)
+      })
+      .map(scene => scene.id)
+
+    options.propAssets.value = options.propAssets.value.filter(prop => prop.id !== propId)
     for (const config of Object.values(options.sceneConfigs.value)) {
       config.mustReferenceAssetIds = config.mustReferenceAssetIds.filter(assetId => assetId !== fullAssetId)
     }
+
+    const invalidated = affectedSceneIds
+      .map(sceneId => options.scenes.value.find(scene => scene.id === sceneId))
+      .filter((scene): scene is SceneData => !!scene)
+      .some(scene => invalidateSceneGenerationState(scene))
+
+    if (invalidated) {
+      options.synchronizeQueueItems()
+      void options.saveProject()
+    }
+
+    void options.saveWorkflowMeta()
   }
 
   return {

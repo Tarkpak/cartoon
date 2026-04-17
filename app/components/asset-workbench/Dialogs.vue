@@ -24,7 +24,7 @@ defineProps<{
   sceneEditAssetReferenceOptions: AssetReferenceOption[]
   sceneEditSelectedAssetIds: string[]
   handleSceneSave: (scene: Partial<SceneData> & { id: string }) => void
-  handleSceneAssetReferencesSave: (payload: { sceneId: string, assetIds: string[] }) => void
+  handleSceneAssetReferencesSave: (payload: { sceneId: string, assetIds: string[] }) => void | Promise<void>
   imagePreviewOpen: boolean
   setImagePreviewOpen: (open: boolean) => void
   imagePreviewSrc: string

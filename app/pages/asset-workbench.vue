@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useDebounceFn } from '@vueuse/core'
 import {
   Film,
   Layers3
@@ -11,7 +12,10 @@ import type {
   QueueItem
 } from '~/lib/asset-workbench-types'
 import { createPropAssetId } from '~/lib/asset-workbench-types'
-import { getValidAssetIdSet } from '~/lib/asset-workbench-reference-detection'
+import {
+  getValidAssetIdSet,
+  resolveCharacterRefsFromScene
+} from '~/lib/asset-workbench-reference-detection'
 import {
   normalizeToken,
   uniqueSorted
@@ -20,6 +24,10 @@ import {
   applyAutomaticAssetPlan as buildAutomaticAssetPlan
 } from '~/lib/asset-workbench-auto-plan'
 import { findCharacterByAssetRefId } from '~/lib/asset-workbench-scene-references'
+import {
+  invalidateSceneGenerationState,
+  invalidateSceneVideoState
+} from '~/lib/asset-workbench-scenes'
 import {
   resolveSceneEnvironmentAssetId
 } from '~/lib/asset-workbench-environment'
@@ -69,7 +77,8 @@ const {
   batchGenerateCharacters,
   mergeAllVideos,
   mergeStatus,
-  finalVideo
+  finalVideo,
+  resolveProjectStatus
 } = useAssetWorkbench()
 
 const selectedSceneId = ref<string>('')
@@ -140,6 +149,8 @@ const {
   projectId,
   sceneConfigs,
   propAssets,
+  finalVideo,
+  resolveProjectStatus,
   onHydrated: () => {
     synchronizeSceneConfigs()
     synchronizeQueueItems()
@@ -247,6 +258,7 @@ const {
   deleteScene,
   splitScene,
   mergeWithNextScene,
+  saveProject,
   saveWorkflowMeta,
   synchronizeQueueItems,
   createPropAssetId,
@@ -283,7 +295,13 @@ const {
 
 function applyAutomaticAssetPlan(
   options: { overwriteExistingConfigs?: boolean } = {}
-): { characterChanged: boolean, configChanged: boolean } {
+): { characterChanged: boolean, configChanged: boolean, generationInvalidated: boolean } {
+  const previousConfigKeys = new Map(
+    Object.entries(sceneConfigs.value).map(([sceneId, config]) => [
+      sceneId,
+      resolveSceneConfigGenerationKey(config)
+    ])
+  )
   const result = buildAutomaticAssetPlan({
     scenes: scenes.value,
     characters: characters.value,
@@ -295,14 +313,24 @@ function applyAutomaticAssetPlan(
     resolveSceneDescriptionWithoutAssetMentions
   })
 
+  let generationInvalidated = false
   if (result.configChanged) {
     sceneConfigs.value = result.nextSceneConfigs
+    generationInvalidated = invalidateSceneGenerations(
+      scenes.value
+        .map(scene => scene.id)
+        .filter((sceneId) => {
+          return previousConfigKeys.get(sceneId)
+            !== resolveSceneConfigGenerationKey(result.nextSceneConfigs[sceneId])
+        })
+    )
     synchronizeQueueItems()
   }
 
   return {
     characterChanged: result.characterChanged,
-    configChanged: result.configChanged
+    configChanged: result.configChanged,
+    generationInvalidated
   }
 }
 
@@ -312,7 +340,11 @@ async function persistAutomaticAssetPlan(
   const autoPlanResult = applyAutomaticAssetPlan(options)
   const descriptionMentionChanged = synchronizeSceneDescriptionsWithAssetMentions()
 
-  if (autoPlanResult.characterChanged || descriptionMentionChanged) {
+  if (
+    autoPlanResult.characterChanged
+    || autoPlanResult.generationInvalidated
+    || descriptionMentionChanged
+  ) {
     await saveProject()
   }
   if (autoPlanResult.configChanged) {
@@ -323,6 +355,97 @@ async function persistAutomaticAssetPlan(
     ...autoPlanResult,
     descriptionMentionChanged
   }
+}
+
+interface CharacterDependencySnapshot {
+  id: string
+  name: string
+  baseImage: string
+}
+
+interface PropDependencySnapshot {
+  id: string
+  name: string
+  referenceImage: string
+}
+
+function resolveSceneConfigGenerationKey(config?: SceneConsistencyConfig): string {
+  return JSON.stringify({
+    mustReferenceAssetIds: uniqueSorted(config?.mustReferenceAssetIds || []),
+    continuityNotes: config?.continuityNotes?.trim() || ''
+  })
+}
+
+function resolveScenesReferencingAsset(assetId: string): string[] {
+  return scenes.value
+    .filter((scene) => {
+      const refs = sceneConfigs.value[scene.id]?.mustReferenceAssetIds || []
+      return refs.includes(assetId)
+    })
+    .map(scene => scene.id)
+}
+
+function resolveCharacterDependentSceneIds(characterId: string): string[] {
+  const targetRef = `char:${characterId}`
+  const dependentSceneIds = new Set<string>()
+
+  for (const scene of scenes.value) {
+    const configuredRefs = sceneConfigs.value[scene.id]?.mustReferenceAssetIds || []
+    if (configuredRefs.includes(targetRef)) {
+      dependentSceneIds.add(scene.id)
+      continue
+    }
+
+    const { refs } = resolveCharacterRefsFromScene({
+      scene,
+      characters: characters.value
+    })
+    if (refs.includes(targetRef)) {
+      dependentSceneIds.add(scene.id)
+    }
+  }
+
+  return Array.from(dependentSceneIds)
+}
+
+function invalidateSceneGenerations(sceneIds: string[]): boolean {
+  const targetIds = new Set(sceneIds)
+  let changed = false
+
+  for (const scene of scenes.value) {
+    if (!targetIds.has(scene.id)) continue
+    changed = invalidateSceneGenerationState(scene) || changed
+  }
+
+  return changed
+}
+
+function invalidateSceneVideos(sceneIds: string[]): boolean {
+  const targetIds = new Set(sceneIds)
+  let changed = false
+
+  for (const scene of scenes.value) {
+    if (!targetIds.has(scene.id)) continue
+    changed = invalidateSceneVideoState(scene) || changed
+  }
+
+  return changed
+}
+
+function buildCharacterDependencySnapshot(): CharacterDependencySnapshot[] {
+  return characters.value.map(character => ({
+    id: character.id,
+    name: character.name.trim(),
+    baseImage: character.baseImage?.trim() || ''
+  }))
+}
+
+function buildPropDependencySnapshot(): PropDependencySnapshot[] {
+  return propAssets.value.map(prop => ({
+    id: prop.id,
+    name: prop.name.trim(),
+    referenceImage: prop.referenceImage?.trim() || ''
+  }))
 }
 
 const {
@@ -356,6 +479,7 @@ const {
   mergeAllVideos,
   loadProject,
   loadWorkflowMeta,
+  saveWorkflowMeta,
   persistAutomaticAssetPlan,
   synchronizeSceneConfigs,
   synchronizeQueueItems,
@@ -372,7 +496,7 @@ const autoStages = computed(() => {
     hasScenes: scenes.value.length > 0,
     assetsReady: assetsReady.value,
     videosDone,
-    finalDone: !!finalVideo.value?.videoData,
+    finalDone: !!finalVideo.value?.videoUrl,
     autoRunning: autoRunning.value,
     autoRunCurrentStage: autoRunCurrentStage.value
   })
@@ -461,6 +585,116 @@ const {
   saveProject
 })
 
+let previousCharacterDependencySnapshot = buildCharacterDependencySnapshot()
+
+watch(
+  buildCharacterDependencySnapshot,
+  async (nextSnapshot) => {
+    const clonedSnapshot = nextSnapshot.map(item => ({ ...item }))
+    if (!workflowMetaReady.value || hydratingWorkflowMeta.value) {
+      previousCharacterDependencySnapshot = clonedSnapshot
+      return
+    }
+
+    const previousMap = new Map(
+      previousCharacterDependencySnapshot.map(item => [item.id, item])
+    )
+    previousCharacterDependencySnapshot = clonedSnapshot
+
+    const generationSceneIds = new Set<string>()
+    const videoSceneIds = new Set<string>()
+
+    for (const character of clonedSnapshot) {
+      const previous = previousMap.get(character.id)
+      if (!previous) continue
+
+      const nameChanged = previous.name !== character.name
+      const baseImageChanged = previous.baseImage !== character.baseImage
+      if (!nameChanged && !baseImageChanged) continue
+
+      const sceneIds = resolveCharacterDependentSceneIds(character.id)
+      for (const sceneId of sceneIds) {
+        if (nameChanged) {
+          generationSceneIds.add(sceneId)
+          continue
+        }
+        if (baseImageChanged) {
+          videoSceneIds.add(sceneId)
+        }
+      }
+    }
+
+    const generationInvalidated = invalidateSceneGenerations(Array.from(generationSceneIds))
+    const videoInvalidated = invalidateSceneVideos(
+      Array.from(videoSceneIds).filter(sceneId => !generationSceneIds.has(sceneId))
+    )
+
+    if (!generationInvalidated && !videoInvalidated) return
+
+    synchronizeQueueItems()
+    await saveProject()
+  }
+)
+
+let previousPropDependencySnapshot = buildPropDependencySnapshot()
+
+const processPropDependencyChanges = useDebounceFn(async (nextSnapshot: PropDependencySnapshot[]) => {
+  const previousMap = new Map(
+    previousPropDependencySnapshot.map(item => [item.id, item])
+  )
+  previousPropDependencySnapshot = nextSnapshot
+
+  if (!workflowMetaReady.value || hydratingWorkflowMeta.value) {
+    return
+  }
+
+  const generationSceneIds = new Set<string>()
+  const videoSceneIds = new Set<string>()
+
+  for (const prop of nextSnapshot) {
+    const previous = previousMap.get(prop.id)
+    if (!previous) continue
+
+    const nameChanged = previous.name !== prop.name
+    const referenceImageChanged = previous.referenceImage !== prop.referenceImage
+    if (!nameChanged && !referenceImageChanged) continue
+
+    const sceneIds = resolveScenesReferencingAsset(`prop:${prop.id}`)
+    for (const sceneId of sceneIds) {
+      if (nameChanged) {
+        generationSceneIds.add(sceneId)
+        continue
+      }
+      if (referenceImageChanged) {
+        videoSceneIds.add(sceneId)
+      }
+    }
+  }
+
+  const generationInvalidated = invalidateSceneGenerations(Array.from(generationSceneIds))
+  const videoInvalidated = invalidateSceneVideos(
+    Array.from(videoSceneIds).filter(sceneId => !generationSceneIds.has(sceneId))
+  )
+
+  if (!generationInvalidated && !videoInvalidated) return
+
+  synchronizeQueueItems()
+  await saveProject()
+}, 500)
+
+watch(
+  buildPropDependencySnapshot,
+  (nextSnapshot) => {
+    const clonedSnapshot = nextSnapshot.map(item => ({ ...item }))
+    if (!workflowMetaReady.value || hydratingWorkflowMeta.value) {
+      previousPropDependencySnapshot = clonedSnapshot
+      return
+    }
+
+    void processPropDependencyChanges(clonedSnapshot)
+  }
+)
+
 watch(
   () => scenes.value.map(scene => scene.id),
   (sceneIds) => {
@@ -473,6 +707,15 @@ watch(
 
 watch(
   [sceneConfigs, propAssets],
+  () => {
+    if (!workflowMetaReady.value || hydratingWorkflowMeta.value) return
+    scheduleWorkflowMetaSave()
+  },
+  { deep: true }
+)
+
+watch(
+  finalVideo,
   () => {
     if (!workflowMetaReady.value || hydratingWorkflowMeta.value) return
     scheduleWorkflowMetaSave()
@@ -661,7 +904,7 @@ async function handleBatchGenerateCharacters() {
       :auto-running="autoRunning"
       :auto-run-current-stage="autoRunCurrentStage"
       :merge-running="mergeStatus.running"
-      :final-video-url="finalVideo?.videoData"
+      :final-video-url="finalVideo?.videoUrl"
       @run-final="runSimpleFinalStep"
     />
 
