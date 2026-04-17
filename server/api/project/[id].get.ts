@@ -54,7 +54,7 @@ async function hydrateSceneVideoUrlsFromTasks(projectScenes: typeof scenes.$infe
   if (projectScenes.length === 0) return
 
   const missingVideoSceneIds = projectScenes
-    .filter(scene => {
+    .filter((scene) => {
       return scene.status === 'video_ready' && !normalizeProjectVideoUrl(scene.videoUrl)
     })
     .map(scene => scene.id)
@@ -231,10 +231,8 @@ export default defineEventHandler(async (event) => {
               novelText: scriptData?.novelText || '',
               // 兼容旧字段
               rawText: scriptData?.storyIdea || scriptData?.rawText || '',
-              // 风格和模型选择
+              // 风格选择
               selectedStyleId: scriptData?.selectedStyleId || '',
-              selectedModels: scriptData?.selectedModels || null,
-              outline: scriptData?.outline || null,
               inputMode: scriptData?.inputMode || 'idea',
               assetWorkflow: scriptData?.assetWorkflow || null,
               parsedData: script.parsedData ? JSON.parse(script.parsedData) : null,
@@ -266,8 +264,6 @@ export default defineEventHandler(async (event) => {
             firstFrame: s.firstFrame,
             lastFrame: s.lastFrame,
             videoUrl: normalizedVideoUrl,
-            storyboard: s.storyboard ? JSON.parse(s.storyboard) : null,
-            sceneVisual: s.sceneVisual ? JSON.parse(s.sceneVisual) : null,
             status: normalizedVideoUrl ? 'video_ready' : s.status
           }
         }),

@@ -386,7 +386,7 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 {{customPrompt}}
 
 ## Requirements
-1. Generate exactly one environment asset image, not a collage, layout sheet, or storyboard panel.
+1. Generate exactly one environment asset image, not a collage, layout sheet, or split-panel composition.
 2. This must be a pure environment reference: no humans, faces, body parts, silhouettes, or crowds.
 3. If the source contains human action or dialogue, extract only location, architecture, terrain, props, lighting, weather, and spatial structure.
 4. The frame must clearly establish the core space so later scene videos can reuse the same environment baseline.

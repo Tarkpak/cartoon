@@ -69,8 +69,12 @@ function triggerUploadInput(propId: string) {
       class="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground"
     >
       <Package class="h-8 w-8 opacity-40" />
-      <p class="text-sm">暂无道具资产</p>
-      <p class="text-xs">手动新增需要保持一致的道具</p>
+      <p class="text-sm">
+        暂无道具资产
+      </p>
+      <p class="text-xs">
+        手动新增需要保持一致的道具
+      </p>
     </div>
 
     <!-- Prop cards -->

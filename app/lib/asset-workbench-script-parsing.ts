@@ -73,9 +73,7 @@ export function buildParsedScenes(options: {
       frameError: undefined,
       videoError: undefined,
       frameStatus: 'pending',
-      videoStatus: 'pending',
-      storyboardStatus: 'pending',
-      sceneVisualStatus: 'pending'
+      videoStatus: 'pending'
     }
   })
 }

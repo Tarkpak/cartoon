@@ -100,7 +100,9 @@ function resolveStatusText(status: string): string {
         <div class="px-3 py-2">
           <div class="flex items-center justify-between gap-2">
             <div class="min-w-0">
-              <div class="truncate text-sm font-medium">{{ asset.name }}</div>
+              <div class="truncate text-sm font-medium">
+                {{ asset.name }}
+              </div>
               <p class="truncate text-[11px] text-muted-foreground/70">
                 {{ getEnvironmentSceneSummary(asset) }}
               </p>

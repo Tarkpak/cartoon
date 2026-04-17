@@ -57,7 +57,10 @@ const emit = defineEmits<{
           v-if="parsing"
           class="h-4 w-4 animate-spin"
         />
-        <Sparkles v-else class="h-4 w-4" />
+        <Sparkles
+          v-else
+          class="h-4 w-4"
+        />
         解析并自动准备资产
       </Button>
       <div

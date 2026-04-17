@@ -41,7 +41,10 @@ const emit = defineEmits<{
           {{ projectName || '自动剧本视频工作台' }}
         </h1>
         <div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-          <span v-if="projectDescription" class="truncate max-w-[200px]">{{ projectDescription }}</span>
+          <span
+            v-if="projectDescription"
+            class="truncate max-w-[200px]"
+          >{{ projectDescription }}</span>
           <span class="inline-flex items-center gap-1">
             <span class="inline-block h-1 w-1 rounded-full bg-muted-foreground/40" />
             画风 {{ selectedStyleId || projectStyleId || '未选择' }}

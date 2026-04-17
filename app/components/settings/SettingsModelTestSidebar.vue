@@ -68,7 +68,9 @@ function getProviderDotClass(provider: string): string {
 
     <!-- Models header -->
     <div class="px-3 py-2">
-      <h3 class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">可用模型</h3>
+      <h3 class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
+        可用模型
+      </h3>
     </div>
 
     <!-- Models list -->

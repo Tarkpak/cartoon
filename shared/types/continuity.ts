@@ -136,10 +136,6 @@ export const EnhancedFrameGenerationRequestSchema = z.object({
   // 连续性上下文 (新增)
   continuityContext: SceneContinuityContextSchema.optional().describe('场景连续性上下文'),
 
-  // 分镜和视觉数据
-  storyboard: z.any().optional().describe('分镜脚本'),
-  sceneVisual: z.any().optional().describe('场景视觉提取'),
-
   // 融合模式
   fusionMode: z.enum(['character_scene', 'reference', 'text_only', 'continuity']).optional().default('continuity').describe('融合模式'),
 
@@ -174,10 +170,6 @@ export interface SceneToSummaryInput {
     emotion?: string
   }>
   lastFrame?: string
-  sceneVisual?: {
-    atmosphere?: string
-    visualElements?: unknown
-  }
 }
 
 /** 连续性检查结果 */

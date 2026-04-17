@@ -37,11 +37,7 @@ export function resetSceneGenerationState(scene: SceneData): SceneData {
     frameError: undefined,
     videoError: undefined,
     frameStatus: 'pending',
-    videoStatus: 'pending',
-    storyboardStatus: 'pending',
-    sceneVisualStatus: 'pending',
-    storyboard: undefined,
-    sceneVisual: undefined
+    videoStatus: 'pending'
   }
 }
 
@@ -63,12 +59,8 @@ export function invalidateSceneGenerationState(scene: SceneData): boolean {
     || !!scene.videoUrl
     || !!scene.frameError
     || !!scene.videoError
-    || !!scene.storyboard
-    || !!scene.sceneVisual
     || scene.frameStatus !== 'pending'
     || scene.videoStatus !== 'pending'
-    || scene.storyboardStatus !== 'pending'
-    || scene.sceneVisualStatus !== 'pending'
 
   if (!changed) return false
 

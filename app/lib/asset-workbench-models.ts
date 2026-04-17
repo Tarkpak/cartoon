@@ -1,6 +1,5 @@
 import type { CharacterView } from '#shared/types/character'
-import type { SceneVisual } from '#shared/types/scene-visual'
-import type { CameraMovement, ShotType, Storyboard } from '#shared/types/storyboard'
+import type { SceneCameraMovement, SceneShotType } from '#shared/types/script'
 
 export type AssetWorkbenchTransitionType
   = | 'cut'
@@ -23,8 +22,8 @@ export interface SceneData {
   duration: number
   setting?: { location: string, timeOfDay: string, mood?: string, weather?: string }
   active: boolean
-  shotType?: ShotType
-  cameraMovement?: CameraMovement
+  shotType?: SceneShotType
+  cameraMovement?: SceneCameraMovement
   cameraNote?: string
   transitionIn?: AssetWorkbenchTransitionType
   transitionOut?: AssetWorkbenchTransitionType
@@ -36,10 +35,6 @@ export interface SceneData {
   videoError?: string
   frameStatus: 'pending' | 'generating' | 'done' | 'error'
   videoStatus: 'pending' | 'generating' | 'done' | 'error'
-  storyboard?: Storyboard
-  storyboardStatus: 'pending' | 'generating' | 'done' | 'error'
-  sceneVisual?: SceneVisual
-  sceneVisualStatus: 'pending' | 'generating' | 'done' | 'error'
 }
 
 export interface CharacterData {
