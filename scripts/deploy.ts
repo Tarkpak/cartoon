@@ -12,7 +12,7 @@ const config = {
   user: process.env.DEPLOY_USER || 'root',
   port: process.env.DEPLOY_PORT || '22',
   path: process.env.DEPLOY_PATH || '~/project/cartoon',
-  key: process.env.SSH_KEY || '~/.ssh/oaks.pem',
+  key: process.env.SSH_KEY || '~/.ssh/oaks.pem'
 }
 
 const ssh = `ssh -p ${config.port} -i ${config.key} ${config.user}@${config.host}`
@@ -21,7 +21,10 @@ const scp = `scp -P ${config.port} -i ${config.key}`
 // ========== 工具函数 ==========
 const log = {
   info: (msg: string) => console.log(`\x1b[32m[INFO]\x1b[0m ${msg}`),
-  error: (msg: string) => { console.log(`\x1b[31m[ERROR]\x1b[0m ${msg}`); process.exit(1) },
+  error: (msg: string) => {
+    console.log(`\x1b[31m[ERROR]\x1b[0m ${msg}`)
+    process.exit(1)
+  }
 }
 
 // ========== 主流程 ==========

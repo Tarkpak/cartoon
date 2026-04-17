@@ -13,6 +13,12 @@ export default defineNuxtConfig({
     enabled: true
   },
 
+  // 页面过渡动画
+  app: {
+    pageTransition: { name: 'page', mode: 'out-in' },
+    layoutTransition: { name: 'layout', mode: 'out-in' }
+  },
+
   // CSS
   css: ['~/assets/css/main.css'],
 
@@ -56,12 +62,6 @@ export default defineNuxtConfig({
     }
   },
 
-  // 页面过渡动画
-  app: {
-    pageTransition: { name: 'page', mode: 'out-in' },
-    layoutTransition: { name: 'layout', mode: 'out-in' }
-  },
-
   // 路由规则
   routeRules: {
     '/': { prerender: true }
@@ -80,7 +80,7 @@ export default defineNuxtConfig({
     publicAssets: [
       {
         dir: 'public/videos',
-        baseURL: '/videos',
+        baseURL: '/videos'
       }
     ]
   },

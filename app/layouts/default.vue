@@ -112,23 +112,53 @@ watch(isCollapsed, (value) => {
         :title="isCollapsed ? '展开菜单' : '收起菜单'"
         @click="isCollapsed = !isCollapsed"
       >
-        <svg v-if="!isCollapsed" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground">
-          <path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/>
+        <svg
+          v-if="!isCollapsed"
+          xmlns="http://www.w3.org/2000/svg"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="text-muted-foreground"
+        >
+          <path d="m11 17-5-5 5-5" /><path d="m18 17-5-5 5-5" />
         </svg>
-        <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground">
-          <path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/>
+        <svg
+          v-else
+          xmlns="http://www.w3.org/2000/svg"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="text-muted-foreground"
+        >
+          <path d="m6 17 5-5-5-5" /><path d="m13 17 5-5-5-5" />
         </svg>
       </Button>
 
       <!-- Logo -->
-      <div class="h-16 flex items-center border-b" :class="isCollapsed ? 'justify-center px-2' : 'px-6'">
+      <div
+        class="h-16 flex items-center border-b"
+        :class="isCollapsed ? 'justify-center px-2' : 'px-6'"
+      >
         <NuxtLink
           to="/"
           class="font-bold text-foreground flex items-center"
           :class="isCollapsed ? 'text-xl' : 'text-2xl'"
         >
           <Clapperboard class="w-6 h-6 text-primary" />
-          <span v-if="!isCollapsed" class="ml-1">Manju</span>
+          <span
+            v-if="!isCollapsed"
+            class="ml-1"
+          >Manju</span>
         </NuxtLink>
       </div>
 
@@ -150,7 +180,10 @@ watch(isCollapsed, (value) => {
             ]"
             :title="isCollapsed ? item.name : undefined"
           >
-            <component :is="item.icon" class="w-5 h-5 flex-shrink-0" />
+            <component
+              :is="item.icon"
+              class="w-5 h-5 flex-shrink-0"
+            />
             <span v-if="!isCollapsed">{{ item.name }}</span>
           </NuxtLink>
 
@@ -167,7 +200,10 @@ watch(isCollapsed, (value) => {
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
             >
-              <component :is="sub.icon" class="w-3.5 h-3.5 flex-shrink-0" />
+              <component
+                :is="sub.icon"
+                class="w-3.5 h-3.5 flex-shrink-0"
+              />
               <span>{{ sub.name }}</span>
             </NuxtLink>
           </div>
@@ -185,7 +221,10 @@ watch(isCollapsed, (value) => {
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
             >
-              <component :is="sub.icon" class="w-3.5 h-3.5 flex-shrink-0" />
+              <component
+                :is="sub.icon"
+                class="w-3.5 h-3.5 flex-shrink-0"
+              />
               <span>{{ sub.name }}</span>
             </NuxtLink>
           </div>
@@ -201,8 +240,14 @@ watch(isCollapsed, (value) => {
           :class="isCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5'"
           @click="toggleTheme"
         >
-          <Moon v-if="!isDark" class="w-5 h-5 flex-shrink-0" />
-          <Sun v-else class="w-5 h-5 flex-shrink-0" />
+          <Moon
+            v-if="!isDark"
+            class="w-5 h-5 flex-shrink-0"
+          />
+          <Sun
+            v-else
+            class="w-5 h-5 flex-shrink-0"
+          />
           <span v-if="!isCollapsed">{{ isDark ? '浅色模式' : '深色模式' }}</span>
         </Button>
       </div>
@@ -218,8 +263,12 @@ watch(isCollapsed, (value) => {
           </div>
           <template v-if="!isCollapsed">
             <div class="flex-1 min-w-0">
-              <div class="font-medium text-sm truncate">用户名</div>
-              <div class="text-xs text-muted-foreground">免费版</div>
+              <div class="font-medium text-sm truncate">
+                用户名
+              </div>
+              <div class="text-xs text-muted-foreground">
+                免费版
+              </div>
             </div>
             <Settings class="w-4 h-4 text-muted-foreground flex-shrink-0" />
           </template>
@@ -229,17 +278,29 @@ watch(isCollapsed, (value) => {
 
     <!-- 右侧内容区 -->
     <main class="flex-1 overflow-hidden flex flex-col">
-      <div class="flex-1 overflow-y-auto" :class="{ 'overflow-hidden': !showFooter }">
+      <div
+        class="flex-1 overflow-y-auto"
+        :class="{ 'overflow-hidden': !showFooter }"
+      >
         <slot />
       </div>
-      
+
       <!-- 页脚 - 设置页面不显示 -->
-      <footer v-if="showFooter" class="flex-shrink-0 px-8 py-6 border-t bg-card/50">
+      <footer
+        v-if="showFooter"
+        class="flex-shrink-0 px-8 py-6 border-t bg-card/50"
+      >
         <div class="flex items-center justify-between text-sm text-muted-foreground">
           <div class="flex items-center space-x-4">
             <span>© 2025 Manju</span>
-            <a href="#" class="hover:text-foreground transition">帮助文档</a>
-            <a href="#" class="hover:text-foreground transition">反馈建议</a>
+            <a
+              href="#"
+              class="hover:text-foreground transition"
+            >帮助文档</a>
+            <a
+              href="#"
+              class="hover:text-foreground transition"
+            >反馈建议</a>
           </div>
           <div>v1.0.0</div>
         </div>

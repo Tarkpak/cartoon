@@ -4,23 +4,23 @@ import { z } from 'zod'
 
 /** 故事类型/风格 */
 export const StoryGenreSchema = z.enum([
-  'romance',      // 言情
-  'fantasy',      // 奇幻
-  'action',       // 动作
-  'comedy',       // 喜剧
-  'drama',        // 剧情
-  'horror',       // 恐怖
-  'mystery',      // 悬疑
-  'scifi',        // 科幻
+  'romance', // 言情
+  'fantasy', // 奇幻
+  'action', // 动作
+  'comedy', // 喜剧
+  'drama', // 剧情
+  'horror', // 恐怖
+  'mystery', // 悬疑
+  'scifi', // 科幻
   'slice_of_life' // 日常
 ])
 export type StoryGenre = z.infer<typeof StoryGenreSchema>
 
 /** 故事节奏 */
 export const StoryPaceSchema = z.enum([
-  'slow',    // 慢节奏，注重氛围
-  'medium',  // 中等节奏
-  'fast'     // 快节奏，紧张刺激
+  'slow', // 慢节奏，注重氛围
+  'medium', // 中等节奏
+  'fast' // 快节奏，紧张刺激
 ])
 export type StoryPace = z.infer<typeof StoryPaceSchema>
 
@@ -78,14 +78,14 @@ export type GenerateOutlineResponse = z.infer<typeof GenerateOutlineResponseSche
 
 /** 角色关系类型 */
 export const RelationshipTypeSchema = z.enum([
-  'lover',      // 恋人
-  'friend',     // 朋友
-  'enemy',      // 敌人
-  'family',     // 家人
-  'mentor',     // 师徒
-  'rival',      // 对手
-  'colleague',  // 同事
-  'stranger'    // 陌生人
+  'lover', // 恋人
+  'friend', // 朋友
+  'enemy', // 敌人
+  'family', // 家人
+  'mentor', // 师徒
+  'rival', // 对手
+  'colleague', // 同事
+  'stranger' // 陌生人
 ])
 export type RelationshipType = z.infer<typeof RelationshipTypeSchema>
 

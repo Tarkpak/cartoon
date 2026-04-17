@@ -1,21 +1,21 @@
 import { STYLE_DESCRIPTION_OVERRIDES } from './style-descriptions.generated'
 
 // 风格分类
-export type StyleCategory =
-  | 'japanese_anime' | 'chinese_style' | '3d_render' | 'illustration'
-  | 'retro' | 'cute_q' | 'artistic' | 'comic' | 'pixel_game' | 'special'
+export type StyleCategory
+  = | 'japanese_anime' | 'chinese_style' | '3d_render' | 'illustration'
+    | 'retro' | 'cute_q' | 'artistic' | 'comic' | 'pixel_game' | 'special'
 
-export type StyleCategoryIcon =
-  | 'sparkles'
-  | 'landmark'
-  | 'box'
-  | 'palette'
-  | 'clock3'
-  | 'heart'
-  | 'pen_tool'
-  | 'message_square'
-  | 'gamepad2'
-  | 'star'
+export type StyleCategoryIcon
+  = | 'sparkles'
+    | 'landmark'
+    | 'box'
+    | 'palette'
+    | 'clock3'
+    | 'heart'
+    | 'pen_tool'
+    | 'message_square'
+    | 'gamepad2'
+    | 'star'
 
 export interface StylePreset {
   id: string
@@ -47,7 +47,7 @@ export const STYLE_CATEGORIES: StyleCategoryInfo[] = [
   { id: 'artistic', name: '艺术风格', nameEn: 'Artistic', icon: 'pen_tool' },
   { id: 'comic', name: '漫画', nameEn: 'Comic', icon: 'message_square' },
   { id: 'pixel_game', name: '像素游戏', nameEn: 'Pixel & Game', icon: 'gamepad2' },
-  { id: 'special', name: '特殊IP', nameEn: 'Special IP', icon: 'star' },
+  { id: 'special', name: '特殊IP', nameEn: 'Special IP', icon: 'star' }
 ]
 
 const STYLE_PRESETS_BASE: StylePreset[] = [
@@ -215,12 +215,12 @@ const STYLE_PRESETS_BASE: StylePreset[] = [
   { id: 'crayon_shinchan', name: '蜡笔小新', nameEn: 'Shin-chan', category: 'special', description: '蜡笔小新', prompt: 'Shin-chan', thumbnail: '/styles/crayon_shinchan.webp' },
   { id: 'bikini_bottom', name: '比奇堡', nameEn: 'Bikini Bottom', category: 'special', description: '海绵宝宝', prompt: 'SpongeBob', thumbnail: '/styles/bikini_bottom.webp' },
   { id: 'stick_figure', name: '火柴人', nameEn: 'Stick Figure', category: 'special', description: '火柴人', prompt: 'stick figure', thumbnail: '/styles/stick_figure.webp' },
-  { id: 'japanese_chibi', name: '日本小人', nameEn: 'Japanese Chibi', category: 'special', description: '日本小人', prompt: 'Japanese chibi', thumbnail: '/styles/japanese_chibi.webp' },
+  { id: 'japanese_chibi', name: '日本小人', nameEn: 'Japanese Chibi', category: 'special', description: '日本小人', prompt: 'Japanese chibi', thumbnail: '/styles/japanese_chibi.webp' }
 ]
 
-export const STYLE_PRESETS: StylePreset[] = STYLE_PRESETS_BASE.map((style) => ({
+export const STYLE_PRESETS: StylePreset[] = STYLE_PRESETS_BASE.map(style => ({
   ...style,
-  description: STYLE_DESCRIPTION_OVERRIDES[style.id] || style.description,
+  description: STYLE_DESCRIPTION_OVERRIDES[style.id] || style.description
 }))
 
 export function getStylesByCategory(category: StyleCategory): StylePreset[] {

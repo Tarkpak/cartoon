@@ -64,7 +64,7 @@ export default defineEventHandler(async (event) => {
   const { outline, characters, targetSceneCount, style } = RequestSchema.parse(body)
 
   // 构建角色信息（包含外貌描述，用于场景描述中保持一致性）
-  const characterInfo = characters.map(c => {
+  const characterInfo = characters.map((c) => {
     let info = `- ${c.name} (${c.role})`
     if (c.appearance) info += `\n  外貌：${c.appearance}`
     if (c.personality) info += `\n  性格：${c.personality}`

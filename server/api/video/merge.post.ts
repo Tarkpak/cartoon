@@ -1,11 +1,10 @@
 import { z } from 'zod'
 import { eq } from 'drizzle-orm'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { db, projects as projectsTable } from '../../db'
 import {
-  concatVideos,
   mergeVideos,
   saveBase64ToFile,
   readFileAsBase64,
@@ -203,10 +202,12 @@ export default defineEventHandler(async (event) => {
       output: outputPath,
       transition: options?.transition,
       subtitles,
-      bgm: options?.bgm ? {
-        path: options.bgm.url,
-        volume: options.bgm.volume
-      } : undefined
+      bgm: options?.bgm
+        ? {
+            path: options.bgm.url,
+            volume: options.bgm.volume
+          }
+        : undefined
     })
 
     console.log(`[VideoMerge] 合成完成，输出文件大小: ${(result.size / 1024 / 1024).toFixed(2)}MB`)
@@ -231,7 +232,9 @@ export default defineEventHandler(async (event) => {
     // 清理临时文件
     try {
       await fs.rm(tempDir, { recursive: true, force: true })
-    } catch {}
+    } catch (cleanupError) {
+      console.warn('[VideoMerge] 清理临时目录失败:', cleanupError)
+    }
 
     console.error('[VideoMerge] 合成失败:', error)
     throw createError({
