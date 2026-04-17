@@ -18,16 +18,14 @@ export default defineEventHandler(async (event) => {
     const metadata = {
       text: metadataList.filter(t => t.category === 'text'),
       image: metadataList.filter(t => t.category === 'image'),
-      video: metadataList.filter(t => t.category === 'video'),
-      audio: metadataList.filter(t => t.category === 'audio')
+      video: metadataList.filter(t => t.category === 'video')
     }
 
     // 按分类分组
     const grouped = {
       text: templates.filter(t => t.category === 'text'),
       image: templates.filter(t => t.category === 'image'),
-      video: templates.filter(t => t.category === 'video'),
-      audio: templates.filter(t => t.category === 'audio')
+      video: templates.filter(t => t.category === 'video')
     }
 
     return {

@@ -12,9 +12,6 @@ export * from './character'
 // 视频类型
 export * from './video'
 
-// 音频类型
-export * from './audio'
-
 // 分镜脚本类型 (基于飞书文档 2.3)
 export * from './storyboard'
 

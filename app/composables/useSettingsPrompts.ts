@@ -1,12 +1,19 @@
 import type { Component } from 'vue'
 import {
-  AudioLines,
-  Cpu,
-  Image,
+  Boxes,
+  FileText,
   Video
 } from 'lucide-vue-next'
-import type { PromptCategory, PromptTemplate } from '#shared/types/prompt-template'
-import { getPromptTemplateMetadataForWorkflow } from '#shared/types/prompt-template'
+import type {
+  PromptCategory,
+  PromptFlowStage,
+  PromptTemplate
+} from '#shared/types/prompt-template'
+import {
+  getPromptTemplateMetadataForWorkflow,
+  PROMPT_FLOW_STAGES,
+  PROMPT_FLOW_STAGE_LABELS
+} from '#shared/types/prompt-template'
 import type { ProjectWorkflowType } from '#shared/types/project'
 
 interface PromptTemplatesResponse {
@@ -16,45 +23,37 @@ interface PromptTemplatesResponse {
   }
 }
 
-const PROMPT_CATEGORY_ORDER: PromptCategory[] = ['text', 'image', 'video', 'audio']
-
-export interface PromptCategoryMeta {
+export interface PromptStageMeta {
   name: string
   color: string
   icon: Component
   description: string
 }
 
-export interface PromptTemplateGroup extends PromptCategoryMeta {
-  category: PromptCategory
+export interface PromptTemplateGroup extends PromptStageMeta {
+  stage: PromptFlowStage
   templates: PromptTemplate[]
   expanded: boolean
 }
 
-export const PROMPT_CATEGORY_CONFIG: Record<PromptCategory, PromptCategoryMeta> = {
-  text: {
-    name: '文本生成',
+export const PROMPT_STAGE_CONFIG: Record<PromptFlowStage, PromptStageMeta> = {
+  parse: {
+    name: PROMPT_FLOW_STAGE_LABELS.parse,
     color: 'blue',
-    icon: Cpu,
-    description: '大纲、角色、分镜等文本类模板。'
+    icon: FileText,
+    description: '剧本解析与资产规划模板。'
   },
-  image: {
-    name: '图片生成',
+  assets: {
+    name: PROMPT_FLOW_STAGE_LABELS.assets,
     color: 'green',
-    icon: Image,
-    description: '角色图、场景图和首尾帧模板。'
+    icon: Boxes,
+    description: '角色资产、环境参考图和场景改写模板。'
   },
-  video: {
-    name: '视频生成',
+  videos: {
+    name: PROMPT_FLOW_STAGE_LABELS.videos,
     color: 'purple',
     icon: Video,
-    description: '场景视频与转场视频模板。'
-  },
-  audio: {
-    name: '音频生成',
-    color: 'orange',
-    icon: AudioLines,
-    description: '背景音乐等音频类模板。'
+    description: '场景视频生成模板。'
   }
 }
 
@@ -64,17 +63,17 @@ export function useSettingsPrompts() {
   const selectedPromptId = ref<string | null>(null)
   const selectedPromptTemplate = ref<PromptTemplate | null>(null)
   const selectedPromptWorkflow = ref<ProjectWorkflowType>('asset_consistency')
-  const expandedPromptCategories = ref<Set<PromptCategory>>(new Set(PROMPT_CATEGORY_ORDER))
+  const expandedPromptStages = ref<Set<PromptFlowStage>>(new Set(PROMPT_FLOW_STAGES))
 
   const groupedPrompts = computed(() => {
     const workflowMetadata = getPromptTemplateMetadataForWorkflow(selectedPromptWorkflow.value)
-    const groups: Partial<Record<PromptCategory, typeof workflowMetadata>> = {}
+    const groups: Partial<Record<PromptFlowStage, typeof workflowMetadata>> = {}
 
     for (const meta of workflowMetadata) {
-      if (!groups[meta.category]) {
-        groups[meta.category] = []
+      if (!groups[meta.stage]) {
+        groups[meta.stage] = []
       }
-      groups[meta.category]!.push(meta)
+      groups[meta.stage]!.push(meta)
     }
 
     return groups
@@ -83,18 +82,18 @@ export function useSettingsPrompts() {
   const groupedPromptTemplates = computed<PromptTemplateGroup[]>(() => {
     const templateMap = new Map(promptTemplates.value.map(template => [template.id, template]))
 
-    return PROMPT_CATEGORY_ORDER
-      .map((category) => {
-        const metadataList = groupedPrompts.value[category] || []
+    return PROMPT_FLOW_STAGES
+      .map((stage) => {
+        const metadataList = groupedPrompts.value[stage] || []
         const templates = metadataList
           .map(meta => templateMap.get(meta.id))
           .filter((template): template is PromptTemplate => Boolean(template))
 
         return {
-          category,
-          ...PROMPT_CATEGORY_CONFIG[category],
+          stage,
+          ...PROMPT_STAGE_CONFIG[stage],
           templates,
-          expanded: expandedPromptCategories.value.has(category)
+          expanded: expandedPromptStages.value.has(stage)
         }
       })
       .filter(group => group.templates.length > 0)
@@ -104,13 +103,17 @@ export function useSettingsPrompts() {
     return selectedPromptTemplate.value?.category || null
   })
 
-  function expandPromptCategory(category: PromptCategory) {
-    expandedPromptCategories.value.add(category)
+  function expandPromptStage(stage: PromptFlowStage) {
+    expandedPromptStages.value.add(stage)
   }
 
   function syncSelectedPrompt(templates: PromptTemplate[]) {
-    if (selectedPromptId.value) {
+    const selectableIds = new Set(templates.map(item => item.id))
+
+    if (selectedPromptId.value && selectableIds.has(selectedPromptId.value)) {
       selectedPromptTemplate.value = templates.find(template => template.id === selectedPromptId.value) || null
+    } else {
+      selectedPromptTemplate.value = null
     }
 
     if (!selectedPromptTemplate.value && templates.length > 0) {
@@ -119,8 +122,12 @@ export function useSettingsPrompts() {
       selectedPromptTemplate.value = firstTemplate
     }
 
-    if (selectedPromptTemplate.value) {
-      expandPromptCategory(selectedPromptTemplate.value.category)
+    if (!selectedPromptTemplate.value) return
+
+    const selectedMeta = getPromptTemplateMetadataForWorkflow(selectedPromptWorkflow.value)
+      .find(item => item.id === selectedPromptTemplate.value?.id)
+    if (selectedMeta) {
+      expandPromptStage(selectedMeta.stage)
     }
   }
 
@@ -146,18 +153,22 @@ export function useSettingsPrompts() {
   function selectPrompt(id: string) {
     selectedPromptId.value = id
     selectedPromptTemplate.value = promptTemplates.value.find(template => template.id === id) || null
-    if (selectedPromptTemplate.value) {
-      expandPromptCategory(selectedPromptTemplate.value.category)
+    if (!selectedPromptTemplate.value) return
+
+    const selectedMeta = getPromptTemplateMetadataForWorkflow(selectedPromptWorkflow.value)
+      .find(item => item.id === selectedPromptTemplate.value?.id)
+    if (selectedMeta) {
+      expandPromptStage(selectedMeta.stage)
     }
   }
 
-  function togglePromptCategory(category: PromptCategory) {
-    if (expandedPromptCategories.value.has(category)) {
-      expandedPromptCategories.value.delete(category)
+  function togglePromptStage(stage: PromptFlowStage) {
+    if (expandedPromptStages.value.has(stage)) {
+      expandedPromptStages.value.delete(stage)
       return
     }
 
-    expandedPromptCategories.value.add(category)
+    expandedPromptStages.value.add(stage)
   }
 
   function toSelectString(value: unknown): string {
@@ -192,10 +203,10 @@ export function useSettingsPrompts() {
     selectedPromptTemplate,
     selectedPromptCategory,
     selectedPromptWorkflow,
-    expandedPromptCategories,
+    expandedPromptStages,
     groupedPromptTemplates,
     selectPrompt,
-    togglePromptCategory,
+    togglePromptStage,
     toSelectString,
     handlePromptUpdate,
     handlePromptSaved,
