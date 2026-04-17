@@ -63,19 +63,12 @@ function resolvePromptStorageKeys(workflow?: PromptWorkflowInput): PromptStorage
  */
 function getDefaultLangConfig(_workflow: PromptWorkflowInput = 'asset_consistency'): PromptLangConfig {
   return {
-    outline_generation: 'zh',
     script_parsing: 'zh',
-    scene_generation: 'zh',
-    storyboard_generation: 'zh',
-    character_extraction: 'zh',
-    character_from_outline: 'zh',
     character_sheet: 'zh',
     character_regeneration: 'zh',
-    scene_visual: 'zh',
-    first_frame_generation: 'zh',
-    scene_video_generation: 'zh',
-    transition: 'zh',
-    bgm_generation: 'zh'
+    environment_reference_generation: 'zh',
+    scene_description_refinement: 'zh',
+    scene_video_generation: 'zh'
   }
 }
 

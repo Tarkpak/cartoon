@@ -312,7 +312,7 @@ export async function requestSceneChatDescriptionRewrite(options: {
     success: boolean
     data?: { description?: string }
     error?: string
-  }>('/api/asset-workflow/scene/refine-description', {
+  }>('/api/asset-workflow/scene/description-refinement', {
     method: 'POST',
     body: {
       scene: options.buildAssetWorkflowScenePayload(options.scene),

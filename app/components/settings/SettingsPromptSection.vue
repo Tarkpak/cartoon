@@ -11,7 +11,7 @@ const {
   selectedPromptWorkflow,
   groupedPromptTemplates,
   selectPrompt,
-  togglePromptCategory,
+  togglePromptStage,
   handlePromptUpdate,
   handlePromptSaved
 } = useSettingsPrompts()
@@ -35,7 +35,7 @@ const {
         :selected-prompt-id="selectedPromptId"
         :workflow-label="PROJECT_WORKFLOW_LABELS[selectedPromptWorkflow]"
         @select-prompt="selectPrompt"
-        @toggle-category="togglePromptCategory"
+        @toggle-stage="togglePromptStage"
       />
 
       <div class="flex min-w-0 flex-1 flex-col overflow-hidden">

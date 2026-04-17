@@ -7,7 +7,7 @@ import type {
 import { getSettingsProviderLabel, toSelectString } from '@/lib/settings-models'
 
 const props = defineProps<{
-  activeCategory: 'text' | 'image' | 'video' | 'voice'
+  activeCategory: 'text' | 'image' | 'video'
   models: AvailableModelsResponse
   selectedModels: SelectedModels
   updateGlobalWorkflowDefault: (type: 'text' | 'image' | 'video' | 'tts', modelId: string) => Promise<void>
@@ -28,7 +28,7 @@ const activeDefaultConfig = computed<ActiveDefaultConfig>(() => {
       return {
         key: 'image',
         label: '图片生成',
-        description: '未单独覆盖的图片流程默认使用这里的模型。',
+        description: '未单独覆盖的角色资产与环境参考图流程默认使用这里的模型。',
         value: props.selectedModels.image,
         placeholder: '选择图片模型',
         models: props.models.image
@@ -37,26 +37,17 @@ const activeDefaultConfig = computed<ActiveDefaultConfig>(() => {
       return {
         key: 'video',
         label: '视频生成',
-        description: '未单独覆盖的视频流程默认使用这里的模型。',
+        description: '未单独覆盖的场景视频流程默认使用这里的模型。',
         value: props.selectedModels.video,
         placeholder: '选择视频模型',
         models: props.models.video
-      }
-    case 'voice':
-      return {
-        key: 'tts',
-        label: '语音合成',
-        description: '未单独覆盖的语音流程默认使用这里的模型。',
-        value: props.selectedModels.tts || '',
-        placeholder: '选择语音模型',
-        models: props.models.voice.filter(model => model.type === 'tts')
       }
     case 'text':
     default:
       return {
         key: 'text',
         label: '文本生成',
-        description: '未单独覆盖的文本流程默认使用这里的模型。',
+        description: '未单独覆盖的解析、改写与翻译流程默认使用这里的模型。',
         value: props.selectedModels.text,
         placeholder: '选择文本模型',
         models: props.models.text

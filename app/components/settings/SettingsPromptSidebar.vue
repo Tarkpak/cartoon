@@ -4,7 +4,7 @@ import {
   ChevronRight,
   FileText
 } from 'lucide-vue-next'
-import type { PromptCategory } from '#shared/types/prompt-template'
+import type { PromptFlowStage } from '#shared/types/prompt-template'
 import type { PromptTemplateGroup } from '@/composables/useSettingsPrompts'
 
 const props = defineProps<{
@@ -17,7 +17,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'select-prompt', id: string): void
-  (e: 'toggle-category', category: PromptCategory): void
+  (e: 'toggle-stage', stage: PromptFlowStage): void
 }>()
 
 const CATEGORY_ICON_CLASS: Record<string, string> = {
@@ -59,12 +59,12 @@ function getIconClass(color: string) {
     >
       <div
         v-for="group in props.groupedPromptTemplates"
-        :key="group.category"
+        :key="group.stage"
         class="select-none"
       >
         <div
           class="flex cursor-pointer items-center gap-2 px-2 py-2 transition-colors hover:bg-accent/50"
-          @click="emit('toggle-category', group.category)"
+          @click="emit('toggle-stage', group.stage)"
         >
           <component
             :is="group.expanded ? ChevronDown : ChevronRight"

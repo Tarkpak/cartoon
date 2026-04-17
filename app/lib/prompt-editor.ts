@@ -17,15 +17,13 @@ export interface PromptDiffLine {
 export const promptCategoryLabels: Record<PromptTemplate['category'], string> = {
   text: '文本',
   image: '图片',
-  video: '视频',
-  audio: '音频'
+  video: '视频'
 }
 
 export const promptCategoryColors: Record<PromptTemplate['category'], string> = {
   text: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
   image: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-  video: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
-  audio: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300'
+  video: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
 }
 
 const PROMPT_VARIABLE_PATTERN = /\{\{(\w+)\}\}/g

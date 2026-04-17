@@ -518,79 +518,57 @@ async function buildSceneReferencePrompt(
   customPrompt?: string
 ): Promise<string> {
   const normalizedCustomPrompt = customPrompt?.trim() || ''
-  const templatePrompt = await getInterpolatedPrompt(
-    PROMPT_TEMPLATE_IDS.FIRST_FRAME_GENERATION,
-    {
-      sceneDescription: scene.description,
-      // 场景资产图只生成环境底图，角色信息在该步骤必须忽略
-      characters: '[]',
-      style,
-      setting: JSON.stringify(scene.setting || {}),
-      storyboardShot: '{}'
-    },
-    undefined,
-    'asset_consistency'
-  )
-
-  const narrationText = hasText(scene.narration)
-    ? `【旁白】\n${scene.narration!.trim()}`
-    : ''
-
-  const dialogueText = (scene.dialogues || []).length > 0
-    ? `【关键对白】\n${scene.dialogues.map(item => `${item.character}: ${item.text}`).join('\n')}`
-    : ''
-
-  const cameraNoteText = hasText(scene.cameraNote)
-    ? `【镜头与资产备注】\n${scene.cameraNote!.trim()}`
-    : ''
-
-  const regenerationText = normalizedCustomPrompt
-    ? `【二次生成要求】\n${normalizedCustomPrompt}`
-    : ''
-  const environmentConsistencyText = buildEnvironmentConsistencyText(scene, environmentContext)
-
-  const extraRules = [
-    '【输出规则】',
-    '仅生成 1 张环境资产参考图，不要拼图，不要分镜排版。',
-    `画面比例必须为 ${aspectRatio}。`,
-    '不要文字、水印、logo，不要画面边框。',
-    '这是纯环境图：禁止出现任何人物/人脸/肢体/剪影。',
-    '若原文包含人物动作或对白，仅提取地点、建筑、地形、道具、光照与天气信息。',
-    '画面需覆盖场景核心空间关系，作为后续视频的环境基底参考。'
-  ].join('\n')
-
-  if (templatePrompt) {
-    return [
-      templatePrompt,
-      environmentConsistencyText,
-      cameraNoteText,
-      narrationText,
-      dialogueText,
-      regenerationText,
-      extraRules
-    ]
-      .filter(Boolean)
-      .join('\n\n')
-  }
-
   const settingText = scene.setting
     ? [scene.setting.location, scene.setting.timeOfDay, scene.setting.mood, scene.setting.weather]
         .filter(Boolean)
         .join(' / ')
     : '未提供'
+  const narrationText = hasText(scene.narration)
+    ? scene.narration!.trim()
+    : '无'
+  const dialogueText = (scene.dialogues || []).length > 0
+    ? scene.dialogues.map(item => `${item.character}: ${item.text}`).join('\n')
+    : '无'
+  const cameraNoteText = hasText(scene.cameraNote)
+    ? scene.cameraNote!.trim()
+    : '无'
+  const environmentConsistencyText = buildEnvironmentConsistencyText(scene, environmentContext) || '无'
+
+  const templatePrompt = await getInterpolatedPrompt(
+    PROMPT_TEMPLATE_IDS.ENVIRONMENT_REFERENCE_GENERATION,
+    {
+      sceneTitle: scene.title || '未命名场景',
+      sceneDescription: scene.description,
+      setting: settingText,
+      style,
+      aspectRatio,
+      environmentConsistency: environmentConsistencyText,
+      cameraNote: cameraNoteText,
+      narration: narrationText,
+      dialogues: dialogueText,
+      customPrompt: normalizedCustomPrompt || '无'
+    },
+    undefined,
+    'asset_consistency'
+  )
+
+  if (templatePrompt) {
+    return templatePrompt
+  }
 
   return [
     '请生成一张用于视频生成的环境资产参考图（纯环境，无人物）。',
     `风格: ${style || '保持项目默认风格'}`,
+    `画面比例: ${aspectRatio}`,
     `场景标题: ${scene.title || '未命名场景'}`,
     `场景设定: ${settingText}`,
     `场景描述: ${scene.description}`,
-    environmentConsistencyText,
-    cameraNoteText,
-    narrationText,
-    dialogueText,
-    regenerationText,
-    extraRules
+    `环境连续性要求: ${environmentConsistencyText}`,
+    `镜头与资产备注: ${cameraNoteText}`,
+    `旁白: ${narrationText}`,
+    `关键对白: ${dialogueText}`,
+    normalizedCustomPrompt ? `二次生成补充要求: ${normalizedCustomPrompt}` : '',
+    '只生成 1 张环境资产图，不要拼图，不要文字，不要水印，不要人物。'
   ]
     .filter(Boolean)
     .join('\n\n')

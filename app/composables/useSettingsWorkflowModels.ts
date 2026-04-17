@@ -2,8 +2,7 @@ import type { Component } from 'vue'
 import {
   Cpu,
   Image,
-  Video,
-  Mic
+  Video
 } from 'lucide-vue-next'
 import type {
   WorkflowStep,
@@ -40,7 +39,7 @@ export interface WorkflowData {
   modelOptions?: WorkflowModelOptions
 }
 
-export type WorkflowCategoryKey = 'text' | 'image' | 'video' | 'voice'
+export type WorkflowCategoryKey = 'text' | 'image' | 'video'
 
 export interface WorkflowCategoryMeta {
   name: string
@@ -59,30 +58,24 @@ export const WORKFLOW_CATEGORY_CONFIG: Record<WorkflowCategoryKey, WorkflowCateg
     name: '文本生成',
     icon: Cpu,
     color: 'blue',
-    description: '统一配置大纲、解析、分镜等文本类流程。'
+    description: '覆盖剧本解析、场景描述改写和提示词翻译。'
   },
   image: {
     name: '图片生成',
     icon: Image,
     color: 'green',
-    description: '统一配置角色立绘、参考图和首尾帧相关流程。'
+    description: '覆盖角色资产生成与环境参考图生成。'
   },
   video: {
     name: '视频生成',
     icon: Video,
     color: 'purple',
-    description: '统一配置场景视频生成流程和对应扩展参数。'
-  },
-  voice: {
-    name: '语音合成',
-    icon: Mic,
-    color: 'orange',
-    description: '统一配置语音合成流程的默认模型。'
+    description: '覆盖单场景视频生成及对应扩展参数。'
   }
 }
 
 export const WORKFLOW_GEMINI_IMAGE_SIZES: WorkflowGeminiImageSize[] = ['512', '1K', '2K', '4K']
-const WORKFLOW_CATEGORY_ORDER: WorkflowCategoryKey[] = ['text', 'image', 'video', 'voice']
+const WORKFLOW_CATEGORY_ORDER: WorkflowCategoryKey[] = ['text', 'image', 'video']
 
 const DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS: KlingV3OmniVideoOptions = {
   sound: 'off',
@@ -135,12 +128,11 @@ export function useSettingsWorkflowModels() {
 
   function getCapabilityLabel(capability: string): string {
     const labels: Record<string, string> = {
-      reference_image: '需参考图',
+      reference_image: '支持参考图',
+      require_reference_image: '必须参考图',
       first_last_frame: '需首尾帧',
       image_to_video: '需图生视频',
       text_to_video: '需文生视频',
-      tts: 'TTS',
-      asr: 'ASR',
       text_generation: '文本生成'
     }
 

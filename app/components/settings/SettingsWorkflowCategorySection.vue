@@ -213,7 +213,7 @@ function updateGeminiImageSize(value: unknown) {
               图片生成额外配置
             </h5>
             <p class="mt-1 text-[11px] text-muted-foreground">
-              对角色立绘/角色多视角/首尾帧流程统一生效；仅 Gemini 图片模型会使用该设置。
+              对角色资产生成和环境参考图生成统一生效；仅 Gemini 图片模型会使用该设置。
             </p>
           </div>
 

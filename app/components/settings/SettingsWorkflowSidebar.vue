@@ -13,8 +13,7 @@ const emit = defineEmits<{
 const CATEGORY_ICON_CLASS: Record<string, string> = {
   blue: 'text-blue-600 bg-blue-50 border-blue-200 dark:text-blue-300 dark:bg-blue-950/40 dark:border-blue-900',
   green: 'text-emerald-600 bg-emerald-50 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-900',
-  purple: 'text-violet-600 bg-violet-50 border-violet-200 dark:text-violet-300 dark:bg-violet-950/40 dark:border-violet-900',
-  orange: 'text-orange-600 bg-orange-50 border-orange-200 dark:text-orange-300 dark:bg-orange-950/40 dark:border-orange-900'
+  purple: 'text-violet-600 bg-violet-50 border-violet-200 dark:text-violet-300 dark:bg-violet-950/40 dark:border-violet-900'
 }
 
 function getIconClass(color: string) {
@@ -29,7 +28,7 @@ function getIconClass(color: string) {
         业务流程配置
       </h2>
       <p class="mt-1 text-sm text-muted-foreground">
-        左侧切换分类，右侧查看对应流程详情。
+        左侧切换模型类型，右侧查看对应流程详情。
       </p>
     </div>
 
