@@ -37,7 +37,7 @@ export function buildParsedScenes(options: {
 }): SceneData[] {
   return options.scenes.map((scene, index) => {
     const normalizedDescription = (scene.description || '').trim()
-    const hasTimelineStructure = /(^|\n)\s*\d+(?:\.\d+)?-\d+(?:\.\d+)?s[:：]?\s*【[^】]+】/.test(normalizedDescription)
+    const hasTimelineStructure = /(^|\n)\s*\d+(?:\.\d+)?-\d+(?:\.\d+)?(?:s|秒)\s*[：:]/.test(normalizedDescription)
     const fallbackTimelineLine = options.timelineLines[index] || normalizedDescription
     const dialogues = scene.dialogues || []
     const normalizedDialogues = dialogues.filter((dialogue) => {
