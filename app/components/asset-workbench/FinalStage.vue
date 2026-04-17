@@ -37,7 +37,10 @@ const emit = defineEmits<{
           v-if="mergeRunning || (autoRunning && autoRunCurrentStage === 'final')"
           class="h-4 w-4 animate-spin"
         />
-        <Film v-else class="h-4 w-4" />
+        <Film
+          v-else
+          class="h-4 w-4"
+        />
         合成最终视频
       </Button>
       <a
@@ -57,7 +60,9 @@ const emit = defineEmits<{
       class="rounded-lg border bg-muted/5"
     >
       <div class="px-4 py-3 border-b">
-        <div class="text-xs font-medium text-muted-foreground">成片预览</div>
+        <div class="text-xs font-medium text-muted-foreground">
+          成片预览
+        </div>
       </div>
       <div class="p-4">
         <div class="aspect-video overflow-hidden rounded-lg bg-black/90">

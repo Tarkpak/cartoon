@@ -46,10 +46,7 @@ const SceneSchema = z.object({
   // 转场
   transitionIn: z.enum(['cut', 'fade', 'dissolve', 'wipe', 'slide', 'zoom', 'blur', 'flash', 'none']).nullish(),
   transitionOut: z.enum(['cut', 'fade', 'dissolve', 'wipe', 'slide', 'zoom', 'blur', 'flash', 'none']).nullish(),
-  transitionDuration: z.number().nullish(),
-  // 分镜和场景视觉
-  storyboard: z.any().nullish(),
-  sceneVisual: z.any().nullish()
+  transitionDuration: z.number().nullish()
 })
 
 const CharacterSchema = z.object({
@@ -85,19 +82,10 @@ const UpdateProjectSchema = z.object({
   // 新字段：分离故事创意和小说原文
   storyIdea: z.string().optional(),
   novelText: z.string().optional(),
-  // 故事大纲
-  outline: z.any().optional(),
   // 输入模式
   inputMode: z.enum(['idea', 'script']).optional(),
-  // 风格和模型选择 (已废弃，保留兼容)
+  // 风格选择
   selectedStyleId: z.string().optional(),
-  selectedModels: z.object({
-    text: z.string().optional(),
-    image: z.string().optional(),
-    video: z.string().optional(),
-    tts: z.string().optional(),
-    asr: z.string().optional()
-  }).optional(),
   // 资产一致性工作流扩展字段
   assetWorkflow: z.any().optional(),
   scenes: z.array(SceneSchema).optional(),
@@ -185,10 +173,8 @@ export default defineEventHandler(async (event) => {
       data.rawText !== undefined
       || data.storyIdea !== undefined
       || data.novelText !== undefined
-      || data.outline !== undefined
       || data.inputMode !== undefined
       || data.selectedStyleId !== undefined
-      || data.selectedModels !== undefined
       || data.assetWorkflow !== undefined
       || data.scenes !== undefined
     ) {
@@ -203,8 +189,6 @@ export default defineEventHandler(async (event) => {
           novelText: data.novelText,
           rawText: data.rawText,
           selectedStyleId: data.selectedStyleId,
-          selectedModels: data.selectedModels,
-          outline: data.outline,
           inputMode: data.inputMode,
           assetWorkflow: data.assetWorkflow
         }, existingData)
@@ -260,8 +244,6 @@ export default defineEventHandler(async (event) => {
             firstFrame: scene.firstFrame || null,
             lastFrame: scene.lastFrame || null,
             videoUrl: scene.videoUrl || null,
-            storyboard: scene.storyboard ? JSON.stringify(scene.storyboard) : null,
-            sceneVisual: scene.sceneVisual ? JSON.stringify(scene.sceneVisual) : null,
             status: (scene.status as 'pending' | 'frames_ready' | 'video_ready') || 'pending',
             createdAt: now,
             updatedAt: now

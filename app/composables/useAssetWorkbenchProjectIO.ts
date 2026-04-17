@@ -175,8 +175,6 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
             transitionIn?: SceneData['transitionIn'] | null
             transitionOut?: SceneData['transitionOut'] | null
             transitionDuration?: number | null
-            storyboard?: SceneData['storyboard'] | null
-            sceneVisual?: SceneData['sceneVisual'] | null
           }>
           characters: Array<{
             id: string

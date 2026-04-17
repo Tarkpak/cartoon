@@ -41,7 +41,9 @@ const videoResultUrl = computed(() => {
         :is="activeTabIcon"
         class="h-10 w-10 opacity-15"
       />
-      <p class="text-sm">选择模型并运行测试</p>
+      <p class="text-sm">
+        选择模型并运行测试
+      </p>
     </div>
 
     <!-- Testing state -->
@@ -52,7 +54,9 @@ const videoResultUrl = computed(() => {
       <div class="relative">
         <Loader2 class="h-10 w-10 animate-spin text-primary/60" />
       </div>
-      <p class="text-sm text-muted-foreground">模型测试中...</p>
+      <p class="text-sm text-muted-foreground">
+        模型测试中...
+      </p>
     </div>
 
     <!-- Success state -->
@@ -123,7 +127,9 @@ const videoResultUrl = computed(() => {
       <div class="flex items-start gap-2">
         <XCircle class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
         <div>
-          <p class="text-sm font-medium text-destructive">测试失败</p>
+          <p class="text-sm font-medium text-destructive">
+            测试失败
+          </p>
           <p class="mt-1 text-xs text-destructive/80">
             {{ activeResult.message }}
           </p>

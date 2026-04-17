@@ -68,7 +68,9 @@ const tabs = computed(() => [
     v-if="scenesCount === 0"
     class="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground"
   >
-    <p class="text-sm">请先完成"剧本解析"步骤</p>
+    <p class="text-sm">
+      请先完成"剧本解析"步骤
+    </p>
   </div>
   <template v-else>
     <!-- Status bar & actions -->

@@ -94,8 +94,12 @@ function resolveStatusText(char: CharacterData): string {
     class="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground"
   >
     <User class="h-8 w-8 opacity-40" />
-    <p class="text-sm">暂未识别到角色</p>
-    <p class="text-xs">返回"剧本解析"补充人物信息后重新解析</p>
+    <p class="text-sm">
+      暂未识别到角色
+    </p>
+    <p class="text-xs">
+      返回"剧本解析"补充人物信息后重新解析
+    </p>
   </div>
   <div
     v-else
@@ -228,7 +232,10 @@ function resolveStatusText(char: CharacterData): string {
               v-if="char.generating"
               class="mr-1 h-3 w-3 animate-spin"
             />
-            <Sparkles v-else class="mr-1 h-3 w-3" />
+            <Sparkles
+              v-else
+              class="mr-1 h-3 w-3"
+            />
             {{ char.baseImage ? '重生成' : '生成' }}
           </Button>
           <Button
