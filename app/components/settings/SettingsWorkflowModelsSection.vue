@@ -100,17 +100,19 @@ const activeCategoryIconClass = computed(() => {
               :active-category="activeCategory"
               :models="models"
               :selected-models="selectedModels"
+              :workflows="activeCategoryWorkflows"
+              :workflow-saving="workflowSaving"
+              :kling-v3-omni-options="klingV3OmniOptions"
+              :image-generation-options="imageGenerationOptions"
               :update-global-workflow-default="updateGlobalWorkflowDefault"
+              :update-video-generation-model-options="updateVideoGenerationModelOptions"
+              :update-workflow-gemini-image-size="updateWorkflowGeminiImageSize"
             />
 
             <SettingsWorkflowCategorySection
               :get-capability-label="getCapabilityLabel"
               :get-provider-label="getProviderLabel"
-              :image-generation-options="imageGenerationOptions"
-              :kling-v3-omni-options="klingV3OmniOptions"
               :to-select-string="toSelectString"
-              :update-video-generation-model-options="updateVideoGenerationModelOptions"
-              :update-workflow-gemini-image-size="updateWorkflowGeminiImageSize"
               :update-workflow-model="updateWorkflowModel"
               :workflow-saving="workflowSaving"
               :workflows="activeCategoryWorkflows"
