@@ -87,8 +87,6 @@ export function initDatabase() {
       first_frame TEXT,
       last_frame TEXT,
       video_url TEXT,
-      storyboard TEXT,
-      scene_visual TEXT,
       status TEXT DEFAULT 'pending',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL

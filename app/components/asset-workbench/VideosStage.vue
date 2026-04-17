@@ -74,7 +74,9 @@ const readySceneCount = computed(() => {
     v-if="scenes.length === 0"
     class="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground"
   >
-    <p class="text-sm">请先完成"剧本解析"步骤</p>
+    <p class="text-sm">
+      请先完成"剧本解析"步骤
+    </p>
   </div>
   <template v-else>
     <!-- Stats & actions -->
@@ -189,7 +191,9 @@ const readySceneCount = computed(() => {
       <div class="min-h-0 flex flex-col rounded-lg border bg-muted/5">
         <template v-if="selectedScene">
           <div class="px-4 py-3 border-b">
-            <div class="text-xs font-medium text-muted-foreground">视频预览</div>
+            <div class="text-xs font-medium text-muted-foreground">
+              视频预览
+            </div>
           </div>
           <div class="flex-1 flex items-center justify-center p-4">
             <div class="w-full aspect-video overflow-hidden rounded-lg bg-black/90">
@@ -212,7 +216,9 @@ const readySceneCount = computed(() => {
           v-else
           class="flex flex-1 items-center justify-center"
         >
-          <p class="text-sm text-muted-foreground/60">选择场景以预览视频</p>
+          <p class="text-sm text-muted-foreground/60">
+            选择场景以预览视频
+          </p>
         </div>
       </div>
     </div>

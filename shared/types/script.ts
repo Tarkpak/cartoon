@@ -72,7 +72,7 @@ export const SceneCharacterSchema = z.object({
 })
 export type SceneCharacter = z.infer<typeof SceneCharacterSchema>
 
-/** 场景景别（与 storyboard 保持一致） */
+/** 场景景别 */
 export const SceneShotTypeSchema = z.enum([
   'extreme_wide',
   'wide',
@@ -84,6 +84,25 @@ export const SceneShotTypeSchema = z.enum([
   'detail'
 ]).describe('景别')
 export type SceneShotType = z.infer<typeof SceneShotTypeSchema>
+
+/** 场景运镜 */
+export const SceneCameraMovementSchema = z.enum([
+  'static',
+  'push',
+  'pull',
+  'pan_left',
+  'pan_right',
+  'tilt_up',
+  'tilt_down',
+  'track',
+  'dolly',
+  'zoom_in',
+  'zoom_out',
+  'crane',
+  'handheld',
+  'arc'
+]).describe('运镜方式')
+export type SceneCameraMovement = z.infer<typeof SceneCameraMovementSchema>
 
 /** 场景时长（秒） */
 export const SceneDurationSchema = z.coerce.number().min(2).max(15).default(8).describe('视频时长(秒，2-15)')

@@ -1,6 +1,5 @@
 import type { CharacterView } from '#shared/types/character'
-import type { CameraMovement, ShotType, Storyboard } from '#shared/types/storyboard'
-import type { SceneVisual } from '#shared/types/scene-visual'
+import type { SceneCameraMovement, SceneShotType } from '#shared/types/script'
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
 import type {
   AssetWorkbenchTransitionType,
@@ -26,14 +25,12 @@ interface LoadedProjectScene {
   firstFrame?: string | null
   lastFrame?: string | null
   videoUrl?: string | null
-  shotType?: ShotType | null
-  cameraMovement?: CameraMovement | null
+  shotType?: SceneShotType | null
+  cameraMovement?: SceneCameraMovement | null
   cameraNote?: string | null
   transitionIn?: AssetWorkbenchTransitionType | null
   transitionOut?: AssetWorkbenchTransitionType | null
   transitionDuration?: number | null
-  storyboard?: Storyboard | null
-  sceneVisual?: SceneVisual | null
 }
 
 interface LoadedProjectCharacter {
@@ -79,11 +76,7 @@ export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
     frameError: undefined,
     videoError: undefined,
     frameStatus: scene.firstFrame ? 'done' : 'pending',
-    videoStatus: scene.videoUrl ? 'done' : 'pending',
-    storyboard: scene.storyboard || undefined,
-    storyboardStatus: scene.storyboard ? 'done' : 'pending',
-    sceneVisual: scene.sceneVisual || undefined,
-    sceneVisualStatus: scene.sceneVisual ? 'done' : 'pending'
+    videoStatus: scene.videoUrl ? 'done' : 'pending'
   }))
 }
 
@@ -153,8 +146,6 @@ export function buildSaveScenesPayload(scenes: SceneData[]) {
     firstFrame: scene.firstFrame,
     lastFrame: scene.lastFrame,
     videoUrl: scene.videoUrl,
-    storyboard: scene.storyboard,
-    sceneVisual: scene.sceneVisual,
     status: scene.videoStatus === 'done'
       ? 'video_ready'
       : (scene.frameStatus === 'done' ? 'frames_ready' : 'pending')
