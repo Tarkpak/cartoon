@@ -7,7 +7,6 @@ import { db, projects as projectsTable } from '../../db'
 import {
   mergeVideos,
   saveBase64ToFile,
-  readFileAsBase64,
   type VideoClip,
   type SubtitleItem
 } from '../../utils/ffmpeg'
@@ -17,6 +16,21 @@ function getPublicDir(): string {
   // 在开发环境中，public 目录在项目根目录
   // process.cwd() 返回 Nuxt 项目根目录
   return join(process.cwd(), 'public')
+}
+
+function getPublicVideosDir(): string {
+  return join(getPublicDir(), 'videos')
+}
+
+async function persistMergedVideo(projectId: string, sourcePath: string): Promise<string> {
+  const outputFilename = `${projectId}_final.mp4`
+  const outputDir = getPublicVideosDir()
+  const outputPath = join(outputDir, outputFilename)
+
+  await fs.mkdir(outputDir, { recursive: true })
+  await fs.copyFile(sourcePath, outputPath)
+
+  return `/api/video/file/${encodeURIComponent(outputFilename)}`
 }
 
 /**
@@ -212,8 +226,8 @@ export default defineEventHandler(async (event) => {
 
     console.log(`[VideoMerge] 合成完成，输出文件大小: ${(result.size / 1024 / 1024).toFixed(2)}MB`)
 
-    // 4. 读取输出文件为 base64
-    const outputBase64 = await readFileAsBase64(outputPath)
+    // 4. 持久化最终成片，保证刷新后仍可访问
+    const finalVideoUrl = await persistMergedVideo(projectId, outputPath)
 
     // 5. 清理临时文件
     await fs.rm(tempDir, { recursive: true, force: true })
@@ -221,7 +235,7 @@ export default defineEventHandler(async (event) => {
     return {
       success: true,
       data: {
-        videoData: `data:video/mp4;base64,${outputBase64}`,
+        videoUrl: finalVideoUrl,
         duration: result.duration,
         size: result.size,
         sceneCount: clips.length

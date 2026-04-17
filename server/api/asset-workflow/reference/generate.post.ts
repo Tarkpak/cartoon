@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import type { H3Event } from 'h3'
+import { readFileSync, statSync } from 'node:fs'
 import {
   IMAGE_MODELS,
   findImageModel,
@@ -6,7 +8,10 @@ import {
   type GenerateImageResult
 } from '../../../utils/model-provider'
 import { imageLimiter } from '../../../utils/concurrency'
-import { persistImageToPublic } from '../../../utils/image-storage'
+import {
+  getGeneratedImageCandidatePaths,
+  persistImageToPublic
+} from '../../../utils/image-storage'
 import { getWorkflowModels, getWorkflowModelOptions } from '../../models/workflow.get'
 import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
@@ -59,7 +64,8 @@ const GenerateReferenceRequestSchema = z.object({
   aspectRatio: AspectRatioSchema.optional().default('16:9'),
   environmentContext: EnvironmentContextSchema,
   regeneration: z.object({
-    customPrompt: z.string().optional()
+    customPrompt: z.string().optional(),
+    referenceImage: z.string().optional()
   }).optional(),
   // 兼容旧字段：资产一致性新流程下该字段将被忽略（场景资产必须为纯环境）
   characterReferenceImages: z.array(z.string()).optional().default([])
@@ -322,6 +328,188 @@ async function resolveGeneratedImage(result: GenerateImageResult): Promise<{ ima
   }
 }
 
+function looksLikeBase64Image(value: string): boolean {
+  const compact = value.replace(/\s+/g, '')
+  return compact.startsWith('/9j/')
+    || compact.startsWith('iVBOR')
+    || compact.startsWith('R0lGOD')
+    || compact.startsWith('UklGR')
+    || compact.startsWith('Qk')
+    || compact.startsWith('SUkq')
+    || compact.startsWith('TU0A')
+}
+
+function detectImageMimeTypeFromBuffer(buffer: Buffer): string {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg'
+  if (
+    buffer.length >= 8
+    && buffer[0] === 0x89
+    && buffer[1] === 0x50
+    && buffer[2] === 0x4e
+    && buffer[3] === 0x47
+    && buffer[4] === 0x0d
+    && buffer[5] === 0x0a
+    && buffer[6] === 0x1a
+    && buffer[7] === 0x0a
+  ) return 'image/png'
+  if (
+    buffer.length >= 6
+    && buffer[0] === 0x47
+    && buffer[1] === 0x49
+    && buffer[2] === 0x46
+    && buffer[3] === 0x38
+  ) return 'image/gif'
+  if (
+    buffer.length >= 12
+    && buffer.toString('ascii', 0, 4) === 'RIFF'
+    && buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) return 'image/webp'
+  if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4d) return 'image/bmp'
+  return 'image/png'
+}
+
+function normalizeImageMimeType(value?: string): string | null {
+  const normalized = (value || '').split(';')[0]?.trim().toLowerCase()
+  if (!normalized?.startsWith('image/')) return null
+  return normalized
+}
+
+function parseDataUri(value: string): { mimeType: string, data: string } | null {
+  const match = value.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s)
+  if (!match?.[1] || !match[2]) return null
+  return {
+    mimeType: match[1],
+    data: match[2].replace(/\s+/g, '')
+  }
+}
+
+function readLocalReferenceImage(rawPath: string): Buffer | null {
+  const trimmed = rawPath.trim()
+  if (!trimmed) return null
+
+  let filename = ''
+  if (trimmed.startsWith('/generated-images/')) {
+    filename = decodeURIComponent(trimmed.slice('/generated-images/'.length))
+  } else if (trimmed.startsWith('/api/image/file/')) {
+    filename = decodeURIComponent(trimmed.slice('/api/image/file/'.length))
+  } else {
+    return null
+  }
+
+  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    return null
+  }
+
+  const filePath = getGeneratedImageCandidatePaths(filename)
+    .find((candidate) => {
+      try {
+        return statSync(candidate).isFile()
+      } catch {
+        return false
+      }
+    })
+
+  if (!filePath) return null
+  return readFileSync(filePath)
+}
+
+interface NormalizedReferenceImage {
+  geminiReference: {
+    data: string
+    mimeType: string
+  }
+  providerReference: string
+}
+
+async function normalizeReferenceImageInput(
+  source: string,
+  event: H3Event
+): Promise<NormalizedReferenceImage> {
+  const raw = source.trim()
+  if (!raw) {
+    throw new Error('环境参考图为空，无法进行二次生成')
+  }
+
+  const dataUri = parseDataUri(raw)
+  if (dataUri) {
+    return {
+      geminiReference: {
+        data: dataUri.data,
+        mimeType: dataUri.mimeType
+      },
+      providerReference: `data:${dataUri.mimeType};base64,${dataUri.data}`
+    }
+  }
+
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    const response = await fetch(raw)
+    if (!response.ok) {
+      throw new Error(`下载环境参考图失败: ${response.status}`)
+    }
+    const buffer = Buffer.from(await response.arrayBuffer())
+    const mimeType = normalizeImageMimeType(response.headers.get('content-type') || '')
+      || detectImageMimeTypeFromBuffer(buffer)
+    const data = buffer.toString('base64')
+    return {
+      geminiReference: {
+        data,
+        mimeType
+      },
+      providerReference: raw
+    }
+  }
+
+  if (raw.startsWith('/') && !looksLikeBase64Image(raw)) {
+    const localBuffer = readLocalReferenceImage(raw)
+    if (localBuffer) {
+      const mimeType = detectImageMimeTypeFromBuffer(localBuffer)
+      const data = localBuffer.toString('base64')
+      const requestUrl = getRequestURL(event)
+      const absoluteUrl = new URL(raw, `${requestUrl.protocol}//${requestUrl.host}`).toString()
+      return {
+        geminiReference: {
+          data,
+          mimeType
+        },
+        providerReference: absoluteUrl
+      }
+    }
+
+    const requestUrl = getRequestURL(event)
+    const absoluteUrl = new URL(raw, `${requestUrl.protocol}//${requestUrl.host}`).toString()
+    const response = await fetch(absoluteUrl)
+    if (!response.ok) {
+      throw new Error(`下载环境参考图失败: ${response.status}`)
+    }
+    const buffer = Buffer.from(await response.arrayBuffer())
+    const mimeType = normalizeImageMimeType(response.headers.get('content-type') || '')
+      || detectImageMimeTypeFromBuffer(buffer)
+    const data = buffer.toString('base64')
+    return {
+      geminiReference: {
+        data,
+        mimeType
+      },
+      providerReference: absoluteUrl
+    }
+  }
+
+  const compact = raw.replace(/\s+/g, '')
+  const buffer = Buffer.from(compact, 'base64')
+  if (!buffer.length) {
+    throw new Error('环境参考图格式无效，请提供有效的 URL 或 base64 数据')
+  }
+  const mimeType = detectImageMimeTypeFromBuffer(buffer)
+
+  return {
+    geminiReference: {
+      data: compact,
+      mimeType
+    },
+    providerReference: `data:${mimeType};base64,${compact}`
+  }
+}
+
 async function buildSceneReferencePrompt(
   scene: z.infer<typeof SceneSchema>,
   style: string,
@@ -423,16 +611,57 @@ export default defineEventHandler(async (event) => {
 
   const { scene, style, aspectRatio, environmentContext, regeneration } = parseResult.data
   const customPrompt = regeneration?.customPrompt?.trim()
+  const referenceImage = regeneration?.referenceImage?.trim()
 
   try {
     const [workflowModels, workflowModelOptions] = await Promise.all([
       getWorkflowModels(),
       getWorkflowModelOptions()
     ])
-    const modelDecision = resolveEnvironmentReferenceModel(workflowModels.frame_generation)
+    const preferredModelId = workflowModels.frame_generation
+    const isRegeneration = !!customPrompt
+    const modelDecision = isRegeneration
+      ? {
+          modelId: preferredModelId,
+          reason: 'workflow-regeneration'
+        }
+      : resolveEnvironmentReferenceModel(preferredModelId)
     const modelId = modelDecision.modelId
+    const modelConfig = findImageModel(modelId)
     const geminiImageSize = workflowModelOptions.image_generation.geminiImageSize
     const prompt = await buildSceneReferencePrompt(scene, style, aspectRatio, environmentContext, customPrompt)
+    const normalizedReference = referenceImage
+      ? await normalizeReferenceImageInput(referenceImage, event)
+      : null
+
+    if (isRegeneration && !normalizedReference) {
+      throw new Error('环境二次生成需要参考图，请先生成或上传环境图后再试')
+    }
+
+    if (isRegeneration && !modelId) {
+      throw new Error('当前未配置环境图生成模型，请先在设置中选择图片模型')
+    }
+
+    if (isRegeneration && !modelConfig) {
+      throw new Error(`当前环境图模型不可用：${modelId}`)
+    }
+
+    if (isRegeneration && modelConfig?.supportReferenceImage === false) {
+      throw new Error(`当前环境图模型「${modelConfig.displayName}」不支持参考图。请在设置中切换到支持图生图的图片模型后重试。`)
+    }
+
+    const provider = modelConfig?.provider || 'gemini'
+    const referenceOptions = normalizedReference
+      ? (
+          provider === 'gemini'
+            ? {
+                referenceImage: normalizedReference.geminiReference
+              }
+            : {
+                referenceImages: [normalizedReference.providerReference]
+              }
+        )
+      : {}
 
     const generated = await imageLimiter.execute(() =>
       generateImage({
@@ -441,6 +670,7 @@ export default defineEventHandler(async (event) => {
         imageSize: geminiImageSize,
         negativePrompt: ENVIRONMENT_ONLY_NEGATIVE_PROMPT,
         size: resolveImageSizeByAspectRatio(aspectRatio),
+        ...referenceOptions,
         maxRetries: 2
       })
     )
@@ -456,7 +686,8 @@ export default defineEventHandler(async (event) => {
         modelId,
         modelDecision: modelDecision.reason,
         aspectRatio,
-        characterReferences: 0
+        characterReferences: 0,
+        referenceImageUsed: !!normalizedReference
       }
     }
   } catch (error) {

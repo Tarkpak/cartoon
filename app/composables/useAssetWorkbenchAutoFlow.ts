@@ -1,6 +1,6 @@
 import type { ComputedRef, Ref } from 'vue'
 import type { SceneData } from '~/composables/useAssetWorkbench'
-import type { AutoStageKey, QueueSummary } from '~/lib/asset-workbench-types'
+import type { AutoStageKey, FinalVideoAsset, QueueSummary } from '~/lib/asset-workbench-types'
 import { inferActiveAutoStage } from '~/lib/asset-workbench-progress'
 
 interface UseAssetWorkbenchAutoFlowOptions {
@@ -17,7 +17,7 @@ interface UseAssetWorkbenchAutoFlowOptions {
   parsedTimelineText: Ref<string>
   queueSummary: ComputedRef<QueueSummary>
   assetsReady: ComputedRef<boolean>
-  finalVideo: Ref<{ videoData?: string } | null>
+  finalVideo: Ref<FinalVideoAsset | null>
   resolveUiError: (error: unknown, fallback: string) => string
   parseScript: (options?: {
     workflowType?: 'asset_consistency'
@@ -27,6 +27,7 @@ interface UseAssetWorkbenchAutoFlowOptions {
   mergeAllVideos: () => Promise<unknown>
   loadProject: (id: string) => Promise<unknown>
   loadWorkflowMeta: (rawMetaInput?: unknown) => Promise<boolean>
+  saveWorkflowMeta: () => Promise<unknown>
   persistAutomaticAssetPlan: (
     options?: { overwriteExistingConfigs?: boolean }
   ) => Promise<unknown>
@@ -165,6 +166,9 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
         throw new Error('请先在“场景视频”步骤生成至少一个场景视频')
       }
       await handleMergeVideos()
+      if (options.finalVideo.value?.videoUrl) {
+        await options.saveWorkflowMeta()
+      }
     } catch (error) {
       autoRunError.value = options.resolveUiError(error, '最终成片合成失败')
     } finally {

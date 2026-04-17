@@ -19,6 +19,7 @@ import {
   resolveChatUploadAssetName,
   syncSceneDescriptionWithChatAssetMentions
 } from '~/lib/asset-workbench-scene-chat'
+import { invalidateSceneGenerationState } from '~/lib/asset-workbench-scenes'
 
 interface UseAssetWorkbenchSceneChatActionsOptions {
   scenes: Ref<SceneData[]>
@@ -176,6 +177,9 @@ export function useAssetWorkbenchSceneChatActions(
       })
       const descriptionChanged = previousBaseDescription !== rewrittenDescription
       scene.description = rewrittenDescription
+      if (descriptionChanged) {
+        invalidateSceneGenerationState(scene)
+      }
 
       const { configChanged } = applySceneChatAssetReferences({
         sceneId,

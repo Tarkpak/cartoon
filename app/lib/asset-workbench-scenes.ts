@@ -45,6 +45,72 @@ export function resetSceneGenerationState(scene: SceneData): SceneData {
   }
 }
 
+export function invalidateSceneVideoState(scene: SceneData): boolean {
+  const changed = !!scene.videoUrl
+    || !!scene.videoError
+    || scene.videoStatus !== 'pending'
+
+  scene.videoUrl = undefined
+  scene.videoError = undefined
+  scene.videoStatus = 'pending'
+
+  return changed
+}
+
+export function invalidateSceneGenerationState(scene: SceneData): boolean {
+  const changed = !!scene.firstFrame
+    || !!scene.lastFrame
+    || !!scene.videoUrl
+    || !!scene.frameError
+    || !!scene.videoError
+    || !!scene.storyboard
+    || !!scene.sceneVisual
+    || scene.frameStatus !== 'pending'
+    || scene.videoStatus !== 'pending'
+    || scene.storyboardStatus !== 'pending'
+    || scene.sceneVisualStatus !== 'pending'
+
+  if (!changed) return false
+
+  Object.assign(scene, resetSceneGenerationState(scene))
+  return true
+}
+
+function buildSceneGenerationInputSnapshot(scene: Pick<
+  SceneData,
+  | 'title'
+  | 'description'
+  | 'characters'
+  | 'dialogues'
+  | 'narration'
+  | 'duration'
+  | 'setting'
+  | 'shotType'
+  | 'cameraMovement'
+  | 'cameraNote'
+>) {
+  return {
+    title: scene.title,
+    description: scene.description,
+    characters: scene.characters,
+    dialogues: scene.dialogues,
+    narration: scene.narration || '',
+    duration: scene.duration,
+    setting: scene.setting || null,
+    shotType: scene.shotType || null,
+    cameraMovement: scene.cameraMovement || null,
+    cameraNote: scene.cameraNote || ''
+  }
+}
+
+export function hasSceneGenerationInputsChanged(
+  previousScene: SceneData,
+  nextScene: SceneData
+): boolean {
+  return JSON.stringify(buildSceneGenerationInputSnapshot(previousScene))
+    !== JSON.stringify(buildSceneGenerationInputSnapshot(nextScene))
+}
+
 export function deleteSceneFromList(
   scenes: SceneData[],
   sceneId: string
@@ -78,7 +144,7 @@ export function updateSceneInList(
   }
 
   const nextScenes = scenes.slice()
-  nextScenes[sceneIndex] = existingScene.description !== nextScene.description
+  nextScenes[sceneIndex] = hasSceneGenerationInputsChanged(existingScene, nextScene)
     ? resetSceneGenerationState(nextScene)
     : nextScene
 

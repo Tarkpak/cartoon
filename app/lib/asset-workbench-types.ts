@@ -18,6 +18,13 @@ export interface QueueSummary {
   error: number
 }
 
+export interface FinalVideoAsset {
+  videoUrl: string
+  duration?: number
+  size?: number
+  updatedAt?: string
+}
+
 export interface DisplayAsset {
   id: string
   name: string
