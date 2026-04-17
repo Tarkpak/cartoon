@@ -1,29 +1,22 @@
 <script setup lang="ts">
 import type {
-  WorkflowImageGenerationModelOptions,
-  WorkflowStep,
-  KlingV3OmniVideoOptions
+  WorkflowStep
 } from '#shared/types/workflow-models'
 import {
   AlertCircle,
   CheckCircle2,
   Info
 } from 'lucide-vue-next'
-import {
-  WORKFLOW_GEMINI_IMAGE_SIZES,
-  type WorkflowConfig
+import type {
+  WorkflowConfig
 } from '@/composables/useSettingsWorkflowModels'
 
 const props = defineProps<{
   workflows: WorkflowConfig[]
   workflowSaving: boolean
-  klingV3OmniOptions: KlingV3OmniVideoOptions
-  imageGenerationOptions: WorkflowImageGenerationModelOptions
   getCapabilityLabel: (capability: string) => string
   getProviderLabel: (provider: string) => string
   updateWorkflowModel: (step: WorkflowStep, modelId: string) => Promise<void>
-  updateVideoGenerationModelOptions: (patch: Partial<KlingV3OmniVideoOptions>) => Promise<void>
-  updateWorkflowGeminiImageSize: (value: unknown) => void
   toSelectString: (value: unknown) => string
 }>()
 
@@ -35,24 +28,8 @@ function getSelectedModel(workflow: WorkflowConfig) {
   return workflow.compatibleModels.find(model => model.model === workflow.selectedModel)
 }
 
-function updateKlingSound(value: unknown) {
-  void props.updateVideoGenerationModelOptions({
-    sound: props.toSelectString(value) === 'on' ? 'on' : 'off'
-  })
-}
-
-function updateKlingMode(value: unknown) {
-  void props.updateVideoGenerationModelOptions({
-    mode: props.toSelectString(value) === 'std' ? 'std' : 'pro'
-  })
-}
-
 function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
   void props.updateWorkflowModel(step, props.toSelectString(value))
-}
-
-function updateGeminiImageSize(value: unknown) {
-  props.updateWorkflowGeminiImageSize(value)
 }
 </script>
 
@@ -145,103 +122,6 @@ function updateGeminiImageSize(value: unknown) {
         >
           {{ getSelectedModel(workflow)?.description }}
         </p>
-
-        <div
-          v-if="workflow.id === 'video_generation' && workflow.selectedModel === 'kling-v3-omni'"
-          class="mt-3 space-y-3 rounded-lg border bg-muted/30 p-3"
-        >
-          <div>
-            <h5 class="text-xs font-medium">
-              Kling v3 Omni 额外配置
-            </h5>
-            <p class="mt-1 text-[11px] text-muted-foreground">
-              仅对 `kling-v3-omni` 生效，会覆盖该模型默认的声音与模式参数。
-            </p>
-          </div>
-
-          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div class="space-y-1.5">
-              <label class="text-xs text-muted-foreground">sound（是否生成声音）</label>
-              <Select
-                :model-value="props.klingV3OmniOptions.sound"
-                :disabled="props.workflowSaving"
-                @update:model-value="updateKlingSound"
-              >
-                <SelectTrigger class="h-9 w-full text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="off">
-                    off（默认，不生成声音）
-                  </SelectItem>
-                  <SelectItem value="on">
-                    on（同时生成声音）
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div class="space-y-1.5">
-              <label class="text-xs text-muted-foreground">mode（生成模式）</label>
-              <Select
-                :model-value="props.klingV3OmniOptions.mode"
-                :disabled="props.workflowSaving"
-                @update:model-value="updateKlingMode"
-              >
-                <SelectTrigger class="h-9 w-full text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="std">
-                    std（标准模式，性价比高）
-                  </SelectItem>
-                  <SelectItem value="pro">
-                    pro（专家模式，画质更高）
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </div>
-
-        <div
-          v-if="workflow.id === 'character_portrait'"
-          class="mt-3 space-y-3 rounded-lg border bg-muted/30 p-3"
-        >
-          <div>
-            <h5 class="text-xs font-medium">
-              图片生成额外配置
-            </h5>
-            <p class="mt-1 text-[11px] text-muted-foreground">
-              对角色资产生成和环境参考图生成统一生效；仅 Gemini 图片模型会使用该设置。
-            </p>
-          </div>
-
-          <div class="space-y-1.5">
-            <label class="text-xs text-muted-foreground">Gemini 画质（image_size）</label>
-            <Select
-              :model-value="props.imageGenerationOptions.geminiImageSize"
-              :disabled="props.workflowSaving"
-              @update:model-value="updateGeminiImageSize"
-            >
-              <SelectTrigger class="h-9 w-full text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem
-                  v-for="size in WORKFLOW_GEMINI_IMAGE_SIZES"
-                  :key="`workflow_gemini_image_size_${size}`"
-                  :value="size"
-                >
-                  {{ size }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <p class="text-[11px] text-muted-foreground">
-              支持 `1K` / `2K` / `4K`；`512` 仅 `Gemini 3.1 Flash Image` 支持，其他模型会自动回退到 `1K`。
-            </p>
-          </div>
-        </div>
       </div>
 
       <div
