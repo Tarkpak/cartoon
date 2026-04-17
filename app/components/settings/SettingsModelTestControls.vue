@@ -4,13 +4,11 @@ import {
   ImagePlus,
   Loader2,
   Play,
-  Sparkles,
   X
 } from 'lucide-vue-next'
 import type { ImageMentionCandidate } from '@/lib/image-prompt-reference-editor'
 import {
   SETTINGS_MODEL_TEST_PROMPTS,
-  SETTINGS_MODEL_TEST_TABS,
   type ModelTestTab,
   type TestResult
 } from '@/lib/settings-models'
@@ -45,75 +43,48 @@ const props = defineProps<{
   testModel: (modelType: ModelTestTab) => Promise<void>
 }>()
 
-const currentTabLabel = computed(() => {
-  return SETTINGS_MODEL_TEST_TABS.find(tab => tab.key === activeTab.value)?.label
-})
-
 const currentTestStatus = computed(() => props.testResults[activeTab.value].status)
 </script>
 
 <template>
-  <div class="space-y-3 border-b p-4">
-    <div class="flex items-center gap-1 overflow-x-auto pb-1">
-      <Button
-        v-for="tab in SETTINGS_MODEL_TEST_TABS"
-        :key="tab.key"
-        type="button"
-        variant="ghost"
-        class="h-auto whitespace-nowrap rounded-md px-3 py-1.5 text-xs transition-colors"
-        :class="activeTab === tab.key
-          ? 'bg-primary text-primary-foreground'
-          : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'"
-        @click="activeTab = tab.key"
-      >
-        <component
-          :is="tab.icon"
-          class="h-3.5 w-3.5"
-        />
-        <span>{{ tab.label }}</span>
-      </Button>
-    </div>
-
-    <div class="flex items-center justify-between">
-      <h3 class="flex items-center gap-2 font-medium">
-        <Sparkles class="h-4 w-4 text-primary" />
-        测试 {{ currentTabLabel }}
-      </h3>
-
+  <div class="space-y-3 border-b px-4 py-3">
+    <!-- Label + Run button -->
+    <div class="flex items-center justify-between gap-3">
+      <label class="text-xs text-muted-foreground">
+        {{ activeTab === 'tts' ? '测试文本' : '测试提示词' }}
+      </label>
       <div class="flex items-center gap-2">
         <span
           v-if="activeTab === 'image' && props.currentImageModelRequiresReference && props.referenceImages.length === 0"
           class="text-xs text-amber-600 dark:text-amber-400"
-        >此模型需要参考图</span>
+        >需要参考图</span>
         <Button
           size="sm"
           :disabled="currentTestStatus === 'testing' || !props.canRunImageTest"
+          class="gap-1.5"
           @click="props.testModel(activeTab)"
         >
           <Loader2
             v-if="currentTestStatus === 'testing'"
-            class="mr-1.5 h-4 w-4 animate-spin"
+            class="h-3.5 w-3.5 animate-spin"
           />
           <Play
             v-else
-            class="mr-1.5 h-4 w-4"
+            class="h-3.5 w-3.5"
           />
           {{ currentTestStatus === 'testing' ? '测试中...' : '运行测试' }}
         </Button>
       </div>
     </div>
 
+    <!-- Prompt input -->
     <div>
-      <label class="mb-1.5 block text-xs text-muted-foreground">
-        {{ activeTab === 'tts' ? '测试文本' : '测试提示词' }}
-      </label>
-
       <template v-if="activeTab === 'image'">
-        <div class="relative min-h-[92px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+        <div class="relative min-h-[80px] rounded-lg border border-input bg-muted/20 px-3 py-2 text-sm transition-colors focus-within:bg-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
           <div
             :ref="props.setPromptEditorRef"
             contenteditable="true"
-            class="min-h-[72px] whitespace-pre-wrap break-words outline-none"
+            class="min-h-[60px] whitespace-pre-wrap break-words outline-none"
             @blur="props.handlePromptTextareaBlur"
             @click="props.handlePromptTextareaCursorChange"
             @compositionend="props.handlePromptTextareaCompositionEnd"
@@ -125,7 +96,7 @@ const currentTestStatus = computed(() => props.testResults[activeTab.value].stat
           />
           <span
             v-if="props.imagePromptIsEmpty"
-            class="pointer-events-none absolute left-3 top-2 text-sm text-muted-foreground"
+            class="pointer-events-none absolute left-3 top-2 text-sm text-muted-foreground/50"
           >
             {{ SETTINGS_MODEL_TEST_PROMPTS.image }}
           </span>
@@ -136,21 +107,21 @@ const currentTestStatus = computed(() => props.testResults[activeTab.value].stat
         <Textarea
           v-model="customPrompts[activeTab]"
           :placeholder="SETTINGS_MODEL_TEST_PROMPTS[activeTab]"
-          class="resize-none text-sm"
+          class="resize-none bg-muted/20 text-sm transition-colors focus:bg-background"
           :rows="activeTab === 'video' ? 3 : 2"
         />
       </template>
 
       <p
         v-if="activeTab === 'image' && props.currentImageModelSupportsReference"
-        class="mt-1 text-[11px] text-muted-foreground"
+        class="mt-1 text-[11px] text-muted-foreground/70"
       >
-        输入 `@` 可直接选择参考图；选中后会在输入框中以内联缩略图显示。
+        输入 `@` 可直接选择参考图
       </p>
 
       <div
         v-if="activeTab === 'image' && props.imageMentionOpen"
-        class="mt-2 max-h-48 overflow-y-auto rounded-md border bg-background shadow-sm"
+        class="mt-2 max-h-48 overflow-y-auto rounded-lg border bg-background shadow-md"
       >
         <Button
           v-for="(item, mentionIndex) in props.imageMentionCandidates"
@@ -176,11 +147,12 @@ const currentTestStatus = computed(() => props.testResults[activeTab.value].stat
       </div>
     </div>
 
+    <!-- Reference images -->
     <div
       v-if="activeTab === 'image' && props.currentImageModelSupportsReference"
-      class="space-y-2"
+      class="space-y-1.5"
     >
-      <label class="flex items-center gap-1 text-xs text-muted-foreground">
+      <label class="flex items-center gap-1 text-xs text-muted-foreground/70">
         <ImagePlus class="h-3 w-3" />
         参考图片 (可选，最多 4 张)
       </label>
@@ -189,7 +161,7 @@ const currentTestStatus = computed(() => props.testResults[activeTab.value].stat
         <div
           v-for="(img, index) in props.referenceImages"
           :key="index"
-          class="group relative h-16 w-16 cursor-zoom-in overflow-hidden rounded-lg border"
+          class="group relative h-14 w-14 cursor-zoom-in overflow-hidden rounded-lg border transition-colors hover:border-primary/50"
           @click="props.openReferenceImagePreview(img, index)"
         >
           <img
@@ -214,10 +186,10 @@ const currentTestStatus = computed(() => props.testResults[activeTab.value].stat
           v-if="props.referenceImages.length < 4"
           type="button"
           variant="ghost"
-          class="h-16 w-16 rounded-lg border-2 border-dashed border-muted-foreground/30 p-0 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+          class="h-14 w-14 rounded-lg border-2 border-dashed border-muted-foreground/20 p-0 text-muted-foreground/50 transition-colors hover:border-primary/50 hover:text-primary"
           @click="props.triggerFileInput"
         >
-          <ImagePlus class="h-5 w-5" />
+          <ImagePlus class="h-4 w-4" />
         </Button>
       </div>
 

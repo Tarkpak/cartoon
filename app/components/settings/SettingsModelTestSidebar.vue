@@ -10,13 +10,15 @@ import {
   getSettingsProviderColor,
   modelSupportsReferenceImage,
   modelSupportsThinking,
+  SETTINGS_MODEL_TEST_TABS,
   type ModelTestTab,
   type ProviderGroup
 } from '@/lib/settings-models'
 
+const activeTab = defineModel<ModelTestTab>('activeTab', { required: true })
+
 const props = defineProps<{
   groupedModels: ProviderGroup[]
-  activeTab: ModelTestTab
   currentSelectedModel: string
 }>()
 
@@ -41,29 +43,59 @@ function getProviderDotClass(provider: string): string {
 </script>
 
 <template>
-  <div class="flex w-72 flex-shrink-0 flex-col border-r bg-muted/30">
-    <div class="flex-1 overflow-y-auto py-1">
+  <div class="flex w-64 shrink-0 flex-col border-r bg-muted/20">
+    <!-- Type tabs -->
+    <div class="border-b px-2 py-2">
+      <div class="grid grid-cols-2 gap-1">
+        <button
+          v-for="tab in SETTINGS_MODEL_TEST_TABS"
+          :key="tab.key"
+          type="button"
+          class="flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none"
+          :class="activeTab === tab.key
+            ? 'bg-primary text-primary-foreground shadow-sm'
+            : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+          @click="activeTab = tab.key"
+        >
+          <component
+            :is="tab.icon"
+            class="h-3.5 w-3.5"
+          />
+          <span>{{ tab.label }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Models header -->
+    <div class="px-3 py-2">
+      <h3 class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">可用模型</h3>
+    </div>
+
+    <!-- Models list -->
+    <div class="flex-1 overflow-y-auto pb-2">
       <div
         v-for="group in props.groupedModels"
         :key="group.provider"
         class="select-none"
       >
+        <!-- Provider group header -->
         <div
-          class="flex cursor-pointer items-center gap-1 px-2 py-1.5 transition-colors hover:bg-accent/50"
+          class="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 transition-colors hover:bg-accent/50"
           @click="emit('toggle-provider', group.provider)"
         >
           <component
             :is="group.expanded ? ChevronDown : ChevronRight"
-            class="h-4 w-4 flex-shrink-0 text-muted-foreground"
+            class="h-3.5 w-3.5 shrink-0 text-muted-foreground/60"
           />
           <div
-            class="h-2 w-2 flex-shrink-0 rounded-full"
+            class="h-1.5 w-1.5 shrink-0 rounded-full"
             :class="getProviderDotClass(group.provider)"
           />
           <span class="flex-1 truncate text-sm font-medium">{{ group.displayName }}</span>
-          <span class="text-xs text-muted-foreground">{{ group.models.length }}</span>
+          <span class="text-[11px] text-muted-foreground/60">{{ group.models.length }}</span>
         </div>
 
+        <!-- Models list -->
         <div
           v-show="group.expanded"
           class="pb-1"
@@ -71,13 +103,15 @@ function getProviderDotClass(provider: string): string {
           <div
             v-for="model in group.models"
             :key="model.model"
-            class="flex cursor-pointer items-start gap-2 py-1.5 pl-7 pr-2 transition-colors"
-            :class="model.model === props.currentSelectedModel ? 'bg-primary/10 text-primary' : 'hover:bg-accent/50'"
-            @click="emit('select-model', { type: props.activeTab, modelId: model.model })"
+            class="flex cursor-pointer items-start gap-2 py-1.5 pl-7 pr-3 transition-colors"
+            :class="model.model === props.currentSelectedModel
+              ? 'bg-primary/8 text-primary'
+              : 'hover:bg-accent/40'"
+            @click="emit('select-model', { type: activeTab, modelId: model.model })"
           >
             <div
-              class="mt-1 flex h-3 w-3 flex-shrink-0 items-center justify-center rounded-full border-2"
-              :class="model.model === props.currentSelectedModel ? 'border-primary' : 'border-muted-foreground/40'"
+              class="mt-1.5 flex h-3 w-3 shrink-0 items-center justify-center rounded-full border-2"
+              :class="model.model === props.currentSelectedModel ? 'border-primary' : 'border-muted-foreground/30'"
             >
               <div
                 v-if="model.model === props.currentSelectedModel"
@@ -87,30 +121,33 @@ function getProviderDotClass(provider: string): string {
 
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1">
-                <span class="truncate text-sm">{{ model.displayName }}</span>
+                <span class="truncate text-[13px]">{{ model.displayName }}</span>
                 <a
                   v-if="getModelDocUrl(model)"
                   :href="getModelDocUrl(model)"
-                  class="text-muted-foreground hover:text-primary"
+                  class="shrink-0 text-muted-foreground/50 hover:text-primary"
                   target="_blank"
                   @click.stop
                 >
-                  <ExternalLink class="h-3 w-3" />
+                  <ExternalLink class="h-2.5 w-2.5" />
                 </a>
               </div>
 
-              <div class="mt-0.5 flex flex-wrap gap-1">
+              <div
+                v-if="modelSupportsThinking(model) || modelSupportsReferenceImage(model) || getModelMaxDuration(model)"
+                class="mt-0.5 flex flex-wrap gap-1"
+              >
                 <span
                   v-if="modelSupportsThinking(model)"
-                  class="rounded bg-purple-100 px-1 py-0.5 text-[9px] text-purple-700 dark:bg-purple-900 dark:text-purple-300"
+                  class="rounded bg-purple-500/10 px-1 py-0.5 text-[9px] text-purple-600 dark:text-purple-400"
                 >思考</span>
                 <span
                   v-if="modelSupportsReferenceImage(model)"
-                  class="rounded bg-cyan-100 px-1 py-0.5 text-[9px] text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300"
+                  class="rounded bg-cyan-500/10 px-1 py-0.5 text-[9px] text-cyan-600 dark:text-cyan-400"
                 >参考图</span>
                 <span
                   v-if="getModelMaxDuration(model)"
-                  class="rounded bg-gray-100 px-1 py-0.5 text-[9px] text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                  class="rounded bg-muted px-1 py-0.5 text-[9px] text-muted-foreground"
                 >{{ getModelMaxDuration(model) }}s</span>
               </div>
             </div>
