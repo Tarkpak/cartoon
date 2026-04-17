@@ -44,6 +44,40 @@ const SHOT_TYPE_LABEL_MAP: Record<string, string> = {
   detail: '细节特写'
 }
 
+const DEFAULT_CAMERA_MOVEMENT = 'static'
+const VALID_CAMERA_MOVEMENT = new Set([
+  'static',
+  'push',
+  'pull',
+  'pan_left',
+  'pan_right',
+  'tilt_up',
+  'tilt_down',
+  'track',
+  'dolly',
+  'zoom_in',
+  'zoom_out',
+  'crane',
+  'handheld',
+  'arc'
+])
+const CAMERA_MOVEMENT_LABEL_MAP: Record<string, string> = {
+  static: '固定镜头',
+  push: '缓慢推近',
+  pull: '缓慢拉远',
+  pan_left: '镜头左摇',
+  pan_right: '镜头右摇',
+  tilt_up: '镜头上摇',
+  tilt_down: '镜头下摇',
+  track: '跟随镜头',
+  dolly: '移镜头',
+  zoom_in: '变焦推近',
+  zoom_out: '变焦拉远',
+  crane: '升降镜头',
+  handheld: '手持镜头',
+  arc: '环绕镜头'
+}
+
 function normalizeSceneDuration(rawDuration: unknown): number {
   const numericDuration = typeof rawDuration === 'number'
     ? rawDuration
@@ -101,6 +135,39 @@ function normalizeShotType(rawShotType: unknown, fallbackText = ''): string {
   }
 
   return inferShotTypeFromText(fallbackText)
+}
+
+function inferCameraMovementFromText(text: string): string {
+  const value = text.toLowerCase()
+
+  if (/环绕|arc/.test(value)) return 'arc'
+  if (/手持|handheld/.test(value)) return 'handheld'
+  if (/升降|crane/.test(value)) return 'crane'
+  if (/变焦拉|zoom\s*out/.test(value)) return 'zoom_out'
+  if (/变焦推|zoom\s*in/.test(value)) return 'zoom_in'
+  if (/移镜|dolly/.test(value)) return 'dolly'
+  if (/跟随|跟镜|track/.test(value)) return 'track'
+  if (/下摇|tilt\s*down/.test(value)) return 'tilt_down'
+  if (/上摇|tilt\s*up/.test(value)) return 'tilt_up'
+  if (/右摇|pan\s*right/.test(value)) return 'pan_right'
+  if (/左摇|pan\s*left/.test(value)) return 'pan_left'
+  if (/拉远|缓慢拉|pull/.test(value)) return 'pull'
+  if (/推近|缓慢推|push/.test(value)) return 'push'
+  if (/固定|static/.test(value)) return 'static'
+
+  return DEFAULT_CAMERA_MOVEMENT
+}
+
+function normalizeCameraMovement(rawCameraMovement: unknown, fallbackText = ''): string {
+  if (typeof rawCameraMovement === 'string') {
+    const value = rawCameraMovement.trim().toLowerCase()
+    if (VALID_CAMERA_MOVEMENT.has(value)) return value
+    if (value) {
+      return inferCameraMovementFromText(value)
+    }
+  }
+
+  return inferCameraMovementFromText(fallbackText)
 }
 
 function formatTimelineSeconds(seconds: number): string {
@@ -215,7 +282,9 @@ function buildFormattedTimelineScript(data: ParsedScript): {
       narrationText
     ].filter(Boolean).join(' ')
 
-    return `${formatTimelineSeconds(start)}-${formatTimelineSeconds(end)}秒：，${shotLabel}，固定镜头。${content}`
+    const cameraMovementLabel = CAMERA_MOVEMENT_LABEL_MAP[scene.cameraMovement || DEFAULT_CAMERA_MOVEMENT] || CAMERA_MOVEMENT_LABEL_MAP[DEFAULT_CAMERA_MOVEMENT]
+
+    return `${formatTimelineSeconds(start)}-${formatTimelineSeconds(end)}秒：，${shotLabel}，${cameraMovementLabel}。${content}`
   })
 
   return {
@@ -261,6 +330,7 @@ function normalizeParsedScriptOutput(output: unknown): unknown {
         ? sceneObj.id
         : `scene_${String(index + 1).padStart(3, '0')}`,
       shotType: normalizeShotType(sceneObj.shotType ?? sceneObj.shot_type, fallbackText),
+      cameraMovement: normalizeCameraMovement(sceneObj.cameraMovement ?? sceneObj.camera_movement, fallbackText),
       duration: normalizeSceneDuration(sceneObj.duration),
       setting: {
         ...rawSetting,

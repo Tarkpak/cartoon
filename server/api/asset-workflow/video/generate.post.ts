@@ -488,6 +488,12 @@ function resolveShotLabels(segmentCount: number): string[] {
   return ['中景', '近景', '中景', '近景']
 }
 
+function resolveCameraMovementLabels(segmentCount: number): string[] {
+  if (segmentCount <= 2) return ['固定镜头', '缓慢推近']
+  if (segmentCount === 3) return ['固定镜头', '缓慢推近', '固定镜头']
+  return ['固定镜头', '缓慢推近', '固定镜头', '缓慢推近']
+}
+
 function buildReferenceMaterialLines(options: {
   primaryReferenceBinding?: ReferenceAssetBinding
   multiReferenceBindings: ReferenceAssetBinding[]
@@ -564,10 +570,12 @@ function buildStructuredPromptSections(options: {
   const timeRanges = splitTimeline(duration, segmentCount)
   const beatTexts = buildTimelineBeats({ scene, segmentCount })
   const shotLabels = resolveShotLabels(segmentCount)
+  const cameraMovementLabels = resolveCameraMovementLabels(segmentCount)
   const timelineLines = timeRanges.map((range, index) => {
     const shot = shotLabels[index] || '中景'
+    const camera = cameraMovementLabels[index] || '固定镜头'
     const beat = beatTexts[index] || '保持动作与镜头自然过渡。'
-    return `${range.start}-${range.end}s: 【${shot}】${beat}`
+    return `${range.start}-${range.end}秒：，${shot}，${camera}。${beat}`
   })
   const referenceMaterialLines = buildReferenceMaterialLines({
     primaryReferenceBinding,
