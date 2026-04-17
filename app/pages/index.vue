@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileText, User, Video, FolderOpen, Sparkles, Users, Clapperboard, ScrollText } from 'lucide-vue-next'
+import { FileText, FolderOpen, Sparkles, Layers3, Film, ScrollText, Settings } from 'lucide-vue-next'
 
 definePageMeta({
   layout: 'default'
@@ -17,28 +17,28 @@ const features = [
     icon: FileText,
     title: '剧本解析',
     description: 'Gemini 3 Pro 智能解析小说文本，自动提取场景、角色、对话',
-    path: '/workbench'
+    path: '/projects'
   },
   {
-    icon: User,
-    title: '角色生成',
-    description: 'Nano Banana Pro 生成4K角色立绘，支持多表情变体',
-    path: '/characters'
+    icon: Layers3,
+    title: '资产准备',
+    description: '统一管理角色、环境和道具素材，保持全片视觉一致性',
+    path: '/projects'
   },
   {
-    icon: Video,
-    title: '视频生成',
-    description: 'Veo 3.1 首尾帧插值技术，生成连贯的8秒动态视频',
-    path: '/video'
+    icon: Film,
+    title: '场景成片',
+    description: '批量生成场景视频并导出最终成片，直接走现有资产工作流',
+    path: '/projects'
   }
 ]
 
 // 快捷入口数据
 const quickActions = [
   { icon: FolderOpen, label: '项目管理', path: '/projects' },
-  { icon: Sparkles, label: '开始创作', path: '/workbench' },
-  { icon: Users, label: '角色管理', path: '/characters' },
-  { icon: Clapperboard, label: '视频生成', path: '/video' },
+  { icon: Sparkles, label: '开始创作', path: '/projects' },
+  { icon: Layers3, label: '资产工作流', path: '/projects' },
+  { icon: Settings, label: '系统设置', path: '/settings' },
   { icon: ScrollText, label: '模型日志', path: '/model-logs' }
 ]
 </script>
@@ -59,7 +59,7 @@ const quickActions = [
           <Button
             size="lg"
             class="font-semibold px-8"
-            @click="navigateTo('/workbench')"
+            @click="navigateTo('/projects')"
           >
             开始创作
           </Button>

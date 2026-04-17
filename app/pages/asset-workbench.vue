@@ -1,123 +1,48 @@
 <script setup lang="ts">
 import {
-  ArrowLeft,
-  BookOpen,
-  CircleHelp,
-  CheckCircle2,
-  Download,
   Film,
-  Layers3,
-  Loader2,
-  MessageCircle,
-  Merge,
-  Pencil,
-  RefreshCw,
-  Split,
-  Sparkles,
-  Trash2,
-  Upload,
-  X,
-  Users
+  Layers3
 } from 'lucide-vue-next'
-import { useDebounceFn } from '@vueuse/core'
-import type { CharacterData, SceneData } from '~/composables/useWorkbench'
-import { toImageSrc } from '~/lib/media'
-import { CHARACTER_REGENERATION_DEFAULT_PROMPT } from '#shared/constants/character-prompts'
+import type { SceneData } from '~/composables/useAssetWorkbench'
+import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
+import type {
+  AutoStageKey,
+  CharacterRoleOption,
+  QueueItem
+} from '~/lib/asset-workbench-types'
+import { createPropAssetId } from '~/lib/asset-workbench-types'
+import { getValidAssetIdSet } from '~/lib/asset-workbench-reference-detection'
+import {
+  normalizeToken,
+  uniqueSorted
+} from '~/lib/asset-workbench-strings'
+import {
+  applyAutomaticAssetPlan as buildAutomaticAssetPlan
+} from '~/lib/asset-workbench-auto-plan'
+import { findCharacterByAssetRefId } from '~/lib/asset-workbench-scene-references'
+import {
+  resolveSceneEnvironmentAssetId
+} from '~/lib/asset-workbench-environment'
+import {
+  AUTO_STAGE_HINTS,
+  buildAutoStages
+} from '~/lib/asset-workbench-progress'
+import {
+  buildSceneMentionDescription,
+  resolveSceneDescriptionWithoutAssetMentions
+} from '~/lib/asset-workbench-mentions'
 
 // 资产一致性工作流页面
 definePageMeta({
   layout: 'default'
 })
 
-type AssetTab = 'characters' | 'scenes' | 'props'
-type ConsistencyLevel = 'lock' | 'soft'
-
-type QueueStatus = 'pending' | 'running' | 'done' | 'error'
-type AutoStageKey = 'parse' | 'assets' | 'videos' | 'final'
-type AutoStageStatus = 'pending' | 'running' | 'done'
-
-interface SceneConsistencyConfig {
-  sceneId: string
-  mustReferenceAssetIds: string[]
-  consistencyLevel: ConsistencyLevel
-  continuityNotes: string
-}
-
-interface PropAsset {
-  id: string
-  name: string
-  description: string
-  referenceImage?: string
-}
-
-interface AssetWorkflowMeta {
-  version: number
-  sceneConfigs: Record<string, SceneConsistencyConfig>
-  props: PropAsset[]
-}
-
-interface QueueItem {
-  sceneId: string
-  status: QueueStatus
-  error?: string
-}
-
-interface DisplayAsset {
-  id: string
-  name: string
-  type: 'character' | 'environment' | 'prop'
-  description?: string
-  referenceImage?: string
-}
-
-interface SceneDescriptionMentionItem {
-  token: string
-  asset?: DisplayAsset
-}
-
-interface SceneDescriptionRenderSegment {
-  type: 'text' | 'asset'
-  text?: string
-  asset?: DisplayAsset
-}
-
-interface SceneVideoReferenceAsset {
-  assetId: string
-  name: string
-  type: 'character' | 'prop'
-  image: string
-  source: 'configured' | 'fallback'
-}
-
-interface EnvironmentAssetCard {
-  id: string
-  name: string
-  description?: string
-  referenceImage?: string
-  sceneIds: string[]
-  sceneTitles: string[]
-  representativeSceneId: string
-  frameStatus: 'pending' | 'generating' | 'done' | 'error'
-}
-
-interface SceneChatMentionCandidate {
-  asset: DisplayAsset
-  token: string
-  searchText: string
-}
-
-interface SceneChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  assetIds: string[]
-  createdAt: number
-}
-
 const route = useRoute()
 const router = useRouter()
 const { resolveStyleById, loadStylePresets } = useStylePresets()
 void loadStylePresets()
+
+const MAX_ASSET_UPLOAD_SIZE = 20 * 1024 * 1024
 
 const {
   projectId,
@@ -145,1212 +70,81 @@ const {
   mergeAllVideos,
   mergeStatus,
   finalVideo
-} = useWorkbench()
+} = useAssetWorkbench()
 
-function resolveSceneReferenceImage(scene: SceneData): string | undefined {
-  return scene.firstFrame || scene.lastFrame
-}
-
-function normalizeEnvironmentToken(value?: string): string {
-  return (value || '').trim().toLowerCase()
-}
-
-const LOCATION_STYLE_PREFIX_REGEX = /^(?:豪华|奢华|现代|陈旧|老旧|破旧|残破|高端|高级|复古|阴暗|明亮|干净|凌乱|宽敞|狭窄|未来感|futuristic|modern|luxury|run[- ]?down|dilapidated|abandoned|vintage|old)\s*/i
-const LOCATION_SUBSPACE_SUFFIXES = [
-  '走廊',
-  '长廊',
-  '大厅',
-  '前台',
-  '办公室',
-  '病房',
-  '病区',
-  '手术室',
-  '诊室',
-  '急诊室',
-  '候诊区',
-  '会议室',
-  '休息室',
-  '楼梯间',
-  '电梯间',
-  '停车场',
-  '天台',
-  '仓库',
-  '门厅',
-  '通道',
-  '后巷',
-  '教室',
-  '宿舍',
-  '食堂',
-  '实验室',
-  '审讯室',
-  '指挥室',
-  '机房',
-  '车间',
-  '包厢',
-  '吧台',
-  '客厅',
-  '卧室',
-  '厨房',
-  '浴室',
-  '阳台',
-  '庭院'
-]
-const LOCATION_ANCHOR_KEYWORDS = [
-  '医院',
-  '诊所',
-  '医务室',
-  '警察局',
-  '警局',
-  '派出所',
-  '学校',
-  '校园',
-  '大学',
-  '中学',
-  '小学',
-  '公司',
-  '写字楼',
-  '工厂',
-  '商场',
-  '酒店',
-  '旅馆',
-  '餐厅',
-  '咖啡馆',
-  '酒吧',
-  '公寓',
-  '别墅',
-  '车站',
-  '地铁站',
-  '火车站',
-  '机场',
-  '码头',
-  '港口',
-  '法庭',
-  '监狱',
-  '图书馆'
-]
-const LOCATION_ENGLISH_ANCHORS = [
-  { keyword: 'hospital', root: 'hospital' },
-  { keyword: 'clinic', root: 'clinic' },
-  { keyword: 'police station', root: 'police station' },
-  { keyword: 'school', root: 'school' },
-  { keyword: 'campus', root: 'campus' },
-  { keyword: 'office', root: 'office' },
-  { keyword: 'factory', root: 'factory' },
-  { keyword: 'mall', root: 'mall' },
-  { keyword: 'hotel', root: 'hotel' },
-  { keyword: 'restaurant', root: 'restaurant' },
-  { keyword: 'apartment', root: 'apartment' },
-  { keyword: 'station', root: 'station' },
-  { keyword: 'airport', root: 'airport' },
-  { keyword: 'port', root: 'port' },
-  { keyword: 'court', root: 'court' },
-  { keyword: 'prison', root: 'prison' },
-  { keyword: 'library', root: 'library' }
-]
-
-function stripLocationStylePrefix(value: string): string {
-  let output = value.trim()
-  while (LOCATION_STYLE_PREFIX_REGEX.test(output)) {
-    output = output.replace(LOCATION_STYLE_PREFIX_REGEX, '').trim()
-  }
-  return output
-}
-
-function resolveEnvironmentRootFromLocation(rawLocation?: string): string {
-  if (!rawLocation) return ''
-
-  let normalized = rawLocation
-    .trim()
-    .replace(/[（(][^()（）]{0,24}[)）]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/[，,。.!！？；;]+$/g, '')
-    .trim()
-
-  if (!normalized) return ''
-
-  normalized = stripLocationStylePrefix(normalized)
-  const primary = normalized.split(/[，,。.;；/\\|｜>]+/)[0]?.trim() || normalized
-  const compact = stripLocationStylePrefix(primary)
-
-  for (const keyword of LOCATION_ANCHOR_KEYWORDS) {
-    const index = compact.indexOf(keyword)
-    if (index >= 0) {
-      return compact.slice(0, index + keyword.length).trim()
-    }
-  }
-
-  const compactLower = compact.toLowerCase()
-  for (const anchor of LOCATION_ENGLISH_ANCHORS) {
-    if (compactLower.includes(anchor.keyword)) {
-      return anchor.root
-    }
-  }
-
-  let candidate = compact.replace(/\s+/g, '')
-  for (const suffix of LOCATION_SUBSPACE_SUFFIXES) {
-    if (candidate.endsWith(suffix) && candidate.length > suffix.length) {
-      candidate = candidate.slice(0, -suffix.length)
-      break
-    }
-  }
-
-  candidate = stripLocationStylePrefix(candidate)
-  return candidate || compact
-}
-
-function resolveSceneEnvironmentRoot(scene: SceneData): string {
-  const locationRoot = resolveEnvironmentRootFromLocation(scene.setting?.location)
-  if (locationRoot) return locationRoot
-
-  const titleRoot = resolveEnvironmentRootFromLocation(scene.title)
-  if (titleRoot) return titleRoot
-
-  return ''
-}
-
-function buildSceneEnvironmentConsistencyContext(scene: SceneData): {
-  environmentRoot: string
-  anchorSceneId?: string
-  anchorSceneTitle?: string
-  anchorLocation?: string
-  anchorDescription?: string
-  siblingLocations?: string[]
-} | undefined {
-  const environmentRoot = resolveSceneEnvironmentRoot(scene)
-  if (!environmentRoot) return undefined
-
-  const relatedScenes = scenes.value.filter(item => resolveSceneEnvironmentRoot(item) === environmentRoot)
-  const anchorScene = relatedScenes[0] || scene
-  const siblingLocations = uniqueSorted(
-    relatedScenes
-      .map(item => item.setting?.location?.trim() || '')
-      .filter(Boolean)
-  ).slice(0, 8)
-
-  return {
-    environmentRoot,
-    anchorSceneId: anchorScene.id,
-    anchorSceneTitle: anchorScene.title?.trim() || anchorScene.id,
-    anchorLocation: anchorScene.setting?.location?.trim() || undefined,
-    anchorDescription: anchorScene.description?.trim() || undefined,
-    siblingLocations: siblingLocations.length > 0 ? siblingLocations : undefined
-  }
-}
-
-function buildSceneEnvironmentKey(scene: SceneData): string {
-  const location = normalizeEnvironmentToken(scene.setting?.location)
-  const timeOfDay = normalizeEnvironmentToken(scene.setting?.timeOfDay)
-  const weather = normalizeEnvironmentToken(scene.setting?.weather)
-
-  if (!location && !timeOfDay && !weather) return ''
-  return `${location}||${timeOfDay}||${weather}`
-}
-
-function resolveSceneEnvironmentAssetKey(scene: SceneData): string {
-  const structuredKey = buildSceneEnvironmentKey(scene)
-  if (structuredKey) return structuredKey
-
-  return `scene:${scene.id}`
-}
-
-function resolveSceneEnvironmentAssetId(scene: SceneData): string {
-  return `env:${resolveSceneEnvironmentAssetKey(scene)}`
-}
-
-function resolveSceneEnvironmentLabel(scene: SceneData): string {
-  const location = scene.setting?.location?.trim() || ''
-  const timeOfDay = scene.setting?.timeOfDay?.trim() || ''
-  const weather = scene.setting?.weather?.trim() || ''
-  const mood = scene.setting?.mood?.trim() || ''
-
-  const parts = [location, timeOfDay, weather].filter(Boolean)
-  if (parts.length > 0) return parts.join(' / ')
-  if (mood) return mood
-  if (scene.title?.trim()) return scene.title.trim()
-  return `环境 ${scene.id.slice(-4)}`
-}
-
-function findReusableEnvironmentImage(scene: SceneData): string | undefined {
-  const targetKey = resolveSceneEnvironmentAssetKey(scene)
-  if (!targetKey) return undefined
-
-  for (const candidate of scenes.value) {
-    if (candidate.id === scene.id) continue
-    const key = resolveSceneEnvironmentAssetKey(candidate)
-    if (key !== targetKey) continue
-
-    const reference = resolveSceneReferenceImage(candidate)
-    if (reference && candidate.frameStatus === 'done') {
-      return reference
-    }
-  }
-
-  return undefined
-}
-
-const assetTab = ref<AssetTab>('characters')
 const selectedSceneId = ref<string>('')
 
 const sceneConfigs = ref<Record<string, SceneConsistencyConfig>>({})
 const propAssets = ref<PropAsset[]>([])
-const newPropName = ref('')
-const newPropDescription = ref('')
-
-const loadingWorkflowMeta = ref(false)
-const savingWorkflowMeta = ref(false)
-const workflowMetaReady = ref(false)
-const hydratingWorkflowMeta = ref(false)
-const workflowError = ref<string | null>(null)
 
 const batchRunning = ref(false)
 const queueItems = ref<QueueItem[]>([])
-const autoRunning = ref(false)
-const autoRunError = ref<string | null>(null)
-const autoRunCurrentStage = ref<AutoStageKey | null>(null)
-const activeAutoStage = ref<AutoStageKey>('parse')
 const sceneEditDialogOpen = ref(false)
 const editingScene = ref<SceneData | null>(null)
-const imagePreviewOpen = ref(false)
-const imagePreviewSrc = ref('')
-const imagePreviewAlt = ref('')
-const editingCharacterId = ref<string | null>(null)
-const characterRegenerateDialogOpen = ref(false)
-const characterRegenerateTargetId = ref<string | null>(null)
-const characterRegeneratePrompt = ref(CHARACTER_REGENERATION_DEFAULT_PROMPT)
-const characterRegenerateError = ref<string | null>(null)
-const environmentRegenerateDialogOpen = ref(false)
-const environmentRegenerateTargetId = ref<string | null>(null)
-const environmentRegeneratePrompt = ref('')
-const environmentRegenerateError = ref<string | null>(null)
-const uploadingCharacterId = ref<string | null>(null)
-const uploadingEnvironmentAssetId = ref<string | null>(null)
-const uploadingPropId = ref<string | null>(null)
-const sceneChatOpenSceneId = ref<string | null>(null)
-const sceneChatMessages = ref<Record<string, SceneChatMessage[]>>({})
-const sceneChatComposerText = ref('')
-const sceneChatComposerAssetIds = ref<string[]>([])
-const sceneChatMentionOpen = ref(false)
-const sceneChatMentionQuery = ref('')
-const sceneChatMentionStart = ref<number | null>(null)
-const sceneChatMentionActiveIndex = ref(0)
-const sceneChatMentionListRef = ref<HTMLDivElement | null>(null)
-const sceneChatUploading = ref(false)
-const sceneChatApplying = ref(false)
-const sceneChatError = ref<string | null>(null)
-const sceneChatInputRef = ref<HTMLTextAreaElement | null>(null)
-const characterEditDraft = reactive({
-  id: '',
-  name: '',
-  appearance: '',
-  role: 'supporting'
-})
 
-watch(characterRegenerateDialogOpen, (open) => {
-  if (open) return
-  characterRegenerateTargetId.value = null
-  characterRegenerateError.value = null
-})
-
-watch(environmentRegenerateDialogOpen, (open) => {
-  if (open) return
-  environmentRegenerateTargetId.value = null
-  environmentRegenerateError.value = null
-})
-
-watch(sceneChatOpenSceneId, (sceneId) => {
-  sceneChatComposerText.value = ''
-  sceneChatComposerAssetIds.value = []
-  sceneChatMentionOpen.value = false
-  sceneChatMentionQuery.value = ''
-  sceneChatMentionStart.value = null
-  sceneChatMentionActiveIndex.value = 0
-  sceneChatError.value = null
-
-  if (!sceneId) return
-  if (sceneChatMessages.value[sceneId]) return
-
-  sceneChatMessages.value[sceneId] = [
-    {
-      id: `scene_chat_msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      role: 'assistant',
-      content: '请输入二次修改指令，支持 @资产 mention，也可以上传图片资产后一起调整场景。',
-      assetIds: [],
-      createdAt: Date.now()
-    }
-  ]
-})
-
-const selectedScene = computed<SceneData | null>(() => {
-  if (scenes.value.length === 0) return null
-
-  const matched = scenes.value.find(scene => scene.id === selectedSceneId.value)
-  if (matched) return matched
-
-  return scenes.value[0] || null
-})
-
-const characterRegenerateTarget = computed(() => {
-  if (!characterRegenerateTargetId.value) return null
-  return characters.value.find(char => char.id === characterRegenerateTargetId.value) || null
-})
-
-const environmentRegenerateTarget = computed(() => {
-  if (!environmentRegenerateTargetId.value) return null
-  return environmentAssetCards.value.find(asset => asset.id === environmentRegenerateTargetId.value) || null
-})
-
-const characterAssets = computed<DisplayAsset[]>(() => {
-  return characters.value.map(char => ({
-    id: `char:${char.id}`,
-    name: char.name,
-    type: 'character' as const,
-    description: char.appearance,
-    referenceImage: char.baseImage
-  }))
-})
-
-const environmentAssetCards = computed<EnvironmentAssetCard[]>(() => {
-  const map = new Map<string, EnvironmentAssetCard>()
-
-  for (const scene of scenes.value) {
-    const assetId = resolveSceneEnvironmentAssetId(scene)
-    const existing = map.get(assetId)
-    const sceneImage = resolveSceneReferenceImage(scene)
-
-    if (!existing) {
-      map.set(assetId, {
-        id: assetId,
-        name: resolveSceneEnvironmentLabel(scene),
-        description: scene.setting?.mood?.trim() || resolveSceneDescriptionWithoutAssetMentions(scene.description)?.trim() || undefined,
-        referenceImage: sceneImage,
-        sceneIds: [scene.id],
-        sceneTitles: [scene.title || scene.id],
-        representativeSceneId: scene.id,
-        frameStatus: scene.frameStatus
-      })
-      continue
-    }
-
-    existing.sceneIds.push(scene.id)
-    existing.sceneTitles.push(scene.title || scene.id)
-
-    if (!existing.referenceImage && sceneImage) {
-      existing.referenceImage = sceneImage
-      existing.representativeSceneId = scene.id
-    }
-
-    if (existing.frameStatus !== 'generating' && scene.frameStatus === 'generating') {
-      existing.frameStatus = 'generating'
-    } else if (
-      existing.frameStatus !== 'generating'
-      && existing.frameStatus !== 'done'
-      && scene.frameStatus === 'done'
-    ) {
-      existing.frameStatus = 'done'
-    } else if (existing.frameStatus === 'pending' && scene.frameStatus === 'error') {
-      existing.frameStatus = 'error'
-    }
-  }
-
-  return Array.from(map.values())
-})
-
-const environmentAssets = computed<DisplayAsset[]>(() => {
-  return environmentAssetCards.value.map(asset => ({
-    id: asset.id,
-    name: asset.name,
-    type: 'environment' as const,
-    description: asset.description,
-    referenceImage: asset.referenceImage
-  }))
-})
-
-const propDisplayAssets = computed<DisplayAsset[]>(() => {
-  return propAssets.value.map(prop => ({
-    id: `prop:${prop.id}`,
-    name: prop.name,
-    type: 'prop' as const,
-    description: prop.description,
-    referenceImage: prop.referenceImage
-  }))
-})
-
-const allAssets = computed<DisplayAsset[]>(() => {
-  return [
-    ...characterAssets.value,
-    ...environmentAssets.value,
-    ...propDisplayAssets.value
-  ]
-})
-
-const sceneChatCurrentMessages = computed<SceneChatMessage[]>(() => {
-  const sceneId = sceneChatOpenSceneId.value
-  if (!sceneId) return []
-  return sceneChatMessages.value[sceneId] || []
-})
-
-const sceneChatComposerAssets = computed<DisplayAsset[]>(() => {
-  const assetMap = new Map(allAssets.value.map(asset => [asset.id, asset] as const))
-  return sceneChatComposerAssetIds.value
-    .map(assetId => assetMap.get(assetId))
-    .filter((asset): asset is DisplayAsset => !!asset)
-})
-
-const sceneChatMentionCandidates = computed<SceneChatMentionCandidate[]>(() => {
-  const query = sceneChatMentionQuery.value.trim().toLowerCase()
-  const tokenMap = resolveAssetMentionTokenMap()
-
-  return allAssets.value
-    .slice()
-    .sort((left, right) => {
-      const typeSort = resolveDisplayAssetTypeOrder(left.type) - resolveDisplayAssetTypeOrder(right.type)
-      if (typeSort !== 0) return typeSort
-      return left.name.localeCompare(right.name)
-    })
-    .map((asset) => {
-      const token = tokenMap.get(asset.id) || ''
-      return {
-        asset,
-        token,
-        searchText: `${asset.name} ${resolveDisplayAssetTypeLabel(asset.type)} ${asset.id} ${token}`.toLowerCase()
-      }
-    })
-    .filter(item => !!item.token)
-    .filter((item) => {
-      if (!query) return true
-      return item.searchText.includes(query)
-    })
-})
-
-watch(sceneChatMentionCandidates, (candidates) => {
-  if (!sceneChatMentionOpen.value) return
-
-  if (candidates.length === 0) {
-    sceneChatMentionOpen.value = false
-    sceneChatMentionActiveIndex.value = 0
-    return
-  }
-
-  if (sceneChatMentionActiveIndex.value >= candidates.length) {
-    sceneChatMentionActiveIndex.value = candidates.length - 1
-  }
-
-  syncSceneChatMentionActiveItemIntoView()
-})
-
-const queueSummary = computed(() => {
-  const total = queueItems.value.length
-  const running = queueItems.value.filter(item => item.status === 'running').length
-  const done = queueItems.value.filter(item => item.status === 'done').length
-  const error = queueItems.value.filter(item => item.status === 'error').length
-
-  return { total, running, done, error }
-})
-
-const assetsReady = computed(() => {
-  if (characters.value.length === 0) return true
-  return characters.value.every(character => !!character.baseImage)
-})
-
-const characterReadyCount = computed(() => {
-  return characters.value.filter(char => !!char.baseImage).length
-})
-
-const characterGeneratingCount = computed(() => {
-  return characters.value.filter(char => !!char.generating).length
-})
-
-const characterMissingCount = computed(() => {
-  return Math.max(
-    characters.value.length - characterReadyCount.value - characterGeneratingCount.value,
-    0
-  )
-})
-
-const assetsAllReady = computed(() => {
-  if (characters.value.length === 0) return true
-  return characterMissingCount.value === 0 && characterGeneratingCount.value === 0
-})
-
-const assetsPrimaryActionLabel = computed(() => {
-  return assetsAllReady.value ? '检查资产状态' : '自动补齐缺失资产'
-})
-
-const workflowStylePrompt = computed(() => {
-  const styleId = selectedStyleId.value || projectStyleId.value
-  if (!styleId) return ''
-
-  const style = resolveStyleById(styleId)
-  if (!style) return styleId
-
-  return `${style.name}, ${style.prompt} style`
-})
-
-function resolveAutoStageStatus(
-  key: AutoStageKey,
-  done: boolean
-): AutoStageStatus {
-  if (done) return 'done'
-  if (autoRunning.value && autoRunCurrentStage.value === key) return 'running'
-  return 'pending'
-}
-
-const autoStages = computed(() => {
-  const parseDone = scenes.value.length > 0
-  const videosDone = queueSummary.value.total > 0
-    && queueSummary.value.done === queueSummary.value.total
-
-  return [
-    {
-      key: 'parse' as const,
-      label: '剧本解析',
-      status: resolveAutoStageStatus('parse', parseDone)
-    },
-    {
-      key: 'assets' as const,
-      label: '资产准备',
-      status: resolveAutoStageStatus('assets', parseDone && assetsReady.value)
-    },
-    {
-      key: 'videos' as const,
-      label: '场景视频',
-      status: resolveAutoStageStatus('videos', videosDone)
-    },
-    {
-      key: 'final' as const,
-      label: '最终成片',
-      status: resolveAutoStageStatus('final', !!finalVideo.value?.videoData)
-    }
-  ]
-})
-
-const stageHints: Record<AutoStageKey, string> = {
-  parse: '粘贴剧本后点击解析，系统会自动拆分场景并补齐资产规划。',
-  assets: '默认自动补齐资产；也支持用户手动上传角色图、环境图、道具图并随时替换。',
-  videos: '批量生成场景视频并自动重试失败场景一次；生成效果不理想时可拆分或合并场景后再重试。',
-  final: '合成并下载最终视频（可选）。'
-}
-
-function inferActiveAutoStage(): AutoStageKey {
-  if (scenes.value.length === 0) return 'parse'
-  if (!assetsReady.value) return 'assets'
-  if (queueSummary.value.total === 0 || queueSummary.value.done < queueSummary.value.total) return 'videos'
-  return 'final'
-}
-
-function selectAutoStage(stage: AutoStageKey) {
-  activeAutoStage.value = stage
-}
-
-const debouncedSaveWorkflowMeta = useDebounceFn(() => {
-  void saveWorkflowMeta()
-}, 700)
-
-const NARRATION_SPEAKERS = [
-  '旁白',
-  'narration',
-  'voiceover',
-  '画外音',
-  'os',
-  'vo',
-  '内心独白'
-]
-
-interface SceneCharacterCandidate {
-  primaryName: string
-  aliases: string[]
-  appearance?: string
-}
-
-function normalizeToken(value?: string): string {
-  if (!value) return ''
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[\s\u3000]/g, '')
-    .replace(/[^\p{L}\p{N}\u4E00-\u9FFF]/gu, '')
-}
-
-function resolveCharacterRoleLabel(role?: string): string {
-  if (role === 'protagonist') return '主角'
-  if (role === 'antagonist') return '反派'
-  if (role === 'supporting') return '配角'
-  if (role === 'extra') return '群演'
-  return role || '角色'
-}
-
-function resolveCharacterSceneCount(character: CharacterData): number {
-  const target = normalizeToken(character.name)
-  if (!target) return 0
-
-  return scenes.value.filter((scene) => {
-    return scene.characters.some((sceneCharacter) => {
-      const candidate = normalizeToken(sceneCharacter.name)
-      if (!candidate) return false
-      return candidate === target || candidate.includes(target) || target.includes(candidate)
-    })
-  }).length
-}
-
-const characterRoleOptions = [
+const characterRoleOptions: CharacterRoleOption[] = [
   { value: 'protagonist', label: '主角' },
   { value: 'antagonist', label: '反派' },
   { value: 'supporting', label: '配角' },
   { value: 'extra', label: '群演' }
 ]
 
-const MAX_ASSET_UPLOAD_SIZE = 20 * 1024 * 1024
+const {
+  selectedScene,
+  environmentAssetCards,
+  environmentAssets,
+  allAssets,
+  workflowStylePrompt,
+  queueSummary,
+  assetsReady,
+  characterReadyCount,
+  characterGeneratingCount,
+  characterMissingCount,
+  assetsPrimaryActionLabel,
+  resolveDisplayAssetTypeLabel,
+  resolveEnvironmentSceneSummary,
+  resolveSceneReferenceImage,
+  resolveAssetMentionTokenMap,
+  resolveAssetByMentionTokenMap,
+  resolveSceneDescriptionSecondaryMentionItems,
+  resolveSceneDescriptionRenderSegments,
+  resolveDisplayAssetById,
+  synchronizeQueueItems,
+  isSceneBusy,
+  isScenePreparing,
+  resolveSceneVideoBadge,
+  resolveEnvironmentCard,
+  resolveEnvironmentRepresentativeScene,
+  hasEnvironmentRepresentativeScene
+} = useAssetWorkbenchPageState({
+  scenes,
+  characters,
+  propAssets,
+  sceneConfigs,
+  selectedSceneId,
+  selectedStyleId,
+  projectStyleId,
+  queueItems,
+  resolveStyleById,
+  resolveSceneDescriptionWithoutAssetMentions,
+  uniqueSorted
+})
 
-function hashForDomId(value: string): string {
-  let hash = 0
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) >>> 0
-  }
-  return hash.toString(36)
-}
-
-function buildUploadInputId(type: 'char' | 'env' | 'prop', rawId: string): string {
-  const normalized = rawId
-    .toLowerCase()
-    .replace(/[^a-zA-Z0-9_-]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 40)
-  const suffix = hashForDomId(rawId)
-  return `${type}_upload_${normalized || 'asset'}_${suffix}`
-}
-
-function triggerUploadInput(type: 'char' | 'env' | 'prop', rawId: string) {
-  if (typeof document === 'undefined') return
-  const inputId = buildUploadInputId(type, rawId)
-  const input = document.getElementById(inputId) as HTMLInputElement | null
-  input?.click()
-}
-
-function resetFileInput(event: Event) {
-  const input = event.target as HTMLInputElement | null
-  if (input) {
-    input.value = ''
-  }
-}
-
-async function fileToDataUrl(file: File): Promise<string> {
-  return await new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onerror = () => {
-      reject(new Error('读取图片文件失败，请重试'))
-    }
-    reader.onload = () => {
-      if (typeof reader.result !== 'string' || !reader.result.startsWith('data:image/')) {
-        reject(new Error('仅支持图片文件上传'))
-        return
-      }
-      resolve(reader.result)
-    }
-    reader.readAsDataURL(file)
-  })
-}
-
-async function uploadAssetImage(source: string, prefix: string): Promise<string> {
-  const response = await $fetch<{
-    success: boolean
-    imageUrl?: string
-  }>('/api/asset-workflow/upload-image', {
-    method: 'POST',
-    body: {
-      imageData: source,
-      prefix
-    }
-  })
-
-  if (!response.success || !response.imageUrl) {
-    throw new Error('图片上传失败，请稍后重试')
-  }
-
-  return response.imageUrl
-}
-
-async function handleCharacterImageUpload(characterId: string, event: Event) {
-  const input = event.target as HTMLInputElement | null
-  const file = input?.files?.[0]
-  if (!file) {
-    resetFileInput(event)
-    return
-  }
-
-  if (!file.type.startsWith('image/')) {
-    resetFileInput(event)
-    autoRunError.value = '仅支持上传图片文件'
-    return
-  }
-
-  if (file.size > MAX_ASSET_UPLOAD_SIZE) {
-    resetFileInput(event)
-    autoRunError.value = '图片大小不能超过 20MB'
-    return
-  }
-
-  const target = characters.value.find(char => char.id === characterId)
-  if (!target) {
-    resetFileInput(event)
-    return
-  }
-
-  uploadingCharacterId.value = characterId
-  autoRunError.value = null
-
-  try {
-    const dataUrl = await fileToDataUrl(file)
-    const imageUrl = await uploadAssetImage(dataUrl, `char_${target.id}`)
-    target.baseImage = imageUrl
-    await saveProject()
-  } catch (error) {
-    autoRunError.value = resolveUiError(error, '角色图片上传失败')
-  } finally {
-    uploadingCharacterId.value = null
-    resetFileInput(event)
-  }
-}
-
-async function handleEnvironmentImageUpload(assetId: string, event: Event) {
-  const input = event.target as HTMLInputElement | null
-  const file = input?.files?.[0]
-  if (!file) {
-    resetFileInput(event)
-    return
-  }
-
-  if (!file.type.startsWith('image/')) {
-    resetFileInput(event)
-    autoRunError.value = '仅支持上传图片文件'
-    return
-  }
-
-  if (file.size > MAX_ASSET_UPLOAD_SIZE) {
-    resetFileInput(event)
-    autoRunError.value = '图片大小不能超过 20MB'
-    return
-  }
-
-  const asset = resolveEnvironmentCard(assetId)
-  if (!asset) {
-    resetFileInput(event)
-    return
-  }
-
-  uploadingEnvironmentAssetId.value = assetId
-  autoRunError.value = null
-
-  try {
-    const dataUrl = await fileToDataUrl(file)
-    const imageUrl = await uploadAssetImage(dataUrl, `env_${asset.sceneIds[0] || assetId}`)
-
-    for (const sceneId of asset.sceneIds) {
-      const scene = scenes.value.find(item => item.id === sceneId)
-      if (!scene) continue
-
-      scene.firstFrame = imageUrl
-      scene.lastFrame = undefined
-      scene.frameStatus = 'done'
-      scene.frameError = undefined
-      scene.videoUrl = undefined
-      scene.videoStatus = 'pending'
-      scene.videoError = undefined
-    }
-
+const {
+  workflowMetaReady,
+  hydratingWorkflowMeta,
+  loadWorkflowMeta,
+  saveWorkflowMeta,
+  scheduleWorkflowMetaSave
+} = useAssetWorkflowMeta({
+  projectId,
+  sceneConfigs,
+  propAssets,
+  onHydrated: () => {
+    synchronizeSceneConfigs()
     synchronizeQueueItems()
-    await saveProject()
-  } catch (error) {
-    autoRunError.value = resolveUiError(error, '环境图片上传失败')
-  } finally {
-    uploadingEnvironmentAssetId.value = null
-    resetFileInput(event)
   }
-}
-
-async function handlePropImageUpload(propId: string, event: Event) {
-  const input = event.target as HTMLInputElement | null
-  const file = input?.files?.[0]
-  if (!file) {
-    resetFileInput(event)
-    return
-  }
-
-  if (!file.type.startsWith('image/')) {
-    resetFileInput(event)
-    autoRunError.value = '仅支持上传图片文件'
-    return
-  }
-
-  if (file.size > MAX_ASSET_UPLOAD_SIZE) {
-    resetFileInput(event)
-    autoRunError.value = '图片大小不能超过 20MB'
-    return
-  }
-
-  const target = propAssets.value.find(item => item.id === propId)
-  if (!target) {
-    resetFileInput(event)
-    return
-  }
-
-  uploadingPropId.value = propId
-  autoRunError.value = null
-
-  try {
-    const dataUrl = await fileToDataUrl(file)
-    const imageUrl = await uploadAssetImage(dataUrl, `prop_${target.id}`)
-    target.referenceImage = imageUrl
-    await saveWorkflowMeta()
-  } catch (error) {
-    autoRunError.value = resolveUiError(error, '道具图片上传失败')
-  } finally {
-    uploadingPropId.value = null
-    resetFileInput(event)
-  }
-}
-
-function resolvePropUsageCount(propId: string): number {
-  const targetAssetId = `prop:${propId}`
-  return scenes.value.filter((scene) => {
-    const refs = sceneConfigs.value[scene.id]?.mustReferenceAssetIds || []
-    return refs.includes(targetAssetId)
-  }).length
-}
-
-function openImagePreview(imageData: string | undefined, alt = '图片预览') {
-  const src = toImageSrc(imageData)
-  if (!src) return
-  imagePreviewSrc.value = src
-  imagePreviewAlt.value = alt
-  imagePreviewOpen.value = true
-}
-
-function uniqueSorted(values: string[]): string[] {
-  return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b))
-}
-
-const SCENE_ASSET_MENTION_MARKER = '[引用资产]'
-const SCENE_ASSET_MENTION_SECTION_REGEX = /\n{0,2}\[引用资产\]\n(?:@[^\n]*\n?)+$/u
-const SCENE_ASSET_MENTION_SECTION_CAPTURE_REGEX = /\n{0,2}\[引用资产\]\n((?:@[^\n]*\n?)+)$/u
-const SCENE_TIMELINE_LINE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?s\s*[：:]/m
-const SCENE_IMAGE_TAG_REGEX = /\[(?:图片|Image\s*#)\s*\d+\]/giu
-const SCENE_LEGACY_AUDIO_CONSTRAINT_REGEX = /\n?\s*不添加字幕，不添加BGM[。.]?\s*$/gu
-
-function resolveDisplayAssetTypeOrder(type: DisplayAsset['type']): number {
-  if (type === 'character') return 1
-  if (type === 'environment') return 2
-  if (type === 'prop') return 3
-  return 9
-}
-
-function resolveDisplayAssetTypeLabel(type: DisplayAsset['type']): string {
-  if (type === 'character') return '角色'
-  if (type === 'environment') return '环境'
-  if (type === 'prop') return '道具'
-  return '资产'
-}
-
-function buildAssetMentionToken(asset: DisplayAsset, duplicatedName: boolean): string {
-  const name = asset.name.trim()
-  if (!name) return ''
-  return duplicatedName
-    ? `@${resolveDisplayAssetTypeLabel(asset.type)}:${name}`
-    : `@${name}`
-}
-
-function resolveAssetMentionTokenMap(): Map<string, string> {
-  const assets = allAssets.value
-    .filter(asset => !!asset.name?.trim())
-    .slice()
-    .sort((left, right) => {
-      const typeSort = resolveDisplayAssetTypeOrder(left.type) - resolveDisplayAssetTypeOrder(right.type)
-      if (typeSort !== 0) return typeSort
-      return left.name.localeCompare(right.name)
-    })
-
-  const nameCounter = new Map<string, number>()
-  for (const asset of assets) {
-    const key = asset.name.trim()
-    nameCounter.set(key, (nameCounter.get(key) || 0) + 1)
-  }
-
-  const tokenMap = new Map<string, string>()
-  for (const asset of assets) {
-    const key = asset.name.trim()
-    const duplicatedName = (nameCounter.get(key) || 0) > 1
-    const token = buildAssetMentionToken(asset, duplicatedName)
-    if (token) {
-      tokenMap.set(asset.id, token)
-    }
-  }
-
-  return tokenMap
-}
-
-function stripSceneAssetMentionSection(description: string): string {
-  return description.replace(SCENE_ASSET_MENTION_SECTION_REGEX, '').trimEnd()
-}
-
-function resolveSceneDescriptionWithoutAssetMentions(raw?: string): string {
-  return stripSceneAssetMentionSection(raw || '')
-    .replace(SCENE_LEGACY_AUDIO_CONSTRAINT_REGEX, '')
-    .trim()
-}
-
-function isTimelineSceneDescription(text: string): boolean {
-  return SCENE_TIMELINE_LINE_REGEX.test(text)
-}
-
-function extractSceneDescriptionMentionTokens(raw?: string): string[] {
-  const text = raw || ''
-  const match = text.match(SCENE_ASSET_MENTION_SECTION_CAPTURE_REGEX)
-  const block = match?.[1] || ''
-  if (!block) return []
-
-  const seen = new Set<string>()
-  const tokens: string[] = []
-  for (const line of block.split('\n')) {
-    const token = line.trim()
-    if (!token.startsWith('@')) continue
-    if (seen.has(token)) continue
-    seen.add(token)
-    tokens.push(token)
-  }
-
-  return tokens
-}
-
-function resolveAssetByMentionTokenMap(): Map<string, DisplayAsset> {
-  const tokenMap = resolveAssetMentionTokenMap()
-  const assetMap = new Map(allAssets.value.map(asset => [asset.id, asset] as const))
-  const mentionMap = new Map<string, DisplayAsset>()
-
-  for (const [assetId, token] of tokenMap) {
-    const asset = assetMap.get(assetId)
-    if (asset) {
-      mentionMap.set(token, asset)
-    }
-  }
-
-  return mentionMap
-}
-
-function resolveSceneMentionTokensWithFallback(scene: SceneData): string[] {
-  const describedTokens = extractSceneDescriptionMentionTokens(scene.description)
-  const tokenMap = resolveAssetMentionTokenMap()
-  const config = sceneConfigs.value[scene.id]
-  const configTokens = config
-    ? uniqueSorted(config.mustReferenceAssetIds)
-        .map(assetId => tokenMap.get(assetId) || '')
-        .filter(Boolean)
-    : []
-
-  if (describedTokens.length === 0) return configTokens
-  if (configTokens.length === 0) return describedTokens
-
-  const merged = new Set<string>()
-  const ordered: string[] = []
-
-  for (const token of describedTokens) {
-    if (merged.has(token)) continue
-    merged.add(token)
-    ordered.push(token)
-  }
-
-  for (const token of configTokens) {
-    if (merged.has(token)) continue
-    merged.add(token)
-    ordered.push(token)
-  }
-
-  return ordered
-}
-
-function resolveSceneDescriptionMentionItems(scene: SceneData): SceneDescriptionMentionItem[] {
-  const mentionMap = resolveAssetByMentionTokenMap()
-  return resolveSceneMentionTokensWithFallback(scene).map((token) => {
-    return {
-      token,
-      asset: mentionMap.get(token)
-    }
-  })
-}
-
-function resolveSceneDescriptionSecondaryMentionItems(scene: SceneData): SceneDescriptionMentionItem[] {
-  const deduplicated = new Set<string>()
-  const items: SceneDescriptionMentionItem[] = []
-
-  for (const item of resolveSceneDescriptionMentionItems(scene)) {
-    if (item.asset?.type === 'character') continue
-
-    const key = item.asset?.id || item.token
-    if (!key || deduplicated.has(key)) continue
-
-    deduplicated.add(key)
-    items.push(item)
-  }
-
-  return items
-}
-
-function normalizeSceneDescriptionForDisplay(text: string): string {
-  if (!text) return ''
-  return text
-    .replace(SCENE_IMAGE_TAG_REGEX, '')
-    .replace(/[ \t]{2,}/g, ' ')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n[ \t]+/g, '\n')
-    .trim()
-}
-
-function escapeRegExpForSceneDescription(raw: string): string {
-  return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function stripRedundantBracketedCharacterTags(text: string, characterNames: string[]): string {
-  if (!text || characterNames.length === 0) return text
-
-  let normalized = text
-  const names = Array.from(new Set(
-    characterNames
-      .map(name => name.trim())
-      .filter(Boolean)
-  ))
-    .sort((left, right) => right.length - left.length)
-
-  for (const name of names) {
-    const escaped = escapeRegExpForSceneDescription(name)
-    const bracketTagPattern = new RegExp(`\\[\\s*${escaped}\\s*\\]`, 'gu')
-    const adjacentDuplicatePattern = new RegExp(`(${escaped})\\s*\\1`, 'gu')
-    normalized = normalized.replace(bracketTagPattern, '')
-    normalized = normalized.replace(adjacentDuplicatePattern, '$1')
-  }
-
-  return normalized
-}
-
-function findNextCharacterMentionIndex(text: string, name: string, start: number): number {
-  if (!text || !name) return -1
-
-  let index = text.indexOf(name, start)
-  while (index >= 0) {
-    const prevChar = index > 0 ? text[index - 1] : ''
-    const nextChar = text[index + name.length] || ''
-    const insideSquareBracket = prevChar === '[' || nextChar === ']'
-    const mentionTokenFragment = prevChar === '@'
-
-    if (!insideSquareBracket && !mentionTokenFragment) {
-      return index
-    }
-
-    index = text.indexOf(name, index + name.length)
-  }
-
-  return -1
-}
-
-function resolveSceneDescriptionCharacterMentionAssets(scene: SceneData): DisplayAsset[] {
-  const assets = resolveSceneDescriptionMentionItems(scene)
-    .map(item => item.asset)
-    .filter((asset): asset is DisplayAsset => {
-      return !!asset
-        && asset.type === 'character'
-        && !!asset.name?.trim()
-    })
-
-  const nameCount = new Map<string, number>()
-  for (const asset of assets) {
-    const key = asset.name.trim()
-    nameCount.set(key, (nameCount.get(key) || 0) + 1)
-  }
-
-  const resolved = new Map<string, DisplayAsset>()
-  for (const asset of assets) {
-    const name = asset.name.trim()
-    if ((nameCount.get(name) || 0) > 1) continue
-    if (!resolved.has(asset.id)) {
-      resolved.set(asset.id, asset)
-    }
-  }
-
-  return Array.from(resolved.values())
-}
-
-function resolveSceneDescriptionRenderSegments(scene: SceneData): SceneDescriptionRenderSegment[] {
-  const characterAssets = resolveSceneDescriptionCharacterMentionAssets(scene)
-    .slice()
-    .sort((left, right) => right.name.length - left.name.length)
-
-  const description = stripRedundantBracketedCharacterTags(
-    normalizeSceneDescriptionForDisplay(
-      resolveSceneDescriptionWithoutAssetMentions(scene.description || '')
-    ),
-    characterAssets.map(asset => asset.name)
-  )
-  if (!description) return []
-
-  if (characterAssets.length === 0) {
-    return [{ type: 'text', text: description }]
-  }
-
-  const segments: SceneDescriptionRenderSegment[] = []
-  let cursor = 0
-
-  while (cursor < description.length) {
-    let nextMatchIndex = -1
-    let nextAsset: DisplayAsset | undefined
-
-    for (const asset of characterAssets) {
-      const name = asset.name.trim()
-      if (!name) continue
-
-      const index = findNextCharacterMentionIndex(description, name, cursor)
-      if (index < 0) continue
-
-      if (
-        nextMatchIndex < 0
-        || index < nextMatchIndex
-        || (index === nextMatchIndex && (nextAsset?.name.length || 0) < name.length)
-      ) {
-        nextMatchIndex = index
-        nextAsset = asset
-      }
-    }
-
-    if (nextMatchIndex < 0 || !nextAsset) {
-      const remain = description.slice(cursor)
-      if (remain) {
-        segments.push({ type: 'text', text: remain })
-      }
-      break
-    }
-
-    if (nextMatchIndex > cursor) {
-      segments.push({
-        type: 'text',
-        text: description.slice(cursor, nextMatchIndex)
-      })
-    }
-
-    segments.push({
-      type: 'asset',
-      asset: nextAsset
-    })
-
-    cursor = nextMatchIndex + nextAsset.name.length
-  }
-
-  return segments.length > 0 ? segments : [{ type: 'text', text: description }]
-}
-
-function buildSceneMentionDescription(baseDescription: string, mentionTokens: string[]): string {
-  const base = resolveSceneDescriptionWithoutAssetMentions(baseDescription)
-  if (isTimelineSceneDescription(base)) return base
-  if (mentionTokens.length === 0) return base
-
-  const section = `${SCENE_ASSET_MENTION_MARKER}\n${mentionTokens.join('\n')}`
-  return base ? `${base}\n\n${section}` : section
-}
+})
 
 function synchronizeSceneDescriptionsWithAssetMentions(): boolean {
   const tokenMap = resolveAssetMentionTokenMap()
@@ -1378,502 +172,6 @@ function synchronizeSceneDescriptionsWithAssetMentions(): boolean {
   return changed
 }
 
-function resolveDisplayAssetById(assetId: string): DisplayAsset | undefined {
-  return allAssets.value.find(asset => asset.id === assetId)
-}
-
-function ensureSceneChatHistory(sceneId: string): SceneChatMessage[] {
-  if (!sceneChatMessages.value[sceneId]) {
-    sceneChatMessages.value[sceneId] = []
-  }
-  return sceneChatMessages.value[sceneId]!
-}
-
-function appendSceneChatMessage(
-  sceneId: string,
-  role: SceneChatMessage['role'],
-  content: string,
-  assetIds: string[] = []
-) {
-  const history = ensureSceneChatHistory(sceneId)
-  history.push({
-    id: `scene_chat_msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    role,
-    content,
-    assetIds: uniqueSorted(assetIds),
-    createdAt: Date.now()
-  })
-}
-
-function closeSceneChatMention() {
-  sceneChatMentionOpen.value = false
-  sceneChatMentionQuery.value = ''
-  sceneChatMentionStart.value = null
-  sceneChatMentionActiveIndex.value = 0
-}
-
-function syncSceneChatMentionActiveItemIntoView() {
-  if (!sceneChatMentionOpen.value) return
-
-  nextTick(() => {
-    const listElement = sceneChatMentionListRef.value
-    if (!listElement) return
-
-    const target = listElement.querySelector<HTMLElement>(
-      `[data-scene-chat-mention-index="${sceneChatMentionActiveIndex.value}"]`
-    )
-    target?.scrollIntoView({ block: 'nearest' })
-  })
-}
-
-function closeSceneChat() {
-  sceneChatOpenSceneId.value = null
-  sceneChatError.value = null
-  closeSceneChatMention()
-}
-
-function toggleSceneChat(scene: SceneData) {
-  if (sceneChatOpenSceneId.value === scene.id) {
-    closeSceneChat()
-    return
-  }
-  sceneChatOpenSceneId.value = scene.id
-}
-
-function resolveChatUploadAssetName(fileName: string): string {
-  const base = fileName
-    .replace(/\.[^./\\]+$/g, '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .slice(0, 32)
-
-  const fallback = base || `上传图_${new Date().toISOString().slice(11, 19).replace(/:/g, '')}`
-  const used = new Set(propAssets.value.map(item => item.name))
-  if (!used.has(fallback)) return fallback
-
-  for (let index = 2; index < 100; index += 1) {
-    const candidate = `${fallback}_${index}`
-    if (!used.has(candidate)) return candidate
-  }
-  return `${fallback}_${Date.now().toString().slice(-4)}`
-}
-
-function updateSceneChatMentionState() {
-  const textarea = sceneChatInputRef.value
-  if (!textarea) {
-    closeSceneChatMention()
-    return
-  }
-
-  const cursor = textarea.selectionStart ?? sceneChatComposerText.value.length
-  const prefix = sceneChatComposerText.value.slice(0, cursor)
-  const mentionStart = prefix.lastIndexOf('@')
-
-  if (mentionStart < 0) {
-    closeSceneChatMention()
-    return
-  }
-
-  const prevChar = mentionStart > 0 ? prefix[mentionStart - 1] : ''
-  if (prevChar && !/[\s\n,，。.!！?？;；:：()（）【】]/u.test(prevChar)) {
-    closeSceneChatMention()
-    return
-  }
-
-  const query = prefix.slice(mentionStart + 1)
-  if (/[\s\n]/u.test(query)) {
-    closeSceneChatMention()
-    return
-  }
-
-  sceneChatMentionStart.value = mentionStart
-  sceneChatMentionQuery.value = query
-  sceneChatMentionOpen.value = sceneChatMentionCandidates.value.length > 0
-  if (!sceneChatMentionOpen.value) {
-    sceneChatMentionActiveIndex.value = 0
-  } else {
-    syncSceneChatMentionActiveItemIntoView()
-  }
-}
-
-function applySceneChatMention(candidate: SceneChatMentionCandidate) {
-  const textarea = sceneChatInputRef.value
-  const start = sceneChatMentionStart.value
-  if (!textarea || start === null) return
-
-  const cursor = textarea.selectionStart ?? sceneChatComposerText.value.length
-  const before = sceneChatComposerText.value.slice(0, start)
-  const after = sceneChatComposerText.value.slice(cursor)
-  const insert = `${candidate.token} `
-
-  sceneChatComposerText.value = `${before}${insert}${after}`
-  closeSceneChatMention()
-
-  nextTick(() => {
-    const nextCursor = before.length + insert.length
-    textarea.focus()
-    textarea.setSelectionRange(nextCursor, nextCursor)
-  })
-}
-
-function handleSceneChatComposerInput() {
-  updateSceneChatMentionState()
-}
-
-function handleSceneChatComposerCursor() {
-  updateSceneChatMentionState()
-}
-
-function handleSceneChatComposerKeydown(event: KeyboardEvent) {
-  if (sceneChatMentionOpen.value && sceneChatMentionCandidates.value.length > 0) {
-    if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      sceneChatMentionActiveIndex.value = (sceneChatMentionActiveIndex.value + 1) % sceneChatMentionCandidates.value.length
-      syncSceneChatMentionActiveItemIntoView()
-      return
-    }
-    if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      const lastIndex = sceneChatMentionCandidates.value.length - 1
-      sceneChatMentionActiveIndex.value = sceneChatMentionActiveIndex.value <= 0
-        ? lastIndex
-        : sceneChatMentionActiveIndex.value - 1
-      syncSceneChatMentionActiveItemIntoView()
-      return
-    }
-    if (event.key === 'Enter') {
-      event.preventDefault()
-      const candidate = sceneChatMentionCandidates.value[sceneChatMentionActiveIndex.value]
-      if (candidate) {
-        applySceneChatMention(candidate)
-      }
-      return
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      closeSceneChatMention()
-      return
-    }
-  }
-
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault()
-    if (sceneChatOpenSceneId.value) {
-      void submitSceneChat(sceneChatOpenSceneId.value)
-    }
-  }
-}
-
-function extractAssetIdsFromSceneChatText(text: string): string[] {
-  const tokenMatches = text.match(/@[^\s,，。.!！？;；:：()（）【】]+/gu) || []
-  if (tokenMatches.length === 0) return []
-
-  const mentionMap = resolveAssetByMentionTokenMap()
-  const ids = new Set<string>()
-
-  for (const rawToken of tokenMatches) {
-    const token = rawToken.replace(/[，,。.!！？;；:：]+$/u, '')
-    const asset = mentionMap.get(token)
-    if (asset) {
-      ids.add(asset.id)
-    }
-  }
-
-  return Array.from(ids)
-}
-
-function applySceneChatAssetRefs(sceneId: string, assetIds: string[]): {
-  configChanged: boolean
-} {
-  if (assetIds.length === 0) {
-    return { configChanged: false }
-  }
-
-  const previousIds = resolveSceneReferenceAssetIds(sceneId)
-  const merged = uniqueSorted([...previousIds, ...assetIds])
-  setSceneAssetReferences(sceneId, merged)
-
-  const nextIds = resolveSceneReferenceAssetIds(sceneId)
-  const configChanged = previousIds.join('||') !== nextIds.join('||')
-  return { configChanged }
-}
-
-function ensureSceneDescriptionMentionTokens(sceneId: string, preferredAssetIds: string[] = []): boolean {
-  const scene = scenes.value.find(item => item.id === sceneId)
-  if (!scene) return false
-
-  const config = ensureSceneConfig(sceneId)
-  const tokenMap = resolveAssetMentionTokenMap()
-
-  const mentionTokens = uniqueSorted([
-    ...config.mustReferenceAssetIds,
-    ...preferredAssetIds
-  ])
-    .map(assetId => tokenMap.get(assetId) || '')
-    .filter(Boolean)
-
-  const nextDescription = buildSceneMentionDescription(
-    resolveSceneDescriptionWithoutAssetMentions(scene.description || ''),
-    mentionTokens
-  )
-
-  if ((scene.description || '') === nextDescription) return false
-  scene.description = nextDescription
-  return true
-}
-
-async function rewriteSceneDescriptionByChat(options: {
-  scene: SceneData
-  userMessage: string
-  history: SceneChatMessage[]
-  mentionedAssets: DisplayAsset[]
-}): Promise<string> {
-  const response = await $fetch<{
-    success: boolean
-    data?: {
-      description?: string
-    }
-    error?: string
-  }>('/api/asset-workflow/scene/refine-description', {
-    method: 'POST',
-    body: {
-      scene: buildAssetWorkflowScenePayload(options.scene),
-      userMessage: options.userMessage,
-      history: options.history
-        .filter(item => !!item.content?.trim())
-        .slice(-8)
-        .map(item => ({
-          role: item.role,
-          content: item.content.trim()
-        })),
-      mentionedAssets: options.mentionedAssets.map(asset => ({
-        id: asset.id,
-        name: asset.name,
-        type: asset.type,
-        description: asset.description,
-        hasReferenceImage: !!asset.referenceImage
-      })),
-      style: workflowStylePrompt.value
-    }
-  })
-
-  if (!response.success || !response.data?.description?.trim()) {
-    throw new Error(response.error || '模型未返回有效的场景描述')
-  }
-
-  return response.data.description.trim()
-}
-
-function removeSceneChatComposerAsset(assetId: string) {
-  sceneChatComposerAssetIds.value = sceneChatComposerAssetIds.value.filter(id => id !== assetId)
-}
-
-function triggerSceneChatUpload() {
-  if (typeof document === 'undefined') return
-  const input = document.getElementById('scene_chat_upload_input') as HTMLInputElement | null
-  input?.click()
-}
-
-async function handleSceneChatImageUpload(event: Event) {
-  const input = event.target as HTMLInputElement | null
-  const files = Array.from(input?.files || [])
-  const sceneId = sceneChatOpenSceneId.value
-
-  if (!sceneId || files.length === 0) {
-    resetFileInput(event)
-    return
-  }
-
-  sceneChatUploading.value = true
-  sceneChatError.value = null
-
-  try {
-    const createdAssetIds: string[] = []
-
-    for (const file of files) {
-      if (!file.type.startsWith('image/')) {
-        throw new Error('仅支持上传图片文件')
-      }
-      if (file.size > MAX_ASSET_UPLOAD_SIZE) {
-        throw new Error('图片大小不能超过 20MB')
-      }
-
-      const dataUrl = await fileToDataUrl(file)
-      const imageUrl = await uploadAssetImage(dataUrl, `scene_chat_${sceneId}`)
-      const name = resolveChatUploadAssetName(file.name)
-      const propId = `prop_upload_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
-
-      propAssets.value.push({
-        id: propId,
-        name,
-        description: '用户上传图片资产',
-        referenceImage: imageUrl
-      })
-
-      createdAssetIds.push(`prop:${propId}`)
-    }
-
-    sceneChatComposerAssetIds.value = uniqueSorted([
-      ...sceneChatComposerAssetIds.value,
-      ...createdAssetIds
-    ])
-
-    await saveWorkflowMeta()
-
-    const tokenMap = resolveAssetMentionTokenMap()
-    const addedTokens = createdAssetIds
-      .map(assetId => tokenMap.get(assetId) || '')
-      .filter(Boolean)
-
-    if (addedTokens.length > 0) {
-      const base = sceneChatComposerText.value.trimEnd()
-      const appendText = addedTokens.join(' ')
-      sceneChatComposerText.value = base ? `${base}\n${appendText} ` : `${appendText} `
-      await nextTick()
-      updateSceneChatMentionState()
-    }
-  } catch (error) {
-    sceneChatError.value = resolveUiError(error, '上传图片资产失败')
-  } finally {
-    sceneChatUploading.value = false
-    resetFileInput(event)
-  }
-}
-
-async function submitSceneChat(sceneId: string) {
-  const scene = scenes.value.find(item => item.id === sceneId)
-  if (!scene) return
-  if (sceneChatApplying.value) return
-
-  const rawText = sceneChatComposerText.value
-  const text = rawText.trim()
-  const composerAssetIds = uniqueSorted(sceneChatComposerAssetIds.value)
-  if (!text && composerAssetIds.length === 0) return
-
-  const mentionAssetIds = extractAssetIdsFromSceneChatText(rawText)
-  const relatedAssetIds = uniqueSorted([...composerAssetIds, ...mentionAssetIds])
-  const relatedAssets = relatedAssetIds
-    .map(resolveDisplayAssetById)
-    .filter((asset): asset is DisplayAsset => !!asset)
-  const historyBeforeSubmit = ensureSceneChatHistory(sceneId)
-    .slice(-8)
-    .map(item => ({ ...item }))
-  const normalizedMessage = text || '请结合本次提及资产，优化该场景描述并保持剧情连续。'
-
-  appendSceneChatMessage(
-    sceneId,
-    'user',
-    text || '上传图片资产并执行场景二次修改',
-    relatedAssetIds
-  )
-
-  sceneChatComposerText.value = ''
-  sceneChatComposerAssetIds.value = []
-  sceneChatError.value = null
-  closeSceneChatMention()
-
-  sceneChatApplying.value = true
-
-  try {
-    const previousBaseDescription = resolveSceneDescriptionWithoutAssetMentions(scene.description || '')
-    const rewrittenDescription = await rewriteSceneDescriptionByChat({
-      scene,
-      userMessage: normalizedMessage,
-      history: historyBeforeSubmit,
-      mentionedAssets: relatedAssets
-    })
-    const descriptionChanged = previousBaseDescription !== rewrittenDescription
-    scene.description = rewrittenDescription
-
-    const { configChanged } = applySceneChatAssetRefs(sceneId, relatedAssetIds)
-    const mentionChanged = ensureSceneDescriptionMentionTokens(sceneId, relatedAssetIds)
-
-    if (descriptionChanged || mentionChanged || configChanged) {
-      await saveProject()
-    }
-    if (configChanged) {
-      await saveWorkflowMeta()
-    }
-
-    appendSceneChatMessage(
-      sceneId,
-      'assistant',
-      '已使用配置文本模型更新该场景描述，并同步了资产引用（未自动重生成环境图）。',
-      relatedAssetIds
-    )
-  } catch (error) {
-    const message = resolveUiError(error, '场景二次修改失败')
-    sceneChatError.value = message
-    appendSceneChatMessage(sceneId, 'assistant', `处理失败：${message}`)
-  } finally {
-    sceneChatApplying.value = false
-  }
-}
-
-function startEditCharacter(char: CharacterData) {
-  editingCharacterId.value = char.id
-  characterEditDraft.id = char.id
-  characterEditDraft.name = char.name
-  characterEditDraft.appearance = char.appearance || ''
-  characterEditDraft.role = char.role || 'supporting'
-}
-
-function cancelEditCharacter() {
-  editingCharacterId.value = null
-  characterEditDraft.id = ''
-  characterEditDraft.name = ''
-  characterEditDraft.appearance = ''
-  characterEditDraft.role = 'supporting'
-}
-
-function synchronizeCharacterNameInScenes(oldName: string, nextName: string) {
-  if (!oldName || !nextName || oldName === nextName) return
-
-  for (const scene of scenes.value) {
-    for (const char of scene.characters) {
-      if (char.name === oldName) {
-        char.name = nextName
-      }
-    }
-
-    for (const dialogue of scene.dialogues) {
-      if (dialogue.character === oldName) {
-        dialogue.character = nextName
-      }
-    }
-  }
-}
-
-async function saveCharacterEdit(options: { regenerate?: boolean } = {}) {
-  if (!editingCharacterId.value) return
-
-  const target = characters.value.find(char => char.id === editingCharacterId.value)
-  if (!target) {
-    cancelEditCharacter()
-    return
-  }
-
-  const nextName = characterEditDraft.name.trim()
-  if (!nextName) {
-    alert('角色名称不能为空')
-    return
-  }
-
-  const oldName = target.name
-  target.name = nextName
-  target.appearance = characterEditDraft.appearance.trim()
-  target.role = characterEditDraft.role || 'supporting'
-
-  synchronizeCharacterNameInScenes(oldName, target.name)
-
-  await saveProject()
-  cancelEditCharacter()
-
-  if (options.regenerate) {
-    await handleGenerateCharacter(target.id)
-  }
-}
-
 function normalizeWorkflowText(value: string): string {
   return value
     .replace(/首尾帧/g, '环境图')
@@ -1886,659 +184,289 @@ function resolveUiError(error: unknown, fallback: string): string {
   return normalizeWorkflowText(message || fallback)
 }
 
-function normalizeVideoUrlFromTask(videoData?: string | null): string | undefined {
-  const raw = videoData?.trim()
-  if (!raw) return undefined
-
-  if (raw.startsWith('url:')) {
-    return normalizeVideoUrlFromTask(raw.slice(4))
-  }
-
-  if (raw.startsWith('/videos/')) {
-    const filename = raw.slice('/videos/'.length)
-    return filename ? `/api/video/file/${filename}` : undefined
-  }
-
-  if (
-    raw.startsWith('/api/video/file/')
-    || raw.startsWith('http://')
-    || raw.startsWith('https://')
-    || raw.startsWith('data:video')
-    || raw.startsWith('/')
-  ) {
-    return raw
-  }
-
-  if (raw.startsWith('ref:')) return undefined
-
-  return `data:video/mp4;base64,${raw}`
-}
-
-function collectSceneCharacterReferenceAssets(scene: SceneData): SceneVideoReferenceAsset[] {
-  const { refs } = resolveCharacterRefsFromScene(scene)
-  const assets: SceneVideoReferenceAsset[] = []
-  const seen = new Set<string>()
-
-  for (const ref of refs) {
-    const characterId = ref.replace('char:', '')
-    const matched = characters.value.find(character => character.id === characterId)
-    const image = matched?.baseImage?.trim()
-    if (!matched || !image) continue
-
-    const assetId = `char:${matched.id}`
-    if (seen.has(assetId)) continue
-    seen.add(assetId)
-    assets.push({
-      assetId,
-      name: matched.name.trim() || '角色',
-      type: 'character',
-      image,
-      source: 'fallback'
-    })
-  }
-
-  return assets
-}
-
-function findCharacterByAssetRefId(rawCharacterId: string): CharacterData | undefined {
-  return characters.value.find(character => character.id === rawCharacterId)
-    || characters.value.find(character => character.id.endsWith(`_${rawCharacterId}`))
-}
-
-function resolveConfiguredCharacterReferences(scene: SceneData): CharacterData[] {
-  const config = sceneConfigs.value[scene.id]
-  if (!config) return []
-
-  const characterIds = uniqueSorted(
-    config.mustReferenceAssetIds
-      .filter(assetId => assetId.startsWith('char:'))
-      .map(assetId => assetId.slice('char:'.length))
-      .filter(Boolean)
-  )
-
-  return characterIds
-    .map(characterId => findCharacterByAssetRefId(characterId))
-    .filter((character): character is CharacterData => !!character)
-}
-
-function resolveConfiguredCharacterReferenceAssets(scene: SceneData): SceneVideoReferenceAsset[] {
-  const assets: SceneVideoReferenceAsset[] = []
-  const seen = new Set<string>()
-
-  for (const character of resolveConfiguredCharacterReferences(scene)) {
-    const image = character.baseImage?.trim()
-    if (!image) continue
-
-    const assetId = `char:${character.id}`
-    if (seen.has(assetId)) continue
-    seen.add(assetId)
-    assets.push({
-      assetId,
-      name: character.name.trim() || '角色',
-      type: 'character',
-      image,
-      source: 'configured'
-    })
-  }
-
-  return assets
-}
-
-function resolveConfiguredPropReferenceAssets(scene: SceneData): SceneVideoReferenceAsset[] {
-  const config = sceneConfigs.value[scene.id]
-  if (!config) return []
-
-  const propIds = uniqueSorted(
-    config.mustReferenceAssetIds
-      .filter(assetId => assetId.startsWith('prop:'))
-      .map(assetId => assetId.slice('prop:'.length))
-      .filter(Boolean)
-  )
-
-  const assets: SceneVideoReferenceAsset[] = []
-  const seen = new Set<string>()
-  for (const propId of propIds) {
-    const prop = propAssets.value.find(item => item.id === propId)
-    const image = prop?.referenceImage?.trim()
-    if (!image) continue
-
-    const assetId = `prop:${propId}`
-    if (seen.has(assetId)) continue
-    seen.add(assetId)
-    assets.push({
-      assetId,
-      name: prop?.name?.trim() || '道具',
-      type: 'prop',
-      image,
-      source: 'configured'
-    })
-  }
-
-  return assets
-}
-
-function resolveSceneVideoReferenceAssets(scene: SceneData): SceneVideoReferenceAsset[] {
-  const assets: SceneVideoReferenceAsset[] = []
-  const seenImage = new Set<string>()
-
-  const appendAsset = (asset: SceneVideoReferenceAsset) => {
-    const image = asset.image?.trim()
-    if (!image || seenImage.has(image)) return
-    seenImage.add(image)
-    assets.push({
-      ...asset,
-      image
-    })
-  }
-
-  for (const asset of resolveConfiguredCharacterReferenceAssets(scene)) {
-    appendAsset(asset)
-  }
-  for (const asset of collectSceneCharacterReferenceAssets(scene)) {
-    appendAsset(asset)
-  }
-  for (const asset of resolveConfiguredPropReferenceAssets(scene)) {
-    appendAsset(asset)
-  }
-
-  return assets
-}
-
-function resolveSceneVideoCharacterReferences(scene: SceneData): string[] {
-  return resolveSceneVideoReferenceAssets(scene).map(item => item.image)
-}
-
-async function ensureSceneReferencedAssetsReady(scene: SceneData): Promise<void> {
-  const config = ensureSceneConfig(scene.id)
-
-  const referencedCharacters = resolveConfiguredCharacterReferences(scene)
-  for (const character of referencedCharacters) {
-    if (character.baseImage?.trim()) continue
-
-    try {
-      await generateCharacter(character, {
-        workflowType: 'asset_consistency'
-      })
-    } catch (error) {
-      const message = resolveUiError(error, `${character.name} 角色图生成失败`)
-      throw new Error(`引用角色资产未就绪：${message}`)
-    }
-
-    if (!character.baseImage?.trim()) {
-      throw new Error(`引用角色资产未就绪：${character.name}`)
-    }
-  }
-
-  const referencedEnvironmentIds = uniqueSorted(
-    config.mustReferenceAssetIds
-      .filter(assetId => assetId.startsWith('env:'))
-  )
-
-  for (const environmentId of referencedEnvironmentIds) {
-    const relatedScenes = scenes.value.filter(item => resolveSceneEnvironmentAssetId(item) === environmentId)
-    if (relatedScenes.length === 0) continue
-
-    const readyScene = relatedScenes.find((item) => {
-      return !!resolveSceneReferenceImage(item) && item.frameStatus === 'done'
-    })
-    if (readyScene) continue
-
-    const fallbackScene = relatedScenes.find((item) => {
-      return item.frameStatus !== 'generating' && item.videoStatus !== 'generating'
-    }) || relatedScenes[0]
-    if (!fallbackScene) continue
-
-    await generateSceneBaseline(fallbackScene.id, { preferReuse: true })
-
-    if (fallbackScene.frameStatus === 'error') {
-      throw new Error(normalizeWorkflowText(fallbackScene.frameError || `引用环境「${resolveSceneEnvironmentLabel(fallbackScene)}」生成失败`))
-    }
-
-    if (!resolveSceneReferenceImage(fallbackScene)) {
-      throw new Error(`引用环境资产未就绪：${resolveSceneEnvironmentLabel(fallbackScene)}`)
-    }
-  }
-
-  // 兼容旧数据：仍识别 scene:* 引用
-  const referencedSceneIds = uniqueSorted(
-    config.mustReferenceAssetIds
-      .filter(assetId => assetId.startsWith('scene:'))
-      .map(assetId => assetId.slice('scene:'.length))
-      .filter(sceneId => !!sceneId && sceneId !== scene.id)
-  )
-
-  for (const referencedSceneId of referencedSceneIds) {
-    const referencedScene = scenes.value.find(item => item.id === referencedSceneId)
-    if (!referencedScene) continue
-
-    const referenceImage = resolveSceneReferenceImage(referencedScene)
-    if (referenceImage && referencedScene.frameStatus === 'done') continue
-
-    await generateSceneBaseline(referencedSceneId, { preferReuse: true })
-
-    if (referencedScene.frameStatus === 'error') {
-      throw new Error(normalizeWorkflowText(referencedScene.frameError || `引用场景「${referencedScene.title}」环境图生成失败`))
-    }
-
-    if (!resolveSceneReferenceImage(referencedScene)) {
-      throw new Error(`引用场景资产未就绪：${referencedScene.title}`)
-    }
-  }
-}
-
-function buildSceneGenerationCameraNote(scene: SceneData): string | undefined {
-  const baseNote = scene.cameraNote?.trim() || ''
-  const config = ensureSceneConfig(scene.id)
-  const refNames = config.mustReferenceAssetIds.map(resolveAssetName).filter(Boolean)
-  const continuityNote = config.continuityNotes.trim()
-
-  const parts = [
-    baseNote,
-    refNames.length > 0 ? `引用资产：${refNames.join('、')}` : '',
-    continuityNote ? `连续性提示：${continuityNote}` : ''
-  ].filter(Boolean)
-
-  return parts.length > 0 ? parts.join('\n') : undefined
-}
-
-function buildAssetWorkflowScenePayload(scene: SceneData) {
-  const sceneIndex = scenes.value.findIndex(item => item.id === scene.id)
-
-  return {
-    id: scene.id,
-    title: scene.title,
-    sceneIndex: sceneIndex >= 0 ? sceneIndex + 1 : undefined,
-    description: resolveSceneDescriptionWithoutAssetMentions(scene.description),
-    cameraNote: buildSceneGenerationCameraNote(scene),
-    duration: scene.duration,
-    setting: scene.setting,
-    narration: scene.narration,
-    characters: scene.characters,
-    dialogues: scene.dialogues
-  }
-}
-
-async function pollAssetWorkflowVideoStatus(scene: SceneData, taskId: string) {
-  const maxAttempts = 60
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    await new Promise(resolve => setTimeout(resolve, 5000))
-
-    const statusResponse = await $fetch<{
-      success: boolean
-      task: {
-        status: string
-        error?: string
-        result?: {
-          videoData?: string
-        }
-      }
-    }>(`/api/video/status/${taskId}`)
-
-    if (statusResponse.task.status === 'completed') {
-      const normalizedUrl = normalizeVideoUrlFromTask(statusResponse.task.result?.videoData)
-      if (!normalizedUrl) {
-        scene.videoError = '视频已生成，但当前返回结果无法直接预览'
-        scene.videoStatus = 'error'
-        throw new Error(scene.videoError)
-      }
-
-      scene.videoUrl = normalizedUrl
-      scene.videoError = undefined
-      scene.videoStatus = 'done'
-      await saveProject()
-      return
-    }
-
-    if (statusResponse.task.status === 'failed') {
-      scene.videoError = statusResponse.task.error || '视频生成失败'
-      scene.videoStatus = 'error'
-      throw new Error(scene.videoError)
-    }
-  }
-
-  scene.videoError = '视频生成超时，请稍后重试'
-  scene.videoStatus = 'error'
-  throw new Error(scene.videoError)
-}
-
-function isNarrationSpeaker(name: string): boolean {
-  const normalized = normalizeToken(name)
-  if (!normalized) return true
-
-  return NARRATION_SPEAKERS.some(speaker => normalizeToken(speaker) === normalized)
-}
-
-function splitCandidateNames(rawName?: string): string[] {
-  if (!rawName) return []
-
-  return uniqueSorted(
-    rawName
-      .split(/[/／|｜、,，\s]+/g)
-      .map(name => name.trim())
-      .filter(Boolean)
-  )
-}
-
-function createSceneCharacterCandidate(
-  rawName?: string,
-  appearance?: string
-): SceneCharacterCandidate | null {
-  const aliases = splitCandidateNames(rawName).filter(name => !isNarrationSpeaker(name))
-  if (aliases.length === 0) return null
-
-  return {
-    primaryName: aliases[0] || rawName || '未命名角色',
-    aliases,
-    appearance: appearance?.trim() || undefined
-  }
-}
-
-function findCharacterByNameLike(name: string): CharacterData | undefined {
-  const normalized = normalizeToken(name)
-  if (!normalized) return undefined
-
-  let fuzzyMatch: CharacterData | undefined
-  for (const character of characters.value) {
-    const target = normalizeToken(character.name)
-    if (!target) continue
-
-    if (target === normalized) {
-      return character
-    }
-
-    if (!fuzzyMatch && (target.includes(normalized) || normalized.includes(target))) {
-      fuzzyMatch = character
-    }
-  }
-
-  return fuzzyMatch
-}
-
-function collectSceneCharacterCandidates(scene: SceneData): SceneCharacterCandidate[] {
-  const map = new Map<string, SceneCharacterCandidate>()
-
-  for (const sceneCharacter of scene.characters) {
-    const candidate = createSceneCharacterCandidate(sceneCharacter.name, sceneCharacter.appearance)
-    if (!candidate) continue
-
-    const key = normalizeToken(candidate.primaryName)
-    if (!key) continue
-
-    const existing = map.get(key)
-    if (existing) {
-      const mergedAliases = uniqueSorted([...existing.aliases, ...candidate.aliases])
-      existing.aliases = mergedAliases
-      if (!existing.appearance && candidate.appearance) {
-        existing.appearance = candidate.appearance
-      }
-      continue
-    }
-
-    map.set(key, candidate)
-  }
-
-  for (const dialogue of scene.dialogues) {
-    const candidate = createSceneCharacterCandidate(dialogue.character)
-    if (!candidate) continue
-
-    const key = normalizeToken(candidate.primaryName)
-    if (!key || map.has(key)) continue
-    map.set(key, candidate)
-  }
-
-  return Array.from(map.values())
-}
-
-function getSceneText(scene: SceneData): string {
-  return [
-    scene.title || '',
-    resolveSceneDescriptionWithoutAssetMentions(scene.description),
-    scene.narration || '',
-    scene.dialogues.map(item => `${item.character}:${item.text}`).join('\n')
-  ]
-    .join('\n')
-    .toLowerCase()
-}
-
-function getValidAssetIdSet(): Set<string> {
-  return new Set([
-    ...characters.value.map(character => `char:${character.id}`),
-    ...environmentAssets.value.map(asset => asset.id),
-    ...propAssets.value.map(prop => `prop:${prop.id}`)
-  ])
-}
-
-function resolveCharacterRefsFromScene(scene: SceneData): {
-  refs: string[]
-  matchedCharacterNames: string[]
-} {
-  const refs = new Set<string>()
-  const matchedCharacterNames = new Set<string>()
-
-  const candidates = collectSceneCharacterCandidates(scene)
-  for (const candidate of candidates) {
-    let matched: CharacterData | undefined
-
-    for (const alias of candidate.aliases) {
-      matched = findCharacterByNameLike(alias)
-      if (matched) break
-    }
-
-    if (!matched) {
-      matched = findCharacterByNameLike(candidate.primaryName)
-    }
-
-    if (!matched) continue
-
-    refs.add(`char:${matched.id}`)
-    matchedCharacterNames.add(matched.name)
-  }
-
-  return {
-    refs: Array.from(refs),
-    matchedCharacterNames: Array.from(matchedCharacterNames)
-  }
-}
-
-function resolvePropRefsFromScene(scene: SceneData): string[] {
-  if (propAssets.value.length === 0) return []
-
-  const sceneText = getSceneText(scene)
-  return propAssets.value
-    .filter((prop) => {
-      const name = prop.name.trim().toLowerCase()
-      if (name.length < 2) return false
-      return sceneText.includes(name)
-    })
-    .map(prop => `prop:${prop.id}`)
-}
-
-function sceneHasSameLocation(currentScene: SceneData, previousScene?: SceneData): boolean {
-  if (!previousScene) return false
-  const current = normalizeToken(currentScene.setting?.location)
-  const previous = normalizeToken(previousScene.setting?.location)
-  return !!current && current === previous
-}
-
-function buildContinuityNotes(
-  scene: SceneData,
-  index: number,
-  currentCharacterNames: string[]
-): string {
-  const previous = index > 0 ? scenes.value[index - 1] : undefined
-  const notes: string[] = []
-
-  if (previous) {
-    const previousCharacters = new Set(
-      resolveCharacterRefsFromScene(previous).matchedCharacterNames.map(name => normalizeToken(name))
-    )
-
-    const sharedCharacters = currentCharacterNames.filter((name) => {
-      const normalized = normalizeToken(name)
-      return !!normalized && previousCharacters.has(normalized)
-    })
-
-    if (sharedCharacters.length > 0) {
-      notes.push(`延续角色状态：${sharedCharacters.join('、')}`)
-    }
-
-    if (sceneHasSameLocation(scene, previous)) {
-      notes.push(`地点延续：${scene.setting?.location || '同场景'}`)
-    } else if (scene.setting?.location && previous.setting?.location) {
-      notes.push(`地点切换：${previous.setting.location} -> ${scene.setting.location}`)
-    }
-
-    if (scene.setting?.timeOfDay && previous.setting?.timeOfDay && scene.setting.timeOfDay !== previous.setting.timeOfDay) {
-      notes.push(`时间切换：${previous.setting.timeOfDay} -> ${scene.setting.timeOfDay}`)
-    }
-  }
-
-  if (notes.length === 0) {
-    notes.push('保持角色外观与场景主视觉连续')
-  }
-
-  return notes.join('；')
-}
-
-function buildAutoSceneConfig(scene: SceneData, index: number): SceneConsistencyConfig {
-  const refs = new Set<string>([resolveSceneEnvironmentAssetId(scene)])
-
-  const { refs: characterRefs, matchedCharacterNames } = resolveCharacterRefsFromScene(scene)
-  for (const ref of characterRefs) refs.add(ref)
-
-  const propRefs = resolvePropRefsFromScene(scene)
-  for (const ref of propRefs) refs.add(ref)
-
-  const previous = index > 0 ? scenes.value[index - 1] : undefined
-  if (previous && sceneHasSameLocation(scene, previous)) {
-    refs.add(resolveSceneEnvironmentAssetId(previous))
-  }
-
-  return {
-    sceneId: scene.id,
-    mustReferenceAssetIds: uniqueSorted(Array.from(refs)),
-    consistencyLevel: characterRefs.length > 0 ? 'lock' : 'soft',
-    continuityNotes: buildContinuityNotes(scene, index, matchedCharacterNames)
-  }
-}
-
-function upsertCharactersFromScenes(): boolean {
-  let changed = false
-
-  for (const scene of scenes.value) {
-    for (const candidate of collectSceneCharacterCandidates(scene)) {
-      let matched: CharacterData | undefined
-      for (const alias of candidate.aliases) {
-        matched = findCharacterByNameLike(alias)
-        if (matched) break
-      }
-
-      if (matched) {
-        if (!matched.appearance && candidate.appearance) {
-          matched.appearance = candidate.appearance
-          changed = true
-        }
-        continue
-      }
-
-      characters.value.push({
-        id: `char_auto_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        name: candidate.primaryName,
-        appearance: candidate.appearance || `${candidate.primaryName}，保持与剧情设定一致`,
-        role: characters.value.length === 0 ? 'protagonist' : 'supporting',
-        generating: false,
-        generatingViews: false
-      })
-      changed = true
-    }
-  }
-
-  return changed
-}
-
-function areSceneConfigsEqual(
-  left: SceneConsistencyConfig,
-  right: SceneConsistencyConfig
-): boolean {
-  return left.sceneId === right.sceneId
-    && left.consistencyLevel === right.consistencyLevel
-    && left.continuityNotes.trim() === right.continuityNotes.trim()
-    && left.mustReferenceAssetIds.join('||') === right.mustReferenceAssetIds.join('||')
-}
+const {
+  editingCharacterId,
+  characterEditDraft,
+  characterRegenerateDialogOpen,
+  characterRegeneratePrompt,
+  characterRegenerateError,
+  characterRegenerateTarget,
+  startEditCharacter,
+  updateCharacterEditDraft,
+  cancelEditCharacter,
+  handleGenerateCharacter,
+  saveCharacterEdit,
+  openCharacterRegenerateDialog,
+  setCharacterRegenerateDialogOpen,
+  setCharacterRegeneratePrompt,
+  submitCharacterRegeneration
+} = useAssetWorkbenchCharacterActions({
+  characters,
+  scenes,
+  saveProject,
+  generateCharacter,
+  resolveUiError
+})
+
+const {
+  resolveCharacterSceneCount,
+  resolvePropUsageCount,
+  synchronizeSceneConfigs,
+  ensureSceneConfig,
+  resolveAssetName,
+  resolveSceneReferenceAssetIds,
+  setSceneAssetReferences,
+  selectScene,
+  sceneEditAssetReferenceOptions,
+  sceneEditSelectedAssetIds,
+  openSceneEdit,
+  handleSceneSave,
+  handleSceneAssetReferencesSave,
+  handleSplitScene,
+  canMergeSceneByIndex,
+  handleMergeWithNextScene,
+  handleDeleteScene,
+  addPropAsset,
+  removePropAsset
+} = useAssetWorkbenchSceneManagement({
+  selectedSceneId,
+  sceneEditDialogOpen,
+  editingScene,
+  scenes,
+  characters,
+  sceneConfigs,
+  propAssets,
+  allAssets,
+  environmentAssets,
+  uniqueSorted,
+  normalizeToken,
+  getValidAssetIdSet,
+  findCharacterByAssetRefId,
+  resolveSceneDescriptionWithoutAssetMentions,
+  updateScene,
+  deleteScene,
+  splitScene,
+  mergeWithNextScene,
+  saveWorkflowMeta,
+  synchronizeQueueItems,
+  createPropAssetId,
+  isSceneBusy
+})
+
+const {
+  buildAssetWorkflowScenePayload,
+  generateSceneBaseline,
+  ensureCharacterAssetsReady,
+  runBatchSceneGeneration,
+  retryScene,
+  retryFailedQueueItemsOnce
+} = useAssetWorkbenchSceneGeneration({
+  scenes,
+  characters,
+  sceneConfigs,
+  propAssets,
+  queueItems,
+  batchRunning,
+  workflowStylePrompt,
+  projectAspectRatio,
+  normalizeWorkflowText,
+  resolveUiError,
+  ensureSceneConfig,
+  resolveAssetName,
+  resolveSceneDescriptionWithoutAssetMentions,
+  synchronizeQueueItems,
+  saveProject,
+  generateCharacter,
+  batchGenerateCharacters,
+  persistAutomaticAssetPlan
+})
 
 function applyAutomaticAssetPlan(
   options: { overwriteExistingConfigs?: boolean } = {}
 ): { characterChanged: boolean, configChanged: boolean } {
-  const characterChanged = upsertCharactersFromScenes()
-  const validAssetIds = getValidAssetIdSet()
-  const nextConfigs: Record<string, SceneConsistencyConfig> = {}
-  let configChanged = false
+  const result = buildAutomaticAssetPlan({
+    scenes: scenes.value,
+    characters: characters.value,
+    sceneConfigs: sceneConfigs.value,
+    propAssets: propAssets.value,
+    environmentAssetIds: environmentAssets.value.map(asset => asset.id),
+    overwriteExistingConfigs: options.overwriteExistingConfigs,
+    resolveSceneEnvironmentAssetId,
+    resolveSceneDescriptionWithoutAssetMentions
+  })
 
-  for (let index = 0; index < scenes.value.length; index++) {
-    const scene = scenes.value[index]
-    if (!scene) continue
-
-    const autoConfig = buildAutoSceneConfig(scene, index)
-    const existing = sceneConfigs.value[scene.id]
-
-    const baseConfig: SceneConsistencyConfig = !existing || options.overwriteExistingConfigs
-      ? autoConfig
-      : {
-          sceneId: scene.id,
-          mustReferenceAssetIds: uniqueSorted([
-            ...existing.mustReferenceAssetIds,
-            ...autoConfig.mustReferenceAssetIds
-          ]),
-          consistencyLevel: existing.consistencyLevel === 'lock' || autoConfig.consistencyLevel === 'lock' ? 'lock' : 'soft',
-          continuityNotes: existing.continuityNotes.trim() || autoConfig.continuityNotes
-        }
-
-    const normalizedConfig: SceneConsistencyConfig = {
-      sceneId: baseConfig.sceneId,
-      mustReferenceAssetIds: baseConfig.mustReferenceAssetIds.filter(assetId => validAssetIds.has(assetId)),
-      consistencyLevel: baseConfig.consistencyLevel,
-      continuityNotes: baseConfig.continuityNotes.trim()
-    }
-
-    if (
-      normalizedConfig.consistencyLevel === 'lock'
-      && normalizedConfig.mustReferenceAssetIds.length === 0
-    ) {
-      normalizedConfig.consistencyLevel = 'soft'
-    }
-
-    nextConfigs[scene.id] = normalizedConfig
-    if (!existing || !areSceneConfigsEqual(existing, normalizedConfig)) {
-      configChanged = true
-    }
-  }
-
-  if (Object.keys(sceneConfigs.value).length !== Object.keys(nextConfigs).length) {
-    configChanged = true
-  }
-
-  if (configChanged) {
-    sceneConfigs.value = nextConfigs
+  if (result.configChanged) {
+    sceneConfigs.value = result.nextSceneConfigs
     synchronizeQueueItems()
   }
 
-  return { characterChanged, configChanged }
+  return {
+    characterChanged: result.characterChanged,
+    configChanged: result.configChanged
+  }
 }
+
+async function persistAutomaticAssetPlan(
+  options: { overwriteExistingConfigs?: boolean } = {}
+) {
+  const autoPlanResult = applyAutomaticAssetPlan(options)
+  const descriptionMentionChanged = synchronizeSceneDescriptionsWithAssetMentions()
+
+  if (autoPlanResult.characterChanged || descriptionMentionChanged) {
+    await saveProject()
+  }
+  if (autoPlanResult.configChanged) {
+    await saveWorkflowMeta()
+  }
+
+  return {
+    ...autoPlanResult,
+    descriptionMentionChanged
+  }
+}
+
+const {
+  autoRunning,
+  autoRunError,
+  autoRunCurrentStage,
+  activeAutoStage,
+  selectAutoStage,
+  handleParseScript,
+  copyParsedTimelineText,
+  runSimpleAssetsStep,
+  runSimpleVideosStep,
+  runSimpleFinalStep
+} = useAssetWorkbenchAutoFlow({
+  route,
+  router,
+  projectId,
+  projectAssetWorkflow,
+  selectedStyleId,
+  projectStyleId,
+  selectedSceneId,
+  workflowStylePrompt,
+  novelText,
+  scenes,
+  parsedTimelineText,
+  queueSummary,
+  assetsReady,
+  finalVideo,
+  resolveUiError,
+  parseScript,
+  mergeAllVideos,
+  loadProject,
+  loadWorkflowMeta,
+  persistAutomaticAssetPlan,
+  synchronizeSceneConfigs,
+  synchronizeQueueItems,
+  ensureCharacterAssetsReady,
+  runBatchSceneGeneration,
+  retryFailedQueueItemsOnce
+})
+
+const autoStages = computed(() => {
+  const videosDone = queueSummary.value.total > 0
+    && queueSummary.value.done === queueSummary.value.total
+
+  return buildAutoStages({
+    hasScenes: scenes.value.length > 0,
+    assetsReady: assetsReady.value,
+    videosDone,
+    finalDone: !!finalVideo.value?.videoData,
+    autoRunning: autoRunning.value,
+    autoRunCurrentStage: autoRunCurrentStage.value
+  })
+})
+
+const stageHints = AUTO_STAGE_HINTS
+
+const {
+  imagePreviewOpen,
+  imagePreviewSrc,
+  imagePreviewAlt,
+  environmentRegenerateDialogOpen,
+  environmentRegeneratePrompt,
+  environmentRegenerateError,
+  environmentRegenerateTarget,
+  uploadingCharacterId,
+  uploadingEnvironmentAssetId,
+  uploadingPropId,
+  openImagePreview,
+  handleCharacterImageUpload,
+  handleEnvironmentImageUpload,
+  handlePropImageUpload,
+  openEnvironmentRegenerateDialog,
+  setEnvironmentRegenerateDialogOpen,
+  setEnvironmentRegeneratePrompt,
+  submitEnvironmentRegeneration
+} = useAssetWorkbenchAssetMedia({
+  maxAssetUploadSize: MAX_ASSET_UPLOAD_SIZE,
+  statusError: autoRunError,
+  scenes,
+  characters,
+  propAssets,
+  saveProject,
+  saveWorkflowMeta,
+  resolveUiError,
+  synchronizeQueueItems,
+  resolveSceneReferenceImage,
+  resolveEnvironmentCard,
+  resolveEnvironmentRepresentativeScene,
+  generateSceneBaseline
+})
+
+const {
+  sceneChatOpenSceneId,
+  sceneChatCurrentMessages,
+  sceneChatComposerAssets,
+  sceneChatComposerText,
+  sceneChatMentionOpen,
+  sceneChatMentionCandidates,
+  sceneChatMentionActiveIndex,
+  sceneChatUploading,
+  sceneChatApplying,
+  sceneChatError,
+  sceneChatCanSubmit,
+  setSceneChatComposerText,
+  setSceneChatInputRef,
+  setSceneChatMentionListRef,
+  closeSceneChat,
+  toggleSceneChat,
+  applySceneChatMention,
+  handleSceneChatComposerInput,
+  handleSceneChatComposerCursor,
+  handleSceneChatComposerKeydown,
+  removeSceneChatComposerAsset,
+  handleSceneChatImageUpload,
+  submitSceneChat,
+  syncSceneChatValidScenes
+} = useAssetWorkbenchSceneChat({
+  scenes,
+  propAssets,
+  allAssets,
+  workflowStylePrompt,
+  maxAssetUploadSize: MAX_ASSET_UPLOAD_SIZE,
+  uniqueSorted,
+  resolveUiError,
+  resolveDisplayAssetById,
+  resolveDisplayAssetTypeLabel,
+  resolveAssetMentionTokenMap,
+  resolveAssetByMentionTokenMap,
+  resolveSceneDescriptionWithoutAssetMentions,
+  buildSceneMentionDescription,
+  buildAssetWorkflowScenePayload,
+  resolveSceneReferenceAssetIds,
+  setSceneAssetReferences,
+  saveWorkflowMeta,
+  saveProject
+})
 
 watch(
   () => scenes.value.map(scene => scene.id),
   (sceneIds) => {
     synchronizeSceneConfigs()
     synchronizeQueueItems()
-
-    if (sceneChatOpenSceneId.value && !sceneIds.includes(sceneChatOpenSceneId.value)) {
-      closeSceneChat()
-    }
-
-    const validSceneIdSet = new Set(sceneIds)
-    sceneChatMessages.value = Object.fromEntries(
-      Object.entries(sceneChatMessages.value).filter(([sceneId]) => validSceneIdSet.has(sceneId))
-    )
+    syncSceneChatValidScenes(sceneIds)
   },
   { immediate: true }
 )
@@ -2547,7 +475,7 @@ watch(
   [sceneConfigs, propAssets],
   () => {
     if (!workflowMetaReady.value || hydratingWorkflowMeta.value) return
-    debouncedSaveWorkflowMeta()
+    scheduleWorkflowMetaSave()
   },
   { deep: true }
 )
@@ -2563,161 +491,6 @@ watch(selectedScene, (scene) => {
   }
 })
 
-function synchronizeSceneConfigs() {
-  const nextConfigs: Record<string, SceneConsistencyConfig> = {}
-
-  for (const scene of scenes.value) {
-    nextConfigs[scene.id] = sceneConfigs.value[scene.id] || {
-      sceneId: scene.id,
-      mustReferenceAssetIds: [],
-      consistencyLevel: 'lock',
-      continuityNotes: ''
-    }
-  }
-
-  sceneConfigs.value = nextConfigs
-
-  if (!selectedSceneId.value && scenes.value.length > 0) {
-    selectedSceneId.value = scenes.value[0]?.id || ''
-  }
-
-  if (selectedSceneId.value && !sceneConfigs.value[selectedSceneId.value] && scenes.value.length > 0) {
-    selectedSceneId.value = scenes.value[0]?.id || ''
-  }
-}
-
-function ensureSceneConfig(sceneId: string): SceneConsistencyConfig {
-  if (!sceneConfigs.value[sceneId]) {
-    sceneConfigs.value[sceneId] = {
-      sceneId,
-      mustReferenceAssetIds: [],
-      consistencyLevel: 'lock',
-      continuityNotes: ''
-    }
-  }
-  return sceneConfigs.value[sceneId]!
-}
-
-function synchronizeQueueItems() {
-  const previousMap = new Map(queueItems.value.map(item => [item.sceneId, item]))
-
-  queueItems.value = scenes.value.map((scene) => {
-    const previous = previousMap.get(scene.id)
-    if (!previous) {
-      return {
-        sceneId: scene.id,
-        status: scene.videoStatus === 'done' ? 'done' : 'pending'
-      }
-    }
-
-    if (scene.videoStatus === 'done') {
-      return { ...previous, status: 'done', error: undefined }
-    }
-
-    if (previous.status === 'done') {
-      return { ...previous, status: 'pending', error: undefined }
-    }
-
-    return previous
-  })
-}
-
-function resolveAssetName(assetId: string): string {
-  const asset = allAssets.value.find(item => item.id === assetId)
-  if (asset?.name) return asset.name
-
-  if (assetId.startsWith('char:')) {
-    const rawCharacterId = assetId.slice('char:'.length)
-    const matched = findCharacterByAssetRefId(rawCharacterId)
-    return matched?.name || '角色'
-  }
-  if (assetId.startsWith('env:') || assetId.startsWith('scene:')) return '环境'
-  if (assetId.startsWith('prop:')) return '道具'
-
-  return assetId
-}
-
-function resolveSceneReferenceAssetIds(sceneId: string): string[] {
-  const config = ensureSceneConfig(sceneId)
-  return uniqueSorted(config.mustReferenceAssetIds)
-}
-
-function setSceneAssetReferences(sceneId: string, nextAssetIds: string[]) {
-  const config = ensureSceneConfig(sceneId)
-  const validAssetIds = getValidAssetIdSet()
-  const normalized = uniqueSorted(nextAssetIds.filter(assetId => validAssetIds.has(assetId)))
-  const previous = uniqueSorted(config.mustReferenceAssetIds)
-
-  if (previous.join('||') === normalized.join('||')) return
-
-  config.mustReferenceAssetIds = normalized
-
-  if (config.mustReferenceAssetIds.length === 0 && config.consistencyLevel === 'lock') {
-    config.consistencyLevel = 'soft'
-  }
-
-  const scene = scenes.value.find(item => item.id === sceneId)
-  if (scene && scene.videoStatus === 'done') {
-    scene.videoStatus = 'pending'
-    scene.videoError = undefined
-    scene.videoUrl = undefined
-  }
-}
-
-function resolveQueueItem(sceneId: string): QueueItem | undefined {
-  return queueItems.value.find(item => item.sceneId === sceneId)
-}
-
-function isSceneQueueRunning(sceneId: string): boolean {
-  return resolveQueueItem(sceneId)?.status === 'running'
-}
-
-function isScenePreparing(scene: SceneData): boolean {
-  return isSceneQueueRunning(scene.id) && scene.videoStatus !== 'generating'
-}
-
-function isSceneBusy(scene: SceneData): boolean {
-  return scene.frameStatus === 'generating'
-    || scene.videoStatus === 'generating'
-    || isSceneQueueRunning(scene.id)
-}
-
-function resolveSceneVideoBadge(scene: SceneData): {
-  variant: 'secondary' | 'destructive' | 'default' | 'outline'
-  label: string
-} {
-  if (scene.videoStatus === 'done') {
-    return { variant: 'secondary', label: '视频完成' }
-  }
-  if (scene.videoStatus === 'error') {
-    return { variant: 'destructive', label: '视频失败' }
-  }
-  if (scene.videoStatus === 'generating') {
-    return { variant: 'default', label: '视频生成中' }
-  }
-  if (isScenePreparing(scene)) {
-    return { variant: 'default', label: '准备中' }
-  }
-  return { variant: 'outline', label: '待生成' }
-}
-
-function resolveEnvironmentCard(assetId: string): EnvironmentAssetCard | undefined {
-  return environmentAssetCards.value.find(item => item.id === assetId)
-}
-
-function resolveEnvironmentRepresentativeScene(assetId: string): SceneData | undefined {
-  const card = resolveEnvironmentCard(assetId)
-  if (!card) return undefined
-  return scenes.value.find(scene => scene.id === card.representativeSceneId)
-}
-
-function resolveEnvironmentSceneSummary(asset: EnvironmentAssetCard): string {
-  if (asset.sceneTitles.length <= 2) {
-    return `覆盖场景：${asset.sceneTitles.join('、')}`
-  }
-  return `覆盖场景：${asset.sceneTitles.slice(0, 2).join('、')} 等 ${asset.sceneTitles.length} 场`
-}
-
 async function regenerateEnvironmentAsset(assetId: string) {
   const targetScene = resolveEnvironmentRepresentativeScene(assetId)
   if (!targetScene) return
@@ -2730,374 +503,12 @@ function openEnvironmentAssetSceneEditor(assetId: string) {
   openSceneEdit(targetScene)
 }
 
-function selectScene(sceneId: string) {
-  selectedSceneId.value = sceneId
+function setSceneEditDialogState(open: boolean) {
+  sceneEditDialogOpen.value = open
 }
 
-const sceneEditAssetReferenceOptions = computed<DisplayAsset[]>(() => {
-  return allAssets.value
-})
-
-const sceneEditSelectedAssetIds = computed<string[]>(() => {
-  if (!editingScene.value?.id) return []
-  return resolveSceneReferenceAssetIds(editingScene.value.id)
-})
-
-function openSceneEdit(scene: SceneData) {
-  editingScene.value = {
-    ...scene,
-    description: resolveSceneDescriptionWithoutAssetMentions(scene.description || ''),
-    setting: scene.setting
-      ? { ...scene.setting }
-      : { location: '未知', timeOfDay: 'morning' },
-    characters: scene.characters.map(char => ({ ...char })),
-    dialogues: scene.dialogues.map(dialogue => ({ ...dialogue }))
-  }
-  sceneEditDialogOpen.value = true
-}
-
-function handleSceneSave(updatedScene: Partial<SceneData> & { id: string }) {
-  updateScene(updatedScene)
-  sceneEditDialogOpen.value = false
-  editingScene.value = null
-}
-
-function handleSceneAssetReferencesSave(payload: { sceneId: string, assetIds: string[] }) {
-  setSceneAssetReferences(payload.sceneId, payload.assetIds)
-}
-
-async function handleSplitScene(sceneId: string) {
-  const targetIndex = scenes.value.findIndex(scene => scene.id === sceneId)
-  if (targetIndex < 0) return
-
-  const beforeIds = scenes.value.map(scene => scene.id)
-  const previousConfig = sceneConfigs.value[sceneId]
-    ? {
-        ...sceneConfigs.value[sceneId],
-        mustReferenceAssetIds: [...sceneConfigs.value[sceneId]!.mustReferenceAssetIds]
-      }
-    : null
-
-  splitScene(targetIndex)
-
-  const afterIds = scenes.value.map(scene => scene.id)
-  if (afterIds.length !== beforeIds.length + 1) return
-
-  const firstSplitScene = scenes.value[targetIndex]
-  const secondSplitScene = scenes.value[targetIndex + 1]
-  if (!firstSplitScene || !secondSplitScene || firstSplitScene.id !== sceneId) return
-
-  if (previousConfig) {
-    sceneConfigs.value[secondSplitScene.id] = {
-      ...previousConfig,
-      sceneId: secondSplitScene.id,
-      mustReferenceAssetIds: uniqueSorted(previousConfig.mustReferenceAssetIds)
-    }
-  }
-
-  synchronizeSceneConfigs()
-  synchronizeQueueItems()
-  await saveWorkflowMeta()
-}
-
-function resolveSceneConfigSnapshot(sceneId: string): SceneConsistencyConfig | null {
-  const config = sceneConfigs.value[sceneId]
-  if (!config) return null
-  return {
-    ...config,
-    mustReferenceAssetIds: [...config.mustReferenceAssetIds]
-  }
-}
-
-function canMergeSceneByIndex(sceneIndex: number): boolean {
-  const scene = scenes.value[sceneIndex]
-  const nextScene = scenes.value[sceneIndex + 1]
-  if (!scene || !nextScene) return false
-  return !isSceneBusy(scene) && !isSceneBusy(nextScene)
-}
-
-async function handleMergeWithNextScene(sceneId: string) {
-  const targetIndex = scenes.value.findIndex(scene => scene.id === sceneId)
-  if (targetIndex < 0 || targetIndex >= scenes.value.length - 1) return
-  if (!canMergeSceneByIndex(targetIndex)) return
-
-  const currentScene = scenes.value[targetIndex]
-  const nextScene = scenes.value[targetIndex + 1]
-  if (!currentScene || !nextScene) return
-
-  const currentConfig = resolveSceneConfigSnapshot(currentScene.id)
-  const nextConfig = resolveSceneConfigSnapshot(nextScene.id)
-
-  mergeWithNextScene(targetIndex)
-
-  const mergedScene = scenes.value[targetIndex]
-  if (!mergedScene || mergedScene.id !== currentScene.id) return
-
-  const mergedAssetIds = uniqueSorted([
-    ...(currentConfig?.mustReferenceAssetIds || []),
-    ...(nextConfig?.mustReferenceAssetIds || [])
-  ])
-  const mergedNotes = Array.from(new Set([
-    currentConfig?.continuityNotes?.trim() || '',
-    nextConfig?.continuityNotes?.trim() || ''
-  ].filter(Boolean))).join('；')
-
-  if (currentConfig || nextConfig) {
-    sceneConfigs.value[mergedScene.id] = {
-      sceneId: mergedScene.id,
-      mustReferenceAssetIds: mergedAssetIds,
-      consistencyLevel: mergedAssetIds.length === 0
-        ? 'soft'
-        : (
-            currentConfig?.consistencyLevel === 'lock'
-            || nextConfig?.consistencyLevel === 'lock'
-              ? 'lock'
-              : 'soft'
-          ),
-      continuityNotes: mergedNotes
-    }
-  }
-
-  const { [nextScene.id]: _removedConfig, ...remainingConfigs } = sceneConfigs.value
-  void _removedConfig
-  sceneConfigs.value = remainingConfigs
-  synchronizeSceneConfigs()
-  synchronizeQueueItems()
-  await saveWorkflowMeta()
-}
-
-function handleDeleteScene(scene: SceneData) {
-  const beforeLength = scenes.value.length
-  deleteScene(scene)
-
-  if (scenes.value.length !== beforeLength) {
-    synchronizeSceneConfigs()
-    synchronizeQueueItems()
-  }
-}
-
-function addPropAsset() {
-  const name = newPropName.value.trim()
-  const description = newPropDescription.value.trim()
-  if (!name) return
-
-  propAssets.value.push({
-    id: `prop_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    name,
-    description
-  })
-
-  newPropName.value = ''
-  newPropDescription.value = ''
-  assetTab.value = 'props'
-}
-
-function removePropAsset(propId: string) {
-  propAssets.value = propAssets.value.filter(prop => prop.id !== propId)
-
-  const fullAssetId = `prop:${propId}`
-  for (const config of Object.values(sceneConfigs.value)) {
-    config.mustReferenceAssetIds = config.mustReferenceAssetIds.filter(assetId => assetId !== fullAssetId)
-  }
-}
-
-async function handleParseScript() {
-  if (!novelText.value.trim()) {
-    alert('请先输入剧本原文')
-    return
-  }
-
-  autoRunError.value = null
-
-  try {
-    const parsed = await parseScript({
-      workflowType: 'asset_consistency',
-      style: workflowStylePrompt.value,
-      descriptionFormat: 'timeline'
-    })
-
-    if (!parsed) {
-      throw new Error('剧本解析失败，请检查模型配置或稍后重试')
-    }
-
-    const autoPlanResult = applyAutomaticAssetPlan({
-      overwriteExistingConfigs: true
-    })
-
-    const descriptionMentionChanged = synchronizeSceneDescriptionsWithAssetMentions()
-
-    if (autoPlanResult.characterChanged || descriptionMentionChanged) {
-      await saveProject()
-    }
-    if (autoPlanResult.configChanged) {
-      await saveWorkflowMeta()
-    }
-
-    synchronizeSceneConfigs()
-    synchronizeQueueItems()
-
-    if (scenes.value.length > 0) {
-      selectAutoStage('assets')
-    }
-  } catch (error) {
-    autoRunError.value = resolveUiError(error, '剧本解析失败')
-  }
-}
-
-async function copyParsedTimelineText() {
-  const text = parsedTimelineText.value.trim()
-  if (!text) return
-
-  if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
-    autoRunError.value = '当前环境不支持自动复制，请手动复制下方时间轴文案'
-    return
-  }
-
-  try {
-    await navigator.clipboard.writeText(text)
-  } catch (error) {
-    autoRunError.value = resolveUiError(error, '复制时间轴文案失败，请手动复制')
-  }
-}
-
-async function handleGenerateCharacter(characterId: string) {
-  const target = characters.value.find(char => char.id === characterId)
-  if (!target) return
-
-  await generateCharacter(target, {
-    workflowType: 'asset_consistency'
-  })
-}
-
-function openCharacterRegenerateDialog(char: CharacterData) {
-  if (!char.baseImage?.trim()) {
-    alert('请先生成角色图，再进行二次生成')
-    return
-  }
-  characterRegenerateTargetId.value = char.id
-  characterRegeneratePrompt.value = CHARACTER_REGENERATION_DEFAULT_PROMPT
-  characterRegenerateError.value = null
-  characterRegenerateDialogOpen.value = true
-}
-
-function closeCharacterRegenerateDialog() {
-  characterRegenerateDialogOpen.value = false
-  characterRegenerateTargetId.value = null
-  characterRegenerateError.value = null
-}
-
-async function submitCharacterRegeneration() {
-  const targetId = characterRegenerateTargetId.value
-  if (!targetId) return
-
-  const target = characters.value.find(char => char.id === targetId)
-  if (!target) {
-    closeCharacterRegenerateDialog()
-    return
-  }
-
-  const prompt = characterRegeneratePrompt.value.trim()
-  if (!prompt) {
-    characterRegenerateError.value = '请输入二次生成提示词'
-    return
-  }
-
-  if (!target.baseImage?.trim()) {
-    characterRegenerateError.value = '角色参考图不存在，请先生成角色图'
-    return
-  }
-
-  characterRegenerateError.value = null
-
-  try {
-    await generateCharacter(target, {
-      workflowType: 'asset_consistency',
-      regenerationPrompt: prompt
-    })
-    closeCharacterRegenerateDialog()
-  } catch (error) {
-    characterRegenerateError.value = resolveUiError(error, '角色二次生成失败')
-  }
-}
-
-function openEnvironmentRegenerateDialog(assetId: string) {
-  const asset = resolveEnvironmentCard(assetId)
-  if (!asset) return
-
-  if (!asset.referenceImage?.trim()) {
-    alert('请先生成或上传环境图，再进行二次生成')
-    return
-  }
-
-  environmentRegenerateTargetId.value = asset.id
-  environmentRegeneratePrompt.value = ''
-  environmentRegenerateError.value = null
-  environmentRegenerateDialogOpen.value = true
-}
-
-function closeEnvironmentRegenerateDialog() {
-  environmentRegenerateDialogOpen.value = false
-  environmentRegenerateTargetId.value = null
-  environmentRegenerateError.value = null
-}
-
-async function submitEnvironmentRegeneration() {
-  const targetAssetId = environmentRegenerateTargetId.value
-  if (!targetAssetId) return
-
-  const targetAsset = resolveEnvironmentCard(targetAssetId)
-  if (!targetAsset) {
-    closeEnvironmentRegenerateDialog()
-    return
-  }
-
-  const prompt = environmentRegeneratePrompt.value.trim()
-  if (!prompt) {
-    environmentRegenerateError.value = '请输入二次生成提示词'
-    return
-  }
-
-  const targetScene = resolveEnvironmentRepresentativeScene(targetAsset.id)
-  if (!targetScene) {
-    environmentRegenerateError.value = '未找到代表场景，无法二次生成'
-    return
-  }
-
-  if (!resolveSceneReferenceImage(targetScene)?.trim() && !targetAsset.referenceImage?.trim()) {
-    environmentRegenerateError.value = '环境参考图不存在，请先生成环境图'
-    return
-  }
-
-  environmentRegenerateError.value = null
-
-  try {
-    await generateSceneBaseline(targetScene.id, {
-      customPrompt: prompt
-    })
-
-    const updatedImage = resolveSceneReferenceImage(targetScene)
-    if (updatedImage) {
-      for (const sceneId of targetAsset.sceneIds) {
-        if (sceneId === targetScene.id) continue
-        const scene = scenes.value.find(item => item.id === sceneId)
-        if (!scene) continue
-
-        scene.firstFrame = updatedImage
-        scene.lastFrame = undefined
-        scene.frameStatus = 'done'
-        scene.frameError = undefined
-        scene.videoUrl = undefined
-        scene.videoStatus = 'pending'
-        scene.videoError = undefined
-      }
-      synchronizeQueueItems()
-      await saveProject()
-    }
-
-    closeEnvironmentRegenerateDialog()
-  } catch (error) {
-    environmentRegenerateError.value = resolveUiError(error, '环境二次生成失败')
-  }
+function setImagePreviewState(open: boolean) {
+  imagePreviewOpen.value = open
 }
 
 async function handleBatchGenerateCharacters() {
@@ -3105,1806 +516,181 @@ async function handleBatchGenerateCharacters() {
     workflowType: 'asset_consistency'
   })
 }
-
-async function generateSceneBaseline(
-  sceneId: string,
-  options: { preferReuse?: boolean, customPrompt?: string } = {}
-) {
-  const scene = scenes.value.find(item => item.id === sceneId)
-  if (!scene) return
-  if (scene.frameStatus === 'generating' || scene.videoStatus === 'generating') return
-
-  const customPrompt = options.customPrompt?.trim()
-
-  if (options.preferReuse && !customPrompt) {
-    const reusableImage = findReusableEnvironmentImage(scene)
-    if (reusableImage) {
-      scene.firstFrame = reusableImage
-      scene.lastFrame = undefined
-      scene.frameStatus = 'done'
-      scene.frameError = undefined
-      scene.videoUrl = undefined
-      scene.videoStatus = 'pending'
-      scene.videoError = undefined
-      synchronizeQueueItems()
-      await saveProject()
-      return
-    }
-  }
-
-  scene.frameStatus = 'generating'
-  scene.frameError = undefined
-
-  try {
-    const environmentContext = buildSceneEnvironmentConsistencyContext(scene)
-    const response = await $fetch<{
-      success: boolean
-      referenceImage?: string
-      error?: string
-    }>('/api/asset-workflow/reference/generate', {
-      method: 'POST',
-      body: {
-        scene: buildAssetWorkflowScenePayload(scene),
-        style: workflowStylePrompt.value,
-        aspectRatio: projectAspectRatio.value,
-        environmentContext,
-        regeneration: customPrompt
-          ? {
-              customPrompt
-            }
-          : undefined
-      }
-    })
-
-    if (!response.success || !response.referenceImage) {
-      throw new Error(response.error || '环境图生成失败')
-    }
-
-    scene.firstFrame = response.referenceImage
-    scene.lastFrame = undefined
-    scene.frameStatus = 'done'
-    scene.frameError = undefined
-    scene.videoUrl = undefined
-    scene.videoStatus = 'pending'
-    scene.videoError = undefined
-    synchronizeQueueItems()
-    await saveProject()
-  } catch (error) {
-    scene.frameStatus = 'error'
-    scene.frameError = resolveUiError(error, '环境图生成失败')
-    throw new Error(scene.frameError)
-  }
-}
-
-async function generateSingleSceneVideo(sceneId: string) {
-  const scene = scenes.value.find(item => item.id === sceneId)
-  if (!scene) return
-
-  await ensureSceneReferencedAssetsReady(scene)
-
-  if (!resolveSceneReferenceImage(scene)) {
-    await generateSceneBaseline(scene.id, { preferReuse: true })
-  }
-  if (scene.frameStatus === 'error') {
-    throw new Error(normalizeWorkflowText(scene.frameError || '场景环境图生成失败'))
-  }
-
-  const environmentImage = resolveSceneReferenceImage(scene)
-  if (!environmentImage) {
-    throw new Error('场景环境图未就绪，无法生成视频')
-  }
-  const characterReferenceAssets = resolveSceneVideoReferenceAssets(scene)
-  const characterImages = resolveSceneVideoCharacterReferences(scene)
-
-  scene.videoStatus = 'generating'
-  scene.videoError = undefined
-
-  try {
-    const response = await $fetch<{
-      success: boolean
-      taskId?: string
-      error?: string
-    }>('/api/asset-workflow/video/generate', {
-      method: 'POST',
-      body: {
-        scene: buildAssetWorkflowScenePayload(scene),
-        style: workflowStylePrompt.value,
-        aspectRatio: projectAspectRatio.value,
-        references: {
-          environmentImage,
-          characterImage: characterImages[0],
-          characterImages,
-          environmentAsset: {
-            id: resolveSceneEnvironmentAssetId(scene),
-            name: resolveSceneEnvironmentLabel(scene),
-            type: 'environment',
-            image: environmentImage
-          },
-          characterAssets: characterReferenceAssets.map(item => ({
-            id: item.assetId,
-            name: item.name,
-            type: item.type,
-            image: item.image
-          }))
-        }
-      }
-    })
-
-    if (!response.success || !response.taskId) {
-      throw new Error(response.error || '视频任务创建失败')
-    }
-
-    await pollAssetWorkflowVideoStatus(scene, response.taskId)
-  } catch (error) {
-    scene.videoStatus = 'error'
-    scene.videoError = resolveUiError(error, '视频生成失败')
-    throw new Error(scene.videoError)
-  }
-}
-
-async function runBatchSceneGeneration() {
-  if (batchRunning.value) return
-
-  const autoPlanResult = applyAutomaticAssetPlan()
-  const descriptionMentionChanged = synchronizeSceneDescriptionsWithAssetMentions()
-
-  if (autoPlanResult.characterChanged || descriptionMentionChanged) {
-    await saveProject()
-  }
-  if (autoPlanResult.configChanged) {
-    await saveWorkflowMeta()
-  }
-
-  const missingCharacterAssets = characters.value.filter(character => !character.baseImage)
-  if (missingCharacterAssets.length > 0) {
-    await batchGenerateCharacters(undefined, {
-      workflowType: 'asset_consistency'
-    })
-  }
-
-  batchRunning.value = true
-
-  try {
-    for (const item of queueItems.value) {
-      if (item.status === 'done') continue
-
-      item.status = 'running'
-      item.error = undefined
-
-      try {
-        await generateSingleSceneVideo(item.sceneId)
-        item.status = 'done'
-      } catch (error) {
-        item.status = 'error'
-        item.error = resolveUiError(error, '生成失败')
-      }
-    }
-  } finally {
-    batchRunning.value = false
-  }
-}
-
-async function retryScene(sceneId: string) {
-  const item = queueItems.value.find(queue => queue.sceneId === sceneId)
-  if (!item) return
-
-  item.status = 'running'
-  item.error = undefined
-
-  try {
-    await generateSingleSceneVideo(sceneId)
-    item.status = 'done'
-  } catch (error) {
-    item.status = 'error'
-    item.error = resolveUiError(error, '生成失败')
-  }
-}
-
-async function handleMergeVideos() {
-  if (scenes.value.length === 0) {
-    alert('请先生成场景视频')
-    return
-  }
-
-  await mergeAllVideos()
-}
-
-async function retryFailedQueueItemsOnce() {
-  const failedItems = queueItems.value.filter(item => item.status === 'error')
-  for (const item of failedItems) {
-    await retryScene(item.sceneId)
-  }
-}
-
-async function runSimpleAssetsStep() {
-  if (autoRunning.value) return
-
-  autoRunning.value = true
-  autoRunError.value = null
-  autoRunCurrentStage.value = 'assets'
-
-  try {
-    if (scenes.value.length === 0) {
-      throw new Error('请先在“剧本解析”步骤输入并解析剧本')
-    }
-
-    const autoPlanResult = applyAutomaticAssetPlan()
-    const descriptionMentionChanged = synchronizeSceneDescriptionsWithAssetMentions()
-
-    if (autoPlanResult.characterChanged || descriptionMentionChanged) {
-      await saveProject()
-    }
-    if (autoPlanResult.configChanged) {
-      await saveWorkflowMeta()
-    }
-
-    const missingCharacterAssets = characters.value.filter(character => !character.baseImage)
-    if (missingCharacterAssets.length > 0) {
-      await batchGenerateCharacters(undefined, {
-        workflowType: 'asset_consistency'
-      })
-    }
-
-    selectAutoStage('videos')
-  } catch (error) {
-    autoRunError.value = resolveUiError(error, '资产准备失败')
-  } finally {
-    autoRunning.value = false
-    autoRunCurrentStage.value = null
-  }
-}
-
-async function runSimpleVideosStep() {
-  if (autoRunning.value) return
-
-  autoRunning.value = true
-  autoRunError.value = null
-  autoRunCurrentStage.value = 'videos'
-
-  try {
-    if (scenes.value.length === 0) {
-      throw new Error('请先在“剧本解析”步骤输入并解析剧本')
-    }
-    await runBatchSceneGeneration()
-    await retryFailedQueueItemsOnce()
-    selectAutoStage('final')
-  } catch (error) {
-    autoRunError.value = resolveUiError(error, '场景视频生成失败')
-  } finally {
-    autoRunning.value = false
-    autoRunCurrentStage.value = null
-  }
-}
-
-async function runSimpleFinalStep() {
-  if (autoRunning.value) return
-
-  autoRunning.value = true
-  autoRunError.value = null
-  autoRunCurrentStage.value = 'final'
-
-  try {
-    const doneCount = queueItems.value.filter(item => item.status === 'done').length
-    if (doneCount === 0) {
-      throw new Error('请先在“场景视频”步骤生成至少一个场景视频')
-    }
-    await handleMergeVideos()
-  } catch (error) {
-    autoRunError.value = resolveUiError(error, '最终成片合成失败')
-  } finally {
-    autoRunning.value = false
-    autoRunCurrentStage.value = null
-  }
-}
-
-async function loadWorkflowMeta(rawMetaInput?: unknown): Promise<boolean> {
-  loadingWorkflowMeta.value = true
-  workflowError.value = null
-  hydratingWorkflowMeta.value = true
-  let hasMeta = false
-
-  try {
-    const rawMeta = rawMetaInput
-    if (!rawMeta || typeof rawMeta !== 'object' || Array.isArray(rawMeta)) {
-      return false
-    }
-
-    const meta = rawMeta as {
-      sceneConfigs?: Record<string, unknown>
-      props?: unknown
-    }
-
-    const loadedConfigs: Record<string, SceneConsistencyConfig> = {}
-    for (const [sceneId, rawConfig] of Object.entries(meta.sceneConfigs || {})) {
-      if (!rawConfig || typeof rawConfig !== 'object' || Array.isArray(rawConfig)) continue
-      const item = rawConfig as Partial<SceneConsistencyConfig>
-
-      loadedConfigs[sceneId] = {
-        sceneId,
-        mustReferenceAssetIds: Array.isArray(item.mustReferenceAssetIds)
-          ? item.mustReferenceAssetIds.filter(assetId => typeof assetId === 'string')
-          : [],
-        consistencyLevel: item.consistencyLevel === 'soft' ? 'soft' : 'lock',
-        continuityNotes: typeof item.continuityNotes === 'string' ? item.continuityNotes : ''
-      }
-    }
-
-    const loadedProps = Array.isArray(meta.props)
-      ? meta.props
-          .filter(item => item && typeof item === 'object')
-          .map((item) => {
-            const prop = item as Partial<PropAsset>
-            return {
-              id: typeof prop.id === 'string' ? prop.id : `prop_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-              name: typeof prop.name === 'string' ? prop.name : '未命名道具',
-              description: typeof prop.description === 'string' ? prop.description : '',
-              referenceImage: typeof prop.referenceImage === 'string' ? prop.referenceImage : undefined
-            }
-          })
-      : []
-
-    hasMeta = Object.keys(loadedConfigs).length > 0 || loadedProps.length > 0
-    sceneConfigs.value = loadedConfigs
-    propAssets.value = loadedProps
-  } catch (error) {
-    console.error('[AssetWorkbench] 读取工作流元数据失败:', error)
-    workflowError.value = '读取流程配置失败，已使用默认配置。'
-  } finally {
-    loadingWorkflowMeta.value = false
-    synchronizeSceneConfigs()
-    synchronizeQueueItems()
-    workflowMetaReady.value = true
-    hydratingWorkflowMeta.value = false
-  }
-
-  return hasMeta
-}
-
-async function saveWorkflowMeta() {
-  if (!workflowMetaReady.value || !projectId.value) return
-
-  const payload: AssetWorkflowMeta = {
-    version: 1,
-    sceneConfigs: sceneConfigs.value,
-    props: propAssets.value
-  }
-
-  savingWorkflowMeta.value = true
-  workflowError.value = null
-
-  try {
-    await $fetch(`/api/project/${projectId.value}`, {
-      method: 'PUT',
-      body: {
-        assetWorkflow: payload
-      }
-    })
-  } catch (error) {
-    console.error('[AssetWorkbench] 保存工作流元数据失败:', error)
-    workflowError.value = '流程配置保存失败，请稍后重试。'
-  } finally {
-    savingWorkflowMeta.value = false
-  }
-}
-
-onMounted(async () => {
-  const id = projectId.value || route.query.project
-  if (!id || typeof id !== 'string') {
-    await router.push('/projects')
-    return
-  }
-
-  await loadProject(id)
-
-  if (!selectedStyleId.value && projectStyleId.value) {
-    selectedStyleId.value = projectStyleId.value
-  }
-
-  const hasMeta = await loadWorkflowMeta(projectAssetWorkflow.value)
-
-  const autoPlanResult = applyAutomaticAssetPlan({
-    overwriteExistingConfigs: !hasMeta
-  })
-  const descriptionMentionChanged = synchronizeSceneDescriptionsWithAssetMentions()
-
-  if (autoPlanResult.characterChanged || descriptionMentionChanged) {
-    await saveProject()
-  }
-  if (autoPlanResult.configChanged) {
-    await saveWorkflowMeta()
-  }
-
-  if (scenes.value.length > 0) {
-    selectAutoStage(inferActiveAutoStage())
-    selectedSceneId.value = scenes.value[0]?.id || ''
-  } else {
-    selectAutoStage('parse')
-  }
-})
 </script>
 
 <template>
   <div class="h-full min-h-0 overflow-hidden p-3 flex flex-col gap-2">
-    <div class="shrink-0 flex flex-col gap-1.5 xl:flex-row xl:items-start">
-      <div class="min-w-0 xl:w-[360px]">
-        <div class="flex items-center gap-1.5">
-          <Button
-            variant="outline"
-            size="icon"
-            class="h-8 w-8 shrink-0"
-            aria-label="返回项目列表"
-            title="返回项目列表"
-            @click="router.push('/projects')"
-          >
-            <ArrowLeft class="h-4 w-4" />
-          </Button>
-          <div class="min-w-0">
-            <h1 class="text-lg font-bold leading-tight">
-              自动剧本视频工作台
-            </h1>
-            <p class="text-[11px] text-muted-foreground mt-0.5">
-              {{ projectName }}<span v-if="projectDescription"> · {{ projectDescription }}</span> · 画风：{{ selectedStyleId || projectStyleId || '未选择' }} · 比例：{{ projectAspectRatio }}
-            </p>
-          </div>
-        </div>
-      </div>
-      <div class="min-w-0 flex-1 space-y-1.5">
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-1.5 rounded-md border border-primary/20 bg-primary/[0.04] p-1.5">
-          <Button
-            v-for="stage in autoStages"
-            :key="stage.key"
-            type="button"
-            variant="ghost"
-            class="h-9 rounded-md border px-2 text-left transition focus-visible:outline-none"
-            :class="[
-              activeAutoStage === stage.key
-                ? 'border-primary/40 bg-accent text-foreground shadow-sm'
-                : stage.status === 'done'
-                  ? 'border-emerald-500/30 bg-emerald-500/5'
-                  : stage.status === 'running'
-                    ? 'border-primary/30 bg-primary/[0.06]'
-                    : 'border-input bg-background hover:border-primary/25'
-            ]"
-            @click="selectAutoStage(stage.key)"
-          >
-            <div class="flex items-center justify-between gap-1.5">
-              <span class="text-[12px] font-medium truncate">{{ stage.label }}</span>
-              <CheckCircle2
-                v-if="stage.status === 'done'"
-                class="h-3.5 w-3.5 shrink-0 text-emerald-600"
-              />
-              <Loader2
-                v-else-if="stage.status === 'running'"
-                class="h-3.5 w-3.5 shrink-0 animate-spin text-primary"
-              />
-              <span
-                v-else
-                class="text-[10px] shrink-0 text-muted-foreground"
-              >待执行</span>
-            </div>
-          </Button>
-        </div>
-        <p
-          v-if="autoRunError"
-          class="text-xs text-destructive"
-        >
-          {{ autoRunError }}
-        </p>
-        <p
-          v-if="saveError"
-          class="text-xs text-destructive"
-        >
-          {{ saveError }}
-        </p>
-      </div>
-    </div>
-
-    <Card
-      v-if="activeAutoStage === 'parse'"
-      class="flex-1 min-h-0 flex flex-col overflow-hidden"
-    >
-      <CardHeader class="pb-2">
-        <CardTitle class="text-base flex items-center gap-2">
-          <BookOpen class="h-4 w-4" />
-          步骤一：剧本解析
-          <span class="relative inline-flex items-center group">
-            <button
-              type="button"
-              class="inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-              aria-label="步骤提示"
-            >
-              <CircleHelp class="h-3.5 w-3.5" />
-            </button>
-            <span class="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-72 rounded-md border bg-popover px-2.5 py-2 text-[11px] font-normal leading-relaxed text-popover-foreground shadow-md group-hover:block group-focus-within:block">
-              {{ stageHints.parse }}
-            </span>
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent class="flex-1 min-h-0 flex flex-col gap-3 overflow-hidden">
-        <Textarea
-          v-model="novelText"
-          class="flex-1 min-h-[280px] resize-none overflow-y-auto"
-          placeholder="粘贴完整剧本原文..."
-        />
-        <div
-          v-if="parsedTimelineText.trim()"
-          class="shrink-0 rounded-md border bg-muted/20 p-3 space-y-2"
-        >
-          <div class="flex items-center justify-between gap-2">
-            <p class="text-xs font-medium">
-              标准时间轴文案（含图片标记）
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              class="h-7 px-2 text-xs"
-              @click="copyParsedTimelineText"
-            >
-              复制文案
-            </Button>
-          </div>
-          <pre class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded border bg-background px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">{{ parsedTimelineText }}</pre>
-        </div>
-        <div class="shrink-0 flex flex-wrap items-center gap-2">
-          <Button
-            :disabled="parsing || !novelText.trim()"
-            @click="handleParseScript"
-          >
-            <Loader2
-              v-if="parsing"
-              class="h-4 w-4 mr-2 animate-spin"
-            />
-            解析并自动准备资产
-          </Button>
-          <span class="text-xs text-muted-foreground">
-            已解析场景 {{ scenes.length }} 个，角色 {{ characters.length }} 个
-          </span>
-        </div>
-      </CardContent>
-    </Card>
-
-    <Card
-      v-else-if="activeAutoStage === 'assets'"
-      class="flex-1 min-h-0 flex flex-col overflow-hidden"
-    >
-      <CardHeader class="pb-3">
-        <CardTitle class="text-base flex items-center gap-2">
-          <Layers3 class="h-4 w-4" />
-          步骤二：资产准备
-          <span class="relative inline-flex items-center group">
-            <button
-              type="button"
-              class="inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-              aria-label="步骤提示"
-            >
-              <CircleHelp class="h-3.5 w-3.5" />
-            </button>
-            <span class="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-72 rounded-md border bg-popover px-2.5 py-2 text-[11px] font-normal leading-relaxed text-popover-foreground shadow-md group-hover:block group-focus-within:block">
-              {{ stageHints.assets }}
-            </span>
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent class="flex-1 min-h-0 overflow-hidden flex flex-col gap-3">
-        <div
-          v-if="scenes.length === 0"
-          class="text-sm text-muted-foreground"
-        >
-          请先完成“剧本解析”步骤。
-        </div>
-        <template v-else>
-          <div class="shrink-0 rounded-md border bg-muted/20 px-3 py-2">
-            <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-              <div class="flex flex-wrap items-center gap-1.5">
-                <Badge
-                  variant="secondary"
-                  class="text-[11px]"
-                >
-                  角色图就绪 {{ characterReadyCount }}/{{ characters.length }}
-                </Badge>
-                <Badge
-                  v-if="characterGeneratingCount > 0"
-                  variant="outline"
-                  class="text-[11px]"
-                >
-                  生成中 {{ characterGeneratingCount }}
-                </Badge>
-                <Badge
-                  v-if="characterMissingCount > 0"
-                  variant="outline"
-                  class="text-[11px]"
-                >
-                  待生成 {{ characterMissingCount }}
-                </Badge>
-              </div>
-
-              <div class="flex flex-wrap items-center gap-2 lg:justify-end">
-                <Button
-                  :disabled="autoRunning"
-                  @click="runSimpleAssetsStep"
-                >
-                  <Loader2
-                    v-if="autoRunning && autoRunCurrentStage === 'assets'"
-                    class="h-4 w-4 mr-2 animate-spin"
-                  />
-                  {{ assetsPrimaryActionLabel }}
-                </Button>
-                <Button
-                  v-if="characterMissingCount > 0"
-                  variant="outline"
-                  :disabled="autoRunning || characters.length === 0"
-                  @click="handleBatchGenerateCharacters"
-                >
-                  仅生成角色图
-                </Button>
-              </div>
-            </div>
-          </div>
-          <div class="shrink-0 flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              class="h-8 rounded-md border px-3 text-xs font-medium transition"
-              :class="assetTab === 'characters' ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-input bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground'"
-              @click="assetTab = 'characters'"
-            >
-              角色资产（{{ characters.length }}）
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              class="h-8 rounded-md border px-3 text-xs font-medium transition"
-              :class="assetTab === 'scenes' ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-input bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground'"
-              @click="assetTab = 'scenes'"
-            >
-              环境资产（{{ environmentAssetCards.length }}）
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              class="h-8 rounded-md border px-3 text-xs font-medium transition"
-              :class="assetTab === 'props' ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-input bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground'"
-              @click="assetTab = 'props'"
-            >
-              道具资产（{{ propAssets.length }}）
-            </Button>
-          </div>
-
-          <div class="flex-1 min-h-0 overflow-y-auto pr-1">
-            <template v-if="assetTab === 'characters'">
-              <div
-                v-if="characters.length === 0"
-                class="rounded-md border border-dashed p-4 text-sm text-muted-foreground"
-              >
-                暂未识别到角色。可返回“剧本解析”补充人物信息后重新解析。
-              </div>
-              <div
-                v-else
-                class="grid grid-cols-1 md:grid-cols-2 gap-3"
-              >
-                <div
-                  v-for="char in characters"
-                  :key="char.id"
-                  class="rounded-md border p-3"
-                >
-                  <div class="flex items-start gap-3">
-                    <div class="h-20 w-20 rounded-md border bg-muted/30 overflow-hidden flex items-center justify-center shrink-0">
-                      <img
-                        v-if="char.baseImage"
-                        :src="toImageSrc(char.baseImage)"
-                        :alt="`${char.name} 角色图`"
-                        class="h-full w-full object-cover cursor-zoom-in"
-                        @click="openImagePreview(char.baseImage, `${char.name} 角色图`)"
-                      >
-                      <Users
-                        v-else
-                        class="h-8 w-8 text-muted-foreground"
-                      />
-                    </div>
-
-                    <div class="min-w-0 flex-1">
-                      <div class="flex items-center gap-2">
-                        <span class="font-medium truncate">{{ char.name }}</span>
-                        <Badge
-                          variant="outline"
-                          class="text-[10px]"
-                        >
-                          {{ resolveCharacterRoleLabel(char.role) }}
-                        </Badge>
-                      </div>
-
-                      <template v-if="editingCharacterId === char.id">
-                        <div class="mt-2 space-y-2">
-                          <Input
-                            v-model="characterEditDraft.name"
-                            class="h-8 text-xs"
-                            placeholder="角色名称"
-                          />
-                          <Select v-model="characterEditDraft.role">
-                            <SelectTrigger class="h-8 w-full text-xs">
-                              <SelectValue placeholder="选择角色类型" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem
-                                v-for="opt in characterRoleOptions"
-                                :key="opt.value"
-                                :value="opt.value"
-                              >
-                                {{ opt.label }}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Textarea
-                            v-model="characterEditDraft.appearance"
-                            class="min-h-[72px] text-xs"
-                            placeholder="角色外观描述（可人工补充）"
-                          />
-                        </div>
-                      </template>
-                      <template v-else>
-                        <p class="mt-1 text-xs text-muted-foreground line-clamp-2">
-                          {{ char.appearance || '暂无外观描述' }}
-                        </p>
-                        <div class="mt-2 flex flex-wrap gap-1">
-                          <Badge
-                            variant="outline"
-                            class="text-[10px]"
-                          >
-                            涉及场景 {{ resolveCharacterSceneCount(char) }}
-                          </Badge>
-                          <Badge
-                            :variant="char.generating ? 'default' : char.baseImage ? 'secondary' : 'outline'"
-                            class="text-[10px]"
-                          >
-                            {{ char.generating ? '生成中' : char.baseImage ? '已就绪' : '待生成' }}
-                          </Badge>
-                        </div>
-                      </template>
-                    </div>
-                  </div>
-
-                  <div class="mt-3 flex flex-wrap items-center gap-2">
-                    <template v-if="editingCharacterId === char.id">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        class="h-8 px-3 text-xs"
-                        :disabled="autoRunning || char.generating"
-                        @click="saveCharacterEdit()"
-                      >
-                        保存
-                      </Button>
-                      <Button
-                        size="sm"
-                        class="h-8 px-3 text-xs"
-                        :disabled="autoRunning || char.generating"
-                        @click="saveCharacterEdit({ regenerate: true })"
-                      >
-                        <Loader2
-                          v-if="char.generating"
-                          class="h-3.5 w-3.5 mr-1 animate-spin"
-                        />
-                        保存并重生成
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        class="h-8 px-2 text-xs"
-                        :disabled="autoRunning || char.generating"
-                        @click="cancelEditCharacter"
-                      >
-                        取消
-                      </Button>
-                    </template>
-                    <template v-else>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        class="h-8 px-3 text-xs"
-                        :disabled="autoRunning || char.generating"
-                        @click="startEditCharacter(char)"
-                      >
-                        <Pencil class="h-3.5 w-3.5 mr-1" />
-                        编辑
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        class="h-8 px-3 text-xs"
-                        :disabled="autoRunning || char.generating"
-                        @click="handleGenerateCharacter(char.id)"
-                      >
-                        <Loader2
-                          v-if="char.generating"
-                          class="h-3.5 w-3.5 mr-1 animate-spin"
-                        />
-                        {{ char.baseImage ? '重生成角色图' : '生成角色图' }}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        class="h-8 px-3 text-xs"
-                        :disabled="autoRunning || char.generating || !!uploadingCharacterId"
-                        @click="triggerUploadInput('char', char.id)"
-                      >
-                        <Loader2
-                          v-if="uploadingCharacterId === char.id"
-                          class="h-3.5 w-3.5 mr-1 animate-spin"
-                        />
-                        <Upload
-                          v-else
-                          class="h-3.5 w-3.5 mr-1"
-                        />
-                        上传角色图
-                      </Button>
-                      <Button
-                        v-if="char.baseImage"
-                        size="sm"
-                        variant="outline"
-                        class="h-8 px-3 text-xs"
-                        :disabled="autoRunning || char.generating"
-                        @click="openCharacterRegenerateDialog(char)"
-                      >
-                        <Sparkles class="h-3.5 w-3.5 mr-1" />
-                        二次生成
-                      </Button>
-                      <input
-                        :id="buildUploadInputId('char', char.id)"
-                        type="file"
-                        accept="image/*"
-                        class="hidden"
-                        @change="handleCharacterImageUpload(char.id, $event)"
-                      >
-                    </template>
-                  </div>
-                </div>
-              </div>
-            </template>
-
-            <template v-else-if="assetTab === 'scenes'">
-              <div class="rounded-md border p-3 space-y-3">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  <div class="text-sm font-medium">
-                    环境资产总览
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    class="h-7 px-2 text-xs"
-                    @click="selectAutoStage('videos')"
-                  >
-                    去场景视频步骤
-                  </Button>
-                </div>
-
-                <p class="text-xs text-muted-foreground">
-                  {{ environmentAssetCards.length }} 个环境，按剧本环境聚合展示，可直接编辑并重生成环境图。
-                </p>
-
-                <div class="grid grid-cols-1 xl:grid-cols-2 gap-2">
-                  <div
-                    v-for="(asset, idx) in environmentAssetCards"
-                    :key="`asset_env_${asset.id}`"
-                    class="rounded-lg border bg-card p-3 space-y-2"
-                  >
-                    <div class="flex items-start justify-between gap-2">
-                      <div class="min-w-0">
-                        <div class="text-[11px] text-muted-foreground">
-                          环境 {{ idx + 1 }}
-                        </div>
-                        <div class="text-sm font-medium truncate">
-                          {{ asset.name }}
-                        </div>
-                      </div>
-                      <div class="flex items-center gap-1">
-                        <Badge
-                          :variant="asset.frameStatus === 'done' ? 'secondary' : asset.frameStatus === 'error' ? 'destructive' : asset.frameStatus === 'generating' ? 'default' : 'outline'"
-                          class="text-[11px]"
-                        >
-                          {{ asset.frameStatus === 'done' ? '环境图就绪' : asset.frameStatus === 'error' ? '环境图失败' : asset.frameStatus === 'generating' ? '生成中' : '待生成' }}
-                        </Badge>
-                      </div>
-                    </div>
-
-                    <p class="text-[11px] text-muted-foreground truncate">
-                      {{ resolveEnvironmentSceneSummary(asset) }}
-                    </p>
-
-                    <div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        class="relative h-auto aspect-video rounded border bg-muted/30 p-0 overflow-hidden flex items-center justify-center"
-                        :class="asset.referenceImage ? 'cursor-zoom-in hover:border-primary/50' : 'cursor-not-allowed opacity-70'"
-                        :disabled="!asset.referenceImage"
-                        @click="openImagePreview(asset.referenceImage, `${asset.name} - 环境图`)"
-                      >
-                        <img
-                          v-if="asset.referenceImage"
-                          :src="toImageSrc(asset.referenceImage)"
-                          :alt="`${asset.name} 环境图`"
-                          class="h-full w-full object-cover"
-                        >
-                        <span
-                          v-else
-                          class="text-[10px] text-muted-foreground"
-                        >暂无环境图</span>
-                      </Button>
-                    </div>
-
-                    <div class="flex flex-wrap items-center gap-1.5">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        class="h-7 px-2 text-xs"
-                        :disabled="!resolveEnvironmentRepresentativeScene(asset.id)"
-                        @click="openEnvironmentAssetSceneEditor(asset.id)"
-                      >
-                        <Pencil class="h-3.5 w-3.5 mr-1" />
-                        编辑代表场景
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        class="h-7 px-2 text-xs"
-                        :disabled="autoRunning || asset.frameStatus === 'generating' || !!uploadingEnvironmentAssetId"
-                        @click="triggerUploadInput('env', asset.id)"
-                      >
-                        <Loader2
-                          v-if="uploadingEnvironmentAssetId === asset.id"
-                          class="h-3.5 w-3.5 mr-1 animate-spin"
-                        />
-                        <Upload
-                          v-else
-                          class="h-3.5 w-3.5 mr-1"
-                        />
-                        上传环境图
-                      </Button>
-                      <Button
-                        v-if="asset.referenceImage"
-                        size="sm"
-                        variant="outline"
-                        class="h-7 px-2 text-xs"
-                        :disabled="asset.frameStatus === 'generating'"
-                        @click="openEnvironmentRegenerateDialog(asset.id)"
-                      >
-                        <Sparkles class="h-3.5 w-3.5 mr-1" />
-                        二次生成
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        class="h-7 px-2 text-xs"
-                        :disabled="asset.frameStatus === 'generating'"
-                        @click="regenerateEnvironmentAsset(asset.id)"
-                      >
-                        <Loader2
-                          v-if="asset.frameStatus === 'generating'"
-                          class="h-3.5 w-3.5 mr-1 animate-spin"
-                        />
-                        <RefreshCw
-                          v-else
-                          class="h-3.5 w-3.5 mr-1"
-                        />
-                        重生成环境图
-                      </Button>
-                      <input
-                        :id="buildUploadInputId('env', asset.id)"
-                        type="file"
-                        accept="image/*"
-                        class="hidden"
-                        @change="handleEnvironmentImageUpload(asset.id, $event)"
-                      >
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </template>
-
-            <template v-else>
-              <div class="rounded-md border p-3 space-y-3">
-                <div class="text-sm font-medium">
-                  道具资产总览
-                </div>
-                <p class="text-xs text-muted-foreground">
-                  支持人工补充道具并修改描述；可在此直接上传道具图，场景对话窗上传的资产也会同步展示。
-                </p>
-
-                <div class="grid grid-cols-1 md:grid-cols-[1.3fr_1.7fr_auto] gap-2">
-                  <Input
-                    v-model="newPropName"
-                    class="h-8 text-xs"
-                    placeholder="道具名称，如：手电筒"
-                  />
-                  <Input
-                    v-model="newPropDescription"
-                    class="h-8 text-xs"
-                    placeholder="可选描述，如：金属外壳，冷白光"
-                  />
-                  <Button
-                    size="sm"
-                    class="h-8 px-3 text-xs"
-                    :disabled="!newPropName.trim()"
-                    @click="addPropAsset"
-                  >
-                    添加道具
-                  </Button>
-                </div>
-
-                <div
-                  v-if="propAssets.length === 0"
-                  class="rounded-md border border-dashed p-3 text-xs text-muted-foreground"
-                >
-                  当前暂无道具资产。你可以手动新增需要保持一致的道具。
-                </div>
-
-                <div
-                  v-else
-                  class="grid grid-cols-1 md:grid-cols-2 gap-2"
-                >
-                  <div
-                    v-for="prop in propAssets"
-                    :key="prop.id"
-                    class="rounded-md border p-2"
-                  >
-                    <div class="flex items-start justify-between gap-2">
-                      <Badge
-                        variant="outline"
-                        class="text-[10px]"
-                      >
-                        引用场景 {{ resolvePropUsageCount(prop.id) }}
-                      </Badge>
-                      <div class="flex items-center gap-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          class="h-6 px-2 text-[11px]"
-                          :disabled="autoRunning || !!uploadingPropId"
-                          @click="triggerUploadInput('prop', prop.id)"
-                        >
-                          <Loader2
-                            v-if="uploadingPropId === prop.id"
-                            class="mr-1 h-3 w-3 animate-spin"
-                          />
-                          <Upload
-                            v-else
-                            class="mr-1 h-3 w-3"
-                          />
-                          {{ prop.referenceImage ? '更换图片' : '上传图片' }}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          class="h-6 px-1.5 text-xs text-muted-foreground hover:text-destructive"
-                          @click="removePropAsset(prop.id)"
-                        >
-                          <Trash2 class="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-                    <div class="mt-2 space-y-2">
-                      <Button
-                        v-if="prop.referenceImage"
-                        type="button"
-                        variant="ghost"
-                        class="h-auto w-full justify-start gap-2 rounded border bg-muted/20 p-1.5"
-                        @click="openImagePreview(prop.referenceImage, `${prop.name} 参考图`)"
-                      >
-                        <img
-                          :src="toImageSrc(prop.referenceImage)"
-                          :alt="`${prop.name} 参考图`"
-                          class="h-8 w-8 rounded border object-cover"
-                        >
-                        <span class="truncate text-[11px] text-muted-foreground">
-                          已上传图片资产
-                        </span>
-                      </Button>
-                      <Input
-                        v-model="prop.name"
-                        class="h-8 text-xs"
-                        placeholder="道具名称"
-                      />
-                      <Input
-                        v-model="prop.description"
-                        class="h-8 text-xs"
-                        placeholder="道具描述（可选）"
-                      />
-                      <input
-                        :id="buildUploadInputId('prop', prop.id)"
-                        type="file"
-                        accept="image/*"
-                        class="hidden"
-                        @change="handlePropImageUpload(prop.id, $event)"
-                      >
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </template>
-          </div>
-        </template>
-      </CardContent>
-    </Card>
-
-    <Card
-      v-else-if="activeAutoStage === 'videos'"
-      class="flex-1 min-h-0 flex flex-col overflow-hidden"
-    >
-      <CardHeader class="pb-3">
-        <CardTitle class="text-base flex items-center gap-2">
-          <Film class="h-4 w-4" />
-          步骤三：场景视频
-          <span class="relative inline-flex items-center group">
-            <button
-              type="button"
-              class="inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-              aria-label="步骤提示"
-            >
-              <CircleHelp class="h-3.5 w-3.5" />
-            </button>
-            <span class="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-72 rounded-md border bg-popover px-2.5 py-2 text-[11px] font-normal leading-relaxed text-popover-foreground shadow-md group-hover:block group-focus-within:block">
-              {{ stageHints.videos }}
-            </span>
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent class="flex-1 min-h-0 overflow-hidden flex flex-col gap-3">
-        <div
-          v-if="scenes.length === 0"
-          class="text-sm text-muted-foreground"
-        >
-          请先完成“剧本解析”步骤。
-        </div>
-        <template v-else>
-          <div class="flex flex-wrap items-center gap-2 text-xs">
-            <Badge variant="secondary">
-              场景 {{ scenes.length }}
-            </Badge>
-            <Badge variant="outline">
-              环境图就绪 {{ scenes.filter(scene => scene.frameStatus === 'done').length }}
-            </Badge>
-            <Badge variant="outline">
-              视频完成 {{ queueSummary.done }}
-            </Badge>
-            <Badge
-              v-if="queueSummary.error > 0"
-              variant="destructive"
-            >
-              失败 {{ queueSummary.error }}
-            </Badge>
-            <span class="text-muted-foreground">
-              运行中 {{ queueSummary.running }}
-            </span>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <Button
-              :disabled="autoRunning"
-              @click="runSimpleVideosStep"
-            >
-              <Loader2
-                v-if="autoRunning && autoRunCurrentStage === 'videos'"
-                class="h-4 w-4 mr-2 animate-spin"
-              />
-              批量生成场景视频
-            </Button>
-            <Button
-              variant="outline"
-              :disabled="autoRunning || queueSummary.error === 0"
-              @click="retryFailedQueueItemsOnce"
-            >
-              重试失败场景
-            </Button>
-          </div>
-
-          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 flex-1 min-h-0 overflow-hidden">
-            <div class="min-h-0 overflow-y-auto pr-1 space-y-2">
-              <div
-                v-for="(scene, idx) in scenes"
-                :key="scene.id"
-                class="relative rounded-md border p-3 transition cursor-pointer group"
-                :class="selectedSceneId === scene.id ? 'border-primary bg-primary/5' : 'hover:border-primary/50'"
-                title="单击选中，双击编辑场景详情"
-                @click="selectScene(scene.id)"
-                @dblclick.stop="openSceneEdit(scene)"
-              >
-                <div class="flex items-start justify-between gap-2">
-                  <div class="min-w-0">
-                    <div class="text-xs text-muted-foreground">
-                      场景 {{ idx + 1 }}
-                    </div>
-                    <div class="text-sm font-medium truncate">
-                      {{ scene.title }}
-                    </div>
-                  </div>
-                  <div class="flex items-center gap-1">
-                    <Badge
-                      :variant="scene.frameStatus === 'done' ? 'secondary' : scene.frameStatus === 'error' ? 'destructive' : scene.frameStatus === 'generating' ? 'default' : 'outline'"
-                      class="text-[10px]"
-                    >
-                      {{ scene.frameStatus === 'done' ? '环境图就绪' : scene.frameStatus === 'error' ? '环境图失败' : scene.frameStatus === 'generating' ? '环境图生成中' : '待生成环境图' }}
-                    </Badge>
-                    <Badge
-                      :variant="resolveSceneVideoBadge(scene).variant"
-                      class="text-[10px]"
-                    >
-                      {{ resolveSceneVideoBadge(scene).label }}
-                    </Badge>
-
-                    <div class="flex max-w-0 items-center gap-1 overflow-hidden opacity-0 transition-all duration-200 group-hover:max-w-40 group-hover:opacity-100">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        class="h-7 w-7 p-0"
-                        title="对话修改场景"
-                        :disabled="isSceneBusy(scene)"
-                        @click.stop="toggleSceneChat(scene)"
-                      >
-                        <MessageCircle class="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        class="h-7 w-7 p-0"
-                        title="拆分场景"
-                        :disabled="isSceneBusy(scene)"
-                        @click.stop="handleSplitScene(scene.id)"
-                      >
-                        <Split class="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        class="h-7 w-7 p-0"
-                        title="与下一场景合并"
-                        :disabled="!canMergeSceneByIndex(idx)"
-                        @click.stop="handleMergeWithNextScene(scene.id)"
-                      >
-                        <Merge class="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        class="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                        title="删除场景"
-                        :disabled="isSceneBusy(scene)"
-                        @click.stop="handleDeleteScene(scene)"
-                      >
-                        <Trash2 class="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="mt-1 text-xs text-muted-foreground leading-6 break-words">
-                  <template
-                    v-for="(segment, segmentIndex) in resolveSceneDescriptionRenderSegments(scene)"
-                    :key="`scene_desc_segment_${scene.id}_${segmentIndex}`"
-                  >
-                    <span
-                      v-if="segment.type === 'text'"
-                      class="whitespace-pre-wrap"
-                    >
-                      {{ segment.text }}
-                    </span>
-                    <Button
-                      v-else-if="segment.asset?.referenceImage"
-                      type="button"
-                      variant="ghost"
-                      class="mx-0.5 inline-flex h-7 max-w-[140px] items-center gap-1 rounded border bg-muted/30 px-1 align-middle"
-                      @click.stop="openImagePreview(segment.asset.referenceImage, `${scene.title} · ${segment.asset.name}`)"
-                    >
-                      <img
-                        :src="toImageSrc(segment.asset.referenceImage)"
-                        :alt="`${segment.asset.name} 参考图`"
-                        class="h-5 w-5 rounded border object-cover"
-                      >
-                      <span class="truncate text-[10px]">
-                        {{ segment.asset.name }}
-                      </span>
-                    </Button>
-                    <Badge
-                      v-else-if="segment.asset"
-                      variant="outline"
-                      class="mx-0.5 inline-flex max-w-[140px] align-middle text-[10px]"
-                    >
-                      <span class="truncate">
-                        {{ segment.asset.name }}
-                      </span>
-                    </Badge>
-                  </template>
-                </div>
-
-                <div
-                  v-if="resolveSceneDescriptionSecondaryMentionItems(scene).length > 0"
-                  class="mt-1 flex flex-wrap items-center gap-1.5"
-                >
-                  <template
-                    v-for="mention in resolveSceneDescriptionSecondaryMentionItems(scene)"
-                    :key="`scene_mention_${scene.id}_${mention.token}`"
-                  >
-                    <Button
-                      v-if="mention.asset?.referenceImage"
-                      type="button"
-                      variant="ghost"
-                      class="h-8 max-w-[180px] gap-1 rounded border bg-muted/30 px-1.5"
-                      @click.stop="openImagePreview(mention.asset.referenceImage, `${scene.title} · ${mention.asset.name}`)"
-                    >
-                      <img
-                        :src="toImageSrc(mention.asset.referenceImage)"
-                        :alt="`${mention.asset.name} 参考图`"
-                        class="h-6 w-6 rounded border object-cover"
-                      >
-                      <span class="truncate text-[10px]">
-                        {{ mention.asset.name }}
-                      </span>
-                    </Button>
-                    <Badge
-                      v-else
-                      variant="outline"
-                      class="max-w-[180px] text-[10px]"
-                    >
-                      <span class="truncate">
-                        {{ mention.asset?.name || mention.token }}
-                      </span>
-                    </Badge>
-                  </template>
-                </div>
-
-                <div class="mt-2 flex flex-wrap gap-1">
-                  <Badge
-                    v-if="scene.setting?.location"
-                    variant="outline"
-                    class="text-[10px]"
-                  >
-                    {{ scene.setting.location }}
-                  </Badge>
-                  <Badge
-                    v-if="scene.setting?.timeOfDay"
-                    variant="outline"
-                    class="text-[10px]"
-                  >
-                    {{ scene.setting.timeOfDay }}
-                  </Badge>
-                  <Badge
-                    variant="outline"
-                    class="text-[10px]"
-                  >
-                    {{ scene.duration }}s
-                  </Badge>
-                </div>
-
-                <div class="mt-3 flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    class="h-7 px-2 text-xs"
-                    :disabled="isSceneBusy(scene)"
-                    @click.stop="generateSceneBaseline(scene.id)"
-                  >
-                    <Loader2
-                      v-if="scene.frameStatus === 'generating'"
-                      class="h-3.5 w-3.5 mr-1 animate-spin"
-                    />
-                    {{ resolveSceneReferenceImage(scene) ? '重生成环境图' : '生成环境图' }}
-                  </Button>
-                  <Button
-                    size="sm"
-                    class="h-7 px-2 text-xs"
-                    :disabled="isSceneBusy(scene)"
-                    @click.stop="retryScene(scene.id)"
-                  >
-                    <Loader2
-                      v-if="scene.videoStatus === 'generating' || isScenePreparing(scene)"
-                      class="h-3.5 w-3.5 mr-1 animate-spin"
-                    />
-                    {{ isScenePreparing(scene) ? '准备中' : scene.videoUrl ? '重生成视频' : '生成视频' }}
-                  </Button>
-                </div>
-
-                <div
-                  v-if="sceneChatOpenSceneId === scene.id"
-                  class="absolute right-2 top-12 z-30 w-[min(92vw,420px)] rounded-md border bg-background/95 p-3 shadow-xl backdrop-blur"
-                  @click.stop
-                >
-                  <div class="flex items-center justify-between gap-2 border-b pb-2">
-                    <div class="min-w-0">
-                      <p class="text-xs font-medium truncate">
-                        对话修改场景
-                      </p>
-                      <p class="text-[11px] text-muted-foreground truncate">
-                        {{ scene.title }}
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      class="h-7 w-7 p-0"
-                      @click.stop="closeSceneChat"
-                    >
-                      <X class="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-
-                  <div class="mt-2 max-h-56 space-y-2 overflow-y-auto pr-1">
-                    <div
-                      v-for="msg in sceneChatCurrentMessages"
-                      :key="msg.id"
-                      :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'"
-                    >
-                      <div
-                        class="max-w-[92%] space-y-1 rounded-md border px-2 py-1.5 text-xs"
-                        :class="msg.role === 'user' ? 'border-primary/40 bg-primary/10' : 'bg-muted/40'"
-                      >
-                        <p class="whitespace-pre-wrap leading-relaxed">
-                          {{ msg.content }}
-                        </p>
-                        <div
-                          v-if="msg.assetIds.length > 0"
-                          class="flex flex-wrap gap-1"
-                        >
-                          <template
-                            v-for="assetId in msg.assetIds"
-                            :key="`${msg.id}_${assetId}`"
-                          >
-                            <Button
-                              v-if="resolveDisplayAssetById(assetId)?.referenceImage"
-                              type="button"
-                              variant="ghost"
-                              class="h-7 max-w-[140px] gap-1 rounded border bg-background px-1.5"
-                              @click.stop="openImagePreview(resolveDisplayAssetById(assetId)?.referenceImage, resolveDisplayAssetById(assetId)?.name || '上传资产')"
-                            >
-                              <img
-                                :src="toImageSrc(resolveDisplayAssetById(assetId)?.referenceImage)"
-                                :alt="resolveDisplayAssetById(assetId)?.name || '上传资产'"
-                                class="h-5 w-5 rounded border object-cover"
-                              >
-                              <span class="truncate text-[10px]">
-                                {{ resolveDisplayAssetById(assetId)?.name || assetId }}
-                              </span>
-                            </Button>
-                            <Badge
-                              v-else
-                              variant="outline"
-                              class="max-w-[140px] text-[10px]"
-                            >
-                              <span class="truncate">
-                                {{ resolveDisplayAssetById(assetId)?.name || assetId }}
-                              </span>
-                            </Badge>
-                          </template>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="relative mt-2 space-y-2 border-t pt-2">
-                    <div
-                      v-if="sceneChatComposerAssets.length > 0"
-                      class="flex flex-wrap items-center gap-1"
-                    >
-                      <Badge
-                        v-for="asset in sceneChatComposerAssets"
-                        :key="`scene_chat_composer_${asset.id}`"
-                        variant="secondary"
-                        class="gap-1 text-[10px]"
-                      >
-                        <span class="truncate max-w-[110px]">
-                          {{ asset.name }}
-                        </span>
-                        <button
-                          type="button"
-                          class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm"
-                          @click.stop="removeSceneChatComposerAsset(asset.id)"
-                        >
-                          <X class="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    </div>
-
-                    <Textarea
-                      ref="sceneChatInputRef"
-                      v-model="sceneChatComposerText"
-                      class="min-h-[100px] text-xs"
-                      placeholder="输入修改指令，支持 @资产；回车发送，Shift+回车换行"
-                      @input="handleSceneChatComposerInput"
-                      @click="handleSceneChatComposerCursor"
-                      @keyup="handleSceneChatComposerCursor"
-                      @keydown="handleSceneChatComposerKeydown"
-                    />
-
-                    <div
-                      v-if="sceneChatMentionOpen && sceneChatMentionCandidates.length > 0"
-                      ref="sceneChatMentionListRef"
-                      class="absolute bottom-full left-0 right-0 mb-1 max-h-40 overflow-y-auto rounded-md border bg-popover p-1 shadow-md"
-                    >
-                      <button
-                        v-for="(item, mentionIndex) in sceneChatMentionCandidates"
-                        :key="`scene_chat_mention_${item.asset.id}`"
-                        type="button"
-                        :data-scene-chat-mention-index="mentionIndex"
-                        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs"
-                        :class="mentionIndex === sceneChatMentionActiveIndex ? 'bg-accent' : 'hover:bg-accent/60'"
-                        @mousedown.prevent="applySceneChatMention(item)"
-                      >
-                        <img
-                          v-if="item.asset.referenceImage"
-                          :src="toImageSrc(item.asset.referenceImage)"
-                          :alt="item.asset.name"
-                          class="h-5 w-5 rounded border object-cover"
-                        >
-                        <span
-                          v-else
-                          class="inline-flex h-5 w-5 items-center justify-center rounded border text-[10px]"
-                        >
-                          {{ resolveDisplayAssetTypeLabel(item.asset.type).slice(0, 1) }}
-                        </span>
-                        <span class="truncate">
-                          {{ item.asset.name }}
-                        </span>
-                        <span class="ml-auto text-[10px] text-muted-foreground">
-                          {{ item.token }}
-                        </span>
-                      </button>
-                    </div>
-
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                      <p class="text-[10px] text-muted-foreground">
-                        可 @角色/@环境/@道具，上传图片后会自动加入可引用资产。
-                      </p>
-                      <div class="flex items-center gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          class="h-7 px-2 text-xs"
-                          :disabled="sceneChatUploading || sceneChatApplying"
-                          @click.stop="triggerSceneChatUpload"
-                        >
-                          <Loader2
-                            v-if="sceneChatUploading"
-                            class="h-3.5 w-3.5 mr-1 animate-spin"
-                          />
-                          <Upload
-                            v-else
-                            class="h-3.5 w-3.5 mr-1"
-                          />
-                          上传图片资产
-                        </Button>
-                        <Button
-                          size="sm"
-                          class="h-7 px-2 text-xs"
-                          :disabled="sceneChatUploading || sceneChatApplying || (!sceneChatComposerText.trim() && sceneChatComposerAssetIds.length === 0)"
-                          @click.stop="submitSceneChat(scene.id)"
-                        >
-                          <Loader2
-                            v-if="sceneChatApplying"
-                            class="h-3.5 w-3.5 mr-1 animate-spin"
-                          />
-                          <Sparkles
-                            v-else
-                            class="h-3.5 w-3.5 mr-1"
-                          />
-                          发送并二次修改
-                        </Button>
-                      </div>
-                    </div>
-
-                    <p
-                      v-if="sceneChatError"
-                      class="text-[11px] text-destructive"
-                    >
-                      {{ sceneChatError }}
-                    </p>
-
-                    <input
-                      id="scene_chat_upload_input"
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      class="hidden"
-                      @change="handleSceneChatImageUpload"
-                    >
-                  </div>
-                </div>
-
-                <p
-                  v-if="scene.videoStatus === 'error' && scene.videoError"
-                  class="mt-2 text-xs text-destructive"
-                >
-                  {{ normalizeWorkflowText(scene.videoError) }}
-                </p>
-              </div>
-            </div>
-
-            <div class="rounded-md border p-3 space-y-3 min-h-0">
-              <template v-if="selectedScene">
-                <div class="space-y-1">
-                  <div class="text-[11px] text-muted-foreground">
-                    视频预览
-                  </div>
-                  <div class="aspect-video rounded bg-black/90 overflow-hidden flex items-center justify-center">
-                    <video
-                      v-if="selectedScene.videoUrl"
-                      :src="selectedScene.videoUrl"
-                      controls
-                      class="w-full h-full"
-                    />
-                    <span
-                      v-else
-                      class="text-xs text-gray-300"
-                    >等待生成视频</span>
-                  </div>
-                </div>
-              </template>
-              <p
-                v-else
-                class="text-sm text-muted-foreground"
-              >
-                请先选择场景
-              </p>
-            </div>
-          </div>
-        </template>
-      </CardContent>
-    </Card>
-
-    <Card
-      v-else
-      class="flex-1 min-h-0 flex flex-col overflow-hidden"
-    >
-      <CardHeader class="pb-3">
-        <CardTitle class="text-base flex items-center gap-2">
-          <Download class="h-4 w-4" />
-          步骤四：最终成片
-          <span class="relative inline-flex items-center group">
-            <button
-              type="button"
-              class="inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-              aria-label="步骤提示"
-            >
-              <CircleHelp class="h-3.5 w-3.5" />
-            </button>
-            <span class="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-72 rounded-md border bg-popover px-2.5 py-2 text-[11px] font-normal leading-relaxed text-popover-foreground shadow-md group-hover:block group-focus-within:block">
-              {{ stageHints.final }}
-            </span>
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent class="flex-1 min-h-0 space-y-3 overflow-y-auto">
-        <div class="text-sm text-muted-foreground">
-          当前可用于合成的场景视频：{{ queueSummary.done }} 个
-        </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <Button
-            :disabled="autoRunning || mergeStatus.running || queueSummary.done === 0"
-            @click="runSimpleFinalStep"
-          >
-            <Loader2
-              v-if="mergeStatus.running || (autoRunning && autoRunCurrentStage === 'final')"
-              class="h-4 w-4 mr-2 animate-spin"
-            />
-            合成最终视频
-          </Button>
-          <a
-            v-if="finalVideo?.videoData"
-            :href="finalVideo.videoData"
-            download="final-video.mp4"
-            class="inline-flex h-9 items-center justify-center rounded-md border px-3 text-sm"
-          >下载成片</a>
-        </div>
-      </CardContent>
-    </Card>
-
-    <Dialog v-model:open="characterRegenerateDialogOpen">
-      <DialogContent class="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>角色二次生成</DialogTitle>
-          <DialogDescription>
-            使用当前角色图作为参考图，按自定义提示词定向修改。
-          </DialogDescription>
-        </DialogHeader>
-
-        <div class="space-y-3">
-          <div class="text-xs text-muted-foreground">
-            目标角色：{{ characterRegenerateTarget?.name || '-' }}
-          </div>
-          <Textarea
-            v-model="characterRegeneratePrompt"
-            class="min-h-[140px] text-sm"
-            placeholder="输入二次生成提示词"
-          />
-          <p
-            v-if="characterRegenerateError"
-            class="text-xs text-destructive"
-          >
-            {{ characterRegenerateError }}
-          </p>
-        </div>
-
-        <DialogFooter>
-          <Button
-            variant="outline"
-            :disabled="characterRegenerateTarget?.generating"
-            @click="closeCharacterRegenerateDialog"
-          >
-            取消
-          </Button>
-          <Button
-            :disabled="!characterRegeneratePrompt.trim() || !characterRegenerateTarget || characterRegenerateTarget.generating"
-            @click="submitCharacterRegeneration"
-          >
-            <Loader2
-              v-if="characterRegenerateTarget?.generating"
-              class="h-4 w-4 mr-2 animate-spin"
-            />
-            开始二次生成
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-
-    <Dialog v-model:open="environmentRegenerateDialogOpen">
-      <DialogContent class="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>环境二次生成</DialogTitle>
-          <DialogDescription>
-            基于当前环境资产，按你输入的提示词重新生成环境图。
-          </DialogDescription>
-        </DialogHeader>
-
-        <div class="space-y-3">
-          <div class="text-xs text-muted-foreground">
-            目标环境：{{ environmentRegenerateTarget?.name || '-' }}
-          </div>
-          <Textarea
-            v-model="environmentRegeneratePrompt"
-            class="min-h-[140px] text-sm"
-            placeholder="输入环境二次生成提示词"
-          />
-          <p
-            v-if="environmentRegenerateError"
-            class="text-xs text-destructive"
-          >
-            {{ environmentRegenerateError }}
-          </p>
-        </div>
-
-        <DialogFooter>
-          <Button
-            variant="outline"
-            :disabled="environmentRegenerateTarget?.frameStatus === 'generating'"
-            @click="closeEnvironmentRegenerateDialog"
-          >
-            取消
-          </Button>
-          <Button
-            :disabled="!environmentRegeneratePrompt.trim() || !environmentRegenerateTarget || environmentRegenerateTarget.frameStatus === 'generating'"
-            @click="submitEnvironmentRegeneration"
-          >
-            <Loader2
-              v-if="environmentRegenerateTarget?.frameStatus === 'generating'"
-              class="h-4 w-4 mr-2 animate-spin"
-            />
-            开始二次生成
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-
-    <ScriptSceneEditDialog
-      v-model:open="sceneEditDialogOpen"
-      :scene="editingScene"
-      :available-characters="characters.map(char => char.name)"
-      :asset-reference-options="sceneEditAssetReferenceOptions"
-      :selected-asset-reference-ids="sceneEditSelectedAssetIds"
-      @save="handleSceneSave"
-      @save-asset-references="handleSceneAssetReferencesSave"
+    <AssetWorkbenchHeaderBar
+      :project-name="projectName"
+      :project-description="projectDescription"
+      :selected-style-id="selectedStyleId"
+      :project-style-id="projectStyleId"
+      :project-aspect-ratio="projectAspectRatio"
+      :stages="autoStages"
+      :active-stage="activeAutoStage"
+      :auto-run-error="autoRunError"
+      :save-error="saveError"
+      @back="router.push('/projects')"
+      @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
     />
 
-    <ImagePreview
-      v-model:open="imagePreviewOpen"
-      :src="imagePreviewSrc"
-      :alt="imagePreviewAlt"
+    <AssetWorkbenchParseStage
+      v-if="activeAutoStage === 'parse'"
+      v-model:novel-text="novelText"
+      :parsing="parsing"
+      :parsed-timeline-text="parsedTimelineText"
+      :scenes-count="scenes.length"
+      :characters-count="characters.length"
+      :hint="stageHints.parse"
+      @copy-timeline="copyParsedTimelineText"
+      @parse="handleParseScript"
+    />
+
+    <AssetWorkbenchStagePanel
+      v-else-if="activeAutoStage === 'assets'"
+      title="步骤二：资产准备"
+      :icon="Layers3"
+      :hint="stageHints.assets"
+    >
+      <AssetWorkbenchAssetsStage
+        :scenes-count="scenes.length"
+        :characters="characters"
+        :environment-asset-cards="environmentAssetCards"
+        :prop-assets="propAssets"
+        :auto-running="autoRunning"
+        :auto-run-current-stage="autoRunCurrentStage"
+        :character-ready-count="characterReadyCount"
+        :character-generating-count="characterGeneratingCount"
+        :character-missing-count="characterMissingCount"
+        :assets-primary-action-label="assetsPrimaryActionLabel"
+        :editing-character-id="editingCharacterId"
+        :character-edit-draft="characterEditDraft"
+        :character-role-options="characterRoleOptions"
+        :uploading-character-id="uploadingCharacterId"
+        :uploading-environment-asset-id="uploadingEnvironmentAssetId"
+        :uploading-prop-id="uploadingPropId"
+        :get-character-scene-count="resolveCharacterSceneCount"
+        :get-environment-scene-summary="resolveEnvironmentSceneSummary"
+        :has-environment-representative-scene="hasEnvironmentRepresentativeScene"
+        :get-prop-usage-count="resolvePropUsageCount"
+        :set-character-edit-draft="updateCharacterEditDraft"
+        @run-assets="runSimpleAssetsStep"
+        @generate-characters="handleBatchGenerateCharacters"
+        @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
+        @preview-image="openImagePreview($event.src, $event.alt)"
+        @start-character-edit="startEditCharacter"
+        @cancel-character-edit="cancelEditCharacter"
+        @save-character-edit="saveCharacterEdit()"
+        @save-character-edit-regenerate="saveCharacterEdit({ regenerate: true })"
+        @generate-character="handleGenerateCharacter"
+        @open-character-regenerate="openCharacterRegenerateDialog"
+        @upload-character-image="handleCharacterImageUpload($event.characterId, $event.event)"
+        @edit-environment-scene="openEnvironmentAssetSceneEditor"
+        @upload-environment-image="handleEnvironmentImageUpload($event.assetId, $event.event)"
+        @open-environment-regenerate="openEnvironmentRegenerateDialog"
+        @regenerate-environment="regenerateEnvironmentAsset"
+        @add-prop="addPropAsset"
+        @remove-prop="removePropAsset"
+        @upload-prop-image="handlePropImageUpload($event.propId, $event.event)"
+      />
+    </AssetWorkbenchStagePanel>
+
+    <AssetWorkbenchStagePanel
+      v-else-if="activeAutoStage === 'videos'"
+      title="步骤三：场景视频"
+      :icon="Film"
+      :hint="stageHints.videos"
+    >
+      <AssetWorkbenchVideosStage
+        :scenes="scenes"
+        :selected-scene-id="selectedSceneId"
+        :selected-scene="selectedScene"
+        :queue-summary="queueSummary"
+        :auto-running="autoRunning"
+        :auto-run-current-stage="autoRunCurrentStage"
+        :scene-chat-open-scene-id="sceneChatOpenSceneId"
+        :scene-chat-current-messages="sceneChatCurrentMessages"
+        :scene-chat-composer-assets="sceneChatComposerAssets"
+        :scene-chat-composer-text="sceneChatComposerText"
+        :scene-chat-mention-open="sceneChatMentionOpen"
+        :scene-chat-mention-candidates="sceneChatMentionCandidates"
+        :scene-chat-mention-active-index="sceneChatMentionActiveIndex"
+        :scene-chat-uploading="sceneChatUploading"
+        :scene-chat-applying="sceneChatApplying"
+        :scene-chat-error="sceneChatError"
+        :scene-chat-can-submit="sceneChatCanSubmit"
+        :resolve-scene-video-badge="resolveSceneVideoBadge"
+        :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
+        :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
+        :resolve-scene-reference-image="resolveSceneReferenceImage"
+        :is-scene-busy="isSceneBusy"
+        :is-scene-preparing="isScenePreparing"
+        :can-merge-scene-by-index="canMergeSceneByIndex"
+        :resolve-display-asset-by-id="resolveDisplayAssetById"
+        :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
+        :set-scene-chat-input-ref="setSceneChatInputRef"
+        :set-scene-chat-mention-list-ref="setSceneChatMentionListRef"
+        :set-scene-chat-composer-text="setSceneChatComposerText"
+        :on-run-videos-step="runSimpleVideosStep"
+        :on-retry-failed-queue-items="retryFailedQueueItemsOnce"
+        :on-select-scene="selectScene"
+        :on-open-scene-edit="openSceneEdit"
+        :on-toggle-scene-chat="toggleSceneChat"
+        :on-handle-split-scene="handleSplitScene"
+        :on-handle-merge-with-next-scene="handleMergeWithNextScene"
+        :on-handle-delete-scene="handleDeleteScene"
+        :on-generate-scene-baseline="generateSceneBaseline"
+        :on-retry-scene="retryScene"
+        :on-preview-image="openImagePreview"
+        :on-close-scene-chat="closeSceneChat"
+        :on-handle-scene-chat-composer-input="handleSceneChatComposerInput"
+        :on-handle-scene-chat-composer-cursor="handleSceneChatComposerCursor"
+        :on-handle-scene-chat-composer-keydown="handleSceneChatComposerKeydown"
+        :on-apply-scene-chat-mention="applySceneChatMention"
+        :on-remove-scene-chat-composer-asset="removeSceneChatComposerAsset"
+        :on-handle-scene-chat-image-upload="handleSceneChatImageUpload"
+        :on-submit-scene-chat="submitSceneChat"
+        :normalize-workflow-text="normalizeWorkflowText"
+      />
+    </AssetWorkbenchStagePanel>
+
+    <AssetWorkbenchFinalStage
+      v-else
+      :hint="stageHints.final"
+      :queue-done="queueSummary.done"
+      :auto-running="autoRunning"
+      :auto-run-current-stage="autoRunCurrentStage"
+      :merge-running="mergeStatus.running"
+      :final-video-url="finalVideo?.videoData"
+      @run-final="runSimpleFinalStep"
+    />
+
+    <AssetWorkbenchDialogs
+      :character-regenerate-dialog-open="characterRegenerateDialogOpen"
+      :character-regenerate-prompt="characterRegeneratePrompt"
+      :character-regenerate-error="characterRegenerateError"
+      :character-regenerate-target="characterRegenerateTarget"
+      :set-character-regenerate-dialog-open="setCharacterRegenerateDialogOpen"
+      :set-character-regenerate-prompt="setCharacterRegeneratePrompt"
+      :submit-character-regeneration="submitCharacterRegeneration"
+      :environment-regenerate-dialog-open="environmentRegenerateDialogOpen"
+      :environment-regenerate-prompt="environmentRegeneratePrompt"
+      :environment-regenerate-error="environmentRegenerateError"
+      :environment-regenerate-target="environmentRegenerateTarget"
+      :set-environment-regenerate-dialog-open="setEnvironmentRegenerateDialogOpen"
+      :set-environment-regenerate-prompt="setEnvironmentRegeneratePrompt"
+      :submit-environment-regeneration="submitEnvironmentRegeneration"
+      :scene-edit-dialog-open="sceneEditDialogOpen"
+      :set-scene-edit-dialog-open="setSceneEditDialogState"
+      :editing-scene="editingScene"
+      :scene-edit-asset-reference-options="sceneEditAssetReferenceOptions"
+      :scene-edit-selected-asset-ids="sceneEditSelectedAssetIds"
+      :handle-scene-save="handleSceneSave"
+      :handle-scene-asset-references-save="handleSceneAssetReferencesSave"
+      :image-preview-open="imagePreviewOpen"
+      :set-image-preview-open="setImagePreviewState"
+      :image-preview-src="imagePreviewSrc"
+      :image-preview-alt="imagePreviewAlt"
     />
   </div>
 </template>

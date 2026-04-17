@@ -101,7 +101,7 @@ watch(isCollapsed, (value) => {
     <!-- 左侧菜单栏 -->
     <aside
       class="bg-card border-r flex flex-col transition-all duration-300 relative"
-      :class="isCollapsed ? 'w-20' : 'w-64'"
+      :class="isCollapsed ? 'w-20' : 'w-56'"
     >
       <!-- 折叠按钮 - 使用双箭头图标避免与返回按钮混淆 -->
       <Button

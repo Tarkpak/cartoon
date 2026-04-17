@@ -16,7 +16,7 @@ type PromptWorkflowInput = ProjectWorkflowType | string | null | undefined
 /**
  * 获取所有默认提示词模板
  */
-export function getDefaultPromptTemplates(workflow: PromptWorkflowInput = 'classic'): PromptTemplate[] {
+export function getDefaultPromptTemplates(workflow: PromptWorkflowInput = 'asset_consistency'): PromptTemplate[] {
   const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
   const now = new Date().toISOString()
   const metadataList = getPromptTemplateMetadataForWorkflow(normalizedWorkflow)
@@ -36,16 +36,12 @@ export function getDefaultPromptTemplates(workflow: PromptWorkflowInput = 'class
 /**
  * 获取指定模板的默认内容
  */
-function getDefaultContent(id: string, workflow: ProjectWorkflowType): PromptTemplate['content'] {
-  const baseContent = getClassicDefaultContent(id)
-  if (workflow !== 'asset_consistency') {
-    return baseContent
-  }
-
+function getDefaultContent(id: string, _workflow: ProjectWorkflowType): PromptTemplate['content'] {
+  const baseContent = getBaseDefaultContent(id)
   return getAssetConsistencyDefaultContent(id, baseContent)
 }
 
-function getClassicDefaultContent(id: string): PromptTemplate['content'] {
+function getBaseDefaultContent(id: string): PromptTemplate['content'] {
   switch (id) {
     case 'outline_generation':
       return OUTLINE_GENERATION_CONTENT
@@ -65,8 +61,6 @@ function getClassicDefaultContent(id: string): PromptTemplate['content'] {
       return CHARACTER_REGENERATION_CONTENT
     case 'first_frame_generation':
       return FIRST_FRAME_GENERATION_CONTENT
-    case 'last_frame_generation':
-      return LAST_FRAME_GENERATION_CONTENT
     case 'scene_video_generation':
       return SCENE_VIDEO_GENERATION_CONTENT
     case 'transition':
@@ -104,10 +98,6 @@ function getAssetConsistencyDefaultContent(
       zh: '【环境资产图要求（覆盖下文角色规则）】该图是“纯环境参考图”，禁止出现人物/人脸/肢体；仅保留环境空间、材质、灯光与构图基准。',
       en: 'Environment asset requirement (overrides character rules below): this must be a pure environment reference image. No people/faces/body parts; keep only spatial layout, materials, lighting, and composition baseline.'
     },
-    last_frame_generation: {
-      zh: '【资产延续】尾帧需与场景参考资产保持同一角色与环境语义，不得替换主体身份。',
-      en: 'Asset continuity: the last frame must preserve the same character/environment semantics and identity.'
-    },
     scene_visual: {
       zh: '【场景资产化】输出需强调可复用环境元素（地标、材质、灯光、色调）用于后续场景资产复用。',
       en: 'Scene assetization: emphasize reusable environment elements (landmarks, materials, lighting, palette) for reuse.'
@@ -133,7 +123,6 @@ function getAssetConsistencyDefaultContent(
     en: [addition.en, base.en].filter(Boolean).join('\n\n')
   }
 }
-
 
 // ========== 故事大纲生成 ==========
 const OUTLINE_GENERATION_CONTENT: PromptTemplate['content'] = {
@@ -258,7 +247,6 @@ Please output strictly in the following JSON format:
 
 Output JSON only, no other content.`
 }
-
 
 // ========== 剧本解析 ==========
 const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
@@ -446,7 +434,6 @@ Notes:
 5. totalDuration equals sum of all scene durations`
 }
 
-
 // ========== 场景生成 ==========
 const SCENE_GENERATION_CONTENT: PromptTemplate['content'] = {
   zh: `你是一位专业的影视编剧。请根据以下故事大纲和角色设定，生成详细的分场剧本。
@@ -594,7 +581,6 @@ Notes:
 2. duration is a number (seconds), recommended 8-15 seconds; if model duration is capped lower, increase scene count to preserve full storytelling
 3. emotion must use the specified enum values`
 }
-
 
 // ========== 分镜脚本生成 ==========
 const STORYBOARD_GENERATION_CONTENT: PromptTemplate['content'] = {
@@ -754,7 +740,6 @@ Notes:
 5. First and last shot's visualContent must be particularly detailed`
 }
 
-
 // ========== 角色提取 ==========
 const CHARACTER_EXTRACTION_CONTENT: PromptTemplate['content'] = {
   zh: `你是一名专业的角色形象设计师，擅长从文本中识别角色并生成详细的视觉描述。
@@ -848,7 +833,6 @@ Notes:
 3. role_content is appearance description (string, 300-400 words)
 4. Only extract real character persons, do not include narration, system prompts, etc.`
 }
-
 
 // ========== 角色设计(大纲) ==========
 const CHARACTER_FROM_OUTLINE_CONTENT: PromptTemplate['content'] = {
@@ -956,7 +940,6 @@ Notes:
 6. appearance must be in English for image generation`
 }
 
-
 // ========== 角色设定图 ==========
 const CHARACTER_SHEET_CONTENT: PromptTemplate['content'] = {
   zh: `为 {{characterName}} 创建一张 {{style}} 风格的角色设定板（Character Sheet）。
@@ -1042,7 +1025,6 @@ Requirements:
 4. Quality: clean composition, natural light/shadow, avoid oversharpening or oversaturation.
 5. Output constraint: return an image result, not plain text.`
 }
-
 
 // ========== 首帧生成 ==========
 const FIRST_FRAME_GENERATION_CONTENT: PromptTemplate['content'] = {
@@ -1130,108 +1112,6 @@ Adjust the frame based on the shot type in storyboard:
 - Do not change character appearance from reference images`
 }
 
-
-// ========== 尾帧生成 ==========
-const LAST_FRAME_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: `基于参考图（首帧），创作场景的【尾帧/结束状态】画面。
-
-## 场景描述
-{{sceneDescription}}
-
-## 场景设定
-{{setting}}
-
-## 登场角色
-{{characters}}
-
-## 分镜设计
-{{storyboardShot}}
-
-## 情绪变化
-- 首帧情绪：{{initialEmotion}}
-- 尾帧情绪：{{finalEmotion}}
-
-## 镜头语言指南
-根据分镜设计中的景别调整画面：
-- **大远景/远景**：角色占画面 10-20%，突出环境氛围
-- **中景**：角色占画面 40-60%，展示动作和环境关系
-- **近景/特写**：角色占画面 70-90%，突出表情和情绪
-
-## 画面要求
-
-### 必须保持一致（与首帧相同）
-1. 相同的场景地点和环境布局
-2. 相同的角色外观（发型、发色、服装、配饰必须完全一致）
-3. 相同的{{style}}画风和色调
-4. 相同或相似的构图视角和景别
-5. 相同的光影基调
-
-### 允许变化的部分
-1. 角色表情从「{{initialEmotion}}」变化为「{{finalEmotion}}」
-2. 角色姿态可有轻微变化（体现动作发展）
-3. 细微的环境变化（如风吹动的头发、飘落的树叶等）
-
-### 核心要求
-1. 这是场景的【结束状态】，体现场景发展后的结果
-2. 必须与首帧形成连贯的动画过渡
-3. 16:9 宽屏比例，高清质量
-
-### 禁止事项
-- 不要改变角色的服装、发型、发色
-- 不要改变场景的整体布局
-- 不要大幅改变镜头角度
-- 不要添加首帧中没有的新角色`,
-  en: `Based on the reference image (first frame), create the scene's【LAST FRAME / ENDING STATE】image.
-
-## Scene Description
-{{sceneDescription}}
-
-## Scene Setting
-{{setting}}
-
-## Characters
-{{characters}}
-
-## Storyboard Shot
-{{storyboardShot}}
-
-## Emotion Transition
-- First frame emotion: {{initialEmotion}}
-- Last frame emotion: {{finalEmotion}}
-
-## Camera Language Guide
-Adjust the frame based on the shot type in storyboard:
-- **Extreme wide/Wide shot**: Character takes 10-20% of frame, emphasize environment
-- **Medium shot**: Character takes 40-60% of frame, show action and environment relationship
-- **Close-up/Extreme close-up**: Character takes 70-90% of frame, emphasize expression and emotion
-
-## Image Requirements
-
-### Must Keep Consistent (Same as First Frame)
-1. Same scene location and environment layout
-2. Same character appearance (hairstyle, hair color, clothing, accessories must be identical)
-3. Same {{style}} art style and color tone
-4. Same or similar composition angle and shot type
-5. Same lighting tone
-
-### Allowed Changes
-1. Character expression changes from "{{initialEmotion}}" to "{{finalEmotion}}"
-2. Slight changes in character pose (showing action development)
-3. Minor environmental changes (like wind-blown hair, falling leaves, etc.)
-
-### Core Requirements
-1. This is the【ENDING STATE】of the scene, showing the result after scene development
-2. Must form a coherent animation transition with the first frame
-3. 16:9 widescreen ratio, high quality
-
-### Prohibited
-- Do not change character clothing, hairstyle, or hair color
-- Do not change the overall scene layout
-- Do not significantly change camera angle
-- Do not add new characters not present in the first frame`
-}
-
-
 // ========== 场景视频生成（资产一致性） ==========
 const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
   zh: `镜头 {{shotNumber}}
@@ -1263,7 +1143,6 @@ Reference Materials
 Execution Constraints
 {{executionConstraints}}`
 }
-
 
 // ========== 转场视频 ==========
 const TRANSITION_CONTENT: PromptTemplate['content'] = {
@@ -1305,7 +1184,6 @@ REQUIREMENTS:
 The transition should feel seamless and professional, guiding the viewer's eye from one scene to the next.`
 }
 
-
 // ========== 背景音乐 ==========
 const BGM_GENERATION_CONTENT: PromptTemplate['content'] = {
   zh: `生成一段{{duration}}秒的背景音乐。
@@ -1331,7 +1209,6 @@ Requirements:
 3. No vocals, instrumental only
 4. High quality audio`
 }
-
 
 // ========== 场景视觉提取 ==========
 const SCENE_VISUAL_CONTENT: PromptTemplate['content'] = {
