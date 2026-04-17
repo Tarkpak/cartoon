@@ -552,26 +552,12 @@ async function buildSceneReferencePrompt(
     'asset_consistency'
   )
 
-  if (templatePrompt) {
-    return templatePrompt
+  if (!templatePrompt) {
+    console.error('[AssetWorkflow/Reference] 环境参考图模板缺失，请检查提示词配置')
+    throw new Error('无法获取环境参考图生成模板，请在设置中检查提示词配置')
   }
 
-  return [
-    '请生成一张用于视频生成的环境资产参考图（纯环境，无人物）。',
-    `风格: ${style || '保持项目默认风格'}`,
-    `画面比例: ${aspectRatio}`,
-    `场景标题: ${scene.title || '未命名场景'}`,
-    `场景设定: ${settingText}`,
-    `场景描述: ${scene.description}`,
-    `环境连续性要求: ${environmentConsistencyText}`,
-    `镜头与资产备注: ${cameraNoteText}`,
-    `旁白: ${narrationText}`,
-    `关键对白: ${dialogueText}`,
-    normalizedCustomPrompt ? `二次生成补充要求: ${normalizedCustomPrompt}` : '',
-    '只生成 1 张环境资产图，不要拼图，不要文字，不要水印，不要人物。'
-  ]
-    .filter(Boolean)
-    .join('\n\n')
+  return templatePrompt
 }
 
 export default defineEventHandler(async (event) => {
@@ -606,7 +592,7 @@ export default defineEventHandler(async (event) => {
       : resolveEnvironmentReferenceModel(preferredModelId)
     const modelId = modelDecision.modelId
     const modelConfig = findImageModel(modelId)
-    const geminiImageSize = workflowModelOptions.image_generation.geminiImageSize
+    const geminiImageSize = workflowModelOptions.image_options.geminiImageSize
     const prompt = await buildSceneReferencePrompt(scene, style, aspectRatio, environmentContext, customPrompt)
     const normalizedReference = referenceImage
       ? await normalizeReferenceImageInput(referenceImage, event)
