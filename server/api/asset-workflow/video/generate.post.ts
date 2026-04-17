@@ -594,37 +594,6 @@ function buildStructuredPromptSections(options: {
   }
 }
 
-function buildStructuredVideoPrompt(options: {
-  scene: z.infer<typeof SceneSchema>
-  style: string
-  aspectRatio: z.infer<typeof AspectRatioSchema>
-  duration: number
-  inputMode: InputMode
-  referenceGuide: string
-  hasCharacterRef: boolean
-  hasEnvironmentRef: boolean
-  primaryReferenceBinding?: ReferenceAssetBinding
-  multiReferenceBindings: ReferenceAssetBinding[]
-}): string {
-  const sections = buildStructuredPromptSections(options)
-  return [
-    `镜头 ${sections.shotNumber}`,
-    sections.sceneSummary,
-    '',
-    '视频提示词',
-    `风格：${sections.style}`,
-    `时长：约 ${sections.duration} 秒`,
-    `画幅：${sections.aspectRatio}`,
-    sections.timelineLines,
-    '',
-    '参考素材',
-    sections.referenceMaterials,
-    '',
-    '执行约束',
-    sections.executionConstraints
-  ].join('\n')
-}
-
 function resolveCompatibleModel(
   preferredModelId: string,
   options: {
@@ -831,18 +800,11 @@ export default defineEventHandler(async (event) => {
     undefined,
     'asset_consistency'
   )
-  const prompt = interpolatedPrompt || buildStructuredVideoPrompt({
-    scene,
-    style,
-    aspectRatio,
-    duration: finalDuration,
-    inputMode,
-    referenceGuide,
-    hasCharacterRef,
-    hasEnvironmentRef,
-    primaryReferenceBinding,
-    multiReferenceBindings
-  })
+  if (!interpolatedPrompt) {
+    console.error('[AssetWorkflow/Video] 场景视频生成模板缺失，请检查提示词配置')
+    throw new Error('无法获取场景视频生成模板，请在设置中检查提示词配置')
+  }
+  const prompt = interpolatedPrompt
 
   const config: Record<string, unknown> = {
     prompt,
