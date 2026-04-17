@@ -77,7 +77,9 @@ const quickActions = [
 
     <!-- 功能卡片 -->
     <div class="mb-8">
-      <h2 class="text-xl font-bold mb-6">核心功能</h2>
+      <h2 class="text-xl font-bold mb-6">
+        核心功能
+      </h2>
       <div class="grid md:grid-cols-3 gap-6">
         <Card
           v-for="feature in features"
@@ -94,7 +96,9 @@ const quickActions = [
                 class="w-6 h-6 text-foreground"
               />
             </div>
-            <CardTitle class="text-lg">{{ feature.title }}</CardTitle>
+            <CardTitle class="text-lg">
+              {{ feature.title }}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p class="text-muted-foreground leading-relaxed">

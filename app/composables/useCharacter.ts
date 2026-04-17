@@ -7,7 +7,7 @@ import type { Emotion } from '../../shared/types/script'
 import type { CharacterState } from '../../shared/types/character'
 
 export interface GenerateCharacterOptions {
-  style: string  // 必填，由项目配置决定
+  style: string // 必填，由项目配置决定
   emotions?: Emotion[]
 }
 

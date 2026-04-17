@@ -1,37 +1,36 @@
 import { z } from 'zod'
-import { EmotionSchema } from './script'
 
 // ==================== 分镜脚本类型 ====================
 
 /** 景别类型 */
 export const ShotTypeSchema = z.enum([
-  'extreme_wide',   // 大远景
-  'wide',           // 全景
-  'medium_wide',    // 中全景
-  'medium',         // 中景
-  'medium_close',   // 中近景
-  'close',          // 近景
-  'extreme_close',  // 特写
-  'detail'          // 细节特写
+  'extreme_wide', // 大远景
+  'wide', // 全景
+  'medium_wide', // 中全景
+  'medium', // 中景
+  'medium_close', // 中近景
+  'close', // 近景
+  'extreme_close', // 特写
+  'detail' // 细节特写
 ])
 export type ShotType = z.infer<typeof ShotTypeSchema>
 
 /** 运镜方式 */
 export const CameraMovementSchema = z.enum([
-  'static',         // 定镜
-  'push',           // 推镜头
-  'pull',           // 拉镜头
-  'pan_left',       // 左摇
-  'pan_right',      // 右摇
-  'tilt_up',        // 上摇
-  'tilt_down',      // 下摇
-  'track',          // 跟镜头
-  'dolly',          // 移镜头
-  'zoom_in',        // 变焦推进
-  'zoom_out',       // 变焦拉远
-  'crane',          // 升降镜头
-  'handheld',       // 手持晃动
-  'arc'             // 环绕镜头
+  'static', // 定镜
+  'push', // 推镜头
+  'pull', // 拉镜头
+  'pan_left', // 左摇
+  'pan_right', // 右摇
+  'tilt_up', // 上摇
+  'tilt_down', // 下摇
+  'track', // 跟镜头
+  'dolly', // 移镜头
+  'zoom_in', // 变焦推进
+  'zoom_out', // 变焦拉远
+  'crane', // 升降镜头
+  'handheld', // 手持晃动
+  'arc' // 环绕镜头
 ])
 export type CameraMovement = z.infer<typeof CameraMovementSchema>
 

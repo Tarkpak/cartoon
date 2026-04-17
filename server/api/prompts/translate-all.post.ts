@@ -17,7 +17,7 @@ interface TranslateAllRequest {
 export default defineEventHandler(async (event) => {
   const workflow = resolvePromptWorkflowFromEvent(event)
   const body = await readBody<TranslateAllRequest>(event)
-  
+
   if (!body.from || !body.to) {
     throw createError({
       statusCode: 400,
@@ -34,7 +34,7 @@ export default defineEventHandler(async (event) => {
 
   // 获取所有模板
   const templates = await getAllPromptTemplates(workflow)
-  
+
   let translated = 0
   let skipped = 0
   const errors: string[] = []
@@ -43,13 +43,13 @@ export default defineEventHandler(async (event) => {
     try {
       const sourceText = template.content[body.from]
       const targetText = template.content[body.to]
-      
+
       // 如果源文本为空，跳过
       if (!sourceText?.trim()) {
         skipped++
         continue
       }
-      
+
       // 如果目标已有内容且不覆盖，跳过
       if (targetText?.trim() && !body.overwrite) {
         skipped++
@@ -90,10 +90,9 @@ ${sourceText}`
       )
 
       translated++
-      
+
       // 添加延迟避免 API 限流
       await new Promise(resolve => setTimeout(resolve, 500))
-      
     } catch (error) {
       console.error(`[TranslateAll] Error translating ${template.id}:`, error)
       errors.push(template.id)

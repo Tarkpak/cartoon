@@ -30,7 +30,7 @@ function readLocalGeneratedImage(filename: string): Buffer | null {
   }
 
   const filePath = getGeneratedImageCandidatePaths(filename)
-    .find(candidate => {
+    .find((candidate) => {
       try {
         return statSync(candidate).isFile()
       } catch {

@@ -49,4 +49,3 @@ export default defineEventHandler(async (event) => {
 
   return sendStream(event, fs.createReadStream(filePath))
 })
-

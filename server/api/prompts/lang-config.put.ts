@@ -13,9 +13,9 @@ export default defineEventHandler(async (event) => {
     const workflow = resolvePromptWorkflowFromEvent(event)
     const body = await readBody(event)
     const config = UpdateLangConfigSchema.parse(body)
-    
+
     const updated = await updatePromptLangConfig(config, workflow)
-    
+
     return {
       success: true,
       data: updated,

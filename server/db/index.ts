@@ -49,7 +49,7 @@ export function initDatabase() {
   const projectColumns = sqlite.prepare('PRAGMA table_info(projects)').all() as Array<{ name: string }>
   const hasProjectColumn = (name: string) => projectColumns.some(c => c.name === name)
   if (!hasProjectColumn('workflow_type')) sqlite.exec('ALTER TABLE projects ADD COLUMN workflow_type TEXT NOT NULL DEFAULT \'asset_consistency\'')
-  sqlite.exec("UPDATE projects SET workflow_type = 'asset_consistency' WHERE workflow_type IS NULL OR workflow_type != 'asset_consistency'")
+  sqlite.exec('UPDATE projects SET workflow_type = \'asset_consistency\' WHERE workflow_type IS NULL OR workflow_type != \'asset_consistency\'')
 
   // 创建剧本表
   sqlite.exec(`

@@ -81,9 +81,9 @@ const filteredStyles = computed(() => {
   if (searchQuery.value.trim()) {
     const query = searchQuery.value.toLowerCase()
     styles = styles.filter(s =>
-      s.name.includes(query) ||
-      s.nameEn.toLowerCase().includes(query) ||
-      s.description.includes(query)
+      s.name.includes(query)
+      || s.nameEn.toLowerCase().includes(query)
+      || s.description.includes(query)
     )
   }
   return styles
@@ -116,7 +116,10 @@ onMounted(async () => {
     </div>
 
     <!-- 搜索框 -->
-    <div v-if="showSearch !== false" class="relative">
+    <div
+      v-if="showSearch !== false"
+      class="relative"
+    >
       <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
       <Input
         v-model="searchQuery"
@@ -155,7 +158,10 @@ onMounted(async () => {
         :class="activeCategory === cat.id ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'"
         @click="activeCategory = cat.id"
       >
-        <component :is="resolveStyleCategoryIconByName(cat.icon)" class="w-3.5 h-3.5" />
+        <component
+          :is="resolveStyleCategoryIconByName(cat.icon)"
+          class="w-3.5 h-3.5"
+        />
         <span>{{ cat.name }}</span>
       </Button>
     </div>
@@ -170,41 +176,80 @@ onMounted(async () => {
         @click="selectStyle(style)"
       >
         <div class="aspect-[9/16] bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center overflow-hidden">
-          <img v-if="style.thumbnail" :src="style.thumbnail" :alt="style.name" class="w-full h-full object-contain" loading="lazy" />
-          <Palette v-else class="w-8 h-8 text-muted-foreground" />
+          <img
+            v-if="style.thumbnail"
+            :src="style.thumbnail"
+            :alt="style.name"
+            class="w-full h-full object-contain"
+            loading="lazy"
+          >
+          <Palette
+            v-else
+            class="w-8 h-8 text-muted-foreground"
+          />
         </div>
         <div class="p-2 bg-background">
           <div class="flex items-center gap-1">
             <span class="text-sm font-medium truncate">{{ style.name }}</span>
-            <span v-if="style.isNew" class="px-1 py-0.5 text-[10px] bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded">NEW</span>
+            <span
+              v-if="style.isNew"
+              class="px-1 py-0.5 text-[10px] bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded"
+            >NEW</span>
           </div>
-          <p class="text-xs text-muted-foreground truncate">{{ style.nameEn }}</p>
+          <p class="text-xs text-muted-foreground truncate">
+            {{ style.nameEn }}
+          </p>
         </div>
-        <div v-if="modelValue === style.id" class="absolute top-2 right-2 w-5 h-5 bg-primary rounded-full flex items-center justify-center">
+        <div
+          v-if="modelValue === style.id"
+          class="absolute top-2 right-2 w-5 h-5 bg-primary rounded-full flex items-center justify-center"
+        >
           <Check class="w-3 h-3 text-primary-foreground" />
         </div>
         <div class="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-3">
-          <p class="text-white text-xs text-center leading-relaxed max-h-[85%] overflow-y-auto pr-1">{{ style.description }}</p>
+          <p class="text-white text-xs text-center leading-relaxed max-h-[85%] overflow-y-auto pr-1">
+            {{ style.description }}
+          </p>
         </div>
       </div>
     </div>
 
     <!-- 空状态 -->
-    <div v-if="filteredStyles.length === 0" class="text-center py-12 text-muted-foreground">
+    <div
+      v-if="filteredStyles.length === 0"
+      class="text-center py-12 text-muted-foreground"
+    >
       <p>没有找到匹配的风格</p>
     </div>
 
     <!-- 已选风格预览 -->
-    <div v-if="selectedStyle" class="p-4 bg-accent rounded-lg">
+    <div
+      v-if="selectedStyle"
+      class="p-4 bg-accent rounded-lg"
+    >
       <div class="flex items-center gap-3">
         <div class="w-14 sm:w-16 aspect-[9/16] bg-gradient-to-br from-purple-200 to-pink-200 rounded-lg flex items-center justify-center overflow-hidden">
-          <img v-if="selectedStyle.thumbnail" :src="selectedStyle.thumbnail" :alt="selectedStyle.name" class="w-full h-full object-contain" />
-          <Palette v-else class="w-6 h-6 text-muted-foreground" />
+          <img
+            v-if="selectedStyle.thumbnail"
+            :src="selectedStyle.thumbnail"
+            :alt="selectedStyle.name"
+            class="w-full h-full object-contain"
+          >
+          <Palette
+            v-else
+            class="w-6 h-6 text-muted-foreground"
+          />
         </div>
         <div class="flex-1">
-          <h4 class="font-medium">{{ selectedStyle.name }}</h4>
-          <p class="text-sm text-muted-foreground">{{ selectedStyle.nameEn }}</p>
-          <p class="text-xs text-muted-foreground mt-1 leading-relaxed max-h-20 overflow-y-auto pr-1">{{ selectedStyle.description }}</p>
+          <h4 class="font-medium">
+            {{ selectedStyle.name }}
+          </h4>
+          <p class="text-sm text-muted-foreground">
+            {{ selectedStyle.nameEn }}
+          </p>
+          <p class="text-xs text-muted-foreground mt-1 leading-relaxed max-h-20 overflow-y-auto pr-1">
+            {{ selectedStyle.description }}
+          </p>
         </div>
       </div>
     </div>

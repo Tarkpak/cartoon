@@ -170,7 +170,7 @@ export async function concatVideos(
           try {
             stats = await fs.stat(outputPath)
             console.log(`[FFmpeg] 输出文件存在，大小: ${stats.size}`)
-          } catch (statErr) {
+          } catch {
             console.error(`[FFmpeg] 输出文件不存在: ${outputPath}`)
             console.error(`[FFmpeg] stderr 输出:\n${stderrOutput}`)
             reject(new Error(`FFmpeg 完成但输出文件不存在。stderr: ${stderrOutput}`))

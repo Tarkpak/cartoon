@@ -226,14 +226,29 @@ function parseError(error: unknown): VolcengineError {
 
   let code: VolcengineErrorCode
   switch (status) {
-    case 400: code = VolcengineErrorCode.INVALID_ARGUMENT; break
-    case 403: code = VolcengineErrorCode.PERMISSION_DENIED; break
-    case 404: code = VolcengineErrorCode.NOT_FOUND; break
-    case 429: code = VolcengineErrorCode.RESOURCE_EXHAUSTED; break
-    case 500: code = VolcengineErrorCode.INTERNAL; break
-    case 503: code = VolcengineErrorCode.UNAVAILABLE; break
-    case 504: code = VolcengineErrorCode.DEADLINE_EXCEEDED; break
-    default: code = VolcengineErrorCode.UNKNOWN
+    case 400:
+      code = VolcengineErrorCode.INVALID_ARGUMENT
+      break
+    case 403:
+      code = VolcengineErrorCode.PERMISSION_DENIED
+      break
+    case 404:
+      code = VolcengineErrorCode.NOT_FOUND
+      break
+    case 429:
+      code = VolcengineErrorCode.RESOURCE_EXHAUSTED
+      break
+    case 500:
+      code = VolcengineErrorCode.INTERNAL
+      break
+    case 503:
+      code = VolcengineErrorCode.UNAVAILABLE
+      break
+    case 504:
+      code = VolcengineErrorCode.DEADLINE_EXCEEDED
+      break
+    default:
+      code = VolcengineErrorCode.UNKNOWN
   }
 
   return new VolcengineError(message, code, status, RETRYABLE_ERROR_CODES.has(code))
