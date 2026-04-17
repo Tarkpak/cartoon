@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BookOpen, Loader2 } from 'lucide-vue-next'
+import { ClipboardCopy, Loader2, Sparkles } from 'lucide-vue-next'
 
 const novelText = defineModel<string>('novelText', { required: true })
 
@@ -18,50 +18,61 @@ const emit = defineEmits<{
 
 <template>
   <AssetWorkbenchStagePanel
-    title="步骤一：剧本解析"
-    :icon="BookOpen"
-    :hint="hint"
-    header-class="pb-2"
-    content-class="flex-1 min-h-0 flex flex-col gap-3 overflow-hidden"
+    content-class="flex-1 min-h-0 flex flex-col gap-4 overflow-hidden"
   >
     <Textarea
       v-model="novelText"
-      class="flex-1 min-h-[280px] resize-none overflow-y-auto"
+      class="flex-1 min-h-[280px] resize-none overflow-y-auto rounded-lg border-muted-foreground/20 bg-muted/30 placeholder:text-muted-foreground/50 focus:bg-background transition-colors"
       placeholder="粘贴完整剧本原文..."
     />
+
     <div
       v-if="parsedTimelineText.trim()"
-      class="shrink-0 rounded-md border bg-muted/20 p-3 space-y-2"
+      class="shrink-0 space-y-2"
     >
       <div class="flex items-center justify-between gap-2">
-        <p class="text-xs font-medium">
+        <p class="text-xs font-medium text-muted-foreground">
           标准时间轴文案（含图片标记）
         </p>
         <Button
           size="sm"
-          variant="outline"
-          class="h-7 px-2 text-xs"
+          variant="ghost"
+          class="h-7 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
           @click="emit('copy-timeline')"
         >
-          复制文案
+          <ClipboardCopy class="h-3 w-3" />
+          复制
         </Button>
       </div>
-      <pre class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded border bg-background px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">{{ parsedTimelineText }}</pre>
+      <pre class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground">{{ parsedTimelineText }}</pre>
     </div>
-    <div class="shrink-0 flex flex-wrap items-center gap-2">
+
+    <div class="shrink-0 flex items-center gap-3">
       <Button
         :disabled="parsing || !novelText.trim()"
+        class="gap-2"
         @click="emit('parse')"
       >
         <Loader2
           v-if="parsing"
-          class="h-4 w-4 mr-2 animate-spin"
+          class="h-4 w-4 animate-spin"
         />
+        <Sparkles v-else class="h-4 w-4" />
         解析并自动准备资产
       </Button>
-      <span class="text-xs text-muted-foreground">
-        已解析场景 {{ scenesCount }} 个，角色 {{ charactersCount }} 个
-      </span>
+      <div
+        v-if="scenesCount > 0 || charactersCount > 0"
+        class="flex items-center gap-2 text-xs text-muted-foreground"
+      >
+        <span class="inline-flex items-center gap-1">
+          <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          {{ scenesCount }} 个场景
+        </span>
+        <span class="inline-flex items-center gap-1">
+          <span class="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
+          {{ charactersCount }} 个角色
+        </span>
+      </div>
     </div>
   </AssetWorkbenchStagePanel>
 </template>

@@ -4,7 +4,7 @@ import type { CharacterData } from '~/composables/useAssetWorkbench'
 import type { PropAsset } from '~/composables/useAssetWorkflowMeta'
 import type { AutoStageKey, AssetTab, CharacterRoleOption, EnvironmentAssetCard } from '~/lib/asset-workbench-types'
 
-defineProps<{
+const props = defineProps<{
   scenesCount: number
   characters: CharacterData[]
   environmentAssetCards: EnvironmentAssetCard[]
@@ -55,94 +55,97 @@ const emit = defineEmits<{
 }>()
 
 const assetTab = ref<AssetTab>('characters')
+
+const tabs = computed(() => [
+  { key: 'characters' as AssetTab, label: '角色', count: props.characters.length },
+  { key: 'scenes' as AssetTab, label: '环境', count: props.environmentAssetCards.length },
+  { key: 'props' as AssetTab, label: '道具', count: props.propAssets.length }
+])
 </script>
 
 <template>
   <div
     v-if="scenesCount === 0"
-    class="text-sm text-muted-foreground"
+    class="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground"
   >
-    请先完成“剧本解析”步骤。
+    <p class="text-sm">请先完成"剧本解析"步骤</p>
   </div>
   <template v-else>
-    <div class="shrink-0 rounded-md border bg-muted/20 px-3 py-2">
-      <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-        <div class="flex flex-wrap items-center gap-1.5">
-          <Badge
-            variant="secondary"
-            class="text-[11px]"
-          >
-            角色图就绪 {{ characterReadyCount }}/{{ characters.length }}
-          </Badge>
-          <Badge
-            v-if="characterGeneratingCount > 0"
-            variant="outline"
-            class="text-[11px]"
-          >
-            生成中 {{ characterGeneratingCount }}
-          </Badge>
-          <Badge
-            v-if="characterMissingCount > 0"
-            variant="outline"
-            class="text-[11px]"
-          >
-            待生成 {{ characterMissingCount }}
-          </Badge>
+    <!-- Status bar & actions -->
+    <div class="shrink-0 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span
+            class="inline-block h-2 w-2 rounded-full"
+            :class="characterReadyCount === characters.length ? 'bg-emerald-500' : 'bg-amber-500'"
+          />
+          角色图 {{ characterReadyCount }}/{{ characters.length }}
         </div>
+        <div
+          v-if="characterGeneratingCount > 0"
+          class="flex items-center gap-1.5 text-xs text-muted-foreground"
+        >
+          <Loader2 class="h-3 w-3 animate-spin text-primary" />
+          生成中 {{ characterGeneratingCount }}
+        </div>
+        <div
+          v-if="characterMissingCount > 0"
+          class="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"
+        >
+          <span class="inline-block h-2 w-2 rounded-full bg-amber-500" />
+          待生成 {{ characterMissingCount }}
+        </div>
+      </div>
 
-        <div class="flex flex-wrap items-center gap-2 lg:justify-end">
-          <Button
-            :disabled="autoRunning"
-            @click="emit('run-assets')"
-          >
-            <Loader2
-              v-if="autoRunning && autoRunCurrentStage === 'assets'"
-              class="mr-2 h-4 w-4 animate-spin"
-            />
-            {{ assetsPrimaryActionLabel }}
-          </Button>
-          <Button
-            v-if="characterMissingCount > 0"
-            variant="outline"
-            :disabled="autoRunning || characters.length === 0"
-            @click="emit('generate-characters')"
-          >
-            仅生成角色图
-          </Button>
-        </div>
+      <div class="flex items-center gap-2">
+        <Button
+          size="sm"
+          :disabled="autoRunning"
+          class="gap-2"
+          @click="emit('run-assets')"
+        >
+          <Loader2
+            v-if="autoRunning && autoRunCurrentStage === 'assets'"
+            class="h-3.5 w-3.5 animate-spin"
+          />
+          {{ assetsPrimaryActionLabel }}
+        </Button>
+        <Button
+          v-if="characterMissingCount > 0"
+          size="sm"
+          variant="outline"
+          :disabled="autoRunning || characters.length === 0"
+          @click="emit('generate-characters')"
+        >
+          仅生成角色图
+        </Button>
       </div>
     </div>
 
-    <div class="shrink-0 flex flex-wrap items-center gap-2">
-      <Button
-        type="button"
-        variant="ghost"
-        class="h-8 rounded-md border px-3 text-xs font-medium transition"
-        :class="assetTab === 'characters' ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-input bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground'"
-        @click="assetTab = 'characters'"
-      >
-        角色资产（{{ characters.length }}）
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        class="h-8 rounded-md border px-3 text-xs font-medium transition"
-        :class="assetTab === 'scenes' ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-input bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground'"
-        @click="assetTab = 'scenes'"
-      >
-        环境资产（{{ environmentAssetCards.length }}）
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        class="h-8 rounded-md border px-3 text-xs font-medium transition"
-        :class="assetTab === 'props' ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-input bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground'"
-        @click="assetTab = 'props'"
-      >
-        道具资产（{{ propAssets.length }}）
-      </Button>
+    <!-- Asset type tabs (underline style) -->
+    <div class="shrink-0 border-b">
+      <div class="flex gap-0">
+        <button
+          v-for="tab in tabs"
+          :key="tab.key"
+          type="button"
+          class="relative px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none"
+          :class="assetTab === tab.key
+            ? 'text-foreground'
+            : 'text-muted-foreground hover:text-foreground/80'"
+          @click="assetTab = tab.key"
+        >
+          {{ tab.label }}
+          <span class="ml-1 text-xs text-muted-foreground/70">{{ tab.count }}</span>
+          <span
+            v-if="assetTab === tab.key"
+            class="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-primary"
+          />
+        </button>
+      </div>
     </div>
 
+    <!-- Tab content -->
     <div class="min-h-0 flex-1 overflow-y-auto pr-1">
       <AssetWorkbenchCharacterAssetsTab
         v-if="assetTab === 'characters'"
