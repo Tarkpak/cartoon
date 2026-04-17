@@ -309,12 +309,23 @@ export default defineEventHandler(async (event) => {
   const normalizedWorkflow = normalizeProjectWorkflowType(workflowType)
 
   try {
+    const textLength = text.trim().length
+    let recommendedMinScenes = 6
+    if (textLength > 3200) recommendedMinScenes = 20
+    else if (textLength > 2400) recommendedMinScenes = 16
+    else if (textLength > 1600) recommendedMinScenes = 12
+    else if (textLength > 900) recommendedMinScenes = 8
+
     // 2. 从数据库获取提示词模板
     const prompt = await getInterpolatedPrompt(
       PROMPT_TEMPLATE_IDS.SCRIPT_PARSING,
       {
         novelText: text,
-        style: style?.trim() || '默认画风'
+        style: style?.trim() || '默认画风',
+        textLength: String(text.trim().length),
+        recommendedMinScenes: String(recommendedMinScenes),
+        sceneDurationMin: String(SCRIPT_MIN_DURATION),
+        sceneDurationMax: String(SCRIPT_MAX_DURATION)
       },
       undefined,
       normalizedWorkflow
@@ -324,44 +335,9 @@ export default defineEventHandler(async (event) => {
       throw new Error('无法获取提示词模板，请检查数据库配置')
     }
 
-    const textLength = text.trim().length
-    let recommendedMinScenes = 6
-    if (textLength > 3200) recommendedMinScenes = 20
-    else if (textLength > 2400) recommendedMinScenes = 16
-    else if (textLength > 1600) recommendedMinScenes = 12
-    else if (textLength > 900) recommendedMinScenes = 8
-
-    // 兜底约束：确保旁白不丢失（兼容旧模板未显式要求 narration 字段的情况）
-    const promptWithNarration = `${prompt}
-
-【补充约束 - narration 字段】
-1. 场景中的旁白/画外音/内心独白需要输出到 scenes[i].narration（字符串或 null）。
-2. dialogues 仅保留真实角色台词，不要把“旁白”作为角色写入 dialogues。
-3. 若某场景无旁白，narration 返回 null 或空字符串。
-
-【补充约束 - 剧情覆盖与场景密度】
-1. 必须覆盖输入文本的完整主线，不要省略关键事件和关键旁白信息。
-2. 本次输入文本长度约 ${textLength} 字，场景数量不少于 ${recommendedMinScenes} 场。
-3. 若同一场景包含多个动作转折、情绪转折或叙事跳跃，必须拆分成连续多个场景。
-4. 每个场景的 duration 必须是数字，且在 ${SCRIPT_MIN_DURATION}-${SCRIPT_MAX_DURATION} 秒之间。
-5. totalDuration 必须严格等于所有 scenes[i].duration 的总和。
-6. scenes[i].setting.timeOfDay 只能是 dawn、morning、noon、afternoon、evening、night 之一，严禁输出 none/unknown/day。
-7. scenes[i].shotType 必须输出：extreme_wide、wide、medium_wide、medium、medium_close、close、extreme_close、detail 之一。
-8. scenes[i].description 必须是多行时间轴镜头脚本，不得输出单段散文。
-9. description 每行格式为“起始-结束s：【景别】画面动作与对白”，且每个场景至少 2 行、建议 3-6 行。
-10. 每个场景 description 的时间轴从 0s 开始，最后一行结束时间应与该场景 duration 对齐或接近（误差 <= 0.5s）。
-11. 对话请直接写在 description 对应镜头行（示例：角色名说："台词"）；dialogues 字段可留空数组。
-12. description 中不要写“添加字幕/BGM/音效”等制作指令。
-13. description 中若使用引用标签，只允许 [图片N]（如 [图片1]）；禁止 [角色名]、[地点名] 等自定义方括号标签。
-
-【补充约束 - 主环境风格一致性】
-1. 同一主环境（如“医院”“学校”“警局”）在不同子空间（如“走廊”“办公室”“病房”）必须保持同一建筑年代、装修档次、材质语言和维护状态。
-2. 除非原文明确写出“翻修区/废弃区/新旧分区”，禁止输出冲突风格（例如同一医院里“走廊豪华现代”但“办公室破旧老化”）。
-3. setting.location 请优先使用“主环境-子空间”或“主环境/子空间”的中性命名，不要把“豪华、破旧、现代、老旧”等风格形容词写进地点名。`
-
     // 3. 使用业务流程配置的模型解析
     const result = await generateJSONForWorkflow<ParsedScript>('script_parsing', {
-      prompt: promptWithNarration,
+      prompt,
       temperature: 0.3,
       maxRetries: 2
     })

@@ -9,7 +9,6 @@ import {
   TEXT_MODELS,
   IMAGE_MODELS,
   VIDEO_MODELS,
-  VOICE_MODELS,
   initializeSelectedModels,
   getSelectedModels
 } from '../../utils/model-provider'
@@ -25,40 +24,29 @@ import {
 import type {
   TextModelConfig,
   ImageModelConfig,
-  VideoModelConfig,
-  VoiceModelConfig
+  VideoModelConfig
 } from '#shared/types/provider'
 
 // 配置键名
 const WORKFLOW_MODELS_KEY = 'workflow_models'
 const WORKFLOW_MODEL_OPTIONS_KEY = 'workflow_model_options'
 
-// 历史默认配置（用于兼容旧数据）
-const LEGACY_DEFAULT_WORKFLOW_MODELS: Record<WorkflowStep, string> = {
-  // 文本生成类 - 默认使用千问
-  outline_generation: 'qwen-flash',
+// 当前主流程默认配置
+const DEFAULT_WORKFLOW_MODELS: Record<WorkflowStep, string> = {
   script_parsing: 'qwen-flash',
-  character_extraction: 'qwen-flash',
-  storyboard_generation: 'qwen-flash',
-  scene_visual_extraction: 'qwen-flash',
+  scene_description_refinement: 'qwen-flash',
   text_translation: 'qwen-flash',
 
-  // 图片生成类 - 默认使用千问
   character_portrait: 'wan2.6-t2i',
-  character_views: 'wan2.6-image',
   frame_generation: 'wan2.6-image',
 
-  // 视频生成类 - 默认使用千问
-  video_generation: 'wan2.2-kf2v-flash',
-
-  // 语音生成类 - 默认使用千问
-  voice_synthesis: 'qwen3-tts-instruct-flash'
+  video_generation: 'wan2.2-kf2v-flash'
 }
 
 const WORKFLOW_STEPS = WORKFLOW_STEP_CONFIGS.map(config => config.id)
 
 function getGlobalModelByCategory(
-  category: 'text' | 'image' | 'video' | 'voice',
+  category: 'text' | 'image' | 'video',
   selected: ReturnType<typeof getSelectedModels>
 ): string | undefined {
   switch (category) {
@@ -68,8 +56,6 @@ function getGlobalModelByCategory(
       return selected.image
     case 'video':
       return selected.video
-    case 'voice':
-      return selected.tts
   }
 }
 
@@ -90,10 +76,10 @@ function getDefaultModelForStep(
   selected: ReturnType<typeof getSelectedModels>
 ): string {
   const stepConfig = WORKFLOW_STEP_CONFIGS.find(config => config.id === step)
-  const legacyDefault = LEGACY_DEFAULT_WORKFLOW_MODELS[step]
+  const defaultModel = DEFAULT_WORKFLOW_MODELS[step]
 
   if (!stepConfig) {
-    return legacyDefault
+    return defaultModel
   }
 
   const globalModel = getGlobalModelByCategory(stepConfig.category, selected)
@@ -101,8 +87,8 @@ function getDefaultModelForStep(
     return globalModel
   }
 
-  if (legacyDefault && isModelCompatibleForStep(step, legacyDefault)) {
-    return legacyDefault
+  if (defaultModel && isModelCompatibleForStep(step, defaultModel)) {
+    return defaultModel
   }
 
   const fallback = getCompatibleModels(stepConfig.category, stepConfig.requiredCapabilities)[0]
@@ -110,7 +96,7 @@ function getDefaultModelForStep(
     return fallback.model
   }
 
-  return globalModel || legacyDefault
+  return globalModel || defaultModel
 }
 
 function normalizeLegacyOverrides(
@@ -132,7 +118,7 @@ function normalizeLegacyOverrides(
       continue
     }
     // 仅对“旧版整包快照”去掉历史默认值，避免误伤新配置
-    if (maybeLegacyFullSnapshot && modelId === LEGACY_DEFAULT_WORKFLOW_MODELS[step]) {
+    if (maybeLegacyFullSnapshot && modelId === DEFAULT_WORKFLOW_MODELS[step]) {
       continue
     }
     normalized[step] = modelId
@@ -378,7 +364,7 @@ export async function setWorkflowModels(models: Partial<Record<WorkflowStep, str
 
 /** 检查模型是否满足能力要求 */
 function checkModelCapabilities(
-  model: TextModelConfig | ImageModelConfig | VideoModelConfig | VoiceModelConfig,
+  model: TextModelConfig | ImageModelConfig | VideoModelConfig,
   requiredCapabilities: ModelCapability[]
 ): boolean {
   for (const cap of requiredCapabilities) {
@@ -410,16 +396,6 @@ function checkModelCapabilities(
           return false
         }
         break
-      case 'tts':
-        if ('type' in model && model.type !== 'tts') {
-          return false
-        }
-        break
-      case 'asr':
-        if ('type' in model && model.type !== 'asr') {
-          return false
-        }
-        break
     }
   }
   return true
@@ -427,10 +403,10 @@ function checkModelCapabilities(
 
 /** 获取满足能力要求的模型列表 */
 function getCompatibleModels(
-  category: 'text' | 'image' | 'video' | 'voice',
+  category: 'text' | 'image' | 'video',
   requiredCapabilities: ModelCapability[]
 ) {
-  let models: Array<TextModelConfig | ImageModelConfig | VideoModelConfig | VoiceModelConfig>
+  let models: Array<TextModelConfig | ImageModelConfig | VideoModelConfig>
 
   switch (category) {
     case 'text':
@@ -442,9 +418,6 @@ function getCompatibleModels(
     case 'video':
       models = VIDEO_MODELS
       break
-    case 'voice':
-      models = VOICE_MODELS.filter(m => m.type === 'tts')
-      break
   }
 
   return models.filter(m => checkModelCapabilities(m, requiredCapabilities))
@@ -452,7 +425,7 @@ function getCompatibleModels(
 
 /** 获取模型的能力标签 */
 function getModelCapabilityTags(
-  model: TextModelConfig | ImageModelConfig | VideoModelConfig | VoiceModelConfig
+  model: TextModelConfig | ImageModelConfig | VideoModelConfig
 ): string[] {
   const tags: string[] = []
 

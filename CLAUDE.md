@@ -1,267 +1,139 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This repository now centers on a single workbench flow:
+
+`解析 -> 资产 -> 视频 -> 成片`
+
+Historical prompt workflows are intentionally removed. When updating prompts, APIs, or settings, align changes to the current asset workbench instead of restoring legacy routes or compatibility aliases.
 
 ## Project Overview
 
-**Manju** is an AI-powered film/video generation system built with Nuxt.js 4. It automates the creation of dynamic visual content from story ideas or scripts using multiple AI providers (Google Gemini, Alibaba Qwen, Volcengine/Doubao).
+**Manju** is an AI-assisted video production system built with Nuxt.js 4. The active product path is:
+
+1. Parse source text into scenes, characters, and video-ready timeline descriptions.
+2. Generate and manage reusable assets such as character references and environment references.
+3. Generate per-scene videos from timeline descriptions plus references.
+4. Merge scene videos into a final deliverable.
 
 ## Tech Stack
 
-- **Framework**: Nuxt.js 4 with Vue 3 Composition API
-- **Package Manager**: Bun (v1.2.15)
-- **Database**: SQLite with Drizzle ORM
-- **UI**: Tailwind CSS + shadcn-vue (Radix Vue primitives)
-- **State Management**: Vue Composables (not Pinia stores)
-- **AI Providers**: Google Gemini, Alibaba Qwen (DashScope), Volcengine (Doubao)
-- **Video Processing**: FFmpeg (via fluent-ffmpeg)
+- **Framework**: Nuxt.js 4 + Vue 3 Composition API
+- **Package Manager**: Bun
+- **Database**: SQLite + Drizzle ORM
+- **UI**: Tailwind CSS + shadcn-vue
+- **AI Providers**: Google Gemini, Alibaba Qwen, Volcengine/Doubao
+- **Media Processing**: FFmpeg, Sharp
 
-## Directory Structure
+## Current Directory Focus
 
-```
-/
-├── app/                      # Frontend (Nuxt app directory)
-│   ├── components/           # Vue components
-│   │   ├── ui/              # shadcn-vue base components (Button, Card, Dialog, etc.)
-│   │   ├── workbench/       # Main workbench panels (OutlinePanel, CharacterPanel, etc.)
-│   │   ├── character/       # Character-related components
-│   │   ├── script/          # Script editing components
-│   │   └── video/           # Video preview components
-│   ├── composables/         # Vue composables (state management)
-│   │   ├── useWorkbench.ts  # Main workbench state (scenes, characters, generation)
-│   │   ├── useProject.ts    # Project CRUD operations
-│   │   ├── usePipeline.ts   # Pipeline task management with WebSocket
-│   │   └── ...
-│   ├── pages/               # Route pages
-│   │   ├── index.vue        # Landing page
-│   │   ├── projects.vue     # Project list
-│   │   ├── workbench.vue    # Main generation workbench
-│   │   └── settings.vue     # Settings page
-│   ├── layouts/             # Page layouts
-│   └── lib/utils.ts         # Utility functions (cn, etc.)
-│
-├── server/                   # Backend (Nitro server)
-│   ├── api/                 # API endpoints (file-based routing)
-│   │   ├── project/         # Project CRUD
-│   │   ├── scene/           # Scene generation, chaining
-│   │   ├── character/       # Character extraction, generation
-│   │   ├── video/           # Video generation, merging
-│   │   ├── frame/           # First/last frame generation
-│   │   ├── outline/         # Story outline generation
-│   │   ├── prompts/         # Prompt template management
-│   │   ├── storyboard/      # Storyboard generation
-│   │   └── audio/           # Audio/TTS generation
-│   ├── db/                  # Database
-│   │   ├── index.ts         # Drizzle instance + SQLite setup
-│   │   ├── schema.ts        # Table definitions
-│   │   └── migrations/      # Drizzle migrations
-│   ├── utils/               # Server utilities
-│   │   ├── gemini.ts        # Google Gemini API client
-│   │   ├── qwen.ts          # Alibaba Qwen API client
-│   │   ├── volcengine.ts    # Volcengine/Doubao API client
-│   │   ├── model-provider.ts # Unified model provider abstraction
-│   │   ├── prompt-template.ts # Prompt template system
-│   │   ├── prompt-defaults.ts # Default prompt templates
-│   │   ├── ffmpeg.ts        # Video processing utilities
-│   │   ├── concurrency.ts   # Rate limiting
-│   │   ├── websocket.ts     # WebSocket for real-time updates
-│   │   └── logger.ts        # Logging utilities
-│   ├── plugins/             # Nitro plugins
-│   └── routes/              # Custom routes (WebSocket)
-│
-├── shared/                   # Shared code (frontend + backend)
-│   └── types/               # TypeScript type definitions
-│       ├── video.ts         # Video generation types
-│       ├── character.ts     # Character types
-│       ├── outline.ts       # Story outline types
-│       ├── storyboard.ts    # Storyboard types
-│       ├── styles.ts        # Art style presets (30+ styles)
-│       ├── provider.ts      # AI provider types
-│       ├── prompt-template.ts # Prompt template types
-│       └── ...
-│
-├── data/                     # Runtime data
-│   └── manju.db             # SQLite database file
-│
-├── nuxt.config.ts           # Nuxt configuration
-├── drizzle.config.ts        # Drizzle ORM configuration
-└── tailwind.config.js       # Tailwind CSS configuration
+```text
+app/
+  pages/
+    asset-workbench.vue      # Main workbench
+    settings.vue             # Prompt/model/style settings
+  components/
+    asset-workbench/         # Parse/assets/videos/final stage UI
+    settings/                # Prompt center and workflow model settings
+    prompt-editor/           # Prompt editing UI
+  composables/
+    useAssetWorkbench*.ts    # Workbench state and actions
+    useSettingsPrompts.ts    # Prompt center data loading/grouping
+    useSettingsWorkflowModels.ts
+
+server/
+  api/
+    script/parse.post.ts
+    character/generate.post.ts
+    asset-workflow/reference/generate.post.ts
+    asset-workflow/scene/description-refinement.post.ts
+    asset-workflow/video/generate.post.ts
+    video/merge.post.ts
+    prompts/*                # Prompt template CRUD/reset/version APIs
+    models/*                 # Model catalog, workflow model settings, tests
+  utils/
+    prompt-template.ts
+    prompt-defaults.ts
+    workflow-model.ts
+    model-provider.ts
+
+shared/
+  types/
+    prompt-template.ts
+    workflow-models.ts
+    project.ts
 ```
 
-## Key Architectural Patterns
+## Workflow Rules
 
-### 1. Workflow Steps
+### 1. Prompt Center
 
-The main workbench follows a 4-step workflow:
-1. **Outline** - Generate story outline from idea OR parse existing script
-2. **Characters** - Extract and generate character designs
-3. **Script** - Generate detailed scenes with dialogues
-4. **Video** - Generate frames and videos for each scene
+Only the following prompt templates belong to the active workbench flow:
 
-### 2. State Management
+- `script_parsing`
+- `character_sheet`
+- `character_regeneration`
+- `environment_reference_generation`
+- `scene_description_refinement`
+- `scene_video_generation`
 
-Uses Vue Composables instead of Pinia stores. The main composable is `useWorkbench.ts` which manages:
-- Project metadata (name, style, aspect ratio)
-- Story outline and scenes
-- Characters and their assets
-- Generation status for frames/videos
-- Pipeline progress
+Prompt grouping in settings should follow the current stages:
 
-### 3. Multi-Provider AI System
+- `parse`
+- `assets`
+- `videos`
 
-The `model-provider.ts` provides a unified interface for:
-- **Text Generation**: Gemini, Qwen, Volcengine (for outlines, scripts, prompts)
-- **Image Generation**: Gemini, Qwen Wanx, Volcengine (for character art, frames)
-- **Video Generation**: Gemini Veo, Qwen Wanx, Volcengine (for scene videos)
-- **TTS**: Qwen TTS (for narration)
+Do not reintroduce any historical prompt IDs or deprecated workflow aliases.
 
-### 4. Prompt Template System
+### 2. Workflow Model Settings
 
-Customizable prompts stored in database with:
-- Bilingual support (Chinese/English)
-- Variable interpolation (`{{variable}}`)
-- Version history
-- Per-template language configuration
+Workflow model configuration is current-flow-only. Valid workflow steps are:
 
-### 5. API Naming Convention
+- `script_parsing`
+- `scene_description_refinement`
+- `text_translation`
+- `character_portrait`
+- `frame_generation`
+- `video_generation`
 
-Server API files use Nuxt's file-based routing:
-- `[id].get.ts` - GET /api/[parent]/[id]
-- `[id].put.ts` - PUT /api/[parent]/[id]
-- `create.post.ts` - POST /api/[parent]/create
-- `list.get.ts` - GET /api/[parent]/list
+The settings UI may still group these by model type (`text`, `image`, `video`) for global defaults, but the configured steps must remain aligned with the active workbench flow.
 
-## Database Schema
+### 3. API Naming
 
-Main tables (SQLite with Drizzle ORM):
-- `projects` - Project metadata with style/aspect ratio presets
-- `scripts` - Raw text and parsed script data
-- `scenes` - Individual scenes with frames, video URLs, storyboard data
-- `characters` - Character definitions with base images and expressions
-- `video_tasks` - Async video generation task tracking
-- `generated_videos` - Completed video metadata
-- `system_config` - Key-value config storage (prompt templates, etc.)
+Prefer current-flow API names. Example:
+
+- use `/api/asset-workflow/scene/description-refinement`
+- do not restore `/api/asset-workflow/scene/refine-description`
+
+When renaming routes or workflow identifiers, update both the server endpoint and the frontend caller in the same change.
+
+## Key Architectural Notes
+
+- Prompt templates are stored in `system_config` and exposed through `server/api/prompts/*`.
+- Workflow model overrides are stored separately from global model defaults.
+- Scene description refinement is a real prompt-template-backed workflow, not an inline hardcoded prompt.
+- Environment reference generation replaces the old first-frame-style prompt semantics in the prompt center.
+- Final composition is handled by `/api/video/merge` after scene-level video generation completes.
 
 ## Common Commands
 
 ```bash
-# Development
-bun dev                    # Start dev server
+bun dev
+bun build
+bun preview
 
-# Build
-bun build                  # Build for production
-bun preview                # Preview production build
+bun db:generate
+bun db:migrate
+bun db:push
 
-# Database
-bun db:generate            # Generate Drizzle migrations
-bun db:migrate             # Run migrations
-bun db:push                # Push schema changes
-bun db:studio              # Open Drizzle Studio
-
-# Code Quality
-bun lint                   # Run ESLint
-bun lint:fix               # Fix ESLint issues
-bun typecheck              # Run TypeScript check
-bun test                   # Run Vitest tests
-bun test:coverage          # Run tests with coverage
-
-# Release & Deployment
-bun run release            # Release patch version (1.0.0 → 1.0.1)
-bun run release minor      # Release minor version (1.0.0 → 1.1.0)
-bun run release major      # Release major version (1.0.0 → 2.0.0)
-bun run release 1.2.3      # Release specific version
-bun run release --force    # Force re-release current version (deletes old tag)
-bun run release -y         # Skip confirmation prompt
-bun scripts/deploy.ts      # Manual deployment to server (local build + upload)
+bun lint
+bun lint:fix
+bun typecheck
+bun test
 ```
 
-## Environment Variables
+## Working Expectations
 
-Required in `.env`:
-```
-GEMINI_API_KEY=            # Google Gemini API key
-QWEN_API_KEY=              # Alibaba Qwen (DashScope) API key
-VOLCENGINE_API_KEY=        # Volcengine (Doubao) API key
-
-# Optional
-HTTP_PROXY=                # Proxy for Gemini (needed in China)
-HTTPS_PROXY=
-OUTPUT_DIR=./output
-MAX_CONCURRENT_REQUESTS=3
-DAILY_BUDGET_LIMIT=50
-```
-
-## Key Files to Understand
-
-1. **`app/composables/useWorkbench.ts`** - Central state management, all generation logic
-2. **`server/utils/model-provider.ts`** - Multi-provider AI abstraction
-3. **`server/utils/gemini.ts`** - Gemini API client with retry logic
-4. **`server/db/schema.ts`** - Database schema definitions
-5. **`shared/types/styles.ts`** - 30+ art style presets
-6. **`app/pages/workbench.vue`** - Main workbench UI
-
-## Generation Pipeline
-
-1. **Story Idea** → `POST /api/outline/generate` → **Story Outline**
-2. **Outline** → `POST /api/character/extract-from-outline` → **Characters**
-3. **Characters** → `POST /api/character/generate` → **Character Images**
-4. **Outline + Characters** → `POST /api/scene/generate-from-outline` → **Scenes**
-5. **Scene** → `POST /api/frame/generate` → **First/Last Frames**
-6. **Frames** → `POST /api/video/generate` → **Scene Video**
-7. **All Videos** → `POST /api/video/merge` → **Final Video**
-
-## Deployment
-
-### Automated Deployment (GitHub Actions)
-
-The project uses GitHub Actions for CI/CD. On push to `master`:
-1. Builds the project with Bun
-2. Deploys `.output/` to server via SSH + rsync
-3. Conditionally reinstalls `better-sqlite3` if `bun.lock` changed (uses MD5 checksum)
-4. Restarts PM2 process
-
-Required GitHub Secrets:
-- `SSH_PRIVATE_KEY` - Server SSH private key
-- `REMOTE_HOST` - Server IP/domain
-- `REMOTE_USER` - SSH username
-- `REMOTE_PORT` - SSH port (optional, default 22)
-- `DEPLOY_PATH` - Deployment directory on server
-
-### Manual Deployment
-
-Use `bun scripts/deploy.ts` for manual deployment:
-- Builds locally
-- Uploads to server via SCP
-- Preserves `data/`, `public/`, and `ecosystem.config.cjs`
-- Restarts PM2
-
-Configure via environment variables:
-- `DEPLOY_HOST` - Server IP/domain
-- `DEPLOY_USER` - SSH username (default: root)
-- `DEPLOY_PORT` - SSH port (default: 22)
-- `DEPLOY_PATH` - Deployment path (default: ~/project/cartoon)
-- `SSH_KEY` - SSH key path (default: ~/.ssh/oaks.pem)
-
-### Release Process
-
-The `scripts/release.ts` script automates versioning and deployment:
-- Updates `package.json` version
-- Creates git commit and tag
-- Pushes to GitHub to trigger Actions
-- **Private Repo Feature**: If `GITHUB_TOKEN` is set in `.env`, temporarily makes private repos public during Actions build (free tier), then restores privacy after completion
-
-## Important Rules
-
-- **Prompt Template Sync**: When modifying `server/utils/prompt-defaults.ts`, the changes must be synced to the database. Users need to reset prompts via the settings page, or the database `system_config` table needs to be updated to reflect the new default templates.
-
-- **Security**: The `ecosystem.config.cjs` file contains production environment variables including API keys. This file should be managed on the server and NOT committed with real credentials. Use `.env` for local development.
-
-- **SQLite Native Module**: The `better-sqlite3` package requires native compilation. The deployment process handles this by reinstalling it on the server when dependencies change.
-
-## Notes
-
-- The project uses Chinese comments extensively
-- WebSocket support for real-time pipeline progress updates (`server/routes/_ws.ts`)
-- Supports multiple aspect ratios: 16:9, 9:16, 1:1
-- Video generation is async with task polling
-- PM2 is used for process management in production (not the default Nuxt deployment)
+- Prefer `rg` for search.
+- Use `apply_patch` for manual code edits.
+- The worktree may already contain user changes; do not revert unrelated edits.
+- If you find legacy flow references in docs or settings, update or remove them instead of preserving them for compatibility.
