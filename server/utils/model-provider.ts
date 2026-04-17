@@ -558,9 +558,9 @@ export const VOICE_MODELS: VoiceModelConfig[] = [
 const SELECTED_MODELS_KEY = 'selected_models'
 
 const DEFAULT_SELECTED_MODELS: SelectedModels = {
-  text: qwen.QwenTextModels.QWEN_FLASH,  // 默认使用千问
-  image: qwen.QwenImageModels.WAN_2_6_T2I,  // 默认使用千问
-  video: qwen.QwenVideoModels.WAN_2_6_T2V,  // 默认使用千问
+  text: qwen.QwenTextModels.QWEN_FLASH, // 默认使用千问
+  image: qwen.QwenImageModels.WAN_2_6_T2I, // 默认使用千问
+  video: qwen.QwenVideoModels.WAN_2_6_T2V, // 默认使用千问
   tts: qwen.QwenVoiceModels.QWEN3_TTS_FLASH,
   asr: qwen.QwenVoiceModels.QWEN3_ASR_FLASH
 }
@@ -692,7 +692,6 @@ function getProviderFromModel(modelId: string): ModelProvider {
   return model?.provider || 'gemini'
 }
 
-
 // ============================================================
 // 统一 API 封装 - 文本生成
 // ============================================================
@@ -790,8 +789,8 @@ export async function generateJSON<T>(options: {
 // ============================================================
 
 export interface GenerateImageResult {
-  imageData?: string      // base64 (Gemini)
-  imageUrl?: string       // URL (Qwen/Kling/Volcengine)
+  imageData?: string // base64 (Gemini)
+  imageUrl?: string // URL (Qwen/Kling/Volcengine)
   mimeType?: string
   text?: string
 }
@@ -800,7 +799,7 @@ export async function generateImage(options: {
   modelId?: string
   prompt: string
   referenceImage?: { data: string, mimeType: string }
-  referenceImages?: string[]  // base64 图片数组 (用于 wan2.6-image 等支持多参考图的模型)
+  referenceImages?: string[] // base64 图片数组 (用于 wan2.6-image 等支持多参考图的模型)
   allowTextOnlyResult?: boolean
   negativePrompt?: string
   size?: string
@@ -880,24 +879,24 @@ export async function generateImage(options: {
 // ============================================================
 
 export interface GenerateVideoResult {
-  videoData?: string      // base64 或 ref (Gemini)
-  videoUrl?: string       // URL (Qwen/Kling/Volcengine)
+  videoData?: string // base64 或 ref (Gemini)
+  videoUrl?: string // URL (Qwen/Kling/Volcengine)
   taskId: string
 }
 
 export async function generateVideo(options: {
   modelId?: string
   prompt: string
-  firstFrame?: string     // base64 (Gemini)
-  lastFrame?: string      // base64 (Gemini)
-  firstFrameUrl?: string  // 首帧图片 URL (Qwen 首尾帧模型)
-  lastFrameUrl?: string   // 尾帧图片 URL (Qwen 首尾帧模型)
-  imageUrl?: string       // 图生视频输入 (Qwen)
-  audioUrl?: string       // 自定义音频 (Qwen)
+  firstFrame?: string // base64 (Gemini)
+  lastFrame?: string // base64 (Gemini)
+  firstFrameUrl?: string // 首帧图片 URL (Qwen 首尾帧模型)
+  lastFrameUrl?: string // 尾帧图片 URL (Qwen 首尾帧模型)
+  imageUrl?: string // 图生视频输入 (Qwen)
+  audioUrl?: string // 自定义音频 (Qwen)
   duration?: number
   aspectRatio?: string
-  size?: string           // Qwen 使用 size 如 '1280*720'
-  resolution?: string     // 分辨率档位: 480P, 720P, 1080P (Qwen 首尾帧模型)
+  size?: string // Qwen 使用 size 如 '1280*720'
+  resolution?: string // 分辨率档位: 480P, 720P, 1080P (Qwen 首尾帧模型)
   negativePrompt?: string
   promptExtend?: boolean
   audio?: boolean

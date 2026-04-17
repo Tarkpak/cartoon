@@ -170,14 +170,29 @@ function parseError(error: unknown): QwenError {
 
   let code: QwenErrorCode
   switch (status) {
-    case 400: code = QwenErrorCode.INVALID_ARGUMENT; break
-    case 403: code = QwenErrorCode.PERMISSION_DENIED; break
-    case 404: code = QwenErrorCode.NOT_FOUND; break
-    case 429: code = QwenErrorCode.RESOURCE_EXHAUSTED; break
-    case 500: code = QwenErrorCode.INTERNAL; break
-    case 503: code = QwenErrorCode.UNAVAILABLE; break
-    case 504: code = QwenErrorCode.DEADLINE_EXCEEDED; break
-    default: code = QwenErrorCode.UNKNOWN
+    case 400:
+      code = QwenErrorCode.INVALID_ARGUMENT
+      break
+    case 403:
+      code = QwenErrorCode.PERMISSION_DENIED
+      break
+    case 404:
+      code = QwenErrorCode.NOT_FOUND
+      break
+    case 429:
+      code = QwenErrorCode.RESOURCE_EXHAUSTED
+      break
+    case 500:
+      code = QwenErrorCode.INTERNAL
+      break
+    case 503:
+      code = QwenErrorCode.UNAVAILABLE
+      break
+    case 504:
+      code = QwenErrorCode.DEADLINE_EXCEEDED
+      break
+    default:
+      code = QwenErrorCode.UNKNOWN
   }
 
   return new QwenError(message, code, status, RETRYABLE_ERROR_CODES.has(code))

@@ -13,7 +13,7 @@ interface TranslateRequest {
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<TranslateRequest>(event)
-  
+
   if (!body.text || !body.from || !body.to) {
     throw createError({
       statusCode: 400,

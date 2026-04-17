@@ -16,12 +16,12 @@ export type CharacterRole = z.infer<typeof CharacterRoleSchema>
 
 /** 角色视角 (基于飞书文档 2.7.2 角色库) */
 export const CharacterViewSchema = z.enum([
-  'front',         // 正面
+  'front', // 正面
   'three_quarter', // 四分之三侧面
-  'side',          // 侧面
-  'back',          // 背面
-  'top_down',      // 俯视
-  'bottom_up'      // 仰视
+  'side', // 侧面
+  'back', // 背面
+  'top_down', // 俯视
+  'bottom_up' // 仰视
 ])
 export type CharacterView = z.infer<typeof CharacterViewSchema>
 
@@ -36,16 +36,16 @@ export type CharacterOutfit = z.infer<typeof CharacterOutfitSchema>
 
 /** 说话风格 */
 export const SpeakingStyleSchema = z.enum([
-  'formal',      // 正式
-  'casual',      // 随意
-  'polite',      // 礼貌
-  'rude',        // 粗鲁
-  'childish',    // 孩子气
-  'mature',      // 成熟
-  'humorous',    // 幽默
-  'serious',     // 严肃
-  'mysterious',  // 神秘
-  'energetic'    // 活泼
+  'formal', // 正式
+  'casual', // 随意
+  'polite', // 礼貌
+  'rude', // 粗鲁
+  'childish', // 孩子气
+  'mature', // 成熟
+  'humorous', // 幽默
+  'serious', // 严肃
+  'mysterious', // 神秘
+  'energetic' // 活泼
 ])
 export type SpeakingStyle = z.infer<typeof SpeakingStyleSchema>
 
@@ -73,10 +73,10 @@ export type Character = z.infer<typeof CharacterSchema>
 
 /** 角色设定图类型 */
 export const CharacterSheetTypeSchema = z.enum([
-  'full',        // 完整设定图（三视图+表情）
-  'turnaround',  // 仅三视图
+  'full', // 完整设定图（三视图+表情）
+  'turnaround', // 仅三视图
   'expressions', // 仅表情集
-  'legacy'       // 旧版单图
+  'legacy' // 旧版单图
 ])
 export type CharacterSheetType = z.infer<typeof CharacterSheetTypeSchema>
 

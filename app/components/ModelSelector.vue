@@ -19,7 +19,7 @@ const emit = defineEmits<{
 
 const open = ref(false)
 
-const selectedModel = computed(() => 
+const selectedModel = computed(() =>
   props.models.find(m => m.model === props.modelId)
 )
 
@@ -77,21 +77,31 @@ function getProviderBadge(provider: string) {
       @click="open = !open"
     >
       <div class="flex items-center gap-2 truncate">
-        <component :is="typeIcon" :class="compact ? 'h-3 w-3' : 'h-4 w-4'" />
-        <span v-if="!compact" class="text-muted-foreground">{{ typeLabel }}:</span>
+        <component
+          :is="typeIcon"
+          :class="compact ? 'h-3 w-3' : 'h-4 w-4'"
+        />
+        <span
+          v-if="!compact"
+          class="text-muted-foreground"
+        >{{ typeLabel }}:</span>
         <span class="truncate">{{ selectedModel?.displayName || '选择模型' }}</span>
       </div>
       <ChevronDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
     </Button>
-    
+
     <!-- 下拉菜单 -->
     <div
       v-if="open"
       class="absolute z-50 mt-1 w-full min-w-80 bg-background border rounded-md shadow-lg"
     >
       <div class="p-2 border-b">
-        <div class="text-sm font-medium">{{ typeLabel }}</div>
-        <div class="text-xs text-muted-foreground">选择要使用的AI模型</div>
+        <div class="text-sm font-medium">
+          {{ typeLabel }}
+        </div>
+        <div class="text-xs text-muted-foreground">
+          选择要使用的AI模型
+        </div>
       </div>
       <div class="max-h-64 overflow-y-auto p-1">
         <div
@@ -113,7 +123,10 @@ function getProviderBadge(provider: string) {
                 {{ getProviderBadge(model.provider).text }}
               </span>
             </div>
-            <p v-if="model.description" class="text-xs text-muted-foreground mt-0.5 truncate">
+            <p
+              v-if="model.description"
+              class="text-xs text-muted-foreground mt-0.5 truncate"
+            >
               {{ model.description }}
             </p>
           </div>
@@ -124,7 +137,7 @@ function getProviderBadge(provider: string) {
         </div>
       </div>
     </div>
-    
+
     <!-- 点击外部关闭 -->
     <div
       v-if="open"

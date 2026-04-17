@@ -22,7 +22,7 @@ const TestRequestSchema = z.object({
   modelType: z.enum(['text', 'image', 'video', 'tts']).default('text'),
   modelId: z.string().optional(),
   prompt: z.string().optional(),
-  referenceImages: z.array(z.string()).optional()  // base64 图片数组
+  referenceImages: z.array(z.string()).optional() // base64 图片数组
 })
 
 interface VideoStatusResponse {
@@ -158,7 +158,7 @@ export default defineEventHandler(async (event) => {
         // 其他模型使用 512*512 或 1024*1024
         let testSize = '1024*1024'
         if (usedModelId === 'wan2.6-image') {
-          testSize = '1024*1024'  // wan2.6-image 最小 768*768
+          testSize = '1024*1024' // wan2.6-image 最小 768*768
         } else if (usedModelId === 'qwen-image-plus') {
           testSize = '1328*1328'
         }
@@ -194,7 +194,7 @@ export default defineEventHandler(async (event) => {
           const mimeType = imageResult.mimeType || 'image/png'
           displayUrl = `data:${mimeType};base64,${imageResult.imageData}`
         }
-        
+
         result = {
           imageUrl: displayUrl,
           hasImageData: !!imageResult.imageData,
@@ -251,7 +251,7 @@ export default defineEventHandler(async (event) => {
           const videoResult = await generateVideo({
             modelId: usedModelId,
             prompt: testPrompt,
-            duration: 5,  // 测试用最短时长
+            duration: 5, // 测试用最短时长
             size: '1280*720'
           })
 
