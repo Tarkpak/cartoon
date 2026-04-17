@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckCircle2, Loader2 } from 'lucide-vue-next'
+import { Check, Loader2 } from 'lucide-vue-next'
 
 defineProps<{
   stages: Array<{
@@ -18,51 +18,69 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="space-y-1.5">
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-1.5 rounded-md border border-primary/20 bg-primary/[0.04] p-1.5">
-      <Button
-        v-for="stage in stages"
+  <div class="space-y-2">
+    <div class="flex items-center gap-0">
+      <template
+        v-for="(stage, idx) in stages"
         :key="stage.key"
-        type="button"
-        variant="ghost"
-        class="h-9 rounded-md border px-2 text-left transition focus-visible:outline-none"
-        :class="[
-          activeStage === stage.key
-            ? 'border-primary/40 bg-accent text-foreground shadow-sm'
-            : stage.status === 'done'
-              ? 'border-emerald-500/30 bg-emerald-500/5'
-              : stage.status === 'running'
-                ? 'border-primary/30 bg-primary/[0.06]'
-                : 'border-input bg-background hover:border-primary/25'
-        ]"
-        @click="emit('select-stage', stage.key)"
       >
-        <div class="flex items-center justify-between gap-1.5">
-          <span class="text-[12px] font-medium truncate">{{ stage.label }}</span>
-          <CheckCircle2
-            v-if="stage.status === 'done'"
-            class="h-3.5 w-3.5 shrink-0 text-emerald-600"
-          />
-          <Loader2
-            v-else-if="stage.status === 'running'"
-            class="h-3.5 w-3.5 shrink-0 animate-spin text-primary"
-          />
+        <!-- Connector line -->
+        <div
+          v-if="idx > 0"
+          class="h-px flex-1 transition-colors duration-300"
+          :class="stage.status === 'done' ? 'bg-emerald-500/40' : 'bg-border'"
+        />
+        <!-- Step button -->
+        <button
+          type="button"
+          class="group relative flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          :class="[
+            activeStage === stage.key
+              ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
+              : stage.status === 'done'
+                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20'
+                : stage.status === 'running'
+                  ? 'bg-primary/10 text-primary hover:bg-primary/15'
+                  : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+          ]"
+          @click="emit('select-stage', stage.key)"
+        >
+          <!-- Step indicator -->
           <span
-            v-else
-            class="text-[10px] shrink-0 text-muted-foreground"
-          >待执行</span>
-        </div>
-      </Button>
+            class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold transition-colors"
+            :class="[
+              activeStage === stage.key
+                ? 'bg-primary-foreground/20 text-primary-foreground'
+                : stage.status === 'done'
+                  ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                  : stage.status === 'running'
+                    ? 'bg-primary/20 text-primary'
+                    : 'bg-muted-foreground/10 text-muted-foreground'
+            ]"
+          >
+            <Check
+              v-if="stage.status === 'done'"
+              class="h-3 w-3"
+            />
+            <Loader2
+              v-else-if="stage.status === 'running'"
+              class="h-3 w-3 animate-spin"
+            />
+            <span v-else>{{ idx + 1 }}</span>
+          </span>
+          <span class="whitespace-nowrap">{{ stage.label }}</span>
+        </button>
+      </template>
     </div>
     <p
       v-if="autoRunError"
-      class="text-xs text-destructive"
+      class="rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive"
     >
       {{ autoRunError }}
     </p>
     <p
       v-if="saveError"
-      class="text-xs text-destructive"
+      class="rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive"
     >
       {{ saveError }}
     </p>

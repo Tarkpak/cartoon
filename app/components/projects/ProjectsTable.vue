@@ -65,6 +65,9 @@ const emit = defineEmits<{
             状态
           </TableHead>
           <TableHead class="w-[180px]">
+            创建时间
+          </TableHead>
+          <TableHead class="w-[180px]">
             更新时间
           </TableHead>
           <TableHead class="w-[140px] text-right">
@@ -106,6 +109,14 @@ const emit = defineEmits<{
           </TableCell>
           <TableCell class="text-sm">
             <div class="flex flex-col">
+              <span>{{ formatProjectRelativeTime(project.createdAt) }}</span>
+              <span class="text-xs text-muted-foreground">
+                {{ formatProjectDateTime(project.createdAt) }}
+              </span>
+            </div>
+          </TableCell>
+          <TableCell class="text-sm">
+            <div class="flex flex-col">
               <span>{{ formatProjectRelativeTime(project.updatedAt) }}</span>
               <span class="text-xs text-muted-foreground">
                 {{ formatProjectDateTime(project.updatedAt) }}
@@ -136,7 +147,7 @@ const emit = defineEmits<{
 
         <TableRow v-if="projects.length === 0">
           <TableCell
-            :colspan="8"
+            :colspan="9"
             class="h-32 text-center"
           >
             <div class="flex flex-col items-center justify-center text-muted-foreground">

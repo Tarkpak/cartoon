@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Trash2, Upload } from 'lucide-vue-next'
+import { Loader2, Package, Plus, Trash2, Upload } from 'lucide-vue-next'
 import type { PropAsset } from '~/composables/useAssetWorkflowMeta'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { toImageSrc } from '~/lib/media'
@@ -39,63 +39,94 @@ function triggerUploadInput(propId: string) {
 </script>
 
 <template>
-  <div class="space-y-3 rounded-md border p-3">
-    <div class="text-sm font-medium">
-      道具资产总览
-    </div>
-    <p class="text-xs text-muted-foreground">
-      支持人工补充道具并修改描述；可在此直接上传道具图，场景对话窗上传的资产也会同步展示。
-    </p>
-
-    <div class="grid grid-cols-1 gap-2 md:grid-cols-[1.3fr_1.7fr_auto]">
+  <div class="space-y-4">
+    <!-- Add new prop form -->
+    <div class="flex items-center gap-2">
       <Input
         v-model="newPropName"
-        class="h-8 text-xs"
+        class="h-8 flex-1 text-xs"
         placeholder="道具名称，如：手电筒"
       />
       <Input
         v-model="newPropDescription"
-        class="h-8 text-xs"
+        class="h-8 flex-[1.5] text-xs"
         placeholder="可选描述，如：金属外壳，冷白光"
       />
       <Button
         size="sm"
-        class="h-8 px-3 text-xs"
+        class="h-8 gap-1.5 px-3 text-xs"
         :disabled="!newPropName.trim()"
         @click="handleAddProp"
       >
-        添加道具
+        <Plus class="h-3 w-3" />
+        添加
       </Button>
     </div>
 
+    <!-- Empty state -->
     <div
       v-if="propAssets.length === 0"
-      class="rounded-md border border-dashed p-3 text-xs text-muted-foreground"
+      class="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground"
     >
-      当前暂无道具资产。你可以手动新增需要保持一致的道具。
+      <Package class="h-8 w-8 opacity-40" />
+      <p class="text-sm">暂无道具资产</p>
+      <p class="text-xs">手动新增需要保持一致的道具</p>
     </div>
 
+    <!-- Prop cards -->
     <div
       v-else
-      class="grid grid-cols-1 gap-2 md:grid-cols-2"
+      class="grid grid-cols-1 gap-3 md:grid-cols-2"
     >
       <div
         v-for="prop in propAssets"
         :key="prop.id"
-        class="rounded-md border p-2"
+        class="group rounded-lg border bg-card transition-colors hover:border-primary/30"
       >
-        <div class="flex items-start justify-between gap-2">
-          <Badge
-            variant="outline"
-            class="text-[10px]"
+        <div class="flex items-start gap-3 p-3">
+          <!-- Thumbnail -->
+          <div
+            class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted/40"
+            :class="prop.referenceImage ? 'cursor-zoom-in' : ''"
+            @click="prop.referenceImage && emit('preview-image', { src: prop.referenceImage, alt: `${prop.name} 参考图` })"
           >
-            引用场景 {{ getPropUsageCount(prop.id) }}
-          </Badge>
+            <img
+              v-if="prop.referenceImage"
+              :src="toImageSrc(prop.referenceImage)"
+              :alt="`${prop.name} 参考图`"
+              class="h-full w-full object-cover"
+            >
+            <Package
+              v-else
+              class="h-5 w-5 text-muted-foreground/40"
+            />
+          </div>
+
+          <!-- Info -->
+          <div class="min-w-0 flex-1 space-y-1.5">
+            <Input
+              v-model="prop.name"
+              class="h-7 text-xs"
+              placeholder="道具名称"
+            />
+            <Input
+              v-model="prop.description"
+              class="h-7 text-xs"
+              placeholder="道具描述（可选）"
+            />
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center justify-between border-t px-3 py-1.5">
+          <span class="text-[11px] text-muted-foreground/60">
+            {{ getPropUsageCount(prop.id) }} 个场景引用
+          </span>
           <div class="flex items-center gap-1">
             <Button
               size="sm"
-              variant="outline"
-              class="h-6 px-2 text-[11px]"
+              variant="ghost"
+              class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
               :disabled="autoRunning || !!uploadingPropId"
               @click="triggerUploadInput(prop.id)"
             >
@@ -107,45 +138,17 @@ function triggerUploadInput(propId: string) {
                 v-else
                 class="mr-1 h-3 w-3"
               />
-              {{ prop.referenceImage ? '更换图片' : '上传图片' }}
+              {{ prop.referenceImage ? '更换' : '上传' }}
             </Button>
             <Button
               size="sm"
               variant="ghost"
-              class="h-6 px-1.5 text-xs text-muted-foreground hover:text-destructive"
+              class="h-7 w-7 p-0 text-muted-foreground/60 hover:text-destructive"
               @click="emit('remove-prop', prop.id)"
             >
               <Trash2 class="h-3.5 w-3.5" />
             </Button>
           </div>
-        </div>
-        <div class="mt-2 space-y-2">
-          <Button
-            v-if="prop.referenceImage"
-            type="button"
-            variant="ghost"
-            class="h-auto w-full justify-start gap-2 rounded border bg-muted/20 p-1.5"
-            @click="emit('preview-image', { src: prop.referenceImage, alt: `${prop.name} 参考图` })"
-          >
-            <img
-              :src="toImageSrc(prop.referenceImage)"
-              :alt="`${prop.name} 参考图`"
-              class="h-8 w-8 rounded border object-cover"
-            >
-            <span class="truncate text-[11px] text-muted-foreground">
-              已上传图片资产
-            </span>
-          </Button>
-          <Input
-            v-model="prop.name"
-            class="h-8 text-xs"
-            placeholder="道具名称"
-          />
-          <Input
-            v-model="prop.description"
-            class="h-8 text-xs"
-            placeholder="道具描述（可选）"
-          />
           <input
             :id="buildAssetUploadInputId('prop', prop.id)"
             type="file"

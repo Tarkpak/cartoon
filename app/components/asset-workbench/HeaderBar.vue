@@ -24,37 +24,41 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="shrink-0 flex flex-col gap-1.5 xl:flex-row xl:items-start">
-    <div class="min-w-0 xl:w-[360px]">
-      <div class="flex items-center gap-1.5">
-        <Button
-          variant="outline"
-          size="icon"
-          class="h-8 w-8 shrink-0"
-          aria-label="返回项目列表"
-          title="返回项目列表"
-          @click="emit('back')"
-        >
-          <ArrowLeft class="h-4 w-4" />
-        </Button>
-        <div class="min-w-0">
-          <h1 class="text-lg font-bold leading-tight">
-            自动剧本视频工作台
-          </h1>
-          <p class="text-[11px] text-muted-foreground mt-0.5">
-            {{ projectName }}<span v-if="projectDescription"> · {{ projectDescription }}</span> · 画风：{{ selectedStyleId || projectStyleId || '未选择' }} · 比例：{{ projectAspectRatio }}
-          </p>
+  <div class="shrink-0 space-y-2">
+    <div class="flex items-center gap-3">
+      <Button
+        variant="ghost"
+        size="icon"
+        class="h-9 w-9 shrink-0 rounded-full"
+        aria-label="返回项目列表"
+        title="返回项目列表"
+        @click="emit('back')"
+      >
+        <ArrowLeft class="h-4 w-4" />
+      </Button>
+      <div class="min-w-0">
+        <h1 class="text-lg font-semibold leading-tight tracking-tight">
+          {{ projectName || '自动剧本视频工作台' }}
+        </h1>
+        <div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+          <span v-if="projectDescription" class="truncate max-w-[200px]">{{ projectDescription }}</span>
+          <span class="inline-flex items-center gap-1">
+            <span class="inline-block h-1 w-1 rounded-full bg-muted-foreground/40" />
+            画风 {{ selectedStyleId || projectStyleId || '未选择' }}
+          </span>
+          <span class="inline-flex items-center gap-1">
+            <span class="inline-block h-1 w-1 rounded-full bg-muted-foreground/40" />
+            {{ projectAspectRatio }}
+          </span>
         </div>
       </div>
     </div>
-    <div class="min-w-0 flex-1 space-y-1.5">
-      <AssetWorkbenchStageSwitcher
-        :stages="stages"
-        :active-stage="activeStage"
-        :auto-run-error="autoRunError"
-        :save-error="saveError"
-        @select-stage="emit('select-stage', $event as AutoStageKey)"
-      />
-    </div>
+    <AssetWorkbenchStageSwitcher
+      :stages="stages"
+      :active-stage="activeStage"
+      :auto-run-error="autoRunError"
+      :save-error="saveError"
+      @select-stage="emit('select-stage', $event as AutoStageKey)"
+    />
   </div>
 </template>

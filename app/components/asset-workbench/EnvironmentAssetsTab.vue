@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Pencil, RefreshCw, Sparkles, Upload } from 'lucide-vue-next'
+import { ArrowRight, Image, Loader2, Pencil, RefreshCw, Sparkles, Upload } from 'lucide-vue-next'
 import type { EnvironmentAssetCard } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { toImageSrc } from '~/lib/media'
@@ -26,132 +26,145 @@ function triggerUploadInput(assetId: string) {
   const input = document.getElementById(buildAssetUploadInputId('env', assetId)) as HTMLInputElement | null
   input?.click()
 }
+
+function resolveStatusColor(status: string): string {
+  if (status === 'done') return 'bg-emerald-500'
+  if (status === 'error') return 'bg-destructive'
+  if (status === 'generating') return 'bg-blue-500'
+  return 'bg-muted-foreground/40'
+}
+
+function resolveStatusText(status: string): string {
+  if (status === 'done') return '就绪'
+  if (status === 'error') return '失败'
+  if (status === 'generating') return '生成中'
+  return '待生成'
+}
 </script>
 
 <template>
-  <div class="space-y-3 rounded-md border p-3">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <div class="text-sm font-medium">
-        环境资产总览
-      </div>
+  <div class="space-y-4">
+    <div class="flex items-center justify-between">
+      <p class="text-xs text-muted-foreground">
+        {{ environmentAssetCards.length }} 个环境，按剧本聚合展示
+      </p>
       <Button
         variant="ghost"
         size="sm"
-        class="h-7 px-2 text-xs"
+        class="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
         @click="emit('go-videos')"
       >
-        去场景视频步骤
+        场景视频
+        <ArrowRight class="h-3 w-3" />
       </Button>
     </div>
 
-    <p class="text-xs text-muted-foreground">
-      {{ environmentAssetCards.length }} 个环境，按剧本环境聚合展示，可直接编辑并重生成环境图。
-    </p>
-
-    <div class="grid grid-cols-1 gap-2 xl:grid-cols-2">
+    <div class="grid grid-cols-1 gap-3 xl:grid-cols-2">
       <div
         v-for="(asset, idx) in environmentAssetCards"
         :key="`asset_env_${asset.id}`"
-        class="space-y-2 rounded-lg border bg-card p-3"
+        class="group overflow-hidden rounded-lg border bg-card transition-colors hover:border-primary/30"
       >
-        <div class="flex items-start justify-between gap-2">
-          <div class="min-w-0">
-            <div class="text-[11px] text-muted-foreground">
-              环境 {{ idx + 1 }}
-            </div>
-            <div class="truncate text-sm font-medium">
-              {{ asset.name }}
-            </div>
-          </div>
-          <Badge
-            :variant="asset.frameStatus === 'done' ? 'secondary' : asset.frameStatus === 'error' ? 'destructive' : asset.frameStatus === 'generating' ? 'default' : 'outline'"
-            class="text-[11px]"
-          >
-            {{ asset.frameStatus === 'done' ? '环境图就绪' : asset.frameStatus === 'error' ? '环境图失败' : asset.frameStatus === 'generating' ? '生成中' : '待生成' }}
-          </Badge>
-        </div>
-
-        <p class="truncate text-[11px] text-muted-foreground">
-          {{ getEnvironmentSceneSummary(asset) }}
-        </p>
-
-        <div>
-          <Button
-            type="button"
-            variant="ghost"
-            class="relative flex aspect-video h-auto items-center justify-center overflow-hidden rounded border bg-muted/30 p-0"
-            :class="asset.referenceImage ? 'cursor-zoom-in hover:border-primary/50' : 'cursor-not-allowed opacity-70'"
-            :disabled="!asset.referenceImage"
-            @click="emit('preview-image', { src: asset.referenceImage, alt: `${asset.name} - 环境图` })"
-          >
-            <img
-              v-if="asset.referenceImage"
-              :src="toImageSrc(asset.referenceImage)"
-              :alt="`${asset.name} 环境图`"
-              class="h-full w-full object-cover"
-            >
-            <span
-              v-else
-              class="text-[10px] text-muted-foreground"
-            >暂无环境图</span>
-          </Button>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-1.5">
-          <Button
-            size="sm"
-            variant="outline"
-            class="h-7 px-2 text-xs"
-            :disabled="!hasEnvironmentRepresentativeScene(asset.id)"
-            @click="emit('edit-scene', asset.id)"
-          >
-            <Pencil class="mr-1 h-3.5 w-3.5" />
-            编辑代表场景
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            class="h-7 px-2 text-xs"
-            :disabled="autoRunning || asset.frameStatus === 'generating' || !!uploadingEnvironmentAssetId"
-            @click="triggerUploadInput(asset.id)"
-          >
-            <Loader2
-              v-if="uploadingEnvironmentAssetId === asset.id"
-              class="mr-1 h-3.5 w-3.5 animate-spin"
-            />
-            <Upload
-              v-else
-              class="mr-1 h-3.5 w-3.5"
-            />
-            上传环境图
-          </Button>
-          <Button
+        <!-- Image area -->
+        <div
+          class="relative aspect-video cursor-pointer overflow-hidden bg-muted/30"
+          :class="asset.referenceImage ? 'hover:opacity-90' : ''"
+          @click="asset.referenceImage && emit('preview-image', { src: asset.referenceImage, alt: `${asset.name} - 环境图` })"
+        >
+          <img
             v-if="asset.referenceImage"
-            size="sm"
-            variant="outline"
-            class="h-7 px-2 text-xs"
-            :disabled="asset.frameStatus === 'generating'"
-            @click="emit('open-regenerate', asset.id)"
+            :src="toImageSrc(asset.referenceImage)"
+            :alt="`${asset.name} 环境图`"
+            class="h-full w-full object-cover"
           >
-            <Sparkles class="mr-1 h-3.5 w-3.5" />
-            二次生成
-          </Button>
+          <div
+            v-else
+            class="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground/40"
+          >
+            <Image class="h-8 w-8" />
+            <span class="text-[10px]">暂无环境图</span>
+          </div>
+          <!-- Status pill -->
+          <span
+            class="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-medium backdrop-blur-sm"
+          >
+            <span
+              class="inline-block h-1.5 w-1.5 rounded-full"
+              :class="resolveStatusColor(asset.frameStatus)"
+            />
+            {{ resolveStatusText(asset.frameStatus) }}
+          </span>
+        </div>
+
+        <!-- Info -->
+        <div class="px-3 py-2">
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0">
+              <div class="truncate text-sm font-medium">{{ asset.name }}</div>
+              <p class="truncate text-[11px] text-muted-foreground/70">
+                {{ getEnvironmentSceneSummary(asset) }}
+              </p>
+            </div>
+            <span class="shrink-0 text-[10px] text-muted-foreground/50">{{ idx + 1 }}</span>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center gap-1 border-t px-3 py-1.5">
           <Button
             size="sm"
-            variant="outline"
-            class="h-7 px-2 text-xs"
+            variant="ghost"
+            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
             :disabled="asset.frameStatus === 'generating'"
             @click="emit('regenerate', asset.id)"
           >
             <Loader2
               v-if="asset.frameStatus === 'generating'"
-              class="mr-1 h-3.5 w-3.5 animate-spin"
+              class="mr-1 h-3 w-3 animate-spin"
             />
             <RefreshCw
               v-else
-              class="mr-1 h-3.5 w-3.5"
+              class="mr-1 h-3 w-3"
             />
-            重生成环境图
+            重生成
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            :disabled="autoRunning || asset.frameStatus === 'generating' || !!uploadingEnvironmentAssetId"
+            @click="triggerUploadInput(asset.id)"
+          >
+            <Loader2
+              v-if="uploadingEnvironmentAssetId === asset.id"
+              class="mr-1 h-3 w-3 animate-spin"
+            />
+            <Upload
+              v-else
+              class="mr-1 h-3 w-3"
+            />
+            上传
+          </Button>
+          <Button
+            v-if="asset.referenceImage"
+            size="sm"
+            variant="ghost"
+            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            :disabled="asset.frameStatus === 'generating'"
+            @click="emit('open-regenerate', asset.id)"
+          >
+            <Sparkles class="mr-1 h-3 w-3" />
+            二次生成
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            :disabled="!hasEnvironmentRepresentativeScene(asset.id)"
+            @click="emit('edit-scene', asset.id)"
+          >
+            <Pencil class="mr-1 h-3 w-3" />
+            编辑
           </Button>
           <input
             :id="buildAssetUploadInputId('env', asset.id)"
