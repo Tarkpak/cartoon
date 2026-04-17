@@ -66,7 +66,7 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
 
     <template v-else-if="models">
       <SettingsModelTestSidebar
-        :active-tab="activeTab"
+        v-model:active-tab="activeTab"
         :current-selected-model="currentSelectedModel"
         :grouped-models="groupedModels"
         @select-model="({ type, modelId }) => selectTestModel(type, modelId)"
