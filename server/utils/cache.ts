@@ -140,15 +140,6 @@ export const characterCache = createCache<{
   maxSize: 50
 })
 
-/** 首尾帧缓存（30分钟） */
-export const frameCache = createCache<{
-  firstFrame: string
-  lastFrame: string
-}>({
-  ttl: 30 * 60 * 1000,
-  maxSize: 200
-})
-
 /** 视频生成结果缓存（1小时） */
 export const videoCache = createCache<{
   videoData: string
@@ -184,7 +175,6 @@ export function generateCacheKey(prefix: string, ...parts: (string | number | ob
 export function startCacheCleanup(intervalMs: number = 60000): () => void {
   const timer = setInterval(() => {
     characterCache.cleanup()
-    frameCache.cleanup()
     videoCache.cleanup()
     scriptCache.cleanup()
   }, intervalMs)

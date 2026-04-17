@@ -1,22 +1,9 @@
 <script setup lang="ts">
 import {
-  Bold,
-  Italic,
-  Quote,
-  List,
-  Heading1,
-  Heading2,
-  Undo,
-  Redo,
-  Sparkles,
-  Save,
-  Copy,
-  FileText,
-  User,
-  MessageSquare,
-  MapPin,
   Loader2
 } from 'lucide-vue-next'
+import ScriptEditorStatusBar from '@/components/script/ScriptEditorStatusBar.vue'
+import ScriptEditorToolbar from '@/components/script/ScriptEditorToolbar.vue'
 
 interface ScriptEditorProps {
   modelValue: string
@@ -201,161 +188,88 @@ function onInput() {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(saveHistory, 500)
 }
+
+function handleToolbarAction(action:
+  | 'undo'
+  | 'redo'
+  | 'bold'
+  | 'italic'
+  | 'quote'
+  | 'heading1'
+  | 'heading2'
+  | 'list'
+  | 'dialogue'
+  | 'scene'
+  | 'character'
+  | 'copy'
+  | 'save'
+  | 'parse'
+) {
+  if (action === 'undo') {
+    undo()
+    return
+  }
+  if (action === 'redo') {
+    redo()
+    return
+  }
+  if (action === 'bold') {
+    formatBold()
+    return
+  }
+  if (action === 'italic') {
+    formatItalic()
+    return
+  }
+  if (action === 'quote') {
+    formatQuote()
+    return
+  }
+  if (action === 'heading1') {
+    formatHeading1()
+    return
+  }
+  if (action === 'heading2') {
+    formatHeading2()
+    return
+  }
+  if (action === 'list') {
+    formatList()
+    return
+  }
+  if (action === 'dialogue') {
+    insertDialogue()
+    return
+  }
+  if (action === 'scene') {
+    insertScene()
+    return
+  }
+  if (action === 'character') {
+    insertCharacter()
+    return
+  }
+  if (action === 'copy') {
+    void copyAll()
+    return
+  }
+  if (action === 'save') {
+    emit('save')
+    return
+  }
+  emit('parse')
+}
 </script>
 
 <template>
   <div class="border rounded-xl overflow-hidden bg-background">
-    <!-- 工具栏 -->
-    <div class="flex items-center justify-between px-3 py-2 border-b bg-muted/30 flex-wrap gap-2">
-      <!-- 格式化按钮 -->
-      <div class="flex items-center space-x-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="撤销 (Ctrl+Z)"
-          :disabled="historyIndex <= 0"
-          @click="undo"
-        >
-          <Undo class="w-4 h-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="重做 (Ctrl+Shift+Z)"
-          :disabled="historyIndex >= history.length - 1"
-          @click="redo"
-        >
-          <Redo class="w-4 h-4" />
-        </Button>
-
-        <div class="w-px h-6 bg-border mx-1" />
-
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="加粗 (Ctrl+B)"
-          @click="formatBold"
-        >
-          <Bold class="w-4 h-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="斜体 (Ctrl+I)"
-          @click="formatItalic"
-        >
-          <Italic class="w-4 h-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="引用"
-          @click="formatQuote"
-        >
-          <Quote class="w-4 h-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="标题1"
-          @click="formatHeading1"
-        >
-          <Heading1 class="w-4 h-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="标题2"
-          @click="formatHeading2"
-        >
-          <Heading2 class="w-4 h-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="列表"
-          @click="formatList"
-        >
-          <List class="w-4 h-4" />
-        </Button>
-
-        <div class="w-px h-6 bg-border mx-1" />
-
-        <!-- 快捷插入 -->
-        <Button
-          variant="ghost"
-          size="sm"
-          class="h-8 text-xs"
-          @click="insertDialogue"
-        >
-          <MessageSquare class="w-3 h-3 mr-1" />
-          对话
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          class="h-8 text-xs"
-          @click="insertScene"
-        >
-          <MapPin class="w-3 h-3 mr-1" />
-          场景
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          class="h-8 text-xs"
-          @click="insertCharacter"
-        >
-          <User class="w-3 h-3 mr-1" />
-          角色
-        </Button>
-      </div>
-
-      <!-- 右侧操作 -->
-      <div class="flex items-center space-x-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="复制全文"
-          @click="copyAll"
-        >
-          <Copy class="w-4 h-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="保存 (Ctrl+S)"
-          @click="emit('save')"
-        >
-          <Save class="w-4 h-4" />
-        </Button>
-        <Button
-          size="sm"
-          :disabled="parsing || !localValue.trim()"
-          @click="emit('parse')"
-        >
-          <Loader2
-            v-if="parsing"
-            class="w-4 h-4 mr-1 animate-spin"
-          />
-          <Sparkles
-            v-else
-            class="w-4 h-4 mr-1"
-          />
-          AI 解析
-        </Button>
-      </div>
-    </div>
+    <ScriptEditorToolbar
+      :can-undo="historyIndex > 0"
+      :can-redo="historyIndex < history.length - 1"
+      :parsing="parsing"
+      :has-content="!!localValue.trim()"
+      @action="handleToolbarAction"
+    />
 
     <!-- 编辑区域 -->
     <div class="relative">
@@ -383,21 +297,9 @@ function onInput() {
       </div>
     </div>
 
-    <!-- 状态栏 -->
-    <div class="flex items-center justify-between px-4 py-2 border-t bg-muted/20 text-xs text-muted-foreground">
-      <div class="flex items-center space-x-4">
-        <span>
-          <FileText class="w-3 h-3 inline mr-1" />
-          {{ wordCount }} 字
-        </span>
-        <span>{{ lineCount }} 行</span>
-      </div>
-      <div class="flex items-center space-x-2">
-        <kbd class="px-1.5 py-0.5 bg-muted rounded text-xs">Ctrl+S</kbd>
-        <span>保存</span>
-        <kbd class="px-1.5 py-0.5 bg-muted rounded text-xs">Ctrl+Z</kbd>
-        <span>撤销</span>
-      </div>
-    </div>
+    <ScriptEditorStatusBar
+      :word-count="wordCount"
+      :line-count="lineCount"
+    />
   </div>
 </template>

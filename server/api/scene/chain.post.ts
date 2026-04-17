@@ -594,7 +594,7 @@ async function generateTransitionFrame(
 
 这是两个场景之间的过渡帧，需要在视觉上连接这两个画面。`
 
-    // 从工作流配置获取首尾帧生成模型
+    // 从工作流配置获取过渡补帧使用的图片模型
     const [workflowModels, workflowModelOptions] = await Promise.all([
       getWorkflowModels(),
       getWorkflowModelOptions()

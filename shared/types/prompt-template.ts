@@ -12,36 +12,36 @@ export type PromptCategory = 'text' | 'image' | 'video' | 'audio'
 
 // 变量定义
 export interface PromptVariable {
-  name: string          // 变量名，如 {{storyIdea}}
-  description: string   // 变量说明
-  example?: string      // 示例值
+  name: string // 变量名，如 {{storyIdea}}
+  description: string // 变量说明
+  example?: string // 示例值
 }
 
 // 双语内容（简化版：合并系统提示词和用户提示词）
 export interface BilingualContent {
-  zh: string   // 中文提示词
-  en: string   // 英文提示词
+  zh: string // 中文提示词
+  en: string // 英文提示词
 }
 
 // 提示词模板
 export interface PromptTemplate {
-  id: string                    // 唯一标识
-  name: string                  // 显示名称
-  category: PromptCategory      // 分类
-  description: string           // 功能描述
-  content: BilingualContent     // 中英双语内容
-  variables: PromptVariable[]   // 可用变量列表
-  isCustomized: boolean         // 是否已自定义
-  updatedAt: string             // 更新时间
+  id: string // 唯一标识
+  name: string // 显示名称
+  category: PromptCategory // 分类
+  description: string // 功能描述
+  content: BilingualContent // 中英双语内容
+  variables: PromptVariable[] // 可用变量列表
+  isCustomized: boolean // 是否已自定义
+  updatedAt: string // 更新时间
 }
 
 // 版本历史
 export interface PromptVersion {
-  id: string                    // 版本ID
-  templateId: string            // 模板ID
-  content: BilingualContent     // 版本内容
-  createdAt: string             // 创建时间
-  note?: string                 // 版本备注
+  id: string // 版本ID
+  templateId: string // 模板ID
+  content: BilingualContent // 版本内容
+  createdAt: string // 创建时间
+  note?: string // 版本备注
 }
 
 // 提示词模板ID枚举
@@ -56,7 +56,6 @@ export const PROMPT_TEMPLATE_IDS = {
   CHARACTER_REGENERATION: 'character_regeneration',
   SCENE_VISUAL: 'scene_visual',
   FIRST_FRAME_GENERATION: 'first_frame_generation',
-  LAST_FRAME_GENERATION: 'last_frame_generation',
   SCENE_VIDEO_GENERATION: 'scene_video_generation',
   TRANSITION: 'transition',
   BGM_GENERATION: 'bgm_generation'
@@ -86,7 +85,6 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     name: '故事大纲生成',
     category: 'text',
     description: '根据故事创意生成完整的三幕结构故事大纲',
-    workflows: ['classic'],
     variables: [
       { name: '{{storyIdea}}', description: '用户输入的故事创意', example: '一个程序员意外获得了预知未来的能力' },
       { name: '{{targetLength}}', description: '目标长度', example: 'medium' },
@@ -108,7 +106,6 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     name: '场景生成',
     category: 'text',
     description: '根据故事大纲生成详细的分场剧本',
-    workflows: ['classic'],
     variables: [
       { name: '{{outline}}', description: '故事大纲JSON', example: '{"title": "...", "acts": [...]}' },
       { name: '{{characters}}', description: '角色列表JSON', example: '[{"name": "...", "appearance": "..."}]' },
@@ -121,7 +118,6 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     name: '分镜脚本生成',
     category: 'text',
     description: '将场景描述转换为专业分镜脚本',
-    workflows: ['classic'],
     variables: [
       { name: '{{sceneDescription}}', description: '场景描述', example: '主角站在雨中的街道上...' },
       { name: '{{dialogues}}', description: '对话列表JSON', example: '[{"character": "...", "text": "..."}]' },
@@ -134,7 +130,6 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     name: '角色提取',
     category: 'text',
     description: '从剧本中提取角色并生成外貌描述',
-    workflows: ['classic'],
     variables: [
       { name: '{{content}}', description: '剧本内容', example: '小明是一个20岁的大学生...' },
       { name: '{{style}}', description: '画风描述', example: '写实风格' }
@@ -145,7 +140,6 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     name: '角色设计(大纲)',
     category: 'text',
     description: '为故事大纲中的角色设计详细外貌',
-    workflows: ['classic'],
     variables: [
       { name: '{{outline}}', description: '故事大纲JSON', example: '{"title": "...", "characters": [...]}' },
       { name: '{{style}}', description: '画风描述', example: '日系动漫风格' }
@@ -156,7 +150,6 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     name: '场景视觉提取',
     category: 'text',
     description: '从场景描述中提取视觉元素，生成图片提示词',
-    workflows: ['classic'],
     variables: [
       { name: '{{sceneDescription}}', description: '场景描述', example: '夕阳下的海边，金色的阳光洒在沙滩上...' },
       { name: '{{setting}}', description: '场景设定JSON', example: '{"location": "海边", "timeOfDay": "evening"}' },
@@ -196,7 +189,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     workflowOverrides: {
       asset_consistency: {
         name: '场景参考图生成',
-        description: '生成单张场景参考图（用于资产一致性视频生成）'
+        description: '生成单张场景参考图（用于素材一致性视频生成）'
       }
     },
     variables: [
@@ -207,28 +200,12 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{storyboardShot}}', description: '分镜镜头信息JSON', example: '{"shotType": "wide", "cameraMovement": "static"}' }
     ]
   },
-  {
-    id: 'last_frame_generation',
-    name: '尾帧生成',
-    category: 'image',
-    description: '基于首帧生成场景的结束状态图片（尾帧）',
-    workflows: ['classic'],
-    variables: [
-      { name: '{{sceneDescription}}', description: '场景描述', example: '夕阳下的海边，主角转身离开...' },
-      { name: '{{characters}}', description: '场景中的角色JSON', example: '[{"name": "小明", "emotion": "determined"}]' },
-      { name: '{{style}}', description: '画风描述', example: '宫崎骏风格' },
-      { name: '{{setting}}', description: '场景设定JSON', example: '{"location": "海边", "timeOfDay": "evening"}' },
-      { name: '{{storyboardShot}}', description: '分镜镜头信息JSON', example: '{"shotType": "medium", "cameraMovement": "pull"}' },
-      { name: '{{initialEmotion}}', description: '首帧情绪', example: 'sad' },
-      { name: '{{finalEmotion}}', description: '尾帧情绪', example: 'determined' }
-    ]
-  },
   // 视频生成类
   {
     id: 'scene_video_generation',
     name: '场景视频生成',
     category: 'video',
-    description: '生成单场景视频片段（资产一致性流程）',
+    description: '生成单场景视频片段（素材一致性流程）',
     workflows: ['asset_consistency'],
     variables: [
       { name: '{{shotNumber}}', description: '镜头序号', example: '2' },
@@ -256,7 +233,6 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     name: '转场视频',
     category: 'video',
     description: '生成场景间的转场视频',
-    workflows: ['classic'],
     variables: [
       { name: '{{fromScene}}', description: '起始场景描述', example: '室内，温暖的灯光...' },
       { name: '{{toScene}}', description: '目标场景描述', example: '室外，阳光明媚...' },
@@ -270,7 +246,6 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     name: '背景音乐',
     category: 'audio',
     description: '生成场景背景音乐',
-    workflows: ['classic'],
     variables: [
       { name: '{{sceneDescription}}', description: '场景描述', example: '紧张的追逐场面...' },
       { name: '{{mood}}', description: '情绪氛围', example: 'tense' },
@@ -317,7 +292,7 @@ export function getPromptTemplateMetadataForWorkflow(
   const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
 
   return PROMPT_TEMPLATE_METADATA
-    .filter(item => {
+    .filter((item) => {
       if (!item.workflows || item.workflows.length === 0) return true
       return item.workflows.includes(normalizedWorkflow)
     })

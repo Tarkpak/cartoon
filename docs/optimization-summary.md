@@ -44,14 +44,11 @@
   - 生成角色的多视角变体
   - 支持正面、侧面、背面、俯视、仰视等
 
-### 5. 首帧融合优化 (基于文档 2.6.1.1)
+### 5. 场景参考图优化
 
-- **API 优化**: `POST /api/frame/generate`
-  - 新增融合模式 (fusionMode)
-    - `character_scene`: 角色+场景融合
-    - `reference`: 参考图模式
-    - `text_only`: 纯文本生成
-  - 支持场景背景图输入
+- **API 优化**: `POST /api/asset-workflow/reference/generate`
+  - 生成纯环境场景参考图
+  - 支持基于现有环境资产复用/再生成
   - 优化一致性保持策略
 
 ### 6. 完整生产流水线 (基于文档 2.1)
@@ -118,7 +115,6 @@
 | `/api/character/views` | POST | 角色视角变体生成 |
 | `/api/character/expression` | POST | 角色表情变体生成 |
 | `/api/scene/visual` | POST | 场景画面提取 |
-| `/api/frame/generate` | POST | 首尾帧生成 |
 | `/api/video/generate` | POST | 视频生成 |
 | `/api/scene/chain` | POST | 场景串联 |
 | `/api/pipeline/produce` | POST | 基础生产流水线 |

@@ -2,6 +2,12 @@ import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { db, projects, scripts, scenes, characters } from '../../db'
 import { isStyleIdEnabled } from '../../utils/style-config'
+import { normalizeProjectWorkflowType } from '../../../shared/types/project'
+import {
+  mergeStoredProjectScriptData,
+  parseStoredProjectScript,
+  serializeStoredProjectScript
+} from '../../utils/project-script'
 
 const nullToUndefined = (value: unknown) => (value === null ? undefined : value)
 
@@ -70,7 +76,7 @@ const UpdateProjectSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   status: z.enum(['draft', 'in_progress', 'completed']).optional(),
-  workflowType: z.enum(['classic', 'asset_consistency']).optional(),
+  workflowType: z.literal('asset_consistency').optional(),
   // 项目预设配置 (可更新)
   styleId: z.string().optional(),
   aspectRatio: z.enum(['16:9', '9:16', '1:1']).optional(),
@@ -166,7 +172,7 @@ export default defineEventHandler(async (event) => {
           name: data.name ?? project.name,
           description: data.description ?? project.description,
           status: data.status ?? project.status,
-          workflowType: data.workflowType ?? project.workflowType,
+          workflowType: normalizeProjectWorkflowType(data.workflowType ?? project.workflowType),
           styleId: data.styleId ?? project.styleId,
           aspectRatio: data.aspectRatio ?? project.aspectRatio,
           updatedAt: now
@@ -190,35 +196,19 @@ export default defineEventHandler(async (event) => {
       let script = await db.select().from(scripts).where(eq(scripts.projectId, id)).get()
 
       // 读取现有数据
-      let existingData: {
-        storyIdea?: string
-        novelText?: string
-        rawText?: string
-        selectedStyleId?: string
-        selectedModels?: unknown
-        outline?: unknown
-        inputMode?: string
-        assetWorkflow?: unknown
-      } = {}
-      if (script?.rawText) {
-        try {
-          existingData = JSON.parse(script.rawText)
-        } catch {
-          existingData = { rawText: script.rawText }
-        }
-      }
-
-      // 构建存储的 rawText（JSON 格式存储所有字段）
-      const scriptContent = JSON.stringify({
-        storyIdea: data.storyIdea ?? existingData.storyIdea ?? '',
-        novelText: data.novelText ?? existingData.novelText ?? '',
-        rawText: data.rawText ?? existingData.rawText ?? '',
-        selectedStyleId: data.selectedStyleId ?? existingData.selectedStyleId ?? '',
-        selectedModels: data.selectedModels ?? existingData.selectedModels ?? null,
-        outline: data.outline ?? existingData.outline ?? null,
-        inputMode: data.inputMode ?? existingData.inputMode ?? 'idea',
-        assetWorkflow: data.assetWorkflow ?? existingData.assetWorkflow ?? null
-      })
+      const existingData = parseStoredProjectScript(script?.rawText)
+      const scriptContent = serializeStoredProjectScript(
+        mergeStoredProjectScriptData({
+          storyIdea: data.storyIdea,
+          novelText: data.novelText,
+          rawText: data.rawText,
+          selectedStyleId: data.selectedStyleId,
+          selectedModels: data.selectedModels,
+          outline: data.outline,
+          inputMode: data.inputMode,
+          assetWorkflow: data.assetWorkflow
+        }, existingData)
+      )
 
       if (!script) {
         const scriptId = `script_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
