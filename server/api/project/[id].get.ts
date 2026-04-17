@@ -1,28 +1,9 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db, projects, scripts, scenes, characters, videoTasks } from '../../db'
 import { persistImageToPublic } from '../../utils/image-storage'
-
-function normalizeSceneVideoUrl(rawValue?: string | null): string | null {
-  const raw = rawValue?.trim()
-  if (!raw) return null
-
-  if (raw.startsWith('url:')) {
-    return normalizeSceneVideoUrl(raw.slice(4))
-  }
-
-  if (raw.startsWith('/videos/')) {
-    const filename = raw.slice('/videos/'.length)
-    return filename ? `/api/video/file/${filename}` : null
-  }
-
-  if (raw.startsWith('/api/video/file/')) return raw
-  if (raw.startsWith('http')) return raw
-  if (raw.startsWith('data:video')) return raw
-  if (raw.startsWith('/')) return raw
-  if (raw.startsWith('ref:')) return null
-
-  return `data:video/mp4;base64,${raw}`
-}
+import { normalizeProjectWorkflowType } from '../../../shared/types/project'
+import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
+import { parseStoredProjectScript } from '../../utils/project-script'
 
 function looksLikeBase64Image(value: string): boolean {
   const compact = value.replace(/\s+/g, '')
@@ -73,7 +54,7 @@ async function hydrateSceneVideoUrlsFromTasks(projectScenes: typeof scenes.$infe
   if (projectScenes.length === 0) return
 
   const missingVideoSceneIds = projectScenes
-    .filter(scene => !normalizeSceneVideoUrl(scene.videoUrl))
+    .filter(scene => !normalizeProjectVideoUrl(scene.videoUrl))
     .map(scene => scene.id)
 
   if (missingVideoSceneIds.length === 0) return
@@ -96,7 +77,7 @@ async function hydrateSceneVideoUrlsFromTasks(projectScenes: typeof scenes.$infe
     const sceneId = task.sceneId
     if (!sceneId || latestVideoByScene.has(sceneId)) continue
 
-    const normalized = normalizeSceneVideoUrl(task.videoData)
+    const normalized = normalizeProjectVideoUrl(task.videoData)
     if (normalized) {
       latestVideoByScene.set(sceneId, normalized)
     }
@@ -105,7 +86,7 @@ async function hydrateSceneVideoUrlsFromTasks(projectScenes: typeof scenes.$infe
   const sceneUpdates: Array<{ id: string, videoUrl: string }> = []
 
   for (const scene of projectScenes) {
-    const normalizedCurrent = normalizeSceneVideoUrl(scene.videoUrl)
+    const normalizedCurrent = normalizeProjectVideoUrl(scene.videoUrl)
     const recovered = normalizedCurrent || latestVideoByScene.get(scene.id)
     if (!recovered) continue
 
@@ -223,24 +204,7 @@ export default defineEventHandler(async (event) => {
     const migratedCharacterImages = await migrateCharacterBaseImagesToCloud(projectCharacters)
 
     // 解析剧本内容（支持新旧格式）
-    let scriptData: {
-      storyIdea?: string
-      novelText?: string
-      rawText?: string
-      selectedStyleId?: string
-      selectedModels?: unknown
-      outline?: unknown
-      inputMode?: 'idea' | 'script'
-      assetWorkflow?: unknown
-    } | null = null
-    if (script?.rawText) {
-      try {
-        scriptData = JSON.parse(script.rawText)
-      } catch {
-        // 旧格式，rawText 是纯文本
-        scriptData = { rawText: script.rawText, storyIdea: script.rawText, novelText: '' }
-      }
-    }
+    const scriptData = parseStoredProjectScript(script?.rawText)
 
     return {
       success: true,
@@ -249,7 +213,7 @@ export default defineEventHandler(async (event) => {
           id: project.id,
           name: project.name,
           description: project.description,
-          workflowType: project.workflowType || 'classic',
+          workflowType: normalizeProjectWorkflowType(project.workflowType),
           styleId: project.styleId,
           aspectRatio: project.aspectRatio,
           status: project.status,
@@ -276,7 +240,7 @@ export default defineEventHandler(async (event) => {
             }
           : null,
         scenes: projectScenes.map((s) => {
-          const normalizedVideoUrl = normalizeSceneVideoUrl(s.videoUrl)
+          const normalizedVideoUrl = normalizeProjectVideoUrl(s.videoUrl)
 
           return {
             id: s.id,

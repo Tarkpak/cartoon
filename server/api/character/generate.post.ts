@@ -9,7 +9,6 @@ import { persistImageToPublic } from '../../utils/image-storage'
 import { db, characters as charactersTable } from '../../db'
 import { eq } from 'drizzle-orm'
 import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
-import { normalizeProjectWorkflowType, type ProjectWorkflowType } from '../../../shared/types/project'
 import { CHARACTER_REGENERATION_TEMPLATE_HINT } from '../../../shared/constants/character-prompts'
 import {
   GenerateCharacterRequestSchema,
@@ -199,10 +198,8 @@ export default defineEventHandler(async (event) => {
     character,
     style,
     generateExpressions,
-    workflowType,
     regeneration
   } = parseResult.data
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflowType)
   const latestRegeneration = await resolveLatestRegenerationOptions(character.id, regeneration)
 
   try {
@@ -212,7 +209,6 @@ export default defineEventHandler(async (event) => {
       character,
       style,
       generateExpressions,
-      normalizedWorkflow,
       latestRegeneration
     )
 
@@ -280,7 +276,6 @@ async function generateCharacterSheet(
   character: Character,
   style: string,
   _includeExpressions: boolean,
-  workflowType: ProjectWorkflowType,
   regeneration?: CharacterRegenerationOptions
 ): Promise<{ imageData: string, mimeType: string }> {
   const [workflowModels, workflowModelOptions] = await Promise.all([
@@ -310,9 +305,7 @@ async function generateCharacterSheet(
       style,
       customPrompt: customPrompt || '',
       activeStyleConstraint
-    },
-    undefined,
-    workflowType
+    }
   )
 
   if (!prompt) {
@@ -373,43 +366,21 @@ async function generateCharacterSheet(
     throw new Error('角色图生成失败：未返回可用图片数据')
   }
 
-  if (workflowType === 'asset_consistency') {
-    try {
-      const localImagePath = await persistImageToPublic({
-        source: imageSource,
-        prefix: `char_${character.id}`
-      })
+  try {
+    const localImagePath = await persistImageToPublic({
+      source: imageSource,
+      prefix: `char_${character.id}`
+    })
 
-      return {
-        imageData: localImagePath,
-        mimeType: 'image/url'
-      }
-    } catch (persistError) {
-      console.error('[CharacterGen] 图片本地持久化失败，降级为原始返回:', persistError)
-      return {
-        imageData: imageSource,
-        mimeType: result.imageUrl ? 'image/url' : (result.mimeType || 'image/png')
-      }
-    }
-  }
-
-  // 经典工作流维持历史行为，优先返回 base64
-  if (result.imageData) {
     return {
-      imageData: result.imageData,
-      mimeType: result.mimeType || 'image/png'
-    }
-  }
-
-  if (result.imageUrl) {
-    return {
-      imageData: result.imageUrl,
+      imageData: localImagePath,
       mimeType: 'image/url'
     }
-  }
-
-  return {
-    imageData: imageSource,
-    mimeType: result.mimeType || 'image/png'
+  } catch (persistError) {
+    console.error('[CharacterGen] 图片本地持久化失败，降级为原始返回:', persistError)
+    return {
+      imageData: imageSource,
+      mimeType: result.imageUrl ? 'image/url' : (result.mimeType || 'image/png')
+    }
   }
 }

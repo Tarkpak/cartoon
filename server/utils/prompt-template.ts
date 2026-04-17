@@ -21,11 +21,6 @@ import {
 } from '../../shared/types/project'
 import { getDefaultPromptTemplates } from './prompt-defaults'
 
-// 历史全局 key（兼容旧版本）
-const LEGACY_PROMPT_TEMPLATES_KEY = 'prompt_templates'
-const LEGACY_PROMPT_VERSIONS_KEY = 'prompt_versions'
-const LEGACY_PROMPT_LANG_CONFIG_KEY = 'prompt_lang_config'
-
 // 新版按工作流分离 key
 const PROMPT_TEMPLATES_KEY_PREFIX = 'prompt_templates'
 const PROMPT_VERSIONS_KEY_PREFIX = 'prompt_versions'
@@ -56,49 +51,32 @@ function resolvePromptStorageKeys(workflow?: PromptWorkflowInput): PromptStorage
     templatesKey: `${PROMPT_TEMPLATES_KEY_PREFIX}_${normalized}`,
     versionsKey: `${PROMPT_VERSIONS_KEY_PREFIX}_${normalized}`,
     langConfigKey: `${PROMPT_LANG_CONFIG_KEY_PREFIX}_${normalized}`,
-    legacyTemplatesKey: normalized === 'classic' ? LEGACY_PROMPT_TEMPLATES_KEY : undefined,
-    legacyVersionsKey: normalized === 'classic' ? LEGACY_PROMPT_VERSIONS_KEY : undefined,
-    legacyLangConfigKey: normalized === 'classic' ? LEGACY_PROMPT_LANG_CONFIG_KEY : undefined
+    legacyTemplatesKey: undefined,
+    legacyVersionsKey: undefined,
+    legacyLangConfigKey: undefined
   }
 }
 
 /**
  * 获取默认语言配置
- * classic: 文本生成默认中文，部分图片/视频模块默认英文
- * asset_consistency: 为了降低理解成本，统一中文优先
+ * 素材一致性流程统一采用中文优先，避免跨模块理解偏差。
  */
-function getDefaultLangConfig(workflow: PromptWorkflowInput = 'classic'): PromptLangConfig {
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
-
-  const classicDefaults: PromptLangConfig = {
+function getDefaultLangConfig(_workflow: PromptWorkflowInput = 'asset_consistency'): PromptLangConfig {
+  return {
     outline_generation: 'zh',
     script_parsing: 'zh',
     scene_generation: 'zh',
     storyboard_generation: 'zh',
     character_extraction: 'zh',
     character_from_outline: 'zh',
-    character_sheet: 'en',
+    character_sheet: 'zh',
     character_regeneration: 'zh',
     scene_visual: 'zh',
-    first_frame_generation: 'en',
-    last_frame_generation: 'en',
-    scene_video_generation: 'en',
-    transition: 'en',
+    first_frame_generation: 'zh',
+    scene_video_generation: 'zh',
+    transition: 'zh',
     bgm_generation: 'zh'
   }
-
-  if (normalizedWorkflow === 'asset_consistency') {
-    return {
-      ...classicDefaults,
-      character_sheet: 'zh',
-      first_frame_generation: 'zh',
-      last_frame_generation: 'zh',
-      scene_video_generation: 'zh',
-      transition: 'zh'
-    } as PromptLangConfig
-  }
-
-  return classicDefaults
 }
 
 function mergeWithDefaultTemplates(
@@ -151,7 +129,7 @@ function mergeWithDefaultTemplates(
  * 获取提示词语言配置
  */
 export async function getPromptLangConfig(
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<PromptLangConfig> {
   try {
     const keys = resolvePromptStorageKeys(workflow)
@@ -178,7 +156,7 @@ export async function getPromptLangConfig(
  */
 export async function updatePromptLangConfig(
   config: Partial<PromptLangConfig>,
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<PromptLangConfig> {
   try {
     const keys = resolvePromptStorageKeys(workflow)
@@ -199,7 +177,7 @@ export async function updatePromptLangConfig(
  */
 export async function getPromptLang(
   id: PromptTemplateId,
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<'zh' | 'en'> {
   const config = await getPromptLangConfig(workflow)
   return config[id] || 'zh'
@@ -209,7 +187,7 @@ export async function getPromptLang(
  * 获取所有提示词模板
  */
 export async function getAllPromptTemplates(
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<PromptTemplate[]> {
   try {
     const keys = resolvePromptStorageKeys(workflow)
@@ -235,7 +213,7 @@ export async function getAllPromptTemplates(
 export async function getPromptTemplate(
   id: PromptTemplateId,
   _lang?: 'zh' | 'en',
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<PromptTemplate | null> {
   const templates = await getAllPromptTemplates(workflow)
   return templates.find(t => t.id === id) || null
@@ -247,7 +225,7 @@ export async function getPromptTemplate(
 export async function getPromptContent(
   id: PromptTemplateId,
   lang: 'zh' | 'en' = 'zh',
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<string | null> {
   const template = await getPromptTemplate(id, undefined, workflow)
   if (!template) {
@@ -264,7 +242,7 @@ export async function updatePromptTemplate(
   id: PromptTemplateId,
   content: BilingualContent,
   note?: string,
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<PromptTemplate | null> {
   try {
     const templates = await getAllPromptTemplates(workflow)
@@ -302,7 +280,7 @@ export async function updatePromptTemplate(
  */
 export async function resetPromptTemplate(
   id: PromptTemplateId,
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<PromptTemplate | null> {
   try {
     const templates = await getAllPromptTemplates(workflow)
@@ -341,7 +319,7 @@ export async function resetPromptTemplate(
  * 重置所有提示词模板为默认值
  */
 export async function resetAllPromptTemplates(
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<boolean> {
   try {
     const keys = resolvePromptStorageKeys(workflow)
@@ -366,7 +344,7 @@ export async function resetAllPromptTemplates(
  */
 export async function getPromptVersions(
   id: PromptTemplateId,
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<PromptVersion[]> {
   try {
     const allVersions = await getAllVersions(workflow)
@@ -385,7 +363,7 @@ export async function getPromptVersions(
 export async function restorePromptVersion(
   id: PromptTemplateId,
   versionId: string,
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<PromptTemplate | null> {
   try {
     const versions = await getPromptVersions(id, workflow)
@@ -427,7 +405,7 @@ export async function getInterpolatedPrompt(
   id: PromptTemplateId,
   variables: Record<string, string | number | boolean | undefined>,
   lang?: 'zh' | 'en',
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<string | null> {
   const actualLang = lang || await getPromptLang(id, workflow)
   const content = await getPromptContent(id, actualLang, workflow)
@@ -445,7 +423,7 @@ export async function getInterpolatedPrompt(
  */
 async function saveTemplates(
   templates: PromptTemplate[],
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<void> {
   const keys = resolvePromptStorageKeys(workflow)
   await upsertSystemConfigValue(keys.templatesKey, JSON.stringify(templates))
@@ -458,7 +436,7 @@ async function saveVersion(
   templateId: PromptTemplateId,
   content: BilingualContent,
   note?: string,
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<void> {
   try {
     const versions = await getAllVersions(workflow)
@@ -494,7 +472,7 @@ async function saveVersion(
  * 获取所有版本
  */
 async function getAllVersions(
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<PromptVersion[]> {
   try {
     const keys = resolvePromptStorageKeys(workflow)
@@ -515,7 +493,7 @@ async function getAllVersions(
  */
 async function saveVersions(
   versions: PromptVersion[],
-  workflow: PromptWorkflowInput = 'classic'
+  workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<void> {
   const keys = resolvePromptStorageKeys(workflow)
   await upsertSystemConfigValue(keys.versionsKey, JSON.stringify(versions))

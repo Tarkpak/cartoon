@@ -11,6 +11,7 @@ import {
   GenerateVideoRequestSchema,
   type GeneratedVideo
 } from '../../../shared/types/video'
+import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
 import { getGeneratedImageCandidatePaths } from '../../utils/image-storage'
 import {
   buildCloudObjectKey,
@@ -607,33 +608,10 @@ async function updateTaskProgress(taskId: string, progress: number, status?: Tas
     .where(eq(videoTasksTable.id, taskId))
 }
 
-function normalizeSceneVideoUrlFromTask(videoData?: string | null): string | null {
-  const raw = videoData?.trim()
-  if (!raw) return null
-
-  if (raw.startsWith('url:')) {
-    return normalizeSceneVideoUrlFromTask(raw.slice(4))
-  }
-
-  if (raw.startsWith('/videos/')) {
-    const filename = raw.slice('/videos/'.length)
-    return filename ? `/api/video/file/${filename}` : null
-  }
-
-  if (raw.startsWith('/api/video/file/')) return raw
-  if (raw.startsWith('http')) return raw
-  if (raw.startsWith('data:video')) return raw
-  if (raw.startsWith('/')) return raw
-  if (raw.startsWith('ref:')) return null
-
-  // 兜底兼容：如果是纯 base64，补充 data URI
-  return `data:video/mp4;base64,${raw}`
-}
-
 async function syncSceneVideoResult(sceneId: string, videoData?: string | null): Promise<void> {
   if (!sceneId) return
 
-  const normalizedVideoUrl = normalizeSceneVideoUrlFromTask(videoData)
+  const normalizedVideoUrl = normalizeProjectVideoUrl(videoData)
   if (!normalizedVideoUrl) return
 
   try {

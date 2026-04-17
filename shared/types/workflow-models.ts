@@ -10,36 +10,36 @@ import { z } from 'zod'
 /** 业务流程类型 */
 export const WorkflowStepSchema = z.enum([
   // 文本生成类
-  'outline_generation',      // 故事大纲生成
-  'script_parsing',          // 剧本解析
-  'character_extraction',    // 角色提取
-  'storyboard_generation',   // 分镜脚本生成
+  'outline_generation', // 故事大纲生成
+  'script_parsing', // 剧本解析
+  'character_extraction', // 角色提取
+  'storyboard_generation', // 分镜脚本生成
   'scene_visual_extraction', // 场景视觉提取
-  'text_translation',        // 文本翻译
-  
+  'text_translation', // 文本翻译
+
   // 图片生成类
-  'character_portrait',      // 角色立绘生成
-  'character_views',         // 角色多视角生成
-  'frame_generation',        // 首尾帧生成
-  
+  'character_portrait', // 角色立绘生成
+  'character_views', // 角色多视角生成
+  'frame_generation', // 场景参考图生成
+
   // 视频生成类
-  'video_generation',        // 视频生成
-  
+  'video_generation', // 视频生成
+
   // 语音生成类
-  'voice_synthesis'          // 语音合成
+  'voice_synthesis' // 语音合成
 ])
 export type WorkflowStep = z.infer<typeof WorkflowStepSchema>
 
 /** 模型能力要求 */
 export const ModelCapabilitySchema = z.enum([
-  'text_generation',         // 文本生成
-  'reference_image',         // 支持参考图
+  'text_generation', // 文本生成
+  'reference_image', // 支持参考图
   'require_reference_image', // 必须参考图
-  'first_last_frame',        // 支持首尾帧
-  'image_to_video',          // 图生视频
-  'text_to_video',           // 文生视频
-  'tts',                     // 语音合成
-  'asr'                      // 语音识别
+  'first_last_frame', // 支持首尾帧
+  'image_to_video', // 图生视频
+  'text_to_video', // 文生视频
+  'tts', // 语音合成
+  'asr' // 语音识别
 ])
 export type ModelCapability = z.infer<typeof ModelCapabilitySchema>
 
@@ -64,15 +64,15 @@ export const WorkflowModelsSchema = z.object({
   storyboard_generation: z.string().optional(),
   scene_visual_extraction: z.string().optional(),
   text_translation: z.string().optional(),
-  
+
   // 图片生成类
   character_portrait: z.string().optional(),
   character_views: z.string().optional(),
   frame_generation: z.string().optional(),
-  
+
   // 视频生成类
   video_generation: z.string().optional(),
-  
+
   // 语音生成类
   voice_synthesis: z.string().optional()
 })
@@ -181,7 +181,7 @@ export const WORKFLOW_STEP_CONFIGS: WorkflowStepConfig[] = [
     requiredCapabilities: ['text_generation'],
     tips: '用于提示词的中英文互译，推荐使用多语言能力强的模型'
   },
-  
+
   // 图片生成类
   {
     id: 'character_portrait',
@@ -202,24 +202,24 @@ export const WORKFLOW_STEP_CONFIGS: WorkflowStepConfig[] = [
   },
   {
     id: 'frame_generation',
-    name: '首尾帧生成',
-    description: '生成场景的首帧和尾帧图片，融合角色立绘',
+    name: '场景参考图生成',
+    description: '生成场景环境参考图，并作为过渡补帧的图片模型',
     category: 'image',
     requiredCapabilities: ['reference_image'],
-    tips: '必须支持参考图，用于融合角色到场景中'
+    tips: '当前主要用于环境参考图与过渡补帧，优先选择出图稳定的图片模型'
   },
-  
+
   // 视频生成类
   {
     id: 'video_generation',
     name: '视频生成',
-    description: '从文本、参考图或首尾帧生成场景视频',
+    description: '从文本、参考图或多参考素材生成场景视频',
     category: 'video',
     requiredCapabilities: [],
     optionalCapabilities: ['first_last_frame', 'image_to_video', 'text_to_video'],
     tips: '优先选择支持 10-15 秒时长的模型；若强调角色一致性，再选择支持首尾帧的模型'
   },
-  
+
   // 语音生成类
   {
     id: 'voice_synthesis',

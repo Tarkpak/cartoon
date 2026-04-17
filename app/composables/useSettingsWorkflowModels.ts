@@ -1,0 +1,340 @@
+import type { Component } from 'vue'
+import {
+  Cpu,
+  Image,
+  Video,
+  Mic
+} from 'lucide-vue-next'
+import type {
+  WorkflowStep,
+  WorkflowStepConfig,
+  WorkflowModelOptions,
+  WorkflowGeminiImageSize,
+  WorkflowImageGenerationModelOptions,
+  WorkflowVideoGenerationModelOptions,
+  KlingV3OmniVideoOptions
+} from '#shared/types/workflow-models'
+import {
+  getSettingsProviderLabel,
+  toSelectString
+} from '@/lib/settings-models'
+
+export interface CompatibleModel {
+  model: string
+  displayName: string
+  provider: string
+  description?: string
+  capabilities: string[]
+}
+
+export interface WorkflowConfig extends WorkflowStepConfig {
+  compatibleModels: CompatibleModel[]
+  selectedModel: string | null
+  isOverridden?: boolean
+  modelOptions?: WorkflowVideoGenerationModelOptions
+}
+
+export interface WorkflowData {
+  workflows: WorkflowConfig[]
+  currentSelections: Record<WorkflowStep, string>
+  modelOptions?: WorkflowModelOptions
+}
+
+export type WorkflowCategoryKey = 'text' | 'image' | 'video' | 'voice'
+
+export interface WorkflowCategoryMeta {
+  name: string
+  icon: Component
+  color: string
+  description: string
+}
+
+export interface WorkflowCategorySummary extends WorkflowCategoryMeta {
+  key: WorkflowCategoryKey
+  workflowCount: number
+}
+
+export const WORKFLOW_CATEGORY_CONFIG: Record<WorkflowCategoryKey, WorkflowCategoryMeta> = {
+  text: {
+    name: '文本生成',
+    icon: Cpu,
+    color: 'blue',
+    description: '统一配置大纲、解析、分镜等文本类流程。'
+  },
+  image: {
+    name: '图片生成',
+    icon: Image,
+    color: 'green',
+    description: '统一配置角色立绘、参考图和首尾帧相关流程。'
+  },
+  video: {
+    name: '视频生成',
+    icon: Video,
+    color: 'purple',
+    description: '统一配置场景视频生成流程和对应扩展参数。'
+  },
+  voice: {
+    name: '语音合成',
+    icon: Mic,
+    color: 'orange',
+    description: '统一配置语音合成流程的默认模型。'
+  }
+}
+
+export const WORKFLOW_GEMINI_IMAGE_SIZES: WorkflowGeminiImageSize[] = ['512', '1K', '2K', '4K']
+const WORKFLOW_CATEGORY_ORDER: WorkflowCategoryKey[] = ['text', 'image', 'video', 'voice']
+
+const DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS: KlingV3OmniVideoOptions = {
+  sound: 'off',
+  mode: 'pro'
+}
+
+const DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS: WorkflowImageGenerationModelOptions = {
+  geminiImageSize: '1K'
+}
+
+export function useSettingsWorkflowModels() {
+  const { models, selectedModels, loadModels } = useSettingsModelCatalog()
+
+  const workflowLoading = ref(true)
+  const workflowSaving = ref(false)
+  const workflowData = ref<WorkflowData | null>(null)
+  const activeCategory = ref<WorkflowCategoryKey>('text')
+
+  const filteredWorkflows = computed(() => {
+    if (!workflowData.value) return {}
+
+    const groups: Partial<Record<WorkflowCategoryKey, WorkflowConfig[]>> = {}
+    for (const workflow of workflowData.value.workflows) {
+      if (!groups[workflow.category]) {
+        groups[workflow.category] = []
+      }
+      groups[workflow.category]!.push(workflow)
+    }
+
+    return groups
+  })
+
+  const workflowCategories = computed<WorkflowCategorySummary[]>(() => {
+    return WORKFLOW_CATEGORY_ORDER
+      .map(key => ({
+        key,
+        ...WORKFLOW_CATEGORY_CONFIG[key],
+        workflowCount: filteredWorkflows.value[key]?.length || 0
+      }))
+      .filter(category => category.workflowCount > 0)
+  })
+
+  const activeCategoryWorkflows = computed(() => {
+    return filteredWorkflows.value[activeCategory.value] || []
+  })
+
+  const activeCategoryMeta = computed(() => {
+    return WORKFLOW_CATEGORY_CONFIG[activeCategory.value]
+  })
+
+  function getCapabilityLabel(capability: string): string {
+    const labels: Record<string, string> = {
+      reference_image: '需参考图',
+      first_last_frame: '需首尾帧',
+      image_to_video: '需图生视频',
+      text_to_video: '需文生视频',
+      tts: 'TTS',
+      asr: 'ASR',
+      text_generation: '文本生成'
+    }
+
+    return labels[capability] || capability
+  }
+
+  function hasCompatibleModels(workflow: WorkflowConfig): boolean {
+    return workflow.compatibleModels.length > 0
+  }
+
+  async function loadWorkflowModels() {
+    workflowLoading.value = true
+
+    try {
+      const response = await $fetch<{ success: boolean, data: WorkflowData }>('/api/models/workflow')
+      if (response.success) {
+        workflowData.value = response.data
+      }
+    } catch (error) {
+      console.error('[useSettingsWorkflowModels] 加载业务流程模型配置失败:', error)
+    } finally {
+      workflowLoading.value = false
+    }
+  }
+
+  function getVideoGenerationModelOptions(): WorkflowVideoGenerationModelOptions {
+    return workflowData.value?.modelOptions?.video_generation || {
+      klingV3Omni: { ...DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS }
+    }
+  }
+
+  function getImageGenerationModelOptions(): WorkflowImageGenerationModelOptions {
+    return workflowData.value?.modelOptions?.image_generation || {
+      ...DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS
+    }
+  }
+
+  const klingV3OmniOptions = computed<KlingV3OmniVideoOptions>(() => {
+    return getVideoGenerationModelOptions().klingV3Omni
+  })
+
+  const imageGenerationOptions = computed<WorkflowImageGenerationModelOptions>(() => {
+    return getImageGenerationModelOptions()
+  })
+
+  async function updateWorkflowModel(step: WorkflowStep, modelId: string) {
+    if (!workflowData.value) return
+
+    workflowSaving.value = true
+
+    try {
+      const response = await $fetch<{ success: boolean }>('/api/models/workflow', {
+        method: 'POST',
+        body: { step, modelId }
+      })
+
+      if (response.success) {
+        await loadWorkflowModels()
+      }
+    } catch (error) {
+      console.error('[useSettingsWorkflowModels] 更新模型选择失败:', error)
+    } finally {
+      workflowSaving.value = false
+    }
+  }
+
+  async function updateVideoGenerationModelOptions(patch: Partial<KlingV3OmniVideoOptions>) {
+    if (!workflowData.value) return
+
+    const current = getVideoGenerationModelOptions()
+    const next: WorkflowVideoGenerationModelOptions = {
+      klingV3Omni: {
+        ...current.klingV3Omni,
+        ...patch
+      }
+    }
+
+    workflowSaving.value = true
+
+    try {
+      const response = await $fetch<{ success: boolean }>('/api/models/workflow', {
+        method: 'POST',
+        body: {
+          step: 'video_generation',
+          modelOptions: next
+        }
+      })
+
+      if (response.success) {
+        await loadWorkflowModels()
+      }
+    } catch (error) {
+      console.error('[useSettingsWorkflowModels] 更新视频模型扩展配置失败:', error)
+    } finally {
+      workflowSaving.value = false
+    }
+  }
+
+  async function updateImageGenerationModelOptions(
+    patch: Partial<WorkflowImageGenerationModelOptions>
+  ) {
+    if (!workflowData.value) return
+
+    const current = getImageGenerationModelOptions()
+    const next: WorkflowImageGenerationModelOptions = {
+      ...current,
+      ...patch
+    }
+
+    workflowSaving.value = true
+
+    try {
+      const response = await $fetch<{ success: boolean }>('/api/models/workflow', {
+        method: 'POST',
+        body: {
+          step: 'image_generation',
+          modelOptions: next
+        }
+      })
+
+      if (response.success) {
+        await loadWorkflowModels()
+      }
+    } catch (error) {
+      console.error('[useSettingsWorkflowModels] 更新图片流程模型扩展配置失败:', error)
+    } finally {
+      workflowSaving.value = false
+    }
+  }
+
+  function updateWorkflowGeminiImageSize(value: unknown) {
+    const normalized = toSelectString(value).toUpperCase()
+    if (!WORKFLOW_GEMINI_IMAGE_SIZES.includes(normalized as WorkflowGeminiImageSize)) return
+
+    void updateImageGenerationModelOptions({
+      geminiImageSize: normalized as WorkflowGeminiImageSize
+    })
+  }
+
+  async function updateGlobalWorkflowDefault(
+    type: 'text' | 'image' | 'video' | 'tts',
+    modelId: string
+  ) {
+    if (selectedModels.value[type] === modelId) return
+
+    try {
+      await $fetch('/api/models/switch', {
+        method: 'POST',
+        body: { type, modelId }
+      })
+
+      selectedModels.value[type] = modelId
+      await loadWorkflowModels()
+    } catch (error) {
+      console.error('[useSettingsWorkflowModels] 更新全局默认模型失败:', error)
+    }
+  }
+
+  function selectWorkflowCategory(category: WorkflowCategoryKey) {
+    activeCategory.value = category
+  }
+
+  onMounted(() => {
+    void loadModels()
+    void loadWorkflowModels()
+  })
+
+  watch(workflowCategories, (categories) => {
+    if (categories.length === 0) return
+    if (!categories.some(category => category.key === activeCategory.value)) {
+      activeCategory.value = categories[0]!.key
+    }
+  }, { immediate: true })
+
+  return {
+    models,
+    selectedModels,
+    workflowLoading,
+    workflowSaving,
+    filteredWorkflows,
+    workflowCategories,
+    activeCategory,
+    activeCategoryMeta,
+    activeCategoryWorkflows,
+    klingV3OmniOptions,
+    imageGenerationOptions,
+    getCapabilityLabel,
+    getProviderLabel: getSettingsProviderLabel,
+    hasCompatibleModels,
+    selectWorkflowCategory,
+    updateWorkflowModel,
+    updateVideoGenerationModelOptions,
+    updateWorkflowGeminiImageSize,
+    updateGlobalWorkflowDefault,
+    toSelectString
+  }
+}
