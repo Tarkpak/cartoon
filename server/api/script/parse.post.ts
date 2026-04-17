@@ -200,13 +200,13 @@ function buildFormattedTimelineScript(data: ParsedScript): {
           : speaker
         const content = dialogue.text?.trim() || ''
         if (!content) return ''
-        return `${speakerWithTag}说："${content}"`
+        return `${speakerWithTag}说：'${content}'`
       })
       .filter(Boolean)
       .join(' ')
 
     const narrationText = scene.narration?.trim()
-      ? `旁白：${scene.narration.trim()}`
+      ? `画外音说：'${scene.narration.trim()}'`
       : ''
 
     const content = [
@@ -215,7 +215,7 @@ function buildFormattedTimelineScript(data: ParsedScript): {
       narrationText
     ].filter(Boolean).join(' ')
 
-    return `${formatTimelineSeconds(start)}-${formatTimelineSeconds(end)}s：【${shotLabel}】${content}`
+    return `${formatTimelineSeconds(start)}-${formatTimelineSeconds(end)}秒：，${shotLabel}，固定镜头。${content}`
   })
 
   return {
