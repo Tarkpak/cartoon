@@ -62,7 +62,7 @@ defineProps<{
             v-if="!editForm.description"
             class="pointer-events-none absolute left-3 top-2 text-sm text-muted-foreground/70"
           >
-            按时间轴输入镜头描述，例如：0-3s：【中景】...
+            按时间轴输入镜头描述，例如：0-3秒：，中景，固定镜头。画面描述...
           </p>
         </div>
 

@@ -60,7 +60,7 @@ const RefinedDescriptionSchema = z.object({
   description: z.string().min(12).max(2600)
 })
 
-const TIMELINE_LINE_CAPTURE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?s\s*[：:].+$/gmu
+const TIMELINE_LINE_CAPTURE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:].+$/gmu
 const LEGACY_AUDIO_CONSTRAINT_REGEX = /\n?\s*不添加字幕，不添加BGM[。.]?\s*$/u
 
 function resolveAssetTypeLabel(type: z.infer<typeof AssetTypeSchema>): string {
@@ -164,7 +164,7 @@ function normalizeRefinedTimelineDescription(options: {
   const lineBody = (refinedCore || fallbackCore || '保持原场景动作与情绪推进。')
     .replace(/\s+/g, ' ')
     .trim()
-  return `0-${safeDuration}s：【中景】${lineBody}`
+  return `0-${safeDuration}秒：，中景，固定镜头。${lineBody}`
 }
 
 async function buildRefineSceneDescriptionPrompt(

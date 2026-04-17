@@ -86,15 +86,21 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 【description 时间轴规则】
 1. 每个场景的 description 必须是多行时间轴镜头脚本，不得写成散文段落。
-2. 每行格式必须是：起始-结束s：【景别】画面动作与对白。
-3. 每个场景至少 2 行，建议 3-6 行；时间轴从 0s 开始，最后一行结束时间应与 duration 对齐或接近（误差不超过 0.5s）。
-4. 对话要直接写在对应镜头行中，例如：陆哲说：“你们等着看。”
-5. description 中禁止写“添加字幕/BGM/音效”等制作指令。
-6. 若使用引用标签，只允许标准格式 [图片N]；禁止 [角色名]、[地点名] 等自定义方括号标签。
+2. 每行格式必须是：起始-结束秒：，景别，运镜方式。画面动作与对白。
+   - 景别如：中景、近景、特写镜头、中近景、全景、大远景等。
+   - 运镜方式如：固定镜头、缓慢推近、缓慢拉远、镜头左摇、镜头右摇、跟随镜头、手持镜头等。
+   - 可在运镜后补充镜头角度或特殊说明，如：，镜头角度略低于XX的视线。
+3. 每个场景至少 2 行，建议 3-6 行；时间轴从 0 开始，最后一行结束时间应与 duration 对齐或接近（误差不超过 0.5 秒）。
+4. 对话要直接写在对应镜头行中，用单引号包裹，例如：陆哲说：'你们等着看。'
+5. 旁白/画外音必须嵌入对应镜头行中，格式：画外音（音色：性别，年龄段，语调描述，音高，语速，情绪，口音）说：'旁白内容'。
+   示例：画外音（音色：男性，30岁左右，语调平静而富有叙事感，音高中等，语速适中，情绪内敛，无口音）说：'那份冰冷的文件，像一把钝刀。'
+6. 每行应包含丰富的镜头语言：光线描写、空间关系、人物动作细节、环境氛围与声音描写。
+7. description 中禁止写"添加字幕/BGM/音效"等制作指令。
+8. 若使用引用标签，只允许标准格式 [图片N]；禁止 [角色名]、[地点名] 等自定义方括号标签。
 
 【角色与旁白规则】
 1. 只识别真实角色，不要把旁白、画外音、系统说明、音效、抽象概念当作角色。
-2. 场景中的旁白、画外音、内心独白必须输出到 scenes[i].narration。
+2. 场景中的旁白、画外音、内心独白必须同时输出到 scenes[i].narration 字段，并以画外音格式嵌入 description 的对应时间轴行中。
 3. dialogues 仅保留真实角色台词，不要把“旁白”写成角色。
 4. characters 数组中的角色描述要稳定可复用，便于后续角色资产生成。
 5. 对每个场景，明确角色、环境和关键道具等资产需求，但不要额外新增无关元素。
@@ -109,7 +115,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
       "id": "scene_001",
       "title": "场景标题",
       "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
-      "description": "0-3s：【中景】护士站[图片1]人来人往，陆哲[图片2]抬手整理白大褂。\\n3-8s：【近景】陆哲[图片2]嘴角上扬。陆哲说：“你们等着看。”",
+      "description": "0-3秒：，中景，固定镜头。护士站[图片1]走廊白炽灯映出冷硬的墙面，人来人往，陆哲[图片2]抬手整理白大褂，动作从容。\\n3-6秒：，近景，缓慢推近。陆哲[图片2]嘴角上扬，眼神中透着志在必得的冷傲。陆哲说：'你们等着看。'\\n6-8秒：，中景，固定镜头。画外音（音色：男性，30岁左右，语调沉稳，音高偏低，语速适中，情绪克制，无口音）说：'他的目光穿过人群，像一把隐忍的刀。'",
       "setting": {
         "location": "医院-护士站",
         "timeOfDay": "night",
@@ -180,15 +186,20 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 ## Timeline Description Rules
 1. Each scene description must be a multi-line timeline shot script, not prose.
-2. Each line must follow: start-ends: [shot size] visual action and dialogue.
-3. Each scene needs at least 2 lines, preferably 3-6. Timeline starts at 0s and the final line should align with duration within 0.5 seconds.
-4. Put dialogue directly inside the relevant timeline line.
-5. Do not include production instructions such as subtitles, BGM, or SFX.
-6. If reference tags are used, only use the standard format [ImageN].
+2. Each line must follow: start-end秒：，shot size，camera movement. Visual action and dialogue.
+   - Shot sizes: 中景, 近景, 特写镜头, 中近景, 全景, 大远景, etc.
+   - Camera movements: 固定镜头, 缓慢推近, 缓慢拉远, 镜头左摇, 镜头右摇, 跟随镜头, 手持镜头, etc.
+   - Additional camera info may follow, e.g.: ，镜头角度略低于XX的视线。
+3. Each scene needs at least 2 lines, preferably 3-6. Timeline starts at 0 and the final line should align with duration within 0.5 seconds.
+4. Put dialogue directly inside the relevant timeline line, wrapped in single quotes.
+5. Narration/voiceover must be embedded in the timeline line using format: 画外音（音色：gender，age range，tone description，pitch，speed，emotion，accent）说：'narration content'.
+6. Each line should include rich cinematic language: lighting, spatial relationships, character action details, atmosphere, and ambient sound.
+7. Do not include production instructions such as subtitles, BGM, or SFX.
+8. If reference tags are used, only use the standard format [ImageN].
 
 ## Character and Narration Rules
 1. Only identify real characters. Do not treat narration, voice-over, system text, or sound cues as characters.
-2. Narration, voice-over, and inner monologue must go to scenes[i].narration.
+2. Narration, voice-over, and inner monologue must go to scenes[i].narration AND be embedded as voiceover in the description timeline lines.
 3. dialogues must only contain real spoken lines by actual characters.
 4. Character descriptions must stay stable and reusable for later asset generation.
 5. Make asset needs clear through the scene content, but do not invent unrelated elements.
@@ -203,7 +214,7 @@ Output strict JSON only:
       "id": "scene_001",
       "title": "Scene title",
       "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
-      "description": "0-3s: [medium] Busy nurse station[Image1], Lu Zhe[Image2] adjusts his white coat.\\n3-8s: [close] Lu Zhe[Image2] smirks. Lu Zhe says: 'Wait and see.'",
+      "description": "0-3秒：，中景，固定镜头。Busy nurse station[Image1] under cold fluorescent light, Lu Zhe[Image2] adjusts his white coat.\\n3-6秒：，近景，缓慢推近。Lu Zhe[Image2] smirks with cold confidence. Lu Zhe says: 'Wait and see.'\\n6-8秒：，中景，固定镜头。画外音（音色：male，around 30，steady tone，low-mid pitch，moderate pace，restrained，no accent）says: 'His gaze cuts through the crowd like a hidden blade.'",
       "setting": {
         "location": "Hospital - nurse station",
         "timeOfDay": "night",
@@ -433,7 +444,7 @@ const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
 1. 仅输出 JSON，不要任何解释。
 2. description 必须保持“时间轴分行”格式，不得改成普通段落。
 3. 总时长参考约 {{durationHint}} 秒；至少输出 1 行时间轴，通常输出 2-6 行。
-4. 每行格式：起始-结束s：【景别】画面描述。
+4. 每行格式：起始-结束秒：，景别，运镜方式。画面描述。运镜方式如：固定镜头、缓慢推近、缓慢拉远等。旁白请用画外音格式嵌入。
 5. 必须融合用户本次修改意图，并保持剧情连续、角色身份一致、环境逻辑一致。
 6. 若提到资产（角色/环境/道具），应体现在描述里，但不要输出 @mention 或 [引用资产] 区块。
 7. 保留 [图片N] 标签风格；若原描述已有 [图片N]，优先沿用。
@@ -476,7 +487,7 @@ const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
 1. Output JSON only, with no explanation.
 2. description must stay in multi-line timeline format, not prose.
 3. The target duration is about {{durationHint}} seconds; output at least one timeline line and usually 2-6 lines.
-4. Each line must follow: start-ends: [shot size] visual description.
+4. Each line must follow: start-end秒：，shot size，camera movement. Visual description. Camera movements include: 固定镜头, 缓慢推近, 缓慢拉远, etc.
 5. Integrate the user's requested changes while preserving plot continuity, character identity, and environment logic.
 6. If assets are mentioned, reflect them in the scene description, but do not output @mentions or asset-reference blocks.
 7. Preserve the [ImageN] tag style. If existing tags are already present, reuse them whenever possible.

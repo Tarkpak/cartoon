@@ -123,7 +123,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     description: '生成单张纯环境参考图，作为场景一致性视频的空间基底',
     variables: [
       { name: '{{sceneTitle}}', description: '场景标题', example: '雨夜医院走廊' },
-      { name: '{{sceneDescription}}', description: '场景描述', example: '0-3s：【中景】护士站[图片1]人来人往...' },
+      { name: '{{sceneDescription}}', description: '场景描述', example: '0-3秒：，中景，固定镜头。护士站[图片1]人来人往...' },
       { name: '{{setting}}', description: '场景设定文本', example: '医院-走廊 / night / tense / rain' },
       { name: '{{style}}', description: '画风描述', example: '电影写实风格' },
       { name: '{{aspectRatio}}', description: '输出比例', example: '16:9' },
@@ -143,7 +143,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     variables: [
       { name: '{{style}}', description: '项目画风描述', example: '电影写实风格' },
       { name: '{{sceneTitle}}', description: '场景标题', example: '雨夜街头对峙' },
-      { name: '{{sceneDescription}}', description: '当前场景描述', example: '0-3s：【中景】护士站[图片1]人来人往...' },
+      { name: '{{sceneDescription}}', description: '当前场景描述', example: '0-3秒：，中景，固定镜头。护士站[图片1]人来人往...' },
       { name: '{{setting}}', description: '场景设定文本', example: '- 地点：医院-走廊\n- 时间：night' },
       { name: '{{characters}}', description: '角色信息文本', example: '- 陆哲，外观：白大褂，情绪：得意' },
       { name: '{{narration}}', description: '旁白文本', example: '旁白：空气里弥漫着消毒水气味。' },
@@ -168,7 +168,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{sceneDescription}}', description: '场景描述', example: '主角在霓虹灯下缓慢走向镜头...' },
       { name: '{{setting}}', description: '场景设定文本', example: '城市天桥 / night / tense / rain' },
       { name: '{{style}}', description: '画风描述', example: '电影写实风格' },
-      { name: '{{timelineLines}}', description: '分段时间轴镜头描述', example: '0-3s:【中景】...\n3-8s:【近景】...' },
+      { name: '{{timelineLines}}', description: '分段时间轴镜头描述', example: '0-3秒：，中景，固定镜头。...\n3-8秒：，近景，缓慢推近。...' },
       { name: '{{audioConstraint}}', description: '音频/字幕约束（建议留空）', example: '' },
       { name: '{{referenceMaterials}}', description: '参考素材列表文本', example: '图1：环境参考图...\n图2：角色参考图...' },
       { name: '{{executionConstraints}}', description: '执行约束列表文本', example: '- 输入模式：single_image\n- 严格保持角色一致性...' },
