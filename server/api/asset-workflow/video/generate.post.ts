@@ -408,90 +408,47 @@ function resolveSceneShotNumber(scene: z.infer<typeof SceneSchema>): number {
   return 1
 }
 
-function resolveTimelineSegmentCount(options: {
-  duration: number
-  dialogueCount: number
-  hasNarration: boolean
-}): number {
-  const baseByDuration = options.duration >= 12
-    ? 4
-    : options.duration >= 8
-      ? 3
-      : 2
+const TIMELINE_LINE_CAPTURE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:].+$/gmu
 
-  const contentHints = Math.min(4, Math.max(2, options.dialogueCount + (options.hasNarration ? 1 : 0) + 1))
-  return Math.max(2, Math.min(4, Math.max(baseByDuration, contentHints)))
+function extractTimelineLines(text: string): string[] {
+  if (!text) return []
+  const matches = text.match(TIMELINE_LINE_CAPTURE_REGEX) || []
+  return matches
+    .map(line => line.trim())
+    .filter(Boolean)
 }
 
-function splitTimeline(duration: number, segmentCount: number): Array<{ start: number, end: number }> {
-  const safeDuration = Math.max(2, Math.round(duration))
-  const safeSegments = Math.max(2, Math.min(4, Math.round(segmentCount)))
-
-  const base = Math.floor(safeDuration / safeSegments)
-  const remainder = safeDuration % safeSegments
-  const ranges: Array<{ start: number, end: number }> = []
-
-  let cursor = 0
-  for (let index = 0; index < safeSegments; index++) {
-    const extra = index < remainder ? 1 : 0
-    const span = Math.max(1, base + extra)
-    const end = index === safeSegments - 1
-      ? safeDuration
-      : Math.min(safeDuration - (safeSegments - index - 1), cursor + span)
-    ranges.push({ start: cursor, end })
-    cursor = end
-  }
-
-  return ranges
-}
-
-function buildTimelineBeats(options: {
-  scene: z.infer<typeof SceneSchema>
-  segmentCount: number
-}): string[] {
-  const beats: string[] = []
-  const { scene, segmentCount } = options
+function buildTimelineFallbackLine(scene: z.infer<typeof SceneSchema>, duration: number): string {
   const settingText = buildSettingText(scene.setting)
-  const characterNames = scene.characters.map(item => item.name).filter(Boolean).join('、')
-
-  beats.push([
-    clipText(scene.description, 140),
-    characterNames ? `人物：${characterNames}` : '',
+  const lineBody = [
+    clipText(scene.description, 160),
+    hasText(scene.cameraNote) ? `镜头备注：${clipText(scene.cameraNote!, 90)}` : '',
     settingText !== '未提供' ? `环境：${settingText}` : ''
   ]
     .filter(Boolean)
-    .join(' '))
+    .join(' ')
 
-  if (hasText(scene.narration)) {
-    beats.push(`通过动作与环境变化体现旁白信息：${clipText(scene.narration!, 100)}`)
-  }
-
-  for (const dialogue of scene.dialogues) {
-    const line = `${dialogue.character}说：“${clipText(dialogue.text, 72)}”，口型与表情必须明确匹配台词。`
-    beats.push(line)
-  }
-
-  if (hasText(scene.cameraNote)) {
-    beats.push(`镜头执行备注：${clipText(scene.cameraNote!, 100)}`)
-  }
-
-  while (beats.length < segmentCount) {
-    beats.push('动作与情绪持续推进，构图/景别有清晰变化，保持时空与人物身份连续。')
-  }
-
-  return beats.slice(0, segmentCount)
+  return `0-${duration}秒：，中景，固定镜头。${lineBody || '保持动作与空间关系自然推进。'}`
 }
 
-function resolveShotLabels(segmentCount: number): string[] {
-  if (segmentCount <= 2) return ['中景', '近景']
-  if (segmentCount === 3) return ['中景', '近景', '特写']
-  return ['中景', '近景', '中景', '近景']
+function buildSceneTimelineText(scene: z.infer<typeof SceneSchema>, duration: number): string {
+  const timelineLines = extractTimelineLines(scene.description)
+  if (timelineLines.length > 0) {
+    return timelineLines.join('\n')
+  }
+
+  return buildTimelineFallbackLine(scene, duration)
 }
 
-function resolveCameraMovementLabels(segmentCount: number): string[] {
-  if (segmentCount <= 2) return ['固定镜头', '缓慢推近']
-  if (segmentCount === 3) return ['固定镜头', '缓慢推近', '固定镜头']
-  return ['固定镜头', '缓慢推近', '固定镜头', '缓慢推近']
+function buildSceneSummary(scene: z.infer<typeof SceneSchema>): string {
+  const settingText = buildSettingText(scene.setting)
+  return [
+    scene.title?.trim() || '',
+    settingText !== '未提供' ? settingText : '',
+    clipText(scene.description, 90)
+  ]
+    .filter(Boolean)
+    .join('，')
 }
 
 function buildReferenceMaterialLines(options: {
@@ -562,21 +519,7 @@ function buildStructuredPromptSections(options: {
 
   const shotNumber = resolveSceneShotNumber(scene)
   const sceneTitle = scene.title || scene.id
-  const segmentCount = resolveTimelineSegmentCount({
-    duration,
-    dialogueCount: scene.dialogues.length,
-    hasNarration: hasText(scene.narration)
-  })
-  const timeRanges = splitTimeline(duration, segmentCount)
-  const beatTexts = buildTimelineBeats({ scene, segmentCount })
-  const shotLabels = resolveShotLabels(segmentCount)
-  const cameraMovementLabels = resolveCameraMovementLabels(segmentCount)
-  const timelineLines = timeRanges.map((range, index) => {
-    const shot = shotLabels[index] || '中景'
-    const camera = cameraMovementLabels[index] || '固定镜头'
-    const beat = beatTexts[index] || '保持动作与镜头自然过渡。'
-    return `${range.start}-${range.end}秒：，${shot}，${camera}。${beat}`
-  })
+  const timelineLines = buildSceneTimelineText(scene, duration)
   const referenceMaterialLines = buildReferenceMaterialLines({
     primaryReferenceBinding,
     multiReferenceBindings
@@ -586,17 +529,18 @@ function buildStructuredPromptSections(options: {
     `- 输入模式：${inputMode}。${referenceGuide}`,
     `- 角色参考图：${hasCharacterRef ? 'yes' : 'no'}；环境参考图：${hasEnvironmentRef ? 'yes' : 'no'}`,
     '- 严格保持角色身份、服装、发型与体态连续，禁止中途换脸或替换主角。',
-    '- 严格保持环境空间关系、光照与主色调稳定，不新增无关关键物体。'
+    '- 严格保持环境空间关系、光照与主色调稳定，不新增无关关键物体。',
+    '- 禁止生成字幕、台词卡、UI、Logo 或水印。'
   ].join('\n')
 
   return {
     shotNumber,
     sceneTitle,
-    sceneSummary: `${sceneTitle}，${clipText(scene.description, 90)}`,
+    sceneSummary: buildSceneSummary(scene),
     style: style || '保持项目风格一致',
     duration,
     aspectRatio,
-    timelineLines: timelineLines.join('\n'),
+    timelineLines,
     referenceMaterials: referenceMaterialLines.join('\n'),
     executionConstraints
   }

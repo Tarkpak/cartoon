@@ -97,7 +97,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
    示例：画外音（音色：男性，30岁左右，语调平静而富有叙事感，音高中等，语速适中，情绪内敛，无口音）说：'那份冰冷的文件，像一把钝刀。'
 6. 每行应包含丰富的镜头语言：光线描写、空间关系、人物动作细节、环境氛围与声音描写。
 7. description 中禁止写"添加字幕/BGM/音效"等制作指令。
-8. 若使用引用标签，只允许标准格式 [图片N]；禁止 [角色名]、[地点名] 等自定义方括号标签。
+8. 不要自行生成任何 [图片N] 或其他引用编号；如系统后续需要引用标签，会由后处理统一注入。
 
 【角色与旁白规则】
 1. 只识别真实角色，不要把旁白、画外音、系统说明、音效、抽象概念当作角色。
@@ -117,7 +117,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
       "title": "场景标题",
       "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
       "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
-      "description": "0-3秒：，中景，固定镜头。护士站[图片1]走廊白炽灯映出冷硬的墙面，人来人往，陆哲[图片2]抬手整理白大褂，动作从容。\\n3-6秒：，近景，缓慢推近。陆哲[图片2]嘴角上扬，眼神中透着志在必得的冷傲。陆哲说：'你们等着看。'\\n6-8秒：，中景，固定镜头。画外音（音色：男性，30岁左右，语调沉稳，音高偏低，语速适中，情绪克制，无口音）说：'他的目光穿过人群，像一把隐忍的刀。'",
+      "description": "0-3秒：，中景，固定镜头。护士站走廊白炽灯映出冷硬的墙面，人来人往，陆哲抬手整理白大褂，动作从容。\\n3-6秒：，近景，缓慢推近。陆哲嘴角上扬，眼神中透着志在必得的冷傲。陆哲说：'你们等着看。'\\n6-8秒：，中景，固定镜头。画外音（音色：男性，30岁左右，语调沉稳，音高偏低，语速适中，情绪克制，无口音）说：'他的目光穿过人群，像一把隐忍的刀。'",
       "setting": {
         "location": "医院-护士站",
         "timeOfDay": "night",
@@ -198,7 +198,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 5. Narration/voiceover must be embedded in the timeline line using format: 画外音（音色：gender，age range，tone description，pitch，speed，emotion，accent）说：'narration content'.
 6. Each line should include rich cinematic language: lighting, spatial relationships, character action details, atmosphere, and ambient sound.
 7. Do not include production instructions such as subtitles, BGM, or SFX.
-8. If reference tags are used, only use the standard format [ImageN].
+8. Do not invent any [ImageN] or other reference numbering. If reference tags are needed later, the system will inject them in post-processing.
 
 ## Character and Narration Rules
 1. Only identify real characters. Do not treat narration, voice-over, system text, or sound cues as characters.
@@ -218,7 +218,7 @@ Output strict JSON only:
       "title": "Scene title",
       "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
       "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
-      "description": "0-3秒：，中景，固定镜头。Busy nurse station[Image1] under cold fluorescent light, Lu Zhe[Image2] adjusts his white coat.\\n3-6秒：，近景，缓慢推近。Lu Zhe[Image2] smirks with cold confidence. Lu Zhe says: 'Wait and see.'\\n6-8秒：，中景，固定镜头。画外音（音色：male，around 30，steady tone，low-mid pitch，moderate pace，restrained，no accent）says: 'His gaze cuts through the crowd like a hidden blade.'",
+      "description": "0-3秒：，中景，固定镜头。Busy nurse station under cold fluorescent light, Lu Zhe adjusts his white coat.\\n3-6秒：，近景，缓慢推近。Lu Zhe smirks with cold confidence. Lu Zhe says: 'Wait and see.'\\n6-8秒：，中景，固定镜头。画外音（音色：male，around 30，steady tone，low-mid pitch，moderate pace，restrained，no accent）says: 'His gaze cuts through the crowd like a hidden blade.'",
       "setting": {
         "location": "Hospital - nurse station",
         "timeOfDay": "night",
@@ -339,7 +339,7 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 【场景标题】
 {{sceneTitle}}
 
-【场景描述】
+【环境摘要】
 {{sceneDescription}}
 
 【场景设定】
@@ -351,23 +351,17 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 【镜头与资产备注】
 {{cameraNote}}
 
-【旁白】
-{{narration}}
-
-【关键对白】
-{{dialogues}}
-
-【二次生成补充要求】
-{{customPrompt}}
-
 【执行要求】
 1. 只生成 1 张环境资产图，不要拼图，不要分镜排版，不要多画面组合。
 2. 这是一张纯环境参考图：禁止出现人物、人脸、肢体、剪影、人群。
-3. 若原文包含人物动作或对白，只提取地点、建筑、地形、道具、光照、天气与空间关系。
+3. 仅依据环境摘要与场景设定提取地点、建筑、地形、道具、光照、天气与空间关系，不要把人物动作、对白、旁白转成画面主体。
 4. 画面必须覆盖该场景的核心空间结构，方便后续视频沿用同一环境基底。
 5. 同一主环境的年代感、装修档次、材质语言、灯光体系必须和相邻场景保持一致。
 6. 不要文字、水印、Logo、边框、界面元素。
-7. 如果提供了二次生成要求，只做定向微调，不改变环境主体身份。`,
+7. 如果提供了二次生成要求，只做定向微调，不改变环境主体身份。
+
+【二次生成补充要求】
+{{customPrompt}}`,
   en: `You are generating a single pure environment reference image for an asset-consistent scene video workflow. Return the image directly, not text.
 
 ## Project Style
@@ -379,7 +373,7 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 ## Scene Title
 {{sceneTitle}}
 
-## Scene Description
+## Environment Summary
 {{sceneDescription}}
 
 ## Scene Setting
@@ -391,23 +385,17 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 ## Camera and Asset Notes
 {{cameraNote}}
 
-## Narration
-{{narration}}
-
-## Key Dialogue
-{{dialogues}}
-
-## Regeneration Note
-{{customPrompt}}
-
 ## Requirements
 1. Generate exactly one environment asset image, not a collage, layout sheet, or split-panel composition.
 2. This must be a pure environment reference: no humans, faces, body parts, silhouettes, or crowds.
-3. If the source contains human action or dialogue, extract only location, architecture, terrain, props, lighting, weather, and spatial structure.
+3. Use only the environment summary and scene setting to extract location, architecture, terrain, props, lighting, weather, and spatial structure. Do not turn character action, dialogue, or narration into visual subjects.
 4. The frame must clearly establish the core space so later scene videos can reuse the same environment baseline.
 5. Keep era, renovation grade, material language, and lighting system consistent with neighboring scenes in the same root environment.
 6. No text, watermark, logo, border, or UI elements.
-7. If a regeneration note is provided, apply only targeted environment-level refinement without changing the core environment identity.`
+7. If a regeneration note is provided, apply only targeted environment-level refinement without changing the core environment identity.
+
+## Regeneration Note
+{{customPrompt}}`
 }
 
 const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
@@ -500,9 +488,15 @@ const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
 }
 
 const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: `你正在生成单场景视频提示词。请围绕“参考素材一致、动作自然、镜头连贯、空间关系稳定”组织描述。
+  zh: `直接生成一个单场景视频片段，不要输出文字，不要把以下内容理解成“要写提示词”。
 
-镜头 {{shotNumber}}
+【镜头编号】
+{{shotNumber}}
+
+【场景标题】
+{{sceneTitle}}
+
+【场景概要】
 {{sceneSummary}}
 
 【画风】
@@ -514,7 +508,10 @@ const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
 【画幅】
 {{aspectRatio}}
 
-【时间轴描述】
+【场景设定】
+{{setting}}
+
+【必须遵循的时间轴镜头脚本】
 {{timelineLines}}
 
 【参考图说明】
@@ -526,17 +523,25 @@ const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
 【执行约束】
 {{executionConstraints}}
 
-【补充信息】
-- 输入模式：{{inputMode}}
-- 角色参考图：{{hasCharacterRef}}
-- 环境参考图：{{hasEnvironmentRef}}
+【对白与旁白信息】
 - 旁白：{{narration}}
 - 对白：{{dialogues}}
 
-结果应强调：角色身份稳定、环境连续、动作自然、镜头语言清晰。`,
-  en: `You are building a single-scene video prompt. Organize the prompt around reference consistency, natural motion, coherent camera language, and stable spatial continuity.
+【生成要求】
+1. 严格按时间轴逐段推进，镜头衔接自然，不要把多段动作压缩成单一概述。
+2. 如存在参考图，必须优先锁定角色身份、服装、发型、体态和环境空间关系。
+3. 动作演化要自然可信，避免角色漂移、空间跳变、物体凭空增减或镜头逻辑断裂。
+4. 旁白和对白只体现在表演节奏、口型和画面情绪中，不要生成字幕、台词卡、UI 或水印。
+5. 输出应是一个可直接使用的视频片段，风格统一，光照连续，构图清晰。`,
+  en: `Generate a single-scene video clip directly. Do not return text, and do not treat the content below as instructions to write another prompt.
 
-Shot {{shotNumber}}
+## Shot Number
+{{shotNumber}}
+
+## Scene Title
+{{sceneTitle}}
+
+## Scene Summary
 {{sceneSummary}}
 
 ## Style
@@ -548,7 +553,10 @@ About {{duration}} seconds
 ## Aspect Ratio
 {{aspectRatio}}
 
-## Timeline Description
+## Scene Setting
+{{setting}}
+
+## Timeline Shot Script You Must Follow
 {{timelineLines}}
 
 ## Reference Guide
@@ -560,12 +568,14 @@ About {{duration}} seconds
 ## Execution Constraints
 {{executionConstraints}}
 
-## Extra Context
-- Input mode: {{inputMode}}
-- Character reference available: {{hasCharacterRef}}
-- Environment reference available: {{hasEnvironmentRef}}
+## Dialogue and Narration Context
 - Narration: {{narration}}
 - Dialogue: {{dialogues}}
 
-The final prompt should emphasize stable identity, environment continuity, natural motion, and clear cinematic intent.`
+## Generation Requirements
+1. Follow the timeline beat by beat. Do not collapse multiple visual actions into a single generic summary.
+2. If reference images are provided, lock character identity, outfit, hairstyle, posture, and environment spatial continuity first.
+3. Motion should evolve naturally and consistently. Avoid identity drift, spatial jumps, disappearing or appearing key objects, or broken camera logic.
+4. Reflect narration and dialogue through performance rhythm, mouth movement, and mood only. Do not generate subtitles, caption cards, UI, or watermarks.
+5. The result must be a directly usable video clip with consistent style, lighting continuity, and clear composition.`
 }

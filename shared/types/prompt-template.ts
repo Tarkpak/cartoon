@@ -123,7 +123,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     description: '生成单张纯环境参考图，作为场景一致性视频的空间基底',
     variables: [
       { name: '{{sceneTitle}}', description: '场景标题', example: '雨夜医院走廊' },
-      { name: '{{sceneDescription}}', description: '场景描述', example: '0-3秒：，中景，固定镜头。护士站[图片1]人来人往...' },
+      { name: '{{sceneDescription}}', description: '环境摘要（已去除人物动作与对白）', example: '核心空间：医院走廊\n时间：night\n环境细节：冷白灯照亮狭长走廊，地面有潮湿反光。' },
       { name: '{{setting}}', description: '场景设定文本', example: '医院-走廊 / night / tense / rain' },
       { name: '{{style}}', description: '画风描述', example: '电影写实风格' },
       { name: '{{aspectRatio}}', description: '输出比例', example: '16:9' },
