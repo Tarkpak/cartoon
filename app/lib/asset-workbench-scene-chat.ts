@@ -104,6 +104,7 @@ export function createSceneChatWelcomeMessage(): SceneChatMessage {
 export function resolveSceneChatMentionState(options: {
   text: string
   cursor: number
+  allowInline?: boolean
 }): SceneChatMentionState {
   const prefix = options.text.slice(0, options.cursor)
   const mentionStart = prefix.lastIndexOf('@')
@@ -116,12 +117,14 @@ export function resolveSceneChatMentionState(options: {
     }
   }
 
-  const prevChar = mentionStart > 0 ? prefix[mentionStart - 1] : ''
-  if (prevChar && !SCENE_CHAT_MENTION_DELIMITER_REGEX.test(prevChar)) {
-    return {
-      open: false,
-      query: '',
-      start: null
+  if (!options.allowInline) {
+    const prevChar = mentionStart > 0 ? prefix[mentionStart - 1] : ''
+    if (prevChar && !SCENE_CHAT_MENTION_DELIMITER_REGEX.test(prevChar)) {
+      return {
+        open: false,
+        query: '',
+        start: null
+      }
     }
   }
 

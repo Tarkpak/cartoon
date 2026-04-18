@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { SceneData, CharacterData } from '~/composables/useAssetWorkbench'
-import type { EnvironmentAssetCard } from '~/lib/asset-workbench-types'
+import type { DisplayAsset, EnvironmentAssetCard } from '~/lib/asset-workbench-types'
 import type { AssetReferenceOption } from '~/lib/scene-edit-dialog'
 
 defineProps<{
@@ -23,6 +23,9 @@ defineProps<{
   editingScene: SceneData | null
   sceneEditAssetReferenceOptions: AssetReferenceOption[]
   sceneEditSelectedAssetIds: string[]
+  allAssets: DisplayAsset[]
+  resolveAssetMentionTokenMap: () => Map<string, string>
+  resolveDisplayAssetTypeLabel: (type: DisplayAsset['type']) => string
   handleSceneSave: (scene: Partial<SceneData> & { id: string }) => void
   handleSceneAssetReferencesSave: (payload: { sceneId: string, assetIds: string[] }) => void | Promise<void>
   imagePreviewOpen: boolean
@@ -40,6 +43,9 @@ defineProps<{
     :target-label="characterRegenerateTarget?.name || ''"
     :prompt="characterRegeneratePrompt"
     prompt-placeholder="输入定向修改提示词"
+    :mention-assets="allAssets"
+    :mention-token-map="resolveAssetMentionTokenMap()"
+    :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
     :error="characterRegenerateError"
     :loading="!!characterRegenerateTarget?.generating"
     @update:open="setCharacterRegenerateDialogOpen"
@@ -54,6 +60,9 @@ defineProps<{
     :target-label="environmentRegenerateTarget?.name || ''"
     :prompt="environmentRegeneratePrompt"
     prompt-placeholder="输入定向修改提示词"
+    :mention-assets="allAssets"
+    :mention-token-map="resolveAssetMentionTokenMap()"
+    :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
     :error="environmentRegenerateError"
     :loading="environmentRegenerateTarget?.referenceStatus === 'generating'"
     @update:open="setEnvironmentRegenerateDialogOpen"
