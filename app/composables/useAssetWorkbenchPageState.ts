@@ -26,6 +26,7 @@ import {
   resolveSceneVideoBadge as createSceneVideoBadge
 } from '~/lib/asset-workbench-progress'
 import type {
+  AssetImageHistoryEntry,
   DisplayAsset,
   QueueItem,
   SceneDescriptionMentionItem,
@@ -36,6 +37,7 @@ interface UseAssetWorkbenchPageStateOptions {
   scenes: Ref<SceneData[]>
   characters: Ref<CharacterData[]>
   propAssets: Ref<PropAsset[]>
+  environmentAssetHistories: Ref<Record<string, AssetImageHistoryEntry[]>>
   sceneConfigs: Ref<Record<string, SceneConsistencyConfig>>
   selectedSceneId: Ref<string>
   selectedStyleId: Ref<string>
@@ -65,13 +67,15 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
       name: char.name,
       type: 'character' as const,
       description: char.appearance,
-      referenceImage: char.baseImage
+      referenceImage: char.baseImage,
+      assetHistory: char.assetHistory
     }))
   })
 
   const environmentAssetCards = computed(() => {
     return buildEnvironmentAssetCards({
       scenes: options.scenes.value,
+      environmentAssetHistories: options.environmentAssetHistories.value,
       resolveSceneDescriptionWithoutAssetMentions: options.resolveSceneDescriptionWithoutAssetMentions
     })
   })
@@ -86,7 +90,8 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
       name: prop.name,
       type: 'prop' as const,
       description: prop.description,
-      referenceImage: prop.referenceImage
+      referenceImage: prop.referenceImage,
+      assetHistory: prop.assetHistory
     }))
   })
 

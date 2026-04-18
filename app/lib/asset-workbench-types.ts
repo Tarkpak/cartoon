@@ -4,6 +4,23 @@ export type QueueStatus = 'pending' | 'running' | 'done' | 'error'
 export type AutoStageKey = 'parse' | 'assets' | 'videos' | 'final'
 export type AutoStageStatus = 'pending' | 'running' | 'done'
 export type AssetUploadInputType = 'char' | 'char_voice' | 'env' | 'prop'
+export type AssetHistorySource = 'generated' | 'uploaded' | 'legacy'
+
+export interface AssetImageHistoryEntry {
+  id: string
+  image: string
+  createdAt?: string
+  source?: AssetHistorySource
+  prompt?: string
+}
+
+export interface AssetVideoHistoryEntry {
+  id: string
+  videoUrl: string
+  createdAt?: string
+  source?: AssetHistorySource
+  prompt?: string
+}
 
 export interface QueueItem {
   sceneId: string
@@ -31,6 +48,7 @@ export interface DisplayAsset {
   type: 'character' | 'environment' | 'prop'
   description?: string
   referenceImage?: string
+  assetHistory?: AssetImageHistoryEntry[]
 }
 
 export interface SceneDescriptionMentionItem {
@@ -57,6 +75,7 @@ export interface EnvironmentAssetCard {
   name: string
   description?: string
   referenceImage?: string
+  assetHistory?: AssetImageHistoryEntry[]
   sceneIds: string[]
   sceneTitles: string[]
   representativeSceneId: string

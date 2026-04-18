@@ -1,6 +1,12 @@
 <script setup lang="ts">
+import SceneVideoHistoryDialog from './SceneVideoHistoryDialog.vue'
 import type { SceneData, CharacterData } from '~/composables/useAssetWorkbench'
-import type { DisplayAsset, EnvironmentAssetCard } from '~/lib/asset-workbench-types'
+import type {
+  AssetImageHistoryEntry,
+  AssetVideoHistoryEntry,
+  DisplayAsset,
+  EnvironmentAssetCard
+} from '~/lib/asset-workbench-types'
 import type { AssetReferenceOption } from '~/lib/scene-edit-dialog'
 
 defineProps<{
@@ -28,6 +34,22 @@ defineProps<{
   resolveDisplayAssetTypeLabel: (type: DisplayAsset['type']) => string
   handleSceneSave: (scene: Partial<SceneData> & { id: string }) => void
   handleSceneAssetReferencesSave: (payload: { sceneId: string, assetIds: string[] }) => void | Promise<void>
+  assetHistoryDialogOpen: boolean
+  setAssetHistoryDialogOpen: (open: boolean) => void
+  assetHistoryDialogTitle: string
+  assetHistoryTargetLabel: string
+  assetHistoryCurrentImage?: string
+  assetHistoryEntries: AssetImageHistoryEntry[]
+  assetHistoryApplying?: boolean
+  handleAssetHistorySelect: (entry: AssetImageHistoryEntry) => void | Promise<void>
+  sceneVideoHistoryDialogOpen: boolean
+  setSceneVideoHistoryDialogOpen: (open: boolean) => void
+  sceneVideoHistoryTargetLabel: string
+  sceneVideoHistoryCurrentVideoUrl?: string
+  sceneVideoHistoryEntries: AssetVideoHistoryEntry[]
+  sceneVideoHistoryApplying?: boolean
+  handleSceneVideoHistorySelect: (entry: AssetVideoHistoryEntry) => void | Promise<void>
+  openImagePreview: (src: string | undefined, alt: string) => void
   imagePreviewOpen: boolean
   setImagePreviewOpen: (open: boolean) => void
   imagePreviewSrc: string
@@ -78,6 +100,28 @@ defineProps<{
     @update:open="setSceneEditDialogOpen"
     @save="handleSceneSave"
     @save-asset-references="handleSceneAssetReferencesSave"
+  />
+
+  <AssetWorkbenchAssetHistoryDialog
+    :open="assetHistoryDialogOpen"
+    :title="assetHistoryDialogTitle"
+    :target-label="assetHistoryTargetLabel"
+    :current-image="assetHistoryCurrentImage"
+    :entries="assetHistoryEntries"
+    :loading="assetHistoryApplying"
+    @update:open="setAssetHistoryDialogOpen"
+    @preview="openImagePreview($event.src, $event.alt)"
+    @select="handleAssetHistorySelect"
+  />
+
+  <SceneVideoHistoryDialog
+    :open="sceneVideoHistoryDialogOpen"
+    :target-label="sceneVideoHistoryTargetLabel"
+    :current-video-url="sceneVideoHistoryCurrentVideoUrl"
+    :entries="sceneVideoHistoryEntries"
+    :loading="sceneVideoHistoryApplying"
+    @update:open="setSceneVideoHistoryDialogOpen"
+    @select="handleSceneVideoHistorySelect"
   />
 
   <ImagePreview

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Package, Plus, Trash2, Upload } from 'lucide-vue-next'
+import { History, Loader2, Package, Plus, Trash2, Upload } from 'lucide-vue-next'
 import type { PropAsset } from '~/composables/useAssetWorkflowMeta'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { toImageSrc } from '~/lib/media'
@@ -15,6 +15,7 @@ const emit = defineEmits<{
   'add-prop': [payload: { name: string, description: string }]
   'remove-prop': [propId: string]
   'upload-image': [payload: { propId: string, event: Event }]
+  'open-history': [propId: string]
   'preview-image': [payload: { src: string | undefined, alt: string }]
 }>()
 
@@ -35,6 +36,10 @@ function triggerUploadInput(propId: string) {
   if (typeof document === 'undefined') return
   const input = document.getElementById(buildAssetUploadInputId('prop', propId)) as HTMLInputElement | null
   input?.click()
+}
+
+function resolveHistoryCount(prop: PropAsset): number {
+  return Array.isArray(prop.assetHistory) ? prop.assetHistory.length : 0
 }
 </script>
 
@@ -143,6 +148,16 @@ function triggerUploadInput(propId: string) {
                 class="mr-1 h-3 w-3"
               />
               {{ prop.referenceImage ? '更换' : '上传' }}
+            </Button>
+            <Button
+              v-if="resolveHistoryCount(prop) > 1"
+              size="sm"
+              variant="ghost"
+              class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              @click="emit('open-history', prop.id)"
+            >
+              <History class="mr-1 h-3 w-3" />
+              历史 {{ resolveHistoryCount(prop) }}
             </Button>
             <Button
               size="sm"
