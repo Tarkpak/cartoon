@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { generateJSONForWorkflow } from '../../../utils/workflow-model'
 import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
+import { resolveTimeOfDayText } from '../../../../shared/types/script'
 
 const AssetTypeSchema = z.enum(['character', 'environment', 'prop'])
 
@@ -75,7 +76,7 @@ function buildSettingText(scene: z.infer<typeof SceneSchema>): string {
 
   return [
     scene.setting.location ? `- 地点：${scene.setting.location}` : '',
-    scene.setting.timeOfDay ? `- 时间：${scene.setting.timeOfDay}` : '',
+    scene.setting.timeOfDay ? `- 时间：${resolveTimeOfDayText(scene.setting.timeOfDay)}` : '',
     scene.setting.mood ? `- 氛围：${scene.setting.mood}` : '',
     scene.setting.weather ? `- 天气：${scene.setting.weather}` : ''
   ]

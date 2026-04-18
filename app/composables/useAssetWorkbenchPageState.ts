@@ -17,6 +17,7 @@ import {
   resolveSceneDescriptionRenderSegments as createSceneDescriptionRenderSegments,
   resolveSceneDescriptionSecondaryMentionItems as createSceneDescriptionSecondaryMentionItems
 } from '~/lib/asset-workbench-mentions'
+import { resolveSceneVoiceReferenceSummary as createSceneVoiceReferenceSummary } from '~/lib/asset-workbench-voice'
 import {
   buildNextQueueItems,
   buildQueueSummary,
@@ -186,6 +187,13 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
     return createSceneVideoBadge(scene, options.queueItems.value)
   }
 
+  function resolveSceneVoiceReferenceSummary(scene: SceneData) {
+    return createSceneVoiceReferenceSummary({
+      scene,
+      characters: options.characters.value
+    })
+  }
+
   function resolveEnvironmentCard(assetId: string) {
     return findEnvironmentCard(assetId, environmentAssetCards.value)
   }
@@ -229,6 +237,7 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
     isSceneBusy,
     isScenePreparing,
     resolveSceneVideoBadge,
+    resolveSceneVoiceReferenceSummary,
     resolveEnvironmentCard,
     resolveEnvironmentRepresentativeScene,
     hasEnvironmentRepresentativeScene

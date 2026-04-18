@@ -15,6 +15,7 @@ import {
 import { getWorkflowModels, getWorkflowModelOptions } from '../../models/workflow.get'
 import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
+import { resolveTimeOfDayText } from '../../../../shared/types/script'
 
 const AspectRatioSchema = z.enum(['16:9', '9:16', '1:1'])
 
@@ -381,7 +382,7 @@ function buildEnvironmentSummary(scene: z.infer<typeof SceneSchema>): string {
 
   const summaryLines = [
     scene.setting?.location ? `核心空间：${scene.setting.location}` : '',
-    scene.setting?.timeOfDay ? `时间：${scene.setting.timeOfDay}` : '',
+    scene.setting?.timeOfDay ? `时间：${resolveTimeOfDayText(scene.setting.timeOfDay)}` : '',
     scene.setting?.weather ? `天气：${scene.setting.weather}` : '',
     scene.setting?.mood ? `氛围：${scene.setting.mood}` : '',
     hasText(scene.cameraNote) ? `镜头取景重点：${scene.cameraNote!.trim()}` : ''
@@ -622,8 +623,9 @@ async function buildSceneReferencePrompt(
   const normalizedCustomPrompt = customPrompt?.trim() || ''
   const environmentSummary = buildEnvironmentSummary(scene)
   const environmentSceneTitle = scene.setting?.location?.trim() || scene.title || '未命名场景'
+  const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
   const settingText = scene.setting
-    ? [scene.setting.location, scene.setting.timeOfDay, scene.setting.mood, scene.setting.weather]
+    ? [scene.setting.location, timeOfDay, scene.setting.mood, scene.setting.weather]
         .filter(Boolean)
         .join(' / ')
     : '未提供'

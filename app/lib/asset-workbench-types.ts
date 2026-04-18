@@ -3,7 +3,7 @@ export type AssetTab = 'characters' | 'environments' | 'props'
 export type QueueStatus = 'pending' | 'running' | 'done' | 'error'
 export type AutoStageKey = 'parse' | 'assets' | 'videos' | 'final'
 export type AutoStageStatus = 'pending' | 'running' | 'done'
-export type AssetUploadInputType = 'char' | 'env' | 'prop'
+export type AssetUploadInputType = 'char' | 'char_voice' | 'env' | 'prop'
 
 export interface QueueItem {
   sceneId: string
@@ -80,6 +80,19 @@ export interface SceneChatMessage {
 export interface SceneVideoBadge {
   variant: 'secondary' | 'destructive' | 'default' | 'outline'
   label: string
+}
+
+export interface SceneVoiceReferenceCharacter {
+  id: string
+  name: string
+  locked: boolean
+  source: 'manual' | 'auto'
+}
+
+export interface SceneVoiceReferenceSummary {
+  hasDialogue: boolean
+  mode: 'none' | 'explicit_audio' | 'prompt_only'
+  characters: SceneVoiceReferenceCharacter[]
 }
 
 export interface CharacterRoleOption {

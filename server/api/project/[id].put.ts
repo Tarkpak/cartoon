@@ -3,6 +3,8 @@ import { eq } from 'drizzle-orm'
 import { db, projects, scripts, scenes, characters } from '../../db'
 import { isStyleIdEnabled } from '../../utils/style-config'
 import { normalizeProjectWorkflowType } from '../../../shared/types/project'
+import { CharacterVoiceAssetSchema } from '../../../shared/types/character'
+import { normalizeTimeOfDayValue } from '../../../shared/types/script'
 import {
   mergeStoredProjectScriptData,
   parseStoredProjectScript,
@@ -10,6 +12,16 @@ import {
 } from '../../utils/project-script'
 
 const nullToUndefined = (value: unknown) => (value === null ? undefined : value)
+
+function parseExistingVoiceAsset(rawValue?: string | null) {
+  if (!rawValue?.trim()) return null
+
+  try {
+    return JSON.parse(rawValue)
+  } catch {
+    return null
+  }
+}
 
 const SceneSchema = z.object({
   id: z.string(),
@@ -61,6 +73,7 @@ const CharacterSchema = z.object({
   speakingStyle: z.string().optional(),
   catchphrase: z.string().optional(),
   voiceTone: z.string().optional(),
+  voiceAsset: z.preprocess(nullToUndefined, CharacterVoiceAssetSchema.optional()),
   age: z.number().optional(),
   gender: z.string().optional(),
   baseImage: z.preprocess(nullToUndefined, z.string().optional()),
@@ -221,13 +234,19 @@ export default defineEventHandler(async (event) => {
         for (let i = 0; i < data.scenes.length; i++) {
           const scene = data.scenes[i]
           if (!scene) continue
+          const normalizedSetting = scene.setting
+            ? {
+                ...scene.setting,
+                timeOfDay: normalizeTimeOfDayValue(scene.setting.timeOfDay)
+              }
+            : null
           await db.insert(scenes).values({
             id: normalizeScopedId('scene', scene.id),
             scriptId: script.id,
             orderIndex: i,
             title: scene.title || null,
             description: scene.description,
-            setting: scene.setting ? JSON.stringify(scene.setting) : null,
+            setting: normalizedSetting ? JSON.stringify(normalizedSetting) : null,
             characters: scene.characters ? JSON.stringify(scene.characters) : null,
             dialogues: scene.dialogues ? JSON.stringify(scene.dialogues) : null,
             duration: scene.duration || 8,
@@ -259,14 +278,21 @@ export default defineEventHandler(async (event) => {
 
     // 处理角色
     if (data.characters !== undefined) {
+      const existingCharacters = await db.select().from(characters).where(eq(characters.projectId, id)).all()
+      const existingCharacterById = new Map(existingCharacters.map(item => [item.id, item]))
+
       // 删除旧角色
       await db.delete(characters).where(eq(characters.projectId, id))
 
       // 插入新角色
       for (const char of data.characters) {
         if (!char) continue
+        const scopedCharacterId = normalizeScopedId('char', char.id)
+        const existingCharacter = existingCharacterById.get(scopedCharacterId)
+        const voiceAsset = char.voiceAsset || parseExistingVoiceAsset(existingCharacter?.voiceAsset)
+
         await db.insert(characters).values({
-          id: normalizeScopedId('char', char.id),
+          id: scopedCharacterId,
           projectId: id,
           name: char.name,
           role: (char.role as 'protagonist' | 'antagonist' | 'supporting' | 'extra') || 'supporting',
@@ -278,6 +304,7 @@ export default defineEventHandler(async (event) => {
           speakingStyle: char.speakingStyle || null,
           catchphrase: char.catchphrase || null,
           voiceTone: char.voiceTone || null,
+          voiceAsset: voiceAsset ? JSON.stringify(voiceAsset) : null,
           age: char.age || null,
           gender: (char.gender as 'male' | 'female' | 'other') || null,
           baseImage: char.baseImage || null,

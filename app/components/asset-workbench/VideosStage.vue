@@ -9,7 +9,8 @@ import type {
   SceneChatMessage,
   SceneDescriptionMentionItem,
   SceneDescriptionRenderSegment,
-  SceneVideoBadge
+  SceneVideoBadge,
+  SceneVoiceReferenceSummary
 } from '~/lib/asset-workbench-types'
 
 const props = defineProps<{
@@ -31,6 +32,7 @@ const props = defineProps<{
   sceneChatError: string | null
   sceneChatCanSubmit: boolean
   resolveSceneVideoBadge: (scene: SceneData) => SceneVideoBadge
+  resolveSceneVoiceReferenceSummary: (scene: SceneData) => SceneVoiceReferenceSummary
   resolveSceneDescriptionRenderSegments: (scene: SceneData) => SceneDescriptionRenderSegment[]
   resolveSceneDescriptionSecondaryMentionItems: (scene: SceneData) => SceneDescriptionMentionItem[]
   resolveSceneReferenceImage: (scene: SceneData) => string | undefined
@@ -66,6 +68,11 @@ const props = defineProps<{
 
 const readySceneCount = computed(() => {
   return props.scenes.filter(scene => scene.referenceStatus === 'done').length
+})
+
+const selectedSceneVoiceReferenceSummary = computed(() => {
+  if (!props.selectedScene) return null
+  return props.resolveSceneVoiceReferenceSummary(props.selectedScene)
 })
 </script>
 
@@ -156,6 +163,7 @@ const readySceneCount = computed(() => {
           :chat-error="sceneChatError"
           :chat-can-submit="sceneChatCanSubmit"
           :resolve-scene-video-badge="resolveSceneVideoBadge"
+          :resolve-scene-voice-reference-summary="resolveSceneVoiceReferenceSummary"
           :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
           :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
           :resolve-scene-reference-image="resolveSceneReferenceImage"
@@ -190,9 +198,18 @@ const readySceneCount = computed(() => {
       <!-- Video preview panel -->
       <div class="min-h-0 flex flex-col rounded-lg border bg-muted/5">
         <template v-if="selectedScene">
-          <div class="px-4 py-3 border-b">
+          <div class="space-y-2 border-b px-4 py-3">
             <div class="text-xs font-medium text-muted-foreground">
               视频预览
+            </div>
+            <div class="text-sm font-medium">
+              {{ selectedScene.title }}
+            </div>
+            <div
+              v-if="selectedSceneVoiceReferenceSummary?.hasDialogue"
+              class="flex flex-wrap items-center gap-1.5"
+            >
+              <AssetWorkbenchSceneVoiceReferenceSummary :summary="selectedSceneVoiceReferenceSummary" />
             </div>
           </div>
           <div class="flex-1 flex items-center justify-center p-4">

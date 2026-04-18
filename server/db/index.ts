@@ -108,6 +108,7 @@ export function initDatabase() {
       speaking_style TEXT,
       catchphrase TEXT,
       voice_tone TEXT,
+      voice_asset TEXT,
       age INTEGER,
       gender TEXT,
       base_image TEXT,
@@ -127,6 +128,7 @@ export function initDatabase() {
   if (!hasCharacterColumn('speaking_style')) sqlite.exec('ALTER TABLE characters ADD COLUMN speaking_style TEXT')
   if (!hasCharacterColumn('catchphrase')) sqlite.exec('ALTER TABLE characters ADD COLUMN catchphrase TEXT')
   if (!hasCharacterColumn('voice_tone')) sqlite.exec('ALTER TABLE characters ADD COLUMN voice_tone TEXT')
+  if (!hasCharacterColumn('voice_asset')) sqlite.exec('ALTER TABLE characters ADD COLUMN voice_asset TEXT')
 
   // 创建视频任务表 (移除外键约束以支持临时场景ID)
   sqlite.exec(`

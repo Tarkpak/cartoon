@@ -20,6 +20,16 @@ export function assertValidImageFile(file: File, maxFileSize: number) {
   }
 }
 
+export function assertValidAudioFile(file: File, maxFileSize: number) {
+  if (!file.type.startsWith('audio/')) {
+    throw new Error('仅支持上传音频文件')
+  }
+
+  if (file.size > maxFileSize) {
+    throw new Error(`音频大小不能超过 ${formatUploadLimit(maxFileSize)}`)
+  }
+}
+
 export async function fileToDataUrl(file: File): Promise<string> {
   return await new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -29,6 +39,23 @@ export async function fileToDataUrl(file: File): Promise<string> {
     reader.onload = () => {
       if (typeof reader.result !== 'string' || !reader.result.startsWith('data:image/')) {
         reject(new Error('仅支持图片文件上传'))
+        return
+      }
+      resolve(reader.result)
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+export async function fileToAudioDataUrl(file: File): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => {
+      reject(new Error('读取音频文件失败，请重试'))
+    }
+    reader.onload = () => {
+      if (typeof reader.result !== 'string' || !reader.result.startsWith('data:audio/')) {
+        reject(new Error('仅支持音频文件上传'))
         return
       }
       resolve(reader.result)
@@ -63,4 +90,32 @@ export async function uploadImageFile(file: File, options: {
   assertValidImageFile(file, options.maxFileSize)
   const dataUrl = await fileToDataUrl(file)
   return await uploadAssetImage(dataUrl, options.prefix)
+}
+
+export async function uploadAssetAudio(source: string, prefix: string): Promise<string> {
+  const response = await $fetch<{
+    success: boolean
+    audioUrl?: string
+  }>('/api/character/voice/upload', {
+    method: 'POST',
+    body: {
+      audioData: source,
+      prefix
+    }
+  })
+
+  if (!response.success || !response.audioUrl) {
+    throw new Error('音频上传失败，请稍后重试')
+  }
+
+  return response.audioUrl
+}
+
+export async function uploadAudioFile(file: File, options: {
+  maxFileSize: number
+  prefix: string
+}) {
+  assertValidAudioFile(file, options.maxFileSize)
+  const dataUrl = await fileToAudioDataUrl(file)
+  return await uploadAssetAudio(dataUrl, options.prefix)
 }

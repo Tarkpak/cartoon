@@ -406,3 +406,59 @@ export function getVideoInfo(inputPath: string): Promise<{
     })
   })
 }
+
+export async function extractAudioTrack(
+  inputPath: string,
+  outputPath: string,
+  options: {
+    codec?: string
+    sampleRate?: number
+    channels?: number
+    bitrate?: string
+  } = {}
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .noVideo()
+      .audioCodec(options.codec || 'libmp3lame')
+      .audioFrequency(options.sampleRate || 16000)
+      .audioChannels(options.channels || 1)
+      .audioBitrate(options.bitrate || '64k')
+      .outputOptions(['-y'])
+      .output(outputPath)
+      .on('end', () => resolve(outputPath))
+      .on('error', reject)
+      .run()
+  })
+}
+
+export async function clipAudioSegment(
+  inputPath: string,
+  outputPath: string,
+  startTimeSeconds: number,
+  endTimeSeconds: number,
+  options: {
+    codec?: string
+    sampleRate?: number
+    channels?: number
+    bitrate?: string
+  } = {}
+): Promise<string> {
+  const safeStart = Math.max(0, startTimeSeconds)
+  const safeDuration = Math.max(0.1, endTimeSeconds - safeStart)
+
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .setStartTime(safeStart)
+      .duration(safeDuration)
+      .audioCodec(options.codec || 'libmp3lame')
+      .audioFrequency(options.sampleRate || 16000)
+      .audioChannels(options.channels || 1)
+      .audioBitrate(options.bitrate || '64k')
+      .outputOptions(['-vn', '-y'])
+      .output(outputPath)
+      .on('end', () => resolve(outputPath))
+      .on('error', reject)
+      .run()
+  })
+}

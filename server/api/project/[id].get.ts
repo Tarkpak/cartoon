@@ -4,6 +4,7 @@ import { persistImageToPublic } from '../../utils/image-storage'
 import { normalizeProjectWorkflowType } from '../../../shared/types/project'
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
 import { parseStoredProjectScript } from '../../utils/project-script'
+import type { CharacterVoiceAsset } from '../../../shared/types/character'
 
 function looksLikeBase64Image(value: string): boolean {
   const compact = value.replace(/\s+/g, '')
@@ -159,6 +160,17 @@ async function migrateCharacterBaseImagesToCloud(
   return migrated
 }
 
+function parseCharacterVoiceAsset(rawValue?: string | null): CharacterVoiceAsset | null {
+  if (!rawValue?.trim()) return null
+
+  try {
+    return JSON.parse(rawValue) as CharacterVoiceAsset
+  } catch (error) {
+    console.warn('[ProjectGet] 解析角色声音资产失败:', error)
+    return null
+  }
+}
+
 /**
  * 获取项目详情
  * GET /api/project/:id
@@ -279,6 +291,7 @@ export default defineEventHandler(async (event) => {
           speakingStyle: c.speakingStyle,
           catchphrase: c.catchphrase,
           voiceTone: c.voiceTone,
+          voiceAsset: parseCharacterVoiceAsset(c.voiceAsset),
           age: c.age,
           gender: c.gender,
           imageUrl: migratedCharacterImages.get(c.id) || normalizeCharacterImageUrl(c.baseImage),

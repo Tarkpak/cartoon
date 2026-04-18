@@ -47,6 +47,7 @@ const { resolveStyleById, loadStylePresets } = useStylePresets()
 void loadStylePresets()
 
 const MAX_ASSET_UPLOAD_SIZE = 20 * 1024 * 1024
+const MAX_VOICE_UPLOAD_SIZE = 30 * 1024 * 1024
 
 const {
   projectId,
@@ -74,6 +75,7 @@ const {
   mergeAllVideos,
   mergeStatus,
   finalVideo,
+  refreshCharacterVoiceAssets,
   resolveProjectStatus
 } = useAssetWorkbench()
 
@@ -113,6 +115,7 @@ const {
   resolveAssetByMentionTokenMap,
   resolveSceneDescriptionSecondaryMentionItems,
   resolveSceneDescriptionRenderSegments,
+  resolveSceneVoiceReferenceSummary,
   resolveDisplayAssetById,
   synchronizeQueueItems,
   isSceneBusy,
@@ -284,6 +287,7 @@ const {
   resolveSceneDescriptionWithoutAssetMentions,
   synchronizeQueueItems,
   saveProject,
+  refreshCharacterVoiceAssets,
   generateCharacter,
   batchGenerateCharacters,
   persistAutomaticAssetPlan
@@ -509,10 +513,13 @@ const {
   environmentRegenerateError,
   environmentRegenerateTarget,
   uploadingCharacterId,
+  uploadingCharacterVoiceId,
   uploadingEnvironmentAssetId,
   uploadingPropId,
   openImagePreview,
   handleCharacterImageUpload,
+  handleCharacterVoiceUpload,
+  handleCharacterVoiceLockChange,
   handleEnvironmentImageUpload,
   handlePropImageUpload,
   openEnvironmentRegenerateDialog,
@@ -521,6 +528,7 @@ const {
   submitEnvironmentRegeneration
 } = useAssetWorkbenchAssetMedia({
   maxAssetUploadSize: MAX_ASSET_UPLOAD_SIZE,
+  maxVoiceUploadSize: MAX_VOICE_UPLOAD_SIZE,
   statusError: autoRunError,
   scenes,
   characters,
@@ -803,6 +811,7 @@ async function handleBatchGenerateCharacters() {
         :character-edit-draft="characterEditDraft"
         :character-role-options="characterRoleOptions"
         :uploading-character-id="uploadingCharacterId"
+        :uploading-character-voice-id="uploadingCharacterVoiceId"
         :uploading-environment-asset-id="uploadingEnvironmentAssetId"
         :uploading-prop-id="uploadingPropId"
         :get-character-scene-count="resolveCharacterSceneCount"
@@ -821,6 +830,8 @@ async function handleBatchGenerateCharacters() {
         @generate-character="handleGenerateCharacter"
         @open-character-regenerate="openCharacterRegenerateDialog"
         @upload-character-image="handleCharacterImageUpload($event.characterId, $event.event)"
+        @upload-character-voice="handleCharacterVoiceUpload($event.characterId, $event.event)"
+        @update-character-voice-lock="handleCharacterVoiceLockChange($event.characterId, $event.locked)"
         @edit-environment-scene="openEnvironmentAssetSceneEditor"
         @upload-environment-image="handleEnvironmentImageUpload($event.assetId, $event.event)"
         @open-environment-regenerate="openEnvironmentRegenerateDialog"
@@ -853,6 +864,7 @@ async function handleBatchGenerateCharacters() {
         :scene-chat-error="sceneChatError"
         :scene-chat-can-submit="sceneChatCanSubmit"
         :resolve-scene-video-badge="resolveSceneVideoBadge"
+        :resolve-scene-voice-reference-summary="resolveSceneVoiceReferenceSummary"
         :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
         :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
         :resolve-scene-reference-image="resolveSceneReferenceImage"

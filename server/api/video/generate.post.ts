@@ -18,6 +18,10 @@ import {
   syncSceneVideoResult
 } from '../../utils/video-task-storage'
 import {
+  enrichVideoConfigWithCharacterVoiceReference,
+  extractCharacterVoiceAssetsFromSceneVideo
+} from '../../utils/character-voice-assets'
+import {
   parseVideoTaskMetadata,
   patchUpstreamVideoTaskMetadata,
   setUpstreamVideoTaskMetadata,
@@ -69,6 +73,16 @@ export default defineEventHandler(async (event) => {
       message: normalizeError instanceof Error ? normalizeError.message : '参考图格式错误或不可访问'
     })
   }
+
+  const actualModelId = await getActualModelId(config)
+  const actualProvider = actualModelId
+    ? findVideoModel(actualModelId)?.provider
+    : undefined
+  config = await enrichVideoConfigWithCharacterVoiceReference({
+    sceneId,
+    config,
+    modelProvider: actualProvider || await determineProvider(config)
+  })
 
   // 2. 创建任务并存入数据库
   const taskId = `video_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -641,6 +655,21 @@ async function updateTaskProgress(taskId: string, progress: number, status?: Tas
     .where(eq(videoTasksTable.id, taskId))
 }
 
+function triggerCharacterVoiceAssetExtraction(options: {
+  taskId: string
+  sceneId: string
+  remoteVideoUrl?: string
+  persistedVideoData?: string
+}) {
+  void extractCharacterVoiceAssetsFromSceneVideo(options).catch((error) => {
+    console.warn('[VideoGen] 角色声音资产提取失败:', {
+      sceneId: options.sceneId,
+      taskId: options.taskId,
+      error: error instanceof Error ? error.message : String(error)
+    })
+  })
+}
+
 /**
  * 确定使用哪个提供商
  */
@@ -899,6 +928,12 @@ async function generateVideoWithQwen(
       })
       .where(eq(videoTasksTable.id, taskId))
     await syncSceneVideoResult(sceneId, generatedVideo.videoData)
+    triggerCharacterVoiceAssetExtraction({
+      taskId,
+      sceneId,
+      remoteVideoUrl: result.videoUrl,
+      persistedVideoData: generatedVideo.videoData
+    })
 
     console.log(`[VideoGen] 千问视频生成完成: ${taskId}`)
   } catch (error) {
@@ -1030,6 +1065,12 @@ async function generateVideoWithKling(
       })
       .where(eq(videoTasksTable.id, taskId))
     await syncSceneVideoResult(sceneId, generatedVideo.videoData)
+    triggerCharacterVoiceAssetExtraction({
+      taskId,
+      sceneId,
+      remoteVideoUrl: result.videoUrl,
+      persistedVideoData: generatedVideo.videoData
+    })
 
     console.log(`[VideoGen] 可灵视频生成完成: ${taskId}`)
   } catch (error) {
@@ -1451,6 +1492,11 @@ async function generateVideoWithGemini(
       })
       .where(eq(videoTasksTable.id, taskId))
     await syncSceneVideoResult(sceneId, result.videoData)
+    triggerCharacterVoiceAssetExtraction({
+      taskId,
+      sceneId,
+      persistedVideoData: result.videoData
+    })
 
     console.log(`[VideoGen] 视频生成完成: ${taskId}`)
   } catch (error) {
@@ -1596,6 +1642,12 @@ async function generateVideoWithVolcengine(
       })
       .where(eq(videoTasksTable.id, taskId))
     await syncSceneVideoResult(sceneId, generatedVideo.videoData)
+    triggerCharacterVoiceAssetExtraction({
+      taskId,
+      sceneId,
+      remoteVideoUrl: result.videoUrl,
+      persistedVideoData: generatedVideo.videoData
+    })
 
     console.log(`[VideoGen] 火山引擎视频生成完成: ${taskId}`)
   } catch (error) {

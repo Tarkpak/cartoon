@@ -5,6 +5,7 @@ import { getInterpolatedPrompt } from '../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 import { normalizeProjectWorkflowType } from '../../../shared/types/project'
 import {
+  normalizeTimeOfDayValue,
   ParseScriptRequestSchema,
   ParsedScriptSchema,
   type ParsedScript
@@ -13,16 +14,7 @@ import {
 const SCRIPT_MIN_DURATION = 2
 const SCRIPT_MAX_DURATION = 15
 const DEFAULT_SCENE_DURATION = 8
-const DEFAULT_TIME_OF_DAY = 'morning'
 const DEFAULT_SHOT_TYPE = 'medium'
-const VALID_TIME_OF_DAY = new Set([
-  'dawn',
-  'morning',
-  'noon',
-  'afternoon',
-  'evening',
-  'night'
-])
 const VALID_SHOT_TYPE = new Set([
   'extreme_wide',
   'wide',
@@ -89,25 +81,6 @@ function normalizeSceneDuration(rawDuration: unknown): number {
 
   const clamped = Math.min(SCRIPT_MAX_DURATION, Math.max(SCRIPT_MIN_DURATION, numericDuration))
   return Math.round(clamped * 2) / 2
-}
-
-function normalizeTimeOfDay(rawTimeOfDay: unknown): string {
-  if (typeof rawTimeOfDay !== 'string') return DEFAULT_TIME_OF_DAY
-
-  const value = rawTimeOfDay.trim().toLowerCase()
-  if (!value) return DEFAULT_TIME_OF_DAY
-  if (VALID_TIME_OF_DAY.has(value)) return value
-
-  if (/none|null|unknown|n\/a|na|unspecified|未指定|未知|无/.test(value)) return DEFAULT_TIME_OF_DAY
-
-  if (/dawn|sunrise|break of day|拂晓|黎明|凌晨/.test(value)) return 'dawn'
-  if (/morning|am|forenoon|清晨|早晨|早上|上午/.test(value)) return 'morning'
-  if (/noon|midday|中午|正午/.test(value)) return 'noon'
-  if (/afternoon|pm|下午/.test(value)) return 'afternoon'
-  if (/evening|sunset|dusk|傍晚|黄昏|日落/.test(value)) return 'evening'
-  if (/night|midnight|深夜|夜晚|晚上|午夜/.test(value)) return 'night'
-
-  return DEFAULT_TIME_OF_DAY
 }
 
 function inferShotTypeFromText(text: string): string {
@@ -335,7 +308,7 @@ function normalizeParsedScriptOutput(output: unknown): unknown {
       setting: {
         ...rawSetting,
         location,
-        timeOfDay: normalizeTimeOfDay(rawSetting.timeOfDay)
+        timeOfDay: normalizeTimeOfDayValue(rawSetting.timeOfDay)
       }
     }
   })

@@ -1,5 +1,5 @@
 import type { ComputedRef, Ref } from 'vue'
-import type { CharacterView } from '#shared/types/character'
+import type { CharacterView, CharacterVoiceAsset } from '#shared/types/character'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { FinalVideoAsset } from '~/lib/asset-workbench-types'
 import {
@@ -188,6 +188,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
             speakingStyle?: string | null
             catchphrase?: string | null
             voiceTone?: string | null
+            voiceAsset?: CharacterVoiceAsset | null
             age?: number | null
             gender?: string | null
             imageUrl?: string | null
@@ -288,10 +289,60 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     }
   }
 
+  async function refreshCharacterVoiceAssets(input: {
+    attempts?: number
+    delayMs?: number
+  } = {}) {
+    const id = options.projectId.value
+    if (!id || options.characters.value.length === 0) return
+
+    const attempts = Math.max(1, input.attempts ?? 1)
+    const delayMs = Math.max(200, input.delayMs ?? 1000)
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise(resolve => setTimeout(resolve, delayMs))
+      }
+
+      try {
+        const response = await $fetch<{
+          success: boolean
+          data?: {
+            characters: Array<{
+              id: string
+              voiceAsset?: CharacterVoiceAsset | null
+            }>
+          }
+        }>(`/api/project/${id}`)
+
+        if (!response.success || !response.data?.characters) return
+
+        const incoming = new Map(response.data.characters.map(item => [item.id, item.voiceAsset || undefined]))
+        let changed = false
+
+        for (const character of options.characters.value) {
+          const nextVoiceAsset = incoming.get(character.id)
+          const currentSerialized = JSON.stringify(character.voiceAsset || null)
+          const nextSerialized = JSON.stringify(nextVoiceAsset || null)
+          if (currentSerialized === nextSerialized) continue
+
+          character.voiceAsset = nextVoiceAsset
+          changed = true
+        }
+
+        if (changed) return
+      } catch (error) {
+        console.warn('[useAssetWorkbenchProjectIO] 刷新角色音频资产失败:', error)
+        return
+      }
+    }
+  }
+
   return {
     saveError,
     saveProject,
     loadProject,
+    refreshCharacterVoiceAssets,
     mergeAllVideos,
     mergeStatus,
     finalVideo,

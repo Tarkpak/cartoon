@@ -7,12 +7,14 @@ import {
 } from '~/lib/asset-workbench-scene-generation'
 import {
   resetFileInput,
+  uploadAudioFile,
   uploadImageFile
 } from '~/lib/asset-workbench-upload'
 import type { EnvironmentAssetCard } from '~/lib/asset-workbench-types'
 
 export function useAssetWorkbenchAssetMedia(options: {
   maxAssetUploadSize: number
+  maxVoiceUploadSize: number
   statusError: Ref<string | null>
   scenes: Ref<SceneData[]>
   characters: Ref<CharacterData[]>
@@ -37,6 +39,7 @@ export function useAssetWorkbenchAssetMedia(options: {
   const environmentRegeneratePrompt = ref('')
   const environmentRegenerateError = ref<string | null>(null)
   const uploadingCharacterId = ref<string | null>(null)
+  const uploadingCharacterVoiceId = ref<string | null>(null)
   const uploadingEnvironmentAssetId = ref<string | null>(null)
   const uploadingPropId = ref<string | null>(null)
 
@@ -88,6 +91,66 @@ export function useAssetWorkbenchAssetMedia(options: {
     } finally {
       uploadingCharacterId.value = null
       resetFileInput(event)
+    }
+  }
+
+  async function handleCharacterVoiceUpload(characterId: string, event: Event) {
+    const input = event.target as HTMLInputElement | null
+    const file = input?.files?.[0]
+    if (!file) {
+      resetFileInput(event)
+      return
+    }
+
+    const target = options.characters.value.find(char => char.id === characterId)
+    if (!target) {
+      resetFileInput(event)
+      return
+    }
+
+    uploadingCharacterVoiceId.value = characterId
+    options.statusError.value = null
+
+    try {
+      const audioUrl = await uploadAudioFile(file, {
+        maxFileSize: options.maxVoiceUploadSize,
+        prefix: `voice_${target.id}`
+      })
+
+      target.voiceAsset = {
+        audioUrl,
+        locked: target.voiceAsset?.locked ?? false,
+        updatedAt: new Date().toISOString()
+      }
+
+      await options.saveProject()
+    } catch (error) {
+      options.statusError.value = options.resolveUiError(error, '角色音频上传失败')
+    } finally {
+      uploadingCharacterVoiceId.value = null
+      resetFileInput(event)
+    }
+  }
+
+  async function handleCharacterVoiceLockChange(characterId: string, locked: boolean) {
+    const target = options.characters.value.find(char => char.id === characterId)
+    if (!target?.voiceAsset?.audioUrl) return
+
+    target.voiceAsset = {
+      ...target.voiceAsset,
+      locked,
+      updatedAt: target.voiceAsset.updatedAt || new Date().toISOString()
+    }
+    options.statusError.value = null
+
+    try {
+      await options.saveProject()
+    } catch (error) {
+      target.voiceAsset = {
+        ...target.voiceAsset,
+        locked: !locked
+      }
+      options.statusError.value = options.resolveUiError(error, locked ? '锁定角色音频失败' : '取消锁定角色音频失败')
     }
   }
 
@@ -258,10 +321,13 @@ export function useAssetWorkbenchAssetMedia(options: {
     environmentRegenerateError,
     environmentRegenerateTarget,
     uploadingCharacterId,
+    uploadingCharacterVoiceId,
     uploadingEnvironmentAssetId,
     uploadingPropId,
     openImagePreview,
     handleCharacterImageUpload,
+    handleCharacterVoiceUpload,
+    handleCharacterVoiceLockChange,
     handleEnvironmentImageUpload,
     handlePropImageUpload,
     openEnvironmentRegenerateDialog,
