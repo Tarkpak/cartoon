@@ -24,6 +24,7 @@ const props = defineProps<{
   }
   characterRoleOptions: CharacterRoleOption[]
   uploadingCharacterId: string | null
+  uploadingCharacterVoiceId: string | null
   uploadingEnvironmentAssetId: string | null
   uploadingPropId: string | null
   getCharacterSceneCount: (character: CharacterData) => number
@@ -45,6 +46,8 @@ const emit = defineEmits<{
   'generate-character': [characterId: string]
   'open-character-regenerate': [character: CharacterData]
   'upload-character-image': [payload: { characterId: string, event: Event }]
+  'upload-character-voice': [payload: { characterId: string, event: Event }]
+  'update-character-voice-lock': [payload: { characterId: string, locked: boolean }]
   'edit-environment-scene': [assetId: string]
   'upload-environment-image': [payload: { assetId: string, event: Event }]
   'open-environment-regenerate': [assetId: string]
@@ -157,6 +160,7 @@ const tabs = computed(() => [
         :character-edit-draft="characterEditDraft"
         :character-role-options="characterRoleOptions"
         :uploading-character-id="uploadingCharacterId"
+        :uploading-character-voice-id="uploadingCharacterVoiceId"
         :get-character-scene-count="getCharacterSceneCount"
         :set-character-edit-draft="setCharacterEditDraft"
         @preview-image="emit('preview-image', $event)"
@@ -167,6 +171,8 @@ const tabs = computed(() => [
         @generate="emit('generate-character', $event)"
         @open-regenerate="emit('open-character-regenerate', $event)"
         @upload-image="emit('upload-character-image', $event)"
+        @upload-voice="emit('upload-character-voice', $event)"
+        @update-voice-lock="emit('update-character-voice-lock', $event)"
       />
 
       <AssetWorkbenchEnvironmentAssetsTab

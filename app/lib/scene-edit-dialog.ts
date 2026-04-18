@@ -1,4 +1,5 @@
 import type { SceneData } from '~/composables/useAssetWorkbench'
+import { TIME_OF_DAY_OPTIONS } from '#shared/types/script'
 import type { DisplayAsset } from '~/lib/asset-workbench-types'
 import {
   buildAssetMentionToken,
@@ -50,13 +51,7 @@ export const sceneEditPanelTabs = [
   { key: 'assets' as const, label: '引用资产' }
 ]
 
-export const timeOfDayOptions = [
-  { value: 'morning', label: '清晨' },
-  { value: 'day', label: '白天' },
-  { value: 'afternoon', label: '下午' },
-  { value: 'evening', label: '傍晚' },
-  { value: 'night', label: '夜晚' }
-]
+export const timeOfDayOptions = TIME_OF_DAY_OPTIONS
 
 const SCENE_ASSET_MENTION_SECTION_BLOCK_REGEX = /\n{0,2}\[引用资产\]\n(?:@[^\n]*\n?)*$/u
 

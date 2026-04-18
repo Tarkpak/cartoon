@@ -33,15 +33,87 @@ export const EmotionSchema = z.string().describe('情绪')
 export type Emotion = string
 
 /** 时间段 */
-export const TimeOfDaySchema = z.enum([
-  'dawn',
-  'morning',
-  'noon',
-  'afternoon',
-  'evening',
-  'night'
-])
-export type TimeOfDay = z.infer<typeof TimeOfDaySchema>
+export const TIME_OF_DAY_VALUES = [
+  '黎明',
+  '早晨',
+  '白天',
+  '中午',
+  '下午',
+  '傍晚',
+  '夜晚'
+] as const
+export type TimeOfDay = (typeof TIME_OF_DAY_VALUES)[number]
+
+export const DEFAULT_TIME_OF_DAY: TimeOfDay = '白天'
+
+export const TIME_OF_DAY_OPTIONS = TIME_OF_DAY_VALUES.map(value => ({
+  value,
+  label: value
+})) satisfies ReadonlyArray<{ value: TimeOfDay, label: string }>
+
+const TIME_OF_DAY_SET = new Set<string>(TIME_OF_DAY_VALUES)
+
+const TIME_OF_DAY_ALIAS_MAP: Record<string, TimeOfDay> = {
+  dawn: '黎明',
+  sunrise: '黎明',
+  morning: '早晨',
+  am: '早晨',
+  forenoon: '早晨',
+  day: '白天',
+  daytime: '白天',
+  noon: '中午',
+  midday: '中午',
+  afternoon: '下午',
+  pm: '下午',
+  evening: '傍晚',
+  sunset: '傍晚',
+  dusk: '傍晚',
+  night: '夜晚',
+  midnight: '夜晚'
+}
+
+export function normalizeOptionalTimeOfDayValue(raw: unknown): TimeOfDay | undefined {
+  if (typeof raw !== 'string') return undefined
+
+  const value = raw.trim()
+  if (!value) return undefined
+  if (TIME_OF_DAY_SET.has(value)) return value as TimeOfDay
+
+  const normalized = value.toLowerCase()
+  if (TIME_OF_DAY_ALIAS_MAP[normalized]) {
+    return TIME_OF_DAY_ALIAS_MAP[normalized]
+  }
+
+  if (/none|null|unknown|n\/a|na|unspecified|未指定|未知|无/u.test(normalized)) return undefined
+  if (/拂晓|黎明|凌晨/u.test(value)) return '黎明'
+  if (/清晨|早晨|早上|上午/u.test(value)) return '早晨'
+  if (/白天|日间/u.test(value)) return '白天'
+  if (/中午|正午/u.test(value)) return '中午'
+  if (/下午|午后/u.test(value)) return '下午'
+  if (/傍晚|黄昏|日落/u.test(value)) return '傍晚'
+  if (/夜晚|夜里|晚上|深夜|午夜/u.test(value)) return '夜晚'
+
+  return undefined
+}
+
+export function normalizeTimeOfDayValue(
+  raw: unknown,
+  fallback: TimeOfDay = DEFAULT_TIME_OF_DAY
+): TimeOfDay {
+  return normalizeOptionalTimeOfDayValue(raw) || fallback
+}
+
+export function resolveTimeOfDayText(raw: unknown, fallback = ''): string {
+  const normalized = normalizeOptionalTimeOfDayValue(raw)
+  if (normalized) return normalized
+  if (typeof raw === 'string' && raw.trim()) return raw.trim()
+  return fallback
+}
+
+export const TimeOfDaySchema = z.preprocess(
+  value => normalizeOptionalTimeOfDayValue(value) ?? value,
+  z.enum(TIME_OF_DAY_VALUES)
+)
 
 // ==================== 场景相关 ====================
 

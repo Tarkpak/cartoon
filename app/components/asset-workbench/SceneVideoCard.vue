@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { resolveTimeOfDayText } from '#shared/types/script'
 import { Loader2, Merge, MessageCircle, Split, Trash2 } from 'lucide-vue-next'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
@@ -7,7 +8,8 @@ import type {
   SceneChatMessage,
   SceneDescriptionMentionItem,
   SceneDescriptionRenderSegment,
-  SceneVideoBadge
+  SceneVideoBadge,
+  SceneVoiceReferenceSummary
 } from '~/lib/asset-workbench-types'
 import { toImageSrc } from '~/lib/media'
 
@@ -28,6 +30,7 @@ const props = defineProps<{
   chatError: string | null
   chatCanSubmit: boolean
   resolveSceneVideoBadge: (scene: SceneData) => SceneVideoBadge
+  resolveSceneVoiceReferenceSummary: (scene: SceneData) => SceneVoiceReferenceSummary
   resolveSceneDescriptionRenderSegments: (scene: SceneData) => SceneDescriptionRenderSegment[]
   resolveSceneDescriptionSecondaryMentionItems: (scene: SceneData) => SceneDescriptionMentionItem[]
   resolveSceneReferenceImage: (scene: SceneData) => string | undefined
@@ -59,15 +62,13 @@ const props = defineProps<{
 }>()
 
 const videoBadge = computed(() => props.resolveSceneVideoBadge(props.scene))
+const voiceReferenceSummary = computed(() => props.resolveSceneVoiceReferenceSummary(props.scene))
 const descriptionSegments = computed(() => props.resolveSceneDescriptionRenderSegments(props.scene))
 const secondaryMentions = computed(() => props.resolveSceneDescriptionSecondaryMentionItems(props.scene))
 const sceneReferenceImage = computed(() => props.resolveSceneReferenceImage(props.scene))
 const visibleSecondaryMentions = computed(() => {
   return secondaryMentions.value.filter((item) => {
-    if (!item.asset || item.asset.type !== 'environment') return true
-    if (!sceneReferenceImage.value) return true
-
-    return item.asset.referenceImage !== sceneReferenceImage.value
+    return item.asset?.type !== 'environment'
   })
 })
 const sceneBusy = computed(() => props.isSceneBusy(props.scene))
@@ -225,6 +226,13 @@ const scenePreparing = computed(() => props.isScenePreparing(props.scene))
       </template>
     </div>
 
+    <div
+      v-if="voiceReferenceSummary.hasDialogue"
+      class="mt-2 rounded-md border bg-muted/20 px-2 py-2"
+    >
+      <AssetWorkbenchSceneVoiceReferenceSummary :summary="voiceReferenceSummary" />
+    </div>
+
     <Button
       v-if="sceneReferenceImage"
       type="button"
@@ -252,7 +260,7 @@ const scenePreparing = computed(() => props.isScenePreparing(props.scene))
         variant="outline"
         class="text-[10px]"
       >
-        {{ scene.setting.timeOfDay }}
+        {{ resolveTimeOfDayText(scene.setting.timeOfDay) }}
       </Badge>
       <Badge
         variant="outline"

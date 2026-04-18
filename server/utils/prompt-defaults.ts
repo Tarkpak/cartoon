@@ -80,7 +80,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 【场景字段规则】
 1. scenes[i].shotType 只能是：extreme_wide、wide、medium_wide、medium、medium_close、close、extreme_close、detail。
 2. scenes[i].cameraMovement 只能是：static、push、pull、pan_left、pan_right、tilt_up、tilt_down、track、dolly、zoom_in、zoom_out、crane、handheld、arc。选择最能代表该场景主运镜方式的值。
-3. scenes[i].setting.timeOfDay 只能是：dawn、morning、noon、afternoon、evening、night。
+3. scenes[i].setting.timeOfDay 只能是：黎明、早晨、白天、中午、下午、傍晚、夜晚。
 4. scenes[i].setting.location 请优先使用”主环境-子空间”或”主环境/子空间”的中性命名。
 5. 同一主环境在不同子空间中必须保持一致的建筑年代、装修档次、材质语言和维护状态。
 6. 除非原文明确说明新旧分区或废弃区，禁止输出互相冲突的环境风格。
@@ -120,7 +120,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
       "description": "0-3秒：，中景，固定镜头。护士站走廊白炽灯映出冷硬的墙面，人来人往，陆哲抬手整理白大褂，动作从容。\\n3-6秒：，近景，缓慢推近。陆哲嘴角上扬，眼神中透着志在必得的冷傲。陆哲说：'你们等着看。'\\n6-8秒：，中景，固定镜头。画外音（音色：男性，30岁左右，语调沉稳，音高偏低，语速适中，情绪克制，无口音）说：'他的目光穿过人群，像一把隐忍的刀。'",
       "setting": {
         "location": "医院-护士站",
-        "timeOfDay": "night",
+        "timeOfDay": "夜晚",
         "mood": "紧绷压迫",
         "weather": "暴雨（可选）"
       },
@@ -182,7 +182,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 ## Scene Field Rules
 1. scenes[i].shotType must be one of: extreme_wide, wide, medium_wide, medium, medium_close, close, extreme_close, detail.
 2. scenes[i].cameraMovement must be one of: static, push, pull, pan_left, pan_right, tilt_up, tilt_down, track, dolly, zoom_in, zoom_out, crane, handheld, arc. Pick the dominant camera movement for the scene.
-3. scenes[i].setting.timeOfDay must be one of: dawn, morning, noon, afternoon, evening, night.
+3. scenes[i].setting.timeOfDay must be one of: 黎明, 早晨, 白天, 中午, 下午, 傍晚, 夜晚.
 4. scenes[i].setting.location should use neutral naming such as "root environment - subspace".
 5. The same root environment must keep consistent era, material language, maintenance level, and renovation grade across scenes.
 6. Do not output conflicting environment styles unless the source explicitly describes different zones.
@@ -221,7 +221,7 @@ Output strict JSON only:
       "description": "0-3秒：，中景，固定镜头。Busy nurse station under cold fluorescent light, Lu Zhe adjusts his white coat.\\n3-6秒：，近景，缓慢推近。Lu Zhe smirks with cold confidence. Lu Zhe says: 'Wait and see.'\\n6-8秒：，中景，固定镜头。画外音（音色：male，around 30，steady tone，low-mid pitch，moderate pace，restrained，no accent）says: 'His gaze cuts through the crowd like a hidden blade.'",
       "setting": {
         "location": "Hospital - nurse station",
-        "timeOfDay": "night",
+        "timeOfDay": "夜晚",
         "mood": "tense and oppressive",
         "weather": "stormy rain"
       },

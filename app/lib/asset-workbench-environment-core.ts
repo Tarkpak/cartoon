@@ -1,4 +1,5 @@
 import type { SceneData } from '~/composables/useAssetWorkbench'
+import { resolveTimeOfDayText } from '#shared/types/script'
 import { uniqueSorted } from '~/lib/asset-workbench-strings'
 
 export interface SceneEnvironmentConsistencyContext {
@@ -201,7 +202,7 @@ export function buildSceneEnvironmentConsistencyContext(
 
 export function buildSceneEnvironmentKey(scene: SceneData): string {
   const location = normalizeEnvironmentToken(scene.setting?.location)
-  const timeOfDay = normalizeEnvironmentToken(scene.setting?.timeOfDay)
+  const timeOfDay = normalizeEnvironmentToken(resolveTimeOfDayText(scene.setting?.timeOfDay))
   const weather = normalizeEnvironmentToken(scene.setting?.weather)
 
   if (!location && !timeOfDay && !weather) return ''
@@ -221,7 +222,7 @@ export function resolveSceneEnvironmentAssetId(scene: SceneData): string {
 
 export function resolveSceneEnvironmentLabel(scene: SceneData): string {
   const location = scene.setting?.location?.trim() || ''
-  const timeOfDay = scene.setting?.timeOfDay?.trim() || ''
+  const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
   const weather = scene.setting?.weather?.trim() || ''
   const mood = scene.setting?.mood?.trim() || ''
 

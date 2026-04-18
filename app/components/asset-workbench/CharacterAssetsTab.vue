@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Pencil, Sparkles, Upload, User } from 'lucide-vue-next'
+import { AudioLines, Loader2, Lock, Pencil, Sparkles, Upload, User } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
 import type { CharacterRoleOption } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId, resolveCharacterRoleLabel } from '~/lib/asset-workbench-types'
@@ -17,6 +17,7 @@ const props = defineProps<{
   }
   characterRoleOptions: CharacterRoleOption[]
   uploadingCharacterId: string | null
+  uploadingCharacterVoiceId: string | null
   getCharacterSceneCount: (character: CharacterData) => number
   setCharacterEditDraft: (draft: { name: string, role: string, appearance: string }) => void
 }>()
@@ -30,11 +31,19 @@ const emit = defineEmits<{
   'generate': [characterId: string]
   'open-regenerate': [character: CharacterData]
   'upload-image': [payload: { characterId: string, event: Event }]
+  'upload-voice': [payload: { characterId: string, event: Event }]
+  'update-voice-lock': [payload: { characterId: string, locked: boolean }]
 }>()
 
 function triggerUploadInput(characterId: string) {
   if (typeof document === 'undefined') return
   const input = document.getElementById(buildAssetUploadInputId('char', characterId)) as HTMLInputElement | null
+  input?.click()
+}
+
+function triggerVoiceUploadInput(characterId: string) {
+  if (typeof document === 'undefined') return
+  const input = document.getElementById(buildAssetUploadInputId('char_voice', characterId)) as HTMLInputElement | null
   input?.click()
 }
 
@@ -85,6 +94,27 @@ function resolveStatusText(char: CharacterData): string {
   if (char.generating) return '生成中'
   if (char.baseImage) return '已就绪'
   return '待生成'
+}
+
+function resolveVoiceSourceLabel(char: CharacterData): string {
+  if (!char.voiceAsset?.audioUrl) return '暂无参考音频'
+  if (char.voiceAsset.sourceSceneId || char.voiceAsset.sourceTaskId) return '自动提取'
+  return '手动上传'
+}
+
+function resolveVoiceUpdatedText(char: CharacterData): string {
+  const updatedAt = char.voiceAsset?.updatedAt
+  if (!updatedAt) return ''
+
+  const parsed = new Date(updatedAt)
+  if (Number.isNaN(parsed.getTime())) return ''
+
+  return parsed.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 </script>
 
@@ -186,8 +216,81 @@ function resolveStatusText(char: CharacterData): string {
         </div>
       </div>
 
+      <div class="border-t px-3 py-2.5">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <div class="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <AudioLines class="h-3.5 w-3.5" />
+            </div>
+            <div class="min-w-0">
+              <p class="text-xs font-medium">
+                角色参考音频
+              </p>
+              <p class="text-[11px] text-muted-foreground">
+                {{ resolveVoiceSourceLabel(char) }}
+                <span v-if="resolveVoiceUpdatedText(char)"> · {{ resolveVoiceUpdatedText(char) }}</span>
+              </p>
+            </div>
+          </div>
+          <div
+            v-if="char.voiceAsset?.audioUrl"
+            class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] text-muted-foreground"
+          >
+            <Lock
+              v-if="char.voiceAsset.locked"
+              class="h-3 w-3 text-primary"
+            />
+            {{ char.voiceAsset.locked ? '已锁定参考' : '未锁定' }}
+          </div>
+        </div>
+
+        <div
+          v-if="char.voiceAsset?.audioUrl"
+          class="mt-2 space-y-2"
+        >
+          <audio
+            :src="char.voiceAsset.audioUrl"
+            class="w-full"
+            controls
+            preload="none"
+          />
+          <div class="flex flex-col gap-2 rounded-md bg-muted/35 px-2.5 py-2 lg:flex-row lg:items-center lg:justify-between">
+            <div class="min-w-0">
+              <p class="text-[11px] font-medium">
+                后续视频生成时自动作为该角色声音参考
+              </p>
+              <p
+                v-if="char.voiceAsset.transcript"
+                class="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground"
+              >
+                {{ char.voiceAsset.transcript }}
+              </p>
+            </div>
+            <div class="shrink-0">
+              <p class="mb-1 text-[10px] text-muted-foreground">
+                锁定后不会被自动提取结果覆盖
+              </p>
+              <div class="flex items-center justify-end gap-2">
+                <span class="text-[11px] text-muted-foreground">锁定参考</span>
+                <Switch
+                  :checked="!!char.voiceAsset.locked"
+                  :disabled="autoRunning || uploadingCharacterVoiceId === char.id"
+                  @update:checked="emit('update-voice-lock', { characterId: char.id, locked: !!$event })"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+        <div
+          v-else
+          class="mt-2 rounded-md border border-dashed bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground"
+        >
+          生成带对白的视频后会自动抽取人物声音，也可以直接上传现有配音作为参考。
+        </div>
+      </div>
+
       <!-- Actions -->
-      <div class="flex items-center gap-1.5 border-t px-3 py-2">
+      <div class="flex flex-wrap items-center gap-1.5 border-t px-3 py-2">
         <template v-if="editingCharacterId === char.id">
           <Button
             size="sm"
@@ -256,6 +359,23 @@ function resolveStatusText(char: CharacterData): string {
             上传
           </Button>
           <Button
+            size="sm"
+            variant="ghost"
+            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            :disabled="autoRunning || char.generating || !!uploadingCharacterVoiceId"
+            @click="triggerVoiceUploadInput(char.id)"
+          >
+            <Loader2
+              v-if="uploadingCharacterVoiceId === char.id"
+              class="mr-1 h-3 w-3 animate-spin"
+            />
+            <AudioLines
+              v-else
+              class="mr-1 h-3 w-3"
+            />
+            {{ char.voiceAsset?.audioUrl ? '替换音频' : '上传音频' }}
+          </Button>
+          <Button
             v-if="char.baseImage"
             size="sm"
             variant="ghost"
@@ -282,6 +402,13 @@ function resolveStatusText(char: CharacterData): string {
             accept="image/*"
             class="hidden"
             @change="emit('upload-image', { characterId: char.id, event: $event })"
+          >
+          <input
+            :id="buildAssetUploadInputId('char_voice', char.id)"
+            type="file"
+            accept="audio/*,.mp3,.wav,.m4a,.aac,.flac"
+            class="hidden"
+            @change="emit('upload-voice', { characterId: char.id, event: $event })"
           >
         </template>
       </div>

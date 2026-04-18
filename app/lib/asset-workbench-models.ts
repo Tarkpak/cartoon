@@ -1,4 +1,4 @@
-import type { CharacterView } from '#shared/types/character'
+import type { CharacterView, CharacterVoiceAsset } from '#shared/types/character'
 import type { SceneCameraMovement, SceneShotType } from '#shared/types/script'
 
 export type AssetWorkbenchTransitionType
@@ -54,6 +54,7 @@ export interface CharacterData {
   speakingStyle?: string
   catchphrase?: string
   voiceTone?: string
+  voiceAsset?: CharacterVoiceAsset
   age?: number
   gender?: string
 }

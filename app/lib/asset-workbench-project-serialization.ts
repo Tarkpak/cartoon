@@ -1,5 +1,9 @@
-import type { CharacterView } from '#shared/types/character'
-import type { SceneCameraMovement, SceneShotType } from '#shared/types/script'
+import type { CharacterView, CharacterVoiceAsset } from '#shared/types/character'
+import {
+  normalizeTimeOfDayValue,
+  type SceneCameraMovement,
+  type SceneShotType
+} from '#shared/types/script'
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
 import type {
   AssetWorkbenchTransitionType,
@@ -45,6 +49,7 @@ interface LoadedProjectCharacter {
   speakingStyle?: string | null
   catchphrase?: string | null
   voiceTone?: string | null
+  voiceAsset?: CharacterVoiceAsset | null
   age?: number | null
   gender?: string | null
   imageUrl?: string | null
@@ -62,7 +67,12 @@ export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
     dialogues: scene.dialogues || [],
     narration: scene.narration || undefined,
     duration: scene.duration || 8,
-    setting: scene.setting || undefined,
+    setting: scene.setting
+      ? {
+          ...scene.setting,
+          timeOfDay: normalizeTimeOfDayValue(scene.setting.timeOfDay)
+        }
+      : undefined,
     active: index === 0,
     shotType: scene.shotType || 'medium',
     cameraMovement: scene.cameraMovement || 'static',
@@ -93,6 +103,7 @@ export function buildLoadedCharacters(characters: LoadedProjectCharacter[]): Cha
     speakingStyle: toOptionalString(character.speakingStyle),
     catchphrase: toOptionalString(character.catchphrase),
     voiceTone: toOptionalString(character.voiceTone),
+    voiceAsset: character.voiceAsset || undefined,
     age: toOptionalNumber(character.age),
     gender: toOptionalString(character.gender),
     baseImage: toOptionalString(character.imageUrl) || toOptionalString(character.baseImage),
@@ -132,7 +143,12 @@ export function buildSaveScenesPayload(scenes: SceneData[]) {
     id: scene.id,
     title: scene.title,
     description: scene.description,
-    setting: scene.setting,
+    setting: scene.setting
+      ? {
+          ...scene.setting,
+          timeOfDay: normalizeTimeOfDayValue(scene.setting.timeOfDay)
+        }
+      : undefined,
     characters: scene.characters,
     dialogues: scene.dialogues,
     narration: scene.narration,
@@ -165,6 +181,7 @@ export function buildSaveCharactersPayload(characters: CharacterData[]) {
     speakingStyle: character.speakingStyle,
     catchphrase: character.catchphrase,
     voiceTone: character.voiceTone,
+    voiceAsset: character.voiceAsset,
     age: character.age,
     gender: character.gender,
     baseImage: character.baseImage,

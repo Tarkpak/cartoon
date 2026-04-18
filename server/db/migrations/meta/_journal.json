@@ -43,6 +43,13 @@
       "when": 1776455579618,
       "tag": "0005_amazing_spirit",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1776492293728,
+      "tag": "0006_opposite_flatman",
+      "breakpoints": true
     }
   ]
 }

@@ -73,6 +73,7 @@ export const characters = sqliteTable('characters', {
   speakingStyle: text('speaking_style'),
   catchphrase: text('catchphrase'),
   voiceTone: text('voice_tone'),
+  voiceAsset: text('voice_asset'),
   age: integer('age'),
   gender: text('gender', { enum: ['male', 'female', 'other'] }),
   baseImage: text('base_image'), // base64 或文件路径
