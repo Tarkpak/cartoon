@@ -49,6 +49,21 @@ export const SpeakingStyleSchema = z.enum([
 ])
 export type SpeakingStyle = z.infer<typeof SpeakingStyleSchema>
 
+/** 角色声音资产 */
+export const CharacterVoiceAssetSchema = z.object({
+  audioUrl: z.string().describe('角色声音样本音频 URL'),
+  locked: z.preprocess(nullToUndefined, z.boolean().optional()).describe('是否锁定该音频为参考样本'),
+  transcript: z.preprocess(nullToUndefined, z.string().optional()).describe('声音样本文本'),
+  sourceSceneId: z.preprocess(nullToUndefined, z.string().optional()).describe('来源场景 ID'),
+  sourceTaskId: z.preprocess(nullToUndefined, z.string().optional()).describe('来源视频任务 ID'),
+  startTimeMs: z.preprocess(nullToUndefined, z.number().optional()).describe('片段起始时间（毫秒）'),
+  endTimeMs: z.preprocess(nullToUndefined, z.number().optional()).describe('片段结束时间（毫秒）'),
+  durationMs: z.preprocess(nullToUndefined, z.number().optional()).describe('片段时长（毫秒）'),
+  matchScore: z.preprocess(nullToUndefined, z.number().optional()).describe('台词匹配分数'),
+  updatedAt: z.string().datetime().describe('声音资产更新时间')
+})
+export type CharacterVoiceAsset = z.infer<typeof CharacterVoiceAssetSchema>
+
 /** 角色定义 - 增强版 */
 export const CharacterSchema = z.object({
   id: z.string().describe('角色ID'),
@@ -67,7 +82,8 @@ export const CharacterSchema = z.object({
   // 说话风格 (新增)
   speakingStyle: z.preprocess(nullToUndefined, SpeakingStyleSchema.optional()).describe('说话风格'),
   catchphrase: z.preprocess(nullToUndefined, z.string().optional()).describe('口头禅'),
-  voiceTone: z.preprocess(nullToUndefined, z.string().optional()).describe('声音特点描述')
+  voiceTone: z.preprocess(nullToUndefined, z.string().optional()).describe('声音特点描述'),
+  voiceAsset: z.preprocess(nullToUndefined, CharacterVoiceAssetSchema.optional()).describe('角色声音资产')
 })
 export type Character = z.infer<typeof CharacterSchema>
 

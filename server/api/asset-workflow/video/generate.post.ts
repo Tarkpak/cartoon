@@ -6,6 +6,7 @@ import * as kling from '../../../utils/kling'
 import { getWorkflowModels } from '../../models/workflow.get'
 import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
+import { resolveTimeOfDayText } from '../../../../shared/types/script'
 
 const AspectRatioSchema = z.enum(['16:9', '9:16', '1:1'])
 
@@ -371,7 +372,7 @@ function buildSettingText(setting?: z.infer<typeof SceneSettingSchema>): string 
 
   return [
     setting.location,
-    setting.timeOfDay,
+    resolveTimeOfDayText(setting.timeOfDay),
     setting.mood,
     setting.weather
   ]

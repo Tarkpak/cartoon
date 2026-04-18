@@ -1,4 +1,5 @@
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
+import { resolveTimeOfDayText } from '#shared/types/script'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import {
   collectSceneCharacterCandidates,
@@ -58,8 +59,10 @@ function buildContinuityNotes(
       notes.push(`地点切换：${previous.setting.location} -> ${scene.setting.location}`)
     }
 
-    if (scene.setting?.timeOfDay && previous.setting?.timeOfDay && scene.setting.timeOfDay !== previous.setting.timeOfDay) {
-      notes.push(`时间切换：${previous.setting.timeOfDay} -> ${scene.setting.timeOfDay}`)
+    const previousTimeOfDay = resolveTimeOfDayText(previous.setting?.timeOfDay)
+    const currentTimeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
+    if (currentTimeOfDay && previousTimeOfDay && currentTimeOfDay !== previousTimeOfDay) {
+      notes.push(`时间切换：${previousTimeOfDay} -> ${currentTimeOfDay}`)
     }
   }
 

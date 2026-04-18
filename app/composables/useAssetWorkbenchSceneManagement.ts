@@ -195,7 +195,7 @@ export function useAssetWorkbenchSceneManagement(options: {
       description: options.resolveSceneDescriptionWithoutAssetMentions(scene.description || ''),
       setting: scene.setting
         ? { ...scene.setting }
-        : { location: '未知', timeOfDay: 'morning' },
+        : { location: '未知', timeOfDay: '白天' },
       characters: scene.characters.map(char => ({ ...char })),
       dialogues: scene.dialogues.map(dialogue => ({ ...dialogue }))
     }

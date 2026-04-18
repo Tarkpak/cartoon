@@ -45,6 +45,7 @@ interface UseAssetWorkbenchSceneGenerationOptions {
   resolveSceneDescriptionWithoutAssetMentions: (raw?: string) => string
   synchronizeQueueItems: () => void
   saveProject: () => Promise<unknown>
+  refreshCharacterVoiceAssets?: (options?: { attempts?: number, delayMs?: number }) => Promise<void>
   generateCharacter: (
     character: CharacterData,
     options?: {
@@ -353,6 +354,10 @@ export function useAssetWorkbenchSceneGeneration(
 
       applySceneVideoUrl(scene, videoUrl)
       await options.saveProject()
+      void options.refreshCharacterVoiceAssets?.({
+        attempts: 4,
+        delayMs: 1500
+      })
     } catch (error) {
       scene.videoStatus = 'error'
       scene.videoError = options.resolveUiError(error, '视频生成失败')
