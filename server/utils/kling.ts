@@ -570,6 +570,15 @@ interface KlingTaskQueryData {
   }
 }
 
+export async function queryKlingVideoTask(options: {
+  endpoint: string
+  taskId: string
+}): Promise<KlingTaskQueryData> {
+  const queryEndpoint = `${options.endpoint}/${options.taskId}`
+  const response = await request<KlingTaskQueryData>('GET', queryEndpoint, undefined, { timeout: 30000 })
+  return response.data
+}
+
 interface KlingTaskImage {
   id?: string
   url: string
@@ -757,6 +766,7 @@ export async function _klingGenerateVideo(options: {
   mode?: 'std' | 'pro'
   negativePrompt?: string
   maxRetries?: number
+  onTaskCreated?: (info: { taskId: string, endpoint: string }) => void | Promise<void>
 }): Promise<{ videoUrl: string, taskId: string }> {
   const model = options.model || KlingVideoModels.KLING_V2_6
   const useOmniVideoEndpoint = isOmniVideoModel(model)
@@ -859,6 +869,7 @@ export async function _klingGenerateVideo(options: {
       if (!taskId) {
         throw new KlingError('创建任务成功但未返回 task_id', KlingErrorCode.INTERNAL, 500, false)
       }
+      await options.onTaskCreated?.({ taskId, endpoint })
 
       const maxWaitTime = 12 * 60 * 1000
       const pollInterval = 10000
