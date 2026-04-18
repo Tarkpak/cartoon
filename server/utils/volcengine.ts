@@ -813,6 +813,31 @@ interface QueryTaskResponse {
   updated_at?: number
 }
 
+export async function queryVolcengineVideoTask(taskId: string): Promise<QueryTaskResponse> {
+  const cfg = getConfig()
+  const statusUrl = `${cfg.baseUrl}/contents/generations/tasks/${taskId}`
+
+  const statusResponse = await fetch(statusUrl, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${cfg.apiKey}`,
+      'Content-Type': 'application/json'
+    }
+  })
+
+  if (!statusResponse.ok) {
+    const errorData = await statusResponse.json().catch(() => ({})) as { error?: { message?: string } }
+    throw new VolcengineError(
+      errorData.error?.message || `HTTP ${statusResponse.status}`,
+      VolcengineErrorCode.UNKNOWN,
+      statusResponse.status,
+      statusResponse.status >= 500
+    )
+  }
+
+  return await statusResponse.json() as QueryTaskResponse
+}
+
 export async function _volcengineGenerateVideo(options: {
   model?: string
   prompt: string
@@ -826,6 +851,7 @@ export async function _volcengineGenerateVideo(options: {
   negativePrompt?: string
   maxReferenceImages?: number
   maxRetries?: number
+  onTaskCreated?: (taskId: string) => void | Promise<void>
 }): Promise<{ videoUrl: string, taskId: string }> {
   const normalizedImageUrl = normalizeVideoImageInput(options.imageUrl)
   const normalizedFirstFrameUrl = normalizeVideoImageInput(options.firstFrameUrl)
@@ -974,6 +1000,7 @@ export async function _volcengineGenerateVideo(options: {
 
       const taskId = submitResponse.id
       console.log(`[Volcengine] 视频任务已创建: ${taskId}`)
+      await options.onTaskCreated?.(taskId)
 
       // 轮询任务状态
       const maxWaitTime = 600000 // 10分钟

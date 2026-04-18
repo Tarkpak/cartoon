@@ -823,6 +823,10 @@ interface VideoTaskStatusResponse {
   request_id: string
 }
 
+export async function queryQwenVideoTask(taskId: string): Promise<VideoTaskStatusResponse> {
+  return await getTaskStatus<VideoTaskStatusResponse>(taskId)
+}
+
 export async function _qwenGenerateVideo(options: {
   model?: string
   prompt: string
@@ -839,6 +843,7 @@ export async function _qwenGenerateVideo(options: {
   watermark?: boolean
   seed?: number
   maxRetries?: number
+  onTaskCreated?: (taskId: string) => void | Promise<void>
 }): Promise<{ videoUrl: string, taskId: string }> {
   const normalizedResolution = typeof options.resolution === 'string'
     ? options.resolution.replace(/p$/i, 'P')
@@ -954,6 +959,7 @@ export async function _qwenGenerateVideo(options: {
 
         const taskId = submitResponse.output.task_id
         console.log(`[Qwen] 首尾帧视频任务已创建: ${taskId}`)
+        await options.onTaskCreated?.(taskId)
 
         // 轮询任务状态
         const maxWaitTime = 600000 // 10分钟
@@ -1045,6 +1051,7 @@ export async function _qwenGenerateVideo(options: {
 
       const taskId = submitResponse.output.task_id
       console.log(`[Qwen] 视频任务已创建: ${taskId}`)
+      await options.onTaskCreated?.(taskId)
 
       // 2. 轮询任务状态 (视频生成时间较长)
       const maxWaitTime = 600000 // 10分钟

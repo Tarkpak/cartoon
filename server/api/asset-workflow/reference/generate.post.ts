@@ -168,6 +168,16 @@ const LOCATION_ANCHOR_KEYWORDS = [
 const LOCATION_STYLE_PREFIX_REGEX = /^(?:豪华|奢华|现代|陈旧|老旧|破旧|残破|高端|高级|复古|阴暗|明亮|干净|凌乱|宽敞|狭窄|未来感|futuristic|modern|luxury|run[- ]?down|dilapidated|abandoned|vintage|old)\s*/i
 const TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]\s*/u
 const TIMELINE_LINE_CAPTURE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:].+$/gmu
+const LEADING_SHOT_AND_CAMERA_REGEX = /^(?:(?:大远景|远景|全景|中全景|中景|中近景|近景|特写镜头|特写|细节特写|细节|固定镜头|缓慢推近|缓慢拉远|镜头左摇|镜头右摇|镜头上摇|镜头下摇|跟随镜头|手持镜头|变焦推近|变焦拉远|移镜头|升降镜头|环绕镜头)[，,、\s]*)+/u
+const ENVIRONMENT_DETAIL_KEYWORDS = [
+  '环境', '空间', '场景', '地点', '建筑', '房间', '走廊', '长廊', '大厅', '前台', '办公室', '病房', '病区', '手术室',
+  '诊室', '急诊室', '候诊区', '会议室', '休息室', '楼梯间', '电梯间', '停车场', '天台', '仓库', '门厅', '通道',
+  '后巷', '教室', '宿舍', '食堂', '实验室', '审讯室', '指挥室', '机房', '车间', '包厢', '吧台', '客厅', '卧室',
+  '厨房', '浴室', '阳台', '庭院', '荒野', '古道', '戈壁', '沙地', '山', '山峦', '树林', '森林', '河', '湖', '海',
+  '天空', '云', '裂缝', '黑洞', '黑雾', '雾', '烟', '火', '火焰', '残阳', '日光', '月光', '灯', '灯光', '光线',
+  '阴影', '地面', '土地', '尘土', '石头', '经书', '门', '窗', '墙', '屋顶', '地板', '桌', '椅', '床', '屏风',
+  '帘', '雨', '雪', '风', '雷', '闪电', '天气', '空气', '色调', '材质', '道具'
+]
 
 function resolveEnvironmentReferenceModel(preferredModelId: string): { modelId: string, reason: string } {
   const preferred = findImageModel(preferredModelId)
@@ -330,11 +340,22 @@ function sanitizeEnvironmentLine(
   }
 
   return output
+    .replace(LEADING_SHOT_AND_CAMERA_REGEX, '')
     .replace(/[“”"'「」]/gu, ' ')
     .replace(/\s+/gu, ' ')
     .replace(/^[，,、；;:：。\-. ]+/u, '')
     .replace(/[，,、；;:：。\-. ]+$/u, '')
     .trim()
+}
+
+function extractEnvironmentFragments(text: string): string[] {
+  return text
+    .split(/[，,。；;]/u)
+    .map(fragment => fragment.trim())
+    .filter(Boolean)
+    .filter((fragment) => {
+      return ENVIRONMENT_DETAIL_KEYWORDS.some(keyword => fragment.includes(keyword))
+    })
 }
 
 function buildEnvironmentSummary(scene: z.infer<typeof SceneSchema>): string {
@@ -351,9 +372,12 @@ function buildEnvironmentSummary(scene: z.infer<typeof SceneSchema>): string {
   ))
 
   const detailLines = candidateLines
-    .map(line => sanitizeEnvironmentLine(line, characterNames))
-    .filter(line => line.length >= 10)
-  const uniqueDetailLines = Array.from(new Set(detailLines)).slice(0, 3)
+    .flatMap((line) => {
+      const sanitized = sanitizeEnvironmentLine(line, characterNames)
+      return extractEnvironmentFragments(sanitized)
+    })
+    .filter(line => line.length >= 4)
+  const uniqueDetailLines = Array.from(new Set(detailLines)).slice(0, 6)
 
   const summaryLines = [
     scene.setting?.location ? `核心空间：${scene.setting.location}` : '',
@@ -597,6 +621,7 @@ async function buildSceneReferencePrompt(
 ): Promise<string> {
   const normalizedCustomPrompt = customPrompt?.trim() || ''
   const environmentSummary = buildEnvironmentSummary(scene)
+  const environmentSceneTitle = scene.setting?.location?.trim() || scene.title || '未命名场景'
   const settingText = scene.setting
     ? [scene.setting.location, scene.setting.timeOfDay, scene.setting.mood, scene.setting.weather]
         .filter(Boolean)
@@ -610,7 +635,7 @@ async function buildSceneReferencePrompt(
   const templatePrompt = await getInterpolatedPrompt(
     PROMPT_TEMPLATE_IDS.ENVIRONMENT_REFERENCE_GENERATION,
     {
-      sceneTitle: scene.title || '未命名场景',
+      sceneTitle: environmentSceneTitle,
       sceneDescription: environmentSummary,
       setting: settingText,
       style,

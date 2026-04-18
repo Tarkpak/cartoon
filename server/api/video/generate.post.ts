@@ -6,17 +6,23 @@ import * as volcengine from '../../utils/volcengine'
 import { getSelectedModels, findVideoModel } from '../../utils/model-provider'
 import { getWorkflowModels, getWorkflowModelOptions } from '../models/workflow.get'
 import { videoLimiter } from '../../utils/concurrency'
-import { db, scenes as scenesTable, videoTasks as videoTasksTable } from '../../db'
+import { db, videoTasks as videoTasksTable } from '../../db'
 import {
   GenerateVideoRequestSchema,
   type GeneratedVideo
 } from '../../../shared/types/video'
-import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
 import { getGeneratedImageCandidatePaths } from '../../utils/image-storage'
 import {
-  buildCloudObjectKey,
-  uploadBufferToCloudStorageOrThrow
-} from '../../utils/cloud-storage'
+  persistGeneratedVideoBuffer,
+  persistGeneratedVideoFromRemoteUrl,
+  syncSceneVideoResult
+} from '../../utils/video-task-storage'
+import {
+  parseVideoTaskMetadata,
+  patchUpstreamVideoTaskMetadata,
+  setUpstreamVideoTaskMetadata,
+  type UpstreamVideoTaskTracking
+} from '../../utils/video-task-upstream'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -91,6 +97,13 @@ export default defineEventHandler(async (event) => {
   // 3. 异步启动视频生成 (不阻塞响应)
   generateVideoAsync(taskId, sceneId, config).catch(async (error) => {
     console.error(`[VideoGen] 任务 ${taskId} 失败:`, error)
+
+    const deferred = await preserveDeferredVideoTask(taskId, error)
+    if (deferred) {
+      console.warn(`[VideoGen] 任务 ${taskId} 超时，但上游任务仍在继续，保留为 processing`)
+      return
+    }
+
     await db.update(videoTasksTable)
       .set({
         status: 'failed',
@@ -121,10 +134,6 @@ function ensureVideoTempDir(): string {
   return tempDir
 }
 
-function createVideoFileName(taskId: string): string {
-  return `${taskId}.mp4`
-}
-
 function createVideoTempFilePath(taskId: string): string {
   const tempDir = ensureVideoTempDir()
   const randomSuffix = Math.random().toString(36).slice(2, 10)
@@ -141,44 +150,68 @@ function cleanupTempFile(filePath: string): void {
   }
 }
 
-async function persistGeneratedVideoBuffer(options: {
-  taskId: string
-  buffer: Buffer
-}): Promise<string> {
-  const fileName = createVideoFileName(options.taskId)
-  const cloudObjectKey = buildCloudObjectKey({
-    category: 'videos',
-    filename: fileName
-  })
-
-  const cloudUrl = await uploadBufferToCloudStorageOrThrow({
-    key: cloudObjectKey,
-    buffer: options.buffer
-  })
-  return `url:${cloudUrl}`
+function isVideoGenerationTimeoutError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || '')
+  return /视频生成超时|timeout|deadline exceeded/i.test(message)
 }
 
-async function persistGeneratedVideoFromRemoteUrl(options: {
-  taskId: string
-  videoUrl: string
-}): Promise<string> {
-  const remoteUrl = options.videoUrl.trim()
-  if (!remoteUrl) return ''
+async function updateUpstreamTaskTracking(
+  taskId: string,
+  upstreamTask: UpstreamVideoTaskTracking
+): Promise<void> {
+  const tasks = await db.select({
+    metadata: videoTasksTable.metadata,
+    progress: videoTasksTable.progress
+  })
+    .from(videoTasksTable)
+    .where(eq(videoTasksTable.id, taskId))
+    .limit(1)
 
-  try {
-    const response = await fetch(remoteUrl)
-    if (!response.ok) {
-      return `url:${remoteUrl}`
-    }
-    const buffer = Buffer.from(await response.arrayBuffer())
-    return await persistGeneratedVideoBuffer({
-      taskId: options.taskId,
-      buffer
+  const currentMetadata = tasks[0]?.metadata
+  const nextMetadata = setUpstreamVideoTaskMetadata(currentMetadata, upstreamTask)
+
+  await db.update(videoTasksTable)
+    .set({
+      metadata: nextMetadata,
+      updatedAt: new Date().toISOString()
     })
-  } catch (error) {
-    console.error('[VideoGen] 远程视频下载失败，回退原始 URL:', error)
-    return `url:${remoteUrl}`
+    .where(eq(videoTasksTable.id, taskId))
+}
+
+async function preserveDeferredVideoTask(taskId: string, error: unknown): Promise<boolean> {
+  if (!isVideoGenerationTimeoutError(error)) {
+    return false
   }
+
+  const tasks = await db.select({
+    metadata: videoTasksTable.metadata,
+    progress: videoTasksTable.progress
+  })
+    .from(videoTasksTable)
+    .where(eq(videoTasksTable.id, taskId))
+    .limit(1)
+
+  const task = tasks[0]
+  const upstreamTask = parseVideoTaskMetadata(task?.metadata).upstreamTask
+  if (!task || !upstreamTask) {
+    return false
+  }
+
+  const nextMetadata = patchUpstreamVideoTaskMetadata(task.metadata, {
+    timedOutAt: new Date().toISOString()
+  })
+
+  await db.update(videoTasksTable)
+    .set({
+      status: 'processing',
+      progress: Math.max(task.progress || 0, 90),
+      error: null,
+      metadata: nextMetadata,
+      updatedAt: new Date().toISOString()
+    })
+    .where(eq(videoTasksTable.id, taskId))
+
+  return true
 }
 
 function isLikelyBase64Image(value: string): boolean {
@@ -608,25 +641,6 @@ async function updateTaskProgress(taskId: string, progress: number, status?: Tas
     .where(eq(videoTasksTable.id, taskId))
 }
 
-async function syncSceneVideoResult(sceneId: string, videoData?: string | null): Promise<void> {
-  if (!sceneId) return
-
-  const normalizedVideoUrl = normalizeProjectVideoUrl(videoData)
-  if (!normalizedVideoUrl) return
-
-  try {
-    await db.update(scenesTable)
-      .set({
-        videoUrl: normalizedVideoUrl,
-        status: 'video_ready',
-        updatedAt: new Date().toISOString()
-      })
-      .where(eq(scenesTable.id, sceneId))
-  } catch (error) {
-    console.warn(`[VideoGen] 场景视频状态回写失败: ${sceneId}`, error)
-  }
-}
-
 /**
  * 确定使用哪个提供商
  */
@@ -823,6 +837,14 @@ async function generateVideoWithQwen(
       lastFrameLength: lastFrameUrl?.length || 0
     })
 
+    const resultMetadata = {
+      duration,
+      resolution: config.resolution,
+      aspectRatio: config.aspectRatio,
+      fps: 24,
+      hasAudio: config.withAudio
+    } satisfies UpstreamVideoTaskTracking['resultMetadata']
+
     const result = await qwen._qwenGenerateVideo({
       model: modelId,
       prompt: config.prompt,
@@ -836,7 +858,15 @@ async function generateVideoWithQwen(
       promptExtend: config.promptExtend ?? true,
       audio: config.withAudio,
       watermark: config.watermark ?? false,
-      seed: config.seed
+      seed: config.seed,
+      onTaskCreated: async (upstreamTaskId) => {
+        await updateUpstreamTaskTracking(taskId, {
+          provider: 'qwen',
+          taskId: upstreamTaskId,
+          modelId: modelId || undefined,
+          resultMetadata
+        })
+      }
     })
 
     await updateTaskProgress(taskId, 95)
@@ -854,13 +884,7 @@ async function generateVideoWithQwen(
       id: `generated_${taskId}`,
       sceneId,
       videoData,
-      metadata: {
-        duration,
-        resolution: config.resolution,
-        aspectRatio: config.aspectRatio,
-        fps: 24,
-        hasAudio: config.withAudio
-      },
+      metadata: resultMetadata,
       createdAt: new Date().toISOString()
     }
 
@@ -947,6 +971,14 @@ async function generateVideoWithKling(
 
     await updateTaskProgress(taskId, 20)
 
+    const resultMetadata = {
+      duration,
+      resolution: config.resolution,
+      aspectRatio: config.aspectRatio,
+      fps: 24,
+      hasAudio: withAudio
+    } satisfies UpstreamVideoTaskTracking['resultMetadata']
+
     const result = await kling._klingGenerateVideo({
       model: modelId,
       prompt: config.prompt,
@@ -958,7 +990,16 @@ async function generateVideoWithKling(
       aspectRatio: config.aspectRatio,
       withAudio,
       mode,
-      negativePrompt: config.negativePrompt
+      negativePrompt: config.negativePrompt,
+      onTaskCreated: async ({ taskId: upstreamTaskId, endpoint }) => {
+        await updateUpstreamTaskTracking(taskId, {
+          provider: 'kling',
+          taskId: upstreamTaskId,
+          endpoint,
+          modelId: modelId || undefined,
+          resultMetadata
+        })
+      }
     })
 
     await updateTaskProgress(taskId, 95)
@@ -975,13 +1016,7 @@ async function generateVideoWithKling(
       id: `generated_${taskId}`,
       sceneId,
       videoData,
-      metadata: {
-        duration,
-        resolution: config.resolution,
-        aspectRatio: config.aspectRatio,
-        fps: 24,
-        hasAudio: withAudio
-      },
+      metadata: resultMetadata,
       createdAt: new Date().toISOString()
     }
 
@@ -1420,15 +1455,6 @@ async function generateVideoWithGemini(
     console.log(`[VideoGen] 视频生成完成: ${taskId}`)
   } catch (error) {
     console.error(`[VideoGen] 生成失败:`, error)
-
-    await db.update(videoTasksTable)
-      .set({
-        status: 'failed',
-        error: normalizeVideoTaskError(error),
-        updatedAt: new Date().toISOString()
-      })
-      .where(eq(videoTasksTable.id, taskId))
-
     throw error
   }
 }
@@ -1512,6 +1538,14 @@ async function generateVideoWithVolcengine(
       referenceImagesCount: referenceImages.length
     })
 
+    const resultMetadata = {
+      duration,
+      resolution: config.resolution,
+      aspectRatio: config.aspectRatio,
+      fps: 24,
+      hasAudio: false
+    } satisfies UpstreamVideoTaskTracking['resultMetadata']
+
     const result = await volcengine._volcengineGenerateVideo({
       model: resolvedModelId,
       prompt: config.prompt,
@@ -1521,7 +1555,15 @@ async function generateVideoWithVolcengine(
       referenceImages: hasReferenceImages ? referenceImages : undefined,
       maxReferenceImages: referenceImageLimit,
       duration,
-      resolution: config.resolution
+      resolution: config.resolution,
+      onTaskCreated: async (upstreamTaskId) => {
+        await updateUpstreamTaskTracking(taskId, {
+          provider: 'volcengine',
+          taskId: upstreamTaskId,
+          modelId: resolvedModelId,
+          resultMetadata
+        })
+      }
     })
 
     await updateTaskProgress(taskId, 95)
@@ -1539,13 +1581,7 @@ async function generateVideoWithVolcengine(
       id: `generated_${taskId}`,
       sceneId,
       videoData,
-      metadata: {
-        duration,
-        resolution: config.resolution,
-        aspectRatio: config.aspectRatio,
-        fps: 24,
-        hasAudio: false // 火山引擎 1.5 pro 支持音频，其他不支持
-      },
+      metadata: resultMetadata,
       createdAt: new Date().toISOString()
     }
 
