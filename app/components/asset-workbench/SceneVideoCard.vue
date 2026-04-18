@@ -61,6 +61,15 @@ const props = defineProps<{
 const videoBadge = computed(() => props.resolveSceneVideoBadge(props.scene))
 const descriptionSegments = computed(() => props.resolveSceneDescriptionRenderSegments(props.scene))
 const secondaryMentions = computed(() => props.resolveSceneDescriptionSecondaryMentionItems(props.scene))
+const sceneReferenceImage = computed(() => props.resolveSceneReferenceImage(props.scene))
+const visibleSecondaryMentions = computed(() => {
+  return secondaryMentions.value.filter((item) => {
+    if (!item.asset || item.asset.type !== 'environment') return true
+    if (!sceneReferenceImage.value) return true
+
+    return item.asset.referenceImage !== sceneReferenceImage.value
+  })
+})
 const sceneBusy = computed(() => props.isSceneBusy(props.scene))
 const scenePreparing = computed(() => props.isScenePreparing(props.scene))
 </script>
@@ -181,11 +190,11 @@ const scenePreparing = computed(() => props.isScenePreparing(props.scene))
     </div>
 
     <div
-      v-if="secondaryMentions.length > 0"
+      v-if="visibleSecondaryMentions.length > 0"
       class="mt-1 flex flex-wrap items-center gap-1.5"
     >
       <template
-        v-for="mention in secondaryMentions"
+        v-for="mention in visibleSecondaryMentions"
         :key="`scene_mention_${scene.id}_${mention.token}`"
       >
         <Button
@@ -215,6 +224,20 @@ const scenePreparing = computed(() => props.isScenePreparing(props.scene))
         </Badge>
       </template>
     </div>
+
+    <Button
+      v-if="sceneReferenceImage"
+      type="button"
+      variant="ghost"
+      class="mt-3 inline-flex h-auto rounded-lg border bg-muted/20 p-2 hover:bg-muted/30"
+      @click.stop="onPreviewImage(sceneReferenceImage, `${scene.title} · 环境图`)"
+    >
+      <img
+        :src="toImageSrc(sceneReferenceImage)"
+        :alt="`${scene.title} 环境图`"
+        class="h-12 w-12 shrink-0 rounded-md border object-cover"
+      >
+    </Button>
 
     <div class="mt-2 flex flex-wrap gap-1">
       <Badge

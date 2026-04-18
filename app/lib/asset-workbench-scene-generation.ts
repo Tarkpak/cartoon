@@ -232,7 +232,7 @@ export async function pollSceneVideoTask(
   taskId: string,
   options: PollSceneVideoTaskOptions = {}
 ): Promise<string> {
-  const maxAttempts = options.maxAttempts ?? 60
+  const maxAttempts = options.maxAttempts ?? 720
   const pollIntervalMs = options.pollIntervalMs ?? 5000
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
