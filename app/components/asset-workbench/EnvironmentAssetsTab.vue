@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, Image, Loader2, Pencil, RefreshCw, Sparkles, Upload } from 'lucide-vue-next'
+import { ArrowRight, History, Image, Loader2, Pencil, RefreshCw, Sparkles, Upload } from 'lucide-vue-next'
 import type { EnvironmentAssetCard } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { toImageSrc } from '~/lib/media'
@@ -18,6 +18,7 @@ const emit = defineEmits<{
   'edit-scene': [assetId: string]
   'upload-image': [payload: { assetId: string, event: Event }]
   'open-regenerate': [assetId: string]
+  'open-history': [assetId: string]
   'regenerate': [assetId: string]
 }>()
 
@@ -39,6 +40,10 @@ function resolveStatusText(status: string): string {
   if (status === 'error') return '失败'
   if (status === 'generating') return '生成中'
   return '待生成'
+}
+
+function resolveHistoryCount(asset: EnvironmentAssetCard): number {
+  return Array.isArray(asset.assetHistory) ? asset.assetHistory.length : 0
 }
 </script>
 
@@ -157,6 +162,17 @@ function resolveStatusText(status: string): string {
           >
             <Sparkles class="mr-1 h-3 w-3" />
             定向修改
+          </Button>
+          <Button
+            v-if="resolveHistoryCount(asset) > 1"
+            size="sm"
+            variant="ghost"
+            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            :disabled="asset.referenceStatus === 'generating'"
+            @click="emit('open-history', asset.id)"
+          >
+            <History class="mr-1 h-3 w-3" />
+            历史 {{ resolveHistoryCount(asset) }}
           </Button>
           <Button
             size="sm"

@@ -61,6 +61,22 @@ interface UseAssetWorkbenchSceneGenerationOptions {
   persistAutomaticAssetPlan: (
     options?: { overwriteExistingConfigs?: boolean }
   ) => Promise<unknown>
+  recordEnvironmentHistory?: (
+    assetId: string,
+    image: string,
+    options?: {
+      source?: 'generated' | 'legacy'
+      prompt?: string
+    }
+  ) => void
+  recordSceneVideoHistory?: (
+    sceneId: string,
+    videoUrl: string,
+    options?: {
+      source?: 'generated' | 'legacy'
+      prompt?: string
+    }
+  ) => void
 }
 
 export function useAssetWorkbenchSceneGeneration(
@@ -221,6 +237,11 @@ export function useAssetWorkbenchSceneGeneration(
       const reusableImage = findReusableEnvironmentImage(scene, options.scenes.value)
       if (reusableImage) {
         applySceneBaselineReference(scene, reusableImage)
+        options.recordEnvironmentHistory?.(
+          resolveSceneEnvironmentAssetId(scene),
+          reusableImage,
+          { source: 'legacy' }
+        )
         options.synchronizeQueueItems()
         await options.saveProject()
         return
@@ -258,6 +279,14 @@ export function useAssetWorkbenchSceneGeneration(
       }
 
       applySceneBaselineReference(scene, referenceImage)
+      options.recordEnvironmentHistory?.(
+        resolveSceneEnvironmentAssetId(scene),
+        referenceImage,
+        {
+          source: 'generated',
+          prompt: customPrompt
+        }
+      )
       options.synchronizeQueueItems()
       await options.saveProject()
     } catch (error) {
@@ -353,6 +382,9 @@ export function useAssetWorkbenchSceneGeneration(
       }
 
       applySceneVideoUrl(scene, videoUrl)
+      options.recordSceneVideoHistory?.(scene.id, videoUrl, {
+        source: 'generated'
+      })
       await options.saveProject()
       void options.refreshCharacterVoiceAssets?.({
         attempts: 4,

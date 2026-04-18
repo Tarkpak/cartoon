@@ -4,10 +4,16 @@ import type { SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import type {
   AutoStageKey,
+  AssetImageHistoryEntry,
+  AssetVideoHistoryEntry,
   CharacterRoleOption,
   QueueItem
 } from '~/lib/asset-workbench-types'
 import { createPropAssetId } from '~/lib/asset-workbench-types'
+import {
+  ensureAssetHistoryEntry,
+  ensureVideoHistoryEntry
+} from '~/lib/asset-history'
 import {
   getValidAssetIdSet,
   resolveCharacterRefsFromScene
@@ -35,6 +41,7 @@ import {
   buildSceneMentionDescription,
   resolveSceneDescriptionWithoutAssetMentions
 } from '~/lib/asset-workbench-mentions'
+import { applySceneBaselineReference } from '~/lib/asset-workbench-scene-generation'
 
 // 资产一致性工作流页面
 definePageMeta({
@@ -70,8 +77,7 @@ const {
   parseScript,
   splitScene,
   updateScene,
-  generateCharacter,
-  batchGenerateCharacters,
+  generateCharacter: generateCharacterCore,
   mergeAllVideos,
   mergeStatus,
   finalVideo,
@@ -83,6 +89,7 @@ const selectedSceneId = ref<string>('')
 
 const sceneConfigs = ref<Record<string, SceneConsistencyConfig>>({})
 const propAssets = ref<PropAsset[]>([])
+const environmentAssetHistories = ref<Record<string, AssetImageHistoryEntry[]>>({})
 
 const batchRunning = ref(false)
 const queueItems = ref<QueueItem[]>([])
@@ -128,6 +135,7 @@ const {
   scenes,
   characters,
   propAssets,
+  environmentAssetHistories,
   sceneConfigs,
   selectedSceneId,
   selectedStyleId,
@@ -146,8 +154,11 @@ const {
   scheduleWorkflowMetaSave
 } = useAssetWorkflowMeta({
   projectId,
+  scenes,
+  characters,
   sceneConfigs,
   propAssets,
+  environmentAssetHistories,
   finalVideo,
   resolveProjectStatus,
   onHydrated: () => {
@@ -192,6 +203,147 @@ function normalizeWorkflowText(value: string): string {
 function resolveUiError(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : fallback
   return normalizeWorkflowText(message || fallback)
+}
+
+function recordCharacterHistory(
+  characterId: string,
+  image: string | undefined,
+  options: {
+    source: 'generated' | 'uploaded' | 'legacy'
+    prompt?: string
+  }
+) {
+  const character = characters.value.find(item => item.id === characterId)
+  if (!character) return
+
+  character.assetHistory = ensureAssetHistoryEntry(character.assetHistory, image, {
+    source: options.source,
+    prompt: options.prompt,
+    createdAt: new Date().toISOString()
+  })
+}
+
+function recordEnvironmentHistory(
+  assetId: string,
+  image: string,
+  options: {
+    source?: 'generated' | 'uploaded' | 'legacy'
+    prompt?: string
+  } = {}
+) {
+  environmentAssetHistories.value = {
+    ...environmentAssetHistories.value,
+    [assetId]: ensureAssetHistoryEntry(environmentAssetHistories.value[assetId], image, {
+      source: options.source,
+      prompt: options.prompt,
+      createdAt: new Date().toISOString()
+    })
+  }
+}
+
+function recordPropHistory(
+  propId: string,
+  image: string | undefined,
+  options: {
+    source: 'generated' | 'uploaded' | 'legacy'
+    prompt?: string
+  }
+) {
+  const prop = propAssets.value.find(item => item.id === propId)
+  if (!prop) return
+
+  prop.assetHistory = ensureAssetHistoryEntry(prop.assetHistory, image, {
+    source: options.source,
+    prompt: options.prompt,
+    createdAt: new Date().toISOString()
+  })
+}
+
+function recordSceneVideoHistory(
+  sceneId: string,
+  videoUrl: string | undefined,
+  options: {
+    source?: 'generated' | 'legacy'
+    prompt?: string
+  } = {}
+) {
+  const scene = scenes.value.find(item => item.id === sceneId)
+  if (!scene) return
+
+  scene.videoHistory = ensureVideoHistoryEntry(scene.videoHistory, videoUrl, {
+    source: options.source,
+    prompt: options.prompt,
+    createdAt: new Date().toISOString()
+  })
+}
+
+async function generateCharacter(
+  character: (typeof characters.value)[number],
+  input?: {
+    workflowType?: 'asset_consistency'
+    regenerationPrompt?: string
+    referenceImage?: string
+  },
+  options: {
+    persistHistory?: boolean
+  } = {}
+) {
+  const previousImage = character.baseImage?.trim() || ''
+
+  await generateCharacterCore(character, input)
+
+  const nextImage = character.baseImage?.trim() || ''
+  if (!nextImage || nextImage === previousImage) return
+
+  recordCharacterHistory(character.id, nextImage, {
+    source: 'generated',
+    prompt: input?.regenerationPrompt?.trim() || undefined
+  })
+
+  if (options.persistHistory !== false) {
+    await saveWorkflowMeta()
+  }
+}
+
+async function batchGenerateCharacters(
+  onProgress?: (current: number, total: number, name: string) => void,
+  input?: { workflowType?: 'asset_consistency' }
+) {
+  const pendingCharacters = characters.value.filter(character => !character.baseImage)
+  const total = pendingCharacters.length
+
+  if (total === 0) {
+    return { success: true, generated: 0, failed: 0, total: 0 }
+  }
+
+  let generated = 0
+  let failed = 0
+  let historyChanged = false
+
+  for (let index = 0; index < pendingCharacters.length; index += 1) {
+    const character = pendingCharacters[index]
+    if (!character) continue
+
+    onProgress?.(index + 1, total, character.name)
+
+    try {
+      const previousImage = character.baseImage?.trim() || ''
+      await generateCharacter(character, input, { persistHistory: false })
+      if ((character.baseImage?.trim() || '') !== previousImage) {
+        historyChanged = true
+      }
+      generated += 1
+    } catch (error) {
+      console.error(`[asset-workbench] 角色 ${character.name} 生成失败:`, error)
+      failed += 1
+    }
+  }
+
+  if (historyChanged) {
+    await saveWorkflowMeta()
+  }
+
+  return { success: true, generated, failed, total }
 }
 
 const {
@@ -290,7 +442,9 @@ const {
   refreshCharacterVoiceAssets,
   generateCharacter,
   batchGenerateCharacters,
-  persistAutomaticAssetPlan
+  persistAutomaticAssetPlan,
+  recordEnvironmentHistory,
+  recordSceneVideoHistory
 })
 
 function applyAutomaticAssetPlan(
@@ -517,11 +671,11 @@ const {
   uploadingEnvironmentAssetId,
   uploadingPropId,
   openImagePreview,
-  handleCharacterImageUpload,
+  handleCharacterImageUpload: handleCharacterImageUploadCore,
   handleCharacterVoiceUpload,
   handleCharacterVoiceLockChange,
-  handleEnvironmentImageUpload,
-  handlePropImageUpload,
+  handleEnvironmentImageUpload: handleEnvironmentImageUploadCore,
+  handlePropImageUpload: handlePropImageUploadCore,
   openEnvironmentRegenerateDialog,
   setEnvironmentRegenerateDialogOpen,
   setEnvironmentRegeneratePrompt,
@@ -542,6 +696,237 @@ const {
   resolveEnvironmentRepresentativeScene,
   generateSceneBaseline
 })
+
+type AssetHistoryTarget
+  = | { type: 'character', id: string }
+    | { type: 'environment', id: string }
+    | { type: 'prop', id: string }
+
+type SceneVideoHistoryTarget = { sceneId: string }
+
+const assetHistoryDialogOpen = ref(false)
+const assetHistoryTarget = ref<AssetHistoryTarget | null>(null)
+const assetHistoryApplying = ref(false)
+const sceneVideoHistoryDialogOpen = ref(false)
+const sceneVideoHistoryTarget = ref<SceneVideoHistoryTarget | null>(null)
+const sceneVideoHistoryApplying = ref(false)
+
+const assetHistoryDialogTitle = computed(() => {
+  if (assetHistoryTarget.value?.type === 'character') return '角色资产历史'
+  if (assetHistoryTarget.value?.type === 'environment') return '环境资产历史'
+  if (assetHistoryTarget.value?.type === 'prop') return '道具资产历史'
+  return '资产历史'
+})
+
+const assetHistoryTargetLabel = computed(() => {
+  if (!assetHistoryTarget.value) return ''
+
+  if (assetHistoryTarget.value.type === 'character') {
+    return characters.value.find(item => item.id === assetHistoryTarget.value?.id)?.name || ''
+  }
+
+  if (assetHistoryTarget.value.type === 'environment') {
+    return resolveEnvironmentCard(assetHistoryTarget.value.id)?.name || ''
+  }
+
+  return propAssets.value.find(item => item.id === assetHistoryTarget.value?.id)?.name || ''
+})
+
+const assetHistoryCurrentImage = computed(() => {
+  if (!assetHistoryTarget.value) return ''
+
+  if (assetHistoryTarget.value.type === 'character') {
+    return characters.value.find(item => item.id === assetHistoryTarget.value?.id)?.baseImage || ''
+  }
+
+  if (assetHistoryTarget.value.type === 'environment') {
+    return resolveEnvironmentCard(assetHistoryTarget.value.id)?.referenceImage || ''
+  }
+
+  return propAssets.value.find(item => item.id === assetHistoryTarget.value?.id)?.referenceImage || ''
+})
+
+const assetHistoryEntries = computed(() => {
+  if (!assetHistoryTarget.value) return []
+
+  if (assetHistoryTarget.value.type === 'character') {
+    return characters.value.find(item => item.id === assetHistoryTarget.value?.id)?.assetHistory || []
+  }
+
+  if (assetHistoryTarget.value.type === 'environment') {
+    return resolveEnvironmentCard(assetHistoryTarget.value.id)?.assetHistory || []
+  }
+
+  return propAssets.value.find(item => item.id === assetHistoryTarget.value?.id)?.assetHistory || []
+})
+
+const sceneVideoHistoryTargetScene = computed(() => {
+  if (!sceneVideoHistoryTarget.value) return null
+  return scenes.value.find(item => item.id === sceneVideoHistoryTarget.value?.sceneId) || null
+})
+
+const sceneVideoHistoryTargetLabel = computed(() => {
+  return sceneVideoHistoryTargetScene.value?.title || ''
+})
+
+const sceneVideoHistoryCurrentVideoUrl = computed(() => {
+  return sceneVideoHistoryTargetScene.value?.videoUrl || ''
+})
+
+const sceneVideoHistoryEntries = computed(() => {
+  return sceneVideoHistoryTargetScene.value?.videoHistory || []
+})
+
+function setAssetHistoryDialogOpen(open: boolean) {
+  assetHistoryDialogOpen.value = open
+  if (!open) {
+    assetHistoryTarget.value = null
+  }
+}
+
+function setSceneVideoHistoryDialogOpen(open: boolean) {
+  sceneVideoHistoryDialogOpen.value = open
+  if (!open) {
+    sceneVideoHistoryTarget.value = null
+  }
+}
+
+function openCharacterHistory(characterId: string) {
+  assetHistoryTarget.value = { type: 'character', id: characterId }
+  assetHistoryDialogOpen.value = true
+}
+
+function openEnvironmentHistory(assetId: string) {
+  assetHistoryTarget.value = { type: 'environment', id: assetId }
+  assetHistoryDialogOpen.value = true
+}
+
+function openPropHistory(propId: string) {
+  assetHistoryTarget.value = { type: 'prop', id: propId }
+  assetHistoryDialogOpen.value = true
+}
+
+function openSceneVideoHistory(sceneId: string) {
+  sceneVideoHistoryTarget.value = { sceneId }
+  sceneVideoHistoryDialogOpen.value = true
+}
+
+async function handleAssetHistorySelect(entry: AssetImageHistoryEntry) {
+  if (!assetHistoryTarget.value || !entry.image?.trim()) return
+
+  const nextImage = entry.image.trim()
+  const target = assetHistoryTarget.value
+  assetHistoryApplying.value = true
+
+  try {
+    if (target.type === 'character') {
+      const character = characters.value.find(item => item.id === target.id)
+      if (!character || character.baseImage === nextImage) {
+        setAssetHistoryDialogOpen(false)
+        return
+      }
+
+      character.baseImage = nextImage
+      await saveProject()
+      setAssetHistoryDialogOpen(false)
+      return
+    }
+
+    if (target.type === 'environment') {
+      const environmentAsset = resolveEnvironmentCard(target.id)
+      if (!environmentAsset || environmentAsset.referenceImage === nextImage) {
+        setAssetHistoryDialogOpen(false)
+        return
+      }
+
+      for (const sceneId of environmentAsset.sceneIds) {
+        const scene = scenes.value.find(item => item.id === sceneId)
+        if (!scene) continue
+
+        applySceneBaselineReference(scene, nextImage)
+      }
+
+      synchronizeQueueItems()
+      await saveProject()
+      setAssetHistoryDialogOpen(false)
+      return
+    }
+
+    const prop = propAssets.value.find(item => item.id === target.id)
+    if (!prop || prop.referenceImage === nextImage) {
+      setAssetHistoryDialogOpen(false)
+      return
+    }
+
+    prop.referenceImage = nextImage
+    await saveWorkflowMeta()
+    setAssetHistoryDialogOpen(false)
+  } finally {
+    assetHistoryApplying.value = false
+  }
+}
+
+async function handleSceneVideoHistorySelect(entry: AssetVideoHistoryEntry) {
+  const scene = sceneVideoHistoryTargetScene.value
+  const nextVideoUrl = entry.videoUrl?.trim()
+  if (!scene || !nextVideoUrl) return
+
+  sceneVideoHistoryApplying.value = true
+
+  try {
+    if (scene.videoUrl === nextVideoUrl) {
+      setSceneVideoHistoryDialogOpen(false)
+      return
+    }
+
+    scene.videoUrl = nextVideoUrl
+    scene.videoError = undefined
+    scene.videoStatus = 'done'
+    synchronizeQueueItems()
+    await saveProject()
+    setSceneVideoHistoryDialogOpen(false)
+  } finally {
+    sceneVideoHistoryApplying.value = false
+  }
+}
+
+async function handleCharacterImageUpload(characterId: string, event: Event) {
+  const target = characters.value.find(item => item.id === characterId)
+  const previousImage = target?.baseImage?.trim() || ''
+
+  await handleCharacterImageUploadCore(characterId, event)
+
+  const nextImage = target?.baseImage?.trim() || ''
+  if (!nextImage || nextImage === previousImage) return
+
+  recordCharacterHistory(characterId, nextImage, { source: 'uploaded' })
+  await saveWorkflowMeta()
+}
+
+async function handleEnvironmentImageUpload(assetId: string, event: Event) {
+  const previousImage = resolveEnvironmentCard(assetId)?.referenceImage?.trim() || ''
+
+  await handleEnvironmentImageUploadCore(assetId, event)
+
+  const nextImage = resolveEnvironmentCard(assetId)?.referenceImage?.trim() || ''
+  if (!nextImage || nextImage === previousImage) return
+
+  recordEnvironmentHistory(assetId, nextImage, { source: 'uploaded' })
+  await saveWorkflowMeta()
+}
+
+async function handlePropImageUpload(propId: string, event: Event) {
+  const target = propAssets.value.find(item => item.id === propId)
+  const previousImage = target?.referenceImage?.trim() || ''
+
+  await handlePropImageUploadCore(propId, event)
+
+  const nextImage = target?.referenceImage?.trim() || ''
+  if (!nextImage || nextImage === previousImage) return
+
+  recordPropHistory(propId, nextImage, { source: 'uploaded' })
+  await saveWorkflowMeta()
+}
 
 const {
   sceneChatOpenSceneId,
@@ -719,6 +1104,39 @@ watch(
 )
 
 watch(
+  () => characters.value.map(character => ({
+    id: character.id,
+    assetHistory: character.assetHistory
+  })),
+  () => {
+    if (!workflowMetaReady.value || hydratingWorkflowMeta.value) return
+    scheduleWorkflowMetaSave()
+  },
+  { deep: true }
+)
+
+watch(
+  () => scenes.value.map(scene => ({
+    id: scene.id,
+    videoHistory: scene.videoHistory
+  })),
+  () => {
+    if (!workflowMetaReady.value || hydratingWorkflowMeta.value) return
+    scheduleWorkflowMetaSave()
+  },
+  { deep: true }
+)
+
+watch(
+  environmentAssetHistories,
+  () => {
+    if (!workflowMetaReady.value || hydratingWorkflowMeta.value) return
+    scheduleWorkflowMetaSave()
+  },
+  { deep: true }
+)
+
+watch(
   finalVideo,
   () => {
     if (!workflowMetaReady.value || hydratingWorkflowMeta.value) return
@@ -829,16 +1247,19 @@ async function handleBatchGenerateCharacters() {
         @save-character-edit-regenerate="saveCharacterEdit({ regenerate: true })"
         @generate-character="handleGenerateCharacter"
         @open-character-regenerate="openCharacterRegenerateDialog"
+        @open-character-history="openCharacterHistory"
         @upload-character-image="handleCharacterImageUpload($event.characterId, $event.event)"
         @upload-character-voice="handleCharacterVoiceUpload($event.characterId, $event.event)"
         @update-character-voice-lock="handleCharacterVoiceLockChange($event.characterId, $event.locked)"
         @edit-environment-scene="openEnvironmentAssetSceneEditor"
         @upload-environment-image="handleEnvironmentImageUpload($event.assetId, $event.event)"
         @open-environment-regenerate="openEnvironmentRegenerateDialog"
+        @open-environment-history="openEnvironmentHistory"
         @regenerate-environment="regenerateEnvironmentAsset"
         @add-prop="addPropAsset"
         @remove-prop="removePropAsset"
         @upload-prop-image="handlePropImageUpload($event.propId, $event.event)"
+        @open-prop-history="openPropHistory"
       />
     </AssetWorkbenchStagePanel>
 
@@ -886,6 +1307,7 @@ async function handleBatchGenerateCharacters() {
         :on-handle-delete-scene="handleDeleteScene"
         :on-generate-scene-baseline="generateSceneBaseline"
         :on-retry-scene="retryScene"
+        :on-open-scene-video-history="openSceneVideoHistory"
         :on-preview-image="openImagePreview"
         :on-close-scene-chat="closeSceneChat"
         :on-handle-scene-chat-composer-input="handleSceneChatComposerInput"
@@ -935,6 +1357,22 @@ async function handleBatchGenerateCharacters() {
       :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
       :handle-scene-save="handleSceneSave"
       :handle-scene-asset-references-save="handleSceneAssetReferencesSave"
+      :asset-history-dialog-open="assetHistoryDialogOpen"
+      :set-asset-history-dialog-open="setAssetHistoryDialogOpen"
+      :asset-history-dialog-title="assetHistoryDialogTitle"
+      :asset-history-target-label="assetHistoryTargetLabel"
+      :asset-history-current-image="assetHistoryCurrentImage"
+      :asset-history-entries="assetHistoryEntries"
+      :asset-history-applying="assetHistoryApplying"
+      :handle-asset-history-select="handleAssetHistorySelect"
+      :scene-video-history-dialog-open="sceneVideoHistoryDialogOpen"
+      :set-scene-video-history-dialog-open="setSceneVideoHistoryDialogOpen"
+      :scene-video-history-target-label="sceneVideoHistoryTargetLabel"
+      :scene-video-history-current-video-url="sceneVideoHistoryCurrentVideoUrl"
+      :scene-video-history-entries="sceneVideoHistoryEntries"
+      :scene-video-history-applying="sceneVideoHistoryApplying"
+      :handle-scene-video-history-select="handleSceneVideoHistorySelect"
+      :open-image-preview="openImagePreview"
       :image-preview-open="imagePreviewOpen"
       :set-image-preview-open="setImagePreviewState"
       :image-preview-src="imagePreviewSrc"
