@@ -166,6 +166,8 @@ const LOCATION_ANCHOR_KEYWORDS = [
   '图书馆'
 ]
 const LOCATION_STYLE_PREFIX_REGEX = /^(?:豪华|奢华|现代|陈旧|老旧|破旧|残破|高端|高级|复古|阴暗|明亮|干净|凌乱|宽敞|狭窄|未来感|futuristic|modern|luxury|run[- ]?down|dilapidated|abandoned|vintage|old)\s*/i
+const TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]\s*/u
+const TIMELINE_LINE_CAPTURE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:].+$/gmu
 
 function resolveEnvironmentReferenceModel(preferredModelId: string): { modelId: string, reason: string } {
   const preferred = findImageModel(preferredModelId)
@@ -206,6 +208,10 @@ function resolveEnvironmentReferenceModel(preferredModelId: string): { modelId: 
 
 function hasText(value?: string | null): value is string {
   return typeof value === 'string' && value.trim().length > 0
+}
+
+function escapeRegExp(raw: string): string {
+  return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function stripLocationStylePrefix(value: string): string {
@@ -290,6 +296,78 @@ function buildEnvironmentConsistencyText(
   ].filter(Boolean)
 
   return lines.join('\n')
+}
+
+function extractTimelineLines(text: string): string[] {
+  if (!text) return []
+  const matches = text.match(TIMELINE_LINE_CAPTURE_REGEX) || []
+  return matches
+    .map(line => line.trim())
+    .filter(Boolean)
+}
+
+function stripDialogueAndNarration(text: string): string {
+  return text
+    .replace(/画外音[（(][^）)]*[）)]\s*说：'[^']*'/gu, ' ')
+    .replace(/(?:[^\s，。！？；;:："“”'「」]+)\s*说：'[^']*'/gu, ' ')
+    .replace(/'[^']*'/gu, ' ')
+}
+
+function sanitizeEnvironmentLine(
+  line: string,
+  characterNames: string[]
+): string {
+  let output = line
+    .replace(TIMELINE_PREFIX_REGEX, '')
+    .replace(/\[图片\d+\]/gu, ' ')
+
+  output = stripDialogueAndNarration(output)
+
+  for (const characterName of characterNames) {
+    if (!characterName) continue
+    const matcher = new RegExp(escapeRegExp(characterName), 'gu')
+    output = output.replace(matcher, ' ')
+  }
+
+  return output
+    .replace(/[“”"'「」]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .replace(/^[，,、；;:：。\-. ]+/u, '')
+    .replace(/[，,、；;:：。\-. ]+$/u, '')
+    .trim()
+}
+
+function buildEnvironmentSummary(scene: z.infer<typeof SceneSchema>): string {
+  const timelineLines = extractTimelineLines(scene.description)
+  const fallbackLines = scene.description
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+  const candidateLines = timelineLines.length > 0 ? timelineLines : fallbackLines
+  const characterNames = Array.from(new Set(
+    (scene.characters || [])
+      .map(character => character.name?.trim() || '')
+      .filter(Boolean)
+  ))
+
+  const detailLines = candidateLines
+    .map(line => sanitizeEnvironmentLine(line, characterNames))
+    .filter(line => line.length >= 10)
+  const uniqueDetailLines = Array.from(new Set(detailLines)).slice(0, 3)
+
+  const summaryLines = [
+    scene.setting?.location ? `核心空间：${scene.setting.location}` : '',
+    scene.setting?.timeOfDay ? `时间：${scene.setting.timeOfDay}` : '',
+    scene.setting?.weather ? `天气：${scene.setting.weather}` : '',
+    scene.setting?.mood ? `氛围：${scene.setting.mood}` : '',
+    hasText(scene.cameraNote) ? `镜头取景重点：${scene.cameraNote!.trim()}` : ''
+  ].filter(Boolean)
+
+  if (uniqueDetailLines.length > 0) {
+    summaryLines.push(`环境细节：${uniqueDetailLines.join('；')}`)
+  }
+
+  return summaryLines.join('\n') || '仅保留该场景的核心环境、空间结构、光照与天气信息。'
 }
 
 function resolveImageSizeByAspectRatio(aspectRatio: z.infer<typeof AspectRatioSchema>): string {
@@ -518,17 +596,12 @@ async function buildSceneReferencePrompt(
   customPrompt?: string
 ): Promise<string> {
   const normalizedCustomPrompt = customPrompt?.trim() || ''
+  const environmentSummary = buildEnvironmentSummary(scene)
   const settingText = scene.setting
     ? [scene.setting.location, scene.setting.timeOfDay, scene.setting.mood, scene.setting.weather]
         .filter(Boolean)
         .join(' / ')
     : '未提供'
-  const narrationText = hasText(scene.narration)
-    ? scene.narration!.trim()
-    : '无'
-  const dialogueText = (scene.dialogues || []).length > 0
-    ? scene.dialogues.map(item => `${item.character}: ${item.text}`).join('\n')
-    : '无'
   const cameraNoteText = hasText(scene.cameraNote)
     ? scene.cameraNote!.trim()
     : '无'
@@ -538,14 +611,14 @@ async function buildSceneReferencePrompt(
     PROMPT_TEMPLATE_IDS.ENVIRONMENT_REFERENCE_GENERATION,
     {
       sceneTitle: scene.title || '未命名场景',
-      sceneDescription: scene.description,
+      sceneDescription: environmentSummary,
       setting: settingText,
       style,
       aspectRatio,
       environmentConsistency: environmentConsistencyText,
       cameraNote: cameraNoteText,
-      narration: narrationText,
-      dialogues: dialogueText,
+      narration: '无',
+      dialogues: '无',
       customPrompt: normalizedCustomPrompt || '无'
     },
     undefined,
