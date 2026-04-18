@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { resolveTimeOfDayText } from '#shared/types/script'
-import { Loader2, Merge, MessageCircle, Split, Trash2 } from 'lucide-vue-next'
+import { History, Loader2, Merge, MessageCircle, Split, Trash2 } from 'lucide-vue-next'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
   DisplayAsset,
@@ -50,6 +50,7 @@ const props = defineProps<{
   onHandleDeleteScene: (scene: SceneData) => void
   onGenerateSceneBaseline: (sceneId: string) => void
   onRetryScene: (sceneId: string) => void
+  onOpenSceneVideoHistory: (sceneId: string) => void
   onPreviewImage: (src: string | undefined, alt: string) => void
   onCloseSceneChat: () => void
   onHandleSceneChatComposerInput: () => void
@@ -73,6 +74,9 @@ const visibleSecondaryMentions = computed(() => {
 })
 const sceneBusy = computed(() => props.isSceneBusy(props.scene))
 const scenePreparing = computed(() => props.isScenePreparing(props.scene))
+const sceneVideoHistoryCount = computed(() => {
+  return Array.isArray(props.scene.videoHistory) ? props.scene.videoHistory.length : 0
+})
 </script>
 
 <template>
@@ -295,6 +299,16 @@ const scenePreparing = computed(() => props.isScenePreparing(props.scene))
           class="mr-1 h-3.5 w-3.5 animate-spin"
         />
         {{ scenePreparing ? '准备中' : scene.videoUrl ? '重生成视频' : '生成视频' }}
+      </Button>
+      <Button
+        v-if="sceneVideoHistoryCount > 1"
+        size="sm"
+        variant="ghost"
+        class="h-7 px-2 text-xs"
+        @click.stop.prevent="onOpenSceneVideoHistory(scene.id)"
+      >
+        <History class="mr-1 h-3.5 w-3.5" />
+        历史 {{ sceneVideoHistoryCount }}
       </Button>
     </div>
 

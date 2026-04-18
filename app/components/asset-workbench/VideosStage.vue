@@ -55,6 +55,7 @@ const props = defineProps<{
   onHandleDeleteScene: (scene: SceneData) => void
   onGenerateSceneBaseline: (sceneId: string) => void
   onRetryScene: (sceneId: string) => void
+  onOpenSceneVideoHistory: (sceneId: string) => void
   onPreviewImage: (src: string | undefined, alt: string) => void
   onCloseSceneChat: () => void
   onHandleSceneChatComposerInput: () => void
@@ -183,6 +184,7 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
           :on-handle-delete-scene="onHandleDeleteScene"
           :on-generate-scene-baseline="onGenerateSceneBaseline"
           :on-retry-scene="onRetryScene"
+          :on-open-scene-video-history="onOpenSceneVideoHistory"
           :on-preview-image="onPreviewImage"
           :on-close-scene-chat="onCloseSceneChat"
           :on-handle-scene-chat-composer-input="onHandleSceneChatComposerInput"

@@ -1,6 +1,24 @@
 import { useDebounceFn } from '@vueuse/core'
 import type { Ref } from 'vue'
-import type { FinalVideoAsset } from '~/lib/asset-workbench-types'
+import type {
+  AssetImageHistoryEntry,
+  AssetVideoHistoryEntry,
+  FinalVideoAsset
+} from '~/lib/asset-workbench-types'
+import type {
+  CharacterData,
+  SceneData
+} from '~/lib/asset-workbench-models'
+import {
+  ensureAssetHistoryEntry,
+  ensureVideoHistoryEntry,
+  normalizeAssetHistoryEntries,
+  normalizeVideoHistoryEntries
+} from '~/lib/asset-history'
+import {
+  resolveSceneEnvironmentAssetId,
+  resolveSceneReferenceImage
+} from '~/lib/asset-workbench-environment'
 
 type ConsistencyLevel = 'lock' | 'soft'
 
@@ -16,19 +34,26 @@ export interface PropAsset {
   name: string
   description: string
   referenceImage?: string
+  assetHistory?: AssetImageHistoryEntry[]
 }
 
 export interface AssetWorkflowMeta {
   version: number
   sceneConfigs: Record<string, SceneConsistencyConfig>
   props: PropAsset[]
+  characterHistories?: Record<string, AssetImageHistoryEntry[]>
+  environmentHistories?: Record<string, AssetImageHistoryEntry[]>
+  sceneVideoHistories?: Record<string, AssetVideoHistoryEntry[]>
   finalVideo?: FinalVideoAsset | null
 }
 
 interface UseAssetWorkflowMetaOptions {
   projectId: Ref<string | undefined>
+  scenes: Ref<SceneData[]>
+  characters: Ref<CharacterData[]>
   sceneConfigs: Ref<Record<string, SceneConsistencyConfig>>
   propAssets: Ref<PropAsset[]>
+  environmentAssetHistories: Ref<Record<string, AssetImageHistoryEntry[]>>
   finalVideo: Ref<FinalVideoAsset | null>
   resolveProjectStatus: () => 'draft' | 'in_progress' | 'completed'
   onHydrated?: () => void
@@ -42,6 +67,81 @@ function createFallbackPropId() {
 export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
   const workflowMetaReady = ref(false)
   const hydratingWorkflowMeta = ref(false)
+
+  function buildEnvironmentHistoryMap(
+    rawHistories: Record<string, unknown> = {}
+  ): Record<string, AssetImageHistoryEntry[]> {
+    const currentImages = new Map<string, string>()
+
+    for (const scene of options.scenes.value) {
+      const assetId = resolveSceneEnvironmentAssetId(scene)
+      if (currentImages.has(assetId)) continue
+
+      const image = resolveSceneReferenceImage(scene)
+      if (!image) continue
+
+      currentImages.set(assetId, image)
+    }
+
+    const next: Record<string, AssetImageHistoryEntry[]> = {}
+    const assetIds = new Set([
+      ...Object.keys(rawHistories),
+      ...Array.from(currentImages.keys())
+    ])
+
+    for (const assetId of assetIds) {
+      const history = normalizeAssetHistoryEntries(
+        rawHistories[assetId],
+        currentImages.get(assetId)
+      )
+      if (history.length > 0) {
+        next[assetId] = history
+      }
+    }
+
+    return next
+  }
+
+  function buildCharacterHistoryMap(): Record<string, AssetImageHistoryEntry[]> {
+    const next: Record<string, AssetImageHistoryEntry[]> = {}
+
+    for (const character of options.characters.value) {
+      const history = normalizeAssetHistoryEntries(character.assetHistory, character.baseImage)
+      if (history.length > 0) {
+        next[character.id] = history
+      }
+    }
+
+    return next
+  }
+
+  function buildSceneVideoHistoryMap(): Record<string, AssetVideoHistoryEntry[]> {
+    const next: Record<string, AssetVideoHistoryEntry[]> = {}
+
+    for (const scene of options.scenes.value) {
+      const history = normalizeVideoHistoryEntries(scene.videoHistory, scene.videoUrl)
+      if (history.length > 0) {
+        next[scene.id] = history
+      }
+    }
+
+    return next
+  }
+
+  function buildWorkflowMetaPayload(): AssetWorkflowMeta {
+    return {
+      version: 2,
+      sceneConfigs: options.sceneConfigs.value,
+      props: options.propAssets.value.map(prop => ({
+        ...prop,
+        assetHistory: normalizeAssetHistoryEntries(prop.assetHistory, prop.referenceImage)
+      })),
+      characterHistories: buildCharacterHistoryMap(),
+      environmentHistories: buildEnvironmentHistoryMap(options.environmentAssetHistories.value),
+      sceneVideoHistories: buildSceneVideoHistoryMap(),
+      finalVideo: options.finalVideo.value
+    }
+  }
 
   function normalizeFinalVideo(rawValue: unknown): FinalVideoAsset | null {
     if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
@@ -70,18 +170,28 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
     let hasMeta = false
 
     try {
-      if (!rawMetaInput || typeof rawMetaInput !== 'object' || Array.isArray(rawMetaInput)) {
-        return false
-      }
-
-      const meta = rawMetaInput as {
+      let meta: {
         sceneConfigs?: Record<string, unknown>
         props?: unknown
+        characterHistories?: Record<string, unknown>
+        environmentHistories?: Record<string, unknown>
+        sceneVideoHistories?: Record<string, unknown>
         finalVideo?: unknown
+      } | null = null
+
+      if (rawMetaInput && typeof rawMetaInput === 'object' && !Array.isArray(rawMetaInput)) {
+        meta = rawMetaInput as {
+          sceneConfigs?: Record<string, unknown>
+          props?: unknown
+          characterHistories?: Record<string, unknown>
+          environmentHistories?: Record<string, unknown>
+          sceneVideoHistories?: Record<string, unknown>
+          finalVideo?: unknown
+        }
       }
 
       const loadedConfigs: Record<string, SceneConsistencyConfig> = {}
-      for (const [sceneId, rawConfig] of Object.entries(meta.sceneConfigs || {})) {
+      for (const [sceneId, rawConfig] of Object.entries(meta?.sceneConfigs || {})) {
         if (!rawConfig || typeof rawConfig !== 'object' || Array.isArray(rawConfig)) continue
 
         const item = rawConfig as Partial<SceneConsistencyConfig>
@@ -95,7 +205,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         }
       }
 
-      const loadedProps = Array.isArray(meta.props)
+      const loadedProps = Array.isArray(meta?.props)
         ? meta.props
             .filter(item => item && typeof item === 'object')
             .map((item) => {
@@ -104,19 +214,62 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
                 id: typeof prop.id === 'string' ? prop.id : createFallbackPropId(),
                 name: typeof prop.name === 'string' ? prop.name : '未命名道具',
                 description: typeof prop.description === 'string' ? prop.description : '',
-                referenceImage: typeof prop.referenceImage === 'string' ? prop.referenceImage : undefined
+                referenceImage: typeof prop.referenceImage === 'string' ? prop.referenceImage : undefined,
+                assetHistory: normalizeAssetHistoryEntries(
+                  prop.assetHistory,
+                  typeof prop.referenceImage === 'string' ? prop.referenceImage : undefined
+                )
               }
             })
         : []
 
-      const loadedFinalVideo = normalizeFinalVideo(meta.finalVideo)
+      const loadedCharacterHistories = meta?.characterHistories || {}
+      for (const character of options.characters.value) {
+        character.assetHistory = normalizeAssetHistoryEntries(
+          loadedCharacterHistories[character.id],
+          character.baseImage
+        )
+      }
+
+      const loadedSceneVideoHistories = meta?.sceneVideoHistories || {}
+      for (const scene of options.scenes.value) {
+        scene.videoHistory = normalizeVideoHistoryEntries(
+          loadedSceneVideoHistories[scene.id],
+          scene.videoUrl
+        )
+      }
+
+      const loadedEnvironmentHistories = buildEnvironmentHistoryMap(meta?.environmentHistories || {})
+      const loadedFinalVideo = normalizeFinalVideo(meta?.finalVideo)
 
       hasMeta = Object.keys(loadedConfigs).length > 0
         || loadedProps.length > 0
+        || Object.keys(loadedCharacterHistories).length > 0
+        || Object.keys(loadedEnvironmentHistories).length > 0
+        || Object.keys(loadedSceneVideoHistories).length > 0
         || !!loadedFinalVideo
       options.sceneConfigs.value = loadedConfigs
       options.propAssets.value = loadedProps
+      options.environmentAssetHistories.value = loadedEnvironmentHistories
       options.finalVideo.value = loadedFinalVideo
+
+      if (!meta) {
+        for (const character of options.characters.value) {
+          character.assetHistory = ensureAssetHistoryEntry(
+            character.assetHistory,
+            character.baseImage,
+            { source: 'legacy' }
+          )
+        }
+        for (const scene of options.scenes.value) {
+          scene.videoHistory = ensureVideoHistoryEntry(
+            scene.videoHistory,
+            scene.videoUrl,
+            { source: 'legacy' }
+          )
+        }
+        options.environmentAssetHistories.value = buildEnvironmentHistoryMap()
+      }
     } catch (error) {
       console.error('[useAssetWorkflowMeta] 读取工作流元数据失败:', error)
     } finally {
@@ -132,12 +285,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
     const currentProjectId = options.projectId.value
     if (!workflowMetaReady.value || !currentProjectId) return
 
-    const payload: AssetWorkflowMeta = {
-      version: 1,
-      sceneConfigs: options.sceneConfigs.value,
-      props: options.propAssets.value,
-      finalVideo: options.finalVideo.value
-    }
+    const payload = buildWorkflowMetaPayload()
 
     try {
       await $fetch(`/api/project/${currentProjectId}`, {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AudioLines, Loader2, Lock, Pencil, Sparkles, Upload, User } from 'lucide-vue-next'
+import { AudioLines, History, Loader2, Lock, Pencil, Sparkles, Upload, User } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
 import type { CharacterRoleOption } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId, resolveCharacterRoleLabel } from '~/lib/asset-workbench-types'
@@ -30,6 +30,7 @@ const emit = defineEmits<{
   'save-edit-regenerate': []
   'generate': [characterId: string]
   'open-regenerate': [character: CharacterData]
+  'open-history': [characterId: string]
   'upload-image': [payload: { characterId: string, event: Event }]
   'upload-voice': [payload: { characterId: string, event: Event }]
   'update-voice-lock': [payload: { characterId: string, locked: boolean }]
@@ -115,6 +116,10 @@ function resolveVoiceUpdatedText(char: CharacterData): string {
     hour: '2-digit',
     minute: '2-digit'
   })
+}
+
+function resolveHistoryCount(char: CharacterData): number {
+  return Array.isArray(char.assetHistory) ? char.assetHistory.length : 0
 }
 </script>
 
@@ -385,6 +390,17 @@ function resolveVoiceUpdatedText(char: CharacterData): string {
           >
             <Sparkles class="mr-1 h-3 w-3" />
             定向修改
+          </Button>
+          <Button
+            v-if="resolveHistoryCount(char) > 1"
+            size="sm"
+            variant="ghost"
+            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            :disabled="autoRunning || char.generating"
+            @click="emit('open-history', char.id)"
+          >
+            <History class="mr-1 h-3 w-3" />
+            历史 {{ resolveHistoryCount(char) }}
           </Button>
           <Button
             size="sm"

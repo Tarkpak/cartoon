@@ -1,5 +1,9 @@
 import type { CharacterView, CharacterVoiceAsset } from '#shared/types/character'
 import type { SceneCameraMovement, SceneShotType } from '#shared/types/script'
+import type {
+  AssetImageHistoryEntry,
+  AssetVideoHistoryEntry
+} from '~/lib/asset-workbench-types'
 
 export type AssetWorkbenchTransitionType
   = | 'cut'
@@ -31,6 +35,7 @@ export interface SceneData {
   firstFrame?: string
   lastFrame?: string
   videoUrl?: string
+  videoHistory?: AssetVideoHistoryEntry[]
   referenceError?: string
   videoError?: string
   referenceStatus: 'pending' | 'generating' | 'done' | 'error'
@@ -43,6 +48,7 @@ export interface CharacterData {
   appearance: string
   role: string
   baseImage?: string
+  assetHistory?: AssetImageHistoryEntry[]
   expressions?: Record<string, string>
   views?: Partial<Record<CharacterView, string>>
   generating: boolean

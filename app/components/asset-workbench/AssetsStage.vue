@@ -45,16 +45,19 @@ const emit = defineEmits<{
   'save-character-edit-regenerate': []
   'generate-character': [characterId: string]
   'open-character-regenerate': [character: CharacterData]
+  'open-character-history': [characterId: string]
   'upload-character-image': [payload: { characterId: string, event: Event }]
   'upload-character-voice': [payload: { characterId: string, event: Event }]
   'update-character-voice-lock': [payload: { characterId: string, locked: boolean }]
   'edit-environment-scene': [assetId: string]
   'upload-environment-image': [payload: { assetId: string, event: Event }]
   'open-environment-regenerate': [assetId: string]
+  'open-environment-history': [assetId: string]
   'regenerate-environment': [assetId: string]
   'add-prop': [payload: { name: string, description: string }]
   'remove-prop': [propId: string]
   'upload-prop-image': [payload: { propId: string, event: Event }]
+  'open-prop-history': [propId: string]
 }>()
 
 const assetTab = ref<AssetTab>('characters')
@@ -170,6 +173,7 @@ const tabs = computed(() => [
         @save-edit-regenerate="emit('save-character-edit-regenerate')"
         @generate="emit('generate-character', $event)"
         @open-regenerate="emit('open-character-regenerate', $event)"
+        @open-history="emit('open-character-history', $event)"
         @upload-image="emit('upload-character-image', $event)"
         @upload-voice="emit('upload-character-voice', $event)"
         @update-voice-lock="emit('update-character-voice-lock', $event)"
@@ -187,6 +191,7 @@ const tabs = computed(() => [
         @edit-scene="emit('edit-environment-scene', $event)"
         @upload-image="emit('upload-environment-image', $event)"
         @open-regenerate="emit('open-environment-regenerate', $event)"
+        @open-history="emit('open-environment-history', $event)"
         @regenerate="emit('regenerate-environment', $event)"
       />
 
@@ -199,6 +204,7 @@ const tabs = computed(() => [
         @add-prop="emit('add-prop', $event)"
         @remove-prop="emit('remove-prop', $event)"
         @upload-image="emit('upload-prop-image', $event)"
+        @open-history="emit('open-prop-history', $event)"
         @preview-image="emit('preview-image', $event)"
       />
     </div>

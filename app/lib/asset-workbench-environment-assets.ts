@@ -1,6 +1,9 @@
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type { DisplayAsset, EnvironmentAssetCard } from '~/lib/asset-workbench-types'
 import {
+  normalizeAssetHistoryEntries
+} from '~/lib/asset-history'
+import {
   resolveSceneEnvironmentAssetId,
   resolveSceneEnvironmentLabel,
   resolveSceneReferenceImage
@@ -27,6 +30,7 @@ function mergeEnvironmentReferenceStatus(
 
 export function buildEnvironmentAssetCards(options: {
   scenes: SceneData[]
+  environmentAssetHistories?: Record<string, EnvironmentAssetCard['assetHistory']>
   resolveSceneDescriptionWithoutAssetMentions: (description?: string) => string
 }): EnvironmentAssetCard[] {
   const map = new Map<string, EnvironmentAssetCard>()
@@ -44,6 +48,10 @@ export function buildEnvironmentAssetCards(options: {
           || options.resolveSceneDescriptionWithoutAssetMentions(scene.description)?.trim()
           || undefined,
         referenceImage: sceneImage,
+        assetHistory: normalizeAssetHistoryEntries(
+          options.environmentAssetHistories?.[assetId],
+          sceneImage
+        ),
         sceneIds: [scene.id],
         sceneTitles: [scene.title || scene.id],
         representativeSceneId: scene.id,
@@ -60,6 +68,11 @@ export function buildEnvironmentAssetCards(options: {
       existing.representativeSceneId = scene.id
     }
 
+    existing.assetHistory = normalizeAssetHistoryEntries(
+      existing.assetHistory,
+      sceneImage
+    )
+
     existing.referenceStatus = mergeEnvironmentReferenceStatus(existing.referenceStatus, scene.referenceStatus)
   }
 
@@ -74,7 +87,8 @@ export function buildEnvironmentDisplayAssets(
     name: asset.name,
     type: 'environment',
     description: asset.description,
-    referenceImage: asset.referenceImage
+    referenceImage: asset.referenceImage,
+    assetHistory: asset.assetHistory
   }))
 }
 
