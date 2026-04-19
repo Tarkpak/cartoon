@@ -10,7 +10,10 @@ import {
   uploadAudioFile,
   uploadImageFile
 } from '~/lib/asset-workbench-upload'
-import type { EnvironmentAssetCard } from '~/lib/asset-workbench-types'
+import type {
+  EnvironmentAssetCard,
+  EnvironmentPanoramaState
+} from '~/lib/asset-workbench-types'
 
 export function useAssetWorkbenchAssetMedia(options: {
   maxAssetUploadSize: number
@@ -26,6 +29,7 @@ export function useAssetWorkbenchAssetMedia(options: {
   resolveSceneReferenceImage: (scene: SceneData) => string | undefined
   resolveEnvironmentCard: (assetId: string) => EnvironmentAssetCard | undefined
   resolveEnvironmentRepresentativeScene: (assetId: string) => SceneData | undefined
+  setEnvironmentPanoramaState?: (assetId: string, state: EnvironmentPanoramaState | undefined) => void
   generateSceneBaseline: (
     sceneId: string,
     options?: GenerateSceneBaselineOptions
@@ -184,6 +188,9 @@ export function useAssetWorkbenchAssetMedia(options: {
         applySceneBaselineReference(scene, imageUrl)
       }
 
+      options.setEnvironmentPanoramaState?.(assetId, {
+        panoramaImage: imageUrl
+      })
       options.synchronizeQueueItems()
       await options.saveProject()
     } catch (error) {
@@ -230,7 +237,7 @@ export function useAssetWorkbenchAssetMedia(options: {
     const asset = options.resolveEnvironmentCard(assetId)
     if (!asset) return
 
-    if (!asset.referenceImage?.trim()) {
+    if (!asset.referenceImage?.trim() && !asset.panoramaImage?.trim()) {
       alert('请先生成或上传环境图，再进行二次生成')
       return
     }
@@ -281,7 +288,11 @@ export function useAssetWorkbenchAssetMedia(options: {
       return
     }
 
-    if (!options.resolveSceneReferenceImage(targetScene)?.trim() && !targetAsset.referenceImage?.trim()) {
+    if (
+      !options.resolveSceneReferenceImage(targetScene)?.trim()
+      && !targetAsset.referenceImage?.trim()
+      && !targetAsset.panoramaImage?.trim()
+    ) {
       environmentRegenerateError.value = '环境参考图不存在，请先生成环境图'
       return
     }

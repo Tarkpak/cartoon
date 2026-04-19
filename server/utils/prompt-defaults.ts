@@ -361,7 +361,7 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 【项目画风】
 {{style}}
 
-【输出比例】
+【最终截图比例与全景约束】
 {{aspectRatio}}
 
 【场景标题】
@@ -381,12 +381,13 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 
 【执行要求】
 1. 只生成 1 张环境资产图，不要拼图，不要分镜排版，不要多画面组合。
-2. 这是一张纯环境参考图：禁止出现人物、人脸、肢体、剪影、人群。
+2. 这是一张纯环境全景源图：禁止出现人物、人脸、肢体、剪影、人群。
 3. 仅依据环境摘要与场景设定提取地点、建筑、地形、道具、光照、天气与空间关系，不要把人物动作、对白、旁白转成画面主体。
-4. 画面必须覆盖该场景的核心空间结构，方便后续视频沿用同一环境基底。
-5. 同一主环境的年代感、装修档次、材质语言、灯光体系必须和相邻场景保持一致。
-6. 不要文字、水印、Logo、边框、界面元素。
-7. 如果提供了二次生成要求，只做定向微调，不改变环境主体身份。
+4. 构图必须为“360 环绕等距柱状（equirectangular）全景展开图”语义：重点体现环绕空间关系，而非普通宽银幕构图。
+5. 左右边缘应可自然衔接，避免断层；完整交代核心空间结构，并在主体空间四周预留足够环境信息，方便后续裁切不同截图区域。
+6. 同一主环境的年代感、装修档次、材质语言、灯光体系必须和相邻场景保持一致。
+7. 不要文字、水印、Logo、边框、界面元素。
+8. 如果提供了二次生成要求，只做定向微调，不改变环境主体身份。
 
 【二次生成补充要求】
 {{customPrompt}}`,
@@ -395,7 +396,7 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 ## Project Style
 {{style}}
 
-## Output Aspect Ratio
+## Final Crop Ratio and Panorama Constraint
 {{aspectRatio}}
 
 ## Scene Title
@@ -415,12 +416,13 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 
 ## Requirements
 1. Generate exactly one environment asset image, not a collage, layout sheet, or split-panel composition.
-2. This must be a pure environment reference: no humans, faces, body parts, silhouettes, or crowds.
+2. This must be a pure panoramic environment source image: no humans, faces, body parts, silhouettes, or crowds.
 3. Use only the environment summary and scene setting to extract location, architecture, terrain, props, lighting, weather, and spatial structure. Do not turn character action, dialogue, or narration into visual subjects.
-4. The frame must clearly establish the core space so later scene videos can reuse the same environment baseline.
-5. Keep era, renovation grade, material language, and lighting system consistent with neighboring scenes in the same root environment.
-6. No text, watermark, logo, border, or UI elements.
-7. If a regeneration note is provided, apply only targeted environment-level refinement without changing the core environment identity.
+4. Compose it as a 360 surround equirectangular panorama-style source frame, not a regular widescreen shot.
+5. Keep left and right edges naturally seamable, fully explain the core space, and preserve enough surrounding detail for later reframing.
+6. Keep era, renovation grade, material language, and lighting system consistent with neighboring scenes in the same root environment.
+7. No text, watermark, logo, border, or UI elements.
+8. If a regeneration note is provided, apply only targeted environment-level refinement without changing the core environment identity.
 
 ## Regeneration Note
 {{customPrompt}}`

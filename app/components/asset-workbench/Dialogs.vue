@@ -5,6 +5,7 @@ import type {
   AssetImageHistoryEntry,
   AssetVideoHistoryEntry,
   DisplayAsset,
+  EnvironmentCropSelection,
   EnvironmentAssetCard
 } from '~/lib/asset-workbench-types'
 import type { AssetReferenceOption } from '~/lib/scene-edit-dialog'
@@ -24,6 +25,15 @@ defineProps<{
   setEnvironmentRegenerateDialogOpen: (open: boolean) => void
   setEnvironmentRegeneratePrompt: (prompt: string) => void
   submitEnvironmentRegeneration: () => void
+  environmentCropDialogOpen: boolean
+  environmentCropError?: string | null
+  environmentCropTarget: EnvironmentAssetCard | null
+  environmentCropSourceImage?: string
+  environmentCropInitialSelection?: EnvironmentCropSelection
+  environmentCropSaving?: boolean
+  projectAspectRatio: '16:9' | '9:16' | '1:1'
+  setEnvironmentCropDialogOpen: (open: boolean) => void
+  submitEnvironmentCropSelection: (selection: EnvironmentCropSelection) => void | Promise<void>
   sceneEditDialogOpen: boolean
   setSceneEditDialogOpen: (open: boolean) => void
   editingScene: SceneData | null
@@ -90,6 +100,18 @@ defineProps<{
     @update:open="setEnvironmentRegenerateDialogOpen"
     @update:prompt="setEnvironmentRegeneratePrompt"
     @submit="submitEnvironmentRegeneration"
+  />
+
+  <AssetWorkbenchEnvironmentCropDialog
+    :open="environmentCropDialogOpen"
+    :target-label="environmentCropTarget?.name || ''"
+    :source-image="environmentCropSourceImage"
+    :aspect-ratio="projectAspectRatio"
+    :initial-selection="environmentCropInitialSelection"
+    :loading="environmentCropSaving"
+    :error="environmentCropError"
+    @update:open="setEnvironmentCropDialogOpen"
+    @submit="submitEnvironmentCropSelection"
   />
 
   <ScriptSceneEditDialog

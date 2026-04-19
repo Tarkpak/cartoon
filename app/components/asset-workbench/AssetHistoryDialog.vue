@@ -24,6 +24,7 @@ function isCurrent(entry: AssetImageHistoryEntry): boolean {
 
 function resolveSourceLabel(entry: AssetImageHistoryEntry): string {
   if (entry.source === 'uploaded') return '上传'
+  if (entry.source === 'cropped') return '取景'
   if (entry.source === 'generated') return '生成'
   return '现有'
 }
