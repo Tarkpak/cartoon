@@ -17,6 +17,7 @@ import {
 } from '~/lib/asset-history'
 import {
   resolveSceneEnvironmentAssetId,
+  resolveSceneEnvironmentAssetIdAliases,
   resolveSceneReferenceImage
 } from '~/lib/asset-workbench-environment'
 
@@ -72,9 +73,16 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
     rawHistories: Record<string, unknown> = {}
   ): Record<string, AssetImageHistoryEntry[]> {
     const currentImages = new Map<string, string>()
+    const historyAliases = new Map<string, Set<string>>()
 
     for (const scene of options.scenes.value) {
       const assetId = resolveSceneEnvironmentAssetId(scene)
+      const aliases = historyAliases.get(assetId) || new Set<string>()
+      for (const alias of resolveSceneEnvironmentAssetIdAliases(scene)) {
+        aliases.add(alias)
+      }
+      historyAliases.set(assetId, aliases)
+
       if (currentImages.has(assetId)) continue
 
       const image = resolveSceneReferenceImage(scene)
@@ -85,13 +93,18 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
 
     const next: Record<string, AssetImageHistoryEntry[]> = {}
     const assetIds = new Set([
-      ...Object.keys(rawHistories),
+      ...Array.from(historyAliases.keys()),
       ...Array.from(currentImages.keys())
     ])
 
     for (const assetId of assetIds) {
+      const mergedRawHistory = Array.from(historyAliases.get(assetId) || [assetId])
+        .flatMap((alias) => {
+          const entries = rawHistories[alias]
+          return Array.isArray(entries) ? entries : []
+        })
       const history = normalizeAssetHistoryEntries(
-        rawHistories[assetId],
+        mergedRawHistory,
         currentImages.get(assetId)
       )
       if (history.length > 0) {

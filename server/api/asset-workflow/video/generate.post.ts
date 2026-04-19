@@ -410,6 +410,8 @@ function resolveSceneShotNumber(scene: z.infer<typeof SceneSchema>): number {
 }
 
 const TIMELINE_LINE_CAPTURE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:].+$/gmu
+const TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]\s*/u
+const STRUCTURED_DESCRIPTION_HEADING_REGEX = /^(?:场景功能\/情绪定位|场景功能|情绪定位|镜头设计|声音设计|台词节奏|表演关键点|Scene function \/ emotional beat|Shot design|Sound design|Dialogue rhythm|Performance notes)\s*[：:]?\s*$/u
 
 function extractTimelineLines(text: string): string[] {
   if (!text) return []
@@ -417,6 +419,25 @@ function extractTimelineLines(text: string): string[] {
   return matches
     .map(line => line.trim())
     .filter(Boolean)
+}
+
+function buildSceneDescriptionSummaryText(text: string): string {
+  const timelineLines = extractTimelineLines(text)
+  if (timelineLines.length > 0) {
+    return timelineLines
+      .slice(0, 2)
+      .map(line => line.replace(TIMELINE_PREFIX_REGEX, '').trim())
+      .join(' ')
+      .trim()
+  }
+
+  return text
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => !!line && !STRUCTURED_DESCRIPTION_HEADING_REGEX.test(line))
+    .slice(0, 3)
+    .join(' ')
+    .trim()
 }
 
 function buildTimelineFallbackLine(scene: z.infer<typeof SceneSchema>, duration: number): string {
@@ -446,7 +467,7 @@ function buildSceneSummary(scene: z.infer<typeof SceneSchema>): string {
   return [
     scene.title?.trim() || '',
     settingText !== '未提供' ? settingText : '',
-    clipText(scene.description, 90)
+    clipText(buildSceneDescriptionSummaryText(scene.description), 90)
   ]
     .filter(Boolean)
     .join('，')

@@ -200,13 +200,24 @@ export function buildSceneEnvironmentConsistencyContext(
   }
 }
 
-export function buildSceneEnvironmentKey(scene: SceneData): string {
+export function buildLegacySceneEnvironmentKey(scene: SceneData): string {
   const location = normalizeEnvironmentToken(scene.setting?.location)
   const timeOfDay = normalizeEnvironmentToken(resolveTimeOfDayText(scene.setting?.timeOfDay))
   const weather = normalizeEnvironmentToken(scene.setting?.weather)
 
   if (!location && !timeOfDay && !weather) return ''
   return `${location}||${timeOfDay}||${weather}`
+}
+
+export function buildSceneEnvironmentKey(scene: SceneData): string {
+  const location = normalizeEnvironmentToken(scene.setting?.location)
+  const timeOfDay = normalizeEnvironmentToken(resolveTimeOfDayText(scene.setting?.timeOfDay))
+
+  if (!location && !timeOfDay) {
+    return buildLegacySceneEnvironmentKey(scene)
+  }
+
+  return `${location}||${timeOfDay}`
 }
 
 export function resolveSceneEnvironmentAssetKey(scene: SceneData): string {
@@ -218,6 +229,27 @@ export function resolveSceneEnvironmentAssetKey(scene: SceneData): string {
 
 export function resolveSceneEnvironmentAssetId(scene: SceneData): string {
   return `env:${resolveSceneEnvironmentAssetKey(scene)}`
+}
+
+export function resolveSceneEnvironmentAssetIdAliases(scene: SceneData): string[] {
+  const aliases = new Set<string>([resolveSceneEnvironmentAssetId(scene)])
+  const legacyKey = buildLegacySceneEnvironmentKey(scene)
+
+  if (legacyKey) {
+    aliases.add(`env:${legacyKey}`)
+  }
+
+  return Array.from(aliases)
+}
+
+export function resolveSceneEnvironmentAssetLabel(scene: SceneData): string {
+  const location = scene.setting?.location?.trim() || ''
+  const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
+
+  const parts = [location, timeOfDay].filter(Boolean)
+  if (parts.length > 0) return parts.join(' / ')
+
+  return resolveSceneEnvironmentLabel(scene)
 }
 
 export function resolveSceneEnvironmentLabel(scene: SceneData): string {
