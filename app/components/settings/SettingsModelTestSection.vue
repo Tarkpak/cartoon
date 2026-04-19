@@ -18,6 +18,8 @@ const {
   currentTtsAudioUrl,
   currentImageModelSupportsReference,
   currentImageModelRequiresReference,
+  currentImageModelAspectRatioOptions,
+  imageAspectRatio,
   canRunImageTest,
   fileInputRef,
   promptEditorRef,
@@ -77,7 +79,9 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
         <SettingsModelTestControls
           v-model:active-tab="activeTab"
           v-model:custom-prompts="customPrompts"
+          v-model:image-aspect-ratio="imageAspectRatio"
           :can-run-image-test="canRunImageTest"
+          :current-image-model-aspect-ratio-options="currentImageModelAspectRatioOptions"
           :current-image-model-requires-reference="currentImageModelRequiresReference"
           :current-image-model-supports-reference="currentImageModelSupportsReference"
           :set-file-input-ref="setFileInputElement"

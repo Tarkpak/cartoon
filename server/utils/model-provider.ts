@@ -129,6 +129,33 @@ export const TEXT_MODELS: TextModelConfig[] = [
   }
 ]
 
+const GEMINI_IMAGE_ASPECT_RATIOS = [
+  '1:1',
+  '1:4',
+  '1:8',
+  '2:3',
+  '3:2',
+  '3:4',
+  '4:1',
+  '4:3',
+  '4:5',
+  '5:4',
+  '8:1',
+  '9:16',
+  '16:9',
+  '21:9'
+] as const
+
+const QWEN_STANDARD_IMAGE_ASPECT_RATIOS = ['16:9', '1:1', '9:16'] as const
+const QWEN_IMAGE_PLUS_ASPECT_RATIOS = ['16:9', '1:1', '9:16'] as const
+const QWEN_WAN_IMAGE_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9'] as const
+const QWEN_Z_IMAGE_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9'] as const
+
+const KLING_IMAGE_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9'] as const
+const KLING_OMNI_IMAGE_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', 'auto'] as const
+
+const VOLCENGINE_IMAGE_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3', '21:9'] as const
+
 /** 所有可用的图片模型 */
 export const IMAGE_MODELS: ImageModelConfig[] = [
   // Gemini 模型
@@ -137,6 +164,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: gemini.ImageModels.HIGH_QUALITY,
     displayName: 'Gemini 3 Pro Image',
     description: '4K高质量图片生成',
+    supportedAspectRatios: [...GEMINI_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://ai.google.dev/gemini-api/docs/image-generation'
   },
@@ -145,6 +173,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: gemini.ImageModels.FAST,
     displayName: 'Gemini 3.1 Flash Image',
     description: '快速生成',
+    supportedAspectRatios: [...GEMINI_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://ai.google.dev/gemini-api/docs/image-generation'
   },
@@ -154,6 +183,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: qwen.QwenImageModels.QWEN_IMAGE_2_PRO,
     displayName: '通义千问-Image-2.0-Pro',
     description: '新一代高质量图像生成与编辑',
+    supportedAspectRatios: [...QWEN_STANDARD_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
   },
@@ -162,6 +192,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: qwen.QwenImageModels.QWEN_IMAGE_2,
     displayName: '通义千问-Image-2.0',
     description: '高性能图像生成模型，兼顾质量和速度',
+    supportedAspectRatios: [...QWEN_STANDARD_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
   },
@@ -170,6 +201,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: qwen.QwenImageModels.QWEN_IMAGE_PLUS,
     displayName: '通义千问-Image-Plus',
     description: '文生图，文本卓越渲染出画',
+    supportedAspectRatios: [...QWEN_IMAGE_PLUS_ASPECT_RATIOS],
     supportReferenceImage: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
   },
@@ -178,6 +210,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: qwen.QwenImageModels.WAN_2_6_IMAGE,
     displayName: '通义万相2.6-图像编辑',
     description: '图像编辑/风格迁移，需1-4张参考图',
+    supportedAspectRatios: [...QWEN_WAN_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     requireReferenceImage: true,
     docUrl: 'https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference'
@@ -187,6 +220,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: qwen.QwenImageModels.WAN_2_6_T2I,
     displayName: '通义万相2.6-文生图',
     description: '精准指令遵循，真实质感显著提升',
+    supportedAspectRatios: [...QWEN_WAN_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/text-to-image-v2-api-reference'
   },
@@ -195,6 +229,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: qwen.QwenImageModels.Z_IMAGE_TURBO,
     displayName: 'Z-Image-Turbo',
     description: '高性价比，照片级品质',
+    supportedAspectRatios: [...QWEN_Z_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/z-image-api-reference'
   },
@@ -204,6 +239,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: kling.KlingImageModels.KLING_IMAGE_O1,
     displayName: '可灵 Kling Image O1',
     description: 'Omni 图像模型，支持多图参考、主体融合与组图',
+    supportedAspectRatios: [...KLING_OMNI_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/OmniImage'
   },
@@ -212,6 +248,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: kling.KlingImageModels.KLING_V3_OMNI,
     displayName: '可灵 Kling v3 Omni（图像）',
     description: 'Omni 图像模型，支持 1K/2K/4K 与主体/图片混合参考',
+    supportedAspectRatios: [...KLING_OMNI_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/OmniImage'
   },
@@ -220,6 +257,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: kling.KlingImageModels.KLING_V3,
     displayName: '可灵 Kling v3（图像）',
     description: '新一代图像模型，支持文生图/图生图',
+    supportedAspectRatios: [...KLING_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
   },
@@ -228,6 +266,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: kling.KlingImageModels.KLING_V2_1,
     displayName: '可灵 Kling v2.1（图像）',
     description: '支持文生图/图生图/多图参考生图',
+    supportedAspectRatios: [...KLING_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
   },
@@ -236,6 +275,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: kling.KlingImageModels.KLING_V2_NEW,
     displayName: '可灵 Kling v2 New（图像）',
     description: '风格转绘模型，建议搭配参考图使用',
+    supportedAspectRatios: [...KLING_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     requireReferenceImage: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
@@ -245,6 +285,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: kling.KlingImageModels.KLING_V2,
     displayName: '可灵 Kling v2',
     description: '可灵高质量图片模型，支持文生图/图生图/多图参考',
+    supportedAspectRatios: [...KLING_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
   },
@@ -253,6 +294,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: kling.KlingImageModels.KLING_V1_5,
     displayName: '可灵 Kling v1.5',
     description: '可灵图片模型，支持角色/人脸一致性控制',
+    supportedAspectRatios: [...KLING_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
   },
@@ -261,6 +303,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: kling.KlingImageModels.KLING_V1,
     displayName: '可灵 Kling v1',
     description: '可灵经典图片模型，适合通用图片生成',
+    supportedAspectRatios: [...KLING_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
   },
@@ -270,6 +313,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: volcengine.VolcengineImageModels.SEEDREAM_5_0,
     displayName: '豆包 Seedream 5.0',
     description: '最新旗舰图片模型，支持文生图/图生图/多参考图',
+    supportedAspectRatios: [...VOLCENGINE_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   },
@@ -278,6 +322,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: volcengine.VolcengineImageModels.SEEDREAM_5_0_LITE,
     displayName: '豆包 Seedream 5.0 Lite',
     description: '高速高性价比图片生成',
+    supportedAspectRatios: [...VOLCENGINE_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   },
@@ -286,6 +331,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: volcengine.VolcengineImageModels.SEEDREAM_4_5,
     displayName: '豆包 Seedream 4.5',
     description: '高质量图片生成模型',
+    supportedAspectRatios: [...VOLCENGINE_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   }
@@ -849,6 +895,7 @@ export async function generateImage(options: {
       prompt: options.prompt,
       negativePrompt: options.negativePrompt,
       size: options.size,
+      aspectRatio: options.aspectRatio,
       referenceImages: klingReferenceImages,
       maxRetries: options.maxRetries
     })
