@@ -16,6 +16,7 @@ import {
 
 export function useSettingsModelTest() {
   const { models, selectedModels, loading, loadModels } = useSettingsModelCatalog()
+  const DEFAULT_IMAGE_ASPECT_RATIO = '1:1'
 
   const activeTab = ref<ModelTestTab>('video')
   const expandedProviders = ref<Set<string>>(new Set())
@@ -38,6 +39,7 @@ export function useSettingsModelTest() {
     video: '',
     tts: ''
   })
+  const imageAspectRatio = ref<string>(DEFAULT_IMAGE_ASPECT_RATIO)
 
   const imagePrompt = computed({
     get: () => customPrompts.value.image,
@@ -88,6 +90,18 @@ export function useSettingsModelTest() {
 
   const currentImageModelRequiresReference = computed(() => {
     return currentImageModel.value?.requireReferenceImage === true
+  })
+
+  const currentImageModelAspectRatioOptions = computed<string[]>(() => {
+    const rawOptions = currentImageModel.value?.supportedAspectRatios || []
+    const options = Array.from(new Set(
+      rawOptions
+        .map(value => value.trim())
+        .filter(Boolean)
+    ))
+
+    if (options.length > 0) return options
+    return [DEFAULT_IMAGE_ASPECT_RATIO]
   })
 
   const canRunImageTest = computed(() => {
@@ -223,6 +237,10 @@ export function useSettingsModelTest() {
         body.referenceImages = referenceImages.value
       }
 
+      if (modelType === 'image') {
+        body.imageAspectRatio = imageAspectRatio.value
+      }
+
       const response = await $fetch<{
         success: boolean
         data?: {
@@ -261,6 +279,11 @@ export function useSettingsModelTest() {
     autoExpandSelectedProviders()
   })
 
+  watch(currentImageModelAspectRatioOptions, (options) => {
+    if (options.includes(imageAspectRatio.value)) return
+    imageAspectRatio.value = options[0] || DEFAULT_IMAGE_ASPECT_RATIO
+  }, { immediate: true })
+
   watch(models, () => {
     syncTestSelections(true)
     autoExpandSelectedProviders()
@@ -295,6 +318,8 @@ export function useSettingsModelTest() {
     currentTtsAudioUrl,
     currentImageModelSupportsReference,
     currentImageModelRequiresReference,
+    currentImageModelAspectRatioOptions,
+    imageAspectRatio,
     canRunImageTest,
     fileInputRef,
     promptEditorRef,
