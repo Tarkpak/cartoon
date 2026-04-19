@@ -66,6 +66,38 @@ void loadStylePresets()
 
 const MAX_ASSET_UPLOAD_SIZE = 20 * 1024 * 1024
 const MAX_VOICE_UPLOAD_SIZE = 30 * 1024 * 1024
+const supportsExplicitVoiceAudioReference = ref(false)
+
+async function refreshVideoAudioReferenceCapability() {
+  try {
+    const response = await $fetch<{
+      success: boolean
+      data?: {
+        workflows?: Array<{
+          id: string
+          selectedModel?: string | null
+          compatibleModels?: Array<{
+            model: string
+            provider: string
+          }>
+        }>
+      }
+    }>('/api/models/workflow')
+
+    const workflows = response.data?.workflows || []
+    const videoWorkflow = workflows.find(item => item.id === 'video_generation')
+    const selectedModel = videoWorkflow?.selectedModel || ''
+    const selectedProvider = videoWorkflow?.compatibleModels?.find(item => item.model === selectedModel)?.provider
+    supportsExplicitVoiceAudioReference.value = selectedProvider === 'qwen'
+  } catch (error) {
+    console.warn('[asset-workbench] 读取视频模型能力失败，默认关闭显式音频引用标记:', error)
+    supportsExplicitVoiceAudioReference.value = false
+  }
+}
+
+onMounted(() => {
+  void refreshVideoAudioReferenceCapability()
+})
 
 const {
   projectId,
@@ -153,6 +185,7 @@ const {
   selectedSceneId,
   selectedStyleId,
   projectStyleId,
+  supportsExplicitVoiceAudioReference,
   queueItems,
   resolveStyleById,
   resolveSceneDescriptionWithoutAssetMentions,

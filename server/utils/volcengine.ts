@@ -215,6 +215,17 @@ function resolveImageInputKind(value?: string): 'none' | 'http' | 'asset' | 'dat
   return 'raw'
 }
 
+const VOLCENGINE_VIDEO_ASPECT_RATIOS = ['16:9', '9:16', '1:1'] as const
+type VolcengineVideoAspectRatio = (typeof VOLCENGINE_VIDEO_ASPECT_RATIOS)[number]
+
+export function resolveVolcengineVideoAspectRatio(value?: string): VolcengineVideoAspectRatio {
+  const normalized = value?.trim() as VolcengineVideoAspectRatio | undefined
+  if (normalized && VOLCENGINE_VIDEO_ASPECT_RATIOS.includes(normalized)) {
+    return normalized
+  }
+  return '16:9'
+}
+
 function parseError(error: unknown): VolcengineError {
   if (error instanceof VolcengineError) {
     return error
@@ -846,6 +857,7 @@ export async function _volcengineGenerateVideo(options: {
   lastFrameUrl?: string
   referenceImages?: string[]
   duration?: number
+  aspectRatio?: string
   size?: string
   resolution?: string
   negativePrompt?: string
@@ -890,6 +902,11 @@ export async function _volcengineGenerateVideo(options: {
   const hasReferenceImages = normalizedReferenceImages.length > 0
   const usingFirstLastFrame = !hasReferenceImages && !!normalizedFirstFrameUrl && !!normalizedLastFrameUrl
   const usingSingleImage = !hasReferenceImages && !usingFirstLastFrame && !!(normalizedImageUrl || normalizedFirstFrameUrl)
+  const ratio = resolveVolcengineVideoAspectRatio(options.aspectRatio)
+
+  if (options.aspectRatio && options.aspectRatio.trim() !== ratio) {
+    console.warn(`[Volcengine] 不支持的 aspectRatio: ${options.aspectRatio}，已回退为 ${ratio}`)
+  }
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Volcengine] generateVideo 请求参数:`, {
@@ -911,6 +928,8 @@ export async function _volcengineGenerateVideo(options: {
     referenceImagesCount: normalizedReferenceImages.length,
     maxReferenceImages,
     duration: options.duration,
+    aspectRatio: options.aspectRatio,
+    ratio,
     size: options.size,
     resolution: options.resolution,
     negativePrompt: options.negativePrompt,
@@ -967,6 +986,7 @@ export async function _volcengineGenerateVideo(options: {
         model,
         content,
         duration: -1,
+        ratio,
         watermark: false // 去掉水印
       }
 
@@ -988,6 +1008,7 @@ export async function _volcengineGenerateVideo(options: {
         hasImages: content.filter(c => c.type === 'image_url').length,
         referenceImagesCount: content.filter(c => c.role === 'reference_image').length,
         duration: requestBody.duration,
+        ratio: requestBody.ratio,
         resolution: requestBody.resolution
       }
       console.log('[Volcengine] 视频生成请求体摘要:', JSON.stringify(requestSummary, null, 2))

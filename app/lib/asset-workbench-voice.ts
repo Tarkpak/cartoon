@@ -38,6 +38,7 @@ function resolveVoiceAssetSource(character: VoiceCharacterLike): 'manual' | 'aut
 export function resolveSceneVoiceReferenceSummary(options: {
   scene: VoiceSceneLike
   characters: VoiceCharacterLike[]
+  supportsExplicitAudioReference?: boolean
 }): SceneVoiceReferenceSummary {
   const speakerNames = new Set<string>()
   const seenCharacterIds = new Set<string>()
@@ -71,7 +72,12 @@ export function resolveSceneVoiceReferenceSummary(options: {
 
   return {
     hasDialogue: speakerNames.size > 0,
-    mode: speakerNames.size === 1 && matchedCharacters.length === 1 ? 'explicit_audio' : 'prompt_only',
+    mode:
+      speakerNames.size === 1
+      && matchedCharacters.length === 1
+      && options.supportsExplicitAudioReference !== false
+        ? 'explicit_audio'
+        : 'prompt_only',
     characters: matchedCharacters
   }
 }
