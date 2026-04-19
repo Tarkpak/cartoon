@@ -69,6 +69,9 @@ const CAMERA_MOVEMENT_LABEL_MAP: Record<string, string> = {
   handheld: '手持镜头',
   arc: '环绕镜头'
 }
+const TIMELINE_LINE_CAPTURE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:].+$/gmu
+const TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]\s*/u
+const STRUCTURED_DESCRIPTION_HEADING_REGEX = /^(?:场景功能\/情绪定位|场景功能|情绪定位|镜头设计|声音设计|台词节奏|表演关键点|Scene function \/ emotional beat|Shot design|Sound design|Dialogue rhythm|Performance notes)\s*[：:]?\s*$/u
 
 function normalizeSceneDuration(rawDuration: unknown): number {
   const numericDuration = typeof rawDuration === 'number'
@@ -154,6 +157,37 @@ function escapeRegExp(raw: string): string {
   return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function extractTimelineLines(text: string): string[] {
+  if (!text) return []
+  const matches = text.match(TIMELINE_LINE_CAPTURE_REGEX) || []
+  return matches
+    .map(line => line.trim())
+    .filter(Boolean)
+}
+
+function buildSceneDescriptionSummary(text: string): string {
+  const timelineLines = extractTimelineLines(text)
+
+  if (timelineLines.length > 0) {
+    return timelineLines
+      .slice(0, 2)
+      .map(line => line.replace(TIMELINE_PREFIX_REGEX, '').trim())
+      .join(' ')
+      .trim()
+  }
+
+  const summary = text
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => !!line && !STRUCTURED_DESCRIPTION_HEADING_REGEX.test(line))
+    .slice(0, 3)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return summary
+}
+
 function annotateFirstOccurrenceWithImageTag(text: string, keyword: string, imageIndex: number): string {
   const safeKeyword = keyword.trim()
   if (!safeKeyword) return text
@@ -199,7 +233,7 @@ function buildFormattedTimelineScript(data: ParsedScript): {
     const shotType = normalizeShotType(scene.shotType, `${scene.title || ''} ${scene.description || ''}`)
     const shotLabel = SHOT_TYPE_LABEL_MAP[shotType] || SHOT_TYPE_LABEL_MAP[DEFAULT_SHOT_TYPE]
 
-    let annotatedDescription = (scene.description || '').trim()
+    let annotatedDescription = buildSceneDescriptionSummary(scene.description || '')
     const location = scene.setting?.location?.trim() || ''
     const locationImageIndex = locationImageRef.get(location)
     if (locationImageIndex) {
@@ -353,11 +387,11 @@ export default defineEventHandler(async (event) => {
 
   try {
     const textLength = text.trim().length
-    let recommendedMinScenes = 6
-    if (textLength > 3200) recommendedMinScenes = 20
-    else if (textLength > 2400) recommendedMinScenes = 16
-    else if (textLength > 1600) recommendedMinScenes = 12
-    else if (textLength > 900) recommendedMinScenes = 8
+    let recommendedMinScenes = 4
+    if (textLength > 3200) recommendedMinScenes = 16
+    else if (textLength > 2400) recommendedMinScenes = 12
+    else if (textLength > 1600) recommendedMinScenes = 8
+    else if (textLength > 900) recommendedMinScenes = 6
 
     // 2. 从数据库获取提示词模板
     const prompt = await getInterpolatedPrompt(

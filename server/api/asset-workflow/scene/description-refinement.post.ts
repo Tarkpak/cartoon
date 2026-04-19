@@ -58,7 +58,7 @@ const RequestSchema = z.object({
 })
 
 const RefinedDescriptionSchema = z.object({
-  description: z.string().min(12).max(2600)
+  description: z.string().min(12).max(5000)
 })
 
 const TIMELINE_LINE_CAPTURE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:].+$/gmu
@@ -143,7 +143,7 @@ function extractTimelineLines(text: string): string[] {
     .filter(Boolean)
 }
 
-function normalizeRefinedTimelineDescription(options: {
+function normalizeRefinedDescription(options: {
   refined: string
   fallback: string
   durationHint: number
@@ -153,19 +153,37 @@ function normalizeRefinedTimelineDescription(options: {
   const refinedTimelineLines = extractTimelineLines(refinedCore)
 
   if (refinedTimelineLines.length > 0) {
-    return refinedTimelineLines.join('\n')
+    return refinedCore
   }
 
   const fallbackTimelineLines = extractTimelineLines(fallbackCore)
   if (fallbackTimelineLines.length > 0) {
-    return fallbackTimelineLines.join('\n')
+    if (!refinedCore) {
+      return fallbackCore
+    }
+
+    if (/镜头设计\s*[：:]/u.test(refinedCore)) {
+      return `${refinedCore}\n${fallbackTimelineLines.join('\n')}`.trim()
+    }
+
+    return `${refinedCore}\n\n镜头设计：\n${fallbackTimelineLines.join('\n')}`.trim()
   }
 
   const safeDuration = Math.max(2, Number.isFinite(options.durationHint) ? Math.round(options.durationHint) : 8)
   const lineBody = (refinedCore || fallbackCore || '保持原场景动作与情绪推进。')
     .replace(/\s+/g, ' ')
     .trim()
-  return `0-${safeDuration}秒：，中景，固定镜头。${lineBody}`
+  const fallbackTimeline = `0-${safeDuration}秒：，中景，固定镜头。${lineBody}`
+
+  if (!refinedCore) {
+    return fallbackTimeline
+  }
+
+  if (/镜头设计\s*[：:]/u.test(refinedCore)) {
+    return `${refinedCore}\n${fallbackTimeline}`.trim()
+  }
+
+  return `${refinedCore}\n\n镜头设计：\n${fallbackTimeline}`.trim()
 }
 
 async function buildRefineSceneDescriptionPrompt(
@@ -228,7 +246,7 @@ export default defineEventHandler(async (event) => {
       throw new Error(validated.error.issues.map(issue => issue.message).join(', '))
     }
 
-    const normalizedDescription = normalizeRefinedTimelineDescription({
+    const normalizedDescription = normalizeRefinedDescription({
       refined: validated.data.description,
       fallback: input.scene.description,
       durationHint: Number.isFinite(input.scene.duration) ? Number(input.scene.duration) : 8

@@ -62,12 +62,12 @@ defineProps<{
             v-if="!editForm.description"
             class="pointer-events-none absolute left-3 top-2 text-sm text-muted-foreground/70"
           >
-            按时间轴输入镜头描述，例如：0-3秒：，中景，固定镜头。画面描述...
+            直接写完整场景描述，例如：场景功能/情绪定位、镜头设计（含 0-3秒：...）、声音设计、台词节奏、表演关键点
           </p>
         </div>
 
         <p class="text-xs text-muted-foreground">
-          输入 `@` 可直接引用角色/环境/道具资产，选中后会以内联卡片展示。
+          输入 `@` 可直接引用角色/环境/道具资产。建议把镜头、声音、表演提示直接融合在同一个场景描述里。
         </p>
 
         <div
@@ -123,7 +123,7 @@ defineProps<{
       <Textarea
         v-else
         v-model="editForm.description"
-        placeholder="描述场景的画面内容..."
+        placeholder="输入完整场景描述：场景功能/情绪定位、镜头设计、声音设计、台词节奏、表演关键点..."
         class="min-h-[100px]"
       />
     </div>
