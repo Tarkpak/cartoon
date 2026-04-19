@@ -778,12 +778,23 @@ async function generateVideoWithQwen(
     const requestedDuration = typeof config.duration === 'number' && Number.isFinite(config.duration)
       ? config.duration
       : 8
+    const hasFrameControl = !!(config.firstFrame || config.lastFrame)
 
     // Qwen 首尾帧模型当前通常仅支持固定短时长（约 5s）。
     // 当请求时长超过 5s 时，自动切换到长时长文生模型，优先保证叙事完整。
     if (modelId?.includes('kf2v') && requestedDuration > 5) {
       const fallbackModel = qwen.QwenVideoModels.WAN_2_6_T2V
       console.warn(`[VideoGen] Qwen 模型 ${modelId} 无法满足 ${requestedDuration}s，自动切换到 ${fallbackModel}`)
+      modelId = fallbackModel
+    }
+
+    // Qwen 首尾帧模型不支持自定义音频参考；当配置中已注入 audioUrl 时，
+    // 自动切换到 2.6 文/图生视频模型，确保角色音频参考能真正生效。
+    if (modelId?.includes('kf2v') && config.audioUrl && !hasFrameControl) {
+      const fallbackModel = config.imageUrl
+        ? qwen.QwenVideoModels.WAN_2_6_I2V
+        : qwen.QwenVideoModels.WAN_2_6_T2V
+      console.warn(`[VideoGen] Qwen 模型 ${modelId} 不支持 audioUrl，自动切换到 ${fallbackModel}`)
       modelId = fallbackModel
     }
 
@@ -1601,6 +1612,7 @@ async function generateVideoWithVolcengine(
       referenceImages: hasReferenceImages ? referenceImages : undefined,
       maxReferenceImages: referenceImageLimit,
       duration,
+      aspectRatio: config.aspectRatio,
       resolution: config.resolution,
       onTaskCreated: async (upstreamTaskId) => {
         await updateUpstreamTaskTracking(taskId, {

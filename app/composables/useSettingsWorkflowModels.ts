@@ -94,7 +94,10 @@ const DEFAULT_COMPLETION_NOTIFICATION_OPTIONS: WorkflowCompletionNotificationOpt
 
 export function useSettingsWorkflowModels() {
   const { models, selectedModels, loadModels } = useSettingsModelCatalog()
-  const { setCompletionNotificationOptions } = useGenerationCompletionNotification()
+  const {
+    completionNotificationOptions: completionNotificationOptionsState,
+    setCompletionNotificationOptions
+  } = useGenerationCompletionNotification()
 
   const workflowLoading = ref(true)
   const workflowSaving = ref(false)
@@ -157,6 +160,9 @@ export function useSettingsWorkflowModels() {
       const response = await $fetch<{ success: boolean, data: WorkflowData }>('/api/models/workflow')
       if (response.success) {
         workflowData.value = response.data
+        setCompletionNotificationOptions(
+          response.data.modelOptions?.completion_notification || DEFAULT_COMPLETION_NOTIFICATION_OPTIONS
+        )
       }
     } catch (error) {
       console.error('[useSettingsWorkflowModels] 加载业务流程模型配置失败:', error)
@@ -180,6 +186,21 @@ export function useSettingsWorkflowModels() {
   function getCompletionNotificationOptions(): WorkflowCompletionNotificationOptions {
     return workflowData.value?.modelOptions?.completion_notification || {
       ...DEFAULT_COMPLETION_NOTIFICATION_OPTIONS
+    }
+  }
+
+  function syncWorkflowCompletionNotificationOptions(
+    next: WorkflowCompletionNotificationOptions
+  ) {
+    if (!workflowData.value) return
+
+    workflowData.value = {
+      ...workflowData.value,
+      modelOptions: {
+        image_options: getImageGenerationModelOptions(),
+        video_generation: getVideoGenerationModelOptions(),
+        completion_notification: next
+      }
     }
   }
 
@@ -285,13 +306,19 @@ export function useSettingsWorkflowModels() {
   ) {
     if (!workflowData.value) return
 
-    const current = getCompletionNotificationOptions()
+    const current = {
+      ...getCompletionNotificationOptions(),
+      ...completionNotificationOptionsState.value
+    }
     const next: WorkflowCompletionNotificationOptions = {
       ...current,
       ...patch
     }
+    const previous = getCompletionNotificationOptions()
 
     workflowSaving.value = true
+    setCompletionNotificationOptions(next)
+    syncWorkflowCompletionNotificationOptions(next)
 
     try {
       const response = await $fetch<{ success: boolean }>('/api/models/workflow', {
@@ -303,11 +330,12 @@ export function useSettingsWorkflowModels() {
       })
 
       if (response.success) {
-        setCompletionNotificationOptions(next)
         await loadWorkflowModels()
       }
     } catch (error) {
       console.error('[useSettingsWorkflowModels] 更新生成完成提醒配置失败:', error)
+      setCompletionNotificationOptions(previous)
+      syncWorkflowCompletionNotificationOptions(previous)
     } finally {
       workflowSaving.value = false
     }
