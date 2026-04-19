@@ -15,6 +15,11 @@ const NARRATION_SPEAKERS = [
   '内心独白'
 ]
 
+const SCENE_IMAGE_TAG_REGEX = /\[(?:图片|Image\s*#)\s*\d+\]/giu
+const SCENE_QUOTED_DIALOGUE_REGEX = /'[^'\n]*'|"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’|「[^」\n]*」|『[^』\n]*』/gu
+const SCENE_DIALOGUE_SENTENCE_REGEX = /[^。！？!?\n]*(?:说|问|答|喊|道|回应|低语|喃喃|旁白|画外音)\s*[：:][^。！？!?\n]*/gu
+const SCENE_TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]/gmu
+
 export interface SceneCharacterCandidate {
   primaryName: string
   aliases: string[]
@@ -42,8 +47,13 @@ function isNarrationSpeaker(name: string): boolean {
 function splitCandidateNames(rawName?: string): string[] {
   if (!rawName) return []
 
+  const normalizedRaw = rawName
+    .split(/[:：]/u)[0]
+    .replace(/[（(][^）)]*[）)]/gu, ' ')
+    .trim()
+
   return uniqueSorted(
-    rawName
+    normalizedRaw
       .split(/[/／|｜、,，\s]+/g)
       .map(name => name.trim())
       .filter(Boolean)
@@ -80,7 +90,14 @@ export function findCharacterByNameLike(
       return character
     }
 
-    if (!fuzzyMatch && (target.includes(normalized) || normalized.includes(target))) {
+    const longer = target.length >= normalized.length ? target : normalized
+    const shorter = longer === target ? normalized : target
+    const lengthGap = longer.length - shorter.length
+    const canFuzzyMatch = shorter.length >= 2
+      && lengthGap <= 2
+      && longer.includes(shorter)
+
+    if (!fuzzyMatch && canFuzzyMatch) {
       fuzzyMatch = character
     }
   }
@@ -88,12 +105,87 @@ export function findCharacterByNameLike(
   return fuzzyMatch
 }
 
+function normalizeVisualDescriptionText(description?: string): string {
+  if (!description) return ''
+
+  return normalizeToken(
+    description
+      .replace(SCENE_IMAGE_TAG_REGEX, ' ')
+      .replace(SCENE_QUOTED_DIALOGUE_REGEX, ' ')
+      .replace(SCENE_DIALOGUE_SENTENCE_REGEX, ' ')
+      .replace(SCENE_TIMELINE_PREFIX_REGEX, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  )
+}
+
+function collectDialogueSpeakerNameSet(scene: SceneData): Set<string> {
+  const speakerSet = new Set<string>()
+
+  for (const dialogue of scene.dialogues) {
+    for (const alias of splitCandidateNames(dialogue.character)) {
+      const normalized = normalizeToken(alias)
+      if (!normalized || isNarrationSpeaker(alias)) continue
+      speakerSet.add(normalized)
+    }
+  }
+
+  return speakerSet
+}
+
+function collectDialogueTextTokens(scene: SceneData): string[] {
+  return scene.dialogues
+    .map(dialogue => normalizeToken(dialogue.text))
+    .filter(Boolean)
+}
+
+function hasAliasInTokens(aliases: string[], tokenPool: string[]): boolean {
+  if (aliases.length === 0 || tokenPool.length === 0) return false
+
+  for (const alias of aliases) {
+    const normalized = normalizeToken(alias)
+    if (!normalized) continue
+
+    if (tokenPool.some(token => token.includes(normalized))) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function hasAliasInSpeakerSet(aliases: string[], speakerSet: Set<string>): boolean {
+  if (aliases.length === 0 || speakerSet.size === 0) return false
+
+  for (const alias of aliases) {
+    const normalized = normalizeToken(alias)
+    if (!normalized) continue
+    if (speakerSet.has(normalized)) return true
+  }
+
+  return false
+}
+
 export function collectSceneCharacterCandidates(scene: SceneData): SceneCharacterCandidate[] {
   const map = new Map<string, SceneCharacterCandidate>()
+  const visualDescriptionToken = normalizeVisualDescriptionText(scene.description)
+  const dialogueTextTokens = collectDialogueTextTokens(scene)
+  const dialogueSpeakerSet = collectDialogueSpeakerNameSet(scene)
 
   for (const sceneCharacter of scene.characters) {
     const candidate = createSceneCharacterCandidate(sceneCharacter.name, sceneCharacter.appearance)
     if (!candidate) continue
+
+    const hasVisualMetadata = !!sceneCharacter.appearance?.trim()
+      || !!sceneCharacter.emotion?.trim()
+    const appearsInDialogueText = hasAliasInTokens(candidate.aliases, dialogueTextTokens)
+    const appearsInVisualDescription = hasAliasInTokens(candidate.aliases, [visualDescriptionToken])
+    const appearsAsDialogueSpeaker = hasAliasInSpeakerSet(candidate.aliases, dialogueSpeakerSet)
+    const mentionedOnlyByDialogue = !hasVisualMetadata
+      && !appearsAsDialogueSpeaker
+      && appearsInDialogueText
+      && !appearsInVisualDescription
+    if (mentionedOnlyByDialogue) continue
 
     const key = normalizeToken(candidate.primaryName)
     if (!key) continue

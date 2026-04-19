@@ -1,22 +1,23 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue'
-import { useSceneAssetReferences } from '~/composables/useSceneAssetReferences'
 import { useSceneDescriptionMentionEditor } from '~/composables/useSceneDescriptionMentionEditor'
 import type {
   AssetReferenceOption,
-  EditPanelKey,
   SceneEditData
 } from '~/lib/scene-edit-dialog'
 import {
-  sceneEditPanelTabs,
+  buildSceneAssetMentionCandidates,
   uniqueValues
 } from '~/lib/scene-edit-dialog'
+import { resetFileInput } from '~/lib/asset-workbench-upload'
+import { resolveChatUploadAssetName } from '~/lib/asset-workbench-scene-chat'
 
 const props = defineProps<{
   open: boolean
   scene: SceneEditData | null
   assetReferenceOptions?: AssetReferenceOption[]
   selectedAssetReferenceIds?: string[]
+  uploadOtherAssets?: (options: { sceneId: string, files: File[], names?: string[] }) => Promise<string[]>
 }>()
 
 const emit = defineEmits<{
@@ -43,9 +44,13 @@ const editForm = ref<SceneEditData>({
   transitionDuration: 0.5
 })
 const selectedAssetReferenceIdsInternal = ref<string[]>([])
-const activePanel = ref<EditPanelKey>('basic')
+const sceneAssetUploadInputRef = ref<HTMLInputElement | null>(null)
+const sceneAssetUploading = ref(false)
+const sceneAssetUploadError = ref<string | null>(null)
+const sceneAssetNameDialogOpen = ref(false)
+const sceneAssetPendingFiles = ref<File[]>([])
+const sceneAssetPendingNames = ref<string[]>([])
 
-const panelTabs = sceneEditPanelTabs
 const dialogOpen = toRef(props, 'open')
 
 const assetReferenceOptions = computed<AssetReferenceOption[]>(() => {
@@ -57,27 +62,6 @@ const sceneDescription = computed({
   set: (value: string) => {
     editForm.value.description = value
   }
-})
-
-const {
-  draggingAssetId,
-  activeDropZone,
-  assetPoolReferences,
-  poolCharacterAssets,
-  poolEnvironmentAssets,
-  poolPropAssets,
-  selectedCharacterAssets,
-  selectedEnvironmentAssets,
-  selectedPropAssets,
-  selectedUnknownAssets,
-  handleAssetDragStart,
-  handleAssetDragEnd,
-  handleDropZoneDragOver,
-  handleDropZoneDrop,
-  handleDropZoneDragLeave
-} = useSceneAssetReferences({
-  assetReferenceOptions,
-  selectedAssetReferenceIds: selectedAssetReferenceIdsInternal
 })
 
 const {
@@ -103,8 +87,7 @@ const {
   description: sceneDescription,
   assetReferenceOptions,
   selectedAssetReferenceIds: selectedAssetReferenceIdsInternal,
-  dialogOpen,
-  activePanel
+  dialogOpen
 })
 
 // 监听 scene 变化，初始化表单
@@ -126,13 +109,22 @@ watch(() => props.scene, (newScene) => {
       transitionOut: newScene.transitionOut || 'cut',
       transitionDuration: newScene.transitionDuration || 0.5
     }
-    activePanel.value = 'basic'
     closeSceneDescriptionMention()
     nextTick(() => {
       renderSceneDescriptionEditor(editForm.value.description || '')
     })
   }
 }, { immediate: true })
+
+watch(
+  () => props.open,
+  (open) => {
+    if (open) return
+    sceneAssetUploadError.value = null
+    sceneAssetUploading.value = false
+    closeSceneAssetNameDialog()
+  }
+)
 
 watch(
   () => [props.scene?.id, props.selectedAssetReferenceIds],
@@ -169,6 +161,8 @@ function handleSave() {
 // 取消
 function handleCancel() {
   closeSceneDescriptionMention()
+  sceneAssetUploadError.value = null
+  closeSceneAssetNameDialog()
   emit('update:open', false)
 }
 
@@ -178,6 +172,151 @@ function setSceneDescriptionEditorElement(element: Element | ComponentPublicInst
 
 function setSceneDescriptionMentionListElement(element: Element | ComponentPublicInstance | null) {
   sceneDescriptionMentionListRef.value = element instanceof HTMLDivElement ? element : null
+}
+
+function setSceneAssetUploadInputElement(element: Element | ComponentPublicInstance | null) {
+  sceneAssetUploadInputRef.value = element instanceof HTMLInputElement ? element : null
+}
+
+function triggerSceneAssetUpload() {
+  sceneAssetUploadInputRef.value?.click()
+}
+
+function closeSceneAssetNameDialog() {
+  sceneAssetNameDialogOpen.value = false
+  sceneAssetPendingFiles.value = []
+  sceneAssetPendingNames.value = []
+}
+
+function setSceneAssetNameDialogOpen(open: boolean) {
+  if (open) {
+    sceneAssetNameDialogOpen.value = true
+    return
+  }
+  closeSceneAssetNameDialog()
+}
+
+function resolveSceneAssetDefaultNames(files: File[]): string[] {
+  const existingNames = assetReferenceOptions.value.map(item => item.name)
+  return files.map((file) => {
+    const name = resolveChatUploadAssetName(file.name, existingNames)
+    existingNames.push(name)
+    return name
+  })
+}
+
+function applySceneAssetTokens(createdAssetIds: string[]) {
+  if (createdAssetIds.length > 0) {
+    selectedAssetReferenceIdsInternal.value = uniqueValues([
+      ...selectedAssetReferenceIdsInternal.value,
+      ...createdAssetIds
+    ])
+  }
+
+  if (createdAssetIds.length === 0) return
+
+  const tokenById = new Map(
+    buildSceneAssetMentionCandidates(assetReferenceOptions.value)
+      .map(candidate => [candidate.asset.id, candidate.token] as const)
+  )
+  const appendedTokens = createdAssetIds
+    .map(assetId => tokenById.get(assetId) || '')
+    .filter(Boolean)
+
+  if (appendedTokens.length === 0) return
+
+  const base = (editForm.value.description || '').trimEnd()
+  const nextDescription = base
+    ? `${base}\n${appendedTokens.join(' ')} `
+    : `${appendedTokens.join(' ')} `
+
+  editForm.value.description = nextDescription
+  renderSceneDescriptionEditor(nextDescription)
+}
+
+function resolveSceneAssetUploadNames(files: File[]): string[] {
+  const existingNames = assetReferenceOptions.value.map(item => item.name)
+  return files.map((file, index) => {
+    const raw = (sceneAssetPendingNames.value[index] || '').trim()
+    const preferred = raw || file.name
+    const name = resolveChatUploadAssetName(preferred, existingNames)
+    existingNames.push(name)
+    return name
+  })
+}
+
+async function submitSceneAssetUpload() {
+  if (sceneAssetUploading.value) return
+
+  const files = sceneAssetPendingFiles.value.slice()
+  if (files.length === 0) {
+    closeSceneAssetNameDialog()
+    return
+  }
+
+  if (!editForm.value.id) {
+    sceneAssetUploadError.value = '当前场景未初始化，无法上传资产'
+    return
+  }
+
+  if (!props.uploadOtherAssets) {
+    sceneAssetUploadError.value = '未配置资产上传能力'
+    return
+  }
+
+  sceneAssetUploading.value = true
+  sceneAssetUploadError.value = null
+
+  try {
+    if (sceneDescriptionSupportsMention.value) {
+      syncSceneDescriptionFromEditor()
+    }
+
+    const names = resolveSceneAssetUploadNames(files)
+    const createdAssetIds = await props.uploadOtherAssets({
+      sceneId: editForm.value.id,
+      files,
+      names
+    })
+
+    await nextTick()
+    applySceneAssetTokens(createdAssetIds)
+    closeSceneAssetNameDialog()
+  } catch (error) {
+    sceneAssetUploadError.value = error instanceof Error
+      ? error.message
+      : '上传资产失败'
+  } finally {
+    sceneAssetUploading.value = false
+  }
+}
+
+function handleSceneAssetUpload(event: Event) {
+  const input = event.target as HTMLInputElement | null
+  const files = Array.from(input?.files || [])
+
+  if (files.length === 0) {
+    resetFileInput(event)
+    return
+  }
+
+  if (!editForm.value.id) {
+    sceneAssetUploadError.value = '当前场景未初始化，无法上传资产'
+    resetFileInput(event)
+    return
+  }
+
+  if (!props.uploadOtherAssets) {
+    sceneAssetUploadError.value = '未配置资产上传能力'
+    resetFileInput(event)
+    return
+  }
+
+  sceneAssetUploadError.value = null
+  sceneAssetPendingFiles.value = files
+  sceneAssetPendingNames.value = resolveSceneAssetDefaultNames(files)
+  sceneAssetNameDialogOpen.value = true
+  resetFileInput(event)
 }
 </script>
 
@@ -195,31 +334,19 @@ function setSceneDescriptionMentionListElement(element: Element | ComponentPubli
       </DialogHeader>
 
       <div class="space-y-6 py-4">
-        <div class="rounded-md border bg-muted/30 p-1">
-          <div class="grid grid-cols-2 gap-1">
-            <Button
-              v-for="tab in panelTabs"
-              :key="tab.key"
-              type="button"
-              size="sm"
-              :variant="activePanel === tab.key ? 'default' : 'ghost'"
-              class="h-8 text-xs"
-              @click="activePanel = tab.key"
-            >
-              {{ tab.label }}
-            </Button>
-          </div>
-        </div>
-
         <ScriptSceneEditBasicPanel
-          v-if="activePanel === 'basic'"
           v-model:edit-form="editForm"
           :scene-description-supports-mention="sceneDescriptionSupportsMention"
           :scene-description-mention-open="sceneDescriptionMentionOpen"
           :scene-description-mention-active-index="sceneDescriptionMentionActiveIndex"
           :scene-description-mention-candidates="sceneDescriptionMentionCandidates"
+          :scene-asset-uploading="sceneAssetUploading"
+          :scene-asset-upload-error="sceneAssetUploadError"
           :set-scene-description-editor-ref="setSceneDescriptionEditorElement"
           :set-scene-description-mention-list-ref="setSceneDescriptionMentionListElement"
+          :set-scene-asset-upload-input-ref="setSceneAssetUploadInputElement"
+          :trigger-scene-asset-upload="triggerSceneAssetUpload"
+          :handle-scene-asset-upload="handleSceneAssetUpload"
           :insert-scene-asset-mention="insertSceneAssetMention"
           :handle-scene-description-input="handleSceneDescriptionInput"
           :handle-scene-description-cursor-change="handleSceneDescriptionCursorChange"
@@ -228,27 +355,6 @@ function setSceneDescriptionMentionListElement(element: Element | ComponentPubli
           :handle-scene-description-composition-end="handleSceneDescriptionCompositionEnd"
           :handle-scene-description-blur="handleSceneDescriptionBlur"
           :handle-scene-description-keydown="handleSceneDescriptionKeydown"
-        />
-
-        <ScriptSceneAssetReferencePanel
-          v-else-if="activePanel === 'assets'"
-          :asset-reference-options="assetReferenceOptions"
-          :selected-asset-reference-ids="selectedAssetReferenceIdsInternal"
-          :active-drop-zone="activeDropZone"
-          :dragging-asset-id="draggingAssetId"
-          :asset-pool-references="assetPoolReferences"
-          :pool-character-assets="poolCharacterAssets"
-          :pool-environment-assets="poolEnvironmentAssets"
-          :pool-prop-assets="poolPropAssets"
-          :selected-character-assets="selectedCharacterAssets"
-          :selected-environment-assets="selectedEnvironmentAssets"
-          :selected-prop-assets="selectedPropAssets"
-          :selected-unknown-assets="selectedUnknownAssets"
-          :handle-asset-drag-start="handleAssetDragStart"
-          :handle-asset-drag-end="handleAssetDragEnd"
-          :handle-drop-zone-drag-over="handleDropZoneDragOver"
-          :handle-drop-zone-drop="handleDropZoneDrop"
-          :handle-drop-zone-drag-leave="handleDropZoneDragLeave"
         />
       </div>
 
@@ -261,6 +367,60 @@ function setSceneDescriptionMentionListElement(element: Element | ComponentPubli
         </Button>
         <Button @click="handleSave">
           保存修改
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
+  <Dialog
+    :open="sceneAssetNameDialogOpen"
+    @update:open="setSceneAssetNameDialogOpen"
+  >
+    <DialogContent class="max-w-lg">
+      <DialogHeader>
+        <DialogTitle>上传其他资产</DialogTitle>
+        <DialogDescription>
+          可在上传前编辑资产名称，默认使用文件名。
+        </DialogDescription>
+      </DialogHeader>
+
+      <div class="max-h-[48vh] space-y-3 overflow-y-auto py-1">
+        <div
+          v-for="(file, index) in sceneAssetPendingFiles"
+          :key="`${file.name}_${index}`"
+          class="space-y-1"
+        >
+          <p class="truncate text-xs text-muted-foreground">
+            文件：{{ file.name }}
+          </p>
+          <Input
+            v-model="sceneAssetPendingNames[index]"
+            placeholder="输入资产名称"
+            :disabled="sceneAssetUploading"
+          />
+        </div>
+      </div>
+
+      <p
+        v-if="sceneAssetUploadError"
+        class="text-xs text-destructive"
+      >
+        {{ sceneAssetUploadError }}
+      </p>
+
+      <DialogFooter>
+        <Button
+          variant="outline"
+          :disabled="sceneAssetUploading"
+          @click="closeSceneAssetNameDialog"
+        >
+          取消
+        </Button>
+        <Button
+          :disabled="sceneAssetUploading || sceneAssetPendingFiles.length === 0"
+          @click="submitSceneAssetUpload"
+        >
+          {{ sceneAssetUploading ? '上传中...' : '确认上传' }}
         </Button>
       </DialogFooter>
     </DialogContent>

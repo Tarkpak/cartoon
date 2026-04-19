@@ -271,7 +271,7 @@ function handlePromptKeydown(event: KeyboardEvent) {
           </div>
         </div>
         <p class="text-[11px] text-muted-foreground">
-          输入 `@` 可引用角色 / 环境 / 道具资产
+          输入 `@` 可引用角色 / 环境 / 道具 / 其他资产
         </p>
         <p
           v-if="error"

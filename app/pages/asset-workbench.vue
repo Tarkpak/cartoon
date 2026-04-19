@@ -49,8 +49,9 @@ import {
   buildSceneMentionDescription,
   resolveSceneDescriptionWithoutAssetMentions
 } from '~/lib/asset-workbench-mentions'
+import { resolveChatUploadAssetName } from '~/lib/asset-workbench-scene-chat'
 import { applySceneBaselineReference } from '~/lib/asset-workbench-scene-generation'
-import { uploadAssetImage } from '~/lib/asset-workbench-upload'
+import { uploadAssetImage, uploadImageFile } from '~/lib/asset-workbench-upload'
 
 // 资产一致性工作流页面
 definePageMeta({
@@ -302,18 +303,15 @@ async function createEnvironmentCropImage(options: {
   const crop = normalizeCropSelection(
     options.crop,
     metrics.width,
-    metrics.height,
-    projectAspectRatio.value
+    metrics.height
   ) || buildDefaultCropSelection({
     imageWidth: metrics.width,
-    imageHeight: metrics.height,
-    aspectRatio: projectAspectRatio.value
+    imageHeight: metrics.height
   })
 
   const imageData = await renderCropSelectionToDataUrl({
     sourceImage: options.sourceImage,
-    selection: crop,
-    aspectRatio: projectAspectRatio.value
+    selection: crop
   })
   const imageUrl = await uploadAssetImage(imageData, buildEnvironmentCropUploadPrefix(options.assetId))
 
@@ -1110,6 +1108,53 @@ async function handlePropImageUpload(propId: string, event: Event) {
   await saveWorkflowMeta()
 }
 
+async function uploadSceneEditOtherAssets(options: {
+  sceneId: string
+  files: File[]
+  names?: string[]
+}): Promise<string[]> {
+  const sceneId = options.sceneId?.trim()
+  if (!sceneId) {
+    throw new Error('场景ID无效，无法上传资产')
+  }
+
+  const files = Array.isArray(options.files) ? options.files : []
+  const names = Array.isArray(options.names) ? options.names : []
+  if (files.length === 0) return []
+
+  const createdAssetIds: string[] = []
+  const existingNames = propAssets.value.map(item => item.name)
+
+  try {
+    for (const [index, file] of files.entries()) {
+      const imageUrl = await uploadImageFile(file, {
+        maxFileSize: MAX_ASSET_UPLOAD_SIZE,
+        prefix: `scene_edit_${sceneId}`
+      })
+
+      const preferredName = (names[index] || '').trim()
+      const name = resolveChatUploadAssetName(preferredName || file.name, existingNames)
+      existingNames.push(name)
+
+      const propId = createPropAssetId()
+      propAssets.value.push({
+        id: propId,
+        name,
+        description: '场景编辑上传图片资产',
+        category: 'other',
+        referenceImage: imageUrl
+      })
+      recordPropHistory(propId, imageUrl, { source: 'uploaded' })
+      createdAssetIds.push(`prop:${propId}`)
+    }
+
+    await saveWorkflowMeta()
+    return createdAssetIds
+  } catch (error) {
+    throw new Error(resolveUiError(error, '场景编辑上传资产失败'))
+  }
+}
+
 const {
   sceneChatOpenSceneId,
   sceneChatCurrentMessages,
@@ -1545,7 +1590,6 @@ async function handleBatchGenerateCharacters() {
       :environment-crop-source-image="environmentCropSourceImage"
       :environment-crop-initial-selection="environmentCropInitialSelection"
       :environment-crop-saving="environmentCropSaving"
-      :project-aspect-ratio="projectAspectRatio"
       :set-environment-crop-dialog-open="setEnvironmentCropDialogOpen"
       :submit-environment-crop-selection="submitEnvironmentCropSelection"
       :scene-edit-dialog-open="sceneEditDialogOpen"
@@ -1558,6 +1602,7 @@ async function handleBatchGenerateCharacters() {
       :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
       :handle-scene-save="handleSceneSave"
       :handle-scene-asset-references-save="handleSceneAssetReferencesSave"
+      :upload-scene-edit-other-assets="uploadSceneEditOtherAssets"
       :asset-history-dialog-open="assetHistoryDialogOpen"
       :set-asset-history-dialog-open="setAssetHistoryDialogOpen"
       :asset-history-dialog-title="assetHistoryDialogTitle"

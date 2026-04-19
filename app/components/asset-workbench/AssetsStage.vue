@@ -63,10 +63,19 @@ const emit = defineEmits<{
 
 const assetTab = ref<AssetTab>('characters')
 
+const propAssetsOfType = computed(() => {
+  return props.propAssets.filter(item => item.category !== 'other')
+})
+
+const otherAssetsOfType = computed(() => {
+  return props.propAssets.filter(item => item.category === 'other')
+})
+
 const tabs = computed(() => [
   { key: 'characters' as AssetTab, label: '角色', count: props.characters.length },
   { key: 'environments' as AssetTab, label: '环境', count: props.environmentAssetCards.length },
-  { key: 'props' as AssetTab, label: '道具', count: props.propAssets.length }
+  { key: 'props' as AssetTab, label: '道具', count: propAssetsOfType.value.length },
+  { key: 'others' as AssetTab, label: '其他', count: otherAssetsOfType.value.length }
 ])
 </script>
 
@@ -198,12 +207,29 @@ const tabs = computed(() => [
       />
 
       <AssetWorkbenchPropAssetsTab
-        v-else
-        :prop-assets="propAssets"
+        v-else-if="assetTab === 'props'"
+        :prop-assets="propAssetsOfType"
         :auto-running="autoRunning"
         :uploading-prop-id="uploadingPropId"
         :get-prop-usage-count="getPropUsageCount"
+        asset-label="道具"
         @add-prop="emit('add-prop', $event)"
+        @remove-prop="emit('remove-prop', $event)"
+        @upload-image="emit('upload-prop-image', $event)"
+        @open-history="emit('open-prop-history', $event)"
+        @preview-image="emit('preview-image', $event)"
+      />
+
+      <AssetWorkbenchPropAssetsTab
+        v-else
+        :prop-assets="otherAssetsOfType"
+        :auto-running="autoRunning"
+        :uploading-prop-id="uploadingPropId"
+        :get-prop-usage-count="getPropUsageCount"
+        :allow-add="false"
+        asset-label="其他"
+        empty-title="暂无其他资产"
+        empty-description="可在场景编辑中上传图片，自动归类到这里。"
         @remove-prop="emit('remove-prop', $event)"
         @upload-image="emit('upload-prop-image', $event)"
         @open-history="emit('open-prop-history', $event)"

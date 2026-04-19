@@ -306,7 +306,9 @@ export function useAssetWorkbenchSceneGeneration(
       const environmentAssetId = resolveSceneEnvironmentAssetId(scene)
       const existingPanoramaState = options.resolveEnvironmentPanoramaState?.(environmentAssetId)
       let referenceImage = panoramaImage
-      let crop = existingPanoramaState?.crop
+      let crop = existingPanoramaState?.panoramaImage === panoramaImage
+        ? existingPanoramaState?.crop
+        : undefined
 
       if (options.createEnvironmentCropImage) {
         const croppedResult = await options.createEnvironmentCropImage({

@@ -9,6 +9,12 @@ defineProps<{
   autoRunning: boolean
   uploadingPropId: string | null
   getPropUsageCount: (propId: string) => number
+  allowAdd?: boolean
+  assetLabel?: string
+  addNamePlaceholder?: string
+  addDescriptionPlaceholder?: string
+  emptyTitle?: string
+  emptyDescription?: string
 }>()
 
 const emit = defineEmits<{
@@ -46,16 +52,19 @@ function resolveHistoryCount(prop: PropAsset): number {
 <template>
   <div class="space-y-4">
     <!-- Add new prop form -->
-    <div class="flex items-center gap-2">
+    <div
+      v-if="allowAdd !== false"
+      class="flex items-center gap-2"
+    >
       <Input
         v-model="newPropName"
         class="h-8 flex-1 text-xs"
-        placeholder="道具名称，如：手电筒"
+        :placeholder="addNamePlaceholder || '道具名称，如：手电筒'"
       />
       <Input
         v-model="newPropDescription"
         class="h-8 flex-[1.5] text-xs"
-        placeholder="可选描述，如：金属外壳，冷白光"
+        :placeholder="addDescriptionPlaceholder || '可选描述，如：金属外壳，冷白光'"
       />
       <Button
         size="sm"
@@ -75,10 +84,10 @@ function resolveHistoryCount(prop: PropAsset): number {
     >
       <Package class="h-8 w-8 opacity-40" />
       <p class="text-sm">
-        暂无道具资产
+        {{ emptyTitle || `暂无${assetLabel || '道具'}资产` }}
       </p>
       <p class="text-xs">
-        手动新增需要保持一致的道具
+        {{ emptyDescription || `手动新增需要保持一致的${assetLabel || '道具'}` }}
       </p>
     </div>
 
@@ -116,12 +125,12 @@ function resolveHistoryCount(prop: PropAsset): number {
             <Input
               v-model="prop.name"
               class="h-7 text-xs"
-              placeholder="道具名称"
+              :placeholder="`${assetLabel || '道具'}名称`"
             />
             <Input
               v-model="prop.description"
               class="h-7 text-xs"
-              placeholder="道具描述（可选）"
+              :placeholder="`${assetLabel || '道具'}描述（可选）`"
             />
           </div>
         </div>

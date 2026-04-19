@@ -116,10 +116,11 @@ function resolveConfiguredPropReferenceAssets(
     const assetId = `prop:${propId}`
     if (seen.has(assetId)) continue
     seen.add(assetId)
+    const referenceType = prop?.category === 'other' ? 'other' as const : 'prop' as const
     assets.push({
       assetId,
-      name: prop?.name?.trim() || '道具',
-      type: 'prop',
+      name: prop?.name?.trim() || (referenceType === 'other' ? '其他资产' : '道具'),
+      type: referenceType,
       image,
       source: 'configured'
     })

@@ -1,8 +1,7 @@
 import type { Ref } from 'vue'
 import type {
   AssetMentionCandidate,
-  AssetReferenceOption,
-  EditPanelKey
+  AssetReferenceOption
 } from '~/lib/scene-edit-dialog'
 import {
   buildSceneAssetMentionCandidates,
@@ -16,7 +15,6 @@ interface UseSceneDescriptionMentionEditorOptions {
   assetReferenceOptions: Ref<AssetReferenceOption[]>
   selectedAssetReferenceIds: Ref<string[]>
   dialogOpen: Ref<boolean>
-  activePanel: Ref<EditPanelKey>
 }
 
 export function useSceneDescriptionMentionEditor(options: UseSceneDescriptionMentionEditorOptions) {
@@ -95,12 +93,11 @@ export function useSceneDescriptionMentionEditor(options: UseSceneDescriptionMen
   watch(
     () => [
       options.dialogOpen.value,
-      options.activePanel.value,
       sceneDescriptionSupportsMention.value,
       options.assetReferenceOptions.value.map(asset => `${asset.id}:${asset.name}`).join('||')
     ],
-    ([open, panel, supportsMention]) => {
-      if (!open || panel !== 'basic') {
+    ([open, supportsMention]) => {
+      if (!open) {
         closeSceneDescriptionMention()
         return
       }
