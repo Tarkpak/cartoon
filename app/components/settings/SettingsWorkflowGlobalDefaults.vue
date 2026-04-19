@@ -11,6 +11,12 @@ import type {
 } from '#shared/types/workflow-models'
 import { getSettingsProviderLabel, toSelectString } from '@/lib/settings-models'
 import {
+  getBrowserNotificationStatus,
+  requestBrowserNotificationPermission,
+  sendSystemNotificationTest,
+  type BrowserNotificationStatus
+} from '@/composables/useGenerationCompletionNotification'
+import {
   WORKFLOW_GEMINI_IMAGE_SIZES,
   type WorkflowConfig
 } from '@/composables/useSettingsWorkflowModels'
@@ -103,13 +109,67 @@ function updateGeminiImageSize(value: unknown) {
   props.updateWorkflowGeminiImageSize(value)
 }
 
+const systemNotificationStatus = ref<BrowserNotificationStatus>(getBrowserNotificationStatus())
+const systemNotificationTesting = ref(false)
+const completionNotificationHint = ref('')
+
 const systemNotificationSupported = computed(() => {
-  return import.meta.client && 'Notification' in window
+  return systemNotificationStatus.value.supported && systemNotificationStatus.value.secureContext
 })
 
 function toCheckedBoolean(value: unknown): boolean {
   return value === true
 }
+
+function refreshSystemNotificationStatus() {
+  systemNotificationStatus.value = getBrowserNotificationStatus()
+}
+
+function resolveSystemNotificationBlockedHint(status: BrowserNotificationStatus): string {
+  if (!status.supported) {
+    return '当前浏览器不支持系统通知，无法申请权限。'
+  }
+
+  if (!status.secureContext) {
+    return '系统通知只在 HTTPS 或 localhost 下可用，当前站点不能申请权限。'
+  }
+
+  if (status.permission === 'denied') {
+    return '浏览器已拒绝系统通知，请在地址栏的站点权限里手动开启。'
+  }
+
+  return '当前没有拿到系统通知权限，系统通知不会生效。'
+}
+
+const systemNotificationPermissionLabel = computed(() => {
+  const status = systemNotificationStatus.value
+  if (!status.supported) return '当前浏览器不支持'
+  if (!status.secureContext) return '需要 HTTPS 或 localhost'
+  if (status.permission === 'granted') return '已授权'
+  if (status.permission === 'denied') return '已拒绝'
+  return '未授权'
+})
+
+const systemNotificationDescription = computed(() => {
+  const status = systemNotificationStatus.value
+  if (!status.supported) {
+    return '当前浏览器不支持系统通知，可使用提示音提醒。'
+  }
+
+  if (!status.secureContext) {
+    return '系统通知仅在 HTTPS 或 localhost 下可用，当前站点无法弹出授权。'
+  }
+
+  if (status.permission === 'denied') {
+    return '当前浏览器已拒绝系统通知，需要先在站点权限中手动恢复。'
+  }
+
+  if (status.permission === 'granted') {
+    return '当前浏览器已授权；保持页面打开或切到后台标签页时可弹出提醒。'
+  }
+
+  return '当前浏览器尚未授权；勾选或点击测试通知时会申请权限。'
+})
 
 function updateCompletionSound(value: unknown) {
   void props.updateCompletionNotificationOptions({
@@ -117,31 +177,55 @@ function updateCompletionSound(value: unknown) {
   })
 }
 
+async function triggerSystemNotificationTest() {
+  completionNotificationHint.value = ''
+  systemNotificationTesting.value = true
+
+  try {
+    const result = await sendSystemNotificationTest()
+    systemNotificationStatus.value = result.status
+    completionNotificationHint.value = result.sent
+      ? '已发送测试通知；如果没有看到弹窗，请检查浏览器站点权限和系统通知开关。'
+      : resolveSystemNotificationBlockedHint(result.status)
+    return result
+  } finally {
+    systemNotificationTesting.value = false
+  }
+}
+
 async function updateCompletionSystemNotification(value: unknown) {
   const enabled = toCheckedBoolean(value)
+  completionNotificationHint.value = ''
 
-  if (enabled && import.meta.client) {
-    if (!('Notification' in window)) {
-      await props.updateCompletionNotificationOptions({ systemNotification: false })
-      return
-    }
-
-    if (Notification.permission === 'default') {
-      const permission = await Notification.requestPermission()
-      if (permission !== 'granted') {
-        await props.updateCompletionNotificationOptions({ systemNotification: false })
-        return
-      }
-    }
-
-    if (Notification.permission !== 'granted') {
-      await props.updateCompletionNotificationOptions({ systemNotification: false })
-      return
-    }
+  if (!enabled) {
+    await props.updateCompletionNotificationOptions({ systemNotification: false })
+    refreshSystemNotificationStatus()
+    return
   }
 
-  await props.updateCompletionNotificationOptions({ systemNotification: enabled })
+  const status = await requestBrowserNotificationPermission()
+  systemNotificationStatus.value = status
+
+  if (!status.canNotify) {
+    completionNotificationHint.value = resolveSystemNotificationBlockedHint(status)
+    await props.updateCompletionNotificationOptions({ systemNotification: false })
+    return
+  }
+
+  await props.updateCompletionNotificationOptions({ systemNotification: true })
+  await triggerSystemNotificationTest()
 }
+
+onMounted(() => {
+  refreshSystemNotificationStatus()
+
+  if (
+    props.completionNotificationOptions.systemNotification
+    && !systemNotificationStatus.value.canNotify
+  ) {
+    completionNotificationHint.value = resolveSystemNotificationBlockedHint(systemNotificationStatus.value)
+  }
+})
 </script>
 
 <template>
@@ -189,7 +273,7 @@ async function updateCompletionSystemNotification(value: unknown) {
       <div class="space-y-2">
         <label class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
           <span class="text-xs text-foreground">播放提示音</span>
-          <Checkbox
+          <Switch
             :checked="props.completionNotificationOptions.sound"
             :disabled="props.workflowSaving"
             @update:checked="updateCompletionSound"
@@ -198,7 +282,7 @@ async function updateCompletionSystemNotification(value: unknown) {
 
         <label class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
           <span class="text-xs text-foreground">系统通知</span>
-          <Checkbox
+          <Switch
             :checked="props.completionNotificationOptions.systemNotification"
             :disabled="props.workflowSaving || !systemNotificationSupported"
             @update:checked="updateCompletionSystemNotification"
@@ -206,13 +290,32 @@ async function updateCompletionSystemNotification(value: unknown) {
         </label>
       </div>
 
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-[11px] text-muted-foreground">
+          当前权限：{{ systemNotificationPermissionLabel }}
+        </p>
+        <Button
+          v-if="systemNotificationStatus.supported"
+          variant="outline"
+          size="sm"
+          class="h-7 px-2 text-[11px]"
+          :disabled="props.workflowSaving || systemNotificationTesting || !systemNotificationStatus.secureContext"
+          @click="triggerSystemNotificationTest"
+        >
+          {{ systemNotificationTesting ? '发送中...' : '测试通知' }}
+        </Button>
+      </div>
+
       <p class="text-[11px] text-muted-foreground">
-        <template v-if="systemNotificationSupported">
-          系统通知需浏览器授权；关闭标签页后不会触发，后台标签页可弹出提醒。
-        </template>
-        <template v-else>
-          当前浏览器不支持系统通知，可使用提示音提醒。
-        </template>
+        {{ systemNotificationDescription }}
+      </p>
+
+      <p
+        v-if="completionNotificationHint"
+        class="text-[11px]"
+        :class="systemNotificationStatus.canNotify ? 'text-emerald-600' : 'text-amber-600'"
+      >
+        {{ completionNotificationHint }}
       </p>
     </div>
 

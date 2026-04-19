@@ -44,6 +44,7 @@ interface UseAssetWorkbenchPageStateOptions {
   selectedSceneId: Ref<string>
   selectedStyleId: Ref<string>
   projectStyleId: Ref<string>
+  supportsExplicitVoiceAudioReference: Ref<boolean>
   queueItems: Ref<QueueItem[]>
   resolveStyleById: (styleId: string) => {
     name: string
@@ -198,7 +199,8 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
   function resolveSceneVoiceReferenceSummary(scene: SceneData) {
     return createSceneVoiceReferenceSummary({
       scene,
-      characters: options.characters.value
+      characters: options.characters.value,
+      supportsExplicitAudioReference: options.supportsExplicitVoiceAudioReference.value
     })
   }
 

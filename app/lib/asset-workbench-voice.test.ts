@@ -87,6 +87,29 @@ describe('resolveSceneVoiceReferenceSummary', () => {
     expect(summary.characters[0]?.source).toBe('auto')
   })
 
+  it('falls back to prompt-only mode when explicit audio reference is unsupported', () => {
+    const summary = resolveSceneVoiceReferenceSummary({
+      scene: {
+        dialogues: [
+          { character: '阿青', text: '你终于来了' }
+        ]
+      },
+      characters: [
+        {
+          id: 'char_1',
+          name: '阿青',
+          voiceAsset: {
+            audioUrl: 'https://example.com/aqing.mp3',
+            updatedAt: new Date().toISOString()
+          }
+        }
+      ],
+      supportsExplicitAudioReference: false
+    })
+
+    expect(summary.mode).toBe('prompt_only')
+  })
+
   it('returns none when the scene has dialogue but no usable voice asset', () => {
     const summary = resolveSceneVoiceReferenceSummary({
       scene: {
