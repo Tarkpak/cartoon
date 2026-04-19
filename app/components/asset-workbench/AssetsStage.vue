@@ -51,6 +51,7 @@ const emit = defineEmits<{
   'update-character-voice-lock': [payload: { characterId: string, locked: boolean }]
   'edit-environment-scene': [assetId: string]
   'upload-environment-image': [payload: { assetId: string, event: Event }]
+  'open-environment-crop': [assetId: string]
   'open-environment-regenerate': [assetId: string]
   'open-environment-history': [assetId: string]
   'regenerate-environment': [assetId: string]
@@ -190,6 +191,7 @@ const tabs = computed(() => [
         @preview-image="emit('preview-image', $event)"
         @edit-scene="emit('edit-environment-scene', $event)"
         @upload-image="emit('upload-environment-image', $event)"
+        @open-crop="emit('open-environment-crop', $event)"
         @open-regenerate="emit('open-environment-regenerate', $event)"
         @open-history="emit('open-environment-history', $event)"
         @regenerate="emit('regenerate-environment', $event)"

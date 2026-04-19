@@ -4,7 +4,19 @@ export type QueueStatus = 'pending' | 'running' | 'done' | 'error'
 export type AutoStageKey = 'parse' | 'assets' | 'videos' | 'final'
 export type AutoStageStatus = 'pending' | 'running' | 'done'
 export type AssetUploadInputType = 'char' | 'char_voice' | 'env' | 'prop'
-export type AssetHistorySource = 'generated' | 'uploaded' | 'legacy'
+export type AssetHistorySource = 'generated' | 'uploaded' | 'cropped' | 'legacy'
+
+export interface EnvironmentCropSelection {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface EnvironmentPanoramaState {
+  panoramaImage?: string
+  crop?: EnvironmentCropSelection
+}
 
 export interface AssetImageHistoryEntry {
   id: string
@@ -49,6 +61,7 @@ export interface DisplayAsset {
   description?: string
   referenceImage?: string
   assetHistory?: AssetImageHistoryEntry[]
+  panoramaImage?: string
 }
 
 export interface SceneDescriptionMentionItem {
@@ -76,6 +89,8 @@ export interface EnvironmentAssetCard {
   description?: string
   referenceImage?: string
   assetHistory?: AssetImageHistoryEntry[]
+  panoramaImage?: string
+  crop?: EnvironmentCropSelection
   sceneIds: string[]
   sceneTitles: string[]
   representativeSceneId: string

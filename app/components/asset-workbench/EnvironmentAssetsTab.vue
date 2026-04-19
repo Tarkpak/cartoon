@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, History, Image, Loader2, Pencil, RefreshCw, Sparkles, Upload } from 'lucide-vue-next'
+import { ArrowRight, History, Image, Loader2, Pencil, RefreshCw, ScanSearch, Sparkles, Upload } from 'lucide-vue-next'
 import type { EnvironmentAssetCard } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { toImageSrc } from '~/lib/media'
@@ -19,6 +19,7 @@ const emit = defineEmits<{
   'upload-image': [payload: { assetId: string, event: Event }]
   'open-regenerate': [assetId: string]
   'open-history': [assetId: string]
+  'open-crop': [assetId: string]
   'regenerate': [assetId: string]
 }>()
 
@@ -151,6 +152,17 @@ function resolveHistoryCount(asset: EnvironmentAssetCard): number {
               class="mr-1 h-3 w-3"
             />
             上传
+          </Button>
+          <Button
+            v-if="asset.referenceImage || asset.panoramaImage"
+            size="sm"
+            variant="ghost"
+            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            :disabled="asset.referenceStatus === 'generating'"
+            @click="emit('open-crop', asset.id)"
+          >
+            <ScanSearch class="mr-1 h-3 w-3" />
+            选区域
           </Button>
           <Button
             v-if="asset.referenceImage"

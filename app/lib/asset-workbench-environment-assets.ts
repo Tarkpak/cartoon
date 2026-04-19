@@ -1,5 +1,9 @@
 import type { SceneData } from '~/composables/useAssetWorkbench'
-import type { DisplayAsset, EnvironmentAssetCard } from '~/lib/asset-workbench-types'
+import type {
+  DisplayAsset,
+  EnvironmentAssetCard,
+  EnvironmentPanoramaState
+} from '~/lib/asset-workbench-types'
 import {
   normalizeAssetHistoryEntries
 } from '~/lib/asset-history'
@@ -31,6 +35,7 @@ function mergeEnvironmentReferenceStatus(
 export function buildEnvironmentAssetCards(options: {
   scenes: SceneData[]
   environmentAssetHistories?: Record<string, EnvironmentAssetCard['assetHistory']>
+  environmentPanoramaStates?: Record<string, EnvironmentPanoramaState>
   resolveSceneDescriptionWithoutAssetMentions: (description?: string) => string
 }): EnvironmentAssetCard[] {
   const map = new Map<string, EnvironmentAssetCard>()
@@ -48,6 +53,8 @@ export function buildEnvironmentAssetCards(options: {
           || options.resolveSceneDescriptionWithoutAssetMentions(scene.description)?.trim()
           || undefined,
         referenceImage: sceneImage,
+        panoramaImage: options.environmentPanoramaStates?.[assetId]?.panoramaImage || sceneImage,
+        crop: options.environmentPanoramaStates?.[assetId]?.crop,
         assetHistory: normalizeAssetHistoryEntries(
           options.environmentAssetHistories?.[assetId],
           sceneImage
@@ -66,6 +73,13 @@ export function buildEnvironmentAssetCards(options: {
     if (!existing.referenceImage && sceneImage) {
       existing.referenceImage = sceneImage
       existing.representativeSceneId = scene.id
+    }
+
+    if (!existing.panoramaImage) {
+      existing.panoramaImage = options.environmentPanoramaStates?.[assetId]?.panoramaImage || sceneImage
+    }
+    if (!existing.crop && options.environmentPanoramaStates?.[assetId]?.crop) {
+      existing.crop = options.environmentPanoramaStates[assetId]?.crop
     }
 
     existing.assetHistory = normalizeAssetHistoryEntries(
@@ -88,6 +102,7 @@ export function buildEnvironmentDisplayAssets(
     type: 'environment',
     description: asset.description,
     referenceImage: asset.referenceImage,
+    panoramaImage: asset.panoramaImage,
     assetHistory: asset.assetHistory
   }))
 }
