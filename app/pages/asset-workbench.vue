@@ -60,6 +60,7 @@ definePageMeta({
 
 const route = useRoute()
 const router = useRouter()
+const { notifyGenerationCompleted } = useGenerationCompletionNotification()
 const { resolveStyleById, loadStylePresets } = useStylePresets()
 void loadStylePresets()
 
@@ -551,7 +552,8 @@ const {
   setEnvironmentPanoramaState,
   createEnvironmentCropImage,
   resolveSceneBaselineReferenceImage,
-  recordSceneVideoHistory
+  recordSceneVideoHistory,
+  onModelTaskCompleted: notifyGenerationCompleted
 })
 
 function applyAutomaticAssetPlan(
@@ -1198,7 +1200,8 @@ const {
   resolveSceneReferenceAssetIds,
   setSceneAssetReferences,
   saveWorkflowMeta,
-  saveProject
+  saveProject,
+  onModelTaskCompleted: notifyGenerationCompleted
 })
 
 let previousCharacterDependencySnapshot = buildCharacterDependencySnapshot()

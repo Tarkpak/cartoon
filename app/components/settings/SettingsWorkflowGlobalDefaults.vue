@@ -6,6 +6,7 @@ import type {
 } from '#shared/types/provider'
 import type {
   WorkflowImageGenerationModelOptions,
+  WorkflowCompletionNotificationOptions,
   KlingV3OmniVideoOptions
 } from '#shared/types/workflow-models'
 import { getSettingsProviderLabel, toSelectString } from '@/lib/settings-models'
@@ -22,9 +23,11 @@ const props = defineProps<{
   workflowSaving: boolean
   klingV3OmniOptions: KlingV3OmniVideoOptions
   imageGenerationOptions: WorkflowImageGenerationModelOptions
+  completionNotificationOptions: WorkflowCompletionNotificationOptions
   updateGlobalWorkflowDefault: (type: 'text' | 'image' | 'video' | 'tts', modelId: string) => Promise<void>
   updateVideoGenerationModelOptions: (patch: Partial<KlingV3OmniVideoOptions>) => Promise<void>
   updateWorkflowGeminiImageSize: (value: unknown) => void
+  updateCompletionNotificationOptions: (patch: Partial<WorkflowCompletionNotificationOptions>) => Promise<void>
 }>()
 
 interface ActiveDefaultConfig {
@@ -99,6 +102,46 @@ function updateKlingMode(value: unknown) {
 function updateGeminiImageSize(value: unknown) {
   props.updateWorkflowGeminiImageSize(value)
 }
+
+const systemNotificationSupported = computed(() => {
+  return import.meta.client && 'Notification' in window
+})
+
+function toCheckedBoolean(value: unknown): boolean {
+  return value === true
+}
+
+function updateCompletionSound(value: unknown) {
+  void props.updateCompletionNotificationOptions({
+    sound: toCheckedBoolean(value)
+  })
+}
+
+async function updateCompletionSystemNotification(value: unknown) {
+  const enabled = toCheckedBoolean(value)
+
+  if (enabled && import.meta.client) {
+    if (!('Notification' in window)) {
+      await props.updateCompletionNotificationOptions({ systemNotification: false })
+      return
+    }
+
+    if (Notification.permission === 'default') {
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') {
+        await props.updateCompletionNotificationOptions({ systemNotification: false })
+        return
+      }
+    }
+
+    if (Notification.permission !== 'granted') {
+      await props.updateCompletionNotificationOptions({ systemNotification: false })
+      return
+    }
+  }
+
+  await props.updateCompletionNotificationOptions({ systemNotification: enabled })
+}
 </script>
 
 <template>
@@ -131,6 +174,46 @@ function updateGeminiImageSize(value: unknown) {
           </SelectItem>
         </SelectContent>
       </Select>
+    </div>
+
+    <div class="space-y-3 rounded-lg border bg-muted/30 p-3">
+      <div>
+        <h5 class="text-xs font-medium">
+          生成完成提醒
+        </h5>
+        <p class="mt-1 text-[11px] text-muted-foreground">
+          用于模型任务完成时提醒你返回页面（解析、出图、出视频等）。
+        </p>
+      </div>
+
+      <div class="space-y-2">
+        <label class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+          <span class="text-xs text-foreground">播放提示音</span>
+          <Checkbox
+            :checked="props.completionNotificationOptions.sound"
+            :disabled="props.workflowSaving"
+            @update:checked="updateCompletionSound"
+          />
+        </label>
+
+        <label class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+          <span class="text-xs text-foreground">系统通知</span>
+          <Checkbox
+            :checked="props.completionNotificationOptions.systemNotification"
+            :disabled="props.workflowSaving || !systemNotificationSupported"
+            @update:checked="updateCompletionSystemNotification"
+          />
+        </label>
+      </div>
+
+      <p class="text-[11px] text-muted-foreground">
+        <template v-if="systemNotificationSupported">
+          系统通知需浏览器授权；关闭标签页后不会触发，后台标签页可弹出提醒。
+        </template>
+        <template v-else>
+          当前浏览器不支持系统通知，可使用提示音提醒。
+        </template>
+      </p>
     </div>
 
     <!-- 视频类：Kling V3 Omni 额外配置 -->

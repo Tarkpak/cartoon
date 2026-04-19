@@ -79,6 +79,12 @@ export const WorkflowVideoGenerationModelOptionsSchema = z.object({
 })
 export type WorkflowVideoGenerationModelOptions = z.infer<typeof WorkflowVideoGenerationModelOptionsSchema>
 
+export const WorkflowCompletionNotificationOptionsSchema = z.object({
+  sound: z.boolean().default(true),
+  systemNotification: z.boolean().default(false)
+})
+export type WorkflowCompletionNotificationOptions = z.infer<typeof WorkflowCompletionNotificationOptionsSchema>
+
 export const WorkflowModelOptionsSchema = z.object({
   image_options: WorkflowImageGenerationModelOptionsSchema.default({
     geminiImageSize: '1K'
@@ -88,6 +94,10 @@ export const WorkflowModelOptionsSchema = z.object({
       sound: 'off',
       mode: 'pro'
     }
+  }),
+  completion_notification: WorkflowCompletionNotificationOptionsSchema.default({
+    sound: true,
+    systemNotification: false
   })
 })
 export type WorkflowModelOptions = z.infer<typeof WorkflowModelOptionsSchema>

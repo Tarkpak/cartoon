@@ -11,6 +11,7 @@ import type {
   WorkflowGeminiImageSize,
   WorkflowImageGenerationModelOptions,
   WorkflowVideoGenerationModelOptions,
+  WorkflowCompletionNotificationOptions,
   KlingV3OmniVideoOptions
 } from '#shared/types/workflow-models'
 import {
@@ -86,8 +87,14 @@ const DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS: WorkflowImageGenerationModelOption
   geminiImageSize: '1K'
 }
 
+const DEFAULT_COMPLETION_NOTIFICATION_OPTIONS: WorkflowCompletionNotificationOptions = {
+  sound: true,
+  systemNotification: false
+}
+
 export function useSettingsWorkflowModels() {
   const { models, selectedModels, loadModels } = useSettingsModelCatalog()
+  const { setCompletionNotificationOptions } = useGenerationCompletionNotification()
 
   const workflowLoading = ref(true)
   const workflowSaving = ref(false)
@@ -170,12 +177,22 @@ export function useSettingsWorkflowModels() {
     }
   }
 
+  function getCompletionNotificationOptions(): WorkflowCompletionNotificationOptions {
+    return workflowData.value?.modelOptions?.completion_notification || {
+      ...DEFAULT_COMPLETION_NOTIFICATION_OPTIONS
+    }
+  }
+
   const klingV3OmniOptions = computed<KlingV3OmniVideoOptions>(() => {
     return getVideoGenerationModelOptions().klingV3Omni
   })
 
   const imageGenerationOptions = computed<WorkflowImageGenerationModelOptions>(() => {
     return getImageGenerationModelOptions()
+  })
+
+  const completionNotificationOptions = computed<WorkflowCompletionNotificationOptions>(() => {
+    return getCompletionNotificationOptions()
   })
 
   async function updateWorkflowModel(step: WorkflowStep, modelId: string) {
@@ -263,6 +280,39 @@ export function useSettingsWorkflowModels() {
     }
   }
 
+  async function updateCompletionNotificationOptions(
+    patch: Partial<WorkflowCompletionNotificationOptions>
+  ) {
+    if (!workflowData.value) return
+
+    const current = getCompletionNotificationOptions()
+    const next: WorkflowCompletionNotificationOptions = {
+      ...current,
+      ...patch
+    }
+
+    workflowSaving.value = true
+
+    try {
+      const response = await $fetch<{ success: boolean }>('/api/models/workflow', {
+        method: 'POST',
+        body: {
+          step: 'completion_notification',
+          modelOptions: next
+        }
+      })
+
+      if (response.success) {
+        setCompletionNotificationOptions(next)
+        await loadWorkflowModels()
+      }
+    } catch (error) {
+      console.error('[useSettingsWorkflowModels] 更新生成完成提醒配置失败:', error)
+    } finally {
+      workflowSaving.value = false
+    }
+  }
+
   function updateWorkflowGeminiImageSize(value: unknown) {
     const normalized = toSelectString(value).toUpperCase()
     if (!WORKFLOW_GEMINI_IMAGE_SIZES.includes(normalized as WorkflowGeminiImageSize)) return
@@ -319,6 +369,7 @@ export function useSettingsWorkflowModels() {
     activeCategoryWorkflows,
     klingV3OmniOptions,
     imageGenerationOptions,
+    completionNotificationOptions,
     getCapabilityLabel,
     getProviderLabel: getSettingsProviderLabel,
     hasCompatibleModels,
@@ -326,6 +377,7 @@ export function useSettingsWorkflowModels() {
     updateWorkflowModel,
     updateVideoGenerationModelOptions,
     updateWorkflowGeminiImageSize,
+    updateCompletionNotificationOptions,
     updateGlobalWorkflowDefault,
     toSelectString
   }

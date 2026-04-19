@@ -22,12 +22,14 @@ const {
   activeCategoryWorkflows,
   klingV3OmniOptions,
   imageGenerationOptions,
+  completionNotificationOptions,
   getCapabilityLabel,
   getProviderLabel,
   selectWorkflowCategory,
   updateWorkflowModel,
   updateVideoGenerationModelOptions,
   updateWorkflowGeminiImageSize,
+  updateCompletionNotificationOptions,
   updateGlobalWorkflowDefault,
   toSelectString
 } = useSettingsWorkflowModels()
@@ -104,9 +106,11 @@ const activeCategoryIconClass = computed(() => {
               :workflow-saving="workflowSaving"
               :kling-v3-omni-options="klingV3OmniOptions"
               :image-generation-options="imageGenerationOptions"
+              :completion-notification-options="completionNotificationOptions"
               :update-global-workflow-default="updateGlobalWorkflowDefault"
               :update-video-generation-model-options="updateVideoGenerationModelOptions"
               :update-workflow-gemini-image-size="updateWorkflowGeminiImageSize"
+              :update-completion-notification-options="updateCompletionNotificationOptions"
             />
 
             <SettingsWorkflowCategorySection

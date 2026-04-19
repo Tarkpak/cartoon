@@ -19,7 +19,8 @@ import {
   WorkflowModelOptionsSchema,
   type WorkflowModelOptions,
   type WorkflowImageGenerationModelOptions,
-  type WorkflowVideoGenerationModelOptions
+  type WorkflowVideoGenerationModelOptions,
+  type WorkflowCompletionNotificationOptions
 } from '#shared/types/workflow-models'
 import type {
   TextModelConfig,
@@ -174,6 +175,10 @@ function resolveDefaultWorkflowModelOptions(): WorkflowModelOptions {
         sound: 'off',
         mode: 'pro'
       }
+    },
+    completion_notification: {
+      sound: true,
+      systemNotification: false
     }
   }
 }
@@ -293,6 +298,24 @@ export async function setWorkflowImageGenerationModelOptions(
   })
   await saveWorkflowModelOptions(merged)
   console.log('[WorkflowModels] 已保存图片流程模型扩展配置:', merged.image_options)
+}
+
+/**
+ * 设置生成完成提醒配置
+ */
+export async function setWorkflowCompletionNotificationOptions(
+  options: WorkflowCompletionNotificationOptions
+): Promise<void> {
+  const current = await getWorkflowModelOptions()
+  const merged: WorkflowModelOptions = normalizeWorkflowModelOptions({
+    ...current,
+    completion_notification: {
+      ...current.completion_notification,
+      ...options
+    }
+  })
+  await saveWorkflowModelOptions(merged)
+  console.log('[WorkflowModels] 已保存生成完成提醒配置:', merged.completion_notification)
 }
 
 /**
