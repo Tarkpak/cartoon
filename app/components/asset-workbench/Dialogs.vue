@@ -31,7 +31,6 @@ defineProps<{
   environmentCropSourceImage?: string
   environmentCropInitialSelection?: EnvironmentCropSelection
   environmentCropSaving?: boolean
-  projectAspectRatio: '16:9' | '9:16' | '1:1'
   setEnvironmentCropDialogOpen: (open: boolean) => void
   submitEnvironmentCropSelection: (selection: EnvironmentCropSelection) => void | Promise<void>
   sceneEditDialogOpen: boolean
@@ -44,6 +43,7 @@ defineProps<{
   resolveDisplayAssetTypeLabel: (type: DisplayAsset['type']) => string
   handleSceneSave: (scene: Partial<SceneData> & { id: string }) => void
   handleSceneAssetReferencesSave: (payload: { sceneId: string, assetIds: string[] }) => void | Promise<void>
+  uploadSceneEditOtherAssets: (options: { sceneId: string, files: File[], names?: string[] }) => Promise<string[]>
   assetHistoryDialogOpen: boolean
   setAssetHistoryDialogOpen: (open: boolean) => void
   assetHistoryDialogTitle: string
@@ -106,7 +106,6 @@ defineProps<{
     :open="environmentCropDialogOpen"
     :target-label="environmentCropTarget?.name || ''"
     :source-image="environmentCropSourceImage"
-    :aspect-ratio="projectAspectRatio"
     :initial-selection="environmentCropInitialSelection"
     :loading="environmentCropSaving"
     :error="environmentCropError"
@@ -119,6 +118,7 @@ defineProps<{
     :scene="editingScene"
     :asset-reference-options="sceneEditAssetReferenceOptions"
     :selected-asset-reference-ids="sceneEditSelectedAssetIds"
+    :upload-other-assets="uploadSceneEditOtherAssets"
     @update:open="setSceneEditDialogOpen"
     @save="handleSceneSave"
     @save-asset-references="handleSceneAssetReferencesSave"

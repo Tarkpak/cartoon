@@ -91,7 +91,22 @@ const ENVIRONMENT_ONLY_NEGATIVE_PROMPT = [
   'crowd',
   'watermark',
   'logo',
-  'text'
+  'text',
+  '鱼眼',
+  '透视畸变',
+  '桶形畸变',
+  '枕形畸变',
+  '边缘拉伸',
+  '夸张广角',
+  'fisheye',
+  'fish-eye',
+  'lens distortion',
+  'barrel distortion',
+  'pincushion distortion',
+  'warped lines',
+  'curved horizon',
+  'extreme perspective',
+  'ultra wide angle'
 ].join(', ')
 
 const PANORAMA_SOURCE_IMAGE_SIZE = '2880*720'
@@ -618,9 +633,10 @@ async function buildSceneReferencePrompt(
   const normalizedCustomPrompt = customPrompt?.trim() || ''
   const environmentSummary = buildEnvironmentSummary(scene)
   const environmentSceneTitle = scene.setting?.location?.trim() || scene.title || '未命名场景'
+  const antiDistortionText = '必须避免鱼眼/桶形/枕形/夸张广角畸变，保持地平线水平与建筑竖线自然，边缘不要拉伸变形'
   const panoramaAspectText = aspectRatio === '16:9'
-    ? `先生成 AR ${PANORAMA_SOURCE_ASPECT_RATIO}（${PANORAMA_SOURCE_IMAGE_SIZE}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），后续仍以 16:9 作为截图使用`
-    : `先生成 AR ${PANORAMA_SOURCE_ASPECT_RATIO}（${PANORAMA_SOURCE_IMAGE_SIZE}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），后续裁切为 ${aspectRatio}`
+    ? `先生成 AR ${PANORAMA_SOURCE_ASPECT_RATIO}（${PANORAMA_SOURCE_IMAGE_SIZE}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），默认采用中远景/全景观察距离，保留更完整的空间结构信息，${antiDistortionText}，后续仍以 16:9 作为截图使用`
+    : `先生成 AR ${PANORAMA_SOURCE_ASPECT_RATIO}（${PANORAMA_SOURCE_IMAGE_SIZE}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），默认采用中远景/全景观察距离，保留更完整的空间结构信息，${antiDistortionText}，后续裁切为 ${aspectRatio}`
   const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
   const settingText = scene.setting
     ? [scene.setting.location, timeOfDay, scene.setting.mood, scene.setting.weather]

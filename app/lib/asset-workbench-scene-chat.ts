@@ -26,6 +26,7 @@ export function resolveDisplayAssetTypeOrder(type: DisplayAsset['type']): number
   if (type === 'character') return 1
   if (type === 'environment') return 2
   if (type === 'prop') return 3
+  if (type === 'other') return 4
   return 9
 }
 
@@ -95,7 +96,7 @@ export function createSceneChatWelcomeMessage(): SceneChatMessage {
   return {
     id: `scene_chat_msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     role: 'assistant',
-    content: '请输入二次修改指令，支持 @资产 mention，也可以上传图片资产后一起调整场景。',
+    content: '请输入二次修改指令，支持 @资产 mention，也可以上传图片资产（自动归类到“其他”）后一起调整场景。',
     assetIds: [],
     createdAt: Date.now()
   }

@@ -99,6 +99,7 @@ export function useAssetWorkbenchSceneChatActions(
           id: propId,
           name,
           description: '用户上传图片资产',
+          category: 'other',
           referenceImage: imageUrl
         })
 

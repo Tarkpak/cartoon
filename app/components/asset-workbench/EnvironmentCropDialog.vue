@@ -2,20 +2,25 @@
 import { Loader2, Move, ScanSearch } from 'lucide-vue-next'
 import { toImageSrc } from '~/lib/media'
 import {
-  buildCropSelectionFromCoverage,
   buildDefaultCropSelection,
   loadCropImageMetrics,
   normalizeCropSelection,
-  resolveCropSelectionCoverage,
-  type EnvironmentCropAspectRatio
+  resolveCropSelectionAspectRatio,
+  resolveCropSelectionOutputSize,
+  resolveMaxCropSelection
 } from '~/lib/asset-workbench-environment-panorama'
 import type { EnvironmentCropSelection } from '~/lib/asset-workbench-types'
+
+type ResizeHandle = 'nw' | 'ne' | 'se' | 'sw'
+type DragMode = 'move' | 'resize'
+
+const MIN_SELECTION_WIDTH = 0.08
+const MIN_SELECTION_HEIGHT = 0.08
 
 const props = defineProps<{
   open: boolean
   targetLabel: string
   sourceImage?: string
-  aspectRatio: EnvironmentCropAspectRatio
   initialSelection?: EnvironmentCropSelection
   loading?: boolean
   error?: string | null
@@ -33,22 +38,14 @@ const selection = ref<EnvironmentCropSelection | null>(null)
 
 const dragState = reactive({
   active: false,
+  mode: 'move' as DragMode,
+  handle: null as ResizeHandle | null,
   startPointerX: 0,
   startPointerY: 0,
   startX: 0,
-  startY: 0
-})
-
-const aspectRatioLabel = computed(() => {
-  if (props.aspectRatio === '9:16') return '9:16'
-  if (props.aspectRatio === '1:1') return '1:1'
-  return '16:9'
-})
-
-const aspectRatioStyle = computed(() => {
-  if (props.aspectRatio === '9:16') return '9 / 16'
-  if (props.aspectRatio === '1:1') return '1 / 1'
-  return '16 / 9'
+  startY: 0,
+  startWidth: 0,
+  startHeight: 0
 })
 
 const imageSrc = computed(() => toImageSrc(props.sourceImage))
@@ -75,31 +72,58 @@ const previewImageStyle = computed(() => {
   }
 })
 
-const previewFrameStyle = computed(() => {
-  if (props.aspectRatio === '9:16') {
-    return {
-      aspectRatio: aspectRatioStyle.value,
-      width: 'min(100%, 224px)'
-    }
+const maxSelection = computed(() => {
+  if (!imageMetrics.value) {
+    return { width: 1, height: 1 }
   }
 
-  if (props.aspectRatio === '1:1') {
-    return {
-      aspectRatio: aspectRatioStyle.value,
-      width: 'min(100%, 260px)'
-    }
-  }
+  return resolveMaxCropSelection(imageMetrics.value.width, imageMetrics.value.height)
+})
+
+const selectionAspectRatio = computed(() => {
+  return resolveCropSelectionAspectRatio(
+    selection.value || undefined,
+    imageMetrics.value?.width ?? 1,
+    imageMetrics.value?.height ?? 1
+  )
+})
+
+const outputSize = computed(() => {
+  if (!selection.value) return null
+
+  return resolveCropSelectionOutputSize({
+    selection: selection.value,
+    sourceWidth: imageMetrics.value?.width ?? 1,
+    sourceHeight: imageMetrics.value?.height ?? 1
+  })
+})
+
+const previewFrameStyle = computed(() => {
+  const aspectRatio = selectionAspectRatio.value
+  const width = aspectRatio < 0.75
+    ? 'min(100%, 240px)'
+    : aspectRatio > 1.35
+      ? '100%'
+      : 'min(100%, 320px)'
 
   return {
-    aspectRatio: aspectRatioStyle.value,
-    width: '100%'
+    aspectRatio: String(aspectRatio),
+    width
   }
 })
 
-const hasSelection = computed(() => !!selection.value && !!imageMetrics.value && !!imageSrc.value)
+const selectionRatioLabel = computed(() => formatRatio(selectionAspectRatio.value))
+
+function formatRatio(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '-'
+  if (value >= 1) return `${value.toFixed(2)} : 1`
+  return `1 : ${(1 / value).toFixed(2)}`
+}
 
 function stopDragging() {
   dragState.active = false
+  dragState.handle = null
+  dragState.mode = 'move'
 }
 
 function clampSelectionPosition(nextX: number, nextY: number) {
@@ -112,71 +136,84 @@ function clampSelectionPosition(nextX: number, nextY: number) {
   }
 }
 
-function resolveSelectionCenter() {
-  if (!selection.value) {
-    return { x: 0.5, y: 0.5 }
-  }
-
-  return {
-    x: selection.value.x + (selection.value.width / 2),
-    y: selection.value.y + (selection.value.height / 2)
-  }
-}
-
-function applyCoverage(coverage: number) {
-  if (!imageMetrics.value) return
-
-  const center = resolveSelectionCenter()
-  selection.value = buildCropSelectionFromCoverage({
-    imageWidth: imageMetrics.value.width,
-    imageHeight: imageMetrics.value.height,
-    aspectRatio: props.aspectRatio,
-    centerX: center.x,
-    centerY: center.y,
-    coverage
-  })
-}
-
 function applyCenter(centerX: number, centerY: number) {
-  if (!imageMetrics.value) return
+  if (!selection.value) return
 
-  const coverage = resolveCropSelectionCoverage(
-    selection.value || undefined,
-    imageMetrics.value.width,
-    imageMetrics.value.height,
-    props.aspectRatio
+  clampSelectionPosition(
+    centerX - (selection.value.width / 2),
+    centerY - (selection.value.height / 2)
   )
-
-  selection.value = buildCropSelectionFromCoverage({
-    imageWidth: imageMetrics.value.width,
-    imageHeight: imageMetrics.value.height,
-    aspectRatio: props.aspectRatio,
-    centerX,
-    centerY,
-    coverage
-  })
 }
 
-function updateCoverageValue(values: number[] | undefined) {
-  applyCoverage(Number(values?.[0] ?? 100) / 100)
-}
-
-function updateHorizontalPositionValue(values: number[] | undefined) {
-  applyCenter(Number(values?.[0] ?? 50) / 100, resolveSelectionCenter().y)
-}
-
-function updateVerticalPositionValue(values: number[] | undefined) {
-  applyCenter(resolveSelectionCenter().x, Number(values?.[0] ?? 50) / 100)
-}
-
-function startDragging(event: PointerEvent) {
+function startDragSession(mode: DragMode, event: PointerEvent, handle?: ResizeHandle) {
   if (!selection.value || !imageWrapperRef.value) return
 
   dragState.active = true
+  dragState.mode = mode
+  dragState.handle = handle ?? null
   dragState.startPointerX = event.clientX
   dragState.startPointerY = event.clientY
   dragState.startX = selection.value.x
   dragState.startY = selection.value.y
+  dragState.startWidth = selection.value.width
+  dragState.startHeight = selection.value.height
+}
+
+function startDragging(event: PointerEvent) {
+  startDragSession('move', event)
+}
+
+function startResizing(handle: ResizeHandle, event: PointerEvent) {
+  startDragSession('resize', event, handle)
+}
+
+function handleResize(deltaX: number, deltaY: number) {
+  if (!selection.value || !dragState.handle) return
+
+  const leftEdge = dragState.startX
+  const rightEdge = dragState.startX + dragState.startWidth
+  const topEdge = dragState.startY
+  const bottomEdge = dragState.startY + dragState.startHeight
+
+  let left = leftEdge
+  let right = rightEdge
+  let top = topEdge
+  let bottom = bottomEdge
+
+  if (dragState.handle.includes('w')) {
+    left = Math.min(
+      right - MIN_SELECTION_WIDTH,
+      Math.max(Math.max(0, right - maxSelection.value.width), leftEdge + deltaX)
+    )
+  }
+
+  if (dragState.handle.includes('e')) {
+    right = Math.max(
+      leftEdge + MIN_SELECTION_WIDTH,
+      Math.min(Math.min(1, leftEdge + maxSelection.value.width), rightEdge + deltaX)
+    )
+  }
+
+  if (dragState.handle.includes('n')) {
+    top = Math.min(
+      bottom - MIN_SELECTION_HEIGHT,
+      Math.max(Math.max(0, bottom - maxSelection.value.height), topEdge + deltaY)
+    )
+  }
+
+  if (dragState.handle.includes('s')) {
+    bottom = Math.max(
+      topEdge + MIN_SELECTION_HEIGHT,
+      Math.min(Math.min(1, topEdge + maxSelection.value.height), bottomEdge + deltaY)
+    )
+  }
+
+  selection.value = {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top
+  }
 }
 
 function handlePointerMove(event: PointerEvent) {
@@ -187,12 +224,18 @@ function handlePointerMove(event: PointerEvent) {
 
   const deltaX = (event.clientX - dragState.startPointerX) / bounds.width
   const deltaY = (event.clientY - dragState.startPointerY) / bounds.height
+
+  if (dragState.mode === 'resize') {
+    handleResize(deltaX, deltaY)
+    return
+  }
+
   clampSelectionPosition(dragState.startX + deltaX, dragState.startY + deltaY)
 }
 
 function handleWrapperClick(event: MouseEvent) {
   if (dragState.active || !imageWrapperRef.value || !selection.value) return
-  if ((event.target as HTMLElement | null)?.dataset.selectionBox === 'true') return
+  if ((event.target as HTMLElement | null)?.closest('[data-selection-control="true"]')) return
 
   const bounds = imageWrapperRef.value.getBoundingClientRect()
   if (!bounds.width || !bounds.height) return
@@ -222,12 +265,10 @@ async function initializeSelection() {
     selection.value = normalizeCropSelection(
       props.initialSelection,
       metrics.width,
-      metrics.height,
-      props.aspectRatio
+      metrics.height
     ) || buildDefaultCropSelection({
       imageWidth: metrics.width,
-      imageHeight: metrics.height,
-      aspectRatio: props.aspectRatio
+      imageHeight: metrics.height
     })
   } catch {
     imageMetrics.value = null
@@ -237,26 +278,8 @@ async function initializeSelection() {
   }
 }
 
-const coveragePercent = computed(() => {
-  if (!imageMetrics.value || !selection.value) return 100
-  return Math.round(resolveCropSelectionCoverage(
-    selection.value,
-    imageMetrics.value.width,
-    imageMetrics.value.height,
-    props.aspectRatio
-  ) * 100)
-})
-
-const horizontalPercent = computed(() => {
-  return Math.round(resolveSelectionCenter().x * 100)
-})
-
-const verticalPercent = computed(() => {
-  return Math.round(resolveSelectionCenter().y * 100)
-})
-
 watch(
-  () => [props.open, props.sourceImage, props.aspectRatio, props.initialSelection] as const,
+  () => [props.open, props.sourceImage, props.initialSelection] as const,
   () => {
     void initializeSelection()
   },
@@ -292,7 +315,7 @@ watchEffect((onCleanup) => {
       <DialogHeader class="space-y-2 pr-8">
         <DialogTitle>环境截图区域</DialogTitle>
         <DialogDescription>
-          目标：{{ targetLabel || '-' }}。基于环境全景源图选择当前要用于视频的截图区域。
+          目标：{{ targetLabel || '-' }}。直接拖动选窗移动区域，拖动四角缩放选窗，环境截图不再锁定项目比例。
         </DialogDescription>
       </DialogHeader>
 
@@ -305,7 +328,7 @@ watchEffect((onCleanup) => {
                 环境全景截图区域
               </div>
               <div class="inline-flex items-center rounded-full border bg-background px-2.5 py-1 text-xs text-muted-foreground">
-                输出比例 {{ aspectRatioLabel }}
+                自由比例 · {{ selectionRatioLabel }}
               </div>
             </div>
 
@@ -345,16 +368,41 @@ watchEffect((onCleanup) => {
                   class="absolute inset-0"
                 >
                   <div
-                    class="absolute border-2 border-primary shadow-[0_0_0_9999px_rgba(15,23,42,0.45)]"
+                    class="absolute border-2 border-primary shadow-[0_0_0_9999px_rgba(15,23,42,0.45)] touch-none"
                     :style="selectionStyle"
-                    data-selection-box="true"
+                    data-selection-control="true"
                     @click.stop
                     @pointerdown.stop.prevent="startDragging"
                   >
                     <div class="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground shadow-sm">
                       <Move class="h-3 w-3" />
-                      {{ aspectRatioLabel }}
+                      {{ selectionRatioLabel }}
                     </div>
+
+                    <button
+                      type="button"
+                      class="absolute -left-2 -top-2 h-4 w-4 rounded-full border-2 border-primary bg-background shadow-sm cursor-nwse-resize"
+                      data-selection-control="true"
+                      @pointerdown.stop.prevent="startResizing('nw', $event)"
+                    />
+                    <button
+                      type="button"
+                      class="absolute -right-2 -top-2 h-4 w-4 rounded-full border-2 border-primary bg-background shadow-sm cursor-nesw-resize"
+                      data-selection-control="true"
+                      @pointerdown.stop.prevent="startResizing('ne', $event)"
+                    />
+                    <button
+                      type="button"
+                      class="absolute -bottom-2 -right-2 h-4 w-4 rounded-full border-2 border-primary bg-background shadow-sm cursor-nwse-resize"
+                      data-selection-control="true"
+                      @pointerdown.stop.prevent="startResizing('se', $event)"
+                    />
+                    <button
+                      type="button"
+                      class="absolute -bottom-2 -left-2 h-4 w-4 rounded-full border-2 border-primary bg-background shadow-sm cursor-nesw-resize"
+                      data-selection-control="true"
+                      @pointerdown.stop.prevent="startResizing('sw', $event)"
+                    />
                   </div>
                 </div>
               </div>
@@ -362,13 +410,13 @@ watchEffect((onCleanup) => {
 
             <div class="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
               <div class="rounded-full border bg-background px-2.5 py-1">
-                拖动取景框移动区域
+                拖动选窗可移动区域
               </div>
               <div class="rounded-full border bg-background px-2.5 py-1">
-                点击全景图快速居中
+                拖动四角可直接缩放
               </div>
               <div class="rounded-full border bg-background px-2.5 py-1">
-                右下方滑杆可精细微调
+                点击全景图可快速居中
               </div>
             </div>
           </div>
@@ -382,7 +430,7 @@ watchEffect((onCleanup) => {
                 当前截图预览
               </div>
               <div class="rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
-                {{ aspectRatioLabel }}
+                {{ selectionRatioLabel }}
               </div>
             </div>
 
@@ -405,99 +453,45 @@ watchEffect((onCleanup) => {
               保存后会自动替换当前环境图，但全景源图会保留，方便继续重选。
             </p>
           </div>
-        </div>
 
-        <div class="rounded-2xl border bg-card p-4 lg:col-span-2">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div class="text-sm font-medium">
-                截图微调
-              </div>
-              <p class="text-xs text-muted-foreground">
-                用滑杆快速调整取景范围和中心位置，适合在拖动后做精细修正。
-              </p>
+          <div class="rounded-2xl border bg-card p-4">
+            <div class="text-sm font-medium">
+              当前选窗信息
             </div>
-            <div class="flex flex-wrap gap-2 text-xs">
-              <div class="rounded-full border bg-muted/40 px-2.5 py-1 text-muted-foreground">
-                取景范围 {{ coveragePercent }}%
+            <div class="mt-3 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
+              <div class="rounded-xl border bg-muted/20 p-3">
+                <div>选窗比例</div>
+                <div class="mt-1 text-sm font-medium text-foreground">
+                  {{ selectionRatioLabel }}
+                </div>
               </div>
-              <div class="rounded-full border bg-muted/40 px-2.5 py-1 text-muted-foreground">
-                水平位置 {{ horizontalPercent }}%
+              <div class="rounded-xl border bg-muted/20 p-3">
+                <div>导出尺寸</div>
+                <div class="mt-1 text-sm font-medium text-foreground">
+                  {{ outputSize ? `${outputSize.width} × ${outputSize.height}` : '-' }}
+                </div>
               </div>
-              <div class="rounded-full border bg-muted/40 px-2.5 py-1 text-muted-foreground">
-                垂直位置 {{ verticalPercent }}%
+              <div class="rounded-xl border bg-muted/20 p-3">
+                <div>选窗宽度</div>
+                <div class="mt-1 text-sm font-medium text-foreground">
+                  {{ selection ? `${Math.round(selection.width * 100)}%` : '-' }}
+                </div>
+              </div>
+              <div class="rounded-xl border bg-muted/20 p-3">
+                <div>选窗高度</div>
+                <div class="mt-1 text-sm font-medium text-foreground">
+                  {{ selection ? `${Math.round(selection.height * 100)}%` : '-' }}
+                </div>
               </div>
             </div>
+
+            <p
+              v-if="error"
+              class="mt-3 text-xs text-destructive"
+            >
+              {{ error }}
+            </p>
           </div>
-
-          <div class="mt-4 grid gap-4 lg:grid-cols-3">
-            <div class="space-y-3 rounded-xl border bg-muted/20 p-3">
-              <div class="flex items-center justify-between text-xs text-muted-foreground">
-                <span>取景范围</span>
-                <span class="rounded-full bg-background px-2 py-0.5 font-medium text-foreground">{{ coveragePercent }}%</span>
-              </div>
-              <Slider
-                :model-value="[coveragePercent]"
-                :min="35"
-                :max="100"
-                :step="1"
-                :disabled="!hasSelection"
-                class="w-full"
-                @update:model-value="updateCoverageValue"
-              />
-              <div class="flex items-center justify-between text-[11px] text-muted-foreground">
-                <span>更聚焦 35%</span>
-                <span>更完整 100%</span>
-              </div>
-            </div>
-
-            <div class="space-y-3 rounded-xl border bg-muted/20 p-3">
-              <div class="flex items-center justify-between text-xs text-muted-foreground">
-                <span>水平位置</span>
-                <span class="rounded-full bg-background px-2 py-0.5 font-medium text-foreground">{{ horizontalPercent }}%</span>
-              </div>
-              <Slider
-                :model-value="[horizontalPercent]"
-                :min="0"
-                :max="100"
-                :step="1"
-                :disabled="!hasSelection"
-                class="w-full"
-                @update:model-value="updateHorizontalPositionValue"
-              />
-              <div class="flex items-center justify-between text-[11px] text-muted-foreground">
-                <span>左侧 0%</span>
-                <span>右侧 100%</span>
-              </div>
-            </div>
-
-            <div class="space-y-3 rounded-xl border bg-muted/20 p-3">
-              <div class="flex items-center justify-between text-xs text-muted-foreground">
-                <span>垂直位置</span>
-                <span class="rounded-full bg-background px-2 py-0.5 font-medium text-foreground">{{ verticalPercent }}%</span>
-              </div>
-              <Slider
-                :model-value="[verticalPercent]"
-                :min="0"
-                :max="100"
-                :step="1"
-                :disabled="!hasSelection"
-                class="w-full"
-                @update:model-value="updateVerticalPositionValue"
-              />
-              <div class="flex items-center justify-between text-[11px] text-muted-foreground">
-                <span>顶部 0%</span>
-                <span>底部 100%</span>
-              </div>
-            </div>
-          </div>
-
-          <p
-            v-if="error"
-            class="mt-3 text-xs text-destructive"
-          >
-            {{ error }}
-          </p>
         </div>
       </div>
 

@@ -204,7 +204,7 @@ function triggerUpload() {
 
       <div class="flex flex-wrap items-center justify-between gap-2">
         <p class="text-[10px] text-muted-foreground">
-          可 @角色/@环境/@道具，上传图片后会自动加入可引用资产。
+          可 @角色/@环境/@道具/@其他，上传图片后会自动归类到“其他”并加入可引用资产。
         </p>
         <div class="flex items-center gap-1.5">
           <Button

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Loader2, Upload } from 'lucide-vue-next'
 import type { ComponentPublicInstance } from 'vue'
 import { toImageSrc } from '~/lib/media'
 import type {
@@ -17,8 +18,13 @@ defineProps<{
   sceneDescriptionMentionOpen: boolean
   sceneDescriptionMentionActiveIndex: number
   sceneDescriptionMentionCandidates: AssetMentionCandidate[]
+  sceneAssetUploading?: boolean
+  sceneAssetUploadError?: string | null
   setSceneDescriptionEditorRef: (element: Element | ComponentPublicInstance | null) => void
   setSceneDescriptionMentionListRef: (element: Element | ComponentPublicInstance | null) => void
+  setSceneAssetUploadInputRef: (element: Element | ComponentPublicInstance | null) => void
+  triggerSceneAssetUpload: () => void
+  handleSceneAssetUpload: (event: Event) => void
   insertSceneAssetMention: (assetId: string) => void
   handleSceneDescriptionInput: () => void
   handleSceneDescriptionCursorChange: () => void
@@ -41,7 +47,27 @@ defineProps<{
     </div>
 
     <div class="space-y-2">
-      <label class="text-sm font-medium">场景描述</label>
+      <div class="flex items-center justify-between gap-2">
+        <label class="text-sm font-medium">场景描述</label>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          class="h-7 px-2 text-xs"
+          :disabled="sceneAssetUploading"
+          @click="triggerSceneAssetUpload()"
+        >
+          <Loader2
+            v-if="sceneAssetUploading"
+            class="mr-1 h-3.5 w-3.5 animate-spin"
+          />
+          <Upload
+            v-else
+            class="mr-1 h-3.5 w-3.5"
+          />
+          上传其他资产
+        </Button>
+      </div>
       <template v-if="sceneDescriptionSupportsMention">
         <div class="relative">
           <div
@@ -67,7 +93,7 @@ defineProps<{
         </div>
 
         <p class="text-xs text-muted-foreground">
-          输入 `@` 可直接引用角色/环境/道具资产。建议把镜头、声音、表演提示直接融合在同一个场景描述里。
+          输入 `@` 可直接引用角色/环境/道具/其他资产。上传图片会自动归类到“其他”，支持上传前命名（默认文件名）。
         </p>
 
         <div
@@ -126,6 +152,22 @@ defineProps<{
         placeholder="输入完整场景描述：场景功能/情绪定位、镜头设计、声音设计、台词节奏、表演关键点..."
         class="min-h-[100px]"
       />
+
+      <p
+        v-if="sceneAssetUploadError"
+        class="text-xs text-destructive"
+      >
+        {{ sceneAssetUploadError }}
+      </p>
+
+      <input
+        :ref="setSceneAssetUploadInputRef"
+        type="file"
+        accept="image/*"
+        multiple
+        class="hidden"
+        @change="handleSceneAssetUpload($event)"
+      >
     </div>
 
     <div class="space-y-2">

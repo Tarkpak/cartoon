@@ -14,6 +14,7 @@ export function resolveDisplayAssetTypeOrder(type: DisplayAsset['type']): number
   if (type === 'character') return 1
   if (type === 'environment') return 2
   if (type === 'prop') return 3
+  if (type === 'other') return 4
   return 9
 }
 
@@ -21,6 +22,7 @@ export function resolveDisplayAssetTypeLabel(type: DisplayAsset['type']): string
   if (type === 'character') return '角色'
   if (type === 'environment') return '环境'
   if (type === 'prop') return '道具'
+  if (type === 'other') return '其他'
   return '资产'
 }
 

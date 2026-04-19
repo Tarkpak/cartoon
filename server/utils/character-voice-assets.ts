@@ -177,19 +177,17 @@ function resolveSingleSpeakerVoiceReference(context: LoadedSceneContext): VoiceR
   const [onlySpeaker] = uniqueSpeakerNames
   if (!onlySpeaker) return null
 
-  for (const character of context.characters) {
-    if (normalizeSpeakerName(character.name) !== onlySpeaker) continue
-    const voiceAsset = parseCharacterVoiceAsset(character.voiceAsset)
-    if (!voiceAsset?.audioUrl) return null
+  const character = resolveCharacterRecordByName(onlySpeaker, context.characters)
+  if (!character) return null
 
-    return {
-      characterId: character.id,
-      characterName: character.name,
-      voiceAsset
-    }
+  const voiceAsset = parseCharacterVoiceAsset(character.voiceAsset)
+  if (!voiceAsset?.audioUrl) return null
+
+  return {
+    characterId: character.id,
+    characterName: character.name,
+    voiceAsset
   }
-
-  return null
 }
 
 export async function enrichVideoConfigWithCharacterVoiceReference(options: {
@@ -550,6 +548,7 @@ export async function extractCharacterVoiceAssetsFromSceneVideo(options: {
 export const __testUtils = {
   appendVoiceConstraintToPrompt,
   buildVoiceConstraintText,
+  resolveSingleSpeakerVoiceReference,
   calculateTranscriptMatchScore,
   matchDialoguesToAsrSegments,
   pickBestVoiceMatches,

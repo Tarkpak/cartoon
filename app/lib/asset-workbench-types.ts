@@ -1,4 +1,4 @@
-export type AssetTab = 'characters' | 'environments' | 'props'
+export type AssetTab = 'characters' | 'environments' | 'props' | 'others'
 
 export type QueueStatus = 'pending' | 'running' | 'done' | 'error'
 export type AutoStageKey = 'parse' | 'assets' | 'videos' | 'final'
@@ -57,7 +57,7 @@ export interface FinalVideoAsset {
 export interface DisplayAsset {
   id: string
   name: string
-  type: 'character' | 'environment' | 'prop'
+  type: 'character' | 'environment' | 'prop' | 'other'
   description?: string
   referenceImage?: string
   assetHistory?: AssetImageHistoryEntry[]
@@ -78,7 +78,7 @@ export interface SceneDescriptionRenderSegment {
 export interface SceneVideoReferenceAsset {
   assetId: string
   name: string
-  type: 'character' | 'prop'
+  type: 'character' | 'prop' | 'other'
   image: string
   source: 'configured' | 'fallback'
 }
