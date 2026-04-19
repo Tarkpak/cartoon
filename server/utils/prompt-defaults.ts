@@ -112,6 +112,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 9. 每行应包含丰富的镜头语言：光线描写、空间关系、人物动作细节、环境氛围与声音描写。
 10. description 中禁止写"添加字幕/BGM/音效"等制作指令，但可以写“环境音/低频嗡鸣/玻璃碎声”等叙事内声音设计。
 11. 不要自行生成任何 [图片N] 或其他引用编号；如系统后续需要引用标签，会由后处理统一注入。
+12. 若镜头能透过门、窗、玻璃看到相邻子空间，必须明确写出可见空间的灯光、主色调、门窗位置与关键陈设，并在对应子空间场景中沿用，不得把同一主环境写成两套布景。
 
 【角色与旁白规则】
 1. 只识别真实角色，不要把旁白、画外音、系统说明、音效、抽象概念当作角色。
@@ -227,6 +228,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 9. Each timeline line should include rich cinematic language: lighting, spatial relationships, character action details, atmosphere, and ambient sound.
 10. Do not include production instructions such as subtitles, BGM, or UI overlays, but narrative sound design is allowed.
 11. Do not invent any [ImageN] or other reference numbering. If reference tags are needed later, the system will inject them in post-processing.
+12. If a shot can see an adjacent subspace through a door, window, or glass partition, explicitly describe that visible space's lighting, dominant colors, doorway/window placement, and key set dressing, then preserve those details in the matching subspace scene.
 
 ## Character and Narration Rules
 1. Only identify real characters. Do not treat narration, voice-over, system text, or sound cues as characters.
@@ -389,7 +391,8 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 7. 同一主环境的年代感、装修档次、材质语言、灯光体系必须和相邻场景保持一致。
 8. 不要文字、水印、Logo、边框、界面元素。
 9. 严禁鱼眼、桶形、枕形、夸张广角等镜头畸变；保持地平线水平、建筑竖线尽量垂直、画面边缘不拉伸。
-10. 如果提供了二次生成要求，只做定向微调，不改变环境主体身份。
+10. 若门窗、玻璃或敞开通道中能看到相邻空间，不要把它处理成模糊光块；要交代相邻空间的结构轮廓、灯光和关键陈设，并与同一主环境下的对应子空间保持一致。
+11. 如果提供了二次生成要求，只做定向微调，不改变环境主体身份。
 
 【二次生成补充要求】
 {{customPrompt}}`,
@@ -426,7 +429,8 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 7. Keep era, renovation grade, material language, and lighting system consistent with neighboring scenes in the same root environment.
 8. No text, watermark, logo, border, or UI elements.
 9. Avoid fisheye, barrel/pincushion, and extreme wide-angle distortion. Keep the horizon level, vertical architectural lines as straight as possible, and edges free of stretch warping.
-10. If a regeneration note is provided, apply only targeted environment-level refinement without changing the core environment identity.
+10. If doors, windows, glass, or open passages reveal an adjacent space, do not reduce it to a vague glow. Describe the neighboring space's structure, lighting, and key set dressing so it can stay consistent with the matching subspace scene.
+11. If a regeneration note is provided, apply only targeted environment-level refinement without changing the core environment identity.
 
 ## Regeneration Note
 {{customPrompt}}`
@@ -477,7 +481,8 @@ const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
 8. 若提到资产（角色/环境/道具），应体现在描述里，但不要输出 @mention 或 [引用资产] 区块。
 9. 保留 [图片N] 标签风格；若原描述已有 [图片N]，优先沿用。
 10. 不要输出“添加字幕/BGM/音效”等制作指令，但可以写叙事内声音设计，例如环境音、低频嗡鸣、玻璃碎声等。
-11. 若原描述已具备明确结构，应在此基础上重写和补细，而不是删掉已有层次。`,
+11. 若原描述已具备明确结构，应在此基础上重写和补细，而不是删掉已有层次。
+12. 若镜头能透过门、窗、玻璃看到另一空间，必须把门窗朝向、可见空间的灯光、主色调和关键陈设写清楚，方便后续切到该空间时保持一致。`,
   en: `You are a senior scene editor. Rewrite the current scene description based on the user's instruction and output strict JSON only:
 {"description":"rewritten scene description"}
 
@@ -522,7 +527,8 @@ const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
 8. If assets are mentioned, reflect them in the scene description, but do not output @mentions or asset-reference blocks.
 9. Preserve the [ImageN] tag style. If existing tags are already present, reuse them whenever possible.
 10. Do not output production instructions such as subtitles, BGM, or UI overlays, but narrative sound design is allowed.
-11. If the source already has a clear structure, rewrite within that structure instead of flattening it.`
+11. If the source already has a clear structure, rewrite within that structure instead of flattening it.
+12. If the shot can see another space through a door, window, or glass partition, make the doorway/window orientation, visible lighting, dominant colors, and key set dressing explicit so later cuts into that space remain consistent.`
 }
 
 const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
@@ -574,7 +580,9 @@ const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
 3. 若场景详细说明里包含“声音设计、台词节奏、表演关键点”等内容，要把它们转成镜头节奏、人物动作、口型、呼吸感和情绪推进，不要把这些文字直接做成字幕或界面元素。
 4. 动作演化要自然可信，避免角色漂移、空间跳变、物体凭空增减或镜头逻辑断裂。
 5. 旁白和对白只体现在表演节奏、口型和画面情绪中，不要生成字幕、台词卡、UI 或水印。
-6. 输出应是一个可直接使用的视频片段，风格统一，光照连续，构图清晰。`,
+6. 若镜头透过门、窗、玻璃看到相邻空间，必须让该可见空间与对应内景/外景镜头共享同一建筑结构、门窗朝向、灯光颜色、主色调和关键陈设。
+7. 如果前一镜头已经拍到某个室内或室外子空间，切到该空间时必须延续已出现的布景，不得重新发明另一套陈设。
+8. 输出应是一个可直接使用的视频片段，风格统一，光照连续，构图清晰。`,
   en: `Generate a single-scene video clip directly. Do not return text, and do not treat the content below as instructions to write another prompt.
 
 ## Shot Number
@@ -623,5 +631,7 @@ About {{duration}} seconds
 3. If the detailed scene description includes sound design, dialogue rhythm, or performance notes, translate them into pacing, acting, mouth movement, breath, and emotional progression. Do not render those words as subtitles or UI.
 4. Motion should evolve naturally and consistently. Avoid identity drift, spatial jumps, disappearing or appearing key objects, or broken camera logic.
 5. Reflect narration and dialogue through performance rhythm, mouth movement, and mood only. Do not generate subtitles, caption cards, UI, or watermarks.
-6. The result must be a directly usable video clip with consistent style, lighting continuity, and clear composition.`
+6. If the shot sees an adjacent space through a door, window, or glass partition, that visible space must share the same architecture, doorway/window orientation, lighting color, dominant palette, and key set dressing as the matching interior or exterior shot.
+7. If a previous shot already revealed that interior or exterior subspace, the cut into it must continue the same set dressing rather than inventing a new one.
+8. The result must be a directly usable video clip with consistent style, lighting continuity, and clear composition.`
 }
