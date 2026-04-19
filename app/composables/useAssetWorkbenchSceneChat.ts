@@ -29,6 +29,10 @@ interface UseAssetWorkbenchSceneChatOptions {
   setSceneAssetReferences: (sceneId: string, nextAssetIds: string[]) => void
   saveWorkflowMeta: () => Promise<unknown>
   saveProject: () => Promise<unknown>
+  onModelTaskCompleted?: (payload: {
+    title: string
+    body?: string
+  }) => Promise<unknown> | unknown
 }
 
 export function useAssetWorkbenchSceneChat(options: UseAssetWorkbenchSceneChatOptions) {
@@ -151,7 +155,8 @@ export function useAssetWorkbenchSceneChat(options: UseAssetWorkbenchSceneChatOp
     sceneChatError,
     closeSceneChat,
     closeSceneChatMention,
-    handleSceneChatComposerInput
+    handleSceneChatComposerInput,
+    onModelTaskCompleted: options.onModelTaskCompleted
   })
 
   async function handleSceneChatImageUpload(event: Event) {

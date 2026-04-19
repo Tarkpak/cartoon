@@ -56,6 +56,7 @@ interface UseAssetWorkbenchSceneGenerationOptions {
       workflowType?: 'asset_consistency'
       regenerationPrompt?: string
       referenceImage?: string
+      skipCompletionNotice?: boolean
     }
   ) => Promise<unknown>
   batchGenerateCharacters: (
@@ -95,6 +96,10 @@ interface UseAssetWorkbenchSceneGenerationOptions {
       prompt?: string
     }
   ) => void
+  onModelTaskCompleted?: (payload: {
+    title: string
+    body?: string
+  }) => Promise<unknown> | unknown
 }
 
 export function useAssetWorkbenchSceneGeneration(
@@ -116,7 +121,8 @@ export function useAssetWorkbenchSceneGeneration(
 
       try {
         await options.generateCharacter(character, {
-          workflowType: 'asset_consistency'
+          workflowType: 'asset_consistency',
+          skipCompletionNotice: true
         })
       } catch (error) {
         const message = options.resolveUiError(error, `${character.name} 角色图生成失败`)
@@ -243,7 +249,9 @@ export function useAssetWorkbenchSceneGeneration(
 
   async function generateSceneBaseline(
     sceneId: string,
-    generationOptions: GenerateSceneBaselineOptions = {}
+    generationOptions: GenerateSceneBaselineOptions & {
+      skipCompletionNotice?: boolean
+    } = {}
   ) {
     const scene = options.scenes.value.find(item => item.id === sceneId)
     if (!scene) return
@@ -335,6 +343,12 @@ export function useAssetWorkbenchSceneGeneration(
       )
       options.synchronizeQueueItems()
       await options.saveProject()
+      if (!generationOptions.skipCompletionNotice) {
+        await options.onModelTaskCompleted?.({
+          title: customPrompt ? '环境图二次生成完成' : '环境图生成完成',
+          body: `场景：${scene.title}`
+        })
+      }
     } catch (error) {
       scene.referenceStatus = 'error'
       scene.referenceError = options.resolveUiError(error, '环境图生成失败')
@@ -346,7 +360,12 @@ export function useAssetWorkbenchSceneGeneration(
     }
   }
 
-  async function generateSingleSceneVideo(sceneId: string) {
+  async function generateSingleSceneVideo(
+    sceneId: string,
+    runOptions: {
+      skipCompletionNotice?: boolean
+    } = {}
+  ) {
     const scene = options.scenes.value.find(item => item.id === sceneId)
     if (!scene) return
 
@@ -432,6 +451,12 @@ export function useAssetWorkbenchSceneGeneration(
         source: 'generated'
       })
       await options.saveProject()
+      if (!runOptions.skipCompletionNotice) {
+        await options.onModelTaskCompleted?.({
+          title: '场景视频生成完成',
+          body: `场景：${scene.title}`
+        })
+      }
       void options.refreshCharacterVoiceAssets?.({
         attempts: 4,
         delayMs: 1500
@@ -456,12 +481,19 @@ export function useAssetWorkbenchSceneGeneration(
     })
   }
 
-  async function runQueueItem(item: QueueItem) {
+  async function runQueueItem(
+    item: QueueItem,
+    runOptions: {
+      skipCompletionNotice?: boolean
+    } = {}
+  ) {
     item.status = 'running'
     item.error = undefined
 
     try {
-      await generateSingleSceneVideo(item.sceneId)
+      await generateSingleSceneVideo(item.sceneId, {
+        skipCompletionNotice: runOptions.skipCompletionNotice
+      })
       const scene = options.scenes.value.find(candidate => candidate.id === item.sceneId)
       item.status = scene?.videoStatus === 'done' ? 'done' : 'pending'
     } catch (error) {
@@ -475,14 +507,25 @@ export function useAssetWorkbenchSceneGeneration(
 
     await options.persistAutomaticAssetPlan()
     await ensureCharacterAssetsReady()
+    const hasPendingItems = options.queueItems.value.some(item => item.status !== 'done')
+    if (!hasPendingItems) return
 
     options.batchRunning.value = true
 
     try {
       for (const item of options.queueItems.value) {
         if (item.status === 'done') continue
-        await runQueueItem(item)
+        await runQueueItem(item, {
+          skipCompletionNotice: true
+        })
       }
+      const total = options.queueItems.value.length
+      const done = options.queueItems.value.filter(item => item.status === 'done').length
+      const failed = options.queueItems.value.filter(item => item.status === 'error').length
+      await options.onModelTaskCompleted?.({
+        title: '批量场景视频生成完成',
+        body: `完成 ${done} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
+      })
     } finally {
       options.batchRunning.value = false
     }
@@ -492,7 +535,9 @@ export function useAssetWorkbenchSceneGeneration(
     const item = options.queueItems.value.find(queue => queue.sceneId === sceneId)
     if (!item) return
 
-    await runQueueItem(item)
+    await runQueueItem(item, {
+      skipCompletionNotice: false
+    })
   }
 
   async function retryFailedQueueItemsOnce() {
