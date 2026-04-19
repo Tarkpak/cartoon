@@ -15,11 +15,13 @@ import {
 
 const activeTab = defineModel<ModelTestTab>('activeTab', { required: true })
 const customPrompts = defineModel<Record<ModelTestTab, string>>('customPrompts', { required: true })
+const imageAspectRatio = defineModel<string>('imageAspectRatio', { required: true })
 
 const props = defineProps<{
   testResults: Record<ModelTestTab, TestResult>
   currentImageModelSupportsReference: boolean
   currentImageModelRequiresReference: boolean
+  currentImageModelAspectRatioOptions: string[]
   canRunImageTest: boolean
   referenceImages: string[]
   setFileInputRef: (element: Element | ComponentPublicInstance | null) => void
@@ -44,15 +46,41 @@ const props = defineProps<{
 }>()
 
 const currentTestStatus = computed(() => props.testResults[activeTab.value].status)
+
+function formatAspectRatioLabel(value: string): string {
+  return value === 'auto' ? '自动 (auto)' : value
+}
 </script>
 
 <template>
   <div class="space-y-3 border-b px-4 py-3">
     <!-- Label + Run button -->
     <div class="flex items-center justify-between gap-3">
-      <label class="text-xs text-muted-foreground">
-        {{ activeTab === 'tts' ? '测试文本' : '测试提示词' }}
-      </label>
+      <div class="flex items-center gap-4">
+        <label class="text-xs text-muted-foreground">
+          {{ activeTab === 'tts' ? '测试文本' : '测试提示词' }}
+        </label>
+        <div
+          v-if="activeTab === 'image'"
+          class="flex items-center gap-2"
+        >
+          <label class="text-xs text-muted-foreground/80">比例</label>
+          <Select v-model="imageAspectRatio">
+            <SelectTrigger class="h-7 w-[130px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem
+                v-for="ratio in props.currentImageModelAspectRatioOptions"
+                :key="`image_aspect_ratio_${ratio}`"
+                :value="ratio"
+              >
+                {{ formatAspectRatioLabel(ratio) }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
       <div class="flex items-center gap-2">
         <span
           v-if="activeTab === 'image' && props.currentImageModelRequiresReference && props.referenceImages.length === 0"
