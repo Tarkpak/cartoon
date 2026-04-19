@@ -57,6 +57,7 @@ export const LOCATION_SUBSPACE_SUFFIXES = [
   '卧室',
   '厨房',
   '浴室',
+  '院子',
   '阳台',
   '庭院'
 ]
@@ -114,6 +115,69 @@ export const LOCATION_ENGLISH_ANCHORS = [
   { keyword: 'prison', root: 'prison' },
   { keyword: 'library', root: 'library' }
 ]
+
+const INTERIOR_VIEW_KEYWORDS = [
+  '室内',
+  '屋内',
+  '屋里',
+  '房内',
+  '客厅',
+  '卧室',
+  '厨房',
+  '浴室',
+  '门厅',
+  '大厅',
+  '走廊',
+  '办公室',
+  '病房',
+  '教室',
+  '实验室'
+]
+
+const EXTERIOR_VIEW_KEYWORDS = [
+  '室外',
+  '屋外',
+  '门外',
+  '户外',
+  '街头',
+  '街道',
+  '巷口',
+  '院子',
+  '庭院',
+  '楼外',
+  '外景',
+  '露台',
+  '天台',
+  '公路'
+]
+
+const CROSS_SPACE_VIEW_KEYWORDS = [
+  '门外',
+  '门内',
+  '窗外',
+  '窗内',
+  '透过门',
+  '透过窗',
+  '透过玻璃',
+  '门缝',
+  '窗口',
+  '玻璃门',
+  '玻璃窗',
+  '室内灯光',
+  '屋里',
+  '屋内',
+  '屋外',
+  '室内',
+  '室外',
+  'inside',
+  'outside',
+  'through the window',
+  'through the door',
+  'visible interior',
+  'visible exterior'
+]
+
+export type SceneSpatialViewpoint = 'interior' | 'exterior' | 'unknown'
 
 export function stripLocationStylePrefix(value: string): string {
   let output = value.trim()
@@ -173,6 +237,98 @@ export function resolveSceneEnvironmentRoot(scene: SceneData): string {
   if (titleRoot) return titleRoot
 
   return ''
+}
+
+function buildSceneSpatialText(scene: Pick<SceneData, 'title' | 'description' | 'setting'>): string {
+  return [
+    scene.setting?.location || '',
+    scene.title || '',
+    scene.description || ''
+  ]
+    .join(' ')
+    .toLowerCase()
+}
+
+function hasKeyword(text: string, keywords: string[]): boolean {
+  return keywords.some(keyword => text.includes(keyword.toLowerCase()))
+}
+
+export function resolveSceneSpatialViewpoint(
+  scene: Pick<SceneData, 'title' | 'description' | 'setting'>
+): SceneSpatialViewpoint {
+  const locationText = [scene.setting?.location || '', scene.title || '']
+    .join(' ')
+    .toLowerCase()
+  const descriptionText = (scene.description || '').toLowerCase()
+
+  const locationHasInterior = hasKeyword(locationText, INTERIOR_VIEW_KEYWORDS)
+  const locationHasExterior = hasKeyword(locationText, EXTERIOR_VIEW_KEYWORDS)
+  if (locationHasInterior && !locationHasExterior) return 'interior'
+  if (locationHasExterior && !locationHasInterior) return 'exterior'
+
+  const descriptionHasInterior = hasKeyword(descriptionText, INTERIOR_VIEW_KEYWORDS)
+  const descriptionHasExterior = hasKeyword(descriptionText, EXTERIOR_VIEW_KEYWORDS)
+  if (descriptionHasInterior && !descriptionHasExterior) return 'interior'
+  if (descriptionHasExterior && !descriptionHasInterior) return 'exterior'
+
+  return 'unknown'
+}
+
+export function sceneHasCrossSpaceViewCue(
+  scene: Pick<SceneData, 'title' | 'description' | 'setting'>
+): boolean {
+  return hasKeyword(buildSceneSpatialText(scene), CROSS_SPACE_VIEW_KEYWORDS)
+}
+
+export function buildSceneEnvironmentCrossSpaceNote(
+  scene: SceneData,
+  scenes: SceneData[]
+): string | undefined {
+  const environmentRoot = resolveSceneEnvironmentRoot(scene)
+  if (!environmentRoot) return undefined
+
+  const relatedScenes = scenes.filter(item => resolveSceneEnvironmentRoot(item) === environmentRoot)
+  if (relatedScenes.length <= 1) return undefined
+
+  const currentLocation = scene.setting?.location?.trim() || scene.title?.trim() || scene.id
+  const currentViewpoint = resolveSceneSpatialViewpoint(scene)
+  const siblingLocations = uniqueSorted(
+    relatedScenes
+      .map(item => item.setting?.location?.trim() || item.title?.trim() || item.id)
+      .filter(Boolean)
+  )
+    .filter(location => location !== currentLocation)
+    .slice(0, 4)
+
+  const oppositeViewLocations = uniqueSorted(
+    relatedScenes
+      .filter(item => item.id !== scene.id)
+      .map((item) => {
+        const viewpoint = resolveSceneSpatialViewpoint(item)
+        if (currentViewpoint !== 'unknown' && viewpoint === currentViewpoint) return ''
+        if (currentViewpoint === 'unknown' && viewpoint === 'unknown') return ''
+        return item.setting?.location?.trim() || item.title?.trim() || item.id
+      })
+      .filter(Boolean)
+  ).slice(0, 4)
+
+  const crossSpaceTargets = oppositeViewLocations.length > 0 ? oppositeViewLocations : siblingLocations
+  const hasCrossSpaceCue = sceneHasCrossSpaceViewCue(scene)
+
+  if (!hasCrossSpaceCue && oppositeViewLocations.length === 0) return undefined
+  if (crossSpaceTargets.length === 0) return undefined
+
+  const continuityLead = currentViewpoint === 'exterior'
+    ? '若外景镜头透过门窗看到室内'
+    : currentViewpoint === 'interior'
+      ? '若内景镜头透过门窗看到室外'
+      : '若镜头透过门窗看到相邻空间'
+
+  return [
+    `同一主环境子空间：${[currentLocation, ...crossSpaceTargets].slice(0, 5).join('、')}`,
+    `${continuityLead}，必须与对应子空间保持同一建筑结构、门窗朝向、灯光颜色、主色调和关键陈设`,
+    '切到对应空间时，沿用已出现的布景，不得重置为另一套室内或室外设计'
+  ].join('；')
 }
 
 export function buildSceneEnvironmentConsistencyContext(

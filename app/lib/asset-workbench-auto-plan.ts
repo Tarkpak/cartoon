@@ -1,6 +1,7 @@
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import { resolveTimeOfDayText } from '#shared/types/script'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
+import { buildSceneEnvironmentCrossSpaceNote } from '~/lib/asset-workbench-environment'
 import {
   collectSceneCharacterCandidates,
   findCharacterByNameLike,
@@ -64,6 +65,11 @@ function buildContinuityNotes(
     if (currentTimeOfDay && previousTimeOfDay && currentTimeOfDay !== previousTimeOfDay) {
       notes.push(`时间切换：${previousTimeOfDay} -> ${currentTimeOfDay}`)
     }
+  }
+
+  const crossSpaceNote = buildSceneEnvironmentCrossSpaceNote(scene, scenes)
+  if (crossSpaceNote) {
+    notes.push(crossSpaceNote)
   }
 
   if (notes.length === 0) {

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { Loader2, Move, ScanSearch } from 'lucide-vue-next'
+import { Download, Loader2, Move, ScanSearch } from 'lucide-vue-next'
 import { toImageSrc } from '~/lib/media'
 import {
   buildDefaultCropSelection,
   loadCropImageMetrics,
   normalizeCropSelection,
+  renderCropSelectionToDataUrl,
   resolveCropSelectionAspectRatio,
   resolveCropSelectionOutputSize,
   resolveMaxCropSelection
@@ -35,6 +36,8 @@ const imageWrapperRef = ref<HTMLDivElement | null>(null)
 const loadingMetrics = ref(false)
 const imageMetrics = ref<{ width: number, height: number } | null>(null)
 const selection = ref<EnvironmentCropSelection | null>(null)
+const previewDownloading = ref(false)
+const previewDownloadError = ref<string | null>(null)
 
 const dragState = reactive({
   active: false,
@@ -250,6 +253,42 @@ function submit() {
   emit('submit', selection.value)
 }
 
+function resolvePreviewFilename() {
+  const normalizedLabel = (props.targetLabel || 'environment-crop')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48)
+  return `${normalizedLabel || 'environment-crop'}-preview-${Date.now()}.png`
+}
+
+async function downloadPreviewImage() {
+  if (!selection.value || !props.sourceImage?.trim()) return
+
+  previewDownloading.value = true
+  previewDownloadError.value = null
+
+  try {
+    const dataUrl = await renderCropSelectionToDataUrl({
+      sourceImage: props.sourceImage,
+      selection: selection.value,
+      outputSize: outputSize.value || undefined
+    })
+    const link = document.createElement('a')
+    link.href = dataUrl
+    link.download = resolvePreviewFilename()
+    link.click()
+  } catch (error) {
+    previewDownloadError.value = error instanceof Error
+      ? error.message
+      : '下载预览失败，请稍后重试'
+  } finally {
+    previewDownloading.value = false
+  }
+}
+
 async function initializeSelection() {
   if (!props.open || !props.sourceImage?.trim()) {
     imageMetrics.value = null
@@ -289,6 +328,7 @@ watch(
 watch(() => props.open, (open) => {
   if (!open) {
     stopDragging()
+    previewDownloadError.value = null
   }
 })
 
@@ -429,8 +469,27 @@ watchEffect((onCleanup) => {
                 <ScanSearch class="h-4 w-4 text-primary" />
                 当前截图预览
               </div>
-              <div class="rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
-                {{ selectionRatioLabel }}
+              <div class="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="h-7 gap-1.5 px-2 text-xs"
+                  :disabled="!selection || !imageSrc || previewDownloading"
+                  @click="downloadPreviewImage"
+                >
+                  <Loader2
+                    v-if="previewDownloading"
+                    class="h-3.5 w-3.5 animate-spin"
+                  />
+                  <Download
+                    v-else
+                    class="h-3.5 w-3.5"
+                  />
+                  下载预览
+                </Button>
+                <div class="rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
+                  {{ selectionRatioLabel }}
+                </div>
               </div>
             </div>
 
@@ -451,6 +510,13 @@ watchEffect((onCleanup) => {
 
             <p class="mt-3 text-xs leading-5 text-muted-foreground">
               保存后会自动替换当前环境图，但全景源图会保留，方便继续重选。
+            </p>
+
+            <p
+              v-if="previewDownloadError"
+              class="mt-2 text-xs text-destructive"
+            >
+              {{ previewDownloadError }}
             </p>
           </div>
 
