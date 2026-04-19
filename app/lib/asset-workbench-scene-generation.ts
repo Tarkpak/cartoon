@@ -2,6 +2,7 @@ import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type { SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import {
+  buildSceneEnvironmentCrossSpaceNote,
   buildSceneEnvironmentConsistencyContext,
   resolveSceneEnvironmentAssetId,
   resolveSceneEnvironmentLabel
@@ -30,6 +31,7 @@ export interface AssetWorkflowScenePayload {
 
 interface BuildSceneGenerationCameraNoteOptions {
   scene: SceneData
+  scenes: SceneData[]
   sceneConfig: SceneConsistencyConfig
   resolveAssetName: (assetId: string) => string
 }
@@ -98,12 +100,15 @@ export function buildSceneGenerationCameraNote(
     .map(options.resolveAssetName)
     .filter(Boolean)
   const continuityNote = options.sceneConfig.continuityNotes.trim()
-
-  const parts = [
+  const crossSpaceNote = buildSceneEnvironmentCrossSpaceNote(options.scene, options.scenes)
+  const shouldAppendCrossSpaceNote = !!crossSpaceNote
+    && !continuityNote.includes(crossSpaceNote)
+  const parts = Array.from(new Set([
     baseNote,
     refNames.length > 0 ? `引用资产：${refNames.join('、')}` : '',
-    continuityNote ? `连续性提示：${continuityNote}` : ''
-  ].filter(Boolean)
+    continuityNote ? `连续性提示：${continuityNote}` : '',
+    shouldAppendCrossSpaceNote ? `跨空间提示：${crossSpaceNote}` : ''
+  ].filter(Boolean)))
 
   return parts.length > 0 ? parts.join('\n') : undefined
 }

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { SceneData } from './asset-workbench-models'
 import {
+  buildSceneEnvironmentCrossSpaceNote,
   resolveSceneEnvironmentAssetLabel,
-  resolveSceneEnvironmentAssetId
+  resolveSceneEnvironmentAssetId,
+  resolveSceneSpatialViewpoint
 } from './asset-workbench-environment-core'
 
 function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' | 'description'>): SceneData {
@@ -100,5 +102,56 @@ describe('environment asset grouping', () => {
     })
 
     expect(resolveSceneEnvironmentAssetLabel(scene)).toBe('老旧出租屋-客厅 / 白天')
+  })
+
+  it('detects interior and exterior viewpoints from scene metadata', () => {
+    const exteriorScene = createScene({
+      id: 'scene_ext',
+      title: '老宅外景',
+      description: '0-8秒：，全景，固定镜头。夜雨里，屋外窗户透出暖黄灯光。',
+      setting: {
+        location: '老宅-院子',
+        timeOfDay: 'night'
+      }
+    })
+    const interiorScene = createScene({
+      id: 'scene_int',
+      title: '客厅对峙',
+      description: '0-8秒：，中景，固定镜头。客厅里两人隔着茶几对峙。',
+      setting: {
+        location: '老宅-客厅',
+        timeOfDay: 'night'
+      }
+    })
+
+    expect(resolveSceneSpatialViewpoint(exteriorScene)).toBe('exterior')
+    expect(resolveSceneSpatialViewpoint(interiorScene)).toBe('interior')
+  })
+
+  it('builds a cross-space continuity note for matching exterior and interior scenes', () => {
+    const exteriorScene = createScene({
+      id: 'scene_ext',
+      title: '老宅外景',
+      description: '0-8秒：，全景，固定镜头。门外雨夜里，窗内暖黄灯光照亮客厅轮廓。',
+      setting: {
+        location: '老宅-院子',
+        timeOfDay: 'night'
+      }
+    })
+    const interiorScene = createScene({
+      id: 'scene_int',
+      title: '客厅对峙',
+      description: '0-8秒：，中景，固定镜头。客厅里两人对峙，背后窗外还能看到雨夜院子。',
+      setting: {
+        location: '老宅-客厅',
+        timeOfDay: 'night'
+      }
+    })
+
+    const note = buildSceneEnvironmentCrossSpaceNote(exteriorScene, [exteriorScene, interiorScene])
+
+    expect(note).toContain('同一主环境子空间：老宅-院子、老宅-客厅')
+    expect(note).toContain('若外景镜头透过门窗看到室内')
+    expect(note).toContain('不得重置为另一套室内或室外设计')
   })
 })

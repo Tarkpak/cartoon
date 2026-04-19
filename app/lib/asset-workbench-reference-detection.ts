@@ -47,8 +47,8 @@ function isNarrationSpeaker(name: string): boolean {
 function splitCandidateNames(rawName?: string): string[] {
   if (!rawName) return []
 
-  const normalizedRaw = rawName
-    .split(/[:：]/u)[0]
+  const normalizedRaw = (rawName
+    .split(/[:：]/u)[0] || '')
     .replace(/[（(][^）)]*[）)]/gu, ' ')
     .trim()
 
