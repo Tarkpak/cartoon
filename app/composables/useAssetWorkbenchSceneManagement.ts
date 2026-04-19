@@ -356,7 +356,8 @@ export function useAssetWorkbenchSceneManagement(options: {
     options.propAssets.value.push({
       id: options.createPropAssetId(),
       name,
-      description
+      description,
+      category: 'prop'
     })
   }
 

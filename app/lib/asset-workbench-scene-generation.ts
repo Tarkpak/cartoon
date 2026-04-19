@@ -62,7 +62,7 @@ interface AssetWorkflowVideoReferences {
   characterAssets: Array<{
     id: string
     name: string
-    type: 'character' | 'prop'
+    type: 'character' | 'prop' | 'other'
     image: string
   }>
 }

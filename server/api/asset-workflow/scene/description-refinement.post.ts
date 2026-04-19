@@ -4,7 +4,7 @@ import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
 import { resolveTimeOfDayText } from '../../../../shared/types/script'
 
-const AssetTypeSchema = z.enum(['character', 'environment', 'prop'])
+const AssetTypeSchema = z.enum(['character', 'environment', 'prop', 'other'])
 
 const SceneSettingSchema = z.object({
   location: z.string().optional(),
@@ -68,6 +68,7 @@ function resolveAssetTypeLabel(type: z.infer<typeof AssetTypeSchema>): string {
   if (type === 'character') return '角色'
   if (type === 'environment') return '环境'
   if (type === 'prop') return '道具'
+  if (type === 'other') return '其他'
   return '资产'
 }
 

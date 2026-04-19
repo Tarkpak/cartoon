@@ -81,4 +81,27 @@ describe('character voice asset helpers', () => {
 
     expect(shouldReplace).toBe(false)
   })
+
+  it('resolves single-speaker audio reference with fuzzy speaker name matching', () => {
+    const candidate = __testUtils.resolveSingleSpeakerVoiceReference({
+      sceneId: 'scene_3',
+      projectId: 'project_1',
+      dialogues: [
+        { character: '阿青（画外）', text: '你终于来了。' }
+      ],
+      characters: [
+        {
+          id: 'char_1',
+          name: '阿青',
+          voiceAsset: JSON.stringify({
+            audioUrl: 'https://example.com/aqing.mp3',
+            updatedAt: new Date().toISOString()
+          })
+        }
+      ]
+    })
+
+    expect(candidate?.characterId).toBe('char_1')
+    expect(candidate?.voiceAsset.audioUrl).toBe('https://example.com/aqing.mp3')
+  })
 })

@@ -51,7 +51,7 @@ const EnvironmentReferenceAssetSchema = z.object({
 const CharacterReferenceAssetSchema = z.object({
   id: z.string().optional(),
   name: z.string().optional(),
-  type: z.enum(['character', 'prop']).optional(),
+  type: z.enum(['character', 'prop', 'other']).optional(),
   image: z.string()
 })
 
@@ -92,7 +92,7 @@ const RequestSchema = z.object({
 })
 
 type InputMode = 'single_image' | 'text_only'
-type ReferenceAssetKind = 'environment' | 'character' | 'prop'
+type ReferenceAssetKind = 'environment' | 'character' | 'prop' | 'other'
 
 interface ReferenceAssetBinding {
   assetId: string
@@ -210,6 +210,7 @@ function hasSceneCharacters(scene: z.infer<typeof SceneSchema>): boolean {
 function resolveReferenceTypeLabel(type: ReferenceAssetKind): string {
   if (type === 'environment') return '环境'
   if (type === 'prop') return '道具'
+  if (type === 'other') return '其他'
   return '角色'
 }
 
@@ -274,7 +275,11 @@ function resolveCharacterReferenceBindings(options: {
       metadataBuckets.set(normalizedImage, bucket)
     }
 
-    const type: ReferenceAssetKind = metadata?.type === 'prop' ? 'prop' : 'character'
+    const type: ReferenceAssetKind = metadata?.type === 'prop'
+      ? 'prop'
+      : metadata?.type === 'other'
+        ? 'other'
+        : 'character'
     const fallbackName = scene.characters[fallbackIndex]?.name?.trim() || `角色参考${fallbackIndex + 1}`
     const name = normalizeReferenceAssetName(metadata?.name, fallbackName)
     const assetId = metadata?.id?.trim() || `${type}:auto_${fallbackIndex + 1}`
@@ -495,7 +500,9 @@ function buildReferenceMaterialLines(options: {
       ? '锁定空间布局、光照与色调'
       : binding.type === 'prop'
         ? '锁定关键道具形态、材质与尺度'
-        : '锁定角色身份、发型、服饰与体态'
+        : binding.type === 'other'
+          ? '锁定其他关键视觉资产的形态与质感'
+          : '锁定角色身份、发型、服饰与体态'
     lines.push(`图${figure}：${label}参考图（${binding.name}，${detail}）`)
   })
 

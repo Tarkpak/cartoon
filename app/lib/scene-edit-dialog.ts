@@ -31,7 +31,6 @@ export type SceneEditData = Pick<
 export type AssetReferenceType = DisplayAsset['type']
 export type AssetReferenceOption = DisplayAsset
 export type DragDropZone = 'pool' | 'selected'
-export type EditPanelKey = 'basic' | 'assets'
 
 export interface AssetMentionCandidate {
   asset: AssetReferenceOption
@@ -45,11 +44,6 @@ export interface CaretSegment {
   start: number
   end: number
 }
-
-export const sceneEditPanelTabs = [
-  { key: 'basic' as const, label: '基础信息' },
-  { key: 'assets' as const, label: '引用资产' }
-]
 
 export const timeOfDayOptions = TIME_OF_DAY_OPTIONS
 

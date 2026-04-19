@@ -91,7 +91,7 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
     return options.propAssets.value.map(prop => ({
       id: `prop:${prop.id}`,
       name: prop.name,
-      type: 'prop' as const,
+      type: prop.category === 'other' ? 'other' as const : 'prop' as const,
       description: prop.description,
       referenceImage: prop.referenceImage,
       assetHistory: prop.assetHistory

@@ -3,12 +3,15 @@ import type {
   EnvironmentCropSelection
 } from '~/lib/asset-workbench-types'
 
-export type EnvironmentCropAspectRatio = '16:9' | '9:16' | '1:1'
-
+const MIN_CROP_WIDTH = 0.08
+const MIN_CROP_HEIGHT = 0.08
+const DEFAULT_CROP_WIDTH = 0.22
+const DEFAULT_CROP_HEIGHT = 0.4
 const MIN_CROP_COVERAGE = 0.35
 const DEFAULT_CROP_COVERAGE = 1
-const LEGACY_DEFAULT_CROP_COVERAGE = 0.82
-const LEGACY_DEFAULT_CROP_COVERAGE_EPSILON = 0.005
+const MAX_CROP_WIDTH = 1
+const MAX_CROP_HEIGHT = 1
+const DEFAULT_OUTPUT_PIXELS = 1280 * 720
 
 interface CropImageMetrics {
   width: number
@@ -20,96 +23,83 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-export function resolveCropAspectRatioValue(aspectRatio: EnvironmentCropAspectRatio): number {
-  if (aspectRatio === '9:16') return 9 / 16
-  if (aspectRatio === '1:1') return 1
-  return 16 / 9
+function resolveSelectionBounds() {
+  return {
+    minWidth: MIN_CROP_WIDTH,
+    minHeight: MIN_CROP_HEIGHT,
+    maxWidth: MAX_CROP_WIDTH,
+    maxHeight: MAX_CROP_HEIGHT
+  }
 }
 
 export function resolveMaxCropSelection(
   imageWidth: number,
-  imageHeight: number,
-  aspectRatio: EnvironmentCropAspectRatio
+  imageHeight: number
 ): Pick<EnvironmentCropSelection, 'width' | 'height'> {
-  const sourceAspectRatio = imageWidth / imageHeight
-  const targetAspectRatio = resolveCropAspectRatioValue(aspectRatio)
-
-  if (!Number.isFinite(sourceAspectRatio) || sourceAspectRatio <= 0) {
+  if (!Number.isFinite(imageWidth) || !Number.isFinite(imageHeight) || imageWidth <= 0 || imageHeight <= 0) {
     return { width: 1, height: 1 }
   }
 
-  if (sourceAspectRatio >= targetAspectRatio) {
-    return {
-      width: clamp(targetAspectRatio / sourceAspectRatio, 0, 1),
-      height: 1
-    }
-  }
-
+  const bounds = resolveSelectionBounds()
   return {
-    width: 1,
-    height: clamp(sourceAspectRatio / targetAspectRatio, 0, 1)
+    width: bounds.maxWidth,
+    height: bounds.maxHeight
   }
 }
 
-export function buildCropSelectionFromCoverage(options: {
-  imageWidth: number
-  imageHeight: number
-  aspectRatio: EnvironmentCropAspectRatio
-  centerX?: number
-  centerY?: number
-  coverage?: number
-}): EnvironmentCropSelection {
-  const maxSelection = resolveMaxCropSelection(
-    options.imageWidth,
-    options.imageHeight,
-    options.aspectRatio
-  )
-  const coverage = clamp(options.coverage ?? DEFAULT_CROP_COVERAGE, MIN_CROP_COVERAGE, 1)
-  const width = maxSelection.width * coverage
-  const height = maxSelection.height * coverage
-  const x = clamp((options.centerX ?? 0.5) - (width / 2), 0, 1 - width)
-  const y = clamp((options.centerY ?? 0.5) - (height / 2), 0, 1 - height)
+export function resolveCropSelectionAspectRatio(
+  selection: Pick<EnvironmentCropSelection, 'width' | 'height'> | undefined,
+  sourceWidth: number = 1,
+  sourceHeight: number = 1
+): number {
+  if (!selection || selection.width <= 0 || selection.height <= 0) {
+    return clamp((DEFAULT_CROP_WIDTH * sourceWidth) / (DEFAULT_CROP_HEIGHT * sourceHeight), 0.2, 5)
+  }
 
-  return { x, y, width, height }
+  return clamp((selection.width * sourceWidth) / (selection.height * sourceHeight), 0.2, 8)
 }
 
 export function buildDefaultCropSelection(options: {
   imageWidth: number
   imageHeight: number
-  aspectRatio: EnvironmentCropAspectRatio
   coverage?: number
 }): EnvironmentCropSelection {
-  return buildCropSelectionFromCoverage({
-    ...options,
-    centerX: 0.5,
-    centerY: 0.5,
-    coverage: options.coverage ?? DEFAULT_CROP_COVERAGE
-  })
+  const bounds = resolveSelectionBounds()
+  const coverage = clamp(options.coverage ?? DEFAULT_CROP_COVERAGE, MIN_CROP_COVERAGE, 1)
+  const width = clamp(DEFAULT_CROP_WIDTH * coverage, bounds.minWidth, bounds.maxWidth)
+  const height = clamp(DEFAULT_CROP_HEIGHT * coverage, bounds.minHeight, bounds.maxHeight)
+
+  return {
+    x: (1 - width) / 2,
+    y: (1 - height) / 2,
+    width,
+    height
+  }
 }
 
 export function resolveCropSelectionCoverage(
   selection: EnvironmentCropSelection | undefined,
   imageWidth: number,
-  imageHeight: number,
-  aspectRatio: EnvironmentCropAspectRatio
+  imageHeight: number
 ): number {
   if (!selection) return DEFAULT_CROP_COVERAGE
 
-  const maxSelection = resolveMaxCropSelection(imageWidth, imageHeight, aspectRatio)
+  const maxSelection = resolveMaxCropSelection(imageWidth, imageHeight)
   if (maxSelection.width <= 0 || maxSelection.height <= 0) {
     return DEFAULT_CROP_COVERAGE
   }
 
-  const widthCoverage = selection.width / maxSelection.width
-  const heightCoverage = selection.height / maxSelection.height
-  return clamp(Math.min(widthCoverage, heightCoverage), MIN_CROP_COVERAGE, 1)
+  return clamp(
+    Math.min(selection.width / maxSelection.width, selection.height / maxSelection.height),
+    MIN_CROP_COVERAGE,
+    1
+  )
 }
 
 export function normalizeCropSelection(
   rawValue: unknown,
   imageWidth: number,
-  imageHeight: number,
-  aspectRatio: EnvironmentCropAspectRatio
+  imageHeight: number
 ): EnvironmentCropSelection | undefined {
   if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
     return undefined
@@ -120,31 +110,13 @@ export function normalizeCropSelection(
     return undefined
   }
 
-  const coverage = resolveCropSelectionCoverage(
-    {
-      x: item.x as number,
-      y: item.y as number,
-      width: item.width as number,
-      height: item.height as number
-    },
-    imageWidth,
-    imageHeight,
-    aspectRatio
-  )
-  const normalizedCoverage = Math.abs(coverage - LEGACY_DEFAULT_CROP_COVERAGE) <= LEGACY_DEFAULT_CROP_COVERAGE_EPSILON
-    ? DEFAULT_CROP_COVERAGE
-    : coverage
-  const centerX = clamp((item.x as number) + ((item.width as number) / 2), 0, 1)
-  const centerY = clamp((item.y as number) + ((item.height as number) / 2), 0, 1)
+  const maxSelection = resolveMaxCropSelection(imageWidth, imageHeight)
+  const width = clamp(item.width as number, MIN_CROP_WIDTH, maxSelection.width)
+  const height = clamp(item.height as number, MIN_CROP_HEIGHT, maxSelection.height)
+  const x = clamp(item.x as number, 0, 1 - width)
+  const y = clamp(item.y as number, 0, 1 - height)
 
-  return buildCropSelectionFromCoverage({
-    imageWidth,
-    imageHeight,
-    aspectRatio,
-    centerX,
-    centerY,
-    coverage: normalizedCoverage
-  })
+  return { x, y, width, height }
 }
 
 export async function loadCropImageMetrics(sourceImage: string): Promise<CropImageMetrics> {
@@ -173,27 +145,52 @@ export async function loadCropImageMetrics(sourceImage: string): Promise<CropIma
   })
 }
 
-function resolveOutputSize(aspectRatio: EnvironmentCropAspectRatio): CropImageMetrics {
-  if (aspectRatio === '9:16') {
-    return { width: 720, height: 1280 }
+export function resolveCropSelectionOutputSize(options: {
+  selection: Pick<EnvironmentCropSelection, 'width' | 'height'>
+  sourceWidth?: number
+  sourceHeight?: number
+  targetPixels?: number
+  maxDimension?: number
+  minDimension?: number
+}): CropImageMetrics {
+  const aspectRatio = resolveCropSelectionAspectRatio(
+    options.selection,
+    options.sourceWidth ?? 1,
+    options.sourceHeight ?? 1
+  )
+  const targetPixels = Math.max(1, options.targetPixels ?? DEFAULT_OUTPUT_PIXELS)
+  const maxDimension = Math.max(1, options.maxDimension ?? 1600)
+  const minDimension = Math.max(1, options.minDimension ?? 480)
+
+  let width = Math.sqrt(targetPixels * aspectRatio)
+  let height = Math.sqrt(targetPixels / aspectRatio)
+
+  const maxScale = Math.min(maxDimension / width, maxDimension / height, 1)
+  width *= maxScale
+  height *= maxScale
+
+  const shortSide = Math.min(width, height)
+  if (shortSide < minDimension) {
+    const minScale = Math.min(maxDimension / width, maxDimension / height, minDimension / shortSide)
+    width *= minScale
+    height *= minScale
   }
-  if (aspectRatio === '1:1') {
-    return { width: 1024, height: 1024 }
+
+  return {
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height))
   }
-  return { width: 1280, height: 720 }
 }
 
 export async function renderCropSelectionToDataUrl(options: {
   sourceImage: string
   selection: EnvironmentCropSelection
-  aspectRatio: EnvironmentCropAspectRatio
+  outputSize?: CropImageMetrics
 }): Promise<string> {
   const src = toCanvasSafeImageSrc(options.sourceImage)
   if (!src) {
     throw new Error('环境全景图不存在，无法生成截图')
   }
-
-  const outputSize = resolveOutputSize(options.aspectRatio)
 
   return await new Promise((resolve, reject) => {
     const image = new Image()
@@ -206,6 +203,18 @@ export async function renderCropSelectionToDataUrl(options: {
         return
       }
 
+      const normalizedSelection = normalizeCropSelection(options.selection, width, height)
+      if (!normalizedSelection) {
+        reject(new Error('截图区域无效，无法生成截图'))
+        return
+      }
+
+      const outputSize = options.outputSize || resolveCropSelectionOutputSize({
+        selection: normalizedSelection,
+        sourceWidth: width,
+        sourceHeight: height
+      })
+
       const canvas = document.createElement('canvas')
       canvas.width = outputSize.width
       canvas.height = outputSize.height
@@ -216,10 +225,10 @@ export async function renderCropSelectionToDataUrl(options: {
         return
       }
 
-      const sourceX = Math.round(width * options.selection.x)
-      const sourceY = Math.round(height * options.selection.y)
-      const sourceWidth = Math.max(1, Math.round(width * options.selection.width))
-      const sourceHeight = Math.max(1, Math.round(height * options.selection.height))
+      const sourceX = Math.floor(normalizedSelection.x * width)
+      const sourceY = Math.floor(normalizedSelection.y * height)
+      const sourceWidth = Math.max(1, Math.min(width - sourceX, Math.round(normalizedSelection.width * width)))
+      const sourceHeight = Math.max(1, Math.min(height - sourceY, Math.round(normalizedSelection.height * height)))
 
       context.drawImage(
         image,

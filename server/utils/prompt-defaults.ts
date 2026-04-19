@@ -383,11 +383,13 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 1. 只生成 1 张环境资产图，不要拼图，不要分镜排版，不要多画面组合。
 2. 这是一张纯环境全景源图：禁止出现人物、人脸、肢体、剪影、人群。
 3. 仅依据环境摘要与场景设定提取地点、建筑、地形、道具、光照、天气与空间关系，不要把人物动作、对白、旁白转成画面主体。
-4. 构图必须为“360 环绕等距柱状（equirectangular）全景展开图”语义：重点体现环绕空间关系，而非普通宽银幕构图。
+4. 构图必须为“360 环绕等距柱状（equirectangular）全景展开图”语义：重点体现环绕空间关系，而非普通宽银幕构图；若模型无法稳定输出严格等距柱状，可退化为非鱼眼的超宽全景母版图。
 5. 左右边缘应可自然衔接，避免断层；完整交代核心空间结构，并在主体空间四周预留足够环境信息，方便后续裁切不同截图区域。
-6. 同一主环境的年代感、装修档次、材质语言、灯光体系必须和相邻场景保持一致。
-7. 不要文字、水印、Logo、边框、界面元素。
-8. 如果提供了二次生成要求，只做定向微调，不改变环境主体身份。
+6. 默认使用中远景/全景观察距离，避免主体空间离镜头过近，避免夸张广角透视、贴脸前景或过大的近处遮挡，保证单个截图也能读出整体空间结构。
+7. 同一主环境的年代感、装修档次、材质语言、灯光体系必须和相邻场景保持一致。
+8. 不要文字、水印、Logo、边框、界面元素。
+9. 严禁鱼眼、桶形、枕形、夸张广角等镜头畸变；保持地平线水平、建筑竖线尽量垂直、画面边缘不拉伸。
+10. 如果提供了二次生成要求，只做定向微调，不改变环境主体身份。
 
 【二次生成补充要求】
 {{customPrompt}}`,
@@ -418,11 +420,13 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 1. Generate exactly one environment asset image, not a collage, layout sheet, or split-panel composition.
 2. This must be a pure panoramic environment source image: no humans, faces, body parts, silhouettes, or crowds.
 3. Use only the environment summary and scene setting to extract location, architecture, terrain, props, lighting, weather, and spatial structure. Do not turn character action, dialogue, or narration into visual subjects.
-4. Compose it as a 360 surround equirectangular panorama-style source frame, not a regular widescreen shot.
+4. Compose it as a 360 surround equirectangular panorama-style source frame, not a regular widescreen shot. If the model cannot keep strict equirectangular geometry, fall back to a non-fisheye ultra-wide panoramic master frame.
 5. Keep left and right edges naturally seamable, fully explain the core space, and preserve enough surrounding detail for later reframing.
-6. Keep era, renovation grade, material language, and lighting system consistent with neighboring scenes in the same root environment.
-7. No text, watermark, logo, border, or UI elements.
-8. If a regeneration note is provided, apply only targeted environment-level refinement without changing the core environment identity.
+6. Default to a medium-wide or wide observing distance. Avoid pushing the primary space too close to the camera, exaggerated ultra-wide perspective, face-level foreground blocking, or oversized near props so a single crop still communicates the full environment.
+7. Keep era, renovation grade, material language, and lighting system consistent with neighboring scenes in the same root environment.
+8. No text, watermark, logo, border, or UI elements.
+9. Avoid fisheye, barrel/pincushion, and extreme wide-angle distortion. Keep the horizon level, vertical architectural lines as straight as possible, and edges free of stretch warping.
+10. If a regeneration note is provided, apply only targeted environment-level refinement without changing the core environment identity.
 
 ## Regeneration Note
 {{customPrompt}}`

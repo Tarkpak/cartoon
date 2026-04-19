@@ -23,6 +23,7 @@ import {
 } from '~/lib/asset-workbench-environment'
 
 type ConsistencyLevel = 'lock' | 'soft'
+export type PropAssetCategory = 'prop' | 'other'
 
 export interface SceneConsistencyConfig {
   sceneId: string
@@ -35,6 +36,7 @@ export interface PropAsset {
   id: string
   name: string
   description: string
+  category: PropAssetCategory
   referenceImage?: string
   assetHistory?: AssetImageHistoryEntry[]
 }
@@ -158,10 +160,11 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
     )
 
     return {
-      version: 2,
+      version: 3,
       sceneConfigs: options.sceneConfigs.value,
       props: options.propAssets.value.map(prop => ({
         ...prop,
+        category: prop.category === 'other' ? 'other' : 'prop',
         assetHistory: normalizeAssetHistoryEntries(prop.assetHistory, prop.referenceImage)
       })),
       characterHistories: buildCharacterHistoryMap(),
@@ -236,7 +239,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         }
       }
 
-      const loadedProps = Array.isArray(meta?.props)
+      const loadedProps: PropAsset[] = Array.isArray(meta?.props)
         ? meta.props
             .filter(item => item && typeof item === 'object')
             .map((item) => {
@@ -245,6 +248,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
                 id: typeof prop.id === 'string' ? prop.id : createFallbackPropId(),
                 name: typeof prop.name === 'string' ? prop.name : '未命名道具',
                 description: typeof prop.description === 'string' ? prop.description : '',
+                category: prop.category === 'other' ? 'other' : 'prop',
                 referenceImage: typeof prop.referenceImage === 'string' ? prop.referenceImage : undefined,
                 assetHistory: normalizeAssetHistoryEntries(
                   prop.assetHistory,
