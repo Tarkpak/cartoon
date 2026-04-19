@@ -57,3 +57,24 @@ export function toImageSrc(image?: string | null): string {
   const mimeType = inferMimeTypeFromBase64(value)
   return `data:${mimeType};base64,${value}`
 }
+
+/**
+ * 用于 canvas 处理时的安全图片地址：
+ * - 跨域 http(s) 图片自动转到同源代理，避免 CORS 污染 canvas
+ * - 其余来源沿用 toImageSrc 的标准解析
+ */
+export function toCanvasSafeImageSrc(image?: string | null): string {
+  const src = toImageSrc(image)
+  if (!src) return ''
+
+  if (src.startsWith('/api/image/proxy?')) {
+    return src
+  }
+
+  if (src.startsWith('http://') || src.startsWith('https://')) {
+    // 追加 canvas 标识以隔离历史缓存键，避免旧代理响应污染裁切流程
+    return `/api/image/proxy?mode=canvas&url=${encodeURIComponent(src)}`
+  }
+
+  return src
+}

@@ -3,6 +3,7 @@ import type { Ref } from 'vue'
 import type {
   AssetImageHistoryEntry,
   AssetVideoHistoryEntry,
+  EnvironmentPanoramaState,
   FinalVideoAsset
 } from '~/lib/asset-workbench-types'
 import type {
@@ -44,6 +45,7 @@ export interface AssetWorkflowMeta {
   props: PropAsset[]
   characterHistories?: Record<string, AssetImageHistoryEntry[]>
   environmentHistories?: Record<string, AssetImageHistoryEntry[]>
+  environmentPanoramaStates?: Record<string, EnvironmentPanoramaState>
   sceneVideoHistories?: Record<string, AssetVideoHistoryEntry[]>
   finalVideo?: FinalVideoAsset | null
 }
@@ -55,6 +57,7 @@ interface UseAssetWorkflowMetaOptions {
   sceneConfigs: Ref<Record<string, SceneConsistencyConfig>>
   propAssets: Ref<PropAsset[]>
   environmentAssetHistories: Ref<Record<string, AssetImageHistoryEntry[]>>
+  environmentPanoramaStates: Ref<Record<string, EnvironmentPanoramaState>>
   finalVideo: Ref<FinalVideoAsset | null>
   resolveProjectStatus: () => 'draft' | 'in_progress' | 'completed'
   onHydrated?: () => void
@@ -142,6 +145,18 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
   }
 
   function buildWorkflowMetaPayload(): AssetWorkflowMeta {
+    const environmentPanoramaStates = Object.fromEntries(
+      Object.entries(options.environmentPanoramaStates.value)
+        .filter(([, state]) => !!state?.panoramaImage?.trim() || !!state?.crop)
+        .map(([assetId, state]) => [
+          assetId,
+          {
+            panoramaImage: state.panoramaImage?.trim() || undefined,
+            crop: state.crop
+          }
+        ])
+    )
+
     return {
       version: 2,
       sceneConfigs: options.sceneConfigs.value,
@@ -151,6 +166,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
       })),
       characterHistories: buildCharacterHistoryMap(),
       environmentHistories: buildEnvironmentHistoryMap(options.environmentAssetHistories.value),
+      environmentPanoramaStates,
       sceneVideoHistories: buildSceneVideoHistoryMap(),
       finalVideo: options.finalVideo.value
     }
@@ -188,6 +204,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         props?: unknown
         characterHistories?: Record<string, unknown>
         environmentHistories?: Record<string, unknown>
+        environmentPanoramaStates?: Record<string, unknown>
         sceneVideoHistories?: Record<string, unknown>
         finalVideo?: unknown
       } | null = null
@@ -198,6 +215,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
           props?: unknown
           characterHistories?: Record<string, unknown>
           environmentHistories?: Record<string, unknown>
+          environmentPanoramaStates?: Record<string, unknown>
           sceneVideoHistories?: Record<string, unknown>
           finalVideo?: unknown
         }
@@ -253,17 +271,50 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
       }
 
       const loadedEnvironmentHistories = buildEnvironmentHistoryMap(meta?.environmentHistories || {})
+      const loadedEnvironmentPanoramaStates: Record<string, EnvironmentPanoramaState> = {}
+      for (const [assetId, rawValue] of Object.entries(meta?.environmentPanoramaStates || {})) {
+        if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
+          continue
+        }
+
+        const item = rawValue as Partial<EnvironmentPanoramaState>
+        const panoramaImage = typeof item.panoramaImage === 'string' && item.panoramaImage.trim()
+          ? item.panoramaImage.trim()
+          : undefined
+        const crop = item.crop
+          && typeof item.crop === 'object'
+          && !Array.isArray(item.crop)
+          && [item.crop.x, item.crop.y, item.crop.width, item.crop.height].every(Number.isFinite)
+          ? {
+              x: Number(item.crop.x),
+              y: Number(item.crop.y),
+              width: Number(item.crop.width),
+              height: Number(item.crop.height)
+            }
+          : undefined
+
+        if (!panoramaImage && !crop) {
+          continue
+        }
+
+        loadedEnvironmentPanoramaStates[assetId] = {
+          panoramaImage,
+          crop
+        }
+      }
       const loadedFinalVideo = normalizeFinalVideo(meta?.finalVideo)
 
       hasMeta = Object.keys(loadedConfigs).length > 0
         || loadedProps.length > 0
         || Object.keys(loadedCharacterHistories).length > 0
         || Object.keys(loadedEnvironmentHistories).length > 0
+        || Object.keys(loadedEnvironmentPanoramaStates).length > 0
         || Object.keys(loadedSceneVideoHistories).length > 0
         || !!loadedFinalVideo
       options.sceneConfigs.value = loadedConfigs
       options.propAssets.value = loadedProps
       options.environmentAssetHistories.value = loadedEnvironmentHistories
+      options.environmentPanoramaStates.value = loadedEnvironmentPanoramaStates
       options.finalVideo.value = loadedFinalVideo
 
       if (!meta) {
@@ -282,6 +333,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
           )
         }
         options.environmentAssetHistories.value = buildEnvironmentHistoryMap()
+        options.environmentPanoramaStates.value = {}
       }
     } catch (error) {
       console.error('[useAssetWorkflowMeta] 读取工作流元数据失败:', error)

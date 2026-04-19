@@ -15,7 +15,11 @@ import {
   invalidateSceneGenerationState,
   invalidateSceneVideoState
 } from '~/lib/asset-workbench-scenes'
-import type { QueueItem } from '~/lib/asset-workbench-types'
+import type {
+  QueueItem,
+  EnvironmentCropSelection,
+  EnvironmentPanoramaState
+} from '~/lib/asset-workbench-types'
 import { uniqueSorted } from '~/lib/asset-workbench-strings'
 import {
   findReusableEnvironmentImage,
@@ -69,6 +73,20 @@ interface UseAssetWorkbenchSceneGenerationOptions {
       prompt?: string
     }
   ) => void
+  resolveEnvironmentPanoramaState?: (assetId: string) => EnvironmentPanoramaState | undefined
+  setEnvironmentPanoramaState?: (
+    assetId: string,
+    state: EnvironmentPanoramaState | undefined
+  ) => void
+  createEnvironmentCropImage?: (options: {
+    assetId: string
+    sourceImage: string
+    crop?: EnvironmentCropSelection
+  }) => Promise<{
+    imageUrl: string
+    crop: EnvironmentCropSelection
+  }>
+  resolveSceneBaselineReferenceImage?: (scene: SceneData) => string | undefined
   recordSceneVideoHistory?: (
     sceneId: string,
     videoUrl: string,
@@ -196,7 +214,7 @@ export function useAssetWorkbenchSceneGeneration(
       aspectRatio: options.projectAspectRatio.value,
       customPrompt,
       referenceImage: customPrompt
-        ? (resolveSceneReferenceImage(scene) || scene.firstFrame || '')
+        ? (options.resolveSceneBaselineReferenceImage?.(scene) || resolveSceneReferenceImage(scene) || scene.firstFrame || '')
         : ''
     })
   }
@@ -237,8 +255,15 @@ export function useAssetWorkbenchSceneGeneration(
       const reusableImage = findReusableEnvironmentImage(scene, options.scenes.value)
       if (reusableImage) {
         applySceneBaselineReference(scene, reusableImage)
+        const environmentAssetId = resolveSceneEnvironmentAssetId(scene)
+        const existingState = options.resolveEnvironmentPanoramaState?.(environmentAssetId)
+        if (!existingState?.panoramaImage) {
+          options.setEnvironmentPanoramaState?.(environmentAssetId, {
+            panoramaImage: reusableImage
+          })
+        }
         options.recordEnvironmentHistory?.(
-          resolveSceneEnvironmentAssetId(scene),
+          environmentAssetId,
           reusableImage,
           { source: 'legacy' }
         )
@@ -255,7 +280,7 @@ export function useAssetWorkbenchSceneGeneration(
     scene.referenceError = undefined
 
     try {
-      const referenceImage = await requestSceneBaselineGeneration({
+      const panoramaImage = await requestSceneBaselineGeneration({
         scene,
         scenes: options.scenes.value,
         scenePayload: buildAssetWorkflowScenePayload(scene),
@@ -263,7 +288,7 @@ export function useAssetWorkbenchSceneGeneration(
         aspectRatio: options.projectAspectRatio.value,
         customPrompt,
         referenceImage: customPrompt
-          ? (resolveSceneReferenceImage(scene) || scene.firstFrame)
+          ? (options.resolveSceneBaselineReferenceImage?.(scene) || resolveSceneReferenceImage(scene) || scene.firstFrame)
           : undefined
       })
 
@@ -278,9 +303,28 @@ export function useAssetWorkbenchSceneGeneration(
         return
       }
 
+      const environmentAssetId = resolveSceneEnvironmentAssetId(scene)
+      const existingPanoramaState = options.resolveEnvironmentPanoramaState?.(environmentAssetId)
+      let referenceImage = panoramaImage
+      let crop = existingPanoramaState?.crop
+
+      if (options.createEnvironmentCropImage) {
+        const croppedResult = await options.createEnvironmentCropImage({
+          assetId: environmentAssetId,
+          sourceImage: panoramaImage,
+          crop
+        })
+        referenceImage = croppedResult.imageUrl
+        crop = croppedResult.crop
+      }
+
       applySceneBaselineReference(scene, referenceImage)
+      options.setEnvironmentPanoramaState?.(environmentAssetId, {
+        panoramaImage,
+        crop
+      })
       options.recordEnvironmentHistory?.(
-        resolveSceneEnvironmentAssetId(scene),
+        environmentAssetId,
         referenceImage,
         {
           source: 'generated',

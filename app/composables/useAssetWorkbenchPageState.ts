@@ -28,6 +28,7 @@ import {
 import type {
   AssetImageHistoryEntry,
   DisplayAsset,
+  EnvironmentPanoramaState,
   QueueItem,
   SceneDescriptionMentionItem,
   SceneDescriptionRenderSegment
@@ -38,6 +39,7 @@ interface UseAssetWorkbenchPageStateOptions {
   characters: Ref<CharacterData[]>
   propAssets: Ref<PropAsset[]>
   environmentAssetHistories: Ref<Record<string, AssetImageHistoryEntry[]>>
+  environmentPanoramaStates: Ref<Record<string, EnvironmentPanoramaState>>
   sceneConfigs: Ref<Record<string, SceneConsistencyConfig>>
   selectedSceneId: Ref<string>
   selectedStyleId: Ref<string>
@@ -76,6 +78,7 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
     return buildEnvironmentAssetCards({
       scenes: options.scenes.value,
       environmentAssetHistories: options.environmentAssetHistories.value,
+      environmentPanoramaStates: options.environmentPanoramaStates.value,
       resolveSceneDescriptionWithoutAssetMentions: options.resolveSceneDescriptionWithoutAssetMentions
     })
   })

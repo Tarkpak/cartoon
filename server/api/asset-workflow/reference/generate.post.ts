@@ -94,6 +94,9 @@ const ENVIRONMENT_ONLY_NEGATIVE_PROMPT = [
   'text'
 ].join(', ')
 
+const PANORAMA_SOURCE_IMAGE_SIZE = '2880*720'
+const PANORAMA_SOURCE_ASPECT_RATIO = '4:1'
+
 const LOCATION_SUBSPACE_SUFFIXES = [
   '走廊',
   '长廊',
@@ -395,16 +398,8 @@ function buildEnvironmentSummary(scene: z.infer<typeof SceneSchema>): string {
   return summaryLines.join('\n') || '仅保留该场景的核心环境、空间结构、光照与天气信息。'
 }
 
-function resolveImageSizeByAspectRatio(aspectRatio: z.infer<typeof AspectRatioSchema>): string {
-  switch (aspectRatio) {
-    case '9:16':
-      return '720*1280'
-    case '1:1':
-      return '960*960'
-    case '16:9':
-    default:
-      return '1280*720'
-  }
+function resolvePanoramaSourceImageSize(): string {
+  return PANORAMA_SOURCE_IMAGE_SIZE
 }
 
 async function resolveGeneratedImage(result: GenerateImageResult): Promise<{ imageData: string, mimeType: string }> {
@@ -623,6 +618,9 @@ async function buildSceneReferencePrompt(
   const normalizedCustomPrompt = customPrompt?.trim() || ''
   const environmentSummary = buildEnvironmentSummary(scene)
   const environmentSceneTitle = scene.setting?.location?.trim() || scene.title || '未命名场景'
+  const panoramaAspectText = aspectRatio === '16:9'
+    ? `先生成 AR ${PANORAMA_SOURCE_ASPECT_RATIO}（${PANORAMA_SOURCE_IMAGE_SIZE}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），后续仍以 16:9 作为截图使用`
+    : `先生成 AR ${PANORAMA_SOURCE_ASPECT_RATIO}（${PANORAMA_SOURCE_IMAGE_SIZE}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），后续裁切为 ${aspectRatio}`
   const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
   const settingText = scene.setting
     ? [scene.setting.location, timeOfDay, scene.setting.mood, scene.setting.weather]
@@ -641,7 +639,7 @@ async function buildSceneReferencePrompt(
       sceneDescription: environmentSummary,
       setting: settingText,
       style,
-      aspectRatio,
+      aspectRatio: panoramaAspectText,
       environmentConsistency: environmentConsistencyText,
       cameraNote: cameraNoteText,
       narration: '无',
@@ -732,8 +730,9 @@ export default defineEventHandler(async (event) => {
         modelId,
         prompt,
         imageSize: geminiImageSize,
+        aspectRatio: PANORAMA_SOURCE_ASPECT_RATIO,
         negativePrompt: ENVIRONMENT_ONLY_NEGATIVE_PROMPT,
-        size: resolveImageSizeByAspectRatio(aspectRatio),
+        size: resolvePanoramaSourceImageSize(),
         ...referenceOptions,
         maxRetries: 2
       })

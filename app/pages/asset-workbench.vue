@@ -7,6 +7,8 @@ import type {
   AssetImageHistoryEntry,
   AssetVideoHistoryEntry,
   CharacterRoleOption,
+  EnvironmentCropSelection,
+  EnvironmentPanoramaState,
   QueueItem
 } from '~/lib/asset-workbench-types'
 import { createPropAssetId } from '~/lib/asset-workbench-types'
@@ -22,6 +24,12 @@ import {
   normalizeToken,
   uniqueSorted
 } from '~/lib/asset-workbench-strings'
+import {
+  buildDefaultCropSelection,
+  loadCropImageMetrics,
+  normalizeCropSelection,
+  renderCropSelectionToDataUrl
+} from '~/lib/asset-workbench-environment-panorama'
 import {
   applyAutomaticAssetPlan as buildAutomaticAssetPlan
 } from '~/lib/asset-workbench-auto-plan'
@@ -42,6 +50,7 @@ import {
   resolveSceneDescriptionWithoutAssetMentions
 } from '~/lib/asset-workbench-mentions'
 import { applySceneBaselineReference } from '~/lib/asset-workbench-scene-generation'
+import { uploadAssetImage } from '~/lib/asset-workbench-upload'
 
 // 资产一致性工作流页面
 definePageMeta({
@@ -90,6 +99,7 @@ const selectedSceneId = ref<string>('')
 const sceneConfigs = ref<Record<string, SceneConsistencyConfig>>({})
 const propAssets = ref<PropAsset[]>([])
 const environmentAssetHistories = ref<Record<string, AssetImageHistoryEntry[]>>({})
+const environmentPanoramaStates = ref<Record<string, EnvironmentPanoramaState>>({})
 
 const batchRunning = ref(false)
 const queueItems = ref<QueueItem[]>([])
@@ -136,6 +146,7 @@ const {
   characters,
   propAssets,
   environmentAssetHistories,
+  environmentPanoramaStates,
   sceneConfigs,
   selectedSceneId,
   selectedStyleId,
@@ -159,6 +170,7 @@ const {
   sceneConfigs,
   propAssets,
   environmentAssetHistories,
+  environmentPanoramaStates,
   finalVideo,
   resolveProjectStatus,
   onHydrated: () => {
@@ -227,7 +239,7 @@ function recordEnvironmentHistory(
   assetId: string,
   image: string,
   options: {
-    source?: 'generated' | 'uploaded' | 'legacy'
+    source?: 'generated' | 'uploaded' | 'cropped' | 'legacy'
     prompt?: string
   } = {}
 ) {
@@ -239,6 +251,99 @@ function recordEnvironmentHistory(
       createdAt: new Date().toISOString()
     })
   }
+}
+
+function resolveEnvironmentPanoramaState(assetId: string): EnvironmentPanoramaState | undefined {
+  return environmentPanoramaStates.value[assetId]
+}
+
+function setEnvironmentPanoramaState(
+  assetId: string,
+  state: EnvironmentPanoramaState | undefined
+) {
+  const hasPayload = !!state?.panoramaImage?.trim() || !!state?.crop
+  const nextStates = { ...environmentPanoramaStates.value }
+
+  if (!hasPayload) {
+    if (!(assetId in nextStates)) return
+    const { [assetId]: _removed, ...remainingStates } = nextStates
+    environmentPanoramaStates.value = remainingStates
+    return
+  }
+
+  nextStates[assetId] = {
+    panoramaImage: state?.panoramaImage?.trim() || undefined,
+    crop: state?.crop
+  }
+  environmentPanoramaStates.value = nextStates
+}
+
+function buildEnvironmentCropUploadPrefix(assetId: string): string {
+  const normalized = assetId
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(-48)
+  return `env_crop_${normalized || 'asset'}`
+}
+
+function resolveSceneBaselineReferenceImage(scene: SceneData): string | undefined {
+  const assetId = resolveSceneEnvironmentAssetId(scene)
+  return resolveEnvironmentPanoramaState(assetId)?.panoramaImage?.trim()
+    || resolveSceneReferenceImage(scene)
+    || scene.firstFrame
+}
+
+async function createEnvironmentCropImage(options: {
+  assetId: string
+  sourceImage: string
+  crop?: EnvironmentCropSelection
+}) {
+  const metrics = await loadCropImageMetrics(options.sourceImage)
+  const crop = normalizeCropSelection(
+    options.crop,
+    metrics.width,
+    metrics.height,
+    projectAspectRatio.value
+  ) || buildDefaultCropSelection({
+    imageWidth: metrics.width,
+    imageHeight: metrics.height,
+    aspectRatio: projectAspectRatio.value
+  })
+
+  const imageData = await renderCropSelectionToDataUrl({
+    sourceImage: options.sourceImage,
+    selection: crop,
+    aspectRatio: projectAspectRatio.value
+  })
+  const imageUrl = await uploadAssetImage(imageData, buildEnvironmentCropUploadPrefix(options.assetId))
+
+  return {
+    imageUrl,
+    crop
+  }
+}
+
+async function applyEnvironmentReferenceImage(
+  assetId: string,
+  imageUrl: string,
+  panoramaState?: EnvironmentPanoramaState
+) {
+  const environmentAsset = resolveEnvironmentCard(assetId)
+  if (!environmentAsset) return
+
+  for (const sceneId of environmentAsset.sceneIds) {
+    const scene = scenes.value.find(item => item.id === sceneId)
+    if (!scene) continue
+
+    applySceneBaselineReference(scene, imageUrl)
+  }
+
+  if (panoramaState !== undefined) {
+    setEnvironmentPanoramaState(assetId, panoramaState)
+  }
+
+  synchronizeQueueItems()
+  await saveProject()
 }
 
 function recordPropHistory(
@@ -444,6 +549,10 @@ const {
   batchGenerateCharacters,
   persistAutomaticAssetPlan,
   recordEnvironmentHistory,
+  resolveEnvironmentPanoramaState,
+  setEnvironmentPanoramaState,
+  createEnvironmentCropImage,
+  resolveSceneBaselineReferenceImage,
   recordSceneVideoHistory
 })
 
@@ -694,8 +803,86 @@ const {
   resolveSceneReferenceImage,
   resolveEnvironmentCard,
   resolveEnvironmentRepresentativeScene,
+  setEnvironmentPanoramaState,
   generateSceneBaseline
 })
+
+const environmentCropDialogOpen = ref(false)
+const environmentCropTargetId = ref<string | null>(null)
+const environmentCropSaving = ref(false)
+const environmentCropError = ref<string | null>(null)
+
+watch(environmentCropDialogOpen, (open) => {
+  if (open) return
+  environmentCropTargetId.value = null
+  environmentCropError.value = null
+})
+
+const environmentCropTarget = computed(() => {
+  if (!environmentCropTargetId.value) return null
+  return resolveEnvironmentCard(environmentCropTargetId.value) || null
+})
+
+const environmentCropSourceImage = computed(() => {
+  return environmentCropTarget.value?.panoramaImage?.trim()
+    || environmentCropTarget.value?.referenceImage?.trim()
+    || ''
+})
+
+const environmentCropInitialSelection = computed(() => {
+  if (!environmentCropTarget.value) return undefined
+  return resolveEnvironmentPanoramaState(environmentCropTarget.value.id)?.crop
+    || environmentCropTarget.value.crop
+})
+
+function openEnvironmentCropDialog(assetId: string) {
+  const asset = resolveEnvironmentCard(assetId)
+  if (!asset?.panoramaImage?.trim() && !asset?.referenceImage?.trim()) {
+    alert('请先生成或上传环境图，再选取截图区域')
+    return
+  }
+
+  environmentCropTargetId.value = assetId
+  environmentCropError.value = null
+  environmentCropDialogOpen.value = true
+}
+
+function setEnvironmentCropDialogOpen(open: boolean) {
+  environmentCropDialogOpen.value = open
+  if (!open) {
+    environmentCropTargetId.value = null
+    environmentCropError.value = null
+  }
+}
+
+async function submitEnvironmentCropSelection(selection: EnvironmentCropSelection) {
+  const target = environmentCropTarget.value
+  const sourceImage = environmentCropSourceImage.value
+  if (!target || !sourceImage) return
+
+  environmentCropSaving.value = true
+  environmentCropError.value = null
+
+  try {
+    const result = await createEnvironmentCropImage({
+      assetId: target.id,
+      sourceImage,
+      crop: selection
+    })
+
+    await applyEnvironmentReferenceImage(target.id, result.imageUrl, {
+      panoramaImage: target.panoramaImage?.trim() || sourceImage,
+      crop: result.crop
+    })
+    recordEnvironmentHistory(target.id, result.imageUrl, { source: 'cropped' })
+    await saveWorkflowMeta()
+    setEnvironmentCropDialogOpen(false)
+  } catch (error) {
+    environmentCropError.value = resolveUiError(error, '环境截图区域保存失败')
+  } finally {
+    environmentCropSaving.value = false
+  }
+}
 
 type AssetHistoryTarget
   = | { type: 'character', id: string }
@@ -839,15 +1026,10 @@ async function handleAssetHistorySelect(entry: AssetImageHistoryEntry) {
         return
       }
 
-      for (const sceneId of environmentAsset.sceneIds) {
-        const scene = scenes.value.find(item => item.id === sceneId)
-        if (!scene) continue
-
-        applySceneBaselineReference(scene, nextImage)
-      }
-
-      synchronizeQueueItems()
-      await saveProject()
+      await applyEnvironmentReferenceImage(target.id, nextImage, {
+        panoramaImage: nextImage
+      })
+      await saveWorkflowMeta()
       setAssetHistoryDialogOpen(false)
       return
     }
@@ -1137,6 +1319,15 @@ watch(
 )
 
 watch(
+  environmentPanoramaStates,
+  () => {
+    if (!workflowMetaReady.value || hydratingWorkflowMeta.value) return
+    scheduleWorkflowMetaSave()
+  },
+  { deep: true }
+)
+
+watch(
   finalVideo,
   () => {
     if (!workflowMetaReady.value || hydratingWorkflowMeta.value) return
@@ -1253,6 +1444,7 @@ async function handleBatchGenerateCharacters() {
         @update-character-voice-lock="handleCharacterVoiceLockChange($event.characterId, $event.locked)"
         @edit-environment-scene="openEnvironmentAssetSceneEditor"
         @upload-environment-image="handleEnvironmentImageUpload($event.assetId, $event.event)"
+        @open-environment-crop="openEnvironmentCropDialog"
         @open-environment-regenerate="openEnvironmentRegenerateDialog"
         @open-environment-history="openEnvironmentHistory"
         @regenerate-environment="regenerateEnvironmentAsset"
@@ -1347,6 +1539,15 @@ async function handleBatchGenerateCharacters() {
       :set-environment-regenerate-dialog-open="setEnvironmentRegenerateDialogOpen"
       :set-environment-regenerate-prompt="setEnvironmentRegeneratePrompt"
       :submit-environment-regeneration="submitEnvironmentRegeneration"
+      :environment-crop-dialog-open="environmentCropDialogOpen"
+      :environment-crop-error="environmentCropError"
+      :environment-crop-target="environmentCropTarget"
+      :environment-crop-source-image="environmentCropSourceImage"
+      :environment-crop-initial-selection="environmentCropInitialSelection"
+      :environment-crop-saving="environmentCropSaving"
+      :project-aspect-ratio="projectAspectRatio"
+      :set-environment-crop-dialog-open="setEnvironmentCropDialogOpen"
+      :submit-environment-crop-selection="submitEnvironmentCropSelection"
       :scene-edit-dialog-open="sceneEditDialogOpen"
       :set-scene-edit-dialog-open="setSceneEditDialogState"
       :editing-scene="editingScene"
