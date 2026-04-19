@@ -5,7 +5,7 @@ import {
 } from '~/lib/asset-history'
 import {
   resolveSceneEnvironmentAssetId,
-  resolveSceneEnvironmentLabel,
+  resolveSceneEnvironmentAssetLabel,
   resolveSceneReferenceImage
 } from '~/lib/asset-workbench-environment-core'
 
@@ -43,7 +43,7 @@ export function buildEnvironmentAssetCards(options: {
     if (!existing) {
       map.set(assetId, {
         id: assetId,
-        name: resolveSceneEnvironmentLabel(scene),
+        name: resolveSceneEnvironmentAssetLabel(scene),
         description: scene.setting?.mood?.trim()
           || options.resolveSceneDescriptionWithoutAssetMentions(scene.description)?.trim()
           || undefined,
