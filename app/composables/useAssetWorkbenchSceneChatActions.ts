@@ -47,6 +47,10 @@ interface UseAssetWorkbenchSceneChatActionsOptions {
   closeSceneChat: () => void
   closeSceneChatMention: () => void
   handleSceneChatComposerInput: () => void
+  onModelTaskCompleted?: (payload: {
+    title: string
+    body?: string
+  }) => Promise<unknown> | unknown
 }
 
 export function useAssetWorkbenchSceneChatActions(
@@ -213,6 +217,10 @@ export function useAssetWorkbenchSceneChatActions(
         '已使用配置文本模型更新该场景描述，并同步了资产引用（未自动重生成环境图）。',
         submitPayload.relatedAssetIds
       )
+      await options.onModelTaskCompleted?.({
+        title: '场景描述改写完成',
+        body: `场景：${scene.title}`
+      })
     } catch (error) {
       const message = options.resolveUiError(error, '场景二次修改失败')
       options.sceneChatError.value = message

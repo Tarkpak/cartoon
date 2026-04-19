@@ -6,7 +6,8 @@ import { z } from 'zod'
 import {
   WorkflowStepSchema,
   WorkflowImageGenerationModelOptionsSchema,
-  WorkflowVideoGenerationModelOptionsSchema
+  WorkflowVideoGenerationModelOptionsSchema,
+  WorkflowCompletionNotificationOptionsSchema
 } from '#shared/types/workflow-models'
 import {
   setWorkflowModel,
@@ -14,7 +15,8 @@ import {
   getWorkflowModels,
   getWorkflowModelOptions,
   setWorkflowImageGenerationModelOptions,
-  setWorkflowVideoGenerationModelOptions
+  setWorkflowVideoGenerationModelOptions,
+  setWorkflowCompletionNotificationOptions
 } from './workflow.get'
 
 // 单个更新
@@ -38,6 +40,12 @@ const VideoOptionsUpdateSchema = z.object({
 const ImageOptionsUpdateSchema = z.object({
   step: z.literal('image_options'),
   modelOptions: WorkflowImageGenerationModelOptionsSchema
+})
+
+// 生成完成提醒配置更新
+const CompletionNotificationOptionsUpdateSchema = z.object({
+  step: z.literal('completion_notification'),
+  modelOptions: WorkflowCompletionNotificationOptionsSchema
 })
 
 export default defineEventHandler(async (event) => {
@@ -67,6 +75,21 @@ export default defineEventHandler(async (event) => {
       success: true,
       data: {
         step: 'image_options',
+        modelOptions: await getWorkflowModelOptions(),
+        currentSelections: await getWorkflowModels()
+      }
+    }
+  }
+
+  // 尝试生成完成提醒配置更新
+  const completionNotificationOptionsParsed = CompletionNotificationOptionsUpdateSchema.safeParse(body)
+  if (completionNotificationOptionsParsed.success) {
+    await setWorkflowCompletionNotificationOptions(completionNotificationOptionsParsed.data.modelOptions)
+
+    return {
+      success: true,
+      data: {
+        step: 'completion_notification',
         modelOptions: await getWorkflowModelOptions(),
         currentSelections: await getWorkflowModels()
       }
@@ -107,6 +130,6 @@ export default defineEventHandler(async (event) => {
 
   throw createError({
     statusCode: 400,
-    message: '参数错误: 需要 {step, modelId}、{models: {...}}、{step:"image_options", modelOptions:{...}} 或 {step:"video_generation", modelOptions:{...}}'
+    message: '参数错误: 需要 {step, modelId}、{models: {...}}、{step:"image_options", modelOptions:{...}}、{step:"video_generation", modelOptions:{...}} 或 {step:"completion_notification", modelOptions:{...}}'
   })
 })

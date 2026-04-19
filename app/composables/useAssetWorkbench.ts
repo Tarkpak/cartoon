@@ -14,8 +14,13 @@ export type {
 export function useAssetWorkbench() {
   const route = useRoute()
   const router = useRouter()
+  const { notifyGenerationCompleted, loadCompletionNotificationOptions } = useGenerationCompletionNotification()
   const { resolveStyleById, loadStylePresets } = useStylePresets()
   void loadStylePresets()
+
+  onMounted(() => {
+    void loadCompletionNotificationOptions()
+  })
 
   const projectId = computed(() => {
     const value = route.query.project
@@ -93,7 +98,8 @@ export function useAssetWorkbench() {
     parsing,
     parsedTimelineText,
     currentStylePrompt,
-    saveProject
+    saveProject,
+    onModelTaskCompleted: notifyGenerationCompleted
   })
 
   return {
