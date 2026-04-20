@@ -68,14 +68,15 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
         <div
           v-for="entry in entries"
           :key="entry.id"
-          class="overflow-hidden rounded-lg border bg-card"
+          class="flex flex-col overflow-hidden rounded-lg border bg-card"
         >
-          <div class="aspect-video overflow-hidden bg-black">
+          <div class="h-44 overflow-hidden bg-black md:h-48">
             <video
               :src="entry.videoUrl"
-              class="h-full w-full object-cover"
+              class="h-full w-full object-contain"
               controls
               preload="metadata"
+              playsinline
             />
           </div>
 
