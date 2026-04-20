@@ -98,7 +98,7 @@ function findNextAssetMentionMatch(
   }
 }
 
-function resolveSceneDescriptionCharacterMentionAssets(options: {
+function resolveSceneDescriptionInlineMentionAssets(options: {
   scene: SceneData
   assets: DisplayAsset[]
   configAssetIds?: string[]
@@ -108,7 +108,7 @@ function resolveSceneDescriptionCharacterMentionAssets(options: {
     .map(item => item.asset)
     .filter((asset): asset is DisplayAsset => {
       return !!asset
-        && asset.type === 'character'
+        && asset.type !== 'environment'
         && !!asset.name?.trim()
     })
 
@@ -137,19 +137,22 @@ export function resolveSceneDescriptionRenderSegments(options: {
   uniqueSorted: (values: string[]) => string[]
 }): SceneDescriptionRenderSegment[] {
   const mentionAssetMap = resolveAssetByMentionTokenMap(options.assets)
-  const characterAssets = resolveSceneDescriptionCharacterMentionAssets(options)
+  const inlineMentionAssets = resolveSceneDescriptionInlineMentionAssets(options)
     .slice()
     .sort((left, right) => right.name.length - left.name.length)
+  const characterNames = inlineMentionAssets
+    .filter(asset => asset.type === 'character')
+    .map(asset => asset.name)
 
   const description = stripRedundantBracketedCharacterTags(
     normalizeSceneDescriptionForDisplay(
       resolveSceneDescriptionWithoutAssetMentions(options.scene.description || '')
     ),
-    characterAssets.map(asset => asset.name)
+    characterNames
   )
   if (!description) return []
 
-  if (characterAssets.length === 0 && mentionAssetMap.size === 0) {
+  if (inlineMentionAssets.length === 0 && mentionAssetMap.size === 0) {
     return [{ type: 'text', text: description }]
   }
 
@@ -162,7 +165,7 @@ export function resolveSceneDescriptionRenderSegments(options: {
     let nextAsset: DisplayAsset | undefined = nextMentionMatch.asset
     let nextMatchLength = nextMentionMatch.token.length
 
-    for (const asset of characterAssets) {
+    for (const asset of inlineMentionAssets) {
       const name = asset.name.trim()
       if (!name) continue
 

@@ -77,4 +77,50 @@ describe('scene description render segments', () => {
       text: '。'
     })
   })
+
+  it('renders referenced prop names as inline asset segments after save normalization', () => {
+    const scene = createScene({
+      id: 'scene_2',
+      title: '病房取证',
+      description: '阿强拿起线索照片。\n\n[引用资产]\n@阿强\n@线索照片'
+    })
+    const assets: DisplayAsset[] = [
+      {
+        id: 'char:char_1',
+        name: '阿强',
+        type: 'character',
+        referenceImage: 'char.png'
+      },
+      {
+        id: 'prop:prop_1',
+        name: '线索照片',
+        type: 'other',
+        referenceImage: 'prop.png'
+      }
+    ]
+
+    const segments = resolveSceneDescriptionRenderSegments({
+      scene,
+      assets,
+      uniqueSorted: values => Array.from(new Set(values))
+    })
+
+    expect(segments).toHaveLength(4)
+    expect(segments[0]).toMatchObject({
+      type: 'asset',
+      asset: { id: 'char:char_1' }
+    })
+    expect(segments[1]).toMatchObject({
+      type: 'text',
+      text: '拿起'
+    })
+    expect(segments[2]).toMatchObject({
+      type: 'asset',
+      asset: { id: 'prop:prop_1' }
+    })
+    expect(segments[3]).toMatchObject({
+      type: 'text',
+      text: '。'
+    })
+  })
 })

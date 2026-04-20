@@ -43,7 +43,7 @@ defineProps<{
   resolveDisplayAssetTypeLabel: (type: DisplayAsset['type']) => string
   handleSceneSave: (scene: Partial<SceneData> & { id: string }) => void
   handleSceneAssetReferencesSave: (payload: { sceneId: string, assetIds: string[] }) => void | Promise<void>
-  uploadSceneEditOtherAssets: (options: { sceneId: string, files: File[], names?: string[] }) => Promise<string[]>
+  uploadSceneEditOtherAssets: (options: { sceneId: string, files: File[], names?: string[] }) => Promise<AssetReferenceOption[]>
   assetHistoryDialogOpen: boolean
   setAssetHistoryDialogOpen: (open: boolean) => void
   assetHistoryDialogTitle: string

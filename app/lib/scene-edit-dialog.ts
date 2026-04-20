@@ -68,6 +68,44 @@ function sortAssetReferenceOptions(left: AssetReferenceOption, right: AssetRefer
   return left.name.localeCompare(right.name)
 }
 
+export function mergeSceneEditAssetReferenceOptions(
+  uploadedAssetReferenceOptions: AssetReferenceOption[],
+  assetReferenceOptions: AssetReferenceOption[]
+): AssetReferenceOption[] {
+  const merged = new Map<string, AssetReferenceOption>()
+
+  for (const asset of uploadedAssetReferenceOptions) {
+    if (!asset?.id) continue
+    merged.set(asset.id, asset)
+  }
+
+  for (const asset of assetReferenceOptions) {
+    if (!asset?.id) continue
+    merged.set(asset.id, asset)
+  }
+
+  return Array.from(merged.values()).sort(sortAssetReferenceOptions)
+}
+
+export function resolveUploadedSceneAssetMentionTokens(options: {
+  createdAssets: AssetReferenceOption[]
+  assetReferenceOptions: AssetReferenceOption[]
+}): string[] {
+  const candidates = buildSceneAssetMentionCandidates(
+    mergeSceneEditAssetReferenceOptions(
+      options.createdAssets,
+      options.assetReferenceOptions
+    )
+  )
+  const tokenById = new Map(
+    candidates.map(candidate => [candidate.asset.id, candidate.token] as const)
+  )
+
+  return options.createdAssets
+    .map(asset => tokenById.get(asset.id) || '')
+    .filter(Boolean)
+}
+
 export function resolveSceneAssetReferenceCollections(options: {
   assetReferenceOptions: AssetReferenceOption[]
   selectedAssetReferenceIds: string[]
@@ -188,6 +226,38 @@ export function resolveSceneInlineCharacterMentionCandidates(
   })
 }
 
+export function resolveSceneInlineAssetMentionCandidates(options: {
+  candidates: AssetMentionCandidate[]
+  selectedAssetReferenceIds: string[]
+}): AssetMentionCandidate[] {
+  const selectedAssetIdSet = new Set(options.selectedAssetReferenceIds.filter(Boolean))
+  if (selectedAssetIdSet.size === 0) return []
+
+  const uniqueByName = new Map<string, AssetMentionCandidate>()
+  const duplicatedNames = new Set<string>()
+
+  for (const candidate of options.candidates) {
+    if (!selectedAssetIdSet.has(candidate.asset.id)) continue
+
+    const name = candidate.asset.name.trim()
+    if (!name) continue
+
+    if (uniqueByName.has(name)) {
+      duplicatedNames.add(name)
+      continue
+    }
+    uniqueByName.set(name, candidate)
+  }
+
+  for (const duplicatedName of duplicatedNames) {
+    uniqueByName.delete(duplicatedName)
+  }
+
+  return Array.from(uniqueByName.values()).sort((left, right) => {
+    return right.asset.name.length - left.asset.name.length
+  })
+}
+
 export function buildSceneDescriptionMentionMatcher(
   candidates: AssetMentionCandidate[]
 ): RegExp | null {
@@ -260,6 +330,24 @@ export function normalizeSceneDescriptionCharacterMentions(
   return `${normalized}${mentionBlock}`
 }
 
+export function restoreSceneDescriptionMentionsForEdit(options: {
+  text: string
+  candidates: AssetMentionCandidate[]
+  selectedAssetReferenceIds: string[]
+}): string {
+  if (!options.text) return options.text
+
+  const inlineCandidates = resolveSceneInlineAssetMentionCandidates({
+    candidates: options.candidates,
+    selectedAssetReferenceIds: options.selectedAssetReferenceIds
+  })
+
+  return normalizeSceneDescriptionCharacterMentions(
+    options.text,
+    inlineCandidates
+  )
+}
+
 export function extractMentionedAssetIdsFromDescription(
   text: string,
   candidateTokenMap: Map<string, AssetMentionCandidate>
@@ -310,9 +398,10 @@ export function normalizeSceneDescriptionMentionsForSave(options: {
     options.candidates.map(candidate => [candidate.asset.id, candidate.token] as const)
   )
 
+  const mentionedAssetIds = extractMentionedAssetIdsFromDescription(options.text, candidateTokenMap)
   const assetIds = uniqueValues([
-    ...options.selectedAssetReferenceIds,
-    ...extractMentionedAssetIdsFromDescription(options.text, candidateTokenMap)
+    ...mentionedAssetIds,
+    ...options.selectedAssetReferenceIds
   ])
   const mentionTokens = assetIds
     .map(assetId => candidateIdTokenMap.get(assetId) || '')

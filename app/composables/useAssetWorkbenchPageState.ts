@@ -1,3 +1,4 @@
+import { computed } from 'vue'
 import type { Ref } from 'vue'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
@@ -8,7 +9,8 @@ import {
   resolveEnvironmentCard as findEnvironmentCard,
   resolveEnvironmentRepresentativeScene as findEnvironmentRepresentativeScene,
   resolveEnvironmentSceneSummary,
-  resolveSceneReferenceImage
+  resolveSceneEnvironmentAssetId,
+  resolveSceneReferenceImage as resolveSceneDirectReferenceImage
 } from '~/lib/asset-workbench-environment'
 import {
   resolveAssetByMentionTokenMap as createAssetByMentionTokenMap,
@@ -178,6 +180,12 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
 
   function resolveDisplayAssetById(assetId: string): DisplayAsset | undefined {
     return allAssets.value.find(asset => asset.id === assetId)
+  }
+
+  function resolveSceneReferenceImage(scene: SceneData): string | undefined {
+    const environmentAssetId = resolveSceneEnvironmentAssetId(scene)
+    return findEnvironmentCard(environmentAssetId, environmentAssetCards.value)?.referenceImage
+      || resolveSceneDirectReferenceImage(scene)
   }
 
   function synchronizeQueueItems() {
