@@ -4,6 +4,7 @@ import type {
   SceneDescriptionRenderSegment
 } from '~/lib/asset-workbench-types'
 import {
+  resolveAssetByMentionTokenMap,
   resolveSceneDescriptionMentionItems,
   resolveSceneDescriptionWithoutAssetMentions
 } from '~/lib/asset-workbench-mention-tokens'
@@ -66,6 +67,37 @@ function findNextCharacterMentionIndex(text: string, name: string, start: number
   return -1
 }
 
+function findNextAssetMentionMatch(
+  text: string,
+  mentionAssetMap: Map<string, DisplayAsset>,
+  start: number
+): { index: number, token: string, asset?: DisplayAsset } {
+  let nextIndex = -1
+  let nextToken = ''
+  let nextAsset: DisplayAsset | undefined
+
+  for (const [token, asset] of mentionAssetMap) {
+    const index = text.indexOf(token, start)
+    if (index < 0) continue
+
+    if (
+      nextIndex < 0
+      || index < nextIndex
+      || (index === nextIndex && nextToken.length < token.length)
+    ) {
+      nextIndex = index
+      nextToken = token
+      nextAsset = asset
+    }
+  }
+
+  return {
+    index: nextIndex,
+    token: nextToken,
+    asset: nextAsset
+  }
+}
+
 function resolveSceneDescriptionCharacterMentionAssets(options: {
   scene: SceneData
   assets: DisplayAsset[]
@@ -104,6 +136,7 @@ export function resolveSceneDescriptionRenderSegments(options: {
   configAssetIds?: string[]
   uniqueSorted: (values: string[]) => string[]
 }): SceneDescriptionRenderSegment[] {
+  const mentionAssetMap = resolveAssetByMentionTokenMap(options.assets)
   const characterAssets = resolveSceneDescriptionCharacterMentionAssets(options)
     .slice()
     .sort((left, right) => right.name.length - left.name.length)
@@ -116,7 +149,7 @@ export function resolveSceneDescriptionRenderSegments(options: {
   )
   if (!description) return []
 
-  if (characterAssets.length === 0) {
+  if (characterAssets.length === 0 && mentionAssetMap.size === 0) {
     return [{ type: 'text', text: description }]
   }
 
@@ -124,8 +157,10 @@ export function resolveSceneDescriptionRenderSegments(options: {
   let cursor = 0
 
   while (cursor < description.length) {
-    let nextMatchIndex = -1
-    let nextAsset: DisplayAsset | undefined
+    const nextMentionMatch = findNextAssetMentionMatch(description, mentionAssetMap, cursor)
+    let nextMatchIndex = nextMentionMatch.index
+    let nextAsset: DisplayAsset | undefined = nextMentionMatch.asset
+    let nextMatchLength = nextMentionMatch.token.length
 
     for (const asset of characterAssets) {
       const name = asset.name.trim()
@@ -137,14 +172,15 @@ export function resolveSceneDescriptionRenderSegments(options: {
       if (
         nextMatchIndex < 0
         || index < nextMatchIndex
-        || (index === nextMatchIndex && (nextAsset?.name.length || 0) < name.length)
+        || (index === nextMatchIndex && nextMatchLength < name.length)
       ) {
         nextMatchIndex = index
         nextAsset = asset
+        nextMatchLength = name.length
       }
     }
 
-    if (nextMatchIndex < 0 || !nextAsset) {
+    if (nextMatchIndex < 0 || !nextAsset || nextMatchLength <= 0) {
       const remain = description.slice(cursor)
       if (remain) {
         segments.push({ type: 'text', text: remain })
@@ -164,7 +200,7 @@ export function resolveSceneDescriptionRenderSegments(options: {
       asset: nextAsset
     })
 
-    cursor = nextMatchIndex + nextAsset.name.length
+    cursor = nextMatchIndex + nextMatchLength
   }
 
   return segments.length > 0 ? segments : [{ type: 'text', text: description }]

@@ -7,6 +7,7 @@ import type {
 } from '~/lib/scene-edit-dialog'
 import {
   buildSceneAssetMentionCandidates,
+  normalizeSceneDescriptionMentionsForSave,
   uniqueValues
 } from '~/lib/scene-edit-dialog'
 import { resetFileInput } from '~/lib/asset-workbench-upload'
@@ -141,15 +142,25 @@ watch(
 function handleSave() {
   if (sceneDescriptionSupportsMention.value) {
     syncSceneDescriptionFromEditor()
+
+    const normalized = normalizeSceneDescriptionMentionsForSave({
+      text: editForm.value.description || '',
+      candidates: buildSceneAssetMentionCandidates(assetReferenceOptions.value),
+      selectedAssetReferenceIds: selectedAssetReferenceIdsInternal.value
+    })
+
+    editForm.value.description = normalized.description
+    selectedAssetReferenceIdsInternal.value = normalized.assetIds
   }
 
   emit('save', { ...editForm.value })
   if (editForm.value.id) {
-    const mentionedAssetIds = extractMentionedAssetIdsFromDescription(editForm.value.description || '')
-    const ids = uniqueValues([
-      ...selectedAssetReferenceIdsInternal.value,
-      ...mentionedAssetIds
-    ])
+    const ids = sceneDescriptionSupportsMention.value
+      ? selectedAssetReferenceIdsInternal.value
+      : uniqueValues([
+          ...selectedAssetReferenceIdsInternal.value,
+          ...extractMentionedAssetIdsFromDescription(editForm.value.description || '')
+        ])
     emit('save-asset-references', {
       sceneId: editForm.value.id,
       assetIds: ids

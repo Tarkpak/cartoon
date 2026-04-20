@@ -3,6 +3,7 @@ import { TIME_OF_DAY_OPTIONS } from '#shared/types/script'
 import type { DisplayAsset } from '~/lib/asset-workbench-types'
 import {
   buildAssetMentionToken,
+  buildSceneMentionDescription,
   resolveDisplayAssetTypeLabel,
   resolveDisplayAssetTypeOrder
 } from '~/lib/asset-workbench-mentions'
@@ -276,4 +277,53 @@ export function extractMentionedAssetIdsFromDescription(
   }
 
   return Array.from(ids)
+}
+
+export function replaceSceneDescriptionMentionTokensWithAssetNames(
+  text: string,
+  candidates: AssetMentionCandidate[]
+): string {
+  if (!text || candidates.length === 0) return text
+
+  let nextText = text
+  const sortedCandidates = candidates
+    .filter(candidate => !!candidate.token && !!candidate.asset.name?.trim())
+    .slice()
+    .sort((left, right) => right.token.length - left.token.length)
+
+  for (const candidate of sortedCandidates) {
+    nextText = nextText.replaceAll(candidate.token, candidate.asset.name.trim())
+  }
+
+  return nextText
+}
+
+export function normalizeSceneDescriptionMentionsForSave(options: {
+  text: string
+  candidates: AssetMentionCandidate[]
+  selectedAssetReferenceIds: string[]
+}): { description: string, assetIds: string[] } {
+  const candidateTokenMap = new Map(
+    options.candidates.map(candidate => [candidate.token, candidate] as const)
+  )
+  const candidateIdTokenMap = new Map(
+    options.candidates.map(candidate => [candidate.asset.id, candidate.token] as const)
+  )
+
+  const assetIds = uniqueValues([
+    ...options.selectedAssetReferenceIds,
+    ...extractMentionedAssetIdsFromDescription(options.text, candidateTokenMap)
+  ])
+  const mentionTokens = assetIds
+    .map(assetId => candidateIdTokenMap.get(assetId) || '')
+    .filter(Boolean)
+  const description = buildSceneMentionDescription(
+    replaceSceneDescriptionMentionTokensWithAssetNames(options.text, options.candidates),
+    mentionTokens
+  )
+
+  return {
+    description,
+    assetIds
+  }
 }
