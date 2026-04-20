@@ -190,12 +190,23 @@ function resolveSingleSpeakerVoiceReference(context: LoadedSceneContext): VoiceR
   }
 }
 
+function pickPriorityVoiceCandidate(candidates: VoiceReferenceCandidate[]): VoiceReferenceCandidate | null {
+  if (candidates.length === 0) return null
+  const lockedCandidate = candidates.find(item => item.voiceAsset.locked === true)
+  return lockedCandidate || candidates[0] || null
+}
+
 function resolvePreferredVoiceReference(options: {
   context: LoadedSceneContext
   candidates: VoiceReferenceCandidate[]
+  allowMultiCandidateFallback?: boolean
 }): VoiceReferenceCandidate | null {
   if (options.candidates.length === 1) {
     return options.candidates[0] || null
+  }
+
+  if (options.allowMultiCandidateFallback && options.candidates.length > 1) {
+    return pickPriorityVoiceCandidate(options.candidates)
   }
 
   return resolveSingleSpeakerVoiceReference(options.context)
@@ -220,16 +231,21 @@ export async function enrichVideoConfigWithCharacterVoiceReference(options: {
 
   const canInjectAudioReference = options.supportsExplicitAudioReference || options.modelProvider === 'qwen'
   if (canInjectAudioReference && !nextConfig.audioUrl) {
+    const allowMultiCandidateFallback = options.modelProvider === 'kling'
+      && options.supportsExplicitAudioReference === true
     const preferredReference = resolvePreferredVoiceReference({
       context,
-      candidates
+      candidates,
+      allowMultiCandidateFallback
     })
     if (preferredReference?.voiceAsset.audioUrl) {
       nextConfig.audioUrl = preferredReference.voiceAsset.audioUrl
       console.log('[VoiceAsset] 已注入场景音频参考:', {
         sceneId: options.sceneId,
+        candidateCount: candidates.length,
         characterId: preferredReference.characterId,
-        characterName: preferredReference.characterName
+        characterName: preferredReference.characterName,
+        usedMultiCandidateFallback: allowMultiCandidateFallback && candidates.length > 1
       })
     } else {
       console.log('[VoiceAsset] 未注入场景音频参考（候选角色不唯一）:', {
@@ -574,6 +590,7 @@ export async function extractCharacterVoiceAssetsFromSceneVideo(options: {
 export const __testUtils = {
   appendVoiceConstraintToPrompt,
   buildVoiceConstraintText,
+  pickPriorityVoiceCandidate,
   resolvePreferredVoiceReference,
   resolveSingleSpeakerVoiceReference,
   calculateTranscriptMatchScore,
