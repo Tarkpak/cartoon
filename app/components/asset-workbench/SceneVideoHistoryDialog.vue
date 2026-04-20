@@ -73,7 +73,7 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
           <div class="aspect-video overflow-hidden bg-black">
             <video
               :src="entry.videoUrl"
-              class="h-full w-full"
+              class="h-full w-full object-cover"
               controls
               preload="metadata"
             />
