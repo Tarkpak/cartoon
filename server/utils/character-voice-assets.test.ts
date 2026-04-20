@@ -104,4 +104,47 @@ describe('character voice asset helpers', () => {
     expect(candidate?.characterId).toBe('char_1')
     expect(candidate?.voiceAsset.audioUrl).toBe('https://example.com/aqing.mp3')
   })
+
+  it('prefers explicit audio reference when exactly one matched character has a voice asset', () => {
+    const context = {
+      sceneId: 'scene_4',
+      projectId: 'project_1',
+      dialogues: [
+        { character: '阿青', text: '你终于来了。' },
+        { character: '老周', text: '先别说话。' }
+      ],
+      characters: [
+        {
+          id: 'char_1',
+          name: '阿青',
+          voiceAsset: JSON.stringify({
+            audioUrl: 'https://example.com/aqing.mp3',
+            updatedAt: new Date().toISOString()
+          })
+        },
+        {
+          id: 'char_2',
+          name: '老周',
+          voiceAsset: null
+        }
+      ]
+    }
+
+    const candidate = __testUtils.resolvePreferredVoiceReference({
+      context,
+      candidates: [
+        {
+          characterId: 'char_1',
+          characterName: '阿青',
+          voiceAsset: {
+            audioUrl: 'https://example.com/aqing.mp3',
+            updatedAt: new Date().toISOString()
+          }
+        }
+      ]
+    })
+
+    expect(candidate?.characterId).toBe('char_1')
+    expect(candidate?.voiceAsset.audioUrl).toBe('https://example.com/aqing.mp3')
+  })
 })
