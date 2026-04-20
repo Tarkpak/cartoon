@@ -11,6 +11,10 @@ interface SceneReferenceOptions {
   sceneConfigs: Record<string, SceneConsistencyConfig>
 }
 
+function hasSceneConfig(sceneId: string, sceneConfigs: Record<string, SceneConsistencyConfig>): boolean {
+  return Object.prototype.hasOwnProperty.call(sceneConfigs, sceneId)
+}
+
 export function findCharacterByAssetRefId(
   rawCharacterId: string,
   characters: CharacterData[]
@@ -134,6 +138,7 @@ export function resolveSceneVideoReferenceAssets(
 ): SceneVideoReferenceAsset[] {
   const assets: SceneVideoReferenceAsset[] = []
   const seenImage = new Set<string>()
+  const sceneHasConfig = hasSceneConfig(options.scene.id, options.sceneConfigs)
 
   const appendAsset = (asset: SceneVideoReferenceAsset) => {
     const image = asset.image?.trim()
@@ -148,8 +153,11 @@ export function resolveSceneVideoReferenceAssets(
   for (const asset of resolveConfiguredCharacterReferenceAssets(options)) {
     appendAsset(asset)
   }
-  for (const asset of collectSceneCharacterReferenceAssets(options)) {
-    appendAsset(asset)
+  // 当场景已有显式配置时，角色引用以配置为准，避免对白中的提及角色被回退补回。
+  if (!sceneHasConfig) {
+    for (const asset of collectSceneCharacterReferenceAssets(options)) {
+      appendAsset(asset)
+    }
   }
   for (const asset of resolveConfiguredPropReferenceAssets(options)) {
     appendAsset(asset)
