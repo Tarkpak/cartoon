@@ -150,7 +150,7 @@ describe('scene description mention normalization', () => {
     expect(restored).toBe('@阿强冲进病房。0-3秒：对白：阿强：“快走，别回头。”')
   })
 
-  it('keeps mentioned assets before preselected-only assets when saving references', () => {
+  it('keeps only currently mentioned assets when saving references by default', () => {
     const assets = [
       createAsset({
         id: 'prop:prop_1',
@@ -168,6 +168,30 @@ describe('scene description mention normalization', () => {
       text: '主角亮出 @工作证。',
       candidates: buildSceneAssetMentionCandidates(assets),
       selectedAssetReferenceIds: ['prop:prop_2']
+    })
+
+    expect(result.assetIds).toEqual(['prop:prop_1'])
+  })
+
+  it('can preserve preselected-only assets when explicitly requested', () => {
+    const assets = [
+      createAsset({
+        id: 'prop:prop_1',
+        name: '工作证',
+        type: 'prop'
+      }),
+      createAsset({
+        id: 'prop:prop_2',
+        name: '手电筒',
+        type: 'other'
+      })
+    ]
+
+    const result = normalizeSceneDescriptionMentionsForSave({
+      text: '主角亮出 @工作证。',
+      candidates: buildSceneAssetMentionCandidates(assets),
+      selectedAssetReferenceIds: ['prop:prop_2'],
+      preserveSelectedAssetReferenceIds: true
     })
 
     expect(result.assetIds).toEqual(['prop:prop_1', 'prop:prop_2'])
