@@ -48,6 +48,7 @@ import {
 } from '~/lib/asset-workbench-progress'
 import {
   buildSceneMentionDescription,
+  extractSceneDescriptionMentionTokens,
   resolveSceneDescriptionWithoutAssetMentions
 } from '~/lib/asset-workbench-mentions'
 import { resolveChatUploadAssetName } from '~/lib/asset-workbench-scene-chat'
@@ -218,15 +219,27 @@ const {
 
 function synchronizeSceneDescriptionsWithAssetMentions(): boolean {
   const tokenMap = resolveAssetMentionTokenMap()
+  const assetByTokenMap = resolveAssetByMentionTokenMap()
   let changed = false
 
   for (const scene of scenes.value) {
     const config = sceneConfigs.value[scene.id]
     if (!config) continue
 
-    const mentionTokens = uniqueSorted(config.mustReferenceAssetIds)
+    const configuredMentionTokens = uniqueSorted(config.mustReferenceAssetIds)
       .map(assetId => tokenMap.get(assetId) || '')
       .filter(Boolean)
+    const configuredNonCharacterMentionTokens = configuredMentionTokens.filter((token) => {
+      return assetByTokenMap.get(token)?.type !== 'character'
+    })
+    const existingCharacterMentionTokens = extractSceneDescriptionMentionTokens(scene.description || '')
+      .filter((token) => {
+        return assetByTokenMap.get(token)?.type === 'character'
+      })
+    const mentionTokens = uniqueSorted([
+      ...configuredNonCharacterMentionTokens,
+      ...existingCharacterMentionTokens
+    ])
 
     const nextDescription = buildSceneMentionDescription(
       scene.description || '',

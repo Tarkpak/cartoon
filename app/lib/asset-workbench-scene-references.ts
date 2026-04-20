@@ -2,7 +2,8 @@ import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import type { SceneVideoReferenceAsset } from '~/lib/asset-workbench-types'
 import { resolveCharacterRefsFromScene } from '~/lib/asset-workbench-reference-detection'
-import { uniqueSorted } from '~/lib/asset-workbench-strings'
+import { extractSceneDescriptionMentionTokens } from '~/lib/asset-workbench-mentions'
+import { normalizeToken, uniqueSorted } from '~/lib/asset-workbench-strings'
 
 interface SceneReferenceOptions {
   scene: SceneData
@@ -13,6 +14,53 @@ interface SceneReferenceOptions {
 
 function hasSceneConfig(sceneId: string, sceneConfigs: Record<string, SceneConsistencyConfig>): boolean {
   return Object.prototype.hasOwnProperty.call(sceneConfigs, sceneId)
+}
+
+function resolveMentionedCharacterNames(scene: SceneData): string[] {
+  const mentionTokens = extractSceneDescriptionMentionTokens(scene.description || '')
+  if (mentionTokens.length === 0) return []
+
+  const names: string[] = []
+  for (const rawToken of mentionTokens) {
+    const token = rawToken.trim()
+    if (!token.startsWith('@')) continue
+
+    const explicitCharacterPrefix = token.match(/^@角色[:：](.+)$/u)
+    if (explicitCharacterPrefix?.[1]) {
+      names.push(explicitCharacterPrefix[1].trim())
+      continue
+    }
+
+    const typedPrefix = token.match(/^@([^:：]+)[:：](.+)$/u)
+    if (typedPrefix) {
+      continue
+    }
+
+    names.push(token.slice(1).trim())
+  }
+
+  return uniqueSorted(names.filter(Boolean))
+}
+
+function resolveMentionedCharacterReferences(scene: SceneData, characters: CharacterData[]): CharacterData[] {
+  const mentionedNames = resolveMentionedCharacterNames(scene)
+  if (mentionedNames.length === 0) return []
+
+  const matched = new Map<string, CharacterData>()
+  for (const mentionedName of mentionedNames) {
+    const normalizedMentionedName = normalizeToken(mentionedName)
+    if (!normalizedMentionedName) continue
+
+    for (const character of characters) {
+      const normalizedCharacterName = normalizeToken(character.name)
+      if (!normalizedCharacterName || normalizedCharacterName !== normalizedMentionedName) {
+        continue
+      }
+      matched.set(character.id, character)
+    }
+  }
+
+  return Array.from(matched.values())
 }
 
 export function findCharacterByAssetRefId(
@@ -26,19 +74,12 @@ export function findCharacterByAssetRefId(
 export function resolveConfiguredCharacterReferences(
   options: Pick<SceneReferenceOptions, 'scene' | 'characters' | 'sceneConfigs'>
 ): CharacterData[] {
-  const config = options.sceneConfigs[options.scene.id]
-  if (!config) return []
-
-  const characterIds = uniqueSorted(
-    config.mustReferenceAssetIds
-      .filter(assetId => assetId.startsWith('char:'))
-      .map(assetId => assetId.slice('char:'.length))
-      .filter(Boolean)
-  )
-
-  return characterIds
-    .map(characterId => findCharacterByAssetRefId(characterId, options.characters))
-    .filter((character): character is CharacterData => !!character)
+  const mentionedCharacters = resolveMentionedCharacterReferences(options.scene, options.characters)
+  const sceneHasConfig = hasSceneConfig(options.scene.id, options.sceneConfigs)
+  if (sceneHasConfig) {
+    return mentionedCharacters
+  }
+  return []
 }
 
 function resolveConfiguredCharacterReferenceAssets(
@@ -153,7 +194,7 @@ export function resolveSceneVideoReferenceAssets(
   for (const asset of resolveConfiguredCharacterReferenceAssets(options)) {
     appendAsset(asset)
   }
-  // 当场景已有显式配置时，角色引用以配置为准，避免对白中的提及角色被回退补回。
+  // 当场景已有配置时，角色引用仅来自场景描述中的显式 @角色 资产，避免对白提及被补回。
   if (!sceneHasConfig) {
     for (const asset of collectSceneCharacterReferenceAssets(options)) {
       appendAsset(asset)
