@@ -3,6 +3,7 @@ import {
   findVideoModel
 } from '../../../utils/model-provider'
 import * as kling from '../../../utils/kling'
+import { extractSceneDialoguesFromDescription } from '../../../utils/scene-dialogue'
 import { getWorkflowModels } from '../../models/workflow.get'
 import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
@@ -23,12 +24,6 @@ const SceneCharacterSchema = z.object({
   emotion: z.string().optional()
 })
 
-const SceneDialogueSchema = z.object({
-  character: z.string(),
-  text: z.string(),
-  emotion: z.string().optional()
-})
-
 const SceneSchema = z.object({
   id: z.string(),
   title: z.string().optional(),
@@ -38,8 +33,7 @@ const SceneSchema = z.object({
   duration: z.number().optional(),
   setting: SceneSettingSchema,
   narration: z.string().optional(),
-  characters: z.array(SceneCharacterSchema).optional().default([]),
-  dialogues: z.array(SceneDialogueSchema).optional().default([])
+  characters: z.array(SceneCharacterSchema).optional().default([])
 })
 
 const EnvironmentReferenceAssetSchema = z.object({
@@ -749,10 +743,12 @@ export default defineEventHandler(async (event) => {
     multiReferenceBindings
   })
   const settingText = buildSettingText(scene.setting)
-  const dialogueLines = scene.dialogues
+  const sceneDialogues = extractSceneDialoguesFromDescription(scene.description)
+  const dialogueLines = sceneDialogues
     .map(item => `${item.character}: ${item.text}`)
     .join('\n')
   const narrationText = hasText(scene.narration) ? scene.narration.trim() : ''
+
   const interpolatedPrompt = await getInterpolatedPrompt(
     PROMPT_TEMPLATE_IDS.SCENE_VIDEO_GENERATION,
     {
