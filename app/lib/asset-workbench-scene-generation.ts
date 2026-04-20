@@ -7,6 +7,7 @@ import {
   resolveSceneEnvironmentAssetId,
   resolveSceneEnvironmentLabel
 } from '~/lib/asset-workbench-environment'
+import { extractSceneDescriptionMentionTokens } from '~/lib/asset-workbench-mentions'
 import type { SceneVideoReferenceAsset } from '~/lib/asset-workbench-types'
 
 export type AssetWorkbenchAspectRatio = '16:9' | '9:16' | '1:1'
@@ -95,9 +96,19 @@ interface VideoTaskStatusResponse {
 export function buildSceneGenerationCameraNote(
   options: BuildSceneGenerationCameraNoteOptions
 ): string | undefined {
+  const resolveMentionName = (rawToken: string): string => {
+    const token = rawToken.trim()
+    if (!token.startsWith('@')) return ''
+
+    const typed = token.match(/^@[^:：]+[:：](.+)$/u)
+    if (typed?.[1]) return typed[1].trim()
+
+    return token.slice(1).trim()
+  }
+
   const baseNote = options.scene.cameraNote?.trim() || ''
-  const refNames = options.sceneConfig.mustReferenceAssetIds
-    .map(options.resolveAssetName)
+  const refNames = extractSceneDescriptionMentionTokens(options.scene.description || '')
+    .map(resolveMentionName)
     .filter(Boolean)
   const continuityNote = options.sceneConfig.continuityNotes.trim()
   const crossSpaceNote = buildSceneEnvironmentCrossSpaceNote(options.scene, options.scenes)

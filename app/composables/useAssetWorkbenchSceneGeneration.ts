@@ -145,6 +145,7 @@ export function useAssetWorkbenchSceneGeneration(
     const referencedCharacters = resolveConfiguredCharacterReferences({
       scene,
       characters: options.characters.value,
+      propAssets: options.propAssets.value,
       sceneConfigs: options.sceneConfigs.value
     })
     for (const character of referencedCharacters) {

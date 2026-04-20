@@ -66,7 +66,7 @@ function createSceneConfig(sceneId: string, mustReferenceAssetIds: string[]): Sc
 }
 
 describe('scene video reference assets', () => {
-  it('does not fallback to dialogue-detected characters when scene config exists', () => {
+  it('does not fallback to dialogue-detected characters when description has no @ mention', () => {
     const scene = createScene({
       id: 'scene_1',
       title: '病房',
@@ -90,7 +90,7 @@ describe('scene video reference assets', () => {
     expect(assets).toEqual([])
   })
 
-  it('keeps fallback behavior for legacy scenes without scene config', () => {
+  it('does not use legacy fallback for scenes without scene config', () => {
     const scene = createScene({
       id: 'scene_legacy',
       title: '巷口',
@@ -108,11 +108,7 @@ describe('scene video reference assets', () => {
       sceneConfigs: {}
     })
 
-    expect(assets).toHaveLength(1)
-    expect(assets[0]).toMatchObject({
-      assetId: 'char:char_qiang',
-      source: 'fallback'
-    })
+    expect(assets).toEqual([])
   })
 
   it('uses explicitly mentioned character references when config exists', () => {
@@ -139,6 +135,45 @@ describe('scene video reference assets', () => {
     expect(assets).toHaveLength(1)
     expect(assets[0]).toMatchObject({
       assetId: 'char:char_ming',
+      source: 'configured'
+    })
+  })
+
+  it('ignores config-only prop references that are not @ mentioned', () => {
+    const scene = createScene({
+      id: 'scene_3',
+      title: '桌面',
+      description: '镜头扫过桌面。\n\n[引用资产]\n@工作证'
+    })
+
+    const assets = resolveSceneVideoReferenceAssets({
+      scene,
+      characters: [],
+      propAssets: [
+        {
+          id: 'prop_card',
+          name: '工作证',
+          description: '',
+          category: 'prop',
+          referenceImage: 'card.png'
+        },
+        {
+          id: 'prop_flashlight',
+          name: '手电筒',
+          description: '',
+          category: 'other',
+          referenceImage: 'flashlight.png'
+        }
+      ],
+      sceneConfigs: {
+        [scene.id]: createSceneConfig(scene.id, ['prop:prop_flashlight'])
+      }
+    })
+
+    expect(assets).toHaveLength(1)
+    expect(assets[0]).toMatchObject({
+      assetId: 'prop:prop_card',
+      name: '工作证',
       source: 'configured'
     })
   })
