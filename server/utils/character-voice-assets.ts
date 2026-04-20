@@ -194,6 +194,7 @@ export async function enrichVideoConfigWithCharacterVoiceReference(options: {
   sceneId: string
   config: VideoGenerationConfig
   modelProvider?: string | null
+  supportsExplicitAudioReference?: boolean
 }): Promise<VideoGenerationConfig> {
   const context = await loadSceneContext(options.sceneId)
   if (!context || context.dialogues.length === 0) return options.config
@@ -206,7 +207,8 @@ export async function enrichVideoConfigWithCharacterVoiceReference(options: {
     prompt: appendVoiceConstraintToPrompt(options.config.prompt, buildVoiceConstraintText(candidates))
   }
 
-  if (options.modelProvider === 'qwen' && !nextConfig.audioUrl) {
+  const canInjectAudioReference = options.supportsExplicitAudioReference || options.modelProvider === 'qwen'
+  if (canInjectAudioReference && !nextConfig.audioUrl) {
     const singleSpeakerReference = resolveSingleSpeakerVoiceReference(context)
     if (singleSpeakerReference?.voiceAsset.audioUrl) {
       nextConfig.audioUrl = singleSpeakerReference.voiceAsset.audioUrl

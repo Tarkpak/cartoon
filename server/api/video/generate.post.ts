@@ -75,13 +75,15 @@ export default defineEventHandler(async (event) => {
   }
 
   const actualModelId = await getActualModelId(config)
-  const actualProvider = actualModelId
-    ? findVideoModel(actualModelId)?.provider
+  const actualVideoModel = actualModelId
+    ? findVideoModel(actualModelId)
     : undefined
+  const modelProvider = actualVideoModel?.provider || await determineProvider(config)
   config = await enrichVideoConfigWithCharacterVoiceReference({
     sceneId,
     config,
-    modelProvider: actualProvider || await determineProvider(config)
+    modelProvider,
+    supportsExplicitAudioReference: actualVideoModel?.supportAudioReference === true
   })
 
   // 2. 创建任务并存入数据库
@@ -1574,6 +1576,7 @@ async function generateVideoWithVolcengine(
       hasImageUrl: !!config.imageUrl,
       hasFirstFrame: !!config.firstFrame,
       hasLastFrame: !!config.lastFrame,
+      hasAudioUrl: !!config.audioUrl,
       hasReferenceImages,
       referenceImagesCount: referenceImages.length,
       referenceImageLimit,
@@ -1585,12 +1588,14 @@ async function generateVideoWithVolcengine(
     const imageUrl = hasReferenceImages ? undefined : config.imageUrl
     const firstFrameUrl = hasReferenceImages ? undefined : config.firstFrame
     const lastFrameUrl = hasReferenceImages ? undefined : config.lastFrame
+    const hasAudioReference = !!config.audioUrl && (hasReferenceImages || !!imageUrl || !!firstFrameUrl || !!lastFrameUrl)
 
     console.log('[VideoGen] Seedance 输入策略:', {
       inputMode: hasReferenceImages ? 'reference_images' : (firstFrameUrl && lastFrameUrl ? 'first_last_frame' : imageUrl ? 'single_image' : 'text_only'),
       hasImageUrl: !!imageUrl,
       hasFirstFrame: !!firstFrameUrl,
       hasLastFrame: !!lastFrameUrl,
+      hasAudioReference,
       hasReferenceImages,
       referenceImagesCount: referenceImages.length
     })
@@ -1600,7 +1605,7 @@ async function generateVideoWithVolcengine(
       resolution: config.resolution,
       aspectRatio: config.aspectRatio,
       fps: 24,
-      hasAudio: false
+      hasAudio: hasAudioReference
     } satisfies UpstreamVideoTaskTracking['resultMetadata']
 
     const result = await volcengine._volcengineGenerateVideo({
@@ -1609,6 +1614,7 @@ async function generateVideoWithVolcengine(
       imageUrl,
       firstFrameUrl,
       lastFrameUrl,
+      audioUrl: config.audioUrl,
       referenceImages: hasReferenceImages ? referenceImages : undefined,
       maxReferenceImages: referenceImageLimit,
       duration,

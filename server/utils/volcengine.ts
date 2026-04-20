@@ -206,6 +206,12 @@ function normalizeVideoImageInput(value?: string): string | undefined {
   return `data:${detectedMime};base64,${payload}`
 }
 
+function normalizeVideoAudioInput(value?: string): string | undefined {
+  if (!value) return undefined
+  const normalized = value.trim()
+  return normalized || undefined
+}
+
 function resolveImageInputKind(value?: string): 'none' | 'http' | 'asset' | 'data-uri' | 'path' | 'raw' {
   if (!value) return 'none'
   if (value.startsWith('http://') || value.startsWith('https://')) return 'http'
@@ -849,12 +855,92 @@ export async function queryVolcengineVideoTask(taskId: string): Promise<QueryTas
   return await statusResponse.json() as QueryTaskResponse
 }
 
+type VolcengineVideoContentItem = { type: 'text', text: string }
+  | { type: 'image_url', role: 'reference_image' | 'first_frame' | 'last_frame', image_url: { url: string } }
+  | { type: 'audio_url', role: 'reference_audio', audio_url: { url: string } }
+
+function buildVolcengineVideoContent(options: {
+  prompt: string
+  normalizedReferenceImages: string[]
+  normalizedImageUrl?: string
+  normalizedFirstFrameUrl?: string
+  normalizedLastFrameUrl?: string
+  normalizedAudioUrl?: string
+}): {
+  content: VolcengineVideoContentItem[]
+  hasReferenceImages: boolean
+  usingFirstLastFrame: boolean
+  usingSingleImage: boolean
+  hasAudioReference: boolean
+} {
+  const hasReferenceImages = options.normalizedReferenceImages.length > 0
+  const usingFirstLastFrame = !hasReferenceImages && !!options.normalizedFirstFrameUrl && !!options.normalizedLastFrameUrl
+  const usingSingleImage = !hasReferenceImages && !usingFirstLastFrame && !!(options.normalizedImageUrl || options.normalizedFirstFrameUrl)
+
+  const content: VolcengineVideoContentItem[] = [
+    {
+      type: 'text',
+      text: options.prompt
+    }
+  ]
+
+  // 参考图模式与首帧/首尾帧模式互斥
+  if (hasReferenceImages) {
+    for (const referenceImage of options.normalizedReferenceImages) {
+      content.push({
+        type: 'image_url',
+        role: 'reference_image',
+        image_url: { url: referenceImage }
+      })
+    }
+  } else if (usingFirstLastFrame) {
+    content.push({
+      type: 'image_url',
+      role: 'first_frame',
+      image_url: { url: options.normalizedFirstFrameUrl! }
+    })
+    content.push({
+      type: 'image_url',
+      role: 'last_frame',
+      image_url: { url: options.normalizedLastFrameUrl! }
+    })
+  } else if (usingSingleImage) {
+    const singleImage = options.normalizedImageUrl || options.normalizedFirstFrameUrl
+    if (singleImage) {
+      content.push({
+        type: 'image_url',
+        role: 'first_frame',
+        image_url: { url: singleImage }
+      })
+    }
+  }
+
+  const hasVisualReference = hasReferenceImages || usingFirstLastFrame || usingSingleImage
+  const hasAudioReference = !!options.normalizedAudioUrl && hasVisualReference
+  if (hasAudioReference) {
+    content.push({
+      type: 'audio_url',
+      role: 'reference_audio',
+      audio_url: { url: options.normalizedAudioUrl! }
+    })
+  }
+
+  return {
+    content,
+    hasReferenceImages,
+    usingFirstLastFrame,
+    usingSingleImage,
+    hasAudioReference
+  }
+}
+
 export async function _volcengineGenerateVideo(options: {
   model?: string
   prompt: string
   imageUrl?: string
   firstFrameUrl?: string
   lastFrameUrl?: string
+  audioUrl?: string
   referenceImages?: string[]
   duration?: number
   aspectRatio?: string
@@ -868,6 +954,7 @@ export async function _volcengineGenerateVideo(options: {
   const normalizedImageUrl = normalizeVideoImageInput(options.imageUrl)
   const normalizedFirstFrameUrl = normalizeVideoImageInput(options.firstFrameUrl)
   const normalizedLastFrameUrl = normalizeVideoImageInput(options.lastFrameUrl)
+  const normalizedAudioUrl = normalizeVideoAudioInput(options.audioUrl)
 
   // 根据输入选择模型 (仅使用支持首尾帧的模型)
   let model = options.model
@@ -899,13 +986,28 @@ export async function _volcengineGenerateVideo(options: {
   )).slice(0, maxReferenceImages)
   let upstreamRequestBody: unknown
 
-  const hasReferenceImages = normalizedReferenceImages.length > 0
-  const usingFirstLastFrame = !hasReferenceImages && !!normalizedFirstFrameUrl && !!normalizedLastFrameUrl
-  const usingSingleImage = !hasReferenceImages && !usingFirstLastFrame && !!(normalizedImageUrl || normalizedFirstFrameUrl)
+  const contentSpec = buildVolcengineVideoContent({
+    prompt: options.prompt,
+    normalizedReferenceImages,
+    normalizedImageUrl,
+    normalizedFirstFrameUrl,
+    normalizedLastFrameUrl,
+    normalizedAudioUrl
+  })
+  const {
+    content,
+    hasReferenceImages,
+    usingFirstLastFrame,
+    usingSingleImage,
+    hasAudioReference
+  } = contentSpec
   const ratio = resolveVolcengineVideoAspectRatio(options.aspectRatio)
 
   if (options.aspectRatio && options.aspectRatio.trim() !== ratio) {
     console.warn(`[Volcengine] 不支持的 aspectRatio: ${options.aspectRatio}，已回退为 ${ratio}`)
+  }
+  if (normalizedAudioUrl && !hasAudioReference) {
+    console.warn('[Volcengine] audio_url 参考需要至少一张图片/视频参考，当前为纯文本输入，已忽略 audioUrl')
   }
 
   const timestamp = new Date().toLocaleTimeString()
@@ -924,6 +1026,8 @@ export async function _volcengineGenerateVideo(options: {
     hasLastFrameUrl: !!normalizedLastFrameUrl,
     lastFrameUrlLength: normalizedLastFrameUrl?.length || 0,
     lastFrameUrlKind: resolveImageInputKind(normalizedLastFrameUrl),
+    hasAudioUrl: !!normalizedAudioUrl,
+    hasAudioReference,
     hasReferenceImages,
     referenceImagesCount: normalizedReferenceImages.length,
     maxReferenceImages,
@@ -942,46 +1046,6 @@ export async function _volcengineGenerateVideo(options: {
     operation: 'generateVideo',
     request: () => upstreamRequestBody,
     execute: async () => withRetry(async () => {
-    // 构建 content 数组 (根据官方文档格式)
-      const content: Array<{ type: string, text?: string, role?: string, image_url?: { url: string } }> = []
-
-      // 添加文本提示
-      content.push({
-        type: 'text',
-        text: options.prompt
-      })
-
-      // 参考图模式与首帧/首尾帧模式互斥
-      if (hasReferenceImages) {
-        for (const referenceImage of normalizedReferenceImages) {
-          content.push({
-            type: 'image_url',
-            role: 'reference_image',
-            image_url: { url: referenceImage }
-          })
-        }
-      } else if (usingFirstLastFrame) {
-        content.push({
-          type: 'image_url',
-          role: 'first_frame',
-          image_url: { url: normalizedFirstFrameUrl! }
-        })
-        content.push({
-          type: 'image_url',
-          role: 'last_frame',
-          image_url: { url: normalizedLastFrameUrl! }
-        })
-      } else if (usingSingleImage) {
-        const singleImage = normalizedImageUrl || normalizedFirstFrameUrl
-        if (singleImage) {
-          content.push({
-            type: 'image_url',
-            role: 'first_frame',
-            image_url: { url: singleImage }
-          })
-        }
-      }
-
       const requestBody: Record<string, unknown> = {
         model,
         content,
@@ -1003,10 +1067,14 @@ export async function _volcengineGenerateVideo(options: {
       const requestSummary = {
         model: requestBody.model,
         contentTypes: content.map(c => c.type),
-        contentRoles: content.filter(c => c.type === 'image_url').map(c => c.role || 'none'),
+        contentRoles: content
+          .filter((c): c is Extract<VolcengineVideoContentItem, { type: 'image_url' }> => c.type === 'image_url')
+          .map(c => c.role),
         textPrompt: content.find(c => c.type === 'text')?.text?.slice(0, 100) + '...',
         hasImages: content.filter(c => c.type === 'image_url').length,
-        referenceImagesCount: content.filter(c => c.role === 'reference_image').length,
+        referenceImagesCount: content.filter(c => c.type === 'image_url' && c.role === 'reference_image').length,
+        hasAudioReference,
+        audioReferenceCount: content.filter(c => c.type === 'audio_url').length,
         duration: requestBody.duration,
         ratio: requestBody.ratio,
         resolution: requestBody.resolution
@@ -1073,4 +1141,9 @@ export async function _volcengineGenerateVideo(options: {
       throw new VolcengineError('视频生成超时', VolcengineErrorCode.DEADLINE_EXCEEDED, 504, false)
     }, { maxRetries: options.maxRetries })
   })
+}
+
+export const __volcengineTestUtils = {
+  buildVolcengineVideoContent,
+  resolveVolcengineVideoAspectRatio
 }
