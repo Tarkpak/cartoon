@@ -147,4 +147,43 @@ describe('character voice asset helpers', () => {
     expect(candidate?.characterId).toBe('char_1')
     expect(candidate?.voiceAsset.audioUrl).toBe('https://example.com/aqing.mp3')
   })
+
+  it('uses priority fallback for multi-character references when enabled', () => {
+    const context = {
+      sceneId: 'scene_5',
+      projectId: 'project_1',
+      dialogues: [
+        { character: '阿青', text: '你终于来了。' },
+        { character: '老周', text: '先别说话。' }
+      ],
+      characters: []
+    }
+
+    const candidate = __testUtils.resolvePreferredVoiceReference({
+      context,
+      candidates: [
+        {
+          characterId: 'char_1',
+          characterName: '阿青',
+          voiceAsset: {
+            audioUrl: 'https://example.com/aqing.mp3',
+            updatedAt: new Date().toISOString()
+          }
+        },
+        {
+          characterId: 'char_2',
+          characterName: '老周',
+          voiceAsset: {
+            audioUrl: 'https://example.com/laozhou.mp3',
+            locked: true,
+            updatedAt: new Date().toISOString()
+          }
+        }
+      ],
+      allowMultiCandidateFallback: true
+    })
+
+    expect(candidate?.characterId).toBe('char_2')
+    expect(candidate?.voiceAsset.audioUrl).toBe('https://example.com/laozhou.mp3')
+  })
 })
