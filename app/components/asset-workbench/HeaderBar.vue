@@ -24,8 +24,8 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="shrink-0 space-y-2">
-    <div class="flex items-center gap-3">
+  <div class="shrink-0 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+    <div class="flex min-w-0 items-center gap-3 lg:max-w-sm xl:max-w-md">
       <Button
         variant="ghost"
         size="icon"
@@ -56,12 +56,14 @@ const emit = defineEmits<{
         </div>
       </div>
     </div>
-    <AssetWorkbenchStageSwitcher
-      :stages="stages"
-      :active-stage="activeStage"
-      :auto-run-error="autoRunError"
-      :save-error="saveError"
-      @select-stage="emit('select-stage', $event as AutoStageKey)"
-    />
+    <div class="min-w-0 lg:flex-1">
+      <AssetWorkbenchStageSwitcher
+        :stages="stages"
+        :active-stage="activeStage"
+        :auto-run-error="autoRunError"
+        :save-error="saveError"
+        @select-stage="emit('select-stage', $event as AutoStageKey)"
+      />
+    </div>
   </div>
 </template>
