@@ -410,6 +410,7 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     supportFirstLastFrame: false,
     supportImageToVideo: false,
     supportTextToVideo: true,
+    supportAudioReference: true,
     docUrl: 'https://help.aliyun.com/zh/model-studio/text-to-video-api-reference'
   },
   {
@@ -421,6 +422,7 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     supportFirstLastFrame: false,
     supportImageToVideo: true,
     supportTextToVideo: false,
+    supportAudioReference: true,
     docUrl: 'https://help.aliyun.com/zh/model-studio/image-to-video-api-reference'
   },
   // 可灵 AI 视频模型
@@ -539,6 +541,7 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     supportReferenceImages: true,
     maxReferenceImages: 9,
     supportTextToVideo: true,
+    supportAudioReference: true,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   },
   {
@@ -552,6 +555,7 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     supportReferenceImages: true,
     maxReferenceImages: 9,
     supportTextToVideo: true,
+    supportAudioReference: true,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   }
 ]
@@ -939,7 +943,7 @@ export async function generateVideo(options: {
   firstFrameUrl?: string // 首帧图片 URL (Qwen 首尾帧模型)
   lastFrameUrl?: string // 尾帧图片 URL (Qwen 首尾帧模型)
   imageUrl?: string // 图生视频输入 (Qwen)
-  audioUrl?: string // 自定义音频 (Qwen)
+  audioUrl?: string // 显式音频参考
   duration?: number
   aspectRatio?: string
   size?: string // Qwen 使用 size 如 '1280*720'
@@ -988,6 +992,7 @@ export async function generateVideo(options: {
       imageUrl: options.imageUrl,
       firstFrameUrl: options.firstFrameUrl,
       lastFrameUrl: options.lastFrameUrl,
+      audioUrl: options.audioUrl,
       duration: options.duration,
       size: options.size,
       resolution: options.resolution,

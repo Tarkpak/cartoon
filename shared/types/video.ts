@@ -28,7 +28,7 @@ export const VideoGenerationConfigSchema = z.object({
   lastFrame: z.string().optional().describe('尾帧图片 (base64) - Gemini 使用'),
   imageUrl: z.string().optional().describe('输入图片 URL - Qwen 图生视频使用'),
   referenceImages: z.array(z.string()).max(9).optional().describe('多参考图（不同模型上限不同，服务端会按模型裁剪）'),
-  audioUrl: z.string().optional().describe('自定义音频 URL - Qwen 使用'),
+  audioUrl: z.string().optional().describe('显式音频参考 URL（如 Qwen/Seedance 支持）'),
   prompt: z.string().describe('视频描述提示词'),
   negativePrompt: z.string().optional().describe('负面提示词 - Qwen 使用'),
   duration: DurationSchema.default(8).describe('视频时长'),

@@ -15,6 +15,7 @@ interface CompletionNoticePayload {
 }
 
 export type BrowserNotificationPermissionState = NotificationPermission | 'unsupported' | 'insecure'
+type SystemNotificationChannel = 'serviceWorker' | 'window'
 
 export interface BrowserNotificationStatus {
   supported: boolean
@@ -31,8 +32,12 @@ const DEFAULT_COMPLETION_NOTIFICATION_OPTIONS: WorkflowCompletionNotificationOpt
 
 const COMPLETION_NOTIFICATION_OPTIONS_STATE_KEY = 'workflow:completion-notification-options'
 const COMPLETION_NOTIFICATION_OPTIONS_LOADED_STATE_KEY = 'workflow:completion-notification-options:loaded'
+const NOTIFICATION_SERVICE_WORKER_URL = '/notification-sw.js'
+const NOTIFICATION_SERVICE_WORKER_SCOPE = '/__notification__/'
 
 let completionAudioContext: AudioContext | null = null
+let notificationServiceWorkerRegistrationPromise: Promise<ServiceWorkerRegistration | null> | null = null
+const activeWindowNotifications = new Set<Notification>()
 
 function createBrowserNotificationStatus(
   permission: BrowserNotificationPermissionState,
@@ -161,26 +166,151 @@ function playCompletionTone() {
   }
 }
 
-async function showSystemNotification(payload: CompletionNoticePayload) {
+function canUseNotificationServiceWorker(): boolean {
+  return import.meta.client
+    && window.isSecureContext
+    && 'serviceWorker' in navigator
+}
+
+async function waitForServiceWorkerActivation(
+  registration: ServiceWorkerRegistration
+): Promise<ServiceWorkerRegistration | null> {
+  if (registration.active) {
+    return registration
+  }
+
+  const worker = registration.installing || registration.waiting
+  if (!worker) {
+    return registration.active ? registration : null
+  }
+  const targetWorker = worker
+
+  await new Promise<void>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      cleanup()
+      resolve()
+    }, 4000)
+
+    function cleanup() {
+      window.clearTimeout(timeoutId)
+      targetWorker.removeEventListener('statechange', handleStateChange)
+    }
+
+    function handleStateChange() {
+      if (targetWorker.state === 'activated') {
+        cleanup()
+        resolve()
+        return
+      }
+
+      if (targetWorker.state === 'redundant') {
+        cleanup()
+        reject(new Error('通知 Service Worker 激活失败'))
+      }
+    }
+
+    targetWorker.addEventListener('statechange', handleStateChange)
+    handleStateChange()
+  })
+
+  return registration.active ? registration : null
+}
+
+async function getNotificationServiceWorkerRegistration(): Promise<ServiceWorkerRegistration | null> {
+  if (!canUseNotificationServiceWorker()) {
+    return null
+  }
+
+  if (!notificationServiceWorkerRegistrationPromise) {
+    notificationServiceWorkerRegistrationPromise = (async () => {
+      try {
+        const registration = await navigator.serviceWorker.register(
+          NOTIFICATION_SERVICE_WORKER_URL,
+          { scope: NOTIFICATION_SERVICE_WORKER_SCOPE }
+        )
+        return await waitForServiceWorkerActivation(registration)
+      } catch (error) {
+        console.warn('[useGenerationCompletionNotification] 注册通知 Service Worker 失败:', error)
+        notificationServiceWorkerRegistrationPromise = null
+        return null
+      }
+    })()
+  }
+
+  return notificationServiceWorkerRegistrationPromise
+}
+
+function buildNotificationTargetUrl(): string {
+  if (!import.meta.client) return '/'
+
+  const { pathname, search, hash } = window.location
+  return `${pathname}${search}${hash}`
+}
+
+async function showSystemNotification(
+  payload: CompletionNoticePayload,
+  options: {
+    tag?: string
+    requireInteraction?: boolean
+    renotify?: boolean
+  } = {}
+): Promise<{ sent: boolean, channel?: SystemNotificationChannel }> {
   const status = getBrowserNotificationStatus()
-  if (!status.canNotify) return false
-  if (!payload.title.trim()) return false
+  if (!status.canNotify) return { sent: false }
+  if (!payload.title.trim()) return { sent: false }
+
+  const notificationOptions = {
+    body: payload.body,
+    tag: options.tag || 'asset_workbench_generation_complete',
+    renotify: options.renotify,
+    requireInteraction: options.requireInteraction,
+    data: {
+      url: buildNotificationTargetUrl()
+    }
+  }
 
   try {
-    new Notification(payload.title, {
-      body: payload.body,
-      tag: 'asset_workbench_generation_complete'
-    })
-    return true
+    const registration = await getNotificationServiceWorkerRegistration()
+    if (registration) {
+      await registration.showNotification(payload.title, notificationOptions)
+      return {
+        sent: true,
+        channel: 'serviceWorker'
+      }
+    }
+  } catch (error) {
+    console.warn('[useGenerationCompletionNotification] 通过 Service Worker 发送系统通知失败:', error)
+  }
+
+  try {
+    const notification = new Notification(payload.title, notificationOptions)
+    activeWindowNotifications.add(notification)
+    const cleanup = () => {
+      activeWindowNotifications.delete(notification)
+    }
+    notification.addEventListener('close', cleanup, { once: true })
+    notification.addEventListener('error', cleanup, { once: true })
+    notification.addEventListener('click', () => {
+      window.focus()
+      cleanup()
+    }, { once: true })
+
+    return {
+      sent: true,
+      channel: 'window'
+    }
   } catch (error) {
     console.warn('[useGenerationCompletionNotification] 发送系统通知失败:', error)
-    return false
+    return {
+      sent: false
+    }
   }
 }
 
 export async function sendSystemNotificationTest(): Promise<{
   status: BrowserNotificationStatus
   sent: boolean
+  channel?: SystemNotificationChannel
 }> {
   const status = await requestBrowserNotificationPermission()
   if (!status.canNotify) {
@@ -190,14 +320,22 @@ export async function sendSystemNotificationTest(): Promise<{
     }
   }
 
-  const sent = await showSystemNotification({
-    title: '系统通知测试',
-    body: '后续模型任务完成后，会在这里提醒你返回页面。'
-  })
+  const result = await showSystemNotification(
+    {
+      title: '系统通知测试',
+      body: '后续模型任务完成后，会在这里提醒你返回页面。'
+    },
+    {
+      tag: `asset_workbench_generation_test_${Date.now()}`,
+      requireInteraction: true,
+      renotify: true
+    }
+  )
 
   return {
     status: getBrowserNotificationStatus(),
-    sent
+    sent: result.sent,
+    channel: result.channel
   }
 }
 

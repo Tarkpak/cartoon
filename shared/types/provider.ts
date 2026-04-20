@@ -57,6 +57,7 @@ export const VideoModelConfigSchema = z.object({
   supportReferenceImages: z.boolean().optional().describe('是否支持多参考图（referenceImages）'),
   maxReferenceImages: z.number().int().positive().optional().describe('多参考图最大数量（按模型能力）'),
   supportTextToVideo: z.boolean().default(true).describe('是否支持文生视频'),
+  supportAudioReference: z.boolean().optional().describe('是否支持显式音频参考（audioUrl / reference_audio）'),
   docUrl: z.string().optional().describe('API文档链接')
 })
 export type VideoModelConfig = z.infer<typeof VideoModelConfigSchema>

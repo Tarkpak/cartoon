@@ -478,6 +478,9 @@ function getModelCapabilityTags(
   if ('supportTextToVideo' in model && model.supportTextToVideo) {
     tags.push('文生视频')
   }
+  if ('supportAudioReference' in model && model.supportAudioReference) {
+    tags.push('音频参考')
+  }
   if ('maxDuration' in model && model.maxDuration) {
     tags.push(`${model.maxDuration}s`)
   }
@@ -504,6 +507,7 @@ export default defineEventHandler(async () => {
         displayName: m.displayName,
         provider: m.provider,
         description: m.description,
+        supportAudioReference: 'supportAudioReference' in m ? !!m.supportAudioReference : false,
         capabilities: getModelCapabilityTags(m)
       })),
       selectedModel: workflowModels[config.id] || null,
