@@ -1012,6 +1012,7 @@ async function generateVideoWithKling(
       hasImageUrl: !!imageInput,
       hasFirstFrame: !!firstFrame,
       hasLastFrame: !!lastFrame,
+      hasAudioUrl: !!config.audioUrl,
       hasReferenceImages: referenceImages.length > 0,
       referenceImagesCount: referenceImages.length,
       withAudio
@@ -1034,6 +1035,7 @@ async function generateVideoWithKling(
       firstFrameUrl: firstFrame,
       lastFrameUrl: lastFrame,
       referenceImages,
+      audioUrl: config.audioUrl,
       duration,
       aspectRatio: config.aspectRatio,
       withAudio,

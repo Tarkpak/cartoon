@@ -450,6 +450,7 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     supportReferenceImages: true,
     maxReferenceImages: 7,
     supportTextToVideo: true,
+    supportAudioReference: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/OmniVideo'
   },
   {
@@ -1012,6 +1013,7 @@ export async function generateVideo(options: {
       imageUrl: options.imageUrl,
       firstFrameUrl: options.firstFrameUrl,
       lastFrameUrl: options.lastFrameUrl,
+      audioUrl: options.audioUrl,
       duration: options.duration,
       aspectRatio: options.aspectRatio,
       withAudio: options.audio,

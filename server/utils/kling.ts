@@ -258,6 +258,14 @@ function normalizeImageInput(image?: string): string | undefined {
   return stripDataUrlPrefix(trimmed)
 }
 
+function normalizeAudioInput(audioUrl?: string): string | undefined {
+  if (!audioUrl) return undefined
+  const trimmed = audioUrl.trim()
+  if (!trimmed) return undefined
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed
+  return undefined
+}
+
 function sanitizeKlingLogValue(
   value: unknown,
   keyHint: string = '',
@@ -760,6 +768,7 @@ export async function _klingGenerateVideo(options: {
   firstFrameUrl?: string
   lastFrameUrl?: string
   referenceImages?: string[]
+  audioUrl?: string
   duration?: number
   aspectRatio?: string
   withAudio?: boolean
@@ -780,6 +789,7 @@ export async function _klingGenerateVideo(options: {
 
   let image = normalizeImageInput(options.imageUrl || options.firstFrameUrl)
   const imageTail = normalizeImageInput(options.lastFrameUrl)
+  const normalizedAudioUrl = normalizeAudioInput(options.audioUrl)
   const normalizedReferenceImages = Array.from(new Set(
     (options.referenceImages || [])
       .map(item => normalizeImageInput(item))
@@ -842,6 +852,12 @@ export async function _klingGenerateVideo(options: {
       body.image_list = imageList.slice(0, 9)
     }
 
+    if (normalizedAudioUrl && model === KlingVideoModels.KLING_V3_OMNI) {
+      body.audio_url = normalizedAudioUrl
+    } else if (normalizedAudioUrl) {
+      console.warn(`[Kling] 模型 ${model} 暂不支持 audio_url 参考，已忽略该参数`)
+    }
+
     if (!hasImageInput || image) {
       body.aspect_ratio = aspectRatio
     }
@@ -851,6 +867,9 @@ export async function _klingGenerateVideo(options: {
       if (image) body.image = image
       if (imageTail) body.image_tail = imageTail
       delete body.aspect_ratio
+    }
+    if (normalizedAudioUrl) {
+      console.warn('[Kling] image2video/text2video 不支持 audio_url 参考，已忽略该参数')
     }
   }
 
