@@ -43,6 +43,18 @@ interface UseSceneDescriptionMentionEditorActionsOptions {
 export function useSceneDescriptionMentionEditorActions(
   options: UseSceneDescriptionMentionEditorActionsOptions
 ) {
+  function isCaretAfterRenderedMentionToken(state: { caret: number }, mentionStart: number): boolean {
+    const editor = options.sceneDescriptionEditorRef.value
+    if (!editor) return false
+
+    const { segments } = collectSceneDescriptionCaretSegments(Array.from(editor.childNodes))
+    return segments.some((segment) => {
+      return segment.type === 'mention'
+        && segment.start === mentionStart
+        && segment.end === state.caret
+    })
+  }
+
   function closeSceneDescriptionMention() {
     options.sceneDescriptionMentionOpen.value = false
     options.sceneDescriptionMentionQuery.value = ''
@@ -139,6 +151,11 @@ export function useSceneDescriptionMentionEditorActions(
     const current = state || getSceneDescriptionEditorState()
     const mentionState = resolveSceneDescriptionMentionState(current.text, current.caret)
     if (!mentionState.open || mentionState.start === null) {
+      closeSceneDescriptionMention()
+      return
+    }
+
+    if (isCaretAfterRenderedMentionToken(current, mentionState.start)) {
       closeSceneDescriptionMention()
       return
     }
@@ -250,11 +267,25 @@ export function useSceneDescriptionMentionEditorActions(
     }
 
     if (event.key === 'Enter' || event.key === 'Tab') {
-      event.preventDefault()
       if (candidates.length === 0) {
         closeSceneDescriptionMention()
         return
       }
+
+      event.preventDefault()
+
+      if (event.key === 'Enter') {
+        const state = getSceneDescriptionEditorState()
+        const mentionStart = options.sceneDescriptionMentionStart.value
+        if (
+          mentionStart !== null
+          && isCaretAfterRenderedMentionToken(state, mentionStart)
+        ) {
+          closeSceneDescriptionMention()
+          return
+        }
+      }
+
       const target = candidates[options.sceneDescriptionMentionActiveIndex.value] || candidates[0]
       if (target) insertSceneAssetMention(target.asset.id)
       return

@@ -325,8 +325,8 @@ function buildEnvironmentCropUploadPrefix(assetId: string): string {
 
 function resolveSceneBaselineReferenceImage(scene: SceneData): string | undefined {
   const assetId = resolveSceneEnvironmentAssetId(scene)
-  return resolveEnvironmentPanoramaState(assetId)?.panoramaImage?.trim()
-    || resolveEnvironmentCard(assetId)?.referenceImage?.trim()
+  return resolveEnvironmentCard(assetId)?.referenceImage?.trim()
+    || resolveEnvironmentPanoramaState(assetId)?.panoramaImage?.trim()
     || resolveSceneReferenceImage(scene)
     || scene.firstFrame
 }
