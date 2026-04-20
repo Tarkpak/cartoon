@@ -123,4 +123,32 @@ describe('scene description render segments', () => {
       text: '。'
     })
   })
+
+  it('does not render character names inside dialogue text as asset segments', () => {
+    const scene = createScene({
+      id: 'scene_3',
+      title: '病房对话',
+      description: '0-3秒：对白：阿强：“快走，别回头。”\n\n[引用资产]\n@阿强'
+    })
+    const assets: DisplayAsset[] = [
+      {
+        id: 'char:char_1',
+        name: '阿强',
+        type: 'character',
+        referenceImage: 'char.png'
+      }
+    ]
+
+    const segments = resolveSceneDescriptionRenderSegments({
+      scene,
+      assets,
+      uniqueSorted: values => Array.from(new Set(values))
+    })
+
+    expect(segments).toHaveLength(1)
+    expect(segments[0]).toMatchObject({
+      type: 'text',
+      text: '0-3秒：对白：阿强：“快走，别回头。”'
+    })
+  })
 })

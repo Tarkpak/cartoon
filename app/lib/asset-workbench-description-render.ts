@@ -10,6 +10,13 @@ import {
 } from '~/lib/asset-workbench-mention-tokens'
 
 const SCENE_IMAGE_TAG_REGEX = /\[(?:图片|Image\s*#)\s*\d+\]/giu
+const SCENE_QUOTED_DIALOGUE_REGEX = /'[^'\n]*'|"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’|「[^」\n]*」|『[^』\n]*』/gu
+const SCENE_DIALOGUE_LABEL_LINE_REGEX = /(?:台词|对白|对话)\s*[：:][^\n]*/gu
+
+interface TextRange {
+  start: number
+  end: number
+}
 
 function normalizeSceneDescriptionForDisplay(text: string): string {
   if (!text) return ''
@@ -23,6 +30,104 @@ function normalizeSceneDescriptionForDisplay(text: string): string {
 
 function escapeRegExpForSceneDescription(raw: string): string {
   return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function mergeTextRanges(ranges: TextRange[]): TextRange[] {
+  if (ranges.length === 0) return []
+
+  const sorted = ranges
+    .filter(range => range.end > range.start)
+    .slice()
+    .sort((left, right) => left.start - right.start)
+
+  if (sorted.length === 0) return []
+
+  const merged: TextRange[] = [{ ...sorted[0]! }]
+  for (let index = 1; index < sorted.length; index += 1) {
+    const range = sorted[index]
+    const last = merged[merged.length - 1]
+    if (!range || !last) continue
+
+    if (range.start <= last.end) {
+      last.end = Math.max(last.end, range.end)
+      continue
+    }
+
+    merged.push({ ...range })
+  }
+
+  return merged
+}
+
+function collectDialogueLikeRanges(text: string, characterNames: string[]): TextRange[] {
+  const ranges: TextRange[] = []
+
+  for (const match of text.matchAll(SCENE_QUOTED_DIALOGUE_REGEX)) {
+    const content = match[0] || ''
+    const index = match.index ?? -1
+    if (!content || index < 0) continue
+    ranges.push({
+      start: index,
+      end: index + content.length
+    })
+  }
+
+  for (const match of text.matchAll(SCENE_DIALOGUE_LABEL_LINE_REGEX)) {
+    const content = match[0] || ''
+    const index = match.index ?? -1
+    if (!content || index < 0) continue
+
+    const leadingBreakOffset = content.startsWith('\n') ? 1 : 0
+    ranges.push({
+      start: index + leadingBreakOffset,
+      end: index + content.length
+    })
+  }
+
+  const normalizedNames = Array.from(new Set(
+    characterNames
+      .map(name => name.trim())
+      .filter(Boolean)
+  ))
+    .sort((left, right) => right.length - left.length)
+
+  if (normalizedNames.length > 0) {
+    const speakerRegex = new RegExp(
+      `(^|\\n)\\s*(?:${normalizedNames.map(name => escapeRegExpForSceneDescription(name)).join('|')})\\s*[：:][^\\n]*`,
+      'gu'
+    )
+
+    for (const match of text.matchAll(speakerRegex)) {
+      const content = match[0] || ''
+      const index = match.index ?? -1
+      if (!content || index < 0) continue
+
+      const leadingBreakOffset = content.startsWith('\n') ? 1 : 0
+      ranges.push({
+        start: index + leadingBreakOffset,
+        end: index + content.length
+      })
+    }
+  }
+
+  return mergeTextRanges(ranges)
+}
+
+function isInsideRange(
+  start: number,
+  length: number,
+  ranges: TextRange[]
+): boolean {
+  if (length <= 0 || ranges.length === 0) return false
+  const end = start + length
+
+  for (const range of ranges) {
+    if (start < range.end && end > range.start) {
+      return true
+    }
+  }
+
+  return false
 }
 
 function stripRedundantBracketedCharacterTags(text: string, characterNames: string[]): string {
@@ -47,7 +152,12 @@ function stripRedundantBracketedCharacterTags(text: string, characterNames: stri
   return normalized
 }
 
-function findNextCharacterMentionIndex(text: string, name: string, start: number): number {
+function findNextCharacterMentionIndex(
+  text: string,
+  name: string,
+  start: number,
+  blockedRanges: TextRange[]
+): number {
   if (!text || !name) return -1
 
   let index = text.indexOf(name, start)
@@ -56,8 +166,9 @@ function findNextCharacterMentionIndex(text: string, name: string, start: number
     const nextChar = text[index + name.length] || ''
     const insideSquareBracket = prevChar === '[' || nextChar === ']'
     const mentionTokenFragment = prevChar === '@'
+    const insideBlockedRange = isInsideRange(index, name.length, blockedRanges)
 
-    if (!insideSquareBracket && !mentionTokenFragment) {
+    if (!insideSquareBracket && !mentionTokenFragment && !insideBlockedRange) {
       return index
     }
 
@@ -151,6 +262,7 @@ export function resolveSceneDescriptionRenderSegments(options: {
     characterNames
   )
   if (!description) return []
+  const dialogueLikeRanges = collectDialogueLikeRanges(description, characterNames)
 
   if (inlineMentionAssets.length === 0 && mentionAssetMap.size === 0) {
     return [{ type: 'text', text: description }]
@@ -169,7 +281,7 @@ export function resolveSceneDescriptionRenderSegments(options: {
       const name = asset.name.trim()
       if (!name) continue
 
-      const index = findNextCharacterMentionIndex(description, name, cursor)
+      const index = findNextCharacterMentionIndex(description, name, cursor, dialogueLikeRanges)
       if (index < 0) continue
 
       if (
