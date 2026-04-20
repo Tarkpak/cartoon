@@ -1,9 +1,11 @@
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
-import type { SceneVideoReferenceAsset } from '~/lib/asset-workbench-types'
-import { resolveCharacterRefsFromScene } from '~/lib/asset-workbench-reference-detection'
-import { extractSceneDescriptionMentionTokens } from '~/lib/asset-workbench-mentions'
-import { normalizeToken, uniqueSorted } from '~/lib/asset-workbench-strings'
+import type { DisplayAsset, SceneVideoReferenceAsset } from '~/lib/asset-workbench-types'
+import {
+  extractSceneDescriptionMentionTokens,
+  resolveAssetMentionTokenMap
+} from '~/lib/asset-workbench-mentions'
+import { normalizeToken } from '~/lib/asset-workbench-strings'
 
 interface SceneReferenceOptions {
   scene: SceneData
@@ -12,55 +14,112 @@ interface SceneReferenceOptions {
   sceneConfigs: Record<string, SceneConsistencyConfig>
 }
 
-function hasSceneConfig(sceneId: string, sceneConfigs: Record<string, SceneConsistencyConfig>): boolean {
-  return Object.prototype.hasOwnProperty.call(sceneConfigs, sceneId)
+type MentionAssetTypeHint = DisplayAsset['type'] | null
+
+function buildMentionableSceneAssets(
+  characters: CharacterData[],
+  propAssets: PropAsset[]
+): DisplayAsset[] {
+  return [
+    ...characters.map(character => ({
+      id: `char:${character.id}`,
+      name: character.name || '角色',
+      type: 'character' as const,
+      referenceImage: character.baseImage
+    })),
+    ...propAssets.map(prop => ({
+      id: `prop:${prop.id}`,
+      name: prop.name || '道具',
+      type: prop.category === 'other' ? 'other' as const : 'prop' as const,
+      referenceImage: prop.referenceImage
+    }))
+  ]
 }
 
-function resolveMentionedCharacterNames(scene: SceneData): string[] {
-  const mentionTokens = extractSceneDescriptionMentionTokens(scene.description || '')
+function resolveMentionTokenTypeHint(rawType: string): MentionAssetTypeHint {
+  const type = normalizeToken(rawType)
+  if (!type) return null
+  if (type === '角色' || type === 'character') return 'character'
+  if (type === '环境' || type === 'environment') return 'environment'
+  if (type === '道具' || type === 'prop') return 'prop'
+  if (type === '其他' || type === 'other') return 'other'
+  return null
+}
+
+function resolveMentionTokenInfo(token: string): {
+  name: string
+  typeHint: MentionAssetTypeHint
+} | null {
+  const normalizedToken = token.trim()
+  if (!normalizedToken.startsWith('@')) return null
+
+  const typedPrefix = normalizedToken.match(/^@([^:：]+)[:：](.+)$/u)
+  if (typedPrefix?.[2]) {
+    return {
+      name: typedPrefix[2].trim(),
+      typeHint: resolveMentionTokenTypeHint(typedPrefix[1] || '')
+    }
+  }
+
+  return {
+    name: normalizedToken.slice(1).trim(),
+    typeHint: null
+  }
+}
+
+function matchesTypeHint(assetType: DisplayAsset['type'], typeHint: MentionAssetTypeHint): boolean {
+  if (!typeHint) return true
+  return assetType === typeHint
+}
+
+function resolveMentionedSceneAssetIds(options: Pick<SceneReferenceOptions, 'scene' | 'characters' | 'propAssets'>): string[] {
+  const mentionTokens = extractSceneDescriptionMentionTokens(options.scene.description || '')
   if (mentionTokens.length === 0) return []
 
-  const names: string[] = []
+  const mentionableAssets = buildMentionableSceneAssets(options.characters, options.propAssets)
+  if (mentionableAssets.length === 0) return []
+
+  const mentionTokenMap = resolveAssetMentionTokenMap(mentionableAssets)
+  const assetIdByToken = new Map<string, string>()
+  for (const [assetId, mentionToken] of mentionTokenMap) {
+    if (!assetIdByToken.has(mentionToken)) {
+      assetIdByToken.set(mentionToken, assetId)
+    }
+  }
+
+  const seen = new Set<string>()
+  const assetIds: string[] = []
+
   for (const rawToken of mentionTokens) {
     const token = rawToken.trim()
     if (!token.startsWith('@')) continue
 
-    const explicitCharacterPrefix = token.match(/^@角色[:：](.+)$/u)
-    if (explicitCharacterPrefix?.[1]) {
-      names.push(explicitCharacterPrefix[1].trim())
-      continue
-    }
+    const directAssetId = assetIdByToken.get(token)
+    let matchedAssetId = directAssetId
 
-    const typedPrefix = token.match(/^@([^:：]+)[:：](.+)$/u)
-    if (typedPrefix) {
-      continue
-    }
+    if (!matchedAssetId) {
+      const tokenInfo = resolveMentionTokenInfo(token)
+      const normalizedName = normalizeToken(tokenInfo?.name || '')
+      if (!normalizedName) continue
 
-    names.push(token.slice(1).trim())
-  }
-
-  return uniqueSorted(names.filter(Boolean))
-}
-
-function resolveMentionedCharacterReferences(scene: SceneData, characters: CharacterData[]): CharacterData[] {
-  const mentionedNames = resolveMentionedCharacterNames(scene)
-  if (mentionedNames.length === 0) return []
-
-  const matched = new Map<string, CharacterData>()
-  for (const mentionedName of mentionedNames) {
-    const normalizedMentionedName = normalizeToken(mentionedName)
-    if (!normalizedMentionedName) continue
-
-    for (const character of characters) {
-      const normalizedCharacterName = normalizeToken(character.name)
-      if (!normalizedCharacterName || normalizedCharacterName !== normalizedMentionedName) {
-        continue
+      const matchedAssets = mentionableAssets.filter((asset) => {
+        if (!matchesTypeHint(asset.type, tokenInfo?.typeHint || null)) {
+          return false
+        }
+        const normalizedAssetName = normalizeToken(asset.name)
+        return !!normalizedAssetName && normalizedAssetName === normalizedName
+      })
+      if (matchedAssets.length === 1) {
+        matchedAssetId = matchedAssets[0]?.id
       }
-      matched.set(character.id, character)
     }
+
+    if (!matchedAssetId || seen.has(matchedAssetId)) continue
+    seen.add(matchedAssetId)
+    assetIds.push(matchedAssetId)
   }
 
-  return Array.from(matched.values())
+  return assetIds
 }
 
 export function findCharacterByAssetRefId(
@@ -72,18 +131,32 @@ export function findCharacterByAssetRefId(
 }
 
 export function resolveConfiguredCharacterReferences(
-  options: Pick<SceneReferenceOptions, 'scene' | 'characters' | 'sceneConfigs'>
-): CharacterData[] {
-  const mentionedCharacters = resolveMentionedCharacterReferences(options.scene, options.characters)
-  const sceneHasConfig = hasSceneConfig(options.scene.id, options.sceneConfigs)
-  if (sceneHasConfig) {
-    return mentionedCharacters
+  options: Pick<SceneReferenceOptions, 'scene' | 'characters'> & {
+    sceneConfigs?: Record<string, SceneConsistencyConfig>
+    propAssets?: PropAsset[]
   }
-  return []
+): CharacterData[] {
+  const mentionedCharacterIds = resolveMentionedSceneAssetIds({
+    scene: options.scene,
+    characters: options.characters,
+    propAssets: options.propAssets || []
+  })
+    .filter(assetId => assetId.startsWith('char:'))
+    .map(assetId => assetId.slice('char:'.length))
+
+  const matched = new Map<string, CharacterData>()
+  for (const characterId of mentionedCharacterIds) {
+    const character = findCharacterByAssetRefId(characterId, options.characters)
+    if (character) {
+      matched.set(character.id, character)
+    }
+  }
+
+  return Array.from(matched.values())
 }
 
 function resolveConfiguredCharacterReferenceAssets(
-  options: Pick<SceneReferenceOptions, 'scene' | 'characters' | 'sceneConfigs'>
+  options: Pick<SceneReferenceOptions, 'scene' | 'characters' | 'propAssets'>
 ): SceneVideoReferenceAsset[] {
   const assets: SceneVideoReferenceAsset[] = []
   const seen = new Set<string>()
@@ -107,53 +180,16 @@ function resolveConfiguredCharacterReferenceAssets(
   return assets
 }
 
-function collectSceneCharacterReferenceAssets(
-  options: Pick<SceneReferenceOptions, 'scene' | 'characters'>
-): SceneVideoReferenceAsset[] {
-  const { refs } = resolveCharacterRefsFromScene({
-    scene: options.scene,
-    characters: options.characters
-  })
-  const assets: SceneVideoReferenceAsset[] = []
-  const seen = new Set<string>()
-
-  for (const ref of refs) {
-    const characterId = ref.replace('char:', '')
-    const matched = options.characters.find(character => character.id === characterId)
-    const image = matched?.baseImage?.trim()
-    if (!matched || !image) continue
-
-    const assetId = `char:${matched.id}`
-    if (seen.has(assetId)) continue
-    seen.add(assetId)
-    assets.push({
-      assetId,
-      name: matched.name.trim() || '角色',
-      type: 'character',
-      image,
-      source: 'fallback'
-    })
-  }
-
-  return assets
-}
-
 function resolveConfiguredPropReferenceAssets(
-  options: Pick<SceneReferenceOptions, 'scene' | 'propAssets' | 'sceneConfigs'>
+  options: Pick<SceneReferenceOptions, 'scene' | 'characters' | 'propAssets'>
 ): SceneVideoReferenceAsset[] {
-  const config = options.sceneConfigs[options.scene.id]
-  if (!config) return []
-
-  const propIds = uniqueSorted(
-    config.mustReferenceAssetIds
-      .filter(assetId => assetId.startsWith('prop:'))
-      .map(assetId => assetId.slice('prop:'.length))
-      .filter(Boolean)
-  )
+  const mentionedPropIds = resolveMentionedSceneAssetIds(options)
+    .filter(assetId => assetId.startsWith('prop:'))
+    .map(assetId => assetId.slice('prop:'.length))
 
   const assets: SceneVideoReferenceAsset[] = []
   const seen = new Set<string>()
-  for (const propId of propIds) {
+  for (const propId of mentionedPropIds) {
     const prop = options.propAssets.find(item => item.id === propId)
     const image = prop?.referenceImage?.trim()
     if (!image) continue
@@ -179,7 +215,6 @@ export function resolveSceneVideoReferenceAssets(
 ): SceneVideoReferenceAsset[] {
   const assets: SceneVideoReferenceAsset[] = []
   const seenImage = new Set<string>()
-  const sceneHasConfig = hasSceneConfig(options.scene.id, options.sceneConfigs)
 
   const appendAsset = (asset: SceneVideoReferenceAsset) => {
     const image = asset.image?.trim()
@@ -193,12 +228,6 @@ export function resolveSceneVideoReferenceAssets(
 
   for (const asset of resolveConfiguredCharacterReferenceAssets(options)) {
     appendAsset(asset)
-  }
-  // 当场景已有配置时，角色引用仅来自场景描述中的显式 @角色 资产，避免对白提及被补回。
-  if (!sceneHasConfig) {
-    for (const asset of collectSceneCharacterReferenceAssets(options)) {
-      appendAsset(asset)
-    }
   }
   for (const asset of resolveConfiguredPropReferenceAssets(options)) {
     appendAsset(asset)

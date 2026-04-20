@@ -506,6 +506,7 @@ export function normalizeSceneDescriptionMentionsForSave(options: {
   text: string
   candidates: AssetMentionCandidate[]
   selectedAssetReferenceIds: string[]
+  preserveSelectedAssetReferenceIds?: boolean
 }): { description: string, assetIds: string[] } {
   const candidateTokenMap = new Map(
     options.candidates.map(candidate => [candidate.token, candidate] as const)
@@ -515,10 +516,12 @@ export function normalizeSceneDescriptionMentionsForSave(options: {
   )
 
   const mentionedAssetIds = extractMentionedAssetIdsFromDescription(options.text, candidateTokenMap)
-  const assetIds = uniqueValues([
-    ...mentionedAssetIds,
-    ...options.selectedAssetReferenceIds
-  ])
+  const assetIds = options.preserveSelectedAssetReferenceIds
+    ? uniqueValues([
+        ...mentionedAssetIds,
+        ...options.selectedAssetReferenceIds
+      ])
+    : mentionedAssetIds
   const mentionTokens = assetIds
     .map(assetId => candidateIdTokenMap.get(assetId) || '')
     .filter(Boolean)
