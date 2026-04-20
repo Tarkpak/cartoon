@@ -131,6 +131,25 @@ describe('scene description mention normalization', () => {
     expect(restored).toBe('镜头扫过桌上的@线索照片。')
   })
 
+  it('does not restore character names inside dialogue text as mention tokens', () => {
+    const assets = [
+      createAsset({
+        id: 'char:char_1',
+        name: '阿强',
+        type: 'character',
+        referenceImage: 'char.png'
+      })
+    ]
+
+    const restored = restoreSceneDescriptionMentionsForEdit({
+      text: '阿强冲进病房。0-3秒：对白：阿强：“快走，别回头。”',
+      candidates: buildSceneAssetMentionCandidates(assets),
+      selectedAssetReferenceIds: ['char:char_1']
+    })
+
+    expect(restored).toBe('@阿强冲进病房。0-3秒：对白：阿强：“快走，别回头。”')
+  })
+
   it('keeps mentioned assets before preselected-only assets when saving references', () => {
     const assets = [
       createAsset({
