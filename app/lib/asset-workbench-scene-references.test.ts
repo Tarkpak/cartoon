@@ -115,11 +115,11 @@ describe('scene video reference assets', () => {
     })
   })
 
-  it('uses configured character references as the source of truth when config exists', () => {
+  it('uses explicitly mentioned character references when config exists', () => {
     const scene = createScene({
       id: 'scene_2',
       title: '走廊',
-      description: '阿强在走廊回头。',
+      description: '阿强在走廊回头。\n\n[引用资产]\n@阿明',
       dialogues: [{ character: '阿强', text: '阿明，跟上。' }]
     })
     const characters = [
@@ -132,7 +132,7 @@ describe('scene video reference assets', () => {
       characters,
       propAssets: [],
       sceneConfigs: {
-        [scene.id]: createSceneConfig(scene.id, ['char:char_ming'])
+        [scene.id]: createSceneConfig(scene.id, ['char:char_qiang'])
       }
     })
 
