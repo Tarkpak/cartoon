@@ -49,9 +49,110 @@ export interface CaretSegment {
 export const timeOfDayOptions = TIME_OF_DAY_OPTIONS
 
 const SCENE_ASSET_MENTION_SECTION_BLOCK_REGEX = /\n{0,2}\[引用资产\]\n(?:@[^\n]*\n?)*$/u
+const SCENE_QUOTED_DIALOGUE_REGEX = /'[^'\n]*'|"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’|「[^」\n]*」|『[^』\n]*』/gu
+const SCENE_DIALOGUE_LABEL_LINE_REGEX = /(?:台词|对白|对话)\s*[：:][^\n]*/gu
+
+interface TextRange {
+  start: number
+  end: number
+}
 
 function escapeRegExp(raw: string): string {
   return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function mergeTextRanges(ranges: TextRange[]): TextRange[] {
+  if (ranges.length === 0) return []
+
+  const sorted = ranges
+    .filter(range => range.end > range.start)
+    .slice()
+    .sort((left, right) => left.start - right.start)
+
+  if (sorted.length === 0) return []
+
+  const merged: TextRange[] = [{ ...sorted[0]! }]
+  for (let index = 1; index < sorted.length; index += 1) {
+    const range = sorted[index]
+    const last = merged[merged.length - 1]
+    if (!range || !last) continue
+
+    if (range.start <= last.end) {
+      last.end = Math.max(last.end, range.end)
+      continue
+    }
+
+    merged.push({ ...range })
+  }
+
+  return merged
+}
+
+function collectDialogueLikeRanges(text: string, characterNames: string[]): TextRange[] {
+  const ranges: TextRange[] = []
+
+  for (const match of text.matchAll(SCENE_QUOTED_DIALOGUE_REGEX)) {
+    const content = match[0] || ''
+    const index = match.index ?? -1
+    if (!content || index < 0) continue
+    ranges.push({
+      start: index,
+      end: index + content.length
+    })
+  }
+
+  for (const match of text.matchAll(SCENE_DIALOGUE_LABEL_LINE_REGEX)) {
+    const content = match[0] || ''
+    const index = match.index ?? -1
+    if (!content || index < 0) continue
+
+    const leadingBreakOffset = content.startsWith('\n') ? 1 : 0
+    ranges.push({
+      start: index + leadingBreakOffset,
+      end: index + content.length
+    })
+  }
+
+  const normalizedNames = Array.from(new Set(
+    characterNames
+      .map(name => name.trim())
+      .filter(Boolean)
+  ))
+    .sort((left, right) => right.length - left.length)
+
+  if (normalizedNames.length > 0) {
+    const speakerRegex = new RegExp(
+      `(^|\\n)\\s*(?:${normalizedNames.map(name => escapeRegExp(name)).join('|')})\\s*[：:][^\\n]*`,
+      'gu'
+    )
+
+    for (const match of text.matchAll(speakerRegex)) {
+      const content = match[0] || ''
+      const index = match.index ?? -1
+      if (!content || index < 0) continue
+
+      const leadingBreakOffset = content.startsWith('\n') ? 1 : 0
+      ranges.push({
+        start: index + leadingBreakOffset,
+        end: index + content.length
+      })
+    }
+  }
+
+  return mergeTextRanges(ranges)
+}
+
+function isInsideRange(start: number, length: number, ranges: TextRange[]): boolean {
+  if (length <= 0 || ranges.length === 0) return false
+  const end = start + length
+
+  for (const range of ranges) {
+    if (start < range.end && end > range.start) {
+      return true
+    }
+  }
+
+  return false
 }
 
 export function resolveAssetTypeLabel(type: AssetReferenceType): string {
@@ -279,17 +380,32 @@ export function normalizeSceneDescriptionCharacterMentions(
   const bodyEnd = blockMatch?.index ?? text.length
   const mentionBlock = blockMatch?.[0] || ''
   const body = text.slice(0, bodyEnd)
+  const dialogueLikeRanges = collectDialogueLikeRanges(
+    body,
+    candidates
+      .filter(candidate => candidate.asset.type === 'character')
+      .map(candidate => candidate.asset.name)
+  )
 
   if (!body) return text
 
   let cursor = 0
   let normalized = ''
 
-  const findNextValidIndex = (rawText: string, name: string, start: number): number => {
+  const findNextValidIndex = (
+    rawText: string,
+    candidate: AssetMentionCandidate,
+    start: number
+  ): number => {
+    const name = candidate.asset.name.trim()
+    if (!name) return -1
+
     let index = rawText.indexOf(name, start)
     while (index >= 0) {
       const prevChar = index > 0 ? rawText[index - 1] : ''
-      if (prevChar !== '@') return index
+      const insideDialogueLikeRange = candidate.asset.type === 'character'
+        && isInsideRange(index, name.length, dialogueLikeRanges)
+      if (prevChar !== '@' && !insideDialogueLikeRange) return index
       index = rawText.indexOf(name, index + name.length)
     }
     return -1
@@ -302,7 +418,7 @@ export function normalizeSceneDescriptionCharacterMentions(
     for (const candidate of candidates) {
       const name = candidate.asset.name.trim()
       if (!name) continue
-      const index = findNextValidIndex(body, name, cursor)
+      const index = findNextValidIndex(body, candidate, cursor)
       if (index < 0) continue
 
       if (
