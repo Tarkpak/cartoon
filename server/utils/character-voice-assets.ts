@@ -10,6 +10,7 @@ import type { AsrDataSegment } from './asr'
 import { transcribeFileOnline } from './asr'
 import { persistAudioFileToCloud } from './audio-storage'
 import { clipAudioSegment, extractAudioTrack, getVideoInfo } from './ffmpeg'
+import { extractSceneDialoguesFromDescription } from './scene-dialogue'
 
 type SceneDialogue = {
   character: string
@@ -86,15 +87,7 @@ async function loadSceneContext(sceneId: string): Promise<LoadedSceneContext | n
     ? await db.select().from(scriptsTable).where(eq(scriptsTable.id, scene.scriptId)).get()
     : null
 
-  const dialoguesRaw = safeJsonParse<Array<{ character?: string, text?: string }>>(scene.dialogues) || []
-  const dialogues = dialoguesRaw
-    .map((item) => {
-      return {
-        character: typeof item?.character === 'string' ? item.character.trim() : '',
-        text: typeof item?.text === 'string' ? item.text.trim() : ''
-      }
-    })
-    .filter(item => item.character && item.text)
+  const dialogues = extractSceneDialoguesFromDescription(scene.description || '')
 
   const projectCharacters = script?.projectId
     ? await db.select().from(charactersTable).where(eq(charactersTable.projectId, script.projectId)).all()
