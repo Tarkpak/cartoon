@@ -33,7 +33,7 @@ describe('resolveSceneVoiceReferenceSummary', () => {
     ])
   })
 
-  it('falls back to prompt-only mode when the scene has multiple speakers', () => {
+  it('uses explicit audio mode when only one matched speaker has a voice asset', () => {
     const summary = resolveSceneVoiceReferenceSummary({
       scene: {
         dialogues: [
@@ -57,7 +57,7 @@ describe('resolveSceneVoiceReferenceSummary', () => {
       ]
     })
 
-    expect(summary.mode).toBe('prompt_only')
+    expect(summary.mode).toBe('explicit_audio')
     expect(summary.characters).toHaveLength(1)
     expect(summary.characters[0]?.name).toBe('阿青')
   })

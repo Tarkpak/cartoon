@@ -190,6 +190,17 @@ function resolveSingleSpeakerVoiceReference(context: LoadedSceneContext): VoiceR
   }
 }
 
+function resolvePreferredVoiceReference(options: {
+  context: LoadedSceneContext
+  candidates: VoiceReferenceCandidate[]
+}): VoiceReferenceCandidate | null {
+  if (options.candidates.length === 1) {
+    return options.candidates[0] || null
+  }
+
+  return resolveSingleSpeakerVoiceReference(options.context)
+}
+
 export async function enrichVideoConfigWithCharacterVoiceReference(options: {
   sceneId: string
   config: VideoGenerationConfig
@@ -209,9 +220,22 @@ export async function enrichVideoConfigWithCharacterVoiceReference(options: {
 
   const canInjectAudioReference = options.supportsExplicitAudioReference || options.modelProvider === 'qwen'
   if (canInjectAudioReference && !nextConfig.audioUrl) {
-    const singleSpeakerReference = resolveSingleSpeakerVoiceReference(context)
-    if (singleSpeakerReference?.voiceAsset.audioUrl) {
-      nextConfig.audioUrl = singleSpeakerReference.voiceAsset.audioUrl
+    const preferredReference = resolvePreferredVoiceReference({
+      context,
+      candidates
+    })
+    if (preferredReference?.voiceAsset.audioUrl) {
+      nextConfig.audioUrl = preferredReference.voiceAsset.audioUrl
+      console.log('[VoiceAsset] 已注入场景音频参考:', {
+        sceneId: options.sceneId,
+        characterId: preferredReference.characterId,
+        characterName: preferredReference.characterName
+      })
+    } else {
+      console.log('[VoiceAsset] 未注入场景音频参考（候选角色不唯一）:', {
+        sceneId: options.sceneId,
+        candidateCount: candidates.length
+      })
     }
   }
 
@@ -550,6 +574,7 @@ export async function extractCharacterVoiceAssetsFromSceneVideo(options: {
 export const __testUtils = {
   appendVoiceConstraintToPrompt,
   buildVoiceConstraintText,
+  resolvePreferredVoiceReference,
   resolveSingleSpeakerVoiceReference,
   calculateTranscriptMatchScore,
   matchDialoguesToAsrSegments,
