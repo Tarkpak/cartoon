@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Check, Loader2 } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
 import type { AssetVideoHistoryEntry } from '~/lib/asset-workbench-types'
 
 const props = defineProps<{
@@ -15,9 +16,135 @@ const emit = defineEmits<{
   'select': [entry: AssetVideoHistoryEntry]
 }>()
 
+const selectedEntryId = ref<string>('')
+const previewEntryId = ref<string>('')
+const previewSwitching = ref(false)
+let previewSwitchToken = 0
+
+function resolveEntryById(entryId: string): AssetVideoHistoryEntry | null {
+  return props.entries.find(entry => entry.id === entryId) || null
+}
+
 function isCurrent(entry: AssetVideoHistoryEntry): boolean {
   return (props.currentVideoUrl || '').trim() === (entry.videoUrl || '').trim()
 }
+
+function resolveDefaultEntryId(): string {
+  const currentEntry = props.entries.find(entry => isCurrent(entry))
+  if (currentEntry) return currentEntry.id
+  return props.entries[0]?.id || ''
+}
+
+const previewEntry = computed(() => {
+  if (props.entries.length === 0) return null
+  return resolveEntryById(previewEntryId.value) || props.entries[0] || null
+})
+
+const pendingPreviewEntry = computed(() => {
+  if (!previewSwitching.value) return null
+  if (!selectedEntryId.value || selectedEntryId.value === previewEntryId.value) return null
+  return resolveEntryById(selectedEntryId.value)
+})
+
+function resetSelectionToDefault() {
+  const defaultId = resolveDefaultEntryId()
+  selectedEntryId.value = defaultId
+  previewEntryId.value = defaultId
+  previewSwitching.value = false
+  previewSwitchToken += 1
+}
+
+function preloadVideo(url: string): Promise<void> {
+  if (!import.meta.client) return Promise.resolve()
+
+  return new Promise((resolve, reject) => {
+    const probe = document.createElement('video')
+    probe.preload = 'auto'
+    probe.muted = true
+    probe.playsInline = true
+
+    const timeout = window.setTimeout(() => {
+      cleanup()
+      reject(new Error('video preload timeout'))
+    }, 10000)
+
+    const cleanup = () => {
+      window.clearTimeout(timeout)
+      probe.onloadeddata = null
+      probe.oncanplay = null
+      probe.onerror = null
+      probe.removeAttribute('src')
+      probe.load()
+    }
+
+    const onReady = () => {
+      cleanup()
+      resolve()
+    }
+
+    const onError = () => {
+      cleanup()
+      reject(new Error('video preload failed'))
+    }
+
+    probe.onloadeddata = onReady
+    probe.oncanplay = onReady
+    probe.onerror = onError
+    probe.src = url
+    probe.load()
+  })
+}
+
+async function handleSelectEntry(entry: AssetVideoHistoryEntry) {
+  selectedEntryId.value = entry.id
+  if (previewEntryId.value === entry.id) return
+
+  const switchToken = ++previewSwitchToken
+  previewSwitching.value = true
+
+  try {
+    await preloadVideo(entry.videoUrl)
+  } catch {
+    // 即使预加载失败，仍尝试切换，避免用户无法预览
+  }
+
+  if (switchToken !== previewSwitchToken) return
+
+  previewEntryId.value = entry.id
+  previewSwitching.value = false
+}
+
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) return
+    resetSelectionToDefault()
+  }
+)
+
+watch(
+  () => props.entries,
+  (entries) => {
+    if (entries.length === 0) {
+      selectedEntryId.value = ''
+      previewEntryId.value = ''
+      previewSwitching.value = false
+      previewSwitchToken += 1
+      return
+    }
+
+    if (!entries.some(entry => entry.id === selectedEntryId.value)) {
+      selectedEntryId.value = resolveDefaultEntryId()
+    }
+
+    if (!entries.some(entry => entry.id === previewEntryId.value)) {
+      previewEntryId.value = selectedEntryId.value || resolveDefaultEntryId()
+      previewSwitching.value = false
+      previewSwitchToken += 1
+    }
+  },
+  { deep: false }
+)
 
 function resolveSourceLabel(entry: AssetVideoHistoryEntry): string {
   if (entry.source === 'generated') return '生成'
@@ -63,29 +190,80 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
 
       <div
         v-else
-        class="grid max-h-[64vh] grid-cols-1 gap-3 overflow-y-auto pr-1 xl:grid-cols-2"
+        class="grid max-h-[68vh] min-h-0 grid-cols-1 gap-3 lg:grid-cols-[300px_minmax(0,1fr)]"
       >
         <div
-          v-for="entry in entries"
-          :key="entry.id"
-          class="flex flex-col overflow-hidden rounded-lg border bg-card"
+          class="min-h-0 overflow-y-auto rounded-lg border bg-card"
         >
-          <div class="h-44 overflow-hidden bg-black md:h-48">
+          <button
+            v-for="(entry, index) in entries"
+            :key="entry.id"
+            type="button"
+            class="flex w-full items-start gap-2 border-b px-2.5 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
+            :class="entry.id === selectedEntryId ? 'bg-muted/50' : ''"
+            @click="handleSelectEntry(entry)"
+          >
+            <span class="mt-0.5 shrink-0 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              #{{ entries.length - index }}
+            </span>
+            <div class="min-w-0 flex-1 space-y-1">
+              <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span class="rounded-full border px-1.5 py-0.5">{{ resolveSourceLabel(entry) }}</span>
+                <span
+                  v-if="isCurrent(entry)"
+                  class="rounded-full bg-primary/10 px-1.5 py-0.5 text-primary"
+                >
+                  当前
+                </span>
+                <span
+                  v-if="entry.id === previewEntryId"
+                  class="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-emerald-600"
+                >
+                  预览中
+                </span>
+              </div>
+              <p class="truncate text-xs text-muted-foreground">
+                {{ formatEntryTime(entry) }}
+              </p>
+              <p
+                v-if="entry.prompt"
+                class="truncate text-[11px] text-muted-foreground/80"
+              >
+                {{ entry.prompt }}
+              </p>
+            </div>
+          </button>
+        </div>
+
+        <div
+          v-if="previewEntry"
+          class="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-card"
+        >
+          <div class="relative min-h-[260px] flex-1 overflow-hidden bg-black">
             <video
-              :src="entry.videoUrl"
+              :src="previewEntry.videoUrl"
               class="h-full w-full object-contain"
               controls
-              preload="metadata"
+              preload="auto"
               playsinline
             />
+            <div
+              v-if="previewSwitching && pendingPreviewEntry"
+              class="absolute inset-0 flex items-center justify-center bg-black/45"
+            >
+              <div class="inline-flex items-center gap-2 rounded-md bg-background/95 px-3 py-1.5 text-xs text-foreground shadow">
+                <Loader2 class="h-3.5 w-3.5 animate-spin" />
+                <span class="truncate max-w-[220px]">切换预览中</span>
+              </div>
+            </div>
           </div>
 
           <div class="space-y-2 px-3 py-2.5">
             <div class="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-              <span class="rounded-full border px-2 py-0.5">{{ resolveSourceLabel(entry) }}</span>
-              <span>{{ formatEntryTime(entry) }}</span>
+              <span class="rounded-full border px-2 py-0.5">{{ resolveSourceLabel(previewEntry) }}</span>
+              <span>{{ formatEntryTime(previewEntry) }}</span>
               <span
-                v-if="isCurrent(entry)"
+                v-if="isCurrent(previewEntry)"
                 class="rounded-full bg-primary/10 px-2 py-0.5 text-primary"
               >
                 当前
@@ -93,27 +271,27 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
             </div>
 
             <p
-              v-if="entry.prompt"
-              class="line-clamp-2 text-xs text-muted-foreground"
+              v-if="previewEntry.prompt"
+              class="line-clamp-3 text-xs text-muted-foreground"
             >
-              {{ entry.prompt }}
+              {{ previewEntry.prompt }}
             </p>
 
             <Button
               size="sm"
               class="h-8 w-full"
-              :disabled="loading || isCurrent(entry)"
-              @click="emit('select', entry)"
+              :disabled="loading || previewSwitching || isCurrent(previewEntry)"
+              @click="emit('select', previewEntry)"
             >
               <Loader2
-                v-if="loading"
+                v-if="loading || previewSwitching"
                 class="mr-1 h-3.5 w-3.5 animate-spin"
               />
               <Check
                 v-else
                 class="mr-1 h-3.5 w-3.5"
               />
-              {{ isCurrent(entry) ? '当前使用中' : '设为当前' }}
+              {{ isCurrent(previewEntry) ? '当前使用中' : '设为当前' }}
             </Button>
           </div>
         </div>
