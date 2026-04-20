@@ -108,6 +108,37 @@ export function useAssetWorkbenchSceneGeneration(
   const pendingBaselineGenerationKeys = new Map<string, string>()
   const pendingVideoGenerationKeys = new Map<string, string>()
 
+  function resolveSceneAvailableReferenceImage(scene: SceneData): string | undefined {
+    return options.resolveSceneBaselineReferenceImage?.(scene)?.trim()
+      || resolveSceneReferenceImage(scene)
+      || scene.firstFrame
+  }
+
+  async function applySceneReferenceIfAvailable(scene: SceneData): Promise<boolean> {
+    if (resolveSceneReferenceImage(scene)) return false
+
+    const reusableImage = resolveSceneAvailableReferenceImage(scene)
+    if (!reusableImage) return false
+
+    applySceneBaselineReference(scene, reusableImage)
+    const environmentAssetId = resolveSceneEnvironmentAssetId(scene)
+    const existingState = options.resolveEnvironmentPanoramaState?.(environmentAssetId)
+    if (!existingState?.panoramaImage) {
+      options.setEnvironmentPanoramaState?.(environmentAssetId, {
+        panoramaImage: reusableImage,
+        crop: existingState?.crop
+      })
+    }
+    options.recordEnvironmentHistory?.(
+      environmentAssetId,
+      reusableImage,
+      { source: 'legacy' }
+    )
+    options.synchronizeQueueItems()
+    await options.saveProject()
+    return true
+  }
+
   async function ensureSceneReferencedAssetsReady(scene: SceneData): Promise<void> {
     const config = options.ensureSceneConfig(scene.id)
 
@@ -143,7 +174,7 @@ export function useAssetWorkbenchSceneGeneration(
       if (relatedScenes.length === 0) continue
 
       const readyScene = relatedScenes.find((item) => {
-        return !!resolveSceneReferenceImage(item) && item.referenceStatus === 'done'
+        return !!resolveSceneAvailableReferenceImage(item)
       })
       if (readyScene) continue
 
@@ -162,7 +193,7 @@ export function useAssetWorkbenchSceneGeneration(
         )
       }
 
-      if (!resolveSceneReferenceImage(fallbackScene)) {
+      if (!resolveSceneAvailableReferenceImage(fallbackScene)) {
         throw new Error(`引用环境资产未就绪：${resolveSceneEnvironmentLabel(fallbackScene)}`)
       }
     }
@@ -179,8 +210,8 @@ export function useAssetWorkbenchSceneGeneration(
       const referencedScene = options.scenes.value.find(item => item.id === referencedSceneId)
       if (!referencedScene) continue
 
-      const referenceImage = resolveSceneReferenceImage(referencedScene)
-      if (referenceImage && referencedScene.referenceStatus === 'done') continue
+      const referenceImage = resolveSceneAvailableReferenceImage(referencedScene)
+      if (referenceImage) continue
 
       await generateSceneBaseline(referencedSceneId, { preferReuse: true })
 
@@ -192,7 +223,7 @@ export function useAssetWorkbenchSceneGeneration(
         )
       }
 
-      if (!resolveSceneReferenceImage(referencedScene)) {
+      if (!resolveSceneAvailableReferenceImage(referencedScene)) {
         throw new Error(`引用场景资产未就绪：${referencedScene.title}`)
       }
     }
@@ -260,6 +291,11 @@ export function useAssetWorkbenchSceneGeneration(
     const customPrompt = generationOptions.customPrompt?.trim()
 
     if (generationOptions.preferReuse && !customPrompt) {
+      const appliedFromAsset = await applySceneReferenceIfAvailable(scene)
+      if (appliedFromAsset) {
+        return
+      }
+
       const reusableImage = findReusableEnvironmentImage(scene, options.scenes.value)
       if (reusableImage) {
         applySceneBaselineReference(scene, reusableImage)
@@ -370,6 +406,10 @@ export function useAssetWorkbenchSceneGeneration(
     if (!scene) return
 
     await ensureSceneReferencedAssetsReady(scene)
+
+    if (!resolveSceneReferenceImage(scene)) {
+      await applySceneReferenceIfAvailable(scene)
+    }
 
     if (!resolveSceneReferenceImage(scene)) {
       await generateSceneBaseline(scene.id, { preferReuse: true })

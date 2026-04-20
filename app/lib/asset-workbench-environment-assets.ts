@@ -13,6 +13,12 @@ import {
   resolveSceneReferenceImage
 } from '~/lib/asset-workbench-environment-core'
 
+function resolveEnvironmentHistoryPreview(
+  history?: EnvironmentAssetCard['assetHistory']
+): string | undefined {
+  return history?.[0]?.image
+}
+
 function mergeEnvironmentReferenceStatus(
   current: EnvironmentAssetCard['referenceStatus'],
   next: SceneData['referenceStatus']
@@ -44,21 +50,25 @@ export function buildEnvironmentAssetCards(options: {
     const assetId = resolveSceneEnvironmentAssetId(scene)
     const existing = map.get(assetId)
     const sceneImage = resolveSceneReferenceImage(scene)
+    const panoramaState = options.environmentPanoramaStates?.[assetId]
 
     if (!existing) {
+      const assetHistory = normalizeAssetHistoryEntries(
+        options.environmentAssetHistories?.[assetId],
+        sceneImage
+      )
+      const previewImage = sceneImage || resolveEnvironmentHistoryPreview(assetHistory)
+
       map.set(assetId, {
         id: assetId,
         name: resolveSceneEnvironmentAssetLabel(scene),
         description: scene.setting?.mood?.trim()
           || options.resolveSceneDescriptionWithoutAssetMentions(scene.description)?.trim()
           || undefined,
-        referenceImage: sceneImage,
-        panoramaImage: options.environmentPanoramaStates?.[assetId]?.panoramaImage || sceneImage,
-        crop: options.environmentPanoramaStates?.[assetId]?.crop,
-        assetHistory: normalizeAssetHistoryEntries(
-          options.environmentAssetHistories?.[assetId],
-          sceneImage
-        ),
+        referenceImage: previewImage,
+        panoramaImage: panoramaState?.panoramaImage || previewImage,
+        crop: panoramaState?.crop,
+        assetHistory,
         sceneIds: [scene.id],
         sceneTitles: [scene.title || scene.id],
         representativeSceneId: scene.id,
@@ -70,22 +80,27 @@ export function buildEnvironmentAssetCards(options: {
     existing.sceneIds.push(scene.id)
     existing.sceneTitles.push(scene.title || scene.id)
 
-    if (!existing.referenceImage && sceneImage) {
-      existing.referenceImage = sceneImage
-      existing.representativeSceneId = scene.id
-    }
-
-    if (!existing.panoramaImage) {
-      existing.panoramaImage = options.environmentPanoramaStates?.[assetId]?.panoramaImage || sceneImage
-    }
-    if (!existing.crop && options.environmentPanoramaStates?.[assetId]?.crop) {
-      existing.crop = options.environmentPanoramaStates[assetId]?.crop
-    }
-
     existing.assetHistory = normalizeAssetHistoryEntries(
       existing.assetHistory,
       sceneImage
     )
+
+    const historyPreview = resolveEnvironmentHistoryPreview(existing.assetHistory)
+
+    if (!existing.referenceImage && sceneImage) {
+      existing.referenceImage = sceneImage
+      existing.representativeSceneId = scene.id
+    }
+    if (!existing.referenceImage && historyPreview) {
+      existing.referenceImage = historyPreview
+    }
+
+    if (!existing.panoramaImage) {
+      existing.panoramaImage = panoramaState?.panoramaImage || sceneImage || historyPreview
+    }
+    if (!existing.crop && panoramaState?.crop) {
+      existing.crop = panoramaState.crop
+    }
 
     existing.referenceStatus = mergeEnvironmentReferenceStatus(existing.referenceStatus, scene.referenceStatus)
   }

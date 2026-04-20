@@ -7,6 +7,7 @@ import type {
   AssetImageHistoryEntry,
   AssetVideoHistoryEntry,
   CharacterRoleOption,
+  DisplayAsset,
   EnvironmentCropSelection,
   EnvironmentPanoramaState,
   QueueItem
@@ -325,6 +326,7 @@ function buildEnvironmentCropUploadPrefix(assetId: string): string {
 function resolveSceneBaselineReferenceImage(scene: SceneData): string | undefined {
   const assetId = resolveSceneEnvironmentAssetId(scene)
   return resolveEnvironmentPanoramaState(assetId)?.panoramaImage?.trim()
+    || resolveEnvironmentCard(assetId)?.referenceImage?.trim()
     || resolveSceneReferenceImage(scene)
     || scene.firstFrame
 }
@@ -1148,7 +1150,7 @@ async function uploadSceneEditOtherAssets(options: {
   sceneId: string
   files: File[]
   names?: string[]
-}): Promise<string[]> {
+}): Promise<DisplayAsset[]> {
   const sceneId = options.sceneId?.trim()
   if (!sceneId) {
     throw new Error('场景ID无效，无法上传资产')
@@ -1158,7 +1160,7 @@ async function uploadSceneEditOtherAssets(options: {
   const names = Array.isArray(options.names) ? options.names : []
   if (files.length === 0) return []
 
-  const createdAssetIds: string[] = []
+  const createdAssets: DisplayAsset[] = []
   const existingNames = propAssets.value.map(item => item.name)
 
   try {
@@ -1181,11 +1183,17 @@ async function uploadSceneEditOtherAssets(options: {
         referenceImage: imageUrl
       })
       recordPropHistory(propId, imageUrl, { source: 'uploaded' })
-      createdAssetIds.push(`prop:${propId}`)
+      createdAssets.push({
+        id: `prop:${propId}`,
+        name,
+        type: 'other',
+        description: '场景编辑上传图片资产',
+        referenceImage: imageUrl
+      })
     }
 
     await saveWorkflowMeta()
-    return createdAssetIds
+    return createdAssets
   } catch (error) {
     throw new Error(resolveUiError(error, '场景编辑上传资产失败'))
   }
