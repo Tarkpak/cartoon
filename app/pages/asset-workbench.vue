@@ -79,6 +79,7 @@ async function refreshVideoAudioReferenceCapability() {
           compatibleModels?: Array<{
             model: string
             provider: string
+            supportAudioReference?: boolean
           }>
         }>
       }
@@ -87,8 +88,8 @@ async function refreshVideoAudioReferenceCapability() {
     const workflows = response.data?.workflows || []
     const videoWorkflow = workflows.find(item => item.id === 'video_generation')
     const selectedModel = videoWorkflow?.selectedModel || ''
-    const selectedProvider = videoWorkflow?.compatibleModels?.find(item => item.model === selectedModel)?.provider
-    supportsExplicitVoiceAudioReference.value = selectedProvider === 'qwen'
+    const selectedModelConfig = videoWorkflow?.compatibleModels?.find(item => item.model === selectedModel)
+    supportsExplicitVoiceAudioReference.value = selectedModelConfig?.supportAudioReference === true
   } catch (error) {
     console.warn('[asset-workbench] 读取视频模型能力失败，默认关闭显式音频引用标记:', error)
     supportsExplicitVoiceAudioReference.value = false

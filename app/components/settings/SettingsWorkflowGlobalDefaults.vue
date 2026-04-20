@@ -185,7 +185,7 @@ async function triggerSystemNotificationTest() {
     const result = await sendSystemNotificationTest()
     systemNotificationStatus.value = result.status
     completionNotificationHint.value = result.sent
-      ? '已发送测试通知；如果没有看到弹窗，请检查浏览器站点权限和系统通知开关。'
+      ? `已通过${result.channel === 'serviceWorker' ? 'Service Worker' : '页面通知'}发送测试通知；如果没有看到弹窗，请检查浏览器站点权限和系统通知开关。`
       : resolveSystemNotificationBlockedHint(result.status)
     return result
   } finally {
