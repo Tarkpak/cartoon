@@ -66,10 +66,22 @@ const videoBadge = computed(() => props.resolveSceneVideoBadge(props.scene))
 const voiceReferenceSummary = computed(() => props.resolveSceneVoiceReferenceSummary(props.scene))
 const descriptionSegments = computed(() => props.resolveSceneDescriptionRenderSegments(props.scene))
 const secondaryMentions = computed(() => props.resolveSceneDescriptionSecondaryMentionItems(props.scene))
+const inlineRenderedMentionAssetIdSet = computed(() => {
+  const ids = new Set<string>()
+
+  for (const segment of descriptionSegments.value) {
+    if (segment.type !== 'asset' || !segment.asset?.id) continue
+    ids.add(segment.asset.id)
+  }
+
+  return ids
+})
 const sceneReferenceImage = computed(() => props.resolveSceneReferenceImage(props.scene))
 const visibleSecondaryMentions = computed(() => {
   return secondaryMentions.value.filter((item) => {
-    return item.asset?.type !== 'environment'
+    if (item.asset?.type === 'environment') return false
+    if (!item.asset?.id) return true
+    return !inlineRenderedMentionAssetIdSet.value.has(item.asset.id)
   })
 })
 const sceneBusy = computed(() => props.isSceneBusy(props.scene))

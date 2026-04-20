@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { DisplayAsset } from './asset-workbench-types'
 import {
   buildSceneAssetMentionCandidates,
-  normalizeSceneDescriptionMentionsForSave
+  mergeSceneEditAssetReferenceOptions,
+  normalizeSceneDescriptionMentionsForSave,
+  restoreSceneDescriptionMentionsForEdit,
+  resolveUploadedSceneAssetMentionTokens
 } from './scene-edit-dialog'
 
 function createAsset(input: DisplayAsset): DisplayAsset {
@@ -75,5 +78,79 @@ describe('scene description mention normalization', () => {
       'env:scene_1'
     ])
     expect(result.description).toBe('0-3s：阿强 从画面左侧冲进 医院走廊。')
+  })
+
+  it('keeps newly uploaded assets mentionable before parent options sync back', () => {
+    const uploadedAsset = createAsset({
+      id: 'prop:prop_uploaded',
+      name: '线索照片',
+      type: 'other',
+      referenceImage: 'photo.png'
+    })
+
+    const mergedOptions = mergeSceneEditAssetReferenceOptions([uploadedAsset], [])
+    const uploadTokens = resolveUploadedSceneAssetMentionTokens({
+      createdAssets: [uploadedAsset],
+      assetReferenceOptions: []
+    })
+
+    expect(mergedOptions).toEqual([uploadedAsset])
+    expect(uploadTokens).toEqual(['@线索照片'])
+
+    const result = normalizeSceneDescriptionMentionsForSave({
+      text: '镜头扫过桌上的 @线索照片 。',
+      candidates: buildSceneAssetMentionCandidates(mergedOptions),
+      selectedAssetReferenceIds: [uploadedAsset.id]
+    })
+
+    expect(result.assetIds).toEqual(['prop:prop_uploaded'])
+    expect(result.description).toBe('镜头扫过桌上的 线索照片 。\n\n[引用资产]\n@线索照片')
+  })
+
+  it('restores selected asset names back to mention tokens when reopening editor', () => {
+    const assets = [
+      createAsset({
+        id: 'prop:prop_uploaded',
+        name: '线索照片',
+        type: 'other',
+        referenceImage: 'photo.png'
+      }),
+      createAsset({
+        id: 'prop:prop_2',
+        name: '桌面',
+        type: 'prop'
+      })
+    ]
+
+    const restored = restoreSceneDescriptionMentionsForEdit({
+      text: '镜头扫过桌上的线索照片。',
+      candidates: buildSceneAssetMentionCandidates(assets),
+      selectedAssetReferenceIds: ['prop:prop_uploaded']
+    })
+
+    expect(restored).toBe('镜头扫过桌上的@线索照片。')
+  })
+
+  it('keeps mentioned assets before preselected-only assets when saving references', () => {
+    const assets = [
+      createAsset({
+        id: 'prop:prop_1',
+        name: '工作证',
+        type: 'prop'
+      }),
+      createAsset({
+        id: 'prop:prop_2',
+        name: '手电筒',
+        type: 'other'
+      })
+    ]
+
+    const result = normalizeSceneDescriptionMentionsForSave({
+      text: '主角亮出 @工作证。',
+      candidates: buildSceneAssetMentionCandidates(assets),
+      selectedAssetReferenceIds: ['prop:prop_2']
+    })
+
+    expect(result.assetIds).toEqual(['prop:prop_1', 'prop:prop_2'])
   })
 })

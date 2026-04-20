@@ -7,7 +7,10 @@ import type {
 } from '~/lib/scene-edit-dialog'
 import {
   buildSceneAssetMentionCandidates,
+  mergeSceneEditAssetReferenceOptions,
   normalizeSceneDescriptionMentionsForSave,
+  restoreSceneDescriptionMentionsForEdit,
+  resolveUploadedSceneAssetMentionTokens,
   uniqueValues
 } from '~/lib/scene-edit-dialog'
 import { resetFileInput } from '~/lib/asset-workbench-upload'
@@ -18,7 +21,7 @@ const props = defineProps<{
   scene: SceneEditData | null
   assetReferenceOptions?: AssetReferenceOption[]
   selectedAssetReferenceIds?: string[]
-  uploadOtherAssets?: (options: { sceneId: string, files: File[], names?: string[] }) => Promise<string[]>
+  uploadOtherAssets?: (options: { sceneId: string, files: File[], names?: string[] }) => Promise<AssetReferenceOption[]>
 }>()
 
 const emit = defineEmits<{
@@ -51,11 +54,15 @@ const sceneAssetUploadError = ref<string | null>(null)
 const sceneAssetNameDialogOpen = ref(false)
 const sceneAssetPendingFiles = ref<File[]>([])
 const sceneAssetPendingNames = ref<string[]>([])
+const uploadedAssetReferenceOptions = ref<AssetReferenceOption[]>([])
 
 const dialogOpen = toRef(props, 'open')
 
 const assetReferenceOptions = computed<AssetReferenceOption[]>(() => {
-  return Array.isArray(props.assetReferenceOptions) ? props.assetReferenceOptions : []
+  return mergeSceneEditAssetReferenceOptions(
+    uploadedAssetReferenceOptions.value,
+    Array.isArray(props.assetReferenceOptions) ? props.assetReferenceOptions : []
+  )
 })
 
 const sceneDescription = computed({
@@ -94,10 +101,20 @@ const {
 // 监听 scene 变化，初始化表单
 watch(() => props.scene, (newScene) => {
   if (newScene) {
+    const mentionCandidates = buildSceneAssetMentionCandidates(assetReferenceOptions.value)
+    const selectedAssetReferenceIds = Array.isArray(props.selectedAssetReferenceIds)
+      ? props.selectedAssetReferenceIds.filter(Boolean)
+      : []
+    const restoredDescription = restoreSceneDescriptionMentionsForEdit({
+      text: newScene.description || '',
+      candidates: mentionCandidates,
+      selectedAssetReferenceIds
+    })
+
     editForm.value = {
       id: newScene.id,
       title: newScene.title,
-      description: newScene.description,
+      description: restoredDescription,
       narration: newScene.narration || '',
       characters: [...newScene.characters],
       dialogues: newScene.dialogues.map(d => ({ ...d })),
@@ -123,6 +140,7 @@ watch(
     if (open) return
     sceneAssetUploadError.value = null
     sceneAssetUploading.value = false
+    uploadedAssetReferenceOptions.value = []
     closeSceneAssetNameDialog()
   }
 )
@@ -216,7 +234,16 @@ function resolveSceneAssetDefaultNames(files: File[]): string[] {
   })
 }
 
-function applySceneAssetTokens(createdAssetIds: string[]) {
+function registerUploadedAssetReferenceOptions(createdAssets: AssetReferenceOption[]) {
+  uploadedAssetReferenceOptions.value = mergeSceneEditAssetReferenceOptions(
+    createdAssets,
+    uploadedAssetReferenceOptions.value
+  )
+}
+
+function applySceneAssetTokens(createdAssets: AssetReferenceOption[]) {
+  const createdAssetIds = createdAssets.map(asset => asset.id)
+
   if (createdAssetIds.length > 0) {
     selectedAssetReferenceIdsInternal.value = uniqueValues([
       ...selectedAssetReferenceIdsInternal.value,
@@ -226,13 +253,10 @@ function applySceneAssetTokens(createdAssetIds: string[]) {
 
   if (createdAssetIds.length === 0) return
 
-  const tokenById = new Map(
-    buildSceneAssetMentionCandidates(assetReferenceOptions.value)
-      .map(candidate => [candidate.asset.id, candidate.token] as const)
-  )
-  const appendedTokens = createdAssetIds
-    .map(assetId => tokenById.get(assetId) || '')
-    .filter(Boolean)
+  const appendedTokens = resolveUploadedSceneAssetMentionTokens({
+    createdAssets,
+    assetReferenceOptions: assetReferenceOptions.value
+  })
 
   if (appendedTokens.length === 0) return
 
@@ -284,14 +308,14 @@ async function submitSceneAssetUpload() {
     }
 
     const names = resolveSceneAssetUploadNames(files)
-    const createdAssetIds = await props.uploadOtherAssets({
+    const createdAssets = await props.uploadOtherAssets({
       sceneId: editForm.value.id,
       files,
       names
     })
 
-    await nextTick()
-    applySceneAssetTokens(createdAssetIds)
+    registerUploadedAssetReferenceOptions(createdAssets)
+    applySceneAssetTokens(createdAssets)
     closeSceneAssetNameDialog()
   } catch (error) {
     sceneAssetUploadError.value = error instanceof Error
