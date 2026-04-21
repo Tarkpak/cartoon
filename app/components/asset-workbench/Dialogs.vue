@@ -47,6 +47,7 @@ defineProps<{
   assetHistoryDialogOpen: boolean
   setAssetHistoryDialogOpen: (open: boolean) => void
   assetHistoryDialogTitle: string
+  assetHistoryTargetType?: 'character' | 'environment' | 'prop' | null
   assetHistoryTargetLabel: string
   assetHistoryCurrentImage?: string
   assetHistoryEntries: AssetImageHistoryEntry[]
@@ -127,6 +128,7 @@ defineProps<{
   <AssetWorkbenchAssetHistoryDialog
     :open="assetHistoryDialogOpen"
     :title="assetHistoryDialogTitle"
+    :target-type="assetHistoryTargetType"
     :target-label="assetHistoryTargetLabel"
     :current-image="assetHistoryCurrentImage"
     :entries="assetHistoryEntries"

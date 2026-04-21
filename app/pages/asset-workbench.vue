@@ -954,6 +954,8 @@ const assetHistoryDialogTitle = computed(() => {
   return '资产历史'
 })
 
+const assetHistoryTargetType = computed(() => assetHistoryTarget.value?.type || null)
+
 const assetHistoryTargetLabel = computed(() => {
   if (!assetHistoryTarget.value) return ''
 
@@ -1664,6 +1666,7 @@ async function handleBatchGenerateCharacters() {
       :asset-history-dialog-open="assetHistoryDialogOpen"
       :set-asset-history-dialog-open="setAssetHistoryDialogOpen"
       :asset-history-dialog-title="assetHistoryDialogTitle"
+      :asset-history-target-type="assetHistoryTargetType"
       :asset-history-target-label="assetHistoryTargetLabel"
       :asset-history-current-image="assetHistoryCurrentImage"
       :asset-history-entries="assetHistoryEntries"
