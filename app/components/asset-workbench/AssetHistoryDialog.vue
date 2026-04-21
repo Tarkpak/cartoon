@@ -72,11 +72,11 @@ function formatEntryTime(entry: AssetImageHistoryEntry): string {
         <div
           v-for="entry in entries"
           :key="entry.id"
-          class="overflow-hidden rounded-lg border bg-card"
+          class="flex flex-col overflow-hidden rounded-lg border bg-card"
         >
           <button
             type="button"
-            class="block aspect-square w-full overflow-hidden bg-muted/30"
+            class="block h-28 w-full shrink-0 overflow-hidden bg-muted/30 sm:h-32 lg:h-36"
             @click="emit('preview', { src: entry.image, alt: `${targetLabel} 历史资产` })"
           >
             <img
