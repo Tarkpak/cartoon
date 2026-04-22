@@ -41,6 +41,18 @@ export interface PromptTemplate {
 }
 
 export const PROMPT_DEFAULT_PROFILE_ID = 'default'
+export const PROMPT_SEEDANCE_PROFILE_ID = 'default_seedance'
+export const PROMPT_READONLY_PROFILE_IDS = [
+  PROMPT_DEFAULT_PROFILE_ID,
+  PROMPT_SEEDANCE_PROFILE_ID
+] as const
+
+export function isPromptReadonlyProfile(
+  profileId: string | null | undefined
+): boolean {
+  if (!profileId) return false
+  return PROMPT_READONLY_PROFILE_IDS.includes(profileId as (typeof PROMPT_READONLY_PROFILE_IDS)[number])
+}
 
 export interface PromptTemplateProfile {
   id: string

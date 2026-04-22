@@ -13,8 +13,8 @@ import {
 export default defineEventHandler(async (event) => {
   try {
     const workflow = resolvePromptWorkflowFromEvent(event)
-    const templates = await getAllPromptTemplates(workflow)
     const profileData = await getPromptProfiles(workflow)
+    const templates = await getAllPromptTemplates(workflow)
     const metadataList = getPromptTemplateMetadataForWorkflow(workflow)
     const metadata = {
       text: metadataList.filter(t => t.category === 'text'),

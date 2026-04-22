@@ -16,6 +16,7 @@ const props = defineProps<{
   profiles: PromptTemplateProfile[]
   activeProfileId: string
   profileBusy: boolean
+  activeProfileReadonly: boolean
   canRenameProfile: boolean
   canDeleteProfile: boolean
   workflowLabel: string
@@ -185,7 +186,7 @@ function toSelectString(value: unknown): string {
               <div class="flex items-center gap-2">
                 <span class="truncate text-sm">{{ template.name }}</span>
                 <span
-                  v-if="template.isCustomized"
+                  v-if="template.isCustomized && !props.activeProfileReadonly"
                   class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900 dark:text-amber-300"
                 >
                   已自定义
