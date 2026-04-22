@@ -941,6 +941,7 @@ export async function _volcengineGenerateVideo(options: {
   firstFrameUrl?: string
   lastFrameUrl?: string
   audioUrl?: string
+  withAudio?: boolean
   referenceImages?: string[]
   duration?: number
   aspectRatio?: string
@@ -1036,6 +1037,7 @@ export async function _volcengineGenerateVideo(options: {
     ratio,
     size: options.size,
     resolution: options.resolution,
+    withAudio: options.withAudio,
     negativePrompt: options.negativePrompt,
     maxRetries: options.maxRetries
   })
@@ -1051,7 +1053,8 @@ export async function _volcengineGenerateVideo(options: {
         content,
         duration: -1,
         ratio,
-        watermark: false // 去掉水印
+        watermark: false, // 去掉水印
+        generate_audio: options.withAudio ?? true
       }
 
       // 可选参数
@@ -1075,6 +1078,7 @@ export async function _volcengineGenerateVideo(options: {
         referenceImagesCount: content.filter(c => c.type === 'image_url' && c.role === 'reference_image').length,
         hasAudioReference,
         audioReferenceCount: content.filter(c => c.type === 'audio_url').length,
+        generateAudio: requestBody.generate_audio,
         duration: requestBody.duration,
         ratio: requestBody.ratio,
         resolution: requestBody.resolution

@@ -724,7 +724,6 @@ export default defineEventHandler(async (event) => {
     duration: finalDuration,
     resolution: '720p',
     aspectRatio,
-    withAudio: true,
     model: 'fast',
     modelId: modelDecision.modelId
   }

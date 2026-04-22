@@ -112,7 +112,7 @@ function getDefaultContent(id: string): PromptTemplate['content'] {
 }
 
 const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
-  zh: `你是一位资深分镜师，专注于短视频影视化生产。请把输入文本解析成可直接进入”资产准备 → 场景视频生成”的结构化数据。
+  zh: `你是一位资深分镜师，负责把输入剧本忠实还原为可执行分镜。请把输入文本解析成可直接进入”资产准备 → 场景视频生成”的结构化数据。
 
 【输入文本】
 {{novelText}}
@@ -164,7 +164,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
    - 运镜方式如：固定镜头、缓慢推近、缓慢拉远、镜头左摇、镜头右摇、跟随镜头、手持镜头等。
    - 可在运镜后补充镜头角度或特殊说明，如：，镜头角度略低于XX的视线。
 4. 每个场景至少 2 行镜头设计，建议 3-6 行；时间轴从 0 开始，最后一行结束时间应与 duration 对齐或接近（误差不超过 0.5 秒）。
-5. 对于强戏剧冲突、对峙、告白、反转、觉醒等核心戏，优先给 8-15 秒并在单场景内部拆镜；2-6 秒只留给过渡、反应或闪回补刀镜头。
+5. 时长要以剧情表达完整为优先。若同一戏剧段超过单场可生成时长，请拆成连续场景承接，不得删减关键剧情与情绪推进。
 6. 对话要直接写在对应镜头行中，用单引号包裹，例如：陆哲说：'你们等着看。'
 7. 旁白/画外音必须嵌入对应镜头行中，格式：画外音（音色：性别，年龄段，语调描述，音高，语速，情绪，口音）说：'旁白内容'。
    示例：画外音（音色：男性，30岁左右，语调平静而富有叙事感，音高中等，语速适中，情绪内敛，无口音）说：'那份冰冷的文件，像一把钝刀。'
@@ -229,7 +229,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 \`\`\`
 
 只输出 JSON，不要附加解释。`,
-  en: `You are a senior screenplay parser for short-form cinematic production. Convert the input text into structured data that can directly enter the current workbench pipeline: parse -> assets -> scene video generation.
+  en: `You are a senior screenplay parser for faithful cinematic adaptation. Convert the input text into structured data that can directly enter the current workbench pipeline: parse -> assets -> scene video generation.
 
 ## Input Text
 {{novelText}}
@@ -281,7 +281,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
    - 运镜方式 (camera movements): 固定镜头, 缓慢推近, 缓慢拉远, 镜头左摇, 镜头右摇, 跟随镜头, 手持镜头, etc.
    - Additional camera info may follow, e.g.: ，镜头角度略低于XX的视线。
 4. Each scene needs at least 2 shot-design lines, preferably 3-6. Timeline starts at 0 and the final line should align with duration within 0.5 seconds.
-5. For major dramatic confrontation, confession, reversal, awakening, or payoff scenes, prefer 8-15 seconds and expand detail inside one scene. Use 2-6 seconds mainly for transitions, reaction inserts, or flashback fragments.
+5. Prioritize complete dramatic expression when setting duration. If one dramatic beat exceeds single-scene generation limits, split it into consecutive scenes and preserve all key plot and emotional progression.
 6. Put dialogue directly inside the relevant timeline line, wrapped in single quotes.
 7. Narration/voiceover must be embedded in the timeline line using format: 画外音（音色：gender，age range，tone description，pitch，speed，emotion，accent）说：'narration content'.
 8. Use "Sound design" for ambient sound, key effects, voice pressure, and rhythm. Use "Performance notes" for gaze, pauses, micro-expressions, hand tension, posture, and body-weight shifts.

@@ -22,6 +22,7 @@ const {
   activeCategoryWorkflows,
   klingV3OmniOptions,
   seedanceVideoOptions,
+  videoAudioDefaults,
   imageGenerationOptions,
   completionNotificationOptions,
   getCapabilityLabel,
@@ -31,6 +32,7 @@ const {
   updateVideoGenerationModelOptions,
   updateWorkflowGeminiImageSize,
   updateWorkflowSeedanceVideoQuality,
+  updateVideoAudioDefaults,
   updateCompletionNotificationOptions,
   updateGlobalWorkflowDefault,
   toSelectString
@@ -108,12 +110,14 @@ const activeCategoryIconClass = computed(() => {
               :workflow-saving="workflowSaving"
               :kling-v3-omni-options="klingV3OmniOptions"
               :seedance-video-options="seedanceVideoOptions"
+              :video-audio-defaults="videoAudioDefaults"
               :image-generation-options="imageGenerationOptions"
               :completion-notification-options="completionNotificationOptions"
               :update-global-workflow-default="updateGlobalWorkflowDefault"
               :update-video-generation-model-options="updateVideoGenerationModelOptions"
               :update-workflow-gemini-image-size="updateWorkflowGeminiImageSize"
               :update-workflow-seedance-video-quality="updateWorkflowSeedanceVideoQuality"
+              :update-video-audio-defaults="updateVideoAudioDefaults"
               :update-completion-notification-options="updateCompletionNotificationOptions"
             />
 
