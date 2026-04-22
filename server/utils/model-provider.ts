@@ -129,7 +129,7 @@ export const TEXT_MODELS: TextModelConfig[] = [
   }
 ]
 
-const GEMINI_IMAGE_ASPECT_RATIOS = [
+const GEMINI_31_FLASH_IMAGE_ASPECT_RATIOS = [
   '1:1',
   '1:4',
   '1:8',
@@ -146,8 +146,20 @@ const GEMINI_IMAGE_ASPECT_RATIOS = [
   '21:9'
 ] as const
 
-const QWEN_STANDARD_IMAGE_ASPECT_RATIOS = ['16:9', '1:1', '9:16'] as const
-const QWEN_IMAGE_PLUS_ASPECT_RATIOS = ['16:9', '1:1', '9:16'] as const
+const GEMINI_3_PRO_IMAGE_ASPECT_RATIOS = [
+  '1:1',
+  '2:3',
+  '3:2',
+  '3:4',
+  '4:3',
+  '4:5',
+  '5:4',
+  '9:16',
+  '16:9',
+  '21:9'
+] as const
+
+const QWEN_IMAGE_PRIMARY_ASPECT_RATIOS = ['16:9', '4:3', '1:1', '3:4', '9:16'] as const
 const QWEN_WAN_IMAGE_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9'] as const
 const QWEN_Z_IMAGE_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9'] as const
 
@@ -164,7 +176,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: gemini.ImageModels.HIGH_QUALITY,
     displayName: 'Gemini 3 Pro Image',
     description: '4K高质量图片生成',
-    supportedAspectRatios: [...GEMINI_IMAGE_ASPECT_RATIOS],
+    supportedAspectRatios: [...GEMINI_3_PRO_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://ai.google.dev/gemini-api/docs/image-generation'
   },
@@ -173,7 +185,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: gemini.ImageModels.FAST,
     displayName: 'Gemini 3.1 Flash Image',
     description: '快速生成',
-    supportedAspectRatios: [...GEMINI_IMAGE_ASPECT_RATIOS],
+    supportedAspectRatios: [...GEMINI_31_FLASH_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://ai.google.dev/gemini-api/docs/image-generation'
   },
@@ -182,8 +194,8 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     provider: 'qwen',
     model: qwen.QwenImageModels.QWEN_IMAGE_2_PRO,
     displayName: '通义千问-Image-2.0-Pro',
-    description: '新一代高质量图像生成与编辑',
-    supportedAspectRatios: [...QWEN_STANDARD_IMAGE_ASPECT_RATIOS],
+    description: '2.0 Pro 系列，文本渲染与语义遵循更强（同步接口）',
+    supportedAspectRatios: [...QWEN_IMAGE_PRIMARY_ASPECT_RATIOS],
     supportReferenceImage: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
   },
@@ -191,8 +203,26 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     provider: 'qwen',
     model: qwen.QwenImageModels.QWEN_IMAGE_2,
     displayName: '通义千问-Image-2.0',
-    description: '高性能图像生成模型，兼顾质量和速度',
-    supportedAspectRatios: [...QWEN_STANDARD_IMAGE_ASPECT_RATIOS],
+    description: '2.0 系列，加速版效果与性能平衡（同步接口）',
+    supportedAspectRatios: [...QWEN_IMAGE_PRIMARY_ASPECT_RATIOS],
+    supportReferenceImage: false,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
+  },
+  {
+    provider: 'qwen',
+    model: qwen.QwenImageModels.QWEN_IMAGE_MAX,
+    displayName: '通义千问-Image-Max',
+    description: '最新 Max 系列，真实感/自然度更强',
+    supportedAspectRatios: [...QWEN_IMAGE_PRIMARY_ASPECT_RATIOS],
+    supportReferenceImage: false,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
+  },
+  {
+    provider: 'qwen',
+    model: qwen.QwenImageModels.QWEN_IMAGE,
+    displayName: '通义千问-Image',
+    description: '最新主线模型（与 Image-Plus 当前能力一致）',
+    supportedAspectRatios: [...QWEN_IMAGE_PRIMARY_ASPECT_RATIOS],
     supportReferenceImage: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
   },
@@ -200,8 +230,8 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     provider: 'qwen',
     model: qwen.QwenImageModels.QWEN_IMAGE_PLUS,
     displayName: '通义千问-Image-Plus',
-    description: '文生图，文本卓越渲染出画',
-    supportedAspectRatios: [...QWEN_IMAGE_PLUS_ASPECT_RATIOS],
+    description: 'Image 系列高性价比版本（支持异步接口）',
+    supportedAspectRatios: [...QWEN_IMAGE_PRIMARY_ASPECT_RATIOS],
     supportReferenceImage: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
   },

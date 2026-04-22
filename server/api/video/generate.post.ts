@@ -1540,6 +1540,7 @@ async function generateVideoWithVolcengine(
       modelId = volcengine.VolcengineVideoModels.SEEDANCE_2_0_FAST
     }
     const resolvedModelId = modelId
+    const workflowOptions = await getWorkflowModelOptions()
     const selectedVideoModel = findVideoModel(resolvedModelId)
     const referenceImageLimit = Math.max(
       1,
@@ -1548,6 +1549,12 @@ async function generateVideoWithVolcengine(
         Math.round(selectedVideoModel?.maxReferenceImages ?? (selectedVideoModel?.supportReferenceImages ? 9 : 1))
       )
     )
+    const configuredSeedanceQuality = workflowOptions.video_generation.seedance.quality
+    let resolvedResolution = configuredSeedanceQuality
+    if (resolvedModelId === volcengine.VolcengineVideoModels.SEEDANCE_2_0_FAST && resolvedResolution === '1080p') {
+      console.warn('[VideoGen] Seedance 2.0 Fast 不支持 1080p，已自动回退为 720p')
+      resolvedResolution = '720p'
+    }
 
     // 转换时长
     // Seedance 2.0/2.0 fast: 4-15 秒；历史模型: 2-12 秒
@@ -1582,6 +1589,8 @@ async function generateVideoWithVolcengine(
       hasReferenceImages,
       referenceImagesCount: referenceImages.length,
       referenceImageLimit,
+      configuredSeedanceQuality,
+      resolution: resolvedResolution,
       duration
     })
 
@@ -1604,7 +1613,7 @@ async function generateVideoWithVolcengine(
 
     const resultMetadata = {
       duration,
-      resolution: config.resolution,
+      resolution: resolvedResolution,
       aspectRatio: config.aspectRatio,
       fps: 24,
       hasAudio: hasAudioReference
@@ -1621,7 +1630,7 @@ async function generateVideoWithVolcengine(
       maxReferenceImages: referenceImageLimit,
       duration,
       aspectRatio: config.aspectRatio,
-      resolution: config.resolution,
+      resolution: resolvedResolution,
       onTaskCreated: async (upstreamTaskId) => {
         await updateUpstreamTaskTracking(taskId, {
           provider: 'volcengine',

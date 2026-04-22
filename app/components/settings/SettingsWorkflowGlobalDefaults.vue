@@ -7,7 +7,8 @@ import type {
 import type {
   WorkflowImageGenerationModelOptions,
   WorkflowCompletionNotificationOptions,
-  KlingV3OmniVideoOptions
+  KlingV3OmniVideoOptions,
+  SeedanceVideoOptions
 } from '#shared/types/workflow-models'
 import { getSettingsProviderLabel, toSelectString } from '@/lib/settings-models'
 import {
@@ -18,6 +19,7 @@ import {
 } from '@/composables/useGenerationCompletionNotification'
 import {
   WORKFLOW_GEMINI_IMAGE_SIZES,
+  WORKFLOW_SEEDANCE_VIDEO_QUALITIES,
   type WorkflowConfig
 } from '@/composables/useSettingsWorkflowModels'
 
@@ -28,11 +30,13 @@ const props = defineProps<{
   workflows: WorkflowConfig[]
   workflowSaving: boolean
   klingV3OmniOptions: KlingV3OmniVideoOptions
+  seedanceVideoOptions: SeedanceVideoOptions
   imageGenerationOptions: WorkflowImageGenerationModelOptions
   completionNotificationOptions: WorkflowCompletionNotificationOptions
   updateGlobalWorkflowDefault: (type: 'text' | 'image' | 'video' | 'tts', modelId: string) => Promise<void>
   updateVideoGenerationModelOptions: (patch: Partial<KlingV3OmniVideoOptions>) => Promise<void>
   updateWorkflowGeminiImageSize: (value: unknown) => void
+  updateWorkflowSeedanceVideoQuality: (value: unknown) => void
   updateCompletionNotificationOptions: (patch: Partial<WorkflowCompletionNotificationOptions>) => Promise<void>
 }>()
 
@@ -85,6 +89,14 @@ const hasKlingV3OmniInUse = computed(() => {
     || props.workflows.some(w => w.selectedModel === 'kling-v3-omni')
 })
 
+/** 当前分类下是否有任一步骤使用了 Seedance 模型 */
+const hasSeedanceInUse = computed(() => {
+  if (props.activeCategory !== 'video') return false
+  const isSeedance = (id: string) => id.includes('seedance')
+  return isSeedance(props.selectedModels.video)
+    || props.workflows.some(w => w.selectedModel && isSeedance(w.selectedModel))
+})
+
 /** 当前分类下是否有任一步骤使用了 Gemini 图片模型 */
 const hasGeminiImageInUse = computed(() => {
   if (props.activeCategory !== 'image') return false
@@ -107,6 +119,10 @@ function updateKlingMode(value: unknown) {
 
 function updateGeminiImageSize(value: unknown) {
   props.updateWorkflowGeminiImageSize(value)
+}
+
+function updateSeedanceVideoQuality(value: unknown) {
+  props.updateWorkflowSeedanceVideoQuality(value)
 }
 
 const systemNotificationStatus = ref<BrowserNotificationStatus>(getBrowserNotificationStatus())
@@ -375,6 +391,46 @@ onMounted(() => {
             </SelectContent>
           </Select>
         </div>
+      </div>
+    </div>
+
+    <!-- 视频类：Seedance 额外配置 -->
+    <div
+      v-if="hasSeedanceInUse"
+      class="space-y-3 rounded-lg border bg-muted/30 p-3"
+    >
+      <div>
+        <h5 class="text-xs font-medium">
+          Seedance 额外配置
+        </h5>
+        <p class="mt-1 text-[11px] text-muted-foreground">
+          仅当视频流程使用 Seedance 系列模型时生效。
+        </p>
+      </div>
+
+      <div class="space-y-1.5">
+        <label class="text-xs text-muted-foreground">画质（resolution）</label>
+        <Select
+          :model-value="props.seedanceVideoOptions.quality"
+          :disabled="props.workflowSaving"
+          @update:model-value="updateSeedanceVideoQuality"
+        >
+          <SelectTrigger class="h-9 w-full text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem
+              v-for="quality in WORKFLOW_SEEDANCE_VIDEO_QUALITIES"
+              :key="`global_seedance_video_quality_${quality}`"
+              :value="quality"
+            >
+              {{ quality }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        <p class="text-[11px] text-muted-foreground">
+          Seedance 2.0 支持 480p / 720p / 1080p；Seedance 2.0 Fast 仅支持 480p / 720p，选择 1080p 时会自动回退到 720p。
+        </p>
       </div>
     </div>
 

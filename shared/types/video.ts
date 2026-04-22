@@ -3,7 +3,7 @@ import { z } from 'zod'
 // ==================== 视频配置 ====================
 
 /** 视频分辨率 */
-export const ResolutionSchema = z.enum(['720p', '1080p'])
+export const ResolutionSchema = z.enum(['480p', '720p', '1080p'])
 export type Resolution = z.infer<typeof ResolutionSchema>
 
 /** 视频宽高比 */

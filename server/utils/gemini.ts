@@ -267,7 +267,10 @@ export type GeminiImageSize = typeof GeminiImageSizes[number]
 
 const GEMINI_IMAGE_SIZE_SET = new Set<string>(GeminiImageSizes)
 
-const SUPPORTED_GEMINI_IMAGE_ASPECT_RATIOS = [
+// 官方文档（2026-04）:
+// - Gemini 3.1 Flash Image Preview 支持 14 种比例（含 1:4/4:1/1:8/8:1）
+// - Gemini 3 Pro Image Preview 支持 10 种比例（不含上面 4 种超宽/超高比例）
+const GEMINI_31_FLASH_IMAGE_ASPECT_RATIOS = [
   '1:1',
   '1:4',
   '1:8',
@@ -284,7 +287,20 @@ const SUPPORTED_GEMINI_IMAGE_ASPECT_RATIOS = [
   '21:9'
 ] as const
 
-const SUPPORTED_GEMINI_IMAGE_ASPECT_RATIO_SET = new Set<string>(SUPPORTED_GEMINI_IMAGE_ASPECT_RATIOS)
+const GEMINI_3_PRO_IMAGE_ASPECT_RATIOS = [
+  '1:1',
+  '2:3',
+  '3:2',
+  '3:4',
+  '4:3',
+  '4:5',
+  '5:4',
+  '9:16',
+  '16:9',
+  '21:9'
+] as const
+
+const SUPPORTED_GEMINI_IMAGE_ASPECT_RATIOS = GEMINI_31_FLASH_IMAGE_ASPECT_RATIOS
 
 function normalizeGeminiImageSize(
   raw?: string,
@@ -304,10 +320,21 @@ function normalizeGeminiImageSize(
   return normalized as GeminiImageSize
 }
 
-function normalizeGeminiAspectRatio(raw?: string): string | undefined {
+function getSupportedAspectRatiosByModel(model: string): readonly string[] {
+  if (model === ImageModels.FAST) return GEMINI_31_FLASH_IMAGE_ASPECT_RATIOS
+  if (model === ImageModels.HIGH_QUALITY) return GEMINI_3_PRO_IMAGE_ASPECT_RATIOS
+  if (model.includes('2.5-flash-image')) return GEMINI_3_PRO_IMAGE_ASPECT_RATIOS
+  return GEMINI_3_PRO_IMAGE_ASPECT_RATIOS
+}
+
+function normalizeGeminiAspectRatio(
+  raw?: string,
+  supportedAspectRatios: readonly string[] = SUPPORTED_GEMINI_IMAGE_ASPECT_RATIOS
+): string | undefined {
   if (!raw) return undefined
   const normalized = raw.replace(/\s+/g, '')
-  if (!SUPPORTED_GEMINI_IMAGE_ASPECT_RATIO_SET.has(normalized)) {
+  const supportedSet = new Set<string>(supportedAspectRatios)
+  if (!supportedSet.has(normalized)) {
     return undefined
   }
   return normalized
@@ -344,12 +371,16 @@ function inferGeminiImageSizeFromPixels(
   return '4K'
 }
 
-function inferGeminiAspectRatioFromPixels(width: number, height: number): string {
+function inferGeminiAspectRatioFromPixels(
+  width: number,
+  height: number,
+  supportedAspectRatios: readonly string[] = SUPPORTED_GEMINI_IMAGE_ASPECT_RATIOS
+): string {
   const target = width / height
-  let best: string = SUPPORTED_GEMINI_IMAGE_ASPECT_RATIOS[0]
+  let best: string = supportedAspectRatios[0] || '1:1'
   let bestDiff = Number.POSITIVE_INFINITY
 
-  for (const ratio of SUPPORTED_GEMINI_IMAGE_ASPECT_RATIOS) {
+  for (const ratio of supportedAspectRatios) {
     const [w, h] = ratio.split(':').map(Number)
     if (!w || !h) continue
     const diff = Math.abs((w / h) - target)
@@ -696,19 +727,20 @@ export async function _geminiGenerateImage(options: {
   console.log('[Gemini] _geminiGenerateImage 开始执行')
 
   const model = options.model || ImageModels.HIGH_QUALITY
+  const supportedAspectRatios = getSupportedAspectRatiosByModel(model)
   const supportsHalfK = model === ImageModels.FAST
   const parsedSize = parseSize(options.size)
   const imageSize = normalizeGeminiImageSize(options.imageSize, supportsHalfK)
     || (parsedSize ? inferGeminiImageSizeFromPixels(parsedSize.width, parsedSize.height, supportsHalfK) : undefined)
-  const aspectRatio = normalizeGeminiAspectRatio(options.aspectRatio)
-    || (parsedSize ? inferGeminiAspectRatioFromPixels(parsedSize.width, parsedSize.height) : undefined)
+  const aspectRatio = normalizeGeminiAspectRatio(options.aspectRatio, supportedAspectRatios)
+    || (parsedSize ? inferGeminiAspectRatioFromPixels(parsedSize.width, parsedSize.height, supportedAspectRatios) : undefined)
 
   if (options.imageSize?.trim().toUpperCase() === '512' && !supportsHalfK) {
     console.warn(`[Gemini] 模型 ${model} 不支持 512 分辨率，已自动回退到 1K`)
   }
 
-  if (options.aspectRatio && !normalizeGeminiAspectRatio(options.aspectRatio)) {
-    console.warn(`[Gemini] 不支持的 aspectRatio: ${options.aspectRatio}，已自动忽略`)
+  if (options.aspectRatio && !normalizeGeminiAspectRatio(options.aspectRatio, supportedAspectRatios)) {
+    console.warn(`[Gemini] 模型 ${model} 不支持的 aspectRatio: ${options.aspectRatio}，已自动忽略`)
   }
 
   // 统一收集参考图：兼容单图(referenceImage)和多图(referenceImages)

@@ -67,9 +67,11 @@ export const QwenVisionModels = {
 
 /** 千问图片生成模型 */
 export const QwenImageModels = {
+  QWEN_IMAGE_MAX: 'qwen-image-max',
+  QWEN_IMAGE: 'qwen-image',
+  QWEN_IMAGE_PLUS: 'qwen-image-plus',
   QWEN_IMAGE_2_PRO: 'qwen-image-2.0-pro',
   QWEN_IMAGE_2: 'qwen-image-2.0',
-  QWEN_IMAGE_PLUS: 'qwen-image-plus',
   WAN_2_6_T2I: 'wan2.6-t2i', // 通义万相文生图
   WAN_2_6_IMAGE: 'wan2.6-image', // 通义万相图像编辑 (支持参考图)
   Z_IMAGE_TURBO: 'z-image-turbo'
@@ -677,18 +679,20 @@ export async function _qwenGenerateImage(options: {
       // 文档: https://help.aliyun.com/zh/model-studio/qwen-image-api
       // 文档: https://help.aliyun.com/zh/model-studio/z-image-turbo
       if (
-        model === QwenImageModels.QWEN_IMAGE_2_PRO
-        || model === QwenImageModels.QWEN_IMAGE_2
+        model === QwenImageModels.QWEN_IMAGE_MAX
+        || model === QwenImageModels.QWEN_IMAGE
         || model === QwenImageModels.QWEN_IMAGE_PLUS
+        || model === QwenImageModels.QWEN_IMAGE_2_PRO
+        || model === QwenImageModels.QWEN_IMAGE_2
         || model === QwenImageModels.Z_IMAGE_TURBO
       ) {
-      // 根据模型设置默认尺寸
-        const defaultSize = (
+      // 根据官方文档设置默认尺寸:
+      // qwen-image-2.0 系列默认 2048*2048；qwen-image/max/plus 系列默认 1664*928
+        const isQwenImage2Series = (
           model === QwenImageModels.QWEN_IMAGE_2_PRO
-          || model === QwenImageModels.QWEN_IMAGE_PLUS
+          || model === QwenImageModels.QWEN_IMAGE_2
         )
-          ? '1328*1328'
-          : '1024*1024'
+        const defaultSize = isQwenImage2Series ? '2048*2048' : '1664*928'
         const size = options.size || defaultSize
 
         const requestBody = {
@@ -702,10 +706,7 @@ export async function _qwenGenerateImage(options: {
             ]
           },
           parameters: {
-            prompt_extend: (
-              model === QwenImageModels.QWEN_IMAGE_2_PRO
-              || model === QwenImageModels.QWEN_IMAGE_PLUS
-            ),
+            prompt_extend: true,
             negative_prompt: options.negativePrompt || '',
             size
           }

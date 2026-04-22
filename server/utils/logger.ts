@@ -305,9 +305,11 @@ export const estimateCost = {
   },
 
   // Veo 视频
-  veoVideo(durationSeconds: number, resolution: '720p' | '1080p' = '1080p'): number {
-    // $0.05/秒 720p, $0.08/秒 1080p (估算)
-    return durationSeconds * (resolution === '1080p' ? 0.08 : 0.05)
+  veoVideo(durationSeconds: number, resolution: '480p' | '720p' | '1080p' = '1080p'): number {
+    // $0.03/秒 480p, $0.05/秒 720p, $0.08/秒 1080p (估算)
+    if (resolution === '1080p') return durationSeconds * 0.08
+    if (resolution === '720p') return durationSeconds * 0.05
+    return durationSeconds * 0.03
   },
 
   // TTS 音频
