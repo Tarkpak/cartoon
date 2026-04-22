@@ -308,7 +308,7 @@ function buildSeedancePromptProfileSnapshot(workflow: ProjectWorkflowType): Prom
   return {
     templates: getSeedanceOptimizedPromptTemplates(workflow).map(template => ({
       ...clonePromptTemplate(template),
-      isCustomized: false
+      isCustomized: true
     })),
     versions: [],
     langConfig: getDefaultLangConfig(workflow)
