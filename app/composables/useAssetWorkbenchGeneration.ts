@@ -19,7 +19,6 @@ interface UseAssetWorkbenchGenerationOptions {
   scenes: Ref<SceneData[]>
   characters: Ref<CharacterData[]>
   parsing: Ref<boolean>
-  parsedTimelineText: Ref<string>
   currentStylePrompt: Ref<string>
   saveProject: () => Promise<unknown>
   onModelTaskCompleted?: (payload: {
@@ -39,7 +38,6 @@ export function useAssetWorkbenchGeneration(
     if (!options.novelText.value.trim()) return false
 
     options.parsing.value = true
-    options.parsedTimelineText.value = ''
 
     try {
       const response = await parseAssetWorkbenchScript({
@@ -52,21 +50,12 @@ export function useAssetWorkbenchGeneration(
         return false
       }
 
-      const timelineLines = Array.isArray(response.formattedTimeline?.lines)
-        ? response.formattedTimeline.lines
-            .filter((line): line is string => typeof line === 'string')
-            .map(line => line.trim())
-        : []
-
-      options.parsedTimelineText.value = response.formattedTimeline?.text?.trim() || ''
-
       if (response.data.title && options.projectName.value === '新项目') {
         options.projectName.value = response.data.title
       }
 
       options.scenes.value = buildParsedScenes({
         scenes: response.data.scenes,
-        timelineLines,
         descriptionFormat: input?.descriptionFormat
       })
       options.characters.value = buildParsedCharacters(response.data.characters, options.scenes.value)

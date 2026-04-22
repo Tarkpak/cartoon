@@ -39,7 +39,6 @@ export function useAssetWorkbench() {
   const characters = ref<CharacterData[]>([])
 
   const parsing = ref(false)
-  const parsedTimelineText = ref('')
 
   const {
     saveError,
@@ -62,8 +61,7 @@ export function useAssetWorkbench() {
     selectedStyleId,
     novelText,
     scenes,
-    characters,
-    parsedTimelineText
+    characters
   })
 
   const currentStylePrompt = computed(() => {
@@ -96,7 +94,6 @@ export function useAssetWorkbench() {
     scenes,
     characters,
     parsing,
-    parsedTimelineText,
     currentStylePrompt,
     saveProject,
     onModelTaskCompleted: notifyGenerationCompleted
@@ -114,7 +111,6 @@ export function useAssetWorkbench() {
     scenes,
     characters,
     parsing,
-    parsedTimelineText,
     saveError,
     saveProject,
     loadProject,

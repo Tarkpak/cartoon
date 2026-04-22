@@ -14,7 +14,6 @@ interface UseAssetWorkbenchAutoFlowOptions {
   workflowStylePrompt: ComputedRef<string>
   novelText: Ref<string>
   scenes: Ref<SceneData[]>
-  parsedTimelineText: Ref<string>
   queueSummary: ComputedRef<QueueSummary>
   assetsReady: ComputedRef<boolean>
   finalVideo: Ref<FinalVideoAsset | null>
@@ -79,22 +78,6 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
       }
     } catch (error) {
       autoRunError.value = options.resolveUiError(error, '剧本解析失败')
-    }
-  }
-
-  async function copyParsedTimelineText() {
-    const text = options.parsedTimelineText.value.trim()
-    if (!text) return
-
-    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
-      autoRunError.value = '当前环境不支持自动复制，请手动复制下方时间轴文案'
-      return
-    }
-
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch (error) {
-      autoRunError.value = options.resolveUiError(error, '复制时间轴文案失败，请手动复制')
     }
   }
 
@@ -215,7 +198,6 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
     activeAutoStage,
     selectAutoStage,
     handleParseScript,
-    copyParsedTimelineText,
     runSimpleAssetsStep,
     runSimpleVideosStep,
     runSimpleFinalStep

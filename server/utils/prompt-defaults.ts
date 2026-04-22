@@ -618,9 +618,6 @@ const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
 【场景详细说明】
 {{sceneDescription}}
 
-【必须遵循的时间轴镜头脚本】
-{{timelineLines}}
-
 【参考图说明】
 {{referenceGuide}}
 
@@ -634,7 +631,7 @@ const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
 - 旁白：{{narration}}
 
 【生成要求】
-1. 严格按时间轴逐段推进，镜头衔接自然，不要把多段动作压缩成单一概述。
+1. 严格按场景详细说明中的时序逐段推进，镜头衔接自然，不要把多段动作压缩成单一概述。
 2. 如存在参考图，必须优先锁定角色身份、服装、发型、体态和环境空间关系。
 3. 若场景详细说明里包含“声音设计、台词节奏、表演关键点”等内容，要把它们转成镜头节奏、人物动作、口型、呼吸感和情绪推进，不要把这些文字直接做成字幕或界面元素。
 4. 动作演化要自然可信，避免角色漂移、空间跳变、物体凭空增减或镜头逻辑断裂。
@@ -668,9 +665,6 @@ About {{duration}} seconds
 ## Detailed Scene Description
 {{sceneDescription}}
 
-## Timeline Shot Script You Must Follow
-{{timelineLines}}
-
 ## Reference Guide
 {{referenceGuide}}
 
@@ -684,7 +678,7 @@ About {{duration}} seconds
 - Narration: {{narration}}
 
 ## Generation Requirements
-1. Follow the timeline beat by beat. Do not collapse multiple visual actions into a single generic summary.
+1. Follow the temporal sequence in the detailed scene description beat by beat. Do not collapse multiple visual actions into a single generic summary.
 2. If reference images are provided, lock character identity, outfit, hairstyle, posture, and environment spatial continuity first.
 3. If the detailed scene description includes sound design, dialogue rhythm, or performance notes, translate them into pacing, acting, mouth movement, breath, and emotional progression. Do not render those words as subtitles or UI.
 4. Motion should evolve naturally and consistently. Avoid identity drift, spatial jumps, disappearing or appearing key objects, or broken camera logic.

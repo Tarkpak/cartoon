@@ -114,7 +114,6 @@ const {
   scenes,
   characters,
   parsing,
-  parsedTimelineText,
   saveError,
   saveProject,
   loadProject,
@@ -767,7 +766,6 @@ const {
   activeAutoStage,
   selectAutoStage,
   handleParseScript,
-  copyParsedTimelineText,
   runSimpleAssetsStep,
   runSimpleVideosStep,
   runSimpleFinalStep
@@ -782,7 +780,6 @@ const {
   workflowStylePrompt,
   novelText,
   scenes,
-  parsedTimelineText,
   queueSummary,
   assetsReady,
   finalVideo,
@@ -1499,11 +1496,9 @@ async function handleBatchGenerateCharacters() {
       v-if="activeAutoStage === 'parse'"
       v-model:novel-text="novelText"
       :parsing="parsing"
-      :parsed-timeline-text="parsedTimelineText"
       :scenes-count="scenes.length"
       :characters-count="characters.length"
       :hint="stageHints.parse"
-      @copy-timeline="copyParsedTimelineText"
       @parse="handleParseScript"
     />
 
