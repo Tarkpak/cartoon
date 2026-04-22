@@ -14,14 +14,19 @@ import type {
 } from '../../shared/types/prompt-template'
 import {
   applyPromptTemplateWorkflowDisplay,
-  isPromptTemplateVisibleForWorkflow,
-  PROMPT_DEFAULT_PROFILE_ID
+  isPromptReadonlyProfile,
+  PROMPT_DEFAULT_PROFILE_ID,
+  PROMPT_SEEDANCE_PROFILE_ID,
+  isPromptTemplateVisibleForWorkflow
 } from '../../shared/types/prompt-template'
 import {
   normalizeProjectWorkflowType,
   type ProjectWorkflowType
 } from '../../shared/types/project'
-import { getDefaultPromptTemplates } from './prompt-defaults'
+import {
+  getDefaultPromptTemplates,
+  getSeedanceOptimizedPromptTemplates
+} from './prompt-defaults'
 
 // 新版按工作流分离 key
 const PROMPT_TEMPLATES_KEY_PREFIX = 'prompt_templates'
@@ -281,56 +286,100 @@ function normalizePromptProfilesList(input: unknown, nowIso: string): PromptTemp
   return profiles
 }
 
+function buildDefaultPromptProfile(nowIso: string): PromptTemplateProfile {
+  return normalizePromptProfileMetadata(
+    { id: PROMPT_DEFAULT_PROFILE_ID, name: '默认配置', createdAt: nowIso, updatedAt: nowIso },
+    '默认配置',
+    PROMPT_DEFAULT_PROFILE_ID,
+    nowIso
+  )
+}
+
+function buildSeedancePromptProfile(nowIso: string): PromptTemplateProfile {
+  return normalizePromptProfileMetadata(
+    { id: PROMPT_SEEDANCE_PROFILE_ID, name: '默认配置（Seedance优化）', createdAt: nowIso, updatedAt: nowIso },
+    '默认配置（Seedance优化）',
+    PROMPT_SEEDANCE_PROFILE_ID,
+    nowIso
+  )
+}
+
+function buildSeedancePromptProfileSnapshot(workflow: ProjectWorkflowType): PromptProfileSnapshot {
+  return {
+    templates: getSeedanceOptimizedPromptTemplates(workflow).map(template => ({
+      ...clonePromptTemplate(template),
+      isCustomized: true
+    })),
+    versions: [],
+    langConfig: getDefaultLangConfig(workflow)
+  }
+}
+
+function ensureBuiltinPromptProfiles(input: {
+  profiles: PromptTemplateProfile[]
+  snapshots: Record<string, PromptProfileSnapshot>
+  workflow: ProjectWorkflowType
+  fallbackSnapshot: PromptProfileSnapshot
+  nowIso: string
+}): {
+  profiles: PromptTemplateProfile[]
+  snapshots: Record<string, PromptProfileSnapshot>
+} {
+  const profileMap = new Map(input.profiles.map(profile => [profile.id, profile]))
+  const snapshots = { ...input.snapshots }
+
+  if (!profileMap.has(PROMPT_DEFAULT_PROFILE_ID)) {
+    profileMap.set(PROMPT_DEFAULT_PROFILE_ID, buildDefaultPromptProfile(input.nowIso))
+  }
+  if (!snapshots[PROMPT_DEFAULT_PROFILE_ID]) {
+    snapshots[PROMPT_DEFAULT_PROFILE_ID] = clonePromptProfileSnapshot(input.fallbackSnapshot)
+  }
+
+  if (!profileMap.has(PROMPT_SEEDANCE_PROFILE_ID)) {
+    profileMap.set(PROMPT_SEEDANCE_PROFILE_ID, buildSeedancePromptProfile(input.nowIso))
+  }
+  snapshots[PROMPT_SEEDANCE_PROFILE_ID] = buildSeedancePromptProfileSnapshot(input.workflow)
+
+  const orderedProfiles: PromptTemplateProfile[] = []
+  const defaultProfile = profileMap.get(PROMPT_DEFAULT_PROFILE_ID)
+  if (defaultProfile) orderedProfiles.push(defaultProfile)
+
+  const seedanceProfile = profileMap.get(PROMPT_SEEDANCE_PROFILE_ID)
+  if (seedanceProfile) orderedProfiles.push(seedanceProfile)
+
+  for (const profile of input.profiles) {
+    if (profile.id === PROMPT_DEFAULT_PROFILE_ID || profile.id === PROMPT_SEEDANCE_PROFILE_ID) continue
+    if (orderedProfiles.some(item => item.id === profile.id)) continue
+    orderedProfiles.push(profile)
+  }
+
+  for (const [profileId, profile] of profileMap.entries()) {
+    if (orderedProfiles.some(item => item.id === profileId)) continue
+    orderedProfiles.push(profile)
+  }
+
+  return {
+    profiles: orderedProfiles,
+    snapshots
+  }
+}
+
 function normalizePromptProfileState(
   input: unknown,
   workflow: ProjectWorkflowType,
   fallbackSnapshot: PromptProfileSnapshot
 ): PromptProfileState {
   const nowIso = new Date().toISOString()
-  if (!input || typeof input !== 'object') {
-    const profile = normalizePromptProfileMetadata(
-      { id: PROMPT_DEFAULT_PROFILE_ID, name: '默认配置', createdAt: nowIso, updatedAt: nowIso },
-      '默认配置',
-      PROMPT_DEFAULT_PROFILE_ID,
-      nowIso
-    )
-
-    return {
-      activeProfileId: profile.id,
-      profiles: [profile],
-      snapshots: {
-        [profile.id]: clonePromptProfileSnapshot(fallbackSnapshot)
-      }
-    }
-  }
-
   const source = input as {
     activeProfileId?: unknown
     profiles?: unknown
     snapshots?: unknown
-  }
+  } | null
 
-  const profiles = normalizePromptProfilesList(source.profiles, nowIso)
-  const snapshotsRaw = source.snapshots && typeof source.snapshots === 'object'
+  const profiles = normalizePromptProfilesList(source?.profiles, nowIso)
+  const snapshotsRaw = source?.snapshots && typeof source.snapshots === 'object'
     ? source.snapshots as Record<string, unknown>
     : {}
-
-  if (profiles.length === 0) {
-    const defaultProfile = normalizePromptProfileMetadata(
-      { id: PROMPT_DEFAULT_PROFILE_ID, name: '默认配置', createdAt: nowIso, updatedAt: nowIso },
-      '默认配置',
-      PROMPT_DEFAULT_PROFILE_ID,
-      nowIso
-    )
-
-    return {
-      activeProfileId: defaultProfile.id,
-      profiles: [defaultProfile],
-      snapshots: {
-        [defaultProfile.id]: clonePromptProfileSnapshot(fallbackSnapshot)
-      }
-    }
-  }
 
   const snapshots: Record<string, PromptProfileSnapshot> = {}
   for (const profile of profiles) {
@@ -338,15 +387,23 @@ function normalizePromptProfileState(
     snapshots[profile.id] = normalizePromptProfileSnapshot(rawSnapshot, workflow, fallbackSnapshot)
   }
 
-  const activeProfileIdCandidate = normalizeOptionalText(source.activeProfileId)
-  const activeProfileId = profiles.some(item => item.id === activeProfileIdCandidate)
+  const ensured = ensureBuiltinPromptProfiles({
+    profiles,
+    snapshots,
+    workflow,
+    fallbackSnapshot,
+    nowIso
+  })
+
+  const activeProfileIdCandidate = normalizeOptionalText(source?.activeProfileId)
+  const activeProfileId = ensured.profiles.some(item => item.id === activeProfileIdCandidate)
     ? activeProfileIdCandidate!
-    : profiles[0]!.id
+    : (ensured.profiles.find(item => item.id === PROMPT_DEFAULT_PROFILE_ID)?.id || ensured.profiles[0]!.id)
 
   return {
     activeProfileId,
-    profiles,
-    snapshots
+    profiles: ensured.profiles,
+    snapshots: ensured.snapshots
   }
 }
 
@@ -390,12 +447,12 @@ async function getPromptProfileState(
 }
 
 function throwDefaultPromptProfileReadonlyError(): never {
-  const error = new Error('默认配置不可修改，请先新建并切换到其他配置方案') as Error & {
+  const error = new Error('内置默认配置不可修改，请先新建并切换到其他配置方案') as Error & {
     statusCode: number
     statusMessage: string
   }
   error.statusCode = 403
-  error.statusMessage = '默认配置不可修改'
+  error.statusMessage = '内置默认配置不可修改'
   throw error
 }
 
@@ -403,7 +460,7 @@ async function assertActivePromptProfileWritable(
   workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<void> {
   const state = await getPromptProfileState(workflow)
-  if (state.activeProfileId === PROMPT_DEFAULT_PROFILE_ID) {
+  if (isPromptReadonlyProfile(state.activeProfileId)) {
     throwDefaultPromptProfileReadonlyError()
   }
 }
@@ -454,7 +511,15 @@ export interface CreatePromptProfileInput {
 export async function getPromptProfiles(
   workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<PromptProfileListResult> {
-  const state = await getPromptProfileState(workflow)
+  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const state = await getPromptProfileState(normalizedWorkflow)
+  if (isPromptReadonlyProfile(state.activeProfileId)) {
+    const snapshot = state.snapshots[state.activeProfileId]
+    if (snapshot) {
+      await applyPromptProfileSnapshotToActiveStorage(snapshot, normalizedWorkflow)
+    }
+  }
+
   return {
     activeProfileId: state.activeProfileId,
     profiles: state.profiles
@@ -477,6 +542,7 @@ export async function createPromptProfile(
 
   const sourceSnapshot = state.snapshots[sourceId]
   if (!sourceSnapshot) return null
+  const sourceReadonly = isPromptReadonlyProfile(sourceId)
 
   let profileId = buildPromptProfileId()
   while (state.profiles.some(profile => profile.id === profileId)) {
@@ -493,7 +559,14 @@ export async function createPromptProfile(
   }
 
   state.profiles.push(profile)
-  state.snapshots[profileId] = clonePromptProfileSnapshot(sourceSnapshot)
+  const snapshot = clonePromptProfileSnapshot(sourceSnapshot)
+  if (sourceReadonly) {
+    snapshot.templates = snapshot.templates.map(template => ({
+      ...template,
+      isCustomized: false
+    }))
+  }
+  state.snapshots[profileId] = snapshot
 
   if (input.activate === true) {
     await applyPromptProfileSnapshotToActiveStorage(state.snapshots[profileId]!, normalizedWorkflow)
@@ -521,7 +594,7 @@ export async function updatePromptProfile(
   const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
   const targetId = normalizeOptionalText(profileId)
   if (!targetId) return null
-  if (targetId === PROMPT_DEFAULT_PROFILE_ID) {
+  if (isPromptReadonlyProfile(targetId)) {
     throwDefaultPromptProfileReadonlyError()
   }
 
@@ -559,7 +632,7 @@ export async function deletePromptProfile(
   const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
   const targetId = normalizeOptionalText(profileId)
   if (!targetId) return null
-  if (targetId === PROMPT_DEFAULT_PROFILE_ID) {
+  if (isPromptReadonlyProfile(targetId)) {
     throwDefaultPromptProfileReadonlyError()
   }
 

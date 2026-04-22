@@ -29,6 +29,66 @@ export function getDefaultPromptTemplates(workflow: PromptWorkflowInput = 'asset
   }))
 }
 
+export function getSeedanceOptimizedPromptTemplates(
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): PromptTemplate[] {
+  return getDefaultPromptTemplates(workflow).map(template => ({
+    ...template,
+    content: getSeedanceOptimizedContent(template.id, template.content),
+    isCustomized: false
+  }))
+}
+
+function getSeedanceOptimizedContent(
+  id: string,
+  base: PromptTemplate['content']
+): PromptTemplate['content'] {
+  switch (id) {
+    case 'script_parsing':
+      return {
+        zh: applySeedanceScriptParsingZh(base.zh),
+        en: applySeedanceScriptParsingEn(base.en)
+      }
+    case 'character_sheet':
+      return {
+        zh: applySeedanceCharacterSheetZh(base.zh),
+        en: applySeedanceCharacterSheetEn(base.en)
+      }
+    case 'character_regeneration':
+      return {
+        zh: applySeedanceCharacterRegenerationZh(base.zh),
+        en: applySeedanceCharacterRegenerationEn(base.en)
+      }
+    case 'environment_reference_generation':
+      return {
+        zh: applySeedanceEnvironmentReferenceZh(base.zh),
+        en: applySeedanceEnvironmentReferenceEn(base.en)
+      }
+    case 'scene_description_refinement':
+      return {
+        zh: applySeedanceSceneRefinementZh(base.zh),
+        en: applySeedanceSceneRefinementEn(base.en)
+      }
+    case 'scene_video_generation':
+      return {
+        zh: applySeedanceSceneVideoZh(base.zh),
+        en: applySeedanceSceneVideoEn(base.en)
+      }
+    default:
+      return base
+  }
+}
+
+function appendRulesAfterLine(
+  content: string,
+  anchor: string,
+  rules: string[]
+): string {
+  if (!rules.length) return content
+  if (!content.includes(anchor)) return content
+  return content.replace(anchor, `${anchor}\n${rules.join('\n')}`)
+}
+
 function getDefaultContent(id: string): PromptTemplate['content'] {
   switch (id) {
     case 'script_parsing':
@@ -634,4 +694,162 @@ About {{duration}} seconds
 6. If the shot sees an adjacent space through a door, window, or glass partition, that visible space must share the same architecture, doorway/window orientation, lighting color, dominant palette, and key set dressing as the matching interior or exterior shot.
 7. If a previous shot already revealed that interior or exterior subspace, the cut into it must continue the same set dressing rather than inventing a new one.
 8. The result must be a directly usable video clip with consistent style, lighting continuity, and clear composition.`
+}
+
+function applySeedanceScriptParsingZh(content: string): string {
+  return appendRulesAfterLine(
+    content,
+    '12. 若镜头能透过门、窗、玻璃看到相邻子空间，必须明确写出可见空间的灯光、主色调、门窗位置与关键陈设，并在对应子空间场景中沿用，不得把同一主环境写成两套布景。',
+    [
+      '13. 禁止使用“氛围感、电影感、好看点”等抽象词，统一改为可执行的镜头与动作描述。',
+      '14. 每行镜头建议按“主体定义 + 连续动作 + 景别 + 运镜 + 光影 + 约束”顺序组织。',
+      '15. 涉及后续图生视频的场景，需在描述中体现“与参考图主体一致，不修改核心设定”的约束语义。',
+      '16. 运镜不要堆砌，每行最多 1-2 种运镜语义；动作速度优先缓慢、匀速、平稳。',
+      '17. 若场景存在招牌、屏幕、墙面文字等风险，需明确写“避免生成无关文字/字幕”。'
+    ]
+  )
+}
+
+function applySeedanceScriptParsingEn(content: string): string {
+  return appendRulesAfterLine(
+    content,
+    '12. If a shot can see an adjacent subspace through a door, window, or glass partition, explicitly describe that visible space\'s lighting, dominant colors, doorway/window placement, and key set dressing, then preserve those details in the matching subspace scene.',
+    [
+      '13. Avoid vague adjectives such as cinematic vibe or looks good; use executable camera and action language only.',
+      '14. Prefer each shot line in this order: subject definition + continuous action + shot size + camera movement + lighting + constraints.',
+      '15. For scenes likely to run image-to-video, keep explicit identity constraints: keep reference subject consistent and do not alter core setup.',
+      '16. Do not stack camera moves; keep each line within one to two movement semantics and prefer slow, steady, uniform motion.',
+      '17. If signs, displays, or wall text may appear, add an explicit constraint to avoid irrelevant generated text/subtitles.'
+    ]
+  )
+}
+
+function applySeedanceCharacterSheetZh(content: string): string {
+  return appendRulesAfterLine(
+    content,
+    '7. 画面干净、结构清晰、细节稳定，不要戏剧化背景，不要多人同框，不要水印和 Logo。',
+    [
+      '8. 主体描述需明确年龄段、脸型特征、发型、服装结构和状态，不使用“漂亮/帅气/精致”等抽象词。',
+      '9. 风格锚点控制在 1-2 个核心词，避免混合冲突风格。',
+      '10. 强化稳定性约束：面部清晰、五官比例自然、服装一致、无双胞胎、无肢体畸形、无字幕水印。'
+    ]
+  )
+}
+
+function applySeedanceCharacterSheetEn(content: string): string {
+  return appendRulesAfterLine(
+    content,
+    '7. Keep the frame clean, readable, stable, watermark-free, and free of dramatic background storytelling.',
+    [
+      '8. Keep subject definition explicit: age range, facial structure, hairstyle, outfit structure, and current state; avoid abstract praise words.',
+      '9. Limit style anchors to one or two core cues to avoid conflicting mixed styles.',
+      '10. Add stability constraints: clear face, natural proportions, consistent outfit, no duplicate person, no limb deformation, no subtitle/watermark.'
+    ]
+  )
+}
+
+function applySeedanceCharacterRegenerationZh(content: string): string {
+  return appendRulesAfterLine(
+    content,
+    '5. 构图稳定、主体清晰、光影自然，避免过饱和、过锐化和塑料质感。',
+    [
+      '6. 执行顺序固定为“先锁定身份，再执行改动”，身份一致性优先级高于风格变化。',
+      '7. 改动描述必须具体到“部位 + 变化方向 + 幅度 + 保留项”，避免模糊改写指令。',
+      '8. 增加负面约束：无变脸、无双胞胎、无穿模、无字幕。'
+    ]
+  )
+}
+
+function applySeedanceCharacterRegenerationEn(content: string): string {
+  return appendRulesAfterLine(
+    content,
+    '5. Keep composition stable, subject clear, and lighting natural without oversharpening or oversaturation.',
+    [
+      '6. Always lock identity first, then apply edits; identity consistency has higher priority than style variation.',
+      '7. Edit requests must be specific: body part + change direction + intensity + preserved items.',
+      '8. Add negative constraints: no face swap, no duplicate person, no clipping artifacts, no subtitles.'
+    ]
+  )
+}
+
+function applySeedanceEnvironmentReferenceZh(content: string): string {
+  return appendRulesAfterLine(
+    content,
+    '11. 如果提供了二次生成要求，只做定向微调，不改变环境主体身份。',
+    [
+      '12. 环境描述必须具体到时间、天气、光线方向、主光颜色、关键材质和反射关系。',
+      '13. 禁止“神秘、高级、有感觉”等主观词，直接描述空间结构与可见细节。',
+      '14. 增加文字控制：避免生成任何无关字符、字幕和 Logo。',
+      '15. 若存在可见相邻空间，明确门窗朝向、可见区域色温与关键道具，保证后续切镜一致。'
+    ]
+  )
+}
+
+function applySeedanceEnvironmentReferenceEn(content: string): string {
+  return appendRulesAfterLine(
+    content,
+    '11. If a regeneration note is provided, apply only targeted environment-level refinement without changing the core environment identity.',
+    [
+      '12. Environment instructions must be concrete: time, weather, light direction, key light color, critical materials, and reflection relationships.',
+      '13. Avoid subjective adjectives and describe spatial structure plus visible details directly.',
+      '14. Add text-control constraints to avoid irrelevant characters, subtitles, or logos.',
+      '15. If adjacent space is visible, define doorway/window orientation, visible color temperature, and key props for continuity.'
+    ]
+  )
+}
+
+function applySeedanceSceneRefinementZh(content: string): string {
+  return appendRulesAfterLine(
+    content,
+    '12. 若镜头能透过门、窗、玻璃看到另一空间，必须把门窗朝向、可见空间的灯光、主色调和关键陈设写清楚，方便后续切到该空间时保持一致。',
+    [
+      '13. 改写结果必须保持可执行的分镜时间序列，不得退化为无法落地的整段散文。',
+      '14. 每行镜头尽量包含主体、动作速度、景别、运镜和约束，减少模型随机性。',
+      '15. 若存在 [图片N]，保持主体命名与引用稳定，避免角色指代漂移。',
+      '16. 对关键冲突镜头补充稳定性约束：面部清晰、动作连贯、画面稳定、无跳帧、无畸形、无字幕。'
+    ]
+  )
+}
+
+function applySeedanceSceneRefinementEn(content: string): string {
+  return appendRulesAfterLine(
+    content,
+    '12. If the shot can see another space through a door, window, or glass partition, make the doorway/window orientation, visible lighting, dominant colors, and key set dressing explicit so later cuts into that space remain consistent.',
+    [
+      '13. The rewrite must stay executable as timeline storyboard lines, not a single prose paragraph.',
+      '14. Each shot line should include subject, motion speed, shot size, camera movement, and constraints to reduce randomness.',
+      '15. If [ImageN] tags exist, keep naming and references stable to avoid identity drift.',
+      '16. For key dramatic beats, add stability constraints: clear face, coherent motion, stable frame, no jitter, no deformation, no subtitles.'
+    ]
+  )
+}
+
+function applySeedanceSceneVideoZh(content: string): string {
+  return appendRulesAfterLine(
+    content,
+    '8. 输出应是一个可直接使用的视频片段，风格统一，光照连续，构图清晰。',
+    [
+      '9. 严格保持“全局设定 + 镜头1..N”的时序，不得丢镜头或跳过中间动作段。',
+      '10. 每个镜头优先采用 1 种景别 + 1 种主运镜；若组合运镜，最多 2 种。',
+      '11. 动作节奏优先缓慢或匀速，除非脚本明确要求激烈动作。',
+      '12. 若有参考图，必须严格保持主体身份与核心设定一致，不偏离脸型、发型和服装结构。',
+      '13. 强化稳定性与负面约束：画面稳定、无变脸、无肢体畸形、无穿模、无跳帧、无字幕、无水印。',
+      '14. 对白与旁白仅体现在口型和表演节奏，不生成任何屏幕文字。'
+    ]
+  )
+}
+
+function applySeedanceSceneVideoEn(content: string): string {
+  return appendRulesAfterLine(
+    content,
+    '8. The result must be a directly usable video clip with consistent style, lighting continuity, and clear composition.',
+    [
+      '9. Preserve strict global-setting plus shot-by-shot temporal continuity with no dropped shot beats.',
+      '10. Prefer one shot-size cue plus one primary camera-move cue per shot; cap combined movement at two.',
+      '11. Prefer slow or uniform motion unless intense action is explicitly required by the script.',
+      '12. If reference images exist, strictly preserve identity and core setup: face shape, hairstyle, and outfit structure.',
+      '13. Enforce stability and negative constraints: stable frame, no face drift, no limb deformation, no clipping, no frame jumps, no subtitles, no watermarks.',
+      '14. Dialogue and narration should appear through mouth movement and acting rhythm only, never as on-screen text.'
+    ]
+  )
 }
