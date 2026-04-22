@@ -8,7 +8,8 @@ import type {
   WorkflowImageGenerationModelOptions,
   WorkflowCompletionNotificationOptions,
   KlingV3OmniVideoOptions,
-  SeedanceVideoOptions
+  SeedanceVideoOptions,
+  WorkflowVideoAudioDefaults
 } from '#shared/types/workflow-models'
 import { getSettingsProviderLabel, toSelectString } from '@/lib/settings-models'
 import {
@@ -31,12 +32,14 @@ const props = defineProps<{
   workflowSaving: boolean
   klingV3OmniOptions: KlingV3OmniVideoOptions
   seedanceVideoOptions: SeedanceVideoOptions
+  videoAudioDefaults: WorkflowVideoAudioDefaults
   imageGenerationOptions: WorkflowImageGenerationModelOptions
   completionNotificationOptions: WorkflowCompletionNotificationOptions
   updateGlobalWorkflowDefault: (type: 'text' | 'image' | 'video' | 'tts', modelId: string) => Promise<void>
   updateVideoGenerationModelOptions: (patch: Partial<KlingV3OmniVideoOptions>) => Promise<void>
   updateWorkflowGeminiImageSize: (value: unknown) => void
   updateWorkflowSeedanceVideoQuality: (value: unknown) => void
+  updateVideoAudioDefaults: (patch: Partial<WorkflowVideoAudioDefaults>) => Promise<void>
   updateCompletionNotificationOptions: (patch: Partial<WorkflowCompletionNotificationOptions>) => Promise<void>
 }>()
 
@@ -123,6 +126,12 @@ function updateGeminiImageSize(value: unknown) {
 
 function updateSeedanceVideoQuality(value: unknown) {
   props.updateWorkflowSeedanceVideoQuality(value)
+}
+
+function updateVideoAudioDefault(provider: keyof WorkflowVideoAudioDefaults, value: unknown) {
+  void props.updateVideoAudioDefaults({
+    [provider]: toCheckedBoolean(value)
+  })
 }
 
 const systemNotificationStatus = ref<BrowserNotificationStatus>(getBrowserNotificationStatus())
@@ -333,6 +342,50 @@ onMounted(() => {
       >
         {{ completionNotificationHint }}
       </p>
+    </div>
+
+    <!-- 视频类：默认音频配置 -->
+    <div
+      v-if="props.activeCategory === 'video'"
+      class="space-y-3 rounded-lg border bg-muted/30 p-3"
+    >
+      <div>
+        <h5 class="text-xs font-medium">
+          视频默认音频配置
+        </h5>
+        <p class="mt-1 text-[11px] text-muted-foreground">
+          当请求未显式传入 withAudio 时，按模型提供商使用这里的默认值。
+        </p>
+      </div>
+
+      <div class="space-y-2">
+        <label class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+          <span class="text-xs text-foreground">千问（Qwen）默认生成音频</span>
+          <Switch
+            :checked="props.videoAudioDefaults.qwen"
+            :disabled="props.workflowSaving"
+            @update:checked="(value) => updateVideoAudioDefault('qwen', value)"
+          />
+        </label>
+
+        <label class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+          <span class="text-xs text-foreground">可灵（Kling）默认生成音频</span>
+          <Switch
+            :checked="props.videoAudioDefaults.kling"
+            :disabled="props.workflowSaving"
+            @update:checked="(value) => updateVideoAudioDefault('kling', value)"
+          />
+        </label>
+
+        <label class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+          <span class="text-xs text-foreground">Seedance 默认生成音频</span>
+          <Switch
+            :checked="props.videoAudioDefaults.seedance"
+            :disabled="props.workflowSaving"
+            @update:checked="(value) => updateVideoAudioDefault('seedance', value)"
+          />
+        </label>
+      </div>
     </div>
 
     <!-- 视频类：Kling V3 Omni 额外配置 -->

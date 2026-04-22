@@ -1024,6 +1024,7 @@ export async function generateVideo(options: {
       firstFrameUrl: options.firstFrameUrl,
       lastFrameUrl: options.lastFrameUrl,
       audioUrl: options.audioUrl,
+      withAudio: options.audio,
       duration: options.duration,
       size: options.size,
       resolution: options.resolution,

@@ -213,7 +213,7 @@ export type ParsedScript = z.infer<typeof ParsedScriptSchema>
 /** 剧本解析请求 */
 export const ParseScriptRequestSchema = z.object({
   text: z.string().min(10).describe('原始小说文本'),
-  maxScenes: z.number().min(1).max(50).optional().default(10).describe('最大场景数'),
+  maxScenes: z.number().int().min(1).optional().describe('场景数量提示（可选，不做硬上限限制）'),
   style: z.string().optional().describe('画风描述（可选）'),
   workflowType: z.literal('asset_consistency').optional().default('asset_consistency').describe('工作流类型')
 })
