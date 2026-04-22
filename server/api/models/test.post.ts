@@ -41,13 +41,17 @@ const GENERIC_IMAGE_SIZE_BY_ASPECT_RATIO: Record<string, string> = {
 
 const QWEN_IMAGE_2_SIZE_BY_ASPECT_RATIO: Record<string, string> = {
   '16:9': '2688*1536',
+  '4:3': '2368*1728',
   '1:1': '2048*2048',
+  '3:4': '1728*2368',
   '9:16': '1536*2688'
 }
 
 const QWEN_IMAGE_PLUS_SIZE_BY_ASPECT_RATIO: Record<string, string> = {
   '16:9': '1664*928',
+  '4:3': '1472*1104',
   '1:1': '1328*1328',
+  '3:4': '1104*1472',
   '9:16': '928*1664'
 }
 
@@ -107,7 +111,7 @@ function resolveImageTestSize(modelId: string, provider: string | undefined, asp
       return QWEN_IMAGE_2_SIZE_BY_ASPECT_RATIO[aspectRatio] || QWEN_IMAGE_2_SIZE_BY_ASPECT_RATIO[DEFAULT_IMAGE_ASPECT_RATIO]!
     }
 
-    if (modelId === 'qwen-image-plus') {
+    if (modelId === 'qwen-image-max' || modelId === 'qwen-image' || modelId === 'qwen-image-plus') {
       return QWEN_IMAGE_PLUS_SIZE_BY_ASPECT_RATIO[aspectRatio] || QWEN_IMAGE_PLUS_SIZE_BY_ASPECT_RATIO[DEFAULT_IMAGE_ASPECT_RATIO]!
     }
 

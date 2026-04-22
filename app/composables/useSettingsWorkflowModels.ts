@@ -12,7 +12,9 @@ import type {
   WorkflowImageGenerationModelOptions,
   WorkflowVideoGenerationModelOptions,
   WorkflowCompletionNotificationOptions,
-  KlingV3OmniVideoOptions
+  KlingV3OmniVideoOptions,
+  SeedanceVideoOptions,
+  SeedanceVideoQuality
 } from '#shared/types/workflow-models'
 import {
   getSettingsProviderLabel,
@@ -76,11 +78,16 @@ export const WORKFLOW_CATEGORY_CONFIG: Record<WorkflowCategoryKey, WorkflowCateg
 }
 
 export const WORKFLOW_GEMINI_IMAGE_SIZES: WorkflowGeminiImageSize[] = ['512', '1K', '2K', '4K']
+export const WORKFLOW_SEEDANCE_VIDEO_QUALITIES: SeedanceVideoQuality[] = ['480p', '720p', '1080p']
 const WORKFLOW_CATEGORY_ORDER: WorkflowCategoryKey[] = ['text', 'image', 'video']
 
 const DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS: KlingV3OmniVideoOptions = {
   sound: 'off',
   mode: 'pro'
+}
+
+const DEFAULT_SEEDANCE_VIDEO_OPTIONS: SeedanceVideoOptions = {
+  quality: '720p'
 }
 
 const DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS: WorkflowImageGenerationModelOptions = {
@@ -173,7 +180,8 @@ export function useSettingsWorkflowModels() {
 
   function getVideoGenerationModelOptions(): WorkflowVideoGenerationModelOptions {
     return workflowData.value?.modelOptions?.video_generation || {
-      klingV3Omni: { ...DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS }
+      klingV3Omni: { ...DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS },
+      seedance: { ...DEFAULT_SEEDANCE_VIDEO_OPTIONS }
     }
   }
 
@@ -206,6 +214,10 @@ export function useSettingsWorkflowModels() {
 
   const klingV3OmniOptions = computed<KlingV3OmniVideoOptions>(() => {
     return getVideoGenerationModelOptions().klingV3Omni
+  })
+
+  const seedanceVideoOptions = computed<SeedanceVideoOptions>(() => {
+    return getVideoGenerationModelOptions().seedance
   })
 
   const imageGenerationOptions = computed<WorkflowImageGenerationModelOptions>(() => {
@@ -245,6 +257,9 @@ export function useSettingsWorkflowModels() {
       klingV3Omni: {
         ...current.klingV3Omni,
         ...patch
+      },
+      seedance: {
+        ...current.seedance
       }
     }
 
@@ -264,6 +279,41 @@ export function useSettingsWorkflowModels() {
       }
     } catch (error) {
       console.error('[useSettingsWorkflowModels] 更新视频模型扩展配置失败:', error)
+    } finally {
+      workflowSaving.value = false
+    }
+  }
+
+  async function updateSeedanceVideoGenerationModelOptions(patch: Partial<SeedanceVideoOptions>) {
+    if (!workflowData.value) return
+
+    const current = getVideoGenerationModelOptions()
+    const next: WorkflowVideoGenerationModelOptions = {
+      klingV3Omni: {
+        ...current.klingV3Omni
+      },
+      seedance: {
+        ...current.seedance,
+        ...patch
+      }
+    }
+
+    workflowSaving.value = true
+
+    try {
+      const response = await $fetch<{ success: boolean }>('/api/models/workflow', {
+        method: 'POST',
+        body: {
+          step: 'video_generation',
+          modelOptions: next
+        }
+      })
+
+      if (response.success) {
+        await loadWorkflowModels()
+      }
+    } catch (error) {
+      console.error('[useSettingsWorkflowModels] 更新 Seedance 视频配置失败:', error)
     } finally {
       workflowSaving.value = false
     }
@@ -350,6 +400,15 @@ export function useSettingsWorkflowModels() {
     })
   }
 
+  function updateWorkflowSeedanceVideoQuality(value: unknown) {
+    const normalized = toSelectString(value).toLowerCase()
+    if (!WORKFLOW_SEEDANCE_VIDEO_QUALITIES.includes(normalized as SeedanceVideoQuality)) return
+
+    void updateSeedanceVideoGenerationModelOptions({
+      quality: normalized as SeedanceVideoQuality
+    })
+  }
+
   async function updateGlobalWorkflowDefault(
     type: 'text' | 'image' | 'video' | 'tts',
     modelId: string
@@ -396,6 +455,7 @@ export function useSettingsWorkflowModels() {
     activeCategoryMeta,
     activeCategoryWorkflows,
     klingV3OmniOptions,
+    seedanceVideoOptions,
     imageGenerationOptions,
     completionNotificationOptions,
     getCapabilityLabel,
@@ -405,6 +465,7 @@ export function useSettingsWorkflowModels() {
     updateWorkflowModel,
     updateVideoGenerationModelOptions,
     updateWorkflowGeminiImageSize,
+    updateWorkflowSeedanceVideoQuality,
     updateCompletionNotificationOptions,
     updateGlobalWorkflowDefault,
     toSelectString
