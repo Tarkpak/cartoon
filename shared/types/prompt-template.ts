@@ -179,7 +179,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     name: '场景视频生成',
     category: 'video',
     stage: 'videos',
-    description: '基于环境/角色参考素材与时间轴描述生成单场景视频',
+    description: '基于环境/角色参考素材与场景详细描述生成单场景视频',
     workflows: ['asset_consistency'],
     variables: [
       { name: '{{shotNumber}}', description: '镜头序号', example: '2' },
@@ -188,7 +188,6 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{sceneDescription}}', description: '场景描述', example: '主角在霓虹灯下缓慢走向镜头...' },
       { name: '{{setting}}', description: '场景设定文本', example: '城市天桥 / 夜晚 / 紧绷 / 暴雨' },
       { name: '{{style}}', description: '画风描述', example: '电影写实风格' },
-      { name: '{{timelineLines}}', description: '分段时间轴镜头描述', example: '0-3秒：，中景，固定镜头。...\n3-8秒：，近景，缓慢推近。...' },
       { name: '{{referenceMaterials}}', description: '参考素材列表文本', example: '图1：环境参考图...\n图2：角色参考图...' },
       { name: '{{executionConstraints}}', description: '执行约束列表文本', example: '- 输入模式：single_image\n- 严格保持角色一致性...' },
       { name: '{{referenceGuide}}', description: '参考图说明', example: '参考图说明：图1为角色，图2为环境。' },

@@ -407,28 +407,9 @@ function resolveSceneShotNumber(scene: z.infer<typeof SceneSchema>): number {
   return 1
 }
 
-const TIMELINE_LINE_CAPTURE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:].+$/gmu
-const TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]\s*/u
 const STRUCTURED_DESCRIPTION_HEADING_REGEX = /^(?:场景功能\/情绪定位|场景功能|情绪定位|镜头设计|声音设计|台词节奏|表演关键点|Scene function \/ emotional beat|Shot design|Sound design|Dialogue rhythm|Performance notes)\s*[：:]?\s*$/u
 
-function extractTimelineLines(text: string): string[] {
-  if (!text) return []
-  const matches = text.match(TIMELINE_LINE_CAPTURE_REGEX) || []
-  return matches
-    .map(line => line.trim())
-    .filter(Boolean)
-}
-
 function buildSceneDescriptionSummaryText(text: string): string {
-  const timelineLines = extractTimelineLines(text)
-  if (timelineLines.length > 0) {
-    return timelineLines
-      .slice(0, 2)
-      .map(line => line.replace(TIMELINE_PREFIX_REGEX, '').trim())
-      .join(' ')
-      .trim()
-  }
-
   return text
     .split('\n')
     .map(line => line.trim())
@@ -436,28 +417,6 @@ function buildSceneDescriptionSummaryText(text: string): string {
     .slice(0, 3)
     .join(' ')
     .trim()
-}
-
-function buildTimelineFallbackLine(scene: z.infer<typeof SceneSchema>, duration: number): string {
-  const settingText = buildSettingText(scene.setting)
-  const lineBody = [
-    clipText(scene.description, 160),
-    hasText(scene.cameraNote) ? `镜头备注：${clipText(scene.cameraNote!, 90)}` : '',
-    settingText !== '未提供' ? `环境：${settingText}` : ''
-  ]
-    .filter(Boolean)
-    .join(' ')
-
-  return `0-${duration}秒：，中景，固定镜头。${lineBody || '保持动作与空间关系自然推进。'}`
-}
-
-function buildSceneTimelineText(scene: z.infer<typeof SceneSchema>, duration: number): string {
-  const timelineLines = extractTimelineLines(scene.description)
-  if (timelineLines.length > 0) {
-    return timelineLines.join('\n')
-  }
-
-  return buildTimelineFallbackLine(scene, duration)
 }
 
 function buildSceneSummary(scene: z.infer<typeof SceneSchema>): string {
@@ -507,9 +466,6 @@ interface StructuredPromptSections {
   sceneTitle: string
   sceneSummary: string
   style: string
-  duration: number
-  aspectRatio: z.infer<typeof AspectRatioSchema>
-  timelineLines: string
   referenceMaterials: string
   executionConstraints: string
 }
@@ -517,8 +473,6 @@ interface StructuredPromptSections {
 function buildStructuredPromptSections(options: {
   scene: z.infer<typeof SceneSchema>
   style: string
-  aspectRatio: z.infer<typeof AspectRatioSchema>
-  duration: number
   inputMode: InputMode
   referenceGuide: string
   hasCharacterRef: boolean
@@ -529,8 +483,6 @@ function buildStructuredPromptSections(options: {
   const {
     scene,
     style,
-    aspectRatio,
-    duration,
     inputMode,
     referenceGuide,
     hasCharacterRef,
@@ -541,7 +493,6 @@ function buildStructuredPromptSections(options: {
 
   const shotNumber = resolveSceneShotNumber(scene)
   const sceneTitle = scene.title || scene.id
-  const timelineLines = buildSceneTimelineText(scene, duration)
   const referenceMaterialLines = buildReferenceMaterialLines({
     primaryReferenceBinding,
     multiReferenceBindings
@@ -562,9 +513,6 @@ function buildStructuredPromptSections(options: {
     sceneTitle,
     sceneSummary: buildSceneSummary(scene),
     style: style || '保持项目风格一致',
-    duration,
-    aspectRatio,
-    timelineLines,
     referenceMaterials: referenceMaterialLines.join('\n'),
     executionConstraints
   }
@@ -732,8 +680,6 @@ export default defineEventHandler(async (event) => {
   const promptSections = buildStructuredPromptSections({
     scene,
     style,
-    aspectRatio,
-    duration: finalDuration,
     inputMode,
     referenceGuide,
     hasCharacterRef,
@@ -753,10 +699,8 @@ export default defineEventHandler(async (event) => {
       style: promptSections.style,
       duration: String(finalDuration),
       aspectRatio,
-      timelineLines: promptSections.timelineLines,
       referenceMaterials: promptSections.referenceMaterials,
       executionConstraints: promptSections.executionConstraints,
-      // 兼容旧模板变量（让历史自定义模板继续可用）
       sceneDescription: scene.description,
       setting: [
         settingText,
