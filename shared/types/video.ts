@@ -35,7 +35,7 @@ export const VideoGenerationConfigSchema = z.object({
   resolution: ResolutionSchema.default('720p').describe('分辨率'),
   aspectRatio: AspectRatioSchema.default('16:9').describe('宽高比'),
   size: z.string().optional().describe('视频尺寸 - Qwen 使用，如 1280*720'),
-  withAudio: z.boolean().default(true).describe('是否生成音频'),
+  withAudio: z.boolean().optional().describe('是否生成音频；不传时按工作流视频音频默认值'),
   promptExtend: z.boolean().optional().describe('是否启用提示词扩展 - Qwen 使用'),
   watermark: z.boolean().optional().describe('是否添加水印 - Qwen 使用'),
   seed: z.number().optional().describe('随机种子'),

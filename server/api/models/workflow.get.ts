@@ -177,6 +177,11 @@ function resolveDefaultWorkflowModelOptions(): WorkflowModelOptions {
       },
       seedance: {
         quality: '720p'
+      },
+      audioDefaults: {
+        qwen: true,
+        kling: true,
+        seedance: true
       }
     },
     completion_notification: {
@@ -282,6 +287,10 @@ export async function setWorkflowVideoGenerationModelOptions(
       seedance: {
         ...current.video_generation.seedance,
         ...options.seedance
+      },
+      audioDefaults: {
+        ...current.video_generation.audioDefaults,
+        ...options.audioDefaults
       }
     }
   })

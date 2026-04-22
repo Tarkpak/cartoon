@@ -14,7 +14,8 @@ import type {
   WorkflowCompletionNotificationOptions,
   KlingV3OmniVideoOptions,
   SeedanceVideoOptions,
-  SeedanceVideoQuality
+  SeedanceVideoQuality,
+  WorkflowVideoAudioDefaults
 } from '#shared/types/workflow-models'
 import {
   getSettingsProviderLabel,
@@ -88,6 +89,12 @@ const DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS: KlingV3OmniVideoOptions = {
 
 const DEFAULT_SEEDANCE_VIDEO_OPTIONS: SeedanceVideoOptions = {
   quality: '720p'
+}
+
+const DEFAULT_VIDEO_AUDIO_DEFAULTS: WorkflowVideoAudioDefaults = {
+  qwen: true,
+  kling: true,
+  seedance: true
 }
 
 const DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS: WorkflowImageGenerationModelOptions = {
@@ -181,7 +188,8 @@ export function useSettingsWorkflowModels() {
   function getVideoGenerationModelOptions(): WorkflowVideoGenerationModelOptions {
     return workflowData.value?.modelOptions?.video_generation || {
       klingV3Omni: { ...DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS },
-      seedance: { ...DEFAULT_SEEDANCE_VIDEO_OPTIONS }
+      seedance: { ...DEFAULT_SEEDANCE_VIDEO_OPTIONS },
+      audioDefaults: { ...DEFAULT_VIDEO_AUDIO_DEFAULTS }
     }
   }
 
@@ -218,6 +226,10 @@ export function useSettingsWorkflowModels() {
 
   const seedanceVideoOptions = computed<SeedanceVideoOptions>(() => {
     return getVideoGenerationModelOptions().seedance
+  })
+
+  const videoAudioDefaults = computed<WorkflowVideoAudioDefaults>(() => {
+    return getVideoGenerationModelOptions().audioDefaults
   })
 
   const imageGenerationOptions = computed<WorkflowImageGenerationModelOptions>(() => {
@@ -260,6 +272,9 @@ export function useSettingsWorkflowModels() {
       },
       seedance: {
         ...current.seedance
+      },
+      audioDefaults: {
+        ...current.audioDefaults
       }
     }
 
@@ -295,6 +310,9 @@ export function useSettingsWorkflowModels() {
       seedance: {
         ...current.seedance,
         ...patch
+      },
+      audioDefaults: {
+        ...current.audioDefaults
       }
     }
 
@@ -409,6 +427,44 @@ export function useSettingsWorkflowModels() {
     })
   }
 
+  async function updateVideoAudioDefaults(patch: Partial<WorkflowVideoAudioDefaults>) {
+    if (!workflowData.value) return
+
+    const current = getVideoGenerationModelOptions()
+    const next: WorkflowVideoGenerationModelOptions = {
+      klingV3Omni: {
+        ...current.klingV3Omni
+      },
+      seedance: {
+        ...current.seedance
+      },
+      audioDefaults: {
+        ...current.audioDefaults,
+        ...patch
+      }
+    }
+
+    workflowSaving.value = true
+
+    try {
+      const response = await $fetch<{ success: boolean }>('/api/models/workflow', {
+        method: 'POST',
+        body: {
+          step: 'video_generation',
+          modelOptions: next
+        }
+      })
+
+      if (response.success) {
+        await loadWorkflowModels()
+      }
+    } catch (error) {
+      console.error('[useSettingsWorkflowModels] 更新视频默认音频配置失败:', error)
+    } finally {
+      workflowSaving.value = false
+    }
+  }
+
   async function updateGlobalWorkflowDefault(
     type: 'text' | 'image' | 'video' | 'tts',
     modelId: string
@@ -456,6 +512,7 @@ export function useSettingsWorkflowModels() {
     activeCategoryWorkflows,
     klingV3OmniOptions,
     seedanceVideoOptions,
+    videoAudioDefaults,
     imageGenerationOptions,
     completionNotificationOptions,
     getCapabilityLabel,
@@ -466,6 +523,7 @@ export function useSettingsWorkflowModels() {
     updateVideoGenerationModelOptions,
     updateWorkflowGeminiImageSize,
     updateWorkflowSeedanceVideoQuality,
+    updateVideoAudioDefaults,
     updateCompletionNotificationOptions,
     updateGlobalWorkflowDefault,
     toSelectString

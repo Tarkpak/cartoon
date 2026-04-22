@@ -767,6 +767,7 @@ async function generateVideoWithQwen(
 ): Promise<void> {
   try {
     await updateTaskProgress(taskId, 10, 'processing')
+    const workflowOptions = await getWorkflowModelOptions()
 
     // 确定模型 - 优先使用业务流程配置 (从数据库读取)
     let modelId = await getActualModelId(config)
@@ -799,6 +800,9 @@ async function generateVideoWithQwen(
       console.warn(`[VideoGen] Qwen 模型 ${modelId} 不支持 audioUrl，自动切换到 ${fallbackModel}`)
       modelId = fallbackModel
     }
+    const withAudio = typeof config.withAudio === 'boolean'
+      ? config.withAudio
+      : workflowOptions.video_generation.audioDefaults.qwen
 
     // 转换分辨率为 size 格式
     let size = config.size
@@ -847,7 +851,7 @@ async function generateVideoWithQwen(
       hasAudioUrl: !!config.audioUrl,
       size,
       duration,
-      withAudio: config.withAudio
+      withAudio
     })
 
     await updateTaskProgress(taskId, 20)
@@ -884,7 +888,7 @@ async function generateVideoWithQwen(
       resolution: config.resolution,
       aspectRatio: config.aspectRatio,
       fps: 24,
-      hasAudio: config.withAudio
+      hasAudio: withAudio
     } satisfies UpstreamVideoTaskTracking['resultMetadata']
 
     const result = await qwen._qwenGenerateVideo({
@@ -898,7 +902,7 @@ async function generateVideoWithQwen(
       size,
       negativePrompt: config.negativePrompt,
       promptExtend: config.promptExtend ?? true,
-      audio: config.withAudio,
+      audio: withAudio,
       watermark: config.watermark ?? false,
       seed: config.seed,
       onTaskCreated: async (upstreamTaskId) => {
@@ -965,6 +969,7 @@ async function generateVideoWithKling(
 ): Promise<void> {
   try {
     await updateTaskProgress(taskId, 10, 'processing')
+    const workflowOptions = await getWorkflowModelOptions()
 
     let modelId = await getActualModelId(config)
     const modelConfig = modelId ? findVideoModel(modelId) : null
@@ -975,12 +980,15 @@ async function generateVideoWithKling(
     const duration = Math.min(15, Math.max(3, Math.round(config.duration)))
     const isKlingV3Omni = modelId === kling.KlingVideoModels.KLING_V3_OMNI
     let mode: 'std' | 'pro' = config.model === 'fast' ? 'std' : 'pro'
-    let withAudio = config.withAudio
+    let withAudio = typeof config.withAudio === 'boolean'
+      ? config.withAudio
+      : workflowOptions.video_generation.audioDefaults.kling
 
     if (isKlingV3Omni) {
-      const workflowOptions = await getWorkflowModelOptions()
       mode = workflowOptions.video_generation.klingV3Omni.mode
-      withAudio = workflowOptions.video_generation.klingV3Omni.sound === 'on'
+      if (typeof config.withAudio !== 'boolean') {
+        withAudio = workflowOptions.video_generation.klingV3Omni.sound === 'on'
+      }
     }
 
     const normalizeKlingImageInput = (value?: string): string | undefined => {
@@ -1132,6 +1140,7 @@ async function generateVideoWithGemini(
     const hasReferenceImages = referenceImages.length > 0
     const fallbackSingleReferenceImage = resolvedSingleReferenceImage || referenceImages[0] || null
     const hasSingleImage = !hasReferenceImages && !!resolvedSingleReferenceImage
+    const withAudio = typeof config.withAudio === 'boolean' ? config.withAudio : true
 
     // Gemini 当前 Veo 3.1 系列稳定支持 4-8 秒
     // 首尾帧插值模式固定 8 秒；使用 referenceImages 时官方要求也为 8 秒
@@ -1164,7 +1173,7 @@ async function generateVideoWithGemini(
       duration: config.duration,
       effectiveDurationSeconds,
       resolution: config.resolution,
-      withAudio: config.withAudio
+      withAudio
     })
 
     // 使用视频并发限制器控制请求
@@ -1491,7 +1500,7 @@ async function generateVideoWithGemini(
         resolution: config.resolution,
         aspectRatio: config.aspectRatio,
         fps: 24,
-        hasAudio: config.withAudio
+        hasAudio: withAudio
       },
       createdAt: new Date().toISOString()
     }
@@ -1550,7 +1559,11 @@ async function generateVideoWithVolcengine(
       )
     )
     const configuredSeedanceQuality = workflowOptions.video_generation.seedance.quality
+    const configuredSeedanceWithAudio = workflowOptions.video_generation.audioDefaults.seedance
     let resolvedResolution = configuredSeedanceQuality
+    const withAudio = typeof config.withAudio === 'boolean'
+      ? config.withAudio
+      : configuredSeedanceWithAudio
     if (resolvedModelId === volcengine.VolcengineVideoModels.SEEDANCE_2_0_FAST && resolvedResolution === '1080p') {
       console.warn('[VideoGen] Seedance 2.0 Fast 不支持 1080p，已自动回退为 720p')
       resolvedResolution = '720p'
@@ -1590,7 +1603,9 @@ async function generateVideoWithVolcengine(
       referenceImagesCount: referenceImages.length,
       referenceImageLimit,
       configuredSeedanceQuality,
+      configuredSeedanceWithAudio,
       resolution: resolvedResolution,
+      withAudio,
       duration
     })
 
@@ -1608,7 +1623,8 @@ async function generateVideoWithVolcengine(
       hasLastFrame: !!lastFrameUrl,
       hasAudioReference,
       hasReferenceImages,
-      referenceImagesCount: referenceImages.length
+      referenceImagesCount: referenceImages.length,
+      withAudio
     })
 
     const resultMetadata = {
@@ -1616,7 +1632,7 @@ async function generateVideoWithVolcengine(
       resolution: resolvedResolution,
       aspectRatio: config.aspectRatio,
       fps: 24,
-      hasAudio: hasAudioReference
+      hasAudio: withAudio
     } satisfies UpstreamVideoTaskTracking['resultMetadata']
 
     const result = await volcengine._volcengineGenerateVideo({
@@ -1631,6 +1647,7 @@ async function generateVideoWithVolcengine(
       duration,
       aspectRatio: config.aspectRatio,
       resolution: resolvedResolution,
+      withAudio,
       onTaskCreated: async (upstreamTaskId) => {
         await updateUpstreamTaskTracking(taskId, {
           provider: 'volcengine',
