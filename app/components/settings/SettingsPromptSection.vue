@@ -9,7 +9,7 @@ const {
   promptProfiles,
   activePromptProfileId,
   activePromptProfile,
-  isActiveDefaultPromptProfile,
+  isActiveReadonlyPromptProfile,
   canRenameActivePromptProfile,
   canDeleteActivePromptProfile,
   promptTemplates,
@@ -99,6 +99,7 @@ async function handleActivateProfile(profileId: string) {
       <SettingsPromptSidebar
         :grouped-prompt-templates="groupedPromptTemplates"
         :active-profile-id="activePromptProfileId"
+        :active-profile-readonly="isActiveReadonlyPromptProfile"
         :can-rename-profile="canRenameActivePromptProfile"
         :can-delete-profile="canDeleteActivePromptProfile"
         :profile-busy="promptProfileBusy"
@@ -132,7 +133,7 @@ async function handleActivateProfile(profileId: string) {
           class="min-h-0 flex-1"
           :template="selectedPromptTemplate"
           :workflow="selectedPromptWorkflow"
-          :readonly="isActiveDefaultPromptProfile"
+          :readonly="isActiveReadonlyPromptProfile"
           @update="handlePromptUpdate"
           @saved="handlePromptSaved"
         />

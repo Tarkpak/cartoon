@@ -11,8 +11,8 @@ import type {
   PromptTemplateProfile
 } from '#shared/types/prompt-template'
 import {
-  PROMPT_DEFAULT_PROFILE_ID,
   getPromptTemplateMetadataForWorkflow,
+  isPromptReadonlyProfile,
   PROMPT_FLOW_STAGES,
   PROMPT_FLOW_STAGE_LABELS
 } from '#shared/types/prompt-template'
@@ -126,18 +126,18 @@ export function useSettingsPrompts() {
     return promptProfiles.value.find(profile => profile.id === activePromptProfileId.value) || null
   })
 
-  const isActiveDefaultPromptProfile = computed(() => {
-    return activePromptProfileId.value === PROMPT_DEFAULT_PROFILE_ID
+  const isActiveReadonlyPromptProfile = computed(() => {
+    return isPromptReadonlyProfile(activePromptProfileId.value)
   })
 
   const canRenameActivePromptProfile = computed(() => {
-    return Boolean(activePromptProfile.value) && !isActiveDefaultPromptProfile.value
+    return Boolean(activePromptProfile.value) && !isActiveReadonlyPromptProfile.value
   })
 
   const canDeleteActivePromptProfile = computed(() => {
     return promptProfiles.value.length > 1
       && Boolean(activePromptProfile.value)
-      && !isActiveDefaultPromptProfile.value
+      && !isActiveReadonlyPromptProfile.value
   })
 
   const promptProfileBusy = computed(() => {
@@ -311,7 +311,7 @@ export function useSettingsPrompts() {
   async function updatePromptProfileName(profileId: string, name: string, description?: string): Promise<boolean> {
     const normalizedName = name.trim()
     if (!profileId || !normalizedName) return false
-    if (profileId === PROMPT_DEFAULT_PROFILE_ID) return false
+    if (isPromptReadonlyProfile(profileId)) return false
 
     promptProfileMutating.value = true
 
@@ -340,7 +340,7 @@ export function useSettingsPrompts() {
 
   async function deletePromptProfile(profileId: string): Promise<boolean> {
     if (!profileId) return false
-    if (profileId === PROMPT_DEFAULT_PROFILE_ID) return false
+    if (isPromptReadonlyProfile(profileId)) return false
 
     promptProfileMutating.value = true
 
@@ -404,7 +404,7 @@ export function useSettingsPrompts() {
     promptProfiles,
     activePromptProfileId,
     activePromptProfile,
-    isActiveDefaultPromptProfile,
+    isActiveReadonlyPromptProfile,
     canRenameActivePromptProfile,
     canDeleteActivePromptProfile,
     selectedPromptId,

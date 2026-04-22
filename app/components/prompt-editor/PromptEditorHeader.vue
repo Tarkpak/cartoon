@@ -40,7 +40,7 @@ defineEmits<{
             {{ promptCategoryLabels[template.category] }}
           </span>
           <span
-            v-if="template.isCustomized"
+            v-if="template.isCustomized && !readonly"
             class="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300"
           >
             已修改
