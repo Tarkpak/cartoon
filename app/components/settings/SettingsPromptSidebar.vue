@@ -2,21 +2,30 @@
 import {
   ChevronDown,
   ChevronRight,
-  FileText
+  FileText,
+  Pencil,
+  Plus,
+  Trash2
 } from 'lucide-vue-next'
-import type { PromptFlowStage } from '#shared/types/prompt-template'
+import type { PromptFlowStage, PromptTemplateProfile } from '#shared/types/prompt-template'
 import type { PromptTemplateGroup } from '@/composables/useSettingsPrompts'
 
 const props = defineProps<{
   groupedPromptTemplates: PromptTemplateGroup[]
   selectedPromptId: string | null
+  profiles: PromptTemplateProfile[]
+  activeProfileId: string
+  profileBusy: boolean
+  canRenameProfile: boolean
+  canDeleteProfile: boolean
   workflowLabel: string
   promptCount: number
   promptsLoading: boolean
 }>()
 
 const emit = defineEmits<{
-  (e: 'select-prompt', id: string): void
+  (e: 'create-profile' | 'rename-profile' | 'delete-profile'): void
+  (e: 'activate-profile' | 'select-prompt', id: string): void
   (e: 'toggle-stage', stage: PromptFlowStage): void
 }>()
 
@@ -29,6 +38,10 @@ const CATEGORY_ICON_CLASS: Record<string, string> = {
 
 function getIconClass(color: string) {
   return CATEGORY_ICON_CLASS[color] || 'text-muted-foreground bg-muted border-border'
+}
+
+function toSelectString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }
 </script>
 
@@ -44,6 +57,63 @@ function getIconClass(color: string) {
       <p class="mt-2 text-xs text-muted-foreground">
         共 {{ promptCount }} 个模板
       </p>
+
+      <div class="mt-3 space-y-2">
+        <label class="text-xs text-muted-foreground">
+          配置方案
+        </label>
+        <Select
+          :model-value="props.activeProfileId"
+          :disabled="props.profileBusy || props.profiles.length === 0"
+          @update:model-value="emit('activate-profile', toSelectString($event))"
+        >
+          <SelectTrigger class="h-8 w-full text-xs">
+            <SelectValue placeholder="选择配置方案" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem
+              v-for="profile in props.profiles"
+              :key="profile.id"
+              :value="profile.id"
+            >
+              {{ profile.name }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+
+        <div class="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            class="h-7 px-2 text-[11px]"
+            :disabled="props.profileBusy"
+            @click="emit('create-profile')"
+          >
+            <Plus class="mr-1 h-3 w-3" />
+            新建
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            class="h-7 px-2 text-[11px]"
+            :disabled="props.profileBusy || !props.canRenameProfile"
+            @click="emit('rename-profile')"
+          >
+            <Pencil class="mr-1 h-3 w-3" />
+            重命名
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            class="h-7 px-2 text-[11px] text-destructive hover:text-destructive"
+            :disabled="props.profileBusy || !props.canDeleteProfile"
+            @click="emit('delete-profile')"
+          >
+            <Trash2 class="mr-1 h-3 w-3" />
+            删除
+          </Button>
+        </div>
+      </div>
     </div>
 
     <div

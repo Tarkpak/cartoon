@@ -22,6 +22,10 @@ export default defineEventHandler(async (event) => {
       workflow
     }
   } catch (error) {
+    if ((error as { statusCode?: number }).statusCode) {
+      throw error
+    }
+
     console.error('[PromptLangConfig] 更新失败:', error)
     throw createError({
       statusCode: 500,

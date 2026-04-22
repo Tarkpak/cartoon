@@ -3,6 +3,7 @@ import { Eye, Languages, Loader2, Redo2, Undo2 } from 'lucide-vue-next'
 
 defineProps<{
   activeLanguage: 'zh' | 'en'
+  readonly: boolean
   translating: boolean
   canUndo: boolean
   canRedo: boolean
@@ -48,7 +49,7 @@ defineEmits<{
         variant="outline"
         size="sm"
         class="ml-2"
-        :disabled="translating"
+        :disabled="readonly || translating"
         @click="$emit('translate')"
       >
         <Loader2
@@ -67,7 +68,7 @@ defineEmits<{
       <Button
         variant="ghost"
         size="icon"
-        :disabled="!canUndo"
+        :disabled="readonly || !canUndo"
         title="撤销 (Ctrl+Z)"
         @click="$emit('undo')"
       >
@@ -76,7 +77,7 @@ defineEmits<{
       <Button
         variant="ghost"
         size="icon"
-        :disabled="!canRedo"
+        :disabled="readonly || !canRedo"
         title="重做 (Ctrl+Y)"
         @click="$emit('redo')"
       >

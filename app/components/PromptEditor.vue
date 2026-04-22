@@ -14,6 +14,7 @@ import PromptEditorToolbar from '@/components/prompt-editor/PromptEditorToolbar.
 const props = defineProps<{
   template: PromptTemplate
   workflow?: ProjectWorkflowType
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -23,6 +24,7 @@ const emit = defineEmits<{
 
 const template = toRef(props, 'template')
 const workflow = toRef(props, 'workflow')
+const readonly = toRef(props, 'readonly')
 
 const {
   activeLanguage,
@@ -35,6 +37,7 @@ const {
   previewVariables,
   isFullscreen,
   showDiff,
+  isReadonly,
   langConfigSaving,
   translating,
   fileInputRef,
@@ -65,6 +68,7 @@ const {
 } = usePromptTemplateEditor({
   template,
   workflow,
+  readonly,
   onUpdate: nextTemplate => emit('update', nextTemplate),
   onSaved: () => emit('saved')
 })
@@ -89,6 +93,7 @@ function handleVariableInsert(variableName: string) {
     <PromptEditorHeader
       :template="template"
       :has-changes="hasChanges"
+      :readonly="isReadonly"
       :saving="saving"
       :resetting="resetting"
       :show-diff="showDiff"
@@ -108,6 +113,7 @@ function handleVariableInsert(variableName: string) {
       <div class="flex-1 flex flex-col overflow-hidden">
         <PromptEditorToolbar
           :active-language="activeLanguage"
+          :readonly="isReadonly"
           :translating="translating"
           :can-undo="canUndo"
           :can-redo="canRedo"
@@ -182,6 +188,7 @@ function handleVariableInsert(variableName: string) {
       <PromptEditorSidebar
         :template="template"
         :preview-mode="previewMode"
+        :readonly="isReadonly"
         :preview-variables="previewVariables"
         :current-template-lang="currentTemplateLang"
         :lang-config-saving="langConfigSaving"

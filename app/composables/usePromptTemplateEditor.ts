@@ -29,6 +29,7 @@ import { usePromptTemplateEditorActions } from '@/composables/usePromptTemplateE
 interface UsePromptTemplateEditorOptions {
   template: Ref<PromptTemplate>
   workflow: Ref<ProjectWorkflowType | undefined>
+  readonly: Ref<boolean | undefined>
   onUpdate: (template: PromptTemplate) => void
   onSaved: () => void
 }
@@ -43,12 +44,14 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
   const currentWorkflow = computed<ProjectWorkflowType>(() => {
     return options.workflow.value || 'asset_consistency'
   })
+  const isReadonly = computed(() => options.readonly.value === true)
 
   const localContent = ref(buildPromptEditorContent(options.template.value.content))
 
   const getValidVars = () => getPromptVariableNameSet(options.template.value.variables)
 
   const editor = useEditor({
+    editable: !isReadonly.value,
     content: promptTextToHtml(localContent.value[activeLanguage.value]),
     extensions: [
       StarterKit,
@@ -104,10 +107,14 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
     showDiff,
     onUpdate: options.onUpdate,
     onSaved: options.onSaved,
+    isReadonly,
     updateEditorContent
   })
 
   watch(activeLanguage, updateEditorContent)
+  watch(isReadonly, (value) => {
+    editor.value?.setEditable(!value)
+  })
 
   watch(options.template, (newTemplate) => {
     localContent.value = buildPromptEditorContent(newTemplate.content)
@@ -180,7 +187,7 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
   function handleKeydown(event: KeyboardEvent) {
     if ((event.ctrlKey || event.metaKey) && event.key === 's') {
       event.preventDefault()
-      if (hasChanges.value) {
+      if (hasChanges.value && !isReadonly.value) {
         void save()
       }
     }
@@ -208,6 +215,7 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
     previewVariables,
     isFullscreen,
     showDiff,
+    isReadonly,
     langConfigSaving,
     translating,
     fileInputRef,
