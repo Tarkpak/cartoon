@@ -51,6 +51,7 @@ import {
   extractSceneDescriptionMentionTokens,
   resolveSceneDescriptionWithoutAssetMentions
 } from '~/lib/asset-workbench-mentions'
+import { exportAssetWorkbenchScriptDocx } from '~/lib/asset-workbench-api'
 import { resolveChatUploadAssetName } from '~/lib/asset-workbench-scene-chat'
 import { applySceneBaselineReference } from '~/lib/asset-workbench-scene-generation'
 import { uploadAssetImage, uploadImageFile } from '~/lib/asset-workbench-upload'
@@ -141,6 +142,7 @@ const batchRunning = ref(false)
 const queueItems = ref<QueueItem[]>([])
 const sceneEditDialogOpen = ref(false)
 const editingScene = ref<SceneData | null>(null)
+const exportingScriptDocx = ref(false)
 
 const characterRoleOptions: CharacterRoleOption[] = [
   { value: 'protagonist', label: '主角' },
@@ -1469,6 +1471,58 @@ function setImagePreviewState(open: boolean) {
   imagePreviewOpen.value = open
 }
 
+function downloadBlobFile(blob: Blob, fileName: string) {
+  if (typeof window === 'undefined') return
+
+  const objectUrl = window.URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = objectUrl
+  anchor.download = fileName
+  anchor.style.display = 'none'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.URL.revokeObjectURL(objectUrl)
+}
+
+async function handleExportFormattedScriptDocx() {
+  if (exportingScriptDocx.value) return
+  if (scenes.value.length === 0) return
+
+  exportingScriptDocx.value = true
+
+  try {
+    const { blob, fileName } = await exportAssetWorkbenchScriptDocx({
+      projectName: projectName.value,
+      scenes: scenes.value.map(scene => ({
+        title: scene.title,
+        description: scene.description,
+        narration: scene.narration || null,
+        duration: scene.duration,
+        setting: scene.setting
+          ? {
+              location: scene.setting.location,
+              timeOfDay: scene.setting.timeOfDay
+            }
+          : undefined,
+        characters: scene.characters?.map(character => ({
+          name: character.name
+        })) || [],
+        dialogues: scene.dialogues?.map(dialogue => ({
+          character: dialogue.character,
+          text: dialogue.text
+        })) || []
+      }))
+    })
+
+    downloadBlobFile(blob, fileName)
+  } catch (error) {
+    alert(resolveUiError(error, '导出格式化 DOCX 失败'))
+  } finally {
+    exportingScriptDocx.value = false
+  }
+}
+
 async function handleBatchGenerateCharacters() {
   await batchGenerateCharacters(undefined, {
     workflowType: 'asset_consistency'
@@ -1589,7 +1643,9 @@ async function handleBatchGenerateCharacters() {
         :set-scene-chat-input-ref="setSceneChatInputRef"
         :set-scene-chat-mention-list-ref="setSceneChatMentionListRef"
         :set-scene-chat-composer-text="setSceneChatComposerText"
+        :exporting-script-docx="exportingScriptDocx"
         :on-run-videos-step="runSimpleVideosStep"
+        :on-export-formatted-script-docx="handleExportFormattedScriptDocx"
         :on-retry-failed-queue-items="retryFailedQueueItemsOnce"
         :on-select-scene="selectScene"
         :on-open-scene-edit="openSceneEdit"
