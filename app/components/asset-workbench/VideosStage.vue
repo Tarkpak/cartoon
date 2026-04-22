@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2 } from 'lucide-vue-next'
+import { FileDown, Loader2 } from 'lucide-vue-next'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
   AutoStageKey,
@@ -31,6 +31,7 @@ const props = defineProps<{
   sceneChatApplying: boolean
   sceneChatError: string | null
   sceneChatCanSubmit: boolean
+  exportingScriptDocx: boolean
   resolveSceneVideoBadge: (scene: SceneData) => SceneVideoBadge
   resolveSceneVoiceReferenceSummary: (scene: SceneData) => SceneVoiceReferenceSummary
   resolveSceneDescriptionRenderSegments: (scene: SceneData) => SceneDescriptionRenderSegment[]
@@ -46,6 +47,7 @@ const props = defineProps<{
   setSceneChatMentionListRef: (element: unknown) => void
   setSceneChatComposerText: (value: string) => void
   onRunVideosStep: () => void
+  onExportFormattedScriptDocx: () => void
   onRetryFailedQueueItems: () => void
   onSelectScene: (sceneId: string) => void
   onOpenSceneEdit: (scene: SceneData) => void
@@ -138,6 +140,23 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
           @click="onRetryFailedQueueItems()"
         >
           重试失败场景
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          class="gap-2"
+          :disabled="exportingScriptDocx || scenes.length === 0"
+          @click="onExportFormattedScriptDocx()"
+        >
+          <Loader2
+            v-if="exportingScriptDocx"
+            class="h-3.5 w-3.5 animate-spin"
+          />
+          <FileDown
+            v-else
+            class="h-3.5 w-3.5"
+          />
+          导出格式化 DOCX
         </Button>
       </div>
     </div>
