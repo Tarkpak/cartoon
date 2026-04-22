@@ -151,8 +151,6 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{aspectRatio}}', description: '最终截图比例与全景取景约束', example: '先生成 AR 4:1（2880*720）360环绕等距柱状环境全景源图，避免鱼眼/桶形畸变，后续裁切为 9:16' },
       { name: '{{environmentConsistency}}', description: '环境连续性约束文本', example: '主环境：医院；与相邻场景保持同一建筑年代与材质语言。' },
       { name: '{{cameraNote}}', description: '镜头与资产备注', example: '引用资产：急诊大厅、手术室门牌' },
-      { name: '{{narration}}', description: '旁白文本', example: '旁白：雨势渐大。' },
-      { name: '{{dialogues}}', description: '关键对白文本', example: '阿青：你终于来了。' },
       { name: '{{customPrompt}}', description: '二次生成补充要求', example: '保留医院冷白灯，但把地面湿痕强化一些。' }
     ]
   },
@@ -191,17 +189,12 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{setting}}', description: '场景设定文本', example: '城市天桥 / 夜晚 / 紧绷 / 暴雨' },
       { name: '{{style}}', description: '画风描述', example: '电影写实风格' },
       { name: '{{timelineLines}}', description: '分段时间轴镜头描述', example: '0-3秒：，中景，固定镜头。...\n3-8秒：，近景，缓慢推近。...' },
-      { name: '{{audioConstraint}}', description: '音频/字幕约束（建议留空）', example: '' },
       { name: '{{referenceMaterials}}', description: '参考素材列表文本', example: '图1：环境参考图...\n图2：角色参考图...' },
       { name: '{{executionConstraints}}', description: '执行约束列表文本', example: '- 输入模式：single_image\n- 严格保持角色一致性...' },
       { name: '{{referenceGuide}}', description: '参考图说明', example: '参考图说明：图1为角色，图2为环境。' },
-      { name: '{{inputMode}}', description: '输入模式', example: 'single_image' },
-      { name: '{{hasCharacterRef}}', description: '是否有角色参考图', example: 'yes' },
-      { name: '{{hasEnvironmentRef}}', description: '是否有环境参考图', example: 'yes' },
       { name: '{{duration}}', description: '目标时长（秒）', example: '8' },
       { name: '{{aspectRatio}}', description: '输出画面比例', example: '16:9' },
-      { name: '{{narration}}', description: '旁白文本', example: '雨势渐大，空气里弥漫着紧张。' },
-      { name: '{{dialogues}}', description: '对白文本', example: '阿青：你终于来了。' }
+      { name: '{{narration}}', description: '旁白文本', example: '雨势渐大，空气里弥漫着紧张。' }
     ]
   }
 ]

@@ -630,9 +630,8 @@ const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
 【执行约束】
 {{executionConstraints}}
 
-【对白与旁白信息】
+【旁白信息】
 - 旁白：{{narration}}
-- 对白：{{dialogues}}
 
 【生成要求】
 1. 严格按时间轴逐段推进，镜头衔接自然，不要把多段动作压缩成单一概述。
@@ -681,9 +680,8 @@ About {{duration}} seconds
 ## Execution Constraints
 {{executionConstraints}}
 
-## Dialogue and Narration Context
+## Narration Context
 - Narration: {{narration}}
-- Dialogue: {{dialogues}}
 
 ## Generation Requirements
 1. Follow the timeline beat by beat. Do not collapse multiple visual actions into a single generic summary.
