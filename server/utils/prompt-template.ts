@@ -308,7 +308,7 @@ function buildSeedancePromptProfileSnapshot(workflow: ProjectWorkflowType): Prom
   return {
     templates: getSeedanceOptimizedPromptTemplates(workflow).map(template => ({
       ...clonePromptTemplate(template),
-      isCustomized: true
+      isCustomized: false
     })),
     versions: [],
     langConfig: getDefaultLangConfig(workflow)
@@ -977,6 +977,17 @@ export function interpolateTemplate(
     result = result.split(placeholder).join(String(value ?? ''))
   }
 
+  const unresolved = Array.from(
+    new Set(
+      Array.from(result.matchAll(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g))
+        .map(match => match[1])
+    )
+  )
+  if (unresolved.length > 0) {
+    const formatted = unresolved.map(name => `{{${name}}}`).join(', ')
+    throw new Error(`提示词存在未替换变量: ${formatted}`)
+  }
+
   return result
 }
 
@@ -995,7 +1006,12 @@ export async function getInterpolatedPrompt(
     return null
   }
 
-  return interpolateTemplate(content, variables)
+  try {
+    return interpolateTemplate(content, variables)
+  } catch (error) {
+    console.error(`[PromptTemplate] 模板插值失败 (${id}):`, error)
+    return null
+  }
 }
 
 // ========== 内部函数 ==========

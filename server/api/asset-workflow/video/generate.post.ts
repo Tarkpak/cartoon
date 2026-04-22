@@ -3,7 +3,6 @@ import {
   findVideoModel
 } from '../../../utils/model-provider'
 import * as kling from '../../../utils/kling'
-import { extractSceneDialoguesFromDescription } from '../../../utils/scene-dialogue'
 import { getWorkflowModels } from '../../models/workflow.get'
 import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
@@ -743,10 +742,6 @@ export default defineEventHandler(async (event) => {
     multiReferenceBindings
   })
   const settingText = buildSettingText(scene.setting)
-  const sceneDialogues = extractSceneDialoguesFromDescription(scene.description)
-  const dialogueLines = sceneDialogues
-    .map(item => `${item.character}: ${item.text}`)
-    .join('\n')
   const narrationText = hasText(scene.narration) ? scene.narration.trim() : ''
 
   const interpolatedPrompt = await getInterpolatedPrompt(
@@ -759,7 +754,6 @@ export default defineEventHandler(async (event) => {
       duration: String(finalDuration),
       aspectRatio,
       timelineLines: promptSections.timelineLines,
-      audioConstraint: '',
       referenceMaterials: promptSections.referenceMaterials,
       executionConstraints: promptSections.executionConstraints,
       // 兼容旧模板变量（让历史自定义模板继续可用）
@@ -770,11 +764,7 @@ export default defineEventHandler(async (event) => {
         hasText(scene.cameraNote) ? `镜头与资产备注：${scene.cameraNote!.trim()}` : ''
       ].filter(Boolean).join('\n'),
       referenceGuide,
-      inputMode,
-      hasCharacterRef: hasCharacterRef ? 'yes' : 'no',
-      hasEnvironmentRef: hasEnvironmentRef ? 'yes' : 'no',
-      narration: narrationText || '无',
-      dialogues: dialogueLines || '无'
+      narration: narrationText || '无'
     },
     undefined,
     'asset_consistency'

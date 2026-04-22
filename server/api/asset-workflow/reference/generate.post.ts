@@ -659,8 +659,6 @@ async function buildSceneReferencePrompt(
       aspectRatio: panoramaAspectText,
       environmentConsistency: environmentConsistencyText,
       cameraNote: cameraNoteText,
-      narration: '无',
-      dialogues: '无',
       customPrompt: normalizedCustomPrompt || '无'
     },
     undefined,
