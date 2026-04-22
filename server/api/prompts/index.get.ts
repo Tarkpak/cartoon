@@ -3,7 +3,7 @@
  * GET /api/prompts
  */
 
-import { getAllPromptTemplates } from '../../utils/prompt-template'
+import { getAllPromptTemplates, getPromptProfiles } from '../../utils/prompt-template'
 import { resolvePromptWorkflowFromEvent } from '../../utils/prompt-workflow'
 import {
   CATEGORY_NAMES,
@@ -14,6 +14,7 @@ export default defineEventHandler(async (event) => {
   try {
     const workflow = resolvePromptWorkflowFromEvent(event)
     const templates = await getAllPromptTemplates(workflow)
+    const profileData = await getPromptProfiles(workflow)
     const metadataList = getPromptTemplateMetadataForWorkflow(workflow)
     const metadata = {
       text: metadataList.filter(t => t.category === 'text'),
@@ -35,7 +36,9 @@ export default defineEventHandler(async (event) => {
         templates,
         grouped,
         categoryNames: CATEGORY_NAMES,
-        metadata
+        metadata,
+        profiles: profileData.profiles,
+        activeProfileId: profileData.activeProfileId
       }
     }
   } catch (error) {

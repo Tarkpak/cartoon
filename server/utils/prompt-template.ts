@@ -9,11 +9,13 @@ import type {
   PromptTemplate,
   PromptVersion,
   PromptTemplateId,
-  BilingualContent
+  BilingualContent,
+  PromptTemplateProfile
 } from '../../shared/types/prompt-template'
 import {
   applyPromptTemplateWorkflowDisplay,
-  isPromptTemplateVisibleForWorkflow
+  isPromptTemplateVisibleForWorkflow,
+  PROMPT_DEFAULT_PROFILE_ID
 } from '../../shared/types/prompt-template'
 import {
   normalizeProjectWorkflowType,
@@ -25,6 +27,7 @@ import { getDefaultPromptTemplates } from './prompt-defaults'
 const PROMPT_TEMPLATES_KEY_PREFIX = 'prompt_templates'
 const PROMPT_VERSIONS_KEY_PREFIX = 'prompt_versions'
 const PROMPT_LANG_CONFIG_KEY_PREFIX = 'prompt_lang_config'
+const PROMPT_PROFILE_STATE_KEY_PREFIX = 'prompt_profile_state'
 
 type PromptWorkflowInput = ProjectWorkflowType | string | null | undefined
 
@@ -43,6 +46,23 @@ interface PromptStorageKeys {
  */
 export type PromptLangConfig = Record<PromptTemplateId, 'zh' | 'en'>
 
+interface PromptProfileSnapshot {
+  templates: PromptTemplate[]
+  versions: PromptVersion[]
+  langConfig: PromptLangConfig
+}
+
+interface PromptProfileState {
+  activeProfileId: string
+  profiles: PromptTemplateProfile[]
+  snapshots: Record<string, PromptProfileSnapshot>
+}
+
+export interface PromptProfileListResult {
+  activeProfileId: string
+  profiles: PromptTemplateProfile[]
+}
+
 function resolvePromptStorageKeys(workflow?: PromptWorkflowInput): PromptStorageKeys {
   const normalized = normalizeProjectWorkflowType(workflow)
 
@@ -55,6 +75,11 @@ function resolvePromptStorageKeys(workflow?: PromptWorkflowInput): PromptStorage
     legacyVersionsKey: undefined,
     legacyLangConfigKey: undefined
   }
+}
+
+function resolvePromptProfileStateKey(workflow?: PromptWorkflowInput): string {
+  const normalized = normalizeProjectWorkflowType(workflow)
+  return `${PROMPT_PROFILE_STATE_KEY_PREFIX}_${normalized}`
 }
 
 /**
@@ -118,6 +143,488 @@ function mergeWithDefaultTemplates(
     .map(template => applyPromptTemplateWorkflowDisplay(template, workflow))
 }
 
+function buildPromptProfileId(): string {
+  return `profile_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function normalizeOptionalText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed || undefined
+}
+
+function normalizePromptProfileName(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  return trimmed.slice(0, 64)
+}
+
+function normalizePromptLangConfigValue(
+  input: unknown,
+  workflow: PromptWorkflowInput
+): PromptLangConfig {
+  const base = getDefaultLangConfig(workflow)
+  if (!input || typeof input !== 'object') return base
+
+  const merged: PromptLangConfig = { ...base }
+  for (const templateId of Object.keys(base) as PromptTemplateId[]) {
+    const lang = (input as Record<string, unknown>)[templateId]
+    if (lang === 'zh' || lang === 'en') {
+      merged[templateId] = lang
+    }
+  }
+
+  return merged
+}
+
+function clonePromptTemplate(template: PromptTemplate): PromptTemplate {
+  return {
+    ...template,
+    content: { ...template.content },
+    variables: template.variables.map(variable => ({ ...variable }))
+  }
+}
+
+function clonePromptVersion(version: PromptVersion): PromptVersion {
+  return {
+    ...version,
+    content: { ...version.content }
+  }
+}
+
+function clonePromptProfileSnapshot(snapshot: PromptProfileSnapshot): PromptProfileSnapshot {
+  return {
+    templates: snapshot.templates.map(clonePromptTemplate),
+    versions: snapshot.versions.map(clonePromptVersion),
+    langConfig: { ...snapshot.langConfig }
+  }
+}
+
+function normalizePromptProfileSnapshot(
+  input: unknown,
+  workflow: ProjectWorkflowType,
+  fallback: PromptProfileSnapshot
+): PromptProfileSnapshot {
+  const next = clonePromptProfileSnapshot(fallback)
+  if (!input || typeof input !== 'object') return next
+
+  const source = input as {
+    templates?: unknown
+    versions?: unknown
+    langConfig?: unknown
+  }
+
+  if (Array.isArray(source.templates)) {
+    try {
+      next.templates = mergeWithDefaultTemplates(source.templates as PromptTemplate[], workflow)
+    } catch {
+      next.templates = fallback.templates.map(clonePromptTemplate)
+    }
+  }
+
+  if (Array.isArray(source.versions)) {
+    next.versions = source.versions
+      .filter((item): item is PromptVersion => {
+        if (!item || typeof item !== 'object') return false
+        const value = item as PromptVersion
+        return typeof value.id === 'string'
+          && typeof value.templateId === 'string'
+          && typeof value.createdAt === 'string'
+          && value.content !== null
+          && typeof value.content === 'object'
+          && typeof value.content.zh === 'string'
+          && typeof value.content.en === 'string'
+      })
+      .map(clonePromptVersion)
+  }
+
+  next.langConfig = normalizePromptLangConfigValue(source.langConfig, workflow)
+  return next
+}
+
+function normalizePromptProfileMetadata(
+  input: unknown,
+  fallbackName: string,
+  fallbackId: string,
+  fallbackTime: string
+): PromptTemplateProfile {
+  const source = input as Partial<PromptTemplateProfile> | null | undefined
+  const id = normalizeOptionalText(source?.id) || fallbackId
+  const name = normalizePromptProfileName(source?.name) || fallbackName
+  const createdAt = normalizeOptionalText(source?.createdAt) || fallbackTime
+  const updatedAt = normalizeOptionalText(source?.updatedAt) || createdAt
+  const description = normalizeOptionalText(source?.description)
+
+  return {
+    id,
+    name,
+    description,
+    createdAt,
+    updatedAt
+  }
+}
+
+function normalizePromptProfilesList(input: unknown, nowIso: string): PromptTemplateProfile[] {
+  if (!Array.isArray(input)) return []
+
+  const profiles: PromptTemplateProfile[] = []
+  const seen = new Set<string>()
+
+  for (const item of input) {
+    const normalized = normalizePromptProfileMetadata(item, '未命名配置', buildPromptProfileId(), nowIso)
+    if (seen.has(normalized.id)) continue
+    seen.add(normalized.id)
+    profiles.push(normalized)
+  }
+
+  return profiles
+}
+
+function normalizePromptProfileState(
+  input: unknown,
+  workflow: ProjectWorkflowType,
+  fallbackSnapshot: PromptProfileSnapshot
+): PromptProfileState {
+  const nowIso = new Date().toISOString()
+  if (!input || typeof input !== 'object') {
+    const profile = normalizePromptProfileMetadata(
+      { id: PROMPT_DEFAULT_PROFILE_ID, name: '默认配置', createdAt: nowIso, updatedAt: nowIso },
+      '默认配置',
+      PROMPT_DEFAULT_PROFILE_ID,
+      nowIso
+    )
+
+    return {
+      activeProfileId: profile.id,
+      profiles: [profile],
+      snapshots: {
+        [profile.id]: clonePromptProfileSnapshot(fallbackSnapshot)
+      }
+    }
+  }
+
+  const source = input as {
+    activeProfileId?: unknown
+    profiles?: unknown
+    snapshots?: unknown
+  }
+
+  const profiles = normalizePromptProfilesList(source.profiles, nowIso)
+  const snapshotsRaw = source.snapshots && typeof source.snapshots === 'object'
+    ? source.snapshots as Record<string, unknown>
+    : {}
+
+  if (profiles.length === 0) {
+    const defaultProfile = normalizePromptProfileMetadata(
+      { id: PROMPT_DEFAULT_PROFILE_ID, name: '默认配置', createdAt: nowIso, updatedAt: nowIso },
+      '默认配置',
+      PROMPT_DEFAULT_PROFILE_ID,
+      nowIso
+    )
+
+    return {
+      activeProfileId: defaultProfile.id,
+      profiles: [defaultProfile],
+      snapshots: {
+        [defaultProfile.id]: clonePromptProfileSnapshot(fallbackSnapshot)
+      }
+    }
+  }
+
+  const snapshots: Record<string, PromptProfileSnapshot> = {}
+  for (const profile of profiles) {
+    const rawSnapshot = snapshotsRaw[profile.id]
+    snapshots[profile.id] = normalizePromptProfileSnapshot(rawSnapshot, workflow, fallbackSnapshot)
+  }
+
+  const activeProfileIdCandidate = normalizeOptionalText(source.activeProfileId)
+  const activeProfileId = profiles.some(item => item.id === activeProfileIdCandidate)
+    ? activeProfileIdCandidate!
+    : profiles[0]!.id
+
+  return {
+    activeProfileId,
+    profiles,
+    snapshots
+  }
+}
+
+async function buildActivePromptProfileSnapshot(
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): Promise<PromptProfileSnapshot> {
+  const templates = await getAllPromptTemplates(workflow)
+  const versions = await getAllVersions(workflow)
+  const langConfig = await getPromptLangConfig(workflow)
+
+  return {
+    templates: templates.map(clonePromptTemplate),
+    versions: versions.map(clonePromptVersion),
+    langConfig: { ...langConfig }
+  }
+}
+
+async function getPromptProfileState(
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): Promise<PromptProfileState> {
+  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const key = resolvePromptProfileStateKey(normalizedWorkflow)
+  const rawValue = await readSystemConfigValueByKey(key)
+  const fallbackSnapshot = await buildActivePromptProfileSnapshot(normalizedWorkflow)
+
+  if (!rawValue) {
+    const initial = normalizePromptProfileState(null, normalizedWorkflow, fallbackSnapshot)
+    await upsertSystemConfigValue(key, JSON.stringify(initial))
+    return initial
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue)
+    return normalizePromptProfileState(parsed, normalizedWorkflow, fallbackSnapshot)
+  } catch (error) {
+    console.error('[PromptTemplate] 读取提示词配置方案失败，已回退默认方案:', error)
+    const initial = normalizePromptProfileState(null, normalizedWorkflow, fallbackSnapshot)
+    await upsertSystemConfigValue(key, JSON.stringify(initial))
+    return initial
+  }
+}
+
+function throwDefaultPromptProfileReadonlyError(): never {
+  const error = new Error('默认配置不可修改，请先新建并切换到其他配置方案') as Error & {
+    statusCode: number
+    statusMessage: string
+  }
+  error.statusCode = 403
+  error.statusMessage = '默认配置不可修改'
+  throw error
+}
+
+async function assertActivePromptProfileWritable(
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): Promise<void> {
+  const state = await getPromptProfileState(workflow)
+  if (state.activeProfileId === PROMPT_DEFAULT_PROFILE_ID) {
+    throwDefaultPromptProfileReadonlyError()
+  }
+}
+
+async function savePromptProfileState(
+  state: PromptProfileState,
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): Promise<void> {
+  const key = resolvePromptProfileStateKey(workflow)
+  await upsertSystemConfigValue(key, JSON.stringify(state))
+}
+
+async function applyPromptProfileSnapshotToActiveStorage(
+  snapshot: PromptProfileSnapshot,
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): Promise<void> {
+  const keys = resolvePromptStorageKeys(workflow)
+  await upsertSystemConfigValue(keys.templatesKey, JSON.stringify(snapshot.templates))
+  await upsertSystemConfigValue(keys.versionsKey, JSON.stringify(snapshot.versions))
+  await upsertSystemConfigValue(keys.langConfigKey, JSON.stringify(snapshot.langConfig))
+}
+
+async function syncActivePromptProfileSnapshot(
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): Promise<void> {
+  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const state = await getPromptProfileState(normalizedWorkflow)
+  const snapshot = await buildActivePromptProfileSnapshot(normalizedWorkflow)
+  const activeId = state.activeProfileId
+  const profileIndex = state.profiles.findIndex(item => item.id === activeId)
+  if (profileIndex === -1) return
+
+  state.snapshots[activeId] = snapshot
+  state.profiles[profileIndex] = {
+    ...state.profiles[profileIndex]!,
+    updatedAt: new Date().toISOString()
+  }
+  await savePromptProfileState(state, normalizedWorkflow)
+}
+
+export interface CreatePromptProfileInput {
+  name: string
+  description?: string
+  cloneFromProfileId?: string
+  activate?: boolean
+}
+
+export async function getPromptProfiles(
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): Promise<PromptProfileListResult> {
+  const state = await getPromptProfileState(workflow)
+  return {
+    activeProfileId: state.activeProfileId,
+    profiles: state.profiles
+  }
+}
+
+export async function createPromptProfile(
+  input: CreatePromptProfileInput,
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): Promise<PromptProfileListResult | null> {
+  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const name = normalizePromptProfileName(input.name)
+  if (!name) return null
+
+  const state = await getPromptProfileState(normalizedWorkflow)
+  const sourceProfileId = normalizeOptionalText(input.cloneFromProfileId)
+  const sourceId = sourceProfileId && state.snapshots[sourceProfileId]
+    ? sourceProfileId
+    : state.activeProfileId
+
+  const sourceSnapshot = state.snapshots[sourceId]
+  if (!sourceSnapshot) return null
+
+  let profileId = buildPromptProfileId()
+  while (state.profiles.some(profile => profile.id === profileId)) {
+    profileId = buildPromptProfileId()
+  }
+
+  const nowIso = new Date().toISOString()
+  const profile: PromptTemplateProfile = {
+    id: profileId,
+    name,
+    description: normalizeOptionalText(input.description),
+    createdAt: nowIso,
+    updatedAt: nowIso
+  }
+
+  state.profiles.push(profile)
+  state.snapshots[profileId] = clonePromptProfileSnapshot(sourceSnapshot)
+
+  if (input.activate === true) {
+    await applyPromptProfileSnapshotToActiveStorage(state.snapshots[profileId]!, normalizedWorkflow)
+    state.activeProfileId = profileId
+  }
+
+  await savePromptProfileState(state, normalizedWorkflow)
+
+  return {
+    activeProfileId: state.activeProfileId,
+    profiles: state.profiles
+  }
+}
+
+export interface UpdatePromptProfileInput {
+  name?: string
+  description?: string
+}
+
+export async function updatePromptProfile(
+  profileId: string,
+  input: UpdatePromptProfileInput,
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): Promise<PromptProfileListResult | null> {
+  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const targetId = normalizeOptionalText(profileId)
+  if (!targetId) return null
+  if (targetId === PROMPT_DEFAULT_PROFILE_ID) {
+    throwDefaultPromptProfileReadonlyError()
+  }
+
+  const state = await getPromptProfileState(normalizedWorkflow)
+  const index = state.profiles.findIndex(profile => profile.id === targetId)
+  if (index === -1) return null
+
+  const current = state.profiles[index]!
+  const nextName = input.name !== undefined
+    ? normalizePromptProfileName(input.name) || current.name
+    : current.name
+  const nextDescription = input.description !== undefined
+    ? normalizeOptionalText(input.description)
+    : current.description
+
+  state.profiles[index] = {
+    ...current,
+    name: nextName,
+    description: nextDescription,
+    updatedAt: new Date().toISOString()
+  }
+
+  await savePromptProfileState(state, normalizedWorkflow)
+
+  return {
+    activeProfileId: state.activeProfileId,
+    profiles: state.profiles
+  }
+}
+
+export async function deletePromptProfile(
+  profileId: string,
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): Promise<PromptProfileListResult | null> {
+  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const targetId = normalizeOptionalText(profileId)
+  if (!targetId) return null
+  if (targetId === PROMPT_DEFAULT_PROFILE_ID) {
+    throwDefaultPromptProfileReadonlyError()
+  }
+
+  const state = await getPromptProfileState(normalizedWorkflow)
+  if (state.profiles.length <= 1) return null
+
+  const index = state.profiles.findIndex(profile => profile.id === targetId)
+  if (index === -1) return null
+
+  const deletingActive = state.activeProfileId === targetId
+  state.profiles.splice(index, 1)
+  const { [targetId]: _removedSnapshot, ...restSnapshots } = state.snapshots
+  state.snapshots = restSnapshots
+
+  if (deletingActive) {
+    const fallbackProfile = state.profiles[0]
+    if (!fallbackProfile) return null
+    const fallbackSnapshot = state.snapshots[fallbackProfile.id]
+    if (!fallbackSnapshot) return null
+    await applyPromptProfileSnapshotToActiveStorage(fallbackSnapshot, normalizedWorkflow)
+    state.activeProfileId = fallbackProfile.id
+  }
+
+  await savePromptProfileState(state, normalizedWorkflow)
+
+  return {
+    activeProfileId: state.activeProfileId,
+    profiles: state.profiles
+  }
+}
+
+export async function activatePromptProfile(
+  profileId: string,
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): Promise<PromptProfileListResult | null> {
+  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const targetId = normalizeOptionalText(profileId)
+  if (!targetId) return null
+
+  const state = await getPromptProfileState(normalizedWorkflow)
+  const target = state.profiles.find(profile => profile.id === targetId)
+  if (!target) return null
+
+  const snapshot = state.snapshots[target.id]
+  if (!snapshot) return null
+
+  await applyPromptProfileSnapshotToActiveStorage(snapshot, normalizedWorkflow)
+  state.activeProfileId = target.id
+
+  const index = state.profiles.findIndex(profile => profile.id === target.id)
+  if (index !== -1) {
+    state.profiles[index] = {
+      ...state.profiles[index]!,
+      updatedAt: new Date().toISOString()
+    }
+  }
+
+  await savePromptProfileState(state, normalizedWorkflow)
+
+  return {
+    activeProfileId: state.activeProfileId,
+    profiles: state.profiles
+  }
+}
+
 /**
  * 获取提示词语言配置
  */
@@ -152,11 +659,13 @@ export async function updatePromptLangConfig(
   workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<PromptLangConfig> {
   try {
+    await assertActivePromptProfileWritable(workflow)
     const keys = resolvePromptStorageKeys(workflow)
     const current = await getPromptLangConfig(workflow)
     const updated = { ...current, ...config }
 
     await upsertSystemConfigValue(keys.langConfigKey, JSON.stringify(updated))
+    await syncActivePromptProfileSnapshot(workflow)
 
     return updated
   } catch (error) {
@@ -238,6 +747,7 @@ export async function updatePromptTemplate(
   workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<PromptTemplate | null> {
   try {
+    await assertActivePromptProfileWritable(workflow)
     const templates = await getAllPromptTemplates(workflow)
     const index = templates.findIndex(t => t.id === id)
 
@@ -260,6 +770,7 @@ export async function updatePromptTemplate(
     templates[index] = updatedTemplate
 
     await saveTemplates(templates, workflow)
+    await syncActivePromptProfileSnapshot(workflow)
 
     return updatedTemplate
   } catch (error) {
@@ -276,6 +787,7 @@ export async function resetPromptTemplate(
   workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<PromptTemplate | null> {
   try {
+    await assertActivePromptProfileWritable(workflow)
     const templates = await getAllPromptTemplates(workflow)
     const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
     const defaults = getDefaultPromptTemplates(normalizedWorkflow)
@@ -300,6 +812,7 @@ export async function resetPromptTemplate(
     }
 
     await saveTemplates(templates, workflow)
+    await syncActivePromptProfileSnapshot(workflow)
 
     return templates[index]!
   } catch (error) {
@@ -315,6 +828,7 @@ export async function resetAllPromptTemplates(
   workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<boolean> {
   try {
+    await assertActivePromptProfileWritable(workflow)
     const keys = resolvePromptStorageKeys(workflow)
     const defaults = getDefaultPromptTemplates(keys.workflow)
 
@@ -324,6 +838,8 @@ export async function resetAllPromptTemplates(
     if (keys.legacyVersionsKey) {
       await deleteSystemConfigValue(keys.legacyVersionsKey)
     }
+
+    await syncActivePromptProfileSnapshot(workflow)
 
     return true
   } catch (error) {

@@ -3,10 +3,10 @@
  * 将所有模板的指定语言翻译到目标语言
  */
 
-import { getAllPromptTemplates, updatePromptTemplate } from '../../utils/prompt-template'
+import { getAllPromptTemplates, getPromptProfiles, updatePromptTemplate } from '../../utils/prompt-template'
 import { resolvePromptWorkflowFromEvent } from '../../utils/prompt-workflow'
 import { generateTextForWorkflow } from '../../utils/workflow-model'
-import type { PromptTemplateId } from '../../../shared/types/prompt-template'
+import { PROMPT_DEFAULT_PROFILE_ID, type PromptTemplateId } from '../../../shared/types/prompt-template'
 
 interface TranslateAllRequest {
   from: 'zh' | 'en'
@@ -31,6 +31,15 @@ export default defineEventHandler(async (event) => {
 
   const fromLang = body.from === 'zh' ? '中文' : 'English'
   const toLang = body.to === 'zh' ? '中文' : 'English'
+  const profileData = await getPromptProfiles(workflow)
+
+  if (profileData.activeProfileId === PROMPT_DEFAULT_PROFILE_ID) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: '默认配置不可修改',
+      message: '请先创建并切换到自定义提示词配置方案'
+    })
+  }
 
   // 获取所有模板
   const templates = await getAllPromptTemplates(workflow)

@@ -40,6 +40,16 @@ export interface PromptTemplate {
   updatedAt: string
 }
 
+export const PROMPT_DEFAULT_PROFILE_ID = 'default'
+
+export interface PromptTemplateProfile {
+  id: string
+  name: string
+  description?: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface PromptVersion {
   id: string
   templateId: string
