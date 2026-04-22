@@ -71,10 +71,21 @@ export const KlingV3OmniVideoOptionsSchema = z.object({
 })
 export type KlingV3OmniVideoOptions = z.infer<typeof KlingV3OmniVideoOptionsSchema>
 
+export const SeedanceVideoQualitySchema = z.enum(['480p', '720p', '1080p'])
+export type SeedanceVideoQuality = z.infer<typeof SeedanceVideoQualitySchema>
+
+export const SeedanceVideoOptionsSchema = z.object({
+  quality: SeedanceVideoQualitySchema.default('720p')
+})
+export type SeedanceVideoOptions = z.infer<typeof SeedanceVideoOptionsSchema>
+
 export const WorkflowVideoGenerationModelOptionsSchema = z.object({
   klingV3Omni: KlingV3OmniVideoOptionsSchema.default({
     sound: 'off',
     mode: 'pro'
+  }),
+  seedance: SeedanceVideoOptionsSchema.default({
+    quality: '720p'
   })
 })
 export type WorkflowVideoGenerationModelOptions = z.infer<typeof WorkflowVideoGenerationModelOptionsSchema>
@@ -93,6 +104,9 @@ export const WorkflowModelOptionsSchema = z.object({
     klingV3Omni: {
       sound: 'off',
       mode: 'pro'
+    },
+    seedance: {
+      quality: '720p'
     }
   }),
   completion_notification: WorkflowCompletionNotificationOptionsSchema.default({

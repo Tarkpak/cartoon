@@ -174,6 +174,9 @@ function resolveDefaultWorkflowModelOptions(): WorkflowModelOptions {
       klingV3Omni: {
         sound: 'off',
         mode: 'pro'
+      },
+      seedance: {
+        quality: '720p'
       }
     },
     completion_notification: {
@@ -275,6 +278,10 @@ export async function setWorkflowVideoGenerationModelOptions(
       klingV3Omni: {
         ...current.video_generation.klingV3Omni,
         ...options.klingV3Omni
+      },
+      seedance: {
+        ...current.video_generation.seedance,
+        ...options.seedance
       }
     }
   })
