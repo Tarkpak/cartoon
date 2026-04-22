@@ -24,7 +24,6 @@ interface UseAssetWorkbenchProjectIOOptions {
   novelText: Ref<string>
   scenes: Ref<SceneData[]>
   characters: Ref<CharacterData[]>
-  parsedTimelineText: Ref<string>
 }
 
 export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOptions) {
@@ -137,7 +136,6 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
 
   async function loadProject(id: string) {
     loading.value = true
-    options.parsedTimelineText.value = ''
     mergeStatus.value = { running: false, progress: 0 }
     finalVideo.value = null
 

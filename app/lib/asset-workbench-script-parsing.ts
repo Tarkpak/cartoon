@@ -33,13 +33,10 @@ interface ParsedScriptCharacter {
 
 export function buildParsedScenes(options: {
   scenes: ParsedScriptScene[]
-  timelineLines: string[]
   descriptionFormat?: 'visual' | 'timeline'
 }): SceneData[] {
   return options.scenes.map((scene, index) => {
     const normalizedDescription = (scene.description || '').trim()
-    const hasTimelineStructure = /(^|\n)\s*\d+(?:\.\d+)?-\d+(?:\.\d+)?(?:s|秒)\s*[：:]/.test(normalizedDescription)
-    const fallbackTimelineLine = options.timelineLines[index] || normalizedDescription
     const dialogues = scene.dialogues || []
     const normalizedDialogues = dialogues.filter((dialogue) => {
       return !NARRATION_SPEAKER_SET.has(normalizeCharacterName(dialogue.character))
@@ -57,7 +54,7 @@ export function buildParsedScenes(options: {
       id: scene.id || `scene_${index + 1}`,
       title: scene.title || `${scene.setting?.location || '场景'} - ${scene.setting?.timeOfDay || ''}`,
       description: options.descriptionFormat === 'timeline'
-        ? (hasTimelineStructure ? normalizedDescription : fallbackTimelineLine)
+        ? normalizedDescription
         : scene.description,
       characters: scene.characters || [],
       dialogues: normalizedDialogues,

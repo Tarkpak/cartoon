@@ -1,18 +1,17 @@
 <script setup lang="ts">
-import { ClipboardCopy, Loader2, Sparkles } from 'lucide-vue-next'
+import { Loader2, Sparkles } from 'lucide-vue-next'
 
 const novelText = defineModel<string>('novelText', { required: true })
 
 defineProps<{
   parsing: boolean
-  parsedTimelineText: string
   scenesCount: number
   charactersCount: number
   hint: string
 }>()
 
 const emit = defineEmits<{
-  (e: 'copy-timeline' | 'parse'): void
+  (e: 'parse'): void
 }>()
 </script>
 
@@ -25,27 +24,6 @@ const emit = defineEmits<{
       class="flex-1 min-h-[280px] resize-none overflow-y-auto rounded-lg border-muted-foreground/20 bg-muted/30 placeholder:text-muted-foreground/50 focus:bg-background transition-colors"
       placeholder="粘贴完整剧本原文..."
     />
-
-    <div
-      v-if="parsedTimelineText.trim()"
-      class="shrink-0 space-y-2"
-    >
-      <div class="flex items-center justify-between gap-2">
-        <p class="text-xs font-medium text-muted-foreground">
-          标准时间轴脚本（含图片标记）
-        </p>
-        <Button
-          size="sm"
-          variant="ghost"
-          class="h-7 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
-          @click="emit('copy-timeline')"
-        >
-          <ClipboardCopy class="h-3 w-3" />
-          复制
-        </Button>
-      </div>
-      <pre class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground">{{ parsedTimelineText }}</pre>
-    </div>
 
     <div class="shrink-0 flex items-center gap-3">
       <Button
