@@ -7,9 +7,11 @@ import {
 import type {
   PromptCategory,
   PromptFlowStage,
-  PromptTemplate
+  PromptTemplate,
+  PromptTemplateProfile
 } from '#shared/types/prompt-template'
 import {
+  PROMPT_DEFAULT_PROFILE_ID,
   getPromptTemplateMetadataForWorkflow,
   PROMPT_FLOW_STAGES,
   PROMPT_FLOW_STAGE_LABELS
@@ -20,6 +22,16 @@ interface PromptTemplatesResponse {
   success: boolean
   data?: {
     templates: PromptTemplate[]
+    profiles?: PromptTemplateProfile[]
+    activeProfileId?: string
+  }
+}
+
+interface PromptProfilesResponse {
+  success: boolean
+  data?: {
+    profiles: PromptTemplateProfile[]
+    activeProfileId: string
   }
 }
 
@@ -59,7 +71,13 @@ export const PROMPT_STAGE_CONFIG: Record<PromptFlowStage, PromptStageMeta> = {
 
 export function useSettingsPrompts() {
   const promptsLoading = ref(false)
+  const promptProfilesLoading = ref(false)
+  const promptProfileMutating = ref(false)
+
   const promptTemplates = ref<PromptTemplate[]>([])
+  const promptProfiles = ref<PromptTemplateProfile[]>([])
+  const activePromptProfileId = ref<string>('')
+
   const selectedPromptId = ref<string | null>(null)
   const selectedPromptTemplate = ref<PromptTemplate | null>(null)
   const selectedPromptWorkflow = ref<ProjectWorkflowType>('asset_consistency')
@@ -103,6 +121,29 @@ export function useSettingsPrompts() {
     return selectedPromptTemplate.value?.category || null
   })
 
+  const activePromptProfile = computed<PromptTemplateProfile | null>(() => {
+    if (!activePromptProfileId.value) return null
+    return promptProfiles.value.find(profile => profile.id === activePromptProfileId.value) || null
+  })
+
+  const isActiveDefaultPromptProfile = computed(() => {
+    return activePromptProfileId.value === PROMPT_DEFAULT_PROFILE_ID
+  })
+
+  const canRenameActivePromptProfile = computed(() => {
+    return Boolean(activePromptProfile.value) && !isActiveDefaultPromptProfile.value
+  })
+
+  const canDeleteActivePromptProfile = computed(() => {
+    return promptProfiles.value.length > 1
+      && Boolean(activePromptProfile.value)
+      && !isActiveDefaultPromptProfile.value
+  })
+
+  const promptProfileBusy = computed(() => {
+    return promptProfilesLoading.value || promptProfileMutating.value
+  })
+
   function expandPromptStage(stage: PromptFlowStage) {
     expandedPromptStages.value.add(stage)
   }
@@ -131,6 +172,22 @@ export function useSettingsPrompts() {
     }
   }
 
+  function syncPromptProfiles(profiles: PromptTemplateProfile[], activeId: string) {
+    promptProfiles.value = profiles
+
+    if (profiles.length === 0) {
+      activePromptProfileId.value = ''
+      return
+    }
+
+    if (profiles.some(profile => profile.id === activeId)) {
+      activePromptProfileId.value = activeId
+      return
+    }
+
+    activePromptProfileId.value = profiles[0]!.id
+  }
+
   async function loadPromptTemplates() {
     promptsLoading.value = true
 
@@ -143,10 +200,31 @@ export function useSettingsPrompts() {
 
       promptTemplates.value = response.data.templates
       syncSelectedPrompt(response.data.templates)
+
+      if (response.data.profiles && response.data.activeProfileId) {
+        syncPromptProfiles(response.data.profiles, response.data.activeProfileId)
+      }
     } catch (error) {
       console.error('[useSettingsPrompts] 加载提示词模板失败:', error)
     } finally {
       promptsLoading.value = false
+    }
+  }
+
+  async function loadPromptProfiles() {
+    promptProfilesLoading.value = true
+
+    try {
+      const response = await $fetch<PromptProfilesResponse>('/api/prompts/profiles', {
+        query: { workflow: selectedPromptWorkflow.value }
+      })
+
+      if (!response.success || !response.data) return
+      syncPromptProfiles(response.data.profiles, response.data.activeProfileId)
+    } catch (error) {
+      console.error('[useSettingsPrompts] 加载提示词配置方案失败:', error)
+    } finally {
+      promptProfilesLoading.value = false
     }
   }
 
@@ -171,6 +249,121 @@ export function useSettingsPrompts() {
     expandedPromptStages.value.add(stage)
   }
 
+  async function activatePromptProfile(profileId: string): Promise<boolean> {
+    if (!profileId || profileId === activePromptProfileId.value) return true
+
+    promptProfileMutating.value = true
+
+    try {
+      const response = await $fetch<PromptProfilesResponse>(`/api/prompts/profiles/${profileId}/activate`, {
+        method: 'POST',
+        query: { workflow: selectedPromptWorkflow.value }
+      })
+
+      if (response.success && response.data) {
+        syncPromptProfiles(response.data.profiles, response.data.activeProfileId)
+      }
+
+      await loadPromptTemplates()
+      return true
+    } catch (error) {
+      console.error('[useSettingsPrompts] 切换提示词配置方案失败:', error)
+      return false
+    } finally {
+      promptProfileMutating.value = false
+    }
+  }
+
+  async function createPromptProfile(name: string, description = '', activate = true): Promise<boolean> {
+    const normalizedName = name.trim()
+    if (!normalizedName) return false
+
+    promptProfileMutating.value = true
+
+    try {
+      const response = await $fetch<PromptProfilesResponse>('/api/prompts/profiles', {
+        method: 'POST',
+        query: { workflow: selectedPromptWorkflow.value },
+        body: {
+          name: normalizedName,
+          description: description.trim() || undefined,
+          activate
+        }
+      })
+
+      if (response.success && response.data) {
+        syncPromptProfiles(response.data.profiles, response.data.activeProfileId)
+      }
+
+      if (activate) {
+        await loadPromptTemplates()
+      }
+
+      return true
+    } catch (error) {
+      console.error('[useSettingsPrompts] 创建提示词配置方案失败:', error)
+      return false
+    } finally {
+      promptProfileMutating.value = false
+    }
+  }
+
+  async function updatePromptProfileName(profileId: string, name: string, description?: string): Promise<boolean> {
+    const normalizedName = name.trim()
+    if (!profileId || !normalizedName) return false
+    if (profileId === PROMPT_DEFAULT_PROFILE_ID) return false
+
+    promptProfileMutating.value = true
+
+    try {
+      const response = await $fetch<PromptProfilesResponse>(`/api/prompts/profiles/${profileId}`, {
+        method: 'PUT',
+        query: { workflow: selectedPromptWorkflow.value },
+        body: {
+          name: normalizedName,
+          description: description?.trim() || undefined
+        }
+      })
+
+      if (response.success && response.data) {
+        syncPromptProfiles(response.data.profiles, response.data.activeProfileId)
+      }
+
+      return true
+    } catch (error) {
+      console.error('[useSettingsPrompts] 更新提示词配置方案失败:', error)
+      return false
+    } finally {
+      promptProfileMutating.value = false
+    }
+  }
+
+  async function deletePromptProfile(profileId: string): Promise<boolean> {
+    if (!profileId) return false
+    if (profileId === PROMPT_DEFAULT_PROFILE_ID) return false
+
+    promptProfileMutating.value = true
+
+    try {
+      const response = await $fetch<PromptProfilesResponse>(`/api/prompts/profiles/${profileId}`, {
+        method: 'DELETE',
+        query: { workflow: selectedPromptWorkflow.value }
+      })
+
+      if (response.success && response.data) {
+        syncPromptProfiles(response.data.profiles, response.data.activeProfileId)
+      }
+
+      await loadPromptTemplates()
+      return true
+    } catch (error) {
+      console.error('[useSettingsPrompts] 删除提示词配置方案失败:', error)
+      return false
+    } finally {
+      promptProfileMutating.value = false
+    }
+  }
+
   function toSelectString(value: unknown): string {
     return typeof value === 'string' ? value : ''
   }
@@ -188,17 +381,32 @@ export function useSettingsPrompts() {
   }
 
   watch(selectedPromptWorkflow, () => {
-    void loadPromptTemplates()
+    void Promise.all([
+      loadPromptProfiles(),
+      loadPromptTemplates()
+    ])
   })
 
   onMounted(() => {
     if (promptTemplates.value.length > 0) return
-    void loadPromptTemplates()
+    void Promise.all([
+      loadPromptProfiles(),
+      loadPromptTemplates()
+    ])
   })
 
   return {
     promptsLoading,
+    promptProfilesLoading,
+    promptProfileMutating,
+    promptProfileBusy,
     promptTemplates,
+    promptProfiles,
+    activePromptProfileId,
+    activePromptProfile,
+    isActiveDefaultPromptProfile,
+    canRenameActivePromptProfile,
+    canDeleteActivePromptProfile,
     selectedPromptId,
     selectedPromptTemplate,
     selectedPromptCategory,
@@ -207,9 +415,14 @@ export function useSettingsPrompts() {
     groupedPromptTemplates,
     selectPrompt,
     togglePromptStage,
+    activatePromptProfile,
+    createPromptProfile,
+    updatePromptProfileName,
+    deletePromptProfile,
     toSelectString,
     handlePromptUpdate,
     handlePromptSaved,
-    loadPromptTemplates
+    loadPromptTemplates,
+    loadPromptProfiles
   }
 }

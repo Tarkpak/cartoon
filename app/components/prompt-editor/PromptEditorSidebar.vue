@@ -9,6 +9,7 @@ import {
 defineProps<{
   template: PromptTemplate
   previewMode: boolean
+  readonly: boolean
   previewVariables: Record<string, string>
   currentTemplateLang: 'zh' | 'en'
   langConfigSaving: boolean
@@ -39,7 +40,7 @@ const emit = defineEmits<{
           size="sm"
           class="flex-1 px-3 py-1.5 h-auto rounded-none text-sm transition-colors"
           :class="currentTemplateLang === 'zh' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-          :disabled="langConfigSaving"
+          :disabled="readonly || langConfigSaving"
           @click="emit('toggle-runtime-lang', 'zh')"
         >
           中文
@@ -49,7 +50,7 @@ const emit = defineEmits<{
           size="sm"
           class="flex-1 px-3 py-1.5 h-auto rounded-none text-sm transition-colors"
           :class="currentTemplateLang === 'en' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-          :disabled="langConfigSaving"
+          :disabled="readonly || langConfigSaving"
           @click="emit('toggle-runtime-lang', 'en')"
         >
           English
@@ -86,6 +87,7 @@ const emit = defineEmits<{
                 ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20'
                 : 'hover:bg-muted'
             ]"
+            :disabled="readonly"
             @click="emit('insert-variable', variable.name)"
           >
             <code class="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{{ getPromptVariableTag(variable.name) }}</code>

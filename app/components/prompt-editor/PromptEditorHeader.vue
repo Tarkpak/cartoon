@@ -16,6 +16,7 @@ import { promptCategoryColors, promptCategoryLabels } from '@/lib/prompt-editor'
 defineProps<{
   template: PromptTemplate
   hasChanges: boolean
+  readonly: boolean
   saving: boolean
   resetting: boolean
   showDiff: boolean
@@ -50,6 +51,12 @@ defineEmits<{
           >
             未保存
           </span>
+          <span
+            v-if="readonly"
+            class="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+          >
+            默认配置只读
+          </span>
         </div>
         <p class="mt-1 text-sm text-muted-foreground">
           {{ template.description }}
@@ -61,6 +68,7 @@ defineEmits<{
           variant="ghost"
           size="icon"
           title="导入"
+          :disabled="readonly"
           @click="$emit('trigger-import')"
         >
           <Upload class="h-4 w-4" />
@@ -78,6 +86,7 @@ defineEmits<{
         <Button
           variant="outline"
           size="sm"
+          :disabled="readonly"
           @click="$emit('history')"
         >
           <History class="mr-1.5 h-4 w-4" />
@@ -86,7 +95,7 @@ defineEmits<{
         <Button
           variant="outline"
           size="sm"
-          :disabled="resetting || !template.isCustomized"
+          :disabled="readonly || resetting || !template.isCustomized"
           @click="$emit('reset')"
         >
           <Loader2
@@ -103,6 +112,7 @@ defineEmits<{
           v-if="hasChanges"
           variant="outline"
           size="sm"
+          :disabled="readonly"
           @click="$emit('toggle-diff')"
         >
           <GitCompare class="mr-1.5 h-4 w-4" />
@@ -110,7 +120,7 @@ defineEmits<{
         </Button>
         <Button
           size="sm"
-          :disabled="saving || !hasChanges"
+          :disabled="readonly || saving || !hasChanges"
           @click="$emit('save')"
         >
           <Loader2

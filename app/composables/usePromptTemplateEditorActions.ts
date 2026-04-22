@@ -21,6 +21,7 @@ import {
 interface UsePromptTemplateEditorActionsOptions {
   template: Ref<PromptTemplate>
   workflow: ComputedRef<ProjectWorkflowType>
+  isReadonly: ComputedRef<boolean>
   localContent: Ref<PromptTemplate['content']>
   activeLanguage: Ref<PromptEditorLanguage>
   showDiff: Ref<boolean>
@@ -50,6 +51,7 @@ export function usePromptTemplateEditorActions(
   })
 
   async function save() {
+    if (options.isReadonly.value) return
     saving.value = true
 
     try {
@@ -72,6 +74,7 @@ export function usePromptTemplateEditorActions(
   }
 
   async function reset() {
+    if (options.isReadonly.value) return
     if (!confirm('确定要重置此模板为默认值吗？')) return
 
     resetting.value = true
@@ -117,6 +120,7 @@ export function usePromptTemplateEditorActions(
   }
 
   async function restoreVersion(versionId: string) {
+    if (options.isReadonly.value) return
     if (!confirm('确定要恢复到此版本吗？')) return
 
     try {
@@ -148,6 +152,7 @@ export function usePromptTemplateEditorActions(
   }
 
   async function saveLangConfig() {
+    if (options.isReadonly.value) return
     langConfigSaving.value = true
 
     try {
@@ -164,11 +169,13 @@ export function usePromptTemplateEditorActions(
   }
 
   async function toggleRuntimeLang(lang: PromptEditorLanguage) {
+    if (options.isReadonly.value) return
     currentTemplateLang.value = lang
     await saveLangConfig()
   }
 
   async function translateContent() {
+    if (options.isReadonly.value) return
     const fromLang = options.activeLanguage.value
     const toLang = fromLang === 'zh' ? 'en' : 'zh'
     const sourceText = options.localContent.value[fromLang]
@@ -198,10 +205,12 @@ export function usePromptTemplateEditorActions(
   }
 
   function triggerImport() {
+    if (options.isReadonly.value) return
     fileInputRef.value?.click()
   }
 
   async function handleImport(event: Event) {
+    if (options.isReadonly.value) return
     const input = event.target as HTMLInputElement
     const file = input.files?.[0]
     if (!file) return
