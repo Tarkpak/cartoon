@@ -24,7 +24,7 @@ interface ParseScriptResponse {
       dialogues?: Array<{ character: string, text: string, emotion?: string }>
       narration?: string | null
       duration: number
-      setting?: { location: string, timeOfDay: string, mood?: string, weather?: string }
+      setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string }
     }>
     characters?: Array<{ name: string, description?: string, role?: string }>
   }

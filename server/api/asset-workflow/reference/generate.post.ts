@@ -15,13 +15,18 @@ import {
 import { getWorkflowModels, getWorkflowModelOptions } from '../../models/workflow.get'
 import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
-import { resolveTimeOfDayText } from '../../../../shared/types/script'
+import {
+  resolveTimeOfDayText,
+  normalizeOptionalSceneEraValue,
+  inferSceneEraFromText
+} from '../../../../shared/types/script'
 
 const AspectRatioSchema = z.enum(['16:9', '9:16', '1:1'])
 
 const SceneSettingSchema = z.object({
   location: z.string().optional(),
   timeOfDay: z.string().optional(),
+  era: z.string().optional(),
   mood: z.string().optional(),
   weather: z.string().optional()
 }).optional()
@@ -639,8 +644,14 @@ async function buildSceneReferencePrompt(
     ? `先生成 AR ${PANORAMA_SOURCE_ASPECT_RATIO}（${PANORAMA_SOURCE_IMAGE_SIZE}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），默认采用中远景/全景观察距离，保留更完整的空间结构信息，${antiDistortionText}，后续仍以 16:9 作为截图使用`
     : `先生成 AR ${PANORAMA_SOURCE_ASPECT_RATIO}（${PANORAMA_SOURCE_IMAGE_SIZE}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），默认采用中远景/全景观察距离，保留更完整的空间结构信息，${antiDistortionText}，后续裁切为 ${aspectRatio}`
   const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
+  const era = normalizeOptionalSceneEraValue(scene.setting?.era)
+    || inferSceneEraFromText([
+      scene.title || '',
+      scene.description || '',
+      scene.setting?.location || ''
+    ].filter(Boolean).join('\n'))
   const settingText = scene.setting
-    ? [scene.setting.location, timeOfDay, scene.setting.mood, scene.setting.weather]
+    ? [scene.setting.location, era ? `时代：${era}` : '', timeOfDay, scene.setting.mood, scene.setting.weather]
         .filter(Boolean)
         .join(' / ')
     : '未提供'

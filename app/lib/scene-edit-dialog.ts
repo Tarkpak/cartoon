@@ -26,7 +26,7 @@ export type SceneEditData = Pick<
   | 'transitionOut'
   | 'transitionDuration'
 > & {
-  setting?: { location: string, timeOfDay: string }
+  setting?: { location: string, timeOfDay: string, era?: string }
 }
 
 export type AssetReferenceType = DisplayAsset['type']

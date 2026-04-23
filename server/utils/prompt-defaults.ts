@@ -127,6 +127,9 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 【项目画风】
 {{style}}
 
+【时代推断提示】
+{{eraHint}}
+
 【输入规模】
 - 文本长度：约 {{textLength}} 字
 - 建议最少场景数：{{recommendedMinScenes}} 场
@@ -153,9 +156,10 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 1. scenes[i].shotType 只能是：extreme_wide、wide、medium_wide、medium、medium_close、close、extreme_close、detail。
 2. scenes[i].cameraMovement 只能是：static、push、pull、pan_left、pan_right、tilt_up、tilt_down、track、dolly、zoom_in、zoom_out、crane、handheld、arc。选择最能代表该场景主运镜方式的值。
 3. scenes[i].setting.timeOfDay 只能是：黎明、早晨、白天、中午、下午、傍晚、夜晚。
-4. scenes[i].setting.location 请优先使用”主环境-子空间”或”主环境/子空间”的中性命名。
-5. 同一主环境在不同子空间中必须保持一致的建筑年代、装修档次、材质语言和维护状态。
-6. 除非原文明确说明新旧分区或废弃区，禁止输出互相冲突的环境风格。
+4. scenes[i].setting.era 只能是：古代、民国、现代、近未来、架空。若原文不明确且画风包含 AI真人/live action，默认使用“现代”。
+5. scenes[i].setting.location 请优先使用”主环境-子空间”或”主环境/子空间”的中性命名。
+6. 同一主环境在不同子空间中必须保持一致的建筑年代、装修档次、材质语言和维护状态。
+7. 除非原文明确说明新旧分区或废弃区，禁止输出互相冲突的环境风格。
 
 【description 富化规则】
 1. 每个场景的 description 必须是“可直接拍摄”的详细场景说明块，不得只写一句概述，也不要退化成纯散文。
@@ -207,6 +211,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
       "setting": {
         "location": "医院-护士站",
         "timeOfDay": "夜晚",
+        "era": "现代",
         "mood": "紧绷压迫",
         "weather": "暴雨（可选）"
       },
@@ -248,6 +253,9 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 ## Project Style
 {{style}}
 
+## Era Hint
+{{eraHint}}
+
 ## Input Scale
 - Text length: about {{textLength}} characters
 - Recommended minimum scene count: {{recommendedMinScenes}}
@@ -274,9 +282,10 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 1. scenes[i].shotType must be one of: extreme_wide, wide, medium_wide, medium, medium_close, close, extreme_close, detail.
 2. scenes[i].cameraMovement must be one of: static, push, pull, pan_left, pan_right, tilt_up, tilt_down, track, dolly, zoom_in, zoom_out, crane, handheld, arc. Pick the dominant camera movement for the scene.
 3. scenes[i].setting.timeOfDay must be one of: 黎明, 早晨, 白天, 中午, 下午, 傍晚, 夜晚.
-4. scenes[i].setting.location should use neutral naming such as "root environment - subspace".
-5. The same root environment must keep consistent era, material language, maintenance level, and renovation grade across scenes.
-6. Do not output conflicting environment styles unless the source explicitly describes different zones.
+4. scenes[i].setting.era must be one of: 古代, 民国, 现代, 近未来, 架空. If era is not explicit and the style contains AI真人/live action, default to 现代.
+5. scenes[i].setting.location should use neutral naming such as "root environment - subspace".
+6. The same root environment must keep consistent era, material language, maintenance level, and renovation grade across scenes.
+7. Do not output conflicting environment styles unless the source explicitly describes different zones.
 
 ## Rich Description Rules
 1. Each scene description must be a detailed, production-ready scene block, not a one-line summary and not plain prose.
@@ -327,6 +336,7 @@ Output strict JSON only:
       "setting": {
         "location": "Hospital - nurse station",
         "timeOfDay": "夜晚",
+        "era": "现代",
         "mood": "tense and oppressive",
         "weather": "stormy rain"
       },
@@ -371,6 +381,9 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 【项目画风】
 {{style}}
 
+【时代推断提示】
+{{eraHint}}
+
 【输入规模】
 - 文本长度：约 {{textLength}} 字
 - 建议最少场景数：{{recommendedMinScenes}} 场
@@ -406,6 +419,7 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 1. scenes[i].shotType 只能是：extreme_wide、wide、medium_wide、medium、medium_close、close、extreme_close、detail。
 2. scenes[i].cameraMovement 只能是：static、push、pull、pan_left、pan_right、tilt_up、tilt_down、track、dolly、zoom_in、zoom_out、crane、handheld、arc。
 3. scenes[i].setting.timeOfDay 只能是：黎明、早晨、白天、中午、下午、傍晚、夜晚。
+4. scenes[i].setting.era 只能是：古代、民国、现代、近未来、架空。若原文不明确且画风包含 AI真人/live action，默认使用“现代”。
 
 【description 写作规则】
 1. 必须是“可拍摄”的时间轴分镜块，禁止一句话概述。
@@ -435,6 +449,7 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
       "setting": {
         "location": "客厅-餐桌区",
         "timeOfDay": "夜晚",
+        "era": "现代",
         "mood": "压迫",
         "weather": "雨夜（可选）"
       },
@@ -476,6 +491,9 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 ## Project Style
 {{style}}
 
+## Era Hint
+{{eraHint}}
+
 ## Input Scale
 - Text length: about {{textLength}} characters
 - Recommended minimum scene count: {{recommendedMinScenes}}
@@ -511,6 +529,7 @@ Final declaration | 43-60s | emptiness -> cold severity | cliffhanger / anticipa
 1. scenes[i].shotType must be one of: extreme_wide, wide, medium_wide, medium, medium_close, close, extreme_close, detail.
 2. scenes[i].cameraMovement must be one of: static, push, pull, pan_left, pan_right, tilt_up, tilt_down, track, dolly, zoom_in, zoom_out, crane, handheld, arc.
 3. scenes[i].setting.timeOfDay must be one of: 黎明, 早晨, 白天, 中午, 下午, 傍晚, 夜晚.
+4. scenes[i].setting.era must be one of: 古代, 民国, 现代, 近未来, 架空. If era is not explicit and the style contains AI真人/live action, default to 现代.
 
 ## Description Writing Rules
 1. Description must be production-ready timeline blocks, not one-line summaries.
@@ -540,6 +559,7 @@ Output strict JSON only:
       "setting": {
         "location": "Living room - dining table",
         "timeOfDay": "夜晚",
+        "era": "现代",
         "mood": "oppressive",
         "weather": "rainy night"
       },
