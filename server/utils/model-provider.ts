@@ -48,22 +48,6 @@ export const TEXT_MODELS: TextModelConfig[] = [
   // 千问模型
   {
     provider: 'qwen',
-    model: qwen.QwenTextModels.QWEN3_MAX,
-    displayName: '通义千问3-Max',
-    description: '适配复杂场景，达到领域SOTA水平',
-    supportThinking: false,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference'
-  },
-  {
-    provider: 'qwen',
-    model: qwen.QwenTextModels.QWEN_FLASH,
-    displayName: '通义千问-Flash',
-    description: '小尺寸，低延时，高性价比',
-    supportThinking: false,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference'
-  },
-  {
-    provider: 'qwen',
     model: qwen.QwenTextModels.QWEN_PLUS_THINKING,
     displayName: '通义千问3.6-Plus (深度思考)',
     description: '新一代高性能深度思考模型',
@@ -72,19 +56,11 @@ export const TEXT_MODELS: TextModelConfig[] = [
   },
   {
     provider: 'qwen',
-    model: qwen.QwenTextModels.QWEN_FLASH_THINKING,
-    displayName: '通义千问3.5-Flash (深度思考)',
-    description: '低延时深度思考版本，适合高并发场景',
-    supportThinking: true,
+    model: qwen.QwenTextModels.QWEN3_MAX,
+    displayName: '通义千问3-Max',
+    description: '适配复杂场景，达到领域SOTA水平',
+    supportThinking: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference'
-  },
-  {
-    provider: 'qwen',
-    model: qwen.QwenTextModels.DEEPSEEK_V3_2,
-    displayName: 'DeepSeek-V3.2',
-    description: '全新混合推理架构模型',
-    supportThinking: true,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/deepseek-api'
   },
   // 火山引擎 (豆包) 模型
   {
@@ -93,30 +69,6 @@ export const TEXT_MODELS: TextModelConfig[] = [
     displayName: '豆包 Seed 2.0 Pro',
     description: '旗舰文本模型，复杂任务表现最强',
     supportThinking: true,
-    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
-  },
-  {
-    provider: 'volcengine',
-    model: volcengine.VolcengineTextModels.DOUBAO_SEED_2_0_MINI,
-    displayName: '豆包 Seed 2.0 Mini',
-    description: '高性价比通用模型，适合日常生产任务',
-    supportThinking: true,
-    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
-  },
-  {
-    provider: 'volcengine',
-    model: volcengine.VolcengineTextModels.DOUBAO_SEED_2_0_LITE,
-    displayName: '豆包 Seed 2.0 Lite',
-    description: '轻量低成本模型，适合简单文本任务',
-    supportThinking: false,
-    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
-  },
-  {
-    provider: 'volcengine',
-    model: volcengine.VolcengineTextModels.DOUBAO_SEED_CODE,
-    displayName: '豆包 Seed Code Preview',
-    description: '代码生成与修复场景增强',
-    supportThinking: false,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   },
   {
@@ -161,9 +113,7 @@ const GEMINI_3_PRO_IMAGE_ASPECT_RATIOS = [
 
 const QWEN_IMAGE_PRIMARY_ASPECT_RATIOS = ['16:9', '4:3', '1:1', '3:4', '9:16'] as const
 const QWEN_WAN_IMAGE_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9'] as const
-const QWEN_Z_IMAGE_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9'] as const
 
-const KLING_IMAGE_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9'] as const
 const KLING_OMNI_IMAGE_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', 'auto'] as const
 
 const VOLCENGINE_IMAGE_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3', '21:9'] as const
@@ -192,45 +142,9 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
   // 千问模型
   {
     provider: 'qwen',
-    model: qwen.QwenImageModels.QWEN_IMAGE_2_PRO,
-    displayName: '通义千问-Image-2.0-Pro',
-    description: '2.0 Pro 系列，文本渲染与语义遵循更强（同步接口）',
-    supportedAspectRatios: [...QWEN_IMAGE_PRIMARY_ASPECT_RATIOS],
-    supportReferenceImage: false,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
-  },
-  {
-    provider: 'qwen',
-    model: qwen.QwenImageModels.QWEN_IMAGE_2,
-    displayName: '通义千问-Image-2.0',
-    description: '2.0 系列，加速版效果与性能平衡（同步接口）',
-    supportedAspectRatios: [...QWEN_IMAGE_PRIMARY_ASPECT_RATIOS],
-    supportReferenceImage: false,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
-  },
-  {
-    provider: 'qwen',
     model: qwen.QwenImageModels.QWEN_IMAGE_MAX,
     displayName: '通义千问-Image-Max',
     description: '最新 Max 系列，真实感/自然度更强',
-    supportedAspectRatios: [...QWEN_IMAGE_PRIMARY_ASPECT_RATIOS],
-    supportReferenceImage: false,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
-  },
-  {
-    provider: 'qwen',
-    model: qwen.QwenImageModels.QWEN_IMAGE,
-    displayName: '通义千问-Image',
-    description: '最新主线模型（与 Image-Plus 当前能力一致）',
-    supportedAspectRatios: [...QWEN_IMAGE_PRIMARY_ASPECT_RATIOS],
-    supportReferenceImage: false,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
-  },
-  {
-    provider: 'qwen',
-    model: qwen.QwenImageModels.QWEN_IMAGE_PLUS,
-    displayName: '通义千问-Image-Plus',
-    description: 'Image 系列高性价比版本（支持异步接口）',
     supportedAspectRatios: [...QWEN_IMAGE_PRIMARY_ASPECT_RATIOS],
     supportReferenceImage: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
@@ -244,24 +158,6 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     supportReferenceImage: true,
     requireReferenceImage: true,
     docUrl: 'https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference'
-  },
-  {
-    provider: 'qwen',
-    model: qwen.QwenImageModels.WAN_2_6_T2I,
-    displayName: '通义万相2.6-文生图',
-    description: '精准指令遵循，真实质感显著提升',
-    supportedAspectRatios: [...QWEN_WAN_IMAGE_ASPECT_RATIOS],
-    supportReferenceImage: false,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/text-to-image-v2-api-reference'
-  },
-  {
-    provider: 'qwen',
-    model: qwen.QwenImageModels.Z_IMAGE_TURBO,
-    displayName: 'Z-Image-Turbo',
-    description: '高性价比，照片级品质',
-    supportedAspectRatios: [...QWEN_Z_IMAGE_ASPECT_RATIOS],
-    supportReferenceImage: false,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/z-image-api-reference'
   },
   // 可灵 AI 图片模型
   {
@@ -282,61 +178,6 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     supportReferenceImage: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/OmniImage'
   },
-  {
-    provider: 'kling',
-    model: kling.KlingImageModels.KLING_V3,
-    displayName: '可灵 Kling v3（图像）',
-    description: '新一代图像模型，支持文生图/图生图',
-    supportedAspectRatios: [...KLING_IMAGE_ASPECT_RATIOS],
-    supportReferenceImage: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
-  },
-  {
-    provider: 'kling',
-    model: kling.KlingImageModels.KLING_V2_1,
-    displayName: '可灵 Kling v2.1（图像）',
-    description: '支持文生图/图生图/多图参考生图',
-    supportedAspectRatios: [...KLING_IMAGE_ASPECT_RATIOS],
-    supportReferenceImage: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
-  },
-  {
-    provider: 'kling',
-    model: kling.KlingImageModels.KLING_V2_NEW,
-    displayName: '可灵 Kling v2 New（图像）',
-    description: '风格转绘模型，建议搭配参考图使用',
-    supportedAspectRatios: [...KLING_IMAGE_ASPECT_RATIOS],
-    supportReferenceImage: true,
-    requireReferenceImage: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
-  },
-  {
-    provider: 'kling',
-    model: kling.KlingImageModels.KLING_V2,
-    displayName: '可灵 Kling v2',
-    description: '可灵高质量图片模型，支持文生图/图生图/多图参考',
-    supportedAspectRatios: [...KLING_IMAGE_ASPECT_RATIOS],
-    supportReferenceImage: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
-  },
-  {
-    provider: 'kling',
-    model: kling.KlingImageModels.KLING_V1_5,
-    displayName: '可灵 Kling v1.5',
-    description: '可灵图片模型，支持角色/人脸一致性控制',
-    supportedAspectRatios: [...KLING_IMAGE_ASPECT_RATIOS],
-    supportReferenceImage: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
-  },
-  {
-    provider: 'kling',
-    model: kling.KlingImageModels.KLING_V1,
-    displayName: '可灵 Kling v1',
-    description: '可灵经典图片模型，适合通用图片生成',
-    supportedAspectRatios: [...KLING_IMAGE_ASPECT_RATIOS],
-    supportReferenceImage: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/imageGeneration'
-  },
   // 火山引擎 (豆包 Seedream) 图片模型
   {
     provider: 'volcengine',
@@ -352,15 +193,6 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: volcengine.VolcengineImageModels.SEEDREAM_5_0_LITE,
     displayName: '豆包 Seedream 5.0 Lite',
     description: '高速高性价比图片生成',
-    supportedAspectRatios: [...VOLCENGINE_IMAGE_ASPECT_RATIOS],
-    supportReferenceImage: true,
-    docUrl: 'https://www.volcengine.com/docs/82379/1330310'
-  },
-  {
-    provider: 'volcengine',
-    model: volcengine.VolcengineImageModels.SEEDREAM_4_5,
-    displayName: '豆包 Seedream 4.5',
-    description: '高质量图片生成模型',
     supportedAspectRatios: [...VOLCENGINE_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
@@ -396,41 +228,7 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     supportTextToVideo: true,
     docUrl: 'https://ai.google.dev/gemini-api/docs/video'
   },
-  {
-    provider: 'gemini',
-    model: gemini.VideoModels.VEO_3_1_LITE,
-    displayName: 'Veo 3.1 Lite',
-    description: '轻量版本（不支持多参考图）',
-    maxDuration: 8,
-    supportFirstLastFrame: true,
-    supportImageToVideo: true,
-    supportReferenceImages: false,
-    supportTextToVideo: true,
-    docUrl: 'https://ai.google.dev/gemini-api/docs/video'
-  },
   // 千问模型 (通义万相)
-  {
-    provider: 'qwen',
-    model: qwen.QwenVideoModels.WAN_2_2_KF2V_FLASH,
-    displayName: '通义万相2.2-首尾帧生视频(推荐)',
-    description: '极速版，较2.1速度提升50%，支持480P/720P/1080P',
-    maxDuration: 5,
-    supportFirstLastFrame: true,
-    supportImageToVideo: true,
-    supportTextToVideo: false,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/wanx-keyframe-to-video-api-reference'
-  },
-  {
-    provider: 'qwen',
-    model: qwen.QwenVideoModels.WAN_2_1_KF2V_PLUS,
-    displayName: '通义万相2.1-首尾帧生视频(专业版)',
-    description: '复杂运动，物理规律还原，画面细腻，720P',
-    maxDuration: 5,
-    supportFirstLastFrame: true,
-    supportImageToVideo: true,
-    supportTextToVideo: false,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/wanx-keyframe-to-video-api-reference'
-  },
   {
     provider: 'qwen',
     model: qwen.QwenVideoModels.WAN_2_6_T2V,
@@ -482,83 +280,6 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     supportTextToVideo: true,
     supportAudioReference: true,
     docUrl: 'https://klingai.com/document-api/apiReference/model/OmniVideo'
-  },
-  {
-    provider: 'kling',
-    model: kling.KlingVideoModels.KLING_V3,
-    displayName: '可灵 Kling v3',
-    description: '可灵最新视频模型，支持文生/图生/首尾帧，3-15秒',
-    maxDuration: 15,
-    supportFirstLastFrame: true,
-    supportImageToVideo: true,
-    supportTextToVideo: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
-  },
-  {
-    provider: 'kling',
-    model: kling.KlingVideoModels.KLING_V2_6,
-    displayName: '可灵 Kling v2.6',
-    description: '通用高质量视频模型，支持文生/图生/首尾帧，3-15秒',
-    maxDuration: 15,
-    supportFirstLastFrame: true,
-    supportImageToVideo: true,
-    supportTextToVideo: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
-  },
-  {
-    provider: 'kling',
-    model: kling.KlingVideoModels.KLING_V2_5_TURBO,
-    displayName: '可灵 Kling v2.5 Turbo',
-    description: '可灵高性价比视频模型，适合快速生成',
-    maxDuration: 15,
-    supportFirstLastFrame: true,
-    supportImageToVideo: true,
-    supportTextToVideo: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
-  },
-  {
-    provider: 'kling',
-    model: kling.KlingVideoModels.KLING_V2_1_MASTER,
-    displayName: '可灵 Kling v2.1 Master',
-    description: '可灵高画质视频模型，支持文生/图生/首尾帧',
-    maxDuration: 15,
-    supportFirstLastFrame: true,
-    supportImageToVideo: true,
-    supportTextToVideo: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
-  },
-  {
-    provider: 'kling',
-    model: kling.KlingVideoModels.KLING_V2_MASTER,
-    displayName: '可灵 Kling v2 Master',
-    description: '可灵 v2 主力模型，支持文生/图生视频',
-    maxDuration: 15,
-    supportFirstLastFrame: true,
-    supportImageToVideo: true,
-    supportTextToVideo: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
-  },
-  {
-    provider: 'kling',
-    model: kling.KlingVideoModels.KLING_V2_1,
-    displayName: '可灵 Kling v2.1',
-    description: '可灵稳定版图生视频模型，支持首尾帧控制',
-    maxDuration: 15,
-    supportFirstLastFrame: true,
-    supportImageToVideo: true,
-    supportTextToVideo: false,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
-  },
-  {
-    provider: 'kling',
-    model: kling.KlingVideoModels.KLING_V1_6,
-    displayName: '可灵 Kling v1.6',
-    description: '可灵稳定版视频模型，支持文生/图生视频',
-    maxDuration: 10,
-    supportFirstLastFrame: true,
-    supportImageToVideo: true,
-    supportTextToVideo: true,
-    docUrl: 'https://klingai.com/document-api/apiReference/model/videoModels'
   },
   // 火山引擎 (豆包 Seedance) 视频模型 - 仅保留支持首尾帧的模型
   {
@@ -639,8 +360,8 @@ export const VOICE_MODELS: VoiceModelConfig[] = [
 const SELECTED_MODELS_KEY = 'selected_models'
 
 const DEFAULT_SELECTED_MODELS: SelectedModels = {
-  text: qwen.QwenTextModels.QWEN_FLASH, // 默认使用千问
-  image: qwen.QwenImageModels.WAN_2_6_T2I, // 默认使用千问
+  text: qwen.QwenTextModels.QWEN_PLUS_THINKING, // 默认使用千问
+  image: qwen.QwenImageModels.QWEN_IMAGE_MAX, // 默认使用千问
   video: qwen.QwenVideoModels.WAN_2_6_T2V, // 默认使用千问
   tts: qwen.QwenVoiceModels.QWEN3_TTS_FLASH,
   asr: qwen.QwenVoiceModels.QWEN3_ASR_FLASH
