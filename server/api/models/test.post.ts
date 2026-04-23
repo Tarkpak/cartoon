@@ -17,6 +17,8 @@ import {
   findVideoModel,
   findVoiceModel
 } from '../../utils/model-provider'
+import { persistImageToPublic } from '../../utils/image-storage'
+import { persistAudioSourceToCloud } from '../../utils/audio-storage'
 
 const TestRequestSchema = z.object({
   modelType: z.enum(['text', 'image', 'video', 'tts']).default('text'),
@@ -169,15 +171,25 @@ function inferAudioMimeType(audioData?: string): string {
   return 'audio/mpeg'
 }
 
-function toAudioPreviewUrl(audioUrl?: string, audioData?: string): string | undefined {
+async function toAudioPreviewUrlWithCloudFallback(audioUrl?: string, audioData?: string): Promise<string | undefined> {
   if (audioUrl) {
     return audioUrl
   }
   if (!audioData) {
     return undefined
   }
+
   const mimeType = inferAudioMimeType(audioData)
-  return `data:${mimeType};base64,${audioData}`
+  try {
+    return await persistAudioSourceToCloud({
+      source: `data:${mimeType};base64,${audioData}`,
+      prefix: 'model_test_tts',
+      category: 'tts-tests'
+    })
+  } catch (error) {
+    console.warn('[ModelTest] TTS base64 持久化失败，跳过返回 base64 音频:', error)
+    return undefined
+  }
 }
 
 async function waitForVideoTask(
@@ -296,7 +308,14 @@ export default defineEventHandler(async (event) => {
         let displayUrl = imageResult.imageUrl
         if (!displayUrl && imageResult.imageData) {
           const mimeType = imageResult.mimeType || 'image/png'
-          displayUrl = `data:${mimeType};base64,${imageResult.imageData}`
+          try {
+            displayUrl = await persistImageToPublic({
+              source: `data:${mimeType};base64,${imageResult.imageData}`,
+              prefix: 'model_test_image'
+            })
+          } catch (error) {
+            console.warn('[ModelTest] 图片 base64 持久化失败，跳过返回 base64 图片:', error)
+          }
         }
 
         result = {
@@ -377,7 +396,7 @@ export default defineEventHandler(async (event) => {
           modelId: usedModelId,
           text: testText
         })
-        const previewAudioUrl = toAudioPreviewUrl(ttsResult.audioUrl, ttsResult.audioData)
+        const previewAudioUrl = await toAudioPreviewUrlWithCloudFallback(ttsResult.audioUrl, ttsResult.audioData)
 
         result = {
           hasAudioData: !!ttsResult.audioData,

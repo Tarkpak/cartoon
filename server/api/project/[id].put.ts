@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { db, projects, scripts, scenes, characters } from '../../db'
 import { isStyleIdEnabled } from '../../utils/style-config'
+import { persistImageToPublic } from '../../utils/image-storage'
+import { persistVideoSourceToCloud } from '../../utils/video-storage'
 import { normalizeProjectWorkflowType } from '../../../shared/types/project'
 import { CharacterVoiceAssetSchema } from '../../../shared/types/character'
 import {
@@ -25,6 +27,104 @@ function parseExistingVoiceAsset(rawValue?: string | null) {
   } catch {
     return null
   }
+}
+
+function looksLikeBase64Image(value: string): boolean {
+  const compact = value.replace(/\s+/g, '')
+  return compact.startsWith('/9j/')
+    || compact.startsWith('iVBOR')
+    || compact.startsWith('R0lGOD')
+    || compact.startsWith('UklGR')
+    || compact.startsWith('Qk')
+    || compact.startsWith('SUkq')
+    || compact.startsWith('TU0A')
+}
+
+function looksLikeBase64Video(value: string): boolean {
+  const compact = value.replace(/\s+/g, '')
+  return compact.startsWith('AAAAIGZ0eX')
+    || compact.startsWith('AAAAHGZ0eX')
+    || compact.startsWith('GkXfow')
+    || compact.startsWith('T2dnUw')
+}
+
+function looksLikeBase64Payload(value: string): boolean {
+  if (value.length < 120) return false
+  return /^[A-Za-z0-9+/=\r\n]+$/.test(value)
+}
+
+function shouldPersistImageSource(value: string): boolean {
+  const raw = value.trim()
+  if (!raw) return false
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return false
+  if (raw.startsWith('/')) return raw.startsWith('/generated-images/') || raw.startsWith('/api/image/file/')
+  if (raw.startsWith('data:image/')) return true
+  if (looksLikeBase64Image(raw)) return true
+  if (looksLikeBase64Payload(raw)) return true
+  return false
+}
+
+function shouldPersistVideoSource(value: string): boolean {
+  const raw = value.trim()
+  if (!raw) return false
+  if (raw.startsWith('url:')) {
+    return shouldPersistVideoSource(raw.slice(4))
+  }
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return false
+  if (raw.startsWith('/')) return false
+  if (raw.startsWith('data:video/')) return true
+  if (looksLikeBase64Video(raw)) return true
+  if (looksLikeBase64Payload(raw)) return true
+  return false
+}
+
+async function normalizeImageSourceForStorage(source: string | null | undefined, prefix: string): Promise<string | null> {
+  const raw = source?.trim()
+  if (!raw) return null
+
+  if (!shouldPersistImageSource(raw)) {
+    return raw
+  }
+
+  return await persistImageToPublic({
+    source: raw,
+    prefix
+  })
+}
+
+async function normalizeVideoSourceForStorage(source: string | null | undefined, prefix: string): Promise<string | null> {
+  const raw = source?.trim()
+  if (!raw) return null
+
+  if (!shouldPersistVideoSource(raw)) {
+    if (raw.startsWith('url:')) return raw.slice(4).trim() || null
+    return raw
+  }
+
+  return await persistVideoSourceToCloud({
+    source: raw,
+    prefix,
+    category: 'videos'
+  })
+}
+
+async function normalizeImageMapForStorage(
+  imageMap: Record<string, string> | null | undefined,
+  prefix: string
+): Promise<Record<string, string> | null> {
+  if (!imageMap) return null
+  const entries = Object.entries(imageMap)
+  if (entries.length === 0) return {}
+
+  const normalizedEntries: Array<[string, string]> = []
+  for (const [key, value] of entries) {
+    const normalized = await normalizeImageSourceForStorage(value, `${prefix}_${key}`)
+    if (normalized) {
+      normalizedEntries.push([key, normalized])
+    }
+  }
+
+  return Object.fromEntries(normalizedEntries)
 }
 
 const SceneSchema = z.object({
@@ -250,6 +350,19 @@ export default defineEventHandler(async (event) => {
                 timeOfDay: normalizeTimeOfDayValue(scene.setting.timeOfDay)
               }
             : null
+          const firstFrame = await normalizeImageSourceForStorage(
+            scene.firstFrame,
+            `scene_${scene.id}_first`
+          )
+          const lastFrame = await normalizeImageSourceForStorage(
+            scene.lastFrame,
+            `scene_${scene.id}_last`
+          )
+          const videoUrl = await normalizeVideoSourceForStorage(
+            scene.videoUrl,
+            `scene_${scene.id}_video`
+          )
+
           await db.insert(scenes).values({
             id: normalizeScopedId('scene', scene.id),
             scriptId: script.id,
@@ -270,9 +383,9 @@ export default defineEventHandler(async (event) => {
             transitionOut: scene.transitionOut || null,
             transitionDuration: scene.transitionDuration || null,
             // 帧和视频
-            firstFrame: scene.firstFrame || null,
-            lastFrame: scene.lastFrame || null,
-            videoUrl: scene.videoUrl || null,
+            firstFrame,
+            lastFrame,
+            videoUrl,
             status: (scene.status as 'pending' | 'frames_ready' | 'video_ready') || 'pending',
             createdAt: now,
             updatedAt: now
@@ -300,6 +413,18 @@ export default defineEventHandler(async (event) => {
         const scopedCharacterId = normalizeScopedId('char', char.id)
         const existingCharacter = existingCharacterById.get(scopedCharacterId)
         const voiceAsset = char.voiceAsset || parseExistingVoiceAsset(existingCharacter?.voiceAsset)
+        const baseImage = await normalizeImageSourceForStorage(
+          char.baseImage,
+          `${scopedCharacterId}_base`
+        )
+        const expressions = await normalizeImageMapForStorage(
+          char.expressions as Record<string, string> | null | undefined,
+          `${scopedCharacterId}_expression`
+        )
+        const views = await normalizeImageMapForStorage(
+          char.views as Record<string, string> | null | undefined,
+          `${scopedCharacterId}_view`
+        )
 
         await db.insert(characters).values({
           id: scopedCharacterId,
@@ -317,9 +442,9 @@ export default defineEventHandler(async (event) => {
           voiceAsset: voiceAsset ? JSON.stringify(voiceAsset) : null,
           age: char.age || null,
           gender: (char.gender as 'male' | 'female' | 'other') || null,
-          baseImage: char.baseImage || null,
-          expressions: char.expressions ? JSON.stringify(char.expressions) : null,
-          views: char.views ? JSON.stringify(char.views) : null,
+          baseImage,
+          expressions: expressions ? JSON.stringify(expressions) : null,
+          views: views ? JSON.stringify(views) : null,
           createdAt: now,
           updatedAt: now
         })
