@@ -388,29 +388,28 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 - 文本长度：约 {{textLength}} 字
 - 建议最少场景数：{{recommendedMinScenes}} 场
 - 单场时长范围：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
-- 建议总时长：45-75 秒（优先靠近 60 秒）
 
-【短剧节奏骨架（必须落实到时间轴）】
+【短剧节奏骨架（按剧情段循环应用，不是整篇压缩上限）】
 时段 | 秒数 | 情绪曲线 | 功能
 开场钩子 | 0-8s | 震惊→冰冷 | 抓住注意力
 矛盾升级 | 9-25s | 心痛→绝望 | 建立共情
 虚伪交锋 | 26-42s | 厌倦→决绝 | 形成转折
 结尾宣言 | 43-60s | 空洞→冷厉 | 留悬念/期待
 
-【核心爆点逻辑（必须同构落地）】
-1. 前 3 秒必须出现可视化冲突动作/道具，立即起钩子。
-2. 8-25 秒必须给出一次情感暴击，触发“观众心疼主角”。
-3. 33-42 秒必须出现“觉醒信号”（如手不再抖、眼神稳定、动作决绝）。
-4. 53-60 秒必须给出冰冷独白/宣言，形成后续反击预告。
-5. 若原文不是离婚题材，必须映射为同等级冲突，不得丢失上述节奏锚点。
+【核心节奏逻辑（必须同构落地）】
+1. 每个关键剧情段前 3 秒尽快落冲突动作/道具，立即起钩子。
+2. 8-25 秒要有情感重击，形成共情。
+3. 33-42 秒要有“觉醒信号”（如手不再抖、眼神稳定、动作决绝）。
+4. 53-60 秒给出冷感宣言或反击预告。
+5. 若原文不是离婚题材，映射同等级冲突，不丢失节奏锚点。
 
 【改编原则】
 1. 忠于原文核心关系与关键事件，不得改写人物立场。
-2. 文本很长时，优先截取最强冲突段落完成“单集闭环 + 反击悬念”，不要机械覆盖全部章节。
-3. 场景拆分必须围绕戏剧功能变化，不允许碎片化堆镜头。
+2. 文本很长时，不要只截取爆点；应通过增加场景完整覆盖主线因果链。
+3. 场景拆分围绕戏剧功能变化，同时保证前后场景可串联。
 
 【场景拆分规则】
-1. 总场景建议控制在 {{recommendedMinScenes}} 至 {{recommendedMinScenes}}+4 场。
+1. 总场景数不得少于 {{recommendedMinScenes}} 场；剧情密度高时继续增加。
 2. 仅在地点/时间/情绪方向/戏剧功能变化时拆场。
 3. 每场 duration 必须为数字，且在 {{sceneDurationMin}}-{{sceneDurationMax}} 秒。
 4. totalDuration 必须严格等于 scenes[i].duration 之和。
@@ -498,29 +497,28 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 - Text length: about {{textLength}} characters
 - Recommended minimum scene count: {{recommendedMinScenes}}
 - Per-scene duration range: {{sceneDurationMin}}-{{sceneDurationMax}} seconds
-- Target total duration: 45-75 seconds (prefer around 60s)
 
-## Short-Drama Rhythm Skeleton (Must Be Reflected on Timeline)
+## Short-Drama Rhythm Skeleton (Apply per dramatic unit, not as whole-script compression cap)
 Phase | Seconds | Emotion Curve | Function
 Opening hook | 0-8s | shock -> coldness | seize attention
 Conflict escalation | 9-25s | heartbreak -> despair | build empathy
 Hypocritical confrontation | 26-42s | disgust -> resolve | create turning point
 Final declaration | 43-60s | emptiness -> cold severity | cliffhanger / anticipation
 
-## Viral Beat Logic (Must Be Preserved in Equivalent Form)
-1. Within first 3 seconds, show a visible conflict action/prop immediately.
-2. During 8-25 seconds, deliver one emotional heavy hit from close relationship dynamics.
-3. During 33-42 seconds, show a clear awakening signal (steady hand, fixed gaze, decisive move).
-4. During 53-60 seconds, deliver a cold monologue/declaration that foreshadows counterattack.
+## Core Pacing Logic (Must Be Preserved in Equivalent Form)
+1. For each key dramatic unit, land a visible conflict action/prop within the first 3 seconds.
+2. During 8-25 seconds, deliver an emotional heavy hit to build empathy.
+3. During 33-42 seconds, include a clear awakening signal (steady hand, fixed gaze, decisive move).
+4. During 53-60 seconds, deliver a cold declaration or counterattack teaser.
 5. If the source is not a divorce story, map to equivalent conflict level without losing these anchors.
 
 ## Adaptation Policy
 1. Stay faithful to core relationships and key events.
-2. If source text is long, prioritize one strongest conflict segment into a complete short-episode arc plus revenge teaser.
-3. Split scenes only when dramatic function changes; do not fragment for shot-count inflation.
+2. If source text is long, do not keep only one highlight segment; increase scenes to preserve mainline causality.
+3. Split scenes by dramatic function while keeping cross-scene continuity coherent.
 
 ## Scene Splitting Rules
-1. Keep total scenes around {{recommendedMinScenes}} to {{recommendedMinScenes}}+4.
+1. Total scenes must be at least {{recommendedMinScenes}}. Add more when story density requires.
 2. Split only on location/time/emotional direction/dramatic function changes.
 3. Each duration must be numeric and stay within {{sceneDurationMin}}-{{sceneDurationMax}}.
 4. totalDuration must equal the sum of scenes[i].duration.
