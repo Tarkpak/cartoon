@@ -34,14 +34,14 @@ const WORKFLOW_MODEL_OPTIONS_KEY = 'workflow_model_options'
 
 // 当前主流程默认配置
 const DEFAULT_WORKFLOW_MODELS: Record<WorkflowStep, string> = {
-  script_parsing: 'qwen-flash',
-  scene_description_refinement: 'qwen-flash',
-  text_translation: 'qwen-flash',
+  script_parsing: 'qwen3.6-plus',
+  scene_description_refinement: 'qwen3.6-plus',
+  text_translation: 'qwen3.6-plus',
 
-  character_portrait: 'wan2.6-t2i',
+  character_portrait: 'qwen-image-max',
   frame_generation: 'wan2.6-image',
 
-  video_generation: 'wan2.2-kf2v-flash'
+  video_generation: 'wan2.6-t2v'
 }
 
 const WORKFLOW_STEPS = WORKFLOW_STEP_CONFIGS.map(config => config.id)
