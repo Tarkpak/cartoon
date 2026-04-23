@@ -8,7 +8,7 @@ import {
 describe('script docx export utils', () => {
   it('sanitizes scene description for reading flow', () => {
     const raw = [
-      '阿强冲进病房。[图片1]',
+      '阿强@图片1冲进病房。[图片2]',
       '',
       '[引用资产]',
       '@阿强',

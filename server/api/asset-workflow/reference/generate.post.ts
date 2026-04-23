@@ -349,7 +349,7 @@ function sanitizeEnvironmentLine(
 ): string {
   let output = line
     .replace(TIMELINE_PREFIX_REGEX, '')
-    .replace(/\[图片\d+\]/gu, ' ')
+    .replace(/(?:\[(?:图片|Image\s*#)\s*\d+\]|@(?:图片|Image\s*#)\s*\d+)/giu, ' ')
 
   output = stripDialogueAndNarration(output)
 

@@ -5,7 +5,7 @@ import {
 } from './scene-dialogue'
 
 const SCENE_ASSET_MENTION_SECTION_REGEX = /\n{0,2}\[引用资产\]\n(?:@[^\n]*\n?)+/gu
-const SCENE_IMAGE_TAG_REGEX = /\[(?:图片|Image\s*#)\s*\d+\]/giu
+const SCENE_IMAGE_TAG_REGEX = /(?:\[(?:图片|Image\s*#)\s*\d+\]|@(?:图片|Image\s*#)\s*\d+)/giu
 const SCENE_LEGACY_AUDIO_CONSTRAINT_REGEX = /\n?\s*不添加字幕，不添加BGM[。.]?\s*$/gu
 const FILE_NAME_INVALID_CHAR_REGEX = /[\\/:*?"<>|]/g
 const FILE_NAME_SPACE_REGEX = /\s+/g

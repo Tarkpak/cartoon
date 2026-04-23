@@ -182,7 +182,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 8. “声音设计”里写环境音、关键音效、语气和节奏；“表演关键点”里写眼神、停顿、微表情、手部动作、身体重心变化等。
 9. 每行应包含丰富的镜头语言：光线描写、空间关系、人物动作细节、环境氛围与声音描写。
 10. description 中禁止写"添加字幕/BGM/音效"等制作指令，但可以写“环境音/低频嗡鸣/玻璃碎声”等叙事内声音设计。
-11. 不要自行生成任何 [图片N] 或其他引用编号；如系统后续需要引用标签，会由后处理统一注入。
+11. 不要自行生成任何 @图片N（旧格式 [图片N] 也禁止）或其他引用编号；如系统后续需要引用标签，会由后处理统一注入。
 12. 若镜头能透过门、窗、玻璃看到相邻子空间，必须明确写出可见空间的灯光、主色调、门窗位置与关键陈设，并在对应子空间场景中沿用，不得把同一主环境写成两套布景。
 
 【角色与旁白规则】
@@ -302,7 +302,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 8. Use "Sound design" for ambient sound, key effects, voice pressure, and rhythm. Use "Performance notes" for gaze, pauses, micro-expressions, hand tension, posture, and body-weight shifts.
 9. Each timeline line should include rich cinematic language: lighting, spatial relationships, character action details, atmosphere, and ambient sound.
 10. Do not include production instructions such as subtitles, BGM, or UI overlays, but narrative sound design is allowed.
-11. Do not invent any [ImageN] or other reference numbering. If reference tags are needed later, the system will inject them in post-processing.
+11. Do not invent any @图片N tags (legacy [ImageN] is also disallowed) or any other reference numbering. If reference tags are needed later, the system will inject them in post-processing.
 12. If a shot can see an adjacent subspace through a door, window, or glass partition, explicitly describe that visible space's lighting, dominant colors, doorway/window placement, and key set dressing, then preserve those details in the matching subspace scene.
 
 ## Character and Narration Rules
@@ -413,7 +413,7 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 3. 镜头行格式：起始-结束秒：，景别，运镜方式。画面动作与对白。
 4. 对白写在镜头行，用单引号；旁白写成：画外音（音色：...）说：'...'
 5. 必须包含“声音设计/台词节奏/表演关键点”，突出停顿、眼神、手部动作和压迫感。
-6. 禁止输出 [图片N]、字幕指令、BGM指令等后期制作命令。
+6. 禁止输出 @图片N（旧格式 [图片N] 也禁止）、字幕指令、BGM指令等后期制作命令。
 
 【角色规则】
 1. 只识别真实角色，不要把旁白/音效当角色。
@@ -518,7 +518,7 @@ Final declaration | 43-60s | emptiness -> cold severity | cliffhanger / anticipa
 3. Shot line format: start-end秒：，shot size，camera movement。Visual action and dialogue.
 4. Put dialogue inline using single quotes; narration format must be: 画外音（音色：...）说：'...'
 5. Include Sound design / Dialogue rhythm / Performance notes with pauses, gaze, hand tension, and pressure beats.
-6. Do not output [ImageN], subtitle directives, BGM directives, or editing commands.
+6. Do not output @图片N tags (legacy [ImageN] is also disallowed), subtitle directives, BGM directives, or editing commands.
 
 ## Character Rules
 1. Only include real characters; narration and SFX are not characters.
@@ -767,7 +767,7 @@ const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
 6. 总时长参考约 {{durationHint}} 秒；如果是核心冲突戏，优先在同一 description 里做逐秒拆镜，而不是压缩成一句概述。
 7. 必须融合用户本次修改意图，并保持剧情连续、角色身份一致、环境逻辑一致。
 8. 若提到资产（角色/环境/道具），应体现在描述里，但不要输出 @mention 或 [引用资产] 区块。
-9. 保留 [图片N] 标签风格；若原描述已有 [图片N]，优先沿用。
+9. 统一使用 @图片N 标签；若原描述含旧格式 [图片N]，请改写为 @图片N 并保持引用稳定。
 10. 不要输出“添加字幕/BGM/音效”等制作指令，但可以写叙事内声音设计，例如环境音、低频嗡鸣、玻璃碎声等。
 11. 若原描述已具备明确结构，应在此基础上重写和补细，而不是删掉已有层次。
 12. 若镜头能透过门、窗、玻璃看到另一空间，必须把门窗朝向、可见空间的灯光、主色调和关键陈设写清楚，方便后续切到该空间时保持一致。`,
@@ -813,7 +813,7 @@ const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
 6. The target duration is about {{durationHint}} seconds. For a major dramatic beat, expand detail inside the same description instead of collapsing it into summary prose.
 7. Integrate the user's requested changes while preserving plot continuity, character identity, and environment logic.
 8. If assets are mentioned, reflect them in the scene description, but do not output @mentions or asset-reference blocks.
-9. Preserve the [ImageN] tag style. If existing tags are already present, reuse them whenever possible.
+9. Use @图片N tags consistently. If legacy [ImageN] tags are present, convert them to @图片N while keeping references stable.
 10. Do not output production instructions such as subtitles, BGM, or UI overlays, but narrative sound design is allowed.
 11. If the source already has a clear structure, rewrite within that structure instead of flattening it.
 12. If the shot can see another space through a door, window, or glass partition, make the doorway/window orientation, visible lighting, dominant colors, and key set dressing explicit so later cuts into that space remain consistent.`
@@ -1025,7 +1025,7 @@ function applySeedanceSceneRefinementZh(content: string): string {
     [
       '13. 改写结果必须保持可执行的分镜时间序列，不得退化为无法落地的整段散文。',
       '14. 每行镜头尽量包含主体、动作速度、景别、运镜和约束，减少模型随机性。',
-      '15. 若存在 [图片N]，保持主体命名与引用稳定，避免角色指代漂移。',
+      '15. 若存在引用标签，统一使用 @图片N；若出现旧格式 [图片N]，改写为 @图片N 并保持主体命名稳定，避免角色指代漂移。',
       '16. 对关键冲突镜头补充稳定性约束：面部清晰、动作连贯、画面稳定、无跳帧、无畸形、无字幕。'
     ]
   )
@@ -1038,7 +1038,7 @@ function applySeedanceSceneRefinementEn(content: string): string {
     [
       '13. The rewrite must stay executable as timeline storyboard lines, not a single prose paragraph.',
       '14. Each shot line should include subject, motion speed, shot size, camera movement, and constraints to reduce randomness.',
-      '15. If [ImageN] tags exist, keep naming and references stable to avoid identity drift.',
+      '15. If reference tags exist, standardize to @图片N. Convert legacy [ImageN] tags to @图片N and keep naming stable to avoid identity drift.',
       '16. For key dramatic beats, add stability constraints: clear face, coherent motion, stable frame, no jitter, no deformation, no subtitles.'
     ]
   )

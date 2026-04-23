@@ -15,7 +15,7 @@ const NARRATION_SPEAKERS = [
   '内心独白'
 ]
 
-const SCENE_IMAGE_TAG_REGEX = /\[(?:图片|Image\s*#)\s*\d+\]/giu
+const SCENE_IMAGE_TAG_REGEX = /(?:\[(?:图片|Image\s*#)\s*\d+\]|@(?:图片|Image\s*#)\s*\d+)/giu
 const SCENE_QUOTED_DIALOGUE_REGEX = /'[^'\n]*'|"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’|「[^」\n]*」|『[^』\n]*』/gu
 const SCENE_DIALOGUE_SENTENCE_REGEX = /[^。！？!?\n]*(?:说|问|答|喊|道|回应|低语|喃喃|旁白|画外音)\s*[：:][^。！？!?\n]*/gu
 const SCENE_TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]/gmu
