@@ -15,6 +15,7 @@ const {
   availableStylePresets,
   availableStyleCategories,
   styleConfigLoading,
+  effectiveDefaultStyleId,
   projects,
   loading,
   error,
@@ -32,6 +33,7 @@ const {
   showDeleteDialog,
   projectToDelete,
   createStep,
+  scriptParseModeOptions,
   totalPages,
   hasActiveFilters,
   statusMap,
@@ -111,8 +113,10 @@ const aspectRatioOptions = projectAspectRatioOptions
       :style-config-loading="styleConfigLoading"
       :available-style-presets="availableStylePresets"
       :available-style-categories="availableStyleCategories"
+      :default-style-id="effectiveDefaultStyleId"
       :creating="creating"
       :aspect-ratio-options="aspectRatioOptions"
+      :script-parse-mode-options="scriptParseModeOptions"
       @update:create-step="createStep = $event"
       @select-style="handleStyleSelect"
       @next-step="goToStyleStep"

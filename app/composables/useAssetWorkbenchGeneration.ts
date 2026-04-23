@@ -1,4 +1,8 @@
 import type { Ref } from 'vue'
+import {
+  DEFAULT_SCRIPT_PARSE_MODE,
+  type ScriptParseMode
+} from '#shared/types/script'
 import type {
   CharacterData,
   SceneData
@@ -33,6 +37,7 @@ export function useAssetWorkbenchGeneration(
   async function parseScript(input?: {
     workflowType?: AssetWorkbenchWorkflowType
     style?: string
+    scriptParseMode?: ScriptParseMode
     descriptionFormat?: 'visual' | 'timeline'
   }): Promise<boolean> {
     if (!options.novelText.value.trim()) return false
@@ -43,6 +48,7 @@ export function useAssetWorkbenchGeneration(
       const response = await parseAssetWorkbenchScript({
         text: options.novelText.value,
         workflowType: input?.workflowType || 'asset_consistency',
+        scriptParseMode: input?.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
         style: input?.style || options.currentStylePrompt.value || undefined
       })
 

@@ -49,6 +49,11 @@ function getSeedanceOptimizedContent(
         zh: applySeedanceScriptParsingZh(base.zh),
         en: applySeedanceScriptParsingEn(base.en)
       }
+    case 'script_parsing_short_drama':
+      return {
+        zh: applySeedanceScriptParsingZh(base.zh),
+        en: applySeedanceScriptParsingEn(base.en)
+      }
     case 'character_sheet':
       return {
         zh: applySeedanceCharacterSheetZh(base.zh),
@@ -93,6 +98,8 @@ function getDefaultContent(id: string): PromptTemplate['content'] {
   switch (id) {
     case 'script_parsing':
       return SCRIPT_PARSING_CONTENT
+    case 'script_parsing_short_drama':
+      return SCRIPT_PARSING_SHORT_DRAMA_CONTENT
     case 'character_sheet':
       return CHARACTER_SHEET_CONTENT
     case 'character_regeneration':
@@ -124,6 +131,10 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 - 文本长度：约 {{textLength}} 字
 - 建议最少场景数：{{recommendedMinScenes}} 场
 - 单场时长范围：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
+- 解析模式：{{scriptParseModeLabel}}
+
+【解析模式策略（必须执行）】
+{{scriptParseModeRules}}
 
 【核心目标】
 1. 必须覆盖原文完整主线，不得省略关键事件、关键情绪转折和关键旁白。
@@ -241,6 +252,10 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 - Text length: about {{textLength}} characters
 - Recommended minimum scene count: {{recommendedMinScenes}}
 - Per-scene duration range: {{sceneDurationMin}}-{{sceneDurationMax}} seconds
+- Parsing mode: {{scriptParseModeLabel}}
+
+## Parsing Mode Strategy (Must Follow)
+{{scriptParseModeRules}}
 
 ## Core Goals
 1. Cover the full plot. Do not skip key events, emotional turns, or important narration.
@@ -341,6 +356,219 @@ Output strict JSON only:
     }
   ],
   "totalDuration": 96
+}
+\`\`\`
+
+Output JSON only, with no extra explanation.`
+}
+
+const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
+  zh: `你是一位短剧爆点编排导演。请把输入文本解析为可直接用于“资产准备 → 场景视频生成”的高节奏结构化 JSON，严格执行短剧节奏锚点。
+
+【输入文本】
+{{novelText}}
+
+【项目画风】
+{{style}}
+
+【输入规模】
+- 文本长度：约 {{textLength}} 字
+- 建议最少场景数：{{recommendedMinScenes}} 场
+- 单场时长范围：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
+- 建议总时长：45-75 秒（优先靠近 60 秒）
+
+【短剧节奏骨架（必须落实到时间轴）】
+时段 | 秒数 | 情绪曲线 | 功能
+开场钩子 | 0-8s | 震惊→冰冷 | 抓住注意力
+矛盾升级 | 9-25s | 心痛→绝望 | 建立共情
+虚伪交锋 | 26-42s | 厌倦→决绝 | 形成转折
+结尾宣言 | 43-60s | 空洞→冷厉 | 留悬念/期待
+
+【核心爆点逻辑（必须同构落地）】
+1. 前 3 秒必须出现可视化冲突动作/道具，立即起钩子。
+2. 8-25 秒必须给出一次情感暴击，触发“观众心疼主角”。
+3. 33-42 秒必须出现“觉醒信号”（如手不再抖、眼神稳定、动作决绝）。
+4. 53-60 秒必须给出冰冷独白/宣言，形成后续反击预告。
+5. 若原文不是离婚题材，必须映射为同等级冲突，不得丢失上述节奏锚点。
+
+【改编原则】
+1. 忠于原文核心关系与关键事件，不得改写人物立场。
+2. 文本很长时，优先截取最强冲突段落完成“单集闭环 + 反击悬念”，不要机械覆盖全部章节。
+3. 场景拆分必须围绕戏剧功能变化，不允许碎片化堆镜头。
+
+【场景拆分规则】
+1. 总场景建议控制在 {{recommendedMinScenes}} 至 {{recommendedMinScenes}}+4 场。
+2. 仅在地点/时间/情绪方向/戏剧功能变化时拆场。
+3. 每场 duration 必须为数字，且在 {{sceneDurationMin}}-{{sceneDurationMax}} 秒。
+4. totalDuration 必须严格等于 scenes[i].duration 之和。
+
+【场景字段硬约束】
+1. scenes[i].shotType 只能是：extreme_wide、wide、medium_wide、medium、medium_close、close、extreme_close、detail。
+2. scenes[i].cameraMovement 只能是：static、push、pull、pan_left、pan_right、tilt_up、tilt_down、track、dolly、zoom_in、zoom_out、crane、handheld、arc。
+3. scenes[i].setting.timeOfDay 只能是：黎明、早晨、白天、中午、下午、傍晚、夜晚。
+
+【description 写作规则】
+1. 必须是“可拍摄”的时间轴分镜块，禁止一句话概述。
+2. 每个场景至少 2 行镜头设计，建议 3-6 行，时间从 0 秒起。
+3. 镜头行格式：起始-结束秒：，景别，运镜方式。画面动作与对白。
+4. 对白写在镜头行，用单引号；旁白写成：画外音（音色：...）说：'...'
+5. 必须包含“声音设计/台词节奏/表演关键点”，突出停顿、眼神、手部动作和压迫感。
+6. 禁止输出 [图片N]、字幕指令、BGM指令等后期制作命令。
+
+【角色规则】
+1. 只识别真实角色，不要把旁白/音效当角色。
+2. narration 字段仅放旁白/画外音；dialogues 仅放真实角色台词。
+3. characters 顶层数组要给出稳定可复用的角色描述，便于后续角色资产生成。
+
+【输出格式】
+请严格输出 JSON：
+\`\`\`json
+{
+  "title": "剧本标题（可选）",
+  "scenes": [
+    {
+      "id": "scene_001",
+      "title": "场景标题",
+      "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
+      "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
+      "description": "场景功能/情绪定位：开场钩子，冲突强压。\\n镜头设计：\\n0-2秒：，中景，固定镜头。离婚协议被推到桌面中央，纸张边缘刮过手背。\\n2-5秒：，近景，缓慢推近。女儿盯着男主，冷声补刀：'你早该签了。'\\n5-8秒：，特写镜头，固定镜头。男主眼神发冷，手指停在签字处。\\n声音设计：\\n- 纸张摩擦声与椅脚拖地声前置。\\n台词节奏：\\n- '你早该签了。'中段停顿半拍。\\n表演关键点：\\n- 签字前手部细颤，随后逐步稳定。",
+      "setting": {
+        "location": "客厅-餐桌区",
+        "timeOfDay": "夜晚",
+        "mood": "压迫",
+        "weather": "雨夜（可选）"
+      },
+      "characters": [
+        {
+          "name": "角色名",
+          "appearance": "外观描述",
+          "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
+        }
+      ],
+      "dialogues": [
+        {
+          "character": "角色名",
+          "text": "台词",
+          "emotion": "determined"
+        }
+      ],
+      "narration": "旁白/画外音（可选）",
+      "duration": 8
+    }
+  ],
+  "characters": [
+    {
+      "name": "角色名",
+      "description": "角色整体外貌描述",
+      "role": "protagonist|antagonist|supporting"
+    }
+  ],
+  "totalDuration": 60
+}
+\`\`\`
+
+只输出 JSON，不要附加解释。`,
+  en: `You are a short-drama pacing director. Convert the source text into structured JSON for the pipeline "asset prep -> scene video generation", and enforce high-impact short-drama timing anchors.
+
+## Input Text
+{{novelText}}
+
+## Project Style
+{{style}}
+
+## Input Scale
+- Text length: about {{textLength}} characters
+- Recommended minimum scene count: {{recommendedMinScenes}}
+- Per-scene duration range: {{sceneDurationMin}}-{{sceneDurationMax}} seconds
+- Target total duration: 45-75 seconds (prefer around 60s)
+
+## Short-Drama Rhythm Skeleton (Must Be Reflected on Timeline)
+Phase | Seconds | Emotion Curve | Function
+Opening hook | 0-8s | shock -> coldness | seize attention
+Conflict escalation | 9-25s | heartbreak -> despair | build empathy
+Hypocritical confrontation | 26-42s | disgust -> resolve | create turning point
+Final declaration | 43-60s | emptiness -> cold severity | cliffhanger / anticipation
+
+## Viral Beat Logic (Must Be Preserved in Equivalent Form)
+1. Within first 3 seconds, show a visible conflict action/prop immediately.
+2. During 8-25 seconds, deliver one emotional heavy hit from close relationship dynamics.
+3. During 33-42 seconds, show a clear awakening signal (steady hand, fixed gaze, decisive move).
+4. During 53-60 seconds, deliver a cold monologue/declaration that foreshadows counterattack.
+5. If the source is not a divorce story, map to equivalent conflict level without losing these anchors.
+
+## Adaptation Policy
+1. Stay faithful to core relationships and key events.
+2. If source text is long, prioritize one strongest conflict segment into a complete short-episode arc plus revenge teaser.
+3. Split scenes only when dramatic function changes; do not fragment for shot-count inflation.
+
+## Scene Splitting Rules
+1. Keep total scenes around {{recommendedMinScenes}} to {{recommendedMinScenes}}+4.
+2. Split only on location/time/emotional direction/dramatic function changes.
+3. Each duration must be numeric and stay within {{sceneDurationMin}}-{{sceneDurationMax}}.
+4. totalDuration must equal the sum of scenes[i].duration.
+
+## Hard Field Constraints
+1. scenes[i].shotType must be one of: extreme_wide, wide, medium_wide, medium, medium_close, close, extreme_close, detail.
+2. scenes[i].cameraMovement must be one of: static, push, pull, pan_left, pan_right, tilt_up, tilt_down, track, dolly, zoom_in, zoom_out, crane, handheld, arc.
+3. scenes[i].setting.timeOfDay must be one of: 黎明, 早晨, 白天, 中午, 下午, 傍晚, 夜晚.
+
+## Description Writing Rules
+1. Description must be production-ready timeline blocks, not one-line summaries.
+2. At least 2 timeline shot lines per scene, preferably 3-6, starting from 0s.
+3. Shot line format: start-end秒：，shot size，camera movement。Visual action and dialogue.
+4. Put dialogue inline using single quotes; narration format must be: 画外音（音色：...）说：'...'
+5. Include Sound design / Dialogue rhythm / Performance notes with pauses, gaze, hand tension, and pressure beats.
+6. Do not output [ImageN], subtitle directives, BGM directives, or editing commands.
+
+## Character Rules
+1. Only include real characters; narration and SFX are not characters.
+2. narration contains only narration/voice-over; dialogues contains only spoken lines by real characters.
+3. Top-level characters must remain stable and reusable for downstream character asset generation.
+
+## Output Format
+Output strict JSON only:
+\`\`\`json
+{
+  "title": "Optional script title",
+  "scenes": [
+    {
+      "id": "scene_001",
+      "title": "Scene title",
+      "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
+      "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
+      "description": "Scene function / emotional beat: opening hook with immediate pressure.\\nShot design:\\n0-2秒：，中景，固定镜头。The divorce agreement is pushed to the center of the table.\\n2-5秒：，近景，缓慢推近。Daughter delivers a cold line: 'You should have signed earlier.'\\n5-8秒：，特写镜头，固定镜头。The protagonist's trembling fingers gradually steady.\\nSound design:\\n- Paper friction and chair drag lead the beat.\\nDialogue rhythm:\\n- Add a half-beat pause before the final words.\\nPerformance notes:\\n- Hand tremor transitions into controlled stillness.",
+      "setting": {
+        "location": "Living room - dining table",
+        "timeOfDay": "夜晚",
+        "mood": "oppressive",
+        "weather": "rainy night"
+      },
+      "characters": [
+        {
+          "name": "Character name",
+          "appearance": "appearance description",
+          "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
+        }
+      ],
+      "dialogues": [
+        {
+          "character": "Character name",
+          "text": "Dialogue line",
+          "emotion": "determined"
+        }
+      ],
+      "narration": "Optional narration",
+      "duration": 8
+    }
+  ],
+  "characters": [
+    {
+      "name": "Character name",
+      "description": "Reusable overall appearance description",
+      "role": "protagonist|antagonist|supporting"
+    }
+  ],
+  "totalDuration": 60
 }
 \`\`\`
 

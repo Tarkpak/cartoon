@@ -1,5 +1,9 @@
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import {
+  DEFAULT_SCRIPT_PARSE_MODE,
+  type ScriptParseMode
+} from '#shared/types/script'
+import {
   toOptionalNumber,
   toOptionalString,
   toOptionalStringArray
@@ -86,6 +90,7 @@ function buildFallbackScriptDocxFileName(date = new Date()): string {
 export async function parseAssetWorkbenchScript(options: {
   text: string
   workflowType?: AssetWorkbenchWorkflowType
+  scriptParseMode?: ScriptParseMode
   style?: string
 }) {
   return await $fetch<ParseScriptResponse>('/api/script/parse', {
@@ -93,6 +98,7 @@ export async function parseAssetWorkbenchScript(options: {
     body: {
       text: options.text,
       workflowType: options.workflowType || 'asset_consistency',
+      scriptParseMode: options.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
       style: options.style || undefined
     }
   })

@@ -2,6 +2,7 @@
 import { Loader2 } from 'lucide-vue-next'
 import type { StyleCategoryInfo, StylePreset } from '#shared/types/styles'
 import type { ProjectAspectRatio, ProjectDraft } from '~/lib/projects-page'
+import type { ScriptParseMode } from '#shared/types/script'
 import StyleSelector from '@/components/StyleSelector.vue'
 
 const props = defineProps<{
@@ -10,10 +11,16 @@ const props = defineProps<{
   styleConfigLoading: boolean
   availableStylePresets: StylePreset[]
   availableStyleCategories: StyleCategoryInfo[]
+  defaultStyleId?: string
   newProject: ProjectDraft
   creating: boolean
   aspectRatioOptions: ReadonlyArray<{
     value: string
+    label: string
+    description: string
+  }>
+  scriptParseModeOptions: ReadonlyArray<{
+    value: ScriptParseMode
     label: string
     description: string
   }>
@@ -49,8 +56,36 @@ const styleIdModel = computed({
   set: (value: string) => updateNewProject({ styleId: value })
 })
 
+const defaultStyle = computed(() => {
+  const targetId = props.defaultStyleId?.trim()
+  if (!targetId) return null
+  return props.availableStylePresets.find(style => style.id === targetId) || null
+})
+
+const defaultStyleLabel = computed(() => {
+  if (defaultStyle.value) return defaultStyle.value.name
+  return props.defaultStyleId?.trim() || ''
+})
+
+const defaultStyleDescription = computed(() => defaultStyle.value?.description || '')
+
+const isUsingDefaultStyle = computed(() => {
+  const targetId = props.defaultStyleId?.trim()
+  return !!targetId && props.newProject.styleId === targetId
+})
+
 function setAspectRatio(value: string) {
   updateNewProject({ aspectRatio: value as ProjectAspectRatio })
+}
+
+function setScriptParseMode(value: ScriptParseMode) {
+  updateNewProject({ scriptParseMode: value })
+}
+
+function applyDefaultStyle() {
+  const targetId = props.defaultStyleId?.trim()
+  if (!targetId) return
+  updateNewProject({ styleId: targetId })
 }
 </script>
 
@@ -87,6 +122,27 @@ function setAspectRatio(value: string) {
           />
         </div>
         <div class="grid gap-2">
+          <label class="text-sm font-medium">解析模式 <span class="text-destructive">*</span></label>
+          <div class="grid grid-cols-2 gap-2">
+            <Button
+              v-for="option in scriptParseModeOptions"
+              :key="option.value"
+              type="button"
+              variant="ghost"
+              class="h-auto rounded-md border p-3 text-left transition whitespace-normal"
+              :class="newProject.scriptParseMode === option.value ? 'border-primary bg-primary/10' : 'border-input hover:border-primary/50'"
+              @click="setScriptParseMode(option.value)"
+            >
+              <div class="text-sm font-medium">
+                {{ option.label }}
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {{ option.description }}
+              </div>
+            </Button>
+          </div>
+        </div>
+        <div class="grid gap-2">
           <label class="text-sm font-medium">视频比例 <span class="text-destructive">*</span></label>
           <div class="grid grid-cols-3 gap-2">
             <Button
@@ -114,6 +170,35 @@ function setAspectRatio(value: string) {
         class="min-h-[400px] flex-1 overflow-y-auto py-4"
       >
         <div
+          v-if="defaultStyleLabel"
+          class="mb-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-xs text-amber-700">
+                系统默认预设
+              </p>
+              <p class="text-sm font-semibold text-foreground truncate">
+                {{ defaultStyleLabel }}
+              </p>
+              <p
+                v-if="defaultStyleDescription"
+                class="mt-0.5 text-xs text-muted-foreground line-clamp-2"
+              >
+                {{ defaultStyleDescription }}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              :disabled="isUsingDefaultStyle"
+              @click="applyDefaultStyle"
+            >
+              {{ isUsingDefaultStyle ? '已在使用' : '一键使用默认' }}
+            </Button>
+          </div>
+        </div>
+        <div
           v-if="styleConfigLoading && availableStylePresets.length === 0"
           class="flex h-full items-center justify-center text-sm text-muted-foreground"
         >
@@ -126,6 +211,7 @@ function setAspectRatio(value: string) {
           :show-search="true"
           :styles="availableStylePresets"
           :categories="availableStyleCategories"
+          :default-style-id="defaultStyleId"
           @select="$emit('select-style', $event)"
         />
       </div>

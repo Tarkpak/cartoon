@@ -94,6 +94,7 @@ function resolvePromptProfileStateKey(workflow?: PromptWorkflowInput): string {
 function getDefaultLangConfig(_workflow: PromptWorkflowInput = 'asset_consistency'): PromptLangConfig {
   return {
     script_parsing: 'zh',
+    script_parsing_short_drama: 'zh',
     character_sheet: 'zh',
     character_regeneration: 'zh',
     environment_reference_generation: 'zh',

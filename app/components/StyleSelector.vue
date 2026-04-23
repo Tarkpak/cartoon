@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, Sparkles, Check, Palette, Loader2 } from 'lucide-vue-next'
+import { Search, Sparkles, Check, Palette, Loader2, Star } from 'lucide-vue-next'
 import {
   STYLE_CATEGORIES,
   STYLE_PRESETS,
@@ -14,6 +14,7 @@ const props = defineProps<{
   showSearch?: boolean
   styles?: StylePreset[]
   categories?: StyleCategoryInfo[]
+  defaultStyleId?: string
 }>()
 
 const emit = defineEmits<{
@@ -87,6 +88,17 @@ const filteredStyles = computed(() => {
     )
   }
   return styles
+})
+
+const prioritizedStyles = computed(() => {
+  const defaultId = props.defaultStyleId?.trim()
+  if (!defaultId) return filteredStyles.value
+
+  const defaultStyles = filteredStyles.value.filter(style => style.id === defaultId)
+  if (defaultStyles.length === 0) return filteredStyles.value
+
+  const others = filteredStyles.value.filter(style => style.id !== defaultId)
+  return [...defaultStyles, ...others]
 })
 
 const selectedStyle = computed(() =>
@@ -169,12 +181,19 @@ onMounted(async () => {
     <!-- 风格网格 -->
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
       <div
-        v-for="style in filteredStyles"
+        v-for="style in prioritizedStyles"
         :key="style.id"
         class="relative group cursor-pointer rounded-lg border-2 transition-all overflow-hidden"
         :class="modelValue === style.id ? 'border-primary ring-2 ring-primary/30' : 'border-transparent hover:border-primary/50'"
         @click="selectStyle(style)"
       >
+        <div
+          v-if="style.id === defaultStyleId"
+          class="absolute top-2 left-2 z-10 inline-flex items-center gap-1 rounded-full bg-amber-500/90 px-2 py-0.5 text-[10px] font-medium text-white"
+        >
+          <Star class="h-3 w-3 fill-current" />
+          系统默认
+        </div>
         <div class="aspect-[9/16] bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center overflow-hidden">
           <img
             v-if="style.thumbnail"
@@ -244,6 +263,12 @@ onMounted(async () => {
           <h4 class="font-medium">
             {{ selectedStyle.name }}
           </h4>
+          <p
+            v-if="selectedStyle.id === defaultStyleId"
+            class="mt-0.5 text-xs text-amber-600"
+          >
+            系统默认预设
+          </p>
           <p class="text-sm text-muted-foreground">
             {{ selectedStyle.nameEn }}
           </p>
