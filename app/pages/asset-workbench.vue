@@ -110,6 +110,7 @@ const {
   projectStyleId,
   projectAspectRatio,
   projectAssetWorkflow,
+  scriptParseMode,
   selectedStyleId,
   novelText,
   scenes,
@@ -776,6 +777,7 @@ const {
   router,
   projectId,
   projectAssetWorkflow,
+  scriptParseMode,
   selectedStyleId,
   projectStyleId,
   selectedSceneId,
@@ -1549,6 +1551,7 @@ async function handleBatchGenerateCharacters() {
     <AssetWorkbenchParseStage
       v-if="activeAutoStage === 'parse'"
       v-model:novel-text="novelText"
+      :script-parse-mode="scriptParseMode"
       :parsing="parsing"
       :scenes-count="scenes.length"
       :characters-count="characters.length"

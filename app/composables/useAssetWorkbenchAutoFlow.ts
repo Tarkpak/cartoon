@@ -1,4 +1,5 @@
 import type { ComputedRef, Ref } from 'vue'
+import type { ScriptParseMode } from '#shared/types/script'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type { AutoStageKey, FinalVideoAsset, QueueSummary } from '~/lib/asset-workbench-types'
 import { inferActiveAutoStage } from '~/lib/asset-workbench-progress'
@@ -8,6 +9,7 @@ interface UseAssetWorkbenchAutoFlowOptions {
   router: ReturnType<typeof useRouter>
   projectId: ComputedRef<string | undefined>
   projectAssetWorkflow: Ref<unknown | null>
+  scriptParseMode: Ref<ScriptParseMode>
   selectedStyleId: Ref<string>
   projectStyleId: Ref<string>
   selectedSceneId: Ref<string>
@@ -21,6 +23,7 @@ interface UseAssetWorkbenchAutoFlowOptions {
   parseScript: (options?: {
     workflowType?: 'asset_consistency'
     style?: string
+    scriptParseMode?: ScriptParseMode
     descriptionFormat?: 'visual' | 'timeline'
   }) => Promise<boolean>
   mergeAllVideos: () => Promise<unknown>
@@ -59,6 +62,7 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
       const parsed = await options.parseScript({
         workflowType: 'asset_consistency',
         style: options.workflowStylePrompt.value,
+        scriptParseMode: options.scriptParseMode.value,
         descriptionFormat: 'timeline'
       })
 

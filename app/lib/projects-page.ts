@@ -1,4 +1,8 @@
 import type { ProjectWorkflowType } from '#shared/types/project'
+import {
+  DEFAULT_SCRIPT_PARSE_MODE,
+  type ScriptParseMode
+} from '#shared/types/script'
 
 export type ProjectStatusFilter = 'all' | 'in_progress' | 'completed' | 'draft'
 export type ProjectSortBy = 'updated' | 'created' | 'name'
@@ -9,6 +13,7 @@ export interface Project {
   title: string
   description: string | null
   workflowType?: ProjectWorkflowType
+  scriptParseMode?: ScriptParseMode
   styleId: string
   aspectRatio: string
   status: string | null
@@ -32,6 +37,7 @@ export interface ProjectDraft {
   title: string
   description: string
   workflowType: ProjectWorkflowType
+  scriptParseMode: ScriptParseMode
   styleId: string
   aspectRatio: ProjectAspectRatio
 }
@@ -43,6 +49,15 @@ export const projectAspectRatioOptions = [
   { value: '9:16', label: '9:16 竖屏', description: '适合手机/短视频' },
   { value: '1:1', label: '1:1 方形', description: '适合社交媒体' }
 ] as const
+
+export const projectScriptParseModeOptions = [
+  { value: 'short_drama', label: '短剧', description: '短剧强节奏结构，优先钩子、暴击与反击预告。' },
+  { value: 'premium_drama', label: '精品剧', description: '忠实还原原文，按剧情密度自然拆场。' }
+] as const satisfies ReadonlyArray<{
+  value: ScriptParseMode
+  label: string
+  description: string
+}>
 
 export const projectStatusMap: Record<
   string,
@@ -58,6 +73,7 @@ export function createProjectDraft(styleId = ''): ProjectDraft {
     title: '',
     description: '',
     workflowType: 'asset_consistency',
+    scriptParseMode: DEFAULT_SCRIPT_PARSE_MODE,
     styleId,
     aspectRatio: '9:16'
   }

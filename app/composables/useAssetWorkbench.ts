@@ -2,6 +2,10 @@ import type {
   CharacterData,
   SceneData
 } from '~/lib/asset-workbench-models'
+import {
+  DEFAULT_SCRIPT_PARSE_MODE,
+  type ScriptParseMode
+} from '#shared/types/script'
 import { useAssetWorkbenchGeneration } from '~/composables/useAssetWorkbenchGeneration'
 import { useAssetWorkbenchSceneEditing } from '~/composables/useAssetWorkbenchSceneEditing'
 
@@ -32,6 +36,7 @@ export function useAssetWorkbench() {
   const projectStyleId = ref('')
   const projectAspectRatio = ref<'16:9' | '9:16' | '1:1'>('16:9')
   const projectAssetWorkflow = ref<unknown | null>(null)
+  const scriptParseMode = ref<ScriptParseMode>(DEFAULT_SCRIPT_PARSE_MODE)
   const selectedStyleId = ref('')
   const novelText = ref('')
 
@@ -58,6 +63,7 @@ export function useAssetWorkbench() {
     projectStyleId,
     projectAspectRatio,
     projectAssetWorkflow,
+    scriptParseMode,
     selectedStyleId,
     novelText,
     scenes,
@@ -106,6 +112,7 @@ export function useAssetWorkbench() {
     projectStyleId,
     projectAspectRatio,
     projectAssetWorkflow,
+    scriptParseMode,
     selectedStyleId,
     novelText,
     scenes,

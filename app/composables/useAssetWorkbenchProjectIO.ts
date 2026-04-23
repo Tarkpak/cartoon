@@ -1,5 +1,9 @@
 import type { ComputedRef, Ref } from 'vue'
 import type { CharacterView, CharacterVoiceAsset } from '#shared/types/character'
+import {
+  DEFAULT_SCRIPT_PARSE_MODE,
+  type ScriptParseMode
+} from '#shared/types/script'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { FinalVideoAsset } from '~/lib/asset-workbench-types'
 import {
@@ -20,6 +24,7 @@ interface UseAssetWorkbenchProjectIOOptions {
   projectStyleId: Ref<string>
   projectAspectRatio: Ref<'16:9' | '9:16' | '1:1'>
   projectAssetWorkflow: Ref<unknown | null>
+  scriptParseMode: Ref<ScriptParseMode>
   selectedStyleId: Ref<string>
   novelText: Ref<string>
   scenes: Ref<SceneData[]>
@@ -146,6 +151,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
           project: {
             name: string
             description?: string | null
+            scriptParseMode?: ScriptParseMode
             styleId: string
             aspectRatio: '16:9' | '9:16' | '1:1'
           }
@@ -153,6 +159,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
             novelText?: string
             rawText?: string
             selectedStyleId?: string
+            scriptParseMode?: ScriptParseMode
             assetWorkflow?: unknown
           } | null
           scenes: Array<{
@@ -205,6 +212,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       options.projectAspectRatio.value = response.data.project.aspectRatio || '16:9'
       options.selectedStyleId.value = response.data.script?.selectedStyleId || response.data.project.styleId || ''
       options.novelText.value = response.data.script?.novelText || response.data.script?.rawText || ''
+      options.scriptParseMode.value = response.data.project.scriptParseMode || response.data.script?.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE
       options.projectAssetWorkflow.value = response.data.script?.assetWorkflow ?? null
 
       options.scenes.value = buildLoadedScenes(response.data.scenes)
@@ -241,6 +249,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
             title: options.projectName.value || '未命名项目',
             description: options.projectDescription.value,
             workflowType: 'asset_consistency',
+            scriptParseMode: options.scriptParseMode.value,
             styleId: options.projectStyleId.value,
             aspectRatio: options.projectAspectRatio.value
           }
@@ -270,6 +279,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
           aspectRatio: options.projectAspectRatio.value,
           novelText: options.novelText.value,
           selectedStyleId: options.selectedStyleId.value || options.projectStyleId.value,
+          scriptParseMode: options.scriptParseMode.value,
           scenes: buildSaveScenesPayload(options.scenes.value),
           characters: buildSaveCharactersPayload(options.characters.value)
         }
