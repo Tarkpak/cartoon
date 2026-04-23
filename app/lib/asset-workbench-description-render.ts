@@ -9,7 +9,7 @@ import {
   resolveSceneDescriptionWithoutAssetMentions
 } from '~/lib/asset-workbench-mention-tokens'
 
-const SCENE_IMAGE_TAG_REGEX = /\[(?:图片|Image\s*#)\s*\d+\]/giu
+const SCENE_IMAGE_TAG_REGEX = /(?:\[(?:图片|Image\s*#)\s*\d+\]|@(?:图片|Image\s*#)\s*\d+)/giu
 const SCENE_QUOTED_DIALOGUE_REGEX = /'[^'\n]*'|"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’|「[^」\n]*」|『[^』\n]*』/gu
 const SCENE_DIALOGUE_LABEL_LINE_REGEX = /(?:台词|对白|对话)\s*[：:][^\n]*/gu
 

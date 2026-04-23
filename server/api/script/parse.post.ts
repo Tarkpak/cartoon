@@ -295,10 +295,10 @@ function annotateFirstOccurrenceWithImageTag(text: string, keyword: string, imag
   const safeKeyword = keyword.trim()
   if (!safeKeyword) return text
 
-  // Normalize any existing bracket tag chain after keyword (e.g. 角色名[角色名][图片2]) to a single [图片N].
-  const matcher = new RegExp(`${escapeRegExp(safeKeyword)}(?:\\s*\\[[^\\]\\n]+\\])*`)
+  // Normalize any existing image tag chain after keyword (e.g. 角色名[图片2] or 角色名@图片2) to a single @图片N.
+  const matcher = new RegExp(`${escapeRegExp(safeKeyword)}(?:\\s*(?:\\[[^\\]\\n]+\\]|@(?:图片|Image\\s*#)\\s*\\d+))*`)
   if (!matcher.test(text)) return text
-  return text.replace(matcher, `${safeKeyword}[图片${imageIndex}]`)
+  return text.replace(matcher, `${safeKeyword}@图片${imageIndex}`)
 }
 
 function buildFormattedTimelineScript(data: ParsedScript): {
@@ -340,7 +340,7 @@ function buildFormattedTimelineScript(data: ParsedScript): {
     const location = scene.setting?.location?.trim() || ''
     const locationImageIndex = locationImageRef.get(location)
     if (locationImageIndex) {
-      const locationTag = `${location}[图片${locationImageIndex}]`
+      const locationTag = `${location}@图片${locationImageIndex}`
       annotatedDescription = annotateFirstOccurrenceWithImageTag(
         annotatedDescription,
         location,
@@ -373,7 +373,7 @@ function buildFormattedTimelineScript(data: ParsedScript): {
         const speaker = dialogue.character?.trim() || '角色'
         const imageIndex = characterImageRef.get(speaker)
         const speakerWithTag = imageIndex
-          ? `${speaker}[图片${imageIndex}]`
+          ? `${speaker}@图片${imageIndex}`
           : speaker
         const content = dialogue.text?.trim() || ''
         if (!content) return ''
