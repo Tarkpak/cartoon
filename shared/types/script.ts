@@ -115,12 +115,133 @@ export const TimeOfDaySchema = z.preprocess(
   z.enum(TIME_OF_DAY_VALUES)
 )
 
+/** 时代背景 */
+export const SCENE_ERA_VALUES = [
+  '古代',
+  '民国',
+  '现代',
+  '近未来',
+  '架空'
+] as const
+export type SceneEra = (typeof SCENE_ERA_VALUES)[number]
+
+const SCENE_ERA_SET = new Set<string>(SCENE_ERA_VALUES)
+
+const SCENE_ERA_ALIAS_MAP: Record<string, SceneEra> = {
+  ancient: '古代',
+  historical: '古代',
+  republican: '民国',
+  republic_of_china: '民国',
+  modern: '现代',
+  contemporary: '现代',
+  present_day: '现代',
+  near_future: '近未来',
+  future: '近未来',
+  scifi: '近未来',
+  sci_fi: '近未来',
+  cyberpunk: '近未来',
+  fantasy: '架空',
+  alternate: '架空'
+}
+
+const SCENE_ERA_SCORING_PATTERNS: Record<
+  SceneEra,
+  ReadonlyArray<{ pattern: RegExp, score: number }>
+> = {
+  古代: [
+    { pattern: /古代|古装|王朝|朝堂|王爷|皇上|皇后|太子|公主|本宫|朕|寡人|丞相|将军府|衙门|县令|科举|诏书|宗门|修仙|江湖|武林|客栈|驿站|宫殿|王府/u, score: 4 },
+    { pattern: /唐朝|宋朝|元朝|明朝|清朝|秦朝|汉朝|魏晋|三国|大唐|大宋/u, score: 5 },
+    { pattern: /\b(xiayi?a?|wuxia|xianxia)\b/i, score: 4 }
+  ],
+  民国: [
+    { pattern: /民国|军阀|少帅|旗袍|长衫|黄包车|巡捕房|租界|报馆|上海滩|留声机|姨太太|老洋房|会馆/u, score: 5 },
+    { pattern: /19[01-4]\d年|20世纪[一二三四]?十年代/u, score: 4 },
+    { pattern: /\brepublic\b/i, score: 4 }
+  ],
+  现代: [
+    { pattern: /现代|当代|都市|写字楼|公司|办公室|医院|手术室|手机|微信|直播|地铁|高铁|电梯|商场|互联网|短视频|咖啡馆/u, score: 3 },
+    { pattern: /20[0-2]\d年/u, score: 2 },
+    { pattern: /\b(modern|contemporary|present day)\b/i, score: 3 }
+  ],
+  近未来: [
+    { pattern: /近未来|未来|赛博|机甲|星舰|太空|外星|全息|义体|机器人|仿生|时空穿越|末日|废土/u, score: 5 },
+    { pattern: /20[3-9]\d年|21\d{2}年/u, score: 4 },
+    { pattern: /\b(sci[- ]?fi|cyberpunk|near future|futuristic)\b/i, score: 4 }
+  ],
+  架空: [
+    { pattern: /架空|异世界|玄幻|魔法|魔法学院|精灵|兽人|龙族|神域|神殿/u, score: 4 },
+    { pattern: /\b(fantasy|isekai|alternate world)\b/i, score: 4 }
+  ]
+}
+
+export function normalizeOptionalSceneEraValue(raw: unknown): SceneEra | undefined {
+  if (typeof raw !== 'string') return undefined
+
+  const value = raw.trim()
+  if (!value) return undefined
+  if (SCENE_ERA_SET.has(value)) return value as SceneEra
+
+  const normalized = value.toLowerCase()
+  if (SCENE_ERA_ALIAS_MAP[normalized]) {
+    return SCENE_ERA_ALIAS_MAP[normalized]
+  }
+
+  if (/none|null|unknown|n\/a|na|unspecified|未指定|未知|无/u.test(normalized)) return undefined
+  if (/古代|古装|王朝|修仙|武侠|江湖/u.test(value)) return '古代'
+  if (/民国|军阀|少帅|旗袍|租界/u.test(value)) return '民国'
+  if (/现代|当代|都市|现实|写字楼|医院|公司/u.test(value)) return '现代'
+  if (/近未来|未来|赛博|机甲|太空|科幻/u.test(value)) return '近未来'
+  if (/架空|异世界|玄幻|魔法|奇幻/u.test(value)) return '架空'
+
+  return undefined
+}
+
+export function normalizeSceneEraValue(
+  raw: unknown,
+  fallback: SceneEra = '现代'
+): SceneEra {
+  return normalizeOptionalSceneEraValue(raw) || fallback
+}
+
+export function inferSceneEraFromText(raw: unknown): SceneEra | undefined {
+  if (typeof raw !== 'string') return undefined
+  const text = raw.trim()
+  if (!text) return undefined
+
+  const explicit = normalizeOptionalSceneEraValue(text)
+  if (explicit) return explicit
+
+  let bestEra: SceneEra | undefined
+  let bestScore = 0
+
+  for (const era of SCENE_ERA_VALUES) {
+    const patterns = SCENE_ERA_SCORING_PATTERNS[era]
+    let score = 0
+    for (const item of patterns) {
+      if (item.pattern.test(text)) {
+        score += item.score
+      }
+    }
+
+    if (score > bestScore) {
+      bestEra = era
+      bestScore = score
+    }
+  }
+
+  return bestScore > 0 ? bestEra : undefined
+}
+
 // ==================== 场景相关 ====================
 
 /** 场景设定 */
 export const SceneSettingSchema = z.object({
   location: z.string().describe('场景地点'),
   timeOfDay: TimeOfDaySchema.describe('时间段'),
+  era: z.preprocess(
+    value => normalizeOptionalSceneEraValue(value) ?? value,
+    z.enum(SCENE_ERA_VALUES).optional()
+  ).describe('时代背景'),
   mood: z.string().optional().describe('氛围描述'),
   weather: z.string().optional().describe('天气')
 })

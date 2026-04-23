@@ -9,7 +9,8 @@ import { CharacterVoiceAssetSchema } from '../../../shared/types/character'
 import {
   SCRIPT_PARSE_MODES,
   normalizeScriptParseMode,
-  normalizeTimeOfDayValue
+  normalizeTimeOfDayValue,
+  normalizeOptionalSceneEraValue
 } from '../../../shared/types/script'
 import {
   mergeStoredProjectScriptData,
@@ -134,6 +135,7 @@ const SceneSchema = z.object({
   setting: z.object({
     location: z.string(),
     timeOfDay: z.string(),
+    era: z.string().optional(),
     mood: z.string().optional(),
     weather: z.string().optional()
   }).optional(),
@@ -347,7 +349,8 @@ export default defineEventHandler(async (event) => {
           const normalizedSetting = scene.setting
             ? {
                 ...scene.setting,
-                timeOfDay: normalizeTimeOfDayValue(scene.setting.timeOfDay)
+                timeOfDay: normalizeTimeOfDayValue(scene.setting.timeOfDay),
+                era: normalizeOptionalSceneEraValue(scene.setting.era)
               }
             : null
           const firstFrame = await normalizeImageSourceForStorage(
