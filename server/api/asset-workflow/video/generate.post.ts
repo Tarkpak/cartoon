@@ -6,13 +6,18 @@ import * as kling from '../../../utils/kling'
 import { getWorkflowModels } from '../../models/workflow.get'
 import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
-import { resolveTimeOfDayText } from '../../../../shared/types/script'
+import {
+  resolveTimeOfDayText,
+  normalizeOptionalSceneEraValue,
+  inferSceneEraFromText
+} from '../../../../shared/types/script'
 
 const AspectRatioSchema = z.enum(['16:9', '9:16', '1:1'])
 
 const SceneSettingSchema = z.object({
   location: z.string().optional(),
   timeOfDay: z.string().optional(),
+  era: z.string().optional(),
   mood: z.string().optional(),
   weather: z.string().optional()
 }).optional()
@@ -365,11 +370,22 @@ function buildReferenceGuide(options: {
   return '未提供可用参考图，请仅依据文本生成并保持叙事一致。'
 }
 
-function buildSettingText(setting?: z.infer<typeof SceneSettingSchema>): string {
+function buildSettingText(
+  setting?: z.infer<typeof SceneSettingSchema>,
+  contextText = ''
+): string {
   if (!setting) return '未提供'
+  const era = normalizeOptionalSceneEraValue(setting.era)
+    || inferSceneEraFromText([
+      contextText,
+      setting.location || '',
+      setting.mood || '',
+      setting.weather || ''
+    ].filter(Boolean).join('\n'))
 
   return [
     setting.location,
+    era ? `时代：${era}` : '',
     resolveTimeOfDayText(setting.timeOfDay),
     setting.mood,
     setting.weather
@@ -420,7 +436,7 @@ function buildSceneDescriptionSummaryText(text: string): string {
 }
 
 function buildSceneSummary(scene: z.infer<typeof SceneSchema>): string {
-  const settingText = buildSettingText(scene.setting)
+  const settingText = buildSettingText(scene.setting, [scene.title || '', scene.description || ''].join('\n'))
   return [
     scene.title?.trim() || '',
     settingText !== '未提供' ? settingText : '',
@@ -687,7 +703,7 @@ export default defineEventHandler(async (event) => {
     primaryReferenceBinding,
     multiReferenceBindings
   })
-  const settingText = buildSettingText(scene.setting)
+  const settingText = buildSettingText(scene.setting, [scene.title || '', scene.description || ''].join('\n'))
   const narrationText = hasText(scene.narration) ? scene.narration.trim() : ''
 
   const interpolatedPrompt = await getInterpolatedPrompt(

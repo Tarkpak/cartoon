@@ -2,13 +2,18 @@ import { z } from 'zod'
 import { generateJSONForWorkflow } from '../../../utils/workflow-model'
 import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
-import { resolveTimeOfDayText } from '../../../../shared/types/script'
+import {
+  resolveTimeOfDayText,
+  normalizeOptionalSceneEraValue,
+  inferSceneEraFromText
+} from '../../../../shared/types/script'
 
 const AssetTypeSchema = z.enum(['character', 'environment', 'prop', 'other'])
 
 const SceneSettingSchema = z.object({
   location: z.string().optional(),
   timeOfDay: z.string().optional(),
+  era: z.string().optional(),
   mood: z.string().optional(),
   weather: z.string().optional()
 }).optional()
@@ -74,10 +79,17 @@ function resolveAssetTypeLabel(type: z.infer<typeof AssetTypeSchema>): string {
 
 function buildSettingText(scene: z.infer<typeof SceneSchema>): string {
   if (!scene.setting) return '无'
+  const era = normalizeOptionalSceneEraValue(scene.setting.era)
+    || inferSceneEraFromText([
+      scene.title || '',
+      scene.description || '',
+      scene.setting.location || ''
+    ].filter(Boolean).join('\n'))
 
   return [
     scene.setting.location ? `- 地点：${scene.setting.location}` : '',
     scene.setting.timeOfDay ? `- 时间：${resolveTimeOfDayText(scene.setting.timeOfDay)}` : '',
+    era ? `- 时代：${era}` : '',
     scene.setting.mood ? `- 氛围：${scene.setting.mood}` : '',
     scene.setting.weather ? `- 天气：${scene.setting.weather}` : ''
   ]

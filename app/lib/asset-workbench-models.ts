@@ -24,7 +24,7 @@ export interface SceneData {
   dialogues: Array<{ character: string, text: string, emotion?: string }>
   narration?: string
   duration: number
-  setting?: { location: string, timeOfDay: string, mood?: string, weather?: string }
+  setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string }
   active: boolean
   shotType?: SceneShotType
   cameraMovement?: SceneCameraMovement

@@ -11,10 +11,13 @@ import {
   normalizeScriptParseMode,
   resolveScriptParseModeLabel,
   normalizeTimeOfDayValue,
+  normalizeOptionalSceneEraValue,
+  inferSceneEraFromText,
   ParseScriptRequestSchema,
   ParsedScriptSchema,
   type ScriptParseMode,
-  type ParsedScript
+  type ParsedScript,
+  type SceneEra
 } from '../../../shared/types/script'
 
 const SCRIPT_MIN_DURATION = 2
@@ -78,6 +81,7 @@ const CAMERA_MOVEMENT_LABEL_MAP: Record<string, string> = {
 const TIMELINE_LINE_CAPTURE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:].+$/gmu
 const TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]\s*/u
 const STRUCTURED_DESCRIPTION_HEADING_REGEX = /^(?:场景功能\/情绪定位|场景功能|情绪定位|镜头设计|声音设计|台词节奏|表演关键点|Scene function \/ emotional beat|Shot design|Sound design|Dialogue rhythm|Performance notes)\s*[：:]?\s*$/u
+const LIVE_ACTION_STYLE_HINT_REGEX = /(ai\s*真人|live[-\s]?action|真人剧|live action)/iu
 
 function estimateRecommendedMinScenes(textLength: number, scriptParseMode: ScriptParseMode): number {
   const safeLength = Math.max(0, Math.floor(textLength))
@@ -173,6 +177,63 @@ function injectScriptParseModeDirective(input: {
     heading,
     label,
     input.scriptParseModeRules
+  ].join('\n')
+}
+
+function resolveScriptEraHint(options: {
+  text: string
+  style?: string
+}): SceneEra | undefined {
+  const normalizedStyle = options.style?.trim() || ''
+  const inferredFromText = inferSceneEraFromText(`${options.text}\n${normalizedStyle}`)
+  if (inferredFromText) return inferredFromText
+
+  if (LIVE_ACTION_STYLE_HINT_REGEX.test(normalizedStyle)) {
+    return '现代'
+  }
+
+  return undefined
+}
+
+function injectSceneEraDirective(input: {
+  prompt: string
+  eraHint?: SceneEra
+  style?: string
+  lang: 'zh' | 'en'
+}): string {
+  // 兼容旧模板：即使用户未重置默认模板，也强制追加时代字段约束。
+  if (input.prompt.includes('setting.era')) return input.prompt
+
+  if (input.lang === 'en') {
+    const hint = input.eraHint
+      ? `- Era hint from source analysis: ${input.eraHint}`
+      : '- Era hint from source analysis: infer from script details.'
+    return [
+      input.prompt.trimEnd(),
+      '',
+      '## Era Inference and Lock (Fallback Injection)',
+      hint,
+      `- Selected style: ${input.style?.trim() || 'unspecified'}`,
+      '- Add scenes[i].setting.era, and only use one of: 古代, 民国, 现代, 近未来, 架空.',
+      '- If the script does not explicitly provide era but style contains AI真人/live action, default era to 现代.',
+      '- Keep era consistent across continuous narrative unless the source explicitly indicates time-jump or cross-era structure.',
+      '- scene setting, props, architecture, costume and social titles must match scenes[i].setting.era; forbid era-mixed outputs (e.g., modern hospital with Republican furniture).'
+    ].join('\n')
+  }
+
+  const hint = input.eraHint
+    ? `- 文本推断时代提示：${input.eraHint}`
+    : '- 文本推断时代提示：请根据剧情细节自行判断。'
+  return [
+    input.prompt.trimEnd(),
+    '',
+    '【时代推断与锁定（回退注入）】',
+    hint,
+    `- 当前风格：${input.style?.trim() || '未指定'}`,
+    '- 每个 scenes[i].setting 必须补全 era 字段，取值仅限：古代、民国、现代、近未来、架空。',
+    '- 若原文没有明确时代，且画风包含 AI真人/live action，默认 era=现代。',
+    '- 连续剧情中的 era 必须保持一致；仅当原文明示穿越/时空切换时才可变化。',
+    '- 场景设定、道具、建筑、服装、称谓必须与 era 对齐，禁止时代混搭（例如现代医院配民国陈设）。'
   ].join('\n')
 }
 
@@ -404,7 +465,12 @@ function buildFormattedTimelineScript(data: ParsedScript): {
   }
 }
 
-function normalizeParsedScriptOutput(output: unknown): unknown {
+function normalizeParsedScriptOutput(
+  output: unknown,
+  options: {
+    fallbackEra?: SceneEra
+  } = {}
+): unknown {
   let parsedObject: Record<string, unknown>
 
   if (Array.isArray(output)) {
@@ -432,8 +498,12 @@ function normalizeParsedScriptOutput(output: unknown): unknown {
       : '未知地点'
     const fallbackText = [
       typeof sceneObj.title === 'string' ? sceneObj.title : '',
-      typeof sceneObj.description === 'string' ? sceneObj.description : ''
+      typeof sceneObj.description === 'string' ? sceneObj.description : '',
+      typeof location === 'string' ? location : ''
     ].join(' ')
+    const normalizedEra = normalizeOptionalSceneEraValue(rawSetting.era)
+      || inferSceneEraFromText(fallbackText)
+      || options.fallbackEra
     return {
       ...sceneObj,
       id: typeof sceneObj.id === 'string' && sceneObj.id.trim().length > 0
@@ -445,7 +515,8 @@ function normalizeParsedScriptOutput(output: unknown): unknown {
       setting: {
         ...rawSetting,
         location,
-        timeOfDay: normalizeTimeOfDayValue(rawSetting.timeOfDay)
+        timeOfDay: normalizeTimeOfDayValue(rawSetting.timeOfDay),
+        era: normalizedEra
       }
     }
   })
@@ -488,6 +559,10 @@ export default defineEventHandler(async (event) => {
   const { text, workflowType, style, maxScenes, scriptParseMode } = parseResult.data
   const normalizedWorkflow = normalizeProjectWorkflowType(workflowType)
   const normalizedScriptParseMode = normalizeScriptParseMode(scriptParseMode)
+  const eraHint = resolveScriptEraHint({
+    text,
+    style
+  })
   const parsingPromptTemplateId: PromptTemplateId = normalizedScriptParseMode === 'short_drama'
     ? PROMPT_TEMPLATE_IDS.SCRIPT_PARSING_SHORT_DRAMA
     : PROMPT_TEMPLATE_IDS.SCRIPT_PARSING
@@ -513,7 +588,8 @@ export default defineEventHandler(async (event) => {
         sceneDurationMin: String(SCRIPT_MIN_DURATION),
         sceneDurationMax: String(SCRIPT_MAX_DURATION),
         scriptParseModeLabel,
-        scriptParseModeRules
+        scriptParseModeRules,
+        eraHint: eraHint || ''
       },
       promptLang,
       normalizedWorkflow
@@ -522,7 +598,7 @@ export default defineEventHandler(async (event) => {
     if (!interpolatedPrompt) {
       throw new Error('无法获取提示词模板，请检查数据库配置')
     }
-    const prompt = normalizedScriptParseMode === 'premium_drama'
+    const promptWithModeDirective = normalizedScriptParseMode === 'premium_drama'
       ? injectScriptParseModeDirective({
           prompt: interpolatedPrompt,
           scriptParseModeLabel,
@@ -530,6 +606,12 @@ export default defineEventHandler(async (event) => {
           lang: promptLang
         })
       : interpolatedPrompt
+    const prompt = injectSceneEraDirective({
+      prompt: promptWithModeDirective,
+      eraHint,
+      style,
+      lang: promptLang
+    })
 
     // 3. 使用业务流程配置的模型解析
     const result = await generateJSONForWorkflow<ParsedScript>('script_parsing', {
@@ -539,7 +621,9 @@ export default defineEventHandler(async (event) => {
     })
 
     // 4. 归一化并验证输出格式
-    const normalizedResult = normalizeParsedScriptOutput(result)
+    const normalizedResult = normalizeParsedScriptOutput(result, {
+      fallbackEra: eraHint
+    })
     const validated = ParsedScriptSchema.safeParse(normalizedResult)
     if (!validated.success) {
       console.error('[ScriptParse] 输出格式验证失败:', validated.error)

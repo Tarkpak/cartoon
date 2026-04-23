@@ -21,7 +21,7 @@ interface LoadedProjectScene {
   id: string
   title?: string | null
   description: string
-  setting?: { location: string, timeOfDay: string, mood?: string, weather?: string } | null
+  setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string } | null
   characters?: Array<{ name: string, appearance?: string, emotion?: string }>
   dialogues?: Array<{ character: string, text: string, emotion?: string }>
   narration?: string | null
