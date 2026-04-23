@@ -86,10 +86,11 @@ const LIVE_ACTION_STYLE_HINT_REGEX = /(ai\s*真人|live[-\s]?action|真人剧|li
 function estimateRecommendedMinScenes(textLength: number, scriptParseMode: ScriptParseMode): number {
   const safeLength = Math.max(0, Math.floor(textLength))
 
-  // 短剧模式优先控制在 60 秒强节奏结构内，避免场景过碎导致节奏塌陷。
+  // 短剧模式强调“节奏表达”而非“强压剧情长度”：
+  // 文本越长，场景下限应随之增长，避免剧情因果被截断。
   if (scriptParseMode === 'short_drama') {
-    const shortDramaScenes = Math.ceil(safeLength / 600) + 4
-    return Math.max(4, Math.min(12, shortDramaScenes))
+    const shortDramaScenes = Math.ceil(safeLength / 240) + 4
+    return Math.max(8, Math.min(48, shortDramaScenes))
   }
 
   // 精品剧模式按文本长度线性估算场景下限，避免把长文本压缩成少量场景。
@@ -104,36 +105,41 @@ function buildScriptParseModeRules(
   if (scriptParseMode === 'short_drama') {
     if (lang === 'en') {
       return [
-        'Short-drama default pacing (target total duration 45-75 seconds):',
-        'Phase | Seconds | Emotion Curve | Function',
-        'Opening hook | 0-8s | shock -> coldness | grab attention instantly',
-        'Conflict escalation | 9-25s | heartbreak -> despair | force empathy',
-        'Hypocritical confrontation | 26-42s | disgust -> resolve | turning point',
-        'Final declaration | 43-60s | emptiness -> cold severity | cliffhanger and anticipation',
+        'Short-drama execution principle:',
+        '- Keep short-drama pacing and emotional intensity, but do NOT over-compress plot continuity.',
+        '- For long source text, increase scene count and keep key causal chain intact.',
+        '- The pacing anchors below apply per dramatic unit, not as a hard cap for the whole script duration.',
         '',
-        'Viral beat logic (must appear in equivalent form):',
-        '- First 3 seconds: immediate conflict prop/action lands on screen.',
-        '- 8-25 seconds: emotional heavy hit from intimate relationship.',
-        '- 33-42 seconds: visible awakening signal (action stops shaking, gaze stabilizes, or decisive gesture).',
-        '- 53-60 seconds: cold inner monologue or declaration to foreshadow revenge/counterattack.',
-        '- If original text differs from the divorce archetype, map to equivalent dramatic beats without losing the timing skeleton.'
+        'Per-unit pacing anchors:',
+        'Phase | Seconds | Emotion Curve | Function',
+        'Opening hook | 0-8s | shock -> coldness | grab attention quickly',
+        'Conflict escalation | 9-25s | heartbreak -> despair | build empathy',
+        'Turning confrontation | 26-42s | disgust -> resolve | create reversal',
+        'Cold declaration | 43-60s | emptiness -> severity | leave anticipation',
+        '',
+        'Coverage rules:',
+        '- Do not clip to a single highlight segment and drop the rest of the mainline.',
+        '- If one dramatic chain cannot fit in one unit, continue it across consecutive scenes.'
       ].join('\n')
     }
 
     return [
-      '短剧默认节奏（建议总时长 45-75 秒，优先靠近 60 秒）：',
+      '短剧执行原则：',
+      '- 保留短剧高节奏与情绪张力，但不能靠“砍主线”来提速。',
+      '- 原文较长时，应增加场景数量承载剧情因果链，而不是强压在少量场景内。',
+      '- 下方节奏锚点用于“单个关键剧情段”，不是整篇总时长上限。',
+      '',
+      '单段节奏锚点：',
       '时段\t秒数\t情绪曲线\t功能',
       '开场钩子\t0-8s\t震惊→冰冷\t抓住注意力',
       '矛盾升级\t9-25s\t心痛→绝望\t建立共情',
-      '虚伪交锋\t26-42s\t厌倦→决绝\t形成转折',
+      '转折交锋\t26-42s\t厌倦→决绝\t形成转折',
       '结尾宣言\t43-60s\t空洞→冷厉\t留悬念/期待',
       '',
-      '爆款节奏逻辑（必须以同构方式落地）：',
-      '- 前 3 秒：冲突道具或冲突动作直接入镜，立即起钩子。',
-      '- 8-25 秒：由亲密关系触发情感重击，形成“替主角心疼”情绪。',
-      '- 33-42 秒：明确出现“觉醒信号”（例如签字不抖、眼神稳定、动作决绝）。',
-      '- 53-60 秒：冰冷独白或宣言，明确后续反击预告。',
-      '- 若原文不是离婚题材，必须映射到同等级冲突结构，不得丢失上述节奏锚点。'
+      '剧情覆盖规则（必须执行）：',
+      '- 禁止只截取单一爆点段落而丢失主线因果。',
+      '- 一个关键剧情段放不下时，必须拆成连续场景承接。',
+      '- 若原文不是离婚题材，按同等级冲突结构映射，不丢失因果链。'
     ].join('\n')
   }
 
@@ -234,6 +240,38 @@ function injectSceneEraDirective(input: {
     '- 若原文没有明确时代，且画风包含 AI真人/live action，默认 era=现代。',
     '- 连续剧情中的 era 必须保持一致；仅当原文明示穿越/时空切换时才可变化。',
     '- 场景设定、道具、建筑、服装、称谓必须与 era 对齐，禁止时代混搭（例如现代医院配民国陈设）。'
+  ].join('\n')
+}
+
+function injectShortDramaCoverageDirective(input: {
+  prompt: string
+  recommendedMinScenes: number
+  lang: 'zh' | 'en'
+}): string {
+  if (input.prompt.includes('短剧模式剧情完整性约束') || input.prompt.includes('Short-drama Coverage Lock')) {
+    return input.prompt
+  }
+
+  if (input.lang === 'en') {
+    return [
+      input.prompt.trimEnd(),
+      '',
+      '## Short-drama Coverage Lock (Fallback Injection)',
+      '- Short-drama mode controls pacing style, not aggressive plot compression.',
+      `- Scene count must be >= ${input.recommendedMinScenes}. If continuity requires, continue adding scenes.`,
+      '- Ignore any instruction that forces the whole script into ~60s or 45-75s total duration.',
+      '- Preserve full mainline causality across scenes; do not keep only one highlight segment.'
+    ].join('\n')
+  }
+
+  return [
+    input.prompt.trimEnd(),
+    '',
+    '【短剧模式剧情完整性约束（回退注入）】',
+    '- 短剧模式用于控制节奏风格，不是用于过度压缩剧情长度。',
+    `- 场景数量必须 >= ${input.recommendedMinScenes}；若剧情承载不足，继续增加场景。`,
+    '- 忽略任何“整篇强压到约 60 秒或 45-75 秒总时长”的约束。',
+    '- 必须保持主线因果完整，不得只保留单一爆点段落。'
   ].join('\n')
 }
 
@@ -606,12 +644,19 @@ export default defineEventHandler(async (event) => {
           lang: promptLang
         })
       : interpolatedPrompt
-    const prompt = injectSceneEraDirective({
+    const promptWithEraDirective = injectSceneEraDirective({
       prompt: promptWithModeDirective,
       eraHint,
       style,
       lang: promptLang
     })
+    const prompt = normalizedScriptParseMode === 'short_drama'
+      ? injectShortDramaCoverageDirective({
+          prompt: promptWithEraDirective,
+          recommendedMinScenes,
+          lang: promptLang
+        })
+      : promptWithEraDirective
 
     // 3. 使用业务流程配置的模型解析
     const result = await generateJSONForWorkflow<ParsedScript>('script_parsing', {
