@@ -4,7 +4,11 @@ import { db, projects, scripts, scenes, characters } from '../../db'
 import { isStyleIdEnabled } from '../../utils/style-config'
 import { normalizeProjectWorkflowType } from '../../../shared/types/project'
 import { CharacterVoiceAssetSchema } from '../../../shared/types/character'
-import { normalizeTimeOfDayValue } from '../../../shared/types/script'
+import {
+  SCRIPT_PARSE_MODES,
+  normalizeScriptParseMode,
+  normalizeTimeOfDayValue
+} from '../../../shared/types/script'
 import {
   mergeStoredProjectScriptData,
   parseStoredProjectScript,
@@ -97,6 +101,8 @@ const UpdateProjectSchema = z.object({
   novelText: z.string().optional(),
   // 输入模式
   inputMode: z.enum(['idea', 'script']).optional(),
+  // 剧本解析模式
+  scriptParseMode: z.enum(SCRIPT_PARSE_MODES).optional(),
   // 风格选择
   selectedStyleId: z.string().optional(),
   // 资产一致性工作流扩展字段
@@ -164,6 +170,7 @@ export default defineEventHandler(async (event) => {
       || data.description !== undefined
       || data.status !== undefined
       || data.workflowType !== undefined
+      || data.scriptParseMode !== undefined
       || data.styleId !== undefined
       || data.aspectRatio !== undefined
 
@@ -174,6 +181,7 @@ export default defineEventHandler(async (event) => {
           description: data.description ?? project.description,
           status: data.status ?? project.status,
           workflowType: normalizeProjectWorkflowType(data.workflowType ?? project.workflowType),
+          scriptParseMode: normalizeScriptParseMode(data.scriptParseMode ?? project.scriptParseMode),
           styleId: data.styleId ?? project.styleId,
           aspectRatio: data.aspectRatio ?? project.aspectRatio,
           updatedAt: now
@@ -187,6 +195,7 @@ export default defineEventHandler(async (event) => {
       || data.storyIdea !== undefined
       || data.novelText !== undefined
       || data.inputMode !== undefined
+      || data.scriptParseMode !== undefined
       || data.selectedStyleId !== undefined
       || data.assetWorkflow !== undefined
       || data.scenes !== undefined
@@ -203,6 +212,7 @@ export default defineEventHandler(async (event) => {
           rawText: data.rawText,
           selectedStyleId: data.selectedStyleId,
           inputMode: data.inputMode,
+          scriptParseMode: data.scriptParseMode,
           assetWorkflow: data.assetWorkflow
         }, existingData)
       )

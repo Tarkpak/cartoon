@@ -7,6 +7,7 @@ export const projects = sqliteTable('projects', {
   name: text('name').notNull(),
   description: text('description'),
   workflowType: text('workflow_type', { enum: ['asset_consistency'] }).notNull().default('asset_consistency'),
+  scriptParseMode: text('script_parse_mode', { enum: ['premium_drama', 'short_drama'] }).notNull().default('short_drama'),
   // 项目预设配置 (必填)
   styleId: text('style_id').notNull(), // 风格预设 ID
   aspectRatio: text('aspect_ratio', { enum: ['16:9', '9:16', '1:1'] }).notNull().default('16:9'), // 视频比例

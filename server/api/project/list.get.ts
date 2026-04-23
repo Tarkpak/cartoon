@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { db, projects as projectsTable, scripts as scriptsTable, scenes as scenesTable } from '../../db'
 import { and, asc, desc, eq, inArray, like, or, sql } from 'drizzle-orm'
 import { normalizeProjectWorkflowType } from '../../../shared/types/project'
+import { normalizeScriptParseMode } from '../../../shared/types/script'
 
 const QuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional(),
@@ -42,7 +43,8 @@ export default defineEventHandler(async (event) => {
           like(projectsTable.name, `%${keyword}%`),
           like(projectsTable.description, `%${keyword}%`),
           like(projectsTable.styleId, `%${keyword}%`),
-          like(projectsTable.workflowType, `%${keyword}%`)
+          like(projectsTable.workflowType, `%${keyword}%`),
+          like(projectsTable.scriptParseMode, `%${keyword}%`)
         )
       : undefined
     const whereClause = and(statusCondition, keywordCondition)
@@ -154,6 +156,7 @@ export default defineEventHandler(async (event) => {
         title: p.name,
         description: p.description,
         workflowType: normalizeProjectWorkflowType(p.workflowType),
+        scriptParseMode: normalizeScriptParseMode(p.scriptParseMode),
         styleId: p.styleId,
         aspectRatio: p.aspectRatio,
         status: p.status,

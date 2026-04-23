@@ -210,10 +210,41 @@ export const ParsedScriptSchema = z.object({
 })
 export type ParsedScript = z.infer<typeof ParsedScriptSchema>
 
+export const SCRIPT_PARSE_MODES = ['short_drama', 'premium_drama'] as const
+export type ScriptParseMode = (typeof SCRIPT_PARSE_MODES)[number]
+
+export const DEFAULT_SCRIPT_PARSE_MODE: ScriptParseMode = 'short_drama'
+
+export const SCRIPT_PARSE_MODE_LABELS: Record<ScriptParseMode, string> = {
+  premium_drama: '精品剧',
+  short_drama: '短剧'
+}
+
+export const SCRIPT_PARSE_MODE_LABELS_EN: Record<ScriptParseMode, string> = {
+  premium_drama: 'Premium Drama',
+  short_drama: 'Short Drama'
+}
+
+export function normalizeScriptParseMode(raw: unknown): ScriptParseMode {
+  if (raw === 'short_drama' || raw === 'premium_drama') {
+    return raw
+  }
+  return DEFAULT_SCRIPT_PARSE_MODE
+}
+
+export function resolveScriptParseModeLabel(
+  mode: ScriptParseMode,
+  lang: 'zh' | 'en' = 'zh'
+): string {
+  if (lang === 'en') return SCRIPT_PARSE_MODE_LABELS_EN[mode]
+  return SCRIPT_PARSE_MODE_LABELS[mode]
+}
+
 /** 剧本解析请求 */
 export const ParseScriptRequestSchema = z.object({
   text: z.string().min(10).describe('原始小说文本'),
   maxScenes: z.number().int().min(1).optional().describe('场景数量提示（可选，不做硬上限限制）'),
+  scriptParseMode: z.enum(SCRIPT_PARSE_MODES).optional().default(DEFAULT_SCRIPT_PARSE_MODE).describe('解析模式'),
   style: z.string().optional().describe('画风描述（可选）'),
   workflowType: z.literal('asset_consistency').optional().default('asset_consistency').describe('工作流类型')
 })

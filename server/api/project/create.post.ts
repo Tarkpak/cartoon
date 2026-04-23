@@ -1,11 +1,16 @@
 import { z } from 'zod'
 import { db, projects as projectsTable } from '../../db'
 import { isStyleIdEnabled } from '../../utils/style-config'
+import {
+  DEFAULT_SCRIPT_PARSE_MODE,
+  SCRIPT_PARSE_MODES
+} from '../../../shared/types/script'
 
 const CreateProjectSchema = z.object({
   title: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   workflowType: z.literal('asset_consistency').default('asset_consistency'),
+  scriptParseMode: z.enum(SCRIPT_PARSE_MODES).default(DEFAULT_SCRIPT_PARSE_MODE),
   // 项目预设配置 (必填)
   styleId: z.string().min(1).describe('风格预设 ID (必填)'),
   aspectRatio: z.enum(['16:9', '9:16', '1:1']).describe('视频比例 (必填)')
@@ -27,7 +32,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { title, description, workflowType, styleId, aspectRatio } = parseResult.data
+  const { title, description, workflowType, scriptParseMode, styleId, aspectRatio } = parseResult.data
   const now = new Date().toISOString()
   const id = `proj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 
@@ -46,6 +51,7 @@ export default defineEventHandler(async (event) => {
       name: title,
       description: description || null,
       workflowType,
+      scriptParseMode,
       styleId,
       aspectRatio,
       status: 'draft',
@@ -60,6 +66,7 @@ export default defineEventHandler(async (event) => {
         title,
         description,
         workflowType,
+        scriptParseMode,
         styleId,
         aspectRatio,
         status: 'draft',

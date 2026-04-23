@@ -2,6 +2,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db, projects, scripts, scenes, characters, videoTasks } from '../../db'
 import { persistImageToPublic } from '../../utils/image-storage'
 import { normalizeProjectWorkflowType } from '../../../shared/types/project'
+import { normalizeScriptParseMode } from '../../../shared/types/script'
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
 import { parseStoredProjectScript } from '../../utils/project-script'
 import type { CharacterVoiceAsset } from '../../../shared/types/character'
@@ -219,6 +220,10 @@ export default defineEventHandler(async (event) => {
 
     // 解析剧本内容（支持新旧格式）
     const scriptData = parseStoredProjectScript(script?.rawText)
+    const projectScriptParseMode = normalizeScriptParseMode(project.scriptParseMode)
+    const resolvedScriptParseMode = scriptData?.scriptParseMode === 'short_drama'
+      ? 'short_drama'
+      : projectScriptParseMode
 
     return {
       success: true,
@@ -228,6 +233,7 @@ export default defineEventHandler(async (event) => {
           name: project.name,
           description: project.description,
           workflowType: normalizeProjectWorkflowType(project.workflowType),
+          scriptParseMode: resolvedScriptParseMode,
           styleId: project.styleId,
           aspectRatio: project.aspectRatio,
           status: project.status,
@@ -246,6 +252,7 @@ export default defineEventHandler(async (event) => {
               // 风格选择
               selectedStyleId: scriptData?.selectedStyleId || '',
               inputMode: scriptData?.inputMode || 'idea',
+              scriptParseMode: resolvedScriptParseMode,
               assetWorkflow: scriptData?.assetWorkflow || null,
               parsedData: script.parsedData ? JSON.parse(script.parsedData) : null,
               totalDuration: script.totalDuration

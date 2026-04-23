@@ -1,9 +1,16 @@
+import {
+  DEFAULT_SCRIPT_PARSE_MODE,
+  normalizeScriptParseMode,
+  type ScriptParseMode
+} from '../../shared/types/script'
+
 export interface StoredProjectScriptData {
   storyIdea: string
   novelText: string
   rawText: string
   selectedStyleId: string
   inputMode: 'idea' | 'script'
+  scriptParseMode: ScriptParseMode
   assetWorkflow: unknown | null
 }
 
@@ -14,6 +21,7 @@ function createDefaultStoredProjectScriptData(): StoredProjectScriptData {
     rawText: '',
     selectedStyleId: '',
     inputMode: 'idea',
+    scriptParseMode: DEFAULT_SCRIPT_PARSE_MODE,
     assetWorkflow: null
   }
 }
@@ -31,6 +39,7 @@ export function parseStoredProjectScript(rawText?: string | null): StoredProject
       rawText: typeof parsed.rawText === 'string' ? parsed.rawText : defaults.rawText,
       selectedStyleId: typeof parsed.selectedStyleId === 'string' ? parsed.selectedStyleId : defaults.selectedStyleId,
       inputMode: parsed.inputMode === 'script' ? 'script' : defaults.inputMode,
+      scriptParseMode: normalizeScriptParseMode((parsed as { scriptParseMode?: unknown }).scriptParseMode),
       assetWorkflow: parsed.assetWorkflow ?? defaults.assetWorkflow
     }
   } catch {
@@ -54,6 +63,7 @@ export function mergeStoredProjectScriptData(
     rawText: patch.rawText ?? base.rawText,
     selectedStyleId: patch.selectedStyleId ?? base.selectedStyleId,
     inputMode: patch.inputMode ?? base.inputMode,
+    scriptParseMode: patch.scriptParseMode ? normalizeScriptParseMode(patch.scriptParseMode) : base.scriptParseMode,
     assetWorkflow: patch.assetWorkflow ?? base.assetWorkflow
   }
 }

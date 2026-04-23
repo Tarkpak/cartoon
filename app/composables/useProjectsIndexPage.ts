@@ -7,6 +7,7 @@ import {
   hasProjectStyle,
   projectAspectRatioOptions,
   projectPageSizeOptions,
+  projectScriptParseModeOptions,
   projectStatusMap,
   resolveProjectCreateStyleId,
   type Project,
@@ -45,7 +46,9 @@ export function useProjectsIndexPage() {
   const projectToDelete = ref<Project | null>(null)
   const createStep = ref<'basic' | 'style'>('basic')
   const aspectRatioOptions = projectAspectRatioOptions
+  const scriptParseModeOptions = projectScriptParseModeOptions
   const statusMap = projectStatusMap
+  const effectiveDefaultStyleId = computed(() => resolveDefaultStyleId())
 
   function resolveDefaultStyleId(): string {
     return defaultStyleId.value || availableStylePresets.value[0]?.id || ''
@@ -121,6 +124,7 @@ export function useProjectsIndexPage() {
           title: newProject.value.title,
           description: newProject.value.description || undefined,
           workflowType: newProject.value.workflowType,
+          scriptParseMode: newProject.value.scriptParseMode,
           styleId,
           aspectRatio: newProject.value.aspectRatio
         }
@@ -250,6 +254,7 @@ export function useProjectsIndexPage() {
     availableStylePresets,
     availableStyleCategories,
     styleConfigLoading,
+    effectiveDefaultStyleId,
     projects,
     loading,
     error,
@@ -267,6 +272,7 @@ export function useProjectsIndexPage() {
     showDeleteDialog,
     projectToDelete,
     aspectRatioOptions,
+    scriptParseModeOptions,
     createStep,
     totalPages,
     hasActiveFilters,
