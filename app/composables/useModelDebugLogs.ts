@@ -4,6 +4,18 @@ export interface ModelDebugErrorInfo {
   stack?: string
 }
 
+export interface ModelDebugMediaRef {
+  id: string
+  direction: 'request' | 'response'
+  path: string
+  mediaType: 'image' | 'audio' | 'video' | 'binary'
+  mimeType?: string
+  originalLength: number
+  url?: string
+  status: 'ready' | 'failed' | 'skipped'
+  note?: string
+}
+
 export interface ModelDebugLogEntry {
   id: string
   timestamp: string
@@ -13,7 +25,10 @@ export interface ModelDebugLogEntry {
   status: 'success' | 'error'
   durationMs: number
   request?: unknown
+  requestRaw?: unknown
   response?: unknown
+  responseRaw?: unknown
+  mediaRefs?: ModelDebugMediaRef[]
   error?: ModelDebugErrorInfo
 }
 
@@ -74,6 +89,62 @@ export function useModelDebugLogs() {
     } catch {
       return String(value)
     }
+  }
+
+  function toReadableText(value: unknown, depth = 0): string {
+    if (value === undefined) return ''
+    if (value === null) return 'null'
+
+    if (typeof value === 'string') {
+      if (!value.includes('\n')) return value
+      const pad = '  '.repeat(depth)
+      const block = value.split('\n').map(line => `${pad}  ${line}`).join('\n')
+      return `|\n${block}`
+    }
+
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+      return String(value)
+    }
+
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '[]'
+      const pad = '  '.repeat(depth)
+      const nextDepth = depth + 1
+      return value.map((item) => {
+        const rendered = toReadableText(item, nextDepth)
+        const isComplex = typeof item === 'object' && item !== null
+        if (isComplex && !rendered.startsWith('|')) {
+          return `${pad}-\n${rendered}`
+        }
+        return `${pad}- ${rendered}`
+      }).join('\n')
+    }
+
+    if (typeof value === 'object') {
+      const entries = Object.entries(value as Record<string, unknown>)
+      if (entries.length === 0) return '{}'
+
+      const pad = '  '.repeat(depth)
+      const nextDepth = depth + 1
+      const childPad = '  '.repeat(nextDepth)
+
+      return entries.map(([key, item]) => {
+        const rendered = toReadableText(item, nextDepth)
+        const isComplex = typeof item === 'object' && item !== null
+        if (isComplex && !rendered.startsWith('|')) {
+          return `${pad}${key}:\n${rendered}`
+        }
+        if (rendered.startsWith('|\n')) {
+          const lines = rendered.split('\n')
+          const head = `${pad}${key}: ${lines[0]}`
+          const body = lines.slice(1).map(line => `${childPad}${line.trimStart()}`).join('\n')
+          return `${head}\n${body}`
+        }
+        return `${pad}${key}: ${rendered}`
+      }).join('\n')
+    }
+
+    return String(value)
   }
 
   function toSelectString(value: unknown): string {
@@ -177,6 +248,7 @@ export function useModelDebugLogs() {
     formatDate,
     formatDuration,
     toPrettyJson,
+    toReadableText,
     toSelectString,
     fetchLogs,
     clearLogs
