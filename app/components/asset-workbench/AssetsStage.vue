@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Loader2 } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
-import type { PropAsset } from '~/composables/useAssetWorkflowMeta'
+import type { PropAsset, PropAssetCategory } from '~/composables/useAssetWorkflowMeta'
 import type { AutoStageKey, AssetTab, CharacterRoleOption, EnvironmentAssetCard } from '~/lib/asset-workbench-types'
 
 const props = defineProps<{
@@ -55,7 +55,7 @@ const emit = defineEmits<{
   'open-environment-regenerate': [assetId: string]
   'open-environment-history': [assetId: string]
   'regenerate-environment': [assetId: string]
-  'add-prop': [payload: { name: string, description: string }]
+  'add-prop': [payload: { name: string, description: string, category: PropAssetCategory }]
   'remove-prop': [propId: string]
   'upload-prop-image': [payload: { propId: string, event: Event }]
   'open-prop-history': [propId: string]
@@ -212,6 +212,7 @@ const tabs = computed(() => [
         :auto-running="autoRunning"
         :uploading-prop-id="uploadingPropId"
         :get-prop-usage-count="getPropUsageCount"
+        add-category="prop"
         asset-label="道具"
         @add-prop="emit('add-prop', $event)"
         @remove-prop="emit('remove-prop', $event)"
@@ -226,10 +227,11 @@ const tabs = computed(() => [
         :auto-running="autoRunning"
         :uploading-prop-id="uploadingPropId"
         :get-prop-usage-count="getPropUsageCount"
-        :allow-add="false"
+        add-category="other"
         asset-label="其他"
         empty-title="暂无其他资产"
-        empty-description="可在场景编辑中上传图片，自动归类到这里。"
+        empty-description="可手动新增其他资产，或在场景编辑中上传图片自动归类到这里。"
+        @add-prop="emit('add-prop', $event)"
         @remove-prop="emit('remove-prop', $event)"
         @upload-image="emit('upload-prop-image', $event)"
         @open-history="emit('open-prop-history', $event)"

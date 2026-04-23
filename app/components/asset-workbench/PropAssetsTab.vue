@@ -1,24 +1,28 @@
 <script setup lang="ts">
 import { History, Loader2, Package, Plus, Trash2, Upload } from 'lucide-vue-next'
-import type { PropAsset } from '~/composables/useAssetWorkflowMeta'
+import type { PropAsset, PropAssetCategory } from '~/composables/useAssetWorkflowMeta'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { toImageSrc } from '~/lib/media'
 
-defineProps<{
+const props = withDefaults(defineProps<{
   propAssets: PropAsset[]
   autoRunning: boolean
   uploadingPropId: string | null
   getPropUsageCount: (propId: string) => number
   allowAdd?: boolean
+  addCategory?: PropAssetCategory
   assetLabel?: string
   addNamePlaceholder?: string
   addDescriptionPlaceholder?: string
   emptyTitle?: string
   emptyDescription?: string
-}>()
+}>(), {
+  allowAdd: true,
+  addCategory: 'prop'
+})
 
 const emit = defineEmits<{
-  'add-prop': [payload: { name: string, description: string }]
+  'add-prop': [payload: { name: string, description: string, category: PropAssetCategory }]
   'remove-prop': [propId: string]
   'upload-image': [payload: { propId: string, event: Event }]
   'open-history': [propId: string]
@@ -29,11 +33,13 @@ const newPropName = ref('')
 const newPropDescription = ref('')
 
 function handleAddProp() {
+  if (props.autoRunning) return
+
   const name = newPropName.value.trim()
   const description = newPropDescription.value.trim()
   if (!name) return
 
-  emit('add-prop', { name, description })
+  emit('add-prop', { name, description, category: props.addCategory })
   newPropName.value = ''
   newPropDescription.value = ''
 }
@@ -52,9 +58,10 @@ function resolveHistoryCount(prop: PropAsset): number {
 <template>
   <div class="space-y-4">
     <!-- Add new prop form -->
-    <div
+    <form
       v-if="allowAdd !== false"
       class="flex items-center gap-2"
+      @submit.prevent="handleAddProp"
     >
       <Input
         v-model="newPropName"
@@ -67,15 +74,15 @@ function resolveHistoryCount(prop: PropAsset): number {
         :placeholder="addDescriptionPlaceholder || '可选描述，如：金属外壳，冷白光'"
       />
       <Button
+        type="submit"
         size="sm"
         class="h-8 gap-1.5 px-3 text-xs"
-        :disabled="!newPropName.trim()"
-        @click="handleAddProp"
+        :disabled="autoRunning || !newPropName.trim()"
       >
         <Plus class="h-3 w-3" />
         添加
       </Button>
-    </div>
+    </form>
 
     <!-- Empty state -->
     <div
@@ -142,6 +149,7 @@ function resolveHistoryCount(prop: PropAsset): number {
           </span>
           <div class="flex items-center gap-1">
             <Button
+              type="button"
               size="sm"
               variant="ghost"
               class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
@@ -160,6 +168,7 @@ function resolveHistoryCount(prop: PropAsset): number {
             </Button>
             <Button
               v-if="resolveHistoryCount(prop) > 1"
+              type="button"
               size="sm"
               variant="ghost"
               class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
@@ -169,6 +178,7 @@ function resolveHistoryCount(prop: PropAsset): number {
               历史 {{ resolveHistoryCount(prop) }}
             </Button>
             <Button
+              type="button"
               size="sm"
               variant="ghost"
               class="h-7 w-7 p-0 text-muted-foreground/60 hover:text-destructive"

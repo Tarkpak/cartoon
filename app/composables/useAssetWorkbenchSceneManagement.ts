@@ -1,6 +1,6 @@
 import type { ComputedRef, Ref } from 'vue'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
-import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
+import type { PropAsset, PropAssetCategory, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import type { DisplayAsset } from '~/lib/asset-workbench-types'
 import { invalidateSceneGenerationState } from '~/lib/asset-workbench-scenes'
 
@@ -348,17 +348,20 @@ export function useAssetWorkbenchSceneManagement(options: {
     }
   }
 
-  function addPropAsset(payload: { name: string, description?: string }) {
+  function addPropAsset(payload: { name: string, description?: string, category?: PropAssetCategory }) {
     const name = payload.name.trim()
     const description = payload.description?.trim() || ''
+    const category: PropAssetCategory = payload.category === 'other' ? 'other' : 'prop'
     if (!name) return
 
     options.propAssets.value.push({
       id: options.createPropAssetId(),
       name,
       description,
-      category: 'prop'
+      category
     })
+
+    void options.saveWorkflowMeta()
   }
 
   function removePropAsset(propId: string) {
