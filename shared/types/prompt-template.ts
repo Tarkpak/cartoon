@@ -181,7 +181,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     variables: [
       { name: '{{style}}', description: '项目画风描述', example: '电影写实风格' },
       { name: '{{sceneTitle}}', description: '场景标题', example: '雨夜街头对峙' },
-      { name: '{{sceneDescription}}', description: '当前场景描述', example: '0-3秒：，中景，固定镜头。护士站[图片1]人来人往...' },
+      { name: '{{sceneDescription}}', description: '当前场景描述', example: '0-3秒：，中景，固定镜头。护士站@图片1人来人往...' },
       { name: '{{setting}}', description: '场景设定文本', example: '- 地点：医院-走廊\n- 时间：夜晚' },
       { name: '{{characters}}', description: '角色信息文本', example: '- 陆哲，外观：白大褂，情绪：得意' },
       { name: '{{narration}}', description: '旁白文本', example: '旁白：空气里弥漫着消毒水气味。' },
