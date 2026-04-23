@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db, projects, scripts, scenes, characters, videoTasks } from '../../db'
 import { persistImageToPublic } from '../../utils/image-storage'
+import { persistVideoSourceToCloud } from '../../utils/video-storage'
 import { normalizeProjectWorkflowType } from '../../../shared/types/project'
 import { normalizeScriptParseMode } from '../../../shared/types/script'
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
@@ -16,6 +17,19 @@ function looksLikeBase64Image(value: string): boolean {
     || compact.startsWith('Qk')
     || compact.startsWith('SUkq')
     || compact.startsWith('TU0A')
+}
+
+function looksLikeBase64Video(value: string): boolean {
+  const compact = value.replace(/\s+/g, '')
+  return compact.startsWith('AAAAIGZ0eX')
+    || compact.startsWith('AAAAHGZ0eX')
+    || compact.startsWith('GkXfow')
+    || compact.startsWith('T2dnUw')
+}
+
+function looksLikeBase64Payload(value: string): boolean {
+  if (value.length < 120) return false
+  return /^[A-Za-z0-9+/=\r\n]+$/.test(value)
 }
 
 function normalizeCharacterImageUrl(rawValue?: string | null): string | null {
@@ -50,6 +64,48 @@ function shouldMigrateCharacterImage(rawValue: string): boolean {
     || raw.startsWith('/api/image/file/')
     || raw.startsWith('data:image/')
     || looksLikeBase64Image(raw)
+    || looksLikeBase64Payload(raw)
+}
+
+function normalizeSceneFrameUrl(rawValue?: string | null): string | null {
+  const raw = rawValue?.trim()
+  if (!raw) return null
+
+  if (raw.startsWith('url:')) {
+    return normalizeSceneFrameUrl(raw.slice(4))
+  }
+
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw
+
+  if (raw.startsWith('/generated-images/')) {
+    const filename = raw.slice('/generated-images/'.length)
+    return filename ? `/api/image/file/${encodeURIComponent(filename)}` : null
+  }
+
+  if (raw.startsWith('/api/image/file/')) return raw
+  if (raw.startsWith('data:image/')) return null
+  if (looksLikeBase64Image(raw)) return null
+  if (looksLikeBase64Payload(raw)) return null
+  if (raw.startsWith('/')) return raw
+  return raw
+}
+
+function shouldMigrateSceneFrame(rawValue: string): boolean {
+  const raw = rawValue.trim()
+  if (!raw) return false
+
+  return raw.startsWith('/generated-images/')
+    || raw.startsWith('/api/image/file/')
+    || raw.startsWith('data:image/')
+    || looksLikeBase64Image(raw)
+    || looksLikeBase64Payload(raw)
+}
+
+function normalizeSceneVideoUrl(rawValue?: string | null): string | null {
+  const normalized = normalizeProjectVideoUrl(rawValue)
+  if (!normalized) return null
+  if (normalized.startsWith('data:video/')) return null
+  return normalized
 }
 
 async function hydrateSceneVideoUrlsFromTasks(projectScenes: typeof scenes.$inferSelect[]): Promise<void> {
@@ -161,6 +217,142 @@ async function migrateCharacterBaseImagesToCloud(
   return migrated
 }
 
+async function migrateSceneFramesToCloud(
+  projectScenes: typeof scenes.$inferSelect[]
+): Promise<void> {
+  if (projectScenes.length === 0) return
+
+  const now = new Date().toISOString()
+
+  await Promise.all(projectScenes.map(async (scene) => {
+    const nextFirstFrame = scene.firstFrame?.trim() || ''
+    const nextLastFrame = scene.lastFrame?.trim() || ''
+    const updates: Partial<typeof scenes.$inferInsert> = {}
+
+    if (nextFirstFrame) {
+      if (shouldMigrateSceneFrame(nextFirstFrame)) {
+        try {
+          const cloudUrl = await persistImageToPublic({
+            source: nextFirstFrame,
+            prefix: `scene_${scene.id}_first`
+          })
+          updates.firstFrame = cloudUrl
+          scene.firstFrame = cloudUrl
+        } catch (error) {
+          scene.firstFrame = normalizeSceneFrameUrl(nextFirstFrame)
+          console.warn(`[ProjectGet] 场景首帧迁移失败，已跳过返回 base64: ${scene.id}`, error)
+        }
+      } else {
+        const normalized = normalizeSceneFrameUrl(nextFirstFrame)
+        if (normalized !== nextFirstFrame) {
+          updates.firstFrame = normalized
+        }
+        scene.firstFrame = normalized
+      }
+    } else {
+      scene.firstFrame = null
+    }
+
+    if (nextLastFrame) {
+      if (shouldMigrateSceneFrame(nextLastFrame)) {
+        try {
+          const cloudUrl = await persistImageToPublic({
+            source: nextLastFrame,
+            prefix: `scene_${scene.id}_last`
+          })
+          updates.lastFrame = cloudUrl
+          scene.lastFrame = cloudUrl
+        } catch (error) {
+          scene.lastFrame = normalizeSceneFrameUrl(nextLastFrame)
+          console.warn(`[ProjectGet] 场景尾帧迁移失败，已跳过返回 base64: ${scene.id}`, error)
+        }
+      } else {
+        const normalized = normalizeSceneFrameUrl(nextLastFrame)
+        if (normalized !== nextLastFrame) {
+          updates.lastFrame = normalized
+        }
+        scene.lastFrame = normalized
+      }
+    } else {
+      scene.lastFrame = null
+    }
+
+    if (Object.keys(updates).length === 0) return
+
+    await db.update(scenes)
+      .set({
+        ...updates,
+        updatedAt: now
+      })
+      .where(eq(scenes.id, scene.id))
+  }))
+}
+
+function shouldMigrateSceneVideo(rawValue?: string | null): boolean {
+  const raw = rawValue?.trim()
+  if (!raw) return false
+
+  if (raw.startsWith('url:')) {
+    return shouldMigrateSceneVideo(raw.slice(4))
+  }
+
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return false
+  if (raw.startsWith('data:video/')) return true
+  if (looksLikeBase64Video(raw)) return true
+  if (looksLikeBase64Payload(raw)) return true
+  return false
+}
+
+async function migrateSceneVideosToCloud(
+  projectScenes: typeof scenes.$inferSelect[]
+): Promise<void> {
+  if (projectScenes.length === 0) return
+
+  const now = new Date().toISOString()
+
+  await Promise.all(projectScenes.map(async (scene) => {
+    const rawVideo = scene.videoUrl?.trim()
+    if (!rawVideo) {
+      scene.videoUrl = null
+      return
+    }
+
+    if (!shouldMigrateSceneVideo(rawVideo)) {
+      const normalized = normalizeSceneVideoUrl(rawVideo)
+      scene.videoUrl = normalized
+      if (normalized && normalized !== rawVideo) {
+        await db.update(scenes)
+          .set({
+            videoUrl: normalized,
+            updatedAt: now
+          })
+          .where(eq(scenes.id, scene.id))
+      }
+      return
+    }
+
+    try {
+      const cloudUrl = await persistVideoSourceToCloud({
+        source: rawVideo,
+        prefix: `scene_${scene.id}_video`,
+        category: 'videos'
+      })
+
+      scene.videoUrl = cloudUrl
+      await db.update(scenes)
+        .set({
+          videoUrl: cloudUrl,
+          updatedAt: now
+        })
+        .where(eq(scenes.id, scene.id))
+      console.log(`[ProjectGet] 已迁移场景视频到云端: ${scene.id}`)
+    } catch (error) {
+      scene.videoUrl = normalizeSceneVideoUrl(rawVideo)
+      console.warn(`[ProjectGet] 场景视频迁移失败，已跳过返回 base64: ${scene.id}`, error)
+    }
+  }))
+}
+
 function parseCharacterVoiceAsset(rawValue?: string | null): CharacterVoiceAsset | null {
   if (!rawValue?.trim()) return null
 
@@ -169,6 +361,29 @@ function parseCharacterVoiceAsset(rawValue?: string | null): CharacterVoiceAsset
   } catch (error) {
     console.warn('[ProjectGet] 解析角色声音资产失败:', error)
     return null
+  }
+}
+
+function normalizeCharacterImageMap(rawValue?: string | null): Record<string, string> | undefined {
+  if (!rawValue?.trim()) return undefined
+
+  try {
+    const parsed = JSON.parse(rawValue) as Record<string, unknown>
+    const normalizedEntries: Array<[string, string]> = []
+
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value !== 'string') continue
+      const normalized = normalizeCharacterImageUrl(value)
+      if (normalized) {
+        normalizedEntries.push([key, normalized])
+      }
+    }
+
+    if (normalizedEntries.length === 0) return undefined
+    return Object.fromEntries(normalizedEntries)
+  } catch (error) {
+    console.warn('[ProjectGet] 解析角色图片映射失败:', error)
+    return undefined
   }
 }
 
@@ -210,6 +425,8 @@ export default defineEventHandler(async (event) => {
 
       // 兜底修复：若 scene.video_url 丢失，尝试从已完成的 video_tasks 回填
       await hydrateSceneVideoUrlsFromTasks(projectScenes)
+      await migrateSceneFramesToCloud(projectScenes)
+      await migrateSceneVideosToCloud(projectScenes)
     }
 
     // 获取项目的角色
@@ -259,7 +476,9 @@ export default defineEventHandler(async (event) => {
             }
           : null,
         scenes: projectScenes.map((s) => {
-          const normalizedVideoUrl = normalizeProjectVideoUrl(s.videoUrl)
+          const normalizedVideoUrl = normalizeSceneVideoUrl(s.videoUrl)
+          const normalizedFirstFrame = normalizeSceneFrameUrl(s.firstFrame)
+          const normalizedLastFrame = normalizeSceneFrameUrl(s.lastFrame)
 
           return {
             id: s.id,
@@ -280,8 +499,8 @@ export default defineEventHandler(async (event) => {
             transitionOut: s.transitionOut,
             transitionDuration: s.transitionDuration,
             // 帧和视频
-            firstFrame: s.firstFrame,
-            lastFrame: s.lastFrame,
+            firstFrame: normalizedFirstFrame,
+            lastFrame: normalizedLastFrame,
             videoUrl: normalizedVideoUrl,
             status: normalizedVideoUrl ? 'video_ready' : s.status
           }
@@ -302,8 +521,8 @@ export default defineEventHandler(async (event) => {
           age: c.age,
           gender: c.gender,
           imageUrl: migratedCharacterImages.get(c.id) || normalizeCharacterImageUrl(c.baseImage),
-          expressions: c.expressions ? JSON.parse(c.expressions) : undefined,
-          views: c.views ? JSON.parse(c.views) : undefined
+          expressions: normalizeCharacterImageMap(c.expressions),
+          views: normalizeCharacterImageMap(c.views)
         }))
       }
     }
