@@ -22,6 +22,7 @@ const {
   formatDate,
   formatDuration,
   toPrettyJson,
+  toReadableText,
   fetchLogs,
   clearLogs
 } = useModelDebugLogs()
@@ -62,6 +63,7 @@ const {
       :format-date="formatDate"
       :format-duration="formatDuration"
       :to-pretty-json="toPrettyJson"
+      :to-readable-text="toReadableText"
     />
   </div>
 </template>

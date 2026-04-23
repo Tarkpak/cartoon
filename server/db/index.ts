@@ -188,11 +188,20 @@ export function initDatabase() {
       status TEXT NOT NULL,
       duration_ms INTEGER NOT NULL,
       request_json TEXT,
+      request_raw_json TEXT,
       response_json TEXT,
+      response_raw_json TEXT,
+      media_refs_json TEXT,
       error_json TEXT,
       created_at TEXT NOT NULL
     )
   `)
+
+  const modelDebugColumns = sqlite.prepare('PRAGMA table_info(model_debug_logs)').all() as Array<{ name: string }>
+  const hasModelDebugColumn = (name: string) => modelDebugColumns.some(c => c.name === name)
+  if (!hasModelDebugColumn('request_raw_json')) sqlite.exec('ALTER TABLE model_debug_logs ADD COLUMN request_raw_json TEXT')
+  if (!hasModelDebugColumn('response_raw_json')) sqlite.exec('ALTER TABLE model_debug_logs ADD COLUMN response_raw_json TEXT')
+  if (!hasModelDebugColumn('media_refs_json')) sqlite.exec('ALTER TABLE model_debug_logs ADD COLUMN media_refs_json TEXT')
 
   // 创建索引
   sqlite.exec(`
