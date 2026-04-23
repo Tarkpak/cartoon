@@ -136,7 +136,10 @@ export const modelDebugLogs = sqliteTable('model_debug_logs', {
   status: text('status', { enum: ['success', 'error'] }).notNull(),
   durationMs: integer('duration_ms').notNull(),
   requestJson: text('request_json'),
+  requestRawJson: text('request_raw_json'),
   responseJson: text('response_json'),
+  responseRawJson: text('response_raw_json'),
+  mediaRefsJson: text('media_refs_json'),
   errorJson: text('error_json'),
   createdAt: text('created_at').notNull()
 })
