@@ -67,10 +67,15 @@ export const QwenVisionModels = {
 
 /** 千问图片生成模型 */
 export const QwenImageModels = {
+  // 最新图片模型（2026）
+  WAN_2_7_IMAGE_PRO: 'wan2.7-image-pro',
+  WAN_2_7_IMAGE: 'wan2.7-image',
+  QWEN_IMAGE_2_PRO: 'qwen-image-2.0-pro',
+
+  // 历史图片模型（保留兼容）
   QWEN_IMAGE_MAX: 'qwen-image-max',
   QWEN_IMAGE: 'qwen-image',
   QWEN_IMAGE_PLUS: 'qwen-image-plus',
-  QWEN_IMAGE_2_PRO: 'qwen-image-2.0-pro',
   QWEN_IMAGE_2: 'qwen-image-2.0',
   WAN_2_6_T2I: 'wan2.6-t2i', // 通义万相文生图
   WAN_2_6_IMAGE: 'wan2.6-image', // 通义万相图像编辑 (支持参考图)
@@ -79,6 +84,12 @@ export const QwenImageModels = {
 
 /** 千问视频生成模型 (通义万相) */
 export const QwenVideoModels = {
+  // 最新视频模型（2026）
+  WAN_2_7_T2V: 'wan2.7-t2v', // 文生视频
+  WAN_2_7_I2V: 'wan2.7-i2v', // 图生视频（新版 media 协议）
+  WAN_2_7_R2V: 'wan2.7-r2v', // 参考生视频（新版 media 协议）
+
+  // 历史视频模型（保留兼容）
   WAN_2_6_T2V: 'wan2.6-t2v', // 文生视频
   WAN_2_6_I2V: 'wan2.6-i2v', // 图生视频
   WAN_2_2_KF2V_FLASH: 'wan2.2-kf2v-flash', // 首尾帧生视频 (推荐)
@@ -580,10 +591,10 @@ export async function _qwenGenerateImage(options: {
   negativePrompt?: string
   size?: string
   n?: number
-  referenceImages?: string[] // 参考图 URL 或 base64 (wan2.6-image 支持 1-4 张)
+  referenceImages?: string[] // 参考图 URL 或 base64（wan2.7 / wan2.6-image 使用）
   maxRetries?: number
 }): Promise<{ imageUrl: string, taskId: string }> {
-  const model = options.model || QwenImageModels.WAN_2_6_T2I
+  const model = options.model || QwenImageModels.WAN_2_7_IMAGE_PRO
   let upstreamRequestBody: unknown
 
   const timestamp = new Date().toLocaleTimeString()
@@ -647,6 +658,61 @@ export async function _qwenGenerateImage(options: {
             size,
             n: options.n || 1,
             enable_interleave: false, // 图像编辑模式
+            watermark: false
+          }
+        }
+        upstreamRequestBody = requestBody
+
+        const response = await request<{
+          output: {
+            choices: Array<{
+              message: {
+                content: Array<{ image?: string, text?: string, type?: string }>
+              }
+            }>
+          }
+          request_id: string
+        }>(
+          '/services/aigc/multimodal-generation/generation',
+          requestBody
+        )
+
+        const imageUrl = response.output?.choices?.[0]?.message?.content?.find(c => c.image)?.image
+        if (!imageUrl) {
+          console.error(`[Qwen] ${model} 响应:`, JSON.stringify(response, null, 2))
+          throw new QwenError(`${model} 图片生成失败`, QwenErrorCode.INTERNAL, 500, false)
+        }
+        console.log(`[Qwen] ${model} 图片生成成功: ${imageUrl.slice(0, 100)}...`)
+        return { imageUrl, taskId: '' }
+      }
+
+      // wan2.7-image 系列（图像生成与编辑）使用 multimodal-generation 端点
+      // 文档: https://help.aliyun.com/zh/model-studio/wan-image-generation-and-editing-api-reference
+      if (model === QwenImageModels.WAN_2_7_IMAGE_PRO || model === QwenImageModels.WAN_2_7_IMAGE) {
+        const content: Array<{ text?: string, image?: string }> = [
+          { text: options.prompt }
+        ]
+
+        for (const img of options.referenceImages || []) {
+          content.push({ image: img })
+        }
+
+        // wan2.7-image-pro 推荐 2K；基础版默认 1K
+        const defaultSize = model === QwenImageModels.WAN_2_7_IMAGE_PRO ? '2K' : '1K'
+
+        const requestBody = {
+          model,
+          input: {
+            messages: [
+              {
+                role: 'user',
+                content
+              }
+            ]
+          },
+          parameters: {
+            size: options.size || defaultSize,
+            n: options.n || 1,
             watermark: false
           }
         }
@@ -828,16 +894,54 @@ export async function queryQwenVideoTask(taskId: string): Promise<VideoTaskStatu
   return await getTaskStatus<VideoTaskStatusResponse>(taskId)
 }
 
+function normalizeQwenResolution(value?: string): string | undefined {
+  return typeof value === 'string' ? value.replace(/p$/i, 'P') : undefined
+}
+
+function inferQwenResolutionFromSize(size?: string): string | undefined {
+  if (!size) return undefined
+  const normalized = size.trim().toLowerCase()
+
+  if (normalized === '1920*1080' || normalized === '1080*1920') return '1080P'
+  if (
+    normalized === '1280*720'
+    || normalized === '720*1280'
+    || normalized === '960*960'
+    || normalized === '1344*576'
+  ) {
+    return '720P'
+  }
+  if (normalized === '640*480' || normalized === '480*640') return '480P'
+
+  return undefined
+}
+
+function normalizeQwenRatio(value?: string): string | undefined {
+  if (!value) return undefined
+  const normalized = value.replace(/\s+/g, '')
+  if (!/^\d+:\d+$/.test(normalized)) return undefined
+  return normalized
+}
+
+function inferWan27ReferenceMediaType(url: string): 'reference_image' | 'reference_video' {
+  const raw = url.trim().toLowerCase()
+  if (raw.startsWith('data:video/')) return 'reference_video'
+  if (/\.(mp4|mov|m4v|webm)(?:$|\?)/i.test(raw)) return 'reference_video'
+  return 'reference_image'
+}
+
 export async function _qwenGenerateVideo(options: {
   model?: string
   prompt: string
   imageUrl?: string // 图生视频时的输入图片
   firstFrameUrl?: string // 首帧图片 (首尾帧模型)
   lastFrameUrl?: string // 尾帧图片 (首尾帧模型)
+  referenceImages?: string[] // 参考图/参考视频 URL（wan2.7-r2v）
   audioUrl?: string // 自定义音频
-  duration?: number // 5, 10, 15
+  duration?: number // wan2.7 支持 2-15；历史模型通常 5/10/15
+  aspectRatio?: string // 如 16:9 (wan2.7 t2v/r2v)
   size?: string // 如 '1280*720', '1920*1080'
-  resolution?: string // 分辨率档位: 480P, 720P, 1080P (首尾帧模型)
+  resolution?: string // 分辨率档位: 480P, 720P, 1080P
   negativePrompt?: string
   promptExtend?: boolean
   audio?: boolean // 是否自动配音
@@ -846,26 +950,31 @@ export async function _qwenGenerateVideo(options: {
   maxRetries?: number
   onTaskCreated?: (taskId: string) => void | Promise<void>
 }): Promise<{ videoUrl: string, taskId: string }> {
-  const normalizedResolution = typeof options.resolution === 'string'
-    ? options.resolution.replace(/p$/i, 'P')
-    : undefined
+  const normalizedResolution = normalizeQwenResolution(options.resolution)
+  const inferredResolution = inferQwenResolutionFromSize(options.size)
+  const effectiveResolution = normalizedResolution || inferredResolution
+  const normalizedRatio = normalizeQwenRatio(options.aspectRatio)
+  const referenceImages = Array.isArray(options.referenceImages)
+    ? options.referenceImages.filter(Boolean)
+    : []
+  const hasR2vReferences = referenceImages.length > 0
 
-  // 判断是否使用首尾帧模型
-  const isKf2vModel = options.model === QwenVideoModels.WAN_2_2_KF2V_FLASH
-    || options.model === QwenVideoModels.WAN_2_1_KF2V_PLUS
-    || (options.firstFrameUrl && options.lastFrameUrl)
-
-  // 根据模型类型选择默认模型
+  // 根据输入选择默认模型（默认优先最新 wan2.7）
   let model = options.model
   if (!model) {
-    if (isKf2vModel || (options.firstFrameUrl && options.lastFrameUrl)) {
-      model = QwenVideoModels.WAN_2_2_KF2V_FLASH // 默认使用推荐的首尾帧模型
-    } else if (options.imageUrl) {
-      model = QwenVideoModels.WAN_2_6_I2V
+    if (hasR2vReferences && !options.firstFrameUrl && !options.lastFrameUrl) {
+      model = QwenVideoModels.WAN_2_7_R2V
+    } else if (options.firstFrameUrl || options.lastFrameUrl || options.imageUrl) {
+      model = QwenVideoModels.WAN_2_7_I2V
     } else {
-      model = QwenVideoModels.WAN_2_6_T2V
+      model = QwenVideoModels.WAN_2_7_T2V
     }
   }
+
+  const isWan27T2V = model === QwenVideoModels.WAN_2_7_T2V
+  const isWan27I2V = model === QwenVideoModels.WAN_2_7_I2V
+  const isWan27R2V = model === QwenVideoModels.WAN_2_7_R2V
+  const isWan27Model = isWan27T2V || isWan27I2V || isWan27R2V
 
   const timestamp = new Date().toLocaleTimeString()
   console.log(`[${timestamp}] [Qwen] generateVideo 请求参数:`, {
@@ -878,10 +987,12 @@ export async function _qwenGenerateVideo(options: {
     firstFrameUrlLength: options.firstFrameUrl?.length || 0,
     hasLastFrameUrl: !!options.lastFrameUrl,
     lastFrameUrlLength: options.lastFrameUrl?.length || 0,
+    referenceImagesCount: referenceImages.length,
     hasAudioUrl: !!options.audioUrl,
     duration: options.duration,
+    aspectRatio: normalizedRatio,
     size: options.size,
-    resolution: normalizedResolution,
+    resolution: effectiveResolution,
     negativePrompt: options.negativePrompt,
     promptExtend: options.promptExtend,
     audio: options.audio,
@@ -898,7 +1009,7 @@ export async function _qwenGenerateVideo(options: {
     operation: 'generateVideo',
     request: () => upstreamRequestBody,
     execute: async () => withRetry(async () => {
-    // 首尾帧模型使用不同的 API 端点和参数格式
+      // 历史首尾帧模型使用 image2video 端点
       if (model === QwenVideoModels.WAN_2_2_KF2V_FLASH || model === QwenVideoModels.WAN_2_1_KF2V_PLUS) {
         if (!options.firstFrameUrl) {
           throw new QwenError(
@@ -931,8 +1042,8 @@ export async function _qwenGenerateVideo(options: {
         const parameters: Record<string, unknown> = {}
 
         // 分辨率档位 (480P, 720P, 1080P)
-        if (normalizedResolution) {
-          parameters.resolution = normalizedResolution
+        if (effectiveResolution) {
+          parameters.resolution = effectiveResolution
         }
         if (options.promptExtend !== undefined) {
           parameters.prompt_extend = options.promptExtend
@@ -972,6 +1083,147 @@ export async function _qwenGenerateVideo(options: {
 
           const statusResponse = await getTaskStatus<VideoTaskStatusResponse>(taskId)
           console.log(`[Qwen] 首尾帧视频任务状态: ${statusResponse.output.task_status}`)
+
+          if (statusResponse.output.task_status === 'SUCCEEDED') {
+            const videoUrl = statusResponse.output.video_url
+            if (!videoUrl) {
+              throw new QwenError('视频生成成功但未返回URL', QwenErrorCode.INTERNAL, 500, false)
+            }
+            return { videoUrl, taskId }
+          }
+
+          if (statusResponse.output.task_status === 'FAILED') {
+            const errorMsg = statusResponse.output.message || '视频生成失败'
+            throw new QwenError(errorMsg, QwenErrorCode.INTERNAL, 500, false)
+          }
+
+          if (statusResponse.output.task_status === 'UNKNOWN') {
+            throw new QwenError('任务不存在或已过期', QwenErrorCode.NOT_FOUND, 404, false)
+          }
+        }
+
+        throw new QwenError('视频生成超时', QwenErrorCode.DEADLINE_EXCEEDED, 504, false)
+      }
+
+      // wan2.7 系列视频模型使用新版协议：
+      // /services/aigc/video-generation/video-synthesis + input.media + parameters.resolution/ratio
+      if (isWan27Model) {
+        const input: Record<string, unknown> = {
+          prompt: options.prompt
+        }
+
+        const parameters: Record<string, unknown> = {}
+        parameters.resolution = effectiveResolution || '720P'
+
+        if (options.duration) {
+          parameters.duration = options.duration
+        }
+        if (options.promptExtend !== undefined) {
+          parameters.prompt_extend = options.promptExtend
+        }
+        if (options.watermark !== undefined) {
+          parameters.watermark = options.watermark
+        }
+        if (options.seed !== undefined) {
+          parameters.seed = options.seed
+        }
+
+        if (isWan27T2V) {
+          parameters.ratio = normalizedRatio || '16:9'
+
+          if (options.audioUrl) {
+            input.audio_url = options.audioUrl
+          }
+          if (options.negativePrompt) {
+            input.negative_prompt = options.negativePrompt
+          }
+        }
+
+        if (isWan27I2V) {
+          const media: Array<{ type: string, url: string }> = []
+          const firstFrameUrl = options.firstFrameUrl || options.imageUrl
+
+          if (firstFrameUrl) {
+            media.push({
+              type: 'first_frame',
+              url: firstFrameUrl
+            })
+          }
+          if (options.lastFrameUrl) {
+            media.push({
+              type: 'last_frame',
+              url: options.lastFrameUrl
+            })
+          }
+          if (options.audioUrl) {
+            media.push({
+              type: 'driving_audio',
+              url: options.audioUrl
+            })
+          }
+
+          if (media.length === 0) {
+            throw new QwenError(
+              'wan2.7-i2v 需要至少传入首帧图片（imageUrl 或 firstFrameUrl）',
+              QwenErrorCode.INVALID_ARGUMENT,
+              400,
+              false
+            )
+          }
+
+          input.media = media
+        }
+
+        if (isWan27R2V) {
+          const candidates = Array.from(new Set([
+            ...(options.imageUrl ? [options.imageUrl] : []),
+            ...referenceImages
+          ])).slice(0, 5)
+
+          if (candidates.length === 0) {
+            throw new QwenError(
+              'wan2.7-r2v 需要至少一条参考素材（imageUrl 或 referenceImages）',
+              QwenErrorCode.INVALID_ARGUMENT,
+              400,
+              false
+            )
+          }
+
+          parameters.ratio = normalizedRatio || '16:9'
+
+          input.media = candidates.map((url, index) => ({
+            type: inferWan27ReferenceMediaType(url),
+            url,
+            ...(index === 0 && options.audioUrl ? { reference_voice: options.audioUrl } : {})
+          }))
+        }
+
+        const requestBody = {
+          model,
+          input,
+          parameters
+        }
+        upstreamRequestBody = requestBody
+
+        const submitResponse = await request<VideoGenerationResponse>(
+          '/services/aigc/video-generation/video-synthesis',
+          requestBody,
+          { headers: { 'X-DashScope-Async': 'enable' } }
+        )
+
+        const taskId = submitResponse.output.task_id
+        console.log(`[Qwen] 视频任务已创建: ${taskId}`)
+        await options.onTaskCreated?.(taskId)
+
+        const maxWaitTime = 600000 // 10分钟
+        const pollInterval = 10000
+        const startTime = Date.now()
+
+        while (Date.now() - startTime < maxWaitTime) {
+          await sleep(pollInterval)
+
+          const statusResponse = await getTaskStatus<VideoTaskStatusResponse>(taskId)
+          console.log(`[Qwen] 视频任务状态: ${statusResponse.output.task_status}`)
 
           if (statusResponse.output.task_status === 'SUCCEEDED') {
             const videoUrl = statusResponse.output.video_url

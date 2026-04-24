@@ -114,8 +114,24 @@ const ENVIRONMENT_ONLY_NEGATIVE_PROMPT = [
   'ultra wide angle'
 ].join(', ')
 
-const PANORAMA_SOURCE_IMAGE_SIZE = '2100*900'
+const PANORAMA_SOURCE_DEFAULT_IMAGE_SIZE = '2100*900'
 const PANORAMA_SOURCE_ASPECT_RATIO = '21:9'
+const PANORAMA_SOURCE_SIZE_BY_ASPECT_RATIO: Record<string, string> = {
+  '1:1': '1024*1024',
+  '2:3': '832*1248',
+  '3:2': '1248*832',
+  '3:4': '864*1152',
+  '4:3': '1152*864',
+  '9:16': '720*1280',
+  '16:9': '1280*720',
+  '21:9': PANORAMA_SOURCE_DEFAULT_IMAGE_SIZE
+}
+
+interface PanoramaSourceProfile {
+  aspectRatio: string
+  size: string
+  fallbackApplied: boolean
+}
 
 const LOCATION_SUBSPACE_SUFFIXES = [
   '走廊',
@@ -419,8 +435,93 @@ function buildEnvironmentSummary(scene: z.infer<typeof SceneSchema>): string {
   return summaryLines.join('\n') || '仅保留该场景的核心环境、空间结构、光照与天气信息。'
 }
 
-function resolvePanoramaSourceImageSize(): string {
-  return PANORAMA_SOURCE_IMAGE_SIZE
+function normalizeAspectRatioValue(value?: string): string | null {
+  if (!value) return null
+  const normalized = value.replace(/\s+/g, '')
+  if (!/^\d+:\d+$/.test(normalized)) return null
+
+  const [widthRaw = '1', heightRaw = '1'] = normalized.split(':')
+  const width = Number(widthRaw)
+  const height = Number(heightRaw)
+
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null
+  }
+
+  return `${width}:${height}`
+}
+
+function parseAspectRatioValue(value: string): number | null {
+  const normalized = normalizeAspectRatioValue(value)
+  if (!normalized) return null
+
+  const [widthRaw = '1', heightRaw = '1'] = normalized.split(':')
+  const width = Number(widthRaw)
+  const height = Number(heightRaw)
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
+
+  return width / height
+}
+
+function pickClosestSupportedAspectRatio(
+  targetAspectRatio: string,
+  supportedAspectRatios: string[]
+): string {
+  const targetValue = parseAspectRatioValue(targetAspectRatio)
+  if (!targetValue) {
+    return supportedAspectRatios[0] || targetAspectRatio
+  }
+
+  let best = supportedAspectRatios[0] || targetAspectRatio
+  let bestDiff = Number.POSITIVE_INFINITY
+
+  for (const ratio of supportedAspectRatios) {
+    const ratioValue = parseAspectRatioValue(ratio)
+    if (!ratioValue) continue
+
+    const diff = Math.abs(ratioValue - targetValue)
+    if (diff < bestDiff) {
+      bestDiff = diff
+      best = ratio
+    }
+  }
+
+  return best
+}
+
+function resolvePanoramaSourceImageSize(aspectRatio: string): string {
+  return PANORAMA_SOURCE_SIZE_BY_ASPECT_RATIO[aspectRatio]
+    || PANORAMA_SOURCE_DEFAULT_IMAGE_SIZE
+}
+
+function resolvePanoramaSourceProfile(
+  modelConfig: ReturnType<typeof findImageModel>
+): PanoramaSourceProfile {
+  const fallbackAspectRatio = PANORAMA_SOURCE_ASPECT_RATIO
+  const normalizedSupportedAspectRatios = Array.from(new Set(
+    (modelConfig?.supportedAspectRatios || [])
+      .map(ratio => normalizeAspectRatioValue(ratio))
+      .filter((ratio): ratio is string => !!ratio)
+  ))
+
+  if (normalizedSupportedAspectRatios.length === 0 || normalizedSupportedAspectRatios.includes(fallbackAspectRatio)) {
+    return {
+      aspectRatio: fallbackAspectRatio,
+      size: resolvePanoramaSourceImageSize(fallbackAspectRatio),
+      fallbackApplied: false
+    }
+  }
+
+  const resolvedAspectRatio = pickClosestSupportedAspectRatio(
+    fallbackAspectRatio,
+    normalizedSupportedAspectRatios
+  )
+
+  return {
+    aspectRatio: resolvedAspectRatio,
+    size: resolvePanoramaSourceImageSize(resolvedAspectRatio),
+    fallbackApplied: resolvedAspectRatio !== fallbackAspectRatio
+  }
 }
 
 async function resolveGeneratedImage(result: GenerateImageResult): Promise<{ imageData: string, mimeType: string }> {
@@ -633,6 +734,7 @@ async function buildSceneReferencePrompt(
   scene: z.infer<typeof SceneSchema>,
   style: string,
   aspectRatio: z.infer<typeof AspectRatioSchema>,
+  panoramaSource: PanoramaSourceProfile,
   environmentContext: z.infer<typeof EnvironmentContextSchema>,
   customPrompt?: string
 ): Promise<string> {
@@ -640,9 +742,12 @@ async function buildSceneReferencePrompt(
   const environmentSummary = buildEnvironmentSummary(scene)
   const environmentSceneTitle = scene.setting?.location?.trim() || scene.title || '未命名场景'
   const antiDistortionText = '必须避免鱼眼/桶形/枕形/夸张广角畸变，保持地平线水平与建筑竖线自然，边缘不要拉伸变形'
+  const panoramaFallbackHint = panoramaSource.fallbackApplied
+    ? `当前模型不支持 AR ${PANORAMA_SOURCE_ASPECT_RATIO}，已自动改为该模型支持的 AR ${panoramaSource.aspectRatio}（${panoramaSource.size}）。`
+    : ''
   const panoramaAspectText = aspectRatio === '16:9'
-    ? `先生成 AR ${PANORAMA_SOURCE_ASPECT_RATIO}（${PANORAMA_SOURCE_IMAGE_SIZE}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），默认采用中远景/全景观察距离，保留更完整的空间结构信息，${antiDistortionText}，后续仍以 16:9 作为截图使用`
-    : `先生成 AR ${PANORAMA_SOURCE_ASPECT_RATIO}（${PANORAMA_SOURCE_IMAGE_SIZE}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），默认采用中远景/全景观察距离，保留更完整的空间结构信息，${antiDistortionText}，后续裁切为 ${aspectRatio}`
+    ? `${panoramaFallbackHint}先生成 AR ${panoramaSource.aspectRatio}（${panoramaSource.size}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），默认采用中远景/全景观察距离，保留更完整的空间结构信息，${antiDistortionText}，后续仍以 16:9 作为截图使用`
+    : `${panoramaFallbackHint}先生成 AR ${panoramaSource.aspectRatio}（${panoramaSource.size}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），默认采用中远景/全景观察距离，保留更完整的空间结构信息，${antiDistortionText}，后续裁切为 ${aspectRatio}`
   const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
   const era = normalizeOptionalSceneEraValue(scene.setting?.era)
     || inferSceneEraFromText([
@@ -717,7 +822,20 @@ export default defineEventHandler(async (event) => {
     const modelId = modelDecision.modelId
     const modelConfig = findImageModel(modelId)
     const geminiImageSize = workflowModelOptions.image_options.geminiImageSize
-    const prompt = await buildSceneReferencePrompt(scene, style, aspectRatio, environmentContext, customPrompt)
+    const panoramaSource = resolvePanoramaSourceProfile(modelConfig)
+    if (panoramaSource.fallbackApplied) {
+      console.warn(
+        `[AssetWorkflow/Reference] 模型 ${modelId} 不支持 ${PANORAMA_SOURCE_ASPECT_RATIO}，自动降级为 ${panoramaSource.aspectRatio}（${panoramaSource.size}）`
+      )
+    }
+    const prompt = await buildSceneReferencePrompt(
+      scene,
+      style,
+      aspectRatio,
+      panoramaSource,
+      environmentContext,
+      customPrompt
+    )
     const normalizedReference = referenceImage
       ? await normalizeReferenceImageInput(referenceImage, event)
       : null
@@ -756,9 +874,9 @@ export default defineEventHandler(async (event) => {
         modelId,
         prompt,
         imageSize: geminiImageSize,
-        aspectRatio: PANORAMA_SOURCE_ASPECT_RATIO,
+        aspectRatio: panoramaSource.aspectRatio,
         negativePrompt: ENVIRONMENT_ONLY_NEGATIVE_PROMPT,
-        size: resolvePanoramaSourceImageSize(),
+        size: panoramaSource.size,
         ...referenceOptions,
         maxRetries: 2
       })
@@ -775,6 +893,9 @@ export default defineEventHandler(async (event) => {
         modelId,
         modelDecision: modelDecision.reason,
         aspectRatio,
+        sourceAspectRatio: panoramaSource.aspectRatio,
+        sourceSize: panoramaSource.size,
+        sourceAspectRatioFallback: panoramaSource.fallbackApplied,
         characterReferences: 0,
         referenceImageUsed: !!normalizedReference
       }

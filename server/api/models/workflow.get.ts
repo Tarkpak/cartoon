@@ -10,7 +10,8 @@ import {
   IMAGE_MODELS,
   VIDEO_MODELS,
   initializeSelectedModels,
-  getSelectedModels
+  getSelectedModels,
+  normalizeModelId
 } from '../../utils/model-provider'
 import {
   WORKFLOW_STEP_CONFIGS,
@@ -38,10 +39,10 @@ const DEFAULT_WORKFLOW_MODELS: Record<WorkflowStep, string> = {
   scene_description_refinement: 'qwen3.6-plus',
   text_translation: 'qwen3.6-plus',
 
-  character_portrait: 'qwen-image-max',
-  frame_generation: 'wan2.6-image',
+  character_portrait: 'qwen-image-2.0-pro',
+  frame_generation: 'wan2.7-image-pro',
 
-  video_generation: 'wan2.6-t2v'
+  video_generation: 'wan2.7-t2v'
 }
 
 const WORKFLOW_STEPS = WORKFLOW_STEP_CONFIGS.map(config => config.id)
@@ -64,12 +65,13 @@ function isModelCompatibleForStep(
   step: WorkflowStep,
   modelId: string
 ): boolean {
+  const normalizedModelId = normalizeModelId(modelId)
   const stepConfig = WORKFLOW_STEP_CONFIGS.find(config => config.id === step)
   if (!stepConfig) {
     return false
   }
   const compatibleModels = getCompatibleModels(stepConfig.category, stepConfig.requiredCapabilities)
-  return compatibleModels.some(model => model.model === modelId)
+  return compatibleModels.some(model => model.model === normalizedModelId)
 }
 
 function getDefaultModelForStep(
@@ -114,10 +116,11 @@ function normalizeLegacyOverrides(
 
   const normalized: Partial<Record<WorkflowStep, string>> = {}
   for (const step of WORKFLOW_STEPS) {
-    const modelId = raw[step]
-    if (!modelId) {
+    const rawModelId = raw[step]
+    if (!rawModelId || typeof rawModelId !== 'string') {
       continue
     }
+    const modelId = normalizeModelId(rawModelId)
     // 仅对“旧版整包快照”去掉历史默认值，避免误伤新配置
     if (maybeLegacyFullSnapshot && modelId === DEFAULT_WORKFLOW_MODELS[step]) {
       continue
@@ -369,18 +372,19 @@ export async function getWorkflowModels(): Promise<Record<WorkflowStep, string>>
 export async function setWorkflowModel(step: WorkflowStep, modelId: string): Promise<void> {
   await initializeSelectedModels()
 
+  const normalizedModelId = normalizeModelId(modelId)
   const selected = getSelectedModels()
   const defaultModel = getDefaultModelForStep(step, selected)
   const overrides = await getWorkflowModelOverrides()
 
-  if (modelId === defaultModel) {
+  if (normalizedModelId === defaultModel) {
     overrides[step] = undefined
   } else {
-    overrides[step] = modelId
+    overrides[step] = normalizedModelId
   }
 
   await saveWorkflowModelOverrides(overrides)
-  console.log(`[WorkflowModels] 已保存配置: ${step} = ${modelId}`)
+  console.log(`[WorkflowModels] 已保存配置: ${step} = ${normalizedModelId}`)
 }
 
 /**
@@ -393,10 +397,11 @@ export async function setWorkflowModels(models: Partial<Record<WorkflowStep, str
   const overrides = await getWorkflowModelOverrides()
 
   for (const step of WORKFLOW_STEPS) {
-    const modelId = models[step]
-    if (!modelId) {
+    const rawModelId = models[step]
+    if (!rawModelId) {
       continue
     }
+    const modelId = normalizeModelId(rawModelId)
     const defaultModel = getDefaultModelForStep(step, selected)
     if (modelId === defaultModel) {
       overrides[step] = undefined
