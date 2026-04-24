@@ -46,6 +46,8 @@ export function useAssetWorkbench() {
   const parsing = ref(false)
 
   const {
+    loading,
+    saving,
     saveError,
     saveProject,
     loadProject,
@@ -118,6 +120,8 @@ export function useAssetWorkbench() {
     scenes,
     characters,
     parsing,
+    loading,
+    saving,
     saveError,
     saveProject,
     loadProject,

@@ -284,6 +284,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
           characters: buildSaveCharactersPayload(options.characters.value)
         }
       })
+      return true
     } catch (error) {
       const message = getDisplayErrorMessage(error, '未知错误')
       if (/413|payload too large|request entity too large/i.test(message)) {
@@ -292,6 +293,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         saveError.value = message
       }
       console.error('[useAssetWorkbenchProjectIO] 保存项目失败:', error)
+      return false
     } finally {
       saving.value = false
     }
@@ -347,6 +349,8 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   }
 
   return {
+    loading,
+    saving,
     saveError,
     saveProject,
     loadProject,
