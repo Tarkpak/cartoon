@@ -38,6 +38,12 @@ function mergeEnvironmentReferenceStatus(
   return current
 }
 
+function resolveReferenceError(scene: SceneData): string | undefined {
+  if (scene.referenceStatus !== 'error') return undefined
+  const message = scene.referenceError?.trim()
+  return message || undefined
+}
+
 export function buildEnvironmentAssetCards(options: {
   scenes: SceneData[]
   environmentAssetHistories?: Record<string, EnvironmentAssetCard['assetHistory']>
@@ -66,6 +72,7 @@ export function buildEnvironmentAssetCards(options: {
           || options.resolveSceneDescriptionWithoutAssetMentions(scene.description)?.trim()
           || undefined,
         referenceImage: previewImage,
+        referenceError: resolveReferenceError(scene),
         panoramaImage: panoramaState?.panoramaImage || previewImage,
         crop: panoramaState?.crop,
         assetHistory,
@@ -100,6 +107,9 @@ export function buildEnvironmentAssetCards(options: {
     }
     if (!existing.crop && panoramaState?.crop) {
       existing.crop = panoramaState.crop
+    }
+    if (!existing.referenceError) {
+      existing.referenceError = resolveReferenceError(scene)
     }
 
     existing.referenceStatus = mergeEnvironmentReferenceStatus(existing.referenceStatus, scene.referenceStatus)
