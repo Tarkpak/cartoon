@@ -355,6 +355,12 @@ const sceneVideoHistoryCount = computed(() => {
     />
 
     <p
+      v-if="scene.referenceStatus === 'error' && scene.referenceError"
+      class="mt-2 text-xs text-destructive"
+    >
+      {{ normalizeWorkflowText(scene.referenceError) }}
+    </p>
+    <p
       v-if="scene.videoStatus === 'error' && scene.videoError"
       class="mt-2 text-xs text-destructive"
     >

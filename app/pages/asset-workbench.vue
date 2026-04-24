@@ -55,6 +55,7 @@ import { exportAssetWorkbenchScriptDocx } from '~/lib/asset-workbench-api'
 import { resolveChatUploadAssetName } from '~/lib/asset-workbench-scene-chat'
 import { applySceneBaselineReference } from '~/lib/asset-workbench-scene-generation'
 import { uploadAssetImage, uploadImageFile } from '~/lib/asset-workbench-upload'
+import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
 
 // 资产一致性工作流页面
 definePageMeta({
@@ -267,7 +268,7 @@ function normalizeWorkflowText(value: string): string {
 }
 
 function resolveUiError(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : fallback
+  const message = getDisplayErrorMessage(error, fallback)
   return normalizeWorkflowText(message || fallback)
 }
 
@@ -1515,7 +1516,16 @@ watch(selectedScene, (scene) => {
 async function regenerateEnvironmentAsset(assetId: string) {
   const targetScene = resolveEnvironmentRepresentativeScene(assetId)
   if (!targetScene) return
-  await generateSceneBaseline(targetScene.id)
+  await handleGenerateSceneBaseline(targetScene.id)
+}
+
+async function handleGenerateSceneBaseline(sceneId: string) {
+  autoRunError.value = null
+  try {
+    await generateSceneBaseline(sceneId)
+  } catch (error) {
+    autoRunError.value = resolveUiError(error, '环境图生成失败')
+  }
 }
 
 function openEnvironmentAssetSceneEditor(assetId: string) {
@@ -1715,7 +1725,7 @@ async function handleBatchGenerateCharacters() {
         :on-handle-split-scene="handleSplitScene"
         :on-handle-merge-with-next-scene="handleMergeWithNextScene"
         :on-handle-delete-scene="handleDeleteScene"
-        :on-generate-scene-baseline="generateSceneBaseline"
+        :on-generate-scene-baseline="handleGenerateSceneBaseline"
         :on-retry-scene="retryScene"
         :on-open-scene-video-history="openSceneVideoHistory"
         :on-preview-image="openImagePreview"

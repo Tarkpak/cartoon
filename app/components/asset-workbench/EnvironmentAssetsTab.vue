@@ -115,6 +115,12 @@ function resolveHistoryCount(asset: EnvironmentAssetCard): number {
             </div>
             <span class="shrink-0 text-[10px] text-muted-foreground/50">{{ idx + 1 }}</span>
           </div>
+          <p
+            v-if="asset.referenceError"
+            class="mt-1 line-clamp-2 text-[11px] text-destructive"
+          >
+            {{ asset.referenceError }}
+          </p>
         </div>
 
         <!-- Actions -->
