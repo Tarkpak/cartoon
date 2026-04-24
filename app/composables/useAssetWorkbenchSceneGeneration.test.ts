@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SceneData } from '~/lib/asset-workbench-models'
 import type { QueueItem } from '~/lib/asset-workbench-types'
+import { resolveSceneEnvironmentAssetId } from '~/lib/asset-workbench-environment'
 import { useAssetWorkbenchSceneGeneration } from './useAssetWorkbenchSceneGeneration'
 
 const {
@@ -121,6 +122,86 @@ describe('useAssetWorkbenchSceneGeneration', () => {
     expect(requestSceneVideoTaskMock).toHaveBeenCalledTimes(1)
     expect(scene.firstFrame).toBe('https://example.com/prepared-env.png')
     expect(scene.videoStatus).toBe('done')
+    expect(saveProject).toHaveBeenCalled()
+  })
+
+  it('falls back to panorama image when automatic crop generation fails', async () => {
+    const scene = createScene({
+      id: 'scene_2',
+      title: '医院走廊',
+      description: '主角冲进走廊。',
+      setting: { location: '医院-走廊', timeOfDay: 'night' },
+      referenceStatus: 'pending',
+      videoStatus: 'pending'
+    })
+    const expectedEnvironmentAssetId = resolveSceneEnvironmentAssetId(scene)
+    const saveProject = vi.fn(async () => undefined)
+    const setEnvironmentPanoramaState = vi.fn()
+    const recordEnvironmentHistory = vi.fn()
+    const createEnvironmentCropImage = vi.fn(async () => {
+      throw new Error('环境全景图加载失败，请稍后重试')
+    })
+
+    const sceneGeneration = useAssetWorkbenchSceneGeneration({
+      scenes: ref([scene]),
+      characters: ref([]),
+      sceneConfigs: ref({
+        [scene.id]: {
+          sceneId: scene.id,
+          mustReferenceAssetIds: [],
+          consistencyLevel: 'lock',
+          continuityNotes: ''
+        }
+      }),
+      propAssets: ref([]),
+      queueItems: ref([]),
+      batchRunning: ref(false),
+      workflowStylePrompt: computed(() => ''),
+      projectAspectRatio: ref('16:9'),
+      normalizeWorkflowText: value => value,
+      resolveUiError: (_error, fallback) => fallback,
+      ensureSceneConfig: () => ({
+        sceneId: scene.id,
+        mustReferenceAssetIds: [],
+        consistencyLevel: 'lock',
+        continuityNotes: ''
+      }),
+      resolveAssetName: assetId => assetId,
+      resolveSceneDescriptionWithoutAssetMentions: raw => raw || '',
+      synchronizeQueueItems: () => undefined,
+      saveProject,
+      refreshCharacterVoiceAssets: async () => undefined,
+      generateCharacter: async () => undefined,
+      batchGenerateCharacters: async () => undefined,
+      persistAutomaticAssetPlan: async () => undefined,
+      recordEnvironmentHistory,
+      resolveEnvironmentPanoramaState: () => undefined,
+      setEnvironmentPanoramaState,
+      createEnvironmentCropImage,
+      resolveSceneBaselineReferenceImage: () => undefined,
+      recordSceneVideoHistory: () => undefined,
+      onModelTaskCompleted: async () => undefined
+    })
+
+    await expect(sceneGeneration.generateSceneBaseline(scene.id)).resolves.toBeUndefined()
+
+    expect(requestSceneBaselineGenerationMock).toHaveBeenCalledTimes(1)
+    expect(createEnvironmentCropImage).toHaveBeenCalledWith({
+      assetId: expectedEnvironmentAssetId,
+      sourceImage: 'https://example.com/generated-env.png',
+      crop: undefined
+    })
+    expect(scene.referenceStatus).toBe('done')
+    expect(scene.firstFrame).toBe('https://example.com/generated-env.png')
+    expect(setEnvironmentPanoramaState).toHaveBeenCalledWith(expectedEnvironmentAssetId, {
+      panoramaImage: 'https://example.com/generated-env.png',
+      crop: undefined
+    })
+    expect(recordEnvironmentHistory).toHaveBeenCalledWith(
+      expectedEnvironmentAssetId,
+      'https://example.com/generated-env.png',
+      expect.objectContaining({ source: 'generated' })
+    )
     expect(saveProject).toHaveBeenCalled()
   })
 })
