@@ -88,6 +88,7 @@ export interface EnvironmentAssetCard {
   name: string
   description?: string
   referenceImage?: string
+  referenceError?: string
   assetHistory?: AssetImageHistoryEntry[]
   panoramaImage?: string
   crop?: EnvironmentCropSelection

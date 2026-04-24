@@ -71,4 +71,40 @@ describe('buildEnvironmentAssetCards', () => {
     const displayAssets = buildEnvironmentDisplayAssets(cards)
     expect(displayAssets[0]?.referenceImage).toBe('https://example.com/history-preview.png')
   })
+
+  it('keeps latest reference error visible on environment cards', () => {
+    const scenes = [
+      createScene({
+        id: 'scene_1',
+        title: '书房白天',
+        description: '顾深在书房里沉思。',
+        setting: {
+          location: '顾深书房',
+          timeOfDay: 'day'
+        },
+        firstFrame: 'https://example.com/env-ready.png',
+        referenceStatus: 'done'
+      }),
+      createScene({
+        id: 'scene_2',
+        title: '书房夜晚',
+        description: '书房内光线昏暗。',
+        setting: {
+          location: '顾深书房',
+          timeOfDay: 'day'
+        },
+        referenceStatus: 'error',
+        referenceError: 'Input data may contain inappropriate content.'
+      })
+    ]
+
+    const cards = buildEnvironmentAssetCards({
+      scenes,
+      resolveSceneDescriptionWithoutAssetMentions
+    })
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]?.referenceStatus).toBe('done')
+    expect(cards[0]?.referenceError).toBe('Input data may contain inappropriate content.')
+  })
 })
