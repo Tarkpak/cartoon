@@ -142,22 +142,39 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
   // 千问模型
   {
     provider: 'qwen',
-    model: qwen.QwenImageModels.QWEN_IMAGE_MAX,
-    displayName: '通义千问-Image-Max',
-    description: '最新 Max 系列，真实感/自然度更强',
+    model: qwen.QwenImageModels.QWEN_IMAGE_2_PRO,
+    displayName: '通义千问 Image 2.0 Pro',
+    description: '千问最新图像生成与编辑 Pro 系列，文字渲染与语义遵循更强',
     supportedAspectRatios: [...QWEN_IMAGE_PRIMARY_ASPECT_RATIOS],
-    supportReferenceImage: false,
+    supportReferenceImage: true,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
   },
   {
     provider: 'qwen',
-    model: qwen.QwenImageModels.WAN_2_6_IMAGE,
-    displayName: '通义万相2.6-图像编辑',
-    description: '图像编辑/风格迁移，需1-4张参考图',
+    model: qwen.QwenImageModels.WAN_2_7_IMAGE_PRO,
+    displayName: '通义万相 2.7 Image Pro',
+    description: '万相 2.7 高质量生成与编辑模型，支持多图编辑和组图',
     supportedAspectRatios: [...QWEN_WAN_IMAGE_ASPECT_RATIOS],
     supportReferenceImage: true,
-    requireReferenceImage: true,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference'
+    docUrl: 'https://help.aliyun.com/zh/model-studio/wan-image-generation-and-editing-api-reference'
+  },
+  {
+    provider: 'qwen',
+    model: qwen.QwenImageModels.WAN_2_7_IMAGE,
+    displayName: '通义万相 2.7 Image',
+    description: '万相 2.7 标准版，兼顾效果与成本',
+    supportedAspectRatios: [...QWEN_WAN_IMAGE_ASPECT_RATIOS],
+    supportReferenceImage: true,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/wan-image-generation-and-editing-api-reference'
+  },
+  {
+    provider: 'qwen',
+    model: qwen.QwenImageModels.Z_IMAGE_TURBO,
+    displayName: '通义 Z-Image',
+    description: 'Z-Image 轻量快速生图模型（z-image-turbo）',
+    supportedAspectRatios: [...QWEN_WAN_IMAGE_ASPECT_RATIOS],
+    supportReferenceImage: false,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/z-image-api-reference'
   },
   // 可灵 AI 图片模型
   {
@@ -228,12 +245,12 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
     supportTextToVideo: true,
     docUrl: 'https://ai.google.dev/gemini-api/docs/video'
   },
-  // 千问模型 (通义万相)
+  // 千问模型 (通义万相 2.7)
   {
     provider: 'qwen',
-    model: qwen.QwenVideoModels.WAN_2_6_T2V,
-    displayName: '通义万相2.6-文生视频',
-    description: '全新参考生视频，智能多镜，15秒时长',
+    model: qwen.QwenVideoModels.WAN_2_7_T2V,
+    displayName: '通义万相 2.7 文生视频',
+    description: 'wan2.7-t2v，支持多镜头叙事与音频驱动',
     maxDuration: 15,
     supportFirstLastFrame: false,
     supportImageToVideo: false,
@@ -243,15 +260,29 @@ export const VIDEO_MODELS: VideoModelConfig[] = [
   },
   {
     provider: 'qwen',
-    model: qwen.QwenVideoModels.WAN_2_6_I2V,
-    displayName: '通义万相2.6-图生视频',
-    description: '智能分镜，最高15秒视频生成',
+    model: qwen.QwenVideoModels.WAN_2_7_I2V,
+    displayName: '通义万相 2.7 图生视频',
+    description: 'wan2.7-i2v，支持首帧/首尾帧/续写与驱动音频',
     maxDuration: 15,
-    supportFirstLastFrame: false,
+    supportFirstLastFrame: true,
     supportImageToVideo: true,
     supportTextToVideo: false,
     supportAudioReference: true,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/image-to-video-api-reference'
+    docUrl: 'https://help.aliyun.com/zh/model-studio/image-to-video-general-api-reference'
+  },
+  {
+    provider: 'qwen',
+    model: qwen.QwenVideoModels.WAN_2_7_R2V,
+    displayName: '通义万相 2.7 参考生视频',
+    description: 'wan2.7-r2v，支持多参考图/视频与参考音色',
+    maxDuration: 15,
+    supportFirstLastFrame: false,
+    supportImageToVideo: true,
+    supportReferenceImages: true,
+    maxReferenceImages: 5,
+    supportTextToVideo: false,
+    supportAudioReference: true,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/wan-video-to-video-api-reference'
   },
   // 可灵 AI 视频模型
   {
@@ -361,8 +392,8 @@ const SELECTED_MODELS_KEY = 'selected_models'
 
 const DEFAULT_SELECTED_MODELS: SelectedModels = {
   text: qwen.QwenTextModels.QWEN_PLUS_THINKING, // 默认使用千问
-  image: qwen.QwenImageModels.QWEN_IMAGE_MAX, // 默认使用千问
-  video: qwen.QwenVideoModels.WAN_2_6_T2V, // 默认使用千问
+  image: qwen.QwenImageModels.QWEN_IMAGE_2_PRO, // 默认使用千问
+  video: qwen.QwenVideoModels.WAN_2_7_T2V, // 默认使用千问
   tts: qwen.QwenVoiceModels.QWEN3_TTS_FLASH,
   asr: qwen.QwenVoiceModels.QWEN3_ASR_FLASH
 }
@@ -370,20 +401,32 @@ const DEFAULT_SELECTED_MODELS: SelectedModels = {
 const currentModels: SelectedModels = { ...DEFAULT_SELECTED_MODELS }
 let selectedModelsInitialized = false
 
+const MODEL_ID_ALIASES: Record<string, string> = {
+  'z-image': qwen.QwenImageModels.Z_IMAGE_TURBO
+}
+
+export function normalizeModelId(modelId: string): string {
+  const trimmed = modelId.trim()
+  if (!trimmed) return modelId
+  return MODEL_ID_ALIASES[trimmed.toLowerCase()] || trimmed
+}
+
 function isValidModelForType(type: keyof SelectedModels, modelId: string): boolean {
+  const normalizedModelId = normalizeModelId(modelId)
+
   switch (type) {
     case 'text':
-      return !!findTextModel(modelId)
+      return !!findTextModel(normalizedModelId)
     case 'image':
-      return !!findImageModel(modelId)
+      return !!findImageModel(normalizedModelId)
     case 'video':
-      return !!findVideoModel(modelId)
+      return !!findVideoModel(normalizedModelId)
     case 'tts': {
-      const voice = findVoiceModel(modelId)
+      const voice = findVoiceModel(normalizedModelId)
       return !!voice && voice.type === 'tts'
     }
     case 'asr': {
-      const voice = findVoiceModel(modelId)
+      const voice = findVoiceModel(normalizedModelId)
       return !!voice && voice.type === 'asr'
     }
     default:
@@ -403,8 +446,11 @@ function normalizeSelectedModels(raw: unknown): SelectedModels {
 
   for (const key of keys) {
     const value = source[key]
-    if (typeof value === 'string' && isValidModelForType(key, value)) {
-      normalized[key] = value
+    if (typeof value === 'string') {
+      const normalizedValue = normalizeModelId(value)
+      if (isValidModelForType(key, normalizedValue)) {
+        normalized[key] = normalizedValue
+      }
     }
   }
 
@@ -464,7 +510,7 @@ export function getSelectedModels(): SelectedModels {
 }
 
 export async function setSelectedModel(type: keyof SelectedModels, modelId: string): Promise<void> {
-  currentModels[type] = modelId
+  currentModels[type] = normalizeModelId(modelId)
   await saveSelectedModelsToDB(currentModels)
 }
 
@@ -473,24 +519,29 @@ export async function setSelectedModel(type: keyof SelectedModels, modelId: stri
 // ============================================================
 
 export function findTextModel(modelId: string): TextModelConfig | undefined {
-  return TEXT_MODELS.find(m => m.model === modelId)
+  const normalizedModelId = normalizeModelId(modelId)
+  return TEXT_MODELS.find(m => m.model === normalizedModelId)
 }
 
 export function findImageModel(modelId: string): ImageModelConfig | undefined {
-  return IMAGE_MODELS.find(m => m.model === modelId)
+  const normalizedModelId = normalizeModelId(modelId)
+  return IMAGE_MODELS.find(m => m.model === normalizedModelId)
 }
 
 export function findVideoModel(modelId: string): VideoModelConfig | undefined {
-  return VIDEO_MODELS.find(m => m.model === modelId)
+  const normalizedModelId = normalizeModelId(modelId)
+  return VIDEO_MODELS.find(m => m.model === normalizedModelId)
 }
 
 export function findVoiceModel(modelId: string): VoiceModelConfig | undefined {
-  return VOICE_MODELS.find(m => m.model === modelId)
+  const normalizedModelId = normalizeModelId(modelId)
+  return VOICE_MODELS.find(m => m.model === normalizedModelId)
 }
 
 function getProviderFromModel(modelId: string): ModelProvider {
+  const normalizedModelId = normalizeModelId(modelId)
   const allModels = [...TEXT_MODELS, ...IMAGE_MODELS, ...VIDEO_MODELS, ...VOICE_MODELS]
-  const model = allModels.find(m => m.model === modelId)
+  const model = allModels.find(m => m.model === normalizedModelId)
   return model?.provider || 'gemini'
 }
 
@@ -506,7 +557,7 @@ export async function generateText(options: {
   maxRetries?: number
   enableThinking?: boolean
 }): Promise<string> {
-  const modelId = options.modelId || currentModels.text
+  const modelId = normalizeModelId(options.modelId || currentModels.text)
   const provider = getProviderFromModel(modelId)
 
   const timestamp = new Date().toLocaleTimeString()
@@ -551,7 +602,7 @@ export async function generateJSON<T>(options: {
   temperature?: number
   maxRetries?: number
 }): Promise<T> {
-  const modelId = options.modelId || currentModels.text
+  const modelId = normalizeModelId(options.modelId || currentModels.text)
   const provider = getProviderFromModel(modelId)
 
   const timestamp = new Date().toLocaleTimeString()
@@ -601,7 +652,7 @@ export async function generateImage(options: {
   modelId?: string
   prompt: string
   referenceImage?: { data: string, mimeType: string }
-  referenceImages?: string[] // base64 图片数组 (用于 wan2.6-image 等支持多参考图的模型)
+  referenceImages?: string[] // base64 图片数组 (用于 wan2.7/wan2.6-image 等支持多参考图的模型)
   allowTextOnlyResult?: boolean
   negativePrompt?: string
   size?: string
@@ -609,7 +660,7 @@ export async function generateImage(options: {
   aspectRatio?: string
   maxRetries?: number
 }): Promise<GenerateImageResult> {
-  const modelId = options.modelId || currentModels.image
+  const modelId = normalizeModelId(options.modelId || currentModels.image)
   const provider = getProviderFromModel(modelId)
 
   const timestamp = new Date().toLocaleTimeString()
@@ -695,11 +746,12 @@ export async function generateVideo(options: {
   firstFrameUrl?: string // 首帧图片 URL (Qwen 首尾帧模型)
   lastFrameUrl?: string // 尾帧图片 URL (Qwen 首尾帧模型)
   imageUrl?: string // 图生视频输入 (Qwen)
+  referenceImages?: string[] // 多参考图/视频输入 (Qwen wan2.7-r2v 等)
   audioUrl?: string // 显式音频参考
   duration?: number
   aspectRatio?: string
   size?: string // Qwen 使用 size 如 '1280*720'
-  resolution?: string // 分辨率档位: 480P, 720P, 1080P (Qwen 首尾帧模型)
+  resolution?: string // 分辨率档位: 480P, 720P, 1080P (Qwen wan2.7/首尾帧模型)
   negativePrompt?: string
   promptExtend?: boolean
   audio?: boolean
@@ -707,7 +759,7 @@ export async function generateVideo(options: {
   seed?: number
   maxRetries?: number
 }): Promise<GenerateVideoResult> {
-  const modelId = options.modelId || currentModels.video
+  const modelId = normalizeModelId(options.modelId || currentModels.video)
   const provider = getProviderFromModel(modelId)
 
   const timestamp = new Date().toLocaleTimeString()
@@ -720,8 +772,10 @@ export async function generateVideo(options: {
       imageUrl: options.imageUrl,
       firstFrameUrl: options.firstFrameUrl,
       lastFrameUrl: options.lastFrameUrl,
+      referenceImages: options.referenceImages,
       audioUrl: options.audioUrl,
       duration: options.duration,
+      aspectRatio: options.aspectRatio,
       size: options.size,
       resolution: options.resolution,
       negativePrompt: options.negativePrompt,
@@ -795,7 +849,7 @@ export async function textToSpeech(options: {
   speed?: number
   maxRetries?: number
 }): Promise<{ audioData: string, audioUrl?: string }> {
-  const modelId = options.modelId || currentModels.tts || qwen.QwenVoiceModels.QWEN3_TTS_FLASH
+  const modelId = normalizeModelId(options.modelId || currentModels.tts || qwen.QwenVoiceModels.QWEN3_TTS_FLASH)
   const provider = getProviderFromModel(modelId)
 
   const timestamp = new Date().toLocaleTimeString()
@@ -832,7 +886,7 @@ export async function speechToText(options: {
   language?: string
   maxRetries?: number
 }): Promise<{ text: string }> {
-  const modelId = options.modelId || currentModels.asr || qwen.QwenVoiceModels.QWEN3_ASR_FLASH
+  const modelId = normalizeModelId(options.modelId || currentModels.asr || qwen.QwenVoiceModels.QWEN3_ASR_FLASH)
   const provider = getProviderFromModel(modelId)
 
   const timestamp = new Date().toLocaleTimeString()

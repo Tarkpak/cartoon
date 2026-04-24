@@ -15,7 +15,8 @@ import {
   findTextModel,
   findImageModel,
   findVideoModel,
-  findVoiceModel
+  findVoiceModel,
+  normalizeModelId
 } from '../../utils/model-provider'
 import { persistImageToPublic } from '../../utils/image-storage'
 import { persistAudioSourceToCloud } from '../../utils/audio-storage'
@@ -108,20 +109,26 @@ function normalizeImageAspectRatio(value?: string): string {
 }
 
 function resolveImageTestSize(modelId: string, provider: string | undefined, aspectRatio: string): string {
+  const normalizedModelId = normalizeModelId(modelId)
+
   if (provider === 'qwen') {
-    if (modelId === 'qwen-image-2.0-pro' || modelId === 'qwen-image-2.0') {
+    if (normalizedModelId === 'qwen-image-2.0-pro' || normalizedModelId === 'qwen-image-2.0') {
       return QWEN_IMAGE_2_SIZE_BY_ASPECT_RATIO[aspectRatio] || QWEN_IMAGE_2_SIZE_BY_ASPECT_RATIO[DEFAULT_IMAGE_ASPECT_RATIO]!
     }
 
-    if (modelId === 'qwen-image-max' || modelId === 'qwen-image' || modelId === 'qwen-image-plus') {
+    if (normalizedModelId === 'qwen-image-max' || normalizedModelId === 'qwen-image' || normalizedModelId === 'qwen-image-plus') {
       return QWEN_IMAGE_PLUS_SIZE_BY_ASPECT_RATIO[aspectRatio] || QWEN_IMAGE_PLUS_SIZE_BY_ASPECT_RATIO[DEFAULT_IMAGE_ASPECT_RATIO]!
     }
 
-    if (modelId === 'wan2.6-image' || modelId === 'wan2.6-t2i') {
+    if (normalizedModelId === 'wan2.6-image' || normalizedModelId === 'wan2.6-t2i') {
       return QWEN_WAN_IMAGE_SIZE_BY_ASPECT_RATIO[aspectRatio] || QWEN_WAN_IMAGE_SIZE_BY_ASPECT_RATIO[DEFAULT_IMAGE_ASPECT_RATIO]!
     }
 
-    if (modelId === 'z-image-turbo') {
+    if (normalizedModelId === 'wan2.7-image-pro' || normalizedModelId === 'wan2.7-image') {
+      return QWEN_WAN_IMAGE_SIZE_BY_ASPECT_RATIO[aspectRatio] || QWEN_WAN_IMAGE_SIZE_BY_ASPECT_RATIO[DEFAULT_IMAGE_ASPECT_RATIO]!
+    }
+
+    if (normalizedModelId === 'z-image-turbo') {
       return QWEN_Z_IMAGE_SIZE_BY_ASPECT_RATIO[aspectRatio] || QWEN_Z_IMAGE_SIZE_BY_ASPECT_RATIO[DEFAULT_IMAGE_ASPECT_RATIO]!
     }
   }
@@ -375,7 +382,9 @@ export default defineEventHandler(async (event) => {
             modelId: usedModelId,
             prompt: testPrompt,
             duration: 5, // 测试用最短时长
-            size: '1280*720'
+            size: '1280*720',
+            resolution: '720P',
+            aspectRatio: '16:9'
           })
 
           result = {

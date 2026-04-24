@@ -773,30 +773,44 @@ async function generateVideoWithQwen(
     let modelId = await getActualModelId(config)
     const modelConfig = modelId ? findVideoModel(modelId) : null
 
-    // 如果模型不是 qwen 的，使用默认 qwen 模型
+    const hasImageInputs = !!(config.imageUrl || config.firstFrame || config.lastFrame)
+    const hasReferenceInputs = Array.isArray(config.referenceImages) && config.referenceImages.length > 0
+
+    // 如果模型不是 qwen 的，使用默认 qwen 模型（优先最新 wan2.7 系列）
     if (!modelConfig || modelConfig.provider !== 'qwen') {
-      modelId = config.imageUrl ? qwen.QwenVideoModels.WAN_2_6_I2V : qwen.QwenVideoModels.WAN_2_6_T2V
+      if (hasReferenceInputs) {
+        modelId = qwen.QwenVideoModels.WAN_2_7_R2V
+      } else if (hasImageInputs) {
+        modelId = qwen.QwenVideoModels.WAN_2_7_I2V
+      } else {
+        modelId = qwen.QwenVideoModels.WAN_2_7_T2V
+      }
     }
 
     const requestedDuration = typeof config.duration === 'number' && Number.isFinite(config.duration)
       ? config.duration
       : 8
-    const hasFrameControl = !!(config.firstFrame || config.lastFrame)
 
     // Qwen 首尾帧模型当前通常仅支持固定短时长（约 5s）。
     // 当请求时长超过 5s 时，自动切换到长时长文生模型，优先保证叙事完整。
     if (modelId?.includes('kf2v') && requestedDuration > 5) {
-      const fallbackModel = qwen.QwenVideoModels.WAN_2_6_T2V
+      const fallbackModel = hasReferenceInputs
+        ? qwen.QwenVideoModels.WAN_2_7_R2V
+        : hasImageInputs
+          ? qwen.QwenVideoModels.WAN_2_7_I2V
+          : qwen.QwenVideoModels.WAN_2_7_T2V
       console.warn(`[VideoGen] Qwen 模型 ${modelId} 无法满足 ${requestedDuration}s，自动切换到 ${fallbackModel}`)
       modelId = fallbackModel
     }
 
     // Qwen 首尾帧模型不支持自定义音频参考；当配置中已注入 audioUrl 时，
-    // 自动切换到 2.6 文/图生视频模型，确保角色音频参考能真正生效。
-    if (modelId?.includes('kf2v') && config.audioUrl && !hasFrameControl) {
-      const fallbackModel = config.imageUrl
-        ? qwen.QwenVideoModels.WAN_2_6_I2V
-        : qwen.QwenVideoModels.WAN_2_6_T2V
+    // 自动切换到 wan2.7 模型，确保音频参考能真正生效。
+    if (modelId?.includes('kf2v') && config.audioUrl) {
+      const fallbackModel = hasReferenceInputs
+        ? qwen.QwenVideoModels.WAN_2_7_R2V
+        : hasImageInputs
+          ? qwen.QwenVideoModels.WAN_2_7_I2V
+          : qwen.QwenVideoModels.WAN_2_7_T2V
       console.warn(`[VideoGen] Qwen 模型 ${modelId} 不支持 audioUrl，自动切换到 ${fallbackModel}`)
       modelId = fallbackModel
     }
@@ -804,7 +818,7 @@ async function generateVideoWithQwen(
       ? config.withAudio
       : workflowOptions.video_generation.audioDefaults.qwen
 
-    // 转换分辨率为 size 格式
+    // 兼容旧版 Qwen 模型：转换分辨率为 size 格式（wan2.7 主要使用 resolution/ratio）
     let size = config.size
     if (!size) {
       // 根据 resolution 和 aspectRatio 计算 size
@@ -837,9 +851,23 @@ async function generateVideoWithQwen(
       }
     }
 
-    // 转换时长 (Qwen 支持 5, 10, 15)
+    const isWan27Model = !!modelId && modelId.startsWith('wan2.7-')
+
+    const hasReferenceVideoInput = Array.isArray(config.referenceImages)
+      && config.referenceImages.some((url) => {
+        const raw = (url || '').trim().toLowerCase()
+        return raw.startsWith('data:video/') || /\.(mp4|mov|m4v|webm)(?:$|\?)/i.test(raw)
+      })
+
+    // 转换时长
     let duration = requestedDuration
-    if (duration <= 5) duration = 5
+    if (isWan27Model) {
+      duration = Math.max(2, Math.min(15, Math.round(duration)))
+      if (modelId === qwen.QwenVideoModels.WAN_2_7_R2V && hasReferenceVideoInput && duration > 10) {
+        console.warn(`[VideoGen] Qwen 模型 ${modelId} 在包含参考视频时最长 10s，自动裁剪到 10s`)
+        duration = 10
+      }
+    } else if (duration <= 5) duration = 5
     else if (duration <= 10) duration = 10
     else duration = 15
 
@@ -848,8 +876,11 @@ async function generateVideoWithQwen(
       requestedDuration,
       promptLength: config.prompt.length,
       hasImageUrl: !!config.imageUrl,
+      referenceImagesCount: Array.isArray(config.referenceImages) ? config.referenceImages.length : 0,
       hasAudioUrl: !!config.audioUrl,
       size,
+      resolution: config.resolution,
+      aspectRatio: config.aspectRatio,
       duration,
       withAudio
     })
@@ -895,11 +926,14 @@ async function generateVideoWithQwen(
       model: modelId,
       prompt: config.prompt,
       imageUrl: config.imageUrl,
-      firstFrameUrl: isKf2vModel ? firstFrameUrl : undefined,
-      lastFrameUrl: isKf2vModel ? lastFrameUrl : undefined,
+      firstFrameUrl,
+      lastFrameUrl,
+      referenceImages: config.referenceImages,
       audioUrl: config.audioUrl,
       duration,
+      aspectRatio: config.aspectRatio,
       size,
+      resolution: config.resolution,
       negativePrompt: config.negativePrompt,
       promptExtend: config.promptExtend ?? true,
       audio: withAudio,
