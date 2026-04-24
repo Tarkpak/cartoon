@@ -356,13 +356,21 @@ export function useAssetWorkbenchSceneGeneration(
         : undefined
 
       if (options.createEnvironmentCropImage) {
-        const croppedResult = await options.createEnvironmentCropImage({
-          assetId: environmentAssetId,
-          sourceImage: panoramaImage,
-          crop
-        })
-        referenceImage = croppedResult.imageUrl
-        crop = croppedResult.crop
+        try {
+          const croppedResult = await options.createEnvironmentCropImage({
+            assetId: environmentAssetId,
+            sourceImage: panoramaImage,
+            crop
+          })
+          referenceImage = croppedResult.imageUrl
+          crop = croppedResult.crop
+        } catch (error) {
+          console.warn('[AssetWorkbench] 环境全景图裁切失败，已回退使用原始环境图', {
+            sceneId: scene.id,
+            environmentAssetId,
+            reason: error instanceof Error ? error.message : String(error)
+          })
+        }
       }
 
       applySceneBaselineReference(scene, referenceImage)
