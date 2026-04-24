@@ -132,7 +132,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 【输入规模】
 - 文本长度：约 {{textLength}} 字
-- 建议最少场景数：{{recommendedMinScenes}} 场
+- 场景数量参考值：{{recommendedMinScenes}} 场（仅用于密度估算，非硬限制）
 - 单场时长范围：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
 - 解析模式：{{scriptParseModeLabel}}
 
@@ -148,7 +148,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 1. 当地点变化、时间跳跃、动作阶段变化、情绪明显转折、叙事视角切换时，必须拆分新场景。
 2. 同一地点、同一时间、同一连续戏剧动作内，如果只是镜头切换、视角切换、表情推进、台词递进，不要拆场景，应在 description 内做逐秒拆镜。
 3. 只有当“场景功能”发生变化时再拆场景，例如：开场钩子、矛盾升级、反击转折、结尾宣言。
-4. 场景数量不得少于 {{recommendedMinScenes}} 场；如果剧情密度更高，应继续增加场景，但不要为了凑场景数把一个完整对峙切碎。
+4. 场景数量由模型根据剧情承载自行决定；{{recommendedMinScenes}} 仅作为密度估算参考，不作为硬限制。
 5. 每个场景的 duration 必须是数字，且在 {{sceneDurationMin}}-{{sceneDurationMax}} 秒之间。
 6. totalDuration 必须严格等于所有 scenes[i].duration 的总和。
 
@@ -258,7 +258,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 ## Input Scale
 - Text length: about {{textLength}} characters
-- Recommended minimum scene count: {{recommendedMinScenes}}
+- Scene-count reference: {{recommendedMinScenes}} (density hint only, not a hard limit)
 - Per-scene duration range: {{sceneDurationMin}}-{{sceneDurationMax}} seconds
 - Parsing mode: {{scriptParseModeLabel}}
 
@@ -274,7 +274,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 1. Split scenes whenever location, time, action phase, emotional direction, or narrative perspective changes.
 2. If the location and dramatic action remain continuous, do not split just because the camera angle changes or the acting beat progresses. Keep those details inside the same scene description as second-by-second beat design.
 3. Only create a new scene when the dramatic function changes, for example: hook, escalation, reversal, declaration, aftermath.
-4. The result must contain at least {{recommendedMinScenes}} scenes. Add more only when story density truly requires it, not to over-fragment one confrontation.
+4. Let the model decide scene count based on story load. {{recommendedMinScenes}} is only a density hint, not a hard limit.
 5. Each duration must be numeric and stay within {{sceneDurationMin}}-{{sceneDurationMax}} seconds.
 6. totalDuration must equal the sum of all scenes[i].duration.
 
@@ -373,7 +373,7 @@ Output JSON only, with no extra explanation.`
 }
 
 const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
-  zh: `你是一位短剧爆点编排导演。请把输入文本解析为可直接用于“资产准备 → 场景视频生成”的高节奏结构化 JSON，严格执行短剧节奏锚点。
+  zh: `你是一位短剧分镜编排导演。请把输入文本解析为可直接用于“资产准备 → 场景视频生成”的高节奏结构化 JSON，并在完整覆盖原文主线的前提下执行短剧节奏锚点。
 
 【输入文本】
 {{novelText}}
@@ -386,8 +386,13 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 
 【输入规模】
 - 文本长度：约 {{textLength}} 字
-- 建议最少场景数：{{recommendedMinScenes}} 场
+- 场景数量参考值：{{recommendedMinScenes}} 场（仅用于密度估算，非硬限制）
 - 单场时长范围：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
+
+【剧情覆盖硬约束（必须执行）】
+1. 必须按原文叙事顺序覆盖主线，不得跳段、并段后造成因果断裂。
+2. 禁止把整篇剧情压缩成单段 60 秒结构；节奏骨架仅用于“每个关键剧情段”的内部节奏组织。
+3. 文本较长时，通过增加场景数量承载内容，不得删减关键事件、情绪反转和关键旁白。
 
 【短剧节奏骨架（按剧情段循环应用，不是整篇压缩上限）】
 时段 | 秒数 | 情绪曲线 | 功能
@@ -398,21 +403,23 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 
 【核心节奏逻辑（必须同构落地）】
 1. 每个关键剧情段前 3 秒尽快落冲突动作/道具，立即起钩子。
-2. 8-25 秒要有情感重击，形成共情。
-3. 33-42 秒要有“觉醒信号”（如手不再抖、眼神稳定、动作决绝）。
-4. 53-60 秒给出冷感宣言或反击预告。
+2. 关键剧情段前中段（约 20%-60%）要有情感重击，形成共情。
+3. 关键剧情段后中段（约 55%-80%）要有“觉醒信号”（如手不再抖、眼神稳定、动作决绝）。
+4. 关键剧情段尾部（最后 10%-20%）给出冷感宣言或反击预告。
 5. 若原文不是离婚题材，映射同等级冲突，不丢失节奏锚点。
 
 【改编原则】
 1. 忠于原文核心关系与关键事件，不得改写人物立场。
 2. 文本很长时，不要只截取爆点；应通过增加场景完整覆盖主线因果链。
 3. 场景拆分围绕戏剧功能变化，同时保证前后场景可串联。
+4. 保持原文事件顺序，禁止把后文反转提前到前文场景。
 
 【场景拆分规则】
-1. 总场景数不得少于 {{recommendedMinScenes}} 场；剧情密度高时继续增加。
-2. 仅在地点/时间/情绪方向/戏剧功能变化时拆场。
+1. 总场景数由模型根据剧情承载自行决定；{{recommendedMinScenes}} 仅作为密度估算参考，不作为硬限制。
+2. 地点、时间、动作目标、情绪方向、叙事视角、戏剧功能任一变化时必须拆场。
 3. 每场 duration 必须为数字，且在 {{sceneDurationMin}}-{{sceneDurationMax}} 秒。
 4. totalDuration 必须严格等于 scenes[i].duration 之和。
+5. 同一时空连续动作中，仅镜头切换/表情推进/台词递进时不拆场，但必须在 description 逐秒覆盖，不得跳过原文关键信息。
 
 【场景字段硬约束】
 1. scenes[i].shotType 只能是：extreme_wide、wide、medium_wide、medium、medium_close、close、extreme_close、detail。
@@ -477,12 +484,12 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
       "role": "protagonist|antagonist|supporting"
     }
   ],
-  "totalDuration": 60
+  "totalDuration": 96
 }
 \`\`\`
 
 只输出 JSON，不要附加解释。`,
-  en: `You are a short-drama pacing director. Convert the source text into structured JSON for the pipeline "asset prep -> scene video generation", and enforce high-impact short-drama timing anchors.
+  en: `You are a short-drama storyboard pacing director. Convert the source text into structured JSON for the pipeline "asset prep -> scene video generation", while preserving full mainline coverage before applying short-drama rhythm anchors.
 
 ## Input Text
 {{novelText}}
@@ -495,8 +502,13 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 
 ## Input Scale
 - Text length: about {{textLength}} characters
-- Recommended minimum scene count: {{recommendedMinScenes}}
+- Scene-count reference: {{recommendedMinScenes}} (density hint only, not a hard limit)
 - Per-scene duration range: {{sceneDurationMin}}-{{sceneDurationMax}} seconds
+
+## Hard Coverage Constraints (Must Follow)
+1. Preserve the mainline in original narrative order; do not skip or merge source sections in ways that break causality.
+2. Do not compress the full script into a single ~60s structure; rhythm anchors apply per dramatic unit only.
+3. For long source text, increase scene count to carry content; do not drop key events, emotional reversals, or critical narration.
 
 ## Short-Drama Rhythm Skeleton (Apply per dramatic unit, not as whole-script compression cap)
 Phase | Seconds | Emotion Curve | Function
@@ -507,21 +519,23 @@ Final declaration | 43-60s | emptiness -> cold severity | cliffhanger / anticipa
 
 ## Core Pacing Logic (Must Be Preserved in Equivalent Form)
 1. For each key dramatic unit, land a visible conflict action/prop within the first 3 seconds.
-2. During 8-25 seconds, deliver an emotional heavy hit to build empathy.
-3. During 33-42 seconds, include a clear awakening signal (steady hand, fixed gaze, decisive move).
-4. During 53-60 seconds, deliver a cold declaration or counterattack teaser.
+2. In the early-to-mid section of the dramatic unit (about 20%-60%), deliver an emotional heavy hit to build empathy.
+3. In the late-mid section of the dramatic unit (about 55%-80%), include a clear awakening signal (steady hand, fixed gaze, decisive move).
+4. In the tail section of the dramatic unit (final 10%-20%), deliver a cold declaration or counterattack teaser.
 5. If the source is not a divorce story, map to equivalent conflict level without losing these anchors.
 
 ## Adaptation Policy
 1. Stay faithful to core relationships and key events.
 2. If source text is long, do not keep only one highlight segment; increase scenes to preserve mainline causality.
 3. Split scenes by dramatic function while keeping cross-scene continuity coherent.
+4. Keep source event order; do not move late reversals into earlier scenes.
 
 ## Scene Splitting Rules
-1. Total scenes must be at least {{recommendedMinScenes}}. Add more when story density requires.
-2. Split only on location/time/emotional direction/dramatic function changes.
+1. Let the model decide total scene count based on story load. {{recommendedMinScenes}} is only a density hint, not a hard limit.
+2. Split when any of these changes: location, time, action objective, emotional direction, narrative viewpoint, dramatic function.
 3. Each duration must be numeric and stay within {{sceneDurationMin}}-{{sceneDurationMax}}.
 4. totalDuration must equal the sum of scenes[i].duration.
+5. For continuous action within the same place and time, camera-angle or dialogue progression alone should remain in one scene, but description must still cover source details line-by-line on the timeline.
 
 ## Hard Field Constraints
 1. scenes[i].shotType must be one of: extreme_wide, wide, medium_wide, medium, medium_close, close, extreme_close, detail.
@@ -586,7 +600,7 @@ Output strict JSON only:
       "role": "protagonist|antagonist|supporting"
     }
   ],
-  "totalDuration": 60
+  "totalDuration": 96
 }
 \`\`\`
 

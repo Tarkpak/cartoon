@@ -116,6 +116,8 @@ const {
   scenes,
   characters,
   parsing,
+  loading,
+  saving,
   saveError,
   saveProject,
   loadProject,
@@ -816,6 +818,41 @@ const autoStages = computed(() => {
 })
 
 const stageHints = AUTO_STAGE_HINTS
+const NOVEL_TEXT_AUTO_SAVE_DELAY_MS = 1200
+const lastSavedNovelText = ref('')
+let novelTextAutoSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearNovelTextAutoSaveTimer() {
+  if (!novelTextAutoSaveTimer) return
+  clearTimeout(novelTextAutoSaveTimer)
+  novelTextAutoSaveTimer = null
+}
+
+async function persistNovelTextIfNeeded() {
+  if (loading.value || saving.value) return
+  if (!projectId.value && !projectStyleId.value) return
+  if (novelText.value === lastSavedNovelText.value) return
+
+  const saved = await saveProject()
+  if (saved) {
+    lastSavedNovelText.value = novelText.value
+  }
+}
+
+function scheduleNovelTextAutoSave() {
+  clearNovelTextAutoSaveTimer()
+  novelTextAutoSaveTimer = setTimeout(() => {
+    novelTextAutoSaveTimer = null
+    void persistNovelTextIfNeeded()
+  }, NOVEL_TEXT_AUTO_SAVE_DELAY_MS)
+}
+
+async function waitUntilProjectSaveIdle(maxWaitMs = 3000) {
+  const deadline = Date.now() + maxWaitMs
+  while (saving.value && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 80))
+  }
+}
 
 const {
   imagePreviewOpen,
@@ -866,6 +903,28 @@ watch(environmentCropDialogOpen, (open) => {
   if (open) return
   environmentCropTargetId.value = null
   environmentCropError.value = null
+})
+
+watch(
+  loading,
+  (isLoading) => {
+    if (isLoading) return
+    lastSavedNovelText.value = novelText.value
+  },
+  { immediate: true }
+)
+
+watch(novelText, (nextValue, previousValue) => {
+  if (nextValue === previousValue) return
+  if (loading.value) return
+  if (nextValue === lastSavedNovelText.value) return
+  scheduleNovelTextAutoSave()
+})
+
+onBeforeRouteLeave(async () => {
+  clearNovelTextAutoSaveTimer()
+  await waitUntilProjectSaveIdle()
+  await persistNovelTextIfNeeded()
 })
 
 const environmentCropTarget = computed(() => {

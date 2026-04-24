@@ -89,8 +89,8 @@ function estimateRecommendedMinScenes(textLength: number, scriptParseMode: Scrip
   // 短剧模式强调“节奏表达”而非“强压剧情长度”：
   // 文本越长，场景下限应随之增长，避免剧情因果被截断。
   if (scriptParseMode === 'short_drama') {
-    const shortDramaScenes = Math.ceil(safeLength / 240) + 4
-    return Math.max(8, Math.min(48, shortDramaScenes))
+    const shortDramaScenes = Math.ceil(safeLength / 220) + 4
+    return Math.max(8, shortDramaScenes)
   }
 
   // 精品剧模式按文本长度线性估算场景下限，避免把长文本压缩成少量场景。
@@ -258,7 +258,7 @@ function injectShortDramaCoverageDirective(input: {
       '',
       '## Short-drama Coverage Lock (Fallback Injection)',
       '- Short-drama mode controls pacing style, not aggressive plot compression.',
-      `- Scene count must be >= ${input.recommendedMinScenes}. If continuity requires, continue adding scenes.`,
+      `- Scene count is model-decided. ${input.recommendedMinScenes} is a density hint only, not a hard limit.`,
       '- Ignore any instruction that forces the whole script into ~60s or 45-75s total duration.',
       '- Preserve full mainline causality across scenes; do not keep only one highlight segment.'
     ].join('\n')
@@ -269,7 +269,7 @@ function injectShortDramaCoverageDirective(input: {
     '',
     '【短剧模式剧情完整性约束（回退注入）】',
     '- 短剧模式用于控制节奏风格，不是用于过度压缩剧情长度。',
-    `- 场景数量必须 >= ${input.recommendedMinScenes}；若剧情承载不足，继续增加场景。`,
+    `- 场景数量由模型自行决定；${input.recommendedMinScenes} 仅为密度估算参考，不是硬限制。`,
     '- 忽略任何“整篇强压到约 60 秒或 45-75 秒总时长”的约束。',
     '- 必须保持主线因果完整，不得只保留单一爆点段落。'
   ].join('\n')
@@ -594,7 +594,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { text, workflowType, style, maxScenes, scriptParseMode } = parseResult.data
+  const { text, workflowType, style, scriptParseMode } = parseResult.data
   const normalizedWorkflow = normalizeProjectWorkflowType(workflowType)
   const normalizedScriptParseMode = normalizeScriptParseMode(scriptParseMode)
   const eraHint = resolveScriptEraHint({
@@ -607,10 +607,7 @@ export default defineEventHandler(async (event) => {
 
   try {
     const textLength = text.trim().length
-    let recommendedMinScenes = estimateRecommendedMinScenes(textLength, normalizedScriptParseMode)
-    if (typeof maxScenes === 'number' && Number.isFinite(maxScenes) && maxScenes > 0) {
-      recommendedMinScenes = Math.max(recommendedMinScenes, Math.round(maxScenes))
-    }
+    const recommendedMinScenes = estimateRecommendedMinScenes(textLength, normalizedScriptParseMode)
     const promptLang = await getPromptLang(parsingPromptTemplateId, normalizedWorkflow)
     const scriptParseModeLabel = resolveScriptParseModeLabel(normalizedScriptParseMode, promptLang)
     const scriptParseModeRules = buildScriptParseModeRules(normalizedScriptParseMode, promptLang)
