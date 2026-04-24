@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
-import { sqlite } from '../db'
+import { initDatabase, sqlite } from '../db'
 import { persistImageToPublic } from './image-storage'
 import { persistAudioSourceToCloud } from './audio-storage'
 import { persistVideoSourceToCloud } from './video-storage'
@@ -81,26 +81,45 @@ const SENSITIVE_KEY_PATTERNS = [
 let persistQueue: Promise<void> = Promise.resolve()
 let legacyMigrationAttempted = false
 
-const insertLogStmt = sqlite.prepare(`
-  INSERT OR REPLACE INTO model_debug_logs (
-    id, timestamp, provider, model, operation, status, duration_ms,
-    request_json, request_raw_json, response_json, response_raw_json, media_refs_json, error_json, created_at
-  ) VALUES (
-    @id, @timestamp, @provider, @model, @operation, @status, @durationMs,
-    @requestJson, @requestRawJson, @responseJson, @responseRawJson, @mediaRefsJson, @errorJson, @createdAt
-  )
-`)
+type SqliteStatement = ReturnType<typeof sqlite.prepare>
 
-const pruneLogStmt = sqlite.prepare(`
-  DELETE FROM model_debug_logs
-  WHERE id NOT IN (
-    SELECT id FROM model_debug_logs
-    ORDER BY timestamp DESC
-    LIMIT ?
-  )
-`)
+interface ModelDebugStatements {
+  insertLogStmt: SqliteStatement
+  pruneLogStmt: SqliteStatement
+  clearLogsStmt: SqliteStatement
+}
 
-const clearLogsStmt = sqlite.prepare('DELETE FROM model_debug_logs')
+let modelDebugStatements: ModelDebugStatements | null = null
+
+function getModelDebugStatements(): ModelDebugStatements {
+  if (modelDebugStatements) return modelDebugStatements
+
+  // 构建/预渲染阶段会先加载模块，再执行 Nitro 插件，需先确保表结构已创建
+  initDatabase()
+
+  modelDebugStatements = {
+    insertLogStmt: sqlite.prepare(`
+      INSERT OR REPLACE INTO model_debug_logs (
+        id, timestamp, provider, model, operation, status, duration_ms,
+        request_json, request_raw_json, response_json, response_raw_json, media_refs_json, error_json, created_at
+      ) VALUES (
+        @id, @timestamp, @provider, @model, @operation, @status, @durationMs,
+        @requestJson, @requestRawJson, @responseJson, @responseRawJson, @mediaRefsJson, @errorJson, @createdAt
+      )
+    `),
+    pruneLogStmt: sqlite.prepare(`
+      DELETE FROM model_debug_logs
+      WHERE id NOT IN (
+        SELECT id FROM model_debug_logs
+        ORDER BY timestamp DESC
+        LIMIT ?
+      )
+    `),
+    clearLogsStmt: sqlite.prepare('DELETE FROM model_debug_logs')
+  }
+
+  return modelDebugStatements
+}
 
 interface ModelDebugLogRow {
   id: string
@@ -593,6 +612,7 @@ function pushEntry(entry: ModelDebugLogEntry) {
   migrateLegacyLogsIfNeeded()
   persistQueue = persistQueue
     .then(() => {
+      const { insertLogStmt, pruneLogStmt } = getModelDebugStatements()
       insertLogStmt.run(toPersistParams(entry))
       pruneLogStmt.run(MODEL_DEBUG_LOG_LIMIT)
     })
@@ -686,6 +706,8 @@ function migrateLegacyLogsIfNeeded() {
   legacyMigrationAttempted = true
 
   try {
+    const { insertLogStmt, pruneLogStmt } = getModelDebugStatements()
+
     if (!existsSync(LEGACY_MODEL_DEBUG_LOG_FILE)) return
 
     const row = sqlite.prepare('SELECT COUNT(1) as count FROM model_debug_logs').get() as { count?: number } | undefined
@@ -844,6 +866,7 @@ export async function withModelDebugLog<T>(params: {
 }
 
 export function listModelDebugLogs(query: ModelDebugLogQuery = {}): ModelDebugLogEntry[] {
+  getModelDebugStatements()
   migrateLegacyLogsIfNeeded()
   const limit = Math.max(1, Math.min(500, query.limit || 100))
   const whereParts: string[] = []
@@ -911,7 +934,8 @@ export function listModelDebugLogs(query: ModelDebugLogQuery = {}): ModelDebugLo
 }
 
 export async function clearModelDebugLogs(): Promise<void> {
+  const { clearLogsStmt } = getModelDebugStatements()
   migrateLegacyLogsIfNeeded()
   await persistQueue
-  clearLogsStmt.run()
+  ;(clearLogsStmt as { run: (...params: unknown[]) => unknown }).run()
 }

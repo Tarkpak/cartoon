@@ -5,6 +5,11 @@ import {
   formatProjectRelativeTime,
   type Project
 } from '~/lib/projects-page'
+import {
+  SCRIPT_PARSE_MODE_LABELS,
+  normalizeScriptParseMode,
+  type ScriptParseMode
+} from '#shared/types/script'
 
 defineProps<{
   projects: Project[]
@@ -27,6 +32,11 @@ const emit = defineEmits<{
   (event: 'page-change', page: number): void
   (event: 'page-size-change', value: string): void
 }>()
+
+function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
+  const normalizedMode = normalizeScriptParseMode(mode)
+  return SCRIPT_PARSE_MODE_LABELS[normalizedMode]
+}
 </script>
 
 <template>
@@ -54,6 +64,9 @@ const emit = defineEmits<{
           <TableHead>描述</TableHead>
           <TableHead class="w-[100px]">
             画风
+          </TableHead>
+          <TableHead class="w-[96px]">
+            剧本类型
           </TableHead>
           <TableHead class="w-[80px]">
             比例
@@ -90,6 +103,11 @@ const emit = defineEmits<{
           </TableCell>
           <TableCell>
             <span class="text-sm">{{ getStyleName(project.styleId) }}</span>
+          </TableCell>
+          <TableCell>
+            <Badge variant="outline">
+              {{ resolveScriptParseModeLabel(project.scriptParseMode) }}
+            </Badge>
           </TableCell>
           <TableCell>
             <Badge variant="outline">
@@ -147,7 +165,7 @@ const emit = defineEmits<{
 
         <TableRow v-if="projects.length === 0">
           <TableCell
-            :colspan="9"
+            :colspan="10"
             class="h-32 text-center"
           >
             <div class="flex flex-col items-center justify-center text-muted-foreground">
