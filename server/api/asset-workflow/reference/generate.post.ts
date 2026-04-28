@@ -118,7 +118,6 @@ const ENVIRONMENT_ONLY_NEGATIVE_PROMPT = [
   'extreme perspective',
   'ultra wide angle'
 ].join(', ')
-const PANORAMA_SOURCE_IMAGE_SIZE = '2100*900'
 
 const LOCATION_SUBSPACE_SUFFIXES = [
   '走廊',
@@ -636,24 +635,20 @@ async function buildSceneReferencePrompt(
   const normalizedCustomPrompt = customPrompt?.trim() || ''
   const environmentSummary = buildEnvironmentSummary(scene)
   const environmentSceneTitle = scene.setting?.location?.trim() || scene.title || '未命名场景'
-<<<<<<< HEAD
   const antiDistortionText = '必须避免鱼眼/桶形/枕形/夸张广角畸变，保持地平线水平与建筑竖线自然，边缘不要拉伸变形'
   const panoramaFallbackHint = panoramaSource.fallbackApplied
     ? `当前模型不支持 AR ${PANORAMA_SOURCE_ASPECT_RATIO}，已自动改为该模型支持的 AR ${panoramaSource.aspectRatio}（${panoramaSource.size}）。`
     : ''
-  const panoramaAspectText = aspectRatio === '16:9'
-    ? `${panoramaFallbackHint}先生成 AR ${panoramaSource.aspectRatio}（${panoramaSource.size}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），默认采用中远景/全景观察距离，保留更完整的空间结构信息，${antiDistortionText}，后续仍以 16:9 作为截图使用`
-    : `${panoramaFallbackHint}先生成 AR ${panoramaSource.aspectRatio}（${panoramaSource.size}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），默认采用中远景/全景观察距离，保留更完整的空间结构信息，${antiDistortionText}，后续裁切为 ${aspectRatio}`
-=======
   const panoramaAspectText = [
+    panoramaFallbackHint,
     `目标输出画幅：${aspectRatio}`,
-    `全景源图画幅：${PANORAMA_SOURCE_ASPECT_RATIO}`,
-    `全景源图尺寸：${PANORAMA_SOURCE_IMAGE_SIZE}`,
+    `全景源图画幅：${panoramaSource.aspectRatio}`,
+    `全景源图尺寸：${panoramaSource.size}`,
     aspectRatio === '16:9'
       ? '裁切策略：默认使用全景源图中的 16:9 区域'
-      : `裁切策略：后续从全景源图裁切为 ${aspectRatio}`
-  ].join('\n')
->>>>>>> 7170c81 (feat: refactor)
+      : `裁切策略：后续从全景源图裁切为 ${aspectRatio}`,
+    `全景源图要求：先生成 360 环绕等距柱状环境全景源图（左右边缘需可衔接），默认采用中远景/全景观察距离，保留更完整空间结构，${antiDistortionText}`
+  ].filter(Boolean).join('\n')
   const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
   const era = normalizeOptionalSceneEraValue(scene.setting?.era)
     || inferSceneEraFromText([
@@ -728,7 +723,6 @@ export default defineEventHandler(async (event) => {
     const modelId = modelDecision.modelId
     const modelConfig = findImageModel(modelId)
     const geminiImageSize = workflowModelOptions.image_options.geminiImageSize
-<<<<<<< HEAD
     const panoramaSource = resolvePanoramaSourceProfile(modelConfig)
     if (panoramaSource.fallbackApplied) {
       console.warn(
@@ -742,21 +736,20 @@ export default defineEventHandler(async (event) => {
       panoramaSource,
       environmentContext,
       customPrompt
-=======
-    const prompt = await buildSceneReferencePrompt(scene, style, aspectRatio, environmentContext, customPrompt)
-    const negativePrompt = await getInterpolatedPrompt(
+    )
+    const negativePromptTemplate = await getInterpolatedPrompt(
       PROMPT_TEMPLATE_IDS.ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT,
       {},
       undefined,
       'asset_consistency'
->>>>>>> 7170c81 (feat: refactor)
     )
+    const resolvedNegativePrompt = negativePromptTemplate?.trim() || ENVIRONMENT_ONLY_NEGATIVE_PROMPT
     const normalizedReference = referenceImage
       ? await normalizeReferenceImageInput(referenceImage, event)
       : null
 
-    if (!negativePrompt) {
-      throw new Error('无法获取环境参考图负向约束模板，请在设置中检查提示词配置')
+    if (!negativePromptTemplate) {
+      console.warn('[AssetWorkflow/Reference] 负向提示词模板缺失，已回退到内置环境负向约束')
     }
 
     if (isRegeneration && !normalizedReference) {
@@ -793,15 +786,9 @@ export default defineEventHandler(async (event) => {
         modelId,
         prompt,
         imageSize: geminiImageSize,
-<<<<<<< HEAD
         aspectRatio: panoramaSource.aspectRatio,
-        negativePrompt: ENVIRONMENT_ONLY_NEGATIVE_PROMPT,
+        negativePrompt: resolvedNegativePrompt,
         size: panoramaSource.size,
-=======
-        aspectRatio: PANORAMA_SOURCE_ASPECT_RATIO,
-        negativePrompt: negativePrompt.trim(),
-        size: resolvePanoramaSourceImageSize(),
->>>>>>> 7170c81 (feat: refactor)
         ...referenceOptions,
         maxRetries: 2
       })
