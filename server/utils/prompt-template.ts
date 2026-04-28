@@ -95,9 +95,12 @@ function getDefaultLangConfig(_workflow: PromptWorkflowInput = 'asset_consistenc
   return {
     script_parsing: 'zh',
     script_parsing_short_drama: 'zh',
+    prompt_translation_system: 'zh',
+    prompt_translation_user: 'zh',
     character_sheet: 'zh',
     character_regeneration: 'zh',
     environment_reference_generation: 'zh',
+    environment_reference_negative_prompt: 'zh',
     scene_description_refinement: 'zh',
     scene_video_generation: 'zh'
   }

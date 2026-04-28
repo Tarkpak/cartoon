@@ -73,9 +73,12 @@ export interface PromptVersion {
 export const PROMPT_TEMPLATE_IDS = {
   SCRIPT_PARSING: 'script_parsing',
   SCRIPT_PARSING_SHORT_DRAMA: 'script_parsing_short_drama',
+  PROMPT_TRANSLATION_SYSTEM: 'prompt_translation_system',
+  PROMPT_TRANSLATION_USER: 'prompt_translation_user',
   CHARACTER_SHEET: 'character_sheet',
   CHARACTER_REGENERATION: 'character_regeneration',
   ENVIRONMENT_REFERENCE_GENERATION: 'environment_reference_generation',
+  ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT: 'environment_reference_negative_prompt',
   SCENE_DESCRIPTION_REFINEMENT: 'scene_description_refinement',
   SCENE_VIDEO_GENERATION: 'scene_video_generation'
 } as const
@@ -132,6 +135,29 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     ]
   },
   {
+    id: 'prompt_translation_system',
+    name: '提示词翻译系统指令',
+    category: 'text',
+    stage: 'parse',
+    description: '定义提示词翻译器的系统角色和规则',
+    variables: [
+      { name: '{{fromLang}}', description: '源语言名称', example: '中文' },
+      { name: '{{toLang}}', description: '目标语言名称', example: 'English' }
+    ]
+  },
+  {
+    id: 'prompt_translation_user',
+    name: '提示词翻译请求模板',
+    category: 'text',
+    stage: 'parse',
+    description: '定义翻译请求正文结构',
+    variables: [
+      { name: '{{fromLang}}', description: '源语言名称', example: '中文' },
+      { name: '{{toLang}}', description: '目标语言名称', example: 'English' },
+      { name: '{{sourceText}}', description: '待翻译原文', example: '你是一位资深分镜师...' }
+    ]
+  },
+  {
     id: 'character_sheet',
     name: '角色资产生成',
     category: 'image',
@@ -168,11 +194,19 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{sceneDescription}}', description: '环境摘要（已去除人物动作与对白）', example: '核心空间：医院走廊\n时间：夜晚\n环境细节：冷白灯照亮狭长走廊，地面有潮湿反光。' },
       { name: '{{setting}}', description: '场景设定文本', example: '医院-走廊 / 夜晚 / 紧绷 / 暴雨' },
       { name: '{{style}}', description: '画风描述', example: '电影写实风格' },
-      { name: '{{aspectRatio}}', description: '最终截图比例与全景取景约束', example: '先生成 AR 21:9（2100*900）360环绕等距柱状环境全景源图，避免鱼眼/桶形畸变，后续裁切为 9:16' },
-      { name: '{{environmentConsistency}}', description: '环境连续性约束文本', example: '主环境：医院；与相邻场景保持同一建筑年代与材质语言。' },
+      { name: '{{aspectRatio}}', description: '目标输出与全景源图规格上下文', example: '目标输出画幅：9:16\n全景源图画幅：21:9\n全景源图尺寸：2100*900\n裁切策略：后续从全景源图裁切为 9:16' },
+      { name: '{{environmentConsistency}}', description: '环境连续性上下文文本', example: '主环境锚点：医院\n母体参考场景：急诊大厅（医院-大厅）\n同组子空间：医院-走廊、医院-诊室' },
       { name: '{{cameraNote}}', description: '镜头与资产备注', example: '引用资产：急诊大厅、手术室门牌' },
       { name: '{{customPrompt}}', description: '二次生成补充要求', example: '保留医院冷白灯，但把地面湿痕强化一些。' }
     ]
+  },
+  {
+    id: 'environment_reference_negative_prompt',
+    name: '环境参考图负向约束',
+    category: 'image',
+    stage: 'assets',
+    description: '环境参考图生成时的 negative prompt（排除项）',
+    variables: []
   },
   {
     id: 'scene_description_refinement',
@@ -209,8 +243,8 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{setting}}', description: '场景设定文本', example: '城市天桥 / 夜晚 / 紧绷 / 暴雨' },
       { name: '{{style}}', description: '画风描述', example: '电影写实风格' },
       { name: '{{referenceMaterials}}', description: '参考素材列表文本', example: '图1：环境参考图...\n图2：角色参考图...' },
-      { name: '{{executionConstraints}}', description: '执行约束列表文本', example: '- 输入模式：single_image\n- 严格保持角色一致性...' },
-      { name: '{{referenceGuide}}', description: '参考图说明', example: '参考图说明：图1为角色，图2为环境。' },
+      { name: '{{executionConstraints}}', description: '执行上下文信息', example: '- 输入模式：single_image\n- 参考策略：多参考图模式（环境+角色）\n- 主参考图：环境（雨夜街头）' },
+      { name: '{{referenceGuide}}', description: '参考图策略说明', example: '多参考图模式（环境+角色）' },
       { name: '{{duration}}', description: '目标时长（秒）', example: '8' },
       { name: '{{aspectRatio}}', description: '输出画面比例', example: '16:9' },
       { name: '{{narration}}', description: '旁白文本', example: '雨势渐大，空气里弥漫着紧张。' }

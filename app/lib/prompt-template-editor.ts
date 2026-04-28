@@ -59,6 +59,7 @@ interface TranslatePromptContentOptions {
   text: string
   from: PromptEditorLanguage
   to: PromptEditorLanguage
+  workflow: ProjectWorkflowType
 }
 
 export function buildPromptEditorContent(
@@ -150,6 +151,7 @@ export async function updatePromptLangConfig(options: UpdatePromptLangConfigOpti
 export async function translatePromptContent(options: TranslatePromptContentOptions) {
   return await $fetch<PromptTranslationResponse>('/api/prompts/translate', {
     method: 'POST',
+    query: { workflow: options.workflow },
     body: {
       text: options.text,
       from: options.from,

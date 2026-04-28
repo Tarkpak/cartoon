@@ -187,7 +187,8 @@ export function usePromptTemplateEditorActions(
       const response = await translatePromptContent({
         text: sourceText,
         from: fromLang,
-        to: toLang
+        to: toLang,
+        workflow: options.workflow.value
       })
 
       if (response.success && response.data?.translatedText) {

@@ -139,25 +139,6 @@ function listSceneVoiceReferenceCandidates(context: LoadedSceneContext): VoiceRe
   return candidates
 }
 
-function buildVoiceConstraintText(candidates: VoiceReferenceCandidate[]): string {
-  if (candidates.length === 0) return ''
-
-  if (candidates.length === 1) {
-    const [candidate] = candidates
-    if (!candidate) return ''
-    return `声音一致性：角色「${candidate.characterName}」已有历史声音参考，需保持音色、语速、口吻与情绪颗粒度稳定，避免声音漂移。`
-  }
-
-  const names = candidates.map(item => `「${item.characterName}」`).join('、')
-  return `声音一致性：场景内已有历史声音参考的角色包括 ${names}，请分别保持各自既有音色身份，不要串音、混音色或互相替换。`
-}
-
-function appendVoiceConstraintToPrompt(prompt: string, voiceConstraint: string): string {
-  if (!voiceConstraint.trim()) return prompt
-  if (prompt.includes(voiceConstraint)) return prompt
-  return `${prompt.trim()}\n\n${voiceConstraint}`
-}
-
 function resolveSingleSpeakerVoiceReference(context: LoadedSceneContext): VoiceReferenceCandidate | null {
   const uniqueSpeakerNames = Array.from(new Set(
     context.dialogues
@@ -217,10 +198,7 @@ export async function enrichVideoConfigWithCharacterVoiceReference(options: {
   const candidates = listSceneVoiceReferenceCandidates(context)
   if (candidates.length === 0) return options.config
 
-  const nextConfig: VideoGenerationConfig = {
-    ...options.config,
-    prompt: appendVoiceConstraintToPrompt(options.config.prompt, buildVoiceConstraintText(candidates))
-  }
+  const nextConfig: VideoGenerationConfig = { ...options.config }
 
   const canInjectAudioReference = options.supportsExplicitAudioReference || options.modelProvider === 'qwen'
   if (canInjectAudioReference && !nextConfig.audioUrl) {
@@ -581,8 +559,6 @@ export async function extractCharacterVoiceAssetsFromSceneVideo(options: {
 }
 
 export const __testUtils = {
-  appendVoiceConstraintToPrompt,
-  buildVoiceConstraintText,
   pickPriorityVoiceCandidate,
   resolvePreferredVoiceReference,
   resolveSingleSpeakerVoiceReference,

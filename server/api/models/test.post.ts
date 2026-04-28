@@ -248,6 +248,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const { modelType, modelId, prompt, imageAspectRatio, referenceImages } = parseResult.data
+  const normalizedPrompt = typeof prompt === 'string' ? prompt.trim() : ''
   const selected = getSelectedModels()
   const startTime = Date.now()
 
@@ -260,7 +261,14 @@ export default defineEventHandler(async (event) => {
       case 'text': {
         usedModelId = modelId || selected.text
         modelInfo = findTextModel(usedModelId)
-        const testPrompt = prompt || '你好，请用一句话介绍你自己。'
+        const testPrompt = normalizedPrompt
+        if (!testPrompt) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: '缺少测试提示词',
+            message: '请在请求体中提供 prompt'
+          })
+        }
         console.log(`[ModelTest] 测试文本模型: ${usedModelId} (${modelInfo?.provider})`)
 
         result = await generateText({
@@ -274,7 +282,14 @@ export default defineEventHandler(async (event) => {
       case 'image': {
         usedModelId = modelId || selected.image
         modelInfo = findImageModel(usedModelId)
-        const testPrompt = prompt || '一只可爱的橘色小猫，日式动漫风格，白色背景'
+        const testPrompt = normalizedPrompt
+        if (!testPrompt) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: '缺少测试提示词',
+            message: '请在请求体中提供 prompt'
+          })
+        }
         const requestedAspectRatio = normalizeImageAspectRatio(imageAspectRatio)
         const resolvedAspectRatio = requestedAspectRatio === 'auto' && modelInfo?.provider !== 'kling'
           ? DEFAULT_IMAGE_ASPECT_RATIO
@@ -336,7 +351,14 @@ export default defineEventHandler(async (event) => {
       case 'video': {
         usedModelId = modelId || selected.video
         modelInfo = findVideoModel(usedModelId)
-        const testPrompt = prompt || '一只小猫在草地上奔跑，阳光明媚'
+        const testPrompt = normalizedPrompt
+        if (!testPrompt) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: '缺少测试提示词',
+            message: '请在请求体中提供 prompt'
+          })
+        }
         console.log(`[ModelTest] 测试视频模型: ${usedModelId} (${modelInfo?.provider})`)
 
         if (modelInfo?.provider === 'gemini') {
@@ -398,7 +420,14 @@ export default defineEventHandler(async (event) => {
       case 'tts': {
         usedModelId = modelId || selected.tts || ''
         modelInfo = findVoiceModel(usedModelId)
-        const testText = prompt || '你好，这是一段测试语音。'
+        const testText = normalizedPrompt
+        if (!testText) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: '缺少测试文本',
+            message: '请在请求体中提供 prompt 作为 TTS 测试文本'
+          })
+        }
         console.log(`[ModelTest] 测试TTS模型: ${usedModelId} (${modelInfo?.provider})`)
 
         const ttsResult = await textToSpeech({

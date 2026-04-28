@@ -354,20 +354,20 @@ function buildReferenceGuide(options: {
 
   if (inputMode === 'single_image') {
     if (useMultiReference && hasEnvironmentRef && hasCharacterRef) {
-      return '参考图说明：将同时引用环境图与角色图（多参考图）；环境用于构图与空间，角色用于身份外观锁定。'
+      return '多参考图模式（环境+角色）'
     }
     if (hasEnvironmentRef && hasCharacterRef) {
-      return '参考图说明：将优先使用环境图锁定构图，并结合角色设定与文本保持人物身份连续。'
+      return '单图输入（环境优先，角色补充）'
     }
     if (hasEnvironmentRef) {
-      return '参考图说明：请严格保持环境参考图的空间结构、光照与主色调稳定。'
+      return '单图输入（仅环境参考）'
     }
     if (hasCharacterRef) {
-      return '参考图说明：未提供环境图，需保持角色身份稳定并依据文本补全环境。'
+      return '单图输入（仅角色参考）'
     }
   }
 
-  return '未提供可用参考图，请仅依据文本生成并保持叙事一致。'
+  return '文本输入（无参考图）'
 }
 
 function buildSettingText(
@@ -515,13 +515,14 @@ function buildStructuredPromptSections(options: {
   })
 
   const executionConstraints = [
-    `- 输入模式：${inputMode}。${referenceGuide}`,
-    `- 角色参考图：${hasCharacterRef ? 'yes' : 'no'}；环境参考图：${hasEnvironmentRef ? 'yes' : 'no'}`,
-    '- 严格保持角色身份、服装、发型与体态连续，禁止中途换脸或替换主角。',
-    '- 严格保持环境空间关系、光照与主色调稳定，不新增无关关键物体。',
-    '- 若画面透过门、窗、玻璃看到相邻空间，该可见空间必须与对应内景或外景镜头共享同一建筑结构、门窗朝向、灯光颜色、主色调和关键陈设。',
-    '- 若前序镜头已经拍到某个可见室内或室外子空间，切到该空间时必须延续已出现的布景，不得重置为另一套设计。',
-    '- 禁止生成字幕、台词卡、UI、Logo 或水印。'
+    `- 输入模式：${inputMode}`,
+    `- 参考策略：${referenceGuide}`,
+    `- 角色参考图：${hasCharacterRef ? '有' : '无'}`,
+    `- 环境参考图：${hasEnvironmentRef ? '有' : '无'}`,
+    `- 多参考图数量：${multiReferenceBindings.length}`,
+    primaryReferenceBinding
+      ? `- 主参考图：${resolveReferenceTypeLabel(primaryReferenceBinding.type)}（${primaryReferenceBinding.name}）`
+      : '- 主参考图：无'
   ].join('\n')
 
   return {

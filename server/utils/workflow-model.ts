@@ -1,5 +1,5 @@
 /**
- * 业务流程模型配置工具
+ * 业务模型配置工具
  * 每次调用都从数据库读取最新配置
  */
 
@@ -11,7 +11,7 @@ import * as volcengine from './volcengine'
 import { getWorkflowModels } from '../api/models/workflow.get'
 
 /**
- * 从数据库获取指定业务流程的模型配置
+ * 从数据库获取指定步骤的业务模型配置
  */
 export async function getWorkflowModel(step: WorkflowStep): Promise<string> {
   const models = await getWorkflowModels()
@@ -23,7 +23,7 @@ export async function getWorkflowModel(step: WorkflowStep): Promise<string> {
 }
 
 /**
- * 根据业务流程生成纯文本 (文本生成类)
+ * 根据业务模型配置生成纯文本 (文本生成类)
  */
 export async function generateTextForWorkflow(
   step: WorkflowStep,
@@ -72,7 +72,7 @@ export async function generateTextForWorkflow(
 }
 
 /**
- * 根据业务流程生成 JSON (文本生成类)
+ * 根据业务模型配置生成 JSON (文本生成类)
  */
 export async function generateJSONForWorkflow<T>(
   step: WorkflowStep,

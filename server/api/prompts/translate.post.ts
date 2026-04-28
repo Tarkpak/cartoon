@@ -4,6 +4,9 @@
  */
 
 import { generateTextForWorkflow } from '../../utils/workflow-model'
+import { getInterpolatedPrompt } from '../../utils/prompt-template'
+import { resolvePromptWorkflowFromEvent } from '../../utils/prompt-workflow'
+import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 
 interface TranslateRequest {
   text: string
@@ -12,6 +15,7 @@ interface TranslateRequest {
 }
 
 export default defineEventHandler(async (event) => {
+  const workflow = resolvePromptWorkflowFromEvent(event)
   const body = await readBody<TranslateRequest>(event)
 
   if (!body.text || !body.from || !body.to) {
@@ -30,20 +34,30 @@ export default defineEventHandler(async (event) => {
 
   const fromLang = body.from === 'zh' ? '中文' : 'English'
   const toLang = body.to === 'zh' ? '中文' : 'English'
+  const systemPrompt = await getInterpolatedPrompt(
+    PROMPT_TEMPLATE_IDS.PROMPT_TRANSLATION_SYSTEM,
+    { fromLang, toLang },
+    undefined,
+    workflow
+  )
+  const userPrompt = await getInterpolatedPrompt(
+    PROMPT_TEMPLATE_IDS.PROMPT_TRANSLATION_USER,
+    {
+      fromLang,
+      toLang,
+      sourceText: body.text
+    },
+    undefined,
+    workflow
+  )
 
-  const systemPrompt = `You are a professional translator specializing in AI prompts and technical content.
-Your task is to translate the given text from ${fromLang} to ${toLang}.
-
-Rules:
-1. Preserve all template variables like {{variableName}} exactly as they are
-2. Maintain the original formatting, line breaks, and structure
-3. Keep technical terms accurate and consistent
-4. Translate naturally while preserving the original meaning and tone
-5. Do not add any explanations or notes, only output the translated text`
-
-  const userPrompt = `Please translate the following text from ${fromLang} to ${toLang}:
-
-${body.text}`
+  if (!systemPrompt || !userPrompt) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: '翻译提示词模板缺失',
+      message: '无法获取翻译模板，请在提示词配置中检查“提示词翻译系统指令/提示词翻译请求模板”'
+    })
+  }
 
   try {
     const result = await generateTextForWorkflow('text_translation', {

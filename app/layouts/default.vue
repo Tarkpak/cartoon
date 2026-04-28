@@ -25,7 +25,7 @@ const settingsSubNavigation: Array<{
   icon: unknown
 }> = [
   { name: '画风预设', section: 'styles', icon: Palette },
-  { name: '业务流程配置', section: 'models', sub: 'workflow', icon: Workflow },
+  { name: '业务模型配置', section: 'models', sub: 'workflow', icon: Workflow },
   { name: '提示词配置', section: 'prompts', icon: FileText },
   { name: '模型测试', section: 'models', sub: 'test', icon: FlaskConical }
 ]

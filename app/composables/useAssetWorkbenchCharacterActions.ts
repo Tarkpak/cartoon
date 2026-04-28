@@ -1,4 +1,3 @@
-import { CHARACTER_REGENERATION_DEFAULT_PROMPT } from '#shared/constants/character-prompts'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 
 interface CharacterGenerationOptions {
@@ -17,10 +16,11 @@ export function useAssetWorkbenchCharacterActions(options: {
   ) => Promise<unknown>
   resolveUiError: (error: unknown, fallback: string) => string
 }) {
+  const CHARACTER_REGENERATION_INITIAL_PROMPT = ''
   const editingCharacterId = ref<string | null>(null)
   const characterRegenerateDialogOpen = ref(false)
   const characterRegenerateTargetId = ref<string | null>(null)
-  const characterRegeneratePrompt = ref(CHARACTER_REGENERATION_DEFAULT_PROMPT)
+  const characterRegeneratePrompt = ref(CHARACTER_REGENERATION_INITIAL_PROMPT)
   const characterRegenerateError = ref<string | null>(null)
   const characterEditDraft = reactive({
     id: '',
@@ -125,7 +125,7 @@ export function useAssetWorkbenchCharacterActions(options: {
       return
     }
     characterRegenerateTargetId.value = char.id
-    characterRegeneratePrompt.value = CHARACTER_REGENERATION_DEFAULT_PROMPT
+    characterRegeneratePrompt.value = CHARACTER_REGENERATION_INITIAL_PROMPT
     characterRegenerateError.value = null
     characterRegenerateDialogOpen.value = true
   }
