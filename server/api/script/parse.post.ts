@@ -86,104 +86,16 @@ const LIVE_ACTION_STYLE_HINT_REGEX = /(ai\s*真人|live[-\s]?action|真人剧|li
 function estimateRecommendedMinScenes(textLength: number, scriptParseMode: ScriptParseMode): number {
   const safeLength = Math.max(0, Math.floor(textLength))
 
-  // 短剧模式强调“节奏表达”而非“强压剧情长度”：
-  // 文本越长，场景下限应随之增长，避免剧情因果被截断。
+  // 推荐值用于提示模型“场景密度”，不应过高到超出单次输出承载能力。
+  // 这里采用中等密度估算：长文本应显著增加场景，但仍保持可生成范围。
   if (scriptParseMode === 'short_drama') {
-    const shortDramaScenes = Math.ceil(safeLength / 220) + 4
-    return Math.max(8, shortDramaScenes)
+    const shortDramaScenes = Math.ceil(safeLength / 1000) + 2
+    return Math.max(8, Math.min(60, shortDramaScenes))
   }
 
-  // 精品剧模式按文本长度线性估算场景下限，避免把长文本压缩成少量场景。
-  const lengthBasedScenes = Math.ceil(safeLength / 80)
-  return Math.max(4, lengthBasedScenes)
-}
-
-function buildScriptParseModeRules(
-  scriptParseMode: ScriptParseMode,
-  lang: 'zh' | 'en'
-): string {
-  if (scriptParseMode === 'short_drama') {
-    if (lang === 'en') {
-      return [
-        'Short-drama execution principle:',
-        '- Keep short-drama pacing and emotional intensity, but do NOT over-compress plot continuity.',
-        '- For long source text, increase scene count and keep key causal chain intact.',
-        '- The pacing anchors below apply per dramatic unit, not as a hard cap for the whole script duration.',
-        '',
-        'Per-unit pacing anchors:',
-        'Phase | Seconds | Emotion Curve | Function',
-        'Opening hook | 0-8s | shock -> coldness | grab attention quickly',
-        'Conflict escalation | 9-25s | heartbreak -> despair | build empathy',
-        'Turning confrontation | 26-42s | disgust -> resolve | create reversal',
-        'Cold declaration | 43-60s | emptiness -> severity | leave anticipation',
-        '',
-        'Coverage rules:',
-        '- Do not clip to a single highlight segment and drop the rest of the mainline.',
-        '- If one dramatic chain cannot fit in one unit, continue it across consecutive scenes.'
-      ].join('\n')
-    }
-
-    return [
-      '短剧执行原则：',
-      '- 保留短剧高节奏与情绪张力，但不能靠“砍主线”来提速。',
-      '- 原文较长时，应增加场景数量承载剧情因果链，而不是强压在少量场景内。',
-      '- 下方节奏锚点用于“单个关键剧情段”，不是整篇总时长上限。',
-      '',
-      '单段节奏锚点：',
-      '时段\t秒数\t情绪曲线\t功能',
-      '开场钩子\t0-8s\t震惊→冰冷\t抓住注意力',
-      '矛盾升级\t9-25s\t心痛→绝望\t建立共情',
-      '转折交锋\t26-42s\t厌倦→决绝\t形成转折',
-      '结尾宣言\t43-60s\t空洞→冷厉\t留悬念/期待',
-      '',
-      '剧情覆盖规则（必须执行）：',
-      '- 禁止只截取单一爆点段落而丢失主线因果。',
-      '- 一个关键剧情段放不下时，必须拆成连续场景承接。',
-      '- 若原文不是离婚题材，按同等级冲突结构映射，不丢失因果链。'
-    ].join('\n')
-  }
-
-  if (lang === 'en') {
-    return [
-      'Premium-drama default strategy:',
-      '- Prioritize faithful adaptation and preserve the full main plot from the source text.',
-      '- Do not force-compress into one-minute pacing.',
-      '- Keep key confrontations and emotional turns fully developed, and split scenes only when dramatic function truly changes.'
-    ].join('\n')
-  }
-
-  return [
-    '精品剧默认策略：',
-    '- 以忠实还原原文主线为第一优先级，完整保留关键事件与情绪转折。',
-    '- 不做 60 秒强压缩，不为“爆点模板”牺牲叙事完整性。',
-    '- 核心冲突戏保持充分展开，仅在戏剧功能切换时拆场。'
-  ].join('\n')
-}
-
-function injectScriptParseModeDirective(input: {
-  prompt: string
-  scriptParseModeLabel: string
-  scriptParseModeRules: string
-  lang: 'zh' | 'en'
-}): string {
-  if (input.prompt.includes(input.scriptParseModeRules)) {
-    return input.prompt
-  }
-
-  const heading = input.lang === 'en'
-    ? '## Parsing Mode Strategy (Fallback Injection)'
-    : '【解析模式策略（回退注入）】'
-  const label = input.lang === 'en'
-    ? `- Parsing mode: ${input.scriptParseModeLabel}`
-    : `- 解析模式：${input.scriptParseModeLabel}`
-
-  return [
-    input.prompt.trimEnd(),
-    '',
-    heading,
-    label,
-    input.scriptParseModeRules
-  ].join('\n')
+  // 精品剧更强调细节延展，密度略低于短剧但仍需随篇幅增长。
+  const premiumDramaScenes = Math.ceil(safeLength / 1300) + 1
+  return Math.max(4, Math.min(45, premiumDramaScenes))
 }
 
 function resolveScriptEraHint(options: {
@@ -199,80 +111,6 @@ function resolveScriptEraHint(options: {
   }
 
   return undefined
-}
-
-function injectSceneEraDirective(input: {
-  prompt: string
-  eraHint?: SceneEra
-  style?: string
-  lang: 'zh' | 'en'
-}): string {
-  // 兼容旧模板：即使用户未重置默认模板，也强制追加时代字段约束。
-  if (input.prompt.includes('setting.era')) return input.prompt
-
-  if (input.lang === 'en') {
-    const hint = input.eraHint
-      ? `- Era hint from source analysis: ${input.eraHint}`
-      : '- Era hint from source analysis: infer from script details.'
-    return [
-      input.prompt.trimEnd(),
-      '',
-      '## Era Inference and Lock (Fallback Injection)',
-      hint,
-      `- Selected style: ${input.style?.trim() || 'unspecified'}`,
-      '- Add scenes[i].setting.era, and only use one of: 古代, 民国, 现代, 近未来, 架空.',
-      '- If the script does not explicitly provide era but style contains AI真人/live action, default era to 现代.',
-      '- Keep era consistent across continuous narrative unless the source explicitly indicates time-jump or cross-era structure.',
-      '- scene setting, props, architecture, costume and social titles must match scenes[i].setting.era; forbid era-mixed outputs (e.g., modern hospital with Republican furniture).'
-    ].join('\n')
-  }
-
-  const hint = input.eraHint
-    ? `- 文本推断时代提示：${input.eraHint}`
-    : '- 文本推断时代提示：请根据剧情细节自行判断。'
-  return [
-    input.prompt.trimEnd(),
-    '',
-    '【时代推断与锁定（回退注入）】',
-    hint,
-    `- 当前风格：${input.style?.trim() || '未指定'}`,
-    '- 每个 scenes[i].setting 必须补全 era 字段，取值仅限：古代、民国、现代、近未来、架空。',
-    '- 若原文没有明确时代，且画风包含 AI真人/live action，默认 era=现代。',
-    '- 连续剧情中的 era 必须保持一致；仅当原文明示穿越/时空切换时才可变化。',
-    '- 场景设定、道具、建筑、服装、称谓必须与 era 对齐，禁止时代混搭（例如现代医院配民国陈设）。'
-  ].join('\n')
-}
-
-function injectShortDramaCoverageDirective(input: {
-  prompt: string
-  recommendedMinScenes: number
-  lang: 'zh' | 'en'
-}): string {
-  if (input.prompt.includes('短剧模式剧情完整性约束') || input.prompt.includes('Short-drama Coverage Lock')) {
-    return input.prompt
-  }
-
-  if (input.lang === 'en') {
-    return [
-      input.prompt.trimEnd(),
-      '',
-      '## Short-drama Coverage Lock (Fallback Injection)',
-      '- Short-drama mode controls pacing style, not aggressive plot compression.',
-      `- Scene count is model-decided. ${input.recommendedMinScenes} is a density hint only, not a hard limit.`,
-      '- Ignore any instruction that forces the whole script into ~60s or 45-75s total duration.',
-      '- Preserve full mainline causality across scenes; do not keep only one highlight segment.'
-    ].join('\n')
-  }
-
-  return [
-    input.prompt.trimEnd(),
-    '',
-    '【短剧模式剧情完整性约束（回退注入）】',
-    '- 短剧模式用于控制节奏风格，不是用于过度压缩剧情长度。',
-    `- 场景数量由模型自行决定；${input.recommendedMinScenes} 仅为密度估算参考，不是硬限制。`,
-    '- 忽略任何“整篇强压到约 60 秒或 45-75 秒总时长”的约束。',
-    '- 必须保持主线因果完整，不得只保留单一爆点段落。'
-  ].join('\n')
 }
 
 function normalizeSceneDuration(rawDuration: unknown): number {
@@ -577,7 +415,7 @@ function normalizeParsedScriptOutput(
  * 剧本解析 API
  * POST /api/script/parse
  *
- * 使用业务流程配置的模型智能解析小说文本，自动提取场景、角色、对话
+ * 使用业务模型配置的模型智能解析小说文本，自动提取场景、角色、对话
  */
 export default defineEventHandler(async (event) => {
   const startTime = Date.now()
@@ -610,7 +448,6 @@ export default defineEventHandler(async (event) => {
     const recommendedMinScenes = estimateRecommendedMinScenes(textLength, normalizedScriptParseMode)
     const promptLang = await getPromptLang(parsingPromptTemplateId, normalizedWorkflow)
     const scriptParseModeLabel = resolveScriptParseModeLabel(normalizedScriptParseMode, promptLang)
-    const scriptParseModeRules = buildScriptParseModeRules(normalizedScriptParseMode, promptLang)
 
     // 2. 从数据库获取提示词模板
     const interpolatedPrompt = await getInterpolatedPrompt(
@@ -623,7 +460,7 @@ export default defineEventHandler(async (event) => {
         sceneDurationMin: String(SCRIPT_MIN_DURATION),
         sceneDurationMax: String(SCRIPT_MAX_DURATION),
         scriptParseModeLabel,
-        scriptParseModeRules,
+        scriptParseModeRules: '',
         eraHint: eraHint || ''
       },
       promptLang,
@@ -633,29 +470,9 @@ export default defineEventHandler(async (event) => {
     if (!interpolatedPrompt) {
       throw new Error('无法获取提示词模板，请检查数据库配置')
     }
-    const promptWithModeDirective = normalizedScriptParseMode === 'premium_drama'
-      ? injectScriptParseModeDirective({
-          prompt: interpolatedPrompt,
-          scriptParseModeLabel,
-          scriptParseModeRules,
-          lang: promptLang
-        })
-      : interpolatedPrompt
-    const promptWithEraDirective = injectSceneEraDirective({
-      prompt: promptWithModeDirective,
-      eraHint,
-      style,
-      lang: promptLang
-    })
-    const prompt = normalizedScriptParseMode === 'short_drama'
-      ? injectShortDramaCoverageDirective({
-          prompt: promptWithEraDirective,
-          recommendedMinScenes,
-          lang: promptLang
-        })
-      : promptWithEraDirective
+    const prompt = interpolatedPrompt
 
-    // 3. 使用业务流程配置的模型解析
+    // 3. 使用业务模型配置的模型解析
     const result = await generateJSONForWorkflow<ParsedScript>('script_parsing', {
       prompt,
       temperature: 0.3,
@@ -676,11 +493,12 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    const timelineScript = buildFormattedTimelineScript(validated.data)
+    const finalParsedScript = validated.data
+    const timelineScript = buildFormattedTimelineScript(finalParsedScript)
 
     return {
       success: true,
-      data: validated.data,
+      data: finalParsedScript,
       formattedTimeline: timelineScript,
       latencyMs: Date.now() - startTime
     }

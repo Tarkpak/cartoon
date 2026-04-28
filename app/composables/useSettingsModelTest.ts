@@ -6,7 +6,7 @@ import {
   getSettingsProviderColor,
   modelSupportsReferenceImage,
   modelSupportsThinking,
-  SETTINGS_MODEL_TEST_PROMPTS,
+  SETTINGS_MODEL_TEST_PLACEHOLDERS,
   SETTINGS_PROVIDER_CONFIG,
   type ModelTestTab,
   type ProviderGroup,
@@ -17,8 +17,9 @@ import {
 export function useSettingsModelTest() {
   const { models, selectedModels, loading, loadModels } = useSettingsModelCatalog()
   const DEFAULT_IMAGE_ASPECT_RATIO = '1:1'
+  const MODEL_TEST_TAB_STORAGE_KEY = 'manju:model-test-active-tab'
 
-  const activeTab = ref<ModelTestTab>('video')
+  const activeTab = ref<ModelTestTab>('text')
   const expandedProviders = ref<Set<string>>(new Set())
   const customPrompts = ref<Record<ModelTestTab, string>>({
     text: '',
@@ -109,6 +110,24 @@ export function useSettingsModelTest() {
     if (!currentImageModelRequiresReference.value) return true
     return referenceImages.value.length > 0
   })
+
+  function normalizeModelTestTab(value: unknown): ModelTestTab {
+    if (value === 'image' || value === 'video' || value === 'tts' || value === 'text') {
+      return value
+    }
+    return 'text'
+  }
+
+  function restoreActiveTabFromStorage() {
+    if (typeof window === 'undefined') return
+
+    try {
+      const raw = window.localStorage.getItem(MODEL_TEST_TAB_STORAGE_KEY)
+      activeTab.value = normalizeModelTestTab(raw)
+    } catch {
+      activeTab.value = 'text'
+    }
+  }
 
   function getCurrentModelList() {
     if (!models.value) return []
@@ -218,14 +237,14 @@ export function useSettingsModelTest() {
   async function testModel(modelType: ModelTestTab) {
     testResults.value[modelType] = { status: 'testing' }
 
-    const rawPrompt = customPrompts.value[modelType] || SETTINGS_MODEL_TEST_PROMPTS[modelType]
+    const rawPrompt = customPrompts.value[modelType] || SETTINGS_MODEL_TEST_PLACEHOLDERS[modelType]
     const modelId = testSelectedModels.value[modelType] || ''
 
     try {
       const body: Record<string, unknown> = {
         modelType,
         prompt: modelType === 'image'
-          ? resolveImagePromptWithReferenceTokens(rawPrompt, SETTINGS_MODEL_TEST_PROMPTS.image)
+          ? resolveImagePromptWithReferenceTokens(rawPrompt, SETTINGS_MODEL_TEST_PLACEHOLDERS.image)
           : rawPrompt
       }
 
@@ -275,8 +294,15 @@ export function useSettingsModelTest() {
     }
   }
 
-  watch(activeTab, () => {
+  watch(activeTab, (nextTab) => {
     autoExpandSelectedProviders()
+
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(MODEL_TEST_TAB_STORAGE_KEY, nextTab)
+    } catch {
+      // ignore localStorage write failures
+    }
   })
 
   watch(currentImageModelAspectRatioOptions, (options) => {
@@ -303,6 +329,7 @@ export function useSettingsModelTest() {
   )
 
   onMounted(() => {
+    restoreActiveTabFromStorage()
     void loadModels()
   })
 

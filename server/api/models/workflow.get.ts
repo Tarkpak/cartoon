@@ -1,6 +1,6 @@
 /**
- * 获取业务流程模型配置
- * 从数据库读取配置，返回各业务流程的模型需求和当前选择
+ * 获取业务模型配置
+ * 从数据库读取配置，返回各步骤的模型需求和当前选择
  */
 
 import { eq } from 'drizzle-orm'
@@ -367,7 +367,7 @@ export async function getWorkflowModels(): Promise<Record<WorkflowStep, string>>
 }
 
 /**
- * 保存业务流程模型配置到数据库
+ * 保存业务模型配置到数据库
  */
 export async function setWorkflowModel(step: WorkflowStep, modelId: string): Promise<void> {
   await initializeSelectedModels()
@@ -388,7 +388,7 @@ export async function setWorkflowModel(step: WorkflowStep, modelId: string): Pro
 }
 
 /**
- * 批量保存业务流程模型配置
+ * 批量保存业务模型配置
  */
 export async function setWorkflowModels(models: Partial<Record<WorkflowStep, string>>): Promise<void> {
   await initializeSelectedModels()
