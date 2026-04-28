@@ -66,6 +66,6 @@ export async function syncSceneVideoResult(sceneId: string, videoData?: string |
       })
       .where(eq(scenesTable.id, sceneId))
   } catch (error) {
-    console.warn(`[VideoGen] 场景视频状态回写失败: ${sceneId}`, error)
+    console.warn(`[VideoGen] 分镜视频状态回写失败: ${sceneId}`, error)
   }
 }

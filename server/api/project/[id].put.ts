@@ -191,6 +191,16 @@ const CharacterSchema = z.object({
   views: z.record(z.string()).nullish()
 })
 
+const EpisodePlanSchema = z.array(z.object({
+  id: z.string(),
+  title: z.string(),
+  index: z.number().int().min(1),
+  startOffset: z.number().int().min(0),
+  endOffset: z.number().int().min(1),
+  charCount: z.number().int().min(0).optional(),
+  episodeAssets: z.any().optional()
+}))
+
 const UpdateProjectSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
@@ -210,6 +220,8 @@ const UpdateProjectSchema = z.object({
   scriptParseMode: z.enum(SCRIPT_PARSE_MODES).optional(),
   // 风格选择
   selectedStyleId: z.string().optional(),
+  // 分集目录
+  episodePlan: EpisodePlanSchema.optional(),
   // 资产一致性工作流扩展字段
   assetWorkflow: z.any().optional(),
   scenes: z.array(SceneSchema).optional(),
@@ -302,6 +314,7 @@ export default defineEventHandler(async (event) => {
       || data.inputMode !== undefined
       || data.scriptParseMode !== undefined
       || data.selectedStyleId !== undefined
+      || data.episodePlan !== undefined
       || data.assetWorkflow !== undefined
       || data.scenes !== undefined
     ) {
@@ -318,6 +331,7 @@ export default defineEventHandler(async (event) => {
           selectedStyleId: data.selectedStyleId,
           inputMode: data.inputMode,
           scriptParseMode: data.scriptParseMode,
+          episodePlan: data.episodePlan,
           assetWorkflow: data.assetWorkflow
         }, existingData)
       )

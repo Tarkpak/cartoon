@@ -65,7 +65,7 @@ export const PROMPT_STAGE_CONFIG: Record<PromptFlowStage, PromptStageMeta> = {
     name: PROMPT_FLOW_STAGE_LABELS.videos,
     color: 'purple',
     icon: Video,
-    description: '场景视频生成模板。'
+    description: '分镜视频生成模板。'
   }
 }
 

@@ -49,7 +49,7 @@ const MergeVideosRequestSchema = z.object({
       startTime: z.number().optional(),
       endTime: z.number().optional()
     })).optional()
-  })).min(1).describe('场景视频列表'),
+  })).min(1).describe('分镜视频列表'),
   options: z.object({
     transition: z.object({
       type: z.enum(['fade', 'dissolve', 'wipe', 'none']).default('fade'),
@@ -68,7 +68,7 @@ const MergeVideosRequestSchema = z.object({
  * 视频合成 API
  * POST /api/video/merge
  *
- * 将多个场景视频合成为一个完整视频
+ * 将多个分镜视频合成为一个完整视频
  */
 export default defineEventHandler(async (event) => {
   const startTime = Date.now()
@@ -100,7 +100,7 @@ export default defineEventHandler(async (event) => {
   await fs.mkdir(tempDir, { recursive: true })
 
   try {
-    console.log(`[VideoMerge] 开始合成 ${scenes.length} 个场景视频`)
+    console.log(`[VideoMerge] 开始合成 ${scenes.length} 个分镜视频`)
 
     // 1. 准备视频片段
     const clips: VideoClip[] = []

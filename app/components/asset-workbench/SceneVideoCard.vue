@@ -310,7 +310,7 @@ const sceneVideoHistoryCount = computed(() => {
           v-if="scene.videoStatus === 'generating' || scenePreparing"
           class="mr-1 h-3.5 w-3.5 animate-spin"
         />
-        {{ scenePreparing ? '准备中' : scene.videoUrl ? '重生成视频' : '生成视频' }}
+        {{ scenePreparing ? '准备中' : scene.videoUrl ? '重新生成视频' : '生成视频' }}
       </Button>
       <Button
         v-if="sceneVideoHistoryCount > 1"

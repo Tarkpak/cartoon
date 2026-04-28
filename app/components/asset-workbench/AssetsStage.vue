@@ -77,11 +77,17 @@ const tabs = computed(() => [
   { key: 'props' as AssetTab, label: '道具', count: propAssetsOfType.value.length },
   { key: 'others' as AssetTab, label: '其他', count: otherAssetsOfType.value.length }
 ])
+
+const hasSeedAssets = computed(() => {
+  return props.characters.length > 0
+    || props.environmentAssetCards.length > 0
+    || props.propAssets.length > 0
+})
 </script>
 
 <template>
   <div
-    v-if="scenesCount === 0"
+    v-if="scenesCount === 0 && !hasSeedAssets"
     class="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground"
   >
     <p class="text-sm">
@@ -113,12 +119,18 @@ const tabs = computed(() => [
           <span class="inline-block h-2 w-2 rounded-full bg-amber-500" />
           待生成 {{ characterMissingCount }}
         </div>
+        <div
+          v-if="scenesCount === 0 && hasSeedAssets"
+          class="text-xs text-muted-foreground/80"
+        >
+          当前展示的是分集目录提取的资产候选
+        </div>
       </div>
 
       <div class="flex items-center gap-2">
         <Button
           size="sm"
-          :disabled="autoRunning"
+          :disabled="autoRunning || scenesCount === 0"
           class="gap-2"
           @click="emit('run-assets')"
         >

@@ -11,6 +11,7 @@ export interface StoredProjectScriptData {
   selectedStyleId: string
   inputMode: 'idea' | 'script'
   scriptParseMode: ScriptParseMode
+  episodePlan: unknown[]
   assetWorkflow: unknown | null
 }
 
@@ -22,6 +23,7 @@ function createDefaultStoredProjectScriptData(): StoredProjectScriptData {
     selectedStyleId: '',
     inputMode: 'idea',
     scriptParseMode: DEFAULT_SCRIPT_PARSE_MODE,
+    episodePlan: [],
     assetWorkflow: null
   }
 }
@@ -40,6 +42,7 @@ export function parseStoredProjectScript(rawText?: string | null): StoredProject
       selectedStyleId: typeof parsed.selectedStyleId === 'string' ? parsed.selectedStyleId : defaults.selectedStyleId,
       inputMode: parsed.inputMode === 'script' ? 'script' : defaults.inputMode,
       scriptParseMode: normalizeScriptParseMode((parsed as { scriptParseMode?: unknown }).scriptParseMode),
+      episodePlan: Array.isArray(parsed.episodePlan) ? parsed.episodePlan : defaults.episodePlan,
       assetWorkflow: parsed.assetWorkflow ?? defaults.assetWorkflow
     }
   } catch {
@@ -64,6 +67,7 @@ export function mergeStoredProjectScriptData(
     selectedStyleId: patch.selectedStyleId ?? base.selectedStyleId,
     inputMode: patch.inputMode ?? base.inputMode,
     scriptParseMode: patch.scriptParseMode ? normalizeScriptParseMode(patch.scriptParseMode) : base.scriptParseMode,
+    episodePlan: patch.episodePlan ?? base.episodePlan,
     assetWorkflow: patch.assetWorkflow ?? base.assetWorkflow
   }
 }

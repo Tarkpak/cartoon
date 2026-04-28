@@ -353,9 +353,9 @@ watchEffect((onCleanup) => {
   >
     <DialogContent class="flex max-h-[92vh] flex-col overflow-hidden sm:max-w-6xl xl:max-w-7xl">
       <DialogHeader class="space-y-2 pr-8">
-        <DialogTitle>环境截图区域</DialogTitle>
+        <DialogTitle>环境取景区域</DialogTitle>
         <DialogDescription>
-          目标：{{ targetLabel || '-' }}。直接拖动选窗移动区域，拖动四角缩放选窗，环境截图不再锁定项目比例。
+          目标：{{ targetLabel || '-' }}。直接拖动选窗移动区域，拖动四角缩放选窗，环境取景不再锁定项目比例。
         </DialogDescription>
       </DialogHeader>
 
@@ -365,7 +365,7 @@ watchEffect((onCleanup) => {
             <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div class="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Move class="h-4 w-4 text-primary" />
-                环境全景截图区域
+                环境全景取景区域
               </div>
               <div class="inline-flex items-center rounded-full border bg-background px-2.5 py-1 text-xs text-muted-foreground">
                 自由比例 · {{ selectionRatioLabel }}
@@ -467,7 +467,7 @@ watchEffect((onCleanup) => {
             <div class="mb-3 flex items-center justify-between gap-2">
               <div class="flex items-center gap-2 text-sm font-medium">
                 <ScanSearch class="h-4 w-4 text-primary" />
-                当前截图预览
+                当前取景预览
               </div>
               <div class="flex items-center gap-2">
                 <Button
@@ -501,7 +501,7 @@ watchEffect((onCleanup) => {
                 <img
                   v-if="selection && imageSrc"
                   :src="imageSrc"
-                  :alt="`${targetLabel} 当前截图预览`"
+                  :alt="`${targetLabel} 当前取景预览`"
                   class="absolute max-w-none"
                   :style="previewImageStyle"
                 >
@@ -576,7 +576,7 @@ watchEffect((onCleanup) => {
             v-if="loading"
             class="mr-2 h-4 w-4 animate-spin"
           />
-          保存截图区域
+          保存取景区域
         </Button>
       </DialogFooter>
     </DialogContent>

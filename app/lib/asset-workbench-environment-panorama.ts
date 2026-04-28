@@ -205,7 +205,7 @@ export async function renderCropSelectionToDataUrl(options: {
 
       const normalizedSelection = normalizeCropSelection(options.selection, width, height)
       if (!normalizedSelection) {
-        reject(new Error('截图区域无效，无法生成截图'))
+        reject(new Error('取景区域无效，无法生成环境图'))
         return
       }
 
@@ -221,7 +221,7 @@ export async function renderCropSelectionToDataUrl(options: {
 
       const context = canvas.getContext('2d')
       if (!context) {
-        reject(new Error('当前浏览器不支持环境截图导出'))
+        reject(new Error('当前浏览器不支持环境图导出'))
         return
       }
 

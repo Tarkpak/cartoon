@@ -16,7 +16,23 @@ const EpisodePlanRequestSchema = z.object({
 const EpisodePlanModelEpisodeSchema = z.object({
   index: z.coerce.number().int().min(1).optional(),
   title: z.string().trim().min(1).optional(),
-  startAnchor: z.string().trim().min(8).optional()
+  startAnchor: z.string().trim().min(8).optional(),
+  episodeAssets: z.object({
+    characters: z.array(z.object({
+      name: z.string().trim().min(1),
+      description: z.string().trim().optional(),
+      role: z.string().trim().optional()
+    })).optional(),
+    props: z.array(z.object({
+      name: z.string().trim().min(1),
+      description: z.string().trim().optional()
+    })).optional(),
+    environments: z.array(z.object({
+      location: z.string().trim().min(1),
+      timeOfDay: z.string().trim().optional(),
+      mood: z.string().trim().optional()
+    })).optional()
+  }).optional()
 })
 
 const EpisodePlanModelOutputSchema = z.object({
@@ -24,6 +40,13 @@ const EpisodePlanModelOutputSchema = z.object({
 })
 
 const MIN_EPISODE_CHAR_GAP = 1
+const EPISODE_PLAN_SINGLE_PASS_MAX_CHARS = 32000
+const EPISODE_PLAN_CHUNK_FALLBACK_MIN_CHARS = 12000
+const EPISODE_PLAN_CHUNK_TARGET_CHARS = 24000
+const EPISODE_PLAN_CHUNK_MAX_CHARS = 32000
+const EPISODE_PLAN_CHUNK_MIN_CHARS = 10000
+const EPISODE_PLAN_MAX_CHUNK_COUNT = 64
+const CHAPTER_HEADING_REGEX = /(?:^|\n)\s*(?:第[0-9零一二三四五六七八九十百千万两]+[章节回卷部篇集]|chapter\s+\d+)[^\n]*/giu
 
 function normalizeScriptInputText(text: string): string {
   return text.replace(/\r\n?/g, '\n').trim()
@@ -46,21 +69,38 @@ function normalizeEpisodeTitle(rawTitle: string | undefined, index: number): str
   return value || toEpisodeTitle(index)
 }
 
-function buildEpisodePlanPrompt(text: string, scriptParseMode: ScriptParseMode): string {
+function buildEpisodePlanPrompt(
+  text: string,
+  scriptParseMode: ScriptParseMode,
+  options: {
+    chunkIndex?: number
+    chunkCount?: number
+  } = {}
+): string {
   const modeRule = scriptParseMode === 'short_drama'
     ? '短剧模式额外约束：请由剧情节奏决定分集数量，并确保每集对应的场景合成总时长目标不超过 300 秒（5 分钟）。'
     : '精品剧模式：由剧情结构自行决定分集数量。'
+  const chunkCount = options.chunkCount && options.chunkCount > 1 ? options.chunkCount : 1
+  const chunkIndex = options.chunkIndex && options.chunkIndex >= 1 ? options.chunkIndex : 1
+  const isSegmented = chunkCount > 1
+  const chunkRule = isSegmented
+    ? `当前仅提供原文第 ${chunkIndex}/${chunkCount} 段，请严格基于本段文本拆分，不得补写未提供段落。`
+    : '当前提供的是完整原文。'
+  const firstAnchorRule = isSegmented
+    ? '第1集 startAnchor 必须取“本段开头”的连续片段。'
+    : '第1集 startAnchor 必须取原文开头连续片段。'
 
   return `你是专业编剧统筹，请把一部长文本剧本按“剧情结构”拆分成分集目录。
 
 要求：
 1) 必须按剧情节点分集，不允许按字数平均切分。
 2) ${modeRule}
-3) 每集给出 title（可简短），并给出 startAnchor：
+3) ${chunkRule}
+4) 每集给出 title（可简短），并给出 startAnchor：
    - startAnchor 必须是原文中的连续原句片段，逐字摘录，不得改写。
-   - 第1集 startAnchor 必须取原文开头连续片段。
+   - ${firstAnchorRule}
    - 第2集及以后 startAnchor 必须对应该集开头附近，建议 20~80 字，尽量唯一。
-4) 仅输出 JSON，不要 markdown，不要解释文本，不要输出空集。
+5) 仅输出 JSON，不要 markdown，不要解释文本，不要输出空集。
 
 JSON 结构（严格遵守）：
 {
@@ -68,13 +108,300 @@ JSON 结构（严格遵守）：
     {
       "index": 1,
       "title": "第1集：...",
-      "startAnchor": "原文片段"
+      "startAnchor": "原文片段",
+      "episodeAssets": {
+        "characters": [{ "name": "角色名", "description": "可选", "role": "可选" }],
+        "props": [{ "name": "道具名", "description": "可选" }],
+        "environments": [{ "location": "地点", "timeOfDay": "可选", "mood": "可选" }]
+      }
     }
   ]
 }
 
 原文如下：
 ${text}`
+}
+
+interface EpisodePlanChunk {
+  index: number
+  startOffset: number
+  endOffset: number
+  text: string
+}
+
+interface EpisodeAssetCharacter {
+  name: string
+  description?: string
+  role?: string
+}
+
+interface EpisodeAssetProp {
+  name: string
+  description?: string
+}
+
+interface EpisodeAssetEnvironment {
+  location: string
+  timeOfDay?: string
+  mood?: string
+}
+
+interface EpisodeAssetSummary {
+  characters: EpisodeAssetCharacter[]
+  props: EpisodeAssetProp[]
+  environments: EpisodeAssetEnvironment[]
+}
+
+interface EpisodePlanItemWithAssets extends ScriptEpisodePlanItem {
+  episodeAssets?: EpisodeAssetSummary
+}
+
+function normalizeEpisodeAssetKey(raw: string): string {
+  return raw.toLowerCase().replace(/[\s\r\n\t]+/g, '').trim()
+}
+
+function normalizeEpisodeAssetSummary(raw: unknown): EpisodeAssetSummary | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const source = raw as {
+    characters?: Array<{ name?: unknown, description?: unknown, role?: unknown }>
+    props?: Array<{ name?: unknown, description?: unknown }>
+    environments?: Array<{ location?: unknown, timeOfDay?: unknown, mood?: unknown }>
+  }
+
+  const characterMap = new Map<string, EpisodeAssetCharacter>()
+  for (const item of source.characters || []) {
+    const name = typeof item?.name === 'string' ? item.name.trim() : ''
+    if (!name) continue
+    const key = normalizeEpisodeAssetKey(name)
+    if (!key) continue
+    const description = typeof item?.description === 'string' ? item.description.trim() : ''
+    const role = typeof item?.role === 'string' ? item.role.trim() : ''
+    const existing = characterMap.get(key)
+    if (!existing) {
+      characterMap.set(key, {
+        name,
+        ...(description ? { description } : {}),
+        ...(role ? { role } : {})
+      })
+      continue
+    }
+    if (description && (!existing.description || description.length > existing.description.length)) {
+      existing.description = description
+    }
+    if (role && !existing.role) {
+      existing.role = role
+    }
+  }
+
+  const propMap = new Map<string, EpisodeAssetProp>()
+  for (const item of source.props || []) {
+    const name = typeof item?.name === 'string' ? item.name.trim() : ''
+    if (!name) continue
+    const key = normalizeEpisodeAssetKey(name)
+    if (!key) continue
+    const description = typeof item?.description === 'string' ? item.description.trim() : ''
+    const existing = propMap.get(key)
+    if (!existing) {
+      propMap.set(key, {
+        name,
+        ...(description ? { description } : {})
+      })
+      continue
+    }
+    if (description && (!existing.description || description.length > existing.description.length)) {
+      existing.description = description
+    }
+  }
+
+  const environmentMap = new Map<string, EpisodeAssetEnvironment>()
+  for (const item of source.environments || []) {
+    const location = typeof item?.location === 'string' ? item.location.trim() : ''
+    if (!location) continue
+    const timeOfDay = typeof item?.timeOfDay === 'string' ? item.timeOfDay.trim() : ''
+    const mood = typeof item?.mood === 'string' ? item.mood.trim() : ''
+    const key = normalizeEpisodeAssetKey(`${location}||${timeOfDay}`)
+    if (!key) continue
+    const existing = environmentMap.get(key)
+    if (!existing) {
+      environmentMap.set(key, {
+        location,
+        ...(timeOfDay ? { timeOfDay } : {}),
+        ...(mood ? { mood } : {})
+      })
+      continue
+    }
+    if (mood && (!existing.mood || mood.length > existing.mood.length)) {
+      existing.mood = mood
+    }
+  }
+
+  const normalized: EpisodeAssetSummary = {
+    characters: Array.from(characterMap.values()),
+    props: Array.from(propMap.values()),
+    environments: Array.from(environmentMap.values())
+  }
+
+  if (
+    normalized.characters.length === 0
+    && normalized.props.length === 0
+    && normalized.environments.length === 0
+  ) {
+    return undefined
+  }
+
+  return normalized
+}
+
+function mergeEpisodeAssetSummaries(
+  current?: EpisodeAssetSummary,
+  incoming?: EpisodeAssetSummary
+): EpisodeAssetSummary | undefined {
+  if (!current && !incoming) return undefined
+  if (!current) return incoming
+  if (!incoming) return current
+  return normalizeEpisodeAssetSummary({
+    characters: [...current.characters, ...incoming.characters],
+    props: [...current.props, ...incoming.props],
+    environments: [...current.environments, ...incoming.environments]
+  })
+}
+
+function findBackwardBreak(text: string, from: number, min: number, breakChars: Set<string>): number {
+  for (let i = from; i >= min; i--) {
+    const char = text[i]
+    if (char && breakChars.has(char)) {
+      return i + 1
+    }
+  }
+  return -1
+}
+
+function findForwardBreak(text: string, from: number, max: number, breakChars: Set<string>): number {
+  for (let i = from; i < max; i++) {
+    const char = text[i]
+    if (char && breakChars.has(char)) {
+      return i + 1
+    }
+  }
+  return -1
+}
+
+function resolveChunkBreakOffset(options: {
+  text: string
+  minOffset: number
+  preferredOffset: number
+  maxOffset: number
+}): number {
+  const { text, minOffset, preferredOffset, maxOffset } = options
+  const windowText = text.slice(minOffset, maxOffset)
+  const chapterBreakCandidates: number[] = []
+
+  CHAPTER_HEADING_REGEX.lastIndex = 0
+  let match = CHAPTER_HEADING_REGEX.exec(windowText)
+  while (match) {
+    const raw = match[0] || ''
+    const localStart = match.index + (raw.startsWith('\n') ? 1 : 0)
+    const candidate = minOffset + localStart
+    if (candidate > minOffset && candidate < maxOffset) {
+      chapterBreakCandidates.push(candidate)
+    }
+    match = CHAPTER_HEADING_REGEX.exec(windowText)
+  }
+
+  if (chapterBreakCandidates.length > 0) {
+    chapterBreakCandidates.sort((a, b) => {
+      return Math.abs(a - preferredOffset) - Math.abs(b - preferredOffset)
+    })
+    const best = chapterBreakCandidates[0]
+    if (best && best > minOffset && best < maxOffset) return best
+  }
+
+  const paragraphBreak = text.lastIndexOf('\n\n', preferredOffset)
+  if (paragraphBreak >= minOffset && paragraphBreak < maxOffset) {
+    return paragraphBreak + 2
+  }
+
+  const lineBreak = text.lastIndexOf('\n', preferredOffset)
+  if (lineBreak >= minOffset && lineBreak < maxOffset) {
+    return lineBreak + 1
+  }
+
+  const sentenceBreakChars = new Set(['。', '！', '？', '!', '?'])
+  const punctuationBreakChars = new Set(['；', ';', '，', ',', '、'])
+  const backwardSentenceBreak = findBackwardBreak(text, preferredOffset, minOffset, sentenceBreakChars)
+  if (backwardSentenceBreak > minOffset && backwardSentenceBreak < maxOffset) {
+    return backwardSentenceBreak
+  }
+  const backwardPunctuationBreak = findBackwardBreak(text, preferredOffset, minOffset, punctuationBreakChars)
+  if (backwardPunctuationBreak > minOffset && backwardPunctuationBreak < maxOffset) {
+    return backwardPunctuationBreak
+  }
+
+  const forwardSentenceBreak = findForwardBreak(text, preferredOffset + 1, maxOffset, sentenceBreakChars)
+  if (forwardSentenceBreak > minOffset && forwardSentenceBreak < maxOffset) {
+    return forwardSentenceBreak
+  }
+
+  return maxOffset
+}
+
+function splitTextIntoEpisodePlanChunks(text: string): EpisodePlanChunk[] {
+  if (text.length <= EPISODE_PLAN_CHUNK_MAX_CHARS) {
+    return [{
+      index: 1,
+      startOffset: 0,
+      endOffset: text.length,
+      text
+    }]
+  }
+
+  const chunks: EpisodePlanChunk[] = []
+  let cursor = 0
+
+  while (cursor < text.length && chunks.length < EPISODE_PLAN_MAX_CHUNK_COUNT) {
+    const remaining = text.length - cursor
+    if (remaining <= EPISODE_PLAN_CHUNK_MAX_CHARS) {
+      chunks.push({
+        index: chunks.length + 1,
+        startOffset: cursor,
+        endOffset: text.length,
+        text: text.slice(cursor)
+      })
+      break
+    }
+
+    const minOffset = Math.min(text.length, cursor + EPISODE_PLAN_CHUNK_MIN_CHARS)
+    const preferredOffset = Math.min(text.length, cursor + EPISODE_PLAN_CHUNK_TARGET_CHARS)
+    const maxOffset = Math.min(text.length, cursor + EPISODE_PLAN_CHUNK_MAX_CHARS)
+    const nextOffset = resolveChunkBreakOffset({
+      text,
+      minOffset,
+      preferredOffset,
+      maxOffset
+    })
+
+    const safeNextOffset = Math.max(cursor + MIN_EPISODE_CHAR_GAP, Math.min(text.length, nextOffset))
+    if (safeNextOffset <= cursor) break
+
+    chunks.push({
+      index: chunks.length + 1,
+      startOffset: cursor,
+      endOffset: safeNextOffset,
+      text: text.slice(cursor, safeNextOffset)
+    })
+    cursor = safeNextOffset
+  }
+
+  if (cursor < text.length) {
+    chunks.push({
+      index: chunks.length + 1,
+      startOffset: cursor,
+      endOffset: text.length,
+      text: text.slice(cursor)
+    })
+  }
+
+  return chunks.filter(chunk => chunk.endOffset > chunk.startOffset && chunk.text.length > 0)
 }
 
 function findAnchorOffset(text: string, anchor: string, fromOffset: number): number {
@@ -101,21 +428,23 @@ function findAnchorOffset(text: string, anchor: string, fromOffset: number): num
 function buildEpisodePlanFromModelOutput(
   text: string,
   modelOutput: z.infer<typeof EpisodePlanModelOutputSchema>
-): ScriptEpisodePlanItem[] {
+): EpisodePlanItemWithAssets[] {
   const rawEpisodes = modelOutput.episodes
     .map((item, order) => ({
       order,
       index: item.index ?? (order + 1),
       title: item.title,
-      startAnchor: item.startAnchor
+      startAnchor: item.startAnchor,
+      episodeAssets: normalizeEpisodeAssetSummary(item.episodeAssets)
     }))
     .sort((a, b) => a.index - b.index || a.order - b.order)
 
   if (rawEpisodes.length === 0) return []
 
-  const resolvedStarts: Array<{ title: string, startOffset: number }> = [{
+  const resolvedStarts: Array<{ title: string, startOffset: number, episodeAssets?: EpisodeAssetSummary }> = [{
     title: normalizeEpisodeTitle(rawEpisodes[0]?.title, 0),
-    startOffset: 0
+    startOffset: 0,
+    episodeAssets: rawEpisodes[0]?.episodeAssets
   }]
 
   let lastStartOffset = 0
@@ -132,7 +461,8 @@ function buildEpisodePlanFromModelOutput(
 
     resolvedStarts.push({
       title: normalizeEpisodeTitle(episode.title, resolvedStarts.length),
-      startOffset
+      startOffset,
+      episodeAssets: episode.episodeAssets
     })
     lastStartOffset = startOffset
   }
@@ -143,11 +473,12 @@ function buildEpisodePlanFromModelOutput(
       title: normalizeEpisodeTitle(rawEpisodes[0]?.title, 0),
       index: 1,
       startOffset: 0,
-      endOffset: text.length
+      endOffset: text.length,
+      episodeAssets: rawEpisodes[0]?.episodeAssets
     }]
   }
 
-  const plannedEpisodes: ScriptEpisodePlanItem[] = []
+  const plannedEpisodes: EpisodePlanItemWithAssets[] = []
   for (let i = 0; i < resolvedStarts.length; i++) {
     const current = resolvedStarts[i]
     if (!current) continue
@@ -163,7 +494,8 @@ function buildEpisodePlanFromModelOutput(
       title: normalizeEpisodeTitle(current.title, plannedEpisodes.length),
       index: plannedEpisodes.length + 1,
       startOffset,
-      endOffset
+      endOffset,
+      episodeAssets: current.episodeAssets
     })
   }
 
@@ -184,8 +516,16 @@ function buildEpisodePlanFromModelOutput(
   return plannedEpisodes
 }
 
-async function buildModelDrivenEpisodePlan(text: string, scriptParseMode: ScriptParseMode): Promise<ScriptEpisodePlanItem[]> {
-  const prompt = buildEpisodePlanPrompt(text, scriptParseMode)
+async function runModelDrivenEpisodePlanPass(options: {
+  text: string
+  scriptParseMode: ScriptParseMode
+  chunkIndex?: number
+  chunkCount?: number
+}): Promise<EpisodePlanItemWithAssets[]> {
+  const prompt = buildEpisodePlanPrompt(options.text, options.scriptParseMode, {
+    chunkIndex: options.chunkIndex,
+    chunkCount: options.chunkCount
+  })
   const modelResult = await generateJSONForWorkflow<unknown>('script_parsing', {
     prompt,
     temperature: 0.2,
@@ -197,7 +537,125 @@ async function buildModelDrivenEpisodePlan(text: string, scriptParseMode: Script
     throw new Error('分集目录模型输出格式无效')
   }
 
-  return buildEpisodePlanFromModelOutput(text, parsedModelResult.data)
+  return buildEpisodePlanFromModelOutput(options.text, parsedModelResult.data)
+}
+
+async function buildModelDrivenEpisodePlan(text: string, scriptParseMode: ScriptParseMode): Promise<EpisodePlanItemWithAssets[]> {
+  return await runModelDrivenEpisodePlanPass({
+    text,
+    scriptParseMode
+  })
+}
+
+function isGenericEpisodeTitle(title: string): boolean {
+  return /^第\s*\d+\s*集(?:\s*[：:、-].*)?$/u.test(title.trim())
+}
+
+function pickPreferredTitle(current: string | undefined, incoming: string): string {
+  const next = incoming.trim()
+  if (!next) return (current || '').trim()
+  const existing = (current || '').trim()
+  if (!existing) return next
+
+  const existingGeneric = isGenericEpisodeTitle(existing)
+  const nextGeneric = isGenericEpisodeTitle(next)
+  if (existingGeneric && !nextGeneric) return next
+  if (!existingGeneric && nextGeneric) return existing
+
+  return next.length > existing.length ? next : existing
+}
+
+async function buildChunkedModelDrivenEpisodePlan(
+  text: string,
+  scriptParseMode: ScriptParseMode
+): Promise<EpisodePlanItemWithAssets[]> {
+  const chunks = splitTextIntoEpisodePlanChunks(text)
+  if (chunks.length === 0) return []
+
+  console.log('[EpisodePlan] 启用分段分集策略:', {
+    textLength: text.length,
+    chunkCount: chunks.length,
+    targetChunkChars: EPISODE_PLAN_CHUNK_TARGET_CHARS
+  })
+
+  const startMetaMap = new Map<number, {
+    title: string
+    episodeAssets?: EpisodeAssetSummary
+  }>()
+  startMetaMap.set(0, { title: '' })
+
+  for (let index = 0; index < chunks.length; index++) {
+    const chunk = chunks[index]
+    if (!chunk) continue
+
+    const localEpisodes = await runModelDrivenEpisodePlanPass({
+      text: chunk.text,
+      scriptParseMode,
+      chunkIndex: index + 1,
+      chunkCount: chunks.length
+    })
+
+    for (const localEpisode of localEpisodes) {
+      const localStartOffset = Number.isFinite(localEpisode.startOffset)
+        ? Math.max(0, Math.floor(localEpisode.startOffset))
+        : 0
+      const globalStartOffset = Math.max(
+        0,
+        Math.min(text.length - 1, chunk.startOffset + localStartOffset)
+      )
+      const currentMeta = startMetaMap.get(globalStartOffset)
+      startMetaMap.set(globalStartOffset, {
+        title: pickPreferredTitle(currentMeta?.title, localEpisode.title || ''),
+        episodeAssets: mergeEpisodeAssetSummaries(currentMeta?.episodeAssets, localEpisode.episodeAssets)
+      })
+    }
+  }
+
+  const sortedStarts = Array.from(startMetaMap.keys())
+    .sort((a, b) => a - b)
+    .filter((start, idx, list) => {
+      if (idx === 0) return true
+      const prev = list[idx - 1] ?? -1
+      return start - prev >= MIN_EPISODE_CHAR_GAP
+    })
+
+  if (sortedStarts.length === 0 || sortedStarts[0] !== 0) {
+    sortedStarts.unshift(0)
+  }
+
+  const mergedEpisodes: EpisodePlanItemWithAssets[] = []
+  for (let i = 0; i < sortedStarts.length; i++) {
+    const startOffset = sortedStarts[i]
+    if (startOffset === undefined) continue
+    const endOffset = sortedStarts[i + 1] ?? text.length
+    if (endOffset - startOffset < MIN_EPISODE_CHAR_GAP) continue
+
+    const meta = startMetaMap.get(startOffset)
+    mergedEpisodes.push({
+      id: toEpisodeId(mergedEpisodes.length),
+      title: normalizeEpisodeTitle(meta?.title, mergedEpisodes.length),
+      index: mergedEpisodes.length + 1,
+      startOffset,
+      endOffset,
+      episodeAssets: meta?.episodeAssets
+    })
+  }
+
+  if (mergedEpisodes.length === 0) return []
+  if (mergedEpisodes[0] && mergedEpisodes[0].startOffset !== 0) {
+    mergedEpisodes[0] = {
+      ...mergedEpisodes[0],
+      startOffset: 0
+    }
+  }
+  if (mergedEpisodes[mergedEpisodes.length - 1]) {
+    mergedEpisodes[mergedEpisodes.length - 1] = {
+      ...mergedEpisodes[mergedEpisodes.length - 1]!,
+      endOffset: text.length
+    }
+  }
+
+  return mergedEpisodes
 }
 
 export default defineEventHandler(async (event) => {
@@ -222,10 +680,25 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  let episodes: ScriptEpisodePlanItem[] = []
+  let episodes: EpisodePlanItemWithAssets[] = []
   try {
     const normalizedScriptParseMode = normalizeScriptParseMode(parseResult.data.scriptParseMode)
-    episodes = await buildModelDrivenEpisodePlan(normalizedText, normalizedScriptParseMode)
+    const shouldUseChunkStrategy = normalizedText.length > EPISODE_PLAN_SINGLE_PASS_MAX_CHARS
+
+    if (shouldUseChunkStrategy) {
+      episodes = await buildChunkedModelDrivenEpisodePlan(normalizedText, normalizedScriptParseMode)
+    } else {
+      try {
+        episodes = await buildModelDrivenEpisodePlan(normalizedText, normalizedScriptParseMode)
+      } catch (singlePassError) {
+        if (normalizedText.length < EPISODE_PLAN_CHUNK_FALLBACK_MIN_CHARS) {
+          throw singlePassError
+        }
+        console.warn('[EpisodePlan] 单次分集失败，回退分段分集策略:', singlePassError)
+        episodes = await buildChunkedModelDrivenEpisodePlan(normalizedText, normalizedScriptParseMode)
+      }
+    }
+
     if (episodes.length === 0) {
       throw new Error('分集目录模型结果为空')
     }
@@ -242,7 +715,8 @@ export default defineEventHandler(async (event) => {
     const charCount = Math.max(0, item.endOffset - item.startOffset)
     return {
       ...item,
-      charCount
+      charCount,
+      ...(item.episodeAssets ? { episodeAssets: item.episodeAssets } : {})
     }
   })
 
