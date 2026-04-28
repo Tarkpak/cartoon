@@ -130,6 +130,9 @@ async function normalizeImageMapForStorage(
 
 const SceneSchema = z.object({
   id: z.string(),
+  episodeId: z.string().optional(),
+  episodeTitle: z.string().optional(),
+  episodeIndex: z.number().int().min(1).optional(),
   title: z.string().optional(),
   description: z.string(),
   setting: z.object({
@@ -370,6 +373,9 @@ export default defineEventHandler(async (event) => {
             id: normalizeScopedId('scene', scene.id),
             scriptId: script.id,
             orderIndex: i,
+            episodeId: scene.episodeId || null,
+            episodeTitle: scene.episodeTitle || null,
+            episodeIndex: scene.episodeIndex || null,
             title: scene.title || null,
             description: scene.description,
             setting: normalizedSetting ? JSON.stringify(normalizedSetting) : null,

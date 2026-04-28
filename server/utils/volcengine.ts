@@ -490,10 +490,8 @@ export async function _volcengineGenerateJSON<T>(options: {
         name: 'structured_response',
         strict: true,
         schema: {
-          anyOf: [
-            { type: 'object' },
-            { type: 'array' }
-          ]
+          type: 'object',
+          additionalProperties: true
         }
       }
     }

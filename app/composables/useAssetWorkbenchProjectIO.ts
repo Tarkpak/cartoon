@@ -164,6 +164,9 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
           } | null
           scenes: Array<{
             id: string
+            episodeId?: string | null
+            episodeTitle?: string | null
+            episodeIndex?: number | null
             title?: string | null
             description: string
             setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string } | null

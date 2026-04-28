@@ -74,6 +74,9 @@ export function initDatabase() {
       id TEXT PRIMARY KEY,
       script_id TEXT REFERENCES scripts(id) ON DELETE CASCADE,
       order_index INTEGER NOT NULL,
+      episode_id TEXT,
+      episode_title TEXT,
+      episode_index INTEGER,
       title TEXT,
       description TEXT NOT NULL,
       setting TEXT,
@@ -95,6 +98,13 @@ export function initDatabase() {
       updated_at TEXT NOT NULL
     )
   `)
+
+  // 兼容旧数据库：补充分集字段
+  const sceneColumns = sqlite.prepare('PRAGMA table_info(scenes)').all() as Array<{ name: string }>
+  const hasSceneColumn = (name: string) => sceneColumns.some(c => c.name === name)
+  if (!hasSceneColumn('episode_id')) sqlite.exec('ALTER TABLE scenes ADD COLUMN episode_id TEXT')
+  if (!hasSceneColumn('episode_title')) sqlite.exec('ALTER TABLE scenes ADD COLUMN episode_title TEXT')
+  if (!hasSceneColumn('episode_index')) sqlite.exec('ALTER TABLE scenes ADD COLUMN episode_index INTEGER')
 
   // 创建角色表
   sqlite.exec(`
@@ -207,6 +217,7 @@ export function initDatabase() {
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS idx_scripts_project ON scripts(project_id);
     CREATE INDEX IF NOT EXISTS idx_scenes_script ON scenes(script_id);
+    CREATE INDEX IF NOT EXISTS idx_scenes_episode ON scenes(episode_id, episode_index, order_index);
     CREATE INDEX IF NOT EXISTS idx_characters_project ON characters(project_id);
     CREATE INDEX IF NOT EXISTS idx_video_tasks_scene ON video_tasks(scene_id);
     CREATE INDEX IF NOT EXISTS idx_video_tasks_status ON video_tasks(status);

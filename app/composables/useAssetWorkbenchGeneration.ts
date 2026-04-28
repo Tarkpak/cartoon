@@ -10,6 +10,8 @@ import type {
 import {
   generateAssetWorkbenchCharacter,
   parseAssetWorkbenchScript,
+  prepareAssetWorkbenchEpisodePlan,
+  type ScriptEpisodePlanItem,
   type ParseScriptProgressEvent,
   type AssetWorkbenchWorkflowType
 } from '~/lib/asset-workbench-api'
@@ -51,6 +53,8 @@ interface UseAssetWorkbenchGenerationOptions {
   novelText: Ref<string>
   scenes: Ref<SceneData[]>
   characters: Ref<CharacterData[]>
+  scriptParseMode: Ref<ScriptParseMode>
+  episodePlan: Ref<ScriptEpisodePlanItem[]>
   parsing: Ref<boolean>
   parseProgress: Ref<AssetWorkbenchParseProgressState>
   currentStylePrompt: Ref<string>
@@ -94,6 +98,43 @@ export function useAssetWorkbenchGeneration(
     appendProgressLog(event.message, event.source)
   }
 
+  async function prepareEpisodePlan(): Promise<boolean> {
+    if (!options.novelText.value.trim()) return false
+
+    options.parsing.value = true
+    options.parseProgress.value = {
+      ...createInitialAssetWorkbenchParseProgressState(),
+      active: true,
+      step: 'episode-plan',
+      message: '正在生成分集目录',
+      progress: 5
+    }
+    appendProgressLog('正在生成分集目录', 'progress')
+
+    try {
+      const episodes = await prepareAssetWorkbenchEpisodePlan(
+        options.novelText.value,
+        options.scriptParseMode.value
+      )
+      options.episodePlan.value = episodes
+      options.parseProgress.value.step = 'episode-plan-completed'
+      options.parseProgress.value.message = `分集目录已生成，共 ${episodes.length} 集`
+      options.parseProgress.value.progress = 100
+      appendProgressLog(`分集目录已生成，共 ${episodes.length} 集`, 'progress')
+      return episodes.length > 0
+    } catch (error) {
+      console.error('[useAssetWorkbench] 生成分集目录失败:', error)
+      const message = error instanceof Error ? error.message : '分集目录生成失败'
+      options.parseProgress.value.step = 'error'
+      options.parseProgress.value.message = message
+      appendProgressLog(message, 'progress')
+      return false
+    } finally {
+      options.parsing.value = false
+      options.parseProgress.value.active = false
+    }
+  }
+
   async function parseScript(input?: {
     workflowType?: AssetWorkbenchWorkflowType
     style?: string
@@ -101,6 +142,14 @@ export function useAssetWorkbenchGeneration(
     descriptionFormat?: 'visual' | 'timeline'
   }): Promise<boolean> {
     if (!options.novelText.value.trim()) return false
+    if (options.episodePlan.value.length === 0) {
+      options.parseProgress.value = {
+        ...createInitialAssetWorkbenchParseProgressState(),
+        step: 'error',
+        message: '请先生成分集目录后再解析'
+      }
+      return false
+    }
 
     options.parsing.value = true
     options.parseProgress.value = {
@@ -118,6 +167,13 @@ export function useAssetWorkbenchGeneration(
         workflowType: input?.workflowType || 'asset_consistency',
         scriptParseMode: input?.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
         style: input?.style || options.currentStylePrompt.value || undefined,
+        episodePlan: options.episodePlan.value.map(item => ({
+          id: item.id,
+          title: item.title,
+          index: item.index,
+          startOffset: item.startOffset,
+          endOffset: item.endOffset
+        })),
         onProgress: applyProgressEvent
       })
 
@@ -248,6 +304,7 @@ export function useAssetWorkbenchGeneration(
   }
 
   return {
+    prepareEpisodePlan,
     parseScript,
     generateCharacter,
     batchGenerateCharacters

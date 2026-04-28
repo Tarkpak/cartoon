@@ -18,6 +18,9 @@ export type AssetWorkbenchTransitionType
 
 export interface SceneData {
   id: string
+  episodeId?: string
+  episodeTitle?: string
+  episodeIndex?: number
   title: string
   description: string
   characters: Array<{ name: string, appearance?: string, emotion?: string }>

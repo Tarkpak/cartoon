@@ -13,6 +13,13 @@ import type {
   SceneVoiceReferenceSummary
 } from '~/lib/asset-workbench-types'
 
+interface SceneEpisodeGroup {
+  id: string
+  title: string
+  index: number
+  scenes: SceneData[]
+}
+
 const props = defineProps<{
   scenes: SceneData[]
   selectedSceneId: string
@@ -47,6 +54,7 @@ const props = defineProps<{
   setSceneChatMentionListRef: (element: unknown) => void
   setSceneChatComposerText: (value: string) => void
   onRunVideosStep: () => void
+  onRunEpisodeVideosStep: (episodeId: string) => void
   onExportFormattedScriptDocx: () => void
   onRetryFailedQueueItems: () => void
   onSelectScene: (sceneId: string) => void
@@ -73,6 +81,67 @@ const readySceneCount = computed(() => {
   return props.scenes.filter(scene => scene.referenceStatus === 'done').length
 })
 
+const sceneEpisodeGroups = computed<SceneEpisodeGroup[]>(() => {
+  const groups: SceneEpisodeGroup[] = []
+  const groupMap = new Map<string, SceneEpisodeGroup>()
+
+  for (const scene of props.scenes) {
+    const normalizedEpisodeIndex = typeof scene.episodeIndex === 'number' && Number.isFinite(scene.episodeIndex)
+      ? Math.max(1, Math.round(scene.episodeIndex))
+      : 1
+    const episodeId = (scene.episodeId?.trim() || `episode_${String(normalizedEpisodeIndex).padStart(3, '0')}`)
+    const episodeTitle = scene.episodeTitle?.trim() || `第${normalizedEpisodeIndex}集`
+    let group = groupMap.get(episodeId)
+    if (!group) {
+      group = {
+        id: episodeId,
+        title: episodeTitle,
+        index: normalizedEpisodeIndex,
+        scenes: []
+      }
+      groups.push(group)
+      groupMap.set(episodeId, group)
+    }
+    group.scenes.push(scene)
+  }
+
+  return groups.sort((a, b) => {
+    if (a.index !== b.index) return a.index - b.index
+    return a.title.localeCompare(b.title, 'zh-CN')
+  })
+})
+
+const selectedEpisodeId = computed(() => {
+  if (props.selectedScene?.episodeId?.trim()) return props.selectedScene.episodeId.trim()
+  return sceneEpisodeGroups.value[0]?.id || ''
+})
+
+const selectedEpisodeTitle = computed(() => {
+  const group = sceneEpisodeGroups.value.find(item => item.id === selectedEpisodeId.value)
+  return group?.title || '当前集'
+})
+
+const sceneIndexMap = computed(() => {
+  const indexMap = new Map<string, number>()
+  props.scenes.forEach((scene, index) => {
+    indexMap.set(scene.id, index)
+  })
+  return indexMap
+})
+
+function resolveSceneGlobalIndex(sceneId: string): number {
+  return sceneIndexMap.value.get(sceneId) ?? -1
+}
+
+function resolveEpisodeDoneCount(group: SceneEpisodeGroup): number {
+  return group.scenes.filter(scene => scene.videoStatus === 'done').length
+}
+
+function handleRunCurrentEpisodeVideos() {
+  if (!selectedEpisodeId.value) return
+  props.onRunEpisodeVideosStep(selectedEpisodeId.value)
+}
+
 const selectedSceneVoiceReferenceSummary = computed(() => {
   if (!props.selectedScene) return null
   return props.resolveSceneVoiceReferenceSummary(props.selectedScene)
@@ -95,6 +164,10 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
         <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span class="inline-block h-2 w-2 rounded-full bg-blue-500" />
           场景 {{ scenes.length }}
+        </div>
+        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span class="inline-block h-2 w-2 rounded-full bg-amber-500" />
+          分集 {{ sceneEpisodeGroups.length }}
         </div>
         <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span class="inline-block h-2 w-2 rounded-full bg-emerald-500" />
@@ -136,6 +209,14 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
         <Button
           size="sm"
           variant="outline"
+          :disabled="autoRunning || !selectedEpisodeId"
+          @click="handleRunCurrentEpisodeVideos()"
+        >
+          仅生成{{ selectedEpisodeTitle }}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
           :disabled="autoRunning || queueSummary.error === 0"
           @click="onRetryFailedQueueItems()"
         >
@@ -164,56 +245,67 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
     <!-- Scene grid -->
     <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-2">
       <div class="min-h-0 space-y-2 overflow-y-auto pr-1">
-        <AssetWorkbenchSceneVideoCard
-          v-for="(scene, idx) in scenes"
-          :key="scene.id"
-          :scene="scene"
-          :index="idx"
-          :selected="selectedSceneId === scene.id"
-          :can-merge-with-next="canMergeSceneByIndex(idx)"
-          :chat-open="sceneChatOpenSceneId === scene.id"
-          :chat-messages="sceneChatCurrentMessages"
-          :chat-composer-assets="sceneChatComposerAssets"
-          :chat-composer-text="sceneChatComposerText"
-          :chat-mention-open="sceneChatMentionOpen"
-          :chat-mention-candidates="sceneChatMentionCandidates"
-          :chat-mention-active-index="sceneChatMentionActiveIndex"
-          :chat-uploading="sceneChatUploading"
-          :chat-applying="sceneChatApplying"
-          :chat-error="sceneChatError"
-          :chat-can-submit="sceneChatCanSubmit"
-          :resolve-scene-video-badge="resolveSceneVideoBadge"
-          :resolve-scene-voice-reference-summary="resolveSceneVoiceReferenceSummary"
-          :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
-          :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
-          :resolve-scene-reference-image="resolveSceneReferenceImage"
-          :is-scene-busy="isSceneBusy"
-          :is-scene-preparing="isScenePreparing"
-          :normalize-workflow-text="normalizeWorkflowText"
-          :resolve-display-asset-by-id="resolveDisplayAssetById"
-          :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
-          :set-scene-chat-input-ref="setSceneChatInputRef"
-          :set-scene-chat-mention-list-ref="setSceneChatMentionListRef"
-          :set-scene-chat-composer-text="setSceneChatComposerText"
-          :on-select-scene="onSelectScene"
-          :on-open-scene-edit="onOpenSceneEdit"
-          :on-toggle-scene-chat="onToggleSceneChat"
-          :on-handle-split-scene="onHandleSplitScene"
-          :on-handle-merge-with-next-scene="onHandleMergeWithNextScene"
-          :on-handle-delete-scene="onHandleDeleteScene"
-          :on-generate-scene-baseline="onGenerateSceneBaseline"
-          :on-retry-scene="onRetryScene"
-          :on-open-scene-video-history="onOpenSceneVideoHistory"
-          :on-preview-image="onPreviewImage"
-          :on-close-scene-chat="onCloseSceneChat"
-          :on-handle-scene-chat-composer-input="onHandleSceneChatComposerInput"
-          :on-handle-scene-chat-composer-cursor="onHandleSceneChatComposerCursor"
-          :on-handle-scene-chat-composer-keydown="onHandleSceneChatComposerKeydown"
-          :on-apply-scene-chat-mention="onApplySceneChatMention"
-          :on-remove-scene-chat-composer-asset="onRemoveSceneChatComposerAsset"
-          :on-handle-scene-chat-image-upload="onHandleSceneChatImageUpload"
-          :on-submit-scene-chat="onSubmitSceneChat"
-        />
+        <section
+          v-for="group in sceneEpisodeGroups"
+          :key="group.id"
+          class="space-y-2"
+        >
+          <div class="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            <span class="font-medium text-foreground">{{ group.title }}</span>
+            <span class="ml-2">场景 {{ group.scenes.length }}</span>
+            <span class="ml-2">视频完成 {{ resolveEpisodeDoneCount(group) }}</span>
+          </div>
+          <AssetWorkbenchSceneVideoCard
+            v-for="scene in group.scenes"
+            :key="scene.id"
+            :scene="scene"
+            :index="resolveSceneGlobalIndex(scene.id)"
+            :selected="selectedSceneId === scene.id"
+            :can-merge-with-next="canMergeSceneByIndex(resolveSceneGlobalIndex(scene.id))"
+            :chat-open="sceneChatOpenSceneId === scene.id"
+            :chat-messages="sceneChatCurrentMessages"
+            :chat-composer-assets="sceneChatComposerAssets"
+            :chat-composer-text="sceneChatComposerText"
+            :chat-mention-open="sceneChatMentionOpen"
+            :chat-mention-candidates="sceneChatMentionCandidates"
+            :chat-mention-active-index="sceneChatMentionActiveIndex"
+            :chat-uploading="sceneChatUploading"
+            :chat-applying="sceneChatApplying"
+            :chat-error="sceneChatError"
+            :chat-can-submit="sceneChatCanSubmit"
+            :resolve-scene-video-badge="resolveSceneVideoBadge"
+            :resolve-scene-voice-reference-summary="resolveSceneVoiceReferenceSummary"
+            :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
+            :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
+            :resolve-scene-reference-image="resolveSceneReferenceImage"
+            :is-scene-busy="isSceneBusy"
+            :is-scene-preparing="isScenePreparing"
+            :normalize-workflow-text="normalizeWorkflowText"
+            :resolve-display-asset-by-id="resolveDisplayAssetById"
+            :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
+            :set-scene-chat-input-ref="setSceneChatInputRef"
+            :set-scene-chat-mention-list-ref="setSceneChatMentionListRef"
+            :set-scene-chat-composer-text="setSceneChatComposerText"
+            :on-select-scene="onSelectScene"
+            :on-open-scene-edit="onOpenSceneEdit"
+            :on-toggle-scene-chat="onToggleSceneChat"
+            :on-handle-split-scene="onHandleSplitScene"
+            :on-handle-merge-with-next-scene="onHandleMergeWithNextScene"
+            :on-handle-delete-scene="onHandleDeleteScene"
+            :on-generate-scene-baseline="onGenerateSceneBaseline"
+            :on-retry-scene="onRetryScene"
+            :on-open-scene-video-history="onOpenSceneVideoHistory"
+            :on-preview-image="onPreviewImage"
+            :on-close-scene-chat="onCloseSceneChat"
+            :on-handle-scene-chat-composer-input="onHandleSceneChatComposerInput"
+            :on-handle-scene-chat-composer-cursor="onHandleSceneChatComposerCursor"
+            :on-handle-scene-chat-composer-keydown="onHandleSceneChatComposerKeydown"
+            :on-apply-scene-chat-mention="onApplySceneChatMention"
+            :on-remove-scene-chat-composer-asset="onRemoveSceneChatComposerAsset"
+            :on-handle-scene-chat-image-upload="onHandleSceneChatImageUpload"
+            :on-submit-scene-chat="onSubmitSceneChat"
+          />
+        </section>
       </div>
 
       <!-- Video preview panel -->

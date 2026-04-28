@@ -11,6 +11,7 @@ import {
   useAssetWorkbenchGeneration
 } from '~/composables/useAssetWorkbenchGeneration'
 import { useAssetWorkbenchSceneEditing } from '~/composables/useAssetWorkbenchSceneEditing'
+import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
 
 export type {
   AssetWorkbenchTransitionType,
@@ -45,6 +46,7 @@ export function useAssetWorkbench() {
 
   const scenes = ref<SceneData[]>([])
   const characters = ref<CharacterData[]>([])
+  const episodePlan = ref<ScriptEpisodePlanItem[]>([])
 
   const parsing = ref(false)
   const parseProgress = ref(createInitialAssetWorkbenchParseProgressState())
@@ -97,6 +99,7 @@ export function useAssetWorkbench() {
   })
 
   const {
+    prepareEpisodePlan,
     parseScript,
     generateCharacter,
     batchGenerateCharacters
@@ -105,6 +108,8 @@ export function useAssetWorkbench() {
     novelText,
     scenes,
     characters,
+    scriptParseMode,
+    episodePlan,
     parsing,
     parseProgress,
     currentStylePrompt,
@@ -124,6 +129,7 @@ export function useAssetWorkbench() {
     novelText,
     scenes,
     characters,
+    episodePlan,
     parsing,
     parseProgress,
     loading,
@@ -134,6 +140,7 @@ export function useAssetWorkbench() {
     refreshCharacterVoiceAssets,
     deleteScene,
     mergeWithNextScene,
+    prepareEpisodePlan,
     parseScript,
     splitScene,
     updateScene,
