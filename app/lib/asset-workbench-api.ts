@@ -11,7 +11,7 @@ import {
 
 export type AssetWorkbenchWorkflowType = 'asset_consistency'
 
-interface ParseScriptResponse {
+export interface ParseScriptResponse {
   success: boolean
   data?: {
     title?: string
@@ -32,6 +32,21 @@ interface ParseScriptResponse {
     lines?: string[]
     text?: string
   }
+  parseStrategy?: {
+    segmented?: boolean
+    chunkCount?: number
+    recommendedMinScenes?: number
+    chunkRecommendedSceneHints?: number[]
+  }
+}
+
+export interface ParseScriptProgressEvent {
+  source: 'progress' | 'heartbeat'
+  step: string
+  message: string
+  progress?: number
+  chunkIndex?: number
+  chunkCount?: number
 }
 
 interface GenerateCharacterResponse {
@@ -92,16 +107,123 @@ export async function parseAssetWorkbenchScript(options: {
   workflowType?: AssetWorkbenchWorkflowType
   scriptParseMode?: ScriptParseMode
   style?: string
+  onProgress?: (event: ParseScriptProgressEvent) => void
 }) {
-  return await $fetch<ParseScriptResponse>('/api/script/parse', {
+  const requestBody = {
+    text: options.text,
+    workflowType: options.workflowType || 'asset_consistency',
+    scriptParseMode: options.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
+    style: options.style || undefined
+  }
+
+  if (!options.onProgress) {
+    return await $fetch<ParseScriptResponse>('/api/script/parse', {
+      method: 'POST',
+      body: requestBody
+    })
+  }
+
+  const response = await fetch('/api/script/parse-stream', {
     method: 'POST',
-    body: {
-      text: options.text,
-      workflowType: options.workflowType || 'asset_consistency',
-      scriptParseMode: options.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
-      style: options.style || undefined
-    }
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(requestBody)
   })
+
+  if (!response.ok) {
+    let message = '剧本解析失败'
+    try {
+      const contentType = response.headers.get('content-type') || ''
+      if (contentType.includes('application/json')) {
+        const payload = await response.json() as { message?: string, statusMessage?: string }
+        message = payload.message || payload.statusMessage || message
+      } else {
+        const rawText = (await response.text()).trim()
+        if (rawText) message = rawText
+      }
+    } catch {
+      // Ignore parse errors and keep fallback message.
+    }
+    throw new Error(message)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('解析流不可用，请稍后重试')
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let finalResult: ParseScriptResponse | null = null
+
+  const emitProgress = (event: ParseScriptProgressEvent) => {
+    options.onProgress?.(event)
+  }
+
+  const handleLine = (line: string) => {
+    const trimmed = line.trim()
+    if (!trimmed) return
+
+    const event = JSON.parse(trimmed) as {
+      type?: string
+      payload?: Record<string, unknown>
+    }
+
+    if (event.type === 'progress') {
+      emitProgress({
+        source: 'progress',
+        step: String(event.payload?.step || 'progress'),
+        message: String(event.payload?.message || '解析中'),
+        progress: typeof event.payload?.progress === 'number' ? event.payload.progress : undefined,
+        chunkIndex: typeof event.payload?.chunkIndex === 'number' ? event.payload.chunkIndex : undefined,
+        chunkCount: typeof event.payload?.chunkCount === 'number' ? event.payload.chunkCount : undefined
+      })
+      return
+    }
+
+    if (event.type === 'heartbeat') {
+      emitProgress({
+        source: 'heartbeat',
+        step: 'heartbeat',
+        message: String(event.payload?.message || '解析中')
+      })
+      return
+    }
+
+    if (event.type === 'error') {
+      throw new Error(String(event.payload?.message || '剧本解析失败'))
+    }
+
+    if (event.type === 'result') {
+      finalResult = event.payload as unknown as ParseScriptResponse
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    let lineBreakIndex = buffer.indexOf('\n')
+    while (lineBreakIndex >= 0) {
+      const line = buffer.slice(0, lineBreakIndex)
+      buffer = buffer.slice(lineBreakIndex + 1)
+      handleLine(line)
+      lineBreakIndex = buffer.indexOf('\n')
+    }
+  }
+
+  buffer += decoder.decode()
+  if (buffer.trim()) {
+    handleLine(buffer)
+  }
+
+  if (!finalResult) {
+    throw new Error('解析流已结束，但未收到结果')
+  }
+
+  return finalResult
 }
 
 export async function generateAssetWorkbenchCharacter(options: {
