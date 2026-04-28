@@ -14,6 +14,9 @@ const NARRATION_SPEAKER_SET = new Set([
 
 interface ParsedScriptScene {
   id: string
+  episodeId?: string
+  episodeTitle?: string
+  episodeIndex?: number
   title?: string
   shotType?: SceneData['shotType']
   cameraMovement?: SceneData['cameraMovement']
@@ -52,6 +55,9 @@ export function buildParsedScenes(options: {
 
     return {
       id: scene.id || `scene_${index + 1}`,
+      episodeId: scene.episodeId,
+      episodeTitle: scene.episodeTitle,
+      episodeIndex: scene.episodeIndex,
       title: scene.title || `${scene.setting?.location || '场景'} - ${scene.setting?.timeOfDay || ''}`,
       description: options.descriptionFormat === 'timeline'
         ? normalizedDescription

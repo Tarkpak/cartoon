@@ -580,6 +580,45 @@ export function useAssetWorkbenchSceneGeneration(
     }
   }
 
+  async function runBatchSceneGenerationByEpisode(episodeId: string) {
+    const normalizedEpisodeId = episodeId.trim()
+    if (!normalizedEpisodeId || options.batchRunning.value) return
+
+    await options.persistAutomaticAssetPlan()
+    await ensureCharacterAssetsReady()
+
+    const targetSceneIdSet = new Set(
+      options.scenes.value
+        .filter(scene => (scene.episodeId?.trim() || '') === normalizedEpisodeId)
+        .map(scene => scene.id)
+    )
+    if (targetSceneIdSet.size === 0) return
+
+    const targetItems = options.queueItems.value.filter(item => targetSceneIdSet.has(item.sceneId))
+    const hasPendingItems = targetItems.some(item => item.status !== 'done')
+    if (!hasPendingItems) return
+
+    options.batchRunning.value = true
+
+    try {
+      for (const item of targetItems) {
+        if (item.status === 'done') continue
+        await runQueueItem(item, {
+          skipCompletionNotice: true
+        })
+      }
+      const total = targetItems.length
+      const done = targetItems.filter(item => item.status === 'done').length
+      const failed = targetItems.filter(item => item.status === 'error').length
+      await options.onModelTaskCompleted?.({
+        title: '当前分集场景视频生成完成',
+        body: `完成 ${done} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
+      })
+    } finally {
+      options.batchRunning.value = false
+    }
+  }
+
   async function retryScene(sceneId: string) {
     const item = options.queueItems.value.find(queue => queue.sceneId === sceneId)
     if (!item) return
@@ -601,6 +640,7 @@ export function useAssetWorkbenchSceneGeneration(
     generateSceneBaseline,
     ensureCharacterAssetsReady,
     runBatchSceneGeneration,
+    runBatchSceneGenerationByEpisode,
     retryScene,
     retryFailedQueueItemsOnce
   }

@@ -7,6 +7,14 @@ const novelText = defineModel<string>('novelText', { required: true })
 const props = defineProps<{
   scriptParseMode: ScriptParseMode
   parsing: boolean
+  episodePlan?: Array<{
+    id: string
+    title: string
+    index: number
+    startOffset: number
+    endOffset: number
+    charCount: number
+  }>
   parseProgress?: {
     active?: boolean
     step?: string
@@ -36,6 +44,7 @@ const parseProgressPercent = computed(() => {
 const parseProgressLogs = computed(() => {
   return (props.parseProgress?.logs || []).slice(-6).reverse()
 })
+const hasEpisodePlan = computed(() => (props.episodePlan?.length || 0) > 0)
 const parseProgressChunkText = computed(() => {
   const chunkIndex = props.parseProgress?.chunkIndex
   const chunkCount = props.parseProgress?.chunkCount
@@ -45,8 +54,44 @@ const parseProgressChunkText = computed(() => {
 })
 
 const emit = defineEmits<{
-  (e: 'parse'): void
+  (e: 'prepare-episodes' | 'parse' | 'clear-episode-plan'): void
+  (e: 'update-episode-title', payload: { id: string, title: string }): void
+  (e: 'update-episode-end-offset', payload: { id: string, endOffset: number }): void
 }>()
+
+function handleUpdateEpisodeTitle(id: string, title: string) {
+  emit('update-episode-title', { id, title })
+}
+
+function resolveEpisodeEndRange(index: number): { min: number, max: number } | null {
+  const episodes = props.episodePlan || []
+  const current = episodes[index]
+  if (!current || index >= episodes.length - 1) return null
+
+  const prev = episodes[index - 1]
+  const next = episodes[index + 1]
+  const min = Math.max((prev?.endOffset ?? current.startOffset) + 200, current.startOffset + 200)
+  const max = Math.max(min, (next?.endOffset ?? current.endOffset) - 200)
+  return { min, max }
+}
+
+function handleUpdateEpisodeEndOffset(index: number, rawValue: string) {
+  const episodes = props.episodePlan || []
+  const current = episodes[index]
+  if (!current || index >= episodes.length - 1) return
+
+  const numericValue = Number.parseInt(rawValue, 10)
+  if (!Number.isFinite(numericValue)) return
+
+  const range = resolveEpisodeEndRange(index)
+  if (!range) return
+
+  const normalizedEndOffset = Math.min(range.max, Math.max(range.min, numericValue))
+  emit('update-episode-end-offset', {
+    id: current.id,
+    endOffset: normalizedEndOffset
+  })
+}
 
 function isTextFile(file: File): boolean {
   if (file.type.startsWith('text/')) return true
@@ -114,7 +159,7 @@ async function handleDrop(event: DragEvent) {
     }
 
     novelText.value = fileText
-    emit('parse')
+    emit('prepare-episodes')
   } catch (error) {
     console.error('[ParseStage] 读取文本文件失败:', error)
     window.alert('文本文件读取失败，请重试')
@@ -157,11 +202,11 @@ async function handleDrop(event: DragEvent) {
       </div>
     </div>
 
-    <div class="shrink-0 flex items-center gap-3">
+    <div class="shrink-0 flex flex-wrap items-center gap-3">
       <Button
         :disabled="parsing || !novelText.trim()"
         class="gap-2"
-        @click="emit('parse')"
+        @click="hasEpisodePlan ? emit('parse') : emit('prepare-episodes')"
       >
         <Loader2
           v-if="parsing"
@@ -171,7 +216,15 @@ async function handleDrop(event: DragEvent) {
           v-else
           class="h-4 w-4"
         />
-        解析剧本
+        {{ hasEpisodePlan ? '按分集解析剧本' : '生成分集目录' }}
+      </Button>
+      <Button
+        v-if="hasEpisodePlan"
+        variant="outline"
+        :disabled="parsing"
+        @click="emit('clear-episode-plan')"
+      >
+        重新分集
       </Button>
       <div
         v-if="scenesCount > 0 || charactersCount > 0"
@@ -185,6 +238,50 @@ async function handleDrop(event: DragEvent) {
           <span class="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
           {{ charactersCount }} 个角色
         </span>
+      </div>
+    </div>
+
+    <div
+      v-if="hasEpisodePlan"
+      class="shrink-0 rounded-md border border-border/60 bg-muted/20 p-3"
+    >
+      <div class="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+        <span>分集目录（可编辑标题与边界）</span>
+        <span>共 {{ episodePlan?.length || 0 }} 集</span>
+      </div>
+      <div class="max-h-52 space-y-2 overflow-y-auto pr-1">
+        <div
+          v-for="(episode, index) in episodePlan"
+          :key="episode.id"
+          class="rounded border border-border/50 bg-background/80 p-2"
+        >
+          <div class="flex items-center gap-2">
+            <span class="w-12 text-xs text-muted-foreground">第{{ episode.index }}集</span>
+            <Input
+              :model-value="episode.title"
+              class="h-8"
+              @update:model-value="(value) => handleUpdateEpisodeTitle(episode.id, String(value || ''))"
+            />
+          </div>
+          <div class="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+            <span>范围 {{ episode.startOffset }} - {{ episode.endOffset }}</span>
+            <span>约 {{ episode.charCount }} 字</span>
+            <label
+              v-if="index < (episodePlan?.length || 0) - 1"
+              class="inline-flex items-center gap-1"
+            >
+              <span>边界</span>
+              <Input
+                type="number"
+                :min="resolveEpisodeEndRange(index)?.min"
+                :max="resolveEpisodeEndRange(index)?.max"
+                :model-value="episode.endOffset"
+                class="h-7 w-28"
+                @update:model-value="(value) => handleUpdateEpisodeEndOffset(index, String(value || ''))"
+              />
+            </label>
+          </div>
+        </div>
       </div>
     </div>
 

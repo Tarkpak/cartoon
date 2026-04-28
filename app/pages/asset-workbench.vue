@@ -116,6 +116,7 @@ const {
   novelText,
   scenes,
   characters,
+  episodePlan,
   parsing,
   parseProgress,
   loading,
@@ -125,6 +126,7 @@ const {
   loadProject,
   deleteScene,
   mergeWithNextScene,
+  prepareEpisodePlan,
   parseScript,
   splitScene,
   updateScene,
@@ -580,6 +582,7 @@ const {
   generateSceneBaseline,
   ensureCharacterAssetsReady,
   runBatchSceneGeneration,
+  runBatchSceneGenerationByEpisode,
   retryScene,
   retryFailedQueueItemsOnce
 } = useAssetWorkbenchSceneGeneration({
@@ -788,10 +791,12 @@ const {
   workflowStylePrompt,
   novelText,
   scenes,
+  episodePlan,
   queueSummary,
   assetsReady,
   finalVideo,
   resolveUiError,
+  prepareEpisodePlan,
   parseScript,
   mergeAllVideos,
   loadProject,
@@ -804,6 +809,52 @@ const {
   runBatchSceneGeneration,
   retryFailedQueueItemsOnce
 })
+
+async function runEpisodeVideosStep(episodeId: string) {
+  await runBatchSceneGenerationByEpisode(episodeId)
+}
+
+function updateEpisodePlanTitle(payload: { id: string, title: string }) {
+  episodePlan.value = episodePlan.value.map((item) => {
+    if (item.id !== payload.id) return item
+    const normalizedTitle = payload.title.trim()
+    return {
+      ...item,
+      title: normalizedTitle || item.title
+    }
+  })
+}
+
+function updateEpisodePlanBoundary(payload: { id: string, endOffset: number }) {
+  const targetIndex = episodePlan.value.findIndex(item => item.id === payload.id)
+  if (targetIndex < 0 || targetIndex >= episodePlan.value.length - 1) return
+
+  const nextPlan = episodePlan.value.map(item => ({ ...item }))
+  const current = nextPlan[targetIndex]
+  const next = nextPlan[targetIndex + 1]
+  if (!current || !next) return
+
+  const normalizedEndOffset = Math.max(current.startOffset + 1, Math.min(next.endOffset - 1, payload.endOffset))
+  current.endOffset = normalizedEndOffset
+  current.charCount = Math.max(0, current.endOffset - current.startOffset)
+
+  next.startOffset = normalizedEndOffset
+  next.charCount = Math.max(0, next.endOffset - next.startOffset)
+
+  episodePlan.value = nextPlan
+}
+
+function clearEpisodePlan() {
+  episodePlan.value = []
+}
+
+async function handlePrepareEpisodePlan() {
+  if (!novelText.value.trim()) {
+    alert('请先输入剧本原文')
+    return
+  }
+  await prepareEpisodePlan()
+}
 
 const autoStages = computed(() => {
   const videosDone = queueSummary.value.total > 0
@@ -924,6 +975,9 @@ watch(
 
 watch(novelText, (nextValue, previousValue) => {
   if (nextValue === previousValue) return
+  if (episodePlan.value.length > 0) {
+    episodePlan.value = []
+  }
   if (loading.value) return
   if (nextValue === lastSavedNovelText.value) return
   scheduleNovelTextAutoSave()
@@ -1629,11 +1683,16 @@ async function handleBatchGenerateCharacters() {
       v-model:novel-text="novelText"
       :script-parse-mode="scriptParseMode"
       :parsing="parsing"
+      :episode-plan="episodePlan"
       :parse-progress="parseProgress"
       :scenes-count="scenes.length"
       :characters-count="characters.length"
       :hint="parseStageHint"
+      @prepare-episodes="handlePrepareEpisodePlan"
       @parse="handleParseScript"
+      @clear-episode-plan="clearEpisodePlan"
+      @update-episode-title="updateEpisodePlanTitle"
+      @update-episode-end-offset="updateEpisodePlanBoundary"
     />
 
     <AssetWorkbenchStagePanel
@@ -1725,6 +1784,7 @@ async function handleBatchGenerateCharacters() {
         :set-scene-chat-composer-text="setSceneChatComposerText"
         :exporting-script-docx="exportingScriptDocx"
         :on-run-videos-step="runSimpleVideosStep"
+        :on-run-episode-videos-step="runEpisodeVideosStep"
         :on-export-formatted-script-docx="handleExportFormattedScriptDocx"
         :on-retry-failed-queue-items="retryFailedQueueItemsOnce"
         :on-select-scene="selectScene"

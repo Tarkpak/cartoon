@@ -35,6 +35,9 @@ export const scenes = sqliteTable('scenes', {
   id: text('id').primaryKey(),
   scriptId: text('script_id').references(() => scripts.id, { onDelete: 'cascade' }),
   orderIndex: integer('order_index').notNull(),
+  episodeId: text('episode_id'),
+  episodeTitle: text('episode_title'),
+  episodeIndex: integer('episode_index'),
   title: text('title'),
   description: text('description').notNull(),
   setting: text('setting'), // JSON 存储 SceneSetting

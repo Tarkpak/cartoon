@@ -301,9 +301,20 @@ export type SceneCameraMovement = z.infer<typeof SceneCameraMovementSchema>
 export const SceneDurationSchema = z.coerce.number().min(2).max(15).default(8).describe('视频时长(秒，2-15)')
 export type SceneDuration = z.infer<typeof SceneDurationSchema>
 
+/** 分集定义 */
+export const ScriptEpisodeSchema = z.object({
+  id: z.string().describe('分集ID'),
+  title: z.string().describe('分集标题'),
+  index: z.number().int().min(1).describe('分集序号（从1开始）')
+})
+export type ScriptEpisode = z.infer<typeof ScriptEpisodeSchema>
+
 /** 场景定义 */
 export const SceneSchema = z.object({
   id: z.string().describe('场景ID'),
+  episodeId: z.string().optional().describe('所属分集ID'),
+  episodeTitle: z.string().optional().describe('所属分集标题'),
+  episodeIndex: z.number().int().min(1).optional().describe('所属分集序号（从1开始）'),
   title: z.string().optional().describe('场景标题'),
   shotType: SceneShotTypeSchema.optional(),
   cameraMovement: SceneCameraMovementSchema.optional(),
@@ -321,6 +332,7 @@ export type Scene = z.infer<typeof SceneSchema>
 /** 剧本解析结果 */
 export const ParsedScriptSchema = z.object({
   title: z.string().optional().describe('剧本标题'),
+  episodes: z.array(ScriptEpisodeSchema).optional().describe('分集列表'),
   scenes: z.array(SceneSchema).describe('场景列表'),
   characters: z.array(z.object({
     name: z.string(),
@@ -330,6 +342,15 @@ export const ParsedScriptSchema = z.object({
   totalDuration: z.number().describe('总时长(秒)')
 })
 export type ParsedScript = z.infer<typeof ParsedScriptSchema>
+
+export const ScriptEpisodePlanItemSchema = z.object({
+  id: z.string().optional().describe('分集ID（可选）'),
+  title: z.string().optional().describe('分集标题（可选）'),
+  index: z.number().int().min(1).optional().describe('分集序号（可选）'),
+  startOffset: z.number().int().min(0).describe('起始字符偏移（含）'),
+  endOffset: z.number().int().min(1).describe('结束字符偏移（不含）')
+})
+export type ScriptEpisodePlanItem = z.infer<typeof ScriptEpisodePlanItemSchema>
 
 export const SCRIPT_PARSE_MODES = ['short_drama', 'premium_drama'] as const
 export type ScriptParseMode = (typeof SCRIPT_PARSE_MODES)[number]
@@ -365,6 +386,7 @@ export function resolveScriptParseModeLabel(
 export const ParseScriptRequestSchema = z.object({
   text: z.string().min(10).describe('原始小说文本'),
   maxScenes: z.number().int().min(1).optional().describe('场景数量提示（可选，不做硬上限限制）'),
+  episodePlan: z.array(ScriptEpisodePlanItemSchema).min(1).describe('分集规划（必填，按该规划进行分集解析）'),
   scriptParseMode: z.enum(SCRIPT_PARSE_MODES).optional().default(DEFAULT_SCRIPT_PARSE_MODE).describe('解析模式'),
   style: z.string().optional().describe('画风描述（可选）'),
   workflowType: z.literal('asset_consistency').optional().default('asset_consistency').describe('工作流类型')
