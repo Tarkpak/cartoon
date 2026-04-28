@@ -5,6 +5,7 @@ import {
   type ScriptParseMode
 } from '#shared/types/script'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
+import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
 import type { FinalVideoAsset } from '~/lib/asset-workbench-types'
 import {
   applyScopedEntityIds,
@@ -29,6 +30,7 @@ interface UseAssetWorkbenchProjectIOOptions {
   novelText: Ref<string>
   scenes: Ref<SceneData[]>
   characters: Ref<CharacterData[]>
+  episodePlan: Ref<ScriptEpisodePlanItem[]>
 }
 
 export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOptions) {
@@ -64,7 +66,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   async function mergeAllVideos() {
     const readyScenes = options.scenes.value.filter(scene => scene.videoStatus === 'done' && scene.videoUrl)
     if (readyScenes.length === 0) {
-      alert('没有可合成的视频（请先生成场景视频）')
+      alert('没有可合成的视频（请先生成分镜视频）')
       return null
     }
 
@@ -77,7 +79,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       const hasMore = pendingScenes.length > 3 ? ' 等' : ''
 
       const shouldContinue = confirm(
-        `当前仅 ${readyScenes.length}/${options.scenes.value.length} 个场景视频可用。\n`
+        `当前仅 ${readyScenes.length}/${options.scenes.value.length} 个分镜视频可用。\n`
         + `未就绪场景：${previewTitles}${hasMore}。\n\n`
         + '继续合成将导致最终视频缺少部分剧情，是否继续？'
       )
@@ -160,6 +162,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
             rawText?: string
             selectedStyleId?: string
             scriptParseMode?: ScriptParseMode
+            episodePlan?: ScriptEpisodePlanItem[]
             assetWorkflow?: unknown
           } | null
           scenes: Array<{
@@ -216,6 +219,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       options.selectedStyleId.value = response.data.script?.selectedStyleId || response.data.project.styleId || ''
       options.novelText.value = response.data.script?.novelText || response.data.script?.rawText || ''
       options.scriptParseMode.value = response.data.project.scriptParseMode || response.data.script?.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE
+      options.episodePlan.value = response.data.script?.episodePlan || []
       options.projectAssetWorkflow.value = response.data.script?.assetWorkflow ?? null
 
       options.scenes.value = buildLoadedScenes(response.data.scenes)
@@ -283,6 +287,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
           novelText: options.novelText.value,
           selectedStyleId: options.selectedStyleId.value || options.projectStyleId.value,
           scriptParseMode: options.scriptParseMode.value,
+          episodePlan: options.episodePlan.value,
           scenes: buildSaveScenesPayload(options.scenes.value),
           characters: buildSaveCharactersPayload(options.characters.value)
         }

@@ -214,7 +214,7 @@ export function useAssetWorkbenchSceneChatActions(
       appendSceneChatMessage(
         sceneId,
         'assistant',
-        '已使用配置文本模型更新该场景描述，并同步了资产引用（未自动重生成环境图）。',
+        '已使用配置文本模型更新该场景描述，并同步了资产引用（未自动重新生成环境图）。',
         submitPayload.relatedAssetIds
       )
       await options.onModelTaskCompleted?.({
@@ -222,7 +222,7 @@ export function useAssetWorkbenchSceneChatActions(
         body: `场景：${scene.title}`
       })
     } catch (error) {
-      const message = options.resolveUiError(error, '场景二次修改失败')
+      const message = options.resolveUiError(error, '场景二次改写失败')
       options.sceneChatError.value = message
       appendSceneChatMessage(sceneId, 'assistant', `处理失败：${message}`)
     } finally {

@@ -96,7 +96,7 @@ export function createSceneChatWelcomeMessage(): SceneChatMessage {
   return {
     id: `scene_chat_msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     role: 'assistant',
-    content: '请输入二次修改指令，支持 @资产 mention，也可以上传图片资产（自动归类到“其他”）后一起调整场景。',
+    content: '请输入二次改写指令，支持 @资产引用，也可以上传图片资产（自动归类到“其他”）后一起调整场景。',
     assetIds: [],
     createdAt: Date.now()
   }
@@ -280,7 +280,7 @@ export function buildSceneChatSubmitPayload(options: {
     relatedAssetIds,
     relatedAssets,
     normalizedMessage: text || '请结合本次提及资产，优化该场景描述并保持剧情连续。',
-    userVisibleMessage: text || '上传图片资产并执行场景二次修改'
+    userVisibleMessage: text || '上传图片资产并执行场景二次改写'
   }
 }
 

@@ -316,7 +316,7 @@ function resolveHistoryCount(char: CharacterData): number {
               v-if="char.generating"
               class="mr-1 h-3 w-3 animate-spin"
             />
-            保存并重生成
+            保存并重新生成
           </Button>
           <Button
             size="sm"

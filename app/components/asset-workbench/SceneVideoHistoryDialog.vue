@@ -175,7 +175,7 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
   >
     <DialogContent class="max-h-[85vh] overflow-hidden sm:max-w-5xl">
       <DialogHeader>
-        <DialogTitle>场景视频历史</DialogTitle>
+        <DialogTitle>分镜视频历史</DialogTitle>
         <DialogDescription>
           目标：{{ targetLabel || '-' }}，从历史生成结果中切换当前视频版本。
         </DialogDescription>

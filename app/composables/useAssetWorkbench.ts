@@ -75,7 +75,8 @@ export function useAssetWorkbench() {
     selectedStyleId,
     novelText,
     scenes,
-    characters
+    characters,
+    episodePlan
   })
 
   const currentStylePrompt = computed(() => {

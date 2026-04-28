@@ -189,6 +189,7 @@ const {
 } = useAssetWorkbenchPageState({
   scenes,
   characters,
+  episodePlan,
   propAssets,
   environmentAssetHistories,
   environmentPanoramaStates,
@@ -614,6 +615,149 @@ const {
   onModelTaskCompleted: notifyGenerationCompleted
 })
 
+const lastAutoPlanSnapshotKey = ref('')
+
+function buildAutoPlanSnapshotKey(): string {
+  const sceneSnapshot = scenes.value.map(scene => ({
+    id: scene.id,
+    episodeId: scene.episodeId || '',
+    episodeTitle: scene.episodeTitle || '',
+    episodeIndex: typeof scene.episodeIndex === 'number' && Number.isFinite(scene.episodeIndex)
+      ? scene.episodeIndex
+      : null,
+    title: scene.title || '',
+    description: scene.description || '',
+    narration: scene.narration || '',
+    setting: {
+      location: scene.setting?.location || '',
+      timeOfDay: scene.setting?.timeOfDay || '',
+      era: scene.setting?.era || '',
+      mood: scene.setting?.mood || '',
+      weather: scene.setting?.weather || ''
+    },
+    characters: scene.characters.map(character => ({
+      name: character.name || '',
+      appearance: character.appearance || '',
+      emotion: character.emotion || ''
+    })),
+    dialogues: scene.dialogues.map(dialogue => ({
+      character: dialogue.character || '',
+      text: dialogue.text || '',
+      emotion: dialogue.emotion || ''
+    }))
+  }))
+
+  const characterSnapshot = characters.value.map(character => ({
+    id: character.id,
+    name: character.name || '',
+    appearance: character.appearance || '',
+    role: character.role || ''
+  }))
+
+  const propSnapshot = propAssets.value.map(prop => ({
+    id: prop.id,
+    name: prop.name || '',
+    description: prop.description || '',
+    category: prop.category || 'prop'
+  }))
+
+  const sceneConfigSnapshot = Object.entries(sceneConfigs.value)
+    .sort(([leftId], [rightId]) => leftId.localeCompare(rightId, 'zh-CN'))
+    .map(([sceneId, config]) => ({
+      sceneId,
+      mustReferenceAssetIds: uniqueSorted(config.mustReferenceAssetIds || []),
+      consistencyLevel: config.consistencyLevel,
+      continuityNotes: config.continuityNotes?.trim() || ''
+    }))
+
+  return JSON.stringify({
+    sceneSnapshot,
+    characterSnapshot,
+    propSnapshot,
+    sceneConfigSnapshot
+  })
+}
+
+function normalizeEpisodeAssetMergeKey(value?: string): string {
+  return (value || '').trim().toLowerCase().replace(/[\s\r\n\t]+/g, '')
+}
+
+function mergePropAssetsFromEpisodePlan(): boolean {
+  if (episodePlan.value.length === 0) return false
+
+  const existingMap = new Map<string, PropAsset>()
+  for (const asset of propAssets.value) {
+    const key = normalizeEpisodeAssetMergeKey(asset.name)
+    if (!key) continue
+    existingMap.set(key, asset)
+  }
+
+  let changed = false
+  for (const episode of episodePlan.value) {
+    for (const item of episode.episodeAssets?.props || []) {
+      const name = item.name?.trim() || ''
+      if (!name) continue
+      const key = normalizeEpisodeAssetMergeKey(name)
+      if (!key) continue
+
+      const description = item.description?.trim() || ''
+      const existing = existingMap.get(key)
+      if (existing) {
+        if (description && (!existing.description || description.length > existing.description.length)) {
+          existing.description = description
+          changed = true
+        }
+        continue
+      }
+
+      const nextAsset: PropAsset = {
+        id: createPropAssetId(),
+        name,
+        description,
+        category: 'prop'
+      }
+      propAssets.value.push(nextAsset)
+      existingMap.set(key, nextAsset)
+      changed = true
+    }
+  }
+
+  return changed
+}
+
+function clearParsedSceneStateForEpisodePlanChange(): boolean {
+  const hasParsedSceneState = scenes.value.length > 0
+    || queueItems.value.length > 0
+    || Object.keys(sceneConfigs.value).length > 0
+    || !!finalVideo.value?.videoUrl
+
+  if (!hasParsedSceneState) return false
+
+  scenes.value = []
+  selectedSceneId.value = ''
+  sceneConfigs.value = {}
+  queueItems.value = []
+  finalVideo.value = null
+  lastAutoPlanSnapshotKey.value = ''
+  return true
+}
+
+async function prepareEpisodePlanWithAssetHydration(): Promise<boolean> {
+  const prepared = await prepareEpisodePlan()
+  if (!prepared) return false
+
+  const sceneStateCleared = clearParsedSceneStateForEpisodePlanChange()
+  const propChanged = mergePropAssetsFromEpisodePlan()
+  if (sceneStateCleared) {
+    await saveProject()
+  }
+  if ((propChanged || sceneStateCleared) && workflowMetaReady.value && !hydratingWorkflowMeta.value) {
+    await saveWorkflowMeta()
+  }
+
+  return true
+}
+
 function applyAutomaticAssetPlan(
   options: { overwriteExistingConfigs?: boolean } = {}
 ): { characterChanged: boolean, configChanged: boolean, generationInvalidated: boolean } {
@@ -658,6 +802,18 @@ function applyAutomaticAssetPlan(
 async function persistAutomaticAssetPlan(
   options: { overwriteExistingConfigs?: boolean } = {}
 ) {
+  const forceRefresh = options.overwriteExistingConfigs === true
+  const snapshotKeyBefore = buildAutoPlanSnapshotKey()
+  if (!forceRefresh && snapshotKeyBefore === lastAutoPlanSnapshotKey.value) {
+    return {
+      characterChanged: false,
+      configChanged: false,
+      generationInvalidated: false,
+      descriptionMentionChanged: false,
+      skipped: true
+    }
+  }
+
   const autoPlanResult = applyAutomaticAssetPlan(options)
   const descriptionMentionChanged = synchronizeSceneDescriptionsWithAssetMentions()
 
@@ -672,9 +828,12 @@ async function persistAutomaticAssetPlan(
     await saveWorkflowMeta()
   }
 
+  lastAutoPlanSnapshotKey.value = buildAutoPlanSnapshotKey()
+
   return {
     ...autoPlanResult,
-    descriptionMentionChanged
+    descriptionMentionChanged,
+    skipped: false
   }
 }
 
@@ -775,7 +934,6 @@ const {
   autoRunCurrentStage,
   activeAutoStage,
   selectAutoStage,
-  handleParseScript,
   runSimpleAssetsStep,
   runSimpleVideosStep,
   runSimpleFinalStep
@@ -784,20 +942,14 @@ const {
   router,
   projectId,
   projectAssetWorkflow,
-  scriptParseMode,
   selectedStyleId,
   projectStyleId,
   selectedSceneId,
-  workflowStylePrompt,
-  novelText,
   scenes,
-  episodePlan,
   queueSummary,
   assetsReady,
   finalVideo,
   resolveUiError,
-  prepareEpisodePlan,
-  parseScript,
   mergeAllVideos,
   loadProject,
   loadWorkflowMeta,
@@ -814,18 +966,33 @@ async function runEpisodeVideosStep(episodeId: string) {
   await runBatchSceneGenerationByEpisode(episodeId)
 }
 
-function updateEpisodePlanTitle(payload: { id: string, title: string }) {
+async function updateEpisodePlanTitle(payload: { id: string, title: string }) {
+  const previousEpisode = episodePlan.value.find(item => item.id === payload.id)
+  const previousTitle = previousEpisode?.title || ''
+  const normalizedTitle = payload.title.trim() || previousTitle
+
   episodePlan.value = episodePlan.value.map((item) => {
     if (item.id !== payload.id) return item
-    const normalizedTitle = payload.title.trim()
     return {
       ...item,
-      title: normalizedTitle || item.title
+      title: normalizedTitle
     }
   })
+
+  if (normalizedTitle && normalizedTitle !== previousTitle) {
+    scenes.value = scenes.value.map((scene) => {
+      if ((scene.episodeId?.trim() || '') !== payload.id) return scene
+      return {
+        ...scene,
+        episodeTitle: normalizedTitle
+      }
+    })
+  }
+
+  await saveProject()
 }
 
-function updateEpisodePlanBoundary(payload: { id: string, endOffset: number }) {
+async function updateEpisodePlanBoundary(payload: { id: string, endOffset: number }) {
   const targetIndex = episodePlan.value.findIndex(item => item.id === payload.id)
   if (targetIndex < 0 || targetIndex >= episodePlan.value.length - 1) return
 
@@ -842,10 +1009,20 @@ function updateEpisodePlanBoundary(payload: { id: string, endOffset: number }) {
   next.charCount = Math.max(0, next.endOffset - next.startOffset)
 
   episodePlan.value = nextPlan
+  const sceneStateCleared = clearParsedSceneStateForEpisodePlanChange()
+  await saveProject()
+  if (sceneStateCleared && workflowMetaReady.value && !hydratingWorkflowMeta.value) {
+    await saveWorkflowMeta()
+  }
 }
 
-function clearEpisodePlan() {
+async function clearEpisodePlan() {
   episodePlan.value = []
+  const sceneStateCleared = clearParsedSceneStateForEpisodePlanChange()
+  await saveProject()
+  if (sceneStateCleared && workflowMetaReady.value && !hydratingWorkflowMeta.value) {
+    await saveWorkflowMeta()
+  }
 }
 
 async function handlePrepareEpisodePlan() {
@@ -853,7 +1030,28 @@ async function handlePrepareEpisodePlan() {
     alert('请先输入剧本原文')
     return
   }
-  await prepareEpisodePlan()
+  await prepareEpisodePlanWithAssetHydration()
+}
+
+async function handleParseSingleEpisode(payload: { id: string }) {
+  if (!novelText.value.trim()) {
+    alert('请先输入剧本原文')
+    return
+  }
+
+  const parsed = await parseScript({
+    workflowType: 'asset_consistency',
+    style: workflowStylePrompt.value,
+    scriptParseMode: scriptParseMode.value,
+    descriptionFormat: 'timeline',
+    targetEpisodeId: payload.id
+  })
+
+  if (!parsed) return
+
+  await persistAutomaticAssetPlan()
+  synchronizeSceneConfigs()
+  synchronizeQueueItems()
 }
 
 const autoStages = computed(() => {
@@ -877,8 +1075,73 @@ const parseStageHint = computed(() => {
   }
   return stageHints.parse
 })
+const EPISODE_OVERVIEW_TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]\s*/u
+const EPISODE_OVERVIEW_STRUCTURED_HEADING_REGEX = /^(?:场景功能\/情绪定位|场景功能|情绪定位|镜头设计|声音设计|台词节奏|表演关键点|Scene function \/ emotional beat|Shot design|Sound design|Dialogue rhythm|Performance notes)\s*[：:]?\s*$/u
+const EPISODE_OVERVIEW_MAX_LENGTH = 180
+
+function resolveSceneDescriptionOverviewText(description: string): string {
+  const lines = description
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+
+  if (lines.length === 0) return ''
+
+  const timelineLines = lines
+    .filter(line => EPISODE_OVERVIEW_TIMELINE_PREFIX_REGEX.test(line))
+    .map(line => line.replace(EPISODE_OVERVIEW_TIMELINE_PREFIX_REGEX, '').trim())
+    .filter(Boolean)
+
+  if (timelineLines.length > 0) {
+    return timelineLines.slice(0, 2).join(' ')
+  }
+
+  return lines
+    .filter(line => !EPISODE_OVERVIEW_STRUCTURED_HEADING_REGEX.test(line))
+    .slice(0, 2)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function clipEpisodeOverviewText(text: string): string {
+  if (text.length <= EPISODE_OVERVIEW_MAX_LENGTH) return text
+  return `${text.slice(0, EPISODE_OVERVIEW_MAX_LENGTH).trim()}...`
+}
+
+const episodeOverviewById = computed<Record<string, string>>(() => {
+  if (episodePlan.value.length === 0 || scenes.value.length === 0) return {}
+
+  const overviewMap: Record<string, string> = {}
+  for (const episode of episodePlan.value) {
+    const episodeScenes = scenes.value.filter((scene) => {
+      return (scene.episodeId?.trim() || '') === episode.id
+    })
+    if (episodeScenes.length === 0) continue
+
+    const sceneSummaryParts = episodeScenes
+      .map((scene) => {
+        const descriptionSummary = resolveSceneDescriptionOverviewText(scene.description || '')
+        const sceneTitle = scene.title?.trim() || ''
+        if (sceneTitle && descriptionSummary) {
+          return descriptionSummary.startsWith(sceneTitle)
+            ? descriptionSummary
+            : `${sceneTitle}：${descriptionSummary}`
+        }
+        return sceneTitle || descriptionSummary
+      })
+      .filter(Boolean)
+      .slice(0, 3)
+
+    if (sceneSummaryParts.length === 0) continue
+    overviewMap[episode.id] = clipEpisodeOverviewText(sceneSummaryParts.join('；'))
+  }
+
+  return overviewMap
+})
 const NOVEL_TEXT_AUTO_SAVE_DELAY_MS = 1200
 const lastSavedNovelText = ref('')
+const pendingWorkflowMetaSaveAfterNovelTextChange = ref(false)
 let novelTextAutoSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 function clearNovelTextAutoSaveTimer() {
@@ -890,11 +1153,22 @@ function clearNovelTextAutoSaveTimer() {
 async function persistNovelTextIfNeeded() {
   if (loading.value || saving.value) return
   if (!projectId.value && !projectStyleId.value) return
-  if (novelText.value === lastSavedNovelText.value) return
+  if (
+    novelText.value === lastSavedNovelText.value
+    && !pendingWorkflowMetaSaveAfterNovelTextChange.value
+  ) return
 
   const saved = await saveProject()
   if (saved) {
     lastSavedNovelText.value = novelText.value
+    if (
+      pendingWorkflowMetaSaveAfterNovelTextChange.value
+      && workflowMetaReady.value
+      && !hydratingWorkflowMeta.value
+    ) {
+      await saveWorkflowMeta()
+    }
+    pendingWorkflowMetaSaveAfterNovelTextChange.value = false
   }
 }
 
@@ -975,11 +1249,15 @@ watch(
 
 watch(novelText, (nextValue, previousValue) => {
   if (nextValue === previousValue) return
+  if (loading.value) return
   if (episodePlan.value.length > 0) {
     episodePlan.value = []
   }
-  if (loading.value) return
-  if (nextValue === lastSavedNovelText.value) return
+  const sceneStateCleared = clearParsedSceneStateForEpisodePlanChange()
+  if (sceneStateCleared) {
+    pendingWorkflowMetaSaveAfterNovelTextChange.value = true
+  }
+  if (nextValue === lastSavedNovelText.value && !sceneStateCleared) return
   scheduleNovelTextAutoSave()
 })
 
@@ -1009,7 +1287,7 @@ const environmentCropInitialSelection = computed(() => {
 function openEnvironmentCropDialog(assetId: string) {
   const asset = resolveEnvironmentCard(assetId)
   if (!asset?.panoramaImage?.trim() && !asset?.referenceImage?.trim()) {
-    alert('请先生成或上传环境图，再选取截图区域')
+    alert('请先生成或上传环境图，再选择取景区域')
     return
   }
 
@@ -1049,7 +1327,7 @@ async function submitEnvironmentCropSelection(selection: EnvironmentCropSelectio
     await saveWorkflowMeta()
     setEnvironmentCropDialogOpen(false)
   } catch (error) {
-    environmentCropError.value = resolveUiError(error, '环境截图区域保存失败')
+    environmentCropError.value = resolveUiError(error, '环境取景区域保存失败')
   } finally {
     environmentCropSaving.value = false
   }
@@ -1689,10 +1967,7 @@ async function handleBatchGenerateCharacters() {
       :characters-count="characters.length"
       :hint="parseStageHint"
       @prepare-episodes="handlePrepareEpisodePlan"
-      @parse="handleParseScript"
       @clear-episode-plan="clearEpisodePlan"
-      @update-episode-title="updateEpisodePlanTitle"
-      @update-episode-end-offset="updateEpisodePlanBoundary"
     />
 
     <AssetWorkbenchStagePanel
@@ -1753,11 +2028,14 @@ async function handleBatchGenerateCharacters() {
     >
       <AssetWorkbenchVideosStage
         :scenes="scenes"
+        :episode-plan="episodePlan"
+        :episode-overviews="episodeOverviewById"
         :selected-scene-id="selectedSceneId"
         :selected-scene="selectedScene"
         :queue-summary="queueSummary"
         :auto-running="autoRunning"
         :auto-run-current-stage="autoRunCurrentStage"
+        :parsing="parsing"
         :scene-chat-open-scene-id="sceneChatOpenSceneId"
         :scene-chat-current-messages="sceneChatCurrentMessages"
         :scene-chat-composer-assets="sceneChatComposerAssets"
@@ -1787,6 +2065,9 @@ async function handleBatchGenerateCharacters() {
         :on-run-episode-videos-step="runEpisodeVideosStep"
         :on-export-formatted-script-docx="handleExportFormattedScriptDocx"
         :on-retry-failed-queue-items="retryFailedQueueItemsOnce"
+        :on-parse-episode="(episodeId) => handleParseSingleEpisode({ id: episodeId })"
+        :on-update-episode-title="updateEpisodePlanTitle"
+        :on-update-episode-end-offset="updateEpisodePlanBoundary"
         :on-select-scene="selectScene"
         :on-open-scene-edit="openSceneEdit"
         :on-toggle-scene-chat="toggleSceneChat"

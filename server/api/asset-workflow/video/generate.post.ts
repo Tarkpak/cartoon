@@ -731,8 +731,8 @@ export default defineEventHandler(async (event) => {
     'asset_consistency'
   )
   if (!interpolatedPrompt) {
-    console.error('[AssetWorkflow/Video] 场景视频生成模板缺失，请检查提示词配置')
-    throw new Error('无法获取场景视频生成模板，请在设置中检查提示词配置')
+    console.error('[AssetWorkflow/Video] 分镜视频生成模板缺失，请检查提示词配置')
+    throw new Error('无法获取分镜视频生成模板，请在设置中检查提示词配置')
   }
   const prompt = interpolatedPrompt
 
@@ -808,7 +808,7 @@ export default defineEventHandler(async (event) => {
     console.error('[AssetWorkflow/Video] 任务创建失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '场景视频生成失败',
+      statusMessage: '分镜视频生成失败',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

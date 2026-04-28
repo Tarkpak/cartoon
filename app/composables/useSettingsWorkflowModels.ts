@@ -74,7 +74,7 @@ export const WORKFLOW_CATEGORY_CONFIG: Record<WorkflowCategoryKey, WorkflowCateg
     name: '视频生成',
     icon: Video,
     color: 'purple',
-    description: '覆盖单场景视频生成及对应扩展参数。'
+    description: '覆盖单个分镜片段生成及对应扩展参数。'
   }
 }
 
@@ -179,7 +179,7 @@ export function useSettingsWorkflowModels() {
         )
       }
     } catch (error) {
-      console.error('[useSettingsWorkflowModels] 加载业务模型配置失败:', error)
+      console.error('[useSettingsWorkflowModels] 加载流程模型配置失败:', error)
     } finally {
       workflowLoading.value = false
     }

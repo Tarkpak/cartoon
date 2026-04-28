@@ -155,7 +155,7 @@ const PROMPT_TRANSLATION_USER_CONTENT: PromptTemplate['content'] = {
 }
 
 const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
-  zh: `你是一位资深分镜师，负责把输入剧本忠实还原为可执行分镜。请把输入文本解析成可直接进入”资产准备 → 场景视频生成”的结构化数据。
+  zh: `你是一位资深分镜师，负责把输入剧本忠实还原为可执行分镜。请把输入文本解析成可直接进入”资产准备 → 分镜视频生成”的结构化数据。
 
 【输入文本】
 {{novelText}}
@@ -177,7 +177,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 【核心目标】
 1. 必须覆盖原文完整主线，不得省略关键事件、关键情绪转折和关键旁白。
-2. 输出结果必须直接服务当前工作台主流程：后续要生成角色资产、环境参考图和场景视频。
+2. 输出结果必须直接服务当前工作台主流程：后续要生成角色资产、环境参考图和分镜视频。
 3. 每个场景都要足够“可拍”，描述应体现环境、角色、动作、镜头重点和关键道具。
 
 【场景拆分规则】
@@ -409,7 +409,7 @@ Output JSON only, with no extra explanation.`
 }
 
 const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
-  zh: `你是一位短剧分镜编排导演。请把输入文本解析为可直接用于“资产准备 → 场景视频生成”的高节奏结构化 JSON，并在完整覆盖原文主线的前提下执行短剧节奏锚点。
+  zh: `你是一位短剧分镜编排导演。请把输入文本解析为可直接用于“资产准备 → 分镜视频生成”的高节奏结构化 JSON，并在完整覆盖原文主线的前提下执行短剧节奏锚点。
 
 【输入文本】
 {{novelText}}
@@ -714,7 +714,7 @@ Requirements:
 }
 
 const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: `你正在为”资产一致性场景视频”生成单张纯环境参考图。请直接生成图片，不要输出文字说明。
+  zh: `你正在为”资产一致性分镜视频”生成单张纯环境参考图。请直接生成图片，不要输出文字说明。
 
 【项目画风】
 {{style}}
@@ -742,7 +742,7 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 2. 这是一张纯环境全景源图：禁止出现人物、人脸、肢体、剪影、人群。
 3. 仅依据环境摘要与场景设定提取地点、建筑、地形、道具、光照、天气与空间关系，不要把人物动作、对白、旁白转成画面主体。
 4. 构图必须为“360 环绕等距柱状（equirectangular）全景展开图”语义：重点体现环绕空间关系，而非普通宽银幕构图；若模型无法稳定输出严格等距柱状，可退化为非鱼眼的超宽全景母版图。
-5. 左右边缘应可自然衔接，避免断层；完整交代核心空间结构，并在主体空间四周预留足够环境信息，方便后续裁切不同截图区域。
+5. 左右边缘应可自然衔接，避免断层；完整交代核心空间结构，并在主体空间四周预留足够环境信息，方便后续裁切不同取景区域。
 6. 默认使用中远景/全景观察距离，避免主体空间离镜头过近，避免夸张广角透视、贴脸前景或过大的近处遮挡，保证单个截图也能读出整体空间结构。
 7. 同一主环境的年代感、装修档次、材质语言、灯光体系必须和相邻场景保持一致。
 8. 不要文字、水印、Logo、边框、界面元素。
@@ -893,7 +893,7 @@ const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
 }
 
 const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: `直接生成一个单场景视频片段，不要输出文字，不要把以下内容理解成“要写提示词”。
+  zh: `直接生成一个分镜片段，不要输出文字，不要把以下内容理解成“要写提示词”。
 
 【镜头编号】
 {{shotNumber}}

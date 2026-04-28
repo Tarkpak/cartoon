@@ -15,7 +15,7 @@ export type PromptFlowStage = (typeof PROMPT_FLOW_STAGES)[number]
 export const PROMPT_FLOW_STAGE_LABELS: Record<PromptFlowStage, string> = {
   parse: '解析',
   assets: '资产',
-  videos: '场景视频'
+  videos: '分镜视频'
 }
 
 export interface PromptVariable {
@@ -105,7 +105,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     name: '剧本解析与资产规划',
     category: 'text',
     stage: 'parse',
-    description: '将原文解析为结构化场景、角色和后续可直接生成的视频时间轴',
+    description: '将原文解析为结构化场景、角色和后续可直接生成的分镜时间轴',
     variables: [
       { name: '{{novelText}}', description: '剧本/原文内容', example: '第一章 相遇...' },
       { name: '{{style}}', description: '项目画风描述', example: '电影写实风格' },
@@ -230,10 +230,10 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
   },
   {
     id: 'scene_video_generation',
-    name: '场景视频生成',
+    name: '分镜视频生成',
     category: 'video',
     stage: 'videos',
-    description: '基于环境/角色参考素材与场景详细描述生成单场景视频',
+    description: '基于环境/角色参考素材与场景详细描述生成单个分镜片段',
     workflows: ['asset_consistency'],
     variables: [
       { name: '{{shotNumber}}', description: '镜头序号', example: '2' },
