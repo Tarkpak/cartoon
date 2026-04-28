@@ -82,20 +82,267 @@ const TIMELINE_LINE_CAPTURE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|�
 const TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]\s*/u
 const STRUCTURED_DESCRIPTION_HEADING_REGEX = /^(?:场景功能\/情绪定位|场景功能|情绪定位|镜头设计|声音设计|台词节奏|表演关键点|Scene function \/ emotional beat|Shot design|Sound design|Dialogue rhythm|Performance notes)\s*[：:]?\s*$/u
 const LIVE_ACTION_STYLE_HINT_REGEX = /(ai\s*真人|live[-\s]?action|真人剧|live action)/iu
+const LONG_SCRIPT_SEGMENT_THRESHOLD = 30_000
+const LONG_SCRIPT_TARGET_CHARS = 18_000
+const LONG_SCRIPT_OVERLAP_CHARS = 1_200
+const LONG_SCRIPT_MAX_SEGMENTS = 12
+const CHUNK_RECOMMENDED_MIN_SCENES_FLOOR = 4
 
-function estimateRecommendedMinScenes(textLength: number, scriptParseMode: ScriptParseMode): number {
+type ParsedScriptCharacterRole = NonNullable<ParsedScript['characters'][number]['role']>
+const CHARACTER_ROLE_PRIORITY: Record<ParsedScriptCharacterRole, number> = {
+  protagonist: 3,
+  antagonist: 2,
+  supporting: 1
+}
+
+function estimateRecommendedMinScenes(
+  textLength: number,
+  scriptParseMode: ScriptParseMode,
+  options: {
+    maxScenesHint?: number
+  } = {}
+): number {
+  const maxScenesHint = options.maxScenesHint
+  if (typeof maxScenesHint === 'number' && Number.isFinite(maxScenesHint) && maxScenesHint > 0) {
+    return Math.max(1, Math.min(240, Math.round(maxScenesHint)))
+  }
+
   const safeLength = Math.max(0, Math.floor(textLength))
 
   // 推荐值用于提示模型“场景密度”，不应过高到超出单次输出承载能力。
   // 这里采用中等密度估算：长文本应显著增加场景，但仍保持可生成范围。
   if (scriptParseMode === 'short_drama') {
     const shortDramaScenes = Math.ceil(safeLength / 1000) + 2
-    return Math.max(8, Math.min(60, shortDramaScenes))
+    return Math.max(8, Math.min(180, shortDramaScenes))
   }
 
   // 精品剧更强调细节延展，密度略低于短剧但仍需随篇幅增长。
   const premiumDramaScenes = Math.ceil(safeLength / 1300) + 1
-  return Math.max(4, Math.min(45, premiumDramaScenes))
+  return Math.max(4, Math.min(140, premiumDramaScenes))
+}
+
+function normalizeScriptInputText(text: string): string {
+  return text.replace(/\r\n?/g, '\n').trim()
+}
+
+function splitScriptTextByWindow(options: {
+  text: string
+  targetChars: number
+  overlapChars: number
+  maxSegments: number
+}): string[] {
+  const safeTargetChars = Math.max(2_000, Math.floor(options.targetChars))
+  const safeOverlapChars = Math.max(
+    0,
+    Math.min(Math.floor(options.overlapChars), Math.floor(safeTargetChars / 2))
+  )
+  const chunks: string[] = []
+  let start = 0
+
+  while (start < options.text.length && chunks.length < options.maxSegments) {
+    let end = Math.min(options.text.length, start + safeTargetChars)
+
+    if (end < options.text.length) {
+      const minBreakPosition = start + Math.floor(safeTargetChars * 0.6)
+      const doubleBreak = options.text.lastIndexOf('\n\n', end)
+      if (doubleBreak >= minBreakPosition) {
+        end = doubleBreak
+      } else {
+        const singleBreak = options.text.lastIndexOf('\n', end)
+        if (singleBreak >= minBreakPosition) {
+          end = singleBreak
+        }
+      }
+    }
+
+    if (end <= start) {
+      end = Math.min(options.text.length, start + safeTargetChars)
+    }
+
+    const chunkText = options.text.slice(start, end).trim()
+    if (chunkText) {
+      chunks.push(chunkText)
+    }
+
+    if (end >= options.text.length) break
+
+    const nextStart = Math.max(0, end - safeOverlapChars)
+    start = nextStart > start ? nextStart : end
+  }
+
+  if (start < options.text.length && chunks.length > 0) {
+    const remainingText = options.text.slice(start).trim()
+    if (remainingText) {
+      if (chunks.length >= options.maxSegments) {
+        chunks[chunks.length - 1] = `${chunks[chunks.length - 1]}\n\n${remainingText}`
+      } else {
+        chunks.push(remainingText)
+      }
+    }
+  }
+
+  if (chunks.length === 0) {
+    return [options.text.trim()]
+  }
+
+  return chunks
+}
+
+function buildScriptParsingChunks(text: string): string[] {
+  const normalizedText = normalizeScriptInputText(text)
+  if (!normalizedText) return []
+  if (normalizedText.length <= LONG_SCRIPT_SEGMENT_THRESHOLD) return [normalizedText]
+
+  return splitScriptTextByWindow({
+    text: normalizedText,
+    targetChars: LONG_SCRIPT_TARGET_CHARS,
+    overlapChars: LONG_SCRIPT_OVERLAP_CHARS,
+    maxSegments: LONG_SCRIPT_MAX_SEGMENTS
+  })
+}
+
+function buildSegmentedParsingPrompt(options: {
+  basePrompt: string
+  chunkIndex: number
+  chunkCount: number
+  chunkLength: number
+  totalLength: number
+}): string {
+  const percentage = options.totalLength > 0
+    ? (options.chunkLength / options.totalLength) * 100
+    : 0
+
+  return `${options.basePrompt}
+
+【分段解析上下文（系统追加）】
+- 当前仅处理原文第 ${options.chunkIndex + 1}/${options.chunkCount} 段，禁止补写未提供段落。
+- 本段文本长度：约 ${options.chunkLength} 字（全量占比约 ${percentage.toFixed(1)}%）。
+- 输出仍需保持原文顺序；若与前段重叠，请避免重复同一场景。`
+}
+
+function normalizeSceneDedupToken(value?: string | null): string {
+  if (!value) return ''
+  return value
+    .toLowerCase()
+    .replace(/[\s\r\n\t]+/g, '')
+    .replace(/[，。！？,.!?:：'"“”‘’（）(){}<>《》、]/g, '')
+    .slice(0, 120)
+}
+
+function buildSceneDedupKey(scene: ParsedScript['scenes'][number]): string {
+  const location = normalizeSceneDedupToken(scene.setting?.location || '')
+  const title = normalizeSceneDedupToken(scene.title || '')
+  const summary = normalizeSceneDedupToken(buildSceneDescriptionSummary(scene.description || ''))
+  const dialogueSeed = normalizeSceneDedupToken(
+    (scene.dialogues || [])
+      .slice(0, 2)
+      .map(dialogue => `${dialogue.character || ''}:${dialogue.text || ''}`)
+      .join('|')
+  )
+  return [location, title, summary || dialogueSeed].join('|')
+}
+
+function toSequentialSceneId(index: number): string {
+  return `scene_${String(index + 1).padStart(3, '0')}`
+}
+
+function pickPreferredCharacterRole(
+  currentRole?: ParsedScriptCharacterRole,
+  nextRole?: ParsedScriptCharacterRole
+): ParsedScriptCharacterRole | undefined {
+  if (!currentRole) return nextRole
+  if (!nextRole) return currentRole
+  return CHARACTER_ROLE_PRIORITY[nextRole] > CHARACTER_ROLE_PRIORITY[currentRole]
+    ? nextRole
+    : currentRole
+}
+
+function mergeParsedScriptSegments(segmentResults: ParsedScript[]): ParsedScript {
+  const mergedScenes: ParsedScript['scenes'] = []
+  const recentSceneKeys: string[] = []
+
+  for (const segment of segmentResults) {
+    for (const scene of segment.scenes || []) {
+      const dedupKey = buildSceneDedupKey(scene)
+      if (dedupKey && recentSceneKeys.includes(dedupKey)) {
+        continue
+      }
+      if (dedupKey) {
+        recentSceneKeys.push(dedupKey)
+        if (recentSceneKeys.length > 10) {
+          recentSceneKeys.shift()
+        }
+      }
+      mergedScenes.push(scene)
+    }
+  }
+
+  const reindexedScenes = mergedScenes.map((scene, index) => ({
+    ...scene,
+    id: toSequentialSceneId(index)
+  }))
+
+  const mergedCharacterMap = new Map<string, ParsedScript['characters'][number]>()
+  const upsertCharacter = (character: {
+    name?: string | null
+    description?: string | null
+    role?: ParsedScriptCharacterRole
+  }) => {
+    const name = character.name?.trim()
+    if (!name) return
+
+    const nextDescription = character.description?.trim() || ''
+    const existing = mergedCharacterMap.get(name)
+    if (!existing) {
+      mergedCharacterMap.set(name, {
+        name,
+        description: nextDescription,
+        role: character.role
+      })
+      return
+    }
+
+    const preferredDescription = nextDescription.length > existing.description.length
+      ? nextDescription
+      : existing.description
+    const preferredRole = pickPreferredCharacterRole(existing.role, character.role)
+    mergedCharacterMap.set(name, {
+      name,
+      description: preferredDescription,
+      role: preferredRole
+    })
+  }
+
+  for (const segment of segmentResults) {
+    for (const character of segment.characters || []) {
+      upsertCharacter(character)
+    }
+  }
+
+  for (const scene of reindexedScenes) {
+    for (const character of scene.characters || []) {
+      upsertCharacter({
+        name: character.name,
+        description: character.appearance || '',
+        role: 'supporting'
+      })
+    }
+  }
+
+  const mergedTitle = segmentResults
+    .map(segment => segment.title?.trim() || '')
+    .find(Boolean)
+
+  const totalDuration = reindexedScenes.reduce((sum, scene) => {
+    return sum + normalizeSceneDuration(scene.duration)
+  }, 0)
+
+  return {
+    title: mergedTitle || undefined,
+    scenes: reindexedScenes,
+    characters: Array.from(mergedCharacterMap.values()),
+    totalDuration: Math.round(totalDuration * 10) / 10
+  }
 }
 
 function resolveScriptEraHint(options: {
@@ -432,11 +679,12 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { text, workflowType, style, scriptParseMode } = parseResult.data
+  const { text, workflowType, style, scriptParseMode, maxScenes } = parseResult.data
+  const normalizedInputText = normalizeScriptInputText(text)
   const normalizedWorkflow = normalizeProjectWorkflowType(workflowType)
   const normalizedScriptParseMode = normalizeScriptParseMode(scriptParseMode)
   const eraHint = resolveScriptEraHint({
-    text,
+    text: normalizedInputText,
     style
   })
   const parsingPromptTemplateId: PromptTemplateId = normalizedScriptParseMode === 'short_drama'
@@ -444,62 +692,142 @@ export default defineEventHandler(async (event) => {
     : PROMPT_TEMPLATE_IDS.SCRIPT_PARSING
 
   try {
-    const textLength = text.trim().length
-    const recommendedMinScenes = estimateRecommendedMinScenes(textLength, normalizedScriptParseMode)
+    const textLength = normalizedInputText.length
+    const recommendedMinScenes = estimateRecommendedMinScenes(
+      textLength,
+      normalizedScriptParseMode,
+      { maxScenesHint: maxScenes }
+    )
     const promptLang = await getPromptLang(parsingPromptTemplateId, normalizedWorkflow)
     const scriptParseModeLabel = resolveScriptParseModeLabel(normalizedScriptParseMode, promptLang)
 
-    // 2. 从数据库获取提示词模板
-    const interpolatedPrompt = await getInterpolatedPrompt(
-      parsingPromptTemplateId,
-      {
-        novelText: text,
-        style: style?.trim() || '默认画风',
-        textLength: String(text.trim().length),
-        recommendedMinScenes: String(recommendedMinScenes),
-        sceneDurationMin: String(SCRIPT_MIN_DURATION),
-        sceneDurationMax: String(SCRIPT_MAX_DURATION),
-        scriptParseModeLabel,
-        scriptParseModeRules: '',
-        eraHint: eraHint || ''
-      },
-      promptLang,
-      normalizedWorkflow
-    )
+    const runScriptParsePass = async (options: {
+      chunkText: string
+      recommendedMinScenesHint: number
+      chunkIndex?: number
+      chunkCount?: number
+    }): Promise<ParsedScript> => {
+      const interpolatedPrompt = await getInterpolatedPrompt(
+        parsingPromptTemplateId,
+        {
+          novelText: options.chunkText,
+          style: style?.trim() || '默认画风',
+          textLength: String(options.chunkText.length),
+          recommendedMinScenes: String(options.recommendedMinScenesHint),
+          sceneDurationMin: String(SCRIPT_MIN_DURATION),
+          sceneDurationMax: String(SCRIPT_MAX_DURATION),
+          scriptParseModeLabel,
+          scriptParseModeRules: '',
+          eraHint: eraHint || ''
+        },
+        promptLang,
+        normalizedWorkflow
+      )
 
-    if (!interpolatedPrompt) {
-      throw new Error('无法获取提示词模板，请检查数据库配置')
-    }
-    const prompt = interpolatedPrompt
+      if (!interpolatedPrompt) {
+        throw new Error('无法获取提示词模板，请检查数据库配置')
+      }
 
-    // 3. 使用业务模型配置的模型解析
-    const result = await generateJSONForWorkflow<ParsedScript>('script_parsing', {
-      prompt,
-      temperature: 0.3,
-      maxRetries: 2
-    })
+      const prompt = options.chunkCount && options.chunkCount > 1
+        ? buildSegmentedParsingPrompt({
+            basePrompt: interpolatedPrompt,
+            chunkIndex: options.chunkIndex || 0,
+            chunkCount: options.chunkCount,
+            chunkLength: options.chunkText.length,
+            totalLength: textLength
+          })
+        : interpolatedPrompt
 
-    // 4. 归一化并验证输出格式
-    const normalizedResult = normalizeParsedScriptOutput(result, {
-      fallbackEra: eraHint
-    })
-    const validated = ParsedScriptSchema.safeParse(normalizedResult)
-    if (!validated.success) {
-      console.error('[ScriptParse] 输出格式验证失败:', validated.error)
-      throw createError({
-        statusCode: 500,
-        statusMessage: '解析结果格式错误',
-        message: validated.error.issues.map(i => `${i.path}: ${i.message}`).join(', ')
+      const result = await generateJSONForWorkflow<ParsedScript>('script_parsing', {
+        prompt,
+        temperature: 0.3,
+        maxRetries: 2
       })
+
+      const normalizedResult = normalizeParsedScriptOutput(result, {
+        fallbackEra: eraHint
+      })
+      const validated = ParsedScriptSchema.safeParse(normalizedResult)
+      if (!validated.success) {
+        console.error('[ScriptParse] 输出格式验证失败:', validated.error)
+        throw createError({
+          statusCode: 500,
+          statusMessage: '解析结果格式错误',
+          message: validated.error.issues.map(i => `${i.path}: ${i.message}`).join(', ')
+        })
+      }
+
+      return validated.data
     }
 
-    const finalParsedScript = validated.data
+    const scriptChunks = buildScriptParsingChunks(normalizedInputText)
+    let finalParsedScript: ParsedScript
+    const chunkRecommendedSceneHints: number[] = []
+
+    if (scriptChunks.length <= 1) {
+      finalParsedScript = await runScriptParsePass({
+        chunkText: normalizedInputText,
+        recommendedMinScenesHint: recommendedMinScenes
+      })
+    } else {
+      console.log('[ScriptParse] 启用长文本分段解析:', {
+        textLength,
+        chunkCount: scriptChunks.length,
+        recommendedMinScenes
+      })
+
+      const chunkResults: ParsedScript[] = []
+      for (let index = 0; index < scriptChunks.length; index++) {
+        const chunkText = scriptChunks[index]
+        if (!chunkText) continue
+
+        const chunkRatio = textLength > 0
+          ? (chunkText.length / textLength)
+          : (1 / scriptChunks.length)
+        const chunkRecommendedMinScenes = Math.max(
+          CHUNK_RECOMMENDED_MIN_SCENES_FLOOR,
+          Math.round(recommendedMinScenes * chunkRatio * 1.2)
+        )
+        chunkRecommendedSceneHints.push(chunkRecommendedMinScenes)
+
+        const parsedChunk = await runScriptParsePass({
+          chunkText,
+          recommendedMinScenesHint: chunkRecommendedMinScenes,
+          chunkIndex: index,
+          chunkCount: scriptChunks.length
+        })
+        chunkResults.push(parsedChunk)
+      }
+
+      const mergedResult = mergeParsedScriptSegments(chunkResults)
+      const normalizedMergedResult = normalizeParsedScriptOutput(mergedResult, {
+        fallbackEra: eraHint
+      })
+      const validatedMergedResult = ParsedScriptSchema.safeParse(normalizedMergedResult)
+      if (!validatedMergedResult.success) {
+        console.error('[ScriptParse] 分段结果合并后格式验证失败:', validatedMergedResult.error)
+        throw createError({
+          statusCode: 500,
+          statusMessage: '解析结果格式错误',
+          message: validatedMergedResult.error.issues.map(i => `${i.path}: ${i.message}`).join(', ')
+        })
+      }
+
+      finalParsedScript = validatedMergedResult.data
+    }
+
     const timelineScript = buildFormattedTimelineScript(finalParsedScript)
 
     return {
       success: true,
       data: finalParsedScript,
       formattedTimeline: timelineScript,
+      parseStrategy: {
+        segmented: scriptChunks.length > 1,
+        chunkCount: scriptChunks.length,
+        recommendedMinScenes,
+        chunkRecommendedSceneHints
+      },
       latencyMs: Date.now() - startTime
     }
   } catch (error) {
