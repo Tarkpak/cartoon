@@ -6,7 +6,10 @@ import {
   DEFAULT_SCRIPT_PARSE_MODE,
   type ScriptParseMode
 } from '#shared/types/script'
-import { useAssetWorkbenchGeneration } from '~/composables/useAssetWorkbenchGeneration'
+import {
+  createInitialAssetWorkbenchParseProgressState,
+  useAssetWorkbenchGeneration
+} from '~/composables/useAssetWorkbenchGeneration'
 import { useAssetWorkbenchSceneEditing } from '~/composables/useAssetWorkbenchSceneEditing'
 
 export type {
@@ -44,6 +47,7 @@ export function useAssetWorkbench() {
   const characters = ref<CharacterData[]>([])
 
   const parsing = ref(false)
+  const parseProgress = ref(createInitialAssetWorkbenchParseProgressState())
 
   const {
     loading,
@@ -102,6 +106,7 @@ export function useAssetWorkbench() {
     scenes,
     characters,
     parsing,
+    parseProgress,
     currentStylePrompt,
     saveProject,
     onModelTaskCompleted: notifyGenerationCompleted
@@ -120,6 +125,7 @@ export function useAssetWorkbench() {
     scenes,
     characters,
     parsing,
+    parseProgress,
     loading,
     saving,
     saveError,

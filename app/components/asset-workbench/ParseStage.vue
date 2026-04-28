@@ -7,6 +7,15 @@ const novelText = defineModel<string>('novelText', { required: true })
 const props = defineProps<{
   scriptParseMode: ScriptParseMode
   parsing: boolean
+  parseProgress?: {
+    active?: boolean
+    step?: string
+    message?: string
+    progress?: number
+    chunkIndex?: number | null
+    chunkCount?: number | null
+    logs?: Array<{ id: string, message: string }>
+  }
   scenesCount: number
   charactersCount: number
   hint: string
@@ -19,6 +28,21 @@ const lineCount = computed(() => {
 })
 const isDraggingTextFile = ref(false)
 const dragCounter = ref(0)
+const parseProgressPercent = computed(() => {
+  const value = props.parseProgress?.progress
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(100, Math.round(value)))
+})
+const parseProgressLogs = computed(() => {
+  return (props.parseProgress?.logs || []).slice(-6).reverse()
+})
+const parseProgressChunkText = computed(() => {
+  const chunkIndex = props.parseProgress?.chunkIndex
+  const chunkCount = props.parseProgress?.chunkCount
+  if (typeof chunkIndex !== 'number' || typeof chunkCount !== 'number') return ''
+  if (chunkCount <= 1) return ''
+  return `分段进度：${chunkIndex}/${chunkCount}`
+})
 
 const emit = defineEmits<{
   (e: 'parse'): void
@@ -162,6 +186,43 @@ async function handleDrop(event: DragEvent) {
           {{ charactersCount }} 个角色
         </span>
       </div>
+    </div>
+
+    <div
+      v-if="parsing"
+      class="shrink-0 rounded-md border border-primary/20 bg-primary/5 p-3"
+    >
+      <div class="flex items-center justify-between gap-2 text-xs">
+        <p class="text-foreground/90">
+          {{ parseProgress?.message || '解析进行中，请稍候…' }}
+        </p>
+        <span class="tabular-nums text-primary/80">
+          {{ parseProgressPercent }}%
+        </span>
+      </div>
+      <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-primary/15">
+        <div
+          class="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
+          :style="{ width: `${parseProgressPercent}%` }"
+        />
+      </div>
+      <p
+        v-if="parseProgressChunkText"
+        class="mt-2 text-[11px] text-muted-foreground"
+      >
+        {{ parseProgressChunkText }}
+      </p>
+      <ul
+        v-if="parseProgressLogs.length > 0"
+        class="mt-2 max-h-28 space-y-1 overflow-y-auto text-[11px] text-muted-foreground"
+      >
+        <li
+          v-for="item in parseProgressLogs"
+          :key="item.id"
+        >
+          {{ item.message }}
+        </li>
+      </ul>
     </div>
 
     <p
