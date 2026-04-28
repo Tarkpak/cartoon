@@ -117,6 +117,7 @@ const {
   scenes,
   characters,
   parsing,
+  parseProgress,
   loading,
   saving,
   saveError,
@@ -819,6 +820,12 @@ const autoStages = computed(() => {
 })
 
 const stageHints = AUTO_STAGE_HINTS
+const parseStageHint = computed(() => {
+  if (parsing.value && parseProgress.value.message) {
+    return parseProgress.value.message
+  }
+  return stageHints.parse
+})
 const NOVEL_TEXT_AUTO_SAVE_DELAY_MS = 1200
 const lastSavedNovelText = ref('')
 let novelTextAutoSaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -1622,9 +1629,10 @@ async function handleBatchGenerateCharacters() {
       v-model:novel-text="novelText"
       :script-parse-mode="scriptParseMode"
       :parsing="parsing"
+      :parse-progress="parseProgress"
       :scenes-count="scenes.length"
       :characters-count="characters.length"
-      :hint="stageHints.parse"
+      :hint="parseStageHint"
       @parse="handleParseScript"
     />
 

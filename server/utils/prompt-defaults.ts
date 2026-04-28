@@ -168,7 +168,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 【输入规模】
 - 文本长度：约 {{textLength}} 字
-- 场景数量参考值：{{recommendedMinScenes}} 场（仅用于密度估算，非硬限制）
+- 场景数量：默认不设固定值，由模型根据剧情承载自行决定；如外部传入提示值，仅作弱参考
 - 单场时长范围：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
 - 解析模式：{{scriptParseModeLabel}}
 
@@ -184,7 +184,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 1. 当地点变化、时间跳跃、动作阶段变化、情绪明显转折、叙事视角切换时，必须拆分新场景。
 2. 同一地点、同一时间、同一连续戏剧动作内，如果只是镜头切换、视角切换、表情推进、台词递进，不要拆场景，应在 description 内做逐秒拆镜。
 3. 只有当“场景功能”发生变化时再拆场景，例如：开场钩子、矛盾升级、反击转折、结尾宣言。
-4. 场景数量由模型根据剧情承载自行决定；{{recommendedMinScenes}} 仅作为密度估算参考，不作为硬限制。
+4. 场景数量由模型根据剧情承载自行决定；如外部传入场景数提示，仅作弱参考，不作为硬限制。
 5. 每个场景的 duration 必须是数字，且在 {{sceneDurationMin}}-{{sceneDurationMax}} 秒之间。
 6. totalDuration 必须严格等于所有 scenes[i].duration 的总和。
 
@@ -294,7 +294,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 ## Input Scale
 - Text length: about {{textLength}} characters
-- Scene-count reference: {{recommendedMinScenes}} (density hint only, not a hard limit)
+- Scene count: no fixed default; let the model decide by story load. If an external hint is provided, treat it as a weak suggestion only
 - Per-scene duration range: {{sceneDurationMin}}-{{sceneDurationMax}} seconds
 - Parsing mode: {{scriptParseModeLabel}}
 
@@ -310,7 +310,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 1. Split scenes whenever location, time, action phase, emotional direction, or narrative perspective changes.
 2. If the location and dramatic action remain continuous, do not split just because the camera angle changes or the acting beat progresses. Keep those details inside the same scene description as second-by-second beat design.
 3. Only create a new scene when the dramatic function changes, for example: hook, escalation, reversal, declaration, aftermath.
-4. Let the model decide scene count based on story load. {{recommendedMinScenes}} is only a density hint, not a hard limit.
+4. Let the model decide scene count based on story load. If an external scene-count hint is provided, treat it as a weak suggestion, not a hard limit.
 5. Each duration must be numeric and stay within {{sceneDurationMin}}-{{sceneDurationMax}} seconds.
 6. totalDuration must equal the sum of all scenes[i].duration.
 
@@ -422,7 +422,7 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 
 【输入规模】
 - 文本长度：约 {{textLength}} 字
-- 场景数量参考值：{{recommendedMinScenes}} 场（仅用于密度估算，非硬限制）
+- 场景数量：默认不设固定值，由模型根据剧情承载自行决定；如外部传入提示值，仅作弱参考
 - 单场时长范围：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
 
 【剧情覆盖硬约束（必须执行）】
@@ -451,7 +451,7 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 4. 保持原文事件顺序，禁止把后文反转提前到前文场景。
 
 【场景拆分规则】
-1. 总场景数由模型根据剧情承载自行决定；{{recommendedMinScenes}} 仅作为密度估算参考，不作为硬限制。
+1. 总场景数由模型根据剧情承载自行决定；如外部传入场景数提示，仅作弱参考，不作为硬限制。
 2. 地点、时间、动作目标、情绪方向、叙事视角、戏剧功能任一变化时必须拆场。
 3. 每场 duration 必须为数字，且在 {{sceneDurationMin}}-{{sceneDurationMax}} 秒。
 4. totalDuration 必须严格等于 scenes[i].duration 之和。
@@ -538,7 +538,7 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 
 ## Input Scale
 - Text length: about {{textLength}} characters
-- Scene-count reference: {{recommendedMinScenes}} (density hint only, not a hard limit)
+- Scene count: no fixed default; let the model decide by story load. If an external hint is provided, treat it as a weak suggestion only
 - Per-scene duration range: {{sceneDurationMin}}-{{sceneDurationMax}} seconds
 
 ## Hard Coverage Constraints (Must Follow)
@@ -567,7 +567,7 @@ Final declaration | 43-60s | emptiness -> cold severity | cliffhanger / anticipa
 4. Keep source event order; do not move late reversals into earlier scenes.
 
 ## Scene Splitting Rules
-1. Let the model decide total scene count based on story load. {{recommendedMinScenes}} is only a density hint, not a hard limit.
+1. Let the model decide total scene count based on story load. If an external scene-count hint is provided, treat it as a weak suggestion, not a hard limit.
 2. Split when any of these changes: location, time, action objective, emotional direction, narrative viewpoint, dramatic function.
 3. Each duration must be numeric and stay within {{sceneDurationMin}}-{{sceneDurationMax}}.
 4. totalDuration must equal the sum of scenes[i].duration.

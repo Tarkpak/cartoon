@@ -110,7 +110,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{novelText}}', description: '剧本/原文内容', example: '第一章 相遇...' },
       { name: '{{style}}', description: '项目画风描述', example: '电影写实风格' },
       { name: '{{textLength}}', description: '输入文本长度（字数）', example: '1580' },
-      { name: '{{recommendedMinScenes}}', description: '场景数量参考值（非硬限制）', example: '12' },
+      { name: '{{recommendedMinScenes}}', description: '可选场景数量提示（未提供时由模型自行决定，非硬限制）', example: '12' },
       { name: '{{sceneDurationMin}}', description: '场景最小时长（秒）', example: '2' },
       { name: '{{sceneDurationMax}}', description: '场景最大时长（秒）', example: '15' },
       { name: '{{scriptParseModeLabel}}', description: '解析模式标签', example: '短剧' },
@@ -128,7 +128,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{novelText}}', description: '剧本/原文内容', example: '第一章 相遇...' },
       { name: '{{style}}', description: '项目画风描述', example: '电影写实风格' },
       { name: '{{textLength}}', description: '输入文本长度（字数）', example: '1580' },
-      { name: '{{recommendedMinScenes}}', description: '场景数量参考值（非硬限制）', example: '8' },
+      { name: '{{recommendedMinScenes}}', description: '可选场景数量提示（未提供时由模型自行决定，非硬限制）', example: '8' },
       { name: '{{sceneDurationMin}}', description: '场景最小时长（秒）', example: '2' },
       { name: '{{sceneDurationMax}}', description: '场景最大时长（秒）', example: '15' },
       { name: '{{eraHint}}', description: '时代推断提示（如现代/民国/古代）', example: '现代' }
