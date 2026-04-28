@@ -689,13 +689,13 @@ async function determineProvider(config: typeof GenerateVideoRequestSchema._type
     }
   }
 
-  // 3. 优先使用业务流程配置的模型 (从数据库读取)
+  // 3. 优先使用业务模型配置的模型 (从数据库读取)
   const workflowModels = await getWorkflowModels()
   const workflowVideoModel = workflowModels.video_generation
   if (workflowVideoModel) {
     const workflowModelConfig = findVideoModel(workflowVideoModel)
     if (workflowModelConfig && (workflowModelConfig.provider === 'gemini' || workflowModelConfig.provider === 'qwen' || workflowModelConfig.provider === 'kling' || workflowModelConfig.provider === 'volcengine')) {
-      console.log(`[VideoGen] 使用业务流程配置的模型: ${workflowVideoModel} (${workflowModelConfig.provider})`)
+      console.log(`[VideoGen] 使用业务模型配置的模型: ${workflowVideoModel} (${workflowModelConfig.provider})`)
       return workflowModelConfig.provider
     }
   }
@@ -720,7 +720,7 @@ async function getActualModelId(config: typeof GenerateVideoRequestSchema._type[
     return config.modelId
   }
 
-  // 2. 优先使用业务流程配置的模型 (从数据库读取)
+  // 2. 优先使用业务模型配置的模型 (从数据库读取)
   const workflowModels = await getWorkflowModels()
   const workflowVideoModel = workflowModels.video_generation
   if (workflowVideoModel) {
@@ -769,7 +769,7 @@ async function generateVideoWithQwen(
     await updateTaskProgress(taskId, 10, 'processing')
     const workflowOptions = await getWorkflowModelOptions()
 
-    // 确定模型 - 优先使用业务流程配置 (从数据库读取)
+    // 确定模型 - 优先使用业务模型配置 (从数据库读取)
     let modelId = await getActualModelId(config)
     const modelConfig = modelId ? findVideoModel(modelId) : null
 
@@ -1574,7 +1574,7 @@ async function generateVideoWithVolcengine(
   try {
     await updateTaskProgress(taskId, 10, 'processing')
 
-    // 确定模型 - 优先使用业务流程配置 (从数据库读取)
+    // 确定模型 - 优先使用业务模型配置 (从数据库读取)
     let modelId = await getActualModelId(config)
     const modelConfig = modelId ? findVideoModel(modelId) : null
 

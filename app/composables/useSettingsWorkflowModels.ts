@@ -179,7 +179,7 @@ export function useSettingsWorkflowModels() {
         )
       }
     } catch (error) {
-      console.error('[useSettingsWorkflowModels] 加载业务流程模型配置失败:', error)
+      console.error('[useSettingsWorkflowModels] 加载业务模型配置失败:', error)
     } finally {
       workflowLoading.value = false
     }

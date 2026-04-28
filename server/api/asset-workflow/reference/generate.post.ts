@@ -118,6 +118,7 @@ const ENVIRONMENT_ONLY_NEGATIVE_PROMPT = [
   'extreme perspective',
   'ultra wide angle'
 ].join(', ')
+const PANORAMA_SOURCE_IMAGE_SIZE = '2100*900'
 
 const LOCATION_SUBSPACE_SUFFIXES = [
   '走廊',
@@ -316,20 +317,17 @@ function buildEnvironmentConsistencyText(
   if (!environmentRoot && !anchorDescription && siblingLocations.length === 0) return ''
 
   const lines = [
-    '【主环境一致性约束】',
+    '【主环境上下文】',
     environmentRoot ? `主环境锚点：${environmentRoot}` : '',
     anchorTitle || anchorLocation
       ? `母体参考场景：${anchorTitle || '未命名场景'}${anchorLocation ? `（${anchorLocation}）` : ''}`
       : '',
     anchorDescription
-      ? `母体环境描述（需保持同一建筑年代/装修档次/材质语言/照明逻辑）：${anchorDescription}`
+      ? `母体环境描述：${anchorDescription}`
       : '',
-    siblingLocations.length > 1
+    siblingLocations.length > 0
       ? `同组子空间：${siblingLocations.join('、')}`
-      : '',
-    '当前画面视为同一主环境下的子空间，不得出现互相冲突的装修与维护状态。',
-    '除非场景文本明确出现“翻修区/废弃区/新旧分区”，否则禁止出现“走廊豪华现代、办公室破旧老化”这类冲突。',
-    '若门窗、玻璃或敞开通道中能看到相邻空间，需让该可见空间与对应子空间在门窗朝向、灯光和关键陈设上可对位。'
+      : ''
   ].filter(Boolean)
 
   return lines.join('\n')
@@ -638,6 +636,7 @@ async function buildSceneReferencePrompt(
   const normalizedCustomPrompt = customPrompt?.trim() || ''
   const environmentSummary = buildEnvironmentSummary(scene)
   const environmentSceneTitle = scene.setting?.location?.trim() || scene.title || '未命名场景'
+<<<<<<< HEAD
   const antiDistortionText = '必须避免鱼眼/桶形/枕形/夸张广角畸变，保持地平线水平与建筑竖线自然，边缘不要拉伸变形'
   const panoramaFallbackHint = panoramaSource.fallbackApplied
     ? `当前模型不支持 AR ${PANORAMA_SOURCE_ASPECT_RATIO}，已自动改为该模型支持的 AR ${panoramaSource.aspectRatio}（${panoramaSource.size}）。`
@@ -645,6 +644,16 @@ async function buildSceneReferencePrompt(
   const panoramaAspectText = aspectRatio === '16:9'
     ? `${panoramaFallbackHint}先生成 AR ${panoramaSource.aspectRatio}（${panoramaSource.size}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），默认采用中远景/全景观察距离，保留更完整的空间结构信息，${antiDistortionText}，后续仍以 16:9 作为截图使用`
     : `${panoramaFallbackHint}先生成 AR ${panoramaSource.aspectRatio}（${panoramaSource.size}）360 环绕等距柱状环境全景源图（左右边缘需可衔接），默认采用中远景/全景观察距离，保留更完整的空间结构信息，${antiDistortionText}，后续裁切为 ${aspectRatio}`
+=======
+  const panoramaAspectText = [
+    `目标输出画幅：${aspectRatio}`,
+    `全景源图画幅：${PANORAMA_SOURCE_ASPECT_RATIO}`,
+    `全景源图尺寸：${PANORAMA_SOURCE_IMAGE_SIZE}`,
+    aspectRatio === '16:9'
+      ? '裁切策略：默认使用全景源图中的 16:9 区域'
+      : `裁切策略：后续从全景源图裁切为 ${aspectRatio}`
+  ].join('\n')
+>>>>>>> 7170c81 (feat: refactor)
   const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
   const era = normalizeOptionalSceneEraValue(scene.setting?.era)
     || inferSceneEraFromText([
@@ -719,6 +728,7 @@ export default defineEventHandler(async (event) => {
     const modelId = modelDecision.modelId
     const modelConfig = findImageModel(modelId)
     const geminiImageSize = workflowModelOptions.image_options.geminiImageSize
+<<<<<<< HEAD
     const panoramaSource = resolvePanoramaSourceProfile(modelConfig)
     if (panoramaSource.fallbackApplied) {
       console.warn(
@@ -732,10 +742,22 @@ export default defineEventHandler(async (event) => {
       panoramaSource,
       environmentContext,
       customPrompt
+=======
+    const prompt = await buildSceneReferencePrompt(scene, style, aspectRatio, environmentContext, customPrompt)
+    const negativePrompt = await getInterpolatedPrompt(
+      PROMPT_TEMPLATE_IDS.ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT,
+      {},
+      undefined,
+      'asset_consistency'
+>>>>>>> 7170c81 (feat: refactor)
     )
     const normalizedReference = referenceImage
       ? await normalizeReferenceImageInput(referenceImage, event)
       : null
+
+    if (!negativePrompt) {
+      throw new Error('无法获取环境参考图负向约束模板，请在设置中检查提示词配置')
+    }
 
     if (isRegeneration && !normalizedReference) {
       throw new Error('环境二次生成需要参考图，请先生成或上传环境图后再试')
@@ -771,9 +793,15 @@ export default defineEventHandler(async (event) => {
         modelId,
         prompt,
         imageSize: geminiImageSize,
+<<<<<<< HEAD
         aspectRatio: panoramaSource.aspectRatio,
         negativePrompt: ENVIRONMENT_ONLY_NEGATIVE_PROMPT,
         size: panoramaSource.size,
+=======
+        aspectRatio: PANORAMA_SOURCE_ASPECT_RATIO,
+        negativePrompt: negativePrompt.trim(),
+        size: resolvePanoramaSourceImageSize(),
+>>>>>>> 7170c81 (feat: refactor)
         ...referenceOptions,
         maxRetries: 2
       })

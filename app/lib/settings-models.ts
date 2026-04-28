@@ -58,7 +58,7 @@ export const SETTINGS_PROVIDER_CONFIG: Record<string, { displayName: string, col
   deepseek: { displayName: 'DeepSeek', color: 'purple', order: 6 }
 }
 
-export const SETTINGS_MODEL_TEST_PROMPTS: Record<ModelTestTab, string> = {
+export const SETTINGS_MODEL_TEST_PLACEHOLDERS: Record<ModelTestTab, string> = {
   text: '你好，请用一句话介绍你自己。',
   image: '一只可爱的橘色小猫，日式动漫风格，白色背景',
   video: '一只小猫在草地上奔跑，阳光明媚',

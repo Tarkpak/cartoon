@@ -9,7 +9,6 @@ import { persistImageToPublic } from '../../utils/image-storage'
 import { db, characters as charactersTable } from '../../db'
 import { eq } from 'drizzle-orm'
 import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
-import { CHARACTER_REGENERATION_TEMPLATE_HINT } from '../../../shared/constants/character-prompts'
 import {
   GenerateCharacterRequestSchema,
   type CharacterAsset,
@@ -295,7 +294,7 @@ async function generateCharacterSheet(
   const promptTemplateId = isRegeneration
     ? PROMPT_TEMPLATE_IDS.CHARACTER_REGENERATION
     : PROMPT_TEMPLATE_IDS.CHARACTER_SHEET
-  const activeStyleConstraint = customPrompt || CHARACTER_REGENERATION_TEMPLATE_HINT
+  const activeStyleConstraint = customPrompt || ''
 
   const prompt = await getInterpolatedPrompt(
     promptTemplateId,

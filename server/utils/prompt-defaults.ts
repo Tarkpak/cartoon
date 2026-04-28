@@ -100,12 +100,18 @@ function getDefaultContent(id: string): PromptTemplate['content'] {
       return SCRIPT_PARSING_CONTENT
     case 'script_parsing_short_drama':
       return SCRIPT_PARSING_SHORT_DRAMA_CONTENT
+    case 'prompt_translation_system':
+      return PROMPT_TRANSLATION_SYSTEM_CONTENT
+    case 'prompt_translation_user':
+      return PROMPT_TRANSLATION_USER_CONTENT
     case 'character_sheet':
       return CHARACTER_SHEET_CONTENT
     case 'character_regeneration':
       return CHARACTER_REGENERATION_CONTENT
     case 'environment_reference_generation':
       return ENVIRONMENT_REFERENCE_GENERATION_CONTENT
+    case 'environment_reference_negative_prompt':
+      return ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT_CONTENT
     case 'scene_description_refinement':
       return SCENE_DESCRIPTION_REFINEMENT_CONTENT
     case 'scene_video_generation':
@@ -116,6 +122,36 @@ function getDefaultContent(id: string): PromptTemplate['content'] {
         en: 'Please complete the task.'
       }
   }
+}
+
+const PROMPT_TRANSLATION_SYSTEM_CONTENT: PromptTemplate['content'] = {
+  zh: `你是一名专业翻译，专门处理 AI 提示词与技术文本。
+请把输入内容从 {{fromLang}} 翻译为 {{toLang}}。
+
+翻译规则：
+1. 必须原样保留模板变量（双大括号占位符保持不变）。
+2. 必须保留原有格式、段落与换行。
+3. 术语表达要准确一致。
+4. 语义和语气要忠实，不要扩写或删改。
+5. 只输出翻译后的正文，不要附加解释。`,
+  en: `You are a professional translator for AI prompts and technical content.
+Translate the input from {{fromLang}} to {{toLang}}.
+
+Rules:
+1. Preserve template variables exactly, keeping all double-brace placeholders unchanged.
+2. Preserve original formatting, paragraphs, and line breaks.
+3. Keep terminology accurate and consistent.
+4. Preserve meaning and tone without expanding or omitting content.
+5. Output translated text only, with no extra notes.`
+}
+
+const PROMPT_TRANSLATION_USER_CONTENT: PromptTemplate['content'] = {
+  zh: `请将以下文本从 {{fromLang}} 翻译为 {{toLang}}：
+
+{{sourceText}}`,
+  en: `Please translate the following text from {{fromLang}} to {{toLang}}:
+
+{{sourceText}}`
 }
 
 const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
@@ -754,6 +790,11 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 
 ## Regeneration Note
 {{customPrompt}}`
+}
+
+const ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT_CONTENT: PromptTemplate['content'] = {
+  zh: '人物, 角色, 人脸, 人体, 手, 剪影, 人群, human, person, people, face, portrait, character, body, hands, crowd, watermark, logo, text, 鱼眼, 透视畸变, 桶形畸变, 枕形畸变, 边缘拉伸, 夸张广角, fisheye, fish-eye, lens distortion, barrel distortion, pincushion distortion, warped lines, curved horizon, extreme perspective, ultra wide angle',
+  en: '人物, 角色, 人脸, 人体, 手, 剪影, 人群, human, person, people, face, portrait, character, body, hands, crowd, watermark, logo, text, 鱼眼, 透视畸变, 桶形畸变, 枕形畸变, 边缘拉伸, 夸张广角, fisheye, fish-eye, lens distortion, barrel distortion, pincushion distortion, warped lines, curved horizon, extreme perspective, ultra wide angle'
 }
 
 const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {

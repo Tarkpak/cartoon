@@ -17,9 +17,9 @@
 - `scene_description_refinement`
 - `scene_video_generation`
 
-## 现行业务流程模型步骤
+## 现行业务模型步骤
 
-工作流模型配置只保留以下步骤：
+业务模型配置只保留以下步骤：
 
 - `script_parsing`
 - `scene_description_refinement`
@@ -42,4 +42,4 @@
 - 不保留旧流程 prompt ID 的兼容映射。
 - 不保留旧流程 API 文件或旧命名别名。
 - 设置页中的提示词分组按 `parse / assets / videos` 展示。
-- 工作流模型配置只面向当前主流程，不再出现任何历史流程项。
+- 业务模型配置只面向当前主流程，不再出现任何历史流程项。

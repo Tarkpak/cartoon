@@ -8,7 +8,7 @@ import {
 } from 'lucide-vue-next'
 import type { ImageMentionCandidate } from '@/lib/image-prompt-reference-editor'
 import {
-  SETTINGS_MODEL_TEST_PROMPTS,
+  SETTINGS_MODEL_TEST_PLACEHOLDERS,
   type ModelTestTab,
   type TestResult
 } from '@/lib/settings-models'
@@ -126,7 +126,7 @@ function formatAspectRatioLabel(value: string): string {
             v-if="props.imagePromptIsEmpty"
             class="pointer-events-none absolute left-3 top-2 text-sm text-muted-foreground/50"
           >
-            {{ SETTINGS_MODEL_TEST_PROMPTS.image }}
+            {{ SETTINGS_MODEL_TEST_PLACEHOLDERS.image }}
           </span>
         </div>
       </template>
@@ -134,7 +134,7 @@ function formatAspectRatioLabel(value: string): string {
       <template v-else>
         <Textarea
           v-model="customPrompts[activeTab]"
-          :placeholder="SETTINGS_MODEL_TEST_PROMPTS[activeTab]"
+          :placeholder="SETTINGS_MODEL_TEST_PLACEHOLDERS[activeTab]"
           class="resize-none bg-muted/20 text-sm transition-colors focus:bg-background"
           :rows="activeTab === 'video' ? 3 : 2"
         />
