@@ -14,6 +14,11 @@ const props = defineProps<{
     startOffset: number
     endOffset: number
     charCount: number
+    episodeAssets?: {
+      characters?: Array<{ name: string }>
+      props?: Array<{ name: string }>
+      environments?: Array<{ location: string }>
+    }
   }>
   parseProgress?: {
     active?: boolean
@@ -54,44 +59,8 @@ const parseProgressChunkText = computed(() => {
 })
 
 const emit = defineEmits<{
-  (e: 'prepare-episodes' | 'parse' | 'clear-episode-plan'): void
-  (e: 'update-episode-title', payload: { id: string, title: string }): void
-  (e: 'update-episode-end-offset', payload: { id: string, endOffset: number }): void
+  (e: 'prepare-episodes' | 'clear-episode-plan'): void
 }>()
-
-function handleUpdateEpisodeTitle(id: string, title: string) {
-  emit('update-episode-title', { id, title })
-}
-
-function resolveEpisodeEndRange(index: number): { min: number, max: number } | null {
-  const episodes = props.episodePlan || []
-  const current = episodes[index]
-  if (!current || index >= episodes.length - 1) return null
-
-  const prev = episodes[index - 1]
-  const next = episodes[index + 1]
-  const min = Math.max((prev?.endOffset ?? current.startOffset) + 200, current.startOffset + 200)
-  const max = Math.max(min, (next?.endOffset ?? current.endOffset) - 200)
-  return { min, max }
-}
-
-function handleUpdateEpisodeEndOffset(index: number, rawValue: string) {
-  const episodes = props.episodePlan || []
-  const current = episodes[index]
-  if (!current || index >= episodes.length - 1) return
-
-  const numericValue = Number.parseInt(rawValue, 10)
-  if (!Number.isFinite(numericValue)) return
-
-  const range = resolveEpisodeEndRange(index)
-  if (!range) return
-
-  const normalizedEndOffset = Math.min(range.max, Math.max(range.min, numericValue))
-  emit('update-episode-end-offset', {
-    id: current.id,
-    endOffset: normalizedEndOffset
-  })
-}
 
 function isTextFile(file: File): boolean {
   if (file.type.startsWith('text/')) return true
@@ -188,12 +157,12 @@ async function handleDrop(event: DragEvent) {
         v-if="isDraggingTextFile"
         class="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-primary/10 text-sm font-medium text-primary"
       >
-        松开导入文本并开始解析
+        松开导入文本并生成分集目录
       </div>
       <div
         class="pointer-events-none absolute right-3 top-2 rounded bg-background/85 px-2 py-1 text-xs text-muted-foreground/90 backdrop-blur-sm"
       >
-        支持粘贴文本 / 拖拽 .txt .md 自动解析
+        支持粘贴文本 / 拖拽 .txt .md 生成分集目录
       </div>
       <div
         class="pointer-events-none absolute bottom-2 right-3 rounded bg-background/85 px-2 py-1 text-xs text-muted-foreground backdrop-blur-sm tabular-nums"
@@ -206,7 +175,7 @@ async function handleDrop(event: DragEvent) {
       <Button
         :disabled="parsing || !novelText.trim()"
         class="gap-2"
-        @click="hasEpisodePlan ? emit('parse') : emit('prepare-episodes')"
+        @click="emit('prepare-episodes')"
       >
         <Loader2
           v-if="parsing"
@@ -216,7 +185,7 @@ async function handleDrop(event: DragEvent) {
           v-else
           class="h-4 w-4"
         />
-        {{ hasEpisodePlan ? '按分集解析剧本' : '生成分集目录' }}
+        {{ hasEpisodePlan ? '重新生成分集目录' : '生成分集目录' }}
       </Button>
       <Button
         v-if="hasEpisodePlan"
@@ -243,46 +212,9 @@ async function handleDrop(event: DragEvent) {
 
     <div
       v-if="hasEpisodePlan"
-      class="shrink-0 rounded-md border border-border/60 bg-muted/20 p-3"
+      class="shrink-0 rounded-md border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground"
     >
-      <div class="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-        <span>分集目录（可编辑标题与边界）</span>
-        <span>共 {{ episodePlan?.length || 0 }} 集</span>
-      </div>
-      <div class="max-h-52 space-y-2 overflow-y-auto pr-1">
-        <div
-          v-for="(episode, index) in episodePlan"
-          :key="episode.id"
-          class="rounded border border-border/50 bg-background/80 p-2"
-        >
-          <div class="flex items-center gap-2">
-            <span class="w-12 text-xs text-muted-foreground">第{{ episode.index }}集</span>
-            <Input
-              :model-value="episode.title"
-              class="h-8"
-              @update:model-value="(value) => handleUpdateEpisodeTitle(episode.id, String(value || ''))"
-            />
-          </div>
-          <div class="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-            <span>范围 {{ episode.startOffset }} - {{ episode.endOffset }}</span>
-            <span>约 {{ episode.charCount }} 字</span>
-            <label
-              v-if="index < (episodePlan?.length || 0) - 1"
-              class="inline-flex items-center gap-1"
-            >
-              <span>边界</span>
-              <Input
-                type="number"
-                :min="resolveEpisodeEndRange(index)?.min"
-                :max="resolveEpisodeEndRange(index)?.max"
-                :model-value="episode.endOffset"
-                class="h-7 w-28"
-                @update:model-value="(value) => handleUpdateEpisodeEndOffset(index, String(value || ''))"
-              />
-            </label>
-          </div>
-        </div>
-      </div>
+      已生成分集目录（共 {{ episodePlan?.length || 0 }} 集）。请到“分镜视频”步骤管理分集边界并按集解析。
     </div>
 
     <div

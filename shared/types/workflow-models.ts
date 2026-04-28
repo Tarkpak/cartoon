@@ -137,7 +137,7 @@ export const WORKFLOW_STEP_CONFIGS: WorkflowStepConfig[] = [
   {
     id: 'script_parsing',
     name: '剧本解析与资产规划',
-    description: '将原文解析为场景、角色与可直接用于生成的视频时间轴',
+    description: '将原文解析为场景、角色与可直接用于生成的分镜时间轴',
     category: 'text',
     requiredCapabilities: ['text_generation'],
     tips: '需要稳定的长文本理解和结构化输出能力'
@@ -170,7 +170,7 @@ export const WORKFLOW_STEP_CONFIGS: WorkflowStepConfig[] = [
   {
     id: 'frame_generation',
     name: '环境参考图生成',
-    description: '生成纯环境参考图，作为场景视频的空间基底',
+    description: '生成纯环境参考图，作为分镜视频的空间基底',
     category: 'image',
     requiredCapabilities: [],
     optionalCapabilities: ['reference_image'],
@@ -178,8 +178,8 @@ export const WORKFLOW_STEP_CONFIGS: WorkflowStepConfig[] = [
   },
   {
     id: 'video_generation',
-    name: '场景视频生成',
-    description: '基于文本和参考素材生成单场景视频',
+    name: '分镜视频生成',
+    description: '基于文本和参考素材生成单个分镜片段',
     category: 'video',
     requiredCapabilities: [],
     optionalCapabilities: ['first_last_frame', 'image_to_video', 'text_to_video'],

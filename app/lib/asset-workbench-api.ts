@@ -11,6 +11,23 @@ import {
 
 export type AssetWorkbenchWorkflowType = 'asset_consistency'
 
+export interface ScriptEpisodeAssetSummary {
+  characters: Array<{
+    name: string
+    description?: string
+    role?: string
+  }>
+  props: Array<{
+    name: string
+    description?: string
+  }>
+  environments: Array<{
+    location: string
+    timeOfDay?: string
+    mood?: string
+  }>
+}
+
 export interface ScriptEpisodePlanItem {
   id: string
   title: string
@@ -18,6 +35,7 @@ export interface ScriptEpisodePlanItem {
   startOffset: number
   endOffset: number
   charCount: number
+  episodeAssets?: ScriptEpisodeAssetSummary
 }
 
 export interface ParseScriptResponse {

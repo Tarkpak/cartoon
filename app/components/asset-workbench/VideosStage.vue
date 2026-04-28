@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileDown, Loader2 } from 'lucide-vue-next'
+import { FileDown, Loader2, Play } from 'lucide-vue-next'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
   AutoStageKey,
@@ -20,13 +20,43 @@ interface SceneEpisodeGroup {
   scenes: SceneData[]
 }
 
+interface EpisodePlanItemForVideoStage {
+  id: string
+  title: string
+  index: number
+  startOffset: number
+  endOffset: number
+  charCount: number
+  episodeAssets?: {
+    characters?: Array<{ name: string }>
+    props?: Array<{ name: string }>
+    environments?: Array<{ location: string }>
+  }
+}
+
+interface EpisodeDirectoryItem {
+  id: string
+  title: string
+  index: number
+  sceneCount: number
+  doneCount: number
+  startOffset: number | null
+  endOffset: number | null
+  charCount: number | null
+  assetSummary: string
+  overview: string
+}
+
 const props = defineProps<{
   scenes: SceneData[]
+  episodePlan: EpisodePlanItemForVideoStage[]
+  episodeOverviews?: Record<string, string>
   selectedSceneId: string
   selectedScene: SceneData | null
   queueSummary: QueueSummary
   autoRunning: boolean
   autoRunCurrentStage: AutoStageKey | null
+  parsing: boolean
   sceneChatOpenSceneId: string | null
   sceneChatCurrentMessages: SceneChatMessage[]
   sceneChatComposerAssets: DisplayAsset[]
@@ -57,6 +87,9 @@ const props = defineProps<{
   onRunEpisodeVideosStep: (episodeId: string) => void
   onExportFormattedScriptDocx: () => void
   onRetryFailedQueueItems: () => void
+  onParseEpisode: (episodeId: string) => void
+  onUpdateEpisodeTitle: (payload: { id: string, title: string }) => void
+  onUpdateEpisodeEndOffset: (payload: { id: string, endOffset: number }) => void
   onSelectScene: (sceneId: string) => void
   onOpenSceneEdit: (scene: SceneData) => void
   onToggleSceneChat: (scene: SceneData) => void
@@ -81,22 +114,40 @@ const readySceneCount = computed(() => {
   return props.scenes.filter(scene => scene.referenceStatus === 'done').length
 })
 
+const normalizedEpisodePlan = computed(() => {
+  return (props.episodePlan || [])
+    .slice()
+    .sort((a, b) => {
+      if (a.index !== b.index) return a.index - b.index
+      return a.id.localeCompare(b.id, 'zh-CN')
+    })
+})
+
+function resolveSceneEpisodeMeta(scene: SceneData): { id: string, title: string, index: number } {
+  const normalizedEpisodeIndex = typeof scene.episodeIndex === 'number' && Number.isFinite(scene.episodeIndex)
+    ? Math.max(1, Math.round(scene.episodeIndex))
+    : 1
+  return {
+    id: scene.episodeId?.trim() || `episode_${String(normalizedEpisodeIndex).padStart(3, '0')}`,
+    title: scene.episodeTitle?.trim() || `第${normalizedEpisodeIndex}集`,
+    index: normalizedEpisodeIndex
+  }
+}
+
 const sceneEpisodeGroups = computed<SceneEpisodeGroup[]>(() => {
   const groups: SceneEpisodeGroup[] = []
   const groupMap = new Map<string, SceneEpisodeGroup>()
 
   for (const scene of props.scenes) {
-    const normalizedEpisodeIndex = typeof scene.episodeIndex === 'number' && Number.isFinite(scene.episodeIndex)
-      ? Math.max(1, Math.round(scene.episodeIndex))
-      : 1
-    const episodeId = (scene.episodeId?.trim() || `episode_${String(normalizedEpisodeIndex).padStart(3, '0')}`)
-    const episodeTitle = scene.episodeTitle?.trim() || `第${normalizedEpisodeIndex}集`
+    const episodeMeta = resolveSceneEpisodeMeta(scene)
+    const episodeId = episodeMeta.id
+    const episodeTitle = episodeMeta.title
     let group = groupMap.get(episodeId)
     if (!group) {
       group = {
         id: episodeId,
         title: episodeTitle,
-        index: normalizedEpisodeIndex,
+        index: episodeMeta.index,
         scenes: []
       }
       groups.push(group)
@@ -111,15 +162,121 @@ const sceneEpisodeGroups = computed<SceneEpisodeGroup[]>(() => {
   })
 })
 
+const activeEpisodeId = ref('')
+
+const episodeCount = computed(() => {
+  if (normalizedEpisodePlan.value.length > 0) return normalizedEpisodePlan.value.length
+  return sceneEpisodeGroups.value.length
+})
+
+const sceneEpisodeGroupMap = computed(() => {
+  return new Map(sceneEpisodeGroups.value.map(group => [group.id, group] as const))
+})
+
+const episodeDirectoryItems = computed<EpisodeDirectoryItem[]>(() => {
+  if (normalizedEpisodePlan.value.length > 0) {
+    return normalizedEpisodePlan.value.map(episode => ({
+      id: episode.id,
+      title: episode.title,
+      index: episode.index,
+      sceneCount: resolveEpisodeSceneCountById(episode.id),
+      doneCount: resolveEpisodeDoneCountById(episode.id),
+      startOffset: episode.startOffset,
+      endOffset: episode.endOffset,
+      charCount: episode.charCount,
+      assetSummary: resolveEpisodeAssetSummaryText(episode),
+      overview: props.episodeOverviews?.[episode.id] || ''
+    }))
+  }
+
+  return sceneEpisodeGroups.value.map(group => ({
+    id: group.id,
+    title: group.title,
+    index: group.index,
+    sceneCount: group.scenes.length,
+    doneCount: group.scenes.filter(scene => scene.videoStatus === 'done').length,
+    startOffset: null,
+    endOffset: null,
+    charCount: null,
+    assetSummary: '',
+    overview: ''
+  }))
+})
+
+const episodeDirectoryMap = computed(() => {
+  return new Map(episodeDirectoryItems.value.map(item => [item.id, item] as const))
+})
+
+const episodeDirectoryIds = computed(() => {
+  return episodeDirectoryItems.value.map(item => item.id)
+})
+
+watch(
+  [episodeDirectoryIds, () => props.selectedSceneId],
+  () => {
+    const directoryIds = episodeDirectoryIds.value
+    if (directoryIds.length === 0) {
+      activeEpisodeId.value = ''
+      return
+    }
+
+    const selectedSceneEpisodeId = props.selectedScene
+      ? resolveSceneEpisodeMeta(props.selectedScene).id
+      : ''
+
+    if (selectedSceneEpisodeId && directoryIds.includes(selectedSceneEpisodeId)) {
+      activeEpisodeId.value = selectedSceneEpisodeId
+      return
+    }
+
+    if (activeEpisodeId.value && directoryIds.includes(activeEpisodeId.value)) {
+      return
+    }
+
+    activeEpisodeId.value = directoryIds[0] || ''
+  },
+  { immediate: true }
+)
+
 const selectedEpisodeId = computed(() => {
-  if (props.selectedScene?.episodeId?.trim()) return props.selectedScene.episodeId.trim()
-  return sceneEpisodeGroups.value[0]?.id || ''
+  if (activeEpisodeId.value) return activeEpisodeId.value
+  return episodeDirectoryIds.value[0] || ''
 })
 
 const selectedEpisodeTitle = computed(() => {
-  const group = sceneEpisodeGroups.value.find(item => item.id === selectedEpisodeId.value)
-  return group?.title || '当前集'
+  return episodeDirectoryMap.value.get(selectedEpisodeId.value)?.title || '当前集'
 })
+
+const selectedEpisodeDirectoryItem = computed(() => {
+  return episodeDirectoryMap.value.get(selectedEpisodeId.value) || null
+})
+
+const selectedEpisodePlanIndex = computed(() => {
+  if (normalizedEpisodePlan.value.length === 0) return -1
+  return normalizedEpisodePlan.value.findIndex(item => item.id === selectedEpisodeId.value)
+})
+
+const selectedEpisodePlanItem = computed(() => {
+  const index = selectedEpisodePlanIndex.value
+  if (index < 0) return null
+  return normalizedEpisodePlan.value[index] || null
+})
+
+const selectedEpisodeScenes = computed(() => {
+  return sceneEpisodeGroupMap.value.get(selectedEpisodeId.value)?.scenes || []
+})
+
+const selectedEpisodeDoneCount = computed(() => {
+  return selectedEpisodeScenes.value.filter(scene => scene.videoStatus === 'done').length
+})
+
+function resolveEpisodeSceneCountById(episodeId: string): number {
+  return sceneEpisodeGroupMap.value.get(episodeId)?.scenes.length || 0
+}
+
+function resolveEpisodeDoneCountById(episodeId: string): number {
+  return sceneEpisodeGroupMap.value.get(episodeId)?.scenes.filter(scene => scene.videoStatus === 'done').length || 0
+}
 
 const sceneIndexMap = computed(() => {
   const indexMap = new Map<string, number>()
@@ -133,13 +290,87 @@ function resolveSceneGlobalIndex(sceneId: string): number {
   return sceneIndexMap.value.get(sceneId) ?? -1
 }
 
-function resolveEpisodeDoneCount(group: SceneEpisodeGroup): number {
-  return group.scenes.filter(scene => scene.videoStatus === 'done').length
-}
-
 function handleRunCurrentEpisodeVideos() {
   if (!selectedEpisodeId.value) return
   props.onRunEpisodeVideosStep(selectedEpisodeId.value)
+}
+
+function handleSelectEpisode(groupId: string) {
+  if (!groupId.trim()) return
+  activeEpisodeId.value = groupId
+  const targetScenes = sceneEpisodeGroupMap.value.get(groupId)?.scenes || []
+  if (!props.selectedScene || resolveSceneEpisodeMeta(props.selectedScene).id !== groupId) {
+    const firstScene = targetScenes[0]
+    if (firstScene) {
+      props.onSelectScene(firstScene.id)
+    }
+  }
+}
+
+function handleUpdateEpisodeTitle(id: string, title: string) {
+  props.onUpdateEpisodeTitle({ id, title })
+}
+
+function resolveEpisodeEndRange(index: number): { min: number, max: number } | null {
+  const episodes = normalizedEpisodePlan.value
+  const current = episodes[index]
+  if (!current || index >= episodes.length - 1) return null
+
+  const prev = episodes[index - 1]
+  const next = episodes[index + 1]
+  const min = Math.max((prev?.endOffset ?? current.startOffset) + 200, current.startOffset + 200)
+  const max = Math.max(min, (next?.endOffset ?? current.endOffset) - 200)
+  return { min, max }
+}
+
+const selectedEpisodeEndRange = computed(() => {
+  const index = selectedEpisodePlanIndex.value
+  if (index < 0) return null
+  return resolveEpisodeEndRange(index)
+})
+
+function handleUpdateEpisodeEndOffset(index: number, rawValue: string) {
+  const episodes = normalizedEpisodePlan.value
+  const current = episodes[index]
+  if (!current || index >= episodes.length - 1) return
+
+  const numericValue = Number.parseInt(rawValue, 10)
+  if (!Number.isFinite(numericValue)) return
+
+  const range = resolveEpisodeEndRange(index)
+  if (!range) return
+
+  const normalizedEndOffset = Math.min(range.max, Math.max(range.min, numericValue))
+  props.onUpdateEpisodeEndOffset({
+    id: current.id,
+    endOffset: normalizedEndOffset
+  })
+}
+
+function resolveEpisodeAssetSummaryText(episode: EpisodePlanItemForVideoStage): string {
+  const characterCount = episode.episodeAssets?.characters?.length || 0
+  const propCount = episode.episodeAssets?.props?.length || 0
+  const environmentCount = episode.episodeAssets?.environments?.length || 0
+  if (characterCount + propCount + environmentCount <= 0) return ''
+  return `资产：角色 ${characterCount} · 道具 ${propCount} · 场景 ${environmentCount}`
+}
+
+function handleUpdateSelectedEpisodeBoundary(rawValue: string) {
+  const index = selectedEpisodePlanIndex.value
+  if (index < 0) return
+  handleUpdateEpisodeEndOffset(index, rawValue)
+}
+
+function handleUpdateSelectedEpisodeTitle(rawValue: string) {
+  const episode = selectedEpisodePlanItem.value
+  if (!episode) return
+  handleUpdateEpisodeTitle(episode.id, rawValue)
+}
+
+function handleParseSelectedEpisode() {
+  const episode = selectedEpisodePlanItem.value
+  if (!episode) return
+  props.onParseEpisode(episode.id)
 }
 
 const selectedSceneVoiceReferenceSummary = computed(() => {
@@ -150,11 +381,11 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
 
 <template>
   <div
-    v-if="scenes.length === 0"
+    v-if="scenes.length === 0 && episodeCount === 0"
     class="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground"
   >
     <p class="text-sm">
-      请先完成"剧本解析"步骤
+      请先在“剧本解析”步骤生成分集目录
     </p>
   </div>
   <template v-else>
@@ -167,7 +398,7 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
         </div>
         <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span class="inline-block h-2 w-2 rounded-full bg-amber-500" />
-          分集 {{ sceneEpisodeGroups.length }}
+          分集 {{ episodeCount }}
         </div>
         <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span class="inline-block h-2 w-2 rounded-full bg-emerald-500" />
@@ -204,12 +435,12 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
             v-if="autoRunning && autoRunCurrentStage === 'videos'"
             class="h-3.5 w-3.5 animate-spin"
           />
-          批量生成场景视频
+          批量生成分镜视频
         </Button>
         <Button
           size="sm"
           variant="outline"
-          :disabled="autoRunning || !selectedEpisodeId"
+          :disabled="autoRunning || !selectedEpisodeId || selectedEpisodeScenes.length === 0"
           @click="handleRunCurrentEpisodeVideos()"
         >
           仅生成{{ selectedEpisodeTitle }}
@@ -242,70 +473,189 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
       </div>
     </div>
 
+    <div
+      v-if="episodeCount > 0"
+      class="shrink-0 rounded-md border border-border/70 bg-background"
+    >
+      <div class="flex items-center gap-3 border-b border-border/60 px-3 py-2">
+        <div class="shrink-0">
+          <div class="text-xs font-medium text-foreground">
+            分集目录
+          </div>
+          <div class="mt-0.5 text-[11px] text-muted-foreground">
+            共 {{ episodeCount }} 集
+          </div>
+        </div>
+        <div class="min-w-0 flex-1 overflow-x-auto pb-1">
+          <div class="flex min-w-max gap-1.5">
+            <button
+              v-for="episode in episodeDirectoryItems"
+              :key="episode.id"
+              type="button"
+              class="min-w-[150px] rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors"
+              :class="selectedEpisodeId === episode.id
+                ? 'border-foreground bg-muted text-foreground shadow-sm'
+                : 'border-border/70 bg-background text-foreground/80 hover:border-foreground/30 hover:bg-muted/60'"
+              @click="handleSelectEpisode(episode.id)"
+            >
+              <div class="truncate font-medium">
+                第{{ episode.index }}集：{{ episode.title.replace(/^第\d+集[：:]\s*/u, '') }}
+              </div>
+              <div class="mt-0.5 text-[11px] text-muted-foreground">
+                场景 {{ episode.sceneCount }} · 完成 {{ episode.doneCount }}
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="selectedEpisodeDirectoryItem"
+        class="grid gap-2 px-3 py-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
+      >
+        <div class="min-w-0 space-y-1">
+          <div
+            v-if="selectedEpisodePlanItem"
+            class="flex min-w-0 items-center gap-2"
+          >
+            <span class="shrink-0 text-xs text-muted-foreground">第{{ selectedEpisodePlanItem.index }}集</span>
+            <Input
+              :model-value="selectedEpisodePlanItem.title"
+              class="h-8 min-w-0"
+              :disabled="parsing"
+              @update:model-value="(value) => handleUpdateSelectedEpisodeTitle(String(value || ''))"
+            />
+          </div>
+          <div
+            v-else
+            class="truncate text-sm font-medium text-foreground"
+          >
+            {{ selectedEpisodeDirectoryItem.title }}
+          </div>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+            <span v-if="selectedEpisodeDirectoryItem.startOffset !== null && selectedEpisodeDirectoryItem.endOffset !== null">
+              范围 {{ selectedEpisodeDirectoryItem.startOffset }} - {{ selectedEpisodeDirectoryItem.endOffset }}
+            </span>
+            <span v-if="selectedEpisodeDirectoryItem.charCount !== null">
+              约 {{ selectedEpisodeDirectoryItem.charCount }} 字
+            </span>
+            <span>
+              场景 {{ selectedEpisodeDirectoryItem.sceneCount }} · 完成 {{ selectedEpisodeDirectoryItem.doneCount }}
+            </span>
+            <span v-if="selectedEpisodeDirectoryItem.assetSummary">
+              {{ selectedEpisodeDirectoryItem.assetSummary }}
+            </span>
+            <label
+              v-if="selectedEpisodePlanItem && selectedEpisodePlanIndex >= 0 && selectedEpisodePlanIndex < normalizedEpisodePlan.length - 1"
+              class="inline-flex items-center gap-1"
+            >
+              <span>边界</span>
+              <Input
+                type="number"
+                :min="selectedEpisodeEndRange?.min"
+                :max="selectedEpisodeEndRange?.max"
+                :model-value="selectedEpisodePlanItem.endOffset"
+                class="h-7 w-28"
+                :disabled="parsing"
+                @update:model-value="(value) => handleUpdateSelectedEpisodeBoundary(String(value || ''))"
+              />
+            </label>
+          </div>
+          <p
+            v-if="selectedEpisodeDirectoryItem.overview"
+            class="truncate text-[11px] text-foreground/75"
+          >
+            概览：{{ selectedEpisodeDirectoryItem.overview }}
+          </p>
+        </div>
+        <div class="flex min-w-max gap-2">
+          <Button
+            v-if="selectedEpisodePlanItem"
+            size="sm"
+            class="h-8 shrink-0 gap-1.5 px-3"
+            :disabled="parsing"
+            @click="handleParseSelectedEpisode()"
+          >
+            <Loader2
+              v-if="parsing"
+              class="mr-1 h-3.5 w-3.5 animate-spin"
+            />
+            <Play
+              v-else
+              class="h-3.5 w-3.5"
+            />
+            解析本集
+          </Button>
+        </div>
+      </div>
+    </div>
+
     <!-- Scene grid -->
     <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-2">
       <div class="min-h-0 space-y-2 overflow-y-auto pr-1">
-        <section
-          v-for="group in sceneEpisodeGroups"
-          :key="group.id"
-          class="space-y-2"
+        <div
+          class="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
         >
-          <div class="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            <span class="font-medium text-foreground">{{ group.title }}</span>
-            <span class="ml-2">场景 {{ group.scenes.length }}</span>
-            <span class="ml-2">视频完成 {{ resolveEpisodeDoneCount(group) }}</span>
-          </div>
-          <AssetWorkbenchSceneVideoCard
-            v-for="scene in group.scenes"
-            :key="scene.id"
-            :scene="scene"
-            :index="resolveSceneGlobalIndex(scene.id)"
-            :selected="selectedSceneId === scene.id"
-            :can-merge-with-next="canMergeSceneByIndex(resolveSceneGlobalIndex(scene.id))"
-            :chat-open="sceneChatOpenSceneId === scene.id"
-            :chat-messages="sceneChatCurrentMessages"
-            :chat-composer-assets="sceneChatComposerAssets"
-            :chat-composer-text="sceneChatComposerText"
-            :chat-mention-open="sceneChatMentionOpen"
-            :chat-mention-candidates="sceneChatMentionCandidates"
-            :chat-mention-active-index="sceneChatMentionActiveIndex"
-            :chat-uploading="sceneChatUploading"
-            :chat-applying="sceneChatApplying"
-            :chat-error="sceneChatError"
-            :chat-can-submit="sceneChatCanSubmit"
-            :resolve-scene-video-badge="resolveSceneVideoBadge"
-            :resolve-scene-voice-reference-summary="resolveSceneVoiceReferenceSummary"
-            :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
-            :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
-            :resolve-scene-reference-image="resolveSceneReferenceImage"
-            :is-scene-busy="isSceneBusy"
-            :is-scene-preparing="isScenePreparing"
-            :normalize-workflow-text="normalizeWorkflowText"
-            :resolve-display-asset-by-id="resolveDisplayAssetById"
-            :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
-            :set-scene-chat-input-ref="setSceneChatInputRef"
-            :set-scene-chat-mention-list-ref="setSceneChatMentionListRef"
-            :set-scene-chat-composer-text="setSceneChatComposerText"
-            :on-select-scene="onSelectScene"
-            :on-open-scene-edit="onOpenSceneEdit"
-            :on-toggle-scene-chat="onToggleSceneChat"
-            :on-handle-split-scene="onHandleSplitScene"
-            :on-handle-merge-with-next-scene="onHandleMergeWithNextScene"
-            :on-handle-delete-scene="onHandleDeleteScene"
-            :on-generate-scene-baseline="onGenerateSceneBaseline"
-            :on-retry-scene="onRetryScene"
-            :on-open-scene-video-history="onOpenSceneVideoHistory"
-            :on-preview-image="onPreviewImage"
-            :on-close-scene-chat="onCloseSceneChat"
-            :on-handle-scene-chat-composer-input="onHandleSceneChatComposerInput"
-            :on-handle-scene-chat-composer-cursor="onHandleSceneChatComposerCursor"
-            :on-handle-scene-chat-composer-keydown="onHandleSceneChatComposerKeydown"
-            :on-apply-scene-chat-mention="onApplySceneChatMention"
-            :on-remove-scene-chat-composer-asset="onRemoveSceneChatComposerAsset"
-            :on-handle-scene-chat-image-upload="onHandleSceneChatImageUpload"
-            :on-submit-scene-chat="onSubmitSceneChat"
-          />
-        </section>
+          <span class="font-medium text-foreground">{{ selectedEpisodeTitle }}</span>
+          <span class="ml-2">场景 {{ selectedEpisodeScenes.length }}</span>
+          <span class="ml-2">视频完成 {{ selectedEpisodeDoneCount }}</span>
+        </div>
+        <div
+          v-if="selectedEpisodeScenes.length === 0"
+          class="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-4 text-xs text-muted-foreground"
+        >
+          当前分集暂无场景，请先点击“解析本集”。
+        </div>
+        <AssetWorkbenchSceneVideoCard
+          v-for="scene in selectedEpisodeScenes"
+          :key="scene.id"
+          :scene="scene"
+          :index="resolveSceneGlobalIndex(scene.id)"
+          :selected="selectedSceneId === scene.id"
+          :can-merge-with-next="canMergeSceneByIndex(resolveSceneGlobalIndex(scene.id))"
+          :chat-open="sceneChatOpenSceneId === scene.id"
+          :chat-messages="sceneChatCurrentMessages"
+          :chat-composer-assets="sceneChatComposerAssets"
+          :chat-composer-text="sceneChatComposerText"
+          :chat-mention-open="sceneChatMentionOpen"
+          :chat-mention-candidates="sceneChatMentionCandidates"
+          :chat-mention-active-index="sceneChatMentionActiveIndex"
+          :chat-uploading="sceneChatUploading"
+          :chat-applying="sceneChatApplying"
+          :chat-error="sceneChatError"
+          :chat-can-submit="sceneChatCanSubmit"
+          :resolve-scene-video-badge="resolveSceneVideoBadge"
+          :resolve-scene-voice-reference-summary="resolveSceneVoiceReferenceSummary"
+          :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
+          :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
+          :resolve-scene-reference-image="resolveSceneReferenceImage"
+          :is-scene-busy="isSceneBusy"
+          :is-scene-preparing="isScenePreparing"
+          :normalize-workflow-text="normalizeWorkflowText"
+          :resolve-display-asset-by-id="resolveDisplayAssetById"
+          :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
+          :set-scene-chat-input-ref="setSceneChatInputRef"
+          :set-scene-chat-mention-list-ref="setSceneChatMentionListRef"
+          :set-scene-chat-composer-text="setSceneChatComposerText"
+          :on-select-scene="onSelectScene"
+          :on-open-scene-edit="onOpenSceneEdit"
+          :on-toggle-scene-chat="onToggleSceneChat"
+          :on-handle-split-scene="onHandleSplitScene"
+          :on-handle-merge-with-next-scene="onHandleMergeWithNextScene"
+          :on-handle-delete-scene="onHandleDeleteScene"
+          :on-generate-scene-baseline="onGenerateSceneBaseline"
+          :on-retry-scene="onRetryScene"
+          :on-open-scene-video-history="onOpenSceneVideoHistory"
+          :on-preview-image="onPreviewImage"
+          :on-close-scene-chat="onCloseSceneChat"
+          :on-handle-scene-chat-composer-input="onHandleSceneChatComposerInput"
+          :on-handle-scene-chat-composer-cursor="onHandleSceneChatComposerCursor"
+          :on-handle-scene-chat-composer-keydown="onHandleSceneChatComposerKeydown"
+          :on-apply-scene-chat-mention="onApplySceneChatMention"
+          :on-remove-scene-chat-composer-asset="onRemoveSceneChatComposerAsset"
+          :on-handle-scene-chat-image-upload="onHandleSceneChatImageUpload"
+          :on-submit-scene-chat="onSubmitSceneChat"
+        />
       </div>
 
       <!-- Video preview panel -->

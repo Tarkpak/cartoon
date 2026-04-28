@@ -67,7 +67,7 @@ const activeDefaultConfig = computed<ActiveDefaultConfig>(() => {
       return {
         key: 'video',
         label: '视频生成',
-        description: '未单独覆盖的场景视频流程默认使用这里的模型。',
+        description: '未单独覆盖的分镜视频流程默认使用这里的模型。',
         value: props.selectedModels.video,
         placeholder: '选择视频模型',
         models: props.models.video

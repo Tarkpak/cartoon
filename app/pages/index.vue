@@ -28,7 +28,7 @@ const features = [
   {
     icon: Film,
     title: '视频生成',
-    description: '批量生成场景视频并导出最终成片',
+    description: '批量生成分镜视频并导出最终成片',
     path: '/projects'
   }
 ]
@@ -49,11 +49,11 @@ const quickActions = [
     <div class="bg-card border rounded-lg p-8 md:p-12 mb-8">
       <div class="max-w-3xl">
         <h1 class="text-3xl md:text-4xl lg:text-5xl font-bold mb-4 leading-tight text-foreground">
-          AI驱动的影视创作平台
+          AI 驱动的影视创作平台
         </h1>
         <p class="text-lg md:text-xl text-muted-foreground mb-8 leading-relaxed">
-          从文本到视频，一键生成专业级AI影视内容。<br class="hidden sm:block">
-          支持首尾帧控制、角色一致性、智能配音。
+          从文本到视频，生成专业级 AI 影视内容。<br class="hidden sm:block">
+          支持环境参考图、角色一致性、智能配音。
         </p>
         <div class="flex flex-wrap gap-4">
           <Button

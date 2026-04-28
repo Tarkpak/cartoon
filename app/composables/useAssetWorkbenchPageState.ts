@@ -2,6 +2,7 @@ import { computed } from 'vue'
 import type { Ref } from 'vue'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
+import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
 import {
   buildEnvironmentAssetCards,
   buildEnvironmentDisplayAssets,
@@ -30,6 +31,7 @@ import {
 import type {
   AssetImageHistoryEntry,
   DisplayAsset,
+  EnvironmentAssetCard,
   EnvironmentPanoramaState,
   QueueItem,
   SceneDescriptionMentionItem,
@@ -39,6 +41,7 @@ import type {
 interface UseAssetWorkbenchPageStateOptions {
   scenes: Ref<SceneData[]>
   characters: Ref<CharacterData[]>
+  episodePlan: Ref<ScriptEpisodePlanItem[]>
   propAssets: Ref<PropAsset[]>
   environmentAssetHistories: Ref<Record<string, AssetImageHistoryEntry[]>>
   environmentPanoramaStates: Ref<Record<string, EnvironmentPanoramaState>>
@@ -54,6 +57,82 @@ interface UseAssetWorkbenchPageStateOptions {
   } | null | undefined
   resolveSceneDescriptionWithoutAssetMentions: (raw?: string) => string
   uniqueSorted: (values: string[]) => string[]
+}
+
+function normalizeEpisodeAssetKey(value?: string): string {
+  return (value || '').trim().toLowerCase()
+}
+
+function buildEpisodeEnvironmentHintCards(options: {
+  episodes: ScriptEpisodePlanItem[]
+  environmentAssetHistories?: Record<string, AssetImageHistoryEntry[]>
+  environmentPanoramaStates?: Record<string, EnvironmentPanoramaState>
+}): EnvironmentAssetCard[] {
+  if (!Array.isArray(options.episodes) || options.episodes.length === 0) return []
+
+  const merged = new Map<string, EnvironmentAssetCard>()
+
+  for (const episode of options.episodes) {
+    const episodeLabel = (episode.title?.trim() || '').trim()
+      || (Number.isFinite(episode.index) ? `第${episode.index}集` : '目录候选')
+    const episodeMarkerId = episode.id?.trim() || `plan_${episode.index || 'episode'}`
+
+    for (const item of episode.episodeAssets?.environments || []) {
+      const location = item.location?.trim() || ''
+      const timeOfDay = item.timeOfDay?.trim() || ''
+      const mood = item.mood?.trim() || ''
+      if (!location) continue
+
+      const assetId = `env:${normalizeEpisodeAssetKey(location)}||${normalizeEpisodeAssetKey(timeOfDay)}`
+      if (!assetId.trim()) continue
+
+      const history = options.environmentAssetHistories?.[assetId] || []
+      const panoramaImage = options.environmentPanoramaStates?.[assetId]?.panoramaImage?.trim() || ''
+      const referenceImage = panoramaImage || history[0]?.image || undefined
+      const existing = merged.get(assetId)
+      if (existing) {
+        if (mood && (!existing.description || mood.length > existing.description.length)) {
+          existing.description = mood
+        }
+        if (!existing.referenceImage && referenceImage) {
+          existing.referenceImage = referenceImage
+        }
+        if (!existing.panoramaImage && panoramaImage) {
+          existing.panoramaImage = panoramaImage
+        }
+        if ((!existing.assetHistory || existing.assetHistory.length === 0) && history.length > 0) {
+          existing.assetHistory = history
+        }
+        const marker = `${episodeLabel}（目录）`
+        if (!existing.sceneTitles.includes(marker)) {
+          existing.sceneTitles.push(marker)
+        }
+        const markerId = `plan:${episodeMarkerId}`
+        if (!existing.sceneIds.includes(markerId)) {
+          existing.sceneIds.push(markerId)
+        }
+        continue
+      }
+
+      const nameParts = [location, timeOfDay].filter(Boolean)
+      merged.set(assetId, {
+        id: assetId,
+        name: nameParts.length > 0 ? nameParts.join(' / ') : location,
+        description: mood || undefined,
+        referenceImage,
+        referenceError: undefined,
+        panoramaImage: panoramaImage || undefined,
+        crop: undefined,
+        assetHistory: history,
+        sceneIds: [`plan:${episodeMarkerId}`],
+        sceneTitles: [`${episodeLabel}（目录）`],
+        representativeSceneId: '',
+        referenceStatus: 'pending'
+      })
+    }
+  }
+
+  return Array.from(merged.values())
 }
 
 export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOptions) {
@@ -78,12 +157,32 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
   })
 
   const environmentAssetCards = computed(() => {
-    return buildEnvironmentAssetCards({
+    const sceneDerivedCards = buildEnvironmentAssetCards({
       scenes: options.scenes.value,
       environmentAssetHistories: options.environmentAssetHistories.value,
       environmentPanoramaStates: options.environmentPanoramaStates.value,
       resolveSceneDescriptionWithoutAssetMentions: options.resolveSceneDescriptionWithoutAssetMentions
     })
+    const episodeHintCards = buildEpisodeEnvironmentHintCards({
+      episodes: options.episodePlan.value,
+      environmentAssetHistories: options.environmentAssetHistories.value,
+      environmentPanoramaStates: options.environmentPanoramaStates.value
+    })
+    if (episodeHintCards.length === 0) return sceneDerivedCards
+
+    const merged = new Map(sceneDerivedCards.map(card => [card.id, card]))
+    for (const hintCard of episodeHintCards) {
+      const existing = merged.get(hintCard.id)
+      if (!existing) {
+        merged.set(hintCard.id, hintCard)
+        continue
+      }
+      if (!existing.description && hintCard.description) {
+        existing.description = hintCard.description
+      }
+    }
+
+    return Array.from(merged.values())
   })
 
   const environmentAssets = computed<DisplayAsset[]>(() => {

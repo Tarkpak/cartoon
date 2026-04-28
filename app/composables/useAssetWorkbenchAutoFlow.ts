@@ -1,7 +1,5 @@
 import type { ComputedRef, Ref } from 'vue'
-import type { ScriptParseMode } from '#shared/types/script'
 import type { SceneData } from '~/composables/useAssetWorkbench'
-import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
 import type { AutoStageKey, FinalVideoAsset, QueueSummary } from '~/lib/asset-workbench-types'
 import { inferActiveAutoStage } from '~/lib/asset-workbench-progress'
 
@@ -10,25 +8,14 @@ interface UseAssetWorkbenchAutoFlowOptions {
   router: ReturnType<typeof useRouter>
   projectId: ComputedRef<string | undefined>
   projectAssetWorkflow: Ref<unknown | null>
-  scriptParseMode: Ref<ScriptParseMode>
   selectedStyleId: Ref<string>
   projectStyleId: Ref<string>
   selectedSceneId: Ref<string>
-  workflowStylePrompt: ComputedRef<string>
-  novelText: Ref<string>
   scenes: Ref<SceneData[]>
-  episodePlan: Ref<ScriptEpisodePlanItem[]>
   queueSummary: ComputedRef<QueueSummary>
   assetsReady: ComputedRef<boolean>
   finalVideo: Ref<FinalVideoAsset | null>
   resolveUiError: (error: unknown, fallback: string) => string
-  prepareEpisodePlan: () => Promise<boolean>
-  parseScript: (options?: {
-    workflowType?: 'asset_consistency'
-    style?: string
-    scriptParseMode?: ScriptParseMode
-    descriptionFormat?: 'visual' | 'timeline'
-  }) => Promise<boolean>
   mergeAllVideos: () => Promise<unknown>
   loadProject: (id: string) => Promise<unknown>
   loadWorkflowMeta: (rawMetaInput?: unknown) => Promise<boolean>
@@ -53,52 +40,9 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
     activeAutoStage.value = stage
   }
 
-  async function handleParseScript() {
-    if (!options.novelText.value.trim()) {
-      alert('请先输入剧本原文')
-      return
-    }
-
-    autoRunError.value = null
-
-    try {
-      if (options.episodePlan.value.length === 0) {
-        const prepared = await options.prepareEpisodePlan()
-        if (!prepared) {
-          throw new Error('分集目录生成失败，请检查文本后重试')
-        }
-        return
-      }
-
-      const parsed = await options.parseScript({
-        workflowType: 'asset_consistency',
-        style: options.workflowStylePrompt.value,
-        scriptParseMode: options.scriptParseMode.value,
-        descriptionFormat: 'timeline'
-      })
-
-      if (!parsed) {
-        throw new Error('剧本解析失败，请检查模型配置或稍后重试')
-      }
-
-      await options.persistAutomaticAssetPlan({
-        overwriteExistingConfigs: true
-      })
-
-      options.synchronizeSceneConfigs()
-      options.synchronizeQueueItems()
-
-      if (options.scenes.value.length > 0) {
-        selectAutoStage('assets')
-      }
-    } catch (error) {
-      autoRunError.value = options.resolveUiError(error, '剧本解析失败')
-    }
-  }
-
   async function handleMergeVideos() {
     if (options.scenes.value.length === 0) {
-      alert('请先生成场景视频')
+      alert('请先生成分镜视频')
       return
     }
 
@@ -145,7 +89,7 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
       await options.retryFailedQueueItemsOnce()
       selectAutoStage('final')
     } catch (error) {
-      autoRunError.value = options.resolveUiError(error, '场景视频生成失败')
+      autoRunError.value = options.resolveUiError(error, '分镜视频生成失败')
     } finally {
       autoRunning.value = false
       autoRunCurrentStage.value = null
@@ -161,7 +105,7 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
 
     try {
       if (options.queueSummary.value.done === 0) {
-        throw new Error('请先在“场景视频”步骤生成至少一个场景视频')
+        throw new Error('请先在“分镜视频”步骤生成至少一个分镜视频')
       }
       await handleMergeVideos()
       if (options.finalVideo.value?.videoUrl) {
@@ -212,7 +156,6 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
     autoRunCurrentStage,
     activeAutoStage,
     selectAutoStage,
-    handleParseScript,
     runSimpleAssetsStep,
     runSimpleVideosStep,
     runSimpleFinalStep

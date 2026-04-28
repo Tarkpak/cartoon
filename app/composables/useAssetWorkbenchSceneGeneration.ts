@@ -225,7 +225,7 @@ export function useAssetWorkbenchSceneGeneration(
       }
 
       if (!resolveSceneAvailableReferenceImage(referencedScene)) {
-        throw new Error(`引用场景资产未就绪：${referencedScene.title}`)
+        throw new Error(`引用环境资产未就绪：${referencedScene.title}`)
       }
     }
   }
@@ -502,7 +502,7 @@ export function useAssetWorkbenchSceneGeneration(
       await options.saveProject()
       if (!runOptions.skipCompletionNotice) {
         await options.onModelTaskCompleted?.({
-          title: '场景视频生成完成',
+          title: '分镜视频生成完成',
           body: `场景：${scene.title}`
         })
       }
@@ -572,7 +572,7 @@ export function useAssetWorkbenchSceneGeneration(
       const done = options.queueItems.value.filter(item => item.status === 'done').length
       const failed = options.queueItems.value.filter(item => item.status === 'error').length
       await options.onModelTaskCompleted?.({
-        title: '批量场景视频生成完成',
+        title: '批量生成分镜视频完成',
         body: `完成 ${done} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
       })
     } finally {
@@ -611,7 +611,7 @@ export function useAssetWorkbenchSceneGeneration(
       const done = targetItems.filter(item => item.status === 'done').length
       const failed = targetItems.filter(item => item.status === 'error').length
       await options.onModelTaskCompleted?.({
-        title: '当前分集场景视频生成完成',
+        title: '当前分集分镜视频已生成',
         body: `完成 ${done} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
       })
     } finally {

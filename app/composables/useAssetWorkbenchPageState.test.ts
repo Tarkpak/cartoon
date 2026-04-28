@@ -47,6 +47,7 @@ describe('useAssetWorkbenchPageState', () => {
     const pageState = useAssetWorkbenchPageState({
       scenes: ref([scene]),
       characters: ref([]),
+      episodePlan: ref([]),
       propAssets: ref([]),
       environmentAssetHistories: ref({
         'env:医院-走廊||夜晚': [
@@ -76,5 +77,49 @@ describe('useAssetWorkbenchPageState', () => {
     expect(pageState.resolveSceneReferenceImage(scene)).toBe(
       'https://example.com/history-preview.png'
     )
+  })
+
+  it('merges environment hints from episode plan into environment cards', () => {
+    const pageState = useAssetWorkbenchPageState({
+      scenes: ref([]),
+      characters: ref([]),
+      episodePlan: ref([
+        {
+          id: 'episode_001',
+          title: '第1集：雨夜追踪',
+          index: 1,
+          startOffset: 0,
+          endOffset: 1200,
+          charCount: 1200,
+          episodeAssets: {
+            characters: [],
+            props: [],
+            environments: [
+              {
+                location: '医院走廊',
+                timeOfDay: '夜晚',
+                mood: '冷白灯光，紧张压抑'
+              }
+            ]
+          }
+        }
+      ]),
+      propAssets: ref([]),
+      environmentAssetHistories: ref({}),
+      environmentPanoramaStates: ref({}),
+      sceneConfigs: ref({}),
+      selectedSceneId: ref(''),
+      selectedStyleId: ref(''),
+      projectStyleId: ref(''),
+      supportsExplicitVoiceAudioReference: ref(false),
+      queueItems: ref([]),
+      resolveStyleById: () => null,
+      resolveSceneDescriptionWithoutAssetMentions,
+      uniqueSorted: values => Array.from(new Set(values.filter(Boolean)))
+    })
+
+    expect(pageState.environmentAssetCards.value).toHaveLength(1)
+    expect(pageState.environmentAssetCards.value[0]?.id).toBe('env:医院走廊||夜晚')
+    expect(pageState.environmentAssetCards.value[0]?.description).toBe('冷白灯光，紧张压抑')
   })
 })

@@ -60,7 +60,7 @@ const aspectRatioOptions = projectAspectRatioOptions
           项目管理
         </h1>
         <p class="text-muted-foreground">
-          管理您的AI影视项目
+          管理您的 AI 影视项目
         </p>
       </div>
       <Button

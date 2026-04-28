@@ -60,7 +60,7 @@ function resolveHistoryCount(asset: EnvironmentAssetCard): number {
         class="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
         @click="emit('go-videos')"
       >
-        场景视频
+        分镜视频
         <ArrowRight class="h-3 w-3" />
       </Button>
     </div>
@@ -129,7 +129,7 @@ function resolveHistoryCount(asset: EnvironmentAssetCard): number {
             size="sm"
             variant="ghost"
             class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="asset.referenceStatus === 'generating'"
+            :disabled="asset.referenceStatus === 'generating' || !hasEnvironmentRepresentativeScene(asset.id)"
             @click="emit('regenerate', asset.id)"
           >
             <Loader2
@@ -168,7 +168,7 @@ function resolveHistoryCount(asset: EnvironmentAssetCard): number {
             @click="emit('open-crop', asset.id)"
           >
             <ScanSearch class="mr-1 h-3 w-3" />
-            选区域
+            取景
           </Button>
           <Button
             v-if="asset.referenceImage"

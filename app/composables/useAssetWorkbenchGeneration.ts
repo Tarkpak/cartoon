@@ -68,6 +68,236 @@ interface UseAssetWorkbenchGenerationOptions {
 export function useAssetWorkbenchGeneration(
   options: UseAssetWorkbenchGenerationOptions
 ) {
+  function normalizeScriptInputText(text: string): string {
+    return text.replace(/\r\n?/g, '\n').trim()
+  }
+
+  function normalizeNameKey(value?: string): string {
+    return (value || '').trim().toLowerCase()
+  }
+
+  function toSceneId(index: number): string {
+    return `scene_${String(index + 1).padStart(3, '0')}`
+  }
+
+  function toCharacterId(index: number): string {
+    return `char_${index + 1}`
+  }
+
+  function resolveEpisodeOrderMap(): Map<string, number> {
+    const orderMap = new Map<string, number>()
+    options.episodePlan.value.forEach((episode, index) => {
+      const key = episode.id?.trim()
+      if (!key) return
+      const order = typeof episode.index === 'number' && Number.isFinite(episode.index)
+        ? Math.max(1, Math.round(episode.index))
+        : (index + 1)
+      orderMap.set(key, order)
+    })
+    return orderMap
+  }
+
+  function resolveSceneEpisodeOrder(scene: SceneData, episodeOrderMap: Map<string, number>): number {
+    const episodeId = scene.episodeId?.trim()
+    if (episodeId && episodeOrderMap.has(episodeId)) {
+      return episodeOrderMap.get(episodeId) || Number.MAX_SAFE_INTEGER
+    }
+
+    if (typeof scene.episodeIndex === 'number' && Number.isFinite(scene.episodeIndex)) {
+      return Math.max(1, Math.round(scene.episodeIndex))
+    }
+
+    return Number.MAX_SAFE_INTEGER
+  }
+
+  function createSceneIdAllocator(existingScenes: SceneData[]) {
+    const usedIds = new Set<string>()
+    existingScenes.forEach((scene) => {
+      usedIds.add(scene.id)
+      const sequentialId = scene.id.match(/scene_\d{3}$/u)?.[0]
+      if (sequentialId) {
+        usedIds.add(sequentialId)
+      }
+    })
+    let nextIndex = 0
+
+    return () => {
+      let id = toSceneId(nextIndex)
+      while (usedIds.has(id)) {
+        nextIndex += 1
+        id = toSceneId(nextIndex)
+      }
+      usedIds.add(id)
+      nextIndex += 1
+      return id
+    }
+  }
+
+  function mergeScenesForEpisode(
+    episodeId: string,
+    parsedEpisodeScenes: SceneData[]
+  ): SceneData[] {
+    const normalizedEpisodeId = episodeId.trim()
+    const untouchedScenes = options.scenes.value.filter(scene => (scene.episodeId?.trim() || '') !== normalizedEpisodeId)
+    const allocateSceneId = createSceneIdAllocator(untouchedScenes)
+    const replacementScenes = parsedEpisodeScenes.map(scene => ({
+      ...scene,
+      id: allocateSceneId()
+    }))
+    const mergedScenes = [...untouchedScenes, ...replacementScenes]
+    const episodeOrderMap = resolveEpisodeOrderMap()
+
+    mergedScenes.sort((left, right) => {
+      const orderDiff = resolveSceneEpisodeOrder(left, episodeOrderMap) - resolveSceneEpisodeOrder(right, episodeOrderMap)
+      if (orderDiff !== 0) return orderDiff
+      return left.id.localeCompare(right.id, 'zh-CN')
+    })
+
+    return mergedScenes.map((scene, index) => ({
+      ...scene,
+      active: index === 0
+    }))
+  }
+
+  function mergeCharactersFromPartialParse(parsedCharacters: CharacterData[]): CharacterData[] {
+    const merged = options.characters.value.map(character => ({ ...character }))
+    const nameMap = new Map<string, CharacterData>()
+    const idSet = new Set<string>(merged.map(character => character.id))
+    let nextCharacterIndex = merged.length + 1
+
+    const createUniqueCharacterId = (): string => {
+      while (idSet.has(toCharacterId(nextCharacterIndex - 1))) {
+        nextCharacterIndex += 1
+      }
+      const id = toCharacterId(nextCharacterIndex - 1)
+      idSet.add(id)
+      nextCharacterIndex += 1
+      return id
+    }
+
+    for (const character of merged) {
+      const key = normalizeNameKey(character.name)
+      if (!key) continue
+      nameMap.set(key, character)
+    }
+
+    for (const incoming of parsedCharacters) {
+      const key = normalizeNameKey(incoming.name)
+      if (!key) continue
+
+      const existing = nameMap.get(key)
+      if (existing) {
+        if (!existing.appearance && incoming.appearance) {
+          existing.appearance = incoming.appearance
+        }
+        if (
+          incoming.role
+          && incoming.role !== 'supporting'
+          && (!existing.role || existing.role === 'supporting')
+        ) {
+          existing.role = incoming.role
+        }
+        continue
+      }
+
+      const nextCharacter: CharacterData = {
+        ...incoming,
+        id: createUniqueCharacterId(),
+        generating: false,
+        generatingViews: false
+      }
+      merged.push(nextCharacter)
+      nameMap.set(key, nextCharacter)
+    }
+
+    return merged
+  }
+
+  function resolveEpisodeParsePayload(targetEpisodeId?: string): {
+    requestText: string
+    requestEpisodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset'>>
+    targetEpisodeTitle?: string
+    targetEpisodeId?: string
+  } {
+    const normalizedTargetId = targetEpisodeId?.trim() || ''
+    if (!normalizedTargetId) {
+      return {
+        requestText: options.novelText.value,
+        requestEpisodePlan: options.episodePlan.value.map(item => ({
+          id: item.id,
+          title: item.title,
+          index: item.index,
+          startOffset: item.startOffset,
+          endOffset: item.endOffset
+        }))
+      }
+    }
+
+    const targetEpisode = options.episodePlan.value.find(item => item.id === normalizedTargetId)
+    if (!targetEpisode) {
+      throw new Error('目标分集不存在，请先重新生成分集目录')
+    }
+
+    const normalizedText = normalizeScriptInputText(options.novelText.value)
+    const startOffset = Math.max(0, Math.min(normalizedText.length, Math.floor(targetEpisode.startOffset || 0)))
+    const endOffset = Math.max(startOffset, Math.min(normalizedText.length, Math.floor(targetEpisode.endOffset || 0)))
+    const episodeText = normalizedText.slice(startOffset, endOffset).trim()
+    if (!episodeText) {
+      throw new Error('该分集正文为空，请调整分集边界后重试')
+    }
+
+    return {
+      requestText: episodeText,
+      requestEpisodePlan: [{
+        id: targetEpisode.id,
+        title: targetEpisode.title,
+        index: targetEpisode.index,
+        startOffset: 0,
+        endOffset: episodeText.length
+      }],
+      targetEpisodeTitle: targetEpisode.title,
+      targetEpisodeId: targetEpisode.id
+    }
+  }
+
+  function mergeCharactersFromEpisodeAssets(episodes: ScriptEpisodePlanItem[]) {
+    const existingNameMap = new Map<string, CharacterData>(
+      options.characters.value.map(character => [character.name.trim(), character] as const)
+    )
+    let changed = false
+
+    for (const episode of episodes) {
+      for (const item of episode.episodeAssets?.characters || []) {
+        const name = item.name?.trim()
+        if (!name) continue
+
+        const existing = existingNameMap.get(name)
+        const description = item.description?.trim() || ''
+        if (existing) {
+          if (!existing.appearance && description) {
+            existing.appearance = description
+            changed = true
+          }
+          continue
+        }
+
+        const nextCharacter: CharacterData = {
+          id: `char_plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          name,
+          appearance: description || `${name}，保持与剧本设定一致`,
+          role: item.role?.trim() || 'supporting',
+          generating: false,
+          generatingViews: false
+        }
+        options.characters.value.push(nextCharacter)
+        existingNameMap.set(name, nextCharacter)
+        changed = true
+      }
+    }
+
+    return changed
+  }
+
   function appendProgressLog(message: string, source: ParseScriptProgressEvent['source']) {
     const nextLogs = [
       ...options.parseProgress.value.logs,
@@ -117,6 +347,8 @@ export function useAssetWorkbenchGeneration(
         options.scriptParseMode.value
       )
       options.episodePlan.value = episodes
+      mergeCharactersFromEpisodeAssets(episodes)
+      await options.saveProject()
       options.parseProgress.value.step = 'episode-plan-completed'
       options.parseProgress.value.message = `分集目录已生成，共 ${episodes.length} 集`
       options.parseProgress.value.progress = 100
@@ -140,6 +372,7 @@ export function useAssetWorkbenchGeneration(
     style?: string
     scriptParseMode?: ScriptParseMode
     descriptionFormat?: 'visual' | 'timeline'
+    targetEpisodeId?: string
   }): Promise<boolean> {
     if (!options.novelText.value.trim()) return false
     if (options.episodePlan.value.length === 0) {
@@ -152,28 +385,24 @@ export function useAssetWorkbenchGeneration(
     }
 
     options.parsing.value = true
+    const parseModeText = input?.targetEpisodeId ? '分集解析任务已创建，等待模型响应' : '解析任务已创建，等待模型响应'
     options.parseProgress.value = {
       ...createInitialAssetWorkbenchParseProgressState(),
       active: true,
       step: 'queued',
-      message: '解析任务已创建，等待模型响应',
+      message: parseModeText,
       progress: 1
     }
-    appendProgressLog('解析任务已创建，等待模型响应', 'progress')
+    appendProgressLog(parseModeText, 'progress')
 
     try {
+      const parsePayload = resolveEpisodeParsePayload(input?.targetEpisodeId)
       const response = await parseAssetWorkbenchScript({
-        text: options.novelText.value,
+        text: parsePayload.requestText,
         workflowType: input?.workflowType || 'asset_consistency',
         scriptParseMode: input?.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
         style: input?.style || options.currentStylePrompt.value || undefined,
-        episodePlan: options.episodePlan.value.map(item => ({
-          id: item.id,
-          title: item.title,
-          index: item.index,
-          startOffset: item.startOffset,
-          endOffset: item.endOffset
-        })),
+        episodePlan: parsePayload.requestEpisodePlan,
         onProgress: applyProgressEvent
       })
 
@@ -186,19 +415,29 @@ export function useAssetWorkbenchGeneration(
         options.projectName.value = response.data.title
       }
 
-      options.scenes.value = buildParsedScenes({
+      const parsedScenes = buildParsedScenes({
         scenes: response.data.scenes,
         descriptionFormat: input?.descriptionFormat
       })
-      options.characters.value = buildParsedCharacters(response.data.characters, options.scenes.value)
+      const parsedCharacters = buildParsedCharacters(response.data.characters, parsedScenes)
+
+      if (parsePayload.targetEpisodeId) {
+        options.scenes.value = mergeScenesForEpisode(parsePayload.targetEpisodeId, parsedScenes)
+        options.characters.value = mergeCharactersFromPartialParse(parsedCharacters)
+      } else {
+        options.scenes.value = parsedScenes
+        options.characters.value = parsedCharacters
+      }
 
       await options.saveProject()
       options.parseProgress.value.step = 'completed'
-      options.parseProgress.value.message = '剧本解析完成'
+      options.parseProgress.value.message = parsePayload.targetEpisodeId
+        ? `已完成 ${parsePayload.targetEpisodeTitle || '当前分集'} 解析`
+        : '剧本解析完成'
       options.parseProgress.value.progress = 100
-      appendProgressLog('剧本解析完成', 'progress')
+      appendProgressLog(options.parseProgress.value.message, 'progress')
       await options.onModelTaskCompleted?.({
-        title: '剧本解析完成',
+        title: parsePayload.targetEpisodeId ? '分集解析完成' : '剧本解析完成',
         body: `已生成 ${options.scenes.value.length} 个场景和 ${options.characters.value.length} 个角色`
       })
       return true

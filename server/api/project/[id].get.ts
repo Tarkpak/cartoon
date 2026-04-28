@@ -345,10 +345,10 @@ async function migrateSceneVideosToCloud(
           updatedAt: now
         })
         .where(eq(scenes.id, scene.id))
-      console.log(`[ProjectGet] 已迁移场景视频到云端: ${scene.id}`)
+      console.log(`[ProjectGet] 已迁移分镜视频到云端: ${scene.id}`)
     } catch (error) {
       scene.videoUrl = normalizeSceneVideoUrl(rawVideo)
-      console.warn(`[ProjectGet] 场景视频迁移失败，已跳过返回 base64: ${scene.id}`, error)
+      console.warn(`[ProjectGet] 分镜视频迁移失败，已跳过返回 base64: ${scene.id}`, error)
     }
   }))
 }
@@ -470,6 +470,7 @@ export default defineEventHandler(async (event) => {
               selectedStyleId: scriptData?.selectedStyleId || '',
               inputMode: scriptData?.inputMode || 'idea',
               scriptParseMode: resolvedScriptParseMode,
+              episodePlan: scriptData?.episodePlan || [],
               assetWorkflow: scriptData?.assetWorkflow || null,
               parsedData: script.parsedData ? JSON.parse(script.parsedData) : null,
               totalDuration: script.totalDuration
