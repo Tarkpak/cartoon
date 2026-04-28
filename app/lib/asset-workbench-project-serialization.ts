@@ -19,6 +19,9 @@ import {
 
 interface LoadedProjectScene {
   id: string
+  episodeId?: string | null
+  episodeTitle?: string | null
+  episodeIndex?: number | null
   title?: string | null
   description: string
   setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string } | null
@@ -61,6 +64,9 @@ interface LoadedProjectCharacter {
 export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
   return scenes.map((scene, index) => ({
     id: scene.id,
+    episodeId: scene.episodeId || undefined,
+    episodeTitle: scene.episodeTitle || undefined,
+    episodeIndex: typeof scene.episodeIndex === 'number' ? scene.episodeIndex : undefined,
     title: scene.title || `场景 ${index + 1}`,
     description: scene.description,
     characters: scene.characters || [],
@@ -141,6 +147,9 @@ export function applyScopedEntityIds(
 export function buildSaveScenesPayload(scenes: SceneData[]) {
   return scenes.map(scene => ({
     id: scene.id,
+    episodeId: scene.episodeId,
+    episodeTitle: scene.episodeTitle,
+    episodeIndex: scene.episodeIndex,
     title: scene.title,
     description: scene.description,
     setting: scene.setting

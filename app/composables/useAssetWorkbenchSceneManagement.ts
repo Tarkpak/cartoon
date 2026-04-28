@@ -285,6 +285,9 @@ export function useAssetWorkbenchSceneManagement(options: {
     const scene = options.scenes.value[sceneIndex]
     const nextScene = options.scenes.value[sceneIndex + 1]
     if (!scene || !nextScene) return false
+    const currentEpisodeId = scene.episodeId?.trim() || ''
+    const nextEpisodeId = nextScene.episodeId?.trim() || ''
+    if (currentEpisodeId && nextEpisodeId && currentEpisodeId !== nextEpisodeId) return false
     return !options.isSceneBusy(scene) && !options.isSceneBusy(nextScene)
   }
 

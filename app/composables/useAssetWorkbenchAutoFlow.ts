@@ -1,6 +1,7 @@
 import type { ComputedRef, Ref } from 'vue'
 import type { ScriptParseMode } from '#shared/types/script'
 import type { SceneData } from '~/composables/useAssetWorkbench'
+import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
 import type { AutoStageKey, FinalVideoAsset, QueueSummary } from '~/lib/asset-workbench-types'
 import { inferActiveAutoStage } from '~/lib/asset-workbench-progress'
 
@@ -16,10 +17,12 @@ interface UseAssetWorkbenchAutoFlowOptions {
   workflowStylePrompt: ComputedRef<string>
   novelText: Ref<string>
   scenes: Ref<SceneData[]>
+  episodePlan: Ref<ScriptEpisodePlanItem[]>
   queueSummary: ComputedRef<QueueSummary>
   assetsReady: ComputedRef<boolean>
   finalVideo: Ref<FinalVideoAsset | null>
   resolveUiError: (error: unknown, fallback: string) => string
+  prepareEpisodePlan: () => Promise<boolean>
   parseScript: (options?: {
     workflowType?: 'asset_consistency'
     style?: string
@@ -59,6 +62,14 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
     autoRunError.value = null
 
     try {
+      if (options.episodePlan.value.length === 0) {
+        const prepared = await options.prepareEpisodePlan()
+        if (!prepared) {
+          throw new Error('分集目录生成失败，请检查文本后重试')
+        }
+        return
+      }
+
       const parsed = await options.parseScript({
         workflowType: 'asset_consistency',
         style: options.workflowStylePrompt.value,

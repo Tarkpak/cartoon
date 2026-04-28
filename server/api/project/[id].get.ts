@@ -483,6 +483,9 @@ export default defineEventHandler(async (event) => {
           return {
             id: s.id,
             orderIndex: s.orderIndex,
+            episodeId: s.episodeId,
+            episodeTitle: s.episodeTitle,
+            episodeIndex: s.episodeIndex,
             title: s.title,
             description: s.description,
             setting: s.setting ? JSON.parse(s.setting) : null,

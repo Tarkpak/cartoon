@@ -11,12 +11,24 @@ import {
 
 export type AssetWorkbenchWorkflowType = 'asset_consistency'
 
+export interface ScriptEpisodePlanItem {
+  id: string
+  title: string
+  index: number
+  startOffset: number
+  endOffset: number
+  charCount: number
+}
+
 export interface ParseScriptResponse {
   success: boolean
   data?: {
     title?: string
     scenes: Array<{
       id: string
+      episodeId?: string
+      episodeTitle?: string
+      episodeIndex?: number
       title?: string
       shotType?: SceneData['shotType']
       description: string
@@ -35,6 +47,7 @@ export interface ParseScriptResponse {
   parseStrategy?: {
     segmented?: boolean
     chunkCount?: number
+    episodeCount?: number
     recommendedMinScenes?: number
     chunkRecommendedSceneHints?: number[]
   }
@@ -81,6 +94,13 @@ interface ScriptDocxExportResult {
   fileName: string
 }
 
+interface EpisodePlanResponse {
+  success: boolean
+  data?: {
+    episodes?: ScriptEpisodePlanItem[]
+  }
+}
+
 function resolveFileNameFromContentDisposition(raw: string | null): string | null {
   if (!raw) return null
 
@@ -107,13 +127,15 @@ export async function parseAssetWorkbenchScript(options: {
   workflowType?: AssetWorkbenchWorkflowType
   scriptParseMode?: ScriptParseMode
   style?: string
+  episodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset'>>
   onProgress?: (event: ParseScriptProgressEvent) => void
 }) {
   const requestBody = {
     text: options.text,
     workflowType: options.workflowType || 'asset_consistency',
     scriptParseMode: options.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
-    style: options.style || undefined
+    style: options.style || undefined,
+    episodePlan: options.episodePlan
   }
 
   if (!options.onProgress) {
@@ -224,6 +246,22 @@ export async function parseAssetWorkbenchScript(options: {
   }
 
   return finalResult
+}
+
+export async function prepareAssetWorkbenchEpisodePlan(
+  text: string,
+  scriptParseMode: ScriptParseMode = DEFAULT_SCRIPT_PARSE_MODE
+): Promise<ScriptEpisodePlanItem[]> {
+  const response = await $fetch<EpisodePlanResponse>('/api/script/episode-plan', {
+    method: 'POST',
+    body: { text, scriptParseMode }
+  })
+
+  if (!response.success || !Array.isArray(response.data?.episodes)) {
+    throw new Error('分集目录生成失败')
+  }
+
+  return response.data.episodes
 }
 
 export async function generateAssetWorkbenchCharacter(options: {

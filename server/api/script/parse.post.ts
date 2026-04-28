@@ -17,7 +17,9 @@ import {
   ParsedScriptSchema,
   type ScriptParseMode,
   type ParsedScript,
-  type SceneEra
+  type SceneEra,
+  type ScriptEpisode,
+  type ScriptEpisodePlanItem
 } from '../../../shared/types/script'
 
 const SCRIPT_MIN_DURATION = 2
@@ -82,11 +84,8 @@ const TIMELINE_LINE_CAPTURE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|�
 const TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]\s*/u
 const STRUCTURED_DESCRIPTION_HEADING_REGEX = /^(?:场景功能\/情绪定位|场景功能|情绪定位|镜头设计|声音设计|台词节奏|表演关键点|Scene function \/ emotional beat|Shot design|Sound design|Dialogue rhythm|Performance notes)\s*[：:]?\s*$/u
 const LIVE_ACTION_STYLE_HINT_REGEX = /(ai\s*真人|live[-\s]?action|真人剧|live action)/iu
-const LONG_SCRIPT_SEGMENT_THRESHOLD = 15_000
-const LONG_SCRIPT_TARGET_CHARS = 15_000
-const LONG_SCRIPT_OVERLAP_CHARS = 1_200
-const LONG_SCRIPT_MAX_SEGMENTS = 12
 const CHUNK_RECOMMENDED_MIN_SCENES_FLOOR = 4
+const SHORT_DRAMA_EPISODE_DURATION_LIMIT_SECONDS = 300
 
 type ParsedScriptCharacterRole = NonNullable<ParsedScript['characters'][number]['role']>
 const CHARACTER_ROLE_PRIORITY: Record<ParsedScriptCharacterRole, number> = {
@@ -102,84 +101,94 @@ function resolveSceneCountHint(maxScenesHint?: number): number | undefined {
   return Math.max(1, Math.min(240, Math.round(maxScenesHint)))
 }
 
+function buildScriptParseModeRules(mode: ScriptParseMode): string {
+  if (mode === 'short_drama') {
+    return '硬性约束：当前为短剧分集解析。每一集场景总时长必须小于等于300秒（5分钟）；若超出请主动拆分为更多集，并保持剧情连续。'
+  }
+  return '根据剧情节奏与情绪起伏安排场景密度，保证每集叙事完整。'
+}
+
 function normalizeScriptInputText(text: string): string {
   return text.replace(/\r\n?/g, '\n').trim()
 }
 
-function splitScriptTextByWindow(options: {
+interface ScriptParseEpisodeChunk extends ScriptEpisode {
   text: string
-  targetChars: number
-  overlapChars: number
-  maxSegments: number
-}): string[] {
-  const safeTargetChars = Math.max(2_000, Math.floor(options.targetChars))
-  const safeOverlapChars = Math.max(
-    0,
-    Math.min(Math.floor(options.overlapChars), Math.floor(safeTargetChars / 2))
-  )
-  const chunks: string[] = []
-  let start = 0
-
-  while (start < options.text.length && chunks.length < options.maxSegments) {
-    let end = Math.min(options.text.length, start + safeTargetChars)
-
-    if (end < options.text.length) {
-      const minBreakPosition = start + Math.floor(safeTargetChars * 0.6)
-      const doubleBreak = options.text.lastIndexOf('\n\n', end)
-      if (doubleBreak >= minBreakPosition) {
-        end = doubleBreak
-      } else {
-        const singleBreak = options.text.lastIndexOf('\n', end)
-        if (singleBreak >= minBreakPosition) {
-          end = singleBreak
-        }
-      }
-    }
-
-    if (end <= start) {
-      end = Math.min(options.text.length, start + safeTargetChars)
-    }
-
-    const chunkText = options.text.slice(start, end).trim()
-    if (chunkText) {
-      chunks.push(chunkText)
-    }
-
-    if (end >= options.text.length) break
-
-    const nextStart = Math.max(0, end - safeOverlapChars)
-    start = nextStart > start ? nextStart : end
-  }
-
-  if (start < options.text.length && chunks.length > 0) {
-    const remainingText = options.text.slice(start).trim()
-    if (remainingText) {
-      if (chunks.length >= options.maxSegments) {
-        chunks[chunks.length - 1] = `${chunks[chunks.length - 1]}\n\n${remainingText}`
-      } else {
-        chunks.push(remainingText)
-      }
-    }
-  }
-
-  if (chunks.length === 0) {
-    return [options.text.trim()]
-  }
-
-  return chunks
 }
 
-function buildScriptParsingChunks(text: string): string[] {
+function toEpisodeId(index: number): string {
+  return `episode_${String(index + 1).padStart(3, '0')}`
+}
+
+function toEpisodeTitle(index: number): string {
+  return `第${index + 1}集`
+}
+
+function normalizeScriptEpisodePlan(
+  normalizedText: string,
+  episodePlan: ScriptEpisodePlanItem[]
+): ScriptParseEpisodeChunk[] {
+  const sortedPlan = episodePlan
+    .filter(item => Number.isFinite(item.startOffset) && Number.isFinite(item.endOffset))
+    .map(item => ({
+      ...item,
+      startOffset: Math.max(0, Math.floor(item.startOffset)),
+      endOffset: Math.max(0, Math.floor(item.endOffset))
+    }))
+    .sort((a, b) => a.startOffset - b.startOffset || a.endOffset - b.endOffset)
+
+  const chunks: ScriptParseEpisodeChunk[] = []
+  let cursor = 0
+
+  for (let index = 0; index < sortedPlan.length; index++) {
+    const item = sortedPlan[index]
+    if (!item) continue
+
+    const rangeStart = Math.max(cursor, Math.min(item.startOffset, normalizedText.length))
+    const rangeEnd = Math.max(rangeStart, Math.min(item.endOffset, normalizedText.length))
+    if (rangeEnd <= rangeStart) continue
+
+    const text = normalizedText.slice(rangeStart, rangeEnd).trim()
+    if (!text) continue
+
+    chunks.push({
+      id: item.id?.trim() || toEpisodeId(chunks.length),
+      title: item.title?.trim() || toEpisodeTitle(chunks.length),
+      index: item.index && Number.isFinite(item.index)
+        ? Math.max(1, Math.floor(item.index))
+        : (chunks.length + 1),
+      text
+    })
+    cursor = rangeEnd
+  }
+
+  if (cursor < normalizedText.length) {
+    const text = normalizedText.slice(cursor).trim()
+    if (text) {
+      chunks.push({
+        id: toEpisodeId(chunks.length),
+        title: toEpisodeTitle(chunks.length),
+        index: chunks.length + 1,
+        text
+      })
+    }
+  }
+
+  if (chunks.length === 0) return []
+
+  chunks.sort((a, b) => a.index - b.index || a.id.localeCompare(b.id))
+  return chunks.map((item, index) => ({
+    ...item,
+    id: item.id || toEpisodeId(index),
+    title: item.title || toEpisodeTitle(index),
+    index: index + 1
+  }))
+}
+
+function buildScriptParsingEpisodes(text: string, episodePlan: ScriptEpisodePlanItem[]): ScriptParseEpisodeChunk[] {
   const normalizedText = normalizeScriptInputText(text)
   if (!normalizedText) return []
-  if (normalizedText.length <= LONG_SCRIPT_SEGMENT_THRESHOLD) return [normalizedText]
-
-  return splitScriptTextByWindow({
-    text: normalizedText,
-    targetChars: LONG_SCRIPT_TARGET_CHARS,
-    overlapChars: LONG_SCRIPT_OVERLAP_CHARS,
-    maxSegments: LONG_SCRIPT_MAX_SEGMENTS
-  })
+  return normalizeScriptEpisodePlan(normalizedText, episodePlan)
 }
 
 function buildSegmentedParsingPrompt(options: {
@@ -238,13 +247,24 @@ function pickPreferredCharacterRole(
     : currentRole
 }
 
-function mergeParsedScriptSegments(segmentResults: ParsedScript[]): ParsedScript {
+interface ParsedScriptEpisodeResult {
+  episode: ScriptEpisode
+  parsed: ParsedScript
+}
+
+function mergeParsedScriptSegments(segmentResults: ParsedScriptEpisodeResult[]): ParsedScript {
   const mergedScenes: ParsedScript['scenes'] = []
   const recentSceneKeys: string[] = []
 
   for (const segment of segmentResults) {
-    for (const scene of segment.scenes || []) {
-      const dedupKey = buildSceneDedupKey(scene)
+    for (const scene of segment.parsed.scenes || []) {
+      const sceneWithEpisode = {
+        ...scene,
+        episodeId: segment.episode.id,
+        episodeTitle: segment.episode.title,
+        episodeIndex: segment.episode.index
+      }
+      const dedupKey = buildSceneDedupKey(sceneWithEpisode)
       if (dedupKey && recentSceneKeys.includes(dedupKey)) {
         continue
       }
@@ -254,7 +274,7 @@ function mergeParsedScriptSegments(segmentResults: ParsedScript[]): ParsedScript
           recentSceneKeys.shift()
         }
       }
-      mergedScenes.push(scene)
+      mergedScenes.push(sceneWithEpisode)
     }
   }
 
@@ -295,7 +315,7 @@ function mergeParsedScriptSegments(segmentResults: ParsedScript[]): ParsedScript
   }
 
   for (const segment of segmentResults) {
-    for (const character of segment.characters || []) {
+    for (const character of segment.parsed.characters || []) {
       upsertCharacter(character)
     }
   }
@@ -311,8 +331,18 @@ function mergeParsedScriptSegments(segmentResults: ParsedScript[]): ParsedScript
   }
 
   const mergedTitle = segmentResults
-    .map(segment => segment.title?.trim() || '')
+    .map(segment => segment.parsed.title?.trim() || '')
     .find(Boolean)
+
+  const episodeSceneCountMap = new Map<string, number>()
+  for (const scene of reindexedScenes) {
+    const episodeId = scene.episodeId?.trim()
+    if (!episodeId) continue
+    episodeSceneCountMap.set(episodeId, (episodeSceneCountMap.get(episodeId) || 0) + 1)
+  }
+  const mergedEpisodes: ScriptEpisode[] = segmentResults
+    .map(segment => segment.episode)
+    .filter(episode => (episodeSceneCountMap.get(episode.id) || 0) > 0)
 
   const totalDuration = reindexedScenes.reduce((sum, scene) => {
     return sum + normalizeSceneDuration(scene.duration)
@@ -320,8 +350,147 @@ function mergeParsedScriptSegments(segmentResults: ParsedScript[]): ParsedScript
 
   return {
     title: mergedTitle || undefined,
+    episodes: mergedEpisodes,
     scenes: reindexedScenes,
     characters: Array.from(mergedCharacterMap.values()),
+    totalDuration: Math.round(totalDuration * 10) / 10
+  }
+}
+
+function enforceEpisodeDurationLimit(
+  parsed: ParsedScript,
+  episodeDurationLimitSeconds: number
+): ParsedScript {
+  if (episodeDurationLimitSeconds <= 0 || !Number.isFinite(episodeDurationLimitSeconds)) return parsed
+
+  const sourceScenes = Array.isArray(parsed.scenes) ? parsed.scenes : []
+  if (sourceScenes.length === 0) return parsed
+
+  const sourceEpisodeRuns: Array<{
+    sourceId: string
+    baseTitle: string
+    scenes: ParsedScript['scenes']
+  }> = []
+
+  let currentRun: {
+    sourceId: string
+    baseTitle: string
+    scenes: ParsedScript['scenes']
+  } | null = null
+
+  for (let index = 0; index < sourceScenes.length; index++) {
+    const scene = sourceScenes[index]
+    if (!scene) continue
+
+    const sourceId = scene.episodeId?.trim() || `source_episode_${index + 1}`
+    const baseTitle = scene.episodeTitle?.trim() || `第${scene.episodeIndex || (sourceEpisodeRuns.length + 1)}集`
+
+    if (!currentRun || currentRun.sourceId !== sourceId) {
+      if (currentRun) sourceEpisodeRuns.push(currentRun)
+      currentRun = {
+        sourceId,
+        baseTitle,
+        scenes: [scene]
+      }
+      continue
+    }
+
+    currentRun.scenes.push(scene)
+  }
+
+  if (currentRun) sourceEpisodeRuns.push(currentRun)
+
+  const splitEpisodeBuckets: Array<{
+    title: string
+    scenes: ParsedScript['scenes']
+  }> = []
+
+  for (const run of sourceEpisodeRuns) {
+    const chunks: Array<{
+      scenes: ParsedScript['scenes']
+      duration: number
+    }> = []
+
+    let chunkScenes: ParsedScript['scenes'] = []
+    let chunkDuration = 0
+
+    for (const scene of run.scenes) {
+      const sceneDuration = normalizeSceneDuration(scene.duration)
+      if (chunkScenes.length > 0 && (chunkDuration + sceneDuration) > episodeDurationLimitSeconds) {
+        chunks.push({
+          scenes: chunkScenes,
+          duration: chunkDuration
+        })
+        chunkScenes = [scene]
+        chunkDuration = sceneDuration
+      } else {
+        chunkScenes.push(scene)
+        chunkDuration += sceneDuration
+      }
+    }
+
+    if (chunkScenes.length > 0) {
+      chunks.push({
+        scenes: chunkScenes,
+        duration: chunkDuration
+      })
+    }
+
+    if (chunks.length <= 1) {
+      splitEpisodeBuckets.push({
+        title: run.baseTitle,
+        scenes: run.scenes
+      })
+      continue
+    }
+
+    for (let partIndex = 0; partIndex < chunks.length; partIndex++) {
+      const chunk = chunks[partIndex]
+      if (!chunk) continue
+      splitEpisodeBuckets.push({
+        title: `${run.baseTitle}（第${partIndex + 1}段）`,
+        scenes: chunk.scenes
+      })
+    }
+  }
+
+  const normalizedEpisodes: ScriptEpisode[] = []
+  const normalizedScenes: ParsedScript['scenes'] = []
+  let nextSceneIndex = 0
+
+  for (let episodeIndex = 0; episodeIndex < splitEpisodeBuckets.length; episodeIndex++) {
+    const bucket = splitEpisodeBuckets[episodeIndex]
+    if (!bucket || bucket.scenes.length === 0) continue
+
+    const episodeId = toEpisodeId(normalizedEpisodes.length)
+    const episodeTitle = (bucket.title || '').trim() || toEpisodeTitle(normalizedEpisodes.length)
+    const normalizedEpisodeIndex = normalizedEpisodes.length + 1
+
+    normalizedEpisodes.push({
+      id: episodeId,
+      title: episodeTitle,
+      index: normalizedEpisodeIndex
+    })
+
+    for (const scene of bucket.scenes) {
+      normalizedScenes.push({
+        ...scene,
+        id: toSequentialSceneId(nextSceneIndex),
+        episodeId,
+        episodeTitle,
+        episodeIndex: normalizedEpisodeIndex,
+        duration: normalizeSceneDuration(scene.duration)
+      })
+      nextSceneIndex += 1
+    }
+  }
+
+  const totalDuration = normalizedScenes.reduce((sum, scene) => sum + normalizeSceneDuration(scene.duration), 0)
+
+  return {
+    ...parsed,
+    episodes: normalizedEpisodes,
+    scenes: normalizedScenes,
     totalDuration: Math.round(totalDuration * 10) / 10
   }
 }
@@ -653,6 +822,7 @@ export interface ScriptParseExecutionInput {
   scriptParseMode?: ScriptParseMode
   style?: string
   maxScenes?: number
+  episodePlan: ScriptEpisodePlanItem[]
 }
 
 export interface ScriptParseExecutionResult {
@@ -661,6 +831,7 @@ export interface ScriptParseExecutionResult {
   parseStrategy: {
     segmented: boolean
     chunkCount: number
+    episodeCount: number
     recommendedMinScenes?: number
     chunkRecommendedSceneHints?: number[]
   }
@@ -696,6 +867,7 @@ export async function executeScriptParse(
 
   const textLength = normalizedInputText.length
   const recommendedMinScenes = resolveSceneCountHint(input.maxScenes)
+  const scriptParseModeRules = buildScriptParseModeRules(normalizedScriptParseMode)
 
   reportScriptParseProgress(input.onProgress, {
     step: 'initializing',
@@ -724,7 +896,7 @@ export async function executeScriptParse(
         sceneDurationMin: String(SCRIPT_MIN_DURATION),
         sceneDurationMax: String(SCRIPT_MAX_DURATION),
         scriptParseModeLabel,
-        scriptParseModeRules: '',
+        scriptParseModeRules,
         eraHint: eraHint || ''
       },
       promptLang,
@@ -763,20 +935,27 @@ export async function executeScriptParse(
     return validated.data
   }
 
-  const scriptChunks = buildScriptParsingChunks(normalizedInputText)
+  const scriptEpisodes = buildScriptParsingEpisodes(normalizedInputText, input.episodePlan)
+  if (scriptEpisodes.length === 0) {
+    throw new Error('分集目录无效，请先重新生成分集目录')
+  }
   reportScriptParseProgress(input.onProgress, {
-    step: scriptChunks.length > 1 ? 'segmenting' : 'single-pass',
-    message: scriptChunks.length > 1
-      ? `已拆分为 ${scriptChunks.length} 段，开始顺序解析`
+    step: scriptEpisodes.length > 1 ? 'segmenting' : 'single-pass',
+    message: scriptEpisodes.length > 1
+      ? `已拆分为 ${scriptEpisodes.length} 集，开始顺序解析`
       : '开始单段解析',
     progress: 12,
-    chunkCount: scriptChunks.length
+    chunkCount: scriptEpisodes.length
   })
 
   let finalParsedScript: ParsedScript
   const chunkRecommendedSceneHints: number[] = []
 
-  if (scriptChunks.length <= 1) {
+  if (scriptEpisodes.length <= 1) {
+    const firstEpisode = scriptEpisodes[0]
+    if (!firstEpisode) {
+      throw new Error('文本为空，无法解析')
+    }
     reportScriptParseProgress(input.onProgress, {
       step: 'model-running',
       message: '模型解析中，请稍候',
@@ -784,25 +963,35 @@ export async function executeScriptParse(
       chunkIndex: 1,
       chunkCount: 1
     })
-    finalParsedScript = await runScriptParsePass({
-      chunkText: normalizedInputText,
+    const parsedSingle = await runScriptParsePass({
+      chunkText: firstEpisode.text,
       recommendedMinScenesHint: recommendedMinScenes
     })
+    finalParsedScript = {
+      ...parsedSingle,
+      episodes: [firstEpisode],
+      scenes: parsedSingle.scenes.map(scene => ({
+        ...scene,
+        episodeId: firstEpisode.id,
+        episodeTitle: firstEpisode.title,
+        episodeIndex: firstEpisode.index
+      }))
+    }
   } else {
-    console.log('[ScriptParse] 启用长文本分段解析:', {
+    console.log('[ScriptParse] 启用长文本分集解析:', {
       textLength,
-      chunkCount: scriptChunks.length,
+      episodeCount: scriptEpisodes.length,
       recommendedMinScenes
     })
 
-    const chunkResults: ParsedScript[] = []
-    for (let index = 0; index < scriptChunks.length; index++) {
-      const chunkText = scriptChunks[index]
-      if (!chunkText) continue
+    const chunkResults: ParsedScriptEpisodeResult[] = []
+    for (let index = 0; index < scriptEpisodes.length; index++) {
+      const episode = scriptEpisodes[index]
+      if (!episode?.text) continue
 
       const chunkRatio = textLength > 0
-        ? (chunkText.length / textLength)
-        : (1 / scriptChunks.length)
+        ? (episode.text.length / textLength)
+        : (1 / scriptEpisodes.length)
       const chunkRecommendedMinScenes = recommendedMinScenes === undefined
         ? undefined
         : Math.max(
@@ -815,41 +1004,44 @@ export async function executeScriptParse(
 
       const chunkProgress = Math.min(
         82,
-        18 + Math.round((index / scriptChunks.length) * 62)
+        18 + Math.round((index / scriptEpisodes.length) * 62)
       )
       reportScriptParseProgress(input.onProgress, {
         step: 'chunk-parsing',
-        message: `正在解析第 ${index + 1}/${scriptChunks.length} 段`,
+        message: `正在解析${episode.title}（${index + 1}/${scriptEpisodes.length}）`,
         progress: chunkProgress,
         chunkIndex: index + 1,
-        chunkCount: scriptChunks.length
+        chunkCount: scriptEpisodes.length
       })
 
       const parsedChunk = await runScriptParsePass({
-        chunkText,
+        chunkText: episode.text,
         recommendedMinScenesHint: chunkRecommendedMinScenes,
         chunkIndex: index,
-        chunkCount: scriptChunks.length
+        chunkCount: scriptEpisodes.length
       })
-      chunkResults.push(parsedChunk)
+      chunkResults.push({
+        episode,
+        parsed: parsedChunk
+      })
 
       reportScriptParseProgress(input.onProgress, {
         step: 'chunk-parsed',
-        message: `第 ${index + 1}/${scriptChunks.length} 段解析完成`,
+        message: `${episode.title}解析完成`,
         progress: Math.min(
           86,
-          24 + Math.round(((index + 1) / scriptChunks.length) * 62)
+          24 + Math.round(((index + 1) / scriptEpisodes.length) * 62)
         ),
         chunkIndex: index + 1,
-        chunkCount: scriptChunks.length
+        chunkCount: scriptEpisodes.length
       })
     }
 
     reportScriptParseProgress(input.onProgress, {
       step: 'merging',
-      message: '正在合并分段结果',
+      message: '正在合并分集结果',
       progress: 88,
-      chunkCount: scriptChunks.length
+      chunkCount: scriptEpisodes.length
     })
 
     const mergedResult = mergeParsedScriptSegments(chunkResults)
@@ -863,6 +1055,18 @@ export async function executeScriptParse(
     }
 
     finalParsedScript = validatedMergedResult.data
+  }
+
+  if (normalizedScriptParseMode === 'short_drama') {
+    reportScriptParseProgress(input.onProgress, {
+      step: 'episode-duration-limiting',
+      message: '正在校验短剧单集时长上限',
+      progress: 93
+    })
+    finalParsedScript = enforceEpisodeDurationLimit(
+      finalParsedScript,
+      SHORT_DRAMA_EPISODE_DURATION_LIMIT_SECONDS
+    )
   }
 
   reportScriptParseProgress(input.onProgress, {
@@ -882,8 +1086,9 @@ export async function executeScriptParse(
     data: finalParsedScript,
     formattedTimeline: timelineScript,
     parseStrategy: {
-      segmented: scriptChunks.length > 1,
-      chunkCount: scriptChunks.length,
+      segmented: scriptEpisodes.length > 1,
+      chunkCount: scriptEpisodes.length,
+      episodeCount: finalParsedScript.episodes?.length || scriptEpisodes.length,
       ...(recommendedMinScenes !== undefined ? { recommendedMinScenes } : {}),
       ...(chunkRecommendedSceneHints.length > 0 ? { chunkRecommendedSceneHints } : {})
     }
