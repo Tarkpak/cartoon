@@ -6,7 +6,8 @@ import {
   Folder,
   Loader2,
   RefreshCw,
-  Search
+  Search,
+  Video
 } from 'lucide-vue-next'
 
 type TosFileEntry = {
@@ -44,11 +45,27 @@ type FetchErrorWithData = Error & {
 
 const loading = ref(false)
 const errorMessage = ref('')
-const prefixInput = ref('manju-assets')
-const activePrefix = ref('manju-assets')
+const prefixInput = ref('manju-assets/images')
+const activePrefix = ref('manju-assets/images')
+const pageSize = ref('20')
+const pageSizeOptions = [20, 50, 100, 200]
 const continuationToken = ref<string | undefined>()
 const tokenHistory = ref<string[]>([])
+const currentPage = ref(1)
 const responseData = ref<TosFilesResponse['data'] | null>(null)
+const failedPreviewMediaKeys = ref<Record<string, true>>({})
+const hoverPreviewFile = ref<TosFileEntry | null>(null)
+const hoverPreviewPosition = ref({ x: 0, y: 0 })
+const assetTabs = [
+  { id: 'image', label: 'Image', prefix: 'manju-assets/images/' },
+  { id: 'video', label: 'Video', prefix: 'manju-assets/videos/' }
+] as const
+
+const pageSizeNumber = computed(() => {
+  const parsed = Number.parseInt(pageSize.value, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return 100
+  return Math.min(1000, parsed)
+})
 
 function formatBytes(size: number): string {
   if (!Number.isFinite(size) || size <= 0) return '0 B'
@@ -72,6 +89,85 @@ function fileNameFromKey(key: string): string {
   return key.split('/').filter(Boolean).at(-1) || key
 }
 
+function normalizePrefixValue(value: string): string {
+  return value.trim().replace(/\/+$/g, '')
+}
+
+const activeAssetTabId = computed<string | null>(() => {
+  const normalizedPrefix = normalizePrefixValue(activePrefix.value)
+  for (const tab of assetTabs) {
+    const tabPrefix = normalizePrefixValue(tab.prefix)
+    if (normalizedPrefix === tabPrefix || normalizedPrefix.startsWith(`${tabPrefix}/`)) {
+      return tab.id
+    }
+  }
+  return null
+})
+
+function isImageFile(key: string): boolean {
+  return /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i.test(key)
+}
+
+function isVideoFile(key: string): boolean {
+  return /\.(avi|flv|m4v|mkv|mov|mp4|mpeg|mpg|webm)$/i.test(key)
+}
+
+function isMediaFile(key: string): boolean {
+  return isImageFile(key) || isVideoFile(key)
+}
+
+function canPreviewMedia(file: TosFileEntry): boolean {
+  return isMediaFile(file.key) && !failedPreviewMediaKeys.value[file.key]
+}
+
+function markPreviewMediaFailed(key: string) {
+  failedPreviewMediaKeys.value = {
+    ...failedPreviewMediaKeys.value,
+    [key]: true
+  }
+}
+
+function updateHoverPreviewPosition(event: MouseEvent) {
+  const panelWidth = 320
+  const panelHeight = 352
+  const offset = 16
+
+  let x = event.clientX + offset
+  let y = event.clientY + offset
+
+  if (typeof window !== 'undefined') {
+    const maxX = window.innerWidth - panelWidth - 12
+    const maxY = window.innerHeight - panelHeight - 12
+    if (x > maxX) x = Math.max(12, event.clientX - panelWidth - offset)
+    if (y > maxY) y = Math.max(12, event.clientY - panelHeight - offset)
+  }
+
+  hoverPreviewPosition.value = { x, y }
+}
+
+function openHoverPreview(file: TosFileEntry, event: MouseEvent) {
+  if (!canPreviewMedia(file)) return
+  hoverPreviewFile.value = file
+  updateHoverPreviewPosition(event)
+}
+
+function moveHoverPreview(event: MouseEvent) {
+  if (!hoverPreviewFile.value) return
+  updateHoverPreviewPosition(event)
+}
+
+function closeHoverPreview(key?: string) {
+  if (!hoverPreviewFile.value) return
+  if (key && hoverPreviewFile.value.key !== key) return
+  hoverPreviewFile.value = null
+}
+
+function handleHoverPreviewMediaError() {
+  if (!hoverPreviewFile.value) return
+  markPreviewMediaFailed(hoverPreviewFile.value.key)
+  hoverPreviewFile.value = null
+}
+
 async function loadFiles(options: { reset?: boolean } = {}) {
   loading.value = true
   errorMessage.value = ''
@@ -81,7 +177,7 @@ async function loadFiles(options: { reset?: boolean } = {}) {
       query: {
         prefix: activePrefix.value,
         delimiter: '/',
-        maxKeys: 100,
+        maxKeys: pageSizeNumber.value,
         continuationToken: options.reset ? undefined : continuationToken.value
       }
     })
@@ -100,18 +196,42 @@ async function loadFiles(options: { reset?: boolean } = {}) {
   }
 }
 
-function applyPrefix() {
-  activePrefix.value = prefixInput.value.trim()
+function resetPagination() {
+  closeHoverPreview()
   continuationToken.value = undefined
   tokenHistory.value = []
+  currentPage.value = 1
+}
+
+function applyPrefix() {
+  activePrefix.value = normalizePrefixValue(prefixInput.value)
+  prefixInput.value = activePrefix.value
+  resetPagination()
   void loadFiles({ reset: true })
 }
 
 function openPrefix(prefix: string) {
-  activePrefix.value = prefix.replace(/\/+$/g, '')
+  activePrefix.value = normalizePrefixValue(prefix)
   prefixInput.value = activePrefix.value
-  continuationToken.value = undefined
-  tokenHistory.value = []
+  resetPagination()
+  void loadFiles({ reset: true })
+}
+
+function switchAssetTab(prefix: string) {
+  const normalizedPrefix = normalizePrefixValue(prefix)
+  if (!normalizedPrefix) return
+  if (activePrefix.value === normalizedPrefix) return
+  activePrefix.value = normalizedPrefix
+  prefixInput.value = normalizedPrefix
+  resetPagination()
+  void loadFiles({ reset: true })
+}
+
+function handlePageSizeChange(value: string) {
+  const normalized = (value || '').trim()
+  if (!normalized || normalized === pageSize.value) return
+  pageSize.value = normalized
+  resetPagination()
   void loadFiles({ reset: true })
 }
 
@@ -124,6 +244,7 @@ function goNextPage() {
     tokenHistory.value.push('')
   }
   continuationToken.value = nextToken
+  currentPage.value += 1
   void loadFiles()
 }
 
@@ -131,7 +252,14 @@ function goPreviousPage() {
   if (tokenHistory.value.length === 0) return
   const previousToken = tokenHistory.value.pop()
   continuationToken.value = previousToken || undefined
+  currentPage.value = Math.max(1, currentPage.value - 1)
   void loadFiles()
+}
+
+function goFirstPage() {
+  if (currentPage.value <= 1) return
+  resetPagination()
+  void loadFiles({ reset: true })
 }
 
 onMounted(() => {
@@ -244,20 +372,14 @@ onMounted(() => {
           </h2>
           <div class="flex items-center gap-2">
             <Button
-              variant="outline"
+              v-for="tab in assetTabs"
+              :key="tab.id"
               size="sm"
-              :disabled="loading || tokenHistory.length === 0"
-              @click="goPreviousPage"
+              :variant="activeAssetTabId === tab.id ? 'default' : 'outline'"
+              :disabled="loading"
+              @click="switchAssetTab(tab.prefix)"
             >
-              上一页
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              :disabled="loading || !responseData?.nextContinuationToken"
-              @click="goNextPage"
-            >
-              下一页
+              {{ tab.label }}
             </Button>
           </div>
         </div>
@@ -277,15 +399,36 @@ onMounted(() => {
           当前前缀下没有文件
         </div>
 
-        <Table v-else>
+        <Table
+          v-else
+          class="table-fixed"
+        >
+          <colgroup>
+            <col>
+            <col class="w-[88px]">
+            <col class="w-[92px]">
+            <col class="w-[190px]">
+            <col class="w-[140px]">
+            <col class="w-[72px]">
+          </colgroup>
           <TableHeader>
             <TableRow>
-              <TableHead>名称</TableHead>
-              <TableHead>类型</TableHead>
-              <TableHead>大小</TableHead>
-              <TableHead>更新时间</TableHead>
-              <TableHead>存储类型</TableHead>
-              <TableHead class="w-24 text-right">
+              <TableHead class="min-w-[320px]">
+                名称
+              </TableHead>
+              <TableHead class="whitespace-nowrap">
+                类型
+              </TableHead>
+              <TableHead class="whitespace-nowrap">
+                大小
+              </TableHead>
+              <TableHead class="whitespace-nowrap">
+                更新时间
+              </TableHead>
+              <TableHead class="whitespace-nowrap">
+                存储类型
+              </TableHead>
+              <TableHead class="whitespace-nowrap text-right">
                 操作
               </TableHead>
             </TableRow>
@@ -306,10 +449,18 @@ onMounted(() => {
                   <span class="truncate">{{ prefix }}</span>
                 </Button>
               </TableCell>
-              <TableCell>目录</TableCell>
-              <TableCell>-</TableCell>
-              <TableCell>-</TableCell>
-              <TableCell>-</TableCell>
+              <TableCell class="whitespace-nowrap">
+                目录
+              </TableCell>
+              <TableCell class="whitespace-nowrap">
+                -
+              </TableCell>
+              <TableCell class="whitespace-nowrap">
+                -
+              </TableCell>
+              <TableCell class="whitespace-nowrap">
+                -
+              </TableCell>
               <TableCell />
             </TableRow>
 
@@ -318,8 +469,36 @@ onMounted(() => {
               :key="file.key"
             >
               <TableCell>
-                <div class="flex min-w-0 items-center gap-2">
-                  <File class="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div
+                  class="flex min-w-0 items-center gap-3"
+                  @mouseenter="openHoverPreview(file, $event)"
+                  @mousemove="moveHoverPreview($event)"
+                  @mouseleave="closeHoverPreview(file.key)"
+                >
+                  <a
+                    v-if="isImageFile(file.key) && !failedPreviewMediaKeys[file.key]"
+                    :href="file.url"
+                    target="_blank"
+                    rel="noreferrer"
+                    class="shrink-0"
+                    title="查看原图"
+                  >
+                    <img
+                      :src="file.url"
+                      :alt="fileNameFromKey(file.key)"
+                      class="h-12 w-12 rounded border object-cover"
+                      loading="lazy"
+                      @error="markPreviewMediaFailed(file.key)"
+                    >
+                  </a>
+                  <Video
+                    v-else-if="isVideoFile(file.key)"
+                    class="h-4 w-4 shrink-0 text-muted-foreground"
+                  />
+                  <File
+                    v-else
+                    class="h-4 w-4 shrink-0 text-muted-foreground"
+                  />
                   <div class="min-w-0">
                     <p class="truncate text-sm font-medium">
                       {{ fileNameFromKey(file.key) }}
@@ -330,10 +509,18 @@ onMounted(() => {
                   </div>
                 </div>
               </TableCell>
-              <TableCell>文件</TableCell>
-              <TableCell>{{ formatBytes(file.size) }}</TableCell>
-              <TableCell>{{ formatDate(file.lastModified) }}</TableCell>
-              <TableCell>{{ file.storageClass || '-' }}</TableCell>
+              <TableCell class="whitespace-nowrap">
+                {{ isImageFile(file.key) ? '图片' : (isVideoFile(file.key) ? '视频' : '文件') }}
+              </TableCell>
+              <TableCell class="whitespace-nowrap">
+                {{ formatBytes(file.size) }}
+              </TableCell>
+              <TableCell class="whitespace-nowrap">
+                {{ formatDate(file.lastModified) }}
+              </TableCell>
+              <TableCell class="whitespace-nowrap">
+                {{ file.storageClass || '-' }}
+              </TableCell>
               <TableCell class="text-right">
                 <Button
                   as="a"
@@ -350,7 +537,97 @@ onMounted(() => {
             </TableRow>
           </TableBody>
         </Table>
+
+        <div
+          v-if="responseData"
+          class="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div class="text-xs text-muted-foreground">
+            第 {{ currentPage }} 页 · 每页 {{ pageSizeNumber }} 条
+          </div>
+          <div class="flex items-center gap-2 self-end sm:self-auto">
+            <div class="flex items-center gap-1 text-xs text-muted-foreground">
+              <span>每页</span>
+              <Select
+                :model-value="pageSize"
+                @update:model-value="handlePageSizeChange(String($event))"
+              >
+                <SelectTrigger class="h-8 w-[88px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="size in pageSizeOptions"
+                    :key="size"
+                    :value="String(size)"
+                  >
+                    {{ size }} 条
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-8 px-2.5 text-xs"
+              :disabled="loading || currentPage <= 1"
+              @click="goFirstPage"
+            >
+              第一页
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-8 px-2.5 text-xs"
+              :disabled="loading || currentPage <= 1"
+              @click="goPreviousPage"
+            >
+              上一页
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-8 px-2.5 text-xs"
+              :disabled="loading || !responseData?.nextContinuationToken"
+              @click="goNextPage"
+            >
+              下一页
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
+    <Teleport to="body">
+      <div
+        v-if="hoverPreviewFile"
+        class="pointer-events-none fixed z-[70] hidden md:block"
+        :style="{ left: `${hoverPreviewPosition.x}px`, top: `${hoverPreviewPosition.y}px` }"
+      >
+        <div class="w-80 rounded-lg border bg-card/95 p-2 shadow-2xl backdrop-blur-sm">
+          <video
+            v-if="isVideoFile(hoverPreviewFile.key)"
+            :src="hoverPreviewFile.url"
+            class="h-72 w-full rounded bg-muted/40 object-contain"
+            autoplay
+            muted
+            loop
+            playsinline
+            preload="metadata"
+            @error="handleHoverPreviewMediaError"
+          />
+          <img
+            v-else
+            :src="hoverPreviewFile.url"
+            :alt="fileNameFromKey(hoverPreviewFile.key)"
+            class="h-72 w-full rounded object-contain bg-muted/40"
+            loading="lazy"
+            @error="handleHoverPreviewMediaError"
+          >
+          <p class="mt-2 truncate px-1 text-xs text-muted-foreground">
+            {{ fileNameFromKey(hoverPreviewFile.key) }}
+          </p>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>

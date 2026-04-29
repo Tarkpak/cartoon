@@ -316,23 +316,31 @@ export async function listCloudStorageFiles(options: {
   }
 
   const maxKeys = Math.max(1, Math.min(1000, Math.floor(options.maxKeys || 100)))
-  const prefix = normalizeObjectPath(options.prefix ?? config.keyPrefix ?? '')
-  const delimiter = options.delimiter || undefined
-
-  const response = await client.listObjectsType2({
+  const normalizedPrefix = normalizeObjectPath(options.prefix ?? config.keyPrefix ?? '')
+  const request: Parameters<TosClient['listObjectsType2']>[0] = {
     bucket: config.bucket,
-    prefix,
-    delimiter,
     maxKeys,
-    continuationToken: options.continuationToken || undefined,
     listOnlyOnce: true
-  })
+  }
+
+  // Do not pass undefined query fields to SDK.
+  // The signer may include them in canonical query while HTTP layer drops them, causing SignatureDoesNotMatch.
+  const delimiter = options.delimiter?.trim()
+  if (delimiter) request.delimiter = delimiter
+  const listPrefix = delimiter && normalizedPrefix
+    ? `${normalizedPrefix}/`
+    : normalizedPrefix
+  request.prefix = listPrefix
+  const continuationToken = options.continuationToken?.trim()
+  if (continuationToken) request.continuationToken = continuationToken
+
+  const response = await client.listObjectsType2(request)
 
   const data = response.data
 
   return {
     bucket: data.Name || config.bucket,
-    prefix: data.Prefix || prefix,
+    prefix: data.Prefix || listPrefix,
     delimiter: data.Delimiter,
     maxKeys: data.MaxKeys || maxKeys,
     isTruncated: !!data.IsTruncated,
