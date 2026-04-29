@@ -1,17 +1,19 @@
 import type { ImageModelConfig } from '../../../../shared/types/provider'
 
-const PANORAMA_SOURCE_DEFAULT_IMAGE_SIZE = '2100*900'
-export const PANORAMA_SOURCE_ASPECT_RATIO = '21:9'
+const PANORAMA_SOURCE_DEFAULT_IMAGE_SIZE = '2048*1024'
+export const PANORAMA_SOURCE_ASPECT_RATIO = '2:1'
+const PANORAMA_SOURCE_FALLBACK_ASPECT_RATIO = '21:9'
 
 const PANORAMA_SOURCE_SIZE_BY_ASPECT_RATIO: Record<string, string> = {
   '1:1': '1024*1024',
+  '2:1': PANORAMA_SOURCE_DEFAULT_IMAGE_SIZE,
   '2:3': '832*1248',
   '3:2': '1248*832',
   '3:4': '864*1152',
   '4:3': '1152*864',
   '9:16': '720*1280',
   '16:9': '1280*720',
-  '21:9': PANORAMA_SOURCE_DEFAULT_IMAGE_SIZE
+  '21:9': '2100*900'
 }
 
 export interface PanoramaSourceProfile {
@@ -97,10 +99,12 @@ export function resolvePanoramaSourceProfile(
     }
   }
 
-  const resolvedAspectRatio = pickClosestSupportedAspectRatio(
-    fallbackAspectRatio,
-    normalizedSupportedAspectRatios
-  )
+  const resolvedAspectRatio = normalizedSupportedAspectRatios.includes(PANORAMA_SOURCE_FALLBACK_ASPECT_RATIO)
+    ? PANORAMA_SOURCE_FALLBACK_ASPECT_RATIO
+    : pickClosestSupportedAspectRatio(
+        fallbackAspectRatio,
+        normalizedSupportedAspectRatios
+      )
 
   return {
     aspectRatio: resolvedAspectRatio,

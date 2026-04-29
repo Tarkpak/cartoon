@@ -605,6 +605,7 @@ const GEMINI_3_PRO_IMAGE_ASPECT_RATIOS = [
 ] as const
 
 const QWEN_IMAGE_PRIMARY_ASPECT_RATIOS = ['16:9', '4:3', '1:1', '3:4', '9:16'] as const
+const QWEN_IMAGE_2_CUSTOM_ASPECT_RATIOS = ['2:1', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] as const
 const QWEN_WAN_IMAGE_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9'] as const
 
 const KLING_OMNI_IMAGE_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', 'auto'] as const
@@ -638,7 +639,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: qwen.QwenImageModels.QWEN_IMAGE_2_PRO,
     displayName: '通义千问 Image 2.0 Pro',
     description: '千问最新图像生成与编辑 Pro 系列，文字渲染与语义遵循更强',
-    supportedAspectRatios: [...QWEN_IMAGE_PRIMARY_ASPECT_RATIOS],
+    supportedAspectRatios: [...QWEN_IMAGE_2_CUSTOM_ASPECT_RATIOS],
     supportReferenceImage: true,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-image-api'
   },
@@ -665,7 +666,7 @@ export const IMAGE_MODELS: ImageModelConfig[] = [
     model: qwen.QwenImageModels.Z_IMAGE_TURBO,
     displayName: '通义 Z-Image',
     description: 'Z-Image 轻量快速生图模型（z-image-turbo）',
-    supportedAspectRatios: [...QWEN_WAN_IMAGE_ASPECT_RATIOS],
+    supportedAspectRatios: [...QWEN_IMAGE_PRIMARY_ASPECT_RATIOS],
     supportReferenceImage: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/z-image-api-reference'
   },
