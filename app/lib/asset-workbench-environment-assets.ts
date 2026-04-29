@@ -95,8 +95,16 @@ export function buildEnvironmentAssetCards(options: {
     existing.sceneIds.push(scene.id)
     existing.sceneTitles.push(scene.title || scene.id)
 
+    const rawHistoryEntries = resolveSceneEnvironmentAssetIdAliases(scene)
+      .flatMap((alias) => {
+        const entries = options.environmentAssetHistories?.[alias]
+        return Array.isArray(entries) ? entries : []
+      })
     existing.assetHistory = normalizeAssetHistoryEntries(
-      existing.assetHistory,
+      [
+        ...(existing.assetHistory || []),
+        ...rawHistoryEntries
+      ],
       sceneImage
     )
 
