@@ -101,7 +101,33 @@ describe('environment asset grouping', () => {
       }
     })
 
-    expect(resolveSceneEnvironmentAssetLabel(scene)).toBe('老旧出租屋-客厅 / 白天')
+    expect(resolveSceneEnvironmentAssetLabel(scene)).toBe('老旧出租屋 / 白天')
+  })
+
+  it('groups sibling subspaces under the same root environment asset', () => {
+    const ancestralHall = createScene({
+      id: 'scene_1',
+      title: '祠堂夜祭',
+      description: '顾家老宅祠堂里烛火摇曳。',
+      setting: {
+        location: '顾家老宅祠堂',
+        timeOfDay: 'night'
+      }
+    })
+    const sideRoom = createScene({
+      id: 'scene_2',
+      title: '侧室密谈',
+      description: '顾家老宅祠堂侧室里有人低声密谈。',
+      setting: {
+        location: '顾家老宅祠堂侧室',
+        timeOfDay: 'night'
+      }
+    })
+
+    expect(resolveSceneEnvironmentAssetId(ancestralHall)).toBe(
+      resolveSceneEnvironmentAssetId(sideRoom)
+    )
+    expect(resolveSceneEnvironmentAssetLabel(sideRoom)).toBe('顾家老宅 / 夜晚')
   })
 
   it('detects interior and exterior viewpoints from scene metadata', () => {

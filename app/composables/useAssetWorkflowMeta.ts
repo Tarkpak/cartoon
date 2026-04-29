@@ -276,6 +276,13 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
 
       const loadedEnvironmentHistories = buildEnvironmentHistoryMap(meta?.environmentHistories || {})
       const loadedEnvironmentPanoramaStates: Record<string, EnvironmentPanoramaState> = {}
+      const environmentStateAliases = new Map<string, string>()
+      for (const scene of options.scenes.value) {
+        const assetId = resolveSceneEnvironmentAssetId(scene)
+        for (const alias of resolveSceneEnvironmentAssetIdAliases(scene)) {
+          environmentStateAliases.set(alias, assetId)
+        }
+      }
       for (const [assetId, rawValue] of Object.entries(meta?.environmentPanoramaStates || {})) {
         if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
           continue
@@ -301,7 +308,12 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
           continue
         }
 
-        loadedEnvironmentPanoramaStates[assetId] = {
+        const targetAssetId = environmentStateAliases.get(assetId) || assetId
+        if (loadedEnvironmentPanoramaStates[targetAssetId]?.panoramaImage || loadedEnvironmentPanoramaStates[targetAssetId]?.crop) {
+          continue
+        }
+
+        loadedEnvironmentPanoramaStates[targetAssetId] = {
           panoramaImage,
           crop
         }

@@ -53,6 +53,13 @@ export const LOCATION_SUBSPACE_SUFFIXES = [
   '车间',
   '包厢',
   '吧台',
+  '祠堂',
+  '侧室',
+  '偏厅',
+  '厢房',
+  '书房',
+  '供桌',
+  '祭台',
   '客厅',
   '卧室',
   '厨房',
@@ -85,6 +92,13 @@ export const LOCATION_ANCHOR_KEYWORDS = [
   '酒吧',
   '公寓',
   '别墅',
+  '老宅',
+  '古宅',
+  '宅院',
+  '宅邸',
+  '府邸',
+  '府宅',
+  '祠堂',
   '车站',
   '地铁站',
   '火车站',
@@ -199,7 +213,6 @@ export function resolveEnvironmentRootFromLocation(rawLocation?: string): string
 
   if (!normalized) return ''
 
-  normalized = stripLocationStylePrefix(normalized)
   const primary = normalized.split(/[，,。.;；/\\|｜>]+/)[0]?.trim() || normalized
   const compact = stripLocationStylePrefix(primary)
 
@@ -217,7 +230,7 @@ export function resolveEnvironmentRootFromLocation(rawLocation?: string): string
     }
   }
 
-  let candidate = compact.replace(/\s+/g, '')
+  let candidate = primary.replace(/\s+/g, '')
   for (const suffix of LOCATION_SUBSPACE_SUFFIXES) {
     if (candidate.endsWith(suffix) && candidate.length > suffix.length) {
       candidate = candidate.slice(0, -suffix.length)
@@ -225,7 +238,7 @@ export function resolveEnvironmentRootFromLocation(rawLocation?: string): string
     }
   }
 
-  candidate = stripLocationStylePrefix(candidate)
+  candidate = candidate.replace(/[-_/\\|｜>]+$/g, '').trim()
   return candidate || compact
 }
 
@@ -365,7 +378,7 @@ export function buildLegacySceneEnvironmentKey(scene: SceneData): string {
   return `${location}||${timeOfDay}||${weather}`
 }
 
-export function buildSceneEnvironmentKey(scene: SceneData): string {
+export function buildExactSceneEnvironmentKey(scene: SceneData): string {
   const location = normalizeEnvironmentToken(scene.setting?.location)
   const timeOfDay = normalizeEnvironmentToken(resolveTimeOfDayText(scene.setting?.timeOfDay))
 
@@ -374,6 +387,18 @@ export function buildSceneEnvironmentKey(scene: SceneData): string {
   }
 
   return `${location}||${timeOfDay}`
+}
+
+export function buildSceneEnvironmentKey(scene: SceneData): string {
+  const environmentRoot = normalizeEnvironmentToken(resolveSceneEnvironmentRoot(scene))
+  const location = normalizeEnvironmentToken(scene.setting?.location)
+  const timeOfDay = normalizeEnvironmentToken(resolveTimeOfDayText(scene.setting?.timeOfDay))
+
+  if (environmentRoot || location || timeOfDay) {
+    return `${environmentRoot || location}||${timeOfDay}`
+  }
+
+  return buildExactSceneEnvironmentKey(scene)
 }
 
 export function resolveSceneEnvironmentAssetKey(scene: SceneData): string {
@@ -389,8 +414,12 @@ export function resolveSceneEnvironmentAssetId(scene: SceneData): string {
 
 export function resolveSceneEnvironmentAssetIdAliases(scene: SceneData): string[] {
   const aliases = new Set<string>([resolveSceneEnvironmentAssetId(scene)])
+  const exactKey = buildExactSceneEnvironmentKey(scene)
   const legacyKey = buildLegacySceneEnvironmentKey(scene)
 
+  if (exactKey) {
+    aliases.add(`env:${exactKey}`)
+  }
   if (legacyKey) {
     aliases.add(`env:${legacyKey}`)
   }
@@ -399,7 +428,7 @@ export function resolveSceneEnvironmentAssetIdAliases(scene: SceneData): string[
 }
 
 export function resolveSceneEnvironmentAssetLabel(scene: SceneData): string {
-  const location = scene.setting?.location?.trim() || ''
+  const location = resolveSceneEnvironmentRoot(scene) || scene.setting?.location?.trim() || ''
   const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
 
   const parts = [location, timeOfDay].filter(Boolean)

@@ -107,4 +107,42 @@ describe('buildEnvironmentAssetCards', () => {
     expect(cards[0]?.referenceStatus).toBe('done')
     expect(cards[0]?.referenceError).toBe('Input data may contain inappropriate content.')
   })
+
+  it('merges sibling locations into one root environment card while reading legacy state aliases', () => {
+    const ancestralHall = createScene({
+      id: 'scene_1',
+      title: '祠堂夜祭',
+      description: '顾家老宅祠堂里烛火摇曳。',
+      setting: {
+        location: '顾家老宅祠堂',
+        timeOfDay: 'night'
+      },
+      referenceStatus: 'pending'
+    })
+    const sideRoom = createScene({
+      id: 'scene_2',
+      title: '侧室密谈',
+      description: '顾家老宅祠堂侧室里有人低声密谈。',
+      setting: {
+        location: '顾家老宅祠堂侧室',
+        timeOfDay: 'night'
+      },
+      referenceStatus: 'done'
+    })
+
+    const cards = buildEnvironmentAssetCards({
+      scenes: [ancestralHall, sideRoom],
+      environmentPanoramaStates: {
+        'env:顾家老宅祠堂侧室||夜晚': {
+          panoramaImage: 'https://example.com/legacy-panorama.png'
+        }
+      },
+      resolveSceneDescriptionWithoutAssetMentions
+    })
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]?.name).toBe('顾家老宅 / 夜晚')
+    expect(cards[0]?.sceneIds).toEqual(['scene_1', 'scene_2'])
+    expect(cards[0]?.panoramaImage).toBe('https://example.com/legacy-panorama.png')
+  })
 })
