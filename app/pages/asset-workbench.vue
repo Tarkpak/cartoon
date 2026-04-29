@@ -1092,6 +1092,7 @@ const episodeOverviewById = computed<Record<string, string>>(() => {
 const NOVEL_TEXT_AUTO_SAVE_DELAY_MS = 1200
 const lastSavedNovelText = ref('')
 const pendingWorkflowMetaSaveAfterNovelTextChange = ref(false)
+const canResetEpisodePlanFromNovelText = ref(false)
 let novelTextAutoSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 function clearNovelTextAutoSaveTimer() {
@@ -1189,16 +1190,21 @@ watch(environmentCropDialogOpen, (open) => {
 })
 
 watch(
-  loading,
-  (isLoading) => {
-    if (isLoading) return
+  [loading, workflowMetaReady, hydratingWorkflowMeta],
+  ([isLoading, isMetaReady, isHydrating]) => {
+    if (isLoading || !isMetaReady || isHydrating) {
+      canResetEpisodePlanFromNovelText.value = false
+      return
+    }
     lastSavedNovelText.value = novelText.value
+    canResetEpisodePlanFromNovelText.value = true
   },
   { immediate: true }
 )
 
 watch(novelText, (nextValue, previousValue) => {
   if (nextValue === previousValue) return
+  if (!canResetEpisodePlanFromNovelText.value) return
   if (loading.value) return
   if (episodePlan.value.length > 0) {
     episodePlan.value = []
