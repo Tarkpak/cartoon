@@ -16,7 +16,7 @@ export default defineEventHandler(async () => {
     console.error('[StylePreset] 导出失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '导出画风预设失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

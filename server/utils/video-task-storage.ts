@@ -2,12 +2,13 @@ import { eq } from 'drizzle-orm'
 import { db, scenes as scenesTable } from '../db'
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
 import {
+  buildCloudNewestFirstNamePrefix,
   buildCloudObjectKey,
   uploadBufferToCloudStorageOrThrow
 } from './cloud-storage'
 
 function createVideoFileName(taskId: string): string {
-  return `${taskId}.mp4`
+  return `${buildCloudNewestFirstNamePrefix()}_${taskId}.mp4`
 }
 
 export async function persistGeneratedVideoBuffer(options: {

@@ -245,7 +245,7 @@ export default defineEventHandler(async (event) => {
   if (!parseResult.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parseResult.error.issues.map(i => i.message).join(', ')
     })
   }
@@ -268,7 +268,7 @@ export default defineEventHandler(async (event) => {
         if (!testPrompt) {
           throw createError({
             statusCode: 400,
-            statusMessage: '缺少测试提示词',
+            statusMessage: 'Bad Request',
             message: '请在请求体中提供 prompt'
           })
         }
@@ -289,7 +289,7 @@ export default defineEventHandler(async (event) => {
         if (!testPrompt) {
           throw createError({
             statusCode: 400,
-            statusMessage: '缺少测试提示词',
+            statusMessage: 'Bad Request',
             message: '请在请求体中提供 prompt'
           })
         }
@@ -359,7 +359,7 @@ export default defineEventHandler(async (event) => {
         if (!testPrompt) {
           throw createError({
             statusCode: 400,
-            statusMessage: '缺少测试提示词',
+            statusMessage: 'Bad Request',
             message: '请在请求体中提供 prompt'
           })
         }
@@ -428,7 +428,7 @@ export default defineEventHandler(async (event) => {
         if (!testText) {
           throw createError({
             statusCode: 400,
-            statusMessage: '缺少测试文本',
+            statusMessage: 'Bad Request',
             message: '请在请求体中提供 prompt 作为 TTS 测试文本'
           })
         }

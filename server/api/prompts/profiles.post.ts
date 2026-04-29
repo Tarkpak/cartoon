@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parsed.error.issues.map(issue => issue.message).join(', ')
     })
   }
@@ -32,7 +32,8 @@ export default defineEventHandler(async (event) => {
     if (!data) {
       throw createError({
         statusCode: 400,
-        statusMessage: '创建提示词配置方案失败'
+        statusMessage: 'Bad Request',
+        message: '创建提示词配置方案失败',
       })
     }
 
@@ -52,7 +53,7 @@ export default defineEventHandler(async (event) => {
     console.error('[PromptProfiles API] 创建配置方案失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '创建提示词配置方案失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

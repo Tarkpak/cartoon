@@ -11,7 +11,8 @@ export default defineEventHandler(async (event) => {
   if (!profileId) {
     throw createError({
       statusCode: 400,
-      statusMessage: '缺少配置 ID'
+      statusMessage: 'Bad Request',
+      message: '缺少配置 ID',
     })
   }
 
@@ -22,7 +23,8 @@ export default defineEventHandler(async (event) => {
     if (!data) {
       throw createError({
         statusCode: 404,
-        statusMessage: '提示词配置方案不存在'
+        statusMessage: 'Not Found',
+        message: '提示词配置方案不存在',
       })
     }
 
@@ -42,7 +44,7 @@ export default defineEventHandler(async (event) => {
     console.error('[PromptProfiles API] 切换配置方案失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '切换提示词配置方案失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

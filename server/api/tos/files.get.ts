@@ -37,7 +37,7 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parsed.error.issues.map(issue => issue.message).join(', ')
     })
   }
@@ -52,7 +52,7 @@ export default defineEventHandler(async (event) => {
     console.error('[TOSFiles] 读取 TOS 文件失败:', normalizeErrorDetail(error) || error)
     throw createError({
       statusCode: 500,
-      statusMessage: '读取 TOS 文件失败',
+      statusMessage: 'Internal Server Error',
       data: {
         message: normalizeErrorMessage(error),
         detail: normalizeErrorDetail(error)

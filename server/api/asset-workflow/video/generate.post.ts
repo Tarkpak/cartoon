@@ -600,7 +600,7 @@ export default defineEventHandler(async (event) => {
   if (!parseResult.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parseResult.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join(', ')
     })
   }
@@ -808,7 +808,7 @@ export default defineEventHandler(async (event) => {
     console.error('[AssetWorkflow/Video] 任务创建失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '分镜视频生成失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

@@ -163,7 +163,8 @@ export default defineEventHandler(async (event) => {
   if (!taskId) {
     throw createError({
       statusCode: 400,
-      statusMessage: '缺少任务ID'
+      statusMessage: 'Bad Request',
+      message: '缺少任务ID',
     })
   }
 
@@ -177,7 +178,7 @@ export default defineEventHandler(async (event) => {
   if (!task) {
     throw createError({
       statusCode: 404,
-      statusMessage: '任务不存在',
+      statusMessage: 'Not Found',
       message: `未找到任务: ${taskId}`
     })
   }

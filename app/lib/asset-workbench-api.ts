@@ -3,6 +3,7 @@ import {
   DEFAULT_SCRIPT_PARSE_MODE,
   type ScriptParseMode
 } from '#shared/types/script'
+import { normalizeCharacterRole } from '#shared/types/character'
 import {
   toOptionalNumber,
   toOptionalString,
@@ -296,7 +297,7 @@ export async function generateAssetWorkbenchCharacter(options: {
         id: options.character.id,
         name: options.character.name,
         appearance: options.character.appearance || `${options.character.name}，动漫风格角色`,
-        role: options.character.role || 'supporting',
+        role: normalizeCharacterRole(options.character.role) || 'supporting',
         gender: toOptionalString(options.character.gender),
         age: toOptionalNumber(options.character.age),
         personality: toOptionalString(options.character.personality),

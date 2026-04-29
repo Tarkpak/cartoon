@@ -15,7 +15,8 @@ export default defineEventHandler(async (event) => {
   if (!id) {
     throw createError({
       statusCode: 400,
-      statusMessage: '缺少画风ID'
+      statusMessage: 'Bad Request',
+      message: '缺少画风ID',
     })
   }
 
@@ -26,7 +27,7 @@ export default defineEventHandler(async (event) => {
     if (!target) {
       throw createError({
         statusCode: 404,
-        statusMessage: '画风预设不存在',
+        statusMessage: 'Not Found',
         message: `未找到画风: ${id}`
       })
     }
@@ -34,7 +35,7 @@ export default defineEventHandler(async (event) => {
     if (allPresets.length <= 1) {
       throw createError({
         statusCode: 400,
-        statusMessage: '至少保留一个画风',
+        statusMessage: 'Bad Request',
         message: '不能删除最后一个画风预设'
       })
     }
@@ -66,7 +67,7 @@ export default defineEventHandler(async (event) => {
     console.error('[StylePreset] 删除失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '删除画风预设失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

@@ -51,7 +51,7 @@ export default defineEventHandler(async (event) => {
   if (isPromptReadonlyProfile(profileData.activeProfileId)) {
     throw createError({
       statusCode: 403,
-      statusMessage: '内置默认配置不可修改',
+      statusMessage: 'Forbidden',
       message: '请先创建并切换到自定义提示词配置方案'
     })
   }
@@ -62,7 +62,7 @@ export default defineEventHandler(async (event) => {
   if (!systemPrompt) {
     throw createError({
       statusCode: 500,
-      statusMessage: '翻译提示词模板缺失',
+      statusMessage: 'Internal Server Error',
       message: '无法获取翻译模板，请在提示词配置中检查“提示词翻译系统指令”'
     })
   }

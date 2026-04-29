@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  buildCloudNewestFirstNamePrefix,
   buildCloudObjectKey,
   uploadBufferToCloudStorageOrThrow
 } from './cloud-storage'
@@ -174,7 +175,7 @@ export async function persistImageToPublic(options: {
   const { buffer, mimeType } = await resolveImageSource(source)
   const ext = extFromMimeType(mimeType)
   const hash = createHash('sha1').update(buffer).digest('hex').slice(0, 16)
-  const filename = `${sanitizePrefix(options.prefix)}_${Date.now()}_${hash}.${ext}`
+  const filename = `${buildCloudNewestFirstNamePrefix()}_${sanitizePrefix(options.prefix)}_${hash}.${ext}`
   const cloudObjectKey = buildCloudObjectKey({
     category: 'images',
     filename

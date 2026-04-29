@@ -3,6 +3,7 @@ import {
   DEFAULT_SCRIPT_PARSE_MODE,
   type ScriptParseMode
 } from '#shared/types/script'
+import { normalizeCharacterRole } from '#shared/types/character'
 import type {
   CharacterData,
   SceneData
@@ -160,7 +161,10 @@ export function useAssetWorkbenchGeneration(
   }
 
   function mergeCharactersFromPartialParse(parsedCharacters: CharacterData[]): CharacterData[] {
-    const merged = options.characters.value.map(character => ({ ...character }))
+    const merged: CharacterData[] = options.characters.value.map(character => ({
+      ...character,
+      role: normalizeCharacterRole(character.role) || 'supporting'
+    }))
     const nameMap = new Map<string, CharacterData>()
     const idSet = new Set<string>(merged.map(character => character.id))
     let nextCharacterIndex = merged.length + 1
@@ -190,18 +194,21 @@ export function useAssetWorkbenchGeneration(
         if (!existing.appearance && incoming.appearance) {
           existing.appearance = incoming.appearance
         }
+        const incomingRole = normalizeCharacterRole(incoming.role)
+        const existingRole = normalizeCharacterRole(existing.role)
         if (
-          incoming.role
-          && incoming.role !== 'supporting'
-          && (!existing.role || existing.role === 'supporting')
+          incomingRole
+          && incomingRole !== 'supporting'
+          && (!existingRole || existingRole === 'supporting')
         ) {
-          existing.role = incoming.role
+          existing.role = incomingRole
         }
         continue
       }
 
       const nextCharacter: CharacterData = {
         ...incoming,
+        role: normalizeCharacterRole(incoming.role) || 'supporting',
         id: createUniqueCharacterId(),
         generating: false,
         generatingViews: false
@@ -273,9 +280,15 @@ export function useAssetWorkbenchGeneration(
 
         const existing = existingNameMap.get(name)
         const description = item.description?.trim() || ''
+        const role = normalizeCharacterRole(item.role) || 'supporting'
         if (existing) {
           if (!existing.appearance && description) {
             existing.appearance = description
+            changed = true
+          }
+          const existingRole = normalizeCharacterRole(existing.role) || 'supporting'
+          if (role !== 'supporting' && existingRole === 'supporting') {
+            existing.role = role
             changed = true
           }
           continue
@@ -285,7 +298,7 @@ export function useAssetWorkbenchGeneration(
           id: `char_plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
           name,
           appearance: description || `${name}，保持与剧本设定一致`,
-          role: item.role?.trim() || 'supporting',
+          role,
           generating: false,
           generatingViews: false
         }

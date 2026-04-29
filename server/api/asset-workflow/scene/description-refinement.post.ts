@@ -239,7 +239,7 @@ export default defineEventHandler(async (event) => {
   if (!parseResult.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parseResult.error.issues.map(issue => issue.message).join(', ')
     })
   }
@@ -275,7 +275,7 @@ export default defineEventHandler(async (event) => {
     console.error('[AssetWorkflow][SceneDescriptionRefinement] 场景描述改写失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '场景描述改写失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '模型调用失败'
     })
   }

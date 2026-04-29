@@ -47,6 +47,16 @@ export type CloudStorageListResult = {
   files: CloudStorageFileEntry[]
 }
 
+const MAX_SORTABLE_TIMESTAMP = 9_999_999_999_999
+
+export function buildCloudNewestFirstNamePrefix(timestampMs = Date.now()): string {
+  const normalizedTimestamp = Number.isFinite(timestampMs)
+    ? Math.max(0, Math.min(MAX_SORTABLE_TIMESTAMP, Math.floor(timestampMs)))
+    : Date.now()
+  const reversedTimestamp = MAX_SORTABLE_TIMESTAMP - normalizedTimestamp
+  return String(reversedTimestamp).padStart(String(MAX_SORTABLE_TIMESTAMP).length, '0')
+}
+
 let cachedConfig: TosStorageConfig | null = null
 let cachedClient: TosClient | null = null
 let hasWarnedMissingConfig = false
@@ -346,14 +356,15 @@ export async function listCloudStorageFiles(options: {
     isTruncated: !!data.IsTruncated,
     nextContinuationToken: data.NextContinuationToken,
     commonPrefixes: (data.CommonPrefixes || []).map(item => item.Prefix).filter(Boolean),
-    files: (data.Contents || []).map(item => ({
-      key: item.Key,
-      size: item.Size,
-      lastModified: item.LastModified,
-      storageClass: item.StorageClass,
-      etag: item.ETag,
-      url: buildPublicObjectUrl(config, item.Key)
-    }))
+    files: (data.Contents || [])
+      .map(item => ({
+        key: item.Key,
+        size: item.Size,
+        lastModified: item.LastModified,
+        storageClass: item.StorageClass,
+        etag: item.ETag,
+        url: buildPublicObjectUrl(config, item.Key)
+      }))
   }
 }
 

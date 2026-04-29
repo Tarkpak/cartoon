@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parsed.error.issues.map(issue => issue.message).join(', ')
     })
   }
@@ -33,7 +33,7 @@ export default defineEventHandler(async (event) => {
   } catch (error) {
     throw createError({
       statusCode: 502,
-      statusMessage: '同步模型失败',
+      statusMessage: 'Bad Gateway',
       message: error instanceof Error ? error.message : String(error)
     })
   }
