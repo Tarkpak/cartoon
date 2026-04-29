@@ -56,6 +56,9 @@ const responseData = ref<TosFilesResponse['data'] | null>(null)
 const failedPreviewMediaKeys = ref<Record<string, true>>({})
 const hoverPreviewFile = ref<TosFileEntry | null>(null)
 const hoverPreviewPosition = ref({ x: 0, y: 0 })
+const imagePreviewOpen = ref(false)
+const imagePreviewSrc = ref('')
+const imagePreviewAlt = ref('图片预览')
 const assetTabs = [
   { id: 'image', label: 'Image', prefix: 'manju-assets/images/' },
   { id: 'video', label: 'Video', prefix: 'manju-assets/videos/' }
@@ -166,6 +169,14 @@ function handleHoverPreviewMediaError() {
   if (!hoverPreviewFile.value) return
   markPreviewMediaFailed(hoverPreviewFile.value.key)
   hoverPreviewFile.value = null
+}
+
+function openImagePreview(file: TosFileEntry) {
+  if (!isImageFile(file.key) || !file.url || failedPreviewMediaKeys.value[file.key]) return
+  closeHoverPreview(file.key)
+  imagePreviewSrc.value = file.url
+  imagePreviewAlt.value = fileNameFromKey(file.key)
+  imagePreviewOpen.value = true
 }
 
 async function loadFiles(options: { reset?: boolean } = {}) {
@@ -467,6 +478,8 @@ onMounted(() => {
             <TableRow
               v-for="file in responseData?.files || []"
               :key="file.key"
+              :class="isImageFile(file.key) && !failedPreviewMediaKeys[file.key] ? 'cursor-pointer hover:bg-muted/50' : undefined"
+              @click="openImagePreview(file)"
             >
               <TableCell>
                 <div
@@ -482,6 +495,7 @@ onMounted(() => {
                     rel="noreferrer"
                     class="shrink-0"
                     title="查看原图"
+                    @click.stop
                   >
                     <img
                       :src="file.url"
@@ -530,6 +544,7 @@ onMounted(() => {
                   target="_blank"
                   rel="noreferrer"
                   title="打开文件"
+                  @click.stop
                 >
                   <ExternalLink class="h-4 w-4" />
                 </Button>
@@ -629,5 +644,10 @@ onMounted(() => {
         </div>
       </div>
     </Teleport>
+    <ImagePreview
+      v-model:open="imagePreviewOpen"
+      :src="imagePreviewSrc"
+      :alt="imagePreviewAlt"
+    />
   </div>
 </template>
