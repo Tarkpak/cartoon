@@ -419,26 +419,34 @@ watchEffect((onCleanup) => {
                       {{ selectionRatioLabel }}
                     </div>
 
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon"
                       class="absolute -left-2 -top-2 h-4 w-4 rounded-full border-2 border-primary bg-background shadow-sm cursor-nwse-resize"
                       data-selection-control="true"
                       @pointerdown.stop.prevent="startResizing('nw', $event)"
                     />
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon"
                       class="absolute -right-2 -top-2 h-4 w-4 rounded-full border-2 border-primary bg-background shadow-sm cursor-nesw-resize"
                       data-selection-control="true"
                       @pointerdown.stop.prevent="startResizing('ne', $event)"
                     />
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon"
                       class="absolute -bottom-2 -right-2 h-4 w-4 rounded-full border-2 border-primary bg-background shadow-sm cursor-nwse-resize"
                       data-selection-control="true"
                       @pointerdown.stop.prevent="startResizing('se', $event)"
                     />
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon"
                       class="absolute -bottom-2 -left-2 h-4 w-4 rounded-full border-2 border-primary bg-background shadow-sm cursor-nesw-resize"
                       data-selection-control="true"
                       @pointerdown.stop.prevent="startResizing('sw', $event)"

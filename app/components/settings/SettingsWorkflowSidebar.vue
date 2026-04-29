@@ -33,11 +33,12 @@ function getIconClass(color: string) {
     </div>
 
     <div class="flex-1 overflow-y-auto p-2">
-      <button
+      <Button
         v-for="category in props.categories"
         :key="category.key"
         type="button"
-        class="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors"
+        variant="ghost"
+        class="h-auto w-full justify-start gap-3 rounded-xl px-3 py-3 text-left transition-colors"
         :class="category.key === props.activeCategory
           ? 'bg-primary/10 text-foreground'
           : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'"
@@ -61,7 +62,7 @@ function getIconClass(color: string) {
             {{ category.workflowCount }} 个流程
           </div>
         </div>
-      </button>
+      </Button>
     </div>
   </div>
 </template>

@@ -25,6 +25,16 @@ interface ChatCompletionResponse {
   }>
 }
 
+interface ResponsesApiResponse {
+  output_text?: string
+  output?: Array<{
+    content?: Array<{
+      text?: string
+      type?: string
+    }>
+  }>
+}
+
 interface ModelsResponse {
   data?: Array<{
     id?: string
@@ -63,10 +73,35 @@ function chatCompletionsUrl(baseUrl: string): string {
   return `${normalized}/chat/completions`
 }
 
+function responsesUrl(baseUrl: string): string {
+  const normalized = normalizeBaseUrl(baseUrl)
+  if (normalized.endsWith('/responses')) {
+    return normalized
+  }
+  if (normalized.endsWith('/chat/completions')) {
+    return `${normalized.slice(0, -'/chat/completions'.length)}/responses`
+  }
+  if (normalized.endsWith('/models')) {
+    return `${normalized.slice(0, -'/models'.length)}/responses`
+  }
+  return `${normalized}/responses`
+}
+
+function isResponsesEndpoint(baseUrl: string): boolean {
+  return normalizeBaseUrl(baseUrl).endsWith('/responses')
+}
+
+function shouldUseResponsesApi(baseUrl: string, model: string): boolean {
+  return isResponsesEndpoint(baseUrl) || model.trim().toLowerCase().startsWith('gpt-5')
+}
+
 function modelsUrl(baseUrl: string): string {
   const normalized = normalizeBaseUrl(baseUrl)
   if (normalized.endsWith('/models')) {
     return normalized
+  }
+  if (normalized.endsWith('/responses')) {
+    return `${normalized.slice(0, -'/responses'.length)}/models`
   }
   if (normalized.endsWith('/chat/completions')) {
     return `${normalized.slice(0, -'/chat/completions'.length)}/models`
@@ -81,6 +116,9 @@ function imageGenerationsUrl(baseUrl: string): string {
   }
   if (normalized.endsWith('/chat/completions')) {
     return `${normalized.slice(0, -'/chat/completions'.length)}/images/generations`
+  }
+  if (normalized.endsWith('/responses')) {
+    return `${normalized.slice(0, -'/responses'.length)}/images/generations`
   }
   if (normalized.endsWith('/models')) {
     return `${normalized.slice(0, -'/models'.length)}/images/generations`
@@ -108,11 +146,23 @@ function parseError(error: unknown): OpenAICompatibleError {
   )
 }
 
+function getAuthorizationHeader(providerConfig: OpenAICompatibleProviderConfig): string {
+  const authorization = providerConfig.apiKey ?? ''
+  if (!authorization) {
+    throw new OpenAICompatibleError('自定义 OpenAI 兼容供应商缺少 API Key', 403, false)
+  }
+  return authorization
+}
+
 async function withRetry<T>(
   fn: () => Promise<T>,
   retryConfig: Partial<RetryConfig> = {}
 ): Promise<T> {
-  const config = { ...DEFAULT_RETRY_CONFIG, ...retryConfig }
+  const config: RetryConfig = {
+    maxRetries: retryConfig.maxRetries ?? DEFAULT_RETRY_CONFIG.maxRetries,
+    initialDelayMs: retryConfig.initialDelayMs ?? DEFAULT_RETRY_CONFIG.initialDelayMs,
+    maxDelayMs: retryConfig.maxDelayMs ?? DEFAULT_RETRY_CONFIG.maxDelayMs
+  }
   let lastError = new OpenAICompatibleError('OpenAI 兼容接口请求失败')
 
   for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
@@ -134,20 +184,47 @@ async function requestChatCompletion<T>(
   providerConfig: OpenAICompatibleProviderConfig,
   body: Record<string, unknown>
 ): Promise<T> {
-  const apiKey = providerConfig.apiKey?.trim()
+  const authorization = getAuthorizationHeader(providerConfig)
   const baseUrl = providerConfig.baseUrl?.trim()
 
   if (!baseUrl) {
     throw new OpenAICompatibleError('自定义 OpenAI 兼容供应商缺少 Base URL', 400, false)
   }
-  if (!apiKey) {
-    throw new OpenAICompatibleError('自定义 OpenAI 兼容供应商缺少 API Key', 403, false)
-  }
-
   const response = await fetch(chatCompletionsUrl(baseUrl), {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': authorization,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({})) as { error?: { message?: string }, message?: string }
+    throw new OpenAICompatibleError(
+      errorData.error?.message || errorData.message || `HTTP ${response.status}`,
+      response.status,
+      response.status >= 500 || response.status === 429
+    )
+  }
+
+  return await response.json() as T
+}
+
+async function requestResponses<T>(
+  providerConfig: OpenAICompatibleProviderConfig,
+  body: Record<string, unknown>
+): Promise<T> {
+  const authorization = getAuthorizationHeader(providerConfig)
+  const baseUrl = providerConfig.baseUrl?.trim()
+
+  if (!baseUrl) {
+    throw new OpenAICompatibleError('自定义 OpenAI 兼容供应商缺少 Base URL', 400, false)
+  }
+  const response = await fetch(responsesUrl(baseUrl), {
+    method: 'POST',
+    headers: {
+      'Authorization': authorization,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(body)
@@ -169,20 +246,16 @@ async function requestImageGeneration<T>(
   providerConfig: OpenAICompatibleProviderConfig,
   body: Record<string, unknown>
 ): Promise<T> {
-  const apiKey = providerConfig.apiKey?.trim()
+  const authorization = getAuthorizationHeader(providerConfig)
   const baseUrl = providerConfig.baseUrl?.trim()
 
   if (!baseUrl) {
     throw new OpenAICompatibleError('自定义 OpenAI 兼容供应商缺少 Base URL', 400, false)
   }
-  if (!apiKey) {
-    throw new OpenAICompatibleError('自定义 OpenAI 兼容供应商缺少 API Key', 403, false)
-  }
-
   const response = await fetch(imageGenerationsUrl(baseUrl), {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': authorization,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(body)
@@ -203,20 +276,16 @@ async function requestImageGeneration<T>(
 export async function listOpenAICompatibleModels(
   providerConfig: OpenAICompatibleProviderConfig
 ): Promise<string[]> {
-  const apiKey = providerConfig.apiKey?.trim()
+  const authorization = getAuthorizationHeader(providerConfig)
   const baseUrl = providerConfig.baseUrl?.trim()
 
   if (!baseUrl) {
     throw new OpenAICompatibleError('自定义 OpenAI 兼容供应商缺少 Base URL', 400, false)
   }
-  if (!apiKey) {
-    throw new OpenAICompatibleError('自定义 OpenAI 兼容供应商缺少 API Key', 403, false)
-  }
-
   const response = await fetch(modelsUrl(baseUrl), {
     method: 'GET',
     headers: {
-      Authorization: `Bearer ${apiKey}`
+      Authorization: authorization
     }
   })
 
@@ -319,6 +388,21 @@ function parseJsonFromModelText<T>(text: string): T {
   return JSON.parse(jsonText) as T
 }
 
+function buildResponsesInput(prompt: string, systemInstruction?: string): string {
+  if (!systemInstruction) return prompt
+  return `${systemInstruction}\n\n${prompt}`
+}
+
+function extractResponsesText(response: ResponsesApiResponse): string {
+  if (response.output_text) return response.output_text
+
+  return (response.output || [])
+    .flatMap(item => item.content || [])
+    .map(content => content.text || '')
+    .filter(Boolean)
+    .join('\n')
+}
+
 export async function generateOpenAICompatibleText(options: {
   providerConfig: CustomOpenAIProviderConfig
   model: string
@@ -333,11 +417,17 @@ export async function generateOpenAICompatibleText(options: {
   }
   messages.push({ role: 'user', content: options.prompt })
 
-  const requestBody = {
+  const chatRequestBody = {
     model: options.model,
     messages,
     temperature: options.temperature ?? 0.7
   }
+  const responsesRequestBody = {
+    model: options.model,
+    input: buildResponsesInput(options.prompt, options.systemInstruction)
+  }
+  const useResponses = shouldUseResponsesApi(options.providerConfig.baseUrl, options.model)
+  const requestBody = useResponses ? responsesRequestBody : chatRequestBody
 
   return withModelDebugLog({
     provider: 'custom_openai',
@@ -346,9 +436,17 @@ export async function generateOpenAICompatibleText(options: {
     request: requestBody,
     summarizeResponse: text => ({ text, textLength: text.length }),
     execute: async () => withRetry(async () => {
+      if (useResponses) {
+        const response = await requestResponses<ResponsesApiResponse>(
+          options.providerConfig,
+          responsesRequestBody
+        )
+        return extractResponsesText(response)
+      }
+
       const response = await requestChatCompletion<ChatCompletionResponse>(
         options.providerConfig,
-        requestBody
+        chatRequestBody
       )
       return response.choices?.[0]?.message?.content || ''
     }, { maxRetries: options.maxRetries })
@@ -369,12 +467,18 @@ export async function generateOpenAICompatibleJSON<T>(options: {
   }
   messages.push({ role: 'user', content: options.prompt })
 
-  const requestBody = {
+  const chatRequestBody = {
     model: options.model,
     messages,
     temperature: options.temperature ?? 0.2,
     response_format: { type: 'json_object' as const }
   }
+  const responsesRequestBody = {
+    model: options.model,
+    input: buildResponsesInput(`${options.prompt}\n\nReturn only valid JSON.`, options.systemInstruction)
+  }
+  const useResponses = shouldUseResponsesApi(options.providerConfig.baseUrl, options.model)
+  const requestBody = useResponses ? responsesRequestBody : chatRequestBody
 
   return withModelDebugLog({
     provider: 'custom_openai',
@@ -382,9 +486,17 @@ export async function generateOpenAICompatibleJSON<T>(options: {
     operation: 'generateJSON',
     request: requestBody,
     execute: async () => withRetry(async () => {
+      if (useResponses) {
+        const response = await requestResponses<ResponsesApiResponse>(
+          options.providerConfig,
+          responsesRequestBody
+        )
+        return parseJsonFromModelText<T>(extractResponsesText(response) || '{}')
+      }
+
       const response = await requestChatCompletion<ChatCompletionResponse>(
         options.providerConfig,
-        requestBody
+        chatRequestBody
       )
       return parseJsonFromModelText<T>(response.choices?.[0]?.message?.content || '{}')
     }, { maxRetries: options.maxRetries })

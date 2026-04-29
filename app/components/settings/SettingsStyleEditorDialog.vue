@@ -138,7 +138,7 @@ const styleIsPro = useStyleFormField('isPro')
             <label class="text-xs text-muted-foreground">缩略图地址（可选）</label>
             <Input
               v-model="styleThumbnail"
-              placeholder="https://playlet-ai.tos-cn-guangzhou.volces.com/manju-assets/styles/example.webp"
+              placeholder="https://playlet-ai.tos-cn-guangzhou.volces.com/playlet-assets/styles/example.webp"
             />
             <p class="text-[11px] text-muted-foreground">
               请填写云存储 URL，避免使用本地路径（如 /styles/...）

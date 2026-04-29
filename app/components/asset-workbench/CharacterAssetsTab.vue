@@ -412,20 +412,20 @@ function resolveHistoryCount(char: CharacterData): number {
             <Pencil class="mr-1 h-3 w-3" />
             编辑
           </Button>
-          <input
+          <Input
             :id="buildAssetUploadInputId('char', char.id)"
             type="file"
             accept="image/*"
             class="hidden"
             @change="emit('upload-image', { characterId: char.id, event: $event })"
-          >
-          <input
+          />
+          <Input
             :id="buildAssetUploadInputId('char_voice', char.id)"
             type="file"
             accept="audio/*,.mp3,.wav,.m4a,.aac,.flac"
             class="hidden"
             @change="emit('upload-voice', { characterId: char.id, event: $event })"
-          >
+          />
         </template>
       </div>
     </div>

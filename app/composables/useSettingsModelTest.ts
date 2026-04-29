@@ -17,7 +17,7 @@ import {
 export function useSettingsModelTest() {
   const { models, selectedModels, loading, loadModels } = useSettingsModelCatalog()
   const DEFAULT_IMAGE_ASPECT_RATIO = '1:1'
-  const MODEL_TEST_TAB_STORAGE_KEY = 'manju:model-test-active-tab'
+  const MODEL_TEST_TAB_STORAGE_KEY = 'playlet:model-test-active-tab'
 
   const activeTab = ref<ModelTestTab>('text')
   const expandedProviders = ref<Set<string>>(new Set())

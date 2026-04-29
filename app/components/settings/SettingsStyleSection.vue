@@ -77,13 +77,13 @@ function updateStyleFormField<K extends keyof StyleFormState>(
         </div>
 
         <div class="flex items-center gap-2.5">
-          <input
+          <Input
             ref="styleImportInputRef"
             type="file"
             accept=".json,application/json"
             class="hidden"
             @change="handleStyleImport"
-          >
+          />
 
           <!-- Secondary actions popover -->
           <div class="relative">
@@ -111,39 +111,47 @@ function updateStyleFormField<K extends keyof StyleFormState>(
                 class="absolute right-0 top-full z-30 mt-1.5 w-44 rounded-lg border bg-popover p-1 shadow-lg"
                 @mouseleave="showMoreMenu = false"
               >
-                <button
-                  class="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent"
+                <Button
+                  type="button"
+                  variant="ghost"
+                  class="h-auto w-full justify-start gap-2.5 rounded-md px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent"
                   :disabled="styleConfigLoading || styleCrudSaving || styleImporting"
                   @click="triggerStyleImport(); showMoreMenu = false"
                 >
                   <Upload class="h-4 w-4 text-muted-foreground" />
                   {{ styleImporting ? '导入中...' : '导入预设' }}
-                </button>
-                <button
-                  class="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent"
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  class="h-auto w-full justify-start gap-2.5 rounded-md px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent"
                   :disabled="styleConfigLoading || styleCrudSaving || styleExporting"
                   @click="exportStylePresets(); showMoreMenu = false"
                 >
                   <Download class="h-4 w-4 text-muted-foreground" />
                   {{ styleExporting ? '导出中...' : '导出预设' }}
-                </button>
+                </Button>
                 <div class="my-1 border-t" />
-                <button
-                  class="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent"
+                <Button
+                  type="button"
+                  variant="ghost"
+                  class="h-auto w-full justify-start gap-2.5 rounded-md px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent"
                   :disabled="styleConfigLoading || styleConfigSaving"
                   @click="enableAllStyles(); showMoreMenu = false"
                 >
                   <CheckCheck class="h-4 w-4 text-muted-foreground" />
                   全部启用
-                </button>
-                <button
-                  class="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  class="h-auto w-full justify-start gap-2.5 rounded-md px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
                   :disabled="styleConfigLoading || styleCrudSaving || styleResetting"
                   @click="resetStylePresets(); showMoreMenu = false"
                 >
                   <RotateCcw class="h-4 w-4" />
                   {{ styleResetting ? '重置中...' : '重置为默认' }}
-                </button>
+                </Button>
               </div>
             </Transition>
           </div>

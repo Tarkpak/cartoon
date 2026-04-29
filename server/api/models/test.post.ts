@@ -339,7 +339,8 @@ export default defineEventHandler(async (event) => {
               prefix: 'model_test_image'
             })
           } catch (error) {
-            console.warn('[ModelTest] 图片 base64 持久化失败，跳过返回 base64 图片:', error)
+            console.warn('[ModelTest] 图片 base64 持久化失败，改用 data URL 返回预览:', error)
+            displayUrl = `data:${mimeType};base64,${imageResult.imageData}`
           }
         }
 

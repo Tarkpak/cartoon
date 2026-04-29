@@ -164,11 +164,12 @@ function toSelectString(value: unknown): string {
           v-show="group.expanded"
           class="pb-1"
         >
-          <button
+          <Button
             v-for="template in group.templates"
             :key="template.id"
             type="button"
-            class="flex w-full items-start gap-2 py-2 pl-7 pr-2 text-left transition-colors"
+            variant="ghost"
+            class="h-auto w-full justify-start gap-2 rounded-none py-2 pl-7 pr-2 text-left transition-colors"
             :class="template.id === props.selectedPromptId ? 'bg-primary/10 text-primary' : 'hover:bg-accent/50'"
             @click="emit('select-prompt', template.id)"
           >
@@ -196,7 +197,7 @@ function toSelectString(value: unknown): string {
                 {{ template.description }}
               </p>
             </div>
-          </button>
+          </Button>
         </div>
       </div>
 

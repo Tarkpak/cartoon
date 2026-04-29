@@ -155,11 +155,12 @@ const hasSeedAssets = computed(() => {
     <!-- Asset type tabs (underline style) -->
     <div class="shrink-0 border-b">
       <div class="flex gap-0">
-        <button
+        <Button
           v-for="tab in tabs"
           :key="tab.key"
           type="button"
-          class="relative px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none"
+          variant="ghost"
+          class="relative h-auto rounded-none px-4 py-2 text-sm font-medium transition-colors"
           :class="assetTab === tab.key
             ? 'text-foreground'
             : 'text-muted-foreground hover:text-foreground/80'"
@@ -171,7 +172,7 @@ const hasSeedAssets = computed(() => {
             v-if="assetTab === tab.key"
             class="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-primary"
           />
-        </button>
+        </Button>
       </div>
     </div>
 

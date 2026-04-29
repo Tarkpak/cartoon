@@ -128,11 +128,12 @@ watch(
         class="grid max-h-[68vh] min-h-0 grid-cols-1 gap-3 lg:grid-cols-[280px_minmax(0,1fr)]"
       >
         <div class="min-h-0 overflow-y-auto rounded-lg border bg-card">
-          <button
+          <Button
             v-for="(entry, index) in entries"
             :key="entry.id"
             type="button"
-            class="flex w-full items-start gap-2 border-b px-2.5 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
+            variant="ghost"
+            class="h-auto w-full justify-start rounded-none border-b px-2.5 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
             :class="entry.id === selectedEntryId ? 'bg-muted/55' : ''"
             @click="selectPreviewEntry(entry)"
           >
@@ -167,17 +168,19 @@ watch(
                 {{ entry.prompt }}
               </p>
             </div>
-          </button>
+          </Button>
         </div>
 
         <div
           v-if="selectedEntry"
           class="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-card"
         >
-          <button
+          <Button
             type="button"
+            variant="ghost"
             :class="[
               'asset-history-preview',
+              'h-auto w-full p-0 hover:bg-transparent',
               isEnvironmentHistory ? 'asset-history-preview--environment' : '',
               isCharacterHistory ? 'asset-history-preview--character' : ''
             ]"
@@ -188,7 +191,7 @@ watch(
               :alt="`${targetLabel} 历史资产`"
               class="h-full w-full object-contain"
             >
-          </button>
+          </Button>
 
           <div class="space-y-2 px-3 py-2.5">
             <div class="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
@@ -252,10 +255,12 @@ watch(
           :key="entry.id"
           class="flex flex-col overflow-hidden rounded-lg border bg-card"
         >
-          <button
+          <Button
             type="button"
+            variant="ghost"
             :class="[
               'asset-history-preview',
+              'h-auto w-full p-0 hover:bg-transparent',
               resolvePreviewClass(entries.length)
             ]"
             @click="emit('preview', { src: entry.image, alt: `${targetLabel} 历史资产` })"
@@ -265,7 +270,7 @@ watch(
               :alt="`${targetLabel} 历史资产`"
               class="h-full w-full object-cover"
             >
-          </button>
+          </Button>
 
           <div class="space-y-2 px-3 py-2.5">
             <div class="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">

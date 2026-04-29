@@ -442,7 +442,7 @@ async function main(): Promise<void> {
   const skipConfirm = args.includes('--yes') || args.includes('-y')
   const versionType = args.filter(a => !a.startsWith('-'))[0] || (forceMode ? null : 'patch')
 
-  console.log('\n🚀 Manju AI 影视 自动发版\n')
+  console.log('\n🚀 playlet AI 影视 自动发版\n')
 
   // 获取仓库信息
   const repo = getRepoFromRemote()

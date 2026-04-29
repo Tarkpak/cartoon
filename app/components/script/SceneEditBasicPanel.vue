@@ -101,12 +101,13 @@ defineProps<{
           :ref="setSceneDescriptionMentionListRef"
           class="max-h-44 overflow-y-auto rounded-md border bg-popover p-1 text-sm shadow-sm"
         >
-          <button
+          <Button
             v-for="(item, mentionIndex) in sceneDescriptionMentionCandidates"
             :key="`scene_asset_mention_${item.asset.id}`"
             type="button"
+            variant="ghost"
             :data-scene-description-mention-index="mentionIndex"
-            class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition"
+            class="h-auto w-full justify-start gap-2 rounded px-2 py-1.5 text-left transition"
             :class="mentionIndex === sceneDescriptionMentionActiveIndex ? 'bg-accent' : 'hover:bg-accent/60'"
             @mousedown.prevent="insertSceneAssetMention(item.asset.id)"
           >
@@ -136,7 +137,7 @@ defineProps<{
             >
               {{ resolveAssetTypeLabel(item.asset.type) }}
             </Badge>
-          </button>
+          </Button>
 
           <div
             v-if="sceneDescriptionMentionCandidates.length === 0"
@@ -160,14 +161,14 @@ defineProps<{
         {{ sceneAssetUploadError }}
       </p>
 
-      <input
+      <Input
         :ref="setSceneAssetUploadInputRef"
         type="file"
         accept="image/*"
         multiple
         class="hidden"
         @change="handleSceneAssetUpload($event)"
-      >
+      />
     </div>
 
     <div class="space-y-2">

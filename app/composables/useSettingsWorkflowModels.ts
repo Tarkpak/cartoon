@@ -498,6 +498,10 @@ export function useSettingsWorkflowModels() {
     void loadWorkflowModels()
   })
 
+  onActivated(() => {
+    void reloadModelSettings()
+  })
+
   watch(workflowCategories, (categories) => {
     if (categories.length === 0) return
     if (!categories.some(category => category.key === activeCategory.value)) {
