@@ -16,11 +16,20 @@ interface SettingsMenuState {
 definePageMeta({ layout: 'default' })
 
 const route = useRoute()
-const SETTINGS_MENU_STORAGE_KEY = 'manju:settings-menu-state'
+const SETTINGS_MENU_STORAGE_KEY = 'playlet:settings-menu-state'
 
 const activeSection = ref<MenuSection>('models')
 const activeModelSubMenu = ref<ModelSubMenu>('providers')
 const restoringMenuState = ref(true)
+
+const modelSubMenuTabs: Array<{
+  key: ModelSubMenu
+  label: string
+}> = [
+  { key: 'providers', label: '模型供应商' },
+  { key: 'workflow', label: '流程模型' },
+  { key: 'test', label: '模型测试' }
+]
 
 function normalizeMenuSection(value: unknown): MenuSection {
   if (value === 'prompts' || value === 'styles' || value === 'models') return value
@@ -52,6 +61,16 @@ function buildSettingsMenuQuery(state: SettingsMenuState) {
 
   return {
     section: state.section
+  }
+}
+
+function getModelSubMenuRoute(sub: ModelSubMenu) {
+  return {
+    path: '/settings',
+    query: {
+      section: 'models',
+      sub
+    }
   }
 }
 
@@ -170,32 +189,35 @@ onMounted(() => {
     <div class="flex-1 flex flex-col overflow-hidden">
       <div
         v-if="activeSection === 'models'"
-        class="flex shrink-0 items-center gap-2 border-b px-4 py-2"
+        class="flex shrink-0 items-center border-b px-4 py-2"
       >
-        <Button
-          variant="ghost"
-          size="sm"
-          :class="activeModelSubMenu === 'providers' ? 'bg-accent text-foreground' : 'text-muted-foreground'"
-          @click="navigateTo({ path: '/settings', query: { section: 'models', sub: 'providers' } })"
+        <nav
+          aria-label="模型配置导航"
+          class="flex items-center gap-1 rounded-lg bg-muted/40 p-1"
+          role="tablist"
         >
-          模型供应商
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          :class="activeModelSubMenu === 'workflow' ? 'bg-accent text-foreground' : 'text-muted-foreground'"
-          @click="navigateTo({ path: '/settings', query: { section: 'models', sub: 'workflow' } })"
-        >
-          流程模型
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          :class="activeModelSubMenu === 'test' ? 'bg-accent text-foreground' : 'text-muted-foreground'"
-          @click="navigateTo({ path: '/settings', query: { section: 'models', sub: 'test' } })"
-        >
-          模型测试
-        </Button>
+          <NuxtLink
+            v-for="tab in modelSubMenuTabs"
+            :key="tab.key"
+            v-slot="{ href, navigate }"
+            custom
+            :to="getModelSubMenuRoute(tab.key)"
+          >
+            <a
+              :aria-current="activeModelSubMenu === tab.key ? 'page' : undefined"
+              :aria-selected="activeModelSubMenu === tab.key"
+              class="inline-flex h-8 items-center justify-center rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="activeModelSubMenu === tab.key
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'"
+              :href="href"
+              role="tab"
+              @click="navigate"
+            >
+              {{ tab.label }}
+            </a>
+          </NuxtLink>
+        </nav>
       </div>
       <KeepAlive>
         <component

@@ -51,9 +51,9 @@ async function main() {
     cd ${config.path}
     
     # 备份数据目录
-    mv data /tmp/manju_data_backup 2>/dev/null || true
-    mv public /tmp/manju_public_backup 2>/dev/null || true
-    mv ecosystem.config.cjs /tmp/manju_ecosystem_backup 2>/dev/null || true
+    mv data /tmp/playlet_data_backup 2>/dev/null || true
+    mv public /tmp/playlet_public_backup 2>/dev/null || true
+    mv ecosystem.config.cjs /tmp/playlet_ecosystem_backup 2>/dev/null || true
     
     # 清理并解压
     rm -rf *
@@ -61,9 +61,9 @@ async function main() {
     cp /tmp/package.json /tmp/bun.lock .
     
     # 恢复备份
-    mv /tmp/manju_ecosystem_backup ecosystem.config.cjs 2>/dev/null || true
-    mv /tmp/manju_data_backup data 2>/dev/null || mkdir -p data
-    mv /tmp/manju_public_backup public 2>/dev/null || mkdir -p public
+    mv /tmp/playlet_ecosystem_backup ecosystem.config.cjs 2>/dev/null || true
+    mv /tmp/playlet_data_backup data 2>/dev/null || mkdir -p data
+    mv /tmp/playlet_public_backup public 2>/dev/null || mkdir -p public
     
     # 检查依赖是否需要更新
     if [ -f .bun.lock.md5 ] && md5sum -c .bun.lock.md5 --status 2>/dev/null; then
@@ -81,7 +81,7 @@ async function main() {
     
     # 重启服务
     source ~/.bashrc
-    pm2 delete manju 2>/dev/null || true
+    pm2 delete playlet 2>/dev/null || true
     pm2 start ecosystem.config.cjs
     
     echo '部署完成!'

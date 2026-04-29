@@ -48,7 +48,10 @@ const {
 } = useSettingsModelTest()
 
 function setFileInputElement(element: Element | ComponentPublicInstance | null) {
-  fileInputRef.value = element instanceof HTMLInputElement ? element : null
+  const component = element as (ComponentPublicInstance & { inputElement?: HTMLInputElement }) | null
+  fileInputRef.value = element instanceof HTMLInputElement
+    ? element
+    : component?.inputElement instanceof HTMLInputElement ? component.inputElement : null
 }
 
 function setPromptEditorElement(element: Element | ComponentPublicInstance | null) {

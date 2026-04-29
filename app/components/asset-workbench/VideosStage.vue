@@ -488,11 +488,12 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
         </div>
         <div class="min-w-0 flex-1 overflow-x-auto pb-1">
           <div class="flex min-w-max gap-1.5">
-            <button
+            <Button
               v-for="episode in episodeDirectoryItems"
               :key="episode.id"
               type="button"
-              class="min-w-[150px] rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors"
+              variant="ghost"
+              class="h-auto min-w-[150px] justify-start rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors"
               :class="selectedEpisodeId === episode.id
                 ? 'border-foreground bg-muted text-foreground shadow-sm'
                 : 'border-border/70 bg-background text-foreground/80 hover:border-foreground/30 hover:bg-muted/60'"
@@ -504,7 +505,7 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
               <div class="mt-0.5 text-[11px] text-muted-foreground">
                 场景 {{ episode.sceneCount }} · 完成 {{ episode.doneCount }}
               </div>
-            </button>
+            </Button>
           </div>
         </div>
       </div>

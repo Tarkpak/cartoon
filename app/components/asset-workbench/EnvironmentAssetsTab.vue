@@ -202,13 +202,13 @@ function resolveHistoryCount(asset: EnvironmentAssetCard): number {
             <Pencil class="mr-1 h-3 w-3" />
             编辑
           </Button>
-          <input
+          <Input
             :id="buildAssetUploadInputId('env', asset.id)"
             type="file"
             accept="image/*"
             class="hidden"
             @change="emit('upload-image', { assetId: asset.id, event: $event })"
-          >
+          />
         </div>
       </div>
     </div>

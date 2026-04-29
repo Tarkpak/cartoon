@@ -187,13 +187,13 @@ function resolveHistoryCount(prop: PropAsset): number {
               <Trash2 class="h-3.5 w-3.5" />
             </Button>
           </div>
-          <input
+          <Input
             :id="buildAssetUploadInputId('prop', prop.id)"
             type="file"
             accept="image/*"
             class="hidden"
             @change="emit('upload-image', { propId: prop.id, event: $event })"
-          >
+          />
         </div>
       </div>
     </div>

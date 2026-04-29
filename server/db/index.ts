@@ -5,7 +5,7 @@ import { dirname } from 'path'
 import * as schema from './schema'
 
 // 数据库文件路径
-const DB_PATH = './data/manju.db'
+const DB_PATH = './data/playlet.db'
 
 // 确保数据目录存在
 const dbDir = dirname(DB_PATH)

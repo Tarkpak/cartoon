@@ -195,11 +195,12 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
         <div
           class="min-h-0 overflow-y-auto rounded-lg border bg-card"
         >
-          <button
+          <Button
             v-for="(entry, index) in entries"
             :key="entry.id"
             type="button"
-            class="flex w-full items-start gap-2 border-b px-2.5 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
+            variant="ghost"
+            class="h-auto w-full justify-start rounded-none border-b px-2.5 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
             :class="entry.id === selectedEntryId ? 'bg-muted/50' : ''"
             @click="handleSelectEntry(entry)"
           >
@@ -232,7 +233,7 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
                 {{ entry.prompt }}
               </p>
             </div>
-          </button>
+          </Button>
         </div>
 
         <div

@@ -221,14 +221,14 @@ function formatAspectRatioLabel(value: string): string {
         </Button>
       </div>
 
-      <input
+      <Input
         :ref="props.setFileInputRef"
         accept="image/*"
         class="hidden"
         multiple
         type="file"
         @change="props.handleReferenceImageUpload"
-      >
+      />
     </div>
   </div>
 </template>
