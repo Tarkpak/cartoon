@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildDefaultCropSelection,
   normalizeCropSelection,
+  normalizePanoramaSelection,
   resolveCropSelectionAspectRatio,
   resolveCropSelectionCoverage,
   resolveCropSelectionOutputSize,
@@ -58,6 +59,26 @@ describe('environment panorama crop helpers', () => {
       height: 0.18
     })
     expect(resolveCropSelectionAspectRatio(normalized, 2064, 512)).toBeCloseTo(6.7188, 3)
+  })
+
+  it('allows panorama selections to wrap across the horizontal seam', () => {
+    const normalized = normalizePanoramaSelection(
+      {
+        x: 0.95,
+        y: 0.2,
+        width: 0.2,
+        height: 0.25
+      },
+      2048,
+      1024
+    )
+
+    expect(normalized).toEqual({
+      x: 0.95,
+      y: 0.2,
+      width: 0.2,
+      height: 0.25
+    })
   })
 
   it('calculates coverage against the freeform max selection area', () => {
