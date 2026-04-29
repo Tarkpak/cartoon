@@ -54,8 +54,9 @@ export const SETTINGS_PROVIDER_CONFIG: Record<string, { displayName: string, col
   qwen: { displayName: '通义千问', color: 'orange', order: 2 },
   kling: { displayName: '可灵 AI', color: 'cyan', order: 3 },
   volcengine: { displayName: '火山引擎', color: 'red', order: 4 },
-  openai: { displayName: 'OpenAI', color: 'green', order: 5 },
-  deepseek: { displayName: 'DeepSeek', color: 'purple', order: 6 }
+  custom_openai: { displayName: '自定义 OpenAI', color: 'green', order: 5 },
+  openai: { displayName: 'OpenAI', color: 'green', order: 6 },
+  deepseek: { displayName: 'DeepSeek', color: 'purple', order: 7 }
 }
 
 export const SETTINGS_MODEL_TEST_PLACEHOLDERS: Record<ModelTestTab, string> = {
@@ -82,6 +83,7 @@ export function getSettingsProviderLabel(provider: string): string {
     qwen: '千问',
     kling: '可灵',
     volcengine: '火山',
+    custom_openai: '自定义',
     openai: 'OpenAI',
     deepseek: 'DeepSeek'
   }[provider] || provider

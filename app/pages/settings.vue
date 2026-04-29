@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import SettingsModelTestSection from '@/components/settings/SettingsModelTestSection.vue'
+import SettingsModelProvidersSection from '@/components/settings/SettingsModelProvidersSection.vue'
 import SettingsPromptSection from '@/components/settings/SettingsPromptSection.vue'
 import SettingsStyleSection from '@/components/settings/SettingsStyleSection.vue'
 import SettingsWorkflowModelsSection from '@/components/settings/SettingsWorkflowModelsSection.vue'
 
 type MenuSection = 'models' | 'prompts' | 'styles'
-type ModelSubMenu = 'workflow' | 'test'
+type ModelSubMenu = 'providers' | 'workflow' | 'test'
 interface SettingsMenuState {
   section: MenuSection
   sub: ModelSubMenu
@@ -18,7 +19,7 @@ const route = useRoute()
 const SETTINGS_MENU_STORAGE_KEY = 'manju:settings-menu-state'
 
 const activeSection = ref<MenuSection>('models')
-const activeModelSubMenu = ref<ModelSubMenu>('workflow')
+const activeModelSubMenu = ref<ModelSubMenu>('providers')
 const restoringMenuState = ref(true)
 
 function normalizeMenuSection(value: unknown): MenuSection {
@@ -27,7 +28,8 @@ function normalizeMenuSection(value: unknown): MenuSection {
 }
 
 function normalizeModelSubMenu(value: unknown): ModelSubMenu {
-  return value === 'test' ? 'test' : 'workflow'
+  if (value === 'providers' || value === 'workflow' || value === 'test') return value
+  return 'providers'
 }
 
 function getSingleQueryValue(value: string | string[] | undefined): string | undefined {
@@ -36,7 +38,7 @@ function getSingleQueryValue(value: string | string[] | undefined): string | und
 }
 
 function resolveSubMenuBySection(section: MenuSection, value: unknown): ModelSubMenu {
-  if (section !== 'models') return 'workflow'
+  if (section !== 'models') return 'providers'
   return normalizeModelSubMenu(value)
 }
 
@@ -123,7 +125,7 @@ async function restoreMenuStateFromBrowser() {
 
   const defaultState: SettingsMenuState = {
     section: 'models',
-    sub: 'workflow'
+    sub: 'providers'
   }
   applyMenuState(defaultState)
   saveMenuState(defaultState)
@@ -131,9 +133,9 @@ async function restoreMenuStateFromBrowser() {
 
 const currentSectionComponent = computed(() => {
   if (activeSection.value === 'models') {
-    return activeModelSubMenu.value === 'test'
-      ? SettingsModelTestSection
-      : SettingsWorkflowModelsSection
+    if (activeModelSubMenu.value === 'providers') return SettingsModelProvidersSection
+    if (activeModelSubMenu.value === 'test') return SettingsModelTestSection
+    return SettingsWorkflowModelsSection
   }
 
   if (activeSection.value === 'styles') {
@@ -149,7 +151,7 @@ watch(() => [route.query.section, route.query.sub], () => {
   const routeState = getMenuStateFromRoute()
   const nextState = routeState || {
     section: 'models' as const,
-    sub: 'workflow' as const
+    sub: 'providers' as const
   }
   applyMenuState(nextState)
   saveMenuState(nextState)
@@ -166,6 +168,35 @@ onMounted(() => {
 <template>
   <div class="h-full flex overflow-hidden">
     <div class="flex-1 flex flex-col overflow-hidden">
+      <div
+        v-if="activeSection === 'models'"
+        class="flex shrink-0 items-center gap-2 border-b px-4 py-2"
+      >
+        <Button
+          variant="ghost"
+          size="sm"
+          :class="activeModelSubMenu === 'providers' ? 'bg-accent text-foreground' : 'text-muted-foreground'"
+          @click="navigateTo({ path: '/settings', query: { section: 'models', sub: 'providers' } })"
+        >
+          模型供应商
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          :class="activeModelSubMenu === 'workflow' ? 'bg-accent text-foreground' : 'text-muted-foreground'"
+          @click="navigateTo({ path: '/settings', query: { section: 'models', sub: 'workflow' } })"
+        >
+          流程模型
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          :class="activeModelSubMenu === 'test' ? 'bg-accent text-foreground' : 'text-muted-foreground'"
+          @click="navigateTo({ path: '/settings', query: { section: 'models', sub: 'test' } })"
+        >
+          模型测试
+        </Button>
+      </div>
       <KeepAlive>
         <component
           :is="currentSectionComponent"

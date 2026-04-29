@@ -8,6 +8,7 @@ export const ModelProviderSchema = z.enum([
   'qwen', // 阿里云千问
   'kling', // 可灵 AI
   'volcengine', // 火山引擎 (豆包)
+  'custom_openai', // 自定义 OpenAI 兼容接口
   'openai', // OpenAI (预留)
   'deepseek' // DeepSeek (预留)
 ])
@@ -109,3 +110,26 @@ export const SwitchModelRequestSchema = z.object({
   modelId: z.string()
 })
 export type SwitchModelRequest = z.infer<typeof SwitchModelRequestSchema>
+
+// ==================== 自定义供应商 ====================
+
+/** OpenAI 兼容格式自定义供应商配置 */
+export const CustomOpenAIProviderConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  displayName: z.string().trim().min(1).max(60).default('自定义 OpenAI'),
+  baseUrl: z.string().trim().min(1).default(''),
+  apiKey: z.string().optional().default(''),
+  textModels: z.array(z.string().trim().min(1)).default([]),
+  availableTextModels: z.array(z.string().trim().min(1)).default([]),
+  modelsSyncedAt: z.string().optional(),
+  modelsSyncError: z.string().optional()
+})
+export type CustomOpenAIProviderConfig = z.infer<typeof CustomOpenAIProviderConfigSchema>
+
+/** 返回给前端时不暴露密钥明文 */
+export const CustomOpenAIProviderPublicConfigSchema = CustomOpenAIProviderConfigSchema.omit({
+  apiKey: true
+}).extend({
+  hasApiKey: z.boolean().default(false)
+})
+export type CustomOpenAIProviderPublicConfig = z.infer<typeof CustomOpenAIProviderPublicConfigSchema>
