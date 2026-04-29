@@ -397,7 +397,8 @@ export default defineEventHandler(async (event) => {
   if (!id) {
     throw createError({
       statusCode: 400,
-      statusMessage: '缺少项目ID'
+      statusMessage: 'Bad Request',
+      message: '缺少项目ID',
     })
   }
 
@@ -408,7 +409,8 @@ export default defineEventHandler(async (event) => {
     if (!project) {
       throw createError({
         statusCode: 404,
-        statusMessage: '项目不存在'
+        statusMessage: 'Not Found',
+        message: '项目不存在',
       })
     }
 
@@ -537,7 +539,8 @@ export default defineEventHandler(async (event) => {
     console.error('[ProjectGet] 获取失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '获取项目失败'
+      statusMessage: 'Internal Server Error',
+      message: '获取项目失败',
     })
   }
 })

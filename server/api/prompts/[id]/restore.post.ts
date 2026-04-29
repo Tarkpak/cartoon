@@ -19,7 +19,8 @@ export default defineEventHandler(async (event) => {
   if (!id) {
     throw createError({
       statusCode: 400,
-      statusMessage: '缺少模板 ID'
+      statusMessage: 'Bad Request',
+      message: '缺少模板 ID',
     })
   }
 
@@ -30,7 +31,7 @@ export default defineEventHandler(async (event) => {
   if (!parseResult.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parseResult.error.issues.map(i => i.message).join(', ')
     })
   }
@@ -43,7 +44,8 @@ export default defineEventHandler(async (event) => {
     if (!template) {
       throw createError({
         statusCode: 404,
-        statusMessage: '模板或版本不存在'
+        statusMessage: 'Not Found',
+        message: '模板或版本不存在',
       })
     }
 
@@ -61,7 +63,7 @@ export default defineEventHandler(async (event) => {
     console.error('[Prompts API] 恢复版本失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '恢复版本失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

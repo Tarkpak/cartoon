@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import {
+  buildCloudNewestFirstNamePrefix,
   buildCloudObjectKey,
   uploadBufferToCloudStorageOrThrow
 } from './cloud-storage'
@@ -101,7 +102,7 @@ export async function persistVideoSourceToCloud(options: {
 }): Promise<string> {
   const { buffer, mimeType } = await resolveVideoSource(options.source)
   const extension = extFromMimeType(mimeType)
-  const filename = `${sanitizePrefix(options.prefix)}_${Date.now()}_${randomUUID().slice(0, 8)}.${extension}`
+  const filename = `${buildCloudNewestFirstNamePrefix()}_${sanitizePrefix(options.prefix)}_${randomUUID().slice(0, 8)}.${extension}`
   const cloudObjectKey = buildCloudObjectKey({
     category: options.category || 'videos',
     filename

@@ -14,7 +14,8 @@ export default defineEventHandler(async (event) => {
     if (!success) {
       throw createError({
         statusCode: 500,
-        statusMessage: '重置失败'
+        statusMessage: 'Internal Server Error',
+        message: '重置失败',
       })
     }
 
@@ -35,7 +36,7 @@ export default defineEventHandler(async (event) => {
     console.error('[Prompts API] 重置所有模板失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '重置所有提示词模板失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

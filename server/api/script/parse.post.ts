@@ -1111,7 +1111,7 @@ export default defineEventHandler(async (event) => {
   if (!parseResult.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parseResult.error.issues.map(i => i.message).join(', ')
     })
   }
@@ -1129,9 +1129,10 @@ export default defineEventHandler(async (event) => {
   } catch (error) {
     if (error instanceof GeminiError || error instanceof QwenError) {
       const err = error as { status?: number, code?: string, message?: string }
+      const statusCode = err.status || 500
       throw createError({
-        statusCode: err.status || 500,
-        statusMessage: `剧本解析失败: ${err.code}`,
+        statusCode,
+        statusMessage: statusCode >= 500 ? 'Internal Server Error' : 'Bad Request',
         message: err.message || '未知错误'
       })
     }

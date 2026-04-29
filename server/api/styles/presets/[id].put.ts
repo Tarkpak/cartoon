@@ -33,7 +33,8 @@ export default defineEventHandler(async (event) => {
   if (!id) {
     throw createError({
       statusCode: 400,
-      statusMessage: '缺少画风ID'
+      statusMessage: 'Bad Request',
+      message: '缺少画风ID',
     })
   }
 
@@ -43,7 +44,7 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parsed.error.issues.map(issue => issue.message).join(', ')
     })
   }
@@ -55,7 +56,7 @@ export default defineEventHandler(async (event) => {
     if (targetIndex < 0) {
       throw createError({
         statusCode: 404,
-        statusMessage: '画风预设不存在',
+        statusMessage: 'Not Found',
         message: `未找到画风: ${id}`
       })
     }
@@ -89,7 +90,7 @@ export default defineEventHandler(async (event) => {
     if (!nextEnabled && enabledStyleIds.length <= 1 && currentEnabled) {
       throw createError({
         statusCode: 400,
-        statusMessage: '至少保留一个启用画风',
+        statusMessage: 'Bad Request',
         message: '不能禁用最后一个启用的画风'
       })
     }
@@ -106,7 +107,7 @@ export default defineEventHandler(async (event) => {
     if (enabledStyleIds.length === 0) {
       throw createError({
         statusCode: 400,
-        statusMessage: '至少保留一个启用画风',
+        statusMessage: 'Bad Request',
         message: '不能禁用最后一个启用的画风'
       })
     }
@@ -116,7 +117,7 @@ export default defineEventHandler(async (event) => {
       if (!enabledStyleIds.includes(id)) {
         throw createError({
           statusCode: 400,
-          statusMessage: '默认画风无效',
+          statusMessage: 'Bad Request',
           message: '请先启用该画风后再设为默认'
         })
       }
@@ -153,7 +154,7 @@ export default defineEventHandler(async (event) => {
     console.error('[StylePreset] 更新失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '更新画风预设失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

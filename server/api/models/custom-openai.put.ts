@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parsed.error.issues.map(issue => issue.message).join(', ')
     })
   }

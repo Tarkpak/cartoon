@@ -23,8 +23,8 @@ export default defineEventHandler(async (event) => {
     if (!parsed.success) {
       throw createError({
         statusCode: 400,
-        statusMessage: '查询参数无效',
-        message: parsed.error.issues.map(item => item.message).join(', ')
+        statusMessage: 'Bad Request',
+        message: `查询参数无效: ${parsed.error.issues.map(item => item.message).join(', ')}`
       })
     }
 
@@ -179,10 +179,15 @@ export default defineEventHandler(async (event) => {
       }
     }
   } catch (error) {
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+      throw error
+    }
+
     console.error('[ProjectList] 获取失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '获取项目列表失败'
+      statusMessage: 'Internal Server Error',
+      message: error instanceof Error ? `获取项目列表失败: ${error.message}` : '获取项目列表失败'
     })
   }
 })

@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
     console.error('[PromptProfiles API] 获取配置方案失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '获取提示词配置方案失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

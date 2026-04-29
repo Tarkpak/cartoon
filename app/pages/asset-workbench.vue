@@ -966,56 +966,6 @@ async function runEpisodeVideosStep(episodeId: string) {
   await runBatchSceneGenerationByEpisode(episodeId)
 }
 
-async function updateEpisodePlanTitle(payload: { id: string, title: string }) {
-  const previousEpisode = episodePlan.value.find(item => item.id === payload.id)
-  const previousTitle = previousEpisode?.title || ''
-  const normalizedTitle = payload.title.trim() || previousTitle
-
-  episodePlan.value = episodePlan.value.map((item) => {
-    if (item.id !== payload.id) return item
-    return {
-      ...item,
-      title: normalizedTitle
-    }
-  })
-
-  if (normalizedTitle && normalizedTitle !== previousTitle) {
-    scenes.value = scenes.value.map((scene) => {
-      if ((scene.episodeId?.trim() || '') !== payload.id) return scene
-      return {
-        ...scene,
-        episodeTitle: normalizedTitle
-      }
-    })
-  }
-
-  await saveProject()
-}
-
-async function updateEpisodePlanBoundary(payload: { id: string, endOffset: number }) {
-  const targetIndex = episodePlan.value.findIndex(item => item.id === payload.id)
-  if (targetIndex < 0 || targetIndex >= episodePlan.value.length - 1) return
-
-  const nextPlan = episodePlan.value.map(item => ({ ...item }))
-  const current = nextPlan[targetIndex]
-  const next = nextPlan[targetIndex + 1]
-  if (!current || !next) return
-
-  const normalizedEndOffset = Math.max(current.startOffset + 1, Math.min(next.endOffset - 1, payload.endOffset))
-  current.endOffset = normalizedEndOffset
-  current.charCount = Math.max(0, current.endOffset - current.startOffset)
-
-  next.startOffset = normalizedEndOffset
-  next.charCount = Math.max(0, next.endOffset - next.startOffset)
-
-  episodePlan.value = nextPlan
-  const sceneStateCleared = clearParsedSceneStateForEpisodePlanChange()
-  await saveProject()
-  if (sceneStateCleared && workflowMetaReady.value && !hydratingWorkflowMeta.value) {
-    await saveWorkflowMeta()
-  }
-}
-
 async function clearEpisodePlan() {
   episodePlan.value = []
   const sceneStateCleared = clearParsedSceneStateForEpisodePlanChange()
@@ -2066,8 +2016,6 @@ async function handleBatchGenerateCharacters() {
         :on-export-formatted-script-docx="handleExportFormattedScriptDocx"
         :on-retry-failed-queue-items="retryFailedQueueItemsOnce"
         :on-parse-episode="(episodeId) => handleParseSingleEpisode({ id: episodeId })"
-        :on-update-episode-title="updateEpisodePlanTitle"
-        :on-update-episode-end-offset="updateEpisodePlanBoundary"
         :on-select-scene="selectScene"
         :on-open-scene-edit="openSceneEdit"
         :on-toggle-scene-chat="toggleSceneChat"

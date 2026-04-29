@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parsed.error.issues.map(issue => issue.message).join(', ')
     })
   }
@@ -28,7 +28,7 @@ export default defineEventHandler(async (event) => {
   if (!isSupportedAudioSource(audioData)) {
     throw createError({
       statusCode: 400,
-      statusMessage: '音频格式不支持',
+      statusMessage: 'Bad Request',
       message: '仅支持音频 dataURL 或音频 URL'
     })
   }
@@ -47,7 +47,7 @@ export default defineEventHandler(async (event) => {
     console.error('[CharacterVoice] 上传角色音频失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '上传失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '角色音频上传失败'
     })
   }

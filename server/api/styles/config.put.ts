@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parsed.error.issues.map(issue => issue.message).join(', ')
     })
   }
@@ -33,7 +33,7 @@ export default defineEventHandler(async (event) => {
   if (invalidIds.length > 0) {
     throw createError({
       statusCode: 400,
-      statusMessage: '画风ID无效',
+      statusMessage: 'Bad Request',
       message: `存在无效画风ID: ${invalidIds.join(', ')}`
     })
   }
@@ -41,7 +41,7 @@ export default defineEventHandler(async (event) => {
   if (parsed.data.defaultStyleId && !allowedStyleIds.has(parsed.data.defaultStyleId)) {
     throw createError({
       statusCode: 400,
-      statusMessage: '默认画风无效',
+      statusMessage: 'Bad Request',
       message: `无效默认画风ID: ${parsed.data.defaultStyleId}`
     })
   }
@@ -67,7 +67,7 @@ export default defineEventHandler(async (event) => {
     console.error('[StyleConfig] 更新配置失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '更新画风配置失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

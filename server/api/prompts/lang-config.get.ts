@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
     console.error('[PromptLangConfig] 获取失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '获取语言配置失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

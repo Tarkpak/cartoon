@@ -34,14 +34,16 @@ function assertSafeHttpUrl(rawUrl: string): URL {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw createError({
       statusCode: 400,
-      statusMessage: '仅支持 http/https 图片地址'
+      statusMessage: 'Bad Request',
+      message: '仅支持 http/https 图片地址',
     })
   }
 
   if (isDisallowedHostname(parsed.hostname)) {
     throw createError({
       statusCode: 400,
-      statusMessage: '不允许访问该图片地址'
+      statusMessage: 'Bad Request',
+      message: '不允许访问该图片地址',
     })
   }
 
@@ -106,7 +108,7 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '图片地址参数无效',
+      statusMessage: 'Bad Request',
       message: parsed.error.issues.map(issue => issue.message).join(', ')
     })
   }
@@ -127,7 +129,8 @@ export default defineEventHandler(async (event) => {
     if (!upstream.ok) {
       throw createError({
         statusCode: upstream.status,
-        statusMessage: `图片拉取失败: ${upstream.status}`
+        statusMessage: upstream.status >= 500 ? 'Bad Gateway' : (upstream.status === 404 ? 'Not Found' : 'Bad Request'),
+        message: `图片拉取失败: ${upstream.status}`,
       })
     }
 
@@ -141,7 +144,8 @@ export default defineEventHandler(async (event) => {
     if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
       throw createError({
         statusCode: 413,
-        statusMessage: '图片体积超过代理上限'
+        statusMessage: 'Payload Too Large',
+        message: '图片体积超过代理上限',
       })
     }
 
@@ -150,7 +154,8 @@ export default defineEventHandler(async (event) => {
     if (!isImageContentType && !looksLikeImageByUrlPath(upstreamUrl)) {
       throw createError({
         statusCode: 415,
-        statusMessage: '代理目标不是受支持的图片'
+        statusMessage: 'Unsupported Media Type',
+        message: '代理目标不是受支持的图片',
       })
     }
 
@@ -158,7 +163,8 @@ export default defineEventHandler(async (event) => {
     if (body.length > MAX_IMAGE_BYTES) {
       throw createError({
         statusCode: 413,
-        statusMessage: '图片体积超过代理上限'
+        statusMessage: 'Payload Too Large',
+        message: '图片体积超过代理上限',
       })
     }
 
@@ -167,7 +173,8 @@ export default defineEventHandler(async (event) => {
     if (!finalMimeType || !finalMimeType.startsWith('image/')) {
       throw createError({
         statusCode: 415,
-        statusMessage: '代理目标不是受支持的图片'
+        statusMessage: 'Unsupported Media Type',
+        message: '代理目标不是受支持的图片',
       })
     }
 
@@ -184,13 +191,14 @@ export default defineEventHandler(async (event) => {
     if ((error as { name?: string })?.name === 'AbortError') {
       throw createError({
         statusCode: 504,
-        statusMessage: '图片拉取超时'
+        statusMessage: 'Gateway Timeout',
+        message: '图片拉取超时',
       })
     }
 
     throw createError({
       statusCode: 502,
-      statusMessage: '图片代理失败',
+      statusMessage: 'Bad Gateway',
       message: error instanceof Error ? error.message : '未知错误'
     })
   } finally {

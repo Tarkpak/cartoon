@@ -11,7 +11,8 @@ export default defineEventHandler(async (event) => {
   if (!profileId) {
     throw createError({
       statusCode: 400,
-      statusMessage: '缺少配置 ID'
+      statusMessage: 'Bad Request',
+      message: '缺少配置 ID',
     })
   }
 
@@ -22,7 +23,8 @@ export default defineEventHandler(async (event) => {
     if (!data) {
       throw createError({
         statusCode: 400,
-        statusMessage: '删除失败，至少需要保留一个配置方案'
+        statusMessage: 'Bad Request',
+        message: '删除失败，至少需要保留一个配置方案',
       })
     }
 
@@ -42,7 +44,7 @@ export default defineEventHandler(async (event) => {
     console.error('[PromptProfiles API] 删除配置方案失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '删除提示词配置方案失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

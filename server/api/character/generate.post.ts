@@ -188,7 +188,7 @@ export default defineEventHandler(async (event) => {
   if (!parseResult.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parseResult.error.issues.map(i => i.message).join(', ')
     })
   }
@@ -251,9 +251,10 @@ export default defineEventHandler(async (event) => {
         userMessage = 'AI 服务暂时不可用，请稍后重试'
       }
 
+      const statusCode = (error as GeminiError).status || 500
       throw createError({
-        statusCode: (error as GeminiError).status || 500,
-        statusMessage: `角色生成失败`,
+        statusCode,
+        statusMessage: statusCode >= 500 ? 'Internal Server Error' : 'Bad Request',
         message: userMessage
       })
     }
@@ -261,7 +262,7 @@ export default defineEventHandler(async (event) => {
     // 其他未知错误
     throw createError({
       statusCode: 500,
-      statusMessage: '角色生成失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }
