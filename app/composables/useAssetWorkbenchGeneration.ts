@@ -69,6 +69,13 @@ interface UseAssetWorkbenchGenerationOptions {
 export function useAssetWorkbenchGeneration(
   options: UseAssetWorkbenchGenerationOptions
 ) {
+  async function saveProjectOrThrow(context: string): Promise<void> {
+    const saved = await options.saveProject()
+    if (saved === false) {
+      throw new Error(`${context}，但项目保存失败，请查看页面顶部的保存错误提示后重试`)
+    }
+  }
+
   function normalizeScriptInputText(text: string): string {
     return text.replace(/\r\n?/g, '\n').trim()
   }
@@ -361,7 +368,7 @@ export function useAssetWorkbenchGeneration(
       )
       options.episodePlan.value = episodes
       mergeCharactersFromEpisodeAssets(episodes)
-      await options.saveProject()
+      await saveProjectOrThrow('分集目录生成完成')
       options.parseProgress.value.step = 'episode-plan-completed'
       options.parseProgress.value.message = `分集目录已生成，共 ${episodes.length} 集`
       options.parseProgress.value.progress = 100
@@ -442,7 +449,9 @@ export function useAssetWorkbenchGeneration(
         options.characters.value = parsedCharacters
       }
 
-      await options.saveProject()
+      await saveProjectOrThrow(parsePayload.targetEpisodeId
+        ? `${parsePayload.targetEpisodeTitle || '当前分集'}解析完成`
+        : '剧本解析完成')
       options.parseProgress.value.step = 'completed'
       options.parseProgress.value.message = parsePayload.targetEpisodeId
         ? `已完成 ${parsePayload.targetEpisodeTitle || '当前分集'} 解析`
@@ -497,7 +506,7 @@ export function useAssetWorkbenchGeneration(
 
       if (response.success && response.asset?.baseImage) {
         char.baseImage = response.asset.baseImage
-        await options.saveProject()
+        await saveProjectOrThrow(`角色 ${char.name} 生成完成`)
 
         const generatedImage = char.baseImage?.trim() || ''
         if (generatedImage && generatedImage !== previousImage && !input?.skipCompletionNotice) {
