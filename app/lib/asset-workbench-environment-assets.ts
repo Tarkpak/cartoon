@@ -9,6 +9,7 @@ import {
 } from '~/lib/asset-history'
 import {
   resolveSceneEnvironmentAssetId,
+  resolveSceneEnvironmentAssetIdAliases,
   resolveSceneEnvironmentAssetLabel,
   resolveSceneReferenceImage
 } from '~/lib/asset-workbench-environment-core'
@@ -56,11 +57,18 @@ export function buildEnvironmentAssetCards(options: {
     const assetId = resolveSceneEnvironmentAssetId(scene)
     const existing = map.get(assetId)
     const sceneImage = resolveSceneReferenceImage(scene)
-    const panoramaState = options.environmentPanoramaStates?.[assetId]
+    const panoramaState = resolveSceneEnvironmentAssetIdAliases(scene)
+      .map(alias => options.environmentPanoramaStates?.[alias])
+      .find(Boolean)
 
     if (!existing) {
+      const rawHistoryEntries = resolveSceneEnvironmentAssetIdAliases(scene)
+        .flatMap((alias) => {
+          const entries = options.environmentAssetHistories?.[alias]
+          return Array.isArray(entries) ? entries : []
+        })
       const assetHistory = normalizeAssetHistoryEntries(
-        options.environmentAssetHistories?.[assetId],
+        rawHistoryEntries,
         sceneImage
       )
       const previewImage = sceneImage || resolveEnvironmentHistoryPreview(assetHistory)
