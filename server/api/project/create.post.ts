@@ -27,7 +27,7 @@ export default defineEventHandler(async (event) => {
   if (!parseResult.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parseResult.error.issues.map(i => i.message).join(', ')
     })
   }
@@ -41,7 +41,7 @@ export default defineEventHandler(async (event) => {
     if (!styleEnabled) {
       throw createError({
         statusCode: 400,
-        statusMessage: '画风预设不可用',
+        statusMessage: 'Bad Request',
         message: `当前后台配置未启用该画风: ${styleId}`
       })
     }
@@ -84,7 +84,8 @@ export default defineEventHandler(async (event) => {
     console.error('[ProjectCreate] 创建失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '创建项目失败'
+      statusMessage: 'Internal Server Error',
+      message: '创建项目失败',
     })
   }
 })

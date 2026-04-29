@@ -238,7 +238,8 @@ export default defineEventHandler(async (event) => {
   if (!id) {
     throw createError({
       statusCode: 400,
-      statusMessage: '缺少项目ID'
+      statusMessage: 'Bad Request',
+      message: '缺少项目ID',
     })
   }
 
@@ -248,7 +249,7 @@ export default defineEventHandler(async (event) => {
   if (!parseResult.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parseResult.error.issues.map(i => `${i.path}: ${i.message}`).join(', ')
     })
   }
@@ -267,7 +268,8 @@ export default defineEventHandler(async (event) => {
     if (!project) {
       throw createError({
         statusCode: 404,
-        statusMessage: '项目不存在'
+        statusMessage: 'Not Found',
+        message: '项目不存在',
       })
     }
 
@@ -276,7 +278,7 @@ export default defineEventHandler(async (event) => {
       if (!styleEnabled) {
         throw createError({
           statusCode: 400,
-          statusMessage: '画风预设不可用',
+          statusMessage: 'Bad Request',
           message: `当前后台配置未启用该画风: ${data.styleId}`
         })
       }
@@ -486,7 +488,8 @@ export default defineEventHandler(async (event) => {
     console.error('[ProjectUpdate] 保存失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '保存项目失败'
+      statusMessage: 'Internal Server Error',
+      message: '保存项目失败',
     })
   }
 })

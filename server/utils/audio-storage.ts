@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { extname } from 'node:path'
 import { Buffer } from 'node:buffer'
 import {
+  buildCloudNewestFirstNamePrefix,
   buildCloudObjectKey,
   uploadBufferToCloudStorageOrThrow,
   uploadFileToCloudStorageOrThrow
@@ -23,7 +24,7 @@ export async function persistAudioFileToCloud(options: {
   category?: string
 }): Promise<string> {
   const extension = extname(options.filePath).toLowerCase() || '.mp3'
-  const filename = `${sanitizePrefix(options.prefix)}_${Date.now()}_${randomUUID().slice(0, 8)}${extension}`
+  const filename = `${buildCloudNewestFirstNamePrefix()}_${sanitizePrefix(options.prefix)}_${randomUUID().slice(0, 8)}${extension}`
   const cloudObjectKey = buildCloudObjectKey({
     category: options.category || 'voice-assets',
     filename
@@ -80,7 +81,7 @@ export async function persistAudioSourceToCloud(options: {
 }): Promise<string> {
   const { buffer, mimeType } = await resolveAudioSource(options.source)
   const extension = extFromMimeType(mimeType)
-  const filename = `${sanitizePrefix(options.prefix)}_${Date.now()}_${randomUUID().slice(0, 8)}.${extension}`
+  const filename = `${buildCloudNewestFirstNamePrefix()}_${sanitizePrefix(options.prefix)}_${randomUUID().slice(0, 8)}.${extension}`
   const cloudObjectKey = buildCloudObjectKey({
     category: options.category || 'voice-assets',
     filename

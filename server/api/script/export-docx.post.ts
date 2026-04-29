@@ -127,7 +127,7 @@ export default defineEventHandler(async (event) => {
   if (!parseResult.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parseResult.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join(', ')
     })
   }
@@ -140,7 +140,8 @@ export default defineEventHandler(async (event) => {
   if (normalizedScenes.length === 0) {
     throw createError({
       statusCode: 400,
-      statusMessage: '没有可导出的场景'
+      statusMessage: 'Bad Request',
+      message: '没有可导出的场景',
     })
   }
 
@@ -192,7 +193,7 @@ export default defineEventHandler(async (event) => {
     console.error('[script-docx] 导出失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '导出 DOCX 失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

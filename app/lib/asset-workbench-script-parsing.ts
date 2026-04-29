@@ -1,5 +1,6 @@
 import { mergeNarrationTexts } from '~/lib/asset-workbench-scenes'
 import { normalizeCharacterName } from '~/lib/asset-workbench-values'
+import { normalizeCharacterRole } from '#shared/types/character'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 
 const NARRATION_SPEAKER_SET = new Set([
@@ -100,7 +101,7 @@ export function buildParsedCharacters(
       id: `char_${index + 1}`,
       name: character.name,
       appearance: character.description || '',
-      role: character.role || 'supporting',
+      role: normalizeCharacterRole(character.role) || 'supporting',
       generating: false,
       generatingViews: false
     }))

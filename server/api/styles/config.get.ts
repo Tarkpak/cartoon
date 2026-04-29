@@ -26,7 +26,7 @@ export default defineEventHandler(async () => {
     console.error('[StyleConfig] 获取后台配置失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '获取画风配置失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

@@ -45,7 +45,7 @@ export default defineEventHandler(async (event) => {
     console.error('[Prompts API] 获取模板失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '获取提示词模板失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

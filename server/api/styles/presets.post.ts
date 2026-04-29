@@ -41,7 +41,7 @@ function resolveStyleId(inputId: string | undefined, name: string, usedIds: Set<
     if (!normalized || !STYLE_ID_PATTERN.test(normalized)) {
       throw createError({
         statusCode: 400,
-        statusMessage: '画风 ID 无效',
+        statusMessage: 'Bad Request',
         message: 'ID 仅支持字母、数字、下划线和短横线'
       })
     }
@@ -49,7 +49,7 @@ function resolveStyleId(inputId: string | undefined, name: string, usedIds: Set<
     if (usedIds.has(normalized)) {
       throw createError({
         statusCode: 409,
-        statusMessage: '画风 ID 冲突',
+        statusMessage: 'Conflict',
         message: `画风 ID 已存在: ${normalized}`
       })
     }
@@ -78,7 +78,7 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parsed.error.issues.map(issue => issue.message).join(', ')
     })
   }
@@ -139,7 +139,7 @@ export default defineEventHandler(async (event) => {
     console.error('[StylePreset] 新增失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '新增画风预设失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

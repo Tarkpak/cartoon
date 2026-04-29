@@ -14,7 +14,8 @@ export default defineEventHandler(async (event) => {
   if (!id) {
     throw createError({
       statusCode: 400,
-      statusMessage: '缺少模板 ID'
+      statusMessage: 'Bad Request',
+      message: '缺少模板 ID',
     })
   }
 
@@ -34,7 +35,7 @@ export default defineEventHandler(async (event) => {
     console.error('[Prompts API] 获取版本历史失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '获取版本历史失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

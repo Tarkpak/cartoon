@@ -14,6 +14,54 @@ export const CharacterRoleSchema = z.enum([
 ])
 export type CharacterRole = z.infer<typeof CharacterRoleSchema>
 
+const CHARACTER_ROLE_ALIAS_MAP: Record<string, CharacterRole> = {
+  protagonist: 'protagonist',
+  lead: 'protagonist',
+  hero: 'protagonist',
+  main: 'protagonist',
+  maincharacter: 'protagonist',
+  malelead: 'protagonist',
+  femalelead: 'protagonist',
+  主角: 'protagonist',
+  男主: 'protagonist',
+  女主: 'protagonist',
+  男一: 'protagonist',
+  女一: 'protagonist',
+  一番: 'protagonist',
+  antagonist: 'antagonist',
+  villain: 'antagonist',
+  反派: 'antagonist',
+  反角: 'antagonist',
+  男反: 'antagonist',
+  女反: 'antagonist',
+  supporting: 'supporting',
+  support: 'supporting',
+  supportingrole: 'supporting',
+  supportingcharacter: 'supporting',
+  配角: 'supporting',
+  次要角色: 'supporting',
+  extra: 'extra',
+  crowd: 'extra',
+  background: 'extra',
+  群演: 'extra',
+  龙套: 'extra',
+  路人: 'extra'
+}
+
+function normalizeCharacterRoleAliasKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '')
+}
+
+export function normalizeCharacterRole(value: unknown): CharacterRole | undefined {
+  if (typeof value !== 'string') return undefined
+  const key = normalizeCharacterRoleAliasKey(value)
+  if (!key) return undefined
+  return CHARACTER_ROLE_ALIAS_MAP[key]
+}
+
 /** 角色视角 (基于飞书文档 2.7.2 角色库) */
 export const CharacterViewSchema = z.enum([
   'front', // 正面
@@ -68,7 +116,10 @@ export type CharacterVoiceAsset = z.infer<typeof CharacterVoiceAssetSchema>
 export const CharacterSchema = z.object({
   id: z.string().describe('角色ID'),
   name: z.string().describe('角色名'),
-  role: z.preprocess(nullToUndefined, CharacterRoleSchema.optional()).describe('角色类型'),
+  role: z.preprocess(
+    value => normalizeCharacterRole(value),
+    CharacterRoleSchema.optional()
+  ).describe('角色类型'),
   // 外观相关
   appearance: z.string().describe('外观描述'),
   age: z.preprocess(nullToUndefined, z.number().optional()).describe('年龄'),

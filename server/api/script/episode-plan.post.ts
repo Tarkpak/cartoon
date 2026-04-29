@@ -7,6 +7,7 @@ import {
   type ScriptEpisodePlanItem,
   type ScriptParseMode
 } from '../../../shared/types/script'
+import { normalizeCharacterRole } from '../../../shared/types/character'
 
 const EpisodePlanRequestSchema = z.object({
   text: z.string().min(10).describe('原始小说文本'),
@@ -175,7 +176,7 @@ function normalizeEpisodeAssetSummary(raw: unknown): EpisodeAssetSummary | undef
     const key = normalizeEpisodeAssetKey(name)
     if (!key) continue
     const description = typeof item?.description === 'string' ? item.description.trim() : ''
-    const role = typeof item?.role === 'string' ? item.role.trim() : ''
+    const role = normalizeCharacterRole(item?.role)
     const existing = characterMap.get(key)
     if (!existing) {
       characterMap.set(key, {
@@ -665,7 +666,7 @@ export default defineEventHandler(async (event) => {
   if (!parseResult.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parseResult.error.issues.map(i => i.message).join(', ')
     })
   }
@@ -706,7 +707,7 @@ export default defineEventHandler(async (event) => {
     console.error('[EpisodePlan] 模型分集失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '分集目录生成失败',
+      statusMessage: 'Internal Server Error',
       message: '大模型分集失败，请重试或检查模型配置'
     })
   }

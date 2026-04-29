@@ -79,7 +79,7 @@ export default defineEventHandler(async (event) => {
   if (!parseResult.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parseResult.error.issues.map(i => i.message).join(', ')
     })
   }
@@ -91,7 +91,8 @@ export default defineEventHandler(async (event) => {
   if (!project) {
     throw createError({
       statusCode: 404,
-      statusMessage: '项目不存在'
+      statusMessage: 'Not Found',
+      message: '项目不存在',
     })
   }
 
@@ -178,7 +179,8 @@ export default defineEventHandler(async (event) => {
     if (clips.length === 0) {
       throw createError({
         statusCode: 400,
-        statusMessage: '没有有效的视频片段'
+        statusMessage: 'Bad Request',
+        message: '没有有效的视频片段',
       })
     }
 
@@ -253,7 +255,7 @@ export default defineEventHandler(async (event) => {
     console.error('[VideoMerge] 合成失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '视频合成失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }

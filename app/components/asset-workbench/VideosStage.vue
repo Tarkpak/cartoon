@@ -88,8 +88,6 @@ const props = defineProps<{
   onExportFormattedScriptDocx: () => void
   onRetryFailedQueueItems: () => void
   onParseEpisode: (episodeId: string) => void
-  onUpdateEpisodeTitle: (payload: { id: string, title: string }) => void
-  onUpdateEpisodeEndOffset: (payload: { id: string, endOffset: number }) => void
   onSelectScene: (sceneId: string) => void
   onOpenSceneEdit: (scene: SceneData) => void
   onToggleSceneChat: (scene: SceneData) => void
@@ -251,23 +249,13 @@ const selectedEpisodeDirectoryItem = computed(() => {
   return episodeDirectoryMap.value.get(selectedEpisodeId.value) || null
 })
 
-const selectedEpisodePlanIndex = computed(() => {
-  if (normalizedEpisodePlan.value.length === 0) return -1
-  return normalizedEpisodePlan.value.findIndex(item => item.id === selectedEpisodeId.value)
-})
-
 const selectedEpisodePlanItem = computed(() => {
-  const index = selectedEpisodePlanIndex.value
-  if (index < 0) return null
-  return normalizedEpisodePlan.value[index] || null
+  if (normalizedEpisodePlan.value.length === 0) return null
+  return normalizedEpisodePlan.value.find(item => item.id === selectedEpisodeId.value) || null
 })
 
 const selectedEpisodeScenes = computed(() => {
   return sceneEpisodeGroupMap.value.get(selectedEpisodeId.value)?.scenes || []
-})
-
-const selectedEpisodeDoneCount = computed(() => {
-  return selectedEpisodeScenes.value.filter(scene => scene.videoStatus === 'done').length
 })
 
 function resolveEpisodeSceneCountById(episodeId: string): number {
@@ -307,64 +295,12 @@ function handleSelectEpisode(groupId: string) {
   }
 }
 
-function handleUpdateEpisodeTitle(id: string, title: string) {
-  props.onUpdateEpisodeTitle({ id, title })
-}
-
-function resolveEpisodeEndRange(index: number): { min: number, max: number } | null {
-  const episodes = normalizedEpisodePlan.value
-  const current = episodes[index]
-  if (!current || index >= episodes.length - 1) return null
-
-  const prev = episodes[index - 1]
-  const next = episodes[index + 1]
-  const min = Math.max((prev?.endOffset ?? current.startOffset) + 200, current.startOffset + 200)
-  const max = Math.max(min, (next?.endOffset ?? current.endOffset) - 200)
-  return { min, max }
-}
-
-const selectedEpisodeEndRange = computed(() => {
-  const index = selectedEpisodePlanIndex.value
-  if (index < 0) return null
-  return resolveEpisodeEndRange(index)
-})
-
-function handleUpdateEpisodeEndOffset(index: number, rawValue: string) {
-  const episodes = normalizedEpisodePlan.value
-  const current = episodes[index]
-  if (!current || index >= episodes.length - 1) return
-
-  const numericValue = Number.parseInt(rawValue, 10)
-  if (!Number.isFinite(numericValue)) return
-
-  const range = resolveEpisodeEndRange(index)
-  if (!range) return
-
-  const normalizedEndOffset = Math.min(range.max, Math.max(range.min, numericValue))
-  props.onUpdateEpisodeEndOffset({
-    id: current.id,
-    endOffset: normalizedEndOffset
-  })
-}
-
 function resolveEpisodeAssetSummaryText(episode: EpisodePlanItemForVideoStage): string {
   const characterCount = episode.episodeAssets?.characters?.length || 0
   const propCount = episode.episodeAssets?.props?.length || 0
   const environmentCount = episode.episodeAssets?.environments?.length || 0
   if (characterCount + propCount + environmentCount <= 0) return ''
   return `资产：角色 ${characterCount} · 道具 ${propCount} · 场景 ${environmentCount}`
-}
-
-function handleUpdateSelectedEpisodeBoundary(rawValue: string) {
-  const index = selectedEpisodePlanIndex.value
-  if (index < 0) return
-  handleUpdateEpisodeEndOffset(index, rawValue)
-}
-
-function handleUpdateSelectedEpisodeTitle(rawValue: string) {
-  const episode = selectedEpisodePlanItem.value
-  if (!episode) return
-  handleUpdateEpisodeTitle(episode.id, rawValue)
 }
 
 function handleParseSelectedEpisode() {
@@ -515,24 +451,6 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
         class="grid gap-2 px-3 py-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
       >
         <div class="min-w-0 space-y-1">
-          <div
-            v-if="selectedEpisodePlanItem"
-            class="flex min-w-0 items-center gap-2"
-          >
-            <span class="shrink-0 text-xs text-muted-foreground">第{{ selectedEpisodePlanItem.index }}集</span>
-            <Input
-              :model-value="selectedEpisodePlanItem.title"
-              class="h-8 min-w-0"
-              :disabled="parsing"
-              @update:model-value="(value) => handleUpdateSelectedEpisodeTitle(String(value || ''))"
-            />
-          </div>
-          <div
-            v-else
-            class="truncate text-sm font-medium text-foreground"
-          >
-            {{ selectedEpisodeDirectoryItem.title }}
-          </div>
           <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
             <span v-if="selectedEpisodeDirectoryItem.startOffset !== null && selectedEpisodeDirectoryItem.endOffset !== null">
               范围 {{ selectedEpisodeDirectoryItem.startOffset }} - {{ selectedEpisodeDirectoryItem.endOffset }}
@@ -540,27 +458,9 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
             <span v-if="selectedEpisodeDirectoryItem.charCount !== null">
               约 {{ selectedEpisodeDirectoryItem.charCount }} 字
             </span>
-            <span>
-              场景 {{ selectedEpisodeDirectoryItem.sceneCount }} · 完成 {{ selectedEpisodeDirectoryItem.doneCount }}
-            </span>
             <span v-if="selectedEpisodeDirectoryItem.assetSummary">
               {{ selectedEpisodeDirectoryItem.assetSummary }}
             </span>
-            <label
-              v-if="selectedEpisodePlanItem && selectedEpisodePlanIndex >= 0 && selectedEpisodePlanIndex < normalizedEpisodePlan.length - 1"
-              class="inline-flex items-center gap-1"
-            >
-              <span>边界</span>
-              <Input
-                type="number"
-                :min="selectedEpisodeEndRange?.min"
-                :max="selectedEpisodeEndRange?.max"
-                :model-value="selectedEpisodePlanItem.endOffset"
-                class="h-7 w-28"
-                :disabled="parsing"
-                @update:model-value="(value) => handleUpdateSelectedEpisodeBoundary(String(value || ''))"
-              />
-            </label>
           </div>
           <p
             v-if="selectedEpisodeDirectoryItem.overview"
@@ -597,9 +497,7 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
         <div
           class="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
         >
-          <span class="font-medium text-foreground">{{ selectedEpisodeTitle }}</span>
-          <span class="ml-2">场景 {{ selectedEpisodeScenes.length }}</span>
-          <span class="ml-2">视频完成 {{ selectedEpisodeDoneCount }}</span>
+          当前分集场景列表
         </div>
         <div
           v-if="selectedEpisodeScenes.length === 0"

@@ -55,7 +55,7 @@ export default defineEventHandler(async (event) => {
     console.error('[VideoGen] 请求验证失败:', parseResult.error.issues)
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parseResult.error.issues.map(i => i.message).join(', ')
     })
   }
@@ -69,7 +69,7 @@ export default defineEventHandler(async (event) => {
     console.error('[VideoGen] 图片输入归一化失败:', normalizeError)
     throw createError({
       statusCode: 400,
-      statusMessage: '图片输入无效',
+      statusMessage: 'Bad Request',
       message: normalizeError instanceof Error ? normalizeError.message : '参考图格式错误或不可访问'
     })
   }
@@ -105,7 +105,7 @@ export default defineEventHandler(async (event) => {
     console.error('[VideoGen] 数据库插入失败:', dbError)
     throw createError({
       statusCode: 500,
-      statusMessage: '任务创建失败',
+      statusMessage: 'Internal Server Error',
       message: dbError instanceof Error ? dbError.message : '数据库错误'
     })
   }

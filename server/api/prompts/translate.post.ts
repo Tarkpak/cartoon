@@ -54,7 +54,7 @@ export default defineEventHandler(async (event) => {
   if (!systemPrompt || !userPrompt) {
     throw createError({
       statusCode: 500,
-      statusMessage: '翻译提示词模板缺失',
+      statusMessage: 'Internal Server Error',
       message: '无法获取翻译模板，请在提示词配置中检查“提示词翻译系统指令/提示词翻译请求模板”'
     })
   }

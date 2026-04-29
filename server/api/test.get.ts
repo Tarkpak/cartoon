@@ -12,7 +12,7 @@ export default defineEventHandler(async (event) => {
   if (!prompt) {
     throw createError({
       statusCode: 400,
-      statusMessage: '缺少测试提示词',
+      statusMessage: 'Bad Request',
       message: '请通过 query 参数传入 prompt，例如 /api/test?prompt=hello'
     })
   }
@@ -35,9 +35,10 @@ export default defineEventHandler(async (event) => {
   } catch (error) {
     // 使用自定义错误处理
     if (error instanceof GeminiError) {
+      const statusCode = error.status || 500
       throw createError({
-        statusCode: error.status || 500,
-        statusMessage: `Gemini API 错误: ${error.code}`,
+        statusCode,
+        statusMessage: statusCode >= 500 ? 'Internal Server Error' : 'Bad Request',
         message: error.message,
         data: {
           code: error.code,
@@ -49,8 +50,8 @@ export default defineEventHandler(async (event) => {
     const message = error instanceof Error ? error.message : 'Unknown error'
     throw createError({
       statusCode: 500,
-      statusMessage: 'Gemini API 连接失败',
-      message
+      statusMessage: 'Internal Server Error',
+      message: `Gemini API 连接失败: ${message}`
     })
   }
 })

@@ -456,7 +456,7 @@ function throwDefaultPromptProfileReadonlyError(): never {
     statusMessage: string
   }
   error.statusCode = 403
-  error.statusMessage = '内置默认配置不可修改'
+  error.statusMessage = 'Forbidden'
   throw error
 }
 

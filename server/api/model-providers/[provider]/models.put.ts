@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
   if (!params.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '供应商无效',
+      statusMessage: 'Bad Request',
       message: params.error.issues.map(issue => issue.message).join(', ')
     })
   }
@@ -31,7 +31,7 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parsed.error.issues.map(issue => issue.message).join(', ')
     })
   }

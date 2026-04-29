@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success) {
     throw createError({
       statusCode: 400,
-      statusMessage: '请求参数无效',
+      statusMessage: 'Bad Request',
       message: parsed.error.issues.map(issue => issue.message).join(', ')
     })
   }
@@ -40,7 +40,7 @@ export default defineEventHandler(async (event) => {
     console.error('[StylePreset] 导入失败:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: '导入画风预设失败',
+      statusMessage: 'Internal Server Error',
       message: error instanceof Error ? error.message : '未知错误'
     })
   }
