@@ -240,12 +240,13 @@ function handlePromptKeydown(event: KeyboardEvent) {
             :ref="setMentionListElement"
             class="absolute bottom-full left-0 right-0 mb-1 max-h-44 overflow-y-auto rounded-md border bg-popover p-1 shadow-md"
           >
-            <button
+            <Button
               v-for="(item, mentionIndex) in mentionCandidates"
               :key="`regenerate_mention_${item.asset.id}`"
               type="button"
+              variant="ghost"
               :data-regenerate-mention-index="mentionIndex"
-              class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition"
+              class="h-auto w-full justify-start gap-2 rounded px-2 py-1.5 text-left text-xs transition"
               :class="mentionIndex === mentionActiveIndex ? 'bg-accent' : 'hover:bg-accent/60'"
               @mousedown.prevent="applyMention(item)"
             >
@@ -267,7 +268,7 @@ function handlePromptKeydown(event: KeyboardEvent) {
               <span class="ml-auto text-[10px] text-muted-foreground">
                 {{ item.token }}
               </span>
-            </button>
+            </Button>
           </div>
         </div>
         <p class="text-[11px] text-muted-foreground">

@@ -56,7 +56,7 @@ export default defineNuxtConfig({
 
     // 客户端也可用的配置
     public: {
-      appName: 'Manju',
+      appName: 'playlet',
       appVersion: '1.0.0',
       appBaseUrl: process.env.APP_BASE_URL || ''
     }

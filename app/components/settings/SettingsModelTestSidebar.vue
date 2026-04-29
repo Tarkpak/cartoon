@@ -47,11 +47,12 @@ function getProviderDotClass(provider: string): string {
     <!-- Type tabs -->
     <div class="border-b px-2 py-2">
       <div class="grid grid-cols-2 gap-1">
-        <button
+        <Button
           v-for="tab in SETTINGS_MODEL_TEST_TABS"
           :key="tab.key"
           type="button"
-          class="flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none"
+          variant="ghost"
+          class="h-auto gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors"
           :class="activeTab === tab.key
             ? 'bg-primary text-primary-foreground shadow-sm'
             : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
@@ -62,7 +63,7 @@ function getProviderDotClass(provider: string): string {
             class="h-3.5 w-3.5"
           />
           <span>{{ tab.label }}</span>
-        </button>
+        </Button>
       </div>
     </div>
 

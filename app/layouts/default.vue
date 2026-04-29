@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText } from 'lucide-vue-next'
+import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud } from 'lucide-vue-next'
 
 const route = useRoute()
 const { isDark, toggleTheme, initTheme } = useTheme()
 
 // 侧边栏折叠状态
 const isCollapsed = useState('sidebar-collapsed', () => false)
-const SIDEBAR_COLLAPSE_STORAGE_KEY = 'manju:sidebar-collapsed'
+const SIDEBAR_COLLAPSE_STORAGE_KEY = 'playlet:sidebar-collapsed'
 
 const navigation = [
   { name: '首页概览', path: '/', icon: Home },
   { name: '项目管理', path: '/projects', icon: Folder },
   { name: '模型日志', path: '/model-logs', icon: ScrollText },
+  { name: '云端文件', path: '/tos-files', icon: Cloud },
   { name: '设置', path: '/settings', icon: Settings }
 ]
 
@@ -52,7 +53,11 @@ function isSettingsSubActive(item: { section: SettingsSection, sub?: SettingsMod
   if (route.path !== '/settings') return false
   if (currentSettingsSection.value !== item.section) return false
   if (item.section !== 'models') return true
-  return currentSettingsModelSub.value === (item.sub || 'workflow')
+
+  const modelSectionItems = settingsSubNavigation.filter(entry => entry.section === 'models')
+  if (modelSectionItems.length <= 1) return true
+
+  return currentSettingsModelSub.value === (item.sub || 'providers')
 }
 
 function getSettingsSubRoute(item: { section: SettingsSection, sub?: SettingsModelSub }) {
@@ -158,7 +163,7 @@ watch(isCollapsed, (value) => {
           <span
             v-if="!isCollapsed"
             class="ml-1"
-          >Manju</span>
+          >playlet</span>
         </NuxtLink>
       </div>
 
@@ -292,7 +297,7 @@ watch(isCollapsed, (value) => {
       >
         <div class="flex items-center justify-between text-sm text-muted-foreground">
           <div class="flex items-center space-x-4">
-            <span>© 2025 Manju</span>
+            <span>© 2025 playlet</span>
             <a
               href="#"
               class="hover:text-foreground transition"

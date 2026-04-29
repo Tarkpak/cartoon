@@ -10,7 +10,7 @@ Historical prompt workflows are intentionally removed. When updating prompts, AP
 
 ## Project Overview
 
-**Manju** is an AI-assisted video production system built with Nuxt.js 4. The active product path is:
+**playlet** is an AI-assisted video production system built with Nuxt.js 4. The active product path is:
 
 1. **Parse** — Parse source text into scenes, characters, and video-ready timeline descriptions.
 2. **Assets** — Generate and manage reusable assets (character references, environment references).
@@ -21,7 +21,7 @@ Historical prompt workflows are intentionally removed. When updating prompts, AP
 
 - **Framework**: Nuxt.js 4 + Vue 3 Composition API (`compatibilityDate: '2025-01-15'`)
 - **Package Manager**: Bun (registry: `registry.npmmirror.com` via `bunfig.toml`)
-- **Database**: SQLite (`data/manju.db`) + Drizzle ORM + better-sqlite3
+- **Database**: SQLite (`data/playlet.db`) + Drizzle ORM + better-sqlite3
 - **UI**: Tailwind CSS (dark mode via `class`) + shadcn-vue (`new-york` style, `stone` base color)
 - **State**: Pinia (registered but workbench state uses pure composable pattern, not stores)
 - **AI Providers**: Google Gemini, Alibaba Qwen, Kling AI, Volcengine/Doubao (Seedance/Seedream)

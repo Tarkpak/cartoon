@@ -1,4 +1,4 @@
-# Manju
+# playlet
 
 AI 驱动的影视内容生成系统，基于 Nuxt.js 4 构建。从故事创意或剧本自动生成动态视频内容。
 
@@ -43,7 +43,7 @@ VOLCENGINE_API_KEY=        # 火山引擎 (Doubao) API 密钥
 # TOS_REGION=cn-beijing
 # TOS_ENDPOINT=tos-cn-beijing.volces.com
 # TOS_BUCKET=
-# TOS_KEY_PREFIX=manju-assets
+# TOS_KEY_PREFIX=playlet-assets
 # TOS_PUBLIC_BASE_URL=      # 可选，建议填写 CDN/自定义域名
 # TOS_IS_CUSTOM_DOMAIN=false
 
@@ -105,7 +105,7 @@ bun run release major    # major 版本 +1 (1.0.0 → 2.0.0)
 | `REMOTE_HOST` | 服务器 IP 或域名 |
 | `REMOTE_USER` | SSH 登录用户名 |
 | `REMOTE_PORT` | SSH 端口（可选，默认 22） |
-| `DEPLOY_PATH` | 服务器上的部署目录，如 `/home/user/manju` |
+| `DEPLOY_PATH` | 服务器上的部署目录，如 `/home/user/playlet` |
 
 2. 生成部署专用 SSH 密钥（如果需要）：
 

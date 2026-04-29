@@ -27,6 +27,26 @@ type UploadFileOptions = {
   filePath: string
 }
 
+export type CloudStorageFileEntry = {
+  key: string
+  size: number
+  lastModified: string
+  storageClass: string
+  etag: string
+  url: string
+}
+
+export type CloudStorageListResult = {
+  bucket: string
+  prefix: string
+  delimiter?: string
+  maxKeys: number
+  isTruncated: boolean
+  nextContinuationToken?: string
+  commonPrefixes: string[]
+  files: CloudStorageFileEntry[]
+}
+
 let cachedConfig: TosStorageConfig | null = null
 let cachedClient: TosClient | null = null
 let hasWarnedMissingConfig = false
@@ -277,6 +297,56 @@ export function buildCloudPublicUrlByObjectKey(objectKey: string): string | null
   const normalizedKey = normalizeObjectPath(objectKey)
   if (!normalizedKey) return null
   return buildPublicObjectUrl(config, normalizedKey)
+}
+
+export async function listCloudStorageFiles(options: {
+  prefix?: string
+  delimiter?: string
+  maxKeys?: number
+  continuationToken?: string
+} = {}): Promise<CloudStorageListResult> {
+  const config = getConfig()
+  if (!config.enabled) {
+    throw new Error(getDisabledReason(config))
+  }
+
+  const client = getClient(config)
+  if (!client) {
+    throw new Error('TOS 客户端初始化失败')
+  }
+
+  const maxKeys = Math.max(1, Math.min(1000, Math.floor(options.maxKeys || 100)))
+  const prefix = normalizeObjectPath(options.prefix ?? config.keyPrefix ?? '')
+  const delimiter = options.delimiter || undefined
+
+  const response = await client.listObjectsType2({
+    bucket: config.bucket,
+    prefix,
+    delimiter,
+    maxKeys,
+    continuationToken: options.continuationToken || undefined,
+    listOnlyOnce: true
+  })
+
+  const data = response.data
+
+  return {
+    bucket: data.Name || config.bucket,
+    prefix: data.Prefix || prefix,
+    delimiter: data.Delimiter,
+    maxKeys: data.MaxKeys || maxKeys,
+    isTruncated: !!data.IsTruncated,
+    nextContinuationToken: data.NextContinuationToken,
+    commonPrefixes: (data.CommonPrefixes || []).map(item => item.Prefix).filter(Boolean),
+    files: (data.Contents || []).map(item => ({
+      key: item.Key,
+      size: item.Size,
+      lastModified: item.LastModified,
+      storageClass: item.StorageClass,
+      etag: item.ETag,
+      url: buildPublicObjectUrl(config, item.Key)
+    }))
+  }
 }
 
 export async function uploadBufferToCloudStorage(options: UploadBufferOptions): Promise<string | null> {

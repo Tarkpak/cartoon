@@ -82,13 +82,13 @@ function handleVariableInsert(variableName: string) {
 
 <template>
   <div :class="['h-full flex flex-col', isFullscreen ? 'fixed inset-0 z-50 bg-background' : '']">
-    <input
+    <Input
       ref="fileInputRef"
       type="file"
       accept=".json"
       class="hidden"
       @change="handleImport"
-    >
+    />
 
     <PromptEditorHeader
       :template="template"

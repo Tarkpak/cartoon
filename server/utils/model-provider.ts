@@ -187,6 +187,8 @@ function getSyncedModelSet(provider: SyncableProvider): Set<string> | null {
 function filterModelsBySyncedCatalog<T extends { provider: string, model: string }>(models: T[]): T[] {
   return models.filter((model) => {
     const provider = model.provider as SyncableProvider
+    if (provider === 'custom_openai') return true
+
     const synced = getSyncedModelSet(provider)
     if (!synced) return true
     return synced.has(normalizeModelId(model.model))

@@ -204,7 +204,10 @@ function setSceneDescriptionMentionListElement(element: Element | ComponentPubli
 }
 
 function setSceneAssetUploadInputElement(element: Element | ComponentPublicInstance | null) {
-  sceneAssetUploadInputRef.value = element instanceof HTMLInputElement ? element : null
+  const component = element as (ComponentPublicInstance & { inputElement?: HTMLInputElement }) | null
+  sceneAssetUploadInputRef.value = element instanceof HTMLInputElement
+    ? element
+    : component?.inputElement instanceof HTMLInputElement ? component.inputElement : null
 }
 
 function triggerSceneAssetUpload() {

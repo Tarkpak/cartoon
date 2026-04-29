@@ -4,7 +4,7 @@ import Database from 'better-sqlite3'
 import { TosClient } from '@volcengine/tos-sdk'
 
 const PROJECT_ROOT = process.cwd()
-const DB_PATH = path.join(PROJECT_ROOT, 'data', 'manju.db')
+const DB_PATH = path.join(PROJECT_ROOT, 'data', 'playlet.db')
 
 const STYLE_DIR = path.join(PROJECT_ROOT, 'public', 'styles')
 const VIDEO_DIR = path.join(PROJECT_ROOT, 'public', 'videos')
