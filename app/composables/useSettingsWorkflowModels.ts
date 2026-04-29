@@ -185,6 +185,11 @@ export function useSettingsWorkflowModels() {
     }
   }
 
+  async function reloadModelSettings() {
+    await loadModels(true)
+    await loadWorkflowModels()
+  }
+
   function getVideoGenerationModelOptions(): WorkflowVideoGenerationModelOptions {
     return workflowData.value?.modelOptions?.video_generation || {
       klingV3Omni: { ...DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS },
@@ -519,6 +524,7 @@ export function useSettingsWorkflowModels() {
     getProviderLabel: getSettingsProviderLabel,
     hasCompatibleModels,
     selectWorkflowCategory,
+    reloadModelSettings,
     updateWorkflowModel,
     updateVideoGenerationModelOptions,
     updateWorkflowGeminiImageSize,

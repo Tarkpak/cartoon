@@ -6,9 +6,9 @@
 import { eq } from 'drizzle-orm'
 import { db, systemConfig } from '../../db'
 import {
-  TEXT_MODELS,
-  IMAGE_MODELS,
-  VIDEO_MODELS,
+  getTextModels,
+  getImageModels,
+  getVideoModels,
   initializeSelectedModels,
   getSelectedModels,
   normalizeModelId
@@ -462,13 +462,13 @@ function getCompatibleModels(
 
   switch (category) {
     case 'text':
-      models = TEXT_MODELS
+      models = getTextModels()
       break
     case 'image':
-      models = IMAGE_MODELS
+      models = getImageModels()
       break
     case 'video':
-      models = VIDEO_MODELS
+      models = getVideoModels()
       break
   }
 

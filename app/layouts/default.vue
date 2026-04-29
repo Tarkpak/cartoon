@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FlaskConical, FileText, Palette, ScrollText } from 'lucide-vue-next'
+import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText } from 'lucide-vue-next'
 
 const route = useRoute()
 const { isDark, toggleTheme, initTheme } = useTheme()
@@ -16,7 +16,7 @@ const navigation = [
 ]
 
 type SettingsSection = 'models' | 'prompts' | 'styles'
-type SettingsModelSub = 'workflow' | 'test'
+type SettingsModelSub = 'providers' | 'workflow' | 'test'
 
 const settingsSubNavigation: Array<{
   name: string
@@ -25,9 +25,8 @@ const settingsSubNavigation: Array<{
   icon: unknown
 }> = [
   { name: '画风预设', section: 'styles', icon: Palette },
-  { name: '流程模型配置', section: 'models', sub: 'workflow', icon: Workflow },
-  { name: '提示词配置', section: 'prompts', icon: FileText },
-  { name: '模型测试', section: 'models', sub: 'test', icon: FlaskConical }
+  { name: '模型配置', section: 'models', sub: 'providers', icon: Workflow },
+  { name: '提示词配置', section: 'prompts', icon: FileText }
 ]
 
 function getSingleQueryValue(value: string | string[] | undefined): string | undefined {
@@ -45,7 +44,8 @@ const currentSettingsSection = computed<SettingsSection>(() => {
 
 const currentSettingsModelSub = computed<SettingsModelSub>(() => {
   const raw = getSingleQueryValue(route.query.sub as string | string[] | undefined)
-  return raw === 'test' ? 'test' : 'workflow'
+  if (raw === 'providers' || raw === 'workflow' || raw === 'test') return raw
+  return 'providers'
 })
 
 function isSettingsSubActive(item: { section: SettingsSection, sub?: SettingsModelSub }): boolean {
@@ -59,7 +59,7 @@ function getSettingsSubRoute(item: { section: SettingsSection, sub?: SettingsMod
   if (item.section === 'models') {
     return {
       path: '/settings',
-      query: { section: item.section, sub: item.sub || 'workflow' }
+      query: { section: item.section, sub: item.sub || 'providers' }
     }
   }
 

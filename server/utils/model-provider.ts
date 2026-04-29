@@ -9,8 +9,11 @@ import type {
   ImageModelConfig,
   VideoModelConfig,
   VoiceModelConfig,
-  SelectedModels
+  SelectedModels,
+  CustomOpenAIProviderConfig,
+  CustomOpenAIProviderPublicConfig
 } from '../../shared/types/provider'
+import { CustomOpenAIProviderConfigSchema } from '../../shared/types/provider'
 import { eq } from 'drizzle-orm'
 import { db, systemConfig } from '../db'
 
@@ -18,6 +21,12 @@ import * as gemini from './gemini'
 import * as qwen from './qwen'
 import * as kling from './kling'
 import * as volcengine from './volcengine'
+import {
+  generateOpenAICompatibleJSON,
+  generateOpenAICompatibleImage,
+  generateOpenAICompatibleText,
+  listOpenAICompatibleModels
+} from './openai-compatible'
 
 // 注意: GeminiError/GeminiErrorCode 请从 './gemini' 导入
 // 注意: QwenError/QwenErrorCode 请从 './qwen' 导入
@@ -80,6 +89,488 @@ export const TEXT_MODELS: TextModelConfig[] = [
     docUrl: 'https://www.volcengine.com/docs/82379/1330310'
   }
 ]
+
+const CUSTOM_OPENAI_CONFIG_KEY = 'custom_openai_provider'
+const PROVIDER_MODEL_CATALOG_KEY = 'provider_model_catalog'
+const QWEN_COMPATIBLE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+const VOLCENGINE_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
+
+type SyncableProvider = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'custom_openai'
+
+interface ProviderSyncedCatalogEntry {
+  models: string[]
+  availableModels?: string[]
+  syncedAt?: string
+  syncError?: string
+}
+
+type ProviderSyncedCatalog = Partial<Record<SyncableProvider, ProviderSyncedCatalogEntry>>
+
+export interface ModelProviderSummary {
+  provider: SyncableProvider
+  displayName: string
+  description: string
+  syncMode: 'official_api' | 'manual'
+  configured: boolean
+  supportedDynamicSync: boolean
+  syncedAt?: string
+  syncError?: string
+  modelCount: number
+  models: string[]
+  availableModels: string[]
+}
+
+const DEFAULT_CUSTOM_OPENAI_CONFIG: CustomOpenAIProviderConfig = {
+  enabled: false,
+  displayName: '自定义 OpenAI',
+  baseUrl: '',
+  apiKey: '',
+  textModels: [],
+  availableTextModels: [],
+  modelsSyncedAt: undefined,
+  modelsSyncError: undefined
+}
+
+let customOpenAIConfig: CustomOpenAIProviderConfig = { ...DEFAULT_CUSTOM_OPENAI_CONFIG }
+let providerSyncedCatalog: ProviderSyncedCatalog = {}
+
+async function readProviderModelCatalogFromDB(): Promise<ProviderSyncedCatalog> {
+  const rows = await db.select()
+    .from(systemConfig)
+    .where(eq(systemConfig.key, PROVIDER_MODEL_CATALOG_KEY))
+    .limit(1)
+
+  const row = rows[0]
+  if (!row?.value) return {}
+
+  try {
+    const parsed = JSON.parse(row.value) as ProviderSyncedCatalog
+    const normalized: ProviderSyncedCatalog = {}
+    for (const [provider, entry] of Object.entries(parsed) as Array<[SyncableProvider, ProviderSyncedCatalogEntry]>) {
+      normalized[provider] = {
+        models: Array.from(new Set((entry.models || []).map(model => normalizeModelId(model)).filter(Boolean))),
+        availableModels: Array.from(new Set((entry.availableModels || entry.models || []).map(model => normalizeModelId(model)).filter(Boolean))),
+        syncedAt: entry.syncedAt,
+        syncError: entry.syncError
+      }
+    }
+    return normalized
+  } catch {
+    return {}
+  }
+}
+
+async function saveProviderModelCatalogToDB(catalog: ProviderSyncedCatalog): Promise<void> {
+  const now = new Date().toISOString()
+  await db.insert(systemConfig)
+    .values({
+      key: PROVIDER_MODEL_CATALOG_KEY,
+      value: JSON.stringify(catalog),
+      updatedAt: now
+    })
+    .onConflictDoUpdate({
+      target: systemConfig.key,
+      set: {
+        value: JSON.stringify(catalog),
+        updatedAt: now
+      }
+    })
+  providerSyncedCatalog = catalog
+}
+
+function getSyncedModelSet(provider: SyncableProvider): Set<string> | null {
+  const entry = providerSyncedCatalog[provider]
+  if (!entry?.models?.length) return null
+  return new Set(entry.models.map(model => normalizeModelId(model)))
+}
+
+function filterModelsBySyncedCatalog<T extends { provider: string, model: string }>(models: T[]): T[] {
+  return models.filter((model) => {
+    const provider = model.provider as SyncableProvider
+    const synced = getSyncedModelSet(provider)
+    if (!synced) return true
+    return synced.has(normalizeModelId(model.model))
+  })
+}
+
+function normalizeCustomOpenAIConfig(raw: unknown): CustomOpenAIProviderConfig {
+  const parsed = CustomOpenAIProviderConfigSchema.safeParse(raw)
+  if (!parsed.success) {
+    return { ...DEFAULT_CUSTOM_OPENAI_CONFIG }
+  }
+
+  return {
+    ...parsed.data,
+    textModels: Array.from(new Set(
+      parsed.data.textModels
+        .map(model => normalizeModelId(model))
+        .filter(Boolean)
+    )),
+    availableTextModels: Array.from(new Set(
+      (parsed.data.availableTextModels.length > 0 ? parsed.data.availableTextModels : parsed.data.textModels)
+        .map(model => normalizeModelId(model))
+        .filter(Boolean)
+    ))
+  }
+}
+
+async function readCustomOpenAIConfigFromDB(): Promise<CustomOpenAIProviderConfig> {
+  const rows = await db.select()
+    .from(systemConfig)
+    .where(eq(systemConfig.key, CUSTOM_OPENAI_CONFIG_KEY))
+    .limit(1)
+
+  const row = rows[0]
+  if (!row?.value) {
+    return { ...DEFAULT_CUSTOM_OPENAI_CONFIG }
+  }
+
+  try {
+    return normalizeCustomOpenAIConfig(JSON.parse(row.value))
+  } catch {
+    return { ...DEFAULT_CUSTOM_OPENAI_CONFIG }
+  }
+}
+
+async function saveCustomOpenAIConfigToDB(config: CustomOpenAIProviderConfig): Promise<void> {
+  const normalized = normalizeCustomOpenAIConfig(config)
+  const now = new Date().toISOString()
+  await db.insert(systemConfig)
+    .values({
+      key: CUSTOM_OPENAI_CONFIG_KEY,
+      value: JSON.stringify(normalized),
+      updatedAt: now
+    })
+    .onConflictDoUpdate({
+      target: systemConfig.key,
+      set: {
+        value: JSON.stringify(normalized),
+        updatedAt: now
+      }
+    })
+  customOpenAIConfig = normalized
+}
+
+function buildCustomOpenAITextModels(): TextModelConfig[] {
+  if (!customOpenAIConfig.enabled) return []
+
+  return customOpenAIConfig.textModels.map(model => ({
+    provider: 'custom_openai',
+    model,
+    displayName: model,
+    description: `${customOpenAIConfig.displayName} - OpenAI 兼容文本模型`,
+    supportThinking: false
+  }))
+}
+
+function isCustomOpenAIImageModel(model: string): boolean {
+  return normalizeModelId(model).toLowerCase().includes('image')
+}
+
+function buildCustomOpenAIImageModels(): ImageModelConfig[] {
+  if (!customOpenAIConfig.enabled) return []
+
+  return customOpenAIConfig.textModels
+    .filter(isCustomOpenAIImageModel)
+    .map(model => ({
+      provider: 'custom_openai',
+      model,
+      displayName: model,
+      description: `${customOpenAIConfig.displayName} - OpenAI 兼容图片模型`,
+      supportedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
+      supportReferenceImage: false
+    }))
+}
+
+export function getCustomOpenAIProviderConfig(): CustomOpenAIProviderConfig {
+  return {
+    ...customOpenAIConfig,
+    textModels: [...customOpenAIConfig.textModels],
+    availableTextModels: [...customOpenAIConfig.availableTextModels]
+  }
+}
+
+export function getCustomOpenAIProviderPublicConfig(): CustomOpenAIProviderPublicConfig {
+  return {
+    enabled: customOpenAIConfig.enabled,
+    displayName: customOpenAIConfig.displayName,
+    baseUrl: customOpenAIConfig.baseUrl,
+    textModels: [...customOpenAIConfig.textModels],
+    availableTextModels: [...customOpenAIConfig.availableTextModels],
+    hasApiKey: !!customOpenAIConfig.apiKey,
+    modelsSyncedAt: customOpenAIConfig.modelsSyncedAt,
+    modelsSyncError: customOpenAIConfig.modelsSyncError
+  }
+}
+
+export async function initializeCustomOpenAIProvider(): Promise<void> {
+  customOpenAIConfig = await readCustomOpenAIConfigFromDB()
+  providerSyncedCatalog = await readProviderModelCatalogFromDB()
+}
+
+export async function setCustomOpenAIProviderConfig(
+  patch: Partial<CustomOpenAIProviderConfig> & { apiKey?: string | undefined }
+): Promise<CustomOpenAIProviderPublicConfig> {
+  const current = await readCustomOpenAIConfigFromDB()
+  const nextApiKey = Object.prototype.hasOwnProperty.call(patch, 'apiKey')
+    ? patch.apiKey
+    : current.apiKey
+
+  await saveCustomOpenAIConfigToDB({
+    ...current,
+    ...patch,
+    apiKey: nextApiKey || ''
+  })
+
+  return getCustomOpenAIProviderPublicConfig()
+}
+
+export async function syncCustomOpenAIProviderModels(
+  patch: Partial<CustomOpenAIProviderConfig> & { apiKey?: string | undefined } = {}
+): Promise<CustomOpenAIProviderPublicConfig> {
+  const current = await readCustomOpenAIConfigFromDB()
+  const nextApiKey = Object.prototype.hasOwnProperty.call(patch, 'apiKey')
+    ? patch.apiKey
+    : current.apiKey
+  const baseConfig = normalizeCustomOpenAIConfig({
+    ...current,
+    ...patch,
+    apiKey: nextApiKey || current.apiKey || ''
+  })
+
+  try {
+    const availableTextModels = await listOpenAICompatibleModels(baseConfig)
+    const previousEnabled = new Set(baseConfig.textModels)
+    const textModels = baseConfig.textModels.length > 0
+      ? availableTextModels.filter(model => previousEnabled.has(model))
+      : availableTextModels
+    const synced = normalizeCustomOpenAIConfig({
+      ...baseConfig,
+      enabled: true,
+      textModels,
+      availableTextModels,
+      modelsSyncedAt: new Date().toISOString(),
+      modelsSyncError: undefined
+    })
+    await saveCustomOpenAIConfigToDB(synced)
+    return getCustomOpenAIProviderPublicConfig()
+  } catch (error) {
+    const failed = normalizeCustomOpenAIConfig({
+      ...baseConfig,
+      modelsSyncError: error instanceof Error ? error.message : String(error)
+    })
+    await saveCustomOpenAIConfigToDB(failed)
+    throw error
+  }
+}
+
+function getRuntimeProviderConfig(provider: SyncableProvider): { apiKey?: string, baseUrl?: string, configured: boolean } {
+  const runtimeConfig = useRuntimeConfig()
+
+  if (provider === 'qwen') {
+    const apiKey = String(runtimeConfig.qwenApiKey || '').trim()
+    return { apiKey, baseUrl: QWEN_COMPATIBLE_URL, configured: !!apiKey }
+  }
+
+  if (provider === 'volcengine') {
+    const apiKey = String(runtimeConfig.volcengineApiKey || '').trim()
+    return { apiKey, baseUrl: VOLCENGINE_BASE_URL, configured: !!apiKey }
+  }
+
+  if (provider === 'gemini') {
+    const apiKey = String(runtimeConfig.geminiApiKey || '').trim()
+    return { apiKey, configured: !!apiKey }
+  }
+
+  if (provider === 'kling') {
+    const accessKey = String(runtimeConfig.klingAccessKey || '').trim()
+    const secretKey = String(runtimeConfig.klingSecretKey || '').trim()
+    return { configured: !!accessKey && !!secretKey }
+  }
+
+  return {
+    apiKey: customOpenAIConfig.apiKey,
+    baseUrl: customOpenAIConfig.baseUrl,
+    configured: !!customOpenAIConfig.apiKey && !!customOpenAIConfig.baseUrl
+  }
+}
+
+function getStaticProviderModels(provider: SyncableProvider): string[] {
+  return Array.from(new Set(
+    [...TEXT_MODELS, ...IMAGE_MODELS, ...VIDEO_MODELS, ...VOICE_MODELS]
+      .filter(model => model.provider === provider)
+      .map(model => model.model)
+  )).sort((a, b) => a.localeCompare(b))
+}
+
+async function syncOpenAICompatibleProviderCatalog(
+  provider: Extract<SyncableProvider, 'qwen' | 'volcengine'>
+): Promise<ProviderSyncedCatalogEntry> {
+  const cfg = getRuntimeProviderConfig(provider)
+  if (!cfg.configured || !cfg.apiKey || !cfg.baseUrl) {
+    throw new Error(`${provider} API Key 未配置`)
+  }
+
+  const availableModels = await listOpenAICompatibleModels({
+    apiKey: cfg.apiKey,
+    baseUrl: cfg.baseUrl
+  })
+  const previousEnabled = new Set(providerSyncedCatalog[provider]?.models || [])
+  const models = previousEnabled.size > 0
+    ? availableModels.filter(model => previousEnabled.has(model))
+    : availableModels
+
+  return {
+    models,
+    availableModels,
+    syncedAt: new Date().toISOString(),
+    syncError: undefined
+  }
+}
+
+export async function syncModelProviderCatalog(provider: SyncableProvider): Promise<ModelProviderSummary> {
+  await initializeCustomOpenAIProvider()
+  const catalog = await readProviderModelCatalogFromDB()
+
+  try {
+    if (provider === 'custom_openai') {
+      await syncCustomOpenAIProviderModels()
+      providerSyncedCatalog = await readProviderModelCatalogFromDB()
+      return getModelProviderSummaries().find(item => item.provider === provider)!
+    }
+
+    if (provider !== 'qwen' && provider !== 'volcengine') {
+      throw new Error(`${provider} 暂无官方模型列表同步接口，继续使用本地能力表`)
+    }
+
+    catalog[provider] = await syncOpenAICompatibleProviderCatalog(provider)
+    await saveProviderModelCatalogToDB(catalog)
+    return getModelProviderSummaries().find(item => item.provider === provider)!
+  } catch (error) {
+    catalog[provider] = {
+      models: catalog[provider]?.models || [],
+      availableModels: catalog[provider]?.availableModels || [],
+      syncedAt: catalog[provider]?.syncedAt,
+      syncError: error instanceof Error ? error.message : String(error)
+    }
+    await saveProviderModelCatalogToDB(catalog)
+    throw error
+  }
+}
+
+export async function setModelProviderEnabledModels(
+  provider: SyncableProvider,
+  models: string[]
+): Promise<ModelProviderSummary> {
+  await initializeCustomOpenAIProvider()
+  const enabledModels = Array.from(new Set(models.map(model => normalizeModelId(model)).filter(Boolean)))
+
+  if (provider === 'custom_openai') {
+    const current = await readCustomOpenAIConfigFromDB()
+    await saveCustomOpenAIConfigToDB({
+      ...current,
+      textModels: enabledModels,
+      enabled: current.enabled || enabledModels.length > 0
+    })
+    return getModelProviderSummaries().find(item => item.provider === provider)!
+  }
+
+  const catalog = await readProviderModelCatalogFromDB()
+  const availableModels = catalog[provider]?.availableModels?.length
+    ? catalog[provider]!.availableModels!
+    : getStaticProviderModels(provider)
+
+  catalog[provider] = {
+    ...catalog[provider],
+    availableModels,
+    models: enabledModels.filter(model => availableModels.includes(model))
+  }
+  await saveProviderModelCatalogToDB(catalog)
+  return getModelProviderSummaries().find(item => item.provider === provider)!
+}
+
+export function getModelProviderSummaries(): ModelProviderSummary[] {
+  const providers: Array<Omit<ModelProviderSummary, 'configured' | 'syncedAt' | 'syncError' | 'modelCount' | 'models' | 'availableModels'>> = [
+    {
+      provider: 'qwen',
+      displayName: '通义千问',
+      description: '通过 DashScope OpenAI 兼容 /models 同步账号可用模型，再按本地能力表过滤可用流程模型。',
+      syncMode: 'official_api',
+      supportedDynamicSync: true
+    },
+    {
+      provider: 'volcengine',
+      displayName: '火山引擎',
+      description: '通过方舟 OpenAI 兼容 /models 同步账号可用模型，再按本地能力表过滤可用流程模型。',
+      syncMode: 'official_api',
+      supportedDynamicSync: true
+    },
+    {
+      provider: 'custom_openai',
+      displayName: customOpenAIConfig.displayName || '自定义 OpenAI',
+      description: '通过自定义 OpenAI 兼容 /models 同步模型，默认接入文本生成流程。',
+      syncMode: 'official_api',
+      supportedDynamicSync: true
+    },
+    {
+      provider: 'gemini',
+      displayName: 'Google Gemini',
+      description: '当前使用本地能力表；模型能力仍由 Gemini 专用接口和仓库能力配置约束。',
+      syncMode: 'manual',
+      supportedDynamicSync: false
+    },
+    {
+      provider: 'kling',
+      displayName: '可灵 AI',
+      description: '当前使用本地能力表；图片/视频能力依赖可灵专用接口参数。',
+      syncMode: 'manual',
+      supportedDynamicSync: false
+    }
+  ]
+
+  return providers.map((provider) => {
+    const synced = providerSyncedCatalog[provider.provider]
+    const availableModels = provider.provider === 'custom_openai'
+      ? customOpenAIConfig.availableTextModels.length > 0
+        ? customOpenAIConfig.availableTextModels
+        : customOpenAIConfig.textModels
+      : synced?.availableModels?.length
+        ? synced.availableModels
+        : getStaticProviderModels(provider.provider)
+    const models = provider.provider === 'custom_openai'
+      ? customOpenAIConfig.textModels
+      : synced?.models?.length
+        ? synced.models
+        : availableModels
+    const runtime = getRuntimeProviderConfig(provider.provider)
+
+    return {
+      ...provider,
+      configured: runtime.configured,
+      syncedAt: provider.provider === 'custom_openai' ? customOpenAIConfig.modelsSyncedAt : synced?.syncedAt,
+      syncError: provider.provider === 'custom_openai' ? customOpenAIConfig.modelsSyncError : synced?.syncError,
+      modelCount: models.length,
+      models,
+      availableModels
+    }
+  })
+}
+
+export function getTextModels(): TextModelConfig[] {
+  return filterModelsBySyncedCatalog([...TEXT_MODELS, ...buildCustomOpenAITextModels()])
+}
+
+export function getImageModels(): ImageModelConfig[] {
+  return filterModelsBySyncedCatalog([...IMAGE_MODELS, ...buildCustomOpenAIImageModels()])
+}
+
+export function getVideoModels(): VideoModelConfig[] {
+  return filterModelsBySyncedCatalog(VIDEO_MODELS)
+}
+
+export function getVoiceModels(): VoiceModelConfig[] {
+  return filterModelsBySyncedCatalog(VOICE_MODELS)
+}
 
 const GEMINI_31_FLASH_IMAGE_ASPECT_RATIOS = [
   '1:1',
@@ -483,6 +974,8 @@ export async function initializeSelectedModels(): Promise<void> {
   }
 
   try {
+    await initializeCustomOpenAIProvider()
+
     const rows = await db.select()
       .from(systemConfig)
       .where(eq(systemConfig.key, SELECTED_MODELS_KEY))
@@ -520,27 +1013,27 @@ export async function setSelectedModel(type: keyof SelectedModels, modelId: stri
 
 export function findTextModel(modelId: string): TextModelConfig | undefined {
   const normalizedModelId = normalizeModelId(modelId)
-  return TEXT_MODELS.find(m => m.model === normalizedModelId)
+  return getTextModels().find(m => m.model === normalizedModelId)
 }
 
 export function findImageModel(modelId: string): ImageModelConfig | undefined {
   const normalizedModelId = normalizeModelId(modelId)
-  return IMAGE_MODELS.find(m => m.model === normalizedModelId)
+  return getImageModels().find(m => m.model === normalizedModelId)
 }
 
 export function findVideoModel(modelId: string): VideoModelConfig | undefined {
   const normalizedModelId = normalizeModelId(modelId)
-  return VIDEO_MODELS.find(m => m.model === normalizedModelId)
+  return getVideoModels().find(m => m.model === normalizedModelId)
 }
 
 export function findVoiceModel(modelId: string): VoiceModelConfig | undefined {
   const normalizedModelId = normalizeModelId(modelId)
-  return VOICE_MODELS.find(m => m.model === normalizedModelId)
+  return getVoiceModels().find(m => m.model === normalizedModelId)
 }
 
 function getProviderFromModel(modelId: string): ModelProvider {
   const normalizedModelId = normalizeModelId(modelId)
-  const allModels = [...TEXT_MODELS, ...IMAGE_MODELS, ...VIDEO_MODELS, ...VOICE_MODELS]
+  const allModels = [...getTextModels(), ...getImageModels(), ...getVideoModels(), ...getVoiceModels()]
   const model = allModels.find(m => m.model === normalizedModelId)
   return model?.provider || 'gemini'
 }
@@ -585,6 +1078,17 @@ export async function generateText(options: {
     })
   }
 
+  if (provider === 'custom_openai') {
+    return generateOpenAICompatibleText({
+      providerConfig: getCustomOpenAIProviderConfig(),
+      model: modelId,
+      prompt: options.prompt,
+      systemInstruction: options.systemInstruction,
+      temperature: options.temperature,
+      maxRetries: options.maxRetries
+    })
+  }
+
   // 默认使用 Gemini
   return gemini._geminiGenerateText({
     model: modelId,
@@ -620,6 +1124,17 @@ export async function generateJSON<T>(options: {
 
   if (provider === 'volcengine') {
     return volcengine._volcengineGenerateJSON<T>({
+      model: modelId,
+      prompt: options.prompt,
+      systemInstruction: options.systemInstruction,
+      temperature: options.temperature,
+      maxRetries: options.maxRetries
+    })
+  }
+
+  if (provider === 'custom_openai') {
+    return generateOpenAICompatibleJSON<T>({
+      providerConfig: getCustomOpenAIProviderConfig(),
       model: modelId,
       prompt: options.prompt,
       systemInstruction: options.systemInstruction,
@@ -707,6 +1222,16 @@ export async function generateImage(options: {
       maxRetries: options.maxRetries
     })
     return { imageUrl: result.imageUrl }
+  }
+
+  if (provider === 'custom_openai') {
+    return generateOpenAICompatibleImage({
+      providerConfig: getCustomOpenAIProviderConfig(),
+      model: modelId,
+      prompt: options.prompt,
+      size: options.size,
+      maxRetries: options.maxRetries
+    })
   }
 
   // Gemini
