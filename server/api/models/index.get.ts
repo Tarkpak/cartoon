@@ -4,10 +4,10 @@
  */
 
 import {
-  TEXT_MODELS,
-  IMAGE_MODELS,
-  VIDEO_MODELS,
-  VOICE_MODELS,
+  getTextModels,
+  getImageModels,
+  getVideoModels,
+  getVoiceModels,
   initializeSelectedModels,
   getSelectedModels
 } from '../../utils/model-provider'
@@ -19,10 +19,10 @@ export default defineEventHandler(async () => {
     success: true,
     data: {
       available: {
-        text: TEXT_MODELS,
-        image: IMAGE_MODELS,
-        video: VIDEO_MODELS,
-        voice: VOICE_MODELS
+        text: getTextModels(),
+        image: getImageModels(),
+        video: getVideoModels(),
+        voice: getVoiceModels()
       },
       selected: getSelectedModels()
     }

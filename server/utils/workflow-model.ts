@@ -4,10 +4,17 @@
  */
 
 import type { WorkflowStep } from '#shared/types/workflow-models'
-import { findTextModel } from './model-provider'
+import {
+  findTextModel,
+  getCustomOpenAIProviderConfig
+} from './model-provider'
 import * as gemini from './gemini'
 import * as qwen from './qwen'
 import * as volcengine from './volcengine'
+import {
+  generateOpenAICompatibleJSON,
+  generateOpenAICompatibleText
+} from './openai-compatible'
 import { getWorkflowModels } from '../api/models/workflow.get'
 
 /**
@@ -61,6 +68,17 @@ export async function generateTextForWorkflow(
     })
   }
 
+  if (provider === 'custom_openai') {
+    return generateOpenAICompatibleText({
+      providerConfig: getCustomOpenAIProviderConfig(),
+      model: modelId,
+      prompt: options.prompt,
+      systemInstruction: options.systemInstruction,
+      temperature: options.temperature,
+      maxRetries: options.maxRetries
+    })
+  }
+
   // Gemini
   return gemini._geminiGenerateText({
     model: modelId,
@@ -102,6 +120,17 @@ export async function generateJSONForWorkflow<T>(
 
   if (provider === 'volcengine') {
     return volcengine._volcengineGenerateJSON<T>({
+      model: modelId,
+      prompt: options.prompt,
+      systemInstruction: options.systemInstruction,
+      temperature: options.temperature,
+      maxRetries: options.maxRetries
+    })
+  }
+
+  if (provider === 'custom_openai') {
+    return generateOpenAICompatibleJSON<T>({
+      providerConfig: getCustomOpenAIProviderConfig(),
       model: modelId,
       prompt: options.prompt,
       systemInstruction: options.systemInstruction,

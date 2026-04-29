@@ -11,6 +11,7 @@ import {
   generateImage,
   generateVideo,
   textToSpeech,
+  initializeSelectedModels,
   getSelectedModels,
   findTextModel,
   findImageModel,
@@ -236,6 +237,8 @@ async function waitForVideoTask(
 }
 
 export default defineEventHandler(async (event) => {
+  await initializeSelectedModels()
+
   const body = await readBody(event)
   const parseResult = TestRequestSchema.safeParse(body || {})
 
