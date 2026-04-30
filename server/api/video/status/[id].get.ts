@@ -8,13 +8,19 @@ import {
   type UpstreamVideoTaskTracking
 } from '../../../utils/video-task-upstream'
 import {
-  persistGeneratedVideoFromRemoteUrl,
+  persistGeneratedVideoFromRemoteUrlWithBuffer,
   syncSceneVideoResult
 } from '../../../utils/video-task-storage'
 
 type VideoTaskRow = typeof videoTasks.$inferSelect
 
-function createCompletedTaskMetadata(upstreamTask: UpstreamVideoTaskTracking): string {
+function createCompletedTaskMetadata(upstreamTask: UpstreamVideoTaskTracking, lastFrame?: string): string {
+  if (lastFrame) {
+    upstreamTask.resultMetadata = {
+      ...upstreamTask.resultMetadata,
+      lastFrame
+    }
+  }
   return JSON.stringify(upstreamTask.resultMetadata)
 }
 
@@ -23,12 +29,14 @@ async function finalizeTrackedVideoTask(
   upstreamTask: UpstreamVideoTaskTracking,
   videoUrl: string
 ): Promise<VideoTaskRow> {
-  const videoData = await persistGeneratedVideoFromRemoteUrl({
+  const persistedVideo = await persistGeneratedVideoFromRemoteUrlWithBuffer({
     taskId: task.id,
     videoUrl
   })
+  const videoData = persistedVideo.videoData
 
-  const metadata = createCompletedTaskMetadata(upstreamTask)
+  const syncResult = await syncSceneVideoResult(task.sceneId || '', videoData, persistedVideo.buffer)
+  const metadata = createCompletedTaskMetadata(upstreamTask, syncResult.lastFrame)
   const updatedAt = new Date().toISOString()
 
   await db.update(videoTasks)
@@ -41,8 +49,6 @@ async function finalizeTrackedVideoTask(
       updatedAt
     })
     .where(eq(videoTasks.id, task.id))
-
-  await syncSceneVideoResult(task.sceneId || '', videoData)
 
   return {
     ...task,
@@ -202,6 +208,7 @@ export default defineEventHandler(async (event) => {
             id: `generated_${task.id}`,
             sceneId: task.sceneId,
             videoData: task.videoData,
+            lastFrame: typeof metadata.lastFrame === 'string' ? metadata.lastFrame : undefined,
             metadata,
             createdAt: task.createdAt
           }

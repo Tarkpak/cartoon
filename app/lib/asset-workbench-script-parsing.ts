@@ -25,6 +25,8 @@ interface ParsedScriptScene {
   characters: Array<{ name: string, appearance?: string, emotion?: string }>
   dialogues?: Array<{ character: string, text: string, emotion?: string }>
   narration?: string | null
+  usePreviousLastFrameAsFirstFrame?: boolean
+  continuityLinkReason?: string
   duration: number
   setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string }
 }
@@ -75,6 +77,8 @@ export function buildParsedScenes(options: {
       transitionIn: 'cut',
       transitionOut: 'cut',
       transitionDuration: 0.5,
+      usePreviousLastFrameAsFirstFrame: scene.usePreviousLastFrameAsFirstFrame === true,
+      continuityLinkReason: scene.continuityLinkReason?.trim() || undefined,
       referenceError: undefined,
       videoError: undefined,
       referenceStatus: 'pending',

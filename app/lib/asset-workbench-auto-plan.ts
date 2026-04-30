@@ -108,6 +108,8 @@ function buildAutoSceneConfig(
     sceneId: scene.id,
     mustReferenceAssetIds: uniqueSorted(Array.from(refs)),
     consistencyLevel: characterRefs.length > 0 ? 'lock' : 'soft',
+    usePreviousLastFrameAsFirstFrame: index > 0 && scene.usePreviousLastFrameAsFirstFrame === true,
+    continuityLinkReason: scene.continuityLinkReason?.trim() || '',
     continuityNotes: buildContinuityNotes(
       scene,
       index,
@@ -164,6 +166,8 @@ function areSceneConfigsEqual(left: SceneConsistencyConfig, right: SceneConsiste
   return left.sceneId === right.sceneId
     && left.consistencyLevel === right.consistencyLevel
     && left.continuityNotes.trim() === right.continuityNotes.trim()
+    && left.usePreviousLastFrameAsFirstFrame === right.usePreviousLastFrameAsFirstFrame
+    && (left.continuityLinkReason || '').trim() === (right.continuityLinkReason || '').trim()
     && left.mustReferenceAssetIds.join('||') === right.mustReferenceAssetIds.join('||')
 }
 
@@ -203,14 +207,18 @@ export function applyAutomaticAssetPlan(
             ...autoConfig.mustReferenceAssetIds
           ]),
           consistencyLevel: existing.consistencyLevel === 'lock' || autoConfig.consistencyLevel === 'lock' ? 'lock' : 'soft',
-          continuityNotes: existing.continuityNotes.trim() || autoConfig.continuityNotes
+          continuityNotes: existing.continuityNotes.trim() || autoConfig.continuityNotes,
+          usePreviousLastFrameAsFirstFrame: existing.usePreviousLastFrameAsFirstFrame ?? autoConfig.usePreviousLastFrameAsFirstFrame,
+          continuityLinkReason: existing.continuityLinkReason?.trim() || autoConfig.continuityLinkReason
         }
 
     const normalizedConfig: SceneConsistencyConfig = {
       sceneId: baseConfig.sceneId,
       mustReferenceAssetIds: baseConfig.mustReferenceAssetIds.filter(assetId => validAssetIds.has(assetId)),
       consistencyLevel: baseConfig.consistencyLevel,
-      continuityNotes: baseConfig.continuityNotes.trim()
+      continuityNotes: baseConfig.continuityNotes.trim(),
+      usePreviousLastFrameAsFirstFrame: index > 0 && baseConfig.usePreviousLastFrameAsFirstFrame === true,
+      continuityLinkReason: baseConfig.continuityLinkReason?.trim() || ''
     }
 
     if (

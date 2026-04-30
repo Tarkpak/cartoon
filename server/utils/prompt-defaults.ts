@@ -196,6 +196,8 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 5. scenes[i].setting.location 请优先使用”主环境-子空间”或”主环境/子空间”的中性命名。
 6. 同一主环境在不同子空间中必须保持一致的建筑年代、装修档次、材质语言和维护状态。
 7. 除非原文明确说明新旧分区或废弃区，禁止输出互相冲突的环境风格。
+8. scenes[i].usePreviousLastFrameAsFirstFrame 用于判断是否建议“用上一镜头末帧作为本镜头首帧参考”：第一场必须为 false；同一分集内地点/时间/人物/动作连续、无硬切/闪回/蒙太奇/大幅时间跳跃时可为 true；地点切换、时间跳跃、闪回、蒙太奇、新段落或新分集必须为 false。
+9. scenes[i].continuityLinkReason 仅在 usePreviousLastFrameAsFirstFrame 为 true 时填写一句简短原因，否则留空字符串。
 
 【description 富化规则】
 1. 每个场景的 description 必须是“可直接拍摄”的详细场景说明块，不得只写一句概述，也不要退化成纯散文。
@@ -266,6 +268,8 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
         }
       ],
       "narration": "旁白/画外音（可选）",
+      "usePreviousLastFrameAsFirstFrame": false,
+      "continuityLinkReason": "",
       "duration": 8
     }
   ],
@@ -462,6 +466,8 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 2. scenes[i].cameraMovement 只能是：static、push、pull、pan_left、pan_right、tilt_up、tilt_down、track、dolly、zoom_in、zoom_out、crane、handheld、arc。
 3. scenes[i].setting.timeOfDay 只能是：黎明、早晨、白天、中午、下午、傍晚、夜晚。
 4. scenes[i].setting.era 只能是：古代、民国、现代、近未来、架空。若原文不明确且画风包含 AI真人/live action，默认使用“现代”。
+5. scenes[i].usePreviousLastFrameAsFirstFrame 用于判断是否建议“用上一镜头末帧作为本镜头首帧参考”：第一场必须为 false；同一分集内地点/时间/人物/动作连续、无硬切/闪回/蒙太奇/大幅时间跳跃时可为 true；地点切换、时间跳跃、闪回、蒙太奇、新段落或新分集必须为 false。
+6. scenes[i].continuityLinkReason 仅在 usePreviousLastFrameAsFirstFrame 为 true 时填写一句简短原因，否则留空字符串。
 
 【description 写作规则】
 1. 必须是“可拍摄”的时间轴分镜块，禁止一句话概述。
@@ -510,6 +516,8 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
         }
       ],
       "narration": "旁白/画外音（可选）",
+      "usePreviousLastFrameAsFirstFrame": false,
+      "continuityLinkReason": "",
       "duration": 8
     }
   ],

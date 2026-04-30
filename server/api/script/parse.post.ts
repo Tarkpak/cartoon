@@ -777,6 +777,7 @@ function normalizeParsedScriptOutput(
     const normalizedEra = normalizeOptionalSceneEraValue(rawSetting.era)
       || inferSceneEraFromText(fallbackText)
       || options.fallbackEra
+    const continuityEnabled = index > 0 && sceneObj.usePreviousLastFrameAsFirstFrame === true
     return {
       ...sceneObj,
       id: typeof sceneObj.id === 'string' && sceneObj.id.trim().length > 0
@@ -784,6 +785,10 @@ function normalizeParsedScriptOutput(
         : `scene_${String(index + 1).padStart(3, '0')}`,
       shotType: normalizeShotType(sceneObj.shotType ?? sceneObj.shot_type, fallbackText),
       cameraMovement: normalizeCameraMovement(sceneObj.cameraMovement ?? sceneObj.camera_movement, fallbackText),
+      usePreviousLastFrameAsFirstFrame: continuityEnabled,
+      continuityLinkReason: continuityEnabled && typeof sceneObj.continuityLinkReason === 'string'
+        ? sceneObj.continuityLinkReason.trim()
+        : '',
       duration: normalizeSceneDuration(sceneObj.duration),
       setting: {
         ...rawSetting,
