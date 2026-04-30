@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
+  assertEquirectangularPanoramaSize,
   buildDefaultCropSelection,
+  isEquirectangularPanoramaSize,
   normalizeCropSelection,
   normalizePanoramaSelection,
   resolveCropSelectionAspectRatio,
   resolveCropSelectionCoverage,
   resolveCropSelectionOutputSize,
-  resolveMaxCropSelection
+  resolveMaxCropSelection,
+  resolvePanoramaSelectionHeightForAspectRatio,
+  resolvePerspectiveVerticalFov
 } from './asset-workbench-environment-panorama'
 
 describe('environment panorama crop helpers', () => {
@@ -17,9 +21,24 @@ describe('environment panorama crop helpers', () => {
     })
 
     expect(selection.width).toBeCloseTo(0.22, 5)
-    expect(selection.height).toBeCloseTo(0.4, 5)
+    expect(selection.height).toBeCloseTo(0.27727, 5)
     expect(selection.x).toBeCloseTo(0.39, 5)
-    expect(selection.y).toBeCloseTo(0.3, 5)
+    expect(selection.y).toBeCloseTo(0.36136, 5)
+  })
+
+  it('validates 2:1 equirectangular panorama source dimensions', () => {
+    expect(isEquirectangularPanoramaSize(2048, 1024)).toBe(true)
+    expect(isEquirectangularPanoramaSize(2000, 1000)).toBe(true)
+    expect(isEquirectangularPanoramaSize(1920, 1080)).toBe(false)
+    expect(() => assertEquirectangularPanoramaSize(1920, 1080)).toThrow('2:1')
+  })
+
+  it('derives vertical FOV from horizontal FOV and output aspect ratio', () => {
+    const horizontalFov = 0.22 * Math.PI * 2
+    const verticalFov = resolvePerspectiveVerticalFov(horizontalFov, 16 / 9)
+
+    expect(verticalFov).toBeCloseTo(0.87108, 5)
+    expect(resolvePanoramaSelectionHeightForAspectRatio(0.22, 16 / 9)).toBeCloseTo(0.27727, 5)
   })
 
   it('normalizes both horizontal and vertical bounds inside the source image', () => {

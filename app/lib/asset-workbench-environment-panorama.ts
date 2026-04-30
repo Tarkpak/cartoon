@@ -1,4 +1,4 @@
-import { toCanvasSafeImageSrc } from '~/lib/media'
+import { toCanvasSafeImageSrc } from './media'
 import type {
   EnvironmentCropSelection
 } from '~/lib/asset-workbench-types'
@@ -6,16 +6,29 @@ import type {
 const MIN_CROP_WIDTH = 0.08
 const MIN_CROP_HEIGHT = 0.08
 const DEFAULT_CROP_WIDTH = 0.22
-const DEFAULT_CROP_HEIGHT = 0.4
+const DEFAULT_OUTPUT_ASPECT_RATIO = 16 / 9
 const MIN_CROP_COVERAGE = 0.35
 const DEFAULT_CROP_COVERAGE = 1
 const MAX_CROP_WIDTH = 1
 const MAX_CROP_HEIGHT = 1
 const DEFAULT_OUTPUT_PIXELS = 1280 * 720
+const EQUIRECTANGULAR_ASPECT_RATIO = 2
+const EQUIRECTANGULAR_ASPECT_RATIO_TOLERANCE = 0.03
+const MIN_PERSPECTIVE_FOV = Math.PI / 8
+const MAX_PERSPECTIVE_FOV = Math.PI * 0.95
 
 interface CropImageMetrics {
   width: number
   height: number
+}
+
+export interface PanoramaImageLoadResult extends CropImageMetrics {
+  image: HTMLImageElement
+}
+
+export interface PanoramaRenderResult {
+  imageData: string
+  crop: EnvironmentCropSelection
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -30,6 +43,39 @@ function resolveSelectionBounds() {
     maxWidth: MAX_CROP_WIDTH,
     maxHeight: MAX_CROP_HEIGHT
   }
+}
+
+export function isEquirectangularPanoramaSize(width: number, height: number): boolean {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return false
+  }
+
+  return Math.abs((width / height) - EQUIRECTANGULAR_ASPECT_RATIO) <= EQUIRECTANGULAR_ASPECT_RATIO_TOLERANCE
+}
+
+export function assertEquirectangularPanoramaSize(width: number, height: number) {
+  if (!isEquirectangularPanoramaSize(width, height)) {
+    throw new Error('环境全景图必须是 2:1 的 equirectangular projection（等距柱状投影图）')
+  }
+}
+
+export function resolvePerspectiveVerticalFov(horizontalFov: number, outputAspectRatio: number): number {
+  const safeHorizontalFov = clamp(horizontalFov, MIN_PERSPECTIVE_FOV, MAX_PERSPECTIVE_FOV)
+  const safeOutputAspectRatio = Number.isFinite(outputAspectRatio) && outputAspectRatio > 0
+    ? outputAspectRatio
+    : DEFAULT_OUTPUT_ASPECT_RATIO
+
+  return clamp(
+    2 * Math.atan(Math.tan(safeHorizontalFov / 2) / safeOutputAspectRatio),
+    MIN_PERSPECTIVE_FOV,
+    MAX_PERSPECTIVE_FOV
+  )
+}
+
+export function resolvePanoramaSelectionHeightForAspectRatio(width: number, outputAspectRatio = DEFAULT_OUTPUT_ASPECT_RATIO): number {
+  const horizontalFov = clamp(width * Math.PI * 2, MIN_PERSPECTIVE_FOV, MAX_PERSPECTIVE_FOV)
+  const verticalFov = resolvePerspectiveVerticalFov(horizontalFov, outputAspectRatio)
+  return clamp(verticalFov / Math.PI, MIN_CROP_HEIGHT, MAX_CROP_HEIGHT)
 }
 
 export function resolveMaxCropSelection(
@@ -53,7 +99,8 @@ export function resolveCropSelectionAspectRatio(
   sourceHeight: number = 1
 ): number {
   if (!selection || selection.width <= 0 || selection.height <= 0) {
-    return clamp((DEFAULT_CROP_WIDTH * sourceWidth) / (DEFAULT_CROP_HEIGHT * sourceHeight), 0.2, 5)
+    const defaultHeight = resolvePanoramaSelectionHeightForAspectRatio(DEFAULT_CROP_WIDTH)
+    return clamp((DEFAULT_CROP_WIDTH * sourceWidth) / (defaultHeight * sourceHeight), 0.2, 5)
   }
 
   return clamp((selection.width * sourceWidth) / (selection.height * sourceHeight), 0.2, 8)
@@ -67,7 +114,11 @@ export function buildDefaultCropSelection(options: {
   const bounds = resolveSelectionBounds()
   const coverage = clamp(options.coverage ?? DEFAULT_CROP_COVERAGE, MIN_CROP_COVERAGE, 1)
   const width = clamp(DEFAULT_CROP_WIDTH * coverage, bounds.minWidth, bounds.maxWidth)
-  const height = clamp(DEFAULT_CROP_HEIGHT * coverage, bounds.minHeight, bounds.maxHeight)
+  const height = clamp(
+    resolvePanoramaSelectionHeightForAspectRatio(width),
+    bounds.minHeight,
+    bounds.maxHeight
+  )
 
   return {
     x: (1 - width) / 2,
@@ -142,7 +193,7 @@ export function normalizePanoramaSelection(
   return { x, y, width, height }
 }
 
-export async function loadCropImageMetrics(sourceImage: string): Promise<CropImageMetrics> {
+export async function loadPanoramaImage(sourceImage: string): Promise<PanoramaImageLoadResult> {
   const src = toCanvasSafeImageSrc(sourceImage)
   if (!src) {
     throw new Error('环境全景图不存在，无法选取区域')
@@ -159,13 +210,26 @@ export async function loadCropImageMetrics(sourceImage: string): Promise<CropIma
         return
       }
 
-      resolve({ width, height })
+      try {
+        assertEquirectangularPanoramaSize(width, height)
+      } catch (error) {
+        reject(error)
+        return
+      }
+
+      resolve({ image, width, height })
     }
     image.onerror = () => {
       reject(new Error('环境全景图加载失败，请稍后重试'))
     }
+    image.crossOrigin = 'anonymous'
     image.src = src
   })
+}
+
+export async function loadCropImageMetrics(sourceImage: string): Promise<CropImageMetrics> {
+  const { width, height } = await loadPanoramaImage(sourceImage)
+  return { width, height }
 }
 
 export function resolveCropSelectionOutputSize(options: {
@@ -453,6 +517,7 @@ export function renderPanoramaSelectionToCanvas(options: {
   if (!sourceWidth || !sourceHeight) {
     throw new Error('环境全景图尺寸无效，无法生成截图')
   }
+  assertEquirectangularPanoramaSize(sourceWidth, sourceHeight)
 
   const outputWidth = Math.max(1, Math.round(options.width || options.canvas.width || 1280))
   const outputHeight = Math.max(1, Math.round(options.height || options.canvas.height || 720))
@@ -463,8 +528,8 @@ export function renderPanoramaSelectionToCanvas(options: {
   const gl = state.gl
   const centerYaw = (options.selection.x + options.selection.width / 2) * Math.PI * 2 - Math.PI
   const centerPitch = (0.5 - (options.selection.y + options.selection.height / 2)) * Math.PI
-  const horizontalFov = Math.min(Math.PI * 1.8, Math.max(Math.PI / 8, options.selection.width * Math.PI * 2))
-  const verticalFov = Math.min(Math.PI * 0.95, Math.max(Math.PI / 10, options.selection.height * Math.PI))
+  const horizontalFov = clamp(options.selection.width * Math.PI * 2, MIN_PERSPECTIVE_FOV, MAX_PERSPECTIVE_FOV)
+  const verticalFov = resolvePerspectiveVerticalFov(horizontalFov, outputWidth / outputHeight)
 
   gl.viewport(0, 0, outputWidth, outputHeight)
   gl.useProgram(state.program)
@@ -498,45 +563,27 @@ export async function renderPanoramaSelectionToDataUrl(options: {
   sourceImage: string
   selection: EnvironmentCropSelection
   outputSize?: CropImageMetrics
-}): Promise<string> {
-  const src = toCanvasSafeImageSrc(options.sourceImage)
-  if (!src) {
-    throw new Error('环境全景图不存在，无法生成截图')
+}): Promise<PanoramaRenderResult> {
+  const { image, width, height } = await loadPanoramaImage(options.sourceImage)
+  const normalizedSelection = normalizePanoramaSelection(options.selection, width, height)
+  if (!normalizedSelection) {
+    throw new Error('取景区域无效，无法生成环境图')
   }
 
-  return await new Promise((resolve, reject) => {
-    const image = new Image()
-    image.crossOrigin = 'anonymous'
-    image.onload = () => {
-      try {
-        const width = image.naturalWidth || image.width
-        const height = image.naturalHeight || image.height
-        const normalizedSelection = normalizePanoramaSelection(options.selection, width, height)
-        if (!normalizedSelection) {
-          reject(new Error('取景区域无效，无法生成环境图'))
-          return
-        }
-
-        const outputSize = options.outputSize || {
-          width: 1920,
-          height: 1080
-        }
-        const canvas = document.createElement('canvas')
-        renderPanoramaSelectionToCanvas({
-          image,
-          canvas,
-          selection: normalizedSelection,
-          width: outputSize.width,
-          height: outputSize.height
-        })
-        resolve(canvas.toDataURL('image/png'))
-      } catch (error) {
-        reject(error)
-      }
-    }
-    image.onerror = () => {
-      reject(new Error('环境全景图加载失败，无法生成截图'))
-    }
-    image.src = src
+  const outputSize = options.outputSize || {
+    width: 1920,
+    height: 1080
+  }
+  const canvas = document.createElement('canvas')
+  renderPanoramaSelectionToCanvas({
+    image,
+    canvas,
+    selection: normalizedSelection,
+    width: outputSize.width,
+    height: outputSize.height
   })
+  return {
+    imageData: canvas.toDataURL('image/png'),
+    crop: normalizedSelection
+  }
 }
