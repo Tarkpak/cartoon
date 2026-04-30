@@ -2,7 +2,6 @@ import type { ImageModelConfig } from '../../../../shared/types/provider'
 
 const PANORAMA_SOURCE_DEFAULT_IMAGE_SIZE = '2048*1024'
 export const PANORAMA_SOURCE_ASPECT_RATIO = '2:1'
-const PANORAMA_SOURCE_FALLBACK_ASPECT_RATIO = '21:9'
 
 const PANORAMA_SOURCE_SIZE_BY_ASPECT_RATIO: Record<string, string> = {
   '1:1': '1024*1024',
@@ -12,8 +11,7 @@ const PANORAMA_SOURCE_SIZE_BY_ASPECT_RATIO: Record<string, string> = {
   '3:4': '864*1152',
   '4:3': '1152*864',
   '9:16': '720*1280',
-  '16:9': '1280*720',
-  '21:9': '2100*900'
+  '16:9': '1280*720'
 }
 
 export interface PanoramaSourceProfile {
@@ -84,31 +82,23 @@ export function resolvePanoramaSourceImageSize(aspectRatio: string): string {
 export function resolvePanoramaSourceProfile(
   modelConfig?: Pick<ImageModelConfig, 'supportedAspectRatios'> | null
 ): PanoramaSourceProfile {
-  const fallbackAspectRatio = PANORAMA_SOURCE_ASPECT_RATIO
   const normalizedSupportedAspectRatios = Array.from(new Set(
     (modelConfig?.supportedAspectRatios || [])
       .map(ratio => normalizeAspectRatioValue(ratio))
       .filter((ratio): ratio is string => !!ratio)
   ))
 
-  if (normalizedSupportedAspectRatios.length === 0 || normalizedSupportedAspectRatios.includes(fallbackAspectRatio)) {
+  if (normalizedSupportedAspectRatios.length === 0 || normalizedSupportedAspectRatios.includes(PANORAMA_SOURCE_ASPECT_RATIO)) {
     return {
-      aspectRatio: fallbackAspectRatio,
-      size: resolvePanoramaSourceImageSize(fallbackAspectRatio),
+      aspectRatio: PANORAMA_SOURCE_ASPECT_RATIO,
+      size: resolvePanoramaSourceImageSize(PANORAMA_SOURCE_ASPECT_RATIO),
       fallbackApplied: false
     }
   }
 
-  const resolvedAspectRatio = normalizedSupportedAspectRatios.includes(PANORAMA_SOURCE_FALLBACK_ASPECT_RATIO)
-    ? PANORAMA_SOURCE_FALLBACK_ASPECT_RATIO
-    : pickClosestSupportedAspectRatio(
-        fallbackAspectRatio,
-        normalizedSupportedAspectRatios
-      )
-
   return {
-    aspectRatio: resolvedAspectRatio,
-    size: resolvePanoramaSourceImageSize(resolvedAspectRatio),
-    fallbackApplied: resolvedAspectRatio !== fallbackAspectRatio
+    aspectRatio: PANORAMA_SOURCE_ASPECT_RATIO,
+    size: resolvePanoramaSourceImageSize(PANORAMA_SOURCE_ASPECT_RATIO),
+    fallbackApplied: true
   }
 }

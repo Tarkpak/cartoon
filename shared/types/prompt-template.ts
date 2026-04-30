@@ -194,7 +194,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{sceneDescription}}', description: '环境摘要（已去除人物动作与对白）', example: '核心空间：医院走廊\n时间：夜晚\n环境细节：冷白灯照亮狭长走廊，地面有潮湿反光。' },
       { name: '{{setting}}', description: '场景设定文本', example: '医院-走廊 / 夜晚 / 紧绷 / 暴雨' },
       { name: '{{style}}', description: '画风描述', example: '电影写实风格' },
-      { name: '{{aspectRatio}}', description: '目标输出与全景源图规格上下文', example: '目标输出画幅：9:16\n全景源图画幅：2:1\n全景源图尺寸：2048*1024\n裁切策略：后续从全景源图裁切为 9:16' },
+      { name: '{{aspectRatio}}', description: '目标裁切比例与 2:1 equirectangular 全景源图规格上下文', example: '目标输出画幅：9:16\n全景源图画幅：2:1\n全景源图尺寸：2048*1024\n裁切策略：后续从全景源图裁切为 9:16' },
       { name: '{{environmentConsistency}}', description: '环境连续性上下文文本', example: '主环境锚点：医院\n母体参考场景：急诊大厅（医院-大厅）\n同组子空间：医院-走廊、医院-诊室' },
       { name: '{{cameraNote}}', description: '镜头与资产备注', example: '引用资产：急诊大厅、手术室门牌' },
       { name: '{{customPrompt}}', description: '二次生成补充要求', example: '保留医院冷白灯，但把地面湿痕强化一些。' }

@@ -210,7 +210,7 @@ function resolveEnvironmentReferenceModel(preferredModelId: string): { modelId: 
   const supportsPanoramaSource = (model?: { supportedAspectRatios?: string[], requireReferenceImage?: boolean }) => {
     if (!model || model.requireReferenceImage) return false
     const ratios = new Set((model.supportedAspectRatios || []).map(ratio => ratio.replace(/\s+/g, '')))
-    return ratios.has(PANORAMA_SOURCE_ASPECT_RATIO) || ratios.has('21:9')
+    return ratios.has(PANORAMA_SOURCE_ASPECT_RATIO)
   }
 
   if (preferred && !preferred.requireReferenceImage && supportsPanoramaSource(preferred)) {
@@ -247,7 +247,7 @@ function resolveEnvironmentReferenceModel(preferredModelId: string): { modelId: 
     }
   }
 
-  throw new Error('当前可用图片模型不支持环境全景源图比例，请切换到 qwen-image-2.0-pro、wan2.7-image-pro 或其他支持 2:1/21:9 的图片模型后重试')
+  throw new Error('当前可用图片模型不支持 360 环境全景源图比例，请切换到 qwen-image-2.0-pro 或其他支持 2:1 的图片模型后重试')
 }
 
 function hasText(value?: string | null): value is string {
@@ -645,7 +645,7 @@ async function buildSceneReferencePrompt(
   const environmentSceneTitle = scene.setting?.location?.trim() || scene.title || '未命名场景'
   const antiDistortionText = '必须避免鱼眼/桶形/枕形/夸张广角镜头畸变，保持地平线水平与建筑竖线自然，不要把普通广角照片伪装成全景'
   const panoramaFallbackHint = panoramaSource.fallbackApplied
-    ? `当前模型不支持 AR ${PANORAMA_SOURCE_ASPECT_RATIO}，已自动改为该模型支持的 AR ${panoramaSource.aspectRatio}（${panoramaSource.size}）。`
+    ? `当前模型声明不支持 AR ${PANORAMA_SOURCE_ASPECT_RATIO}，但 360 全景源图必须使用 2:1；已继续按 ${panoramaSource.aspectRatio}（${panoramaSource.size}）请求。`
     : ''
   const panoramaAspectText = [
     panoramaFallbackHint,
@@ -655,7 +655,7 @@ async function buildSceneReferencePrompt(
     aspectRatio === '16:9'
       ? '裁切策略：默认使用全景源图中的 16:9 区域'
       : `裁切策略：后续从全景源图裁切为 ${aspectRatio}`,
-    `全景源图要求：优先生成标准 2:1 的 360 环绕等距柱状环境全景展开图（左右边缘需可衔接）；若模型因比例限制降级为 ${panoramaSource.aspectRatio}，仍按 360 全景展开图语义组织空间，不要生成普通宽银幕照片。默认采用中远景/全景观察距离，保留更完整空间结构，${antiDistortionText}`
+    `全景源图要求：必须生成标准 2:1 的 360 环境全景图，必须是 equirectangular projection（等距柱状投影图），左右边缘需可衔接；不要生成普通宽银幕照片或非 2:1 超宽图。默认采用中远景/全景观察距离，保留更完整空间结构，${antiDistortionText}`
   ].filter(Boolean).join('\n')
   const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
   const era = normalizeOptionalSceneEraValue(scene.setting?.era)
@@ -735,7 +735,7 @@ export default defineEventHandler(async (event) => {
     const panoramaSource = resolvePanoramaSourceProfile(modelConfig)
     if (panoramaSource.fallbackApplied) {
       console.warn(
-        `[AssetWorkflow/Reference] 模型 ${modelId} 不支持 ${PANORAMA_SOURCE_ASPECT_RATIO}，自动降级为 ${panoramaSource.aspectRatio}（${panoramaSource.size}）`
+        `[AssetWorkflow/Reference] 模型 ${modelId} 未声明支持 ${PANORAMA_SOURCE_ASPECT_RATIO}，360 全景源图仍按 ${panoramaSource.aspectRatio}（${panoramaSource.size}）请求`
       )
     }
     const prompt = await buildSceneReferencePrompt(
