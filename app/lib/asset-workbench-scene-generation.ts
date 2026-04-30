@@ -54,6 +54,7 @@ interface RequestSceneBaselineGenerationOptions {
 
 interface AssetWorkflowVideoReferences {
   environmentImage: string
+  continuityFirstFrame?: string
   characterImage?: string
   characterImages: string[]
   environmentAsset: {
@@ -89,6 +90,7 @@ interface VideoTaskStatusResponse {
     error?: string
     result?: {
       videoData?: string
+      lastFrame?: string
     }
   }
 }
@@ -164,9 +166,11 @@ export function buildAssetWorkflowVideoReferences(options: {
   environmentImage: string
   characterImages: string[]
   characterAssets: SceneVideoReferenceAsset[]
+  continuityFirstFrame?: string
 }): AssetWorkflowVideoReferences {
   return {
     environmentImage: options.environmentImage,
+    continuityFirstFrame: options.continuityFirstFrame,
     characterImage: options.characterImages[0],
     characterImages: options.characterImages,
     environmentAsset: {
@@ -247,7 +251,7 @@ function wait(duration: number) {
 export async function pollSceneVideoTask(
   taskId: string,
   options: PollSceneVideoTaskOptions = {}
-): Promise<string> {
+): Promise<{ videoUrl: string, lastFrame?: string }> {
   const maxAttempts = options.maxAttempts ?? 720
   const pollIntervalMs = options.pollIntervalMs ?? 5000
 
@@ -261,7 +265,10 @@ export async function pollSceneVideoTask(
         throw new Error('视频已生成，但当前返回结果无法直接预览')
       }
 
-      return normalizedUrl
+      return {
+        videoUrl: normalizedUrl,
+        lastFrame: statusResponse.task.result?.lastFrame?.trim() || undefined
+      }
     }
 
     if (statusResponse.task.status === 'failed') {

@@ -35,6 +35,8 @@ export interface SceneData {
   transitionIn?: AssetWorkbenchTransitionType
   transitionOut?: AssetWorkbenchTransitionType
   transitionDuration?: number
+  usePreviousLastFrameAsFirstFrame?: boolean
+  continuityLinkReason?: string
   firstFrame?: string
   lastFrame?: string
   videoUrl?: string

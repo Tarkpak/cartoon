@@ -29,6 +29,9 @@ const props = defineProps<{
   chatApplying: boolean
   chatError: string | null
   chatCanSubmit: boolean
+  usePreviousLastFrameAsFirstFrame: boolean
+  continuityLinkReason?: string
+  canUsePreviousLastFrameReference: boolean
   resolveSceneVideoBadge: (scene: SceneData) => SceneVideoBadge
   resolveSceneVoiceReferenceSummary: (scene: SceneData) => SceneVoiceReferenceSummary
   resolveSceneDescriptionRenderSegments: (scene: SceneData) => SceneDescriptionRenderSegment[]
@@ -51,6 +54,7 @@ const props = defineProps<{
   onGenerateSceneBaseline: (sceneId: string) => void
   onRetryScene: (sceneId: string) => void
   onOpenSceneVideoHistory: (sceneId: string) => void
+  onSetScenePreviousLastFrameReference: (sceneId: string, enabled: boolean) => void
   onPreviewImage: (src: string | undefined, alt: string) => void
   onCloseSceneChat: () => void
   onHandleSceneChatComposerInput: () => void
@@ -88,6 +92,11 @@ const sceneBusy = computed(() => props.isSceneBusy(props.scene))
 const scenePreparing = computed(() => props.isScenePreparing(props.scene))
 const sceneVideoHistoryCount = computed(() => {
   return Array.isArray(props.scene.videoHistory) ? props.scene.videoHistory.length : 0
+})
+const continuitySwitchTitle = computed(() => {
+  if (props.index === 0) return '首个场景没有上一镜头可承接'
+  if (!props.canUsePreviousLastFrameReference) return '上一镜头还没有可用末帧，生成时会自动回退'
+  return props.continuityLinkReason || '使用上一镜头末帧作为本镜头首帧参考'
 })
 </script>
 
@@ -284,6 +293,27 @@ const sceneVideoHistoryCount = computed(() => {
       >
         {{ scene.duration }}s
       </Badge>
+    </div>
+
+    <div
+      v-if="index > 0"
+      class="mt-3 flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-2 py-2"
+      :title="continuitySwitchTitle"
+      @click.stop
+    >
+      <div class="min-w-0">
+        <div class="text-xs font-medium">
+          承接上一镜头末帧
+        </div>
+        <div class="truncate text-[11px] text-muted-foreground">
+          {{ continuityLinkReason || (canUsePreviousLastFrameReference ? '生成时使用上一镜头末帧作为首帧参考' : '上一镜头末帧生成后自动生效') }}
+        </div>
+      </div>
+      <Switch
+        :checked="usePreviousLastFrameAsFirstFrame"
+        :disabled="sceneBusy"
+        @update:checked="(checked) => onSetScenePreviousLastFrameReference(scene.id, checked)"
+      />
     </div>
 
     <div class="mt-3 flex items-center gap-2">

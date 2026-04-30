@@ -8,6 +8,7 @@ export interface UpstreamVideoResultMetadata {
   aspectRatio: AspectRatio
   fps: number
   hasAudio: boolean
+  lastFrame?: string
 }
 
 export interface UpstreamVideoTaskTracking {

@@ -532,6 +532,7 @@ const {
   resolveAssetName,
   resolveSceneReferenceAssetIds,
   setSceneAssetReferences,
+  setScenePreviousLastFrameReference,
   selectScene,
   sceneEditAssetReferenceOptions,
   sceneEditSelectedAssetIds,
@@ -844,8 +845,29 @@ interface PropDependencySnapshot {
 function resolveSceneConfigGenerationKey(config?: SceneConsistencyConfig): string {
   return JSON.stringify({
     mustReferenceAssetIds: uniqueSorted(config?.mustReferenceAssetIds || []),
-    continuityNotes: config?.continuityNotes?.trim() || ''
+    continuityNotes: config?.continuityNotes?.trim() || '',
+    usePreviousLastFrameAsFirstFrame: config?.usePreviousLastFrameAsFirstFrame === true
   })
+}
+
+function resolveScenePreviousLastFrameReferenceEnabled(sceneId: string): boolean {
+  return sceneConfigs.value[sceneId]?.usePreviousLastFrameAsFirstFrame === true
+}
+
+function resolveSceneContinuityLinkReason(sceneId: string): string {
+  return sceneConfigs.value[sceneId]?.continuityLinkReason?.trim() || ''
+}
+
+function canUsePreviousLastFrameReference(sceneId: string): boolean {
+  const index = scenes.value.findIndex(scene => scene.id === sceneId)
+  if (index <= 0) return false
+  const scene = scenes.value[index]
+  const previous = scenes.value[index - 1]
+  if (!scene || !previous) return false
+  const currentEpisodeId = scene.episodeId?.trim() || ''
+  const previousEpisodeId = previous.episodeId?.trim() || ''
+  if (currentEpisodeId && previousEpisodeId && currentEpisodeId !== previousEpisodeId) return false
+  return !!previous.lastFrame?.trim()
 }
 
 function resolveScenesReferencingAsset(assetId: string): string[] {
@@ -1995,6 +2017,9 @@ async function handleBatchGenerateCharacters() {
         :scene-chat-applying="sceneChatApplying"
         :scene-chat-error="sceneChatError"
         :scene-chat-can-submit="sceneChatCanSubmit"
+        :resolve-scene-previous-last-frame-reference-enabled="resolveScenePreviousLastFrameReferenceEnabled"
+        :resolve-scene-continuity-link-reason="resolveSceneContinuityLinkReason"
+        :can-use-previous-last-frame-reference="canUsePreviousLastFrameReference"
         :resolve-scene-video-badge="resolveSceneVideoBadge"
         :resolve-scene-voice-reference-summary="resolveSceneVoiceReferenceSummary"
         :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
@@ -2023,6 +2048,7 @@ async function handleBatchGenerateCharacters() {
         :on-generate-scene-baseline="handleGenerateSceneBaseline"
         :on-retry-scene="retryScene"
         :on-open-scene-video-history="openSceneVideoHistory"
+        :on-set-scene-previous-last-frame-reference="setScenePreviousLastFrameReference"
         :on-preview-image="openImagePreview"
         :on-close-scene-chat="closeSceneChat"
         :on-handle-scene-chat-composer-input="handleSceneChatComposerInput"

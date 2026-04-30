@@ -59,6 +59,7 @@ const RequestSchema = z.object({
   aspectRatio: AspectRatioSchema.optional().default('16:9'),
   references: z.object({
     environmentImage: z.string().optional(),
+    continuityFirstFrame: z.string().optional(),
     characterImage: z.string().optional(),
     characterImages: z.array(z.string()).optional(),
     environmentAsset: EnvironmentReferenceAssetSchema,
@@ -72,6 +73,8 @@ const RequestSchema = z.object({
     typeof payload.references.environmentAsset?.image === 'string'
     && payload.references.environmentAsset.image.trim().length > 0
   )
+  const hasContinuityFirstFrame = typeof payload.references.continuityFirstFrame === 'string'
+    && payload.references.continuityFirstFrame.trim().length > 0
   const hasLegacyCharacter = typeof payload.references.characterImage === 'string'
     && payload.references.characterImage.trim().length > 0
   const hasCharacterArray = Array.isArray(payload.references.characterImages)
@@ -80,7 +83,7 @@ const RequestSchema = z.object({
     && payload.references.characterAssets.some(item => typeof item.image === 'string' && item.image.trim().length > 0)
   const hasCharacter = hasLegacyCharacter || hasCharacterArray || hasCharacterAssets
 
-  if (!hasEnvironment && !hasCharacter) {
+  if (!hasEnvironment && !hasCharacter && !hasContinuityFirstFrame) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['references'],
@@ -608,6 +611,7 @@ export default defineEventHandler(async (event) => {
   const { scene, style, aspectRatio, references } = parseResult.data
 
   const environmentImage = normalizeImageInput(references.environmentImage || references.environmentAsset?.image)
+  const continuityFirstFrame = normalizeImageInput(references.continuityFirstFrame)
   const rawCharacterImages = resolveCharacterReferenceImages({
     legacyCharacterImage: references.characterImage,
     characterImages: references.characterImages
@@ -636,7 +640,7 @@ export default defineEventHandler(async (event) => {
 
   const workflowModels = await getWorkflowModels()
   const preferredModelId = workflowModels.video_generation
-  const primaryReferenceCandidate = environmentReferenceBinding?.image || primaryCharacterImage
+  const primaryReferenceCandidate = continuityFirstFrame || environmentReferenceBinding?.image || primaryCharacterImage
 
   const modelDecision = resolveCompatibleModel(preferredModelId, {
     needImageInput: !!primaryReferenceCandidate,
@@ -670,17 +674,25 @@ export default defineEventHandler(async (event) => {
   // Gemini 多参考图时优先环境图作为单图输入，保留空间构图；
   // 可灵单图模式也优先环境图，防止角色图被强制首帧化；
   // 其它模型仍优先角色图锁身份。
-  const primaryReference = hasCharactersInScene
+  const primaryReference = continuityFirstFrame || (hasCharactersInScene
     ? (supportsMultiReferenceImages || preferEnvironmentAsPrimary
         ? (environmentReferenceBinding?.image || primaryCharacterImage)
         : (primaryCharacterImage || environmentReferenceBinding?.image))
-    : (environmentReferenceBinding?.image || primaryCharacterImage)
+    : (environmentReferenceBinding?.image || primaryCharacterImage))
 
   const allReferenceBindings = [
     ...(environmentReferenceBinding ? [environmentReferenceBinding] : []),
     ...characterReferenceBindings
   ]
-  const primaryReferenceBinding = resolveReferenceBindingByImage(primaryReference, allReferenceBindings)
+  const primaryReferenceBinding = continuityFirstFrame && primaryReference === continuityFirstFrame
+    ? {
+        assetId: `continuity:${scene.id}`,
+        name: '上一镜头末帧',
+        type: 'other' as const,
+        image: continuityFirstFrame,
+        normalizedImage: toImageUrlInput(continuityFirstFrame) || continuityFirstFrame
+      }
+    : resolveReferenceBindingByImage(primaryReference, allReferenceBindings)
 
   let inputMode: InputMode = 'text_only'
   if (selectedModel?.supportImageToVideo && primaryReference) {
@@ -749,6 +761,13 @@ export default defineEventHandler(async (event) => {
     const imageUrl = toImageUrlInput(primaryReference)
     if (imageUrl) {
       config.imageUrl = imageUrl
+    }
+  }
+
+  if (continuityFirstFrame) {
+    const firstFrame = toImageUrlInput(continuityFirstFrame)
+    if (firstFrame) {
+      config.firstFrame = firstFrame
     }
   }
 

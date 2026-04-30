@@ -322,6 +322,8 @@ export const SceneSchema = z.object({
   setting: SceneSettingSchema.describe('场景设定'),
   characters: z.array(SceneCharacterSchema).describe('登场角色'),
   dialogues: z.array(DialogueSchema).optional().describe('对话列表'),
+  usePreviousLastFrameAsFirstFrame: z.boolean().optional().describe('是否建议使用上一镜头末帧作为本镜头首帧参考'),
+  continuityLinkReason: z.string().optional().describe('承接上一镜头末帧的原因说明'),
   duration: SceneDurationSchema,
   narration: z.string().nullable().optional().describe('旁白')
 })
