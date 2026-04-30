@@ -30,6 +30,8 @@ export interface SceneConsistencyConfig {
   mustReferenceAssetIds: string[]
   consistencyLevel: ConsistencyLevel
   continuityNotes: string
+  usePreviousLastFrameAsFirstFrame?: boolean
+  continuityLinkReason?: string
 }
 
 export interface PropAsset {
@@ -235,7 +237,9 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
             ? item.mustReferenceAssetIds.filter((assetId): assetId is string => typeof assetId === 'string')
             : [],
           consistencyLevel: item.consistencyLevel === 'soft' ? 'soft' : 'lock',
-          continuityNotes: typeof item.continuityNotes === 'string' ? item.continuityNotes : ''
+          continuityNotes: typeof item.continuityNotes === 'string' ? item.continuityNotes : '',
+          usePreviousLastFrameAsFirstFrame: item.usePreviousLastFrameAsFirstFrame === true,
+          continuityLinkReason: typeof item.continuityLinkReason === 'string' ? item.continuityLinkReason : ''
         }
       }
 

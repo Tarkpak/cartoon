@@ -2,7 +2,10 @@ import type { ComputedRef, Ref } from 'vue'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, PropAssetCategory, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import type { DisplayAsset } from '~/lib/asset-workbench-types'
-import { invalidateSceneGenerationState } from '~/lib/asset-workbench-scenes'
+import {
+  invalidateSceneGenerationState,
+  invalidateSceneVideoState
+} from '~/lib/asset-workbench-scenes'
 
 export function useAssetWorkbenchSceneManagement(options: {
   selectedSceneId: Ref<string>
@@ -99,7 +102,9 @@ export function useAssetWorkbenchSceneManagement(options: {
         sceneId: scene.id,
         mustReferenceAssetIds: [],
         consistencyLevel: 'lock',
-        continuityNotes: ''
+        continuityNotes: '',
+        usePreviousLastFrameAsFirstFrame: false,
+        continuityLinkReason: ''
       }
     }
 
@@ -124,7 +129,9 @@ export function useAssetWorkbenchSceneManagement(options: {
         sceneId,
         mustReferenceAssetIds: [],
         consistencyLevel: 'lock',
-        continuityNotes: ''
+        continuityNotes: '',
+        usePreviousLastFrameAsFirstFrame: false,
+        continuityLinkReason: ''
       }
     }
     return options.sceneConfigs.value[sceneId]!
@@ -174,6 +181,23 @@ export function useAssetWorkbenchSceneManagement(options: {
     }
 
     return true
+  }
+
+  async function setScenePreviousLastFrameReference(sceneId: string, enabled: boolean) {
+    const config = ensureSceneConfig(sceneId)
+    const sceneIndex = options.scenes.value.findIndex(scene => scene.id === sceneId)
+    const normalizedEnabled = sceneIndex > 0 && enabled
+    if (config.usePreviousLastFrameAsFirstFrame === normalizedEnabled) return
+
+    config.usePreviousLastFrameAsFirstFrame = normalizedEnabled
+
+    const scene = options.scenes.value[sceneIndex]
+    if (scene) {
+      invalidateSceneVideoState(scene)
+      options.synchronizeQueueItems()
+      await options.saveProject()
+    }
+    await options.saveWorkflowMeta()
   }
 
   function selectScene(sceneId: string) {
@@ -263,7 +287,8 @@ export function useAssetWorkbenchSceneManagement(options: {
       options.sceneConfigs.value[secondSplitScene.id] = {
         ...previousConfig,
         sceneId: secondSplitScene.id,
-        mustReferenceAssetIds: options.uniqueSorted(previousConfig.mustReferenceAssetIds)
+        mustReferenceAssetIds: options.uniqueSorted(previousConfig.mustReferenceAssetIds),
+        usePreviousLastFrameAsFirstFrame: true
       }
     }
 
@@ -329,7 +354,9 @@ export function useAssetWorkbenchSceneManagement(options: {
                 ? 'lock'
                 : 'soft'
             ),
-        continuityNotes: mergedNotes
+        continuityNotes: mergedNotes,
+        usePreviousLastFrameAsFirstFrame: currentConfig?.usePreviousLastFrameAsFirstFrame === true,
+        continuityLinkReason: currentConfig?.continuityLinkReason?.trim() || nextConfig?.continuityLinkReason?.trim() || ''
       }
     }
 
@@ -402,6 +429,7 @@ export function useAssetWorkbenchSceneManagement(options: {
     resolveAssetName,
     resolveSceneReferenceAssetIds,
     setSceneAssetReferences,
+    setScenePreviousLastFrameReference,
     selectScene,
     sceneEditAssetReferenceOptions,
     sceneEditSelectedAssetIds,

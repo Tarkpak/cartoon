@@ -260,6 +260,7 @@ export function useAssetWorkbenchSceneGeneration(
   function buildSceneVideoGenerationKey(
     scene: SceneData,
     environmentImage: string,
+    continuityFirstFrame: string | undefined,
     characterImages: string[],
     characterReferenceAssets: ReturnType<typeof resolveSceneVideoReferenceAssets>
   ): string {
@@ -268,6 +269,7 @@ export function useAssetWorkbenchSceneGeneration(
       style: options.workflowStylePrompt.value,
       aspectRatio: options.projectAspectRatio.value,
       environmentImage,
+      continuityFirstFrame: continuityFirstFrame || '',
       characterImages,
       characterAssets: characterReferenceAssets.map(asset => ({
         assetId: asset.assetId,
@@ -277,6 +279,25 @@ export function useAssetWorkbenchSceneGeneration(
         source: asset.source
       }))
     })
+  }
+
+  function resolvePreviousSceneLastFrameForContinuity(scene: SceneData): string | undefined {
+    const config = options.sceneConfigs.value[scene.id]
+    if (config?.usePreviousLastFrameAsFirstFrame !== true) return undefined
+
+    const sceneIndex = options.scenes.value.findIndex(item => item.id === scene.id)
+    if (sceneIndex <= 0) return undefined
+
+    const previous = options.scenes.value[sceneIndex - 1]
+    if (!previous) return undefined
+
+    const currentEpisodeId = scene.episodeId?.trim() || ''
+    const previousEpisodeId = previous.episodeId?.trim() || ''
+    if (currentEpisodeId && previousEpisodeId && currentEpisodeId !== previousEpisodeId) {
+      return undefined
+    }
+
+    return previous.lastFrame?.trim() || undefined
   }
 
   async function generateSceneBaseline(
@@ -444,9 +465,11 @@ export function useAssetWorkbenchSceneGeneration(
       propAssets: options.propAssets.value,
       sceneConfigs: options.sceneConfigs.value
     })
+    const continuityFirstFrame = resolvePreviousSceneLastFrameForContinuity(scene)
     const generationKey = buildSceneVideoGenerationKey(
       scene,
       environmentImage,
+      continuityFirstFrame,
       characterImages,
       characterReferenceAssets
     )
@@ -463,16 +486,18 @@ export function useAssetWorkbenchSceneGeneration(
         references: buildAssetWorkflowVideoReferences({
           scene,
           environmentImage,
+          continuityFirstFrame,
           characterImages,
           characterAssets: characterReferenceAssets
         })
       })
-      const videoUrl = await pollSceneVideoTask(taskId)
+      const videoResult = await pollSceneVideoTask(taskId)
 
       const latestGenerationKey = pendingVideoGenerationKeys.get(scene.id)
       const currentGenerationKey = buildSceneVideoGenerationKey(
         scene,
         environmentImage,
+        resolvePreviousSceneLastFrameForContinuity(scene),
         resolveSceneVideoCharacterReferences({
           scene,
           characters: options.characters.value,
@@ -495,8 +520,11 @@ export function useAssetWorkbenchSceneGeneration(
         return
       }
 
-      applySceneVideoUrl(scene, videoUrl)
-      options.recordSceneVideoHistory?.(scene.id, videoUrl, {
+      applySceneVideoUrl(scene, videoResult.videoUrl)
+      if (videoResult.lastFrame) {
+        scene.lastFrame = videoResult.lastFrame
+      }
+      options.recordSceneVideoHistory?.(scene.id, videoResult.videoUrl, {
         source: 'generated'
       })
       await options.saveProject()

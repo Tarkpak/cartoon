@@ -68,6 +68,9 @@ const props = defineProps<{
   sceneChatApplying: boolean
   sceneChatError: string | null
   sceneChatCanSubmit: boolean
+  resolveScenePreviousLastFrameReferenceEnabled: (sceneId: string) => boolean
+  resolveSceneContinuityLinkReason: (sceneId: string) => string
+  canUsePreviousLastFrameReference: (sceneId: string) => boolean
   exportingScriptDocx: boolean
   resolveSceneVideoBadge: (scene: SceneData) => SceneVideoBadge
   resolveSceneVoiceReferenceSummary: (scene: SceneData) => SceneVoiceReferenceSummary
@@ -97,6 +100,7 @@ const props = defineProps<{
   onGenerateSceneBaseline: (sceneId: string) => void
   onRetryScene: (sceneId: string) => void
   onOpenSceneVideoHistory: (sceneId: string) => void
+  onSetScenePreviousLastFrameReference: (sceneId: string, enabled: boolean) => void
   onPreviewImage: (src: string | undefined, alt: string) => void
   onCloseSceneChat: () => void
   onHandleSceneChatComposerInput: () => void
@@ -523,6 +527,9 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
           :chat-applying="sceneChatApplying"
           :chat-error="sceneChatError"
           :chat-can-submit="sceneChatCanSubmit"
+          :use-previous-last-frame-as-first-frame="resolveScenePreviousLastFrameReferenceEnabled(scene.id)"
+          :continuity-link-reason="resolveSceneContinuityLinkReason(scene.id)"
+          :can-use-previous-last-frame-reference="canUsePreviousLastFrameReference(scene.id)"
           :resolve-scene-video-badge="resolveSceneVideoBadge"
           :resolve-scene-voice-reference-summary="resolveSceneVoiceReferenceSummary"
           :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
@@ -545,6 +552,7 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
           :on-generate-scene-baseline="onGenerateSceneBaseline"
           :on-retry-scene="onRetryScene"
           :on-open-scene-video-history="onOpenSceneVideoHistory"
+          :on-set-scene-previous-last-frame-reference="onSetScenePreviousLastFrameReference"
           :on-preview-image="onPreviewImage"
           :on-close-scene-chat="onCloseSceneChat"
           :on-handle-scene-chat-composer-input="onHandleSceneChatComposerInput"

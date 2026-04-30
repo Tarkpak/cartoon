@@ -96,6 +96,28 @@ export async function readFileAsBase64(filePath: string): Promise<string> {
   return buffer.toString('base64')
 }
 
+export async function extractLastFrameFromVideoBuffer(buffer: Buffer): Promise<Buffer> {
+  const tempDir = await createTempDir()
+  const inputPath = join(tempDir, 'input.mp4')
+  const outputPath = join(tempDir, 'last-frame.png')
+
+  try {
+    await fs.writeFile(inputPath, buffer)
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(inputPath)
+        .inputOptions(['-sseof', '-0.1'])
+        .outputOptions(['-frames:v', '1', '-q:v', '2', '-y'])
+        .output(outputPath)
+        .on('end', () => resolve())
+        .on('error', reject)
+        .run()
+    })
+    return await fs.readFile(outputPath)
+  } finally {
+    await cleanupTempDir(tempDir)
+  }
+}
+
 /**
  * 拼接多个视频片段
  * 支持有音频和无音频的视频混合拼接
