@@ -27,8 +27,6 @@ import {
 } from '~/lib/asset-workbench-strings'
 import {
   buildDefaultCropSelection,
-  loadCropImageMetrics,
-  normalizePanoramaSelection,
   renderPanoramaSelectionToDataUrl
 } from '~/lib/asset-workbench-environment-panorama'
 import {
@@ -358,25 +356,19 @@ async function createEnvironmentCropImage(options: {
   sourceImage: string
   crop?: EnvironmentCropSelection
 }) {
-  const metrics = await loadCropImageMetrics(options.sourceImage)
-  const crop = normalizePanoramaSelection(
-    options.crop,
-    metrics.width,
-    metrics.height
-  ) || buildDefaultCropSelection({
-    imageWidth: metrics.width,
-    imageHeight: metrics.height
+  const fallbackCrop = options.crop || buildDefaultCropSelection({
+    imageWidth: 2048,
+    imageHeight: 1024
   })
-
-  const imageData = await renderPanoramaSelectionToDataUrl({
+  const result = await renderPanoramaSelectionToDataUrl({
     sourceImage: options.sourceImage,
-    selection: crop
+    selection: fallbackCrop
   })
-  const imageUrl = await uploadAssetImage(imageData, buildEnvironmentCropUploadPrefix(options.assetId))
+  const imageUrl = await uploadAssetImage(result.imageData, buildEnvironmentCropUploadPrefix(options.assetId))
 
   return {
     imageUrl,
-    crop
+    crop: result.crop
   }
 }
 

@@ -8,7 +8,7 @@ import {
   resolvePanoramaSourceProfile
 } from './panorama-source'
 
-describe('panorama source aspect-ratio fallback', () => {
+describe('panorama source aspect-ratio requirements', () => {
   it('keeps 2:1 when model supports standard equirectangular panorama ratio', () => {
     const profile = resolvePanoramaSourceProfile({
       supportedAspectRatios: ['16:9', '2:1', '1:1']
@@ -21,26 +21,26 @@ describe('panorama source aspect-ratio fallback', () => {
     })
   })
 
-  it('falls back to 21:9 as the preferred wide panorama ratio when 2:1 is unavailable', () => {
+  it('keeps requesting 2:1 when only non-panorama ultra-wide ratios are declared', () => {
     const profile = resolvePanoramaSourceProfile({
       supportedAspectRatios: ['1:1', '16:9', '21:9']
     })
 
     expect(profile).toEqual({
-      aspectRatio: '21:9',
-      size: '2100*900',
+      aspectRatio: '2:1',
+      size: '2048*1024',
       fallbackApplied: true
     })
   })
 
-  it('falls back to closest supported ratio when neither 2:1 nor 21:9 is unavailable', () => {
+  it('does not treat closest non-2:1 ratios as 360 panorama sources', () => {
     const profile = resolvePanoramaSourceProfile({
       supportedAspectRatios: ['1:1', '16:9', '3:2']
     })
 
     expect(profile).toEqual({
-      aspectRatio: '16:9',
-      size: '1280*720',
+      aspectRatio: '2:1',
+      size: '2048*1024',
       fallbackApplied: true
     })
   })

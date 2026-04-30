@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { Loader2 } from 'lucide-vue-next'
-import { toCanvasSafeImageSrc } from '~/lib/media'
 import {
   buildDefaultCropSelection,
-  loadCropImageMetrics,
+  loadPanoramaImage,
   normalizePanoramaSelection,
+  resolvePanoramaSelectionHeightForAspectRatio,
   renderPanoramaSelectionToCanvas
 } from '~/lib/asset-workbench-environment-panorama'
 import type { EnvironmentCropSelection } from '~/lib/asset-workbench-types'
@@ -55,18 +55,22 @@ function wrapUnit(value: number): number {
 }
 
 function resolveSelectionHeight(width: number): number {
-  const metrics = imageMetrics.value
-  const sourceRatio = metrics?.width && metrics?.height
-    ? metrics.width / metrics.height
-    : 2
-  return clamp(width * sourceRatio / PREVIEW_ASPECT_RATIO, 0.06, 0.95)
+  return clamp(
+    resolvePanoramaSelectionHeightForAspectRatio(width, PREVIEW_ASPECT_RATIO),
+    0.06,
+    0.95
+  )
 }
 
 function normalizeViewSelection(raw?: EnvironmentCropSelection): EnvironmentCropSelection {
   const metrics = imageMetrics.value
   const fallback = metrics
     ? buildDefaultCropSelection({ imageWidth: metrics.width, imageHeight: metrics.height })
-    : { x: 0.39, y: 0.3, width: 0.22, height: 0.4 }
+    : (() => {
+        const width = 0.22
+        const height = resolveSelectionHeight(width)
+        return { x: (1 - width) / 2, y: (1 - height) / 2, width, height }
+      })()
   const source = raw || fallback
   const width = clamp(source.width || fallback.width, MIN_VIEW_WIDTH, MAX_VIEW_WIDTH)
   const height = resolveSelectionHeight(width)
@@ -150,28 +154,18 @@ async function initializePreview() {
   previewError.value = null
 
   try {
-    const [metrics] = await Promise.all([
-      loadCropImageMetrics(props.sourceImage)
-    ])
-    imageMetrics.value = metrics
+    const loaded = await loadPanoramaImage(props.sourceImage)
+    imageMetrics.value = {
+      width: loaded.width,
+      height: loaded.height
+    }
     const normalizedInitialSelection = normalizePanoramaSelection(
       props.initialSelection,
-      metrics.width,
-      metrics.height
+      loaded.width,
+      loaded.height
     )
     selection.value = normalizeViewSelection(normalizedInitialSelection)
-
-    const src = toCanvasSafeImageSrc(props.sourceImage)
-    await new Promise<void>((resolve, reject) => {
-      const image = new Image()
-      image.crossOrigin = 'anonymous'
-      image.onload = () => {
-        panoramaImage.value = image
-        resolve()
-      }
-      image.onerror = () => reject(new Error('360 全景图加载失败'))
-      image.src = src
-    })
+    panoramaImage.value = loaded.image
 
     await nextTick()
     scheduleRenderPreview()

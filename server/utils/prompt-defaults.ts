@@ -741,7 +741,7 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 1. 只生成 1 张环境资产图，不要拼图，不要分镜排版，不要多画面组合。
 2. 这是一张纯环境全景源图：禁止出现人物、人脸、肢体、剪影、人群。
 3. 仅依据环境摘要与场景设定提取地点、建筑、地形、道具、光照、天气与空间关系，不要把人物动作、对白、旁白转成画面主体。
-4. 构图必须为“360 环绕等距柱状（equirectangular）全景展开图”语义：标准源图比例优先为 2:1，重点体现环绕空间关系，而非普通宽银幕构图；若模型比例受限降级为 21:9 等超宽画幅，也必须保持 360 全景展开图语义。
+4. 构图必须为标准 360 环境全景图：源图比例必须为 2:1，必须明确按 equirectangular projection（等距柱状投影图）生成，重点体现环绕空间关系，而非普通宽银幕构图或非 2:1 超宽画幅。
 5. 左右边缘应可自然衔接，避免断层；完整交代核心空间结构，并在主体空间四周预留足够环境信息，方便后续裁切不同取景区域。
 6. 默认使用中远景/全景观察距离，避免主体空间离镜头过近，避免夸张广角透视、贴脸前景或过大的近处遮挡，保证单个截图也能读出整体空间结构。
 7. 同一主环境的年代感、装修档次、材质语言、灯光体系必须和相邻场景保持一致。
@@ -779,7 +779,7 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 1. Generate exactly one environment asset image, not a collage, layout sheet, or split-panel composition.
 2. This must be a pure panoramic environment source image: no humans, faces, body parts, silhouettes, or crowds.
 3. Use only the environment summary and scene setting to extract location, architecture, terrain, props, lighting, weather, and spatial structure. Do not turn character action, dialogue, or narration into visual subjects.
-4. Compose it as a 360 surround equirectangular panorama-style source frame, preferably at a standard 2:1 source ratio, not a regular widescreen shot. If the model must fall back to an ultra-wide ratio such as 21:9, keep the 360 panorama-map semantics.
+4. Compose it as a standard 360 environment panorama: the source image must use a 2:1 ratio and must be an equirectangular projection image. Emphasize surrounding spatial continuity, not a regular widescreen shot or a non-2:1 ultra-wide frame.
 5. Keep left and right edges naturally seamable, fully explain the core space, and preserve enough surrounding detail for later reframing.
 6. Default to a medium-wide or wide observing distance. Avoid pushing the primary space too close to the camera, exaggerated ultra-wide perspective, face-level foreground blocking, or oversized near props so a single crop still communicates the full environment.
 7. Keep era, renovation grade, material language, and lighting system consistent with neighboring scenes in the same root environment.
@@ -793,8 +793,8 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 }
 
 const ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT_CONTENT: PromptTemplate['content'] = {
-  zh: '人物, 角色, 人脸, 人体, 手, 剪影, 人群, human, person, people, face, portrait, character, body, hands, crowd, watermark, logo, text, 鱼眼, 透视畸变, 桶形畸变, 枕形畸变, 边缘拉伸, 夸张广角, fisheye, fish-eye, lens distortion, barrel distortion, pincushion distortion, warped lines, curved horizon, extreme perspective, ultra wide angle',
-  en: '人物, 角色, 人脸, 人体, 手, 剪影, 人群, human, person, people, face, portrait, character, body, hands, crowd, watermark, logo, text, 鱼眼, 透视畸变, 桶形畸变, 枕形畸变, 边缘拉伸, 夸张广角, fisheye, fish-eye, lens distortion, barrel distortion, pincushion distortion, warped lines, curved horizon, extreme perspective, ultra wide angle'
+  zh: '人物, 角色, 人脸, 人体, 手, 剪影, 人群, human, person, people, face, portrait, character, body, hands, crowd, watermark, logo, text, 鱼眼, 透视畸变, 桶形畸变, 枕形畸变, 边缘拉伸, 夸张广角畸变, fisheye, fish-eye, lens distortion, barrel distortion, pincushion distortion, warped lines, curved horizon, extreme perspective, distorted ultra-wide lens',
+  en: '人物, 角色, 人脸, 人体, 手, 剪影, 人群, human, person, people, face, portrait, character, body, hands, crowd, watermark, logo, text, 鱼眼, 透视畸变, 桶形畸变, 枕形畸变, 边缘拉伸, 夸张广角畸变, fisheye, fish-eye, lens distortion, barrel distortion, pincushion distortion, warped lines, curved horizon, extreme perspective, distorted ultra-wide lens'
 }
 
 const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
