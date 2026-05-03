@@ -345,8 +345,9 @@ function buildEnvironmentCropUploadPrefix(assetId: string): string {
 
 function resolveSceneBaselineReferenceImage(scene: SceneData): string | undefined {
   const assetId = resolveSceneEnvironmentAssetId(scene)
-  return resolveEnvironmentCard(assetId)?.referenceImage?.trim()
-    || resolveEnvironmentPanoramaState(assetId)?.panoramaImage?.trim()
+  return resolveEnvironmentPanoramaState(assetId)?.panoramaImage?.trim()
+    || resolveEnvironmentCard(assetId)?.panoramaImage?.trim()
+    || resolveEnvironmentCard(assetId)?.referenceImage?.trim()
     || resolveSceneReferenceImage(scene)
     || scene.firstFrame
 }
@@ -1164,12 +1165,14 @@ const {
   uploadingCharacterVoiceId,
   uploadingEnvironmentAssetId,
   uploadingPropId,
+  generatingPropId,
   openImagePreview,
   handleCharacterImageUpload: handleCharacterImageUploadCore,
   handleCharacterVoiceUpload,
   handleCharacterVoiceLockChange,
   handleEnvironmentImageUpload: handleEnvironmentImageUploadCore,
   handlePropImageUpload: handlePropImageUploadCore,
+  generatePropImage: generatePropImageCore,
   openEnvironmentRegenerateDialog,
   setEnvironmentRegenerateDialogOpen,
   setEnvironmentRegeneratePrompt,
@@ -1181,6 +1184,7 @@ const {
   scenes,
   characters,
   propAssets,
+  workflowStylePrompt,
   saveProject,
   saveWorkflowMeta,
   resolveUiError,
@@ -1528,6 +1532,17 @@ async function handlePropImageUpload(propId: string, event: Event) {
   if (!nextImage || nextImage === previousImage) return
 
   recordPropHistory(propId, nextImage, { source: 'uploaded' })
+  await saveWorkflowMeta()
+}
+
+async function handleGeneratePropImage(propId: string) {
+  const target = propAssets.value.find(item => item.id === propId)
+  const previousImage = target?.referenceImage?.trim() || ''
+  await generatePropImageCore(propId)
+  const nextImage = target?.referenceImage?.trim() || ''
+  if (!target || !nextImage || nextImage === previousImage) return
+
+  recordPropHistory(propId, nextImage, { source: 'generated' })
   await saveWorkflowMeta()
 }
 
@@ -1961,6 +1976,7 @@ async function handleBatchGenerateCharacters() {
         :uploading-character-voice-id="uploadingCharacterVoiceId"
         :uploading-environment-asset-id="uploadingEnvironmentAssetId"
         :uploading-prop-id="uploadingPropId"
+        :generating-prop-id="generatingPropId"
         :get-character-scene-count="resolveCharacterSceneCount"
         :get-environment-scene-summary="resolveEnvironmentSceneSummary"
         :has-environment-representative-scene="hasEnvironmentRepresentativeScene"
@@ -1988,6 +2004,7 @@ async function handleBatchGenerateCharacters() {
         @regenerate-environment="regenerateEnvironmentAsset"
         @add-prop="addPropAsset"
         @remove-prop="removePropAsset"
+        @generate-prop="handleGeneratePropImage"
         @upload-prop-image="handlePropImageUpload($event.propId, $event.event)"
         @open-prop-history="openPropHistory"
       />

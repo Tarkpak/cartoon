@@ -22,6 +22,7 @@ export function useAssetWorkbenchAssetMedia(options: {
   scenes: Ref<SceneData[]>
   characters: Ref<CharacterData[]>
   propAssets: Ref<PropAsset[]>
+  workflowStylePrompt: Ref<string>
   saveProject: () => Promise<unknown>
   saveWorkflowMeta: () => Promise<unknown>
   resolveUiError: (error: unknown, fallback: string) => string
@@ -46,6 +47,7 @@ export function useAssetWorkbenchAssetMedia(options: {
   const uploadingCharacterVoiceId = ref<string | null>(null)
   const uploadingEnvironmentAssetId = ref<string | null>(null)
   const uploadingPropId = ref<string | null>(null)
+  const generatingPropId = ref<string | null>(null)
 
   watch(environmentRegenerateDialogOpen, (open) => {
     if (open) return
@@ -233,6 +235,43 @@ export function useAssetWorkbenchAssetMedia(options: {
     }
   }
 
+  async function generatePropImage(propId: string) {
+    const target = options.propAssets.value.find(item => item.id === propId)
+    if (!target || generatingPropId.value) return
+
+    generatingPropId.value = propId
+    options.statusError.value = null
+
+    try {
+      const response = await $fetch<{
+        success: boolean
+        imageUrl?: string
+      }>('/api/asset-workflow/prop/generate', {
+        method: 'POST',
+        body: {
+          prop: {
+            id: target.id,
+            name: target.name,
+            description: target.description,
+            category: target.category
+          },
+          style: options.workflowStylePrompt.value
+        }
+      })
+
+      if (!response.success || !response.imageUrl) {
+        throw new Error('道具图生成失败')
+      }
+
+      target.referenceImage = response.imageUrl
+      await options.saveWorkflowMeta()
+    } catch (error) {
+      options.statusError.value = options.resolveUiError(error, '道具图生成失败')
+    } finally {
+      generatingPropId.value = null
+    }
+  }
+
   function openEnvironmentRegenerateDialog(assetId: string) {
     const asset = options.resolveEnvironmentCard(assetId)
     if (!asset) return
@@ -335,12 +374,14 @@ export function useAssetWorkbenchAssetMedia(options: {
     uploadingCharacterVoiceId,
     uploadingEnvironmentAssetId,
     uploadingPropId,
+    generatingPropId,
     openImagePreview,
     handleCharacterImageUpload,
     handleCharacterVoiceUpload,
     handleCharacterVoiceLockChange,
     handleEnvironmentImageUpload,
     handlePropImageUpload,
+    generatePropImage,
     openEnvironmentRegenerateDialog,
     setEnvironmentRegenerateDialogOpen,
     setEnvironmentRegeneratePrompt,

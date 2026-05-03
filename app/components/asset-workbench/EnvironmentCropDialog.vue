@@ -264,19 +264,19 @@ watchEffect((onCleanup) => {
 </script>
 
 <template>
-  <Dialog
-    :open="open"
-    @update:open="emit('update:open', $event)"
-  >
-    <DialogContent class="flex max-h-[92vh] flex-col overflow-hidden sm:max-w-5xl">
-      <DialogHeader class="sr-only">
-        <DialogTitle>环境取景区域</DialogTitle>
-      </DialogHeader>
+  <Teleport to="body">
+    <div
+      v-if="open"
+      class="fixed inset-0 z-50 flex flex-col bg-background"
+    >
+      <div class="sr-only">
+        环境取景区域
+      </div>
 
-      <div class="relative min-h-[min(72vh,720px)] overflow-hidden rounded-lg border bg-background">
+      <div class="relative min-h-0 flex-1 overflow-hidden bg-black">
         <canvas
           ref="canvasRef"
-          class="block h-full min-h-[min(72vh,720px)] w-full cursor-grab touch-none active:cursor-grabbing"
+          class="block h-full w-full cursor-grab touch-none active:cursor-grabbing"
           :aria-label="`${targetLabel} 360 全景取景预览`"
           @pointerdown.prevent="startDragging"
           @pointermove.prevent="moveView"
@@ -300,24 +300,29 @@ watchEffect((onCleanup) => {
         </div>
       </div>
 
-      <DialogFooter>
-        <Button
-          variant="outline"
-          @click="emit('update:open', false)"
-        >
-          取消
-        </Button>
-        <Button
-          :disabled="loading || loadingPreview || !selection || !!previewError"
-          @click="submit"
-        >
-          <Loader2
-            v-if="loading"
-            class="mr-2 h-4 w-4 animate-spin"
-          />
-          保存取景区域
-        </Button>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
+      <div class="flex shrink-0 items-center justify-between gap-3 border-t bg-background/95 px-4 py-3 backdrop-blur">
+        <div class="min-w-0 truncate text-sm font-medium">
+          {{ targetLabel || '环境取景区域' }}
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <Button
+            variant="outline"
+            @click="emit('update:open', false)"
+          >
+            取消
+          </Button>
+          <Button
+            :disabled="loading || loadingPreview || !selection || !!previewError"
+            @click="submit"
+          >
+            <Loader2
+              v-if="loading"
+              class="mr-2 h-4 w-4 animate-spin"
+            />
+            保存取景区域
+          </Button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
