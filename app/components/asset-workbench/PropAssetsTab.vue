@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { History, Loader2, Package, Plus, Trash2, Upload } from 'lucide-vue-next'
+import { History, Loader2, Package, Plus, Sparkles, Trash2, Upload } from 'lucide-vue-next'
 import type { PropAsset, PropAssetCategory } from '~/composables/useAssetWorkflowMeta'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { toImageSrc } from '~/lib/media'
@@ -8,6 +8,7 @@ const props = withDefaults(defineProps<{
   propAssets: PropAsset[]
   autoRunning: boolean
   uploadingPropId: string | null
+  generatingPropId: string | null
   getPropUsageCount: (propId: string) => number
   allowAdd?: boolean
   addCategory?: PropAssetCategory
@@ -24,6 +25,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'add-prop': [payload: { name: string, description: string, category: PropAssetCategory }]
   'remove-prop': [propId: string]
+  'generate-prop': [propId: string]
   'upload-image': [payload: { propId: string, event: Event }]
   'open-history': [propId: string]
   'preview-image': [payload: { src: string | undefined, alt: string }]
@@ -52,6 +54,11 @@ function triggerUploadInput(propId: string) {
 
 function resolveHistoryCount(prop: PropAsset): number {
   return Array.isArray(prop.assetHistory) ? prop.assetHistory.length : 0
+}
+
+function resolveGenerateLabel(prop: PropAsset): string {
+  if (props.generatingPropId === prop.id) return '生成中'
+  return prop.referenceImage ? '重新生成' : '生成'
 }
 </script>
 
@@ -148,6 +155,24 @@ function resolveHistoryCount(prop: PropAsset): number {
             {{ getPropUsageCount(prop.id) }} 个场景引用
           </span>
           <div class="flex items-center gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              :disabled="autoRunning || !!uploadingPropId || !!generatingPropId || !prop.name.trim()"
+              @click="emit('generate-prop', prop.id)"
+            >
+              <Loader2
+                v-if="generatingPropId === prop.id"
+                class="mr-1 h-3 w-3 animate-spin"
+              />
+              <Sparkles
+                v-else
+                class="mr-1 h-3 w-3"
+              />
+              {{ resolveGenerateLabel(prop) }}
+            </Button>
             <Button
               type="button"
               size="sm"

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { H3Event } from 'h3'
 import { readFileSync, statSync } from 'node:fs'
+import sharp from 'sharp'
 import {
   findImageModel,
   generateImage,
@@ -432,6 +433,8 @@ async function resolveGeneratedImage(result: GenerateImageResult): Promise<{ ima
     throw new Error('未返回可用图片数据')
   }
 
+  await assertGeneratedPanoramaImageSize(source)
+
   try {
     const localImagePath = await persistImageToPublic({
       source,
@@ -447,6 +450,49 @@ async function resolveGeneratedImage(result: GenerateImageResult): Promise<{ ima
       imageData: source,
       mimeType: result.imageUrl ? 'image/url' : (result.mimeType || 'image/png')
     }
+  }
+}
+
+async function resolveImageBufferForMetadata(source: string): Promise<Buffer> {
+  const raw = source.trim()
+  if (!raw) {
+    throw new Error('环境全景图为空，无法检查尺寸')
+  }
+
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    const response = await fetch(raw)
+    if (!response.ok) {
+      throw new Error(`下载环境全景图失败: ${response.status}`)
+    }
+    return Buffer.from(await response.arrayBuffer())
+  }
+
+  const dataUri = parseDataUri(raw)
+  if (dataUri) {
+    return Buffer.from(dataUri.data, 'base64')
+  }
+
+  if (raw.startsWith('/') && !looksLikeBase64Image(raw)) {
+    const localBuffer = readLocalReferenceImage(raw)
+    if (localBuffer) return localBuffer
+    throw new Error('环境全景图本地文件不存在，无法检查尺寸')
+  }
+
+  return Buffer.from(raw.replace(/\s+/g, ''), 'base64')
+}
+
+async function assertGeneratedPanoramaImageSize(source: string) {
+  const buffer = await resolveImageBufferForMetadata(source)
+  const metadata = await sharp(buffer).metadata()
+  const width = metadata.width || 0
+  const height = metadata.height || 0
+  if (!width || !height) {
+    throw new Error('环境全景图尺寸无效')
+  }
+
+  const aspectRatio = width / height
+  if (Math.abs(aspectRatio - 2) > 0.03) {
+    throw new Error(`环境全景图比例不符合 2:1，实际尺寸为 ${width}x${height}。请切换到支持 2:1 全景图的图片模型，或重新生成。`)
   }
 }
 
@@ -643,7 +689,7 @@ async function buildSceneReferencePrompt(
   const normalizedCustomPrompt = customPrompt?.trim() || ''
   const environmentSummary = buildEnvironmentSummary(scene)
   const environmentSceneTitle = scene.setting?.location?.trim() || scene.title || '未命名场景'
-  const antiDistortionText = '必须避免鱼眼/桶形/枕形/夸张广角镜头畸变，保持地平线水平与建筑竖线自然，不要把普通广角照片伪装成全景'
+  const panoramaProjectionText = '必须是 360 环境贴图 / spherical panorama / HDRI environment map source，不要生成鱼眼圆形图、普通超广角照片或单方向透视图'
   const panoramaFallbackHint = panoramaSource.fallbackApplied
     ? `当前模型声明不支持 AR ${PANORAMA_SOURCE_ASPECT_RATIO}，但 360 全景源图必须使用 2:1；已继续按 ${panoramaSource.aspectRatio}（${panoramaSource.size}）请求。`
     : ''
@@ -655,7 +701,7 @@ async function buildSceneReferencePrompt(
     aspectRatio === '16:9'
       ? '裁切策略：默认使用全景源图中的 16:9 区域'
       : `裁切策略：后续从全景源图裁切为 ${aspectRatio}`,
-    `全景源图要求：必须生成标准 2:1 的 360 环境全景图，必须是 equirectangular projection（等距柱状投影图），左右边缘需可衔接；不要生成普通宽银幕照片或非 2:1 超宽图。默认采用中远景/全景观察距离，保留更完整空间结构，${antiDistortionText}`
+    `全景源图要求：必须生成标准 2:1 的 360 环境全景图，必须是 equirectangular projection（等距柱状投影图），左右边缘需可无缝衔接；不要生成普通宽银幕照片或非 2:1 超宽图。视点位于空间中心附近，完整覆盖前后左右四个方向，${panoramaProjectionText}`
   ].filter(Boolean).join('\n')
   const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
   const era = normalizeOptionalSceneEraValue(scene.setting?.era)
