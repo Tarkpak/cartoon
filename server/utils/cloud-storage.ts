@@ -130,13 +130,7 @@ function resolveProxyHostPort(): {
 } | null {
   const rawProxy = getFirstEnvValue([
     'TOS_PROXY',
-    'tos_proxy',
-    'HTTPS_PROXY',
-    'https_proxy',
-    'HTTP_PROXY',
-    'http_proxy',
-    'ALL_PROXY',
-    'all_proxy'
+    'tos_proxy'
   ])
 
   if (!rawProxy) return null
