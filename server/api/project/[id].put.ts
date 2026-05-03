@@ -239,7 +239,7 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 400,
       statusMessage: 'Bad Request',
-      message: '缺少项目ID',
+      message: '缺少项目ID'
     })
   }
 
@@ -269,7 +269,7 @@ export default defineEventHandler(async (event) => {
       throw createError({
         statusCode: 404,
         statusMessage: 'Not Found',
-        message: '项目不存在',
+        message: '项目不存在'
       })
     }
 
@@ -356,11 +356,8 @@ export default defineEventHandler(async (event) => {
 
       // 处理场景
       if (data.scenes !== undefined) {
-        // 删除当前项目旧场景（仅按 scriptId 作用域）
-        await db.delete(scenes).where(eq(scenes.scriptId, script.id))
-
-        // 插入新场景
         const totalDuration = data.scenes.reduce((sum, s) => sum + (s.duration || 8), 0)
+        const sceneRows: Array<typeof scenes.$inferInsert> = []
 
         for (let i = 0; i < data.scenes.length; i++) {
           const scene = data.scenes[i]
@@ -385,7 +382,7 @@ export default defineEventHandler(async (event) => {
             `scene_${scene.id}_video`
           )
 
-          await db.insert(scenes).values({
+          sceneRows.push({
             id: normalizeScopedId('scene', scene.id),
             scriptId: script.id,
             orderIndex: i,
@@ -417,6 +414,12 @@ export default defineEventHandler(async (event) => {
           })
         }
 
+        // 所有图片/视频源已准备完成后再替换旧场景，避免 TOS 上传失败导致旧数据被清空。
+        await db.delete(scenes).where(eq(scenes.scriptId, script.id))
+        for (const sceneRow of sceneRows) {
+          await db.insert(scenes).values(sceneRow)
+        }
+
         // 更新剧本总时长
         await db.update(scripts)
           .set({ totalDuration, updatedAt: now })
@@ -428,11 +431,8 @@ export default defineEventHandler(async (event) => {
     if (data.characters !== undefined) {
       const existingCharacters = await db.select().from(characters).where(eq(characters.projectId, id)).all()
       const existingCharacterById = new Map(existingCharacters.map(item => [item.id, item]))
+      const characterRows: Array<typeof characters.$inferInsert> = []
 
-      // 删除旧角色
-      await db.delete(characters).where(eq(characters.projectId, id))
-
-      // 插入新角色
       for (const char of data.characters) {
         if (!char) continue
         const scopedCharacterId = normalizeScopedId('char', char.id)
@@ -451,7 +451,7 @@ export default defineEventHandler(async (event) => {
           `${scopedCharacterId}_view`
         )
 
-        await db.insert(characters).values({
+        characterRows.push({
           id: scopedCharacterId,
           projectId: id,
           name: char.name,
@@ -474,6 +474,12 @@ export default defineEventHandler(async (event) => {
           updatedAt: now
         })
       }
+
+      // 所有角色图片已准备完成后再替换旧角色，避免 TOS 上传失败导致角色列表被清空。
+      await db.delete(characters).where(eq(characters.projectId, id))
+      for (const characterRow of characterRows) {
+        await db.insert(characters).values(characterRow)
+      }
     }
 
     return {
@@ -489,7 +495,7 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 500,
       statusMessage: 'Internal Server Error',
-      message: '保存项目失败',
+      message: '保存项目失败'
     })
   }
 })
