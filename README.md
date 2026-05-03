@@ -46,6 +46,7 @@ VOLCENGINE_API_KEY=        # 火山引擎 (Doubao) API 密钥
 # TOS_KEY_PREFIX=playlet-assets
 # TOS_PUBLIC_BASE_URL=      # 可选，建议填写 CDN/自定义域名
 # TOS_IS_CUSTOM_DOMAIN=false
+# TOS_PROXY=                # 可选，仅对 TOS 生效；默认直连，不读取 HTTP_PROXY/HTTPS_PROXY
 
 # 可选
 HTTP_PROXY=                # Gemini 代理（国内需要）
