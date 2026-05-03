@@ -27,6 +27,7 @@ const props = defineProps<{
   uploadingCharacterVoiceId: string | null
   uploadingEnvironmentAssetId: string | null
   uploadingPropId: string | null
+  generatingPropId: string | null
   getCharacterSceneCount: (character: CharacterData) => number
   getEnvironmentSceneSummary: (asset: EnvironmentAssetCard) => string
   hasEnvironmentRepresentativeScene: (assetId: string) => boolean
@@ -57,6 +58,7 @@ const emit = defineEmits<{
   'regenerate-environment': [assetId: string]
   'add-prop': [payload: { name: string, description: string, category: PropAssetCategory }]
   'remove-prop': [propId: string]
+  'generate-prop': [propId: string]
   'upload-prop-image': [payload: { propId: string, event: Event }]
   'open-prop-history': [propId: string]
 }>()
@@ -224,11 +226,13 @@ const hasSeedAssets = computed(() => {
         :prop-assets="propAssetsOfType"
         :auto-running="autoRunning"
         :uploading-prop-id="uploadingPropId"
+        :generating-prop-id="generatingPropId"
         :get-prop-usage-count="getPropUsageCount"
         add-category="prop"
         asset-label="道具"
         @add-prop="emit('add-prop', $event)"
         @remove-prop="emit('remove-prop', $event)"
+        @generate-prop="emit('generate-prop', $event)"
         @upload-image="emit('upload-prop-image', $event)"
         @open-history="emit('open-prop-history', $event)"
         @preview-image="emit('preview-image', $event)"
@@ -239,6 +243,7 @@ const hasSeedAssets = computed(() => {
         :prop-assets="otherAssetsOfType"
         :auto-running="autoRunning"
         :uploading-prop-id="uploadingPropId"
+        :generating-prop-id="generatingPropId"
         :get-prop-usage-count="getPropUsageCount"
         add-category="other"
         asset-label="其他"
@@ -246,6 +251,7 @@ const hasSeedAssets = computed(() => {
         empty-description="可手动新增其他资产，或在场景编辑中上传图片自动归类到这里。"
         @add-prop="emit('add-prop', $event)"
         @remove-prop="emit('remove-prop', $event)"
+        @generate-prop="emit('generate-prop', $event)"
         @upload-image="emit('upload-prop-image', $event)"
         @open-history="emit('open-prop-history', $event)"
         @preview-image="emit('preview-image', $event)"

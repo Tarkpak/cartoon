@@ -727,7 +727,7 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 【项目画风】
 {{style}}
 
-【最终截图比例与全景约束】
+【全景源图规格】
 {{aspectRatio}}
 
 【场景标题】
@@ -749,12 +749,12 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 1. 只生成 1 张环境资产图，不要拼图，不要分镜排版，不要多画面组合。
 2. 这是一张纯环境全景源图：禁止出现人物、人脸、肢体、剪影、人群。
 3. 仅依据环境摘要与场景设定提取地点、建筑、地形、道具、光照、天气与空间关系，不要把人物动作、对白、旁白转成画面主体。
-4. 构图必须为标准 360 环境全景图：源图比例必须为 2:1，必须明确按 equirectangular projection（等距柱状投影图）生成，重点体现环绕空间关系，而非普通宽银幕构图或非 2:1 超宽画幅。
-5. 左右边缘应可自然衔接，避免断层；完整交代核心空间结构，并在主体空间四周预留足够环境信息，方便后续裁切不同取景区域。
-6. 默认使用中远景/全景观察距离，避免主体空间离镜头过近，避免夸张广角透视、贴脸前景或过大的近处遮挡，保证单个截图也能读出整体空间结构。
+4. 构图必须是标准 360 环境贴图：2:1 equirectangular projection / spherical panorama / HDRI environment map source。它不是普通相机拍摄的宽银幕照片，也不是单方向透视图。
+5. 左右边缘必须能无缝衔接；完整交代前后左右四个方向的空间结构，并在核心空间四周保留足够环境信息，方便后续从任意方向裁切截图。
+6. 视点位于空间中心附近，使用自然水平视线；避免主体空间贴近视点、贴脸前景、巨大近处遮挡或单面墙占满画面，保证裁切任意方向时仍能读出整体空间。
 7. 同一主环境的年代感、装修档次、材质语言、灯光体系必须和相邻场景保持一致。
 8. 不要文字、水印、Logo、边框、界面元素。
-9. 严禁鱼眼、桶形、枕形、夸张广角等镜头畸变；保持地平线水平、建筑竖线尽量垂直、画面边缘不拉伸。
+9. 不要生成 fisheye lens photo、普通超广角照片、倾斜地平线或弯曲建筑结构；允许 equirectangular 投影本身的贴图展开特征，但不要把它画成鱼眼圆形图或单镜头广角照。
 10. 若门窗、玻璃或敞开通道中能看到相邻空间，不要把它处理成模糊光块；要交代相邻空间的结构轮廓、灯光和关键陈设，并与同一主环境下的对应子空间保持一致。
 11. 如果提供了二次生成要求，只做定向微调，不改变环境主体身份。
 
@@ -765,7 +765,7 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 ## Project Style
 {{style}}
 
-## Final Crop Ratio and Panorama Constraint
+## Panorama Source Specification
 {{aspectRatio}}
 
 ## Scene Title
@@ -787,12 +787,12 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 1. Generate exactly one environment asset image, not a collage, layout sheet, or split-panel composition.
 2. This must be a pure panoramic environment source image: no humans, faces, body parts, silhouettes, or crowds.
 3. Use only the environment summary and scene setting to extract location, architecture, terrain, props, lighting, weather, and spatial structure. Do not turn character action, dialogue, or narration into visual subjects.
-4. Compose it as a standard 360 environment panorama: the source image must use a 2:1 ratio and must be an equirectangular projection image. Emphasize surrounding spatial continuity, not a regular widescreen shot or a non-2:1 ultra-wide frame.
-5. Keep left and right edges naturally seamable, fully explain the core space, and preserve enough surrounding detail for later reframing.
-6. Default to a medium-wide or wide observing distance. Avoid pushing the primary space too close to the camera, exaggerated ultra-wide perspective, face-level foreground blocking, or oversized near props so a single crop still communicates the full environment.
+4. Compose it as a standard 360 environment texture: 2:1 equirectangular projection / spherical panorama / HDRI environment map source. It is not a regular camera-shot widescreen photo and not a single-direction perspective view.
+5. Make the left and right edges seamless; describe the spatial structure in all front, back, left, and right directions, with enough surrounding detail for later reframing from any direction.
+6. Place the viewpoint near the center of the space with a natural level eye line. Avoid pushing the space too close to the viewpoint, face-level foreground blocking, oversized near props, or a single wall filling the image.
 7. Keep era, renovation grade, material language, and lighting system consistent with neighboring scenes in the same root environment.
 8. No text, watermark, logo, border, or UI elements.
-9. Avoid fisheye, barrel/pincushion, and extreme wide-angle distortion. Keep the horizon level, vertical architectural lines as straight as possible, and edges free of stretch warping.
+9. Do not generate a fisheye lens photo, regular ultra-wide photo, tilted horizon, or bent architecture. Equirectangular projection layout characteristics are acceptable, but do not make it a circular fisheye image or a one-lens wide-angle shot.
 10. If doors, windows, glass, or open passages reveal an adjacent space, do not reduce it to a vague glow. Describe the neighboring space's structure, lighting, and key set dressing so it can stay consistent with the matching subspace scene.
 11. If a regeneration note is provided, apply only targeted environment-level refinement without changing the core environment identity.
 

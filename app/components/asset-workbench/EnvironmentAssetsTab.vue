@@ -4,7 +4,7 @@ import type { EnvironmentAssetCard } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { toImageSrc } from '~/lib/media'
 
-defineProps<{
+const props = defineProps<{
   environmentAssetCards: EnvironmentAssetCard[]
   autoRunning: boolean
   uploadingEnvironmentAssetId: string | null
@@ -45,6 +45,25 @@ function resolveStatusText(status: string): string {
 
 function resolveHistoryCount(asset: EnvironmentAssetCard): number {
   return Array.isArray(asset.assetHistory) ? asset.assetHistory.length : 0
+}
+
+function hasEnvironmentImage(asset: EnvironmentAssetCard): boolean {
+  return !!asset.referenceImage?.trim() || !!asset.panoramaImage?.trim()
+}
+
+function canGenerateEnvironmentAsset(assetId: string): boolean {
+  return props.hasEnvironmentRepresentativeScene(assetId)
+}
+
+function resolveEnvironmentGenerateLabel(asset: EnvironmentAssetCard): string {
+  if (asset.referenceStatus === 'generating') return '生成中'
+  return hasEnvironmentImage(asset) ? '重新生成' : '生成'
+}
+
+function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
+  if (asset.referenceStatus === 'generating') return '环境图生成中'
+  if (!canGenerateEnvironmentAsset(asset.id)) return '该环境还没有对应场景，请先解析分镜后再生成'
+  return hasEnvironmentImage(asset) ? '重新生成环境图' : '生成环境图'
 }
 </script>
 
@@ -129,7 +148,8 @@ function resolveHistoryCount(asset: EnvironmentAssetCard): number {
             size="sm"
             variant="ghost"
             class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="asset.referenceStatus === 'generating' || !hasEnvironmentRepresentativeScene(asset.id)"
+            :title="resolveEnvironmentGenerateTitle(asset)"
+            :disabled="asset.referenceStatus === 'generating' || !canGenerateEnvironmentAsset(asset.id)"
             @click="emit('regenerate', asset.id)"
           >
             <Loader2
@@ -140,7 +160,7 @@ function resolveHistoryCount(asset: EnvironmentAssetCard): number {
               v-else
               class="mr-1 h-3 w-3"
             />
-            重新生成
+            {{ resolveEnvironmentGenerateLabel(asset) }}
           </Button>
           <Button
             size="sm"
