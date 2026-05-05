@@ -67,7 +67,7 @@ function normalizeViewSelection(raw?: EnvironmentCropSelection): EnvironmentCrop
   const fallback = metrics
     ? buildDefaultCropSelection({ imageWidth: metrics.width, imageHeight: metrics.height })
     : (() => {
-        const width = 0.22
+        const width = 1
         const height = resolveSelectionHeight(width)
         return { x: (1 - width) / 2, y: (1 - height) / 2, width, height }
       })()

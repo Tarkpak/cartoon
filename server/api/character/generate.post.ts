@@ -35,6 +35,15 @@ const CHARACTER_GENDER_PROMPT_MAP: Record<string, { zh: string, en: string }> = 
   }
 }
 
+const CHARACTER_SHEET_ASPECT_RATIO = '16:9'
+
+function resolveCharacterSheetSize(provider?: string): string {
+  if (provider === 'qwen') return '1664*928'
+  if (provider === 'volcengine') return '2560x1440'
+  if (provider === 'custom_openai') return '1792x1024'
+  return '1536*864'
+}
+
 function resolveCharacterGenderPrompt(gender?: string) {
   return CHARACTER_GENDER_PROMPT_MAP[gender || ''] || {
     zh: '未明确。请仅依据外貌描述中的性别、年龄和身份线索生成，不要随机反转性别呈现。',
@@ -369,6 +378,8 @@ async function generateCharacterSheet(
         modelId,
         prompt: promptText,
         imageSize: geminiImageSize,
+        aspectRatio: CHARACTER_SHEET_ASPECT_RATIO,
+        size: resolveCharacterSheetSize(modelConfig?.provider),
         ...referenceImageOptions,
         allowTextOnlyResult,
         maxRetries: 2

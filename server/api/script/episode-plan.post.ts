@@ -7,7 +7,7 @@ import {
   type ScriptEpisodePlanItem,
   type ScriptParseMode
 } from '../../../shared/types/script'
-import { normalizeCharacterRole } from '../../../shared/types/character'
+import { normalizeCharacterGender, normalizeCharacterRole } from '../../../shared/types/character'
 
 const EpisodePlanRequestSchema = z.object({
   text: z.string().min(10).describe('原始小说文本'),
@@ -22,7 +22,8 @@ const EpisodePlanModelEpisodeSchema = z.object({
     characters: z.array(z.object({
       name: z.string().trim().min(1),
       description: z.string().trim().optional(),
-      role: z.string().trim().optional()
+      role: z.string().trim().optional(),
+      gender: z.string().trim().optional()
     })).optional(),
     props: z.array(z.object({
       name: z.string().trim().min(1),
@@ -101,7 +102,9 @@ function buildEpisodePlanPrompt(
    - startAnchor 必须是原文中的连续原句片段，逐字摘录，不得改写。
    - ${firstAnchorRule}
    - 第2集及以后 startAnchor 必须对应该集开头附近，建议 20~80 字，尽量唯一。
-5) 仅输出 JSON，不要 markdown，不要解释文本，不要输出空集。
+5) episodeAssets.characters 用于提前建立角色资产，description 必须面向角色图生成，写成完整外观基线，而不是身份摘要或剧情关系。优先包含：性别呈现、年龄段、脸型/五官、发型发色、身形体态、常穿服装、关键配饰、身份气质、必须保持不变的视觉特征；原文未明确的信息可做保守推断，但不得与原文冲突。
+6) episodeAssets.characters[].gender 必须为 male、female、other 之一；根据原文称谓、代词、姓名、亲属关系、身份词和外貌线索推断，原文已暗示男/女时不得留空或反转。
+7) 仅输出 JSON，不要 markdown，不要解释文本，不要输出空集。
 
 JSON 结构（严格遵守）：
 {
@@ -111,7 +114,7 @@ JSON 结构（严格遵守）：
       "title": "第1集：...",
       "startAnchor": "原文片段",
       "episodeAssets": {
-        "characters": [{ "name": "角色名", "description": "可选", "role": "可选" }],
+        "characters": [{ "name": "角色名", "description": "完整外观基线", "role": "protagonist|antagonist|supporting", "gender": "male|female|other" }],
         "props": [{ "name": "道具名", "description": "可选" }],
         "environments": [{ "location": "地点", "timeOfDay": "可选", "mood": "可选" }]
       }
@@ -134,6 +137,7 @@ interface EpisodeAssetCharacter {
   name: string
   description?: string
   role?: string
+  gender?: string
 }
 
 interface EpisodeAssetProp {
@@ -164,7 +168,7 @@ function normalizeEpisodeAssetKey(raw: string): string {
 function normalizeEpisodeAssetSummary(raw: unknown): EpisodeAssetSummary | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
   const source = raw as {
-    characters?: Array<{ name?: unknown, description?: unknown, role?: unknown }>
+    characters?: Array<{ name?: unknown, description?: unknown, role?: unknown, gender?: unknown }>
     props?: Array<{ name?: unknown, description?: unknown }>
     environments?: Array<{ location?: unknown, timeOfDay?: unknown, mood?: unknown }>
   }
@@ -177,12 +181,14 @@ function normalizeEpisodeAssetSummary(raw: unknown): EpisodeAssetSummary | undef
     if (!key) continue
     const description = typeof item?.description === 'string' ? item.description.trim() : ''
     const role = normalizeCharacterRole(item?.role)
+    const gender = normalizeCharacterGender(item?.gender)
     const existing = characterMap.get(key)
     if (!existing) {
       characterMap.set(key, {
         name,
         ...(description ? { description } : {}),
-        ...(role ? { role } : {})
+        ...(role ? { role } : {}),
+        ...(gender ? { gender } : {})
       })
       continue
     }
@@ -191,6 +197,9 @@ function normalizeEpisodeAssetSummary(raw: unknown): EpisodeAssetSummary | undef
     }
     if (role && !existing.role) {
       existing.role = role
+    }
+    if (gender && !existing.gender) {
+      existing.gender = gender
     }
   }
 

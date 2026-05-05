@@ -233,8 +233,9 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 3. dialogues 仅保留真实角色台词，不要把“旁白”写成角色。
 4. characters 数组中的角色描述要稳定可复用，便于后续角色资产生成。
 5. characters 顶层数组中的 gender 必须为 male、female、other 之一。请根据原文称谓、代词、姓名、亲属关系、身份词和外貌线索推断；原文已暗示男/女时不得留空或反转。
-6. characters 顶层数组中的 description 必须写入明确性别和年龄线索，例如“30岁左右男性”或“年轻女性”，供后续角色图稳定生成。
-7. 对每个场景，明确角色、环境和关键道具等资产需求，但不要额外新增无关元素。
+6. characters 顶层数组中的 description 必须面向角色图生成，写成完整外观基线，而不是身份摘要或剧情关系。优先包含：性别呈现、年龄段、脸型/五官、发型发色、身形体态、常穿服装、关键配饰、身份气质、必须保持不变的视觉特征；原文未明确的信息可做保守推断，但不得与原文冲突。
+7. 同一角色在不同场景的服装变化只写入 scene.characters[i].appearance；顶层 characters[i].description 保持该角色默认资产基线。
+8. 对每个场景，明确角色、环境和关键道具等资产需求，但不要额外新增无关元素。
 
 【输出格式】
 请严格输出 JSON：
@@ -363,8 +364,9 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 3. dialogues must only contain real spoken lines by actual characters.
 4. Character descriptions must stay stable and reusable for later asset generation.
 5. Top-level characters[i].gender must be one of male, female, other. Infer it from source text, role words, pronouns, names, kinship terms, and appearance cues. Do not leave gender ambiguous when the source implies male or female.
-6. Put explicit gender and age cues inside characters[i].description, such as "around 30 male" or "young female", so image generation preserves the intended presentation.
-7. Make asset needs clear through the scene content, but do not invent unrelated elements.
+6. Top-level characters[i].description must be a complete visual baseline for character image generation, not an identity summary or plot relationship. Prefer including gender presentation, age range, face/facial features, hairstyle and hair color, body build and posture, default outfit, key accessories, identity temperament, and visual traits that must remain unchanged. Conservatively infer missing details when needed, but never contradict the source.
+7. Put scene-specific outfit or state changes only in scene.characters[i].appearance; keep top-level characters[i].description as the default reusable asset baseline.
+8. Make asset needs clear through the scene content, but do not invent unrelated elements.
 
 ## Output Format
 Output strict JSON only:
@@ -488,7 +490,8 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 2. narration 字段仅放旁白/画外音；dialogues 仅放真实角色台词。
 3. characters 顶层数组要给出稳定可复用的角色描述，便于后续角色资产生成。
 4. characters 顶层数组中的 gender 必须为 male、female、other 之一。请根据原文称谓、代词、姓名、亲属关系、身份词和外貌线索推断；原文已暗示男/女时不得留空或反转。
-5. characters 顶层数组中的 description 必须写入明确性别和年龄线索，例如“30岁左右男性”或“年轻女性”，供后续角色图稳定生成。
+5. characters 顶层数组中的 description 必须面向角色图生成，写成完整外观基线，而不是身份摘要或剧情关系。优先包含：性别呈现、年龄段、脸型/五官、发型发色、身形体态、常穿服装、关键配饰、身份气质、必须保持不变的视觉特征；原文未明确的信息可做保守推断，但不得与原文冲突。
+6. 同一角色在不同场景的服装变化只写入 scene.characters[i].appearance；顶层 characters[i].description 保持该角色默认资产基线。
 
 【输出格式】
 请严格输出 JSON：
@@ -609,7 +612,8 @@ Final declaration | 43-60s | emptiness -> cold severity | cliffhanger / anticipa
 2. narration contains only narration/voice-over; dialogues contains only spoken lines by real characters.
 3. Top-level characters must remain stable and reusable for downstream character asset generation.
 4. Top-level characters[i].gender must be one of male, female, other. Infer it from source text, role words, pronouns, names, kinship terms, and appearance cues. Do not leave gender ambiguous when the source implies male or female.
-5. Put explicit gender and age cues inside characters[i].description, such as "around 30 male" or "young female", so image generation preserves the intended presentation.
+5. Top-level characters[i].description must be a complete visual baseline for character image generation, not an identity summary or plot relationship. Prefer including gender presentation, age range, face/facial features, hairstyle and hair color, body build and posture, default outfit, key accessories, identity temperament, and visual traits that must remain unchanged. Conservatively infer missing details when needed, but never contradict the source.
+6. Put scene-specific outfit or state changes only in scene.characters[i].appearance; keep top-level characters[i].description as the default reusable asset baseline.
 
 ## Output Format
 Output strict JSON only:

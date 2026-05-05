@@ -3,7 +3,7 @@ import {
   DEFAULT_SCRIPT_PARSE_MODE,
   type ScriptParseMode
 } from '#shared/types/script'
-import { normalizeCharacterRole } from '#shared/types/character'
+import { normalizeCharacterGender, normalizeCharacterRole } from '#shared/types/character'
 import type {
   CharacterData,
   SceneData
@@ -291,9 +291,14 @@ export function useAssetWorkbenchGeneration(
         const existing = existingNameMap.get(name)
         const description = item.description?.trim() || ''
         const role = normalizeCharacterRole(item.role) || 'supporting'
+        const gender = normalizeCharacterGender(item.gender)
         if (existing) {
           if (!existing.appearance && description) {
             existing.appearance = description
+            changed = true
+          }
+          if (!existing.gender && gender) {
+            existing.gender = gender
             changed = true
           }
           const existingRole = normalizeCharacterRole(existing.role) || 'supporting'
@@ -309,6 +314,7 @@ export function useAssetWorkbenchGeneration(
           name,
           appearance: description || `${name}，保持与剧本设定一致`,
           role,
+          gender,
           generating: false,
           generatingViews: false
         }
