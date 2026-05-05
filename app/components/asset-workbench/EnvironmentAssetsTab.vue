@@ -52,7 +52,7 @@ function hasEnvironmentImage(asset: EnvironmentAssetCard): boolean {
 }
 
 function canGenerateEnvironmentAsset(assetId: string): boolean {
-  return props.hasEnvironmentRepresentativeScene(assetId)
+  return props.environmentAssetCards.some(asset => asset.id === assetId)
 }
 
 function resolveEnvironmentGenerateLabel(asset: EnvironmentAssetCard): string {
@@ -62,7 +62,8 @@ function resolveEnvironmentGenerateLabel(asset: EnvironmentAssetCard): string {
 
 function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
   if (asset.referenceStatus === 'generating') return '环境图生成中'
-  if (!canGenerateEnvironmentAsset(asset.id)) return '该环境还没有对应场景，请先解析分镜后再生成'
+  if (!canGenerateEnvironmentAsset(asset.id)) return '未找到环境资产'
+  if (!props.hasEnvironmentRepresentativeScene(asset.id)) return '根据环境资产描述生成环境图'
   return hasEnvironmentImage(asset) ? '重新生成环境图' : '生成环境图'
 }
 </script>
