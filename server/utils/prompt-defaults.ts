@@ -232,7 +232,9 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 2. 场景中的旁白、画外音、内心独白必须同时输出到 scenes[i].narration 字段，并以画外音格式嵌入 description 的对应时间轴行中。
 3. dialogues 仅保留真实角色台词，不要把“旁白”写成角色。
 4. characters 数组中的角色描述要稳定可复用，便于后续角色资产生成。
-5. 对每个场景，明确角色、环境和关键道具等资产需求，但不要额外新增无关元素。
+5. characters 顶层数组中的 gender 必须为 male、female、other 之一。请根据原文称谓、代词、姓名、亲属关系、身份词和外貌线索推断；原文已暗示男/女时不得留空或反转。
+6. characters 顶层数组中的 description 必须写入明确性别和年龄线索，例如“30岁左右男性”或“年轻女性”，供后续角色图稳定生成。
+7. 对每个场景，明确角色、环境和关键道具等资产需求，但不要额外新增无关元素。
 
 【输出格式】
 请严格输出 JSON：
@@ -277,7 +279,8 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
     {
       "name": "陆哲",
       "description": "角色整体外貌描述，便于后续角色资产生成",
-      "role": "protagonist|antagonist|supporting"
+      "role": "protagonist|antagonist|supporting",
+      "gender": "male|female|other"
     }
   ],
   "totalDuration": 96
@@ -359,7 +362,9 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 2. Narration, voice-over, and inner monologue must go to scenes[i].narration AND be embedded as voiceover in the description timeline lines.
 3. dialogues must only contain real spoken lines by actual characters.
 4. Character descriptions must stay stable and reusable for later asset generation.
-5. Make asset needs clear through the scene content, but do not invent unrelated elements.
+5. Top-level characters[i].gender must be one of male, female, other. Infer it from source text, role words, pronouns, names, kinship terms, and appearance cues. Do not leave gender ambiguous when the source implies male or female.
+6. Put explicit gender and age cues inside characters[i].description, such as "around 30 male" or "young female", so image generation preserves the intended presentation.
+7. Make asset needs clear through the scene content, but do not invent unrelated elements.
 
 ## Output Format
 Output strict JSON only:
@@ -402,7 +407,8 @@ Output strict JSON only:
     {
       "name": "Lu Zhe",
       "description": "Reusable overall appearance description for later asset generation",
-      "role": "protagonist|antagonist|supporting"
+      "role": "protagonist|antagonist|supporting",
+      "gender": "male|female|other"
     }
   ],
   "totalDuration": 96
@@ -481,6 +487,8 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 1. 只识别真实角色，不要把旁白/音效当角色。
 2. narration 字段仅放旁白/画外音；dialogues 仅放真实角色台词。
 3. characters 顶层数组要给出稳定可复用的角色描述，便于后续角色资产生成。
+4. characters 顶层数组中的 gender 必须为 male、female、other 之一。请根据原文称谓、代词、姓名、亲属关系、身份词和外貌线索推断；原文已暗示男/女时不得留空或反转。
+5. characters 顶层数组中的 description 必须写入明确性别和年龄线索，例如“30岁左右男性”或“年轻女性”，供后续角色图稳定生成。
 
 【输出格式】
 请严格输出 JSON：
@@ -525,7 +533,8 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
     {
       "name": "角色名",
       "description": "角色整体外貌描述",
-      "role": "protagonist|antagonist|supporting"
+      "role": "protagonist|antagonist|supporting",
+      "gender": "male|female|other"
     }
   ],
   "totalDuration": 96
@@ -599,6 +608,8 @@ Final declaration | 43-60s | emptiness -> cold severity | cliffhanger / anticipa
 1. Only include real characters; narration and SFX are not characters.
 2. narration contains only narration/voice-over; dialogues contains only spoken lines by real characters.
 3. Top-level characters must remain stable and reusable for downstream character asset generation.
+4. Top-level characters[i].gender must be one of male, female, other. Infer it from source text, role words, pronouns, names, kinship terms, and appearance cues. Do not leave gender ambiguous when the source implies male or female.
+5. Put explicit gender and age cues inside characters[i].description, such as "around 30 male" or "young female", so image generation preserves the intended presentation.
 
 ## Output Format
 Output strict JSON only:
@@ -641,7 +652,8 @@ Output strict JSON only:
     {
       "name": "Character name",
       "description": "Reusable overall appearance description",
-      "role": "protagonist|antagonist|supporting"
+      "role": "protagonist|antagonist|supporting",
+      "gender": "male|female|other"
     }
   ],
   "totalDuration": 96
@@ -657,27 +669,35 @@ const CHARACTER_SHEET_CONTENT: PromptTemplate['content'] = {
 角色外貌基线：
 {{appearance}}
 
+性别呈现约束：
+{{gender}}
+
 执行要求：
 1. 输出必须是单角色角色资产图，不要输出文字说明。
 2. 16:9 横版构图，纯白或浅灰背景，适合后续作为角色一致性参考。
 3. 左侧为脸部近景，右侧为 Front / Profile / Back 三视图全身站姿。
 4. 三视图必须等比例、等身高、等服装结构，对齐清晰。
-5. 严格依据角色外貌描述，避免任意添加新设定。
-6. 若模型接收到参考图，必须优先保持身份一致：脸型、五官、发型、服装、配饰不可漂移。
-7. 画面干净、结构清晰、细节稳定，不要戏剧化背景，不要多人同框，不要水印和 Logo。`,
+5. 严格遵守性别呈现约束，不得把男性画成女性化角色，也不得把女性画成男性化角色。
+6. 严格依据角色外貌描述，避免任意添加新设定。
+7. 若模型接收到参考图，必须优先保持身份一致：脸型、五官、发型、服装、配饰不可漂移。
+8. 画面干净、结构清晰、细节稳定，不要戏剧化背景，不要多人同框，不要水印和 Logo。`,
   en: `Create a {{style}} character asset design sheet for {{characterName}}.
 
 Appearance baseline:
 {{appearance}}
+
+Gender presentation constraint:
+{{genderEn}}
 
 Requirements:
 1. The result must be an image asset sheet, not text.
 2. Use a 16:9 horizontal composition with a clean white or light-gray background for identity consistency reference.
 3. Put a close-up portrait on the left and full-body Front / Profile / Back turnarounds on the right.
 4. Turnarounds must stay aligned with consistent scale, height, and outfit structure.
-5. Follow the provided appearance strictly and do not invent unrelated new traits.
-6. If a reference image is provided by the model layer, identity consistency must take priority.
-7. Keep the frame clean, readable, stable, watermark-free, and free of dramatic background storytelling.`
+5. Follow the gender presentation constraint strictly; do not render a male character as feminine or a female character as masculine.
+6. Follow the provided appearance strictly and do not invent unrelated new traits.
+7. If a reference image is provided by the model layer, identity consistency must take priority.
+8. Keep the frame clean, readable, stable, watermark-free, and free of dramatic background storytelling.`
 }
 
 const CHARACTER_REGENERATION_CONTENT: PromptTemplate['content'] = {
@@ -686,6 +706,7 @@ const CHARACTER_REGENERATION_CONTENT: PromptTemplate['content'] = {
 角色信息：
 - 名称：{{characterName}}
 - 外貌基线：{{appearance}}
+- 性别呈现：{{gender}}
 - 风格基线：{{style}}
 
 本次生效的修改要求：
@@ -705,6 +726,7 @@ const CHARACTER_REGENERATION_CONTENT: PromptTemplate['content'] = {
 Character info:
 - Name: {{characterName}}
 - Appearance baseline: {{appearance}}
+- Gender presentation: {{genderEn}}
 - Style baseline: {{style}}
 
 Effective change request:
@@ -1028,11 +1050,11 @@ function applySeedanceScriptParsingEn(content: string): string {
 function applySeedanceCharacterSheetZh(content: string): string {
   return appendRulesAfterLine(
     content,
-    '7. 画面干净、结构清晰、细节稳定，不要戏剧化背景，不要多人同框，不要水印和 Logo。',
+    '8. 画面干净、结构清晰、细节稳定，不要戏剧化背景，不要多人同框，不要水印和 Logo。',
     [
-      '8. 主体描述需明确年龄段、脸型特征、发型、服装结构和状态，不使用“漂亮/帅气/精致”等抽象词。',
-      '9. 风格锚点控制在 1-2 个核心词，避免混合冲突风格。',
-      '10. 强化稳定性约束：面部清晰、五官比例自然、服装一致、无双胞胎、无肢体畸形、无字幕水印。'
+      '9. 主体描述需明确年龄段、性别呈现、脸型特征、发型、服装结构和状态，不使用“漂亮/帅气/精致”等抽象词。',
+      '10. 风格锚点控制在 1-2 个核心词，避免混合冲突风格。',
+      '11. 强化稳定性约束：面部清晰、五官比例自然、性别呈现稳定、服装一致、无双胞胎、无肢体畸形、无字幕水印。'
     ]
   )
 }
@@ -1040,11 +1062,11 @@ function applySeedanceCharacterSheetZh(content: string): string {
 function applySeedanceCharacterSheetEn(content: string): string {
   return appendRulesAfterLine(
     content,
-    '7. Keep the frame clean, readable, stable, watermark-free, and free of dramatic background storytelling.',
+    '8. Keep the frame clean, readable, stable, watermark-free, and free of dramatic background storytelling.',
     [
-      '8. Keep subject definition explicit: age range, facial structure, hairstyle, outfit structure, and current state; avoid abstract praise words.',
-      '9. Limit style anchors to one or two core cues to avoid conflicting mixed styles.',
-      '10. Add stability constraints: clear face, natural proportions, consistent outfit, no duplicate person, no limb deformation, no subtitle/watermark.'
+      '9. Keep subject definition explicit: age range, gender presentation, facial structure, hairstyle, outfit structure, and current state; avoid abstract praise words.',
+      '10. Limit style anchors to one or two core cues to avoid conflicting mixed styles.',
+      '11. Add stability constraints: clear face, natural proportions, stable gender presentation, consistent outfit, no duplicate person, no limb deformation, no subtitle/watermark.'
     ]
   )
 }
