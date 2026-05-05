@@ -8,6 +8,7 @@ import type {
   AssetVideoHistoryEntry,
   CharacterRoleOption,
   DisplayAsset,
+  EnvironmentAssetCard,
   EnvironmentCropSelection,
   EnvironmentPanoramaState,
   QueueItem
@@ -29,7 +30,7 @@ import {
   buildDefaultCropSelection,
   loadCropImageMetrics,
   normalizePanoramaSelection,
-  renderCropSelectionToDataUrl
+  renderPanoramaSelectionToDataUrl
 } from '~/lib/asset-workbench-environment-panorama'
 import {
   applyAutomaticAssetPlan as buildAutomaticAssetPlan
@@ -144,6 +145,10 @@ const sceneConfigs = ref<Record<string, SceneConsistencyConfig>>({})
 const propAssets = ref<PropAsset[]>([])
 const environmentAssetHistories = ref<Record<string, AssetImageHistoryEntry[]>>({})
 const environmentPanoramaStates = ref<Record<string, EnvironmentPanoramaState>>({})
+const environmentAssetGenerationStates = ref<Record<string, {
+  status: EnvironmentAssetCard['referenceStatus']
+  error?: string
+}>>({})
 
 const batchRunning = ref(false)
 const queueItems = ref<QueueItem[]>([])
@@ -203,6 +208,39 @@ const {
   resolveSceneDescriptionWithoutAssetMentions,
   uniqueSorted
 })
+
+const displayEnvironmentAssetCards = computed<EnvironmentAssetCard[]>(() => {
+  return environmentAssetCards.value.map((asset) => {
+    const state = environmentAssetGenerationStates.value[asset.id]
+    if (!state) return asset
+
+    return {
+      ...asset,
+      referenceStatus: state.status,
+      referenceError: state.error || asset.referenceError
+    }
+  })
+})
+
+function setEnvironmentAssetGenerationState(
+  assetId: string,
+  state: {
+    status: EnvironmentAssetCard['referenceStatus']
+    error?: string
+  } | null
+) {
+  if (!state) {
+    environmentAssetGenerationStates.value = Object.fromEntries(
+      Object.entries(environmentAssetGenerationStates.value).filter(([id]) => id !== assetId)
+    )
+    return
+  }
+
+  environmentAssetGenerationStates.value = {
+    ...environmentAssetGenerationStates.value,
+    [assetId]: state
+  }
+}
 
 const {
   workflowMetaReady,
@@ -368,15 +406,15 @@ async function createEnvironmentCropImage(options: {
   if (!crop) {
     throw new Error('取景区域无效，无法生成环境图')
   }
-  const imageData = await renderCropSelectionToDataUrl({
+  const result = await renderPanoramaSelectionToDataUrl({
     sourceImage: options.sourceImage,
     selection: crop
   })
-  const imageUrl = await uploadAssetImage(imageData, buildEnvironmentCropUploadPrefix(options.assetId))
+  const imageUrl = await uploadAssetImage(result.imageData, buildEnvironmentCropUploadPrefix(options.assetId))
 
   return {
     imageUrl,
-    crop
+    crop: result.crop
   }
 }
 
@@ -1883,8 +1921,10 @@ async function regenerateEnvironmentAsset(assetId: string) {
 async function generateEnvironmentAssetFromCard(assetId: string) {
   const asset = resolveEnvironmentCard(assetId)
   if (!asset) return
+  if (environmentAssetGenerationStates.value[assetId]?.status === 'generating') return
 
   autoRunError.value = null
+  setEnvironmentAssetGenerationState(assetId, { status: 'generating' })
 
   try {
     const response = await $fetch<{
@@ -1945,12 +1985,18 @@ async function generateEnvironmentAssetFromCard(assetId: string) {
     })
     recordEnvironmentHistory(assetId, referenceImage, { source: 'generated' })
     await saveWorkflowMeta()
+    setEnvironmentAssetGenerationState(assetId, null)
     await notifyGenerationCompleted({
       title: '环境图生成完成',
       body: `环境：${asset.name}`
     })
   } catch (error) {
-    autoRunError.value = resolveUiError(error, '环境图生成失败')
+    const message = resolveUiError(error, '环境图生成失败')
+    setEnvironmentAssetGenerationState(assetId, {
+      status: 'error',
+      error: message
+    })
+    autoRunError.value = message
   }
 }
 
@@ -2072,7 +2118,7 @@ async function handleBatchGenerateCharacters() {
       <AssetWorkbenchAssetsStage
         :scenes-count="scenes.length"
         :characters="characters"
-        :environment-asset-cards="environmentAssetCards"
+        :environment-asset-cards="displayEnvironmentAssetCards"
         :prop-assets="propAssets"
         :auto-running="autoRunning"
         :auto-run-current-stage="autoRunCurrentStage"

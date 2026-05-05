@@ -123,6 +123,58 @@ describe('useAssetWorkbenchPageState', () => {
     expect(pageState.environmentAssetCards.value[0]?.description).toBe('冷白灯光，紧张压抑')
   })
 
+  it('marks episode environment hints ready when a generated history image exists', () => {
+    const pageState = useAssetWorkbenchPageState({
+      scenes: ref([]),
+      characters: ref([]),
+      episodePlan: ref([
+        {
+          id: 'episode_001',
+          title: '第1集：雨夜追踪',
+          index: 1,
+          startOffset: 0,
+          endOffset: 1200,
+          charCount: 1200,
+          episodeAssets: {
+            characters: [],
+            props: [],
+            environments: [
+              {
+                location: '医院走廊',
+                timeOfDay: '夜晚',
+                mood: '冷白灯光，紧张压抑'
+              }
+            ]
+          }
+        }
+      ]),
+      propAssets: ref([]),
+      environmentAssetHistories: ref({
+        'env:医院走廊||夜晚': [
+          {
+            id: 'history_1',
+            image: 'https://example.com/generated-env.png',
+            createdAt: '2026-05-06T10:00:00.000Z',
+            source: 'generated'
+          }
+        ]
+      }),
+      environmentPanoramaStates: ref({}),
+      sceneConfigs: ref({}),
+      selectedSceneId: ref(''),
+      selectedStyleId: ref(''),
+      projectStyleId: ref(''),
+      supportsExplicitVoiceAudioReference: ref(false),
+      queueItems: ref([]),
+      resolveStyleById: () => null,
+      resolveSceneDescriptionWithoutAssetMentions,
+      uniqueSorted: values => Array.from(new Set(values.filter(Boolean)))
+    })
+
+    expect(pageState.environmentAssetCards.value[0]?.referenceImage).toBe('https://example.com/generated-env.png')
+    expect(pageState.environmentAssetCards.value[0]?.referenceStatus).toBe('done')
+  })
+
   it('marks assets incomplete when a normal prop has no reference image', () => {
     const pageState = useAssetWorkbenchPageState({
       scenes: ref([]),
