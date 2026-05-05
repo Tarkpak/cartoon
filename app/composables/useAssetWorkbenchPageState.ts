@@ -89,6 +89,7 @@ function buildEpisodeEnvironmentHintCards(options: {
       const history = options.environmentAssetHistories?.[assetId] || []
       const panoramaImage = options.environmentPanoramaStates?.[assetId]?.panoramaImage?.trim() || ''
       const referenceImage = panoramaImage || history[0]?.image || undefined
+      const referenceStatus = referenceImage ? 'done' : 'pending'
       const existing = merged.get(assetId)
       if (existing) {
         if (mood && (!existing.description || mood.length > existing.description.length)) {
@@ -127,7 +128,7 @@ function buildEpisodeEnvironmentHintCards(options: {
         sceneIds: [`plan:${episodeMarkerId}`],
         sceneTitles: [`${episodeLabel}（目录）`],
         representativeSceneId: '',
-        referenceStatus: 'pending'
+        referenceStatus
       })
     }
   }
