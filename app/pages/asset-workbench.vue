@@ -1536,11 +1536,13 @@ async function handlePropImageUpload(propId: string, event: Event) {
 }
 
 async function handleGeneratePropImage(propId: string) {
+  const previousImage = propAssets.value.find(item => item.id === propId)?.referenceImage?.trim() || ''
+  const generatedImage = await generatePropImageCore(propId)
   const target = propAssets.value.find(item => item.id === propId)
-  const previousImage = target?.referenceImage?.trim() || ''
-  await generatePropImageCore(propId)
-  const nextImage = target?.referenceImage?.trim() || ''
+  const nextImage = generatedImage?.trim() || target?.referenceImage?.trim() || ''
   if (!target || !nextImage || nextImage === previousImage) return
+
+  target.referenceImage = nextImage
 
   recordPropHistory(propId, nextImage, { source: 'generated' })
   await saveWorkflowMeta()
@@ -1839,8 +1841,85 @@ watch(selectedScene, (scene) => {
 
 async function regenerateEnvironmentAsset(assetId: string) {
   const targetScene = resolveEnvironmentRepresentativeScene(assetId)
-  if (!targetScene) return
+  if (!targetScene) {
+    await generateEnvironmentAssetFromCard(assetId)
+    return
+  }
   await handleGenerateSceneBaseline(targetScene.id)
+}
+
+async function generateEnvironmentAssetFromCard(assetId: string) {
+  const asset = resolveEnvironmentCard(assetId)
+  if (!asset) return
+
+  autoRunError.value = null
+
+  try {
+    const response = await $fetch<{
+      success: boolean
+      referenceImage?: string
+      error?: string
+    }>('/api/asset-workflow/reference/generate', {
+      method: 'POST',
+      body: {
+        scene: {
+          id: asset.id,
+          title: asset.name,
+          description: asset.description || asset.sceneTitles.join('、') || asset.name,
+          duration: 8,
+          setting: {
+            location: asset.name,
+            timeOfDay: '白天',
+            mood: asset.description || ''
+          },
+          characters: [],
+          dialogues: []
+        },
+        style: workflowStylePrompt.value,
+        aspectRatio: projectAspectRatio.value,
+        environmentContext: {
+          environmentRoot: asset.name,
+          anchorLocation: asset.name,
+          anchorDescription: asset.description || '',
+          siblingLocations: []
+        }
+      }
+    })
+
+    if (!response.success || !response.referenceImage) {
+      throw new Error(response.error || '环境图生成失败')
+    }
+
+    let referenceImage = response.referenceImage
+    let crop: EnvironmentCropSelection | undefined
+    try {
+      const croppedResult = await createEnvironmentCropImage({
+        assetId,
+        sourceImage: response.referenceImage,
+        crop: asset.crop
+      })
+      referenceImage = croppedResult.imageUrl
+      crop = croppedResult.crop
+    } catch (error) {
+      console.warn('[AssetWorkbench] 环境资产图裁切失败，已回退使用原始环境图', {
+        assetId,
+        reason: error instanceof Error ? error.message : String(error)
+      })
+    }
+
+    setEnvironmentPanoramaState(assetId, {
+      panoramaImage: response.referenceImage,
+      crop
+    })
+    recordEnvironmentHistory(assetId, referenceImage, { source: 'generated' })
+    await saveWorkflowMeta()
+    await notifyGenerationCompleted({
+      title: '环境图生成完成',
+      body: `环境：${asset.name}`
+    })
+  } catch (error) {
+    autoRunError.value = resolveUiError(error, '环境图生成失败')
+  }
 }
 
 async function handleGenerateSceneBaseline(sceneId: string) {

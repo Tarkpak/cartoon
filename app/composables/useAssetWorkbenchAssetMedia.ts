@@ -235,7 +235,7 @@ export function useAssetWorkbenchAssetMedia(options: {
     }
   }
 
-  async function generatePropImage(propId: string) {
+  async function generatePropImage(propId: string): Promise<string | undefined> {
     const target = options.propAssets.value.find(item => item.id === propId)
     if (!target || generatingPropId.value) return
 
@@ -265,8 +265,10 @@ export function useAssetWorkbenchAssetMedia(options: {
 
       target.referenceImage = response.imageUrl
       await options.saveWorkflowMeta()
+      return response.imageUrl
     } catch (error) {
       options.statusError.value = options.resolveUiError(error, '道具图生成失败')
+      return undefined
     } finally {
       generatingPropId.value = null
     }

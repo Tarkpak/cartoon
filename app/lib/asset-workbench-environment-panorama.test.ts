@@ -14,16 +14,16 @@ import {
 } from './asset-workbench-environment-panorama'
 
 describe('environment panorama crop helpers', () => {
-  it('builds a centered freeform crop window', () => {
+  it('builds a centered 100% default crop window', () => {
     const selection = buildDefaultCropSelection({
       imageWidth: 1280,
       imageHeight: 720
     })
 
-    expect(selection.width).toBeCloseTo(0.22, 5)
-    expect(selection.height).toBeCloseTo(0.27727, 5)
-    expect(selection.x).toBeCloseTo(0.39, 5)
-    expect(selection.y).toBeCloseTo(0.36136, 5)
+    expect(selection.width).toBeCloseTo(1, 5)
+    expect(selection.height).toBeCloseTo(0.9115, 5)
+    expect(selection.x).toBeCloseTo(0, 5)
+    expect(selection.y).toBeCloseTo(0.04425, 5)
   })
 
   it('validates 2:1 equirectangular panorama source dimensions', () => {

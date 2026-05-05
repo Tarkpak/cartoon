@@ -17,6 +17,7 @@ export interface ScriptEpisodeAssetSummary {
     name: string
     description?: string
     role?: string
+    gender?: string
   }>
   props: Array<{
     name: string
