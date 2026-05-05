@@ -26,6 +26,7 @@ interface UseAssetWorkbenchAutoFlowOptions {
   synchronizeSceneConfigs: () => void
   synchronizeQueueItems: () => void
   ensureCharacterAssetsReady: () => Promise<void>
+  ensurePropAssetsReady: () => Promise<void>
   runBatchSceneGeneration: () => Promise<void>
   retryFailedQueueItemsOnce: () => Promise<void>
 }
@@ -63,6 +64,7 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
 
       await options.persistAutomaticAssetPlan()
       await options.ensureCharacterAssetsReady()
+      await options.ensurePropAssetsReady()
 
       selectAutoStage('videos')
     } catch (error) {

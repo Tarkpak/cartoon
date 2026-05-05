@@ -398,7 +398,7 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 400,
       statusMessage: 'Bad Request',
-      message: '缺少项目ID',
+      message: '缺少项目ID'
     })
   }
 
@@ -410,7 +410,7 @@ export default defineEventHandler(async (event) => {
       throw createError({
         statusCode: 404,
         statusMessage: 'Not Found',
-        message: '项目不存在',
+        message: '项目不存在'
       })
     }
 
@@ -511,25 +511,29 @@ export default defineEventHandler(async (event) => {
             status: normalizedVideoUrl ? 'video_ready' : s.status
           }
         }),
-        characters: projectCharacters.map(c => ({
-          id: c.id,
-          name: c.name,
-          role: c.role,
-          appearance: c.appearance,
-          personality: c.personality,
-          traits: c.traits ? JSON.parse(c.traits) : null,
-          background: c.background,
-          motivation: c.motivation,
-          speakingStyle: c.speakingStyle,
-          catchphrase: c.catchphrase,
-          voiceTone: c.voiceTone,
-          voiceAsset: parseCharacterVoiceAsset(c.voiceAsset),
-          age: c.age,
-          gender: c.gender,
-          imageUrl: migratedCharacterImages.get(c.id) || normalizeCharacterImageUrl(c.baseImage),
-          expressions: normalizeCharacterImageMap(c.expressions),
-          views: normalizeCharacterImageMap(c.views)
-        }))
+        characters: projectCharacters.map((c) => {
+          const normalizedBaseImage = migratedCharacterImages.get(c.id) || normalizeCharacterImageUrl(c.baseImage)
+          return {
+            id: c.id,
+            name: c.name,
+            role: c.role,
+            appearance: c.appearance,
+            personality: c.personality,
+            traits: c.traits ? JSON.parse(c.traits) : null,
+            background: c.background,
+            motivation: c.motivation,
+            speakingStyle: c.speakingStyle,
+            catchphrase: c.catchphrase,
+            voiceTone: c.voiceTone,
+            voiceAsset: parseCharacterVoiceAsset(c.voiceAsset),
+            age: c.age,
+            gender: c.gender,
+            imageUrl: normalizedBaseImage,
+            baseImage: normalizedBaseImage || c.baseImage,
+            expressions: normalizeCharacterImageMap(c.expressions),
+            views: normalizeCharacterImageMap(c.views)
+          }
+        })
       }
     }
   } catch (error) {
@@ -540,7 +544,7 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 500,
       statusMessage: 'Internal Server Error',
-      message: '获取项目失败',
+      message: '获取项目失败'
     })
   }
 })

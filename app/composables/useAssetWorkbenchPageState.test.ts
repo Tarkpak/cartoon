@@ -122,4 +122,34 @@ describe('useAssetWorkbenchPageState', () => {
     expect(pageState.environmentAssetCards.value[0]?.id).toBe('env:医院走廊||夜晚')
     expect(pageState.environmentAssetCards.value[0]?.description).toBe('冷白灯光，紧张压抑')
   })
+
+  it('marks assets incomplete when a normal prop has no reference image', () => {
+    const pageState = useAssetWorkbenchPageState({
+      scenes: ref([]),
+      characters: ref([]),
+      episodePlan: ref([]),
+      propAssets: ref([
+        {
+          id: 'prop_1',
+          name: '铜铃',
+          description: '旧铜铃',
+          category: 'prop'
+        }
+      ]),
+      environmentAssetHistories: ref({}),
+      environmentPanoramaStates: ref({}),
+      sceneConfigs: ref({}),
+      selectedSceneId: ref(''),
+      selectedStyleId: ref(''),
+      projectStyleId: ref(''),
+      supportsExplicitVoiceAudioReference: ref(false),
+      queueItems: ref([]),
+      resolveStyleById: () => null,
+      resolveSceneDescriptionWithoutAssetMentions,
+      uniqueSorted: values => Array.from(new Set(values.filter(Boolean)))
+    })
+
+    expect(pageState.assetsReady.value).toBe(false)
+    expect(pageState.assetsPrimaryActionLabel.value).toBe('自动补齐缺失资产')
+  })
 })
