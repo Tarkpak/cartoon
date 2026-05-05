@@ -62,6 +62,53 @@ export function normalizeCharacterRole(value: unknown): CharacterRole | undefine
   return CHARACTER_ROLE_ALIAS_MAP[key]
 }
 
+export type CharacterGender = 'male' | 'female' | 'other'
+
+const CHARACTER_GENDER_ALIAS_MAP: Record<string, CharacterGender> = {
+  male: 'male',
+  man: 'male',
+  boy: 'male',
+  masculine: 'male',
+  男: 'male',
+  男性: 'male',
+  男生: 'male',
+  男人: 'male',
+  少年: 'male',
+  男孩: 'male',
+  男主: 'male',
+  女: 'female',
+  female: 'female',
+  woman: 'female',
+  girl: 'female',
+  feminine: 'female',
+  女性: 'female',
+  女生: 'female',
+  女人: 'female',
+  少女: 'female',
+  女孩: 'female',
+  女主: 'female',
+  other: 'other',
+  nonbinary: 'other',
+  nonbinaryperson: 'other',
+  unspecified: 'other',
+  其他: 'other',
+  非二元: 'other',
+  未指定: 'other'
+}
+
+export function normalizeCharacterGender(value: unknown): CharacterGender | undefined {
+  if (typeof value !== 'string') return undefined
+  const rawValue = value.trim()
+  const key = normalizeCharacterRoleAliasKey(value)
+  if (!key) return undefined
+  const mapped = CHARACTER_GENDER_ALIAS_MAP[key]
+  if (mapped) return mapped
+  if (/非二元|中性|其他/u.test(rawValue) || /nonbinary|nonbinaryperson|neutral/u.test(key)) return 'other'
+  if (/女性|女人|女生|女孩|少女|女主|女/u.test(rawValue) || /female|woman|girl|feminine/u.test(key)) return 'female'
+  if (/男性|男人|男生|男孩|少年|男主|男/u.test(rawValue) || /male|man|boy|masculine/u.test(key)) return 'male'
+  return undefined
+}
+
 /** 角色视角 (基于飞书文档 2.7.2 角色库) */
 export const CharacterViewSchema = z.enum([
   'front', // 正面
@@ -123,7 +170,10 @@ export const CharacterSchema = z.object({
   // 外观相关
   appearance: z.string().describe('外观描述'),
   age: z.preprocess(nullToUndefined, z.number().optional()).describe('年龄'),
-  gender: z.preprocess(nullToUndefined, z.enum(['male', 'female', 'other']).optional()).describe('性别'),
+  gender: z.preprocess(
+    value => normalizeCharacterGender(value) ?? nullToUndefined(value),
+    z.enum(['male', 'female', 'other']).optional()
+  ).describe('性别'),
   // 性格相关 (新增)
   personality: z.preprocess(nullToUndefined, z.string().optional()).describe('性格描述'),
   traits: z.preprocess(nullToUndefined, z.array(z.string()).optional()).describe('性格特点标签'),

@@ -1,6 +1,6 @@
 import { mergeNarrationTexts } from '~/lib/asset-workbench-scenes'
 import { normalizeCharacterName } from '~/lib/asset-workbench-values'
-import { normalizeCharacterRole } from '#shared/types/character'
+import { normalizeCharacterGender, normalizeCharacterRole } from '#shared/types/character'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 
 const NARRATION_SPEAKER_SET = new Set([
@@ -35,6 +35,7 @@ interface ParsedScriptCharacter {
   name: string
   description?: string
   role?: string
+  gender?: string
 }
 
 export function buildParsedScenes(options: {
@@ -106,6 +107,7 @@ export function buildParsedCharacters(
       name: character.name,
       appearance: character.description || '',
       role: normalizeCharacterRole(character.role) || 'supporting',
+      gender: normalizeCharacterGender(character.gender),
       generating: false,
       generatingViews: false
     }))

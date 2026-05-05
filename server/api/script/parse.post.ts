@@ -6,6 +6,7 @@ import {
   PROMPT_TEMPLATE_IDS,
   type PromptTemplateId
 } from '../../../shared/types/prompt-template'
+import { normalizeCharacterGender } from '../../../shared/types/character'
 import { normalizeProjectWorkflowType } from '../../../shared/types/project'
 import {
   normalizeScriptParseMode,
@@ -88,6 +89,7 @@ const CHUNK_RECOMMENDED_MIN_SCENES_FLOOR = 4
 const SHORT_DRAMA_EPISODE_DURATION_LIMIT_SECONDS = 300
 
 type ParsedScriptCharacterRole = NonNullable<ParsedScript['characters'][number]['role']>
+type ParsedScriptCharacterGender = NonNullable<ParsedScript['characters'][number]['gender']>
 const CHARACTER_ROLE_PRIORITY: Record<ParsedScriptCharacterRole, number> = {
   protagonist: 3,
   antagonist: 2,
@@ -288,6 +290,7 @@ function mergeParsedScriptSegments(segmentResults: ParsedScriptEpisodeResult[]):
     name?: string | null
     description?: string | null
     role?: ParsedScriptCharacterRole
+    gender?: ParsedScriptCharacterGender | null
   }) => {
     const name = character.name?.trim()
     if (!name) return
@@ -298,7 +301,8 @@ function mergeParsedScriptSegments(segmentResults: ParsedScriptEpisodeResult[]):
       mergedCharacterMap.set(name, {
         name,
         description: nextDescription,
-        role: character.role
+        role: character.role,
+        gender: character.gender || undefined
       })
       return
     }
@@ -310,7 +314,8 @@ function mergeParsedScriptSegments(segmentResults: ParsedScriptEpisodeResult[]):
     mergedCharacterMap.set(name, {
       name,
       description: preferredDescription,
-      role: preferredRole
+      role: preferredRole,
+      gender: existing.gender || character.gender || undefined
     })
   }
 
@@ -804,11 +809,24 @@ function normalizeParsedScriptOutput(
     const duration = (scene as Record<string, unknown>).duration
     return sum + (typeof duration === 'number' && Number.isFinite(duration) ? duration : DEFAULT_SCENE_DURATION)
   }, 0)
+  const normalizedCharacters = Array.isArray(parsedObject.characters)
+    ? parsedObject.characters.map((character) => {
+        if (!character || typeof character !== 'object' || Array.isArray(character)) return character
+        const characterObj = character as Record<string, unknown>
+        const gender = normalizeCharacterGender(characterObj.gender)
+        const restCharacter = { ...characterObj }
+        delete restCharacter.gender
+        return {
+          ...restCharacter,
+          ...(gender ? { gender } : {})
+        }
+      })
+    : []
 
   return {
     ...parsedObject,
     scenes: normalizedScenes,
-    characters: Array.isArray(parsedObject.characters) ? parsedObject.characters : [],
+    characters: normalizedCharacters,
     totalDuration: Math.round(totalDuration * 10) / 10
   }
 }

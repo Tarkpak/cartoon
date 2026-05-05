@@ -339,7 +339,8 @@ export const ParsedScriptSchema = z.object({
   characters: z.array(z.object({
     name: z.string(),
     description: z.string(),
-    role: z.enum(['protagonist', 'antagonist', 'supporting']).optional()
+    role: z.enum(['protagonist', 'antagonist', 'supporting']).optional(),
+    gender: z.enum(['male', 'female', 'other']).optional()
   })).describe('角色列表'),
   totalDuration: z.number().describe('总时长(秒)')
 })
