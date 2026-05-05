@@ -450,6 +450,39 @@ async function getPromptProfileState(
   }
 }
 
+async function getActiveReadonlyPromptProfileId(
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): Promise<string | null> {
+  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const rawValue = await readSystemConfigValueByKey(resolvePromptProfileStateKey(normalizedWorkflow))
+  if (!rawValue) return null
+
+  try {
+    const parsed = JSON.parse(rawValue) as { activeProfileId?: unknown }
+    const activeProfileId = normalizeOptionalText(parsed.activeProfileId)
+    return isPromptReadonlyProfile(activeProfileId) ? activeProfileId! : null
+  } catch {
+    return null
+  }
+}
+
+async function getReadonlyPromptContent(
+  id: PromptTemplateId,
+  lang: 'zh' | 'en',
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): Promise<string | null> {
+  const activeProfileId = await getActiveReadonlyPromptProfileId(workflow)
+  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+
+  const templates = activeProfileId === PROMPT_SEEDANCE_PROFILE_ID
+    ? getSeedanceOptimizedPromptTemplates(normalizedWorkflow)
+    : activeProfileId === PROMPT_DEFAULT_PROFILE_ID
+      ? getDefaultPromptTemplates(normalizedWorkflow)
+      : null
+
+  return templates?.find(template => template.id === id)?.content[lang] || null
+}
+
 function throwDefaultPromptProfileReadonlyError(): never {
   const error = new Error('内置默认配置不可修改，请先新建并切换到其他配置方案') as Error & {
     statusCode: number
@@ -806,6 +839,9 @@ export async function getPromptContent(
   lang: 'zh' | 'en' = 'zh',
   workflow: PromptWorkflowInput = 'asset_consistency'
 ): Promise<string | null> {
+  const readonlyContent = await getReadonlyPromptContent(id, lang, workflow)
+  if (readonlyContent) return readonlyContent
+
   const template = await getPromptTemplate(id, undefined, workflow)
   if (!template) {
     return null
