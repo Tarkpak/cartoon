@@ -33,6 +33,18 @@ const emit = defineEmits<{
 
 const newPropName = ref('')
 const newPropDescription = ref('')
+const failedImageKeys = ref<Set<string>>(new Set())
+
+watch(
+  () => props.propAssets.map(prop => `${prop.id}:${prop.referenceImage || ''}`).join('|'),
+  () => {
+    failedImageKeys.value = new Set(
+      Array.from(failedImageKeys.value).filter((key) => {
+        return props.propAssets.some(prop => buildImageLoadKey(prop) === key)
+      })
+    )
+  }
+)
 
 function handleAddProp() {
   if (props.autoRunning) return
@@ -59,6 +71,23 @@ function resolveHistoryCount(prop: PropAsset): number {
 function resolveGenerateLabel(prop: PropAsset): string {
   if (props.generatingPropId === prop.id) return '生成中'
   return prop.referenceImage ? '重新生成' : '生成'
+}
+
+function hasImageLoadFailed(propId: string): boolean {
+  const prop = props.propAssets.find(item => item.id === propId)
+  return !!prop && failedImageKeys.value.has(buildImageLoadKey(prop))
+}
+
+function markImageLoadFailed(propId: string) {
+  const prop = props.propAssets.find(item => item.id === propId)
+  if (!prop) return
+  const next = new Set(failedImageKeys.value)
+  next.add(buildImageLoadKey(prop))
+  failedImageKeys.value = next
+}
+
+function buildImageLoadKey(prop: PropAsset): string {
+  return `${prop.id}:${prop.referenceImage || ''}`
 }
 </script>
 
@@ -123,11 +152,19 @@ function resolveGenerateLabel(prop: PropAsset): string {
             @click="prop.referenceImage && emit('preview-image', { src: prop.referenceImage, alt: `${prop.name} 参考图` })"
           >
             <img
-              v-if="prop.referenceImage"
+              v-if="prop.referenceImage && !hasImageLoadFailed(prop.id)"
               :src="toImageSrc(prop.referenceImage)"
               :alt="`${prop.name} 参考图`"
               class="h-full w-full object-cover"
+              @error="markImageLoadFailed(prop.id)"
             >
+            <div
+              v-else-if="prop.referenceImage"
+              class="flex h-full w-full flex-col items-center justify-center gap-1 px-1 text-center"
+            >
+              <Package class="h-4 w-4 text-destructive/60" />
+              <span class="text-[10px] leading-tight text-destructive/80">图片加载失败</span>
+            </div>
             <Package
               v-else
               class="h-5 w-5 text-muted-foreground/40"

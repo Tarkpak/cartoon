@@ -27,7 +27,9 @@ import {
 } from '~/lib/asset-workbench-strings'
 import {
   buildDefaultCropSelection,
-  renderPanoramaSelectionToDataUrl
+  loadCropImageMetrics,
+  normalizePanoramaSelection,
+  renderCropSelectionToDataUrl
 } from '~/lib/asset-workbench-environment-panorama'
 import {
   applyAutomaticAssetPlan as buildAutomaticAssetPlan
@@ -357,19 +359,24 @@ async function createEnvironmentCropImage(options: {
   sourceImage: string
   crop?: EnvironmentCropSelection
 }) {
+  const metrics = await loadCropImageMetrics(options.sourceImage)
   const fallbackCrop = options.crop || buildDefaultCropSelection({
-    imageWidth: 2048,
-    imageHeight: 1024
+    imageWidth: metrics.width,
+    imageHeight: metrics.height
   })
-  const result = await renderPanoramaSelectionToDataUrl({
+  const crop = normalizePanoramaSelection(fallbackCrop, metrics.width, metrics.height)
+  if (!crop) {
+    throw new Error('取景区域无效，无法生成环境图')
+  }
+  const imageData = await renderCropSelectionToDataUrl({
     sourceImage: options.sourceImage,
-    selection: fallbackCrop
+    selection: crop
   })
-  const imageUrl = await uploadAssetImage(result.imageData, buildEnvironmentCropUploadPrefix(options.assetId))
+  const imageUrl = await uploadAssetImage(imageData, buildEnvironmentCropUploadPrefix(options.assetId))
 
   return {
     imageUrl,
-    crop: result.crop
+    crop
   }
 }
 
@@ -449,6 +456,11 @@ async function generateCharacter(
 
   const nextImage = character.baseImage?.trim() || ''
   if (!nextImage || nextImage === previousImage) return
+
+  const saved = await saveProject()
+  if (saved === false) {
+    throw new Error(`角色 ${character.name} 图片已生成，但项目保存失败，请查看页面顶部的保存错误提示后重试`)
+  }
 
   recordCharacterHistory(character.id, nextImage, {
     source: 'generated',
@@ -943,6 +955,25 @@ function buildPropDependencySnapshot(): PropDependencySnapshot[] {
   }))
 }
 
+async function ensurePropAssetsReady() {
+  const missingProps = propAssets.value.filter(prop => prop.category !== 'other' && !prop.referenceImage?.trim())
+  if (missingProps.length === 0) return
+
+  const failedNames: string[] = []
+  for (const prop of missingProps) {
+    const beforeImage = prop.referenceImage?.trim() || ''
+    await handleGeneratePropImage(prop.id)
+    const afterImage = propAssets.value.find(item => item.id === prop.id)?.referenceImage?.trim() || ''
+    if (!afterImage || afterImage === beforeImage) {
+      failedNames.push(prop.name || prop.id)
+    }
+  }
+
+  if (failedNames.length > 0) {
+    throw new Error(`道具图生成失败：${failedNames.slice(0, 3).join('、')}${failedNames.length > 3 ? ' 等' : ''}`)
+  }
+}
+
 const {
   autoRunning,
   autoRunError,
@@ -973,6 +1004,7 @@ const {
   synchronizeSceneConfigs,
   synchronizeQueueItems,
   ensureCharacterAssetsReady,
+  ensurePropAssetsReady,
   runBatchSceneGeneration,
   retryFailedQueueItemsOnce
 })

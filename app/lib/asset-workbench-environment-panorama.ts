@@ -290,7 +290,7 @@ export async function renderCropSelectionToDataUrl(options: {
         return
       }
 
-      const normalizedSelection = normalizeCropSelection(options.selection, width, height)
+      const normalizedSelection = normalizePanoramaSelection(options.selection, width, height)
       if (!normalizedSelection) {
         reject(new Error('取景区域无效，无法生成环境图'))
         return
@@ -312,22 +312,40 @@ export async function renderCropSelectionToDataUrl(options: {
         return
       }
 
-      const sourceX = Math.floor(normalizedSelection.x * width)
+      const sourceX = Math.floor(normalizedSelection.x * width) % width
       const sourceY = Math.floor(normalizedSelection.y * height)
-      const sourceWidth = Math.max(1, Math.min(width - sourceX, Math.round(normalizedSelection.width * width)))
+      const sourceWidth = Math.max(1, Math.min(width, Math.round(normalizedSelection.width * width)))
       const sourceHeight = Math.max(1, Math.min(height - sourceY, Math.round(normalizedSelection.height * height)))
+      const firstSourceWidth = Math.min(width - sourceX, sourceWidth)
+      const secondSourceWidth = sourceWidth - firstSourceWidth
+      const firstOutputWidth = secondSourceWidth > 0
+        ? Math.max(1, Math.round(outputSize.width * (firstSourceWidth / sourceWidth)))
+        : outputSize.width
 
       context.drawImage(
         image,
         sourceX,
         sourceY,
-        sourceWidth,
+        firstSourceWidth,
         sourceHeight,
         0,
         0,
-        outputSize.width,
+        firstOutputWidth,
         outputSize.height
       )
+      if (secondSourceWidth > 0) {
+        context.drawImage(
+          image,
+          0,
+          sourceY,
+          secondSourceWidth,
+          sourceHeight,
+          firstOutputWidth,
+          0,
+          outputSize.width - firstOutputWidth,
+          outputSize.height
+        )
+      }
 
       resolve(canvas.toDataURL('image/png'))
     }
