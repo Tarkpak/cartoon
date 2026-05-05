@@ -57,7 +57,7 @@ export interface ParseScriptResponse {
       duration: number
       setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string }
     }>
-    characters?: Array<{ name: string, description?: string, role?: string }>
+    characters?: Array<{ name: string, description?: string, role?: string, gender?: string }>
   }
   formattedTimeline?: {
     lines?: string[]

@@ -201,6 +201,9 @@ export function useAssetWorkbenchGeneration(
         if (!existing.appearance && incoming.appearance) {
           existing.appearance = incoming.appearance
         }
+        if (!existing.gender && incoming.gender) {
+          existing.gender = incoming.gender
+        }
         const incomingRole = normalizeCharacterRole(incoming.role)
         const existingRole = normalizeCharacterRole(existing.role)
         if (

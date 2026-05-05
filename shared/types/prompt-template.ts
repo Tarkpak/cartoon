@@ -166,6 +166,8 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     variables: [
       { name: '{{characterName}}', description: '角色名称', example: '陆哲' },
       { name: '{{appearance}}', description: '角色外貌描述', example: '黑色短发，戴眼镜的年轻男性...' },
+      { name: '{{gender}}', description: '角色性别呈现约束', example: '男性 / male。必须呈现明确男性特征...' },
+      { name: '{{genderEn}}', description: '角色性别呈现约束（英文）', example: 'male. Use clear male gender presentation...' },
       { name: '{{style}}', description: '画风描述', example: '电影写实风格' }
     ]
   },
@@ -178,6 +180,8 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     variables: [
       { name: '{{characterName}}', description: '角色名称', example: '陆哲' },
       { name: '{{appearance}}', description: '角色外貌描述', example: '黑色短发，戴眼镜的年轻男性...' },
+      { name: '{{gender}}', description: '角色性别呈现约束', example: '男性 / male。必须呈现明确男性特征...' },
+      { name: '{{genderEn}}', description: '角色性别呈现约束（英文）', example: 'male. Use clear male gender presentation...' },
       { name: '{{style}}', description: '画风描述', example: '电影写实风格' },
       { name: '{{activeStyleConstraint}}', description: '当前生效的修改要求', example: '将服装改为浅灰风衣，并增强冷色氛围' },
       { name: '{{customPrompt}}', description: '用户自定义修改要求（兼容空值）', example: '将服装改为浅灰风衣，并增强冷色氛围' }
