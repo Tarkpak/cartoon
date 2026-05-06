@@ -262,6 +262,14 @@ const selectedEpisodeScenes = computed(() => {
   return sceneEpisodeGroupMap.value.get(selectedEpisodeId.value)?.scenes || []
 })
 
+const selectedEpisodeHasParsedScenes = computed(() => {
+  return selectedEpisodeScenes.value.length > 0
+})
+
+const parseSelectedEpisodeButtonLabel = computed(() => {
+  return selectedEpisodeHasParsedScenes.value ? '重新解析本集' : '解析本集'
+})
+
 function resolveEpisodeSceneCountById(episodeId: string): number {
   return sceneEpisodeGroupMap.value.get(episodeId)?.scenes.length || 0
 }
@@ -310,6 +318,15 @@ function resolveEpisodeAssetSummaryText(episode: EpisodePlanItemForVideoStage): 
 function handleParseSelectedEpisode() {
   const episode = selectedEpisodePlanItem.value
   if (!episode) return
+
+  if (selectedEpisodeHasParsedScenes.value) {
+    const confirmed = window.confirm(
+      `当前分集已存在 ${selectedEpisodeScenes.value.length} 个场景。\n`
+      + '重新解析将覆盖本集场景并重置本集视频状态，是否继续？'
+    )
+    if (!confirmed) return
+  }
+
   props.onParseEpisode(episode.id)
 }
 
@@ -413,12 +430,16 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
       </div>
     </div>
 
+    <!-- Scene grid -->
     <div
-      v-if="episodeCount > 0"
-      class="shrink-0 rounded-md border border-border/70 bg-background"
+      class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden"
+      :class="episodeCount > 0 ? 'xl:grid-cols-[260px_minmax(0,1fr)_minmax(0,1fr)]' : 'xl:grid-cols-2'"
     >
-      <div class="flex items-center gap-3 border-b border-border/60 px-3 py-2">
-        <div class="shrink-0">
+      <aside
+        v-if="episodeCount > 0"
+        class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/70 bg-muted/10"
+      >
+        <div class="shrink-0 border-b border-border/60 px-3 py-2">
           <div class="text-xs font-medium text-foreground">
             分集目录
           </div>
@@ -426,14 +447,14 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
             共 {{ episodeCount }} 集
           </div>
         </div>
-        <div class="min-w-0 flex-1 overflow-x-auto pb-1">
-          <div class="flex min-w-max gap-1.5">
+        <div class="flex min-h-0 flex-1 flex-col">
+          <div class="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
             <Button
               v-for="episode in episodeDirectoryItems"
               :key="episode.id"
               type="button"
               variant="ghost"
-              class="h-auto min-w-[150px] justify-start rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors"
+              class="h-auto w-full justify-start rounded-md border px-2 py-1.5 text-left text-xs transition-colors"
               :class="selectedEpisodeId === episode.id
                 ? 'border-foreground bg-muted text-foreground shadow-sm'
                 : 'border-border/70 bg-background text-foreground/80 hover:border-foreground/30 hover:bg-muted/60'"
@@ -447,67 +468,61 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
               </div>
             </Button>
           </div>
-        </div>
-      </div>
-
-      <div
-        v-if="selectedEpisodeDirectoryItem"
-        class="grid gap-2 px-3 py-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
-      >
-        <div class="min-w-0 space-y-1">
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-            <span v-if="selectedEpisodeDirectoryItem.startOffset !== null && selectedEpisodeDirectoryItem.endOffset !== null">
-              范围 {{ selectedEpisodeDirectoryItem.startOffset }} - {{ selectedEpisodeDirectoryItem.endOffset }}
-            </span>
-            <span v-if="selectedEpisodeDirectoryItem.charCount !== null">
-              约 {{ selectedEpisodeDirectoryItem.charCount }} 字
-            </span>
-            <span v-if="selectedEpisodeDirectoryItem.assetSummary">
-              {{ selectedEpisodeDirectoryItem.assetSummary }}
-            </span>
+          <div
+            v-if="selectedEpisodeDirectoryItem"
+            class="space-y-2 border-t border-border/60 px-3 py-2"
+          >
+            <div class="space-y-1">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                <span v-if="selectedEpisodeDirectoryItem.startOffset !== null && selectedEpisodeDirectoryItem.endOffset !== null">
+                  范围 {{ selectedEpisodeDirectoryItem.startOffset }} - {{ selectedEpisodeDirectoryItem.endOffset }}
+                </span>
+                <span v-if="selectedEpisodeDirectoryItem.charCount !== null">
+                  约 {{ selectedEpisodeDirectoryItem.charCount }} 字
+                </span>
+                <span v-if="selectedEpisodeDirectoryItem.assetSummary">
+                  {{ selectedEpisodeDirectoryItem.assetSummary }}
+                </span>
+              </div>
+              <p
+                v-if="selectedEpisodeDirectoryItem.overview"
+                class="line-clamp-2 text-[11px] text-foreground/75"
+              >
+                概览：{{ selectedEpisodeDirectoryItem.overview }}
+              </p>
+            </div>
+            <Button
+              v-if="selectedEpisodePlanItem"
+              size="sm"
+              class="h-8 w-full gap-1.5"
+              :disabled="parsing"
+              @click="handleParseSelectedEpisode()"
+            >
+              <Loader2
+                v-if="parsing"
+                class="h-3.5 w-3.5 animate-spin"
+              />
+              <Play
+                v-else
+                class="h-3.5 w-3.5"
+              />
+              {{ parseSelectedEpisodeButtonLabel }}
+            </Button>
           </div>
-          <p
-            v-if="selectedEpisodeDirectoryItem.overview"
-            class="truncate text-[11px] text-foreground/75"
-          >
-            概览：{{ selectedEpisodeDirectoryItem.overview }}
-          </p>
         </div>
-        <div class="flex min-w-max gap-2">
-          <Button
-            v-if="selectedEpisodePlanItem"
-            size="sm"
-            class="h-8 shrink-0 gap-1.5 px-3"
-            :disabled="parsing"
-            @click="handleParseSelectedEpisode()"
-          >
-            <Loader2
-              v-if="parsing"
-              class="mr-1 h-3.5 w-3.5 animate-spin"
-            />
-            <Play
-              v-else
-              class="h-3.5 w-3.5"
-            />
-            解析本集
-          </Button>
-        </div>
-      </div>
-    </div>
+      </aside>
 
-    <!-- Scene grid -->
-    <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-2">
       <div class="min-h-0 space-y-2 overflow-y-auto pr-1">
         <div
           class="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
         >
-          当前分集场景列表
+          {{ episodeCount > 0 ? '当前分集场景列表' : '场景列表' }}
         </div>
         <div
           v-if="selectedEpisodeScenes.length === 0"
           class="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-4 text-xs text-muted-foreground"
         >
-          当前分集暂无场景，请先点击“解析本集”。
+          {{ selectedEpisodePlanItem ? '当前分集暂无场景，请先点击“解析本集”。' : '当前分集暂无场景。' }}
         </div>
         <AssetWorkbenchSceneVideoCard
           v-for="scene in selectedEpisodeScenes"

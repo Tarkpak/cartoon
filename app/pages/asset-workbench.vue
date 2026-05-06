@@ -60,7 +60,8 @@ import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
 
 // 资产一致性工作流页面
 definePageMeta({
-  layout: 'default'
+  layout: 'default',
+  hideSidebar: true
 })
 
 const route = useRoute()
