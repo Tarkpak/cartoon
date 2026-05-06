@@ -11,6 +11,7 @@ type TosStorageConfig = {
   requestSecure: boolean
   proxyHost?: string
   proxyPort?: number
+  proxySource: 'none' | 'tos' | 'system'
   bucket: string
   keyPrefix?: string
   publicBaseUrl?: string
@@ -124,14 +125,60 @@ function getFirstEnvValue(keys: string[]): string {
   return ''
 }
 
+function addNoProxyEntries(entries: string[]) {
+  const normalizedEntries = entries
+    .map(item => item.trim().toLowerCase())
+    .filter(Boolean)
+  if (normalizedEntries.length === 0) return
+
+  const existing = [
+    ...(process.env.NO_PROXY || '').split(','),
+    ...(process.env.no_proxy || '').split(',')
+  ]
+    .map(item => item.trim().toLowerCase())
+    .filter(Boolean)
+  const merged = Array.from(new Set([...existing, ...normalizedEntries]))
+  const next = merged.join(',')
+
+  process.env.NO_PROXY = next
+  process.env.no_proxy = next
+}
+
+function extractEndpointHost(endpoint: string): string {
+  const normalized = endpoint.trim().replace(/^https?:\/\//i, '')
+  return (normalized.split('/')[0] || '').trim().toLowerCase()
+}
+
+function applyNoProxyForTosEndpoint(config: {
+  endpoint: string
+  bucket: string
+  isCustomDomain: boolean
+}) {
+  const endpointHost = extractEndpointHost(config.endpoint)
+  if (!endpointHost) return
+
+  const entries: string[] = [endpointHost]
+  if (!config.isCustomDomain) {
+    const bucket = config.bucket.trim().toLowerCase()
+    if (bucket) {
+      entries.push(`${bucket}.${endpointHost}`)
+    }
+    entries.push(`.${endpointHost}`)
+  }
+
+  addNoProxyEntries(entries)
+}
+
 function resolveProxyHostPort(): {
   host: string
   port: number
+  source: 'tos' | 'system'
 } | null {
-  const rawProxy = getFirstEnvValue([
+  const rawTosProxy = getFirstEnvValue([
     'TOS_PROXY',
     'tos_proxy'
   ])
+  const rawProxy = rawTosProxy
 
   if (!rawProxy) return null
 
@@ -174,7 +221,38 @@ function resolveProxyHostPort(): {
     console.warn('[CloudStorage] TOS 代理暂不支持账号密码，已忽略代理认证信息')
   }
 
-  return { host, port }
+  return {
+    host,
+    port,
+    source: rawTosProxy ? 'tos' : 'system'
+  }
+}
+
+function shouldRetryWithoutSystemProxy(config: TosStorageConfig, error: unknown): boolean {
+  if (config.proxySource !== 'system' || !config.proxyHost || !config.proxyPort) {
+    return false
+  }
+
+  const message = (
+    error instanceof Error
+      ? `${error.name}: ${error.message}`
+      : String(error)
+  ).toLowerCase()
+
+  return message.includes('socket hang up')
+    || message.includes('econnreset')
+    || message.includes('etimedout')
+    || message.includes('eof')
+}
+
+function stripProxyFromConfig(config: TosStorageConfig): TosStorageConfig {
+  return {
+    ...config,
+    requestSecure: config.endpointProtocol === 'https',
+    proxyHost: undefined,
+    proxyPort: undefined,
+    proxySource: 'none'
+  }
 }
 
 function joinObjectPath(...parts: Array<string | undefined>): string {
@@ -210,7 +288,7 @@ function createConfig(): TosStorageConfig {
     console.warn('[CloudStorage] TOS_ENABLED=true 但缺少必填配置，已自动回退本地存储')
   }
 
-  return {
+  const config: TosStorageConfig = {
     enabled,
     accessKeyId,
     accessKeySecret,
@@ -220,11 +298,22 @@ function createConfig(): TosStorageConfig {
     requestSecure: proxyConfig ? false : endpointConfig.protocol === 'https',
     proxyHost: proxyConfig?.host,
     proxyPort: proxyConfig?.port,
+    proxySource: proxyConfig?.source || 'none',
     bucket,
     keyPrefix: keyPrefix || undefined,
     publicBaseUrl,
     isCustomDomain
   }
+
+  if (config.enabled && !proxyConfig) {
+    applyNoProxyForTosEndpoint({
+      endpoint: config.endpoint,
+      bucket: config.bucket,
+      isCustomDomain: config.isCustomDomain
+    })
+  }
+
+  return config
 }
 
 function getConfig(): TosStorageConfig {
@@ -234,10 +323,7 @@ function getConfig(): TosStorageConfig {
   return cachedConfig
 }
 
-function getClient(config: TosStorageConfig): TosClient | null {
-  if (!config.enabled) return null
-  if (cachedClient) return cachedClient
-
+function createTosClient(config: TosStorageConfig): TosClient | null {
   try {
     const clientOptions: ConstructorParameters<typeof TosClient>[0] = {
       accessKeyId: config.accessKeyId,
@@ -253,11 +339,18 @@ function getClient(config: TosStorageConfig): TosClient | null {
       clientOptions.proxyPort = config.proxyPort
     }
 
-    cachedClient = new TosClient(clientOptions)
+    return new TosClient(clientOptions)
   } catch (error) {
     console.error('[CloudStorage] 初始化 TOS 客户端失败:', error)
-    cachedClient = null
+    return null
   }
+}
+
+function getClient(config: TosStorageConfig): TosClient | null {
+  if (!config.enabled) return null
+  if (cachedClient) return cachedClient
+
+  cachedClient = createTosClient(config)
 
   return cachedClient
 }
@@ -380,6 +473,25 @@ export async function uploadBufferToCloudStorage(options: UploadBufferOptions): 
     })
     return buildPublicObjectUrl(config, objectKey)
   } catch (error) {
+    if (shouldRetryWithoutSystemProxy(config, error)) {
+      console.warn('[CloudStorage] 系统代理上传失败，尝试直连重试一次:', error instanceof Error ? error.message : String(error))
+      const directConfig = stripProxyFromConfig(config)
+      const directClient = createTosClient(directConfig)
+
+      if (directClient) {
+        try {
+          await directClient.putObject({
+            bucket: directConfig.bucket,
+            key: objectKey,
+            body: options.buffer
+          })
+          return buildPublicObjectUrl(directConfig, objectKey)
+        } catch (directError) {
+          console.error('[CloudStorage] 直连重试失败:', directError)
+        }
+      }
+    }
+
     console.error('[CloudStorage] 上传失败:', error)
     return null
   }

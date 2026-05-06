@@ -689,19 +689,28 @@ async function buildSceneReferencePrompt(
   const normalizedCustomPrompt = customPrompt?.trim() || ''
   const environmentSummary = buildEnvironmentSummary(scene)
   const environmentSceneTitle = scene.setting?.location?.trim() || scene.title || '未命名场景'
-  const panoramaProjectionText = '必须是 360 环境贴图 / spherical panorama / HDRI environment map source，不要生成鱼眼圆形图、普通超广角照片或单方向透视图'
+  const panoramaProjectionText = [
+    '硬性规格：360 度等距柱状全景图（equirectangular panorama / equirectangular projection）',
+    '硬性规格：宽高比必须为 2:1（例如 2048x1024）',
+    '硬性规格：完整覆盖 360° 水平视野与 180° 垂直视野',
+    '左右边缘必须可无缝拼接，地平线保持自然连续',
+    '必须是 360 环境贴图 / spherical panorama / HDRI environment map source',
+    '不要生成鱼眼圆形图、普通超广角照片、非 2:1 宽幅图或单方向透视图'
+  ].join('；')
   const panoramaFallbackHint = panoramaSource.fallbackApplied
     ? `当前模型声明不支持 AR ${PANORAMA_SOURCE_ASPECT_RATIO}，但 360 全景源图必须使用 2:1；已继续按 ${panoramaSource.aspectRatio}（${panoramaSource.size}）请求。`
     : ''
   const panoramaAspectText = [
     panoramaFallbackHint,
+    '输出格式要求：360 度等距柱状全景图（equirectangular）',
+    '输出宽高比要求：2:1',
     `目标输出画幅：${aspectRatio}`,
     `全景源图画幅：${panoramaSource.aspectRatio}`,
     `全景源图尺寸：${panoramaSource.size}`,
     aspectRatio === '16:9'
       ? '裁切策略：默认使用全景源图中的 16:9 区域'
       : `裁切策略：后续从全景源图裁切为 ${aspectRatio}`,
-    `全景源图要求：必须生成标准 2:1 的 360 环境全景图，必须是 equirectangular projection（等距柱状投影图），左右边缘需可无缝衔接；不要生成普通宽银幕照片或非 2:1 超宽图。视点位于空间中心附近，完整覆盖前后左右四个方向，${panoramaProjectionText}`
+    `全景源图要求：${panoramaProjectionText}`
   ].filter(Boolean).join('\n')
   const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
   const era = normalizeOptionalSceneEraValue(scene.setting?.era)

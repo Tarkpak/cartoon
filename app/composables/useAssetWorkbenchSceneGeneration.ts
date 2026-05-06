@@ -122,13 +122,6 @@ export function useAssetWorkbenchSceneGeneration(
 
     applySceneBaselineReference(scene, reusableImage)
     const environmentAssetId = resolveSceneEnvironmentAssetId(scene)
-    const existingState = options.resolveEnvironmentPanoramaState?.(environmentAssetId)
-    if (!existingState?.panoramaImage) {
-      options.setEnvironmentPanoramaState?.(environmentAssetId, {
-        panoramaImage: reusableImage,
-        crop: existingState?.crop
-      })
-    }
     options.recordEnvironmentHistory?.(
       environmentAssetId,
       reusableImage,
@@ -322,12 +315,6 @@ export function useAssetWorkbenchSceneGeneration(
       if (reusableImage) {
         applySceneBaselineReference(scene, reusableImage)
         const environmentAssetId = resolveSceneEnvironmentAssetId(scene)
-        const existingState = options.resolveEnvironmentPanoramaState?.(environmentAssetId)
-        if (!existingState?.panoramaImage) {
-          options.setEnvironmentPanoramaState?.(environmentAssetId, {
-            panoramaImage: reusableImage
-          })
-        }
         options.recordEnvironmentHistory?.(
           environmentAssetId,
           reusableImage,
