@@ -20,6 +20,31 @@ const activeResult = computed(() => props.testResults[props.activeTab])
 const activeTabIcon = computed(() => {
   return SETTINGS_MODEL_TEST_TABS.find(tab => tab.key === props.activeTab)?.icon
 })
+const copyingErrorMessage = ref(false)
+const copiedErrorMessage = ref(false)
+
+async function copyErrorMessage() {
+  if (!import.meta.client) return
+
+  const message = activeResult.value?.message?.trim()
+  if (!message || copyingErrorMessage.value) return
+
+  copyingErrorMessage.value = true
+  copiedErrorMessage.value = false
+
+  try {
+    await navigator.clipboard.writeText(message)
+    copiedErrorMessage.value = true
+    window.setTimeout(() => {
+      copiedErrorMessage.value = false
+    }, 1600)
+  } catch (error) {
+    console.warn('[SettingsModelTestResultPanel] 复制失败信息失败:', error)
+  } finally {
+    copyingErrorMessage.value = false
+  }
+}
+
 const imageResultUrl = computed(() => {
   const result = props.testResults.image.result as { imageUrl?: string } | undefined
   return result?.imageUrl
@@ -124,16 +149,26 @@ const videoResultUrl = computed(() => {
       v-else-if="activeResult.status === 'error'"
       class="rounded-lg border border-destructive/20 bg-destructive/5 p-4"
     >
-      <div class="flex items-start gap-2">
-        <XCircle class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-        <div>
-          <p class="text-sm font-medium text-destructive">
-            测试失败
-          </p>
-          <p class="mt-1 text-xs text-destructive/80">
-            {{ activeResult.message }}
-          </p>
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex items-start gap-2">
+          <XCircle class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+          <div>
+            <p class="text-sm font-medium text-destructive">
+              测试失败
+            </p>
+            <pre class="mt-1 whitespace-pre-wrap break-all text-xs text-destructive/80 select-text">{{ activeResult.message }}</pre>
+          </div>
         </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          class="h-7 px-2 text-[11px]"
+          :disabled="copyingErrorMessage"
+          @click="copyErrorMessage"
+        >
+          {{ copiedErrorMessage ? '已复制' : '复制错误' }}
+        </Button>
       </div>
     </div>
   </div>
