@@ -268,7 +268,8 @@ describe('useAssetWorkbenchSceneGeneration', () => {
     expect(createEnvironmentCropImage).toHaveBeenCalledWith({
       assetId: expectedEnvironmentAssetId,
       sourceImage: 'https://example.com/generated-env.png',
-      crop: undefined
+      crop: undefined,
+      aspectRatio: '16:9'
     })
     expect(scene.referenceStatus).toBe('done')
     expect(scene.firstFrame).toBe('https://example.com/generated-env.png')

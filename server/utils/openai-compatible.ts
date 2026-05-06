@@ -513,7 +513,7 @@ export async function generateOpenAICompatibleImage(options: {
   const requestBody = {
     model: options.model,
     prompt: options.prompt,
-    size: options.size?.replace('*', 'x') || '1024x1024',
+    size: options.size?.replace(/\*/g, 'x') || '1024x1024',
     n: 1
   }
 

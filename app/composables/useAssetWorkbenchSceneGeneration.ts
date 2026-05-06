@@ -83,6 +83,7 @@ interface UseAssetWorkbenchSceneGenerationOptions {
     assetId: string
     sourceImage: string
     crop?: EnvironmentCropSelection
+    aspectRatio?: string
   }) => Promise<{
     imageUrl: string
     crop: EnvironmentCropSelection
@@ -368,7 +369,8 @@ export function useAssetWorkbenchSceneGeneration(
           const croppedResult = await options.createEnvironmentCropImage({
             assetId: environmentAssetId,
             sourceImage: panoramaImage,
-            crop
+            crop,
+            aspectRatio: options.projectAspectRatio.value
           })
           referenceImage = croppedResult.imageUrl
           crop = croppedResult.crop

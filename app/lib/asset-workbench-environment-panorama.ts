@@ -1,5 +1,5 @@
-import { toCanvasSafeImageSrc } from './media'
 import * as THREE from 'three'
+import { toCanvasSafeImageSrc } from './media'
 import type {
   EnvironmentCropSelection
 } from '~/lib/asset-workbench-types'
@@ -13,6 +13,7 @@ const DEFAULT_CROP_COVERAGE = 1
 const MAX_CROP_WIDTH = 1
 const MAX_CROP_HEIGHT = 1
 const DEFAULT_OUTPUT_PIXELS = 1280 * 720
+const DEFAULT_PANORAMA_OUTPUT_PIXELS = 1920 * 1080
 const EQUIRECTANGULAR_ASPECT_RATIO = 2
 const EQUIRECTANGULAR_ASPECT_RATIO_TOLERANCE = 0.03
 const MIN_PERSPECTIVE_FOV = Math.PI / 8
@@ -32,9 +33,34 @@ export interface PanoramaRenderResult {
   crop: EnvironmentCropSelection
 }
 
+export type PanoramaOutputAspectRatioInput = number | string | undefined | null
+
+interface PanoramaViewState {
+  yaw: number
+  pitch: number
+  horizontalFov: number
+}
+
+interface PanoramaThreeState {
+  renderer: THREE.WebGLRenderer
+  scene: THREE.Scene
+  camera: THREE.PerspectiveCamera
+  direction: THREE.Vector3
+  texture: THREE.Texture | null
+  image?: HTMLImageElement
+}
+
+const panoramaThreeStates = new WeakMap<HTMLCanvasElement, PanoramaThreeState>()
+const panoramaImageLoadCache = new Map<string, Promise<PanoramaImageLoadResult>>()
+
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
   return Math.min(max, Math.max(min, value))
+}
+
+function wrapUnit(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return ((value % 1) + 1) % 1
 }
 
 function resolveSelectionBounds() {
@@ -44,6 +70,148 @@ function resolveSelectionBounds() {
     maxWidth: MAX_CROP_WIDTH,
     maxHeight: MAX_CROP_HEIGHT
   }
+}
+
+function resolveSelectionCenter(selection: Pick<EnvironmentCropSelection, 'x' | 'y' | 'width' | 'height'>) {
+  return {
+    x: wrapUnit(selection.x + selection.width / 2),
+    y: clamp(selection.y + selection.height / 2, 0, 1)
+  }
+}
+
+function selectionToViewState(
+  selection: Pick<EnvironmentCropSelection, 'x' | 'y' | 'width' | 'height'>
+): PanoramaViewState {
+  const center = resolveSelectionCenter(selection)
+  return {
+    yaw: center.x * Math.PI * 2 - Math.PI,
+    pitch: (0.5 - center.y) * Math.PI,
+    horizontalFov: clamp(selection.width * Math.PI * 2, MIN_PERSPECTIVE_FOV, MAX_PERSPECTIVE_FOV)
+  }
+}
+
+function canUseAnonymousCrossOrigin(src: string): boolean {
+  return /^https?:\/\//i.test(src) || src.startsWith('//')
+}
+
+function applyViewStateToCamera(
+  state: PanoramaThreeState,
+  view: PanoramaViewState,
+  outputAspectRatio: number
+) {
+  const verticalFov = resolvePerspectiveVerticalFov(view.horizontalFov, outputAspectRatio)
+  const maxPitch = Math.max(0, Math.PI / 2 - verticalFov / 2)
+  const pitch = clamp(view.pitch, -maxPitch, maxPitch)
+
+  state.camera.fov = THREE.MathUtils.radToDeg(verticalFov)
+  state.camera.position.set(0, 0, 0)
+  state.camera.up.set(0, 1, 0)
+  state.direction.set(
+    Math.sin(view.yaw) * Math.cos(pitch),
+    Math.sin(pitch),
+    Math.cos(view.yaw) * Math.cos(pitch)
+  )
+  state.camera.lookAt(state.direction)
+  state.camera.updateProjectionMatrix()
+}
+
+function createPanoramaThreeState(canvas: HTMLCanvasElement): PanoramaThreeState {
+  let renderer: THREE.WebGLRenderer
+  try {
+    renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: false,
+      preserveDrawingBuffer: true,
+      powerPreference: 'high-performance'
+    })
+  } catch {
+    throw new Error('当前浏览器不支持 360 全景预览')
+  }
+
+  const context = renderer.getContext()
+  if (!context) {
+    renderer.dispose()
+    throw new Error('当前浏览器不支持 360 全景预览')
+  }
+
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  renderer.setPixelRatio(1)
+
+  const scene = new THREE.Scene()
+  const camera = new THREE.PerspectiveCamera(60, DEFAULT_OUTPUT_ASPECT_RATIO, 0.01, 10)
+
+  return {
+    renderer,
+    scene,
+    camera,
+    direction: new THREE.Vector3(0, 0, -1),
+    texture: null
+  }
+}
+
+function disposePanoramaThreeState(state: PanoramaThreeState) {
+  if (state.texture) {
+    state.texture.dispose()
+    state.texture = null
+  }
+  state.scene.background = null
+  state.renderer.dispose()
+
+  const context = state.renderer.getContext()
+  if (context) {
+    const loseContextExtension = context.getExtension('WEBGL_lose_context')
+    loseContextExtension?.loseContext?.()
+  }
+}
+
+function getPanoramaThreeState(canvas: HTMLCanvasElement): PanoramaThreeState {
+  const existing = panoramaThreeStates.get(canvas)
+  if (existing) {
+    const context = existing.renderer.getContext()
+    if (!context?.isContextLost?.()) {
+      return existing
+    }
+    disposePanoramaThreeState(existing)
+    panoramaThreeStates.delete(canvas)
+  }
+
+  const state = createPanoramaThreeState(canvas)
+  panoramaThreeStates.set(canvas, state)
+  return state
+}
+
+function updatePanoramaTexture(state: PanoramaThreeState, image: HTMLImageElement) {
+  if (state.image === image && state.texture) return
+
+  if (state.texture) {
+    state.texture.dispose()
+    state.texture = null
+  }
+
+  const texture = new THREE.Texture(image)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.mapping = THREE.EquirectangularReflectionMapping
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.ClampToEdgeWrapping
+  texture.minFilter = THREE.LinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.generateMipmaps = false
+  texture.needsUpdate = true
+
+  state.scene.background = texture
+  state.texture = texture
+  state.image = image
+}
+
+export function disposePanoramaCanvas(canvas: HTMLCanvasElement | null | undefined) {
+  if (!canvas) return
+
+  const state = panoramaThreeStates.get(canvas)
+  if (!state) return
+
+  disposePanoramaThreeState(state)
+  panoramaThreeStates.delete(canvas)
 }
 
 export function isEquirectangularPanoramaSize(width: number, height: number): boolean {
@@ -73,10 +241,47 @@ export function resolvePerspectiveVerticalFov(horizontalFov: number, outputAspec
   )
 }
 
+export function resolvePanoramaOutputAspectRatioValue(
+  rawValue: PanoramaOutputAspectRatioInput,
+  fallback = DEFAULT_OUTPUT_ASPECT_RATIO
+): number {
+  if (typeof rawValue === 'number') {
+    return Number.isFinite(rawValue) && rawValue > 0 ? rawValue : fallback
+  }
+
+  const normalized = rawValue?.trim()
+  if (!normalized) return fallback
+
+  const ratioMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/)
+  if (ratioMatch?.[1] && ratioMatch[2]) {
+    const width = Number(ratioMatch[1])
+    const height = Number(ratioMatch[2])
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      return width / height
+    }
+  }
+
+  const numericValue = Number(normalized)
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : fallback
+}
+
 export function resolvePanoramaSelectionHeightForAspectRatio(width: number, outputAspectRatio = DEFAULT_OUTPUT_ASPECT_RATIO): number {
   const horizontalFov = clamp(width * Math.PI * 2, MIN_PERSPECTIVE_FOV, MAX_PERSPECTIVE_FOV)
   const verticalFov = resolvePerspectiveVerticalFov(horizontalFov, outputAspectRatio)
   return clamp(verticalFov / Math.PI, MIN_CROP_HEIGHT, MAX_CROP_HEIGHT)
+}
+
+export function resolvePanoramaOutputSize(options: {
+  aspectRatio?: PanoramaOutputAspectRatioInput
+  targetPixels?: number
+} = {}): CropImageMetrics {
+  const aspectRatio = resolvePanoramaOutputAspectRatioValue(options.aspectRatio)
+  const targetPixels = Math.max(1, options.targetPixels ?? DEFAULT_PANORAMA_OUTPUT_PIXELS)
+
+  return {
+    width: Math.max(1, Math.round(Math.sqrt(targetPixels * aspectRatio))),
+    height: Math.max(1, Math.round(Math.sqrt(targetPixels / aspectRatio)))
+  }
 }
 
 export function resolveMaxCropSelection(
@@ -111,18 +316,20 @@ export function buildDefaultCropSelection(options: {
   imageWidth: number
   imageHeight: number
   coverage?: number
+  outputAspectRatio?: PanoramaOutputAspectRatioInput
 }): EnvironmentCropSelection {
   const bounds = resolveSelectionBounds()
+  const outputAspectRatio = resolvePanoramaOutputAspectRatioValue(options.outputAspectRatio)
   const coverage = clamp(options.coverage ?? DEFAULT_CROP_COVERAGE, MIN_CROP_COVERAGE, 1)
   const width = clamp(DEFAULT_CROP_WIDTH * coverage, bounds.minWidth, bounds.maxWidth)
   const height = clamp(
-    resolvePanoramaSelectionHeightForAspectRatio(width),
+    resolvePanoramaSelectionHeightForAspectRatio(width, outputAspectRatio),
     bounds.minHeight,
     bounds.maxHeight
   )
 
   return {
-    x: (1 - width) / 2,
+    x: wrapUnit((1 - width) / 2),
     y: (1 - height) / 2,
     width,
     height
@@ -194,14 +401,45 @@ export function normalizePanoramaSelection(
   return { x, y, width, height }
 }
 
+export function normalizePanoramaSelectionForAspectRatio(
+  rawValue: unknown,
+  imageWidth: number,
+  imageHeight: number,
+  outputAspectRatio: PanoramaOutputAspectRatioInput = DEFAULT_OUTPUT_ASPECT_RATIO
+): EnvironmentCropSelection | undefined {
+  const normalized = normalizePanoramaSelection(rawValue, imageWidth, imageHeight)
+  if (!normalized) return undefined
+
+  const aspectRatio = resolvePanoramaOutputAspectRatioValue(outputAspectRatio)
+  const height = resolvePanoramaSelectionHeightForAspectRatio(normalized.width, aspectRatio)
+  const center = resolveSelectionCenter(normalized)
+
+  return normalizePanoramaSelection(
+    {
+      x: center.x - normalized.width / 2,
+      y: center.y - height / 2,
+      width: normalized.width,
+      height
+    },
+    imageWidth,
+    imageHeight
+  )
+}
+
 export async function loadPanoramaImage(sourceImage: string): Promise<PanoramaImageLoadResult> {
   const src = toCanvasSafeImageSrc(sourceImage)
   if (!src) {
     throw new Error('环境全景图不存在，无法选取区域')
   }
 
-  return await new Promise((resolve, reject) => {
+  const cached = panoramaImageLoadCache.get(src)
+  if (cached) {
+    return await cached
+  }
+
+  const pending = new Promise<PanoramaImageLoadResult>((resolve, reject) => {
     const image = new Image()
+
     image.onload = () => {
       const width = image.naturalWidth || image.width
       const height = image.naturalHeight || image.height
@@ -220,12 +458,25 @@ export async function loadPanoramaImage(sourceImage: string): Promise<PanoramaIm
 
       resolve({ image, width, height })
     }
+
     image.onerror = () => {
       reject(new Error('环境全景图加载失败，请稍后重试'))
     }
-    image.crossOrigin = 'anonymous'
+
+    if (canUseAnonymousCrossOrigin(src)) {
+      image.crossOrigin = 'anonymous'
+    }
     image.src = src
   })
+
+  panoramaImageLoadCache.set(src, pending)
+
+  try {
+    return await pending
+  } catch (error) {
+    panoramaImageLoadCache.delete(src)
+    throw error
+  }
 }
 
 export async function loadCropImageMetrics(sourceImage: string): Promise<CropImageMetrics> {
@@ -270,174 +521,6 @@ export function resolveCropSelectionOutputSize(options: {
   }
 }
 
-export async function renderCropSelectionToDataUrl(options: {
-  sourceImage: string
-  selection: EnvironmentCropSelection
-  outputSize?: CropImageMetrics
-}): Promise<string> {
-  const src = toCanvasSafeImageSrc(options.sourceImage)
-  if (!src) {
-    throw new Error('环境全景图不存在，无法生成截图')
-  }
-
-  return await new Promise((resolve, reject) => {
-    const image = new Image()
-    image.onload = () => {
-      const width = image.naturalWidth || image.width
-      const height = image.naturalHeight || image.height
-
-      if (!width || !height) {
-        reject(new Error('环境全景图尺寸无效，无法生成截图'))
-        return
-      }
-
-      const normalizedSelection = normalizePanoramaSelection(options.selection, width, height)
-      if (!normalizedSelection) {
-        reject(new Error('取景区域无效，无法生成环境图'))
-        return
-      }
-
-      const outputSize = options.outputSize || resolveCropSelectionOutputSize({
-        selection: normalizedSelection,
-        sourceWidth: width,
-        sourceHeight: height
-      })
-
-      const canvas = document.createElement('canvas')
-      canvas.width = outputSize.width
-      canvas.height = outputSize.height
-
-      const context = canvas.getContext('2d')
-      if (!context) {
-        reject(new Error('当前浏览器不支持环境图导出'))
-        return
-      }
-
-      const sourceX = Math.floor(normalizedSelection.x * width) % width
-      const sourceY = Math.floor(normalizedSelection.y * height)
-      const sourceWidth = Math.max(1, Math.min(width, Math.round(normalizedSelection.width * width)))
-      const sourceHeight = Math.max(1, Math.min(height - sourceY, Math.round(normalizedSelection.height * height)))
-      const firstSourceWidth = Math.min(width - sourceX, sourceWidth)
-      const secondSourceWidth = sourceWidth - firstSourceWidth
-      const firstOutputWidth = secondSourceWidth > 0
-        ? Math.max(1, Math.round(outputSize.width * (firstSourceWidth / sourceWidth)))
-        : outputSize.width
-
-      context.drawImage(
-        image,
-        sourceX,
-        sourceY,
-        firstSourceWidth,
-        sourceHeight,
-        0,
-        0,
-        firstOutputWidth,
-        outputSize.height
-      )
-      if (secondSourceWidth > 0) {
-        context.drawImage(
-          image,
-          0,
-          sourceY,
-          secondSourceWidth,
-          sourceHeight,
-          firstOutputWidth,
-          0,
-          outputSize.width - firstOutputWidth,
-          outputSize.height
-        )
-      }
-
-      resolve(canvas.toDataURL('image/png'))
-    }
-    image.onerror = () => {
-      reject(new Error('环境全景图加载失败，无法生成截图'))
-    }
-    image.src = src
-  })
-}
-
-function wrapUnit(value: number): number {
-  if (!Number.isFinite(value)) return 0
-  return ((value % 1) + 1) % 1
-}
-
-interface PanoramaThreeState {
-  renderer: THREE.WebGLRenderer
-  scene: THREE.Scene
-  camera: THREE.PerspectiveCamera
-  direction: THREE.Vector3
-  texture: THREE.Texture | null
-  image?: HTMLImageElement
-}
-
-const panoramaThreeStates = new WeakMap<HTMLCanvasElement, PanoramaThreeState>()
-
-function createPanoramaThreeState(canvas: HTMLCanvasElement): PanoramaThreeState {
-  let renderer: THREE.WebGLRenderer
-  try {
-    renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: false,
-      alpha: false,
-      preserveDrawingBuffer: true
-    })
-  } catch {
-    throw new Error('当前浏览器不支持 360 全景预览')
-  }
-
-  const context = renderer.getContext()
-  if (!context) {
-    throw new Error('当前浏览器不支持 360 全景预览')
-  }
-
-  renderer.outputColorSpace = THREE.SRGBColorSpace
-  renderer.setPixelRatio(1)
-
-  const scene = new THREE.Scene()
-  const camera = new THREE.PerspectiveCamera(60, DEFAULT_OUTPUT_ASPECT_RATIO, 0.01, 10)
-
-  return {
-    renderer,
-    scene,
-    camera,
-    direction: new THREE.Vector3(0, 0, -1),
-    texture: null
-  }
-}
-
-function getPanoramaThreeState(canvas: HTMLCanvasElement): PanoramaThreeState {
-  const existing = panoramaThreeStates.get(canvas)
-  if (existing) return existing
-
-  const state = createPanoramaThreeState(canvas)
-  panoramaThreeStates.set(canvas, state)
-  return state
-}
-
-function updatePanoramaTexture(state: PanoramaThreeState, image: HTMLImageElement) {
-  if (state.image === image && state.texture) return
-
-  if (state.texture) {
-    state.texture.dispose()
-    state.texture = null
-  }
-
-  const texture = new THREE.Texture(image)
-  texture.colorSpace = THREE.SRGBColorSpace
-  texture.mapping = THREE.EquirectangularReflectionMapping
-  texture.wrapS = THREE.RepeatWrapping
-  texture.wrapT = THREE.ClampToEdgeWrapping
-  texture.minFilter = THREE.LinearFilter
-  texture.magFilter = THREE.LinearFilter
-  texture.generateMipmaps = false
-  texture.needsUpdate = true
-
-  state.scene.background = texture
-  state.texture = texture
-  state.image = image
-}
-
 export function renderPanoramaSelectionToCanvas(options: {
   image: HTMLImageElement
   canvas: HTMLCanvasElement
@@ -452,6 +535,11 @@ export function renderPanoramaSelectionToCanvas(options: {
   }
   assertEquirectangularPanoramaSize(sourceWidth, sourceHeight)
 
+  const normalizedSelection = normalizePanoramaSelection(options.selection, sourceWidth, sourceHeight)
+  if (!normalizedSelection) {
+    throw new Error('取景区域无效，无法生成环境图')
+  }
+
   const outputWidth = Math.max(1, Math.round(options.width || options.canvas.width || 1280))
   const outputHeight = Math.max(1, Math.round(options.height || options.canvas.height || 720))
   const state = getPanoramaThreeState(options.canvas)
@@ -463,20 +551,7 @@ export function renderPanoramaSelectionToCanvas(options: {
   updatePanoramaTexture(state, options.image)
 
   state.camera.aspect = outputWidth / outputHeight
-  const centerYaw = (options.selection.x + options.selection.width / 2) * Math.PI * 2 - Math.PI
-  const centerPitch = (0.5 - (options.selection.y + options.selection.height / 2)) * Math.PI
-  const horizontalFov = clamp(options.selection.width * Math.PI * 2, MIN_PERSPECTIVE_FOV, MAX_PERSPECTIVE_FOV)
-  const verticalFov = resolvePerspectiveVerticalFov(horizontalFov, outputWidth / outputHeight)
-  state.camera.fov = THREE.MathUtils.radToDeg(verticalFov)
-  state.camera.position.set(0, 0, 0)
-  state.direction.set(
-    Math.sin(centerYaw) * Math.cos(centerPitch),
-    Math.sin(centerPitch),
-    Math.cos(centerYaw) * Math.cos(centerPitch)
-  )
-  state.camera.up.set(0, 1, 0)
-  state.camera.lookAt(state.direction)
-  state.camera.updateProjectionMatrix()
+  applyViewStateToCamera(state, selectionToViewState(normalizedSelection), state.camera.aspect)
 
   state.renderer.render(state.scene, state.camera)
 }
@@ -485,27 +560,48 @@ export async function renderPanoramaSelectionToDataUrl(options: {
   sourceImage: string
   selection: EnvironmentCropSelection
   outputSize?: CropImageMetrics
+  aspectRatio?: PanoramaOutputAspectRatioInput
 }): Promise<PanoramaRenderResult> {
   const { image, width, height } = await loadPanoramaImage(options.sourceImage)
-  const normalizedSelection = normalizePanoramaSelection(options.selection, width, height)
+  const normalizedSelection = normalizePanoramaSelectionForAspectRatio(
+    options.selection,
+    width,
+    height,
+    options.aspectRatio
+  )
   if (!normalizedSelection) {
     throw new Error('取景区域无效，无法生成环境图')
   }
 
-  const outputSize = options.outputSize || {
-    width: 1920,
-    height: 1080
-  }
-  const canvas = document.createElement('canvas')
-  renderPanoramaSelectionToCanvas({
-    image,
-    canvas,
-    selection: normalizedSelection,
-    width: outputSize.width,
-    height: outputSize.height
+  const outputSize = options.outputSize || resolvePanoramaOutputSize({
+    aspectRatio: options.aspectRatio
   })
-  return {
-    imageData: canvas.toDataURL('image/png'),
-    crop: normalizedSelection
+
+  const canvas = document.createElement('canvas')
+  try {
+    renderPanoramaSelectionToCanvas({
+      image,
+      canvas,
+      selection: normalizedSelection,
+      width: outputSize.width,
+      height: outputSize.height
+    })
+
+    return {
+      imageData: canvas.toDataURL('image/png'),
+      crop: normalizedSelection
+    }
+  } finally {
+    disposePanoramaCanvas(canvas)
   }
+}
+
+export async function renderCropSelectionToDataUrl(options: {
+  sourceImage: string
+  selection: EnvironmentCropSelection
+  outputSize?: CropImageMetrics
+  aspectRatio?: PanoramaOutputAspectRatioInput
+}): Promise<string> {
+  const result = await renderPanoramaSelectionToDataUrl(options)
+  return result.imageData
 }

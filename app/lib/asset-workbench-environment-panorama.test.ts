@@ -5,10 +5,13 @@ import {
   isEquirectangularPanoramaSize,
   normalizeCropSelection,
   normalizePanoramaSelection,
+  normalizePanoramaSelectionForAspectRatio,
   resolveCropSelectionAspectRatio,
   resolveCropSelectionCoverage,
   resolveCropSelectionOutputSize,
   resolveMaxCropSelection,
+  resolvePanoramaOutputAspectRatioValue,
+  resolvePanoramaOutputSize,
   resolvePanoramaSelectionHeightForAspectRatio,
   resolvePerspectiveVerticalFov
 } from './asset-workbench-environment-panorama'
@@ -39,6 +42,17 @@ describe('environment panorama crop helpers', () => {
 
     expect(verticalFov).toBeCloseTo(0.87108, 5)
     expect(resolvePanoramaSelectionHeightForAspectRatio(0.22, 16 / 9)).toBeCloseTo(0.27727, 5)
+  })
+
+  it('resolves project output aspect ratios for preview and export', () => {
+    expect(resolvePanoramaOutputAspectRatioValue('16:9')).toBeCloseTo(16 / 9, 5)
+    expect(resolvePanoramaOutputAspectRatioValue('9:16')).toBeCloseTo(9 / 16, 5)
+    expect(resolvePanoramaOutputAspectRatioValue('1:1')).toBeCloseTo(1, 5)
+    expect(resolvePanoramaOutputAspectRatioValue('bad')).toBeCloseTo(16 / 9, 5)
+
+    expect(resolvePanoramaOutputSize({ aspectRatio: '16:9' })).toEqual({ width: 1920, height: 1080 })
+    expect(resolvePanoramaOutputSize({ aspectRatio: '9:16' })).toEqual({ width: 1080, height: 1920 })
+    expect(resolvePanoramaOutputSize({ aspectRatio: '1:1' })).toEqual({ width: 1440, height: 1440 })
   })
 
   it('normalizes both horizontal and vertical bounds inside the source image', () => {
@@ -98,6 +112,28 @@ describe('environment panorama crop helpers', () => {
       width: 0.2,
       height: 0.25
     })
+  })
+
+  it('normalizes panorama selection height to the target output aspect ratio', () => {
+    const normalized = normalizePanoramaSelectionForAspectRatio(
+      {
+        x: 0.39,
+        y: 0.36,
+        width: 0.22,
+        height: 0.27
+      },
+      2048,
+      1024,
+      '9:16'
+    )
+
+    expect(normalized).toBeTruthy()
+    expect(normalized?.x).toBeCloseTo(0.39, 5)
+    expect(normalized?.width).toBeCloseTo(0.22, 5)
+    expect(normalized?.height).toBeCloseTo(
+      resolvePanoramaSelectionHeightForAspectRatio(0.22, 9 / 16),
+      5
+    )
   })
 
   it('calculates coverage against the freeform max selection area', () => {

@@ -760,6 +760,13 @@ export async function _qwenGenerateImage(options: {
         )
         const defaultSize = isQwenImage2Series ? '2048*2048' : '1664*928'
         const size = options.size || defaultSize
+        const content: Array<{ text?: string, image?: string }> = [
+          { text: options.prompt }
+        ]
+
+        for (const img of options.referenceImages || []) {
+          content.push({ image: img })
+        }
 
         const requestBody = {
           model,
@@ -767,7 +774,7 @@ export async function _qwenGenerateImage(options: {
             messages: [
               {
                 role: 'user',
-                content: [{ text: options.prompt }]
+                content
               }
             ]
           },
