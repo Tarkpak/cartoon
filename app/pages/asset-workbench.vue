@@ -1328,9 +1328,7 @@ const environmentCropTarget = computed(() => {
 })
 
 const environmentCropSourceImage = computed(() => {
-  return environmentCropTarget.value?.panoramaImage?.trim()
-    || environmentCropTarget.value?.referenceImage?.trim()
-    || ''
+  return environmentCropTarget.value?.panoramaImage?.trim() || ''
 })
 
 const environmentCropInitialSelection = computed(() => {
@@ -1341,8 +1339,8 @@ const environmentCropInitialSelection = computed(() => {
 
 function openEnvironmentCropDialog(assetId: string) {
   const asset = resolveEnvironmentCard(assetId)
-  if (!asset?.panoramaImage?.trim() && !asset?.referenceImage?.trim()) {
-    alert('请先生成或上传环境图，再选择取景区域')
+  if (!asset?.panoramaImage?.trim()) {
+    alert('请先生成或上传 2:1 的环境全景图，再选择取景区域')
     return
   }
 
@@ -1536,9 +1534,8 @@ async function handleAssetHistorySelect(entry: AssetImageHistoryEntry) {
         return
       }
 
-      await applyEnvironmentReferenceImage(target.id, nextImage, {
-        panoramaImage: nextImage
-      })
+      await applyEnvironmentReferenceImage(target.id, nextImage)
+      setEnvironmentPanoramaState(target.id, undefined)
       await saveWorkflowMeta()
       setAssetHistoryDialogOpen(false)
       return
