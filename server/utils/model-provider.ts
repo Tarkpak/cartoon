@@ -273,6 +273,10 @@ function supportsOpenAIImageQuality(model: string): boolean {
   return normalizeModelId(model).toLowerCase().startsWith('gpt-image')
 }
 
+function supportsOpenAIImageEdit(model: string): boolean {
+  return normalizeModelId(model).toLowerCase().startsWith('gpt-image')
+}
+
 function getCustomOpenAIImageAspectRatios(model: string): string[] {
   if (normalizeModelId(model).toLowerCase() === 'gpt-image-2') {
     return ['2:1', '21:9', '16:9', '3:2', '4:3', '1:1', '3:4', '2:3', '9:16']
@@ -301,7 +305,7 @@ function buildCustomOpenAIImageModels(): ImageModelConfig[] {
       description: `${customOpenAIConfig.displayName} - OpenAI 兼容图片模型`,
       supportedAspectRatios: getCustomOpenAIImageAspectRatios(model),
       supportedQualities: getCustomOpenAIImageQualities(model),
-      supportReferenceImage: false
+      supportReferenceImage: supportsOpenAIImageEdit(model)
     }))
 }
 
@@ -1250,12 +1254,19 @@ export async function generateImage(options: {
   }
 
   if (provider === 'custom_openai') {
+    const openAIReferenceImages = options.referenceImages && options.referenceImages.length > 0
+      ? options.referenceImages
+      : options.referenceImage?.data
+        ? [`data:${options.referenceImage.mimeType};base64,${options.referenceImage.data}`]
+        : undefined
+
     return generateOpenAICompatibleImage({
       providerConfig: getCustomOpenAIProviderConfig(),
       model: modelId,
       prompt: options.prompt,
       size: options.size,
       quality: options.quality,
+      referenceImages: openAIReferenceImages,
       maxRetries: options.maxRetries
     })
   }

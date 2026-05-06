@@ -126,6 +126,23 @@ function imageGenerationsUrl(baseUrl: string): string {
   return `${normalized}/images/generations`
 }
 
+function imageEditsUrl(baseUrl: string): string {
+  const normalized = normalizeBaseUrl(baseUrl)
+  if (normalized.endsWith('/images/edits')) {
+    return normalized
+  }
+  if (normalized.endsWith('/chat/completions')) {
+    return `${normalized.slice(0, -'/chat/completions'.length)}/images/edits`
+  }
+  if (normalized.endsWith('/responses')) {
+    return `${normalized.slice(0, -'/responses'.length)}/images/edits`
+  }
+  if (normalized.endsWith('/models')) {
+    return `${normalized.slice(0, -'/models'.length)}/images/edits`
+  }
+  return `${normalized}/images/edits`
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -271,6 +288,114 @@ async function requestImageGeneration<T>(
   }
 
   return await response.json() as T
+}
+
+async function requestImageEdit<T>(
+  providerConfig: OpenAICompatibleProviderConfig,
+  body: FormData
+): Promise<T> {
+  const authorization = getAuthorizationHeader(providerConfig)
+  const baseUrl = providerConfig.baseUrl?.trim()
+
+  if (!baseUrl) {
+    throw new OpenAICompatibleError('自定义 OpenAI 兼容供应商缺少 Base URL', 400, false)
+  }
+  const response = await fetch(imageEditsUrl(baseUrl), {
+    method: 'POST',
+    headers: {
+      'Authorization': authorization
+    },
+    body
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({})) as { error?: { message?: string }, message?: string }
+    throw new OpenAICompatibleError(
+      errorData.error?.message || errorData.message || `HTTP ${response.status}`,
+      response.status,
+      response.status >= 500 || response.status === 429
+    )
+  }
+
+  return await response.json() as T
+}
+
+function parseDataUri(value: string): { mimeType: string, data: string } | null {
+  const match = value.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s)
+  if (!match?.[1] || !match[2]) return null
+  return {
+    mimeType: match[1],
+    data: match[2].replace(/\s+/g, '')
+  }
+}
+
+function normalizeImageMimeType(value?: string | null): string | null {
+  const normalized = (value || '').split(';')[0]?.trim().toLowerCase()
+  if (!normalized?.startsWith('image/')) return null
+  return normalized
+}
+
+function extensionByMimeType(mimeType: string): string {
+  switch (mimeType) {
+    case 'image/jpeg':
+      return 'jpg'
+    case 'image/webp':
+      return 'webp'
+    case 'image/gif':
+      return 'gif'
+    case 'image/bmp':
+      return 'bmp'
+    case 'image/png':
+    default:
+      return 'png'
+  }
+}
+
+async function toImageFilePart(reference: string, index: number): Promise<{ blob: Blob, filename: string }> {
+  const trimmed = reference.trim()
+  if (!trimmed) {
+    throw new OpenAICompatibleError('参考图不能为空', 400, false)
+  }
+
+  const dataUri = parseDataUri(trimmed)
+  if (dataUri) {
+    const bytes = Buffer.from(dataUri.data, 'base64')
+    if (!bytes.length) {
+      throw new OpenAICompatibleError('参考图 base64 数据为空', 400, false)
+    }
+    const mimeType = normalizeImageMimeType(dataUri.mimeType) || 'image/png'
+    return {
+      blob: new Blob([bytes], { type: mimeType }),
+      filename: `reference-${index}.${extensionByMimeType(mimeType)}`
+    }
+  }
+
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    const response = await fetch(trimmed)
+    if (!response.ok) {
+      throw new OpenAICompatibleError(`下载参考图失败: HTTP ${response.status}`, response.status, false)
+    }
+    const mimeType = normalizeImageMimeType(response.headers.get('content-type')) || 'image/png'
+    const bytes = Buffer.from(await response.arrayBuffer())
+    if (!bytes.length) {
+      throw new OpenAICompatibleError('参考图下载结果为空', 400, false)
+    }
+    return {
+      blob: new Blob([bytes], { type: mimeType }),
+      filename: `reference-${index}.${extensionByMimeType(mimeType)}`
+    }
+  }
+
+  const compact = trimmed.replace(/\s+/g, '')
+  const bytes = Buffer.from(compact, 'base64')
+  if (!bytes.length) {
+    throw new OpenAICompatibleError('参考图格式无效，请提供 URL 或 base64 数据', 400, false)
+  }
+
+  return {
+    blob: new Blob([bytes], { type: 'image/png' }),
+    filename: `reference-${index}.png`
+  }
 }
 
 export async function listOpenAICompatibleModels(
@@ -509,11 +634,16 @@ export async function generateOpenAICompatibleImage(options: {
   prompt: string
   size?: string
   quality?: string
+  referenceImages?: string[]
   maxRetries?: number
 }): Promise<{ imageUrl?: string, imageData?: string, mimeType?: string }> {
   const normalizedModel = options.model.trim().toLowerCase()
   const normalizedQuality = options.quality?.trim().toLowerCase()
   const supportsQuality = normalizedModel.startsWith('gpt-image')
+  const supportsEdit = normalizedModel.startsWith('gpt-image')
+  const referenceImages = (options.referenceImages || [])
+    .map(image => image.trim())
+    .filter(Boolean)
   const validQualities = new Set(['auto', 'low', 'medium', 'high'])
   const quality = supportsQuality && normalizedQuality && validQualities.has(normalizedQuality)
     ? normalizedQuality
@@ -529,11 +659,18 @@ export async function generateOpenAICompatibleImage(options: {
     requestBody.quality = quality
   }
 
+  if (referenceImages.length > 0 && !supportsEdit) {
+    throw new OpenAICompatibleError(`模型 ${options.model} 不支持参考图编辑`, 400, false)
+  }
+
   return withModelDebugLog({
     provider: 'custom_openai',
     model: options.model,
     operation: 'generateImage',
-    request: requestBody,
+    request: {
+      ...requestBody,
+      referenceImageCount: referenceImages.length
+    },
     summarizeResponse: result => ({
       hasImageUrl: !!result.imageUrl,
       imageUrlPreview: result.imageUrl?.slice(0, 100),
@@ -542,10 +679,31 @@ export async function generateOpenAICompatibleImage(options: {
       mimeType: result.mimeType
     }),
     execute: async () => withRetry(async () => {
-      const response = await requestImageGeneration<ImageGenerationResponse>(
-        options.providerConfig,
-        requestBody
-      )
+      const response = referenceImages.length > 0
+        ? await (async () => {
+            const formData = new FormData()
+            formData.set('model', options.model)
+            formData.set('prompt', options.prompt)
+            formData.set('size', requestBody.size as string)
+            formData.set('n', String(requestBody.n))
+            if (quality) {
+              formData.set('quality', quality)
+            }
+            for (let i = 0; i < referenceImages.length; i++) {
+              const reference = referenceImages[i]
+              if (!reference) continue
+              const part = await toImageFilePart(reference, i)
+              formData.append('image[]', part.blob, part.filename)
+            }
+            return await requestImageEdit<ImageGenerationResponse>(
+              options.providerConfig,
+              formData
+            )
+          })()
+        : await requestImageGeneration<ImageGenerationResponse>(
+            options.providerConfig,
+            requestBody
+          )
       const first = response.data?.[0]
       if (first?.url) {
         return { imageUrl: first.url }
