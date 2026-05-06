@@ -177,4 +177,48 @@ describe('scene video reference assets', () => {
       source: 'configured'
     })
   })
+
+  it('resolves typed @mentions for prop and other assets', () => {
+    const scene = createScene({
+      id: 'scene_4',
+      title: '楼道',
+      description: '镜头掠过楼道尽头。\n\n[引用资产]\n@道具:工作证\n@其他:手电筒'
+    })
+
+    const assets = resolveSceneVideoReferenceAssets({
+      scene,
+      characters: [],
+      propAssets: [
+        {
+          id: 'prop_card',
+          name: '工作证',
+          description: '',
+          category: 'prop',
+          referenceImage: 'card.png'
+        },
+        {
+          id: 'prop_flashlight',
+          name: '手电筒',
+          description: '',
+          category: 'other',
+          referenceImage: 'flashlight.png'
+        }
+      ],
+      sceneConfigs: {
+        [scene.id]: createSceneConfig(scene.id, [])
+      }
+    })
+
+    expect(assets).toHaveLength(2)
+    expect(assets[0]).toMatchObject({
+      assetId: 'prop:prop_card',
+      type: 'prop',
+      image: 'card.png'
+    })
+    expect(assets[1]).toMatchObject({
+      assetId: 'prop:prop_flashlight',
+      type: 'other',
+      image: 'flashlight.png'
+    })
+  })
 })
