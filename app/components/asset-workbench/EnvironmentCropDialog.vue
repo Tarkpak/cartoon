@@ -12,6 +12,7 @@ import type { EnvironmentCropSelection } from '~/lib/asset-workbench-types'
 const PREVIEW_ASPECT_RATIO = 16 / 9
 const MIN_VIEW_WIDTH = 0.08
 const MAX_VIEW_WIDTH = 1
+const FIXED_VIEW_WIDTH = 0.38
 
 const props = defineProps<{
   open: boolean
@@ -24,7 +25,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:open': [open: boolean]
-  'submit': [selection: EnvironmentCropSelection]
+  'submit': [payload: { selection: EnvironmentCropSelection, previewImageData?: string }]
 }>()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -72,7 +73,11 @@ function normalizeViewSelection(raw?: EnvironmentCropSelection): EnvironmentCrop
         return { x: (1 - width) / 2, y: (1 - height) / 2, width, height }
       })()
   const source = raw || fallback
-  const width = clamp(source.width || fallback.width, MIN_VIEW_WIDTH, MAX_VIEW_WIDTH)
+  const width = clamp(
+    Math.max(source.width || fallback.width, FIXED_VIEW_WIDTH),
+    MIN_VIEW_WIDTH,
+    MAX_VIEW_WIDTH
+  )
   const height = resolveSelectionHeight(width)
   const centerX = source.x + source.width / 2
   const centerY = source.y + source.height / 2
@@ -92,21 +97,6 @@ function setSelectionCenter(centerX: number, centerY: number) {
     ...selection.value,
     x: wrapUnit(centerX - selection.value.width / 2),
     y: clamp(centerY - selection.value.height / 2, 0, 1 - selection.value.height)
-  }
-}
-
-function resizeSelection(deltaScale: number) {
-  if (!selection.value) return
-
-  const centerX = selection.value.x + selection.value.width / 2
-  const centerY = selection.value.y + selection.value.height / 2
-  const width = clamp(selection.value.width * deltaScale, MIN_VIEW_WIDTH, MAX_VIEW_WIDTH)
-  const height = resolveSelectionHeight(width)
-  selection.value = {
-    x: wrapUnit(centerX - width / 2),
-    y: clamp(centerY - height / 2, 0, 1 - height),
-    width,
-    height
   }
 }
 
@@ -215,15 +205,18 @@ function stopDragging(event?: PointerEvent) {
   dragState.pointerId = 0
 }
 
-function handleWheel(event: WheelEvent) {
-  if (!selection.value) return
-  event.preventDefault()
-  resizeSelection(event.deltaY > 0 ? 1.08 : 0.92)
-}
-
 function submit() {
   if (!selection.value) return
-  emit('submit', selection.value)
+  let previewImageData: string | undefined
+  try {
+    previewImageData = canvasRef.value?.toDataURL('image/png')
+  } catch {
+    previewImageData = undefined
+  }
+  emit('submit', {
+    selection: selection.value,
+    previewImageData
+  })
 }
 
 watch(
@@ -282,7 +275,6 @@ watchEffect((onCleanup) => {
           @pointermove.prevent="moveView"
           @pointerup.prevent="stopDragging"
           @pointercancel.prevent="stopDragging"
-          @wheel="handleWheel"
         />
 
         <div
