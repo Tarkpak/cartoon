@@ -204,10 +204,6 @@ function clampDuration(value?: number): number {
   return Math.max(2, Math.min(15, Math.round(numeric)))
 }
 
-function hasSceneCharacters(scene: z.infer<typeof SceneSchema>): boolean {
-  return Array.isArray(scene.characters) && scene.characters.length > 0
-}
-
 function resolveReferenceTypeLabel(type: ReferenceAssetKind): string {
   if (type === 'environment') return '环境'
   if (type === 'prop') return '道具'
@@ -628,7 +624,6 @@ export default defineEventHandler(async (event) => {
   })
   const characterImages = characterReferenceBindings.map(item => item.image)
   const primaryCharacterImage = characterImages[0]
-  const hasCharactersInScene = hasSceneCharacters(scene)
   const hasCharacterRef = characterReferenceBindings.length > 0
   const hasEnvironmentRef = !!environmentReferenceBinding
   const candidateReferenceBindingsForDecision = buildVideoReferenceBindings({
@@ -636,7 +631,7 @@ export default defineEventHandler(async (event) => {
     environmentBinding: environmentReferenceBinding,
     maxReferenceImages: 9
   })
-  const wantsMultiReference = hasCharactersInScene && candidateReferenceBindingsForDecision.length > 1
+  const wantsMultiReference = hasCharacterRef && candidateReferenceBindingsForDecision.length > 1
 
   const workflowModels = await getWorkflowModels()
   const preferredModelId = workflowModels.video_generation
@@ -674,7 +669,7 @@ export default defineEventHandler(async (event) => {
   // Gemini 多参考图时优先环境图作为单图输入，保留空间构图；
   // 可灵单图模式也优先环境图，防止角色图被强制首帧化；
   // 其它模型仍优先角色图锁身份。
-  const primaryReference = continuityFirstFrame || (hasCharactersInScene
+  const primaryReference = continuityFirstFrame || (hasCharacterRef
     ? (supportsMultiReferenceImages || preferEnvironmentAsPrimary
         ? (environmentReferenceBinding?.image || primaryCharacterImage)
         : (primaryCharacterImage || environmentReferenceBinding?.image))
@@ -805,7 +800,7 @@ export default defineEventHandler(async (event) => {
         referenceImageLimit: referenceLimit,
         referenceImagesCount: multiReferenceImages.length,
         characterReferenceCount: characterReferenceBindings.length,
-        primaryReferenceType: hasCharactersInScene
+        primaryReferenceType: hasCharacterRef
           ? (supportsMultiReferenceImages || preferEnvironmentAsPrimary
               ? (environmentReferenceBinding ? 'environment' : primaryCharacterImage ? 'character' : 'none')
               : (primaryCharacterImage ? 'character' : environmentReferenceBinding ? 'environment' : 'none'))
