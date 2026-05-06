@@ -267,7 +267,6 @@ const {
 
 function synchronizeSceneDescriptionsWithAssetMentions(): boolean {
   const tokenMap = resolveAssetMentionTokenMap()
-  const assetByTokenMap = resolveAssetByMentionTokenMap()
   let changed = false
 
   for (const scene of scenes.value) {
@@ -277,16 +276,10 @@ function synchronizeSceneDescriptionsWithAssetMentions(): boolean {
     const configuredMentionTokens = uniqueSorted(config.mustReferenceAssetIds)
       .map(assetId => tokenMap.get(assetId) || '')
       .filter(Boolean)
-    const configuredNonCharacterMentionTokens = configuredMentionTokens.filter((token) => {
-      return assetByTokenMap.get(token)?.type !== 'character'
-    })
-    const existingCharacterMentionTokens = extractSceneDescriptionMentionTokens(scene.description || '')
-      .filter((token) => {
-        return assetByTokenMap.get(token)?.type === 'character'
-      })
+    const existingMentionTokens = extractSceneDescriptionMentionTokens(scene.description || '')
     const mentionTokens = uniqueSorted([
-      ...configuredNonCharacterMentionTokens,
-      ...existingCharacterMentionTokens
+      ...configuredMentionTokens,
+      ...existingMentionTokens
     ])
 
     const nextDescription = buildSceneMentionDescription(

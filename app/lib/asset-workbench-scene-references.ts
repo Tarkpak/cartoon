@@ -143,9 +143,15 @@ export function resolveConfiguredCharacterReferences(
   })
     .filter(assetId => assetId.startsWith('char:'))
     .map(assetId => assetId.slice('char:'.length))
+  const configuredCharacterIds = (options.sceneConfigs?.[options.scene.id]?.mustReferenceAssetIds || [])
+    .filter(assetId => assetId.startsWith('char:'))
+    .map(assetId => assetId.slice('char:'.length))
+  const characterIds = mentionedCharacterIds.length > 0
+    ? mentionedCharacterIds
+    : configuredCharacterIds
 
   const matched = new Map<string, CharacterData>()
-  for (const characterId of mentionedCharacterIds) {
+  for (const characterId of characterIds) {
     const character = findCharacterByAssetRefId(characterId, options.characters)
     if (character) {
       matched.set(character.id, character)
