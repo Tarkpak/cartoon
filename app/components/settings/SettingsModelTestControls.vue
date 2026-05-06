@@ -16,12 +16,14 @@ import {
 const activeTab = defineModel<ModelTestTab>('activeTab', { required: true })
 const customPrompts = defineModel<Record<ModelTestTab, string>>('customPrompts', { required: true })
 const imageAspectRatio = defineModel<string>('imageAspectRatio', { required: true })
+const imageQuality = defineModel<string>('imageQuality', { required: true })
 
 const props = defineProps<{
   testResults: Record<ModelTestTab, TestResult>
   currentImageModelSupportsReference: boolean
   currentImageModelRequiresReference: boolean
   currentImageModelAspectRatioOptions: string[]
+  currentImageModelQualityOptions: string[]
   canRunImageTest: boolean
   referenceImages: string[]
   setFileInputRef: (element: Element | ComponentPublicInstance | null) => void
@@ -50,6 +52,10 @@ const currentTestStatus = computed(() => props.testResults[activeTab.value].stat
 function formatAspectRatioLabel(value: string): string {
   return value === 'auto' ? '自动 (auto)' : value
 }
+
+function formatImageQualityLabel(value: string): string {
+  return value.toUpperCase()
+}
 </script>
 
 <template>
@@ -76,6 +82,26 @@ function formatAspectRatioLabel(value: string): string {
                 :value="ratio"
               >
                 {{ formatAspectRatioLabel(ratio) }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div
+          v-if="activeTab === 'image' && props.currentImageModelQualityOptions.length > 0"
+          class="flex items-center gap-2"
+        >
+          <label class="text-xs text-muted-foreground/80">画质</label>
+          <Select v-model="imageQuality">
+            <SelectTrigger class="h-7 w-[120px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem
+                v-for="quality in props.currentImageModelQualityOptions"
+                :key="`image_quality_${quality}`"
+                :value="quality"
+              >
+                {{ formatImageQualityLabel(quality) }}
               </SelectItem>
             </SelectContent>
           </Select>
@@ -108,7 +134,7 @@ function formatAspectRatioLabel(value: string): string {
     <!-- Prompt input -->
     <div>
       <template v-if="activeTab === 'image'">
-        <div class="relative min-h-[80px] rounded-lg border border-input bg-muted/20 px-3 py-2 text-sm transition-colors focus-within:bg-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+        <div class="relative min-h-[80px] rounded-lg border border-input bg-muted/20 px-3 py-2 text-sm transition-colors focus-within:bg-background focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring">
           <div
             :ref="props.setPromptEditorRef"
             contenteditable="true"

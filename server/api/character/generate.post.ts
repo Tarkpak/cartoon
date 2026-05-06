@@ -315,6 +315,7 @@ async function generateCharacterSheet(
   ])
   const modelId = workflowModels.character_portrait
   const geminiImageSize = workflowModelOptions.image_options.geminiImageSize
+  const openaiImageQuality = workflowModelOptions.image_options.openaiImageQuality
   const modelConfig = modelId ? findImageModel(modelId) : undefined
   const customPrompt = regeneration?.customPrompt?.trim()
   const isRegeneration = !!customPrompt
@@ -378,6 +379,7 @@ async function generateCharacterSheet(
         modelId,
         prompt: promptText,
         imageSize: geminiImageSize,
+        quality: openaiImageQuality,
         aspectRatio: CHARACTER_SHEET_ASPECT_RATIO,
         size: resolveCharacterSheetSize(modelConfig?.provider),
         ...referenceImageOptions,

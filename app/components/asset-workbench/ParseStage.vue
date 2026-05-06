@@ -150,7 +150,7 @@ async function handleDrop(event: DragEvent) {
     >
       <Textarea
         v-model="novelText"
-        class="h-full min-h-[280px] w-full resize-none overflow-y-auto rounded-lg border-0 bg-transparent placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-ring"
+        class="h-full min-h-[280px] w-full resize-none overflow-y-auto rounded-lg border-0 bg-transparent placeholder:text-muted-foreground/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         placeholder="粘贴完整剧本原文..."
       />
       <div
