@@ -78,6 +78,8 @@ const activeStates = computed(() => {
   return navigation.map(item => route.path === item.path)
 })
 
+const hideSidebar = computed(() => route.meta.hideSidebar === true)
+
 // 是否显示页脚（设置页与自动工作台不显示）
 const showFooter = computed(() => !['/settings', '/asset-workbench'].includes(route.path))
 
@@ -105,6 +107,7 @@ watch(isCollapsed, (value) => {
   <div class="flex h-screen bg-background transition-colors duration-300">
     <!-- 左侧菜单栏 -->
     <aside
+      v-if="!hideSidebar"
       class="bg-card border-r flex flex-col transition-all duration-300 relative"
       :class="isCollapsed ? 'w-20' : 'w-56'"
     >

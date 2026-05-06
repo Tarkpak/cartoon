@@ -108,7 +108,7 @@ watch(
     :open="open"
     @update:open="emit('update:open', $event)"
   >
-    <DialogContent class="max-h-[85vh] overflow-hidden sm:max-w-5xl">
+    <DialogContent class="max-h-[90vh] overflow-hidden sm:max-w-6xl">
       <DialogHeader>
         <DialogTitle>{{ title }}</DialogTitle>
         <DialogDescription>
@@ -125,9 +125,9 @@ watch(
 
       <div
         v-else-if="isSplitPreviewLayout"
-        class="grid max-h-[68vh] min-h-0 grid-cols-1 gap-3 lg:grid-cols-[280px_minmax(0,1fr)]"
+        class="grid min-h-0 grid-cols-1 gap-3 lg:h-[72vh] lg:grid-cols-[260px_minmax(0,1fr)]"
       >
-        <div class="min-h-0 overflow-y-auto rounded-lg border bg-card">
+        <div class="min-h-0 overflow-y-auto rounded-lg border bg-card lg:h-full">
           <Button
             v-for="(entry, index) in entries"
             :key="entry.id"
@@ -173,7 +173,7 @@ watch(
 
         <div
           v-if="selectedEntry"
-          class="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-card"
+          class="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-card lg:h-full"
         >
           <Button
             type="button"
@@ -189,7 +189,7 @@ watch(
             <img
               :src="toImageSrc(selectedEntry.image)"
               :alt="`${targetLabel} 历史资产`"
-              class="block h-auto max-h-full w-auto max-w-full object-contain"
+              class="block h-full w-full object-contain"
             >
           </Button>
 
@@ -346,7 +346,7 @@ watch(
 .asset-history-preview--selected {
   display: flex;
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 320px;
   align-items: center;
   justify-content: center;
 }
@@ -378,7 +378,7 @@ watch(
 
 .asset-history-preview--selected.asset-history-preview--environment,
 .asset-history-preview--selected.asset-history-preview--character {
-  min-height: 0;
+  min-height: 360px;
 }
 
 @media (max-width: 1023px) {
@@ -388,6 +388,15 @@ watch(
 
   .asset-history-preview--character {
     min-height: 280px;
+  }
+
+  .asset-history-preview--selected {
+    min-height: 280px;
+  }
+
+  .asset-history-preview--selected.asset-history-preview--environment,
+  .asset-history-preview--selected.asset-history-preview--character {
+    min-height: 300px;
   }
 }
 
