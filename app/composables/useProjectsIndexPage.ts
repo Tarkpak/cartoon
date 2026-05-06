@@ -1,7 +1,6 @@
 import { useDebounceFn } from '@vueuse/core'
 import type { StylePreset } from '#shared/types/styles'
-import { resolveProjectWorkbenchPath } from '#shared/types/project'
-import type { ProjectWorkflowType } from '#shared/types/project'
+import { resolveProjectDetailPath } from '#shared/types/project'
 import {
   createProjectDraft,
   hasProjectStyle,
@@ -111,12 +110,10 @@ export function useProjectsIndexPage() {
 
     creating.value = true
     try {
-      const selectedWorkflowType = newProject.value.workflowType
       const response = await $fetch<{
         success: boolean
         project: {
           id: string
-          workflowType?: ProjectWorkflowType
         }
       }>('/api/project/create', {
         method: 'POST',
@@ -135,8 +132,7 @@ export function useProjectsIndexPage() {
 
       const createdId = response?.project?.id
       if (createdId) {
-        const workflowType = response.project.workflowType || selectedWorkflowType
-        await router.push(resolveProjectWorkbenchPath(createdId, workflowType))
+        await router.push(resolveProjectDetailPath(createdId))
         return
       }
 
@@ -171,7 +167,7 @@ export function useProjectsIndexPage() {
   }
 
   function openProject(project: Project) {
-    router.push(resolveProjectWorkbenchPath(project.id, project.workflowType))
+    router.push(resolveProjectDetailPath(project.id))
   }
 
   async function deleteProject() {

@@ -31,6 +31,15 @@ interface UseAssetWorkbenchAutoFlowOptions {
   retryFailedQueueItemsOnce: () => Promise<void>
 }
 
+function normalizeRouteAutoStage(value: unknown): AutoStageKey | undefined {
+  if (typeof value !== 'string') return undefined
+  const stage = value.trim()
+  if (stage === 'parse' || stage === 'assets' || stage === 'videos' || stage === 'final') {
+    return stage
+  }
+  return undefined
+}
+
 export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOptions) {
   const autoRunning = ref(false)
   const autoRunError = ref<string | null>(null)
@@ -139,6 +148,13 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
     await options.persistAutomaticAssetPlan({
       overwriteExistingConfigs: !hasMeta
     })
+
+    const stageFromRoute = normalizeRouteAutoStage(options.route.query.stage)
+    if (stageFromRoute) {
+      selectAutoStage(stageFromRoute)
+      options.selectedSceneId.value = options.scenes.value[0]?.id || ''
+      return
+    }
 
     if (options.scenes.value.length > 0) {
       selectAutoStage(inferActiveAutoStage({
