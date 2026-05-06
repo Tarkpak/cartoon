@@ -139,6 +139,33 @@ describe('scene video reference assets', () => {
     })
   })
 
+  it('falls back to scene-config character references when no character @mention exists', () => {
+    const scene = createScene({
+      id: 'scene_2b',
+      title: '走廊',
+      description: '阿强在走廊回头。\n\n[引用资产]\n@医院走廊'
+    })
+    const characters = [
+      createCharacter({ id: 'char_qiang', name: '阿强', baseImage: 'char_qiang.png' }),
+      createCharacter({ id: 'char_ming', name: '阿明', baseImage: 'char_ming.png' })
+    ]
+
+    const assets = resolveSceneVideoReferenceAssets({
+      scene,
+      characters,
+      propAssets: [],
+      sceneConfigs: {
+        [scene.id]: createSceneConfig(scene.id, ['char:char_qiang'])
+      }
+    })
+
+    expect(assets).toHaveLength(1)
+    expect(assets[0]).toMatchObject({
+      assetId: 'char:char_qiang',
+      source: 'configured'
+    })
+  })
+
   it('ignores config-only prop references that are not @ mentioned', () => {
     const scene = createScene({
       id: 'scene_3',
