@@ -1,5 +1,6 @@
 import { computed } from 'vue'
 import type { Ref } from 'vue'
+import { resolveTimeOfDayText } from '#shared/types/script'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
@@ -79,16 +80,25 @@ function buildEpisodeEnvironmentHintCards(options: {
 
     for (const item of episode.episodeAssets?.environments || []) {
       const location = item.location?.trim() || ''
-      const timeOfDay = item.timeOfDay?.trim() || ''
+      const rawTimeOfDay = item.timeOfDay?.trim() || ''
+      const timeOfDay = resolveTimeOfDayText(rawTimeOfDay, '').trim()
       const mood = item.mood?.trim() || ''
       if (!location) continue
 
-      const assetId = `env:${normalizeEpisodeAssetKey(location)}||${normalizeEpisodeAssetKey(timeOfDay)}`
+      const locationKey = normalizeEpisodeAssetKey(location)
+      const timeOfDayKey = normalizeEpisodeAssetKey(timeOfDay)
+      const legacyTimeOfDayKey = normalizeEpisodeAssetKey(rawTimeOfDay)
+      const assetId = `env:${locationKey}||${timeOfDayKey}`
+      const legacyAssetId = `env:${locationKey}||${legacyTimeOfDayKey}`
       if (!assetId.trim()) continue
 
-      const history = options.environmentAssetHistories?.[assetId] || []
-      const panoramaImage = options.environmentPanoramaStates?.[assetId]?.panoramaImage?.trim() || ''
-      const referenceImage = panoramaImage || history[0]?.image || undefined
+      const history = options.environmentAssetHistories?.[assetId]
+        || options.environmentAssetHistories?.[legacyAssetId]
+        || []
+      const panoramaImage = options.environmentPanoramaStates?.[assetId]?.panoramaImage?.trim()
+        || options.environmentPanoramaStates?.[legacyAssetId]?.panoramaImage?.trim()
+        || ''
+      const referenceImage = history[0]?.image || panoramaImage || undefined
       const referenceStatus = referenceImage ? 'done' : 'pending'
       const existing = merged.get(assetId)
       if (existing) {

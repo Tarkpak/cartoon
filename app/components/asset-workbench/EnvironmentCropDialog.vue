@@ -1,48 +1,53 @@
 <script setup lang="ts">
-import { Loader2 } from 'lucide-vue-next'
+import { Loader2, ZoomIn, ZoomOut } from 'lucide-vue-next'
 import {
   buildDefaultCropSelection,
+  disposePanoramaCanvas,
   loadPanoramaImage,
-  normalizePanoramaSelection,
+  normalizePanoramaSelectionForAspectRatio,
+  resolvePanoramaOutputAspectRatioValue,
   resolvePanoramaSelectionHeightForAspectRatio,
   renderPanoramaSelectionToCanvas
 } from '~/lib/asset-workbench-environment-panorama'
 import type { EnvironmentCropSelection } from '~/lib/asset-workbench-types'
 
-const PREVIEW_ASPECT_RATIO = 16 / 9
 const MIN_VIEW_WIDTH = 0.08
 const MAX_VIEW_WIDTH = 1
-const FIXED_VIEW_WIDTH = 0.38
+const MIN_VIEW_FOV_DEGREES = 35
+const MAX_VIEW_FOV_DEGREES = 150
+const DEFAULT_VIEW_FOV_DEGREES = 80
+const DEFAULT_VIEW_WIDTH = DEFAULT_VIEW_FOV_DEGREES / 360
 
 const props = defineProps<{
   open: boolean
   targetLabel: string
   sourceImage?: string
   initialSelection?: EnvironmentCropSelection
+  aspectRatio?: string
   loading?: boolean
   error?: string | null
 }>()
 
 const emit = defineEmits<{
   'update:open': [open: boolean]
-  'submit': [payload: { selection: EnvironmentCropSelection, previewImageData?: string }]
+  'submit': [payload: { selection: EnvironmentCropSelection }]
 }>()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const viewportRef = ref<HTMLElement | null>(null)
 const imageMetrics = ref<{ width: number, height: number } | null>(null)
 const selection = ref<EnvironmentCropSelection | null>(null)
 const panoramaImage = shallowRef<HTMLImageElement | null>(null)
 const loadingPreview = ref(false)
 const previewError = ref<string | null>(null)
+const previewCssSize = ref({ width: 960, height: 540 })
 let renderFrameId = 0
 
 const dragState = reactive({
   active: false,
   pointerId: 0,
-  startX: 0,
-  startY: 0,
-  startSelectionX: 0,
-  startSelectionY: 0
+  lastX: 0,
+  lastY: 0
 })
 
 function clamp(value: number, min: number, max: number): number {
@@ -55,28 +60,69 @@ function wrapUnit(value: number): number {
   return ((value % 1) + 1) % 1
 }
 
+const previewAspectRatio = computed(() => resolvePanoramaOutputAspectRatioValue(props.aspectRatio))
+
+const previewCanvasStyle = computed(() => ({
+  width: `${previewCssSize.value.width}px`,
+  height: `${previewCssSize.value.height}px`
+}))
+
 function resolveSelectionHeight(width: number): number {
   return clamp(
-    resolvePanoramaSelectionHeightForAspectRatio(width, PREVIEW_ASPECT_RATIO),
+    resolvePanoramaSelectionHeightForAspectRatio(width, previewAspectRatio.value),
     0.06,
     0.95
   )
 }
 
+const viewFovDegrees = computed({
+  get: () => [
+    Math.round((selection.value?.width || DEFAULT_VIEW_WIDTH) * 360)
+  ],
+  set: (value: number[] | undefined) => {
+    const nextDegrees = value?.[0]
+    if (!Number.isFinite(nextDegrees)) return
+    setSelectionWidth(clamp((nextDegrees as number) / 360, MIN_VIEW_WIDTH, MAX_VIEW_WIDTH))
+  }
+})
+
+function resolvePreviewCanvasCssSize(): { width: number, height: number } {
+  const bounds = viewportRef.value?.getBoundingClientRect()
+  const availableWidth = Math.max(1, Math.floor(bounds?.width || 960))
+  const availableHeight = Math.max(1, Math.floor(bounds?.height || 540))
+  const aspectRatio = previewAspectRatio.value
+
+  let width = availableWidth
+  let height = width / aspectRatio
+  if (height > availableHeight) {
+    height = availableHeight
+    width = height * aspectRatio
+  }
+
+  return {
+    width: Math.max(1, Math.floor(width)),
+    height: Math.max(1, Math.floor(height))
+  }
+}
+
 function normalizeViewSelection(raw?: EnvironmentCropSelection): EnvironmentCropSelection {
   const metrics = imageMetrics.value
   const fallback = metrics
-    ? buildDefaultCropSelection({ imageWidth: metrics.width, imageHeight: metrics.height })
+    ? buildDefaultCropSelection({
+        imageWidth: metrics.width,
+        imageHeight: metrics.height,
+        outputAspectRatio: previewAspectRatio.value
+      })
     : (() => {
-        const width = 1
+        const width = DEFAULT_VIEW_WIDTH
         const height = resolveSelectionHeight(width)
         return { x: (1 - width) / 2, y: (1 - height) / 2, width, height }
       })()
   const source = raw || fallback
   const width = clamp(
-    Math.max(source.width || fallback.width, FIXED_VIEW_WIDTH),
-    MIN_VIEW_WIDTH,
-    MAX_VIEW_WIDTH
+    source.width || fallback.width || DEFAULT_VIEW_WIDTH,
+    MIN_VIEW_FOV_DEGREES / 360,
+    MAX_VIEW_FOV_DEGREES / 360
   )
   const height = resolveSelectionHeight(width)
   const centerX = source.x + source.width / 2
@@ -100,6 +146,26 @@ function setSelectionCenter(centerX: number, centerY: number) {
   }
 }
 
+function setSelectionWidth(width: number) {
+  if (!selection.value) return
+
+  const normalizedWidth = clamp(width, MIN_VIEW_WIDTH, MAX_VIEW_WIDTH)
+  const height = resolveSelectionHeight(normalizedWidth)
+  const centerX = selection.value.x + selection.value.width / 2
+  const centerY = selection.value.y + selection.value.height / 2
+
+  selection.value = {
+    x: wrapUnit(centerX - normalizedWidth / 2),
+    y: clamp(centerY - height / 2, 0, 1 - height),
+    width: normalizedWidth,
+    height
+  }
+}
+
+function disposePreviewRenderer() {
+  disposePanoramaCanvas(canvasRef.value)
+}
+
 function renderPreview() {
   renderFrameId = 0
   const canvas = canvasRef.value
@@ -107,9 +173,8 @@ function renderPreview() {
   const currentSelection = selection.value
   if (!canvas || !image || !currentSelection) return
 
-  const rect = canvas.getBoundingClientRect()
-  const cssWidth = Math.max(1, Math.round(rect.width || 960))
-  const cssHeight = Math.max(1, Math.round(rect.height || 540))
+  const nextSize = resolvePreviewCanvasCssSize()
+  previewCssSize.value = nextSize
   const dpr = Math.min(2, window.devicePixelRatio || 1)
 
   try {
@@ -117,8 +182,8 @@ function renderPreview() {
       image,
       canvas,
       selection: currentSelection,
-      width: cssWidth * dpr,
-      height: cssHeight * dpr
+      width: nextSize.width * dpr,
+      height: nextSize.height * dpr
     })
     previewError.value = null
   } catch (error) {
@@ -137,6 +202,7 @@ async function initializePreview() {
     selection.value = null
     panoramaImage.value = null
     previewError.value = null
+    disposePreviewRenderer()
     return
   }
 
@@ -149,10 +215,11 @@ async function initializePreview() {
       width: loaded.width,
       height: loaded.height
     }
-    const normalizedInitialSelection = normalizePanoramaSelection(
+    const normalizedInitialSelection = normalizePanoramaSelectionForAspectRatio(
       props.initialSelection,
       loaded.width,
-      loaded.height
+      loaded.height,
+      previewAspectRatio.value
     )
     selection.value = normalizeViewSelection(normalizedInitialSelection)
     panoramaImage.value = loaded.image
@@ -174,10 +241,8 @@ function startDragging(event: PointerEvent) {
 
   dragState.active = true
   dragState.pointerId = event.pointerId
-  dragState.startX = event.clientX
-  dragState.startY = event.clientY
-  dragState.startSelectionX = selection.value.x
-  dragState.startSelectionY = selection.value.y
+  dragState.lastX = event.clientX
+  dragState.lastY = event.clientY
   ;(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId)
 }
 
@@ -187,12 +252,13 @@ function moveView(event: PointerEvent) {
   const bounds = canvasRef.value.getBoundingClientRect()
   if (!bounds.width || !bounds.height) return
 
-  const centerX = dragState.startSelectionX
-    + selection.value.width / 2
-    - ((event.clientX - dragState.startX) / bounds.width) * selection.value.width
-  const centerY = dragState.startSelectionY
-    + selection.value.height / 2
-    + ((event.clientY - dragState.startY) / bounds.height) * selection.value.height
+  const deltaX = (event.clientX - dragState.lastX) / bounds.width
+  const deltaY = (event.clientY - dragState.lastY) / bounds.height
+  dragState.lastX = event.clientX
+  dragState.lastY = event.clientY
+
+  const centerX = selection.value.x + selection.value.width / 2 - deltaX * selection.value.width
+  const centerY = selection.value.y + selection.value.height / 2 + deltaY * selection.value.height
 
   setSelectionCenter(centerX, centerY)
 }
@@ -207,20 +273,13 @@ function stopDragging(event?: PointerEvent) {
 
 function submit() {
   if (!selection.value) return
-  let previewImageData: string | undefined
-  try {
-    previewImageData = canvasRef.value?.toDataURL('image/png')
-  } catch {
-    previewImageData = undefined
-  }
   emit('submit', {
-    selection: selection.value,
-    previewImageData
+    selection: selection.value
   })
 }
 
 watch(
-  () => [props.open, props.sourceImage, props.initialSelection] as const,
+  () => [props.open, props.sourceImage, props.initialSelection, props.aspectRatio] as const,
   () => {
     void initializePreview()
   },
@@ -243,6 +302,7 @@ watch(() => props.open, (open) => {
       cancelAnimationFrame(renderFrameId)
       renderFrameId = 0
     }
+    disposePreviewRenderer()
     previewError.value = null
   }
 })
@@ -253,6 +313,15 @@ watchEffect((onCleanup) => {
   const handleResize = () => scheduleRenderPreview()
   window.addEventListener('resize', handleResize)
   onCleanup(() => window.removeEventListener('resize', handleResize))
+})
+
+onBeforeUnmount(() => {
+  stopDragging()
+  if (renderFrameId) {
+    cancelAnimationFrame(renderFrameId)
+    renderFrameId = 0
+  }
+  disposePreviewRenderer()
 })
 </script>
 
@@ -267,15 +336,21 @@ watchEffect((onCleanup) => {
       </div>
 
       <div class="relative min-h-0 flex-1 overflow-hidden bg-black">
-        <canvas
-          ref="canvasRef"
-          class="block h-full w-full cursor-grab touch-none active:cursor-grabbing"
-          :aria-label="`${targetLabel} 360 全景取景预览`"
-          @pointerdown.prevent="startDragging"
-          @pointermove.prevent="moveView"
-          @pointerup.prevent="stopDragging"
-          @pointercancel.prevent="stopDragging"
-        />
+        <div
+          ref="viewportRef"
+          class="absolute inset-0 flex items-center justify-center"
+        >
+          <canvas
+            ref="canvasRef"
+            class="block cursor-grab touch-none active:cursor-grabbing"
+            :style="previewCanvasStyle"
+            :aria-label="`${targetLabel} 360 全景取景预览`"
+            @pointerdown.prevent="startDragging"
+            @pointermove.prevent="moveView"
+            @pointerup.prevent="stopDragging"
+            @pointercancel.prevent="stopDragging"
+          />
+        </div>
 
         <div
           v-if="loadingPreview"
@@ -295,6 +370,21 @@ watchEffect((onCleanup) => {
       <div class="flex shrink-0 items-center justify-between gap-3 border-t bg-background/95 px-4 py-3 backdrop-blur">
         <div class="min-w-0 truncate text-sm font-medium">
           {{ targetLabel || '环境取景区域' }}
+        </div>
+        <div class="hidden min-w-0 flex-1 items-center justify-center gap-2 px-2 sm:flex">
+          <ZoomOut class="h-4 w-4 shrink-0 text-muted-foreground" />
+          <Slider
+            v-model="viewFovDegrees"
+            class="max-w-56"
+            :min="MIN_VIEW_FOV_DEGREES"
+            :max="MAX_VIEW_FOV_DEGREES"
+            :step="1"
+            :disabled="loadingPreview || !selection"
+          />
+          <ZoomIn class="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span class="w-12 shrink-0 text-right text-xs text-muted-foreground">
+            {{ viewFovDegrees[0] }}°
+          </span>
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <Button

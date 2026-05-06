@@ -123,6 +123,125 @@ describe('useAssetWorkbenchPageState', () => {
     expect(pageState.environmentAssetCards.value[0]?.description).toBe('冷白灯光，紧张压抑')
   })
 
+  it('normalizes night variants in episode hints into one environment asset', () => {
+    const pageState = useAssetWorkbenchPageState({
+      scenes: ref([]),
+      characters: ref([]),
+      episodePlan: ref([
+        {
+          id: 'episode_001',
+          title: '第1集：雨夜追踪',
+          index: 1,
+          startOffset: 0,
+          endOffset: 1200,
+          charCount: 1200,
+          episodeAssets: {
+            characters: [],
+            props: [],
+            environments: [
+              {
+                location: '医院走廊',
+                timeOfDay: '夜里',
+                mood: '冷白灯光'
+              }
+            ]
+          }
+        },
+        {
+          id: 'episode_002',
+          title: '第2集：追查加深',
+          index: 2,
+          startOffset: 1200,
+          endOffset: 2400,
+          charCount: 1200,
+          episodeAssets: {
+            characters: [],
+            props: [],
+            environments: [
+              {
+                location: '医院走廊',
+                timeOfDay: '深夜',
+                mood: '压抑紧张的追查'
+              }
+            ]
+          }
+        }
+      ]),
+      propAssets: ref([]),
+      environmentAssetHistories: ref({}),
+      environmentPanoramaStates: ref({}),
+      sceneConfigs: ref({}),
+      selectedSceneId: ref(''),
+      selectedStyleId: ref(''),
+      projectStyleId: ref(''),
+      supportsExplicitVoiceAudioReference: ref(false),
+      queueItems: ref([]),
+      resolveStyleById: () => null,
+      resolveSceneDescriptionWithoutAssetMentions,
+      uniqueSorted: values => Array.from(new Set(values.filter(Boolean)))
+    })
+
+    expect(pageState.environmentAssetCards.value).toHaveLength(1)
+    expect(pageState.environmentAssetCards.value[0]?.id).toBe('env:医院走廊||夜晚')
+    expect(pageState.environmentAssetCards.value[0]?.name).toBe('医院走廊 / 夜晚')
+    expect(pageState.environmentAssetCards.value[0]?.sceneTitles).toContain('第1集：雨夜追踪（目录）')
+    expect(pageState.environmentAssetCards.value[0]?.sceneTitles).toContain('第2集：追查加深（目录）')
+  })
+
+  it('reuses legacy history keyed by unnormalized time-of-day in episode hints', () => {
+    const pageState = useAssetWorkbenchPageState({
+      scenes: ref([]),
+      characters: ref([]),
+      episodePlan: ref([
+        {
+          id: 'episode_001',
+          title: '第1集：雨夜追踪',
+          index: 1,
+          startOffset: 0,
+          endOffset: 1200,
+          charCount: 1200,
+          episodeAssets: {
+            characters: [],
+            props: [],
+            environments: [
+              {
+                location: '医院走廊',
+                timeOfDay: '深夜',
+                mood: '冷白灯光，紧张压抑'
+              }
+            ]
+          }
+        }
+      ]),
+      propAssets: ref([]),
+      environmentAssetHistories: ref({
+        'env:医院走廊||深夜': [
+          {
+            id: 'legacy_history_1',
+            image: 'https://example.com/legacy-midnight.png',
+            createdAt: '2026-05-06T12:00:00.000Z',
+            source: 'legacy'
+          }
+        ]
+      }),
+      environmentPanoramaStates: ref({}),
+      sceneConfigs: ref({}),
+      selectedSceneId: ref(''),
+      selectedStyleId: ref(''),
+      projectStyleId: ref(''),
+      supportsExplicitVoiceAudioReference: ref(false),
+      queueItems: ref([]),
+      resolveStyleById: () => null,
+      resolveSceneDescriptionWithoutAssetMentions,
+      uniqueSorted: values => Array.from(new Set(values.filter(Boolean)))
+    })
+
+    expect(pageState.environmentAssetCards.value).toHaveLength(1)
+    expect(pageState.environmentAssetCards.value[0]?.id).toBe('env:医院走廊||夜晚')
+    expect(pageState.environmentAssetCards.value[0]?.referenceImage).toBe('https://example.com/legacy-midnight.png')
+    expect(pageState.environmentAssetCards.value[0]?.referenceStatus).toBe('done')
+  })
+
   it('marks episode environment hints ready when a generated history image exists', () => {
     const pageState = useAssetWorkbenchPageState({
       scenes: ref([]),
@@ -173,6 +292,62 @@ describe('useAssetWorkbenchPageState', () => {
 
     expect(pageState.environmentAssetCards.value[0]?.referenceImage).toBe('https://example.com/generated-env.png')
     expect(pageState.environmentAssetCards.value[0]?.referenceStatus).toBe('done')
+  })
+
+  it('prefers cropped history image over panorama image for episode environment hints', () => {
+    const pageState = useAssetWorkbenchPageState({
+      scenes: ref([]),
+      characters: ref([]),
+      episodePlan: ref([
+        {
+          id: 'episode_001',
+          title: '第1集：雨夜追踪',
+          index: 1,
+          startOffset: 0,
+          endOffset: 1200,
+          charCount: 1200,
+          episodeAssets: {
+            characters: [],
+            props: [],
+            environments: [
+              {
+                location: '医院走廊',
+                timeOfDay: '夜晚',
+                mood: '冷白灯光，紧张压抑'
+              }
+            ]
+          }
+        }
+      ]),
+      propAssets: ref([]),
+      environmentAssetHistories: ref({
+        'env:医院走廊||夜晚': [
+          {
+            id: 'history_2',
+            image: 'https://example.com/cropped-env.png',
+            createdAt: '2026-05-06T11:00:00.000Z',
+            source: 'cropped'
+          }
+        ]
+      }),
+      environmentPanoramaStates: ref({
+        'env:医院走廊||夜晚': {
+          panoramaImage: 'https://example.com/panorama-env.png'
+        }
+      }),
+      sceneConfigs: ref({}),
+      selectedSceneId: ref(''),
+      selectedStyleId: ref(''),
+      projectStyleId: ref(''),
+      supportsExplicitVoiceAudioReference: ref(false),
+      queueItems: ref([]),
+      resolveStyleById: () => null,
+      resolveSceneDescriptionWithoutAssetMentions,
+      uniqueSorted: values => Array.from(new Set(values.filter(Boolean)))
+    })
+
+    expect(pageState.environmentAssetCards.value[0]?.referenceImage).toBe('https://example.com/cropped-env.png')
+    expect(pageState.environmentAssetCards.value[0]?.panoramaImage).toBe('https://example.com/panorama-env.png')
   })
 
   it('marks assets incomplete when a normal prop has no reference image', () => {
