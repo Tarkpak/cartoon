@@ -171,7 +171,8 @@ async function saveWorkflowModelOverrides(
 function resolveDefaultWorkflowModelOptions(): WorkflowModelOptions {
   return {
     image_options: {
-      geminiImageSize: '1K'
+      geminiImageSize: '1K',
+      openaiImageQuality: 'auto'
     },
     video_generation: {
       klingV3Omni: {
@@ -189,7 +190,7 @@ function resolveDefaultWorkflowModelOptions(): WorkflowModelOptions {
     },
     completion_notification: {
       sound: true,
-      systemNotification: false
+      systemNotification: true
     }
   }
 }

@@ -30,5 +30,5 @@ export function resolveProjectWorkbenchPath(
 }
 
 export function resolveProjectDetailPath(projectId: string): string {
-  return `/projects/${encodeURIComponent(projectId)}`
+  return resolveProjectWorkbenchPath(projectId)
 }

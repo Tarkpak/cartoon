@@ -9,6 +9,7 @@ import type {
   WorkflowStepConfig,
   WorkflowModelOptions,
   WorkflowGeminiImageSize,
+  WorkflowOpenAIImageQuality,
   WorkflowImageGenerationModelOptions,
   WorkflowVideoGenerationModelOptions,
   WorkflowCompletionNotificationOptions,
@@ -79,6 +80,7 @@ export const WORKFLOW_CATEGORY_CONFIG: Record<WorkflowCategoryKey, WorkflowCateg
 }
 
 export const WORKFLOW_GEMINI_IMAGE_SIZES: WorkflowGeminiImageSize[] = ['512', '1K', '2K', '4K']
+export const WORKFLOW_OPENAI_IMAGE_QUALITIES: WorkflowOpenAIImageQuality[] = ['auto', 'low', 'medium', 'high']
 export const WORKFLOW_SEEDANCE_VIDEO_QUALITIES: SeedanceVideoQuality[] = ['480p', '720p', '1080p']
 const WORKFLOW_CATEGORY_ORDER: WorkflowCategoryKey[] = ['text', 'image', 'video']
 
@@ -98,12 +100,13 @@ const DEFAULT_VIDEO_AUDIO_DEFAULTS: WorkflowVideoAudioDefaults = {
 }
 
 const DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS: WorkflowImageGenerationModelOptions = {
-  geminiImageSize: '1K'
+  geminiImageSize: '1K',
+  openaiImageQuality: 'auto'
 }
 
 const DEFAULT_COMPLETION_NOTIFICATION_OPTIONS: WorkflowCompletionNotificationOptions = {
   sound: true,
-  systemNotification: false
+  systemNotification: true
 }
 
 export function useSettingsWorkflowModels() {
@@ -167,17 +170,48 @@ export function useSettingsWorkflowModels() {
     return workflow.compatibleModels.length > 0
   }
 
+  function normalizeCompletionNotificationOptions(
+    options?: Partial<WorkflowCompletionNotificationOptions> | null
+  ): WorkflowCompletionNotificationOptions {
+    return {
+      sound: typeof options?.sound === 'boolean'
+        ? options.sound
+        : DEFAULT_COMPLETION_NOTIFICATION_OPTIONS.sound,
+      systemNotification: typeof options?.systemNotification === 'boolean'
+        ? options.systemNotification
+        : DEFAULT_COMPLETION_NOTIFICATION_OPTIONS.systemNotification
+    }
+  }
+
   async function loadWorkflowModels() {
     workflowLoading.value = true
 
     try {
       const response = await $fetch<{ success: boolean, data: WorkflowData }>('/api/models/workflow')
-      if (response.success) {
-        workflowData.value = response.data
-        setCompletionNotificationOptions(
-          response.data.modelOptions?.completion_notification || DEFAULT_COMPLETION_NOTIFICATION_OPTIONS
-        )
+      if (!response.success) {
+        throw new Error('流程模型配置接口返回失败')
       }
+
+      const completionNotification = normalizeCompletionNotificationOptions(
+        response.data.modelOptions?.completion_notification
+      )
+
+      workflowData.value = {
+        ...response.data,
+        modelOptions: {
+          image_options: response.data.modelOptions?.image_options || {
+            ...DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS
+          },
+          video_generation: response.data.modelOptions?.video_generation || {
+            klingV3Omni: { ...DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS },
+            seedance: { ...DEFAULT_SEEDANCE_VIDEO_OPTIONS },
+            audioDefaults: { ...DEFAULT_VIDEO_AUDIO_DEFAULTS }
+          },
+          completion_notification: completionNotification
+        }
+      }
+
+      setCompletionNotificationOptions(completionNotification)
     } catch (error) {
       console.error('[useSettingsWorkflowModels] 加载流程模型配置失败:', error)
     } finally {
@@ -205,9 +239,10 @@ export function useSettingsWorkflowModels() {
   }
 
   function getCompletionNotificationOptions(): WorkflowCompletionNotificationOptions {
-    return workflowData.value?.modelOptions?.completion_notification || {
-      ...DEFAULT_COMPLETION_NOTIFICATION_OPTIONS
-    }
+    return normalizeCompletionNotificationOptions(
+      workflowData.value?.modelOptions?.completion_notification
+      || completionNotificationOptionsState.value
+    )
   }
 
   function syncWorkflowCompletionNotificationOptions(
@@ -377,17 +412,11 @@ export function useSettingsWorkflowModels() {
   async function updateCompletionNotificationOptions(
     patch: Partial<WorkflowCompletionNotificationOptions>
   ) {
-    if (!workflowData.value) return
-
-    const current = {
-      ...getCompletionNotificationOptions(),
-      ...completionNotificationOptionsState.value
-    }
-    const next: WorkflowCompletionNotificationOptions = {
-      ...current,
-      ...patch
-    }
     const previous = getCompletionNotificationOptions()
+    const next = normalizeCompletionNotificationOptions({
+      ...previous,
+      ...patch
+    })
 
     workflowSaving.value = true
     setCompletionNotificationOptions(next)
@@ -402,9 +431,11 @@ export function useSettingsWorkflowModels() {
         }
       })
 
-      if (response.success) {
-        await loadWorkflowModels()
+      if (!response.success) {
+        throw new Error('生成完成提醒配置保存失败')
       }
+
+      await loadWorkflowModels()
     } catch (error) {
       console.error('[useSettingsWorkflowModels] 更新生成完成提醒配置失败:', error)
       setCompletionNotificationOptions(previous)
@@ -420,6 +451,15 @@ export function useSettingsWorkflowModels() {
 
     void updateImageGenerationModelOptions({
       geminiImageSize: normalized as WorkflowGeminiImageSize
+    })
+  }
+
+  function updateWorkflowOpenaiImageQuality(value: unknown) {
+    const normalized = toSelectString(value).toLowerCase()
+    if (!WORKFLOW_OPENAI_IMAGE_QUALITIES.includes(normalized as WorkflowOpenAIImageQuality)) return
+
+    void updateImageGenerationModelOptions({
+      openaiImageQuality: normalized as WorkflowOpenAIImageQuality
     })
   }
 
@@ -532,6 +572,7 @@ export function useSettingsWorkflowModels() {
     updateWorkflowModel,
     updateVideoGenerationModelOptions,
     updateWorkflowGeminiImageSize,
+    updateWorkflowOpenaiImageQuality,
     updateWorkflowSeedanceVideoQuality,
     updateVideoAudioDefaults,
     updateCompletionNotificationOptions,

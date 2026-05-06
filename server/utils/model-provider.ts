@@ -269,12 +269,24 @@ function isCustomOpenAIImageModel(model: string): boolean {
   return normalizeModelId(model).toLowerCase().includes('image')
 }
 
+function supportsOpenAIImageQuality(model: string): boolean {
+  return normalizeModelId(model).toLowerCase().startsWith('gpt-image')
+}
+
 function getCustomOpenAIImageAspectRatios(model: string): string[] {
   if (normalizeModelId(model).toLowerCase() === 'gpt-image-2') {
     return ['2:1', '21:9', '16:9', '3:2', '4:3', '1:1', '3:4', '2:3', '9:16']
   }
 
   return ['1:1', '16:9', '9:16', '4:3', '3:4']
+}
+
+function getCustomOpenAIImageQualities(model: string): string[] | undefined {
+  if (supportsOpenAIImageQuality(model)) {
+    return ['auto', 'low', 'medium', 'high']
+  }
+
+  return undefined
 }
 
 function buildCustomOpenAIImageModels(): ImageModelConfig[] {
@@ -288,6 +300,7 @@ function buildCustomOpenAIImageModels(): ImageModelConfig[] {
       displayName: model,
       description: `${customOpenAIConfig.displayName} - OpenAI 兼容图片模型`,
       supportedAspectRatios: getCustomOpenAIImageAspectRatios(model),
+      supportedQualities: getCustomOpenAIImageQualities(model),
       supportReferenceImage: false
     }))
 }
@@ -1184,6 +1197,7 @@ export async function generateImage(options: {
   size?: string
   imageSize?: gemini.GeminiImageSize | string
   aspectRatio?: string
+  quality?: string
   maxRetries?: number
 }): Promise<GenerateImageResult> {
   const modelId = normalizeModelId(options.modelId || currentModels.image)
@@ -1241,6 +1255,7 @@ export async function generateImage(options: {
       model: modelId,
       prompt: options.prompt,
       size: options.size,
+      quality: options.quality,
       maxRetries: options.maxRetries
     })
   }

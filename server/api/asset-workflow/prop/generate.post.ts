@@ -77,6 +77,7 @@ export default defineEventHandler(async (event) => {
         modelId,
         prompt,
         imageSize: workflowModelOptions.image_options.geminiImageSize,
+        quality: workflowModelOptions.image_options.openaiImageQuality,
         aspectRatio: '1:1',
         size: '1024*1024',
         negativePrompt: '人物, 人脸, 人体, 手, 多个不同物体版本, 文字, 水印, logo, UI, human, person, face, hands, text, watermark',

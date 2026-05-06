@@ -31,6 +31,7 @@ const {
   updateWorkflowModel,
   updateVideoGenerationModelOptions,
   updateWorkflowGeminiImageSize,
+  updateWorkflowOpenaiImageQuality,
   updateWorkflowSeedanceVideoQuality,
   updateVideoAudioDefaults,
   updateCompletionNotificationOptions,
@@ -116,6 +117,7 @@ const activeCategoryIconClass = computed(() => {
               :update-global-workflow-default="updateGlobalWorkflowDefault"
               :update-video-generation-model-options="updateVideoGenerationModelOptions"
               :update-workflow-gemini-image-size="updateWorkflowGeminiImageSize"
+              :update-workflow-openai-image-quality="updateWorkflowOpenaiImageQuality"
               :update-workflow-seedance-video-quality="updateWorkflowSeedanceVideoQuality"
               :update-video-audio-defaults="updateVideoAudioDefaults"
               :update-completion-notification-options="updateCompletionNotificationOptions"

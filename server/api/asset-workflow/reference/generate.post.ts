@@ -799,6 +799,7 @@ export default defineEventHandler(async (event) => {
     const modelId = modelDecision.modelId
     const modelConfig = findImageModel(modelId)
     const geminiImageSize = workflowModelOptions.image_options.geminiImageSize
+    const openaiImageQuality = workflowModelOptions.image_options.openaiImageQuality
     const panoramaSource = resolvePanoramaSourceProfile(modelConfig)
     if (panoramaSource.fallbackApplied) {
       console.warn(
@@ -862,6 +863,7 @@ export default defineEventHandler(async (event) => {
         modelId,
         prompt,
         imageSize: geminiImageSize,
+        quality: openaiImageQuality,
         aspectRatio: panoramaSource.aspectRatio,
         negativePrompt: resolvedNegativePrompt,
         size: panoramaSource.size,

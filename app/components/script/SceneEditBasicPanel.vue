@@ -73,7 +73,7 @@ defineProps<{
           <div
             :ref="setSceneDescriptionEditorRef"
             contenteditable="true"
-            class="min-h-[110px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-6 outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring whitespace-pre-wrap break-words"
+            class="min-h-[110px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-6 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring whitespace-pre-wrap break-words"
             @keydown="handleSceneDescriptionKeydown"
             @input="handleSceneDescriptionInput"
             @click="handleSceneDescriptionCursorChange"

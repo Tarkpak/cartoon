@@ -20,6 +20,7 @@ import {
 } from '@/composables/useGenerationCompletionNotification'
 import {
   WORKFLOW_GEMINI_IMAGE_SIZES,
+  WORKFLOW_OPENAI_IMAGE_QUALITIES,
   WORKFLOW_SEEDANCE_VIDEO_QUALITIES,
   type WorkflowConfig
 } from '@/composables/useSettingsWorkflowModels'
@@ -38,6 +39,7 @@ const props = defineProps<{
   updateGlobalWorkflowDefault: (type: 'text' | 'image' | 'video' | 'tts', modelId: string) => Promise<void>
   updateVideoGenerationModelOptions: (patch: Partial<KlingV3OmniVideoOptions>) => Promise<void>
   updateWorkflowGeminiImageSize: (value: unknown) => void
+  updateWorkflowOpenaiImageQuality: (value: unknown) => void
   updateWorkflowSeedanceVideoQuality: (value: unknown) => void
   updateVideoAudioDefaults: (patch: Partial<WorkflowVideoAudioDefaults>) => Promise<void>
   updateCompletionNotificationOptions: (patch: Partial<WorkflowCompletionNotificationOptions>) => Promise<void>
@@ -108,6 +110,14 @@ const hasGeminiImageInUse = computed(() => {
     || props.workflows.some(w => w.selectedModel && isGemini(w.selectedModel))
 })
 
+/** 当前分类下是否有任一步骤使用了 OpenAI gpt-image 系列模型 */
+const hasOpenAIImageInUse = computed(() => {
+  if (props.activeCategory !== 'image') return false
+  const isOpenAIImage = (id: string) => id.trim().toLowerCase().startsWith('gpt-image')
+  return isOpenAIImage(props.selectedModels.image)
+    || props.workflows.some(w => w.selectedModel && isOpenAIImage(w.selectedModel))
+})
+
 function updateKlingSound(value: unknown) {
   void props.updateVideoGenerationModelOptions({
     sound: toSelectString(value) === 'on' ? 'on' : 'off'
@@ -122,6 +132,10 @@ function updateKlingMode(value: unknown) {
 
 function updateGeminiImageSize(value: unknown) {
   props.updateWorkflowGeminiImageSize(value)
+}
+
+function updateOpenAIImageQuality(value: unknown) {
+  props.updateWorkflowOpenaiImageQuality(value)
 }
 
 function updateSeedanceVideoQuality(value: unknown) {
@@ -487,9 +501,9 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 图片类：Gemini 画质配置 -->
+    <!-- 图片类：模型画质配置 -->
     <div
-      v-if="hasGeminiImageInUse"
+      v-if="hasGeminiImageInUse || hasOpenAIImageInUse"
       class="space-y-3 rounded-lg border bg-muted/30 p-3"
     >
       <div>
@@ -497,11 +511,14 @@ onMounted(() => {
           图片生成额外配置
         </h5>
         <p class="mt-1 text-[11px] text-muted-foreground">
-          对角色资产生成和环境参考图生成统一生效；仅 Gemini 图片模型会使用该设置。
+          对角色资产生成和环境参考图生成统一生效；不同图片模型按各自能力读取对应配置项。
         </p>
       </div>
 
-      <div class="space-y-1.5">
+      <div
+        v-if="hasGeminiImageInUse"
+        class="space-y-1.5"
+      >
         <label class="text-xs text-muted-foreground">Gemini 画质（image_size）</label>
         <Select
           :model-value="props.imageGenerationOptions.geminiImageSize"
@@ -523,6 +540,34 @@ onMounted(() => {
         </Select>
         <p class="text-[11px] text-muted-foreground">
           支持 1K / 2K / 4K；512 仅 Gemini 3.1 Flash Image 支持，其他模型会自动回退到 1K。
+        </p>
+      </div>
+
+      <div
+        v-if="hasOpenAIImageInUse"
+        class="space-y-1.5"
+      >
+        <label class="text-xs text-muted-foreground">OpenAI 画质（quality）</label>
+        <Select
+          :model-value="props.imageGenerationOptions.openaiImageQuality"
+          :disabled="props.workflowSaving"
+          @update:model-value="updateOpenAIImageQuality"
+        >
+          <SelectTrigger class="h-9 w-full text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem
+              v-for="quality in WORKFLOW_OPENAI_IMAGE_QUALITIES"
+              :key="`global_openai_image_quality_${quality}`"
+              :value="quality"
+            >
+              {{ quality }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        <p class="text-[11px] text-muted-foreground">
+          gpt-image 系列支持 auto / low / medium / high。
         </p>
       </div>
     </div>
