@@ -32,7 +32,7 @@ defineProps<{
   environmentCropInitialSelection?: EnvironmentCropSelection
   environmentCropSaving?: boolean
   setEnvironmentCropDialogOpen: (open: boolean) => void
-  submitEnvironmentCropSelection: (selection: EnvironmentCropSelection) => void | Promise<void>
+  submitEnvironmentCropSelection: (payload: { selection: EnvironmentCropSelection, previewImageData?: string }) => void | Promise<void>
   sceneEditDialogOpen: boolean
   setSceneEditDialogOpen: (open: boolean) => void
   editingScene: SceneData | null
