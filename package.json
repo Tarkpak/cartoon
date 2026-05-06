@@ -44,6 +44,7 @@
     "reka-ui": "^2.9.6",
     "sharp": "^0.33.5",
     "tailwind-merge": "^3.1.0",
+    "three": "^0.184.0",
     "vaul-vue": "^0.4.1",
     "zod": "^3.25.76"
   },
@@ -53,6 +54,7 @@
     "@nuxtjs/tailwindcss": "^6.14.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/fluent-ffmpeg": "^2.1.28",
+    "@types/three": "^0.184.0",
     "@vitest/coverage-v8": "^2.1.9",
     "@vue/test-utils": "^2.4.6",
     "drizzle-kit": "^0.31.8",

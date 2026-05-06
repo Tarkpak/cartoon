@@ -396,6 +396,7 @@ async function createEnvironmentCropImage(options: {
   assetId: string
   sourceImage: string
   crop?: EnvironmentCropSelection
+  previewImageData?: string
 }) {
   const metrics = await loadCropImageMetrics(options.sourceImage)
   const fallbackCrop = options.crop || buildDefaultCropSelection({
@@ -406,15 +407,25 @@ async function createEnvironmentCropImage(options: {
   if (!crop) {
     throw new Error('取景区域无效，无法生成环境图')
   }
-  const result = await renderPanoramaSelectionToDataUrl({
-    sourceImage: options.sourceImage,
-    selection: crop
-  })
-  const imageUrl = await uploadAssetImage(result.imageData, buildEnvironmentCropUploadPrefix(options.assetId))
+  const previewImageData = options.previewImageData?.trim()
+  let imageData: string
+  let normalizedCrop = crop
+
+  if (previewImageData?.startsWith('data:image/')) {
+    imageData = previewImageData
+  } else {
+    const result = await renderPanoramaSelectionToDataUrl({
+      sourceImage: options.sourceImage,
+      selection: crop
+    })
+    imageData = result.imageData
+    normalizedCrop = result.crop
+  }
+  const imageUrl = await uploadAssetImage(imageData, buildEnvironmentCropUploadPrefix(options.assetId))
 
   return {
     imageUrl,
-    crop: result.crop
+    crop: normalizedCrop
   }
 }
 
@@ -1348,7 +1359,10 @@ function setEnvironmentCropDialogOpen(open: boolean) {
   }
 }
 
-async function submitEnvironmentCropSelection(selection: EnvironmentCropSelection) {
+async function submitEnvironmentCropSelection(payload: {
+  selection: EnvironmentCropSelection
+  previewImageData?: string
+}) {
   const target = environmentCropTarget.value
   const sourceImage = environmentCropSourceImage.value
   if (!target || !sourceImage) return
@@ -1360,7 +1374,8 @@ async function submitEnvironmentCropSelection(selection: EnvironmentCropSelectio
     const result = await createEnvironmentCropImage({
       assetId: target.id,
       sourceImage,
-      crop: selection
+      crop: payload.selection,
+      previewImageData: payload.previewImageData
     })
 
     await applyEnvironmentReferenceImage(target.id, result.imageUrl, {
