@@ -269,6 +269,14 @@ function isCustomOpenAIImageModel(model: string): boolean {
   return normalizeModelId(model).toLowerCase().includes('image')
 }
 
+function getCustomOpenAIImageAspectRatios(model: string): string[] {
+  if (normalizeModelId(model).toLowerCase() === 'gpt-image-2') {
+    return ['2:1', '21:9', '16:9', '3:2', '4:3', '1:1', '3:4', '2:3', '9:16']
+  }
+
+  return ['1:1', '16:9', '9:16', '4:3', '3:4']
+}
+
 function buildCustomOpenAIImageModels(): ImageModelConfig[] {
   if (!customOpenAIConfig.enabled) return []
 
@@ -279,7 +287,7 @@ function buildCustomOpenAIImageModels(): ImageModelConfig[] {
       model,
       displayName: model,
       description: `${customOpenAIConfig.displayName} - OpenAI 兼容图片模型`,
-      supportedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
+      supportedAspectRatios: getCustomOpenAIImageAspectRatios(model),
       supportReferenceImage: false
     }))
 }

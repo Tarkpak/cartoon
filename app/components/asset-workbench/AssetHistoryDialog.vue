@@ -180,7 +180,7 @@ watch(
             variant="ghost"
             :class="[
               'asset-history-preview',
-              'h-auto w-full p-0 hover:bg-transparent',
+              'asset-history-preview--selected p-0 hover:bg-transparent',
               isEnvironmentHistory ? 'asset-history-preview--environment' : '',
               isCharacterHistory ? 'asset-history-preview--character' : ''
             ]"
@@ -189,7 +189,7 @@ watch(
             <img
               :src="toImageSrc(selectedEntry.image)"
               :alt="`${targetLabel} 历史资产`"
-              class="h-full w-full object-contain"
+              class="block h-auto max-h-full w-auto max-w-full object-contain"
             >
           </Button>
 
@@ -343,6 +343,14 @@ watch(
   background: hsl(var(--muted) / 0.3);
 }
 
+.asset-history-preview--selected {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+}
+
 .asset-history-preview--normal {
   height: 240px;
   min-height: 240px;
@@ -366,6 +374,11 @@ watch(
 .asset-history-preview--character {
   min-height: 340px;
   background: hsl(var(--muted) / 0.42);
+}
+
+.asset-history-preview--selected.asset-history-preview--environment,
+.asset-history-preview--selected.asset-history-preview--character {
+  min-height: 0;
 }
 
 @media (max-width: 1023px) {

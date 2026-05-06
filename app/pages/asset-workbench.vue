@@ -29,7 +29,7 @@ import {
 import {
   buildDefaultCropSelection,
   loadCropImageMetrics,
-  normalizePanoramaSelection,
+  normalizePanoramaSelectionForAspectRatio,
   renderPanoramaSelectionToDataUrl
 } from '~/lib/asset-workbench-environment-panorama'
 import {
@@ -396,31 +396,31 @@ async function createEnvironmentCropImage(options: {
   assetId: string
   sourceImage: string
   crop?: EnvironmentCropSelection
-  previewImageData?: string
+  aspectRatio?: string
 }) {
+  const outputAspectRatio = options.aspectRatio || projectAspectRatio.value
   const metrics = await loadCropImageMetrics(options.sourceImage)
   const fallbackCrop = options.crop || buildDefaultCropSelection({
     imageWidth: metrics.width,
-    imageHeight: metrics.height
+    imageHeight: metrics.height,
+    outputAspectRatio
   })
-  const crop = normalizePanoramaSelection(fallbackCrop, metrics.width, metrics.height)
+  const crop = normalizePanoramaSelectionForAspectRatio(
+    fallbackCrop,
+    metrics.width,
+    metrics.height,
+    outputAspectRatio
+  )
   if (!crop) {
     throw new Error('取景区域无效，无法生成环境图')
   }
-  const previewImageData = options.previewImageData?.trim()
-  let imageData: string
-  let normalizedCrop = crop
-
-  if (previewImageData?.startsWith('data:image/')) {
-    imageData = previewImageData
-  } else {
-    const result = await renderPanoramaSelectionToDataUrl({
-      sourceImage: options.sourceImage,
-      selection: crop
-    })
-    imageData = result.imageData
-    normalizedCrop = result.crop
-  }
+  const result = await renderPanoramaSelectionToDataUrl({
+    sourceImage: options.sourceImage,
+    selection: crop,
+    aspectRatio: outputAspectRatio
+  })
+  const imageData = result.imageData
+  const normalizedCrop = result.crop
   const imageUrl = await uploadAssetImage(imageData, buildEnvironmentCropUploadPrefix(options.assetId))
 
   return {
@@ -1328,7 +1328,9 @@ const environmentCropTarget = computed(() => {
 })
 
 const environmentCropSourceImage = computed(() => {
-  return environmentCropTarget.value?.panoramaImage?.trim() || ''
+  return environmentCropTarget.value?.panoramaImage?.trim()
+    || environmentCropTarget.value?.referenceImage?.trim()
+    || ''
 })
 
 const environmentCropInitialSelection = computed(() => {
@@ -1339,7 +1341,7 @@ const environmentCropInitialSelection = computed(() => {
 
 function openEnvironmentCropDialog(assetId: string) {
   const asset = resolveEnvironmentCard(assetId)
-  if (!asset?.panoramaImage?.trim()) {
+  if (!asset?.panoramaImage?.trim() && !asset?.referenceImage?.trim()) {
     alert('请先生成或上传 2:1 的环境全景图，再选择取景区域')
     return
   }
@@ -1359,11 +1361,13 @@ function setEnvironmentCropDialogOpen(open: boolean) {
 
 async function submitEnvironmentCropSelection(payload: {
   selection: EnvironmentCropSelection
-  previewImageData?: string
 }) {
   const target = environmentCropTarget.value
   const sourceImage = environmentCropSourceImage.value
-  if (!target || !sourceImage) return
+  if (!target || !sourceImage) {
+    environmentCropError.value = '环境全景源图不存在，请先重新生成或上传 2:1 全景图'
+    return
+  }
 
   environmentCropSaving.value = true
   environmentCropError.value = null
@@ -1373,7 +1377,7 @@ async function submitEnvironmentCropSelection(payload: {
       assetId: target.id,
       sourceImage,
       crop: payload.selection,
-      previewImageData: payload.previewImageData
+      aspectRatio: projectAspectRatio.value
     })
 
     await applyEnvironmentReferenceImage(target.id, result.imageUrl, {
@@ -1980,7 +1984,8 @@ async function generateEnvironmentAssetFromCard(assetId: string) {
       const croppedResult = await createEnvironmentCropImage({
         assetId,
         sourceImage: response.referenceImage,
-        crop: asset.crop
+        crop: asset.crop,
+        aspectRatio: projectAspectRatio.value
       })
       referenceImage = croppedResult.imageUrl
       crop = croppedResult.crop
@@ -2279,6 +2284,7 @@ async function handleBatchGenerateCharacters() {
       :environment-crop-target="environmentCropTarget"
       :environment-crop-source-image="environmentCropSourceImage"
       :environment-crop-initial-selection="environmentCropInitialSelection"
+      :environment-crop-aspect-ratio="projectAspectRatio"
       :environment-crop-saving="environmentCropSaving"
       :set-environment-crop-dialog-open="setEnvironmentCropDialogOpen"
       :submit-environment-crop-selection="submitEnvironmentCropSelection"

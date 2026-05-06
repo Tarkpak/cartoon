@@ -30,9 +30,10 @@ defineProps<{
   environmentCropTarget: EnvironmentAssetCard | null
   environmentCropSourceImage?: string
   environmentCropInitialSelection?: EnvironmentCropSelection
+  environmentCropAspectRatio?: string
   environmentCropSaving?: boolean
   setEnvironmentCropDialogOpen: (open: boolean) => void
-  submitEnvironmentCropSelection: (payload: { selection: EnvironmentCropSelection, previewImageData?: string }) => void | Promise<void>
+  submitEnvironmentCropSelection: (payload: { selection: EnvironmentCropSelection }) => void | Promise<void>
   sceneEditDialogOpen: boolean
   setSceneEditDialogOpen: (open: boolean) => void
   editingScene: SceneData | null
@@ -108,6 +109,7 @@ defineProps<{
     :target-label="environmentCropTarget?.name || ''"
     :source-image="environmentCropSourceImage"
     :initial-selection="environmentCropInitialSelection"
+    :aspect-ratio="environmentCropAspectRatio"
     :loading="environmentCropSaving"
     :error="environmentCropError"
     @update:open="setEnvironmentCropDialogOpen"

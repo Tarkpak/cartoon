@@ -34,6 +34,7 @@ const DEFAULT_IMAGE_ASPECT_RATIO = '1:1'
 
 const GENERIC_IMAGE_SIZE_BY_ASPECT_RATIO: Record<string, string> = {
   '1:1': '1024*1024',
+  '2:1': '2048*1024',
   '16:9': '1280*720',
   '9:16': '720*1280',
   '4:3': '1152*864',

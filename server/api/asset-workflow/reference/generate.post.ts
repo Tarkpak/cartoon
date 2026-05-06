@@ -206,10 +206,18 @@ const ENVIRONMENT_DETAIL_KEYWORDS = [
   '帘', '雨', '雪', '风', '雷', '闪电', '天气', '空气', '色调', '材质', '道具'
 ]
 
-function resolveEnvironmentReferenceModel(preferredModelId: string): { modelId: string, reason: string } {
+function resolveEnvironmentReferenceModel(
+  preferredModelId: string,
+  options: { requireReferenceImage?: boolean } = {}
+): { modelId: string, reason: string } {
   const preferred = findImageModel(preferredModelId)
-  const supportsPanoramaSource = (model?: { supportedAspectRatios?: string[], requireReferenceImage?: boolean }) => {
+  const supportsPanoramaSource = (model?: {
+    supportedAspectRatios?: string[]
+    requireReferenceImage?: boolean
+    supportReferenceImage?: boolean
+  }) => {
     if (!model || model.requireReferenceImage) return false
+    if (options.requireReferenceImage && model.supportReferenceImage !== true) return false
     const ratios = new Set((model.supportedAspectRatios || []).map(ratio => ratio.replace(/\s+/g, '')))
     return ratios.has(PANORAMA_SOURCE_ASPECT_RATIO)
   }
@@ -248,7 +256,11 @@ function resolveEnvironmentReferenceModel(preferredModelId: string): { modelId: 
     }
   }
 
-  throw new Error('当前可用图片模型不支持 360 环境全景源图比例，请切换到 qwen-image-2.0-pro 或其他支持 2:1 的图片模型后重试')
+  throw new Error(
+    options.requireReferenceImage
+      ? '当前可用图片模型不同时支持 2:1 全景源图和参考图二次生成，请切换到 qwen-image-2.0-pro 后重试'
+      : '当前可用图片模型不支持 360 环境全景源图比例，请切换到 qwen-image-2.0-pro 或其他支持 2:1 的图片模型后重试'
+  )
 }
 
 function hasText(value?: string | null): value is string {
@@ -690,26 +702,24 @@ async function buildSceneReferencePrompt(
   const environmentSummary = buildEnvironmentSummary(scene)
   const environmentSceneTitle = scene.setting?.location?.trim() || scene.title || '未命名场景'
   const panoramaProjectionText = [
-    '硬性规格：360 度等距柱状全景图（equirectangular panorama / equirectangular projection）',
-    '硬性规格：宽高比必须为 2:1（例如 2048x1024）',
-    '硬性规格：完整覆盖 360° 水平视野与 180° 垂直视野',
-    '左右边缘必须可无缝拼接，地平线保持自然连续',
-    '必须是 360 环境贴图 / spherical panorama / HDRI environment map source',
-    '不要生成鱼眼圆形图、普通超广角照片、非 2:1 宽幅图或单方向透视图'
+    '硬性规格：仅输出 360 度等距柱状全景图（equirectangular / spherical panorama / HDRI environment map source）',
+    '硬性规格：宽高比固定为 2:1（例如 2048x1024）',
+    '硬性规格：完整覆盖 360° 水平视野与 180° 垂直视野，左右边缘必须可无缝拼接',
+    '禁止生成鱼眼圆形图、普通超广角照片、非 2:1 宽幅图或单方向透视图'
   ].join('；')
   const panoramaFallbackHint = panoramaSource.fallbackApplied
     ? `当前模型声明不支持 AR ${PANORAMA_SOURCE_ASPECT_RATIO}，但 360 全景源图必须使用 2:1；已继续按 ${panoramaSource.aspectRatio}（${panoramaSource.size}）请求。`
     : ''
   const panoramaAspectText = [
     panoramaFallbackHint,
-    '输出格式要求：360 度等距柱状全景图（equirectangular）',
-    '输出宽高比要求：2:1',
-    `目标输出画幅：${aspectRatio}`,
+    '本次输出要求：生成 2:1 的 equirectangular 360 全景源图',
+    `目标裁切画幅：${aspectRatio}（这是后处理截图比例，不是本次源图比例）`,
     `全景源图画幅：${panoramaSource.aspectRatio}`,
     `全景源图尺寸：${panoramaSource.size}`,
+    `后续用途说明：源图生成后将裁切为 ${aspectRatio} 供分镜视频使用（该用途不改变源图必须为 2:1 的要求）`,
     aspectRatio === '16:9'
-      ? '裁切策略：默认使用全景源图中的 16:9 区域'
-      : `裁切策略：后续从全景源图裁切为 ${aspectRatio}`,
+      ? '裁切策略：默认使用全景源图中的 16:9 区域（仅后处理）'
+      : `裁切策略：后续从全景源图裁切为 ${aspectRatio}（仅后处理）`,
     `全景源图要求：${panoramaProjectionText}`
   ].filter(Boolean).join('\n')
   const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
@@ -777,7 +787,9 @@ export default defineEventHandler(async (event) => {
     ])
     const preferredModelId = workflowModels.frame_generation
     const isRegeneration = !!customPrompt
-    const resolvedModelDecision = resolveEnvironmentReferenceModel(preferredModelId)
+    const resolvedModelDecision = resolveEnvironmentReferenceModel(preferredModelId, {
+      requireReferenceImage: isRegeneration
+    })
     const modelDecision = isRegeneration
       ? {
           modelId: resolvedModelDecision.modelId,
