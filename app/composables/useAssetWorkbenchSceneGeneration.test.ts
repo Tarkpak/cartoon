@@ -284,4 +284,106 @@ describe('useAssetWorkbenchSceneGeneration', () => {
     )
     expect(saveProject).toHaveBeenCalled()
   })
+
+  it('passes prop and other reference images into scene video task references', async () => {
+    const scene = createScene({
+      id: 'scene_refs_1',
+      title: '证物检查',
+      description: '镜头对准桌面证物。\n\n[引用资产]\n@工作证\n@手电筒',
+      firstFrame: 'https://example.com/env.png',
+      referenceStatus: 'done',
+      videoStatus: 'pending'
+    })
+
+    const sceneGeneration = useAssetWorkbenchSceneGeneration({
+      scenes: ref([scene]),
+      characters: ref([]),
+      sceneConfigs: ref({
+        [scene.id]: {
+          sceneId: scene.id,
+          mustReferenceAssetIds: [],
+          consistencyLevel: 'soft',
+          continuityNotes: ''
+        }
+      }),
+      propAssets: ref([
+        {
+          id: 'prop_card',
+          name: '工作证',
+          description: '',
+          category: 'prop',
+          referenceImage: 'https://example.com/card.png'
+        },
+        {
+          id: 'prop_flashlight',
+          name: '手电筒',
+          description: '',
+          category: 'other',
+          referenceImage: 'https://example.com/flashlight.png'
+        }
+      ]),
+      queueItems: ref([{ sceneId: scene.id, status: 'pending' }]),
+      batchRunning: ref(false),
+      workflowStylePrompt: computed(() => ''),
+      projectAspectRatio: ref('16:9'),
+      normalizeWorkflowText: value => value,
+      resolveUiError: (_error, fallback) => fallback,
+      ensureSceneConfig: () => ({
+        sceneId: scene.id,
+        mustReferenceAssetIds: [],
+        consistencyLevel: 'soft',
+        continuityNotes: ''
+      }),
+      resolveAssetName: assetId => assetId,
+      resolveSceneDescriptionWithoutAssetMentions: raw => raw || '',
+      synchronizeQueueItems: () => undefined,
+      saveProject: vi.fn(async () => undefined),
+      refreshCharacterVoiceAssets: async () => undefined,
+      generateCharacter: async () => undefined,
+      batchGenerateCharacters: async () => undefined,
+      persistAutomaticAssetPlan: async () => undefined,
+      recordEnvironmentHistory: () => undefined,
+      resolveEnvironmentPanoramaState: () => undefined,
+      setEnvironmentPanoramaState: () => undefined,
+      recordSceneVideoHistory: () => undefined,
+      onModelTaskCompleted: async () => undefined
+    })
+
+    await sceneGeneration.retryScene(scene.id)
+
+    expect(requestSceneVideoTaskMock).toHaveBeenCalledTimes(1)
+    const requestCalls = requestSceneVideoTaskMock.mock.calls as unknown as Array<[{
+      references: {
+        characterImage?: string
+        characterImages: string[]
+        characterAssets: Array<{
+          id: string
+          name: string
+          type: 'character' | 'prop' | 'other'
+          image: string
+        }>
+      }
+    }]>
+    const references = requestCalls[0]?.[0]?.references
+
+    expect(references?.characterImage).toBe('https://example.com/card.png')
+    expect(references?.characterImages).toEqual([
+      'https://example.com/card.png',
+      'https://example.com/flashlight.png'
+    ])
+    expect(references?.characterAssets).toEqual([
+      {
+        id: 'prop:prop_card',
+        name: '工作证',
+        type: 'prop',
+        image: 'https://example.com/card.png'
+      },
+      {
+        id: 'prop:prop_flashlight',
+        name: '手电筒',
+        type: 'other',
+        image: 'https://example.com/flashlight.png'
+      }
+    ])
+  })
 })
