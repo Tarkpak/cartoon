@@ -10,6 +10,7 @@ import {
   uploadAudioFile,
   uploadImageFile
 } from '~/lib/asset-workbench-upload'
+import { isEquirectangularPanoramaSize } from '~/lib/asset-workbench-environment-panorama'
 import type {
   EnvironmentAssetCard,
   EnvironmentPanoramaState
@@ -48,6 +49,30 @@ export function useAssetWorkbenchAssetMedia(options: {
   const uploadingEnvironmentAssetId = ref<string | null>(null)
   const uploadingPropId = ref<string | null>(null)
   const generatingPropId = ref<string | null>(null)
+
+  async function isPanoramaFile(file: File): Promise<boolean> {
+    return await new Promise((resolve) => {
+      const objectUrl = URL.createObjectURL(file)
+      const image = new Image()
+
+      image.onload = () => {
+        try {
+          const width = image.naturalWidth || image.width
+          const height = image.naturalHeight || image.height
+          resolve(isEquirectangularPanoramaSize(width, height))
+        } finally {
+          URL.revokeObjectURL(objectUrl)
+        }
+      }
+
+      image.onerror = () => {
+        URL.revokeObjectURL(objectUrl)
+        resolve(false)
+      }
+
+      image.src = objectUrl
+    })
+  }
 
   watch(environmentRegenerateDialogOpen, (open) => {
     if (open) return
@@ -190,9 +215,13 @@ export function useAssetWorkbenchAssetMedia(options: {
         applySceneBaselineReference(scene, imageUrl)
       }
 
-      options.setEnvironmentPanoramaState?.(assetId, {
-        panoramaImage: imageUrl
-      })
+      const panoramaCompatible = await isPanoramaFile(file)
+      options.setEnvironmentPanoramaState?.(
+        assetId,
+        panoramaCompatible
+          ? { panoramaImage: imageUrl }
+          : undefined
+      )
       options.synchronizeQueueItems()
       await options.saveProject()
     } catch (error) {

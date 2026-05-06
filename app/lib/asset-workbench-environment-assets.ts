@@ -81,7 +81,7 @@ export function buildEnvironmentAssetCards(options: {
           || undefined,
         referenceImage: previewImage,
         referenceError: resolveReferenceError(scene),
-        panoramaImage: panoramaState?.panoramaImage || previewImage,
+        panoramaImage: panoramaState?.panoramaImage,
         crop: panoramaState?.crop,
         assetHistory,
         sceneIds: [scene.id],
@@ -118,8 +118,8 @@ export function buildEnvironmentAssetCards(options: {
       existing.referenceImage = historyPreview
     }
 
-    if (!existing.panoramaImage) {
-      existing.panoramaImage = panoramaState?.panoramaImage || sceneImage || historyPreview
+    if (!existing.panoramaImage && panoramaState?.panoramaImage) {
+      existing.panoramaImage = panoramaState.panoramaImage
     }
     if (!existing.crop && panoramaState?.crop) {
       existing.crop = panoramaState.crop
