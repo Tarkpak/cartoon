@@ -17,6 +17,7 @@ import {
 export function useSettingsModelTest() {
   const { models, selectedModels, loading, loadModels } = useSettingsModelCatalog()
   const DEFAULT_IMAGE_ASPECT_RATIO = '1:1'
+  const DEFAULT_IMAGE_QUALITY = 'auto'
   const MODEL_TEST_TAB_STORAGE_KEY = 'playlet:model-test-active-tab'
 
   const activeTab = ref<ModelTestTab>('text')
@@ -41,6 +42,7 @@ export function useSettingsModelTest() {
     tts: ''
   })
   const imageAspectRatio = ref<string>(DEFAULT_IMAGE_ASPECT_RATIO)
+  const imageQuality = ref<string>(DEFAULT_IMAGE_QUALITY)
 
   const imagePrompt = computed({
     get: () => customPrompts.value.image,
@@ -103,6 +105,15 @@ export function useSettingsModelTest() {
 
     if (options.length > 0) return options
     return [DEFAULT_IMAGE_ASPECT_RATIO]
+  })
+
+  const currentImageModelQualityOptions = computed<string[]>(() => {
+    const rawOptions = currentImageModel.value?.supportedQualities || []
+    return Array.from(new Set(
+      rawOptions
+        .map(value => value.trim().toLowerCase())
+        .filter(Boolean)
+    ))
   })
 
   const canRunImageTest = computed(() => {
@@ -258,6 +269,9 @@ export function useSettingsModelTest() {
 
       if (modelType === 'image') {
         body.imageAspectRatio = imageAspectRatio.value
+        if (currentImageModelQualityOptions.value.length > 0) {
+          body.imageQuality = imageQuality.value
+        }
       }
 
       const response = await $fetch<{
@@ -310,6 +324,12 @@ export function useSettingsModelTest() {
     imageAspectRatio.value = options[0] || DEFAULT_IMAGE_ASPECT_RATIO
   }, { immediate: true })
 
+  watch(currentImageModelQualityOptions, (options) => {
+    if (options.length === 0) return
+    if (options.includes(imageQuality.value)) return
+    imageQuality.value = options[0] || DEFAULT_IMAGE_QUALITY
+  }, { immediate: true })
+
   watch(models, () => {
     syncTestSelections(true)
     autoExpandSelectedProviders()
@@ -346,7 +366,9 @@ export function useSettingsModelTest() {
     currentImageModelSupportsReference,
     currentImageModelRequiresReference,
     currentImageModelAspectRatioOptions,
+    currentImageModelQualityOptions,
     imageAspectRatio,
+    imageQuality,
     canRunImageTest,
     fileInputRef,
     promptEditorRef,

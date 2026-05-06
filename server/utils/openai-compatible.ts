@@ -508,13 +508,25 @@ export async function generateOpenAICompatibleImage(options: {
   model: string
   prompt: string
   size?: string
+  quality?: string
   maxRetries?: number
 }): Promise<{ imageUrl?: string, imageData?: string, mimeType?: string }> {
-  const requestBody = {
+  const normalizedModel = options.model.trim().toLowerCase()
+  const normalizedQuality = options.quality?.trim().toLowerCase()
+  const supportsQuality = normalizedModel.startsWith('gpt-image')
+  const validQualities = new Set(['auto', 'low', 'medium', 'high'])
+  const quality = supportsQuality && normalizedQuality && validQualities.has(normalizedQuality)
+    ? normalizedQuality
+    : undefined
+
+  const requestBody: Record<string, unknown> = {
     model: options.model,
     prompt: options.prompt,
     size: options.size?.replace(/\*/g, 'x') || '1024x1024',
     n: 1
+  }
+  if (quality) {
+    requestBody.quality = quality
   }
 
   return withModelDebugLog({

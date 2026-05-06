@@ -27,10 +27,12 @@ const TestRequestSchema = z.object({
   modelId: z.string().optional(),
   prompt: z.string().optional(),
   imageAspectRatio: z.string().optional(),
+  imageQuality: z.string().optional(),
   referenceImages: z.array(z.string()).optional() // base64 图片数组
 })
 
 const DEFAULT_IMAGE_ASPECT_RATIO = '1:1'
+const DEFAULT_IMAGE_QUALITY = 'auto'
 
 const GENERIC_IMAGE_SIZE_BY_ASPECT_RATIO: Record<string, string> = {
   '1:1': '1024*1024',
@@ -142,6 +144,19 @@ function resolveImageTestSize(modelId: string, provider: string | undefined, asp
   return GENERIC_IMAGE_SIZE_BY_ASPECT_RATIO[aspectRatio] || GENERIC_IMAGE_SIZE_BY_ASPECT_RATIO[DEFAULT_IMAGE_ASPECT_RATIO]!
 }
 
+function normalizeImageQuality(value: string | undefined, supportedQualities: string[]): string | undefined {
+  if (supportedQualities.length === 0) return undefined
+
+  const normalized = value?.trim().toLowerCase()
+  if (normalized && supportedQualities.includes(normalized)) {
+    return normalized
+  }
+  if (supportedQualities.includes(DEFAULT_IMAGE_QUALITY)) {
+    return DEFAULT_IMAGE_QUALITY
+  }
+  return supportedQualities[0]
+}
+
 interface VideoStatusResponse {
   success: boolean
   task: {
@@ -251,7 +266,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { modelType, modelId, prompt, imageAspectRatio, referenceImages } = parseResult.data
+  const { modelType, modelId, prompt, imageAspectRatio, imageQuality, referenceImages } = parseResult.data
   const normalizedPrompt = typeof prompt === 'string' ? prompt.trim() : ''
   const selected = getSelectedModels()
   const startTime = Date.now()
@@ -259,7 +274,12 @@ export default defineEventHandler(async (event) => {
   try {
     let result: unknown
     let usedModelId: string
-    let modelInfo: { provider?: string, displayName?: string } | undefined
+    let modelInfo:
+      | ReturnType<typeof findTextModel>
+      | ReturnType<typeof findImageModel>
+      | ReturnType<typeof findVideoModel>
+      | ReturnType<typeof findVoiceModel>
+      | undefined
 
     switch (modelType) {
       case 'text': {
@@ -285,7 +305,8 @@ export default defineEventHandler(async (event) => {
 
       case 'image': {
         usedModelId = modelId || selected.image
-        modelInfo = findImageModel(usedModelId)
+        const imageModelInfo = findImageModel(usedModelId)
+        modelInfo = imageModelInfo
         const testPrompt = normalizedPrompt
         if (!testPrompt) {
           throw createError({
@@ -299,9 +320,15 @@ export default defineEventHandler(async (event) => {
           ? DEFAULT_IMAGE_ASPECT_RATIO
           : requestedAspectRatio
         const testSize = resolveImageTestSize(usedModelId, modelInfo?.provider, resolvedAspectRatio)
+        const qualityOptions = Array.from(new Set(
+          (imageModelInfo?.supportedQualities || [])
+            .map(value => value.trim().toLowerCase())
+            .filter(Boolean)
+        ))
+        const resolvedImageQuality = normalizeImageQuality(imageQuality, qualityOptions)
 
         console.log(
-          `[ModelTest] 测试图片模型: ${usedModelId} (${modelInfo?.provider}), 比例: ${resolvedAspectRatio}, 尺寸: ${testSize}, 参考图数量: ${referenceImages?.length || 0}`
+          `[ModelTest] 测试图片模型: ${usedModelId} (${modelInfo?.provider}), 比例: ${resolvedAspectRatio}, 画质: ${resolvedImageQuality || 'n/a'}, 尺寸: ${testSize}, 参考图数量: ${referenceImages?.length || 0}`
         )
 
         console.log(`[ModelTest] 开始调用 generateImage...`)
@@ -312,6 +339,7 @@ export default defineEventHandler(async (event) => {
             prompt: testPrompt,
             size: testSize,
             aspectRatio: resolvedAspectRatio,
+            quality: resolvedImageQuality,
             referenceImages: referenceImages // 传递参考图
           })
           // 只输出摘要信息，避免 base64 数据占满控制台

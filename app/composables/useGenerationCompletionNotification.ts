@@ -27,7 +27,7 @@ export interface BrowserNotificationStatus {
 
 const DEFAULT_COMPLETION_NOTIFICATION_OPTIONS: WorkflowCompletionNotificationOptions = {
   sound: true,
-  systemNotification: false
+  systemNotification: true
 }
 
 const COMPLETION_NOTIFICATION_OPTIONS_STATE_KEY = 'workflow:completion-notification-options'
@@ -142,24 +142,32 @@ function playCompletionTone() {
     }
 
     const startAt = context.currentTime + 0.01
-    const notes = [880, 1174.66]
+    const notes = [784, 1046.5, 1318.51]
 
     notes.forEach((frequency, index) => {
-      const noteStart = startAt + (index * 0.16)
-      const oscillator = context.createOscillator()
+      const noteStart = startAt + (index * 0.14)
+      const primaryOscillator = context.createOscillator()
+      const harmonicOscillator = context.createOscillator()
       const gain = context.createGain()
 
-      oscillator.type = 'sine'
-      oscillator.frequency.setValueAtTime(frequency, noteStart)
-      gain.gain.setValueAtTime(0.0001, noteStart)
-      gain.gain.exponentialRampToValueAtTime(0.08, noteStart + 0.02)
-      gain.gain.exponentialRampToValueAtTime(0.0001, noteStart + 0.12)
+      primaryOscillator.type = 'triangle'
+      harmonicOscillator.type = 'sine'
+      primaryOscillator.frequency.setValueAtTime(frequency, noteStart)
+      harmonicOscillator.frequency.setValueAtTime(frequency * 2, noteStart)
 
-      oscillator.connect(gain)
+      gain.gain.setValueAtTime(0.0001, noteStart)
+      gain.gain.exponentialRampToValueAtTime(0.16, noteStart + 0.015)
+      gain.gain.exponentialRampToValueAtTime(0.12, noteStart + 0.05)
+      gain.gain.exponentialRampToValueAtTime(0.0001, noteStart + 0.2)
+
+      primaryOscillator.connect(gain)
+      harmonicOscillator.connect(gain)
       gain.connect(context.destination)
 
-      oscillator.start(noteStart)
-      oscillator.stop(noteStart + 0.14)
+      primaryOscillator.start(noteStart)
+      harmonicOscillator.start(noteStart)
+      primaryOscillator.stop(noteStart + 0.22)
+      harmonicOscillator.stop(noteStart + 0.22)
     })
   } catch (error) {
     console.warn('[useGenerationCompletionNotification] 播放提示音失败:', error)

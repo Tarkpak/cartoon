@@ -38,6 +38,7 @@ export const ImageModelConfigSchema = z.object({
   description: z.string().optional(),
   supportedSizes: z.array(z.string()).optional(),
   supportedAspectRatios: z.array(z.string()).optional(),
+  supportedQualities: z.array(z.string()).optional(),
   supportReferenceImage: z.boolean().default(false).describe('是否支持参考图'),
   requireReferenceImage: z.boolean().default(false).optional().describe('是否必须需要参考图'),
   docUrl: z.string().optional().describe('API文档链接')

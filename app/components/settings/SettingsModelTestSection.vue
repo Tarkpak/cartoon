@@ -19,7 +19,9 @@ const {
   currentImageModelSupportsReference,
   currentImageModelRequiresReference,
   currentImageModelAspectRatioOptions,
+  currentImageModelQualityOptions,
   imageAspectRatio,
+  imageQuality,
   canRunImageTest,
   fileInputRef,
   promptEditorRef,
@@ -83,8 +85,10 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
           v-model:active-tab="activeTab"
           v-model:custom-prompts="customPrompts"
           v-model:image-aspect-ratio="imageAspectRatio"
+          v-model:image-quality="imageQuality"
           :can-run-image-test="canRunImageTest"
           :current-image-model-aspect-ratio-options="currentImageModelAspectRatioOptions"
+          :current-image-model-quality-options="currentImageModelQualityOptions"
           :current-image-model-requires-reference="currentImageModelRequiresReference"
           :current-image-model-supports-reference="currentImageModelSupportsReference"
           :set-file-input-ref="setFileInputElement"

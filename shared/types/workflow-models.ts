@@ -54,8 +54,12 @@ export type WorkflowModels = z.infer<typeof WorkflowModelsSchema>
 export const WorkflowGeminiImageSizeSchema = z.enum(['512', '1K', '2K', '4K'])
 export type WorkflowGeminiImageSize = z.infer<typeof WorkflowGeminiImageSizeSchema>
 
+export const WorkflowOpenAIImageQualitySchema = z.enum(['auto', 'low', 'medium', 'high'])
+export type WorkflowOpenAIImageQuality = z.infer<typeof WorkflowOpenAIImageQualitySchema>
+
 export const WorkflowImageGenerationModelOptionsSchema = z.object({
-  geminiImageSize: WorkflowGeminiImageSizeSchema.default('1K')
+  geminiImageSize: WorkflowGeminiImageSizeSchema.default('1K'),
+  openaiImageQuality: WorkflowOpenAIImageQualitySchema.default('auto')
 })
 export type WorkflowImageGenerationModelOptions = z.infer<typeof WorkflowImageGenerationModelOptionsSchema>
 
@@ -104,13 +108,14 @@ export type WorkflowVideoGenerationModelOptions = z.infer<typeof WorkflowVideoGe
 
 export const WorkflowCompletionNotificationOptionsSchema = z.object({
   sound: z.boolean().default(true),
-  systemNotification: z.boolean().default(false)
+  systemNotification: z.boolean().default(true)
 })
 export type WorkflowCompletionNotificationOptions = z.infer<typeof WorkflowCompletionNotificationOptionsSchema>
 
 export const WorkflowModelOptionsSchema = z.object({
   image_options: WorkflowImageGenerationModelOptionsSchema.default({
-    geminiImageSize: '1K'
+    geminiImageSize: '1K',
+    openaiImageQuality: 'auto'
   }),
   video_generation: WorkflowVideoGenerationModelOptionsSchema.default({
     klingV3Omni: {
@@ -128,7 +133,7 @@ export const WorkflowModelOptionsSchema = z.object({
   }),
   completion_notification: WorkflowCompletionNotificationOptionsSchema.default({
     sound: true,
-    systemNotification: false
+    systemNotification: true
   })
 })
 export type WorkflowModelOptions = z.infer<typeof WorkflowModelOptionsSchema>

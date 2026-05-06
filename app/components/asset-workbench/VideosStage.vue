@@ -174,9 +174,9 @@ const episodeCount = computed(() => {
 })
 
 const sceneGridClass = computed(() => {
-  if (episodeCount.value <= 0) return 'xl:grid-cols-2'
-  if (episodeDirectoryCollapsed.value) return 'xl:grid-cols-2'
-  return 'xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_300px]'
+  if (episodeCount.value <= 0) return 'xl:grid-cols-2 xl:gap-x-4'
+  if (episodeDirectoryCollapsed.value) return 'xl:grid-cols-[0px_minmax(0,1fr)_minmax(0,1fr)] xl:gap-x-0'
+  return 'xl:grid-cols-[300px_minmax(0,1fr)_minmax(0,1fr)] xl:gap-x-4'
 })
 
 const sceneEpisodeGroupMap = computed(() => {
@@ -259,6 +259,17 @@ const selectedEpisodeTitle = computed(() => {
 
 const selectedEpisodeDirectoryItem = computed(() => {
   return episodeDirectoryMap.value.get(selectedEpisodeId.value) || null
+})
+
+const sceneListHeaderLabel = computed(() => {
+  if (episodeCount.value <= 0) return '场景列表'
+
+  const episodeIndex = selectedEpisodeDirectoryItem.value?.index
+  if (typeof episodeIndex === 'number' && Number.isFinite(episodeIndex) && episodeIndex > 0) {
+    return `当前分集场景列表（第${episodeIndex}集）`
+  }
+
+  return '当前分集场景列表'
 })
 
 const selectedEpisodePlanItem = computed(() => {
@@ -456,36 +467,127 @@ watch(episodeDirectoryCollapsed, (value) => {
           />
           导出格式化 DOCX
         </Button>
-        <Button
-          v-if="episodeCount > 0"
-          size="sm"
-          variant="outline"
-          class="gap-1.5"
-          @click="toggleEpisodeDirectoryCollapsed()"
-        >
-          <ChevronRight
-            v-if="episodeDirectoryCollapsed"
-            class="h-3.5 w-3.5"
-          />
-          <ChevronLeft
-            v-else
-            class="h-3.5 w-3.5"
-          />
-          {{ episodeDirectoryCollapsed ? '展开目录' : '收起目录' }}
-        </Button>
       </div>
     </div>
 
     <!-- Scene grid -->
     <div
-      class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden"
+      class="grid min-h-0 flex-1 grid-cols-1 gap-y-4 overflow-hidden xl:transition-[grid-template-columns,column-gap] xl:duration-300 xl:ease-in-out"
       :class="sceneGridClass"
     >
-      <div class="order-1 min-h-0 space-y-2 overflow-y-auto pr-1">
+      <div
+        v-if="episodeCount > 0"
+        class="order-1 relative min-h-0 overflow-visible"
+      >
         <div
-          class="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+          class="h-full min-h-0 transition-[opacity,transform] duration-300 ease-in-out"
+          :class="episodeDirectoryCollapsed
+            ? 'pointer-events-none -translate-x-2 opacity-0'
+            : 'translate-x-0 opacity-100'"
         >
-          {{ episodeCount > 0 ? '当前分集场景列表' : '场景列表' }}
+          <aside
+            class="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border/70 bg-muted/10"
+          >
+            <div class="shrink-0 border-b border-border/60 px-2 py-2">
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <div class="text-xs font-medium text-foreground">
+                    分集目录
+                  </div>
+                  <div class="mt-0.5 text-[11px] text-muted-foreground">
+                    共 {{ episodeCount }} 集
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+              <Button
+                v-for="episode in episodeDirectoryItems"
+                :key="episode.id"
+                type="button"
+                variant="ghost"
+                class="h-auto w-full justify-start rounded-md border px-2 py-1.5 text-left text-xs transition-colors"
+                :class="selectedEpisodeId === episode.id
+                  ? 'border-foreground bg-muted text-foreground shadow-sm'
+                  : 'border-border/70 bg-background text-foreground/80 hover:border-foreground/30 hover:bg-muted/60'"
+                @click="handleSelectEpisode(episode.id)"
+              >
+                <div class="truncate font-medium">
+                  第{{ episode.index }}集：{{ episode.title.replace(/^第\d+集[：:]\s*/u, '') }}
+                </div>
+                <div class="mt-0.5 text-[11px] text-muted-foreground">
+                  场景 {{ episode.sceneCount }} · 完成 {{ episode.doneCount }}
+                </div>
+              </Button>
+            </div>
+            <div
+              v-if="selectedEpisodeDirectoryItem"
+              class="space-y-2 border-t border-border/60 px-3 py-2"
+            >
+              <div class="space-y-1">
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                  <span v-if="selectedEpisodeDirectoryItem.startOffset !== null && selectedEpisodeDirectoryItem.endOffset !== null">
+                    范围 {{ selectedEpisodeDirectoryItem.startOffset }} - {{ selectedEpisodeDirectoryItem.endOffset }}
+                  </span>
+                  <span v-if="selectedEpisodeDirectoryItem.charCount !== null">
+                    约 {{ selectedEpisodeDirectoryItem.charCount }} 字
+                  </span>
+                  <span v-if="selectedEpisodeDirectoryItem.assetSummary">
+                    {{ selectedEpisodeDirectoryItem.assetSummary }}
+                  </span>
+                </div>
+                <p
+                  v-if="selectedEpisodeDirectoryItem.overview"
+                  class="line-clamp-2 text-[11px] text-foreground/75"
+                >
+                  概览：{{ selectedEpisodeDirectoryItem.overview }}
+                </p>
+              </div>
+              <Button
+                v-if="selectedEpisodePlanItem"
+                size="sm"
+                class="h-8 w-full gap-1.5"
+                :disabled="parsing"
+                @click="handleParseSelectedEpisode()"
+              >
+                <Loader2
+                  v-if="parsing"
+                  class="h-3.5 w-3.5 animate-spin"
+                />
+                <Play
+                  v-else
+                  class="h-3.5 w-3.5"
+                />
+                {{ parseSelectedEpisodeButtonLabel }}
+              </Button>
+            </div>
+          </aside>
+        </div>
+      </div>
+
+      <div class="order-2 relative min-h-0 space-y-2 overflow-y-auto pr-1">
+        <div
+          class="flex items-center gap-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+        >
+          <Button
+            v-if="episodeCount > 0"
+            size="icon"
+            variant="outline"
+            class="h-8 w-4 rounded-full border-border/60 bg-background/85 px-0 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-background hover:text-foreground"
+            :aria-label="episodeDirectoryCollapsed ? '展开分集目录' : '收起分集目录'"
+            @click="toggleEpisodeDirectoryCollapsed()"
+          >
+            <ChevronRight
+              v-if="episodeDirectoryCollapsed"
+              class="h-3 w-3"
+            />
+            <ChevronLeft
+              v-else
+              class="h-3 w-3"
+            />
+          </Button>
+          <span>{{ sceneListHeaderLabel }}</span>
         </div>
         <div
           v-if="selectedEpisodeScenes.length === 0"
@@ -550,7 +652,7 @@ watch(episodeDirectoryCollapsed, (value) => {
       </div>
 
       <!-- Video preview panel -->
-      <div class="order-2 min-h-0 flex flex-col rounded-lg border bg-muted/5">
+      <div class="order-3 min-h-0 flex flex-col rounded-lg border bg-muted/5">
         <template v-if="selectedScene">
           <div class="space-y-2 border-b px-4 py-3">
             <div class="text-xs font-medium text-muted-foreground">
@@ -592,86 +694,6 @@ watch(episodeDirectoryCollapsed, (value) => {
           </p>
         </div>
       </div>
-
-      <aside
-        v-if="episodeCount > 0 && !episodeDirectoryCollapsed"
-        class="order-3 flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/70 bg-muted/10"
-      >
-        <div class="shrink-0 border-b border-border/60 px-2 py-2">
-          <div class="flex items-start justify-between gap-2">
-            <div>
-              <div class="text-xs font-medium text-foreground">
-                分集目录
-              </div>
-              <div class="mt-0.5 text-[11px] text-muted-foreground">
-                共 {{ episodeCount }} 集
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
-          <Button
-            v-for="episode in episodeDirectoryItems"
-            :key="episode.id"
-            type="button"
-            variant="ghost"
-            class="h-auto w-full justify-start rounded-md border px-2 py-1.5 text-left text-xs transition-colors"
-            :class="selectedEpisodeId === episode.id
-              ? 'border-foreground bg-muted text-foreground shadow-sm'
-              : 'border-border/70 bg-background text-foreground/80 hover:border-foreground/30 hover:bg-muted/60'"
-            @click="handleSelectEpisode(episode.id)"
-          >
-            <div class="truncate font-medium">
-              第{{ episode.index }}集：{{ episode.title.replace(/^第\d+集[：:]\s*/u, '') }}
-            </div>
-            <div class="mt-0.5 text-[11px] text-muted-foreground">
-              场景 {{ episode.sceneCount }} · 完成 {{ episode.doneCount }}
-            </div>
-          </Button>
-        </div>
-        <div
-          v-if="selectedEpisodeDirectoryItem"
-          class="space-y-2 border-t border-border/60 px-3 py-2"
-        >
-          <div class="space-y-1">
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-              <span v-if="selectedEpisodeDirectoryItem.startOffset !== null && selectedEpisodeDirectoryItem.endOffset !== null">
-                范围 {{ selectedEpisodeDirectoryItem.startOffset }} - {{ selectedEpisodeDirectoryItem.endOffset }}
-              </span>
-              <span v-if="selectedEpisodeDirectoryItem.charCount !== null">
-                约 {{ selectedEpisodeDirectoryItem.charCount }} 字
-              </span>
-              <span v-if="selectedEpisodeDirectoryItem.assetSummary">
-                {{ selectedEpisodeDirectoryItem.assetSummary }}
-              </span>
-            </div>
-            <p
-              v-if="selectedEpisodeDirectoryItem.overview"
-              class="line-clamp-2 text-[11px] text-foreground/75"
-            >
-              概览：{{ selectedEpisodeDirectoryItem.overview }}
-            </p>
-          </div>
-          <Button
-            v-if="selectedEpisodePlanItem"
-            size="sm"
-            class="h-8 w-full gap-1.5"
-            :disabled="parsing"
-            @click="handleParseSelectedEpisode()"
-          >
-            <Loader2
-              v-if="parsing"
-              class="h-3.5 w-3.5 animate-spin"
-            />
-            <Play
-              v-else
-              class="h-3.5 w-3.5"
-            />
-            {{ parseSelectedEpisodeButtonLabel }}
-          </Button>
-        </div>
-      </aside>
     </div>
   </template>
 </template>
