@@ -75,7 +75,44 @@ void loadStylePresets()
 
 const MAX_ASSET_UPLOAD_SIZE = 20 * 1024 * 1024
 const MAX_VOICE_UPLOAD_SIZE = 30 * 1024 * 1024
+const DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO = '2:1'
+const PANORAMA_SOURCE_ASPECT_RATIO_BY_MODE: Record<string, string> = {
+  equirectangular_360: '2:1',
+  equirectangular_180: '1:1',
+  cubemap_3x2: '3:2',
+  cubemap_6x1: '6:1'
+}
 const supportsExplicitVoiceAudioReference = ref(false)
+const environmentPanoramaSourceAspectRatio = ref(DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO)
+
+function normalizeAspectRatioValue(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const ratioMatch = value.trim().match(/^(\d+)\s*:\s*(\d+)$/)
+  if (!ratioMatch?.[1] || !ratioMatch[2]) return null
+
+  const width = Number(ratioMatch[1])
+  const height = Number(ratioMatch[2])
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
+
+  return `${width}:${height}`
+}
+
+function resolvePanoramaSourceAspectRatio(options?: {
+  panoramaSourceMode?: string | null
+  panoramaCustomAspectRatio?: string | null
+}): string {
+  const mode = typeof options?.panoramaSourceMode === 'string'
+    ? options.panoramaSourceMode
+    : ''
+
+  if (mode === 'custom') {
+    return normalizeAspectRatioValue(options?.panoramaCustomAspectRatio)
+      || DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO
+  }
+
+  return PANORAMA_SOURCE_ASPECT_RATIO_BY_MODE[mode]
+    || DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO
+}
 
 async function refreshVideoAudioReferenceCapability() {
   try {
@@ -91,6 +128,12 @@ async function refreshVideoAudioReferenceCapability() {
             supportAudioReference?: boolean
           }>
         }>
+        modelOptions?: {
+          image_options?: {
+            panoramaSourceMode?: string | null
+            panoramaCustomAspectRatio?: string | null
+          }
+        }
       }
     }>('/api/models/workflow')
 
@@ -99,9 +142,13 @@ async function refreshVideoAudioReferenceCapability() {
     const selectedModel = videoWorkflow?.selectedModel || ''
     const selectedModelConfig = videoWorkflow?.compatibleModels?.find(item => item.model === selectedModel)
     supportsExplicitVoiceAudioReference.value = selectedModelConfig?.supportAudioReference === true
+    environmentPanoramaSourceAspectRatio.value = resolvePanoramaSourceAspectRatio(
+      response.data?.modelOptions?.image_options
+    )
   } catch (error) {
     console.warn('[asset-workbench] 读取视频模型能力失败，默认关闭显式音频引用标记:', error)
     supportsExplicitVoiceAudioReference.value = false
+    environmentPanoramaSourceAspectRatio.value = DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO
   }
 }
 
@@ -447,7 +494,10 @@ async function createEnvironmentCropImage(options: {
   aspectRatio?: string
 }) {
   const outputAspectRatio = options.aspectRatio || projectAspectRatio.value
-  const metrics = await loadCropImageMetrics(options.sourceImage)
+  const sourceAspectRatio = environmentPanoramaSourceAspectRatio.value
+  const metrics = await loadCropImageMetrics(options.sourceImage, {
+    sourceAspectRatio
+  })
   const fallbackCrop = options.crop || buildDefaultCropSelection({
     imageWidth: metrics.width,
     imageHeight: metrics.height,
@@ -465,6 +515,7 @@ async function createEnvironmentCropImage(options: {
   const result = await renderPanoramaSelectionToDataUrl({
     sourceImage: options.sourceImage,
     selection: crop,
+    sourceAspectRatio,
     aspectRatio: outputAspectRatio
   })
   const imageData = result.imageData
@@ -1321,6 +1372,7 @@ const {
   resolveSceneReferenceImage,
   resolveEnvironmentCard,
   resolveEnvironmentRepresentativeScene,
+  panoramaSourceAspectRatio: environmentPanoramaSourceAspectRatio,
   setEnvironmentPanoramaState,
   generateSceneBaseline
 })
@@ -1399,7 +1451,7 @@ const environmentCropInitialSelection = computed(() => {
 function openEnvironmentCropDialog(assetId: string) {
   const asset = resolveEnvironmentCard(assetId)
   if (!asset?.panoramaImage?.trim() && !asset?.referenceImage?.trim()) {
-    alert('请先生成或上传 2:1 的环境全景图，再选择取景区域')
+    alert(`请先生成或上传 ${environmentPanoramaSourceAspectRatio.value} 的环境源图，再选择取景区域`)
     return
   }
 
@@ -1422,7 +1474,7 @@ async function submitEnvironmentCropSelection(payload: {
   const target = environmentCropTarget.value
   const sourceImage = environmentCropSourceImage.value
   if (!target || !sourceImage) {
-    environmentCropError.value = '环境全景源图不存在，请先重新生成或上传 2:1 全景图'
+    environmentCropError.value = `环境源图不存在，请先重新生成或上传 ${environmentPanoramaSourceAspectRatio.value} 全景图`
     return
   }
 
@@ -2458,6 +2510,7 @@ async function handleBatchGenerateCharacters() {
       :environment-crop-error="environmentCropError"
       :environment-crop-target="environmentCropTarget"
       :environment-crop-source-image="environmentCropSourceImage"
+      :environment-crop-source-aspect-ratio="environmentPanoramaSourceAspectRatio"
       :environment-crop-initial-selection="environmentCropInitialSelection"
       :environment-crop-aspect-ratio="projectAspectRatio"
       :environment-crop-saving="environmentCropSaving"

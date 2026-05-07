@@ -30,6 +30,7 @@ defineProps<{
   environmentCropError?: string | null
   environmentCropTarget: EnvironmentAssetCard | null
   environmentCropSourceImage?: string
+  environmentCropSourceAspectRatio?: string
   environmentCropInitialSelection?: EnvironmentCropSelection
   environmentCropAspectRatio?: string
   environmentCropSaving?: boolean
@@ -109,6 +110,7 @@ defineProps<{
     :open="environmentCropDialogOpen"
     :target-label="environmentCropTarget?.name || ''"
     :source-image="environmentCropSourceImage"
+    :source-aspect-ratio="environmentCropSourceAspectRatio"
     :initial-selection="environmentCropInitialSelection"
     :aspect-ratio="environmentCropAspectRatio"
     :loading="environmentCropSaving"

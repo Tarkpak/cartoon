@@ -22,6 +22,7 @@ const props = defineProps<{
   open: boolean
   targetLabel: string
   sourceImage?: string
+  sourceAspectRatio?: string
   initialSelection?: EnvironmentCropSelection
   aspectRatio?: string
   loading?: boolean
@@ -182,6 +183,7 @@ function renderPreview() {
       image,
       canvas,
       selection: currentSelection,
+      sourceAspectRatio: props.sourceAspectRatio,
       width: nextSize.width * dpr,
       height: nextSize.height * dpr
     })
@@ -210,7 +212,9 @@ async function initializePreview() {
   previewError.value = null
 
   try {
-    const loaded = await loadPanoramaImage(props.sourceImage)
+    const loaded = await loadPanoramaImage(props.sourceImage, {
+      sourceAspectRatio: props.sourceAspectRatio
+    })
     imageMetrics.value = {
       width: loaded.width,
       height: loaded.height
@@ -279,7 +283,7 @@ function submit() {
 }
 
 watch(
-  () => [props.open, props.sourceImage, props.initialSelection, props.aspectRatio] as const,
+  () => [props.open, props.sourceImage, props.sourceAspectRatio, props.initialSelection, props.aspectRatio] as const,
   () => {
     void initializePreview()
   },
