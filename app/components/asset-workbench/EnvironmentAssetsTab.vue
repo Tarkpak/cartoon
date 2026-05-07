@@ -9,6 +9,8 @@ const props = defineProps<{
   autoRunning: boolean
   uploadingEnvironmentAssetId: string | null
   getEnvironmentSceneSummary: (asset: EnvironmentAssetCard) => string
+  getEnvironmentMotherCandidates: (asset: EnvironmentAssetCard) => Array<{ id: string, label: string }>
+  getEnvironmentSelectedMotherId: (assetId: string) => string | undefined
   hasEnvironmentRepresentativeScene: (assetId: string) => boolean
 }>()
 
@@ -21,6 +23,7 @@ const emit = defineEmits<{
   'open-history': [assetId: string]
   'open-crop': [assetId: string]
   'regenerate': [assetId: string]
+  'update-mother': [payload: { assetId: string, motherAssetId: string }]
 }>()
 
 function triggerUploadInput(assetId: string) {
@@ -145,6 +148,29 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
 
         <!-- Actions -->
         <div class="flex items-center gap-1 border-t px-3 py-1.5">
+          <Select
+            :model-value="getEnvironmentSelectedMotherId(asset.id) || '__none__'"
+            @update:model-value="emit('update-mother', { assetId: asset.id, motherAssetId: $event === '__none__' ? '' : String($event) })"
+          >
+            <SelectTrigger
+              class="h-7 w-[160px] px-2 text-xs text-muted-foreground"
+              :disabled="asset.referenceStatus === 'generating'"
+            >
+              <SelectValue placeholder="选择母体（可选）" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">
+                不使用母体
+              </SelectItem>
+              <SelectItem
+                v-for="candidate in getEnvironmentMotherCandidates(asset)"
+                :key="`env_mother_${asset.id}_${candidate.id}`"
+                :value="candidate.id"
+              >
+                {{ candidate.label }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
           <Button
             size="sm"
             variant="ghost"

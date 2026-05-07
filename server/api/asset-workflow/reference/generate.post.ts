@@ -84,6 +84,7 @@ const GenerateReferenceRequestSchema = z.object({
     customPrompt: z.string().optional(),
     referenceImage: z.string().optional()
   }).optional(),
+  consistencyReferenceImage: z.string().optional(),
   // 兼容旧字段：资产一致性新流程下该字段将被忽略（场景资产必须为纯环境）
   characterReferenceImages: z.array(z.string()).optional().default([])
 })
@@ -839,9 +840,17 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { scene, style, aspectRatio, environmentContext, regeneration } = parseResult.data
+  const {
+    scene,
+    style,
+    aspectRatio,
+    environmentContext,
+    regeneration,
+    consistencyReferenceImage
+  } = parseResult.data
   const customPrompt = regeneration?.customPrompt?.trim()
-  const referenceImage = regeneration?.referenceImage?.trim()
+  const regenerationReferenceImage = regeneration?.referenceImage?.trim()
+  const consistencyReferenceImageInput = consistencyReferenceImage?.trim()
 
   try {
     const [workflowModels, workflowModelOptions] = await Promise.all([
@@ -851,8 +860,9 @@ export default defineEventHandler(async (event) => {
     const preferredModelId = workflowModels.frame_generation
     const isRegeneration = !!customPrompt
     const configuredPanoramaSource = resolvePanoramaSourceProfile(undefined, workflowModelOptions.image_options)
+    const requestedReferenceImage = regenerationReferenceImage || consistencyReferenceImageInput
     const resolvedModelDecision = resolveEnvironmentReferenceModel(preferredModelId, configuredPanoramaSource, {
-      requireReferenceImage: isRegeneration
+      requireReferenceImage: isRegeneration || !!requestedReferenceImage
     })
     const modelDecision = isRegeneration
       ? {
@@ -885,8 +895,8 @@ export default defineEventHandler(async (event) => {
       'asset_consistency'
     )
     const resolvedNegativePrompt = negativePromptTemplate?.trim() || ENVIRONMENT_ONLY_NEGATIVE_PROMPT
-    const normalizedReference = referenceImage
-      ? await normalizeReferenceImageInput(referenceImage, event)
+    const normalizedReference = requestedReferenceImage
+      ? await normalizeReferenceImageInput(requestedReferenceImage, event)
       : null
 
     if (!negativePromptTemplate) {
@@ -905,8 +915,8 @@ export default defineEventHandler(async (event) => {
       throw new Error(`当前环境图模型不可用：${modelId}`)
     }
 
-    if (isRegeneration && modelConfig?.supportReferenceImage === false) {
-      throw new Error(`当前环境图模型「${modelConfig.displayName}」不支持参考图。请在设置中切换到支持图生图的图片模型后重试。`)
+    if (normalizedReference && modelConfig?.supportReferenceImage === false) {
+      throw new Error(`当前环境图模型「${modelConfig.displayName}」不支持参考图输入。请在设置中切换到支持图生图的图片模型后重试。`)
     }
 
     const provider = modelConfig?.provider || 'gemini'
@@ -922,10 +932,18 @@ export default defineEventHandler(async (event) => {
         )
       : {}
 
+    const promptWithConsistencyReference = normalizedReference && !isRegeneration
+      ? [
+          prompt,
+          '【同源环境一致性约束】',
+          '已提供同主环境参考图。必须沿用一致的建筑结构、材质语言、主色调与灯光基调，只允许在机位、景别和时间段氛围上做可控变化。'
+        ].join('\n\n')
+      : prompt
+
     const generated = await imageLimiter.execute(() =>
       generateImage({
         modelId,
-        prompt,
+        prompt: promptWithConsistencyReference,
         imageSize: geminiImageSize,
         quality: openaiImageQuality,
         aspectRatio: panoramaSource.aspectRatio,

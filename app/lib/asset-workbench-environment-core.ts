@@ -204,7 +204,7 @@ export function stripLocationStylePrefix(value: string): string {
 export function resolveEnvironmentRootFromLocation(rawLocation?: string): string {
   if (!rawLocation) return ''
 
-  let normalized = rawLocation
+  const normalized = rawLocation
     .trim()
     .replace(/[（(][^()（）]{0,24}[)）]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -448,6 +448,60 @@ export function resolveSceneEnvironmentLabel(scene: SceneData): string {
   if (mood) return mood
   if (scene.title?.trim()) return scene.title.trim()
   return `环境 ${scene.id.slice(-4)}`
+}
+
+export function findEnvironmentConsistencyReferenceImage(
+  scene: SceneData,
+  scenes: SceneData[]
+): string | undefined {
+  return findEnvironmentConsistencyReferenceSource(scene, scenes)?.image
+}
+
+export function findEnvironmentConsistencyReferenceSource(
+  scene: SceneData,
+  scenes: SceneData[]
+): { scene: SceneData, image: string } | undefined {
+  const environmentRoot = normalizeEnvironmentToken(resolveSceneEnvironmentRoot(scene))
+  if (!environmentRoot) return undefined
+
+  const sceneIndex = scenes.findIndex(item => item.id === scene.id)
+  const candidates = scenes
+    .map((candidate, index) => ({ candidate, index }))
+    .filter(({ candidate }) => candidate.id !== scene.id)
+    .filter(({ candidate }) => {
+      return normalizeEnvironmentToken(resolveSceneEnvironmentRoot(candidate)) === environmentRoot
+    })
+    .map(({ candidate, index }) => ({
+      scene: candidate,
+      index,
+      referenceImage: resolveSceneReferenceImage(candidate),
+      done: candidate.referenceStatus === 'done'
+    }))
+    .filter(item => !!item.referenceImage && item.done)
+
+  if (candidates.length === 0) return undefined
+
+  if (sceneIndex >= 0) {
+    const previousCandidates = candidates
+      .filter(item => item.index < sceneIndex)
+      .sort((left, right) => right.index - left.index)
+
+    if (previousCandidates[0]?.referenceImage) {
+      return {
+        scene: previousCandidates[0].scene,
+        image: previousCandidates[0].referenceImage
+      }
+    }
+  }
+
+  if (candidates[0]?.referenceImage) {
+    return {
+      scene: candidates[0].scene,
+      image: candidates[0].referenceImage
+    }
+  }
+
+  return undefined
 }
 
 export function findReusableEnvironmentImage(

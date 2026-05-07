@@ -54,7 +54,10 @@ import {
 } from '~/lib/asset-workbench-mentions'
 import { exportAssetWorkbenchScriptDocx } from '~/lib/asset-workbench-api'
 import { resolveChatUploadAssetName } from '~/lib/asset-workbench-scene-chat'
-import { applySceneBaselineReference } from '~/lib/asset-workbench-scene-generation'
+import {
+  applySceneBaselineReference,
+  type GenerateSceneBaselineOptions
+} from '~/lib/asset-workbench-scene-generation'
 import { uploadAssetImage, uploadImageFile } from '~/lib/asset-workbench-upload'
 import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
 
@@ -144,6 +147,7 @@ const selectedSceneId = ref<string>('')
 
 const sceneConfigs = ref<Record<string, SceneConsistencyConfig>>({})
 const propAssets = ref<PropAsset[]>([])
+const environmentMotherAssetSelections = ref<Record<string, string>>({})
 const environmentAssetHistories = ref<Record<string, AssetImageHistoryEntry[]>>({})
 const environmentPanoramaStates = ref<Record<string, EnvironmentPanoramaState>>({})
 const environmentAssetGenerationStates = ref<Record<string, {
@@ -243,6 +247,55 @@ function setEnvironmentAssetGenerationState(
   }
 }
 
+function resolveEnvironmentAssetReferenceImage(assetId: string): string | undefined {
+  return resolveEnvironmentPanoramaState(assetId)?.panoramaImage?.trim()
+    || resolveEnvironmentCard(assetId)?.panoramaImage?.trim()
+    || resolveEnvironmentCard(assetId)?.referenceImage?.trim()
+    || undefined
+}
+
+function resolveEnvironmentMotherCandidates(asset: EnvironmentAssetCard): Array<{ id: string, label: string }> {
+  return displayEnvironmentAssetCards.value
+    .filter(item => item.id !== asset.id)
+    .map(item => ({
+      id: item.id,
+      label: item.name,
+      image: resolveEnvironmentAssetReferenceImage(item.id)
+    }))
+    .filter(item => !!item.image)
+    .map(({ id, label }) => ({ id, label }))
+}
+
+function resolveEnvironmentSelectedMotherId(assetId: string): string | undefined {
+  const selectedId = environmentMotherAssetSelections.value[assetId]?.trim() || ''
+  if (!selectedId) return undefined
+  if (!resolveEnvironmentAssetReferenceImage(selectedId)) return undefined
+  return selectedId
+}
+
+function resolveEnvironmentSelectedMotherReferenceImage(assetId: string): string | undefined {
+  const selectedId = resolveEnvironmentSelectedMotherId(assetId)
+  if (!selectedId) return undefined
+  return resolveEnvironmentAssetReferenceImage(selectedId)
+}
+
+function handleEnvironmentMotherSelection(payload: { assetId: string, motherAssetId: string }) {
+  const assetId = payload.assetId?.trim() || ''
+  if (!assetId) return
+
+  const motherAssetId = payload.motherAssetId?.trim() || ''
+  if (!motherAssetId) {
+    const { [assetId]: _removed, ...remaining } = environmentMotherAssetSelections.value
+    environmentMotherAssetSelections.value = remaining
+    return
+  }
+
+  environmentMotherAssetSelections.value = {
+    ...environmentMotherAssetSelections.value,
+    [assetId]: motherAssetId
+  }
+}
+
 const {
   workflowMetaReady,
   hydratingWorkflowMeta,
@@ -255,6 +308,7 @@ const {
   characters,
   sceneConfigs,
   propAssets,
+  environmentMotherAssetSelections,
   environmentAssetHistories,
   environmentPanoramaStates,
   finalVideo,
@@ -1917,6 +1971,35 @@ watch(
   { deep: true }
 )
 
+watch(
+  () => displayEnvironmentAssetCards.value.map(asset => ({
+    id: asset.id,
+    hasReference: !!resolveEnvironmentAssetReferenceImage(asset.id)
+  })),
+  (assets) => {
+    const existingAssetIds = new Set(assets.map(item => item.id))
+    const validMotherAssetIds = new Set(assets.filter(item => item.hasReference).map(item => item.id))
+    const nextEntries = Object.entries(environmentMotherAssetSelections.value)
+      .filter(([targetAssetId, motherAssetId]) => {
+        return existingAssetIds.has(targetAssetId)
+          && validMotherAssetIds.has(motherAssetId)
+          && targetAssetId !== motherAssetId
+      })
+
+    if (nextEntries.length === Object.keys(environmentMotherAssetSelections.value).length) {
+      return
+    }
+
+    environmentMotherAssetSelections.value = Object.fromEntries(nextEntries)
+  },
+  { immediate: true }
+)
+
+watch(environmentMotherAssetSelections, () => {
+  if (!workflowMetaReady.value || hydratingWorkflowMeta.value) return
+  scheduleWorkflowMetaSave()
+})
+
 watch(selectedScene, (scene) => {
   if (!scene) {
     selectedSceneId.value = ''
@@ -1929,18 +2012,24 @@ watch(selectedScene, (scene) => {
 })
 
 async function regenerateEnvironmentAsset(assetId: string) {
+  const consistencyReferenceImage = resolveEnvironmentSelectedMotherReferenceImage(assetId)
   const targetScene = resolveEnvironmentRepresentativeScene(assetId)
   if (!targetScene) {
-    await generateEnvironmentAssetFromCard(assetId)
+    await generateEnvironmentAssetFromCard(assetId, {
+      consistencyReferenceImage
+    })
     return
   }
-  await handleGenerateSceneBaseline(targetScene.id)
+  await handleGenerateSceneBaseline(targetScene.id, {
+    consistencyReferenceImage
+  })
 }
 
 async function generateEnvironmentAssetFromCard(
   assetId: string,
   options: {
     customPrompt?: string
+    consistencyReferenceImage?: string
   } = {}
 ): Promise<boolean | 'busy'> {
   const asset = resolveEnvironmentCard(assetId)
@@ -1948,6 +2037,7 @@ async function generateEnvironmentAssetFromCard(
   if (environmentAssetGenerationStates.value[assetId]?.status === 'generating') return 'busy'
 
   const customPrompt = options.customPrompt?.trim() || ''
+  const consistencyReferenceImage = options.consistencyReferenceImage?.trim() || ''
   const isRegeneration = !!customPrompt
   const regenerationReferenceImage = isRegeneration
     ? (
@@ -2006,6 +2096,9 @@ async function generateEnvironmentAssetFromCard(
               customPrompt,
               referenceImage: regenerationReferenceImage
             }
+          : undefined,
+        consistencyReferenceImage: !isRegeneration
+          ? consistencyReferenceImage || undefined
           : undefined
       }
     })
@@ -2092,10 +2185,13 @@ async function submitEnvironmentRegeneration() {
   setEnvironmentRegenerateDialogOpen(false)
 }
 
-async function handleGenerateSceneBaseline(sceneId: string) {
+async function handleGenerateSceneBaseline(
+  sceneId: string,
+  generationOptions?: GenerateSceneBaselineOptions
+) {
   autoRunError.value = null
   try {
-    await generateSceneBaseline(sceneId)
+    await generateSceneBaseline(sceneId, generationOptions)
   } catch (error) {
     autoRunError.value = resolveUiError(error, '环境图生成失败')
   }
@@ -2228,6 +2324,8 @@ async function handleBatchGenerateCharacters() {
         :generating-prop-id="generatingPropId"
         :get-character-scene-count="resolveCharacterSceneCount"
         :get-environment-scene-summary="resolveEnvironmentSceneSummary"
+        :get-environment-mother-candidates="resolveEnvironmentMotherCandidates"
+        :get-environment-selected-mother-id="resolveEnvironmentSelectedMotherId"
         :has-environment-representative-scene="hasEnvironmentRepresentativeScene"
         :get-prop-usage-count="resolvePropUsageCount"
         :set-character-edit-draft="updateCharacterEditDraft"
@@ -2251,6 +2349,7 @@ async function handleBatchGenerateCharacters() {
         @open-environment-regenerate="openEnvironmentRegenerateDialog"
         @open-environment-history="openEnvironmentHistory"
         @regenerate-environment="regenerateEnvironmentAsset"
+        @update-environment-mother="handleEnvironmentMotherSelection($event)"
         @add-prop="addPropAsset"
         @remove-prop="removePropAsset"
         @generate-prop="handleGeneratePropImage"
