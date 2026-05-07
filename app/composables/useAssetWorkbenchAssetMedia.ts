@@ -10,7 +10,7 @@ import {
   uploadAudioFile,
   uploadImageFile
 } from '~/lib/asset-workbench-upload'
-import { isEquirectangularPanoramaSize } from '~/lib/asset-workbench-environment-panorama'
+import { isPanoramaSourceSize } from '~/lib/asset-workbench-environment-panorama'
 import type {
   EnvironmentAssetCard,
   EnvironmentPanoramaState
@@ -31,6 +31,7 @@ export function useAssetWorkbenchAssetMedia(options: {
   resolveSceneReferenceImage: (scene: SceneData) => string | undefined
   resolveEnvironmentCard: (assetId: string) => EnvironmentAssetCard | undefined
   resolveEnvironmentRepresentativeScene: (assetId: string) => SceneData | undefined
+  panoramaSourceAspectRatio?: Ref<string>
   setEnvironmentPanoramaState?: (assetId: string, state: EnvironmentPanoramaState | undefined) => void
   generateSceneBaseline: (
     sceneId: string,
@@ -59,7 +60,7 @@ export function useAssetWorkbenchAssetMedia(options: {
         try {
           const width = image.naturalWidth || image.width
           const height = image.naturalHeight || image.height
-          resolve(isEquirectangularPanoramaSize(width, height))
+          resolve(isPanoramaSourceSize(width, height, options.panoramaSourceAspectRatio?.value))
         } finally {
           URL.revokeObjectURL(objectUrl)
         }

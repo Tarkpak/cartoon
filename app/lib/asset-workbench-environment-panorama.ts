@@ -34,6 +34,7 @@ export interface PanoramaRenderResult {
 }
 
 export type PanoramaOutputAspectRatioInput = number | string | undefined | null
+export type PanoramaSourceAspectRatioInput = number | string | undefined | null
 
 interface PanoramaViewState {
   yaw: number
@@ -52,6 +53,16 @@ interface PanoramaThreeState {
 
 const panoramaThreeStates = new WeakMap<HTMLCanvasElement, PanoramaThreeState>()
 const panoramaImageLoadCache = new Map<string, Promise<PanoramaImageLoadResult>>()
+const KNOWN_ASPECT_RATIO_LABELS: Array<[ratio: number, label: string]> = [
+  [1, '1:1'],
+  [4 / 3, '4:3'],
+  [3 / 2, '3:2'],
+  [16 / 9, '16:9'],
+  [2, '2:1'],
+  [21 / 9, '21:9'],
+  [3, '3:1'],
+  [6, '6:1']
+]
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
@@ -214,18 +225,110 @@ export function disposePanoramaCanvas(canvas: HTMLCanvasElement | null | undefin
   panoramaThreeStates.delete(canvas)
 }
 
-export function isEquirectangularPanoramaSize(width: number, height: number): boolean {
+function parseAspectRatioInput(value: PanoramaSourceAspectRatioInput): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : null
+  }
+
+  const normalized = value?.trim()
+  if (!normalized) return null
+
+  const ratioMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/)
+  if (ratioMatch?.[1] && ratioMatch[2]) {
+    const width = Number(ratioMatch[1])
+    const height = Number(ratioMatch[2])
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      return width / height
+    }
+  }
+
+  const numericValue = Number(normalized)
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null
+}
+
+function normalizeAspectRatioLabel(value: PanoramaSourceAspectRatioInput): string | null {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value <= 0) return null
+    return `${Number(value.toFixed(3))}:1`
+  }
+
+  const normalized = value?.trim()
+  if (!normalized) return null
+
+  const ratioMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/)
+  if (ratioMatch?.[1] && ratioMatch[2]) {
+    const width = Number(ratioMatch[1])
+    const height = Number(ratioMatch[2])
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      return `${width}:${height}`
+    }
+  }
+
+  const numericValue = Number(normalized)
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return null
+  return `${Number(numericValue.toFixed(3))}:1`
+}
+
+function resolveKnownAspectRatioLabel(value: number): string | null {
+  for (const [ratio, label] of KNOWN_ASPECT_RATIO_LABELS) {
+    if (Math.abs(value - ratio) <= 0.0005) {
+      return label
+    }
+  }
+  return null
+}
+
+function resolveSourceAspectRatioLabel(
+  rawValue: PanoramaSourceAspectRatioInput,
+  fallback: number
+): string {
+  return normalizeAspectRatioLabel(rawValue)
+    || resolveKnownAspectRatioLabel(fallback)
+    || `${Number(fallback.toFixed(3))}:1`
+}
+
+export function resolvePanoramaSourceAspectRatioValue(
+  rawValue: PanoramaSourceAspectRatioInput,
+  fallback = EQUIRECTANGULAR_ASPECT_RATIO
+): number {
+  return parseAspectRatioInput(rawValue) ?? fallback
+}
+
+function buildPanoramaImageCacheKey(src: string, sourceAspectRatio: number): string {
+  return `${src}::${sourceAspectRatio.toFixed(6)}`
+}
+
+export function isPanoramaSourceSize(
+  width: number,
+  height: number,
+  sourceAspectRatio: PanoramaSourceAspectRatioInput = EQUIRECTANGULAR_ASPECT_RATIO
+): boolean {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     return false
   }
 
-  return Math.abs((width / height) - EQUIRECTANGULAR_ASPECT_RATIO) <= EQUIRECTANGULAR_ASPECT_RATIO_TOLERANCE
+  const expectedAspectRatio = resolvePanoramaSourceAspectRatioValue(sourceAspectRatio)
+  return Math.abs((width / height) - expectedAspectRatio) <= EQUIRECTANGULAR_ASPECT_RATIO_TOLERANCE
+}
+
+export function assertPanoramaSourceSize(
+  width: number,
+  height: number,
+  sourceAspectRatio: PanoramaSourceAspectRatioInput = EQUIRECTANGULAR_ASPECT_RATIO
+) {
+  const expectedAspectRatio = resolvePanoramaSourceAspectRatioValue(sourceAspectRatio)
+  if (!isPanoramaSourceSize(width, height, expectedAspectRatio)) {
+    const ratioLabel = resolveSourceAspectRatioLabel(sourceAspectRatio, expectedAspectRatio)
+    throw new Error(`环境全景图必须是 ${ratioLabel} 的环境源图`)
+  }
+}
+
+export function isEquirectangularPanoramaSize(width: number, height: number): boolean {
+  return isPanoramaSourceSize(width, height, EQUIRECTANGULAR_ASPECT_RATIO)
 }
 
 export function assertEquirectangularPanoramaSize(width: number, height: number) {
-  if (!isEquirectangularPanoramaSize(width, height)) {
-    throw new Error('环境全景图必须是 2:1 的 equirectangular projection（等距柱状投影图）')
-  }
+  assertPanoramaSourceSize(width, height, EQUIRECTANGULAR_ASPECT_RATIO)
 }
 
 export function resolvePerspectiveVerticalFov(horizontalFov: number, outputAspectRatio: number): number {
@@ -245,24 +348,7 @@ export function resolvePanoramaOutputAspectRatioValue(
   rawValue: PanoramaOutputAspectRatioInput,
   fallback = DEFAULT_OUTPUT_ASPECT_RATIO
 ): number {
-  if (typeof rawValue === 'number') {
-    return Number.isFinite(rawValue) && rawValue > 0 ? rawValue : fallback
-  }
-
-  const normalized = rawValue?.trim()
-  if (!normalized) return fallback
-
-  const ratioMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/)
-  if (ratioMatch?.[1] && ratioMatch[2]) {
-    const width = Number(ratioMatch[1])
-    const height = Number(ratioMatch[2])
-    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-      return width / height
-    }
-  }
-
-  const numericValue = Number(normalized)
-  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : fallback
+  return parseAspectRatioInput(rawValue) ?? fallback
 }
 
 export function resolvePanoramaSelectionHeightForAspectRatio(width: number, outputAspectRatio = DEFAULT_OUTPUT_ASPECT_RATIO): number {
@@ -426,13 +512,20 @@ export function normalizePanoramaSelectionForAspectRatio(
   )
 }
 
-export async function loadPanoramaImage(sourceImage: string): Promise<PanoramaImageLoadResult> {
+export async function loadPanoramaImage(
+  sourceImage: string,
+  options: {
+    sourceAspectRatio?: PanoramaSourceAspectRatioInput
+  } = {}
+): Promise<PanoramaImageLoadResult> {
   const src = toCanvasSafeImageSrc(sourceImage)
   if (!src) {
     throw new Error('环境全景图不存在，无法选取区域')
   }
 
-  const cached = panoramaImageLoadCache.get(src)
+  const sourceAspectRatio = resolvePanoramaSourceAspectRatioValue(options.sourceAspectRatio)
+  const cacheKey = buildPanoramaImageCacheKey(src, sourceAspectRatio)
+  const cached = panoramaImageLoadCache.get(cacheKey)
   if (cached) {
     return await cached
   }
@@ -450,7 +543,7 @@ export async function loadPanoramaImage(sourceImage: string): Promise<PanoramaIm
       }
 
       try {
-        assertEquirectangularPanoramaSize(width, height)
+        assertPanoramaSourceSize(width, height, sourceAspectRatio)
       } catch (error) {
         reject(error)
         return
@@ -469,18 +562,23 @@ export async function loadPanoramaImage(sourceImage: string): Promise<PanoramaIm
     image.src = src
   })
 
-  panoramaImageLoadCache.set(src, pending)
+  panoramaImageLoadCache.set(cacheKey, pending)
 
   try {
     return await pending
   } catch (error) {
-    panoramaImageLoadCache.delete(src)
+    panoramaImageLoadCache.delete(cacheKey)
     throw error
   }
 }
 
-export async function loadCropImageMetrics(sourceImage: string): Promise<CropImageMetrics> {
-  const { width, height } = await loadPanoramaImage(sourceImage)
+export async function loadCropImageMetrics(
+  sourceImage: string,
+  options: {
+    sourceAspectRatio?: PanoramaSourceAspectRatioInput
+  } = {}
+): Promise<CropImageMetrics> {
+  const { width, height } = await loadPanoramaImage(sourceImage, options)
   return { width, height }
 }
 
@@ -525,6 +623,7 @@ export function renderPanoramaSelectionToCanvas(options: {
   image: HTMLImageElement
   canvas: HTMLCanvasElement
   selection: EnvironmentCropSelection
+  sourceAspectRatio?: PanoramaSourceAspectRatioInput
   width?: number
   height?: number
 }): void {
@@ -533,7 +632,7 @@ export function renderPanoramaSelectionToCanvas(options: {
   if (!sourceWidth || !sourceHeight) {
     throw new Error('环境全景图尺寸无效，无法生成截图')
   }
-  assertEquirectangularPanoramaSize(sourceWidth, sourceHeight)
+  assertPanoramaSourceSize(sourceWidth, sourceHeight, options.sourceAspectRatio)
 
   const normalizedSelection = normalizePanoramaSelection(options.selection, sourceWidth, sourceHeight)
   if (!normalizedSelection) {
@@ -559,10 +658,13 @@ export function renderPanoramaSelectionToCanvas(options: {
 export async function renderPanoramaSelectionToDataUrl(options: {
   sourceImage: string
   selection: EnvironmentCropSelection
+  sourceAspectRatio?: PanoramaSourceAspectRatioInput
   outputSize?: CropImageMetrics
   aspectRatio?: PanoramaOutputAspectRatioInput
 }): Promise<PanoramaRenderResult> {
-  const { image, width, height } = await loadPanoramaImage(options.sourceImage)
+  const { image, width, height } = await loadPanoramaImage(options.sourceImage, {
+    sourceAspectRatio: options.sourceAspectRatio
+  })
   const normalizedSelection = normalizePanoramaSelectionForAspectRatio(
     options.selection,
     width,
@@ -583,6 +685,7 @@ export async function renderPanoramaSelectionToDataUrl(options: {
       image,
       canvas,
       selection: normalizedSelection,
+      sourceAspectRatio: options.sourceAspectRatio,
       width: outputSize.width,
       height: outputSize.height
     })
@@ -599,6 +702,7 @@ export async function renderPanoramaSelectionToDataUrl(options: {
 export async function renderCropSelectionToDataUrl(options: {
   sourceImage: string
   selection: EnvironmentCropSelection
+  sourceAspectRatio?: PanoramaSourceAspectRatioInput
   outputSize?: CropImageMetrics
   aspectRatio?: PanoramaOutputAspectRatioInput
 }): Promise<string> {

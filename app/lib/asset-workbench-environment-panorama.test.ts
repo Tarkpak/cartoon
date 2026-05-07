@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  assertPanoramaSourceSize,
   assertEquirectangularPanoramaSize,
   buildDefaultCropSelection,
+  isPanoramaSourceSize,
   isEquirectangularPanoramaSize,
   normalizeCropSelection,
   normalizePanoramaSelection,
@@ -11,6 +13,7 @@ import {
   resolveCropSelectionOutputSize,
   resolveMaxCropSelection,
   resolvePanoramaOutputAspectRatioValue,
+  resolvePanoramaSourceAspectRatioValue,
   resolvePanoramaOutputSize,
   resolvePanoramaSelectionHeightForAspectRatio,
   resolvePerspectiveVerticalFov
@@ -34,6 +37,14 @@ describe('environment panorama crop helpers', () => {
     expect(isEquirectangularPanoramaSize(2000, 1000)).toBe(true)
     expect(isEquirectangularPanoramaSize(1920, 1080)).toBe(false)
     expect(() => assertEquirectangularPanoramaSize(1920, 1080)).toThrow('2:1')
+  })
+
+  it('validates non-2:1 panorama source dimensions by configured ratio', () => {
+    expect(isPanoramaSourceSize(1536, 1536, '1:1')).toBe(true)
+    expect(isPanoramaSourceSize(1536, 1536, '2:1')).toBe(false)
+    expect(isPanoramaSourceSize(1536, 1024, '3:2')).toBe(true)
+    expect(resolvePanoramaSourceAspectRatioValue(' 6 : 1 ')).toBeCloseTo(6, 5)
+    expect(() => assertPanoramaSourceSize(1536, 1536, '2:1')).toThrow('2:1')
   })
 
   it('derives vertical FOV from horizontal FOV and output aspect ratio', () => {
