@@ -172,7 +172,10 @@ function resolveDefaultWorkflowModelOptions(): WorkflowModelOptions {
   return {
     image_options: {
       geminiImageSize: '1K',
-      openaiImageQuality: 'auto'
+      openaiImageQuality: 'auto',
+      panoramaSourceMode: 'equirectangular_360',
+      panoramaCustomAspectRatio: '2:1',
+      panoramaCustomSize: '2048*1024'
     },
     video_generation: {
       klingV3Omni: {

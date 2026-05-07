@@ -32,6 +32,9 @@ const {
   updateVideoGenerationModelOptions,
   updateWorkflowGeminiImageSize,
   updateWorkflowOpenaiImageQuality,
+  updateWorkflowPanoramaSourceMode,
+  updateWorkflowPanoramaCustomAspectRatio,
+  updateWorkflowPanoramaCustomSize,
   updateWorkflowSeedanceVideoQuality,
   updateVideoAudioDefaults,
   updateCompletionNotificationOptions,
@@ -118,6 +121,9 @@ const activeCategoryIconClass = computed(() => {
               :update-video-generation-model-options="updateVideoGenerationModelOptions"
               :update-workflow-gemini-image-size="updateWorkflowGeminiImageSize"
               :update-workflow-openai-image-quality="updateWorkflowOpenaiImageQuality"
+              :update-workflow-panorama-source-mode="updateWorkflowPanoramaSourceMode"
+              :update-workflow-panorama-custom-aspect-ratio="updateWorkflowPanoramaCustomAspectRatio"
+              :update-workflow-panorama-custom-size="updateWorkflowPanoramaCustomSize"
               :update-workflow-seedance-video-quality="updateWorkflowSeedanceVideoQuality"
               :update-video-audio-defaults="updateVideoAudioDefaults"
               :update-completion-notification-options="updateCompletionNotificationOptions"

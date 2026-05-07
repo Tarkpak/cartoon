@@ -1251,7 +1251,7 @@ const {
   openEnvironmentRegenerateDialog,
   setEnvironmentRegenerateDialogOpen,
   setEnvironmentRegeneratePrompt,
-  submitEnvironmentRegeneration
+  submitEnvironmentRegeneration: submitEnvironmentRegenerationCore
 } = useAssetWorkbenchAssetMedia({
   maxAssetUploadSize: MAX_ASSET_UPLOAD_SIZE,
   maxVoiceUploadSize: MAX_VOICE_UPLOAD_SIZE,
@@ -1275,6 +1275,15 @@ const environmentCropDialogOpen = ref(false)
 const environmentCropTargetId = ref<string | null>(null)
 const environmentCropSaving = ref(false)
 const environmentCropError = ref<string | null>(null)
+const environmentRegenerateDialogLoading = computed(() => {
+  const targetId = environmentRegenerateTarget.value?.id
+  if (!targetId) return false
+
+  const state = environmentAssetGenerationStates.value[targetId]
+  if (state?.status === 'generating') return true
+
+  return environmentRegenerateTarget.value?.referenceStatus === 'generating'
+})
 
 watch(environmentCropDialogOpen, (open) => {
   if (open) return
@@ -1928,10 +1937,37 @@ async function regenerateEnvironmentAsset(assetId: string) {
   await handleGenerateSceneBaseline(targetScene.id)
 }
 
-async function generateEnvironmentAssetFromCard(assetId: string) {
+async function generateEnvironmentAssetFromCard(
+  assetId: string,
+  options: {
+    customPrompt?: string
+  } = {}
+): Promise<boolean | 'busy'> {
   const asset = resolveEnvironmentCard(assetId)
-  if (!asset) return
-  if (environmentAssetGenerationStates.value[assetId]?.status === 'generating') return
+  if (!asset) return false
+  if (environmentAssetGenerationStates.value[assetId]?.status === 'generating') return 'busy'
+
+  const customPrompt = options.customPrompt?.trim() || ''
+  const isRegeneration = !!customPrompt
+  const regenerationReferenceImage = isRegeneration
+    ? (
+        resolveEnvironmentPanoramaState(assetId)?.panoramaImage?.trim()
+        || asset.referenceImage?.trim()
+        || asset.panoramaImage?.trim()
+        || ''
+      )
+    : ''
+  const fallbackError = isRegeneration ? '环境二次生成失败' : '环境图生成失败'
+
+  if (isRegeneration && !regenerationReferenceImage) {
+    const message = '环境参考图不存在，请先生成或上传环境图'
+    autoRunError.value = message
+    setEnvironmentAssetGenerationState(assetId, {
+      status: 'error',
+      error: message
+    })
+    return false
+  }
 
   autoRunError.value = null
   setEnvironmentAssetGenerationState(assetId, { status: 'generating' })
@@ -1964,15 +2000,21 @@ async function generateEnvironmentAssetFromCard(assetId: string) {
           anchorLocation: asset.name,
           anchorDescription: asset.description || '',
           siblingLocations: []
-        }
+        },
+        regeneration: isRegeneration
+          ? {
+              customPrompt,
+              referenceImage: regenerationReferenceImage
+            }
+          : undefined
       }
     })
 
     if (!response.success || !response.referenceImage) {
-      throw new Error(response.error || '环境图生成失败')
+      throw new Error(response.error || fallbackError)
     }
 
-    let referenceImage = response.referenceImage
+    let finalReferenceImage = response.referenceImage
     let crop: EnvironmentCropSelection | undefined
     try {
       const croppedResult = await createEnvironmentCropImage({
@@ -1981,7 +2023,7 @@ async function generateEnvironmentAssetFromCard(assetId: string) {
         crop: asset.crop,
         aspectRatio: projectAspectRatio.value
       })
-      referenceImage = croppedResult.imageUrl
+      finalReferenceImage = croppedResult.imageUrl
       crop = croppedResult.crop
     } catch (error) {
       console.warn('[AssetWorkbench] 环境资产图裁切失败，已回退使用原始环境图', {
@@ -1994,21 +2036,60 @@ async function generateEnvironmentAssetFromCard(assetId: string) {
       panoramaImage: response.referenceImage,
       crop
     })
-    recordEnvironmentHistory(assetId, referenceImage, { source: 'generated' })
+    recordEnvironmentHistory(assetId, finalReferenceImage, {
+      source: 'generated',
+      prompt: customPrompt || undefined
+    })
     await saveWorkflowMeta()
     setEnvironmentAssetGenerationState(assetId, null)
     await notifyGenerationCompleted({
-      title: '环境图生成完成',
+      title: isRegeneration ? '环境图二次生成完成' : '环境图生成完成',
       body: `环境：${asset.name}`
     })
+    return true
   } catch (error) {
-    const message = resolveUiError(error, '环境图生成失败')
+    const message = resolveUiError(error, fallbackError)
     setEnvironmentAssetGenerationState(assetId, {
       status: 'error',
       error: message
     })
     autoRunError.value = message
+    return false
   }
+}
+
+async function submitEnvironmentRegeneration() {
+  const target = environmentRegenerateTarget.value
+  if (!target) {
+    await submitEnvironmentRegenerationCore()
+    return
+  }
+
+  const targetScene = resolveEnvironmentRepresentativeScene(target.id)
+  if (targetScene) {
+    await submitEnvironmentRegenerationCore()
+    return
+  }
+
+  const prompt = environmentRegeneratePrompt.value.trim()
+  if (!prompt) {
+    environmentRegenerateError.value = '请输入二次生成提示词'
+    return
+  }
+
+  environmentRegenerateError.value = null
+  const succeeded = await generateEnvironmentAssetFromCard(target.id, {
+    customPrompt: prompt
+  })
+  if (succeeded === 'busy') {
+    return
+  }
+  if (!succeeded) {
+    environmentRegenerateError.value = autoRunError.value || '环境二次生成失败'
+    return
+  }
+
+  setEnvironmentRegenerateDialogOpen(false)
 }
 
 async function handleGenerateSceneBaseline(sceneId: string) {
@@ -2270,6 +2351,7 @@ async function handleBatchGenerateCharacters() {
       :environment-regenerate-prompt="environmentRegeneratePrompt"
       :environment-regenerate-error="environmentRegenerateError"
       :environment-regenerate-target="environmentRegenerateTarget"
+      :environment-regenerate-loading="environmentRegenerateDialogLoading"
       :set-environment-regenerate-dialog-open="setEnvironmentRegenerateDialogOpen"
       :set-environment-regenerate-prompt="setEnvironmentRegeneratePrompt"
       :submit-environment-regeneration="submitEnvironmentRegeneration"
