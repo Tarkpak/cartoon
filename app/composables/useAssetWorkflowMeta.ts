@@ -47,6 +47,7 @@ export interface AssetWorkflowMeta {
   version: number
   sceneConfigs: Record<string, SceneConsistencyConfig>
   props: PropAsset[]
+  environmentMotherAssetSelections?: Record<string, string>
   characterHistories?: Record<string, AssetImageHistoryEntry[]>
   environmentHistories?: Record<string, AssetImageHistoryEntry[]>
   environmentPanoramaStates?: Record<string, EnvironmentPanoramaState>
@@ -60,6 +61,7 @@ interface UseAssetWorkflowMetaOptions {
   characters: Ref<CharacterData[]>
   sceneConfigs: Ref<Record<string, SceneConsistencyConfig>>
   propAssets: Ref<PropAsset[]>
+  environmentMotherAssetSelections: Ref<Record<string, string>>
   environmentAssetHistories: Ref<Record<string, AssetImageHistoryEntry[]>>
   environmentPanoramaStates: Ref<Record<string, EnvironmentPanoramaState>>
   finalVideo: Ref<FinalVideoAsset | null>
@@ -162,13 +164,17 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
     )
 
     return {
-      version: 3,
+      version: 4,
       sceneConfigs: options.sceneConfigs.value,
       props: options.propAssets.value.map(prop => ({
         ...prop,
         category: prop.category === 'other' ? 'other' : 'prop',
         assetHistory: normalizeAssetHistoryEntries(prop.assetHistory, prop.referenceImage)
       })),
+      environmentMotherAssetSelections: Object.fromEntries(
+        Object.entries(options.environmentMotherAssetSelections.value)
+          .filter(([assetId, motherAssetId]) => !!assetId.trim() && !!motherAssetId.trim())
+      ),
       characterHistories: buildCharacterHistoryMap(),
       environmentHistories: buildEnvironmentHistoryMap(options.environmentAssetHistories.value),
       environmentPanoramaStates,
@@ -210,6 +216,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         characterHistories?: Record<string, unknown>
         environmentHistories?: Record<string, unknown>
         environmentPanoramaStates?: Record<string, unknown>
+        environmentMotherAssetSelections?: Record<string, unknown>
         sceneVideoHistories?: Record<string, unknown>
         finalVideo?: unknown
       } | null = null
@@ -221,6 +228,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
           characterHistories?: Record<string, unknown>
           environmentHistories?: Record<string, unknown>
           environmentPanoramaStates?: Record<string, unknown>
+          environmentMotherAssetSelections?: Record<string, unknown>
           sceneVideoHistories?: Record<string, unknown>
           finalVideo?: unknown
         }
@@ -323,9 +331,15 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         }
       }
       const loadedFinalVideo = normalizeFinalVideo(meta?.finalVideo)
+      const loadedEnvironmentMotherAssetSelections = Object.fromEntries(
+        Object.entries(meta?.environmentMotherAssetSelections || {})
+          .filter(([, motherAssetId]) => typeof motherAssetId === 'string' && !!motherAssetId.trim())
+          .map(([assetId, motherAssetId]) => [assetId, (motherAssetId as string).trim()])
+      )
 
       hasMeta = Object.keys(loadedConfigs).length > 0
         || loadedProps.length > 0
+        || Object.keys(loadedEnvironmentMotherAssetSelections).length > 0
         || Object.keys(loadedCharacterHistories).length > 0
         || Object.keys(loadedEnvironmentHistories).length > 0
         || Object.keys(loadedEnvironmentPanoramaStates).length > 0
@@ -335,6 +349,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
       options.propAssets.value = loadedProps
       options.environmentAssetHistories.value = loadedEnvironmentHistories
       options.environmentPanoramaStates.value = loadedEnvironmentPanoramaStates
+      options.environmentMotherAssetSelections.value = loadedEnvironmentMotherAssetSelections
       options.finalVideo.value = loadedFinalVideo
 
       if (!meta) {
@@ -354,6 +369,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         }
         options.environmentAssetHistories.value = buildEnvironmentHistoryMap()
         options.environmentPanoramaStates.value = {}
+        options.environmentMotherAssetSelections.value = {}
       }
     } catch (error) {
       console.error('[useAssetWorkflowMeta] 读取工作流元数据失败:', error)

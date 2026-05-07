@@ -238,17 +238,45 @@ export function useAssetWorkbenchSceneGeneration(
     scene: SceneData,
     generationOptions: GenerateSceneBaselineOptions = {}
   ): string {
-    const customPrompt = generationOptions.customPrompt?.trim() || ''
+    const referenceInputs = resolveSceneBaselineReferenceInputs(scene, generationOptions)
 
     return JSON.stringify({
       scenePayload: buildAssetWorkflowScenePayload(scene),
       style: options.workflowStylePrompt.value,
       aspectRatio: options.projectAspectRatio.value,
-      customPrompt,
-      referenceImage: customPrompt
-        ? (options.resolveSceneBaselineReferenceImage?.(scene) || resolveSceneReferenceImage(scene) || scene.firstFrame || '')
-        : ''
+      customPrompt: generationOptions.customPrompt?.trim() || '',
+      referenceImage: referenceInputs.referenceImage || '',
+      consistencyReferenceImage: referenceInputs.consistencyReferenceImage || ''
     })
+  }
+
+  function resolveSceneBaselineReferenceInputs(
+    scene: SceneData,
+    generationOptions: GenerateSceneBaselineOptions = {}
+  ): {
+    referenceImage?: string
+    consistencyReferenceImage?: string
+  } {
+    const customPrompt = generationOptions.customPrompt?.trim() || ''
+    const consistencyReferenceImage = generationOptions.consistencyReferenceImage?.trim() || ''
+    const sceneReferenceImage = options.resolveSceneBaselineReferenceImage?.(scene)?.trim()
+      || resolveSceneReferenceImage(scene)
+      || scene.firstFrame?.trim()
+      || undefined
+
+    if (customPrompt) {
+      return {
+        referenceImage: sceneReferenceImage
+      }
+    }
+
+    if (!consistencyReferenceImage) {
+      return {}
+    }
+
+    return {
+      consistencyReferenceImage
+    }
   }
 
   function buildSceneVideoGenerationKey(
@@ -334,6 +362,7 @@ export function useAssetWorkbenchSceneGeneration(
     scene.referenceError = undefined
 
     try {
+      const referenceInputs = resolveSceneBaselineReferenceInputs(scene, generationOptions)
       const panoramaImage = await requestSceneBaselineGeneration({
         scene,
         scenes: options.scenes.value,
@@ -341,9 +370,8 @@ export function useAssetWorkbenchSceneGeneration(
         style: options.workflowStylePrompt.value,
         aspectRatio: options.projectAspectRatio.value,
         customPrompt,
-        referenceImage: customPrompt
-          ? (options.resolveSceneBaselineReferenceImage?.(scene) || resolveSceneReferenceImage(scene) || scene.firstFrame)
-          : undefined
+        referenceImage: referenceInputs.referenceImage,
+        consistencyReferenceImage: referenceInputs.consistencyReferenceImage
       })
 
       const latestGenerationKey = pendingBaselineGenerationKeys.get(scene.id)
