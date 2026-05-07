@@ -5,7 +5,6 @@ import sharp from 'sharp'
 import {
   findImageModel,
   generateImage,
-  getImageModels,
   type GenerateImageResult
 } from '../../../utils/model-provider'
 import { imageLimiter } from '../../../utils/concurrency'
@@ -14,7 +13,12 @@ import {
   persistImageToPublic
 } from '../../../utils/image-storage'
 import { getWorkflowModels, getWorkflowModelOptions } from '../../models/workflow.get'
-import { getInterpolatedPrompt } from '../../../utils/prompt-template'
+import { getDefaultPromptTemplates } from '../../../utils/prompt-defaults'
+import {
+  getInterpolatedPrompt,
+  getPromptLang,
+  interpolateTemplate
+} from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
 import {
   resolveTimeOfDayText,
@@ -22,7 +26,8 @@ import {
   inferSceneEraFromText
 } from '../../../../shared/types/script'
 import {
-  PANORAMA_SOURCE_ASPECT_RATIO,
+  modelSupportsPanoramaAspectRatio,
+  parseAspectRatioValue,
   resolvePanoramaSourceProfile,
   type PanoramaSourceProfile
 } from './panorama-source'
@@ -208,6 +213,7 @@ const ENVIRONMENT_DETAIL_KEYWORDS = [
 
 function resolveEnvironmentReferenceModel(
   preferredModelId: string,
+  panoramaSource: PanoramaSourceProfile,
   options: { requireReferenceImage?: boolean } = {}
 ): { modelId: string, reason: string } {
   const preferred = findImageModel(preferredModelId)
@@ -218,8 +224,7 @@ function resolveEnvironmentReferenceModel(
   }) => {
     if (!model || model.requireReferenceImage) return false
     if (options.requireReferenceImage && model.supportReferenceImage !== true) return false
-    const ratios = new Set((model.supportedAspectRatios || []).map(ratio => ratio.replace(/\s+/g, '')))
-    return ratios.has(PANORAMA_SOURCE_ASPECT_RATIO)
+    return modelSupportsPanoramaAspectRatio(panoramaSource.aspectRatio, model)
   }
 
   if (preferred && !preferred.requireReferenceImage && supportsPanoramaSource(preferred)) {
@@ -229,38 +234,25 @@ function resolveEnvironmentReferenceModel(
     }
   }
 
-  const availablePanoramaModels = getImageModels()
-    .filter(supportsPanoramaSource)
-  const preferredPanoramaOrder = [
-    'qwen-image-2.0-pro',
-    'wan2.7-image-pro',
-    'wan2.7-image',
-    'gemini-3-pro-image-preview',
-    'gemini-3.1-flash-image-preview'
-  ]
-  const orderedFallback = availablePanoramaModels
-    .slice()
-    .sort((a, b) => {
-      const aIndex = preferredPanoramaOrder.indexOf(a.model)
-      const bIndex = preferredPanoramaOrder.indexOf(b.model)
-      return (aIndex < 0 ? Number.POSITIVE_INFINITY : aIndex)
-        - (bIndex < 0 ? Number.POSITIVE_INFINITY : bIndex)
-    })[0]
-
-  if (orderedFallback) {
-    return {
-      modelId: orderedFallback.model,
-      reason: preferred
-        ? `fallback-panorama:${preferred.model}->${orderedFallback.model}`
-        : `fallback-panorama:not-found->${orderedFallback.model}`
-    }
+  if (!preferred) {
+    throw new Error(`当前流程模型不可用：${preferredModelId}。请先在流程模型里选择可用图片模型后重试`)
   }
 
-  throw new Error(
-    options.requireReferenceImage
-      ? '当前可用图片模型不同时支持 2:1 全景源图和参考图二次生成，请切换到 qwen-image-2.0-pro 后重试'
-      : '当前可用图片模型不支持 360 环境全景源图比例，请切换到 qwen-image-2.0-pro 或其他支持 2:1 的图片模型后重试'
-  )
+  if (preferred.requireReferenceImage) {
+    throw new Error(`当前流程模型「${preferred.displayName}」要求必须提供参考图，不适合环境源图首轮生成。请更换图片模型后重试`)
+  }
+
+  if (options.requireReferenceImage && preferred.supportReferenceImage !== true) {
+    throw new Error(`当前流程模型「${preferred.displayName}」不支持参考图二次生成。请更换支持参考图的图片模型后重试`)
+  }
+
+  if (!modelSupportsPanoramaAspectRatio(panoramaSource.aspectRatio, preferred)) {
+    throw new Error(
+      `当前流程模型「${preferred.displayName}」不支持环境源图比例 ${panoramaSource.aspectRatio}（${panoramaSource.modeLabel}）。请在流程模型中改用支持该比例的模型，或调整环境源图格式后重试`
+    )
+  }
+
+  throw new Error('环境源图模型校验失败，请检查流程模型与源图格式配置')
 }
 
 function hasText(value?: string | null): value is string {
@@ -439,13 +431,16 @@ function buildEnvironmentSummary(scene: z.infer<typeof SceneSchema>): string {
   return summaryLines.join('\n') || '仅保留该场景的核心环境、空间结构、光照与天气信息。'
 }
 
-async function resolveGeneratedImage(result: GenerateImageResult): Promise<{ imageData: string, mimeType: string }> {
+async function resolveGeneratedImage(
+  result: GenerateImageResult,
+  panoramaSource: PanoramaSourceProfile
+): Promise<{ imageData: string, mimeType: string }> {
   const source = result.imageData || result.imageUrl || ''
   if (!source) {
     throw new Error('未返回可用图片数据')
   }
 
-  await assertGeneratedPanoramaImageSize(source)
+  await assertGeneratedPanoramaImageSize(source, panoramaSource)
 
   try {
     const localImagePath = await persistImageToPublic({
@@ -493,7 +488,7 @@ async function resolveImageBufferForMetadata(source: string): Promise<Buffer> {
   return Buffer.from(raw.replace(/\s+/g, ''), 'base64')
 }
 
-async function assertGeneratedPanoramaImageSize(source: string) {
+async function assertGeneratedPanoramaImageSize(source: string, panoramaSource: PanoramaSourceProfile) {
   const buffer = await resolveImageBufferForMetadata(source)
   const metadata = await sharp(buffer).metadata()
   const width = metadata.width || 0
@@ -502,9 +497,16 @@ async function assertGeneratedPanoramaImageSize(source: string) {
     throw new Error('环境全景图尺寸无效')
   }
 
-  const aspectRatio = width / height
-  if (Math.abs(aspectRatio - 2) > 0.03) {
-    throw new Error(`环境全景图比例不符合 2:1，实际尺寸为 ${width}x${height}。请切换到支持 2:1 全景图的图片模型，或重新生成。`)
+  const expectedRatio = parseAspectRatioValue(panoramaSource.aspectRatio)
+  if (!expectedRatio) {
+    throw new Error(`环境源图目标比例无效：${panoramaSource.aspectRatio}`)
+  }
+
+  const actualAspectRatio = width / height
+  if (Math.abs(actualAspectRatio - expectedRatio) > 0.03) {
+    throw new Error(
+      `环境源图比例不符合 ${panoramaSource.aspectRatio}（${panoramaSource.modeLabel}），实际尺寸为 ${width}x${height}。请切换支持该比例的图片模型或调整环境源图格式后重试。`
+    )
   }
 }
 
@@ -701,26 +703,68 @@ async function buildSceneReferencePrompt(
   const normalizedCustomPrompt = customPrompt?.trim() || ''
   const environmentSummary = buildEnvironmentSummary(scene)
   const environmentSceneTitle = scene.setting?.location?.trim() || scene.title || '未命名场景'
-  const panoramaProjectionText = [
-    '硬性规格：仅输出 360 度等距柱状全景图（equirectangular / spherical panorama / HDRI environment map source）',
-    '硬性规格：宽高比固定为 2:1（例如 2048x1024）',
-    '硬性规格：完整覆盖 360° 水平视野与 180° 垂直视野，左右边缘必须可无缝拼接',
-    '禁止生成鱼眼圆形图、普通超广角照片、非 2:1 宽幅图或单方向透视图'
-  ].join('；')
+  const panoramaProjectionText = (() => {
+    switch (panoramaSource.mode) {
+      case 'equirectangular_180':
+        return [
+          '硬性规格：仅输出 180 度等距柱状半球环境源图（equirectangular 180）',
+          `硬性规格：宽高比固定为 ${panoramaSource.aspectRatio}（例如 ${panoramaSource.size}）`,
+          '硬性规格：画面需要完整覆盖可见半球视域，便于后续稳定裁切',
+          '禁止生成鱼眼圆形图、普通透视超广角照片或单方向构图'
+        ].join('；')
+      case 'cubemap_3x2':
+      case 'cubemap_6x1':
+        return [
+          '硬性规格：仅输出 cubemap 环境贴图展开图（六面体环境贴图）',
+          `硬性规格：宽高比固定为 ${panoramaSource.aspectRatio}（例如 ${panoramaSource.size}）`,
+          '硬性规格：需要明确六个方向面（前后左右上下）的结构连续性，接缝可拼合',
+          '禁止生成单方向透视图、鱼眼圆形图或与 cubemap 布局不一致的拼贴图'
+        ].join('；')
+      case 'custom':
+        return [
+          '硬性规格：输出环境贴图源图，遵循自定义比例与尺寸约束',
+          `硬性规格：宽高比固定为 ${panoramaSource.aspectRatio}（例如 ${panoramaSource.size}）`,
+          '硬性规格：确保空间关系可读，方便后续多方向裁切与复用',
+          '禁止生成普通超广角拍照风格、鱼眼圆形图或带透视畸变的画面'
+        ].join('；')
+      case 'equirectangular_360':
+      default:
+        return [
+          '硬性规格：仅输出 360 度等距柱状全景图（equirectangular / spherical panorama / HDRI environment map source）',
+          `硬性规格：宽高比固定为 ${panoramaSource.aspectRatio}（例如 ${panoramaSource.size}）`,
+          '硬性规格：完整覆盖 360° 水平视野与 180° 垂直视野，左右边缘必须可无缝拼接',
+          '禁止生成鱼眼圆形图、普通超广角照片、非 2:1 宽幅图或单方向透视图'
+        ].join('；')
+    }
+  })()
   const panoramaFallbackHint = panoramaSource.fallbackApplied
-    ? `当前模型声明不支持 AR ${PANORAMA_SOURCE_ASPECT_RATIO}，但 360 全景源图必须使用 2:1；已继续按 ${panoramaSource.aspectRatio}（${panoramaSource.size}）请求。`
+    ? `当前模型未声明支持 ${panoramaSource.aspectRatio}，但已继续按 ${panoramaSource.modeLabel}（${panoramaSource.size}）请求。`
     : ''
+  const panoramaSourceModeText = (() => {
+    switch (panoramaSource.mode) {
+      case 'equirectangular_180':
+        return '本次输出要求：生成 180 度等距柱状半球环境源图'
+      case 'cubemap_3x2':
+      case 'cubemap_6x1':
+        return `本次输出要求：生成 ${panoramaSource.modeLabel}`
+      case 'custom':
+        return '本次输出要求：按自定义比例生成环境源图'
+      case 'equirectangular_360':
+      default:
+        return '本次输出要求：生成 360 度等距柱状环境源图'
+    }
+  })()
   const panoramaAspectText = [
     panoramaFallbackHint,
-    '本次输出要求：生成 2:1 的 equirectangular 360 全景源图',
+    panoramaSourceModeText,
     `目标裁切画幅：${aspectRatio}（这是后处理截图比例，不是本次源图比例）`,
-    `全景源图画幅：${panoramaSource.aspectRatio}`,
-    `全景源图尺寸：${panoramaSource.size}`,
-    `后续用途说明：源图生成后将裁切为 ${aspectRatio} 供分镜视频使用（该用途不改变源图必须为 2:1 的要求）`,
+    `环境源图画幅：${panoramaSource.aspectRatio}`,
+    `环境源图尺寸：${panoramaSource.size}`,
+    `后续用途说明：源图生成后将裁切为 ${aspectRatio} 供分镜视频使用（该用途不改变源图规格要求）`,
     aspectRatio === '16:9'
-      ? '裁切策略：默认使用全景源图中的 16:9 区域（仅后处理）'
-      : `裁切策略：后续从全景源图裁切为 ${aspectRatio}（仅后处理）`,
-    `全景源图要求：${panoramaProjectionText}`
+      ? '裁切策略：默认使用环境源图中的 16:9 区域（仅后处理）'
+      : `裁切策略：后续从环境源图裁切为 ${aspectRatio}（仅后处理）`,
+    `环境源图要求：${panoramaProjectionText}`
   ].filter(Boolean).join('\n')
   const timeOfDay = resolveTimeOfDayText(scene.setting?.timeOfDay)
   const era = normalizeOptionalSceneEraValue(scene.setting?.era)
@@ -738,29 +782,48 @@ async function buildSceneReferencePrompt(
     ? scene.cameraNote!.trim()
     : '无'
   const environmentConsistencyText = buildEnvironmentConsistencyText(scene, environmentContext) || '无'
+  const templateVariables = {
+    sceneTitle: environmentSceneTitle,
+    sceneDescription: environmentSummary,
+    setting: settingText,
+    style,
+    aspectRatio: panoramaAspectText,
+    environmentConsistency: environmentConsistencyText,
+    cameraNote: cameraNoteText,
+    customPrompt: normalizedCustomPrompt || '无'
+  }
 
   const templatePrompt = await getInterpolatedPrompt(
     PROMPT_TEMPLATE_IDS.ENVIRONMENT_REFERENCE_GENERATION,
-    {
-      sceneTitle: environmentSceneTitle,
-      sceneDescription: environmentSummary,
-      setting: settingText,
-      style,
-      aspectRatio: panoramaAspectText,
-      environmentConsistency: environmentConsistencyText,
-      cameraNote: cameraNoteText,
-      customPrompt: normalizedCustomPrompt || '无'
-    },
+    templateVariables,
     undefined,
     'asset_consistency'
   )
 
-  if (!templatePrompt) {
-    console.error('[AssetWorkflow/Reference] 环境参考图模板缺失，请检查提示词配置')
-    throw new Error('无法获取环境参考图生成模板，请在设置中检查提示词配置')
+  if (templatePrompt) {
+    return templatePrompt
   }
 
-  return templatePrompt
+  const fallbackLang = await getPromptLang(
+    PROMPT_TEMPLATE_IDS.ENVIRONMENT_REFERENCE_GENERATION,
+    'asset_consistency'
+  )
+  const fallbackTemplate = getDefaultPromptTemplates('asset_consistency')
+    .find(template => template.id === PROMPT_TEMPLATE_IDS.ENVIRONMENT_REFERENCE_GENERATION)
+    ?.content[fallbackLang]
+
+  if (fallbackTemplate) {
+    try {
+      const fallbackPrompt = interpolateTemplate(fallbackTemplate, templateVariables)
+      console.warn('[AssetWorkflow/Reference] 环境参考图模板无效，已回退内置默认模板继续生成')
+      return fallbackPrompt
+    } catch (fallbackError) {
+      console.error('[AssetWorkflow/Reference] 内置环境参考图模板插值失败:', fallbackError)
+    }
+  }
+
+  console.error('[AssetWorkflow/Reference] 环境参考图模板缺失或无效，请检查提示词配置')
+  throw new Error('无法获取环境参考图生成模板，请在设置中检查提示词配置')
 }
 
 export default defineEventHandler(async (event) => {
@@ -787,7 +850,8 @@ export default defineEventHandler(async (event) => {
     ])
     const preferredModelId = workflowModels.frame_generation
     const isRegeneration = !!customPrompt
-    const resolvedModelDecision = resolveEnvironmentReferenceModel(preferredModelId, {
+    const configuredPanoramaSource = resolvePanoramaSourceProfile(undefined, workflowModelOptions.image_options)
+    const resolvedModelDecision = resolveEnvironmentReferenceModel(preferredModelId, configuredPanoramaSource, {
       requireReferenceImage: isRegeneration
     })
     const modelDecision = isRegeneration
@@ -800,10 +864,10 @@ export default defineEventHandler(async (event) => {
     const modelConfig = findImageModel(modelId)
     const geminiImageSize = workflowModelOptions.image_options.geminiImageSize
     const openaiImageQuality = workflowModelOptions.image_options.openaiImageQuality
-    const panoramaSource = resolvePanoramaSourceProfile(modelConfig)
+    const panoramaSource = resolvePanoramaSourceProfile(modelConfig, workflowModelOptions.image_options)
     if (panoramaSource.fallbackApplied) {
       console.warn(
-        `[AssetWorkflow/Reference] 模型 ${modelId} 未声明支持 ${PANORAMA_SOURCE_ASPECT_RATIO}，360 全景源图仍按 ${panoramaSource.aspectRatio}（${panoramaSource.size}）请求`
+        `[AssetWorkflow/Reference] 模型 ${modelId} 未声明支持 ${panoramaSource.aspectRatio}，环境源图仍按 ${panoramaSource.modeLabel}（${panoramaSource.size}）请求`
       )
     }
     const prompt = await buildSceneReferencePrompt(
@@ -872,7 +936,7 @@ export default defineEventHandler(async (event) => {
       })
     )
 
-    const normalized = await resolveGeneratedImage(generated)
+    const normalized = await resolveGeneratedImage(generated, panoramaSource)
 
     return {
       success: true,
@@ -883,6 +947,7 @@ export default defineEventHandler(async (event) => {
         modelId,
         modelDecision: modelDecision.reason,
         aspectRatio,
+        sourceMode: panoramaSource.mode,
         sourceAspectRatio: panoramaSource.aspectRatio,
         sourceSize: panoramaSource.size,
         sourceAspectRatioFallback: panoramaSource.fallbackApplied,

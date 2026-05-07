@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   PANORAMA_SOURCE_ASPECT_RATIO,
   normalizeAspectRatioValue,
+  normalizeImageSizeValue,
   parseAspectRatioValue,
   pickClosestSupportedAspectRatio,
   resolvePanoramaSourceImageSize,
@@ -15,46 +16,78 @@ describe('panorama source aspect-ratio requirements', () => {
     })
 
     expect(profile).toEqual({
+      mode: 'equirectangular_360',
+      modeLabel: '360 等距柱状全景图',
       aspectRatio: '2:1',
       size: '2048*1024',
       fallbackApplied: false
     })
   })
 
-  it('keeps requesting 2:1 when only non-panorama ultra-wide ratios are declared', () => {
+  it('uses requested non-2:1 panorama source mode and ratio', () => {
     const profile = resolvePanoramaSourceProfile({
       supportedAspectRatios: ['1:1', '16:9', '21:9']
+    }, {
+      panoramaSourceMode: 'equirectangular_180'
     })
 
     expect(profile).toEqual({
-      aspectRatio: '2:1',
-      size: '2048*1024',
-      fallbackApplied: true
+      mode: 'equirectangular_180',
+      modeLabel: '180 半球等距全景图',
+      aspectRatio: '1:1',
+      size: '1536*1536',
+      fallbackApplied: false
     })
   })
 
-  it('does not treat closest non-2:1 ratios as 360 panorama sources', () => {
+  it('marks fallbackApplied when model does not declare requested ratio', () => {
     const profile = resolvePanoramaSourceProfile({
       supportedAspectRatios: ['1:1', '16:9', '3:2']
+    }, {
+      panoramaSourceMode: 'equirectangular_360'
     })
 
     expect(profile).toEqual({
+      mode: 'equirectangular_360',
+      modeLabel: '360 等距柱状全景图',
       aspectRatio: '2:1',
       size: '2048*1024',
       fallbackApplied: true
     })
   })
 
-  it('handles invalid or empty supported ratios by using default 2:1', () => {
+  it('handles custom panorama source options and normalizes size separators', () => {
+    expect(resolvePanoramaSourceProfile(undefined, {
+      panoramaSourceMode: 'custom',
+      panoramaCustomAspectRatio: ' 3 : 2 ',
+      panoramaCustomSize: '1536x1024'
+    })).toEqual({
+      mode: 'custom',
+      modeLabel: '自定义环境源图',
+      aspectRatio: '3:2',
+      size: '1536*1024',
+      fallbackApplied: false
+    })
+  })
+
+  it('handles invalid options by using default 2:1', () => {
     expect(resolvePanoramaSourceProfile({
       supportedAspectRatios: ['auto', 'bad']
     })).toEqual({
+      mode: 'equirectangular_360',
+      modeLabel: '360 等距柱状全景图',
       aspectRatio: '2:1',
       size: '2048*1024',
       fallbackApplied: false
     })
 
-    expect(resolvePanoramaSourceProfile()).toEqual({
+    expect(resolvePanoramaSourceProfile(undefined, {
+      panoramaSourceMode: 'custom',
+      panoramaCustomAspectRatio: 'bad-ratio',
+      panoramaCustomSize: 'bad-size'
+    })).toEqual({
+      mode: 'custom',
+      modeLabel: '自定义环境源图',
       aspectRatio: '2:1',
       size: '2048*1024',
       fallbackApplied: false
@@ -67,6 +100,12 @@ describe('panorama source helper utilities', () => {
     expect(normalizeAspectRatioValue(' 2 : 1 ')).toBe('2:1')
     expect(normalizeAspectRatioValue('0:9')).toBeNull()
     expect(normalizeAspectRatioValue('abc')).toBeNull()
+  })
+
+  it('normalizes image size values', () => {
+    expect(normalizeImageSizeValue(' 2048x1024 ')).toBe('2048*1024')
+    expect(normalizeImageSizeValue('1024*1024')).toBe('1024*1024')
+    expect(normalizeImageSizeValue('bad')).toBeNull()
   })
 
   it('parses ratio values', () => {

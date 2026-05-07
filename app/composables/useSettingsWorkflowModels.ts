@@ -10,6 +10,7 @@ import type {
   WorkflowModelOptions,
   WorkflowGeminiImageSize,
   WorkflowOpenAIImageQuality,
+  WorkflowPanoramaSourceMode,
   WorkflowImageGenerationModelOptions,
   WorkflowVideoGenerationModelOptions,
   WorkflowCompletionNotificationOptions,
@@ -81,6 +82,13 @@ export const WORKFLOW_CATEGORY_CONFIG: Record<WorkflowCategoryKey, WorkflowCateg
 
 export const WORKFLOW_GEMINI_IMAGE_SIZES: WorkflowGeminiImageSize[] = ['512', '1K', '2K', '4K']
 export const WORKFLOW_OPENAI_IMAGE_QUALITIES: WorkflowOpenAIImageQuality[] = ['auto', 'low', 'medium', 'high']
+export const WORKFLOW_PANORAMA_SOURCE_MODES: WorkflowPanoramaSourceMode[] = [
+  'equirectangular_360',
+  'equirectangular_180',
+  'cubemap_3x2',
+  'cubemap_6x1',
+  'custom'
+]
 export const WORKFLOW_SEEDANCE_VIDEO_QUALITIES: SeedanceVideoQuality[] = ['480p', '720p', '1080p']
 const WORKFLOW_CATEGORY_ORDER: WorkflowCategoryKey[] = ['text', 'image', 'video']
 
@@ -101,7 +109,10 @@ const DEFAULT_VIDEO_AUDIO_DEFAULTS: WorkflowVideoAudioDefaults = {
 
 const DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS: WorkflowImageGenerationModelOptions = {
   geminiImageSize: '1K',
-  openaiImageQuality: 'auto'
+  openaiImageQuality: 'auto',
+  panoramaSourceMode: 'equirectangular_360',
+  panoramaCustomAspectRatio: '2:1',
+  panoramaCustomSize: '2048*1024'
 }
 
 const DEFAULT_COMPLETION_NOTIFICATION_OPTIONS: WorkflowCompletionNotificationOptions = {
@@ -463,6 +474,33 @@ export function useSettingsWorkflowModels() {
     })
   }
 
+  function updateWorkflowPanoramaSourceMode(value: unknown) {
+    const normalized = toSelectString(value)
+    if (!WORKFLOW_PANORAMA_SOURCE_MODES.includes(normalized as WorkflowPanoramaSourceMode)) return
+
+    void updateImageGenerationModelOptions({
+      panoramaSourceMode: normalized as WorkflowPanoramaSourceMode
+    })
+  }
+
+  async function updateWorkflowPanoramaCustomAspectRatio(value: string) {
+    const normalized = value.trim()
+    if (!/^\d+\s*:\s*\d+$/.test(normalized)) return
+
+    await updateImageGenerationModelOptions({
+      panoramaCustomAspectRatio: normalized
+    })
+  }
+
+  async function updateWorkflowPanoramaCustomSize(value: string) {
+    const normalized = value.trim()
+    if (!/^\d+\s*[*xX]\s*\d+$/.test(normalized)) return
+
+    await updateImageGenerationModelOptions({
+      panoramaCustomSize: normalized
+    })
+  }
+
   function updateWorkflowSeedanceVideoQuality(value: unknown) {
     const normalized = toSelectString(value).toLowerCase()
     if (!WORKFLOW_SEEDANCE_VIDEO_QUALITIES.includes(normalized as SeedanceVideoQuality)) return
@@ -573,6 +611,9 @@ export function useSettingsWorkflowModels() {
     updateVideoGenerationModelOptions,
     updateWorkflowGeminiImageSize,
     updateWorkflowOpenaiImageQuality,
+    updateWorkflowPanoramaSourceMode,
+    updateWorkflowPanoramaCustomAspectRatio,
+    updateWorkflowPanoramaCustomSize,
     updateWorkflowSeedanceVideoQuality,
     updateVideoAudioDefaults,
     updateCompletionNotificationOptions,

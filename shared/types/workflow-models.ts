@@ -57,9 +57,27 @@ export type WorkflowGeminiImageSize = z.infer<typeof WorkflowGeminiImageSizeSche
 export const WorkflowOpenAIImageQualitySchema = z.enum(['auto', 'low', 'medium', 'high'])
 export type WorkflowOpenAIImageQuality = z.infer<typeof WorkflowOpenAIImageQualitySchema>
 
+export const WorkflowPanoramaSourceModeSchema = z.enum([
+  'equirectangular_360',
+  'equirectangular_180',
+  'cubemap_3x2',
+  'cubemap_6x1',
+  'custom'
+])
+export type WorkflowPanoramaSourceMode = z.infer<typeof WorkflowPanoramaSourceModeSchema>
+
+export const WorkflowPanoramaAspectRatioSchema = z.string().trim().regex(/^\d+\s*:\s*\d+$/)
+export type WorkflowPanoramaAspectRatio = z.infer<typeof WorkflowPanoramaAspectRatioSchema>
+
+export const WorkflowPanoramaImageSizeSchema = z.string().trim().regex(/^\d+\s*[*xX]\s*\d+$/)
+export type WorkflowPanoramaImageSize = z.infer<typeof WorkflowPanoramaImageSizeSchema>
+
 export const WorkflowImageGenerationModelOptionsSchema = z.object({
   geminiImageSize: WorkflowGeminiImageSizeSchema.default('1K'),
-  openaiImageQuality: WorkflowOpenAIImageQualitySchema.default('auto')
+  openaiImageQuality: WorkflowOpenAIImageQualitySchema.default('auto'),
+  panoramaSourceMode: WorkflowPanoramaSourceModeSchema.default('equirectangular_360'),
+  panoramaCustomAspectRatio: WorkflowPanoramaAspectRatioSchema.default('2:1'),
+  panoramaCustomSize: WorkflowPanoramaImageSizeSchema.default('2048*1024')
 })
 export type WorkflowImageGenerationModelOptions = z.infer<typeof WorkflowImageGenerationModelOptionsSchema>
 
@@ -115,7 +133,10 @@ export type WorkflowCompletionNotificationOptions = z.infer<typeof WorkflowCompl
 export const WorkflowModelOptionsSchema = z.object({
   image_options: WorkflowImageGenerationModelOptionsSchema.default({
     geminiImageSize: '1K',
-    openaiImageQuality: 'auto'
+    openaiImageQuality: 'auto',
+    panoramaSourceMode: 'equirectangular_360',
+    panoramaCustomAspectRatio: '2:1',
+    panoramaCustomSize: '2048*1024'
   }),
   video_generation: WorkflowVideoGenerationModelOptionsSchema.default({
     klingV3Omni: {

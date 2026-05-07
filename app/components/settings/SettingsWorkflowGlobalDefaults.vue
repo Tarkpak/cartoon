@@ -9,7 +9,8 @@ import type {
   WorkflowCompletionNotificationOptions,
   KlingV3OmniVideoOptions,
   SeedanceVideoOptions,
-  WorkflowVideoAudioDefaults
+  WorkflowVideoAudioDefaults,
+  WorkflowPanoramaSourceMode
 } from '#shared/types/workflow-models'
 import { getSettingsProviderLabel, toSelectString } from '@/lib/settings-models'
 import {
@@ -21,6 +22,7 @@ import {
 import {
   WORKFLOW_GEMINI_IMAGE_SIZES,
   WORKFLOW_OPENAI_IMAGE_QUALITIES,
+  WORKFLOW_PANORAMA_SOURCE_MODES,
   WORKFLOW_SEEDANCE_VIDEO_QUALITIES,
   type WorkflowConfig
 } from '@/composables/useSettingsWorkflowModels'
@@ -40,6 +42,9 @@ const props = defineProps<{
   updateVideoGenerationModelOptions: (patch: Partial<KlingV3OmniVideoOptions>) => Promise<void>
   updateWorkflowGeminiImageSize: (value: unknown) => void
   updateWorkflowOpenaiImageQuality: (value: unknown) => void
+  updateWorkflowPanoramaSourceMode: (value: unknown) => void
+  updateWorkflowPanoramaCustomAspectRatio: (value: string) => Promise<void>
+  updateWorkflowPanoramaCustomSize: (value: string) => Promise<void>
   updateWorkflowSeedanceVideoQuality: (value: unknown) => void
   updateVideoAudioDefaults: (patch: Partial<WorkflowVideoAudioDefaults>) => Promise<void>
   updateCompletionNotificationOptions: (patch: Partial<WorkflowCompletionNotificationOptions>) => Promise<void>
@@ -136,6 +141,50 @@ function updateGeminiImageSize(value: unknown) {
 
 function updateOpenAIImageQuality(value: unknown) {
   props.updateWorkflowOpenaiImageQuality(value)
+}
+
+const PANORAMA_SOURCE_MODE_LABELS: Record<WorkflowPanoramaSourceMode, string> = {
+  equirectangular_360: '360 等距柱状（2:1）',
+  equirectangular_180: '180 半球等距（1:1）',
+  cubemap_3x2: 'Cubemap 展开（3:2）',
+  cubemap_6x1: 'Cubemap 横排（6:1）',
+  custom: '自定义比例与尺寸'
+}
+
+const panoramaCustomAspectRatioDraft = ref(props.imageGenerationOptions.panoramaCustomAspectRatio)
+const panoramaCustomSizeDraft = ref(props.imageGenerationOptions.panoramaCustomSize)
+
+const panoramaSourceMode = computed(() => props.imageGenerationOptions.panoramaSourceMode)
+const usingCustomPanoramaSource = computed(() => panoramaSourceMode.value === 'custom')
+
+watch(
+  () => props.imageGenerationOptions.panoramaCustomAspectRatio,
+  (value) => {
+    panoramaCustomAspectRatioDraft.value = value
+  }
+)
+
+watch(
+  () => props.imageGenerationOptions.panoramaCustomSize,
+  (value) => {
+    panoramaCustomSizeDraft.value = value
+  }
+)
+
+function updatePanoramaSourceMode(value: unknown) {
+  props.updateWorkflowPanoramaSourceMode(value)
+}
+
+function commitPanoramaCustomAspectRatio() {
+  const nextValue = panoramaCustomAspectRatioDraft.value.trim()
+  if (!nextValue || nextValue === props.imageGenerationOptions.panoramaCustomAspectRatio) return
+  void props.updateWorkflowPanoramaCustomAspectRatio(nextValue)
+}
+
+function commitPanoramaCustomSize() {
+  const nextValue = panoramaCustomSizeDraft.value.trim()
+  if (!nextValue || nextValue === props.imageGenerationOptions.panoramaCustomSize) return
+  void props.updateWorkflowPanoramaCustomSize(nextValue)
 }
 
 function updateSeedanceVideoQuality(value: unknown) {
@@ -355,6 +404,74 @@ onMounted(() => {
         :class="systemNotificationStatus.canNotify ? 'text-emerald-600' : 'text-amber-600'"
       >
         {{ completionNotificationHint }}
+      </p>
+    </div>
+
+    <div
+      v-if="props.activeCategory === 'image'"
+      class="space-y-3 rounded-lg border bg-muted/30 p-3"
+    >
+      <div>
+        <h5 class="text-xs font-medium">
+          环境源图格式
+        </h5>
+        <p class="mt-1 text-[11px] text-muted-foreground">
+          环境参考图会按这里指定的源图类型生成，并按该类型校验画幅比例。2:1 并非唯一选项。
+        </p>
+      </div>
+
+      <div class="space-y-1.5">
+        <label class="text-xs text-muted-foreground">源图类型</label>
+        <Select
+          :model-value="panoramaSourceMode"
+          :disabled="props.workflowSaving"
+          @update:model-value="updatePanoramaSourceMode"
+        >
+          <SelectTrigger class="h-9 w-full text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem
+              v-for="mode in WORKFLOW_PANORAMA_SOURCE_MODES"
+              :key="`global_panorama_source_mode_${mode}`"
+              :value="mode"
+            >
+              {{ PANORAMA_SOURCE_MODE_LABELS[mode] }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div
+        v-if="usingCustomPanoramaSource"
+        class="grid grid-cols-1 gap-3 md:grid-cols-2"
+      >
+        <div class="space-y-1.5">
+          <label class="text-xs text-muted-foreground">自定义比例（w:h）</label>
+          <Input
+            v-model="panoramaCustomAspectRatioDraft"
+            placeholder="例如 2:1"
+            :disabled="props.workflowSaving"
+            class="h-9 text-sm"
+            @blur="commitPanoramaCustomAspectRatio"
+            @keydown.enter.prevent="commitPanoramaCustomAspectRatio"
+          />
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-xs text-muted-foreground">自定义尺寸（w*h）</label>
+          <Input
+            v-model="panoramaCustomSizeDraft"
+            placeholder="例如 2048*1024"
+            :disabled="props.workflowSaving"
+            class="h-9 text-sm"
+            @blur="commitPanoramaCustomSize"
+            @keydown.enter.prevent="commitPanoramaCustomSize"
+          />
+        </div>
+      </div>
+
+      <p class="text-[11px] text-muted-foreground">
+        预设模式会自动匹配推荐比例和尺寸；自定义模式需填写合法比例与尺寸（如 3:2、1536*1024）。
       </p>
     </div>
 

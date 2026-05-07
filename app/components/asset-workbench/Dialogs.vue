@@ -22,6 +22,7 @@ defineProps<{
   environmentRegeneratePrompt: string
   environmentRegenerateError?: string | null
   environmentRegenerateTarget: EnvironmentAssetCard | null
+  environmentRegenerateLoading?: boolean
   setEnvironmentRegenerateDialogOpen: (open: boolean) => void
   setEnvironmentRegeneratePrompt: (prompt: string) => void
   submitEnvironmentRegeneration: () => void
@@ -98,7 +99,7 @@ defineProps<{
     :mention-token-map="resolveAssetMentionTokenMap()"
     :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
     :error="environmentRegenerateError"
-    :loading="environmentRegenerateTarget?.referenceStatus === 'generating'"
+    :loading="!!environmentRegenerateLoading"
     @update:open="setEnvironmentRegenerateDialogOpen"
     @update:prompt="setEnvironmentRegeneratePrompt"
     @submit="submitEnvironmentRegeneration"
