@@ -30,6 +30,8 @@ const props = defineProps<{
   generatingPropId: string | null
   getCharacterSceneCount: (character: CharacterData) => number
   getEnvironmentSceneSummary: (asset: EnvironmentAssetCard) => string
+  getEnvironmentMotherCandidates: (asset: EnvironmentAssetCard) => Array<{ id: string, label: string }>
+  getEnvironmentSelectedMotherId: (assetId: string) => string | undefined
   hasEnvironmentRepresentativeScene: (assetId: string) => boolean
   getPropUsageCount: (propId: string) => number
   setCharacterEditDraft: (draft: { name: string, role: string, appearance: string }) => void
@@ -56,6 +58,7 @@ const emit = defineEmits<{
   'open-environment-regenerate': [assetId: string]
   'open-environment-history': [assetId: string]
   'regenerate-environment': [assetId: string]
+  'update-environment-mother': [payload: { assetId: string, motherAssetId: string }]
   'add-prop': [payload: { name: string, description: string, category: PropAssetCategory }]
   'remove-prop': [propId: string]
   'generate-prop': [propId: string]
@@ -210,6 +213,8 @@ const hasSeedAssets = computed(() => {
         :auto-running="autoRunning"
         :uploading-environment-asset-id="uploadingEnvironmentAssetId"
         :get-environment-scene-summary="getEnvironmentSceneSummary"
+        :get-environment-mother-candidates="getEnvironmentMotherCandidates"
+        :get-environment-selected-mother-id="getEnvironmentSelectedMotherId"
         :has-environment-representative-scene="hasEnvironmentRepresentativeScene"
         @go-videos="emit('select-stage', 'videos')"
         @preview-image="emit('preview-image', $event)"
@@ -219,6 +224,7 @@ const hasSeedAssets = computed(() => {
         @open-regenerate="emit('open-environment-regenerate', $event)"
         @open-history="emit('open-environment-history', $event)"
         @regenerate="emit('regenerate-environment', $event)"
+        @update-mother="emit('update-environment-mother', $event)"
       />
 
       <AssetWorkbenchPropAssetsTab

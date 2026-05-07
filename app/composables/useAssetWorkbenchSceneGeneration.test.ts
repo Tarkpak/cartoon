@@ -62,6 +62,74 @@ describe('useAssetWorkbenchSceneGeneration', () => {
     pollSceneVideoTaskMock.mockClear()
   })
 
+  it('passes explicit consistency reference image for baseline generation', async () => {
+    const scene = createScene({
+      id: 'scene_target',
+      title: '客厅夜晚',
+      description: '同一客厅夜晚氛围镜头。',
+      setting: {
+        location: '顾家老宅-客厅',
+        timeOfDay: 'night'
+      },
+      referenceStatus: 'pending'
+    })
+
+    const sceneGeneration = useAssetWorkbenchSceneGeneration({
+      scenes: ref([scene]),
+      characters: ref([]),
+      sceneConfigs: ref({
+        [scene.id]: {
+          sceneId: scene.id,
+          mustReferenceAssetIds: [],
+          consistencyLevel: 'soft',
+          continuityNotes: ''
+        }
+      }),
+      propAssets: ref([]),
+      queueItems: ref([]),
+      batchRunning: ref(false),
+      workflowStylePrompt: computed(() => ''),
+      projectAspectRatio: ref('16:9'),
+      normalizeWorkflowText: value => value,
+      resolveUiError: (_error, fallback) => fallback,
+      ensureSceneConfig: sceneId => ({
+        sceneId,
+        mustReferenceAssetIds: [],
+        consistencyLevel: 'soft',
+        continuityNotes: ''
+      }),
+      resolveAssetName: assetId => assetId,
+      resolveSceneDescriptionWithoutAssetMentions: raw => raw || '',
+      synchronizeQueueItems: () => undefined,
+      saveProject: vi.fn(async () => undefined),
+      refreshCharacterVoiceAssets: async () => undefined,
+      generateCharacter: async () => undefined,
+      batchGenerateCharacters: async () => undefined,
+      persistAutomaticAssetPlan: async () => undefined,
+      recordEnvironmentHistory: () => undefined,
+      resolveEnvironmentPanoramaState: () => undefined,
+      setEnvironmentPanoramaState: () => undefined,
+      resolveSceneBaselineReferenceImage: () => undefined,
+      recordSceneVideoHistory: () => undefined,
+      onModelTaskCompleted: async () => undefined
+    })
+
+    await sceneGeneration.generateSceneBaseline(scene.id, {
+      consistencyReferenceImage: 'https://example.com/living-room-day.png'
+    })
+
+    expect(requestSceneBaselineGenerationMock).toHaveBeenCalledTimes(1)
+    const requestCalls = requestSceneBaselineGenerationMock.mock.calls as unknown as Array<[{
+      consistencyReferenceImage?: string
+      referenceImage?: string
+      customPrompt?: string
+    }]>
+    const requestPayload = requestCalls[0]?.[0]
+    expect(requestPayload?.consistencyReferenceImage).toBe('https://example.com/living-room-day.png')
+    expect(requestPayload?.referenceImage).toBeUndefined()
+    expect(requestPayload?.customPrompt).toBeUndefined()
+  })
+
   it('reuses prepared environment reference image and skips baseline generation request', async () => {
     const scene = createScene({
       id: 'scene_1',

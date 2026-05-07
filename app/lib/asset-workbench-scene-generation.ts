@@ -15,6 +15,7 @@ export type AssetWorkbenchAspectRatio = '16:9' | '9:16' | '1:1'
 export interface GenerateSceneBaselineOptions {
   preferReuse?: boolean
   customPrompt?: string
+  consistencyReferenceImage?: string
 }
 
 export interface AssetWorkflowScenePayload {
@@ -50,6 +51,7 @@ interface RequestSceneBaselineGenerationOptions {
   aspectRatio: AssetWorkbenchAspectRatio
   customPrompt?: string
   referenceImage?: string
+  consistencyReferenceImage?: string
 }
 
 interface AssetWorkflowVideoReferences {
@@ -207,7 +209,8 @@ export async function requestSceneBaselineGeneration(
             customPrompt: options.customPrompt,
             referenceImage: options.referenceImage
           }
-        : undefined
+        : undefined,
+      consistencyReferenceImage: options.consistencyReferenceImage
     }
   })
 
