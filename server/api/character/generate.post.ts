@@ -324,29 +324,28 @@ async function generateCharacterSheet(
     throw new Error(`当前角色模型「${modelConfig.displayName}」不支持参考图。请在设置中切换到支持图生图的图片模型后重试。`)
   }
 
-  const promptTemplateId = isRegeneration
-    ? PROMPT_TEMPLATE_IDS.CHARACTER_REGENERATION
-    : PROMPT_TEMPLATE_IDS.CHARACTER_SHEET
-  const activeStyleConstraint = customPrompt || ''
-  const genderPrompt = resolveCharacterGenderPrompt(character.gender)
+  let effectivePrompt = ''
+  if (isRegeneration) {
+    // 二次生成仅使用“本次修改要求”，首轮描述依赖参考图承接，不再重复拼接。
+    effectivePrompt = customPrompt || ''
+  } else {
+    const genderPrompt = resolveCharacterGenderPrompt(character.gender)
+    const prompt = await getInterpolatedPrompt(
+      PROMPT_TEMPLATE_IDS.CHARACTER_SHEET,
+      {
+        characterName: character.name,
+        appearance: character.appearance,
+        gender: genderPrompt.zh,
+        genderEn: genderPrompt.en,
+        style
+      }
+    )
 
-  const prompt = await getInterpolatedPrompt(
-    promptTemplateId,
-    {
-      characterName: character.name,
-      appearance: character.appearance,
-      gender: genderPrompt.zh,
-      genderEn: genderPrompt.en,
-      style,
-      customPrompt: customPrompt || '',
-      activeStyleConstraint
+    if (!prompt) {
+      throw new Error('无法获取提示词模板，请检查数据库配置')
     }
-  )
-
-  if (!prompt) {
-    throw new Error('无法获取提示词模板，请检查数据库配置')
+    effectivePrompt = prompt
   }
-  const effectivePrompt = prompt
   console.log(`[CharacterGen] 使用图片模型: ${modelId}`)
   console.log(`[CharacterGen] 生成模式: ${isRegeneration ? '角色二次生成' : '角色初次生成'}`)
   console.log(`[CharacterGen] 视频模型: ${workflowModels.video_generation}, Seedance线稿约束: disabled`)
