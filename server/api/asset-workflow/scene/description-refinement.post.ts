@@ -186,7 +186,7 @@ function normalizeRefinedDescription(options: {
   const lineBody = (refinedCore || fallbackCore || '保持原场景动作与情绪推进。')
     .replace(/\s+/g, ' ')
     .trim()
-  const fallbackTimeline = `0-${safeDuration}秒：，中景，固定镜头。${lineBody}`
+  const fallbackTimeline = `0-${safeDuration}秒：中景，固定镜头。${lineBody}`
 
   if (!refinedCore) {
     return fallbackTimeline

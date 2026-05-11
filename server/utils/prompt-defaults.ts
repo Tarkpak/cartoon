@@ -212,10 +212,10 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
    - ……
    表演关键点：
    - ……
-3. “镜头设计”中的每行格式必须是：起始-结束秒：，景别，运镜方式。画面动作与对白。
+3. “镜头设计”中的每行格式必须是：起始-结束秒：景别，运镜方式。画面动作与对白。
    - 景别如：中景、近景、特写镜头、中近景、全景、大远景等。
    - 运镜方式如：固定镜头、缓慢推近、缓慢拉远、镜头左摇、镜头右摇、跟随镜头、手持镜头等。
-   - 可在运镜后补充镜头角度或特殊说明，如：，镜头角度略低于XX的视线。
+   - 可在运镜后补充镜头角度或特殊说明，如：镜头角度略低于XX的视线。
 4. 每个场景至少 2 行镜头设计，建议 3-6 行；时间轴从 0 开始，最后一行结束时间应与 duration 对齐或接近（误差不超过 0.5 秒）。
 5. 时长要以剧情表达完整为优先。若同一戏剧段超过单场可生成时长，请拆成连续场景承接，不得删减关键剧情与情绪推进。
 6. 对话要直接写在对应镜头行中，用单引号包裹，例如：陆哲说：'你们等着看。'
@@ -248,7 +248,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
       "title": "场景标题",
       "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
       "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
-      "description": "场景功能/情绪定位：公开压迫，主角第一次显出反击前的冷感。\\n镜头设计：\\n0-2秒：，中景，固定镜头。护士站走廊白炽灯映出冷硬的墙面，人来人往，陆哲抬手整理白大褂，动作从容。\\n2-5秒：，近景，缓慢推近。陆哲嘴角上扬，眼神中透着志在必得的冷傲。陆哲说：'你们等着看。'\\n5-8秒：，中景，固定镜头。画外音（音色：男性，30岁左右，语调沉稳，音高偏低，语速适中，情绪克制，无口音）说：'他的目光穿过人群，像一把隐忍的刀。'\\n声音设计：\\n- 环境音以护士站脚步声、推车轮声和广播底噪为主。\\n- 陆哲开口前压低环境声，让台词更顶。\\n台词节奏：\\n- '你们等着看。'前短停半拍，后半句咬字更重。\\n表演关键点：\\n- 整理白大褂时手势克制而笃定。\\n- 说完台词后不要立刻转身，留一个带轻蔑意味的停顿。",
+      "description": "场景功能/情绪定位：公开压迫，主角第一次显出反击前的冷感。\\n镜头设计：\\n0-2秒：中景，固定镜头。护士站走廊白炽灯映出冷硬的墙面，人来人往，陆哲抬手整理白大褂，动作从容。\\n2-5秒：近景，缓慢推近。陆哲嘴角上扬，眼神中透着志在必得的冷傲。陆哲说：'你们等着看。'\\n5-8秒：中景，固定镜头。画外音（音色：男性，30岁左右，语调沉稳，音高偏低，语速适中，情绪克制，无口音）说：'他的目光穿过人群，像一把隐忍的刀。'\\n声音设计：\\n- 环境音以护士站脚步声、推车轮声和广播底噪为主。\\n- 陆哲开口前压低环境声，让台词更顶。\\n台词节奏：\\n- '你们等着看。'前短停半拍，后半句咬字更重。\\n表演关键点：\\n- 整理白大褂时手势克制而笃定。\\n- 说完台词后不要立刻转身，留一个带轻蔑意味的停顿。",
       "setting": {
         "location": "医院-护士站",
         "timeOfDay": "夜晚",
@@ -344,7 +344,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
    - ...
    Performance notes:
    - ...
-3. Under "Shot design", each line must follow the format (use Chinese tokens exactly): start-end秒：，景别，运镜方式。Visual action and dialogue.
+3. Under "Shot design", each line must follow the format (use Chinese tokens exactly): start-end秒：景别，运镜方式。Visual action and dialogue.
    - 景别 (shot sizes): 中景, 近景, 特写镜头, 中近景, 全景, 大远景, etc.
    - 运镜方式 (camera movements): 固定镜头, 缓慢推近, 缓慢拉远, 镜头左摇, 镜头右摇, 跟随镜头, 手持镜头, etc.
    - Additional camera info may follow, e.g.: ，镜头角度略低于XX的视线。
@@ -379,7 +379,7 @@ Output strict JSON only:
       "title": "Scene title",
       "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
       "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
-      "description": "Scene function / emotional beat: Public pressure, with the protagonist's first cold sign of future retaliation.\\nShot design:\\n0-2秒：，中景，固定镜头。Busy nurse station under cold fluorescent light, Lu Zhe adjusts his white coat.\\n2-5秒：，近景，缓慢推近。Lu Zhe smirks with cold confidence. Lu Zhe says: 'Wait and see.'\\n5-8秒：，中景，固定镜头。画外音（音色：male，around 30，steady tone，low-mid pitch，moderate pace，restrained，no accent）says: 'His gaze cuts through the crowd like a hidden blade.'\\nSound design:\\n- Footsteps, trolley wheels, and PA noise fill the background.\\n- Pull the ambient bed down just before the line lands.\\nDialogue rhythm:\\n- Leave a short half-beat pause before 'Wait and see.'\\nPerformance notes:\\n- Keep the coat-adjusting gesture small and controlled.\\n- Hold a contemptuous pause after the line instead of exiting immediately.",
+      "description": "Scene function / emotional beat: Public pressure, with the protagonist's first cold sign of future retaliation.\\nShot design:\\n0-2秒：中景，固定镜头。Busy nurse station under cold fluorescent light, Lu Zhe adjusts his white coat.\\n2-5秒：近景，缓慢推近。Lu Zhe smirks with cold confidence. Lu Zhe says: 'Wait and see.'\\n5-8秒：中景，固定镜头。画外音（音色：male，around 30，steady tone，low-mid pitch，moderate pace，restrained，no accent）says: 'His gaze cuts through the crowd like a hidden blade.'\\nSound design:\\n- Footsteps, trolley wheels, and PA noise fill the background.\\n- Pull the ambient bed down just before the line lands.\\nDialogue rhythm:\\n- Leave a short half-beat pause before 'Wait and see.'\\nPerformance notes:\\n- Keep the coat-adjusting gesture small and controlled.\\n- Hold a contemptuous pause after the line instead of exiting immediately.",
       "setting": {
         "location": "Hospital - nurse station",
         "timeOfDay": "夜晚",
@@ -480,7 +480,7 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 【description 写作规则】
 1. 必须是“可拍摄”的时间轴分镜块，禁止一句话概述。
 2. 每个场景至少 2 行镜头设计，建议 3-6 行，时间从 0 秒起。
-3. 镜头行格式：起始-结束秒：，景别，运镜方式。画面动作与对白。
+3. 镜头行格式：起始-结束秒：景别，运镜方式。画面动作与对白。
 4. 对白写在镜头行，用单引号；旁白写成：画外音（音色：...）说：'...'
 5. 必须包含“声音设计/台词节奏/表演关键点”，突出停顿、眼神、手部动作和压迫感。
 6. 禁止输出 @图片N（旧格式 [图片N] 也禁止）、字幕指令、BGM指令等后期制作命令。
@@ -504,7 +504,7 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
       "title": "场景标题",
       "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
       "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
-      "description": "场景功能/情绪定位：开场钩子，冲突强压。\\n镜头设计：\\n0-2秒：，中景，固定镜头。离婚协议被推到桌面中央，纸张边缘刮过手背。\\n2-5秒：，近景，缓慢推近。女儿盯着男主，冷声补刀：'你早该签了。'\\n5-8秒：，特写镜头，固定镜头。男主眼神发冷，手指停在签字处。\\n声音设计：\\n- 纸张摩擦声与椅脚拖地声前置。\\n台词节奏：\\n- '你早该签了。'中段停顿半拍。\\n表演关键点：\\n- 签字前手部细颤，随后逐步稳定。",
+      "description": "场景功能/情绪定位：开场钩子，冲突强压。\\n镜头设计：\\n0-2秒：中景，固定镜头。离婚协议被推到桌面中央，纸张边缘刮过手背。\\n2-5秒：近景，缓慢推近。女儿盯着男主，冷声补刀：'你早该签了。'\\n5-8秒：特写镜头，固定镜头。男主眼神发冷，手指停在签字处。\\n声音设计：\\n- 纸张摩擦声与椅脚拖地声前置。\\n台词节奏：\\n- '你早该签了。'中段停顿半拍。\\n表演关键点：\\n- 签字前手部细颤，随后逐步稳定。",
       "setting": {
         "location": "客厅-餐桌区",
         "timeOfDay": "夜晚",
@@ -602,7 +602,7 @@ Final declaration | 43-60s | emptiness -> cold severity | cliffhanger / anticipa
 ## Description Writing Rules
 1. Description must be production-ready timeline blocks, not one-line summaries.
 2. At least 2 timeline shot lines per scene, preferably 3-6, starting from 0s.
-3. Shot line format: start-end秒：，shot size，camera movement。Visual action and dialogue.
+3. Shot line format: start-end秒：shot size，camera movement。Visual action and dialogue.
 4. Put dialogue inline using single quotes; narration format must be: 画外音（音色：...）说：'...'
 5. Include Sound design / Dialogue rhythm / Performance notes with pauses, gaze, hand tension, and pressure beats.
 6. Do not output @图片N tags (legacy [ImageN] is also disallowed), subtitle directives, BGM directives, or editing commands.
@@ -626,7 +626,7 @@ Output strict JSON only:
       "title": "Scene title",
       "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
       "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
-      "description": "Scene function / emotional beat: opening hook with immediate pressure.\\nShot design:\\n0-2秒：，中景，固定镜头。The divorce agreement is pushed to the center of the table.\\n2-5秒：，近景，缓慢推近。Daughter delivers a cold line: 'You should have signed earlier.'\\n5-8秒：，特写镜头，固定镜头。The protagonist's trembling fingers gradually steady.\\nSound design:\\n- Paper friction and chair drag lead the beat.\\nDialogue rhythm:\\n- Add a half-beat pause before the final words.\\nPerformance notes:\\n- Hand tremor transitions into controlled stillness.",
+      "description": "Scene function / emotional beat: opening hook with immediate pressure.\\nShot design:\\n0-2秒：中景，固定镜头。The divorce agreement is pushed to the center of the table.\\n2-5秒：近景，缓慢推近。Daughter delivers a cold line: 'You should have signed earlier.'\\n5-8秒：特写镜头，固定镜头。The protagonist's trembling fingers gradually steady.\\nSound design:\\n- Paper friction and chair drag lead the beat.\\nDialogue rhythm:\\n- Add a half-beat pause before the final words.\\nPerformance notes:\\n- Hand tremor transitions into controlled stillness.",
       "setting": {
         "location": "Living room - dining table",
         "timeOfDay": "夜晚",
@@ -870,7 +870,7 @@ const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
 2. description 必须保持为“详细场景说明块”，不要退化成一句概述或普通散文。
 3. 所有镜头、声音、台词节奏、表演提示都必须继续融合在 description 里，不要拆成额外 JSON 字段。
 4. 优先沿用并强化这种结构：场景功能/情绪定位、镜头设计、声音设计、台词节奏、表演关键点。
-5. 其中“镜头设计”至少包含 1 行时间轴，通常 2-6 行；每行格式：起始-结束秒：，景别，运镜方式。画面描述。旁白请用画外音格式嵌入。
+5. 其中“镜头设计”至少包含 1 行时间轴，通常 2-6 行；每行格式：起始-结束秒：景别，运镜方式。画面描述。旁白请用画外音格式嵌入。
 6. 总时长参考约 {{durationHint}} 秒；如果是核心冲突戏，优先在同一 description 里做逐秒拆镜，而不是压缩成一句概述。
 7. 必须融合用户本次修改意图，并保持剧情连续、角色身份一致、环境逻辑一致。
 8. 若提到资产（角色/环境/道具），应体现在描述里，但不要输出 @mention 或 [引用资产] 区块。
@@ -916,7 +916,7 @@ const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
 2. description must remain a detailed scene block, not a one-line summary and not plain prose.
 3. Keep all shot, sound, dialogue-rhythm, and performance guidance inside description itself. Do not split them into extra JSON fields.
 4. Prefer preserving and strengthening this structure: scene function / emotional beat, shot design, sound design, dialogue rhythm, performance notes.
-5. Under shot design, include at least one timeline line and usually 2-6 lines. Each line must follow the format (use Chinese tokens exactly): start-end秒：，景别，运镜方式。Visual description.
+5. Under shot design, include at least one timeline line and usually 2-6 lines. Each line must follow the format (use Chinese tokens exactly): start-end秒：景别，运镜方式。Visual description.
 6. The target duration is about {{durationHint}} seconds. For a major dramatic beat, expand detail inside the same description instead of collapsing it into summary prose.
 7. Integrate the user's requested changes while preserving plot continuity, character identity, and environment logic.
 8. If assets are mentioned, reflect them in the scene description, but do not output @mentions or asset-reference blocks.
