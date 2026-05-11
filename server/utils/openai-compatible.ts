@@ -54,6 +54,7 @@ interface ImageGenerationDataItem {
 interface ImageTaskData {
   id?: string
   status?: string
+  task_status?: string
   progress?: number
   result?: {
     images?: Array<{
@@ -77,6 +78,7 @@ interface ImageGenerationResponse {
 
 interface ImageTaskStatusResponse {
   code?: number
+  status?: string
   data?: ImageTaskData
   message?: string
 }
@@ -93,9 +95,16 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxDelayMs: 16000
 }
 
-const DEFAULT_IMAGE_TASK_INITIAL_DELAY_MS = 10000
-const DEFAULT_IMAGE_TASK_POLL_INTERVAL_MS = 4000
-const DEFAULT_IMAGE_TASK_TIMEOUT_MS = 180000
+function resolvePositiveEnvInt(name: string, fallback: number): number {
+  const raw = process.env[name]
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return Math.floor(parsed)
+}
+
+const DEFAULT_IMAGE_TASK_INITIAL_DELAY_MS = resolvePositiveEnvInt('OPENAI_COMPAT_IMAGE_TASK_INITIAL_DELAY_MS', 10000)
+const DEFAULT_IMAGE_TASK_POLL_INTERVAL_MS = resolvePositiveEnvInt('OPENAI_COMPAT_IMAGE_TASK_POLL_INTERVAL_MS', 4000)
+const DEFAULT_IMAGE_TASK_TIMEOUT_MS = resolvePositiveEnvInt('OPENAI_COMPAT_IMAGE_TASK_TIMEOUT_MS', 600000)
 const APIMART_GPT_IMAGE_2_MODEL = 'gpt-image-2'
 const APIMART_GPT_IMAGE_2_OFFICIAL_MODEL = 'gpt-image-2-official'
 const APIMART_IMAGE_RESOLUTIONS = new Set(['1k', '2k', '4k'])
@@ -711,6 +720,24 @@ function normalizeTaskStatus(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : ''
 }
 
+function isTaskSuccessStatus(status: string): boolean {
+  return status === 'completed'
+    || status === 'succeeded'
+    || status === 'succeed'
+    || status === 'success'
+    || status === 'done'
+    || status === 'finished'
+}
+
+function isTaskFailedStatus(status: string): boolean {
+  return status === 'failed'
+    || status === 'cancelled'
+    || status === 'canceled'
+    || status === 'error'
+    || status === 'rejected'
+    || status === 'expired'
+}
+
 function taskErrorMessage(response: ImageTaskStatusResponse): string {
   return response.data?.error?.message
     || response.data?.message
@@ -725,34 +752,51 @@ async function resolveImageTaskResult(options: {
   await sleep(DEFAULT_IMAGE_TASK_INITIAL_DELAY_MS)
 
   const startedAt = Date.now()
+  let lastStatus = ''
+  let lastProgress: number | undefined
   while (Date.now() - startedAt < DEFAULT_IMAGE_TASK_TIMEOUT_MS) {
     const taskResponse = await requestImageTaskStatus<ImageTaskStatusResponse>(
       options.providerConfig,
       options.taskId
     )
-    const status = normalizeTaskStatus(taskResponse.data?.status)
+    const status = normalizeTaskStatus(
+      taskResponse.data?.status
+      || taskResponse.data?.task_status
+      || taskResponse.status
+    )
+    lastStatus = status
+    lastProgress = typeof taskResponse.data?.progress === 'number'
+      ? taskResponse.data.progress
+      : lastProgress
     console.log('[OpenAI Compatible] Image Task Status:', {
       taskId: options.taskId,
       status,
       progress: taskResponse.data?.progress
     })
 
-    if (status === 'completed' || status === 'succeeded' || status === 'succeed' || status === 'success') {
-      const imageResult = extractImageResultFromResponse(taskResponse)
-      if (imageResult?.imageUrl || imageResult?.imageData) {
-        return imageResult
-      }
+    // 有些兼容提供商状态字段不稳定，只要拿到图片就直接返回
+    const imageResult = extractImageResultFromResponse(taskResponse)
+    if (imageResult?.imageUrl || imageResult?.imageData) {
+      return imageResult
+    }
+
+    if (isTaskSuccessStatus(status)) {
       throw new OpenAICompatibleError('图片任务已完成但未返回图片 URL 或 base64', 500, false)
     }
 
-    if (status === 'failed' || status === 'cancelled' || status === 'canceled' || status === 'error') {
+    if (isTaskFailedStatus(status)) {
       throw new OpenAICompatibleError(taskErrorMessage(taskResponse), 500, false)
     }
 
     await sleep(DEFAULT_IMAGE_TASK_POLL_INTERVAL_MS)
   }
 
-  throw new OpenAICompatibleError('图片任务查询超时', 504, false)
+  const timeoutDetails = [
+    `taskId=${options.taskId}`,
+    `status=${lastStatus || 'unknown'}`,
+    `progress=${typeof lastProgress === 'number' ? String(lastProgress) : 'n/a'}`
+  ].join(', ')
+  throw new OpenAICompatibleError(`图片任务查询超时（${timeoutDetails}）`, 504, false)
 }
 
 export async function listOpenAICompatibleModels(
