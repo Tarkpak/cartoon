@@ -82,7 +82,7 @@ const emit = defineEmits<{
             variant="ghost"
             size="sm"
             :class="[
-              'w-full h-auto justify-start text-left p-2 rounded border transition-colors',
+              'w-full h-auto min-w-0 justify-start p-2 rounded border transition-colors flex-col items-start gap-1 whitespace-normal text-left',
               isVarUnused(variable.name)
                 ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20'
                 : 'hover:bg-muted'
@@ -90,13 +90,13 @@ const emit = defineEmits<{
             :disabled="readonly"
             @click="emit('insert-variable', variable.name)"
           >
-            <code class="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{{ getPromptVariableTag(variable.name) }}</code>
-            <p class="text-xs text-muted-foreground mt-1">
+            <code class="max-w-full break-all text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{{ getPromptVariableTag(variable.name) }}</code>
+            <p class="w-full text-xs text-muted-foreground leading-5 break-words">
               {{ variable.description }}
             </p>
             <p
               v-if="variable.example"
-              class="text-xs text-muted-foreground/70 mt-0.5 truncate"
+              class="w-full text-xs text-muted-foreground/70 leading-5 break-words"
             >
               示例: {{ variable.example }}
             </p>

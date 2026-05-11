@@ -48,4 +48,18 @@ describe('volcengine video content builder', () => {
     expect(result.hasAudioReference).toBe(false)
     expect(result.content.some(item => item.type === 'audio_url')).toBe(false)
   })
+
+  it('treats first-frame input as mutually exclusive when reference images are provided', () => {
+    const result = __volcengineTestUtils.buildVolcengineVideoContent({
+      prompt: '连续镜头',
+      normalizedReferenceImages: [
+        'https://example.com/continuity.png',
+        'https://example.com/character.png'
+      ],
+      normalizedFirstFrameUrl: 'https://example.com/continuity.png'
+    })
+
+    expect(result.content.some(item => item.type === 'image_url' && item.role === 'first_frame')).toBe(false)
+    expect(result.content.filter(item => item.type === 'image_url' && item.role === 'reference_image')).toHaveLength(2)
+  })
 })

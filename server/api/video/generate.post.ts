@@ -1632,10 +1632,20 @@ async function generateVideoWithVolcengine(
     if (duration < minDuration) duration = minDuration
     else if (duration > maxDuration) duration = maxDuration
 
+    const baseReferenceInputs = [
+      ...(config.imageUrl ? [config.imageUrl] : []),
+      ...(Array.isArray(config.referenceImages) ? config.referenceImages : [])
+    ]
+      .map(item => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean)
+    const hasBaseReferenceInputs = baseReferenceInputs.length > 0
     const mergedReferenceImages = Array.from(new Set(
       [
-        ...(config.imageUrl ? [config.imageUrl] : []),
-        ...(Array.isArray(config.referenceImages) ? config.referenceImages : [])
+        // 文档约束：reference_images 与 first/last_frame 互斥。
+        // 当已进入参考图策略时，把首尾帧输入降级并入 referenceImages，避免直接丢失连续性参考。
+        ...(hasBaseReferenceInputs && config.firstFrame ? [config.firstFrame] : []),
+        ...(hasBaseReferenceInputs && config.lastFrame ? [config.lastFrame] : []),
+        ...baseReferenceInputs
       ]
         .map(item => (typeof item === 'string' ? item.trim() : ''))
         .filter(Boolean)
@@ -1669,12 +1679,18 @@ async function generateVideoWithVolcengine(
     const firstFrameUrl = hasReferenceImages ? undefined : config.firstFrame
     const lastFrameUrl = hasReferenceImages ? undefined : config.lastFrame
     const hasAudioReference = !!config.audioUrl && (hasReferenceImages || !!imageUrl || !!firstFrameUrl || !!lastFrameUrl)
+    const hasFrameAnchors = !!(config.imageUrl || config.firstFrame || config.lastFrame)
+    const frameAnchorDowngradedToReferenceImages = hasReferenceImages && hasFrameAnchors
+    const resolvedInputMode = hasReferenceImages
+      ? (frameAnchorDowngradedToReferenceImages ? 'reference_images(frame_anchor_downgraded)' : 'reference_images')
+      : (firstFrameUrl && lastFrameUrl ? 'first_last_frame' : (imageUrl || firstFrameUrl) ? 'single_image' : 'text_only')
 
     console.log('[VideoGen] Seedance 输入策略:', {
-      inputMode: hasReferenceImages ? 'reference_images' : (firstFrameUrl && lastFrameUrl ? 'first_last_frame' : imageUrl ? 'single_image' : 'text_only'),
+      inputMode: resolvedInputMode,
       hasImageUrl: !!imageUrl,
       hasFirstFrame: !!firstFrameUrl,
       hasLastFrame: !!lastFrameUrl,
+      frameAnchorDowngradedToReferenceImages,
       hasAudioReference,
       hasReferenceImages,
       referenceImagesCount: referenceImages.length,

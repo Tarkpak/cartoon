@@ -54,6 +54,11 @@ export function getPromptVariableValidation(
   variables: PromptVariable[]
 ): PromptVariableValidation {
   const definedVars = getPromptVariableNameSet(variables)
+  const requiredVars = new Set(
+    variables
+      .filter(variable => !variable.optional)
+      .map(variable => extractPromptVariableName(variable.name))
+  )
   const usedVars = new Set<string>()
   const matcher = createPromptVariableMatcher()
 
@@ -65,7 +70,7 @@ export function getPromptVariableValidation(
   }
 
   const undefinedVars = [...usedVars].filter(variableName => !definedVars.has(variableName))
-  const unusedVars = [...definedVars].filter(variableName => !usedVars.has(variableName))
+  const unusedVars = [...requiredVars].filter(variableName => !usedVars.has(variableName))
 
   return {
     undefinedVars,

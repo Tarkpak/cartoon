@@ -2,11 +2,19 @@
 import {
   ChevronDown,
   ChevronRight,
+  CircleHelp,
   FileText,
   Pencil,
   Plus,
   Trash2
 } from 'lucide-vue-next'
+import {
+  TooltipContent,
+  TooltipPortal,
+  TooltipProvider,
+  TooltipRoot,
+  TooltipTrigger
+} from 'reka-ui'
 import type { PromptFlowStage, PromptTemplateProfile } from '#shared/types/prompt-template'
 import type { PromptTemplateGroup } from '@/composables/useSettingsPrompts'
 
@@ -128,78 +136,102 @@ function toSelectString(value: unknown): string {
       v-else
       class="flex-1 overflow-y-auto py-1"
     >
-      <div
-        v-for="group in props.groupedPromptTemplates"
-        :key="group.stage"
-        class="select-none"
-      >
+      <TooltipProvider :delay-duration="180">
         <div
-          class="flex cursor-pointer items-center gap-2 px-2 py-2 transition-colors hover:bg-accent/50"
-          @click="emit('toggle-stage', group.stage)"
+          v-for="group in props.groupedPromptTemplates"
+          :key="group.stage"
+          class="select-none"
         >
-          <component
-            :is="group.expanded ? ChevronDown : ChevronRight"
-            class="h-4 w-4 flex-shrink-0 text-muted-foreground"
-          />
           <div
-            class="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border"
-            :class="getIconClass(group.color)"
+            class="flex cursor-pointer items-center gap-2 px-2 py-2 transition-colors hover:bg-accent/50"
+            @click="emit('toggle-stage', group.stage)"
           >
             <component
-              :is="group.icon"
-              class="h-3.5 w-3.5"
+              :is="group.expanded ? ChevronDown : ChevronRight"
+              class="h-4 w-4 flex-shrink-0 text-muted-foreground"
             />
-          </div>
-          <div class="min-w-0 flex-1">
-            <div class="text-sm font-medium">
-              {{ group.name }}
-            </div>
-            <div class="text-[11px] text-muted-foreground">
-              {{ group.templates.length }} 个模板
-            </div>
-          </div>
-        </div>
-
-        <div
-          v-show="group.expanded"
-          class="pb-1"
-        >
-          <Button
-            v-for="template in group.templates"
-            :key="template.id"
-            type="button"
-            variant="ghost"
-            class="h-auto w-full justify-start gap-2 rounded-none py-2 pl-7 pr-2 text-left transition-colors"
-            :class="template.id === props.selectedPromptId ? 'bg-primary/10 text-primary' : 'hover:bg-accent/50'"
-            @click="emit('select-prompt', template.id)"
-          >
             <div
-              class="mt-1 flex h-3 w-3 flex-shrink-0 items-center justify-center rounded-full border-2"
-              :class="template.id === props.selectedPromptId ? 'border-primary' : 'border-muted-foreground/40'"
+              class="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border"
+              :class="getIconClass(group.color)"
             >
-              <div
-                v-if="template.id === props.selectedPromptId"
-                class="h-1.5 w-1.5 rounded-full bg-primary"
+              <component
+                :is="group.icon"
+                class="h-3.5 w-3.5"
               />
             </div>
-
             <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2">
-                <span class="truncate text-sm">{{ template.name }}</span>
-                <span
-                  v-if="template.isCustomized && !props.activeProfileReadonly"
-                  class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900 dark:text-amber-300"
-                >
-                  已自定义
-                </span>
+              <div class="text-sm font-medium">
+                {{ group.name }}
               </div>
-              <p class="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                {{ template.description }}
-              </p>
+              <div class="text-[11px] text-muted-foreground">
+                {{ group.templates.length }} 个模板
+              </div>
             </div>
-          </Button>
+          </div>
+
+          <div
+            v-show="group.expanded"
+            class="pb-1"
+          >
+            <Button
+              v-for="template in group.templates"
+              :key="template.id"
+              type="button"
+              variant="ghost"
+              class="h-auto w-full justify-start gap-2 rounded-none py-2 pl-7 pr-2 text-left transition-colors"
+              :class="template.id === props.selectedPromptId ? 'bg-primary/10 text-primary' : 'hover:bg-accent/50'"
+              @click="emit('select-prompt', template.id)"
+            >
+              <div
+                class="mt-1 flex h-3 w-3 flex-shrink-0 items-center justify-center rounded-full border-2"
+                :class="template.id === props.selectedPromptId ? 'border-primary' : 'border-muted-foreground/40'"
+              >
+                <div
+                  v-if="template.id === props.selectedPromptId"
+                  class="h-1.5 w-1.5 rounded-full bg-primary"
+                />
+              </div>
+
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <span
+                    class="truncate text-sm"
+                    :title="template.name"
+                  >{{ template.name }}</span>
+
+                  <TooltipRoot>
+                    <TooltipTrigger as-child>
+                      <span
+                        class="inline-flex h-4 w-4 flex-shrink-0 cursor-help items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+                        aria-label="查看模板描述"
+                        @click.stop.prevent
+                      >
+                        <CircleHelp class="h-3.5 w-3.5" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipPortal>
+                      <TooltipContent
+                        :side-offset="6"
+                        side="top"
+                        class="z-[70] max-w-72 rounded-md border bg-popover px-2.5 py-1.5 text-xs leading-5 text-popover-foreground shadow-md"
+                      >
+                        {{ template.description }}
+                      </TooltipContent>
+                    </TooltipPortal>
+                  </TooltipRoot>
+
+                  <span
+                    v-if="template.isCustomized && !props.activeProfileReadonly"
+                    class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                  >
+                    已自定义
+                  </span>
+                </div>
+              </div>
+            </Button>
+          </div>
         </div>
-      </div>
+      </TooltipProvider>
 
       <div
         v-if="props.groupedPromptTemplates.length === 0"
