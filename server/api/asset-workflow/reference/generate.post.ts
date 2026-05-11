@@ -880,14 +880,16 @@ export default defineEventHandler(async (event) => {
         `[AssetWorkflow/Reference] 模型 ${modelId} 未声明支持 ${panoramaSource.aspectRatio}，环境源图仍按 ${panoramaSource.modeLabel}（${panoramaSource.size}）请求`
       )
     }
-    const prompt = await buildSceneReferencePrompt(
-      scene,
-      style,
-      aspectRatio,
-      panoramaSource,
-      environmentContext,
-      customPrompt
-    )
+    const prompt = isRegeneration
+      ? (customPrompt || '')
+      : await buildSceneReferencePrompt(
+          scene,
+          style,
+          aspectRatio,
+          panoramaSource,
+          environmentContext,
+          customPrompt
+        )
     const negativePromptTemplate = await getInterpolatedPrompt(
       PROMPT_TEMPLATE_IDS.ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT,
       {},
