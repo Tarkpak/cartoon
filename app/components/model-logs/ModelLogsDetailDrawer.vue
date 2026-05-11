@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { X } from 'lucide-vue-next'
+import { Check, Copy, X } from 'lucide-vue-next'
 import type { ModelDebugLogEntry } from '@/composables/useModelDebugLogs'
 import {
   Drawer,
@@ -20,7 +20,11 @@ const props = defineProps<{
   toReadableText: (value: unknown) => string
 }>()
 
+type CopySectionKey = 'request-readable' | 'response-readable' | 'request-raw' | 'response-raw'
+
 const viewMode = ref<'readable' | 'raw' | 'media'>('readable')
+const copyingSection = ref<CopySectionKey | ''>('')
+const copiedSection = ref<CopySectionKey | ''>('')
 
 const requestReadable = computed(() => props.toReadableText(props.activeLog?.request))
 const responseReadable = computed(() => props.toReadableText(props.activeLog?.response))
@@ -28,9 +32,37 @@ const requestRaw = computed(() => props.toPrettyJson(props.activeLog?.requestRaw
 const responseRaw = computed(() => props.toPrettyJson(props.activeLog?.responseRaw ?? props.activeLog?.response))
 const mediaRefs = computed(() => props.activeLog?.mediaRefs || [])
 
+async function copySection(section: CopySectionKey, content: string) {
+  if (!import.meta.client) return
+
+  const text = content.trim()
+  if (!text || copyingSection.value === section) return
+
+  copyingSection.value = section
+  copiedSection.value = ''
+
+  try {
+    await navigator.clipboard.writeText(content)
+    copiedSection.value = section
+    window.setTimeout(() => {
+      if (copiedSection.value === section) {
+        copiedSection.value = ''
+      }
+    }, 1600)
+  } catch (error) {
+    console.warn('[ModelLogsDetailDrawer] 复制日志内容失败:', error)
+  } finally {
+    if (copyingSection.value === section) {
+      copyingSection.value = ''
+    }
+  }
+}
+
 watch(open, (value) => {
   if (value) {
     viewMode.value = 'readable'
+    copyingSection.value = ''
+    copiedSection.value = ''
   }
 })
 </script>
@@ -39,6 +71,7 @@ watch(open, (value) => {
   <Drawer
     v-model:open="open"
     direction="right"
+    :handle-only="true"
     :should-scale-background="false"
   >
     <DrawerContent
@@ -151,33 +184,113 @@ watch(open, (value) => {
 
           <template v-if="viewMode === 'readable'">
             <div class="space-y-2">
-              <h4 class="text-sm font-medium">
-                请求参数（可读）
-              </h4>
-              <pre class="overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">{{ requestReadable || '无' }}</pre>
+              <div class="flex items-center justify-between gap-2">
+                <h4 class="text-sm font-medium">
+                  请求参数（可读）
+                </h4>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  class="h-7 gap-1.5 px-2 text-[11px]"
+                  :disabled="!requestReadable || copyingSection === 'request-readable'"
+                  @click="copySection('request-readable', requestReadable)"
+                >
+                  <Check
+                    v-if="copiedSection === 'request-readable'"
+                    class="h-3.5 w-3.5"
+                  />
+                  <Copy
+                    v-else
+                    class="h-3.5 w-3.5"
+                  />
+                  {{ copiedSection === 'request-readable' ? '已复制' : '复制' }}
+                </Button>
+              </div>
+              <pre class="overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs select-text">{{ requestReadable || '无' }}</pre>
             </div>
 
             <div class="space-y-2">
-              <h4 class="text-sm font-medium">
-                响应结果（可读）
-              </h4>
-              <pre class="overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">{{ responseReadable || '无' }}</pre>
+              <div class="flex items-center justify-between gap-2">
+                <h4 class="text-sm font-medium">
+                  响应结果（可读）
+                </h4>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  class="h-7 gap-1.5 px-2 text-[11px]"
+                  :disabled="!responseReadable || copyingSection === 'response-readable'"
+                  @click="copySection('response-readable', responseReadable)"
+                >
+                  <Check
+                    v-if="copiedSection === 'response-readable'"
+                    class="h-3.5 w-3.5"
+                  />
+                  <Copy
+                    v-else
+                    class="h-3.5 w-3.5"
+                  />
+                  {{ copiedSection === 'response-readable' ? '已复制' : '复制' }}
+                </Button>
+              </div>
+              <pre class="overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs select-text">{{ responseReadable || '无' }}</pre>
             </div>
           </template>
 
           <template v-else-if="viewMode === 'raw'">
             <div class="space-y-2">
-              <h4 class="text-sm font-medium">
-                请求参数（原始 JSON）
-              </h4>
-              <pre class="overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">{{ requestRaw || '无' }}</pre>
+              <div class="flex items-center justify-between gap-2">
+                <h4 class="text-sm font-medium">
+                  请求参数（原始 JSON）
+                </h4>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  class="h-7 gap-1.5 px-2 text-[11px]"
+                  :disabled="!requestRaw || copyingSection === 'request-raw'"
+                  @click="copySection('request-raw', requestRaw)"
+                >
+                  <Check
+                    v-if="copiedSection === 'request-raw'"
+                    class="h-3.5 w-3.5"
+                  />
+                  <Copy
+                    v-else
+                    class="h-3.5 w-3.5"
+                  />
+                  {{ copiedSection === 'request-raw' ? '已复制' : '复制' }}
+                </Button>
+              </div>
+              <pre class="overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs select-text">{{ requestRaw || '无' }}</pre>
             </div>
 
             <div class="space-y-2">
-              <h4 class="text-sm font-medium">
-                响应结果（原始 JSON）
-              </h4>
-              <pre class="overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">{{ responseRaw || '无' }}</pre>
+              <div class="flex items-center justify-between gap-2">
+                <h4 class="text-sm font-medium">
+                  响应结果（原始 JSON）
+                </h4>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  class="h-7 gap-1.5 px-2 text-[11px]"
+                  :disabled="!responseRaw || copyingSection === 'response-raw'"
+                  @click="copySection('response-raw', responseRaw)"
+                >
+                  <Check
+                    v-if="copiedSection === 'response-raw'"
+                    class="h-3.5 w-3.5"
+                  />
+                  <Copy
+                    v-else
+                    class="h-3.5 w-3.5"
+                  />
+                  {{ copiedSection === 'response-raw' ? '已复制' : '复制' }}
+                </Button>
+              </div>
+              <pre class="overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs select-text">{{ responseRaw || '无' }}</pre>
             </div>
           </template>
 
