@@ -882,7 +882,7 @@ function buildVolcengineVideoContent(options: {
     }
   ]
 
-  // 参考图模式与首帧/首尾帧模式互斥
+  // 官方文档约束：reference_images 与 first/last_frame 为互斥场景
   if (hasReferenceImages) {
     for (const referenceImage of options.normalizedReferenceImages) {
       content.push({
@@ -1000,6 +1000,8 @@ export async function _volcengineGenerateVideo(options: {
     usingSingleImage,
     hasAudioReference
   } = contentSpec
+  const inputMode = hasReferenceImages ? 'reference_images' : usingFirstLastFrame ? 'first_last_frame' : usingSingleImage ? 'single_image' : 'text_only'
+  const referenceImageCount = content.filter((item) => item.type === 'image_url' && item.role === 'reference_image').length
   const ratio = resolveVolcengineVideoAspectRatio(options.aspectRatio)
 
   if (options.aspectRatio && options.aspectRatio.trim() !== ratio) {
@@ -1014,7 +1016,7 @@ export async function _volcengineGenerateVideo(options: {
     model,
     promptLength: options.prompt.length,
     prompt: options.prompt,
-    inputMode: hasReferenceImages ? 'reference_images' : usingFirstLastFrame ? 'first_last_frame' : usingSingleImage ? 'single_image' : 'text_only',
+    inputMode,
     hasImageUrl: !!normalizedImageUrl,
     imageUrlLength: normalizedImageUrl?.length || 0,
     imageUrlKind: resolveImageInputKind(normalizedImageUrl),
@@ -1028,7 +1030,8 @@ export async function _volcengineGenerateVideo(options: {
     hasAudioUrl: !!normalizedAudioUrl,
     hasAudioReference,
     hasReferenceImages,
-    referenceImagesCount: normalizedReferenceImages.length,
+    referenceImagesCount: referenceImageCount,
+    providedReferenceImagesCount: normalizedReferenceImages.length,
     maxReferenceImages,
     duration: options.duration,
     aspectRatio: options.aspectRatio,
