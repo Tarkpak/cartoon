@@ -68,6 +68,7 @@ const emit = defineEmits<{
                 <div
                   v-if="version.note"
                   class="text-xs text-muted-foreground mt-0.5 truncate"
+                  :title="version.note"
                 >
                   {{ version.note }}
                 </div>

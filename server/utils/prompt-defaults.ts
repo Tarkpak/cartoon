@@ -168,7 +168,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 【输入规模】
 - 文本长度：约 {{textLength}} 字
-- 场景数量：默认不设固定值，由模型根据剧情承载自行决定；如外部传入提示值，仅作弱参考
+- 场景数量提示（弱参考，非硬限制）：{{recommendedMinScenes}}
 - 单场时长范围：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
 - 解析模式：{{scriptParseModeLabel}}
 
@@ -302,7 +302,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 ## Input Scale
 - Text length: about {{textLength}} characters
-- Scene count: no fixed default; let the model decide by story load. If an external hint is provided, treat it as a weak suggestion only
+- Scene-count hint (weak suggestion, not a hard limit): {{recommendedMinScenes}}
 - Per-scene duration range: {{sceneDurationMin}}-{{sceneDurationMax}} seconds
 - Parsing mode: {{scriptParseModeLabel}}
 
@@ -434,7 +434,7 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 
 【输入规模】
 - 文本长度：约 {{textLength}} 字
-- 场景数量：默认不设固定值，由模型根据剧情承载自行决定；如外部传入提示值，仅作弱参考
+- 场景数量提示（弱参考，非硬限制）：{{recommendedMinScenes}}
 - 单场时长范围：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
 
 【剧情覆盖硬约束（必须执行）】
@@ -558,7 +558,7 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 
 ## Input Scale
 - Text length: about {{textLength}} characters
-- Scene count: no fixed default; let the model decide by story load. If an external hint is provided, treat it as a weak suggestion only
+- Scene-count hint (weak suggestion, not a hard limit): {{recommendedMinScenes}}
 - Per-scene duration range: {{sceneDurationMin}}-{{sceneDurationMax}} seconds
 
 ## Hard Coverage Constraints (Must Follow)
