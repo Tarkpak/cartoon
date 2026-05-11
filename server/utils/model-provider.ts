@@ -277,15 +277,39 @@ function supportsOpenAIImageEdit(model: string): boolean {
   return normalizeModelId(model).toLowerCase().startsWith('gpt-image')
 }
 
+const APIMART_GPT_IMAGE_2_ASPECT_RATIOS = [
+  'auto',
+  '1:1',
+  '3:2',
+  '2:3',
+  '4:3',
+  '3:4',
+  '5:4',
+  '4:5',
+  '16:9',
+  '9:16',
+  '2:1',
+  '1:2',
+  '21:9',
+  '9:21'
+]
+
 function getCustomOpenAIImageAspectRatios(model: string): string[] {
-  if (normalizeModelId(model).toLowerCase() === 'gpt-image-2') {
-    return ['2:1', '21:9', '16:9', '3:2', '4:3', '1:1', '3:4', '2:3', '9:16']
+  const normalizedModel = normalizeModelId(model).toLowerCase()
+  if (normalizedModel === 'gpt-image-2' || normalizedModel === 'gpt-image-2-official') {
+    return APIMART_GPT_IMAGE_2_ASPECT_RATIOS
   }
 
   return ['1:1', '16:9', '9:16', '4:3', '3:4']
 }
 
 function getCustomOpenAIImageQualities(model: string): string[] | undefined {
+  const normalizedModel = normalizeModelId(model).toLowerCase()
+
+  if (normalizedModel === 'gpt-image-2') {
+    return ['1k', '2k', '4k']
+  }
+
   if (supportsOpenAIImageQuality(model)) {
     return ['auto', 'low', 'medium', 'high']
   }
@@ -1265,6 +1289,7 @@ export async function generateImage(options: {
       model: modelId,
       prompt: options.prompt,
       size: options.size,
+      aspectRatio: options.aspectRatio,
       quality: options.quality,
       referenceImages: openAIReferenceImages,
       maxRetries: options.maxRetries
