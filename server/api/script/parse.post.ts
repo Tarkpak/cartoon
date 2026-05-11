@@ -733,7 +733,7 @@ function buildFormattedTimelineScript(data: ParsedScript): {
 
     const cameraMovementLabel = CAMERA_MOVEMENT_LABEL_MAP[scene.cameraMovement || DEFAULT_CAMERA_MOVEMENT] || CAMERA_MOVEMENT_LABEL_MAP[DEFAULT_CAMERA_MOVEMENT]
 
-    return `${formatTimelineSeconds(start)}-${formatTimelineSeconds(end)}秒：，${shotLabel}，${cameraMovementLabel}。${content}`
+    return `${formatTimelineSeconds(start)}-${formatTimelineSeconds(end)}秒：${shotLabel}，${cameraMovementLabel}。${content}`
   })
 
   return {

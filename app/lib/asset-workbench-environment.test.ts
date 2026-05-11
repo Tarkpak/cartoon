@@ -134,7 +134,7 @@ describe('environment asset grouping', () => {
     const exteriorScene = createScene({
       id: 'scene_ext',
       title: '老宅外景',
-      description: '0-8秒：，全景，固定镜头。夜雨里，屋外窗户透出暖黄灯光。',
+      description: '0-8秒：全景，固定镜头。夜雨里，屋外窗户透出暖黄灯光。',
       setting: {
         location: '老宅-院子',
         timeOfDay: 'night'
@@ -143,7 +143,7 @@ describe('environment asset grouping', () => {
     const interiorScene = createScene({
       id: 'scene_int',
       title: '客厅对峙',
-      description: '0-8秒：，中景，固定镜头。客厅里两人隔着茶几对峙。',
+      description: '0-8秒：中景，固定镜头。客厅里两人隔着茶几对峙。',
       setting: {
         location: '老宅-客厅',
         timeOfDay: 'night'
@@ -158,7 +158,7 @@ describe('environment asset grouping', () => {
     const exteriorScene = createScene({
       id: 'scene_ext',
       title: '老宅外景',
-      description: '0-8秒：，全景，固定镜头。门外雨夜里，窗内暖黄灯光照亮客厅轮廓。',
+      description: '0-8秒：全景，固定镜头。门外雨夜里，窗内暖黄灯光照亮客厅轮廓。',
       setting: {
         location: '老宅-院子',
         timeOfDay: 'night'
@@ -167,7 +167,7 @@ describe('environment asset grouping', () => {
     const interiorScene = createScene({
       id: 'scene_int',
       title: '客厅对峙',
-      description: '0-8秒：，中景，固定镜头。客厅里两人对峙，背后窗外还能看到雨夜院子。',
+      description: '0-8秒：中景，固定镜头。客厅里两人对峙，背后窗外还能看到雨夜院子。',
       setting: {
         location: '老宅-客厅',
         timeOfDay: 'night'

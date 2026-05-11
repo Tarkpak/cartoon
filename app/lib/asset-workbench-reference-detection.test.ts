@@ -63,7 +63,7 @@ describe('scene character reference detection', () => {
     const scene = createScene({
       id: 'scene_1',
       title: '巷口对话',
-      description: '0-8秒：，中景，固定镜头。张三站在巷口。张三说：\'李四，你别过来\'',
+      description: '0-8秒：中景，固定镜头。张三站在巷口。张三说：\'李四，你别过来\'',
       characters: [
         { name: '张三' },
         { name: '李四' }
@@ -93,7 +93,7 @@ describe('scene character reference detection', () => {
     const scene = createScene({
       id: 'scene_2',
       title: '争执',
-      description: '0-6秒：，中景，固定镜头。阿强皱眉。',
+      description: '0-6秒：中景，固定镜头。阿强皱眉。',
       characters: [],
       dialogues: [
         { character: '阿强：阿明，你给我闭嘴', text: '你给我闭嘴' }
