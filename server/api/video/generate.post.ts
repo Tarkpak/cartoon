@@ -167,8 +167,28 @@ function cleanupTempFile(filePath: string): void {
 }
 
 function isVideoGenerationTimeoutError(error: unknown): boolean {
+  if (!error) return false
+
+  const record = typeof error === 'object' && error !== null
+    ? error as Record<string, unknown>
+    : null
+
+  const code = typeof record?.code === 'string'
+    ? record.code.toUpperCase()
+    : ''
+  if (code === 'DEADLINE_EXCEEDED' || code === 'ETIMEDOUT') {
+    return true
+  }
+
+  const status = typeof record?.status === 'number'
+    ? record.status
+    : Number.NaN
+  if (status === 408 || status === 504) {
+    return true
+  }
+
   const message = error instanceof Error ? error.message : String(error || '')
-  return /视频生成超时|timeout|deadline exceeded/i.test(message)
+  return /视频生成超时|请求超时|timed?\s*out|timeout|deadline exceeded|网关超时/i.test(message)
 }
 
 async function updateUpstreamTaskTracking(
@@ -476,7 +496,7 @@ function normalizeVideoTaskError(error: unknown): string {
     return '模型调用次数已达上限，请稍后重试。'
   }
 
-  if (/timeout|deadline exceeded/i.test(message)) {
+  if (/请求超时|视频生成超时|timed?\s*out|timeout|deadline exceeded|网关超时/i.test(message)) {
     return '视频生成超时，请稍后重试。'
   }
 
