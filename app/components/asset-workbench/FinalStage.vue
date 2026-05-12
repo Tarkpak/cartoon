@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowUp, Download, Film, Loader2, RefreshCw } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, Download, Film, Loader2 } from 'lucide-vue-next'
 import type {
   AutoStageKey,
-  FinalCostEstimate,
   FinalMergeOptions,
   FinalMergeTransitionType
 } from '~/lib/asset-workbench-types'
@@ -27,13 +26,11 @@ const props = defineProps<{
   scenes: FinalStageSceneItem[]
   sceneOrder: string[]
   mergeOptions: FinalMergeOptions
-  costEstimate: FinalCostEstimate | null
-  estimatingCost: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'run-final', payload?: FinalMergeOptions): void
-  (e: 'estimate-cost' | 'export-jianying-project'): void
+  (e: 'export-jianying-project'): void
   (e: 'update-scene-order', sceneIds: string[]): void
   (e: 'update-merge-options', payload: Partial<FinalMergeOptions>): void
 }>()
@@ -191,7 +188,7 @@ function handleRunFinal() {
   <AssetWorkbenchStagePanel
     content-class="flex-1 min-h-0 space-y-4 overflow-y-auto"
   >
-    <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="flex flex-wrap items-center gap-4">
       <div class="flex items-center gap-4">
         <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span class="inline-block h-2 w-2 rounded-full bg-violet-500" />
@@ -201,25 +198,6 @@ function handleRunFinal() {
           <span class="inline-block h-2 w-2 rounded-full bg-blue-500" />
           时间线 {{ orderedScenes.length }} 段
         </div>
-      </div>
-
-      <div class="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          :disabled="estimatingCost"
-          @click="emit('estimate-cost')"
-        >
-          <Loader2
-            v-if="estimatingCost"
-            class="mr-1 h-3.5 w-3.5 animate-spin"
-          />
-          <RefreshCw
-            v-else
-            class="mr-1 h-3.5 w-3.5"
-          />
-          刷新预估
-        </Button>
       </div>
     </div>
 
@@ -303,32 +281,6 @@ function handleRunFinal() {
             :model-value="String(mergeOptions.bgmVolume ?? 0.3)"
             @update:model-value="updateBgmVolume(String($event))"
           />
-        </div>
-
-        <div class="rounded-md border bg-muted/20 px-2.5 py-2">
-          <div class="text-[11px] font-medium">
-            成本预估（估算）
-          </div>
-          <template v-if="costEstimate">
-            <p class="mt-1 text-[11px] text-muted-foreground">
-              模型：{{ costEstimate.provider }} / {{ costEstimate.model }}
-            </p>
-            <p class="mt-1 text-[11px] text-muted-foreground">
-              预计时长：{{ costEstimate.totalDurationSeconds.toFixed(1) }} 秒（{{ costEstimate.sceneCount }} 段）
-            </p>
-            <p class="mt-1 text-xs">
-              约 {{ costEstimate.estimatedCredits }} 积分 · ${{ costEstimate.estimatedUsd.toFixed(2) }}
-            </p>
-            <p class="mt-1 text-[10px] text-muted-foreground">
-              仅供预算参考，失败任务应不计入最终扣减。
-            </p>
-          </template>
-          <p
-            v-else
-            class="mt-1 text-[11px] text-muted-foreground"
-          >
-            点击“刷新预估”生成当前项目估算。
-          </p>
         </div>
       </div>
 
