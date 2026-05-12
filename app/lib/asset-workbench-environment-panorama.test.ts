@@ -3,11 +3,13 @@ import {
   assertPanoramaSourceSize,
   assertEquirectangularPanoramaSize,
   buildDefaultCropSelection,
+  buildPanoramaFourViewSelections,
   isPanoramaSourceSize,
   isEquirectangularPanoramaSize,
   normalizeCropSelection,
   normalizePanoramaSelection,
   normalizePanoramaSelectionForAspectRatio,
+  resolveEnvironmentCropCaptureMode,
   resolveCropSelectionAspectRatio,
   resolveCropSelectionCoverage,
   resolveCropSelectionOutputSize,
@@ -66,6 +68,13 @@ describe('environment panorama crop helpers', () => {
     expect(resolvePanoramaOutputSize({ aspectRatio: '1:1' })).toEqual({ width: 1440, height: 1440 })
   })
 
+  it('resolves crop capture mode with single-view fallback', () => {
+    expect(resolveEnvironmentCropCaptureMode('four_view')).toBe('four_view')
+    expect(resolveEnvironmentCropCaptureMode('single')).toBe('single')
+    expect(resolveEnvironmentCropCaptureMode('anything')).toBe('single')
+    expect(resolveEnvironmentCropCaptureMode(undefined)).toBe('single')
+  })
+
   it('normalizes both horizontal and vertical bounds inside the source image', () => {
     const selection = normalizeCropSelection(
       { x: 0.8, y: 1.35, width: 0.6, height: 0.9 },
@@ -122,6 +131,26 @@ describe('environment panorama crop helpers', () => {
       y: 0.2,
       width: 0.2,
       height: 0.25
+    })
+  })
+
+  it('builds four-view selections with front-back-left-right yaw offsets', () => {
+    const selections = buildPanoramaFourViewSelections({
+      x: 0.9,
+      y: 0.2,
+      width: 0.18,
+      height: 0.24
+    })
+
+    expect(selections).toHaveLength(4)
+    expect(selections[0]?.x).toBeCloseTo(0.9, 5)
+    expect(selections[1]?.x).toBeCloseTo(0.4, 5)
+    expect(selections[2]?.x).toBeCloseTo(0.65, 5)
+    expect(selections[3]?.x).toBeCloseTo(0.15, 5)
+    selections.forEach((selection) => {
+      expect(selection.y).toBeCloseTo(0.2, 5)
+      expect(selection.width).toBeCloseTo(0.18, 5)
+      expect(selection.height).toBeCloseTo(0.24, 5)
     })
   })
 

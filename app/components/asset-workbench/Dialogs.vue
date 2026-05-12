@@ -5,6 +5,7 @@ import type {
   AssetImageHistoryEntry,
   AssetVideoHistoryEntry,
   DisplayAsset,
+  EnvironmentCropCaptureMode,
   EnvironmentCropSelection,
   EnvironmentAssetCard
 } from '~/lib/asset-workbench-types'
@@ -32,10 +33,13 @@ defineProps<{
   environmentCropSourceImage?: string
   environmentCropSourceAspectRatio?: string
   environmentCropInitialSelection?: EnvironmentCropSelection
+  environmentCropInitialCaptureMode?: EnvironmentCropCaptureMode
   environmentCropAspectRatio?: string
   environmentCropSaving?: boolean
   setEnvironmentCropDialogOpen: (open: boolean) => void
-  submitEnvironmentCropSelection: (payload: { selection: EnvironmentCropSelection }) => void | Promise<void>
+  submitEnvironmentCropSelection: (
+    payload: { selection: EnvironmentCropSelection, captureMode: EnvironmentCropCaptureMode }
+  ) => void | Promise<void>
   sceneEditDialogOpen: boolean
   setSceneEditDialogOpen: (open: boolean) => void
   editingScene: SceneData | null
@@ -112,6 +116,7 @@ defineProps<{
     :source-image="environmentCropSourceImage"
     :source-aspect-ratio="environmentCropSourceAspectRatio"
     :initial-selection="environmentCropInitialSelection"
+    :initial-capture-mode="environmentCropInitialCaptureMode"
     :aspect-ratio="environmentCropAspectRatio"
     :loading="environmentCropSaving"
     :error="environmentCropError"

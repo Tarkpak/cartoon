@@ -83,6 +83,7 @@ export function buildEnvironmentAssetCards(options: {
         referenceError: resolveReferenceError(scene),
         panoramaImage: panoramaState?.panoramaImage,
         crop: panoramaState?.crop,
+        captureMode: panoramaState?.captureMode,
         assetHistory,
         sceneIds: [scene.id],
         sceneTitles: [scene.title || scene.id],
@@ -123,6 +124,9 @@ export function buildEnvironmentAssetCards(options: {
     }
     if (!existing.crop && panoramaState?.crop) {
       existing.crop = panoramaState.crop
+    }
+    if (!existing.captureMode && panoramaState?.captureMode) {
+      existing.captureMode = panoramaState.captureMode
     }
     if (!existing.referenceError) {
       existing.referenceError = resolveReferenceError(scene)
