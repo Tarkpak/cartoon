@@ -340,6 +340,11 @@ function resolveEpisodeAssetSummaryText(episode: EpisodePlanItemForVideoStage): 
   return `资产：角色 ${characterCount} · 道具 ${propCount} · 场景 ${environmentCount}`
 }
 
+function resolveEpisodeDisplayTitle(episode: { index: number, title: string }): string {
+  const normalized = episode.title.replace(/^第\d+集[：:]\s*/u, '')
+  return `第${episode.index}集：${normalized}`
+}
+
 function handleParseSelectedEpisode() {
   const episode = selectedEpisodePlanItem.value
   if (!episode) return
@@ -514,13 +519,17 @@ watch(episodeDirectoryCollapsed, (value) => {
                 type="button"
                 variant="ghost"
                 class="h-auto w-full justify-start rounded-md border px-2 py-1.5 text-left text-xs transition-colors"
+                :title="resolveEpisodeDisplayTitle(episode)"
                 :class="selectedEpisodeId === episode.id
                   ? 'border-foreground bg-muted text-foreground shadow-sm'
                   : 'border-border/70 bg-background text-foreground/80 hover:border-foreground/30 hover:bg-muted/60'"
                 @click="handleSelectEpisode(episode.id)"
               >
-                <div class="truncate font-medium">
-                  第{{ episode.index }}集：{{ episode.title.replace(/^第\d+集[：:]\s*/u, '') }}
+                <div
+                  class="truncate font-medium"
+                  :title="resolveEpisodeDisplayTitle(episode)"
+                >
+                  {{ resolveEpisodeDisplayTitle(episode) }}
                 </div>
                 <div class="mt-0.5 text-[11px] text-muted-foreground">
                   场景 {{ episode.sceneCount }} · 完成 {{ episode.doneCount }}
@@ -546,6 +555,7 @@ watch(episodeDirectoryCollapsed, (value) => {
                 <p
                   v-if="selectedEpisodeDirectoryItem.overview"
                   class="line-clamp-2 text-[11px] text-foreground/75"
+                  :title="`概览：${selectedEpisodeDirectoryItem.overview}`"
                 >
                   概览：{{ selectedEpisodeDirectoryItem.overview }}
                 </p>
