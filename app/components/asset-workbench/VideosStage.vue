@@ -27,6 +27,12 @@ interface EpisodePlanItemForVideoStage {
   startOffset: number
   endOffset: number
   charCount: number
+  episodeHook?: string
+  humiliationOrThreat?: string
+  reversalPoint?: string
+  emotionalCurve?: string
+  cliffhanger?: string
+  payoffType?: string
   episodeAssets?: {
     characters?: Array<{ name: string }>
     props?: Array<{ name: string }>

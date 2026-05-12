@@ -294,7 +294,7 @@ function createDraftContentTemplate(options: {
     source: 'default',
     static_cover_image_path: '',
     time_marks: null,
-    tracks: [],
+    tracks: [] as Array<Record<string, unknown>>,
     update_time: options.updateTimeMicros,
     version: 360000
   }

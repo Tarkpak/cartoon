@@ -40,6 +40,7 @@ export const scenes = sqliteTable('scenes', {
   episodeIndex: integer('episode_index'),
   title: text('title'),
   description: text('description').notNull(),
+  dramatic: text('dramatic'), // JSON 存储 SceneDramatic
   setting: text('setting'), // JSON 存储 SceneSetting
   characters: text('characters'), // JSON 存储 SceneCharacter[]
   dialogues: text('dialogues'), // JSON 存储 Dialogue[]

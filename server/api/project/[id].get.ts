@@ -108,6 +108,15 @@ function normalizeSceneVideoUrl(rawValue?: string | null): string | null {
   return normalized
 }
 
+function parseJsonField<T>(rawValue: string | null | undefined, fallback: T): T {
+  if (!rawValue?.trim()) return fallback
+  try {
+    return JSON.parse(rawValue) as T
+  } catch {
+    return fallback
+  }
+}
+
 async function hydrateSceneVideoUrlsFromTasks(projectScenes: typeof scenes.$inferSelect[]): Promise<void> {
   if (projectScenes.length === 0) return
 
@@ -492,9 +501,10 @@ export default defineEventHandler(async (event) => {
             episodeIndex: s.episodeIndex,
             title: s.title,
             description: s.description,
-            setting: s.setting ? JSON.parse(s.setting) : null,
-            characters: s.characters ? JSON.parse(s.characters) : [],
-            dialogues: s.dialogues ? JSON.parse(s.dialogues) : [],
+            dramatic: parseJsonField(s.dramatic, null),
+            setting: parseJsonField(s.setting, null),
+            characters: parseJsonField(s.characters, []),
+            dialogues: parseJsonField(s.dialogues, []),
             duration: s.duration,
             narration: s.narration,
             // 镜头语言

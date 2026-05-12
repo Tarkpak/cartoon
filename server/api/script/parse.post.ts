@@ -83,7 +83,7 @@ const CAMERA_MOVEMENT_LABEL_MAP: Record<string, string> = {
 }
 const TIMELINE_LINE_CAPTURE_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:].+$/gmu
 const TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]\s*/u
-const STRUCTURED_DESCRIPTION_HEADING_REGEX = /^(?:场景功能\/情绪定位|场景功能|情绪定位|镜头设计|声音设计|台词节奏|表演关键点|Scene function \/ emotional beat|Shot design|Sound design|Dialogue rhythm|Performance notes)\s*[：:]?\s*$/u
+const STRUCTURED_DESCRIPTION_HEADING_REGEX = /^(?:戏剧冲突|爽点\/痛点|情绪曲线|反击或反转|结尾钩子|场景功能\/情绪定位|场景功能|情绪定位|镜头设计|声音设计|台词节奏|表演关键点|Scene function \/ emotional beat|Shot design|Sound design|Dialogue rhythm|Performance notes)\s*[：:]?\s*$/u
 const LIVE_ACTION_STYLE_HINT_REGEX = /(ai\s*真人|live[-\s]?action|真人剧|live action)/iu
 const CHUNK_RECOMMENDED_MIN_SCENES_FLOOR = 4
 const SHORT_DRAMA_EPISODE_DURATION_LIMIT_SECONDS = 300
@@ -116,6 +116,12 @@ function normalizeScriptInputText(text: string): string {
 
 interface ScriptParseEpisodeChunk extends ScriptEpisode {
   text: string
+  episodeHook?: string
+  humiliationOrThreat?: string
+  reversalPoint?: string
+  emotionalCurve?: string
+  cliffhanger?: string
+  payoffType?: string
 }
 
 function toEpisodeId(index: number): string {
@@ -159,7 +165,13 @@ function normalizeScriptEpisodePlan(
       index: item.index && Number.isFinite(item.index)
         ? Math.max(1, Math.floor(item.index))
         : (chunks.length + 1),
-      text
+      text,
+      episodeHook: item.episodeHook,
+      humiliationOrThreat: item.humiliationOrThreat,
+      reversalPoint: item.reversalPoint,
+      emotionalCurve: item.emotionalCurve,
+      cliffhanger: item.cliffhanger,
+      payoffType: item.payoffType
     })
     cursor = rangeEnd
   }
@@ -630,6 +642,70 @@ function buildSceneDescriptionSummary(text: string): string {
   return summary
 }
 
+function normalizeOptionalStringField(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed || undefined
+}
+
+function normalizeSceneDramatic(rawDramatic: unknown, fallbackText = '') {
+  const source = rawDramatic && typeof rawDramatic === 'object' && !Array.isArray(rawDramatic)
+    ? rawDramatic as Record<string, unknown>
+    : {}
+  const description = fallbackText || ''
+  const pickFromDescription = (label: string) => {
+    const match = description.match(new RegExp(`${label}\\s*[：:]\\s*([^\\n]+)`, 'u'))
+    return match?.[1]?.trim()
+  }
+
+  const normalized = {
+    function: typeof source.function === 'string' && [
+      'hook',
+      'escalation',
+      'confrontation',
+      'reversal',
+      'payoff',
+      'cliffhanger',
+      'aftermath'
+    ].includes(source.function)
+      ? source.function
+      : undefined,
+    conflict: normalizeOptionalStringField(source.conflict) || pickFromDescription('戏剧冲突'),
+    emotionalCurve: normalizeOptionalStringField(source.emotionalCurve) || pickFromDescription('情绪曲线'),
+    audienceHook: normalizeOptionalStringField(source.audienceHook),
+    painPoint: normalizeOptionalStringField(source.painPoint) || pickFromDescription('爽点\\/痛点'),
+    payoff: normalizeOptionalStringField(source.payoff) || pickFromDescription('反击或反转'),
+    powerShift: normalizeOptionalStringField(source.powerShift),
+    antagonistPressure: normalizeOptionalStringField(source.antagonistPressure),
+    protagonistCounter: normalizeOptionalStringField(source.protagonistCounter),
+    cliffhanger: normalizeOptionalStringField(source.cliffhanger) || pickFromDescription('结尾钩子')
+  }
+  const compact = Object.fromEntries(
+    Object.entries(normalized).filter(([, value]) => typeof value === 'string' && value.trim().length > 0)
+  )
+  return Object.keys(compact).length > 0 ? compact : undefined
+}
+
+function ensureDramaticDescriptionSections(description: string, dramatic: ReturnType<typeof normalizeSceneDramatic>): string {
+  const normalizedDescription = description.trim()
+  if (!dramatic) return normalizedDescription
+  if (/戏剧冲突\s*[：:]/u.test(normalizedDescription) && /结尾钩子\s*[：:]/u.test(normalizedDescription)) {
+    return normalizedDescription
+  }
+
+  const prefix = [
+    `戏剧冲突：${dramatic.conflict || dramatic.antagonistPressure || '本场必须围绕明确压迫与反击展开。'}`,
+    `爽点/痛点：${dramatic.payoff || dramatic.painPoint || '突出观众共情、愤怒或期待被释放的瞬间。'}`,
+    `情绪曲线：${dramatic.emotionalCurve || '压迫→情绪绷紧→反击预兆。'}`,
+    `反击或反转：${dramatic.protagonistCounter || dramatic.payoff || '保留主角主动反击或埋下反击的动作。'}`,
+    `结尾钩子：${dramatic.cliffhanger || dramatic.audienceHook || '最后2秒给出下一场期待。'}`
+  ].join('\n')
+
+  return normalizedDescription
+    ? `${prefix}\n${normalizedDescription}`
+    : prefix
+}
+
 function annotateFirstOccurrenceWithImageTag(text: string, keyword: string, imageIndex: number): string {
   const safeKeyword = keyword.trim()
   if (!safeKeyword) return text
@@ -724,8 +800,17 @@ function buildFormattedTimelineScript(data: ParsedScript): {
     const narrationText = scene.narration?.trim()
       ? `画外音说：'${scene.narration.trim()}'`
       : ''
+    const dramaticText = scene.dramatic
+      ? [
+          scene.dramatic.conflict ? `戏剧冲突：${scene.dramatic.conflict}` : '',
+          scene.dramatic.emotionalCurve ? `情绪曲线：${scene.dramatic.emotionalCurve}` : '',
+          scene.dramatic.payoff ? `爽点：${scene.dramatic.payoff}` : '',
+          scene.dramatic.cliffhanger ? `钩子：${scene.dramatic.cliffhanger}` : ''
+        ].filter(Boolean).join(' ')
+      : ''
 
     const content = [
+      dramaticText,
       annotatedDescription,
       dialogueText,
       narrationText
@@ -783,13 +868,20 @@ function normalizeParsedScriptOutput(
       || inferSceneEraFromText(fallbackText)
       || options.fallbackEra
     const continuityEnabled = index > 0 && sceneObj.usePreviousLastFrameAsFirstFrame === true
+    const dramatic = normalizeSceneDramatic(sceneObj.dramatic, typeof sceneObj.description === 'string' ? sceneObj.description : '')
+    const description = typeof sceneObj.description === 'string'
+      ? ensureDramaticDescriptionSections(sceneObj.description, dramatic)
+      : ''
+
     return {
       ...sceneObj,
       id: typeof sceneObj.id === 'string' && sceneObj.id.trim().length > 0
         ? sceneObj.id
         : `scene_${String(index + 1).padStart(3, '0')}`,
       shotType: normalizeShotType(sceneObj.shotType ?? sceneObj.shot_type, fallbackText),
+      description,
       cameraMovement: normalizeCameraMovement(sceneObj.cameraMovement ?? sceneObj.camera_movement, fallbackText),
+      dramatic,
       usePreviousLastFrameAsFirstFrame: continuityEnabled,
       continuityLinkReason: continuityEnabled && typeof sceneObj.continuityLinkReason === 'string'
         ? sceneObj.continuityLinkReason.trim()
@@ -903,10 +995,21 @@ export async function executeScriptParse(
 
   const runScriptParsePass = async (options: {
     chunkText: string
+    episode?: ScriptParseEpisodeChunk
     recommendedMinScenesHint?: number
     chunkIndex?: number
     chunkCount?: number
   }): Promise<ParsedScript> => {
+    const episodeDramaBrief = options.episode
+      ? [
+          options.episode.episodeHook ? `开场钩子：${options.episode.episodeHook}` : '',
+          options.episode.humiliationOrThreat ? `压迫/羞辱：${options.episode.humiliationOrThreat}` : '',
+          options.episode.reversalPoint ? `反击/反转：${options.episode.reversalPoint}` : '',
+          options.episode.emotionalCurve ? `情绪曲线：${options.episode.emotionalCurve}` : '',
+          options.episode.cliffhanger ? `结尾钩子：${options.episode.cliffhanger}` : '',
+          options.episode.payoffType ? `爽点类型：${options.episode.payoffType}` : ''
+        ].filter(Boolean).join('\n')
+      : ''
     const interpolatedPrompt = await getInterpolatedPrompt(
       parsingPromptTemplateId,
       {
@@ -939,9 +1042,12 @@ export async function executeScriptParse(
           totalLength: textLength
         })
       : interpolatedPrompt
+    const promptWithEpisodeDrama = episodeDramaBrief
+      ? `${prompt}\n\n【本集爆点规划（系统追加，必须落入 dramatic 与 description）】\n${episodeDramaBrief}`
+      : prompt
 
     const result = await generateJSONForWorkflow<ParsedScript>('script_parsing', {
-      prompt,
+      prompt: promptWithEpisodeDrama,
       temperature: 0.3,
       maxRetries: 2
     })
@@ -988,6 +1094,7 @@ export async function executeScriptParse(
     })
     const parsedSingle = await runScriptParsePass({
       chunkText: firstEpisode.text,
+      episode: firstEpisode,
       recommendedMinScenesHint: recommendedMinScenes
     })
     finalParsedScript = {
@@ -1039,6 +1146,7 @@ export async function executeScriptParse(
 
       const parsedChunk = await runScriptParsePass({
         chunkText: episode.text,
+        episode,
         recommendedMinScenesHint: chunkRecommendedMinScenes,
         chunkIndex: index,
         chunkCount: scriptEpisodes.length
