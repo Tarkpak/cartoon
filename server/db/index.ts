@@ -79,6 +79,7 @@ export function initDatabase() {
       episode_index INTEGER,
       title TEXT,
       description TEXT NOT NULL,
+      dramatic TEXT,
       setting TEXT,
       characters TEXT,
       dialogues TEXT,
@@ -105,6 +106,7 @@ export function initDatabase() {
   if (!hasSceneColumn('episode_id')) sqlite.exec('ALTER TABLE scenes ADD COLUMN episode_id TEXT')
   if (!hasSceneColumn('episode_title')) sqlite.exec('ALTER TABLE scenes ADD COLUMN episode_title TEXT')
   if (!hasSceneColumn('episode_index')) sqlite.exec('ALTER TABLE scenes ADD COLUMN episode_index INTEGER')
+  if (!hasSceneColumn('dramatic')) sqlite.exec('ALTER TABLE scenes ADD COLUMN dramatic TEXT')
 
   // 创建角色表
   sqlite.exec(`

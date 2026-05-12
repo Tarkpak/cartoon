@@ -8,6 +8,7 @@ import { normalizeProjectWorkflowType } from '../../../shared/types/project'
 import { CharacterVoiceAssetSchema } from '../../../shared/types/character'
 import {
   SCRIPT_PARSE_MODES,
+  SceneDramaticSchema,
   normalizeScriptParseMode,
   normalizeTimeOfDayValue,
   normalizeOptionalSceneEraValue
@@ -135,6 +136,7 @@ const SceneSchema = z.object({
   episodeIndex: z.number().int().min(1).optional(),
   title: z.string().optional(),
   description: z.string(),
+  dramatic: SceneDramaticSchema,
   setting: z.object({
     location: z.string(),
     timeOfDay: z.string(),
@@ -198,6 +200,12 @@ const EpisodePlanSchema = z.array(z.object({
   startOffset: z.number().int().min(0),
   endOffset: z.number().int().min(1),
   charCount: z.number().int().min(0).optional(),
+  episodeHook: z.string().optional(),
+  humiliationOrThreat: z.string().optional(),
+  reversalPoint: z.string().optional(),
+  emotionalCurve: z.string().optional(),
+  cliffhanger: z.string().optional(),
+  payoffType: z.string().optional(),
   episodeAssets: z.any().optional()
 }))
 
@@ -391,6 +399,7 @@ export default defineEventHandler(async (event) => {
             episodeIndex: scene.episodeIndex || null,
             title: scene.title || null,
             description: scene.description,
+            dramatic: scene.dramatic ? JSON.stringify(scene.dramatic) : null,
             setting: normalizedSetting ? JSON.stringify(normalizedSetting) : null,
             characters: scene.characters ? JSON.stringify(scene.characters) : null,
             dialogues: scene.dialogues ? JSON.stringify(scene.dialogues) : null,

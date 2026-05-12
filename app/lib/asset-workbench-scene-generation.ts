@@ -23,6 +23,7 @@ export interface AssetWorkflowScenePayload {
   title: string
   sceneIndex?: number
   description: string
+  dramatic?: SceneData['dramatic']
   cameraNote?: string
   duration: number
   setting?: SceneData['setting']
@@ -138,6 +139,7 @@ export function buildAssetWorkflowScenePayload(
     title: options.scene.title,
     sceneIndex: sceneIndex >= 0 ? sceneIndex + 1 : undefined,
     description: options.resolveSceneDescriptionWithoutAssetMentions(options.scene.description),
+    dramatic: options.scene.dramatic,
     cameraNote: buildSceneGenerationCameraNote(options),
     duration: options.scene.duration,
     setting: options.scene.setting,

@@ -456,6 +456,18 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 4. 关键剧情段尾部（最后 10%-20%）给出冷感宣言或反击预告。
 5. 若原文不是离婚题材，映射同等级冲突，不丢失节奏锚点。
 
+【短剧戏剧强度硬约束】
+1. 每个场景必须先完成 dramatic 字段，再依据 dramatic 写 description；禁止只写环境走位和普通对话。
+2. 每个场景必须回答：谁在压迫谁、观众为什么生气、主角失去或被威胁什么、反击/反转在哪里、最后 2 秒为什么想追下一场。
+3. 每个场景都要有“情绪落差”或“权力关系变化”：羞辱→冷静、威胁→反杀、误解→揭露、嘲笑→打脸、暧昧试探→明牌撑腰等。
+4. description 开头必须保留以下段落，且内容要具体，不得空泛：
+   戏剧冲突：
+   爽点/痛点：
+   情绪曲线：
+   反击或反转：
+   结尾钩子：
+5. 若原文某段本身平淡，允许在不改变核心事件和人物立场的前提下强化外显冲突：增加压迫性动作、旁观者反应、停顿、眼神、冷感反问、反派破防表现。
+
 【改编原则】
 1. 忠于原文核心关系与关键事件，不得改写人物立场。
 2. 文本很长时，不要只截取爆点；应通过增加场景完整覆盖主线因果链。
@@ -504,6 +516,18 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
       "title": "场景标题",
       "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
       "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
+      "dramatic": {
+        "function": "hook|escalation|confrontation|reversal|payoff|cliffhanger|aftermath",
+        "conflict": "本场核心冲突：谁压迫谁、争夺什么",
+        "emotionalCurve": "羞辱→震惊→冷感反击",
+        "audienceHook": "观众继续看的理由",
+        "painPoint": "观众共情或愤怒的痛点",
+        "payoff": "本场爽点/回报点",
+        "powerShift": "权力关系如何变化",
+        "antagonistPressure": "反派如何施压",
+        "protagonistCounter": "主角如何反击或埋下反击",
+        "cliffhanger": "结尾钩子或下一场期待"
+      },
       "description": "场景功能/情绪定位：开场钩子，冲突强压。\\n镜头设计：\\n0-2秒：中景，固定镜头。离婚协议被推到桌面中央，纸张边缘刮过手背。\\n2-5秒：近景，缓慢推近。女儿盯着男主，冷声补刀：'你早该签了。'\\n5-8秒：特写镜头，固定镜头。男主眼神发冷，手指停在签字处。\\n声音设计：\\n- 纸张摩擦声与椅脚拖地声前置。\\n台词节奏：\\n- '你早该签了。'中段停顿半拍。\\n表演关键点：\\n- 签字前手部细颤，随后逐步稳定。",
       "setting": {
         "location": "客厅-餐桌区",
@@ -580,6 +604,18 @@ Final declaration | 43-60s | emptiness -> cold severity | cliffhanger / anticipa
 4. In the tail section of the dramatic unit (final 10%-20%), deliver a cold declaration or counterattack teaser.
 5. If the source is not a divorce story, map to equivalent conflict level without losing these anchors.
 
+## Short-Drama Dramatic Intensity Hard Rules
+1. Fill the dramatic field first for every scene, then write description from that dramatic target. Do not output only blocking, location, and ordinary dialogue.
+2. Every scene must answer: who pressures whom, why the audience gets angry, what the protagonist loses or risks, where the counter/reversal lands, and why the final two seconds make viewers continue.
+3. Every scene needs emotional contrast or a power shift: humiliation -> cold control, threat -> counterkill, misunderstanding -> reveal, mockery -> face-slap, romantic testing -> explicit backing, etc.
+4. The description must begin with these concrete sections, not vague phrases:
+   戏剧冲突：
+   爽点/痛点：
+   情绪曲线：
+   反击或反转：
+   结尾钩子：
+5. If the source segment is flat, strengthen visible conflict without changing core events or character positions: add pressure gestures, bystander reactions, pauses, gaze changes, cold retorts, and antagonist breakdown.
+
 ## Adaptation Policy
 1. Stay faithful to core relationships and key events.
 2. If source text is long, do not keep only one highlight segment; increase scenes to preserve mainline causality.
@@ -626,6 +662,18 @@ Output strict JSON only:
       "title": "Scene title",
       "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
       "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
+      "dramatic": {
+        "function": "hook|escalation|confrontation|reversal|payoff|cliffhanger|aftermath",
+        "conflict": "Core conflict: who pressures whom and what is at stake",
+        "emotionalCurve": "humiliation -> shock -> cold counterattack",
+        "audienceHook": "Why viewers want to continue",
+        "painPoint": "The empathy/anger trigger",
+        "payoff": "The scene's reward / face-slap",
+        "powerShift": "How power changes",
+        "antagonistPressure": "How the antagonist applies pressure",
+        "protagonistCounter": "How the protagonist counters or plants the counter",
+        "cliffhanger": "End hook or next-scene anticipation"
+      },
       "description": "Scene function / emotional beat: opening hook with immediate pressure.\\nShot design:\\n0-2秒：中景，固定镜头。The divorce agreement is pushed to the center of the table.\\n2-5秒：近景，缓慢推近。Daughter delivers a cold line: 'You should have signed earlier.'\\n5-8秒：特写镜头，固定镜头。The protagonist's trembling fingers gradually steady.\\nSound design:\\n- Paper friction and chair drag lead the beat.\\nDialogue rhythm:\\n- Add a half-beat pause before the final words.\\nPerformance notes:\\n- Hand tremor transitions into controlled stillness.",
       "setting": {
         "location": "Living room - dining table",

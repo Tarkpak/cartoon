@@ -1,6 +1,7 @@
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import {
   DEFAULT_SCRIPT_PARSE_MODE,
+  type SceneDramatic,
   type ScriptParseMode
 } from '#shared/types/script'
 import { normalizeCharacterRole } from '#shared/types/character'
@@ -37,6 +38,12 @@ export interface ScriptEpisodePlanItem {
   startOffset: number
   endOffset: number
   charCount: number
+  episodeHook?: string
+  humiliationOrThreat?: string
+  reversalPoint?: string
+  emotionalCurve?: string
+  cliffhanger?: string
+  payoffType?: string
   episodeAssets?: ScriptEpisodeAssetSummary
 }
 
@@ -52,6 +59,7 @@ export interface ParseScriptResponse {
       title?: string
       shotType?: SceneData['shotType']
       description: string
+      dramatic?: SceneDramatic
       characters: Array<{ name: string, appearance?: string, emotion?: string }>
       dialogues?: Array<{ character: string, text: string, emotion?: string }>
       narration?: string | null
@@ -188,7 +196,7 @@ export async function parseAssetWorkbenchScript(options: {
   workflowType?: AssetWorkbenchWorkflowType
   scriptParseMode?: ScriptParseMode
   style?: string
-  episodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset'>>
+  episodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset' | 'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType'>>
   onProgress?: (event: ParseScriptProgressEvent) => void
 }) {
   const requestBody = {
