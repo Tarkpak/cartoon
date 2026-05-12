@@ -13,9 +13,12 @@ export interface EnvironmentCropSelection {
   height: number
 }
 
+export type EnvironmentCropCaptureMode = 'single' | 'four_view'
+
 export interface EnvironmentPanoramaState {
   panoramaImage?: string
   crop?: EnvironmentCropSelection
+  captureMode?: EnvironmentCropCaptureMode
 }
 
 export interface AssetImageHistoryEntry {
@@ -92,6 +95,7 @@ export interface EnvironmentAssetCard {
   assetHistory?: AssetImageHistoryEntry[]
   panoramaImage?: string
   crop?: EnvironmentCropSelection
+  captureMode?: EnvironmentCropCaptureMode
   sceneIds: string[]
   sceneTitles: string[]
   representativeSceneId: string

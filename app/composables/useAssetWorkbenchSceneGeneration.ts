@@ -16,6 +16,7 @@ import {
   invalidateSceneVideoState
 } from '~/lib/asset-workbench-scenes'
 import type {
+  EnvironmentCropCaptureMode,
   QueueItem,
   EnvironmentCropSelection,
   EnvironmentPanoramaState
@@ -83,10 +84,12 @@ interface UseAssetWorkbenchSceneGenerationOptions {
     assetId: string
     sourceImage: string
     crop?: EnvironmentCropSelection
+    captureMode?: EnvironmentCropCaptureMode
     aspectRatio?: string
   }) => Promise<{
     imageUrl: string
     crop: EnvironmentCropSelection
+    captureMode: EnvironmentCropCaptureMode
   }>
   resolveSceneBaselineReferenceImage?: (scene: SceneData) => string | undefined
   recordSceneVideoHistory?: (
@@ -391,17 +394,31 @@ export function useAssetWorkbenchSceneGeneration(
       let crop = existingPanoramaState?.panoramaImage === panoramaImage
         ? existingPanoramaState?.crop
         : undefined
+      let captureMode = existingPanoramaState?.captureMode
 
       if (options.createEnvironmentCropImage) {
         try {
-          const croppedResult = await options.createEnvironmentCropImage({
+          const cropOptions: {
+            assetId: string
+            sourceImage: string
+            crop?: EnvironmentCropSelection
+            captureMode?: EnvironmentCropCaptureMode
+            aspectRatio?: string
+          } = {
             assetId: environmentAssetId,
             sourceImage: panoramaImage,
             crop,
             aspectRatio: options.projectAspectRatio.value
+          }
+          if (captureMode) {
+            cropOptions.captureMode = captureMode
+          }
+          const croppedResult = await options.createEnvironmentCropImage({
+            ...cropOptions
           })
           referenceImage = croppedResult.imageUrl
           crop = croppedResult.crop
+          captureMode = croppedResult.captureMode
         } catch (error) {
           console.warn('[AssetWorkbench] 环境全景图裁切失败，已回退使用原始环境图', {
             sceneId: scene.id,
@@ -412,10 +429,14 @@ export function useAssetWorkbenchSceneGeneration(
       }
 
       applySceneBaselineReference(scene, referenceImage)
-      options.setEnvironmentPanoramaState?.(environmentAssetId, {
+      const panoramaState: EnvironmentPanoramaState = {
         panoramaImage,
         crop
-      })
+      }
+      if (captureMode === 'four_view') {
+        panoramaState.captureMode = 'four_view'
+      }
+      options.setEnvironmentPanoramaState?.(environmentAssetId, panoramaState)
       options.recordEnvironmentHistory?.(
         environmentAssetId,
         referenceImage,

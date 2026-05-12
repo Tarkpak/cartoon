@@ -151,20 +151,26 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
   }
 
   function buildWorkflowMetaPayload(): AssetWorkflowMeta {
-    const environmentPanoramaStates = Object.fromEntries(
+    const environmentPanoramaStates: Record<string, EnvironmentPanoramaState> = Object.fromEntries(
       Object.entries(options.environmentPanoramaStates.value)
-        .filter(([, state]) => !!state?.panoramaImage?.trim() || !!state?.crop)
-        .map(([assetId, state]) => [
-          assetId,
-          {
-            panoramaImage: state.panoramaImage?.trim() || undefined,
-            crop: state.crop
-          }
-        ])
+        .filter(([, state]) => !!state?.panoramaImage?.trim() || !!state?.crop || state?.captureMode === 'four_view')
+        .map(([assetId, state]) => {
+          const captureMode = state.captureMode === 'four_view'
+            ? 'four_view' as const
+            : undefined
+          return [
+            assetId,
+            {
+              panoramaImage: state.panoramaImage?.trim() || undefined,
+              crop: state.crop,
+              captureMode
+            }
+          ]
+        })
     )
 
     return {
-      version: 4,
+      version: 5,
       sceneConfigs: options.sceneConfigs.value,
       props: options.propAssets.value.map(prop => ({
         ...prop,
@@ -304,6 +310,9 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         const panoramaImage = typeof item.panoramaImage === 'string' && item.panoramaImage.trim()
           ? item.panoramaImage.trim()
           : undefined
+        const captureMode = item.captureMode === 'four_view'
+          ? 'four_view'
+          : undefined
         const crop = item.crop
           && typeof item.crop === 'object'
           && !Array.isArray(item.crop)
@@ -316,7 +325,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
             }
           : undefined
 
-        if (!panoramaImage && !crop) {
+        if (!panoramaImage && !crop && !captureMode) {
           continue
         }
 
@@ -327,7 +336,8 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
 
         loadedEnvironmentPanoramaStates[targetAssetId] = {
           panoramaImage,
-          crop
+          crop,
+          captureMode
         }
       }
       const loadedFinalVideo = normalizeFinalVideo(meta?.finalVideo)

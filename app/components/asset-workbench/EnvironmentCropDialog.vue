@@ -5,11 +5,15 @@ import {
   disposePanoramaCanvas,
   loadPanoramaImage,
   normalizePanoramaSelectionForAspectRatio,
+  resolveEnvironmentCropCaptureMode,
   resolvePanoramaOutputAspectRatioValue,
   resolvePanoramaSelectionHeightForAspectRatio,
   renderPanoramaSelectionToCanvas
 } from '~/lib/asset-workbench-environment-panorama'
-import type { EnvironmentCropSelection } from '~/lib/asset-workbench-types'
+import type {
+  EnvironmentCropCaptureMode,
+  EnvironmentCropSelection
+} from '~/lib/asset-workbench-types'
 
 const MIN_VIEW_WIDTH = 0.08
 const MAX_VIEW_WIDTH = 1
@@ -24,6 +28,7 @@ const props = defineProps<{
   sourceImage?: string
   sourceAspectRatio?: string
   initialSelection?: EnvironmentCropSelection
+  initialCaptureMode?: EnvironmentCropCaptureMode
   aspectRatio?: string
   loading?: boolean
   error?: string | null
@@ -31,7 +36,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:open': [open: boolean]
-  'submit': [payload: { selection: EnvironmentCropSelection }]
+  'submit': [payload: { selection: EnvironmentCropSelection, captureMode: EnvironmentCropCaptureMode }]
 }>()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -42,6 +47,7 @@ const panoramaImage = shallowRef<HTMLImageElement | null>(null)
 const loadingPreview = ref(false)
 const previewError = ref<string | null>(null)
 const previewCssSize = ref({ width: 960, height: 540 })
+const captureMode = ref<EnvironmentCropCaptureMode>('single')
 let renderFrameId = 0
 
 const dragState = reactive({
@@ -210,6 +216,7 @@ async function initializePreview() {
 
   loadingPreview.value = true
   previewError.value = null
+  captureMode.value = resolveEnvironmentCropCaptureMode(props.initialCaptureMode)
 
   try {
     const loaded = await loadPanoramaImage(props.sourceImage, {
@@ -278,12 +285,13 @@ function stopDragging(event?: PointerEvent) {
 function submit() {
   if (!selection.value) return
   emit('submit', {
-    selection: selection.value
+    selection: selection.value,
+    captureMode: captureMode.value
   })
 }
 
 watch(
-  () => [props.open, props.sourceImage, props.sourceAspectRatio, props.initialSelection, props.aspectRatio] as const,
+  () => [props.open, props.sourceImage, props.sourceAspectRatio, props.initialSelection, props.initialCaptureMode, props.aspectRatio] as const,
   () => {
     void initializePreview()
   },
@@ -375,20 +383,43 @@ onBeforeUnmount(() => {
         <div class="min-w-0 truncate text-sm font-medium">
           {{ targetLabel || '环境取景区域' }}
         </div>
-        <div class="hidden min-w-0 flex-1 items-center justify-center gap-2 px-2 sm:flex">
-          <ZoomOut class="h-4 w-4 shrink-0 text-muted-foreground" />
-          <Slider
-            v-model="viewFovDegrees"
-            class="max-w-56"
-            :min="MIN_VIEW_FOV_DEGREES"
-            :max="MAX_VIEW_FOV_DEGREES"
-            :step="1"
-            :disabled="loadingPreview || !selection"
-          />
-          <ZoomIn class="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span class="w-12 shrink-0 text-right text-xs text-muted-foreground">
-            {{ viewFovDegrees[0] }}°
-          </span>
+        <div class="min-w-0 flex-1 flex-col items-center justify-center gap-2 px-2">
+          <div class="flex items-center gap-2">
+            <Button
+              size="sm"
+              :variant="captureMode === 'single' ? 'default' : 'outline'"
+              :disabled="loadingPreview || !selection"
+              @click="captureMode = 'single'"
+            >
+              单视图
+            </Button>
+            <Button
+              size="sm"
+              :variant="captureMode === 'four_view' ? 'default' : 'outline'"
+              :disabled="loadingPreview || !selection"
+              @click="captureMode = 'four_view'"
+            >
+              四视图
+            </Button>
+            <span class="text-xs text-muted-foreground">
+              四视图拼图顺序：前 / 后 / 左 / 右
+            </span>
+          </div>
+          <div class="flex items-center gap-2">
+            <ZoomOut class="h-4 w-4 shrink-0 text-muted-foreground" />
+            <Slider
+              v-model="viewFovDegrees"
+              class="max-w-56"
+              :min="MIN_VIEW_FOV_DEGREES"
+              :max="MAX_VIEW_FOV_DEGREES"
+              :step="1"
+              :disabled="loadingPreview || !selection"
+            />
+            <ZoomIn class="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span class="w-12 shrink-0 text-right text-xs text-muted-foreground">
+              {{ viewFovDegrees[0] }}°
+            </span>
+          </div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <Button

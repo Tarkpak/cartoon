@@ -98,6 +98,8 @@ function buildEpisodeEnvironmentHintCards(options: {
       const panoramaImage = options.environmentPanoramaStates?.[assetId]?.panoramaImage?.trim()
         || options.environmentPanoramaStates?.[legacyAssetId]?.panoramaImage?.trim()
         || ''
+      const captureMode = options.environmentPanoramaStates?.[assetId]?.captureMode
+        || options.environmentPanoramaStates?.[legacyAssetId]?.captureMode
       const referenceImage = history[0]?.image || panoramaImage || undefined
       const referenceStatus = referenceImage ? 'done' : 'pending'
       const existing = merged.get(assetId)
@@ -110,6 +112,9 @@ function buildEpisodeEnvironmentHintCards(options: {
         }
         if (!existing.panoramaImage && panoramaImage) {
           existing.panoramaImage = panoramaImage
+        }
+        if (!existing.captureMode && captureMode) {
+          existing.captureMode = captureMode
         }
         if ((!existing.assetHistory || existing.assetHistory.length === 0) && history.length > 0) {
           existing.assetHistory = history
@@ -134,6 +139,7 @@ function buildEpisodeEnvironmentHintCards(options: {
         referenceError: undefined,
         panoramaImage: panoramaImage || undefined,
         crop: undefined,
+        captureMode,
         assetHistory: history,
         sceneIds: [`plan:${episodeMarkerId}`],
         sceneTitles: [`${episodeLabel}（目录）`],
