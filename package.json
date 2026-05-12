@@ -20,6 +20,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "media:migrate:tos": "node scripts/migrate-local-media-to-tos.mjs",
+    "media:migrate:video-task-config": "bun run scripts/migrate-video-task-config-to-cloud.ts",
     "release": "bun run scripts/release.ts"
   },
   "dependencies": {

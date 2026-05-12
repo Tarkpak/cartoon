@@ -27,6 +27,7 @@ import {
   setUpstreamVideoTaskMetadata,
   type UpstreamVideoTaskTracking
 } from '../../utils/video-task-upstream'
+import { normalizeVideoTaskConfigForStorage } from '../../utils/video-task-config-storage'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -89,6 +90,21 @@ export default defineEventHandler(async (event) => {
   // 2. 创建任务并存入数据库
   const taskId = `video_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const now = new Date().toISOString()
+  let storageConfig: typeof GenerateVideoRequestSchema._type['config']
+
+  try {
+    storageConfig = await normalizeVideoTaskConfigForStorage({
+      taskId,
+      config
+    })
+  } catch (storageError) {
+    console.error('[VideoGen] 任务配置媒体持久化失败:', storageError)
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Internal Server Error',
+      message: storageError instanceof Error ? storageError.message : '任务配置媒体持久化失败'
+    })
+  }
 
   try {
     await db.insert(videoTasksTable).values({
@@ -96,7 +112,7 @@ export default defineEventHandler(async (event) => {
       sceneId,
       status: 'pending',
       progress: 0,
-      config: JSON.stringify(config),
+      config: JSON.stringify(storageConfig),
       createdAt: now,
       updatedAt: now
     })

@@ -67,6 +67,7 @@ bun db:generate            # 生成 Drizzle 迁移
 bun db:migrate             # 运行迁移
 bun db:push                # 推送 schema 变更
 bun db:studio              # 打开 Drizzle Studio
+bun media:migrate:video-task-config # 将 video_tasks.config 媒体字段迁移为云链接并压缩数据库
 
 # 代码质量
 bun lint                   # 运行 ESLint

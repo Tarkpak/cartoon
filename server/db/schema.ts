@@ -54,8 +54,8 @@ export const scenes = sqliteTable('scenes', {
   transitionOut: text('transition_out'), // 出场转场
   transitionDuration: real('transition_duration'), // 转场时长
   // 帧和视频
-  firstFrame: text('first_frame'), // base64 或文件路径
-  lastFrame: text('last_frame'), // base64 或文件路径
+  firstFrame: text('first_frame'), // 媒体链接（优先 CDN URL）
+  lastFrame: text('last_frame'), // 媒体链接（优先 CDN URL）
   videoUrl: text('video_url'), // 视频 URL 路径
   status: text('status', { enum: ['pending', 'frames_ready', 'video_ready'] }).default('pending'),
   createdAt: text('created_at').notNull(),
@@ -80,7 +80,7 @@ export const characters = sqliteTable('characters', {
   voiceAsset: text('voice_asset'),
   age: integer('age'),
   gender: text('gender', { enum: ['male', 'female', 'other'] }),
-  baseImage: text('base_image'), // base64 或文件路径
+  baseImage: text('base_image'), // 媒体链接（优先 CDN URL）
   expressions: text('expressions'), // JSON 存储 Record<Emotion, string>
   views: text('views'), // JSON 存储多视角图像 Record<CharacterView, string>
   createdAt: text('created_at').notNull(),
@@ -94,9 +94,9 @@ export const videoTasks = sqliteTable('video_tasks', {
   sceneId: text('scene_id'), // 移除外键约束，允许临时场景ID
   status: text('status', { enum: ['pending', 'processing', 'completed', 'failed'] }).default('pending'),
   progress: integer('progress').default(0),
-  config: text('config'), // JSON 存储 VideoGenerationConfig
-  videoData: text('video_data'), // base64 或文件路径
-  audioData: text('audio_data'), // base64 或文件路径
+  config: text('config'), // JSON 存储 VideoGenerationConfig（媒体字段应为链接）
+  videoData: text('video_data'), // 视频链接（优先 CDN URL）
+  audioData: text('audio_data'), // 音频链接（优先 CDN URL）
   metadata: text('metadata'), // JSON 存储 VideoMetadata
   error: text('error'),
   createdAt: text('created_at').notNull(),
