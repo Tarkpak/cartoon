@@ -77,15 +77,6 @@ export interface FinalTimelineScene {
   thumbnail?: string
 }
 
-export interface FinalCostEstimate {
-  provider: string
-  model: string
-  totalDurationSeconds: number
-  sceneCount: number
-  estimatedCredits: number
-  estimatedUsd: number
-}
-
 export interface DisplayAsset {
   id: string
   name: string
