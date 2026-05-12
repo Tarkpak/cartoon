@@ -114,6 +114,43 @@ interface ScriptDocxExportResult {
   fileName: string
 }
 
+interface JianyingExportSceneDialogueInput {
+  character?: string
+  text?: string
+}
+
+interface JianyingExportSceneInput {
+  id: string
+  title?: string
+  videoUrl: string
+  duration?: number
+  narration?: string | null
+  dialogues?: JianyingExportSceneDialogueInput[]
+}
+
+interface JianyingExportOptions {
+  projectName?: string
+  aspectRatio?: '16:9' | '9:16' | '1:1'
+  sceneOrder?: string[]
+  scenes: JianyingExportSceneInput[]
+  options?: {
+    addSubtitles?: boolean
+    transition?: {
+      type?: 'fade' | 'dissolve' | 'wipe' | 'none'
+      duration?: number
+    }
+    bgm?: {
+      url: string
+      volume?: number
+    }
+  }
+}
+
+interface JianyingExportResult {
+  blob: Blob
+  fileName: string
+}
+
 interface EpisodePlanResponse {
   success: boolean
   data?: {
@@ -140,6 +177,10 @@ function resolveFileNameFromContentDisposition(raw: string | null): string | nul
 
 function buildFallbackScriptDocxFileName(date = new Date()): string {
   return `剧本-格式化剧本-${date.toISOString().slice(0, 10)}.docx`
+}
+
+function buildFallbackJianyingProjectFileName(date = new Date()): string {
+  return `剧本-剪映工程-${date.toISOString().slice(0, 10)}.zip`
 }
 
 export async function parseAssetWorkbenchScript(options: {
@@ -361,6 +402,53 @@ export async function exportAssetWorkbenchScriptDocx(
   const fileName = resolveFileNameFromContentDisposition(
     response.headers.get('content-disposition')
   ) || buildFallbackScriptDocxFileName()
+
+  return {
+    blob,
+    fileName
+  }
+}
+
+export async function exportAssetWorkbenchJianyingProject(
+  options: JianyingExportOptions
+): Promise<JianyingExportResult> {
+  const response = await fetch('/api/video/export-jianying', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(options)
+  })
+
+  if (!response.ok) {
+    let message = '导出剪映工程失败'
+
+    try {
+      const contentType = response.headers.get('content-type') || ''
+
+      if (contentType.includes('application/json')) {
+        const payload = await response.json() as {
+          message?: string
+          statusMessage?: string
+        }
+        message = payload?.message || payload?.statusMessage || message
+      } else {
+        const rawText = (await response.text()).trim()
+        if (rawText) {
+          message = rawText
+        }
+      }
+    } catch {
+      // Ignore parse errors and keep fallback message.
+    }
+
+    throw new Error(message)
+  }
+
+  const blob = await response.blob()
+  const fileName = resolveFileNameFromContentDisposition(
+    response.headers.get('content-disposition')
+  ) || buildFallbackJianyingProjectFileName()
 
   return {
     blob,

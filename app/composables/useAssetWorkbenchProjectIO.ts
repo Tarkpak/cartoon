@@ -6,7 +6,7 @@ import {
 } from '#shared/types/script'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
-import type { FinalVideoAsset } from '~/lib/asset-workbench-types'
+import type { FinalMergeOptions, FinalVideoAsset } from '~/lib/asset-workbench-types'
 import {
   applyScopedEntityIds,
   buildLoadedCharacters,
@@ -63,12 +63,35 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     return 'draft'
   }
 
-  async function mergeAllVideos() {
+  async function mergeAllVideos(input?: FinalMergeOptions) {
     const readyScenes = options.scenes.value.filter(scene => scene.videoStatus === 'done' && scene.videoUrl)
     if (readyScenes.length === 0) {
       alert('没有可合成的视频（请先生成分镜视频）')
       return null
     }
+
+    const orderedReadyScenes = (() => {
+      const order = Array.isArray(input?.sceneOrder) ? input.sceneOrder : []
+      if (order.length === 0) return readyScenes
+
+      const readyMap = new Map(readyScenes.map(scene => [scene.id, scene] as const))
+      const ordered: typeof readyScenes = []
+      const consumed = new Set<string>()
+
+      for (const sceneId of order) {
+        const scene = readyMap.get(sceneId)
+        if (!scene || consumed.has(sceneId)) continue
+        ordered.push(scene)
+        consumed.add(sceneId)
+      }
+
+      for (const scene of readyScenes) {
+        if (consumed.has(scene.id)) continue
+        ordered.push(scene)
+      }
+
+      return ordered
+    })()
 
     const pendingScenes = options.scenes.value.filter(scene => !(scene.videoStatus === 'done' && scene.videoUrl))
     if (pendingScenes.length > 0) {
@@ -95,6 +118,12 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     try {
       mergeStatus.value.progress = 30
 
+      const transitionType = input?.transitionType || 'none'
+      const transitionDuration = Math.max(0.1, Math.min(2, Number(input?.transitionDuration) || 0.5))
+      const addSubtitles = input?.addSubtitles === true
+      const bgmUrl = (input?.bgmUrl || '').trim()
+      const bgmVolume = Math.max(0, Math.min(1, Number(input?.bgmVolume) || 0.3))
+
       const response = await $fetch<{
         success: boolean
         data?: {
@@ -108,13 +137,26 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         method: 'POST',
         body: {
           projectId: options.projectId.value,
-          scenes: readyScenes.map(scene => ({
+          scenes: orderedReadyScenes.map(scene => ({
             id: scene.id,
             title: scene.title,
             videoUrl: scene.videoUrl,
             duration: scene.duration,
             dialogues: scene.dialogues
-          }))
+          })),
+          options: {
+            transition: {
+              type: transitionType,
+              duration: transitionDuration
+            },
+            addSubtitles,
+            bgm: bgmUrl
+              ? {
+                  url: bgmUrl,
+                  volume: bgmVolume
+                }
+              : undefined
+          }
         }
       })
 

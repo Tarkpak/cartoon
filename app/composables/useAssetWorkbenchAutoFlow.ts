@@ -1,6 +1,11 @@
 import type { ComputedRef, Ref } from 'vue'
 import type { SceneData } from '~/composables/useAssetWorkbench'
-import type { AutoStageKey, FinalVideoAsset, QueueSummary } from '~/lib/asset-workbench-types'
+import type {
+  AutoStageKey,
+  FinalMergeOptions,
+  FinalVideoAsset,
+  QueueSummary
+} from '~/lib/asset-workbench-types'
 import { inferActiveAutoStage } from '~/lib/asset-workbench-progress'
 
 interface UseAssetWorkbenchAutoFlowOptions {
@@ -16,7 +21,7 @@ interface UseAssetWorkbenchAutoFlowOptions {
   assetsReady: ComputedRef<boolean>
   finalVideo: Ref<FinalVideoAsset | null>
   resolveUiError: (error: unknown, fallback: string) => string
-  mergeAllVideos: () => Promise<unknown>
+  mergeAllVideos: (input?: FinalMergeOptions) => Promise<unknown>
   loadProject: (id: string) => Promise<unknown>
   loadWorkflowMeta: (rawMetaInput?: unknown) => Promise<boolean>
   saveWorkflowMeta: () => Promise<unknown>
@@ -50,13 +55,13 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
     activeAutoStage.value = stage
   }
 
-  async function handleMergeVideos() {
+  async function handleMergeVideos(input?: FinalMergeOptions) {
     if (options.scenes.value.length === 0) {
       alert('请先生成分镜视频')
       return
     }
 
-    await options.mergeAllVideos()
+    await options.mergeAllVideos(input)
   }
 
   async function runSimpleAssetsStep() {
@@ -107,7 +112,7 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
     }
   }
 
-  async function runSimpleFinalStep() {
+  async function runSimpleFinalStep(input?: FinalMergeOptions) {
     if (autoRunning.value) return
 
     autoRunning.value = true
@@ -118,7 +123,7 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
       if (options.queueSummary.value.done === 0) {
         throw new Error('请先在“分镜视频”步骤生成至少一个分镜视频')
       }
-      await handleMergeVideos()
+      await handleMergeVideos(input)
       if (options.finalVideo.value?.videoUrl) {
         await options.saveWorkflowMeta()
       }
