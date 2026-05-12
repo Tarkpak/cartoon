@@ -22,6 +22,47 @@ function getPublicVideosDir(): string {
   return join(getPublicDir(), 'videos')
 }
 
+function resolveApiVideoFilePath(rawPath: string): string | null {
+  const apiPrefix = '/api/video/file/'
+  if (!rawPath.startsWith(apiPrefix)) return null
+
+  const filename = decodeURIComponent(rawPath.slice(apiPrefix.length))
+  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    return null
+  }
+
+  return join(getPublicDir(), 'videos', filename)
+}
+
+async function resolveBgmPath(rawUrl: string, tempDir: string): Promise<string> {
+  const normalized = rawUrl.trim()
+  if (!normalized) {
+    throw new Error('BGM 地址为空')
+  }
+
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    const response = await fetch(normalized)
+    if (!response.ok) {
+      throw new Error(`BGM 下载失败: HTTP ${response.status}`)
+    }
+
+    const buffer = await response.arrayBuffer()
+    const outputPath = join(tempDir, `bgm_${Date.now()}.mp3`)
+    await fs.writeFile(outputPath, Buffer.from(buffer))
+    return outputPath
+  }
+
+  if (normalized.startsWith('/')) {
+    const apiVideoPath = resolveApiVideoFilePath(normalized)
+    const localPath = apiVideoPath || join(getPublicDir(), normalized.replace(/^\/+/, ''))
+    await fs.access(localPath)
+    return localPath
+  }
+
+  await fs.access(normalized)
+  return normalized
+}
+
 async function persistMergedVideo(projectId: string, sourcePath: string): Promise<string> {
   const outputFilename = `${projectId}_final.mp4`
   const outputDir = getPublicVideosDir()
@@ -92,7 +133,7 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 404,
       statusMessage: 'Not Found',
-      message: '项目不存在',
+      message: '项目不存在'
     })
   }
 
@@ -180,7 +221,7 @@ export default defineEventHandler(async (event) => {
       throw createError({
         statusCode: 400,
         statusMessage: 'Bad Request',
-        message: '没有有效的视频片段',
+        message: '没有有效的视频片段'
       })
     }
 
@@ -209,6 +250,15 @@ export default defineEventHandler(async (event) => {
       }
     }
 
+    let bgmInput: { path: string, volume: number } | undefined
+    if (options?.bgm?.url?.trim()) {
+      const bgmPath = await resolveBgmPath(options.bgm.url, tempDir)
+      bgmInput = {
+        path: bgmPath,
+        volume: options.bgm.volume
+      }
+    }
+
     // 3. 合成视频
     const outputFilename = `${projectId}_final.mp4`
     const outputPath = join(tempDir, outputFilename)
@@ -218,12 +268,7 @@ export default defineEventHandler(async (event) => {
       output: outputPath,
       transition: options?.transition,
       subtitles,
-      bgm: options?.bgm
-        ? {
-            path: options.bgm.url,
-            volume: options.bgm.volume
-          }
-        : undefined
+      bgm: bgmInput
     })
 
     console.log(`[VideoMerge] 合成完成，输出文件大小: ${(result.size / 1024 / 1024).toFixed(2)}MB`)

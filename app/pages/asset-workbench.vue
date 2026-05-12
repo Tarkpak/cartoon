@@ -12,6 +12,8 @@ import type {
   EnvironmentCropCaptureMode,
   EnvironmentCropSelection,
   EnvironmentPanoramaState,
+  FinalCostEstimate,
+  FinalMergeOptions,
   QueueItem
 } from '~/lib/asset-workbench-types'
 import { createPropAssetId } from '~/lib/asset-workbench-types'
@@ -55,7 +57,10 @@ import {
   extractSceneDescriptionMentionTokens,
   resolveSceneDescriptionWithoutAssetMentions
 } from '~/lib/asset-workbench-mentions'
-import { exportAssetWorkbenchScriptDocx } from '~/lib/asset-workbench-api'
+import {
+  exportAssetWorkbenchJianyingProject,
+  exportAssetWorkbenchScriptDocx
+} from '~/lib/asset-workbench-api'
 import { resolveChatUploadAssetName } from '~/lib/asset-workbench-scene-chat'
 import {
   applySceneBaselineReference,
@@ -87,6 +92,8 @@ const PANORAMA_SOURCE_ASPECT_RATIO_BY_MODE: Record<string, string> = {
 }
 const supportsExplicitVoiceAudioReference = ref(false)
 const environmentPanoramaSourceAspectRatio = ref(DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO)
+const selectedVideoModelProvider = ref('unknown')
+const selectedVideoModel = ref('')
 
 function normalizeAspectRatioValue(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -145,12 +152,16 @@ async function refreshVideoAudioReferenceCapability() {
     const selectedModel = videoWorkflow?.selectedModel || ''
     const selectedModelConfig = videoWorkflow?.compatibleModels?.find(item => item.model === selectedModel)
     supportsExplicitVoiceAudioReference.value = selectedModelConfig?.supportAudioReference === true
+    selectedVideoModelProvider.value = selectedModelConfig?.provider || 'unknown'
+    selectedVideoModel.value = selectedModel
     environmentPanoramaSourceAspectRatio.value = resolvePanoramaSourceAspectRatio(
       response.data?.modelOptions?.image_options
     )
   } catch (error) {
     console.warn('[asset-workbench] 读取视频模型能力失败，默认关闭显式音频引用标记:', error)
     supportsExplicitVoiceAudioReference.value = false
+    selectedVideoModelProvider.value = 'unknown'
+    selectedVideoModel.value = ''
     environmentPanoramaSourceAspectRatio.value = DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO
   }
 }
@@ -210,6 +221,17 @@ const queueItems = ref<QueueItem[]>([])
 const sceneEditDialogOpen = ref(false)
 const editingScene = ref<SceneData | null>(null)
 const exportingScriptDocx = ref(false)
+const exportingJianyingProject = ref(false)
+const finalStageSceneOrder = ref<string[]>([])
+const finalStageMergeOptions = ref<FinalMergeOptions>({
+  transitionType: 'none',
+  transitionDuration: 0.5,
+  addSubtitles: false,
+  bgmUrl: '',
+  bgmVolume: 0.3
+})
+const finalStageCostEstimate = ref<FinalCostEstimate | null>(null)
+const finalStageEstimatingCost = ref(false)
 
 const characterRoleOptions: CharacterRoleOption[] = [
   { value: 'protagonist', label: '主角' },
@@ -1137,6 +1159,129 @@ async function ensurePropAssetsReady() {
   }
 }
 
+const finalStageScenes = computed(() => {
+  return scenes.value
+    .filter(scene => scene.videoStatus === 'done' && !!scene.videoUrl)
+    .map(scene => ({
+      id: scene.id,
+      title: scene.title,
+      duration: scene.duration,
+      videoUrl: scene.videoUrl,
+      videoStatus: scene.videoStatus
+    }))
+})
+
+const finalStageSceneIds = computed(() => finalStageScenes.value.map(scene => scene.id))
+
+function normalizeFinalStageSceneOrder(nextSceneIds: string[]) {
+  const validIdSet = new Set(nextSceneIds)
+  const normalized = finalStageSceneOrder.value.filter(sceneId => validIdSet.has(sceneId))
+
+  for (const sceneId of nextSceneIds) {
+    if (normalized.includes(sceneId)) continue
+    normalized.push(sceneId)
+  }
+
+  finalStageSceneOrder.value = normalized
+}
+
+watch(
+  finalStageSceneIds,
+  (nextSceneIds) => {
+    normalizeFinalStageSceneOrder(nextSceneIds)
+  },
+  { immediate: true }
+)
+
+function handleFinalStageSceneOrderUpdate(nextSceneIds: string[]) {
+  const validIdSet = new Set(finalStageSceneIds.value)
+  const normalized = nextSceneIds.filter(sceneId => validIdSet.has(sceneId))
+  for (const sceneId of finalStageSceneIds.value) {
+    if (normalized.includes(sceneId)) continue
+    normalized.push(sceneId)
+  }
+  finalStageSceneOrder.value = normalized
+}
+
+function handleFinalStageMergeOptionsUpdate(payload: Partial<FinalMergeOptions>) {
+  const next: FinalMergeOptions = {
+    ...finalStageMergeOptions.value,
+    ...payload
+  }
+
+  if (next.transitionType !== 'fade' && next.transitionType !== 'dissolve' && next.transitionType !== 'wipe') {
+    next.transitionType = 'none'
+  }
+
+  const transitionDuration = Number(next.transitionDuration)
+  next.transitionDuration = Number.isFinite(transitionDuration)
+    ? Math.max(0.1, Math.min(2, transitionDuration))
+    : 0.5
+
+  next.addSubtitles = next.addSubtitles === true
+  next.bgmUrl = typeof next.bgmUrl === 'string' ? next.bgmUrl : ''
+
+  const bgmVolume = Number(next.bgmVolume)
+  next.bgmVolume = Number.isFinite(bgmVolume)
+    ? Math.max(0, Math.min(1, bgmVolume))
+    : 0.3
+
+  finalStageMergeOptions.value = next
+}
+
+const DEFAULT_COST_FACTOR = { creditsPerSecond: 1.5, usdPerSecond: 0.055 }
+const COST_FACTOR_BY_PROVIDER: Partial<Record<string, { creditsPerSecond: number, usdPerSecond: number }>> = {
+  gemini: { creditsPerSecond: 2.0, usdPerSecond: 0.08 },
+  qwen: { creditsPerSecond: 1.4, usdPerSecond: 0.05 },
+  kling: { creditsPerSecond: 1.5, usdPerSecond: 0.055 },
+  volcengine: { creditsPerSecond: 1.6, usdPerSecond: 0.06 },
+  unknown: DEFAULT_COST_FACTOR
+}
+
+function recalculateFinalStageCostEstimate() {
+  const totalDurationSeconds = finalStageScenes.value.reduce((sum, scene) => {
+    return sum + Math.max(0, Number(scene.duration) || 0)
+  }, 0)
+
+  if (finalStageScenes.value.length === 0 || totalDurationSeconds <= 0) {
+    finalStageCostEstimate.value = null
+    return
+  }
+
+  const provider = selectedVideoModelProvider.value || 'unknown'
+  const factors = COST_FACTOR_BY_PROVIDER[provider] || DEFAULT_COST_FACTOR
+  const estimatedCredits = Math.max(1, Math.round(totalDurationSeconds * factors.creditsPerSecond))
+  const estimatedUsd = Math.max(0.01, totalDurationSeconds * factors.usdPerSecond)
+
+  finalStageCostEstimate.value = {
+    provider,
+    model: selectedVideoModel.value || '-',
+    totalDurationSeconds,
+    sceneCount: finalStageScenes.value.length,
+    estimatedCredits,
+    estimatedUsd
+  }
+}
+
+async function refreshFinalStageCostEstimate() {
+  if (finalStageEstimatingCost.value) return
+  finalStageEstimatingCost.value = true
+  try {
+    await refreshVideoAudioReferenceCapability()
+    recalculateFinalStageCostEstimate()
+  } finally {
+    finalStageEstimatingCost.value = false
+  }
+}
+
+watch(
+  [finalStageScenes, selectedVideoModelProvider, selectedVideoModel],
+  () => {
+    recalculateFinalStageCostEstimate()
+  },
+  { deep: true, immediate: true }
+)
+
 const {
   autoRunning,
   autoRunError,
@@ -1174,6 +1319,15 @@ const {
 
 async function runEpisodeVideosStep(episodeId: string) {
   await runBatchSceneGenerationByEpisode(episodeId)
+}
+
+async function handleRunFinalStage(payload?: FinalMergeOptions) {
+  const nextOptions: FinalMergeOptions = {
+    ...finalStageMergeOptions.value,
+    ...payload,
+    sceneOrder: finalStageSceneOrder.value
+  }
+  await runSimpleFinalStep(nextOptions)
 }
 
 async function clearEpisodePlan() {
@@ -2310,6 +2464,93 @@ function downloadBlobFile(blob: Blob, fileName: string) {
   window.URL.revokeObjectURL(objectUrl)
 }
 
+function buildFinalStageExportScenes(): SceneData[] {
+  const readySceneMap = new Map(
+    scenes.value
+      .filter(scene => scene.videoStatus === 'done' && !!scene.videoUrl)
+      .map(scene => [scene.id, scene] as const)
+  )
+
+  const orderedIds: string[] = []
+  const consumed = new Set<string>()
+
+  for (const sceneId of finalStageSceneOrder.value) {
+    if (consumed.has(sceneId)) continue
+    if (!readySceneMap.has(sceneId)) continue
+    consumed.add(sceneId)
+    orderedIds.push(sceneId)
+  }
+
+  for (const sceneId of readySceneMap.keys()) {
+    if (consumed.has(sceneId)) continue
+    consumed.add(sceneId)
+    orderedIds.push(sceneId)
+  }
+
+  return orderedIds
+    .map(sceneId => readySceneMap.get(sceneId))
+    .filter((scene): scene is SceneData => !!scene)
+}
+
+async function handleExportJianyingProject() {
+  if (exportingJianyingProject.value) return
+
+  const orderedScenes = buildFinalStageExportScenes()
+  if (orderedScenes.length === 0) {
+    alert('请先生成至少一个分镜视频')
+    return
+  }
+
+  const transitionType = finalStageMergeOptions.value.transitionType || 'none'
+  const transitionDuration = Number.isFinite(Number(finalStageMergeOptions.value.transitionDuration))
+    ? Math.max(0.1, Math.min(2, Number(finalStageMergeOptions.value.transitionDuration)))
+    : 0.5
+  const bgmUrl = (finalStageMergeOptions.value.bgmUrl || '').trim()
+  const bgmVolume = Number.isFinite(Number(finalStageMergeOptions.value.bgmVolume))
+    ? Math.max(0, Math.min(1, Number(finalStageMergeOptions.value.bgmVolume)))
+    : 0.3
+
+  exportingJianyingProject.value = true
+
+  try {
+    const { blob, fileName } = await exportAssetWorkbenchJianyingProject({
+      projectName: projectName.value,
+      aspectRatio: projectAspectRatio.value,
+      sceneOrder: orderedScenes.map(scene => scene.id),
+      scenes: orderedScenes.map(scene => ({
+        id: scene.id,
+        title: scene.title,
+        videoUrl: scene.videoUrl || '',
+        duration: scene.duration,
+        narration: scene.narration || null,
+        dialogues: (scene.dialogues || []).map(dialogue => ({
+          character: dialogue.character,
+          text: dialogue.text
+        }))
+      })),
+      options: {
+        addSubtitles: finalStageMergeOptions.value.addSubtitles === true,
+        transition: {
+          type: transitionType,
+          duration: transitionDuration
+        },
+        bgm: bgmUrl
+          ? {
+              url: bgmUrl,
+              volume: bgmVolume
+            }
+          : undefined
+      }
+    })
+
+    downloadBlobFile(blob, fileName)
+  } catch (error) {
+    alert(resolveUiError(error, '导出剪映工程失败'))
+  } finally {
+    exportingJianyingProject.value = false
+  }
+}
+
 async function handleExportFormattedScriptDocx() {
   if (exportingScriptDocx.value) return
   if (scenes.value.length === 0) return
@@ -2519,8 +2760,18 @@ async function handleBatchGenerateCharacters() {
       :auto-running="autoRunning"
       :auto-run-current-stage="autoRunCurrentStage"
       :merge-running="mergeStatus.running"
+      :exporting-jianying-project="exportingJianyingProject"
       :final-video-url="finalVideo?.videoUrl"
-      @run-final="runSimpleFinalStep"
+      :scenes="finalStageScenes"
+      :scene-order="finalStageSceneOrder"
+      :merge-options="finalStageMergeOptions"
+      :cost-estimate="finalStageCostEstimate"
+      :estimating-cost="finalStageEstimatingCost"
+      @run-final="handleRunFinalStage"
+      @export-jianying-project="handleExportJianyingProject"
+      @estimate-cost="refreshFinalStageCostEstimate"
+      @update-scene-order="handleFinalStageSceneOrderUpdate"
+      @update-merge-options="handleFinalStageMergeOptionsUpdate"
     />
 
     <AssetWorkbenchDialogs
