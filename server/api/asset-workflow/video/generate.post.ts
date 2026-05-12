@@ -7,6 +7,7 @@ import { getWorkflowModels } from '../../models/workflow.get'
 import { getInterpolatedPrompt } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
 import {
+  SceneDramaticSchema,
   resolveTimeOfDayText,
   normalizeOptionalSceneEraValue,
   inferSceneEraFromText
@@ -33,6 +34,7 @@ const SceneSchema = z.object({
   title: z.string().optional(),
   sceneIndex: z.number().int().min(1).optional(),
   description: z.string(),
+  dramatic: SceneDramaticSchema,
   cameraNote: z.string().optional(),
   duration: z.number().optional(),
   setting: SceneSettingSchema,
@@ -422,7 +424,7 @@ function resolveSceneShotNumber(scene: z.infer<typeof SceneSchema>): number {
   return 1
 }
 
-const STRUCTURED_DESCRIPTION_HEADING_REGEX = /^(?:场景功能\/情绪定位|场景功能|情绪定位|镜头设计|声音设计|台词节奏|表演关键点|Scene function \/ emotional beat|Shot design|Sound design|Dialogue rhythm|Performance notes)\s*[：:]?\s*$/u
+const STRUCTURED_DESCRIPTION_HEADING_REGEX = /^(?:戏剧冲突|爽点\/痛点|情绪曲线|反击或反转|结尾钩子|场景功能\/情绪定位|场景功能|情绪定位|镜头设计|声音设计|台词节奏|表演关键点|Scene function \/ emotional beat|Shot design|Sound design|Dialogue rhythm|Performance notes)\s*[：:]?\s*$/u
 
 function buildSceneDescriptionSummaryText(text: string): string {
   return text
@@ -436,9 +438,18 @@ function buildSceneDescriptionSummaryText(text: string): string {
 
 function buildSceneSummary(scene: z.infer<typeof SceneSchema>): string {
   const settingText = buildSettingText(scene.setting, [scene.title || '', scene.description || ''].join('\n'))
+  const dramaticSummary = scene.dramatic
+    ? [
+        scene.dramatic.conflict,
+        scene.dramatic.emotionalCurve,
+        scene.dramatic.payoff,
+        scene.dramatic.cliffhanger
+      ].filter(Boolean).join('；')
+    : ''
   return [
     scene.title?.trim() || '',
     settingText !== '未提供' ? settingText : '',
+    dramaticSummary ? `戏剧目标：${dramaticSummary}` : '',
     clipText(buildSceneDescriptionSummaryText(scene.description), 90)
   ]
     .filter(Boolean)
@@ -713,6 +724,19 @@ export default defineEventHandler(async (event) => {
   })
   const settingText = buildSettingText(scene.setting, [scene.title || '', scene.description || ''].join('\n'))
   const narrationText = hasText(scene.narration) ? scene.narration.trim() : ''
+  const dramaticText = scene.dramatic
+    ? [
+        scene.dramatic.function ? `戏剧功能：${scene.dramatic.function}` : '',
+        scene.dramatic.conflict ? `核心冲突：${scene.dramatic.conflict}` : '',
+        scene.dramatic.emotionalCurve ? `情绪曲线：${scene.dramatic.emotionalCurve}` : '',
+        scene.dramatic.painPoint ? `痛点：${scene.dramatic.painPoint}` : '',
+        scene.dramatic.payoff ? `爽点：${scene.dramatic.payoff}` : '',
+        scene.dramatic.powerShift ? `权力变化：${scene.dramatic.powerShift}` : '',
+        scene.dramatic.antagonistPressure ? `反派施压：${scene.dramatic.antagonistPressure}` : '',
+        scene.dramatic.protagonistCounter ? `主角反击：${scene.dramatic.protagonistCounter}` : '',
+        scene.dramatic.cliffhanger ? `结尾钩子：${scene.dramatic.cliffhanger}` : ''
+      ].filter(Boolean).join('\n')
+    : ''
 
   const interpolatedPrompt = await getInterpolatedPrompt(
     PROMPT_TEMPLATE_IDS.SCENE_VIDEO_GENERATION,
@@ -725,7 +749,10 @@ export default defineEventHandler(async (event) => {
       aspectRatio,
       referenceMaterials: promptSections.referenceMaterials,
       executionConstraints: promptSections.executionConstraints,
-      sceneDescription: scene.description,
+      sceneDescription: [
+        dramaticText ? `【本场短剧戏剧目标】\n${dramaticText}` : '',
+        scene.description
+      ].filter(Boolean).join('\n\n'),
       setting: [
         settingText,
         multiReferenceImages.length > 0 ? `参考图策略：多参考图模式（${multiReferenceImages.length} 张）` : '',

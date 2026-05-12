@@ -1,6 +1,7 @@
 import type { CharacterView, CharacterVoiceAsset } from '#shared/types/character'
 import {
   normalizeTimeOfDayValue,
+  type SceneDramatic,
   type SceneCameraMovement,
   type SceneShotType
 } from '#shared/types/script'
@@ -24,6 +25,7 @@ interface LoadedProjectScene {
   episodeIndex?: number | null
   title?: string | null
   description: string
+  dramatic?: SceneDramatic | null
   setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string } | null
   characters?: Array<{ name: string, appearance?: string, emotion?: string }>
   dialogues?: Array<{ character: string, text: string, emotion?: string }>
@@ -69,6 +71,7 @@ export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
     episodeIndex: typeof scene.episodeIndex === 'number' ? scene.episodeIndex : undefined,
     title: scene.title || `场景 ${index + 1}`,
     description: scene.description,
+    dramatic: scene.dramatic || undefined,
     characters: scene.characters || [],
     dialogues: scene.dialogues || [],
     narration: scene.narration || undefined,
@@ -152,6 +155,7 @@ export function buildSaveScenesPayload(scenes: SceneData[]) {
     episodeIndex: scene.episodeIndex,
     title: scene.title,
     description: scene.description,
+    dramatic: scene.dramatic,
     setting: scene.setting
       ? {
           ...scene.setting,

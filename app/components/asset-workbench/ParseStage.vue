@@ -14,6 +14,12 @@ const props = defineProps<{
     startOffset: number
     endOffset: number
     charCount: number
+    episodeHook?: string
+    humiliationOrThreat?: string
+    reversalPoint?: string
+    emotionalCurve?: string
+    cliffhanger?: string
+    payoffType?: string
     episodeAssets?: {
       characters?: Array<{ name: string }>
       props?: Array<{ name: string }>
@@ -214,7 +220,7 @@ async function handleDrop(event: DragEvent) {
       v-if="hasEpisodePlan"
       class="shrink-0 rounded-md border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground"
     >
-      已生成分集目录（共 {{ episodePlan?.length || 0 }} 集）。请到“分镜视频”步骤管理分集边界并按集解析。
+      已生成分集目录（共 {{ episodePlan?.length || 0 }} 集）。短剧模式会带入每集钩子、压迫点、反击点和结尾悬念，请到“分镜视频”步骤管理分集边界并按集解析。
     </div>
 
     <div

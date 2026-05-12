@@ -1,5 +1,5 @@
 import type { CharacterView, CharacterVoiceAsset } from '#shared/types/character'
-import type { SceneCameraMovement, SceneShotType } from '#shared/types/script'
+import type { SceneCameraMovement, SceneDramatic, SceneShotType } from '#shared/types/script'
 import type {
   AssetImageHistoryEntry,
   AssetVideoHistoryEntry
@@ -23,6 +23,7 @@ export interface SceneData {
   episodeIndex?: number
   title: string
   description: string
+  dramatic?: SceneDramatic
   characters: Array<{ name: string, appearance?: string, emotion?: string }>
   dialogues: Array<{ character: string, text: string, emotion?: string }>
   narration?: string

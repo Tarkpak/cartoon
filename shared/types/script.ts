@@ -309,6 +309,22 @@ export const ScriptEpisodeSchema = z.object({
 })
 export type ScriptEpisode = z.infer<typeof ScriptEpisodeSchema>
 
+/** 短剧戏剧目标，用于保留冲突、爽点和钩子，避免分镜退化成平铺直叙 */
+export const SceneDramaticSchema = z.object({
+  function: z.enum(['hook', 'escalation', 'confrontation', 'reversal', 'payoff', 'cliffhanger', 'aftermath']).optional()
+    .describe('场景戏剧功能'),
+  conflict: z.string().optional().describe('本场核心冲突：谁压迫谁、争夺什么'),
+  emotionalCurve: z.string().optional().describe('情绪曲线，例如：羞辱->震惊->冷感反击'),
+  audienceHook: z.string().optional().describe('观众为什么想继续看'),
+  painPoint: z.string().optional().describe('观众共情或愤怒的痛点'),
+  payoff: z.string().optional().describe('本场爽点/回报点'),
+  powerShift: z.string().optional().describe('权力关系如何变化'),
+  antagonistPressure: z.string().optional().describe('反派如何施压'),
+  protagonistCounter: z.string().optional().describe('主角如何反击或埋下反击'),
+  cliffhanger: z.string().optional().describe('结尾钩子或下一场期待')
+}).optional()
+export type SceneDramatic = z.infer<typeof SceneDramaticSchema>
+
 /** 场景定义 */
 export const SceneSchema = z.object({
   id: z.string().describe('场景ID'),
@@ -319,6 +335,7 @@ export const SceneSchema = z.object({
   shotType: SceneShotTypeSchema.optional(),
   cameraMovement: SceneCameraMovementSchema.optional(),
   description: z.string().describe('场景描述'),
+  dramatic: SceneDramaticSchema,
   setting: SceneSettingSchema.describe('场景设定'),
   characters: z.array(SceneCharacterSchema).describe('登场角色'),
   dialogues: z.array(DialogueSchema).optional().describe('对话列表'),
@@ -351,7 +368,14 @@ export const ScriptEpisodePlanItemSchema = z.object({
   title: z.string().optional().describe('分集标题（可选）'),
   index: z.number().int().min(1).optional().describe('分集序号（可选）'),
   startOffset: z.number().int().min(0).describe('起始字符偏移（含）'),
-  endOffset: z.number().int().min(1).describe('结束字符偏移（不含）')
+  endOffset: z.number().int().min(1).describe('结束字符偏移（不含）'),
+  episodeHook: z.string().optional().describe('本集开场钩子'),
+  humiliationOrThreat: z.string().optional().describe('本集羞辱/威胁/压迫点'),
+  reversalPoint: z.string().optional().describe('本集反击或反转点'),
+  emotionalCurve: z.string().optional().describe('本集情绪曲线'),
+  cliffhanger: z.string().optional().describe('本集结尾钩子'),
+  payoffType: z.enum(['打脸', '反杀', '揭露', '甜宠撑腰', '身世反转', '危机升级', '搞钱逆袭', '权力升级']).optional()
+    .describe('本集主要爽点类型')
 })
 export type ScriptEpisodePlanItem = z.infer<typeof ScriptEpisodePlanItemSchema>
 

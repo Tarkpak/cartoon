@@ -1,6 +1,7 @@
 import { mergeNarrationTexts } from '~/lib/asset-workbench-scenes'
 import { normalizeCharacterName } from '~/lib/asset-workbench-values'
 import { normalizeCharacterGender, normalizeCharacterRole } from '#shared/types/character'
+import type { SceneDramatic } from '#shared/types/script'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 
 const NARRATION_SPEAKER_SET = new Set([
@@ -21,6 +22,7 @@ interface ParsedScriptScene {
   title?: string
   shotType?: SceneData['shotType']
   cameraMovement?: SceneData['cameraMovement']
+  dramatic?: SceneDramatic
   description: string
   characters: Array<{ name: string, appearance?: string, emotion?: string }>
   dialogues?: Array<{ character: string, text: string, emotion?: string }>
@@ -63,6 +65,7 @@ export function buildParsedScenes(options: {
       episodeTitle: scene.episodeTitle,
       episodeIndex: scene.episodeIndex,
       title: scene.title || `${scene.setting?.location || '场景'} - ${scene.setting?.timeOfDay || ''}`,
+      dramatic: scene.dramatic,
       description: options.descriptionFormat === 'timeline'
         ? normalizedDescription
         : scene.description,

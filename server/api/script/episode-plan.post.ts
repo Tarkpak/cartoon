@@ -18,6 +18,12 @@ const EpisodePlanModelEpisodeSchema = z.object({
   index: z.coerce.number().int().min(1).optional(),
   title: z.string().trim().min(1).optional(),
   startAnchor: z.string().trim().min(8).optional(),
+  episodeHook: z.string().trim().optional(),
+  humiliationOrThreat: z.string().trim().optional(),
+  reversalPoint: z.string().trim().optional(),
+  emotionalCurve: z.string().trim().optional(),
+  cliffhanger: z.string().trim().optional(),
+  payoffType: z.enum(['打脸', '反杀', '揭露', '甜宠撑腰', '身世反转', '危机升级', '搞钱逆袭', '权力升级']).optional(),
   episodeAssets: z.object({
     characters: z.array(z.object({
       name: z.string().trim().min(1),
@@ -92,7 +98,7 @@ function buildEpisodePlanPrompt(
     ? '第1集 startAnchor 必须取“本段开头”的连续片段。'
     : '第1集 startAnchor 必须取原文开头连续片段。'
 
-  return `你是专业编剧统筹，请把一部长文本剧本按“剧情结构”拆分成分集目录。
+  return `你是专业短剧编剧统筹，请把一部长文本剧本按“剧情结构 + 爆点节奏”拆分成分集目录。
 
 要求：
 1) 必须按剧情节点分集，不允许按字数平均切分。
@@ -102,9 +108,12 @@ function buildEpisodePlanPrompt(
    - startAnchor 必须是原文中的连续原句片段，逐字摘录，不得改写。
    - ${firstAnchorRule}
    - 第2集及以后 startAnchor 必须对应该集开头附近，建议 20~80 字，尽量唯一。
-5) episodeAssets.characters 用于提前建立角色资产，description 必须面向角色图生成，写成完整外观基线，而不是身份摘要或剧情关系。优先包含：性别呈现、年龄段、脸型/五官、发型发色、身形体态、常穿服装、关键配饰、身份气质、必须保持不变的视觉特征；原文未明确的信息可做保守推断，但不得与原文冲突。
-6) episodeAssets.characters[].gender 必须为 male、female、other 之一；根据原文称谓、代词、姓名、亲属关系、身份词和外貌线索推断，原文已暗示男/女时不得留空或反转。
-7) 仅输出 JSON，不要 markdown，不要解释文本，不要输出空集。
+5) 每集必须明确“观众为什么上头”：开场钩子、压迫/羞辱、反击/反转、情绪曲线、结尾钩子。不是离婚/复仇题材时，也要映射成同等级冲突和期待。
+6) 每集标题优先使用爆点式命名，例如“第3集：真话符打白莲”“第12集：赐婚反噬”，避免只写地点或流水账。
+7) payoffType 必须从以下类型中选择最贴近的一项：打脸、反杀、揭露、甜宠撑腰、身世反转、危机升级、搞钱逆袭、权力升级。
+8) episodeAssets.characters 用于提前建立角色资产，description 必须面向角色图生成，写成完整外观基线，而不是身份摘要或剧情关系。优先包含：性别呈现、年龄段、脸型/五官、发型发色、身形体态、常穿服装、关键配饰、身份气质、必须保持不变的视觉特征；原文未明确的信息可做保守推断，但不得与原文冲突。
+9) episodeAssets.characters[].gender 必须为 male、female、other 之一；根据原文称谓、代词、姓名、亲属关系、身份词和外貌线索推断，原文已暗示男/女时不得留空或反转。
+10) 仅输出 JSON，不要 markdown，不要解释文本，不要输出空集。
 
 JSON 结构（严格遵守）：
 {
@@ -113,6 +122,12 @@ JSON 结构（严格遵守）：
       "index": 1,
       "title": "第1集：...",
       "startAnchor": "原文片段",
+      "episodeHook": "开场3秒内出现的强钩子动作/台词/道具",
+      "humiliationOrThreat": "本集最强压迫、羞辱或危机",
+      "reversalPoint": "主角反击、证据出现、靠山登场或局势反转",
+      "emotionalCurve": "震惊→憋屈→愤怒→冷感反击",
+      "cliffhanger": "本集最后2-5秒的追看钩子",
+      "payoffType": "打脸",
       "episodeAssets": {
         "characters": [{ "name": "角色名", "description": "完整外观基线", "role": "protagonist|antagonist|supporting", "gender": "male|female|other" }],
         "props": [{ "name": "道具名", "description": "可选" }],
@@ -159,6 +174,22 @@ interface EpisodeAssetSummary {
 
 interface EpisodePlanItemWithAssets extends ScriptEpisodePlanItem {
   episodeAssets?: EpisodeAssetSummary
+}
+
+type EpisodeDramaMeta = Pick<
+  ScriptEpisodePlanItem,
+  'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType'
+>
+
+function pickEpisodeDramaMeta(source?: Partial<EpisodeDramaMeta>): EpisodeDramaMeta {
+  return {
+    ...(source?.episodeHook ? { episodeHook: source.episodeHook } : {}),
+    ...(source?.humiliationOrThreat ? { humiliationOrThreat: source.humiliationOrThreat } : {}),
+    ...(source?.reversalPoint ? { reversalPoint: source.reversalPoint } : {}),
+    ...(source?.emotionalCurve ? { emotionalCurve: source.emotionalCurve } : {}),
+    ...(source?.cliffhanger ? { cliffhanger: source.cliffhanger } : {}),
+    ...(source?.payoffType ? { payoffType: source.payoffType } : {})
+  }
 }
 
 function normalizeEpisodeAssetKey(raw: string): string {
@@ -445,16 +476,23 @@ function buildEpisodePlanFromModelOutput(
       index: item.index ?? (order + 1),
       title: item.title,
       startAnchor: item.startAnchor,
-      episodeAssets: normalizeEpisodeAssetSummary(item.episodeAssets)
+      episodeAssets: normalizeEpisodeAssetSummary(item.episodeAssets),
+      episodeHook: item.episodeHook,
+      humiliationOrThreat: item.humiliationOrThreat,
+      reversalPoint: item.reversalPoint,
+      emotionalCurve: item.emotionalCurve,
+      cliffhanger: item.cliffhanger,
+      payoffType: item.payoffType
     }))
     .sort((a, b) => a.index - b.index || a.order - b.order)
 
   if (rawEpisodes.length === 0) return []
 
-  const resolvedStarts: Array<{ title: string, startOffset: number, episodeAssets?: EpisodeAssetSummary }> = [{
+  const resolvedStarts: Array<{ title: string, startOffset: number, episodeAssets?: EpisodeAssetSummary } & EpisodeDramaMeta> = [{
     title: normalizeEpisodeTitle(rawEpisodes[0]?.title, 0),
     startOffset: 0,
-    episodeAssets: rawEpisodes[0]?.episodeAssets
+    episodeAssets: rawEpisodes[0]?.episodeAssets,
+    ...pickEpisodeDramaMeta(rawEpisodes[0])
   }]
 
   let lastStartOffset = 0
@@ -472,7 +510,8 @@ function buildEpisodePlanFromModelOutput(
     resolvedStarts.push({
       title: normalizeEpisodeTitle(episode.title, resolvedStarts.length),
       startOffset,
-      episodeAssets: episode.episodeAssets
+      episodeAssets: episode.episodeAssets,
+      ...pickEpisodeDramaMeta(episode)
     })
     lastStartOffset = startOffset
   }
@@ -484,7 +523,8 @@ function buildEpisodePlanFromModelOutput(
       index: 1,
       startOffset: 0,
       endOffset: text.length,
-      episodeAssets: rawEpisodes[0]?.episodeAssets
+      episodeAssets: rawEpisodes[0]?.episodeAssets,
+      ...pickEpisodeDramaMeta(rawEpisodes[0])
     }]
   }
 
@@ -505,7 +545,8 @@ function buildEpisodePlanFromModelOutput(
       index: plannedEpisodes.length + 1,
       startOffset,
       endOffset,
-      episodeAssets: current.episodeAssets
+      episodeAssets: current.episodeAssets,
+      ...pickEpisodeDramaMeta(current)
     })
   }
 
@@ -591,7 +632,7 @@ async function buildChunkedModelDrivenEpisodePlan(
   const startMetaMap = new Map<number, {
     title: string
     episodeAssets?: EpisodeAssetSummary
-  }>()
+  } & EpisodeDramaMeta>()
   startMetaMap.set(0, { title: '' })
 
   for (let index = 0; index < chunks.length; index++) {
@@ -616,7 +657,11 @@ async function buildChunkedModelDrivenEpisodePlan(
       const currentMeta = startMetaMap.get(globalStartOffset)
       startMetaMap.set(globalStartOffset, {
         title: pickPreferredTitle(currentMeta?.title, localEpisode.title || ''),
-        episodeAssets: mergeEpisodeAssetSummaries(currentMeta?.episodeAssets, localEpisode.episodeAssets)
+        episodeAssets: mergeEpisodeAssetSummaries(currentMeta?.episodeAssets, localEpisode.episodeAssets),
+        ...pickEpisodeDramaMeta({
+          ...localEpisode,
+          ...currentMeta
+        })
       })
     }
   }
@@ -647,7 +692,8 @@ async function buildChunkedModelDrivenEpisodePlan(
       index: mergedEpisodes.length + 1,
       startOffset,
       endOffset,
-      episodeAssets: meta?.episodeAssets
+      episodeAssets: meta?.episodeAssets,
+      ...pickEpisodeDramaMeta(meta)
     })
   }
 

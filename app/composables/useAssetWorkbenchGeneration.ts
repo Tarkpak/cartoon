@@ -232,7 +232,7 @@ export function useAssetWorkbenchGeneration(
 
   function resolveEpisodeParsePayload(targetEpisodeId?: string): {
     requestText: string
-    requestEpisodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset'>>
+    requestEpisodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset' | 'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType'>>
     targetEpisodeTitle?: string
     targetEpisodeId?: string
   } {
@@ -245,7 +245,13 @@ export function useAssetWorkbenchGeneration(
           title: item.title,
           index: item.index,
           startOffset: item.startOffset,
-          endOffset: item.endOffset
+          endOffset: item.endOffset,
+          episodeHook: item.episodeHook,
+          humiliationOrThreat: item.humiliationOrThreat,
+          reversalPoint: item.reversalPoint,
+          emotionalCurve: item.emotionalCurve,
+          cliffhanger: item.cliffhanger,
+          payoffType: item.payoffType
         }))
       }
     }
@@ -270,7 +276,13 @@ export function useAssetWorkbenchGeneration(
         title: targetEpisode.title,
         index: targetEpisode.index,
         startOffset: 0,
-        endOffset: episodeText.length
+        endOffset: episodeText.length,
+        episodeHook: targetEpisode.episodeHook,
+        humiliationOrThreat: targetEpisode.humiliationOrThreat,
+        reversalPoint: targetEpisode.reversalPoint,
+        emotionalCurve: targetEpisode.emotionalCurve,
+        cliffhanger: targetEpisode.cliffhanger,
+        payoffType: targetEpisode.payoffType
       }],
       targetEpisodeTitle: targetEpisode.title,
       targetEpisodeId: targetEpisode.id
