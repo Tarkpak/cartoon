@@ -24,11 +24,11 @@ export type VideoProvider = z.infer<typeof VideoProviderSchema>
 
 /** 视频生成配置 */
 export const VideoGenerationConfigSchema = z.object({
-  firstFrame: z.string().optional().describe('首帧图片 (base64) - Gemini 使用'),
-  lastFrame: z.string().optional().describe('尾帧图片 (base64) - Gemini 使用'),
+  firstFrame: z.string().optional().describe('首帧图片（URL 或 dataURL）'),
+  lastFrame: z.string().optional().describe('尾帧图片（URL 或 dataURL）'),
   imageUrl: z.string().optional().describe('输入图片 URL - Qwen 图生视频使用'),
   referenceImages: z.array(z.string()).max(9).optional().describe('多参考图（不同模型上限不同，服务端会按模型裁剪）'),
-  audioUrl: z.string().optional().describe('显式音频参考 URL（如 Qwen/Seedance 支持）'),
+  audioUrl: z.string().optional().describe('显式音频参考 URL 或 dataURL（如 Qwen/Seedance 支持）'),
   prompt: z.string().describe('视频描述提示词'),
   negativePrompt: z.string().optional().describe('负面提示词 - Qwen 使用'),
   duration: DurationSchema.default(8).describe('视频时长'),
@@ -62,8 +62,8 @@ export type VideoMetadata = z.infer<typeof VideoMetadataSchema>
 export const GeneratedVideoSchema = z.object({
   id: z.string().describe('视频ID'),
   sceneId: z.string().optional().describe('关联场景ID'),
-  videoData: z.string().describe('视频数据 (base64)'),
-  audioData: z.string().optional().describe('音频数据 (base64)'),
+  videoData: z.string().describe('视频链接（优先 CDN URL）'),
+  audioData: z.string().optional().describe('音频链接（优先 CDN URL）'),
   metadata: VideoMetadataSchema.describe('视频元数据'),
   createdAt: z.string().datetime().describe('创建时间')
 })
