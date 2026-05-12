@@ -57,6 +57,35 @@ export interface FinalVideoAsset {
   updatedAt?: string
 }
 
+export type FinalMergeTransitionType = 'fade' | 'dissolve' | 'wipe' | 'none'
+
+export interface FinalMergeOptions {
+  sceneOrder?: string[]
+  transitionType?: FinalMergeTransitionType
+  transitionDuration?: number
+  addSubtitles?: boolean
+  bgmUrl?: string
+  bgmVolume?: number
+}
+
+export interface FinalTimelineScene {
+  id: string
+  title: string
+  duration: number
+  startTime: number
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  thumbnail?: string
+}
+
+export interface FinalCostEstimate {
+  provider: string
+  model: string
+  totalDurationSeconds: number
+  sceneCount: number
+  estimatedCredits: number
+  estimatedUsd: number
+}
+
 export interface DisplayAsset {
   id: string
   name: string
