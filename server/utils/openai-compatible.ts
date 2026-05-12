@@ -954,6 +954,17 @@ export async function generateOpenAICompatibleText(options: {
   }
   const useResponses = shouldUseResponsesApi(options.providerConfig.baseUrl, options.model)
   const requestBody = useResponses ? responsesRequestBody : chatRequestBody
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [OpenAI Compatible] generateText 请求参数:`, {
+    model: options.model,
+    baseUrl: options.providerConfig.baseUrl,
+    requestMode: useResponses ? 'responses' : 'chat_completions',
+    promptLength: options.prompt.length,
+    prompt: options.prompt,
+    systemInstruction: options.systemInstruction,
+    temperature: options.temperature ?? 0.7,
+    maxRetries: options.maxRetries
+  })
 
   return withModelDebugLog({
     provider: 'custom_openai',
@@ -1005,6 +1016,17 @@ export async function generateOpenAICompatibleJSON<T>(options: {
   }
   const useResponses = shouldUseResponsesApi(options.providerConfig.baseUrl, options.model)
   const requestBody = useResponses ? responsesRequestBody : chatRequestBody
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [OpenAI Compatible] generateJSON 请求参数:`, {
+    model: options.model,
+    baseUrl: options.providerConfig.baseUrl,
+    requestMode: useResponses ? 'responses' : 'chat_completions',
+    promptLength: options.prompt.length,
+    prompt: options.prompt,
+    systemInstruction: options.systemInstruction,
+    temperature: options.temperature ?? 0.2,
+    maxRetries: options.maxRetries
+  })
 
   return withModelDebugLog({
     provider: 'custom_openai',
@@ -1081,6 +1103,24 @@ export async function generateOpenAICompatibleImage(options: {
   if (referenceImages.length > 0 && !supportsEdit) {
     throw new OpenAICompatibleError(`模型 ${options.model} 不支持参考图编辑`, 400, false)
   }
+
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] [OpenAI Compatible] generateImage 请求参数:`, {
+    model: options.model,
+    baseUrl: options.providerConfig.baseUrl,
+    promptLength: options.prompt.length,
+    prompt: options.prompt,
+    size: options.size,
+    aspectRatio: options.aspectRatio,
+    resolvedSize,
+    quality: options.quality,
+    normalizedQuality: quality,
+    resolution,
+    referenceImageCount: referenceImages.length,
+    useImageEdits: referenceImages.length > 0 && !useImageUrlsInGenerations,
+    useImageUrlsInGenerations,
+    maxRetries: options.maxRetries
+  })
 
   return withModelDebugLog({
     provider: 'custom_openai',
