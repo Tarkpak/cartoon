@@ -168,7 +168,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 
 【输入规模】
 - 文本长度：约 {{textLength}} 字
-- 场景数量提示（弱参考，非硬限制）：{{recommendedMinScenes}}
+- 场景数量：默认不设固定值，由模型根据剧情承载自行决定；如外部传入提示值，仅作弱参考
 - 单场时长范围：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
 - 解析模式：{{scriptParseModeLabel}}
 
@@ -202,25 +202,25 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 【description 富化规则】
 1. 每个场景的 description 必须是“可直接拍摄”的详细场景说明块，不得只写一句概述，也不要退化成纯散文。
 2. description 请尽量按下面结构组织，并把信息直接写在同一个字符串里：
-   场景功能/情绪定位：一句话概括该场景的戏剧功能与情绪曲线
-   镜头设计：
-   0-2秒：……
-   2-4秒：……
-   声音设计：
-   - ……
-   台词节奏：
-   - ……
-   表演关键点：
-   - ……
-3. “镜头设计”中的每行格式必须是：起始-结束秒：景别，运镜方式。画面动作与对白。
-   - 景别如：中景、近景、特写镜头、中近景、全景、大远景等。
-   - 运镜方式如：固定镜头、缓慢推近、缓慢拉远、镜头左摇、镜头右摇、跟随镜头、手持镜头等。
-   - 可在运镜后补充镜头角度或特殊说明，如：镜头角度略低于XX的视线。
+场景功能/情绪定位：一句话概括该场景的戏剧功能与情绪曲线
+镜头设计：
+0-2秒：……
+2-4秒：……
+声音设计：
+- ……
+台词节奏：
+- ……
+表演关键点：
+- ……
+3. “镜头设计”中的每行格式必须是：起始-结束秒：，景别，运镜方式。画面动作与对白。
+- 景别如：中景、近景、特写镜头、中近景、全景、大远景等。
+- 运镜方式如：固定镜头、缓慢推近、缓慢拉远、镜头左摇、镜头右摇、跟随镜头、手持镜头等。
+- 可在运镜后补充镜头角度或特殊说明，如：，镜头角度略低于XX的视线。
 4. 每个场景至少 2 行镜头设计，建议 3-6 行；时间轴从 0 开始，最后一行结束时间应与 duration 对齐或接近（误差不超过 0.5 秒）。
 5. 时长要以剧情表达完整为优先。若同一戏剧段超过单场可生成时长，请拆成连续场景承接，不得删减关键剧情与情绪推进。
 6. 对话要直接写在对应镜头行中，用单引号包裹，例如：陆哲说：'你们等着看。'
 7. 旁白/画外音必须嵌入对应镜头行中，格式：画外音（音色：性别，年龄段，语调描述，音高，语速，情绪，口音）说：'旁白内容'。
-   示例：画外音（音色：男性，30岁左右，语调平静而富有叙事感，音高中等，语速适中，情绪内敛，无口音）说：'那份冰冷的文件，像一把钝刀。'
+示例：画外音（音色：男性，30岁左右，语调平静而富有叙事感，音高中等，语速适中，情绪内敛，无口音）说：'那份冰冷的文件，像一把钝刀。'
 8. “声音设计”里写环境音、关键音效、语气和节奏；“表演关键点”里写眼神、停顿、微表情、手部动作、身体重心变化等。
 9. 每行应包含丰富的镜头语言：光线描写、空间关系、人物动作细节、环境氛围与声音描写。
 10. description 中禁止写"添加字幕/BGM/音效"等制作指令，但可以写“环境音/低频嗡鸣/玻璃碎声”等叙事内声音设计。
@@ -231,60 +231,69 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 1. 只识别真实角色，不要把旁白、画外音、系统说明、音效、抽象概念当作角色。
 2. 场景中的旁白、画外音、内心独白必须同时输出到 scenes[i].narration 字段，并以画外音格式嵌入 description 的对应时间轴行中。
 3. dialogues 仅保留真实角色台词，不要把“旁白”写成角色。
-4. characters 数组中的角色描述要稳定可复用，便于后续角色资产生成。
-5. characters 顶层数组中的 gender 必须为 male、female、other 之一。请根据原文称谓、代词、姓名、亲属关系、身份词和外貌线索推断；原文已暗示男/女时不得留空或反转。
-6. characters 顶层数组中的 description 必须面向角色图生成，写成完整外观基线，而不是身份摘要或剧情关系。优先包含：性别呈现、年龄段、脸型/五官、发型发色、身形体态、常穿服装、关键配饰、身份气质、必须保持不变的视觉特征；原文未明确的信息可做保守推断，但不得与原文冲突。
-7. 同一角色在不同场景的服装变化只写入 scene.characters[i].appearance；顶层 characters[i].description 保持该角色默认资产基线。
-8. 对每个场景，明确角色、环境和关键道具等资产需求，但不要额外新增无关元素。
+4. characters 数组中的角色描述要稳定可复用，便于后续角色资产生成，角色描述要具体。
+5. 对每个场景，明确角色、环境和关键道具等资产需求，但不要额外新增无关元素。
+
+【角色资产描述 (characters) 严格规范】
+1.全局稳定性（资产锁定）：同一个角色在整个 JSON 的 characters 数组中，其描述必须绝对一致，不得随着场景、剧情或情绪的变化而改变。
+2.剥离动态与情绪：角色描述中严禁包含任何当前场景的动作、表情、情绪或临时道具（例如：禁止写“正在流泪”、“满脸愤怒”、“拿着剑”）。这些动态要素只能写在 scenes[i].description 的镜头设计中。
+3.纯视觉标签化（去文学性）：禁止使用“气质冷傲”、“倾国倾城”等抽象文学词汇。必须将其转化为具象的、可直接用于 AI 绘画模型生成的物理特征词组。
+4.强制物理维度：描述必须按顺序包含以下维度，并使用逗号分隔的短语：
+-基础属性（年龄段、性别、人种，如：20代、男性、东亚面孔）
+-发型与发色（如：黑色短碎发）
+-五官与脸型特征（如：下颌线清晰、剑眉、冷白皮）
+-标志性常服（如：黑色机能风风衣）
+正确示例："description": "25岁, 男性, 东亚面孔, 黑色短碎发, 眼神锐利, 下颌线清晰, 穿着黑色西装与白衬衫"
+
+错误示例："description": "陆哲气愤地看着人群，眼神像刀子一样，是个充满叙事感的30岁男人"
 
 【输出格式】
 请严格输出 JSON：
 \`\`\`json
 {
-  "title": "剧本标题（可选）",
-  "scenes": [
-    {
-      "id": "scene_001",
-      "title": "场景标题",
-      "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
-      "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
-      "description": "场景功能/情绪定位：公开压迫，主角第一次显出反击前的冷感。\\n镜头设计：\\n0-2秒：中景，固定镜头。护士站走廊白炽灯映出冷硬的墙面，人来人往，陆哲抬手整理白大褂，动作从容。\\n2-5秒：近景，缓慢推近。陆哲嘴角上扬，眼神中透着志在必得的冷傲。陆哲说：'你们等着看。'\\n5-8秒：中景，固定镜头。画外音（音色：男性，30岁左右，语调沉稳，音高偏低，语速适中，情绪克制，无口音）说：'他的目光穿过人群，像一把隐忍的刀。'\\n声音设计：\\n- 环境音以护士站脚步声、推车轮声和广播底噪为主。\\n- 陆哲开口前压低环境声，让台词更顶。\\n台词节奏：\\n- '你们等着看。'前短停半拍，后半句咬字更重。\\n表演关键点：\\n- 整理白大褂时手势克制而笃定。\\n- 说完台词后不要立刻转身，留一个带轻蔑意味的停顿。",
-      "setting": {
-        "location": "医院-护士站",
-        "timeOfDay": "夜晚",
-        "era": "现代",
-        "mood": "紧绷压迫",
-        "weather": "暴雨（可选）"
-      },
-      "characters": [
-        {
-          "name": "陆哲",
-          "appearance": "角色在此场景中的外观描述",
-          "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
-        }
-      ],
-      "dialogues": [
-        {
-          "character": "陆哲",
-          "text": "你们等着看。",
-          "emotion": "determined"
-        }
-      ],
-      "narration": "旁白/画外音（可选）",
-      "usePreviousLastFrameAsFirstFrame": false,
-      "continuityLinkReason": "",
-      "duration": 8
-    }
-  ],
-  "characters": [
-    {
-      "name": "陆哲",
-      "description": "角色整体外貌描述，便于后续角色资产生成",
-      "role": "protagonist|antagonist|supporting",
-      "gender": "male|female|other"
-    }
-  ],
-  "totalDuration": 96
+"title": "剧本标题（可选）",
+"scenes": [
+{
+"id": "scene_001",
+"title": "场景标题",
+"shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
+"cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
+"description": "场景功能/情绪定位：公开压迫，主角第一次显出反击前的冷感。\\n镜头设计：\\n0-2秒：，中景，固定镜头。护士站走廊白炽灯映出冷硬的墙面，人来人往，陆哲抬手整理白大褂，动作从容。\\n2-5秒：，近景，缓慢推近。陆哲嘴角上扬，眼神中透着志在必得的冷傲。陆哲说：'你们等着看。'\\n5-8秒：，中景，固定镜头。画外音（音色：男性，30岁左右，语调沉稳，音高偏低，语速适中，情绪克制，无口音）说：'他的目光穿过人群，像一把隐忍的刀。'\\n声音设计：\\n- 环境音以护士站脚步声、推车轮声和广播底噪为主。\\n- 陆哲开口前压低环境声，让台词更顶。\\n台词节奏：\\n- '你们等着看。'前短停半拍，后半句咬字更重。\\n表演关键点：\\n- 整理白大褂时手势克制而笃定。\\n- 说完台词后不要立刻转身，留一个带轻蔑意味的停顿。",
+"setting": {
+"location": "医院-护士站",
+"timeOfDay": "夜晚",
+"era": "现代",
+"mood": "紧绷压迫",
+"weather": "暴雨（可选）"
+},
+"characters": [
+{
+"name": "陆哲",
+"appearance": "角色在此场景中的外观描述",
+"emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
+}
+],
+"dialogues": [
+{
+"character": "陆哲",
+"text": "你们等着看。",
+"emotion": "determined"
+}
+],
+"narration": "旁白/画外音（可选）",
+"usePreviousLastFrameAsFirstFrame": false,
+"continuityLinkReason": "",
+"duration": 8
+}
+],
+"characters": [
+{
+"name": "陆哲",
+"description": "角色整体外貌描述，便于后续角色资产生成",
+"role": "protagonist|antagonist|supporting"
+}
+],
+"totalDuration": 96
 }
 \`\`\`
 
@@ -434,7 +443,7 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 
 【输入规模】
 - 文本长度：约 {{textLength}} 字
-- 场景数量提示（弱参考，非硬限制）：{{recommendedMinScenes}}
+- 场景数量：默认不设固定值，由模型根据剧情承载自行决定；如外部传入提示值，仅作弱参考
 - 单场时长范围：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
 
 【剧情覆盖硬约束（必须执行）】
@@ -492,7 +501,7 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 【description 写作规则】
 1. 必须是“可拍摄”的时间轴分镜块，禁止一句话概述。
 2. 每个场景至少 2 行镜头设计，建议 3-6 行，时间从 0 秒起。
-3. 镜头行格式：起始-结束秒：景别，运镜方式。画面动作与对白。
+3. 镜头行格式：起始-结束秒：，景别，运镜方式。画面动作与对白。
 4. 对白写在镜头行，用单引号；旁白写成：画外音（音色：...）说：'...'
 5. 必须包含“声音设计/台词节奏/表演关键点”，突出停顿、眼神、手部动作和压迫感。
 6. 禁止输出 @图片N（旧格式 [图片N] 也禁止）、字幕指令、BGM指令等后期制作命令。
@@ -501,70 +510,79 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 1. 只识别真实角色，不要把旁白/音效当角色。
 2. narration 字段仅放旁白/画外音；dialogues 仅放真实角色台词。
 3. characters 顶层数组要给出稳定可复用的角色描述，便于后续角色资产生成。
-4. characters 顶层数组中的 gender 必须为 male、female、other 之一。请根据原文称谓、代词、姓名、亲属关系、身份词和外貌线索推断；原文已暗示男/女时不得留空或反转。
-5. characters 顶层数组中的 description 必须面向角色图生成，写成完整外观基线，而不是身份摘要或剧情关系。优先包含：性别呈现、年龄段、脸型/五官、发型发色、身形体态、常穿服装、关键配饰、身份气质、必须保持不变的视觉特征；原文未明确的信息可做保守推断，但不得与原文冲突。
-6. 同一角色在不同场景的服装变化只写入 scene.characters[i].appearance；顶层 characters[i].description 保持该角色默认资产基线。
+
+【角色资产描述 (characters) 严格规范】
+1.全局稳定性（资产锁定）：同一个角色在整个 JSON 的 characters 数组中，其描述必须绝对一致，不得随着场景、剧情或情绪的变化而改变。
+2.剥离动态与情绪：角色描述中严禁包含任何当前场景的动作、表情、情绪或临时道具（例如：禁止写“正在流泪”、“满脸愤怒”、“拿着剑”）。这些动态要素只能写在 scenes[i].description 的镜头设计中。
+3.纯视觉标签化（去文学性）：禁止使用“气质冷傲”、“倾国倾城”等抽象文学词汇。必须将其转化为具象的、可直接用于 AI 绘画模型生成的物理特征词组。
+4.强制物理维度：描述必须按顺序包含以下维度，并使用逗号分隔的短语：
+-基础属性（年龄段、性别、人种，如：20代、男性、东亚面孔）
+-发型与发色（如：黑色短碎发）
+-五官与脸型特征（如：下颌线清晰、剑眉、冷白皮）
+-标志性常服（如：黑色机能风风衣）
+正确示例："description": "25岁, 男性, 东亚面孔, 黑色短碎发, 眼神锐利, 下颌线清晰, 穿着黑色西装与白衬衫"
+错误示例："description": "陆哲气愤地看着人群，眼神像刀子一样，是个充满叙事感的30岁男人"
 
 【输出格式】
 请严格输出 JSON：
 \`\`\`json
 {
-  "title": "剧本标题（可选）",
-  "scenes": [
-    {
-      "id": "scene_001",
-      "title": "场景标题",
-      "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
-      "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
-      "dramatic": {
-        "function": "hook|escalation|confrontation|reversal|payoff|cliffhanger|aftermath",
-        "conflict": "本场核心冲突：谁压迫谁、争夺什么",
-        "emotionalCurve": "羞辱→震惊→冷感反击",
-        "audienceHook": "观众继续看的理由",
-        "painPoint": "观众共情或愤怒的痛点",
-        "payoff": "本场爽点/回报点",
-        "powerShift": "权力关系如何变化",
-        "antagonistPressure": "反派如何施压",
-        "protagonistCounter": "主角如何反击或埋下反击",
-        "cliffhanger": "结尾钩子或下一场期待"
-      },
-      "description": "场景功能/情绪定位：开场钩子，冲突强压。\\n镜头设计：\\n0-2秒：中景，固定镜头。离婚协议被推到桌面中央，纸张边缘刮过手背。\\n2-5秒：近景，缓慢推近。女儿盯着男主，冷声补刀：'你早该签了。'\\n5-8秒：特写镜头，固定镜头。男主眼神发冷，手指停在签字处。\\n声音设计：\\n- 纸张摩擦声与椅脚拖地声前置。\\n台词节奏：\\n- '你早该签了。'中段停顿半拍。\\n表演关键点：\\n- 签字前手部细颤，随后逐步稳定。",
-      "setting": {
-        "location": "客厅-餐桌区",
-        "timeOfDay": "夜晚",
-        "era": "现代",
-        "mood": "压迫",
-        "weather": "雨夜（可选）"
-      },
-      "characters": [
-        {
-          "name": "角色名",
-          "appearance": "外观描述",
-          "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
-        }
-      ],
-      "dialogues": [
-        {
-          "character": "角色名",
-          "text": "台词",
-          "emotion": "determined"
-        }
-      ],
-      "narration": "旁白/画外音（可选）",
-      "usePreviousLastFrameAsFirstFrame": false,
-      "continuityLinkReason": "",
-      "duration": 8
-    }
-  ],
-  "characters": [
-    {
-      "name": "角色名",
-      "description": "角色整体外貌描述",
-      "role": "protagonist|antagonist|supporting",
-      "gender": "male|female|other"
-    }
-  ],
-  "totalDuration": 96
+"title": "剧本标题（可选）",
+"scenes": [
+{
+"id": "scene_001",
+"title": "场景标题",
+"shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
+"cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
+"dramatic": {
+  "function": "hook|escalation|confrontation|reversal|payoff|cliffhanger|aftermath",
+  "conflict": "本场核心冲突：谁压迫谁、争夺什么",
+  "emotionalCurve": "羞辱→震惊→冷感反击",
+  "audienceHook": "观众继续看的理由",
+  "painPoint": "观众共情或愤怒的痛点",
+  "payoff": "本场爽点/回报点",
+  "powerShift": "权力关系如何变化",
+  "antagonistPressure": "反派如何施压",
+  "protagonistCounter": "主角如何反击或埋下反击",
+  "cliffhanger": "结尾钩子或下一场期待"
+},
+"description": "场景功能/情绪定位：开场钩子，冲突强压。\\n镜头设计：\\n0-2秒：，中景，固定镜头。离婚协议被推到桌面中央，纸张边缘刮过手背。\\n2-5秒：，近景，缓慢推近。女儿盯着男主，冷声补刀：'你早该签了。'\\n5-8秒：，特写镜头，固定镜头。男主眼神发冷，手指停在签字处。\\n声音设计：\\n- 纸张摩擦声与椅脚拖地声前置。\\n台词节奏：\\n- '你早该签了。'中段停顿半拍。\\n表演关键点：\\n- 签字前手部细颤，随后逐步稳定。",
+"setting": {
+"location": "客厅-餐桌区",
+"timeOfDay": "夜晚",
+"era": "现代",
+"mood": "压迫",
+"weather": "雨夜（可选）"
+},
+"characters": [
+{
+"name": "角色名",
+"appearance": "外观描述",
+"emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
+}
+],
+"dialogues": [
+{
+"character": "角色名",
+"text": "台词",
+"emotion": "determined"
+}
+],
+"narration": "旁白/画外音（可选）",
+"usePreviousLastFrameAsFirstFrame": false,
+"continuityLinkReason": "",
+"duration": 8
+}
+],
+"characters": [
+{
+"name": "角色名",
+"description": "角色整体外貌描述",
+"role": "protagonist|antagonist|supporting",
+"gender": "male|female|other"
+}
+],
+"totalDuration": 96
 }
 \`\`\`
 
