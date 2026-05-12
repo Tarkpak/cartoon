@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { toCanvasSafeImageSrc } from './media'
 import type {
+  EnvironmentCropCaptureMode,
   EnvironmentCropSelection
 } from '~/lib/asset-workbench-types'
 
@@ -63,6 +64,8 @@ const KNOWN_ASPECT_RATIO_LABELS: Array<[ratio: number, label: string]> = [
   [3, '3:1'],
   [6, '6:1']
 ]
+// 顺序固定为：前、后、左、右
+const PANORAMA_FOUR_VIEW_OFFSETS = [0, 0.5, 0.75, 0.25] as const
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
@@ -72,6 +75,12 @@ function clamp(value: number, min: number, max: number): number {
 function wrapUnit(value: number): number {
   if (!Number.isFinite(value)) return 0
   return ((value % 1) + 1) % 1
+}
+
+export function resolveEnvironmentCropCaptureMode(
+  value: unknown
+): EnvironmentCropCaptureMode {
+  return value === 'four_view' ? 'four_view' : 'single'
 }
 
 function resolveSelectionBounds() {
@@ -512,6 +521,17 @@ export function normalizePanoramaSelectionForAspectRatio(
   )
 }
 
+export function buildPanoramaFourViewSelections(
+  selection: EnvironmentCropSelection
+): EnvironmentCropSelection[] {
+  return PANORAMA_FOUR_VIEW_OFFSETS.map(offset => ({
+    x: wrapUnit(selection.x + offset),
+    y: selection.y,
+    width: selection.width,
+    height: selection.height
+  }))
+}
+
 export async function loadPanoramaImage(
   sourceImage: string,
   options: {
@@ -696,6 +716,76 @@ export async function renderPanoramaSelectionToDataUrl(options: {
     }
   } finally {
     disposePanoramaCanvas(canvas)
+  }
+}
+
+export async function renderPanoramaFourViewToDataUrl(options: {
+  sourceImage: string
+  selection: EnvironmentCropSelection
+  sourceAspectRatio?: PanoramaSourceAspectRatioInput
+  outputSize?: CropImageMetrics
+  aspectRatio?: PanoramaOutputAspectRatioInput
+}): Promise<PanoramaRenderResult> {
+  const { image, width, height } = await loadPanoramaImage(options.sourceImage, {
+    sourceAspectRatio: options.sourceAspectRatio
+  })
+  const normalizedSelection = normalizePanoramaSelectionForAspectRatio(
+    options.selection,
+    width,
+    height,
+    options.aspectRatio
+  )
+  if (!normalizedSelection) {
+    throw new Error('取景区域无效，无法生成环境图')
+  }
+
+  const outputSize = options.outputSize || resolvePanoramaOutputSize({
+    aspectRatio: options.aspectRatio
+  })
+  const leftWidth = Math.max(1, Math.floor(outputSize.width / 2))
+  const rightWidth = Math.max(1, outputSize.width - leftWidth)
+  const topHeight = Math.max(1, Math.floor(outputSize.height / 2))
+  const bottomHeight = Math.max(1, outputSize.height - topHeight)
+  const tiles = [
+    { x: 0, y: 0, width: leftWidth, height: topHeight },
+    { x: leftWidth, y: 0, width: rightWidth, height: topHeight },
+    { x: 0, y: topHeight, width: leftWidth, height: bottomHeight },
+    { x: leftWidth, y: topHeight, width: rightWidth, height: bottomHeight }
+  ] as const
+  const viewSelections = buildPanoramaFourViewSelections(normalizedSelection)
+
+  const outputCanvas = document.createElement('canvas')
+  outputCanvas.width = outputSize.width
+  outputCanvas.height = outputSize.height
+  const outputContext = outputCanvas.getContext('2d')
+  if (!outputContext) {
+    throw new Error('无法创建四视图画布')
+  }
+
+  const viewCanvas = document.createElement('canvas')
+  try {
+    viewSelections.forEach((selection, index) => {
+      const tile = tiles[index]
+      if (!tile) return
+
+      renderPanoramaSelectionToCanvas({
+        image,
+        canvas: viewCanvas,
+        selection,
+        sourceAspectRatio: options.sourceAspectRatio,
+        width: tile.width,
+        height: tile.height
+      })
+      outputContext.drawImage(viewCanvas, tile.x, tile.y, tile.width, tile.height)
+    })
+
+    return {
+      imageData: outputCanvas.toDataURL('image/png'),
+      crop: normalizedSelection
+    }
+  } finally {
+    disposePanoramaCanvas(viewCanvas)
+    disposePanoramaCanvas(outputCanvas)
   }
 }
 

@@ -9,6 +9,7 @@ import type {
   CharacterRoleOption,
   DisplayAsset,
   EnvironmentAssetCard,
+  EnvironmentCropCaptureMode,
   EnvironmentCropSelection,
   EnvironmentPanoramaState,
   QueueItem
@@ -30,6 +31,8 @@ import {
   buildDefaultCropSelection,
   loadCropImageMetrics,
   normalizePanoramaSelectionForAspectRatio,
+  resolveEnvironmentCropCaptureMode,
+  renderPanoramaFourViewToDataUrl,
   renderPanoramaSelectionToDataUrl
 } from '~/lib/asset-workbench-environment-panorama'
 import {
@@ -453,7 +456,8 @@ function setEnvironmentPanoramaState(
   assetId: string,
   state: EnvironmentPanoramaState | undefined
 ) {
-  const hasPayload = !!state?.panoramaImage?.trim() || !!state?.crop
+  const captureMode = state?.captureMode === 'four_view' ? 'four_view' : undefined
+  const hasPayload = !!state?.panoramaImage?.trim() || !!state?.crop || !!captureMode
   const nextStates = { ...environmentPanoramaStates.value }
 
   if (!hasPayload) {
@@ -465,7 +469,8 @@ function setEnvironmentPanoramaState(
 
   nextStates[assetId] = {
     panoramaImage: state?.panoramaImage?.trim() || undefined,
-    crop: state?.crop
+    crop: state?.crop,
+    captureMode
   }
   environmentPanoramaStates.value = nextStates
 }
@@ -491,10 +496,12 @@ async function createEnvironmentCropImage(options: {
   assetId: string
   sourceImage: string
   crop?: EnvironmentCropSelection
+  captureMode?: EnvironmentCropCaptureMode
   aspectRatio?: string
 }) {
   const outputAspectRatio = options.aspectRatio || projectAspectRatio.value
   const sourceAspectRatio = environmentPanoramaSourceAspectRatio.value
+  const captureMode = resolveEnvironmentCropCaptureMode(options.captureMode)
   const metrics = await loadCropImageMetrics(options.sourceImage, {
     sourceAspectRatio
   })
@@ -512,19 +519,27 @@ async function createEnvironmentCropImage(options: {
   if (!crop) {
     throw new Error('取景区域无效，无法生成环境图')
   }
-  const result = await renderPanoramaSelectionToDataUrl({
-    sourceImage: options.sourceImage,
-    selection: crop,
-    sourceAspectRatio,
-    aspectRatio: outputAspectRatio
-  })
+  const result = captureMode === 'four_view'
+    ? await renderPanoramaFourViewToDataUrl({
+        sourceImage: options.sourceImage,
+        selection: crop,
+        sourceAspectRatio,
+        aspectRatio: outputAspectRatio
+      })
+    : await renderPanoramaSelectionToDataUrl({
+        sourceImage: options.sourceImage,
+        selection: crop,
+        sourceAspectRatio,
+        aspectRatio: outputAspectRatio
+      })
   const imageData = result.imageData
   const normalizedCrop = result.crop
   const imageUrl = await uploadAssetImage(imageData, buildEnvironmentCropUploadPrefix(options.assetId))
 
   return {
     imageUrl,
-    crop: normalizedCrop
+    crop: normalizedCrop,
+    captureMode
   }
 }
 
@@ -1448,6 +1463,15 @@ const environmentCropInitialSelection = computed(() => {
     || environmentCropTarget.value.crop
 })
 
+const environmentCropInitialCaptureMode = computed<EnvironmentCropCaptureMode>(() => {
+  if (!environmentCropTarget.value) return 'single'
+  const captureMode = resolveEnvironmentPanoramaState(environmentCropTarget.value.id)?.captureMode
+    || environmentCropTarget.value.captureMode
+  return resolveEnvironmentCropCaptureMode(
+    captureMode
+  )
+})
+
 function openEnvironmentCropDialog(assetId: string) {
   const asset = resolveEnvironmentCard(assetId)
   if (!asset?.panoramaImage?.trim() && !asset?.referenceImage?.trim()) {
@@ -1470,6 +1494,7 @@ function setEnvironmentCropDialogOpen(open: boolean) {
 
 async function submitEnvironmentCropSelection(payload: {
   selection: EnvironmentCropSelection
+  captureMode: EnvironmentCropCaptureMode
 }) {
   const target = environmentCropTarget.value
   const sourceImage = environmentCropSourceImage.value
@@ -1486,12 +1511,14 @@ async function submitEnvironmentCropSelection(payload: {
       assetId: target.id,
       sourceImage,
       crop: payload.selection,
+      captureMode: payload.captureMode,
       aspectRatio: projectAspectRatio.value
     })
 
     await applyEnvironmentReferenceImage(target.id, result.imageUrl, {
       panoramaImage: target.panoramaImage?.trim() || sourceImage,
-      crop: result.crop
+      crop: result.crop,
+      captureMode: result.captureMode
     })
     recordEnvironmentHistory(target.id, result.imageUrl, { source: 'cropped' })
     await saveWorkflowMeta()
@@ -2161,15 +2188,20 @@ async function generateEnvironmentAssetFromCard(
 
     let finalReferenceImage = response.referenceImage
     let crop: EnvironmentCropSelection | undefined
+    let captureMode: EnvironmentCropCaptureMode | undefined
     try {
+      captureMode = resolveEnvironmentPanoramaState(assetId)?.captureMode
+        || asset.captureMode
       const croppedResult = await createEnvironmentCropImage({
         assetId,
         sourceImage: response.referenceImage,
         crop: asset.crop,
+        captureMode,
         aspectRatio: projectAspectRatio.value
       })
       finalReferenceImage = croppedResult.imageUrl
       crop = croppedResult.crop
+      captureMode = croppedResult.captureMode
     } catch (error) {
       console.warn('[AssetWorkbench] 环境资产图裁切失败，已回退使用原始环境图', {
         assetId,
@@ -2179,7 +2211,8 @@ async function generateEnvironmentAssetFromCard(
 
     setEnvironmentPanoramaState(assetId, {
       panoramaImage: response.referenceImage,
-      crop
+      crop,
+      captureMode
     })
     recordEnvironmentHistory(assetId, finalReferenceImage, {
       source: 'generated',
@@ -2512,6 +2545,7 @@ async function handleBatchGenerateCharacters() {
       :environment-crop-source-image="environmentCropSourceImage"
       :environment-crop-source-aspect-ratio="environmentPanoramaSourceAspectRatio"
       :environment-crop-initial-selection="environmentCropInitialSelection"
+      :environment-crop-initial-capture-mode="environmentCropInitialCaptureMode"
       :environment-crop-aspect-ratio="projectAspectRatio"
       :environment-crop-saving="environmentCropSaving"
       :set-environment-crop-dialog-open="setEnvironmentCropDialogOpen"
