@@ -12,7 +12,6 @@ import type {
   EnvironmentCropCaptureMode,
   EnvironmentCropSelection,
   EnvironmentPanoramaState,
-  FinalCostEstimate,
   FinalMergeOptions,
   QueueItem
 } from '~/lib/asset-workbench-types'
@@ -92,8 +91,6 @@ const PANORAMA_SOURCE_ASPECT_RATIO_BY_MODE: Record<string, string> = {
 }
 const supportsExplicitVoiceAudioReference = ref(false)
 const environmentPanoramaSourceAspectRatio = ref(DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO)
-const selectedVideoModelProvider = ref('unknown')
-const selectedVideoModel = ref('')
 
 function normalizeAspectRatioValue(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -152,16 +149,12 @@ async function refreshVideoAudioReferenceCapability() {
     const selectedModel = videoWorkflow?.selectedModel || ''
     const selectedModelConfig = videoWorkflow?.compatibleModels?.find(item => item.model === selectedModel)
     supportsExplicitVoiceAudioReference.value = selectedModelConfig?.supportAudioReference === true
-    selectedVideoModelProvider.value = selectedModelConfig?.provider || 'unknown'
-    selectedVideoModel.value = selectedModel
     environmentPanoramaSourceAspectRatio.value = resolvePanoramaSourceAspectRatio(
       response.data?.modelOptions?.image_options
     )
   } catch (error) {
     console.warn('[asset-workbench] 读取视频模型能力失败，默认关闭显式音频引用标记:', error)
     supportsExplicitVoiceAudioReference.value = false
-    selectedVideoModelProvider.value = 'unknown'
-    selectedVideoModel.value = ''
     environmentPanoramaSourceAspectRatio.value = DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO
   }
 }
@@ -230,8 +223,6 @@ const finalStageMergeOptions = ref<FinalMergeOptions>({
   bgmUrl: '',
   bgmVolume: 0.3
 })
-const finalStageCostEstimate = ref<FinalCostEstimate | null>(null)
-const finalStageEstimatingCost = ref(false)
 
 const characterRoleOptions: CharacterRoleOption[] = [
   { value: 'protagonist', label: '主角' },
@@ -1228,59 +1219,6 @@ function handleFinalStageMergeOptionsUpdate(payload: Partial<FinalMergeOptions>)
 
   finalStageMergeOptions.value = next
 }
-
-const DEFAULT_COST_FACTOR = { creditsPerSecond: 1.5, usdPerSecond: 0.055 }
-const COST_FACTOR_BY_PROVIDER: Partial<Record<string, { creditsPerSecond: number, usdPerSecond: number }>> = {
-  gemini: { creditsPerSecond: 2.0, usdPerSecond: 0.08 },
-  qwen: { creditsPerSecond: 1.4, usdPerSecond: 0.05 },
-  kling: { creditsPerSecond: 1.5, usdPerSecond: 0.055 },
-  volcengine: { creditsPerSecond: 1.6, usdPerSecond: 0.06 },
-  unknown: DEFAULT_COST_FACTOR
-}
-
-function recalculateFinalStageCostEstimate() {
-  const totalDurationSeconds = finalStageScenes.value.reduce((sum, scene) => {
-    return sum + Math.max(0, Number(scene.duration) || 0)
-  }, 0)
-
-  if (finalStageScenes.value.length === 0 || totalDurationSeconds <= 0) {
-    finalStageCostEstimate.value = null
-    return
-  }
-
-  const provider = selectedVideoModelProvider.value || 'unknown'
-  const factors = COST_FACTOR_BY_PROVIDER[provider] || DEFAULT_COST_FACTOR
-  const estimatedCredits = Math.max(1, Math.round(totalDurationSeconds * factors.creditsPerSecond))
-  const estimatedUsd = Math.max(0.01, totalDurationSeconds * factors.usdPerSecond)
-
-  finalStageCostEstimate.value = {
-    provider,
-    model: selectedVideoModel.value || '-',
-    totalDurationSeconds,
-    sceneCount: finalStageScenes.value.length,
-    estimatedCredits,
-    estimatedUsd
-  }
-}
-
-async function refreshFinalStageCostEstimate() {
-  if (finalStageEstimatingCost.value) return
-  finalStageEstimatingCost.value = true
-  try {
-    await refreshVideoAudioReferenceCapability()
-    recalculateFinalStageCostEstimate()
-  } finally {
-    finalStageEstimatingCost.value = false
-  }
-}
-
-watch(
-  [finalStageScenes, selectedVideoModelProvider, selectedVideoModel],
-  () => {
-    recalculateFinalStageCostEstimate()
-  },
-  { deep: true, immediate: true }
-)
 
 const {
   autoRunning,
@@ -2765,11 +2703,8 @@ async function handleBatchGenerateCharacters() {
       :scenes="finalStageScenes"
       :scene-order="finalStageSceneOrder"
       :merge-options="finalStageMergeOptions"
-      :cost-estimate="finalStageCostEstimate"
-      :estimating-cost="finalStageEstimatingCost"
       @run-final="handleRunFinalStage"
       @export-jianying-project="handleExportJianyingProject"
-      @estimate-cost="refreshFinalStageCostEstimate"
       @update-scene-order="handleFinalStageSceneOrderUpdate"
       @update-merge-options="handleFinalStageMergeOptionsUpdate"
     />
