@@ -72,7 +72,7 @@ function shouldPersistVideoSource(value: string): boolean {
     return shouldPersistVideoSource(raw.slice(4))
   }
   if (raw.startsWith('http://') || raw.startsWith('https://')) return false
-  if (raw.startsWith('/')) return false
+  if (raw.startsWith('/')) return raw.startsWith('/videos/') || raw.startsWith('/api/video/file/')
   if (raw.startsWith('data:video/')) return true
   if (looksLikeBase64Video(raw)) return true
   if (looksLikeBase64Payload(raw)) return true

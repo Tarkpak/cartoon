@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
+import { readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   buildCloudNewestFirstNamePrefix,
   buildCloudObjectKey,
@@ -51,6 +53,39 @@ function normalizeVideoMimeType(value?: string): string {
   return normalized
 }
 
+function extractFilenameFromUrlPath(urlPath: string): string | null {
+  const trimmed = urlPath.trim()
+  if (!trimmed) return null
+
+  if (trimmed.startsWith('/videos/')) {
+    return decodeURIComponent(trimmed.slice('/videos/'.length))
+  }
+
+  if (trimmed.startsWith('/api/video/file/')) {
+    return decodeURIComponent(trimmed.slice('/api/video/file/'.length))
+  }
+
+  return null
+}
+
+function readLocalVideoFileByFilename(filename: string): Buffer | null {
+  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    return null
+  }
+
+  const filePath = getGeneratedVideoCandidatePaths(filename)
+    .find((candidate) => {
+      try {
+        return statSync(candidate).isFile()
+      } catch {
+        return false
+      }
+    })
+
+  if (!filePath) return null
+  return readFileSync(filePath)
+}
+
 async function resolveVideoSource(source: string): Promise<{ buffer: Buffer, mimeType: string }> {
   const raw = source.trim()
   if (!raw) {
@@ -83,7 +118,20 @@ async function resolveVideoSource(source: string): Promise<{ buffer: Buffer, mim
   }
 
   if (raw.startsWith('/')) {
-    throw new Error('检测到站内本地视频路径，已禁用本地媒体写入/读取，请先迁移至云存储')
+    const filename = extractFilenameFromUrlPath(raw)
+    if (!filename) {
+      throw new Error('检测到站内本地视频路径，已禁用本地媒体写入/读取，请先迁移至云存储')
+    }
+
+    const localBuffer = readLocalVideoFileByFilename(filename)
+    if (!localBuffer) {
+      throw new Error(`本地视频不存在或不可读，无法迁移到云端: ${filename}`)
+    }
+
+    return {
+      buffer: localBuffer,
+      mimeType: detectVideoMimeType(localBuffer)
+    }
   }
 
   const compact = raw.replace(/\s+/g, '')
@@ -112,4 +160,11 @@ export async function persistVideoSourceToCloud(options: {
     key: cloudObjectKey,
     buffer
   })
+}
+
+export function getGeneratedVideoCandidatePaths(filename: string): string[] {
+  return [
+    join(process.cwd(), 'public', 'videos', filename),
+    join(process.cwd(), '.output', 'public', 'videos', filename)
+  ]
 }
