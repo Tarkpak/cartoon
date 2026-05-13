@@ -190,6 +190,16 @@ function buildFallbackJianyingProjectFileName(date = new Date()): string {
   return `剧本-剪映工程-${date.toISOString().slice(0, 10)}.zip`
 }
 
+const SCRIPT_PARSE_STREAM_TOTAL_TIMEOUT_MS = 12 * 60 * 1000
+const SCRIPT_PARSE_STREAM_IDLE_TIMEOUT_MS = 60 * 1000
+
+function resolveScriptParseStreamTimeoutMessage(type: 'total' | 'idle'): string {
+  if (type === 'total') {
+    return '解析超时，请稍后重试（模型可能繁忙）'
+  }
+  return '解析连接超时，请稍后重试'
+}
+
 export async function parseAssetWorkbenchScript(options: {
   text: string
   scriptParseMode?: ScriptParseMode
@@ -211,15 +221,61 @@ export async function parseAssetWorkbenchScript(options: {
     })
   }
 
-  const response = await fetch('/api/script/parse-stream', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(requestBody)
-  })
+  const abortController = new AbortController()
+  let abortMessage = ''
+  let totalTimer: ReturnType<typeof setTimeout> | null = null
+  let idleTimer: ReturnType<typeof setTimeout> | null = null
+
+  const clearTimers = () => {
+    if (totalTimer) {
+      clearTimeout(totalTimer)
+      totalTimer = null
+    }
+    if (idleTimer) {
+      clearTimeout(idleTimer)
+      idleTimer = null
+    }
+  }
+
+  const abortWithMessage = (message: string) => {
+    if (abortController.signal.aborted) return
+    abortMessage = message
+    abortController.abort()
+  }
+
+  const resetIdleTimer = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer)
+    }
+    idleTimer = setTimeout(() => {
+      abortWithMessage(resolveScriptParseStreamTimeoutMessage('idle'))
+    }, SCRIPT_PARSE_STREAM_IDLE_TIMEOUT_MS)
+  }
+
+  totalTimer = setTimeout(() => {
+    abortWithMessage(resolveScriptParseStreamTimeoutMessage('total'))
+  }, SCRIPT_PARSE_STREAM_TOTAL_TIMEOUT_MS)
+
+  let response: Response
+  try {
+    response = await fetch('/api/script/parse-stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody),
+      signal: abortController.signal
+    })
+  } catch (error) {
+    clearTimers()
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(abortMessage || '解析请求已中断，请重试')
+    }
+    throw error
+  }
 
   if (!response.ok) {
+    clearTimers()
     let message = '剧本解析失败'
     try {
       const contentType = response.headers.get('content-type') || ''
@@ -238,6 +294,7 @@ export async function parseAssetWorkbenchScript(options: {
 
   const reader = response.body?.getReader()
   if (!reader) {
+    clearTimers()
     throw new Error('解析流不可用，请稍后重试')
   }
 
@@ -288,18 +345,30 @@ export async function parseAssetWorkbenchScript(options: {
     }
   }
 
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
+  resetIdleTimer()
 
-    let lineBreakIndex = buffer.indexOf('\n')
-    while (lineBreakIndex >= 0) {
-      const line = buffer.slice(0, lineBreakIndex)
-      buffer = buffer.slice(lineBreakIndex + 1)
-      handleLine(line)
-      lineBreakIndex = buffer.indexOf('\n')
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      resetIdleTimer()
+      buffer += decoder.decode(value, { stream: true })
+
+      let lineBreakIndex = buffer.indexOf('\n')
+      while (lineBreakIndex >= 0) {
+        const line = buffer.slice(0, lineBreakIndex)
+        buffer = buffer.slice(lineBreakIndex + 1)
+        handleLine(line)
+        lineBreakIndex = buffer.indexOf('\n')
+      }
     }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(abortMessage || '解析请求已中断，请重试')
+    }
+    throw error
+  } finally {
+    clearTimers()
   }
 
   buffer += decoder.decode()
