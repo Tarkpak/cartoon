@@ -1,4 +1,4 @@
-import type { ComputedRef, Ref } from 'vue'
+import { ref, type ComputedRef, type Ref } from 'vue'
 import type { CharacterView, CharacterVoiceAsset } from '#shared/types/character'
 import {
   DEFAULT_SCRIPT_PARSE_MODE,
@@ -37,6 +37,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   const saving = ref(false)
   const saveError = ref<string | null>(null)
   const loading = ref(false)
+  let lastSavedProjectSnapshot: string | null = null
   const mergeStatus = ref<{
     running: boolean
     progress: number
@@ -61,6 +62,45 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     }
 
     return 'draft'
+  }
+
+  function buildProjectSaveBody(input?: {
+    scenes?: SceneData[]
+    characters?: CharacterData[]
+  }) {
+    return {
+      name: options.projectName.value,
+      description: options.projectDescription.value,
+      status: resolveProjectStatus(),
+      styleId: options.projectStyleId.value,
+      aspectRatio: options.projectAspectRatio.value,
+      novelText: options.novelText.value,
+      selectedStyleId: options.selectedStyleId.value || options.projectStyleId.value,
+      scriptParseMode: options.scriptParseMode.value,
+      episodePlan: options.episodePlan.value,
+      scenes: buildSaveScenesPayload(input?.scenes || options.scenes.value),
+      characters: buildSaveCharactersPayload(input?.characters || options.characters.value)
+    }
+  }
+
+  function buildProjectSaveSnapshot(projectId: string, body: ReturnType<typeof buildProjectSaveBody>): string {
+    return JSON.stringify({
+      projectId,
+      ...body
+    })
+  }
+
+  function buildNormalizedProjectSaveSnapshot(projectId: string): string {
+    const scopedScenes = options.scenes.value.map(scene => ({ ...scene }))
+    const scopedCharacters = options.characters.value.map(character => ({ ...character }))
+    applyScopedEntityIds(projectId, scopedScenes, scopedCharacters)
+
+    const body = buildProjectSaveBody({
+      scenes: scopedScenes,
+      characters: scopedCharacters
+    })
+
+    return buildProjectSaveSnapshot(projectId, body)
   }
 
   async function mergeAllVideos(input?: FinalMergeOptions) {
@@ -185,6 +225,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
 
   async function loadProject(id: string) {
     loading.value = true
+    lastSavedProjectSnapshot = null
     mergeStatus.value = { running: false, progress: 0 }
     finalVideo.value = null
 
@@ -266,6 +307,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
 
       options.scenes.value = buildLoadedScenes(response.data.scenes)
       options.characters.value = buildLoadedCharacters(response.data.characters)
+      lastSavedProjectSnapshot = buildNormalizedProjectSaveSnapshot(id)
     } catch (error) {
       console.error('[useAssetWorkbenchProjectIO] 加载项目失败:', error)
     } finally {
@@ -316,23 +358,17 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       }
 
       applyScopedEntityIds(id, options.scenes.value, options.characters.value)
+      const saveBody = buildProjectSaveBody()
+      const nextSnapshot = buildProjectSaveSnapshot(id, saveBody)
+      if (nextSnapshot === lastSavedProjectSnapshot) {
+        return true
+      }
 
       await $fetch(`/api/project/${id}`, {
         method: 'PUT',
-        body: {
-          name: options.projectName.value,
-          description: options.projectDescription.value,
-          status: resolveProjectStatus(),
-          styleId: options.projectStyleId.value,
-          aspectRatio: options.projectAspectRatio.value,
-          novelText: options.novelText.value,
-          selectedStyleId: options.selectedStyleId.value || options.projectStyleId.value,
-          scriptParseMode: options.scriptParseMode.value,
-          episodePlan: options.episodePlan.value,
-          scenes: buildSaveScenesPayload(options.scenes.value),
-          characters: buildSaveCharactersPayload(options.characters.value)
-        }
+        body: saveBody
       })
+      lastSavedProjectSnapshot = nextSnapshot
       return true
     } catch (error) {
       const message = getDisplayErrorMessage(error, '未知错误')
