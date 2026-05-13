@@ -29,6 +29,13 @@ const SceneCharacterSchema = z.object({
   emotion: z.string().optional()
 })
 
+const SceneDialogueSchema = z.object({
+  character: z.string(),
+  text: z.string(),
+  emotion: z.string().optional(),
+  isInnerThought: z.boolean().optional()
+})
+
 const SceneSchema = z.object({
   id: z.string(),
   title: z.string().optional(),
@@ -39,7 +46,8 @@ const SceneSchema = z.object({
   duration: z.number().optional(),
   setting: SceneSettingSchema,
   narration: z.string().optional(),
-  characters: z.array(SceneCharacterSchema).optional().default([])
+  characters: z.array(SceneCharacterSchema).optional().default([]),
+  dialogues: z.array(SceneDialogueSchema).optional().default([])
 })
 
 const EnvironmentReferenceAssetSchema = z.object({
@@ -724,6 +732,15 @@ export default defineEventHandler(async (event) => {
   })
   const settingText = buildSettingText(scene.setting, [scene.title || '', scene.description || ''].join('\n'))
   const narrationText = hasText(scene.narration) ? scene.narration.trim() : ''
+  const dialogueText = (scene.dialogues || [])
+    .map((item) => {
+      const character = item.character?.trim() || ''
+      const text = item.text?.trim() || ''
+      if (!character || !text) return ''
+      return `- ${character}：${text}`
+    })
+    .filter(Boolean)
+    .join('\n') || '无'
   const dramaticText = scene.dramatic
     ? [
         scene.dramatic.function ? `戏剧功能：${scene.dramatic.function}` : '',
@@ -759,7 +776,8 @@ export default defineEventHandler(async (event) => {
         hasText(scene.cameraNote) ? `镜头与资产备注：${scene.cameraNote!.trim()}` : ''
       ].filter(Boolean).join('\n'),
       referenceGuide,
-      narration: narrationText || '无'
+      narration: narrationText || '无',
+      dialogues: dialogueText
     }
   )
   if (!interpolatedPrompt) {
