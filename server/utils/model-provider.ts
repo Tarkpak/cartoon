@@ -71,6 +71,22 @@ export const TEXT_MODELS: TextModelConfig[] = [
     supportThinking: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference'
   },
+  {
+    provider: 'qwen',
+    model: qwen.QwenTextModels.DEEPSEEK_V4_PRO,
+    displayName: 'DeepSeek V4 Pro (百炼)',
+    description: 'DeepSeek V4 Pro，复杂推理与代码能力更强',
+    supportThinking: true,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/deepseek-api'
+  },
+  {
+    provider: 'qwen',
+    model: qwen.QwenTextModels.DEEPSEEK_V4_FLASH,
+    displayName: 'DeepSeek V4 Flash (百炼)',
+    description: 'DeepSeek V4 Flash，响应更快、成本更低',
+    supportThinking: true,
+    docUrl: 'https://help.aliyun.com/zh/model-studio/deepseek-api'
+  },
   // 火山引擎 (豆包) 模型
   {
     provider: 'volcengine',
