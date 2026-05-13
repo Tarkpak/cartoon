@@ -34,8 +34,10 @@ const COMPLETION_NOTIFICATION_OPTIONS_STATE_KEY = 'workflow:completion-notificat
 const COMPLETION_NOTIFICATION_OPTIONS_LOADED_STATE_KEY = 'workflow:completion-notification-options:loaded'
 const NOTIFICATION_SERVICE_WORKER_URL = '/notification-sw.js'
 const NOTIFICATION_SERVICE_WORKER_SCOPE = '/__notification__/'
+const COMPLETION_TONE_UNLOCK_EVENTS: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'touchstart']
 
 let completionAudioContext: AudioContext | null = null
+let completionToneUnlockListenerAttached = false
 let notificationServiceWorkerRegistrationPromise: Promise<ServiceWorkerRegistration | null> | null = null
 const activeWindowNotifications = new Set<Notification>()
 
@@ -124,21 +126,77 @@ function normalizeCompletionNotificationOptions(raw: unknown): WorkflowCompletio
   }
 }
 
-function playCompletionTone() {
+function resolveAudioContextConstructor() {
+  if (!import.meta.client) return null
+
+  return window.AudioContext
+    || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+}
+
+function ensureCompletionAudioContext(): AudioContext | null {
+  if (!import.meta.client) return null
+
+  const AudioContextConstructor = resolveAudioContextConstructor()
+  if (!AudioContextConstructor) return null
+
+  if (!completionAudioContext) {
+    completionAudioContext = new AudioContextConstructor()
+  }
+
+  return completionAudioContext
+}
+
+function setupCompletionToneUnlockByUserGesture() {
+  if (!import.meta.client) return
+  if (completionToneUnlockListenerAttached) return
+
+  completionToneUnlockListenerAttached = true
+
+  const cleanup = () => {
+    for (const eventName of COMPLETION_TONE_UNLOCK_EVENTS) {
+      window.removeEventListener(eventName, handleUserGesture)
+    }
+  }
+
+  const handleUserGesture = () => {
+    const context = ensureCompletionAudioContext()
+    if (!context) {
+      cleanup()
+      return
+    }
+
+    if (context.state === 'running') {
+      cleanup()
+      return
+    }
+
+    void context.resume()
+      .catch(() => undefined)
+      .finally(() => {
+        if (context.state === 'running') {
+          cleanup()
+        }
+      })
+  }
+
+  for (const eventName of COMPLETION_TONE_UNLOCK_EVENTS) {
+    window.addEventListener(eventName, handleUserGesture, { passive: true })
+  }
+}
+
+async function playCompletionTone() {
   if (!import.meta.client) return
 
   try {
-    const AudioContextConstructor = window.AudioContext
-      || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    if (!AudioContextConstructor) return
+    setupCompletionToneUnlockByUserGesture()
+    const context = ensureCompletionAudioContext()
+    if (!context) return
 
-    if (!completionAudioContext) {
-      completionAudioContext = new AudioContextConstructor()
-    }
-
-    const context = completionAudioContext
     if (context.state === 'suspended') {
-      void context.resume().catch(() => undefined)
+      await context.resume().catch(() => undefined)
+    }
+    if (context.state !== 'running') {
+      return
     }
 
     const startAt = context.currentTime + 0.01
@@ -348,6 +406,8 @@ export async function sendSystemNotificationTest(): Promise<{
 }
 
 export function useGenerationCompletionNotification() {
+  setupCompletionToneUnlockByUserGesture()
+
   const completionNotificationOptions = useState<WorkflowCompletionNotificationOptions>(
     COMPLETION_NOTIFICATION_OPTIONS_STATE_KEY,
     () => ({ ...DEFAULT_COMPLETION_NOTIFICATION_OPTIONS })
@@ -403,7 +463,7 @@ export function useGenerationCompletionNotification() {
 
     const options = completionNotificationOptions.value
     if (options.sound) {
-      playCompletionTone()
+      await playCompletionTone()
     }
 
     if (options.systemNotification) {
