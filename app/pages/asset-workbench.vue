@@ -1340,7 +1340,10 @@ async function handleParseSingleEpisode(payload: { id: string }) {
     targetEpisodeId: payload.id
   })
 
-  if (!parsed) return
+  if (!parsed) {
+    alert(parseProgress.value.message || '本集解析失败，请稍后重试')
+    return
+  }
 
   await persistAutomaticAssetPlan()
   synchronizeSceneConfigs()
