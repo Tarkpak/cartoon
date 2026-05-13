@@ -56,6 +56,8 @@ export const QwenTextModels = {
   QWEN_TURBO: 'qwen-turbo-latest',
 
   // DeepSeek (通过百炼平台)
+  DEEPSEEK_V4_PRO: 'deepseek-v4-pro',
+  DEEPSEEK_V4_FLASH: 'deepseek-v4-flash',
   DEEPSEEK_V3_2: 'deepseek-v3.2'
 } as const
 
