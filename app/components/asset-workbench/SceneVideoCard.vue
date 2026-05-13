@@ -55,6 +55,7 @@ const props = defineProps<{
   onRetryScene: (sceneId: string) => void
   onOpenSceneVideoHistory: (sceneId: string) => void
   onSetScenePreviousLastFrameReference: (sceneId: string, enabled: boolean) => void
+  onSetSceneEnvironmentCaptureMode: (sceneId: string, mode: 'single' | 'four_view') => void
   onPreviewImage: (src: string | undefined, alt: string) => void
   onCloseSceneChat: () => void
   onHandleSceneChatComposerInput: () => void
@@ -98,6 +99,13 @@ const continuitySwitchTitle = computed(() => {
   if (!props.canUsePreviousLastFrameReference) return '上一镜头还没有可用末帧，生成时会自动回退'
   return props.continuityLinkReason || '使用上一镜头末帧作为本镜头首帧参考'
 })
+const sceneEnvironmentCaptureMode = computed<'single' | 'four_view'>(() => {
+  return props.scene.environmentCaptureMode === 'four_view' ? 'four_view' : 'single'
+})
+
+function handleSetSceneEnvironmentCaptureMode(mode: 'single' | 'four_view') {
+  props.onSetSceneEnvironmentCaptureMode(props.scene.id, mode)
+}
 </script>
 
 <template>
@@ -271,6 +279,31 @@ const continuitySwitchTitle = computed(() => {
         class="h-12 w-12 shrink-0 rounded-md border object-cover"
       >
     </Button>
+
+    <div
+      class="mt-2 flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 px-2 py-2"
+      @click.stop
+    >
+      <span class="text-[11px] text-muted-foreground">环境引用视图</span>
+      <Button
+        size="sm"
+        class="h-6 px-2 text-[11px]"
+        :variant="sceneEnvironmentCaptureMode === 'single' ? 'default' : 'outline'"
+        :disabled="sceneBusy"
+        @click.stop="handleSetSceneEnvironmentCaptureMode('single')"
+      >
+        单视图
+      </Button>
+      <Button
+        size="sm"
+        class="h-6 px-2 text-[11px]"
+        :variant="sceneEnvironmentCaptureMode === 'four_view' ? 'default' : 'outline'"
+        :disabled="sceneBusy"
+        @click.stop="handleSetSceneEnvironmentCaptureMode('four_view')"
+      >
+        四视图
+      </Button>
+    </div>
 
     <div class="mt-2 flex flex-wrap gap-1">
       <Badge
