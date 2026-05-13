@@ -363,6 +363,30 @@ export const ParsedScriptSchema = z.object({
 })
 export type ParsedScript = z.infer<typeof ParsedScriptSchema>
 
+const ScriptEpisodeAssetCharacterSchema = z.object({
+  name: z.string().trim().min(1).describe('角色名'),
+  description: z.string().optional().describe('角色资产外观描述'),
+  role: z.string().optional().describe('角色定位'),
+  gender: z.string().optional().describe('角色性别')
+})
+
+const ScriptEpisodeAssetPropSchema = z.object({
+  name: z.string().trim().min(1).describe('道具名'),
+  description: z.string().optional().describe('道具描述')
+})
+
+const ScriptEpisodeAssetEnvironmentSchema = z.object({
+  location: z.string().trim().min(1).describe('环境地点'),
+  timeOfDay: z.string().optional().describe('时间段'),
+  mood: z.string().optional().describe('环境氛围')
+})
+
+const ScriptEpisodeAssetSummarySchema = z.object({
+  characters: z.array(ScriptEpisodeAssetCharacterSchema).optional(),
+  props: z.array(ScriptEpisodeAssetPropSchema).optional(),
+  environments: z.array(ScriptEpisodeAssetEnvironmentSchema).optional()
+})
+
 export const ScriptEpisodePlanItemSchema = z.object({
   id: z.string().optional().describe('分集ID（可选）'),
   title: z.string().optional().describe('分集标题（可选）'),
@@ -374,6 +398,7 @@ export const ScriptEpisodePlanItemSchema = z.object({
   reversalPoint: z.string().optional().describe('本集反击或反转点'),
   emotionalCurve: z.string().optional().describe('本集情绪曲线'),
   cliffhanger: z.string().optional().describe('本集结尾钩子'),
+  episodeAssets: ScriptEpisodeAssetSummarySchema.optional().describe('本集资产摘要（可选）'),
   payoffType: z.enum(['打脸', '反杀', '揭露', '甜宠撑腰', '身世反转', '危机升级', '搞钱逆袭', '权力升级']).optional()
     .describe('本集主要爽点类型')
 })

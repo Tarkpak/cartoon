@@ -193,7 +193,7 @@ export async function parseAssetWorkbenchScript(options: {
   text: string
   scriptParseMode?: ScriptParseMode
   style?: string
-  episodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset' | 'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType'>>
+  episodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset' | 'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType' | 'episodeAssets'>>
   onProgress?: (event: ParseScriptProgressEvent) => void
 }) {
   const requestBody = {
