@@ -121,6 +121,7 @@ interface ScriptParseEpisodeChunk extends ScriptEpisode {
   emotionalCurve?: string
   cliffhanger?: string
   payoffType?: string
+  episodeAssets?: ScriptEpisodePlanItem['episodeAssets']
 }
 
 function toEpisodeId(index: number): string {
@@ -170,7 +171,8 @@ function normalizeScriptEpisodePlan(
       reversalPoint: item.reversalPoint,
       emotionalCurve: item.emotionalCurve,
       cliffhanger: item.cliffhanger,
-      payoffType: item.payoffType
+      payoffType: item.payoffType,
+      episodeAssets: item.episodeAssets
     })
     cursor = rangeEnd
   }
@@ -243,9 +245,73 @@ async function buildEpisodeDramaParsingPrompt(options: {
     }
   )
   if (!prompt) {
-    throw new Error('无法获取剧本解析爆点补充模板，请在设置中检查提示词配置')
+    throw new Error('无法获取剧本解析分集补充模板，请在设置中检查提示词配置')
   }
   return prompt
+}
+
+function normalizeAssetBriefText(value: string, maxLength = 80): string {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (!normalized) return ''
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength).trim()}...`
+}
+
+function buildEpisodeAssetParsingBrief(episode?: ScriptParseEpisodeChunk): string {
+  if (!episode?.episodeAssets) return ''
+
+  const characterLines = (episode.episodeAssets.characters || [])
+    .map((item) => {
+      const name = item.name?.trim() || ''
+      if (!name) return ''
+      const detailParts = [
+        item.gender?.trim() || '',
+        item.role?.trim() || '',
+        normalizeAssetBriefText(item.description?.trim() || '', 90)
+      ].filter(Boolean)
+      return detailParts.length > 0
+        ? `- ${name}：${detailParts.join('，')}`
+        : `- ${name}`
+    })
+    .filter(Boolean)
+    .slice(0, 8)
+
+  const propLines = (episode.episodeAssets.props || [])
+    .map((item) => {
+      const name = item.name?.trim() || ''
+      if (!name) return ''
+      const description = normalizeAssetBriefText(item.description?.trim() || '', 80)
+      return description ? `- ${name}：${description}` : `- ${name}`
+    })
+    .filter(Boolean)
+    .slice(0, 10)
+
+  const environmentLines = (episode.episodeAssets.environments || [])
+    .map((item) => {
+      const location = item.location?.trim() || ''
+      if (!location) return ''
+      const parts = [
+        item.timeOfDay?.trim() || '',
+        normalizeAssetBriefText(item.mood?.trim() || '', 48)
+      ].filter(Boolean)
+      return parts.length > 0
+        ? `- ${location}：${parts.join('，')}`
+        : `- ${location}`
+    })
+    .filter(Boolean)
+    .slice(0, 8)
+
+  if (characterLines.length === 0 && propLines.length === 0 && environmentLines.length === 0) {
+    return ''
+  }
+
+  return [
+    '资产锚点（来自分集目录，优先沿用，不足再补充）：',
+    characterLines.length > 0 ? `角色资产：\n${characterLines.join('\n')}` : '',
+    propLines.length > 0 ? `关键道具：\n${propLines.join('\n')}` : '',
+    environmentLines.length > 0 ? `环境锚点：\n${environmentLines.join('\n')}` : '',
+    '执行要求：保持角色外观基线与性别呈现一致；关键道具名称和核心功能一致；环境地点与时段命名优先沿用上述锚点。'
+  ].filter(Boolean).join('\n')
 }
 
 function normalizeSceneDedupToken(value?: string | null): string {
@@ -1031,6 +1097,10 @@ export async function executeScriptParse(
           options.episode.payoffType ? `爽点类型：${options.episode.payoffType}` : ''
         ].filter(Boolean).join('\n')
       : ''
+    const episodeAssetBrief = buildEpisodeAssetParsingBrief(options.episode)
+    const episodeContextBrief = [episodeDramaBrief, episodeAssetBrief]
+      .filter(Boolean)
+      .join('\n')
     const interpolatedPrompt = await getInterpolatedPrompt(
       parsingPromptTemplateId,
       {
@@ -1062,10 +1132,10 @@ export async function executeScriptParse(
         totalLength: textLength
       })
     }
-    const promptWithEpisodeDrama = episodeDramaBrief
+    const promptWithEpisodeDrama = episodeContextBrief
       ? await buildEpisodeDramaParsingPrompt({
           basePrompt: prompt,
-          episodeDramaBrief
+          episodeDramaBrief: episodeContextBrief
         })
       : prompt
 

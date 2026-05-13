@@ -313,12 +313,27 @@ async function generateCharacterSheet(
     throw new Error(`当前角色模型「${modelConfig.displayName}」不支持参考图。请在设置中切换到支持图生图的图片模型后重试。`)
   }
 
+  const genderPrompt = resolveCharacterGenderPrompt(character.gender)
   let effectivePrompt = ''
   if (isRegeneration) {
-    // 二次生成仅使用“本次修改要求”，首轮描述依赖参考图承接，不再重复拼接。
-    effectivePrompt = customPrompt || ''
+    const regenerationPrompt = await getInterpolatedPrompt(
+      PROMPT_TEMPLATE_IDS.CHARACTER_REGENERATION,
+      {
+        characterName: character.name,
+        appearance: character.appearance,
+        gender: genderPrompt,
+        style,
+        activeStyleConstraint: customPrompt || '',
+        customPrompt: customPrompt || ''
+      }
+    )
+    if (regenerationPrompt?.trim()) {
+      effectivePrompt = regenerationPrompt.trim()
+    } else {
+      console.warn('[CharacterGen] 角色二次生成模板缺失，回退为用户输入的修改要求')
+      effectivePrompt = customPrompt || ''
+    }
   } else {
-    const genderPrompt = resolveCharacterGenderPrompt(character.gender)
     const prompt = await getInterpolatedPrompt(
       PROMPT_TEMPLATE_IDS.CHARACTER_SHEET,
       {
