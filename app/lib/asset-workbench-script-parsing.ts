@@ -22,6 +22,7 @@ interface ParsedScriptScene {
   title?: string
   shotType?: SceneData['shotType']
   cameraMovement?: SceneData['cameraMovement']
+  environmentCaptureMode?: SceneData['environmentCaptureMode']
   dramatic?: SceneDramatic
   description: string
   characters: Array<{ name: string, appearance?: string, emotion?: string }>
@@ -78,6 +79,7 @@ export function buildParsedScenes(options: {
       shotType: scene.shotType || 'medium',
       cameraMovement: scene.cameraMovement || 'static',
       cameraNote: '',
+      environmentCaptureMode: scene.environmentCaptureMode,
       transitionIn: 'cut',
       transitionOut: 'cut',
       transitionDuration: 0.5,

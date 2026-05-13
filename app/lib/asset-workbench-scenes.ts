@@ -80,6 +80,7 @@ function buildSceneGenerationInputSnapshot(scene: Pick<
   | 'shotType'
   | 'cameraMovement'
   | 'cameraNote'
+  | 'environmentCaptureMode'
 >) {
   return {
     title: scene.title,
@@ -91,7 +92,8 @@ function buildSceneGenerationInputSnapshot(scene: Pick<
     setting: scene.setting || null,
     shotType: scene.shotType || null,
     cameraMovement: scene.cameraMovement || null,
-    cameraNote: scene.cameraNote || ''
+    cameraNote: scene.cameraNote || '',
+    environmentCaptureMode: scene.environmentCaptureMode || null
   }
 }
 

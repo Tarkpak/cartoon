@@ -146,13 +146,14 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = `你是一位资深分
 【场景字段规则】
 1. scenes[i].shotType 只能是：extreme_wide、wide、medium_wide、medium、medium_close、close、extreme_close、detail。
 2. scenes[i].cameraMovement 只能是：static、push、pull、pan_left、pan_right、tilt_up、tilt_down、track、dolly、zoom_in、zoom_out、crane、handheld、arc。选择最能代表该场景主运镜方式的值。
-3. scenes[i].setting.timeOfDay 只能是：黎明、早晨、白天、中午、下午、傍晚、夜晚。
-4. scenes[i].setting.era 只能是：古代、民国、现代、近未来、架空。若原文不明确且画风包含 AI真人/live action，默认使用“现代”。
-5. scenes[i].setting.location 请优先使用”主环境-子空间”或”主环境/子空间”的中性命名。
-6. 同一主环境在不同子空间中必须保持一致的建筑年代、装修档次、材质语言和维护状态。
-7. 除非原文明确说明新旧分区或废弃区，禁止输出互相冲突的环境风格。
-8. scenes[i].usePreviousLastFrameAsFirstFrame 用于判断是否建议“用上一镜头末帧作为本镜头首帧参考”：第一场必须为 false；同一分集内地点/时间/人物/动作连续、无硬切/闪回/蒙太奇/大幅时间跳跃时可为 true；地点切换、时间跳跃、闪回、蒙太奇、新段落或新分集必须为 false。
-9. scenes[i].continuityLinkReason 仅在 usePreviousLastFrameAsFirstFrame 为 true 时填写一句简短原因，否则留空字符串。
+3. scenes[i].environmentCaptureMode 只能是：single、four_view。若本场存在明确多视角/多机位/镜头切换，必须用 four_view；单一连续视角用 single。
+4. scenes[i].setting.timeOfDay 只能是：黎明、早晨、白天、中午、下午、傍晚、夜晚。
+5. scenes[i].setting.era 只能是：古代、民国、现代、近未来、架空。若原文不明确且画风包含 AI真人/live action，默认使用“现代”。
+6. scenes[i].setting.location 请优先使用”主环境-子空间”或”主环境/子空间”的中性命名。
+7. 同一主环境在不同子空间中必须保持一致的建筑年代、装修档次、材质语言和维护状态。
+8. 除非原文明确说明新旧分区或废弃区，禁止输出互相冲突的环境风格。
+9. scenes[i].usePreviousLastFrameAsFirstFrame 用于判断是否建议“用上一镜头末帧作为本镜头首帧参考”：第一场必须为 false；同一分集内地点/时间/人物/动作连续、无硬切/闪回/蒙太奇/大幅时间跳跃时可为 true；地点切换、时间跳跃、闪回、蒙太奇、新段落或新分集必须为 false。
+10. scenes[i].continuityLinkReason 仅在 usePreviousLastFrameAsFirstFrame 为 true 时填写一句简短原因，否则留空字符串。
 
 【description 富化规则】
 1. 每个场景的 description 必须是“可直接拍摄”的详细场景说明块，不得只写一句概述，也不要退化成纯散文。
@@ -206,6 +207,7 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = `你是一位资深分
 "title": "场景标题",
 "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
 "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
+"environmentCaptureMode": "single|four_view",
 "description": "场景功能/情绪定位：公开压迫，主角第一次显出反击前的冷感。\\n镜头设计：\\n0-2秒：，中景，固定镜头。护士站走廊白炽灯映出冷硬的墙面，人来人往，陆哲抬手整理白大褂，动作从容。\\n2-5秒：，近景，缓慢推近。陆哲嘴角上扬，眼神中透着志在必得的冷傲。陆哲说：'你们等着看。'\\n5-8秒：，中景，固定镜头。画外音（音色：男性，30岁左右，语调沉稳，音高偏低，语速适中，情绪克制，无口音）说：'他的目光穿过人群，像一把隐忍的刀。'\\n声音设计：\\n- 环境音以护士站脚步声、推车轮声和广播底噪为主。\\n- 陆哲开口前压低环境声，让台词更顶。\\n台词节奏：\\n- '你们等着看。'前短停半拍，后半句咬字更重。\\n表演关键点：\\n- 整理白大褂时手势克制而笃定。\\n- 说完台词后不要立刻转身，留一个带轻蔑意味的停顿。",
 "setting": {
 "location": "医院-护士站",
@@ -317,10 +319,11 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = `你是一
 【场景字段硬约束】
 1. scenes[i].shotType 只能是：extreme_wide、wide、medium_wide、medium、medium_close、close、extreme_close、detail。
 2. scenes[i].cameraMovement 只能是：static、push、pull、pan_left、pan_right、tilt_up、tilt_down、track、dolly、zoom_in、zoom_out、crane、handheld、arc。
-3. scenes[i].setting.timeOfDay 只能是：黎明、早晨、白天、中午、下午、傍晚、夜晚。
-4. scenes[i].setting.era 只能是：古代、民国、现代、近未来、架空。若原文不明确且画风包含 AI真人/live action，默认使用“现代”。
-5. scenes[i].usePreviousLastFrameAsFirstFrame 用于判断是否建议“用上一镜头末帧作为本镜头首帧参考”：第一场必须为 false；同一分集内地点/时间/人物/动作连续、无硬切/闪回/蒙太奇/大幅时间跳跃时可为 true；地点切换、时间跳跃、闪回、蒙太奇、新段落或新分集必须为 false。
-6. scenes[i].continuityLinkReason 仅在 usePreviousLastFrameAsFirstFrame 为 true 时填写一句简短原因，否则留空字符串。
+3. scenes[i].environmentCaptureMode 只能是：single、four_view。若本场存在明确多视角/多机位/镜头切换，必须用 four_view；单一连续视角用 single。
+4. scenes[i].setting.timeOfDay 只能是：黎明、早晨、白天、中午、下午、傍晚、夜晚。
+5. scenes[i].setting.era 只能是：古代、民国、现代、近未来、架空。若原文不明确且画风包含 AI真人/live action，默认使用“现代”。
+6. scenes[i].usePreviousLastFrameAsFirstFrame 用于判断是否建议“用上一镜头末帧作为本镜头首帧参考”：第一场必须为 false；同一分集内地点/时间/人物/动作连续、无硬切/闪回/蒙太奇/大幅时间跳跃时可为 true；地点切换、时间跳跃、闪回、蒙太奇、新段落或新分集必须为 false。
+7. scenes[i].continuityLinkReason 仅在 usePreviousLastFrameAsFirstFrame 为 true 时填写一句简短原因，否则留空字符串。
 
 【description 写作规则】
 1. 必须是“可拍摄”的时间轴分镜块，禁止一句话概述。
@@ -352,6 +355,7 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = `你是一
 "title": "场景标题",
 "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
 "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
+"environmentCaptureMode": "single|four_view",
 "dramatic": {
   "function": "hook|escalation|confrontation|reversal|payoff|cliffhanger|aftermath",
   "conflict": "本场核心冲突：谁压迫谁、争夺什么",

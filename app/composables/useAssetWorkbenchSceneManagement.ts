@@ -53,6 +53,7 @@ export function useAssetWorkbenchSceneManagement(options: {
       shotType: currentScene.shotType || null,
       cameraMovement: currentScene.cameraMovement || null,
       cameraNote: currentScene.cameraNote || '',
+      environmentCaptureMode: currentScene.environmentCaptureMode || null,
       transitionIn: currentScene.transitionIn || null,
       transitionOut: currentScene.transitionOut || null,
       transitionDuration: currentScene.transitionDuration ?? null
@@ -67,6 +68,7 @@ export function useAssetWorkbenchSceneManagement(options: {
       shotType: nextScene.shotType || null,
       cameraMovement: nextScene.cameraMovement || null,
       cameraNote: nextScene.cameraNote || '',
+      environmentCaptureMode: nextScene.environmentCaptureMode || null,
       transitionIn: nextScene.transitionIn || null,
       transitionOut: nextScene.transitionOut || null,
       transitionDuration: nextScene.transitionDuration ?? null

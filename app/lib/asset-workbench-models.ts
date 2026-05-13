@@ -1,5 +1,10 @@
 import type { CharacterView, CharacterVoiceAsset } from '#shared/types/character'
-import type { SceneCameraMovement, SceneDramatic, SceneShotType } from '#shared/types/script'
+import type {
+  SceneCameraMovement,
+  SceneDramatic,
+  SceneEnvironmentCaptureMode,
+  SceneShotType
+} from '#shared/types/script'
 import type {
   AssetImageHistoryEntry,
   AssetVideoHistoryEntry
@@ -33,6 +38,7 @@ export interface SceneData {
   shotType?: SceneShotType
   cameraMovement?: SceneCameraMovement
   cameraNote?: string
+  environmentCaptureMode?: SceneEnvironmentCaptureMode
   transitionIn?: AssetWorkbenchTransitionType
   transitionOut?: AssetWorkbenchTransitionType
   transitionDuration?: number

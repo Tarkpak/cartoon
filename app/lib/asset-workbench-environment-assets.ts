@@ -71,7 +71,11 @@ export function buildEnvironmentAssetCards(options: {
         rawHistoryEntries,
         sceneImage
       )
-      const previewImage = sceneImage || resolveEnvironmentHistoryPreview(assetHistory)
+      const previewImage = sceneImage
+        || resolveEnvironmentHistoryPreview(assetHistory)
+        || panoramaState?.singleViewImage
+        || panoramaState?.fourViewImage
+        || panoramaState?.panoramaImage
 
       map.set(assetId, {
         id: assetId,
@@ -84,6 +88,8 @@ export function buildEnvironmentAssetCards(options: {
         panoramaImage: panoramaState?.panoramaImage,
         crop: panoramaState?.crop,
         captureMode: panoramaState?.captureMode,
+        singleViewImage: panoramaState?.singleViewImage,
+        fourViewImage: panoramaState?.fourViewImage,
         assetHistory,
         sceneIds: [scene.id],
         sceneTitles: [scene.title || scene.id],
@@ -118,9 +124,21 @@ export function buildEnvironmentAssetCards(options: {
     if (!existing.referenceImage && historyPreview) {
       existing.referenceImage = historyPreview
     }
+    if (!existing.referenceImage && panoramaState?.singleViewImage) {
+      existing.referenceImage = panoramaState.singleViewImage
+    }
+    if (!existing.referenceImage && panoramaState?.fourViewImage) {
+      existing.referenceImage = panoramaState.fourViewImage
+    }
 
     if (!existing.panoramaImage && panoramaState?.panoramaImage) {
       existing.panoramaImage = panoramaState.panoramaImage
+    }
+    if (!existing.singleViewImage && panoramaState?.singleViewImage) {
+      existing.singleViewImage = panoramaState.singleViewImage
+    }
+    if (!existing.fourViewImage && panoramaState?.fourViewImage) {
+      existing.fourViewImage = panoramaState.fourViewImage
     }
     if (!existing.crop && panoramaState?.crop) {
       existing.crop = panoramaState.crop

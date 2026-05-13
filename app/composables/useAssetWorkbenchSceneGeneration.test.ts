@@ -41,6 +41,7 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
     shotType: input.shotType,
     cameraMovement: input.cameraMovement,
     cameraNote: input.cameraNote,
+    environmentCaptureMode: input.environmentCaptureMode,
     transitionIn: input.transitionIn,
     transitionOut: input.transitionOut,
     transitionDuration: input.transitionDuration,
@@ -351,6 +352,161 @@ describe('useAssetWorkbenchSceneGeneration', () => {
       expect.objectContaining({ source: 'generated' })
     )
     expect(saveProject).toHaveBeenCalled()
+  })
+
+  it('prefers four-view environment reference for multi-view scenes while keeping both outputs', async () => {
+    const scene = createScene({
+      id: 'scene_multi_view',
+      title: '医院走廊对峙',
+      description: '0-3秒：中景，主角快步进入。\\n3-6秒：特写，反派抬手示意。',
+      setting: { location: '医院-走廊', timeOfDay: 'night' },
+      referenceStatus: 'pending',
+      videoStatus: 'pending'
+    })
+    const expectedEnvironmentAssetId = resolveSceneEnvironmentAssetId(scene)
+    const setEnvironmentPanoramaState = vi.fn()
+    const recordEnvironmentHistory = vi.fn()
+    const createEnvironmentCropImage = vi.fn(async () => ({
+      imageUrl: 'https://example.com/single-view.png',
+      crop: {
+        x: 0.2,
+        y: 0.2,
+        width: 0.3,
+        height: 0.3
+      },
+      captureMode: 'single' as const,
+      singleViewImage: 'https://example.com/single-view.png',
+      fourViewImage: 'https://example.com/four-view.png'
+    }))
+
+    const sceneGeneration = useAssetWorkbenchSceneGeneration({
+      scenes: ref([scene]),
+      characters: ref([]),
+      sceneConfigs: ref({
+        [scene.id]: {
+          sceneId: scene.id,
+          mustReferenceAssetIds: [],
+          consistencyLevel: 'lock',
+          continuityNotes: ''
+        }
+      }),
+      propAssets: ref([]),
+      queueItems: ref([]),
+      batchRunning: ref(false),
+      workflowStylePrompt: computed(() => ''),
+      projectAspectRatio: ref('16:9'),
+      normalizeWorkflowText: value => value,
+      resolveUiError: (_error, fallback) => fallback,
+      ensureSceneConfig: () => ({
+        sceneId: scene.id,
+        mustReferenceAssetIds: [],
+        consistencyLevel: 'lock',
+        continuityNotes: ''
+      }),
+      resolveAssetName: assetId => assetId,
+      resolveSceneDescriptionWithoutAssetMentions: raw => raw || '',
+      synchronizeQueueItems: () => undefined,
+      saveProject: vi.fn(async () => undefined),
+      refreshCharacterVoiceAssets: async () => undefined,
+      generateCharacter: async () => undefined,
+      batchGenerateCharacters: async () => undefined,
+      persistAutomaticAssetPlan: async () => undefined,
+      recordEnvironmentHistory,
+      resolveEnvironmentPanoramaState: () => undefined,
+      setEnvironmentPanoramaState,
+      createEnvironmentCropImage,
+      resolveSceneBaselineReferenceImage: () => undefined,
+      recordSceneVideoHistory: () => undefined,
+      onModelTaskCompleted: async () => undefined
+    })
+
+    await expect(sceneGeneration.generateSceneBaseline(scene.id)).resolves.toBeUndefined()
+
+    expect(scene.firstFrame).toBe('https://example.com/four-view.png')
+    expect(setEnvironmentPanoramaState).toHaveBeenCalledWith(expectedEnvironmentAssetId, {
+      panoramaImage: 'https://example.com/generated-env.png',
+      crop: {
+        x: 0.2,
+        y: 0.2,
+        width: 0.3,
+        height: 0.3
+      },
+      singleViewImage: 'https://example.com/single-view.png',
+      fourViewImage: 'https://example.com/four-view.png'
+    })
+    expect(recordEnvironmentHistory).toHaveBeenCalledWith(
+      expectedEnvironmentAssetId,
+      'https://example.com/four-view.png',
+      expect.objectContaining({ source: 'generated' })
+    )
+  })
+
+  it('respects parsed environmentCaptureMode tag over heuristic fallback', async () => {
+    const scene = createScene({
+      id: 'scene_tagged_single',
+      title: '医院走廊对峙',
+      description: '0-3秒：中景，主角快步进入。\\n3-6秒：特写，反派抬手示意。',
+      setting: { location: '医院-走廊', timeOfDay: 'night' },
+      environmentCaptureMode: 'single',
+      referenceStatus: 'pending',
+      videoStatus: 'pending'
+    })
+    const createEnvironmentCropImage = vi.fn(async () => ({
+      imageUrl: 'https://example.com/single-view.png',
+      crop: {
+        x: 0.2,
+        y: 0.2,
+        width: 0.3,
+        height: 0.3
+      },
+      captureMode: 'single' as const,
+      singleViewImage: 'https://example.com/single-view.png',
+      fourViewImage: 'https://example.com/four-view.png'
+    }))
+
+    const sceneGeneration = useAssetWorkbenchSceneGeneration({
+      scenes: ref([scene]),
+      characters: ref([]),
+      sceneConfigs: ref({
+        [scene.id]: {
+          sceneId: scene.id,
+          mustReferenceAssetIds: [],
+          consistencyLevel: 'lock',
+          continuityNotes: ''
+        }
+      }),
+      propAssets: ref([]),
+      queueItems: ref([]),
+      batchRunning: ref(false),
+      workflowStylePrompt: computed(() => ''),
+      projectAspectRatio: ref('16:9'),
+      normalizeWorkflowText: value => value,
+      resolveUiError: (_error, fallback) => fallback,
+      ensureSceneConfig: () => ({
+        sceneId: scene.id,
+        mustReferenceAssetIds: [],
+        consistencyLevel: 'lock',
+        continuityNotes: ''
+      }),
+      resolveAssetName: assetId => assetId,
+      resolveSceneDescriptionWithoutAssetMentions: raw => raw || '',
+      synchronizeQueueItems: () => undefined,
+      saveProject: vi.fn(async () => undefined),
+      refreshCharacterVoiceAssets: async () => undefined,
+      generateCharacter: async () => undefined,
+      batchGenerateCharacters: async () => undefined,
+      persistAutomaticAssetPlan: async () => undefined,
+      recordEnvironmentHistory: () => undefined,
+      resolveEnvironmentPanoramaState: () => undefined,
+      setEnvironmentPanoramaState: () => undefined,
+      createEnvironmentCropImage,
+      resolveSceneBaselineReferenceImage: () => undefined,
+      recordSceneVideoHistory: () => undefined,
+      onModelTaskCompleted: async () => undefined
+    })
+
+    await expect(sceneGeneration.generateSceneBaseline(scene.id)).resolves.toBeUndefined()
+    expect(scene.firstFrame).toBe('https://example.com/single-view.png')
   })
 
   it('passes prop and other reference images into scene video task references', async () => {

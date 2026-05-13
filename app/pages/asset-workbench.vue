@@ -37,6 +37,9 @@ import {
   renderPanoramaSelectionToDataUrl
 } from '~/lib/asset-workbench-environment-panorama'
 import {
+  resolveEnvironmentReferenceImageForScene
+} from '~/lib/asset-workbench-environment-views'
+import {
   applyAutomaticAssetPlan as buildAutomaticAssetPlan
 } from '~/lib/asset-workbench-auto-plan'
 import { findCharacterByAssetRefId } from '~/lib/asset-workbench-scene-references'
@@ -469,8 +472,11 @@ function setEnvironmentPanoramaState(
   assetId: string,
   state: EnvironmentPanoramaState | undefined
 ) {
+  const panoramaImage = state?.panoramaImage?.trim() || undefined
+  const singleViewImage = state?.singleViewImage?.trim() || undefined
+  const fourViewImage = state?.fourViewImage?.trim() || undefined
   const captureMode = state?.captureMode === 'four_view' ? 'four_view' : undefined
-  const hasPayload = !!state?.panoramaImage?.trim() || !!state?.crop || !!captureMode
+  const hasPayload = !!panoramaImage || !!singleViewImage || !!fourViewImage || !!state?.crop || !!captureMode
   const nextStates = { ...environmentPanoramaStates.value }
 
   if (!hasPayload) {
@@ -481,7 +487,9 @@ function setEnvironmentPanoramaState(
   }
 
   nextStates[assetId] = {
-    panoramaImage: state?.panoramaImage?.trim() || undefined,
+    panoramaImage,
+    singleViewImage,
+    fourViewImage,
     crop: state?.crop,
     captureMode
   }
@@ -498,9 +506,10 @@ function buildEnvironmentCropUploadPrefix(assetId: string): string {
 
 function resolveSceneBaselineReferenceImage(scene: SceneData): string | undefined {
   const assetId = resolveSceneEnvironmentAssetId(scene)
-  return resolveEnvironmentPanoramaState(assetId)?.panoramaImage?.trim()
-    || resolveEnvironmentCard(assetId)?.panoramaImage?.trim()
-    || resolveEnvironmentCard(assetId)?.referenceImage?.trim()
+  const environmentCard = resolveEnvironmentCard(assetId)
+  const panoramaState = resolveEnvironmentPanoramaState(assetId) || environmentCard
+  return resolveEnvironmentReferenceImageForScene(scene, panoramaState)
+    || environmentCard?.referenceImage?.trim()
     || resolveSceneReferenceImage(scene)
     || scene.firstFrame
 }
@@ -532,27 +541,30 @@ async function createEnvironmentCropImage(options: {
   if (!crop) {
     throw new Error('取景区域无效，无法生成环境图')
   }
-  const result = captureMode === 'four_view'
-    ? await renderPanoramaFourViewToDataUrl({
-        sourceImage: options.sourceImage,
-        selection: crop,
-        sourceAspectRatio,
-        aspectRatio: outputAspectRatio
-      })
-    : await renderPanoramaSelectionToDataUrl({
-        sourceImage: options.sourceImage,
-        selection: crop,
-        sourceAspectRatio,
-        aspectRatio: outputAspectRatio
-      })
-  const imageData = result.imageData
-  const normalizedCrop = result.crop
-  const imageUrl = await uploadAssetImage(imageData, buildEnvironmentCropUploadPrefix(options.assetId))
+  const singleViewResult = await renderPanoramaSelectionToDataUrl({
+    sourceImage: options.sourceImage,
+    selection: crop,
+    sourceAspectRatio,
+    aspectRatio: outputAspectRatio
+  })
+  const fourViewResult = await renderPanoramaFourViewToDataUrl({
+    sourceImage: options.sourceImage,
+    selection: crop,
+    sourceAspectRatio,
+    aspectRatio: outputAspectRatio
+  })
+  const normalizedCrop = singleViewResult.crop
+  const uploadPrefix = buildEnvironmentCropUploadPrefix(options.assetId)
+  const singleViewImage = await uploadAssetImage(singleViewResult.imageData, `${uploadPrefix}_single`)
+  const fourViewImage = await uploadAssetImage(fourViewResult.imageData, `${uploadPrefix}_four`)
+  const imageUrl = captureMode === 'four_view' ? fourViewImage : singleViewImage
 
   return {
     imageUrl,
     crop: normalizedCrop,
-    captureMode
+    captureMode,
+    singleViewImage,
+    fourViewImage
   }
 }
 
@@ -568,7 +580,12 @@ async function applyEnvironmentReferenceImage(
     const scene = scenes.value.find(item => item.id === sceneId)
     if (!scene) continue
 
-    applySceneBaselineReference(scene, imageUrl)
+    const sceneReferenceImage = resolveEnvironmentReferenceImageForScene(
+      scene,
+      panoramaState || resolveEnvironmentPanoramaState(assetId) || environmentAsset
+    ) || imageUrl
+
+    applySceneBaselineReference(scene, sceneReferenceImage)
   }
 
   if (panoramaState !== undefined) {
@@ -1607,7 +1624,9 @@ async function submitEnvironmentCropSelection(payload: {
     await applyEnvironmentReferenceImage(target.id, result.imageUrl, {
       panoramaImage: target.panoramaImage?.trim() || sourceImage,
       crop: result.crop,
-      captureMode: result.captureMode
+      captureMode: result.captureMode,
+      singleViewImage: result.singleViewImage,
+      fourViewImage: result.fourViewImage
     })
     recordEnvironmentHistory(target.id, result.imageUrl, { source: 'cropped' })
     await saveWorkflowMeta()
@@ -2278,6 +2297,8 @@ async function generateEnvironmentAssetFromCard(
     let finalReferenceImage = response.referenceImage
     let crop: EnvironmentCropSelection | undefined
     let captureMode: EnvironmentCropCaptureMode | undefined
+    let singleViewImage: string | undefined
+    let fourViewImage: string | undefined
     try {
       captureMode = resolveEnvironmentPanoramaState(assetId)?.captureMode
         || asset.captureMode
@@ -2291,6 +2312,8 @@ async function generateEnvironmentAssetFromCard(
       finalReferenceImage = croppedResult.imageUrl
       crop = croppedResult.crop
       captureMode = croppedResult.captureMode
+      singleViewImage = croppedResult.singleViewImage
+      fourViewImage = croppedResult.fourViewImage
     } catch (error) {
       console.warn('[AssetWorkbench] 环境资产图裁切失败，已回退使用原始环境图', {
         assetId,
@@ -2301,7 +2324,9 @@ async function generateEnvironmentAssetFromCard(
     setEnvironmentPanoramaState(assetId, {
       panoramaImage: response.referenceImage,
       crop,
-      captureMode
+      captureMode,
+      singleViewImage,
+      fourViewImage
     })
     recordEnvironmentHistory(assetId, finalReferenceImage, {
       source: 'generated',
