@@ -53,13 +53,13 @@ export const PROMPT_STAGE_CONFIG: Record<PromptFlowStage, PromptStageMeta> = {
     name: PROMPT_FLOW_STAGE_LABELS.parse,
     color: 'blue',
     icon: FileText,
-    description: '剧本解析与资产规划模板。'
+    description: '剧本解析、分集规划与翻译/系统补充模板。'
   },
   assets: {
     name: PROMPT_FLOW_STAGE_LABELS.assets,
     color: 'green',
     icon: Boxes,
-    description: '角色资产、环境参考图和场景改写模板。'
+    description: '角色/环境/道具资产、负向约束与场景改写模板。'
   },
   videos: {
     name: PROMPT_FLOW_STAGE_LABELS.videos,

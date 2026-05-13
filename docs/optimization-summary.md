@@ -8,14 +8,11 @@
 
 ## 现行提示词模板
 
-提示词中心只保留以下 6 个模板：
+提示词中心当前保留以下 15 个模板（按阶段）：
 
-- `script_parsing`
-- `character_sheet`
-- `character_regeneration`
-- `environment_reference_generation`
-- `scene_description_refinement`
-- `scene_video_generation`
+- 解析：`script_episode_plan`、`script_parsing`、`script_parsing_short_drama`、`script_parsing_segment_context`、`script_parsing_episode_drama_context`、`prompt_translation_system`、`prompt_translation_user`
+- 资产：`character_sheet`、`character_regeneration`、`environment_reference_generation`、`environment_reference_negative_prompt`、`prop_asset_generation`、`prop_asset_negative_prompt`、`scene_description_refinement`
+- 视频：`scene_video_generation`
 
 ## 现行业务模型步骤
 
@@ -30,9 +27,11 @@
 
 ## 当前核心接口
 
+- `POST /api/script/episode-plan`
 - `POST /api/script/parse`
 - `POST /api/character/generate`
 - `POST /api/asset-workflow/reference/generate`
+- `POST /api/asset-workflow/prop/generate`
 - `POST /api/asset-workflow/scene/description-refinement`
 - `POST /api/asset-workflow/video/generate`
 - `POST /api/video/merge`

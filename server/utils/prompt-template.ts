@@ -16,7 +16,6 @@ import {
   applyPromptTemplateWorkflowDisplay,
   isPromptReadonlyProfile,
   PROMPT_DEFAULT_PROFILE_ID,
-  PROMPT_SEEDANCE_PROFILE_ID,
   isPromptTemplateVisibleForWorkflow
 } from '../../shared/types/prompt-template'
 import {
@@ -24,8 +23,7 @@ import {
   type ProjectWorkflowType
 } from '../../shared/types/project'
 import {
-  getDefaultPromptTemplates,
-  getSeedanceOptimizedPromptTemplates
+  getDefaultPromptTemplates
 } from './prompt-defaults'
 
 // 新版按工作流分离 key
@@ -35,6 +33,7 @@ const PROMPT_LANG_CONFIG_KEY_PREFIX = 'prompt_lang_config'
 const PROMPT_PROFILE_STATE_KEY_PREFIX = 'prompt_profile_state'
 
 type PromptWorkflowInput = ProjectWorkflowType | string | null | undefined
+const LEGACY_SEEDANCE_PROFILE_ID = 'default_seedance'
 
 interface PromptStorageKeys {
   workflow: ProjectWorkflowType
@@ -95,12 +94,17 @@ function getDefaultLangConfig(_workflow: PromptWorkflowInput = 'asset_consistenc
   return {
     script_parsing: 'zh',
     script_parsing_short_drama: 'zh',
+    script_episode_plan: 'zh',
+    script_parsing_segment_context: 'zh',
+    script_parsing_episode_drama_context: 'zh',
     prompt_translation_system: 'zh',
     prompt_translation_user: 'zh',
     character_sheet: 'zh',
     character_regeneration: 'zh',
     environment_reference_generation: 'zh',
     environment_reference_negative_prompt: 'zh',
+    prop_asset_generation: 'zh',
+    prop_asset_negative_prompt: 'zh',
     scene_description_refinement: 'zh',
     scene_video_generation: 'zh'
   }
@@ -299,21 +303,9 @@ function buildDefaultPromptProfile(nowIso: string): PromptTemplateProfile {
   )
 }
 
-function buildSeedancePromptProfile(nowIso: string): PromptTemplateProfile {
-  return normalizePromptProfileMetadata(
-    { id: PROMPT_SEEDANCE_PROFILE_ID, name: '默认配置（Seedance优化）', createdAt: nowIso, updatedAt: nowIso },
-    '默认配置（Seedance优化）',
-    PROMPT_SEEDANCE_PROFILE_ID,
-    nowIso
-  )
-}
-
-function buildSeedancePromptProfileSnapshot(workflow: ProjectWorkflowType): PromptProfileSnapshot {
+function buildDefaultPromptProfileSnapshot(workflow: ProjectWorkflowType): PromptProfileSnapshot {
   return {
-    templates: getSeedanceOptimizedPromptTemplates(workflow).map(template => ({
-      ...clonePromptTemplate(template),
-      isCustomized: true
-    })),
+    templates: getDefaultPromptTemplates(workflow).map(template => clonePromptTemplate(template)),
     versions: [],
     langConfig: getDefaultLangConfig(workflow)
   }
@@ -323,36 +315,32 @@ function ensureBuiltinPromptProfiles(input: {
   profiles: PromptTemplateProfile[]
   snapshots: Record<string, PromptProfileSnapshot>
   workflow: ProjectWorkflowType
-  fallbackSnapshot: PromptProfileSnapshot
   nowIso: string
 }): {
   profiles: PromptTemplateProfile[]
   snapshots: Record<string, PromptProfileSnapshot>
 } {
-  const profileMap = new Map(input.profiles.map(profile => [profile.id, profile]))
-  const snapshots = { ...input.snapshots }
+  const profileMap = new Map(
+    input.profiles
+      .filter(profile => profile.id !== LEGACY_SEEDANCE_PROFILE_ID)
+      .map(profile => [profile.id, profile])
+  )
+  const {
+    [LEGACY_SEEDANCE_PROFILE_ID]: _legacySeedanceSnapshot,
+    ...snapshots
+  } = input.snapshots
 
   if (!profileMap.has(PROMPT_DEFAULT_PROFILE_ID)) {
     profileMap.set(PROMPT_DEFAULT_PROFILE_ID, buildDefaultPromptProfile(input.nowIso))
   }
-  if (!snapshots[PROMPT_DEFAULT_PROFILE_ID]) {
-    snapshots[PROMPT_DEFAULT_PROFILE_ID] = clonePromptProfileSnapshot(input.fallbackSnapshot)
-  }
-
-  if (!profileMap.has(PROMPT_SEEDANCE_PROFILE_ID)) {
-    profileMap.set(PROMPT_SEEDANCE_PROFILE_ID, buildSeedancePromptProfile(input.nowIso))
-  }
-  snapshots[PROMPT_SEEDANCE_PROFILE_ID] = buildSeedancePromptProfileSnapshot(input.workflow)
+  snapshots[PROMPT_DEFAULT_PROFILE_ID] = buildDefaultPromptProfileSnapshot(input.workflow)
 
   const orderedProfiles: PromptTemplateProfile[] = []
   const defaultProfile = profileMap.get(PROMPT_DEFAULT_PROFILE_ID)
   if (defaultProfile) orderedProfiles.push(defaultProfile)
 
-  const seedanceProfile = profileMap.get(PROMPT_SEEDANCE_PROFILE_ID)
-  if (seedanceProfile) orderedProfiles.push(seedanceProfile)
-
   for (const profile of input.profiles) {
-    if (profile.id === PROMPT_DEFAULT_PROFILE_ID || profile.id === PROMPT_SEEDANCE_PROFILE_ID) continue
+    if (profile.id === PROMPT_DEFAULT_PROFILE_ID || profile.id === LEGACY_SEEDANCE_PROFILE_ID) continue
     if (orderedProfiles.some(item => item.id === profile.id)) continue
     orderedProfiles.push(profile)
   }
@@ -395,11 +383,13 @@ function normalizePromptProfileState(
     profiles,
     snapshots,
     workflow,
-    fallbackSnapshot,
     nowIso
   })
 
-  const activeProfileIdCandidate = normalizeOptionalText(source?.activeProfileId)
+  const activeProfileIdRaw = normalizeOptionalText(source?.activeProfileId)
+  const activeProfileIdCandidate = activeProfileIdRaw === LEGACY_SEEDANCE_PROFILE_ID
+    ? PROMPT_DEFAULT_PROFILE_ID
+    : activeProfileIdRaw
   const activeProfileId = ensured.profiles.some(item => item.id === activeProfileIdCandidate)
     ? activeProfileIdCandidate!
     : (ensured.profiles.find(item => item.id === PROMPT_DEFAULT_PROFILE_ID)?.id || ensured.profiles[0]!.id)
@@ -474,11 +464,9 @@ async function getReadonlyPromptContent(
   const activeProfileId = await getActiveReadonlyPromptProfileId(workflow)
   const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
 
-  const templates = activeProfileId === PROMPT_SEEDANCE_PROFILE_ID
-    ? getSeedanceOptimizedPromptTemplates(normalizedWorkflow)
-    : activeProfileId === PROMPT_DEFAULT_PROFILE_ID
-      ? getDefaultPromptTemplates(normalizedWorkflow)
-      : null
+  const templates = activeProfileId === PROMPT_DEFAULT_PROFILE_ID
+    ? getDefaultPromptTemplates(normalizedWorkflow)
+    : null
 
   return templates?.find(template => template.id === id)?.content[lang] || null
 }
