@@ -27,7 +27,7 @@ const stage = computed<ProjectWorkbenchStage | undefined>(() => {
 })
 
 if (projectId.value) {
-  await navigateTo(resolveProjectWorkbenchPath(projectId.value, undefined, stage.value), { replace: true })
+  await navigateTo(resolveProjectWorkbenchPath(projectId.value, stage.value), { replace: true })
 } else {
   await navigateTo('/projects', { replace: true })
 }

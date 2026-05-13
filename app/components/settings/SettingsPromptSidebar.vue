@@ -238,7 +238,7 @@ function toSelectString(value: unknown): string {
         class="px-4 py-8 text-center text-sm text-muted-foreground"
       >
         <FileText class="mx-auto mb-2 h-8 w-8 opacity-30" />
-        当前工作流下没有可配置模板
+        当前流程下没有可配置模板
       </div>
     </div>
   </div>

@@ -20,19 +20,10 @@ interface CharacterRegenerationOptions {
   referenceImage?: string
 }
 
-const CHARACTER_GENDER_PROMPT_MAP: Record<string, { zh: string, en: string }> = {
-  male: {
-    zh: '男性 / male。必须呈现明确男性特征，不要女性化脸部、身形或服装轮廓。',
-    en: 'male. Use clear male gender presentation; do not feminize the face, body shape, or outfit silhouette.'
-  },
-  female: {
-    zh: '女性 / female。必须呈现明确女性特征，不要男性化脸部、身形或服装轮廓。',
-    en: 'female. Use clear female gender presentation; do not masculinize the face, body shape, or outfit silhouette.'
-  },
-  other: {
-    zh: '其他 / other。按外貌描述保持中性或指定的性别呈现，不要擅自改成男性或女性模板。',
-    en: 'other. Keep the neutral or specified gender presentation from the appearance description; do not force a male or female template.'
-  }
+const CHARACTER_GENDER_PROMPT_MAP: Record<string, string> = {
+  male: '男性。必须呈现明确男性特征，不要女性化脸部、身形或服装轮廓。',
+  female: '女性。必须呈现明确女性特征，不要男性化脸部、身形或服装轮廓。',
+  other: '其他。按外貌描述保持中性或指定的性别呈现，不要擅自改成男性或女性模板。'
 }
 
 const CHARACTER_SHEET_ASPECT_RATIO = '16:9'
@@ -45,10 +36,8 @@ function resolveCharacterSheetSize(provider?: string): string {
 }
 
 function resolveCharacterGenderPrompt(gender?: string) {
-  return CHARACTER_GENDER_PROMPT_MAP[gender || ''] || {
-    zh: '未明确。请仅依据外貌描述中的性别、年龄和身份线索生成，不要随机反转性别呈现。',
-    en: 'unspecified. Follow only the gender, age, and identity cues in the appearance description; do not randomly flip gender presentation.'
-  }
+  return CHARACTER_GENDER_PROMPT_MAP[gender || '']
+    || '未明确。请仅依据外貌描述中的性别、年龄和身份线索生成，不要随机反转性别呈现。'
 }
 
 interface NormalizedReferenceImage {
@@ -335,8 +324,7 @@ async function generateCharacterSheet(
       {
         characterName: character.name,
         appearance: character.appearance,
-        gender: genderPrompt.zh,
-        genderEn: genderPrompt.en,
+        gender: genderPrompt,
         style
       }
     )

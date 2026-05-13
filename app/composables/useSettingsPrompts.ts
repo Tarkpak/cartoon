@@ -16,7 +16,6 @@ import {
   PROMPT_FLOW_STAGES,
   PROMPT_FLOW_STAGE_LABELS
 } from '#shared/types/prompt-template'
-import type { ProjectWorkflowType } from '#shared/types/project'
 
 interface PromptTemplatesResponse {
   success: boolean
@@ -53,7 +52,7 @@ export const PROMPT_STAGE_CONFIG: Record<PromptFlowStage, PromptStageMeta> = {
     name: PROMPT_FLOW_STAGE_LABELS.parse,
     color: 'blue',
     icon: FileText,
-    description: '剧本解析、分集规划与翻译/系统补充模板。'
+    description: '剧本解析、分集规划与系统补充模板。'
   },
   assets: {
     name: PROMPT_FLOW_STAGE_LABELS.assets,
@@ -80,11 +79,10 @@ export function useSettingsPrompts() {
 
   const selectedPromptId = ref<string | null>(null)
   const selectedPromptTemplate = ref<PromptTemplate | null>(null)
-  const selectedPromptWorkflow = ref<ProjectWorkflowType>('asset_consistency')
   const expandedPromptStages = ref<Set<PromptFlowStage>>(new Set(PROMPT_FLOW_STAGES))
 
   const groupedPrompts = computed(() => {
-    const workflowMetadata = getPromptTemplateMetadataForWorkflow(selectedPromptWorkflow.value)
+    const workflowMetadata = getPromptTemplateMetadataForWorkflow()
     const groups: Partial<Record<PromptFlowStage, typeof workflowMetadata>> = {}
 
     for (const meta of workflowMetadata) {
@@ -165,7 +163,7 @@ export function useSettingsPrompts() {
 
     if (!selectedPromptTemplate.value) return
 
-    const selectedMeta = getPromptTemplateMetadataForWorkflow(selectedPromptWorkflow.value)
+    const selectedMeta = getPromptTemplateMetadataForWorkflow()
       .find(item => item.id === selectedPromptTemplate.value?.id)
     if (selectedMeta) {
       expandPromptStage(selectedMeta.stage)
@@ -192,9 +190,7 @@ export function useSettingsPrompts() {
     promptsLoading.value = true
 
     try {
-      const response = await $fetch<PromptTemplatesResponse>('/api/prompts', {
-        query: { workflow: selectedPromptWorkflow.value }
-      })
+      const response = await $fetch<PromptTemplatesResponse>('/api/prompts')
 
       if (!response.success || !response.data?.templates) return
 
@@ -215,9 +211,7 @@ export function useSettingsPrompts() {
     promptProfilesLoading.value = true
 
     try {
-      const response = await $fetch<PromptProfilesResponse>('/api/prompts/profiles', {
-        query: { workflow: selectedPromptWorkflow.value }
-      })
+      const response = await $fetch<PromptProfilesResponse>('/api/prompts/profiles')
 
       if (!response.success || !response.data) return
       syncPromptProfiles(response.data.profiles, response.data.activeProfileId)
@@ -233,7 +227,7 @@ export function useSettingsPrompts() {
     selectedPromptTemplate.value = promptTemplates.value.find(template => template.id === id) || null
     if (!selectedPromptTemplate.value) return
 
-    const selectedMeta = getPromptTemplateMetadataForWorkflow(selectedPromptWorkflow.value)
+    const selectedMeta = getPromptTemplateMetadataForWorkflow()
       .find(item => item.id === selectedPromptTemplate.value?.id)
     if (selectedMeta) {
       expandPromptStage(selectedMeta.stage)
@@ -256,8 +250,7 @@ export function useSettingsPrompts() {
 
     try {
       const response = await $fetch<PromptProfilesResponse>(`/api/prompts/profiles/${profileId}/activate`, {
-        method: 'POST',
-        query: { workflow: selectedPromptWorkflow.value }
+        method: 'POST'
       })
 
       if (response.success && response.data) {
@@ -283,7 +276,6 @@ export function useSettingsPrompts() {
     try {
       const response = await $fetch<PromptProfilesResponse>('/api/prompts/profiles', {
         method: 'POST',
-        query: { workflow: selectedPromptWorkflow.value },
         body: {
           name: normalizedName,
           description: description.trim() || undefined,
@@ -318,7 +310,6 @@ export function useSettingsPrompts() {
     try {
       const response = await $fetch<PromptProfilesResponse>(`/api/prompts/profiles/${profileId}`, {
         method: 'PUT',
-        query: { workflow: selectedPromptWorkflow.value },
         body: {
           name: normalizedName,
           description: description?.trim() || undefined
@@ -346,8 +337,7 @@ export function useSettingsPrompts() {
 
     try {
       const response = await $fetch<PromptProfilesResponse>(`/api/prompts/profiles/${profileId}`, {
-        method: 'DELETE',
-        query: { workflow: selectedPromptWorkflow.value }
+        method: 'DELETE'
       })
 
       if (response.success && response.data) {
@@ -380,13 +370,6 @@ export function useSettingsPrompts() {
   function handlePromptSaved() {
   }
 
-  watch(selectedPromptWorkflow, () => {
-    void Promise.all([
-      loadPromptProfiles(),
-      loadPromptTemplates()
-    ])
-  })
-
   onMounted(() => {
     if (promptTemplates.value.length > 0) return
     void Promise.all([
@@ -410,7 +393,6 @@ export function useSettingsPrompts() {
     selectedPromptId,
     selectedPromptTemplate,
     selectedPromptCategory,
-    selectedPromptWorkflow,
     expandedPromptStages,
     groupedPromptTemplates,
     selectPrompt,

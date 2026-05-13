@@ -16,7 +16,6 @@ import { getWorkflowModels, getWorkflowModelOptions } from '../../models/workflo
 import { getDefaultPromptTemplates } from '../../../utils/prompt-defaults'
 import {
   getInterpolatedPrompt,
-  getPromptLang,
   interpolateTemplate
 } from '../../../utils/prompt-template'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
@@ -85,7 +84,7 @@ const GenerateReferenceRequestSchema = z.object({
     referenceImage: z.string().optional()
   }).optional(),
   consistencyReferenceImage: z.string().optional(),
-  // 兼容旧字段：资产一致性新流程下该字段将被忽略（场景资产必须为纯环境）
+  // 兼容旧字段：当前流程下该字段将被忽略（场景资产必须为纯环境）
   characterReferenceImages: z.array(z.string()).optional().default([])
 })
 
@@ -796,22 +795,16 @@ async function buildSceneReferencePrompt(
 
   const templatePrompt = await getInterpolatedPrompt(
     PROMPT_TEMPLATE_IDS.ENVIRONMENT_REFERENCE_GENERATION,
-    templateVariables,
-    undefined,
-    'asset_consistency'
+    templateVariables
   )
 
   if (templatePrompt) {
     return templatePrompt
   }
 
-  const fallbackLang = await getPromptLang(
-    PROMPT_TEMPLATE_IDS.ENVIRONMENT_REFERENCE_GENERATION,
-    'asset_consistency'
-  )
-  const fallbackTemplate = getDefaultPromptTemplates('asset_consistency')
+  const fallbackTemplate = getDefaultPromptTemplates()
     .find(template => template.id === PROMPT_TEMPLATE_IDS.ENVIRONMENT_REFERENCE_GENERATION)
-    ?.content[fallbackLang]
+    ?.content
 
   if (fallbackTemplate) {
     try {
@@ -892,9 +885,7 @@ export default defineEventHandler(async (event) => {
         )
     const negativePromptTemplate = await getInterpolatedPrompt(
       PROMPT_TEMPLATE_IDS.ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT,
-      {},
-      undefined,
-      'asset_consistency'
+      {}
     )
     const resolvedNegativePrompt = negativePromptTemplate?.trim() || ENVIRONMENT_ONLY_NEGATIVE_PROMPT
     const normalizedReference = requestedReferenceImage

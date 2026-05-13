@@ -64,7 +64,7 @@ export const WORKFLOW_CATEGORY_CONFIG: Record<WorkflowCategoryKey, WorkflowCateg
     name: '文本生成',
     icon: Cpu,
     color: 'blue',
-    description: '覆盖剧本解析、场景描述改写和提示词翻译。'
+    description: '覆盖剧本解析和场景描述改写。'
   },
   image: {
     name: '图片生成',

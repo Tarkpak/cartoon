@@ -3,27 +3,20 @@ import type {
   PromptTemplate,
   PromptVersion
 } from '#shared/types/prompt-template'
-import type { ProjectWorkflowType } from '#shared/types/project'
 import {
   exportPromptTemplate as downloadPromptTemplate,
-  fetchPromptLangConfig,
   fetchPromptVersions,
   mergePromptEditorContent,
   parsePromptTemplateImport,
   resetPromptTemplate,
   restorePromptTemplate,
-  savePromptTemplate,
-  translatePromptContent,
-  updatePromptLangConfig,
-  type PromptEditorLanguage
+  savePromptTemplate
 } from '@/lib/prompt-template-editor'
 
 interface UsePromptTemplateEditorActionsOptions {
   template: Ref<PromptTemplate>
-  workflow: ComputedRef<ProjectWorkflowType>
   isReadonly: ComputedRef<boolean>
   localContent: Ref<PromptTemplate['content']>
-  activeLanguage: Ref<PromptEditorLanguage>
   showDiff: Ref<boolean>
   onUpdate: (template: PromptTemplate) => void
   onSaved: () => void
@@ -38,17 +31,7 @@ export function usePromptTemplateEditorActions(
   const showHistory = ref(false)
   const loadingVersions = ref(false)
   const versions = ref<PromptVersion[]>([])
-  const langConfig = ref<Record<string, PromptEditorLanguage>>({})
-  const langConfigSaving = ref(false)
-  const translating = ref(false)
   const fileInputRef = ref<HTMLInputElement | null>(null)
-
-  const currentTemplateLang = computed({
-    get: () => langConfig.value[options.template.value.id] || 'zh',
-    set: (value: PromptEditorLanguage) => {
-      langConfig.value[options.template.value.id] = value
-    }
-  })
 
   async function save() {
     if (options.isReadonly.value) return
@@ -57,7 +40,6 @@ export function usePromptTemplateEditorActions(
     try {
       const response = await savePromptTemplate({
         templateId: options.template.value.id,
-        workflow: options.workflow.value,
         content: options.localContent.value
       })
 
@@ -81,8 +63,7 @@ export function usePromptTemplateEditorActions(
 
     try {
       const response = await resetPromptTemplate({
-        templateId: options.template.value.id,
-        workflow: options.workflow.value
+        templateId: options.template.value.id
       })
 
       if (response.success) {
@@ -100,8 +81,7 @@ export function usePromptTemplateEditorActions(
 
     try {
       const response = await fetchPromptVersions({
-        templateId: options.template.value.id,
-        workflow: options.workflow.value
+        templateId: options.template.value.id
       })
 
       if (response.success) {
@@ -126,7 +106,6 @@ export function usePromptTemplateEditorActions(
     try {
       const response = await restorePromptTemplate({
         templateId: options.template.value.id,
-        workflow: options.workflow.value,
         versionId
       })
 
@@ -136,68 +115,6 @@ export function usePromptTemplateEditorActions(
       }
     } catch (error) {
       console.error('恢复版本失败:', error)
-    }
-  }
-
-  async function loadLangConfig() {
-    try {
-      const response = await fetchPromptLangConfig(options.workflow.value)
-
-      if (response.success) {
-        langConfig.value = response.data
-      }
-    } catch (error) {
-      console.error('加载语言配置失败:', error)
-    }
-  }
-
-  async function saveLangConfig() {
-    if (options.isReadonly.value) return
-    langConfigSaving.value = true
-
-    try {
-      await updatePromptLangConfig({
-        workflow: options.workflow.value,
-        templateId: options.template.value.id,
-        lang: currentTemplateLang.value
-      })
-    } catch (error) {
-      console.error('保存语言配置失败:', error)
-    } finally {
-      langConfigSaving.value = false
-    }
-  }
-
-  async function toggleRuntimeLang(lang: PromptEditorLanguage) {
-    if (options.isReadonly.value) return
-    currentTemplateLang.value = lang
-    await saveLangConfig()
-  }
-
-  async function translateContent() {
-    if (options.isReadonly.value) return
-    const fromLang = options.activeLanguage.value
-    const toLang = fromLang === 'zh' ? 'en' : 'zh'
-    const sourceText = options.localContent.value[fromLang]
-    if (!sourceText.trim()) return
-
-    translating.value = true
-
-    try {
-      const response = await translatePromptContent({
-        text: sourceText,
-        from: fromLang,
-        to: toLang,
-        workflow: options.workflow.value
-      })
-
-      if (response.success && response.data?.translatedText) {
-        options.localContent.value[toLang] = response.data.translatedText
-      }
-    } catch (error) {
-      console.error('翻译失败:', error)
-    } finally {
-      translating.value = false
     }
   }
 
@@ -237,17 +154,11 @@ export function usePromptTemplateEditorActions(
     showHistory,
     loadingVersions,
     versions,
-    langConfigSaving,
-    translating,
     fileInputRef,
-    currentTemplateLang,
     save,
     reset,
     openHistory,
     restoreVersion,
-    loadLangConfig,
-    toggleRuntimeLang,
-    translateContent,
     exportTemplate,
     triggerImport,
     handleImport

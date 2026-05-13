@@ -5,17 +5,10 @@
 
 import type { PromptTemplate } from '../../shared/types/prompt-template'
 import { getPromptTemplateMetadataForWorkflow } from '../../shared/types/prompt-template'
-import type { ProjectWorkflowType } from '../../shared/types/project'
-import {
-  normalizeProjectWorkflowType
-} from '../../shared/types/project'
 
-type PromptWorkflowInput = ProjectWorkflowType | string | null | undefined
-
-function getBasePromptTemplates(workflow: PromptWorkflowInput = 'asset_consistency'): PromptTemplate[] {
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+function getBasePromptTemplates(): PromptTemplate[] {
   const now = new Date().toISOString()
-  const metadataList = getPromptTemplateMetadataForWorkflow(normalizedWorkflow)
+  const metadataList = getPromptTemplateMetadataForWorkflow()
 
   return metadataList.map(meta => ({
     id: meta.id,
@@ -29,8 +22,8 @@ function getBasePromptTemplates(workflow: PromptWorkflowInput = 'asset_consisten
   }))
 }
 
-export function getDefaultPromptTemplates(workflow: PromptWorkflowInput = 'asset_consistency'): PromptTemplate[] {
-  return getBasePromptTemplates(workflow).map(template => ({
+export function getDefaultPromptTemplates(): PromptTemplate[] {
+  return getBasePromptTemplates().map(template => ({
     ...template,
     content: getSeedanceOptimizedContent(template.id, template.content),
     isCustomized: false
@@ -38,9 +31,9 @@ export function getDefaultPromptTemplates(workflow: PromptWorkflowInput = 'asset
 }
 
 export function getSeedanceOptimizedPromptTemplates(
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  _workflow?: unknown
 ): PromptTemplate[] {
-  return getDefaultPromptTemplates(workflow)
+  return getDefaultPromptTemplates()
 }
 
 function getSeedanceOptimizedContent(
@@ -49,40 +42,19 @@ function getSeedanceOptimizedContent(
 ): PromptTemplate['content'] {
   switch (id) {
     case 'script_parsing':
-      return {
-        zh: applySeedanceScriptParsingZh(base.zh),
-        en: applySeedanceScriptParsingEn(base.en)
-      }
+      return applySeedanceScriptParsing(base)
     case 'script_parsing_short_drama':
-      return {
-        zh: applySeedanceScriptParsingZh(base.zh),
-        en: applySeedanceScriptParsingEn(base.en)
-      }
+      return applySeedanceScriptParsing(base)
     case 'character_sheet':
-      return {
-        zh: applySeedanceCharacterSheetZh(base.zh),
-        en: applySeedanceCharacterSheetEn(base.en)
-      }
+      return applySeedanceCharacterSheet(base)
     case 'character_regeneration':
-      return {
-        zh: applySeedanceCharacterRegenerationZh(base.zh),
-        en: applySeedanceCharacterRegenerationEn(base.en)
-      }
+      return applySeedanceCharacterRegeneration(base)
     case 'environment_reference_generation':
-      return {
-        zh: applySeedanceEnvironmentReferenceZh(base.zh),
-        en: applySeedanceEnvironmentReferenceEn(base.en)
-      }
+      return applySeedanceEnvironmentReference(base)
     case 'scene_description_refinement':
-      return {
-        zh: applySeedanceSceneRefinementZh(base.zh),
-        en: applySeedanceSceneRefinementEn(base.en)
-      }
+      return applySeedanceSceneRefinement(base)
     case 'scene_video_generation':
-      return {
-        zh: applySeedanceSceneVideoZh(base.zh),
-        en: applySeedanceSceneVideoEn(base.en)
-      }
+      return applySeedanceSceneVideo(base)
     default:
       return base
   }
@@ -110,10 +82,6 @@ function getDefaultContent(id: string): PromptTemplate['content'] {
       return SCRIPT_PARSING_SEGMENT_CONTEXT_CONTENT
     case 'script_parsing_episode_drama_context':
       return SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT_CONTENT
-    case 'prompt_translation_system':
-      return PROMPT_TRANSLATION_SYSTEM_CONTENT
-    case 'prompt_translation_user':
-      return PROMPT_TRANSLATION_USER_CONTENT
     case 'character_sheet':
       return CHARACTER_SHEET_CONTENT
     case 'character_regeneration':
@@ -131,45 +99,11 @@ function getDefaultContent(id: string): PromptTemplate['content'] {
     case 'scene_video_generation':
       return SCENE_VIDEO_GENERATION_CONTENT
     default:
-      return {
-        zh: '请完成任务。',
-        en: 'Please complete the task.'
-      }
+      return '请完成任务。'
   }
 }
 
-const PROMPT_TRANSLATION_SYSTEM_CONTENT: PromptTemplate['content'] = {
-  zh: `你是一名专业翻译，专门处理 AI 提示词与技术文本。
-请把输入内容从 {{fromLang}} 翻译为 {{toLang}}。
-
-翻译规则：
-1. 必须原样保留模板变量（双大括号占位符保持不变）。
-2. 必须保留原有格式、段落与换行。
-3. 术语表达要准确一致。
-4. 语义和语气要忠实，不要扩写或删改。
-5. 只输出翻译后的正文，不要附加解释。`,
-  en: `You are a professional translator for AI prompts and technical content.
-Translate the input from {{fromLang}} to {{toLang}}.
-
-Rules:
-1. Preserve template variables exactly, keeping all double-brace placeholders unchanged.
-2. Preserve original formatting, paragraphs, and line breaks.
-3. Keep terminology accurate and consistent.
-4. Preserve meaning and tone without expanding or omitting content.
-5. Output translated text only, with no extra notes.`
-}
-
-const PROMPT_TRANSLATION_USER_CONTENT: PromptTemplate['content'] = {
-  zh: `请将以下文本从 {{fromLang}} 翻译为 {{toLang}}：
-
-{{sourceText}}`,
-  en: `Please translate the following text from {{fromLang}} to {{toLang}}:
-
-{{sourceText}}`
-}
-
-const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
-  zh: `你是一位资深分镜师，负责把输入剧本忠实还原为可执行分镜。请把输入文本解析成可直接进入”资产准备 → 分镜视频生成”的结构化数据。
+const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = `你是一位资深分镜师，负责把输入剧本忠实还原为可执行分镜。请把输入文本解析成可直接进入”资产准备 → 分镜视频生成”的结构化数据。
 
 【输入文本】
 {{novelText}}
@@ -311,140 +245,9 @@ const SCRIPT_PARSING_CONTENT: PromptTemplate['content'] = {
 }
 \`\`\`
 
-只输出 JSON，不要附加解释。`,
-  en: `You are a senior screenplay parser for faithful cinematic adaptation. Convert the input text into structured data that can directly enter the current workbench pipeline: parse -> assets -> scene video generation.
+只输出 JSON，不要附加解释。`
 
-## Input Text
-{{novelText}}
-
-## Project Style
-{{style}}
-
-## Era Hint
-{{eraHint}}
-
-## Input Scale
-- Text length: about {{textLength}} characters
-- Scene-count hint (weak suggestion, not a hard limit): {{recommendedMinScenes}}
-- Per-scene duration range: {{sceneDurationMin}}-{{sceneDurationMax}} seconds
-- Parsing mode: {{scriptParseModeLabel}}
-
-## Parsing Mode Strategy (Must Follow)
-{{scriptParseModeRules}}
-
-## Core Goals
-1. Cover the full plot. Do not skip key events, emotional turns, or important narration.
-2. The output must directly support later character assets, environment references, and scene videos.
-3. Every scene must be visually generatable, with clear environment, characters, action, focal details, and key props.
-
-## Scene Splitting Rules
-1. Split scenes whenever location, time, action phase, emotional direction, or narrative perspective changes.
-2. If the location and dramatic action remain continuous, do not split just because the camera angle changes or the acting beat progresses. Keep those details inside the same scene description as second-by-second beat design.
-3. Only create a new scene when the dramatic function changes, for example: hook, escalation, reversal, declaration, aftermath.
-4. Let the model decide scene count based on story load. If an external scene-count hint is provided, treat it as a weak suggestion, not a hard limit.
-5. Each duration must be numeric and stay within {{sceneDurationMin}}-{{sceneDurationMax}} seconds.
-6. totalDuration must equal the sum of all scenes[i].duration.
-
-## Scene Field Rules
-1. scenes[i].shotType must be one of: extreme_wide, wide, medium_wide, medium, medium_close, close, extreme_close, detail.
-2. scenes[i].cameraMovement must be one of: static, push, pull, pan_left, pan_right, tilt_up, tilt_down, track, dolly, zoom_in, zoom_out, crane, handheld, arc. Pick the dominant camera movement for the scene.
-3. scenes[i].setting.timeOfDay must be one of: 黎明, 早晨, 白天, 中午, 下午, 傍晚, 夜晚.
-4. scenes[i].setting.era must be one of: 古代, 民国, 现代, 近未来, 架空. If era is not explicit and the style contains AI真人/live action, default to 现代.
-5. scenes[i].setting.location should use neutral naming such as "root environment - subspace".
-6. The same root environment must keep consistent era, material language, maintenance level, and renovation grade across scenes.
-7. Do not output conflicting environment styles unless the source explicitly describes different zones.
-
-## Rich Description Rules
-1. Each scene description must be a detailed, production-ready scene block, not a one-line summary and not plain prose.
-2. Prefer organizing description inside the same string with this structure:
-   Scene function / emotional beat: one-line summary
-   Shot design:
-   0-2秒：...
-   2-4秒：...
-   Sound design:
-   - ...
-   Dialogue rhythm:
-   - ...
-   Performance notes:
-   - ...
-3. Under "Shot design", each line must follow the format (use Chinese tokens exactly): start-end秒：景别，运镜方式。Visual action and dialogue.
-   - 景别 (shot sizes): 中景, 近景, 特写镜头, 中近景, 全景, 大远景, etc.
-   - 运镜方式 (camera movements): 固定镜头, 缓慢推近, 缓慢拉远, 镜头左摇, 镜头右摇, 跟随镜头, 手持镜头, etc.
-   - Additional camera info may follow, e.g.: ，镜头角度略低于XX的视线。
-4. Each scene needs at least 2 shot-design lines, preferably 3-6. Timeline starts at 0 and the final line should align with duration within 0.5 seconds.
-5. Prioritize complete dramatic expression when setting duration. If one dramatic beat exceeds single-scene generation limits, split it into consecutive scenes and preserve all key plot and emotional progression.
-6. Put dialogue directly inside the relevant timeline line, wrapped in single quotes.
-7. Narration/voiceover must be embedded in the timeline line using format: 画外音（音色：gender，age range，tone description，pitch，speed，emotion，accent）说：'narration content'.
-8. Use "Sound design" for ambient sound, key effects, voice pressure, and rhythm. Use "Performance notes" for gaze, pauses, micro-expressions, hand tension, posture, and body-weight shifts.
-9. Each timeline line should include rich cinematic language: lighting, spatial relationships, character action details, atmosphere, and ambient sound.
-10. Do not include production instructions such as subtitles, BGM, or UI overlays, but narrative sound design is allowed.
-11. Do not invent any @图片N tags (legacy [ImageN] is also disallowed) or any other reference numbering. If reference tags are needed later, the system will inject them in post-processing.
-12. If a shot can see an adjacent subspace through a door, window, or glass partition, explicitly describe that visible space's lighting, dominant colors, doorway/window placement, and key set dressing, then preserve those details in the matching subspace scene.
-
-## Character and Narration Rules
-1. Only identify real characters. Do not treat narration, voice-over, system text, or sound cues as characters.
-2. Narration, voice-over, and inner monologue must go to scenes[i].narration AND be embedded as voiceover in the description timeline lines.
-3. dialogues must only contain real spoken lines by actual characters.
-4. Character descriptions must stay stable and reusable for later asset generation.
-5. Top-level characters[i].gender must be one of male, female, other. Infer it from source text, role words, pronouns, names, kinship terms, and appearance cues. Do not leave gender ambiguous when the source implies male or female.
-6. Top-level characters[i].description must be a complete visual baseline for character image generation, not an identity summary or plot relationship. Prefer including gender presentation, age range, face/facial features, hairstyle and hair color, body build and posture, default outfit, key accessories, identity temperament, and visual traits that must remain unchanged. Conservatively infer missing details when needed, but never contradict the source.
-7. Put scene-specific outfit or state changes only in scene.characters[i].appearance; keep top-level characters[i].description as the default reusable asset baseline.
-8. Make asset needs clear through the scene content, but do not invent unrelated elements.
-
-## Output Format
-Output strict JSON only:
-\`\`\`json
-{
-  "title": "Optional script title",
-  "scenes": [
-    {
-      "id": "scene_001",
-      "title": "Scene title",
-      "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
-      "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
-      "description": "Scene function / emotional beat: Public pressure, with the protagonist's first cold sign of future retaliation.\\nShot design:\\n0-2秒：中景，固定镜头。Busy nurse station under cold fluorescent light, Lu Zhe adjusts his white coat.\\n2-5秒：近景，缓慢推近。Lu Zhe smirks with cold confidence. Lu Zhe says: 'Wait and see.'\\n5-8秒：中景，固定镜头。画外音（音色：male，around 30，steady tone，low-mid pitch，moderate pace，restrained，no accent）says: 'His gaze cuts through the crowd like a hidden blade.'\\nSound design:\\n- Footsteps, trolley wheels, and PA noise fill the background.\\n- Pull the ambient bed down just before the line lands.\\nDialogue rhythm:\\n- Leave a short half-beat pause before 'Wait and see.'\\nPerformance notes:\\n- Keep the coat-adjusting gesture small and controlled.\\n- Hold a contemptuous pause after the line instead of exiting immediately.",
-      "setting": {
-        "location": "Hospital - nurse station",
-        "timeOfDay": "夜晚",
-        "era": "现代",
-        "mood": "tense and oppressive",
-        "weather": "stormy rain"
-      },
-      "characters": [
-        {
-          "name": "Lu Zhe",
-          "appearance": "Appearance in this scene",
-          "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
-        }
-      ],
-      "dialogues": [
-        {
-          "character": "Lu Zhe",
-          "text": "Wait and see.",
-          "emotion": "determined"
-        }
-      ],
-      "narration": "Optional narration",
-      "duration": 8
-    }
-  ],
-  "characters": [
-    {
-      "name": "Lu Zhe",
-      "description": "Reusable overall appearance description for later asset generation",
-      "role": "protagonist|antagonist|supporting",
-      "gender": "male|female|other"
-    }
-  ],
-  "totalDuration": 96
-}
-\`\`\`
-
-Output JSON only, with no extra explanation.`
-}
-
-const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
-  zh: `你是一位短剧分镜编排导演。请把输入文本解析为可直接用于“资产准备 → 分镜视频生成”的高节奏结构化 JSON，并在完整覆盖原文主线的前提下执行短剧节奏锚点。
+const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = `你是一位短剧分镜编排导演。请把输入文本解析为可直接用于“资产准备 → 分镜视频生成”的高节奏结构化 JSON，并在完整覆盖原文主线的前提下执行短剧节奏锚点。
 
 【输入文本】
 {{novelText}}
@@ -600,155 +403,9 @@ const SCRIPT_PARSING_SHORT_DRAMA_CONTENT: PromptTemplate['content'] = {
 }
 \`\`\`
 
-只输出 JSON，不要附加解释。`,
-  en: `You are a short-drama storyboard pacing director. Convert the source text into structured JSON for the pipeline "asset prep -> scene video generation", while preserving full mainline coverage before applying short-drama rhythm anchors.
+只输出 JSON，不要附加解释。`
 
-## Input Text
-{{novelText}}
-
-## Project Style
-{{style}}
-
-## Era Hint
-{{eraHint}}
-
-## Input Scale
-- Text length: about {{textLength}} characters
-- Scene-count hint (weak suggestion, not a hard limit): {{recommendedMinScenes}}
-- Per-scene duration range: {{sceneDurationMin}}-{{sceneDurationMax}} seconds
-
-## Hard Coverage Constraints (Must Follow)
-1. Preserve the mainline in original narrative order; do not skip or merge source sections in ways that break causality.
-2. Do not compress the full script into a single ~60s structure; rhythm anchors apply per dramatic unit only.
-3. For long source text, increase scene count to carry content; do not drop key events, emotional reversals, or critical narration.
-
-## Short-Drama Rhythm Skeleton (Apply per dramatic unit, not as whole-script compression cap)
-Phase | Seconds | Emotion Curve | Function
-Opening hook | 0-8s | shock -> coldness | seize attention
-Conflict escalation | 9-25s | heartbreak -> despair | build empathy
-Hypocritical confrontation | 26-42s | disgust -> resolve | create turning point
-Final declaration | 43-60s | emptiness -> cold severity | cliffhanger / anticipation
-
-## Core Pacing Logic (Must Be Preserved in Equivalent Form)
-1. For each key dramatic unit, land a visible conflict action/prop within the first 3 seconds.
-2. In the early-to-mid section of the dramatic unit (about 20%-60%), deliver an emotional heavy hit to build empathy.
-3. In the late-mid section of the dramatic unit (about 55%-80%), include a clear awakening signal (steady hand, fixed gaze, decisive move).
-4. In the tail section of the dramatic unit (final 10%-20%), deliver a cold declaration or counterattack teaser.
-5. If the source is not a divorce story, map to equivalent conflict level without losing these anchors.
-
-## Short-Drama Dramatic Intensity Hard Rules
-1. Fill the dramatic field first for every scene, then write description from that dramatic target. Do not output only blocking, location, and ordinary dialogue.
-2. Every scene must answer: who pressures whom, why the audience gets angry, what the protagonist loses or risks, where the counter/reversal lands, and why the final two seconds make viewers continue.
-3. Every scene needs emotional contrast or a power shift: humiliation -> cold control, threat -> counterkill, misunderstanding -> reveal, mockery -> face-slap, romantic testing -> explicit backing, etc.
-4. The description must begin with these concrete sections, not vague phrases:
-   戏剧冲突：
-   爽点/痛点：
-   情绪曲线：
-   反击或反转：
-   结尾钩子：
-5. If the source segment is flat, strengthen visible conflict without changing core events or character positions: add pressure gestures, bystander reactions, pauses, gaze changes, cold retorts, and antagonist breakdown.
-
-## Adaptation Policy
-1. Stay faithful to core relationships and key events.
-2. If source text is long, do not keep only one highlight segment; increase scenes to preserve mainline causality.
-3. Split scenes by dramatic function while keeping cross-scene continuity coherent.
-4. Keep source event order; do not move late reversals into earlier scenes.
-
-## Scene Splitting Rules
-1. Let the model decide total scene count based on story load. If an external scene-count hint is provided, treat it as a weak suggestion, not a hard limit.
-2. Split when any of these changes: location, time, action objective, emotional direction, narrative viewpoint, dramatic function.
-3. Each duration must be numeric and stay within {{sceneDurationMin}}-{{sceneDurationMax}}.
-4. totalDuration must equal the sum of scenes[i].duration.
-5. For continuous action within the same place and time, camera-angle or dialogue progression alone should remain in one scene, but description must still cover source details line-by-line on the timeline.
-
-## Hard Field Constraints
-1. scenes[i].shotType must be one of: extreme_wide, wide, medium_wide, medium, medium_close, close, extreme_close, detail.
-2. scenes[i].cameraMovement must be one of: static, push, pull, pan_left, pan_right, tilt_up, tilt_down, track, dolly, zoom_in, zoom_out, crane, handheld, arc.
-3. scenes[i].setting.timeOfDay must be one of: 黎明, 早晨, 白天, 中午, 下午, 傍晚, 夜晚.
-4. scenes[i].setting.era must be one of: 古代, 民国, 现代, 近未来, 架空. If era is not explicit and the style contains AI真人/live action, default to 现代.
-
-## Description Writing Rules
-1. Description must be production-ready timeline blocks, not one-line summaries.
-2. At least 2 timeline shot lines per scene, preferably 3-6, starting from 0s.
-3. Shot line format: start-end秒：shot size，camera movement。Visual action and dialogue.
-4. Put dialogue inline using single quotes; narration format must be: 画外音（音色：...）说：'...'
-5. Include Sound design / Dialogue rhythm / Performance notes with pauses, gaze, hand tension, and pressure beats.
-6. Do not output @图片N tags (legacy [ImageN] is also disallowed), subtitle directives, BGM directives, or editing commands.
-
-## Character Rules
-1. Only include real characters; narration and SFX are not characters.
-2. narration contains only narration/voice-over; dialogues contains only spoken lines by real characters.
-3. Top-level characters must remain stable and reusable for downstream character asset generation.
-4. Top-level characters[i].gender must be one of male, female, other. Infer it from source text, role words, pronouns, names, kinship terms, and appearance cues. Do not leave gender ambiguous when the source implies male or female.
-5. Top-level characters[i].description must be a complete visual baseline for character image generation, not an identity summary or plot relationship. Prefer including gender presentation, age range, face/facial features, hairstyle and hair color, body build and posture, default outfit, key accessories, identity temperament, and visual traits that must remain unchanged. Conservatively infer missing details when needed, but never contradict the source.
-6. Put scene-specific outfit or state changes only in scene.characters[i].appearance; keep top-level characters[i].description as the default reusable asset baseline.
-
-## Output Format
-Output strict JSON only:
-\`\`\`json
-{
-  "title": "Optional script title",
-  "scenes": [
-    {
-      "id": "scene_001",
-      "title": "Scene title",
-      "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
-      "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
-      "dramatic": {
-        "function": "hook|escalation|confrontation|reversal|payoff|cliffhanger|aftermath",
-        "conflict": "Core conflict: who pressures whom and what is at stake",
-        "emotionalCurve": "humiliation -> shock -> cold counterattack",
-        "audienceHook": "Why viewers want to continue",
-        "painPoint": "The empathy/anger trigger",
-        "payoff": "The scene's reward / face-slap",
-        "powerShift": "How power changes",
-        "antagonistPressure": "How the antagonist applies pressure",
-        "protagonistCounter": "How the protagonist counters or plants the counter",
-        "cliffhanger": "End hook or next-scene anticipation"
-      },
-      "description": "Scene function / emotional beat: opening hook with immediate pressure.\\nShot design:\\n0-2秒：中景，固定镜头。The divorce agreement is pushed to the center of the table.\\n2-5秒：近景，缓慢推近。Daughter delivers a cold line: 'You should have signed earlier.'\\n5-8秒：特写镜头，固定镜头。The protagonist's trembling fingers gradually steady.\\nSound design:\\n- Paper friction and chair drag lead the beat.\\nDialogue rhythm:\\n- Add a half-beat pause before the final words.\\nPerformance notes:\\n- Hand tremor transitions into controlled stillness.",
-      "setting": {
-        "location": "Living room - dining table",
-        "timeOfDay": "夜晚",
-        "era": "现代",
-        "mood": "oppressive",
-        "weather": "rainy night"
-      },
-      "characters": [
-        {
-          "name": "Character name",
-          "appearance": "appearance description",
-          "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
-        }
-      ],
-      "dialogues": [
-        {
-          "character": "Character name",
-          "text": "Dialogue line",
-          "emotion": "determined"
-        }
-      ],
-      "narration": "Optional narration",
-      "duration": 8
-    }
-  ],
-  "characters": [
-    {
-      "name": "Character name",
-      "description": "Reusable overall appearance description",
-      "role": "protagonist|antagonist|supporting",
-      "gender": "male|female|other"
-    }
-  ],
-  "totalDuration": 96
-}
-\`\`\`
-
-Output JSON only, with no extra explanation.`
-}
-
-const SCRIPT_EPISODE_PLAN_CONTENT: PromptTemplate['content'] = {
-  zh: `你是专业短剧编剧统筹，请把一部长文本剧本按“剧情结构 + 爆点节奏”拆分成分集目录。
+const SCRIPT_EPISODE_PLAN_CONTENT: PromptTemplate['content'] = `你是专业短剧编剧统筹，请把一部长文本剧本按“剧情结构 + 爆点节奏”拆分成分集目录。
 
 要求：
 1) 必须按剧情节点分集，不允许按字数平均切分。
@@ -788,78 +445,21 @@ JSON 结构（严格遵守）：
 }
 
 原文如下：
-{{novelText}}`,
-  en: `You are a short-drama story editor. Split a long source script into episode planning based on plot structure plus addictive pacing.
-
-Requirements:
-1) Split by story beats, not by equal character count.
-2) {{modeRule}}
-3) {{chunkRule}}
-4) Each episode must provide title and startAnchor:
-   - startAnchor must be a verbatim continuous excerpt from the source text, with no rewriting.
-   - {{firstAnchorRule}}
-   - Episode 2+ startAnchor should be near the beginning of that episode and preferably unique (roughly 20-80 Chinese characters equivalent).
-5) Every episode must explain why viewers keep watching: opening hook, threat/humiliation, reversal/counterattack, emotional curve, end cliffhanger.
-6) Prefer explosive titles instead of plain location/log descriptions.
-7) payoffType must be one of: 打脸, 反杀, 揭露, 甜宠撑腰, 身世反转, 危机升级, 搞钱逆袭, 权力升级.
-8) episodeAssets.characters is for prebuilding character assets. description must be a full visual baseline for image generation, not social-relationship summary.
-9) episodeAssets.characters[].gender must be male/female/other. Infer from source cues and do not leave blank when gender is implied.
-10) Output JSON only. No markdown, no explanation, no empty episode list.
-
-Strict JSON shape:
-{
-  "episodes": [
-    {
-      "index": 1,
-      "title": "Episode title",
-      "startAnchor": "verbatim source excerpt",
-      "episodeHook": "opening hook",
-      "humiliationOrThreat": "major threat or humiliation",
-      "reversalPoint": "reversal or counterattack",
-      "emotionalCurve": "emotion progression",
-      "cliffhanger": "end hook",
-      "payoffType": "打脸",
-      "episodeAssets": {
-        "characters": [{ "name": "name", "description": "visual baseline", "role": "protagonist|antagonist|supporting", "gender": "male|female|other" }],
-        "props": [{ "name": "prop", "description": "optional" }],
-        "environments": [{ "location": "location", "timeOfDay": "optional", "mood": "optional" }]
-      }
-    }
-  ]
-}
-
-Source text:
 {{novelText}}`
-}
 
-const SCRIPT_PARSING_SEGMENT_CONTEXT_CONTENT: PromptTemplate['content'] = {
-  zh: `{{basePrompt}}
+const SCRIPT_PARSING_SEGMENT_CONTEXT_CONTENT: PromptTemplate['content'] = `{{basePrompt}}
 
 【分段解析上下文（系统追加）】
 - 当前仅处理原文第 {{chunkIndex}}/{{chunkCount}} 段，禁止补写未提供段落。
 - 本段文本长度：约 {{chunkLength}} 字（全量占比约 {{chunkPercentage}}%）。
-- 输出仍需保持原文顺序；若与前段重叠，请避免重复同一场景。`,
-  en: `{{basePrompt}}
+- 输出仍需保持原文顺序；若与前段重叠，请避免重复同一场景。`
 
-[Segment Parsing Context - System Appended]
-- Process only segment {{chunkIndex}}/{{chunkCount}} of the source text. Do not invent unseen segments.
-- Current segment length: about {{chunkLength}} chars (about {{chunkPercentage}}% of total).
-- Keep source order. If content overlaps with previous segment, avoid duplicating the same scene.`
-}
-
-const SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT_CONTENT: PromptTemplate['content'] = {
-  zh: `{{basePrompt}}
+const SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT_CONTENT: PromptTemplate['content'] = `{{basePrompt}}
 
 【本集爆点规划（系统追加，必须落入 dramatic 与 description）】
-{{episodeDramaBrief}}`,
-  en: `{{basePrompt}}
-
-[Episode Drama Plan - System Appended, must be reflected in dramatic and description]
 {{episodeDramaBrief}}`
-}
 
-const CHARACTER_SHEET_CONTENT: PromptTemplate['content'] = {
-  zh: `为 {{characterName}} 创建一张 {{style}} 风格的角色资产设定板。
+const CHARACTER_SHEET_CONTENT: PromptTemplate['content'] = `为 {{characterName}} 创建一张 {{style}} 风格的角色资产设定板。
 
 角色外貌基线：
 {{appearance}}
@@ -870,33 +470,14 @@ const CHARACTER_SHEET_CONTENT: PromptTemplate['content'] = {
 执行要求：
 1. 输出必须是单角色角色资产图，不要输出文字说明。
 2. 16:9 横版构图，纯白或浅灰背景，适合后续作为角色一致性参考。
-3. 左侧为脸部近景，右侧为 Front / Profile / Back 三视图全身站姿。
+3. 左侧为脸部近景，右侧为 正面 / 侧面 / 背面 三视图全身站姿。
 4. 三视图必须等比例、等身高、等服装结构，对齐清晰。
 5. 严格遵守性别呈现约束，不得把男性画成女性化角色，也不得把女性画成男性化角色。
 6. 严格依据角色外貌描述，避免任意添加新设定。
 7. 若模型接收到参考图，必须优先保持身份一致：脸型、五官、发型、服装、配饰不可漂移。
-8. 画面干净、结构清晰、细节稳定，不要戏剧化背景，不要多人同框，不要水印和 Logo。`,
-  en: `Create a {{style}} character asset design sheet for {{characterName}}.
+8. 画面干净、结构清晰、细节稳定，不要戏剧化背景，不要多人同框，不要水印和 Logo。`
 
-Appearance baseline:
-{{appearance}}
-
-Gender presentation constraint:
-{{genderEn}}
-
-Requirements:
-1. The result must be an image asset sheet, not text.
-2. Use a 16:9 horizontal composition with a clean white or light-gray background for identity consistency reference.
-3. Put a close-up portrait on the left and full-body Front / Profile / Back turnarounds on the right.
-4. Turnarounds must stay aligned with consistent scale, height, and outfit structure.
-5. Follow the gender presentation constraint strictly; do not render a male character as feminine or a female character as masculine.
-6. Follow the provided appearance strictly and do not invent unrelated new traits.
-7. If a reference image is provided by the model layer, identity consistency must take priority.
-8. Keep the frame clean, readable, stable, watermark-free, and free of dramatic background storytelling.`
-}
-
-const CHARACTER_REGENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: `你正在执行“角色资产二次生成”任务，请直接生成修改后的角色图片，不要输出文字解释。
+const CHARACTER_REGENERATION_CONTENT: PromptTemplate['content'] = `你正在执行“角色资产二次生成”任务，请直接生成修改后的角色图片，不要输出文字解释。
 
 角色信息：
 - 名称：{{characterName}}
@@ -915,31 +496,9 @@ const CHARACTER_REGENERATION_CONTENT: PromptTemplate['content'] = {
 2. 除非用户明确要求，否则不得改动发型、发色、服装结构和关键配饰。
 3. 只执行明确提出的修改项，不扩展额外创作，不新增无关元素。
 4. 输出必须是高质量图片，不要返回纯文本。
-5. 构图稳定、主体清晰、光影自然，避免过饱和、过锐化和塑料质感。`,
-  en: `You are performing a character asset regeneration task. Generate the edited character image directly and do not return explanatory text.
+5. 构图稳定、主体清晰、光影自然，避免过饱和、过锐化和塑料质感。`
 
-Character info:
-- Name: {{characterName}}
-- Appearance baseline: {{appearance}}
-- Gender presentation: {{genderEn}}
-- Style baseline: {{style}}
-
-Effective change request:
-{{activeStyleConstraint}}
-
-Supplementary note (may be empty):
-{{customPrompt}}
-
-Requirements:
-1. Keep the same character identity. Do not change age presentation, gender presentation, face shape, or key facial structure.
-2. Do not change hairstyle, hair color, outfit structure, or key accessories unless explicitly requested.
-3. Apply only the requested edits and do not introduce unrelated creativity.
-4. The output must be a high-quality image, not plain text.
-5. Keep composition stable, subject clear, and lighting natural without oversharpening or oversaturation.`
-}
-
-const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: `你正在为”资产一致性分镜视频”生成单张纯环境参考图。请直接生成图片，不要输出文字说明。
+const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = `你正在为分镜视频生成单张纯环境参考图。请直接生成图片，不要输出文字说明。
 
 【项目画风】
 {{style}}
@@ -976,54 +535,11 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 11. 如果提供了二次生成要求，只做定向微调，不改变环境主体身份。
 
 【二次生成补充要求】
-{{customPrompt}}`,
-  en: `You are generating a single pure environment reference image for an asset-consistent scene video workflow. Return the image directly, not text.
-
-## Project Style
-{{style}}
-
-## Panorama Source Specification
-{{aspectRatio}}
-
-## Scene Title
-{{sceneTitle}}
-
-## Environment Summary
-{{sceneDescription}}
-
-## Scene Setting
-{{setting}}
-
-## Environment Continuity Requirements
-{{environmentConsistency}}
-
-## Camera and Asset Notes
-{{cameraNote}}
-
-## Requirements
-1. Generate exactly one environment asset image, not a collage, layout sheet, or split-panel composition.
-2. This must be a pure panoramic environment source image: no humans, faces, body parts, silhouettes, or crowds.
-3. Use only the environment summary and scene setting to extract location, architecture, terrain, props, lighting, weather, and spatial structure. Do not turn character action, dialogue, or narration into visual subjects.
-4. Compose it as a standard 360 environment texture: 2:1 equirectangular projection / spherical panorama / HDRI environment map source. It is not a regular camera-shot widescreen photo and not a single-direction perspective view.
-5. Make the left and right edges seamless; describe the spatial structure in all front, back, left, and right directions, with enough surrounding detail for later reframing from any direction.
-6. Place the viewpoint near the center of the space with a natural level eye line. Avoid pushing the space too close to the viewpoint, face-level foreground blocking, oversized near props, or a single wall filling the image.
-7. Keep era, renovation grade, material language, and lighting system consistent with neighboring scenes in the same root environment.
-8. No text, watermark, logo, border, or UI elements.
-9. Do not generate a fisheye lens photo, regular ultra-wide photo, tilted horizon, or bent architecture. Equirectangular projection layout characteristics are acceptable, but do not make it a circular fisheye image or a one-lens wide-angle shot.
-10. If doors, windows, glass, or open passages reveal an adjacent space, do not reduce it to a vague glow. Describe the neighboring space's structure, lighting, and key set dressing so it can stay consistent with the matching subspace scene.
-11. If a regeneration note is provided, apply only targeted environment-level refinement without changing the core environment identity.
-
-## Regeneration Note
 {{customPrompt}}`
-}
 
-const ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT_CONTENT: PromptTemplate['content'] = {
-  zh: '人物, 角色, 人脸, 人体, 手, 剪影, 人群, human, person, people, face, portrait, character, body, hands, crowd, watermark, logo, text, 鱼眼, 透视畸变, 桶形畸变, 枕形畸变, 边缘拉伸, 夸张广角畸变, fisheye, fish-eye, lens distortion, barrel distortion, pincushion distortion, warped lines, curved horizon, extreme perspective, distorted ultra-wide lens',
-  en: '人物, 角色, 人脸, 人体, 手, 剪影, 人群, human, person, people, face, portrait, character, body, hands, crowd, watermark, logo, text, 鱼眼, 透视畸变, 桶形畸变, 枕形畸变, 边缘拉伸, 夸张广角畸变, fisheye, fish-eye, lens distortion, barrel distortion, pincushion distortion, warped lines, curved horizon, extreme perspective, distorted ultra-wide lens'
-}
+const ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT_CONTENT: PromptTemplate['content'] = '人物, 角色, 人脸, 人体, 手, 剪影, 人群, human, person, people, face, portrait, character, body, hands, crowd, watermark, logo, text, 鱼眼, 透视畸变, 桶形畸变, 枕形畸变, 边缘拉伸, 夸张广角畸变, fisheye, fish-eye, lens distortion, barrel distortion, pincushion distortion, warped lines, curved horizon, extreme perspective, distorted ultra-wide lens'
 
-const PROP_ASSET_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: `你正在为资产一致性分镜视频生成单张{{assetLabel}}参考图。请直接生成图片，不要输出文字说明。
+const PROP_ASSET_GENERATION_CONTENT: PromptTemplate['content'] = `你正在为分镜视频生成单张{{assetLabel}}参考图。请直接生成图片，不要输出文字说明。
 
 【项目画风】
 {{style}}
@@ -1040,34 +556,11 @@ const PROP_ASSET_GENERATION_CONTENT: PromptTemplate['content'] = {
 3. 使用干净中性背景或透明感背景，不要生成复杂场景，不要让环境喧宾夺主。
 4. 禁止出现人物、人脸、手、身体部位、文字、水印、Logo、边框、界面元素。
 5. 避免把资产画成多个不同版本；如果需要展示细节，也必须保持同一个资产身份。
-6. 构图稳定，主体居中且完整，不裁切，不遮挡，适合作为后续视频生成参考图。`,
-  en: `Generate exactly one {{assetLabel}} reference image for asset-consistent storyboard video production. Return image only, no text.
+6. 构图稳定，主体居中且完整，不裁切，不遮挡，适合作为后续视频生成参考图。`
 
-[Project Style]
-{{style}}
+const PROP_ASSET_NEGATIVE_PROMPT_CONTENT: PromptTemplate['content'] = '人物, 人脸, 人体, 手, 多个不同物体版本, 文字, 水印, logo, UI, human, person, face, hands, text, watermark'
 
-[Asset Name]
-{{assetName}}
-
-[Asset Description]
-{{assetDescription}}
-
-[Requirements]
-1. Generate exactly one image. No collage or multi-panel layout.
-2. The asset itself must be the clear subject, showing shape, material, color, scale, and key details.
-3. Use a clean neutral or transparent-feel background. Avoid complex scenes.
-4. Do not include people, face, hands, body parts, text, watermark, logo, border, or UI elements.
-5. Do not render multiple inconsistent versions of the asset.
-6. Keep composition stable, centered, complete, and unobstructed for downstream video reference usage.`
-}
-
-const PROP_ASSET_NEGATIVE_PROMPT_CONTENT: PromptTemplate['content'] = {
-  zh: '人物, 人脸, 人体, 手, 多个不同物体版本, 文字, 水印, logo, UI, human, person, face, hands, text, watermark',
-  en: '人物, 人脸, 人体, 手, 多个不同物体版本, 文字, 水印, logo, UI, human, person, face, hands, text, watermark'
-}
-
-const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
-  zh: `你是一名资深影视场景编辑，负责根据用户指令改写当前场景描述。请严格输出 JSON：
+const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = `你是一名资深影视场景编辑，负责根据用户指令改写当前场景描述。请严格输出 JSON：
 {"description":"改写后的场景描述"}
 
 【项目画风】
@@ -1112,57 +605,9 @@ const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {
 9. 统一使用 @图片N 标签；若原描述含旧格式 [图片N]，请改写为 @图片N 并保持引用稳定。
 10. 不要输出“添加字幕/BGM/音效”等制作指令，但可以写叙事内声音设计，例如环境音、低频嗡鸣、玻璃碎声等。
 11. 若原描述已具备明确结构，应在此基础上重写和补细，而不是删掉已有层次。
-12. 若镜头能透过门、窗、玻璃看到另一空间，必须把门窗朝向、可见空间的灯光、主色调和关键陈设写清楚，方便后续切到该空间时保持一致。`,
-  en: `You are a senior scene editor. Rewrite the current scene description based on the user's instruction and output strict JSON only:
-{"description":"rewritten scene description"}
+12. 若镜头能透过门、窗、玻璃看到另一空间，必须把门窗朝向、可见空间的灯光、主色调和关键陈设写清楚，方便后续切到该空间时保持一致。`
 
-## Project Style
-{{style}}
-
-## Scene Title
-{{sceneTitle}}
-
-## Current Scene Description
-{{sceneDescription}}
-
-## Scene Setting
-{{setting}}
-
-## Character Info
-{{characters}}
-
-## Narration
-{{narration}}
-
-## Dialogue
-{{dialogues}}
-
-## Recent Edit History
-{{history}}
-
-## Current User Instruction
-{{userMessage}}
-
-## Mentioned Assets
-{{mentionedAssets}}
-
-## Output Rules
-1. Output JSON only, with no explanation.
-2. description must remain a detailed scene block, not a one-line summary and not plain prose.
-3. Keep all shot, sound, dialogue-rhythm, and performance guidance inside description itself. Do not split them into extra JSON fields.
-4. Prefer preserving and strengthening this structure: scene function / emotional beat, shot design, sound design, dialogue rhythm, performance notes.
-5. Under shot design, include at least one timeline line and usually 2-6 lines. Each line must follow the format (use Chinese tokens exactly): start-end秒：景别，运镜方式。Visual description.
-6. The target duration is about {{durationHint}} seconds. For a major dramatic beat, expand detail inside the same description instead of collapsing it into summary prose.
-7. Integrate the user's requested changes while preserving plot continuity, character identity, and environment logic.
-8. If assets are mentioned, reflect them in the scene description, but do not output @mentions or asset-reference blocks.
-9. Use @图片N tags consistently. If legacy [ImageN] tags are present, convert them to @图片N while keeping references stable.
-10. Do not output production instructions such as subtitles, BGM, or UI overlays, but narrative sound design is allowed.
-11. If the source already has a clear structure, rewrite within that structure instead of flattening it.
-12. If the shot can see another space through a door, window, or glass partition, make the doorway/window orientation, visible lighting, dominant colors, and key set dressing explicit so later cuts into that space remain consistent.`
-}
-
-const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
-  zh: `直接生成一个分镜片段，不要输出文字，不要把以下内容理解成“要写提示词”。
+const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = `直接生成一个分镜片段，不要输出文字，不要把以下内容理解成“要写提示词”。
 
 【镜头编号】
 {{shotNumber}}
@@ -1208,57 +653,9 @@ const SCENE_VIDEO_GENERATION_CONTENT: PromptTemplate['content'] = {
 5. 旁白和对白只体现在表演节奏、口型和画面情绪中，不要生成字幕、台词卡、UI 或水印。
 6. 若镜头透过门、窗、玻璃看到相邻空间，必须让该可见空间与对应内景/外景镜头共享同一建筑结构、门窗朝向、灯光颜色、主色调和关键陈设。
 7. 如果前一镜头已经拍到某个室内或室外子空间，切到该空间时必须延续已出现的布景，不得重新发明另一套陈设。
-8. 输出应是一个可直接使用的视频片段，风格统一，光照连续，构图清晰。`,
-  en: `Generate a single-scene video clip directly. Do not return text, and do not treat the content below as instructions to write another prompt.
+8. 输出应是一个可直接使用的视频片段，风格统一，光照连续，构图清晰。`
 
-## Shot Number
-{{shotNumber}}
-
-## Scene Title
-{{sceneTitle}}
-
-## Scene Summary
-{{sceneSummary}}
-
-## Style
-{{style}}
-
-## Duration
-About {{duration}} seconds
-
-## Aspect Ratio
-{{aspectRatio}}
-
-## Scene Setting
-{{setting}}
-
-## Detailed Scene Description
-{{sceneDescription}}
-
-## Reference Guide
-{{referenceGuide}}
-
-## Reference Materials
-{{referenceMaterials}}
-
-## Execution Constraints
-{{executionConstraints}}
-
-## Narration Context
-- Narration: {{narration}}
-
-## Generation Requirements
-1. Follow the temporal sequence in the detailed scene description beat by beat. Do not collapse multiple visual actions into a single generic summary.
-2. If reference images are provided, lock character identity, outfit, hairstyle, posture, and environment spatial continuity first.
-3. If the detailed scene description includes sound design, dialogue rhythm, or performance notes, translate them into pacing, acting, mouth movement, breath, and emotional progression. Do not render those words as subtitles or UI.
-4. Motion should evolve naturally and consistently. Avoid identity drift, spatial jumps, disappearing or appearing key objects, or broken camera logic.
-5. Reflect narration and dialogue through performance rhythm, mouth movement, and mood only. Do not generate subtitles, caption cards, UI, or watermarks.
-6. If the shot sees an adjacent space through a door, window, or glass partition, that visible space must share the same architecture, doorway/window orientation, lighting color, dominant palette, and key set dressing as the matching interior or exterior shot.
-7. If a previous shot already revealed that interior or exterior subspace, the cut into it must continue the same set dressing rather than inventing a new one.
-8. The result must be a directly usable video clip with consistent style, lighting continuity, and clear composition.`
-}
-
-function applySeedanceScriptParsingZh(content: string): string {
+function applySeedanceScriptParsing(content: string): string {
   return appendRulesAfterLine(
     content,
     '12. 若镜头能透过门、窗、玻璃看到相邻子空间，必须明确写出可见空间的灯光、主色调、门窗位置与关键陈设，并在对应子空间场景中沿用，不得把同一主环境写成两套布景。',
@@ -1271,22 +668,7 @@ function applySeedanceScriptParsingZh(content: string): string {
     ]
   )
 }
-
-function applySeedanceScriptParsingEn(content: string): string {
-  return appendRulesAfterLine(
-    content,
-    '12. If a shot can see an adjacent subspace through a door, window, or glass partition, explicitly describe that visible space\'s lighting, dominant colors, doorway/window placement, and key set dressing, then preserve those details in the matching subspace scene.',
-    [
-      '13. Avoid vague adjectives such as cinematic vibe or looks good; use executable camera and action language only.',
-      '14. Prefer each shot line in this order: subject definition + continuous action + shot size + camera movement + lighting + constraints.',
-      '15. For scenes likely to run image-to-video, keep explicit identity constraints: keep reference subject consistent and do not alter core setup.',
-      '16. Do not stack camera moves; keep each line within one to two movement semantics and prefer slow, steady, uniform motion.',
-      '17. If signs, displays, or wall text may appear, add an explicit constraint to avoid irrelevant generated text/subtitles.'
-    ]
-  )
-}
-
-function applySeedanceCharacterSheetZh(content: string): string {
+function applySeedanceCharacterSheet(content: string): string {
   return appendRulesAfterLine(
     content,
     '8. 画面干净、结构清晰、细节稳定，不要戏剧化背景，不要多人同框，不要水印和 Logo。',
@@ -1297,20 +679,7 @@ function applySeedanceCharacterSheetZh(content: string): string {
     ]
   )
 }
-
-function applySeedanceCharacterSheetEn(content: string): string {
-  return appendRulesAfterLine(
-    content,
-    '8. Keep the frame clean, readable, stable, watermark-free, and free of dramatic background storytelling.',
-    [
-      '9. Keep subject definition explicit: age range, gender presentation, facial structure, hairstyle, outfit structure, and current state; avoid abstract praise words.',
-      '10. Limit style anchors to one or two core cues to avoid conflicting mixed styles.',
-      '11. Add stability constraints: clear face, natural proportions, stable gender presentation, consistent outfit, no duplicate person, no limb deformation, no subtitle/watermark.'
-    ]
-  )
-}
-
-function applySeedanceCharacterRegenerationZh(content: string): string {
+function applySeedanceCharacterRegeneration(content: string): string {
   return appendRulesAfterLine(
     content,
     '5. 构图稳定、主体清晰、光影自然，避免过饱和、过锐化和塑料质感。',
@@ -1321,20 +690,7 @@ function applySeedanceCharacterRegenerationZh(content: string): string {
     ]
   )
 }
-
-function applySeedanceCharacterRegenerationEn(content: string): string {
-  return appendRulesAfterLine(
-    content,
-    '5. Keep composition stable, subject clear, and lighting natural without oversharpening or oversaturation.',
-    [
-      '6. Always lock identity first, then apply edits; identity consistency has higher priority than style variation.',
-      '7. Edit requests must be specific: body part + change direction + intensity + preserved items.',
-      '8. Add negative constraints: no face swap, no duplicate person, no clipping artifacts, no subtitles.'
-    ]
-  )
-}
-
-function applySeedanceEnvironmentReferenceZh(content: string): string {
+function applySeedanceEnvironmentReference(content: string): string {
   return appendRulesAfterLine(
     content,
     '11. 如果提供了二次生成要求，只做定向微调，不改变环境主体身份。',
@@ -1346,21 +702,7 @@ function applySeedanceEnvironmentReferenceZh(content: string): string {
     ]
   )
 }
-
-function applySeedanceEnvironmentReferenceEn(content: string): string {
-  return appendRulesAfterLine(
-    content,
-    '11. If a regeneration note is provided, apply only targeted environment-level refinement without changing the core environment identity.',
-    [
-      '12. Environment instructions must be concrete: time, weather, light direction, key light color, critical materials, and reflection relationships.',
-      '13. Avoid subjective adjectives and describe spatial structure plus visible details directly.',
-      '14. Add text-control constraints to avoid irrelevant characters, subtitles, or logos.',
-      '15. If adjacent space is visible, define doorway/window orientation, visible color temperature, and key props for continuity.'
-    ]
-  )
-}
-
-function applySeedanceSceneRefinementZh(content: string): string {
+function applySeedanceSceneRefinement(content: string): string {
   return appendRulesAfterLine(
     content,
     '12. 若镜头能透过门、窗、玻璃看到另一空间，必须把门窗朝向、可见空间的灯光、主色调和关键陈设写清楚，方便后续切到该空间时保持一致。',
@@ -1372,21 +714,7 @@ function applySeedanceSceneRefinementZh(content: string): string {
     ]
   )
 }
-
-function applySeedanceSceneRefinementEn(content: string): string {
-  return appendRulesAfterLine(
-    content,
-    '12. If the shot can see another space through a door, window, or glass partition, make the doorway/window orientation, visible lighting, dominant colors, and key set dressing explicit so later cuts into that space remain consistent.',
-    [
-      '13. The rewrite must stay executable as timeline storyboard lines, not a single prose paragraph.',
-      '14. Each shot line should include subject, motion speed, shot size, camera movement, and constraints to reduce randomness.',
-      '15. If reference tags exist, standardize to @图片N. Convert legacy [ImageN] tags to @图片N and keep naming stable to avoid identity drift.',
-      '16. For key dramatic beats, add stability constraints: clear face, coherent motion, stable frame, no jitter, no deformation, no subtitles.'
-    ]
-  )
-}
-
-function applySeedanceSceneVideoZh(content: string): string {
+function applySeedanceSceneVideo(content: string): string {
   return appendRulesAfterLine(
     content,
     '8. 输出应是一个可直接使用的视频片段，风格统一，光照连续，构图清晰。',
@@ -1397,21 +725,6 @@ function applySeedanceSceneVideoZh(content: string): string {
       '12. 若有参考图，必须严格保持主体身份与核心设定一致，不偏离脸型、发型和服装结构。',
       '13. 强化稳定性与负面约束：画面稳定、无变脸、无肢体畸形、无穿模、无跳帧、无字幕、无水印。',
       '14. 对白与旁白仅体现在口型和表演节奏，不生成任何屏幕文字。'
-    ]
-  )
-}
-
-function applySeedanceSceneVideoEn(content: string): string {
-  return appendRulesAfterLine(
-    content,
-    '8. The result must be a directly usable video clip with consistent style, lighting continuity, and clear composition.',
-    [
-      '9. Preserve strict global-setting plus shot-by-shot temporal continuity with no dropped shot beats.',
-      '10. Prefer one shot-size cue plus one primary camera-move cue per shot; cap combined movement at two.',
-      '11. Prefer slow or uniform motion unless intense action is explicitly required by the script.',
-      '12. If reference images exist, strictly preserve identity and core setup: face shape, hairstyle, and outfit structure.',
-      '13. Enforce stability and negative constraints: stable frame, no face drift, no limb deformation, no clipping, no frame jumps, no subtitles, no watermarks.',
-      '14. Dialogue and narration should appear through mouth movement and acting rhythm only, never as on-screen text.'
     ]
   )
 }

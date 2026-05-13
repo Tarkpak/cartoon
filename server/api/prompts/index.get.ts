@@ -4,18 +4,16 @@
  */
 
 import { getAllPromptTemplates, getPromptProfiles } from '../../utils/prompt-template'
-import { resolvePromptWorkflowFromEvent } from '../../utils/prompt-workflow'
 import {
   CATEGORY_NAMES,
   getPromptTemplateMetadataForWorkflow
 } from '../../../shared/types/prompt-template'
 
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async () => {
   try {
-    const workflow = resolvePromptWorkflowFromEvent(event)
-    const profileData = await getPromptProfiles(workflow)
-    const templates = await getAllPromptTemplates(workflow)
-    const metadataList = getPromptTemplateMetadataForWorkflow(workflow)
+    const profileData = await getPromptProfiles()
+    const templates = await getAllPromptTemplates()
+    const metadataList = getPromptTemplateMetadataForWorkflow()
     const metadata = {
       text: metadataList.filter(t => t.category === 'text'),
       image: metadataList.filter(t => t.category === 'image'),
@@ -32,7 +30,6 @@ export default defineEventHandler(async (event) => {
     return {
       success: true,
       data: {
-        workflow,
         templates,
         grouped,
         categoryNames: CATEGORY_NAMES,

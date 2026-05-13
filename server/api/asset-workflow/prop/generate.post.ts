@@ -3,7 +3,7 @@ import { imageLimiter } from '../../../utils/concurrency'
 import { persistImageToPublic } from '../../../utils/image-storage'
 import { findImageModel, generateImage } from '../../../utils/model-provider'
 import { getDefaultPromptTemplates } from '../../../utils/prompt-defaults'
-import { getInterpolatedPrompt, getPromptLang, interpolateTemplate } from '../../../utils/prompt-template'
+import { getInterpolatedPrompt, interpolateTemplate } from '../../../utils/prompt-template'
 import { getWorkflowModels, getWorkflowModelOptions } from '../../models/workflow.get'
 import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
 
@@ -16,8 +16,6 @@ const GeneratePropRequestSchema = z.object({
   }),
   style: z.string().optional().default('')
 })
-
-const PROP_PROMPT_WORKFLOW = 'asset_consistency'
 
 async function buildPropPrompt(options: {
   name: string
@@ -34,21 +32,15 @@ async function buildPropPrompt(options: {
 
   const templatePrompt = await getInterpolatedPrompt(
     PROMPT_TEMPLATE_IDS.PROP_ASSET_GENERATION,
-    variables,
-    undefined,
-    PROP_PROMPT_WORKFLOW
+    variables
   )
   if (templatePrompt) {
     return templatePrompt
   }
 
-  const fallbackLang = await getPromptLang(
-    PROMPT_TEMPLATE_IDS.PROP_ASSET_GENERATION,
-    PROP_PROMPT_WORKFLOW
-  )
-  const fallbackTemplate = getDefaultPromptTemplates(PROP_PROMPT_WORKFLOW)
+  const fallbackTemplate = getDefaultPromptTemplates()
     .find(template => template.id === PROMPT_TEMPLATE_IDS.PROP_ASSET_GENERATION)
-    ?.content[fallbackLang]
+    ?.content
   if (fallbackTemplate) {
     try {
       console.warn('[AssetWorkflow/Prop] 道具资产模板缺失，已回退内置默认模板继续生成')
@@ -64,21 +56,15 @@ async function buildPropPrompt(options: {
 async function resolvePropNegativePrompt(): Promise<string> {
   const templatePrompt = await getInterpolatedPrompt(
     PROMPT_TEMPLATE_IDS.PROP_ASSET_NEGATIVE_PROMPT,
-    {},
-    undefined,
-    PROP_PROMPT_WORKFLOW
+    {}
   )
   if (templatePrompt?.trim()) {
     return templatePrompt.trim()
   }
 
-  const fallbackLang = await getPromptLang(
-    PROMPT_TEMPLATE_IDS.PROP_ASSET_NEGATIVE_PROMPT,
-    PROP_PROMPT_WORKFLOW
-  )
-  const fallbackTemplate = getDefaultPromptTemplates(PROP_PROMPT_WORKFLOW)
+  const fallbackTemplate = getDefaultPromptTemplates()
     .find(template => template.id === PROMPT_TEMPLATE_IDS.PROP_ASSET_NEGATIVE_PROMPT)
-    ?.content[fallbackLang]
+    ?.content
   if (fallbackTemplate?.trim()) {
     console.warn('[AssetWorkflow/Prop] 道具资产负向模板缺失，已回退内置默认负向约束')
     return fallbackTemplate.trim()

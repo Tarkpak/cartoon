@@ -5,26 +5,21 @@
 
 import { z } from 'zod'
 import { updatePromptTemplate } from '../../utils/prompt-template'
-import { resolvePromptWorkflowFromEvent } from '../../utils/prompt-workflow'
-import type { PromptTemplateId, BilingualContent } from '../../../shared/types/prompt-template'
+import type { PromptTemplateId } from '../../../shared/types/prompt-template'
 
 const UpdateSchema = z.object({
-  content: z.object({
-    zh: z.string(),
-    en: z.string()
-  }),
+  content: z.string(),
   note: z.string().optional()
 })
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id') as PromptTemplateId
-  const workflow = resolvePromptWorkflowFromEvent(event)
 
   if (!id) {
     throw createError({
       statusCode: 400,
       statusMessage: 'Bad Request',
-      message: '缺少模板 ID',
+      message: '缺少模板 ID'
     })
   }
 
@@ -43,20 +38,19 @@ export default defineEventHandler(async (event) => {
   const { content, note } = parseResult.data
 
   try {
-    const template = await updatePromptTemplate(id, content as BilingualContent, note, workflow)
+    const template = await updatePromptTemplate(id, content, note)
 
     if (!template) {
       throw createError({
         statusCode: 404,
         statusMessage: 'Not Found',
-        message: '模板不存在',
+        message: '模板不存在'
       })
     }
 
     return {
       success: true,
       data: template,
-      workflow,
       message: '模板更新成功'
     }
   } catch (error) {

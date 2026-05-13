@@ -4,7 +4,6 @@ import { db, projects, scripts, scenes, characters } from '../../db'
 import { isStyleIdEnabled } from '../../utils/style-config'
 import { persistImageToPublic } from '../../utils/image-storage'
 import { persistVideoSourceToCloud } from '../../utils/video-storage'
-import { normalizeProjectWorkflowType } from '../../../shared/types/project'
 import { CharacterVoiceAssetSchema } from '../../../shared/types/character'
 import {
   SCRIPT_PARSE_MODES,
@@ -213,7 +212,6 @@ const UpdateProjectSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   status: z.enum(['draft', 'in_progress', 'completed']).optional(),
-  workflowType: z.literal('asset_consistency').optional(),
   // 项目预设配置 (可更新)
   styleId: z.string().optional(),
   aspectRatio: z.enum(['16:9', '9:16', '1:1']).optional(),
@@ -230,7 +228,7 @@ const UpdateProjectSchema = z.object({
   selectedStyleId: z.string().optional(),
   // 分集目录
   episodePlan: EpisodePlanSchema.optional(),
-  // 资产一致性工作流扩展字段
+  // 资产工作台扩展字段
   assetWorkflow: z.any().optional(),
   scenes: z.array(SceneSchema).optional(),
   characters: z.array(CharacterSchema).optional()
@@ -296,7 +294,6 @@ export default defineEventHandler(async (event) => {
     const shouldUpdateProject = data.name !== undefined
       || data.description !== undefined
       || data.status !== undefined
-      || data.workflowType !== undefined
       || data.scriptParseMode !== undefined
       || data.styleId !== undefined
       || data.aspectRatio !== undefined
@@ -307,7 +304,6 @@ export default defineEventHandler(async (event) => {
           name: data.name ?? project.name,
           description: data.description ?? project.description,
           status: data.status ?? project.status,
-          workflowType: normalizeProjectWorkflowType(data.workflowType ?? project.workflowType),
           scriptParseMode: normalizeScriptParseMode(data.scriptParseMode ?? project.scriptParseMode),
           styleId: data.styleId ?? project.styleId,
           aspectRatio: data.aspectRatio ?? project.aspectRatio,
