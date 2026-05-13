@@ -16,6 +16,7 @@ import {
 const STYLE_PRESET_CONFIG_KEY = 'style_preset_config'
 const STYLE_PRESET_DATA_KEY = 'style_preset_data'
 const STYLE_PRESET_EXPORT_VERSION = 1
+const DEFAULT_STYLE_PRESET_ID = 'ghibli'
 
 export interface StylePresetConfig {
   enabledStyleIds: string[]
@@ -54,9 +55,13 @@ function getDefaultStylePresets(): StylePreset[] {
 
 function getDefaultStylePresetConfig(allPresets: StylePreset[]): StylePresetConfig {
   const allStyleIds = allPresets.map(style => style.id)
+  const preferredDefaultId = allStyleIds.includes(DEFAULT_STYLE_PRESET_ID)
+    ? DEFAULT_STYLE_PRESET_ID
+    : (allStyleIds[0] || '')
+
   return {
     enabledStyleIds: allStyleIds,
-    defaultStyleId: allStyleIds[0] || ''
+    defaultStyleId: preferredDefaultId
   }
 }
 
