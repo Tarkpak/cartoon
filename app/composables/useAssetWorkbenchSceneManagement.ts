@@ -202,6 +202,25 @@ export function useAssetWorkbenchSceneManagement(options: {
     await options.saveWorkflowMeta()
   }
 
+  async function setSceneEnvironmentCaptureMode(
+    sceneId: string,
+    mode: 'single' | 'four_view'
+  ) {
+    const scene = options.scenes.value.find(item => item.id === sceneId)
+    if (!scene) return
+
+    const nextMode = mode === 'four_view' ? 'four_view' : 'single'
+    const currentMode = scene.environmentCaptureMode === 'four_view' ? 'four_view' : 'single'
+    if (currentMode === nextMode) return
+
+    options.updateScene({
+      id: sceneId,
+      environmentCaptureMode: nextMode
+    })
+    options.synchronizeQueueItems()
+    await options.saveProject()
+  }
+
   function selectScene(sceneId: string) {
     options.selectedSceneId.value = sceneId
   }
@@ -432,6 +451,7 @@ export function useAssetWorkbenchSceneManagement(options: {
     resolveSceneReferenceAssetIds,
     setSceneAssetReferences,
     setScenePreviousLastFrameReference,
+    setSceneEnvironmentCaptureMode,
     selectScene,
     sceneEditAssetReferenceOptions,
     sceneEditSelectedAssetIds,

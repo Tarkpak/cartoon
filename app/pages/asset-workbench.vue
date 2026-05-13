@@ -739,6 +739,7 @@ const {
   resolveSceneReferenceAssetIds,
   setSceneAssetReferences,
   setScenePreviousLastFrameReference,
+  setSceneEnvironmentCaptureMode,
   selectScene,
   sceneEditAssetReferenceOptions,
   sceneEditSelectedAssetIds,
@@ -2758,6 +2759,7 @@ async function handleBatchGenerateCharacters() {
         :on-retry-scene="retryScene"
         :on-open-scene-video-history="openSceneVideoHistory"
         :on-set-scene-previous-last-frame-reference="setScenePreviousLastFrameReference"
+        :on-set-scene-environment-capture-mode="setSceneEnvironmentCaptureMode"
         :on-preview-image="openImagePreview"
         :on-close-scene-chat="closeSceneChat"
         :on-handle-scene-chat-composer-input="handleSceneChatComposerInput"
