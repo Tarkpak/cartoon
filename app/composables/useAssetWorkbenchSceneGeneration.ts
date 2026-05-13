@@ -54,15 +54,13 @@ interface UseAssetWorkbenchSceneGenerationOptions {
   generateCharacter: (
     character: CharacterData,
     options?: {
-      workflowType?: 'asset_consistency'
       regenerationPrompt?: string
       referenceImage?: string
       skipCompletionNotice?: boolean
     }
   ) => Promise<unknown>
   batchGenerateCharacters: (
-    onProgress?: (current: number, total: number, name: string) => void,
-    options?: { workflowType?: 'asset_consistency' }
+    onProgress?: (current: number, total: number, name: string) => void
   ) => Promise<unknown>
   persistAutomaticAssetPlan: (
     options?: { overwriteExistingConfigs?: boolean }
@@ -150,7 +148,6 @@ export function useAssetWorkbenchSceneGeneration(
 
       try {
         await options.generateCharacter(character, {
-          workflowType: 'asset_consistency',
           skipCompletionNotice: true
         })
       } catch (error) {
@@ -591,9 +588,7 @@ export function useAssetWorkbenchSceneGeneration(
     const missingCharacterAssets = options.characters.value.filter(character => !character.baseImage)
     if (missingCharacterAssets.length === 0) return
 
-    await options.batchGenerateCharacters(undefined, {
-      workflowType: 'asset_consistency'
-    })
+    await options.batchGenerateCharacters()
   }
 
   async function runQueueItem(

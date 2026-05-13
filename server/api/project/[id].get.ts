@@ -2,7 +2,6 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db, projects, scripts, scenes, characters, videoTasks } from '../../db'
 import { persistImageToPublic } from '../../utils/image-storage'
 import { persistVideoSourceToCloud } from '../../utils/video-storage'
-import { normalizeProjectWorkflowType } from '../../../shared/types/project'
 import { normalizeScriptParseMode } from '../../../shared/types/script'
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
 import { parseStoredProjectScript } from '../../utils/project-script'
@@ -461,7 +460,6 @@ export default defineEventHandler(async (event) => {
           id: project.id,
           name: project.name,
           description: project.description,
-          workflowType: normalizeProjectWorkflowType(project.workflowType),
           scriptParseMode: resolvedScriptParseMode,
           styleId: project.styleId,
           aspectRatio: project.aspectRatio,

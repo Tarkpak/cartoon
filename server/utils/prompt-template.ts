@@ -1,6 +1,6 @@
 /**
  * 提示词模板工具函数
- * 支持按工作流读取/保存提示词模板，并维护版本历史
+ * 支持模板读取/保存，并维护版本历史
  */
 
 import { db, systemConfig } from '../db'
@@ -9,7 +9,6 @@ import type {
   PromptTemplate,
   PromptVersion,
   PromptTemplateId,
-  BilingualContent,
   PromptTemplateProfile
 } from '../../shared/types/prompt-template'
 import {
@@ -19,41 +18,28 @@ import {
   isPromptTemplateVisibleForWorkflow
 } from '../../shared/types/prompt-template'
 import {
-  normalizeProjectWorkflowType,
-  type ProjectWorkflowType
-} from '../../shared/types/project'
-import {
   getDefaultPromptTemplates
 } from './prompt-defaults'
 
-// 新版按工作流分离 key
+// 配置持久化 key
 const PROMPT_TEMPLATES_KEY_PREFIX = 'prompt_templates'
 const PROMPT_VERSIONS_KEY_PREFIX = 'prompt_versions'
-const PROMPT_LANG_CONFIG_KEY_PREFIX = 'prompt_lang_config'
 const PROMPT_PROFILE_STATE_KEY_PREFIX = 'prompt_profile_state'
 
-type PromptWorkflowInput = ProjectWorkflowType | string | null | undefined
+const PROMPT_SCOPE_DEFAULT = 'default'
+type PromptWorkflowInput = unknown
 const LEGACY_SEEDANCE_PROFILE_ID = 'default_seedance'
 
 interface PromptStorageKeys {
-  workflow: ProjectWorkflowType
+  scope: string
   templatesKey: string
   versionsKey: string
-  langConfigKey: string
-  legacyTemplatesKey?: string
-  legacyVersionsKey?: string
-  legacyLangConfigKey?: string
+  profileStateKey: string
 }
-
-/**
- * 提示词语言配置类型
- */
-export type PromptLangConfig = Record<PromptTemplateId, 'zh' | 'en'>
 
 interface PromptProfileSnapshot {
   templates: PromptTemplate[]
   versions: PromptVersion[]
-  langConfig: PromptLangConfig
 }
 
 interface PromptProfileState {
@@ -68,53 +54,32 @@ export interface PromptProfileListResult {
 }
 
 function resolvePromptStorageKeys(workflow?: PromptWorkflowInput): PromptStorageKeys {
-  const normalized = normalizeProjectWorkflowType(workflow)
+  const normalized = normalizePromptScope(workflow)
+  const templatesKey = `${PROMPT_TEMPLATES_KEY_PREFIX}_${normalized}`
+  const versionsKey = `${PROMPT_VERSIONS_KEY_PREFIX}_${normalized}`
+  const profileStateKey = `${PROMPT_PROFILE_STATE_KEY_PREFIX}_${normalized}`
 
   return {
-    workflow: normalized,
-    templatesKey: `${PROMPT_TEMPLATES_KEY_PREFIX}_${normalized}`,
-    versionsKey: `${PROMPT_VERSIONS_KEY_PREFIX}_${normalized}`,
-    langConfigKey: `${PROMPT_LANG_CONFIG_KEY_PREFIX}_${normalized}`,
-    legacyTemplatesKey: undefined,
-    legacyVersionsKey: undefined,
-    legacyLangConfigKey: undefined
+    scope: normalized,
+    templatesKey,
+    versionsKey,
+    profileStateKey
   }
 }
 
 function resolvePromptProfileStateKey(workflow?: PromptWorkflowInput): string {
-  const normalized = normalizeProjectWorkflowType(workflow)
-  return `${PROMPT_PROFILE_STATE_KEY_PREFIX}_${normalized}`
+  return resolvePromptStorageKeys(workflow).profileStateKey
 }
 
-/**
- * 获取默认语言配置
- * 素材一致性流程统一采用中文优先，避免跨模块理解偏差。
- */
-function getDefaultLangConfig(_workflow: PromptWorkflowInput = 'asset_consistency'): PromptLangConfig {
-  return {
-    script_parsing: 'zh',
-    script_parsing_short_drama: 'zh',
-    script_episode_plan: 'zh',
-    script_parsing_segment_context: 'zh',
-    script_parsing_episode_drama_context: 'zh',
-    prompt_translation_system: 'zh',
-    prompt_translation_user: 'zh',
-    character_sheet: 'zh',
-    character_regeneration: 'zh',
-    environment_reference_generation: 'zh',
-    environment_reference_negative_prompt: 'zh',
-    prop_asset_generation: 'zh',
-    prop_asset_negative_prompt: 'zh',
-    scene_description_refinement: 'zh',
-    scene_video_generation: 'zh'
-  }
+function normalizePromptScope(_workflow?: PromptWorkflowInput): string {
+  return PROMPT_SCOPE_DEFAULT
 }
 
 function mergeWithDefaultTemplates(
   templates: PromptTemplate[],
-  workflow: ProjectWorkflowType
+  workflow: string
 ): PromptTemplate[] {
-  const defaults = getDefaultPromptTemplates(workflow)
+  const defaults = getDefaultPromptTemplates()
   const defaultMap = new Map(defaults.map(template => [template.id, template]))
   const templateMap = new Map(templates.map(t => [t.id, t]))
 
@@ -141,6 +106,9 @@ function mergeWithDefaultTemplates(
       if (!def) return template
 
       const isCustomized = template.isCustomized === true
+      const normalizedContent = typeof template.content === 'string'
+        ? template.content
+        : def.content
       return {
         ...template,
         name: def.name,
@@ -148,7 +116,7 @@ function mergeWithDefaultTemplates(
         description: def.description,
         variables: def.variables,
         // 非自定义模板自动跟随最新默认内容，避免历史默认值造成行为偏差
-        content: isCustomized ? template.content : def.content,
+        content: isCustomized ? normalizedContent : def.content,
         isCustomized
       }
     })
@@ -173,28 +141,10 @@ function normalizePromptProfileName(value: unknown): string | null {
   return trimmed.slice(0, 64)
 }
 
-function normalizePromptLangConfigValue(
-  input: unknown,
-  workflow: PromptWorkflowInput
-): PromptLangConfig {
-  const base = getDefaultLangConfig(workflow)
-  if (!input || typeof input !== 'object') return base
-
-  const merged: PromptLangConfig = { ...base }
-  for (const templateId of Object.keys(base) as PromptTemplateId[]) {
-    const lang = (input as Record<string, unknown>)[templateId]
-    if (lang === 'zh' || lang === 'en') {
-      merged[templateId] = lang
-    }
-  }
-
-  return merged
-}
-
 function clonePromptTemplate(template: PromptTemplate): PromptTemplate {
   return {
     ...template,
-    content: { ...template.content },
+    content: template.content,
     variables: template.variables.map(variable => ({ ...variable }))
   }
 }
@@ -202,21 +152,20 @@ function clonePromptTemplate(template: PromptTemplate): PromptTemplate {
 function clonePromptVersion(version: PromptVersion): PromptVersion {
   return {
     ...version,
-    content: { ...version.content }
+    content: version.content
   }
 }
 
 function clonePromptProfileSnapshot(snapshot: PromptProfileSnapshot): PromptProfileSnapshot {
   return {
     templates: snapshot.templates.map(clonePromptTemplate),
-    versions: snapshot.versions.map(clonePromptVersion),
-    langConfig: { ...snapshot.langConfig }
+    versions: snapshot.versions.map(clonePromptVersion)
   }
 }
 
 function normalizePromptProfileSnapshot(
   input: unknown,
-  workflow: ProjectWorkflowType,
+  workflow: string,
   fallback: PromptProfileSnapshot
 ): PromptProfileSnapshot {
   const next = clonePromptProfileSnapshot(fallback)
@@ -225,7 +174,6 @@ function normalizePromptProfileSnapshot(
   const source = input as {
     templates?: unknown
     versions?: unknown
-    langConfig?: unknown
   }
 
   if (Array.isArray(source.templates)) {
@@ -244,15 +192,11 @@ function normalizePromptProfileSnapshot(
         return typeof value.id === 'string'
           && typeof value.templateId === 'string'
           && typeof value.createdAt === 'string'
-          && value.content !== null
-          && typeof value.content === 'object'
-          && typeof value.content.zh === 'string'
-          && typeof value.content.en === 'string'
+          && typeof value.content === 'string'
       })
       .map(clonePromptVersion)
   }
 
-  next.langConfig = normalizePromptLangConfigValue(source.langConfig, workflow)
   return next
 }
 
@@ -303,18 +247,17 @@ function buildDefaultPromptProfile(nowIso: string): PromptTemplateProfile {
   )
 }
 
-function buildDefaultPromptProfileSnapshot(workflow: ProjectWorkflowType): PromptProfileSnapshot {
+function buildDefaultPromptProfileSnapshot(_workflow: string): PromptProfileSnapshot {
   return {
-    templates: getDefaultPromptTemplates(workflow).map(template => clonePromptTemplate(template)),
-    versions: [],
-    langConfig: getDefaultLangConfig(workflow)
+    templates: getDefaultPromptTemplates().map(template => clonePromptTemplate(template)),
+    versions: []
   }
 }
 
 function ensureBuiltinPromptProfiles(input: {
   profiles: PromptTemplateProfile[]
   snapshots: Record<string, PromptProfileSnapshot>
-  workflow: ProjectWorkflowType
+  workflow: string
   nowIso: string
 }): {
   profiles: PromptTemplateProfile[]
@@ -358,7 +301,7 @@ function ensureBuiltinPromptProfiles(input: {
 
 function normalizePromptProfileState(
   input: unknown,
-  workflow: ProjectWorkflowType,
+  workflow: string,
   fallbackSnapshot: PromptProfileSnapshot
 ): PromptProfileState {
   const nowIso = new Date().toISOString()
@@ -402,23 +345,21 @@ function normalizePromptProfileState(
 }
 
 async function buildActivePromptProfileSnapshot(
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptProfileSnapshot> {
   const templates = await getAllPromptTemplates(workflow)
   const versions = await getAllVersions(workflow)
-  const langConfig = await getPromptLangConfig(workflow)
 
   return {
     templates: templates.map(clonePromptTemplate),
-    versions: versions.map(clonePromptVersion),
-    langConfig: { ...langConfig }
+    versions: versions.map(clonePromptVersion)
   }
 }
 
 async function getPromptProfileState(
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptProfileState> {
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const normalizedWorkflow = normalizePromptScope(workflow)
   const key = resolvePromptProfileStateKey(normalizedWorkflow)
   const rawValue = await readSystemConfigValueByKey(key)
   const fallbackSnapshot = await buildActivePromptProfileSnapshot(normalizedWorkflow)
@@ -441,9 +382,9 @@ async function getPromptProfileState(
 }
 
 async function getActiveReadonlyPromptProfileId(
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<string | null> {
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const normalizedWorkflow = normalizePromptScope(workflow)
   const rawValue = await readSystemConfigValueByKey(resolvePromptProfileStateKey(normalizedWorkflow))
   if (!rawValue) return null
 
@@ -458,17 +399,15 @@ async function getActiveReadonlyPromptProfileId(
 
 async function getReadonlyPromptContent(
   id: PromptTemplateId,
-  lang: 'zh' | 'en',
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<string | null> {
   const activeProfileId = await getActiveReadonlyPromptProfileId(workflow)
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
 
   const templates = activeProfileId === PROMPT_DEFAULT_PROFILE_ID
-    ? getDefaultPromptTemplates(normalizedWorkflow)
+    ? getDefaultPromptTemplates()
     : null
 
-  return templates?.find(template => template.id === id)?.content[lang] || null
+  return templates?.find(template => template.id === id)?.content || null
 }
 
 function throwDefaultPromptProfileReadonlyError(): never {
@@ -482,7 +421,7 @@ function throwDefaultPromptProfileReadonlyError(): never {
 }
 
 async function assertActivePromptProfileWritable(
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<void> {
   const state = await getPromptProfileState(workflow)
   if (isPromptReadonlyProfile(state.activeProfileId)) {
@@ -492,7 +431,7 @@ async function assertActivePromptProfileWritable(
 
 async function savePromptProfileState(
   state: PromptProfileState,
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<void> {
   const key = resolvePromptProfileStateKey(workflow)
   await upsertSystemConfigValue(key, JSON.stringify(state))
@@ -500,18 +439,17 @@ async function savePromptProfileState(
 
 async function applyPromptProfileSnapshotToActiveStorage(
   snapshot: PromptProfileSnapshot,
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<void> {
   const keys = resolvePromptStorageKeys(workflow)
   await upsertSystemConfigValue(keys.templatesKey, JSON.stringify(snapshot.templates))
   await upsertSystemConfigValue(keys.versionsKey, JSON.stringify(snapshot.versions))
-  await upsertSystemConfigValue(keys.langConfigKey, JSON.stringify(snapshot.langConfig))
 }
 
 async function syncActivePromptProfileSnapshot(
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<void> {
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const normalizedWorkflow = normalizePromptScope(workflow)
   const state = await getPromptProfileState(normalizedWorkflow)
   const snapshot = await buildActivePromptProfileSnapshot(normalizedWorkflow)
   const activeId = state.activeProfileId
@@ -534,9 +472,9 @@ export interface CreatePromptProfileInput {
 }
 
 export async function getPromptProfiles(
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptProfileListResult> {
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const normalizedWorkflow = normalizePromptScope(workflow)
   const state = await getPromptProfileState(normalizedWorkflow)
   if (isPromptReadonlyProfile(state.activeProfileId)) {
     const snapshot = state.snapshots[state.activeProfileId]
@@ -553,9 +491,9 @@ export async function getPromptProfiles(
 
 export async function createPromptProfile(
   input: CreatePromptProfileInput,
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptProfileListResult | null> {
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const normalizedWorkflow = normalizePromptScope(workflow)
   const name = normalizePromptProfileName(input.name)
   if (!name) return null
 
@@ -614,9 +552,9 @@ export interface UpdatePromptProfileInput {
 export async function updatePromptProfile(
   profileId: string,
   input: UpdatePromptProfileInput,
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptProfileListResult | null> {
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const normalizedWorkflow = normalizePromptScope(workflow)
   const targetId = normalizeOptionalText(profileId)
   if (!targetId) return null
   if (isPromptReadonlyProfile(targetId)) {
@@ -652,9 +590,9 @@ export async function updatePromptProfile(
 
 export async function deletePromptProfile(
   profileId: string,
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptProfileListResult | null> {
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const normalizedWorkflow = normalizePromptScope(workflow)
   const targetId = normalizeOptionalText(profileId)
   if (!targetId) return null
   if (isPromptReadonlyProfile(targetId)) {
@@ -691,9 +629,9 @@ export async function deletePromptProfile(
 
 export async function activatePromptProfile(
   profileId: string,
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptProfileListResult | null> {
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
+  const normalizedWorkflow = normalizePromptScope(workflow)
   const targetId = normalizeOptionalText(profileId)
   if (!targetId) return null
 
@@ -724,86 +662,25 @@ export async function activatePromptProfile(
 }
 
 /**
- * 获取提示词语言配置
- */
-export async function getPromptLangConfig(
-  workflow: PromptWorkflowInput = 'asset_consistency'
-): Promise<PromptLangConfig> {
-  try {
-    const keys = resolvePromptStorageKeys(workflow)
-    const defaultConfig = getDefaultLangConfig(workflow)
-    const value = await readSystemConfigValue(keys.langConfigKey, keys.legacyLangConfigKey)
-
-    if (value) {
-      const saved = JSON.parse(value) as Partial<PromptLangConfig>
-      return {
-        ...defaultConfig,
-        ...saved
-      } as PromptLangConfig
-    }
-
-    return defaultConfig
-  } catch (error) {
-    console.error('[PromptTemplate] 获取语言配置失败:', error)
-    return getDefaultLangConfig(workflow)
-  }
-}
-
-/**
- * 更新提示词语言配置
- */
-export async function updatePromptLangConfig(
-  config: Partial<PromptLangConfig>,
-  workflow: PromptWorkflowInput = 'asset_consistency'
-): Promise<PromptLangConfig> {
-  try {
-    await assertActivePromptProfileWritable(workflow)
-    const keys = resolvePromptStorageKeys(workflow)
-    const current = await getPromptLangConfig(workflow)
-    const updated = { ...current, ...config }
-
-    await upsertSystemConfigValue(keys.langConfigKey, JSON.stringify(updated))
-    await syncActivePromptProfileSnapshot(workflow)
-
-    return updated
-  } catch (error) {
-    console.error('[PromptTemplate] 更新语言配置失败:', error)
-    throw error
-  }
-}
-
-/**
- * 获取单个模板的语言配置
- */
-export async function getPromptLang(
-  id: PromptTemplateId,
-  workflow: PromptWorkflowInput = 'asset_consistency'
-): Promise<'zh' | 'en'> {
-  const config = await getPromptLangConfig(workflow)
-  return config[id] || 'zh'
-}
-
-/**
  * 获取所有提示词模板
  */
 export async function getAllPromptTemplates(
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptTemplate[]> {
   try {
     const keys = resolvePromptStorageKeys(workflow)
-    const normalizedWorkflow = keys.workflow
-    const value = await readSystemConfigValue(keys.templatesKey, keys.legacyTemplatesKey)
+    const normalizedWorkflow = keys.scope
+    const value = await readSystemConfigValueByKey(keys.templatesKey)
 
     if (value) {
       const parsed = JSON.parse(value) as PromptTemplate[]
       return mergeWithDefaultTemplates(parsed, normalizedWorkflow)
     }
 
-    return getDefaultPromptTemplates(normalizedWorkflow)
+    return getDefaultPromptTemplates()
   } catch (error) {
     console.error('[PromptTemplate] 获取模板失败:', error)
-    const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
-    return getDefaultPromptTemplates(normalizedWorkflow)
+    return getDefaultPromptTemplates()
   }
 }
 
@@ -812,30 +689,28 @@ export async function getAllPromptTemplates(
  */
 export async function getPromptTemplate(
   id: PromptTemplateId,
-  _lang?: 'zh' | 'en',
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptTemplate | null> {
   const templates = await getAllPromptTemplates(workflow)
   return templates.find(t => t.id === id) || null
 }
 
 /**
- * 获取提示词内容（指定语言）
+ * 获取提示词内容
  */
 export async function getPromptContent(
   id: PromptTemplateId,
-  lang: 'zh' | 'en' = 'zh',
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<string | null> {
-  const readonlyContent = await getReadonlyPromptContent(id, lang, workflow)
+  const readonlyContent = await getReadonlyPromptContent(id, workflow)
   if (readonlyContent) return readonlyContent
 
-  const template = await getPromptTemplate(id, undefined, workflow)
+  const template = await getPromptTemplate(id, workflow)
   if (!template) {
     return null
   }
 
-  return template.content[lang]
+  return template.content
 }
 
 /**
@@ -843,9 +718,9 @@ export async function getPromptContent(
  */
 export async function updatePromptTemplate(
   id: PromptTemplateId,
-  content: BilingualContent,
+  content: string,
   note?: string,
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptTemplate | null> {
   try {
     await assertActivePromptProfileWritable(workflow)
@@ -885,13 +760,12 @@ export async function updatePromptTemplate(
  */
 export async function resetPromptTemplate(
   id: PromptTemplateId,
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptTemplate | null> {
   try {
     await assertActivePromptProfileWritable(workflow)
     const templates = await getAllPromptTemplates(workflow)
-    const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
-    const defaults = getDefaultPromptTemplates(normalizedWorkflow)
+    const defaults = getDefaultPromptTemplates()
 
     const defaultTemplate = defaults.find(t => t.id === id)
     if (!defaultTemplate) {
@@ -926,19 +800,15 @@ export async function resetPromptTemplate(
  * 重置所有提示词模板为默认值
  */
 export async function resetAllPromptTemplates(
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<boolean> {
   try {
     await assertActivePromptProfileWritable(workflow)
     const keys = resolvePromptStorageKeys(workflow)
-    const defaults = getDefaultPromptTemplates(keys.workflow)
+    const defaults = getDefaultPromptTemplates()
 
     await saveTemplates(defaults, workflow)
     await deleteSystemConfigValue(keys.versionsKey)
-
-    if (keys.legacyVersionsKey) {
-      await deleteSystemConfigValue(keys.legacyVersionsKey)
-    }
 
     await syncActivePromptProfileSnapshot(workflow)
 
@@ -954,7 +824,7 @@ export async function resetAllPromptTemplates(
  */
 export async function getPromptVersions(
   id: PromptTemplateId,
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptVersion[]> {
   try {
     const allVersions = await getAllVersions(workflow)
@@ -973,7 +843,7 @@ export async function getPromptVersions(
 export async function restorePromptVersion(
   id: PromptTemplateId,
   versionId: string,
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptTemplate | null> {
   try {
     const versions = await getPromptVersions(id, workflow)
@@ -1025,11 +895,9 @@ export function interpolateTemplate(
 export async function getInterpolatedPrompt(
   id: PromptTemplateId,
   variables: Record<string, string | number | boolean | undefined>,
-  lang?: 'zh' | 'en',
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<string | null> {
-  const actualLang = lang || await getPromptLang(id, workflow)
-  const content = await getPromptContent(id, actualLang, workflow)
+  const content = await getPromptContent(id, workflow)
   if (!content) {
     return null
   }
@@ -1049,7 +917,7 @@ export async function getInterpolatedPrompt(
  */
 async function saveTemplates(
   templates: PromptTemplate[],
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<void> {
   const keys = resolvePromptStorageKeys(workflow)
   await upsertSystemConfigValue(keys.templatesKey, JSON.stringify(templates))
@@ -1060,9 +928,9 @@ async function saveTemplates(
  */
 async function saveVersion(
   templateId: PromptTemplateId,
-  content: BilingualContent,
+  content: string,
   note?: string,
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<void> {
   try {
     const versions = await getAllVersions(workflow)
@@ -1098,11 +966,11 @@ async function saveVersion(
  * 获取所有版本
  */
 async function getAllVersions(
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<PromptVersion[]> {
   try {
     const keys = resolvePromptStorageKeys(workflow)
-    const value = await readSystemConfigValue(keys.versionsKey, keys.legacyVersionsKey)
+    const value = await readSystemConfigValueByKey(keys.versionsKey)
 
     if (value) {
       return JSON.parse(value) as PromptVersion[]
@@ -1119,23 +987,10 @@ async function getAllVersions(
  */
 async function saveVersions(
   versions: PromptVersion[],
-  workflow: PromptWorkflowInput = 'asset_consistency'
+  workflow?: PromptWorkflowInput
 ): Promise<void> {
   const keys = resolvePromptStorageKeys(workflow)
   await upsertSystemConfigValue(keys.versionsKey, JSON.stringify(versions))
-}
-
-async function readSystemConfigValue(key: string, fallbackKey?: string): Promise<string | null> {
-  const primary = await readSystemConfigValueByKey(key)
-  if (primary !== null) {
-    return primary
-  }
-
-  if (fallbackKey && fallbackKey !== key) {
-    return readSystemConfigValueByKey(fallbackKey)
-  }
-
-  return null
 }
 
 async function readSystemConfigValueByKey(key: string): Promise<string | null> {

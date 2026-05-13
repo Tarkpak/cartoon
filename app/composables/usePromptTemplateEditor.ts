@@ -5,7 +5,6 @@ import type {
   PromptTemplate,
   PromptVariable
 } from '#shared/types/prompt-template'
-import type { ProjectWorkflowType } from '#shared/types/project'
 import {
   buildPromptDiffLines,
   buildPromptPreviewContent,
@@ -20,30 +19,24 @@ import {
   buildPromptCharCount,
   buildPromptEditorContent,
   buildPromptPreviewVariables,
-  hasPromptEditorChanges,
-  type PromptEditorLanguage
+  hasPromptEditorChanges
 } from '@/lib/prompt-template-editor'
 import { createPromptVariableHighlight } from '@/lib/tiptap-variable-highlight'
 import { usePromptTemplateEditorActions } from '@/composables/usePromptTemplateEditorActions'
 
 interface UsePromptTemplateEditorOptions {
   template: Ref<PromptTemplate>
-  workflow: Ref<ProjectWorkflowType | undefined>
   readonly: Ref<boolean | undefined>
   onUpdate: (template: PromptTemplate) => void
   onSaved: () => void
 }
 
 export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions) {
-  const activeLanguage = ref<PromptEditorLanguage>('zh')
   const previewMode = ref(false)
   const previewVariables = ref<Record<string, string>>({})
   const isFullscreen = ref(false)
   const showDiff = ref(false)
 
-  const currentWorkflow = computed<ProjectWorkflowType>(() => {
-    return options.workflow.value || 'asset_consistency'
-  })
   const isReadonly = computed(() => options.readonly.value === true)
 
   const localContent = ref(buildPromptEditorContent(options.template.value.content))
@@ -52,7 +45,7 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
 
   const editor = useEditor({
     editable: !isReadonly.value,
-    content: promptTextToHtml(localContent.value[activeLanguage.value]),
+    content: promptTextToHtml(localContent.value),
     extensions: [
       StarterKit,
       Placeholder.configure({
@@ -66,13 +59,13 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
       }
     },
     onUpdate: ({ editor: currentEditor }) => {
-      localContent.value[activeLanguage.value] = promptHtmlToText(currentEditor.getHTML())
+      localContent.value = promptHtmlToText(currentEditor.getHTML())
     }
   })
 
   function updateEditorContent() {
     if (!editor.value) return
-    editor.value.commands.setContent(promptTextToHtml(localContent.value[activeLanguage.value] || ''))
+    editor.value.commands.setContent(promptTextToHtml(localContent.value || ''))
   }
 
   function initPreviewVariables() {
@@ -85,25 +78,17 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
     showHistory,
     loadingVersions,
     versions,
-    langConfigSaving,
-    translating,
     fileInputRef,
-    currentTemplateLang,
     save,
     reset,
     openHistory,
     restoreVersion,
-    loadLangConfig,
-    toggleRuntimeLang,
-    translateContent,
     exportTemplate,
     triggerImport,
     handleImport
   } = usePromptTemplateEditorActions({
     template: options.template,
-    workflow: currentWorkflow,
     localContent,
-    activeLanguage,
     showDiff,
     onUpdate: options.onUpdate,
     onSaved: options.onSaved,
@@ -111,7 +96,6 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
     updateEditorContent
   })
 
-  watch(activeLanguage, updateEditorContent)
   watch(isReadonly, (value) => {
     editor.value?.setEditable(!value)
   })
@@ -128,21 +112,21 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
 
   const variableValidation = computed(() => {
     return getPromptVariableValidation(
-      localContent.value[activeLanguage.value],
+      localContent.value,
       options.template.value.variables
     )
   })
 
   const charCount = computed(() => {
-    return buildPromptCharCount(localContent.value[activeLanguage.value], activeLanguage.value)
+    return buildPromptCharCount(localContent.value)
   })
 
   const diffLines = computed(() => {
     if (!showDiff.value) return []
 
     return buildPromptDiffLines(
-      options.template.value.content[activeLanguage.value],
-      localContent.value[activeLanguage.value]
+      options.template.value.content,
+      localContent.value
     )
   })
 
@@ -164,7 +148,7 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
 
   const previewContent = computed(() => {
     return buildPromptPreviewContent(
-      localContent.value[activeLanguage.value],
+      localContent.value,
       previewVariables.value
     )
   })
@@ -195,7 +179,6 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
 
   onMounted(() => {
     initPreviewVariables()
-    void loadLangConfig()
     window.addEventListener('keydown', handleKeydown)
   })
 
@@ -205,7 +188,6 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
   })
 
   return {
-    activeLanguage,
     saving,
     resetting,
     showHistory,
@@ -216,10 +198,7 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
     isFullscreen,
     showDiff,
     isReadonly,
-    langConfigSaving,
-    translating,
     fileInputRef,
-    currentTemplateLang,
     editor,
     hasChanges,
     variableValidation,
@@ -235,8 +214,6 @@ export function usePromptTemplateEditor(options: UsePromptTemplateEditorOptions)
     reset,
     openHistory,
     restoreVersion,
-    toggleRuntimeLang,
-    translateContent,
     exportTemplate,
     triggerImport,
     handleImport,

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { Loader2, FileText } from 'lucide-vue-next'
-import { PROJECT_WORKFLOW_LABELS } from '#shared/types/project'
 import SettingsPromptSidebar from '@/components/settings/SettingsPromptSidebar.vue'
 
 const {
@@ -15,7 +14,6 @@ const {
   promptTemplates,
   selectedPromptId,
   selectedPromptTemplate,
-  selectedPromptWorkflow,
   groupedPromptTemplates,
   activatePromptProfile,
   createPromptProfile,
@@ -26,6 +24,8 @@ const {
   handlePromptUpdate,
   handlePromptSaved
 } = useSettingsPrompts()
+
+const promptFlowLabel = '解析 → 资产 → 视频'
 
 async function handleCreateProfile() {
   const rawName = window.prompt('请输入新提示词配置名称', '新提示词配置')
@@ -107,7 +107,7 @@ async function handleActivateProfile(profileId: string) {
         :prompt-count="promptTemplates.length"
         :prompts-loading="promptsLoading"
         :selected-prompt-id="selectedPromptId"
-        :workflow-label="PROJECT_WORKFLOW_LABELS[selectedPromptWorkflow]"
+        :workflow-label="promptFlowLabel"
         @activate-profile="handleActivateProfile"
         @create-profile="handleCreateProfile"
         @delete-profile="handleDeleteProfile"
@@ -132,7 +132,6 @@ async function handleActivateProfile(profileId: string) {
           :key="selectedPromptTemplate.id"
           class="min-h-0 flex-1"
           :template="selectedPromptTemplate"
-          :workflow="selectedPromptWorkflow"
           :readonly="isActiveReadonlyPromptProfile"
           @update="handlePromptUpdate"
           @saved="handlePromptSaved"

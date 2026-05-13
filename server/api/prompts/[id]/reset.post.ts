@@ -4,36 +4,33 @@
  */
 
 import { resetPromptTemplate } from '../../../utils/prompt-template'
-import { resolvePromptWorkflowFromEvent } from '../../../utils/prompt-workflow'
 import type { PromptTemplateId } from '../../../../shared/types/prompt-template'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id') as PromptTemplateId
-  const workflow = resolvePromptWorkflowFromEvent(event)
 
   if (!id) {
     throw createError({
       statusCode: 400,
       statusMessage: 'Bad Request',
-      message: '缺少模板 ID',
+      message: '缺少模板 ID'
     })
   }
 
   try {
-    const template = await resetPromptTemplate(id, workflow)
+    const template = await resetPromptTemplate(id)
 
     if (!template) {
       throw createError({
         statusCode: 404,
         statusMessage: 'Not Found',
-        message: '模板不存在',
+        message: '模板不存在'
       })
     }
 
     return {
       success: true,
       data: template,
-      workflow,
       message: '模板已重置为默认值'
     }
   } catch (error) {

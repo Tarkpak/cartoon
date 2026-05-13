@@ -2,10 +2,6 @@
  * 提示词模板类型定义
  * 仅保留当前工作台主流程：解析 → 资产 → 视频
  */
-import {
-  normalizeProjectWorkflowType,
-  type ProjectWorkflowType
-} from './project'
 
 export type PromptCategory = 'text' | 'image' | 'video'
 
@@ -25,17 +21,14 @@ export interface PromptVariable {
   optional?: boolean
 }
 
-export interface BilingualContent {
-  zh: string
-  en: string
-}
+export type PromptContent = string
 
 export interface PromptTemplate {
   id: string
   name: string
   category: PromptCategory
   description: string
-  content: BilingualContent
+  content: PromptContent
   variables: PromptVariable[]
   isCustomized: boolean
   updatedAt: string
@@ -64,7 +57,7 @@ export interface PromptTemplateProfile {
 export interface PromptVersion {
   id: string
   templateId: string
-  content: BilingualContent
+  content: PromptContent
   createdAt: string
   note?: string
 }
@@ -75,8 +68,6 @@ export const PROMPT_TEMPLATE_IDS = {
   SCRIPT_EPISODE_PLAN: 'script_episode_plan',
   SCRIPT_PARSING_SEGMENT_CONTEXT: 'script_parsing_segment_context',
   SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT: 'script_parsing_episode_drama_context',
-  PROMPT_TRANSLATION_SYSTEM: 'prompt_translation_system',
-  PROMPT_TRANSLATION_USER: 'prompt_translation_user',
   CHARACTER_SHEET: 'character_sheet',
   CHARACTER_REGENERATION: 'character_regeneration',
   ENVIRONMENT_REFERENCE_GENERATION: 'environment_reference_generation',
@@ -96,11 +87,6 @@ export interface PromptTemplateMetadata {
   stage: PromptFlowStage
   description: string
   variables: PromptVariable[]
-  workflows?: ProjectWorkflowType[]
-  workflowOverrides?: Partial<Record<ProjectWorkflowType, {
-    name?: string
-    description?: string
-  }>>
 }
 
 export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
@@ -177,29 +163,6 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     ]
   },
   {
-    id: 'prompt_translation_system',
-    name: '提示词翻译系统指令',
-    category: 'text',
-    stage: 'parse',
-    description: '定义提示词翻译工具的系统角色和规则（不直接参与剧情生成）',
-    variables: [
-      { name: '{{fromLang}}', description: '源语言名称', example: '中文' },
-      { name: '{{toLang}}', description: '目标语言名称', example: 'English' }
-    ]
-  },
-  {
-    id: 'prompt_translation_user',
-    name: '提示词翻译请求模板',
-    category: 'text',
-    stage: 'parse',
-    description: '定义提示词翻译请求正文结构（不直接参与剧情生成）',
-    variables: [
-      { name: '{{fromLang}}', description: '源语言名称', example: '中文' },
-      { name: '{{toLang}}', description: '目标语言名称', example: 'English' },
-      { name: '{{sourceText}}', description: '待翻译原文', example: '你是一位资深分镜师...' }
-    ]
-  },
-  {
     id: 'character_sheet',
     name: '角色资产生成',
     category: 'image',
@@ -208,8 +171,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     variables: [
       { name: '{{characterName}}', description: '角色名称', example: '陆哲' },
       { name: '{{appearance}}', description: '角色外貌描述', example: '黑色短发，戴眼镜的年轻男性...' },
-      { name: '{{gender}}', description: '角色性别呈现约束', example: '男性 / male。必须呈现明确男性特征...' },
-      { name: '{{genderEn}}', description: '角色性别呈现约束（英文）', example: 'male. Use clear male gender presentation...' },
+      { name: '{{gender}}', description: '角色性别呈现约束', example: '男性。必须呈现明确男性特征...' },
       { name: '{{style}}', description: '画风描述', example: '电影写实风格' }
     ]
   },
@@ -222,8 +184,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     variables: [
       { name: '{{characterName}}', description: '角色名称', example: '陆哲' },
       { name: '{{appearance}}', description: '角色外貌描述', example: '黑色短发，戴眼镜的年轻男性...' },
-      { name: '{{gender}}', description: '角色性别呈现约束', example: '男性 / male。必须呈现明确男性特征...' },
-      { name: '{{genderEn}}', description: '角色性别呈现约束（英文）', example: 'male. Use clear male gender presentation...' },
+      { name: '{{gender}}', description: '角色性别呈现约束', example: '男性。必须呈现明确男性特征...' },
       { name: '{{style}}', description: '画风描述', example: '电影写实风格' },
       { name: '{{activeStyleConstraint}}', description: '当前生效的修改要求', example: '将服装改为浅灰风衣，并增强冷色氛围' },
       { name: '{{customPrompt}}', description: '用户自定义修改要求（兼容空值）', example: '将服装改为浅灰风衣，并增强冷色氛围' }
@@ -301,7 +262,6 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     category: 'video',
     stage: 'videos',
     description: '基于环境/角色参考素材与场景详细描述生成单个分镜片段',
-    workflows: ['asset_consistency'],
     variables: [
       { name: '{{shotNumber}}', description: '镜头序号', example: '2' },
       { name: '{{sceneTitle}}', description: '场景标题', example: '雨夜街头对峙' },
@@ -319,67 +279,24 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
   }
 ]
 
-function resolveWorkflowOverride(
-  metadata: PromptTemplateMetadata,
-  workflow: ProjectWorkflowType
-): { name?: string, description?: string } | undefined {
-  return metadata.workflowOverrides?.[workflow]
-}
-
-function applyMetadataWorkflowOverride(
-  metadata: PromptTemplateMetadata,
-  workflow: ProjectWorkflowType
-): PromptTemplateMetadata {
-  const override = resolveWorkflowOverride(metadata, workflow)
-  if (!override) return metadata
-
-  return {
-    ...metadata,
-    name: override.name || metadata.name,
-    description: override.description || metadata.description
-  }
-}
-
 export function isPromptTemplateVisibleForWorkflow(
   templateId: PromptTemplateId,
-  workflow: ProjectWorkflowType | string | null | undefined
+  _workflow?: unknown
 ): boolean {
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
-  const metadata = PROMPT_TEMPLATE_METADATA.find(item => item.id === templateId)
-  if (!metadata) return false
-  if (!metadata.workflows || metadata.workflows.length === 0) return true
-  return metadata.workflows.includes(normalizedWorkflow)
+  return PROMPT_TEMPLATE_METADATA.some(item => item.id === templateId)
 }
 
 export function getPromptTemplateMetadataForWorkflow(
-  workflow: ProjectWorkflowType | string | null | undefined
+  _workflow?: unknown
 ): PromptTemplateMetadata[] {
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
-
   return PROMPT_TEMPLATE_METADATA
-    .filter((item) => {
-      if (!item.workflows || item.workflows.length === 0) return true
-      return item.workflows.includes(normalizedWorkflow)
-    })
-    .map(item => applyMetadataWorkflowOverride(item, normalizedWorkflow))
 }
 
 export function applyPromptTemplateWorkflowDisplay(
   template: PromptTemplate,
-  workflow: ProjectWorkflowType | string | null | undefined
+  _workflow?: unknown
 ): PromptTemplate {
-  const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
-  const metadata = PROMPT_TEMPLATE_METADATA.find(item => item.id === template.id)
-  if (!metadata) return template
-
-  const override = resolveWorkflowOverride(metadata, normalizedWorkflow)
-  if (!override) return template
-
-  return {
-    ...template,
-    name: override.name || template.name,
-    description: override.description || template.description
-  }
+  return template
 }
 
 export const PROMPT_TEMPLATES_BY_CATEGORY: Record<PromptCategory, PromptTemplateMetadata[]> = {

@@ -4,19 +4,14 @@
  */
 
 import { getPromptProfiles } from '../../utils/prompt-template'
-import { resolvePromptWorkflowFromEvent } from '../../utils/prompt-workflow'
 
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async () => {
   try {
-    const workflow = resolvePromptWorkflowFromEvent(event)
-    const data = await getPromptProfiles(workflow)
+    const data = await getPromptProfiles()
 
     return {
       success: true,
-      data: {
-        workflow,
-        ...data
-      }
+      data
     }
   } catch (error) {
     console.error('[PromptProfiles API] 获取配置方案失败:', error)

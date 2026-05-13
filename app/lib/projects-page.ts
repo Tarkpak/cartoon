@@ -1,4 +1,3 @@
-import type { ProjectWorkflowType } from '#shared/types/project'
 import {
   DEFAULT_SCRIPT_PARSE_MODE,
   type ScriptParseMode
@@ -12,7 +11,6 @@ export interface Project {
   id: string
   title: string
   description: string | null
-  workflowType?: ProjectWorkflowType
   scriptParseMode?: ScriptParseMode
   styleId: string
   aspectRatio: string
@@ -36,7 +34,6 @@ export interface ProjectListResponse {
 export interface ProjectDraft {
   title: string
   description: string
-  workflowType: ProjectWorkflowType
   scriptParseMode: ScriptParseMode
   styleId: string
   aspectRatio: ProjectAspectRatio
@@ -72,7 +69,6 @@ export function createProjectDraft(styleId = ''): ProjectDraft {
   return {
     title: '',
     description: '',
-    workflowType: 'asset_consistency',
     scriptParseMode: DEFAULT_SCRIPT_PARSE_MODE,
     styleId,
     aspectRatio: '9:16'

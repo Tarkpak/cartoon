@@ -4,7 +4,6 @@
  */
 
 import { deletePromptProfile } from '../../../utils/prompt-template'
-import { resolvePromptWorkflowFromEvent } from '../../../utils/prompt-workflow'
 
 export default defineEventHandler(async (event) => {
   const profileId = getRouterParam(event, 'id')
@@ -12,28 +11,23 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 400,
       statusMessage: 'Bad Request',
-      message: '缺少配置 ID',
+      message: '缺少配置 ID'
     })
   }
 
-  const workflow = resolvePromptWorkflowFromEvent(event)
-
   try {
-    const data = await deletePromptProfile(profileId, workflow)
+    const data = await deletePromptProfile(profileId)
     if (!data) {
       throw createError({
         statusCode: 400,
         statusMessage: 'Bad Request',
-        message: '删除失败，至少需要保留一个配置方案',
+        message: '删除失败，至少需要保留一个配置方案'
       })
     }
 
     return {
       success: true,
-      data: {
-        workflow,
-        ...data
-      },
+      data,
       message: '提示词配置方案已删除'
     }
   } catch (error) {

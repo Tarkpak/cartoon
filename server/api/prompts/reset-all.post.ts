@@ -4,28 +4,25 @@
  */
 
 import { resetAllPromptTemplates, getAllPromptTemplates } from '../../utils/prompt-template'
-import { resolvePromptWorkflowFromEvent } from '../../utils/prompt-workflow'
 
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async () => {
   try {
-    const workflow = resolvePromptWorkflowFromEvent(event)
-    const success = await resetAllPromptTemplates(workflow)
+    const success = await resetAllPromptTemplates()
 
     if (!success) {
       throw createError({
         statusCode: 500,
         statusMessage: 'Internal Server Error',
-        message: '重置失败',
+        message: '重置失败'
       })
     }
 
     // 返回重置后的模板
-    const templates = await getAllPromptTemplates(workflow)
+    const templates = await getAllPromptTemplates()
 
     return {
       success: true,
       data: templates,
-      workflow,
       message: '所有模板已重置为默认值'
     }
   } catch (error) {

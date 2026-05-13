@@ -1,7 +1,6 @@
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 
 interface CharacterGenerationOptions {
-  workflowType?: 'asset_consistency'
   regenerationPrompt?: string
   referenceImage?: string
 }
@@ -84,9 +83,7 @@ export function useAssetWorkbenchCharacterActions(options: {
     const target = options.characters.value.find(char => char.id === characterId)
     if (!target) return
 
-    await options.generateCharacter(target, {
-      workflowType: 'asset_consistency'
-    })
+    await options.generateCharacter(target)
   }
 
   async function saveCharacterEdit(saveOptions: { regenerate?: boolean } = {}) {
@@ -173,7 +170,6 @@ export function useAssetWorkbenchCharacterActions(options: {
 
     try {
       await options.generateCharacter(target, {
-        workflowType: 'asset_consistency',
         regenerationPrompt: prompt
       })
       closeCharacterRegenerateDialog()

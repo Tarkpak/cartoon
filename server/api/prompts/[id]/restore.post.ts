@@ -5,7 +5,6 @@
 
 import { z } from 'zod'
 import { restorePromptVersion } from '../../../utils/prompt-template'
-import { resolvePromptWorkflowFromEvent } from '../../../utils/prompt-workflow'
 import type { PromptTemplateId } from '../../../../shared/types/prompt-template'
 
 const RestoreSchema = z.object({
@@ -14,13 +13,12 @@ const RestoreSchema = z.object({
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id') as PromptTemplateId
-  const workflow = resolvePromptWorkflowFromEvent(event)
 
   if (!id) {
     throw createError({
       statusCode: 400,
       statusMessage: 'Bad Request',
-      message: '缺少模板 ID',
+      message: '缺少模板 ID'
     })
   }
 
@@ -39,20 +37,19 @@ export default defineEventHandler(async (event) => {
   const { versionId } = parseResult.data
 
   try {
-    const template = await restorePromptVersion(id, versionId, workflow)
+    const template = await restorePromptVersion(id, versionId)
 
     if (!template) {
       throw createError({
         statusCode: 404,
         statusMessage: 'Not Found',
-        message: '模板或版本不存在',
+        message: '模板或版本不存在'
       })
     }
 
     return {
       success: true,
       data: template,
-      workflow,
       message: '已恢复到指定版本'
     }
   } catch (error) {

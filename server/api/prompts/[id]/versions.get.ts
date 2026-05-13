@@ -4,28 +4,25 @@
  */
 
 import { getPromptVersions } from '../../../utils/prompt-template'
-import { resolvePromptWorkflowFromEvent } from '../../../utils/prompt-workflow'
 import type { PromptTemplateId } from '../../../../shared/types/prompt-template'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id') as PromptTemplateId
-  const workflow = resolvePromptWorkflowFromEvent(event)
 
   if (!id) {
     throw createError({
       statusCode: 400,
       statusMessage: 'Bad Request',
-      message: '缺少模板 ID',
+      message: '缺少模板 ID'
     })
   }
 
   try {
-    const versions = await getPromptVersions(id, workflow)
+    const versions = await getPromptVersions(id)
 
     return {
       success: true,
       data: {
-        workflow,
         templateId: id,
         versions,
         count: versions.length

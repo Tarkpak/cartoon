@@ -1,6 +1,6 @@
 /**
  * 当前工作台主流程的模型配置类型定义
- * 保留：解析 → 资产 → 视频，以及提示词翻译辅助能力
+ * 保留：解析 → 资产 → 视频
  */
 
 import { z } from 'zod'
@@ -9,7 +9,6 @@ export const WorkflowStepSchema = z.enum([
   // 文本流程
   'script_parsing',
   'scene_description_refinement',
-  'text_translation',
 
   // 图片流程
   'character_portrait',
@@ -44,7 +43,6 @@ export type WorkflowStepConfig = z.infer<typeof WorkflowStepConfigSchema>
 export const WorkflowModelsSchema = z.object({
   script_parsing: z.string().optional(),
   scene_description_refinement: z.string().optional(),
-  text_translation: z.string().optional(),
   character_portrait: z.string().optional(),
   frame_generation: z.string().optional(),
   video_generation: z.string().optional()
@@ -175,14 +173,6 @@ export const WORKFLOW_STEP_CONFIGS: WorkflowStepConfig[] = [
     category: 'text',
     requiredCapabilities: ['text_generation'],
     tips: '要求上下文保持能力强、指令遵循稳定'
-  },
-  {
-    id: 'text_translation',
-    name: '提示词翻译',
-    description: '用于提示词中英文互译',
-    category: 'text',
-    requiredCapabilities: ['text_generation'],
-    tips: '推荐多语言能力稳定的文本模型'
   },
   {
     id: 'character_portrait',

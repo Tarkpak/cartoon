@@ -1,13 +1,12 @@
 import { generateJSONForWorkflow } from '../../utils/workflow-model'
 import { GeminiError } from '../../utils/gemini'
 import { QwenError } from '../../utils/qwen'
-import { getInterpolatedPrompt, getPromptLang } from '../../utils/prompt-template'
+import { getInterpolatedPrompt } from '../../utils/prompt-template'
 import {
   PROMPT_TEMPLATE_IDS,
   type PromptTemplateId
 } from '../../../shared/types/prompt-template'
 import { normalizeCharacterGender } from '../../../shared/types/character'
-import { normalizeProjectWorkflowType } from '../../../shared/types/project'
 import {
   normalizeScriptParseMode,
   resolveScriptParseModeLabel,
@@ -224,9 +223,7 @@ async function buildSegmentedParsingPrompt(options: {
       chunkCount: String(options.chunkCount),
       chunkLength: String(options.chunkLength),
       chunkPercentage: percentage.toFixed(1)
-    },
-    undefined,
-    'asset_consistency'
+    }
   )
   if (!prompt) {
     throw new Error('无法获取剧本解析分段补充模板，请在设置中检查提示词配置')
@@ -243,9 +240,7 @@ async function buildEpisodeDramaParsingPrompt(options: {
     {
       basePrompt: options.basePrompt,
       episodeDramaBrief: options.episodeDramaBrief
-    },
-    undefined,
-    'asset_consistency'
+    }
   )
   if (!prompt) {
     throw new Error('无法获取剧本解析爆点补充模板，请在设置中检查提示词配置')
@@ -962,7 +957,6 @@ export interface ScriptParseProgressEvent {
 
 export interface ScriptParseExecutionInput {
   text: string
-  workflowType?: 'asset_consistency'
   scriptParseMode?: ScriptParseMode
   style?: string
   maxScenes?: number
@@ -999,7 +993,6 @@ export async function executeScriptParse(
   }
 ): Promise<ScriptParseExecutionResult> {
   const normalizedInputText = normalizeScriptInputText(input.text)
-  const normalizedWorkflow = normalizeProjectWorkflowType(input.workflowType)
   const normalizedScriptParseMode = normalizeScriptParseMode(input.scriptParseMode)
   const eraHint = resolveScriptEraHint({
     text: normalizedInputText,
@@ -1019,8 +1012,7 @@ export async function executeScriptParse(
     progress: 5
   })
 
-  const promptLang = await getPromptLang(parsingPromptTemplateId, normalizedWorkflow)
-  const scriptParseModeLabel = resolveScriptParseModeLabel(normalizedScriptParseMode, promptLang)
+  const scriptParseModeLabel = resolveScriptParseModeLabel(normalizedScriptParseMode)
 
   const runScriptParsePass = async (options: {
     chunkText: string
@@ -1053,9 +1045,7 @@ export async function executeScriptParse(
         scriptParseModeLabel,
         scriptParseModeRules,
         eraHint: eraHint || ''
-      },
-      promptLang,
-      normalizedWorkflow
+      }
     )
 
     if (!interpolatedPrompt) {

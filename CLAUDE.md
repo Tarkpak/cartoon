@@ -62,9 +62,9 @@ The AI integration has two distinct layers — understanding this separation is 
 
 ### Prompt Template System
 
-- **Storage**: `system_config` table, keys `prompt_templates_asset_consistency`, `prompt_versions_asset_consistency`, `prompt_lang_config_asset_consistency`.
+- **Storage**: `system_config` table, keys `prompt_templates_default`, `prompt_versions_default`, `prompt_profile_state_default`。
 - **Auto-sync behavior**: Non-customized templates get their `content` auto-updated from `server/utils/prompt-defaults.ts` on every read. Customized templates (`isCustomized: true`) preserve user content but still sync metadata (name, description, variables) from defaults.
-- **Interpolation**: `getInterpolatedPrompt(id, variables, lang, workflow)` does `{{variable}}` substitution.
+- **Interpolation**: `getInterpolatedPrompt(id, variables)` does `{{variable}}` substitution.
 - **Bilingual**: Each template has `{ zh: string, en: string }` content. Language is configurable per template.
 - **Version history**: Up to 20 versions per template.
 
@@ -146,7 +146,7 @@ When renaming routes or workflow identifiers, update both the server endpoint an
 
 ## Key Architectural Constraints
 
-- Only one `PROJECT_WORKFLOW_TYPES` value exists: `asset_consistency`. `normalizeProjectWorkflowType()` always returns this.
+- 项目已移除 `workflowType` 概念，提示词与项目流程统一按当前资产工作台默认流程执行。
 - `GEMINI_API_KEY` supports multi-key rotation (comma/semicolon/newline-separated).
 - TOS cloud storage is opt-in (`TOS_ENABLED=true`). Without it, media files are stored locally.
 - Gemini video generation uses a separate code path (`/api/video/generate`) from the unified `generateVideo()` API.
