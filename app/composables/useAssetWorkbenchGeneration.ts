@@ -197,8 +197,14 @@ export function useAssetWorkbenchGeneration(
 
       const existing = nameMap.get(key)
       if (existing) {
-        if (!existing.appearance && incoming.appearance) {
-          existing.appearance = incoming.appearance
+        const incomingAppearance = incoming.appearance?.trim() || ''
+        const existingAppearance = existing.appearance?.trim() || ''
+        const canUpgradePlanAppearance = existing.id.startsWith('char_plan_')
+          && !!incomingAppearance
+          && incomingAppearance.length >= existingAppearance.length
+
+        if ((!existingAppearance && incomingAppearance) || canUpgradePlanAppearance) {
+          existing.appearance = incomingAppearance
         }
         if (!existing.gender && incoming.gender) {
           existing.gender = incoming.gender
@@ -231,7 +237,7 @@ export function useAssetWorkbenchGeneration(
 
   function resolveEpisodeParsePayload(targetEpisodeId?: string): {
     requestText: string
-    requestEpisodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset' | 'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType'>>
+    requestEpisodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset' | 'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType' | 'episodeAssets'>>
     targetEpisodeTitle?: string
     targetEpisodeId?: string
   } {
@@ -250,7 +256,8 @@ export function useAssetWorkbenchGeneration(
           reversalPoint: item.reversalPoint,
           emotionalCurve: item.emotionalCurve,
           cliffhanger: item.cliffhanger,
-          payoffType: item.payoffType
+          payoffType: item.payoffType,
+          episodeAssets: item.episodeAssets
         }))
       }
     }
@@ -281,7 +288,8 @@ export function useAssetWorkbenchGeneration(
         reversalPoint: targetEpisode.reversalPoint,
         emotionalCurve: targetEpisode.emotionalCurve,
         cliffhanger: targetEpisode.cliffhanger,
-        payoffType: targetEpisode.payoffType
+        payoffType: targetEpisode.payoffType,
+        episodeAssets: targetEpisode.episodeAssets
       }],
       targetEpisodeTitle: targetEpisode.title,
       targetEpisodeId: targetEpisode.id

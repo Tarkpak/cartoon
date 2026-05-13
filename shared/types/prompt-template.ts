@@ -153,13 +153,13 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
   },
   {
     id: 'script_parsing_episode_drama_context',
-    name: '剧本解析爆点补充',
+    name: '剧本解析分集补充（爆点+资产锚点）',
     category: 'text',
     stage: 'parse',
-    description: '把分集爆点规划以系统补充方式追加到剧本解析提示词中',
+    description: '把分集规划摘要（爆点与资产锚点）以系统补充方式追加到剧本解析提示词中',
     variables: [
       { name: '{{basePrompt}}', description: '基础解析提示词正文', example: '你是一位资深分镜师...' },
-      { name: '{{episodeDramaBrief}}', description: '本集爆点摘要', example: '开场钩子：...\n压迫/羞辱：...\n反击/反转：...' }
+      { name: '{{episodeDramaBrief}}', description: '本集规划摘要（爆点 + 资产锚点）', example: '开场钩子：...\n压迫/羞辱：...\n反击/反转：...\n角色资产：...' }
     ]
   },
   {
