@@ -75,6 +75,7 @@ interface UseAssetWorkbenchSceneGenerationOptions {
     options?: {
       source?: 'generated' | 'legacy'
       prompt?: string
+      viewMode?: EnvironmentCropCaptureMode
     }
   ) => void
   resolveEnvironmentPanoramaState?: (assetId: string) => EnvironmentPanoramaState | undefined
@@ -471,14 +472,47 @@ export function useAssetWorkbenchSceneGeneration(
         panoramaState.fourViewImage = fourViewImage
       }
       options.setEnvironmentPanoramaState?.(environmentAssetId, panoramaState)
-      options.recordEnvironmentHistory?.(
-        environmentAssetId,
-        referenceImage,
-        {
-          source: 'generated',
-          prompt: customPrompt
-        }
-      )
+      const normalizedSingleViewImage = singleViewImage?.trim()
+        || (captureMode === 'single'
+          ? referenceImage?.trim()
+          : undefined)
+      const normalizedFourViewImage = fourViewImage?.trim()
+        || (captureMode === 'four_view'
+          ? referenceImage?.trim()
+          : undefined)
+
+      if (normalizedSingleViewImage) {
+        options.recordEnvironmentHistory?.(
+          environmentAssetId,
+          normalizedSingleViewImage,
+          {
+            source: 'generated',
+            prompt: customPrompt,
+            viewMode: 'single'
+          }
+        )
+      }
+      if (normalizedFourViewImage) {
+        options.recordEnvironmentHistory?.(
+          environmentAssetId,
+          normalizedFourViewImage,
+          {
+            source: 'generated',
+            prompt: customPrompt,
+            viewMode: 'four_view'
+          }
+        )
+      }
+      if (!normalizedSingleViewImage && !normalizedFourViewImage) {
+        options.recordEnvironmentHistory?.(
+          environmentAssetId,
+          referenceImage,
+          {
+            source: 'generated',
+            prompt: customPrompt
+          }
+        )
+      }
       options.synchronizeQueueItems()
       await options.saveProject()
       if (!generationOptions.skipCompletionNotice) {

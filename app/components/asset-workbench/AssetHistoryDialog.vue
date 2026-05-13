@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Check, Eye, Loader2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
-import type { AssetImageHistoryEntry } from '~/lib/asset-workbench-types'
+import type { AssetImageHistoryEntry, EnvironmentCropCaptureMode } from '~/lib/asset-workbench-types'
 import { toImageSrc } from '~/lib/media'
 
 const props = defineProps<{
@@ -25,7 +25,7 @@ function isCurrent(entry: AssetImageHistoryEntry): boolean {
 }
 
 function resolveEntryById(entryId: string): AssetImageHistoryEntry | null {
-  return props.entries.find(entry => entry.id === entryId) || null
+  return displayedEntries.value.find(entry => entry.id === entryId) || null
 }
 
 function resolveSourceLabel(entry: AssetImageHistoryEntry): string {
@@ -53,20 +53,60 @@ function formatEntryTime(entry: AssetImageHistoryEntry): string {
 const denseModeThreshold = 9
 const ultraDenseModeThreshold = 16
 const selectedEntryId = ref('')
+const environmentViewTab = ref<EnvironmentCropCaptureMode>('single')
 
 const isEnvironmentHistory = computed(() => props.targetType === 'environment')
 const isCharacterHistory = computed(() => props.targetType === 'character')
 const isSplitPreviewLayout = computed(() => isEnvironmentHistory.value || isCharacterHistory.value)
 
-function resolveDefaultEntryId(): string {
-  const currentEntry = props.entries.find(entry => isCurrent(entry))
+function resolveEntryViewMode(entry: AssetImageHistoryEntry): EnvironmentCropCaptureMode | undefined {
+  return entry.viewMode === 'single' || entry.viewMode === 'four_view'
+    ? entry.viewMode
+    : undefined
+}
+
+function matchesEnvironmentViewTab(
+  entry: AssetImageHistoryEntry,
+  viewMode: EnvironmentCropCaptureMode
+): boolean {
+  const entryViewMode = resolveEntryViewMode(entry)
+  if (!entryViewMode) return true
+  return entryViewMode === viewMode
+}
+
+const displayedEntries = computed(() => {
+  if (!isEnvironmentHistory.value) return props.entries
+  return props.entries.filter(entry => matchesEnvironmentViewTab(entry, environmentViewTab.value))
+})
+
+const environmentSingleEntryCount = computed(() => {
+  return props.entries.filter(entry => matchesEnvironmentViewTab(entry, 'single')).length
+})
+
+const environmentFourViewEntryCount = computed(() => {
+  return props.entries.filter(entry => matchesEnvironmentViewTab(entry, 'four_view')).length
+})
+
+function resolveDefaultEntryId(entries: AssetImageHistoryEntry[] = displayedEntries.value): string {
+  const currentEntry = entries.find(entry => isCurrent(entry))
   if (currentEntry) return currentEntry.id
-  return props.entries[0]?.id || ''
+  return entries[0]?.id || ''
+}
+
+function resolveDefaultEnvironmentViewTab(): EnvironmentCropCaptureMode {
+  const currentEntry = props.entries.find(entry => isCurrent(entry))
+  const currentEntryViewMode = currentEntry ? resolveEntryViewMode(currentEntry) : undefined
+  if (currentEntryViewMode) return currentEntryViewMode
+
+  if (environmentFourViewEntryCount.value > environmentSingleEntryCount.value) {
+    return 'four_view'
+  }
+  return 'single'
 }
 
 const selectedEntry = computed(() => {
-  if (props.entries.length === 0) return null
-  return resolveEntryById(selectedEntryId.value) || props.entries[0] || null
+  if (displayedEntries.value.length === 0) return null
+  return resolveEntryById(selectedEntryId.value) || displayedEntries.value[0] || null
 })
 
 function selectPreviewEntry(entry: AssetImageHistoryEntry) {
@@ -83,12 +123,15 @@ watch(
   () => props.open,
   (open) => {
     if (!open) return
+    if (isEnvironmentHistory.value) {
+      environmentViewTab.value = resolveDefaultEnvironmentViewTab()
+    }
     selectedEntryId.value = resolveDefaultEntryId()
   }
 )
 
 watch(
-  () => props.entries,
+  () => displayedEntries.value,
   (entries) => {
     if (entries.length === 0) {
       selectedEntryId.value = ''
@@ -100,6 +143,14 @@ watch(
     }
   },
   { deep: false }
+)
+
+watch(
+  () => environmentViewTab.value,
+  () => {
+    if (!isEnvironmentHistory.value) return
+    selectedEntryId.value = resolveDefaultEntryId()
+  }
 )
 </script>
 
@@ -117,7 +168,29 @@ watch(
       </DialogHeader>
 
       <div
-        v-if="entries.length === 0"
+        v-if="isEnvironmentHistory && entries.length > 0"
+        class="flex items-center gap-2"
+      >
+        <Button
+          size="sm"
+          :variant="environmentViewTab === 'single' ? 'default' : 'outline'"
+          class="h-7 px-2 text-xs"
+          @click="environmentViewTab = 'single'"
+        >
+          单视图 {{ environmentSingleEntryCount }}
+        </Button>
+        <Button
+          size="sm"
+          :variant="environmentViewTab === 'four_view' ? 'default' : 'outline'"
+          class="h-7 px-2 text-xs"
+          @click="environmentViewTab = 'four_view'"
+        >
+          四视图 {{ environmentFourViewEntryCount }}
+        </Button>
+      </div>
+
+      <div
+        v-if="displayedEntries.length === 0"
         class="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground"
       >
         暂无历史记录
@@ -129,7 +202,7 @@ watch(
       >
         <div class="min-h-0 overflow-y-auto rounded-lg border bg-card lg:h-full">
           <Button
-            v-for="(entry, index) in entries"
+            v-for="(entry, index) in displayedEntries"
             :key="entry.id"
             type="button"
             variant="ghost"
@@ -144,7 +217,7 @@ watch(
                 class="h-full w-full object-cover"
               >
               <span class="absolute left-1 top-1 rounded border bg-background/90 px-1 py-0.5 text-[10px] text-muted-foreground">
-                #{{ entries.length - index }}
+                #{{ displayedEntries.length - index }}
               </span>
             </div>
 
@@ -247,11 +320,11 @@ watch(
         v-else
         :class="[
           'asset-history-grid',
-          entries.length > denseModeThreshold ? 'asset-history-grid--dense' : ''
+          displayedEntries.length > denseModeThreshold ? 'asset-history-grid--dense' : ''
         ]"
       >
         <div
-          v-for="entry in entries"
+          v-for="entry in displayedEntries"
           :key="entry.id"
           class="flex flex-col overflow-hidden rounded-lg border bg-card"
         >
@@ -261,7 +334,7 @@ watch(
             :class="[
               'asset-history-preview',
               'h-auto w-full p-0 hover:bg-transparent',
-              resolvePreviewClass(entries.length)
+              resolvePreviewClass(displayedEntries.length)
             ]"
             @click="emit('preview', { src: entry.image, alt: `${targetLabel} 历史资产` })"
           >
