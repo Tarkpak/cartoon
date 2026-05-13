@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { generateJSONForWorkflow } from '../../utils/workflow-model'
+import { getInterpolatedPrompt } from '../../utils/prompt-template'
 import {
   DEFAULT_SCRIPT_PARSE_MODE,
   SCRIPT_PARSE_MODES,
@@ -7,6 +8,7 @@ import {
   type ScriptEpisodePlanItem,
   type ScriptParseMode
 } from '../../../shared/types/script'
+import { PROMPT_TEMPLATE_IDS } from '../../../shared/types/prompt-template'
 import { normalizeCharacterGender, normalizeCharacterRole } from '../../../shared/types/character'
 
 const EpisodePlanRequestSchema = z.object({
@@ -77,14 +79,14 @@ function normalizeEpisodeTitle(rawTitle: string | undefined, index: number): str
   return value || toEpisodeTitle(index)
 }
 
-function buildEpisodePlanPrompt(
+async function buildEpisodePlanPrompt(
   text: string,
   scriptParseMode: ScriptParseMode,
   options: {
     chunkIndex?: number
     chunkCount?: number
   } = {}
-): string {
+): Promise<string> {
   const modeRule = scriptParseMode === 'short_drama'
     ? '短剧模式额外约束：请由剧情节奏决定分集数量，并确保每集对应的场景合成总时长目标不超过 300 秒（5 分钟）。'
     : '精品剧模式：由剧情结构自行决定分集数量。'
@@ -98,47 +100,21 @@ function buildEpisodePlanPrompt(
     ? '第1集 startAnchor 必须取“本段开头”的连续片段。'
     : '第1集 startAnchor 必须取原文开头连续片段。'
 
-  return `你是专业短剧编剧统筹，请把一部长文本剧本按“剧情结构 + 爆点节奏”拆分成分集目录。
-
-要求：
-1) 必须按剧情节点分集，不允许按字数平均切分。
-2) ${modeRule}
-3) ${chunkRule}
-4) 每集给出 title（可简短），并给出 startAnchor：
-   - startAnchor 必须是原文中的连续原句片段，逐字摘录，不得改写。
-   - ${firstAnchorRule}
-   - 第2集及以后 startAnchor 必须对应该集开头附近，建议 20~80 字，尽量唯一。
-5) 每集必须明确“观众为什么上头”：开场钩子、压迫/羞辱、反击/反转、情绪曲线、结尾钩子。不是离婚/复仇题材时，也要映射成同等级冲突和期待。
-6) 每集标题优先使用爆点式命名，例如“第3集：真话符打白莲”“第12集：赐婚反噬”，避免只写地点或流水账。
-7) payoffType 必须从以下类型中选择最贴近的一项：打脸、反杀、揭露、甜宠撑腰、身世反转、危机升级、搞钱逆袭、权力升级。
-8) episodeAssets.characters 用于提前建立角色资产，description 必须面向角色图生成，写成完整外观基线，而不是身份摘要或剧情关系。优先包含：性别呈现、年龄段、脸型/五官、发型发色、身形体态、常穿服装、关键配饰、身份气质、必须保持不变的视觉特征；原文未明确的信息可做保守推断，但不得与原文冲突。
-9) episodeAssets.characters[].gender 必须为 male、female、other 之一；根据原文称谓、代词、姓名、亲属关系、身份词和外貌线索推断，原文已暗示男/女时不得留空或反转。
-10) 仅输出 JSON，不要 markdown，不要解释文本，不要输出空集。
-
-JSON 结构（严格遵守）：
-{
-  "episodes": [
+  const prompt = await getInterpolatedPrompt(
+    PROMPT_TEMPLATE_IDS.SCRIPT_EPISODE_PLAN,
     {
-      "index": 1,
-      "title": "第1集：...",
-      "startAnchor": "原文片段",
-      "episodeHook": "开场3秒内出现的强钩子动作/台词/道具",
-      "humiliationOrThreat": "本集最强压迫、羞辱或危机",
-      "reversalPoint": "主角反击、证据出现、靠山登场或局势反转",
-      "emotionalCurve": "震惊→憋屈→愤怒→冷感反击",
-      "cliffhanger": "本集最后2-5秒的追看钩子",
-      "payoffType": "打脸",
-      "episodeAssets": {
-        "characters": [{ "name": "角色名", "description": "完整外观基线", "role": "protagonist|antagonist|supporting", "gender": "male|female|other" }],
-        "props": [{ "name": "道具名", "description": "可选" }],
-        "environments": [{ "location": "地点", "timeOfDay": "可选", "mood": "可选" }]
-      }
-    }
-  ]
-}
-
-原文如下：
-${text}`
+      novelText: text,
+      modeRule,
+      chunkRule,
+      firstAnchorRule
+    },
+    undefined,
+    'asset_consistency'
+  )
+  if (!prompt) {
+    throw new Error('无法获取分集目录规划模板，请在设置中检查提示词配置')
+  }
+  return prompt
 }
 
 interface EpisodePlanChunk {
@@ -573,7 +549,7 @@ async function runModelDrivenEpisodePlanPass(options: {
   chunkIndex?: number
   chunkCount?: number
 }): Promise<EpisodePlanItemWithAssets[]> {
-  const prompt = buildEpisodePlanPrompt(options.text, options.scriptParseMode, {
+  const prompt = await buildEpisodePlanPrompt(options.text, options.scriptParseMode, {
     chunkIndex: options.chunkIndex,
     chunkCount: options.chunkCount
   })

@@ -1,6 +1,6 @@
 # playlet 当前工作台技术需求文档
 
-> 更新日期：2026-04-18
+> 更新日期：2026-05-13
 
 ## 1. 产品目标
 
@@ -16,32 +16,47 @@ playlet 当前版本聚焦资产工作台，主流程固定为：
 
 输入小说、剧本或故事正文后，系统执行：
 
+- 分集目录规划
 - 剧本解析
 - 场景拆分
 - 角色抽取
 - 场景时间轴描述生成
+- 提示词翻译（工具能力，用于模板语言转换）
 
 对应接口：
 
+- `POST /api/script/episode-plan`
 - `POST /api/script/parse`
+- `POST /api/prompts/translate`
+- `POST /api/prompts/translate-all`
 
 对应提示词模板：
 
+- `script_episode_plan`
 - `script_parsing`
+- `script_parsing_short_drama`
+- `script_parsing_segment_context`
+- `script_parsing_episode_drama_context`
+- `prompt_translation_system`
+- `prompt_translation_user`
 
 ### 2.2 资产
 
 资产阶段负责生成并维护后续视频生成所需的参考素材：
 
 - 角色资产生成
-- 角色资产二次生成
+- 角色资产二次生成规则（模板能力，当前二次生成流程以参考图 + 用户指令为主）
 - 环境参考图生成
+- 环境参考图负向约束
+- 道具/其他资产参考图生成
+- 道具/其他资产负向约束
 - 场景描述二次改写
 
 对应接口：
 
 - `POST /api/character/generate`
 - `POST /api/asset-workflow/reference/generate`
+- `POST /api/asset-workflow/prop/generate`
 - `POST /api/asset-workflow/scene/description-refinement`
 
 对应提示词模板：
@@ -49,6 +64,9 @@ playlet 当前版本聚焦资产工作台，主流程固定为：
 - `character_sheet`
 - `character_regeneration`
 - `environment_reference_generation`
+- `environment_reference_negative_prompt`
+- `prop_asset_generation`
+- `prop_asset_negative_prompt`
 - `scene_description_refinement`
 
 ### 2.3 视频
@@ -61,7 +79,6 @@ playlet 当前版本聚焦资产工作台，主流程固定为：
 对应接口：
 
 - `POST /api/asset-workflow/video/generate`
-- `POST /api/video/generate`
 
 对应提示词模板：
 
@@ -81,14 +98,11 @@ playlet 当前版本聚焦资产工作台，主流程固定为：
 
 ## 3. 提示词中心约束
 
-提示词中心必须只保留当前主流程模板：
+提示词中心必须只保留当前主流程模板（含系统补充与负向模板）：
 
-- `script_parsing`
-- `character_sheet`
-- `character_regeneration`
-- `environment_reference_generation`
-- `scene_description_refinement`
-- `scene_video_generation`
+- 解析阶段：`script_episode_plan`、`script_parsing`、`script_parsing_short_drama`、`script_parsing_segment_context`、`script_parsing_episode_drama_context`、`prompt_translation_system`、`prompt_translation_user`
+- 资产阶段：`character_sheet`、`character_regeneration`、`environment_reference_generation`、`environment_reference_negative_prompt`、`prop_asset_generation`、`prop_asset_negative_prompt`、`scene_description_refinement`
+- 视频阶段：`scene_video_generation`
 
 设置页中的提示词分组按以下阶段展示：
 
@@ -128,9 +142,11 @@ playlet 当前版本聚焦资产工作台，主流程固定为：
 
 ### 5.2 后端
 
+- `server/api/script/episode-plan.post.ts`
 - `server/api/script/parse.post.ts`
 - `server/api/character/generate.post.ts`
 - `server/api/asset-workflow/reference/generate.post.ts`
+- `server/api/asset-workflow/prop/generate.post.ts`
 - `server/api/asset-workflow/scene/description-refinement.post.ts`
 - `server/api/asset-workflow/video/generate.post.ts`
 - `server/api/video/merge.post.ts`
