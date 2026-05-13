@@ -2,7 +2,10 @@ import { z } from 'zod'
 import { imageLimiter } from '../../../utils/concurrency'
 import { persistImageToPublic } from '../../../utils/image-storage'
 import { findImageModel, generateImage } from '../../../utils/model-provider'
+import { getDefaultPromptTemplates } from '../../../utils/prompt-defaults'
+import { getInterpolatedPrompt, getPromptLang, interpolateTemplate } from '../../../utils/prompt-template'
 import { getWorkflowModels, getWorkflowModelOptions } from '../../models/workflow.get'
+import { PROMPT_TEMPLATE_IDS } from '../../../../shared/types/prompt-template'
 
 const GeneratePropRequestSchema = z.object({
   prop: z.object({
@@ -14,33 +17,74 @@ const GeneratePropRequestSchema = z.object({
   style: z.string().optional().default('')
 })
 
-function buildPropPrompt(options: {
+const PROP_PROMPT_WORKFLOW = 'asset_consistency'
+
+async function buildPropPrompt(options: {
   name: string
   description?: string
   style?: string
   category: 'prop' | 'other'
-}) {
-  const label = options.category === 'other' ? '其他参考资产' : '道具资产'
-  return [
-    `你正在为资产一致性分镜视频生成单张${label}参考图。请直接生成图片，不要输出文字说明。`,
-    '',
-    '【项目画风】',
-    options.style?.trim() || '保持项目默认画风',
-    '',
-    '【资产名称】',
-    options.name,
-    '',
-    '【资产描述】',
-    options.description?.trim() || '无',
-    '',
-    '【执行要求】',
-    `1. 只生成 1 张${label}参考图，不要拼图，不要多画面组合。`,
-    '2. 画面主体必须是该资产本身，完整展示外形、材质、颜色、尺度和关键细节。',
-    '3. 使用干净中性背景或透明感背景，不要生成复杂场景，不要让环境喧宾夺主。',
-    '4. 禁止出现人物、人脸、手、身体部位、文字、水印、Logo、边框、界面元素。',
-    '5. 避免把资产画成多个不同版本；如果需要展示细节，也必须保持同一个资产身份。',
-    '6. 构图稳定，主体居中且完整，不裁切，不遮挡，适合作为后续视频生成参考图。'
-  ].join('\n')
+}): Promise<string> {
+  const variables = {
+    assetLabel: options.category === 'other' ? '其他参考资产' : '道具资产',
+    style: options.style?.trim() || '保持项目默认画风',
+    assetName: options.name,
+    assetDescription: options.description?.trim() || '无'
+  }
+
+  const templatePrompt = await getInterpolatedPrompt(
+    PROMPT_TEMPLATE_IDS.PROP_ASSET_GENERATION,
+    variables,
+    undefined,
+    PROP_PROMPT_WORKFLOW
+  )
+  if (templatePrompt) {
+    return templatePrompt
+  }
+
+  const fallbackLang = await getPromptLang(
+    PROMPT_TEMPLATE_IDS.PROP_ASSET_GENERATION,
+    PROP_PROMPT_WORKFLOW
+  )
+  const fallbackTemplate = getDefaultPromptTemplates(PROP_PROMPT_WORKFLOW)
+    .find(template => template.id === PROMPT_TEMPLATE_IDS.PROP_ASSET_GENERATION)
+    ?.content[fallbackLang]
+  if (fallbackTemplate) {
+    try {
+      console.warn('[AssetWorkflow/Prop] 道具资产模板缺失，已回退内置默认模板继续生成')
+      return interpolateTemplate(fallbackTemplate, variables)
+    } catch (error) {
+      console.error('[AssetWorkflow/Prop] 道具资产模板回退插值失败:', error)
+    }
+  }
+
+  throw new Error('无法获取道具资产生成模板，请在设置中检查提示词配置')
+}
+
+async function resolvePropNegativePrompt(): Promise<string> {
+  const templatePrompt = await getInterpolatedPrompt(
+    PROMPT_TEMPLATE_IDS.PROP_ASSET_NEGATIVE_PROMPT,
+    {},
+    undefined,
+    PROP_PROMPT_WORKFLOW
+  )
+  if (templatePrompt?.trim()) {
+    return templatePrompt.trim()
+  }
+
+  const fallbackLang = await getPromptLang(
+    PROMPT_TEMPLATE_IDS.PROP_ASSET_NEGATIVE_PROMPT,
+    PROP_PROMPT_WORKFLOW
+  )
+  const fallbackTemplate = getDefaultPromptTemplates(PROP_PROMPT_WORKFLOW)
+    .find(template => template.id === PROMPT_TEMPLATE_IDS.PROP_ASSET_NEGATIVE_PROMPT)
+    ?.content[fallbackLang]
+  if (fallbackTemplate?.trim()) {
+    console.warn('[AssetWorkflow/Prop] 道具资产负向模板缺失，已回退内置默认负向约束')
+    return fallbackTemplate.trim()
+  }
+
+  throw new Error('无法获取道具资产负向约束模板，请在设置中检查提示词配置')
 }
 
 export default defineEventHandler(async (event) => {
@@ -65,12 +109,13 @@ export default defineEventHandler(async (event) => {
     ])
     const modelId = workflowModels.character_portrait || workflowModels.frame_generation
     const modelConfig = modelId ? findImageModel(modelId) : undefined
-    const prompt = buildPropPrompt({
+    const prompt = await buildPropPrompt({
       name: prop.name,
       description: prop.description,
       style,
       category: prop.category
     })
+    const negativePrompt = await resolvePropNegativePrompt()
 
     const generated = await imageLimiter.execute(() =>
       generateImage({
@@ -80,7 +125,7 @@ export default defineEventHandler(async (event) => {
         quality: workflowModelOptions.image_options.openaiImageQuality,
         aspectRatio: '1:1',
         size: '1024*1024',
-        negativePrompt: '人物, 人脸, 人体, 手, 多个不同物体版本, 文字, 水印, logo, UI, human, person, face, hands, text, watermark',
+        negativePrompt,
         maxRetries: 2
       })
     )

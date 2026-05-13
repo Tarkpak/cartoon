@@ -42,10 +42,8 @@ export interface PromptTemplate {
 }
 
 export const PROMPT_DEFAULT_PROFILE_ID = 'default'
-export const PROMPT_SEEDANCE_PROFILE_ID = 'default_seedance'
 export const PROMPT_READONLY_PROFILE_IDS = [
-  PROMPT_DEFAULT_PROFILE_ID,
-  PROMPT_SEEDANCE_PROFILE_ID
+  PROMPT_DEFAULT_PROFILE_ID
 ] as const
 
 export function isPromptReadonlyProfile(
@@ -74,12 +72,17 @@ export interface PromptVersion {
 export const PROMPT_TEMPLATE_IDS = {
   SCRIPT_PARSING: 'script_parsing',
   SCRIPT_PARSING_SHORT_DRAMA: 'script_parsing_short_drama',
+  SCRIPT_EPISODE_PLAN: 'script_episode_plan',
+  SCRIPT_PARSING_SEGMENT_CONTEXT: 'script_parsing_segment_context',
+  SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT: 'script_parsing_episode_drama_context',
   PROMPT_TRANSLATION_SYSTEM: 'prompt_translation_system',
   PROMPT_TRANSLATION_USER: 'prompt_translation_user',
   CHARACTER_SHEET: 'character_sheet',
   CHARACTER_REGENERATION: 'character_regeneration',
   ENVIRONMENT_REFERENCE_GENERATION: 'environment_reference_generation',
   ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT: 'environment_reference_negative_prompt',
+  PROP_ASSET_GENERATION: 'prop_asset_generation',
+  PROP_ASSET_NEGATIVE_PROMPT: 'prop_asset_negative_prompt',
   SCENE_DESCRIPTION_REFINEMENT: 'scene_description_refinement',
   SCENE_VIDEO_GENERATION: 'scene_video_generation'
 } as const
@@ -136,11 +139,49 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     ]
   },
   {
+    id: 'script_episode_plan',
+    name: '分集目录规划',
+    category: 'text',
+    stage: 'parse',
+    description: '将长文本按剧情节点拆分为分集目录，并输出爆点与资产规划',
+    variables: [
+      { name: '{{novelText}}', description: '待拆分原文', example: '第一章...' },
+      { name: '{{modeRule}}', description: '解析模式规则文本', example: '短剧模式额外约束：请由剧情节奏决定分集数量...' },
+      { name: '{{chunkRule}}', description: '分段输入约束', example: '当前仅提供原文第 1/3 段，请严格基于本段文本拆分...' },
+      { name: '{{firstAnchorRule}}', description: '首集锚点规则', example: '第1集 startAnchor 必须取“本段开头”的连续片段。' }
+    ]
+  },
+  {
+    id: 'script_parsing_segment_context',
+    name: '剧本解析分段补充',
+    category: 'text',
+    stage: 'parse',
+    description: '分段解析时追加系统上下文，约束模型只处理当前段并避免跨段补写',
+    variables: [
+      { name: '{{basePrompt}}', description: '基础解析提示词正文', example: '你是一位资深分镜师...' },
+      { name: '{{chunkIndex}}', description: '当前分段序号（从 1 开始）', example: '2' },
+      { name: '{{chunkCount}}', description: '总分段数', example: '5' },
+      { name: '{{chunkLength}}', description: '当前分段文本长度', example: '18420' },
+      { name: '{{chunkPercentage}}', description: '当前分段占比（百分比数字）', example: '23.6' }
+    ]
+  },
+  {
+    id: 'script_parsing_episode_drama_context',
+    name: '剧本解析爆点补充',
+    category: 'text',
+    stage: 'parse',
+    description: '把分集爆点规划以系统补充方式追加到剧本解析提示词中',
+    variables: [
+      { name: '{{basePrompt}}', description: '基础解析提示词正文', example: '你是一位资深分镜师...' },
+      { name: '{{episodeDramaBrief}}', description: '本集爆点摘要', example: '开场钩子：...\n压迫/羞辱：...\n反击/反转：...' }
+    ]
+  },
+  {
     id: 'prompt_translation_system',
     name: '提示词翻译系统指令',
     category: 'text',
     stage: 'parse',
-    description: '定义提示词翻译器的系统角色和规则',
+    description: '定义提示词翻译工具的系统角色和规则（不直接参与剧情生成）',
     variables: [
       { name: '{{fromLang}}', description: '源语言名称', example: '中文' },
       { name: '{{toLang}}', description: '目标语言名称', example: 'English' }
@@ -151,7 +192,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     name: '提示词翻译请求模板',
     category: 'text',
     stage: 'parse',
-    description: '定义翻译请求正文结构',
+    description: '定义提示词翻译请求正文结构（不直接参与剧情生成）',
     variables: [
       { name: '{{fromLang}}', description: '源语言名称', example: '中文' },
       { name: '{{toLang}}', description: '目标语言名称', example: 'English' },
@@ -177,7 +218,7 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     name: '角色资产二次生成',
     category: 'image',
     stage: 'assets',
-    description: '在保持角色身份稳定的前提下，对角色参考图做定向修改',
+    description: '角色二次生成的规则模板（在保持身份稳定前提下执行定向修改）',
     variables: [
       { name: '{{characterName}}', description: '角色名称', example: '陆哲' },
       { name: '{{appearance}}', description: '角色外貌描述', example: '黑色短发，戴眼镜的年轻男性...' },
@@ -211,6 +252,27 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
     category: 'image',
     stage: 'assets',
     description: '环境参考图生成时的 negative prompt（排除项）',
+    variables: []
+  },
+  {
+    id: 'prop_asset_generation',
+    name: '道具资产生成',
+    category: 'image',
+    stage: 'assets',
+    description: '生成单张道具/其他资产参考图（纯资产主体），用于后续一致性视频',
+    variables: [
+      { name: '{{assetLabel}}', description: '资产类型标签', example: '道具资产' },
+      { name: '{{style}}', description: '项目画风描述', example: '电影写实风格' },
+      { name: '{{assetName}}', description: '资产名称', example: '青铜匕首' },
+      { name: '{{assetDescription}}', description: '资产描述', example: '刀鞘有云纹，握把有磨损痕迹。' }
+    ]
+  },
+  {
+    id: 'prop_asset_negative_prompt',
+    name: '道具资产负向约束',
+    category: 'image',
+    stage: 'assets',
+    description: '道具/其他资产生成时的 negative prompt（排除项）',
     variables: []
   },
   {

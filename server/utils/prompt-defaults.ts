@@ -12,7 +12,7 @@ import {
 
 type PromptWorkflowInput = ProjectWorkflowType | string | null | undefined
 
-export function getDefaultPromptTemplates(workflow: PromptWorkflowInput = 'asset_consistency'): PromptTemplate[] {
+function getBasePromptTemplates(workflow: PromptWorkflowInput = 'asset_consistency'): PromptTemplate[] {
   const normalizedWorkflow = normalizeProjectWorkflowType(workflow)
   const now = new Date().toISOString()
   const metadataList = getPromptTemplateMetadataForWorkflow(normalizedWorkflow)
@@ -29,14 +29,18 @@ export function getDefaultPromptTemplates(workflow: PromptWorkflowInput = 'asset
   }))
 }
 
-export function getSeedanceOptimizedPromptTemplates(
-  workflow: PromptWorkflowInput = 'asset_consistency'
-): PromptTemplate[] {
-  return getDefaultPromptTemplates(workflow).map(template => ({
+export function getDefaultPromptTemplates(workflow: PromptWorkflowInput = 'asset_consistency'): PromptTemplate[] {
+  return getBasePromptTemplates(workflow).map(template => ({
     ...template,
     content: getSeedanceOptimizedContent(template.id, template.content),
     isCustomized: false
   }))
+}
+
+export function getSeedanceOptimizedPromptTemplates(
+  workflow: PromptWorkflowInput = 'asset_consistency'
+): PromptTemplate[] {
+  return getDefaultPromptTemplates(workflow)
 }
 
 function getSeedanceOptimizedContent(
@@ -100,6 +104,12 @@ function getDefaultContent(id: string): PromptTemplate['content'] {
       return SCRIPT_PARSING_CONTENT
     case 'script_parsing_short_drama':
       return SCRIPT_PARSING_SHORT_DRAMA_CONTENT
+    case 'script_episode_plan':
+      return SCRIPT_EPISODE_PLAN_CONTENT
+    case 'script_parsing_segment_context':
+      return SCRIPT_PARSING_SEGMENT_CONTEXT_CONTENT
+    case 'script_parsing_episode_drama_context':
+      return SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT_CONTENT
     case 'prompt_translation_system':
       return PROMPT_TRANSLATION_SYSTEM_CONTENT
     case 'prompt_translation_user':
@@ -112,6 +122,10 @@ function getDefaultContent(id: string): PromptTemplate['content'] {
       return ENVIRONMENT_REFERENCE_GENERATION_CONTENT
     case 'environment_reference_negative_prompt':
       return ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT_CONTENT
+    case 'prop_asset_generation':
+      return PROP_ASSET_GENERATION_CONTENT
+    case 'prop_asset_negative_prompt':
+      return PROP_ASSET_NEGATIVE_PROMPT_CONTENT
     case 'scene_description_refinement':
       return SCENE_DESCRIPTION_REFINEMENT_CONTENT
     case 'scene_video_generation':
@@ -733,6 +747,117 @@ Output strict JSON only:
 Output JSON only, with no extra explanation.`
 }
 
+const SCRIPT_EPISODE_PLAN_CONTENT: PromptTemplate['content'] = {
+  zh: `你是专业短剧编剧统筹，请把一部长文本剧本按“剧情结构 + 爆点节奏”拆分成分集目录。
+
+要求：
+1) 必须按剧情节点分集，不允许按字数平均切分。
+2) {{modeRule}}
+3) {{chunkRule}}
+4) 每集给出 title（可简短），并给出 startAnchor：
+   - startAnchor 必须是原文中的连续原句片段，逐字摘录，不得改写。
+   - {{firstAnchorRule}}
+   - 第2集及以后 startAnchor 必须对应该集开头附近，建议 20~80 字，尽量唯一。
+5) 每集必须明确“观众为什么上头”：开场钩子、压迫/羞辱、反击/反转、情绪曲线、结尾钩子。不是离婚/复仇题材时，也要映射成同等级冲突和期待。
+6) 每集标题优先使用爆点式命名，例如“第3集：真话符打白莲”“第12集：赐婚反噬”，避免只写地点或流水账。
+7) payoffType 必须从以下类型中选择最贴近的一项：打脸、反杀、揭露、甜宠撑腰、身世反转、危机升级、搞钱逆袭、权力升级。
+8) episodeAssets.characters 用于提前建立角色资产，description 必须面向角色图生成，写成完整外观基线，而不是身份摘要或剧情关系。优先包含：性别呈现、年龄段、脸型/五官、发型发色、身形体态、常穿服装、关键配饰、身份气质、必须保持不变的视觉特征；原文未明确的信息可做保守推断，但不得与原文冲突。
+9) episodeAssets.characters[].gender 必须为 male、female、other 之一；根据原文称谓、代词、姓名、亲属关系、身份词和外貌线索推断，原文已暗示男/女时不得留空或反转。
+10) 仅输出 JSON，不要 markdown，不要解释文本，不要输出空集。
+
+JSON 结构（严格遵守）：
+{
+  "episodes": [
+    {
+      "index": 1,
+      "title": "第1集：...",
+      "startAnchor": "原文片段",
+      "episodeHook": "开场3秒内出现的强钩子动作/台词/道具",
+      "humiliationOrThreat": "本集最强压迫、羞辱或危机",
+      "reversalPoint": "主角反击、证据出现、靠山登场或局势反转",
+      "emotionalCurve": "震惊→憋屈→愤怒→冷感反击",
+      "cliffhanger": "本集最后2-5秒的追看钩子",
+      "payoffType": "打脸",
+      "episodeAssets": {
+        "characters": [{ "name": "角色名", "description": "完整外观基线", "role": "protagonist|antagonist|supporting", "gender": "male|female|other" }],
+        "props": [{ "name": "道具名", "description": "可选" }],
+        "environments": [{ "location": "地点", "timeOfDay": "可选", "mood": "可选" }]
+      }
+    }
+  ]
+}
+
+原文如下：
+{{novelText}}`,
+  en: `You are a short-drama story editor. Split a long source script into episode planning based on plot structure plus addictive pacing.
+
+Requirements:
+1) Split by story beats, not by equal character count.
+2) {{modeRule}}
+3) {{chunkRule}}
+4) Each episode must provide title and startAnchor:
+   - startAnchor must be a verbatim continuous excerpt from the source text, with no rewriting.
+   - {{firstAnchorRule}}
+   - Episode 2+ startAnchor should be near the beginning of that episode and preferably unique (roughly 20-80 Chinese characters equivalent).
+5) Every episode must explain why viewers keep watching: opening hook, threat/humiliation, reversal/counterattack, emotional curve, end cliffhanger.
+6) Prefer explosive titles instead of plain location/log descriptions.
+7) payoffType must be one of: 打脸, 反杀, 揭露, 甜宠撑腰, 身世反转, 危机升级, 搞钱逆袭, 权力升级.
+8) episodeAssets.characters is for prebuilding character assets. description must be a full visual baseline for image generation, not social-relationship summary.
+9) episodeAssets.characters[].gender must be male/female/other. Infer from source cues and do not leave blank when gender is implied.
+10) Output JSON only. No markdown, no explanation, no empty episode list.
+
+Strict JSON shape:
+{
+  "episodes": [
+    {
+      "index": 1,
+      "title": "Episode title",
+      "startAnchor": "verbatim source excerpt",
+      "episodeHook": "opening hook",
+      "humiliationOrThreat": "major threat or humiliation",
+      "reversalPoint": "reversal or counterattack",
+      "emotionalCurve": "emotion progression",
+      "cliffhanger": "end hook",
+      "payoffType": "打脸",
+      "episodeAssets": {
+        "characters": [{ "name": "name", "description": "visual baseline", "role": "protagonist|antagonist|supporting", "gender": "male|female|other" }],
+        "props": [{ "name": "prop", "description": "optional" }],
+        "environments": [{ "location": "location", "timeOfDay": "optional", "mood": "optional" }]
+      }
+    }
+  ]
+}
+
+Source text:
+{{novelText}}`
+}
+
+const SCRIPT_PARSING_SEGMENT_CONTEXT_CONTENT: PromptTemplate['content'] = {
+  zh: `{{basePrompt}}
+
+【分段解析上下文（系统追加）】
+- 当前仅处理原文第 {{chunkIndex}}/{{chunkCount}} 段，禁止补写未提供段落。
+- 本段文本长度：约 {{chunkLength}} 字（全量占比约 {{chunkPercentage}}%）。
+- 输出仍需保持原文顺序；若与前段重叠，请避免重复同一场景。`,
+  en: `{{basePrompt}}
+
+[Segment Parsing Context - System Appended]
+- Process only segment {{chunkIndex}}/{{chunkCount}} of the source text. Do not invent unseen segments.
+- Current segment length: about {{chunkLength}} chars (about {{chunkPercentage}}% of total).
+- Keep source order. If content overlaps with previous segment, avoid duplicating the same scene.`
+}
+
+const SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT_CONTENT: PromptTemplate['content'] = {
+  zh: `{{basePrompt}}
+
+【本集爆点规划（系统追加，必须落入 dramatic 与 description）】
+{{episodeDramaBrief}}`,
+  en: `{{basePrompt}}
+
+[Episode Drama Plan - System Appended, must be reflected in dramatic and description]
+{{episodeDramaBrief}}`
+}
+
 const CHARACTER_SHEET_CONTENT: PromptTemplate['content'] = {
   zh: `为 {{characterName}} 创建一张 {{style}} 风格的角色资产设定板。
 
@@ -895,6 +1020,50 @@ const ENVIRONMENT_REFERENCE_GENERATION_CONTENT: PromptTemplate['content'] = {
 const ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT_CONTENT: PromptTemplate['content'] = {
   zh: '人物, 角色, 人脸, 人体, 手, 剪影, 人群, human, person, people, face, portrait, character, body, hands, crowd, watermark, logo, text, 鱼眼, 透视畸变, 桶形畸变, 枕形畸变, 边缘拉伸, 夸张广角畸变, fisheye, fish-eye, lens distortion, barrel distortion, pincushion distortion, warped lines, curved horizon, extreme perspective, distorted ultra-wide lens',
   en: '人物, 角色, 人脸, 人体, 手, 剪影, 人群, human, person, people, face, portrait, character, body, hands, crowd, watermark, logo, text, 鱼眼, 透视畸变, 桶形畸变, 枕形畸变, 边缘拉伸, 夸张广角畸变, fisheye, fish-eye, lens distortion, barrel distortion, pincushion distortion, warped lines, curved horizon, extreme perspective, distorted ultra-wide lens'
+}
+
+const PROP_ASSET_GENERATION_CONTENT: PromptTemplate['content'] = {
+  zh: `你正在为资产一致性分镜视频生成单张{{assetLabel}}参考图。请直接生成图片，不要输出文字说明。
+
+【项目画风】
+{{style}}
+
+【资产名称】
+{{assetName}}
+
+【资产描述】
+{{assetDescription}}
+
+【执行要求】
+1. 只生成 1 张{{assetLabel}}参考图，不要拼图，不要多画面组合。
+2. 画面主体必须是该资产本身，完整展示外形、材质、颜色、尺度和关键细节。
+3. 使用干净中性背景或透明感背景，不要生成复杂场景，不要让环境喧宾夺主。
+4. 禁止出现人物、人脸、手、身体部位、文字、水印、Logo、边框、界面元素。
+5. 避免把资产画成多个不同版本；如果需要展示细节，也必须保持同一个资产身份。
+6. 构图稳定，主体居中且完整，不裁切，不遮挡，适合作为后续视频生成参考图。`,
+  en: `Generate exactly one {{assetLabel}} reference image for asset-consistent storyboard video production. Return image only, no text.
+
+[Project Style]
+{{style}}
+
+[Asset Name]
+{{assetName}}
+
+[Asset Description]
+{{assetDescription}}
+
+[Requirements]
+1. Generate exactly one image. No collage or multi-panel layout.
+2. The asset itself must be the clear subject, showing shape, material, color, scale, and key details.
+3. Use a clean neutral or transparent-feel background. Avoid complex scenes.
+4. Do not include people, face, hands, body parts, text, watermark, logo, border, or UI elements.
+5. Do not render multiple inconsistent versions of the asset.
+6. Keep composition stable, centered, complete, and unobstructed for downstream video reference usage.`
+}
+
+const PROP_ASSET_NEGATIVE_PROMPT_CONTENT: PromptTemplate['content'] = {
+  zh: '人物, 人脸, 人体, 手, 多个不同物体版本, 文字, 水印, logo, UI, human, person, face, hands, text, watermark',
+  en: '人物, 人脸, 人体, 手, 多个不同物体版本, 文字, 水印, logo, UI, human, person, face, hands, text, watermark'
 }
 
 const SCENE_DESCRIPTION_REFINEMENT_CONTENT: PromptTemplate['content'] = {

@@ -205,23 +205,52 @@ function buildScriptParsingEpisodes(text: string, episodePlan: ScriptEpisodePlan
   return normalizeScriptEpisodePlan(normalizedText, episodePlan)
 }
 
-function buildSegmentedParsingPrompt(options: {
+async function buildSegmentedParsingPrompt(options: {
   basePrompt: string
   chunkIndex: number
   chunkCount: number
   chunkLength: number
   totalLength: number
-}): string {
+}): Promise<string> {
   const percentage = options.totalLength > 0
     ? (options.chunkLength / options.totalLength) * 100
     : 0
 
-  return `${options.basePrompt}
+  const prompt = await getInterpolatedPrompt(
+    PROMPT_TEMPLATE_IDS.SCRIPT_PARSING_SEGMENT_CONTEXT,
+    {
+      basePrompt: options.basePrompt,
+      chunkIndex: String(options.chunkIndex + 1),
+      chunkCount: String(options.chunkCount),
+      chunkLength: String(options.chunkLength),
+      chunkPercentage: percentage.toFixed(1)
+    },
+    undefined,
+    'asset_consistency'
+  )
+  if (!prompt) {
+    throw new Error('无法获取剧本解析分段补充模板，请在设置中检查提示词配置')
+  }
+  return prompt
+}
 
-【分段解析上下文（系统追加）】
-- 当前仅处理原文第 ${options.chunkIndex + 1}/${options.chunkCount} 段，禁止补写未提供段落。
-- 本段文本长度：约 ${options.chunkLength} 字（全量占比约 ${percentage.toFixed(1)}%）。
-- 输出仍需保持原文顺序；若与前段重叠，请避免重复同一场景。`
+async function buildEpisodeDramaParsingPrompt(options: {
+  basePrompt: string
+  episodeDramaBrief: string
+}): Promise<string> {
+  const prompt = await getInterpolatedPrompt(
+    PROMPT_TEMPLATE_IDS.SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT,
+    {
+      basePrompt: options.basePrompt,
+      episodeDramaBrief: options.episodeDramaBrief
+    },
+    undefined,
+    'asset_consistency'
+  )
+  if (!prompt) {
+    throw new Error('无法获取剧本解析爆点补充模板，请在设置中检查提示词配置')
+  }
+  return prompt
 }
 
 function normalizeSceneDedupToken(value?: string | null): string {
@@ -1033,17 +1062,21 @@ export async function executeScriptParse(
       throw new Error('无法获取提示词模板，请检查数据库配置')
     }
 
-    const prompt = options.chunkCount && options.chunkCount > 1
-      ? buildSegmentedParsingPrompt({
-          basePrompt: interpolatedPrompt,
-          chunkIndex: options.chunkIndex || 0,
-          chunkCount: options.chunkCount,
-          chunkLength: options.chunkText.length,
-          totalLength: textLength
-        })
-      : interpolatedPrompt
+    let prompt = interpolatedPrompt
+    if (options.chunkCount && options.chunkCount > 1) {
+      prompt = await buildSegmentedParsingPrompt({
+        basePrompt: prompt,
+        chunkIndex: options.chunkIndex || 0,
+        chunkCount: options.chunkCount,
+        chunkLength: options.chunkText.length,
+        totalLength: textLength
+      })
+    }
     const promptWithEpisodeDrama = episodeDramaBrief
-      ? `${prompt}\n\n【本集爆点规划（系统追加，必须落入 dramatic 与 description）】\n${episodeDramaBrief}`
+      ? await buildEpisodeDramaParsingPrompt({
+          basePrompt: prompt,
+          episodeDramaBrief
+        })
       : prompt
 
     const result = await generateJSONForWorkflow<ParsedScript>('script_parsing', {
