@@ -27,6 +27,7 @@ export interface AssetImageHistoryEntry {
   id: string
   image: string
   createdAt?: string
+  viewMode?: EnvironmentCropCaptureMode
   source?: AssetHistorySource
   prompt?: string
 }

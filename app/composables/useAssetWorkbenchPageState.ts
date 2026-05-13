@@ -109,7 +109,9 @@ function buildEpisodeEnvironmentHintCards(options: {
         || ''
       const captureMode = options.environmentPanoramaStates?.[assetId]?.captureMode
         || options.environmentPanoramaStates?.[legacyAssetId]?.captureMode
-      const referenceImage = history[0]?.image || singleViewImage || fourViewImage || panoramaImage || undefined
+      const referenceImage = captureMode === 'four_view'
+        ? (fourViewImage || singleViewImage || history[0]?.image || panoramaImage || undefined)
+        : (singleViewImage || fourViewImage || history[0]?.image || panoramaImage || undefined)
       const referenceStatus = referenceImage ? 'done' : 'pending'
       const existing = merged.get(assetId)
       if (existing) {

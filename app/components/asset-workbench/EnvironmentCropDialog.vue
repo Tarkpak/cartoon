@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, ZoomIn, ZoomOut } from 'lucide-vue-next'
+import { Loader2 } from 'lucide-vue-next'
 import {
   buildDefaultCropSelection,
   disposePanoramaCanvas,
@@ -21,6 +21,9 @@ const MIN_VIEW_FOV_DEGREES = 35
 const MAX_VIEW_FOV_DEGREES = 150
 const DEFAULT_VIEW_FOV_DEGREES = 80
 const DEFAULT_VIEW_WIDTH = DEFAULT_VIEW_FOV_DEGREES / 360
+const WHEEL_ZOOM_SENSITIVITY = 0.0015
+const WHEEL_LINE_HEIGHT_PIXELS = 16
+const WHEEL_PAGE_HEIGHT_PIXELS = 800
 
 const props = defineProps<{
   open: boolean
@@ -81,17 +84,6 @@ function resolveSelectionHeight(width: number): number {
     0.95
   )
 }
-
-const viewFovDegrees = computed({
-  get: () => [
-    Math.round((selection.value?.width || DEFAULT_VIEW_WIDTH) * 360)
-  ],
-  set: (value: number[] | undefined) => {
-    const nextDegrees = value?.[0]
-    if (!Number.isFinite(nextDegrees)) return
-    setSelectionWidth(clamp((nextDegrees as number) / 360, MIN_VIEW_WIDTH, MAX_VIEW_WIDTH))
-  }
-})
 
 function resolvePreviewCanvasCssSize(): { width: number, height: number } {
   const bounds = viewportRef.value?.getBoundingClientRect()
@@ -274,6 +266,22 @@ function moveView(event: PointerEvent) {
   setSelectionCenter(centerX, centerY)
 }
 
+function resolveWheelDeltaPixels(event: WheelEvent): number {
+  if (event.deltaMode === 1) return event.deltaY * WHEEL_LINE_HEIGHT_PIXELS
+  if (event.deltaMode === 2) return event.deltaY * WHEEL_PAGE_HEIGHT_PIXELS
+  return event.deltaY
+}
+
+function handleWheelZoom(event: WheelEvent) {
+  if (!selection.value || loadingPreview.value) return
+
+  const deltaPixels = resolveWheelDeltaPixels(event)
+  if (!Number.isFinite(deltaPixels) || deltaPixels === 0) return
+
+  const scale = Math.exp(deltaPixels * WHEEL_ZOOM_SENSITIVITY)
+  setSelectionWidth(selection.value.width * scale)
+}
+
 function stopDragging(event?: PointerEvent) {
   if (event && dragState.pointerId) {
     ;(event.currentTarget as HTMLElement | null)?.releasePointerCapture?.(dragState.pointerId)
@@ -361,6 +369,7 @@ onBeforeUnmount(() => {
             @pointermove.prevent="moveView"
             @pointerup.prevent="stopDragging"
             @pointercancel.prevent="stopDragging"
+            @wheel.prevent="handleWheelZoom"
           />
         </div>
 
@@ -379,65 +388,63 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="flex shrink-0 items-center justify-between gap-3 border-t bg-background/95 px-4 py-3 backdrop-blur">
-        <div class="min-w-0 truncate text-sm font-medium">
-          {{ targetLabel || '环境取景区域' }}
-        </div>
-        <div class="min-w-0 flex-1 flex-col items-center justify-center gap-2 px-2">
-          <div class="flex items-center gap-2">
+      <div class="shrink-0 border-t bg-background/95 px-4 py-3 backdrop-blur">
+        <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
+          <div class="min-w-0 rounded-lg border bg-muted/25 px-3 py-2 xl:w-[260px]">
+            <p class="truncate text-sm font-semibold tracking-tight">
+              {{ targetLabel || '环境取景区域' }}
+            </p>
+            <p class="mt-0.5 text-[11px] text-muted-foreground">
+              拖动画面调整朝向，鼠标滚轮缩放视角
+            </p>
+          </div>
+
+          <div class="flex min-w-0 flex-1 flex-col gap-2">
+            <div class="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 px-2 py-1.5">
+              <Button
+                size="sm"
+                class="h-7"
+                :variant="captureMode === 'single' ? 'default' : 'outline'"
+                :disabled="loadingPreview || !selection"
+                @click="captureMode = 'single'"
+              >
+                单视图
+              </Button>
+              <Button
+                size="sm"
+                class="h-7"
+                :variant="captureMode === 'four_view' ? 'default' : 'outline'"
+                :disabled="loadingPreview || !selection"
+                @click="captureMode = 'four_view'"
+              >
+                四视图
+              </Button>
+              <span class="text-[11px] text-muted-foreground sm:ml-1">
+                四视图拼图顺序：前 / 后 / 左 / 右
+              </span>
+            </div>
+          </div>
+
+          <div class="flex shrink-0 items-center justify-end gap-2">
             <Button
-              size="sm"
-              :variant="captureMode === 'single' ? 'default' : 'outline'"
-              :disabled="loadingPreview || !selection"
-              @click="captureMode = 'single'"
+              variant="outline"
+              class="h-9"
+              @click="emit('update:open', false)"
             >
-              单视图
+              取消
             </Button>
             <Button
-              size="sm"
-              :variant="captureMode === 'four_view' ? 'default' : 'outline'"
-              :disabled="loadingPreview || !selection"
-              @click="captureMode = 'four_view'"
+              class="h-9"
+              :disabled="loading || loadingPreview || !selection || !!previewError"
+              @click="submit"
             >
-              四视图
+              <Loader2
+                v-if="loading"
+                class="mr-2 h-4 w-4 animate-spin"
+              />
+              保存取景区域
             </Button>
-            <span class="text-xs text-muted-foreground">
-              四视图拼图顺序：前 / 后 / 左 / 右
-            </span>
           </div>
-          <div class="flex items-center gap-2">
-            <ZoomOut class="h-4 w-4 shrink-0 text-muted-foreground" />
-            <Slider
-              v-model="viewFovDegrees"
-              class="max-w-56"
-              :min="MIN_VIEW_FOV_DEGREES"
-              :max="MAX_VIEW_FOV_DEGREES"
-              :step="1"
-              :disabled="loadingPreview || !selection"
-            />
-            <ZoomIn class="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span class="w-12 shrink-0 text-right text-xs text-muted-foreground">
-              {{ viewFovDegrees[0] }}°
-            </span>
-          </div>
-        </div>
-        <div class="flex shrink-0 items-center gap-2">
-          <Button
-            variant="outline"
-            @click="emit('update:open', false)"
-          >
-            取消
-          </Button>
-          <Button
-            :disabled="loading || loadingPreview || !selection || !!previewError"
-            @click="submit"
-          >
-            <Loader2
-              v-if="loading"
-              class="mr-2 h-4 w-4 animate-spin"
-            />
-            保存取景区域
-          </Button>
         </div>
       </div>
     </div>

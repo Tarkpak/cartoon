@@ -257,6 +257,21 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '')
 }
 
+function isApiMartBaseUrl(baseUrl?: string): boolean {
+  const raw = baseUrl?.trim()
+  if (!raw) return false
+
+  const normalized = normalizeBaseUrl(raw).toLowerCase()
+  try {
+    const parsed = new URL(normalized)
+    const host = parsed.hostname.toLowerCase()
+    if (host.includes('apimart')) return true
+    return parsed.pathname.toLowerCase().includes('/apimart')
+  } catch {
+    return normalized.includes('apimart')
+  }
+}
+
 function chatCompletionsUrl(baseUrl: string): string {
   const normalized = normalizeBaseUrl(baseUrl)
   if (normalized.endsWith('/chat/completions')) {
@@ -1051,26 +1066,34 @@ export async function generateOpenAICompatibleJSON<T>(options: {
   })
 }
 
-export async function generateOpenAICompatibleImage(options: {
-  providerConfig: CustomOpenAIProviderConfig
+interface OpenAICompatibleImageStrategy {
+  isApiMartProvider: boolean
+  isApiMartGptImage2: boolean
+  isApiMartGptImage2Official: boolean
+  isApiMartGptImage2Series: boolean
+  supportsQuality: boolean
+  supportsEdit: boolean
+  useImageUrlsInGenerations: boolean
+  quality?: string
+  resolution?: '1k' | '2k' | '4k'
+  resolvedSize: string
+}
+
+function resolveOpenAICompatibleImageStrategy(options: {
+  providerConfig: OpenAICompatibleProviderConfig
   model: string
-  prompt: string
   size?: string
   aspectRatio?: string
   quality?: string
-  referenceImages?: string[]
-  maxRetries?: number
-}): Promise<{ imageUrl?: string, imageData?: string, mimeType?: string }> {
+}): OpenAICompatibleImageStrategy {
   const normalizedModel = options.model.trim().toLowerCase()
-  const isApiMartGptImage2 = normalizedModel === APIMART_GPT_IMAGE_2_MODEL
-  const isApiMartGptImage2Official = normalizedModel === APIMART_GPT_IMAGE_2_OFFICIAL_MODEL
+  const isApiMartProvider = isApiMartBaseUrl(options.providerConfig.baseUrl)
+  const isApiMartGptImage2 = isApiMartProvider && normalizedModel === APIMART_GPT_IMAGE_2_MODEL
+  const isApiMartGptImage2Official = isApiMartProvider && normalizedModel === APIMART_GPT_IMAGE_2_OFFICIAL_MODEL
   const isApiMartGptImage2Series = isApiMartGptImage2 || isApiMartGptImage2Official
   const supportsQuality = normalizedModel.startsWith('gpt-image') && !isApiMartGptImage2
   const supportsEdit = normalizedModel.startsWith('gpt-image')
   const useImageUrlsInGenerations = isApiMartGptImage2Series
-  const referenceImages = (options.referenceImages || [])
-    .map(image => image.trim())
-    .filter(Boolean)
   const normalizedQuality = normalizeOpenAIQuality(options.quality)
   const quality = supportsQuality ? normalizedQuality : undefined
   const normalizedQualityOrResolution = options.quality?.trim().toLowerCase()
@@ -1084,23 +1107,52 @@ export async function generateOpenAICompatibleImage(options: {
     ? resolveApiMartImageSize({ aspectRatio: options.aspectRatio, size: options.size })
     : (options.size?.replace(/\*/g, 'x') || '1024x1024')
 
+  return {
+    isApiMartProvider,
+    isApiMartGptImage2,
+    isApiMartGptImage2Official,
+    isApiMartGptImage2Series,
+    supportsQuality,
+    supportsEdit,
+    useImageUrlsInGenerations,
+    quality,
+    resolution,
+    resolvedSize
+  }
+}
+
+export async function generateOpenAICompatibleImage(options: {
+  providerConfig: CustomOpenAIProviderConfig
+  model: string
+  prompt: string
+  size?: string
+  aspectRatio?: string
+  quality?: string
+  referenceImages?: string[]
+  maxRetries?: number
+}): Promise<{ imageUrl?: string, imageData?: string, mimeType?: string }> {
+  const imageStrategy = resolveOpenAICompatibleImageStrategy(options)
+  const referenceImages = (options.referenceImages || [])
+    .map(image => image.trim())
+    .filter(Boolean)
+
   const requestBody: Record<string, unknown> = {
     model: options.model,
     prompt: options.prompt,
-    size: resolvedSize,
+    size: imageStrategy.resolvedSize,
     n: 1
   }
-  if (quality) {
-    requestBody.quality = quality
+  if (imageStrategy.quality) {
+    requestBody.quality = imageStrategy.quality
   }
-  if (resolution) {
-    requestBody.resolution = resolution
+  if (imageStrategy.resolution) {
+    requestBody.resolution = imageStrategy.resolution
   }
-  if (referenceImages.length > 0 && useImageUrlsInGenerations) {
+  if (referenceImages.length > 0 && imageStrategy.useImageUrlsInGenerations) {
     requestBody.image_urls = referenceImages
   }
 
-  if (referenceImages.length > 0 && !supportsEdit) {
+  if (referenceImages.length > 0 && !imageStrategy.supportsEdit) {
     throw new OpenAICompatibleError(`模型 ${options.model} 不支持参考图编辑`, 400, false)
   }
 
@@ -1108,17 +1160,18 @@ export async function generateOpenAICompatibleImage(options: {
   console.log(`[${timestamp}] [OpenAI Compatible] generateImage 请求参数:`, {
     model: options.model,
     baseUrl: options.providerConfig.baseUrl,
+    isApiMartProvider: imageStrategy.isApiMartProvider,
     promptLength: options.prompt.length,
     prompt: options.prompt,
     size: options.size,
     aspectRatio: options.aspectRatio,
-    resolvedSize,
+    resolvedSize: imageStrategy.resolvedSize,
     quality: options.quality,
-    normalizedQuality: quality,
-    resolution,
+    normalizedQuality: imageStrategy.quality,
+    resolution: imageStrategy.resolution,
     referenceImageCount: referenceImages.length,
-    useImageEdits: referenceImages.length > 0 && !useImageUrlsInGenerations,
-    useImageUrlsInGenerations,
+    useImageEdits: referenceImages.length > 0 && !imageStrategy.useImageUrlsInGenerations,
+    useImageUrlsInGenerations: imageStrategy.useImageUrlsInGenerations,
     maxRetries: options.maxRetries
   })
 
@@ -1138,15 +1191,15 @@ export async function generateOpenAICompatibleImage(options: {
       mimeType: result.mimeType
     }),
     execute: async () => withRetry(async () => {
-      const response = referenceImages.length > 0 && !useImageUrlsInGenerations
+      const response = referenceImages.length > 0 && !imageStrategy.useImageUrlsInGenerations
         ? await (async () => {
             const formData = new FormData()
             formData.set('model', options.model)
             formData.set('prompt', options.prompt)
             formData.set('size', requestBody.size as string)
             formData.set('n', String(requestBody.n))
-            if (quality) {
-              formData.set('quality', quality)
+            if (imageStrategy.quality) {
+              formData.set('quality', imageStrategy.quality)
             }
             for (let i = 0; i < referenceImages.length; i++) {
               const reference = referenceImages[i]
@@ -1181,4 +1234,10 @@ export async function generateOpenAICompatibleImage(options: {
       throw new OpenAICompatibleError('OpenAI 兼容图片生成未返回图片 URL 或 base64', 500, false)
     }, { maxRetries: options.maxRetries })
   })
+}
+
+export const __openaiCompatibleTestUtils = {
+  isApiMartBaseUrl,
+  resolveApiMartImageSize,
+  resolveOpenAICompatibleImageStrategy
 }
