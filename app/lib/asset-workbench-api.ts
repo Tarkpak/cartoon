@@ -56,6 +56,7 @@ export interface ParseScriptResponse {
       episodeIndex?: number
       title?: string
       shotType?: SceneData['shotType']
+      environmentCaptureMode?: SceneData['environmentCaptureMode']
       description: string
       dramatic?: SceneDramatic
       characters: Array<{ name: string, appearance?: string, emotion?: string }>

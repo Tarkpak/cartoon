@@ -15,6 +15,9 @@ import {
   resolveSceneReferenceImage as resolveSceneDirectReferenceImage
 } from '~/lib/asset-workbench-environment'
 import {
+  resolveEnvironmentReferenceImageForScene
+} from '~/lib/asset-workbench-environment-views'
+import {
   resolveAssetByMentionTokenMap as createAssetByMentionTokenMap,
   resolveAssetMentionTokenMap as createAssetMentionTokenMap,
   resolveDisplayAssetTypeLabel,
@@ -95,12 +98,18 @@ function buildEpisodeEnvironmentHintCards(options: {
       const history = options.environmentAssetHistories?.[assetId]
         || options.environmentAssetHistories?.[legacyAssetId]
         || []
+      const singleViewImage = options.environmentPanoramaStates?.[assetId]?.singleViewImage?.trim()
+        || options.environmentPanoramaStates?.[legacyAssetId]?.singleViewImage?.trim()
+        || ''
+      const fourViewImage = options.environmentPanoramaStates?.[assetId]?.fourViewImage?.trim()
+        || options.environmentPanoramaStates?.[legacyAssetId]?.fourViewImage?.trim()
+        || ''
       const panoramaImage = options.environmentPanoramaStates?.[assetId]?.panoramaImage?.trim()
         || options.environmentPanoramaStates?.[legacyAssetId]?.panoramaImage?.trim()
         || ''
       const captureMode = options.environmentPanoramaStates?.[assetId]?.captureMode
         || options.environmentPanoramaStates?.[legacyAssetId]?.captureMode
-      const referenceImage = history[0]?.image || panoramaImage || undefined
+      const referenceImage = history[0]?.image || singleViewImage || fourViewImage || panoramaImage || undefined
       const referenceStatus = referenceImage ? 'done' : 'pending'
       const existing = merged.get(assetId)
       if (existing) {
@@ -112,6 +121,12 @@ function buildEpisodeEnvironmentHintCards(options: {
         }
         if (!existing.panoramaImage && panoramaImage) {
           existing.panoramaImage = panoramaImage
+        }
+        if (!existing.singleViewImage && singleViewImage) {
+          existing.singleViewImage = singleViewImage
+        }
+        if (!existing.fourViewImage && fourViewImage) {
+          existing.fourViewImage = fourViewImage
         }
         if (!existing.captureMode && captureMode) {
           existing.captureMode = captureMode
@@ -138,6 +153,8 @@ function buildEpisodeEnvironmentHintCards(options: {
         referenceImage,
         referenceError: undefined,
         panoramaImage: panoramaImage || undefined,
+        singleViewImage: singleViewImage || undefined,
+        fourViewImage: fourViewImage || undefined,
         crop: undefined,
         captureMode,
         assetHistory: history,
@@ -300,9 +317,13 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
   }
 
   function resolveSceneReferenceImage(scene: SceneData): string | undefined {
+    const directSceneImage = resolveSceneDirectReferenceImage(scene)
+    if (directSceneImage) return directSceneImage
+
     const environmentAssetId = resolveSceneEnvironmentAssetId(scene)
-    return findEnvironmentCard(environmentAssetId, environmentAssetCards.value)?.referenceImage
-      || resolveSceneDirectReferenceImage(scene)
+    const environmentCard = findEnvironmentCard(environmentAssetId, environmentAssetCards.value)
+    return resolveEnvironmentReferenceImageForScene(scene, environmentCard)
+      || environmentCard?.referenceImage
   }
 
   function synchronizeQueueItems() {

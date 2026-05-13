@@ -33,6 +33,10 @@ import {
   resolveSceneVideoCharacterReferences,
   resolveSceneVideoReferenceAssets
 } from '~/lib/asset-workbench-scene-references'
+import {
+  resolveEnvironmentCaptureModeForScene,
+  resolveEnvironmentReferenceImageByCaptureMode
+} from '~/lib/asset-workbench-environment-views'
 
 interface UseAssetWorkbenchSceneGenerationOptions {
   scenes: Ref<SceneData[]>
@@ -88,6 +92,8 @@ interface UseAssetWorkbenchSceneGenerationOptions {
     imageUrl: string
     crop: EnvironmentCropSelection
     captureMode: EnvironmentCropCaptureMode
+    singleViewImage?: string
+    fourViewImage?: string
   }>
   resolveSceneBaselineReferenceImage?: (scene: SceneData) => string | undefined
   recordSceneVideoHistory?: (
@@ -392,6 +398,12 @@ export function useAssetWorkbenchSceneGeneration(
         ? existingPanoramaState?.crop
         : undefined
       let captureMode = existingPanoramaState?.captureMode
+      let singleViewImage = existingPanoramaState?.panoramaImage === panoramaImage
+        ? existingPanoramaState?.singleViewImage
+        : undefined
+      let fourViewImage = existingPanoramaState?.panoramaImage === panoramaImage
+        ? existingPanoramaState?.fourViewImage
+        : undefined
 
       if (options.createEnvironmentCropImage) {
         try {
@@ -413,9 +425,18 @@ export function useAssetWorkbenchSceneGeneration(
           const croppedResult = await options.createEnvironmentCropImage({
             ...cropOptions
           })
-          referenceImage = croppedResult.imageUrl
           crop = croppedResult.crop
           captureMode = croppedResult.captureMode
+          const normalizedSingleViewImage = croppedResult.singleViewImage?.trim()
+            || (croppedResult.captureMode === 'single'
+              ? croppedResult.imageUrl?.trim()
+              : undefined)
+          const normalizedFourViewImage = croppedResult.fourViewImage?.trim()
+            || (croppedResult.captureMode === 'four_view'
+              ? croppedResult.imageUrl?.trim()
+              : undefined)
+          singleViewImage = normalizedSingleViewImage || singleViewImage
+          fourViewImage = normalizedFourViewImage || fourViewImage
         } catch (error) {
           console.warn('[AssetWorkbench] 环境全景图裁切失败，已回退使用原始环境图', {
             sceneId: scene.id,
@@ -425,6 +446,16 @@ export function useAssetWorkbenchSceneGeneration(
         }
       }
 
+      const resolvedCaptureMode = resolveEnvironmentCaptureModeForScene(scene, {
+        fallbackCaptureMode: captureMode
+      })
+      referenceImage = resolveEnvironmentReferenceImageByCaptureMode({
+        panoramaImage,
+        singleViewImage,
+        fourViewImage,
+        captureMode
+      }, resolvedCaptureMode) || panoramaImage
+
       applySceneBaselineReference(scene, referenceImage)
       const panoramaState: EnvironmentPanoramaState = {
         panoramaImage,
@@ -432,6 +463,12 @@ export function useAssetWorkbenchSceneGeneration(
       }
       if (captureMode === 'four_view') {
         panoramaState.captureMode = 'four_view'
+      }
+      if (singleViewImage?.trim()) {
+        panoramaState.singleViewImage = singleViewImage
+      }
+      if (fourViewImage?.trim()) {
+        panoramaState.fourViewImage = fourViewImage
       }
       options.setEnvironmentPanoramaState?.(environmentAssetId, panoramaState)
       options.recordEnvironmentHistory?.(

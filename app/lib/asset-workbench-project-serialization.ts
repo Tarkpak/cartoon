@@ -3,6 +3,7 @@ import {
   normalizeTimeOfDayValue,
   type SceneDramatic,
   type SceneCameraMovement,
+  type SceneEnvironmentCaptureMode,
   type SceneShotType
 } from '#shared/types/script'
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
@@ -37,6 +38,7 @@ interface LoadedProjectScene {
   shotType?: SceneShotType | null
   cameraMovement?: SceneCameraMovement | null
   cameraNote?: string | null
+  environmentCaptureMode?: SceneEnvironmentCaptureMode | null
   transitionIn?: AssetWorkbenchTransitionType | null
   transitionOut?: AssetWorkbenchTransitionType | null
   transitionDuration?: number | null
@@ -86,6 +88,7 @@ export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
     shotType: scene.shotType || 'medium',
     cameraMovement: scene.cameraMovement || 'static',
     cameraNote: scene.cameraNote || '',
+    environmentCaptureMode: scene.environmentCaptureMode || undefined,
     transitionIn: scene.transitionIn || 'cut',
     transitionOut: scene.transitionOut || 'cut',
     transitionDuration: scene.transitionDuration ?? 0.5,
@@ -169,6 +172,7 @@ export function buildSaveScenesPayload(scenes: SceneData[]) {
     shotType: scene.shotType,
     cameraMovement: scene.cameraMovement,
     cameraNote: scene.cameraNote,
+    environmentCaptureMode: scene.environmentCaptureMode,
     transitionIn: scene.transitionIn,
     transitionOut: scene.transitionOut,
     transitionDuration: scene.transitionDuration,

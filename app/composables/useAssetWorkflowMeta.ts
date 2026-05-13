@@ -153,7 +153,13 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
   function buildWorkflowMetaPayload(): AssetWorkflowMeta {
     const environmentPanoramaStates: Record<string, EnvironmentPanoramaState> = Object.fromEntries(
       Object.entries(options.environmentPanoramaStates.value)
-        .filter(([, state]) => !!state?.panoramaImage?.trim() || !!state?.crop || state?.captureMode === 'four_view')
+        .filter(([, state]) => {
+          return !!state?.panoramaImage?.trim()
+            || !!state?.singleViewImage?.trim()
+            || !!state?.fourViewImage?.trim()
+            || !!state?.crop
+            || state?.captureMode === 'four_view'
+        })
         .map(([assetId, state]) => {
           const captureMode = state.captureMode === 'four_view'
             ? 'four_view' as const
@@ -163,14 +169,16 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
             {
               panoramaImage: state.panoramaImage?.trim() || undefined,
               crop: state.crop,
-              captureMode
+              captureMode,
+              singleViewImage: state.singleViewImage?.trim() || undefined,
+              fourViewImage: state.fourViewImage?.trim() || undefined
             }
           ]
         })
     )
 
     return {
-      version: 5,
+      version: 6,
       sceneConfigs: options.sceneConfigs.value,
       props: options.propAssets.value.map(prop => ({
         ...prop,
@@ -310,6 +318,12 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         const panoramaImage = typeof item.panoramaImage === 'string' && item.panoramaImage.trim()
           ? item.panoramaImage.trim()
           : undefined
+        const singleViewImage = typeof item.singleViewImage === 'string' && item.singleViewImage.trim()
+          ? item.singleViewImage.trim()
+          : undefined
+        const fourViewImage = typeof item.fourViewImage === 'string' && item.fourViewImage.trim()
+          ? item.fourViewImage.trim()
+          : undefined
         const captureMode = item.captureMode === 'four_view'
           ? 'four_view'
           : undefined
@@ -325,19 +339,26 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
             }
           : undefined
 
-        if (!panoramaImage && !crop && !captureMode) {
+        if (!panoramaImage && !singleViewImage && !fourViewImage && !crop && !captureMode) {
           continue
         }
 
         const targetAssetId = environmentStateAliases.get(assetId) || assetId
-        if (loadedEnvironmentPanoramaStates[targetAssetId]?.panoramaImage || loadedEnvironmentPanoramaStates[targetAssetId]?.crop) {
+        if (
+          loadedEnvironmentPanoramaStates[targetAssetId]?.panoramaImage
+          || loadedEnvironmentPanoramaStates[targetAssetId]?.singleViewImage
+          || loadedEnvironmentPanoramaStates[targetAssetId]?.fourViewImage
+          || loadedEnvironmentPanoramaStates[targetAssetId]?.crop
+        ) {
           continue
         }
 
         loadedEnvironmentPanoramaStates[targetAssetId] = {
           panoramaImage,
           crop,
-          captureMode
+          captureMode,
+          singleViewImage,
+          fourViewImage
         }
       }
       const loadedFinalVideo = normalizeFinalVideo(meta?.finalVideo)

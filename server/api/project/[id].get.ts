@@ -509,6 +509,7 @@ export default defineEventHandler(async (event) => {
             shotType: s.shotType,
             cameraMovement: s.cameraMovement,
             cameraNote: s.cameraNote,
+            environmentCaptureMode: s.environmentCaptureMode,
             // 转场
             transitionIn: s.transitionIn,
             transitionOut: s.transitionOut,
