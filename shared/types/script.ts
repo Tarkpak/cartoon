@@ -297,6 +297,13 @@ export const SceneCameraMovementSchema = z.enum([
 ]).describe('运镜方式')
 export type SceneCameraMovement = z.infer<typeof SceneCameraMovementSchema>
 
+/** 环境参考取景模式（用于环境资产引用） */
+export const SceneEnvironmentCaptureModeSchema = z.enum([
+  'single',
+  'four_view'
+]).describe('环境参考取景模式')
+export type SceneEnvironmentCaptureMode = z.infer<typeof SceneEnvironmentCaptureModeSchema>
+
 /** 场景时长（秒） */
 export const SceneDurationSchema = z.coerce.number().min(2).max(15).default(8).describe('视频时长(秒，2-15)')
 export type SceneDuration = z.infer<typeof SceneDurationSchema>
@@ -334,6 +341,8 @@ export const SceneSchema = z.object({
   title: z.string().optional().describe('场景标题'),
   shotType: SceneShotTypeSchema.optional(),
   cameraMovement: SceneCameraMovementSchema.optional(),
+  environmentCaptureMode: SceneEnvironmentCaptureModeSchema.optional()
+    .describe('环境参考取景模式：single=单视角，four_view=多视角拼图'),
   description: z.string().describe('场景描述'),
   dramatic: SceneDramaticSchema,
   setting: SceneSettingSchema.describe('场景设定'),

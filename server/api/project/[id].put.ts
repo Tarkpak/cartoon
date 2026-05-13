@@ -165,6 +165,7 @@ const SceneSchema = z.object({
   shotType: z.enum(['extreme_wide', 'wide', 'medium_wide', 'medium', 'medium_close', 'close', 'extreme_close', 'detail']).nullish(),
   cameraMovement: z.enum(['static', 'push', 'pull', 'pan_left', 'pan_right', 'tilt_up', 'tilt_down', 'track', 'dolly', 'zoom_in', 'zoom_out', 'crane', 'handheld', 'arc']).nullish(),
   cameraNote: z.string().nullish(),
+  environmentCaptureMode: z.enum(['single', 'four_view']).nullish(),
   // 转场
   transitionIn: z.enum(['cut', 'fade', 'dissolve', 'wipe', 'slide', 'zoom', 'blur', 'flash', 'none']).nullish(),
   transitionOut: z.enum(['cut', 'fade', 'dissolve', 'wipe', 'slide', 'zoom', 'blur', 'flash', 'none']).nullish(),
@@ -405,6 +406,7 @@ export default defineEventHandler(async (event) => {
             shotType: scene.shotType || null,
             cameraMovement: scene.cameraMovement || null,
             cameraNote: scene.cameraNote || null,
+            environmentCaptureMode: scene.environmentCaptureMode || null,
             // 转场
             transitionIn: scene.transitionIn || null,
             transitionOut: scene.transitionOut || null,

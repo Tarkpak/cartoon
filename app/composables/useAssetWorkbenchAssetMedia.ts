@@ -11,6 +11,10 @@ import {
   uploadImageFile
 } from '~/lib/asset-workbench-upload'
 import { isPanoramaSourceSize } from '~/lib/asset-workbench-environment-panorama'
+import {
+  resolveEnvironmentCaptureModeForScene,
+  resolveEnvironmentReferenceImageByCaptureMode
+} from '~/lib/asset-workbench-environment-views'
 import type {
   EnvironmentAssetCard,
   EnvironmentPanoramaState
@@ -377,12 +381,23 @@ export function useAssetWorkbenchAssetMedia(options: {
 
       const updatedImage = options.resolveSceneReferenceImage(targetScene)
       if (updatedImage) {
+        const latestAsset = options.resolveEnvironmentCard(targetAsset.id) || targetAsset
         for (const sceneId of targetAsset.sceneIds) {
           if (sceneId === targetScene.id) continue
           const scene = options.scenes.value.find(item => item.id === sceneId)
           if (!scene) continue
 
-          applySceneBaselineReference(scene, updatedImage)
+          const preferredMode = resolveEnvironmentCaptureModeForScene(scene, {
+            fallbackCaptureMode: latestAsset.captureMode
+          })
+          const sceneReferenceImage = resolveEnvironmentReferenceImageByCaptureMode({
+            panoramaImage: latestAsset.panoramaImage,
+            singleViewImage: latestAsset.singleViewImage,
+            fourViewImage: latestAsset.fourViewImage,
+            captureMode: latestAsset.captureMode
+          }, preferredMode) || updatedImage
+
+          applySceneBaselineReference(scene, sceneReferenceImage)
         }
         options.synchronizeQueueItems()
         await options.saveProject()

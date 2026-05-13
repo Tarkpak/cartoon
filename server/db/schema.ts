@@ -49,6 +49,7 @@ export const scenes = sqliteTable('scenes', {
   shotType: text('shot_type'), // 景别
   cameraMovement: text('camera_movement'), // 运镜方式
   cameraNote: text('camera_note'), // 镜头备注
+  environmentCaptureMode: text('environment_capture_mode', { enum: ['single', 'four_view'] }), // 环境参考取景模式
   // 转场
   transitionIn: text('transition_in'), // 入场转场
   transitionOut: text('transition_out'), // 出场转场

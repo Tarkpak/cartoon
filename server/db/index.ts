@@ -85,6 +85,7 @@ export function initDatabase() {
       shot_type TEXT,
       camera_movement TEXT,
       camera_note TEXT,
+      environment_capture_mode TEXT,
       transition_in TEXT,
       transition_out TEXT,
       transition_duration REAL,
@@ -104,6 +105,7 @@ export function initDatabase() {
   if (!hasSceneColumn('episode_title')) sqlite.exec('ALTER TABLE scenes ADD COLUMN episode_title TEXT')
   if (!hasSceneColumn('episode_index')) sqlite.exec('ALTER TABLE scenes ADD COLUMN episode_index INTEGER')
   if (!hasSceneColumn('dramatic')) sqlite.exec('ALTER TABLE scenes ADD COLUMN dramatic TEXT')
+  if (!hasSceneColumn('environment_capture_mode')) sqlite.exec('ALTER TABLE scenes ADD COLUMN environment_capture_mode TEXT')
 
   // 创建角色表
   sqlite.exec(`
