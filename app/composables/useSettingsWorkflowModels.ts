@@ -64,13 +64,13 @@ export const WORKFLOW_CATEGORY_CONFIG: Record<WorkflowCategoryKey, WorkflowCateg
     name: '文本生成',
     icon: Cpu,
     color: 'blue',
-    description: '覆盖剧本解析和场景描述改写。'
+    description: '覆盖分集目录规划、剧本解析和场景描述改写。'
   },
   image: {
     name: '图片生成',
     icon: Image,
     color: 'green',
-    description: '覆盖角色资产生成与环境参考图生成。'
+    description: '覆盖角色/道具资产生成与环境参考图生成。'
   },
   video: {
     name: '视频生成',
