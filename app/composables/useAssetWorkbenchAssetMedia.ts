@@ -41,6 +41,10 @@ export function useAssetWorkbenchAssetMedia(options: {
     sceneId: string,
     options?: GenerateSceneBaselineOptions
   ) => Promise<void>
+  onModelTaskCompleted?: (payload: {
+    title: string
+    body?: string
+  }) => Promise<unknown> | unknown
 }) {
   const imagePreviewOpen = ref(false)
   const imagePreviewSrc = ref('')
@@ -269,7 +273,12 @@ export function useAssetWorkbenchAssetMedia(options: {
     }
   }
 
-  async function generatePropImage(propId: string): Promise<string | undefined> {
+  async function generatePropImage(
+    propId: string,
+    generationOptions: {
+      skipCompletionNotice?: boolean
+    } = {}
+  ): Promise<string | undefined> {
     const target = options.propAssets.value.find(item => item.id === propId)
     if (!target || generatingPropId.value) return
 
@@ -299,6 +308,12 @@ export function useAssetWorkbenchAssetMedia(options: {
 
       target.referenceImage = response.imageUrl
       await options.saveWorkflowMeta()
+      if (!generationOptions.skipCompletionNotice) {
+        await options.onModelTaskCompleted?.({
+          title: '道具图生成完成',
+          body: `道具：${target.name || target.id}`
+        })
+      }
       return response.imageUrl
     } catch (error) {
       options.statusError.value = options.resolveUiError(error, '道具图生成失败')

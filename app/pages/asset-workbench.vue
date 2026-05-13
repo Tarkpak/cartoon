@@ -70,6 +70,10 @@ import {
 } from '~/lib/asset-workbench-scene-generation'
 import { uploadAssetImage, uploadImageFile } from '~/lib/asset-workbench-upload'
 import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
+import {
+  getBrowserNotificationStatus,
+  requestBrowserNotificationPermission
+} from '~/composables/useGenerationCompletionNotification'
 
 // 资产工作台页面
 definePageMeta({
@@ -1154,13 +1158,25 @@ async function ensurePropAssetsReady() {
   if (missingProps.length === 0) return
 
   const failedNames: string[] = []
+  let generatedCount = 0
   for (const prop of missingProps) {
     const beforeImage = prop.referenceImage?.trim() || ''
-    await handleGeneratePropImage(prop.id)
+    await handleGeneratePropImage(prop.id, {
+      skipCompletionNotice: true
+    })
     const afterImage = propAssets.value.find(item => item.id === prop.id)?.referenceImage?.trim() || ''
     if (!afterImage || afterImage === beforeImage) {
       failedNames.push(prop.name || prop.id)
+      continue
     }
+    generatedCount += 1
+  }
+
+  if (generatedCount > 0) {
+    await notifyGenerationCompleted({
+      title: '道具图批量生成完成',
+      body: `成功 ${generatedCount} / ${missingProps.length}${failedNames.length > 0 ? `，失败 ${failedNames.length}` : ''}`
+    })
   }
 
   if (failedNames.length > 0) {
@@ -1299,6 +1315,14 @@ async function handlePrepareEpisodePlan() {
   if (!novelText.value.trim()) {
     alert('请先输入剧本原文')
     return
+  }
+  const notificationStatus = getBrowserNotificationStatus()
+  if (notificationStatus.supported && notificationStatus.secureContext && notificationStatus.canPrompt) {
+    try {
+      await requestBrowserNotificationPermission()
+    } catch (error) {
+      console.warn('[asset-workbench] 申请系统通知权限失败:', error)
+    }
   }
   await prepareEpisodePlanWithAssetHydration()
 }
@@ -1498,7 +1522,8 @@ const {
   resolveEnvironmentRepresentativeScene,
   panoramaSourceAspectRatio: environmentPanoramaSourceAspectRatio,
   setEnvironmentPanoramaState,
-  generateSceneBaseline
+  generateSceneBaseline,
+  onModelTaskCompleted: notifyGenerationCompleted
 })
 
 const environmentCropDialogOpen = ref(false)
@@ -1905,9 +1930,16 @@ async function handlePropImageUpload(propId: string, event: Event) {
   await saveWorkflowMeta()
 }
 
-async function handleGeneratePropImage(propId: string) {
+async function handleGeneratePropImage(
+  propId: string,
+  options: {
+    skipCompletionNotice?: boolean
+  } = {}
+) {
   const previousImage = propAssets.value.find(item => item.id === propId)?.referenceImage?.trim() || ''
-  const generatedImage = await generatePropImageCore(propId)
+  const generatedImage = await generatePropImageCore(propId, {
+    skipCompletionNotice: options.skipCompletionNotice
+  })
   const target = propAssets.value.find(item => item.id === propId)
   const nextImage = generatedImage?.trim() || target?.referenceImage?.trim() || ''
   if (!target || !nextImage || nextImage === previousImage) return
