@@ -452,6 +452,7 @@ function recordEnvironmentHistory(
   options: {
     source?: 'generated' | 'uploaded' | 'cropped' | 'legacy'
     prompt?: string
+    viewMode?: EnvironmentCropCaptureMode
   } = {}
 ) {
   environmentAssetHistories.value = {
@@ -459,6 +460,7 @@ function recordEnvironmentHistory(
     [assetId]: ensureAssetHistoryEntry(environmentAssetHistories.value[assetId], image, {
       source: options.source,
       prompt: options.prompt,
+      viewMode: options.viewMode,
       createdAt: new Date().toISOString()
     })
   }
@@ -1621,14 +1623,31 @@ async function submitEnvironmentCropSelection(payload: {
       aspectRatio: projectAspectRatio.value
     })
 
+    const latestPanoramaState = resolveEnvironmentPanoramaState(target.id) || target
+    const latestSingleViewImage = latestPanoramaState.singleViewImage?.trim() || ''
+    const latestFourViewImage = latestPanoramaState.fourViewImage?.trim() || ''
     await applyEnvironmentReferenceImage(target.id, result.imageUrl, {
       panoramaImage: target.panoramaImage?.trim() || sourceImage,
       crop: result.crop,
       captureMode: result.captureMode,
-      singleViewImage: result.singleViewImage,
-      fourViewImage: result.fourViewImage
+      singleViewImage: result.captureMode === 'single'
+        ? (result.singleViewImage?.trim() || result.imageUrl?.trim() || undefined)
+        : (latestSingleViewImage || undefined),
+      fourViewImage: result.captureMode === 'four_view'
+        ? (result.fourViewImage?.trim() || result.imageUrl?.trim() || undefined)
+        : (latestFourViewImage || undefined)
     })
-    recordEnvironmentHistory(target.id, result.imageUrl, { source: 'cropped' })
+
+    const selectedViewImage = result.captureMode === 'four_view'
+      ? (result.fourViewImage?.trim() || result.imageUrl?.trim() || '')
+      : (result.singleViewImage?.trim() || result.imageUrl?.trim() || '')
+
+    if (selectedViewImage) {
+      recordEnvironmentHistory(target.id, selectedViewImage, {
+        source: 'cropped',
+        viewMode: result.captureMode
+      })
+    }
     await saveWorkflowMeta()
     setEnvironmentCropDialogOpen(false)
   } catch (error) {
@@ -1782,8 +1801,28 @@ async function handleAssetHistorySelect(entry: AssetImageHistoryEntry) {
         return
       }
 
-      await applyEnvironmentReferenceImage(target.id, nextImage)
-      setEnvironmentPanoramaState(target.id, undefined)
+      const latestState = resolveEnvironmentPanoramaState(target.id) || environmentAsset
+      const nextPanoramaState: EnvironmentPanoramaState = {
+        panoramaImage: latestState.panoramaImage?.trim() || undefined,
+        crop: latestState.crop
+      }
+
+      if (entry.viewMode === 'single') {
+        nextPanoramaState.singleViewImage = nextImage
+        nextPanoramaState.fourViewImage = latestState.fourViewImage?.trim() || undefined
+      } else if (entry.viewMode === 'four_view') {
+        nextPanoramaState.singleViewImage = latestState.singleViewImage?.trim() || undefined
+        nextPanoramaState.fourViewImage = nextImage
+        nextPanoramaState.captureMode = 'four_view'
+      } else {
+        nextPanoramaState.singleViewImage = latestState.singleViewImage?.trim() || undefined
+        nextPanoramaState.fourViewImage = latestState.fourViewImage?.trim() || undefined
+        if (latestState.captureMode === 'four_view') {
+          nextPanoramaState.captureMode = 'four_view'
+        }
+      }
+
+      await applyEnvironmentReferenceImage(target.id, nextImage, nextPanoramaState)
       await saveWorkflowMeta()
       setAssetHistoryDialogOpen(false)
       return
@@ -2328,10 +2367,31 @@ async function generateEnvironmentAssetFromCard(
       singleViewImage,
       fourViewImage
     })
-    recordEnvironmentHistory(assetId, finalReferenceImage, {
-      source: 'generated',
-      prompt: customPrompt || undefined
-    })
+    const normalizedSingleViewImage = singleViewImage?.trim()
+      || (captureMode === 'single' ? finalReferenceImage?.trim() || '' : '')
+    const normalizedFourViewImage = fourViewImage?.trim()
+      || (captureMode === 'four_view' ? finalReferenceImage?.trim() || '' : '')
+
+    if (normalizedSingleViewImage) {
+      recordEnvironmentHistory(assetId, normalizedSingleViewImage, {
+        source: 'generated',
+        prompt: customPrompt || undefined,
+        viewMode: 'single'
+      })
+    }
+    if (normalizedFourViewImage) {
+      recordEnvironmentHistory(assetId, normalizedFourViewImage, {
+        source: 'generated',
+        prompt: customPrompt || undefined,
+        viewMode: 'four_view'
+      })
+    }
+    if (!normalizedSingleViewImage && !normalizedFourViewImage && finalReferenceImage?.trim()) {
+      recordEnvironmentHistory(assetId, finalReferenceImage, {
+        source: 'generated',
+        prompt: customPrompt || undefined
+      })
+    }
     await saveWorkflowMeta()
     setEnvironmentAssetGenerationState(assetId, null)
     await notifyGenerationCompleted({

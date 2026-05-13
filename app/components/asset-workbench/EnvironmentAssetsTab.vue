@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowRight, History, Image, Loader2, Pencil, RefreshCw, ScanSearch, Sparkles, Upload } from 'lucide-vue-next'
-import type { EnvironmentAssetCard } from '~/lib/asset-workbench-types'
+import type { EnvironmentAssetCard, EnvironmentCropCaptureMode } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { toImageSrc } from '~/lib/media'
 
@@ -50,8 +50,44 @@ function resolveHistoryCount(asset: EnvironmentAssetCard): number {
   return Array.isArray(asset.assetHistory) ? asset.assetHistory.length : 0
 }
 
+function resolveEnvironmentHistoryImageByView(
+  asset: EnvironmentAssetCard,
+  viewMode: EnvironmentCropCaptureMode
+): string {
+  const history = Array.isArray(asset.assetHistory) ? asset.assetHistory : []
+  const typed = history.find(entry => entry.viewMode === viewMode && !!entry.image?.trim())
+  if (typed?.image?.trim()) return typed.image.trim()
+
+  const legacy = history.find(entry => !entry.viewMode && !!entry.image?.trim())
+  return legacy?.image?.trim() || ''
+}
+
+function resolveEnvironmentViewImage(
+  asset: EnvironmentAssetCard,
+  viewMode: EnvironmentCropCaptureMode
+): string | undefined {
+  if (viewMode === 'single') {
+    const singleViewImage = asset.singleViewImage?.trim()
+      || resolveEnvironmentHistoryImageByView(asset, 'single')
+      || (asset.captureMode !== 'four_view' ? asset.referenceImage?.trim() || '' : '')
+    return singleViewImage || undefined
+  }
+
+  const fourViewImage = asset.fourViewImage?.trim()
+    || resolveEnvironmentHistoryImageByView(asset, 'four_view')
+    || (asset.captureMode === 'four_view' ? asset.referenceImage?.trim() || '' : '')
+  return fourViewImage || undefined
+}
+
+function resolveEnvironmentViewLabel(viewMode: EnvironmentCropCaptureMode): string {
+  return viewMode === 'four_view' ? '四视图' : '单视图'
+}
+
 function hasEnvironmentImage(asset: EnvironmentAssetCard): boolean {
-  return !!asset.referenceImage?.trim() || !!asset.panoramaImage?.trim()
+  return !!resolveEnvironmentViewImage(asset, 'single')
+    || !!resolveEnvironmentViewImage(asset, 'four_view')
+    || !!asset.referenceImage?.trim()
+    || !!asset.panoramaImage?.trim()
 }
 
 function canGenerateEnvironmentAsset(assetId: string): boolean {
@@ -95,23 +131,43 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
         class="group overflow-hidden rounded-lg border bg-card transition-colors hover:border-primary/30"
       >
         <!-- Image area -->
-        <div
-          class="relative aspect-video cursor-pointer overflow-hidden bg-muted/30"
-          :class="asset.referenceImage ? 'hover:opacity-90' : ''"
-          @click="asset.referenceImage && emit('preview-image', { src: asset.referenceImage, alt: `${asset.name} - 环境图` })"
-        >
-          <img
-            v-if="asset.referenceImage"
-            :src="toImageSrc(asset.referenceImage)"
-            :alt="`${asset.name} 环境图`"
-            class="h-full w-full object-cover"
-          >
-          <div
-            v-else
-            class="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground/40"
-          >
-            <Image class="h-8 w-8" />
-            <span class="text-[10px]">暂无环境图</span>
+        <div class="relative overflow-hidden bg-muted/30">
+          <div class="grid grid-cols-1 gap-px bg-border/60 sm:grid-cols-2">
+            <div
+              v-for="viewMode in ['single', 'four_view'] as const"
+              :key="`${asset.id}_${viewMode}`"
+              class="relative aspect-video overflow-hidden bg-muted/30"
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                class="h-full w-full rounded-none p-0 hover:bg-transparent"
+                :disabled="!resolveEnvironmentViewImage(asset, viewMode)"
+                @click="emit('preview-image', {
+                  src: resolveEnvironmentViewImage(asset, viewMode),
+                  alt: `${asset.name} - ${resolveEnvironmentViewLabel(viewMode)}`
+                })"
+              >
+                <img
+                  v-if="resolveEnvironmentViewImage(asset, viewMode)"
+                  :src="toImageSrc(resolveEnvironmentViewImage(asset, viewMode))"
+                  :alt="`${asset.name} ${resolveEnvironmentViewLabel(viewMode)}`"
+                  class="h-full w-full object-cover"
+                >
+                <div
+                  v-else
+                  class="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground/45"
+                >
+                  <Image class="h-6 w-6" />
+                  <span class="text-[10px]">暂无{{ resolveEnvironmentViewLabel(viewMode) }}</span>
+                </div>
+              </Button>
+              <span
+                class="absolute left-2 top-2 rounded border bg-background/90 px-1 py-0.5 text-[10px] text-muted-foreground"
+              >
+                {{ resolveEnvironmentViewLabel(viewMode) }}
+              </span>
+            </div>
           </div>
           <!-- Status pill -->
           <span
@@ -207,7 +263,7 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
             上传
           </Button>
           <Button
-            v-if="asset.referenceImage || asset.panoramaImage"
+            v-if="hasEnvironmentImage(asset)"
             size="sm"
             variant="ghost"
             class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
@@ -218,7 +274,7 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
             取景
           </Button>
           <Button
-            v-if="asset.referenceImage"
+            v-if="hasEnvironmentImage(asset)"
             size="sm"
             variant="ghost"
             class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"

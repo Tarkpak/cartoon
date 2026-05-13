@@ -1,7 +1,8 @@
 import type {
   AssetHistorySource,
   AssetImageHistoryEntry,
-  AssetVideoHistoryEntry
+  AssetVideoHistoryEntry,
+  EnvironmentCropCaptureMode
 } from '~/lib/asset-workbench-types'
 
 const MAX_ASSET_HISTORY_ENTRIES = 24
@@ -20,8 +21,12 @@ function toTimestamp(value?: string): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-function buildStableHistoryId(image: string, createdAt = ''): string {
-  const seed = `${image}|${createdAt}`
+function buildStableHistoryId(
+  image: string,
+  createdAt = '',
+  viewMode?: EnvironmentCropCaptureMode
+): string {
+  const seed = `${image}|${createdAt}|${viewMode || ''}`
   let hash = 0
   for (let index = 0; index < seed.length; index += 1) {
     hash = (hash * 31 + seed.charCodeAt(index)) >>> 0
@@ -52,13 +57,17 @@ function normalizeHistoryEntry(
   const createdAt = typeof item.createdAt === 'string' && item.createdAt.trim()
     ? item.createdAt
     : undefined
+  const viewMode = item.viewMode === 'single' || item.viewMode === 'four_view'
+    ? item.viewMode
+    : undefined
 
   return {
     id: typeof item.id === 'string' && item.id.trim()
       ? item.id
-      : buildStableHistoryId(image, createdAt),
+      : buildStableHistoryId(image, createdAt, viewMode),
     image,
     createdAt,
+    viewMode,
     source: item.source,
     prompt: typeof item.prompt === 'string' && item.prompt.trim()
       ? item.prompt.trim()
@@ -99,14 +108,16 @@ export function normalizeAssetHistoryEntries(
   currentImage?: string
 ): AssetImageHistoryEntry[] {
   const history: AssetImageHistoryEntry[] = []
-  const seenImages = new Set<string>()
+  const seenKeys = new Set<string>()
 
   if (Array.isArray(rawEntries)) {
     for (const rawEntry of rawEntries) {
       const entry = normalizeHistoryEntry(rawEntry)
-      if (!entry || seenImages.has(entry.image)) continue
+      if (!entry) continue
+      const dedupeKey = `${entry.image}|${entry.viewMode || ''}`
+      if (seenKeys.has(dedupeKey)) continue
 
-      seenImages.add(entry.image)
+      seenKeys.add(dedupeKey)
       history.push(entry)
     }
   }
@@ -123,6 +134,7 @@ export function ensureAssetHistoryEntry(
   image: string | undefined,
   input: {
     createdAt?: string
+    viewMode?: EnvironmentCropCaptureMode
     source?: AssetHistorySource
     prompt?: string
   } = {}
@@ -131,11 +143,20 @@ export function ensureAssetHistoryEntry(
   const entries = Array.isArray(history) ? [...history] : []
   if (!nextImage) return entries
 
-  const existingIndex = entries.findIndex(entry => normalizeImage(entry.image) === nextImage)
+  const normalizedViewMode = input.viewMode === 'single' || input.viewMode === 'four_view'
+    ? input.viewMode
+    : undefined
+  const existingIndex = entries.findIndex(entry => (
+    normalizeImage(entry.image) === nextImage
+    && (entry.viewMode || undefined) === normalizedViewMode
+  ))
   if (existingIndex >= 0) {
     const existing = entries[existingIndex]
     if (!existing) return entries
 
+    if (!existing.viewMode && normalizedViewMode) {
+      existing.viewMode = normalizedViewMode
+    }
     if (!existing.source && input.source) {
       existing.source = input.source
     }
@@ -149,9 +170,10 @@ export function ensureAssetHistoryEntry(
   }
 
   const entry: AssetImageHistoryEntry = {
-    id: buildStableHistoryId(nextImage, input.createdAt),
+    id: buildStableHistoryId(nextImage, input.createdAt, normalizedViewMode),
     image: nextImage,
     createdAt: input.createdAt,
+    viewMode: normalizedViewMode,
     source: input.source,
     prompt: input.prompt
   }
