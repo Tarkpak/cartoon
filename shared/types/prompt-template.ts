@@ -91,11 +91,24 @@ export interface PromptTemplateMetadata {
 
 export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
   {
-    id: 'script_parsing',
-    name: '剧本解析与资产规划',
+    id: 'script_episode_plan',
+    name: '分集目录规划',
     category: 'text',
     stage: 'parse',
-    description: '将原文解析为结构化场景、角色和后续可直接生成的分镜时间轴',
+    description: '将长文本按剧情节点拆分为分集目录，并输出爆点与资产规划',
+    variables: [
+      { name: '{{novelText}}', description: '待拆分原文', example: '第一章...' },
+      { name: '{{modeRule}}', description: '解析模式规则文本', example: '短剧模式额外约束：请由剧情节奏决定分集数量...' },
+      { name: '{{chunkRule}}', description: '分段输入约束', example: '当前仅提供原文第 1/3 段，请严格基于本段文本拆分...' },
+      { name: '{{firstAnchorRule}}', description: '首集锚点规则', example: '第1集 startAnchor 必须取“本段开头”的连续片段。' }
+    ]
+  },
+  {
+    id: 'script_parsing',
+    name: '精品剧解析与资产规划',
+    category: 'text',
+    stage: 'parse',
+    description: '将原文按精品剧叙事节奏解析为结构化场景、角色和后续可直接生成的分镜时间轴',
     variables: [
       { name: '{{novelText}}', description: '剧本/原文内容', example: '第一章 相遇...' },
       { name: '{{style}}', description: '项目画风描述', example: '电影写实风格' },
@@ -122,19 +135,6 @@ export const PROMPT_TEMPLATE_METADATA: PromptTemplateMetadata[] = [
       { name: '{{sceneDurationMin}}', description: '场景最小时长（秒）', example: '2' },
       { name: '{{sceneDurationMax}}', description: '场景最大时长（秒）', example: '15' },
       { name: '{{eraHint}}', description: '时代推断提示（如现代/民国/古代）', example: '现代' }
-    ]
-  },
-  {
-    id: 'script_episode_plan',
-    name: '分集目录规划',
-    category: 'text',
-    stage: 'parse',
-    description: '将长文本按剧情节点拆分为分集目录，并输出爆点与资产规划',
-    variables: [
-      { name: '{{novelText}}', description: '待拆分原文', example: '第一章...' },
-      { name: '{{modeRule}}', description: '解析模式规则文本', example: '短剧模式额外约束：请由剧情节奏决定分集数量...' },
-      { name: '{{chunkRule}}', description: '分段输入约束', example: '当前仅提供原文第 1/3 段，请严格基于本段文本拆分...' },
-      { name: '{{firstAnchorRule}}', description: '首集锚点规则', example: '第1集 startAnchor 必须取“本段开头”的连续片段。' }
     ]
   },
   {

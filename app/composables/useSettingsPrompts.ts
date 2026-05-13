@@ -52,7 +52,7 @@ export const PROMPT_STAGE_CONFIG: Record<PromptFlowStage, PromptStageMeta> = {
     name: PROMPT_FLOW_STAGE_LABELS.parse,
     color: 'blue',
     icon: FileText,
-    description: '剧本解析、分集规划与系统补充模板。'
+    description: '分集规划、剧本解析与系统补充模板。'
   },
   assets: {
     name: PROMPT_FLOW_STAGE_LABELS.assets,

@@ -160,8 +160,8 @@ export type WorkflowModelOptions = z.infer<typeof WorkflowModelOptionsSchema>
 export const WORKFLOW_STEP_CONFIGS: WorkflowStepConfig[] = [
   {
     id: 'script_parsing',
-    name: '剧本解析与资产规划',
-    description: '将原文解析为场景、角色与可直接用于生成的分镜时间轴',
+    name: '分集目录规划与剧本解析',
+    description: '将原文先拆分为分集目录，再解析为场景、角色与可直接用于生成的分镜时间轴',
     category: 'text',
     requiredCapabilities: ['text_generation'],
     tips: '需要稳定的长文本理解和结构化输出能力'
