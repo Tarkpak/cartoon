@@ -561,7 +561,7 @@ function resolveCompatibleModel(
     }
   }
 
-  // 资产一致性流程优先尊重工作流/全局模型配置：
+  // 优先尊重工作流/全局模型配置：
   // - 非关键能力缺失时仅降级输入策略（多参考 -> 单图/文本）
   // - 仅在“需要多参考图且可灵普通模型不支持”时自动切到 Omni
   if (options.needReferenceImages && !preferred.supportReferenceImages) {
@@ -674,7 +674,7 @@ export default defineEventHandler(async (event) => {
 
   // 说明：
   // - 可灵非多参考图模式下，imageUrl 会进入 image2video，被当作“首帧”而非纯参考图
-  // - 资产一致性流程里优先用环境图做单图输入，避免角色参考图意外变成首帧
+  // - 当前流程里优先用环境图做单图输入，避免角色参考图意外变成首帧
   const preferEnvironmentAsPrimary = selectedModel?.provider === 'kling' && !supportsMultiReferenceImages
 
   // Gemini 多参考图时优先环境图作为单图输入，保留空间构图；
@@ -760,9 +760,7 @@ export default defineEventHandler(async (event) => {
       ].filter(Boolean).join('\n'),
       referenceGuide,
       narration: narrationText || '无'
-    },
-    undefined,
-    'asset_consistency'
+    }
   )
   if (!interpolatedPrompt) {
     console.error('[AssetWorkflow/Video] 分镜视频生成模板缺失，请检查提示词配置')

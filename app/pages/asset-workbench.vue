@@ -68,7 +68,7 @@ import {
 import { uploadAssetImage, uploadImageFile } from '~/lib/asset-workbench-upload'
 import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
 
-// 资产一致性工作流页面
+// 资产工作台页面
 definePageMeta({
   layout: 'default',
   hideSidebar: true
@@ -618,7 +618,6 @@ function recordSceneVideoHistory(
 async function generateCharacter(
   character: (typeof characters.value)[number],
   input?: {
-    workflowType?: 'asset_consistency'
     regenerationPrompt?: string
     referenceImage?: string
   },
@@ -649,8 +648,7 @@ async function generateCharacter(
 }
 
 async function batchGenerateCharacters(
-  onProgress?: (current: number, total: number, name: string) => void,
-  input?: { workflowType?: 'asset_consistency' }
+  onProgress?: (current: number, total: number, name: string) => void
 ) {
   const pendingCharacters = characters.value.filter(character => !character.baseImage)
   const total = pendingCharacters.length
@@ -671,7 +669,7 @@ async function batchGenerateCharacters(
 
     try {
       const previousImage = character.baseImage?.trim() || ''
-      await generateCharacter(character, input, { persistHistory: false })
+      await generateCharacter(character, undefined, { persistHistory: false })
       if ((character.baseImage?.trim() || '') !== previousImage) {
         historyChanged = true
       }
@@ -1292,7 +1290,6 @@ async function handleParseSingleEpisode(payload: { id: string }) {
   }
 
   const parsed = await parseScript({
-    workflowType: 'asset_consistency',
     style: workflowStylePrompt.value,
     scriptParseMode: scriptParseMode.value,
     descriptionFormat: 'timeline',
@@ -2528,9 +2525,7 @@ async function handleExportFormattedScriptDocx() {
 }
 
 async function handleBatchGenerateCharacters() {
-  await batchGenerateCharacters(undefined, {
-    workflowType: 'asset_consistency'
-  })
+  await batchGenerateCharacters()
 }
 </script>
 

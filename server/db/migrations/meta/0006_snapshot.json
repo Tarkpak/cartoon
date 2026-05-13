@@ -408,7 +408,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'asset_consistency'"
+          "default": "'default'"
         },
         "style_id": {
           "name": "style_id",

@@ -120,7 +120,6 @@ export function useProjectsIndexPage() {
         body: {
           title: newProject.value.title,
           description: newProject.value.description || undefined,
-          workflowType: newProject.value.workflowType,
           scriptParseMode: newProject.value.scriptParseMode,
           styleId,
           aspectRatio: newProject.value.aspectRatio

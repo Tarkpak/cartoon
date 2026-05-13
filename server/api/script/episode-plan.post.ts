@@ -107,9 +107,7 @@ async function buildEpisodePlanPrompt(
       modeRule,
       chunkRule,
       firstAnchorRule
-    },
-    undefined,
-    'asset_consistency'
+    }
   )
   if (!prompt) {
     throw new Error('无法获取分集目录规划模板，请在设置中检查提示词配置')

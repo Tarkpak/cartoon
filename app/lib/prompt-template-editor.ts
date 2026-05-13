@@ -3,14 +3,8 @@ import type {
   PromptVariable,
   PromptVersion
 } from '#shared/types/prompt-template'
-import type { ProjectWorkflowType } from '#shared/types/project'
 
-export type PromptEditorLanguage = 'zh' | 'en'
-
-export interface PromptEditorContent {
-  zh: string
-  en: string
-}
+export type PromptEditorContent = string
 
 export interface PromptMutationResponse {
   success: boolean
@@ -24,21 +18,8 @@ export interface PromptVersionsResponse {
   }
 }
 
-export interface PromptLangConfigResponse {
-  success: boolean
-  data: Record<string, PromptEditorLanguage>
-}
-
-interface PromptTranslationResponse {
-  success: boolean
-  data: {
-    translatedText: string
-  }
-}
-
 interface PromptTemplateRequestOptions {
   templateId: string
-  workflow: ProjectWorkflowType
 }
 
 interface SavePromptTemplateOptions extends PromptTemplateRequestOptions {
@@ -49,36 +30,17 @@ interface RestorePromptTemplateOptions extends PromptTemplateRequestOptions {
   versionId: string
 }
 
-interface UpdatePromptLangConfigOptions {
-  workflow: ProjectWorkflowType
-  templateId: string
-  lang: PromptEditorLanguage
-}
-
-interface TranslatePromptContentOptions {
-  text: string
-  from: PromptEditorLanguage
-  to: PromptEditorLanguage
-  workflow: ProjectWorkflowType
-}
-
 export function buildPromptEditorContent(
-  content?: Partial<Record<PromptEditorLanguage, string>>
+  content?: string
 ): PromptEditorContent {
-  return {
-    zh: content?.zh || '',
-    en: content?.en || ''
-  }
+  return content || ''
 }
 
 export function mergePromptEditorContent(
   base: PromptEditorContent,
-  imported: Partial<Record<PromptEditorLanguage, string>>
+  imported: string | null | undefined
 ): PromptEditorContent {
-  return {
-    zh: imported.zh ?? base.zh,
-    en: imported.en ?? base.en
-  }
+  return typeof imported === 'string' ? imported : base
 }
 
 export function buildPromptPreviewVariables(variables: PromptVariable[]): Record<string, string> {
@@ -88,24 +50,23 @@ export function buildPromptPreviewVariables(variables: PromptVariable[]): Record
 }
 
 export function hasPromptEditorChanges(
-  original: Partial<Record<PromptEditorLanguage, string>>,
+  original: string | undefined,
   local: PromptEditorContent
 ): boolean {
-  return (original.zh || '') !== local.zh || (original.en || '') !== local.en
+  return (original || '') !== local
 }
 
-export function buildPromptCharCount(content: string, language: PromptEditorLanguage) {
+export function buildPromptCharCount(content: string) {
   return {
     chars: content.length,
     words: content.trim() ? content.trim().split(/\s+/).length : 0,
-    tokens: Math.ceil(content.length / (language === 'zh' ? 2 : 4))
+    tokens: Math.ceil(content.length / 2)
   }
 }
 
 export async function savePromptTemplate(options: SavePromptTemplateOptions) {
   return await $fetch<PromptMutationResponse>(`/api/prompts/${options.templateId}`, {
     method: 'PUT',
-    query: { workflow: options.workflow },
     body: {
       content: options.content,
       note: `手动编辑 - ${new Date().toLocaleString('zh-CN')}`
@@ -115,48 +76,18 @@ export async function savePromptTemplate(options: SavePromptTemplateOptions) {
 
 export async function resetPromptTemplate(options: PromptTemplateRequestOptions) {
   return await $fetch<PromptMutationResponse>(`/api/prompts/${options.templateId}/reset`, {
-    method: 'POST',
-    query: { workflow: options.workflow }
+    method: 'POST'
   })
 }
 
 export async function fetchPromptVersions(options: PromptTemplateRequestOptions) {
-  return await $fetch<PromptVersionsResponse>(`/api/prompts/${options.templateId}/versions`, {
-    query: { workflow: options.workflow }
-  })
+  return await $fetch<PromptVersionsResponse>(`/api/prompts/${options.templateId}/versions`)
 }
 
 export async function restorePromptTemplate(options: RestorePromptTemplateOptions) {
   return await $fetch<PromptMutationResponse>(`/api/prompts/${options.templateId}/restore`, {
     method: 'POST',
-    query: { workflow: options.workflow },
     body: { versionId: options.versionId }
-  })
-}
-
-export async function fetchPromptLangConfig(workflow: ProjectWorkflowType) {
-  return await $fetch<PromptLangConfigResponse>('/api/prompts/lang-config', {
-    query: { workflow }
-  })
-}
-
-export async function updatePromptLangConfig(options: UpdatePromptLangConfigOptions) {
-  await $fetch('/api/prompts/lang-config', {
-    method: 'PUT',
-    query: { workflow: options.workflow },
-    body: { [options.templateId]: options.lang }
-  })
-}
-
-export async function translatePromptContent(options: TranslatePromptContentOptions) {
-  return await $fetch<PromptTranslationResponse>('/api/prompts/translate', {
-    method: 'POST',
-    query: { workflow: options.workflow },
-    body: {
-      text: options.text,
-      from: options.from,
-      to: options.to
-    }
   })
 }
 
@@ -190,8 +121,8 @@ export async function parsePromptTemplateImport(file: File) {
   })
 
   const data = JSON.parse(text) as {
-    content?: Partial<Record<PromptEditorLanguage, string>>
+    content?: string
   }
 
-  return data.content || {}
+  return typeof data.content === 'string' ? data.content : ''
 }

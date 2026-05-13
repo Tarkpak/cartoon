@@ -4,7 +4,6 @@
  */
 
 import { activatePromptProfile } from '../../../../utils/prompt-template'
-import { resolvePromptWorkflowFromEvent } from '../../../../utils/prompt-workflow'
 
 export default defineEventHandler(async (event) => {
   const profileId = getRouterParam(event, 'id')
@@ -12,28 +11,23 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 400,
       statusMessage: 'Bad Request',
-      message: '缺少配置 ID',
+      message: '缺少配置 ID'
     })
   }
 
-  const workflow = resolvePromptWorkflowFromEvent(event)
-
   try {
-    const data = await activatePromptProfile(profileId, workflow)
+    const data = await activatePromptProfile(profileId)
     if (!data) {
       throw createError({
         statusCode: 404,
         statusMessage: 'Not Found',
-        message: '提示词配置方案不存在',
+        message: '提示词配置方案不存在'
       })
     }
 
     return {
       success: true,
-      data: {
-        workflow,
-        ...data
-      },
+      data,
       message: '已切换提示词配置方案'
     }
   } catch (error) {

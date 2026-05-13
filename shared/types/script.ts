@@ -389,11 +389,6 @@ export const SCRIPT_PARSE_MODE_LABELS: Record<ScriptParseMode, string> = {
   short_drama: '短剧'
 }
 
-export const SCRIPT_PARSE_MODE_LABELS_EN: Record<ScriptParseMode, string> = {
-  premium_drama: 'Premium Drama',
-  short_drama: 'Short Drama'
-}
-
 export function normalizeScriptParseMode(raw: unknown): ScriptParseMode {
   if (raw === 'short_drama' || raw === 'premium_drama') {
     return raw
@@ -402,10 +397,8 @@ export function normalizeScriptParseMode(raw: unknown): ScriptParseMode {
 }
 
 export function resolveScriptParseModeLabel(
-  mode: ScriptParseMode,
-  lang: 'zh' | 'en' = 'zh'
+  mode: ScriptParseMode
 ): string {
-  if (lang === 'en') return SCRIPT_PARSE_MODE_LABELS_EN[mode]
   return SCRIPT_PARSE_MODE_LABELS[mode]
 }
 
@@ -415,7 +408,6 @@ export const ParseScriptRequestSchema = z.object({
   maxScenes: z.number().int().min(1).optional().describe('场景数量提示（可选，不做硬上限限制）'),
   episodePlan: z.array(ScriptEpisodePlanItemSchema).min(1).describe('分集规划（必填，按该规划进行分集解析）'),
   scriptParseMode: z.enum(SCRIPT_PARSE_MODES).optional().default(DEFAULT_SCRIPT_PARSE_MODE).describe('解析模式'),
-  style: z.string().optional().describe('画风描述（可选）'),
-  workflowType: z.literal('asset_consistency').optional().default('asset_consistency').describe('工作流类型')
+  style: z.string().optional().describe('画风描述（可选）')
 })
 export type ParseScriptRequest = z.infer<typeof ParseScriptRequestSchema>

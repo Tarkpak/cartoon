@@ -11,8 +11,6 @@ import {
   toOptionalStringArray
 } from '~/lib/asset-workbench-values'
 
-export type AssetWorkbenchWorkflowType = 'asset_consistency'
-
 export interface ScriptEpisodeAssetSummary {
   characters: Array<{
     name: string
@@ -193,7 +191,6 @@ function buildFallbackJianyingProjectFileName(date = new Date()): string {
 
 export async function parseAssetWorkbenchScript(options: {
   text: string
-  workflowType?: AssetWorkbenchWorkflowType
   scriptParseMode?: ScriptParseMode
   style?: string
   episodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset' | 'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType'>>
@@ -201,7 +198,6 @@ export async function parseAssetWorkbenchScript(options: {
 }) {
   const requestBody = {
     text: options.text,
-    workflowType: options.workflowType || 'asset_consistency',
     scriptParseMode: options.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
     style: options.style || undefined,
     episodePlan: options.episodePlan
@@ -336,7 +332,6 @@ export async function prepareAssetWorkbenchEpisodePlan(
 export async function generateAssetWorkbenchCharacter(options: {
   character: CharacterData
   style: string
-  workflowType?: AssetWorkbenchWorkflowType
   regenerationPrompt?: string
   referenceImage?: string
 }) {
@@ -355,7 +350,6 @@ export async function generateAssetWorkbenchCharacter(options: {
       },
       style: options.style,
       generateExpressions: false,
-      workflowType: options.workflowType || 'asset_consistency',
       regeneration: options.regenerationPrompt
         ? {
             customPrompt: options.regenerationPrompt,

@@ -37,7 +37,6 @@ const WORKFLOW_MODEL_OPTIONS_KEY = 'workflow_model_options'
 const DEFAULT_WORKFLOW_MODELS: Record<WorkflowStep, string> = {
   script_parsing: 'qwen3.6-plus',
   scene_description_refinement: 'qwen3.6-plus',
-  text_translation: 'qwen3.6-plus',
 
   character_portrait: 'qwen-image-2.0-pro',
   frame_generation: 'wan2.7-image-pro',

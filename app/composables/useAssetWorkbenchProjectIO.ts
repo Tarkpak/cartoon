@@ -297,7 +297,6 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
           body: {
             title: options.projectName.value || '未命名项目',
             description: options.projectDescription.value,
-            workflowType: 'asset_consistency',
             scriptParseMode: options.scriptParseMode.value,
             styleId: options.projectStyleId.value,
             aspectRatio: options.projectAspectRatio.value

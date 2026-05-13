@@ -13,8 +13,7 @@ import {
   parseAssetWorkbenchScript,
   prepareAssetWorkbenchEpisodePlan,
   type ScriptEpisodePlanItem,
-  type ParseScriptProgressEvent,
-  type AssetWorkbenchWorkflowType
+  type ParseScriptProgressEvent
 } from '~/lib/asset-workbench-api'
 import {
   buildParsedCharacters,
@@ -409,7 +408,6 @@ export function useAssetWorkbenchGeneration(
   }
 
   async function parseScript(input?: {
-    workflowType?: AssetWorkbenchWorkflowType
     style?: string
     scriptParseMode?: ScriptParseMode
     descriptionFormat?: 'visual' | 'timeline'
@@ -440,7 +438,6 @@ export function useAssetWorkbenchGeneration(
       const parsePayload = resolveEpisodeParsePayload(input?.targetEpisodeId)
       const response = await parseAssetWorkbenchScript({
         text: parsePayload.requestText,
-        workflowType: input?.workflowType || 'asset_consistency',
         scriptParseMode: input?.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
         style: input?.style || options.currentStylePrompt.value || undefined,
         episodePlan: parsePayload.requestEpisodePlan,
@@ -500,7 +497,6 @@ export function useAssetWorkbenchGeneration(
   async function generateCharacter(
     char: CharacterData,
     input?: {
-      workflowType?: AssetWorkbenchWorkflowType
       regenerationPrompt?: string
       referenceImage?: string
       skipCompletionNotice?: boolean
@@ -520,7 +516,6 @@ export function useAssetWorkbenchGeneration(
       const response = await generateAssetWorkbenchCharacter({
         character: char,
         style: options.currentStylePrompt.value,
-        workflowType: input?.workflowType || 'asset_consistency',
         regenerationPrompt,
         referenceImage
       })
@@ -546,8 +541,7 @@ export function useAssetWorkbenchGeneration(
   }
 
   async function batchGenerateCharacters(
-    onProgress?: (current: number, total: number, name: string) => void,
-    input?: { workflowType?: AssetWorkbenchWorkflowType }
+    onProgress?: (current: number, total: number, name: string) => void
   ) {
     const pendingCharacters = options.characters.value.filter(character => !character.baseImage)
     const total = pendingCharacters.length
@@ -567,7 +561,6 @@ export function useAssetWorkbenchGeneration(
 
       try {
         await generateCharacter(character, {
-          ...input,
           skipCompletionNotice: true
         })
         generated += 1

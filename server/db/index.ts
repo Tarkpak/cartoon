@@ -36,7 +36,6 @@ export function initDatabase() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       description TEXT,
-      workflow_type TEXT NOT NULL DEFAULT 'asset_consistency',
       script_parse_mode TEXT NOT NULL DEFAULT 'short_drama',
       style_id TEXT NOT NULL,
       aspect_ratio TEXT NOT NULL DEFAULT '16:9',
@@ -46,12 +45,10 @@ export function initDatabase() {
     )
   `)
 
-  // 兼容旧数据库：补充项目工作流字段
+  // 兼容旧数据库：补充项目字段
   const projectColumns = sqlite.prepare('PRAGMA table_info(projects)').all() as Array<{ name: string }>
   const hasProjectColumn = (name: string) => projectColumns.some(c => c.name === name)
-  if (!hasProjectColumn('workflow_type')) sqlite.exec('ALTER TABLE projects ADD COLUMN workflow_type TEXT NOT NULL DEFAULT \'asset_consistency\'')
   if (!hasProjectColumn('script_parse_mode')) sqlite.exec('ALTER TABLE projects ADD COLUMN script_parse_mode TEXT NOT NULL DEFAULT \'short_drama\'')
-  sqlite.exec('UPDATE projects SET workflow_type = \'asset_consistency\' WHERE workflow_type IS NULL OR workflow_type != \'asset_consistency\'')
   sqlite.exec('UPDATE projects SET script_parse_mode = \'short_drama\' WHERE script_parse_mode IS NULL OR script_parse_mode NOT IN (\'premium_drama\', \'short_drama\')')
 
   // 创建剧本表

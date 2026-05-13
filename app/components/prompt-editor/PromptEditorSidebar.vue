@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Globe, Plus, CheckCircle2 } from 'lucide-vue-next'
+import { Plus, CheckCircle2 } from 'lucide-vue-next'
 import type { PromptTemplate } from '#shared/types/prompt-template'
 import {
   getPromptVariableTag,
@@ -11,14 +11,11 @@ defineProps<{
   previewMode: boolean
   readonly: boolean
   previewVariables: Record<string, string>
-  currentTemplateLang: 'zh' | 'en'
-  langConfigSaving: boolean
   variableValidation: PromptVariableValidation
   isVarUnused: (varName: string) => boolean
 }>()
 
 const emit = defineEmits<{
-  (e: 'toggle-runtime-lang', lang: 'zh' | 'en'): void
   (e: 'insert-variable', variableName: string): void
   (e: 'update-preview-variable', payload: { name: string, value: string }): void
 }>()
@@ -26,38 +23,6 @@ const emit = defineEmits<{
 
 <template>
   <div class="w-72 flex-shrink-0 border-l flex flex-col overflow-hidden">
-    <div class="p-4 border-b">
-      <div class="flex items-center gap-2 mb-2">
-        <Globe class="h-4 w-4 text-muted-foreground" />
-        <span class="text-sm font-medium">运行时语言</span>
-      </div>
-      <p class="text-xs text-muted-foreground mb-2">
-        实际调用 AI 时使用的语言版本
-      </p>
-      <div class="flex rounded-md border overflow-hidden">
-        <Button
-          variant="ghost"
-          size="sm"
-          class="flex-1 px-3 py-1.5 h-auto rounded-none text-sm transition-colors"
-          :class="currentTemplateLang === 'zh' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-          :disabled="readonly || langConfigSaving"
-          @click="emit('toggle-runtime-lang', 'zh')"
-        >
-          中文
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          class="flex-1 px-3 py-1.5 h-auto rounded-none text-sm transition-colors"
-          :class="currentTemplateLang === 'en' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-          :disabled="readonly || langConfigSaving"
-          @click="emit('toggle-runtime-lang', 'en')"
-        >
-          English
-        </Button>
-      </div>
-    </div>
-
     <div class="flex-1 overflow-auto p-4">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">

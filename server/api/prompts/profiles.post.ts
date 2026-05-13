@@ -5,7 +5,6 @@
 
 import { z } from 'zod'
 import { createPromptProfile } from '../../utils/prompt-template'
-import { resolvePromptWorkflowFromEvent } from '../../utils/prompt-workflow'
 
 const CreatePromptProfileSchema = z.object({
   name: z.string().trim().min(1, '配置名称不能为空').max(64, '配置名称不能超过 64 个字符'),
@@ -15,7 +14,6 @@ const CreatePromptProfileSchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
-  const workflow = resolvePromptWorkflowFromEvent(event)
   const body = await readBody(event)
   const parsed = CreatePromptProfileSchema.safeParse(body)
 
@@ -28,21 +26,18 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const data = await createPromptProfile(parsed.data, workflow)
+    const data = await createPromptProfile(parsed.data)
     if (!data) {
       throw createError({
         statusCode: 400,
         statusMessage: 'Bad Request',
-        message: '创建提示词配置方案失败',
+        message: '创建提示词配置方案失败'
       })
     }
 
     return {
       success: true,
-      data: {
-        workflow,
-        ...data
-      },
+      data,
       message: '提示词配置方案创建成功'
     }
   } catch (error) {

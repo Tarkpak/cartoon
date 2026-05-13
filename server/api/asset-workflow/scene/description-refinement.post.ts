@@ -220,9 +220,7 @@ async function buildRefineSceneDescriptionPrompt(
       userMessage: input.userMessage,
       mentionedAssets: buildMentionedAssetsText(input.mentionedAssets),
       durationHint: String(durationHint)
-    },
-    undefined,
-    'asset_consistency'
+    }
   )
 
   if (!prompt) {

@@ -5,7 +5,6 @@
 
 import { z } from 'zod'
 import { updatePromptProfile } from '../../../utils/prompt-template'
-import { resolvePromptWorkflowFromEvent } from '../../../utils/prompt-workflow'
 
 const UpdatePromptProfileSchema = z.object({
   name: z.string().trim().min(1, '配置名称不能为空').max(64, '配置名称不能超过 64 个字符').optional(),
@@ -20,11 +19,10 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 400,
       statusMessage: 'Bad Request',
-      message: '缺少配置 ID',
+      message: '缺少配置 ID'
     })
   }
 
-  const workflow = resolvePromptWorkflowFromEvent(event)
   const body = await readBody(event)
   const parsed = UpdatePromptProfileSchema.safeParse(body)
 
@@ -37,21 +35,18 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const data = await updatePromptProfile(profileId, parsed.data, workflow)
+    const data = await updatePromptProfile(profileId, parsed.data)
     if (!data) {
       throw createError({
         statusCode: 404,
         statusMessage: 'Not Found',
-        message: '提示词配置方案不存在',
+        message: '提示词配置方案不存在'
       })
     }
 
     return {
       success: true,
-      data: {
-        workflow,
-        ...data
-      },
+      data,
       message: '提示词配置方案已更新'
     }
   } catch (error) {

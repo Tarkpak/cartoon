@@ -5,7 +5,6 @@ import {
 } from 'lucide-vue-next'
 import { EditorContent } from '@tiptap/vue-3'
 import type { PromptTemplate } from '#shared/types/prompt-template'
-import type { ProjectWorkflowType } from '#shared/types/project'
 import { getPromptVariableTag as getVariableTag } from '@/lib/prompt-editor'
 import { usePromptTemplateEditor } from '@/composables/usePromptTemplateEditor'
 import PromptEditorHeader from '@/components/prompt-editor/PromptEditorHeader.vue'
@@ -13,7 +12,6 @@ import PromptEditorToolbar from '@/components/prompt-editor/PromptEditorToolbar.
 
 const props = defineProps<{
   template: PromptTemplate
-  workflow?: ProjectWorkflowType
   readonly?: boolean
 }>()
 
@@ -23,11 +21,9 @@ const emit = defineEmits<{
 }>()
 
 const template = toRef(props, 'template')
-const workflow = toRef(props, 'workflow')
 const readonly = toRef(props, 'readonly')
 
 const {
-  activeLanguage,
   saving,
   resetting,
   showHistory,
@@ -38,10 +34,7 @@ const {
   isFullscreen,
   showDiff,
   isReadonly,
-  langConfigSaving,
-  translating,
   fileInputRef,
-  currentTemplateLang,
   editor,
   hasChanges,
   variableValidation,
@@ -57,8 +50,6 @@ const {
   reset,
   openHistory,
   restoreVersion,
-  toggleRuntimeLang,
-  translateContent,
   exportTemplate,
   triggerImport,
   handleImport,
@@ -67,7 +58,6 @@ const {
   isVarUnused
 } = usePromptTemplateEditor({
   template,
-  workflow,
   readonly,
   onUpdate: nextTemplate => emit('update', nextTemplate),
   onSaved: () => emit('saved')
@@ -112,15 +102,11 @@ function handleVariableInsert(variableName: string) {
       <!-- 左侧编辑区 -->
       <div class="flex-1 flex flex-col overflow-hidden">
         <PromptEditorToolbar
-          :active-language="activeLanguage"
           :readonly="isReadonly"
-          :translating="translating"
           :can-undo="canUndo"
           :can-redo="canRedo"
           :preview-mode="previewMode"
           :char-count="charCount"
-          @update:active-language="activeLanguage = $event"
-          @translate="translateContent"
           @undo="undo"
           @redo="redo"
           @toggle-preview="previewMode = !previewMode"
@@ -190,11 +176,8 @@ function handleVariableInsert(variableName: string) {
         :preview-mode="previewMode"
         :readonly="isReadonly"
         :preview-variables="previewVariables"
-        :current-template-lang="currentTemplateLang"
-        :lang-config-saving="langConfigSaving"
         :variable-validation="variableValidation"
         :is-var-unused="isVarUnused"
-        @toggle-runtime-lang="toggleRuntimeLang"
         @insert-variable="handleVariableInsert"
         @update-preview-variable="({ name, value }) => updatePreviewVariable(name, value)"
       />
