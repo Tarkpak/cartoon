@@ -401,6 +401,12 @@ export function useAssetWorkbenchGeneration(
       options.parseProgress.value.message = `分集目录已生成，共 ${episodes.length} 集`
       options.parseProgress.value.progress = 100
       appendProgressLog(`分集目录已生成，共 ${episodes.length} 集`, 'progress')
+      if (episodes.length > 0) {
+        await options.onModelTaskCompleted?.({
+          title: '分集目录生成完成',
+          body: `共生成 ${episodes.length} 集分集目录`
+        })
+      }
       return episodes.length > 0
     } catch (error) {
       console.error('[useAssetWorkbench] 生成分集目录失败:', error)
