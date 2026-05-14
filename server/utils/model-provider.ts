@@ -71,21 +71,22 @@ export const TEXT_MODELS: TextModelConfig[] = [
     supportThinking: false,
     docUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference'
   },
+  // DeepSeek 官方模型
   {
-    provider: 'qwen',
-    model: qwen.QwenTextModels.DEEPSEEK_V4_PRO,
-    displayName: 'DeepSeek V4 Pro (百炼)',
-    description: 'DeepSeek V4 Pro，复杂推理与代码能力更强',
+    provider: 'deepseek',
+    model: 'deepseek-v4-pro',
+    displayName: 'DeepSeek V4 Pro',
+    description: 'DeepSeek 官方旗舰模型，复杂推理与代码能力更强',
     supportThinking: true,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/deepseek-api'
+    docUrl: 'https://api-docs.deepseek.com/'
   },
   {
-    provider: 'qwen',
-    model: qwen.QwenTextModels.DEEPSEEK_V4_FLASH,
-    displayName: 'DeepSeek V4 Flash (百炼)',
-    description: 'DeepSeek V4 Flash，响应更快、成本更低',
+    provider: 'deepseek',
+    model: 'deepseek-v4-flash',
+    displayName: 'DeepSeek V4 Flash',
+    description: 'DeepSeek 官方高性价比模型，速度更快、延迟更低',
     supportThinking: true,
-    docUrl: 'https://help.aliyun.com/zh/model-studio/deepseek-api'
+    docUrl: 'https://api-docs.deepseek.com/'
   },
   // 火山引擎 (豆包) 模型
   {
@@ -110,8 +111,9 @@ const CUSTOM_OPENAI_CONFIG_KEY = 'custom_openai_provider'
 const PROVIDER_MODEL_CATALOG_KEY = 'provider_model_catalog'
 const QWEN_COMPATIBLE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 const VOLCENGINE_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
 
-type SyncableProvider = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'custom_openai'
+type SyncableProvider = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'deepseek' | 'custom_openai'
 
 interface ProviderSyncedCatalogEntry {
   models: string[]
@@ -444,6 +446,11 @@ function getRuntimeProviderConfig(provider: SyncableProvider): { apiKey?: string
     return { apiKey, baseUrl: VOLCENGINE_BASE_URL, configured: !!apiKey }
   }
 
+  if (provider === 'deepseek') {
+    const apiKey = String(runtimeConfig.deepseekApiKey || '').trim()
+    return { apiKey, baseUrl: DEEPSEEK_BASE_URL, configured: !!apiKey }
+  }
+
   if (provider === 'gemini') {
     const apiKey = String(runtimeConfig.geminiApiKey || '').trim()
     return { apiKey, configured: !!apiKey }
@@ -462,6 +469,17 @@ function getRuntimeProviderConfig(provider: SyncableProvider): { apiKey?: string
   }
 }
 
+export function getDeepSeekOpenAICompatibleConfig(): { apiKey: string, baseUrl: string } {
+  const cfg = getRuntimeProviderConfig('deepseek')
+  if (!cfg.configured || !cfg.apiKey || !cfg.baseUrl) {
+    throw new Error('DEEPSEEK_API_KEY 环境变量未设置')
+  }
+  return {
+    apiKey: cfg.apiKey,
+    baseUrl: cfg.baseUrl
+  }
+}
+
 function getStaticProviderModels(provider: SyncableProvider): string[] {
   return Array.from(new Set(
     [...TEXT_MODELS, ...IMAGE_MODELS, ...VIDEO_MODELS, ...VOICE_MODELS]
@@ -471,7 +489,7 @@ function getStaticProviderModels(provider: SyncableProvider): string[] {
 }
 
 async function syncOpenAICompatibleProviderCatalog(
-  provider: Extract<SyncableProvider, 'qwen' | 'volcengine'>
+  provider: Extract<SyncableProvider, 'qwen' | 'volcengine' | 'deepseek'>
 ): Promise<ProviderSyncedCatalogEntry> {
   const cfg = getRuntimeProviderConfig(provider)
   if (!cfg.configured || !cfg.apiKey || !cfg.baseUrl) {
@@ -506,7 +524,7 @@ export async function syncModelProviderCatalog(provider: SyncableProvider): Prom
       return getModelProviderSummaries().find(item => item.provider === provider)!
     }
 
-    if (provider !== 'qwen' && provider !== 'volcengine') {
+    if (provider !== 'qwen' && provider !== 'volcengine' && provider !== 'deepseek') {
       throw new Error(`${provider} 暂无官方模型列表同步接口，继续使用本地能力表`)
     }
 
@@ -569,6 +587,13 @@ export function getModelProviderSummaries(): ModelProviderSummary[] {
       provider: 'volcengine',
       displayName: '火山引擎',
       description: '通过方舟 OpenAI 兼容 /models 同步账号可用模型，再按本地能力表过滤可用流程模型。',
+      syncMode: 'official_api',
+      supportedDynamicSync: true
+    },
+    {
+      provider: 'deepseek',
+      displayName: 'DeepSeek',
+      description: '通过 DeepSeek 官方 OpenAI 兼容 /models 同步账号可用模型，默认接入文本生成流程。',
       syncMode: 'official_api',
       supportedDynamicSync: true
     },
@@ -1146,6 +1171,18 @@ export async function generateText(options: {
     })
   }
 
+  if (provider === 'deepseek') {
+    return generateOpenAICompatibleText({
+      providerConfig: getDeepSeekOpenAICompatibleConfig(),
+      model: modelId,
+      prompt: options.prompt,
+      systemInstruction: options.systemInstruction,
+      temperature: options.temperature,
+      maxRetries: options.maxRetries,
+      debugProvider: 'deepseek'
+    })
+  }
+
   if (provider === 'custom_openai') {
     return generateOpenAICompatibleText({
       providerConfig: getCustomOpenAIProviderConfig(),
@@ -1197,6 +1234,18 @@ export async function generateJSON<T>(options: {
       systemInstruction: options.systemInstruction,
       temperature: options.temperature,
       maxRetries: options.maxRetries
+    })
+  }
+
+  if (provider === 'deepseek') {
+    return generateOpenAICompatibleJSON<T>({
+      providerConfig: getDeepSeekOpenAICompatibleConfig(),
+      model: modelId,
+      prompt: options.prompt,
+      systemInstruction: options.systemInstruction,
+      temperature: options.temperature,
+      maxRetries: options.maxRetries,
+      debugProvider: 'deepseek'
     })
   }
 

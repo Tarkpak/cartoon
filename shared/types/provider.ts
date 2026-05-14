@@ -10,7 +10,7 @@ export const ModelProviderSchema = z.enum([
   'volcengine', // 火山引擎 (豆包)
   'custom_openai', // 自定义 OpenAI 兼容接口
   'openai', // OpenAI (预留)
-  'deepseek' // DeepSeek (预留)
+  'deepseek' // DeepSeek
 ])
 export type ModelProvider = z.infer<typeof ModelProviderSchema>
 

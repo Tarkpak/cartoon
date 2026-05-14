@@ -1,4 +1,3 @@
-import type { CustomOpenAIProviderConfig } from '#shared/types/provider'
 import { withModelDebugLog } from './model-debug-log'
 
 export interface OpenAICompatibleProviderConfig {
@@ -398,11 +397,19 @@ function parseError(error: unknown): OpenAICompatibleError {
 }
 
 function getAuthorizationHeader(providerConfig: OpenAICompatibleProviderConfig): string {
-  const authorization = providerConfig.apiKey ?? ''
-  if (!authorization) {
-    throw new OpenAICompatibleError('自定义 OpenAI 兼容供应商缺少 API Key', 403, false)
+  const rawApiKey = String(providerConfig.apiKey ?? '').trim()
+  if (!rawApiKey) {
+    throw new OpenAICompatibleError('OpenAI 兼容供应商缺少 API Key', 403, false)
   }
-  return authorization
+
+  // 兼容两种输入：
+  // 1) 纯 key：sk-...
+  // 2) 已含授权方案：Bearer sk-... / Basic ... / Token ...
+  if (/^[A-Za-z][A-Za-z0-9_-]*\s+.+$/.test(rawApiKey)) {
+    return rawApiKey
+  }
+
+  return `Bearer ${rawApiKey}`
 }
 
 async function withRetry<T>(
@@ -761,7 +768,7 @@ function taskErrorMessage(response: ImageTaskStatusResponse): string {
 }
 
 async function resolveImageTaskResult(options: {
-  providerConfig: CustomOpenAIProviderConfig
+  providerConfig: OpenAICompatibleProviderConfig
   taskId: string
 }): Promise<{ imageUrl?: string, imageData?: string, mimeType?: string }> {
   await sleep(DEFAULT_IMAGE_TASK_INITIAL_DELAY_MS)
@@ -821,7 +828,7 @@ export async function listOpenAICompatibleModels(
   const baseUrl = providerConfig.baseUrl?.trim()
 
   if (!baseUrl) {
-    throw new OpenAICompatibleError('自定义 OpenAI 兼容供应商缺少 Base URL', 400, false)
+    throw new OpenAICompatibleError('OpenAI 兼容供应商缺少 Base URL', 400, false)
   }
   const response = await fetch(modelsUrl(baseUrl), {
     method: 'GET',
@@ -831,9 +838,18 @@ export async function listOpenAICompatibleModels(
   })
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({})) as { error?: { message?: string }, message?: string }
+    const rawBody = await response.text().catch(() => '')
+    let parsedBody: { error?: { message?: string }, message?: string } = {}
+    if (rawBody) {
+      try {
+        parsedBody = JSON.parse(rawBody) as { error?: { message?: string }, message?: string }
+      } catch {
+        parsedBody = {}
+      }
+    }
+    const fallbackMessage = rawBody.trim().slice(0, 300) || `HTTP ${response.status}`
     throw new OpenAICompatibleError(
-      errorData.error?.message || errorData.message || `HTTP ${response.status}`,
+      parsedBody.error?.message || parsedBody.message || fallbackMessage,
       response.status,
       response.status >= 500 || response.status === 429
     )
@@ -945,12 +961,13 @@ function extractResponsesText(response: ResponsesApiResponse): string {
 }
 
 export async function generateOpenAICompatibleText(options: {
-  providerConfig: CustomOpenAIProviderConfig
+  providerConfig: OpenAICompatibleProviderConfig
   model: string
   prompt: string
   systemInstruction?: string
   temperature?: number
   maxRetries?: number
+  debugProvider?: string
 }): Promise<string> {
   const messages: Array<{ role: string, content: string }> = []
   if (options.systemInstruction) {
@@ -982,7 +999,7 @@ export async function generateOpenAICompatibleText(options: {
   })
 
   return withModelDebugLog({
-    provider: 'custom_openai',
+    provider: options.debugProvider || 'custom_openai',
     model: options.model,
     operation: 'generateText',
     request: requestBody,
@@ -1006,12 +1023,13 @@ export async function generateOpenAICompatibleText(options: {
 }
 
 export async function generateOpenAICompatibleJSON<T>(options: {
-  providerConfig: CustomOpenAIProviderConfig
+  providerConfig: OpenAICompatibleProviderConfig
   model: string
   prompt: string
   systemInstruction?: string
   temperature?: number
   maxRetries?: number
+  debugProvider?: string
 }): Promise<T> {
   const messages: Array<{ role: string, content: string }> = []
   if (options.systemInstruction) {
@@ -1044,7 +1062,7 @@ export async function generateOpenAICompatibleJSON<T>(options: {
   })
 
   return withModelDebugLog({
-    provider: 'custom_openai',
+    provider: options.debugProvider || 'custom_openai',
     model: options.model,
     operation: 'generateJSON',
     request: requestBody,
@@ -1122,7 +1140,7 @@ function resolveOpenAICompatibleImageStrategy(options: {
 }
 
 export async function generateOpenAICompatibleImage(options: {
-  providerConfig: CustomOpenAIProviderConfig
+  providerConfig: OpenAICompatibleProviderConfig
   model: string
   prompt: string
   size?: string
@@ -1130,6 +1148,7 @@ export async function generateOpenAICompatibleImage(options: {
   quality?: string
   referenceImages?: string[]
   maxRetries?: number
+  debugProvider?: string
 }): Promise<{ imageUrl?: string, imageData?: string, mimeType?: string }> {
   const imageStrategy = resolveOpenAICompatibleImageStrategy(options)
   const referenceImages = (options.referenceImages || [])
@@ -1176,7 +1195,7 @@ export async function generateOpenAICompatibleImage(options: {
   })
 
   return withModelDebugLog({
-    provider: 'custom_openai',
+    provider: options.debugProvider || 'custom_openai',
     model: options.model,
     operation: 'generateImage',
     request: {

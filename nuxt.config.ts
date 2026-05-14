@@ -27,6 +27,7 @@ export default defineNuxtConfig({
     // 仅服务端可用的配置
     geminiApiKey: process.env.GEMINI_API_KEY || '',
     qwenApiKey: process.env.QWEN_API_KEY || '',
+    deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
     klingAccessKey: process.env.KLING_ACCESS_KEY || '',
     klingSecretKey: process.env.KLING_SECRET_KEY || '',
     klingBaseUrl: process.env.KLING_BASE_URL || 'https://api-beijing.klingai.com',
