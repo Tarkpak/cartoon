@@ -89,6 +89,7 @@ void loadStylePresets()
 
 const MAX_ASSET_UPLOAD_SIZE = 20 * 1024 * 1024
 const MAX_VOICE_UPLOAD_SIZE = 30 * 1024 * 1024
+const ENVIRONMENT_REFERENCE_ASPECT_RATIO: '16:9' = '16:9'
 const DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO = '2:1'
 const PANORAMA_SOURCE_ASPECT_RATIO_BY_MODE: Record<string, string> = {
   equirectangular_360: '2:1',
@@ -527,7 +528,7 @@ async function createEnvironmentCropImage(options: {
   captureMode?: EnvironmentCropCaptureMode
   aspectRatio?: string
 }) {
-  const outputAspectRatio = options.aspectRatio || projectAspectRatio.value
+  const outputAspectRatio = options.aspectRatio || ENVIRONMENT_REFERENCE_ASPECT_RATIO
   const sourceAspectRatio = environmentPanoramaSourceAspectRatio.value
   const captureMode = resolveEnvironmentCropCaptureMode(options.captureMode)
   const metrics = await loadCropImageMetrics(options.sourceImage, {
@@ -1649,7 +1650,7 @@ async function submitEnvironmentCropSelection(payload: {
       sourceImage,
       crop: payload.selection,
       captureMode: payload.captureMode,
-      aspectRatio: projectAspectRatio.value
+      aspectRatio: ENVIRONMENT_REFERENCE_ASPECT_RATIO
     })
 
     const latestPanoramaState = resolveEnvironmentPanoramaState(target.id) || target
@@ -2346,7 +2347,7 @@ async function generateEnvironmentAssetFromCard(
           dialogues: []
         },
         style: workflowStylePrompt.value,
-        aspectRatio: projectAspectRatio.value,
+        aspectRatio: ENVIRONMENT_REFERENCE_ASPECT_RATIO,
         environmentContext: {
           environmentRoot: asset.name,
           anchorLocation: asset.name,
@@ -2382,7 +2383,7 @@ async function generateEnvironmentAssetFromCard(
         sourceImage: response.referenceImage,
         crop: asset.crop,
         captureMode,
-        aspectRatio: projectAspectRatio.value
+        aspectRatio: ENVIRONMENT_REFERENCE_ASPECT_RATIO
       })
       finalReferenceImage = croppedResult.imageUrl
       crop = croppedResult.crop
@@ -2849,7 +2850,7 @@ async function handleBatchGenerateCharacters() {
       :environment-crop-source-aspect-ratio="environmentPanoramaSourceAspectRatio"
       :environment-crop-initial-selection="environmentCropInitialSelection"
       :environment-crop-initial-capture-mode="environmentCropInitialCaptureMode"
-      :environment-crop-aspect-ratio="projectAspectRatio"
+      :environment-crop-aspect-ratio="ENVIRONMENT_REFERENCE_ASPECT_RATIO"
       :environment-crop-saving="environmentCropSaving"
       :set-environment-crop-dialog-open="setEnvironmentCropDialogOpen"
       :submit-environment-crop-selection="submitEnvironmentCropSelection"
