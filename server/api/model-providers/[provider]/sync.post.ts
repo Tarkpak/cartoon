@@ -5,7 +5,7 @@ import {
 } from '../../../utils/model-provider'
 
 const ProviderParamSchema = z.object({
-  provider: z.enum(['gemini', 'qwen', 'kling', 'volcengine', 'custom_openai'])
+  provider: z.enum(['gemini', 'qwen', 'kling', 'volcengine', 'deepseek', 'custom_openai'])
 })
 
 export default defineEventHandler(async (event) => {
