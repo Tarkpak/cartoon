@@ -77,6 +77,13 @@ const previewCanvasStyle = computed(() => ({
   height: `${previewCssSize.value.height}px`
 }))
 
+const zoomFovDegrees = computed(() => {
+  const width = selection.value?.width || DEFAULT_VIEW_WIDTH
+  return clamp(width * 360, MIN_VIEW_FOV_DEGREES, MAX_VIEW_FOV_DEGREES)
+})
+
+const zoomFovLabel = computed(() => `${Math.round(zoomFovDegrees.value)}°`)
+
 function resolveSelectionHeight(width: number): number {
   return clamp(
     resolvePanoramaSelectionHeightForAspectRatio(width, previewAspectRatio.value),
@@ -282,6 +289,13 @@ function handleWheelZoom(event: WheelEvent) {
   setSelectionWidth(selection.value.width * scale)
 }
 
+function handleZoomSliderChange(value?: number[]) {
+  if (!selection.value || loadingPreview.value) return
+  const nextFov = Number(value?.[0])
+  if (!Number.isFinite(nextFov)) return
+  setSelectionWidth(nextFov / 360)
+}
+
 function stopDragging(event?: PointerEvent) {
   if (event && dragState.pointerId) {
     ;(event.currentTarget as HTMLElement | null)?.releasePointerCapture?.(dragState.pointerId)
@@ -389,43 +403,51 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="shrink-0 border-t bg-background/95 px-4 py-3 backdrop-blur">
-        <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
-          <div class="min-w-0 rounded-lg border bg-muted/25 px-3 py-2 xl:w-[260px]">
-            <p class="truncate text-sm font-semibold tracking-tight">
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="h-9 min-w-0 max-w-[320px] shrink-0 rounded-md border bg-muted/25 px-3">
+            <p class="truncate text-sm font-semibold leading-9 tracking-tight">
               {{ targetLabel || '环境取景区域' }}
             </p>
-            <p class="mt-0.5 text-[11px] text-muted-foreground">
-              拖动画面调整朝向，鼠标滚轮缩放视角
-            </p>
           </div>
 
-          <div class="flex min-w-0 flex-1 flex-col gap-2">
-            <div class="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 px-2 py-1.5">
-              <Button
-                size="sm"
-                class="h-7"
-                :variant="captureMode === 'single' ? 'default' : 'outline'"
-                :disabled="loadingPreview || !selection"
-                @click="captureMode = 'single'"
-              >
-                单视图
-              </Button>
-              <Button
-                size="sm"
-                class="h-7"
-                :variant="captureMode === 'four_view' ? 'default' : 'outline'"
-                :disabled="loadingPreview || !selection"
-                @click="captureMode = 'four_view'"
-              >
-                四视图
-              </Button>
-              <span class="text-[11px] text-muted-foreground sm:ml-1">
-                四视图拼图顺序：前 / 后 / 左 / 右
-              </span>
-            </div>
+          <div class="flex h-9 shrink-0 items-center gap-1 rounded-md border bg-muted/20 px-1">
+            <Button
+              size="sm"
+              class="h-7"
+              :variant="captureMode === 'single' ? 'default' : 'outline'"
+              :disabled="loadingPreview || !selection"
+              @click="captureMode = 'single'"
+            >
+              单视图
+            </Button>
+            <Button
+              size="sm"
+              class="h-7"
+              :variant="captureMode === 'four_view' ? 'default' : 'outline'"
+              :disabled="loadingPreview || !selection"
+              @click="captureMode = 'four_view'"
+            >
+              四视图
+            </Button>
           </div>
 
-          <div class="flex shrink-0 items-center justify-end gap-2">
+          <div class="flex h-9 min-w-[260px] flex-1 items-center gap-2 rounded-md border bg-muted/20 px-3">
+            <span class="w-8 shrink-0 text-[11px] text-muted-foreground">缩放</span>
+            <Slider
+              :model-value="[zoomFovDegrees]"
+              :min="MIN_VIEW_FOV_DEGREES"
+              :max="MAX_VIEW_FOV_DEGREES"
+              :step="1"
+              class="min-w-0 flex-1"
+              :disabled="loadingPreview || !selection"
+              @update:model-value="handleZoomSliderChange"
+            />
+            <span class="w-10 shrink-0 text-right text-[11px] font-medium">
+              {{ zoomFovLabel }}
+            </span>
+          </div>
+
+          <div class="ml-auto flex shrink-0 items-center justify-end gap-2">
             <Button
               variant="outline"
               class="h-9"
