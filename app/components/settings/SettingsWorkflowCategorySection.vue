@@ -94,7 +94,7 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
           <SelectContent>
             <SelectItem
               v-for="model in workflow.compatibleModels"
-              :key="model.model"
+              :key="`${model.provider}_${model.model}`"
               :value="model.model"
             >
               [{{ props.getProviderLabel(model.provider) }}] {{ model.displayName }}

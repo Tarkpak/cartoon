@@ -115,6 +115,16 @@ const DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
 
 type SyncableProvider = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'deepseek' | 'custom_openai'
 
+const PROVIDER_MODEL_PRIORITY: Record<ModelProvider, number> = {
+  deepseek: 1,
+  qwen: 2,
+  volcengine: 3,
+  gemini: 4,
+  kling: 5,
+  custom_openai: 90,
+  openai: 91
+}
+
 interface ProviderSyncedCatalogEntry {
   models: string[]
   availableModels?: string[]
@@ -211,6 +221,28 @@ function filterModelsBySyncedCatalog<T extends { provider: string, model: string
     if (!synced) return true
     return synced.has(normalizeModelId(model.model))
   })
+}
+
+function dedupeModelsByModelId<T extends { provider: ModelProvider, model: string }>(models: T[]): T[] {
+  const selected = new Map<string, T>()
+
+  for (const model of models) {
+    const normalizedModelId = normalizeModelId(model.model)
+    const existing = selected.get(normalizedModelId)
+
+    if (!existing) {
+      selected.set(normalizedModelId, model)
+      continue
+    }
+
+    const existingPriority = PROVIDER_MODEL_PRIORITY[existing.provider] ?? 999
+    const nextPriority = PROVIDER_MODEL_PRIORITY[model.provider] ?? 999
+    if (nextPriority < existingPriority) {
+      selected.set(normalizedModelId, model)
+    }
+  }
+
+  return Array.from(selected.values())
 }
 
 function normalizeCustomOpenAIConfig(raw: unknown): CustomOpenAIProviderConfig {
@@ -649,11 +681,11 @@ export function getModelProviderSummaries(): ModelProviderSummary[] {
 }
 
 export function getTextModels(): TextModelConfig[] {
-  return filterModelsBySyncedCatalog([...TEXT_MODELS, ...buildCustomOpenAITextModels()])
+  return dedupeModelsByModelId(filterModelsBySyncedCatalog([...TEXT_MODELS, ...buildCustomOpenAITextModels()]))
 }
 
 export function getImageModels(): ImageModelConfig[] {
-  return filterModelsBySyncedCatalog([...IMAGE_MODELS, ...buildCustomOpenAIImageModels()])
+  return dedupeModelsByModelId(filterModelsBySyncedCatalog([...IMAGE_MODELS, ...buildCustomOpenAIImageModels()]))
 }
 
 export function getVideoModels(): VideoModelConfig[] {
