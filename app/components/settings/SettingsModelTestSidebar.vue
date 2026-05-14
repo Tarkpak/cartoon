@@ -4,10 +4,10 @@ import {
   ChevronRight,
   ExternalLink
 } from 'lucide-vue-next'
+import SettingsProviderLogo from '@/components/settings/SettingsProviderLogo.vue'
 import {
   getModelDocUrl,
   getModelMaxDuration,
-  getSettingsProviderColor,
   modelSupportsReferenceImage,
   modelSupportsThinking,
   SETTINGS_MODEL_TEST_TABS,
@@ -26,20 +26,6 @@ const emit = defineEmits<{
   (e: 'select-model', payload: { type: ModelTestTab, modelId: string }): void
   (e: 'toggle-provider', provider: string): void
 }>()
-
-const PROVIDER_DOT_CLASS: Record<string, string> = {
-  blue: 'bg-blue-500',
-  orange: 'bg-orange-500',
-  cyan: 'bg-cyan-500',
-  green: 'bg-green-500',
-  purple: 'bg-purple-500',
-  red: 'bg-red-500',
-  gray: 'bg-gray-500'
-}
-
-function getProviderDotClass(provider: string): string {
-  return PROVIDER_DOT_CLASS[getSettingsProviderColor(provider)] || 'bg-gray-500'
-}
 </script>
 
 <template>
@@ -90,10 +76,12 @@ function getProviderDotClass(provider: string): string {
             :is="group.expanded ? ChevronDown : ChevronRight"
             class="h-3.5 w-3.5 shrink-0 text-muted-foreground/60"
           />
-          <div
-            class="h-1.5 w-1.5 shrink-0 rounded-full"
-            :class="getProviderDotClass(group.provider)"
-          />
+          <div class="flex h-4 w-4 shrink-0 items-center justify-center rounded border bg-background">
+            <SettingsProviderLogo
+              :provider="group.provider"
+              size-class="h-2.5 w-2.5"
+            />
+          </div>
           <span class="flex-1 truncate text-sm font-medium">{{ group.displayName }}</span>
           <span class="text-[11px] text-muted-foreground/60">{{ group.models.length }}</span>
         </div>

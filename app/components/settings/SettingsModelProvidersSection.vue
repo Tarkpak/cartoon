@@ -8,6 +8,7 @@ import {
   XCircle
 } from 'lucide-vue-next'
 import SettingsCustomOpenAIProvider from '@/components/settings/SettingsCustomOpenAIProvider.vue'
+import SettingsProviderLogo from '@/components/settings/SettingsProviderLogo.vue'
 import { useSettingsModelCatalog } from '@/composables/useSettingsModelCatalog'
 
 type ProviderId = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'deepseek' | 'custom_openai'
@@ -217,14 +218,16 @@ onMounted(() => {
           @click="selectProvider(provider.provider)"
         >
           <div
-            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border"
-            :class="provider.configured
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
-              : 'border-border bg-muted text-muted-foreground'"
+            class="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-background"
+            :class="provider.provider === activeProviderSummary?.provider ? 'border-primary/40' : 'border-border'"
           >
-            <component
-              :is="provider.configured ? CheckCircle2 : XCircle"
-              class="h-4 w-4"
+            <SettingsProviderLogo
+              :provider="provider.provider"
+              size-class="h-5 w-5"
+            />
+            <span
+              class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-background"
+              :class="provider.configured ? 'bg-emerald-500' : 'bg-muted-foreground/40'"
             />
           </div>
 
@@ -248,6 +251,12 @@ onMounted(() => {
         <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
+              <div class="flex h-7 w-7 items-center justify-center rounded-md border bg-background">
+                <SettingsProviderLogo
+                  :provider="activeProviderSummary.provider"
+                  size-class="h-4 w-4"
+                />
+              </div>
               <h2 class="text-lg font-semibold">
                 {{ activeProviderSummary.displayName }}
               </h2>
