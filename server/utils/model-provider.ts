@@ -208,7 +208,7 @@ async function saveProviderModelCatalogToDB(catalog: ProviderSyncedCatalog): Pro
 
 function getSyncedModelSet(provider: SyncableProvider): Set<string> | null {
   const entry = providerSyncedCatalog[provider]
-  if (!entry?.models?.length) return null
+  if (!entry || !Array.isArray(entry.models)) return null
   return new Set(entry.models.map(model => normalizeModelId(model)))
 }
 
@@ -442,7 +442,10 @@ export async function syncCustomOpenAIProviderModels(
   try {
     const availableTextModels = await listOpenAICompatibleModels(baseConfig)
     const previousEnabled = new Set(baseConfig.textModels)
-    const textModels = baseConfig.textModels.length > 0
+    const hasPreviousSelection = baseConfig.textModels.length > 0
+      || !!baseConfig.modelsSyncedAt
+      || baseConfig.availableTextModels.length > 0
+    const textModels = hasPreviousSelection
       ? availableTextModels.filter(model => previousEnabled.has(model))
       : availableTextModels
     const synced = normalizeCustomOpenAIConfig({
@@ -532,8 +535,9 @@ async function syncOpenAICompatibleProviderCatalog(
     apiKey: cfg.apiKey,
     baseUrl: cfg.baseUrl
   })
+  const hasPreviousSelection = Array.isArray(providerSyncedCatalog[provider]?.models)
   const previousEnabled = new Set(providerSyncedCatalog[provider]?.models || [])
-  const models = previousEnabled.size > 0
+  const models = hasPreviousSelection
     ? availableModels.filter(model => previousEnabled.has(model))
     : availableModels
 
@@ -663,7 +667,7 @@ export function getModelProviderSummaries(): ModelProviderSummary[] {
         : getStaticProviderModels(provider.provider)
     const models = provider.provider === 'custom_openai'
       ? customOpenAIConfig.textModels
-      : synced?.models?.length
+      : Array.isArray(synced?.models)
         ? synced.models
         : availableModels
     const runtime = getRuntimeProviderConfig(provider.provider)
