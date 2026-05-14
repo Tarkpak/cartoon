@@ -38,6 +38,8 @@ import {
   resolveEnvironmentReferenceImageByCaptureMode
 } from '~/lib/asset-workbench-environment-views'
 
+const ENVIRONMENT_REFERENCE_ASPECT_RATIO = '16:9' as const
+
 interface UseAssetWorkbenchSceneGenerationOptions {
   scenes: Ref<SceneData[]>
   characters: Ref<CharacterData[]>
@@ -250,7 +252,7 @@ export function useAssetWorkbenchSceneGeneration(
     return JSON.stringify({
       scenePayload: buildAssetWorkflowScenePayload(scene),
       style: options.workflowStylePrompt.value,
-      aspectRatio: options.projectAspectRatio.value,
+      aspectRatio: ENVIRONMENT_REFERENCE_ASPECT_RATIO,
       customPrompt: generationOptions.customPrompt?.trim() || '',
       referenceImage: referenceInputs.referenceImage || '',
       consistencyReferenceImage: referenceInputs.consistencyReferenceImage || ''
@@ -375,7 +377,7 @@ export function useAssetWorkbenchSceneGeneration(
         scenes: options.scenes.value,
         scenePayload: buildAssetWorkflowScenePayload(scene),
         style: options.workflowStylePrompt.value,
-        aspectRatio: options.projectAspectRatio.value,
+        aspectRatio: ENVIRONMENT_REFERENCE_ASPECT_RATIO,
         customPrompt,
         referenceImage: referenceInputs.referenceImage,
         consistencyReferenceImage: referenceInputs.consistencyReferenceImage
@@ -418,7 +420,7 @@ export function useAssetWorkbenchSceneGeneration(
             assetId: environmentAssetId,
             sourceImage: panoramaImage,
             crop,
-            aspectRatio: options.projectAspectRatio.value
+            aspectRatio: ENVIRONMENT_REFERENCE_ASPECT_RATIO
           }
           if (captureMode) {
             cropOptions.captureMode = captureMode
