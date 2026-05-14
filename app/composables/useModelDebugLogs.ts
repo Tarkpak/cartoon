@@ -32,7 +32,7 @@ export interface ModelDebugLogEntry {
   error?: ModelDebugErrorInfo
 }
 
-export const MODEL_DEBUG_PROVIDER_OPTIONS = ['gemini', 'qwen', 'kling', 'volcengine']
+export const MODEL_DEBUG_PROVIDER_OPTIONS = ['gemini', 'qwen', 'kling', 'volcengine', 'deepseek', 'custom_openai']
 
 export const MODEL_DEBUG_OPERATION_OPTIONS = [
   'generateText',

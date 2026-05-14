@@ -8,7 +8,7 @@ AI 驱动的影视内容生成系统，基于 Nuxt.js 4 构建。从故事创意
 - **包管理器**: Bun
 - **数据库**: SQLite + Drizzle ORM
 - **UI**: Tailwind CSS + shadcn-vue
-- **AI 服务**: Google Gemini、阿里云 Qwen、可灵 AI、火山引擎 Doubao
+- **AI 服务**: Google Gemini、阿里云 Qwen、DeepSeek、可灵 AI、火山引擎 Doubao
 
 ## 快速开始
 
@@ -31,6 +31,7 @@ bun build
 GEMINI_API_KEY=            # Google Gemini API 密钥，支持多个（逗号/分号/换行分隔）
 # GEMINI_API_KEY=key1,key2,key3
 QWEN_API_KEY=              # 阿里云 Qwen (DashScope) API 密钥
+DEEPSEEK_API_KEY=          # DeepSeek 官方 API 密钥（OpenAI 兼容）
 KLING_ACCESS_KEY=          # 可灵 AI Access Key
 KLING_SECRET_KEY=          # 可灵 AI Secret Key
 KLING_BASE_URL=            # 可选，默认 https://api-beijing.klingai.com

@@ -6,7 +6,8 @@
 import type { WorkflowStep } from '#shared/types/workflow-models'
 import {
   findTextModel,
-  getCustomOpenAIProviderConfig
+  getCustomOpenAIProviderConfig,
+  getDeepSeekOpenAICompatibleConfig
 } from './model-provider'
 import * as gemini from './gemini'
 import * as qwen from './qwen'
@@ -68,6 +69,18 @@ export async function generateTextForWorkflow(
     })
   }
 
+  if (provider === 'deepseek') {
+    return generateOpenAICompatibleText({
+      providerConfig: getDeepSeekOpenAICompatibleConfig(),
+      model: modelId,
+      prompt: options.prompt,
+      systemInstruction: options.systemInstruction,
+      temperature: options.temperature,
+      maxRetries: options.maxRetries,
+      debugProvider: 'deepseek'
+    })
+  }
+
   if (provider === 'custom_openai') {
     return generateOpenAICompatibleText({
       providerConfig: getCustomOpenAIProviderConfig(),
@@ -125,6 +138,18 @@ export async function generateJSONForWorkflow<T>(
       systemInstruction: options.systemInstruction,
       temperature: options.temperature,
       maxRetries: options.maxRetries
+    })
+  }
+
+  if (provider === 'deepseek') {
+    return generateOpenAICompatibleJSON<T>({
+      providerConfig: getDeepSeekOpenAICompatibleConfig(),
+      model: modelId,
+      prompt: options.prompt,
+      systemInstruction: options.systemInstruction,
+      temperature: options.temperature,
+      maxRetries: options.maxRetries,
+      debugProvider: 'deepseek'
     })
   }
 

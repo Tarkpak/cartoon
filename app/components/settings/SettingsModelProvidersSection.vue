@@ -10,7 +10,7 @@ import {
 import SettingsCustomOpenAIProvider from '@/components/settings/SettingsCustomOpenAIProvider.vue'
 import { useSettingsModelCatalog } from '@/composables/useSettingsModelCatalog'
 
-type ProviderId = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'custom_openai'
+type ProviderId = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'deepseek' | 'custom_openai'
 
 interface ModelProviderSummary {
   provider: ProviderId
