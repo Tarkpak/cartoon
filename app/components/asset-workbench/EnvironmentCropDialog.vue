@@ -215,7 +215,6 @@ async function initializePreview() {
 
   loadingPreview.value = true
   previewError.value = null
-  captureMode.value = resolveEnvironmentCropCaptureMode(props.initialCaptureMode)
 
   try {
     const loaded = await loadPanoramaImage(props.sourceImage, {
@@ -329,7 +328,12 @@ watch(
   { deep: true }
 )
 
-watch(() => props.open, (open) => {
+watch(() => props.open, (open, previousOpen) => {
+  if (open && !previousOpen) {
+    captureMode.value = resolveEnvironmentCropCaptureMode(props.initialCaptureMode)
+    return
+  }
+
   if (!open) {
     stopDragging()
     if (renderFrameId) {
@@ -410,25 +414,11 @@ onBeforeUnmount(() => {
             </p>
           </div>
 
-          <div class="flex h-9 shrink-0 items-center gap-1 rounded-md border bg-muted/20 px-1">
-            <Button
-              size="sm"
-              class="h-7"
-              :variant="captureMode === 'single' ? 'default' : 'outline'"
-              :disabled="loadingPreview || !selection"
-              @click="captureMode = 'single'"
-            >
-              单视图
-            </Button>
-            <Button
-              size="sm"
-              class="h-7"
-              :variant="captureMode === 'four_view' ? 'default' : 'outline'"
-              :disabled="loadingPreview || !selection"
-              @click="captureMode = 'four_view'"
-            >
-              四视图
-            </Button>
+          <div class="flex h-9 shrink-0 items-center rounded-md border bg-muted/20 px-3 text-xs text-muted-foreground">
+            当前输出：
+            <span class="ml-1 font-medium text-foreground">
+              {{ captureMode === 'four_view' ? '四视图' : '单视图' }}
+            </span>
           </div>
 
           <div class="flex h-9 min-w-[260px] flex-1 items-center gap-2 rounded-md border bg-muted/20 px-3">
@@ -464,7 +454,7 @@ onBeforeUnmount(() => {
                 v-if="loading"
                 class="mr-2 h-4 w-4 animate-spin"
               />
-              保存取景区域
+              {{ captureMode === 'four_view' ? '保存四视图取景' : '保存单视图取景' }}
             </Button>
           </div>
         </div>
