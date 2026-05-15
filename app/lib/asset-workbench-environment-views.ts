@@ -94,6 +94,38 @@ export function resolveEnvironmentReferenceImageByCaptureMode(
   return singleViewImage || fourViewImage || panoramaImage || undefined
 }
 
+function normalizeOptionalImage(value?: string | null): string | undefined {
+  const normalized = value?.trim()
+  return normalized || undefined
+}
+
+export function mergeEnvironmentReferenceViewImages(options: {
+  previousSingleViewImage?: string | null
+  previousFourViewImage?: string | null
+  nextSingleViewImage?: string | null
+  nextFourViewImage?: string | null
+  captureMode: EnvironmentCropCaptureMode
+}): { singleViewImage?: string, fourViewImage?: string } {
+  const previousSingleViewImage = normalizeOptionalImage(options.previousSingleViewImage)
+  const previousFourViewImage = normalizeOptionalImage(options.previousFourViewImage)
+  const nextSingleViewImage = normalizeOptionalImage(options.nextSingleViewImage)
+  const nextFourViewImage = normalizeOptionalImage(options.nextFourViewImage)
+
+  if (options.captureMode === 'four_view') {
+    return {
+      // 仅更新四视图；若单视图尚未存在，则首次用本次生成结果补齐。
+      singleViewImage: previousSingleViewImage || nextSingleViewImage,
+      fourViewImage: nextFourViewImage || previousFourViewImage
+    }
+  }
+
+  return {
+    // 仅更新单视图；若四视图尚未存在，则首次用本次生成结果补齐。
+    singleViewImage: nextSingleViewImage || previousSingleViewImage,
+    fourViewImage: previousFourViewImage || nextFourViewImage
+  }
+}
+
 export function resolveEnvironmentReferenceImageForScene(
   scene: Pick<SceneData, 'description' | 'cameraNote' | 'environmentCaptureMode'>,
   state: EnvironmentPanoramaReferenceState | null | undefined

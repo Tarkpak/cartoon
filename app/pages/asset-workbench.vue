@@ -37,6 +37,7 @@ import {
   renderPanoramaSelectionToDataUrl
 } from '~/lib/asset-workbench-environment-panorama'
 import {
+  mergeEnvironmentReferenceViewImages,
   resolveEnvironmentReferenceImageByCaptureMode,
   resolveEnvironmentReferenceImageForScene
 } from '~/lib/asset-workbench-environment-views'
@@ -1789,18 +1790,19 @@ async function submitEnvironmentCropSelection(payload: {
       || target.fourViewImage?.trim()
       || resolveEnvironmentHistoryImageByView(target, 'four_view')
       || undefined
-    const nextSingleViewImage = result.captureMode === 'single'
-      ? (normalizedSingleViewImage || previousSingleViewImage)
-      : previousSingleViewImage
-    const nextFourViewImage = result.captureMode === 'four_view'
-      ? (normalizedFourViewImage || previousFourViewImage)
-      : previousFourViewImage
+    const nextViewImages = mergeEnvironmentReferenceViewImages({
+      previousSingleViewImage,
+      previousFourViewImage,
+      nextSingleViewImage: normalizedSingleViewImage,
+      nextFourViewImage: normalizedFourViewImage,
+      captureMode: result.captureMode
+    })
     await applyEnvironmentReferenceImage(target.id, result.imageUrl, {
       panoramaImage: target.panoramaImage?.trim() || sourceImage,
       crop: result.crop,
       captureMode: result.captureMode,
-      singleViewImage: nextSingleViewImage,
-      fourViewImage: nextFourViewImage
+      singleViewImage: nextViewImages.singleViewImage,
+      fourViewImage: nextViewImages.fourViewImage
     })
 
     const selectedViewImage = result.captureMode === 'four_view'
@@ -2817,131 +2819,134 @@ async function handleBatchGenerateCharacters() {
     />
 
     <AssetWorkbenchStagePanel
-      v-else-if="activeAutoStage === 'assets'"
+      v-else-if="activeAutoStage === 'assets' || activeAutoStage === 'videos'"
     >
-      <AssetWorkbenchAssetsStage
-        :scenes-count="scenes.length"
-        :characters="characters"
-        :environment-asset-cards="displayEnvironmentAssetCards"
-        :prop-assets="propAssets"
-        :auto-running="autoRunning"
-        :auto-run-current-stage="autoRunCurrentStage"
-        :character-ready-count="characterReadyCount"
-        :character-generating-count="characterGeneratingCount"
-        :character-missing-count="characterMissingCount"
-        :assets-primary-action-label="assetsPrimaryActionLabel"
-        :editing-character-id="editingCharacterId"
-        :character-edit-draft="characterEditDraft"
-        :character-role-options="characterRoleOptions"
-        :uploading-character-id="uploadingCharacterId"
-        :uploading-character-voice-id="uploadingCharacterVoiceId"
-        :uploading-environment-asset-id="uploadingEnvironmentAssetId"
-        :uploading-prop-id="uploadingPropId"
-        :generating-prop-id="generatingPropId"
-        :get-character-scene-count="resolveCharacterSceneCount"
-        :get-environment-scene-summary="resolveEnvironmentSceneSummary"
-        :get-environment-mother-candidates="resolveEnvironmentMotherCandidates"
-        :get-environment-selected-mother-id="resolveEnvironmentSelectedMotherId"
-        :has-environment-representative-scene="hasEnvironmentRepresentativeScene"
-        :get-prop-usage-count="resolvePropUsageCount"
-        :set-character-edit-draft="updateCharacterEditDraft"
-        @run-assets="runSimpleAssetsStep"
-        @generate-characters="handleBatchGenerateCharacters"
-        @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
-        @preview-image="openImagePreview($event.src, $event.alt)"
-        @start-character-edit="startEditCharacter"
-        @cancel-character-edit="cancelEditCharacter"
-        @save-character-edit="saveCharacterEdit()"
-        @save-character-edit-regenerate="saveCharacterEdit({ regenerate: true })"
-        @generate-character="handleGenerateCharacter"
-        @open-character-regenerate="openCharacterRegenerateDialog"
-        @open-character-history="openCharacterHistory"
-        @upload-character-image="handleCharacterImageUpload($event.characterId, $event.event)"
-        @upload-character-voice="handleCharacterVoiceUpload($event.characterId, $event.event)"
-        @update-character-voice-lock="handleCharacterVoiceLockChange($event.characterId, $event.locked)"
-        @edit-environment-scene="openEnvironmentAssetSceneEditor"
-        @upload-environment-image="handleEnvironmentImageUpload($event.assetId, $event.event)"
-        @open-environment-crop="openEnvironmentCropDialog($event.assetId, $event.captureMode)"
-        @open-environment-regenerate="openEnvironmentRegenerateDialog"
-        @open-environment-history="openEnvironmentHistory"
-        @regenerate-environment="regenerateEnvironmentAsset"
-        @update-environment-mother="handleEnvironmentMotherSelection($event)"
-        @add-prop="addPropAsset"
-        @remove-prop="removePropAsset"
-        @generate-prop="handleGeneratePropImage"
-        @upload-prop-image="handlePropImageUpload($event.propId, $event.event)"
-        @open-prop-history="openPropHistory"
-      />
-    </AssetWorkbenchStagePanel>
+      <KeepAlive>
+        <AssetWorkbenchAssetsStage
+          v-if="activeAutoStage === 'assets'"
+          key="assets-stage"
+          :scenes-count="scenes.length"
+          :characters="characters"
+          :environment-asset-cards="displayEnvironmentAssetCards"
+          :prop-assets="propAssets"
+          :auto-running="autoRunning"
+          :auto-run-current-stage="autoRunCurrentStage"
+          :character-ready-count="characterReadyCount"
+          :character-generating-count="characterGeneratingCount"
+          :character-missing-count="characterMissingCount"
+          :assets-primary-action-label="assetsPrimaryActionLabel"
+          :editing-character-id="editingCharacterId"
+          :character-edit-draft="characterEditDraft"
+          :character-role-options="characterRoleOptions"
+          :uploading-character-id="uploadingCharacterId"
+          :uploading-character-voice-id="uploadingCharacterVoiceId"
+          :uploading-environment-asset-id="uploadingEnvironmentAssetId"
+          :uploading-prop-id="uploadingPropId"
+          :generating-prop-id="generatingPropId"
+          :get-character-scene-count="resolveCharacterSceneCount"
+          :get-environment-scene-summary="resolveEnvironmentSceneSummary"
+          :get-environment-mother-candidates="resolveEnvironmentMotherCandidates"
+          :get-environment-selected-mother-id="resolveEnvironmentSelectedMotherId"
+          :has-environment-representative-scene="hasEnvironmentRepresentativeScene"
+          :get-prop-usage-count="resolvePropUsageCount"
+          :set-character-edit-draft="updateCharacterEditDraft"
+          @run-assets="runSimpleAssetsStep"
+          @generate-characters="handleBatchGenerateCharacters"
+          @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
+          @preview-image="openImagePreview($event.src, $event.alt)"
+          @start-character-edit="startEditCharacter"
+          @cancel-character-edit="cancelEditCharacter"
+          @save-character-edit="saveCharacterEdit()"
+          @save-character-edit-regenerate="saveCharacterEdit({ regenerate: true })"
+          @generate-character="handleGenerateCharacter"
+          @open-character-regenerate="openCharacterRegenerateDialog"
+          @open-character-history="openCharacterHistory"
+          @upload-character-image="handleCharacterImageUpload($event.characterId, $event.event)"
+          @upload-character-voice="handleCharacterVoiceUpload($event.characterId, $event.event)"
+          @update-character-voice-lock="handleCharacterVoiceLockChange($event.characterId, $event.locked)"
+          @edit-environment-scene="openEnvironmentAssetSceneEditor"
+          @upload-environment-image="handleEnvironmentImageUpload($event.assetId, $event.event)"
+          @open-environment-crop="openEnvironmentCropDialog($event.assetId, $event.captureMode)"
+          @open-environment-regenerate="openEnvironmentRegenerateDialog"
+          @open-environment-history="openEnvironmentHistory"
+          @regenerate-environment="regenerateEnvironmentAsset"
+          @update-environment-mother="handleEnvironmentMotherSelection($event)"
+          @add-prop="addPropAsset"
+          @remove-prop="removePropAsset"
+          @generate-prop="handleGeneratePropImage"
+          @upload-prop-image="handlePropImageUpload($event.propId, $event.event)"
+          @open-prop-history="openPropHistory"
+        />
 
-    <AssetWorkbenchStagePanel
-      v-else-if="activeAutoStage === 'videos'"
-    >
-      <AssetWorkbenchVideosStage
-        :scenes="scenes"
-        :episode-plan="episodePlan"
-        :episode-overviews="episodeOverviewById"
-        :selected-scene-id="selectedSceneId"
-        :selected-scene="selectedScene"
-        :queue-summary="queueSummary"
-        :auto-running="autoRunning"
-        :auto-run-current-stage="autoRunCurrentStage"
-        :parsing="parsing"
-        :scene-chat-open-scene-id="sceneChatOpenSceneId"
-        :scene-chat-current-messages="sceneChatCurrentMessages"
-        :scene-chat-composer-assets="sceneChatComposerAssets"
-        :scene-chat-composer-text="sceneChatComposerText"
-        :scene-chat-mention-open="sceneChatMentionOpen"
-        :scene-chat-mention-candidates="sceneChatMentionCandidates"
-        :scene-chat-mention-active-index="sceneChatMentionActiveIndex"
-        :scene-chat-uploading="sceneChatUploading"
-        :scene-chat-applying="sceneChatApplying"
-        :scene-chat-error="sceneChatError"
-        :scene-chat-can-submit="sceneChatCanSubmit"
-        :resolve-scene-previous-last-frame-reference-enabled="resolveScenePreviousLastFrameReferenceEnabled"
-        :resolve-scene-continuity-link-reason="resolveSceneContinuityLinkReason"
-        :can-use-previous-last-frame-reference="canUsePreviousLastFrameReference"
-        :resolve-scene-video-badge="resolveSceneVideoBadge"
-        :resolve-scene-voice-reference-summary="resolveSceneVoiceReferenceSummary"
-        :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
-        :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
-        :resolve-scene-reference-image="resolveSceneReferenceImage"
-        :is-scene-busy="isSceneBusy"
-        :is-scene-preparing="isScenePreparing"
-        :can-merge-scene-by-index="canMergeSceneByIndex"
-        :resolve-display-asset-by-id="resolveDisplayAssetById"
-        :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
-        :set-scene-chat-input-ref="setSceneChatInputRef"
-        :set-scene-chat-mention-list-ref="setSceneChatMentionListRef"
-        :set-scene-chat-composer-text="setSceneChatComposerText"
-        :exporting-script-docx="exportingScriptDocx"
-        :on-run-videos-step="runSimpleVideosStep"
-        :on-run-episode-videos-step="runEpisodeVideosStep"
-        :on-export-formatted-script-docx="handleExportFormattedScriptDocx"
-        :on-retry-failed-queue-items="retryFailedQueueItemsOnce"
-        :on-parse-episode="(episodeId) => handleParseSingleEpisode({ id: episodeId })"
-        :on-select-scene="selectScene"
-        :on-open-scene-edit="openSceneEdit"
-        :on-toggle-scene-chat="toggleSceneChat"
-        :on-handle-split-scene="handleSplitScene"
-        :on-handle-merge-with-next-scene="handleMergeWithNextScene"
-        :on-handle-delete-scene="handleDeleteScene"
-        :on-generate-scene-baseline="handleGenerateSceneBaseline"
-        :on-retry-scene="retryScene"
-        :on-open-scene-video-history="openSceneVideoHistory"
-        :on-set-scene-previous-last-frame-reference="setScenePreviousLastFrameReference"
-        :on-set-scene-environment-capture-mode="setSceneEnvironmentCaptureMode"
-        :on-preview-image="openImagePreview"
-        :on-close-scene-chat="closeSceneChat"
-        :on-handle-scene-chat-composer-input="handleSceneChatComposerInput"
-        :on-handle-scene-chat-composer-cursor="handleSceneChatComposerCursor"
-        :on-handle-scene-chat-composer-keydown="handleSceneChatComposerKeydown"
-        :on-apply-scene-chat-mention="applySceneChatMention"
-        :on-remove-scene-chat-composer-asset="removeSceneChatComposerAsset"
-        :on-handle-scene-chat-image-upload="handleSceneChatImageUpload"
-        :on-submit-scene-chat="submitSceneChat"
-        :normalize-workflow-text="normalizeWorkflowText"
-      />
+        <AssetWorkbenchVideosStage
+          v-else
+          key="videos-stage"
+          :scenes="scenes"
+          :episode-plan="episodePlan"
+          :episode-overviews="episodeOverviewById"
+          :selected-scene-id="selectedSceneId"
+          :selected-scene="selectedScene"
+          :queue-summary="queueSummary"
+          :auto-running="autoRunning"
+          :auto-run-current-stage="autoRunCurrentStage"
+          :parsing="parsing"
+          :scene-chat-open-scene-id="sceneChatOpenSceneId"
+          :scene-chat-current-messages="sceneChatCurrentMessages"
+          :scene-chat-composer-assets="sceneChatComposerAssets"
+          :scene-chat-composer-text="sceneChatComposerText"
+          :scene-chat-mention-open="sceneChatMentionOpen"
+          :scene-chat-mention-candidates="sceneChatMentionCandidates"
+          :scene-chat-mention-active-index="sceneChatMentionActiveIndex"
+          :scene-chat-uploading="sceneChatUploading"
+          :scene-chat-applying="sceneChatApplying"
+          :scene-chat-error="sceneChatError"
+          :scene-chat-can-submit="sceneChatCanSubmit"
+          :resolve-scene-previous-last-frame-reference-enabled="resolveScenePreviousLastFrameReferenceEnabled"
+          :resolve-scene-continuity-link-reason="resolveSceneContinuityLinkReason"
+          :can-use-previous-last-frame-reference="canUsePreviousLastFrameReference"
+          :resolve-scene-video-badge="resolveSceneVideoBadge"
+          :resolve-scene-voice-reference-summary="resolveSceneVoiceReferenceSummary"
+          :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
+          :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
+          :resolve-scene-reference-image="resolveSceneReferenceImage"
+          :resolve-scene-environment-reference-image-for-mode="resolveSceneEnvironmentReferenceImageForMode"
+          :is-scene-busy="isSceneBusy"
+          :is-scene-preparing="isScenePreparing"
+          :can-merge-scene-by-index="canMergeSceneByIndex"
+          :resolve-display-asset-by-id="resolveDisplayAssetById"
+          :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
+          :set-scene-chat-input-ref="setSceneChatInputRef"
+          :set-scene-chat-mention-list-ref="setSceneChatMentionListRef"
+          :set-scene-chat-composer-text="setSceneChatComposerText"
+          :exporting-script-docx="exportingScriptDocx"
+          :on-run-videos-step="runSimpleVideosStep"
+          :on-run-episode-videos-step="runEpisodeVideosStep"
+          :on-export-formatted-script-docx="handleExportFormattedScriptDocx"
+          :on-retry-failed-queue-items="retryFailedQueueItemsOnce"
+          :on-parse-episode="(episodeId) => handleParseSingleEpisode({ id: episodeId })"
+          :on-select-scene="selectScene"
+          :on-open-scene-edit="openSceneEdit"
+          :on-toggle-scene-chat="toggleSceneChat"
+          :on-handle-split-scene="handleSplitScene"
+          :on-handle-merge-with-next-scene="handleMergeWithNextScene"
+          :on-handle-delete-scene="handleDeleteScene"
+          :on-generate-scene-baseline="handleGenerateSceneBaseline"
+          :on-retry-scene="retryScene"
+          :on-open-scene-video-history="openSceneVideoHistory"
+          :on-set-scene-previous-last-frame-reference="setScenePreviousLastFrameReference"
+          :on-set-scene-environment-capture-mode="setSceneEnvironmentCaptureMode"
+          :on-preview-image="openImagePreview"
+          :on-close-scene-chat="closeSceneChat"
+          :on-handle-scene-chat-composer-input="handleSceneChatComposerInput"
+          :on-handle-scene-chat-composer-cursor="handleSceneChatComposerCursor"
+          :on-handle-scene-chat-composer-keydown="handleSceneChatComposerKeydown"
+          :on-apply-scene-chat-mention="applySceneChatMention"
+          :on-remove-scene-chat-composer-asset="removeSceneChatComposerAsset"
+          :on-handle-scene-chat-image-upload="handleSceneChatImageUpload"
+          :on-submit-scene-chat="submitSceneChat"
+          :normalize-workflow-text="normalizeWorkflowText"
+        />
+      </KeepAlive>
     </AssetWorkbenchStagePanel>
 
     <AssetWorkbenchFinalStage
