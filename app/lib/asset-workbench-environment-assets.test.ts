@@ -108,7 +108,7 @@ describe('buildEnvironmentAssetCards', () => {
     expect(cards[0]?.referenceError).toBe('Input data may contain inappropriate content.')
   })
 
-  it('merges sibling locations into one root environment card while reading legacy state aliases', () => {
+  it('keeps sibling locations as separate cards and only applies exact panorama state key', () => {
     const ancestralHall = createScene({
       id: 'scene_1',
       title: '祠堂夜祭',
@@ -140,9 +140,12 @@ describe('buildEnvironmentAssetCards', () => {
       resolveSceneDescriptionWithoutAssetMentions
     })
 
-    expect(cards).toHaveLength(1)
-    expect(cards[0]?.name).toBe('顾家老宅 / 夜晚')
-    expect(cards[0]?.sceneIds).toEqual(['scene_1', 'scene_2'])
-    expect(cards[0]?.panoramaImage).toBe('https://example.com/legacy-panorama.png')
+    expect(cards).toHaveLength(2)
+    const hallCard = cards.find(item => item.id === resolveSceneEnvironmentAssetId(ancestralHall))
+    const sideRoomCard = cards.find(item => item.id === resolveSceneEnvironmentAssetId(sideRoom))
+    expect(hallCard?.sceneIds).toEqual(['scene_1'])
+    expect(sideRoomCard?.sceneIds).toEqual(['scene_2'])
+    expect(hallCard?.panoramaImage).toBeUndefined()
+    expect(sideRoomCard?.panoramaImage).toBe('https://example.com/legacy-panorama.png')
   })
 })

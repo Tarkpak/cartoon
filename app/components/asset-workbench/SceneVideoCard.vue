@@ -37,6 +37,10 @@ const props = defineProps<{
   resolveSceneDescriptionRenderSegments: (scene: SceneData) => SceneDescriptionRenderSegment[]
   resolveSceneDescriptionSecondaryMentionItems: (scene: SceneData) => SceneDescriptionMentionItem[]
   resolveSceneReferenceImage: (scene: SceneData) => string | undefined
+  resolveSceneEnvironmentReferenceImageForMode: (
+    scene: SceneData,
+    mode: 'single' | 'four_view'
+  ) => string | undefined
   isSceneBusy: (scene: SceneData) => boolean
   isScenePreparing: (scene: SceneData) => boolean
   normalizeWorkflowText: (value: string) => string
@@ -82,6 +86,18 @@ const inlineRenderedMentionAssetIdSet = computed(() => {
   return ids
 })
 const sceneReferenceImage = computed(() => props.resolveSceneReferenceImage(props.scene))
+const sceneSingleViewReferenceImage = computed(() => {
+  return props.resolveSceneEnvironmentReferenceImageForMode(props.scene, 'single')
+})
+const sceneFourViewReferenceImage = computed(() => {
+  return props.resolveSceneEnvironmentReferenceImageForMode(props.scene, 'four_view')
+})
+const activeModeReferenceImage = computed(() => {
+  if (sceneEnvironmentCaptureMode.value === 'four_view') {
+    return sceneFourViewReferenceImage.value || sceneReferenceImage.value
+  }
+  return sceneSingleViewReferenceImage.value || sceneReferenceImage.value
+})
 const visibleSecondaryMentions = computed(() => {
   return secondaryMentions.value.filter((item) => {
     if (item.asset?.type === 'environment') return false
@@ -105,6 +121,13 @@ const sceneEnvironmentCaptureMode = computed<'single' | 'four_view'>(() => {
 
 function handleSetSceneEnvironmentCaptureMode(mode: 'single' | 'four_view') {
   props.onSetSceneEnvironmentCaptureMode(props.scene.id, mode)
+}
+
+function resolveCompactReferenceLabel(value?: string): string {
+  const raw = value?.trim() || ''
+  if (!raw) return '（空）'
+  if (raw.length <= 72) return raw
+  return `${raw.slice(0, 34)}...${raw.slice(-28)}`
 }
 </script>
 
@@ -267,14 +290,15 @@ function handleSetSceneEnvironmentCaptureMode(mode: 'single' | 'four_view') {
     </div>
 
     <Button
-      v-if="sceneReferenceImage"
+      v-if="activeModeReferenceImage"
       type="button"
       variant="ghost"
       class="mt-3 inline-flex h-auto rounded-lg border bg-muted/20 p-2 hover:bg-muted/30"
-      @click.stop="onPreviewImage(sceneReferenceImage, `${scene.title} · 环境图`)"
+      @click.stop="onPreviewImage(activeModeReferenceImage, `${scene.title} · 环境图`)"
     >
       <img
-        :src="toImageSrc(sceneReferenceImage)"
+        :key="activeModeReferenceImage"
+        :src="toImageSrc(activeModeReferenceImage)"
         :alt="`${scene.title} 环境图`"
         class="h-12 w-12 shrink-0 rounded-md border object-cover"
       >
@@ -303,6 +327,37 @@ function handleSetSceneEnvironmentCaptureMode(mode: 'single' | 'four_view') {
       >
         四视图
       </Button>
+    </div>
+    <div
+      class="mt-1 space-y-1 rounded-md border border-dashed bg-muted/10 px-2 py-1.5 text-[10px] text-muted-foreground"
+      @click.stop
+    >
+      <div class="truncate">
+        当前模式：{{ sceneEnvironmentCaptureMode === 'four_view' ? '四视图' : '单视图' }} · 命中：
+        {{ resolveCompactReferenceLabel(activeModeReferenceImage) }}
+      </div>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <Button
+          size="sm"
+          variant="ghost"
+          class="h-6 max-w-full px-1.5 text-[10px]"
+          :disabled="!sceneSingleViewReferenceImage"
+          :title="sceneSingleViewReferenceImage || '单视图为空'"
+          @click.stop="onPreviewImage(sceneSingleViewReferenceImage, `${scene.title} · 单视图引用`)"
+        >
+          单视图：{{ resolveCompactReferenceLabel(sceneSingleViewReferenceImage) }}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          class="h-6 max-w-full px-1.5 text-[10px]"
+          :disabled="!sceneFourViewReferenceImage"
+          :title="sceneFourViewReferenceImage || '四视图为空'"
+          @click.stop="onPreviewImage(sceneFourViewReferenceImage, `${scene.title} · 四视图引用`)"
+        >
+          四视图：{{ resolveCompactReferenceLabel(sceneFourViewReferenceImage) }}
+        </Button>
+      </div>
     </div>
 
     <div class="mt-2 flex flex-wrap gap-1">

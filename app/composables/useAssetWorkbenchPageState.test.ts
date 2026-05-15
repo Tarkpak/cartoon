@@ -79,6 +79,43 @@ describe('useAssetWorkbenchPageState', () => {
     )
   })
 
+  it('does not resolve scene reference image from non-identical panorama state keys', () => {
+    const scene = createScene({
+      id: 'scene_alias_1',
+      title: '办公室冲突',
+      description: '办公室内争执升级。',
+      setting: {
+        location: '星耀科技公司办公室',
+        timeOfDay: 'day'
+      }
+    })
+
+    const pageState = useAssetWorkbenchPageState({
+      scenes: ref([scene]),
+      characters: ref([]),
+      episodePlan: ref([]),
+      propAssets: ref([]),
+      environmentAssetHistories: ref({}),
+      environmentPanoramaStates: ref({
+        'env:星耀科技公司/办公室||白天': {
+          singleViewImage: 'https://example.com/slash-alias.png'
+        }
+      }),
+      sceneConfigs: ref({}),
+      selectedSceneId: ref('scene_alias_1'),
+      selectedStyleId: ref(''),
+      projectStyleId: ref(''),
+      supportsExplicitVoiceAudioReference: ref(false),
+      queueItems: ref([]),
+      resolveStyleById: () => null,
+      resolveSceneDescriptionWithoutAssetMentions,
+      uniqueSorted: values => Array.from(new Set(values.filter(Boolean)))
+    })
+
+    expect(pageState.resolveSceneReferenceImage(scene)).toBeUndefined()
+    expect(pageState.environmentAssetCards.value[0]?.referenceImage).toBeUndefined()
+  })
+
   it('merges environment hints from episode plan into environment cards', () => {
     const pageState = useAssetWorkbenchPageState({
       scenes: ref([]),
