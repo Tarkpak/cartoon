@@ -321,11 +321,44 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
   }
 
   function resolveSceneEnvironmentPanoramaState(scene: SceneData): EnvironmentPanoramaState | undefined {
+    let panoramaImage: string | undefined
+    let singleViewImage: string | undefined
+    let fourViewImage: string | undefined
+    let crop: EnvironmentPanoramaState['crop'] | undefined
+    let captureMode: EnvironmentPanoramaState['captureMode'] | undefined
+
     for (const alias of resolveSceneEnvironmentAssetIdAliases(scene)) {
       const state = options.environmentPanoramaStates.value[alias]
-      if (state) return state
+      if (!state) continue
+
+      if (!panoramaImage && state.panoramaImage?.trim()) {
+        panoramaImage = state.panoramaImage.trim()
+      }
+      if (!singleViewImage && state.singleViewImage?.trim()) {
+        singleViewImage = state.singleViewImage.trim()
+      }
+      if (!fourViewImage && state.fourViewImage?.trim()) {
+        fourViewImage = state.fourViewImage.trim()
+      }
+      if (!crop && state.crop) {
+        crop = state.crop
+      }
+      if (state.captureMode === 'four_view') {
+        captureMode = 'four_view'
+      }
     }
-    return undefined
+
+    if (!panoramaImage && !singleViewImage && !fourViewImage && !crop && !captureMode) {
+      return undefined
+    }
+
+    return {
+      panoramaImage,
+      singleViewImage,
+      fourViewImage,
+      crop,
+      captureMode
+    }
   }
 
   function resolveEnvironmentHistoryImageByView(

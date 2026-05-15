@@ -21,7 +21,7 @@ const emit = defineEmits<{
   'upload-image': [payload: { assetId: string, event: Event }]
   'open-regenerate': [assetId: string]
   'open-history': [assetId: string]
-  'open-crop': [assetId: string]
+  'open-crop': [payload: { assetId: string, captureMode: EnvironmentCropCaptureMode }]
   'regenerate': [assetId: string]
   'update-mother': [payload: { assetId: string, motherAssetId: string }]
 }>()
@@ -88,6 +88,12 @@ function hasEnvironmentImage(asset: EnvironmentAssetCard): boolean {
     || !!resolveEnvironmentViewImage(asset, 'four_view')
     || !!asset.referenceImage?.trim()
     || !!asset.panoramaImage?.trim()
+}
+
+function canOpenEnvironmentCrop(asset: EnvironmentAssetCard): boolean {
+  return !!asset.panoramaImage?.trim()
+    || !!asset.referenceImage?.trim()
+    || hasEnvironmentImage(asset)
 }
 
 function canGenerateEnvironmentAsset(assetId: string): boolean {
@@ -167,6 +173,16 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
               >
                 {{ resolveEnvironmentViewLabel(viewMode) }}
               </span>
+              <Button
+                size="sm"
+                variant="secondary"
+                class="absolute bottom-2 right-2 h-6 px-2 text-[10px]"
+                :disabled="asset.referenceStatus === 'generating' || !canOpenEnvironmentCrop(asset)"
+                @click.stop="emit('open-crop', { assetId: asset.id, captureMode: viewMode })"
+              >
+                <ScanSearch class="mr-1 h-3 w-3" />
+                取景
+              </Button>
             </div>
           </div>
           <!-- Status pill -->
@@ -261,17 +277,6 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
               class="mr-1 h-3 w-3"
             />
             上传
-          </Button>
-          <Button
-            v-if="hasEnvironmentImage(asset)"
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="asset.referenceStatus === 'generating'"
-            @click="emit('open-crop', asset.id)"
-          >
-            <ScanSearch class="mr-1 h-3 w-3" />
-            取景
           </Button>
           <Button
             v-if="hasEnvironmentImage(asset)"
