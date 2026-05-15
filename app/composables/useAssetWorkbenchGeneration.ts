@@ -68,6 +68,19 @@ interface UseAssetWorkbenchGenerationOptions {
 export function useAssetWorkbenchGeneration(
   options: UseAssetWorkbenchGenerationOptions
 ) {
+  function notifyModelTaskCompleted(payload: {
+    title: string
+    body?: string
+  }) {
+    if (!options.onModelTaskCompleted) return
+
+    // 通知是附加能力，不应阻塞主流程（避免 loading 无法回收）
+    void Promise.resolve(options.onModelTaskCompleted(payload))
+      .catch((error) => {
+        console.warn('[useAssetWorkbench] 模型任务完成通知失败:', error)
+      })
+  }
+
   async function saveProjectOrThrow(context: string): Promise<void> {
     const saved = await options.saveProject()
     if (saved === false) {
@@ -402,7 +415,7 @@ export function useAssetWorkbenchGeneration(
       options.parseProgress.value.progress = 100
       appendProgressLog(`分集目录已生成，共 ${episodes.length} 集`, 'progress')
       if (episodes.length > 0) {
-        await options.onModelTaskCompleted?.({
+        notifyModelTaskCompleted({
           title: '分集目录生成完成',
           body: `共生成 ${episodes.length} 集分集目录`
         })
@@ -490,7 +503,7 @@ export function useAssetWorkbenchGeneration(
         : '剧本解析完成'
       options.parseProgress.value.progress = 100
       appendProgressLog(options.parseProgress.value.message, 'progress')
-      await options.onModelTaskCompleted?.({
+      notifyModelTaskCompleted({
         title: parsePayload.targetEpisodeId ? '分集解析完成' : '剧本解析完成',
         body: `已生成 ${options.scenes.value.length} 个场景和 ${options.characters.value.length} 个角色`
       })
@@ -540,7 +553,7 @@ export function useAssetWorkbenchGeneration(
 
         const generatedImage = char.baseImage?.trim() || ''
         if (generatedImage && generatedImage !== previousImage && !input?.skipCompletionNotice) {
-          await options.onModelTaskCompleted?.({
+          notifyModelTaskCompleted({
             title: regenerationPrompt ? '角色二次生成完成' : '角色图生成完成',
             body: `角色：${char.name}`
           })
@@ -584,7 +597,7 @@ export function useAssetWorkbenchGeneration(
       }
     }
 
-    await options.onModelTaskCompleted?.({
+    notifyModelTaskCompleted({
       title: '角色批量生成完成',
       body: `成功 ${generated} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
     })
