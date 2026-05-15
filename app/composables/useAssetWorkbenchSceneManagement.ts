@@ -38,6 +38,11 @@ export function useAssetWorkbenchSceneManagement(options: {
   synchronizeQueueItems: () => void
   createPropAssetId: () => string
   isSceneBusy: (scene: SceneData) => boolean
+  resolveSceneBaselineReferenceImage?: (scene: SceneData) => string | undefined
+  resolveSceneEnvironmentReferenceImageForMode?: (
+    scene: SceneData,
+    mode: 'single' | 'four_view'
+  ) => string | undefined
 }) {
   let pendingSceneEditSave: { sceneId: string, sceneChanged: boolean } | null = null
 
@@ -217,6 +222,23 @@ export function useAssetWorkbenchSceneManagement(options: {
       id: sceneId,
       environmentCaptureMode: nextMode
     })
+
+    const updatedScene = options.scenes.value.find(item => item.id === sceneId)
+    const preferredReferenceImage = updatedScene
+      ? (
+          options.resolveSceneEnvironmentReferenceImageForMode?.(updatedScene, nextMode)?.trim()
+          || options.resolveSceneBaselineReferenceImage?.(updatedScene)?.trim()
+        )
+      : ''
+    if (updatedScene && preferredReferenceImage) {
+      // 视图切换后立即回写对应参考图，避免引用图停留在旧模式。
+      updatedScene.firstFrame = preferredReferenceImage
+      updatedScene.lastFrame = undefined
+      updatedScene.referenceStatus = 'done'
+      updatedScene.referenceError = undefined
+      invalidateSceneVideoState(updatedScene)
+    }
+
     options.synchronizeQueueItems()
     await options.saveProject()
   }

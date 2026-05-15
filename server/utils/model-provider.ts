@@ -1098,13 +1098,19 @@ async function saveSelectedModelsToDB(models: SelectedModels): Promise<void> {
  * 初始化全局模型选择（从数据库恢复）
  */
 export async function initializeSelectedModels(): Promise<void> {
+  try {
+    // 供应商模型勾选与自定义 OpenAI 配置可能被其他请求/实例更新，
+    // 每次初始化入口都先从数据库刷新，避免流程模型页与供应商页状态不一致。
+    await initializeCustomOpenAIProvider()
+  } catch (error) {
+    console.error('[Models] 刷新供应商模型目录失败，继续使用内存缓存:', error)
+  }
+
   if (selectedModelsInitialized) {
     return
   }
 
   try {
-    await initializeCustomOpenAIProvider()
-
     const rows = await db.select()
       .from(systemConfig)
       .where(eq(systemConfig.key, SELECTED_MODELS_KEY))
