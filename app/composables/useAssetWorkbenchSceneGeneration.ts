@@ -545,20 +545,24 @@ export function useAssetWorkbenchSceneGeneration(
 
     await ensureSceneReferencedAssetsReady(scene)
 
-    if (!resolveSceneReferenceImage(scene)) {
+    if (!resolveSceneAvailableReferenceImage(scene)) {
       await applySceneReferenceIfAvailable(scene)
     }
 
-    if (!resolveSceneReferenceImage(scene)) {
+    if (!resolveSceneAvailableReferenceImage(scene)) {
       await generateSceneBaseline(scene.id, { preferReuse: true })
     }
     if (scene.referenceStatus === 'error') {
       throw new Error(options.normalizeWorkflowText(scene.referenceError || '场景环境图生成失败'))
     }
 
-    const environmentImage = resolveSceneReferenceImage(scene)
+    const environmentImage = resolveSceneAvailableReferenceImage(scene)
     if (!environmentImage) {
       throw new Error('场景环境图未就绪，无法生成视频')
+    }
+
+    if (resolveSceneReferenceImage(scene) !== environmentImage) {
+      applySceneBaselineReference(scene, environmentImage)
     }
 
     const characterReferenceAssets = resolveSceneVideoReferenceAssets({
