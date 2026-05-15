@@ -91,7 +91,7 @@ void loadStylePresets()
 
 const MAX_ASSET_UPLOAD_SIZE = 20 * 1024 * 1024
 const MAX_VOICE_UPLOAD_SIZE = 30 * 1024 * 1024
-const ENVIRONMENT_REFERENCE_ASPECT_RATIO: '16:9' = '16:9'
+const ENVIRONMENT_REFERENCE_ASPECT_RATIO = '16:9' as const
 const DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO = '2:1'
 const PANORAMA_SOURCE_ASPECT_RATIO_BY_MODE: Record<string, string> = {
   equirectangular_360: '2:1',
@@ -477,12 +477,61 @@ function resolveEnvironmentPanoramaState(assetId: string): EnvironmentPanoramaSt
   return environmentPanoramaStates.value[assetId]
 }
 
+function resolveEnvironmentPanoramaStateAliasKeys(assetId: string): string[] {
+  const keys = new Set<string>([assetId])
+  const card = resolveEnvironmentCard(assetId)
+  if (!card) return Array.from(keys)
+
+  for (const sceneId of card.sceneIds) {
+    const scene = scenes.value.find(item => item.id === sceneId)
+    if (!scene) continue
+    for (const alias of resolveSceneEnvironmentAssetIdAliases(scene)) {
+      keys.add(alias)
+    }
+  }
+
+  return Array.from(keys)
+}
+
 function resolveEnvironmentPanoramaStateForScene(scene: SceneData): EnvironmentPanoramaState | undefined {
+  let panoramaImage: string | undefined
+  let singleViewImage: string | undefined
+  let fourViewImage: string | undefined
+  let crop: EnvironmentCropSelection | undefined
+  let captureMode: EnvironmentCropCaptureMode | undefined
+
   for (const alias of resolveSceneEnvironmentAssetIdAliases(scene)) {
     const state = environmentPanoramaStates.value[alias]
-    if (state) return state
+    if (!state) continue
+
+    if (!panoramaImage && state.panoramaImage?.trim()) {
+      panoramaImage = state.panoramaImage.trim()
+    }
+    if (!singleViewImage && state.singleViewImage?.trim()) {
+      singleViewImage = state.singleViewImage.trim()
+    }
+    if (!fourViewImage && state.fourViewImage?.trim()) {
+      fourViewImage = state.fourViewImage.trim()
+    }
+    if (!crop && state.crop) {
+      crop = state.crop
+    }
+    if (state.captureMode === 'four_view') {
+      captureMode = 'four_view'
+    }
   }
-  return undefined
+
+  if (!panoramaImage && !singleViewImage && !fourViewImage && !crop && !captureMode) {
+    return undefined
+  }
+
+  return {
+    panoramaImage,
+    singleViewImage,
+    fourViewImage,
+    crop,
+    captureMode
+  }
 }
 
 function resolveEnvironmentHistoryImageByView(
@@ -499,6 +548,7 @@ function setEnvironmentPanoramaState(
   assetId: string,
   state: EnvironmentPanoramaState | undefined
 ) {
+  const aliasKeys = resolveEnvironmentPanoramaStateAliasKeys(assetId)
   const panoramaImage = state?.panoramaImage?.trim() || undefined
   const singleViewImage = state?.singleViewImage?.trim() || undefined
   const fourViewImage = state?.fourViewImage?.trim() || undefined
@@ -507,18 +557,22 @@ function setEnvironmentPanoramaState(
   const nextStates = { ...environmentPanoramaStates.value }
 
   if (!hasPayload) {
-    if (!(assetId in nextStates)) return
-    const { [assetId]: _removed, ...remainingStates } = nextStates
-    environmentPanoramaStates.value = remainingStates
+    const aliasSet = new Set(aliasKeys)
+    const remainingEntries = Object.entries(nextStates)
+      .filter(([key]) => !aliasSet.has(key))
+    if (remainingEntries.length === Object.keys(nextStates).length) return
+    environmentPanoramaStates.value = Object.fromEntries(remainingEntries)
     return
   }
 
-  nextStates[assetId] = {
-    panoramaImage,
-    singleViewImage,
-    fourViewImage,
-    crop: state?.crop,
-    captureMode
+  for (const key of aliasKeys) {
+    nextStates[key] = {
+      panoramaImage,
+      singleViewImage,
+      fourViewImage,
+      crop: state?.crop,
+      captureMode
+    }
   }
   environmentPanoramaStates.value = nextStates
 }
@@ -1587,6 +1641,7 @@ const {
 
 const environmentCropDialogOpen = ref(false)
 const environmentCropTargetId = ref<string | null>(null)
+const environmentCropRequestedCaptureMode = ref<EnvironmentCropCaptureMode | null>(null)
 const environmentCropSaving = ref(false)
 const environmentCropError = ref<string | null>(null)
 const environmentRegenerateDialogLoading = computed(() => {
@@ -1602,6 +1657,7 @@ const environmentRegenerateDialogLoading = computed(() => {
 watch(environmentCropDialogOpen, (open) => {
   if (open) return
   environmentCropTargetId.value = null
+  environmentCropRequestedCaptureMode.value = null
   environmentCropError.value = null
 })
 
@@ -1657,6 +1713,9 @@ const environmentCropInitialSelection = computed(() => {
 })
 
 const environmentCropInitialCaptureMode = computed<EnvironmentCropCaptureMode>(() => {
+  if (environmentCropRequestedCaptureMode.value) {
+    return resolveEnvironmentCropCaptureMode(environmentCropRequestedCaptureMode.value)
+  }
   if (!environmentCropTarget.value) return 'single'
   const captureMode = resolveEnvironmentPanoramaState(environmentCropTarget.value.id)?.captureMode
     || environmentCropTarget.value.captureMode
@@ -1665,7 +1724,10 @@ const environmentCropInitialCaptureMode = computed<EnvironmentCropCaptureMode>((
   )
 })
 
-function openEnvironmentCropDialog(assetId: string) {
+function openEnvironmentCropDialog(
+  assetId: string,
+  captureMode?: EnvironmentCropCaptureMode
+) {
   const asset = resolveEnvironmentCard(assetId)
   if (!asset?.panoramaImage?.trim() && !asset?.referenceImage?.trim()) {
     alert(`请先生成或上传 ${environmentPanoramaSourceAspectRatio.value} 的环境源图，再选择取景区域`)
@@ -1673,6 +1735,7 @@ function openEnvironmentCropDialog(assetId: string) {
   }
 
   environmentCropTargetId.value = assetId
+  environmentCropRequestedCaptureMode.value = captureMode || null
   environmentCropError.value = null
   environmentCropDialogOpen.value = true
 }
@@ -1681,6 +1744,7 @@ function setEnvironmentCropDialogOpen(open: boolean) {
   environmentCropDialogOpen.value = open
   if (!open) {
     environmentCropTargetId.value = null
+    environmentCropRequestedCaptureMode.value = null
     environmentCropError.value = null
   }
 }
@@ -1725,16 +1789,18 @@ async function submitEnvironmentCropSelection(payload: {
       || target.fourViewImage?.trim()
       || resolveEnvironmentHistoryImageByView(target, 'four_view')
       || undefined
+    const nextSingleViewImage = result.captureMode === 'single'
+      ? (normalizedSingleViewImage || previousSingleViewImage)
+      : previousSingleViewImage
+    const nextFourViewImage = result.captureMode === 'four_view'
+      ? (normalizedFourViewImage || previousFourViewImage)
+      : previousFourViewImage
     await applyEnvironmentReferenceImage(target.id, result.imageUrl, {
       panoramaImage: target.panoramaImage?.trim() || sourceImage,
       crop: result.crop,
       captureMode: result.captureMode,
-      singleViewImage: result.captureMode === 'single'
-        ? normalizedSingleViewImage
-        : previousSingleViewImage,
-      fourViewImage: result.captureMode === 'four_view'
-        ? normalizedFourViewImage
-        : previousFourViewImage
+      singleViewImage: nextSingleViewImage,
+      fourViewImage: nextFourViewImage
     })
 
     const selectedViewImage = result.captureMode === 'four_view'
@@ -2795,7 +2861,7 @@ async function handleBatchGenerateCharacters() {
         @update-character-voice-lock="handleCharacterVoiceLockChange($event.characterId, $event.locked)"
         @edit-environment-scene="openEnvironmentAssetSceneEditor"
         @upload-environment-image="handleEnvironmentImageUpload($event.assetId, $event.event)"
-        @open-environment-crop="openEnvironmentCropDialog"
+        @open-environment-crop="openEnvironmentCropDialog($event.assetId, $event.captureMode)"
         @open-environment-regenerate="openEnvironmentRegenerateDialog"
         @open-environment-history="openEnvironmentHistory"
         @regenerate-environment="regenerateEnvironmentAsset"

@@ -2,7 +2,13 @@
 import { Loader2 } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, PropAssetCategory } from '~/composables/useAssetWorkflowMeta'
-import type { AutoStageKey, AssetTab, CharacterRoleOption, EnvironmentAssetCard } from '~/lib/asset-workbench-types'
+import type {
+  AutoStageKey,
+  AssetTab,
+  CharacterRoleOption,
+  EnvironmentAssetCard,
+  EnvironmentCropCaptureMode
+} from '~/lib/asset-workbench-types'
 
 const props = defineProps<{
   scenesCount: number
@@ -54,7 +60,7 @@ const emit = defineEmits<{
   'update-character-voice-lock': [payload: { characterId: string, locked: boolean }]
   'edit-environment-scene': [assetId: string]
   'upload-environment-image': [payload: { assetId: string, event: Event }]
-  'open-environment-crop': [assetId: string]
+  'open-environment-crop': [payload: { assetId: string, captureMode: EnvironmentCropCaptureMode }]
   'open-environment-regenerate': [assetId: string]
   'open-environment-history': [assetId: string]
   'regenerate-environment': [assetId: string]
