@@ -12,6 +12,7 @@ import {
   resolveEnvironmentRepresentativeScene as findEnvironmentRepresentativeScene,
   resolveEnvironmentSceneSummary,
   resolveSceneEnvironmentAssetId,
+  resolveSceneEnvironmentAssetIdAliases,
   resolveSceneReferenceImage as resolveSceneDirectReferenceImage
 } from '~/lib/asset-workbench-environment'
 import {
@@ -36,6 +37,7 @@ import type {
   AssetImageHistoryEntry,
   DisplayAsset,
   EnvironmentAssetCard,
+  EnvironmentCropCaptureMode,
   EnvironmentPanoramaState,
   QueueItem,
   SceneDescriptionMentionItem,
@@ -318,13 +320,40 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
     return allAssets.value.find(asset => asset.id === assetId)
   }
 
-  function resolveSceneReferenceImage(scene: SceneData): string | undefined {
-    const directSceneImage = resolveSceneDirectReferenceImage(scene)
-    if (directSceneImage) return directSceneImage
+  function resolveSceneEnvironmentPanoramaState(scene: SceneData): EnvironmentPanoramaState | undefined {
+    for (const alias of resolveSceneEnvironmentAssetIdAliases(scene)) {
+      const state = options.environmentPanoramaStates.value[alias]
+      if (state) return state
+    }
+    return undefined
+  }
 
+  function resolveEnvironmentHistoryImageByView(
+    asset: EnvironmentAssetCard | undefined,
+    viewMode: EnvironmentCropCaptureMode
+  ): string | undefined {
+    const entries = Array.isArray(asset?.assetHistory) ? asset.assetHistory : []
+    const typed = entries.find(entry => entry.viewMode === viewMode && !!entry.image?.trim())
+    if (typed?.image?.trim()) return typed.image.trim()
+    return undefined
+  }
+
+  function resolveSceneReferenceImage(scene: SceneData): string | undefined {
     const environmentAssetId = resolveSceneEnvironmentAssetId(scene)
     const environmentCard = findEnvironmentCard(environmentAssetId, environmentAssetCards.value)
-    return resolveEnvironmentReferenceImageForScene(scene, environmentCard)
+    const panoramaState = resolveSceneEnvironmentPanoramaState(scene)
+    const referenceState = {
+      panoramaImage: panoramaState?.panoramaImage || environmentCard?.panoramaImage,
+      captureMode: panoramaState?.captureMode || environmentCard?.captureMode,
+      singleViewImage: panoramaState?.singleViewImage
+        || environmentCard?.singleViewImage
+        || resolveEnvironmentHistoryImageByView(environmentCard, 'single'),
+      fourViewImage: panoramaState?.fourViewImage
+        || environmentCard?.fourViewImage
+        || resolveEnvironmentHistoryImageByView(environmentCard, 'four_view')
+    }
+    return resolveEnvironmentReferenceImageForScene(scene, referenceState)
+      || resolveSceneDirectReferenceImage(scene)
       || environmentCard?.referenceImage
   }
 

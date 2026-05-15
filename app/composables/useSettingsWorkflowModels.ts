@@ -576,6 +576,12 @@ export function useSettingsWorkflowModels() {
     void loadWorkflowModels()
   })
 
+  watch(() => models.value, (next, prev) => {
+    // 供应商勾选模型变更后，强制刷新流程模型可选项，保持两边同步。
+    if (!next || !prev) return
+    void loadWorkflowModels()
+  })
+
   onActivated(() => {
     void reloadModelSettings()
   })

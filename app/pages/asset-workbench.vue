@@ -37,6 +37,7 @@ import {
   renderPanoramaSelectionToDataUrl
 } from '~/lib/asset-workbench-environment-panorama'
 import {
+  resolveEnvironmentReferenceImageByCaptureMode,
   resolveEnvironmentReferenceImageForScene
 } from '~/lib/asset-workbench-environment-views'
 import {
@@ -48,7 +49,8 @@ import {
   invalidateSceneVideoState
 } from '~/lib/asset-workbench-scenes'
 import {
-  resolveSceneEnvironmentAssetId
+  resolveSceneEnvironmentAssetId,
+  resolveSceneEnvironmentAssetIdAliases
 } from '~/lib/asset-workbench-environment'
 import {
   AUTO_STAGE_HINTS,
@@ -475,6 +477,24 @@ function resolveEnvironmentPanoramaState(assetId: string): EnvironmentPanoramaSt
   return environmentPanoramaStates.value[assetId]
 }
 
+function resolveEnvironmentPanoramaStateForScene(scene: SceneData): EnvironmentPanoramaState | undefined {
+  for (const alias of resolveSceneEnvironmentAssetIdAliases(scene)) {
+    const state = environmentPanoramaStates.value[alias]
+    if (state) return state
+  }
+  return undefined
+}
+
+function resolveEnvironmentHistoryImageByView(
+  asset: EnvironmentAssetCard | null | undefined,
+  viewMode: EnvironmentCropCaptureMode
+): string | undefined {
+  const entries = Array.isArray(asset?.assetHistory) ? asset.assetHistory : []
+  const typed = entries.find(entry => entry.viewMode === viewMode && !!entry.image?.trim())
+  if (typed?.image?.trim()) return typed.image.trim()
+  return undefined
+}
+
 function setEnvironmentPanoramaState(
   assetId: string,
   state: EnvironmentPanoramaState | undefined
@@ -514,11 +534,44 @@ function buildEnvironmentCropUploadPrefix(assetId: string): string {
 function resolveSceneBaselineReferenceImage(scene: SceneData): string | undefined {
   const assetId = resolveSceneEnvironmentAssetId(scene)
   const environmentCard = resolveEnvironmentCard(assetId)
-  const panoramaState = resolveEnvironmentPanoramaState(assetId) || environmentCard
-  return resolveEnvironmentReferenceImageForScene(scene, panoramaState)
-    || environmentCard?.referenceImage?.trim()
+  const panoramaState = resolveEnvironmentPanoramaStateForScene(scene)
+  const referenceState = {
+    panoramaImage: panoramaState?.panoramaImage || environmentCard?.panoramaImage,
+    captureMode: panoramaState?.captureMode || environmentCard?.captureMode,
+    singleViewImage: panoramaState?.singleViewImage
+      || environmentCard?.singleViewImage
+      || resolveEnvironmentHistoryImageByView(environmentCard, 'single'),
+    fourViewImage: panoramaState?.fourViewImage
+      || environmentCard?.fourViewImage
+      || resolveEnvironmentHistoryImageByView(environmentCard, 'four_view')
+  }
+  return resolveEnvironmentReferenceImageForScene(scene, referenceState)
     || resolveSceneReferenceImage(scene)
+    || environmentCard?.referenceImage?.trim()
     || scene.firstFrame
+}
+
+function resolveSceneEnvironmentReferenceImageForMode(
+  scene: SceneData,
+  mode: EnvironmentCropCaptureMode
+): string | undefined {
+  const assetId = resolveSceneEnvironmentAssetId(scene)
+  const environmentCard = resolveEnvironmentCard(assetId)
+  const panoramaState = resolveEnvironmentPanoramaStateForScene(scene)
+  const referenceState = {
+    panoramaImage: panoramaState?.panoramaImage || environmentCard?.panoramaImage,
+    captureMode: panoramaState?.captureMode || environmentCard?.captureMode,
+    singleViewImage: panoramaState?.singleViewImage
+      || environmentCard?.singleViewImage
+      || resolveEnvironmentHistoryImageByView(environmentCard, 'single'),
+    fourViewImage: panoramaState?.fourViewImage
+      || environmentCard?.fourViewImage
+      || resolveEnvironmentHistoryImageByView(environmentCard, 'four_view')
+  }
+  return resolveEnvironmentReferenceImageByCaptureMode(referenceState, mode)
+    || resolveSceneReferenceImage(scene)
+    || environmentCard?.referenceImage?.trim()
+    || scene.firstFrame?.trim()
 }
 
 async function createEnvironmentCropImage(options: {
@@ -780,7 +833,9 @@ const {
   saveWorkflowMeta,
   synchronizeQueueItems,
   createPropAssetId,
-  isSceneBusy
+  isSceneBusy,
+  resolveSceneBaselineReferenceImage,
+  resolveSceneEnvironmentReferenceImageForMode
 })
 
 const {
@@ -1653,19 +1708,33 @@ async function submitEnvironmentCropSelection(payload: {
       aspectRatio: ENVIRONMENT_REFERENCE_ASPECT_RATIO
     })
 
-    const latestPanoramaState = resolveEnvironmentPanoramaState(target.id) || target
-    const latestSingleViewImage = latestPanoramaState.singleViewImage?.trim() || ''
-    const latestFourViewImage = latestPanoramaState.fourViewImage?.trim() || ''
+    const normalizedSingleViewImage = result.singleViewImage?.trim()
+      || (result.captureMode === 'single'
+        ? (result.imageUrl?.trim() || undefined)
+        : undefined)
+    const normalizedFourViewImage = result.fourViewImage?.trim()
+      || (result.captureMode === 'four_view'
+        ? (result.imageUrl?.trim() || undefined)
+        : undefined)
+    const latestPanoramaState = resolveEnvironmentPanoramaState(target.id)
+    const previousSingleViewImage = latestPanoramaState?.singleViewImage?.trim()
+      || target.singleViewImage?.trim()
+      || resolveEnvironmentHistoryImageByView(target, 'single')
+      || undefined
+    const previousFourViewImage = latestPanoramaState?.fourViewImage?.trim()
+      || target.fourViewImage?.trim()
+      || resolveEnvironmentHistoryImageByView(target, 'four_view')
+      || undefined
     await applyEnvironmentReferenceImage(target.id, result.imageUrl, {
       panoramaImage: target.panoramaImage?.trim() || sourceImage,
       crop: result.crop,
       captureMode: result.captureMode,
       singleViewImage: result.captureMode === 'single'
-        ? (result.singleViewImage?.trim() || result.imageUrl?.trim() || undefined)
-        : (latestSingleViewImage || undefined),
+        ? normalizedSingleViewImage
+        : previousSingleViewImage,
       fourViewImage: result.captureMode === 'four_view'
-        ? (result.fourViewImage?.trim() || result.imageUrl?.trim() || undefined)
-        : (latestFourViewImage || undefined)
+        ? normalizedFourViewImage
+        : previousFourViewImage
     })
 
     const selectedViewImage = result.captureMode === 'four_view'
