@@ -104,7 +104,7 @@ describe('environment asset grouping', () => {
     expect(resolveSceneEnvironmentAssetLabel(scene)).toBe('老旧出租屋 / 白天')
   })
 
-  it('groups sibling subspaces under the same root environment asset', () => {
+  it('keeps sibling subspaces as different environment assets', () => {
     const ancestralHall = createScene({
       id: 'scene_1',
       title: '祠堂夜祭',
@@ -124,7 +124,7 @@ describe('environment asset grouping', () => {
       }
     })
 
-    expect(resolveSceneEnvironmentAssetId(ancestralHall)).toBe(
+    expect(resolveSceneEnvironmentAssetId(ancestralHall)).not.toBe(
       resolveSceneEnvironmentAssetId(sideRoom)
     )
     expect(resolveSceneEnvironmentAssetLabel(sideRoom)).toBe('顾家老宅 / 夜晚')

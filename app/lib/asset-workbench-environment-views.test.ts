@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   isSceneLikelyMultiView,
+  mergeEnvironmentReferenceViewImages,
   resolveEnvironmentCaptureModeForScene,
   resolveEnvironmentReferenceImageByCaptureMode,
   resolveEnvironmentReferenceImageForScene
@@ -78,5 +79,55 @@ describe('asset-workbench environment views', () => {
         fourViewImage: 'four.png'
       }
     )).toBe('four.png')
+  })
+
+  it('only updates single-view image when captureMode is single', () => {
+    expect(mergeEnvironmentReferenceViewImages({
+      previousSingleViewImage: 'old-single.png',
+      previousFourViewImage: 'old-four.png',
+      nextSingleViewImage: 'new-single.png',
+      nextFourViewImage: 'new-four.png',
+      captureMode: 'single'
+    })).toEqual({
+      singleViewImage: 'new-single.png',
+      fourViewImage: 'old-four.png'
+    })
+  })
+
+  it('only updates four-view image when captureMode is four_view', () => {
+    expect(mergeEnvironmentReferenceViewImages({
+      previousSingleViewImage: 'old-single.png',
+      previousFourViewImage: 'old-four.png',
+      nextSingleViewImage: 'new-single.png',
+      nextFourViewImage: 'new-four.png',
+      captureMode: 'four_view'
+    })).toEqual({
+      singleViewImage: 'old-single.png',
+      fourViewImage: 'new-four.png'
+    })
+  })
+
+  it('seeds missing opposite mode image from current crop result without overriding existing one', () => {
+    expect(mergeEnvironmentReferenceViewImages({
+      previousSingleViewImage: '',
+      previousFourViewImage: 'old-four.png',
+      nextSingleViewImage: 'new-single.png',
+      nextFourViewImage: 'new-four.png',
+      captureMode: 'four_view'
+    })).toEqual({
+      singleViewImage: 'new-single.png',
+      fourViewImage: 'new-four.png'
+    })
+
+    expect(mergeEnvironmentReferenceViewImages({
+      previousSingleViewImage: 'old-single.png',
+      previousFourViewImage: '',
+      nextSingleViewImage: 'new-single.png',
+      nextFourViewImage: 'new-four.png',
+      captureMode: 'single'
+    })).toEqual({
+      singleViewImage: 'new-single.png',
+      fourViewImage: 'new-four.png'
+    })
   })
 })

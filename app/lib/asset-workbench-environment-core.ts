@@ -390,15 +390,9 @@ export function buildExactSceneEnvironmentKey(scene: SceneData): string {
 }
 
 export function buildSceneEnvironmentKey(scene: SceneData): string {
-  const environmentRoot = normalizeEnvironmentToken(resolveSceneEnvironmentRoot(scene))
-  const location = normalizeEnvironmentToken(scene.setting?.location)
-  const timeOfDay = normalizeEnvironmentToken(resolveTimeOfDayText(scene.setting?.timeOfDay))
-
-  if (environmentRoot || location || timeOfDay) {
-    return `${environmentRoot || location}||${timeOfDay}`
-  }
-
-  return buildExactSceneEnvironmentKey(scene)
+  const exactKey = buildExactSceneEnvironmentKey(scene)
+  if (exactKey) return exactKey
+  return buildLegacySceneEnvironmentKey(scene)
 }
 
 export function resolveSceneEnvironmentAssetKey(scene: SceneData): string {

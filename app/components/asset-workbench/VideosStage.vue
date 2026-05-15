@@ -83,6 +83,10 @@ const props = defineProps<{
   resolveSceneDescriptionRenderSegments: (scene: SceneData) => SceneDescriptionRenderSegment[]
   resolveSceneDescriptionSecondaryMentionItems: (scene: SceneData) => SceneDescriptionMentionItem[]
   resolveSceneReferenceImage: (scene: SceneData) => string | undefined
+  resolveSceneEnvironmentReferenceImageForMode: (
+    scene: SceneData,
+    mode: 'single' | 'four_view'
+  ) => string | undefined
   isSceneBusy: (scene: SceneData) => boolean
   isScenePreparing: (scene: SceneData) => boolean
   canMergeSceneByIndex: (index: number) => boolean
@@ -638,6 +642,7 @@ watch(episodeDirectoryCollapsed, (value) => {
           :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
           :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
           :resolve-scene-reference-image="resolveSceneReferenceImage"
+          :resolve-scene-environment-reference-image-for-mode="resolveSceneEnvironmentReferenceImageForMode"
           :is-scene-busy="isSceneBusy"
           :is-scene-preparing="isScenePreparing"
           :normalize-workflow-text="normalizeWorkflowText"
