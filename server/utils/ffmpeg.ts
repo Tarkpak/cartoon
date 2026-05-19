@@ -429,6 +429,24 @@ export function getVideoInfo(inputPath: string): Promise<{
   })
 }
 
+/**
+ * 获取媒体文件时长（秒）
+ * 支持音频和视频输入
+ */
+export function getMediaDuration(inputPath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(inputPath, (err, metadata) => {
+      if (err) {
+        reject(err)
+        return
+      }
+
+      const duration = Number(metadata.format.duration || 0)
+      resolve(Number.isFinite(duration) ? duration : 0)
+    })
+  })
+}
+
 export async function extractAudioTrack(
   inputPath: string,
   outputPath: string,
