@@ -66,7 +66,10 @@ import {
   exportAssetWorkbenchJianyingProject,
   exportAssetWorkbenchScriptDocx
 } from '~/lib/asset-workbench-api'
-import { resolveChatUploadAssetName } from '~/lib/asset-workbench-scene-chat'
+import {
+  extractAssetIdsFromSceneChatText,
+  resolveChatUploadAssetName
+} from '~/lib/asset-workbench-scene-chat'
 import {
   applySceneBaselineReference,
   type GenerateSceneBaselineOptions
@@ -378,6 +381,7 @@ const {
   scheduleWorkflowMetaSave
 } = useAssetWorkflowMeta({
   projectId,
+  projectAssetWorkflow,
   scenes,
   characters,
   sceneConfigs,
@@ -2430,6 +2434,7 @@ async function generateEnvironmentAssetFromCard(
   options: {
     customPrompt?: string
     consistencyReferenceImage?: string
+    consistencyReferenceImages?: string[]
   } = {}
 ): Promise<boolean | 'busy'> {
   const asset = resolveEnvironmentCard(assetId)
@@ -2438,6 +2443,13 @@ async function generateEnvironmentAssetFromCard(
 
   const customPrompt = options.customPrompt?.trim() || ''
   const consistencyReferenceImage = options.consistencyReferenceImage?.trim() || ''
+  const consistencyReferenceImages = Array.isArray(options.consistencyReferenceImages)
+    ? Array.from(new Set(
+        options.consistencyReferenceImages
+          .map(value => value?.trim() || '')
+          .filter(Boolean)
+      ))
+    : []
   const isRegeneration = !!customPrompt
   const regenerationReferenceImage = isRegeneration
     ? (
@@ -2497,8 +2509,9 @@ async function generateEnvironmentAssetFromCard(
               referenceImage: regenerationReferenceImage
             }
           : undefined,
-        consistencyReferenceImage: !isRegeneration
-          ? consistencyReferenceImage || undefined
+        consistencyReferenceImage: consistencyReferenceImage || undefined,
+        consistencyReferenceImages: consistencyReferenceImages.length > 0
+          ? consistencyReferenceImages
           : undefined
       }
     })
@@ -2586,18 +2599,37 @@ async function generateEnvironmentAssetFromCard(
 
 async function submitEnvironmentRegeneration() {
   const target = environmentRegenerateTarget.value
+  const prompt = environmentRegeneratePrompt.value.trim()
+  const mentionMap = resolveAssetByMentionTokenMap()
+  const mentionAssetIds = prompt
+    ? extractAssetIdsFromSceneChatText(prompt, mentionMap)
+    : []
+  const consistencyReferenceImages = Array.from(new Set(
+    mentionAssetIds
+      .map(assetId => resolveDisplayAssetById(assetId))
+      .filter((asset): asset is DisplayAsset => !!asset && asset.type === 'environment' && asset.id !== target?.id)
+      .map(asset => resolveEnvironmentAssetReferenceImage(asset.id) || '')
+      .filter(Boolean)
+  ))
+  const consistencyReferenceImage = consistencyReferenceImages[0]
+
   if (!target) {
-    await submitEnvironmentRegenerationCore()
+    await submitEnvironmentRegenerationCore({
+      consistencyReferenceImage,
+      consistencyReferenceImages
+    })
     return
   }
 
   const targetScene = resolveEnvironmentRepresentativeScene(target.id)
   if (targetScene) {
-    await submitEnvironmentRegenerationCore()
+    await submitEnvironmentRegenerationCore({
+      consistencyReferenceImage,
+      consistencyReferenceImages
+    })
     return
   }
 
-  const prompt = environmentRegeneratePrompt.value.trim()
   if (!prompt) {
     environmentRegenerateError.value = '请输入二次生成提示词'
     return
@@ -2605,7 +2637,9 @@ async function submitEnvironmentRegeneration() {
 
   environmentRegenerateError.value = null
   const succeeded = await generateEnvironmentAssetFromCard(target.id, {
-    customPrompt: prompt
+    customPrompt: prompt,
+    consistencyReferenceImage,
+    consistencyReferenceImages
   })
   if (succeeded === 'busy') {
     return

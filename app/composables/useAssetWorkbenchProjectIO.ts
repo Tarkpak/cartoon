@@ -78,6 +78,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       selectedStyleId: options.selectedStyleId.value || options.projectStyleId.value,
       scriptParseMode: options.scriptParseMode.value,
       episodePlan: options.episodePlan.value,
+      assetWorkflow: options.projectAssetWorkflow.value,
       scenes: buildSaveScenesPayload(input?.scenes || options.scenes.value),
       characters: buildSaveCharactersPayload(input?.characters || options.characters.value)
     }

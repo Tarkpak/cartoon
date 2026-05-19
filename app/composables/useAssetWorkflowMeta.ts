@@ -57,6 +57,7 @@ export interface AssetWorkflowMeta {
 
 interface UseAssetWorkflowMetaOptions {
   projectId: Ref<string | undefined>
+  projectAssetWorkflow?: Ref<unknown | null>
   scenes: Ref<SceneData[]>
   characters: Ref<CharacterData[]>
   sceneConfigs: Ref<Record<string, SceneConsistencyConfig>>
@@ -402,6 +403,10 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         options.environmentPanoramaStates.value = {}
         options.environmentMotherAssetSelections.value = {}
       }
+
+      if (options.projectAssetWorkflow) {
+        options.projectAssetWorkflow.value = buildWorkflowMetaPayload()
+      }
     } catch (error) {
       console.error('[useAssetWorkflowMeta] 读取工作流元数据失败:', error)
     } finally {
@@ -418,6 +423,9 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
     if (!workflowMetaReady.value || !currentProjectId) return
 
     const payload = buildWorkflowMetaPayload()
+    if (options.projectAssetWorkflow) {
+      options.projectAssetWorkflow.value = payload
+    }
 
     try {
       await $fetch(`/api/project/${currentProjectId}`, {

@@ -265,9 +265,17 @@ export function useAssetWorkbenchSceneGeneration(
   ): {
     referenceImage?: string
     consistencyReferenceImage?: string
+    consistencyReferenceImages?: string[]
   } {
     const customPrompt = generationOptions.customPrompt?.trim() || ''
     const consistencyReferenceImage = generationOptions.consistencyReferenceImage?.trim() || ''
+    const consistencyReferenceImages = Array.isArray(generationOptions.consistencyReferenceImages)
+      ? Array.from(new Set(
+          generationOptions.consistencyReferenceImages
+            .map(value => value?.trim() || '')
+            .filter(Boolean)
+        ))
+      : []
     const sceneReferenceImage = options.resolveSceneBaselineReferenceImage?.(scene)?.trim()
       || resolveSceneReferenceImage(scene)
       || scene.firstFrame?.trim()
@@ -275,16 +283,27 @@ export function useAssetWorkbenchSceneGeneration(
 
     if (customPrompt) {
       return {
-        referenceImage: sceneReferenceImage
+        referenceImage: sceneReferenceImage,
+        consistencyReferenceImage: consistencyReferenceImage || undefined,
+        consistencyReferenceImages: consistencyReferenceImages.length > 0
+          ? consistencyReferenceImages
+          : undefined
       }
     }
 
     if (!consistencyReferenceImage) {
-      return {}
+      return {
+        consistencyReferenceImages: consistencyReferenceImages.length > 0
+          ? consistencyReferenceImages
+          : undefined
+      }
     }
 
     return {
-      consistencyReferenceImage
+      consistencyReferenceImage,
+      consistencyReferenceImages: consistencyReferenceImages.length > 0
+        ? consistencyReferenceImages
+        : undefined
     }
   }
 
@@ -380,7 +399,8 @@ export function useAssetWorkbenchSceneGeneration(
         aspectRatio: ENVIRONMENT_REFERENCE_ASPECT_RATIO,
         customPrompt,
         referenceImage: referenceInputs.referenceImage,
-        consistencyReferenceImage: referenceInputs.consistencyReferenceImage
+        consistencyReferenceImage: referenceInputs.consistencyReferenceImage,
+        consistencyReferenceImages: referenceInputs.consistencyReferenceImages
       })
 
       const latestGenerationKey = pendingBaselineGenerationKeys.get(scene.id)

@@ -16,6 +16,7 @@ export interface GenerateSceneBaselineOptions {
   preferReuse?: boolean
   customPrompt?: string
   consistencyReferenceImage?: string
+  consistencyReferenceImages?: string[]
 }
 
 export interface AssetWorkflowScenePayload {
@@ -53,6 +54,7 @@ interface RequestSceneBaselineGenerationOptions {
   customPrompt?: string
   referenceImage?: string
   consistencyReferenceImage?: string
+  consistencyReferenceImages?: string[]
 }
 
 interface AssetWorkflowVideoReferences {
@@ -212,7 +214,8 @@ export async function requestSceneBaselineGeneration(
             referenceImage: options.referenceImage
           }
         : undefined,
-      consistencyReferenceImage: options.consistencyReferenceImage
+      consistencyReferenceImage: options.consistencyReferenceImage,
+      consistencyReferenceImages: options.consistencyReferenceImages
     }
   })
 
