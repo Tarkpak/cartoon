@@ -122,13 +122,6 @@ const sceneEnvironmentCaptureMode = computed<'single' | 'four_view'>(() => {
 function handleSetSceneEnvironmentCaptureMode(mode: 'single' | 'four_view') {
   props.onSetSceneEnvironmentCaptureMode(props.scene.id, mode)
 }
-
-function resolveCompactReferenceLabel(value?: string): string {
-  const raw = value?.trim() || ''
-  if (!raw) return '（空）'
-  if (raw.length <= 72) return raw
-  return `${raw.slice(0, 34)}...${raw.slice(-28)}`
-}
 </script>
 
 <template>
@@ -328,38 +321,6 @@ function resolveCompactReferenceLabel(value?: string): string {
         四视图
       </Button>
     </div>
-    <div
-      class="mt-1 space-y-1 rounded-md border border-dashed bg-muted/10 px-2 py-1.5 text-[10px] text-muted-foreground"
-      @click.stop
-    >
-      <div class="truncate">
-        当前模式：{{ sceneEnvironmentCaptureMode === 'four_view' ? '四视图' : '单视图' }} · 命中：
-        {{ resolveCompactReferenceLabel(activeModeReferenceImage) }}
-      </div>
-      <div class="flex flex-wrap items-center gap-1.5">
-        <Button
-          size="sm"
-          variant="ghost"
-          class="h-6 max-w-full px-1.5 text-[10px]"
-          :disabled="!sceneSingleViewReferenceImage"
-          :title="sceneSingleViewReferenceImage || '单视图为空'"
-          @click.stop="onPreviewImage(sceneSingleViewReferenceImage, `${scene.title} · 单视图引用`)"
-        >
-          单视图：{{ resolveCompactReferenceLabel(sceneSingleViewReferenceImage) }}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          class="h-6 max-w-full px-1.5 text-[10px]"
-          :disabled="!sceneFourViewReferenceImage"
-          :title="sceneFourViewReferenceImage || '四视图为空'"
-          @click.stop="onPreviewImage(sceneFourViewReferenceImage, `${scene.title} · 四视图引用`)"
-        >
-          四视图：{{ resolveCompactReferenceLabel(sceneFourViewReferenceImage) }}
-        </Button>
-      </div>
-    </div>
-
     <div class="mt-2 flex flex-wrap gap-1">
       <Badge
         v-if="scene.setting?.location"
