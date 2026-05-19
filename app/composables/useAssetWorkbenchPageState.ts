@@ -320,6 +320,39 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
     return allAssets.value.find(asset => asset.id === assetId)
   }
 
+  function resolveSceneEnvironmentReferenceAssetId(scene: SceneData): string {
+    const configuredAssetId = options.sceneConfigs.value[scene.id]?.environmentAssetId?.trim() || ''
+    if (configuredAssetId && findEnvironmentCard(configuredAssetId, environmentAssetCards.value)) {
+      return configuredAssetId
+    }
+    return resolveSceneEnvironmentAssetId(scene)
+  }
+
+  function resolveEnvironmentPanoramaStateAliasKeys(assetId: string): string[] {
+    const keys = new Set<string>([assetId])
+    const card = findEnvironmentCard(assetId, environmentAssetCards.value)
+    if (!card) return Array.from(keys)
+
+    for (const sceneId of card.sceneIds) {
+      const scene = options.scenes.value.find(item => item.id === sceneId)
+      if (!scene) continue
+      for (const alias of resolveSceneEnvironmentAssetIdAliases(scene)) {
+        keys.add(alias)
+      }
+    }
+
+    return Array.from(keys)
+  }
+
+  function resolveSceneEnvironmentReferenceAssetAliases(scene: SceneData): string[] {
+    const configuredAssetId = options.sceneConfigs.value[scene.id]?.environmentAssetId?.trim() || ''
+    if (configuredAssetId && findEnvironmentCard(configuredAssetId, environmentAssetCards.value)) {
+      return resolveEnvironmentPanoramaStateAliasKeys(configuredAssetId)
+    }
+
+    return resolveSceneEnvironmentAssetIdAliases(scene)
+  }
+
   function resolveSceneEnvironmentPanoramaState(scene: SceneData): EnvironmentPanoramaState | undefined {
     let panoramaImage: string | undefined
     let singleViewImage: string | undefined
@@ -327,7 +360,7 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
     let crop: EnvironmentPanoramaState['crop'] | undefined
     let captureMode: EnvironmentPanoramaState['captureMode'] | undefined
 
-    for (const alias of resolveSceneEnvironmentAssetIdAliases(scene)) {
+    for (const alias of resolveSceneEnvironmentReferenceAssetAliases(scene)) {
       const state = options.environmentPanoramaStates.value[alias]
       if (!state) continue
 
@@ -372,7 +405,7 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
   }
 
   function resolveSceneReferenceImage(scene: SceneData): string | undefined {
-    const environmentAssetId = resolveSceneEnvironmentAssetId(scene)
+    const environmentAssetId = resolveSceneEnvironmentReferenceAssetId(scene)
     const environmentCard = findEnvironmentCard(environmentAssetId, environmentAssetCards.value)
     const panoramaState = resolveSceneEnvironmentPanoramaState(scene)
     const referenceState = {

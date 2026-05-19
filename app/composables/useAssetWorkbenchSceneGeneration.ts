@@ -119,6 +119,11 @@ export function useAssetWorkbenchSceneGeneration(
   const pendingBaselineGenerationKeys = new Map<string, string>()
   const pendingVideoGenerationKeys = new Map<string, string>()
 
+  function resolveSceneEnvironmentReferenceAssetId(scene: SceneData): string {
+    const configuredAssetId = options.sceneConfigs.value[scene.id]?.environmentAssetId?.trim() || ''
+    return configuredAssetId || resolveSceneEnvironmentAssetId(scene)
+  }
+
   function resolveSceneAvailableReferenceImage(scene: SceneData): string | undefined {
     return options.resolveSceneBaselineReferenceImage?.(scene)?.trim()
       || resolveSceneReferenceImage(scene)
@@ -132,7 +137,7 @@ export function useAssetWorkbenchSceneGeneration(
     if (!reusableImage) return false
 
     applySceneBaselineReference(scene, reusableImage)
-    const environmentAssetId = resolveSceneEnvironmentAssetId(scene)
+    const environmentAssetId = resolveSceneEnvironmentReferenceAssetId(scene)
     options.recordEnvironmentHistory?.(
       environmentAssetId,
       reusableImage,
@@ -174,7 +179,7 @@ export function useAssetWorkbenchSceneGeneration(
     )
 
     for (const environmentId of referencedEnvironmentIds) {
-      const relatedScenes = options.scenes.value.filter(item => resolveSceneEnvironmentAssetId(item) === environmentId)
+      const relatedScenes = options.scenes.value.filter(item => resolveSceneEnvironmentReferenceAssetId(item) === environmentId)
       if (relatedScenes.length === 0) continue
 
       const readyScene = relatedScenes.find((item) => {
@@ -371,7 +376,7 @@ export function useAssetWorkbenchSceneGeneration(
       const reusableImage = findReusableEnvironmentImage(scene, options.scenes.value)
       if (reusableImage) {
         applySceneBaselineReference(scene, reusableImage)
-        const environmentAssetId = resolveSceneEnvironmentAssetId(scene)
+        const environmentAssetId = resolveSceneEnvironmentReferenceAssetId(scene)
         options.recordEnvironmentHistory?.(
           environmentAssetId,
           reusableImage,
@@ -414,7 +419,7 @@ export function useAssetWorkbenchSceneGeneration(
         return
       }
 
-      const environmentAssetId = resolveSceneEnvironmentAssetId(scene)
+      const environmentAssetId = resolveSceneEnvironmentReferenceAssetId(scene)
       const existingPanoramaState = options.resolveEnvironmentPanoramaState?.(environmentAssetId)
       let referenceImage = panoramaImage
       let crop = existingPanoramaState?.panoramaImage === panoramaImage
@@ -617,6 +622,8 @@ export function useAssetWorkbenchSceneGeneration(
         aspectRatio: options.projectAspectRatio.value,
         references: buildAssetWorkflowVideoReferences({
           scene,
+          environmentAssetId: resolveSceneEnvironmentReferenceAssetId(scene),
+          environmentAssetName: options.resolveAssetName(resolveSceneEnvironmentReferenceAssetId(scene)),
           environmentImage,
           continuityFirstFrame,
           characterImages,

@@ -87,6 +87,13 @@ const props = defineProps<{
     scene: SceneData,
     mode: 'single' | 'four_view'
   ) => string | undefined
+  sceneEnvironmentAssetOptions: Array<{
+    id: string
+    label: string
+    hasReference: boolean
+    previewImage?: string
+  }>
+  resolveSceneEnvironmentReferenceAssetSelection: (sceneId: string) => string
   isSceneBusy: (scene: SceneData) => boolean
   isScenePreparing: (scene: SceneData) => boolean
   canMergeSceneByIndex: (index: number) => boolean
@@ -112,6 +119,7 @@ const props = defineProps<{
   onOpenSceneVideoHistory: (sceneId: string) => void
   onSetScenePreviousLastFrameReference: (sceneId: string, enabled: boolean) => void
   onSetSceneEnvironmentCaptureMode: (sceneId: string, mode: 'single' | 'four_view') => void
+  onSetSceneEnvironmentReferenceAsset: (sceneId: string, assetId: string) => void | Promise<void>
   onPreviewImage: (src: string | undefined, alt: string) => void
   onCloseSceneChat: () => void
   onHandleSceneChatComposerInput: () => void
@@ -643,6 +651,8 @@ watch(episodeDirectoryCollapsed, (value) => {
           :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
           :resolve-scene-reference-image="resolveSceneReferenceImage"
           :resolve-scene-environment-reference-image-for-mode="resolveSceneEnvironmentReferenceImageForMode"
+          :scene-environment-asset-options="sceneEnvironmentAssetOptions"
+          :resolve-scene-environment-reference-asset-selection="resolveSceneEnvironmentReferenceAssetSelection"
           :is-scene-busy="isSceneBusy"
           :is-scene-preparing="isScenePreparing"
           :normalize-workflow-text="normalizeWorkflowText"
@@ -662,6 +672,7 @@ watch(episodeDirectoryCollapsed, (value) => {
           :on-open-scene-video-history="onOpenSceneVideoHistory"
           :on-set-scene-previous-last-frame-reference="onSetScenePreviousLastFrameReference"
           :on-set-scene-environment-capture-mode="onSetSceneEnvironmentCaptureMode"
+          :on-set-scene-environment-reference-asset="onSetSceneEnvironmentReferenceAsset"
           :on-preview-image="onPreviewImage"
           :on-close-scene-chat="onCloseSceneChat"
           :on-handle-scene-chat-composer-input="onHandleSceneChatComposerInput"
