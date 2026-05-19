@@ -84,6 +84,7 @@ const GenerateReferenceRequestSchema = z.object({
     referenceImage: z.string().optional()
   }).optional(),
   consistencyReferenceImage: z.string().optional(),
+  consistencyReferenceImages: z.array(z.string()).optional().default([]),
   // 兼容旧字段：当前流程下该字段将被忽略（场景资产必须为纯环境）
   characterReferenceImages: z.array(z.string()).optional().default([])
 })
@@ -839,11 +840,15 @@ export default defineEventHandler(async (event) => {
     aspectRatio,
     environmentContext,
     regeneration,
-    consistencyReferenceImage
+    consistencyReferenceImage,
+    consistencyReferenceImages
   } = parseResult.data
   const customPrompt = regeneration?.customPrompt?.trim()
   const regenerationReferenceImage = regeneration?.referenceImage?.trim()
   const consistencyReferenceImageInput = consistencyReferenceImage?.trim()
+  const additionalConsistencyReferenceImages = Array.isArray(consistencyReferenceImages)
+    ? consistencyReferenceImages.map(item => item?.trim() || '').filter(Boolean)
+    : []
 
   try {
     const [workflowModels, workflowModelOptions] = await Promise.all([
@@ -853,9 +858,13 @@ export default defineEventHandler(async (event) => {
     const preferredModelId = workflowModels.frame_generation
     const isRegeneration = !!customPrompt
     const configuredPanoramaSource = resolvePanoramaSourceProfile(undefined, workflowModelOptions.image_options)
-    const requestedReferenceImage = regenerationReferenceImage || consistencyReferenceImageInput
+    const requestedReferenceImages = Array.from(new Set([
+      regenerationReferenceImage || '',
+      consistencyReferenceImageInput || '',
+      ...additionalConsistencyReferenceImages
+    ].filter(Boolean)))
     const resolvedModelDecision = resolveEnvironmentReferenceModel(preferredModelId, configuredPanoramaSource, {
-      requireReferenceImage: isRegeneration || !!requestedReferenceImage
+      requireReferenceImage: isRegeneration || requestedReferenceImages.length > 0
     })
     const modelDecision = isRegeneration
       ? {
@@ -888,15 +897,15 @@ export default defineEventHandler(async (event) => {
       {}
     )
     const resolvedNegativePrompt = negativePromptTemplate?.trim() || ENVIRONMENT_ONLY_NEGATIVE_PROMPT
-    const normalizedReference = requestedReferenceImage
-      ? await normalizeReferenceImageInput(requestedReferenceImage, event)
-      : null
+    const normalizedReferences = requestedReferenceImages.length > 0
+      ? await Promise.all(requestedReferenceImages.map(source => normalizeReferenceImageInput(source, event)))
+      : []
 
     if (!negativePromptTemplate) {
       console.warn('[AssetWorkflow/Reference] 负向提示词模板缺失，已回退到内置环境负向约束')
     }
 
-    if (isRegeneration && !normalizedReference) {
+    if (isRegeneration && normalizedReferences.length === 0) {
       throw new Error('环境二次生成需要参考图，请先生成或上传环境图后再试')
     }
 
@@ -908,24 +917,29 @@ export default defineEventHandler(async (event) => {
       throw new Error(`当前环境图模型不可用：${modelId}`)
     }
 
-    if (normalizedReference && modelConfig?.supportReferenceImage === false) {
+    if (normalizedReferences.length > 0 && modelConfig?.supportReferenceImage === false) {
       throw new Error(`当前环境图模型「${modelConfig.displayName}」不支持参考图输入。请在设置中切换到支持图生图的图片模型后重试。`)
     }
 
     const provider = modelConfig?.provider || 'gemini'
-    const referenceOptions = normalizedReference
+    const primaryReference = normalizedReferences[0]
+    const secondaryReferences = normalizedReferences.slice(1)
+    const referenceOptions = primaryReference
       ? (
           provider === 'gemini'
             ? {
-                referenceImage: normalizedReference.geminiReference
+                referenceImage: primaryReference.geminiReference,
+                referenceImages: secondaryReferences.map(
+                  item => `data:${item.geminiReference.mimeType};base64,${item.geminiReference.data}`
+                )
               }
             : {
-                referenceImages: [normalizedReference.providerReference]
+                referenceImages: normalizedReferences.map(item => item.providerReference)
               }
         )
       : {}
 
-    const promptWithConsistencyReference = normalizedReference && !isRegeneration
+    const promptWithConsistencyReference = normalizedReferences.length > 0 && !isRegeneration
       ? [
           prompt,
           '【同源环境一致性约束】',
@@ -963,7 +977,7 @@ export default defineEventHandler(async (event) => {
         sourceSize: panoramaSource.size,
         sourceAspectRatioFallback: panoramaSource.fallbackApplied,
         characterReferences: 0,
-        referenceImageUsed: !!normalizedReference
+        referenceImageUsed: normalizedReferences.length > 0
       }
     }
   } catch (error) {

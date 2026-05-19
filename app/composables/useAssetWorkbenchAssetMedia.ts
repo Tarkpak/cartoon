@@ -356,7 +356,10 @@ export function useAssetWorkbenchAssetMedia(options: {
     environmentRegeneratePrompt.value = prompt
   }
 
-  async function submitEnvironmentRegeneration() {
+  async function submitEnvironmentRegeneration(input: {
+    consistencyReferenceImage?: string
+    consistencyReferenceImages?: string[]
+  } = {}) {
     const targetAssetId = environmentRegenerateTargetId.value
     if (!targetAssetId) return
 
@@ -367,6 +370,14 @@ export function useAssetWorkbenchAssetMedia(options: {
     }
 
     const prompt = environmentRegeneratePrompt.value.trim()
+    const consistencyReferenceImage = input.consistencyReferenceImage?.trim() || ''
+    const consistencyReferenceImages = Array.isArray(input.consistencyReferenceImages)
+      ? Array.from(new Set(
+          input.consistencyReferenceImages
+            .map(value => value?.trim() || '')
+            .filter(Boolean)
+        ))
+      : []
     if (!prompt) {
       environmentRegenerateError.value = '请输入二次生成提示词'
       return
@@ -391,7 +402,11 @@ export function useAssetWorkbenchAssetMedia(options: {
 
     try {
       await options.generateSceneBaseline(targetScene.id, {
-        customPrompt: prompt
+        customPrompt: prompt,
+        consistencyReferenceImage: consistencyReferenceImage || undefined,
+        consistencyReferenceImages: consistencyReferenceImages.length > 0
+          ? consistencyReferenceImages
+          : undefined
       })
 
       const updatedImage = options.resolveSceneReferenceImage(targetScene)

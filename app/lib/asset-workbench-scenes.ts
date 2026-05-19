@@ -42,11 +42,9 @@ export function resetSceneGenerationState(scene: SceneData): SceneData {
 }
 
 export function invalidateSceneVideoState(scene: SceneData): boolean {
-  const changed = !!scene.videoUrl
-    || !!scene.videoError
+  const changed = !!scene.videoError
     || scene.videoStatus !== 'pending'
 
-  scene.videoUrl = undefined
   scene.videoError = undefined
   scene.videoStatus = 'pending'
 
