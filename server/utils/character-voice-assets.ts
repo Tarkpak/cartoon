@@ -45,7 +45,7 @@ type VoiceReferenceCandidate = {
 
 const MATCH_SEARCH_WINDOW = 6
 const MAX_GROUP_SEGMENTS = 3
-const MIN_CLIP_DURATION_MS = 900
+const MIN_CLIP_DURATION_MS = 1_800
 const MAX_CLIP_DURATION_MS = 15_000
 const MATCH_PADDING_START_MS = 120
 const MATCH_PADDING_END_MS = 180
@@ -326,7 +326,7 @@ function matchDialoguesToAsrSegments(context: LoadedSceneContext, segments: AsrD
     const startTimeMs = Math.max(0, startSegment.start_time - MATCH_PADDING_START_MS)
     const endTimeMs = endSegment.end_time + MATCH_PADDING_END_MS
     const durationMs = endTimeMs - startTimeMs
-    if (durationMs < MIN_CLIP_DURATION_MS || durationMs > MAX_CLIP_DURATION_MS) continue
+    if (durationMs <= MIN_CLIP_DURATION_MS || durationMs > MAX_CLIP_DURATION_MS) continue
 
     results.push({
       characterId: character.id,
@@ -451,6 +451,17 @@ function createVoiceAssetPayload(options: {
   }
 }
 
+function resolvePersistedAutoVoiceAsset(
+  existing: CharacterVoiceAsset | null,
+  next: CharacterVoiceAsset
+): CharacterVoiceAsset {
+  const isFirstAutoVoiceAsset = !existing?.audioUrl
+  return {
+    ...next,
+    locked: isFirstAutoVoiceAsset ? true : next.locked === true
+  }
+}
+
 async function applyVoiceAssetToCharacter(options: {
   characterId: string
   nextVoiceAsset: CharacterVoiceAsset
@@ -462,10 +473,11 @@ async function applyVoiceAssetToCharacter(options: {
   if (!shouldReplaceVoiceAsset(existingVoiceAsset, options.nextVoiceAsset)) {
     return false
   }
+  const persistedVoiceAsset = resolvePersistedAutoVoiceAsset(existingVoiceAsset, options.nextVoiceAsset)
 
   await db.update(charactersTable)
     .set({
-      voiceAsset: JSON.stringify(options.nextVoiceAsset),
+      voiceAsset: JSON.stringify(persistedVoiceAsset),
       updatedAt: new Date().toISOString()
     })
     .where(eq(charactersTable.id, options.characterId))
@@ -565,5 +577,6 @@ export const __testUtils = {
   calculateTranscriptMatchScore,
   matchDialoguesToAsrSegments,
   pickBestVoiceMatches,
-  shouldReplaceVoiceAsset
+  shouldReplaceVoiceAsset,
+  resolvePersistedAutoVoiceAsset
 }
