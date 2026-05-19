@@ -356,6 +356,34 @@ function resolveEnvironmentSelectedMotherReferenceImage(assetId: string): string
   return resolveEnvironmentAssetReferenceImage(selectedId)
 }
 
+const sceneEnvironmentAssetOptions = computed<Array<{
+  id: string
+  label: string
+  hasReference: boolean
+  previewImage?: string
+}>>(() => {
+  return displayEnvironmentAssetCards.value.map(asset => ({
+    id: asset.id,
+    label: asset.name,
+    hasReference: !!resolveEnvironmentAssetReferenceImage(asset.id),
+    previewImage: resolveEnvironmentAssetReferenceImage(asset.id)
+  }))
+})
+
+function resolveSceneEnvironmentReferenceAssetSelection(sceneId: string): string {
+  const scene = scenes.value.find(item => item.id === sceneId)
+  if (!scene) return '__auto__'
+
+  const configuredAssetId = sceneConfigs.value[sceneId]?.environmentAssetId?.trim() || ''
+  if (!configuredAssetId) return '__auto__'
+  if (!resolveEnvironmentCard(configuredAssetId)) return '__auto__'
+
+  const defaultAssetId = resolveSceneEnvironmentAssetId(scene)
+  if (configuredAssetId === defaultAssetId) return '__auto__'
+
+  return configuredAssetId
+}
+
 function handleEnvironmentMotherSelection(payload: { assetId: string, motherAssetId: string }) {
   const assetId = payload.assetId?.trim() || ''
   if (!assetId) return
@@ -482,6 +510,23 @@ function resolveEnvironmentPanoramaState(assetId: string): EnvironmentPanoramaSt
   return environmentPanoramaStates.value[assetId]
 }
 
+function resolveSceneEnvironmentReferenceAssetId(scene: SceneData): string {
+  const configuredAssetId = sceneConfigs.value[scene.id]?.environmentAssetId?.trim() || ''
+  if (configuredAssetId && resolveEnvironmentCard(configuredAssetId)) {
+    return configuredAssetId
+  }
+  return resolveSceneEnvironmentAssetId(scene)
+}
+
+function resolveSceneEnvironmentReferenceAssetAliases(scene: SceneData): string[] {
+  const configuredAssetId = sceneConfigs.value[scene.id]?.environmentAssetId?.trim() || ''
+  if (configuredAssetId && resolveEnvironmentCard(configuredAssetId)) {
+    return resolveEnvironmentPanoramaStateAliasKeys(configuredAssetId)
+  }
+
+  return resolveSceneEnvironmentAssetIdAliases(scene)
+}
+
 function resolveEnvironmentPanoramaStateAliasKeys(assetId: string): string[] {
   const keys = new Set<string>([assetId])
   const card = resolveEnvironmentCard(assetId)
@@ -505,7 +550,7 @@ function resolveEnvironmentPanoramaStateForScene(scene: SceneData): EnvironmentP
   let crop: EnvironmentCropSelection | undefined
   let captureMode: EnvironmentCropCaptureMode | undefined
 
-  for (const alias of resolveSceneEnvironmentAssetIdAliases(scene)) {
+  for (const alias of resolveSceneEnvironmentReferenceAssetAliases(scene)) {
     const state = environmentPanoramaStates.value[alias]
     if (!state) continue
 
@@ -591,7 +636,7 @@ function buildEnvironmentCropUploadPrefix(assetId: string): string {
 }
 
 function resolveSceneBaselineReferenceImage(scene: SceneData): string | undefined {
-  const assetId = resolveSceneEnvironmentAssetId(scene)
+  const assetId = resolveSceneEnvironmentReferenceAssetId(scene)
   const environmentCard = resolveEnvironmentCard(assetId)
   const panoramaState = resolveEnvironmentPanoramaStateForScene(scene)
   const referenceState = {
@@ -614,7 +659,7 @@ function resolveSceneEnvironmentReferenceImageForMode(
   scene: SceneData,
   mode: EnvironmentCropCaptureMode
 ): string | undefined {
-  const assetId = resolveSceneEnvironmentAssetId(scene)
+  const assetId = resolveSceneEnvironmentReferenceAssetId(scene)
   const environmentCard = resolveEnvironmentCard(assetId)
   const panoramaState = resolveEnvironmentPanoramaStateForScene(scene)
   const referenceState = {
@@ -857,6 +902,7 @@ const {
   setSceneAssetReferences,
   setScenePreviousLastFrameReference,
   setSceneEnvironmentCaptureMode,
+  setSceneEnvironmentReferenceAsset,
   selectScene,
   sceneEditAssetReferenceOptions,
   sceneEditSelectedAssetIds,
@@ -986,7 +1032,8 @@ function buildAutoPlanSnapshotKey(): string {
       sceneId,
       mustReferenceAssetIds: uniqueSorted(config.mustReferenceAssetIds || []),
       consistencyLevel: config.consistencyLevel,
-      continuityNotes: config.continuityNotes?.trim() || ''
+      continuityNotes: config.continuityNotes?.trim() || '',
+      environmentAssetId: config.environmentAssetId?.trim() || ''
     }))
 
   return JSON.stringify({
@@ -1172,6 +1219,7 @@ function resolveSceneConfigGenerationKey(config?: SceneConsistencyConfig): strin
   return JSON.stringify({
     mustReferenceAssetIds: uniqueSorted(config?.mustReferenceAssetIds || []),
     continuityNotes: config?.continuityNotes?.trim() || '',
+    environmentAssetId: config?.environmentAssetId?.trim() || '',
     usePreviousLastFrameAsFirstFrame: config?.usePreviousLastFrameAsFirstFrame === true
   })
 }
@@ -2944,6 +2992,8 @@ async function handleBatchGenerateCharacters() {
           :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
           :resolve-scene-reference-image="resolveSceneReferenceImage"
           :resolve-scene-environment-reference-image-for-mode="resolveSceneEnvironmentReferenceImageForMode"
+          :scene-environment-asset-options="sceneEnvironmentAssetOptions"
+          :resolve-scene-environment-reference-asset-selection="resolveSceneEnvironmentReferenceAssetSelection"
           :is-scene-busy="isSceneBusy"
           :is-scene-preparing="isScenePreparing"
           :can-merge-scene-by-index="canMergeSceneByIndex"
@@ -2969,6 +3019,7 @@ async function handleBatchGenerateCharacters() {
           :on-open-scene-video-history="openSceneVideoHistory"
           :on-set-scene-previous-last-frame-reference="setScenePreviousLastFrameReference"
           :on-set-scene-environment-capture-mode="setSceneEnvironmentCaptureMode"
+          :on-set-scene-environment-reference-asset="setSceneEnvironmentReferenceAsset"
           :on-preview-image="openImagePreview"
           :on-close-scene-chat="closeSceneChat"
           :on-handle-scene-chat-composer-input="handleSceneChatComposerInput"

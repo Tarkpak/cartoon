@@ -41,6 +41,13 @@ const props = defineProps<{
     scene: SceneData,
     mode: 'single' | 'four_view'
   ) => string | undefined
+  sceneEnvironmentAssetOptions: Array<{
+    id: string
+    label: string
+    hasReference: boolean
+    previewImage?: string
+  }>
+  resolveSceneEnvironmentReferenceAssetSelection: (sceneId: string) => string
   isSceneBusy: (scene: SceneData) => boolean
   isScenePreparing: (scene: SceneData) => boolean
   normalizeWorkflowText: (value: string) => string
@@ -60,6 +67,7 @@ const props = defineProps<{
   onOpenSceneVideoHistory: (sceneId: string) => void
   onSetScenePreviousLastFrameReference: (sceneId: string, enabled: boolean) => void
   onSetSceneEnvironmentCaptureMode: (sceneId: string, mode: 'single' | 'four_view') => void
+  onSetSceneEnvironmentReferenceAsset: (sceneId: string, assetId: string) => void | Promise<void>
   onPreviewImage: (src: string | undefined, alt: string) => void
   onCloseSceneChat: () => void
   onHandleSceneChatComposerInput: () => void
@@ -118,9 +126,17 @@ const continuitySwitchTitle = computed(() => {
 const sceneEnvironmentCaptureMode = computed<'single' | 'four_view'>(() => {
   return props.scene.environmentCaptureMode === 'four_view' ? 'four_view' : 'single'
 })
+const sceneEnvironmentReferenceAssetSelection = computed(() => {
+  return props.resolveSceneEnvironmentReferenceAssetSelection(props.scene.id) || '__auto__'
+})
 
 function handleSetSceneEnvironmentCaptureMode(mode: 'single' | 'four_view') {
   props.onSetSceneEnvironmentCaptureMode(props.scene.id, mode)
+}
+
+function handleSetSceneEnvironmentReferenceAsset(value: unknown) {
+  const normalized = String(value ?? '').trim() || '__auto__'
+  void props.onSetSceneEnvironmentReferenceAsset(props.scene.id, normalized)
 }
 </script>
 
@@ -302,6 +318,39 @@ function handleSetSceneEnvironmentCaptureMode(mode: 'single' | 'four_view') {
       @click.stop
     >
       <span class="text-[11px] text-muted-foreground">环境引用视图</span>
+      <Select
+        :model-value="sceneEnvironmentReferenceAssetSelection"
+        @update:model-value="handleSetSceneEnvironmentReferenceAsset"
+      >
+        <SelectTrigger
+          class="h-6 min-w-[168px] max-w-[220px] px-2 text-[11px]"
+          :disabled="sceneBusy"
+        >
+          <SelectValue placeholder="选择环境资产" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__auto__">
+            自动（按场景环境）
+          </SelectItem>
+          <SelectItem
+            v-for="asset in sceneEnvironmentAssetOptions"
+            :key="`scene_env_asset_${scene.id}_${asset.id}`"
+            :value="asset.id"
+          >
+            <div class="flex items-center gap-2">
+              <img
+                v-if="asset.previewImage"
+                :src="toImageSrc(asset.previewImage)"
+                :alt="`${asset.label} 预览`"
+                class="h-5 w-5 rounded border object-cover"
+              >
+              <span class="truncate">
+                {{ asset.label }}{{ asset.hasReference ? '' : '（未就绪）' }}
+              </span>
+            </div>
+          </SelectItem>
+        </SelectContent>
+      </Select>
       <Button
         size="sm"
         class="h-6 px-2 text-[11px]"

@@ -169,6 +169,8 @@ export function applySceneVideoUrl(scene: SceneData, videoUrl: string) {
 
 export function buildAssetWorkflowVideoReferences(options: {
   scene: SceneData
+  environmentAssetId?: string
+  environmentAssetName?: string
   environmentImage: string
   characterImages: string[]
   characterAssets: SceneVideoReferenceAsset[]
@@ -180,8 +182,8 @@ export function buildAssetWorkflowVideoReferences(options: {
     characterImage: options.characterImages[0],
     characterImages: options.characterImages,
     environmentAsset: {
-      id: resolveSceneEnvironmentAssetId(options.scene),
-      name: resolveSceneEnvironmentLabel(options.scene),
+      id: options.environmentAssetId || resolveSceneEnvironmentAssetId(options.scene),
+      name: options.environmentAssetName || resolveSceneEnvironmentLabel(options.scene),
       type: 'environment',
       image: options.environmentImage
     },

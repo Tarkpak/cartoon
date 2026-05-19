@@ -30,6 +30,7 @@ export interface SceneConsistencyConfig {
   mustReferenceAssetIds: string[]
   consistencyLevel: ConsistencyLevel
   continuityNotes: string
+  environmentAssetId?: string
   usePreviousLastFrameAsFirstFrame?: boolean
   continuityLinkReason?: string
 }
@@ -261,6 +262,9 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
             : [],
           consistencyLevel: item.consistencyLevel === 'soft' ? 'soft' : 'lock',
           continuityNotes: typeof item.continuityNotes === 'string' ? item.continuityNotes : '',
+          environmentAssetId: typeof item.environmentAssetId === 'string' && item.environmentAssetId.trim()
+            ? item.environmentAssetId.trim()
+            : undefined,
           usePreviousLastFrameAsFirstFrame: item.usePreviousLastFrameAsFirstFrame === true,
           continuityLinkReason: typeof item.continuityLinkReason === 'string' ? item.continuityLinkReason : ''
         }

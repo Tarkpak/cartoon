@@ -6,6 +6,7 @@ import {
   invalidateSceneGenerationState,
   invalidateSceneVideoState
 } from '~/lib/asset-workbench-scenes'
+import { resolveSceneEnvironmentAssetId } from '~/lib/asset-workbench-environment'
 
 export function useAssetWorkbenchSceneManagement(options: {
   selectedSceneId: Ref<string>
@@ -243,6 +244,54 @@ export function useAssetWorkbenchSceneManagement(options: {
     await options.saveProject()
   }
 
+  async function setSceneEnvironmentReferenceAsset(sceneId: string, assetId: string) {
+    const scene = options.scenes.value.find(item => item.id === sceneId)
+    if (!scene) return
+
+    const config = ensureSceneConfig(sceneId)
+    const defaultAssetId = resolveSceneEnvironmentAssetId(scene)
+    const nextAssetIdRaw = assetId.trim()
+    const nextAssetId = nextAssetIdRaw && nextAssetIdRaw !== '__auto__'
+      ? nextAssetIdRaw
+      : ''
+    const availableEnvironmentAssetIds = new Set(options.environmentAssets.value.map(item => item.id))
+    if (nextAssetId && !availableEnvironmentAssetIds.has(nextAssetId)) {
+      return
+    }
+
+    const normalizedConfigAssetId = nextAssetId && nextAssetId !== defaultAssetId
+      ? nextAssetId
+      : undefined
+    const previousConfigAssetId = config.environmentAssetId?.trim() || undefined
+    if ((previousConfigAssetId || '') === (normalizedConfigAssetId || '')) {
+      return
+    }
+
+    if (normalizedConfigAssetId) {
+      config.environmentAssetId = normalizedConfigAssetId
+    } else {
+      delete config.environmentAssetId
+    }
+
+    const mode = scene.environmentCaptureMode === 'four_view' ? 'four_view' : 'single'
+    const preferredReferenceImage = options.resolveSceneEnvironmentReferenceImageForMode?.(scene, mode)?.trim()
+      || options.resolveSceneBaselineReferenceImage?.(scene)?.trim()
+      || ''
+    if (preferredReferenceImage) {
+      scene.firstFrame = preferredReferenceImage
+      scene.lastFrame = undefined
+      scene.referenceStatus = 'done'
+      scene.referenceError = undefined
+      invalidateSceneVideoState(scene)
+    } else {
+      invalidateSceneGenerationState(scene)
+    }
+
+    options.synchronizeQueueItems()
+    await options.saveProject()
+    await options.saveWorkflowMeta()
+  }
+
   function selectScene(sceneId: string) {
     options.selectedSceneId.value = sceneId
   }
@@ -474,6 +523,7 @@ export function useAssetWorkbenchSceneManagement(options: {
     setSceneAssetReferences,
     setScenePreviousLastFrameReference,
     setSceneEnvironmentCaptureMode,
+    setSceneEnvironmentReferenceAsset,
     selectScene,
     sceneEditAssetReferenceOptions,
     sceneEditSelectedAssetIds,
