@@ -63,3 +63,21 @@ describe('volcengine video content builder', () => {
     expect(result.content.filter(item => item.type === 'image_url' && item.role === 'reference_image')).toHaveLength(2)
   })
 })
+
+describe('volcengine reference audio guard', () => {
+  it('detects short audio duration validation errors from upstream', () => {
+    expect(
+      __volcengineTestUtils.isVolcengineReferenceAudioDurationErrorMessage(
+        'The parameter audio duration (seconds) specified in the request must be greater than or equal to 1.8 for model doubao-seedance-2-0 in r2v.'
+      )
+    ).toBe(true)
+  })
+
+  it('does not match unrelated upstream errors', () => {
+    expect(
+      __volcengineTestUtils.isVolcengineReferenceAudioDurationErrorMessage(
+        'The parameter `ratio` specified in the request is not valid.'
+      )
+    ).toBe(false)
+  })
+})

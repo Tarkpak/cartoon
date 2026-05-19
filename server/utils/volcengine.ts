@@ -5,6 +5,11 @@
  * 文档参考: https://www.volcengine.com/docs/82379/1330310
  * 更新日期: 2026.04.03
  */
+import { randomUUID } from 'node:crypto'
+import { rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { getMediaDuration } from './ffmpeg'
 import { withModelDebugLog } from './model-debug-log'
 
 // ============================================================
@@ -210,6 +215,78 @@ function normalizeVideoAudioInput(value?: string): string | undefined {
   if (!value) return undefined
   const normalized = value.trim()
   return normalized || undefined
+}
+
+const VOLCENGINE_REFERENCE_AUDIO_MIN_DURATION_SECONDS = 1.8
+const VOLCENGINE_REFERENCE_AUDIO_MAX_PROBE_BYTES = 20 * 1024 * 1024
+
+function isHttpUrl(value: string): boolean {
+  return value.startsWith('http://') || value.startsWith('https://')
+}
+
+function isVolcengineReferenceAudioDurationErrorMessage(message: string): boolean {
+  const normalized = message.toLowerCase()
+  return normalized.includes('audio duration')
+    && normalized.includes('greater than or equal to 1.8')
+}
+
+function isVolcengineReferenceAudioDurationError(error: unknown): boolean {
+  if (!error) return false
+
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'object' && error !== null && typeof (error as { message?: unknown }).message === 'string'
+      ? String((error as { message?: string }).message)
+      : String(error)
+
+  return isVolcengineReferenceAudioDurationErrorMessage(message)
+}
+
+async function resolveReferenceAudioDurationSeconds(audioSource: string): Promise<number | null> {
+  const normalized = audioSource.trim()
+  if (!normalized) return null
+
+  const dataUriMatch = normalized.match(/^data:audio\/[a-zA-Z0-9.+-]+;base64,(.+)$/s)
+  let buffer: Buffer
+
+  if (dataUriMatch?.[1]) {
+    buffer = Buffer.from(dataUriMatch[1].replace(/\s+/g, ''), 'base64')
+  } else if (isHttpUrl(normalized)) {
+    const response = await fetch(normalized)
+    if (!response.ok) {
+      throw new Error(`下载参考音频失败: ${response.status}`)
+    }
+
+    const contentLength = Number(response.headers.get('content-length') || '0')
+    if (Number.isFinite(contentLength) && contentLength > VOLCENGINE_REFERENCE_AUDIO_MAX_PROBE_BYTES) {
+      console.warn(
+        `[Volcengine] 参考音频体积过大（${contentLength} bytes），跳过时长预检: ${normalized.slice(0, 80)}...`
+      )
+      return null
+    }
+
+    buffer = Buffer.from(await response.arrayBuffer())
+  } else {
+    return null
+  }
+
+  if (buffer.length === 0) return null
+  if (buffer.length > VOLCENGINE_REFERENCE_AUDIO_MAX_PROBE_BYTES) {
+    console.warn(
+      `[Volcengine] 参考音频体积过大（${buffer.length} bytes），跳过时长预检: ${normalized.slice(0, 80)}...`
+    )
+    return null
+  }
+
+  const tempFilePath = join(tmpdir(), `volcengine_audio_probe_${Date.now()}_${randomUUID().slice(0, 8)}.bin`)
+  try {
+    await writeFile(tempFilePath, buffer)
+    const duration = await getMediaDuration(tempFilePath)
+    if (!Number.isFinite(duration) || duration <= 0) return null
+    return duration
+  } finally {
+    await rm(tempFilePath, { force: true }).catch(() => undefined)
+  }
 }
 
 function resolveImageInputKind(value?: string): 'none' | 'http' | 'asset' | 'data-uri' | 'path' | 'raw' {
@@ -953,7 +1030,7 @@ export async function _volcengineGenerateVideo(options: {
   const normalizedImageUrl = normalizeVideoImageInput(options.imageUrl)
   const normalizedFirstFrameUrl = normalizeVideoImageInput(options.firstFrameUrl)
   const normalizedLastFrameUrl = normalizeVideoImageInput(options.lastFrameUrl)
-  const normalizedAudioUrl = normalizeVideoAudioInput(options.audioUrl)
+  let normalizedAudioUrl = normalizeVideoAudioInput(options.audioUrl)
 
   // 根据输入选择模型 (仅使用支持首尾帧的模型)
   let model = options.model
@@ -983,16 +1060,40 @@ export async function _volcengineGenerateVideo(options: {
       .map(item => normalizeVideoImageInput(item))
       .filter((item): item is string => !!item)
   )).slice(0, maxReferenceImages)
+
+  const hasVisualReferenceInput = normalizedReferenceImages.length > 0
+    || !!normalizedImageUrl
+    || !!normalizedFirstFrameUrl
+    || !!normalizedLastFrameUrl
+
+  if (normalizedAudioUrl && hasVisualReferenceInput && model.includes('seedance-2-0')) {
+    try {
+      const audioDurationSeconds = await resolveReferenceAudioDurationSeconds(normalizedAudioUrl)
+      if (audioDurationSeconds !== null && audioDurationSeconds < VOLCENGINE_REFERENCE_AUDIO_MIN_DURATION_SECONDS) {
+        console.warn(
+          `[Volcengine] reference_audio 时长 ${audioDurationSeconds.toFixed(3)}s 小于模型最小 ${VOLCENGINE_REFERENCE_AUDIO_MIN_DURATION_SECONDS}s，已自动忽略`
+        )
+        normalizedAudioUrl = undefined
+      }
+    } catch (error) {
+      console.warn(
+        '[Volcengine] 参考音频时长预检失败，将继续尝试携带 reference_audio 调用:',
+        error instanceof Error ? error.message : String(error)
+      )
+    }
+  }
+
   let upstreamRequestBody: unknown
 
-  const contentSpec = buildVolcengineVideoContent({
+  const buildContentSpec = (audioUrl?: string) => buildVolcengineVideoContent({
     prompt: options.prompt,
     normalizedReferenceImages,
     normalizedImageUrl,
     normalizedFirstFrameUrl,
     normalizedLastFrameUrl,
-    normalizedAudioUrl
+    normalizedAudioUrl: audioUrl
   })
+  const contentSpec = buildContentSpec(normalizedAudioUrl)
   const {
     content,
     hasReferenceImages,
@@ -1001,7 +1102,7 @@ export async function _volcengineGenerateVideo(options: {
     hasAudioReference
   } = contentSpec
   const inputMode = hasReferenceImages ? 'reference_images' : usingFirstLastFrame ? 'first_last_frame' : usingSingleImage ? 'single_image' : 'text_only'
-  const referenceImageCount = content.filter((item) => item.type === 'image_url' && item.role === 'reference_image').length
+  const referenceImageCount = content.filter(item => item.type === 'image_url' && item.role === 'reference_image').length
   const ratio = resolveVolcengineVideoAspectRatio(options.aspectRatio)
 
   if (options.aspectRatio && options.aspectRatio.trim() !== ratio) {
@@ -1048,107 +1149,129 @@ export async function _volcengineGenerateVideo(options: {
     model,
     operation: 'generateVideo',
     request: () => upstreamRequestBody,
-    execute: async () => withRetry(async () => {
-      const requestBody: Record<string, unknown> = {
-        model,
-        content,
-        duration: -1,
-        ratio,
-        watermark: false, // 去掉水印
-        generate_audio: options.withAudio ?? true
-      }
-
-      // 可选参数
-      if (options.duration) {
-        requestBody.duration = options.duration
-      }
-      if (options.resolution) {
-        requestBody.resolution = options.resolution
-      }
-      upstreamRequestBody = requestBody
-
-      // 输出请求体摘要 (避免 base64 数据占满控制台)
-      const requestSummary = {
-        model: requestBody.model,
-        contentTypes: content.map(c => c.type),
-        contentRoles: content
-          .filter((c): c is Extract<VolcengineVideoContentItem, { type: 'image_url' }> => c.type === 'image_url')
-          .map(c => c.role),
-        textPrompt: content.find(c => c.type === 'text')?.text?.slice(0, 100) + '...',
-        hasImages: content.filter(c => c.type === 'image_url').length,
-        referenceImagesCount: content.filter(c => c.type === 'image_url' && c.role === 'reference_image').length,
-        hasAudioReference,
-        audioReferenceCount: content.filter(c => c.type === 'audio_url').length,
-        generateAudio: requestBody.generate_audio,
-        duration: requestBody.duration,
-        ratio: requestBody.ratio,
-        resolution: requestBody.resolution
-      }
-      console.log('[Volcengine] 视频生成请求体摘要:', JSON.stringify(requestSummary, null, 2))
-
-      // 提交视频生成任务 (异步任务 API)
-      const submitResponse = await request<CreateTaskResponse>(
-        '/contents/generations/tasks',
-        requestBody
-      )
-
-      const taskId = submitResponse.id
-      console.log(`[Volcengine] 视频任务已创建: ${taskId}`)
-      await options.onTaskCreated?.(taskId)
-
-      // 轮询任务状态
-      const maxWaitTime = 600000 // 10分钟
-      const pollInterval = 10000
-      const startTime = Date.now()
-
-      while (Date.now() - startTime < maxWaitTime) {
-        await sleep(pollInterval)
-
-        const cfg = getConfig()
-        const statusUrl = `${cfg.baseUrl}/contents/generations/tasks/${taskId}`
-
-        const statusResponse = await fetch(statusUrl, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${cfg.apiKey}`,
-            'Content-Type': 'application/json'
+    execute: async () => {
+      const submitVideoTask = async (
+        requestContent: VolcengineVideoContentItem[],
+        requestHasAudioReference: boolean
+      ): Promise<{ videoUrl: string, taskId: string }> => {
+        return await withRetry(async () => {
+          const requestBody: Record<string, unknown> = {
+            model,
+            content: requestContent,
+            duration: -1,
+            ratio,
+            watermark: false, // 去掉水印
+            generate_audio: options.withAudio ?? true
           }
-        })
 
-        if (!statusResponse.ok) {
-          const errorData = await statusResponse.json().catch(() => ({})) as { error?: { message?: string } }
-          throw new VolcengineError(
-            errorData.error?.message || `HTTP ${statusResponse.status}`,
-            VolcengineErrorCode.UNKNOWN,
-            statusResponse.status,
-            statusResponse.status >= 500
+          // 可选参数
+          if (options.duration) {
+            requestBody.duration = options.duration
+          }
+          if (options.resolution) {
+            requestBody.resolution = options.resolution
+          }
+          upstreamRequestBody = requestBody
+
+          // 输出请求体摘要 (避免 base64 数据占满控制台)
+          const requestSummary = {
+            model: requestBody.model,
+            contentTypes: requestContent.map(c => c.type),
+            contentRoles: requestContent
+              .filter((c): c is Extract<VolcengineVideoContentItem, { type: 'image_url' }> => c.type === 'image_url')
+              .map(c => c.role),
+            textPrompt: requestContent.find(c => c.type === 'text')?.text?.slice(0, 100) + '...',
+            hasImages: requestContent.filter(c => c.type === 'image_url').length,
+            referenceImagesCount: requestContent.filter(c => c.type === 'image_url' && c.role === 'reference_image').length,
+            hasAudioReference: requestHasAudioReference,
+            audioReferenceCount: requestContent.filter(c => c.type === 'audio_url').length,
+            generateAudio: requestBody.generate_audio,
+            duration: requestBody.duration,
+            ratio: requestBody.ratio,
+            resolution: requestBody.resolution
+          }
+          console.log('[Volcengine] 视频生成请求体摘要:', JSON.stringify(requestSummary, null, 2))
+
+          // 提交视频生成任务 (异步任务 API)
+          const submitResponse = await request<CreateTaskResponse>(
+            '/contents/generations/tasks',
+            requestBody
           )
-        }
 
-        const statusData = await statusResponse.json() as QueryTaskResponse
-        console.log(`[Volcengine] 视频任务状态: ${statusData.status}`, statusData.content ? `video_url: ${statusData.content.video_url?.slice(0, 50)}...` : '')
+          const taskId = submitResponse.id
+          console.log(`[Volcengine] 视频任务已创建: ${taskId}`)
+          await options.onTaskCreated?.(taskId)
 
-        if (statusData.status === 'succeeded') {
-          const videoUrl = statusData.content?.video_url
-          if (!videoUrl) {
-            console.error('[Volcengine] 响应数据:', JSON.stringify(statusData, null, 2))
-            throw new VolcengineError('视频生成成功但未返回URL', VolcengineErrorCode.INTERNAL, 500, false)
+          // 轮询任务状态
+          const maxWaitTime = 600000 // 10分钟
+          const pollInterval = 10000
+          const startTime = Date.now()
+
+          while (Date.now() - startTime < maxWaitTime) {
+            await sleep(pollInterval)
+
+            const cfg = getConfig()
+            const statusUrl = `${cfg.baseUrl}/contents/generations/tasks/${taskId}`
+
+            const statusResponse = await fetch(statusUrl, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${cfg.apiKey}`,
+                'Content-Type': 'application/json'
+              }
+            })
+
+            if (!statusResponse.ok) {
+              const errorData = await statusResponse.json().catch(() => ({})) as { error?: { message?: string } }
+              throw new VolcengineError(
+                errorData.error?.message || `HTTP ${statusResponse.status}`,
+                VolcengineErrorCode.UNKNOWN,
+                statusResponse.status,
+                statusResponse.status >= 500
+              )
+            }
+
+            const statusData = await statusResponse.json() as QueryTaskResponse
+            console.log(`[Volcengine] 视频任务状态: ${statusData.status}`, statusData.content ? `video_url: ${statusData.content.video_url?.slice(0, 50)}...` : '')
+
+            if (statusData.status === 'succeeded') {
+              const videoUrl = statusData.content?.video_url
+              if (!videoUrl) {
+                console.error('[Volcengine] 响应数据:', JSON.stringify(statusData, null, 2))
+                throw new VolcengineError('视频生成成功但未返回URL', VolcengineErrorCode.INTERNAL, 500, false)
+              }
+              return { videoUrl, taskId }
+            }
+
+            if (statusData.status === 'failed' || statusData.status === 'cancelled' || statusData.status === 'expired') {
+              const errorMsg = statusData.error?.message || '视频生成失败'
+              throw new VolcengineError(errorMsg, VolcengineErrorCode.INTERNAL, 500, false)
+            }
           }
-          return { videoUrl, taskId }
-        }
 
-        if (statusData.status === 'failed' || statusData.status === 'cancelled' || statusData.status === 'expired') {
-          const errorMsg = statusData.error?.message || '视频生成失败'
-          throw new VolcengineError(errorMsg, VolcengineErrorCode.INTERNAL, 500, false)
-        }
+          throw new VolcengineError('视频生成超时', VolcengineErrorCode.DEADLINE_EXCEEDED, 504, false)
+        }, { maxRetries: options.maxRetries })
       }
 
-      throw new VolcengineError('视频生成超时', VolcengineErrorCode.DEADLINE_EXCEEDED, 504, false)
-    }, { maxRetries: options.maxRetries })
+      try {
+        return await submitVideoTask(content, hasAudioReference)
+      } catch (error) {
+        if (!hasAudioReference || !isVolcengineReferenceAudioDurationError(error)) {
+          throw error
+        }
+
+        console.warn(
+          `[Volcengine] reference_audio 未通过最小时长 ${VOLCENGINE_REFERENCE_AUDIO_MIN_DURATION_SECONDS}s 校验，已移除后自动重试`
+        )
+        const fallbackContentSpec = buildContentSpec(undefined)
+        return await submitVideoTask(fallbackContentSpec.content, false)
+      }
+    }
   })
 }
 
 export const __volcengineTestUtils = {
   buildVolcengineVideoContent,
-  resolveVolcengineVideoAspectRatio
+  resolveVolcengineVideoAspectRatio,
+  isVolcengineReferenceAudioDurationErrorMessage
 }
