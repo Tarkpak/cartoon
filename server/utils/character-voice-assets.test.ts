@@ -27,8 +27,8 @@ describe('character voice asset helpers', () => {
 
     const segments: AsrDataSegment[] = [
       { start_time: 0, end_time: 800, transcript: '风越来越大了', words: [] },
-      { start_time: 1_000, end_time: 2_200, transcript: '你终于来了', words: [] },
-      { start_time: 2_400, end_time: 3_700, transcript: '别废话快走', words: [] }
+      { start_time: 1_000, end_time: 2_800, transcript: '你终于来了', words: [] },
+      { start_time: 3_100, end_time: 5_200, transcript: '别废话快走', words: [] }
     ]
 
     const matches = __testUtils.matchDialoguesToAsrSegments(context, segments)
@@ -61,6 +61,27 @@ describe('character voice asset helpers', () => {
     expect(matches).toHaveLength(0)
   })
 
+  it('rejects auto clips when duration is not greater than 1.8s', () => {
+    const context = {
+      sceneId: 'scene_duration_guard',
+      projectId: 'project_1',
+      dialogues: [
+        { character: '阿青', text: '你终于来了' }
+      ],
+      characters: [
+        { id: 'char_1', name: '阿青', voiceAsset: null }
+      ]
+    }
+
+    const segments: AsrDataSegment[] = [
+      // 片段 1500ms，叠加补偿后总时长恰好 1800ms，应被过滤
+      { start_time: 1_000, end_time: 2_500, transcript: '你终于来了', words: [] }
+    ]
+
+    const matches = __testUtils.matchDialoguesToAsrSegments(context, segments)
+    expect(matches).toHaveLength(0)
+  })
+
   it('does not replace a locked voice asset with later auto extraction', () => {
     const shouldReplace = __testUtils.shouldReplaceVoiceAsset(
       {
@@ -80,6 +101,18 @@ describe('character voice asset helpers', () => {
     )
 
     expect(shouldReplace).toBe(false)
+  })
+
+  it('locks first auto extracted voice asset by default', () => {
+    const nextVoiceAsset = {
+      audioUrl: 'https://example.com/new.mp3',
+      locked: false,
+      durationMs: 2600,
+      matchScore: 0.9,
+      updatedAt: new Date().toISOString()
+    }
+    const resolved = __testUtils.resolvePersistedAutoVoiceAsset(null, nextVoiceAsset)
+    expect(resolved.locked).toBe(true)
   })
 
   it('resolves single-speaker audio reference with fuzzy speaker name matching', () => {
