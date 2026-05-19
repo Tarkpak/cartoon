@@ -858,11 +858,23 @@ export default defineEventHandler(async (event) => {
     const preferredModelId = workflowModels.frame_generation
     const isRegeneration = !!customPrompt
     const configuredPanoramaSource = resolvePanoramaSourceProfile(undefined, workflowModelOptions.image_options)
-    const requestedReferenceImages = Array.from(new Set([
-      regenerationReferenceImage || '',
-      consistencyReferenceImageInput || '',
-      ...additionalConsistencyReferenceImages
-    ].filter(Boolean)))
+    const hasMentionedConsistencyReferences = additionalConsistencyReferenceImages.length > 0
+      || !!consistencyReferenceImageInput
+    const requestedReferenceImages = Array.from(new Set(
+      (
+        hasMentionedConsistencyReferences
+          ? [
+              consistencyReferenceImageInput || '',
+              ...additionalConsistencyReferenceImages,
+              regenerationReferenceImage || ''
+            ]
+          : [
+              regenerationReferenceImage || '',
+              consistencyReferenceImageInput || '',
+              ...additionalConsistencyReferenceImages
+            ]
+      ).filter(Boolean)
+    ))
     const resolvedModelDecision = resolveEnvironmentReferenceModel(preferredModelId, configuredPanoramaSource, {
       requireReferenceImage: isRegeneration || requestedReferenceImages.length > 0
     })
