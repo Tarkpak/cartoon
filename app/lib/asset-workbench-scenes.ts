@@ -1,4 +1,8 @@
 import type { SceneData } from '~/composables/useAssetWorkbench'
+import {
+  ensureVideoHistoryEntry,
+  normalizeVideoHistoryEntries
+} from '~/lib/asset-history'
 
 export function mergeNarrationTexts(...parts: Array<string | null | undefined>): string | undefined {
   const merged = parts
@@ -162,6 +166,19 @@ export function mergeScenesInList(
     }
   }
 
+  const mergedVideoHistory = ensureVideoHistoryEntry(
+    ensureVideoHistoryEntry(
+      normalizeVideoHistoryEntries([
+        ...(currentScene.videoHistory || []),
+        ...(nextScene.videoHistory || [])
+      ], currentScene.videoUrl),
+      nextScene.videoUrl,
+      { source: 'legacy' }
+    ),
+    currentScene.videoUrl,
+    { source: 'legacy' }
+  )
+
   const mergedScene = resetSceneGenerationState({
     ...currentScene,
     id: currentScene.id,
@@ -178,7 +195,8 @@ export function mergeScenesInList(
     cameraNote: [currentScene.cameraNote, nextScene.cameraNote].filter(Boolean).join('；') || undefined,
     transitionIn: currentScene.transitionIn || 'cut',
     transitionOut: nextScene.transitionOut || currentScene.transitionOut || 'cut',
-    transitionDuration: nextScene.transitionDuration ?? currentScene.transitionDuration ?? 0.5
+    transitionDuration: nextScene.transitionDuration ?? currentScene.transitionDuration ?? 0.5,
+    videoHistory: mergedVideoHistory
   })
 
   const nextScenes = scenes.slice()
@@ -212,7 +230,8 @@ export function splitSceneInList(
     dialogues: scene.dialogues.slice(0, dialogueMidPoint),
     narration: firstNarration,
     duration: Math.ceil(scene.duration / 2),
-    active: scene.active
+    active: scene.active,
+    videoHistory: scene.videoHistory ? [...scene.videoHistory] : undefined
   })
 
   const secondScene = resetSceneGenerationState({
@@ -223,7 +242,8 @@ export function splitSceneInList(
     dialogues: scene.dialogues.slice(dialogueMidPoint),
     narration: secondNarration,
     duration: Math.max(1, Math.floor(scene.duration / 2)),
-    active: false
+    active: false,
+    videoHistory: scene.videoHistory ? [...scene.videoHistory] : undefined
   })
 
   const nextScenes = scenes.slice()

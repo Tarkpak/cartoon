@@ -1,3 +1,4 @@
+import { computed } from 'vue'
 import type { ComputedRef, Ref } from 'vue'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, PropAssetCategory, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
@@ -417,10 +418,14 @@ export function useAssetWorkbenchSceneManagement(options: {
     const nextScene = options.scenes.value[targetIndex + 1]
     if (!currentScene || !nextScene) return
 
+    const beforeIds = options.scenes.value.map(scene => scene.id)
     const currentConfig = resolveSceneConfigSnapshot(currentScene.id)
     const nextConfig = resolveSceneConfigSnapshot(nextScene.id)
 
     options.mergeWithNextScene(targetIndex)
+
+    const afterIds = options.scenes.value.map(scene => scene.id)
+    if (afterIds.length !== beforeIds.length - 1 || afterIds.includes(nextScene.id)) return
 
     const mergedScene = options.scenes.value[targetIndex]
     if (!mergedScene || mergedScene.id !== currentScene.id) return
