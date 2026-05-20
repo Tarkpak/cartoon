@@ -104,7 +104,7 @@ function applyDefaultStyle() {
 
       <div
         v-if="createStep === 'basic'"
-        class="grid gap-4 py-4"
+        class="min-h-0 flex-1 space-y-4 overflow-y-auto py-4 pr-1"
       >
         <div class="grid gap-2">
           <label class="text-sm font-medium">项目名称 <span class="text-destructive">*</span></label>
@@ -167,7 +167,7 @@ function applyDefaultStyle() {
 
       <div
         v-else
-        class="min-h-[400px] flex-1 overflow-y-auto py-4"
+        class="min-h-0 flex-1 overflow-y-auto py-4 pr-1"
       >
         <div
           v-if="defaultStyleLabel"

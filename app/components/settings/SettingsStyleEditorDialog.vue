@@ -51,7 +51,7 @@ const styleIsPro = useStyleFormField('isPro')
     :open="Boolean(props.styleEditorMode)"
     @update:open="props.handleStyleEditorOpenChange"
   >
-    <DialogContent class="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+    <DialogContent class="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-3xl">
       <DialogHeader>
         <DialogTitle>
           {{ editorTitle }}
@@ -61,7 +61,7 @@ const styleIsPro = useStyleFormField('isPro')
         </DialogDescription>
       </DialogHeader>
 
-      <div class="space-y-4 py-2">
+      <div class="min-h-0 flex-1 space-y-4 overflow-y-auto py-2 pr-1">
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div class="space-y-1.5">
             <label class="text-xs text-muted-foreground">预设 ID</label>
@@ -169,7 +169,7 @@ const styleIsPro = useStyleFormField('isPro')
         </div>
       </div>
 
-      <DialogFooter>
+      <DialogFooter class="flex-shrink-0">
         <Button
           variant="outline"
           :disabled="props.styleCrudSaving"
