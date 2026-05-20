@@ -363,7 +363,7 @@ function handleSceneAssetUpload(event: Event) {
     :open="open"
     @update:open="$emit('update:open', $event)"
   >
-    <DialogContent class="max-w-2xl max-h-[90vh] overflow-y-auto">
+    <DialogContent class="flex max-h-[90vh] max-w-2xl flex-col overflow-hidden">
       <DialogHeader>
         <DialogTitle>编辑场景</DialogTitle>
         <DialogDescription>
@@ -371,7 +371,7 @@ function handleSceneAssetUpload(event: Event) {
         </DialogDescription>
       </DialogHeader>
 
-      <div class="space-y-6 py-4">
+      <div class="min-h-0 flex-1 space-y-6 overflow-y-auto py-4 pr-1">
         <ScriptSceneEditBasicPanel
           v-model:edit-form="editForm"
           :scene-description-supports-mention="sceneDescriptionSupportsMention"
@@ -396,7 +396,7 @@ function handleSceneAssetUpload(event: Event) {
         />
       </div>
 
-      <DialogFooter>
+      <DialogFooter class="flex-shrink-0">
         <Button
           variant="outline"
           @click="handleCancel"
