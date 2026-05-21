@@ -441,7 +441,7 @@ function handleSetSceneEnvironmentReferenceAsset(value: unknown) {
         {{ scenePreparing ? '准备中' : scene.videoUrl ? '重新生成视频' : '生成视频' }}
       </Button>
       <Button
-        v-if="sceneVideoHistoryCount > 1"
+        v-if="sceneVideoHistoryCount > 0"
         size="sm"
         variant="ghost"
         class="h-7 px-2 text-xs"
