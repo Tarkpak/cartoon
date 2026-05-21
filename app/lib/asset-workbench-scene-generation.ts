@@ -1,5 +1,6 @@
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
 import type { SceneData } from '~/composables/useAssetWorkbench'
+import { ensureVideoHistoryEntry } from '~/lib/asset-history'
 import type { SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import {
   buildSceneEnvironmentCrossSpaceNote,
@@ -152,6 +153,10 @@ export function buildAssetWorkflowScenePayload(
 }
 
 export function applySceneBaselineReference(scene: SceneData, referenceImage: string) {
+  const nextVideoHistory = ensureVideoHistoryEntry(scene.videoHistory, scene.videoUrl, {
+    source: 'legacy'
+  })
+  scene.videoHistory = nextVideoHistory.length > 0 ? nextVideoHistory : undefined
   scene.firstFrame = referenceImage
   scene.lastFrame = undefined
   scene.referenceStatus = 'done'
@@ -162,6 +167,10 @@ export function applySceneBaselineReference(scene: SceneData, referenceImage: st
 }
 
 export function applySceneVideoUrl(scene: SceneData, videoUrl: string) {
+  const nextVideoHistory = ensureVideoHistoryEntry(scene.videoHistory, scene.videoUrl, {
+    source: 'legacy'
+  })
+  scene.videoHistory = nextVideoHistory.length > 0 ? nextVideoHistory : undefined
   scene.videoUrl = videoUrl
   scene.videoError = undefined
   scene.videoStatus = 'done'

@@ -33,8 +33,13 @@ export function splitNarrationText(narration?: string | null): [string | undefin
 }
 
 export function resetSceneGenerationState(scene: SceneData): SceneData {
+  const nextVideoHistory = ensureVideoHistoryEntry(scene.videoHistory, scene.videoUrl, {
+    source: 'legacy'
+  })
+
   return {
     ...scene,
+    videoHistory: nextVideoHistory.length > 0 ? nextVideoHistory : undefined,
     firstFrame: undefined,
     lastFrame: undefined,
     videoUrl: undefined,

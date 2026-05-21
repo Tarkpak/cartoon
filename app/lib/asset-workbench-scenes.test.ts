@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { SceneData } from '~/lib/asset-workbench-models'
-import { mergeScenesInList, splitSceneInList } from './asset-workbench-scenes'
+import {
+  mergeScenesInList,
+  resetSceneGenerationState,
+  splitSceneInList
+} from './asset-workbench-scenes'
 
 function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' | 'description'>): SceneData {
   return {
@@ -32,6 +36,24 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
 }
 
 describe('asset-workbench-scenes', () => {
+  it('moves current video into history when resetting generation state', () => {
+    const scene = createScene({
+      id: 'scene_reset',
+      title: '重置场景',
+      description: '需要重置的视频场景',
+      videoUrl: 'https://example.com/current-video.mp4',
+      videoStatus: 'done',
+      referenceStatus: 'done'
+    })
+
+    const reset = resetSceneGenerationState(scene)
+    expect(reset.videoUrl).toBeUndefined()
+    expect(reset.videoStatus).toBe('pending')
+    expect(reset.videoHistory).toBeDefined()
+    expect(reset.videoHistory).toHaveLength(1)
+    expect(reset.videoHistory?.[0]?.videoUrl).toBe('https://example.com/current-video.mp4')
+  })
+
   it('preserves generated video history from both scenes when merging', () => {
     const sceneA = createScene({
       id: 'scene_a',
