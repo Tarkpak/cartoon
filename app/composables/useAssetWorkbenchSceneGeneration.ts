@@ -111,6 +111,10 @@ interface UseAssetWorkbenchSceneGenerationOptions {
     title: string
     body?: string
   }) => Promise<unknown> | unknown
+  onModelTaskFailed?: (payload: {
+    title: string
+    body?: string
+  }) => Promise<unknown> | unknown
 }
 
 export function useAssetWorkbenchSceneGeneration(
@@ -118,6 +122,30 @@ export function useAssetWorkbenchSceneGeneration(
 ) {
   const pendingBaselineGenerationKeys = new Map<string, string>()
   const pendingVideoGenerationKeys = new Map<string, string>()
+
+  async function notifyModelTaskCompleted(payload: {
+    title: string
+    body?: string
+  }) {
+    if (!options.onModelTaskCompleted) return
+    try {
+      await options.onModelTaskCompleted(payload)
+    } catch (error) {
+      console.warn('[useAssetWorkbenchSceneGeneration] 模型任务完成通知失败:', error)
+    }
+  }
+
+  async function notifyModelTaskFailed(payload: {
+    title: string
+    body?: string
+  }) {
+    if (!options.onModelTaskFailed) return
+    try {
+      await options.onModelTaskFailed(payload)
+    } catch (error) {
+      console.warn('[useAssetWorkbenchSceneGeneration] 模型任务失败通知失败:', error)
+    }
+  }
 
   function resolveSceneEnvironmentReferenceAssetId(scene: SceneData): string {
     const configuredAssetId = options.sceneConfigs.value[scene.id]?.environmentAssetId?.trim() || ''
@@ -543,7 +571,7 @@ export function useAssetWorkbenchSceneGeneration(
       options.synchronizeQueueItems()
       await options.saveProject()
       if (!generationOptions.skipCompletionNotice) {
-        await options.onModelTaskCompleted?.({
+        await notifyModelTaskCompleted({
           title: customPrompt ? '环境图二次生成完成' : '环境图生成完成',
           body: `场景：${scene.title}`
         })
@@ -551,6 +579,12 @@ export function useAssetWorkbenchSceneGeneration(
     } catch (error) {
       scene.referenceStatus = 'error'
       scene.referenceError = options.resolveUiError(error, '环境图生成失败')
+      if (!generationOptions.skipCompletionNotice) {
+        await notifyModelTaskFailed({
+          title: customPrompt ? '环境图二次生成失败' : '环境图生成失败',
+          body: `场景：${scene.title}（${scene.referenceError}）`
+        })
+      }
       throw new Error(scene.referenceError)
     } finally {
       if (pendingBaselineGenerationKeys.get(scene.id) === generationKey) {
@@ -668,7 +702,7 @@ export function useAssetWorkbenchSceneGeneration(
       })
       await options.saveProject()
       if (!runOptions.skipCompletionNotice) {
-        await options.onModelTaskCompleted?.({
+        await notifyModelTaskCompleted({
           title: '分镜视频生成完成',
           body: `场景：${scene.title}`
         })
@@ -680,6 +714,12 @@ export function useAssetWorkbenchSceneGeneration(
     } catch (error) {
       scene.videoStatus = 'error'
       scene.videoError = options.resolveUiError(error, '视频生成失败')
+      if (!runOptions.skipCompletionNotice) {
+        await notifyModelTaskFailed({
+          title: '分镜视频生成失败',
+          body: `场景：${scene.title}（${scene.videoError}）`
+        })
+      }
       throw new Error(scene.videoError)
     } finally {
       if (pendingVideoGenerationKeys.get(scene.id) === generationKey) {
@@ -736,10 +776,17 @@ export function useAssetWorkbenchSceneGeneration(
       const total = options.queueItems.value.length
       const done = options.queueItems.value.filter(item => item.status === 'done').length
       const failed = options.queueItems.value.filter(item => item.status === 'error').length
-      await options.onModelTaskCompleted?.({
-        title: '批量生成分镜视频完成',
-        body: `完成 ${done} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
-      })
+      if (done === 0 && failed > 0) {
+        await notifyModelTaskFailed({
+          title: '批量生成分镜视频失败',
+          body: `完成 ${done} / ${total}，失败 ${failed}`
+        })
+      } else {
+        await notifyModelTaskCompleted({
+          title: '批量生成分镜视频完成',
+          body: `完成 ${done} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
+        })
+      }
     } finally {
       options.batchRunning.value = false
     }
@@ -775,10 +822,17 @@ export function useAssetWorkbenchSceneGeneration(
       const total = targetItems.length
       const done = targetItems.filter(item => item.status === 'done').length
       const failed = targetItems.filter(item => item.status === 'error').length
-      await options.onModelTaskCompleted?.({
-        title: '当前分集分镜视频已生成',
-        body: `完成 ${done} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
-      })
+      if (done === 0 && failed > 0) {
+        await notifyModelTaskFailed({
+          title: '当前分集分镜视频生成失败',
+          body: `完成 ${done} / ${total}，失败 ${failed}`
+        })
+      } else {
+        await notifyModelTaskCompleted({
+          title: '当前分集分镜视频已生成',
+          body: `完成 ${done} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
+        })
+      }
     } finally {
       options.batchRunning.value = false
     }
