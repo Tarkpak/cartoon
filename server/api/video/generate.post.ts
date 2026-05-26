@@ -11,7 +11,7 @@ import {
   GenerateVideoRequestSchema,
   type GeneratedVideo
 } from '../../../shared/types/video'
-import { getGeneratedImageCandidatePaths } from '../../utils/image-storage'
+import { persistImageToPublic } from '../../utils/image-storage'
 import {
   persistGeneratedVideoBuffer,
   persistGeneratedVideoFromRemoteUrl,
@@ -127,7 +127,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // 3. 异步启动视频生成 (不阻塞响应)
-  generateVideoAsync(taskId, sceneId, config).catch(async (error) => {
+  generateVideoAsync(taskId, sceneId, storageConfig).catch(async (error) => {
     console.error(`[VideoGen] 任务 ${taskId} 失败:`, error)
 
     const deferred = await preserveDeferredVideoTask(taskId, error)
@@ -285,65 +285,6 @@ function normalizeLegacyImagePath(raw: string): string {
   return raw
 }
 
-function detectImageMimeType(base64Payload: string): string {
-  const head = base64Payload.trim()
-  if (head.startsWith('/9j/')) return 'image/jpeg'
-  if (head.startsWith('iVBOR')) return 'image/png'
-  if (head.startsWith('R0lGOD')) return 'image/gif'
-  if (head.startsWith('UklGR')) return 'image/webp'
-  if (head.startsWith('Qk')) return 'image/bmp'
-  if (head.startsWith('SUkq') || head.startsWith('TU0A')) return 'image/tiff'
-  return 'image/png'
-}
-
-function detectImageMimeTypeFromBuffer(buffer: Buffer): string {
-  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg'
-  if (
-    buffer.length >= 8
-    && buffer[0] === 0x89
-    && buffer[1] === 0x50
-    && buffer[2] === 0x4e
-    && buffer[3] === 0x47
-    && buffer[4] === 0x0d
-    && buffer[5] === 0x0a
-    && buffer[6] === 0x1a
-    && buffer[7] === 0x0a
-  ) return 'image/png'
-  if (
-    buffer.length >= 6
-    && buffer[0] === 0x47
-    && buffer[1] === 0x49
-    && buffer[2] === 0x46
-    && buffer[3] === 0x38
-  ) return 'image/gif'
-  if (
-    buffer.length >= 12
-    && buffer.toString('ascii', 0, 4) === 'RIFF'
-    && buffer.toString('ascii', 8, 12) === 'WEBP'
-  ) return 'image/webp'
-  if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4d) return 'image/bmp'
-  if (buffer.length >= 4 && buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2a && buffer[3] === 0x00) return 'image/tiff'
-  if (buffer.length >= 4 && buffer[0] === 0x4d && buffer[1] === 0x4d && buffer[2] === 0x00 && buffer[3] === 0x2a) return 'image/tiff'
-  return 'image/png'
-}
-
-function toDataUriFromPayload(payload: string, mimeType?: string): string {
-  const compact = payload.replace(/\s+/g, '')
-  if (!compact) {
-    throw new Error('图片 base64 内容为空')
-  }
-  const resolvedMimeType = (mimeType || detectImageMimeType(compact)).split(';')[0]?.trim() || 'image/png'
-  return `data:${resolvedMimeType};base64,${compact}`
-}
-
-function toDataUriFromBuffer(buffer: Buffer, mimeType?: string): string {
-  if (!buffer.length) {
-    throw new Error('图片内容为空')
-  }
-  const resolvedMimeType = (mimeType || detectImageMimeTypeFromBuffer(buffer)).split(';')[0]?.trim() || 'image/png'
-  return `data:${resolvedMimeType};base64,${buffer.toString('base64')}`
-}
-
 function normalizeOriginValue(value?: string | null): string | undefined {
   const trimmed = (value || '').trim()
   if (!trimmed) return undefined
@@ -362,102 +303,44 @@ function extractRequestOrigin(event: Parameters<typeof getHeader>[0]): string | 
   return normalizeOriginValue(`${protocol}://${candidateHost}`)
 }
 
-function resolveGeneratedImageFilename(imagePath: string): string | null {
-  if (!imagePath) return null
-  const cleanPath = imagePath.split('?')[0]?.split('#')[0] || ''
-  if (!cleanPath) return null
-
-  if (cleanPath.startsWith('/api/image/file/')) {
-    const encoded = cleanPath.slice('/api/image/file/'.length)
-    if (!encoded) return null
-    try {
-      return decodeURIComponent(encoded)
-    } catch {
-      return encoded
-    }
-  }
-
-  if (cleanPath.startsWith('/generated-images/')) {
-    const encoded = cleanPath.slice('/generated-images/'.length)
-    if (!encoded) return null
-    try {
-      return decodeURIComponent(encoded)
-    } catch {
-      return encoded
-    }
-  }
-
-  return null
-}
-
-function resolveGeneratedImageDataUri(imagePath: string): string | null {
-  const filename = resolveGeneratedImageFilename(imagePath)
-  if (!filename) return null
-  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) return null
-
-  const filePath = getGeneratedImageCandidatePaths(filename)
-    .find(candidate => fs.existsSync(candidate) && fs.statSync(candidate).isFile())
-  if (!filePath) return null
-
-  const buffer = fs.readFileSync(filePath)
-  const ext = path.extname(filePath).toLowerCase()
-  const mimeType = ext === '.jpg' || ext === '.jpeg'
-    ? 'image/jpeg'
-    : ext === '.gif'
-      ? 'image/gif'
-      : ext === '.webp'
-        ? 'image/webp'
-        : ext === '.bmp'
-          ? 'image/bmp'
-          : ext === '.tiff' || ext === '.tif'
-            ? 'image/tiff'
-            : detectImageMimeTypeFromBuffer(buffer)
-
-  return toDataUriFromBuffer(buffer, mimeType)
-}
-
-async function fetchImageAsDataUri(targetUrl: string): Promise<string> {
-  const response = await fetch(targetUrl)
-  if (!response.ok) {
-    throw new Error(`参考图下载失败: ${response.status} (${targetUrl})`)
-  }
-  const mimeTypeHeader = response.headers.get('content-type')?.split(';')[0]?.trim()
-  const buffer = Buffer.from(await response.arrayBuffer())
-  return toDataUriFromBuffer(buffer, mimeTypeHeader && mimeTypeHeader.startsWith('image/') ? mimeTypeHeader : undefined)
-}
-
-async function resolveImageInputToDataUri(rawValue: string | undefined, requestOrigin?: string): Promise<string | undefined> {
+async function resolveImageInputToUrl(rawValue: string | undefined, requestOrigin?: string): Promise<string | undefined> {
   const raw = rawValue?.trim()
   if (!raw) return undefined
 
   const normalized = normalizeLegacyImagePath(raw)
 
-  const dataUriMatch = normalized.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s)
-  if (dataUriMatch?.[1] && dataUriMatch[2]) {
-    return toDataUriFromPayload(dataUriMatch[2], dataUriMatch[1])
-  }
-
-  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-    return fetchImageAsDataUri(normalized)
-  }
-
-  if (normalized.startsWith('/') && !isLikelyBase64Image(normalized)) {
-    const localDataUri = resolveGeneratedImageDataUri(normalized)
-    if (localDataUri) return localDataUri
-
-    const origin = normalizeOriginValue(requestOrigin)
-    if (origin) {
-      return fetchImageAsDataUri(`${origin}${normalized}`)
-    }
-
-    throw new Error(`无法读取站内图片路径: ${normalized}`)
-  }
-
   if (normalized.startsWith('asset://') || normalized.startsWith('ref:')) {
     throw new Error(`不支持的图片引用格式: ${normalized.slice(0, 32)}`)
   }
 
-  return toDataUriFromPayload(normalized)
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    return normalized
+  }
+
+  if (normalized.startsWith('/') && !isLikelyBase64Image(normalized)) {
+    try {
+      return await persistImageToPublic({
+        source: normalized,
+        prefix: 'video_input'
+      })
+    } catch (localError) {
+      const origin = normalizeOriginValue(requestOrigin)
+      if (origin) {
+        return await persistImageToPublic({
+          source: `${origin}${normalized}`,
+          prefix: 'video_input'
+        })
+      }
+
+      const reason = localError instanceof Error ? localError.message : String(localError)
+      throw new Error(`无法读取站内图片路径: ${normalized} (${reason})`)
+    }
+  }
+
+  return await persistImageToPublic({
+    source: normalized,
+    prefix: 'video_input'
+  })
 }
 
 async function normalizeVideoConfigImageInputs(
@@ -469,7 +352,7 @@ async function normalizeVideoConfigImageInputs(
     const key = input?.trim()
     if (!key) return undefined
     if (cache.has(key)) return cache.get(key)
-    const resolved = await resolveImageInputToDataUri(key, requestOrigin)
+    const resolved = await resolveImageInputToUrl(key, requestOrigin)
     if (resolved) cache.set(key, resolved)
     return resolved
   }
@@ -927,20 +810,19 @@ async function generateVideoWithQwen(
     // 检查是否是首尾帧模型（仅该类模型使用首尾帧参数）
     const isKf2vModel = modelId?.includes('kf2v')
 
-    // 准备首尾帧 URL (如果有 base64 数据，转换为 data URL)
-    let firstFrameUrl: string | undefined
-    let lastFrameUrl: string | undefined
+    const toQwenFrameUrl = (value?: string): string | undefined => {
+      const trimmed = value?.trim()
+      if (!trimmed) return undefined
+      if (trimmed.startsWith('data:')) return trimmed
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed
+      return isLikelyBase64Image(trimmed)
+        ? `data:image/png;base64,${trimmed.replace(/\s+/g, '')}`
+        : trimmed
+    }
 
-    if (config.firstFrame) {
-      firstFrameUrl = config.firstFrame.startsWith('data:')
-        ? config.firstFrame
-        : `data:image/png;base64,${config.firstFrame}`
-    }
-    if (config.lastFrame) {
-      lastFrameUrl = config.lastFrame.startsWith('data:')
-        ? config.lastFrame
-        : `data:image/png;base64,${config.lastFrame}`
-    }
+    // 准备首尾帧 URL：兼容 URL/dataURL/base64 三种来源
+    const firstFrameUrl = toQwenFrameUrl(config.firstFrame)
+    const lastFrameUrl = toQwenFrameUrl(config.lastFrame)
 
     console.log('[VideoGen] 首尾帧信息:', {
       isKf2vModel,
