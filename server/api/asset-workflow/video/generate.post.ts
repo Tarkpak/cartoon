@@ -62,6 +62,12 @@ const CharacterReferenceAssetSchema = z.object({
   type: z.enum(['character', 'prop', 'other']).optional(),
   image: z.string()
 })
+const NarrationVoiceAssetSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().optional(),
+  type: z.literal('other').optional(),
+  audioUrl: z.string()
+})
 
 const RequestSchema = z.object({
   scene: SceneSchema,
@@ -73,7 +79,8 @@ const RequestSchema = z.object({
     characterImage: z.string().optional(),
     characterImages: z.array(z.string()).optional(),
     environmentAsset: EnvironmentReferenceAssetSchema,
-    characterAssets: z.array(CharacterReferenceAssetSchema).optional()
+    characterAssets: z.array(CharacterReferenceAssetSchema).optional(),
+    narrationVoiceAsset: NarrationVoiceAssetSchema.optional()
   })
 }).superRefine((payload, ctx) => {
   const hasEnvironment = (
@@ -118,6 +125,12 @@ function hasText(value?: string | null): value is string {
 }
 
 function normalizeImageInput(value?: string | null): string | undefined {
+  if (!value) return undefined
+  const trimmed = value.trim()
+  return trimmed || undefined
+}
+
+function normalizeAudioInput(value?: string | null): string | undefined {
   if (!value) return undefined
   const trimmed = value.trim()
   return trimmed || undefined
@@ -732,6 +745,10 @@ export default defineEventHandler(async (event) => {
   })
   const settingText = buildSettingText(scene.setting, [scene.title || '', scene.description || ''].join('\n'))
   const narrationText = hasText(scene.narration) ? scene.narration.trim() : ''
+  const hasDialogue = (scene.dialogues || []).some((item) => {
+    return hasText(item.character) && hasText(item.text)
+  })
+  const narrationVoiceAudioUrl = normalizeAudioInput(references.narrationVoiceAsset?.audioUrl)
   const dialogueText = (scene.dialogues || [])
     .map((item) => {
       const character = item.character?.trim() || ''
@@ -813,6 +830,10 @@ export default defineEventHandler(async (event) => {
     config.referenceImages = multiReferenceImages
   }
 
+  if (narrationText && !hasDialogue && narrationVoiceAudioUrl) {
+    config.audioUrl = narrationVoiceAudioUrl
+  }
+
   try {
     const response = await $fetch<{
       success: boolean
@@ -843,6 +864,8 @@ export default defineEventHandler(async (event) => {
         referenceImageLimit: referenceLimit,
         referenceImagesCount: multiReferenceImages.length,
         characterReferenceCount: characterReferenceBindings.length,
+        hasNarrationVoiceAsset: !!narrationVoiceAudioUrl,
+        narrationAudioInjected: narrationText.length > 0 && !hasDialogue && !!narrationVoiceAudioUrl,
         primaryReferenceType: hasCharacterRef
           ? (supportsMultiReferenceImages || preferEnvironmentAsPrimary
               ? (environmentReferenceBinding ? 'environment' : primaryCharacterImage ? 'character' : 'none')

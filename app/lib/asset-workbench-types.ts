@@ -3,7 +3,7 @@ export type AssetTab = 'characters' | 'environments' | 'props' | 'others'
 export type QueueStatus = 'pending' | 'running' | 'done' | 'error'
 export type AutoStageKey = 'parse' | 'assets' | 'videos' | 'final'
 export type AutoStageStatus = 'pending' | 'running' | 'done'
-export type AssetUploadInputType = 'char' | 'char_voice' | 'env' | 'prop'
+export type AssetUploadInputType = 'char' | 'char_voice' | 'env' | 'prop' | 'prop_voice'
 export type AssetHistorySource = 'generated' | 'uploaded' | 'cropped' | 'legacy'
 
 export interface EnvironmentCropSelection {

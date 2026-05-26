@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { History, Loader2, Package, Plus, Sparkles, Trash2, Upload } from 'lucide-vue-next'
+import { AudioLines, History, Loader2, Lock, Package, Plus, Sparkles, Trash2, Upload } from 'lucide-vue-next'
 import type { PropAsset, PropAssetCategory } from '~/composables/useAssetWorkflowMeta'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { toImageSrc } from '~/lib/media'
@@ -8,9 +8,11 @@ const props = withDefaults(defineProps<{
   propAssets: PropAsset[]
   autoRunning: boolean
   uploadingPropId: string | null
+  uploadingPropVoiceId?: string | null
   generatingPropId: string | null
   getPropUsageCount: (propId: string) => number
   allowAdd?: boolean
+  allowVoiceUpload?: boolean
   addCategory?: PropAssetCategory
   assetLabel?: string
   addNamePlaceholder?: string
@@ -19,7 +21,9 @@ const props = withDefaults(defineProps<{
   emptyDescription?: string
 }>(), {
   allowAdd: true,
-  addCategory: 'prop'
+  addCategory: 'prop',
+  allowVoiceUpload: false,
+  uploadingPropVoiceId: null
 })
 
 const emit = defineEmits<{
@@ -27,6 +31,8 @@ const emit = defineEmits<{
   'remove-prop': [propId: string]
   'generate-prop': [propId: string]
   'upload-image': [payload: { propId: string, event: Event }]
+  'upload-voice': [payload: { propId: string, event: Event }]
+  'update-voice-lock': [payload: { propId: string, locked: boolean }]
   'open-history': [propId: string]
   'preview-image': [payload: { src: string | undefined, alt: string }]
 }>()
@@ -64,6 +70,12 @@ function triggerUploadInput(propId: string) {
   input?.click()
 }
 
+function triggerVoiceUploadInput(propId: string) {
+  if (typeof document === 'undefined') return
+  const input = document.getElementById(buildAssetUploadInputId('prop_voice', propId)) as HTMLInputElement | null
+  input?.click()
+}
+
 function resolveHistoryCount(prop: PropAsset): number {
   return Array.isArray(prop.assetHistory) ? prop.assetHistory.length : 0
 }
@@ -71,6 +83,24 @@ function resolveHistoryCount(prop: PropAsset): number {
 function resolveGenerateLabel(prop: PropAsset): string {
   if (props.generatingPropId === prop.id) return '生成中'
   return prop.referenceImage ? '重新生成' : '生成'
+}
+
+function resolveVoiceSourceLabel(prop: PropAsset): string {
+  if (!prop.voiceAsset?.audioUrl) return '暂无旁白参考音频'
+  if (prop.voiceAsset.sourceSceneId || prop.voiceAsset.sourceTaskId) return '自动提取'
+  return '手动上传'
+}
+
+function resolveVoiceUpdatedText(prop: PropAsset): string {
+  const updatedAt = prop.voiceAsset?.updatedAt
+  if (!updatedAt) return ''
+  const parsed = new Date(updatedAt)
+  if (Number.isNaN(parsed.getTime())) return ''
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getDate()).padStart(2, '0')
+  const hours = String(parsed.getHours()).padStart(2, '0')
+  const minutes = String(parsed.getMinutes()).padStart(2, '0')
+  return `${month}-${day} ${hours}:${minutes}`
 }
 
 function hasImageLoadFailed(propId: string): boolean {
@@ -186,6 +216,64 @@ function buildImageLoadKey(prop: PropAsset): string {
           </div>
         </div>
 
+        <div
+          v-if="allowVoiceUpload"
+          class="border-t px-3 py-2.5"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <div class="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <AudioLines class="h-3.5 w-3.5" />
+              </div>
+              <div class="min-w-0">
+                <p class="text-xs font-medium">
+                  旁白参考音频
+                </p>
+                <p class="text-[11px] text-muted-foreground">
+                  {{ resolveVoiceSourceLabel(prop) }}
+                  <span v-if="resolveVoiceUpdatedText(prop)"> · {{ resolveVoiceUpdatedText(prop) }}</span>
+                </p>
+              </div>
+            </div>
+            <div
+              v-if="prop.voiceAsset?.audioUrl"
+              class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] text-muted-foreground"
+            >
+              <Lock
+                v-if="prop.voiceAsset.locked"
+                class="h-3 w-3 text-primary"
+              />
+              {{ prop.voiceAsset.locked ? '已锁定参考' : '未锁定' }}
+            </div>
+          </div>
+
+          <div
+            v-if="prop.voiceAsset?.audioUrl"
+            class="mt-2 space-y-2"
+          >
+            <audio
+              :src="prop.voiceAsset.audioUrl"
+              class="w-full"
+              controls
+              preload="none"
+            />
+            <div class="flex items-center justify-end gap-2 rounded-md bg-muted/35 px-2.5 py-2">
+              <span class="text-[11px] text-muted-foreground">锁定参考</span>
+              <Switch
+                :checked="!!prop.voiceAsset.locked"
+                :disabled="autoRunning || uploadingPropVoiceId === prop.id"
+                @update:checked="emit('update-voice-lock', { propId: prop.id, locked: !!$event })"
+              />
+            </div>
+          </div>
+          <div
+            v-else
+            class="mt-2 rounded-md border border-dashed bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground"
+          >
+            上传固定旁白音频后，后续含旁白的镜头将优先复用该音色。
+          </div>
+        </div>
+
         <!-- Actions -->
         <div class="flex items-center justify-between border-t px-3 py-1.5">
           <span class="text-[11px] text-muted-foreground/60">
@@ -229,6 +317,25 @@ function buildImageLoadKey(prop: PropAsset): string {
               {{ prop.referenceImage ? '更换' : '上传' }}
             </Button>
             <Button
+              v-if="allowVoiceUpload"
+              type="button"
+              size="sm"
+              variant="ghost"
+              class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              :disabled="autoRunning || !!uploadingPropVoiceId"
+              @click="triggerVoiceUploadInput(prop.id)"
+            >
+              <Loader2
+                v-if="uploadingPropVoiceId === prop.id"
+                class="mr-1 h-3 w-3 animate-spin"
+              />
+              <AudioLines
+                v-else
+                class="mr-1 h-3 w-3"
+              />
+              {{ prop.voiceAsset?.audioUrl ? '替换音频' : '上传音频' }}
+            </Button>
+            <Button
               v-if="resolveHistoryCount(prop) > 1"
               type="button"
               size="sm"
@@ -255,6 +362,14 @@ function buildImageLoadKey(prop: PropAsset): string {
             accept="image/*"
             class="hidden"
             @change="emit('upload-image', { propId: prop.id, event: $event })"
+          />
+          <Input
+            v-if="allowVoiceUpload"
+            :id="buildAssetUploadInputId('prop_voice', prop.id)"
+            type="file"
+            accept="audio/*"
+            class="hidden"
+            @change="emit('upload-voice', { propId: prop.id, event: $event })"
           />
         </div>
       </div>

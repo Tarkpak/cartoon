@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { CharacterData, SceneData } from './asset-workbench-models'
 import type { SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
-import { resolveSceneVideoReferenceAssets } from './asset-workbench-scene-references'
+import {
+  resolveSceneNarrationVoiceAsset,
+  resolveSceneVideoReferenceAssets
+} from './asset-workbench-scene-references'
 
 function createCharacter(input: Partial<CharacterData> & Pick<CharacterData, 'id' | 'name'>): CharacterData {
   return {
@@ -247,5 +250,82 @@ describe('scene video reference assets', () => {
       type: 'other',
       image: 'flashlight.png'
     })
+  })
+
+  it('resolves narration voice asset from explicitly referenced other asset', () => {
+    const scene = createScene({
+      id: 'scene_narration_1',
+      title: '旁白场景',
+      description: '镜头推进。\n\n[引用资产]\n@其他:旁白音色',
+      narration: '画外音（音色：女性，沉稳）说：夜色渐深。'
+    })
+
+    const narrationVoice = resolveSceneNarrationVoiceAsset({
+      scene,
+      characters: [],
+      propAssets: [
+        {
+          id: 'other_narration_voice',
+          name: '旁白音色',
+          description: '女性，沉稳',
+          category: 'other',
+          voiceAsset: {
+            audioUrl: 'https://example.com/narration.mp3',
+            locked: true,
+            updatedAt: new Date().toISOString()
+          }
+        }
+      ],
+      sceneConfigs: {
+        [scene.id]: createSceneConfig(scene.id, ['prop:other_narration_voice'])
+      }
+    })
+
+    expect(narrationVoice).toMatchObject({
+      assetId: 'prop:other_narration_voice',
+      audioUrl: 'https://example.com/narration.mp3',
+      locked: true,
+      source: 'manual'
+    })
+  })
+
+  it('falls back to hinted narration voice asset when no explicit reference exists', () => {
+    const scene = createScene({
+      id: 'scene_narration_2',
+      title: '旁白场景',
+      description: '镜头推进。',
+      narration: '旁白：故事才刚开始。'
+    })
+
+    const narrationVoice = resolveSceneNarrationVoiceAsset({
+      scene,
+      characters: [],
+      propAssets: [
+        {
+          id: 'other_misc',
+          name: '环境底噪',
+          description: '',
+          category: 'other',
+          voiceAsset: {
+            audioUrl: 'https://example.com/noise.mp3',
+            updatedAt: new Date().toISOString()
+          }
+        },
+        {
+          id: 'other_narration_voice',
+          name: '旁白音色',
+          description: '',
+          category: 'other',
+          voiceAsset: {
+            audioUrl: 'https://example.com/narration.mp3',
+            updatedAt: new Date().toISOString()
+          }
+        }
+      ],
+      sceneConfigs: {}
+    })
+
+    expect(narrationVoice?.assetId).toBe('prop:other_narration_voice')
+    expect(narrationVoice?.audioUrl).toBe('https://example.com/narration.mp3')
   })
 })

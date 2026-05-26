@@ -33,6 +33,7 @@ const props = defineProps<{
   uploadingCharacterVoiceId: string | null
   uploadingEnvironmentAssetId: string | null
   uploadingPropId: string | null
+  uploadingPropVoiceId: string | null
   generatingPropId: string | null
   getCharacterSceneCount: (character: CharacterData) => number
   getEnvironmentSceneSummary: (asset: EnvironmentAssetCard) => string
@@ -69,6 +70,8 @@ const emit = defineEmits<{
   'remove-prop': [propId: string]
   'generate-prop': [propId: string]
   'upload-prop-image': [payload: { propId: string, event: Event }]
+  'upload-prop-voice': [payload: { propId: string, event: Event }]
+  'update-prop-voice-lock': [payload: { propId: string, locked: boolean }]
   'open-prop-history': [propId: string]
 }>()
 
@@ -255,8 +258,10 @@ const hasSeedAssets = computed(() => {
         :prop-assets="otherAssetsOfType"
         :auto-running="autoRunning"
         :uploading-prop-id="uploadingPropId"
+        :uploading-prop-voice-id="uploadingPropVoiceId"
         :generating-prop-id="generatingPropId"
         :get-prop-usage-count="getPropUsageCount"
+        :allow-voice-upload="true"
         add-category="other"
         asset-label="其他"
         empty-title="暂无其他资产"
@@ -265,6 +270,8 @@ const hasSeedAssets = computed(() => {
         @remove-prop="emit('remove-prop', $event)"
         @generate-prop="emit('generate-prop', $event)"
         @upload-image="emit('upload-prop-image', $event)"
+        @upload-voice="emit('upload-prop-voice', $event)"
+        @update-voice-lock="emit('update-prop-voice-lock', $event)"
         @open-history="emit('open-prop-history', $event)"
         @preview-image="emit('preview-image', $event)"
       />

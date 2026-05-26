@@ -15,6 +15,7 @@ interface SceneReferenceOptions {
 }
 
 type MentionAssetTypeHint = DisplayAsset['type'] | null
+const NARRATION_ASSET_NAME_HINTS = ['旁白', '画外音', 'narration', 'voiceover', '旁白音色']
 
 function buildMentionableSceneAssets(
   characters: CharacterData[],
@@ -244,4 +245,84 @@ export function resolveSceneVideoReferenceAssets(
 
 export function resolveSceneVideoCharacterReferences(options: SceneReferenceOptions): string[] {
   return resolveSceneVideoReferenceAssets(options).map(item => item.image)
+}
+
+export interface SceneNarrationVoiceReference {
+  assetId: string
+  name: string
+  audioUrl: string
+  locked: boolean
+  source: 'manual' | 'auto'
+}
+
+function isNarrationAssetName(name: string): boolean {
+  const normalized = normalizeToken(name)
+  if (!normalized) return false
+
+  return NARRATION_ASSET_NAME_HINTS.some((hint) => {
+    const normalizedHint = normalizeToken(hint)
+    return !!normalizedHint && (normalized.includes(normalizedHint) || normalizedHint.includes(normalized))
+  })
+}
+
+function resolveVoiceAssetSource(prop: PropAsset): 'manual' | 'auto' {
+  if (prop.voiceAsset?.sourceSceneId || prop.voiceAsset?.sourceTaskId) {
+    return 'auto'
+  }
+  return 'manual'
+}
+
+function resolveNarrationVoicePriority(prop: PropAsset, explicitlyReferenced: boolean): number {
+  let score = 0
+  if (explicitlyReferenced) score += 8
+  if (prop.voiceAsset?.locked) score += 4
+  if (isNarrationAssetName(prop.name || '')) score += 2
+  if (prop.voiceAsset?.sourceSceneId || prop.voiceAsset?.sourceTaskId) score += 1
+  return score
+}
+
+export function resolveSceneNarrationVoiceAsset(
+  options: SceneReferenceOptions
+): SceneNarrationVoiceReference | null {
+  if (!options.scene.narration?.trim()) return null
+
+  const voiceProps = options.propAssets.filter((asset) => {
+    return asset.category === 'other' && !!asset.voiceAsset?.audioUrl?.trim()
+  })
+  if (voiceProps.length === 0) return null
+
+  const explicitPropIds = new Set([
+    ...resolveMentionedSceneAssetIds(options)
+      .filter(assetId => assetId.startsWith('prop:'))
+      .map(assetId => assetId.slice('prop:'.length)),
+    ...(options.sceneConfigs[options.scene.id]?.mustReferenceAssetIds || [])
+      .filter(assetId => assetId.startsWith('prop:'))
+      .map(assetId => assetId.slice('prop:'.length))
+  ])
+
+  const candidateProps = explicitPropIds.size > 0
+    ? voiceProps.filter(asset => explicitPropIds.has(asset.id))
+    : voiceProps
+  if (candidateProps.length === 0) return null
+
+  const sorted = candidateProps
+    .slice()
+    .sort((left, right) => {
+      const leftScore = resolveNarrationVoicePriority(left, explicitPropIds.has(left.id))
+      const rightScore = resolveNarrationVoicePriority(right, explicitPropIds.has(right.id))
+      if (leftScore !== rightScore) return rightScore - leftScore
+      return (left.name || '').localeCompare((right.name || ''), 'zh-CN')
+    })
+
+  const selected = sorted[0]
+  const audioUrl = selected?.voiceAsset?.audioUrl?.trim() || ''
+  if (!selected || !audioUrl) return null
+
+  return {
+    assetId: `prop:${selected.id}`,
+    name: selected.name?.trim() || '旁白音色',
+    audioUrl,
+    locked: selected.voiceAsset?.locked === true,
+    source: resolveVoiceAssetSource(selected)
+  }
 }
