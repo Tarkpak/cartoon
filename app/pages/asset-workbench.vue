@@ -1052,6 +1052,71 @@ function normalizeEpisodeAssetMergeKey(value?: string): string {
   return (value || '').trim().toLowerCase().replace(/[\s\r\n\t]+/g, '')
 }
 
+const NARRATION_VOICE_ASSET_HINT_REGEX = /(旁白|画外音|voiceover|narration|旁白音色)/iu
+const NARRATION_VOICE_PROFILE_REGEX = /(?:音色|声线)\s*[：:]\s*([^，。；;\n）)]+)/iu
+
+function resolveNarrationVoiceDescriptionFromScenes(): string {
+  for (const scene of scenes.value) {
+    const narration = scene.narration?.trim() || ''
+    if (!narration) continue
+
+    const matchedProfile = narration.match(NARRATION_VOICE_PROFILE_REGEX)?.[1]?.trim() || ''
+    if (matchedProfile) {
+      return `音色基线：${matchedProfile}`
+    }
+  }
+
+  return '保持旁白音色一致（可上传旁白参考音频）'
+}
+
+function resolveNarrationVoiceAsset(): PropAsset | undefined {
+  return propAssets.value.find((asset) => {
+    if (asset.category !== 'other') return false
+    return NARRATION_VOICE_ASSET_HINT_REGEX.test(asset.name || '')
+  })
+}
+
+function ensureNarrationVoiceAssetFromScenes(): { assetChanged: boolean, configChanged: boolean } {
+  const narrationSceneIds = scenes.value
+    .filter(scene => !!scene.narration?.trim())
+    .map(scene => scene.id)
+  if (narrationSceneIds.length === 0) {
+    return { assetChanged: false, configChanged: false }
+  }
+
+  let assetChanged = false
+  let configChanged = false
+  let narrationAsset = resolveNarrationVoiceAsset()
+  const narrationDescription = resolveNarrationVoiceDescriptionFromScenes()
+
+  if (!narrationAsset) {
+    narrationAsset = {
+      id: createPropAssetId(),
+      name: '旁白音色',
+      description: narrationDescription,
+      category: 'other'
+    }
+    propAssets.value.push(narrationAsset)
+    assetChanged = true
+  } else if (!narrationAsset.description?.trim() && narrationDescription) {
+    narrationAsset.description = narrationDescription
+    assetChanged = true
+  }
+
+  const narrationAssetRefId = `prop:${narrationAsset.id}`
+  for (const sceneId of narrationSceneIds) {
+    const config = ensureSceneConfig(sceneId)
+    if (config.mustReferenceAssetIds.includes(narrationAssetRefId)) continue
+    config.mustReferenceAssetIds = uniqueSorted([
+      ...config.mustReferenceAssetIds,
+      narrationAssetRefId
+    ])
+    configChanged = true
+  }
+
+  return { assetChanged, configChanged }
+}
+
 function mergePropAssetsFromEpisodePlan(): boolean {
   if (episodePlan.value.length === 0) return false
 
@@ -1185,23 +1250,27 @@ async function persistAutomaticAssetPlan(
   }
 
   const autoPlanResult = applyAutomaticAssetPlan(options)
+  const narrationVoiceAssetSyncResult = ensureNarrationVoiceAssetFromScenes()
   const descriptionMentionChanged = synchronizeSceneDescriptionsWithAssetMentions()
 
   if (
     autoPlanResult.characterChanged
     || autoPlanResult.generationInvalidated
+    || narrationVoiceAssetSyncResult.assetChanged
     || descriptionMentionChanged
   ) {
     await saveProject()
   }
-  if (autoPlanResult.configChanged) {
+  if (autoPlanResult.configChanged || narrationVoiceAssetSyncResult.configChanged || narrationVoiceAssetSyncResult.assetChanged) {
     await saveWorkflowMeta()
   }
 
   lastAutoPlanSnapshotKey.value = buildAutoPlanSnapshotKey()
 
   return {
-    ...autoPlanResult,
+    characterChanged: autoPlanResult.characterChanged,
+    configChanged: autoPlanResult.configChanged || narrationVoiceAssetSyncResult.configChanged || narrationVoiceAssetSyncResult.assetChanged,
+    generationInvalidated: autoPlanResult.generationInvalidated,
     descriptionMentionChanged,
     skipped: false
   }
@@ -1667,6 +1736,7 @@ const {
   uploadingCharacterVoiceId,
   uploadingEnvironmentAssetId,
   uploadingPropId,
+  uploadingPropVoiceId,
   generatingPropId,
   openImagePreview,
   handleCharacterImageUpload: handleCharacterImageUploadCore,
@@ -1674,6 +1744,8 @@ const {
   handleCharacterVoiceLockChange,
   handleEnvironmentImageUpload: handleEnvironmentImageUploadCore,
   handlePropImageUpload: handlePropImageUploadCore,
+  handlePropVoiceUpload,
+  handlePropVoiceLockChange,
   generatePropImage: generatePropImageCore,
   openEnvironmentRegenerateDialog,
   setEnvironmentRegenerateDialogOpen,
@@ -2938,6 +3010,7 @@ async function handleBatchGenerateCharacters() {
           :uploading-character-voice-id="uploadingCharacterVoiceId"
           :uploading-environment-asset-id="uploadingEnvironmentAssetId"
           :uploading-prop-id="uploadingPropId"
+          :uploading-prop-voice-id="uploadingPropVoiceId"
           :generating-prop-id="generatingPropId"
           :get-character-scene-count="resolveCharacterSceneCount"
           :get-environment-scene-summary="resolveEnvironmentSceneSummary"
@@ -2971,6 +3044,8 @@ async function handleBatchGenerateCharacters() {
           @remove-prop="removePropAsset"
           @generate-prop="handleGeneratePropImage"
           @upload-prop-image="handlePropImageUpload($event.propId, $event.event)"
+          @upload-prop-voice="handlePropVoiceUpload($event.propId, $event.event)"
+          @update-prop-voice-lock="handlePropVoiceLockChange($event.propId, $event.locked)"
           @open-prop-history="openPropHistory"
         />
 

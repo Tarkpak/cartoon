@@ -1,5 +1,6 @@
 import { useDebounceFn } from '@vueuse/core'
 import type { Ref } from 'vue'
+import type { CharacterVoiceAsset } from '#shared/types/character'
 import type {
   AssetImageHistoryEntry,
   AssetVideoHistoryEntry,
@@ -41,6 +42,7 @@ export interface PropAsset {
   description: string
   category: PropAssetCategory
   referenceImage?: string
+  voiceAsset?: CharacterVoiceAsset
   assetHistory?: AssetImageHistoryEntry[]
 }
 
@@ -180,11 +182,17 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
     )
 
     return {
-      version: 6,
+      version: 7,
       sceneConfigs: options.sceneConfigs.value,
       props: options.propAssets.value.map(prop => ({
         ...prop,
         category: prop.category === 'other' ? 'other' : 'prop',
+        voiceAsset: prop.voiceAsset?.audioUrl
+          ? {
+              ...prop.voiceAsset,
+              audioUrl: prop.voiceAsset.audioUrl.trim()
+            }
+          : undefined,
         assetHistory: normalizeAssetHistoryEntries(prop.assetHistory, prop.referenceImage)
       })),
       environmentMotherAssetSelections: Object.fromEntries(
@@ -275,12 +283,24 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
             .filter(item => item && typeof item === 'object')
             .map((item) => {
               const prop = item as Partial<PropAsset>
+              const normalizedVoiceAsset = prop.voiceAsset
+                && typeof prop.voiceAsset === 'object'
+                && !Array.isArray(prop.voiceAsset)
+                && typeof prop.voiceAsset.audioUrl === 'string'
+                && prop.voiceAsset.audioUrl.trim()
+                ? {
+                    ...prop.voiceAsset,
+                    audioUrl: prop.voiceAsset.audioUrl.trim()
+                  }
+                : undefined
+
               return {
                 id: typeof prop.id === 'string' ? prop.id : createFallbackPropId(),
                 name: typeof prop.name === 'string' ? prop.name : '未命名道具',
                 description: typeof prop.description === 'string' ? prop.description : '',
                 category: prop.category === 'other' ? 'other' : 'prop',
                 referenceImage: typeof prop.referenceImage === 'string' ? prop.referenceImage : undefined,
+                voiceAsset: normalizedVoiceAsset,
                 assetHistory: normalizeAssetHistoryEntries(
                   prop.assetHistory,
                   typeof prop.referenceImage === 'string' ? prop.referenceImage : undefined

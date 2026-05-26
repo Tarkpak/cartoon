@@ -63,6 +63,12 @@ interface AssetWorkflowVideoReferences {
   continuityFirstFrame?: string
   characterImage?: string
   characterImages: string[]
+  narrationVoiceAsset?: {
+    id: string
+    name: string
+    type: 'other'
+    audioUrl: string
+  }
   environmentAsset: {
     id: string
     name: string
@@ -184,12 +190,27 @@ export function buildAssetWorkflowVideoReferences(options: {
   characterImages: string[]
   characterAssets: SceneVideoReferenceAsset[]
   continuityFirstFrame?: string
+  narrationVoiceAsset?: {
+    id: string
+    name: string
+    audioUrl: string
+  }
 }): AssetWorkflowVideoReferences {
+  const narrationAudioUrl = options.narrationVoiceAsset?.audioUrl?.trim() || ''
+
   return {
     environmentImage: options.environmentImage,
     continuityFirstFrame: options.continuityFirstFrame,
     characterImage: options.characterImages[0],
     characterImages: options.characterImages,
+    narrationVoiceAsset: narrationAudioUrl
+      ? {
+          id: options.narrationVoiceAsset?.id || 'prop:narration_voice',
+          name: options.narrationVoiceAsset?.name || '旁白音色',
+          type: 'other',
+          audioUrl: narrationAudioUrl
+        }
+      : undefined,
     environmentAsset: {
       id: options.environmentAssetId || resolveSceneEnvironmentAssetId(options.scene),
       name: options.environmentAssetName || resolveSceneEnvironmentLabel(options.scene),

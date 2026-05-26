@@ -30,6 +30,7 @@ import {
 } from '~/lib/asset-workbench-environment'
 import {
   resolveConfiguredCharacterReferences,
+  resolveSceneNarrationVoiceAsset,
   resolveSceneVideoCharacterReferences,
   resolveSceneVideoReferenceAssets
 } from '~/lib/asset-workbench-scene-references'
@@ -345,7 +346,8 @@ export function useAssetWorkbenchSceneGeneration(
     environmentImage: string,
     continuityFirstFrame: string | undefined,
     characterImages: string[],
-    characterReferenceAssets: ReturnType<typeof resolveSceneVideoReferenceAssets>
+    characterReferenceAssets: ReturnType<typeof resolveSceneVideoReferenceAssets>,
+    narrationVoiceReference?: ReturnType<typeof resolveSceneNarrationVoiceAsset>
   ): string {
     return JSON.stringify({
       scenePayload: buildAssetWorkflowScenePayload(scene),
@@ -353,6 +355,14 @@ export function useAssetWorkbenchSceneGeneration(
       aspectRatio: options.projectAspectRatio.value,
       environmentImage,
       continuityFirstFrame: continuityFirstFrame || '',
+      narrationVoiceAsset: narrationVoiceReference
+        ? {
+            assetId: narrationVoiceReference.assetId,
+            audioUrl: narrationVoiceReference.audioUrl,
+            source: narrationVoiceReference.source,
+            locked: narrationVoiceReference.locked
+          }
+        : null,
       characterImages,
       characterAssets: characterReferenceAssets.map(asset => ({
         assetId: asset.assetId,
@@ -636,13 +646,20 @@ export function useAssetWorkbenchSceneGeneration(
       propAssets: options.propAssets.value,
       sceneConfigs: options.sceneConfigs.value
     })
+    const narrationVoiceReference = resolveSceneNarrationVoiceAsset({
+      scene,
+      characters: options.characters.value,
+      propAssets: options.propAssets.value,
+      sceneConfigs: options.sceneConfigs.value
+    })
     const continuityFirstFrame = resolvePreviousSceneLastFrameForContinuity(scene)
     const generationKey = buildSceneVideoGenerationKey(
       scene,
       environmentImage,
       continuityFirstFrame,
       characterImages,
-      characterReferenceAssets
+      characterReferenceAssets,
+      narrationVoiceReference
     )
     pendingVideoGenerationKeys.set(scene.id, generationKey)
 
@@ -661,7 +678,14 @@ export function useAssetWorkbenchSceneGeneration(
           environmentImage,
           continuityFirstFrame,
           characterImages,
-          characterAssets: characterReferenceAssets
+          characterAssets: characterReferenceAssets,
+          narrationVoiceAsset: narrationVoiceReference
+            ? {
+                id: narrationVoiceReference.assetId,
+                name: narrationVoiceReference.name,
+                audioUrl: narrationVoiceReference.audioUrl
+              }
+            : undefined
         })
       })
       const videoResult = await pollSceneVideoTask(taskId)
@@ -678,6 +702,12 @@ export function useAssetWorkbenchSceneGeneration(
           sceneConfigs: options.sceneConfigs.value
         }),
         resolveSceneVideoReferenceAssets({
+          scene,
+          characters: options.characters.value,
+          propAssets: options.propAssets.value,
+          sceneConfigs: options.sceneConfigs.value
+        }),
+        resolveSceneNarrationVoiceAsset({
           scene,
           characters: options.characters.value,
           propAssets: options.propAssets.value,

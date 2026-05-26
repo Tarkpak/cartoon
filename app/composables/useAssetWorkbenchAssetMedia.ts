@@ -61,6 +61,7 @@ export function useAssetWorkbenchAssetMedia(options: {
   const uploadingCharacterVoiceId = ref<string | null>(null)
   const uploadingEnvironmentAssetId = ref<string | null>(null)
   const uploadingPropId = ref<string | null>(null)
+  const uploadingPropVoiceId = ref<string | null>(null)
   const generatingPropId = ref<string | null>(null)
 
   async function notifyModelTaskCompleted(payload: {
@@ -301,6 +302,64 @@ export function useAssetWorkbenchAssetMedia(options: {
     }
   }
 
+  async function handlePropVoiceUpload(propId: string, event: Event) {
+    const input = event.target as HTMLInputElement | null
+    const file = input?.files?.[0]
+    if (!file) {
+      resetFileInput(event)
+      return
+    }
+
+    const target = options.propAssets.value.find(item => item.id === propId)
+    if (!target || target.category !== 'other') {
+      resetFileInput(event)
+      return
+    }
+
+    uploadingPropVoiceId.value = propId
+    options.statusError.value = null
+
+    try {
+      const audioUrl = await uploadAudioFile(file, {
+        maxFileSize: options.maxVoiceUploadSize,
+        prefix: `voice_${target.id}`
+      })
+      target.voiceAsset = {
+        audioUrl,
+        locked: target.voiceAsset?.locked ?? true,
+        updatedAt: new Date().toISOString()
+      }
+      await options.saveWorkflowMeta()
+    } catch (error) {
+      options.statusError.value = options.resolveUiError(error, '旁白音频上传失败')
+    } finally {
+      uploadingPropVoiceId.value = null
+      resetFileInput(event)
+    }
+  }
+
+  async function handlePropVoiceLockChange(propId: string, locked: boolean) {
+    const target = options.propAssets.value.find(item => item.id === propId)
+    if (!target?.voiceAsset?.audioUrl) return
+
+    target.voiceAsset = {
+      ...target.voiceAsset,
+      locked,
+      updatedAt: target.voiceAsset.updatedAt || new Date().toISOString()
+    }
+    options.statusError.value = null
+
+    try {
+      await options.saveWorkflowMeta()
+    } catch (error) {
+      target.voiceAsset = {
+        ...target.voiceAsset,
+        locked: !locked
+      }
+      options.statusError.value = options.resolveUiError(error, locked ? '锁定旁白音频失败' : '取消锁定旁白音频失败')
+    }
+  }
+
   async function generatePropImage(
     propId: string,
     generationOptions: {
@@ -486,6 +545,7 @@ export function useAssetWorkbenchAssetMedia(options: {
     uploadingCharacterVoiceId,
     uploadingEnvironmentAssetId,
     uploadingPropId,
+    uploadingPropVoiceId,
     generatingPropId,
     openImagePreview,
     handleCharacterImageUpload,
@@ -493,6 +553,8 @@ export function useAssetWorkbenchAssetMedia(options: {
     handleCharacterVoiceLockChange,
     handleEnvironmentImageUpload,
     handlePropImageUpload,
+    handlePropVoiceUpload,
+    handlePropVoiceLockChange,
     generatePropImage,
     openEnvironmentRegenerateDialog,
     setEnvironmentRegenerateDialogOpen,

@@ -610,4 +610,89 @@ describe('useAssetWorkbenchSceneGeneration', () => {
       }
     ])
   })
+
+  it('passes narration voice asset into scene video task references for narration scenes', async () => {
+    const scene = createScene({
+      id: 'scene_narration_voice_1',
+      title: '旁白场景',
+      description: '镜头推进。',
+      narration: '画外音（音色：女性，沉稳）说：故事开始了。',
+      firstFrame: 'https://example.com/env.png',
+      referenceStatus: 'done',
+      videoStatus: 'pending'
+    })
+
+    const sceneGeneration = useAssetWorkbenchSceneGeneration({
+      scenes: ref([scene]),
+      characters: ref([]),
+      sceneConfigs: ref({
+        [scene.id]: {
+          sceneId: scene.id,
+          mustReferenceAssetIds: ['prop:other_narration_voice'],
+          consistencyLevel: 'soft',
+          continuityNotes: ''
+        }
+      }),
+      propAssets: ref([
+        {
+          id: 'other_narration_voice',
+          name: '旁白音色',
+          description: '女性，沉稳',
+          category: 'other',
+          voiceAsset: {
+            audioUrl: 'https://example.com/narration.mp3',
+            locked: true,
+            updatedAt: new Date().toISOString()
+          }
+        }
+      ]),
+      queueItems: ref([{ sceneId: scene.id, status: 'pending' }]),
+      batchRunning: ref(false),
+      workflowStylePrompt: computed(() => ''),
+      projectAspectRatio: ref('16:9'),
+      normalizeWorkflowText: value => value,
+      resolveUiError: (_error, fallback) => fallback,
+      ensureSceneConfig: () => ({
+        sceneId: scene.id,
+        mustReferenceAssetIds: ['prop:other_narration_voice'],
+        consistencyLevel: 'soft',
+        continuityNotes: ''
+      }),
+      resolveAssetName: assetId => assetId,
+      resolveSceneDescriptionWithoutAssetMentions: raw => raw || '',
+      synchronizeQueueItems: () => undefined,
+      saveProject: vi.fn(async () => undefined),
+      refreshCharacterVoiceAssets: async () => undefined,
+      generateCharacter: async () => undefined,
+      batchGenerateCharacters: async () => undefined,
+      persistAutomaticAssetPlan: async () => undefined,
+      recordEnvironmentHistory: () => undefined,
+      resolveEnvironmentPanoramaState: () => undefined,
+      setEnvironmentPanoramaState: () => undefined,
+      recordSceneVideoHistory: () => undefined,
+      onModelTaskCompleted: async () => undefined
+    })
+
+    await sceneGeneration.retryScene(scene.id)
+
+    expect(requestSceneVideoTaskMock).toHaveBeenCalledTimes(1)
+    const requestCalls = requestSceneVideoTaskMock.mock.calls as unknown as Array<[{
+      references: {
+        narrationVoiceAsset?: {
+          id: string
+          name: string
+          type: 'other'
+          audioUrl: string
+        }
+      }
+    }]>
+    const references = requestCalls[0]?.[0]?.references
+
+    expect(references?.narrationVoiceAsset).toEqual({
+      id: 'prop:other_narration_voice',
+      name: '旁白音色',
+      type: 'other',
+      audioUrl: 'https://example.com/narration.mp3'
+    })
+  })
 })
