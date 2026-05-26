@@ -12,6 +12,7 @@ interface WorkflowModelOptionsResponse {
 interface CompletionNoticePayload {
   title: string
   body?: string
+  type?: 'success' | 'error'
 }
 
 export type BrowserNotificationPermissionState = NotificationPermission | 'unsupported' | 'insecure'
@@ -184,7 +185,14 @@ function setupCompletionToneUnlockByUserGesture() {
   }
 }
 
-async function playCompletionTone() {
+function resolveCompletionToneNotes(type: CompletionNoticePayload['type']): number[] {
+  if (type === 'error') {
+    return [659.25, 523.25, 392]
+  }
+  return [784, 1046.5, 1318.51]
+}
+
+async function playCompletionTone(type: CompletionNoticePayload['type']) {
   if (!import.meta.client) return
 
   try {
@@ -200,7 +208,7 @@ async function playCompletionTone() {
     }
 
     const startAt = context.currentTime + 0.01
-    const notes = [784, 1046.5, 1318.51]
+    const notes = resolveCompletionToneNotes(type)
 
     notes.forEach((frequency, index) => {
       const noteStart = startAt + (index * 0.14)
@@ -462,19 +470,37 @@ export function useGenerationCompletionNotification() {
     }
 
     const options = completionNotificationOptions.value
+    const noticeType = payload.type === 'error' ? 'error' : 'success'
     if (options.sound) {
-      await playCompletionTone()
+      await playCompletionTone(noticeType)
     }
 
     if (options.systemNotification) {
-      await showSystemNotification(payload)
+      await showSystemNotification(payload, {
+        tag: noticeType === 'error'
+          ? 'asset_workbench_generation_error'
+          : 'asset_workbench_generation_complete',
+        requireInteraction: noticeType === 'error',
+        renotify: noticeType === 'error'
+      })
     }
+  }
+
+  async function notifyGenerationFailed(payload: {
+    title: string
+    body?: string
+  }) {
+    await notifyGenerationCompleted({
+      ...payload,
+      type: 'error'
+    })
   }
 
   return {
     completionNotificationOptions,
     loadCompletionNotificationOptions,
     setCompletionNotificationOptions,
-    notifyGenerationCompleted
+    notifyGenerationCompleted,
+    notifyGenerationFailed
   }
 }

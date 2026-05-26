@@ -45,6 +45,10 @@ export function useAssetWorkbenchAssetMedia(options: {
     title: string
     body?: string
   }) => Promise<unknown> | unknown
+  onModelTaskFailed?: (payload: {
+    title: string
+    body?: string
+  }) => Promise<unknown> | unknown
 }) {
   const imagePreviewOpen = ref(false)
   const imagePreviewSrc = ref('')
@@ -58,6 +62,30 @@ export function useAssetWorkbenchAssetMedia(options: {
   const uploadingEnvironmentAssetId = ref<string | null>(null)
   const uploadingPropId = ref<string | null>(null)
   const generatingPropId = ref<string | null>(null)
+
+  async function notifyModelTaskCompleted(payload: {
+    title: string
+    body?: string
+  }) {
+    if (!options.onModelTaskCompleted) return
+    try {
+      await options.onModelTaskCompleted(payload)
+    } catch (error) {
+      console.warn('[useAssetWorkbenchAssetMedia] 模型任务完成通知失败:', error)
+    }
+  }
+
+  async function notifyModelTaskFailed(payload: {
+    title: string
+    body?: string
+  }) {
+    if (!options.onModelTaskFailed) return
+    try {
+      await options.onModelTaskFailed(payload)
+    } catch (error) {
+      console.warn('[useAssetWorkbenchAssetMedia] 模型任务失败通知失败:', error)
+    }
+  }
 
   async function isPanoramaFile(file: File): Promise<boolean> {
     return await new Promise((resolve) => {
@@ -309,14 +337,21 @@ export function useAssetWorkbenchAssetMedia(options: {
       target.referenceImage = response.imageUrl
       await options.saveWorkflowMeta()
       if (!generationOptions.skipCompletionNotice) {
-        await options.onModelTaskCompleted?.({
+        await notifyModelTaskCompleted({
           title: '道具图生成完成',
           body: `道具：${target.name || target.id}`
         })
       }
       return response.imageUrl
     } catch (error) {
-      options.statusError.value = options.resolveUiError(error, '道具图生成失败')
+      const message = options.resolveUiError(error, '道具图生成失败')
+      options.statusError.value = message
+      if (!generationOptions.skipCompletionNotice) {
+        await notifyModelTaskFailed({
+          title: '道具图生成失败',
+          body: `道具：${target.name || target.id}（${message}）`
+        })
+      }
       return undefined
     } finally {
       generatingPropId.value = null

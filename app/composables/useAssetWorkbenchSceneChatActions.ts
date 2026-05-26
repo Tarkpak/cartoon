@@ -51,11 +51,39 @@ interface UseAssetWorkbenchSceneChatActionsOptions {
     title: string
     body?: string
   }) => Promise<unknown> | unknown
+  onModelTaskFailed?: (payload: {
+    title: string
+    body?: string
+  }) => Promise<unknown> | unknown
 }
 
 export function useAssetWorkbenchSceneChatActions(
   options: UseAssetWorkbenchSceneChatActionsOptions
 ) {
+  async function notifyModelTaskCompleted(payload: {
+    title: string
+    body?: string
+  }) {
+    if (!options.onModelTaskCompleted) return
+    try {
+      await options.onModelTaskCompleted(payload)
+    } catch (error) {
+      console.warn('[useAssetWorkbenchSceneChatActions] 模型任务完成通知失败:', error)
+    }
+  }
+
+  async function notifyModelTaskFailed(payload: {
+    title: string
+    body?: string
+  }) {
+    if (!options.onModelTaskFailed) return
+    try {
+      await options.onModelTaskFailed(payload)
+    } catch (error) {
+      console.warn('[useAssetWorkbenchSceneChatActions] 模型任务失败通知失败:', error)
+    }
+  }
+
   function ensureSceneChatHistory(sceneId: string): SceneChatMessage[] {
     if (!options.sceneChatMessages.value[sceneId]) {
       options.sceneChatMessages.value[sceneId] = []
@@ -217,7 +245,7 @@ export function useAssetWorkbenchSceneChatActions(
         '已使用配置文本模型更新该场景描述，并同步了资产引用（未自动重新生成环境图）。',
         submitPayload.relatedAssetIds
       )
-      await options.onModelTaskCompleted?.({
+      await notifyModelTaskCompleted({
         title: '场景描述改写完成',
         body: `场景：${scene.title}`
       })
@@ -225,6 +253,10 @@ export function useAssetWorkbenchSceneChatActions(
       const message = options.resolveUiError(error, '场景二次改写失败')
       options.sceneChatError.value = message
       appendSceneChatMessage(sceneId, 'assistant', `处理失败：${message}`)
+      await notifyModelTaskFailed({
+        title: '场景二次改写失败',
+        body: `场景：${scene.title}（${message}）`
+      })
     } finally {
       options.sceneChatApplying.value = false
     }

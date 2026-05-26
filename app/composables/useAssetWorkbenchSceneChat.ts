@@ -33,6 +33,10 @@ interface UseAssetWorkbenchSceneChatOptions {
     title: string
     body?: string
   }) => Promise<unknown> | unknown
+  onModelTaskFailed?: (payload: {
+    title: string
+    body?: string
+  }) => Promise<unknown> | unknown
 }
 
 export function useAssetWorkbenchSceneChat(options: UseAssetWorkbenchSceneChatOptions) {
@@ -156,7 +160,8 @@ export function useAssetWorkbenchSceneChat(options: UseAssetWorkbenchSceneChatOp
     closeSceneChat,
     closeSceneChatMention,
     handleSceneChatComposerInput,
-    onModelTaskCompleted: options.onModelTaskCompleted
+    onModelTaskCompleted: options.onModelTaskCompleted,
+    onModelTaskFailed: options.onModelTaskFailed
   })
 
   async function handleSceneChatImageUpload(event: Event) {
