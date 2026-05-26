@@ -22,7 +22,11 @@ export type {
 export function useAssetWorkbench() {
   const route = useRoute()
   const router = useRouter()
-  const { notifyGenerationCompleted, loadCompletionNotificationOptions } = useGenerationCompletionNotification()
+  const {
+    notifyGenerationCompleted,
+    notifyGenerationFailed,
+    loadCompletionNotificationOptions
+  } = useGenerationCompletionNotification()
   const { resolveStyleById, loadStylePresets } = useStylePresets()
   void loadStylePresets()
 
@@ -115,7 +119,8 @@ export function useAssetWorkbench() {
     parseProgress,
     currentStylePrompt,
     saveProject,
-    onModelTaskCompleted: notifyGenerationCompleted
+    onModelTaskCompleted: notifyGenerationCompleted,
+    onModelTaskFailed: notifyGenerationFailed
   })
 
   return {

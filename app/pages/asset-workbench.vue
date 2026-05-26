@@ -89,7 +89,10 @@ definePageMeta({
 
 const route = useRoute()
 const router = useRouter()
-const { notifyGenerationCompleted } = useGenerationCompletionNotification()
+const {
+  notifyGenerationCompleted,
+  notifyGenerationFailed
+} = useGenerationCompletionNotification()
 const { resolveStyleById, loadStylePresets } = useStylePresets()
 void loadStylePresets()
 
@@ -977,7 +980,8 @@ const {
   createEnvironmentCropImage,
   resolveSceneBaselineReferenceImage,
   recordSceneVideoHistory,
-  onModelTaskCompleted: notifyGenerationCompleted
+  onModelTaskCompleted: notifyGenerationCompleted,
+  onModelTaskFailed: notifyGenerationFailed
 })
 
 const lastAutoPlanSnapshotKey = ref('')
@@ -1343,6 +1347,10 @@ async function ensurePropAssetsReady() {
   }
 
   if (failedNames.length > 0) {
+    await notifyGenerationFailed({
+      title: '道具图批量生成失败',
+      body: `成功 ${generatedCount} / ${missingProps.length}，失败 ${failedNames.length}`
+    })
     throw new Error(`道具图生成失败：${failedNames.slice(0, 3).join('、')}${failedNames.length > 3 ? ' 等' : ''}`)
   }
 }
@@ -1689,7 +1697,8 @@ const {
   panoramaSourceAspectRatio: environmentPanoramaSourceAspectRatio,
   setEnvironmentPanoramaState,
   generateSceneBaseline,
-  onModelTaskCompleted: notifyGenerationCompleted
+  onModelTaskCompleted: notifyGenerationCompleted,
+  onModelTaskFailed: notifyGenerationFailed
 })
 
 const environmentCropDialogOpen = ref(false)
@@ -2240,7 +2249,8 @@ const {
   setSceneAssetReferences,
   saveWorkflowMeta,
   saveProject,
-  onModelTaskCompleted: notifyGenerationCompleted
+  onModelTaskCompleted: notifyGenerationCompleted,
+  onModelTaskFailed: notifyGenerationFailed
 })
 
 let previousCharacterDependencySnapshot = buildCharacterDependencySnapshot()
@@ -2641,6 +2651,10 @@ async function generateEnvironmentAssetFromCard(
       error: message
     })
     autoRunError.value = message
+    await notifyGenerationFailed({
+      title: isRegeneration ? '环境图二次生成失败' : '环境图生成失败',
+      body: `环境：${asset.name}（${message}）`
+    })
     return false
   }
 }
