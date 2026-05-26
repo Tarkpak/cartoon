@@ -92,6 +92,7 @@ export interface ParseScriptProgressEvent {
 interface GenerateCharacterResponse {
   success: boolean
   asset?: { baseImage: string }
+  error?: string
 }
 
 interface ScriptDocxExportSceneInput {

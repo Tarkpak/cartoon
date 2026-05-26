@@ -63,6 +63,10 @@ interface UseAssetWorkbenchGenerationOptions {
     title: string
     body?: string
   }) => Promise<unknown> | unknown
+  onModelTaskFailed?: (payload: {
+    title: string
+    body?: string
+  }) => Promise<unknown> | unknown
 }
 
 export function useAssetWorkbenchGeneration(
@@ -78,6 +82,19 @@ export function useAssetWorkbenchGeneration(
     void Promise.resolve(options.onModelTaskCompleted(payload))
       .catch((error) => {
         console.warn('[useAssetWorkbench] 模型任务完成通知失败:', error)
+      })
+  }
+
+  function notifyModelTaskFailed(payload: {
+    title: string
+    body?: string
+  }) {
+    if (!options.onModelTaskFailed) return
+
+    // 失败提醒不应阻塞主流程（避免 loading 无法回收）
+    void Promise.resolve(options.onModelTaskFailed(payload))
+      .catch((error) => {
+        console.warn('[useAssetWorkbench] 模型任务失败通知失败:', error)
       })
   }
 
@@ -427,6 +444,10 @@ export function useAssetWorkbenchGeneration(
       options.parseProgress.value.step = 'error'
       options.parseProgress.value.message = message
       appendProgressLog(message, 'progress')
+      notifyModelTaskFailed({
+        title: '分集目录生成失败',
+        body: message
+      })
       return false
     } finally {
       options.parsing.value = false
@@ -472,7 +493,12 @@ export function useAssetWorkbenchGeneration(
       })
 
       if (!response.success || !response.data?.scenes) {
-        options.parseProgress.value.message = '解析失败：模型未返回有效场景数据'
+        const message = '解析失败：模型未返回有效场景数据'
+        options.parseProgress.value.message = message
+        notifyModelTaskFailed({
+          title: parsePayload.targetEpisodeId ? '分集解析失败' : '剧本解析失败',
+          body: message
+        })
         return false
       }
 
@@ -514,6 +540,10 @@ export function useAssetWorkbenchGeneration(
       options.parseProgress.value.step = 'error'
       options.parseProgress.value.message = message
       appendProgressLog(message, 'progress')
+      notifyModelTaskFailed({
+        title: input?.targetEpisodeId ? '分集解析失败' : '剧本解析失败',
+        body: message
+      })
       return false
     } finally {
       options.parsing.value = false
@@ -547,20 +577,29 @@ export function useAssetWorkbenchGeneration(
         referenceImage
       })
 
-      if (response.success && response.asset?.baseImage) {
-        char.baseImage = response.asset.baseImage
-        await saveProjectOrThrow(`角色 ${char.name} 生成完成`)
+      if (!response.success || !response.asset?.baseImage) {
+        throw new Error(response.error || '角色图生成失败')
+      }
 
-        const generatedImage = char.baseImage?.trim() || ''
-        if (generatedImage && generatedImage !== previousImage && !input?.skipCompletionNotice) {
-          notifyModelTaskCompleted({
-            title: regenerationPrompt ? '角色二次生成完成' : '角色图生成完成',
-            body: `角色：${char.name}`
-          })
-        }
+      char.baseImage = response.asset.baseImage
+      await saveProjectOrThrow(`角色 ${char.name} 生成完成`)
+
+      const generatedImage = char.baseImage?.trim() || ''
+      if (generatedImage && generatedImage !== previousImage && !input?.skipCompletionNotice) {
+        notifyModelTaskCompleted({
+          title: regenerationPrompt ? '角色二次生成完成' : '角色图生成完成',
+          body: `角色：${char.name}`
+        })
       }
     } catch (error) {
       console.error('[useAssetWorkbench] 角色生成失败:', error)
+      if (!input?.skipCompletionNotice) {
+        const message = error instanceof Error ? error.message : '角色图生成失败'
+        notifyModelTaskFailed({
+          title: regenerationPrompt ? '角色二次生成失败' : '角色图生成失败',
+          body: `角色：${char.name}（${message}）`
+        })
+      }
       throw error
     } finally {
       char.generating = false
