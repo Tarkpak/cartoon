@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { Loader2 } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
-import type { PropAsset, PropAssetCategory } from '~/composables/useAssetWorkflowMeta'
+import type {
+  PropAsset,
+  PropAssetCategory,
+  PropAssetMediaType
+} from '~/composables/useAssetWorkflowMeta'
 import type {
   AutoStageKey,
   AssetTab,
@@ -66,7 +70,12 @@ const emit = defineEmits<{
   'open-environment-history': [assetId: string]
   'regenerate-environment': [assetId: string]
   'update-environment-mother': [payload: { assetId: string, motherAssetId: string }]
-  'add-prop': [payload: { name: string, description: string, category: PropAssetCategory }]
+  'add-prop': [payload: {
+    name: string
+    description: string
+    category: PropAssetCategory
+    mediaType?: PropAssetMediaType
+  }]
   'remove-prop': [propId: string]
   'generate-prop': [propId: string]
   'upload-prop-image': [payload: { propId: string, event: Event }]
@@ -262,10 +271,9 @@ const hasSeedAssets = computed(() => {
         :generating-prop-id="generatingPropId"
         :get-prop-usage-count="getPropUsageCount"
         :allow-voice-upload="true"
+        :enable-media-sub-tabs="true"
         add-category="other"
         asset-label="其他"
-        empty-title="暂无其他资产"
-        empty-description="可手动新增其他资产，或在场景编辑中上传图片自动归类到这里。"
         @add-prop="emit('add-prop', $event)"
         @remove-prop="emit('remove-prop', $event)"
         @generate-prop="emit('generate-prop', $event)"

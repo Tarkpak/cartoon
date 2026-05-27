@@ -48,6 +48,13 @@ const props = defineProps<{
     previewImage?: string
   }>
   resolveSceneEnvironmentReferenceAssetSelection: (sceneId: string) => string
+  resolveSceneNarrationVoiceOptions: (scene: SceneData) => Array<{
+    assetId: string
+    name: string
+    locked: boolean
+    source: 'manual' | 'auto'
+  }>
+  resolveSceneNarrationVoiceReferenceSelection: (sceneId: string) => string
   isSceneBusy: (scene: SceneData) => boolean
   isScenePreparing: (scene: SceneData) => boolean
   normalizeWorkflowText: (value: string) => string
@@ -68,6 +75,7 @@ const props = defineProps<{
   onSetScenePreviousLastFrameReference: (sceneId: string, enabled: boolean) => void
   onSetSceneEnvironmentCaptureMode: (sceneId: string, mode: 'single' | 'four_view') => void
   onSetSceneEnvironmentReferenceAsset: (sceneId: string, assetId: string) => void | Promise<void>
+  onSetSceneNarrationVoiceReference: (sceneId: string, assetId: string) => void | Promise<void>
   onPreviewImage: (src: string | undefined, alt: string) => void
   onCloseSceneChat: () => void
   onHandleSceneChatComposerInput: () => void
@@ -129,6 +137,13 @@ const sceneEnvironmentCaptureMode = computed<'single' | 'four_view'>(() => {
 const sceneEnvironmentReferenceAssetSelection = computed(() => {
   return props.resolveSceneEnvironmentReferenceAssetSelection(props.scene.id) || '__auto__'
 })
+const hasNarration = computed(() => !!props.scene.narration?.trim())
+const sceneNarrationVoiceOptions = computed(() => {
+  return props.resolveSceneNarrationVoiceOptions(props.scene)
+})
+const sceneNarrationVoiceReferenceSelection = computed(() => {
+  return props.resolveSceneNarrationVoiceReferenceSelection(props.scene.id) || '__auto__'
+})
 
 function handleSetSceneEnvironmentCaptureMode(mode: 'single' | 'four_view') {
   props.onSetSceneEnvironmentCaptureMode(props.scene.id, mode)
@@ -137,6 +152,11 @@ function handleSetSceneEnvironmentCaptureMode(mode: 'single' | 'four_view') {
 function handleSetSceneEnvironmentReferenceAsset(value: unknown) {
   const normalized = String(value ?? '').trim() || '__auto__'
   void props.onSetSceneEnvironmentReferenceAsset(props.scene.id, normalized)
+}
+
+function handleSetSceneNarrationVoiceReference(value: unknown) {
+  const normalized = String(value ?? '').trim() || '__auto__'
+  void props.onSetSceneNarrationVoiceReference(props.scene.id, normalized)
 }
 </script>
 
@@ -292,10 +312,70 @@ function handleSetSceneEnvironmentReferenceAsset(value: unknown) {
     </div>
 
     <div
-      v-if="voiceReferenceSummary.hasDialogue"
+      v-if="voiceReferenceSummary.hasDialogue || hasNarration"
       class="mt-2 rounded-md border bg-muted/20 px-2 py-2"
+      @click.stop
     >
-      <AssetWorkbenchSceneVoiceReferenceSummary :summary="voiceReferenceSummary" />
+      <AssetWorkbenchSceneVoiceReferenceSummary
+        v-if="voiceReferenceSummary.hasDialogue"
+        :summary="voiceReferenceSummary"
+      />
+      <div
+        v-if="hasNarration"
+        class="mt-1 flex flex-wrap items-center gap-1.5"
+      >
+        <Badge
+          variant="outline"
+          class="text-[10px]"
+        >
+          旁白音频
+        </Badge>
+        <Select
+          :model-value="sceneNarrationVoiceReferenceSelection"
+          @update:model-value="handleSetSceneNarrationVoiceReference"
+        >
+          <SelectTrigger
+            class="h-6 min-w-[168px] max-w-[240px] px-2 text-[11px]"
+            :disabled="sceneBusy || sceneNarrationVoiceOptions.length === 0"
+          >
+            <SelectValue placeholder="自动选择" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__auto__">
+              自动选择（按场景）
+            </SelectItem>
+            <SelectItem
+              v-for="option in sceneNarrationVoiceOptions"
+              :key="`scene_narration_voice_${scene.id}_${option.assetId}`"
+              :value="option.assetId"
+            >
+              <div class="flex items-center gap-1">
+                <span class="truncate">
+                  {{ option.name }}
+                </span>
+                <span
+                  v-if="option.source === 'auto'"
+                  class="shrink-0 text-[10px] text-muted-foreground"
+                >
+                  自动
+                </span>
+                <span
+                  v-if="option.locked"
+                  class="shrink-0 text-[10px] text-amber-600"
+                >
+                  锁定
+                </span>
+              </div>
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        <span
+          v-if="sceneNarrationVoiceOptions.length === 0"
+          class="text-[10px] text-muted-foreground"
+        >
+          暂无可用旁白音频
+        </span>
+      </div>
     </div>
 
     <Button
