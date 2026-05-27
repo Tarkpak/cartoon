@@ -328,4 +328,43 @@ describe('scene video reference assets', () => {
     expect(narrationVoice?.assetId).toBe('prop:other_narration_voice')
     expect(narrationVoice?.audioUrl).toBe('https://example.com/narration.mp3')
   })
+
+  it('falls back to hinted narration voice asset when explicit references contain no voice asset', () => {
+    const scene = createScene({
+      id: 'scene_narration_3',
+      title: '旁白场景',
+      description: '镜头推进。\n\n[引用资产]\n@道具:手电筒',
+      narration: '旁白：故事继续。'
+    })
+
+    const narrationVoice = resolveSceneNarrationVoiceAsset({
+      scene,
+      characters: [],
+      propAssets: [
+        {
+          id: 'prop_flashlight',
+          name: '手电筒',
+          description: '',
+          category: 'prop',
+          referenceImage: 'https://example.com/flashlight.png'
+        },
+        {
+          id: 'other_narration_voice',
+          name: '旁白音色',
+          description: '',
+          category: 'other',
+          voiceAsset: {
+            audioUrl: 'https://example.com/narration.mp3',
+            updatedAt: new Date().toISOString()
+          }
+        }
+      ],
+      sceneConfigs: {
+        [scene.id]: createSceneConfig(scene.id, ['prop:prop_flashlight'])
+      }
+    })
+
+    expect(narrationVoice?.assetId).toBe('prop:other_narration_voice')
+    expect(narrationVoice?.audioUrl).toBe('https://example.com/narration.mp3')
+  })
 })
