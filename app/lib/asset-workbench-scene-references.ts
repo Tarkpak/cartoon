@@ -300,8 +300,11 @@ export function resolveSceneNarrationVoiceAsset(
       .map(assetId => assetId.slice('prop:'.length))
   ])
 
-  const candidateProps = explicitPropIds.size > 0
+  const explicitlyReferencedVoiceProps = explicitPropIds.size > 0
     ? voiceProps.filter(asset => explicitPropIds.has(asset.id))
+    : voiceProps
+  const candidateProps = explicitlyReferencedVoiceProps.length > 0
+    ? explicitlyReferencedVoiceProps
     : voiceProps
   if (candidateProps.length === 0) return null
 
