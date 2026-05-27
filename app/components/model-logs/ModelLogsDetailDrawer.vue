@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Check, Copy, X } from 'lucide-vue-next'
-import type { ModelDebugLogEntry } from '@/composables/useModelDebugLogs'
+import type { ModelDebugLogEntry, ModelDebugMediaRef } from '@/composables/useModelDebugLogs'
 import {
   Drawer,
   DrawerClose,
@@ -30,7 +30,130 @@ const requestReadable = computed(() => props.toReadableText(props.activeLog?.req
 const responseReadable = computed(() => props.toReadableText(props.activeLog?.response))
 const requestRaw = computed(() => props.toPrettyJson(props.activeLog?.requestRaw ?? props.activeLog?.request))
 const responseRaw = computed(() => props.toPrettyJson(props.activeLog?.responseRaw ?? props.activeLog?.response))
-const mediaRefs = computed(() => props.activeLog?.mediaRefs || [])
+function isRenderableMediaType(type: ModelDebugMediaRef['mediaType']): type is 'image' | 'audio' | 'video' {
+  return type === 'image' || type === 'audio' || type === 'video'
+}
+
+function normalizeMediaUrl(input: string): string | null {
+  const trimmed = input.trim()
+  if (!trimmed) return null
+  const normalized = trimmed.startsWith('url:') ? trimmed.slice(4).trim() : trimmed
+  if (!normalized) return null
+  if (/^https?:\/\//i.test(normalized)) return normalized
+  if (/^data:(image|audio|video)\//i.test(normalized)) return normalized
+  return null
+}
+
+function inferMediaType(path: string, url: string): 'image' | 'audio' | 'video' | null {
+  const lowerPath = path.toLowerCase()
+  const lowerUrl = url.toLowerCase()
+
+  if (lowerUrl.startsWith('data:image/')) return 'image'
+  if (lowerUrl.startsWith('data:audio/')) return 'audio'
+  if (lowerUrl.startsWith('data:video/')) return 'video'
+
+  try {
+    const pathname = new URL(url).pathname.toLowerCase()
+    if (/\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/.test(pathname)) return 'image'
+    if (/\.(mp3|wav|m4a|aac|ogg|flac|opus)$/.test(pathname)) return 'audio'
+    if (/\.(mp4|webm|mov|mkv|avi|m3u8)$/.test(pathname)) return 'video'
+  } catch {
+    // ignore invalid URL and fallback to key-based inference below
+  }
+
+  if (/(audio_url|reference_audio|audio|voice|speech|tts|sound)/.test(lowerPath)) return 'audio'
+  if (/(image_url|reference_image|image|avatar|thumbnail|cover|poster|picture|photo|frame|first_frame|last_frame)/.test(lowerPath)) return 'image'
+  if (/(video_url|reference_video|video|movie|clip)/.test(lowerPath)) return 'video'
+  return null
+}
+
+function collectMediaRefsFromValue(
+  value: unknown,
+  direction: 'request' | 'response'
+): ModelDebugMediaRef[] {
+  const refs: ModelDebugMediaRef[] = []
+  const seenObjects = new WeakSet<object>()
+  const seenUrls = new Set<string>()
+
+  function visit(current: unknown, path: string, depth: number) {
+    if (current === null || current === undefined || depth > 8) return
+
+    if (typeof current === 'string') {
+      const url = normalizeMediaUrl(current)
+      if (!url) return
+      const mediaType = inferMediaType(path, url)
+      if (!mediaType) return
+      const key = `${direction}|${mediaType}|${url}`
+      if (seenUrls.has(key)) return
+      seenUrls.add(key)
+      refs.push({
+        id: `media_${direction}_inline_${refs.length + 1}`,
+        direction,
+        path,
+        mediaType,
+        mimeType: undefined,
+        originalLength: current.length,
+        url,
+        status: 'ready',
+        note: '从请求/响应 URL 自动识别'
+      })
+      return
+    }
+
+    if (Array.isArray(current)) {
+      current.forEach((item, index) => {
+        visit(item, `${path}[${index}]`, depth + 1)
+      })
+      return
+    }
+
+    if (typeof current === 'object') {
+      const objectValue = current as Record<string, unknown>
+      if (seenObjects.has(objectValue)) return
+      seenObjects.add(objectValue)
+
+      Object.entries(objectValue).forEach(([key, item]) => {
+        const childPath = path === '$' ? `$.${key}` : `${path}.${key}`
+        visit(item, childPath, depth + 1)
+      })
+    }
+  }
+
+  visit(value, '$', 0)
+  return refs
+}
+
+const mediaRefs = computed<ModelDebugMediaRef[]>(() => {
+  const persistedRefs = props.activeLog?.mediaRefs || []
+  const requestInlineRefs = collectMediaRefsFromValue(props.activeLog?.request, 'request')
+  const responseInlineRefs = collectMediaRefsFromValue(props.activeLog?.response, 'response')
+
+  const mergedRefs = [...persistedRefs]
+  const dedupe = new Set(
+    persistedRefs
+      .filter(item => Boolean(item.url) && isRenderableMediaType(item.mediaType))
+      .map(item => `${item.direction}|${item.mediaType}|${item.url}`)
+  )
+
+  for (const ref of [...requestInlineRefs, ...responseInlineRefs]) {
+    const key = `${ref.direction}|${ref.mediaType}|${ref.url}`
+    if (dedupe.has(key)) continue
+    dedupe.add(key)
+    mergedRefs.push(ref)
+  }
+
+  return mergedRefs
+})
+const requestReadableMedia = computed(() => mediaRefs.value.filter(item => (
+  item.direction === 'request'
+  && Boolean(item.url)
+  && isRenderableMediaType(item.mediaType)
+)))
+const responseReadableMedia = computed(() => mediaRefs.value.filter(item => (
+  item.direction === 'response'
+  && Boolean(item.url)
+  && isRenderableMediaType(item.mediaType)
+)))
 
 async function copySection(section: CopySectionKey, content: string) {
   if (!import.meta.client) return
@@ -208,6 +331,42 @@ watch(open, (value) => {
                 </Button>
               </div>
               <pre class="overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs select-text">{{ requestReadable || '无' }}</pre>
+              <div
+                v-if="requestReadableMedia.length > 0"
+                class="space-y-2"
+              >
+                <p class="text-xs text-muted-foreground">
+                  媒体引用预览
+                </p>
+                <div
+                  v-for="item in requestReadableMedia"
+                  :key="item.id"
+                  class="space-y-2 rounded border bg-muted/20 p-2"
+                >
+                  <p class="text-xs text-muted-foreground break-all">
+                    {{ item.path }} · {{ item.mediaType }} · {{ item.mimeType || '-' }}
+                  </p>
+                  <img
+                    v-if="item.url && item.mediaType === 'image'"
+                    :src="item.url"
+                    alt="请求媒体图片引用"
+                    class="max-h-64 rounded border"
+                    loading="lazy"
+                  >
+                  <audio
+                    v-else-if="item.url && item.mediaType === 'audio'"
+                    :src="item.url"
+                    controls
+                    class="w-full"
+                  />
+                  <video
+                    v-else-if="item.url && item.mediaType === 'video'"
+                    :src="item.url"
+                    controls
+                    class="max-h-64 w-full rounded border bg-black"
+                  />
+                </div>
+              </div>
             </div>
 
             <div class="space-y-2">
@@ -235,6 +394,42 @@ watch(open, (value) => {
                 </Button>
               </div>
               <pre class="overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs select-text">{{ responseReadable || '无' }}</pre>
+              <div
+                v-if="responseReadableMedia.length > 0"
+                class="space-y-2"
+              >
+                <p class="text-xs text-muted-foreground">
+                  媒体引用预览
+                </p>
+                <div
+                  v-for="item in responseReadableMedia"
+                  :key="item.id"
+                  class="space-y-2 rounded border bg-muted/20 p-2"
+                >
+                  <p class="text-xs text-muted-foreground break-all">
+                    {{ item.path }} · {{ item.mediaType }} · {{ item.mimeType || '-' }}
+                  </p>
+                  <img
+                    v-if="item.url && item.mediaType === 'image'"
+                    :src="item.url"
+                    alt="响应媒体图片引用"
+                    class="max-h-64 rounded border"
+                    loading="lazy"
+                  >
+                  <audio
+                    v-else-if="item.url && item.mediaType === 'audio'"
+                    :src="item.url"
+                    controls
+                    class="w-full"
+                  />
+                  <video
+                    v-else-if="item.url && item.mediaType === 'video'"
+                    :src="item.url"
+                    controls
+                    class="max-h-64 w-full rounded border bg-black"
+                  />
+                </div>
+              </div>
             </div>
           </template>
 
