@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { AudioLines, History, Loader2, Lock, Package, Plus, Sparkles, Trash2, Upload } from 'lucide-vue-next'
-import type { PropAsset, PropAssetCategory } from '~/composables/useAssetWorkflowMeta'
+import type {
+  PropAsset,
+  PropAssetCategory,
+  PropAssetMediaType
+} from '~/composables/useAssetWorkflowMeta'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { toImageSrc } from '~/lib/media'
+
+type OtherAssetMediaSubTab = 'image' | 'voice'
+const OTHER_ASSET_VOICE_HINT_REGEX = /(旁白|画外音|voiceover|narration|音色|声线|配音|旁述)/iu
 
 const props = withDefaults(defineProps<{
   propAssets: PropAsset[]
@@ -13,6 +20,7 @@ const props = withDefaults(defineProps<{
   getPropUsageCount: (propId: string) => number
   allowAdd?: boolean
   allowVoiceUpload?: boolean
+  enableMediaSubTabs?: boolean
   addCategory?: PropAssetCategory
   assetLabel?: string
   addNamePlaceholder?: string
@@ -23,11 +31,17 @@ const props = withDefaults(defineProps<{
   allowAdd: true,
   addCategory: 'prop',
   allowVoiceUpload: false,
+  enableMediaSubTabs: false,
   uploadingPropVoiceId: null
 })
 
 const emit = defineEmits<{
-  'add-prop': [payload: { name: string, description: string, category: PropAssetCategory }]
+  'add-prop': [payload: {
+    name: string
+    description: string
+    category: PropAssetCategory
+    mediaType?: PropAssetMediaType
+  }]
   'remove-prop': [propId: string]
   'generate-prop': [propId: string]
   'upload-image': [payload: { propId: string, event: Event }]
@@ -37,9 +51,55 @@ const emit = defineEmits<{
   'preview-image': [payload: { src: string | undefined, alt: string }]
 }>()
 
+const searchKeyword = ref('')
+const addPropDialogOpen = ref(false)
 const newPropName = ref('')
 const newPropDescription = ref('')
 const failedImageKeys = ref<Set<string>>(new Set())
+const otherAssetMediaSubTab = ref<OtherAssetMediaSubTab>('image')
+
+const showMediaSubTabs = computed(() => {
+  return props.allowVoiceUpload && props.enableMediaSubTabs && props.addCategory === 'other'
+})
+
+function isVoiceTypeAsset(prop: PropAsset): boolean {
+  if (prop.category !== 'other') return false
+  if (prop.mediaType === 'voice') return true
+  if (prop.mediaType === 'image') return false
+  if (prop.voiceAsset?.audioUrl?.trim()) return true
+  return OTHER_ASSET_VOICE_HINT_REGEX.test(`${prop.name || ''} ${prop.description || ''}`)
+}
+
+const normalizedSearchKeyword = computed(() => searchKeyword.value.trim().toLowerCase())
+
+const tabFilteredPropAssets = computed(() => {
+  if (!showMediaSubTabs.value) return props.propAssets
+
+  if (otherAssetMediaSubTab.value === 'voice') {
+    return props.propAssets.filter(asset => isVoiceTypeAsset(asset))
+  }
+  return props.propAssets.filter(asset => !isVoiceTypeAsset(asset))
+})
+
+const displayedPropAssets = computed(() => {
+  const keyword = normalizedSearchKeyword.value
+  if (!keyword) return tabFilteredPropAssets.value
+
+  return tabFilteredPropAssets.value.filter((asset) => {
+    return `${asset.name || ''} ${asset.description || ''}`.toLowerCase().includes(keyword)
+  })
+})
+
+watch(showMediaSubTabs, (enabled) => {
+  if (enabled) return
+  otherAssetMediaSubTab.value = 'image'
+})
+
+watch(addPropDialogOpen, (open) => {
+  if (open) return
+  newPropName.value = ''
+  newPropDescription.value = ''
+})
 
 watch(
   () => props.propAssets.map(prop => `${prop.id}:${prop.referenceImage || ''}`).join('|'),
@@ -52,16 +112,36 @@ watch(
   }
 )
 
+function openAddPropDialog() {
+  if (props.autoRunning || props.allowAdd === false) return
+  addPropDialogOpen.value = true
+}
+
+function closeAddPropDialog() {
+  addPropDialogOpen.value = false
+  newPropName.value = ''
+  newPropDescription.value = ''
+}
+
 function handleAddProp() {
   if (props.autoRunning) return
 
   const name = newPropName.value.trim()
   const description = newPropDescription.value.trim()
-  if (!name) return
+  if (!name) {
+    alert(showMediaSubTabs.value && otherAssetMediaSubTab.value === 'voice'
+      ? '请先输入声音资产名称'
+      : '请先输入资产名称')
+    return
+  }
 
-  emit('add-prop', { name, description, category: props.addCategory })
-  newPropName.value = ''
-  newPropDescription.value = ''
+  emit('add-prop', {
+    name,
+    description,
+    category: props.addCategory,
+    mediaType: showMediaSubTabs.value ? otherAssetMediaSubTab.value : undefined
+  })
+  closeAddPropDialog()
 }
 
 function triggerUploadInput(propId: string) {
@@ -123,44 +203,129 @@ function buildImageLoadKey(prop: PropAsset): string {
 
 <template>
   <div class="space-y-4">
-    <!-- Add new prop form -->
-    <form
-      v-if="allowAdd !== false"
-      class="flex items-center gap-2"
-      @submit.prevent="handleAddProp"
+    <div
+      v-if="showMediaSubTabs"
+      class="rounded-lg border bg-muted/20 p-1"
     >
+      <div class="grid grid-cols-2 gap-1">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          class="h-7 text-xs"
+          :class="otherAssetMediaSubTab === 'image'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'"
+          @click="otherAssetMediaSubTab = 'image'"
+        >
+          图片资产
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          class="h-7 text-xs"
+          :class="otherAssetMediaSubTab === 'voice'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'"
+          @click="otherAssetMediaSubTab = 'voice'"
+        >
+          声音资产
+        </Button>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2">
       <Input
-        v-model="newPropName"
+        v-model="searchKeyword"
         class="h-8 flex-1 text-xs"
-        :placeholder="addNamePlaceholder || '道具名称，如：手电筒'"
-      />
-      <Input
-        v-model="newPropDescription"
-        class="h-8 flex-[1.5] text-xs"
-        :placeholder="addDescriptionPlaceholder || '可选描述，如：金属外壳，冷白光'"
+        :placeholder="showMediaSubTabs
+          ? (otherAssetMediaSubTab === 'voice' ? '筛选声音资产（名称/描述）' : '筛选图片资产（名称/描述）')
+          : `筛选${assetLabel || '道具'}（名称/描述）`"
       />
       <Button
-        type="submit"
+        v-if="allowAdd !== false"
+        type="button"
         size="sm"
         class="h-8 gap-1.5 px-3 text-xs"
-        :disabled="autoRunning || !newPropName.trim()"
+        :disabled="autoRunning"
+        @click="openAddPropDialog"
       >
         <Plus class="h-3 w-3" />
         添加
       </Button>
-    </form>
+    </div>
+
+    <Dialog
+      :open="addPropDialogOpen"
+      @update:open="addPropDialogOpen = $event"
+    >
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {{ showMediaSubTabs && otherAssetMediaSubTab === 'voice' ? '新增声音资产' : `新增${assetLabel || '资产'}` }}
+          </DialogTitle>
+          <DialogDescription>
+            {{ showMediaSubTabs && otherAssetMediaSubTab === 'voice'
+              ? '创建后可上传/替换音频并锁定声音参考。'
+              : '创建后可上传参考图或直接生成资产图。' }}
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          class="space-y-3 py-2"
+          @submit.prevent="handleAddProp"
+        >
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium text-foreground">
+              名称
+            </label>
+            <Input
+              v-model="newPropName"
+              class="h-9 text-sm"
+              :placeholder="addNamePlaceholder || (showMediaSubTabs && otherAssetMediaSubTab === 'voice' ? '声音资产名称，如：旁白音色' : '资产名称，如：手电筒')"
+            />
+          </div>
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium text-foreground">
+              描述（可选）
+            </label>
+            <Input
+              v-model="newPropDescription"
+              class="h-9 text-sm"
+              :placeholder="addDescriptionPlaceholder || (showMediaSubTabs && otherAssetMediaSubTab === 'voice' ? '可选描述，如：低沉、沉稳、温和' : '可选描述，如：金属外壳，冷白光')"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              :disabled="autoRunning"
+              @click="closeAddPropDialog"
+            >
+              取消
+            </Button>
+            <Button
+              type="submit"
+              :disabled="autoRunning"
+            >
+              添加
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
 
     <!-- Empty state -->
     <div
-      v-if="propAssets.length === 0"
+      v-if="displayedPropAssets.length === 0"
       class="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground"
     >
       <Package class="h-8 w-8 opacity-40" />
       <p class="text-sm">
-        {{ emptyTitle || `暂无${assetLabel || '道具'}资产` }}
+        {{ emptyTitle || (showMediaSubTabs ? (otherAssetMediaSubTab === 'voice' ? '暂无声音资产' : '暂无图片资产') : `暂无${assetLabel || '道具'}资产`) }}
       </p>
       <p class="text-xs">
-        {{ emptyDescription || `手动新增需要保持一致的${assetLabel || '道具'}` }}
+        {{ emptyDescription || (showMediaSubTabs ? (otherAssetMediaSubTab === 'voice' ? '可新增声音资产并上传音频，固定旁白音色。' : '可新增图片资产并上传参考图。') : `手动新增需要保持一致的${assetLabel || '道具'}`) }}
       </p>
     </div>
 
@@ -170,7 +335,7 @@ function buildImageLoadKey(prop: PropAsset): string {
       class="grid grid-cols-1 gap-3 md:grid-cols-2"
     >
       <div
-        v-for="prop in propAssets"
+        v-for="prop in displayedPropAssets"
         :key="prop.id"
         class="group rounded-lg border bg-card transition-colors hover:border-primary/30"
       >
@@ -217,7 +382,7 @@ function buildImageLoadKey(prop: PropAsset): string {
         </div>
 
         <div
-          v-if="allowVoiceUpload"
+          v-if="allowVoiceUpload && (!showMediaSubTabs || otherAssetMediaSubTab === 'voice')"
           class="border-t px-3 py-2.5"
         >
           <div class="flex items-center justify-between gap-3">
@@ -281,6 +446,7 @@ function buildImageLoadKey(prop: PropAsset): string {
           </span>
           <div class="flex items-center gap-1">
             <Button
+              v-if="!showMediaSubTabs || otherAssetMediaSubTab === 'image'"
               type="button"
               size="sm"
               variant="ghost"
@@ -299,6 +465,7 @@ function buildImageLoadKey(prop: PropAsset): string {
               {{ resolveGenerateLabel(prop) }}
             </Button>
             <Button
+              v-if="!showMediaSubTabs || otherAssetMediaSubTab === 'image'"
               type="button"
               size="sm"
               variant="ghost"
@@ -317,7 +484,7 @@ function buildImageLoadKey(prop: PropAsset): string {
               {{ prop.referenceImage ? '更换' : '上传' }}
             </Button>
             <Button
-              v-if="allowVoiceUpload"
+              v-if="allowVoiceUpload && (!showMediaSubTabs || otherAssetMediaSubTab === 'voice')"
               type="button"
               size="sm"
               variant="ghost"

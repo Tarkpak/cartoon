@@ -387,6 +387,47 @@ function resolveSceneEnvironmentReferenceAssetSelection(sceneId: string): string
   return configuredAssetId
 }
 
+interface SceneNarrationVoiceOption {
+  assetId: string
+  name: string
+  locked: boolean
+  source: 'manual' | 'auto'
+}
+
+function resolveSceneNarrationVoiceOptions(scene: SceneData): SceneNarrationVoiceOption[] {
+  if (!scene.narration?.trim()) return []
+
+  return propAssets.value
+    .filter((asset) => {
+      return asset.category === 'other' && !!asset.voiceAsset?.audioUrl?.trim()
+    })
+    .map((asset) => {
+      const isAuto = !!asset.voiceAsset?.sourceSceneId || !!asset.voiceAsset?.sourceTaskId
+      return {
+        assetId: `prop:${asset.id}`,
+        name: asset.name?.trim() || '旁白音色',
+        locked: asset.voiceAsset?.locked === true,
+        source: isAuto ? 'auto' as const : 'manual' as const
+      }
+    })
+    .sort((left, right) => {
+      if (left.locked !== right.locked) return left.locked ? -1 : 1
+      return left.name.localeCompare(right.name, 'zh-CN')
+    })
+}
+
+function resolveSceneNarrationVoiceReferenceSelection(sceneId: string): string {
+  const scene = scenes.value.find(item => item.id === sceneId)
+  if (!scene?.narration?.trim()) return '__auto__'
+
+  const options = resolveSceneNarrationVoiceOptions(scene)
+  if (options.length === 0) return '__auto__'
+  const optionIdSet = new Set(options.map(item => item.assetId))
+  const configuredRefs = sceneConfigs.value[sceneId]?.mustReferenceAssetIds || []
+  const explicitSelection = configuredRefs.find(assetId => optionIdSet.has(assetId))
+  return explicitSelection || '__auto__'
+}
+
 function handleEnvironmentMotherSelection(payload: { assetId: string, motherAssetId: string }) {
   const assetId = payload.assetId?.trim() || ''
   if (!assetId) return
@@ -906,6 +947,7 @@ const {
   setScenePreviousLastFrameReference,
   setSceneEnvironmentCaptureMode,
   setSceneEnvironmentReferenceAsset,
+  setSceneNarrationVoiceReference,
   selectScene,
   sceneEditAssetReferenceOptions,
   sceneEditSelectedAssetIds,
@@ -1094,12 +1136,18 @@ function ensureNarrationVoiceAssetFromScenes(): { assetChanged: boolean, configC
       id: createPropAssetId(),
       name: '旁白音色',
       description: narrationDescription,
-      category: 'other'
+      category: 'other',
+      mediaType: 'voice'
     }
     propAssets.value.push(narrationAsset)
     assetChanged = true
   } else if (!narrationAsset.description?.trim() && narrationDescription) {
     narrationAsset.description = narrationDescription
+    assetChanged = true
+  }
+
+  if (narrationAsset.mediaType !== 'voice') {
+    narrationAsset.mediaType = 'voice'
     assetChanged = true
   }
 
@@ -2258,6 +2306,7 @@ async function uploadSceneEditOtherAssets(options: {
         name,
         description: '场景编辑上传图片资产',
         category: 'other',
+        mediaType: 'image',
         referenceImage: imageUrl
       })
       recordPropHistory(propId, imageUrl, { source: 'uploaded' })
@@ -3083,6 +3132,8 @@ async function handleBatchGenerateCharacters() {
           :resolve-scene-environment-reference-image-for-mode="resolveSceneEnvironmentReferenceImageForMode"
           :scene-environment-asset-options="sceneEnvironmentAssetOptions"
           :resolve-scene-environment-reference-asset-selection="resolveSceneEnvironmentReferenceAssetSelection"
+          :resolve-scene-narration-voice-options="resolveSceneNarrationVoiceOptions"
+          :resolve-scene-narration-voice-reference-selection="resolveSceneNarrationVoiceReferenceSelection"
           :is-scene-busy="isSceneBusy"
           :is-scene-preparing="isScenePreparing"
           :can-merge-scene-by-index="canMergeSceneByIndex"
@@ -3109,6 +3160,7 @@ async function handleBatchGenerateCharacters() {
           :on-set-scene-previous-last-frame-reference="setScenePreviousLastFrameReference"
           :on-set-scene-environment-capture-mode="setSceneEnvironmentCaptureMode"
           :on-set-scene-environment-reference-asset="setSceneEnvironmentReferenceAsset"
+          :on-set-scene-narration-voice-reference="setSceneNarrationVoiceReference"
           :on-preview-image="openImagePreview"
           :on-close-scene-chat="closeSceneChat"
           :on-handle-scene-chat-composer-input="handleSceneChatComposerInput"

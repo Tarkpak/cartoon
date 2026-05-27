@@ -132,6 +132,7 @@ export function useAssetWorkbenchSceneChatActions(
           name,
           description: '用户上传图片资产',
           category: 'other',
+          mediaType: 'image',
           referenceImage: imageUrl
         })
 

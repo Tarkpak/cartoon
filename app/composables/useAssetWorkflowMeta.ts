@@ -25,6 +25,7 @@ import {
 
 type ConsistencyLevel = 'lock' | 'soft'
 export type PropAssetCategory = 'prop' | 'other'
+export type PropAssetMediaType = 'image' | 'voice'
 
 export interface SceneConsistencyConfig {
   sceneId: string
@@ -41,6 +42,7 @@ export interface PropAsset {
   name: string
   description: string
   category: PropAssetCategory
+  mediaType?: PropAssetMediaType
   referenceImage?: string
   voiceAsset?: CharacterVoiceAsset
   assetHistory?: AssetImageHistoryEntry[]
@@ -182,11 +184,20 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
     )
 
     return {
-      version: 7,
+      version: 8,
       sceneConfigs: options.sceneConfigs.value,
       props: options.propAssets.value.map(prop => ({
         ...prop,
         category: prop.category === 'other' ? 'other' : 'prop',
+        mediaType: prop.category === 'other'
+          ? (
+              prop.mediaType === 'voice'
+                ? 'voice'
+                : (prop.mediaType === 'image'
+                    ? 'image'
+                    : (prop.voiceAsset?.audioUrl?.trim() ? 'voice' : undefined))
+            )
+          : undefined,
         voiceAsset: prop.voiceAsset?.audioUrl
           ? {
               ...prop.voiceAsset,
@@ -299,6 +310,11 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
                 name: typeof prop.name === 'string' ? prop.name : '未命名道具',
                 description: typeof prop.description === 'string' ? prop.description : '',
                 category: prop.category === 'other' ? 'other' : 'prop',
+                mediaType: prop.category === 'other'
+                  ? (prop.mediaType === 'voice'
+                      ? 'voice'
+                      : (prop.mediaType === 'image' ? 'image' : undefined))
+                  : undefined,
                 referenceImage: typeof prop.referenceImage === 'string' ? prop.referenceImage : undefined,
                 voiceAsset: normalizedVoiceAsset,
                 assetHistory: normalizeAssetHistoryEntries(

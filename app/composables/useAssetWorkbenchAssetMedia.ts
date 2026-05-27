@@ -293,6 +293,9 @@ export function useAssetWorkbenchAssetMedia(options: {
         prefix: `prop_${target.id}`
       })
       target.referenceImage = imageUrl
+      if (target.category === 'other' && target.mediaType !== 'voice') {
+        target.mediaType = 'image'
+      }
       await options.saveWorkflowMeta()
     } catch (error) {
       options.statusError.value = options.resolveUiError(error, '道具图片上传失败')
@@ -329,6 +332,7 @@ export function useAssetWorkbenchAssetMedia(options: {
         locked: target.voiceAsset?.locked ?? true,
         updatedAt: new Date().toISOString()
       }
+      target.mediaType = 'voice'
       await options.saveWorkflowMeta()
     } catch (error) {
       options.statusError.value = options.resolveUiError(error, '旁白音频上传失败')
