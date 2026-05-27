@@ -1,7 +1,12 @@
 import { computed } from 'vue'
 import type { ComputedRef, Ref } from 'vue'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
-import type { PropAsset, PropAssetCategory, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
+import type {
+  PropAsset,
+  PropAssetCategory,
+  PropAssetMediaType,
+  SceneConsistencyConfig
+} from '~/composables/useAssetWorkflowMeta'
 import type { DisplayAsset } from '~/lib/asset-workbench-types'
 import {
   invalidateSceneGenerationState,
@@ -293,6 +298,36 @@ export function useAssetWorkbenchSceneManagement(options: {
     await options.saveWorkflowMeta()
   }
 
+  async function setSceneNarrationVoiceReference(sceneId: string, assetId: string) {
+    const scene = options.scenes.value.find(item => item.id === sceneId)
+    if (!scene) return
+
+    const config = ensureSceneConfig(sceneId)
+    const normalizedAssetId = assetId.trim()
+    const narrationVoiceAssetIds = options.propAssets.value
+      .filter((asset) => {
+        return asset.category === 'other' && !!asset.voiceAsset?.audioUrl?.trim()
+      })
+      .map(asset => `prop:${asset.id}`)
+    const narrationVoiceAssetIdSet = new Set(narrationVoiceAssetIds)
+    const nextAssetIds = config.mustReferenceAssetIds.filter(item => !narrationVoiceAssetIdSet.has(item))
+
+    if (
+      normalizedAssetId
+      && normalizedAssetId !== '__auto__'
+      && narrationVoiceAssetIdSet.has(normalizedAssetId)
+    ) {
+      nextAssetIds.push(normalizedAssetId)
+    }
+
+    const refsChanged = setSceneAssetReferences(sceneId, nextAssetIds)
+    if (!refsChanged) return
+
+    options.synchronizeQueueItems()
+    await options.saveProject()
+    await options.saveWorkflowMeta()
+  }
+
   function selectScene(sceneId: string) {
     options.selectedSceneId.value = sceneId
   }
@@ -475,17 +510,26 @@ export function useAssetWorkbenchSceneManagement(options: {
     }
   }
 
-  function addPropAsset(payload: { name: string, description?: string, category?: PropAssetCategory }) {
+  function addPropAsset(payload: {
+    name: string
+    description?: string
+    category?: PropAssetCategory
+    mediaType?: PropAssetMediaType
+  }) {
     const name = payload.name.trim()
     const description = payload.description?.trim() || ''
     const category: PropAssetCategory = payload.category === 'other' ? 'other' : 'prop'
+    const mediaType: PropAssetMediaType | undefined = category === 'other'
+      ? (payload.mediaType === 'voice' ? 'voice' : 'image')
+      : undefined
     if (!name) return
 
     options.propAssets.value.push({
       id: options.createPropAssetId(),
       name,
       description,
-      category
+      category,
+      mediaType
     })
 
     void options.saveWorkflowMeta()
@@ -529,6 +573,7 @@ export function useAssetWorkbenchSceneManagement(options: {
     setScenePreviousLastFrameReference,
     setSceneEnvironmentCaptureMode,
     setSceneEnvironmentReferenceAsset,
+    setSceneNarrationVoiceReference,
     selectScene,
     sceneEditAssetReferenceOptions,
     sceneEditSelectedAssetIds,
