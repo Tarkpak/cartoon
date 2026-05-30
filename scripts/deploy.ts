@@ -69,10 +69,9 @@ async function main() {
     if [ -f .bun.lock.md5 ] && md5sum -c .bun.lock.md5 --status 2>/dev/null; then
       echo '依赖未变化，跳过安装'
     else
-      echo '依赖有变化，重新安装 better-sqlite3'
+      echo '依赖有变化，重新安装依赖'
       source ~/.bashrc
-      cd server && rm -rf node_modules/better-sqlite3 && npm install better-sqlite3
-      cd ..
+      bun install --frozen-lockfile
       md5sum bun.lock > .bun.lock.md5
     fi
     
