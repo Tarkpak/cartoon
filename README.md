@@ -1,12 +1,12 @@
 # playlet
 
-AI 驱动的影视内容生成系统，基于 Nuxt.js 4 构建。从故事创意或剧本自动生成动态视频内容。
+AI 驱动的影视内容生成系统，基于 Vue 3 + Vite + Rust 后端构建。从故事创意或剧本自动生成动态视频内容。
 
 ## 技术栈
 
-- **框架**: Nuxt.js 4 + Vue 3 Composition API
+- **框架**: Vue 3 Composition API + Vite
 - **包管理器**: Bun
-- **数据库**: SQLite + Drizzle ORM
+- **数据库**: SQLite（Rust `rusqlite`）
 - **UI**: Tailwind CSS + shadcn-vue
 - **AI 服务**: Google Gemini、阿里云 Qwen、DeepSeek、可灵 AI、火山引擎 Doubao
 
@@ -54,27 +54,58 @@ HTTP_PROXY=                # Gemini 代理（国内需要）
 HTTPS_PROXY=
 OUTPUT_DIR=./output
 MAX_CONCURRENT_REQUESTS=3
+RUST_BACKEND_URL=http://127.0.0.1:43127 # Vite dev 代理目标
 ```
 
 ## 常用命令
 
 ```bash
 bun dev                    # 启动开发服务器
+bun dev:backend            # 仅启动 Rust 后端（127.0.0.1:43127）
+bun dev:frontend           # 仅启动 Vite 前端（开发代理 /api 到 Rust）
 bun build                  # 构建生产版本
-bun preview                # 预览生产构建
-
-# 数据库
-bun db:generate            # 生成 Drizzle 迁移
-bun db:migrate             # 运行迁移
-bun db:push                # 推送 schema 变更
-bun db:studio              # 打开 Drizzle Studio
-bun media:migrate:video-task-config # 将 video_tasks.config 媒体字段迁移为云链接并压缩数据库
+bun build:desktop          # 桌面端前端构建
+bun preview                # 以 Rust 后端预览生产构建
+bun desktop:dev            # 启动 Tauri 本地客户端（开发模式）
+bun desktop:build          # 构建 Tauri 本地客户端安装包
+bun desktop:install        # 一键构建 + 安装 + 启动桌面客户端
 
 # 代码质量
 bun lint                   # 运行 ESLint
 bun lint:fix               # 修复 ESLint 问题
 bun typecheck              # TypeScript 类型检查
 ```
+
+## 本地客户端（Tauri）
+
+项目已切换为 `Tauri + Rust 内嵌后端` 架构（运行时不依赖 Node/Bun）：
+
+- `bun desktop:dev`：启动 Tauri 客户端（Rust 后端监听 `127.0.0.1:43127`）。
+- `bun desktop:build`：先执行 `bun build:desktop`，再打包桌面应用。
+- `bun desktop:install`：一键执行“构建 app bundle → 安装到 `/Applications`（无权限时自动回退 `~/Applications`）→ 启动客户端”。
+- 打包时会将前端静态资源 `.output/public` 写入应用资源目录 `web/public`。
+- 可用 `PLAYLET_INSTALL_DIR` 指定安装目录，例如：`PLAYLET_INSTALL_DIR="$HOME/Applications" bun desktop:install`
+
+### 打包版环境变量加载说明（重要）
+
+- 开发模式（`bun dev` / `bun desktop:dev`）默认读取项目根目录 `.env`。
+- 打包后的桌面客户端不会保证以项目目录为工作目录，因此项目根目录 `.env` 可能不会生效。
+- 桌面客户端启动时会额外尝试读取以下 `.env`（若存在）：
+  - `~/Library/Application Support/com.playlet.desktop/.env`
+  - `app_config_dir/.env`
+- 也可通过环境变量显式指定：`PLAYLET_ENV_FILE=/absolute/path/to/.env`
+
+如果“云端文件”页面为空或报 `TOS 未启用或配置不完整`，请优先检查上述路径中的 `.env` 是否包含完整 `TOS_*` 配置。
+
+## Rust 后端（Web/本地）
+
+- `bun dev` 会并行启动 `Vite 前端 + Rust 后端`。
+- `bun preview` 会直接启动 Rust 后端并托管 `.output/public`。
+- `server/` TS 后端目录已整体移除，后端服务逻辑统一在 Rust 中实现。
+- 可通过以下环境变量覆盖后端启动参数：
+  - `PLAYLET_BACKEND_HOST`（默认 `127.0.0.1`）
+  - `PLAYLET_BACKEND_PORT`（默认 `43127`）
+  - `PLAYLET_WEB_DIR`（默认优先 `.output/public`，不存在则回退 `public`）
 
 ## 发布版本
 

@@ -10,7 +10,7 @@ Historical prompt workflows are intentionally removed. When updating prompts, AP
 
 ## Project Overview
 
-**playlet** is an AI-assisted video production system built with Nuxt.js 4. The active product path is:
+**playlet** is an AI-assisted video production system built with Vue 3 + Vite + Rust backend. The active product path is:
 
 1. **Parse** — Parse source text into scenes, characters, and video-ready timeline descriptions.
 2. **Assets** — Generate and manage reusable assets (character references, environment references).
@@ -19,9 +19,9 @@ Historical prompt workflows are intentionally removed. When updating prompts, AP
 
 ## Tech Stack
 
-- **Framework**: Nuxt.js 4 + Vue 3 Composition API (`compatibilityDate: '2025-01-15'`)
+- **Framework**: Vue 3 Composition API + Vite
 - **Package Manager**: Bun (registry: `registry.npmmirror.com` via `bunfig.toml`)
-- **Database**: SQLite (`data/playlet.db`) + Drizzle ORM + better-sqlite3
+- **Database**: SQLite (`data/playlet.db`) via Rust `rusqlite`
 - **UI**: Tailwind CSS (dark mode via `class`) + shadcn-vue (`new-york` style, `stone` base color)
 - **State**: Pinia (registered but workbench state uses pure composable pattern, not stores)
 - **AI Providers**: Google Gemini, Alibaba Qwen, Kling AI, Volcengine/Doubao (Seedance/Seedream)
@@ -35,11 +35,8 @@ Historical prompt workflows are intentionally removed. When updating prompts, AP
 bun dev                   # Start dev server
 bun build                 # Production build
 bun preview               # Preview production build
-
-bun db:generate           # Generate Drizzle migration files
-bun db:migrate            # Run migrations
-bun db:push               # Push schema directly (dev)
-bun db:studio             # Open Drizzle Studio UI
+bun dev:backend           # Start standalone Rust backend
+bun dev:frontend          # Start Vite frontend only
 
 bun lint                  # Lint check
 bun lint:fix              # Lint and auto-fix
@@ -52,31 +49,28 @@ Note: vitest is configured but no test files currently exist in the project.
 
 ## Architecture
 
-### Two-Layer AI Abstraction
+### Rust Backend
 
-The AI integration has two distinct layers — understanding this separation is critical:
-
-1. **`server/utils/model-provider.ts`** — Global provider abstraction. Contains the static model registry (`TEXT_MODELS`, `IMAGE_MODELS`, `VIDEO_MODELS`, `VOICE_MODELS`) and unified dispatch functions (`generateText`, `generateJSON`, `generateImage`, `generateVideo`). Global default model selections are stored in `system_config` under key `'selected_models'`.
-
-2. **`server/utils/workflow-model.ts`** — Per-workflow-step model resolution. `getWorkflowModel(step)` reads per-step overrides from DB, falling back to global defaults. `generateTextForWorkflow(step, options)` and `generateJSONForWorkflow(step, options)` resolve the model for a given workflow step, then dispatch to the provider layer. Always reads fresh from DB (no in-memory cache).
+- Backend runtime is implemented in Rust under `src-tauri/src/backend.rs` and split modules in `src-tauri/src/backend/`.
+- Frontend APIs remain `/api/*`, and they are served by Axum handlers.
+- `bun preview` and desktop runtime both rely on the Rust backend entrypoint (`playlet-backend` / embedded Tauri startup).
 
 ### Prompt Template System
 
 - **Storage**: `system_config` table, keys `prompt_templates_default`, `prompt_versions_default`, `prompt_profile_state_default`。
-- **Auto-sync behavior**: Non-customized templates get their `content` auto-updated from `server/utils/prompt-defaults.ts` on every read. Customized templates (`isCustomized: true`) preserve user content but still sync metadata (name, description, variables) from defaults.
+- **Auto-sync behavior**: Non-customized templates are refreshed from Rust-side defaults; customized templates (`isCustomized: true`) preserve user content.
 - **Interpolation**: `getInterpolatedPrompt(id, variables)` does `{{variable}}` substitution.
 - **Bilingual**: Each template has `{ zh: string, en: string }` content. Language is configurable per template.
 - **Version history**: Up to 20 versions per template.
 
 ### API Endpoint Pattern
 
-Server endpoints follow a consistent pattern (see `description-refinement.post.ts` as canonical example):
-1. Parse request body with Zod
-2. Build prompt variables from structured input
-3. Call `getInterpolatedPrompt()` with the template ID
-4. Call `generateTextForWorkflow()` or `generateJSONForWorkflow()` with the workflow step
-5. Validate response with Zod
-6. Return normalized result
+Rust handlers keep the same contract-driven flow:
+1. Parse/validate request payload
+2. Build workflow prompt variables
+3. Resolve prompt template and model selection
+4. Call provider runtime
+5. Normalize response JSON
 
 ### Frontend State: Composable Decomposition
 
@@ -98,12 +92,12 @@ Large utility library (`app/lib/asset-workbench-*.ts`) containing pure functions
 
 ### Database Initialization
 
-The DB uses a hybrid approach: `server/db/index.ts` runs `CREATE TABLE IF NOT EXISTS` statements plus inline column-addition guards (not pure Drizzle migrations). The Nitro plugin `server/plugins/db.ts` calls `initDatabase()` + `initializeSelectedModels()` on server startup. Schema is defined in `server/db/schema.ts`.
+Database initialization and bootstrap are handled in Rust startup (`start_server` + helper functions in `backend.rs` / split modules).
 
 ### Path Aliases
 
-- `#shared` → `shared/` (Nuxt 4 auto-alias for the `shared/` directory)
-- `@/components/*` → `app/components/*` (standard Nuxt)
+- `#shared` → `shared/`
+- `@/components/*` → `app/components/*`
 
 ## Workflow Rules
 

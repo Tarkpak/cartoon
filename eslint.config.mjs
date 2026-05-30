@@ -1,6 +1,19 @@
-// @ts-check
-import withNuxt from './.nuxt/eslint.config.mjs'
-
-export default withNuxt(
-  // Your custom configs here
-)
+export default [
+  {
+    ignores: [
+      '.nuxt/**',
+      '.output/**',
+      'node_modules/**',
+      'src-tauri/target/**',
+      'dist/**'
+    ]
+  },
+  {
+    files: ['**/*.ts', '**/*.js', '**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module'
+    },
+    rules: {}
+  }
+]

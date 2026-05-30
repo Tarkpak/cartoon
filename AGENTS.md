@@ -1,35 +1,32 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `app/`: Nuxt frontend code.
+- `app/`: Vue + Vite frontend code.
 - `app/pages/`: route-level pages.
 - `app/components/`: reusable UI and feature components (`PascalCase.vue`).
 - `app/composables/`: reusable state/logic hooks (`useXxx.ts`).
 - `app/lib/`: client-side helper modules.
-- `server/`: Nitro backend.
-- `server/api/`: API routes named by method suffix (for example, `create.post.ts`, `[id].get.ts`).
-- `server/utils/`: provider/service integrations.
-- `server/db/`: Drizzle schema and SQL migrations.
+- `src-tauri/src/`: Rust backend and Tauri runtime (`backend.rs` + split modules).
 - `shared/`: shared types/constants used by app and server.
 - `public/`: static assets; `data/`: runtime/project data; `scripts/`: automation; `docs/`: documentation.
-- `.nuxt/` and `.output/` are generated artifacts; do not edit them directly.
+- `.output/` is a generated artifact; do not edit directly.
 
 ## Build, Test, and Development Commands
 Use Bun (Node `>=20`).
 - `bun install`: install dependencies.
-- `bun dev`: start local Nuxt dev server.
+- `bun dev`: start local Vite dev server + Rust backend.
 - `bun build`: build production output.
 - `bun preview`: preview the production build locally.
 - `bun lint` / `bun lint:fix`: run/fix ESLint checks.
-- `bun typecheck`: run Nuxt TypeScript checks.
+- `bun typecheck`: run Vue TypeScript checks.
 - `bun test` / `bun test:coverage`: run Vitest and coverage.
-- `bun db:generate`, `bun db:migrate`, `bun db:push`, `bun db:studio`: manage Drizzle migrations and schema.
+- `cargo check --manifest-path src-tauri/Cargo.toml`: check Rust backend.
 
 ## Coding Style & Naming Conventions
 - TypeScript-first, Vue SFCs with `<script setup lang="ts">`.
-- 2-space indentation; stylistic rules come from Nuxt ESLint config (no trailing commas).
+- 2-space indentation; keep existing ESLint style (no trailing commas).
 - Use `camelCase` for variables/functions, `PascalCase` for components, and `useXxx` for composables.
-- Validate API inputs with Zod in `server/api` handlers.
+- Rust backend APIs are implemented in `src-tauri/src/backend*.rs`.
 
 ## Testing Guidelines
 - Framework: Vitest.
