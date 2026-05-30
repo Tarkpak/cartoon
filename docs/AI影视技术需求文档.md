@@ -142,17 +142,10 @@ playlet 当前版本聚焦资产工作台，主流程固定为：
 
 ### 5.2 后端
 
-- `server/api/script/episode-plan.post.ts`
-- `server/api/script/parse.post.ts`
-- `server/api/character/generate.post.ts`
-- `server/api/asset-workflow/reference/generate.post.ts`
-- `server/api/asset-workflow/prop/generate.post.ts`
-- `server/api/asset-workflow/scene/description-refinement.post.ts`
-- `server/api/asset-workflow/video/generate.post.ts`
-- `server/api/video/merge.post.ts`
-- `server/utils/prompt-template.ts`
-- `server/utils/prompt-defaults.ts`
-- `server/utils/workflow-model.ts`
+- `src-tauri/src/backend.rs`
+- `src-tauri/src/backend/runtime_api.rs`
+- `src-tauri/src/backend/prompts_api.rs`
+- `src-tauri/src/bin/playlet-backend.rs`
 
 ### 5.3 共享类型
 

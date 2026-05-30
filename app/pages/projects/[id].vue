@@ -26,9 +26,19 @@ const stage = computed<ProjectWorkbenchStage | undefined>(() => {
   return normalizeStage(queryStage)
 })
 
-if (projectId.value) {
-  await navigateTo(resolveProjectWorkbenchPath(projectId.value, stage.value), { replace: true })
-} else {
-  await navigateTo('/projects', { replace: true })
-}
+watch(
+  () => [projectId.value, stage.value] as const,
+  ([id, nextStage]) => {
+    if (id) {
+      void navigateTo(resolveProjectWorkbenchPath(id, nextStage), { replace: true })
+      return
+    }
+    void navigateTo('/projects', { replace: true })
+  },
+  { immediate: true }
+)
 </script>
+
+<template>
+  <div class="sr-only" aria-live="polite">Redirecting...</div>
+</template>

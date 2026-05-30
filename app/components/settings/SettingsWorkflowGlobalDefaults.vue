@@ -200,6 +200,14 @@ function updateVideoAudioDefault(provider: keyof WorkflowVideoAudioDefaults, val
 const systemNotificationStatus = ref<BrowserNotificationStatus>(getBrowserNotificationStatus())
 const systemNotificationTesting = ref(false)
 const completionNotificationHint = ref('')
+const isDesktopRuntime = computed(() => {
+  if (!import.meta.client) return false
+  const runtime = window as Window & {
+    __TAURI__?: unknown
+    __TAURI_INTERNALS__?: unknown
+  }
+  return !!runtime.__TAURI__ || !!runtime.__TAURI_INTERNALS__
+})
 
 const systemNotificationSupported = computed(() => {
   return systemNotificationStatus.value.supported && systemNotificationStatus.value.secureContext
@@ -214,16 +222,20 @@ function refreshSystemNotificationStatus() {
 }
 
 function resolveSystemNotificationBlockedHint(status: BrowserNotificationStatus): string {
+  const channelName = isDesktopRuntime.value ? '客户端' : '浏览器'
+
   if (!status.supported) {
-    return '当前浏览器不支持系统通知，无法申请权限。'
+    return `当前${channelName}不支持系统通知，无法申请权限。`
   }
 
   if (!status.secureContext) {
-    return '系统通知只在 HTTPS 或 localhost 下可用，当前站点不能申请权限。'
+    return '系统通知只在 HTTPS 或 localhost 下可用，当前环境不能申请权限。'
   }
 
   if (status.permission === 'denied') {
-    return '浏览器已拒绝系统通知，请在地址栏的站点权限里手动开启。'
+    return isDesktopRuntime.value
+      ? '客户端已拒绝系统通知，请在系统通知设置中手动开启。'
+      : '浏览器已拒绝系统通知，请在地址栏的站点权限里手动开启。'
   }
 
   return '当前没有拿到系统通知权限，系统通知不会生效。'
@@ -231,7 +243,7 @@ function resolveSystemNotificationBlockedHint(status: BrowserNotificationStatus)
 
 const systemNotificationPermissionLabel = computed(() => {
   const status = systemNotificationStatus.value
-  if (!status.supported) return '当前浏览器不支持'
+  if (!status.supported) return isDesktopRuntime.value ? '当前客户端不支持' : '当前浏览器不支持'
   if (!status.secureContext) return '需要 HTTPS 或 localhost'
   if (status.permission === 'granted') return '已授权'
   if (status.permission === 'denied') return '已拒绝'
@@ -241,7 +253,9 @@ const systemNotificationPermissionLabel = computed(() => {
 const systemNotificationDescription = computed(() => {
   const status = systemNotificationStatus.value
   if (!status.supported) {
-    return '当前浏览器不支持系统通知，可使用提示音提醒。'
+    return isDesktopRuntime.value
+      ? '当前客户端不支持系统通知，可使用提示音提醒。'
+      : '当前浏览器不支持系统通知，可使用提示音提醒。'
   }
 
   if (!status.secureContext) {
@@ -249,14 +263,20 @@ const systemNotificationDescription = computed(() => {
   }
 
   if (status.permission === 'denied') {
-    return '当前浏览器已拒绝系统通知，需要先在站点权限中手动恢复。'
+    return isDesktopRuntime.value
+      ? '当前客户端已拒绝系统通知，需要先在系统通知设置中手动恢复。'
+      : '当前浏览器已拒绝系统通知，需要先在站点权限中手动恢复。'
   }
 
   if (status.permission === 'granted') {
-    return '当前浏览器已授权；保持页面打开或切到后台标签页时可弹出提醒。'
+    return isDesktopRuntime.value
+      ? '当前客户端已授权；任务完成后会弹出系统提醒。'
+      : '当前浏览器已授权；保持页面打开或切到后台标签页时可弹出提醒。'
   }
 
-  return '当前浏览器尚未授权；勾选或点击测试通知时会申请权限。'
+  return isDesktopRuntime.value
+    ? '当前客户端尚未授权；勾选或点击测试通知时会申请权限。'
+    : '当前浏览器尚未授权；勾选或点击测试通知时会申请权限。'
 })
 
 function updateCompletionSound(value: unknown) {
@@ -273,7 +293,7 @@ async function triggerSystemNotificationTest() {
     const result = await sendSystemNotificationTest()
     systemNotificationStatus.value = result.status
     completionNotificationHint.value = result.sent
-      ? `已通过${result.channel === 'serviceWorker' ? 'Service Worker' : '页面通知'}发送测试通知；如果没有看到弹窗，请检查浏览器站点权限和系统通知开关。`
+      ? `已通过${result.channel === 'serviceWorker' ? 'Service Worker' : '页面通知'}发送测试通知；如果没有看到弹窗，请检查${isDesktopRuntime.value ? '系统通知开关' : '浏览器站点权限和系统通知开关'}。`
       : resolveSystemNotificationBlockedHint(result.status)
     return result
   } finally {

@@ -31,26 +31,7 @@ const {
   loading: remoteLoading,
   loadStylePresets
 } = useStylePresets()
-
-function stripLocalThumbnail(style: StylePreset): StylePreset {
-  const thumbnail = style.thumbnail?.trim()
-  if (!thumbnail) return style
-
-  if (
-    thumbnail.startsWith('/styles/')
-    || thumbnail.startsWith('/generated-images/')
-    || thumbnail.startsWith('/api/image/file/')
-  ) {
-    return {
-      ...style,
-      thumbnail: undefined
-    }
-  }
-
-  return style
-}
-
-const localFallbackStyles = computed(() => STYLE_PRESETS.map(stripLocalThumbnail))
+const localFallbackStyles = computed(() => STYLE_PRESETS)
 
 const availableStyles = computed(() => {
   if (props.styles && props.styles.length > 0) {

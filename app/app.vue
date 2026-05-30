@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import DefaultLayout from '@/layouts/default.vue'
+
 useHead({
   meta: [
     { name: 'viewport', content: 'width=device-width, initial-scale=1' }
@@ -23,7 +25,7 @@ useSeoMeta({
 </script>
 
 <template>
-  <NuxtLayout>
-    <NuxtPage />
-  </NuxtLayout>
+  <DefaultLayout>
+    <RouterView />
+  </DefaultLayout>
 </template>
