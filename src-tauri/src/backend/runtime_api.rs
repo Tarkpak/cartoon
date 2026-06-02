@@ -444,6 +444,258 @@ fn model_type_to_operation(model_type: &str) -> &'static str {
     }
 }
 
+fn normalize_model_id_for_remote(raw: &str) -> String {
+    raw.trim().trim_start_matches("models/").trim().to_string()
+}
+
+fn provider_chat_completions_endpoint(base_url: &str) -> String {
+    let normalized = base_url.trim().trim_end_matches('/');
+    if normalized
+        .to_ascii_lowercase()
+        .ends_with("/chat/completions")
+    {
+        normalized.to_string()
+    } else {
+        format!("{}/chat/completions", normalized)
+    }
+}
+
+fn provider_gemini_generate_endpoint(base_url: &str, model_id: &str) -> String {
+    let normalized = base_url.trim().trim_end_matches('/');
+    let models_base = if normalized.to_ascii_lowercase().ends_with("/models") {
+        normalized.to_string()
+    } else {
+        format!("{}/models", normalized)
+    };
+    format!(
+        "{}/{}:generateContent",
+        models_base,
+        normalize_model_id_for_remote(model_id)
+    )
+}
+
+fn parse_text_content_value(value: &Value) -> Option<String> {
+    if let Some(text) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        return Some(text.to_string());
+    }
+    let Some(parts) = value.as_array() else {
+        return None;
+    };
+
+    let mut chunks: Vec<String> = Vec::new();
+    for part in parts {
+        if let Some(text) = part.get("text").and_then(Value::as_str) {
+            let normalized = text.trim();
+            if !normalized.is_empty() {
+                chunks.push(normalized.to_string());
+            }
+            continue;
+        }
+        if let Some(text) = part.get("content").and_then(Value::as_str) {
+            let normalized = text.trim();
+            if !normalized.is_empty() {
+                chunks.push(normalized.to_string());
+            }
+        }
+    }
+
+    if chunks.is_empty() {
+        None
+    } else {
+        Some(chunks.join("\n"))
+    }
+}
+
+fn parse_openai_compatible_text_result(payload: &Value) -> Option<String> {
+    let choice = payload
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())?;
+
+    if let Some(content) = choice
+        .get("message")
+        .and_then(|message| message.get("content"))
+        .and_then(parse_text_content_value)
+    {
+        return Some(content);
+    }
+
+    if let Some(content) = choice
+        .get("message")
+        .and_then(|message| message.get("reasoning_content"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        return Some(content.to_string());
+    }
+
+    choice
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+fn parse_gemini_text_result(payload: &Value) -> Option<String> {
+    let candidate = payload
+        .get("candidates")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())?;
+    let parts = candidate
+        .get("content")
+        .and_then(|content| content.get("parts"))
+        .and_then(Value::as_array)?;
+
+    let mut chunks: Vec<String> = Vec::new();
+    for part in parts {
+        if let Some(text) = part
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        {
+            chunks.push(text.to_string());
+        }
+    }
+
+    if chunks.is_empty() {
+        None
+    } else {
+        Some(chunks.join("\n"))
+    }
+}
+
+async fn request_openai_compatible_text_completion(
+    provider: &str,
+    model_id: &str,
+    prompt: &str,
+    custom_openai: &Value,
+) -> Result<String, String> {
+    let api_keys = provider_sync_api_keys(provider, custom_openai);
+    if api_keys.is_empty() {
+        return Err("未配置 API Key".to_string());
+    }
+    let base_url = provider_sync_base_url(provider, custom_openai)
+        .ok_or_else(|| "未配置 Base URL".to_string())?;
+    let endpoint = provider_chat_completions_endpoint(&base_url);
+    let model = normalize_model_id_for_remote(model_id);
+    let mut last_error = None::<String>;
+
+    for api_key in api_keys {
+        let response = http_client()
+            .post(&endpoint)
+            .bearer_auth(api_key)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .json(&json!({
+              "model": model,
+              "messages": [
+                { "role": "user", "content": prompt }
+              ],
+              "temperature": 0.7
+            }))
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+
+        let status = response.status();
+        let body_text = response.text().await.map_err(|error| error.to_string())?;
+        if !status.is_success() {
+            last_error = Some(build_sync_error_message(status, &body_text));
+            continue;
+        }
+
+        let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+            format!(
+                "解析 chat/completions 响应失败: {} ({})",
+                error,
+                truncate_for_error(&body_text, 160)
+            )
+        })?;
+        if let Some(text) = parse_openai_compatible_text_result(&payload) {
+            return Ok(text);
+        }
+        last_error = Some("模型返回为空文本".to_string());
+    }
+
+    Err(last_error.unwrap_or_else(|| "文本模型调用失败".to_string()))
+}
+
+async fn request_gemini_text_completion(
+    model_id: &str,
+    prompt: &str,
+    custom_openai: &Value,
+) -> Result<String, String> {
+    let api_keys = provider_sync_api_keys("gemini", custom_openai);
+    if api_keys.is_empty() {
+        return Err("未配置 API Key".to_string());
+    }
+    let base_url = provider_sync_base_url("gemini", custom_openai)
+        .ok_or_else(|| "未配置 Base URL".to_string())?;
+    let endpoint = provider_gemini_generate_endpoint(&base_url, model_id);
+    let mut last_error = None::<String>;
+
+    for api_key in api_keys {
+        let response = http_client()
+            .post(&endpoint)
+            .query(&[("key", api_key.as_str())])
+            .header(reqwest::header::ACCEPT, "application/json")
+            .json(&json!({
+              "contents": [
+                {
+                  "role": "user",
+                  "parts": [{ "text": prompt }]
+                }
+              ]
+            }))
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+
+        let status = response.status();
+        let body_text = response.text().await.map_err(|error| error.to_string())?;
+        if !status.is_success() {
+            last_error = Some(build_sync_error_message(status, &body_text));
+            continue;
+        }
+
+        let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+            format!(
+                "解析 Gemini 响应失败: {} ({})",
+                error,
+                truncate_for_error(&body_text, 160)
+            )
+        })?;
+        if let Some(text) = parse_gemini_text_result(&payload) {
+            return Ok(text);
+        }
+        last_error = Some("模型返回为空文本".to_string());
+    }
+
+    Err(last_error.unwrap_or_else(|| "Gemini 调用失败".to_string()))
+}
+
+async fn run_text_model_test_remote(
+    provider: &str,
+    model_id: &str,
+    prompt: &str,
+    custom_openai: &Value,
+) -> Result<String, String> {
+    match provider {
+        "qwen" | "volcengine" | "deepseek" | "custom_openai" => {
+            request_openai_compatible_text_completion(provider, model_id, prompt, custom_openai)
+                .await
+        }
+        "gemini" => request_gemini_text_completion(model_id, prompt, custom_openai).await,
+        _ => Err(format!("供应商 {} 暂不支持文本模型在线测试", provider)),
+    }
+}
+
 fn collect_log_media_refs(result: &Value) -> Value {
     let mut refs: Vec<Value> = Vec::new();
 
@@ -548,7 +800,13 @@ pub(super) async fn api_models_test(
     let model_type = json_string(body.get("modelType"), "text");
     let model_id = json_string(body.get("modelId"), "rust-local-model");
     let prompt = json_string(body.get("prompt"), "");
-    let provider = infer_model_provider(&model_id);
+    let provider = body
+        .get("provider")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| infer_model_provider(&model_id));
     let operation = model_type_to_operation(&model_type);
     let request_payload = body.clone();
 
@@ -560,7 +818,36 @@ pub(super) async fn api_models_test(
     }
 
     let result = match model_type.as_str() {
-        "text" => json!(format!("【Rust 本地测试输出】{}", prompt)),
+        "text" => {
+            let conn = db_connection(&state)?;
+            let custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
+                .unwrap_or_else(default_custom_openai_config);
+            let text =
+                match run_text_model_test_remote(&provider, &model_id, &prompt, &custom_openai)
+                    .await
+                {
+                    Ok(text) => text,
+                    Err(error) => {
+                        let error_payload = json!({ "message": error });
+                        let _ = write_model_debug_log(
+                            &state,
+                            &provider,
+                            &model_id,
+                            operation,
+                            "error",
+                            (Utc::now().timestamp_millis() - start).max(1),
+                            &request_payload,
+                            None,
+                            Some(&error_payload),
+                        );
+                        return Err(ApiError::new(
+                            StatusCode::BAD_GATEWAY,
+                            format!("文本模型测试失败: {}", error),
+                        ));
+                    }
+                };
+            json!(text)
+        }
         "image" => {
             let image_url = persist_image_bytes(
                 &state,
@@ -577,6 +864,69 @@ pub(super) async fn api_models_test(
         }
         "video" => {
             let aspect_ratio = json_string(body.get("imageAspectRatio"), "16:9");
+            let list_reference_image_count = body
+                .get("referenceImages")
+                .and_then(Value::as_array)
+                .map(|items| items.len())
+                .unwrap_or(0);
+            let has_first_frame = body
+                .get("firstFrame")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .map(|value| !value.is_empty())
+                .unwrap_or(false);
+            let has_last_frame = body
+                .get("lastFrame")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .map(|value| !value.is_empty())
+                .unwrap_or(false);
+            let reference_image_count = list_reference_image_count
+                + usize::from(has_first_frame)
+                + usize::from(has_last_frame);
+            let list_reference_video_count = body
+                .get("referenceVideos")
+                .and_then(Value::as_array)
+                .map(|items| items.len())
+                .or_else(|| {
+                    body.get("videoReferences")
+                        .and_then(Value::as_array)
+                        .map(|items| items.len())
+                })
+                .unwrap_or(0);
+            let has_single_video_reference = body
+                .get("videoUrl")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .map(|value| !value.is_empty())
+                .unwrap_or(false);
+            let reference_video_count = if list_reference_video_count > 0 {
+                list_reference_video_count
+            } else {
+                usize::from(has_single_video_reference)
+            };
+            let list_reference_audio_count = body
+                .get("audioReferences")
+                .and_then(Value::as_array)
+                .map(|items| items.len())
+                .or_else(|| {
+                    body.get("referenceAudios")
+                        .and_then(Value::as_array)
+                        .map(|items| items.len())
+                })
+                .unwrap_or(0);
+            let has_single_audio_reference = body
+                .get("audioUrl")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .map(|value| !value.is_empty())
+                .unwrap_or(false);
+            let reference_audio_count = if list_reference_audio_count > 0 {
+                list_reference_audio_count
+            } else {
+                usize::from(has_single_audio_reference)
+            };
+            let has_audio_reference = reference_audio_count > 0;
             let video_url = persist_video_bytes(
                 &state,
                 "model_test_video",
@@ -586,7 +936,14 @@ pub(super) async fn api_models_test(
             )?;
             json!({
               "videoUrl": video_url,
-              "taskId": format!("test_{}", Uuid::new_v4().simple())
+              "taskId": format!("test_{}", Uuid::new_v4().simple()),
+              "usedReferenceImageCount": reference_image_count,
+              "usedReferenceVideoCount": reference_video_count,
+              "usedReferenceAudioCount": reference_audio_count,
+              "hasVideoReference": reference_video_count > 0,
+              "hasAudioReference": has_audio_reference,
+              "hasFirstFrame": has_first_frame,
+              "hasLastFrame": has_last_frame
             })
         }
         "tts" => json!({
@@ -610,16 +967,19 @@ pub(super) async fn api_models_test(
             return Err(ApiError::new(
                 StatusCode::BAD_REQUEST,
                 format!("不支持的模型类型: {}", model_type),
-            ))
+            ));
         }
     };
 
     let latency_ms = (Utc::now().timestamp_millis() - start).max(1);
+    let display_name = resolve_provider_meta(&provider)
+        .map(|(name, _, _, _)| name.to_string())
+        .unwrap_or_else(|| "Rust Local Stub".to_string());
     let response_result = json!({
       "modelType": model_type,
       "modelId": model_id,
       "provider": provider,
-      "displayName": "Rust Local Stub",
+      "displayName": display_name,
       "result": result,
       "latencyMs": latency_ms
     });
@@ -1359,7 +1719,10 @@ fn normalize_endpoint(raw: &str) -> (String, String) {
 }
 
 fn load_tos_config() -> TosStorageConfig {
-    let access_key_id = std::env::var("TOS_ACCESS_KEY").unwrap_or_default().trim().to_string();
+    let access_key_id = std::env::var("TOS_ACCESS_KEY")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     let access_key_secret = std::env::var("TOS_SECRET_KEY")
         .unwrap_or_default()
         .trim()
@@ -1368,8 +1731,14 @@ fn load_tos_config() -> TosStorageConfig {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let region = std::env::var("TOS_REGION").unwrap_or_default().trim().to_string();
-    let bucket = std::env::var("TOS_BUCKET").unwrap_or_default().trim().to_string();
+    let region = std::env::var("TOS_REGION")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let bucket = std::env::var("TOS_BUCKET")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     let key_prefix = std::env::var("TOS_KEY_PREFIX")
         .ok()
         .map(|value| normalize_object_path(&value))
@@ -1436,10 +1805,7 @@ fn build_tos_public_url(config: &TosStorageConfig, object_key: &str) -> String {
 
     format!(
         "{}://{}.{}/{}",
-        config.endpoint_protocol,
-        config.bucket,
-        config.endpoint,
-        encoded_key
+        config.endpoint_protocol, config.bucket, config.endpoint, encoded_key
     )
 }
 

@@ -9,6 +9,7 @@ import type {
   AvailableModelsResponse,
   ImageModelConfig,
   SelectedModels,
+  ThreeDModelConfig,
   TextModelConfig,
   VideoModelConfig,
   VoiceModelConfig
@@ -17,6 +18,7 @@ import type {
 export type SettingsModelConfig
   = | TextModelConfig
     | ImageModelConfig
+    | ThreeDModelConfig
     | VideoModelConfig
     | VoiceModelConfig
 
@@ -114,7 +116,13 @@ export function modelSupportsThinking(model: SettingsModelConfig): boolean {
 }
 
 export function modelSupportsReferenceImage(model: SettingsModelConfig): boolean {
-  return 'supportReferenceImage' in model && model.supportReferenceImage === true
+  return 'supportReferenceImage' in model
+    && (
+      model.supportReferenceImage === true
+      || model.supportReferenceImages === true
+      || model.supportImageToImage === true
+      || model.requireReferenceImage === true
+    )
 }
 
 export function getModelMaxDuration(model: SettingsModelConfig): number | undefined {
