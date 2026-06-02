@@ -19,6 +19,7 @@
     "desktop:dev": "bun run build:desktop && tauri dev",
     "desktop:build": "CI=true tauri build",
     "desktop:build:finder": "tauri build",
+    "desktop:sync-env": "bash ./scripts/desktop-sync-env.sh",
     "desktop:install": "bash ./scripts/desktop-build-install.sh",
     "release": "bun run scripts/release.ts",
     "migrate:desktop-data": "bash ./scripts/migrate-history-to-desktop.sh"

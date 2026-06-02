@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import {
+  CheckCheck,
   CheckCircle2,
   Database,
   Loader2,
   RefreshCw,
+  Search,
+  Trash2,
   TriangleAlert,
   XCircle
 } from 'lucide-vue-next'
@@ -12,6 +15,16 @@ import SettingsProviderLogo from '@/components/settings/SettingsProviderLogo.vue
 import { useSettingsModelCatalog } from '@/composables/useSettingsModelCatalog'
 
 type ProviderId = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'deepseek' | 'custom_openai'
+
+interface ModelProviderCatalogEntry {
+  model: string
+  kind: string
+  category: string
+  displayName?: string
+  description?: string
+  docUrl?: string
+  capabilities?: string[]
+}
 
 interface ModelProviderSummary {
   provider: ProviderId
@@ -25,6 +38,7 @@ interface ModelProviderSummary {
   modelCount: number
   models: string[]
   availableModels: string[]
+  availableModelCatalog?: ModelProviderCatalogEntry[]
 }
 
 interface ModelProvidersResponse {
@@ -39,6 +53,25 @@ interface ModelProviderResponse {
   data: ModelProviderSummary
 }
 
+type ModelCategoryKey = 'text' | 'image' | 'video' | 'voice' | 'three_d' | 'other'
+
+interface ModelCategoryGroup {
+  key: ModelCategoryKey
+  label: string
+  description: string
+  models: string[]
+}
+
+const MODEL_CATEGORY_ORDER: ModelCategoryKey[] = ['text', 'image', 'video', 'voice', 'three_d', 'other']
+const MODEL_CATEGORY_META: Record<ModelCategoryKey, { label: string, description: string }> = {
+  text: { label: '文本模型', description: '用于脚本解析、改写、对话生成等。' },
+  image: { label: '图片模型', description: '用于角色图、环境图、参考图生成。' },
+  video: { label: '视频模型', description: '用于文生视频、图生视频、视频编辑。' },
+  voice: { label: '语音模型', description: '用于 TTS / ASR 语音任务。' },
+  three_d: { label: '3D模型', description: '用于文生3D、图生3D及3D资产生成。' },
+  other: { label: '其他模型', description: '未能自动识别类型的模型。' }
+}
+
 const loading = ref(false)
 const syncingProvider = ref<ProviderId | null>(null)
 const savingProvider = ref<ProviderId | null>(null)
@@ -46,6 +79,7 @@ const providers = ref<ModelProviderSummary[]>([])
 const enabledModelsByProvider = ref<Partial<Record<ProviderId, string[]>>>({})
 const errorMessage = ref('')
 const activeProvider = ref<ProviderId | null>(null)
+const modelSearchKeyword = ref('')
 const { loadModels } = useSettingsModelCatalog()
 
 const activeProviderSummary = computed(() => {
@@ -91,15 +125,30 @@ function isModelEnabled(provider: ProviderId, model: string): boolean {
   return (enabledModelsByProvider.value[provider] || []).includes(model)
 }
 
-async function updateModelEnabled(provider: ProviderId, model: string, value: unknown) {
-  const previous = enabledModelsByProvider.value[provider] || []
-  const current = new Set(previous)
-  if (value === true) {
-    current.add(model)
-  } else {
-    current.delete(model)
+function normalizeModelList(models: string[]): string[] {
+  const output: string[] = []
+  const seen = new Set<string>()
+  for (const model of models) {
+    const normalized = model.trim()
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    output.push(normalized)
   }
-  const nextModels = Array.from(current)
+  return output
+}
+
+function isModelListEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false
+  const rightSet = new Set(right)
+  return left.every(item => rightSet.has(item))
+}
+
+async function saveProviderModels(provider: ProviderId, models: string[]) {
+  const previous = [...(enabledModelsByProvider.value[provider] || [])]
+  const nextModels = normalizeModelList(models)
+  if (isModelListEqual(previous, nextModels)) {
+    return
+  }
 
   enabledModelsByProvider.value = {
     ...enabledModelsByProvider.value,
@@ -109,20 +158,34 @@ async function updateModelEnabled(provider: ProviderId, model: string, value: un
   errorMessage.value = ''
 
   try {
-    const response = await $fetch<ModelProviderResponse>(`/api/model-providers/${provider}/models`, {
-      method: 'PUT',
-      body: {
-        models: nextModels
-      }
-    })
+    if (provider === 'custom_openai') {
+      const response = await $fetch<{ success: boolean }>('/api/models/custom-openai', {
+        method: 'PUT',
+        body: {
+          textModels: nextModels
+        }
+      })
 
-    if (response.success) {
-      providers.value = providers.value.map(item => item.provider === provider ? response.data : item)
-      enabledModelsByProvider.value = {
-        ...enabledModelsByProvider.value,
-        [provider]: [...response.data.models]
+      if (response.success) {
+        await loadProviders()
+        await refreshModelCatalog()
       }
-      await refreshModelCatalog()
+    } else {
+      const response = await $fetch<ModelProviderResponse>(`/api/model-providers/${provider}/models`, {
+        method: 'PUT',
+        body: {
+          models: nextModels
+        }
+      })
+
+      if (response.success) {
+        providers.value = providers.value.map(item => item.provider === provider ? response.data : item)
+        enabledModelsByProvider.value = {
+          ...enabledModelsByProvider.value,
+          [provider]: [...response.data.models]
+        }
+        await refreshModelCatalog()
+      }
     }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '保存可用模型失败'
@@ -135,9 +198,54 @@ async function updateModelEnabled(provider: ProviderId, model: string, value: un
   }
 }
 
+async function updateModelEnabled(provider: ProviderId, model: string, value: unknown) {
+  const previous = enabledModelsByProvider.value[provider] || []
+  const current = new Set(previous)
+  if (value === true) {
+    current.add(model)
+  } else {
+    current.delete(model)
+  }
+  await saveProviderModels(provider, Array.from(current))
+}
+
 function updateActiveProviderModel(model: string, value: boolean | 'indeterminate') {
   if (!activeProviderSummary.value) return
   void updateModelEnabled(activeProviderSummary.value.provider, model, value)
+}
+
+const activeProviderAvailableModels = computed(() => {
+  if (!activeProviderSummary.value) return []
+  return availableModelsFor(activeProviderSummary.value)
+})
+
+const activeProviderEnabledModels = computed(() => {
+  if (!activeProviderSummary.value) return []
+  return enabledModelsByProvider.value[activeProviderSummary.value.provider] || []
+})
+
+const activeProviderHasEnabledModels = computed(() => {
+  return activeProviderEnabledModels.value.length > 0
+})
+
+const activeProviderAllModelsSelected = computed(() => {
+  const available = activeProviderAvailableModels.value
+  const enabled = activeProviderEnabledModels.value
+  if (available.length === 0) return false
+  return isModelListEqual(available, enabled)
+})
+
+async function selectAllModelsForActiveProvider() {
+  if (!activeProviderSummary.value) return
+  await saveProviderModels(
+    activeProviderSummary.value.provider,
+    activeProviderAvailableModels.value
+  )
+}
+
+async function clearModelsForActiveProvider() {
+  if (!activeProviderSummary.value) return
+  await saveProviderModels(activeProviderSummary.value.provider, [])
 }
 
 async function syncProvider(provider: ProviderId) {
@@ -175,9 +283,70 @@ function availableModelsFor(provider: ModelProviderSummary): string[] {
   return Array.from(new Set([...provider.availableModels, ...provider.models]))
 }
 
+function normalizeModelCategoryKey(value: unknown): ModelCategoryKey {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  if (normalized === 'text') return 'text'
+  if (normalized === 'image') return 'image'
+  if (normalized === 'video') return 'video'
+  if (normalized === 'voice') return 'voice'
+  if (normalized === 'three_d') return 'three_d'
+  return 'other'
+}
+
+function buildProviderCategoryMap(provider: ModelProviderSummary): Map<string, ModelCategoryKey> {
+  const map = new Map<string, ModelCategoryKey>()
+  for (const entry of provider.availableModelCatalog || []) {
+    const model = (entry.model || '').trim()
+    if (!model) continue
+    map.set(model, normalizeModelCategoryKey(entry.category))
+  }
+  return map
+}
+
+const activeProviderModelGroups = computed<ModelCategoryGroup[]>(() => {
+  if (!activeProviderSummary.value) return []
+
+  const keyword = modelSearchKeyword.value.trim().toLowerCase()
+  const groups: Record<ModelCategoryKey, string[]> = {
+    text: [],
+    image: [],
+    video: [],
+    voice: [],
+    three_d: [],
+    other: []
+  }
+  const categoryMap = buildProviderCategoryMap(activeProviderSummary.value)
+
+  for (const model of availableModelsFor(activeProviderSummary.value)) {
+    if (keyword && !model.toLowerCase().includes(keyword)) {
+      continue
+    }
+
+    const category = categoryMap.get(model) || 'other'
+    groups[category].push(model)
+  }
+
+  return MODEL_CATEGORY_ORDER
+    .map((key) => ({
+      key,
+      label: MODEL_CATEGORY_META[key].label,
+      description: MODEL_CATEGORY_META[key].description,
+      models: groups[key].sort((a, b) => a.localeCompare(b))
+    }))
+    .filter(group => group.models.length > 0)
+})
+
+const activeProviderFilteredModelCount = computed(() => {
+  return activeProviderModelGroups.value.reduce((sum, group) => sum + group.models.length, 0)
+})
+
 function selectProvider(provider: ProviderId) {
   activeProvider.value = provider
 }
+
+watch(activeProvider, () => {
+  modelSearchKeyword.value = ''
+})
 
 onMounted(() => {
   void loadProviders()
@@ -290,13 +459,26 @@ onMounted(() => {
           </div>
 
           <div class="flex shrink-0 flex-wrap items-center gap-2 md:justify-end">
-            <span
-              v-if="savingProvider === activeProviderSummary.provider"
-              class="inline-flex h-8 items-center gap-1.5 text-xs text-muted-foreground"
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-8 gap-1.5"
+              :disabled="!activeProviderHasEnabledModels || savingProvider !== null || syncingProvider !== null"
+              @click="clearModelsForActiveProvider"
             >
-              <Loader2 class="h-3.5 w-3.5 animate-spin" />
-              自动保存中
-            </span>
+              <Trash2 class="h-3.5 w-3.5" />
+              一键清除
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-8 gap-1.5"
+              :disabled="activeProviderAvailableModels.length === 0 || activeProviderAllModelsSelected || savingProvider !== null || syncingProvider !== null"
+              @click="selectAllModelsForActiveProvider"
+            >
+              <CheckCheck class="h-3.5 w-3.5" />
+              全选模型
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -371,20 +553,67 @@ onMounted(() => {
                 </p>
                 <div
                   v-else
-                  class="mt-3 grid max-h-[60vh] grid-cols-1 gap-1 overflow-y-auto rounded border bg-muted/20 p-2 md:grid-cols-2"
+                  class="mt-3 space-y-2"
                 >
-                  <label
-                    v-for="model in availableModelsFor(activeProviderSummary)"
-                    :key="`${activeProviderSummary.provider}_${model}`"
-                    class="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-xs hover:bg-background"
-                  >
-                    <Checkbox
-                      :checked="isModelEnabled(activeProviderSummary.provider, model)"
-                      :disabled="savingProvider === activeProviderSummary.provider || syncingProvider !== null"
-                      @update:checked="(value: boolean | 'indeterminate') => updateActiveProviderModel(model, value)"
+                  <div class="relative">
+                    <Search class="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      v-model="modelSearchKeyword"
+                      class="h-8 pl-7 text-xs"
+                      placeholder="搜索模型 ID..."
                     />
-                    <span class="truncate">{{ model }}</span>
-                  </label>
+                  </div>
+
+                  <div class="text-[11px] text-muted-foreground">
+                    共 {{ availableModelsFor(activeProviderSummary).length }} 个模型，当前显示 {{ activeProviderFilteredModelCount }} 个
+                  </div>
+
+                  <div
+                    v-if="activeProviderModelGroups.length === 0"
+                    class="rounded border border-dashed bg-muted/20 px-3 py-4 text-xs text-muted-foreground"
+                  >
+                    未找到匹配模型，请调整搜索关键词。
+                  </div>
+
+                  <div
+                    v-else
+                    class="max-h-[60vh] space-y-3 overflow-y-auto rounded border bg-muted/20 p-2"
+                  >
+                    <section
+                      v-for="group in activeProviderModelGroups"
+                      :key="`${activeProviderSummary.provider}_${group.key}`"
+                      class="rounded-md border bg-background/80 p-2"
+                    >
+                      <div class="flex items-start justify-between gap-2">
+                        <div class="min-w-0">
+                          <h4 class="text-xs font-medium">
+                            {{ group.label }}
+                          </h4>
+                          <p class="mt-0.5 text-[11px] text-muted-foreground">
+                            {{ group.description }}
+                          </p>
+                        </div>
+                        <span class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          {{ group.models.length }} 个
+                        </span>
+                      </div>
+
+                      <div class="mt-2 grid grid-cols-1 gap-1 md:grid-cols-2">
+                        <label
+                          v-for="model in group.models"
+                          :key="`${activeProviderSummary.provider}_${group.key}_${model}`"
+                          class="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted/60"
+                        >
+                          <Checkbox
+                            :checked="isModelEnabled(activeProviderSummary.provider, model)"
+                            :disabled="savingProvider === activeProviderSummary.provider || syncingProvider !== null"
+                            @update:checked="(value: boolean | 'indeterminate') => updateActiveProviderModel(model, value)"
+                          />
+                          <span class="truncate">{{ model }}</span>
+                        </label>
+                      </div>
+                    </section>
+                  </div>
                 </div>
               </div>
             </div>

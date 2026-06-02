@@ -6,7 +6,7 @@ interface UseImagePromptReferenceEditorOptions {
   activeTab: Ref<ImagePromptReferenceTab>
   imagePrompt: WritableComputedRef<string>
   referenceImages: Ref<string[]>
-  maxReferences?: number
+  maxReferences?: number | Ref<number>
 }
 
 export function useImagePromptReferenceEditor(options: UseImagePromptReferenceEditorOptions) {
@@ -15,7 +15,15 @@ export function useImagePromptReferenceEditor(options: UseImagePromptReferenceEd
   const referencePreviewSrc = ref('')
   const referencePreviewAlt = ref('参考图预览')
 
-  const maxReferenceCount = computed(() => options.maxReferences ?? 4)
+  const maxReferenceCount = computed(() => {
+    if (typeof options.maxReferences === 'number') {
+      return options.maxReferences
+    }
+    if (options.maxReferences && typeof options.maxReferences.value === 'number') {
+      return options.maxReferences.value
+    }
+    return 4
+  })
   const imagePromptIsEmpty = computed(() => !(options.imagePrompt.value || '').trim())
 
   const {

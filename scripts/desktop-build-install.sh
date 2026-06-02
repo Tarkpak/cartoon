@@ -21,6 +21,14 @@ log_error() {
   exit 1
 }
 
+if [[ "${PLAYLET_SYNC_ENV:-1}" == "1" ]]; then
+  if [[ -f "$ROOT_DIR/.env" ]]; then
+    bash "$ROOT_DIR/scripts/desktop-sync-env.sh" "$ROOT_DIR/.env"
+  else
+    log_warn "未找到项目 .env，跳过环境变量同步。"
+  fi
+fi
+
 if [[ "$REQUESTED_INSTALL_DIR" == "/Applications" && ! -w "/Applications" ]]; then
   INSTALL_DIR="$HOME/Applications"
   log_warn "当前用户对 /Applications 无写权限，自动改为安装到 $INSTALL_DIR"

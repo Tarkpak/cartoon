@@ -12,17 +12,39 @@ const {
   activeTab,
   customPrompts,
   referenceImages,
+  videoReferenceImages,
+  videoReferenceVideos,
+  videoReferenceVideoNames,
+  videoFirstFrame,
+  videoLastFrame,
+  videoAudioReferences,
+  videoAudioReferenceNames,
   testResults,
   groupedModels,
   currentSelectedModel,
   currentTtsAudioUrl,
   currentImageModelSupportsReference,
   currentImageModelRequiresReference,
+  currentImageModelMaxReferenceImages,
+  currentVideoModelSupportsImageReference,
+  currentVideoModelSupportsReference,
+  currentVideoModelSupportsVideoReference,
+  currentVideoModelSupportsFirstLastFrame,
+  currentVideoModelSupportsAudioReference,
+  currentVideoModelRequiresReference,
+  currentVideoModelMaxReferenceImages,
+  currentVideoModelMaxReferenceVideos,
+  currentVideoModelMaxReferenceAudios,
   currentImageModelAspectRatioOptions,
+  currentImageModelSizeOptions,
+  currentImageModelSizeSelectionMode,
+  currentImageModelSizeHelp,
   currentImageModelQualityOptions,
   imageAspectRatio,
+  imageSize,
   imageQuality,
   canRunImageTest,
+  canRunVideoTest,
   fileInputRef,
   promptEditorRef,
   imagePromptIsEmpty,
@@ -42,6 +64,17 @@ const {
   handlePromptTextareaKeydown,
   handleReferenceImageUpload,
   removeReferenceImage,
+  handleVideoReferenceImageUpload,
+  removeVideoReferenceImage,
+  handleVideoReferenceVideoUpload,
+  removeVideoReferenceVideo,
+  handleVideoFirstFrameUpload,
+  handleVideoLastFrameUpload,
+  clearVideoFirstFrame,
+  clearVideoLastFrame,
+  handleVideoAudioReferenceUpload,
+  removeVideoAudioReference,
+  clearVideoAudioReference,
   triggerFileInput,
   openReferenceImagePreview,
   selectTestModel,
@@ -85,12 +118,27 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
           v-model:active-tab="activeTab"
           v-model:custom-prompts="customPrompts"
           v-model:image-aspect-ratio="imageAspectRatio"
+          v-model:image-size="imageSize"
           v-model:image-quality="imageQuality"
           :can-run-image-test="canRunImageTest"
+          :can-run-video-test="canRunVideoTest"
           :current-image-model-aspect-ratio-options="currentImageModelAspectRatioOptions"
+          :current-image-model-size-options="currentImageModelSizeOptions"
+          :current-image-model-size-selection-mode="currentImageModelSizeSelectionMode"
+          :current-image-model-size-help="currentImageModelSizeHelp"
           :current-image-model-quality-options="currentImageModelQualityOptions"
           :current-image-model-requires-reference="currentImageModelRequiresReference"
+          :current-image-model-max-reference-images="currentImageModelMaxReferenceImages"
           :current-image-model-supports-reference="currentImageModelSupportsReference"
+          :current-video-model-supports-image-reference="currentVideoModelSupportsImageReference"
+          :current-video-model-supports-reference="currentVideoModelSupportsReference"
+          :current-video-model-supports-video-reference="currentVideoModelSupportsVideoReference"
+          :current-video-model-supports-first-last-frame="currentVideoModelSupportsFirstLastFrame"
+          :current-video-model-supports-audio-reference="currentVideoModelSupportsAudioReference"
+          :current-video-model-requires-reference="currentVideoModelRequiresReference"
+          :current-video-model-max-reference-images="currentVideoModelMaxReferenceImages"
+          :current-video-model-max-reference-videos="currentVideoModelMaxReferenceVideos"
+          :current-video-model-max-reference-audios="currentVideoModelMaxReferenceAudios"
           :set-file-input-ref="setFileInputElement"
           :handle-prompt-textarea-blur="handlePromptTextareaBlur"
           :handle-prompt-textarea-composition-end="handlePromptTextareaCompositionEnd"
@@ -108,7 +156,25 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
           :open-reference-image-preview="openReferenceImagePreview"
           :set-prompt-editor-ref="setPromptEditorElement"
           :reference-images="referenceImages"
+          :video-reference-images="videoReferenceImages"
+          :video-reference-videos="videoReferenceVideos"
+          :video-reference-video-names="videoReferenceVideoNames"
+          :video-first-frame="videoFirstFrame"
+          :video-last-frame="videoLastFrame"
+          :video-audio-references="videoAudioReferences"
+          :video-audio-reference-names="videoAudioReferenceNames"
           :remove-reference-image="removeReferenceImage"
+          :remove-video-reference-image="removeVideoReferenceImage"
+          :remove-video-reference-video="removeVideoReferenceVideo"
+          :handle-video-reference-image-upload="handleVideoReferenceImageUpload"
+          :handle-video-reference-video-upload="handleVideoReferenceVideoUpload"
+          :handle-video-first-frame-upload="handleVideoFirstFrameUpload"
+          :handle-video-last-frame-upload="handleVideoLastFrameUpload"
+          :clear-video-first-frame="clearVideoFirstFrame"
+          :clear-video-last-frame="clearVideoLastFrame"
+          :handle-video-audio-reference-upload="handleVideoAudioReferenceUpload"
+          :remove-video-audio-reference="removeVideoAudioReference"
+          :clear-video-audio-reference="clearVideoAudioReference"
           :test-results="testResults"
           :trigger-file-input="triggerFileInput"
           :test-model="testModel"

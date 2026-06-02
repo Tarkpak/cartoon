@@ -37,13 +37,39 @@ export const ImageModelConfigSchema = z.object({
   displayName: z.string(),
   description: z.string().optional(),
   supportedSizes: z.array(z.string()).optional(),
+  sizeSelectionMode: z.enum(['fixed', 'preset', 'constraint']).optional(),
+  sizeConstraints: z.object({
+    maxEdge: z.number().int().positive().optional(),
+    edgeMultiple: z.number().int().positive().optional(),
+    maxAspectRatio: z.string().optional(),
+    minPixels: z.number().int().positive().optional(),
+    maxPixels: z.number().int().positive().optional()
+  }).optional(),
   supportedAspectRatios: z.array(z.string()).optional(),
   supportedQualities: z.array(z.string()).optional(),
+  supportTextToImage: z.boolean().default(true).describe('是否支持文生图'),
+  supportImageToImage: z.boolean().default(false).describe('是否支持图生图'),
   supportReferenceImage: z.boolean().default(false).describe('是否支持参考图'),
+  supportReferenceImages: z.boolean().optional().describe('是否支持多参考图（referenceImages）'),
   requireReferenceImage: z.boolean().default(false).optional().describe('是否必须需要参考图'),
+  maxReferenceImages: z.number().int().positive().optional().describe('参考图最大数量'),
   docUrl: z.string().optional().describe('API文档链接')
 })
 export type ImageModelConfig = z.infer<typeof ImageModelConfigSchema>
+
+// ==================== 3D模型 ====================
+
+/** 3D模型配置 */
+export const ThreeDModelConfigSchema = z.object({
+  provider: ModelProviderSchema,
+  model: z.string(),
+  displayName: z.string(),
+  description: z.string().optional(),
+  supportTextTo3D: z.boolean().default(false).describe('是否支持文生3D'),
+  supportImageTo3D: z.boolean().default(false).describe('是否支持图生3D'),
+  docUrl: z.string().optional().describe('API文档链接')
+})
+export type ThreeDModelConfig = z.infer<typeof ThreeDModelConfigSchema>
 
 // ==================== 视频模型 ====================
 
@@ -58,8 +84,11 @@ export const VideoModelConfigSchema = z.object({
   supportImageToVideo: z.boolean().default(false).describe('是否支持图生视频'),
   supportReferenceImages: z.boolean().optional().describe('是否支持多参考图（referenceImages）'),
   maxReferenceImages: z.number().int().positive().optional().describe('多参考图最大数量（按模型能力）'),
+  supportVideoReference: z.boolean().optional().describe('是否支持视频参考（referenceVideos / first_clip）'),
+  maxReferenceVideos: z.number().int().positive().optional().describe('视频参考最大数量（按模型能力）'),
   supportTextToVideo: z.boolean().default(true).describe('是否支持文生视频'),
   supportAudioReference: z.boolean().optional().describe('是否支持显式音频参考（audioUrl / reference_audio）'),
+  maxReferenceAudios: z.number().int().positive().optional().describe('音频参考最大数量（按模型能力）'),
   docUrl: z.string().optional().describe('API文档链接')
 })
 export type VideoModelConfig = z.infer<typeof VideoModelConfigSchema>
@@ -100,6 +129,7 @@ export type SelectedModels = z.infer<typeof SelectedModelsSchema>
 export const AvailableModelsResponseSchema = z.object({
   text: z.array(TextModelConfigSchema),
   image: z.array(ImageModelConfigSchema),
+  threeD: z.array(ThreeDModelConfigSchema).optional(),
   video: z.array(VideoModelConfigSchema),
   voice: z.array(VoiceModelConfigSchema)
 })

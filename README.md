@@ -68,6 +68,7 @@ bun build:desktop          # 桌面端前端构建
 bun preview                # 以 Rust 后端预览生产构建
 bun desktop:dev            # 启动 Tauri 本地客户端（开发模式）
 bun desktop:build          # 构建 Tauri 本地客户端安装包
+bun desktop:sync-env        # 同步项目 .env 到桌面客户端数据目录
 bun desktop:install        # 一键构建 + 安装 + 启动桌面客户端
 
 # 代码质量
@@ -82,9 +83,11 @@ bun typecheck              # TypeScript 类型检查
 
 - `bun desktop:dev`：启动 Tauri 客户端（Rust 后端监听 `127.0.0.1:43127`）。
 - `bun desktop:build`：先执行 `bun build:desktop`，再打包桌面应用。
+- `bun desktop:sync-env`：将项目根目录 `.env` 同步到 `~/Library/Application Support/com.playlet.desktop/.env`（会自动备份旧文件）。
 - `bun desktop:install`：一键执行“构建 app bundle → 安装到 `/Applications`（无权限时自动回退 `~/Applications`）→ 启动客户端”。
 - 打包时会将前端静态资源 `.output/public` 写入应用资源目录 `web/public`。
 - 可用 `PLAYLET_INSTALL_DIR` 指定安装目录，例如：`PLAYLET_INSTALL_DIR="$HOME/Applications" bun desktop:install`
+- `desktop:install` 默认会自动同步 `.env`；如不希望自动同步可设置 `PLAYLET_SYNC_ENV=0`。
 
 ### 打包版环境变量加载说明（重要）
 

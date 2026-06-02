@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue'
 import {
+  AudioLines,
+  Film,
   ImagePlus,
   Loader2,
   Play,
@@ -16,16 +18,38 @@ import {
 const activeTab = defineModel<ModelTestTab>('activeTab', { required: true })
 const customPrompts = defineModel<Record<ModelTestTab, string>>('customPrompts', { required: true })
 const imageAspectRatio = defineModel<string>('imageAspectRatio', { required: true })
+const imageSize = defineModel<string>('imageSize', { required: true })
 const imageQuality = defineModel<string>('imageQuality', { required: true })
 
 const props = defineProps<{
   testResults: Record<ModelTestTab, TestResult>
   currentImageModelSupportsReference: boolean
   currentImageModelRequiresReference: boolean
+  currentImageModelMaxReferenceImages: number
   currentImageModelAspectRatioOptions: string[]
+  currentImageModelSizeOptions: string[]
+  currentImageModelSizeSelectionMode: 'fixed' | 'preset' | 'constraint'
+  currentImageModelSizeHelp: string
   currentImageModelQualityOptions: string[]
   canRunImageTest: boolean
+  canRunVideoTest: boolean
   referenceImages: string[]
+  videoReferenceImages: string[]
+  videoReferenceVideos: string[]
+  videoReferenceVideoNames: string[]
+  videoFirstFrame: string | null
+  videoLastFrame: string | null
+  videoAudioReferences: string[]
+  videoAudioReferenceNames: string[]
+  currentVideoModelSupportsImageReference: boolean
+  currentVideoModelSupportsReference: boolean
+  currentVideoModelSupportsVideoReference: boolean
+  currentVideoModelSupportsFirstLastFrame: boolean
+  currentVideoModelSupportsAudioReference: boolean
+  currentVideoModelRequiresReference: boolean
+  currentVideoModelMaxReferenceImages: number
+  currentVideoModelMaxReferenceVideos: number
+  currentVideoModelMaxReferenceAudios: number
   setFileInputRef: (element: Element | ComponentPublicInstance | null) => void
   setPromptEditorRef: (element: Element | ComponentPublicInstance | null) => void
   imagePromptIsEmpty: boolean
@@ -42,12 +66,28 @@ const props = defineProps<{
   handlePromptTextareaKeydown: (event: KeyboardEvent) => void
   handleReferenceImageUpload: (event: Event) => void
   removeReferenceImage: (index: number) => void
+  handleVideoReferenceImageUpload: (event: Event) => void
+  handleVideoReferenceVideoUpload: (event: Event) => void
+  handleVideoFirstFrameUpload: (event: Event) => void
+  handleVideoLastFrameUpload: (event: Event) => void
+  removeVideoReferenceImage: (index: number) => void
+  removeVideoReferenceVideo: (index: number) => void
+  clearVideoFirstFrame: () => void
+  clearVideoLastFrame: () => void
+  handleVideoAudioReferenceUpload: (event: Event) => void
+  removeVideoAudioReference: (index: number) => void
+  clearVideoAudioReference: () => void
   triggerFileInput: () => void
   openReferenceImagePreview: (image: string, index: number) => void
   testModel: (modelType: ModelTestTab) => Promise<void>
 }>()
 
 const currentTestStatus = computed(() => props.testResults[activeTab.value].status)
+const videoReferenceInputRef = ref<HTMLInputElement | null>(null)
+const videoReferenceVideoInputRef = ref<HTMLInputElement | null>(null)
+const videoFirstFrameInputRef = ref<HTMLInputElement | null>(null)
+const videoLastFrameInputRef = ref<HTMLInputElement | null>(null)
+const videoAudioInputRef = ref<HTMLInputElement | null>(null)
 
 function formatAspectRatioLabel(value: string): string {
   return value === 'auto' ? '自动 (auto)' : value
@@ -56,6 +96,44 @@ function formatAspectRatioLabel(value: string): string {
 function formatImageQualityLabel(value: string): string {
   return value.toUpperCase()
 }
+
+function formatImageSizeLabel(value: string): string {
+  return value.toUpperCase()
+}
+
+function triggerVideoReferenceInput() {
+  videoReferenceInputRef.value?.click()
+}
+
+function triggerVideoReferenceVideoInput() {
+  videoReferenceVideoInputRef.value?.click()
+}
+
+function triggerVideoFirstFrameInput() {
+  videoFirstFrameInputRef.value?.click()
+}
+
+function triggerVideoLastFrameInput() {
+  videoLastFrameInputRef.value?.click()
+}
+
+function triggerVideoAudioInput() {
+  videoAudioInputRef.value?.click()
+}
+
+const canRunCurrentTabTest = computed(() => {
+  if (activeTab.value === 'image') return props.canRunImageTest
+  if (activeTab.value === 'video') return props.canRunVideoTest
+  return true
+})
+
+const videoReferenceMaterialReady = computed(() => {
+  if (props.currentVideoModelSupportsFirstLastFrame && props.videoFirstFrame) return true
+  if (props.currentVideoModelSupportsImageReference && props.videoReferenceImages.length > 0) return true
+  if (props.currentVideoModelSupportsVideoReference && props.videoReferenceVideos.length > 0) return true
+  if (props.currentVideoModelSupportsAudioReference && props.videoAudioReferences.length > 0) return true
+  return false
+})
 </script>
 
 <template>
@@ -67,7 +145,7 @@ function formatImageQualityLabel(value: string): string {
           {{ activeTab === 'tts' ? '测试文本' : '测试提示词' }}
         </label>
         <div
-          v-if="activeTab === 'image'"
+          v-if="activeTab === 'image' && props.currentImageModelAspectRatioOptions.length > 0"
           class="flex items-center gap-2"
         >
           <label class="text-xs text-muted-foreground/80">比例</label>
@@ -85,6 +163,33 @@ function formatImageQualityLabel(value: string): string {
               </SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div
+          v-if="activeTab === 'image' && props.currentImageModelSizeOptions.length > 0"
+          class="flex items-center gap-2"
+        >
+          <label class="text-xs text-muted-foreground/80">
+            {{ props.currentImageModelSizeSelectionMode === 'constraint' ? '常用尺寸' : '尺寸' }}
+          </label>
+          <Select v-model="imageSize">
+            <SelectTrigger class="h-7 w-[130px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem
+                v-for="size in props.currentImageModelSizeOptions"
+                :key="`image_size_${size}`"
+                :value="size"
+              >
+                {{ formatImageSizeLabel(size) }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <span
+            v-if="props.currentImageModelSizeHelp"
+            class="max-w-[260px] truncate text-[11px] text-muted-foreground/70"
+            :title="props.currentImageModelSizeHelp"
+          >{{ props.currentImageModelSizeHelp }}</span>
         </div>
         <div
           v-if="activeTab === 'image' && props.currentImageModelQualityOptions.length > 0"
@@ -112,9 +217,15 @@ function formatImageQualityLabel(value: string): string {
           v-if="activeTab === 'image' && props.currentImageModelRequiresReference && props.referenceImages.length === 0"
           class="text-xs text-amber-600 dark:text-amber-400"
         >需要参考图</span>
+        <span
+          v-if="activeTab === 'video'
+            && props.currentVideoModelRequiresReference
+            && !videoReferenceMaterialReady"
+          class="text-xs text-amber-600 dark:text-amber-400"
+        >需要视频参考素材</span>
         <Button
           size="sm"
-          :disabled="currentTestStatus === 'testing' || !props.canRunImageTest"
+          :disabled="currentTestStatus === 'testing' || !canRunCurrentTabTest"
           class="gap-1.5"
           @click="props.testModel(activeTab)"
         >
@@ -208,7 +319,7 @@ function formatImageQualityLabel(value: string): string {
     >
       <label class="flex items-center gap-1 text-xs text-muted-foreground/70">
         <ImagePlus class="h-3 w-3" />
-        参考图片 (可选，最多 4 张)
+        参考图片 (可选，最多 {{ props.currentImageModelMaxReferenceImages }} 张)
       </label>
 
       <div class="flex flex-wrap gap-2">
@@ -237,7 +348,7 @@ function formatImageQualityLabel(value: string): string {
         </div>
 
         <Button
-          v-if="props.referenceImages.length < 4"
+          v-if="props.referenceImages.length < props.currentImageModelMaxReferenceImages"
           type="button"
           variant="ghost"
           class="h-14 w-14 rounded-lg border-2 border-dashed border-muted-foreground/20 p-0 text-muted-foreground/50 transition-colors hover:border-primary/50 hover:text-primary"
@@ -255,6 +366,306 @@ function formatImageQualityLabel(value: string): string {
         type="file"
         @change="props.handleReferenceImageUpload"
       />
+    </div>
+
+    <div
+      v-if="activeTab === 'video' && (props.currentVideoModelSupportsReference || props.currentVideoModelSupportsFirstLastFrame || props.currentVideoModelSupportsAudioReference)"
+      class="space-y-3"
+    >
+      <div
+        v-if="props.currentVideoModelSupportsFirstLastFrame"
+        class="space-y-2"
+      >
+        <label class="flex items-center gap-1 text-xs text-muted-foreground/70">
+          <ImagePlus class="h-3 w-3" />
+          首尾帧参考 (分开上传)
+        </label>
+
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div class="space-y-1.5">
+            <p class="text-xs text-muted-foreground/70">
+              首帧
+            </p>
+            <div
+              v-if="props.videoFirstFrame"
+              class="group relative h-24 cursor-zoom-in overflow-hidden rounded-lg border transition-colors hover:border-primary/50"
+              @click="props.openReferenceImagePreview(props.videoFirstFrame, 0)"
+            >
+              <img
+                :src="props.videoFirstFrame"
+                class="h-full w-full object-cover"
+              >
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                class="absolute right-1 top-1 h-6 w-6 rounded-full bg-black/60 p-0 text-white opacity-0 transition-opacity hover:bg-black/70 hover:text-white group-hover:opacity-100"
+                @click.stop="props.clearVideoFirstFrame"
+              >
+                <X class="h-3 w-3" />
+              </Button>
+            </div>
+            <Button
+              v-else
+              type="button"
+              variant="ghost"
+              class="h-24 w-full rounded-lg border-2 border-dashed border-muted-foreground/20 text-muted-foreground/60 transition-colors hover:border-primary/50 hover:text-primary"
+              @click="triggerVideoFirstFrameInput"
+            >
+              上传首帧
+            </Button>
+          </div>
+
+          <div class="space-y-1.5">
+            <p class="text-xs text-muted-foreground/70">
+              尾帧
+            </p>
+            <div
+              v-if="props.videoLastFrame"
+              class="group relative h-24 cursor-zoom-in overflow-hidden rounded-lg border transition-colors hover:border-primary/50"
+              @click="props.openReferenceImagePreview(props.videoLastFrame, 1)"
+            >
+              <img
+                :src="props.videoLastFrame"
+                class="h-full w-full object-cover"
+              >
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                class="absolute right-1 top-1 h-6 w-6 rounded-full bg-black/60 p-0 text-white opacity-0 transition-opacity hover:bg-black/70 hover:text-white group-hover:opacity-100"
+                @click.stop="props.clearVideoLastFrame"
+              >
+                <X class="h-3 w-3" />
+              </Button>
+            </div>
+            <Button
+              v-else
+              type="button"
+              variant="ghost"
+              class="h-24 w-full rounded-lg border-2 border-dashed border-muted-foreground/20 text-muted-foreground/60 transition-colors hover:border-primary/50 hover:text-primary"
+              @click="triggerVideoLastFrameInput"
+            >
+              上传尾帧
+            </Button>
+          </div>
+        </div>
+
+        <input
+          ref="videoFirstFrameInputRef"
+          accept="image/*"
+          class="hidden"
+          type="file"
+          @change="props.handleVideoFirstFrameUpload"
+        >
+        <input
+          ref="videoLastFrameInputRef"
+          accept="image/*"
+          class="hidden"
+          type="file"
+          @change="props.handleVideoLastFrameUpload"
+        >
+      </div>
+
+      <div
+        v-if="props.currentVideoModelSupportsImageReference && !props.currentVideoModelSupportsFirstLastFrame"
+        class="space-y-1.5"
+      >
+        <label class="flex items-center gap-1 text-xs text-muted-foreground/70">
+          <ImagePlus class="h-3 w-3" />
+          {{
+            props.currentVideoModelMaxReferenceImages <= 1
+              ? '视频参考图 (单图)'
+              : `视频参考图 (可选，最多 ${props.currentVideoModelMaxReferenceImages} 张)`
+          }}
+        </label>
+
+        <div class="flex flex-wrap gap-2">
+          <div
+            v-for="(img, index) in props.videoReferenceImages"
+            :key="`video_ref_${index}`"
+            class="group relative h-14 w-14 cursor-zoom-in overflow-hidden rounded-lg border transition-colors hover:border-primary/50"
+            @click="props.openReferenceImagePreview(img, index)"
+          >
+            <img
+              :src="img"
+              class="h-full w-full object-cover"
+            >
+            <span class="absolute left-0.5 top-0.5 rounded bg-black/60 px-1 py-0.5 text-[10px] leading-none text-white">
+              图{{ index + 1 }}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              class="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-black/60 p-0 text-white opacity-0 transition-opacity hover:bg-black/70 hover:text-white group-hover:opacity-100"
+              @click.stop="props.removeVideoReferenceImage(index)"
+            >
+              <X class="h-3 w-3" />
+            </Button>
+          </div>
+
+          <Button
+            v-if="props.videoReferenceImages.length < props.currentVideoModelMaxReferenceImages"
+            type="button"
+            variant="ghost"
+            class="h-14 w-14 rounded-lg border-2 border-dashed border-muted-foreground/20 p-0 text-muted-foreground/50 transition-colors hover:border-primary/50 hover:text-primary"
+            @click="triggerVideoReferenceInput"
+          >
+            <ImagePlus class="h-4 w-4" />
+          </Button>
+        </div>
+
+        <input
+          ref="videoReferenceInputRef"
+          accept="image/*"
+          class="hidden"
+          :multiple="props.currentVideoModelMaxReferenceImages > 1"
+          type="file"
+          @change="props.handleVideoReferenceImageUpload"
+        >
+      </div>
+
+      <div
+        v-if="props.currentVideoModelSupportsVideoReference"
+        class="space-y-1.5"
+      >
+        <label class="flex items-center gap-1 text-xs text-muted-foreground/70">
+          <Film class="h-3 w-3" />
+          {{
+            props.currentVideoModelMaxReferenceVideos <= 1
+              ? '视频参考片段 (单文件)'
+              : `视频参考片段 (可选，最多 ${props.currentVideoModelMaxReferenceVideos} 个)`
+          }}
+        </label>
+
+        <div class="space-y-2">
+          <div
+            v-for="(videoRef, index) in props.videoReferenceVideos"
+            :key="`video_ref_clip_${index}`"
+            class="group relative overflow-hidden rounded-lg border bg-muted/10"
+          >
+            <video
+              :src="videoRef"
+              class="h-24 w-full bg-black/80 object-contain"
+              controls
+              preload="metadata"
+            />
+            <div class="flex items-center justify-between gap-2 border-t px-2 py-1">
+              <span
+                class="truncate text-[11px] text-muted-foreground"
+                :title="props.videoReferenceVideoNames[index] || `参考视频 ${index + 1}`"
+              >
+                {{ props.videoReferenceVideoNames[index] || `参考视频 ${index + 1}` }}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                class="h-5 w-5 text-muted-foreground hover:text-foreground"
+                @click.stop="props.removeVideoReferenceVideo(index)"
+              >
+                <X class="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+
+          <Button
+            v-if="props.videoReferenceVideos.length < props.currentVideoModelMaxReferenceVideos"
+            type="button"
+            variant="ghost"
+            class="h-10 w-full rounded-lg border-2 border-dashed border-muted-foreground/20 text-muted-foreground/60 transition-colors hover:border-primary/50 hover:text-primary"
+            @click="triggerVideoReferenceVideoInput"
+          >
+            上传参考视频
+          </Button>
+        </div>
+
+        <input
+          ref="videoReferenceVideoInputRef"
+          accept="video/*"
+          class="hidden"
+          :multiple="props.currentVideoModelMaxReferenceVideos > 1"
+          type="file"
+          @change="props.handleVideoReferenceVideoUpload"
+        >
+      </div>
+
+      <div
+        v-if="props.currentVideoModelSupportsAudioReference"
+        class="space-y-1.5"
+      >
+        <label class="flex items-center gap-1 text-xs text-muted-foreground/70">
+          <AudioLines class="h-3 w-3" />
+          {{
+            props.currentVideoModelMaxReferenceAudios <= 1
+              ? '音频参考 (可选，单文件)'
+              : `音频参考 (可选，最多 ${props.currentVideoModelMaxReferenceAudios} 个)`
+          }}
+        </label>
+
+        <div class="space-y-2">
+          <div
+            v-for="(audioRef, index) in props.videoAudioReferences"
+            :key="`video_ref_audio_${index}`"
+            class="flex items-center justify-between gap-2 rounded-lg border bg-muted/10 px-2 py-1.5"
+          >
+            <audio
+              :src="audioRef"
+              class="h-8 w-full min-w-0"
+              controls
+              preload="metadata"
+            />
+            <span
+              class="max-w-[260px] truncate text-[11px] text-muted-foreground"
+              :title="props.videoAudioReferenceNames[index] || `参考音频 ${index + 1}`"
+            >
+              {{ props.videoAudioReferenceNames[index] || `参考音频 ${index + 1}` }}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              class="h-6 w-6 text-muted-foreground hover:text-foreground"
+              @click="props.removeVideoAudioReference(index)"
+            >
+              <X class="h-3 w-3" />
+            </Button>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              class="h-8"
+              @click="triggerVideoAudioInput"
+            >
+              上传音频
+            </Button>
+            <Button
+              v-if="props.videoAudioReferences.length > 0"
+              type="button"
+              variant="ghost"
+              size="sm"
+              class="h-8 px-2 text-xs text-muted-foreground"
+              @click="props.clearVideoAudioReference"
+            >
+              清空全部
+            </Button>
+          </div>
+        </div>
+
+        <input
+          ref="videoAudioInputRef"
+          accept="audio/*"
+          class="hidden"
+          :multiple="props.currentVideoModelMaxReferenceAudios > 1"
+          type="file"
+          @change="props.handleVideoAudioReferenceUpload"
+        >
+      </div>
+
     </div>
   </div>
 </template>
