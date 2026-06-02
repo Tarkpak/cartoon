@@ -704,7 +704,7 @@ onMounted(() => {
           </SelectContent>
         </Select>
         <p class="text-[11px] text-muted-foreground">
-          gpt-image 系列支持 auto / low / medium / high。
+          OpenAI 图片生成请求参数支持 auto / low / medium / high；gpt-image-2 的尺寸还支持满足约束的自定义分辨率。
         </p>
       </div>
     </div>

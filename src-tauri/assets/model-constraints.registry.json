@@ -1,0 +1,828 @@
+{
+  "version": 1,
+  "updatedAt": "2026-05-31",
+  "notes": "Static model capability registry. Capability constraints come only from local rules.",
+  "sources": [
+    {
+      "provider": "openai",
+      "url": "https://developers.openai.com/api/docs/guides/image-generation",
+      "updatedAt": "2026-05-31"
+    },
+    {
+      "provider": "volcengine",
+      "url": "https://www.volcengine.com/docs/82379/1330310?lang=zh",
+      "updatedAt": "2026-05-30"
+    },
+    {
+      "provider": "qwen",
+      "url": "https://help.aliyun.com/zh/model-studio/models",
+      "updatedAt": "2026-05-30"
+    },
+    {
+      "provider": "gemini",
+      "url": "https://ai.google.dev/gemini-api/docs/models",
+      "updatedAt": "2026-05-30"
+    },
+    {
+      "provider": "kling",
+      "url": "https://klingai.com/",
+      "updatedAt": "2026-05-30"
+    }
+  ],
+  "defaults": {
+    "text": {
+      "supportThinking": false
+    },
+    "image": {
+      "supportedAspectRatios": ["1:1", "16:9", "9:16"],
+      "supportedQualities": ["auto", "low", "medium", "high"],
+      "supportTextToImage": true,
+      "supportImageToImage": false,
+      "supportReferenceImage": false,
+      "supportReferenceImages": false,
+      "requireReferenceImage": false,
+      "maxReferenceImages": 1
+    },
+    "video": {
+      "supportFirstLastFrame": false,
+      "supportImageToVideo": false,
+      "supportTextToVideo": true,
+      "supportReferenceImages": false,
+      "maxReferenceImages": 1,
+      "supportVideoReference": false,
+      "maxReferenceVideos": 1,
+      "supportAudioReference": false,
+      "maxReferenceAudios": 1
+    },
+    "threeD": {
+      "supportTextTo3D": true,
+      "supportImageTo3D": false
+    }
+  },
+  "rules": [
+    {
+      "provider": "*",
+      "match": { "type": "exact", "value": "gpt-image-2" },
+      "modelKind": "image",
+      "description": "图片生成模型",
+      "docUrl": "https://developers.openai.com/api/docs/guides/image-generation",
+      "image": {
+        "sizeSelectionMode": "constraint",
+        "sizeConstraints": {
+          "maxEdge": 3840,
+          "edgeMultiple": 16,
+          "maxAspectRatio": "3:1",
+          "minPixels": 655360,
+          "maxPixels": 8294400
+        },
+        "supportedSizes": ["1024x1024", "1536x1024", "1024x1536", "2048x2048", "2048x1152", "3840x2160", "2160x3840"],
+        "supportedQualities": ["auto", "low", "medium", "high"],
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 4
+      }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "exact", "value": "gpt-image-1.5" },
+      "modelKind": "image",
+      "description": "图片生成模型",
+      "docUrl": "https://developers.openai.com/api/docs/api-reference/images/create",
+      "image": {
+        "supportedSizes": ["auto", "1024x1024", "1024x1536", "1536x1024"],
+        "supportedQualities": ["auto", "low", "medium", "high"],
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 4
+      }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "exact", "value": "gpt-image-1-mini" },
+      "modelKind": "image",
+      "description": "图片生成模型",
+      "docUrl": "https://developers.openai.com/api/docs/api-reference/images/create",
+      "image": {
+        "supportedSizes": ["auto", "1024x1024", "1024x1536", "1536x1024"],
+        "supportedQualities": ["auto", "low", "medium", "high"],
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 4
+      }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "exact", "value": "gpt-image-1" },
+      "modelKind": "image",
+      "description": "图片生成模型",
+      "docUrl": "https://developers.openai.com/api/docs/api-reference/images/create",
+      "image": {
+        "supportedSizes": ["auto", "1024x1024", "1024x1536", "1536x1024"],
+        "supportedQualities": ["auto", "low", "medium", "high"],
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 4
+      }
+    },
+    {
+      "provider": "qwen",
+      "match": { "type": "prefix", "value": "qwen-image-2.0" },
+      "modelKind": "image",
+      "displayName": "千问 Qwen-Image 2.0",
+      "description": "千问图像生成与编辑 2.0 系列",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/qwen-image-api",
+      "image": {
+        "supportedAspectRatios": ["1:1", "16:9", "9:16", "4:3", "3:4"],
+        "supportedSizes": ["2048*2048", "2688*1536", "1536*2688", "2368*1728", "1728*2368"],
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 4
+      }
+    },
+    {
+      "provider": "qwen",
+      "match": { "type": "prefix", "value": "wan2.7-image" },
+      "modelKind": "image",
+      "description": "万相图片生成模型",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/wan-image-generation-and-editing-api-reference",
+      "image": {
+        "supportedAspectRatios": ["1:1", "16:9", "9:16", "4:3", "3:4", "21:9", "9:21"],
+        "supportedSizes": ["1K", "2K", "4K"],
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 4
+      }
+    },
+    {
+      "provider": "qwen",
+      "match": { "type": "prefix", "value": "wan2.7-t2v" },
+      "modelKind": "video",
+      "description": "万相文生视频",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/models",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": false,
+        "supportFirstLastFrame": false
+      }
+    },
+    {
+      "provider": "qwen",
+      "match": { "type": "prefix", "value": "wan2.7-i2v" },
+      "modelKind": "video",
+      "description": "万相图生视频",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/models",
+      "video": {
+        "supportTextToVideo": false,
+        "supportImageToVideo": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 1
+      }
+    },
+    {
+      "provider": "qwen",
+      "match": { "type": "prefix", "value": "wan2.7-flf2v" },
+      "modelKind": "video",
+      "description": "万相首尾帧视频",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/models",
+      "video": {
+        "supportTextToVideo": false,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 2
+      }
+    },
+    {
+      "provider": "qwen",
+      "match": { "type": "contains", "value": "wan2.7-video" },
+      "modelKind": "video",
+      "description": "万相视频模型",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/models",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 2
+      }
+    },
+    {
+      "provider": "qwen",
+      "match": { "type": "contains", "value": "sensevoice" },
+      "modelKind": "voice_asr",
+      "description": "语音识别",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/models",
+      "voice": { "type": "asr" }
+    },
+    {
+      "provider": "qwen",
+      "match": { "type": "contains", "value": "paraformer" },
+      "modelKind": "voice_asr",
+      "description": "语音识别",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/models",
+      "voice": { "type": "asr" }
+    },
+    {
+      "provider": "qwen",
+      "match": { "type": "contains", "value": "cosyvoice" },
+      "modelKind": "voice_tts",
+      "description": "语音合成",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/models",
+      "voice": { "type": "tts" }
+    },
+    {
+      "provider": "qwen",
+      "match": { "type": "contains", "value": "tts" },
+      "modelKind": "voice_tts",
+      "description": "语音合成",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/models",
+      "voice": { "type": "tts" }
+    },
+    {
+      "provider": "qwen",
+      "match": { "type": "prefix", "value": "qwen3" },
+      "modelKind": "text",
+      "description": "通义千问文本模型",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/models",
+      "text": { "supportThinking": true }
+    },
+    {
+      "provider": "qwen",
+      "match": { "type": "prefix", "value": "qwq" },
+      "modelKind": "text",
+      "description": "通义推理模型",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/models",
+      "text": { "supportThinking": true }
+    },
+    {
+      "provider": "qwen",
+      "match": { "type": "prefix", "value": "qvq" },
+      "modelKind": "text",
+      "description": "通义视觉推理模型",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/models",
+      "text": { "supportThinking": true }
+    },
+
+    {
+      "provider": "volcengine",
+      "match": { "type": "exact", "value": "doubao-seedance-2-0-260128" },
+      "modelKind": "video",
+      "displayName": "Doubao Seedance 2.0",
+      "description": "Seedance 2.0 视频模型",
+      "docUrl": "https://www.volcengine.com/docs/82379/2291680?lang=zh#50e1b4ea",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 9,
+        "supportVideoReference": true,
+        "maxReferenceVideos": 3,
+        "supportAudioReference": true,
+        "maxReferenceAudios": 3
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": { "type": "exact", "value": "doubao-seedance-2-0-fast-260128" },
+      "modelKind": "video",
+      "displayName": "Doubao Seedance 2.0 Fast",
+      "description": "Seedance 2.0 Fast 视频模型",
+      "docUrl": "https://www.volcengine.com/docs/82379/2291680?lang=zh#50e1b4ea",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 9,
+        "supportVideoReference": true,
+        "maxReferenceVideos": 3,
+        "supportAudioReference": true,
+        "maxReferenceAudios": 3
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": { "type": "contains", "value": "seedance-2" },
+      "modelKind": "video",
+      "description": "Seedance 2 视频模型",
+      "docUrl": "https://www.volcengine.com/docs/82379/2291680?lang=zh#50e1b4ea",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 9,
+        "supportVideoReference": true,
+        "maxReferenceVideos": 3,
+        "supportAudioReference": true,
+        "maxReferenceAudios": 3
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": { "type": "contains", "value": "seedance2" },
+      "modelKind": "video",
+      "description": "Seedance 2 视频模型",
+      "docUrl": "https://www.volcengine.com/docs/82379/2291680?lang=zh#50e1b4ea",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 9,
+        "supportVideoReference": true,
+        "maxReferenceVideos": 3,
+        "supportAudioReference": true,
+        "maxReferenceAudios": 3
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": { "type": "contains", "value": "seedance" },
+      "modelKind": "video",
+      "description": "Seedance 视频模型",
+      "docUrl": "https://www.volcengine.com/docs/82379/2291680?lang=zh#50e1b4ea",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 9,
+        "supportVideoReference": true,
+        "maxReferenceVideos": 3,
+        "supportAudioReference": true,
+        "maxReferenceAudios": 3
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": { "type": "contains", "value": "seaweed" },
+      "modelKind": "video",
+      "description": "Seaweed 视频模型",
+      "docUrl": "https://www.volcengine.com/docs/82379/1330310?lang=zh",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": false,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 2
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": { "type": "contains", "value": "seedream" },
+      "modelKind": "image",
+      "description": "Seedream 图片模型",
+      "docUrl": "https://www.volcengine.com/docs/82379/1330310?lang=zh",
+      "image": {
+        "supportedAspectRatios": ["1:1", "16:9", "9:16", "4:3", "3:4", "21:9", "9:21"],
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 4
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": { "type": "contains", "value": "seededit" },
+      "modelKind": "image",
+      "description": "SeedEdit 图片编辑",
+      "docUrl": "https://www.volcengine.com/docs/82379/1330310?lang=zh",
+      "image": {
+        "supportedAspectRatios": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4"],
+        "supportTextToImage": false,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": false,
+        "requireReferenceImage": true,
+        "maxReferenceImages": 1
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": { "type": "contains", "value": "seed3d" },
+      "modelKind": "three_d",
+      "description": "Seed3D 模型",
+      "docUrl": "https://www.volcengine.com/docs/82379/1330310?lang=zh",
+      "threeD": {
+        "supportTextTo3D": false,
+        "supportImageTo3D": true
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": { "type": "contains", "value": "hyper3d" },
+      "modelKind": "three_d",
+      "description": "Hyper3D 模型",
+      "docUrl": "https://www.volcengine.com/docs/82379/1330310?lang=zh",
+      "threeD": {
+        "supportTextTo3D": true,
+        "supportImageTo3D": true
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": { "type": "contains", "value": "hitem3d" },
+      "modelKind": "three_d",
+      "description": "Hi3DGen 模型",
+      "docUrl": "https://www.volcengine.com/docs/82379/1330310?lang=zh",
+      "threeD": {
+        "supportTextTo3D": false,
+        "supportImageTo3D": true
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": { "type": "contains", "value": "doubao-seed" },
+      "modelKind": "text",
+      "description": "豆包文本模型",
+      "docUrl": "https://www.volcengine.com/docs/82379/1330310?lang=zh",
+      "text": { "supportThinking": false }
+    },
+    {
+      "provider": "volcengine",
+      "match": { "type": "contains", "value": "doubao" },
+      "modelKind": "text",
+      "description": "豆包文本模型",
+      "docUrl": "https://www.volcengine.com/docs/82379/1330310?lang=zh"
+    },
+
+    {
+      "provider": "gemini",
+      "match": { "type": "prefix", "value": "imagen" },
+      "modelKind": "image",
+      "description": "Imagen 图片模型",
+      "docUrl": "https://ai.google.dev/gemini-api/docs/imagen",
+      "image": {
+        "supportedAspectRatios": ["1:1", "16:9", "9:16", "4:3", "3:4"],
+        "supportTextToImage": true,
+        "supportImageToImage": false,
+        "supportReferenceImage": false,
+        "supportReferenceImages": false,
+        "maxReferenceImages": 1
+      }
+    },
+    {
+      "provider": "gemini",
+      "match": { "type": "prefix", "value": "veo" },
+      "modelKind": "video",
+      "description": "Veo 视频模型",
+      "docUrl": "https://ai.google.dev/gemini-api/docs/models",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 1
+      }
+    },
+    {
+      "provider": "gemini",
+      "match": { "type": "prefix", "value": "gemini" },
+      "modelKind": "text",
+      "description": "Gemini 文本模型",
+      "docUrl": "https://ai.google.dev/gemini-api/docs/models"
+    },
+
+    {
+      "provider": "kling",
+      "match": { "type": "exact", "value": "kling-v3-omni" },
+      "modelKind": "video",
+      "displayName": "可灵 Kling v3 Omni",
+      "description": "可灵 Omni 视频模型",
+      "docUrl": "https://klingai.com/",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 4,
+        "supportAudioReference": true
+      }
+    },
+    {
+      "provider": "kling",
+      "match": { "type": "prefix", "value": "kling-v3" },
+      "modelKind": "video",
+      "description": "可灵 v3 视频模型",
+      "docUrl": "https://klingai.com/",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 4
+      }
+    },
+    {
+      "provider": "kling",
+      "match": { "type": "contains", "value": "kling-v2.6" },
+      "modelKind": "video",
+      "description": "可灵 v2.6 视频模型",
+      "docUrl": "https://klingai.com/",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": false,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 2
+      }
+    },
+    {
+      "provider": "kling",
+      "match": { "type": "contains", "value": "kling-v2-6" },
+      "modelKind": "video",
+      "description": "可灵 v2.6 视频模型",
+      "docUrl": "https://klingai.com/",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": false,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 2
+      }
+    },
+    {
+      "provider": "kling",
+      "match": { "type": "contains", "value": "kling" },
+      "modelKind": "video",
+      "description": "可灵视频模型",
+      "docUrl": "https://klingai.com/",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 2
+      }
+    },
+
+    {
+      "provider": "deepseek",
+      "match": { "type": "contains", "value": "deepseek-r1" },
+      "modelKind": "text",
+      "description": "DeepSeek 推理模型",
+      "docUrl": "https://api-docs.deepseek.com/",
+      "text": { "supportThinking": true }
+    },
+    {
+      "provider": "deepseek",
+      "match": { "type": "contains", "value": "deepseek" },
+      "modelKind": "text",
+      "description": "DeepSeek 文本模型",
+      "docUrl": "https://api-docs.deepseek.com/"
+    },
+
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "asr" },
+      "modelKind": "voice_asr",
+      "description": "语音识别模型",
+      "voice": { "type": "asr" }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "whisper" },
+      "modelKind": "voice_asr",
+      "description": "语音识别模型",
+      "voice": { "type": "asr" }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "transcribe" },
+      "modelKind": "voice_asr",
+      "description": "语音识别模型",
+      "voice": { "type": "asr" }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "tts" },
+      "modelKind": "voice_tts",
+      "description": "语音合成模型",
+      "voice": { "type": "tts" }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "text-to-speech" },
+      "modelKind": "voice_tts",
+      "description": "语音合成模型",
+      "voice": { "type": "tts" }
+    },
+
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "hyper3d" },
+      "modelKind": "three_d",
+      "description": "3D 模型",
+      "threeD": {
+        "supportTextTo3D": true,
+        "supportImageTo3D": true
+      }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "image-to-3d" },
+      "modelKind": "three_d",
+      "description": "3D 模型",
+      "threeD": {
+        "supportTextTo3D": false,
+        "supportImageTo3D": true
+      }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "3d" },
+      "modelKind": "three_d",
+      "description": "3D 模型"
+    },
+
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "flf2v" },
+      "modelKind": "video",
+      "description": "首尾帧视频模型",
+      "video": {
+        "supportTextToVideo": false,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 2
+      }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "i2v" },
+      "modelKind": "video",
+      "description": "图生视频模型",
+      "video": {
+        "supportTextToVideo": false,
+        "supportImageToVideo": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 1
+      }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "image-to-video" },
+      "modelKind": "video",
+      "description": "图生视频模型",
+      "video": {
+        "supportTextToVideo": false,
+        "supportImageToVideo": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 1
+      }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "t2v" },
+      "modelKind": "video",
+      "description": "文生视频模型",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": false
+      }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "video" },
+      "modelKind": "video",
+      "description": "视频模型"
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "veo" },
+      "modelKind": "video",
+      "description": "视频模型",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 1
+      }
+    },
+
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "seededit" },
+      "modelKind": "image",
+      "description": "图片编辑模型",
+      "image": {
+        "supportedAspectRatios": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4"],
+        "supportTextToImage": false,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": false,
+        "requireReferenceImage": true,
+        "maxReferenceImages": 1
+      }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "i2i" },
+      "modelKind": "image",
+      "description": "图像编辑模型",
+      "image": {
+        "supportedAspectRatios": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4"],
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 2
+      }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "image-to-image" },
+      "modelKind": "image",
+      "description": "图像编辑模型",
+      "image": {
+        "supportedAspectRatios": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4"],
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 2
+      }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "gpt-image" },
+      "modelKind": "image",
+      "description": "图片生成模型",
+      "image": {
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 4
+      }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "imagen" },
+      "modelKind": "image",
+      "description": "图片生成模型"
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "image" },
+      "modelKind": "image",
+      "description": "图片模型"
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "flux" },
+      "modelKind": "image",
+      "description": "图片模型"
+    },
+
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "reason" },
+      "modelKind": "text",
+      "description": "推理文本模型",
+      "text": { "supportThinking": true }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "thinking" },
+      "modelKind": "text",
+      "description": "推理文本模型",
+      "text": { "supportThinking": true }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "qwq" },
+      "modelKind": "text",
+      "description": "推理文本模型",
+      "text": { "supportThinking": true }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "qvq" },
+      "modelKind": "text",
+      "description": "推理文本模型",
+      "text": { "supportThinking": true }
+    },
+    {
+      "provider": "*",
+      "match": { "type": "contains", "value": "deepseek-r1" },
+      "modelKind": "text",
+      "description": "推理文本模型",
+      "text": { "supportThinking": true }
+    }
+  ]
+}

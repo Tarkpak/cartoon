@@ -53,6 +53,24 @@ const videoResultUrl = computed(() => {
   const result = props.testResults.video.result as { videoUrl?: string } | undefined
   return result?.videoUrl
 })
+const videoResultMeta = computed(() => {
+  const result = props.testResults.video.result as {
+    usedReferenceImageCount?: number
+    usedReferenceVideoCount?: number
+    usedReferenceAudioCount?: number
+    hasAudioReference?: boolean
+    hasFirstFrame?: boolean
+    hasLastFrame?: boolean
+  } | undefined
+  return {
+    usedReferenceImageCount: result?.usedReferenceImageCount || 0,
+    usedReferenceVideoCount: result?.usedReferenceVideoCount || 0,
+    usedReferenceAudioCount: result?.usedReferenceAudioCount || 0,
+    hasAudioReference: result?.hasAudioReference === true,
+    hasFirstFrame: result?.hasFirstFrame === true,
+    hasLastFrame: result?.hasLastFrame === true
+  }
+})
 </script>
 
 <template>
@@ -125,6 +143,12 @@ const videoResultUrl = computed(() => {
           class="max-h-[400px] max-w-full"
           controls
         />
+      </div>
+      <div
+        v-if="props.activeTab === 'video' && videoResultUrl"
+        class="rounded-lg border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+      >
+        参考图: {{ videoResultMeta.usedReferenceImageCount }} 项 · 参考视频: {{ videoResultMeta.usedReferenceVideoCount }} 项 · 音频参考: {{ videoResultMeta.usedReferenceAudioCount }} 项 · 首帧: {{ videoResultMeta.hasFirstFrame ? '有' : '无' }} · 尾帧: {{ videoResultMeta.hasLastFrame ? '有' : '无' }}
       </div>
 
       <!-- TTS result -->

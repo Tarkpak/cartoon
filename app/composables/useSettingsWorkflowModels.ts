@@ -170,6 +170,7 @@ export function useSettingsWorkflowModels() {
       require_reference_image: '必须参考图',
       first_last_frame: '需首尾帧',
       image_to_video: '需图生视频',
+      video_reference: '支持视频参考',
       text_to_video: '需文生视频',
       text_generation: '文本生成'
     }

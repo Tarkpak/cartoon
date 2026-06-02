@@ -41,11 +41,14 @@ const DEFAULT_STYLE_PRESETS_JSON: &str = include_str!("../assets/default-style-p
 const DEFAULT_STYLE_CATEGORIES_JSON: &str = include_str!("../assets/default-style-categories.json");
 const DEFAULT_PROMPT_TEMPLATES_JSON: &str = include_str!("../assets/default-prompt-templates.json");
 
+#[path = "backend/model_constraints.rs"]
+mod model_constraints;
 #[path = "backend/prompts_api.rs"]
 mod prompts_api;
 #[path = "backend/runtime_api.rs"]
 mod runtime_api;
 
+use model_constraints::{build_available_model_entry, AvailableModelKind};
 use prompts_api::*;
 use runtime_api::*;
 
@@ -543,43 +546,6 @@ fn default_style_categories() -> Value {
     }
 }
 
-fn default_available_models() -> Value {
-    json!({
-      "text": [
-        {
-          "provider": "qwen",
-          "model": "qwen3.6-plus",
-          "displayName": "通义千问3.6-Plus",
-          "description": "默认文本模型",
-          "supportThinking": true
-        }
-      ],
-      "image": [
-        {
-          "provider": "qwen",
-          "model": "qwen-image-2.0-pro",
-          "displayName": "通义万相2.0",
-          "description": "默认图片模型",
-          "supportedAspectRatios": ["1:1", "16:9", "9:16"],
-          "supportedQualities": ["auto", "low", "medium", "high"],
-          "supportReferenceImage": true
-        }
-      ],
-      "video": [
-        {
-          "provider": "qwen",
-          "model": "wan2.7-t2v",
-          "displayName": "万相2.7视频",
-          "description": "默认视频模型",
-          "supportFirstLastFrame": true,
-          "supportImageToVideo": true,
-          "supportTextToVideo": true
-        }
-      ],
-      "voice": []
-    })
-}
-
 fn default_selected_models() -> Value {
     json!({
       "text": "qwen3.6-plus",
@@ -674,6 +640,66 @@ fn default_custom_openai_config() -> Value {
       "modelsSyncedAt": null,
       "modelsSyncError": null
     })
+}
+
+fn build_available_models(conn: &Connection) -> Result<Value, ApiError> {
+    let mut text_models: Vec<Value> = Vec::new();
+    let mut image_models: Vec<Value> = Vec::new();
+    let mut three_d_models: Vec<Value> = Vec::new();
+    let mut video_models: Vec<Value> = Vec::new();
+    let mut voice_models: Vec<Value> = Vec::new();
+    let mut seen = HashSet::new();
+
+    for provider_item in provider_summary(conn)? {
+        let Some(provider) = provider_item.get("provider").and_then(Value::as_str) else {
+            continue;
+        };
+        for model_id in json_string_list(provider_item.get("models")) {
+            let key = format!("{}::{}", provider, model_id);
+            if !seen.insert(key) {
+                continue;
+            }
+            let (kind, entry) = build_available_model_entry(provider, &model_id);
+            match kind {
+                AvailableModelKind::Text => text_models.push(entry),
+                AvailableModelKind::Image => image_models.push(entry),
+                AvailableModelKind::ThreeD => three_d_models.push(entry),
+                AvailableModelKind::Video => video_models.push(entry),
+                AvailableModelKind::VoiceTts | AvailableModelKind::VoiceAsr => {
+                    voice_models.push(entry)
+                }
+            }
+        }
+    }
+
+    Ok(json!({
+      "text": text_models,
+      "image": image_models,
+      "threeD": three_d_models,
+      "video": video_models,
+      "voice": voice_models
+    }))
+}
+
+fn available_model_kind_key(kind: AvailableModelKind) -> &'static str {
+    match kind {
+        AvailableModelKind::Text => "text",
+        AvailableModelKind::Image => "image",
+        AvailableModelKind::ThreeD => "three_d",
+        AvailableModelKind::Video => "video",
+        AvailableModelKind::VoiceTts => "voice_tts",
+        AvailableModelKind::VoiceAsr => "voice_asr",
+    }
+}
+
+fn available_model_category(kind: AvailableModelKind) -> &'static str {
+    match kind {
+        AvailableModelKind::Text => "text",
+        AvailableModelKind::Image => "image",
+        AvailableModelKind::ThreeD => "three_d",
+        AvailableModelKind::Video => "video",
+        AvailableModelKind::VoiceTts | AvailableModelKind::VoiceAsr => "voice",
+    }
 }
 
 fn fallback_prompt_templates() -> Value {
@@ -2111,10 +2137,11 @@ async fn api_models(State(state): State<BackendState>) -> Result<Json<Value>, Ap
     let conn = db_connection(&state)?;
     let selected =
         get_config_json(&conn, SELECTED_MODELS_KEY)?.unwrap_or_else(default_selected_models);
+    let available = build_available_models(&conn)?;
     Ok(Json(json!({
       "success": true,
       "data": {
-        "available": default_available_models(),
+        "available": available,
         "selected": selected
       }
     })))
@@ -2174,7 +2201,7 @@ async fn api_models_workflow_get(
         get_config_json(&conn, WORKFLOW_MODELS_KEY)?.unwrap_or_else(default_workflow_models);
     let model_options = get_config_json(&conn, WORKFLOW_MODEL_OPTIONS_KEY)?
         .unwrap_or_else(default_workflow_model_options);
-    let available = default_available_models();
+    let available = build_available_models(&conn)?;
 
     let workflows = default_workflow_steps()
         .as_array()
@@ -2295,41 +2322,263 @@ fn json_string_list(value: Option<&Value>) -> Vec<String> {
     output
 }
 
-fn static_provider_models(provider: &str) -> Vec<String> {
-    match provider {
-        "qwen" => vec![
-            "qwen3.6-plus".to_string(),
-            "qwen-image-2.0-pro".to_string(),
-            "wan2.7-t2v".to_string(),
-        ],
-        "volcengine" => vec![
-            "doubao-seed-2.0-pro".to_string(),
-            "doubao-seedream-5-0-lite".to_string(),
-            "doubao-seedance-2.0".to_string(),
-        ],
-        "deepseek" => vec!["deepseek-v4-pro".to_string(), "deepseek-v4-flash".to_string()],
-        "gemini" => vec![
-            "gemini-3-flash-preview".to_string(),
-            "gemini-3.1-pro-preview".to_string(),
-        ],
-        "kling" => vec![
-            "kling-v2-6".to_string(),
-            "kling-v3".to_string(),
-            "kling-v3-omni".to_string(),
-        ],
-        "custom_openai" => vec![],
-        _ => vec![],
+fn env_var_trimmed(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn split_env_values(raw: &str) -> Vec<String> {
+    let mut output = Vec::new();
+    let mut seen = HashSet::new();
+    for part in raw.split([',', ';', '\n', '\r']) {
+        let value = part.trim();
+        if value.is_empty() {
+            continue;
+        }
+        let owned = value.to_string();
+        if seen.insert(owned.clone()) {
+            output.push(owned);
+        }
     }
+    output
+}
+
+fn env_var_values(key: &str) -> Vec<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| split_env_values(&value))
+        .unwrap_or_default()
+}
+
+fn normalize_provider_base_url(raw: &str) -> Option<String> {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn provider_sync_base_url(provider: &str, custom_openai: &Value) -> Option<String> {
+    match provider {
+        "qwen" => env_var_trimmed("QWEN_BASE_URL")
+            .and_then(|value| normalize_provider_base_url(&value))
+            .or_else(|| Some("https://dashscope.aliyuncs.com/compatible-mode/v1".to_string())),
+        "volcengine" => env_var_trimmed("VOLCENGINE_BASE_URL")
+            .and_then(|value| normalize_provider_base_url(&value))
+            .or_else(|| Some("https://ark.cn-beijing.volces.com/api/v3".to_string())),
+        "deepseek" => env_var_trimmed("DEEPSEEK_BASE_URL")
+            .and_then(|value| normalize_provider_base_url(&value))
+            .or_else(|| Some("https://api.deepseek.com".to_string())),
+        "gemini" => env_var_trimmed("GEMINI_BASE_URL")
+            .and_then(|value| normalize_provider_base_url(&value))
+            .or_else(|| Some("https://generativelanguage.googleapis.com/v1beta".to_string())),
+        "custom_openai" => custom_openai
+            .get("baseUrl")
+            .and_then(Value::as_str)
+            .and_then(normalize_provider_base_url),
+        _ => None,
+    }
+}
+
+fn provider_sync_api_key(provider: &str, custom_openai: &Value) -> Option<String> {
+    match provider {
+        "qwen" => env_var_trimmed("QWEN_API_KEY"),
+        "volcengine" => env_var_trimmed("VOLCENGINE_API_KEY"),
+        "deepseek" => env_var_trimmed("DEEPSEEK_API_KEY"),
+        "custom_openai" => custom_openai
+            .get("apiKey")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        _ => None,
+    }
+}
+
+fn provider_sync_api_keys(provider: &str, custom_openai: &Value) -> Vec<String> {
+    if provider == "gemini" {
+        return env_var_values("GEMINI_API_KEY");
+    }
+    provider_sync_api_key(provider, custom_openai)
+        .map(|value| vec![value])
+        .unwrap_or_default()
+}
+
+fn provider_models_endpoint(base_url: &str) -> String {
+    let normalized = base_url.trim_end_matches('/');
+    if normalized.to_ascii_lowercase().ends_with("/models") {
+        normalized.to_string()
+    } else {
+        format!("{}/models", normalized)
+    }
+}
+
+fn normalize_remote_model_id(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if let Some(stripped) = trimmed.strip_prefix("models/") {
+        return stripped.trim().to_string();
+    }
+    trimmed.to_string()
+}
+
+fn push_model_id(value: &Value, output: &mut Vec<String>, seen: &mut HashSet<String>) {
+    let candidate = if let Some(id) = value.as_str() {
+        normalize_remote_model_id(id)
+    } else if let Some(id) = value.get("id").and_then(Value::as_str) {
+        normalize_remote_model_id(id)
+    } else if let Some(id) = value.get("model").and_then(Value::as_str) {
+        normalize_remote_model_id(id)
+    } else if let Some(id) = value.get("name").and_then(Value::as_str) {
+        normalize_remote_model_id(id)
+    } else {
+        String::new()
+    };
+
+    if candidate.is_empty() {
+        return;
+    }
+    if seen.insert(candidate.clone()) {
+        output.push(candidate);
+    }
+}
+
+fn parse_openai_compatible_model_ids(payload: &Value) -> Vec<String> {
+    let mut output = Vec::new();
+    let mut seen = HashSet::new();
+
+    if let Some(items) = payload.get("data").and_then(Value::as_array) {
+        for item in items {
+            push_model_id(item, &mut output, &mut seen);
+        }
+    }
+    if let Some(items) = payload.get("models").and_then(Value::as_array) {
+        for item in items {
+            push_model_id(item, &mut output, &mut seen);
+        }
+    }
+    if output.is_empty() {
+        push_model_id(payload, &mut output, &mut seen);
+    }
+
+    output
+}
+
+fn retain_enabled_models(previous: &[String], available: &[String]) -> Vec<String> {
+    let available_set: HashSet<String> = available.iter().cloned().collect();
+    let mut output = Vec::new();
+    let mut seen = HashSet::new();
+
+    for model in previous {
+        let normalized = model.trim();
+        if normalized.is_empty() {
+            continue;
+        }
+        if !available_set.contains(normalized) {
+            continue;
+        }
+        let owned = normalized.to_string();
+        if seen.insert(owned.clone()) {
+            output.push(owned);
+        }
+    }
+
+    output
+}
+
+fn truncate_for_error(raw: &str, max_chars: usize) -> String {
+    let compact = raw.replace(['\r', '\n'], " ");
+    let mut output = String::new();
+    for ch in compact.chars().take(max_chars) {
+        output.push(ch);
+    }
+    if compact.chars().count() > max_chars {
+        output.push_str("...");
+    }
+    output.trim().to_string()
+}
+
+fn build_sync_error_message(status: reqwest::StatusCode, body_text: &str) -> String {
+    if let Ok(payload) = serde_json::from_str::<Value>(body_text) {
+        let message = payload
+            .get("error")
+            .and_then(|error| {
+                error
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .or_else(|| error.as_str())
+            })
+            .or_else(|| payload.get("message").and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        if let Some(text) = message {
+            return format!("{}: {}", status, text);
+        }
+    }
+
+    let snippet = truncate_for_error(body_text, 240);
+    if snippet.is_empty() {
+        status.to_string()
+    } else {
+        format!("{}: {}", status, snippet)
+    }
+}
+
+async fn fetch_provider_models_from_remote(
+    provider: &str,
+    custom_openai: &Value,
+) -> Result<Vec<String>, String> {
+    let api_keys = provider_sync_api_keys(provider, custom_openai);
+    if api_keys.is_empty() {
+        return Err("未配置 API Key".to_string());
+    }
+    let base_url = provider_sync_base_url(provider, custom_openai)
+        .ok_or_else(|| "未配置 Base URL".to_string())?;
+    let endpoint = provider_models_endpoint(&base_url);
+    let mut last_error = None::<String>;
+
+    for api_key in api_keys {
+        let request = http_client()
+            .get(&endpoint)
+            .header(reqwest::header::ACCEPT, "application/json");
+        let request = if provider == "gemini" {
+            request.query(&[("key", api_key.as_str())])
+        } else {
+            request.bearer_auth(api_key)
+        };
+
+        let response = request.send().await.map_err(|error| error.to_string())?;
+        let status = response.status();
+        let body_text = response.text().await.map_err(|error| error.to_string())?;
+        if !status.is_success() {
+            last_error = Some(build_sync_error_message(status, &body_text));
+            continue;
+        }
+
+        let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+            format!(
+                "解析 /models 响应失败: {} ({})",
+                error,
+                truncate_for_error(&body_text, 160)
+            )
+        })?;
+        let model_ids = parse_openai_compatible_model_ids(&payload);
+        if model_ids.is_empty() {
+            last_error = Some("远端 /models 返回为空".to_string());
+            continue;
+        }
+
+        return Ok(model_ids);
+    }
+
+    Err(last_error.unwrap_or_else(|| "同步模型失败".to_string()))
 }
 
 fn resolve_provider_meta(
     provider: &str,
-) -> Option<(
-    &'static str,
-    &'static str,
-    &'static str,
-    bool,
-)> {
+) -> Option<(&'static str, &'static str, &'static str, bool)> {
     match provider {
         "qwen" => Some((
             "通义千问",
@@ -2357,13 +2606,13 @@ fn resolve_provider_meta(
         )),
         "gemini" => Some((
             "Google Gemini",
-            "当前使用本地能力表；模型能力仍由 Gemini 专用接口和仓库能力配置约束。",
-            "manual",
-            false,
+            "通过 Gemini Model API 的 /v1beta/models 同步账号可用模型，再按本地能力表过滤可用流程模型。",
+            "official_api",
+            true,
         )),
         "kling" => Some((
             "可灵 AI",
-            "当前使用本地能力表；图片/视频能力依赖可灵专用接口参数。",
+            "当前不支持官方自动同步；请通过可用模型配置手动维护列表。",
             "manual",
             false,
         )),
@@ -2422,24 +2671,19 @@ fn resolve_provider_models(
         return (models, available, synced_at, sync_error);
     }
 
-    let static_models = static_provider_models(provider);
-    let models = {
-        let catalog_models = json_string_list(catalog_entry.and_then(|item| item.get("models")));
-        if catalog_models.is_empty() {
-            static_models.clone()
-        } else {
-            catalog_models
-        }
-    };
-    let available = {
+    let models = json_string_list(catalog_entry.and_then(|item| item.get("models")));
+    let mut available = {
         let catalog_available =
             json_string_list(catalog_entry.and_then(|item| item.get("availableModels")));
         if catalog_available.is_empty() {
-            static_models
+            models.clone()
         } else {
             catalog_available
         }
     };
+    if available.is_empty() {
+        available = manual_provider_seed_available_models(provider);
+    }
     let synced_at = catalog_entry
         .and_then(|item| item.get("syncedAt"))
         .and_then(Value::as_str)
@@ -2450,6 +2694,21 @@ fn resolve_provider_models(
         .map(str::to_string);
 
     (models, available, synced_at, sync_error)
+}
+
+fn manual_provider_seed_available_models(provider: &str) -> Vec<String> {
+    match provider {
+        "kling" => vec![
+            "kling-v3-omni".to_string(),
+            "kling-v3".to_string(),
+            "kling-v2-6".to_string(),
+            "kling-video-o1".to_string(),
+            "kling-v2.6-pro".to_string(),
+            "kling-v2.6-std".to_string(),
+            "kling-v2.5-turbo".to_string(),
+        ],
+        _ => vec![],
+    }
 }
 
 fn provider_summary(conn: &Connection) -> Result<Vec<Value>, ApiError> {
@@ -2478,11 +2737,37 @@ fn provider_summary(conn: &Connection) -> Result<Vec<Value>, ApiError> {
             default_display_name.to_string()
         };
 
-        let catalog_entry = catalog
-            .as_object()
-            .and_then(|items| items.get(provider));
+        let catalog_entry = catalog.as_object().and_then(|items| items.get(provider));
         let (models, available_models, synced_at, sync_error) =
             resolve_provider_models(provider, catalog_entry, &custom_openai);
+        let available_model_catalog = available_models
+            .iter()
+            .map(|model_id| {
+                let (kind, entry) = build_available_model_entry(provider, model_id);
+                let capabilities = entry
+                    .get("capabilities")
+                    .cloned()
+                    .unwrap_or_else(|| json!([]));
+                let display_name = entry
+                    .get("displayName")
+                    .cloned()
+                    .unwrap_or_else(|| json!(model_id));
+                let description = entry
+                    .get("description")
+                    .cloned()
+                    .unwrap_or_else(|| json!(""));
+                let doc_url = entry.get("docUrl").cloned().unwrap_or(Value::Null);
+                json!({
+                  "model": model_id,
+                  "kind": available_model_kind_key(kind),
+                  "category": available_model_category(kind),
+                  "displayName": display_name,
+                  "description": description,
+                  "docUrl": doc_url,
+                  "capabilities": capabilities
+                })
+            })
+            .collect::<Vec<_>>();
 
         providers.push(json!({
           "provider": provider,
@@ -2495,7 +2780,8 @@ fn provider_summary(conn: &Connection) -> Result<Vec<Value>, ApiError> {
           "syncError": sync_error,
           "modelCount": models.len(),
           "models": models,
-          "availableModels": available_models
+          "availableModels": available_models,
+          "availableModelCatalog": available_model_catalog
         }));
     }
 
@@ -2520,7 +2806,8 @@ async fn api_model_provider_models_put(
     }
 
     let conn = db_connection(&state)?;
-    let mut catalog = get_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY)?.unwrap_or_else(|| json!({}));
+    let mut catalog =
+        get_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY)?.unwrap_or_else(|| json!({}));
     if !catalog.is_object() {
         catalog = json!({});
     }
@@ -2548,10 +2835,7 @@ async fn api_model_provider_models_put(
     }
 
     if let Some(obj) = catalog.as_object_mut() {
-        let mut entry = obj
-            .get(&provider)
-            .cloned()
-            .unwrap_or_else(|| json!({}));
+        let mut entry = obj.get(&provider).cloned().unwrap_or_else(|| json!({}));
         if !entry.is_object() {
             entry = json!({});
         }
@@ -2583,43 +2867,100 @@ async fn api_model_provider_sync(
         return Err(ApiError::new(StatusCode::NOT_FOUND, "供应商不存在"));
     }
 
+    let Some((_, _, _, supported_dynamic_sync)) = resolve_provider_meta(&provider) else {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "供应商不存在"));
+    };
+    if !supported_dynamic_sync {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "该供应商不支持官方模型同步",
+        ));
+    }
+
     let conn = db_connection(&state)?;
-    let mut catalog = get_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY)?.unwrap_or_else(|| json!({}));
+    let mut custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
+        .unwrap_or_else(default_custom_openai_config);
+    let mut catalog =
+        get_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY)?.unwrap_or_else(|| json!({}));
     if !catalog.is_object() {
         catalog = json!({});
     }
 
-    let current_summary = provider_summary(&conn)?
-        .into_iter()
-        .find(|item| item.get("provider").and_then(Value::as_str) == Some(provider.as_str()))
-        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "供应商不存在"))?;
-
-    let current_models = json_string_list(current_summary.get("models"));
-    let available_models = json_string_list(current_summary.get("availableModels"));
-    let next_models = if current_models.is_empty() {
-        available_models.clone()
+    let previous_selected_models = if provider == "custom_openai" {
+        json_string_list(custom_openai.get("textModels"))
     } else {
-        current_models
+        json_string_list(
+            catalog
+                .as_object()
+                .and_then(|items| items.get(&provider))
+                .and_then(|entry| entry.get("models")),
+        )
+    };
+
+    let sync_result = fetch_provider_models_from_remote(&provider, &custom_openai).await;
+    let synced_at = now_iso();
+    let sync_error = sync_result.as_ref().err().cloned();
+    let synced_models = sync_result.clone().unwrap_or_default();
+    let next_selected_models = if let Ok(models) = sync_result.as_ref() {
+        retain_enabled_models(&previous_selected_models, models)
+    } else {
+        previous_selected_models.clone()
     };
 
     if let Some(obj) = catalog.as_object_mut() {
-        let mut entry = obj
-            .get(&provider)
-            .cloned()
-            .unwrap_or_else(|| json!({}));
+        let mut entry = obj.get(&provider).cloned().unwrap_or_else(|| json!({}));
         if !entry.is_object() {
             entry = json!({});
         }
         if let Some(entry_obj) = entry.as_object_mut() {
-            entry_obj.insert("models".to_string(), json!(next_models));
-            entry_obj.insert("availableModels".to_string(), json!(available_models));
-            entry_obj.insert("syncedAt".to_string(), json!(now_iso()));
-            entry_obj.insert("syncError".to_string(), Value::Null);
+            if sync_result.is_ok() {
+                entry_obj.insert("models".to_string(), json!(next_selected_models.clone()));
+                entry_obj.insert("availableModels".to_string(), json!(synced_models.clone()));
+            }
+            entry_obj.insert("syncedAt".to_string(), json!(synced_at));
+            entry_obj.insert(
+                "syncError".to_string(),
+                sync_error
+                    .as_ref()
+                    .map(|value| json!(value))
+                    .unwrap_or(Value::Null),
+            );
         }
         obj.insert(provider.clone(), entry);
     }
 
+    if provider == "custom_openai" {
+        if let Some(obj) = custom_openai.as_object_mut() {
+            if sync_result.is_ok() {
+                obj.insert(
+                    "textModels".to_string(),
+                    json!(next_selected_models.clone()),
+                );
+                obj.insert(
+                    "availableTextModels".to_string(),
+                    json!(synced_models.clone()),
+                );
+            }
+            obj.insert("modelsSyncedAt".to_string(), json!(synced_at));
+            obj.insert(
+                "modelsSyncError".to_string(),
+                sync_error
+                    .as_ref()
+                    .map(|value| json!(value))
+                    .unwrap_or(Value::Null),
+            );
+        }
+        set_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY, &custom_openai)?;
+    }
+
     set_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY, &catalog)?;
+
+    if let Err(error) = sync_result {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("同步模型失败: {}", error),
+        ));
+    }
 
     let updated = provider_summary(&conn)?
         .into_iter()
@@ -2695,15 +3036,64 @@ async fn api_custom_openai_put(
 
 async fn api_custom_openai_sync(
     State(state): State<BackendState>,
+    payload: Option<Json<CustomOpenAIPutBody>>,
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
     let mut config = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
         .unwrap_or_else(default_custom_openai_config);
-    if let Some(obj) = config.as_object_mut() {
-        obj.insert("modelsSyncedAt".to_string(), json!(now_iso()));
-        obj.insert("modelsSyncError".to_string(), Value::Null);
+
+    if let Some(Json(body)) = payload {
+        if let Some(obj) = config.as_object_mut() {
+            if let Some(enabled) = body.enabled {
+                obj.insert("enabled".to_string(), json!(enabled));
+            }
+            if let Some(display_name) = body.display_name {
+                obj.insert("displayName".to_string(), json!(display_name));
+            }
+            if let Some(base_url) = body.base_url {
+                obj.insert("baseUrl".to_string(), json!(base_url));
+            }
+            if let Some(api_key) = body.api_key {
+                obj.insert("apiKey".to_string(), json!(api_key));
+            }
+            if let Some(text_models) = body.text_models {
+                obj.insert("textModels".to_string(), json!(text_models));
+            }
+        }
     }
+
+    let sync_result = fetch_provider_models_from_remote("custom_openai", &config).await;
+    let synced_at = now_iso();
+    let sync_error = sync_result.as_ref().err().cloned();
+    let synced_models = sync_result.clone().unwrap_or_default();
+    let previous_selected_models = json_string_list(config.get("textModels"));
+    let next_selected_models = if let Ok(models) = sync_result.as_ref() {
+        retain_enabled_models(&previous_selected_models, models)
+    } else {
+        previous_selected_models
+    };
+
+    if let Some(obj) = config.as_object_mut() {
+        if sync_result.is_ok() {
+            obj.insert("textModels".to_string(), json!(next_selected_models));
+            obj.insert("availableTextModels".to_string(), json!(synced_models));
+        }
+        obj.insert("modelsSyncedAt".to_string(), json!(synced_at));
+        obj.insert(
+            "modelsSyncError".to_string(),
+            sync_error.map(|value| json!(value)).unwrap_or(Value::Null),
+        );
+    }
+
     set_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY, &config)?;
+
+    if let Err(error) = sync_result {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("同步模型失败: {}", error),
+        ));
+    }
+
     api_custom_openai_get(State(state)).await
 }
 
