@@ -491,12 +491,50 @@
     },
     {
       "provider": "gemini",
+      "match": { "type": "contains", "value": "image" },
+      "modelKind": "image",
+      "description": "Gemini 图片模型",
+      "docUrl": "https://ai.google.dev/gemini-api/docs/image-generation",
+      "image": {
+        "supportedAspectRatios": ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 4
+      }
+    },
+    {
+      "provider": "gemini",
+      "match": { "type": "prefix", "value": "lyria" },
+      "modelKind": "voice_tts",
+      "description": "背景音乐生成",
+      "docUrl": "https://ai.google.dev/gemini-api/docs/audio",
+      "voice": { "type": "tts" }
+    },
+    {
+      "provider": "gemini",
       "match": { "type": "prefix", "value": "gemini" },
       "modelKind": "text",
       "description": "Gemini 文本模型",
       "docUrl": "https://ai.google.dev/gemini-api/docs/models"
     },
 
+    {
+      "provider": "kling",
+      "match": { "type": "prefix", "value": "kling-image" },
+      "modelKind": "image",
+      "description": "可灵图片模型",
+      "docUrl": "https://klingai.com/document-api/apiReference/model/OmniImage",
+      "image": {
+        "supportedAspectRatios": ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9", "auto"],
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 4
+      }
+    },
     {
       "provider": "kling",
       "match": { "type": "exact", "value": "kling-v3-omni" },

@@ -465,7 +465,9 @@ pub(super) fn build_available_model_entry(
                 "sizeSelectionMode",
                 rule_image.and_then(|item| item.size_selection_mode.as_deref()),
             );
-            if let Some(size_constraints) = rule_image.and_then(|item| item.size_constraints.as_ref()) {
+            if let Some(size_constraints) =
+                rule_image.and_then(|item| item.size_constraints.as_ref())
+            {
                 object.insert("sizeConstraints".to_string(), size_constraints.clone());
             }
             if !supported_qualities.is_empty() {
@@ -691,5 +693,14 @@ pub(super) fn build_available_model_entry(
             insert_optional_string(&mut object, "docUrl", doc_url);
             (kind, Value::Object(object))
         }
+    }
+}
+
+pub(super) fn image_model_config(provider: &str, model_id: &str) -> Option<Value> {
+    let (kind, entry) = build_available_model_entry(provider, model_id);
+    if kind == AvailableModelKind::Image {
+        Some(entry)
+    } else {
+        None
     }
 }
