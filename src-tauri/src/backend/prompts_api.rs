@@ -394,7 +394,9 @@ pub(super) async fn api_prompts_single_put(
     append_prompt_version(&conn, &id, &previous_content, body.note)?;
     set_config_json(&conn, PROMPT_TEMPLATES_KEY, &templates)?;
     sync_active_prompt_profile_snapshot(&conn)?;
-    Ok(Json(json!({ "success": true, "data": updated, "message": "模板更新成功" })))
+    Ok(Json(
+        json!({ "success": true, "data": updated, "message": "模板更新成功" }),
+    ))
 }
 
 pub(super) async fn api_prompts_versions_get(
