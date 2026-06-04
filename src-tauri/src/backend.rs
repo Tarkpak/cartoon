@@ -36,6 +36,7 @@ const PROMPT_PROFILE_STATE_KEY: &str = "prompt_profile_state_default";
 
 const DEFAULT_STYLE_PRESETS_JSON: &str = include_str!("../assets/default-style-presets.json");
 const DEFAULT_STYLE_CATEGORIES_JSON: &str = include_str!("../assets/default-style-categories.json");
+const STYLE_THUMBNAIL_CDN_BASE: &str = "https://playlet-ai.tos-cn-guangzhou.volces.com/playlet-assets/styles";
 const DEFAULT_PROMPT_TEMPLATES_JSON: &str = include_str!("../assets/default-prompt-templates.json");
 
 #[path = "backend/model_constraints.rs"]
@@ -478,6 +479,49 @@ fn json_string(value: Option<&Value>, fallback: &str) -> String {
         .to_string()
 }
 
+
+fn normalize_style_thumbnail(value: Option<&str>) -> Option<String> {
+    let trimmed = value?.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return Some(trimmed.to_string());
+    }
+    if let Some(filename) = trimmed.strip_prefix("/styles/") {
+        return Some(format!("{}/{}", STYLE_THUMBNAIL_CDN_BASE, filename));
+    }
+    Some(trimmed.to_string())
+}
+
+fn normalize_style_preset_value(item: &Value) -> Value {
+    let mut next = item.clone();
+    if let Some(obj) = next.as_object_mut() {
+        let normalized = normalize_style_thumbnail(obj.get("thumbnail").and_then(Value::as_str));
+        match normalized {
+            Some(url) => {
+                obj.insert("thumbnail".to_string(), Value::String(url));
+            }
+            None => {
+                obj.insert("thumbnail".to_string(), Value::Null);
+            }
+        }
+    }
+    next
+}
+
+fn normalize_style_presets_value(value: &Value) -> Value {
+    Value::Array(
+        value
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|item| normalize_style_preset_value(&item))
+            .collect(),
+    )
+}
+
 fn parse_embedded_json(raw: &str, label: &str) -> Option<Value> {
     match serde_json::from_str::<Value>(raw) {
         Ok(value) => Some(value),
@@ -529,8 +573,13 @@ fn fallback_style_presets() -> Value {
 fn default_style_presets() -> Value {
     let parsed = parse_embedded_json(DEFAULT_STYLE_PRESETS_JSON, "default-style-presets.json")
         .unwrap_or_else(fallback_style_presets);
-    if parsed.is_array() {
-        parsed
+    let normalized = if parsed.is_array() {
+        normalize_style_presets_value(&parsed)
+    } else {
+        normalize_style_presets_value(&fallback_style_presets())
+    };
+    if normalized.is_array() {
+        normalized
     } else {
         fallback_style_presets()
     }
@@ -3820,7 +3869,8 @@ fn validate_style_category(category: &str) -> Result<(), ApiError> {
 }
 
 fn style_runtime_response(presets: &Value, config: &Value) -> Value {
-    let normalized_config = normalize_style_config_for_presets(config, presets);
+    let normalized_presets = normalize_style_presets_value(presets);
+    let normalized_config = normalize_style_config_for_presets(config, &normalized_presets);
     let enabled_ids = normalized_config
         .get("enabledStyleIds")
         .and_then(Value::as_array)
@@ -3829,7 +3879,7 @@ fn style_runtime_response(presets: &Value, config: &Value) -> Value {
         .into_iter()
         .filter_map(|item| item.as_str().map(str::to_string))
         .collect::<Vec<_>>();
-    let enabled_presets = presets
+    let enabled_presets = normalized_presets
         .as_array()
         .cloned()
         .unwrap_or_default()
