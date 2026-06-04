@@ -1,4 +1,5 @@
 mod backend;
+mod desktop_ffmpeg;
 
 use std::net::TcpStream;
 use std::thread;
@@ -151,8 +152,14 @@ pub fn run() {
     }
 
     let app = builder
+        .invoke_handler(tauri::generate_handler![
+            desktop_ffmpeg::check_ffmpeg_status,
+            desktop_ffmpeg::install_ffmpeg
+        ])
         .setup(|app| {
             load_desktop_env_files(app);
+            desktop_ffmpeg::configure_managed_ffmpeg(&app.handle())
+                .map_err(std::io::Error::other)?;
             start_embedded_backend(app).map_err(std::io::Error::other)?;
             wait_for_server(Duration::from_secs(STARTUP_TIMEOUT_SECS))
                 .map_err(std::io::Error::other)?;
