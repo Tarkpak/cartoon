@@ -33,6 +33,7 @@ data/
 # 临时文件
 tmp/
 temp/
+.tmp-tauri-updater-key/
 
 # 生成的视频文件
 public/videos/

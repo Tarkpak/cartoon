@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Playlet Desktop",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "identifier": "com.playlet.desktop",
   "mainBinaryName": "playlet-desktop",
   "build": {
@@ -34,7 +34,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENBRjczRTZDNjYxOTg5NTgKUldSWWlSbG1iRDczeWtWVGdHUDducU0wb2lGQVNYUUF5M0RNdllhZjNocTNjY1BablpLVjhNWGEK",
       "endpoints": [
         "https://github.com/Tarkpak/cartoon/releases/latest/download/latest.json"
       ],
