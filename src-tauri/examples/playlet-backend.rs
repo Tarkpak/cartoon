@@ -1,4 +1,4 @@
-#[path = "../backend.rs"]
+#[path = "../src/backend.rs"]
 mod backend;
 
 use backend::{start_server, BackendState};

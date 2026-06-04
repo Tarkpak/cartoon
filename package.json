@@ -7,10 +7,10 @@
   "scripts": {
     "dev": "bun run --parallel dev:backend dev:frontend",
     "dev:frontend": "vite",
-    "dev:backend": "cargo run --manifest-path src-tauri/Cargo.toml --bin playlet-backend",
+    "dev:backend": "cargo run --manifest-path src-tauri/Cargo.toml --example playlet-backend",
     "build": "vite build",
     "build:desktop": "vite build && node ./scripts/desktop-prune-static-assets.mjs",
-    "preview": "cargo run --manifest-path src-tauri/Cargo.toml --bin playlet-backend",
+    "preview": "cargo run --manifest-path src-tauri/Cargo.toml --example playlet-backend",
     "lint": "vue-tsc --noEmit",
     "lint:fix": "vue-tsc --noEmit",
     "typecheck": "vue-tsc --noEmit",
