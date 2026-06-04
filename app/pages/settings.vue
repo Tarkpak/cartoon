@@ -2,11 +2,12 @@
 import { computed } from 'vue'
 import SettingsModelTestSection from '@/components/settings/SettingsModelTestSection.vue'
 import SettingsModelProvidersSection from '@/components/settings/SettingsModelProvidersSection.vue'
+import SettingsDesktopSection from '@/components/settings/SettingsDesktopSection.vue'
 import SettingsPromptSection from '@/components/settings/SettingsPromptSection.vue'
 import SettingsStyleSection from '@/components/settings/SettingsStyleSection.vue'
 import SettingsWorkflowModelsSection from '@/components/settings/SettingsWorkflowModelsSection.vue'
 
-type MenuSection = 'models' | 'prompts' | 'styles'
+type MenuSection = 'models' | 'prompts' | 'styles' | 'desktop'
 type ModelSubMenu = 'providers' | 'workflow' | 'test'
 interface SettingsMenuState {
   section: MenuSection
@@ -32,7 +33,7 @@ const modelSubMenuTabs: Array<{
 ]
 
 function normalizeMenuSection(value: unknown): MenuSection {
-  if (value === 'prompts' || value === 'styles' || value === 'models') return value
+  if (value === 'prompts' || value === 'styles' || value === 'models' || value === 'desktop') return value
   return 'models'
 }
 
@@ -159,6 +160,10 @@ const currentSectionComponent = computed(() => {
 
   if (activeSection.value === 'styles') {
     return SettingsStyleSection
+  }
+
+  if (activeSection.value === 'desktop') {
+    return SettingsDesktopSection
   }
 
   return SettingsPromptSection

@@ -100,6 +100,7 @@ declare global {
   const useCssModule: typeof import('vue')['useCssModule']
   const useCssVars: typeof import('vue')['useCssVars']
   const useDesktopFfmpeg: typeof import('./app/composables/useDesktopFfmpeg')['useDesktopFfmpeg']
+  const useDesktopUpdater: typeof import('./app/composables/useDesktopUpdater')['useDesktopUpdater']
   const useGenerationCompletionNotification: typeof import('./app/composables/useGenerationCompletionNotification')['useGenerationCompletionNotification']
   const useHead: typeof import('./app/composables/useNuxtCompat')['useHead']
   const useId: typeof import('vue')['useId']
@@ -153,6 +154,9 @@ declare global {
   // @ts-ignore
   export type { DesktopFfmpegStatus } from './app/composables/useDesktopFfmpeg'
   import('./app/composables/useDesktopFfmpeg')
+  // @ts-ignore
+  export type { DesktopUpdateInfo } from './app/composables/useDesktopUpdater'
+  import('./app/composables/useDesktopUpdater')
   // @ts-ignore
   export type { BrowserNotificationPermissionState, BrowserNotificationStatus } from './app/composables/useGenerationCompletionNotification'
   import('./app/composables/useGenerationCompletionNotification')
@@ -269,6 +273,7 @@ declare module 'vue' {
     readonly useCssModule: UnwrapRef<typeof import('vue')['useCssModule']>
     readonly useCssVars: UnwrapRef<typeof import('vue')['useCssVars']>
     readonly useDesktopFfmpeg: UnwrapRef<typeof import('./app/composables/useDesktopFfmpeg')['useDesktopFfmpeg']>
+    readonly useDesktopUpdater: UnwrapRef<typeof import('./app/composables/useDesktopUpdater')['useDesktopUpdater']>
     readonly useGenerationCompletionNotification: UnwrapRef<typeof import('./app/composables/useGenerationCompletionNotification')['useGenerationCompletionNotification']>
     readonly useHead: UnwrapRef<typeof import('./app/composables/useNuxtCompat')['useHead']>
     readonly useId: UnwrapRef<typeof import('vue')['useId']>

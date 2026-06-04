@@ -44,8 +44,14 @@ const GITHUB_TOKEN = process.env.GITHUB_TOKEN
 
 // 文件路径
 const PACKAGE_JSON = join(ROOT, 'package.json')
+const TAURI_CONF_JSON = join(ROOT, 'src-tauri', 'tauri.conf.json')
 
 interface PackageJson {
+  version: string
+  [key: string]: unknown
+}
+
+interface TauriConfJson {
   version: string
   [key: string]: unknown
 }
@@ -449,6 +455,7 @@ async function main(): Promise<void> {
 
   // 读取当前版本
   const packageJson = readJson<PackageJson>(PACKAGE_JSON)
+  const tauriConfJson = readJson<TauriConfJson>(TAURI_CONF_JSON)
   const currentVersion = packageJson.version
 
   // 强制模式：使用当前版本重新发布
@@ -521,6 +528,11 @@ async function main(): Promise<void> {
   packageJson.version = newVersion
   writeJson(PACKAGE_JSON, packageJson)
   console.log(`✅ 更新 package.json`)
+
+  // 更新 Tauri 桌面版本
+  tauriConfJson.version = newVersion
+  writeJson(TAURI_CONF_JSON, tauriConfJson)
+  console.log(`✅ 更新 src-tauri/tauri.conf.json`)
 
   // Git 提交
   run('git add .')
