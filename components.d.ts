@@ -90,6 +90,7 @@ declare module 'vue' {
     SelectTrigger: typeof import('./app/components/ui/select/SelectTrigger.vue')['default']
     SelectValue: typeof import('./app/components/ui/select/SelectValue.vue')['default']
     SettingsCustomOpenAIProvider: typeof import('./app/components/settings/SettingsCustomOpenAIProvider.vue')['default']
+    SettingsDesktopSection: typeof import('./app/components/settings/SettingsDesktopSection.vue')['default']
     SettingsModelProvidersSection: typeof import('./app/components/settings/SettingsModelProvidersSection.vue')['default']
     SettingsModelTestControls: typeof import('./app/components/settings/SettingsModelTestControls.vue')['default']
     SettingsModelTestResultPanel: typeof import('./app/components/settings/SettingsModelTestResultPanel.vue')['default']
