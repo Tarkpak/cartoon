@@ -99,6 +99,7 @@ declare global {
   const useCharacter: typeof import('./app/composables/useCharacter')['useCharacter']
   const useCssModule: typeof import('vue')['useCssModule']
   const useCssVars: typeof import('vue')['useCssVars']
+  const useDesktopFfmpeg: typeof import('./app/composables/useDesktopFfmpeg')['useDesktopFfmpeg']
   const useGenerationCompletionNotification: typeof import('./app/composables/useGenerationCompletionNotification')['useGenerationCompletionNotification']
   const useHead: typeof import('./app/composables/useNuxtCompat')['useHead']
   const useId: typeof import('vue')['useId']
@@ -149,6 +150,9 @@ declare global {
   // @ts-ignore
   export type { GenerateCharacterOptions } from './app/composables/useCharacter'
   import('./app/composables/useCharacter')
+  // @ts-ignore
+  export type { DesktopFfmpegStatus } from './app/composables/useDesktopFfmpeg'
+  import('./app/composables/useDesktopFfmpeg')
   // @ts-ignore
   export type { BrowserNotificationPermissionState, BrowserNotificationStatus } from './app/composables/useGenerationCompletionNotification'
   import('./app/composables/useGenerationCompletionNotification')
@@ -264,6 +268,7 @@ declare module 'vue' {
     readonly useCharacter: UnwrapRef<typeof import('./app/composables/useCharacter')['useCharacter']>
     readonly useCssModule: UnwrapRef<typeof import('vue')['useCssModule']>
     readonly useCssVars: UnwrapRef<typeof import('vue')['useCssVars']>
+    readonly useDesktopFfmpeg: UnwrapRef<typeof import('./app/composables/useDesktopFfmpeg')['useDesktopFfmpeg']>
     readonly useGenerationCompletionNotification: UnwrapRef<typeof import('./app/composables/useGenerationCompletionNotification')['useGenerationCompletionNotification']>
     readonly useHead: UnwrapRef<typeof import('./app/composables/useNuxtCompat')['useHead']>
     readonly useId: UnwrapRef<typeof import('vue')['useId']>
