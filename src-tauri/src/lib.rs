@@ -141,7 +141,9 @@ fn create_main_window(app: &tauri::App) -> Result<(), String> {
 pub fn run() {
     let _ = dotenvy::dotenv();
 
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build());
 
     if cfg!(debug_assertions) {
         builder = builder.plugin(

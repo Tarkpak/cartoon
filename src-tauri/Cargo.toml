@@ -1,41 +1,6 @@
 [package]
-name = "playlet-desktop"
-version = "0.1.0"
-description = "Playlet desktop client powered by Tauri + local Nitro sidecar"
-authors = ["Playlet Team"]
-license = ""
-repository = ""
-edition = "2021"
-rust-version = "1.77.2"
-default-run = "playlet-desktop"
+name = \
 
-[lib]
-name = "playlet_desktop_lib"
-# Desktop-only build: dropped "cdylib" because the mingw/GNU linker overflows the
-# DLL export table on this large crate ("export ordinal too large"). The desktop bin
-# links the lib via rlib, so the cdylib DLL is unused here. Re-add "cdylib" if/when
-# targeting mobile (Android/iOS) with the MSVC or a working linker.
-crate-type = ["staticlib", "rlib"]
-
-[build-dependencies]
-tauri-build = { version = "2.6.2", features = [] }
-
-[dependencies]
-serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-log = "0.4"
-tauri = { version = "2.11.2", features = [] }
-tauri-plugin-log = "2"
-axum = { version = "0.8.7", features = ["macros", "json"] }
-tokio = { version = "1.48.0", features = ["rt-multi-thread", "macros", "net", "signal", "fs"] }
-tower-http = { version = "0.6.6", features = ["fs", "trace"] }
-rusqlite = { version = "0.37.0", features = ["bundled"] }
-uuid = { version = "1.18.1", features = ["v4", "serde"] }
-chrono = { version = "0.4.42", features = ["clock", "serde"] }
-base64 = "0.22.1"
-hmac = "0.12.1"
-sha2 = "0.10.8"
-reqwest = { version = "0.12.24", default-features = false, features = ["rustls-tls", "json", "multipart"] }
-zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
-dotenvy = "0.15.7"
-ve-tos-rust-sdk = "2.9.16"
+[target."cfg(not(any(target_os = "android", target_os = "ios")))".dependencies]
+tauri-plugin-process = "2.3.1"
+tauri-plugin-updater = "2.10.1"
