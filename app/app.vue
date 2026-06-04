@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import DesktopFfmpegInstallDialog from '@/components/desktop/DesktopFfmpegInstallDialog.vue'
 import DefaultLayout from '@/layouts/default.vue'
+import { useDesktopFfmpeg } from '@/composables/useDesktopFfmpeg'
 
 useHead({
   meta: [
@@ -15,6 +17,7 @@ useHead({
 
 const title = 'playlet - AI 影视生成系统'
 const description = 'AI 驱动的影视创作平台。从文本到视频，生成专业级 AI 影视内容。'
+const { ensureDesktopFfmpegStatus } = useDesktopFfmpeg()
 
 useSeoMeta({
   title,
@@ -22,10 +25,15 @@ useSeoMeta({
   ogTitle: title,
   ogDescription: description
 })
+
+onMounted(() => {
+  void ensureDesktopFfmpegStatus()
+})
 </script>
 
 <template>
   <DefaultLayout>
     <RouterView />
+    <DesktopFfmpegInstallDialog />
   </DefaultLayout>
 </template>
