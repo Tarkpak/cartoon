@@ -61,6 +61,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           RUSTC_WRAPPER: sccache
           SCCACHE_GHA_ENABLED: "true"
         with:
@@ -70,4 +72,4 @@ jobs:
             Automated desktop release for ${{ github.ref_name }}.
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          includeUpdaterJson: false
+          includeUpdaterJson: true
