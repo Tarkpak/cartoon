@@ -20,10 +20,8 @@ jobs:
         include:
           - os: macos-14
             bundle_label: macOS arm64
-            artifact_name: desktop-macos-arm64
           - os: windows-latest
             bundle_label: Windows x64
-            artifact_name: desktop-windows-x64
 
     steps:
       - name: Checkout code
@@ -34,8 +32,24 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock', 'package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
@@ -52,31 +66,3 @@ jobs:
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           includeUpdaterJson: false
-
-      - name: Collect workflow artifacts
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p release-artifacts
-
-          case "${{ runner.os }}" in
-            macOS)
-              find src-tauri/target/release/bundle -type f \
-                \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.sig' \) \
-                -exec cp '{}' release-artifacts/ \;
-              ;;
-            Windows)
-              find src-tauri/target/release/bundle -type f \
-                \( -name '*.msi' -o -name '*.exe' -o -name '*.zip' -o -name '*.sig' \) \
-                -exec cp '{}' release-artifacts/ \;
-              ;;
-          esac
-
-      - name: Upload workflow artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: release-artifacts/*
-          if-no-files-found: ignore
