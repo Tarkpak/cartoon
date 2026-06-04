@@ -13,7 +13,11 @@ default-run = "playlet-desktop"
 
 [lib]
 name = "playlet_desktop_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Desktop-only build: dropped "cdylib" because the mingw/GNU linker overflows the
+# DLL export table on this large crate ("export ordinal too large"). The desktop bin
+# links the lib via rlib, so the cdylib DLL is unused here. Re-add "cdylib" if/when
+# targeting mobile (Android/iOS) with the MSVC or a working linker.
+crate-type = ["staticlib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.6.2", features = [] }
