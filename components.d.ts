@@ -35,6 +35,7 @@ declare module 'vue' {
     CardHeader: typeof import('./app/components/ui/card/CardHeader.vue')['default']
     CardTitle: typeof import('./app/components/ui/card/CardTitle.vue')['default']
     Checkbox: typeof import('./app/components/ui/checkbox/Checkbox.vue')['default']
+    DesktopFfmpegInstallDialog: typeof import('./app/components/desktop/DesktopFfmpegInstallDialog.vue')['default']
     Dialog: typeof import('./app/components/ui/dialog/Dialog.vue')['default']
     DialogClose: typeof import('./app/components/ui/dialog/DialogClose.vue')['default']
     DialogContent: typeof import('./app/components/ui/dialog/DialogContent.vue')['default']
