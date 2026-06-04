@@ -1,5 +1,15 @@
 import { STYLE_DESCRIPTION_OVERRIDES } from './style-descriptions.generated'
 
+const STYLE_THUMBNAIL_CDN_BASE = 'https://playlet-ai.tos-cn-guangzhou.volces.com/playlet-assets/styles'
+
+function resolveStyleThumbnail(path?: string): string | undefined {
+  if (!path) return path
+  if (/^https?:\/\//i.test(path)) return path
+  if (!path.startsWith('/styles/')) return path
+  const filename = path.split('/').filter(Boolean).pop()
+  return filename ? `${STYLE_THUMBNAIL_CDN_BASE}/${filename}` : path
+}
+
 // 风格分类
 export type StyleCategory
   = | 'japanese_anime' | 'chinese_style' | '3d_render' | 'illustration'
@@ -220,7 +230,8 @@ const STYLE_PRESETS_BASE: StylePreset[] = [
 
 export const STYLE_PRESETS: StylePreset[] = STYLE_PRESETS_BASE.map(style => ({
   ...style,
-  description: STYLE_DESCRIPTION_OVERRIDES[style.id] || style.description
+  description: STYLE_DESCRIPTION_OVERRIDES[style.id] || style.description,
+  thumbnail: resolveStyleThumbnail(style.thumbnail)
 }))
 
 export function getStylesByCategory(category: StyleCategory): StylePreset[] {
