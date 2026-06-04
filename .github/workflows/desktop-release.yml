@@ -1,0 +1,82 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-desktop:
+    name: Build ${{ matrix.bundle_label }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            bundle_label: macOS arm64
+            artifact_name: desktop-macos-arm64
+          - os: windows-latest
+            bundle_label: Windows x64
+            artifact_name: desktop-windows-x64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build and upload desktop bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ github.ref_name }}
+          releaseBody: |
+            Automated desktop release for ${{ github.ref_name }}.
+          releaseDraft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          includeUpdaterJson: false
+
+      - name: Collect workflow artifacts
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+
+          case "${{ runner.os }}" in
+            macOS)
+              find src-tauri/target/release/bundle -type f \
+                \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.sig' \) \
+                -exec cp '{}' release-artifacts/ \;
+              ;;
+            Windows)
+              find src-tauri/target/release/bundle -type f \
+                \( -name '*.msi' -o -name '*.exe' -o -name '*.zip' -o -name '*.sig' \) \
+                -exec cp '{}' release-artifacts/ \;
+              ;;
+          esac
+
+      - name: Upload workflow artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: release-artifacts/*
+          if-no-files-found: ignore

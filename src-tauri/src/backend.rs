@@ -5102,7 +5102,7 @@ fn resolve_provider_models(
         return (models, available, synced_at, sync_error);
     }
 
-    let mut models = json_string_list(catalog_entry.and_then(|item| item.get("models")));
+    let models = json_string_list(catalog_entry.and_then(|item| item.get("models")));
     let mut available = {
         let catalog_available =
             json_string_list(catalog_entry.and_then(|item| item.get("availableModels")));
@@ -5114,9 +5114,6 @@ fn resolve_provider_models(
     };
     if available.is_empty() {
         available = manual_provider_seed_available_models(provider);
-    }
-    if models.is_empty() {
-        models = available.clone();
     }
     let synced_at = catalog_entry
         .and_then(|item| item.get("syncedAt"))
@@ -5258,9 +5255,17 @@ fn provider_summary(conn: &Connection) -> Result<Vec<Value>, ApiError> {
 
 async fn api_model_providers(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
+    // 仅展示已配置环境变量的供应商；custom_openai 始终保留（其密钥在卡片表单内填写）。
+    let providers = provider_summary(&conn)?
+        .into_iter()
+        .filter(|item| {
+            item.get("configured").and_then(Value::as_bool).unwrap_or(false)
+                || item.get("provider").and_then(Value::as_str) == Some("custom_openai")
+        })
+        .collect::<Vec<_>>();
     Ok(Json(json!({
       "success": true,
-      "data": { "providers": provider_summary(&conn)? }
+      "data": { "providers": providers }
     })))
 }
 
