@@ -2,13 +2,14 @@
 import { computed } from 'vue'
 import SettingsModelTestSection from '@/components/settings/SettingsModelTestSection.vue'
 import SettingsModelProvidersSection from '@/components/settings/SettingsModelProvidersSection.vue'
+import SettingsTosStorageSection from '@/components/settings/SettingsTosStorageSection.vue'
 import SettingsDesktopSection from '@/components/settings/SettingsDesktopSection.vue'
 import SettingsPromptSection from '@/components/settings/SettingsPromptSection.vue'
 import SettingsStyleSection from '@/components/settings/SettingsStyleSection.vue'
 import SettingsWorkflowModelsSection from '@/components/settings/SettingsWorkflowModelsSection.vue'
 
 type MenuSection = 'models' | 'prompts' | 'styles' | 'desktop'
-type ModelSubMenu = 'providers' | 'workflow' | 'test'
+type ModelSubMenu = 'providers' | 'workflow' | 'storage' | 'test'
 interface SettingsMenuState {
   section: MenuSection
   sub: ModelSubMenu
@@ -29,6 +30,7 @@ const modelSubMenuTabs: Array<{
 }> = [
   { key: 'providers', label: '模型供应商' },
   { key: 'workflow', label: '流程模型' },
+  { key: 'storage', label: '云存储' },
   { key: 'test', label: '模型测试' }
 ]
 
@@ -38,7 +40,7 @@ function normalizeMenuSection(value: unknown): MenuSection {
 }
 
 function normalizeModelSubMenu(value: unknown): ModelSubMenu {
-  if (value === 'providers' || value === 'workflow' || value === 'test') return value
+  if (value === 'providers' || value === 'workflow' || value === 'storage' || value === 'test') return value
   return 'providers'
 }
 
@@ -154,6 +156,7 @@ async function restoreMenuStateFromBrowser() {
 const currentSectionComponent = computed(() => {
   if (activeSection.value === 'models') {
     if (activeModelSubMenu.value === 'providers') return SettingsModelProvidersSection
+    if (activeModelSubMenu.value === 'storage') return SettingsTosStorageSection
     if (activeModelSubMenu.value === 'test') return SettingsModelTestSection
     return SettingsWorkflowModelsSection
   }

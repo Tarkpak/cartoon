@@ -141,8 +141,9 @@ When renaming routes or workflow identifiers, update both the server endpoint an
 ## Key Architectural Constraints
 
 - 项目已移除 `workflowType` 概念，提示词与项目流程统一按当前资产工作台默认流程执行。
-- `GEMINI_API_KEY` supports multi-key rotation (comma/semicolon/newline-separated).
-- TOS cloud storage is opt-in (`TOS_ENABLED=true`). Without it, media files are stored locally.
+- 供应商凭证（gemini/qwen/volcengine/deepseek/kling）与 TOS 云存储均在客户端「设置 → 模型供应商 / 云存储」中配置，持久化到 SQLite `system_config`（keys `provider_credentials`、`tos_storage_config`、`custom_openai_provider`）。不再从环境变量读取。
+- Gemini API Key 支持多 key 轮换（在设置表单内用逗号/分号/换行分隔）。
+- TOS cloud storage is opt-in (在设置中开启并填写完整凭证)。Without it, media files are stored locally.
 - Gemini video generation uses a separate code path (`/api/video/generate`) from the unified `generateVideo()` API.
 - Nitro experimental features enabled: `asyncContext` and `websocket`.
 - ESLint stylistic rules: `commaDangle: 'never'`, `braceStyle: '1tbs'`. No Prettier — ESLint handles formatting.
