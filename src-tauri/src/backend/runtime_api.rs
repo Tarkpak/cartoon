@@ -1533,9 +1533,7 @@ async fn run_workflow_text_model(
     let workflow_models = get_config_json(&conn, WORKFLOW_MODELS_KEY)
         .map_err(|error| error.message)?
         .unwrap_or_else(default_workflow_models);
-    let custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)
-        .map_err(|error| error.message)?
-        .unwrap_or_else(default_custom_openai_config);
+    let creds = load_provider_creds(&conn);
     let model_id = workflow_models
         .get(workflow_step)
         .and_then(Value::as_str)
@@ -1544,7 +1542,7 @@ async fn run_workflow_text_model(
         .unwrap_or("qwen3.6-plus")
         .to_string();
     let provider = infer_model_provider_required_string(&model_id)?;
-    let text = run_text_model_test_remote(&provider, &model_id, prompt, &custom_openai).await?;
+    let text = run_text_model_test_remote(&provider, &model_id, prompt, &creds).await?;
     Ok((text, provider, model_id))
 }
 
@@ -1954,10 +1952,11 @@ async fn request_custom_openai_image_generation(
     prompt: &str,
     size: &str,
     reference_images: &[String],
-    custom_openai: &Value,
+    creds: &Value,
 ) -> Result<(String, Option<String>), String> {
-    let api_keys = provider_sync_api_keys("custom_openai", custom_openai);
-    let base_url = provider_sync_base_url("custom_openai", custom_openai)
+    let custom_openai = creds.get("custom_openai").cloned().unwrap_or_else(|| json!({}));
+    let api_keys = provider_sync_api_keys("custom_openai", creds);
+    let base_url = provider_sync_base_url("custom_openai", creds)
         .ok_or_else(|| "未配置 Base URL".to_string())?;
     let model = normalize_model_id_for_remote(model_id);
     let normalized_model = model.to_ascii_lowercase();
@@ -2129,7 +2128,7 @@ async fn request_openai_compatible_image_generation(
     prompt: &str,
     size: &str,
     reference_images: &[String],
-    custom_openai: &Value,
+    creds: &Value,
 ) -> Result<(String, Option<String>), String> {
     if provider == "custom_openai" {
         return request_custom_openai_image_generation(
@@ -2137,15 +2136,15 @@ async fn request_openai_compatible_image_generation(
             prompt,
             size,
             reference_images,
-            custom_openai,
+            creds,
         )
         .await;
     }
-    let api_keys = provider_sync_api_keys(provider, custom_openai);
+    let api_keys = provider_sync_api_keys(provider, creds);
     if api_keys.is_empty() {
         return Err("未配置 API Key".to_string());
     }
-    let base_url = provider_sync_base_url(provider, custom_openai)
+    let base_url = provider_sync_base_url(provider, creds)
         .ok_or_else(|| "未配置 Base URL".to_string())?;
     let endpoint = provider_images_generations_endpoint(&base_url);
     let model = normalize_model_id_for_remote(model_id);
@@ -2234,16 +2233,13 @@ async fn request_qwen_image_generation(
     prompt: &str,
     size: &str,
     reference_images: &[String],
-    custom_openai: &Value,
+    creds: &Value,
 ) -> Result<(String, Option<String>), String> {
-    let api_keys = provider_sync_api_keys("qwen", custom_openai);
+    let api_keys = provider_sync_api_keys("qwen", creds);
     if api_keys.is_empty() {
-        return Err("未配置 QWEN_API_KEY".to_string());
+        return Err("未配置千问 API Key，请在设置中配置".to_string());
     }
-    let base_url = env_var_trimmed("QWEN_API_BASE_URL")
-        .or_else(|| env_var_trimmed("QWEN_API_BASE"))
-        .or_else(|| Some(qwen_api_base_url()))
-        .unwrap_or_else(|| "https://dashscope.aliyuncs.com/api/v1".to_string());
+    let base_url = qwen_api_base_url();
     let endpoint = qwen_multimodal_generation_endpoint(&base_url);
     let model = normalize_model_id_for_remote(model_id);
     let mut content = vec![json!({ "text": prompt })];
@@ -2303,13 +2299,13 @@ async fn request_gemini_image_generation(
     model_id: &str,
     prompt: &str,
     reference_images: &[String],
-    custom_openai: &Value,
+    creds: &Value,
 ) -> Result<(String, Option<String>), String> {
-    let api_keys = provider_sync_api_keys("gemini", custom_openai);
+    let api_keys = provider_sync_api_keys("gemini", creds);
     if api_keys.is_empty() {
         return Err("未配置 API Key".to_string());
     }
-    let base_url = provider_sync_base_url("gemini", custom_openai)
+    let base_url = provider_sync_base_url("gemini", creds)
         .ok_or_else(|| "未配置 Base URL".to_string())?;
     let endpoint = provider_gemini_generate_endpoint(&base_url, model_id);
     let mut last_error = None::<String>;
@@ -2391,9 +2387,7 @@ async fn run_workflow_image_model(
     let workflow_models = get_config_json(&conn, WORKFLOW_MODELS_KEY)
         .map_err(|error| error.message)?
         .unwrap_or_else(default_workflow_models);
-    let custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)
-        .map_err(|error| error.message)?
-        .unwrap_or_else(default_custom_openai_config);
+    let creds = load_provider_creds(&conn);
     let model_id = workflow_models
         .get(workflow_step)
         .and_then(Value::as_str)
@@ -2414,7 +2408,7 @@ async fn run_workflow_image_model(
     let provider = infer_model_provider_required_string(&model_id)?;
     let (source, mime_type) = match provider.as_str() {
         "qwen" => {
-            request_qwen_image_generation(&model_id, prompt, size, reference_images, &custom_openai)
+            request_qwen_image_generation(&model_id, prompt, size, reference_images, &creds)
                 .await?
         }
         "volcengine" | "custom_openai" => {
@@ -2424,12 +2418,12 @@ async fn run_workflow_image_model(
                 prompt,
                 size,
                 reference_images,
-                &custom_openai,
+                &creds,
             )
             .await?
         }
         "gemini" => {
-            request_gemini_image_generation(&model_id, prompt, reference_images, &custom_openai)
+            request_gemini_image_generation(&model_id, prompt, reference_images, &creds)
                 .await?
         }
         "kling" => {
@@ -3084,11 +3078,7 @@ async fn refresh_tracked_video_task(
 }
 
 fn qwen_api_base_url() -> String {
-    env_var_trimmed("QWEN_API_BASE_URL")
-        .or_else(|| env_var_trimmed("QWEN_DASHSCOPE_BASE_URL"))
-        .unwrap_or_else(|| "https://dashscope.aliyuncs.com/api/v1".to_string())
-        .trim_end_matches('/')
-        .to_string()
+    "https://dashscope.aliyuncs.com/api/v1".to_string()
 }
 
 fn qwen_video_endpoint(base_url: &str) -> String {
@@ -3268,8 +3258,8 @@ fn parse_qwen_video_url(payload: &Value) -> Option<String> {
 }
 
 async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(String, Value), String> {
-    let api_key =
-        env_var_trimmed("QWEN_API_KEY").ok_or_else(|| "未配置 QWEN_API_KEY".to_string())?;
+    let api_key = provider_sync_api_key("qwen", &current_provider_creds())
+        .ok_or_else(|| "未配置千问 API Key，请在设置中配置".to_string())?;
     let base_url = qwen_api_base_url();
     let request_body = build_qwen_video_request(model_id, config);
     let response = http_client()
@@ -3305,8 +3295,8 @@ async fn poll_qwen_video_task<F>(
 where
     F: FnMut(i64),
 {
-    let api_key =
-        env_var_trimmed("QWEN_API_KEY").ok_or_else(|| "未配置 QWEN_API_KEY".to_string())?;
+    let api_key = provider_sync_api_key("qwen", &current_provider_creds())
+        .ok_or_else(|| "未配置千问 API Key，请在设置中配置".to_string())?;
     let base_url = qwen_api_base_url();
     let started_at = Utc::now().timestamp_millis();
     let max_wait_ms = 10 * 60 * 1000i64;
@@ -3357,8 +3347,8 @@ where
 }
 
 async fn query_qwen_video_task(upstream_task_id: &str) -> Result<Value, String> {
-    let api_key =
-        env_var_trimmed("QWEN_API_KEY").ok_or_else(|| "未配置 QWEN_API_KEY".to_string())?;
+    let api_key = provider_sync_api_key("qwen", &current_provider_creds())
+        .ok_or_else(|| "未配置千问 API Key，请在设置中配置".to_string())?;
     let base_url = qwen_api_base_url();
     let response = http_client()
         .get(qwen_task_endpoint(&base_url, upstream_task_id))
@@ -3446,8 +3436,8 @@ async fn request_qwen_text_to_speech(
     model_id: &str,
     body: &Value,
 ) -> Result<(String, Option<String>, bool, Value), String> {
-    let api_key =
-        env_var_trimmed("QWEN_API_KEY").ok_or_else(|| "未配置 QWEN_API_KEY".to_string())?;
+    let api_key = provider_sync_api_key("qwen", &current_provider_creds())
+        .ok_or_else(|| "未配置千问 API Key，请在设置中配置".to_string())?;
     let base_url = qwen_api_base_url();
     let text = json_string(body.get("prompt"), "");
     let voice = json_string(body.get("voice"), "Cherry");
@@ -3612,8 +3602,8 @@ async fn run_qwen_video_task_background(
     }
 }
 
-fn volcengine_video_base_url(custom_openai: &Value) -> String {
-    provider_sync_base_url("volcengine", custom_openai)
+fn volcengine_video_base_url(creds: &Value) -> String {
+    provider_sync_base_url("volcengine", creds)
         .unwrap_or_else(|| "https://ark.cn-beijing.volces.com/api/v3".to_string())
         .trim_end_matches('/')
         .to_string()
@@ -3767,12 +3757,10 @@ async fn submit_volcengine_video_task(
     config: &Value,
 ) -> Result<(String, Value), String> {
     let conn = db_connection(state).map_err(|error| error.message)?;
-    let custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)
-        .map_err(|error| error.message)?
-        .unwrap_or_else(default_custom_openai_config);
-    let api_key = provider_sync_api_key("volcengine", &custom_openai)
-        .ok_or_else(|| "未配置 VOLCENGINE_API_KEY".to_string())?;
-    let base_url = volcengine_video_base_url(&custom_openai);
+    let creds = load_provider_creds(&conn);
+    let api_key = provider_sync_api_key("volcengine", &creds)
+        .ok_or_else(|| "未配置火山引擎 API Key，请在设置中配置".to_string())?;
+    let base_url = volcengine_video_base_url(&creds);
     let request_body = build_volcengine_video_request(model_id, config);
     let response = http_client()
         .post(volcengine_create_task_endpoint(&base_url))
@@ -3808,12 +3796,10 @@ where
     F: FnMut(i64),
 {
     let conn = db_connection(state).map_err(|error| error.message)?;
-    let custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)
-        .map_err(|error| error.message)?
-        .unwrap_or_else(default_custom_openai_config);
-    let api_key = provider_sync_api_key("volcengine", &custom_openai)
-        .ok_or_else(|| "未配置 VOLCENGINE_API_KEY".to_string())?;
-    let base_url = volcengine_video_base_url(&custom_openai);
+    let creds = load_provider_creds(&conn);
+    let api_key = provider_sync_api_key("volcengine", &creds)
+        .ok_or_else(|| "未配置火山引擎 API Key，请在设置中配置".to_string())?;
+    let base_url = volcengine_video_base_url(&creds);
     let started_at = Utc::now().timestamp_millis();
     let max_wait_ms = 10 * 60 * 1000i64;
 
@@ -3868,12 +3854,10 @@ async fn query_volcengine_video_task(
     upstream_task_id: &str,
 ) -> Result<Value, String> {
     let conn = db_connection(state).map_err(|error| error.message)?;
-    let custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)
-        .map_err(|error| error.message)?
-        .unwrap_or_else(default_custom_openai_config);
-    let api_key = provider_sync_api_key("volcengine", &custom_openai)
-        .ok_or_else(|| "未配置 VOLCENGINE_API_KEY".to_string())?;
-    let base_url = volcengine_video_base_url(&custom_openai);
+    let creds = load_provider_creds(&conn);
+    let api_key = provider_sync_api_key("volcengine", &creds)
+        .ok_or_else(|| "未配置火山引擎 API Key，请在设置中配置".to_string())?;
+    let base_url = volcengine_video_base_url(&creds);
     let response = http_client()
         .get(volcengine_task_endpoint(&base_url, upstream_task_id))
         .bearer_auth(&api_key)
@@ -4028,19 +4012,18 @@ fn build_kling_jwt(access_key: &str, secret_key: &str) -> Result<String, String>
 }
 
 fn kling_base_url() -> String {
-    env_var_trimmed("KLING_BASE_URL")
+    provider_credential_field(&current_provider_creds(), "kling", "baseUrl")
         .unwrap_or_else(|| "https://api-beijing.klingai.com".to_string())
         .trim_end_matches('/')
         .to_string()
 }
 
 fn kling_credentials() -> Result<(String, String), String> {
-    let access_key = env_var_trimmed("KLING_ACCESS_KEY")
-        .or_else(|| env_var_trimmed("KLING_AK"))
-        .ok_or_else(|| "未配置 KLING_ACCESS_KEY".to_string())?;
-    let secret_key = env_var_trimmed("KLING_SECRET_KEY")
-        .or_else(|| env_var_trimmed("KLING_SK"))
-        .ok_or_else(|| "未配置 KLING_SECRET_KEY".to_string())?;
+    let creds = current_provider_creds();
+    let access_key = provider_credential_field(&creds, "kling", "accessKey")
+        .ok_or_else(|| "未配置可灵 Access Key，请在设置中配置".to_string())?;
+    let secret_key = provider_credential_field(&creds, "kling", "secretKey")
+        .ok_or_else(|| "未配置可灵 Secret Key，请在设置中配置".to_string())?;
     Ok((access_key, secret_key))
 }
 
@@ -4734,7 +4717,7 @@ async fn query_kling_video_task(endpoint: &str, upstream_task_id: &str) -> Resul
 }
 
 fn gemini_api_base_url() -> String {
-    env_var_trimmed("GEMINI_BASE_URL")
+    provider_sync_base_url("gemini", &current_provider_creds())
         .unwrap_or_else(|| "https://generativelanguage.googleapis.com/v1beta".to_string())
         .trim_end_matches('/')
         .to_string()
@@ -4938,13 +4921,10 @@ async fn submit_gemini_video_task(
     config: &Value,
 ) -> Result<(String, Value), String> {
     let conn = db_connection(state).map_err(|error| error.message)?;
-    let custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)
-        .map_err(|error| error.message)?
-        .unwrap_or_else(default_custom_openai_config);
-    let api_key = provider_sync_api_keys("gemini", &custom_openai)
+    let api_key = provider_sync_api_keys("gemini", &load_provider_creds(&conn))
         .into_iter()
         .next()
-        .ok_or_else(|| "未配置 GEMINI_API_KEY".to_string())?;
+        .ok_or_else(|| "未配置 Gemini API Key，请在设置中配置".to_string())?;
     let base_url = gemini_api_base_url();
     let request_body = build_gemini_video_request(state, config)
         .await
@@ -4983,13 +4963,10 @@ where
     F: FnMut(i64),
 {
     let conn = db_connection(state).map_err(|error| error.message)?;
-    let custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)
-        .map_err(|error| error.message)?
-        .unwrap_or_else(default_custom_openai_config);
-    let api_key = provider_sync_api_keys("gemini", &custom_openai)
+    let api_key = provider_sync_api_keys("gemini", &load_provider_creds(&conn))
         .into_iter()
         .next()
-        .ok_or_else(|| "未配置 GEMINI_API_KEY".to_string())?;
+        .ok_or_else(|| "未配置 Gemini API Key，请在设置中配置".to_string())?;
     let base_url = gemini_api_base_url();
     let started_at = Utc::now().timestamp_millis();
     let max_wait_ms = 3 * 60 * 1000i64;
@@ -5034,13 +5011,10 @@ async fn query_gemini_video_task(
     operation_name: &str,
 ) -> Result<Value, String> {
     let conn = db_connection(state).map_err(|error| error.message)?;
-    let custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)
-        .map_err(|error| error.message)?
-        .unwrap_or_else(default_custom_openai_config);
-    let api_key = provider_sync_api_keys("gemini", &custom_openai)
+    let api_key = provider_sync_api_keys("gemini", &load_provider_creds(&conn))
         .into_iter()
         .next()
-        .ok_or_else(|| "未配置 GEMINI_API_KEY".to_string())?;
+        .ok_or_else(|| "未配置 Gemini API Key，请在设置中配置".to_string())?;
     let base_url = gemini_api_base_url();
     let response = http_client()
         .get(gemini_operation_endpoint(&base_url, operation_name))
@@ -5074,7 +5048,10 @@ async fn persist_gemini_video_source(
         match persist_video_source(state, source, prefix).await {
             Ok(url) => return Ok(url),
             Err(first_error) => {
-                let api_key = env_var_values("GEMINI_API_KEY").into_iter().next();
+                let api_key =
+                    provider_sync_api_keys("gemini", &current_provider_creds())
+                        .into_iter()
+                        .next();
                 if let Some(api_key) = api_key {
                     let separator = if source.contains('?') { '&' } else { '?' };
                     let with_key = format!("{}{}key={}", source, separator, api_key);
@@ -5225,8 +5202,7 @@ pub(super) async fn api_test(
     let conn = db_connection(&state)?;
     let workflow_models =
         get_config_json(&conn, WORKFLOW_MODELS_KEY)?.unwrap_or_else(default_workflow_models);
-    let custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
-        .unwrap_or_else(default_custom_openai_config);
+    let creds = load_provider_creds(&conn);
     let model_id = workflow_models
         .get("script_parsing")
         .and_then(Value::as_str)
@@ -5235,7 +5211,7 @@ pub(super) async fn api_test(
         .filter(|value| infer_model_provider(value).as_deref() == Some("gemini"))
         .unwrap_or("gemini-2.5-flash")
         .to_string();
-    let response = request_gemini_text_completion(&model_id, &prompt, &custom_openai)
+    let response = request_gemini_text_completion(&model_id, &prompt, &creds)
         .await
         .map_err(|error| {
             ApiError::new(
@@ -5786,13 +5762,13 @@ async fn request_openai_compatible_text_completion(
     provider: &str,
     model_id: &str,
     prompt: &str,
-    custom_openai: &Value,
+    creds: &Value,
 ) -> Result<String, String> {
-    let api_keys = provider_sync_api_keys(provider, custom_openai);
+    let api_keys = provider_sync_api_keys(provider, creds);
     if api_keys.is_empty() {
         return Err("未配置 API Key".to_string());
     }
-    let base_url = provider_sync_base_url(provider, custom_openai)
+    let base_url = provider_sync_base_url(provider, creds)
         .ok_or_else(|| "未配置 Base URL".to_string())?;
     let endpoint = provider_chat_completions_endpoint(&base_url);
     let model = normalize_model_id_for_remote(model_id);
@@ -5840,13 +5816,13 @@ async fn request_openai_compatible_text_completion(
 async fn request_gemini_text_completion(
     model_id: &str,
     prompt: &str,
-    custom_openai: &Value,
+    creds: &Value,
 ) -> Result<String, String> {
-    let api_keys = provider_sync_api_keys("gemini", custom_openai);
+    let api_keys = provider_sync_api_keys("gemini", creds);
     if api_keys.is_empty() {
         return Err("未配置 API Key".to_string());
     }
-    let base_url = provider_sync_base_url("gemini", custom_openai)
+    let base_url = provider_sync_base_url("gemini", creds)
         .ok_or_else(|| "未配置 Base URL".to_string())?;
     let endpoint = provider_gemini_generate_endpoint(&base_url, model_id);
     let mut last_error = None::<String>;
@@ -5895,14 +5871,14 @@ async fn run_text_model_test_remote(
     provider: &str,
     model_id: &str,
     prompt: &str,
-    custom_openai: &Value,
+    creds: &Value,
 ) -> Result<String, String> {
     match provider {
         "qwen" | "volcengine" | "deepseek" | "custom_openai" => {
-            request_openai_compatible_text_completion(provider, model_id, prompt, custom_openai)
+            request_openai_compatible_text_completion(provider, model_id, prompt, creds)
                 .await
         }
-        "gemini" => request_gemini_text_completion(model_id, prompt, custom_openai).await,
+        "gemini" => request_gemini_text_completion(model_id, prompt, creds).await,
         _ => Err(format!("供应商 {} 暂不支持文本模型在线测试", provider)),
     }
 }
@@ -6062,10 +6038,9 @@ pub(super) async fn api_models_test(
     let result = match model_type.as_str() {
         "text" => {
             let conn = db_connection(&state)?;
-            let custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
-                .unwrap_or_else(default_custom_openai_config);
+            let creds = load_provider_creds(&conn);
             let text =
-                match run_text_model_test_remote(&provider, &model_id, &prompt, &custom_openai)
+                match run_text_model_test_remote(&provider, &model_id, &prompt, &creds)
                     .await
                 {
                     Ok(text) => text,
@@ -6091,8 +6066,7 @@ pub(super) async fn api_models_test(
             json!(text)
         }
         "image" => {
-            let custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
-                .unwrap_or_else(default_custom_openai_config);
+            let creds = load_provider_creds(&conn);
             let aspect_ratio =
                 normalize_image_aspect_ratio(body.get("imageAspectRatio").and_then(Value::as_str));
             let size = resolve_image_test_size(&model_id, &provider, &aspect_ratio);
@@ -6104,7 +6078,7 @@ pub(super) async fn api_models_test(
                         &prompt,
                         &size,
                         &reference_images,
-                        &custom_openai,
+                        &creds,
                     )
                     .await
                 }
@@ -6115,7 +6089,7 @@ pub(super) async fn api_models_test(
                         &prompt,
                         &size,
                         &reference_images,
-                        &custom_openai,
+                        &creds,
                     )
                     .await
                 }
@@ -6124,7 +6098,7 @@ pub(super) async fn api_models_test(
                         &model_id,
                         &prompt,
                         &reference_images,
-                        &custom_openai,
+                        &creds,
                     )
                     .await
                 }
@@ -10179,19 +10153,13 @@ struct TosStorageConfig {
     is_custom_domain: bool,
 }
 
-fn parse_bool_env(key: &str) -> Option<bool> {
-    let value = std::env::var(key).ok()?;
-    let normalized = value.trim().to_ascii_lowercase();
-    if normalized.is_empty() {
-        return None;
-    }
-    if ["1", "true", "yes", "on"].contains(&normalized.as_str()) {
-        return Some(true);
-    }
-    if ["0", "false", "no", "off"].contains(&normalized.as_str()) {
-        return Some(false);
-    }
-    None
+fn tos_config_string(config: &Value, key: &str) -> String {
+    config
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string()
 }
 
 fn trim_slashes(value: &str) -> String {
@@ -10235,37 +10203,37 @@ fn normalize_endpoint(raw: &str) -> (String, String) {
 }
 
 fn load_tos_config() -> TosStorageConfig {
-    let access_key_id = std::env::var("TOS_ACCESS_KEY")
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    let access_key_secret = std::env::var("TOS_SECRET_KEY")
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    let security_token = std::env::var("TOS_SECURITY_TOKEN")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    let region = std::env::var("TOS_REGION")
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    let bucket = std::env::var("TOS_BUCKET")
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    let key_prefix = std::env::var("TOS_KEY_PREFIX")
-        .ok()
-        .map(|value| normalize_object_path(&value))
-        .filter(|value| !value.is_empty());
-    let public_base_url = std::env::var("TOS_PUBLIC_BASE_URL")
-        .ok()
-        .and_then(|value| normalize_base_url(&value));
-    let is_custom_domain = parse_bool_env("TOS_IS_CUSTOM_DOMAIN").unwrap_or(false);
-    let (endpoint, endpoint_protocol) =
-        normalize_endpoint(&std::env::var("TOS_ENDPOINT").unwrap_or_default());
-    let enabled_by_env = parse_bool_env("TOS_ENABLED").unwrap_or(true);
+    let config = config_connection()
+        .and_then(|conn| get_config_json(&conn, TOS_STORAGE_CONFIG_KEY).ok().flatten())
+        .unwrap_or_else(default_tos_config);
+
+    let access_key_id = tos_config_string(&config, "accessKeyId");
+    let access_key_secret = tos_config_string(&config, "secretKey");
+    let security_token = {
+        let token = tos_config_string(&config, "securityToken");
+        if token.is_empty() {
+            None
+        } else {
+            Some(token)
+        }
+    };
+    let region = tos_config_string(&config, "region");
+    let bucket = tos_config_string(&config, "bucket");
+    let key_prefix = {
+        let prefix = normalize_object_path(&tos_config_string(&config, "keyPrefix"));
+        if prefix.is_empty() {
+            None
+        } else {
+            Some(prefix)
+        }
+    };
+    let public_base_url = normalize_base_url(&tos_config_string(&config, "publicBaseUrl"));
+    let is_custom_domain = config
+        .get("isCustomDomain")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let (endpoint, endpoint_protocol) = normalize_endpoint(&tos_config_string(&config, "endpoint"));
+    let enabled_flag = config.get("enabled").and_then(Value::as_bool).unwrap_or(false);
     let has_required = !access_key_id.is_empty()
         && !access_key_secret.is_empty()
         && !region.is_empty()
@@ -10273,7 +10241,7 @@ fn load_tos_config() -> TosStorageConfig {
         && !endpoint.is_empty();
 
     TosStorageConfig {
-        enabled: enabled_by_env && has_required,
+        enabled: enabled_flag && has_required,
         access_key_id,
         access_key_secret,
         security_token,
@@ -10332,7 +10300,7 @@ pub(super) async fn api_tos_files(
     if !config.enabled {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
-            "TOS 未启用或配置不完整（请检查 TOS_ENABLED / TOS_ACCESS_KEY / TOS_SECRET_KEY / TOS_REGION / TOS_ENDPOINT / TOS_BUCKET）",
+            "TOS 未启用或配置不完整（请在设置 → TOS 云存储中填写 Access Key / Secret Key / Region / Endpoint / Bucket 并启用）",
         ));
     }
 

@@ -11,6 +11,7 @@ import {
   XCircle
 } from 'lucide-vue-next'
 import SettingsCustomOpenAIProvider from '@/components/settings/SettingsCustomOpenAIProvider.vue'
+import SettingsProviderCredentials from '@/components/settings/SettingsProviderCredentials.vue'
 import SettingsProviderLogo from '@/components/settings/SettingsProviderLogo.vue'
 import { useSettingsModelCatalog } from '@/composables/useSettingsModelCatalog'
 
@@ -84,6 +85,14 @@ const { loadModels } = useSettingsModelCatalog()
 
 const activeProviderSummary = computed(() => {
   return providers.value.find(provider => provider.provider === activeProvider.value) || providers.value[0] || null
+})
+
+type CredentialProvider = 'gemini' | 'qwen' | 'volcengine' | 'deepseek' | 'kling'
+
+const activeCredentialProvider = computed<CredentialProvider | null>(() => {
+  const provider = activeProviderSummary.value?.provider
+  if (!provider || provider === 'custom_openai') return null
+  return provider
 })
 
 async function loadProviders() {
@@ -515,6 +524,12 @@ onMounted(() => {
         <div class="mx-auto max-w-5xl space-y-4">
           <SettingsCustomOpenAIProvider
             v-if="activeProviderSummary.provider === 'custom_openai'"
+            :on-saved="handleCustomProviderSaved"
+          />
+          <SettingsProviderCredentials
+            v-else-if="activeCredentialProvider"
+            :key="activeCredentialProvider"
+            :provider="activeCredentialProvider"
             :on-saved="handleCustomProviderSaved"
           />
 
