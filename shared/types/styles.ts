@@ -1,9 +1,13 @@
 import { STYLE_DESCRIPTION_OVERRIDES } from './style-descriptions.generated'
 
-const STYLE_THUMBNAIL_CDN_BASE = 'https://playlet-ai.tos-cn-guangzhou.volces.com/playlet-assets/styles'
+const STYLE_THUMBNAIL_CDN_BASE = 'https://playlet-ai.tos-cn-guangzhou.volces.com/manju-assets/styles'
+const LEGACY_STYLE_THUMBNAIL_CDN_BASE = 'https://playlet-ai.tos-cn-guangzhou.volces.com/playlet-assets/styles'
 
 function resolveStyleThumbnail(path?: string): string | undefined {
   if (!path) return path
+  if (path.startsWith(LEGACY_STYLE_THUMBNAIL_CDN_BASE)) {
+    return `${STYLE_THUMBNAIL_CDN_BASE}${path.slice(LEGACY_STYLE_THUMBNAIL_CDN_BASE.length)}`
+  }
   if (/^https?:\/\//i.test(path)) return path
   if (!path.startsWith('/styles/')) return path
   const filename = path.split('/').filter(Boolean).pop()
