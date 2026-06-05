@@ -28,6 +28,8 @@ const SELECTED_MODELS_KEY: &str = "selected_models";
 const WORKFLOW_MODELS_KEY: &str = "workflow_models";
 const WORKFLOW_MODEL_OPTIONS_KEY: &str = "workflow_model_options";
 const CUSTOM_OPENAI_CONFIG_KEY: &str = "custom_openai_provider";
+const PROVIDER_CREDENTIALS_KEY: &str = "provider_credentials";
+const TOS_STORAGE_CONFIG_KEY: &str = "tos_storage_config";
 const PROVIDER_MODEL_CATALOG_KEY: &str = "provider_model_catalog";
 const PROMPT_TEMPLATES_KEY: &str = "prompt_templates_default";
 const PROMPT_PROFILES_KEY: &str = "prompt_profiles_default";
@@ -129,6 +131,38 @@ struct UpdateWorkflowBody {
 #[derive(Deserialize)]
 struct PutProviderModelsBody {
     models: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ProviderCredentialsPutBody {
+    #[serde(rename = "apiKey")]
+    api_key: Option<String>,
+    #[serde(rename = "baseUrl")]
+    base_url: Option<String>,
+    #[serde(rename = "accessKey")]
+    access_key: Option<String>,
+    #[serde(rename = "secretKey")]
+    secret_key: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TosConfigPutBody {
+    enabled: Option<bool>,
+    #[serde(rename = "accessKeyId")]
+    access_key_id: Option<String>,
+    #[serde(rename = "secretKey")]
+    secret_key: Option<String>,
+    #[serde(rename = "securityToken")]
+    security_token: Option<String>,
+    region: Option<String>,
+    endpoint: Option<String>,
+    bucket: Option<String>,
+    #[serde(rename = "keyPrefix")]
+    key_prefix: Option<String>,
+    #[serde(rename = "publicBaseUrl")]
+    public_base_url: Option<String>,
+    #[serde(rename = "isCustomDomain")]
+    is_custom_domain: Option<bool>,
 }
 
 struct ProjectSceneRow {
@@ -267,8 +301,18 @@ fn path_content_type(path: &FsPath) -> &'static str {
     }
 }
 
+static DB_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+fn set_global_db_path(path: PathBuf) {
+    let _ = DB_PATH.set(path);
+}
+
 fn db_connection(state: &BackendState) -> Result<Connection, ApiError> {
-    let conn = Connection::open(&state.db_path).map_err(|error| {
+    open_db_connection(&state.db_path)
+}
+
+fn open_db_connection(path: &FsPath) -> Result<Connection, ApiError> {
+    let conn = Connection::open(path).map_err(|error| {
         ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("打开数据库失败: {}", error),
@@ -280,6 +324,12 @@ fn db_connection(state: &BackendState) -> Result<Connection, ApiError> {
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(conn)
+}
+
+/// 为没有 `BackendState` 的深层助手提供只读配置连接（依赖 `set_global_db_path` 在启动时初始化）。
+fn config_connection() -> Option<Connection> {
+    let path = DB_PATH.get()?;
+    open_db_connection(path).ok()
 }
 
 fn http_client() -> &'static Client {
@@ -738,6 +788,33 @@ fn default_custom_openai_config() -> Value {
     })
 }
 
+/// 各供应商凭证（apiKey / baseUrl，kling 为 accessKey / secretKey），客户端可配，持久化到 system_config。
+fn default_provider_credentials() -> Value {
+    json!({
+      "gemini":     { "apiKey": "", "baseUrl": "" },
+      "qwen":       { "apiKey": "", "baseUrl": "" },
+      "volcengine": { "apiKey": "", "baseUrl": "" },
+      "deepseek":   { "apiKey": "", "baseUrl": "" },
+      "kling":      { "accessKey": "", "secretKey": "", "baseUrl": "" }
+    })
+}
+
+/// TOS 云存储配置，客户端可配，持久化到 system_config。
+fn default_tos_config() -> Value {
+    json!({
+      "enabled": false,
+      "accessKeyId": "",
+      "secretKey": "",
+      "securityToken": "",
+      "region": "",
+      "endpoint": "",
+      "bucket": "",
+      "keyPrefix": "",
+      "publicBaseUrl": "",
+      "isCustomDomain": false
+    })
+}
+
 fn build_available_models(conn: &Connection) -> Result<Value, ApiError> {
     let mut text_models: Vec<Value> = Vec::new();
     let mut image_models: Vec<Value> = Vec::new();
@@ -750,6 +827,14 @@ fn build_available_models(conn: &Connection) -> Result<Value, ApiError> {
         let Some(provider) = provider_item.get("provider").and_then(Value::as_str) else {
             continue;
         };
+        // 未配置凭证的供应商不提供可用模型，避免在流程模型/测试中误选。
+        if !provider_item
+            .get("configured")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            continue;
+        }
         for model_id in json_string_list(provider_item.get("models")) {
             let key = format!("{}::{}", provider, model_id);
             if !seen.insert(key) {
@@ -1597,6 +1682,16 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
             &default_custom_openai_config(),
         )?;
     }
+    if get_config_json(&conn, PROVIDER_CREDENTIALS_KEY)?.is_none() {
+        set_config_json(
+            &conn,
+            PROVIDER_CREDENTIALS_KEY,
+            &default_provider_credentials(),
+        )?;
+    }
+    if get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)?.is_none() {
+        set_config_json(&conn, TOS_STORAGE_CONFIG_KEY, &default_tos_config())?;
+    }
     if get_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY)?.is_none() {
         set_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY, &json!({}))?;
     }
@@ -1662,6 +1757,7 @@ fn ensure_dirs(state: &BackendState) -> Result<(), ApiError> {
 }
 
 pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<(), String> {
+    set_global_db_path(state.db_path.clone());
     ensure_dirs(&state).map_err(|error| error.message.clone())?;
     init_database(&state).map_err(|error| error.message.clone())?;
 
@@ -1707,6 +1803,14 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         )
         .route("/api/model-providers", get(api_model_providers))
         .route("/api/model-providers/index", get(api_model_providers))
+        .route(
+            "/api/model-providers/credentials",
+            get(api_provider_credentials_get),
+        )
+        .route(
+            "/api/model-providers/{provider}/credentials",
+            put(api_provider_credentials_put),
+        )
         .route(
             "/api/model-providers/{provider}/models",
             put(api_model_provider_models_put),
@@ -1774,6 +1878,10 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/image/file/{*filename}", get(api_image_file))
         .route("/api/image/proxy", get(api_image_proxy))
         .route("/api/tos/files", get(api_tos_files))
+        .route(
+            "/api/tos/config",
+            get(api_tos_config_get).put(api_tos_config_put),
+        )
         .route("/api/video/generate", post(api_video_generate))
         .route("/api/video/merge", post(api_video_merge))
         .route(
@@ -4725,11 +4833,43 @@ fn is_supported_provider(provider: &str) -> bool {
     SUPPORTED_MODEL_PROVIDERS.contains(&provider)
 }
 
-fn env_var_non_empty(key: &str) -> bool {
-    std::env::var(key)
+/// 加载合并后的供应商凭证：各供应商节点 + 内嵌完整 custom_openai 配置（键 `custom_openai`）。
+fn load_provider_creds(conn: &Connection) -> Value {
+    let mut creds = get_config_json(conn, PROVIDER_CREDENTIALS_KEY)
         .ok()
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false)
+        .flatten()
+        .unwrap_or_else(default_provider_credentials);
+    let custom_openai = get_config_json(conn, CUSTOM_OPENAI_CONFIG_KEY)
+        .ok()
+        .flatten()
+        .unwrap_or_else(default_custom_openai_config);
+    if let Some(obj) = creds.as_object_mut() {
+        obj.insert("custom_openai".to_string(), custom_openai);
+    }
+    creds
+}
+
+/// 把单个 custom_openai 配置包装成合并凭证结构，供共享供应商助手读取。
+fn wrap_custom_openai_creds(custom_openai: &Value) -> Value {
+    json!({ "custom_openai": custom_openai.clone() })
+}
+
+/// 供无 `&Connection` 的深层助手按需加载合并凭证（依赖全局 DB 路径）。
+fn current_provider_creds() -> Value {
+    config_connection()
+        .map(|conn| load_provider_creds(&conn))
+        .unwrap_or_else(default_provider_credentials)
+}
+
+/// 读取某供应商凭证的指定字段（去空白、过滤空串）。
+fn provider_credential_field(creds: &Value, provider: &str, field: &str) -> Option<String> {
+    creds
+        .get(provider)
+        .and_then(|node| node.get(field))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn json_string_list(value: Option<&Value>) -> Vec<String> {
@@ -4808,14 +4948,7 @@ fn validate_custom_openai_body(
     Ok(())
 }
 
-fn env_var_trimmed(key: &str) -> Option<String> {
-    std::env::var(key)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
-fn split_env_values(raw: &str) -> Vec<String> {
+fn split_keys(raw: &str) -> Vec<String> {
     let mut output = Vec::new();
     let mut seen = HashSet::new();
     for part in raw.split([',', ';', '\n', '\r']) {
@@ -4831,13 +4964,6 @@ fn split_env_values(raw: &str) -> Vec<String> {
     output
 }
 
-fn env_var_values(key: &str) -> Vec<String> {
-    std::env::var(key)
-        .ok()
-        .map(|value| split_env_values(&value))
-        .unwrap_or_default()
-}
-
 fn normalize_provider_base_url(raw: &str) -> Option<String> {
     let trimmed = raw.trim().trim_end_matches('/');
     if trimmed.is_empty() {
@@ -4847,48 +4973,39 @@ fn normalize_provider_base_url(raw: &str) -> Option<String> {
     }
 }
 
-fn provider_sync_base_url(provider: &str, custom_openai: &Value) -> Option<String> {
+fn provider_sync_base_url(provider: &str, creds: &Value) -> Option<String> {
+    let configured =
+        provider_credential_field(creds, provider, "baseUrl").and_then(|value| normalize_provider_base_url(&value));
     match provider {
-        "qwen" => env_var_trimmed("QWEN_BASE_URL")
-            .and_then(|value| normalize_provider_base_url(&value))
+        "qwen" => configured
             .or_else(|| Some("https://dashscope.aliyuncs.com/compatible-mode/v1".to_string())),
-        "volcengine" => env_var_trimmed("VOLCENGINE_BASE_URL")
-            .and_then(|value| normalize_provider_base_url(&value))
-            .or_else(|| Some("https://ark.cn-beijing.volces.com/api/v3".to_string())),
-        "deepseek" => env_var_trimmed("DEEPSEEK_BASE_URL")
-            .and_then(|value| normalize_provider_base_url(&value))
-            .or_else(|| Some("https://api.deepseek.com".to_string())),
-        "gemini" => env_var_trimmed("GEMINI_BASE_URL")
-            .and_then(|value| normalize_provider_base_url(&value))
+        "volcengine" => {
+            configured.or_else(|| Some("https://ark.cn-beijing.volces.com/api/v3".to_string()))
+        }
+        "deepseek" => configured.or_else(|| Some("https://api.deepseek.com".to_string())),
+        "gemini" => configured
             .or_else(|| Some("https://generativelanguage.googleapis.com/v1beta".to_string())),
-        "custom_openai" => custom_openai
-            .get("baseUrl")
-            .and_then(Value::as_str)
-            .and_then(normalize_provider_base_url),
+        "custom_openai" => configured,
         _ => None,
     }
 }
 
-fn provider_sync_api_key(provider: &str, custom_openai: &Value) -> Option<String> {
+fn provider_sync_api_key(provider: &str, creds: &Value) -> Option<String> {
     match provider {
-        "qwen" => env_var_trimmed("QWEN_API_KEY"),
-        "volcengine" => env_var_trimmed("VOLCENGINE_API_KEY"),
-        "deepseek" => env_var_trimmed("DEEPSEEK_API_KEY"),
-        "custom_openai" => custom_openai
-            .get("apiKey")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string),
+        "qwen" | "volcengine" | "deepseek" | "custom_openai" => {
+            provider_credential_field(creds, provider, "apiKey")
+        }
         _ => None,
     }
 }
 
-fn provider_sync_api_keys(provider: &str, custom_openai: &Value) -> Vec<String> {
+fn provider_sync_api_keys(provider: &str, creds: &Value) -> Vec<String> {
     if provider == "gemini" {
-        return env_var_values("GEMINI_API_KEY");
+        return provider_credential_field(creds, "gemini", "apiKey")
+            .map(|value| split_keys(&value))
+            .unwrap_or_default();
     }
-    provider_sync_api_key(provider, custom_openai)
+    provider_sync_api_key(provider, creds)
         .map(|value| vec![value])
         .unwrap_or_default()
 }
@@ -5014,13 +5131,13 @@ fn build_sync_error_message(status: reqwest::StatusCode, body_text: &str) -> Str
 
 async fn fetch_provider_models_from_remote(
     provider: &str,
-    custom_openai: &Value,
+    creds: &Value,
 ) -> Result<Vec<String>, String> {
-    let api_keys = provider_sync_api_keys(provider, custom_openai);
+    let api_keys = provider_sync_api_keys(provider, creds);
     if api_keys.is_empty() {
         return Err("未配置 API Key".to_string());
     }
-    let base_url = provider_sync_base_url(provider, custom_openai)
+    let base_url = provider_sync_base_url(provider, creds)
         .ok_or_else(|| "未配置 Base URL".to_string())?;
     let endpoint = provider_models_endpoint(&base_url);
     let mut last_error = None::<String>;
@@ -5106,25 +5223,18 @@ fn resolve_provider_meta(
     }
 }
 
-fn resolve_provider_configured(provider: &str, custom_openai: &Value) -> bool {
+fn resolve_provider_configured(provider: &str, creds: &Value) -> bool {
     match provider {
-        "qwen" => env_var_non_empty("QWEN_API_KEY"),
-        "volcengine" => env_var_non_empty("VOLCENGINE_API_KEY"),
-        "deepseek" => env_var_non_empty("DEEPSEEK_API_KEY"),
-        "gemini" => env_var_non_empty("GEMINI_API_KEY"),
-        "kling" => env_var_non_empty("KLING_ACCESS_KEY") && env_var_non_empty("KLING_SECRET_KEY"),
+        "qwen" | "volcengine" | "deepseek" | "gemini" => {
+            provider_credential_field(creds, provider, "apiKey").is_some()
+        }
+        "kling" => {
+            provider_credential_field(creds, "kling", "accessKey").is_some()
+                && provider_credential_field(creds, "kling", "secretKey").is_some()
+        }
         "custom_openai" => {
-            let api_key = custom_openai
-                .get("apiKey")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .unwrap_or("");
-            let base_url = custom_openai
-                .get("baseUrl")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .unwrap_or("");
-            !api_key.is_empty() && !base_url.is_empty()
+            provider_credential_field(creds, "custom_openai", "apiKey").is_some()
+                && provider_credential_field(creds, "custom_openai", "baseUrl").is_some()
         }
         _ => false,
     }
@@ -5133,9 +5243,10 @@ fn resolve_provider_configured(provider: &str, custom_openai: &Value) -> bool {
 fn resolve_provider_models(
     provider: &str,
     catalog_entry: Option<&Value>,
-    custom_openai: &Value,
+    creds: &Value,
 ) -> (Vec<String>, Vec<String>, Option<String>, Option<String>) {
     if provider == "custom_openai" {
+        let custom_openai = creds.get("custom_openai").cloned().unwrap_or_else(default_custom_openai_config);
         let models = json_string_list(custom_openai.get("textModels"));
         let available = {
             let custom_available = json_string_list(custom_openai.get("availableTextModels"));
@@ -5233,10 +5344,10 @@ fn manual_provider_seed_available_models(provider: &str) -> Vec<String> {
 
 fn provider_summary(conn: &Connection) -> Result<Vec<Value>, ApiError> {
     let catalog = get_config_json(conn, PROVIDER_MODEL_CATALOG_KEY)?.unwrap_or_else(|| json!({}));
-    let custom_openai = get_config_json(conn, CUSTOM_OPENAI_CONFIG_KEY)?
-        .unwrap_or_else(default_custom_openai_config);
-    let custom_display_name = custom_openai
-        .get("displayName")
+    let creds = load_provider_creds(conn);
+    let custom_display_name = creds
+        .get("custom_openai")
+        .and_then(|node| node.get("displayName"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -5259,7 +5370,7 @@ fn provider_summary(conn: &Connection) -> Result<Vec<Value>, ApiError> {
 
         let catalog_entry = catalog.as_object().and_then(|items| items.get(provider));
         let (models, available_models, synced_at, sync_error) =
-            resolve_provider_models(provider, catalog_entry, &custom_openai);
+            resolve_provider_models(provider, catalog_entry, &creds);
         let available_model_catalog = available_models
             .iter()
             .map(|model_id| {
@@ -5294,7 +5405,7 @@ fn provider_summary(conn: &Connection) -> Result<Vec<Value>, ApiError> {
           "displayName": display_name,
           "description": description,
           "syncMode": sync_mode,
-          "configured": resolve_provider_configured(provider, &custom_openai),
+          "configured": resolve_provider_configured(provider, &creds),
           "supportedDynamicSync": supported_dynamic_sync,
           "syncedAt": synced_at,
           "syncError": sync_error,
@@ -5310,14 +5421,8 @@ fn provider_summary(conn: &Connection) -> Result<Vec<Value>, ApiError> {
 
 async fn api_model_providers(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
-    // 仅展示已配置环境变量的供应商；custom_openai 始终保留（其密钥在卡片表单内填写）。
-    let providers = provider_summary(&conn)?
-        .into_iter()
-        .filter(|item| {
-            item.get("configured").and_then(Value::as_bool).unwrap_or(false)
-                || item.get("provider").and_then(Value::as_str) == Some("custom_openai")
-        })
-        .collect::<Vec<_>>();
+    // 所有受支持的供应商都展示，凭证在卡片表单内填写；`configured` 字段反映数据库中是否已配置密钥。
+    let providers = provider_summary(&conn)?;
     Ok(Json(json!({
       "success": true,
       "data": { "providers": providers }
@@ -5432,7 +5537,8 @@ async fn api_model_provider_sync(
         )
     };
 
-    let sync_result = fetch_provider_models_from_remote(&provider, &custom_openai).await;
+    let sync_result =
+        fetch_provider_models_from_remote(&provider, &load_provider_creds(&conn)).await;
     let synced_at = now_iso();
     let sync_error = sync_result.as_ref().err().cloned();
     let synced_models = sync_result.clone().unwrap_or_default();
@@ -5611,7 +5717,8 @@ async fn api_custom_openai_sync(
         }
     }
 
-    let sync_result = fetch_provider_models_from_remote("custom_openai", &config).await;
+    let sync_result =
+        fetch_provider_models_from_remote("custom_openai", &wrap_custom_openai_creds(&config)).await;
     let synced_at = now_iso();
     let sync_error = sync_result.as_ref().err().cloned();
     let synced_models = sync_result.clone().unwrap_or_default();
@@ -5644,6 +5751,175 @@ async fn api_custom_openai_sync(
     }
 
     api_custom_openai_get(State(state)).await
+}
+
+/// 构造脱敏后的供应商凭证视图（不回传密钥明文，仅返回是否已配置 + Base URL）。
+fn provider_credentials_public(creds: &Value) -> Value {
+    let mask = |provider: &str, field: &str| provider_credential_field(creds, provider, field).is_some();
+    let base_url = |provider: &str| {
+        provider_credential_field(creds, provider, "baseUrl").unwrap_or_default()
+    };
+    json!({
+      "gemini":     { "hasApiKey": mask("gemini", "apiKey"), "baseUrl": base_url("gemini") },
+      "qwen":       { "hasApiKey": mask("qwen", "apiKey"), "baseUrl": base_url("qwen") },
+      "volcengine": { "hasApiKey": mask("volcengine", "apiKey"), "baseUrl": base_url("volcengine") },
+      "deepseek":   { "hasApiKey": mask("deepseek", "apiKey"), "baseUrl": base_url("deepseek") },
+      "kling": {
+        "hasAccessKey": mask("kling", "accessKey"),
+        "hasSecretKey": mask("kling", "secretKey"),
+        "baseUrl": base_url("kling")
+      }
+    })
+}
+
+async fn api_provider_credentials_get(
+    State(state): State<BackendState>,
+) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let creds = load_provider_creds(&conn);
+    Ok(Json(json!({
+      "success": true,
+      "data": provider_credentials_public(&creds)
+    })))
+}
+
+async fn api_provider_credentials_put(
+    Path(provider): Path<String>,
+    State(state): State<BackendState>,
+    Json(body): Json<ProviderCredentialsPutBody>,
+) -> Result<Json<Value>, ApiError> {
+    if !matches!(
+        provider.as_str(),
+        "gemini" | "qwen" | "volcengine" | "deepseek" | "kling"
+    ) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "该供应商不支持凭证配置",
+        ));
+    }
+
+    let conn = db_connection(&state)?;
+    let mut config = get_config_json(&conn, PROVIDER_CREDENTIALS_KEY)?
+        .filter(Value::is_object)
+        .unwrap_or_else(default_provider_credentials);
+
+    {
+        let root = config.as_object_mut().expect("provider credentials must be object");
+        let entry = root
+            .entry(provider.clone())
+            .or_insert_with(|| json!({}));
+        let entry_obj = match entry.as_object_mut() {
+            Some(obj) => obj,
+            None => {
+                *entry = json!({});
+                entry.as_object_mut().unwrap()
+            }
+        };
+
+        // 留空字符串视为“清除”，未提供（None）视为“保留已有”。
+        if provider == "kling" {
+            if let Some(access_key) = body.access_key {
+                entry_obj.insert("accessKey".to_string(), json!(access_key.trim()));
+            }
+            if let Some(secret_key) = body.secret_key {
+                entry_obj.insert("secretKey".to_string(), json!(secret_key.trim()));
+            }
+        } else if let Some(api_key) = body.api_key {
+            entry_obj.insert("apiKey".to_string(), json!(api_key.trim()));
+        }
+        if let Some(base_url) = body.base_url {
+            entry_obj.insert("baseUrl".to_string(), json!(base_url.trim()));
+        }
+    }
+
+    set_config_json(&conn, PROVIDER_CREDENTIALS_KEY, &config)?;
+    api_provider_credentials_get(State(state)).await
+}
+
+/// TOS 配置脱敏视图：密钥仅返回是否已配置。
+fn tos_config_public(config: &Value) -> Value {
+    let has = |key: &str| {
+        config
+            .get(key)
+            .and_then(Value::as_str)
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+    };
+    let text = |key: &str| {
+        config
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    json!({
+      "enabled": config.get("enabled").and_then(Value::as_bool).unwrap_or(false),
+      "accessKeyId": text("accessKeyId"),
+      "hasSecretKey": has("secretKey"),
+      "hasSecurityToken": has("securityToken"),
+      "region": text("region"),
+      "endpoint": text("endpoint"),
+      "bucket": text("bucket"),
+      "keyPrefix": text("keyPrefix"),
+      "publicBaseUrl": text("publicBaseUrl"),
+      "isCustomDomain": config.get("isCustomDomain").and_then(Value::as_bool).unwrap_or(false)
+    })
+}
+
+async fn api_tos_config_get(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let config = get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)?.unwrap_or_else(default_tos_config);
+    Ok(Json(json!({
+      "success": true,
+      "data": tos_config_public(&config)
+    })))
+}
+
+async fn api_tos_config_put(
+    State(state): State<BackendState>,
+    Json(body): Json<TosConfigPutBody>,
+) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let mut config = get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)?
+        .filter(Value::is_object)
+        .unwrap_or_else(default_tos_config);
+
+    {
+        let obj = config.as_object_mut().expect("tos config must be object");
+        if let Some(enabled) = body.enabled {
+            obj.insert("enabled".to_string(), json!(enabled));
+        }
+        if let Some(access_key_id) = body.access_key_id {
+            obj.insert("accessKeyId".to_string(), json!(access_key_id.trim()));
+        }
+        if let Some(secret_key) = body.secret_key {
+            obj.insert("secretKey".to_string(), json!(secret_key.trim()));
+        }
+        if let Some(security_token) = body.security_token {
+            obj.insert("securityToken".to_string(), json!(security_token.trim()));
+        }
+        if let Some(region) = body.region {
+            obj.insert("region".to_string(), json!(region.trim()));
+        }
+        if let Some(endpoint) = body.endpoint {
+            obj.insert("endpoint".to_string(), json!(endpoint.trim()));
+        }
+        if let Some(bucket) = body.bucket {
+            obj.insert("bucket".to_string(), json!(bucket.trim()));
+        }
+        if let Some(key_prefix) = body.key_prefix {
+            obj.insert("keyPrefix".to_string(), json!(key_prefix.trim()));
+        }
+        if let Some(public_base_url) = body.public_base_url {
+            obj.insert("publicBaseUrl".to_string(), json!(public_base_url.trim()));
+        }
+        if let Some(is_custom_domain) = body.is_custom_domain {
+            obj.insert("isCustomDomain".to_string(), json!(is_custom_domain));
+        }
+    }
+
+    set_config_json(&conn, TOS_STORAGE_CONFIG_KEY, &config)?;
+    api_tos_config_get(State(state)).await
 }
 
 async fn api_debug_logs_get(

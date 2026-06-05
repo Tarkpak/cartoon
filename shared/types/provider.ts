@@ -164,3 +164,47 @@ export const CustomOpenAIProviderPublicConfigSchema = CustomOpenAIProviderConfig
   hasApiKey: z.boolean().default(false)
 })
 export type CustomOpenAIProviderPublicConfig = z.infer<typeof CustomOpenAIProviderPublicConfigSchema>
+
+// ==================== 供应商凭证（客户端可配） ====================
+
+/** 单个 OpenAI 兼容供应商的脱敏凭证视图（apiKey 不回传，只返回是否已配置） */
+export const ProviderApiKeyCredentialSchema = z.object({
+  hasApiKey: z.boolean().default(false),
+  baseUrl: z.string().default('')
+})
+export type ProviderApiKeyCredential = z.infer<typeof ProviderApiKeyCredentialSchema>
+
+/** 可灵双密钥脱敏视图 */
+export const KlingCredentialSchema = z.object({
+  hasAccessKey: z.boolean().default(false),
+  hasSecretKey: z.boolean().default(false),
+  baseUrl: z.string().default('')
+})
+export type KlingCredential = z.infer<typeof KlingCredentialSchema>
+
+/** GET /api/model-providers/credentials 返回结构 */
+export const ProviderCredentialsPublicSchema = z.object({
+  gemini: ProviderApiKeyCredentialSchema,
+  qwen: ProviderApiKeyCredentialSchema,
+  volcengine: ProviderApiKeyCredentialSchema,
+  deepseek: ProviderApiKeyCredentialSchema,
+  kling: KlingCredentialSchema
+})
+export type ProviderCredentialsPublic = z.infer<typeof ProviderCredentialsPublicSchema>
+
+// ==================== TOS 云存储配置（客户端可配） ====================
+
+/** GET /api/tos/config 返回结构（密钥脱敏） */
+export const TosConfigPublicSchema = z.object({
+  enabled: z.boolean().default(false),
+  accessKeyId: z.string().default(''),
+  hasSecretKey: z.boolean().default(false),
+  hasSecurityToken: z.boolean().default(false),
+  region: z.string().default(''),
+  endpoint: z.string().default(''),
+  bucket: z.string().default(''),
+  keyPrefix: z.string().default(''),
+  publicBaseUrl: z.string().default(''),
+  isCustomDomain: z.boolean().default(false)
+})
+export type TosConfigPublic = z.infer<typeof TosConfigPublicSchema>
