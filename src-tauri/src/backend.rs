@@ -36,7 +36,9 @@ const PROMPT_PROFILE_STATE_KEY: &str = "prompt_profile_state_default";
 
 const DEFAULT_STYLE_PRESETS_JSON: &str = include_str!("../assets/default-style-presets.json");
 const DEFAULT_STYLE_CATEGORIES_JSON: &str = include_str!("../assets/default-style-categories.json");
-const STYLE_THUMBNAIL_CDN_BASE: &str = "https://playlet-ai.tos-cn-guangzhou.volces.com/playlet-assets/styles";
+const STYLE_THUMBNAIL_CDN_BASE: &str = "https://playlet-ai.tos-cn-guangzhou.volces.com/manju-assets/styles";
+const LEGACY_STYLE_THUMBNAIL_CDN_BASE: &str =
+    "https://playlet-ai.tos-cn-guangzhou.volces.com/playlet-assets/styles";
 const DEFAULT_PROMPT_TEMPLATES_JSON: &str = include_str!("../assets/default-prompt-templates.json");
 
 #[path = "backend/model_constraints.rs"]
@@ -484,6 +486,9 @@ fn normalize_style_thumbnail(value: Option<&str>) -> Option<String> {
     let trimmed = value?.trim();
     if trimmed.is_empty() {
         return None;
+    }
+    if let Some(path) = trimmed.strip_prefix(LEGACY_STYLE_THUMBNAIL_CDN_BASE) {
+        return Some(format!("{}{}", STYLE_THUMBNAIL_CDN_BASE, path));
     }
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
         return Some(trimmed.to_string());
@@ -3906,7 +3911,7 @@ fn style_runtime_response(presets: &Value, config: &Value) -> Value {
         })
         .collect::<Vec<_>>();
     json!({
-      "allPresets": presets,
+      "allPresets": normalized_presets,
       "enabledStyleIds": enabled_ids,
       "defaultStyleId": normalized_config.get("defaultStyleId").cloned().unwrap_or(Value::Null),
       "enabledPresets": enabled_presets,
