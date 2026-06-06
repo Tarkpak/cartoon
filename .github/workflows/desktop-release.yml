@@ -10,8 +10,45 @@ permissions:
   contents: write
 
 jobs:
+  build-frontend:
+    name: Build frontend assets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock', 'package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build desktop frontend assets
+        run: bun run build:desktop
+
+      - name: Upload frontend assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-frontend-assets
+          path: .output/public
+          if-no-files-found: error
+
   build-desktop:
     name: Build ${{ matrix.bundle_label }}
+    needs: build-frontend
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -20,8 +57,10 @@ jobs:
         include:
           - os: macos-14
             bundle_label: macOS arm64
+            bundle_target: dmg
           - os: windows-latest
             bundle_label: Windows x64
+            bundle_target: nsis
 
     steps:
       - name: Checkout code
@@ -57,6 +96,24 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
+      - name: Download frontend assets
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-frontend-assets
+          path: .output/public
+
+      - name: Prepare updater CDN config
+        run: bun run desktop:prepare-updater-config
+        env:
+          DESKTOP_UPDATER_ENDPOINT: ${{ vars.DESKTOP_UPDATER_ENDPOINT }}
+          DESKTOP_UPDATER_BASE_URL: ${{ vars.DESKTOP_UPDATER_BASE_URL }}
+          DESKTOP_UPDATER_MANIFEST_PATH: ${{ vars.DESKTOP_UPDATER_MANIFEST_PATH }}
+          TOS_PUBLIC_BASE_URL: ${{ vars.TOS_PUBLIC_BASE_URL }}
+          TOS_BUCKET: ${{ vars.TOS_BUCKET }}
+          TOS_ENDPOINT: ${{ vars.TOS_ENDPOINT }}
+          TOS_KEY_PREFIX: ${{ vars.TOS_KEY_PREFIX }}
+          TOS_IS_CUSTOM_DOMAIN: ${{ vars.TOS_IS_CUSTOM_DOMAIN }}
+
       - name: Build and upload desktop bundles
         uses: tauri-apps/tauri-action@v0
         env:
@@ -73,3 +130,48 @@ jobs:
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: --config .github/tauri.prebuilt-frontend.json --config .output/tauri.updater.json --bundles ${{ matrix.bundle_target }}
+
+  publish-updater-cdn:
+    name: Publish updater CDN manifest
+    needs: build-desktop
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock', 'package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Upload updater assets to CDN
+        run: bun run desktop:publish-updater-cdn
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TOS_ACCESS_KEY: ${{ secrets.TOS_ACCESS_KEY }}
+          TOS_SECRET_KEY: ${{ secrets.TOS_SECRET_KEY }}
+          TOS_SECURITY_TOKEN: ${{ secrets.TOS_SECURITY_TOKEN }}
+          TOS_REGION: ${{ vars.TOS_REGION }}
+          TOS_ENDPOINT: ${{ vars.TOS_ENDPOINT }}
+          TOS_BUCKET: ${{ vars.TOS_BUCKET }}
+          TOS_KEY_PREFIX: ${{ vars.TOS_KEY_PREFIX }}
+          TOS_IS_CUSTOM_DOMAIN: ${{ vars.TOS_IS_CUSTOM_DOMAIN }}
+          TOS_PUBLIC_BASE_URL: ${{ vars.TOS_PUBLIC_BASE_URL }}
+          DESKTOP_UPDATER_BASE_URL: ${{ vars.DESKTOP_UPDATER_BASE_URL }}
+          DESKTOP_UPDATER_MANIFEST_PATH: ${{ vars.DESKTOP_UPDATER_MANIFEST_PATH }}
