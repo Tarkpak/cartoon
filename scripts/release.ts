@@ -10,6 +10,7 @@
  *   bun run release -y      # 跳过确认直接发布
  *
  * 特性:
+ *   - 在当前 Git 分支创建发布提交和 tag
  *   - 自动将私有仓库临时设为公开（免费使用 GitHub Actions）
  *   - 等待 Actions 构建完成后自动设回私有
  *   - 需要在 .env 中配置 GITHUB_TOKEN
@@ -147,6 +148,10 @@ function run(cmd: string, options: { cwd?: string, stdio?: 'inherit' | 'pipe' } 
 // 获取命令输出
 function getOutput(cmd: string): string {
   return execSync(cmd, { cwd: ROOT, encoding: 'utf-8' }).trim()
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
 }
 
 // ==================== GitHub API 函数 ====================
@@ -335,6 +340,28 @@ function playSound(): void {
 
 // ==================== Git 相关函数 ====================
 
+function getCurrentBranch(): string {
+  const branch = getOutput('git branch --show-current')
+  if (!branch) {
+    console.error('当前处于 detached HEAD，无法确定发版分支')
+    process.exit(1)
+  }
+  return branch
+}
+
+function syncReleaseBranch(branch: string): void {
+  console.log(`正在同步远程分支: ${branch}`)
+  run(`git pull --rebase origin ${shellQuote(branch)}`)
+  console.log(`✅ 远程同步完成`)
+}
+
+function pushRelease(branch: string, version: string): void {
+  const tag = `v${version}`
+  run(`git push origin ${shellQuote(`HEAD:${branch}`)}`)
+  run(`git push origin ${shellQuote(`refs/tags/${tag}`)}`)
+  console.log(`✅ 推送完成`)
+}
+
 // 检查工作区是否干净
 function checkWorkingDirectory(): void {
   try {
@@ -452,6 +479,12 @@ async function main(): Promise<void> {
 
   // 获取仓库信息
   const repo = getRepoFromRemote()
+  const releaseBranch = getCurrentBranch()
+  console.log(`📍 发版分支: ${releaseBranch}\n`)
+
+  // 发版前确保工作区干净，并同步当前发布分支。
+  checkWorkingDirectory()
+  syncReleaseBranch(releaseBranch)
 
   // 读取当前版本
   const packageJson = readJson<PackageJson>(PACKAGE_JSON)
@@ -473,10 +506,6 @@ async function main(): Promise<void> {
       }
     }
 
-    // 同步远程
-    console.log('正在同步远程仓库...')
-    run('git pull --rebase origin master')
-
     // 删除旧 tag
     deleteTag(currentVersion)
 
@@ -485,9 +514,7 @@ async function main(): Promise<void> {
     console.log(`✅ 创建 tag: v${currentVersion}`)
 
     // 推送
-    run('git push origin master')
-    run('git push --tags')
-    console.log(`✅ 推送完成`)
+    pushRelease(releaseBranch, currentVersion)
 
     // 如果有 Token，等待 Actions 完成后设回私有
     if (GITHUB_TOKEN && repo) {
@@ -502,9 +529,6 @@ async function main(): Promise<void> {
     return
   }
 
-  // 检查工作区
-  checkWorkingDirectory()
-
   // 计算新版本
   const newVersion = bumpVersion(currentVersion, versionType || 'patch')
 
@@ -518,11 +542,6 @@ async function main(): Promise<void> {
       process.exit(0)
     }
   }
-
-  // 先拉取远程更改
-  console.log('正在同步远程仓库...')
-  run('git pull --rebase origin master')
-  console.log(`✅ 远程同步完成`)
 
   // 更新 package.json
   packageJson.version = newVersion
@@ -544,9 +563,7 @@ async function main(): Promise<void> {
   console.log(`✅ 创建 tag: v${newVersion}`)
 
   // 推送
-  run('git push origin master')
-  run('git push --tags')
-  console.log(`✅ 推送完成`)
+  pushRelease(releaseBranch, newVersion)
 
   // 如果有 Token，等待 Actions 完成后设回私有
   if (GITHUB_TOKEN && repo) {
