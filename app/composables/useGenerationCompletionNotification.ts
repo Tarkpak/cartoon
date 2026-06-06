@@ -1,4 +1,9 @@
 import type { WorkflowCompletionNotificationOptions } from '#shared/types/workflow-models'
+import {
+  isPermissionGranted as isTauriNotificationPermissionGranted,
+  requestPermission as requestTauriNotificationPermission,
+  sendNotification as sendTauriNotification
+} from '@tauri-apps/plugin-notification'
 
 interface WorkflowModelOptionsResponse {
   success: boolean
@@ -16,7 +21,7 @@ interface CompletionNoticePayload {
 }
 
 export type BrowserNotificationPermissionState = NotificationPermission | 'unsupported' | 'insecure'
-type SystemNotificationChannel = 'serviceWorker' | 'window'
+type SystemNotificationChannel = 'desktop' | 'serviceWorker' | 'window'
 
 export interface BrowserNotificationStatus {
   supported: boolean
@@ -40,7 +45,19 @@ const COMPLETION_TONE_UNLOCK_EVENTS: Array<keyof WindowEventMap> = ['pointerdown
 let completionAudioContext: AudioContext | null = null
 let completionToneUnlockListenerAttached = false
 let notificationServiceWorkerRegistrationPromise: Promise<ServiceWorkerRegistration | null> | null = null
+let cachedDesktopNotificationPermission: NotificationPermission | null = null
 const activeWindowNotifications = new Set<Notification>()
+
+function detectDesktopRuntime(): boolean {
+  if (!import.meta.client) return false
+
+  const runtime = window as Window & {
+    __TAURI__?: unknown
+    __TAURI_INTERNALS__?: unknown
+  }
+
+  return !!runtime.__TAURI__ || !!runtime.__TAURI_INTERNALS__
+}
 
 function createBrowserNotificationStatus(
   permission: BrowserNotificationPermissionState,
@@ -67,7 +84,8 @@ export function getBrowserNotificationStatus(): BrowserNotificationStatus {
   }
 
   const supported = 'Notification' in window
-  const secureContext = window.isSecureContext
+  const desktopRuntime = detectDesktopRuntime()
+  const secureContext = window.isSecureContext || desktopRuntime
 
   if (!supported) {
     return createBrowserNotificationStatus('unsupported', {
@@ -83,16 +101,88 @@ export function getBrowserNotificationStatus(): BrowserNotificationStatus {
     })
   }
 
-  return createBrowserNotificationStatus(Notification.permission, {
+  const permission = desktopRuntime && cachedDesktopNotificationPermission
+    ? cachedDesktopNotificationPermission
+    : Notification.permission
+
+  return createBrowserNotificationStatus(permission, {
     supported: true,
     secureContext: true
   })
+}
+
+function createStatusFromCurrent(
+  permission: NotificationPermission,
+  current: BrowserNotificationStatus
+): BrowserNotificationStatus {
+  return createBrowserNotificationStatus(permission, {
+    supported: current.supported,
+    secureContext: current.secureContext
+  })
+}
+
+async function resolveDesktopNotificationStatus(
+  current: BrowserNotificationStatus
+): Promise<BrowserNotificationStatus> {
+  if (!detectDesktopRuntime() || !current.supported || !current.secureContext) {
+    return current
+  }
+
+  try {
+    const granted = await isTauriNotificationPermissionGranted()
+    const permission: NotificationPermission = granted
+      ? 'granted'
+      : current.permission === 'denied' || cachedDesktopNotificationPermission === 'denied'
+        ? 'denied'
+        : 'default'
+    cachedDesktopNotificationPermission = permission
+    return createStatusFromCurrent(permission, current)
+  } catch (error) {
+    console.warn('[useGenerationCompletionNotification] 检查桌面系统通知权限失败:', error)
+    return current
+  }
+}
+
+export async function refreshBrowserNotificationStatus(): Promise<BrowserNotificationStatus> {
+  const current = getBrowserNotificationStatus()
+  return resolveDesktopNotificationStatus(current)
 }
 
 export async function requestBrowserNotificationPermission(): Promise<BrowserNotificationStatus> {
   const current = getBrowserNotificationStatus()
   if (!current.supported || !current.secureContext) {
     return current
+  }
+
+  if (detectDesktopRuntime()) {
+    let permission: NotificationPermission = current.permission === 'granted' || current.permission === 'denied'
+      ? current.permission
+      : 'default'
+
+    try {
+      const granted = await isTauriNotificationPermissionGranted()
+      if (granted) {
+        permission = 'granted'
+      } else if (permission === 'default') {
+        permission = await requestTauriNotificationPermission()
+      }
+
+      if (permission !== 'granted' && await isTauriNotificationPermissionGranted()) {
+        permission = 'granted'
+      }
+    } catch (error) {
+      console.warn('[useGenerationCompletionNotification] 申请桌面系统通知权限失败:', error)
+      try {
+        if (permission === 'default') {
+          permission = await Notification.requestPermission()
+        }
+      } catch {
+        permission = Notification.permission
+      }
+    }
+
+    cachedDesktopNotificationPermission = permission
+    return createStatusFromCurrent(permission, current)
   }
 
   let permission = current.permission
@@ -329,7 +419,10 @@ async function showSystemNotification(
     renotify?: boolean
   } = {}
 ): Promise<{ sent: boolean, channel?: SystemNotificationChannel }> {
-  const status = getBrowserNotificationStatus()
+  const desktopRuntime = detectDesktopRuntime()
+  const status = desktopRuntime
+    ? await refreshBrowserNotificationStatus()
+    : getBrowserNotificationStatus()
   if (!status.canNotify) return { sent: false }
   if (!payload.title.trim()) return { sent: false }
 
@@ -340,6 +433,26 @@ async function showSystemNotification(
     requireInteraction: options.requireInteraction,
     data: {
       url: buildNotificationTargetUrl()
+    }
+  }
+
+  if (desktopRuntime) {
+    try {
+      sendTauriNotification({
+        title: payload.title,
+        body: payload.body,
+        group: options.tag,
+        autoCancel: true,
+        extra: {
+          url: buildNotificationTargetUrl()
+        }
+      })
+      return {
+        sent: true,
+        channel: 'desktop'
+      }
+    } catch (error) {
+      console.warn('[useGenerationCompletionNotification] 发送桌面系统通知失败:', error)
     }
   }
 
@@ -407,7 +520,7 @@ export async function sendSystemNotificationTest(): Promise<{
   )
 
   return {
-    status: getBrowserNotificationStatus(),
+    status: await refreshBrowserNotificationStatus(),
     sent: result.sent,
     channel: result.channel
   }

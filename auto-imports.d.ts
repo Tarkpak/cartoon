@@ -66,6 +66,7 @@ declare global {
   const reactive: typeof import('vue')['reactive']
   const readonly: typeof import('vue')['readonly']
   const ref: typeof import('vue')['ref']
+  const refreshBrowserNotificationStatus: typeof import('./app/composables/useGenerationCompletionNotification')['refreshBrowserNotificationStatus']
   const requestBrowserNotificationPermission: typeof import('./app/composables/useGenerationCompletionNotification')['requestBrowserNotificationPermission']
   const resolveComponent: typeof import('vue')['resolveComponent']
   const sendSystemNotificationTest: typeof import('./app/composables/useGenerationCompletionNotification')['sendSystemNotificationTest']
@@ -239,6 +240,7 @@ declare module 'vue' {
     readonly reactive: UnwrapRef<typeof import('vue')['reactive']>
     readonly readonly: UnwrapRef<typeof import('vue')['readonly']>
     readonly ref: UnwrapRef<typeof import('vue')['ref']>
+    readonly refreshBrowserNotificationStatus: UnwrapRef<typeof import('./app/composables/useGenerationCompletionNotification')['refreshBrowserNotificationStatus']>
     readonly requestBrowserNotificationPermission: UnwrapRef<typeof import('./app/composables/useGenerationCompletionNotification')['requestBrowserNotificationPermission']>
     readonly resolveComponent: UnwrapRef<typeof import('vue')['resolveComponent']>
     readonly sendSystemNotificationTest: UnwrapRef<typeof import('./app/composables/useGenerationCompletionNotification')['sendSystemNotificationTest']>

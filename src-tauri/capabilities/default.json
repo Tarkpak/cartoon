@@ -13,6 +13,9 @@
   "permissions": [
     "core:default",
     "core:app:allow-version",
+    "allow-check-ffmpeg-status",
+    "allow-install-ffmpeg",
+    "notification:default",
     "process:default",
     "updater:default"
   ]

@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "allow-check-ffmpeg-status"
+description = "Allows checking the desktop FFmpeg availability."
+commands.allow = ["check_ffmpeg_status"]
+
+[[permission]]
+identifier = "allow-install-ffmpeg"
+description = "Allows installing the managed desktop FFmpeg binary."
+commands.allow = ["install_ffmpeg"]

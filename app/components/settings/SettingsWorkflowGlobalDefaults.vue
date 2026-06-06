@@ -17,6 +17,7 @@ import { useDesktopFfmpeg } from '@/composables/useDesktopFfmpeg'
 import { Download, Info, Loader2, RefreshCw } from 'lucide-vue-next'
 import {
   getBrowserNotificationStatus,
+  refreshBrowserNotificationStatus,
   requestBrowserNotificationPermission,
   sendSystemNotificationTest,
   type BrowserNotificationStatus
@@ -235,8 +236,8 @@ function toCheckedBoolean(value: unknown): boolean {
   return value === true
 }
 
-function refreshSystemNotificationStatus() {
-  systemNotificationStatus.value = getBrowserNotificationStatus()
+async function refreshSystemNotificationStatus() {
+  systemNotificationStatus.value = await refreshBrowserNotificationStatus()
 }
 
 function resolveSystemNotificationBlockedHint(status: BrowserNotificationStatus): string {
@@ -310,8 +311,13 @@ async function triggerSystemNotificationTest() {
   try {
     const result = await sendSystemNotificationTest()
     systemNotificationStatus.value = result.status
+    const channelLabel = result.channel === 'desktop'
+      ? '桌面通知'
+      : result.channel === 'serviceWorker'
+        ? 'Service Worker'
+        : '页面通知'
     completionNotificationHint.value = result.sent
-      ? `已通过${result.channel === 'serviceWorker' ? 'Service Worker' : '页面通知'}发送测试通知；如果没有看到弹窗，请检查${isDesktopRuntime.value ? '系统通知开关' : '浏览器站点权限和系统通知开关'}。`
+      ? `已通过${channelLabel}发送测试通知；如果没有看到弹窗，请检查${isDesktopRuntime.value ? '系统通知开关' : '浏览器站点权限和系统通知开关'}。`
       : resolveSystemNotificationBlockedHint(result.status)
     return result
   } finally {
@@ -325,7 +331,7 @@ async function updateCompletionSystemNotification(value: unknown) {
 
   if (!enabled) {
     await props.updateCompletionNotificationOptions({ systemNotification: false })
-    refreshSystemNotificationStatus()
+    await refreshSystemNotificationStatus()
     return
   }
 
@@ -343,15 +349,18 @@ async function updateCompletionSystemNotification(value: unknown) {
 }
 
 onMounted(() => {
-  refreshSystemNotificationStatus()
   void ensureDesktopFfmpegStatus()
 
-  if (
-    props.completionNotificationOptions.systemNotification
-    && !systemNotificationStatus.value.canNotify
-  ) {
-    completionNotificationHint.value = resolveSystemNotificationBlockedHint(systemNotificationStatus.value)
-  }
+  void (async () => {
+    await refreshSystemNotificationStatus()
+
+    if (
+      props.completionNotificationOptions.systemNotification
+      && !systemNotificationStatus.value.canNotify
+    ) {
+      completionNotificationHint.value = resolveSystemNotificationBlockedHint(systemNotificationStatus.value)
+    }
+  })()
 })
 </script>
 

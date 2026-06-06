@@ -5250,7 +5250,7 @@ fn infer_model_provider(model_id: &str) -> Option<String> {
     if normalized.contains("kling") {
         return Some("kling".to_string());
     }
-    if normalized.contains("gpt") || normalized.contains("openai") {
+    if normalized.contains("gpt") || normalized.contains("openai") || normalized.contains("claude") {
         return Some("custom_openai".to_string());
     }
     None
@@ -5294,7 +5294,7 @@ fn validate_models_test_payload(body: &Value) -> Result<(), ApiError> {
             ));
         }
     }
-    for key in ["modelId", "prompt", "imageAspectRatio", "imageQuality"] {
+    for key in ["modelId", "provider", "prompt", "imageAspectRatio", "imageQuality"] {
         if let Some(value) = body.get(key).filter(|value| !value.is_null()) {
             if !value.is_string() {
                 return Err(ApiError::new(
@@ -5320,6 +5320,23 @@ fn validate_models_test_payload(body: &Value) -> Result<(), ApiError> {
     Ok(())
 }
 
+fn models_test_requested_provider(body: &Value) -> Result<Option<String>, ApiError> {
+    let Some(provider) = body
+        .get("provider")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+
+    if !is_supported_provider(provider) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "供应商不存在"));
+    }
+
+    Ok(Some(provider.to_string()))
+}
+
 fn models_test_reference_images(body: &Value) -> Vec<String> {
     body.get("referenceImages")
         .and_then(Value::as_array)
@@ -5338,6 +5355,7 @@ fn models_test_sanitized_payload(body: &Value) -> Value {
     for key in [
         "modelType",
         "modelId",
+        "provider",
         "prompt",
         "imageAspectRatio",
         "imageQuality",
@@ -5362,6 +5380,77 @@ fn models_test_selected_model_key(model_type: &str) -> &str {
     match model_type {
         "tts" => "tts",
         _ => model_type,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn infer_model_provider_handles_claude_as_custom_openai() {
+        assert_eq!(
+            infer_model_provider("claude-sonnet-4-5").as_deref(),
+            Some("custom_openai")
+        );
+    }
+
+    #[test]
+    fn models_test_requested_provider_accepts_supported_provider() {
+        let payload = json!({ "provider": " custom_openai " });
+
+        assert_eq!(
+            models_test_requested_provider(&payload).unwrap(),
+            Some("custom_openai".to_string())
+        );
+    }
+
+    #[test]
+    fn models_test_requested_provider_rejects_unknown_provider() {
+        let payload = json!({ "provider": "anthropic" });
+        let error = models_test_requested_provider(&payload).unwrap_err();
+
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.message, "供应商不存在");
+    }
+
+    #[test]
+    fn parse_openai_compatible_text_response_handles_json_message() {
+        let body = r#"{"choices":[{"message":{"content":"Hello from JSON"}}]}"#;
+
+        assert_eq!(
+            parse_openai_compatible_text_response(body).unwrap(),
+            Some("Hello from JSON".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_openai_compatible_text_response_handles_sse_chunks() {
+        let body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\" world\"}}]}\n\n",
+            "data: [DONE]\n\n"
+        );
+
+        assert_eq!(
+            parse_openai_compatible_text_response(body).unwrap(),
+            Some("Hello world".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_openai_compatible_text_response_handles_sse_chunks_without_blank_lines() {
+        let body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\" world\"}}]}\n",
+            "data: [DONE]\n"
+        );
+
+        assert_eq!(
+            parse_openai_compatible_text_response(body).unwrap(),
+            Some("Hello world".to_string())
+        );
     }
 }
 
@@ -5697,6 +5786,40 @@ fn parse_text_content_value(value: &Value) -> Option<String> {
     }
 }
 
+fn parse_text_delta_value(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str().filter(|text| !text.trim().is_empty()) {
+        return Some(text.to_string());
+    }
+    let Some(parts) = value.as_array() else {
+        return None;
+    };
+
+    let mut chunks: Vec<String> = Vec::new();
+    for part in parts {
+        if let Some(text) = part
+            .get("text")
+            .and_then(Value::as_str)
+            .filter(|text| !text.trim().is_empty())
+        {
+            chunks.push(text.to_string());
+            continue;
+        }
+        if let Some(text) = part
+            .get("content")
+            .and_then(Value::as_str)
+            .filter(|text| !text.trim().is_empty())
+        {
+            chunks.push(text.to_string());
+        }
+    }
+
+    if chunks.is_empty() {
+        None
+    } else {
+        Some(chunks.join(""))
+    }
+}
+
 fn parse_openai_compatible_text_result(payload: &Value) -> Option<String> {
     let choice = payload
         .get("choices")
@@ -5727,6 +5850,98 @@ fn parse_openai_compatible_text_result(payload: &Value) -> Option<String> {
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(str::to_string)
+}
+
+fn parse_openai_compatible_text_delta(payload: &Value) -> Option<String> {
+    let choice = payload
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())?;
+
+    if let Some(content) = choice
+        .get("delta")
+        .and_then(|delta| delta.get("content"))
+        .and_then(parse_text_delta_value)
+    {
+        return Some(content);
+    }
+
+    choice
+        .get("delta")
+        .and_then(|delta| delta.get("reasoning_content"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+fn push_openai_compatible_sse_text(raw_event: &str, chunks: &mut Vec<String>) {
+    let data = raw_event.trim();
+    if data.is_empty() || data == "[DONE]" {
+        return;
+    }
+
+    let Ok(payload) = serde_json::from_str::<Value>(data) else {
+        return;
+    };
+    if let Some(text) = parse_openai_compatible_text_delta(&payload)
+        .or_else(|| parse_openai_compatible_text_result(&payload))
+    {
+        chunks.push(text);
+    }
+}
+
+fn parse_openai_compatible_text_sse_result(body_text: &str) -> Option<String> {
+    let mut chunks: Vec<String> = Vec::new();
+    let mut event_data = String::new();
+
+    for line in body_text.lines() {
+        let normalized = line.trim_end_matches('\r').trim_start();
+        if normalized.is_empty() {
+            push_openai_compatible_sse_text(&event_data, &mut chunks);
+            event_data.clear();
+            continue;
+        }
+
+        let Some(data) = normalized.strip_prefix("data:") else {
+            continue;
+        };
+        let data = data.trim_start();
+        if !event_data.is_empty() && (data.starts_with('{') || data == "[DONE]") {
+            push_openai_compatible_sse_text(&event_data, &mut chunks);
+            event_data.clear();
+        }
+        if !event_data.is_empty() {
+            event_data.push('\n');
+        }
+        event_data.push_str(data);
+    }
+
+    push_openai_compatible_sse_text(&event_data, &mut chunks);
+
+    if chunks.is_empty() {
+        None
+    } else {
+        Some(chunks.join(""))
+    }
+}
+
+fn parse_openai_compatible_text_response(body_text: &str) -> Result<Option<String>, String> {
+    if body_text
+        .lines()
+        .any(|line| line.trim_start().starts_with("data:"))
+    {
+        return Ok(parse_openai_compatible_text_sse_result(body_text));
+    }
+
+    let payload = serde_json::from_str::<Value>(body_text).map_err(|error| {
+        format!(
+            "解析 chat/completions 响应失败: {} ({})",
+            error,
+            truncate_for_error(body_text, 160)
+        )
+    })?;
+    Ok(parse_openai_compatible_text_result(&payload))
 }
 
 fn parse_gemini_text_result(payload: &Value) -> Option<String> {
@@ -5797,14 +6012,7 @@ async fn request_openai_compatible_text_completion(
             continue;
         }
 
-        let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-            format!(
-                "解析 chat/completions 响应失败: {} ({})",
-                error,
-                truncate_for_error(&body_text, 160)
-            )
-        })?;
-        if let Some(text) = parse_openai_compatible_text_result(&payload) {
+        if let Some(text) = parse_openai_compatible_text_response(&body_text)? {
             return Ok(text);
         }
         last_error = Some("模型返回为空文本".to_string());
@@ -6016,7 +6224,9 @@ pub(super) async fn api_models_test(
             )
         })?;
     let prompt = json_string(body.get("prompt"), "");
-    let provider = infer_model_provider(&model_id).unwrap_or_default();
+    let provider = models_test_requested_provider(&body)?
+        .or_else(|| infer_model_provider(&model_id))
+        .unwrap_or_default();
     if provider.is_empty() {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
