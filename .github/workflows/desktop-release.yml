@@ -57,7 +57,7 @@ jobs:
         include:
           - os: macos-14
             bundle_label: macOS arm64
-            bundle_target: dmg
+            bundle_target: app,dmg
           - os: windows-latest
             bundle_label: Windows x64
             bundle_target: nsis
