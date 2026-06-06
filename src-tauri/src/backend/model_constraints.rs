@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 const MODEL_CONSTRAINTS_REGISTRY_JSON: &str =
     include_str!("../../assets/model-constraints.registry.json");
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum AvailableModelKind {
     Text,
     Image,
@@ -176,21 +176,65 @@ fn resolve_rule<'a>(
     provider: &str,
     normalized_model_id: &str,
 ) -> Option<&'a ModelConstraintRule> {
-    registry
-        .rules
-        .iter()
-        .find(|rule| rule_matches(rule, provider, normalized_model_id))
+    resolve_exact_provider_rule(registry, provider, normalized_model_id)
+        .or_else(|| {
+            resolve_openai_compatible_provider_rule(registry, provider, normalized_model_id)
+        })
+        .or_else(|| resolve_wildcard_rule(registry, normalized_model_id))
 }
 
-fn rule_matches(rule: &ModelConstraintRule, provider: &str, normalized_model_id: &str) -> bool {
-    let provider_match = match rule.provider.as_ref().map(|value| value.trim()) {
-        Some("*") | Some("") | None => true,
-        Some(rule_provider) => rule_provider.eq_ignore_ascii_case(provider),
-    };
-    if !provider_match {
-        return false;
+fn resolve_exact_provider_rule<'a>(
+    registry: &'a ModelConstraintRegistry,
+    provider: &str,
+    normalized_model_id: &str,
+) -> Option<&'a ModelConstraintRule> {
+    registry.rules.iter().find(|rule| {
+        rule_has_exact_provider(rule, provider) && rule_model_matches(rule, normalized_model_id)
+    })
+}
+
+fn resolve_openai_compatible_provider_rule<'a>(
+    registry: &'a ModelConstraintRegistry,
+    provider: &str,
+    normalized_model_id: &str,
+) -> Option<&'a ModelConstraintRule> {
+    if !provider.eq_ignore_ascii_case("custom_openai") && !provider.eq_ignore_ascii_case("openai") {
+        return None;
     }
 
+    ["qwen", "volcengine", "gemini", "kling", "deepseek"]
+        .iter()
+        .find_map(|fallback_provider| {
+            resolve_exact_provider_rule(registry, fallback_provider, normalized_model_id)
+        })
+}
+
+fn resolve_wildcard_rule<'a>(
+    registry: &'a ModelConstraintRegistry,
+    normalized_model_id: &str,
+) -> Option<&'a ModelConstraintRule> {
+    registry.rules.iter().find(|rule| {
+        rule_has_wildcard_provider(rule) && rule_model_matches(rule, normalized_model_id)
+    })
+}
+
+fn rule_has_exact_provider(rule: &ModelConstraintRule, provider: &str) -> bool {
+    let Some(rule_provider) = rule.provider.as_ref().map(|value| value.trim()) else {
+        return false;
+    };
+    !rule_provider.is_empty()
+        && rule_provider != "*"
+        && rule_provider.eq_ignore_ascii_case(provider)
+}
+
+fn rule_has_wildcard_provider(rule: &ModelConstraintRule) -> bool {
+    matches!(
+        rule.provider.as_ref().map(|value| value.trim()),
+        Some("*") | Some("") | None
+    )
+}
+
+fn rule_model_matches(rule: &ModelConstraintRule, normalized_model_id: &str) -> bool {
     let rule_value = rule.matcher.value.trim().to_ascii_lowercase();
     if rule_value.is_empty() {
         return false;
@@ -702,5 +746,41 @@ pub(super) fn image_model_config(provider: &str, model_id: &str) -> Option<Value
         Some(entry)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_openai_reuses_compatible_provider_categories() {
+        let (seedance_kind, seedance_entry) =
+            build_available_model_entry("custom_openai", "doubao-seedance-2-0-260128");
+        assert_eq!(seedance_kind, AvailableModelKind::Video);
+        assert_eq!(
+            seedance_entry
+                .get("supportFirstLastFrame")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+
+        let (seedream_kind, _) =
+            build_available_model_entry("custom_openai", "doubao-seedream-5-0-260128");
+        assert_eq!(seedream_kind, AvailableModelKind::Image);
+
+        let (kling_kind, _) = build_available_model_entry("custom_openai", "kling-v3");
+        assert_eq!(kling_kind, AvailableModelKind::Video);
+    }
+
+    #[test]
+    fn custom_openai_prefers_specific_rules_over_generic_keyword_rules() {
+        let (kind, entry) = build_available_model_entry("custom_openai", "qwen3.6-plus");
+
+        assert_eq!(kind, AvailableModelKind::Text);
+        assert_eq!(
+            entry.get("supportThinking").and_then(Value::as_bool),
+            Some(true)
+        );
     }
 }
