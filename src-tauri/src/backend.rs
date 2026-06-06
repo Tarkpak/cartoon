@@ -5203,7 +5203,7 @@ fn resolve_provider_meta(
         )),
         "custom_openai" => Some((
             "自定义 OpenAI",
-            "通过自定义 OpenAI 兼容 /models 同步模型，默认接入文本生成流程。",
+            "通过自定义 OpenAI 兼容 /models 同步模型，并按本地能力表自动归类。",
             "official_api",
             true,
         )),
