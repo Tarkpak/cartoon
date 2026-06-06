@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Playlet Desktop",
-  "version": "1.0.15",
+  "version": "1.0.17",
   "identifier": "com.playlet.desktop",
   "mainBinaryName": "playlet-desktop",
   "build": {
@@ -36,7 +36,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENBRjczRTZDNjYxOTg5NTgKUldSWWlSbG1iRDczeWtWVGdHUDducU0wb2lGQVNYUUF5M0RNdllhZjNocTNjY1BablpLVjhNWGEK",
       "endpoints": [
-        "https://github.com/Tarkpak/cartoon/releases/latest/download/latest.json"
+        "https://playlet-ai.tos-cn-guangzhou.volces.com/manju-assets/desktop-updater/latest.json"
       ],
       "windows": {
         "installMode": "passive"

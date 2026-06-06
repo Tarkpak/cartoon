@@ -1,6 +1,6 @@
 {
   "name": "playlet-ai-manga",
-  "version": "1.0.15",
+  "version": "1.0.17",
   "private": true,
   "type": "module",
   "description": "AI影视自动化生成系统 - 基于Vue 3 + Vite + Rust后端",
@@ -17,11 +17,17 @@
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "desktop:dev": "bun run build:desktop && tauri dev",
-    "desktop:build": "CI=true tauri build",
-    "desktop:build:finder": "tauri build",
+    "desktop:prepare-updater-config": "node ./scripts/desktop-prepare-updater-config.mjs",
+    "desktop:publish-updater-cdn": "node ./scripts/desktop-publish-updater-cdn.mjs",
+    "desktop:build": "bun run desktop:prepare-updater-config && CI=true tauri build --config .output/tauri.updater.json",
+    "desktop:build:finder": "bun run desktop:prepare-updater-config && tauri build --config .output/tauri.updater.json",
     "desktop:sync-env": "bash ./scripts/desktop-sync-env.sh",
     "desktop:install": "bash ./scripts/desktop-build-install.sh",
     "release": "bun run scripts/release.ts",
+    "release:version": "bun run release patch --yes",
+    "release:version:minor": "bun run release minor --yes",
+    "release:version:major": "bun run release major --yes",
+    "release:version:current": "bun run release --force --yes",
     "migrate:desktop-data": "bash ./scripts/migrate-history-to-desktop.sh"
   },
   "dependencies": {
