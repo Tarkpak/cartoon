@@ -117,7 +117,7 @@ async function syncModels() {
 
     if (response.success) {
       syncForm(response.data)
-      message.value = `已同步 ${response.data.textModels.length} 个模型`
+      message.value = `已同步 ${response.data.availableTextModels.length} 个模型`
       await props.onSaved()
     }
   } catch (error) {
@@ -147,7 +147,7 @@ onMounted(() => {
           自定义 OpenAI 兼容供应商
         </h3>
         <p class="mt-1 text-xs text-muted-foreground">
-          通过 OpenAI 兼容接口获取模型列表，并用于文本生成类流程。
+          通过 OpenAI 兼容接口获取模型列表，并按本地能力表归类。
         </p>
       </div>
       <Switch
@@ -209,7 +209,7 @@ onMounted(() => {
       </div>
 
       <div class="space-y-1.5">
-        <label class="text-xs text-muted-foreground">文本模型</label>
+        <label class="text-xs text-muted-foreground">启用模型</label>
         <Textarea
           v-model="textModelsInput"
           class="min-h-20 text-sm"
