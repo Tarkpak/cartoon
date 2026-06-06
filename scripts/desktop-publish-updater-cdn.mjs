@@ -171,14 +171,21 @@ function buildLatestJson({ release, tag, assetBuffers, cdnUrls }) {
       throw new Error(`Missing updater signature asset: ${name}.sig`)
     }
 
-    platforms[platform] = {
+    const platformInfo = {
       signature: sig.toString('utf8').trim(),
       url: cdnUrls.get(name)
     }
+    platforms[platform] = platformInfo
+
+    if (platform.startsWith('darwin-')) {
+      platforms[`${platform}-app`] = platformInfo
+    }
   }
 
-  if (Object.keys(platforms).length === 0) {
-    throw new Error('No updater platform assets found')
+  const requiredPlatforms = ['darwin-aarch64', 'windows-x86_64']
+  const missingPlatforms = requiredPlatforms.filter(platform => !platforms[platform])
+  if (missingPlatforms.length > 0) {
+    throw new Error(`Missing updater platform assets: ${missingPlatforms.join(', ')}`)
   }
 
   return {
