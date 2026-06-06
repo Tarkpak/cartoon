@@ -73,7 +73,6 @@ const MODEL_CATEGORY_META: Record<ModelCategoryKey, { label: string, description
   other: { label: '其他模型', description: '未能自动识别类型的模型。' }
 }
 
-const loading = ref(false)
 const syncingProvider = ref<ProviderId | null>(null)
 const savingProvider = ref<ProviderId | null>(null)
 const providers = ref<ModelProviderSummary[]>([])
@@ -96,7 +95,6 @@ const activeCredentialProvider = computed<CredentialProvider | null>(() => {
 })
 
 async function loadProviders() {
-  loading.value = true
   errorMessage.value = ''
 
   try {
@@ -116,8 +114,6 @@ async function loadProviders() {
     }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '加载模型供应商失败'
-  } finally {
-    loading.value = false
   }
 }
 
@@ -375,17 +371,8 @@ onMounted(() => {
       </div>
 
       <div class="flex-1 overflow-y-auto p-2">
-        <div
-          v-if="loading"
-          class="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground"
-        >
-          <Loader2 class="h-4 w-4 animate-spin" />
-          加载供应商...
-        </div>
-
         <Button
           v-for="provider in providers"
-          v-else
           :key="provider.provider"
           type="button"
           variant="ghost"
@@ -510,15 +497,7 @@ onMounted(() => {
       </div>
 
       <div
-        v-if="loading"
-        class="flex flex-1 items-center justify-center text-sm text-muted-foreground"
-      >
-        <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-        加载供应商...
-      </div>
-
-      <div
-        v-else-if="activeProviderSummary"
+        v-if="activeProviderSummary"
         class="flex-1 overflow-y-auto p-6"
       >
         <div class="mx-auto max-w-5xl space-y-4">
