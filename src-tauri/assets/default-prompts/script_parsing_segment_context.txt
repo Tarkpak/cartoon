@@ -1,0 +1,6 @@
+{{basePrompt}}
+
+【分段解析上下文（系统追加）】
+- 当前仅处理原文第 {{chunkIndex}}/{{chunkCount}} 段，禁止补写未提供段落。
+- 本段文本长度：约 {{chunkLength}} 字（全量占比约 {{chunkPercentage}}%）。
+- 输出仍需保持原文顺序；若与前段重叠，请避免重复同一场景。

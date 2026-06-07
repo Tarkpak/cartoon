@@ -7,6 +7,37 @@ use ve_tos_rust_sdk::tos;
 
 type HmacSha256 = Hmac<Sha256>;
 
+const RUNTIME_PROMPT_SCENE_DESCRIPTION_REFINEMENT: &str =
+    include_str!("../../assets/runtime-prompts/scene_description_refinement.txt");
+const RUNTIME_PROMPT_SCRIPT_PARSE: &str =
+    include_str!("../../assets/runtime-prompts/script_parse.txt");
+const RUNTIME_PROMPT_EPISODE_PLAN: &str =
+    include_str!("../../assets/runtime-prompts/episode_plan.txt");
+const RUNTIME_PROMPT_EPISODE_PLAN_CHUNK_RULE_SEGMENTED: &str =
+    include_str!("../../assets/runtime-prompts/episode_plan_chunk_rule_segmented.txt");
+const RUNTIME_PROMPT_EPISODE_PLAN_CHUNK_RULE_FULL: &str =
+    include_str!("../../assets/runtime-prompts/episode_plan_chunk_rule_full.txt");
+const RUNTIME_PROMPT_CHARACTER_GENERATION: &str =
+    include_str!("../../assets/runtime-prompts/character_generation.txt");
+const RUNTIME_PROMPT_CHARACTER_REGENERATION: &str =
+    include_str!("../../assets/runtime-prompts/character_regeneration.txt");
+const RUNTIME_PROMPT_SCENE_VIDEO_GENERATION: &str =
+    include_str!("../../assets/runtime-prompts/scene_video_generation.txt");
+const RUNTIME_PROMPT_PROP_ASSET_GENERATION: &str =
+    include_str!("../../assets/runtime-prompts/prop_asset_generation.txt");
+const RUNTIME_PROMPT_ENVIRONMENT_REFERENCE_GENERATION: &str =
+    include_str!("../../assets/runtime-prompts/environment_reference_generation.txt");
+const RUNTIME_PROMPT_ENVIRONMENT_REFERENCE_REGENERATION: &str =
+    include_str!("../../assets/runtime-prompts/environment_reference_regeneration.txt");
+
+fn render_runtime_prompt(template: &str, variables: &[(&str, &str)]) -> String {
+    let mut output = template.to_string();
+    for (key, value) in variables {
+        output = output.replace(&format!("{{{{{key}}}}}"), value);
+    }
+    output
+}
+
 #[cfg(debug_assertions)]
 macro_rules! llm_dev_log {
     ($phase:expr, $provider:expr, $model:expr, $operation:expr, $duration_ms:expr $(, $key:expr => $value:expr)* $(,)?) => {{
@@ -97,6 +128,222 @@ fn llm_dev_log_line(
     }
 
     eprintln!("[LLM][{}] {}", phase, parts.join(" "));
+}
+
+#[cfg(debug_assertions)]
+fn llm_dev_log_url_without_query(value: &str) -> String {
+    let trimmed = value.trim();
+    if let Ok(mut url) = reqwest::Url::parse(trimmed) {
+        url.set_query(None);
+        url.set_fragment(None);
+        return url.to_string();
+    }
+
+    let query_index = trimmed.find('?');
+    let fragment_index = trimmed.find('#');
+    let cut_index = match (query_index, fragment_index) {
+        (Some(query), Some(fragment)) => Some(query.min(fragment)),
+        (Some(query), None) => Some(query),
+        (None, Some(fragment)) => Some(fragment),
+        (None, None) => None,
+    };
+
+    cut_index
+        .map(|index| trimmed[..index].to_string())
+        .unwrap_or_else(|| trimmed.to_string())
+}
+
+#[cfg(debug_assertions)]
+fn llm_dev_file_key_is_sensitive(key: &str) -> bool {
+    let normalized = key.to_ascii_lowercase();
+    normalized.contains("apikey")
+        || normalized.contains("api_key")
+        || normalized.contains("accesskey")
+        || normalized.contains("access_key")
+        || normalized.contains("secret")
+        || normalized.contains("token")
+        || normalized == "authorization"
+        || normalized == "key"
+}
+
+#[cfg(debug_assertions)]
+fn llm_dev_file_key_is_media(key: &str) -> bool {
+    let normalized = key.to_ascii_lowercase();
+    normalized.contains("image")
+        || normalized.contains("audio")
+        || normalized.contains("video")
+        || normalized.contains("base64")
+        || normalized.contains("b64")
+        || normalized.contains("inline")
+        || normalized.contains("reference")
+        || normalized.contains("source")
+}
+
+#[cfg(debug_assertions)]
+fn llm_dev_file_sanitize_string(key: Option<&str>, value: &str) -> Value {
+    if key.is_some_and(llm_dev_file_key_is_sensitive) {
+        return json!("<redacted>");
+    }
+
+    let trimmed = value.trim();
+    if is_http_url(trimmed) {
+        return json!(llm_dev_log_url_without_query(trimmed));
+    }
+
+    let key_is_media = key.is_some_and(llm_dev_file_key_is_media);
+    if trimmed.starts_with("data:") {
+        return json!({
+          "kind": "data-url",
+          "chars": value.chars().count(),
+          "preview": llm_dev_log_preview(value, 160)
+        });
+    }
+    if key_is_media && value.chars().count() > 4096 {
+        return json!({
+          "kind": "large-media-or-inline-string",
+          "chars": value.chars().count(),
+          "preview": llm_dev_log_preview(value, 160)
+        });
+    }
+
+    json!(value)
+}
+
+#[cfg(debug_assertions)]
+fn llm_dev_file_sanitize_value(value: &Value, key: Option<&str>) -> Value {
+    match value {
+        Value::String(text) => llm_dev_file_sanitize_string(key, text),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| llm_dev_file_sanitize_value(item, key))
+                .collect(),
+        ),
+        Value::Object(object) => {
+            let mut sanitized = serde_json::Map::new();
+            for (child_key, child_value) in object {
+                sanitized.insert(
+                    child_key.clone(),
+                    llm_dev_file_sanitize_value(child_value, Some(child_key)),
+                );
+            }
+            Value::Object(sanitized)
+        }
+        _ => value.clone(),
+    }
+}
+
+#[cfg(debug_assertions)]
+fn llm_dev_file_response_raw_value(raw: &str) -> Value {
+    if let Ok(parsed) = serde_json::from_str::<Value>(raw) {
+        return llm_dev_file_sanitize_value(&parsed, None);
+    }
+    if raw.chars().count() > 200_000 {
+        return json!({
+          "kind": "large-raw-response",
+          "chars": raw.chars().count(),
+          "preview": llm_dev_log_preview(raw, 400)
+        });
+    }
+    json!(raw)
+}
+
+#[cfg(debug_assertions)]
+fn llm_dev_write_file_log(
+    provider: &str,
+    model: &str,
+    operation: &str,
+    status: &str,
+    started_at_ms: i64,
+    endpoint: Option<&str>,
+    request: Option<&Value>,
+    response: Option<&Value>,
+    response_raw: Option<&str>,
+    error: Option<&str>,
+) {
+    let Some(dir) = llm_dev_log_dir() else {
+        return;
+    };
+
+    let now = Utc::now();
+    let duration_ms = (now.timestamp_millis() - started_at_ms).max(1);
+    let id = format!("llm_{}", Uuid::new_v4().simple());
+    let filename = format!(
+        "{}-{}-{}-{}.json",
+        now.timestamp_millis(),
+        sanitize_file_component(provider),
+        sanitize_file_component(operation),
+        &id[4..12]
+    );
+    let mut payload = serde_json::Map::new();
+    payload.insert("id".to_string(), json!(id));
+    payload.insert("timestamp".to_string(), json!(now.to_rfc3339()));
+    payload.insert("provider".to_string(), json!(provider));
+    payload.insert("model".to_string(), json!(model));
+    payload.insert("operation".to_string(), json!(operation));
+    payload.insert("status".to_string(), json!(status));
+    payload.insert("durationMs".to_string(), json!(duration_ms));
+
+    if let Some(endpoint) = endpoint {
+        payload.insert(
+            "endpoint".to_string(),
+            json!(llm_dev_log_url_without_query(endpoint)),
+        );
+    }
+    if let Some(request) = request {
+        payload.insert(
+            "request".to_string(),
+            llm_dev_file_sanitize_value(request, None),
+        );
+    }
+    if let Some(response) = response {
+        payload.insert(
+            "response".to_string(),
+            llm_dev_file_sanitize_value(response, None),
+        );
+    }
+    if let Some(response_raw) = response_raw {
+        payload.insert(
+            "responseRaw".to_string(),
+            llm_dev_file_response_raw_value(response_raw),
+        );
+    }
+    if let Some(error) = error {
+        payload.insert("error".to_string(), json!({ "message": error }));
+    }
+
+    if let Err(error) = fs::create_dir_all(&dir) {
+        eprintln!("[LLM][file][error] create_dir={} error={}", dir.display(), error);
+        return;
+    }
+    let path = dir.join(filename);
+    match serde_json::to_vec_pretty(&Value::Object(payload)) {
+        Ok(bytes) => {
+            if let Err(error) = fs::write(&path, bytes) {
+                eprintln!("[LLM][file][error] path={} error={}", path.display(), error);
+            } else {
+                eprintln!("[LLM][file] path={}", path.display());
+            }
+        }
+        Err(error) => {
+            eprintln!("[LLM][file][error] serialize error={}", error);
+        }
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn llm_dev_write_file_log(
+    _provider: &str,
+    _model: &str,
+    _operation: &str,
+    _status: &str,
+    _started_at_ms: i64,
+    _endpoint: Option<&str>,
+    _request: Option<&Value>,
+    _response: Option<&Value>,
+    _response_raw: Option<&str>,
+    _error: Option<&str>,
+) {
 }
 
 async fn resolve_source_bytes(
@@ -1128,19 +1375,27 @@ fn build_scene_description_refinement_prompt(body: &Value) -> String {
         .filter(|value| !value.is_empty())
         .unwrap_or("无");
 
-    format!(
-        "你是短剧分镜导演。请根据用户要求改写单个场景的分镜描述，并只返回 JSON。\n\n输出格式：{{\"description\":\"...\"}}\n要求：\n- description 必须是中文，12 到 5000 字。\n- 保留原场景核心剧情、人物关系和情绪推进。\n- 描述必须适合视频生成，包含镜头、动作、环境、节奏。\n- 如没有明确时间线，请补充类似 `0-{duration}秒：中景，固定镜头。...` 的镜头设计。\n- 不要输出 Markdown，不要解释。\n\n项目画风：{style}\n场景标题：{scene_title}\n原始描述：{scene_description}\n场景设定：\n{setting}\n出场角色：\n{characters}\n旁白：{narration}\n对白：\n{dialogues}\n历史对话：\n{history}\n提及资产：\n{assets}\n用户要求：{user_message}\n时长参考：{duration}秒",
-        duration = duration_hint,
-        style = style,
-        scene_title = scene_title,
-        scene_description = scene_description,
-        setting = build_scene_setting_text(&scene),
-        characters = build_scene_character_text(&scene),
-        narration = narration,
-        dialogues = build_scene_dialogue_text(&scene),
-        history = build_scene_refine_history_text(body),
-        assets = build_mentioned_assets_text(body),
-        user_message = user_message
+    let duration = duration_hint.to_string();
+    let setting = build_scene_setting_text(&scene);
+    let characters = build_scene_character_text(&scene);
+    let dialogues = build_scene_dialogue_text(&scene);
+    let history = build_scene_refine_history_text(body);
+    let assets = build_mentioned_assets_text(body);
+    render_runtime_prompt(
+        RUNTIME_PROMPT_SCENE_DESCRIPTION_REFINEMENT,
+        &[
+            ("duration", duration.as_str()),
+            ("style", style.as_str()),
+            ("sceneTitle", scene_title.as_str()),
+            ("sceneDescription", scene_description.as_str()),
+            ("setting", setting.as_str()),
+            ("characters", characters.as_str()),
+            ("narration", narration),
+            ("dialogues", dialogues.as_str()),
+            ("history", history.as_str()),
+            ("assets", assets.as_str()),
+            ("userMessage", user_message.as_str()),
+        ],
     )
 }
 
@@ -1400,12 +1655,15 @@ fn build_script_parse_prompt(body: &Value) -> String {
         .get("episodePlan")
         .cloned()
         .unwrap_or_else(|| json!([]));
-    format!(
-        "你是影视短剧分镜解析助手。请把原文解析为严格 JSON，不要输出 Markdown。\n\n要求：\n1. 顶层 JSON 必须包含 title、scenes、characters。\n2. scenes 每项包含 id、title、description、duration、setting、characters、dialogues，可选 dramatic、shotType、environmentCaptureMode、narration。\n3. description 使用中文影视分镜描述，包含时间、景别、镜头运动、人物动作、情绪和关键台词。\n4. duration 为 2-15 秒数字。setting 至少包含 location 和 timeOfDay。\n5. characters 列出主要角色，包含 name、description、role、gender。\n6. 如提供分集目录，必须给场景补充 episodeId、episodeTitle、episodeIndex。\n\n解析模式：{}\n画风：{}\n分集目录 JSON：{}\n\n原文：\n{}",
-        parse_mode,
-        style,
-        episode_plan,
-        text
+    let episode_plan_text = episode_plan.to_string();
+    render_runtime_prompt(
+        RUNTIME_PROMPT_SCRIPT_PARSE,
+        &[
+            ("parseMode", parse_mode.as_str()),
+            ("style", style.as_str()),
+            ("episodePlan", episode_plan_text.as_str()),
+            ("text", text.as_str()),
+        ],
     )
 }
 
@@ -1418,18 +1676,25 @@ fn build_episode_plan_prompt_text(
     let chunk_count = chunk_count.unwrap_or(1).max(1);
     let chunk_index = chunk_index.unwrap_or(1).max(1);
     let chunk_rule = if chunk_count > 1 {
-        format!(
-            "当前仅提供原文第 {}/{} 段，请严格基于本段文本拆分，不得补写未提供段落。第1集 startAnchor 必须取本段开头连续片段。",
-            chunk_index, chunk_count
+        let chunk_index_text = chunk_index.to_string();
+        let chunk_count_text = chunk_count.to_string();
+        render_runtime_prompt(
+            RUNTIME_PROMPT_EPISODE_PLAN_CHUNK_RULE_SEGMENTED,
+            &[
+                ("chunkIndex", chunk_index_text.as_str()),
+                ("chunkCount", chunk_count_text.as_str()),
+            ],
         )
     } else {
-        "当前提供的是完整原文。第1集 startAnchor 必须取原文开头连续片段。".to_string()
+        RUNTIME_PROMPT_EPISODE_PLAN_CHUNK_RULE_FULL.to_string()
     };
-    format!(
-        "你是短剧分集目录规划助手。请基于原文输出严格 JSON，不要输出 Markdown。\n\nJSON 格式：{{\"episodes\":[{{\"index\":1,\"title\":\"第1集\",\"startAnchor\":\"原文中连续出现的开头锚点，至少8个字\",\"episodeHook\":\"本集钩子\",\"humiliationOrThreat\":\"压迫或威胁\",\"reversalPoint\":\"反转点\",\"emotionalCurve\":\"情绪曲线\",\"cliffhanger\":\"结尾钩子\",\"payoffType\":\"打脸\",\"episodeAssets\":{{\"characters\":[],\"props\":[],\"environments\":[]}}}}]}}。\n\n要求：\n1. {}\n2. 后续每集 startAnchor 必须是原文中该集开始处的连续片段。\n3. 短剧模式每集目标不超过 5 分钟场景容量。\n4. 只输出 JSON。\n\n解析模式：{}\n\n原文：\n{}",
-        chunk_rule,
-        script_parse_mode,
-        text
+    render_runtime_prompt(
+        RUNTIME_PROMPT_EPISODE_PLAN,
+        &[
+            ("chunkRule", chunk_rule.as_str()),
+            ("scriptParseMode", script_parse_mode),
+            ("text", text),
+        ],
     )
 }
 
@@ -1438,15 +1703,225 @@ fn find_anchor_offset(text: &str, anchor: &str, from_offset: usize) -> Option<us
     if normalized.chars().count() < 8 || from_offset >= text.len() {
         return None;
     }
-    text.get(from_offset..)
+    let search_from = if text.is_char_boundary(from_offset) {
+        from_offset
+    } else {
+        text.char_indices()
+            .find_map(|(index, _)| (index > from_offset).then_some(index))
+            .unwrap_or(text.len())
+    };
+    if search_from >= text.len() {
+        return None;
+    }
+    text.get(search_from..)
         .and_then(|slice| slice.find(normalized))
-        .map(|offset| from_offset + offset)
+        .map(|offset| search_from + offset)
 }
 
 fn byte_offset_to_char_offset(text: &str, byte_offset: usize) -> usize {
     text.char_indices()
         .take_while(|(index, _)| *index < byte_offset)
         .count()
+}
+
+fn episode_asset_string(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn episode_asset_field(item: &Value, keys: &[&str]) -> Option<String> {
+    let object = item.as_object()?;
+    keys.iter().find_map(|key| object.get(*key).and_then(episode_asset_string))
+}
+
+fn insert_episode_asset_field(
+    object: &mut serde_json::Map<String, Value>,
+    key: &str,
+    value: Option<String>,
+) {
+    if let Some(value) = value {
+        object.insert(key.to_string(), json!(value));
+    }
+}
+
+fn normalize_episode_asset_character(item: &Value) -> Option<Value> {
+    if let Some(name) = episode_asset_string(item) {
+        return Some(json!({ "name": name }));
+    }
+
+    let name = episode_asset_field(
+        item,
+        &["name", "角色名", "姓名", "角色", "人物", "character", "characterName"],
+    )?;
+    let mut object = serde_json::Map::new();
+    object.insert("name".to_string(), json!(name));
+    insert_episode_asset_field(
+        &mut object,
+        "description",
+        episode_asset_field(item, &["description", "描述", "外观", "人物描述", "角色描述", "appearance"]),
+    );
+    insert_episode_asset_field(
+        &mut object,
+        "role",
+        episode_asset_field(item, &["role", "定位", "角色定位", "人物定位"]),
+    );
+    insert_episode_asset_field(
+        &mut object,
+        "gender",
+        episode_asset_field(item, &["gender", "性别"]),
+    );
+    Some(Value::Object(object))
+}
+
+fn normalize_episode_asset_prop(item: &Value) -> Option<Value> {
+    if let Some(name) = episode_asset_string(item) {
+        return Some(json!({ "name": name }));
+    }
+
+    let name = episode_asset_field(
+        item,
+        &["name", "道具名", "道具", "物品", "prop", "propName", "item"],
+    )?;
+    let mut object = serde_json::Map::new();
+    object.insert("name".to_string(), json!(name));
+    insert_episode_asset_field(
+        &mut object,
+        "description",
+        episode_asset_field(item, &["description", "描述", "用途", "道具描述", "外观"]),
+    );
+    Some(Value::Object(object))
+}
+
+fn split_episode_environment_text(raw: &str) -> (String, Option<String>, Option<String>) {
+    let parts = raw
+        .split(|ch| matches!(ch, '/' | '|' | '｜'))
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if parts.is_empty() {
+        return (raw.trim().to_string(), None, None);
+    }
+    (
+        parts[0].to_string(),
+        parts.get(1).map(|value| (*value).to_string()),
+        parts.get(2).map(|value| (*value).to_string()),
+    )
+}
+
+fn normalize_episode_asset_environment(item: &Value) -> Option<Value> {
+    if let Some(raw) = episode_asset_string(item) {
+        let (location, time_of_day, mood) = split_episode_environment_text(&raw);
+        if location.is_empty() {
+            return None;
+        }
+        let mut object = serde_json::Map::new();
+        object.insert("location".to_string(), json!(location));
+        insert_episode_asset_field(&mut object, "timeOfDay", time_of_day);
+        insert_episode_asset_field(&mut object, "mood", mood);
+        return Some(Value::Object(object));
+    }
+
+    let location = episode_asset_field(
+        item,
+        &[
+            "location",
+            "地点",
+            "场景地点",
+            "场景",
+            "环境",
+            "环境地点",
+            "environment",
+            "place",
+            "name",
+        ],
+    )?;
+    let mut object = serde_json::Map::new();
+    object.insert("location".to_string(), json!(location));
+    insert_episode_asset_field(
+        &mut object,
+        "timeOfDay",
+        episode_asset_field(item, &["timeOfDay", "时间", "时段", "时间段", "daytime", "time"]),
+    );
+    insert_episode_asset_field(
+        &mut object,
+        "mood",
+        episode_asset_field(item, &["mood", "氛围", "气氛", "环境氛围", "description", "描述"]),
+    );
+    Some(Value::Object(object))
+}
+
+fn episode_asset_collection<'a>(source: &'a Value, keys: &[&str]) -> Option<&'a Value> {
+    let object = source.as_object()?;
+    keys.iter().find_map(|key| object.get(*key))
+}
+
+fn normalize_episode_asset_items(
+    source: &Value,
+    source_keys: &[&str],
+    identity_key: &str,
+    normalize: fn(&Value) -> Option<Value>,
+) -> Vec<Value> {
+    let Some(raw_items) = episode_asset_collection(source, source_keys) else {
+        return Vec::new();
+    };
+    let candidates = match raw_items {
+        Value::Array(items) => items.iter().collect::<Vec<_>>(),
+        Value::Object(_) | Value::String(_) => vec![raw_items],
+        _ => Vec::new(),
+    };
+
+    let mut output = Vec::new();
+    let mut seen = Vec::new();
+    for candidate in candidates {
+        let Some(item) = normalize(candidate) else {
+            continue;
+        };
+        let Some(identity) = item
+            .get(identity_key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let identity_key = identity.to_lowercase();
+        if seen.iter().any(|value: &String| value == &identity_key) {
+            continue;
+        }
+        seen.push(identity_key);
+        output.push(item);
+    }
+    output
+}
+
+fn normalize_episode_assets_for_episode(episode: &Value) -> Value {
+    let source = episode
+        .get("episodeAssets")
+        .or_else(|| episode.get("assets"))
+        .unwrap_or(episode);
+    json!({
+      "characters": normalize_episode_asset_items(
+        source,
+        &["characters", "characterAssets", "角色", "人物", "角色资产", "人物资产"],
+        "name",
+        normalize_episode_asset_character,
+      ),
+      "props": normalize_episode_asset_items(
+        source,
+        &["props", "propAssets", "道具", "关键道具", "道具资产"],
+        "name",
+        normalize_episode_asset_prop,
+      ),
+      "environments": normalize_episode_asset_items(
+        source,
+        &["environments", "environmentAssets", "locations", "场景", "环境", "地点", "环境资产"],
+        "location",
+        normalize_episode_asset_environment,
+      )
+    })
 }
 
 fn build_episode_plan_from_model_output(text: &str, value: Value) -> Vec<Value> {
@@ -1499,7 +1974,7 @@ fn build_episode_plan_from_model_output(text: &str, value: Value) -> Vec<Value> 
               "emotionalCurve": episode.get("emotionalCurve").cloned().unwrap_or(Value::Null),
               "cliffhanger": episode.get("cliffhanger").cloned().unwrap_or(Value::Null),
               "payoffType": episode.get("payoffType").cloned().unwrap_or(Value::Null),
-              "episodeAssets": episode.get("episodeAssets").cloned().unwrap_or(Value::Null)
+              "episodeAssets": normalize_episode_assets_for_episode(episode)
             }))
         })
         .collect()
@@ -1564,7 +2039,7 @@ fn merge_chunked_episode_plans(
           "emotionalCurve": episode.get("emotionalCurve").cloned().unwrap_or(Value::Null),
           "cliffhanger": episode.get("cliffhanger").cloned().unwrap_or(Value::Null),
           "payoffType": episode.get("payoffType").cloned().unwrap_or(Value::Null),
-          "episodeAssets": episode.get("episodeAssets").cloned().unwrap_or(Value::Null)
+          "episodeAssets": normalize_episode_assets_for_episode(episode)
         }));
     }
     episodes
@@ -2141,7 +2616,26 @@ async fn request_custom_openai_image_generation(
     );
 
     for api_key in api_keys {
-        let response = if !reference_images.is_empty() && !use_image_urls_in_generations {
+        let use_multipart_edit = !reference_images.is_empty() && !use_image_urls_in_generations;
+        let endpoint_for_log = if use_multipart_edit {
+            provider_images_edits_endpoint(&base_url)
+        } else {
+            provider_images_generations_endpoint(&base_url)
+        };
+        let mut request_log_payload = if use_multipart_edit {
+            json!({
+              "model": model.as_str(),
+              "prompt": prompt,
+              "size": resolved_size.as_str(),
+              "n": 1,
+              "transport": "multipart",
+              "referenceImages": reference_images
+            })
+        } else {
+            Value::Null
+        };
+
+        let response = if use_multipart_edit {
             let mut form = reqwest::multipart::Form::new()
                 .text("model", model.clone())
                 .text("prompt", prompt.to_string())
@@ -2156,6 +2650,18 @@ async fn request_custom_openai_image_generation(
                 form = form.part(
                     "image[]",
                     reference_image_part(reference, index).map_err(|error| {
+                        llm_dev_write_file_log(
+                            "custom_openai",
+                            model_id,
+                            "generateImage",
+                            "error",
+                            _log_started_at,
+                            Some(endpoint_for_log.as_str()),
+                            Some(&request_log_payload),
+                            None,
+                            None,
+                            Some(error.as_str()),
+                        );
                         llm_dev_log!(
                             "error",
                             "custom_openai",
@@ -2169,7 +2675,7 @@ async fn request_custom_openai_image_generation(
                 );
             }
             http_client()
-                .post(provider_images_edits_endpoint(&base_url))
+                .post(&endpoint_for_log)
                 .header(reqwest::header::AUTHORIZATION, openai_auth_header(&api_key))
                 .header(reqwest::header::ACCEPT, "application/json")
                 .multipart(form)
@@ -2177,6 +2683,18 @@ async fn request_custom_openai_image_generation(
                 .await
                 .map_err(|error| {
                     let message = error.to_string();
+                    llm_dev_write_file_log(
+                        "custom_openai",
+                        model_id,
+                        "generateImage",
+                        "error",
+                        _log_started_at,
+                        Some(endpoint_for_log.as_str()),
+                        Some(&request_log_payload),
+                        None,
+                        None,
+                        Some(message.as_str()),
+                    );
                     llm_dev_log!(
                         "error",
                         "custom_openai",
@@ -2189,9 +2707,9 @@ async fn request_custom_openai_image_generation(
                 })?
         } else {
             let mut request_body = json!({
-              "model": model,
+              "model": model.as_str(),
               "prompt": prompt,
-              "size": resolved_size,
+              "size": resolved_size.as_str(),
               "n": 1
             });
             if normalized_model.starts_with("gpt-image") && !is_apimart_gpt_image_2 {
@@ -2205,8 +2723,9 @@ async fn request_custom_openai_image_generation(
             if !reference_images.is_empty() && use_image_urls_in_generations {
                 request_body["image_urls"] = json!(reference_images);
             }
+            request_log_payload = request_body.clone();
             http_client()
-                .post(provider_images_generations_endpoint(&base_url))
+                .post(&endpoint_for_log)
                 .header(reqwest::header::AUTHORIZATION, openai_auth_header(&api_key))
                 .header(reqwest::header::ACCEPT, "application/json")
                 .json(&request_body)
@@ -2214,6 +2733,18 @@ async fn request_custom_openai_image_generation(
                 .await
                 .map_err(|error| {
                     let message = error.to_string();
+                    llm_dev_write_file_log(
+                        "custom_openai",
+                        model_id,
+                        "generateImage",
+                        "error",
+                        _log_started_at,
+                        Some(endpoint_for_log.as_str()),
+                        Some(&request_log_payload),
+                        None,
+                        None,
+                        Some(message.as_str()),
+                    );
                     llm_dev_log!(
                         "error",
                         "custom_openai",
@@ -2229,17 +2760,59 @@ async fn request_custom_openai_image_generation(
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
-            last_error = Some(build_sync_error_message(status, &body_text));
+            let message = build_sync_error_message(status, &body_text);
+            llm_dev_write_file_log(
+                "custom_openai",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(endpoint_for_log.as_str()),
+                Some(&request_log_payload),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            last_error = Some(message);
             continue;
         }
         let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-            format!(
+            let message = format!(
                 "解析 OpenAI 兼容图片响应失败: {} ({})",
                 error,
                 truncate_for_error(&body_text, 160)
-            )
+            );
+            llm_dev_write_file_log(
+                "custom_openai",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(endpoint_for_log.as_str()),
+                Some(&request_log_payload),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            message
         })?;
         if let Some(result) = parse_openai_compatible_image_result(&payload) {
+            let parsed_response = json!({
+              "source": result.0.as_str(),
+              "mimeType": result.1.as_deref()
+            });
+            llm_dev_write_file_log(
+                "custom_openai",
+                model_id,
+                "generateImage",
+                "success",
+                _log_started_at,
+                Some(endpoint_for_log.as_str()),
+                Some(&request_log_payload),
+                Some(&parsed_response),
+                Some(body_text.as_str()),
+                None,
+            );
             llm_dev_log!(
                 "success",
                 "custom_openai",
@@ -2252,6 +2825,19 @@ async fn request_custom_openai_image_generation(
             return Ok(result);
         }
         if let Some(task_id) = parse_openai_compatible_image_task_id(&payload) {
+            let parsed_response = json!({ "taskId": task_id.as_str() });
+            llm_dev_write_file_log(
+                "custom_openai",
+                model_id,
+                "generateImage",
+                "task",
+                _log_started_at,
+                Some(endpoint_for_log.as_str()),
+                Some(&request_log_payload),
+                Some(&parsed_response),
+                Some(body_text.as_str()),
+                None,
+            );
             llm_dev_log!(
                 "task",
                 "custom_openai",
@@ -2262,6 +2848,23 @@ async fn request_custom_openai_image_generation(
             );
             return match poll_openai_compatible_image_task(&base_url, &api_key, &task_id).await {
                 Ok(result) => {
+                    let parsed_response = json!({
+                      "taskId": task_id.as_str(),
+                      "source": result.0.as_str(),
+                      "mimeType": result.1.as_deref()
+                    });
+                    llm_dev_write_file_log(
+                        "custom_openai",
+                        model_id,
+                        "generateImage",
+                        "success",
+                        _log_started_at,
+                        Some(endpoint_for_log.as_str()),
+                        Some(&request_log_payload),
+                        Some(&parsed_response),
+                        None,
+                        None,
+                    );
                     llm_dev_log!(
                         "success",
                         "custom_openai",
@@ -2274,6 +2877,18 @@ async fn request_custom_openai_image_generation(
                     Ok(result)
                 }
                 Err(error) => {
+                    llm_dev_write_file_log(
+                        "custom_openai",
+                        model_id,
+                        "generateImage",
+                        "error",
+                        _log_started_at,
+                        Some(endpoint_for_log.as_str()),
+                        Some(&request_log_payload),
+                        Some(&json!({ "taskId": task_id })),
+                        None,
+                        Some(error.as_str()),
+                    );
                     llm_dev_log!(
                         "error",
                         "custom_openai",
@@ -2287,7 +2902,20 @@ async fn request_custom_openai_image_generation(
                 }
             };
         }
-        last_error = Some("OpenAI 兼容图片生成未返回图片 URL 或 base64".to_string());
+        let message = "OpenAI 兼容图片生成未返回图片 URL 或 base64".to_string();
+        llm_dev_write_file_log(
+            "custom_openai",
+            model_id,
+            "generateImage",
+            "error",
+            _log_started_at,
+            Some(endpoint_for_log.as_str()),
+            Some(&request_log_payload),
+            Some(&payload),
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        last_error = Some(message);
     }
 
     let message = last_error.unwrap_or_else(|| "OpenAI 兼容图片生成失败".to_string());
@@ -2408,7 +3036,7 @@ async fn request_openai_compatible_image_generation(
 
     for api_key in api_keys {
         let mut request_body = json!({
-          "model": model,
+          "model": model.as_str(),
           "prompt": prompt,
           "size": size,
           "n": 1
@@ -2430,6 +3058,18 @@ async fn request_openai_compatible_image_generation(
             .await
             .map_err(|error| {
                 let message = error.to_string();
+                llm_dev_write_file_log(
+                    provider,
+                    model_id,
+                    "generateImage",
+                    "error",
+                    _log_started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    None,
+                    None,
+                    Some(message.as_str()),
+                );
                 llm_dev_log!(
                     "error",
                     provider,
@@ -2444,18 +3084,60 @@ async fn request_openai_compatible_image_generation(
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
-            last_error = Some(build_sync_error_message(status, &body_text));
+            let message = build_sync_error_message(status, &body_text);
+            llm_dev_write_file_log(
+                provider,
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            last_error = Some(message);
             continue;
         }
 
         let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-            format!(
+            let message = format!(
                 "解析 images/generations 响应失败: {} ({})",
                 error,
                 truncate_for_error(&body_text, 160)
-            )
+            );
+            llm_dev_write_file_log(
+                provider,
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            message
         })?;
         if let Some(result) = parse_openai_compatible_image_result(&payload) {
+            let parsed_response = json!({
+              "source": result.0.as_str(),
+              "mimeType": result.1.as_deref()
+            });
+            llm_dev_write_file_log(
+                provider,
+                model_id,
+                "generateImage",
+                "success",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&parsed_response),
+                Some(body_text.as_str()),
+                None,
+            );
             llm_dev_log!(
                 "success",
                 provider,
@@ -2467,7 +3149,20 @@ async fn request_openai_compatible_image_generation(
             );
             return Ok(result);
         }
-        last_error = Some("图片模型未返回可用图片".to_string());
+        let message = "图片模型未返回可用图片".to_string();
+        llm_dev_write_file_log(
+            provider,
+            model_id,
+            "generateImage",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            Some(&payload),
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        last_error = Some(message);
     }
 
     let message = last_error.unwrap_or_else(|| "图片生成失败".to_string());
@@ -2556,29 +3251,42 @@ async fn request_qwen_image_generation(
     );
 
     for api_key in api_keys {
+        let request_body = json!({
+          "model": model.as_str(),
+          "input": {
+            "messages": [{
+              "role": "user",
+              "content": content
+            }]
+          },
+          "parameters": {
+            "prompt_extend": true,
+            "size": qwen_image_size(&model, size),
+            "n": 1,
+            "watermark": false
+          }
+        });
         let response = http_client()
             .post(&endpoint)
             .bearer_auth(api_key)
             .header(reqwest::header::ACCEPT, "application/json")
-            .json(&json!({
-              "model": model,
-              "input": {
-                "messages": [{
-                  "role": "user",
-                  "content": content
-                }]
-              },
-              "parameters": {
-                "prompt_extend": true,
-                "size": qwen_image_size(&model, size),
-                "n": 1,
-                "watermark": false
-              }
-            }))
+            .json(&request_body)
             .send()
             .await
             .map_err(|error| {
                 let message = error.to_string();
+                llm_dev_write_file_log(
+                    "qwen",
+                    model_id,
+                    "generateImage",
+                    "error",
+                    _log_started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    None,
+                    None,
+                    Some(message.as_str()),
+                );
                 llm_dev_log!(
                     "error",
                     "qwen",
@@ -2593,18 +3301,60 @@ async fn request_qwen_image_generation(
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
-            last_error = Some(build_sync_error_message(status, &body_text));
+            let message = build_sync_error_message(status, &body_text);
+            llm_dev_write_file_log(
+                "qwen",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            last_error = Some(message);
             continue;
         }
 
         let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-            format!(
+            let message = format!(
                 "解析 Qwen 图片响应失败: {} ({})",
                 error,
                 truncate_for_error(&body_text, 160)
-            )
+            );
+            llm_dev_write_file_log(
+                "qwen",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            message
         })?;
         if let Some(result) = parse_qwen_multimodal_image_result(&payload) {
+            let parsed_response = json!({
+              "source": result.0.as_str(),
+              "mimeType": result.1.as_deref()
+            });
+            llm_dev_write_file_log(
+                "qwen",
+                model_id,
+                "generateImage",
+                "success",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&parsed_response),
+                Some(body_text.as_str()),
+                None,
+            );
             llm_dev_log!(
                 "success",
                 "qwen",
@@ -2616,7 +3366,20 @@ async fn request_qwen_image_generation(
             );
             return Ok(result);
         }
-        last_error = Some("Qwen 图片模型未返回可用图片".to_string());
+        let message = "Qwen 图片模型未返回可用图片".to_string();
+        llm_dev_write_file_log(
+            "qwen",
+            model_id,
+            "generateImage",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            Some(&payload),
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        last_error = Some(message);
     }
 
     let message = last_error.unwrap_or_else(|| "Qwen 图片生成失败".to_string());
@@ -2690,25 +3453,38 @@ async fn request_gemini_image_generation(
             }
         }
 
+        let request_body = json!({
+          "contents": [
+            {
+              "role": "user",
+              "parts": parts
+            }
+          ],
+          "generationConfig": {
+            "responseModalities": ["TEXT", "IMAGE"]
+          }
+        });
         let response = http_client()
             .post(&endpoint)
             .query(&[("key", api_key.as_str())])
             .header(reqwest::header::ACCEPT, "application/json")
-            .json(&json!({
-              "contents": [
-                {
-                  "role": "user",
-                  "parts": parts
-                }
-              ],
-              "generationConfig": {
-                "responseModalities": ["TEXT", "IMAGE"]
-              }
-            }))
+            .json(&request_body)
             .send()
             .await
             .map_err(|error| {
                 let message = error.to_string();
+                llm_dev_write_file_log(
+                    "gemini",
+                    model_id,
+                    "generateImage",
+                    "error",
+                    _log_started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    None,
+                    None,
+                    Some(message.as_str()),
+                );
                 llm_dev_log!(
                     "error",
                     "gemini",
@@ -2723,18 +3499,60 @@ async fn request_gemini_image_generation(
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
-            last_error = Some(build_sync_error_message(status, &body_text));
+            let message = build_sync_error_message(status, &body_text);
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            last_error = Some(message);
             continue;
         }
 
         let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-            format!(
+            let message = format!(
                 "解析 Gemini 图片响应失败: {} ({})",
                 error,
                 truncate_for_error(&body_text, 160)
-            )
+            );
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            message
         })?;
         if let Some(result) = parse_gemini_image_result(&payload) {
+            let parsed_response = json!({
+              "source": result.0.as_str(),
+              "mimeType": result.1.as_deref()
+            });
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateImage",
+                "success",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&parsed_response),
+                Some(body_text.as_str()),
+                None,
+            );
             llm_dev_log!(
                 "success",
                 "gemini",
@@ -2746,7 +3564,20 @@ async fn request_gemini_image_generation(
             );
             return Ok(result);
         }
-        last_error = Some("Gemini 未返回可用图片".to_string());
+        let message = "Gemini 未返回可用图片".to_string();
+        llm_dev_write_file_log(
+            "gemini",
+            model_id,
+            "generateImage",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            Some(&payload),
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        last_error = Some(message);
     }
 
     let message = last_error.unwrap_or_else(|| "Gemini 图片生成失败".to_string());
@@ -2833,9 +3664,13 @@ fn build_video_prompt_from_scene(scene: &Value, config: &Value) -> String {
         .and_then(|value| value.get("location"))
         .and_then(Value::as_str)
         .unwrap_or("未指定地点");
-    format!(
-        "请生成短剧分镜视频。场景：{}。地点：{}。分镜描述：{}。要求动作连贯、镜头稳定、符合项目画风。",
-        title, location, description
+    render_runtime_prompt(
+        RUNTIME_PROMPT_SCENE_VIDEO_GENERATION,
+        &[
+            ("sceneTitle", title.as_str()),
+            ("location", location),
+            ("sceneDescription", description.as_str()),
+        ],
     )
 }
 
@@ -3652,6 +4487,18 @@ async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(Strin
         .await
         .map_err(|error| {
             let message = error.to_string();
+            llm_dev_write_file_log(
+                "qwen",
+                model_id,
+                "generateVideo",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
             llm_dev_log!(
                 "error",
                 "qwen",
@@ -3666,6 +4513,18 @@ async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(Strin
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
+        llm_dev_write_file_log(
+            "qwen",
+            model_id,
+            "generateVideo",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
         llm_dev_log!(
             "error",
             "qwen",
@@ -3683,6 +4542,18 @@ async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(Strin
             error,
             truncate_for_error(&body_text, 160)
         );
+        llm_dev_write_file_log(
+            "qwen",
+            model_id,
+            "generateVideo",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
         llm_dev_log!(
             "error",
             "qwen",
@@ -3697,6 +4568,18 @@ async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(Strin
         Some(task_id) => task_id,
         None => {
             let message = "Qwen 未返回 task_id";
+            llm_dev_write_file_log(
+                "qwen",
+                model_id,
+                "generateVideo",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&payload),
+                Some(body_text.as_str()),
+                Some(message),
+            );
             llm_dev_log!(
                 "error",
                 "qwen",
@@ -3717,10 +4600,23 @@ async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(Strin
         "status" => status.as_u16(),
         "taskId" => upstream_task_id.as_str()
     );
+    llm_dev_write_file_log(
+        "qwen",
+        model_id,
+        "generateVideo",
+        "task",
+        _log_started_at,
+        Some(endpoint.as_str()),
+        Some(&request_body),
+        Some(&json!({ "taskId": upstream_task_id.as_str() })),
+        Some(body_text.as_str()),
+        None,
+    );
     Ok((upstream_task_id, request_body))
 }
 
 async fn poll_qwen_video_task<F>(
+    model_id: &str,
     upstream_task_id: &str,
     mut on_progress: F,
 ) -> Result<String, String>
@@ -3732,37 +4628,109 @@ where
     let base_url = qwen_api_base_url();
     let started_at = Utc::now().timestamp_millis();
     let max_wait_ms = 10 * 60 * 1000i64;
+    let endpoint = qwen_task_endpoint(&base_url, upstream_task_id);
+    let request_body = json!({ "taskId": upstream_task_id });
     loop {
         if Utc::now().timestamp_millis() - started_at > max_wait_ms {
-            return Err("Qwen 视频生成超时".to_string());
+            let message = "Qwen 视频生成超时".to_string();
+            llm_dev_write_file_log(
+                "qwen",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
+            return Err(message);
         }
         tokio::time::sleep(Duration::from_secs(10)).await;
         let elapsed = Utc::now().timestamp_millis() - started_at;
         let progress = 30 + ((elapsed as f64 / max_wait_ms as f64) * 60.0).round() as i64;
         on_progress(progress.clamp(30, 90));
         let response = http_client()
-            .get(qwen_task_endpoint(&base_url, upstream_task_id))
+            .get(&endpoint)
             .bearer_auth(&api_key)
             .header(reqwest::header::ACCEPT, "application/json")
             .send()
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                let message = error.to_string();
+                llm_dev_write_file_log(
+                    "qwen",
+                    model_id,
+                    "generateVideo",
+                    "error",
+                    started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    None,
+                    None,
+                    Some(message.as_str()),
+                );
+                message
+            })?;
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
-            return Err(build_sync_error_message(status, &body_text));
+            let message = build_sync_error_message(status, &body_text);
+            llm_dev_write_file_log(
+                "qwen",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            return Err(message);
         }
         let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-            format!(
+            let message = format!(
                 "解析 Qwen 视频状态失败: {} ({})",
                 error,
                 truncate_for_error(&body_text, 160)
-            )
+            );
+            llm_dev_write_file_log(
+                "qwen",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            message
         })?;
         match parse_qwen_task_status(&payload).as_str() {
             "SUCCEEDED" => {
-                return parse_qwen_video_url(&payload)
-                    .ok_or_else(|| "Qwen 视频成功但未返回 URL".to_string());
+                let url = parse_qwen_video_url(&payload)
+                    .ok_or_else(|| "Qwen 视频成功但未返回 URL".to_string())?;
+                llm_dev_write_file_log(
+                    "qwen",
+                    model_id,
+                    "generateVideo",
+                    "success",
+                    started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    Some(&json!({
+                      "taskId": upstream_task_id,
+                      "url": url.as_str()
+                    })),
+                    Some(body_text.as_str()),
+                    None,
+                );
+                return Ok(url);
             }
             "FAILED" => {
                 let message = payload
@@ -3770,9 +4738,36 @@ where
                     .and_then(|output| output.get("message"))
                     .and_then(Value::as_str)
                     .unwrap_or("Qwen 视频生成失败");
+                llm_dev_write_file_log(
+                    "qwen",
+                    model_id,
+                    "generateVideo",
+                    "error",
+                    started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    Some(&payload),
+                    Some(body_text.as_str()),
+                    Some(message),
+                );
                 return Err(message.to_string());
             }
-            "UNKNOWN" => return Err("Qwen 视频任务不存在或已过期".to_string()),
+            "UNKNOWN" => {
+                let message = "Qwen 视频任务不存在或已过期".to_string();
+                llm_dev_write_file_log(
+                    "qwen",
+                    model_id,
+                    "generateVideo",
+                    "error",
+                    started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    Some(&payload),
+                    Some(body_text.as_str()),
+                    Some(message.as_str()),
+                );
+                return Err(message);
+            }
             _ => {}
         }
     }
@@ -3984,6 +4979,18 @@ async fn request_qwen_text_to_speech(
         Some(result) => result,
         None => {
             let message = "TTS 生成失败";
+            llm_dev_write_file_log(
+                "qwen",
+                model_id,
+                "textToSpeech",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&payload),
+                Some(body_text.as_str()),
+                Some(message),
+            );
             llm_dev_log!(
                 "error",
                 "qwen",
@@ -4006,6 +5013,22 @@ async fn request_qwen_text_to_speech(
         "result" => llm_dev_log_source_summary(&source),
         "mimeType" => mime_type.as_deref().unwrap_or("unknown"),
         "isUrl" => is_url
+    );
+    llm_dev_write_file_log(
+        "qwen",
+        model_id,
+        "textToSpeech",
+        "success",
+        _log_started_at,
+        Some(endpoint.as_str()),
+        Some(&request_body),
+        Some(&json!({
+          "source": source.as_str(),
+          "mimeType": mime_type.as_deref().unwrap_or("unknown"),
+          "isUrl": is_url
+        })),
+        Some(body_text.as_str()),
+        None,
     );
     Ok((source, mime_type, is_url, request_body))
 }
@@ -4041,7 +5064,7 @@ async fn run_qwen_video_task_background(
             None,
             Some(&metadata),
         )?;
-        let remote_video_url = poll_qwen_video_task(&upstream_task_id, |progress| {
+        let remote_video_url = poll_qwen_video_task(&model_id, &upstream_task_id, |progress| {
             let _ = update_video_task_progress(
                 &state,
                 &task_id,
@@ -4302,6 +5325,18 @@ async fn submit_volcengine_video_task(
         .await
         .map_err(|error| {
             let message = error.to_string();
+            llm_dev_write_file_log(
+                "volcengine",
+                model_id,
+                "generateVideo",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
             llm_dev_log!(
                 "error",
                 "volcengine",
@@ -4316,6 +5351,18 @@ async fn submit_volcengine_video_task(
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
+        llm_dev_write_file_log(
+            "volcengine",
+            model_id,
+            "generateVideo",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
         llm_dev_log!(
             "error",
             "volcengine",
@@ -4333,6 +5380,18 @@ async fn submit_volcengine_video_task(
             error,
             truncate_for_error(&body_text, 160)
         );
+        llm_dev_write_file_log(
+            "volcengine",
+            model_id,
+            "generateVideo",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
         llm_dev_log!(
             "error",
             "volcengine",
@@ -4347,6 +5406,18 @@ async fn submit_volcengine_video_task(
         Some(task_id) => task_id,
         None => {
             let message = "Volcengine 未返回任务 id";
+            llm_dev_write_file_log(
+                "volcengine",
+                model_id,
+                "generateVideo",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&payload),
+                Some(body_text.as_str()),
+                Some(message),
+            );
             llm_dev_log!(
                 "error",
                 "volcengine",
@@ -4367,11 +5438,24 @@ async fn submit_volcengine_video_task(
         "status" => status.as_u16(),
         "taskId" => upstream_task_id.as_str()
     );
+    llm_dev_write_file_log(
+        "volcengine",
+        model_id,
+        "generateVideo",
+        "task",
+        _log_started_at,
+        Some(endpoint.as_str()),
+        Some(&request_body),
+        Some(&json!({ "taskId": upstream_task_id.as_str() })),
+        Some(body_text.as_str()),
+        None,
+    );
     Ok((upstream_task_id, request_body))
 }
 
 async fn poll_volcengine_video_task<F>(
     state: &BackendState,
+    model_id: &str,
     upstream_task_id: &str,
     mut on_progress: F,
 ) -> Result<String, String>
@@ -4385,10 +5469,25 @@ where
     let base_url = volcengine_video_base_url(&creds);
     let started_at = Utc::now().timestamp_millis();
     let max_wait_ms = 10 * 60 * 1000i64;
+    let endpoint = volcengine_task_endpoint(&base_url, upstream_task_id);
+    let request_body = json!({ "taskId": upstream_task_id });
 
     loop {
         if Utc::now().timestamp_millis() - started_at > max_wait_ms {
-            return Err("Volcengine 视频生成超时".to_string());
+            let message = "Volcengine 视频生成超时".to_string();
+            llm_dev_write_file_log(
+                "volcengine",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
+            return Err(message);
         }
         tokio::time::sleep(Duration::from_secs(10)).await;
         let elapsed = Utc::now().timestamp_millis() - started_at;
@@ -4396,28 +5495,85 @@ where
         on_progress(progress.clamp(30, 90));
 
         let response = http_client()
-            .get(volcengine_task_endpoint(&base_url, upstream_task_id))
+            .get(&endpoint)
             .bearer_auth(&api_key)
             .header(reqwest::header::ACCEPT, "application/json")
             .send()
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                let message = error.to_string();
+                llm_dev_write_file_log(
+                    "volcengine",
+                    model_id,
+                    "generateVideo",
+                    "error",
+                    started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    None,
+                    None,
+                    Some(message.as_str()),
+                );
+                message
+            })?;
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
-            return Err(build_sync_error_message(status, &body_text));
+            let message = build_sync_error_message(status, &body_text);
+            llm_dev_write_file_log(
+                "volcengine",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            return Err(message);
         }
         let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-            format!(
+            let message = format!(
                 "解析 Volcengine 视频状态失败: {} ({})",
                 error,
                 truncate_for_error(&body_text, 160)
-            )
+            );
+            llm_dev_write_file_log(
+                "volcengine",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            message
         })?;
         match parse_volcengine_task_status(&payload).as_str() {
             "succeeded" => {
-                return parse_volcengine_video_url(&payload)
-                    .ok_or_else(|| "Volcengine 视频成功但未返回 URL".to_string());
+                let url = parse_volcengine_video_url(&payload)
+                    .ok_or_else(|| "Volcengine 视频成功但未返回 URL".to_string())?;
+                llm_dev_write_file_log(
+                    "volcengine",
+                    model_id,
+                    "generateVideo",
+                    "success",
+                    started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    Some(&json!({
+                      "taskId": upstream_task_id,
+                      "url": url.as_str()
+                    })),
+                    Some(body_text.as_str()),
+                    None,
+                );
+                return Ok(url);
             }
             "failed" | "cancelled" | "expired" => {
                 let message = payload
@@ -4425,6 +5581,18 @@ where
                     .and_then(|error| error.get("message"))
                     .and_then(Value::as_str)
                     .unwrap_or("Volcengine 视频生成失败");
+                llm_dev_write_file_log(
+                    "volcengine",
+                    model_id,
+                    "generateVideo",
+                    "error",
+                    started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    Some(&payload),
+                    Some(body_text.as_str()),
+                    Some(message),
+                );
                 return Err(message.to_string());
             }
             _ => {}
@@ -4494,7 +5662,7 @@ async fn run_volcengine_video_task_background(
             None,
             Some(&metadata),
         )?;
-        let remote_video_url = poll_volcengine_video_task(&state, &upstream_task_id, |progress| {
+        let remote_video_url = poll_volcengine_video_task(&state, &model_id, &upstream_task_id, |progress| {
             let _ = update_video_task_progress(
                 &state,
                 &task_id,
@@ -4975,6 +6143,7 @@ async fn request_kling_image_generation(
     let base_url = kling_base_url();
     let (endpoint, request_body) =
         build_kling_image_request(model_id, prompt, size, reference_images);
+    let endpoint_url = format!("{}{}", base_url, endpoint);
     let token = build_kling_jwt(&access_key, &secret_key).map_err(|error| {
         llm_dev_log!(
             "error",
@@ -4993,14 +6162,14 @@ async fn request_kling_image_generation(
         model_id,
         "generateImage",
         None::<i64>,
-        "endpoint" => format!("{}{}", base_url, endpoint),
+        "endpoint" => endpoint_url.as_str(),
         "prompt" => llm_dev_log_preview(prompt, 220),
         "size" => size,
         "referenceImages" => reference_images.len()
     );
 
     let response = http_client()
-        .post(format!("{}{}", base_url, endpoint))
+        .post(&endpoint_url)
         .bearer_auth(token)
         .header(reqwest::header::ACCEPT, "application/json")
         .json(&request_body)
@@ -5008,6 +6177,18 @@ async fn request_kling_image_generation(
         .await
         .map_err(|error| {
             let message = error.to_string();
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(endpoint_url.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
             llm_dev_log!(
                 "error",
                 "kling",
@@ -5022,6 +6203,18 @@ async fn request_kling_image_generation(
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
+        llm_dev_write_file_log(
+            "kling",
+            model_id,
+            "generateImage",
+            "error",
+            _log_started_at,
+            Some(endpoint_url.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
         llm_dev_log!(
             "error",
             "kling",
@@ -5039,6 +6232,18 @@ async fn request_kling_image_generation(
             error,
             truncate_for_error(&body_text, 160)
         );
+        llm_dev_write_file_log(
+            "kling",
+            model_id,
+            "generateImage",
+            "error",
+            _log_started_at,
+            Some(endpoint_url.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
         llm_dev_log!(
             "error",
             "kling",
@@ -5055,6 +6260,18 @@ async fn request_kling_image_generation(
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or("Kling API 错误");
+        llm_dev_write_file_log(
+            "kling",
+            model_id,
+            "generateImage",
+            "error",
+            _log_started_at,
+            Some(endpoint_url.as_str()),
+            Some(&request_body),
+            Some(&payload),
+            Some(body_text.as_str()),
+            Some(message),
+        );
         llm_dev_log!(
             "error",
             "kling",
@@ -5070,6 +6287,18 @@ async fn request_kling_image_generation(
         Some(task_id) => task_id,
         None => {
             let message = "Kling 未返回 task_id";
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(endpoint_url.as_str()),
+                Some(&request_body),
+                Some(&payload),
+                Some(body_text.as_str()),
+                Some(message),
+            );
             llm_dev_log!(
                 "error",
                 "kling",
@@ -5089,6 +6318,18 @@ async fn request_kling_image_generation(
         "generateImage",
         Some(Utc::now().timestamp_millis() - _log_started_at),
         "taskId" => upstream_task_id.as_str()
+    );
+    llm_dev_write_file_log(
+        "kling",
+        model_id,
+        "generateImage",
+        "task",
+        _log_started_at,
+        Some(endpoint_url.as_str()),
+        Some(&request_body),
+        Some(&json!({ "taskId": upstream_task_id.as_str() })),
+        Some(body_text.as_str()),
+        None,
     );
 
     let started_at = Utc::now().timestamp_millis();
@@ -5121,7 +6362,7 @@ async fn request_kling_image_generation(
             error
         })?;
         let response = http_client()
-            .get(format!("{}{}/{}", base_url, endpoint, upstream_task_id))
+            .get(format!("{}/{}", endpoint_url, upstream_task_id))
             .bearer_auth(token)
             .header(reqwest::header::ACCEPT, "application/json")
             .send()
@@ -5143,6 +6384,18 @@ async fn request_kling_image_generation(
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(format!("{}/{}", endpoint_url, upstream_task_id).as_str()),
+                Some(&json!({ "taskId": upstream_task_id.as_str() })),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
             llm_dev_log!(
                 "error",
                 "kling",
@@ -5161,6 +6414,18 @@ async fn request_kling_image_generation(
                 error,
                 truncate_for_error(&body_text, 160)
             );
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(format!("{}/{}", endpoint_url, upstream_task_id).as_str()),
+                Some(&json!({ "taskId": upstream_task_id.as_str() })),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
             llm_dev_log!(
                 "error",
                 "kling",
@@ -5178,6 +6443,18 @@ async fn request_kling_image_generation(
                 .get("message")
                 .and_then(Value::as_str)
                 .unwrap_or("Kling API 错误");
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(format!("{}/{}", endpoint_url, upstream_task_id).as_str()),
+                Some(&json!({ "taskId": upstream_task_id.as_str() })),
+                Some(&payload),
+                Some(body_text.as_str()),
+                Some(message),
+            );
             llm_dev_log!(
                 "error",
                 "kling",
@@ -5194,6 +6471,18 @@ async fn request_kling_image_generation(
             "succeed" => {
                 let Some(url) = parse_kling_image_url(&payload) else {
                     let message = "Kling 图片成功但未返回 URL";
+                    llm_dev_write_file_log(
+                        "kling",
+                        model_id,
+                        "generateImage",
+                        "error",
+                        _log_started_at,
+                        Some(format!("{}/{}", endpoint_url, upstream_task_id).as_str()),
+                        Some(&json!({ "taskId": upstream_task_id.as_str() })),
+                        Some(&payload),
+                        Some(body_text.as_str()),
+                        Some(message),
+                    );
                     llm_dev_log!(
                         "error",
                         "kling",
@@ -5214,6 +6503,21 @@ async fn request_kling_image_generation(
                     "taskId" => upstream_task_id.as_str(),
                     "result" => llm_dev_log_source_summary(&url)
                 );
+                llm_dev_write_file_log(
+                    "kling",
+                    model_id,
+                    "generateImage",
+                    "success",
+                    _log_started_at,
+                    Some(format!("{}/{}", endpoint_url, upstream_task_id).as_str()),
+                    Some(&json!({ "taskId": upstream_task_id.as_str() })),
+                    Some(&json!({
+                      "taskId": upstream_task_id.as_str(),
+                      "url": url.as_str()
+                    })),
+                    Some(body_text.as_str()),
+                    None,
+                );
                 return Ok((url, None));
             }
             "failed" => {
@@ -5223,6 +6527,18 @@ async fn request_kling_image_generation(
                     .and_then(Value::as_str)
                     .or_else(|| payload.get("message").and_then(Value::as_str))
                     .unwrap_or("Kling 图片生成失败");
+                llm_dev_write_file_log(
+                    "kling",
+                    model_id,
+                    "generateImage",
+                    "error",
+                    _log_started_at,
+                    Some(format!("{}/{}", endpoint_url, upstream_task_id).as_str()),
+                    Some(&json!({ "taskId": upstream_task_id.as_str() })),
+                    Some(&payload),
+                    Some(body_text.as_str()),
+                    Some(message),
+                );
                 llm_dev_log!(
                     "error",
                     "kling",
@@ -6403,6 +7719,60 @@ mod tests {
     }
 
     #[test]
+    fn build_episode_plan_normalizes_model_asset_variants() {
+        let text = "苏晚拖着行李走进林家别墅，婆婆冷眼看着她。夜晚，苏晚在医院走廊拿出玉佩。第二天，陆霆出现撑腰。";
+        let output = json!({
+          "episodes": [
+            {
+              "title": "第1集",
+              "episodeAssets": {
+                "角色": [{ "姓名": "苏晚", "描述": "被迫嫁入豪门的女主", "性别": "female" }],
+                "道具": ["玉佩"],
+                "环境": ["林家别墅/白天/压抑豪门"]
+              }
+            },
+            {
+              "title": "第2集",
+              "startAnchor": "第二天，陆霆出现撑腰",
+              "assets": {
+                "characters": ["陆霆"],
+                "props": [{ "道具名": "合同", "描述": "反击用的关键合同" }],
+                "environments": [{ "地点": "公司会议室", "时间": "白天", "氛围": "紧张对峙" }]
+              }
+            }
+          ]
+        });
+
+        let episodes = build_episode_plan_from_model_output(text, output);
+
+        assert_eq!(episodes.len(), 2);
+        assert_eq!(
+            episodes[0]["episodeAssets"]["characters"][0]["name"],
+            json!("苏晚")
+        );
+        assert_eq!(
+            episodes[0]["episodeAssets"]["props"][0]["name"],
+            json!("玉佩")
+        );
+        assert_eq!(
+            episodes[0]["episodeAssets"]["environments"][0]["location"],
+            json!("林家别墅")
+        );
+        assert_eq!(
+            episodes[0]["episodeAssets"]["environments"][0]["timeOfDay"],
+            json!("白天")
+        );
+        assert_eq!(
+            episodes[1]["episodeAssets"]["characters"][0]["name"],
+            json!("陆霆")
+        );
+        assert_eq!(
+            episodes[1]["episodeAssets"]["environments"][0]["location"],
+            json!("公司会议室")
+        );
+    }
+
+    #[test]
     fn models_test_requested_provider_accepts_supported_provider() {
         let payload = json!({ "provider": " custom_openai " });
 
@@ -7017,21 +8387,34 @@ async fn request_openai_compatible_text_completion(
     );
 
     for api_key in api_keys {
+        let request_body = json!({
+          "model": model.as_str(),
+          "messages": [
+            { "role": "user", "content": prompt }
+          ],
+          "temperature": 0.7
+        });
         let response = http_client()
             .post(&endpoint)
             .bearer_auth(api_key)
             .header(reqwest::header::ACCEPT, "application/json")
-            .json(&json!({
-              "model": model,
-              "messages": [
-                { "role": "user", "content": prompt }
-              ],
-              "temperature": 0.7
-            }))
+            .json(&request_body)
             .send()
             .await
             .map_err(|error| {
                 let message = error.to_string();
+                llm_dev_write_file_log(
+                    provider,
+                    model_id,
+                    "generateText",
+                    "error",
+                    _log_started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    None,
+                    None,
+                    Some(message.as_str()),
+                );
                 llm_dev_log!(
                     "error",
                     provider,
@@ -7046,11 +8429,36 @@ async fn request_openai_compatible_text_completion(
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
-            last_error = Some(build_sync_error_message(status, &body_text));
+            let message = build_sync_error_message(status, &body_text);
+            llm_dev_write_file_log(
+                provider,
+                model_id,
+                "generateText",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            last_error = Some(message);
             continue;
         }
 
         let parsed = parse_openai_compatible_text_response(&body_text).map_err(|error| {
+            llm_dev_write_file_log(
+                provider,
+                model_id,
+                "generateText",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(error.as_str()),
+            );
             llm_dev_log!(
                 "error",
                 provider,
@@ -7062,6 +8470,19 @@ async fn request_openai_compatible_text_completion(
             error
         })?;
         if let Some(text) = parsed {
+            let parsed_response = json!({ "text": text });
+            llm_dev_write_file_log(
+                provider,
+                model_id,
+                "generateText",
+                "success",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&parsed_response),
+                Some(body_text.as_str()),
+                None,
+            );
             llm_dev_log!(
                 "success",
                 provider,
@@ -7073,7 +8494,20 @@ async fn request_openai_compatible_text_completion(
             );
             return Ok(text);
         }
-        last_error = Some("模型返回为空文本".to_string());
+        let message = "模型返回为空文本".to_string();
+        llm_dev_write_file_log(
+            provider,
+            model_id,
+            "generateText",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        last_error = Some(message);
     }
 
     let message = last_error.unwrap_or_else(|| "文本模型调用失败".to_string());
@@ -7123,22 +8557,35 @@ async fn request_gemini_text_completion(
     );
 
     for api_key in api_keys {
+        let request_body = json!({
+          "contents": [
+            {
+              "role": "user",
+              "parts": [{ "text": prompt }]
+            }
+          ]
+        });
         let response = http_client()
             .post(&endpoint)
             .query(&[("key", api_key.as_str())])
             .header(reqwest::header::ACCEPT, "application/json")
-            .json(&json!({
-              "contents": [
-                {
-                  "role": "user",
-                  "parts": [{ "text": prompt }]
-                }
-              ]
-            }))
+            .json(&request_body)
             .send()
             .await
             .map_err(|error| {
                 let message = error.to_string();
+                llm_dev_write_file_log(
+                    "gemini",
+                    model_id,
+                    "generateText",
+                    "error",
+                    _log_started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    None,
+                    None,
+                    Some(message.as_str()),
+                );
                 llm_dev_log!(
                     "error",
                     "gemini",
@@ -7153,18 +8600,57 @@ async fn request_gemini_text_completion(
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
-            last_error = Some(build_sync_error_message(status, &body_text));
+            let message = build_sync_error_message(status, &body_text);
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateText",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            last_error = Some(message);
             continue;
         }
 
         let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-            format!(
+            let message = format!(
                 "解析 Gemini 响应失败: {} ({})",
                 error,
                 truncate_for_error(&body_text, 160)
-            )
+            );
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateText",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            message
         })?;
         if let Some(text) = parse_gemini_text_result(&payload) {
+            let parsed_response = json!({ "text": text });
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateText",
+                "success",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&parsed_response),
+                Some(body_text.as_str()),
+                None,
+            );
             llm_dev_log!(
                 "success",
                 "gemini",
@@ -7176,7 +8662,20 @@ async fn request_gemini_text_completion(
             );
             return Ok(text);
         }
-        last_error = Some("模型返回为空文本".to_string());
+        let message = "模型返回为空文本".to_string();
+        llm_dev_write_file_log(
+            "gemini",
+            model_id,
+            "generateText",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            Some(&payload),
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        last_error = Some(message);
     }
 
     let message = last_error.unwrap_or_else(|| "Gemini 调用失败".to_string());
@@ -7263,6 +8762,22 @@ fn write_model_debug_log(
     let now = now_iso();
     let response_value = response.cloned().unwrap_or(Value::Null);
     let media_refs = collect_log_media_refs(&response_value);
+    let started_at = Utc::now().timestamp_millis() - duration_ms.max(1);
+    let error_message = error
+        .and_then(|value| value.get("message").and_then(Value::as_str))
+        .or_else(|| error.and_then(Value::as_str));
+    llm_dev_write_file_log(
+        provider,
+        model,
+        operation,
+        status,
+        started_at,
+        None,
+        Some(request),
+        response,
+        None,
+        error_message,
+    );
     conn.execute(
         "INSERT INTO model_debug_logs (
           id, timestamp, provider, model, operation, status, duration_ms,
@@ -8661,14 +10176,25 @@ pub(super) async fn api_character_generate(
     }
     let reference_images = normalize_image_reference_sources(&state, reference_sources, 4).await?;
     let prompt = if let Some(custom_prompt) = regeneration_prompt {
-        format!(
-            "请基于已有角色设定重新生成角色设定图。角色：{}。外貌：{}。性别：{}。画风：{}。修改要求：{}。输出一张角色设定图，包含正面、侧面、背面和表情细节，背景简洁。",
-            character_name, appearance, gender, style, custom_prompt
+        render_runtime_prompt(
+            RUNTIME_PROMPT_CHARACTER_REGENERATION,
+            &[
+                ("characterName", character_name.as_str()),
+                ("appearance", appearance.as_str()),
+                ("gender", gender.as_str()),
+                ("style", style.as_str()),
+                ("customPrompt", custom_prompt),
+            ],
         )
     } else {
-        format!(
-            "请生成角色设定图。角色：{}。外貌：{}。性别：{}。画风：{}。一张图包含正面、侧面、背面、多种表情、服装和配饰细节，背景简洁，适合作为动画短剧角色参考。",
-            character_name, appearance, gender, style
+        render_runtime_prompt(
+            RUNTIME_PROMPT_CHARACTER_GENERATION,
+            &[
+                ("characterName", character_name.as_str()),
+                ("appearance", appearance.as_str()),
+                ("gender", gender.as_str()),
+                ("style", style.as_str()),
+            ],
         )
     };
     let (image_url, provider, model_id) = run_workflow_image_model(
@@ -9316,12 +10842,19 @@ pub(super) async fn api_asset_prop_generate(
     let prop_description = json_string(prop.get("description"), "无");
     let category = json_string(prop.get("category"), "prop");
     let style = json_string(body.get("style"), "保持项目默认画风");
-    let prompt = format!(
-        "请生成{}参考图。名称：{}。描述：{}。画风：{}。要求：单个资产居中展示，结构清晰，细节可读，纯净背景，适合作为动画短剧资产参考。避免水印、文字、人物。",
-        if category == "other" { "其他资产" } else { "道具资产" },
-        prop_name,
-        prop_description,
-        style
+    let asset_label = if category == "other" {
+        "其他资产"
+    } else {
+        "道具资产"
+    };
+    let prompt = render_runtime_prompt(
+        RUNTIME_PROMPT_PROP_ASSET_GENERATION,
+        &[
+            ("assetLabel", asset_label),
+            ("assetName", prop_name.as_str()),
+            ("assetDescription", prop_description.as_str()),
+            ("style", style.as_str()),
+        ],
     );
     let (image_url, provider, model_id) = run_workflow_image_model(
         &state,
@@ -9423,14 +10956,26 @@ pub(super) async fn api_asset_reference_generate(
     }
     let reference_images = normalize_image_reference_sources(&state, reference_sources, 4).await?;
     let prompt = if let Some(custom_prompt) = custom_prompt {
-        format!(
-            "请根据参考图和要求重新生成纯环境参考图。场景：{}。地点：{}。时间：{}。画风：{}。修改要求：{}。禁止人物、人脸、文字、水印。",
-            scene_title, location, time_of_day, style, custom_prompt
+        render_runtime_prompt(
+            RUNTIME_PROMPT_ENVIRONMENT_REFERENCE_REGENERATION,
+            &[
+                ("sceneTitle", scene_title.as_str()),
+                ("location", location),
+                ("timeOfDay", time_of_day),
+                ("style", style.as_str()),
+                ("customPrompt", custom_prompt),
+            ],
         )
     } else {
-        format!(
-            "请生成纯环境参考图，不包含人物。场景：{}。地点：{}。时间：{}。画风：{}。分镜描述：{}。要求空间结构清晰、光照和材质稳定，可作为后续视频分镜环境参考。禁止人物、人脸、文字、水印。",
-            scene_title, location, time_of_day, style, scene_description
+        render_runtime_prompt(
+            RUNTIME_PROMPT_ENVIRONMENT_REFERENCE_GENERATION,
+            &[
+                ("sceneTitle", scene_title.as_str()),
+                ("location", location),
+                ("timeOfDay", time_of_day),
+                ("style", style.as_str()),
+                ("sceneDescription", scene_description.as_str()),
+            ],
         )
     };
     let (model_id, workflow_model_options) = {

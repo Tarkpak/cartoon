@@ -1,0 +1,1 @@
+请根据参考图和要求重新生成纯环境参考图。场景：{{sceneTitle}}。地点：{{location}}。时间：{{timeOfDay}}。画风：{{style}}。修改要求：{{customPrompt}}。禁止人物、人脸、文字、水印。

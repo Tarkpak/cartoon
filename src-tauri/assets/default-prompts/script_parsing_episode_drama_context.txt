@@ -1,0 +1,9 @@
+{{basePrompt}}
+
+【本集规划补充（系统追加，必须落入 dramatic / description / asset 相关字段）】
+{{episodeDramaBrief}}
+
+执行约束：
+1) 若补充里含“资产锚点”，必须优先沿用锚点中的角色命名、外观基线、关键道具与环境命名。
+2) 输出 JSON 时，确保这些锚点在 characters/scenes.setting/description 中可追踪，不得被泛化或遗漏。
+3) 若锚点与原文明确事实冲突，以原文明确事实为准，并采用最小改动修正。

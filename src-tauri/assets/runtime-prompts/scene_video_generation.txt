@@ -1,0 +1,1 @@
+请生成短剧分镜视频。场景：{{sceneTitle}}。地点：{{location}}。分镜描述：{{sceneDescription}}。要求动作连贯、镜头稳定、符合项目画风。

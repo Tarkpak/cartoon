@@ -1,0 +1,1 @@
+请基于已有角色设定重新生成角色设定图。角色：{{characterName}}。外貌：{{appearance}}。性别：{{gender}}。画风：{{style}}。修改要求：{{customPrompt}}。输出一张角色设定图，包含正面、侧面、背面和表情细节，背景简洁。

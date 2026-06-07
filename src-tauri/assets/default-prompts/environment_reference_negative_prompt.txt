@@ -1,0 +1,1 @@
+人物, 角色, 人脸, 人体, 手, 剪影, 人群, human, person, people, face, portrait, character, body, hands, crowd, watermark, logo, text, 鱼眼, 透视畸变, 桶形畸变, 枕形畸变, 边缘拉伸, 夸张广角畸变, fisheye, fish-eye, lens distortion, barrel distortion, pincushion distortion, warped lines, curved horizon, extreme perspective, distorted ultra-wide lens

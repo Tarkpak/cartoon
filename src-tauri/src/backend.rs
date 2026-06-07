@@ -303,9 +303,18 @@ fn path_content_type(path: &FsPath) -> &'static str {
 }
 
 static DB_PATH: OnceLock<PathBuf> = OnceLock::new();
+static LLM_DEV_LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 fn set_global_db_path(path: PathBuf) {
     let _ = DB_PATH.set(path);
+}
+
+fn set_global_llm_dev_log_dir(path: PathBuf) {
+    let _ = LLM_DEV_LOG_DIR.set(path);
+}
+
+fn llm_dev_log_dir() -> Option<PathBuf> {
+    LLM_DEV_LOG_DIR.get().cloned()
 }
 
 fn db_connection(state: &BackendState) -> Result<Connection, ApiError> {
@@ -1249,7 +1258,7 @@ fn fallback_prompt_templates() -> Value {
         "name": "精品剧解析与资产规划",
         "category": "text",
         "description": "默认模板",
-        "content": "你是一位资深分镜师，请将输入文本解析为结构化分镜数据。",
+        "content": include_str!("../assets/default-prompts/fallback_script_parsing.txt"),
         "variables": [],
         "isCustomized": false,
         "updatedAt": now
@@ -1259,12 +1268,57 @@ fn fallback_prompt_templates() -> Value {
         "name": "分镜视频生成",
         "category": "video",
         "description": "默认模板",
-        "content": "根据场景描述和参考图生成视频分镜。",
+        "content": include_str!("../assets/default-prompts/fallback_scene_video_generation.txt"),
         "variables": [],
         "isCustomized": false,
         "updatedAt": now
       }
     ])
+}
+
+fn default_prompt_template_content(content_file: &str) -> Option<&'static str> {
+    match content_file {
+        "default-prompts/script_episode_plan.txt" => {
+            Some(include_str!("../assets/default-prompts/script_episode_plan.txt"))
+        }
+        "default-prompts/script_parsing.txt" => {
+            Some(include_str!("../assets/default-prompts/script_parsing.txt"))
+        }
+        "default-prompts/script_parsing_short_drama.txt" => {
+            Some(include_str!("../assets/default-prompts/script_parsing_short_drama.txt"))
+        }
+        "default-prompts/script_parsing_segment_context.txt" => {
+            Some(include_str!("../assets/default-prompts/script_parsing_segment_context.txt"))
+        }
+        "default-prompts/script_parsing_episode_drama_context.txt" => Some(include_str!(
+            "../assets/default-prompts/script_parsing_episode_drama_context.txt"
+        )),
+        "default-prompts/character_sheet.txt" => {
+            Some(include_str!("../assets/default-prompts/character_sheet.txt"))
+        }
+        "default-prompts/character_regeneration.txt" => {
+            Some(include_str!("../assets/default-prompts/character_regeneration.txt"))
+        }
+        "default-prompts/environment_reference_generation.txt" => Some(include_str!(
+            "../assets/default-prompts/environment_reference_generation.txt"
+        )),
+        "default-prompts/environment_reference_negative_prompt.txt" => Some(include_str!(
+            "../assets/default-prompts/environment_reference_negative_prompt.txt"
+        )),
+        "default-prompts/prop_asset_generation.txt" => {
+            Some(include_str!("../assets/default-prompts/prop_asset_generation.txt"))
+        }
+        "default-prompts/prop_asset_negative_prompt.txt" => {
+            Some(include_str!("../assets/default-prompts/prop_asset_negative_prompt.txt"))
+        }
+        "default-prompts/scene_description_refinement.txt" => Some(include_str!(
+            "../assets/default-prompts/scene_description_refinement.txt"
+        )),
+        "default-prompts/scene_video_generation.txt" => {
+            Some(include_str!("../assets/default-prompts/scene_video_generation.txt"))
+        }
+        _ => None,
+    }
 }
 
 fn default_prompt_templates() -> Value {
@@ -1295,6 +1349,14 @@ fn default_prompt_templates() -> Value {
                 return None;
             }
 
+            let content = obj
+                .get("contentFile")
+                .and_then(Value::as_str)
+                .and_then(default_prompt_template_content)
+                .map(str::to_string)
+                .or_else(|| obj.get("content").and_then(Value::as_str).map(str::to_string))
+                .unwrap_or_default();
+            obj.insert("content".to_string(), json!(content));
             if !matches!(obj.get("content"), Some(Value::String(_))) {
                 obj.insert("content".to_string(), json!(""));
             }
@@ -1803,11 +1865,16 @@ fn ensure_dirs(state: &BackendState) -> Result<(), ApiError> {
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     fs::create_dir_all(state.data_dir.join("exports"))
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    #[cfg(debug_assertions)]
+    fs::create_dir_all(state.data_dir.join("llm-debug-logs"))
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(())
 }
 
 pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<(), String> {
     set_global_db_path(state.db_path.clone());
+    #[cfg(debug_assertions)]
+    set_global_llm_dev_log_dir(state.data_dir.join("llm-debug-logs"));
     ensure_dirs(&state).map_err(|error| error.message.clone())?;
     init_database(&state).map_err(|error| error.message.clone())?;
 
@@ -6167,6 +6234,17 @@ async fn api_debug_logs_delete(State(state): State<BackendState>) -> Result<Json
     let conn = db_connection(&state)?;
     conn.execute("DELETE FROM model_debug_logs", [])
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    #[cfg(debug_assertions)]
+    {
+        let dir = state.data_dir.join("llm-debug-logs");
+        if dir.exists() {
+            fs::remove_dir_all(&dir).map_err(|error| {
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+            })?;
+        }
+        fs::create_dir_all(&dir)
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    }
     Ok(Json(json!({ "success": true })))
 }
 

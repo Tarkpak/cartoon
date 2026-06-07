@@ -4,33 +4,23 @@ import os from 'node:os'
 import { spawnSync } from 'node:child_process'
 
 const API_URL = 'https://api.oiioii.ai/knowledge/style_assets'
-const STYLES_FILE = 'shared/types/styles.ts'
+const STYLES_FILE = 'src-tauri/assets/default-style-presets.json'
 const DESCRIPTION_FILE = 'shared/types/style-descriptions.generated.ts'
 const OUTPUT_DIR = 'public/styles'
 const REQUEST_BODY = { data: { limit: 400, page: 1 } }
 
 function extractLocalStyles() {
-  const source = fs.readFileSync(STYLES_FILE, 'utf-8')
-  const start = source.indexOf('const STYLE_PRESETS_BASE') !== -1
-    ? source.indexOf('const STYLE_PRESETS_BASE')
-    : source.indexOf('export const STYLE_PRESETS')
-  const end = source.indexOf('export function getStylesByCategory')
-  if (start === -1 || end === -1) {
+  const items = JSON.parse(fs.readFileSync(STYLES_FILE, 'utf-8'))
+  if (!Array.isArray(items)) {
     throw new Error(`Cannot parse ${STYLES_FILE}`)
   }
 
-  const block = source.slice(start, end)
-  const styleReg = /\{\s*id:\s*'([^']+)'[\s\S]*?name:\s*'([^']+)'[\s\S]*?nameEn:\s*'([^']+)'[\s\S]*?thumbnail:\s*'([^']+)'/g
-  const items = []
-  for (const m of block.matchAll(styleReg)) {
-    items.push({
-      id: m[1],
-      name: m[2],
-      nameEn: m[3],
-      thumbnail: m[4]
-    })
-  }
-  return items
+  return items.map(item => ({
+    id: item.id,
+    name: item.name,
+    nameEn: item.nameEn,
+    thumbnail: item.thumbnail
+  }))
 }
 
 async function fetchRemoteStyles() {

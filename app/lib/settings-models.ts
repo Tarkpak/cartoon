@@ -14,6 +14,7 @@ import type {
   VideoModelConfig,
   VoiceModelConfig
 } from '#shared/types/provider'
+import settingsModelTestPlaceholders from '../assets/prompts/settings-model-test-placeholders.json'
 
 export type SettingsModelConfig
   = | TextModelConfig
@@ -61,12 +62,7 @@ export const SETTINGS_PROVIDER_CONFIG: Record<string, { displayName: string, col
   deepseek: { displayName: 'DeepSeek', color: 'purple', order: 7 }
 }
 
-export const SETTINGS_MODEL_TEST_PLACEHOLDERS: Record<ModelTestTab, string> = {
-  text: '你好，请用一句话介绍你自己。',
-  image: '一只可爱的橘色小猫，日式动漫风格，白色背景',
-  video: '一只小猫在草地上奔跑，阳光明媚',
-  tts: '你好，这是一段测试语音。'
-}
+export const SETTINGS_MODEL_TEST_PLACEHOLDERS = settingsModelTestPlaceholders as Record<ModelTestTab, string>
 
 export const SETTINGS_MODEL_TEST_TABS: ModelTestTabConfig[] = [
   { key: 'text', label: '文本生成', icon: Cpu },
