@@ -74,6 +74,55 @@ fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
 
+/// FFmpeg 常见安装目录。GUI 启动的应用（macOS 由 launchd、双击图标启动）
+/// 只继承精简版 PATH，不含 Homebrew / MacPorts 等目录，导致系统 ffmpeg 不可见。
+fn common_ffmpeg_dirs() -> Vec<PathBuf> {
+    let raw: &[&str] = if cfg!(target_os = "macos") {
+        &["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", "/usr/bin"]
+    } else if cfg!(target_os = "linux") {
+        &["/usr/bin", "/usr/local/bin", "/snap/bin"]
+    } else {
+        &[]
+    };
+    raw.iter().map(PathBuf::from).collect()
+}
+
+/// 把常见安装目录前置到进程 PATH，使打包后的应用里 `Command::new("ffmpeg")`
+/// 也能解析到系统 ffmpeg。幂等：只补充真实存在且尚未在 PATH 中的目录。
+fn ensure_common_paths_in_env() {
+    let dirs = common_ffmpeg_dirs();
+    if dirs.is_empty() {
+        return;
+    }
+
+    let current = std::env::var_os("PATH").unwrap_or_default();
+    let existing: Vec<PathBuf> = std::env::split_paths(&current).collect();
+
+    let mut combined: Vec<PathBuf> = Vec::new();
+    for dir in dirs {
+        if dir.is_dir() && !existing.iter().any(|entry| entry == &dir) {
+            combined.push(dir);
+        }
+    }
+
+    if combined.is_empty() {
+        return;
+    }
+
+    combined.extend(existing);
+    if let Ok(joined) = std::env::join_paths(combined) {
+        std::env::set_var("PATH", joined);
+    }
+}
+
+/// 系统 ffmpeg 二进制的绝对候选路径（常见目录 + 二进制名）。
+fn system_ffmpeg_candidates() -> Vec<PathBuf> {
+    common_ffmpeg_dirs()
+        .into_iter()
+        .map(|dir| dir.join(ffmpeg_binary_name()))
+        .collect()
+}
+
 fn probe_ffmpeg_version<S: AsRef<OsStr>>(program: S) -> Option<String> {
     let output = Command::new(program).arg("-version").output().ok()?;
     if !output.status.success() {
@@ -120,6 +169,7 @@ fn missing_status(app: &AppHandle, message: Option<String>) -> Result<FfmpegStat
 }
 
 pub fn configure_managed_ffmpeg(app: &AppHandle) -> Result<(), String> {
+    ensure_common_paths_in_env();
     let ffmpeg_path = managed_ffmpeg_path(app)?;
     if ffmpeg_path.is_file() && probe_ffmpeg_version(&ffmpeg_path).is_some() {
         std::env::set_var("FFMPEG_PATH", &ffmpeg_path);
@@ -173,6 +223,28 @@ fn detect_ffmpeg_status(app: &AppHandle) -> Result<FfmpegStatus, String> {
             managed_path: Some(managed_path_string),
             message: None,
         });
+    }
+
+    // 兜底：直接探测常见安装位置。GUI 启动的应用拿不到登录 shell 的 PATH，
+    // 命中后固定为绝对路径（写入 FFMPEG_PATH），使后续真正调用 ffmpeg 也不依赖 PATH。
+    for candidate in system_ffmpeg_candidates() {
+        if let Some(version) = probe_ffmpeg_version(&candidate) {
+            std::env::set_var("FFMPEG_PATH", &candidate);
+            let ffprobe = candidate.with_file_name(ffprobe_binary_name());
+            if ffprobe.is_file() {
+                std::env::set_var("FFPROBE_PATH", &ffprobe);
+            }
+            return Ok(FfmpegStatus {
+                available: true,
+                install_supported: install_supported(),
+                source: "system".to_string(),
+                version: Some(version),
+                path: Some(path_to_string(&candidate)),
+                platform: current_platform().to_string(),
+                managed_path: Some(managed_path_string.clone()),
+                message: None,
+            });
+        }
     }
 
     let message = if install_supported() {
