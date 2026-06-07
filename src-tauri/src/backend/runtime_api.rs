@@ -2494,15 +2494,30 @@ fn reference_image_part(reference: &str, index: usize) -> Result<reqwest::multip
 async fn poll_openai_compatible_image_task(
     base_url: &str,
     api_key: &str,
+    model_id: &str,
     task_id: &str,
 ) -> Result<(String, Option<String>), String> {
     tokio::time::sleep(Duration::from_secs(10)).await;
     let endpoint = provider_image_task_endpoint(base_url, task_id);
     let started_at = Utc::now().timestamp_millis();
     let max_wait_ms = 10 * 60 * 1000i64;
+    let request_body = json!({ "taskId": task_id });
     loop {
         if Utc::now().timestamp_millis() - started_at > max_wait_ms {
-            return Err(format!("图片任务查询超时（taskId={}）", task_id));
+            let message = format!("图片任务查询超时（taskId={}）", task_id);
+            llm_dev_write_file_log(
+                "custom_openai",
+                model_id,
+                "generateImage",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
+            return Err(message);
         }
         let response = http_client()
             .get(&endpoint)
@@ -2510,28 +2525,126 @@ async fn poll_openai_compatible_image_task(
             .header(reqwest::header::ACCEPT, "application/json")
             .send()
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                let message = error.to_string();
+                llm_dev_write_file_log(
+                    "custom_openai",
+                    model_id,
+                    "generateImage",
+                    "error",
+                    started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    None,
+                    None,
+                    Some(message.as_str()),
+                );
+                message
+            })?;
         let status = response.status();
-        let body_text = response.text().await.map_err(|error| error.to_string())?;
+        let body_text = response.text().await.map_err(|error| {
+            let message = error.to_string();
+            llm_dev_write_file_log(
+                "custom_openai",
+                model_id,
+                "generateImage",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
+            message
+        })?;
         if !status.is_success() {
-            return Err(build_sync_error_message(status, &body_text));
+            let message = build_sync_error_message(status, &body_text);
+            llm_dev_write_file_log(
+                "custom_openai",
+                model_id,
+                "generateImage",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            return Err(message);
         }
         let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-            format!(
+            let message = format!(
                 "解析图片任务状态失败: {} ({})",
                 error,
                 truncate_for_error(&body_text, 160)
-            )
+            );
+            llm_dev_write_file_log(
+                "custom_openai",
+                model_id,
+                "generateImage",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            message
         })?;
         if let Some(result) = parse_openai_compatible_image_result(&payload) {
+            llm_dev_write_file_log(
+                "custom_openai",
+                model_id,
+                "generateImage",
+                "success",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&json!({
+                  "taskId": task_id,
+                  "source": result.0.as_str(),
+                  "mimeType": result.1.as_deref()
+                })),
+                Some(body_text.as_str()),
+                None,
+            );
             return Ok(result);
         }
         let task_status = openai_compatible_task_status(&payload);
         if openai_compatible_task_success(&task_status) {
-            return Err("图片任务已完成但未返回图片 URL 或 base64".to_string());
+            let message = "图片任务已完成但未返回图片 URL 或 base64".to_string();
+            llm_dev_write_file_log(
+                "custom_openai",
+                model_id,
+                "generateImage",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&payload),
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            return Err(message);
         }
         if openai_compatible_task_failed(&task_status) {
-            return Err(openai_compatible_task_error_message(&payload));
+            let message = openai_compatible_task_error_message(&payload);
+            llm_dev_write_file_log(
+                "custom_openai",
+                model_id,
+                "generateImage",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&payload),
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            return Err(message);
         }
         tokio::time::sleep(Duration::from_secs(4)).await;
     }
@@ -2846,7 +2959,9 @@ async fn request_custom_openai_image_generation(
                 Some(Utc::now().timestamp_millis() - _log_started_at),
                 "taskId" => task_id.as_str()
             );
-            return match poll_openai_compatible_image_task(&base_url, &api_key, &task_id).await {
+            return match poll_openai_compatible_image_task(&base_url, &api_key, model_id, &task_id)
+                .await
+            {
                 Ok(result) => {
                     let parsed_response = json!({
                       "taskId": task_id.as_str(),
@@ -4114,7 +4229,7 @@ async fn refresh_tracked_video_task(
                 if upstream_task_id.trim().is_empty() {
                     return Ok::<(), ApiError>(());
                 }
-                let payload = query_qwen_video_task(upstream_task_id)
+                let payload = query_qwen_video_task(model_id, upstream_task_id)
                     .await
                     .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
                 match parse_qwen_task_status(&payload).as_str() {
@@ -4148,7 +4263,7 @@ async fn refresh_tracked_video_task(
                 if upstream_task_id.trim().is_empty() {
                     return Ok::<(), ApiError>(());
                 }
-                let payload = query_volcengine_video_task(state, upstream_task_id)
+                let payload = query_volcengine_video_task(state, model_id, upstream_task_id)
                     .await
                     .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
                 match parse_volcengine_task_status(&payload).as_str() {
@@ -4183,7 +4298,7 @@ async fn refresh_tracked_video_task(
                 if upstream_task_id.trim().is_empty() || endpoint.trim().is_empty() {
                     return Ok::<(), ApiError>(());
                 }
-                let payload = query_kling_video_task(endpoint, upstream_task_id)
+                let payload = query_kling_video_task(model_id, endpoint, upstream_task_id)
                     .await
                     .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
                 match parse_kling_task_status(&payload).as_str() {
@@ -4218,7 +4333,7 @@ async fn refresh_tracked_video_task(
                 if operation_name.trim().is_empty() {
                     return Ok::<(), ApiError>(());
                 }
-                let payload = query_gemini_video_task(state, operation_name)
+                let payload = query_gemini_video_task(state, model_id, operation_name)
                     .await
                     .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
                 if let Some(message) = parse_gemini_operation_error(&payload) {
@@ -4773,29 +4888,105 @@ where
     }
 }
 
-async fn query_qwen_video_task(upstream_task_id: &str) -> Result<Value, String> {
+async fn query_qwen_video_task(
+    model_id: Option<&str>,
+    upstream_task_id: &str,
+) -> Result<Value, String> {
+    let model_id = model_id.unwrap_or("").trim();
+    let started_at = Utc::now().timestamp_millis();
     let api_key = provider_sync_api_key("qwen", &current_provider_creds())
         .ok_or_else(|| "未配置千问 API Key，请在设置中配置".to_string())?;
     let base_url = qwen_api_base_url();
+    let endpoint = qwen_task_endpoint(&base_url, upstream_task_id);
+    let request_body = json!({ "taskId": upstream_task_id });
     let response = http_client()
-        .get(qwen_task_endpoint(&base_url, upstream_task_id))
+        .get(&endpoint)
         .bearer_auth(&api_key)
         .header(reqwest::header::ACCEPT, "application/json")
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            let message = error.to_string();
+            llm_dev_write_file_log(
+                "qwen",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
+            message
+        })?;
     let status = response.status();
-    let body_text = response.text().await.map_err(|error| error.to_string())?;
+    let body_text = response.text().await.map_err(|error| {
+        let message = error.to_string();
+        llm_dev_write_file_log(
+            "qwen",
+            model_id,
+            "generateVideo",
+            "error",
+            started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            None,
+            Some(message.as_str()),
+        );
+        message
+    })?;
     if !status.is_success() {
-        return Err(build_sync_error_message(status, &body_text));
+        let message = build_sync_error_message(status, &body_text);
+        llm_dev_write_file_log(
+            "qwen",
+            model_id,
+            "generateVideo",
+            "error",
+            started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        return Err(message);
     }
-    serde_json::from_str::<Value>(&body_text).map_err(|error| {
-        format!(
+    let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+        let message = format!(
             "解析 Qwen 视频状态失败: {} ({})",
             error,
             truncate_for_error(&body_text, 160)
-        )
-    })
+        );
+        llm_dev_write_file_log(
+            "qwen",
+            model_id,
+            "generateVideo",
+            "error",
+            started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        message
+    })?;
+    llm_dev_write_file_log(
+        "qwen",
+        model_id,
+        "generateVideo",
+        "status",
+        started_at,
+        Some(endpoint.as_str()),
+        Some(&request_body),
+        Some(&payload),
+        Some(body_text.as_str()),
+        None,
+    );
+    Ok(payload)
 }
 
 fn qwen_tts_multimodal_endpoint(base_url: &str) -> String {
@@ -4926,7 +5117,7 @@ async fn request_qwen_text_to_speech(
     );
 
     let response = http_client()
-        .post(endpoint)
+        .post(&endpoint)
         .bearer_auth(api_key)
         .header(reqwest::header::ACCEPT, "application/json")
         .json(&request_body)
@@ -4934,6 +5125,18 @@ async fn request_qwen_text_to_speech(
         .await
         .map_err(|error| {
             let message = error.to_string();
+            llm_dev_write_file_log(
+                "qwen",
+                model_id,
+                "textToSpeech",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
             llm_dev_log!(
                 "error",
                 "qwen",
@@ -4945,9 +5148,36 @@ async fn request_qwen_text_to_speech(
             message
         })?;
     let status = response.status();
-    let body_text = response.text().await.map_err(|error| error.to_string())?;
+    let body_text = response.text().await.map_err(|error| {
+        let message = error.to_string();
+        llm_dev_write_file_log(
+            "qwen",
+            model_id,
+            "textToSpeech",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            None,
+            Some(message.as_str()),
+        );
+        message
+    })?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
+        llm_dev_write_file_log(
+            "qwen",
+            model_id,
+            "textToSpeech",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
         llm_dev_log!(
             "error",
             "qwen",
@@ -4964,6 +5194,18 @@ async fn request_qwen_text_to_speech(
             "解析 Qwen TTS 响应失败: {} ({})",
             error,
             truncate_for_error(&body_text, 160)
+        );
+        llm_dev_write_file_log(
+            "qwen",
+            model_id,
+            "textToSpeech",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
         );
         llm_dev_log!(
             "error",
@@ -5602,32 +5844,106 @@ where
 
 async fn query_volcengine_video_task(
     state: &BackendState,
+    model_id: Option<&str>,
     upstream_task_id: &str,
 ) -> Result<Value, String> {
+    let model_id = model_id.unwrap_or("").trim();
+    let started_at = Utc::now().timestamp_millis();
     let conn = db_connection(state).map_err(|error| error.message)?;
     let creds = load_provider_creds(&conn);
     let api_key = provider_sync_api_key("volcengine", &creds)
         .ok_or_else(|| "未配置火山引擎 API Key，请在设置中配置".to_string())?;
     let base_url = volcengine_video_base_url(&creds);
+    let endpoint = volcengine_task_endpoint(&base_url, upstream_task_id);
+    let request_body = json!({ "taskId": upstream_task_id });
     let response = http_client()
-        .get(volcengine_task_endpoint(&base_url, upstream_task_id))
+        .get(&endpoint)
         .bearer_auth(&api_key)
         .header(reqwest::header::ACCEPT, "application/json")
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            let message = error.to_string();
+            llm_dev_write_file_log(
+                "volcengine",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
+            message
+        })?;
     let status = response.status();
-    let body_text = response.text().await.map_err(|error| error.to_string())?;
+    let body_text = response.text().await.map_err(|error| {
+        let message = error.to_string();
+        llm_dev_write_file_log(
+            "volcengine",
+            model_id,
+            "generateVideo",
+            "error",
+            started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            None,
+            Some(message.as_str()),
+        );
+        message
+    })?;
     if !status.is_success() {
-        return Err(build_sync_error_message(status, &body_text));
+        let message = build_sync_error_message(status, &body_text);
+        llm_dev_write_file_log(
+            "volcengine",
+            model_id,
+            "generateVideo",
+            "error",
+            started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        return Err(message);
     }
-    serde_json::from_str::<Value>(&body_text).map_err(|error| {
-        format!(
+    let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+        let message = format!(
             "解析 Volcengine 视频状态失败: {} ({})",
             error,
             truncate_for_error(&body_text, 160)
-        )
-    })
+        );
+        llm_dev_write_file_log(
+            "volcengine",
+            model_id,
+            "generateVideo",
+            "error",
+            started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        message
+    })?;
+    llm_dev_write_file_log(
+        "volcengine",
+        model_id,
+        "generateVideo",
+        "status",
+        started_at,
+        Some(endpoint.as_str()),
+        Some(&request_body),
+        Some(&payload),
+        Some(body_text.as_str()),
+        None,
+    );
+    Ok(payload)
 }
 
 async fn run_volcengine_video_task_background(
@@ -5662,19 +5978,20 @@ async fn run_volcengine_video_task_background(
             None,
             Some(&metadata),
         )?;
-        let remote_video_url = poll_volcengine_video_task(&state, &model_id, &upstream_task_id, |progress| {
-            let _ = update_video_task_progress(
-                &state,
-                &task_id,
-                "processing",
-                progress,
-                None,
-                None,
-                None,
-            );
-        })
-        .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
+        let remote_video_url =
+            poll_volcengine_video_task(&state, &model_id, &upstream_task_id, |progress| {
+                let _ = update_video_task_progress(
+                    &state,
+                    &task_id,
+                    "processing",
+                    progress,
+                    None,
+                    None,
+                    None,
+                );
+            })
+            .await
+            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
         update_video_task_progress(
             &state,
             &task_id,
@@ -6334,9 +6651,23 @@ async fn request_kling_image_generation(
 
     let started_at = Utc::now().timestamp_millis();
     let max_wait_ms = 5 * 60 * 1000i64;
+    let poll_endpoint = format!("{}/{}", endpoint_url, upstream_task_id);
+    let poll_request_body = json!({ "taskId": upstream_task_id.as_str() });
     loop {
         if Utc::now().timestamp_millis() - started_at > max_wait_ms {
             let message = "Kling 图片生成超时";
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(poll_endpoint.as_str()),
+                Some(&poll_request_body),
+                None,
+                None,
+                Some(message),
+            );
             llm_dev_log!(
                 "error",
                 "kling",
@@ -6350,6 +6681,18 @@ async fn request_kling_image_generation(
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
         let token = build_kling_jwt(&access_key, &secret_key).map_err(|error| {
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(poll_endpoint.as_str()),
+                Some(&poll_request_body),
+                None,
+                None,
+                Some(error.as_str()),
+            );
             llm_dev_log!(
                 "error",
                 "kling",
@@ -6362,13 +6705,25 @@ async fn request_kling_image_generation(
             error
         })?;
         let response = http_client()
-            .get(format!("{}/{}", endpoint_url, upstream_task_id))
+            .get(&poll_endpoint)
             .bearer_auth(token)
             .header(reqwest::header::ACCEPT, "application/json")
             .send()
             .await
             .map_err(|error| {
                 let message = error.to_string();
+                llm_dev_write_file_log(
+                    "kling",
+                    model_id,
+                    "generateImage",
+                    "error",
+                    _log_started_at,
+                    Some(poll_endpoint.as_str()),
+                    Some(&poll_request_body),
+                    None,
+                    None,
+                    Some(message.as_str()),
+                );
                 llm_dev_log!(
                     "error",
                     "kling",
@@ -6381,7 +6736,22 @@ async fn request_kling_image_generation(
                 message
             })?;
         let status = response.status();
-        let body_text = response.text().await.map_err(|error| error.to_string())?;
+        let body_text = response.text().await.map_err(|error| {
+            let message = error.to_string();
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateImage",
+                "error",
+                _log_started_at,
+                Some(poll_endpoint.as_str()),
+                Some(&poll_request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
+            message
+        })?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
             llm_dev_write_file_log(
@@ -6390,8 +6760,8 @@ async fn request_kling_image_generation(
                 "generateImage",
                 "error",
                 _log_started_at,
-                Some(format!("{}/{}", endpoint_url, upstream_task_id).as_str()),
-                Some(&json!({ "taskId": upstream_task_id.as_str() })),
+                Some(poll_endpoint.as_str()),
+                Some(&poll_request_body),
                 None,
                 Some(body_text.as_str()),
                 Some(message.as_str()),
@@ -6420,8 +6790,8 @@ async fn request_kling_image_generation(
                 "generateImage",
                 "error",
                 _log_started_at,
-                Some(format!("{}/{}", endpoint_url, upstream_task_id).as_str()),
-                Some(&json!({ "taskId": upstream_task_id.as_str() })),
+                Some(poll_endpoint.as_str()),
+                Some(&poll_request_body),
                 None,
                 Some(body_text.as_str()),
                 Some(message.as_str()),
@@ -6449,8 +6819,8 @@ async fn request_kling_image_generation(
                 "generateImage",
                 "error",
                 _log_started_at,
-                Some(format!("{}/{}", endpoint_url, upstream_task_id).as_str()),
-                Some(&json!({ "taskId": upstream_task_id.as_str() })),
+                Some(poll_endpoint.as_str()),
+                Some(&poll_request_body),
                 Some(&payload),
                 Some(body_text.as_str()),
                 Some(message),
@@ -6477,8 +6847,8 @@ async fn request_kling_image_generation(
                         "generateImage",
                         "error",
                         _log_started_at,
-                        Some(format!("{}/{}", endpoint_url, upstream_task_id).as_str()),
-                        Some(&json!({ "taskId": upstream_task_id.as_str() })),
+                        Some(poll_endpoint.as_str()),
+                        Some(&poll_request_body),
                         Some(&payload),
                         Some(body_text.as_str()),
                         Some(message),
@@ -6509,8 +6879,8 @@ async fn request_kling_image_generation(
                     "generateImage",
                     "success",
                     _log_started_at,
-                    Some(format!("{}/{}", endpoint_url, upstream_task_id).as_str()),
-                    Some(&json!({ "taskId": upstream_task_id.as_str() })),
+                    Some(poll_endpoint.as_str()),
+                    Some(&poll_request_body),
                     Some(&json!({
                       "taskId": upstream_task_id.as_str(),
                       "url": url.as_str()
@@ -6533,8 +6903,8 @@ async fn request_kling_image_generation(
                     "generateImage",
                     "error",
                     _log_started_at,
-                    Some(format!("{}/{}", endpoint_url, upstream_task_id).as_str()),
-                    Some(&json!({ "taskId": upstream_task_id.as_str() })),
+                    Some(poll_endpoint.as_str()),
+                    Some(&poll_request_body),
                     Some(&payload),
                     Some(body_text.as_str()),
                     Some(message),
@@ -6597,6 +6967,7 @@ async fn submit_kling_video_task(
             );
             error.message
         })?;
+    let endpoint_url = format!("{}{}", base_url, endpoint);
 
     llm_dev_log!(
         "request",
@@ -6604,13 +6975,13 @@ async fn submit_kling_video_task(
         model_id,
         "generateVideo",
         None::<i64>,
-        "endpoint" => format!("{}{}", base_url, endpoint),
+        "endpoint" => endpoint_url.as_str(),
         "prompt" => llm_dev_log_preview(&json_string(config.get("prompt"), ""), 220),
         "duration" => normalize_video_duration(config.get("duration"))
     );
 
     let response = http_client()
-        .post(format!("{}{}", base_url, endpoint))
+        .post(&endpoint_url)
         .bearer_auth(token)
         .header(reqwest::header::ACCEPT, "application/json")
         .json(&request_body)
@@ -6618,6 +6989,18 @@ async fn submit_kling_video_task(
         .await
         .map_err(|error| {
             let message = error.to_string();
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateVideo",
+                "error",
+                _log_started_at,
+                Some(endpoint_url.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
             llm_dev_log!(
                 "error",
                 "kling",
@@ -6632,6 +7015,18 @@ async fn submit_kling_video_task(
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
+        llm_dev_write_file_log(
+            "kling",
+            model_id,
+            "generateVideo",
+            "error",
+            _log_started_at,
+            Some(endpoint_url.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
         llm_dev_log!(
             "error",
             "kling",
@@ -6649,6 +7044,18 @@ async fn submit_kling_video_task(
             error,
             truncate_for_error(&body_text, 160)
         );
+        llm_dev_write_file_log(
+            "kling",
+            model_id,
+            "generateVideo",
+            "error",
+            _log_started_at,
+            Some(endpoint_url.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
         llm_dev_log!(
             "error",
             "kling",
@@ -6665,6 +7072,18 @@ async fn submit_kling_video_task(
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or("Kling API 错误");
+        llm_dev_write_file_log(
+            "kling",
+            model_id,
+            "generateVideo",
+            "error",
+            _log_started_at,
+            Some(endpoint_url.as_str()),
+            Some(&request_body),
+            Some(&payload),
+            Some(body_text.as_str()),
+            Some(message),
+        );
         llm_dev_log!(
             "error",
             "kling",
@@ -6680,6 +7099,18 @@ async fn submit_kling_video_task(
         Some(task_id) => task_id,
         None => {
             let message = "Kling 未返回 task_id";
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateVideo",
+                "error",
+                _log_started_at,
+                Some(endpoint_url.as_str()),
+                Some(&request_body),
+                Some(&payload),
+                Some(body_text.as_str()),
+                Some(message),
+            );
             llm_dev_log!(
                 "error",
                 "kling",
@@ -6700,10 +7131,23 @@ async fn submit_kling_video_task(
         "status" => status.as_u16(),
         "taskId" => upstream_task_id.as_str()
     );
+    llm_dev_write_file_log(
+        "kling",
+        model_id,
+        "generateVideo",
+        "task",
+        _log_started_at,
+        Some(endpoint_url.as_str()),
+        Some(&request_body),
+        Some(&json!({ "taskId": upstream_task_id.as_str() })),
+        Some(body_text.as_str()),
+        None,
+    );
     Ok((upstream_task_id, endpoint, request_body))
 }
 
 async fn poll_kling_video_task<F>(
+    model_id: &str,
     endpoint: &str,
     upstream_task_id: &str,
     mut on_progress: F,
@@ -6715,9 +7159,25 @@ where
     let base_url = kling_base_url();
     let started_at = Utc::now().timestamp_millis();
     let max_wait_ms = 12 * 60 * 1000i64;
+    let endpoint_url = format!("{}{}", base_url, endpoint);
+    let task_endpoint = format!("{}/{}", endpoint_url, upstream_task_id);
+    let request_body = json!({ "taskId": upstream_task_id });
     loop {
         if Utc::now().timestamp_millis() - started_at > max_wait_ms {
-            return Err("Kling 视频生成超时".to_string());
+            let message = "Kling 视频生成超时".to_string();
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(task_endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
+            return Err(message);
         }
         tokio::time::sleep(Duration::from_secs(10)).await;
         let elapsed = Utc::now().timestamp_millis() - started_at;
@@ -6725,23 +7185,64 @@ where
         on_progress(progress.clamp(30, 90));
         let token = build_kling_jwt(&access_key, &secret_key)?;
         let response = http_client()
-            .get(format!("{}{}/{}", base_url, endpoint, upstream_task_id))
+            .get(&task_endpoint)
             .bearer_auth(token)
             .header(reqwest::header::ACCEPT, "application/json")
             .send()
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                let message = error.to_string();
+                llm_dev_write_file_log(
+                    "kling",
+                    model_id,
+                    "generateVideo",
+                    "error",
+                    started_at,
+                    Some(task_endpoint.as_str()),
+                    Some(&request_body),
+                    None,
+                    None,
+                    Some(message.as_str()),
+                );
+                message
+            })?;
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
-            return Err(build_sync_error_message(status, &body_text));
+            let message = build_sync_error_message(status, &body_text);
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(task_endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            return Err(message);
         }
         let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-            format!(
+            let message = format!(
                 "解析 Kling 视频状态失败: {} ({})",
                 error,
                 truncate_for_error(&body_text, 160)
-            )
+            );
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(task_endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            message
         })?;
         let code = payload.get("code").and_then(Value::as_i64).unwrap_or(0);
         if code != 0 {
@@ -6749,12 +7250,40 @@ where
                 .get("message")
                 .and_then(Value::as_str)
                 .unwrap_or("Kling API 错误");
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(task_endpoint.as_str()),
+                Some(&request_body),
+                Some(&payload),
+                Some(body_text.as_str()),
+                Some(message),
+            );
             return Err(message.to_string());
         }
         match parse_kling_task_status(&payload).as_str() {
             "succeed" => {
-                return parse_kling_video_url(&payload)
-                    .ok_or_else(|| "Kling 视频成功但未返回 URL".to_string());
+                let url = parse_kling_video_url(&payload)
+                    .ok_or_else(|| "Kling 视频成功但未返回 URL".to_string())?;
+                llm_dev_write_file_log(
+                    "kling",
+                    model_id,
+                    "generateVideo",
+                    "success",
+                    started_at,
+                    Some(task_endpoint.as_str()),
+                    Some(&request_body),
+                    Some(&json!({
+                      "taskId": upstream_task_id,
+                      "url": url.as_str()
+                    })),
+                    Some(body_text.as_str()),
+                    None,
+                );
+                return Ok(url);
             }
             "failed" => {
                 let message = payload
@@ -6763,6 +7292,18 @@ where
                     .and_then(Value::as_str)
                     .or_else(|| payload.get("message").and_then(Value::as_str))
                     .unwrap_or("Kling 视频生成失败");
+                llm_dev_write_file_log(
+                    "kling",
+                    model_id,
+                    "generateVideo",
+                    "error",
+                    started_at,
+                    Some(task_endpoint.as_str()),
+                    Some(&request_body),
+                    Some(&payload),
+                    Some(body_text.as_str()),
+                    Some(message),
+                );
                 return Err(message.to_string());
             }
             _ => {}
@@ -6803,19 +7344,20 @@ async fn run_kling_video_task_background(
             None,
             Some(&metadata),
         )?;
-        let remote_video_url = poll_kling_video_task(&endpoint, &upstream_task_id, |progress| {
-            let _ = update_video_task_progress(
-                &state,
-                &task_id,
-                "processing",
-                progress,
-                None,
-                None,
-                None,
-            );
-        })
-        .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
+        let remote_video_url =
+            poll_kling_video_task(&model_id, &endpoint, &upstream_task_id, |progress| {
+                let _ = update_video_task_progress(
+                    &state,
+                    &task_id,
+                    "processing",
+                    progress,
+                    None,
+                    None,
+                    None,
+                );
+            })
+            .await
+            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
         update_video_task_progress(
             &state,
             &task_id,
@@ -6873,28 +7415,92 @@ async fn run_kling_video_task_background(
     }
 }
 
-async fn query_kling_video_task(endpoint: &str, upstream_task_id: &str) -> Result<Value, String> {
+async fn query_kling_video_task(
+    model_id: Option<&str>,
+    endpoint: &str,
+    upstream_task_id: &str,
+) -> Result<Value, String> {
+    let model_id = model_id.unwrap_or("").trim();
+    let started_at = Utc::now().timestamp_millis();
     let (access_key, secret_key) = kling_credentials()?;
     let base_url = kling_base_url();
     let token = build_kling_jwt(&access_key, &secret_key)?;
+    let task_endpoint = format!("{}{}/{}", base_url, endpoint, upstream_task_id);
+    let request_body = json!({ "taskId": upstream_task_id });
     let response = http_client()
-        .get(format!("{}{}/{}", base_url, endpoint, upstream_task_id))
+        .get(&task_endpoint)
         .bearer_auth(token)
         .header(reqwest::header::ACCEPT, "application/json")
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            let message = error.to_string();
+            llm_dev_write_file_log(
+                "kling",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(task_endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
+            message
+        })?;
     let status = response.status();
-    let body_text = response.text().await.map_err(|error| error.to_string())?;
+    let body_text = response.text().await.map_err(|error| {
+        let message = error.to_string();
+        llm_dev_write_file_log(
+            "kling",
+            model_id,
+            "generateVideo",
+            "error",
+            started_at,
+            Some(task_endpoint.as_str()),
+            Some(&request_body),
+            None,
+            None,
+            Some(message.as_str()),
+        );
+        message
+    })?;
     if !status.is_success() {
-        return Err(build_sync_error_message(status, &body_text));
+        let message = build_sync_error_message(status, &body_text);
+        llm_dev_write_file_log(
+            "kling",
+            model_id,
+            "generateVideo",
+            "error",
+            started_at,
+            Some(task_endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        return Err(message);
     }
     let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-        format!(
+        let message = format!(
             "解析 Kling 视频状态失败: {} ({})",
             error,
             truncate_for_error(&body_text, 160)
-        )
+        );
+        llm_dev_write_file_log(
+            "kling",
+            model_id,
+            "generateVideo",
+            "error",
+            started_at,
+            Some(task_endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        message
     })?;
     let code = payload.get("code").and_then(Value::as_i64).unwrap_or(0);
     if code != 0 {
@@ -6902,8 +7508,32 @@ async fn query_kling_video_task(endpoint: &str, upstream_task_id: &str) -> Resul
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or("Kling API 错误");
+        llm_dev_write_file_log(
+            "kling",
+            model_id,
+            "generateVideo",
+            "error",
+            started_at,
+            Some(task_endpoint.as_str()),
+            Some(&request_body),
+            Some(&payload),
+            Some(body_text.as_str()),
+            Some(message),
+        );
         return Err(message.to_string());
     }
+    llm_dev_write_file_log(
+        "kling",
+        model_id,
+        "generateVideo",
+        "status",
+        started_at,
+        Some(task_endpoint.as_str()),
+        Some(&request_body),
+        Some(&payload),
+        Some(body_text.as_str()),
+        None,
+    );
     Ok(payload)
 }
 
@@ -7163,6 +7793,18 @@ async fn submit_gemini_video_task(
         .await
         .map_err(|error| {
             let message = error.to_string();
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateVideo",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
             llm_dev_log!(
                 "error",
                 "gemini",
@@ -7177,6 +7819,18 @@ async fn submit_gemini_video_task(
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
+        llm_dev_write_file_log(
+            "gemini",
+            model_id,
+            "generateVideo",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
         llm_dev_log!(
             "error",
             "gemini",
@@ -7194,6 +7848,18 @@ async fn submit_gemini_video_task(
             error,
             truncate_for_error(&body_text, 160)
         );
+        llm_dev_write_file_log(
+            "gemini",
+            model_id,
+            "generateVideo",
+            "error",
+            _log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
         llm_dev_log!(
             "error",
             "gemini",
@@ -7208,6 +7874,18 @@ async fn submit_gemini_video_task(
         Some(name) => name,
         None => {
             let message = "Gemini 未返回 operation name";
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateVideo",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&payload),
+                Some(body_text.as_str()),
+                Some(message),
+            );
             llm_dev_log!(
                 "error",
                 "gemini",
@@ -7228,11 +7906,24 @@ async fn submit_gemini_video_task(
         "status" => status.as_u16(),
         "operationName" => operation_name.as_str()
     );
+    llm_dev_write_file_log(
+        "gemini",
+        model_id,
+        "generateVideo",
+        "task",
+        _log_started_at,
+        Some(endpoint.as_str()),
+        Some(&request_body),
+        Some(&json!({ "operationName": operation_name.as_str() })),
+        Some(body_text.as_str()),
+        None,
+    );
     Ok((operation_name, request_body))
 }
 
 async fn poll_gemini_video_task<F>(
     state: &BackendState,
+    model_id: &str,
     operation_name: &str,
     mut on_progress: F,
 ) -> Result<Value, String>
@@ -7247,37 +7938,117 @@ where
     let base_url = gemini_api_base_url();
     let started_at = Utc::now().timestamp_millis();
     let max_wait_ms = 3 * 60 * 1000i64;
+    let endpoint = gemini_operation_endpoint(&base_url, operation_name);
+    let request_body = json!({ "operationName": operation_name });
     loop {
         if Utc::now().timestamp_millis() - started_at > max_wait_ms {
-            return Err("Gemini 视频生成超时".to_string());
+            let message = "Gemini 视频生成超时".to_string();
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
+            return Err(message);
         }
         tokio::time::sleep(Duration::from_secs(10)).await;
         let elapsed = Utc::now().timestamp_millis() - started_at;
         let progress = 30 + ((elapsed as f64 / max_wait_ms as f64) * 60.0).round() as i64;
         on_progress(progress.clamp(30, 90));
         let response = http_client()
-            .get(gemini_operation_endpoint(&base_url, operation_name))
+            .get(&endpoint)
             .query(&[("key", api_key.as_str())])
             .header(reqwest::header::ACCEPT, "application/json")
             .send()
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                let message = error.to_string();
+                llm_dev_write_file_log(
+                    "gemini",
+                    model_id,
+                    "generateVideo",
+                    "error",
+                    started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    None,
+                    None,
+                    Some(message.as_str()),
+                );
+                message
+            })?;
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
-            return Err(build_sync_error_message(status, &body_text));
+            let message = build_sync_error_message(status, &body_text);
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            return Err(message);
         }
         let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-            format!(
+            let message = format!(
                 "解析 Gemini 视频状态失败: {} ({})",
                 error,
                 truncate_for_error(&body_text, 160)
-            )
+            );
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            message
         })?;
         if let Some(error) = parse_gemini_operation_error(&payload) {
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&payload),
+                Some(body_text.as_str()),
+                Some(error.as_str()),
+            );
             return Err(error);
         }
         if parse_gemini_operation_done(&payload) {
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateVideo",
+                "success",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&payload),
+                Some(body_text.as_str()),
+                None,
+            );
             return Ok(payload);
         }
     }
@@ -7285,33 +8056,107 @@ where
 
 async fn query_gemini_video_task(
     state: &BackendState,
+    model_id: Option<&str>,
     operation_name: &str,
 ) -> Result<Value, String> {
+    let model_id = model_id.unwrap_or("").trim();
+    let started_at = Utc::now().timestamp_millis();
     let conn = db_connection(state).map_err(|error| error.message)?;
     let api_key = provider_sync_api_keys("gemini", &load_provider_creds(&conn))
         .into_iter()
         .next()
         .ok_or_else(|| "未配置 Gemini API Key，请在设置中配置".to_string())?;
     let base_url = gemini_api_base_url();
+    let endpoint = gemini_operation_endpoint(&base_url, operation_name);
+    let request_body = json!({ "operationName": operation_name });
     let response = http_client()
-        .get(gemini_operation_endpoint(&base_url, operation_name))
+        .get(&endpoint)
         .query(&[("key", api_key.as_str())])
         .header(reqwest::header::ACCEPT, "application/json")
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            let message = error.to_string();
+            llm_dev_write_file_log(
+                "gemini",
+                model_id,
+                "generateVideo",
+                "error",
+                started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
+            message
+        })?;
     let status = response.status();
-    let body_text = response.text().await.map_err(|error| error.to_string())?;
+    let body_text = response.text().await.map_err(|error| {
+        let message = error.to_string();
+        llm_dev_write_file_log(
+            "gemini",
+            model_id,
+            "generateVideo",
+            "error",
+            started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            None,
+            Some(message.as_str()),
+        );
+        message
+    })?;
     if !status.is_success() {
-        return Err(build_sync_error_message(status, &body_text));
+        let message = build_sync_error_message(status, &body_text);
+        llm_dev_write_file_log(
+            "gemini",
+            model_id,
+            "generateVideo",
+            "error",
+            started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        return Err(message);
     }
-    serde_json::from_str::<Value>(&body_text).map_err(|error| {
-        format!(
+    let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+        let message = format!(
             "解析 Gemini 视频状态失败: {} ({})",
             error,
             truncate_for_error(&body_text, 160)
-        )
-    })
+        );
+        llm_dev_write_file_log(
+            "gemini",
+            model_id,
+            "generateVideo",
+            "error",
+            started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        message
+    })?;
+    llm_dev_write_file_log(
+        "gemini",
+        model_id,
+        "generateVideo",
+        "status",
+        started_at,
+        Some(endpoint.as_str()),
+        Some(&request_body),
+        Some(&payload),
+        Some(body_text.as_str()),
+        None,
+    );
+    Ok(payload)
 }
 
 async fn persist_gemini_video_source(
@@ -7381,7 +8226,7 @@ async fn run_gemini_video_task_background(
             None,
             Some(&metadata),
         )?;
-        let operation = poll_gemini_video_task(&state, &operation_name, |progress| {
+        let operation = poll_gemini_video_task(&state, &model_id, &operation_name, |progress| {
             let _ = update_video_task_progress(
                 &state,
                 &task_id,
