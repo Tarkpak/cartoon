@@ -55,10 +55,10 @@ function toSelectString(value: unknown): string {
 </script>
 
 <template>
-  <div class="flex w-72 flex-shrink-0 flex-col border-r bg-muted/30">
+  <div class="flex w-60 flex-shrink-0 flex-col border-r bg-muted/30">
     <div class="border-b px-4 py-4">
       <h2 class="text-base font-semibold">
-        提示词配置
+        提示词
       </h2>
       <p class="mt-1 text-sm text-muted-foreground">
         {{ workflowLabel }}

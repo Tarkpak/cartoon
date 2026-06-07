@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Check, Loader2, Save, X } from 'lucide-vue-next'
 import type { TosConfigPublic } from '#shared/types/provider'
+import SettingsSectionHeader from '@/components/settings/SettingsSectionHeader.vue'
 
 interface TosConfigResponse {
   success: boolean
@@ -102,16 +103,12 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full overflow-y-auto p-6">
+  <div class="@container h-full overflow-y-auto p-6">
     <div class="mx-auto max-w-3xl space-y-4">
-      <div class="space-y-1">
-        <h2 class="text-lg font-semibold">
-          TOS 云存储
-        </h2>
-        <p class="text-sm text-muted-foreground">
-          配置火山引擎 TOS 对象存储。未启用时，生成的媒体文件将保存在本地。
-        </p>
-      </div>
+      <SettingsSectionHeader
+        title="对象存储"
+        description="配置火山引擎 TOS 对象存储。未启用时，生成的媒体文件将保存在本地。此处为存储凭证配置，区别于左侧导航的「云端文件」（浏览已上传文件）。"
+      />
 
       <div
         v-if="loading"
@@ -125,7 +122,7 @@ onMounted(() => {
         <div class="flex items-center justify-between rounded-lg border bg-background p-4">
           <div>
             <h3 class="text-sm font-medium">
-              启用 TOS 云存储
+              启用 TOS 对象存储
             </h3>
             <p class="mt-1 text-xs text-muted-foreground">
               需填写完整的 Access Key、Secret Key、Region、Endpoint、Bucket。
@@ -138,7 +135,7 @@ onMounted(() => {
           />
         </div>
 
-        <div class="grid grid-cols-1 gap-3 rounded-lg border bg-background p-4 md:grid-cols-2">
+        <div class="grid grid-cols-1 gap-3 rounded-lg border bg-background p-4 @lg:grid-cols-2">
           <div class="space-y-1.5">
             <label class="text-xs text-muted-foreground">Access Key ID</label>
             <Input

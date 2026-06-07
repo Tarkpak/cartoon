@@ -22,13 +22,13 @@ function getIconClass(color: string) {
 </script>
 
 <template>
-  <div class="flex w-64 flex-shrink-0 flex-col border-r bg-muted/30">
+  <div class="flex w-60 flex-shrink-0 flex-col border-r bg-muted/30">
     <div class="border-b px-4 py-4">
       <h2 class="text-base font-semibold">
-        模型配置
+        模型分配
       </h2>
       <p class="mt-1 text-sm text-muted-foreground">
-        左侧切换模型类型，右侧查看对应流程模型详情。
+        左侧切换模型类型，右侧为各流程环节分配模型。
       </p>
     </div>
 

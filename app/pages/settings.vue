@@ -1,187 +1,128 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import SettingsGeneralSection from '@/components/settings/SettingsGeneralSection.vue'
 import SettingsModelTestSection from '@/components/settings/SettingsModelTestSection.vue'
 import SettingsModelProvidersSection from '@/components/settings/SettingsModelProvidersSection.vue'
 import SettingsTosStorageSection from '@/components/settings/SettingsTosStorageSection.vue'
-import SettingsDesktopSection from '@/components/settings/SettingsDesktopSection.vue'
 import SettingsPromptSection from '@/components/settings/SettingsPromptSection.vue'
 import SettingsStyleSection from '@/components/settings/SettingsStyleSection.vue'
 import SettingsWorkflowModelsSection from '@/components/settings/SettingsWorkflowModelsSection.vue'
 
-type MenuSection = 'models' | 'prompts' | 'styles' | 'desktop'
-type ModelSubMenu = 'providers' | 'workflow' | 'storage' | 'test'
-interface SettingsMenuState {
-  section: MenuSection
-  sub: ModelSubMenu
-}
+type MenuSection = 'general' | 'styles' | 'providers' | 'workflow' | 'test' | 'storage' | 'prompts'
 
 definePageMeta({ layout: 'default' })
 
 const route = useRoute()
 const SETTINGS_MENU_STORAGE_KEY = 'playlet:settings-menu-state'
+const SETTINGS_SECTIONS: MenuSection[] = ['general', 'styles', 'providers', 'workflow', 'test', 'storage', 'prompts']
 
-const activeSection = ref<MenuSection>('models')
-const activeModelSubMenu = ref<ModelSubMenu>('providers')
+// 旧版菜单状态（section=models + sub=...）到扁平 section 的映射
+const LEGACY_SUB_TO_SECTION: Record<string, MenuSection> = {
+  providers: 'providers',
+  workflow: 'workflow',
+  test: 'test',
+  storage: 'storage'
+}
+
+const activeSection = ref<MenuSection>('providers')
 const restoringMenuState = ref(true)
-
-const modelSubMenuTabs: Array<{
-  key: ModelSubMenu
-  label: string
-}> = [
-  { key: 'providers', label: '模型供应商' },
-  { key: 'workflow', label: '流程模型' },
-  { key: 'storage', label: '云存储' },
-  { key: 'test', label: '模型测试' }
-]
-
-function normalizeMenuSection(value: unknown): MenuSection {
-  if (value === 'prompts' || value === 'styles' || value === 'models' || value === 'desktop') return value
-  return 'models'
-}
-
-function normalizeModelSubMenu(value: unknown): ModelSubMenu {
-  if (value === 'providers' || value === 'workflow' || value === 'storage' || value === 'test') return value
-  return 'providers'
-}
 
 function getSingleQueryValue(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) return value[0]
   return value
 }
 
-function resolveSubMenuBySection(section: MenuSection, value: unknown): ModelSubMenu {
-  if (section !== 'models') return 'providers'
-  return normalizeModelSubMenu(value)
-}
-
-function buildSettingsMenuQuery(state: SettingsMenuState) {
-  if (state.section === 'models') {
-    return {
-      section: state.section,
-      sub: state.sub
+function normalizeMenuSection(rawSection: unknown, rawSub?: unknown): MenuSection {
+  if (typeof rawSection === 'string') {
+    if (SETTINGS_SECTIONS.includes(rawSection as MenuSection)) {
+      return rawSection as MenuSection
+    }
+    // 兼容旧版：section=models 时由 sub 决定具体分区
+    if (rawSection === 'models') {
+      const sub = typeof rawSub === 'string' ? rawSub : ''
+      return LEGACY_SUB_TO_SECTION[sub] || 'providers'
     }
   }
-
-  return {
-    section: state.section
-  }
+  return 'general'
 }
 
-function getModelSubMenuRoute(sub: ModelSubMenu) {
-  return {
-    path: '/settings',
-    query: {
-      section: 'models',
-      sub
-    }
-  }
-}
-
-function readStoredMenuState(): SettingsMenuState | null {
+function readStoredSection(): MenuSection | null {
   if (typeof window === 'undefined') return null
 
   try {
     const raw = window.localStorage.getItem(SETTINGS_MENU_STORAGE_KEY)
     if (!raw) return null
 
-    const parsed = JSON.parse(raw) as Partial<SettingsMenuState>
-    const section = normalizeMenuSection(parsed.section)
-    const sub = resolveSubMenuBySection(section, parsed.sub)
-    return {
-      section,
-      sub
-    }
+    const parsed = JSON.parse(raw) as { section?: unknown, sub?: unknown }
+    return normalizeMenuSection(parsed.section, parsed.sub)
   } catch {
     return null
   }
 }
 
-function saveMenuState(state: SettingsMenuState) {
+function saveSection(section: MenuSection) {
   if (typeof window === 'undefined') return
 
   try {
-    window.localStorage.setItem(SETTINGS_MENU_STORAGE_KEY, JSON.stringify(state))
+    window.localStorage.setItem(SETTINGS_MENU_STORAGE_KEY, JSON.stringify({ section }))
   } catch {
     // ignore localStorage write failures
   }
 }
 
-function getMenuStateFromRoute(): SettingsMenuState | null {
+function getSectionFromRoute(): MenuSection | null {
   const sectionQuery = getSingleQueryValue(route.query.section as string | string[] | undefined)
   if (!sectionQuery) return null
-
-  const section = normalizeMenuSection(sectionQuery)
-  const sub = resolveSubMenuBySection(
-    section,
+  return normalizeMenuSection(
+    sectionQuery,
     getSingleQueryValue(route.query.sub as string | string[] | undefined)
   )
-
-  return {
-    section,
-    sub
-  }
-}
-
-function applyMenuState(state: SettingsMenuState) {
-  activeSection.value = state.section
-  activeModelSubMenu.value = state.sub
 }
 
 async function restoreMenuStateFromBrowser() {
-  const routeState = getMenuStateFromRoute()
-  if (routeState) {
-    applyMenuState(routeState)
-    saveMenuState(routeState)
+  const routeSection = getSectionFromRoute()
+  if (routeSection) {
+    activeSection.value = routeSection
+    saveSection(routeSection)
+
+    // 旧链接（section=models&sub=... 或带多余 sub）规整为扁平 section
+    const rawSection = getSingleQueryValue(route.query.section as string | string[] | undefined)
+    if (rawSection !== routeSection || route.query.sub !== undefined) {
+      await navigateTo({ path: '/settings', query: { section: routeSection } }, { replace: true })
+    }
     return
   }
 
-  const storedState = readStoredMenuState()
-  if (storedState) {
-    applyMenuState(storedState)
-    await navigateTo({
-      path: '/settings',
-      query: buildSettingsMenuQuery(storedState)
-    }, { replace: true })
+  const storedSection = readStoredSection()
+  if (storedSection) {
+    activeSection.value = storedSection
+    await navigateTo({ path: '/settings', query: { section: storedSection } }, { replace: true })
     return
   }
 
-  const defaultState: SettingsMenuState = {
-    section: 'models',
-    sub: 'providers'
-  }
-  applyMenuState(defaultState)
-  saveMenuState(defaultState)
+  activeSection.value = 'providers'
+  saveSection('providers')
 }
 
 const currentSectionComponent = computed(() => {
-  if (activeSection.value === 'models') {
-    if (activeModelSubMenu.value === 'providers') return SettingsModelProvidersSection
-    if (activeModelSubMenu.value === 'storage') return SettingsTosStorageSection
-    if (activeModelSubMenu.value === 'test') return SettingsModelTestSection
-    return SettingsWorkflowModelsSection
+  switch (activeSection.value) {
+    case 'general': return SettingsGeneralSection
+    case 'styles': return SettingsStyleSection
+    case 'providers': return SettingsModelProvidersSection
+    case 'workflow': return SettingsWorkflowModelsSection
+    case 'test': return SettingsModelTestSection
+    case 'storage': return SettingsTosStorageSection
+    case 'prompts': return SettingsPromptSection
+    default: return SettingsModelProvidersSection
   }
-
-  if (activeSection.value === 'styles') {
-    return SettingsStyleSection
-  }
-
-  if (activeSection.value === 'desktop') {
-    return SettingsDesktopSection
-  }
-
-  return SettingsPromptSection
 })
 
 watch(() => [route.query.section, route.query.sub], () => {
   if (restoringMenuState.value) return
 
-  const routeState = getMenuStateFromRoute()
-  const nextState = routeState || {
-    section: 'models' as const,
-    sub: 'providers' as const
-  }
-  applyMenuState(nextState)
-  saveMenuState(nextState)
+  const section = getSectionFromRoute() || 'providers'
+  activeSection.value = section
+  saveSection(section)
 })
 
 onMounted(() => {
@@ -195,38 +136,6 @@ onMounted(() => {
 <template>
   <div class="h-full flex overflow-hidden">
     <div class="flex-1 flex flex-col overflow-hidden">
-      <div
-        v-if="activeSection === 'models'"
-        class="flex shrink-0 items-center border-b px-4 py-2"
-      >
-        <nav
-          aria-label="模型配置导航"
-          class="flex items-center gap-1 rounded-lg bg-muted/40 p-1"
-          role="tablist"
-        >
-          <NuxtLink
-            v-for="tab in modelSubMenuTabs"
-            :key="tab.key"
-            v-slot="{ href, navigate }"
-            custom
-            :to="getModelSubMenuRoute(tab.key)"
-          >
-            <a
-              :aria-current="activeModelSubMenu === tab.key ? 'page' : undefined"
-              :aria-selected="activeModelSubMenu === tab.key"
-              class="inline-flex h-8 items-center justify-center rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              :class="activeModelSubMenu === tab.key
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'"
-              :href="href"
-              role="tab"
-              @click="navigate"
-            >
-              {{ tab.label }}
-            </a>
-          </NuxtLink>
-        </nav>
-      </div>
       <KeepAlive>
         <component
           :is="currentSectionComponent"

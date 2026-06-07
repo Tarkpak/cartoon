@@ -98,6 +98,7 @@ declare global {
   const useAssetWorkflowMeta: typeof import('./app/composables/useAssetWorkflowMeta')['useAssetWorkflowMeta']
   const useAttrs: typeof import('vue')['useAttrs']
   const useCharacter: typeof import('./app/composables/useCharacter')['useCharacter']
+  const useCompletionNotificationSettings: typeof import('./app/composables/useCompletionNotificationSettings')['useCompletionNotificationSettings']
   const useCssModule: typeof import('vue')['useCssModule']
   const useCssVars: typeof import('vue')['useCssVars']
   const useDesktopFfmpeg: typeof import('./app/composables/useDesktopFfmpeg')['useDesktopFfmpeg']
@@ -272,6 +273,7 @@ declare module 'vue' {
     readonly useAssetWorkflowMeta: UnwrapRef<typeof import('./app/composables/useAssetWorkflowMeta')['useAssetWorkflowMeta']>
     readonly useAttrs: UnwrapRef<typeof import('vue')['useAttrs']>
     readonly useCharacter: UnwrapRef<typeof import('./app/composables/useCharacter')['useCharacter']>
+    readonly useCompletionNotificationSettings: UnwrapRef<typeof import('./app/composables/useCompletionNotificationSettings')['useCompletionNotificationSettings']>
     readonly useCssModule: UnwrapRef<typeof import('vue')['useCssModule']>
     readonly useCssVars: UnwrapRef<typeof import('vue')['useCssVars']>
     readonly useDesktopFfmpeg: UnwrapRef<typeof import('./app/composables/useDesktopFfmpeg')['useDesktopFfmpeg']>

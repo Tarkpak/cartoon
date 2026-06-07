@@ -24,7 +24,6 @@ const {
   seedanceVideoOptions,
   videoAudioDefaults,
   imageGenerationOptions,
-  completionNotificationOptions,
   getCapabilityLabel,
   getProviderLabel,
   selectWorkflowCategory,
@@ -37,7 +36,6 @@ const {
   updateWorkflowPanoramaCustomSize,
   updateWorkflowSeedanceVideoQuality,
   updateVideoAudioDefaults,
-  updateCompletionNotificationOptions,
   updateGlobalWorkflowDefault,
   toSelectString
 } = useSettingsWorkflowModels()
@@ -70,7 +68,7 @@ const activeCategoryIconClass = computed(() => {
         @select-category="selectWorkflowCategory"
       />
 
-      <div class="flex flex-1 flex-col overflow-hidden">
+      <div class="@container flex flex-1 flex-col overflow-hidden">
         <div class="border-b px-6 py-4">
           <div class="flex items-center gap-3">
             <div
@@ -116,7 +114,6 @@ const activeCategoryIconClass = computed(() => {
               :seedance-video-options="seedanceVideoOptions"
               :video-audio-defaults="videoAudioDefaults"
               :image-generation-options="imageGenerationOptions"
-              :completion-notification-options="completionNotificationOptions"
               :update-global-workflow-default="updateGlobalWorkflowDefault"
               :update-video-generation-model-options="updateVideoGenerationModelOptions"
               :update-workflow-gemini-image-size="updateWorkflowGeminiImageSize"
@@ -126,7 +123,6 @@ const activeCategoryIconClass = computed(() => {
               :update-workflow-panorama-custom-size="updateWorkflowPanoramaCustomSize"
               :update-workflow-seedance-video-quality="updateWorkflowSeedanceVideoQuality"
               :update-video-audio-defaults="updateVideoAudioDefaults"
-              :update-completion-notification-options="updateCompletionNotificationOptions"
             />
 
             <SettingsWorkflowCategorySection

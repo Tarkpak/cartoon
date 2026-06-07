@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, MonitorCog } from 'lucide-vue-next'
+import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, Boxes, FlaskConical, CloudCog } from 'lucide-vue-next'
 
 const route = useRoute()
 const { isDark, toggleTheme, initTheme } = useTheme()
@@ -16,19 +16,22 @@ const navigation = [
   { name: '设置', path: '/settings', icon: Settings }
 ]
 
-type SettingsSection = 'models' | 'prompts' | 'styles' | 'desktop'
-type SettingsModelSub = 'providers' | 'workflow' | 'test'
+type SettingsSection = 'general' | 'styles' | 'providers' | 'workflow' | 'test' | 'storage' | 'prompts'
+
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'styles', 'providers', 'workflow', 'test', 'storage', 'prompts']
 
 const settingsSubNavigation: Array<{
   name: string
   section: SettingsSection
-  sub?: SettingsModelSub
   icon: unknown
 }> = [
+  { name: '通用', section: 'general', icon: SlidersHorizontal },
   { name: '画风预设', section: 'styles', icon: Palette },
-  { name: '模型配置', section: 'models', sub: 'providers', icon: Workflow },
-  { name: '提示词配置', section: 'prompts', icon: FileText },
-  { name: '桌面应用', section: 'desktop', icon: MonitorCog }
+  { name: '模型供应商', section: 'providers', icon: Boxes },
+  { name: '模型分配', section: 'workflow', icon: Workflow },
+  { name: '模型测试', section: 'test', icon: FlaskConical },
+  { name: '对象存储', section: 'storage', icon: CloudCog },
+  { name: '提示词', section: 'prompts', icon: FileText }
 ]
 
 function getSingleQueryValue(value: string | string[] | undefined): string | undefined {
@@ -38,37 +41,18 @@ function getSingleQueryValue(value: string | string[] | undefined): string | und
 
 const currentSettingsSection = computed<SettingsSection>(() => {
   const raw = getSingleQueryValue(route.query.section as string | string[] | undefined)
-  if (raw === 'prompts' || raw === 'styles' || raw === 'models' || raw === 'desktop') {
-    return raw
+  if (SETTINGS_SECTIONS.includes(raw as SettingsSection)) {
+    return raw as SettingsSection
   }
-  return 'models'
-})
-
-const currentSettingsModelSub = computed<SettingsModelSub>(() => {
-  const raw = getSingleQueryValue(route.query.sub as string | string[] | undefined)
-  if (raw === 'providers' || raw === 'workflow' || raw === 'test') return raw
   return 'providers'
 })
 
-function isSettingsSubActive(item: { section: SettingsSection, sub?: SettingsModelSub }): boolean {
+function isSettingsSubActive(item: { section: SettingsSection }): boolean {
   if (route.path !== '/settings') return false
-  if (currentSettingsSection.value !== item.section) return false
-  if (item.section !== 'models') return true
-
-  const modelSectionItems = settingsSubNavigation.filter(entry => entry.section === 'models')
-  if (modelSectionItems.length <= 1) return true
-
-  return currentSettingsModelSub.value === (item.sub || 'providers')
+  return currentSettingsSection.value === item.section
 }
 
-function getSettingsSubRoute(item: { section: SettingsSection, sub?: SettingsModelSub }) {
-  if (item.section === 'models') {
-    return {
-      path: '/settings',
-      query: { section: item.section, sub: item.sub || 'providers' }
-    }
-  }
-
+function getSettingsSubRoute(item: { section: SettingsSection }) {
   return {
     path: '/settings',
     query: { section: item.section }
@@ -202,7 +186,7 @@ watch(isCollapsed, (value) => {
           >
             <NuxtLink
               v-for="sub in settingsSubNavigation"
-              :key="`${sub.section}-${sub.sub || 'root'}`"
+              :key="sub.section"
               :to="getSettingsSubRoute(sub)"
               class="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
               :class="isSettingsSubActive(sub)
@@ -223,7 +207,7 @@ watch(isCollapsed, (value) => {
           >
             <NuxtLink
               v-for="sub in settingsSubNavigation"
-              :key="`collapsed-${sub.section}-${sub.sub || 'root'}`"
+              :key="`collapsed-${sub.section}`"
               :to="getSettingsSubRoute(sub)"
               class="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
               :class="isSettingsSubActive(sub)

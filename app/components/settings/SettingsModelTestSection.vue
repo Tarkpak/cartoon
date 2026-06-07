@@ -101,7 +101,7 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
       class="flex flex-1 items-center justify-center"
     >
       <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
-      <span class="ml-2 text-muted-foreground">加载模型配置...</span>
+      <span class="ml-2 text-muted-foreground">加载模型列表...</span>
     </div>
 
     <template v-else-if="models">

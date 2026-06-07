@@ -41,3 +41,5 @@ public/generated-images/
 
 
 ecosystem.config.cjs
+
+*.png

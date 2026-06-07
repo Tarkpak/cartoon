@@ -65,11 +65,11 @@ function updateStyleFormField<K extends keyof StyleFormState>(
 <template>
   <div class="h-full flex flex-col">
     <!-- Header -->
-    <div class="flex-shrink-0 border-b bg-card/40 px-8 py-5">
+    <div class="flex-shrink-0 border-b px-6 py-4">
       <div class="flex items-center justify-between">
         <div>
-          <h2 class="text-xl font-semibold tracking-tight">
-            画风预设配置
+          <h2 class="text-lg font-semibold">
+            画风预设
           </h2>
           <p class="mt-1 text-sm text-muted-foreground">
             管理项目创建时可选的画风范围与默认画风

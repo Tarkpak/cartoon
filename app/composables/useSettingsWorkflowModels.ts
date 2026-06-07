@@ -251,9 +251,11 @@ export function useSettingsWorkflowModels() {
   }
 
   function getCompletionNotificationOptions(): WorkflowCompletionNotificationOptions {
+    // 优先取共享实时状态：生成完成提醒已迁至「通用」设置页，
+    // 这里读最新值，避免保存图片/视频选项时用过期快照覆盖刚改的提醒配置。
     return normalizeCompletionNotificationOptions(
-      workflowData.value?.modelOptions?.completion_notification
-      || completionNotificationOptionsState.value
+      completionNotificationOptionsState.value
+      || workflowData.value?.modelOptions?.completion_notification
     )
   }
 

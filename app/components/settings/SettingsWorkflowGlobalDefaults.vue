@@ -6,22 +6,12 @@ import type {
 } from '#shared/types/provider'
 import type {
   WorkflowImageGenerationModelOptions,
-  WorkflowCompletionNotificationOptions,
   KlingV3OmniVideoOptions,
   SeedanceVideoOptions,
   WorkflowVideoAudioDefaults,
   WorkflowPanoramaSourceMode
 } from '#shared/types/workflow-models'
 import { getSettingsProviderLabel, toSelectString } from '@/lib/settings-models'
-import { useDesktopFfmpeg } from '@/composables/useDesktopFfmpeg'
-import { Download, Info, Loader2, RefreshCw } from 'lucide-vue-next'
-import {
-  getBrowserNotificationStatus,
-  refreshBrowserNotificationStatus,
-  requestBrowserNotificationPermission,
-  sendSystemNotificationTest,
-  type BrowserNotificationStatus
-} from '@/composables/useGenerationCompletionNotification'
 import {
   WORKFLOW_GEMINI_IMAGE_SIZES,
   WORKFLOW_OPENAI_IMAGE_QUALITIES,
@@ -40,7 +30,6 @@ const props = defineProps<{
   seedanceVideoOptions: SeedanceVideoOptions
   videoAudioDefaults: WorkflowVideoAudioDefaults
   imageGenerationOptions: WorkflowImageGenerationModelOptions
-  completionNotificationOptions: WorkflowCompletionNotificationOptions
   updateGlobalWorkflowDefault: (type: 'text' | 'image' | 'video' | 'tts', modelId: string) => Promise<void>
   updateVideoGenerationModelOptions: (patch: Partial<KlingV3OmniVideoOptions>) => Promise<void>
   updateWorkflowGeminiImageSize: (value: unknown) => void
@@ -50,7 +39,6 @@ const props = defineProps<{
   updateWorkflowPanoramaCustomSize: (value: string) => Promise<void>
   updateWorkflowSeedanceVideoQuality: (value: unknown) => void
   updateVideoAudioDefaults: (patch: Partial<WorkflowVideoAudioDefaults>) => Promise<void>
-  updateCompletionNotificationOptions: (patch: Partial<WorkflowCompletionNotificationOptions>) => Promise<void>
 }>()
 
 interface ActiveDefaultConfig {
@@ -200,168 +188,9 @@ function updateVideoAudioDefault(provider: keyof WorkflowVideoAudioDefaults, val
   })
 }
 
-const systemNotificationStatus = ref<BrowserNotificationStatus>(getBrowserNotificationStatus())
-const systemNotificationTesting = ref(false)
-const completionNotificationHint = ref('')
-const isDesktopRuntime = computed(() => {
-  if (!import.meta.client) return false
-  const runtime = window as Window & {
-    __TAURI__?: unknown
-    __TAURI_INTERNALS__?: unknown
-  }
-  return !!runtime.__TAURI__ || !!runtime.__TAURI_INTERNALS__
-})
-
-const systemNotificationSupported = computed(() => {
-  return systemNotificationStatus.value.supported && systemNotificationStatus.value.secureContext
-})
-
-const {
-  status: desktopFfmpegStatus,
-  checking: desktopFfmpegChecking,
-  installing: desktopFfmpegInstalling,
-  error: desktopFfmpegError,
-  isDesktopRuntime: isDesktopRuntimeForFfmpeg,
-  canAutoInstall: canAutoInstallDesktopFfmpeg,
-  statusLabel: desktopFfmpegStatusLabel,
-  statusDescription: desktopFfmpegStatusDescription,
-  ensureDesktopFfmpegStatus,
-  refreshDesktopFfmpegStatus,
-  installDesktopFfmpeg
-} = useDesktopFfmpeg()
-
-const showDesktopFfmpegCard = computed(() => isDesktopRuntimeForFfmpeg.value)
-
 function toCheckedBoolean(value: unknown): boolean {
   return value === true
 }
-
-async function refreshSystemNotificationStatus() {
-  systemNotificationStatus.value = await refreshBrowserNotificationStatus()
-}
-
-function resolveSystemNotificationBlockedHint(status: BrowserNotificationStatus): string {
-  const channelName = isDesktopRuntime.value ? '客户端' : '浏览器'
-
-  if (!status.supported) {
-    return `当前${channelName}不支持系统通知，无法申请权限。`
-  }
-
-  if (!status.secureContext) {
-    return '系统通知只在 HTTPS 或 localhost 下可用，当前环境不能申请权限。'
-  }
-
-  if (status.permission === 'denied') {
-    return isDesktopRuntime.value
-      ? '客户端已拒绝系统通知，请在系统通知设置中手动开启。'
-      : '浏览器已拒绝系统通知，请在地址栏的站点权限里手动开启。'
-  }
-
-  return '当前没有拿到系统通知权限，系统通知不会生效。'
-}
-
-const systemNotificationPermissionLabel = computed(() => {
-  const status = systemNotificationStatus.value
-  if (!status.supported) return isDesktopRuntime.value ? '当前客户端不支持' : '当前浏览器不支持'
-  if (!status.secureContext) return '需要 HTTPS 或 localhost'
-  if (status.permission === 'granted') return '已授权'
-  if (status.permission === 'denied') return '已拒绝'
-  return '未授权'
-})
-
-const systemNotificationDescription = computed(() => {
-  const status = systemNotificationStatus.value
-  if (!status.supported) {
-    return isDesktopRuntime.value
-      ? '当前客户端不支持系统通知，可使用提示音提醒。'
-      : '当前浏览器不支持系统通知，可使用提示音提醒。'
-  }
-
-  if (!status.secureContext) {
-    return '系统通知仅在 HTTPS 或 localhost 下可用，当前站点无法弹出授权。'
-  }
-
-  if (status.permission === 'denied') {
-    return isDesktopRuntime.value
-      ? '当前客户端已拒绝系统通知，需要先在系统通知设置中手动恢复。'
-      : '当前浏览器已拒绝系统通知，需要先在站点权限中手动恢复。'
-  }
-
-  if (status.permission === 'granted') {
-    return isDesktopRuntime.value
-      ? '当前客户端已授权；任务完成后会弹出系统提醒。'
-      : '当前浏览器已授权；保持页面打开或切到后台标签页时可弹出提醒。'
-  }
-
-  return isDesktopRuntime.value
-    ? '当前客户端尚未授权；勾选或点击测试通知时会申请权限。'
-    : '当前浏览器尚未授权；勾选或点击测试通知时会申请权限。'
-})
-
-function updateCompletionSound(value: unknown) {
-  void props.updateCompletionNotificationOptions({
-    sound: toCheckedBoolean(value)
-  })
-}
-
-async function triggerSystemNotificationTest() {
-  completionNotificationHint.value = ''
-  systemNotificationTesting.value = true
-
-  try {
-    const result = await sendSystemNotificationTest()
-    systemNotificationStatus.value = result.status
-    const channelLabel = result.channel === 'desktop'
-      ? '桌面通知'
-      : result.channel === 'serviceWorker'
-        ? 'Service Worker'
-        : '页面通知'
-    completionNotificationHint.value = result.sent
-      ? `已通过${channelLabel}发送测试通知；如果没有看到弹窗，请检查${isDesktopRuntime.value ? '系统通知开关' : '浏览器站点权限和系统通知开关'}。`
-      : resolveSystemNotificationBlockedHint(result.status)
-    return result
-  } finally {
-    systemNotificationTesting.value = false
-  }
-}
-
-async function updateCompletionSystemNotification(value: unknown) {
-  const enabled = toCheckedBoolean(value)
-  completionNotificationHint.value = ''
-
-  if (!enabled) {
-    await props.updateCompletionNotificationOptions({ systemNotification: false })
-    await refreshSystemNotificationStatus()
-    return
-  }
-
-  const status = await requestBrowserNotificationPermission()
-  systemNotificationStatus.value = status
-
-  if (!status.canNotify) {
-    completionNotificationHint.value = resolveSystemNotificationBlockedHint(status)
-    await props.updateCompletionNotificationOptions({ systemNotification: false })
-    return
-  }
-
-  await props.updateCompletionNotificationOptions({ systemNotification: true })
-  await triggerSystemNotificationTest()
-}
-
-onMounted(() => {
-  void ensureDesktopFfmpegStatus()
-
-  void (async () => {
-    await refreshSystemNotificationStatus()
-
-    if (
-      props.completionNotificationOptions.systemNotification
-      && !systemNotificationStatus.value.canNotify
-    ) {
-      completionNotificationHint.value = resolveSystemNotificationBlockedHint(systemNotificationStatus.value)
-    }
-  })()
-})
 </script>
 
 <template>
@@ -395,153 +224,6 @@ onMounted(() => {
         </SelectContent>
       </Select>
     </div>
-
-    <div class="space-y-3 rounded-lg border bg-muted/30 p-3">
-      <div>
-        <h5 class="text-xs font-medium">
-          生成完成提醒
-        </h5>
-        <p class="mt-1 text-[11px] text-muted-foreground">
-          用于模型任务完成时提醒你返回页面（解析、出图、出视频等）。
-        </p>
-      </div>
-
-      <div class="space-y-2">
-        <label class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
-          <span class="text-xs text-foreground">播放提示音</span>
-          <Switch
-            :checked="props.completionNotificationOptions.sound"
-            :disabled="props.workflowSaving"
-            @update:checked="updateCompletionSound"
-          />
-        </label>
-
-        <label class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
-          <span class="text-xs text-foreground">系统通知</span>
-          <Switch
-            :checked="props.completionNotificationOptions.systemNotification"
-            :disabled="props.workflowSaving || !systemNotificationSupported"
-            @update:checked="updateCompletionSystemNotification"
-          />
-        </label>
-      </div>
-
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <p class="text-[11px] text-muted-foreground">
-          当前权限：{{ systemNotificationPermissionLabel }}
-        </p>
-        <Button
-          v-if="systemNotificationStatus.supported"
-          variant="outline"
-          size="sm"
-          class="h-7 px-2 text-[11px]"
-          :disabled="props.workflowSaving || systemNotificationTesting || !systemNotificationStatus.secureContext"
-          @click="triggerSystemNotificationTest"
-        >
-          {{ systemNotificationTesting ? '发送中...' : '测试通知' }}
-        </Button>
-      </div>
-
-      <p class="text-[11px] text-muted-foreground">
-        {{ systemNotificationDescription }}
-      </p>
-
-      <p
-        v-if="completionNotificationHint"
-        class="text-[11px]"
-        :class="systemNotificationStatus.canNotify ? 'text-emerald-600' : 'text-amber-600'"
-      >
-        {{ completionNotificationHint }}
-      </p>
-    </div>
-
-    <div
-      v-if="showDesktopFfmpegCard"
-      class="space-y-3 rounded-lg border bg-muted/30 p-3"
-    >
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h5 class="text-xs font-medium">
-            桌面视频依赖（FFmpeg）
-          </h5>
-          <p class="mt-1 text-[11px] text-muted-foreground">
-            本地视频拼接、导出等媒体处理依赖 FFmpeg。桌面端会自动检测，缺失时可在这里一键安装。
-          </p>
-        </div>
-        <span
-          class="rounded-full px-2 py-1 text-[10px] font-medium"
-          :class="desktopFfmpegStatus?.available
-            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
-            : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'"
-        >
-          {{ desktopFfmpegStatusLabel }}
-        </span>
-      </div>
-
-      <p class="text-[11px] text-muted-foreground">
-        {{ desktopFfmpegStatusDescription }}
-      </p>
-
-      <div
-        v-if="desktopFfmpegStatus?.version || desktopFfmpegStatus?.path || desktopFfmpegStatus?.managedPath"
-        class="space-y-2 rounded-lg border bg-background p-3 text-[11px]"
-      >
-        <div v-if="desktopFfmpegStatus?.version">
-          <span class="text-muted-foreground">版本：</span>
-          <span class="text-foreground">{{ desktopFfmpegStatus.version }}</span>
-        </div>
-        <div v-if="desktopFfmpegStatus?.path">
-          <span class="text-muted-foreground">当前路径：</span>
-          <span class="break-all font-mono text-foreground">{{ desktopFfmpegStatus.path }}</span>
-        </div>
-        <div v-if="desktopFfmpegStatus?.managedPath">
-          <span class="text-muted-foreground">托管安装目录：</span>
-          <span class="break-all font-mono text-foreground">{{ desktopFfmpegStatus.managedPath }}</span>
-        </div>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          class="h-7 px-2 text-[11px]"
-          :disabled="desktopFfmpegChecking || desktopFfmpegInstalling"
-          @click="refreshDesktopFfmpegStatus({ promptOnMissing: false })"
-        >
-          <RefreshCw
-            class="h-3.5 w-3.5"
-            :class="desktopFfmpegChecking ? 'animate-spin' : ''"
-          />
-          {{ desktopFfmpegChecking ? '检测中...' : '重新检测' }}
-        </Button>
-
-        <Button
-          v-if="!desktopFfmpegStatus?.available && canAutoInstallDesktopFfmpeg"
-          size="sm"
-          class="h-7 px-2 text-[11px]"
-          :disabled="desktopFfmpegInstalling || desktopFfmpegChecking"
-          @click="installDesktopFfmpeg"
-        >
-          <Loader2
-            v-if="desktopFfmpegInstalling"
-            class="h-3.5 w-3.5 animate-spin"
-          />
-          <Download
-            v-else
-            class="h-3.5 w-3.5"
-          />
-          {{ desktopFfmpegInstalling ? '安装中...' : '一键安装 FFmpeg' }}
-        </Button>
-      </div>
-
-      <p
-        v-if="desktopFfmpegError"
-        class="text-[11px] text-destructive"
-      >
-        {{ desktopFfmpegError }}
-      </p>
-    </div>
-
 
     <div
       v-if="props.activeCategory === 'image'"
@@ -580,7 +262,7 @@ onMounted(() => {
 
       <div
         v-if="usingCustomPanoramaSource"
-        class="grid grid-cols-1 gap-3 md:grid-cols-2"
+        class="grid grid-cols-1 gap-3 @lg:grid-cols-2"
       >
         <div class="space-y-1.5">
           <label class="text-xs text-muted-foreground">自定义比例（w:h）</label>

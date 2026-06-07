@@ -166,7 +166,7 @@ onMounted(() => {
     </div>
 
     <template v-else>
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <div class="grid grid-cols-1 gap-3 @lg:grid-cols-2">
         <div class="space-y-1.5">
           <label class="text-xs text-muted-foreground">供应商名称</label>
           <Input

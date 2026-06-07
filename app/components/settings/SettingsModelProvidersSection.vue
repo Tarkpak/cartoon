@@ -13,6 +13,7 @@ import {
 import SettingsCustomOpenAIProvider from '@/components/settings/SettingsCustomOpenAIProvider.vue'
 import SettingsProviderCredentials from '@/components/settings/SettingsProviderCredentials.vue'
 import SettingsProviderLogo from '@/components/settings/SettingsProviderLogo.vue'
+import SettingsConfirmDialog from '@/components/settings/SettingsConfirmDialog.vue'
 import { useSettingsModelCatalog } from '@/composables/useSettingsModelCatalog'
 
 type ProviderId = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'deepseek' | 'custom_openai'
@@ -248,6 +249,26 @@ async function selectAllModelsForActiveProvider() {
   )
 }
 
+const SELECT_ALL_CONFIRM_THRESHOLD = 50
+const selectAllConfirmOpen = ref(false)
+
+const selectAllConfirmDescription = computed(() => {
+  return `当前供应商共有 ${activeProviderAvailableModels.value.length} 个可用模型，确定全部启用吗？启用过多模型会让「模型分配」里的下拉列表变得冗长。`
+})
+
+function handleSelectAllClick() {
+  if (activeProviderAvailableModels.value.length > SELECT_ALL_CONFIRM_THRESHOLD) {
+    selectAllConfirmOpen.value = true
+    return
+  }
+  void selectAllModelsForActiveProvider()
+}
+
+async function confirmSelectAllModels() {
+  selectAllConfirmOpen.value = false
+  await selectAllModelsForActiveProvider()
+}
+
 async function clearModelsForActiveProvider() {
   if (!activeProviderSummary.value) return
   await saveProviderModels(activeProviderSummary.value.provider, [])
@@ -360,7 +381,7 @@ onMounted(() => {
 
 <template>
   <div class="h-full flex overflow-hidden">
-    <div class="flex w-64 shrink-0 flex-col border-r bg-muted/30">
+    <div class="flex w-60 shrink-0 flex-col border-r bg-muted/30">
       <div class="border-b px-4 py-4">
         <h2 class="text-base font-semibold">
           模型供应商
@@ -408,12 +429,12 @@ onMounted(() => {
       </div>
     </div>
 
-    <div class="flex flex-1 flex-col overflow-hidden">
+    <div class="@container flex flex-1 flex-col overflow-hidden">
       <div
         v-if="activeProviderSummary"
         class="border-b px-6 py-4"
       >
-        <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div class="flex flex-col gap-4 @2xl:flex-row @2xl:items-start @2xl:justify-between">
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
               <div class="flex h-7 w-7 items-center justify-center rounded-md border bg-background">
@@ -454,7 +475,7 @@ onMounted(() => {
             </p>
           </div>
 
-          <div class="flex shrink-0 flex-wrap items-center gap-2 md:justify-end">
+          <div class="flex flex-wrap items-center gap-2 @2xl:justify-end">
             <Button
               variant="outline"
               size="sm"
@@ -470,7 +491,7 @@ onMounted(() => {
               size="sm"
               class="h-8 gap-1.5"
               :disabled="activeProviderAvailableModels.length === 0 || activeProviderAllModelsSelected || savingProvider !== null || syncingProvider !== null"
-              @click="selectAllModelsForActiveProvider"
+              @click="handleSelectAllClick"
             >
               <CheckCheck class="h-3.5 w-3.5" />
               全选模型
@@ -523,9 +544,9 @@ onMounted(() => {
           <div
             class="rounded-lg border bg-background p-4"
           >
-            <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div class="flex flex-col gap-4 @2xl:flex-row @2xl:items-start @2xl:justify-between">
               <div class="min-w-0 flex-1">
-                <div class="grid grid-cols-1 gap-2 text-xs text-muted-foreground md:grid-cols-3">
+                <div class="grid grid-cols-1 gap-2 text-xs text-muted-foreground @xl:grid-cols-3">
                   <div class="flex items-center gap-1.5">
                     <Database class="h-3.5 w-3.5" />
                     已启用 {{ (enabledModelsByProvider[activeProviderSummary.provider] || []).length }} / {{ availableModelsFor(activeProviderSummary).length }} 个模型
@@ -592,7 +613,7 @@ onMounted(() => {
                         </span>
                       </div>
 
-                      <div class="mt-2 grid grid-cols-1 gap-1 md:grid-cols-2">
+                      <div class="mt-2 grid grid-cols-1 gap-1 @lg:grid-cols-2">
                         <label
                           v-for="model in group.models"
                           :key="`${activeProviderSummary.provider}_${group.key}_${model}`"
@@ -622,5 +643,15 @@ onMounted(() => {
         暂无供应商
       </div>
     </div>
+
+    <SettingsConfirmDialog
+      v-model:open="selectAllConfirmOpen"
+      title="全选模型"
+      :description="selectAllConfirmDescription"
+      confirm-text="全部启用"
+      confirm-variant="default"
+      :busy="savingProvider !== null"
+      @confirm="confirmSelectAllModels"
+    />
   </div>
 </template>
