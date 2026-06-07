@@ -41,6 +41,18 @@ function applyData(data: TosConfigPublic) {
   securityTokenInput.value = ''
 }
 
+function getMissingRequiredFields(): string[] {
+  if (!enabled.value) return []
+
+  const missing: string[] = []
+  if (!accessKeyId.value.trim()) missing.push('Access Key ID')
+  if (!hasSecretKey.value && !secretKeyInput.value.trim()) missing.push('Secret Key')
+  if (!region.value.trim()) missing.push('Region')
+  if (!endpoint.value.trim()) missing.push('Endpoint')
+  if (!bucket.value.trim()) missing.push('Bucket')
+  return missing
+}
+
 async function loadConfig() {
   loading.value = true
   errorMessage.value = ''
@@ -58,6 +70,13 @@ async function loadConfig() {
 }
 
 async function saveConfig() {
+  const missingFields = getMissingRequiredFields()
+  if (missingFields.length > 0) {
+    message.value = ''
+    errorMessage.value = `启用对象存储前请补齐：${missingFields.join('、')}`
+    return
+  }
+
   saving.value = true
   message.value = ''
   errorMessage.value = ''

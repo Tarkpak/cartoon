@@ -7,6 +7,9 @@ const { isDark, toggleTheme, initTheme } = useTheme()
 // 侧边栏折叠状态
 const isCollapsed = useState('sidebar-collapsed', () => false)
 const SIDEBAR_COLLAPSE_STORAGE_KEY = 'playlet:sidebar-collapsed'
+const isNarrowSidebar = ref(false)
+let sidebarMediaQuery: MediaQueryList | null = null
+let syncNarrowSidebar: (() => void) | null = null
 
 const navigation = [
   { name: '首页概览', path: '/', icon: Home },
@@ -44,7 +47,7 @@ const currentSettingsSection = computed<SettingsSection>(() => {
   if (SETTINGS_SECTIONS.includes(raw as SettingsSection)) {
     return raw as SettingsSection
   }
-  return 'providers'
+  return 'general'
 })
 
 function isSettingsSubActive(item: { section: SettingsSection }): boolean {
@@ -67,6 +70,7 @@ const hideSidebar = computed(() => route.meta.hideSidebar === true)
 
 // 是否显示页脚（设置页与自动工作台不显示）
 const showFooter = computed(() => !['/settings', '/asset-workbench'].includes(route.path))
+const visualSidebarCollapsed = computed(() => isCollapsed.value || isNarrowSidebar.value)
 
 // 初始化主题
 onMounted(() => {
@@ -80,11 +84,24 @@ onMounted(() => {
   } else if (stored === '0' || stored === 'false') {
     isCollapsed.value = false
   }
+
+  sidebarMediaQuery = window.matchMedia('(max-width: 1023px)')
+  syncNarrowSidebar = () => {
+    isNarrowSidebar.value = sidebarMediaQuery?.matches === true
+  }
+
+  syncNarrowSidebar()
+  sidebarMediaQuery.addEventListener('change', syncNarrowSidebar)
 })
 
 watch(isCollapsed, (value) => {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(SIDEBAR_COLLAPSE_STORAGE_KEY, value ? '1' : '0')
+})
+
+onUnmounted(() => {
+  if (!sidebarMediaQuery || !syncNarrowSidebar) return
+  sidebarMediaQuery.removeEventListener('change', syncNarrowSidebar)
 })
 </script>
 
@@ -94,7 +111,7 @@ watch(isCollapsed, (value) => {
     <aside
       v-if="!hideSidebar"
       class="bg-card border-r flex flex-col transition-all duration-300 relative"
-      :class="isCollapsed ? 'w-20' : 'w-56'"
+      :class="visualSidebarCollapsed ? 'w-20' : 'w-56'"
     >
       <!-- 折叠按钮 - 使用双箭头图标避免与返回按钮混淆 -->
       <Button
@@ -102,11 +119,11 @@ watch(isCollapsed, (value) => {
         variant="ghost"
         size="icon"
         class="absolute -right-3 top-20 w-6 h-6 bg-muted border rounded-full flex items-center justify-center shadow-sm hover:bg-accent transition z-10"
-        :title="isCollapsed ? '展开菜单' : '收起菜单'"
+        :title="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
         @click="isCollapsed = !isCollapsed"
       >
         <svg
-          v-if="!isCollapsed"
+          v-if="!visualSidebarCollapsed"
           xmlns="http://www.w3.org/2000/svg"
           width="14"
           height="14"
@@ -140,16 +157,16 @@ watch(isCollapsed, (value) => {
       <!-- Logo -->
       <div
         class="h-16 flex items-center border-b"
-        :class="isCollapsed ? 'justify-center px-2' : 'px-6'"
+        :class="visualSidebarCollapsed ? 'justify-center px-2' : 'px-6'"
       >
         <NuxtLink
           to="/"
           class="font-bold text-foreground flex items-center"
-          :class="isCollapsed ? 'text-xl' : 'text-2xl'"
+          :class="visualSidebarCollapsed ? 'text-xl' : 'text-2xl'"
         >
           <Clapperboard class="w-6 h-6 text-primary" />
           <span
-            v-if="!isCollapsed"
+            v-if="!visualSidebarCollapsed"
             class="ml-1"
           >playlet</span>
         </NuxtLink>
@@ -166,22 +183,22 @@ watch(isCollapsed, (value) => {
             :to="item.path"
             class="flex items-center rounded-md transition-colors duration-200"
             :class="[
-              isCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5',
+              visualSidebarCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5',
               activeStates[index]
                 ? 'bg-accent text-foreground font-medium'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'
             ]"
-            :title="isCollapsed ? item.name : undefined"
+            :title="visualSidebarCollapsed ? item.name : undefined"
           >
             <component
               :is="item.icon"
               class="w-5 h-5 flex-shrink-0"
             />
-            <span v-if="!isCollapsed">{{ item.name }}</span>
+            <span v-if="!visualSidebarCollapsed">{{ item.name }}</span>
           </NuxtLink>
 
           <div
-            v-if="item.path === '/settings' && route.path === '/settings' && !isCollapsed"
+            v-if="item.path === '/settings' && route.path === '/settings' && !visualSidebarCollapsed"
             class="mt-1 ml-8 space-y-0.5"
           >
             <NuxtLink
@@ -202,7 +219,7 @@ watch(isCollapsed, (value) => {
           </div>
 
           <div
-            v-if="item.path === '/settings' && isCollapsed"
+            v-if="item.path === '/settings' && visualSidebarCollapsed"
             class="absolute left-full top-0 z-30 w-48 rounded-md border bg-popover p-1 shadow-md opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
           >
             <NuxtLink
@@ -230,7 +247,7 @@ watch(isCollapsed, (value) => {
           type="button"
           variant="ghost"
           class="w-full flex items-center rounded-md transition-colors duration-200 text-muted-foreground hover:bg-accent hover:text-foreground"
-          :class="isCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5'"
+          :class="visualSidebarCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5'"
           @click="toggleTheme"
         >
           <Moon
@@ -241,7 +258,7 @@ watch(isCollapsed, (value) => {
             v-else
             class="w-5 h-5 flex-shrink-0"
           />
-          <span v-if="!isCollapsed">{{ isDark ? '浅色模式' : '深色模式' }}</span>
+          <span v-if="!visualSidebarCollapsed">{{ isDark ? '浅色模式' : '深色模式' }}</span>
         </Button>
       </div>
 
@@ -249,12 +266,12 @@ watch(isCollapsed, (value) => {
       <div class="p-4 border-t">
         <div
           class="flex items-center rounded-md hover:bg-accent cursor-pointer transition-colors duration-200"
-          :class="isCollapsed ? 'justify-center p-2' : 'space-x-3 px-3 py-2.5'"
+          :class="visualSidebarCollapsed ? 'justify-center p-2' : 'space-x-3 px-3 py-2.5'"
         >
           <div class="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-foreground font-medium flex-shrink-0">
             U
           </div>
-          <template v-if="!isCollapsed">
+          <template v-if="!visualSidebarCollapsed">
             <div class="flex-1 min-w-0">
               <div class="font-medium text-sm truncate">
                 用户名

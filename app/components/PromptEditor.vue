@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import {
   AlertTriangle,
-  FileText
+  FileText,
+  TriangleAlert
 } from 'lucide-vue-next'
 import { EditorContent } from '@tiptap/vue-3'
 import type { PromptTemplate } from '#shared/types/prompt-template'
@@ -9,6 +10,7 @@ import { getPromptVariableTag as getVariableTag } from '@/lib/prompt-editor'
 import { usePromptTemplateEditor } from '@/composables/usePromptTemplateEditor'
 import PromptEditorHeader from '@/components/prompt-editor/PromptEditorHeader.vue'
 import PromptEditorToolbar from '@/components/prompt-editor/PromptEditorToolbar.vue'
+import SettingsConfirmDialog from '@/components/settings/SettingsConfirmDialog.vue'
 
 const props = defineProps<{
   template: PromptTemplate
@@ -29,6 +31,7 @@ const {
   showHistory,
   loadingVersions,
   versions,
+  actionError,
   previewMode,
   previewVariables,
   isFullscreen,
@@ -63,15 +66,46 @@ const {
   onSaved: () => emit('saved')
 })
 
+const resetConfirmOpen = ref(false)
+const restoreConfirmOpen = ref(false)
+const pendingRestoreVersionId = ref('')
+
 function handleVariableInsert(variableName: string) {
   const variable = props.template.variables.find(item => item.name === variableName)
   if (!variable) return
   insertVariable(variable)
 }
+
+function requestReset() {
+  actionError.value = ''
+  resetConfirmOpen.value = true
+}
+
+function requestRestoreVersion(versionId: string) {
+  actionError.value = ''
+  pendingRestoreVersionId.value = versionId
+  restoreConfirmOpen.value = true
+}
+
+async function confirmReset() {
+  await reset()
+  if (!actionError.value) {
+    resetConfirmOpen.value = false
+  }
+}
+
+async function confirmRestoreVersion() {
+  if (!pendingRestoreVersionId.value) return
+  await restoreVersion(pendingRestoreVersionId.value)
+  if (!actionError.value) {
+    restoreConfirmOpen.value = false
+    pendingRestoreVersionId.value = ''
+  }
+}
 </script>
 
 <template>
-  <div :class="['h-full flex flex-col', isFullscreen ? 'fixed inset-0 z-50 bg-background' : '']">
+  <div :class="['@container h-full flex flex-col', isFullscreen ? 'fixed inset-0 z-50 bg-background' : '']">
     <Input
       ref="fileInputRef"
       type="file"
@@ -91,11 +125,19 @@ function handleVariableInsert(variableName: string) {
       @trigger-import="triggerImport"
       @export="exportTemplate"
       @history="openHistory"
-      @reset="reset"
+      @reset="requestReset"
       @toggle-diff="showDiff = !showDiff"
       @save="save"
       @toggle-fullscreen="toggleFullscreen"
     />
+
+    <div
+      v-if="actionError"
+      class="flex flex-shrink-0 items-start gap-2 border-b border-destructive/20 bg-destructive/5 px-4 py-2.5 text-sm text-destructive @lg:px-6"
+    >
+      <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+      <span class="min-w-0 flex-1 break-words">{{ actionError }}</span>
+    </div>
 
     <!-- 主内容区 -->
     <div class="flex-1 flex overflow-hidden">
@@ -187,7 +229,26 @@ function handleVariableInsert(variableName: string) {
       v-model:open="showHistory"
       :loading="loadingVersions"
       :versions="versions"
-      @restore="restoreVersion"
+      @restore="requestRestoreVersion"
+    />
+
+    <SettingsConfirmDialog
+      v-model:open="resetConfirmOpen"
+      title="重置提示词模板"
+      description="确定要将当前模板重置为默认内容吗？未保存的修改会被覆盖。"
+      confirm-text="重置"
+      :busy="resetting"
+      :error="actionError"
+      @confirm="confirmReset"
+    />
+
+    <SettingsConfirmDialog
+      v-model:open="restoreConfirmOpen"
+      title="恢复历史版本"
+      description="确定要恢复到此历史版本吗？当前内容会被历史版本覆盖。"
+      confirm-text="恢复"
+      :error="actionError"
+      @confirm="confirmRestoreVersion"
     />
   </div>
 </template>

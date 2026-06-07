@@ -12,7 +12,9 @@ export function useStylePresetSettings() {
   const { loadStylePresets: refreshAvailableStyles } = useStylePresets()
 
   const styleConfigLoading = ref(false)
+  const styleConfigError = ref('')
   const styleConfigSaving = ref(false)
+  const styleActionError = ref('')
   const allStylePresets = ref<StylePreset[]>([])
   const enabledStyleIdSet = ref<Set<string>>(new Set())
   const styleDefaultId = ref('')
@@ -145,7 +147,9 @@ export function useStylePresetSettings() {
     styleEditorMode,
     styleEditingId,
     styleConfigLoading,
+    styleConfigError,
     styleConfigSaving,
+    styleActionError,
     styleCrudSaving,
     styleDeletingId,
     styleResetting,
@@ -165,7 +169,9 @@ export function useStylePresetSettings() {
 
   return {
     styleConfigLoading,
+    styleConfigError,
     styleConfigSaving,
+    styleActionError,
     allStylePresets,
     enabledStyleIdSet,
     styleDefaultId,
@@ -186,6 +192,7 @@ export function useStylePresetSettings() {
     filteredStylePresets,
     currentDefaultStyle,
     getStyleCategoryName,
+    loadStyleConfig,
     openCreateStyleEditor,
     openEditStyleEditor,
     closeStyleEditor,

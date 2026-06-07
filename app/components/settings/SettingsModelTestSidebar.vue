@@ -29,7 +29,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="flex w-60 shrink-0 flex-col border-r bg-muted/20">
+  <div class="flex max-h-[42vh] w-full shrink-0 flex-col border-b bg-muted/20 xl:max-h-none xl:w-60 xl:border-b-0 xl:border-r">
     <div class="border-b px-4 py-4">
       <h2 class="text-base font-semibold">
         模型测试

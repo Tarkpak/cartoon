@@ -1541,7 +1541,7 @@ async fn run_workflow_text_model(
         .filter(|value| !value.is_empty())
         .unwrap_or("qwen3.6-plus")
         .to_string();
-    let provider = infer_model_provider_required_string(&model_id)?;
+    let provider = resolve_model_provider_required_string(&model_id, &creds)?;
     let text = run_text_model_test_remote(&provider, &model_id, prompt, &creds).await?;
     Ok((text, provider, model_id))
 }
@@ -5267,6 +5267,38 @@ fn infer_model_provider_required(model_id: &str) -> Result<String, ApiError> {
 
 fn infer_model_provider_required_string(model_id: &str) -> Result<String, String> {
     infer_model_provider(model_id).ok_or_else(|| format!("无法识别模型提供商: {}", model_id.trim()))
+}
+
+/// 判断模型是否属于已配置的「自定义 OpenAI」供应商（按其配置的模型列表精确匹配）。
+fn is_custom_openai_model(model_id: &str, creds: &Value) -> bool {
+    let target = model_id.trim();
+    if target.is_empty() {
+        return false;
+    }
+    let Some(custom) = creds.get("custom_openai") else {
+        return false;
+    };
+    ["textModels", "availableTextModels"]
+        .iter()
+        .filter_map(|key| custom.get(*key))
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(Value::as_str)
+        .any(|candidate| candidate.trim() == target)
+}
+
+/// 解析模型对应的供应商：优先按「自定义 OpenAI」已配置模型精确匹配，再回退到按模型名
+/// 关键字推断。修复自定义 OpenAI 模型在工作流里被误判为内置供应商（调用错误端点 → 502）。
+fn resolve_model_provider(model_id: &str, creds: &Value) -> Option<String> {
+    if is_custom_openai_model(model_id, creds) {
+        return Some("custom_openai".to_string());
+    }
+    infer_model_provider(model_id)
+}
+
+fn resolve_model_provider_required_string(model_id: &str, creds: &Value) -> Result<String, String> {
+    resolve_model_provider(model_id, creds)
+        .ok_or_else(|| format!("无法识别模型提供商: {}", model_id.trim()))
 }
 
 fn model_type_to_operation(model_type: &str) -> &'static str {

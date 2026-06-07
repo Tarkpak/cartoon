@@ -55,7 +55,7 @@ function toSelectString(value: unknown): string {
 </script>
 
 <template>
-  <div class="flex w-60 flex-shrink-0 flex-col border-r bg-muted/30">
+  <div class="flex max-h-[44vh] w-full flex-shrink-0 flex-col border-b bg-muted/30 xl:max-h-none xl:w-60 xl:border-b-0 xl:border-r">
     <div class="border-b px-4 py-4">
       <h2 class="text-base font-semibold">
         提示词

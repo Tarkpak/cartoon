@@ -15,7 +15,7 @@ import {
 } from '@/lib/settings-models'
 
 export function useSettingsModelTest() {
-  const { models, selectedModels, loading, loadModels } = useSettingsModelCatalog()
+  const { models, selectedModels, loading, errorMessage: modelCatalogError, loadModels } = useSettingsModelCatalog()
   const DEFAULT_IMAGE_ASPECT_RATIO = '1:1'
   const DEFAULT_IMAGE_QUALITY = 'auto'
   const MODEL_TEST_TAB_STORAGE_KEY = 'playlet:model-test-active-tab'
@@ -774,9 +774,14 @@ export function useSettingsModelTest() {
     void loadModels()
   })
 
+  function retryLoadModels() {
+    void loadModels(true)
+  }
+
   return {
     loading,
     models,
+    modelCatalogError,
     activeTab,
     customPrompts,
     referenceImages,
@@ -852,6 +857,7 @@ export function useSettingsModelTest() {
     openReferenceImagePreview,
     selectTestModel,
     toggleProvider,
+    retryLoadModels,
     testModel
   }
 }

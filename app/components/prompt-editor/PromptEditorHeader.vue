@@ -29,8 +29,8 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="flex-shrink-0 border-b px-6 py-4">
-    <div class="flex items-start justify-between gap-4">
+  <div class="flex-shrink-0 border-b px-4 py-3 @lg:px-6 @lg:py-4">
+    <div class="flex flex-col items-stretch gap-3 @3xl:flex-row @3xl:items-start @3xl:justify-between">
       <div class="min-w-0 flex-1">
         <div class="flex flex-wrap items-center gap-2">
           <h2 class="text-lg font-semibold">
@@ -63,7 +63,7 @@ defineEmits<{
         </p>
       </div>
 
-      <div class="flex flex-shrink-0 items-center gap-2">
+      <div class="flex flex-shrink-0 flex-wrap items-center gap-2">
         <Button
           variant="ghost"
           size="icon"

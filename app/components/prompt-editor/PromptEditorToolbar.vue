@@ -18,7 +18,7 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="flex flex-shrink-0 items-center justify-between gap-4 border-b px-6 py-3">
+  <div class="flex flex-shrink-0 flex-col gap-2 border-b px-4 py-3 @lg:flex-row @lg:items-center @lg:justify-between @lg:px-6">
     <div class="flex items-center gap-2">
       <Button
         variant="ghost"
@@ -40,7 +40,7 @@ defineEmits<{
       </Button>
     </div>
 
-    <div class="flex items-center gap-3">
+    <div class="flex flex-wrap items-center gap-3">
       <div class="text-xs text-muted-foreground">
         {{ charCount.chars }} 字符 · ~{{ charCount.tokens }} tokens
       </div>

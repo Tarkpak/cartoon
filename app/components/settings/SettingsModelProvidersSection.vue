@@ -76,6 +76,7 @@ const MODEL_CATEGORY_META: Record<ModelCategoryKey, { label: string, description
 
 const syncingProvider = ref<ProviderId | null>(null)
 const savingProvider = ref<ProviderId | null>(null)
+const providersLoading = ref(false)
 const providers = ref<ModelProviderSummary[]>([])
 const enabledModelsByProvider = ref<Partial<Record<ProviderId, string[]>>>({})
 const errorMessage = ref('')
@@ -96,6 +97,7 @@ const activeCredentialProvider = computed<CredentialProvider | null>(() => {
 })
 
 async function loadProviders() {
+  providersLoading.value = true
   errorMessage.value = ''
 
   try {
@@ -112,10 +114,18 @@ async function loadProviders() {
       ) {
         activeProvider.value = response.data.providers[0]!.provider
       }
+    } else {
+      errorMessage.value = '加载模型供应商失败'
     }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '加载模型供应商失败'
+  } finally {
+    providersLoading.value = false
   }
+}
+
+function retryLoadProviders() {
+  void loadProviders()
 }
 
 async function refreshModelCatalog() {
@@ -380,8 +390,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex overflow-hidden">
-    <div class="flex w-60 shrink-0 flex-col border-r bg-muted/30">
+  <div class="flex h-full flex-col overflow-hidden xl:flex-row">
+    <div class="flex max-h-[36vh] w-full shrink-0 flex-col border-b bg-muted/30 xl:max-h-none xl:w-60 xl:border-b-0 xl:border-r">
       <div class="border-b px-4 py-4">
         <h2 class="text-base font-semibold">
           模型供应商
@@ -392,6 +402,14 @@ onMounted(() => {
       </div>
 
       <div class="flex-1 overflow-y-auto p-2">
+        <div
+          v-if="providersLoading && providers.length === 0"
+          class="flex items-center justify-center gap-2 px-3 py-8 text-sm text-muted-foreground"
+        >
+          <Loader2 class="h-4 w-4 animate-spin" />
+          加载供应商...
+        </div>
+
         <Button
           v-for="provider in providers"
           :key="provider.provider"
@@ -631,6 +649,38 @@ onMounted(() => {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-else-if="errorMessage"
+        class="flex flex-1 items-center justify-center p-6"
+      >
+        <div class="max-w-md rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+          <div class="flex items-start gap-2">
+            <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+            <div class="min-w-0 flex-1">
+              <p class="font-medium">
+                模型供应商加载失败
+              </p>
+              <p class="mt-1 break-words text-xs">
+                {{ errorMessage }}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                class="mt-3 h-8 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                :disabled="providersLoading"
+                @click="retryLoadProviders"
+              >
+                <Loader2
+                  v-if="providersLoading"
+                  class="mr-1.5 h-3.5 w-3.5 animate-spin"
+                />
+                重试
+              </Button>
             </div>
           </div>
         </div>

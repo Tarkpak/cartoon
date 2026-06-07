@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue'
-import { Loader2 } from 'lucide-vue-next'
+import { Loader2, TriangleAlert } from 'lucide-vue-next'
 import { useSettingsModelTest } from '@/composables/useSettingsModelTest'
 import SettingsModelTestControls from '@/components/settings/SettingsModelTestControls.vue'
 import SettingsModelTestResultPanel from '@/components/settings/SettingsModelTestResultPanel.vue'
@@ -9,6 +9,7 @@ import SettingsModelTestSidebar from '@/components/settings/SettingsModelTestSid
 const {
   loading,
   models,
+  modelCatalogError,
   activeTab,
   customPrompts,
   referenceImages,
@@ -79,6 +80,7 @@ const {
   openReferenceImagePreview,
   selectTestModel,
   toggleProvider,
+  retryLoadModels,
   testModel
 } = useSettingsModelTest()
 
@@ -95,13 +97,40 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
 </script>
 
 <template>
-  <div class="h-full flex overflow-hidden">
+  <div class="flex h-full flex-col overflow-hidden xl:flex-row">
     <div
       v-if="loading"
       class="flex flex-1 items-center justify-center"
     >
       <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
       <span class="ml-2 text-muted-foreground">加载模型列表...</span>
+    </div>
+
+    <div
+      v-else-if="!models && modelCatalogError"
+      class="flex flex-1 items-center justify-center p-6"
+    >
+      <div class="max-w-md rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+        <div class="flex items-start gap-2">
+          <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+          <div class="min-w-0 flex-1">
+            <p class="font-medium">
+              模型列表加载失败
+            </p>
+            <p class="mt-1 break-words text-xs">
+              {{ modelCatalogError }}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              class="mt-3 h-8 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              @click="retryLoadModels"
+            >
+              重试
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <template v-else-if="models">

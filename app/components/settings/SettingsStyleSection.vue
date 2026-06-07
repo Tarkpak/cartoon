@@ -6,16 +6,20 @@ import {
   Download,
   RotateCcw,
   MoreHorizontal,
-  CheckCheck
+  CheckCheck,
+  TriangleAlert
 } from 'lucide-vue-next'
 import type { StyleFormState } from '@/lib/style-preset-settings'
+import SettingsConfirmDialog from '@/components/settings/SettingsConfirmDialog.vue'
 import SettingsStyleEditorDialog from '@/components/settings/SettingsStyleEditorDialog.vue'
 import SettingsStyleOverview from '@/components/settings/SettingsStyleOverview.vue'
 import SettingsStylePresetCatalog from '@/components/settings/SettingsStylePresetCatalog.vue'
 
 const {
   styleConfigLoading,
+  styleConfigError,
   styleConfigSaving,
+  styleActionError,
   allStylePresets,
   enabledStyleIdSet,
   styleDefaultId,
@@ -36,6 +40,7 @@ const {
   filteredStylePresets,
   currentDefaultStyle,
   getStyleCategoryName,
+  loadStyleConfig,
   openCreateStyleEditor,
   openEditStyleEditor,
   closeStyleEditor,
@@ -53,12 +58,48 @@ const {
 } = useStylePresetSettings()
 
 const showMoreMenu = ref(false)
+const deleteConfirmOpen = ref(false)
+const resetConfirmOpen = ref(false)
+const pendingDeleteStyleId = ref('')
+
+const deleteConfirmDescription = computed(() => {
+  return pendingDeleteStyleId.value
+    ? `确定删除画风预设「${pendingDeleteStyleId.value}」吗？此操作不可撤销。`
+    : ''
+})
 
 function updateStyleFormField<K extends keyof StyleFormState>(
   key: K,
   value: StyleFormState[K]
 ) {
   styleForm[key] = value
+}
+
+function requestDeleteStylePreset(styleId: string) {
+  styleActionError.value = ''
+  pendingDeleteStyleId.value = styleId
+  deleteConfirmOpen.value = true
+}
+
+function requestResetStylePresets() {
+  styleActionError.value = ''
+  resetConfirmOpen.value = true
+}
+
+async function confirmDeleteStylePreset() {
+  if (!pendingDeleteStyleId.value) return
+  await deleteStylePreset(pendingDeleteStyleId.value)
+  if (!styleActionError.value) {
+    deleteConfirmOpen.value = false
+    pendingDeleteStyleId.value = ''
+  }
+}
+
+async function confirmResetStylePresets() {
+  await resetStylePresets()
+  if (!styleActionError.value) {
+    resetConfirmOpen.value = false
+  }
 }
 </script>
 
@@ -147,7 +188,7 @@ function updateStyleFormField<K extends keyof StyleFormState>(
                   variant="ghost"
                   class="h-auto w-full justify-start gap-2.5 rounded-md px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
                   :disabled="styleConfigLoading || styleCrudSaving || styleResetting"
-                  @click="resetStylePresets(); showMoreMenu = false"
+                  @click="requestResetStylePresets(); showMoreMenu = false"
                 >
                   <RotateCcw class="h-4 w-4" />
                   {{ styleResetting ? '重置中...' : '重置为默认' }}
@@ -195,9 +236,40 @@ function updateStyleFormField<K extends keyof StyleFormState>(
       </div>
 
       <div
+        v-else-if="styleConfigError && allStylePresets.length === 0"
+        class="mx-auto flex max-w-3xl items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+      >
+        <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+        <div class="min-w-0 flex-1">
+          <p class="font-medium">
+            画风预设加载失败
+          </p>
+          <p class="mt-1 break-words text-xs">
+            {{ styleConfigError }}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            class="mt-3 h-8 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            @click="loadStyleConfig"
+          >
+            重试
+          </Button>
+        </div>
+      </div>
+
+      <div
         v-else
         class="mx-auto max-w-[1400px] space-y-6"
       >
+        <div
+          v-if="styleConfigError || styleActionError"
+          class="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+        >
+          <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+          <span class="min-w-0 flex-1 break-words">{{ styleActionError || styleConfigError }}</span>
+        </div>
+
         <SettingsStyleOverview
           :all-style-presets="allStylePresets"
           :current-default-style="currentDefaultStyle"
@@ -208,7 +280,7 @@ function updateStyleFormField<K extends keyof StyleFormState>(
         <SettingsStylePresetCatalog
           v-model:style-search-keyword="styleSearchKeyword"
           v-model:style-category-filter="styleCategoryFilter"
-          :delete-style-preset="deleteStylePreset"
+          :delete-style-preset="requestDeleteStylePreset"
           :enabled-style-id-set="enabledStyleIdSet"
           :filtered-style-presets="filteredStylePresets"
           :get-style-category-name="getStyleCategoryName"
@@ -232,6 +304,26 @@ function updateStyleFormField<K extends keyof StyleFormState>(
       :style-form="styleForm"
       :submit-style-editor="submitStyleEditor"
       @update-field="({ key, value }) => updateStyleFormField(key, value)"
+    />
+
+    <SettingsConfirmDialog
+      v-model:open="deleteConfirmOpen"
+      title="删除画风预设"
+      :description="deleteConfirmDescription"
+      confirm-text="删除"
+      :busy="styleDeletingId === pendingDeleteStyleId"
+      :error="styleActionError"
+      @confirm="confirmDeleteStylePreset"
+    />
+
+    <SettingsConfirmDialog
+      v-model:open="resetConfirmOpen"
+      title="重置画风预设"
+      description="确定重置所有画风预设吗？此操作会恢复为系统默认预设。"
+      confirm-text="重置"
+      :busy="styleResetting"
+      :error="styleActionError"
+      @confirm="confirmResetStylePresets"
     />
   </div>
 </template>

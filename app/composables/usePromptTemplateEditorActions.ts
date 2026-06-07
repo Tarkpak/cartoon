@@ -32,10 +32,12 @@ export function usePromptTemplateEditorActions(
   const loadingVersions = ref(false)
   const versions = ref<PromptVersion[]>([])
   const fileInputRef = ref<HTMLInputElement | null>(null)
+  const actionError = ref('')
 
   async function save() {
     if (options.isReadonly.value) return
     saving.value = true
+    actionError.value = ''
 
     try {
       const response = await savePromptTemplate({
@@ -43,13 +45,17 @@ export function usePromptTemplateEditorActions(
         content: options.localContent.value
       })
 
-      if (!response.success) return
+      if (!response.success) {
+        actionError.value = '保存提示词模板失败'
+        return
+      }
 
       options.onUpdate(response.data)
       options.onSaved()
       options.showDiff.value = false
     } catch (error) {
       console.error('保存失败:', error)
+      actionError.value = error instanceof Error ? error.message : '保存提示词模板失败'
     } finally {
       saving.value = false
     }
@@ -57,9 +63,9 @@ export function usePromptTemplateEditorActions(
 
   async function reset() {
     if (options.isReadonly.value) return
-    if (!confirm('确定要重置此模板为默认值吗？')) return
 
     resetting.value = true
+    actionError.value = ''
 
     try {
       const response = await resetPromptTemplate({
@@ -68,9 +74,12 @@ export function usePromptTemplateEditorActions(
 
       if (response.success) {
         options.onUpdate(response.data)
+      } else {
+        actionError.value = '重置提示词模板失败'
       }
     } catch (error) {
       console.error('重置失败:', error)
+      actionError.value = error instanceof Error ? error.message : '重置提示词模板失败'
     } finally {
       resetting.value = false
     }
@@ -78,6 +87,7 @@ export function usePromptTemplateEditorActions(
 
   async function loadVersions() {
     loadingVersions.value = true
+    actionError.value = ''
 
     try {
       const response = await fetchPromptVersions({
@@ -89,6 +99,7 @@ export function usePromptTemplateEditorActions(
       }
     } catch (error) {
       console.error('加载版本历史失败:', error)
+      actionError.value = error instanceof Error ? error.message : '加载版本历史失败'
     } finally {
       loadingVersions.value = false
     }
@@ -101,7 +112,8 @@ export function usePromptTemplateEditorActions(
 
   async function restoreVersion(versionId: string) {
     if (options.isReadonly.value) return
-    if (!confirm('确定要恢复到此版本吗？')) return
+
+    actionError.value = ''
 
     try {
       const response = await restorePromptTemplate({
@@ -112,9 +124,12 @@ export function usePromptTemplateEditorActions(
       if (response.success) {
         options.onUpdate(response.data)
         showHistory.value = false
+      } else {
+        actionError.value = '恢复版本失败'
       }
     } catch (error) {
       console.error('恢复版本失败:', error)
+      actionError.value = error instanceof Error ? error.message : '恢复版本失败'
     }
   }
 
@@ -133,6 +148,8 @@ export function usePromptTemplateEditorActions(
     const file = input.files?.[0]
     if (!file) return
 
+    actionError.value = ''
+
     try {
       const importedContent = await parsePromptTemplateImport(file)
       options.localContent.value = mergePromptEditorContent(
@@ -142,7 +159,7 @@ export function usePromptTemplateEditorActions(
       options.updateEditorContent()
     } catch (error) {
       console.error('导入失败:', error)
-      alert('导入失败：文件格式不正确')
+      actionError.value = '导入失败：文件格式不正确'
     }
 
     input.value = ''
@@ -155,6 +172,7 @@ export function usePromptTemplateEditorActions(
     loadingVersions,
     versions,
     fileInputRef,
+    actionError,
     save,
     reset,
     openHistory,

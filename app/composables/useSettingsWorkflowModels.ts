@@ -121,13 +121,14 @@ const DEFAULT_COMPLETION_NOTIFICATION_OPTIONS: WorkflowCompletionNotificationOpt
 }
 
 export function useSettingsWorkflowModels() {
-  const { models, selectedModels, loadModels } = useSettingsModelCatalog()
+  const { models, selectedModels, errorMessage: modelCatalogError, loadModels } = useSettingsModelCatalog()
   const {
     completionNotificationOptions: completionNotificationOptionsState,
     setCompletionNotificationOptions
   } = useGenerationCompletionNotification()
 
   const workflowLoading = ref(true)
+  const workflowError = ref('')
   const workflowSaving = ref(false)
   const workflowData = ref<WorkflowData | null>(null)
   const activeCategory = ref<WorkflowCategoryKey>('text')
@@ -197,6 +198,7 @@ export function useSettingsWorkflowModels() {
 
   async function loadWorkflowModels() {
     workflowLoading.value = true
+    workflowError.value = ''
 
     try {
       const response = await $fetch<{ success: boolean, data: WorkflowData }>('/api/models/workflow')
@@ -226,6 +228,7 @@ export function useSettingsWorkflowModels() {
       setCompletionNotificationOptions(completionNotification)
     } catch (error) {
       console.error('[useSettingsWorkflowModels] 加载流程模型配置失败:', error)
+      workflowError.value = error instanceof Error ? error.message : '加载流程模型配置失败'
     } finally {
       workflowLoading.value = false
     }
@@ -599,7 +602,9 @@ export function useSettingsWorkflowModels() {
   return {
     models,
     selectedModels,
+    modelCatalogError,
     workflowLoading,
+    workflowError,
     workflowSaving,
     filteredWorkflows,
     workflowCategories,

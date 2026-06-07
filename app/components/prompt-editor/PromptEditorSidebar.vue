@@ -22,7 +22,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="w-72 flex-shrink-0 border-l flex flex-col overflow-hidden">
+  <div class="hidden w-72 flex-shrink-0 flex-col overflow-hidden border-l @5xl:flex">
     <div class="flex-1 overflow-auto p-4">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">

@@ -150,7 +150,7 @@ async function handleActivateProfile(profileId: string) {
 </script>
 
 <template>
-  <div class="h-full flex overflow-hidden">
+  <div class="flex h-full flex-col overflow-hidden xl:flex-row">
     <div
       v-if="promptsLoading && !selectedPromptTemplate"
       class="flex flex-1 items-center justify-center text-muted-foreground"

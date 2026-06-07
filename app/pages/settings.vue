@@ -24,7 +24,7 @@ const LEGACY_SUB_TO_SECTION: Record<string, MenuSection> = {
   storage: 'storage'
 }
 
-const activeSection = ref<MenuSection>('providers')
+const activeSection = ref<MenuSection>('general')
 const restoringMenuState = ref(true)
 
 function getSingleQueryValue(value: string | string[] | undefined): string | undefined {
@@ -44,20 +44,6 @@ function normalizeMenuSection(rawSection: unknown, rawSub?: unknown): MenuSectio
     }
   }
   return 'general'
-}
-
-function readStoredSection(): MenuSection | null {
-  if (typeof window === 'undefined') return null
-
-  try {
-    const raw = window.localStorage.getItem(SETTINGS_MENU_STORAGE_KEY)
-    if (!raw) return null
-
-    const parsed = JSON.parse(raw) as { section?: unknown, sub?: unknown }
-    return normalizeMenuSection(parsed.section, parsed.sub)
-  } catch {
-    return null
-  }
 }
 
 function saveSection(section: MenuSection) {
@@ -93,15 +79,9 @@ async function restoreMenuStateFromBrowser() {
     return
   }
 
-  const storedSection = readStoredSection()
-  if (storedSection) {
-    activeSection.value = storedSection
-    await navigateTo({ path: '/settings', query: { section: storedSection } }, { replace: true })
-    return
-  }
-
-  activeSection.value = 'providers'
-  saveSection('providers')
+  activeSection.value = 'general'
+  saveSection('general')
+  await navigateTo({ path: '/settings', query: { section: 'general' } }, { replace: true })
 }
 
 const currentSectionComponent = computed(() => {
@@ -120,7 +100,7 @@ const currentSectionComponent = computed(() => {
 watch(() => [route.query.section, route.query.sub], () => {
   if (restoringMenuState.value) return
 
-  const section = getSectionFromRoute() || 'providers'
+  const section = getSectionFromRoute() || 'general'
   activeSection.value = section
   saveSection(section)
 })

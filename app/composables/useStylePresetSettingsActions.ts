@@ -25,7 +25,9 @@ interface UseStylePresetSettingsActionsOptions {
   styleEditorMode: Ref<'create' | 'edit' | null>
   styleEditingId: Ref<string | null>
   styleConfigLoading: Ref<boolean>
+  styleConfigError: Ref<string>
   styleConfigSaving: Ref<boolean>
+  styleActionError: Ref<string>
   styleCrudSaving: Ref<boolean>
   styleDeletingId: Ref<string | null>
   styleResetting: Ref<boolean>
@@ -62,10 +64,14 @@ export function useStylePresetSettingsActions(
 
   async function loadStyleConfig() {
     options.styleConfigLoading.value = true
+    options.styleConfigError.value = ''
 
     try {
       const response = await fetchStylePresetConfig()
-      if (!response.success || !response.data) return
+      if (!response.success || !response.data) {
+        options.styleConfigError.value = '加载画风预设配置失败'
+        return
+      }
 
       applyStyleConfigState({
         allPresets: response.data.allPresets || [],
@@ -74,6 +80,7 @@ export function useStylePresetSettingsActions(
       })
     } catch (error) {
       console.error('[useStylePresetSettings] 加载画风预设配置失败:', error)
+      options.styleConfigError.value = error instanceof Error ? error.message : '加载画风预设配置失败'
     } finally {
       options.styleConfigLoading.value = false
     }
@@ -88,6 +95,7 @@ export function useStylePresetSettingsActions(
     if (!options.styleEditorMode.value) return
 
     options.styleCrudSaving.value = true
+    options.styleActionError.value = ''
 
     try {
       const payload = buildStyleFormPayload(options.styleForm)
@@ -102,16 +110,15 @@ export function useStylePresetSettingsActions(
       options.closeStyleEditor()
     } catch (error) {
       console.error('[useStylePresetSettings] 保存画风预设失败:', error)
-      alert('保存画风预设失败，请检查输入后重试。')
+      options.styleActionError.value = '保存画风预设失败，请检查输入后重试。'
     } finally {
       options.styleCrudSaving.value = false
     }
   }
 
   async function deleteStylePreset(styleId: string) {
-    if (!confirm(`确定删除画风预设 ${styleId} 吗？`)) return
-
     options.styleDeletingId.value = styleId
+    options.styleActionError.value = ''
 
     try {
       await deleteStylePresetRequest(styleId)
@@ -123,16 +130,15 @@ export function useStylePresetSettingsActions(
       }
     } catch (error) {
       console.error('[useStylePresetSettings] 删除画风预设失败:', error)
-      alert('删除画风预设失败，请稍后重试。')
+      options.styleActionError.value = '删除画风预设失败，请稍后重试。'
     } finally {
       options.styleDeletingId.value = null
     }
   }
 
   async function resetStylePresets() {
-    if (!confirm('确定重置所有画风预设吗？此操作会恢复为系统默认预设。')) return
-
     options.styleResetting.value = true
+    options.styleActionError.value = ''
 
     try {
       await resetStylePresetCatalog()
@@ -140,7 +146,7 @@ export function useStylePresetSettingsActions(
       options.closeStyleEditor()
     } catch (error) {
       console.error('[useStylePresetSettings] 重置画风预设失败:', error)
-      alert('重置画风预设失败，请稍后重试。')
+      options.styleActionError.value = '重置画风预设失败，请稍后重试。'
     } finally {
       options.styleResetting.value = false
     }
@@ -156,6 +162,7 @@ export function useStylePresetSettingsActions(
     if (!file) return
 
     options.styleImporting.value = true
+    options.styleActionError.value = ''
 
     try {
       const payload = await parseStylePresetImportFile(file)
@@ -165,7 +172,7 @@ export function useStylePresetSettingsActions(
       options.closeStyleEditor()
     } catch (error) {
       console.error('[useStylePresetSettings] 导入画风预设失败:', error)
-      alert('导入失败，请确认导入文件格式正确。')
+      options.styleActionError.value = '导入失败，请确认导入文件格式正确。'
     } finally {
       options.styleImporting.value = false
       input.value = ''
@@ -174,6 +181,7 @@ export function useStylePresetSettingsActions(
 
   async function exportStylePresets() {
     options.styleExporting.value = true
+    options.styleActionError.value = ''
 
     try {
       const response = await exportStylePresetCatalog()
@@ -182,7 +190,7 @@ export function useStylePresetSettingsActions(
       downloadStylePresetExport(response.data)
     } catch (error) {
       console.error('[useStylePresetSettings] 导出画风预设失败:', error)
-      alert('导出画风预设失败，请稍后重试。')
+      options.styleActionError.value = '导出画风预设失败，请稍后重试。'
     } finally {
       options.styleExporting.value = false
     }
@@ -192,6 +200,7 @@ export function useStylePresetSettingsActions(
     if (!options.hasStyleSelection.value || options.styleConfigSaving.value) return
 
     options.styleConfigSaving.value = true
+    options.styleActionError.value = ''
 
     try {
       const response = await saveStylePresetConfig({
@@ -209,7 +218,7 @@ export function useStylePresetSettingsActions(
       await options.refreshAvailableStyles(true)
     } catch (error) {
       console.error('[useStylePresetSettings] 保存画风预设配置失败:', error)
-      alert('保存画风预设配置失败，请稍后重试。')
+      options.styleActionError.value = '保存画风预设配置失败，请稍后重试。'
     } finally {
       options.styleConfigSaving.value = false
     }

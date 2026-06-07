@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import {
   Loader2,
-  Info
+  Info,
+  TriangleAlert
 } from 'lucide-vue-next'
 import SettingsWorkflowCategorySection from '@/components/settings/SettingsWorkflowCategorySection.vue'
 import SettingsWorkflowGlobalDefaults from '@/components/settings/SettingsWorkflowGlobalDefaults.vue'
@@ -14,7 +15,9 @@ import {
 const {
   models,
   selectedModels,
+  modelCatalogError,
   workflowLoading,
+  workflowError,
   workflowSaving,
   workflowCategories,
   activeCategory,
@@ -27,6 +30,7 @@ const {
   getCapabilityLabel,
   getProviderLabel,
   selectWorkflowCategory,
+  reloadModelSettings,
   updateWorkflowModel,
   updateVideoGenerationModelOptions,
   updateWorkflowGeminiImageSize,
@@ -52,7 +56,7 @@ const activeCategoryIconClass = computed(() => {
 </script>
 
 <template>
-  <div class="h-full flex overflow-hidden">
+  <div class="flex h-full flex-col overflow-hidden xl:flex-row">
     <div
       v-if="workflowLoading"
       class="flex flex-1 items-center justify-center"
@@ -69,6 +73,34 @@ const activeCategoryIconClass = computed(() => {
       />
 
       <div class="@container flex flex-1 flex-col overflow-hidden">
+        <div
+          v-if="modelCatalogError || workflowError"
+          class="flex flex-shrink-0 items-start gap-2 border-b border-destructive/20 bg-destructive/5 px-6 py-3 text-sm text-destructive"
+        >
+          <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+          <div class="min-w-0 flex-1">
+            <p class="font-medium">
+              模型分配配置加载失败
+            </p>
+            <p class="mt-1 break-words text-xs">
+              {{ workflowError || modelCatalogError }}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              class="mt-2 h-8 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              :disabled="workflowLoading"
+              @click="reloadModelSettings"
+            >
+              <Loader2
+                v-if="workflowLoading"
+                class="mr-1.5 h-3.5 w-3.5 animate-spin"
+              />
+              重试
+            </Button>
+          </div>
+        </div>
+
         <div class="border-b px-6 py-4">
           <div class="flex items-center gap-3">
             <div
