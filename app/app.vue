@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import DesktopFfmpegInstallDialog from '@/components/desktop/DesktopFfmpegInstallDialog.vue'
+import DesktopUpdatePromptDialog from '@/components/desktop/DesktopUpdatePromptDialog.vue'
 import DefaultLayout from '@/layouts/default.vue'
 import { useDesktopFfmpeg } from '@/composables/useDesktopFfmpeg'
 
@@ -35,5 +36,6 @@ onMounted(() => {
   <DefaultLayout>
     <RouterView />
     <DesktopFfmpegInstallDialog />
+    <DesktopUpdatePromptDialog />
   </DefaultLayout>
 </template>

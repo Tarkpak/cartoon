@@ -65,6 +65,22 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes from commits
+        id: release_notes
+        shell: bash
+        run: |
+          mkdir -p .output
+          node ./scripts/generate-release-notes.mjs "${GITHUB_REF_NAME}" > .output/release-notes.md
+          cat .output/release-notes.md
+          delimiter="release_notes_$(date +%s)_$RANDOM"
+          {
+            echo "body<<${delimiter}"
+            cat .output/release-notes.md
+            echo "${delimiter}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -125,8 +141,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: ${{ github.ref_name }}
-          releaseBody: |
-            Automated desktop release for ${{ github.ref_name }}.
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           includeUpdaterJson: true
