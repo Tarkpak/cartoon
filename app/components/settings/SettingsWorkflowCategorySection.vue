@@ -28,6 +28,20 @@ function getSelectedModel(workflow: WorkflowConfig) {
   return workflow.compatibleModels.find(model => model.model === workflow.selectedModel)
 }
 
+function getWorkflowStatusLabel(workflow: WorkflowConfig) {
+  if (!workflow.selectedModel) return '未配置模型'
+  return workflow.isOverridden ? '局部覆盖' : '继承全局'
+}
+
+function getWorkflowStatusClass(workflow: WorkflowConfig) {
+  if (!workflow.selectedModel) {
+    return 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
+  }
+  return workflow.isOverridden
+    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300'
+}
+
 function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
   void props.updateWorkflowModel(step, props.toSelectString(value))
 }
@@ -48,9 +62,9 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
             </h4>
             <span
               class="rounded px-1.5 py-0.5 text-[10px]"
-              :class="workflow.isOverridden ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300'"
+              :class="getWorkflowStatusClass(workflow)"
             >
-              {{ workflow.isOverridden ? '局部覆盖' : '继承全局' }}
+              {{ getWorkflowStatusLabel(workflow) }}
             </span>
             <span
               v-for="cap in workflow.requiredCapabilities"
@@ -77,7 +91,7 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
           class="h-4 w-4 flex-shrink-0 text-green-500"
         />
         <AlertCircle
-          v-else-if="!hasCompatibleModels(workflow)"
+          v-else
           class="h-4 w-4 flex-shrink-0 text-amber-500"
         />
       </div>
@@ -104,6 +118,14 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
             </SelectItem>
           </SelectContent>
         </Select>
+
+        <div
+          v-if="!workflow.selectedModel"
+          class="mt-2 flex items-center gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+        >
+          <AlertCircle class="h-4 w-4 flex-shrink-0" />
+          <span>未选择模型，运行该流程会提示先在设置中选择模型</span>
+        </div>
 
         <div
           v-if="workflow.selectedModel"

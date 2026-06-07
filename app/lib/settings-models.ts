@@ -97,13 +97,13 @@ export function getSettingsProviderColor(provider: string): string {
 
 export function buildTestSelectedModels(
   selectedModels: SelectedModels,
-  models: AvailableModelsResponse
+  _models: AvailableModelsResponse
 ): TestSelectedModels {
   return {
-    text: selectedModels.text || models.text[0]?.model || '',
-    image: selectedModels.image || models.image[0]?.model || '',
-    video: selectedModels.video || models.video[0]?.model || '',
-    tts: selectedModels.tts || models.voice.find(model => model.type === 'tts')?.model || ''
+    text: selectedModels.text || '',
+    image: selectedModels.image || '',
+    video: selectedModels.video || '',
+    tts: selectedModels.tts || ''
   }
 }
 

@@ -7,6 +7,98 @@ use ve_tos_rust_sdk::tos;
 
 type HmacSha256 = Hmac<Sha256>;
 
+#[cfg(debug_assertions)]
+macro_rules! llm_dev_log {
+    ($phase:expr, $provider:expr, $model:expr, $operation:expr, $duration_ms:expr $(, $key:expr => $value:expr)* $(,)?) => {{
+        let fields: Vec<(&str, String)> = vec![
+            $(($key, $value.to_string())),*
+        ];
+        llm_dev_log_line($phase, $provider, $model, $operation, $duration_ms, &fields);
+    }};
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! llm_dev_log {
+    ($($tokens:tt)*) => {};
+}
+
+#[cfg(debug_assertions)]
+fn llm_dev_log_preview(value: &str, max_chars: usize) -> String {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() <= max_chars {
+        return compact;
+    }
+
+    let truncated = compact.chars().take(max_chars).collect::<String>();
+    format!("{}...", truncated)
+}
+
+#[cfg(debug_assertions)]
+fn llm_dev_log_source_summary(source: &str) -> String {
+    let trimmed = source.trim();
+    if trimmed.starts_with("data:") {
+        return format!("data-url({} chars)", trimmed.len());
+    }
+    if is_http_url(trimmed) {
+        return llm_dev_log_url_summary(trimmed, 220);
+    }
+    format!("base64-or-inline({} chars)", trimmed.len())
+}
+
+#[cfg(debug_assertions)]
+fn llm_dev_log_url_summary(value: &str, max_chars: usize) -> String {
+    let query_index = value.find('?');
+    let fragment_index = value.find('#');
+    let cut_index = match (query_index, fragment_index) {
+        (Some(query), Some(fragment)) => Some(query.min(fragment)),
+        (Some(query), None) => Some(query),
+        (None, Some(fragment)) => Some(fragment),
+        (None, None) => None,
+    };
+
+    if let Some(index) = cut_index {
+        return format!("{}?...", llm_dev_log_preview(&value[..index], max_chars));
+    }
+
+    llm_dev_log_preview(value, max_chars)
+}
+
+#[cfg(debug_assertions)]
+fn llm_dev_log_line_value(value: &str) -> String {
+    llm_dev_log_preview(&value.replace('\n', "\\n"), 500)
+}
+
+#[cfg(debug_assertions)]
+fn llm_dev_log_line(
+    phase: &str,
+    provider: &str,
+    model: &str,
+    operation: &str,
+    duration_ms: Option<i64>,
+    fields: &[(&str, String)],
+) {
+    let mut parts = vec![
+        format!("provider={}", llm_dev_log_line_value(provider)),
+        format!("model={}", llm_dev_log_line_value(model)),
+        format!("operation={}", llm_dev_log_line_value(operation)),
+    ];
+
+    if let Some(duration_ms) = duration_ms {
+        parts.push(format!("durationMs={}", duration_ms.max(1)));
+    }
+
+    for (key, value) in fields {
+        let rendered = if key.eq_ignore_ascii_case("endpoint") {
+            llm_dev_log_url_summary(value, 500)
+        } else {
+            llm_dev_log_line_value(value)
+        };
+        parts.push(format!("{}={}", key, rendered));
+    }
+
+    eprintln!("[LLM][{}] {}", phase, parts.join(" "));
+}
+
 async fn resolve_source_bytes(
     state: &BackendState,
     source: &str,
@@ -1530,20 +1622,43 @@ async fn run_workflow_text_model(
     prompt: &str,
 ) -> Result<(String, String, String), String> {
     let conn = db_connection(state).map_err(|error| error.message)?;
-    let workflow_models = get_config_json(&conn, WORKFLOW_MODELS_KEY)
-        .map_err(|error| error.message)?
-        .unwrap_or_else(default_workflow_models);
     let creds = load_provider_creds(&conn);
-    let model_id = workflow_models
+    let model_id = resolve_runtime_workflow_model_id(&conn, workflow_step)?;
+    let provider = resolve_model_provider_required_string(&model_id, &creds)?;
+    let text = run_text_model_test_remote(&provider, &model_id, prompt, &creds).await?;
+    Ok((text, provider, model_id))
+}
+
+fn resolve_runtime_workflow_model_id(
+    conn: &rusqlite::Connection,
+    workflow_step: &str,
+) -> Result<String, String> {
+    let available = build_available_models(conn).map_err(|error| error.message)?;
+    let selections =
+        workflow_current_selections(conn, &available).map_err(|error| error.message)?;
+    selections
         .get(workflow_step)
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("qwen3.6-plus")
-        .to_string();
-    let provider = resolve_model_provider_required_string(&model_id, &creds)?;
-    let text = run_text_model_test_remote(&provider, &model_id, prompt, &creds).await?;
-    Ok((text, provider, model_id))
+        .map(str::to_string)
+        .ok_or_else(|| {
+            format!(
+                "未配置{}模型，请先在设置中选择模型",
+                workflow_step_label(workflow_step)
+            )
+        })
+}
+
+fn workflow_step_label(workflow_step: &str) -> &'static str {
+    match workflow_step {
+        "script_parsing" => "分集目录规划与剧本解析",
+        "scene_description_refinement" => "场景描述二次改写",
+        "character_portrait" => "角色资产生成",
+        "frame_generation" => "环境参考图生成",
+        "video_generation" => "分镜视频生成",
+        _ => "工作流",
+    }
 }
 
 fn provider_images_generations_endpoint(base_url: &str) -> String {
@@ -1954,8 +2069,22 @@ async fn request_custom_openai_image_generation(
     reference_images: &[String],
     creds: &Value,
 ) -> Result<(String, Option<String>), String> {
-    let custom_openai = creds.get("custom_openai").cloned().unwrap_or_else(|| json!({}));
+    let custom_openai = creds
+        .get("custom_openai")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let api_keys = provider_sync_api_keys("custom_openai", creds);
+    if api_keys.is_empty() {
+        llm_dev_log!(
+            "error",
+            "custom_openai",
+            model_id,
+            "generateImage",
+            None::<i64>,
+            "error" => "未配置 API Key"
+        );
+        return Err("未配置 API Key".to_string());
+    }
     let base_url = provider_sync_base_url("custom_openai", creds)
         .ok_or_else(|| "未配置 Base URL".to_string())?;
     let model = normalize_model_id_for_remote(model_id);
@@ -1992,6 +2121,25 @@ async fn request_custom_openai_image_generation(
     };
 
     let mut last_error = None::<String>;
+    let _log_started_at = Utc::now().timestamp_millis();
+
+    llm_dev_log!(
+        "request",
+        "custom_openai",
+        model_id,
+        "generateImage",
+        None::<i64>,
+        "endpoint" => if !reference_images.is_empty() && !use_image_urls_in_generations {
+            provider_images_edits_endpoint(&base_url)
+        } else {
+            provider_images_generations_endpoint(&base_url)
+        },
+        "prompt" => llm_dev_log_preview(prompt, 220),
+        "size" => resolved_size.as_str(),
+        "referenceImages" => reference_images.len(),
+        "apiKeys" => api_keys.len()
+    );
+
     for api_key in api_keys {
         let response = if !reference_images.is_empty() && !use_image_urls_in_generations {
             let mut form = reqwest::multipart::Form::new()
@@ -2005,7 +2153,20 @@ async fn request_custom_openai_image_generation(
                 }
             }
             for (index, reference) in reference_images.iter().enumerate() {
-                form = form.part("image[]", reference_image_part(reference, index)?);
+                form = form.part(
+                    "image[]",
+                    reference_image_part(reference, index).map_err(|error| {
+                        llm_dev_log!(
+                            "error",
+                            "custom_openai",
+                            model_id,
+                            "generateImage",
+                            Some(Utc::now().timestamp_millis() - _log_started_at),
+                            "error" => error.as_str()
+                        );
+                        error
+                    })?,
+                );
             }
             http_client()
                 .post(provider_images_edits_endpoint(&base_url))
@@ -2014,7 +2175,18 @@ async fn request_custom_openai_image_generation(
                 .multipart(form)
                 .send()
                 .await
-                .map_err(|error| error.to_string())?
+                .map_err(|error| {
+                    let message = error.to_string();
+                    llm_dev_log!(
+                        "error",
+                        "custom_openai",
+                        model_id,
+                        "generateImage",
+                        Some(Utc::now().timestamp_millis() - _log_started_at),
+                        "error" => message.as_str()
+                    );
+                    message
+                })?
         } else {
             let mut request_body = json!({
               "model": model,
@@ -2040,7 +2212,18 @@ async fn request_custom_openai_image_generation(
                 .json(&request_body)
                 .send()
                 .await
-                .map_err(|error| error.to_string())?
+                .map_err(|error| {
+                    let message = error.to_string();
+                    llm_dev_log!(
+                        "error",
+                        "custom_openai",
+                        model_id,
+                        "generateImage",
+                        Some(Utc::now().timestamp_millis() - _log_started_at),
+                        "error" => message.as_str()
+                    );
+                    message
+                })?
         };
 
         let status = response.status();
@@ -2057,15 +2240,66 @@ async fn request_custom_openai_image_generation(
             )
         })?;
         if let Some(result) = parse_openai_compatible_image_result(&payload) {
+            llm_dev_log!(
+                "success",
+                "custom_openai",
+                model_id,
+                "generateImage",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "status" => status.as_u16(),
+                "result" => llm_dev_log_source_summary(&result.0)
+            );
             return Ok(result);
         }
         if let Some(task_id) = parse_openai_compatible_image_task_id(&payload) {
-            return poll_openai_compatible_image_task(&base_url, &api_key, &task_id).await;
+            llm_dev_log!(
+                "task",
+                "custom_openai",
+                model_id,
+                "generateImage",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "taskId" => task_id.as_str()
+            );
+            return match poll_openai_compatible_image_task(&base_url, &api_key, &task_id).await {
+                Ok(result) => {
+                    llm_dev_log!(
+                        "success",
+                        "custom_openai",
+                        model_id,
+                        "generateImage",
+                        Some(Utc::now().timestamp_millis() - _log_started_at),
+                        "taskId" => task_id.as_str(),
+                        "result" => llm_dev_log_source_summary(&result.0)
+                    );
+                    Ok(result)
+                }
+                Err(error) => {
+                    llm_dev_log!(
+                        "error",
+                        "custom_openai",
+                        model_id,
+                        "generateImage",
+                        Some(Utc::now().timestamp_millis() - _log_started_at),
+                        "taskId" => task_id.as_str(),
+                        "error" => error.as_str()
+                    );
+                    Err(error)
+                }
+            };
         }
         last_error = Some("OpenAI 兼容图片生成未返回图片 URL 或 base64".to_string());
     }
 
-    Err(last_error.unwrap_or_else(|| "OpenAI 兼容图片生成失败".to_string()))
+    let message = last_error.unwrap_or_else(|| "OpenAI 兼容图片生成失败".to_string());
+    llm_dev_log!(
+        "error",
+        "custom_openai",
+        model_id,
+        "generateImage",
+        Some(Utc::now().timestamp_millis() - _log_started_at),
+        "error" => message.as_str()
+    );
+    Err(message)
 }
 
 fn parse_qwen_multimodal_image_result(payload: &Value) -> Option<(String, Option<String>)> {
@@ -2142,13 +2376,35 @@ async fn request_openai_compatible_image_generation(
     }
     let api_keys = provider_sync_api_keys(provider, creds);
     if api_keys.is_empty() {
+        llm_dev_log!(
+            "error",
+            provider,
+            model_id,
+            "generateImage",
+            None::<i64>,
+            "error" => "未配置 API Key"
+        );
         return Err("未配置 API Key".to_string());
     }
-    let base_url = provider_sync_base_url(provider, creds)
-        .ok_or_else(|| "未配置 Base URL".to_string())?;
+    let base_url =
+        provider_sync_base_url(provider, creds).ok_or_else(|| "未配置 Base URL".to_string())?;
     let endpoint = provider_images_generations_endpoint(&base_url);
     let model = normalize_model_id_for_remote(model_id);
     let mut last_error = None::<String>;
+    let _log_started_at = Utc::now().timestamp_millis();
+
+    llm_dev_log!(
+        "request",
+        provider,
+        model_id,
+        "generateImage",
+        None::<i64>,
+        "endpoint" => endpoint.as_str(),
+        "prompt" => llm_dev_log_preview(prompt, 220),
+        "size" => size,
+        "referenceImages" => reference_images.len(),
+        "apiKeys" => api_keys.len()
+    );
 
     for api_key in api_keys {
         let mut request_body = json!({
@@ -2172,7 +2428,18 @@ async fn request_openai_compatible_image_generation(
             .json(&request_body)
             .send()
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                let message = error.to_string();
+                llm_dev_log!(
+                    "error",
+                    provider,
+                    model_id,
+                    "generateImage",
+                    Some(Utc::now().timestamp_millis() - _log_started_at),
+                    "error" => message.as_str()
+                );
+                message
+            })?;
 
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
@@ -2189,12 +2456,30 @@ async fn request_openai_compatible_image_generation(
             )
         })?;
         if let Some(result) = parse_openai_compatible_image_result(&payload) {
+            llm_dev_log!(
+                "success",
+                provider,
+                model_id,
+                "generateImage",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "status" => status.as_u16(),
+                "result" => llm_dev_log_source_summary(&result.0)
+            );
             return Ok(result);
         }
         last_error = Some("图片模型未返回可用图片".to_string());
     }
 
-    Err(last_error.unwrap_or_else(|| "图片生成失败".to_string()))
+    let message = last_error.unwrap_or_else(|| "图片生成失败".to_string());
+    llm_dev_log!(
+        "error",
+        provider,
+        model_id,
+        "generateImage",
+        Some(Utc::now().timestamp_millis() - _log_started_at),
+        "error" => message.as_str()
+    );
+    Err(message)
 }
 
 fn qwen_multimodal_generation_endpoint(base_url: &str) -> String {
@@ -2237,6 +2522,14 @@ async fn request_qwen_image_generation(
 ) -> Result<(String, Option<String>), String> {
     let api_keys = provider_sync_api_keys("qwen", creds);
     if api_keys.is_empty() {
+        llm_dev_log!(
+            "error",
+            "qwen",
+            model_id,
+            "generateImage",
+            None::<i64>,
+            "error" => "未配置千问 API Key，请在设置中配置"
+        );
         return Err("未配置千问 API Key，请在设置中配置".to_string());
     }
     let base_url = qwen_api_base_url();
@@ -2247,6 +2540,20 @@ async fn request_qwen_image_generation(
         content.push(json!({ "image": image }));
     }
     let mut last_error = None::<String>;
+    let _log_started_at = Utc::now().timestamp_millis();
+
+    llm_dev_log!(
+        "request",
+        "qwen",
+        model_id,
+        "generateImage",
+        None::<i64>,
+        "endpoint" => endpoint.as_str(),
+        "prompt" => llm_dev_log_preview(prompt, 220),
+        "size" => qwen_image_size(&model, size),
+        "referenceImages" => reference_images.len(),
+        "apiKeys" => api_keys.len()
+    );
 
     for api_key in api_keys {
         let response = http_client()
@@ -2270,7 +2577,18 @@ async fn request_qwen_image_generation(
             }))
             .send()
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                let message = error.to_string();
+                llm_dev_log!(
+                    "error",
+                    "qwen",
+                    model_id,
+                    "generateImage",
+                    Some(Utc::now().timestamp_millis() - _log_started_at),
+                    "error" => message.as_str()
+                );
+                message
+            })?;
 
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
@@ -2287,12 +2605,30 @@ async fn request_qwen_image_generation(
             )
         })?;
         if let Some(result) = parse_qwen_multimodal_image_result(&payload) {
+            llm_dev_log!(
+                "success",
+                "qwen",
+                model_id,
+                "generateImage",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "status" => status.as_u16(),
+                "result" => llm_dev_log_source_summary(&result.0)
+            );
             return Ok(result);
         }
         last_error = Some("Qwen 图片模型未返回可用图片".to_string());
     }
 
-    Err(last_error.unwrap_or_else(|| "Qwen 图片生成失败".to_string()))
+    let message = last_error.unwrap_or_else(|| "Qwen 图片生成失败".to_string());
+    llm_dev_log!(
+        "error",
+        "qwen",
+        model_id,
+        "generateImage",
+        Some(Utc::now().timestamp_millis() - _log_started_at),
+        "error" => message.as_str()
+    );
+    Err(message)
 }
 
 async fn request_gemini_image_generation(
@@ -2303,12 +2639,33 @@ async fn request_gemini_image_generation(
 ) -> Result<(String, Option<String>), String> {
     let api_keys = provider_sync_api_keys("gemini", creds);
     if api_keys.is_empty() {
+        llm_dev_log!(
+            "error",
+            "gemini",
+            model_id,
+            "generateImage",
+            None::<i64>,
+            "error" => "未配置 API Key"
+        );
         return Err("未配置 API Key".to_string());
     }
-    let base_url = provider_sync_base_url("gemini", creds)
-        .ok_or_else(|| "未配置 Base URL".to_string())?;
+    let base_url =
+        provider_sync_base_url("gemini", creds).ok_or_else(|| "未配置 Base URL".to_string())?;
     let endpoint = provider_gemini_generate_endpoint(&base_url, model_id);
     let mut last_error = None::<String>;
+    let _log_started_at = Utc::now().timestamp_millis();
+
+    llm_dev_log!(
+        "request",
+        "gemini",
+        model_id,
+        "generateImage",
+        None::<i64>,
+        "endpoint" => endpoint.as_str(),
+        "prompt" => llm_dev_log_preview(prompt, 220),
+        "referenceImages" => reference_images.len(),
+        "apiKeys" => api_keys.len()
+    );
 
     for api_key in api_keys {
         let mut parts = vec![json!({ "text": prompt })];
@@ -2350,7 +2707,18 @@ async fn request_gemini_image_generation(
             }))
             .send()
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                let message = error.to_string();
+                llm_dev_log!(
+                    "error",
+                    "gemini",
+                    model_id,
+                    "generateImage",
+                    Some(Utc::now().timestamp_millis() - _log_started_at),
+                    "error" => message.as_str()
+                );
+                message
+            })?;
 
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
@@ -2367,12 +2735,30 @@ async fn request_gemini_image_generation(
             )
         })?;
         if let Some(result) = parse_gemini_image_result(&payload) {
+            llm_dev_log!(
+                "success",
+                "gemini",
+                model_id,
+                "generateImage",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "status" => status.as_u16(),
+                "result" => llm_dev_log_source_summary(&result.0)
+            );
             return Ok(result);
         }
         last_error = Some("Gemini 未返回可用图片".to_string());
     }
 
-    Err(last_error.unwrap_or_else(|| "Gemini 图片生成失败".to_string()))
+    let message = last_error.unwrap_or_else(|| "Gemini 图片生成失败".to_string());
+    llm_dev_log!(
+        "error",
+        "gemini",
+        model_id,
+        "generateImage",
+        Some(Utc::now().timestamp_millis() - _log_started_at),
+        "error" => message.as_str()
+    );
+    Err(message)
 }
 
 async fn run_workflow_image_model(
@@ -2384,32 +2770,12 @@ async fn run_workflow_image_model(
     reference_images: &[String],
 ) -> Result<(String, String, String), String> {
     let conn = db_connection(state).map_err(|error| error.message)?;
-    let workflow_models = get_config_json(&conn, WORKFLOW_MODELS_KEY)
-        .map_err(|error| error.message)?
-        .unwrap_or_else(default_workflow_models);
     let creds = load_provider_creds(&conn);
-    let model_id = workflow_models
-        .get(workflow_step)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            workflow_models
-                .get("character_portrait")
-                .and_then(Value::as_str)
-        })
-        .or_else(|| {
-            workflow_models
-                .get("frame_generation")
-                .and_then(Value::as_str)
-        })
-        .unwrap_or("qwen-image-2.0-pro")
-        .to_string();
+    let model_id = resolve_runtime_workflow_model_id(&conn, workflow_step)?;
     let provider = infer_model_provider_required_string(&model_id)?;
     let (source, mime_type) = match provider.as_str() {
         "qwen" => {
-            request_qwen_image_generation(&model_id, prompt, size, reference_images, &creds)
-                .await?
+            request_qwen_image_generation(&model_id, prompt, size, reference_images, &creds).await?
         }
         "volcengine" | "custom_openai" => {
             request_openai_compatible_image_generation(
@@ -2423,8 +2789,7 @@ async fn run_workflow_image_model(
             .await?
         }
         "gemini" => {
-            request_gemini_image_generation(&model_id, prompt, reference_images, &creds)
-                .await?
+            request_gemini_image_generation(&model_id, prompt, reference_images, &creds).await?
         }
         "kling" => {
             request_kling_image_generation(&model_id, prompt, size, reference_images).await?
@@ -2450,18 +2815,10 @@ async fn run_workflow_image_model(
 fn resolve_workflow_model_id(
     state: &BackendState,
     workflow_step: &str,
-    fallback_model_id: &str,
 ) -> Result<String, ApiError> {
     let conn = db_connection(state)?;
-    let workflow_models =
-        get_config_json(&conn, WORKFLOW_MODELS_KEY)?.unwrap_or_else(default_workflow_models);
-    Ok(workflow_models
-        .get(workflow_step)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(fallback_model_id)
-        .to_string())
+    resolve_runtime_workflow_model_id(&conn, workflow_step)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error))
 }
 
 fn build_video_prompt_from_scene(scene: &Value, config: &Value) -> String {
@@ -3258,33 +3615,108 @@ fn parse_qwen_video_url(payload: &Value) -> Option<String> {
 }
 
 async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(String, Value), String> {
-    let api_key = provider_sync_api_key("qwen", &current_provider_creds())
-        .ok_or_else(|| "未配置千问 API Key，请在设置中配置".to_string())?;
+    let _log_started_at = Utc::now().timestamp_millis();
+    let api_key = provider_sync_api_key("qwen", &current_provider_creds()).ok_or_else(|| {
+        llm_dev_log!(
+            "error",
+            "qwen",
+            model_id,
+            "generateVideo",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "error" => "未配置千问 API Key，请在设置中配置"
+        );
+        "未配置千问 API Key，请在设置中配置".to_string()
+    })?;
     let base_url = qwen_api_base_url();
     let request_body = build_qwen_video_request(model_id, config);
+    let endpoint = qwen_video_endpoint(&base_url);
+
+    llm_dev_log!(
+        "request",
+        "qwen",
+        model_id,
+        "generateVideo",
+        None::<i64>,
+        "endpoint" => endpoint.as_str(),
+        "prompt" => llm_dev_log_preview(&json_string(config.get("prompt"), ""), 220),
+        "duration" => normalize_video_duration(config.get("duration"))
+    );
+
     let response = http_client()
-        .post(qwen_video_endpoint(&base_url))
+        .post(&endpoint)
         .bearer_auth(api_key)
         .header(reqwest::header::ACCEPT, "application/json")
         .header("X-DashScope-Async", "enable")
         .json(&request_body)
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            let message = error.to_string();
+            llm_dev_log!(
+                "error",
+                "qwen",
+                model_id,
+                "generateVideo",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => message.as_str()
+            );
+            message
+        })?;
     let status = response.status();
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
-        return Err(build_sync_error_message(status, &body_text));
+        let message = build_sync_error_message(status, &body_text);
+        llm_dev_log!(
+            "error",
+            "qwen",
+            model_id,
+            "generateVideo",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "status" => status.as_u16(),
+            "error" => message.as_str()
+        );
+        return Err(message);
     }
     let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-        format!(
+        let message = format!(
             "解析 Qwen 视频任务响应失败: {} ({})",
             error,
             truncate_for_error(&body_text, 160)
-        )
+        );
+        llm_dev_log!(
+            "error",
+            "qwen",
+            model_id,
+            "generateVideo",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "error" => message.as_str()
+        );
+        message
     })?;
-    let upstream_task_id =
-        parse_qwen_task_id(&payload).ok_or_else(|| "Qwen 未返回 task_id".to_string())?;
+    let upstream_task_id = match parse_qwen_task_id(&payload) {
+        Some(task_id) => task_id,
+        None => {
+            let message = "Qwen 未返回 task_id";
+            llm_dev_log!(
+                "error",
+                "qwen",
+                model_id,
+                "generateVideo",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => message
+            );
+            return Err(message.to_string());
+        }
+    };
+    llm_dev_log!(
+        "task",
+        "qwen",
+        model_id,
+        "generateVideo",
+        Some(Utc::now().timestamp_millis() - _log_started_at),
+        "status" => status.as_u16(),
+        "taskId" => upstream_task_id.as_str()
+    );
     Ok((upstream_task_id, request_body))
 }
 
@@ -3436,8 +3868,18 @@ async fn request_qwen_text_to_speech(
     model_id: &str,
     body: &Value,
 ) -> Result<(String, Option<String>, bool, Value), String> {
-    let api_key = provider_sync_api_key("qwen", &current_provider_creds())
-        .ok_or_else(|| "未配置千问 API Key，请在设置中配置".to_string())?;
+    let _log_started_at = Utc::now().timestamp_millis();
+    let api_key = provider_sync_api_key("qwen", &current_provider_creds()).ok_or_else(|| {
+        llm_dev_log!(
+            "error",
+            "qwen",
+            model_id,
+            "textToSpeech",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "error" => "未配置千问 API Key，请在设置中配置"
+        );
+        "未配置千问 API Key，请在设置中配置".to_string()
+    })?;
     let base_url = qwen_api_base_url();
     let text = json_string(body.get("prompt"), "");
     let voice = json_string(body.get("voice"), "Cherry");
@@ -3476,6 +3918,18 @@ async fn request_qwen_text_to_speech(
             )
         };
 
+    llm_dev_log!(
+        "request",
+        "qwen",
+        model_id,
+        "textToSpeech",
+        None::<i64>,
+        "endpoint" => endpoint.as_str(),
+        "text" => llm_dev_log_preview(&text, 220),
+        "voice" => voice.as_str(),
+        "format" => format.as_str()
+    );
+
     let response = http_client()
         .post(endpoint)
         .bearer_auth(api_key)
@@ -3483,22 +3937,76 @@ async fn request_qwen_text_to_speech(
         .json(&request_body)
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            let message = error.to_string();
+            llm_dev_log!(
+                "error",
+                "qwen",
+                model_id,
+                "textToSpeech",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => message.as_str()
+            );
+            message
+        })?;
     let status = response.status();
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
-        return Err(build_sync_error_message(status, &body_text));
+        let message = build_sync_error_message(status, &body_text);
+        llm_dev_log!(
+            "error",
+            "qwen",
+            model_id,
+            "textToSpeech",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "status" => status.as_u16(),
+            "error" => message.as_str()
+        );
+        return Err(message);
     }
     let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-        format!(
+        let message = format!(
             "解析 Qwen TTS 响应失败: {} ({})",
             error,
             truncate_for_error(&body_text, 160)
-        )
+        );
+        llm_dev_log!(
+            "error",
+            "qwen",
+            model_id,
+            "textToSpeech",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "error" => message.as_str()
+        );
+        message
     })?;
-    let (source, mime_type, is_url) =
-        parse_qwen_tts_result(&payload).ok_or_else(|| "TTS 生成失败".to_string())?;
+    let (source, mime_type, is_url) = match parse_qwen_tts_result(&payload) {
+        Some(result) => result,
+        None => {
+            let message = "TTS 生成失败";
+            llm_dev_log!(
+                "error",
+                "qwen",
+                model_id,
+                "textToSpeech",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => message
+            );
+            return Err(message.to_string());
+        }
+    };
     let mime_type = mime_type.or_else(|| Some(qwen_audio_mime_from_format(&format).to_string()));
+    llm_dev_log!(
+        "success",
+        "qwen",
+        model_id,
+        "textToSpeech",
+        Some(Utc::now().timestamp_millis() - _log_started_at),
+        "status" => status.as_u16(),
+        "result" => llm_dev_log_source_summary(&source),
+        "mimeType" => mime_type.as_deref().unwrap_or("unknown"),
+        "isUrl" => is_url
+    );
     Ok((source, mime_type, is_url, request_body))
 }
 
@@ -3756,34 +4264,109 @@ async fn submit_volcengine_video_task(
     model_id: &str,
     config: &Value,
 ) -> Result<(String, Value), String> {
+    let _log_started_at = Utc::now().timestamp_millis();
     let conn = db_connection(state).map_err(|error| error.message)?;
     let creds = load_provider_creds(&conn);
-    let api_key = provider_sync_api_key("volcengine", &creds)
-        .ok_or_else(|| "未配置火山引擎 API Key，请在设置中配置".to_string())?;
+    let api_key = provider_sync_api_key("volcengine", &creds).ok_or_else(|| {
+        llm_dev_log!(
+            "error",
+            "volcengine",
+            model_id,
+            "generateVideo",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "error" => "未配置火山引擎 API Key，请在设置中配置"
+        );
+        "未配置火山引擎 API Key，请在设置中配置".to_string()
+    })?;
     let base_url = volcengine_video_base_url(&creds);
     let request_body = build_volcengine_video_request(model_id, config);
+    let endpoint = volcengine_create_task_endpoint(&base_url);
+
+    llm_dev_log!(
+        "request",
+        "volcengine",
+        model_id,
+        "generateVideo",
+        None::<i64>,
+        "endpoint" => endpoint.as_str(),
+        "prompt" => llm_dev_log_preview(&json_string(config.get("prompt"), ""), 220),
+        "duration" => normalize_video_duration(config.get("duration"))
+    );
+
     let response = http_client()
-        .post(volcengine_create_task_endpoint(&base_url))
+        .post(&endpoint)
         .bearer_auth(api_key)
         .header(reqwest::header::ACCEPT, "application/json")
         .json(&request_body)
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            let message = error.to_string();
+            llm_dev_log!(
+                "error",
+                "volcengine",
+                model_id,
+                "generateVideo",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => message.as_str()
+            );
+            message
+        })?;
     let status = response.status();
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
-        return Err(build_sync_error_message(status, &body_text));
+        let message = build_sync_error_message(status, &body_text);
+        llm_dev_log!(
+            "error",
+            "volcengine",
+            model_id,
+            "generateVideo",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "status" => status.as_u16(),
+            "error" => message.as_str()
+        );
+        return Err(message);
     }
     let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-        format!(
+        let message = format!(
             "解析 Volcengine 视频任务响应失败: {} ({})",
             error,
             truncate_for_error(&body_text, 160)
-        )
+        );
+        llm_dev_log!(
+            "error",
+            "volcengine",
+            model_id,
+            "generateVideo",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "error" => message.as_str()
+        );
+        message
     })?;
-    let upstream_task_id =
-        parse_volcengine_task_id(&payload).ok_or_else(|| "Volcengine 未返回任务 id".to_string())?;
+    let upstream_task_id = match parse_volcengine_task_id(&payload) {
+        Some(task_id) => task_id,
+        None => {
+            let message = "Volcengine 未返回任务 id";
+            llm_dev_log!(
+                "error",
+                "volcengine",
+                model_id,
+                "generateVideo",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => message
+            );
+            return Err(message.to_string());
+        }
+    };
+    llm_dev_log!(
+        "task",
+        "volcengine",
+        model_id,
+        "generateVideo",
+        Some(Utc::now().timestamp_millis() - _log_started_at),
+        "status" => status.as_u16(),
+        "taskId" => upstream_task_id.as_str()
+    );
     Ok((upstream_task_id, request_body))
 }
 
@@ -4377,11 +4960,45 @@ async fn request_kling_image_generation(
     size: &str,
     reference_images: &[String],
 ) -> Result<(String, Option<String>), String> {
-    let (access_key, secret_key) = kling_credentials()?;
+    let _log_started_at = Utc::now().timestamp_millis();
+    let (access_key, secret_key) = kling_credentials().map_err(|error| {
+        llm_dev_log!(
+            "error",
+            "kling",
+            model_id,
+            "generateImage",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "error" => error.as_str()
+        );
+        error
+    })?;
     let base_url = kling_base_url();
     let (endpoint, request_body) =
         build_kling_image_request(model_id, prompt, size, reference_images);
-    let token = build_kling_jwt(&access_key, &secret_key)?;
+    let token = build_kling_jwt(&access_key, &secret_key).map_err(|error| {
+        llm_dev_log!(
+            "error",
+            "kling",
+            model_id,
+            "generateImage",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "error" => error.as_str()
+        );
+        error
+    })?;
+
+    llm_dev_log!(
+        "request",
+        "kling",
+        model_id,
+        "generateImage",
+        None::<i64>,
+        "endpoint" => format!("{}{}", base_url, endpoint),
+        "prompt" => llm_dev_log_preview(prompt, 220),
+        "size" => size,
+        "referenceImages" => reference_images.len()
+    );
+
     let response = http_client()
         .post(format!("{}{}", base_url, endpoint))
         .bearer_auth(token)
@@ -4389,18 +5006,48 @@ async fn request_kling_image_generation(
         .json(&request_body)
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            let message = error.to_string();
+            llm_dev_log!(
+                "error",
+                "kling",
+                model_id,
+                "generateImage",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => message.as_str()
+            );
+            message
+        })?;
     let status = response.status();
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
-        return Err(build_sync_error_message(status, &body_text));
+        let message = build_sync_error_message(status, &body_text);
+        llm_dev_log!(
+            "error",
+            "kling",
+            model_id,
+            "generateImage",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "status" => status.as_u16(),
+            "error" => message.as_str()
+        );
+        return Err(message);
     }
     let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-        format!(
+        let message = format!(
             "解析 Kling 图片任务响应失败: {} ({})",
             error,
             truncate_for_error(&body_text, 160)
-        )
+        );
+        llm_dev_log!(
+            "error",
+            "kling",
+            model_id,
+            "generateImage",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "error" => message.as_str()
+        );
+        message
     })?;
     let code = payload.get("code").and_then(Value::as_i64).unwrap_or(0);
     if code != 0 {
@@ -4408,37 +5055,122 @@ async fn request_kling_image_generation(
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or("Kling API 错误");
+        llm_dev_log!(
+            "error",
+            "kling",
+            model_id,
+            "generateImage",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "status" => status.as_u16(),
+            "error" => message
+        );
         return Err(message.to_string());
     }
-    let upstream_task_id =
-        parse_kling_task_id(&payload).ok_or_else(|| "Kling 未返回 task_id".to_string())?;
+    let upstream_task_id = match parse_kling_task_id(&payload) {
+        Some(task_id) => task_id,
+        None => {
+            let message = "Kling 未返回 task_id";
+            llm_dev_log!(
+                "error",
+                "kling",
+                model_id,
+                "generateImage",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => message
+            );
+            return Err(message.to_string());
+        }
+    };
+
+    llm_dev_log!(
+        "task",
+        "kling",
+        model_id,
+        "generateImage",
+        Some(Utc::now().timestamp_millis() - _log_started_at),
+        "taskId" => upstream_task_id.as_str()
+    );
 
     let started_at = Utc::now().timestamp_millis();
     let max_wait_ms = 5 * 60 * 1000i64;
     loop {
         if Utc::now().timestamp_millis() - started_at > max_wait_ms {
-            return Err("Kling 图片生成超时".to_string());
+            let message = "Kling 图片生成超时";
+            llm_dev_log!(
+                "error",
+                "kling",
+                model_id,
+                "generateImage",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "taskId" => upstream_task_id.as_str(),
+                "error" => message
+            );
+            return Err(message.to_string());
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
-        let token = build_kling_jwt(&access_key, &secret_key)?;
+        let token = build_kling_jwt(&access_key, &secret_key).map_err(|error| {
+            llm_dev_log!(
+                "error",
+                "kling",
+                model_id,
+                "generateImage",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "taskId" => upstream_task_id.as_str(),
+                "error" => error.as_str()
+            );
+            error
+        })?;
         let response = http_client()
             .get(format!("{}{}/{}", base_url, endpoint, upstream_task_id))
             .bearer_auth(token)
             .header(reqwest::header::ACCEPT, "application/json")
             .send()
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                let message = error.to_string();
+                llm_dev_log!(
+                    "error",
+                    "kling",
+                    model_id,
+                    "generateImage",
+                    Some(Utc::now().timestamp_millis() - _log_started_at),
+                    "taskId" => upstream_task_id.as_str(),
+                    "error" => message.as_str()
+                );
+                message
+            })?;
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
-            return Err(build_sync_error_message(status, &body_text));
+            let message = build_sync_error_message(status, &body_text);
+            llm_dev_log!(
+                "error",
+                "kling",
+                model_id,
+                "generateImage",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "taskId" => upstream_task_id.as_str(),
+                "status" => status.as_u16(),
+                "error" => message.as_str()
+            );
+            return Err(message);
         }
         let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-            format!(
+            let message = format!(
                 "解析 Kling 图片状态失败: {} ({})",
                 error,
                 truncate_for_error(&body_text, 160)
-            )
+            );
+            llm_dev_log!(
+                "error",
+                "kling",
+                model_id,
+                "generateImage",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "taskId" => upstream_task_id.as_str(),
+                "error" => message.as_str()
+            );
+            message
         })?;
         let code = payload.get("code").and_then(Value::as_i64).unwrap_or(0);
         if code != 0 {
@@ -4446,13 +5178,43 @@ async fn request_kling_image_generation(
                 .get("message")
                 .and_then(Value::as_str)
                 .unwrap_or("Kling API 错误");
+            llm_dev_log!(
+                "error",
+                "kling",
+                model_id,
+                "generateImage",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "taskId" => upstream_task_id.as_str(),
+                "status" => status.as_u16(),
+                "error" => message
+            );
             return Err(message.to_string());
         }
         match parse_kling_task_status(&payload).as_str() {
             "succeed" => {
-                return parse_kling_image_url(&payload)
-                    .map(|url| (url, None))
-                    .ok_or_else(|| "Kling 图片成功但未返回 URL".to_string());
+                let Some(url) = parse_kling_image_url(&payload) else {
+                    let message = "Kling 图片成功但未返回 URL";
+                    llm_dev_log!(
+                        "error",
+                        "kling",
+                        model_id,
+                        "generateImage",
+                        Some(Utc::now().timestamp_millis() - _log_started_at),
+                        "taskId" => upstream_task_id.as_str(),
+                        "error" => message
+                    );
+                    return Err(message.to_string());
+                };
+                llm_dev_log!(
+                    "success",
+                    "kling",
+                    model_id,
+                    "generateImage",
+                    Some(Utc::now().timestamp_millis() - _log_started_at),
+                    "taskId" => upstream_task_id.as_str(),
+                    "result" => llm_dev_log_source_summary(&url)
+                );
+                return Ok((url, None));
             }
             "failed" => {
                 let message = payload
@@ -4461,6 +5223,15 @@ async fn request_kling_image_generation(
                     .and_then(Value::as_str)
                     .or_else(|| payload.get("message").and_then(Value::as_str))
                     .unwrap_or("Kling 图片生成失败");
+                llm_dev_log!(
+                    "error",
+                    "kling",
+                    model_id,
+                    "generateImage",
+                    Some(Utc::now().timestamp_millis() - _log_started_at),
+                    "taskId" => upstream_task_id.as_str(),
+                    "error" => message
+                );
                 return Err(message.to_string());
             }
             _ => {}
@@ -4473,12 +5244,55 @@ async fn submit_kling_video_task(
     model_id: &str,
     config: &Value,
 ) -> Result<(String, String, Value), String> {
-    let (access_key, secret_key) = kling_credentials()?;
-    let token = build_kling_jwt(&access_key, &secret_key)?;
+    let _log_started_at = Utc::now().timestamp_millis();
+    let (access_key, secret_key) = kling_credentials().map_err(|error| {
+        llm_dev_log!(
+            "error",
+            "kling",
+            model_id,
+            "generateVideo",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "error" => error.as_str()
+        );
+        error
+    })?;
+    let token = build_kling_jwt(&access_key, &secret_key).map_err(|error| {
+        llm_dev_log!(
+            "error",
+            "kling",
+            model_id,
+            "generateVideo",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "error" => error.as_str()
+        );
+        error
+    })?;
     let base_url = kling_base_url();
     let (endpoint, request_body) = build_kling_video_request(state, model_id, config)
         .await
-        .map_err(|error| error.message)?;
+        .map_err(|error| {
+            llm_dev_log!(
+                "error",
+                "kling",
+                model_id,
+                "generateVideo",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => error.message.as_str()
+            );
+            error.message
+        })?;
+
+    llm_dev_log!(
+        "request",
+        "kling",
+        model_id,
+        "generateVideo",
+        None::<i64>,
+        "endpoint" => format!("{}{}", base_url, endpoint),
+        "prompt" => llm_dev_log_preview(&json_string(config.get("prompt"), ""), 220),
+        "duration" => normalize_video_duration(config.get("duration"))
+    );
+
     let response = http_client()
         .post(format!("{}{}", base_url, endpoint))
         .bearer_auth(token)
@@ -4486,18 +5300,48 @@ async fn submit_kling_video_task(
         .json(&request_body)
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            let message = error.to_string();
+            llm_dev_log!(
+                "error",
+                "kling",
+                model_id,
+                "generateVideo",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => message.as_str()
+            );
+            message
+        })?;
     let status = response.status();
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
-        return Err(build_sync_error_message(status, &body_text));
+        let message = build_sync_error_message(status, &body_text);
+        llm_dev_log!(
+            "error",
+            "kling",
+            model_id,
+            "generateVideo",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "status" => status.as_u16(),
+            "error" => message.as_str()
+        );
+        return Err(message);
     }
     let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-        format!(
+        let message = format!(
             "解析 Kling 视频任务响应失败: {} ({})",
             error,
             truncate_for_error(&body_text, 160)
-        )
+        );
+        llm_dev_log!(
+            "error",
+            "kling",
+            model_id,
+            "generateVideo",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "error" => message.as_str()
+        );
+        message
     })?;
     let code = payload.get("code").and_then(Value::as_i64).unwrap_or(0);
     if code != 0 {
@@ -4505,10 +5349,41 @@ async fn submit_kling_video_task(
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or("Kling API 错误");
+        llm_dev_log!(
+            "error",
+            "kling",
+            model_id,
+            "generateVideo",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "status" => status.as_u16(),
+            "error" => message
+        );
         return Err(message.to_string());
     }
-    let upstream_task_id =
-        parse_kling_task_id(&payload).ok_or_else(|| "Kling 未返回 task_id".to_string())?;
+    let upstream_task_id = match parse_kling_task_id(&payload) {
+        Some(task_id) => task_id,
+        None => {
+            let message = "Kling 未返回 task_id";
+            llm_dev_log!(
+                "error",
+                "kling",
+                model_id,
+                "generateVideo",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => message
+            );
+            return Err(message.to_string());
+        }
+    };
+    llm_dev_log!(
+        "task",
+        "kling",
+        model_id,
+        "generateVideo",
+        Some(Utc::now().timestamp_millis() - _log_started_at),
+        "status" => status.as_u16(),
+        "taskId" => upstream_task_id.as_str()
+    );
     Ok((upstream_task_id, endpoint, request_body))
 }
 
@@ -4920,37 +5795,123 @@ async fn submit_gemini_video_task(
     model_id: &str,
     config: &Value,
 ) -> Result<(String, Value), String> {
+    let _log_started_at = Utc::now().timestamp_millis();
     let conn = db_connection(state).map_err(|error| error.message)?;
     let api_key = provider_sync_api_keys("gemini", &load_provider_creds(&conn))
         .into_iter()
         .next()
-        .ok_or_else(|| "未配置 Gemini API Key，请在设置中配置".to_string())?;
+        .ok_or_else(|| {
+            llm_dev_log!(
+                "error",
+                "gemini",
+                model_id,
+                "generateVideo",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => "未配置 Gemini API Key，请在设置中配置"
+            );
+            "未配置 Gemini API Key，请在设置中配置".to_string()
+        })?;
     let base_url = gemini_api_base_url();
     let request_body = build_gemini_video_request(state, config)
         .await
-        .map_err(|error| error.message)?;
+        .map_err(|error| {
+            llm_dev_log!(
+                "error",
+                "gemini",
+                model_id,
+                "generateVideo",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => error.message.as_str()
+            );
+            error.message
+        })?;
+    let endpoint = gemini_predict_long_running_endpoint(&base_url, model_id);
+
+    llm_dev_log!(
+        "request",
+        "gemini",
+        model_id,
+        "generateVideo",
+        None::<i64>,
+        "endpoint" => endpoint.as_str(),
+        "prompt" => llm_dev_log_preview(&json_string(config.get("prompt"), ""), 220),
+        "duration" => normalize_video_duration(config.get("duration"))
+    );
+
     let response = http_client()
-        .post(gemini_predict_long_running_endpoint(&base_url, model_id))
+        .post(&endpoint)
         .query(&[("key", api_key.as_str())])
         .header(reqwest::header::ACCEPT, "application/json")
         .json(&request_body)
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            let message = error.to_string();
+            llm_dev_log!(
+                "error",
+                "gemini",
+                model_id,
+                "generateVideo",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => message.as_str()
+            );
+            message
+        })?;
     let status = response.status();
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
-        return Err(build_sync_error_message(status, &body_text));
+        let message = build_sync_error_message(status, &body_text);
+        llm_dev_log!(
+            "error",
+            "gemini",
+            model_id,
+            "generateVideo",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "status" => status.as_u16(),
+            "error" => message.as_str()
+        );
+        return Err(message);
     }
     let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-        format!(
+        let message = format!(
             "解析 Gemini 视频任务响应失败: {} ({})",
             error,
             truncate_for_error(&body_text, 160)
-        )
+        );
+        llm_dev_log!(
+            "error",
+            "gemini",
+            model_id,
+            "generateVideo",
+            Some(Utc::now().timestamp_millis() - _log_started_at),
+            "error" => message.as_str()
+        );
+        message
     })?;
-    let operation_name = parse_gemini_operation_name(&payload)
-        .ok_or_else(|| "Gemini 未返回 operation name".to_string())?;
+    let operation_name = match parse_gemini_operation_name(&payload) {
+        Some(name) => name,
+        None => {
+            let message = "Gemini 未返回 operation name";
+            llm_dev_log!(
+                "error",
+                "gemini",
+                model_id,
+                "generateVideo",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => message
+            );
+            return Err(message.to_string());
+        }
+    };
+    llm_dev_log!(
+        "task",
+        "gemini",
+        model_id,
+        "generateVideo",
+        Some(Utc::now().timestamp_millis() - _log_started_at),
+        "status" => status.as_u16(),
+        "operationName" => operation_name.as_str()
+    );
     Ok((operation_name, request_body))
 }
 
@@ -5048,10 +6009,9 @@ async fn persist_gemini_video_source(
         match persist_video_source(state, source, prefix).await {
             Ok(url) => return Ok(url),
             Err(first_error) => {
-                let api_key =
-                    provider_sync_api_keys("gemini", &current_provider_creds())
-                        .into_iter()
-                        .next();
+                let api_key = provider_sync_api_keys("gemini", &current_provider_creds())
+                    .into_iter()
+                    .next();
                 if let Some(api_key) = api_key {
                     let separator = if source.contains('?') { '&' } else { '?' };
                     let with_key = format!("{}{}key={}", source, separator, api_key);
@@ -5200,17 +6160,15 @@ pub(super) async fn api_test(
     }
 
     let conn = db_connection(&state)?;
-    let workflow_models =
-        get_config_json(&conn, WORKFLOW_MODELS_KEY)?.unwrap_or_else(default_workflow_models);
     let creds = load_provider_creds(&conn);
-    let model_id = workflow_models
-        .get("script_parsing")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .filter(|value| infer_model_provider(value).as_deref() == Some("gemini"))
-        .unwrap_or("gemini-2.5-flash")
-        .to_string();
+    let model_id = resolve_runtime_workflow_model_id(&conn, "script_parsing")
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    if infer_model_provider(&model_id).as_deref() != Some("gemini") {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "当前分集目录规划与剧本解析模型不是 Gemini，请先在设置中选择 Gemini 文本模型",
+        ));
+    }
     let response = request_gemini_text_completion(&model_id, &prompt, &creds)
         .await
         .map_err(|error| {
@@ -5250,7 +6208,8 @@ fn infer_model_provider(model_id: &str) -> Option<String> {
     if normalized.contains("kling") {
         return Some("kling".to_string());
     }
-    if normalized.contains("gpt") || normalized.contains("openai") || normalized.contains("claude") {
+    if normalized.contains("gpt") || normalized.contains("openai") || normalized.contains("claude")
+    {
         return Some("custom_openai".to_string());
     }
     None
@@ -5326,7 +6285,13 @@ fn validate_models_test_payload(body: &Value) -> Result<(), ApiError> {
             ));
         }
     }
-    for key in ["modelId", "provider", "prompt", "imageAspectRatio", "imageQuality"] {
+    for key in [
+        "modelId",
+        "provider",
+        "prompt",
+        "imageAspectRatio",
+        "imageQuality",
+    ] {
         if let Some(value) = body.get(key).filter(|value| !value.is_null()) {
             if !value.is_string() {
                 return Err(ApiError::new(
@@ -5405,6 +6370,16 @@ fn models_test_prompt_error(model_type: &str) -> &'static str {
         "请在请求体中提供 prompt 作为 TTS 测试文本"
     } else {
         "请在请求体中提供 prompt"
+    }
+}
+
+fn models_test_model_type_label(model_type: &str) -> &'static str {
+    match model_type {
+        "text" => "文本",
+        "image" => "图片",
+        "video" => "视频",
+        "tts" => "语音",
+        _ => "模型",
     }
 }
 
@@ -6013,13 +6988,33 @@ async fn request_openai_compatible_text_completion(
 ) -> Result<String, String> {
     let api_keys = provider_sync_api_keys(provider, creds);
     if api_keys.is_empty() {
+        llm_dev_log!(
+            "error",
+            provider,
+            model_id,
+            "generateText",
+            None::<i64>,
+            "error" => "未配置 API Key"
+        );
         return Err("未配置 API Key".to_string());
     }
-    let base_url = provider_sync_base_url(provider, creds)
-        .ok_or_else(|| "未配置 Base URL".to_string())?;
+    let base_url =
+        provider_sync_base_url(provider, creds).ok_or_else(|| "未配置 Base URL".to_string())?;
     let endpoint = provider_chat_completions_endpoint(&base_url);
     let model = normalize_model_id_for_remote(model_id);
     let mut last_error = None::<String>;
+    let _log_started_at = Utc::now().timestamp_millis();
+
+    llm_dev_log!(
+        "request",
+        provider,
+        model_id,
+        "generateText",
+        None::<i64>,
+        "endpoint" => endpoint.as_str(),
+        "prompt" => llm_dev_log_preview(prompt, 220),
+        "apiKeys" => api_keys.len()
+    );
 
     for api_key in api_keys {
         let response = http_client()
@@ -6035,7 +7030,18 @@ async fn request_openai_compatible_text_completion(
             }))
             .send()
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                let message = error.to_string();
+                llm_dev_log!(
+                    "error",
+                    provider,
+                    model_id,
+                    "generateText",
+                    Some(Utc::now().timestamp_millis() - _log_started_at),
+                    "error" => message.as_str()
+                );
+                message
+            })?;
 
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
@@ -6044,13 +7050,42 @@ async fn request_openai_compatible_text_completion(
             continue;
         }
 
-        if let Some(text) = parse_openai_compatible_text_response(&body_text)? {
+        let parsed = parse_openai_compatible_text_response(&body_text).map_err(|error| {
+            llm_dev_log!(
+                "error",
+                provider,
+                model_id,
+                "generateText",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "error" => error.as_str()
+            );
+            error
+        })?;
+        if let Some(text) = parsed {
+            llm_dev_log!(
+                "success",
+                provider,
+                model_id,
+                "generateText",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "status" => status.as_u16(),
+                "response" => llm_dev_log_preview(&text, 220)
+            );
             return Ok(text);
         }
         last_error = Some("模型返回为空文本".to_string());
     }
 
-    Err(last_error.unwrap_or_else(|| "文本模型调用失败".to_string()))
+    let message = last_error.unwrap_or_else(|| "文本模型调用失败".to_string());
+    llm_dev_log!(
+        "error",
+        provider,
+        model_id,
+        "generateText",
+        Some(Utc::now().timestamp_millis() - _log_started_at),
+        "error" => message.as_str()
+    );
+    Err(message)
 }
 
 async fn request_gemini_text_completion(
@@ -6060,12 +7095,32 @@ async fn request_gemini_text_completion(
 ) -> Result<String, String> {
     let api_keys = provider_sync_api_keys("gemini", creds);
     if api_keys.is_empty() {
+        llm_dev_log!(
+            "error",
+            "gemini",
+            model_id,
+            "generateText",
+            None::<i64>,
+            "error" => "未配置 API Key"
+        );
         return Err("未配置 API Key".to_string());
     }
-    let base_url = provider_sync_base_url("gemini", creds)
-        .ok_or_else(|| "未配置 Base URL".to_string())?;
+    let base_url =
+        provider_sync_base_url("gemini", creds).ok_or_else(|| "未配置 Base URL".to_string())?;
     let endpoint = provider_gemini_generate_endpoint(&base_url, model_id);
     let mut last_error = None::<String>;
+    let _log_started_at = Utc::now().timestamp_millis();
+
+    llm_dev_log!(
+        "request",
+        "gemini",
+        model_id,
+        "generateText",
+        None::<i64>,
+        "endpoint" => endpoint.as_str(),
+        "prompt" => llm_dev_log_preview(prompt, 220),
+        "apiKeys" => api_keys.len()
+    );
 
     for api_key in api_keys {
         let response = http_client()
@@ -6082,7 +7137,18 @@ async fn request_gemini_text_completion(
             }))
             .send()
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                let message = error.to_string();
+                llm_dev_log!(
+                    "error",
+                    "gemini",
+                    model_id,
+                    "generateText",
+                    Some(Utc::now().timestamp_millis() - _log_started_at),
+                    "error" => message.as_str()
+                );
+                message
+            })?;
 
         let status = response.status();
         let body_text = response.text().await.map_err(|error| error.to_string())?;
@@ -6099,12 +7165,30 @@ async fn request_gemini_text_completion(
             )
         })?;
         if let Some(text) = parse_gemini_text_result(&payload) {
+            llm_dev_log!(
+                "success",
+                "gemini",
+                model_id,
+                "generateText",
+                Some(Utc::now().timestamp_millis() - _log_started_at),
+                "status" => status.as_u16(),
+                "response" => llm_dev_log_preview(&text, 220)
+            );
             return Ok(text);
         }
         last_error = Some("模型返回为空文本".to_string());
     }
 
-    Err(last_error.unwrap_or_else(|| "Gemini 调用失败".to_string()))
+    let message = last_error.unwrap_or_else(|| "Gemini 调用失败".to_string());
+    llm_dev_log!(
+        "error",
+        "gemini",
+        model_id,
+        "generateText",
+        Some(Utc::now().timestamp_millis() - _log_started_at),
+        "error" => message.as_str()
+    );
+    Err(message)
 }
 
 async fn run_text_model_test_remote(
@@ -6115,8 +7199,7 @@ async fn run_text_model_test_remote(
 ) -> Result<String, String> {
     match provider {
         "qwen" | "volcengine" | "deepseek" | "custom_openai" => {
-            request_openai_compatible_text_completion(provider, model_id, prompt, creds)
-                .await
+            request_openai_compatible_text_completion(provider, model_id, prompt, creds).await
         }
         "gemini" => request_gemini_text_completion(model_id, prompt, creds).await,
         _ => Err(format!("供应商 {} 暂不支持文本模型在线测试", provider)),
@@ -6229,6 +7312,7 @@ pub(super) async fn api_models_test(
     let conn = db_connection(&state)?;
     let selected_models =
         get_config_json(&conn, SELECTED_MODELS_KEY)?.unwrap_or_else(default_selected_models);
+    let creds = load_provider_creds(&conn);
     let model_id = body
         .get("modelId")
         .and_then(Value::as_str)
@@ -6236,28 +7320,23 @@ pub(super) async fn api_models_test(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .or_else(|| {
-            selected_models
-                .get(models_test_selected_model_key(&model_type))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| match model_type.as_str() {
-            "text" => Some("qwen3.6-plus".to_string()),
-            "image" => Some("qwen-image-2.0-pro".to_string()),
-            "video" => Some("wan2.7-t2v".to_string()),
-            "tts" => Some("qwen3-tts-flash".to_string()),
-            _ => None,
+            selected_model_value(
+                &selected_models,
+                models_test_selected_model_key(&model_type),
+            )
         })
         .ok_or_else(|| {
             ApiError::new(
                 StatusCode::BAD_REQUEST,
-                format!("不支持的模型类型: {}", model_type),
+                format!(
+                    "请先选择{}测试模型",
+                    models_test_model_type_label(&model_type)
+                ),
             )
         })?;
     let prompt = json_string(body.get("prompt"), "");
     let provider = models_test_requested_provider(&body)?
-        .or_else(|| infer_model_provider(&model_id))
+        .or_else(|| resolve_model_provider(&model_id, &creds))
         .unwrap_or_default();
     if provider.is_empty() {
         return Err(ApiError::new(
@@ -6279,36 +7358,31 @@ pub(super) async fn api_models_test(
 
     let result = match model_type.as_str() {
         "text" => {
-            let conn = db_connection(&state)?;
-            let creds = load_provider_creds(&conn);
-            let text =
-                match run_text_model_test_remote(&provider, &model_id, &prompt, &creds)
-                    .await
-                {
-                    Ok(text) => text,
-                    Err(error) => {
-                        let error_payload = json!({ "message": error });
-                        let _ = write_model_debug_log(
-                            &state,
-                            &provider,
-                            &model_id,
-                            operation,
-                            "error",
-                            (Utc::now().timestamp_millis() - start).max(1),
-                            &request_payload,
-                            None,
-                            Some(&error_payload),
-                        );
-                        return Err(ApiError::new(
-                            StatusCode::BAD_GATEWAY,
-                            format!("文本模型测试失败: {}", error),
-                        ));
-                    }
-                };
+            let text = match run_text_model_test_remote(&provider, &model_id, &prompt, &creds).await
+            {
+                Ok(text) => text,
+                Err(error) => {
+                    let error_payload = json!({ "message": error });
+                    let _ = write_model_debug_log(
+                        &state,
+                        &provider,
+                        &model_id,
+                        operation,
+                        "error",
+                        (Utc::now().timestamp_millis() - start).max(1),
+                        &request_payload,
+                        None,
+                        Some(&error_payload),
+                    );
+                    return Err(ApiError::new(
+                        StatusCode::BAD_GATEWAY,
+                        format!("文本模型测试失败: {}", error),
+                    ));
+                }
+            };
             json!(text)
         }
         "image" => {
-            let creds = load_provider_creds(&conn);
             let aspect_ratio =
                 normalize_image_aspect_ratio(body.get("imageAspectRatio").and_then(Value::as_str));
             let size = resolve_image_test_size(&model_id, &provider, &aspect_ratio);
@@ -6336,13 +7410,8 @@ pub(super) async fn api_models_test(
                     .await
                 }
                 "gemini" => {
-                    request_gemini_image_generation(
-                        &model_id,
-                        &prompt,
-                        &reference_images,
-                        &creds,
-                    )
-                    .await
+                    request_gemini_image_generation(&model_id, &prompt, &reference_images, &creds)
+                        .await
                 }
                 "kling" => {
                     request_kling_image_generation(&model_id, &prompt, &size, &reference_images)
@@ -8366,22 +9435,10 @@ pub(super) async fn api_asset_reference_generate(
     };
     let (model_id, workflow_model_options) = {
         let conn = db_connection(&state)?;
-        let workflow_models =
-            get_config_json(&conn, WORKFLOW_MODELS_KEY)?.unwrap_or_else(default_workflow_models);
         let workflow_model_options = get_config_json(&conn, WORKFLOW_MODEL_OPTIONS_KEY)?
             .unwrap_or_else(default_workflow_model_options);
-        let model_id = workflow_models
-            .get("frame_generation")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .or_else(|| {
-                workflow_models
-                    .get("character_portrait")
-                    .and_then(Value::as_str)
-            })
-            .unwrap_or("qwen-image-2.0-pro")
-            .to_string();
+        let model_id = resolve_runtime_workflow_model_id(&conn, "frame_generation")
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error))?;
         (model_id, workflow_model_options)
     };
     let provider = infer_model_provider_required(&model_id)?;
@@ -8508,7 +9565,7 @@ pub(super) async fn api_asset_video_generate(
     let scene_id = json_string(scene.get("id"), "");
     let aspect_ratio = json_string(body.get("aspectRatio"), "16:9");
     let task_id = format!("video_{}", Uuid::new_v4().simple());
-    let model_id = resolve_workflow_model_id(&state, "video_generation", "wan2.7-t2v")?;
+    let model_id = resolve_workflow_model_id(&state, "video_generation")?;
     let provider = infer_model_provider_required(&model_id)?;
     let prompt = build_video_prompt_from_scene(&scene, &body);
     let mut config = json!({
@@ -8566,7 +9623,9 @@ pub(super) async fn api_asset_video_generate(
     let model_id = config
         .get("modelId")
         .and_then(Value::as_str)
-        .unwrap_or("wan2.7-t2v")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "视频模型未配置"))?
         .to_string();
     if provider_name == "qwen" {
         tauri::async_runtime::spawn(run_qwen_video_task_background(
@@ -8622,16 +9681,16 @@ pub(super) async fn api_video_generate(
     let start = Utc::now().timestamp_millis();
     let (scene_id, mut config) = parse_video_generate_request(&body)?;
     let task_id = format!("video_{}", Uuid::new_v4().simple());
-    let configured_model = config
+    let configured_model = match config
         .get("modelId")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| {
-            resolve_workflow_model_id(&state, "video_generation", "wan2.7-t2v")
-                .unwrap_or_else(|_| "wan2.7-t2v".to_string())
-        });
+    {
+        Some(model_id) => model_id,
+        None => resolve_workflow_model_id(&state, "video_generation")?,
+    };
     let provider = config
         .get("provider")
         .and_then(Value::as_str)
@@ -8697,7 +9756,9 @@ pub(super) async fn api_video_generate(
     let model_id = config
         .get("modelId")
         .and_then(Value::as_str)
-        .unwrap_or("wan2.7-t2v")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "视频模型未配置"))?
         .to_string();
     if provider_name == "qwen" {
         tauri::async_runtime::spawn(run_qwen_video_task_background(
@@ -10446,7 +11507,11 @@ fn normalize_endpoint(raw: &str) -> (String, String) {
 
 fn load_tos_config() -> TosStorageConfig {
     let config = config_connection()
-        .and_then(|conn| get_config_json(&conn, TOS_STORAGE_CONFIG_KEY).ok().flatten())
+        .and_then(|conn| {
+            get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)
+                .ok()
+                .flatten()
+        })
         .unwrap_or_else(default_tos_config);
 
     let access_key_id = tos_config_string(&config, "accessKeyId");
@@ -10475,7 +11540,10 @@ fn load_tos_config() -> TosStorageConfig {
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let (endpoint, endpoint_protocol) = normalize_endpoint(&tos_config_string(&config, "endpoint"));
-    let enabled_flag = config.get("enabled").and_then(Value::as_bool).unwrap_or(false);
+    let enabled_flag = config
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let has_required = !access_key_id.is_empty()
         && !access_key_secret.is_empty()
         && !region.is_empty()

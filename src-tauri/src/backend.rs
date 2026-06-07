@@ -27,6 +27,7 @@ const STYLE_PRESET_DATA_KEY: &str = "style_preset_data";
 const SELECTED_MODELS_KEY: &str = "selected_models";
 const WORKFLOW_MODELS_KEY: &str = "workflow_models";
 const WORKFLOW_MODEL_OPTIONS_KEY: &str = "workflow_model_options";
+const SELECTED_MODELS_USER_SELECTED_KEY: &str = "_userSelected";
 const CUSTOM_OPENAI_CONFIG_KEY: &str = "custom_openai_provider";
 const PROVIDER_CREDENTIALS_KEY: &str = "provider_credentials";
 const TOS_STORAGE_CONFIG_KEY: &str = "tos_storage_config";
@@ -694,11 +695,12 @@ fn default_style_categories() -> Value {
 
 fn default_selected_models() -> Value {
     json!({
-      "text": "qwen3.6-plus",
-      "image": "qwen-image-2.0-pro",
-      "video": "wan2.7-t2v",
+      "text": "",
+      "image": "",
+      "video": "",
       "tts": "",
-      "asr": ""
+      "asr": "",
+      "_userSelected": {}
     })
 }
 
@@ -748,13 +750,7 @@ fn default_workflow_steps() -> Value {
 }
 
 fn default_workflow_models() -> Value {
-    json!({
-      "script_parsing": "qwen3.6-plus",
-      "scene_description_refinement": "qwen3.6-plus",
-      "character_portrait": "qwen-image-2.0-pro",
-      "frame_generation": "qwen-image-2.0-pro",
-      "video_generation": "wan2.7-t2v"
-    })
+    json!({})
 }
 
 fn default_workflow_model_options() -> Value {
@@ -927,7 +923,80 @@ fn is_workflow_step(step_id: &str) -> bool {
     workflow_step_category(step_id).is_some()
 }
 
-fn workflow_default_model_for_step(step_id: &str) -> Option<&'static str> {
+fn legacy_selected_model_for_type(model_type: &str) -> Option<&'static str> {
+    match model_type {
+        "text" => Some("qwen3.6-plus"),
+        "image" => Some("qwen-image-2.0-pro"),
+        "video" => Some("wan2.7-t2v"),
+        _ => None,
+    }
+}
+
+fn selected_model_marked_by_user(selected: &Value, model_type: &str) -> bool {
+    selected
+        .get(SELECTED_MODELS_USER_SELECTED_KEY)
+        .and_then(Value::as_object)
+        .and_then(|object| object.get(model_type))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn selected_model_value(selected: &Value, model_type: &str) -> Option<String> {
+    let model_id = selected
+        .get(model_type)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+
+    if legacy_selected_model_for_type(model_type) == Some(model_id)
+        && !selected_model_marked_by_user(selected, model_type)
+    {
+        return None;
+    }
+
+    Some(model_id.to_string())
+}
+
+fn mark_selected_model_by_user(selected: &mut Value, model_type: &str) {
+    if !selected.is_object() {
+        *selected = default_selected_models();
+    }
+
+    let Some(root) = selected.as_object_mut() else {
+        return;
+    };
+    let marker = root
+        .entry(SELECTED_MODELS_USER_SELECTED_KEY.to_string())
+        .or_insert_with(|| json!({}));
+    if !marker.is_object() {
+        *marker = json!({});
+    }
+    if let Some(marker_object) = marker.as_object_mut() {
+        marker_object.insert(model_type.to_string(), json!(true));
+    }
+}
+
+fn set_selected_model_by_user(selected: &mut Value, model_type: &str, model_id: &str) {
+    if !selected.is_object() {
+        *selected = default_selected_models();
+    }
+    if let Some(obj) = selected.as_object_mut() {
+        obj.insert(model_type.to_string(), json!(model_id));
+    }
+    mark_selected_model_by_user(selected, model_type);
+}
+
+fn selected_models_public_view(selected: &Value) -> Value {
+    json!({
+      "text": selected_model_value(selected, "text").unwrap_or_default(),
+      "image": selected_model_value(selected, "image").unwrap_or_default(),
+      "video": selected_model_value(selected, "video").unwrap_or_default(),
+      "tts": selected_model_value(selected, "tts").unwrap_or_default(),
+      "asr": selected_model_value(selected, "asr").unwrap_or_default()
+    })
+}
+
+fn legacy_workflow_default_model_for_step(step_id: &str) -> Option<&'static str> {
     match step_id {
         "script_parsing" => Some("qwen3.6-plus"),
         "scene_description_refinement" => Some("qwen3.6-plus"),
@@ -939,12 +1008,7 @@ fn workflow_default_model_for_step(step_id: &str) -> Option<&'static str> {
 }
 
 fn workflow_global_selected_model(selected: &Value, category: &str) -> Option<String> {
-    selected
-        .get(category)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
+    selected_model_value(selected, category)
 }
 
 fn workflow_model_exists_for_step(available: &Value, step_id: &str, model_id: &str) -> bool {
@@ -965,23 +1029,7 @@ fn workflow_resolved_default_model(
             return Some(global);
         }
     }
-    let default_model = workflow_default_model_for_step(step_id)?;
-    if workflow_model_exists_for_step(available, step_id, default_model) {
-        return Some(default_model.to_string());
-    }
-    available
-        .get(category)
-        .and_then(Value::as_array)
-        .and_then(|items| {
-            items.iter().find_map(|item| {
-                item.get("model")
-                    .or_else(|| item.get("id"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-        })
-        .or_else(|| workflow_global_selected_model(selected, category))
-        .or_else(|| Some(default_model.to_string()))
+    None
 }
 
 fn workflow_overrides(conn: &Connection) -> Result<Value, ApiError> {
@@ -1018,7 +1066,9 @@ fn workflow_overrides(conn: &Connection) -> Result<Value, ApiError> {
         else {
             continue;
         };
-        if maybe_legacy_full_snapshot && workflow_default_model_for_step(key) == Some(model_id) {
+        if maybe_legacy_full_snapshot
+            && legacy_workflow_default_model_for_step(key) == Some(model_id)
+        {
             continue;
         }
         normalized.insert(key.clone(), json!(model_id));
@@ -4567,7 +4617,7 @@ async fn api_models(State(state): State<BackendState>) -> Result<Json<Value>, Ap
       "success": true,
       "data": {
         "available": available,
-        "selected": selected
+        "selected": selected_models_public_view(&selected)
       }
     })))
 }
@@ -4588,14 +4638,12 @@ async fn api_models_select(
     let conn = db_connection(&state)?;
     let mut selected =
         get_config_json(&conn, SELECTED_MODELS_KEY)?.unwrap_or_else(default_selected_models);
-    if let Some(obj) = selected.as_object_mut() {
-        obj.insert(model_type.to_string(), json!(model_id));
-    }
+    set_selected_model_by_user(&mut selected, model_type, model_id);
     set_config_json(&conn, SELECTED_MODELS_KEY, &selected)?;
 
     Ok(Json(json!({
       "success": true,
-      "selected": selected
+      "selected": selected_models_public_view(&selected)
     })))
 }
 
@@ -4607,6 +4655,9 @@ async fn api_models_switch(
     let model_id = body.get("modelId").and_then(Value::as_str).unwrap_or("");
     if model_id.trim().is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "modelId 不能为空"));
+    }
+    if !matches!(model_type, "text" | "image" | "video" | "tts" | "asr") {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "不支持的模型类型"));
     }
 
     let conn = db_connection(&state)?;
@@ -4620,28 +4671,7 @@ async fn api_models_switch(
         })?;
     let mut selected =
         get_config_json(&conn, SELECTED_MODELS_KEY)?.unwrap_or_else(default_selected_models);
-    if let Some(obj) = selected.as_object_mut() {
-        match model_type {
-            "text" => {
-                obj.insert("text".to_string(), json!(model_id));
-            }
-            "image" => {
-                obj.insert("image".to_string(), json!(model_id));
-            }
-            "video" => {
-                obj.insert("video".to_string(), json!(model_id));
-            }
-            "tts" => {
-                obj.insert("tts".to_string(), json!(model_id));
-            }
-            "asr" => {
-                obj.insert("asr".to_string(), json!(model_id));
-            }
-            _ => {
-                return Err(ApiError::new(StatusCode::BAD_REQUEST, "不支持的模型类型"));
-            }
-        }
-    }
+    set_selected_model_by_user(&mut selected, model_type, model_id);
     set_config_json(&conn, SELECTED_MODELS_KEY, &selected)?;
     Ok(Json(json!({
       "success": true,
@@ -4650,9 +4680,9 @@ async fn api_models_switch(
         "type": model_type,
         "modelId": model_id,
         "modelInfo": model_info,
-        "selected": selected
+        "selected": selected_models_public_view(&selected)
       },
-      "selected": selected
+      "selected": selected_models_public_view(&selected)
     })))
 }
 

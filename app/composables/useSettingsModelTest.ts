@@ -512,16 +512,16 @@ export function useSettingsModelTest() {
     if (!models.value) return
 
     const next = buildTestSelectedModels(selectedModels.value, models.value)
-    if (force || !testSelectedModels.value.text) {
+    if (force) {
       testSelectedModels.value = next
       return
     }
 
     testSelectedModels.value = {
-      text: selectedModels.value.text || testSelectedModels.value.text || next.text,
-      image: selectedModels.value.image || testSelectedModels.value.image || next.image,
-      video: selectedModels.value.video || testSelectedModels.value.video || next.video,
-      tts: selectedModels.value.tts || testSelectedModels.value.tts || next.tts
+      text: selectedModels.value.text || '',
+      image: selectedModels.value.image || '',
+      video: selectedModels.value.video || '',
+      tts: selectedModels.value.tts || ''
     }
   }
 
