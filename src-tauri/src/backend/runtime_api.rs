@@ -2500,26 +2500,9 @@ async fn poll_openai_compatible_image_task(
     tokio::time::sleep(Duration::from_secs(10)).await;
     let endpoint = provider_image_task_endpoint(base_url, task_id);
     let started_at = Utc::now().timestamp_millis();
-    let max_wait_ms = 10 * 60 * 1000i64;
     let request_body = json!({ "taskId": task_id });
     loop {
-        if Utc::now().timestamp_millis() - started_at > max_wait_ms {
-            let message = format!("图片任务查询超时（taskId={}）", task_id);
-            llm_dev_write_file_log(
-                "custom_openai",
-                model_id,
-                "generateImage",
-                "error",
-                started_at,
-                Some(endpoint.as_str()),
-                Some(&request_body),
-                None,
-                None,
-                Some(message.as_str()),
-            );
-            return Err(message);
-        }
-        let response = http_client()
+        let response = llm_http_client()
             .get(&endpoint)
             .header(reqwest::header::AUTHORIZATION, openai_auth_header(api_key))
             .header(reqwest::header::ACCEPT, "application/json")
@@ -2787,7 +2770,7 @@ async fn request_custom_openai_image_generation(
                     })?,
                 );
             }
-            http_client()
+            llm_http_client()
                 .post(&endpoint_for_log)
                 .header(reqwest::header::AUTHORIZATION, openai_auth_header(&api_key))
                 .header(reqwest::header::ACCEPT, "application/json")
@@ -2837,7 +2820,7 @@ async fn request_custom_openai_image_generation(
                 request_body["image_urls"] = json!(reference_images);
             }
             request_log_payload = request_body.clone();
-            http_client()
+            llm_http_client()
                 .post(&endpoint_for_log)
                 .header(reqwest::header::AUTHORIZATION, openai_auth_header(&api_key))
                 .header(reqwest::header::ACCEPT, "application/json")
@@ -3164,7 +3147,7 @@ async fn request_openai_compatible_image_generation(
             }
         }
 
-        let response = http_client()
+        let response = llm_http_client()
             .post(&endpoint)
             .bearer_auth(api_key)
             .header(reqwest::header::ACCEPT, "application/json")
@@ -3381,7 +3364,7 @@ async fn request_qwen_image_generation(
             "watermark": false
           }
         });
-        let response = http_client()
+        let response = llm_http_client()
             .post(&endpoint)
             .bearer_auth(api_key)
             .header(reqwest::header::ACCEPT, "application/json")
@@ -3579,7 +3562,7 @@ async fn request_gemini_image_generation(
             "responseModalities": ["TEXT", "IMAGE"]
           }
         });
-        let response = http_client()
+        let response = llm_http_client()
             .post(&endpoint)
             .query(&[("key", api_key.as_str())])
             .header(reqwest::header::ACCEPT, "application/json")
@@ -4592,7 +4575,7 @@ async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(Strin
         "duration" => normalize_video_duration(config.get("duration"))
     );
 
-    let response = http_client()
+    let response = llm_http_client()
         .post(&endpoint)
         .bearer_auth(api_key)
         .header(reqwest::header::ACCEPT, "application/json")
@@ -4742,31 +4725,16 @@ where
         .ok_or_else(|| "未配置千问 API Key，请在设置中配置".to_string())?;
     let base_url = qwen_api_base_url();
     let started_at = Utc::now().timestamp_millis();
-    let max_wait_ms = 10 * 60 * 1000i64;
+    let progress_window_ms = 10 * 60 * 1000i64;
     let endpoint = qwen_task_endpoint(&base_url, upstream_task_id);
     let request_body = json!({ "taskId": upstream_task_id });
     loop {
-        if Utc::now().timestamp_millis() - started_at > max_wait_ms {
-            let message = "Qwen 视频生成超时".to_string();
-            llm_dev_write_file_log(
-                "qwen",
-                model_id,
-                "generateVideo",
-                "error",
-                started_at,
-                Some(endpoint.as_str()),
-                Some(&request_body),
-                None,
-                None,
-                Some(message.as_str()),
-            );
-            return Err(message);
-        }
         tokio::time::sleep(Duration::from_secs(10)).await;
         let elapsed = Utc::now().timestamp_millis() - started_at;
-        let progress = 30 + ((elapsed as f64 / max_wait_ms as f64) * 60.0).round() as i64;
+        let progress =
+            30 + ((elapsed as f64 / progress_window_ms as f64) * 60.0).round() as i64;
         on_progress(progress.clamp(30, 90));
-        let response = http_client()
+        let response = llm_http_client()
             .get(&endpoint)
             .bearer_auth(&api_key)
             .header(reqwest::header::ACCEPT, "application/json")
@@ -4899,7 +4867,7 @@ async fn query_qwen_video_task(
     let base_url = qwen_api_base_url();
     let endpoint = qwen_task_endpoint(&base_url, upstream_task_id);
     let request_body = json!({ "taskId": upstream_task_id });
-    let response = http_client()
+    let response = llm_http_client()
         .get(&endpoint)
         .bearer_auth(&api_key)
         .header(reqwest::header::ACCEPT, "application/json")
@@ -5116,7 +5084,7 @@ async fn request_qwen_text_to_speech(
         "format" => format.as_str()
     );
 
-    let response = http_client()
+    let response = llm_http_client()
         .post(&endpoint)
         .bearer_auth(api_key)
         .header(reqwest::header::ACCEPT, "application/json")
@@ -5558,7 +5526,7 @@ async fn submit_volcengine_video_task(
         "duration" => normalize_video_duration(config.get("duration"))
     );
 
-    let response = http_client()
+    let response = llm_http_client()
         .post(&endpoint)
         .bearer_auth(api_key)
         .header(reqwest::header::ACCEPT, "application/json")
@@ -5710,33 +5678,18 @@ where
         .ok_or_else(|| "未配置火山引擎 API Key，请在设置中配置".to_string())?;
     let base_url = volcengine_video_base_url(&creds);
     let started_at = Utc::now().timestamp_millis();
-    let max_wait_ms = 10 * 60 * 1000i64;
+    let progress_window_ms = 10 * 60 * 1000i64;
     let endpoint = volcengine_task_endpoint(&base_url, upstream_task_id);
     let request_body = json!({ "taskId": upstream_task_id });
 
     loop {
-        if Utc::now().timestamp_millis() - started_at > max_wait_ms {
-            let message = "Volcengine 视频生成超时".to_string();
-            llm_dev_write_file_log(
-                "volcengine",
-                model_id,
-                "generateVideo",
-                "error",
-                started_at,
-                Some(endpoint.as_str()),
-                Some(&request_body),
-                None,
-                None,
-                Some(message.as_str()),
-            );
-            return Err(message);
-        }
         tokio::time::sleep(Duration::from_secs(10)).await;
         let elapsed = Utc::now().timestamp_millis() - started_at;
-        let progress = 30 + ((elapsed as f64 / max_wait_ms as f64) * 60.0).round() as i64;
+        let progress =
+            30 + ((elapsed as f64 / progress_window_ms as f64) * 60.0).round() as i64;
         on_progress(progress.clamp(30, 90));
 
-        let response = http_client()
+        let response = llm_http_client()
             .get(&endpoint)
             .bearer_auth(&api_key)
             .header(reqwest::header::ACCEPT, "application/json")
@@ -5856,7 +5809,7 @@ async fn query_volcengine_video_task(
     let base_url = volcengine_video_base_url(&creds);
     let endpoint = volcengine_task_endpoint(&base_url, upstream_task_id);
     let request_body = json!({ "taskId": upstream_task_id });
-    let response = http_client()
+    let response = llm_http_client()
         .get(&endpoint)
         .bearer_auth(&api_key)
         .header(reqwest::header::ACCEPT, "application/json")
@@ -6485,7 +6438,7 @@ async fn request_kling_image_generation(
         "referenceImages" => reference_images.len()
     );
 
-    let response = http_client()
+    let response = llm_http_client()
         .post(&endpoint_url)
         .bearer_auth(token)
         .header(reqwest::header::ACCEPT, "application/json")
@@ -6649,36 +6602,9 @@ async fn request_kling_image_generation(
         None,
     );
 
-    let started_at = Utc::now().timestamp_millis();
-    let max_wait_ms = 5 * 60 * 1000i64;
     let poll_endpoint = format!("{}/{}", endpoint_url, upstream_task_id);
     let poll_request_body = json!({ "taskId": upstream_task_id.as_str() });
     loop {
-        if Utc::now().timestamp_millis() - started_at > max_wait_ms {
-            let message = "Kling 图片生成超时";
-            llm_dev_write_file_log(
-                "kling",
-                model_id,
-                "generateImage",
-                "error",
-                _log_started_at,
-                Some(poll_endpoint.as_str()),
-                Some(&poll_request_body),
-                None,
-                None,
-                Some(message),
-            );
-            llm_dev_log!(
-                "error",
-                "kling",
-                model_id,
-                "generateImage",
-                Some(Utc::now().timestamp_millis() - _log_started_at),
-                "taskId" => upstream_task_id.as_str(),
-                "error" => message
-            );
-            return Err(message.to_string());
-        }
         tokio::time::sleep(Duration::from_secs(5)).await;
         let token = build_kling_jwt(&access_key, &secret_key).map_err(|error| {
             llm_dev_write_file_log(
@@ -6704,7 +6630,7 @@ async fn request_kling_image_generation(
             );
             error
         })?;
-        let response = http_client()
+        let response = llm_http_client()
             .get(&poll_endpoint)
             .bearer_auth(token)
             .header(reqwest::header::ACCEPT, "application/json")
@@ -6980,7 +6906,7 @@ async fn submit_kling_video_task(
         "duration" => normalize_video_duration(config.get("duration"))
     );
 
-    let response = http_client()
+    let response = llm_http_client()
         .post(&endpoint_url)
         .bearer_auth(token)
         .header(reqwest::header::ACCEPT, "application/json")
@@ -7158,33 +7084,18 @@ where
     let (access_key, secret_key) = kling_credentials()?;
     let base_url = kling_base_url();
     let started_at = Utc::now().timestamp_millis();
-    let max_wait_ms = 12 * 60 * 1000i64;
+    let progress_window_ms = 12 * 60 * 1000i64;
     let endpoint_url = format!("{}{}", base_url, endpoint);
     let task_endpoint = format!("{}/{}", endpoint_url, upstream_task_id);
     let request_body = json!({ "taskId": upstream_task_id });
     loop {
-        if Utc::now().timestamp_millis() - started_at > max_wait_ms {
-            let message = "Kling 视频生成超时".to_string();
-            llm_dev_write_file_log(
-                "kling",
-                model_id,
-                "generateVideo",
-                "error",
-                started_at,
-                Some(task_endpoint.as_str()),
-                Some(&request_body),
-                None,
-                None,
-                Some(message.as_str()),
-            );
-            return Err(message);
-        }
         tokio::time::sleep(Duration::from_secs(10)).await;
         let elapsed = Utc::now().timestamp_millis() - started_at;
-        let progress = 30 + ((elapsed as f64 / max_wait_ms as f64) * 60.0).round() as i64;
+        let progress =
+            30 + ((elapsed as f64 / progress_window_ms as f64) * 60.0).round() as i64;
         on_progress(progress.clamp(30, 90));
         let token = build_kling_jwt(&access_key, &secret_key)?;
-        let response = http_client()
+        let response = llm_http_client()
             .get(&task_endpoint)
             .bearer_auth(token)
             .header(reqwest::header::ACCEPT, "application/json")
@@ -7427,7 +7338,7 @@ async fn query_kling_video_task(
     let token = build_kling_jwt(&access_key, &secret_key)?;
     let task_endpoint = format!("{}{}/{}", base_url, endpoint, upstream_task_id);
     let request_body = json!({ "taskId": upstream_task_id });
-    let response = http_client()
+    let response = llm_http_client()
         .get(&task_endpoint)
         .bearer_auth(token)
         .header(reqwest::header::ACCEPT, "application/json")
@@ -7784,7 +7695,7 @@ async fn submit_gemini_video_task(
         "duration" => normalize_video_duration(config.get("duration"))
     );
 
-    let response = http_client()
+    let response = llm_http_client()
         .post(&endpoint)
         .query(&[("key", api_key.as_str())])
         .header(reqwest::header::ACCEPT, "application/json")
@@ -7937,31 +7848,16 @@ where
         .ok_or_else(|| "未配置 Gemini API Key，请在设置中配置".to_string())?;
     let base_url = gemini_api_base_url();
     let started_at = Utc::now().timestamp_millis();
-    let max_wait_ms = 3 * 60 * 1000i64;
+    let progress_window_ms = 3 * 60 * 1000i64;
     let endpoint = gemini_operation_endpoint(&base_url, operation_name);
     let request_body = json!({ "operationName": operation_name });
     loop {
-        if Utc::now().timestamp_millis() - started_at > max_wait_ms {
-            let message = "Gemini 视频生成超时".to_string();
-            llm_dev_write_file_log(
-                "gemini",
-                model_id,
-                "generateVideo",
-                "error",
-                started_at,
-                Some(endpoint.as_str()),
-                Some(&request_body),
-                None,
-                None,
-                Some(message.as_str()),
-            );
-            return Err(message);
-        }
         tokio::time::sleep(Duration::from_secs(10)).await;
         let elapsed = Utc::now().timestamp_millis() - started_at;
-        let progress = 30 + ((elapsed as f64 / max_wait_ms as f64) * 60.0).round() as i64;
+        let progress =
+            30 + ((elapsed as f64 / progress_window_ms as f64) * 60.0).round() as i64;
         on_progress(progress.clamp(30, 90));
-        let response = http_client()
+        let response = llm_http_client()
             .get(&endpoint)
             .query(&[("key", api_key.as_str())])
             .header(reqwest::header::ACCEPT, "application/json")
@@ -8069,7 +7965,7 @@ async fn query_gemini_video_task(
     let base_url = gemini_api_base_url();
     let endpoint = gemini_operation_endpoint(&base_url, operation_name);
     let request_body = json!({ "operationName": operation_name });
-    let response = http_client()
+    let response = llm_http_client()
         .get(&endpoint)
         .query(&[("key", api_key.as_str())])
         .header(reqwest::header::ACCEPT, "application/json")
@@ -9239,7 +9135,7 @@ async fn request_openai_compatible_text_completion(
           ],
           "temperature": 0.7
         });
-        let response = http_client()
+        let response = llm_http_client()
             .post(&endpoint)
             .bearer_auth(api_key)
             .header(reqwest::header::ACCEPT, "application/json")
@@ -9410,7 +9306,7 @@ async fn request_gemini_text_completion(
             }
           ]
         });
-        let response = http_client()
+        let response = llm_http_client()
             .post(&endpoint)
             .query(&[("key", api_key.as_str())])
             .header(reqwest::header::ACCEPT, "application/json")

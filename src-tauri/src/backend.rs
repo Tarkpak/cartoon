@@ -353,6 +353,16 @@ fn http_client() -> &'static Client {
     })
 }
 
+fn llm_http_client() -> &'static Client {
+    static CLIENT: OnceLock<Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        Client::builder()
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .build()
+            .expect("failed to build llm reqwest client")
+    })
+}
+
 fn sanitize_file_component(raw: &str) -> String {
     let mut output = String::new();
     for ch in raw.chars() {
