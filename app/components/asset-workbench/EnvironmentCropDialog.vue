@@ -2,12 +2,14 @@
 import { Loader2 } from 'lucide-vue-next'
 import {
   buildDefaultCropSelection,
+  DEFAULT_PANORAMA_VIEW_FOV_DEGREES,
   disposePanoramaCanvas,
   loadPanoramaImage,
   normalizePanoramaSelectionForAspectRatio,
   resolveEnvironmentCropCaptureMode,
   resolvePanoramaOutputAspectRatioValue,
   resolvePanoramaSelectionHeightForAspectRatio,
+  renderPanoramaFourViewToCanvas,
   renderPanoramaSelectionToCanvas
 } from '~/lib/asset-workbench-environment-panorama'
 import type {
@@ -19,7 +21,7 @@ const MIN_VIEW_WIDTH = 0.08
 const MAX_VIEW_WIDTH = 1
 const MIN_VIEW_FOV_DEGREES = 35
 const MAX_VIEW_FOV_DEGREES = 150
-const DEFAULT_VIEW_FOV_DEGREES = 80
+const DEFAULT_VIEW_FOV_DEGREES = DEFAULT_PANORAMA_VIEW_FOV_DEGREES
 const DEFAULT_VIEW_WIDTH = DEFAULT_VIEW_FOV_DEGREES / 360
 const WHEEL_ZOOM_SENSITIVITY = 0.0015
 const WHEEL_LINE_HEIGHT_PIXELS = 16
@@ -182,16 +184,21 @@ function renderPreview() {
   const nextSize = resolvePreviewCanvasCssSize()
   previewCssSize.value = nextSize
   const dpr = Math.min(2, window.devicePixelRatio || 1)
+  const renderOptions = {
+    image,
+    canvas,
+    selection: currentSelection,
+    sourceAspectRatio: props.sourceAspectRatio,
+    width: nextSize.width * dpr,
+    height: nextSize.height * dpr
+  }
 
   try {
-    renderPanoramaSelectionToCanvas({
-      image,
-      canvas,
-      selection: currentSelection,
-      sourceAspectRatio: props.sourceAspectRatio,
-      width: nextSize.width * dpr,
-      height: nextSize.height * dpr
-    })
+    if (captureMode.value === 'four_view') {
+      renderPanoramaFourViewToCanvas(renderOptions)
+    } else {
+      renderPanoramaSelectionToCanvas(renderOptions)
+    }
     previewError.value = null
   } catch (error) {
     previewError.value = error instanceof Error ? error.message : '360 预览生成失败'
@@ -261,8 +268,9 @@ function moveView(event: PointerEvent) {
   const bounds = canvasRef.value.getBoundingClientRect()
   if (!bounds.width || !bounds.height) return
 
-  const deltaX = (event.clientX - dragState.lastX) / bounds.width
-  const deltaY = (event.clientY - dragState.lastY) / bounds.height
+  const tileScale = captureMode.value === 'four_view' ? 2 : 1
+  const deltaX = (event.clientX - dragState.lastX) / Math.max(1, bounds.width / tileScale)
+  const deltaY = (event.clientY - dragState.lastY) / Math.max(1, bounds.height / tileScale)
   dragState.lastX = event.clientX
   dragState.lastY = event.clientY
 
@@ -326,6 +334,14 @@ watch(
     scheduleRenderPreview()
   },
   { deep: true }
+)
+
+watch(
+  () => captureMode.value,
+  () => {
+    if (!props.open || typeof window === 'undefined') return
+    scheduleRenderPreview()
+  }
 )
 
 watch(() => props.open, (open, previousOpen) => {

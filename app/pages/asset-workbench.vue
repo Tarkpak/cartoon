@@ -39,7 +39,8 @@ import {
 import {
   mergeEnvironmentReferenceViewImages,
   resolveEnvironmentReferenceImageByCaptureMode,
-  resolveEnvironmentReferenceImageForScene
+  resolveEnvironmentReferenceImageForScene,
+  resolveEnvironmentViewImageForCard
 } from '~/lib/asset-workbench-environment-views'
 import {
   applyAutomaticAssetPlan as buildAutomaticAssetPlan
@@ -50,6 +51,7 @@ import {
   invalidateSceneVideoState
 } from '~/lib/asset-workbench-scenes'
 import {
+  resolveEnvironmentAssetGenerationSetting,
   resolveSceneEnvironmentAssetId,
   resolveSceneEnvironmentAssetIdAliases
 } from '~/lib/asset-workbench-environment'
@@ -632,10 +634,8 @@ function resolveEnvironmentHistoryImageByView(
   asset: EnvironmentAssetCard | null | undefined,
   viewMode: EnvironmentCropCaptureMode
 ): string | undefined {
-  const entries = Array.isArray(asset?.assetHistory) ? asset.assetHistory : []
-  const typed = entries.find(entry => entry.viewMode === viewMode && !!entry.image?.trim())
-  if (typed?.image?.trim()) return typed.image.trim()
-  return undefined
+  if (!asset) return undefined
+  return resolveEnvironmentViewImageForCard(asset, viewMode)
 }
 
 function setEnvironmentPanoramaState(
@@ -1621,21 +1621,38 @@ async function handleParseSingleEpisode(payload: { id: string }) {
     return
   }
 
-  const parsed = await parseScript({
-    style: workflowStylePrompt.value,
-    scriptParseMode: scriptParseMode.value,
-    descriptionFormat: 'timeline',
-    targetEpisodeId: payload.id
-  })
-
-  if (!parsed) {
-    alert(parseProgress.value.message || '本集解析失败，请稍后重试')
+  const episodeId = payload.id?.trim()
+  if (!episodeId) {
+    alert('请选择要解析的分集')
     return
   }
 
-  await persistAutomaticAssetPlan()
-  synchronizeSceneConfigs()
-  synchronizeQueueItems()
+  try {
+    const parsed = await parseScript({
+      style: workflowStylePrompt.value,
+      scriptParseMode: scriptParseMode.value,
+      descriptionFormat: 'timeline',
+      targetEpisodeId: episodeId
+    })
+
+    if (!parsed) {
+      alert(parseProgress.value.message || '本集解析失败，请稍后重试')
+      return
+    }
+
+    await persistAutomaticAssetPlan()
+    synchronizeSceneConfigs()
+    synchronizeQueueItems()
+  } catch (error) {
+    const message = resolveUiError(error, '本集解析失败，请稍后重试')
+    parseProgress.value = {
+      ...parseProgress.value,
+      active: false,
+      step: 'error',
+      message
+    }
+    alert(message)
+  }
 }
 
 const autoStages = computed(() => {
@@ -2654,6 +2671,10 @@ async function generateEnvironmentAssetFromCard(
   setEnvironmentAssetGenerationState(assetId, { status: 'generating' })
 
   try {
+    const generationSetting = resolveEnvironmentAssetGenerationSetting(
+      asset,
+      resolveEnvironmentRepresentativeScene(assetId)
+    )
     const response = await $fetch<{
       success: boolean
       referenceImage?: string
@@ -2667,9 +2688,9 @@ async function generateEnvironmentAssetFromCard(
           description: asset.description || asset.sceneTitles.join('、') || asset.name,
           duration: 8,
           setting: {
-            location: asset.name,
-            timeOfDay: '白天',
-            mood: asset.description || ''
+            location: generationSetting.location,
+            timeOfDay: generationSetting.timeOfDay,
+            mood: generationSetting.mood
           },
           characters: [],
           dialogues: []
@@ -2677,8 +2698,8 @@ async function generateEnvironmentAssetFromCard(
         style: workflowStylePrompt.value,
         aspectRatio: ENVIRONMENT_REFERENCE_ASPECT_RATIO,
         environmentContext: {
-          environmentRoot: asset.name,
-          anchorLocation: asset.name,
+          environmentRoot: generationSetting.location,
+          anchorLocation: generationSetting.location,
           anchorDescription: asset.description || '',
           siblingLocations: []
         },
@@ -2733,10 +2754,8 @@ async function generateEnvironmentAssetFromCard(
       singleViewImage,
       fourViewImage
     })
-    const normalizedSingleViewImage = singleViewImage?.trim()
-      || (captureMode === 'single' ? finalReferenceImage?.trim() || '' : '')
-    const normalizedFourViewImage = fourViewImage?.trim()
-      || (captureMode === 'four_view' ? finalReferenceImage?.trim() || '' : '')
+    const normalizedSingleViewImage = singleViewImage?.trim() || ''
+    const normalizedFourViewImage = fourViewImage?.trim() || ''
 
     if (normalizedSingleViewImage) {
       recordEnvironmentHistory(assetId, normalizedSingleViewImage, {
@@ -3110,6 +3129,7 @@ async function handleBatchGenerateCharacters() {
           :auto-running="autoRunning"
           :auto-run-current-stage="autoRunCurrentStage"
           :parsing="parsing"
+          :parse-progress-message="parseProgress.message"
           :scene-chat-open-scene-id="sceneChatOpenSceneId"
           :scene-chat-current-messages="sceneChatCurrentMessages"
           :scene-chat-composer-assets="sceneChatComposerAssets"

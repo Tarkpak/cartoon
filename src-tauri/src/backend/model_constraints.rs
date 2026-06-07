@@ -177,6 +177,7 @@ fn resolve_rule<'a>(
     normalized_model_id: &str,
 ) -> Option<&'a ModelConstraintRule> {
     resolve_exact_provider_rule(registry, provider, normalized_model_id)
+        .or_else(|| resolve_wildcard_exact_rule(registry, normalized_model_id))
         .or_else(|| {
             resolve_openai_compatible_provider_rule(registry, provider, normalized_model_id)
         })
@@ -218,6 +219,17 @@ fn resolve_wildcard_rule<'a>(
     })
 }
 
+fn resolve_wildcard_exact_rule<'a>(
+    registry: &'a ModelConstraintRegistry,
+    normalized_model_id: &str,
+) -> Option<&'a ModelConstraintRule> {
+    registry.rules.iter().find(|rule| {
+        rule_has_wildcard_provider(rule)
+            && rule_matcher_type(rule) == "exact"
+            && rule_model_matches(rule, normalized_model_id)
+    })
+}
+
 fn rule_has_exact_provider(rule: &ModelConstraintRule, provider: &str) -> bool {
     let Some(rule_provider) = rule.provider.as_ref().map(|value| value.trim()) else {
         return false;
@@ -234,19 +246,17 @@ fn rule_has_wildcard_provider(rule: &ModelConstraintRule) -> bool {
     )
 }
 
+fn rule_matcher_type(rule: &ModelConstraintRule) -> String {
+    rule.matcher.matcher_type.trim().to_ascii_lowercase()
+}
+
 fn rule_model_matches(rule: &ModelConstraintRule, normalized_model_id: &str) -> bool {
     let rule_value = rule.matcher.value.trim().to_ascii_lowercase();
     if rule_value.is_empty() {
         return false;
     }
 
-    match rule
-        .matcher
-        .matcher_type
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
+    match rule_matcher_type(rule).as_str() {
         "exact" => normalized_model_id == rule_value,
         "prefix" => normalized_model_id.starts_with(&rule_value),
         "suffix" => normalized_model_id.ends_with(&rule_value),
@@ -781,6 +791,22 @@ mod tests {
         assert_eq!(
             entry.get("supportThinking").and_then(Value::as_bool),
             Some(true)
+        );
+    }
+
+    #[test]
+    fn custom_openai_gpt_image_2_uses_exact_constraint_rule() {
+        let (kind, entry) = build_available_model_entry("custom_openai", "gpt-image-2");
+
+        assert_eq!(kind, AvailableModelKind::Image);
+        assert!(entry.get("sizeConstraints").is_some());
+        assert_eq!(
+            entry.get("sizeSelectionMode").and_then(Value::as_str),
+            Some("constraint")
+        );
+        assert_eq!(
+            entry.get("description").and_then(Value::as_str),
+            Some("图片生成模型")
         );
     }
 }

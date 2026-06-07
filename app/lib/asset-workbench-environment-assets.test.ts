@@ -3,7 +3,8 @@ import type { SceneData } from './asset-workbench-models'
 import { resolveSceneDescriptionWithoutAssetMentions } from './asset-workbench-mention-tokens'
 import {
   buildEnvironmentAssetCards,
-  buildEnvironmentDisplayAssets
+  buildEnvironmentDisplayAssets,
+  resolveEnvironmentAssetGenerationSetting
 } from './asset-workbench-environment-assets'
 import { resolveSceneEnvironmentAssetId } from './asset-workbench-environment-core'
 
@@ -36,6 +37,41 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
 }
 
 describe('buildEnvironmentAssetCards', () => {
+  it('resolves generation setting from environment card name when no representative scene exists', () => {
+    expect(resolveEnvironmentAssetGenerationSetting({
+      id: 'env:现代都市老街路口||傍晚',
+      name: '现代都市老街路口 / 傍晚',
+      description: '暖橙夕阳斜照，灰蓝老式居民楼墙皮斑驳。'
+    })).toEqual({
+      location: '现代都市老街路口',
+      timeOfDay: '傍晚',
+      mood: '暖橙夕阳斜照，灰蓝老式居民楼墙皮斑驳。'
+    })
+  })
+
+  it('prefers representative scene setting for environment card generation', () => {
+    const scene = createScene({
+      id: 'scene_1',
+      title: '巷口夜景',
+      description: '巷口霓虹闪烁。',
+      setting: {
+        location: '老街巷口',
+        timeOfDay: 'night',
+        mood: '霓虹冷光'
+      }
+    })
+
+    expect(resolveEnvironmentAssetGenerationSetting({
+      id: 'env:现代都市老街路口||傍晚',
+      name: '现代都市老街路口 / 傍晚',
+      description: '暖橙夕阳斜照。'
+    }, scene)).toEqual({
+      location: '老街巷口',
+      timeOfDay: '夜晚',
+      mood: '霓虹冷光'
+    })
+  })
+
   it('falls back to environment history preview when scene reference image was reset', () => {
     const scene = createScene({
       id: 'scene_1',

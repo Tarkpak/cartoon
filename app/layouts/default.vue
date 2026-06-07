@@ -19,9 +19,9 @@ const navigation = [
   { name: '设置', path: '/settings', icon: Settings }
 ]
 
-type SettingsSection = 'general' | 'styles' | 'providers' | 'workflow' | 'test' | 'storage' | 'prompts'
+type SettingsSection = 'general' | 'providers' | 'workflow' | 'test' | 'storage' | 'prompts' | 'styles'
 
-const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'styles', 'providers', 'workflow', 'test', 'storage', 'prompts']
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'providers', 'workflow', 'test', 'storage', 'prompts', 'styles']
 
 const settingsSubNavigation: Array<{
   name: string
@@ -29,12 +29,12 @@ const settingsSubNavigation: Array<{
   icon: unknown
 }> = [
   { name: '通用', section: 'general', icon: SlidersHorizontal },
-  { name: '画风预设', section: 'styles', icon: Palette },
   { name: '模型供应商', section: 'providers', icon: Boxes },
   { name: '模型分配', section: 'workflow', icon: Workflow },
   { name: '模型测试', section: 'test', icon: FlaskConical },
   { name: '对象存储', section: 'storage', icon: CloudCog },
-  { name: '提示词', section: 'prompts', icon: FileText }
+  { name: '提示词', section: 'prompts', icon: FileText },
+  { name: '画风预设', section: 'styles', icon: Palette }
 ]
 
 function getSingleQueryValue(value: string | string[] | undefined): string | undefined {

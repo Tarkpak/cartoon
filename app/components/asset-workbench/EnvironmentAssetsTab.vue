@@ -2,6 +2,7 @@
 import { ArrowRight, History, Image, Loader2, Pencil, RefreshCw, ScanSearch, Sparkles, Upload } from 'lucide-vue-next'
 import type { EnvironmentAssetCard, EnvironmentCropCaptureMode } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
+import { resolveEnvironmentViewImageForCard } from '~/lib/asset-workbench-environment-views'
 import { toImageSrc } from '~/lib/media'
 
 const props = defineProps<{
@@ -50,33 +51,11 @@ function resolveHistoryCount(asset: EnvironmentAssetCard): number {
   return Array.isArray(asset.assetHistory) ? asset.assetHistory.length : 0
 }
 
-function resolveEnvironmentHistoryImageByView(
-  asset: EnvironmentAssetCard,
-  viewMode: EnvironmentCropCaptureMode
-): string {
-  const history = Array.isArray(asset.assetHistory) ? asset.assetHistory : []
-  const typed = history.find(entry => entry.viewMode === viewMode && !!entry.image?.trim())
-  if (typed?.image?.trim()) return typed.image.trim()
-
-  const legacy = history.find(entry => !entry.viewMode && !!entry.image?.trim())
-  return legacy?.image?.trim() || ''
-}
-
 function resolveEnvironmentViewImage(
   asset: EnvironmentAssetCard,
   viewMode: EnvironmentCropCaptureMode
 ): string | undefined {
-  if (viewMode === 'single') {
-    const singleViewImage = asset.singleViewImage?.trim()
-      || resolveEnvironmentHistoryImageByView(asset, 'single')
-      || (asset.captureMode !== 'four_view' ? asset.referenceImage?.trim() || '' : '')
-    return singleViewImage || undefined
-  }
-
-  const fourViewImage = asset.fourViewImage?.trim()
-    || resolveEnvironmentHistoryImageByView(asset, 'four_view')
-    || (asset.captureMode === 'four_view' ? asset.referenceImage?.trim() || '' : '')
-  return fourViewImage || undefined
+  return resolveEnvironmentViewImageForCard(asset, viewMode)
 }
 
 function resolveEnvironmentViewLabel(viewMode: EnvironmentCropCaptureMode): string {

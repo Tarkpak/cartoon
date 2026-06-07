@@ -63,6 +63,7 @@ const props = defineProps<{
   autoRunning: boolean
   autoRunCurrentStage: AutoStageKey | null
   parsing: boolean
+  parseProgressMessage?: string | null
   sceneChatOpenSceneId: string | null
   sceneChatCurrentMessages: SceneChatMessage[]
   sceneChatComposerAssets: DisplayAsset[]
@@ -114,7 +115,7 @@ const props = defineProps<{
   onRunEpisodeVideosStep: (episodeId: string) => void
   onExportFormattedScriptDocx: () => void
   onRetryFailedQueueItems: () => void
-  onParseEpisode: (episodeId: string) => void
+  onParseEpisode: (episodeId: string) => void | Promise<void>
   onSelectScene: (sceneId: string) => void
   onOpenSceneEdit: (scene: SceneData) => void
   onToggleSceneChat: (scene: SceneData) => void
@@ -312,7 +313,14 @@ const selectedEpisodeHasParsedScenes = computed(() => {
   return selectedEpisodeScenes.value.length > 0
 })
 
+const parsingEpisodeId = ref('')
+
+const selectedEpisodeParsing = computed(() => {
+  return props.parsing || parsingEpisodeId.value === selectedEpisodeId.value
+})
+
 const parseSelectedEpisodeButtonLabel = computed(() => {
+  if (selectedEpisodeParsing.value) return '解析中'
   return selectedEpisodeHasParsedScenes.value ? '重新解析本集' : '解析本集'
 })
 
@@ -366,9 +374,9 @@ function resolveEpisodeDisplayTitle(episode: { index: number, title: string }): 
   return `第${episode.index}集：${normalized}`
 }
 
-function handleParseSelectedEpisode() {
+async function handleParseSelectedEpisode() {
   const episode = selectedEpisodePlanItem.value
-  if (!episode) return
+  if (!episode || selectedEpisodeParsing.value) return
 
   if (selectedEpisodeHasParsedScenes.value) {
     const confirmed = window.confirm(
@@ -378,7 +386,14 @@ function handleParseSelectedEpisode() {
     if (!confirmed) return
   }
 
-  props.onParseEpisode(episode.id)
+  parsingEpisodeId.value = episode.id
+  try {
+    await props.onParseEpisode(episode.id)
+  } finally {
+    if (parsingEpisodeId.value === episode.id) {
+      parsingEpisodeId.value = ''
+    }
+  }
 }
 
 function toggleEpisodeDirectoryCollapsed() {
@@ -585,11 +600,11 @@ watch(episodeDirectoryCollapsed, (value) => {
                 v-if="selectedEpisodePlanItem"
                 size="sm"
                 class="h-8 w-full gap-1.5"
-                :disabled="parsing"
+                :disabled="selectedEpisodeParsing"
                 @click="handleParseSelectedEpisode()"
               >
                 <Loader2
-                  v-if="parsing"
+                  v-if="selectedEpisodeParsing"
                   class="h-3.5 w-3.5 animate-spin"
                 />
                 <Play
@@ -598,6 +613,12 @@ watch(episodeDirectoryCollapsed, (value) => {
                 />
                 {{ parseSelectedEpisodeButtonLabel }}
               </Button>
+              <p
+                v-if="selectedEpisodeParsing"
+                class="rounded-md border border-border/60 bg-background px-2 py-1.5 text-[11px] text-muted-foreground"
+              >
+                {{ parseProgressMessage || '本集解析任务已创建，等待模型响应' }}
+              </p>
             </div>
           </aside>
         </div>

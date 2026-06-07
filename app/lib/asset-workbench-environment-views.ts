@@ -1,5 +1,7 @@
 import type { SceneData } from '~/lib/asset-workbench-models'
 import type {
+  AssetImageHistoryEntry,
+  EnvironmentAssetCard,
   EnvironmentCropCaptureMode,
   EnvironmentPanoramaState
 } from '~/lib/asset-workbench-types'
@@ -77,6 +79,85 @@ type EnvironmentPanoramaReferenceState = Pick<
   'panoramaImage' | 'singleViewImage' | 'fourViewImage' | 'captureMode'
 >
 
+type EnvironmentViewImageCard = Pick<
+  EnvironmentAssetCard,
+  'singleViewImage' | 'fourViewImage' | 'referenceImage' | 'panoramaImage' | 'assetHistory'
+>
+
+function normalizeOptionalImage(value?: string | null): string | undefined {
+  const normalized = value?.trim()
+  return normalized || undefined
+}
+
+function isSameImage(left?: string, right?: string): boolean {
+  return !!left && !!right && left === right
+}
+
+function resolveNonPanoramaImage(
+  image: string | null | undefined,
+  panoramaImage?: string
+): string | undefined {
+  const normalized = normalizeOptionalImage(image)
+  if (!normalized) return undefined
+  if (isSameImage(normalized, panoramaImage)) return undefined
+  return normalized
+}
+
+function resolveHistoryViewImage(
+  history: AssetImageHistoryEntry[] | undefined,
+  viewMode: EnvironmentCropCaptureMode,
+  panoramaImage?: string
+): string | undefined {
+  if (!Array.isArray(history)) return undefined
+
+  for (const entry of history) {
+    if (entry.viewMode !== viewMode) continue
+    const image = resolveNonPanoramaImage(entry.image, panoramaImage)
+    if (image) return image
+  }
+
+  return undefined
+}
+
+function resolveLegacySingleViewImage(
+  history: AssetImageHistoryEntry[] | undefined,
+  panoramaImage?: string
+): string | undefined {
+  if (panoramaImage || !Array.isArray(history)) return undefined
+
+  for (const entry of history) {
+    if (entry.viewMode) continue
+    const image = normalizeOptionalImage(entry.image)
+    if (image) return image
+  }
+
+  return undefined
+}
+
+export function resolveEnvironmentViewImageForCard(
+  asset: EnvironmentViewImageCard,
+  viewMode: EnvironmentCropCaptureMode
+): string | undefined {
+  const panoramaImage = normalizeOptionalImage(asset.panoramaImage)
+  const singleViewImage = resolveNonPanoramaImage(asset.singleViewImage, panoramaImage)
+  const fourViewImage = resolveNonPanoramaImage(asset.fourViewImage, panoramaImage)
+  const historySingleViewImage = resolveHistoryViewImage(asset.assetHistory, 'single', panoramaImage)
+  const historyFourViewImage = resolveHistoryViewImage(asset.assetHistory, 'four_view', panoramaImage)
+
+  if (viewMode === 'four_view') {
+    return fourViewImage || historyFourViewImage
+  }
+
+  const referenceImage = resolveNonPanoramaImage(asset.referenceImage, panoramaImage)
+  if (referenceImage && !isSameImage(referenceImage, fourViewImage || historyFourViewImage)) {
+    return singleViewImage || historySingleViewImage || referenceImage
+  }
+
+  return singleViewImage
+    || historySingleViewImage
+    || resolveLegacySingleViewImage(asset.assetHistory, panoramaImage)
+}
+
 export function resolveEnvironmentReferenceImageByCaptureMode(
   state: EnvironmentPanoramaReferenceState | null | undefined,
   captureMode: EnvironmentCropCaptureMode
@@ -92,11 +173,6 @@ export function resolveEnvironmentReferenceImageByCaptureMode(
   }
 
   return singleViewImage || fourViewImage || panoramaImage || undefined
-}
-
-function normalizeOptionalImage(value?: string | null): string | undefined {
-  const normalized = value?.trim()
-  return normalized || undefined
 }
 
 export function mergeEnvironmentReferenceViewImages(options: {

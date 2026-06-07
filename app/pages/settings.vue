@@ -1,20 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import SettingsGeneralSection from '@/components/settings/SettingsGeneralSection.vue'
-import SettingsModelTestSection from '@/components/settings/SettingsModelTestSection.vue'
 import SettingsModelProvidersSection from '@/components/settings/SettingsModelProvidersSection.vue'
+import SettingsWorkflowModelsSection from '@/components/settings/SettingsWorkflowModelsSection.vue'
+import SettingsModelTestSection from '@/components/settings/SettingsModelTestSection.vue'
 import SettingsTosStorageSection from '@/components/settings/SettingsTosStorageSection.vue'
 import SettingsPromptSection from '@/components/settings/SettingsPromptSection.vue'
 import SettingsStyleSection from '@/components/settings/SettingsStyleSection.vue'
-import SettingsWorkflowModelsSection from '@/components/settings/SettingsWorkflowModelsSection.vue'
 
-type MenuSection = 'general' | 'styles' | 'providers' | 'workflow' | 'test' | 'storage' | 'prompts'
+type MenuSection = 'general' | 'providers' | 'workflow' | 'test' | 'storage' | 'prompts' | 'styles'
 
 definePageMeta({ layout: 'default' })
 
 const route = useRoute()
 const SETTINGS_MENU_STORAGE_KEY = 'playlet:settings-menu-state'
-const SETTINGS_SECTIONS: MenuSection[] = ['general', 'styles', 'providers', 'workflow', 'test', 'storage', 'prompts']
+const SETTINGS_SECTIONS: MenuSection[] = ['general', 'providers', 'workflow', 'test', 'storage', 'prompts', 'styles']
 
 // 旧版菜单状态（section=models + sub=...）到扁平 section 的映射
 const LEGACY_SUB_TO_SECTION: Record<string, MenuSection> = {
@@ -87,12 +87,12 @@ async function restoreMenuStateFromBrowser() {
 const currentSectionComponent = computed(() => {
   switch (activeSection.value) {
     case 'general': return SettingsGeneralSection
-    case 'styles': return SettingsStyleSection
     case 'providers': return SettingsModelProvidersSection
     case 'workflow': return SettingsWorkflowModelsSection
     case 'test': return SettingsModelTestSection
     case 'storage': return SettingsTosStorageSection
     case 'prompts': return SettingsPromptSection
+    case 'styles': return SettingsStyleSection
     default: return SettingsModelProvidersSection
   }
 })

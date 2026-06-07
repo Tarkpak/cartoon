@@ -7,7 +7,8 @@ import type {
 
 const MIN_CROP_WIDTH = 0.08
 const MIN_CROP_HEIGHT = 0.08
-const DEFAULT_CROP_WIDTH = 0.22
+export const DEFAULT_PANORAMA_VIEW_FOV_DEGREES = 130
+const DEFAULT_CROP_WIDTH = DEFAULT_PANORAMA_VIEW_FOV_DEGREES / 360
 const DEFAULT_OUTPUT_ASPECT_RATIO = 16 / 9
 const MIN_CROP_COVERAGE = 0.35
 const DEFAULT_CROP_COVERAGE = 1
@@ -15,12 +16,14 @@ const MAX_CROP_WIDTH = 1
 const MAX_CROP_HEIGHT = 1
 const DEFAULT_OUTPUT_PIXELS = 1280 * 720
 const DEFAULT_PANORAMA_OUTPUT_PIXELS = 1920 * 1080
+const PANORAMA_CAPTURE_MIME_TYPE = 'image/jpeg'
+const PANORAMA_CAPTURE_JPEG_QUALITY = 0.92
 const EQUIRECTANGULAR_ASPECT_RATIO = 2
 const EQUIRECTANGULAR_ASPECT_RATIO_TOLERANCE = 0.03
 const MIN_PERSPECTIVE_FOV = Math.PI / 8
 const MAX_PERSPECTIVE_FOV = Math.PI * 0.95
 
-interface CropImageMetrics {
+export interface CropImageMetrics {
   width: number
   height: number
 }
@@ -41,6 +44,11 @@ interface PanoramaViewState {
   yaw: number
   pitch: number
   horizontalFov: number
+}
+
+export interface PanoramaFourViewTile extends CropImageMetrics {
+  x: number
+  y: number
 }
 
 interface PanoramaThreeState {
@@ -66,6 +74,10 @@ const KNOWN_ASPECT_RATIO_LABELS: Array<[ratio: number, label: string]> = [
 ]
 // 顺序固定为：前、后、左、右
 const PANORAMA_FOUR_VIEW_OFFSETS = [0, 0.5, 0.75, 0.25] as const
+
+function serializePanoramaCaptureCanvas(canvas: HTMLCanvasElement): string {
+  return canvas.toDataURL(PANORAMA_CAPTURE_MIME_TYPE, PANORAMA_CAPTURE_JPEG_QUALITY)
+}
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
@@ -532,6 +544,24 @@ export function buildPanoramaFourViewSelections(
   }))
 }
 
+export function resolvePanoramaFourViewTileLayout(
+  outputSize: CropImageMetrics
+): PanoramaFourViewTile[] {
+  const outputWidth = Math.max(1, Math.round(outputSize.width))
+  const outputHeight = Math.max(1, Math.round(outputSize.height))
+  const leftWidth = Math.max(1, Math.floor(outputWidth / 2))
+  const rightWidth = Math.max(1, outputWidth - leftWidth)
+  const topHeight = Math.max(1, Math.floor(outputHeight / 2))
+  const bottomHeight = Math.max(1, outputHeight - topHeight)
+
+  return [
+    { x: 0, y: 0, width: leftWidth, height: topHeight },
+    { x: leftWidth, y: 0, width: rightWidth, height: topHeight },
+    { x: 0, y: topHeight, width: leftWidth, height: bottomHeight },
+    { x: leftWidth, y: topHeight, width: rightWidth, height: bottomHeight }
+  ]
+}
+
 export async function loadPanoramaImage(
   sourceImage: string,
   options: {
@@ -675,6 +705,61 @@ export function renderPanoramaSelectionToCanvas(options: {
   state.renderer.render(state.scene, state.camera)
 }
 
+export function renderPanoramaFourViewToCanvas(options: {
+  image: HTMLImageElement
+  canvas: HTMLCanvasElement
+  selection: EnvironmentCropSelection
+  sourceAspectRatio?: PanoramaSourceAspectRatioInput
+  width?: number
+  height?: number
+}): void {
+  const sourceWidth = options.image.naturalWidth || options.image.width
+  const sourceHeight = options.image.naturalHeight || options.image.height
+  if (!sourceWidth || !sourceHeight) {
+    throw new Error('环境全景图尺寸无效，无法生成四视图')
+  }
+  assertPanoramaSourceSize(sourceWidth, sourceHeight, options.sourceAspectRatio)
+
+  const normalizedSelection = normalizePanoramaSelection(options.selection, sourceWidth, sourceHeight)
+  if (!normalizedSelection) {
+    throw new Error('取景区域无效，无法生成四视图')
+  }
+
+  const outputWidth = Math.max(1, Math.round(options.width || options.canvas.width || 1280))
+  const outputHeight = Math.max(1, Math.round(options.height || options.canvas.height || 720))
+  const state = getPanoramaThreeState(options.canvas)
+
+  if (options.canvas.width !== outputWidth) options.canvas.width = outputWidth
+  if (options.canvas.height !== outputHeight) options.canvas.height = outputHeight
+
+  state.renderer.setSize(outputWidth, outputHeight, false)
+  updatePanoramaTexture(state, options.image)
+
+  const tiles = resolvePanoramaFourViewTileLayout({
+    width: outputWidth,
+    height: outputHeight
+  })
+  const viewSelections = buildPanoramaFourViewSelections(normalizedSelection)
+
+  state.renderer.setScissorTest(true)
+  try {
+    viewSelections.forEach((selection, index) => {
+      const tile = tiles[index]
+      if (!tile) return
+
+      const viewportY = outputHeight - tile.y - tile.height
+      state.renderer.setViewport(tile.x, viewportY, tile.width, tile.height)
+      state.renderer.setScissor(tile.x, viewportY, tile.width, tile.height)
+      state.camera.aspect = tile.width / tile.height
+      applyViewStateToCamera(state, selectionToViewState(selection), state.camera.aspect)
+      state.renderer.render(state.scene, state.camera)
+    })
+  } finally {
+    state.renderer.setScissorTest(false)
+    state.renderer.setViewport(0, 0, outputWidth, outputHeight)
+  }
+}
+
 export async function renderPanoramaSelectionToDataUrl(options: {
   sourceImage: string
   selection: EnvironmentCropSelection
@@ -711,7 +796,7 @@ export async function renderPanoramaSelectionToDataUrl(options: {
     })
 
     return {
-      imageData: canvas.toDataURL('image/png'),
+      imageData: serializePanoramaCaptureCanvas(canvas),
       crop: normalizedSelection
     }
   } finally {
@@ -742,49 +827,23 @@ export async function renderPanoramaFourViewToDataUrl(options: {
   const outputSize = options.outputSize || resolvePanoramaOutputSize({
     aspectRatio: options.aspectRatio
   })
-  const leftWidth = Math.max(1, Math.floor(outputSize.width / 2))
-  const rightWidth = Math.max(1, outputSize.width - leftWidth)
-  const topHeight = Math.max(1, Math.floor(outputSize.height / 2))
-  const bottomHeight = Math.max(1, outputSize.height - topHeight)
-  const tiles = [
-    { x: 0, y: 0, width: leftWidth, height: topHeight },
-    { x: leftWidth, y: 0, width: rightWidth, height: topHeight },
-    { x: 0, y: topHeight, width: leftWidth, height: bottomHeight },
-    { x: leftWidth, y: topHeight, width: rightWidth, height: bottomHeight }
-  ] as const
-  const viewSelections = buildPanoramaFourViewSelections(normalizedSelection)
 
   const outputCanvas = document.createElement('canvas')
-  outputCanvas.width = outputSize.width
-  outputCanvas.height = outputSize.height
-  const outputContext = outputCanvas.getContext('2d')
-  if (!outputContext) {
-    throw new Error('无法创建四视图画布')
-  }
-
-  const viewCanvas = document.createElement('canvas')
   try {
-    viewSelections.forEach((selection, index) => {
-      const tile = tiles[index]
-      if (!tile) return
-
-      renderPanoramaSelectionToCanvas({
-        image,
-        canvas: viewCanvas,
-        selection,
-        sourceAspectRatio: options.sourceAspectRatio,
-        width: tile.width,
-        height: tile.height
-      })
-      outputContext.drawImage(viewCanvas, tile.x, tile.y, tile.width, tile.height)
+    renderPanoramaFourViewToCanvas({
+      image,
+      canvas: outputCanvas,
+      selection: normalizedSelection,
+      sourceAspectRatio: options.sourceAspectRatio,
+      width: outputSize.width,
+      height: outputSize.height
     })
 
     return {
-      imageData: outputCanvas.toDataURL('image/png'),
+      imageData: serializePanoramaCaptureCanvas(outputCanvas),
       crop: normalizedSelection
     }
   } finally {
-    disposePanoramaCanvas(viewCanvas)
     disposePanoramaCanvas(outputCanvas)
   }
 }

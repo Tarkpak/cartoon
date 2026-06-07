@@ -4,7 +4,8 @@ import {
   mergeEnvironmentReferenceViewImages,
   resolveEnvironmentCaptureModeForScene,
   resolveEnvironmentReferenceImageByCaptureMode,
-  resolveEnvironmentReferenceImageForScene
+  resolveEnvironmentReferenceImageForScene,
+  resolveEnvironmentViewImageForCard
 } from './asset-workbench-environment-views'
 
 describe('asset-workbench environment views', () => {
@@ -67,6 +68,69 @@ describe('asset-workbench environment views', () => {
     expect(resolveEnvironmentReferenceImageByCaptureMode({
       singleViewImage: 'single.png'
     }, 'four_view')).toBe('single.png')
+  })
+
+  it('does not show panorama source as single or four-view card image', () => {
+    const asset = {
+      referenceImage: 'panorama.png',
+      panoramaImage: 'panorama.png'
+    }
+
+    expect(resolveEnvironmentViewImageForCard(asset, 'single')).toBeUndefined()
+    expect(resolveEnvironmentViewImageForCard(asset, 'four_view')).toBeUndefined()
+  })
+
+  it('ignores panorama-polluted typed and legacy history for card view images', () => {
+    const asset = {
+      referenceImage: 'panorama.png',
+      panoramaImage: 'panorama.png',
+      assetHistory: [
+        {
+          id: 'hist_single',
+          image: 'panorama.png',
+          viewMode: 'single' as const
+        },
+        {
+          id: 'hist_four',
+          image: 'panorama.png',
+          viewMode: 'four_view' as const
+        },
+        {
+          id: 'hist_legacy',
+          image: 'panorama.png'
+        }
+      ]
+    }
+
+    expect(resolveEnvironmentViewImageForCard(asset, 'single')).toBeUndefined()
+    expect(resolveEnvironmentViewImageForCard(asset, 'four_view')).toBeUndefined()
+  })
+
+  it('resolves explicit single and four-view card images before reference fallback', () => {
+    const asset = {
+      referenceImage: 'panorama.png',
+      panoramaImage: 'panorama.png',
+      singleViewImage: 'single.png',
+      fourViewImage: 'four.png'
+    }
+
+    expect(resolveEnvironmentViewImageForCard(asset, 'single')).toBe('single.png')
+    expect(resolveEnvironmentViewImageForCard(asset, 'four_view')).toBe('four.png')
+  })
+
+  it('does not use legacy reference images for four-view card image', () => {
+    const asset = {
+      referenceImage: 'single-reference.png',
+      assetHistory: [
+        {
+          id: 'hist_legacy',
+          image: 'single-reference.png'
+        }
+      ]
+    }
+
+    expect(resolveEnvironmentViewImageForCard(asset, 'single')).toBe('single-reference.png')
+    expect(resolveEnvironmentViewImageForCard(asset, 'four_view')).toBeUndefined()
   })
 
   it('prefers four-view image for multi-view scenes', () => {

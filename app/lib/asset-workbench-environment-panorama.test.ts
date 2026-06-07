@@ -4,6 +4,7 @@ import {
   assertEquirectangularPanoramaSize,
   buildDefaultCropSelection,
   buildPanoramaFourViewSelections,
+  DEFAULT_PANORAMA_VIEW_FOV_DEGREES,
   isPanoramaSourceSize,
   isEquirectangularPanoramaSize,
   normalizeCropSelection,
@@ -14,6 +15,7 @@ import {
   resolveCropSelectionCoverage,
   resolveCropSelectionOutputSize,
   resolveMaxCropSelection,
+  resolvePanoramaFourViewTileLayout,
   resolvePanoramaOutputAspectRatioValue,
   resolvePanoramaSourceAspectRatioValue,
   resolvePanoramaOutputSize,
@@ -28,10 +30,10 @@ describe('environment panorama crop helpers', () => {
       imageHeight: 1024
     })
 
-    expect(selection.width).toBeCloseTo(0.22, 5)
-    expect(selection.height).toBeCloseTo(0.27727, 5)
-    expect(selection.x).toBeCloseTo(0.39, 5)
-    expect(selection.y).toBeCloseTo(0.36136, 5)
+    expect(selection.width).toBeCloseTo(DEFAULT_PANORAMA_VIEW_FOV_DEGREES / 360, 5)
+    expect(selection.height).toBeCloseTo(0.55935, 5)
+    expect(selection.x).toBeCloseTo(0.31944, 5)
+    expect(selection.y).toBeCloseTo(0.22032, 5)
   })
 
   it('validates 2:1 equirectangular panorama source dimensions', () => {
@@ -50,11 +52,14 @@ describe('environment panorama crop helpers', () => {
   })
 
   it('derives vertical FOV from horizontal FOV and output aspect ratio', () => {
-    const horizontalFov = 0.22 * Math.PI * 2
+    const horizontalFov = (DEFAULT_PANORAMA_VIEW_FOV_DEGREES / 360) * Math.PI * 2
     const verticalFov = resolvePerspectiveVerticalFov(horizontalFov, 16 / 9)
 
-    expect(verticalFov).toBeCloseTo(0.87108, 5)
-    expect(resolvePanoramaSelectionHeightForAspectRatio(0.22, 16 / 9)).toBeCloseTo(0.27727, 5)
+    expect(verticalFov).toBeCloseTo(1.75725, 5)
+    expect(resolvePanoramaSelectionHeightForAspectRatio(
+      DEFAULT_PANORAMA_VIEW_FOV_DEGREES / 360,
+      16 / 9
+    )).toBeCloseTo(0.55935, 5)
   })
 
   it('resolves project output aspect ratios for preview and export', () => {
@@ -152,6 +157,18 @@ describe('environment panorama crop helpers', () => {
       expect(selection.width).toBeCloseTo(0.18, 5)
       expect(selection.height).toBeCloseTo(0.24, 5)
     })
+  })
+
+  it('builds a four-view tile layout without gaps for odd output sizes', () => {
+    expect(resolvePanoramaFourViewTileLayout({
+      width: 1001,
+      height: 563
+    })).toEqual([
+      { x: 0, y: 0, width: 500, height: 281 },
+      { x: 500, y: 0, width: 501, height: 281 },
+      { x: 0, y: 281, width: 500, height: 282 },
+      { x: 500, y: 281, width: 501, height: 282 }
+    ])
   })
 
   it('normalizes panorama selection height to the target output aspect ratio', () => {

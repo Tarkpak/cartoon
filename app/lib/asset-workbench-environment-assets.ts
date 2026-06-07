@@ -13,6 +13,7 @@ import {
   resolveSceneEnvironmentAssetLabel,
   resolveSceneReferenceImage
 } from '~/lib/asset-workbench-environment-core'
+import { resolveTimeOfDayText } from '#shared/types/script'
 
 function resolveEnvironmentHistoryPreview(
   history?: EnvironmentAssetCard['assetHistory']
@@ -43,6 +44,68 @@ function resolveReferenceError(scene: SceneData): string | undefined {
   if (scene.referenceStatus !== 'error') return undefined
   const message = scene.referenceError?.trim()
   return message || undefined
+}
+
+function resolveAssetIdEnvironmentParts(assetId: string): {
+  location?: string
+  timeOfDay?: string
+} {
+  const normalized = assetId.trim().replace(/^env:/u, '')
+  const [location = '', timeOfDay = ''] = normalized.split('||')
+  return {
+    location: location.trim() || undefined,
+    timeOfDay: resolveTimeOfDayText(timeOfDay, '').trim() || undefined
+  }
+}
+
+function resolveAssetNameEnvironmentParts(assetName: string): {
+  location?: string
+  timeOfDay?: string
+} {
+  const parts = assetName
+    .split(/\s+\/\s+/u)
+    .map(part => part.trim())
+    .filter(Boolean)
+  const tail = parts[parts.length - 1] || ''
+  const timeOfDay = resolveTimeOfDayText(tail, '').trim()
+  if (!timeOfDay || parts.length < 2) {
+    return {}
+  }
+
+  return {
+    location: parts.slice(0, -1).join(' / ').trim() || undefined,
+    timeOfDay
+  }
+}
+
+export function resolveEnvironmentAssetGenerationSetting(
+  asset: Pick<EnvironmentAssetCard, 'id' | 'name' | 'description'>,
+  representativeScene?: Pick<SceneData, 'setting'> | null
+): {
+  location: string
+  timeOfDay: string
+  mood: string
+} {
+  const nameParts = resolveAssetNameEnvironmentParts(asset.name || '')
+  const idParts = resolveAssetIdEnvironmentParts(asset.id || '')
+  const location = representativeScene?.setting?.location?.trim()
+    || nameParts.location
+    || asset.name?.trim()
+    || idParts.location
+    || '未指定地点'
+  const timeOfDay = resolveTimeOfDayText(
+    representativeScene?.setting?.timeOfDay,
+    ''
+  ).trim()
+    || nameParts.timeOfDay
+    || idParts.timeOfDay
+    || '白天'
+
+  return {
+    location,
+    timeOfDay,
+    mood: representativeScene?.setting?.mood?.trim() || asset.description?.trim() || ''
+  }
 }
 
 export function buildEnvironmentAssetCards(options: {

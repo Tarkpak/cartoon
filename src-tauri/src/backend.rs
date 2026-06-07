@@ -1,4 +1,4 @@
-use axum::extract::{Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post, put};
@@ -36,6 +36,7 @@ const PROMPT_TEMPLATES_KEY: &str = "prompt_templates_default";
 const PROMPT_PROFILES_KEY: &str = "prompt_profiles_default";
 const PROMPT_VERSIONS_KEY: &str = "prompt_versions_default";
 const PROMPT_PROFILE_STATE_KEY: &str = "prompt_profile_state_default";
+const ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES: usize = 50 * 1024 * 1024;
 
 const DEFAULT_STYLE_PRESETS_JSON: &str = include_str!("../assets/default-style-presets.json");
 const DEFAULT_STYLE_CATEGORIES_JSON: &str = include_str!("../assets/default-style-categories.json");
@@ -2000,7 +2001,8 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         )
         .route(
             "/api/asset-workflow/upload-image",
-            post(api_asset_upload_image),
+            post(api_asset_upload_image)
+                .layer(DefaultBodyLimit::max(ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES)),
         )
         .route("/api/image/file/{*filename}", get(api_image_file))
         .route("/api/image/proxy", get(api_image_proxy))

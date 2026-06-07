@@ -8617,6 +8617,8 @@ struct PanoramaSourceProfile {
     fallback_applied: bool,
 }
 
+const PANORAMA_ASPECT_RATIO_TOLERANCE: f64 = 0.03;
+
 fn normalize_panorama_aspect_ratio(value: Option<&str>) -> Option<String> {
     let normalized = value?.replace(char::is_whitespace, "");
     let (width_raw, height_raw) = normalized.split_once(':')?;
@@ -8714,10 +8716,84 @@ fn panorama_target_from_options(options: &Value) -> (String, String, String, Str
     }
 }
 
-fn model_supports_panorama_aspect_ratio(model_config: Option<&Value>, aspect_ratio: &str) -> bool {
+fn parse_size_constraint_ratio(value: Option<&Value>) -> Option<f64> {
+    let text = value?.as_str()?.trim();
+    parse_panorama_aspect_ratio_value(text)
+}
+
+fn model_size_constraints_support_panorama_source(
+    size_constraints: &Value,
+    aspect_ratio: &str,
+    size: &str,
+) -> Option<bool> {
+    let (width, height) = parse_image_dimensions(size)?;
+    let aspect_ratio_value = parse_panorama_aspect_ratio_value(aspect_ratio)?;
+    let max_edge = size_constraints
+        .get("maxEdge")
+        .and_then(Value::as_u64)
+        .map(|value| value as u32);
+    let edge_multiple = size_constraints
+        .get("edgeMultiple")
+        .and_then(Value::as_u64)
+        .map(|value| value as u32)
+        .filter(|value| *value > 0);
+    let min_pixels = size_constraints
+        .get("minPixels")
+        .and_then(Value::as_u64);
+    let max_pixels = size_constraints
+        .get("maxPixels")
+        .and_then(Value::as_u64);
+    let max_aspect_ratio = parse_size_constraint_ratio(size_constraints.get("maxAspectRatio"));
+    let pixels = u64::from(width) * u64::from(height);
+    let actual_ratio = f64::from(width.max(height)) / f64::from(width.min(height));
+
+    if let Some(max_edge) = max_edge {
+        if width > max_edge || height > max_edge {
+            return Some(false);
+        }
+    }
+    if let Some(edge_multiple) = edge_multiple {
+        if width % edge_multiple != 0 || height % edge_multiple != 0 {
+            return Some(false);
+        }
+    }
+    if let Some(min_pixels) = min_pixels {
+        if pixels < min_pixels {
+            return Some(false);
+        }
+    }
+    if let Some(max_pixels) = max_pixels {
+        if pixels > max_pixels {
+            return Some(false);
+        }
+    }
+    if let Some(max_aspect_ratio) = max_aspect_ratio {
+        if actual_ratio - max_aspect_ratio > PANORAMA_ASPECT_RATIO_TOLERANCE {
+            return Some(false);
+        }
+    }
+
+    let size_ratio = f64::from(width) / f64::from(height);
+    Some((size_ratio - aspect_ratio_value).abs() <= PANORAMA_ASPECT_RATIO_TOLERANCE)
+}
+
+fn model_supports_panorama_source(
+    model_config: Option<&Value>,
+    aspect_ratio: &str,
+    size: &str,
+) -> bool {
     let Some(config) = model_config else {
         return true;
     };
+    if let Some(result) = config
+        .get("sizeConstraints")
+        .and_then(|constraints| {
+            model_size_constraints_support_panorama_source(constraints, aspect_ratio, size)
+        })
+    {
+        return result;
+    }
+
     let ratios = config
         .get("supportedAspectRatios")
         .and_then(Value::as_array)
@@ -8737,7 +8813,7 @@ fn resolve_panorama_source_profile(
     model_config: Option<&Value>,
 ) -> PanoramaSourceProfile {
     let (mode, mode_label, aspect_ratio, size) = panorama_target_from_options(options);
-    let fallback_applied = !model_supports_panorama_aspect_ratio(model_config, &aspect_ratio);
+    let fallback_applied = !model_supports_panorama_source(model_config, &aspect_ratio, &size);
     PanoramaSourceProfile {
         mode,
         mode_label,
@@ -8745,6 +8821,239 @@ fn resolve_panorama_source_profile(
         size,
         fallback_applied,
     }
+}
+
+fn panorama_source_prompt_instruction(mode: &str) -> &'static str {
+    match mode {
+        "equirectangular_180" => {
+            "必须是 180 半球等距全景源图，不是普通单方向透视照片；水平视野覆盖半球空间，边缘保留可裁切环境信息。"
+        }
+        "cubemap_3x2" => {
+            "必须是 Cubemap 3x2 展开源图：六个等尺寸正方形面组成 3 列 x 2 行，面与面之间空间关系连续，不要做成普通拼图或分镜。"
+        }
+        "cubemap_6x1" => {
+            "必须是 Cubemap 6x1 横排源图：六个等尺寸正方形面横向排列，前后左右上下六面空间连续，不要做成普通拼图或分镜。"
+        }
+        "custom" => {
+            "必须严格符合环境源图画幅和尺寸，不要生成普通摄影构图；需要保留足够四周环境信息供后续裁切。"
+        }
+        _ => {
+            "必须是标准 360 等距柱状全景贴图（2:1 equirectangular / spherical panorama / HDRI environment map source），左右边缘必须无缝衔接，不是普通宽银幕照片。"
+        }
+    }
+}
+
+fn build_panorama_source_prompt_context(
+    source: &PanoramaSourceProfile,
+    target_aspect_ratio: &str,
+) -> String {
+    format!(
+        "目标输出画幅：{}\n环境源图格式：{}\n环境源图画幅：{}\n环境源图尺寸：{}\n构图要求：{}",
+        target_aspect_ratio,
+        source.mode_label,
+        source.aspect_ratio,
+        source.size,
+        panorama_source_prompt_instruction(&source.mode)
+    )
+}
+
+fn read_be_u16_at(bytes: &[u8], offset: usize) -> Option<u16> {
+    let data = bytes.get(offset..offset + 2)?;
+    Some(u16::from_be_bytes([data[0], data[1]]))
+}
+
+fn read_be_u32_at(bytes: &[u8], offset: usize) -> Option<u32> {
+    let data = bytes.get(offset..offset + 4)?;
+    Some(u32::from_be_bytes([data[0], data[1], data[2], data[3]]))
+}
+
+fn read_le_u16_at(bytes: &[u8], offset: usize) -> Option<u16> {
+    let data = bytes.get(offset..offset + 2)?;
+    Some(u16::from_le_bytes([data[0], data[1]]))
+}
+
+fn read_le_u24_at(bytes: &[u8], offset: usize) -> Option<u32> {
+    let data = bytes.get(offset..offset + 3)?;
+    Some(u32::from(data[0]) | (u32::from(data[1]) << 8) | (u32::from(data[2]) << 16))
+}
+
+fn read_le_u32_at(bytes: &[u8], offset: usize) -> Option<u32> {
+    let data = bytes.get(offset..offset + 4)?;
+    Some(u32::from_le_bytes([data[0], data[1], data[2], data[3]]))
+}
+
+fn read_le_i32_at(bytes: &[u8], offset: usize) -> Option<i32> {
+    let data = bytes.get(offset..offset + 4)?;
+    Some(i32::from_le_bytes([data[0], data[1], data[2], data[3]]))
+}
+
+fn parse_png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 24 || bytes.get(0..8)? != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    let width = read_be_u32_at(bytes, 16)?;
+    let height = read_be_u32_at(bytes, 20)?;
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+fn is_jpeg_sof_marker(marker: u8) -> bool {
+    matches!(
+        marker,
+        0xc0 | 0xc1 | 0xc2 | 0xc3 | 0xc5 | 0xc6 | 0xc7 | 0xc9 | 0xca | 0xcb | 0xcd | 0xce
+            | 0xcf
+    )
+}
+
+fn parse_jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 4 || bytes[0] != 0xff || bytes[1] != 0xd8 {
+        return None;
+    }
+
+    let mut offset = 2usize;
+    while offset + 3 < bytes.len() {
+        while offset < bytes.len() && bytes[offset] != 0xff {
+            offset += 1;
+        }
+        while offset < bytes.len() && bytes[offset] == 0xff {
+            offset += 1;
+        }
+        if offset >= bytes.len() {
+            break;
+        }
+
+        let marker = bytes[offset];
+        offset += 1;
+        if marker == 0xd9 || marker == 0xda {
+            break;
+        }
+        if marker == 0x01 || (0xd0..=0xd7).contains(&marker) {
+            continue;
+        }
+
+        let segment_len = usize::from(read_be_u16_at(bytes, offset)?);
+        if segment_len < 2 || offset + segment_len > bytes.len() {
+            break;
+        }
+
+        if is_jpeg_sof_marker(marker) && segment_len >= 7 {
+            let height = u32::from(read_be_u16_at(bytes, offset + 3)?);
+            let width = u32::from(read_be_u16_at(bytes, offset + 5)?);
+            if width > 0 && height > 0 {
+                return Some((width, height));
+            }
+        }
+
+        offset += segment_len;
+    }
+
+    None
+}
+
+fn parse_gif_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 10 || (bytes.get(0..6)? != b"GIF87a" && bytes.get(0..6)? != b"GIF89a") {
+        return None;
+    }
+    let width = u32::from(read_le_u16_at(bytes, 6)?);
+    let height = u32::from(read_le_u16_at(bytes, 8)?);
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+fn parse_bmp_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 26 || bytes.get(0..2)? != b"BM" {
+        return None;
+    }
+    let width = read_le_i32_at(bytes, 18)?;
+    let height = read_le_i32_at(bytes, 22)?;
+    let width = width.unsigned_abs();
+    let height = height.unsigned_abs();
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+fn parse_webp_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 20 || bytes.get(0..4)? != b"RIFF" || bytes.get(8..12)? != b"WEBP" {
+        return None;
+    }
+
+    let mut offset = 12usize;
+    while offset + 8 <= bytes.len() {
+        let chunk_type = bytes.get(offset..offset + 4)?;
+        let chunk_size = read_le_u32_at(bytes, offset + 4)? as usize;
+        let data_offset = offset + 8;
+        if data_offset + chunk_size > bytes.len() {
+            break;
+        }
+
+        if chunk_type == b"VP8X" && chunk_size >= 10 {
+            let width = read_le_u24_at(bytes, data_offset + 4)?.saturating_add(1);
+            let height = read_le_u24_at(bytes, data_offset + 7)?.saturating_add(1);
+            if width > 0 && height > 0 {
+                return Some((width, height));
+            }
+        } else if chunk_type == b"VP8L" && chunk_size >= 5 && bytes[data_offset] == 0x2f {
+            let bits = read_le_u32_at(bytes, data_offset + 1)?;
+            let width = (bits & 0x3fff).saturating_add(1);
+            let height = ((bits >> 14) & 0x3fff).saturating_add(1);
+            if width > 0 && height > 0 {
+                return Some((width, height));
+            }
+        } else if chunk_type == b"VP8 " && chunk_size >= 10 {
+            let frame = bytes.get(data_offset..data_offset + chunk_size)?;
+            if frame.get(3..6) == Some(&b"\x9d\x01\x2a"[..]) {
+                let width = u32::from(read_le_u16_at(frame, 6)? & 0x3fff);
+                let height = u32::from(read_le_u16_at(frame, 8)? & 0x3fff);
+                if width > 0 && height > 0 {
+                    return Some((width, height));
+                }
+            }
+        }
+
+        offset = data_offset + chunk_size + (chunk_size % 2);
+    }
+
+    None
+}
+
+fn parse_image_dimensions_from_bytes(bytes: &[u8]) -> Option<(u32, u32)> {
+    parse_png_dimensions(bytes)
+        .or_else(|| parse_jpeg_dimensions(bytes))
+        .or_else(|| parse_gif_dimensions(bytes))
+        .or_else(|| parse_webp_dimensions(bytes))
+        .or_else(|| parse_bmp_dimensions(bytes))
+}
+
+fn parse_panorama_aspect_ratio_value(value: &str) -> Option<f64> {
+    let normalized = normalize_panorama_aspect_ratio(Some(value))?;
+    let (width_raw, height_raw) = normalized.split_once(':')?;
+    let width = width_raw.parse::<f64>().ok()?;
+    let height = height_raw.parse::<f64>().ok()?;
+    (width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0)
+        .then_some(width / height)
+}
+
+async fn assert_generated_environment_image_size(
+    state: &BackendState,
+    image_url: &str,
+    panorama_source: &PanoramaSourceProfile,
+) -> Result<(), ApiError> {
+    let (bytes, _) = resolve_source_bytes(state, image_url, 35 * 1024 * 1024).await?;
+    let (width, height) = parse_image_dimensions_from_bytes(&bytes).ok_or_else(|| {
+        ApiError::new(StatusCode::BAD_GATEWAY, "环境源图尺寸无效，无法检查比例")
+    })?;
+    let expected_ratio = parse_panorama_aspect_ratio_value(&panorama_source.aspect_ratio)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "环境源图目标比例无效"))?;
+    let actual_ratio = f64::from(width) / f64::from(height);
+
+    if (actual_ratio - expected_ratio).abs() > PANORAMA_ASPECT_RATIO_TOLERANCE {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!(
+                "环境源图比例不符合 {}（{}），实际尺寸为 {}x{}。请切换支持该比例的图片模型或调整环境源图格式后重试。",
+                panorama_source.aspect_ratio, panorama_source.mode_label, width, height
+            ),
+        ));
+    }
+
+    Ok(())
 }
 
 fn resolve_image_test_size(model_id: &str, provider: &str, aspect_ratio: &str) -> String {
@@ -11696,29 +12005,6 @@ pub(super) async fn api_asset_reference_generate(
         ));
     }
     let reference_images = normalize_image_reference_sources(&state, reference_sources, 4).await?;
-    let prompt = if let Some(custom_prompt) = custom_prompt {
-        render_runtime_prompt(
-            RUNTIME_PROMPT_ENVIRONMENT_REFERENCE_REGENERATION,
-            &[
-                ("sceneTitle", scene_title.as_str()),
-                ("location", location),
-                ("timeOfDay", time_of_day),
-                ("style", style.as_str()),
-                ("customPrompt", custom_prompt),
-            ],
-        )
-    } else {
-        render_runtime_prompt(
-            RUNTIME_PROMPT_ENVIRONMENT_REFERENCE_GENERATION,
-            &[
-                ("sceneTitle", scene_title.as_str()),
-                ("location", location),
-                ("timeOfDay", time_of_day),
-                ("style", style.as_str()),
-                ("sceneDescription", scene_description.as_str()),
-            ],
-        )
-    };
     let (model_id, workflow_model_options) = {
         let conn = db_connection(&state)?;
         let workflow_model_options = get_config_json(&conn, WORKFLOW_MODEL_OPTIONS_KEY)?
@@ -11731,15 +12017,43 @@ pub(super) async fn api_asset_reference_generate(
     let model_config = image_model_config(&provider, &model_id);
     let panorama_source =
         resolve_panorama_source_profile(&workflow_model_options, model_config.as_ref());
+    let source_spec = build_panorama_source_prompt_context(&panorama_source, &aspect_ratio);
     if panorama_source.fallback_applied {
-        eprintln!(
-            "[AssetWorkflow/Reference] 模型 {} 未声明支持 {}，仍按 {}（{}）请求",
-            model_id,
-            panorama_source.aspect_ratio,
-            panorama_source.mode_label,
-            panorama_source.size
-        );
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "当前流程模型「{}」不支持环境源图比例 {}（{}）。请在流程模型中改用支持该比例的图片模型，或调整环境源图格式后重试。",
+                model_id, panorama_source.aspect_ratio, panorama_source.mode_label
+            ),
+        ));
     }
+    let prompt = if let Some(custom_prompt) = custom_prompt {
+        render_runtime_prompt(
+            RUNTIME_PROMPT_ENVIRONMENT_REFERENCE_REGENERATION,
+            &[
+                ("sceneTitle", scene_title.as_str()),
+                ("location", location),
+                ("timeOfDay", time_of_day),
+                ("style", style.as_str()),
+                ("sourceSpec", source_spec.as_str()),
+                ("aspectRatio", source_spec.as_str()),
+                ("customPrompt", custom_prompt),
+            ],
+        )
+    } else {
+        render_runtime_prompt(
+            RUNTIME_PROMPT_ENVIRONMENT_REFERENCE_GENERATION,
+            &[
+                ("sceneTitle", scene_title.as_str()),
+                ("location", location),
+                ("timeOfDay", time_of_day),
+                ("style", style.as_str()),
+                ("sceneDescription", scene_description.as_str()),
+                ("sourceSpec", source_spec.as_str()),
+                ("aspectRatio", source_spec.as_str()),
+            ],
+        )
+    };
     let (image_url, provider, model_id) = run_workflow_image_model(
         &state,
         "frame_generation",
@@ -11753,6 +12067,7 @@ pub(super) async fn api_asset_reference_generate(
         eprintln!("[AssetWorkflow/Reference] 图片模型调用失败: {}", error);
         ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error)
     })?;
+    assert_generated_environment_image_size(&state, &image_url, &panorama_source).await?;
     Ok(Json(json!({
       "success": true,
       "referenceImage": image_url,

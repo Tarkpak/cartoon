@@ -538,13 +538,7 @@ export function useAssetWorkbenchSceneGeneration(
       }
       options.setEnvironmentPanoramaState?.(environmentAssetId, panoramaState)
       const normalizedSingleViewImage = singleViewImage?.trim()
-        || (captureMode === 'single'
-          ? referenceImage?.trim()
-          : undefined)
       const normalizedFourViewImage = fourViewImage?.trim()
-        || (captureMode === 'four_view'
-          ? referenceImage?.trim()
-          : undefined)
 
       if (normalizedSingleViewImage) {
         options.recordEnvironmentHistory?.(
