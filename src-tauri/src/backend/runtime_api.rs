@@ -629,6 +629,9 @@ fn persist_audio_bytes(
 ) -> Result<String, ApiError> {
     let ext = infer_extension_from_mime(mime_type.unwrap_or(""), "mp3");
     let filename = build_unique_filename(prefix, &ext);
+    if let Some(url) = upload_media_bytes_to_tos("voice-assets", &filename, bytes)? {
+        return Ok(url);
+    }
     let path = state.public_dir.join("audios").join(&filename);
     write_file_bytes(&path, bytes)?;
     Ok(format!("/audios/{}", filename))
@@ -4026,10 +4029,16 @@ fn persist_last_frame_from_video_url(
     scene_id: &str,
     video_url: &str,
 ) -> Option<String> {
-    let video_path = resolve_video_source_path(state, video_url.trim())?;
-    if !video_path.exists() {
-        return None;
-    }
+    let trimmed_video_url = video_url.trim();
+    let video_input = if is_http_url(trimmed_video_url) {
+        trimmed_video_url.to_string()
+    } else {
+        let video_path = resolve_video_source_path(state, trimmed_video_url)?;
+        if !video_path.exists() {
+            return None;
+        }
+        video_path.to_string_lossy().to_string()
+    };
 
     let temp_dir = std::env::temp_dir().join(format!(
         "playlet_last_frame_{}_{}",
@@ -4043,7 +4052,7 @@ fn persist_last_frame_from_video_url(
         "-sseof".to_string(),
         "-0.1".to_string(),
         "-i".to_string(),
-        video_path.to_string_lossy().to_string(),
+        video_input,
         "-frames:v".to_string(),
         "1".to_string(),
         frame_path.to_string_lossy().to_string(),

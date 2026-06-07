@@ -19,6 +19,8 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::net::TcpListener;
 use uuid::Uuid;
+use ve_tos_rust_sdk::object::{ObjectAPI, PutObjectFromBufferInput};
+use ve_tos_rust_sdk::tos;
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
@@ -492,6 +494,235 @@ fn build_unique_filename(prefix: &str, ext: &str) -> String {
     )
 }
 
+#[derive(Clone, Debug)]
+struct BackendTosStorageConfig {
+    enabled: bool,
+    access_key_id: String,
+    access_key_secret: String,
+    security_token: Option<String>,
+    region: String,
+    endpoint: String,
+    endpoint_protocol: String,
+    bucket: String,
+    key_prefix: Option<String>,
+    public_base_url: Option<String>,
+    is_custom_domain: bool,
+}
+
+fn tos_config_text(config: &Value, key: &str) -> String {
+    config
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn trim_tos_slashes(value: &str) -> String {
+    value.trim().trim_matches('/').to_string()
+}
+
+fn normalize_tos_object_path(value: &str) -> String {
+    trim_tos_slashes(value)
+        .split('/')
+        .filter(|segment| !segment.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn normalize_tos_base_url(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let with_protocol = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
+    } else {
+        format!("https://{}", trimmed)
+    };
+    Some(with_protocol.trim_end_matches('/').to_string())
+}
+
+fn normalize_tos_endpoint(raw: &str) -> (String, String) {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return ("".to_string(), "https".to_string());
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("http://") {
+        return (trim_tos_slashes(rest), "http".to_string());
+    }
+    if let Some(rest) = trimmed.strip_prefix("https://") {
+        return (trim_tos_slashes(rest), "https".to_string());
+    }
+    (trim_tos_slashes(trimmed), "https".to_string())
+}
+
+fn load_backend_tos_config() -> BackendTosStorageConfig {
+    let config = config_connection()
+        .and_then(|conn| {
+            get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)
+                .ok()
+                .flatten()
+        })
+        .unwrap_or_else(default_tos_config);
+
+    let access_key_id = tos_config_text(&config, "accessKeyId");
+    let access_key_secret = tos_config_text(&config, "secretKey");
+    let security_token = {
+        let token = tos_config_text(&config, "securityToken");
+        if token.is_empty() {
+            None
+        } else {
+            Some(token)
+        }
+    };
+    let region = tos_config_text(&config, "region");
+    let bucket = tos_config_text(&config, "bucket");
+    let key_prefix = {
+        let prefix = normalize_tos_object_path(&tos_config_text(&config, "keyPrefix"));
+        if prefix.is_empty() {
+            None
+        } else {
+            Some(prefix)
+        }
+    };
+    let public_base_url = normalize_tos_base_url(&tos_config_text(&config, "publicBaseUrl"));
+    let is_custom_domain = config
+        .get("isCustomDomain")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let (endpoint, endpoint_protocol) =
+        normalize_tos_endpoint(&tos_config_text(&config, "endpoint"));
+    let enabled_flag = config
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let has_required = !access_key_id.is_empty()
+        && !access_key_secret.is_empty()
+        && !region.is_empty()
+        && !bucket.is_empty()
+        && !endpoint.is_empty();
+
+    BackendTosStorageConfig {
+        enabled: enabled_flag && has_required,
+        access_key_id,
+        access_key_secret,
+        security_token,
+        region,
+        endpoint,
+        endpoint_protocol,
+        bucket,
+        key_prefix,
+        public_base_url,
+        is_custom_domain,
+    }
+}
+
+fn tos_url_encode(input: &str) -> String {
+    let mut output = String::new();
+    for byte in input.as_bytes() {
+        let ch = *byte as char;
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' || ch == '~' {
+            output.push(ch);
+        } else {
+            output.push('%');
+            output.push_str(&format!("{:02X}", byte));
+        }
+    }
+    output
+}
+
+fn build_backend_tos_public_url(config: &BackendTosStorageConfig, object_key: &str) -> String {
+    let encoded_key = object_key
+        .split('/')
+        .map(tos_url_encode)
+        .collect::<Vec<_>>()
+        .join("/");
+
+    if let Some(base_url) = &config.public_base_url {
+        return format!("{}/{}", base_url, encoded_key);
+    }
+
+    if config.is_custom_domain {
+        return format!(
+            "{}://{}/{}",
+            config.endpoint_protocol, config.endpoint, encoded_key
+        );
+    }
+
+    format!(
+        "{}://{}.{}/{}",
+        config.endpoint_protocol, config.bucket, config.endpoint, encoded_key
+    )
+}
+
+fn build_backend_tos_object_key(
+    config: &BackendTosStorageConfig,
+    category: &str,
+    filename: &str,
+) -> String {
+    [config.key_prefix.as_deref(), Some(category), Some(filename)]
+        .into_iter()
+        .flatten()
+        .map(normalize_tos_object_path)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn upload_media_bytes_to_tos(
+    category: &str,
+    filename: &str,
+    bytes: &[u8],
+) -> Result<Option<String>, ApiError> {
+    let config = load_backend_tos_config();
+    if !config.enabled {
+        return Ok(None);
+    }
+
+    let object_key = build_backend_tos_object_key(&config, category, filename);
+    if object_key.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "TOS 对象路径为空，无法上传媒体文件",
+        ));
+    }
+
+    let endpoint = format!("{}://{}", config.endpoint_protocol, config.endpoint);
+    let mut builder = tos::builder()
+        .connection_timeout(5000)
+        .request_timeout(300000)
+        .max_retry_count(1)
+        .ak(config.access_key_id.clone())
+        .sk(config.access_key_secret.clone())
+        .region(config.region.clone())
+        .endpoint(endpoint)
+        .is_custom_domain(config.is_custom_domain);
+    if let Some(token) = &config.security_token {
+        builder = builder.security_token(token.clone());
+    }
+    let client = builder.build().map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("初始化 TOS 客户端失败: {}", error),
+        )
+    })?;
+    let input = PutObjectFromBufferInput::new_with_content(
+        config.bucket.clone(),
+        object_key.clone(),
+        bytes,
+    );
+    client.put_object_from_buffer(&input).map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("上传到 TOS 失败: {}", error),
+        )
+    })?;
+
+    Ok(Some(build_backend_tos_public_url(&config, &object_key)))
+}
+
 fn persist_image_bytes(
     state: &BackendState,
     prefix: &str,
@@ -501,6 +732,9 @@ fn persist_image_bytes(
 ) -> Result<String, ApiError> {
     let ext = infer_extension_from_mime(mime_type.unwrap_or(""), fallback_ext);
     let filename = build_unique_filename(prefix, &ext);
+    if let Some(url) = upload_media_bytes_to_tos("images", &filename, bytes)? {
+        return Ok(url);
+    }
     let path = state.public_dir.join("generated-images").join(&filename);
     write_file_bytes(&path, bytes)?;
     Ok(format!("/api/image/file/{}", filename))
@@ -515,6 +749,9 @@ fn persist_video_bytes(
 ) -> Result<String, ApiError> {
     let ext = infer_extension_from_mime(mime_type.unwrap_or(""), fallback_ext);
     let filename = build_unique_filename(prefix, &ext);
+    if let Some(url) = upload_media_bytes_to_tos("videos", &filename, bytes)? {
+        return Ok(url);
+    }
     let path = state.public_dir.join("videos").join(&filename);
     write_file_bytes(&path, bytes)?;
     Ok(format!("/api/video/file/{}", filename))

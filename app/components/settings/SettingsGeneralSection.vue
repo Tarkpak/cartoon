@@ -14,8 +14,8 @@ import SettingsDesktopUpdate from '@/components/settings/SettingsDesktopUpdate.v
       />
 
       <SettingsCompletionNotification />
-      <SettingsDesktopUpdate />
       <SettingsDesktopFfmpeg />
+      <SettingsDesktopUpdate />
     </div>
   </div>
 </template>
