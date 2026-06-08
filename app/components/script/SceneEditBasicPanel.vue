@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Upload } from 'lucide-vue-next'
+import { Loader2, Plus, Trash2, Upload } from 'lucide-vue-next'
 import type { ComponentPublicInstance } from 'vue'
 import { toImageSrc } from '~/lib/media'
 import type {
@@ -34,6 +34,18 @@ defineProps<{
   handleSceneDescriptionBlur: () => void
   handleSceneDescriptionKeydown: (event: KeyboardEvent) => void
 }>()
+
+function addDialogue() {
+  editForm.value.dialogues.push({
+    character: '',
+    text: '',
+    emotion: ''
+  })
+}
+
+function removeDialogue(index: number) {
+  editForm.value.dialogues.splice(index, 1)
+}
 </script>
 
 <template>
@@ -178,6 +190,75 @@ defineProps<{
         placeholder="输入场景旁白文本..."
         class="min-h-[80px]"
       />
+    </div>
+
+    <div class="space-y-3">
+      <div class="flex items-center justify-between gap-2">
+        <label class="text-sm font-medium">对白</label>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          class="h-7 px-2 text-xs"
+          @click="addDialogue"
+        >
+          <Plus class="mr-1 h-3.5 w-3.5" />
+          添加对白
+        </Button>
+      </div>
+
+      <div
+        v-if="editForm.dialogues.length === 0"
+        class="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground"
+      >
+        当前没有对白，可手动添加角色台词。
+      </div>
+
+      <div
+        v-for="(dialogue, dialogueIndex) in editForm.dialogues"
+        :key="`scene-dialogue-${dialogueIndex}`"
+        class="space-y-3 rounded-md border p-3"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div class="grid flex-1 grid-cols-1 gap-3 md:grid-cols-2">
+            <div class="space-y-2">
+              <label class="text-xs font-medium text-muted-foreground">角色</label>
+              <Input
+                v-model="dialogue.character"
+                placeholder="输入说话角色"
+              />
+            </div>
+
+            <div class="space-y-2">
+              <label class="text-xs font-medium text-muted-foreground">情绪（可选）</label>
+              <Input
+                v-model="dialogue.emotion"
+                placeholder="如：压抑、急促、冷静"
+              />
+            </div>
+          </div>
+
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            class="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+            title="删除对白"
+            @click="removeDialogue(dialogueIndex)"
+          >
+            <Trash2 class="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-xs font-medium text-muted-foreground">台词</label>
+          <Textarea
+            v-model="dialogue.text"
+            placeholder="输入对白内容..."
+            class="min-h-[84px]"
+          />
+        </div>
+      </div>
     </div>
 
     <div class="grid grid-cols-2 gap-4">
