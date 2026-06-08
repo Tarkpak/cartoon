@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path as FsPath, PathBuf};
+#[cfg(target_os = "windows")]
 use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -43,7 +44,8 @@ const ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES: usize = 50 * 1024 * 1024;
 
 const DEFAULT_STYLE_PRESETS_JSON: &str = include_str!("../assets/default-style-presets.json");
 const DEFAULT_STYLE_CATEGORIES_JSON: &str = include_str!("../assets/default-style-categories.json");
-const STYLE_THUMBNAIL_CDN_BASE: &str = "https://playlet-ai.tos-cn-guangzhou.volces.com/manju-assets/styles";
+const STYLE_THUMBNAIL_CDN_BASE: &str =
+    "https://playlet-ai.tos-cn-guangzhou.volces.com/manju-assets/styles";
 const LEGACY_STYLE_THUMBNAIL_CDN_BASE: &str =
     "https://playlet-ai.tos-cn-guangzhou.volces.com/playlet-assets/styles";
 const DEFAULT_PROMPT_TEMPLATES_JSON: &str = include_str!("../assets/default-prompt-templates.json");
@@ -496,10 +498,13 @@ fn write_file_bytes(path: &FsPath, bytes: &[u8]) -> Result<(), ApiError> {
 }
 
 fn build_unique_filename(prefix: &str, ext: &str) -> String {
+    let reverse_timestamp = 9_999_999_999_999_i64
+        .saturating_sub(Utc::now().timestamp_millis())
+        .max(0);
     format!(
-        "{}_{}_{}.{}",
+        "{:013}_{}_{}.{}",
+        reverse_timestamp,
         sanitize_file_component(prefix),
-        Utc::now().timestamp_millis(),
         Uuid::new_v4().simple(),
         sanitize_file_component(ext)
     )
@@ -802,7 +807,9 @@ fn upload_media_bytes_to_tos(
         builder = builder.security_token(token.clone());
     }
     if let (Some(proxy_host), Some(proxy_port)) = (&config.proxy_host, config.proxy_port) {
-        builder = builder.proxy_host(proxy_host.clone()).proxy_port(proxy_port);
+        builder = builder
+            .proxy_host(proxy_host.clone())
+            .proxy_port(proxy_port);
     }
     let client = builder.build().map_err(|error| {
         ApiError::new(
@@ -859,29 +866,6 @@ fn persist_video_bytes(
     Ok(format!("/api/video/file/{}", filename))
 }
 
-fn json_lines_response(lines: Vec<Value>) -> Response {
-    let mut content = String::new();
-    for line in lines {
-        content.push_str(&line.to_string());
-        content.push('\n');
-    }
-
-    (
-        [
-            (
-                header::CONTENT_TYPE,
-                HeaderValue::from_static("application/x-ndjson; charset=utf-8"),
-            ),
-            (
-                header::CACHE_CONTROL,
-                HeaderValue::from_static("no-cache, no-transform"),
-            ),
-        ],
-        content,
-    )
-        .into_response()
-}
-
 fn json_string(value: Option<&Value>, fallback: &str) -> String {
     value
         .and_then(Value::as_str)
@@ -890,7 +874,6 @@ fn json_string(value: Option<&Value>, fallback: &str) -> String {
         .unwrap_or(fallback)
         .to_string()
 }
-
 
 fn normalize_style_thumbnail(value: Option<&str>) -> Option<String> {
     let trimmed = value?.trim();
@@ -1628,45 +1611,45 @@ fn fallback_prompt_templates() -> Value {
 
 fn default_prompt_template_content(content_file: &str) -> Option<&'static str> {
     match content_file {
-        "default-prompts/script_episode_plan.txt" => {
-            Some(include_str!("../assets/default-prompts/script_episode_plan.txt"))
-        }
+        "default-prompts/script_episode_plan.txt" => Some(include_str!(
+            "../assets/default-prompts/script_episode_plan.txt"
+        )),
         "default-prompts/script_parsing.txt" => {
             Some(include_str!("../assets/default-prompts/script_parsing.txt"))
         }
-        "default-prompts/script_parsing_short_drama.txt" => {
-            Some(include_str!("../assets/default-prompts/script_parsing_short_drama.txt"))
-        }
-        "default-prompts/script_parsing_segment_context.txt" => {
-            Some(include_str!("../assets/default-prompts/script_parsing_segment_context.txt"))
-        }
+        "default-prompts/script_parsing_short_drama.txt" => Some(include_str!(
+            "../assets/default-prompts/script_parsing_short_drama.txt"
+        )),
+        "default-prompts/script_parsing_segment_context.txt" => Some(include_str!(
+            "../assets/default-prompts/script_parsing_segment_context.txt"
+        )),
         "default-prompts/script_parsing_episode_drama_context.txt" => Some(include_str!(
             "../assets/default-prompts/script_parsing_episode_drama_context.txt"
         )),
-        "default-prompts/character_sheet.txt" => {
-            Some(include_str!("../assets/default-prompts/character_sheet.txt"))
-        }
-        "default-prompts/character_regeneration.txt" => {
-            Some(include_str!("../assets/default-prompts/character_regeneration.txt"))
-        }
+        "default-prompts/character_sheet.txt" => Some(include_str!(
+            "../assets/default-prompts/character_sheet.txt"
+        )),
+        "default-prompts/character_regeneration.txt" => Some(include_str!(
+            "../assets/default-prompts/character_regeneration.txt"
+        )),
         "default-prompts/environment_reference_generation.txt" => Some(include_str!(
             "../assets/default-prompts/environment_reference_generation.txt"
         )),
         "default-prompts/environment_reference_negative_prompt.txt" => Some(include_str!(
             "../assets/default-prompts/environment_reference_negative_prompt.txt"
         )),
-        "default-prompts/prop_asset_generation.txt" => {
-            Some(include_str!("../assets/default-prompts/prop_asset_generation.txt"))
-        }
-        "default-prompts/prop_asset_negative_prompt.txt" => {
-            Some(include_str!("../assets/default-prompts/prop_asset_negative_prompt.txt"))
-        }
+        "default-prompts/prop_asset_generation.txt" => Some(include_str!(
+            "../assets/default-prompts/prop_asset_generation.txt"
+        )),
+        "default-prompts/prop_asset_negative_prompt.txt" => Some(include_str!(
+            "../assets/default-prompts/prop_asset_negative_prompt.txt"
+        )),
         "default-prompts/scene_description_refinement.txt" => Some(include_str!(
             "../assets/default-prompts/scene_description_refinement.txt"
         )),
-        "default-prompts/scene_video_generation.txt" => {
-            Some(include_str!("../assets/default-prompts/scene_video_generation.txt"))
-        }
+        "default-prompts/scene_video_generation.txt" => Some(include_str!(
+            "../assets/default-prompts/scene_video_generation.txt"
+        )),
         _ => None,
     }
 }
@@ -1704,7 +1687,11 @@ fn default_prompt_templates() -> Value {
                 .and_then(Value::as_str)
                 .and_then(default_prompt_template_content)
                 .map(str::to_string)
-                .or_else(|| obj.get("content").and_then(Value::as_str).map(str::to_string))
+                .or_else(|| {
+                    obj.get("content")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
                 .unwrap_or_default();
             obj.insert("content".to_string(), json!(content));
             if !matches!(obj.get("content"), Some(Value::String(_))) {
@@ -1725,6 +1712,38 @@ fn default_prompt_templates() -> Value {
     } else {
         json!(normalized)
     }
+}
+
+fn merge_prompt_templates_with_defaults(value: Value) -> Value {
+    let defaults = default_prompt_templates();
+    let Some(saved_items) = value.as_array() else {
+        return defaults;
+    };
+    let Some(default_items) = defaults.as_array() else {
+        return value;
+    };
+
+    let mut merged = saved_items.clone();
+    let mut existing_ids = merged
+        .iter()
+        .filter_map(|item| item.get("id").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+    for item in default_items {
+        let Some(id) = item.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        if existing_ids.insert(id.to_string()) {
+            merged.push(item.clone());
+        }
+    }
+    Value::Array(merged)
+}
+
+fn get_prompt_templates_config(conn: &Connection) -> Result<Value, ApiError> {
+    Ok(get_config_json(conn, PROMPT_TEMPLATES_KEY)?
+        .map(merge_prompt_templates_with_defaults)
+        .unwrap_or_else(default_prompt_templates))
 }
 
 fn default_prompt_profiles() -> Value {
@@ -1820,7 +1839,7 @@ fn extract_templates_from_prompt_profile_state(value: &Value) -> Option<Value> {
     if is_legacy_minimal_prompt_templates(&templates) {
         return None;
     }
-    Some(templates)
+    Some(merge_prompt_templates_with_defaults(templates))
 }
 
 fn ensure_sql_identifier(identifier: &str) -> Result<(), ApiError> {
@@ -2165,6 +2184,11 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
                     .and_then(extract_templates_from_prompt_profile_state)
                     .unwrap_or_else(default_prompt_templates);
                 set_config_json(&conn, PROMPT_TEMPLATES_KEY, &migrated_templates)?;
+            } else {
+                let merged_templates = merge_prompt_templates_with_defaults(saved.clone());
+                if merged_templates != saved {
+                    set_config_json(&conn, PROMPT_TEMPLATES_KEY, &merged_templates)?;
+                }
             }
         }
         None => {
@@ -5420,8 +5444,8 @@ fn normalize_provider_base_url(raw: &str) -> Option<String> {
 }
 
 fn provider_sync_base_url(provider: &str, creds: &Value) -> Option<String> {
-    let configured =
-        provider_credential_field(creds, provider, "baseUrl").and_then(|value| normalize_provider_base_url(&value));
+    let configured = provider_credential_field(creds, provider, "baseUrl")
+        .and_then(|value| normalize_provider_base_url(&value));
     match provider {
         "qwen" => configured
             .or_else(|| Some("https://dashscope.aliyuncs.com/compatible-mode/v1".to_string())),
@@ -5568,10 +5592,7 @@ fn build_sync_error_message(status: reqwest::StatusCode, body_text: &str) -> Str
             .filter(|value| !value.is_empty());
         if let Some(text) = message {
             if is_timeout_status || text.to_ascii_lowercase().contains("stream disconnected") {
-                return format!(
-                    "{}: 模型服务响应超时或流式响应提前断开 ({})",
-                    status, text
-                );
+                return format!("{}: 模型服务响应超时或流式响应提前断开 ({})", status, text);
             }
             return format!("{}: {}", status, text);
         }
@@ -5602,8 +5623,8 @@ async fn fetch_provider_models_from_remote(
     if api_keys.is_empty() {
         return Err("未配置 API Key".to_string());
     }
-    let base_url = provider_sync_base_url(provider, creds)
-        .ok_or_else(|| "未配置 Base URL".to_string())?;
+    let base_url =
+        provider_sync_base_url(provider, creds).ok_or_else(|| "未配置 Base URL".to_string())?;
     let endpoint = provider_models_endpoint(&base_url);
     let mut last_error = None::<String>;
 
@@ -5711,7 +5732,10 @@ fn resolve_provider_models(
     creds: &Value,
 ) -> (Vec<String>, Vec<String>, Option<String>, Option<String>) {
     if provider == "custom_openai" {
-        let custom_openai = creds.get("custom_openai").cloned().unwrap_or_else(default_custom_openai_config);
+        let custom_openai = creds
+            .get("custom_openai")
+            .cloned()
+            .unwrap_or_else(default_custom_openai_config);
         let models = json_string_list(custom_openai.get("textModels"));
         let available = {
             let custom_available = json_string_list(custom_openai.get("availableTextModels"));
@@ -6183,7 +6207,8 @@ async fn api_custom_openai_sync(
     }
 
     let sync_result =
-        fetch_provider_models_from_remote("custom_openai", &wrap_custom_openai_creds(&config)).await;
+        fetch_provider_models_from_remote("custom_openai", &wrap_custom_openai_creds(&config))
+            .await;
     let synced_at = now_iso();
     let sync_error = sync_result.as_ref().err().cloned();
     let synced_models = sync_result.clone().unwrap_or_default();
@@ -6220,10 +6245,10 @@ async fn api_custom_openai_sync(
 
 /// 构造脱敏后的供应商凭证视图（不回传密钥明文，仅返回是否已配置 + Base URL）。
 fn provider_credentials_public(creds: &Value) -> Value {
-    let mask = |provider: &str, field: &str| provider_credential_field(creds, provider, field).is_some();
-    let base_url = |provider: &str| {
-        provider_credential_field(creds, provider, "baseUrl").unwrap_or_default()
-    };
+    let mask =
+        |provider: &str, field: &str| provider_credential_field(creds, provider, field).is_some();
+    let base_url =
+        |provider: &str| provider_credential_field(creds, provider, "baseUrl").unwrap_or_default();
     json!({
       "gemini":     { "hasApiKey": mask("gemini", "apiKey"), "baseUrl": base_url("gemini") },
       "qwen":       { "hasApiKey": mask("qwen", "apiKey"), "baseUrl": base_url("qwen") },
@@ -6269,10 +6294,10 @@ async fn api_provider_credentials_put(
         .unwrap_or_else(default_provider_credentials);
 
     {
-        let root = config.as_object_mut().expect("provider credentials must be object");
-        let entry = root
-            .entry(provider.clone())
-            .or_insert_with(|| json!({}));
+        let root = config
+            .as_object_mut()
+            .expect("provider credentials must be object");
+        let entry = root.entry(provider.clone()).or_insert_with(|| json!({}));
         let entry_obj = match entry.as_object_mut() {
             Some(obj) => obj,
             None => {
@@ -6604,9 +6629,8 @@ async fn api_debug_logs_delete(State(state): State<BackendState>) -> Result<Json
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let dir = state.data_dir.join("llm-debug-logs");
     if dir.exists() {
-        fs::remove_dir_all(&dir).map_err(|error| {
-            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-        })?;
+        fs::remove_dir_all(&dir)
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     }
     fs::create_dir_all(&dir)
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;

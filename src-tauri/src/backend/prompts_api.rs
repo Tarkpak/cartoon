@@ -85,7 +85,7 @@ fn prompt_default_snapshot() -> Value {
 
 fn build_prompt_snapshot(conn: &Connection) -> Result<Value, ApiError> {
     Ok(json!({
-      "templates": get_config_json(conn, PROMPT_TEMPLATES_KEY)?.unwrap_or_else(default_prompt_templates),
+      "templates": get_prompt_templates_config(conn)?,
       "versions": Value::Array(get_all_prompt_versions(conn)?)
     }))
 }
@@ -240,6 +240,24 @@ fn ensure_prompt_profile_state(conn: &Connection) -> Result<Value, ApiError> {
             .entry(profile_id.clone())
             .or_insert_with(|| fallback_snapshot.clone());
     }
+    for snapshot in snapshots.values_mut() {
+        let templates = snapshot
+            .get("templates")
+            .cloned()
+            .map(merge_prompt_templates_with_defaults)
+            .unwrap_or_else(default_prompt_templates);
+        if let Some(snapshot_object) = snapshot.as_object_mut() {
+            snapshot_object.insert("templates".to_string(), templates);
+            snapshot_object
+                .entry("versions".to_string())
+                .or_insert_with(|| json!([]));
+        } else {
+            *snapshot = json!({
+              "templates": templates,
+              "versions": []
+            });
+        }
+    }
 
     let active = object
         .get("activeProfileId")
@@ -271,6 +289,7 @@ fn apply_prompt_snapshot(conn: &Connection, snapshot: &Value) -> Result<(), ApiE
     let templates = snapshot
         .get("templates")
         .cloned()
+        .map(merge_prompt_templates_with_defaults)
         .unwrap_or_else(default_prompt_templates);
     let versions = snapshot
         .get("versions")
@@ -324,8 +343,7 @@ pub(super) async fn api_prompts_get(
     State(state): State<BackendState>,
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
-    let templates =
-        get_config_json(&conn, PROMPT_TEMPLATES_KEY)?.unwrap_or_else(default_prompt_templates);
+    let templates = get_prompt_templates_config(&conn)?;
     let profiles =
         get_config_json(&conn, PROMPT_PROFILES_KEY)?.unwrap_or_else(default_prompt_profiles);
 
@@ -347,8 +365,7 @@ pub(super) async fn api_prompts_single_get(
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "缺少模板 ID"));
     }
     let conn = db_connection(&state)?;
-    let templates =
-        get_config_json(&conn, PROMPT_TEMPLATES_KEY)?.unwrap_or_else(default_prompt_templates);
+    let templates = get_prompt_templates_config(&conn)?;
     let found = templates
         .as_array()
         .and_then(|list| {
@@ -370,8 +387,7 @@ pub(super) async fn api_prompts_single_put(
     }
     let conn = db_connection(&state)?;
     assert_active_prompt_profile_writable(&conn)?;
-    let mut templates =
-        get_config_json(&conn, PROMPT_TEMPLATES_KEY)?.unwrap_or_else(default_prompt_templates);
+    let mut templates = get_prompt_templates_config(&conn)?;
     let list = templates
         .as_array_mut()
         .ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "模板数据结构错误"))?;
@@ -437,8 +453,7 @@ pub(super) async fn api_prompts_single_reset(
         .cloned()
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "模板不存在"))?;
 
-    let mut templates =
-        get_config_json(&conn, PROMPT_TEMPLATES_KEY)?.unwrap_or_else(default_prompt_templates);
+    let mut templates = get_prompt_templates_config(&conn)?;
     let (previous_content, updated_template) = {
         let list = templates
             .as_array_mut()
@@ -505,8 +520,7 @@ pub(super) async fn api_prompts_single_restore(
         .unwrap_or_default()
         .to_string();
 
-    let mut templates =
-        get_config_json(&conn, PROMPT_TEMPLATES_KEY)?.unwrap_or_else(default_prompt_templates);
+    let mut templates = get_prompt_templates_config(&conn)?;
     let (previous_content, updated_template) = {
         let list = templates
             .as_array_mut()
@@ -551,8 +565,7 @@ pub(super) async fn api_prompts_reset_all(
     set_config_json(&conn, PROMPT_TEMPLATES_KEY, &default_prompt_templates())?;
     set_config_json(&conn, PROMPT_VERSIONS_KEY, &json!([]))?;
     sync_active_prompt_profile_snapshot(&conn)?;
-    let templates =
-        get_config_json(&conn, PROMPT_TEMPLATES_KEY)?.unwrap_or_else(default_prompt_templates);
+    let templates = get_prompt_templates_config(&conn)?;
     Ok(Json(
         json!({ "success": true, "data": templates, "message": "所有模板已重置为默认值" }),
     ))

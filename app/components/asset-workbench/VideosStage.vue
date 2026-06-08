@@ -281,6 +281,10 @@ const selectedEpisodeId = computed(() => {
   return episodeDirectoryIds.value[0] || ''
 })
 
+watch(selectedEpisodeId, () => {
+  parseEpisodeError.value = ''
+})
+
 const selectedEpisodeTitle = computed(() => {
   return episodeDirectoryMap.value.get(selectedEpisodeId.value)?.title || '当前集'
 })
@@ -314,6 +318,7 @@ const selectedEpisodeHasParsedScenes = computed(() => {
 })
 
 const parsingEpisodeId = ref('')
+const parseEpisodeError = ref('')
 
 const selectedEpisodeParsing = computed(() => {
   return props.parsing || parsingEpisodeId.value === selectedEpisodeId.value
@@ -377,6 +382,7 @@ function resolveEpisodeDisplayTitle(episode: { index: number, title: string }): 
 async function handleParseSelectedEpisode() {
   const episode = selectedEpisodePlanItem.value
   if (!episode || selectedEpisodeParsing.value) return
+  parseEpisodeError.value = ''
 
   if (selectedEpisodeHasParsedScenes.value) {
     const confirmed = window.confirm(
@@ -389,6 +395,8 @@ async function handleParseSelectedEpisode() {
   parsingEpisodeId.value = episode.id
   try {
     await props.onParseEpisode(episode.id)
+  } catch (error) {
+    parseEpisodeError.value = error instanceof Error ? error.message : '本集解析失败，请稍后重试'
   } finally {
     if (parsingEpisodeId.value === episode.id) {
       parsingEpisodeId.value = ''
@@ -618,6 +626,12 @@ watch(episodeDirectoryCollapsed, (value) => {
                 class="rounded-md border border-border/60 bg-background px-2 py-1.5 text-[11px] text-muted-foreground"
               >
                 {{ parseProgressMessage || '本集解析任务已创建，等待模型响应' }}
+              </p>
+              <p
+                v-else-if="parseEpisodeError"
+                class="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[11px] text-destructive"
+              >
+                {{ parseEpisodeError }}
               </p>
             </div>
           </aside>

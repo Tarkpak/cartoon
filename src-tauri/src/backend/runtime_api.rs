@@ -1,34 +1,29 @@
 use super::*;
+use axum::body::{Body, Bytes};
+use futures_util::stream;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use std::convert::Infallible;
 use std::process::Command;
 use ve_tos_rust_sdk::object::{ListObjectsType2Input, ObjectAPI};
 use ve_tos_rust_sdk::tos;
 
 type HmacSha256 = Hmac<Sha256>;
 
-const RUNTIME_PROMPT_SCENE_DESCRIPTION_REFINEMENT: &str =
-    include_str!("../../assets/runtime-prompts/scene_description_refinement.txt");
-const RUNTIME_PROMPT_SCRIPT_PARSE: &str =
-    include_str!("../../assets/runtime-prompts/script_parse.txt");
-const RUNTIME_PROMPT_EPISODE_PLAN: &str =
-    include_str!("../../assets/runtime-prompts/episode_plan.txt");
-const RUNTIME_PROMPT_EPISODE_PLAN_CHUNK_RULE_SEGMENTED: &str =
-    include_str!("../../assets/runtime-prompts/episode_plan_chunk_rule_segmented.txt");
-const RUNTIME_PROMPT_EPISODE_PLAN_CHUNK_RULE_FULL: &str =
-    include_str!("../../assets/runtime-prompts/episode_plan_chunk_rule_full.txt");
-const RUNTIME_PROMPT_CHARACTER_GENERATION: &str =
-    include_str!("../../assets/runtime-prompts/character_generation.txt");
-const RUNTIME_PROMPT_CHARACTER_REGENERATION: &str =
-    include_str!("../../assets/runtime-prompts/character_regeneration.txt");
-const RUNTIME_PROMPT_SCENE_VIDEO_GENERATION: &str =
-    include_str!("../../assets/runtime-prompts/scene_video_generation.txt");
-const RUNTIME_PROMPT_PROP_ASSET_GENERATION: &str =
-    include_str!("../../assets/runtime-prompts/prop_asset_generation.txt");
-const RUNTIME_PROMPT_ENVIRONMENT_REFERENCE_GENERATION: &str =
-    include_str!("../../assets/runtime-prompts/environment_reference_generation.txt");
-const RUNTIME_PROMPT_ENVIRONMENT_REFERENCE_REGENERATION: &str =
-    include_str!("../../assets/runtime-prompts/environment_reference_regeneration.txt");
+const PROMPT_TEMPLATE_SCRIPT_EPISODE_PLAN: &str = "script_episode_plan";
+const PROMPT_TEMPLATE_SCRIPT_PARSING: &str = "script_parsing";
+const PROMPT_TEMPLATE_SCRIPT_PARSING_SHORT_DRAMA: &str = "script_parsing_short_drama";
+const PROMPT_TEMPLATE_SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT: &str =
+    "script_parsing_episode_drama_context";
+const PROMPT_TEMPLATE_CHARACTER_SHEET: &str = "character_sheet";
+const PROMPT_TEMPLATE_CHARACTER_REGENERATION: &str = "character_regeneration";
+const PROMPT_TEMPLATE_ENVIRONMENT_REFERENCE_GENERATION: &str = "environment_reference_generation";
+const PROMPT_TEMPLATE_PROP_ASSET_GENERATION: &str = "prop_asset_generation";
+const PROMPT_TEMPLATE_SCENE_DESCRIPTION_REFINEMENT: &str = "scene_description_refinement";
+const PROMPT_TEMPLATE_SCENE_VIDEO_GENERATION: &str = "scene_video_generation";
+const SCRIPT_PARSE_MIN_DURATION: &str = "2";
+const SCRIPT_PARSE_MAX_DURATION: &str = "15";
+const ENVIRONMENT_CAPTURE_MODE_PROMPT_RULES: &str = "【环境视角打标（必须执行）】\n1. 每个 scenes[i] 必须输出 environmentCaptureMode 字段：single 或 four_view。\n2. 当场景描述存在明确多视角/多机位/镜头切换（含时间轴多段切镜）时，environmentCaptureMode=four_view。\n3. 单一连续视角表达时，environmentCaptureMode=single。\n4. 禁止省略该字段。";
 
 fn render_runtime_prompt(template: &str, variables: &[(&str, &str)]) -> String {
     let mut output = template.to_string();
@@ -593,15 +588,13 @@ async fn persist_image_bytes_async(
     let ext = infer_extension_from_mime(mime_type.unwrap_or(""), fallback_ext);
     let filename = build_unique_filename(prefix, &ext);
     if load_backend_tos_config().enabled {
-        match upload_media_bytes_to_tos_async("images", filename.clone(), bytes.clone()).await {
-            Ok(Some(url)) => return Ok(url),
-            Ok(None) => {
-                eprintln!("[MediaPersist] TOS 已启用但未返回图片上传地址，降级写入本地文件");
-            }
-            Err(error) => {
-                eprintln!("[MediaPersist] 图片上传 TOS 失败，降级写入本地文件: {}", error.message);
-            }
-        }
+        return match upload_media_bytes_to_tos_async("images", filename, bytes).await? {
+            Some(url) => Ok(url),
+            None => Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "TOS 已启用但未返回图片上传地址",
+            )),
+        };
     }
     let path = state.public_dir.join("generated-images").join(&filename);
     write_file_bytes(&path, &bytes)?;
@@ -699,15 +692,13 @@ async fn persist_video_bytes_async(
     let ext = infer_extension_from_mime(mime_type.unwrap_or(""), fallback_ext);
     let filename = build_unique_filename(prefix, &ext);
     if load_backend_tos_config().enabled {
-        match upload_media_bytes_to_tos_async("videos", filename.clone(), bytes.clone()).await {
-            Ok(Some(url)) => return Ok(url),
-            Ok(None) => {
-                eprintln!("[MediaPersist] TOS 已启用但未返回视频上传地址，降级写入本地文件");
-            }
-            Err(error) => {
-                eprintln!("[MediaPersist] 视频上传 TOS 失败，降级写入本地文件: {}", error.message);
-            }
-        }
+        return match upload_media_bytes_to_tos_async("videos", filename, bytes).await? {
+            Some(url) => Ok(url),
+            None => Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "TOS 已启用但未返回视频上传地址",
+            )),
+        };
     }
     let path = state.public_dir.join("videos").join(&filename);
     write_file_bytes(&path, &bytes)?;
@@ -723,15 +714,13 @@ async fn persist_audio_bytes_async(
     let ext = infer_extension_from_mime(mime_type.unwrap_or(""), "mp3");
     let filename = build_unique_filename(prefix, &ext);
     if load_backend_tos_config().enabled {
-        match upload_media_bytes_to_tos_async("voice-assets", filename.clone(), bytes.clone()).await {
-            Ok(Some(url)) => return Ok(url),
-            Ok(None) => {
-                eprintln!("[MediaPersist] TOS 已启用但未返回音频上传地址，降级写入本地文件");
-            }
-            Err(error) => {
-                eprintln!("[MediaPersist] 音频上传 TOS 失败，降级写入本地文件: {}", error.message);
-            }
-        }
+        return match upload_media_bytes_to_tos_async("voice-assets", filename, bytes).await? {
+            Some(url) => Ok(url),
+            None => Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "TOS 已启用但未返回音频上传地址",
+            )),
+        };
     }
     let path = state.public_dir.join("audios").join(&filename);
     write_file_bytes(&path, &bytes)?;
@@ -1460,7 +1449,80 @@ fn build_mentioned_assets_text(body: &Value) -> String {
     }
 }
 
-fn build_scene_description_refinement_prompt(body: &Value) -> String {
+fn build_environment_consistency_text(body: &Value) -> String {
+    let Some(context) = body.get("environmentContext").and_then(Value::as_object) else {
+        return "无".to_string();
+    };
+
+    let mut lines = Vec::new();
+    if let Some(root) = context
+        .get("environmentRoot")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        lines.push(format!("主环境锚点：{}", root));
+    }
+
+    let anchor_title = context
+        .get("anchorSceneTitle")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    let anchor_location = context
+        .get("anchorLocation")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    if !anchor_title.is_empty() || !anchor_location.is_empty() {
+        let anchor_text = match (anchor_title.is_empty(), anchor_location.is_empty()) {
+            (false, false) => format!("母体参考场景：{}（{}）", anchor_title, anchor_location),
+            (false, true) => format!("母体参考场景：{}", anchor_title),
+            (true, false) => format!("母体参考位置：{}", anchor_location),
+            (true, true) => String::new(),
+        };
+        if !anchor_text.is_empty() {
+            lines.push(anchor_text);
+        }
+    }
+
+    if let Some(anchor_description) = context
+        .get("anchorDescription")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        lines.push(format!("母体参考描述：{}", anchor_description));
+    }
+
+    let sibling_locations = context
+        .get("siblingLocations")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .take(12)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if !sibling_locations.is_empty() {
+        lines.push(format!("同组子空间：{}", sibling_locations.join("、")));
+    }
+
+    if lines.is_empty() {
+        "无".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn build_scene_description_refinement_prompt(
+    conn: &rusqlite::Connection,
+    body: &Value,
+) -> Result<String, ApiError> {
     let scene = body.get("scene").cloned().unwrap_or_else(|| json!({}));
     let duration_hint = scene
         .get("duration")
@@ -1485,10 +1547,12 @@ fn build_scene_description_refinement_prompt(body: &Value) -> String {
     let dialogues = build_scene_dialogue_text(&scene);
     let history = build_scene_refine_history_text(body);
     let assets = build_mentioned_assets_text(body);
-    render_runtime_prompt(
-        RUNTIME_PROMPT_SCENE_DESCRIPTION_REFINEMENT,
+    render_configured_prompt(
+        conn,
+        PROMPT_TEMPLATE_SCENE_DESCRIPTION_REFINEMENT,
         &[
             ("duration", duration.as_str()),
+            ("durationHint", duration.as_str()),
             ("style", style.as_str()),
             ("sceneTitle", scene_title.as_str()),
             ("sceneDescription", scene_description.as_str()),
@@ -1498,6 +1562,7 @@ fn build_scene_description_refinement_prompt(body: &Value) -> String {
             ("dialogues", dialogues.as_str()),
             ("history", history.as_str()),
             ("assets", assets.as_str()),
+            ("mentionedAssets", assets.as_str()),
             ("userMessage", user_message.as_str()),
         ],
     )
@@ -1639,6 +1704,403 @@ fn extract_json_from_text(raw: &str) -> Result<Value, String> {
         .map_err(|error| format!("解析模型 JSON 失败: {}", error))
 }
 
+fn normalize_model_scene_characters(value: Option<Value>) -> Value {
+    let Some(Value::Array(items)) = value else {
+        return json!([]);
+    };
+
+    let normalized = items
+        .into_iter()
+        .filter_map(|item| match item {
+            Value::String(name) => {
+                let name = name.trim();
+                if name.is_empty() {
+                    None
+                } else {
+                    Some(json!({ "name": name }))
+                }
+            }
+            Value::Object(mut object) => {
+                let name = object
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())?
+                    .to_string();
+                object.insert("name".to_string(), json!(name));
+                Some(Value::Object(object))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    Value::Array(normalized)
+}
+
+fn normalize_model_scene_dialogues(value: Option<Value>) -> Value {
+    let Some(Value::Array(items)) = value else {
+        return json!([]);
+    };
+
+    let normalized = items
+        .into_iter()
+        .filter_map(|item| {
+            let Value::Object(object) = item else {
+                return None;
+            };
+            let character = object
+                .get("character")
+                .or_else(|| object.get("speaker"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?
+                .to_string();
+            let text = object
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?
+                .to_string();
+            let mut normalized = serde_json::Map::new();
+            normalized.insert("character".to_string(), json!(character));
+            normalized.insert("text".to_string(), json!(text));
+            for key in ["emotion", "isInnerThought"] {
+                if let Some(value) = object.get(key).filter(|value| !value.is_null()) {
+                    normalized.insert(key.to_string(), value.clone());
+                }
+            }
+            Some(Value::Object(normalized))
+        })
+        .collect::<Vec<_>>();
+
+    Value::Array(normalized)
+}
+
+fn trimmed_json_string(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn pick_dramatic_text_from_description(description: &str, label: &str) -> Option<String> {
+    for line in description.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix(label) else {
+            continue;
+        };
+        let text = rest
+            .trim_start_matches(|character| character == '：' || character == ':')
+            .trim()
+            .to_string();
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    None
+}
+
+fn normalize_model_scene_dramatic(
+    value: Option<Value>,
+    fallback_description: &str,
+) -> Option<Value> {
+    let object = match value {
+        Some(Value::Object(object)) => object,
+        _ => serde_json::Map::new(),
+    };
+
+    let mut normalized = serde_json::Map::new();
+    if let Some(function) = object.get("function").and_then(trimmed_json_string) {
+        if matches!(
+            function.as_str(),
+            "hook"
+                | "escalation"
+                | "confrontation"
+                | "reversal"
+                | "payoff"
+                | "cliffhanger"
+                | "aftermath"
+        ) {
+            normalized.insert("function".to_string(), json!(function));
+        }
+    }
+
+    for (key, label) in [
+        ("conflict", Some("戏剧冲突")),
+        ("emotionalCurve", Some("情绪曲线")),
+        ("audienceHook", None),
+        ("painPoint", Some("爽点/痛点")),
+        ("payoff", Some("反击或反转")),
+        ("powerShift", None),
+        ("antagonistPressure", None),
+        ("protagonistCounter", None),
+        ("cliffhanger", Some("结尾钩子")),
+    ] {
+        let text = object.get(key).and_then(trimmed_json_string).or_else(|| {
+            label.and_then(|label| pick_dramatic_text_from_description(fallback_description, label))
+        });
+        if let Some(text) = text {
+            normalized.insert(key.to_string(), json!(text));
+        }
+    }
+
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(Value::Object(normalized))
+    }
+}
+
+fn infer_model_scene_shot_type_from_text(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+
+    let lower = text.to_ascii_lowercase();
+    let normalized = match lower.as_str() {
+        "extreme_wide" | "extreme wide" | "establishing" => "extreme_wide",
+        "wide" | "wide shot" | "full shot" => "wide",
+        "medium_wide" | "medium wide" => "medium_wide",
+        "medium" | "medium shot" => "medium",
+        "medium_close" | "medium close" | "medium close-up" | "medium closeup" => "medium_close",
+        "close" | "close-up" | "closeup" | "close shot" => "close",
+        "extreme_close" | "extreme close-up" | "extreme closeup" => "extreme_close",
+        "detail" | "detail shot" | "insert shot" => "detail",
+        _ if text.contains("大远景") || text.contains("超远景") => "extreme_wide",
+        _ if text.contains("中全景") => "medium_wide",
+        _ if text.contains("中近景") => "medium_close",
+        _ if text.contains("中景") => "medium",
+        _ if text.contains("全景") || text.contains("远景") => "wide",
+        _ if text.contains("近景") => "close",
+        _ if text.contains("大特写") || text.contains("特写") => "extreme_close",
+        _ if text.contains("细节") || text.contains("插入镜头") => "detail",
+        _ => return None,
+    };
+
+    Some(normalized.to_string())
+}
+
+fn normalize_model_scene_shot_type(value: Option<Value>, fallback_text: &str) -> String {
+    if let Some(Value::String(raw)) = value {
+        if let Some(normalized) = infer_model_scene_shot_type_from_text(&raw) {
+            return normalized;
+        }
+    }
+
+    infer_model_scene_shot_type_from_text(fallback_text).unwrap_or_else(|| "medium".to_string())
+}
+
+fn infer_model_scene_camera_movement_from_text(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+
+    let lower = text.to_ascii_lowercase();
+    let normalized = match lower.as_str() {
+        "static" | "fixed" | "locked" | "still" => "static",
+        "push" | "push in" | "push-in" => "push",
+        "pull" | "pull out" | "pull-out" => "pull",
+        "pan_left" | "pan left" => "pan_left",
+        "pan_right" | "pan right" => "pan_right",
+        "tilt_up" | "tilt up" => "tilt_up",
+        "tilt_down" | "tilt down" => "tilt_down",
+        "track" | "tracking" | "tracking shot" => "track",
+        "dolly" => "dolly",
+        "zoom_in" | "zoom in" => "zoom_in",
+        "zoom_out" | "zoom out" => "zoom_out",
+        "crane" => "crane",
+        "handheld" | "handheld shot" => "handheld",
+        "arc" | "orbit" | "arc shot" => "arc",
+        _ if text.contains("固定") || text.contains("定镜") || text.contains("静止") => {
+            "static"
+        }
+        _ if text.contains("推镜") || text.contains("推进") || text.contains("推近") => {
+            "push"
+        }
+        _ if text.contains("拉镜") || text.contains("拉远") || text.contains("后拉") => {
+            "pull"
+        }
+        _ if text.contains("左摇") => "pan_left",
+        _ if text.contains("右摇") => "pan_right",
+        _ if text.contains("上摇") => "tilt_up",
+        _ if text.contains("下摇") => "tilt_down",
+        _ if text.contains("跟拍") || text.contains("跟镜") => "track",
+        _ if text.contains("变焦推") || text.contains("放大") => "zoom_in",
+        _ if text.contains("变焦拉") || text.contains("缩小") => "zoom_out",
+        _ if text.contains("升降") => "crane",
+        _ if text.contains("手持") => "handheld",
+        _ if text.contains("环绕") => "arc",
+        _ => return None,
+    };
+
+    Some(normalized.to_string())
+}
+
+fn normalize_model_scene_camera_movement(value: Option<Value>, fallback_text: &str) -> String {
+    if let Some(Value::String(raw)) = value {
+        if let Some(normalized) = infer_model_scene_camera_movement_from_text(&raw) {
+            return normalized;
+        }
+    }
+
+    infer_model_scene_camera_movement_from_text(fallback_text)
+        .unwrap_or_else(|| "static".to_string())
+}
+
+fn normalize_model_scene_environment_capture_mode_value(value: Option<Value>) -> Option<String> {
+    let Some(Value::String(raw)) = value else {
+        return None;
+    };
+    let text = raw.trim();
+    if text.is_empty() {
+        return None;
+    }
+
+    let lower = text.to_ascii_lowercase();
+    let normalized = match lower.as_str() {
+        "single" | "single view" | "single image" => "single",
+        "four_view" | "four view" | "four views" | "multi view" | "multi-view" => "four_view",
+        _ if text.contains("单视角") || text.contains("单张") || text.contains("单图") => {
+            "single"
+        }
+        _ if text.contains("四视图")
+            || text.contains("四视角")
+            || text.contains("多视角")
+            || text.contains("多角度") =>
+        {
+            "four_view"
+        }
+        _ => return None,
+    };
+
+    Some(normalized.to_string())
+}
+
+fn count_model_scene_timeline_segments(text: &str) -> usize {
+    text.lines()
+        .filter(|line| {
+            let line = line.trim();
+            (line.contains('-') || line.contains('－'))
+                && line.contains('秒')
+                && (line.contains('：') || line.contains(':'))
+        })
+        .count()
+}
+
+fn count_model_scene_shot_keyword_kinds(text: &str) -> usize {
+    let lower = text.to_ascii_lowercase();
+    [
+        "全景",
+        "远景",
+        "中景",
+        "近景",
+        "特写",
+        "俯拍",
+        "仰拍",
+        "主观镜头",
+        "pov",
+        "over-the-shoulder",
+    ]
+    .iter()
+    .filter(|keyword| lower.contains(*keyword))
+    .count()
+}
+
+fn infer_model_scene_environment_capture_mode(description: &str, camera_note: &str) -> String {
+    let text = [description.trim(), camera_note.trim()]
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if text.is_empty() {
+        return "single".to_string();
+    }
+
+    if count_model_scene_timeline_segments(description) >= 2 {
+        return "four_view".to_string();
+    }
+
+    let lower = text.to_ascii_lowercase();
+    if [
+        "多视角",
+        "多个视角",
+        "多机位",
+        "多镜头",
+        "多景别",
+        "镜头切换",
+        "切换镜头",
+        "视角切换",
+        "镜头切到",
+        "切到",
+        "转到",
+        "angle switch",
+        "multi-angle",
+        "multi angle",
+        "multi-shot",
+        "multi shot",
+    ]
+    .iter()
+    .any(|keyword| lower.contains(*keyword))
+    {
+        return "four_view".to_string();
+    }
+
+    if count_model_scene_shot_keyword_kinds(description) >= 2 {
+        return "four_view".to_string();
+    }
+
+    "single".to_string()
+}
+
+fn normalize_model_scene_environment_capture_mode(
+    value: Option<Value>,
+    description: &str,
+    camera_note: &str,
+) -> String {
+    normalize_model_scene_environment_capture_mode_value(value)
+        .unwrap_or_else(|| infer_model_scene_environment_capture_mode(description, camera_note))
+}
+
+fn normalize_model_scene_narration(value: Option<Value>) -> Option<Value> {
+    match value? {
+        Value::String(text) => {
+            let text = text.trim();
+            if text.is_empty() {
+                None
+            } else {
+                Some(json!(text))
+            }
+        }
+        Value::Array(items) => {
+            let lines = items
+                .into_iter()
+                .filter_map(|item| match item {
+                    Value::String(text) => {
+                        let text = text.trim().to_string();
+                        if text.is_empty() {
+                            None
+                        } else {
+                            Some(text)
+                        }
+                    }
+                    Value::Object(object) => object.get("text").and_then(trimmed_json_string),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            if lines.is_empty() {
+                None
+            } else {
+                Some(json!(lines.join("\n")))
+            }
+        }
+        _ => None,
+    }
+}
+
 fn normalize_model_script_result(model_value: Value, fallback_body: &Value) -> Value {
     let fallback = build_parsed_script_payload(fallback_body);
     let data = if model_value.get("data").is_some() {
@@ -1691,6 +2153,41 @@ fn normalize_model_script_result(model_value: Value, fallback_body: &Value) -> V
         .enumerate()
         .map(|(index, scene)| {
             let mut scene_obj = scene.as_object().cloned().unwrap_or_default();
+            let title_text = scene_obj
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("")
+                .to_string();
+            let description_text = scene_obj
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("")
+                .to_string();
+            let location_text = scene_obj
+                .get("setting")
+                .and_then(|value| value.get("location"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("")
+                .to_string();
+            let fallback_text = [
+                title_text.as_str(),
+                description_text.as_str(),
+                location_text.as_str(),
+            ]
+            .into_iter()
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+            let camera_note_text = scene_obj
+                .get("cameraNote")
+                .or_else(|| scene_obj.get("camera_note"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("")
+                .to_string();
             if scene_obj
                 .get("id")
                 .and_then(Value::as_str)
@@ -1703,11 +2200,43 @@ fn normalize_model_script_result(model_value: Value, fallback_body: &Value) -> V
             if !scene_obj.contains_key("duration") {
                 scene_obj.insert("duration".to_string(), json!(8));
             }
-            if !scene_obj.contains_key("characters") {
-                scene_obj.insert("characters".to_string(), json!([]));
+            let characters = normalize_model_scene_characters(scene_obj.remove("characters"));
+            scene_obj.insert("characters".to_string(), characters);
+            let dialogues = normalize_model_scene_dialogues(scene_obj.remove("dialogues"));
+            scene_obj.insert("dialogues".to_string(), dialogues);
+            if let Some(dramatic) =
+                normalize_model_scene_dramatic(scene_obj.remove("dramatic"), &description_text)
+            {
+                scene_obj.insert("dramatic".to_string(), dramatic);
             }
-            if !scene_obj.contains_key("dialogues") {
-                scene_obj.insert("dialogues".to_string(), json!([]));
+            let shot_type = normalize_model_scene_shot_type(
+                scene_obj
+                    .remove("shotType")
+                    .or_else(|| scene_obj.remove("shot_type")),
+                &fallback_text,
+            );
+            scene_obj.insert("shotType".to_string(), json!(shot_type));
+            let camera_movement = normalize_model_scene_camera_movement(
+                scene_obj
+                    .remove("cameraMovement")
+                    .or_else(|| scene_obj.remove("camera_movement")),
+                &fallback_text,
+            );
+            scene_obj.insert("cameraMovement".to_string(), json!(camera_movement));
+            let environment_capture_mode = normalize_model_scene_environment_capture_mode(
+                scene_obj
+                    .remove("environmentCaptureMode")
+                    .or_else(|| scene_obj.remove("environment_capture_mode")),
+                &description_text,
+                &camera_note_text,
+            );
+            scene_obj.insert(
+                "environmentCaptureMode".to_string(),
+                json!(environment_capture_mode),
+            );
+            if let Some(narration) = normalize_model_scene_narration(scene_obj.remove("narration"))
+            {
+                scene_obj.insert("narration".to_string(), narration);
             }
             if !scene_obj.contains_key("setting") {
                 scene_obj.insert(
@@ -1751,55 +2280,415 @@ fn normalize_model_script_result(model_value: Value, fallback_body: &Value) -> V
     })
 }
 
-fn build_script_parse_prompt(body: &Value) -> String {
+fn configured_prompt_template_content(
+    conn: &rusqlite::Connection,
+    template_id: &str,
+) -> Result<String, ApiError> {
+    let templates = get_prompt_templates_config(conn)?;
+    let content = templates
+        .as_array()
+        .and_then(|items| {
+            items.iter().find_map(|item| {
+                if item.get("id").and_then(Value::as_str) == Some(template_id) {
+                    item.get("content")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                } else {
+                    None
+                }
+            })
+        })
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("未找到提示词模板: {template_id}"),
+            )
+        })?;
+    Ok(content)
+}
+
+fn render_configured_prompt(
+    conn: &rusqlite::Connection,
+    template_id: &str,
+    variables: &[(&str, &str)],
+) -> Result<String, ApiError> {
+    let template = configured_prompt_template_content(conn, template_id)?;
+    Ok(render_runtime_prompt(&template, variables))
+}
+
+fn prompt_template_string(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn normalize_runtime_script_parse_mode(value: &str) -> &'static str {
+    match value.trim() {
+        "premium_drama" => "premium_drama",
+        _ => "short_drama",
+    }
+}
+
+fn runtime_script_parse_mode_label(mode: &str) -> &'static str {
+    match mode {
+        "premium_drama" => "精品剧",
+        _ => "短剧",
+    }
+}
+
+fn runtime_script_parse_mode_rules(mode: &str) -> &'static str {
+    match mode {
+        "premium_drama" => "根据剧情节奏与情绪起伏安排场景密度，保证每集叙事完整。",
+        _ => "硬性约束：当前为短剧分集解析。每一集场景总时长必须小于等于300秒（5分钟）；若超出请主动拆分为更多集，并保持剧情连续。",
+    }
+}
+
+fn runtime_script_parse_template_id(mode: &str) -> &'static str {
+    match mode {
+        "short_drama" => PROMPT_TEMPLATE_SCRIPT_PARSING_SHORT_DRAMA,
+        _ => PROMPT_TEMPLATE_SCRIPT_PARSING,
+    }
+}
+
+fn runtime_scene_count_hint(body: &Value) -> String {
+    body.get("maxScenes")
+        .and_then(Value::as_i64)
+        .filter(|value| *value >= 1)
+        .map(|value| value.min(240).to_string())
+        .unwrap_or_else(|| "由模型根据剧情承载自行决定（不设固定场数）".to_string())
+}
+
+fn resolve_runtime_script_era_hint(text: &str, style: &str) -> String {
+    let combined = format!("{text}\n{style}");
+    if combined.contains("古代")
+        || combined.contains("古装")
+        || combined.contains("宫廷")
+        || combined.contains("王府")
+        || combined.contains("皇")
+    {
+        return "古代".to_string();
+    }
+    if combined.contains("民国") || combined.contains("租界") || combined.contains("少帅") {
+        return "民国".to_string();
+    }
+    if combined.contains("近未来")
+        || combined.contains("未来")
+        || combined.contains("末日")
+        || combined.contains("废土")
+        || combined.contains("赛博")
+        || combined.contains("星际")
+    {
+        return "近未来".to_string();
+    }
+    if combined.contains("架空") || combined.contains("玄幻") || combined.contains("异世界")
+    {
+        return "架空".to_string();
+    }
+    if combined.contains("现代")
+        || combined.contains("都市")
+        || combined.contains("公司")
+        || combined.contains("医院")
+        || combined.contains("手机")
+    {
+        return "现代".to_string();
+    }
+
+    let style_lower = style.to_ascii_lowercase();
+    if style_lower.contains("ai真人")
+        || style_lower.contains("真人剧")
+        || style_lower.contains("live-action")
+        || style_lower.contains("live action")
+    {
+        return "现代".to_string();
+    }
+
+    String::new()
+}
+
+fn normalize_asset_brief_text(value: &str, max_chars: usize) -> String {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= max_chars {
+        return normalized;
+    }
+    format!(
+        "{}...",
+        normalized
+            .chars()
+            .take(max_chars)
+            .collect::<String>()
+            .trim()
+    )
+}
+
+fn build_episode_asset_parsing_brief(episode: &Value) -> String {
+    let Some(assets) = episode.get("episodeAssets") else {
+        return String::new();
+    };
+
+    let character_lines = assets
+        .get("characters")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let name = prompt_template_string(item.get("name"))?;
+                    let mut details = Vec::new();
+                    if let Some(gender) = prompt_template_string(item.get("gender")) {
+                        details.push(gender);
+                    }
+                    if let Some(role) = prompt_template_string(item.get("role")) {
+                        details.push(role);
+                    }
+                    if let Some(description) = prompt_template_string(item.get("description")) {
+                        details.push(normalize_asset_brief_text(&description, 90));
+                    }
+                    if details.is_empty() {
+                        Some(format!("- {name}"))
+                    } else {
+                        Some(format!("- {name}：{}", details.join("，")))
+                    }
+                })
+                .take(8)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let prop_lines = assets
+        .get("props")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let name = prompt_template_string(item.get("name"))?;
+                    let description = prompt_template_string(item.get("description"))
+                        .map(|value| normalize_asset_brief_text(&value, 80));
+                    Some(match description {
+                        Some(description) if !description.is_empty() => {
+                            format!("- {name}：{description}")
+                        }
+                        _ => format!("- {name}"),
+                    })
+                })
+                .take(10)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let environment_lines = assets
+        .get("environments")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let location = prompt_template_string(item.get("location"))?;
+                    let mut details = Vec::new();
+                    if let Some(time_of_day) = prompt_template_string(item.get("timeOfDay")) {
+                        details.push(time_of_day);
+                    }
+                    if let Some(mood) = prompt_template_string(item.get("mood")) {
+                        details.push(normalize_asset_brief_text(&mood, 48));
+                    }
+                    if details.is_empty() {
+                        Some(format!("- {location}"))
+                    } else {
+                        Some(format!("- {location}：{}", details.join("，")))
+                    }
+                })
+                .take(8)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    if character_lines.is_empty() && prop_lines.is_empty() && environment_lines.is_empty() {
+        return String::new();
+    }
+
+    [
+        "资产锚点（来自分集目录，优先沿用，不足再补充）：".to_string(),
+        if character_lines.is_empty() {
+            String::new()
+        } else {
+            format!("角色资产：\n{}", character_lines.join("\n"))
+        },
+        if prop_lines.is_empty() {
+            String::new()
+        } else {
+            format!("关键道具：\n{}", prop_lines.join("\n"))
+        },
+        if environment_lines.is_empty() {
+            String::new()
+        } else {
+            format!("环境锚点：\n{}", environment_lines.join("\n"))
+        },
+        "执行要求：保持角色外观基线与性别呈现一致；关键道具名称和核心功能一致；环境地点与时段命名优先沿用上述锚点。"
+            .to_string(),
+    ]
+    .into_iter()
+    .filter(|value| !value.trim().is_empty())
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+fn build_episode_drama_brief(episode: &Value) -> String {
+    let mut lines = Vec::new();
+    for (label, key) in [
+        ("开场钩子", "episodeHook"),
+        ("压迫/羞辱", "humiliationOrThreat"),
+        ("反击/反转", "reversalPoint"),
+        ("情绪曲线", "emotionalCurve"),
+        ("结尾钩子", "cliffhanger"),
+        ("爽点类型", "payoffType"),
+    ] {
+        if let Some(value) = prompt_template_string(episode.get(key)) {
+            lines.push(format!("{label}：{value}"));
+        }
+    }
+
+    let asset_brief = build_episode_asset_parsing_brief(episode);
+    if !asset_brief.is_empty() {
+        lines.push(asset_brief);
+    }
+
+    lines.join("\n")
+}
+
+fn build_episode_context_brief(episode_plan: &Value) -> String {
+    let Some(episodes) = episode_plan.as_array() else {
+        return String::new();
+    };
+
+    let multi_episode = episodes.len() > 1;
+    episodes
+        .iter()
+        .filter_map(|episode| {
+            let brief = build_episode_drama_brief(episode);
+            if brief.trim().is_empty() {
+                return None;
+            }
+            if multi_episode {
+                let title = prompt_template_string(episode.get("title"))
+                    .unwrap_or_else(|| "未命名分集".to_string());
+                Some(format!("【{title}】\n{brief}"))
+            } else {
+                Some(brief)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn append_environment_capture_mode_rule(prompt: String) -> String {
+    if prompt.contains("environmentCaptureMode") {
+        prompt
+    } else {
+        format!("{prompt}\n\n{ENVIRONMENT_CAPTURE_MODE_PROMPT_RULES}")
+    }
+}
+
+fn build_script_parse_prompt(
+    conn: &rusqlite::Connection,
+    body: &Value,
+) -> Result<String, ApiError> {
     let text = json_string(body.get("text"), "");
     let style = json_string(body.get("style"), "默认画风");
-    let parse_mode = json_string(body.get("scriptParseMode"), "short_drama");
+    let parse_mode = normalize_runtime_script_parse_mode(&json_string(
+        body.get("scriptParseMode"),
+        "short_drama",
+    ));
     let episode_plan = body
         .get("episodePlan")
         .cloned()
         .unwrap_or_else(|| json!([]));
-    let episode_plan_text = episode_plan.to_string();
-    render_runtime_prompt(
-        RUNTIME_PROMPT_SCRIPT_PARSE,
+    let template =
+        configured_prompt_template_content(conn, runtime_script_parse_template_id(parse_mode))?;
+    let text_length = text.chars().count().to_string();
+    let recommended_min_scenes = runtime_scene_count_hint(body);
+    let era_hint = resolve_runtime_script_era_hint(&text, &style);
+    let rendered = render_runtime_prompt(
+        &template,
         &[
-            ("parseMode", parse_mode.as_str()),
+            ("novelText", text.as_str()),
             ("style", style.as_str()),
-            ("episodePlan", episode_plan_text.as_str()),
-            ("text", text.as_str()),
+            ("textLength", text_length.as_str()),
+            ("recommendedMinScenes", recommended_min_scenes.as_str()),
+            ("sceneDurationMin", SCRIPT_PARSE_MIN_DURATION),
+            ("sceneDurationMax", SCRIPT_PARSE_MAX_DURATION),
+            (
+                "scriptParseModeLabel",
+                runtime_script_parse_mode_label(parse_mode),
+            ),
+            (
+                "scriptParseModeRules",
+                runtime_script_parse_mode_rules(parse_mode),
+            ),
+            ("eraHint", era_hint.as_str()),
         ],
-    )
+    );
+
+    let episode_context_brief = build_episode_context_brief(&episode_plan);
+    let with_episode_context = if episode_context_brief.trim().is_empty() {
+        rendered
+    } else {
+        let context_template = configured_prompt_template_content(
+            conn,
+            PROMPT_TEMPLATE_SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT,
+        )?;
+        render_runtime_prompt(
+            &context_template,
+            &[
+                ("basePrompt", rendered.as_str()),
+                ("episodeDramaBrief", episode_context_brief.as_str()),
+            ],
+        )
+    };
+
+    Ok(append_environment_capture_mode_rule(with_episode_context))
 }
 
 fn build_episode_plan_prompt_text(
+    conn: &rusqlite::Connection,
     text: &str,
     script_parse_mode: &str,
     chunk_index: Option<usize>,
     chunk_count: Option<usize>,
-) -> String {
+) -> Result<String, ApiError> {
     let chunk_count = chunk_count.unwrap_or(1).max(1);
     let chunk_index = chunk_index.unwrap_or(1).max(1);
-    let chunk_rule = if chunk_count > 1 {
-        let chunk_index_text = chunk_index.to_string();
-        let chunk_count_text = chunk_count.to_string();
-        render_runtime_prompt(
-            RUNTIME_PROMPT_EPISODE_PLAN_CHUNK_RULE_SEGMENTED,
-            &[
-                ("chunkIndex", chunk_index_text.as_str()),
-                ("chunkCount", chunk_count_text.as_str()),
-            ],
+    let is_segmented = chunk_count > 1;
+    let mode_rule = if normalize_runtime_script_parse_mode(script_parse_mode) == "short_drama" {
+        "短剧模式额外约束：请由剧情节奏决定分集数量，并确保每集对应的场景合成总时长目标不超过 300 秒（5 分钟）。"
+    } else {
+        "精品剧模式：由剧情结构自行决定分集数量。"
+    };
+    let chunk_rule = if is_segmented {
+        format!(
+            "当前仅提供原文第 {}/{} 段，请严格基于本段文本拆分，不得补写未提供段落。",
+            chunk_index, chunk_count
         )
     } else {
-        RUNTIME_PROMPT_EPISODE_PLAN_CHUNK_RULE_FULL.to_string()
+        "当前提供的是完整原文。".to_string()
     };
-    render_runtime_prompt(
-        RUNTIME_PROMPT_EPISODE_PLAN,
+    let first_anchor_rule = if is_segmented {
+        "第1集 startAnchor 必须取“本段开头”的连续片段。"
+    } else {
+        "第1集 startAnchor 必须取原文开头连续片段。"
+    };
+    let template = configured_prompt_template_content(conn, PROMPT_TEMPLATE_SCRIPT_EPISODE_PLAN)?;
+    Ok(render_runtime_prompt(
+        &template,
         &[
+            ("novelText", text),
+            ("modeRule", mode_rule),
             ("chunkRule", chunk_rule.as_str()),
-            ("scriptParseMode", script_parse_mode),
-            ("text", text),
+            ("firstAnchorRule", first_anchor_rule),
         ],
-    )
+    ))
 }
 
 fn find_anchor_offset(text: &str, anchor: &str, from_offset: usize) -> Option<usize> {
@@ -2181,8 +3070,11 @@ async fn build_model_episode_plan(
 ) -> Result<(Vec<Value>, String, String, bool), String> {
     let normalized_text = normalize_script_input_text(text);
     if normalized_text.chars().count() <= EPISODE_PLAN_SINGLE_PASS_MAX_CHARS {
-        let prompt =
-            build_episode_plan_prompt_text(&normalized_text, script_parse_mode, None, None);
+        let prompt = {
+            let conn = db_connection(state).map_err(|error| error.message)?;
+            build_episode_plan_prompt_text(&conn, &normalized_text, script_parse_mode, None, None)
+                .map_err(|error| error.message)?
+        };
         let (model_text, provider, model_id) =
             run_workflow_text_model(state, "script_parsing", &prompt).await?;
         let value = extract_json_from_text(&model_text)?;
@@ -2196,12 +3088,17 @@ async fn build_model_episode_plan(
     let mut provider_name = String::new();
     let mut model_name = String::new();
     for chunk in chunks {
-        let prompt = build_episode_plan_prompt_text(
-            &chunk.text,
-            script_parse_mode,
-            Some(chunk.index),
-            Some(chunk_count),
-        );
+        let prompt = {
+            let conn = db_connection(state).map_err(|error| error.message)?;
+            build_episode_plan_prompt_text(
+                &conn,
+                &chunk.text,
+                script_parse_mode,
+                Some(chunk.index),
+                Some(chunk_count),
+            )
+            .map_err(|error| error.message)?
+        };
         let (model_text, provider, model_id) =
             run_workflow_text_model(state, "script_parsing", &prompt).await?;
         if provider_name.is_empty() {
@@ -3880,24 +4777,183 @@ fn resolve_workflow_model_id(
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error))
 }
 
-fn build_video_prompt_from_scene(scene: &Value, config: &Value) -> String {
+fn compact_prompt_text(value: &str, max_chars: usize) -> String {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= max_chars {
+        return normalized;
+    }
+    format!(
+        "{}...",
+        normalized
+            .chars()
+            .take(max_chars)
+            .collect::<String>()
+            .trim()
+    )
+}
+
+fn build_scene_video_reference_materials(config: &Value) -> String {
+    let references = config.get("references").unwrap_or(&Value::Null);
+    let mut lines = Vec::new();
+    if has_non_empty_string(references.get("environmentImage")) {
+        let name = references
+            .get("environmentAsset")
+            .and_then(|value| value.get("name"))
+            .and_then(Value::as_str)
+            .unwrap_or("环境参考图");
+        lines.push(format!("- 环境参考：{name}"));
+    }
+    if has_non_empty_string(references.get("continuityFirstFrame")) {
+        lines.push("- 连续性首帧：使用上一镜头末帧承接动作与构图".to_string());
+    }
+    if let Some(items) = references.get("characterAssets").and_then(Value::as_array) {
+        let names = items
+            .iter()
+            .filter_map(|item| item.get("name").and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .take(12)
+            .collect::<Vec<_>>();
+        if !names.is_empty() {
+            lines.push(format!("- 角色/道具参考：{}", names.join("、")));
+        }
+    } else if has_non_empty_string(references.get("characterImage")) {
+        lines.push("- 角色参考：使用随请求提供的角色参考图".to_string());
+    }
+    if let Some(voice_asset) = references.get("narrationVoiceAsset") {
+        if has_non_empty_string(voice_asset.get("audioUrl")) {
+            let name = voice_asset
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("旁白音色");
+            lines.push(format!("- 旁白音色参考：{name}"));
+        }
+    }
+
+    if lines.is_empty() {
+        "无额外参考素材".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn build_scene_video_reference_guide(scene: &Value, config: &Value) -> String {
+    let references = config.get("references").unwrap_or(&Value::Null);
+    let mut lines = Vec::new();
+    if has_non_empty_string(references.get("environmentImage")) {
+        lines.push("优先锁定环境参考图中的空间结构、材质、光线方向和主要陈设。");
+    }
+    if has_non_empty_string(references.get("characterImage"))
+        || references
+            .get("characterAssets")
+            .and_then(Value::as_array)
+            .is_some_and(|items| !items.is_empty())
+    {
+        lines.push("优先保持角色参考图中的脸型、发型、服装、体态和关键配饰。");
+    }
+    if has_non_empty_string(references.get("continuityFirstFrame")) {
+        lines.push("从连续性首帧自然承接，不要重置人物位置、镜头角度或物体状态。");
+    }
+    if let Some(camera_note) = scene
+        .get("cameraNote")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        lines.push(camera_note);
+    }
+
+    if lines.is_empty() {
+        "按场景详细说明执行；若存在参考图，保持主体身份与空间关系一致。".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn build_scene_video_execution_constraints(scene: &Value, config: &Value) -> String {
+    let mut lines = vec![
+        "画面稳定，镜头运动平滑，不生成字幕、水印、Logo 或 UI。".to_string(),
+        "不得生成背景音乐；对白和旁白只体现为口型、表演节奏和画面情绪。".to_string(),
+    ];
+    if let Some(camera_note) = scene
+        .get("cameraNote")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        lines.push(format!("镜头备注：{camera_note}"));
+    }
+    if let Some(negative_prompt) = config
+        .get("negativePrompt")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        lines.push(format!("负向约束：{negative_prompt}"));
+    }
+    lines.join("\n")
+}
+
+fn build_video_prompt_from_scene(
+    conn: &rusqlite::Connection,
+    scene: &Value,
+    config: &Value,
+) -> Result<String, ApiError> {
     let prompt = json_string(config.get("prompt"), "");
     if !prompt.is_empty() {
-        return prompt;
+        return Ok(prompt);
     }
     let title = json_string(scene.get("title"), "未命名场景");
     let description = json_string(scene.get("description"), "未提供分镜描述");
-    let location = scene
-        .get("setting")
-        .and_then(|value| value.get("location"))
+    let scene_summary = compact_prompt_text(&description, 220);
+    let style = json_string(config.get("style"), "保持项目默认画风");
+    let aspect_ratio = json_string(config.get("aspectRatio"), "16:9");
+    let duration = scene
+        .get("duration")
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .map(|value| {
+            if value.fract() == 0.0 {
+                format!("{}", value as i64)
+            } else {
+                format!("{:.1}", value)
+            }
+        })
+        .unwrap_or_else(|| "8".to_string());
+    let shot_number = scene
+        .get("sceneIndex")
+        .and_then(Value::as_i64)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| json_string(scene.get("id"), "1"));
+    let setting = build_scene_setting_text(scene);
+    let reference_guide = build_scene_video_reference_guide(scene, config);
+    let reference_materials = build_scene_video_reference_materials(config);
+    let execution_constraints = build_scene_video_execution_constraints(scene, config);
+    let narration = scene
+        .get("narration")
         .and_then(Value::as_str)
-        .unwrap_or("未指定地点");
-    render_runtime_prompt(
-        RUNTIME_PROMPT_SCENE_VIDEO_GENERATION,
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("无");
+    let dialogues = build_scene_dialogue_text(scene);
+
+    render_configured_prompt(
+        conn,
+        PROMPT_TEMPLATE_SCENE_VIDEO_GENERATION,
         &[
+            ("shotNumber", shot_number.as_str()),
             ("sceneTitle", title.as_str()),
-            ("location", location),
+            ("sceneSummary", scene_summary.as_str()),
+            ("style", style.as_str()),
+            ("duration", duration.as_str()),
+            ("aspectRatio", aspect_ratio.as_str()),
+            ("setting", setting.as_str()),
             ("sceneDescription", description.as_str()),
+            ("referenceGuide", reference_guide.as_str()),
+            ("referenceMaterials", reference_materials.as_str()),
+            ("executionConstraints", execution_constraints.as_str()),
+            ("narration", narration),
+            ("dialogues", dialogues.as_str()),
         ],
     )
 }
@@ -10616,7 +11672,10 @@ pub(super) async fn api_script_parse(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_script_parse_request(&body)?;
-    let prompt = build_script_parse_prompt(&body);
+    let prompt = {
+        let conn = db_connection(&state)?;
+        build_script_parse_prompt(&conn, &body)?
+    };
     let (model_text, provider, model_id) =
         run_workflow_text_model(&state, "script_parsing", &prompt)
             .await
@@ -10652,33 +11711,79 @@ pub(super) async fn api_script_parse_stream(
     Json(body): Json<Value>,
 ) -> Result<Response, ApiError> {
     validate_script_parse_request(&body)?;
-    let parsed = api_script_parse(State(state), Json(body)).await?.0;
-    let lines = vec![
-        json!({
-          "type": "progress",
-          "payload": {
-            "step": "accepted",
-            "message": "已接收解析请求，准备开始",
-            "progress": 1
-          },
-          "timestamp": now_iso()
-        }),
-        json!({
-          "type": "progress",
-          "payload": {
-            "step": "parsing",
-            "message": "正在解析文本结构",
-            "progress": 72
-          },
-          "timestamp": now_iso()
-        }),
-        json!({
-          "type": "result",
-          "payload": parsed,
-          "timestamp": now_iso()
-        }),
-    ];
-    Ok(json_lines_response(lines))
+
+    enum ParseStreamState {
+        Accepted { state: BackendState, body: Value },
+        Parsing { state: BackendState, body: Value },
+        Model { state: BackendState, body: Value },
+        Done,
+    }
+
+    fn ndjson_line(value: Value) -> Result<Bytes, Infallible> {
+        Ok(Bytes::from(format!("{}\n", value)))
+    }
+
+    let body_stream = stream::unfold(
+        ParseStreamState::Accepted { state, body },
+        |stream_state| async move {
+            match stream_state {
+                ParseStreamState::Accepted { state, body } => Some((
+                    ndjson_line(json!({
+                      "type": "progress",
+                      "payload": {
+                        "step": "accepted",
+                        "message": "已接收解析请求，准备开始",
+                        "progress": 1
+                      },
+                      "timestamp": now_iso()
+                    })),
+                    ParseStreamState::Parsing { state, body },
+                )),
+                ParseStreamState::Parsing { state, body } => Some((
+                    ndjson_line(json!({
+                      "type": "progress",
+                      "payload": {
+                        "step": "parsing",
+                        "message": "正在调用剧本解析模型",
+                        "progress": 8
+                      },
+                      "timestamp": now_iso()
+                    })),
+                    ParseStreamState::Model { state, body },
+                )),
+                ParseStreamState::Model { state, body } => {
+                    let event = match api_script_parse(State(state), Json(body)).await {
+                        Ok(parsed) => json!({
+                          "type": "result",
+                          "payload": parsed.0,
+                          "timestamp": now_iso()
+                        }),
+                        Err(error) => json!({
+                          "type": "error",
+                          "payload": {
+                            "message": error.message
+                          },
+                          "timestamp": now_iso()
+                        }),
+                    };
+                    Some((ndjson_line(event), ParseStreamState::Done))
+                }
+                ParseStreamState::Done => None,
+            }
+        },
+    );
+
+    Response::builder()
+        .header(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/x-ndjson; charset=utf-8"),
+        )
+        .header(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-cache, no-transform"),
+        )
+        .body(Body::from_stream(body_stream))
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
 
 fn xml_escape_text(raw: &str) -> String {
@@ -11351,27 +12456,33 @@ pub(super) async fn api_character_generate(
         }
     }
     let reference_images = normalize_image_reference_sources(&state, reference_sources, 4).await?;
-    let prompt = if let Some(custom_prompt) = regeneration_prompt {
-        render_runtime_prompt(
-            RUNTIME_PROMPT_CHARACTER_REGENERATION,
-            &[
-                ("characterName", character_name.as_str()),
-                ("appearance", appearance.as_str()),
-                ("gender", gender.as_str()),
-                ("style", style.as_str()),
-                ("customPrompt", custom_prompt),
-            ],
-        )
-    } else {
-        render_runtime_prompt(
-            RUNTIME_PROMPT_CHARACTER_GENERATION,
-            &[
-                ("characterName", character_name.as_str()),
-                ("appearance", appearance.as_str()),
-                ("gender", gender.as_str()),
-                ("style", style.as_str()),
-            ],
-        )
+    let prompt = {
+        let conn = db_connection(&state)?;
+        if let Some(custom_prompt) = regeneration_prompt {
+            render_configured_prompt(
+                &conn,
+                PROMPT_TEMPLATE_CHARACTER_REGENERATION,
+                &[
+                    ("characterName", character_name.as_str()),
+                    ("appearance", appearance.as_str()),
+                    ("gender", gender.as_str()),
+                    ("style", style.as_str()),
+                    ("activeStyleConstraint", custom_prompt),
+                    ("customPrompt", custom_prompt),
+                ],
+            )?
+        } else {
+            render_configured_prompt(
+                &conn,
+                PROMPT_TEMPLATE_CHARACTER_SHEET,
+                &[
+                    ("characterName", character_name.as_str()),
+                    ("appearance", appearance.as_str()),
+                    ("gender", gender.as_str()),
+                    ("style", style.as_str()),
+                ],
+            )?
+        }
     };
     let (image_url, provider, model_id) = run_workflow_image_model(
         &state,
@@ -12023,15 +13134,19 @@ pub(super) async fn api_asset_prop_generate(
     } else {
         "道具资产"
     };
-    let prompt = render_runtime_prompt(
-        RUNTIME_PROMPT_PROP_ASSET_GENERATION,
-        &[
-            ("assetLabel", asset_label),
-            ("assetName", prop_name.as_str()),
-            ("assetDescription", prop_description.as_str()),
-            ("style", style.as_str()),
-        ],
-    );
+    let prompt = {
+        let conn = db_connection(&state)?;
+        render_configured_prompt(
+            &conn,
+            PROMPT_TEMPLATE_PROP_ASSET_GENERATION,
+            &[
+                ("assetLabel", asset_label),
+                ("assetName", prop_name.as_str()),
+                ("assetDescription", prop_description.as_str()),
+                ("style", style.as_str()),
+            ],
+        )?
+    };
     let (image_url, provider, model_id) = run_workflow_image_model(
         &state,
         "character_portrait",
@@ -12153,32 +13268,34 @@ pub(super) async fn api_asset_reference_generate(
             ),
         ));
     }
-    let prompt = if let Some(custom_prompt) = custom_prompt {
-        render_runtime_prompt(
-            RUNTIME_PROMPT_ENVIRONMENT_REFERENCE_REGENERATION,
+    let setting = build_scene_setting_text(&scene);
+    let environment_consistency = build_environment_consistency_text(&body);
+    let camera_note = scene
+        .get("cameraNote")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("无");
+    let custom_prompt_text = custom_prompt.unwrap_or("无");
+    let prompt = {
+        let conn = db_connection(&state)?;
+        render_configured_prompt(
+            &conn,
+            PROMPT_TEMPLATE_ENVIRONMENT_REFERENCE_GENERATION,
             &[
                 ("sceneTitle", scene_title.as_str()),
-                ("location", location),
-                ("timeOfDay", time_of_day),
-                ("style", style.as_str()),
-                ("sourceSpec", source_spec.as_str()),
-                ("aspectRatio", source_spec.as_str()),
-                ("customPrompt", custom_prompt),
-            ],
-        )
-    } else {
-        render_runtime_prompt(
-            RUNTIME_PROMPT_ENVIRONMENT_REFERENCE_GENERATION,
-            &[
-                ("sceneTitle", scene_title.as_str()),
-                ("location", location),
-                ("timeOfDay", time_of_day),
-                ("style", style.as_str()),
                 ("sceneDescription", scene_description.as_str()),
+                ("setting", setting.as_str()),
+                ("location", location),
+                ("timeOfDay", time_of_day),
+                ("style", style.as_str()),
                 ("sourceSpec", source_spec.as_str()),
                 ("aspectRatio", source_spec.as_str()),
+                ("environmentConsistency", environment_consistency.as_str()),
+                ("cameraNote", camera_note),
+                ("customPrompt", custom_prompt_text),
             ],
-        )
+        )?
     };
     let (image_url, provider, model_id) = run_workflow_image_model(
         &state,
@@ -12233,7 +13350,10 @@ pub(super) async fn api_asset_scene_description_refinement(
         .and_then(Value::as_f64)
         .filter(|value| value.is_finite() && *value > 0.0)
         .unwrap_or(8.0);
-    let prompt = build_scene_description_refinement_prompt(&body);
+    let prompt = {
+        let conn = db_connection(&state)?;
+        build_scene_description_refinement_prompt(&conn, &body)?
+    };
     let (model_text, provider, model_id) =
         run_workflow_text_model(&state, "scene_description_refinement", &prompt)
             .await
@@ -12294,7 +13414,10 @@ pub(super) async fn api_asset_video_generate(
     let task_id = format!("video_{}", Uuid::new_v4().simple());
     let model_id = resolve_workflow_model_id(&state, "video_generation")?;
     let provider = infer_model_provider_required(&model_id)?;
-    let prompt = build_video_prompt_from_scene(&scene, &body);
+    let prompt = {
+        let conn = db_connection(&state)?;
+        build_video_prompt_from_scene(&conn, &scene, &body)?
+    };
     let mut config = json!({
       "prompt": prompt,
       "duration": scene.get("duration").cloned().unwrap_or_else(|| json!(8)),
@@ -14418,7 +15541,7 @@ pub(super) async fn api_tos_files(
         let client = builder.build().map_err(|error| error.to_string())?;
 
         let scan_limit = if sort_last_modified_desc {
-            max_keys.max(1000).min(5000)
+            50_000
         } else {
             max_keys
         };

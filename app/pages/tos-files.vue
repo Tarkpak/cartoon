@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { TosConfigPublic } from '#shared/types/provider'
 import {
   Cloud,
   ExternalLink,
@@ -33,6 +34,11 @@ type TosFilesResponse = {
   }
 }
 
+type TosConfigResponse = {
+  success: boolean
+  data: TosConfigPublic
+}
+
 type FetchErrorWithData = Error & {
   data?: {
     data?: {
@@ -45,8 +51,9 @@ type FetchErrorWithData = Error & {
 
 const loading = ref(false)
 const errorMessage = ref('')
-const prefixInput = ref('manju-assets/images')
-const activePrefix = ref('manju-assets/images')
+const tosKeyPrefix = ref('')
+const prefixInput = ref('images')
+const activePrefix = ref('images')
 const pageSize = ref('20')
 const pageSizeOptions = [20, 50, 100, 200]
 const continuationToken = ref<string | undefined>()
@@ -59,10 +66,24 @@ const hoverPreviewPosition = ref({ x: 0, y: 0 })
 const imagePreviewOpen = ref(false)
 const imagePreviewSrc = ref('')
 const imagePreviewAlt = ref('图片预览')
-const assetTabs = [
-  { id: 'image', label: 'Image', prefix: 'manju-assets/images/' },
-  { id: 'video', label: 'Video', prefix: 'manju-assets/videos/' }
-] as const
+
+function normalizePrefixValue(value: string): string {
+  return value.trim().replace(/^\/+|\/+$/g, '')
+}
+
+function buildTosCategoryPrefix(category: string): string {
+  return [tosKeyPrefix.value, category]
+    .map(normalizePrefixValue)
+    .filter(Boolean)
+    .join('/')
+}
+
+const assetTabs = computed(() => [
+  { id: 'image', label: 'Image', prefix: buildTosCategoryPrefix('images') },
+  { id: 'video', label: 'Video', prefix: buildTosCategoryPrefix('videos') }
+] as const)
+
+const prefixPlaceholder = computed(() => `例如：${buildTosCategoryPrefix('images')}`)
 
 const pageSizeNumber = computed(() => {
   const parsed = Number.parseInt(pageSize.value, 10)
@@ -92,13 +113,9 @@ function fileNameFromKey(key: string): string {
   return key.split('/').filter(Boolean).at(-1) || key
 }
 
-function normalizePrefixValue(value: string): string {
-  return value.trim().replace(/\/+$/g, '')
-}
-
 const activeAssetTabId = computed<string | null>(() => {
   const normalizedPrefix = normalizePrefixValue(activePrefix.value)
-  for (const tab of assetTabs) {
+  for (const tab of assetTabs.value) {
     const tabPrefix = normalizePrefixValue(tab.prefix)
     if (normalizedPrefix === tabPrefix || normalizedPrefix.startsWith(`${tabPrefix}/`)) {
       return tab.id
@@ -189,6 +206,7 @@ async function loadFiles(options: { reset?: boolean } = {}) {
         prefix: activePrefix.value,
         delimiter: '/',
         maxKeys: pageSizeNumber.value,
+        sort: 'lastModifiedDesc',
         continuationToken: options.reset ? undefined : continuationToken.value
       }
     })
@@ -205,6 +223,25 @@ async function loadFiles(options: { reset?: boolean } = {}) {
   } finally {
     loading.value = false
   }
+}
+
+async function loadTosConfig() {
+  const response = await $fetch<TosConfigResponse>('/api/tos/config')
+  if (!response.success) return
+
+  tosKeyPrefix.value = response.data.keyPrefix || ''
+  const imagePrefix = buildTosCategoryPrefix('images')
+  activePrefix.value = imagePrefix
+  prefixInput.value = imagePrefix
+}
+
+async function initializePage() {
+  try {
+    await loadTosConfig()
+  } catch {
+    // The files endpoint will surface missing or invalid TOS configuration.
+  }
+  await loadFiles({ reset: true })
 }
 
 function resetPagination() {
@@ -274,7 +311,7 @@ function goFirstPage() {
 }
 
 onMounted(() => {
-  void loadFiles({ reset: true })
+  void initializePage()
 })
 </script>
 
@@ -317,7 +354,7 @@ onMounted(() => {
           <label class="text-xs text-muted-foreground">对象前缀</label>
           <Input
             v-model="prefixInput"
-            placeholder="例如：manju-assets/images"
+            :placeholder="prefixPlaceholder"
             @keydown.enter="applyPrefix"
           />
         </div>

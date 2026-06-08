@@ -3210,6 +3210,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "dotenvy",
+ "futures-util",
  "hmac",
  "log",
  "reqwest 0.12.28",

@@ -1636,8 +1636,7 @@ async function handleParseSingleEpisode(payload: { id: string }) {
     })
 
     if (!parsed) {
-      alert(parseProgress.value.message || '本集解析失败，请稍后重试')
-      return
+      throw new Error(parseProgress.value.message || '本集解析失败，请稍后重试')
     }
 
     await persistAutomaticAssetPlan()
@@ -1651,7 +1650,7 @@ async function handleParseSingleEpisode(payload: { id: string }) {
       step: 'error',
       message
     }
-    alert(message)
+    throw new Error(message)
   }
 }
 

@@ -40,6 +40,7 @@ reqwest = { version = "0.12.24", default-features = false, features = ["rustls-t
 zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 dotenvy = "0.15.7"
 ve-tos-rust-sdk = "2.9.16"
+futures-util = "0.3.31"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-process = "2.3.1"
