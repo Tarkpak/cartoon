@@ -7,6 +7,8 @@ dist
 .DS_Store
 app/.DS_Store
 
+src-tauri/target-codex-check
+
 .bun-install-cache
 
 # 环境变量

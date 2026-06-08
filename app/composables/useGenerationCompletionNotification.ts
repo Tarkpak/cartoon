@@ -418,9 +418,12 @@ async function showSystemNotification(
   } = {}
 ): Promise<{ sent: boolean, channel?: SystemNotificationChannel }> {
   const desktopRuntime = detectDesktopRuntime()
-  const status = desktopRuntime
+  let status = desktopRuntime
     ? await refreshBrowserNotificationStatus()
     : getBrowserNotificationStatus()
+  if (!status.canNotify && status.canPrompt) {
+    status = await requestBrowserNotificationPermission()
+  }
   if (!status.canNotify) return { sent: false }
   if (!payload.title.trim()) return { sent: false }
 

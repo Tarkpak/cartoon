@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path as FsPath, PathBuf};
+use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -366,6 +367,16 @@ fn llm_http_client() -> &'static Client {
     })
 }
 
+fn build_llm_transport_error_message(error: &reqwest::Error) -> String {
+    if error.is_timeout() {
+        return format!("模型服务请求超时: {}", error);
+    }
+    if error.is_connect() {
+        return format!("模型服务连接失败: {}", error);
+    }
+    error.to_string()
+}
+
 fn sanitize_file_component(raw: &str) -> String {
     let mut output = String::new();
     for ch in raw.chars() {
@@ -507,6 +518,14 @@ struct BackendTosStorageConfig {
     key_prefix: Option<String>,
     public_base_url: Option<String>,
     is_custom_domain: bool,
+    proxy_host: Option<String>,
+    proxy_port: Option<isize>,
+}
+
+#[derive(Clone, Debug)]
+struct TosProxyConfig {
+    host: String,
+    port: isize,
 }
 
 fn tos_config_text(config: &Value, key: &str) -> String {
@@ -558,6 +577,83 @@ fn normalize_tos_endpoint(raw: &str) -> (String, String) {
     (trim_tos_slashes(trimmed), "https".to_string())
 }
 
+fn normalize_tos_proxy(raw: &str) -> Option<TosProxyConfig> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let without_scheme = trimmed
+        .strip_prefix("http://")
+        .or_else(|| trimmed.strip_prefix("https://"))
+        .unwrap_or(trimmed);
+    let host_port = without_scheme
+        .split(';')
+        .find(|part| {
+            let normalized = part.trim().to_ascii_lowercase();
+            !normalized.starts_with("socks=")
+                && !normalized.starts_with("ftp=")
+                && !normalized.starts_with("https=")
+        })
+        .or_else(|| {
+            without_scheme.split(';').find_map(|part| {
+                part.trim()
+                    .strip_prefix("http=")
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+            })
+        })
+        .unwrap_or(without_scheme)
+        .trim()
+        .strip_prefix("http=")
+        .unwrap_or(without_scheme.trim())
+        .trim();
+    let (host, port_raw) = host_port.rsplit_once(':')?;
+    let port = port_raw.trim().parse::<isize>().ok()?;
+    let host = host.trim().trim_matches('/').to_string();
+    if host.is_empty() || port <= 0 || port > 65535 {
+        return None;
+    }
+    Some(TosProxyConfig { host, port })
+}
+
+fn resolve_tos_proxy_config() -> Option<TosProxyConfig> {
+    for key in ["TOS_PROXY", "tos_proxy"] {
+        if let Ok(value) = std::env::var(key) {
+            if let Some(proxy) = normalize_tos_proxy(&value) {
+                return Some(proxy);
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("reg")
+            .args([
+                "query",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings",
+                "/v",
+                "ProxyServer",
+            ])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            if !line.contains("ProxyServer") {
+                continue;
+            }
+            let parts = line.split_whitespace().collect::<Vec<_>>();
+            if let Some(value) = parts.last() {
+                return normalize_tos_proxy(value);
+            }
+        }
+    }
+
+    None
+}
+
 fn load_backend_tos_config() -> BackendTosStorageConfig {
     let config = config_connection()
         .and_then(|conn| {
@@ -594,6 +690,7 @@ fn load_backend_tos_config() -> BackendTosStorageConfig {
         .unwrap_or(false);
     let (endpoint, endpoint_protocol) =
         normalize_tos_endpoint(&tos_config_text(&config, "endpoint"));
+    let proxy = resolve_tos_proxy_config();
     let enabled_flag = config
         .get("enabled")
         .and_then(Value::as_bool)
@@ -616,6 +713,8 @@ fn load_backend_tos_config() -> BackendTosStorageConfig {
         key_prefix,
         public_base_url,
         is_custom_domain,
+        proxy_host: proxy.as_ref().map(|value| value.host.clone()),
+        proxy_port: proxy.as_ref().map(|value| value.port),
     }
 }
 
@@ -691,7 +790,7 @@ fn upload_media_bytes_to_tos(
 
     let endpoint = format!("{}://{}", config.endpoint_protocol, config.endpoint);
     let mut builder = tos::builder()
-        .connection_timeout(5000)
+        .connection_timeout(15000)
         .request_timeout(300000)
         .max_retry_count(1)
         .ak(config.access_key_id.clone())
@@ -701,6 +800,9 @@ fn upload_media_bytes_to_tos(
         .is_custom_domain(config.is_custom_domain);
     if let Some(token) = &config.security_token {
         builder = builder.security_token(token.clone());
+    }
+    if let (Some(proxy_host), Some(proxy_port)) = (&config.proxy_host, config.proxy_port) {
+        builder = builder.proxy_host(proxy_host.clone()).proxy_port(proxy_port);
     }
     let client = builder.build().map_err(|error| {
         ApiError::new(
@@ -2113,7 +2215,6 @@ fn ensure_dirs(state: &BackendState) -> Result<(), ApiError> {
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     fs::create_dir_all(state.data_dir.join("exports"))
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    #[cfg(debug_assertions)]
     fs::create_dir_all(state.data_dir.join("llm-debug-logs"))
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(())
@@ -2121,7 +2222,6 @@ fn ensure_dirs(state: &BackendState) -> Result<(), ApiError> {
 
 pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<(), String> {
     set_global_db_path(state.db_path.clone());
-    #[cfg(debug_assertions)]
     set_global_llm_dev_log_dir(state.data_dir.join("llm-debug-logs"));
     ensure_dirs(&state).map_err(|error| error.message.clone())?;
     init_database(&state).map_err(|error| error.message.clone())?;
@@ -5450,6 +5550,10 @@ fn truncate_for_error(raw: &str, max_chars: usize) -> String {
 }
 
 fn build_sync_error_message(status: reqwest::StatusCode, body_text: &str) -> String {
+    let is_timeout_status = matches!(
+        status,
+        reqwest::StatusCode::REQUEST_TIMEOUT | reqwest::StatusCode::GATEWAY_TIMEOUT
+    );
     if let Ok(payload) = serde_json::from_str::<Value>(body_text) {
         let message = payload
             .get("error")
@@ -5463,11 +5567,26 @@ fn build_sync_error_message(status: reqwest::StatusCode, body_text: &str) -> Str
             .map(str::trim)
             .filter(|value| !value.is_empty());
         if let Some(text) = message {
+            if is_timeout_status || text.to_ascii_lowercase().contains("stream disconnected") {
+                return format!(
+                    "{}: 模型服务响应超时或流式响应提前断开 ({})",
+                    status, text
+                );
+            }
             return format!("{}: {}", status, text);
         }
     }
 
     let snippet = truncate_for_error(body_text, 240);
+    if is_timeout_status || snippet.to_ascii_lowercase().contains("stream disconnected") {
+        if snippet.is_empty() {
+            return format!("{}: 模型服务响应超时或流式响应提前断开", status);
+        }
+        return format!(
+            "{}: 模型服务响应超时或流式响应提前断开 ({})",
+            status, snippet
+        );
+    }
     if snippet.is_empty() {
         status.to_string()
     } else {
@@ -6483,17 +6602,14 @@ async fn api_debug_logs_delete(State(state): State<BackendState>) -> Result<Json
     let conn = db_connection(&state)?;
     conn.execute("DELETE FROM model_debug_logs", [])
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    #[cfg(debug_assertions)]
-    {
-        let dir = state.data_dir.join("llm-debug-logs");
-        if dir.exists() {
-            fs::remove_dir_all(&dir).map_err(|error| {
-                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-            })?;
-        }
-        fs::create_dir_all(&dir)
-            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let dir = state.data_dir.join("llm-debug-logs");
+    if dir.exists() {
+        fs::remove_dir_all(&dir).map_err(|error| {
+            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+        })?;
     }
+    fs::create_dir_all(&dir)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(Json(json!({ "success": true })))
 }
 

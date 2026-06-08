@@ -53,7 +53,6 @@ macro_rules! llm_dev_log {
     ($($tokens:tt)*) => {};
 }
 
-#[cfg(debug_assertions)]
 fn llm_dev_log_preview(value: &str, max_chars: usize) -> String {
     let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
     if compact.chars().count() <= max_chars {
@@ -64,7 +63,6 @@ fn llm_dev_log_preview(value: &str, max_chars: usize) -> String {
     format!("{}...", truncated)
 }
 
-#[cfg(debug_assertions)]
 fn llm_dev_log_source_summary(source: &str) -> String {
     let trimmed = source.trim();
     if trimmed.starts_with("data:") {
@@ -76,7 +74,6 @@ fn llm_dev_log_source_summary(source: &str) -> String {
     format!("base64-or-inline({} chars)", trimmed.len())
 }
 
-#[cfg(debug_assertions)]
 fn llm_dev_log_url_summary(value: &str, max_chars: usize) -> String {
     let query_index = value.find('?');
     let fragment_index = value.find('#');
@@ -94,12 +91,10 @@ fn llm_dev_log_url_summary(value: &str, max_chars: usize) -> String {
     llm_dev_log_preview(value, max_chars)
 }
 
-#[cfg(debug_assertions)]
 fn llm_dev_log_line_value(value: &str) -> String {
     llm_dev_log_preview(&value.replace('\n', "\\n"), 500)
 }
 
-#[cfg(debug_assertions)]
 fn llm_dev_log_line(
     phase: &str,
     provider: &str,
@@ -130,7 +125,6 @@ fn llm_dev_log_line(
     eprintln!("[LLM][{}] {}", phase, parts.join(" "));
 }
 
-#[cfg(debug_assertions)]
 fn llm_dev_log_url_without_query(value: &str) -> String {
     let trimmed = value.trim();
     if let Ok(mut url) = reqwest::Url::parse(trimmed) {
@@ -153,7 +147,6 @@ fn llm_dev_log_url_without_query(value: &str) -> String {
         .unwrap_or_else(|| trimmed.to_string())
 }
 
-#[cfg(debug_assertions)]
 fn llm_dev_file_key_is_sensitive(key: &str) -> bool {
     let normalized = key.to_ascii_lowercase();
     normalized.contains("apikey")
@@ -166,7 +159,6 @@ fn llm_dev_file_key_is_sensitive(key: &str) -> bool {
         || normalized == "key"
 }
 
-#[cfg(debug_assertions)]
 fn llm_dev_file_key_is_media(key: &str) -> bool {
     let normalized = key.to_ascii_lowercase();
     normalized.contains("image")
@@ -179,7 +171,6 @@ fn llm_dev_file_key_is_media(key: &str) -> bool {
         || normalized.contains("source")
 }
 
-#[cfg(debug_assertions)]
 fn llm_dev_file_sanitize_string(key: Option<&str>, value: &str) -> Value {
     if key.is_some_and(llm_dev_file_key_is_sensitive) {
         return json!("<redacted>");
@@ -209,7 +200,6 @@ fn llm_dev_file_sanitize_string(key: Option<&str>, value: &str) -> Value {
     json!(value)
 }
 
-#[cfg(debug_assertions)]
 fn llm_dev_file_sanitize_value(value: &Value, key: Option<&str>) -> Value {
     match value {
         Value::String(text) => llm_dev_file_sanitize_string(key, text),
@@ -233,7 +223,6 @@ fn llm_dev_file_sanitize_value(value: &Value, key: Option<&str>) -> Value {
     }
 }
 
-#[cfg(debug_assertions)]
 fn llm_dev_file_response_raw_value(raw: &str) -> Value {
     if let Ok(parsed) = serde_json::from_str::<Value>(raw) {
         return llm_dev_file_sanitize_value(&parsed, None);
@@ -248,7 +237,6 @@ fn llm_dev_file_response_raw_value(raw: &str) -> Value {
     json!(raw)
 }
 
-#[cfg(debug_assertions)]
 fn llm_dev_write_file_log(
     provider: &str,
     model: &str,
@@ -261,10 +249,34 @@ fn llm_dev_write_file_log(
     response_raw: Option<&str>,
     error: Option<&str>,
 ) {
-    let Some(dir) = llm_dev_log_dir() else {
-        return;
-    };
+    llm_dev_write_file_log_impl(
+        provider,
+        model,
+        operation,
+        status,
+        started_at_ms,
+        endpoint,
+        request,
+        response,
+        response_raw,
+        error,
+        true,
+    );
+}
 
+fn llm_dev_write_file_log_impl(
+    provider: &str,
+    model: &str,
+    operation: &str,
+    status: &str,
+    started_at_ms: i64,
+    endpoint: Option<&str>,
+    request: Option<&Value>,
+    response: Option<&Value>,
+    response_raw: Option<&str>,
+    error: Option<&str>,
+    record_db: bool,
+) {
     let now = Utc::now();
     let duration_ms = (now.timestamp_millis() - started_at_ms).max(1);
     let id = format!("llm_{}", Uuid::new_v4().simple());
@@ -275,6 +287,11 @@ fn llm_dev_write_file_log(
         sanitize_file_component(operation),
         &id[4..12]
     );
+    let request_value = request.map(|value| llm_dev_file_sanitize_value(value, None));
+    let response_value = response.map(|value| llm_dev_file_sanitize_value(value, None));
+    let response_raw_value = response_raw.map(llm_dev_file_response_raw_value);
+    let error_value = error.map(|message| json!({ "message": message }));
+
     let mut payload = serde_json::Map::new();
     payload.insert("id".to_string(), json!(id));
     payload.insert("timestamp".to_string(), json!(now.to_rfc3339()));
@@ -290,28 +307,50 @@ fn llm_dev_write_file_log(
             json!(llm_dev_log_url_without_query(endpoint)),
         );
     }
-    if let Some(request) = request {
-        payload.insert(
-            "request".to_string(),
-            llm_dev_file_sanitize_value(request, None),
-        );
+    if let Some(value) = &request_value {
+        payload.insert("request".to_string(), value.clone());
     }
-    if let Some(response) = response {
-        payload.insert(
-            "response".to_string(),
-            llm_dev_file_sanitize_value(response, None),
-        );
+    if let Some(value) = &response_value {
+        payload.insert("response".to_string(), value.clone());
     }
-    if let Some(response_raw) = response_raw {
-        payload.insert(
-            "responseRaw".to_string(),
-            llm_dev_file_response_raw_value(response_raw),
-        );
+    if let Some(value) = &response_raw_value {
+        payload.insert("responseRaw".to_string(), value.clone());
     }
-    if let Some(error) = error {
-        payload.insert("error".to_string(), json!({ "message": error }));
+    if let Some(value) = &error_value {
+        payload.insert("error".to_string(), value.clone());
     }
 
+    if record_db {
+        if let Some(conn) = config_connection() {
+            let _ = conn.execute(
+                "INSERT INTO model_debug_logs (
+              id, timestamp, provider, model, operation, status, duration_ms,
+              request_json, request_raw_json, response_json, response_raw_json,
+              media_refs_json, error_json, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                params![
+                    format!("log_{}", Uuid::new_v4().simple()),
+                    now.to_rfc3339(),
+                    provider,
+                    model,
+                    operation,
+                    status,
+                    duration_ms,
+                    request_value.as_ref().map(Value::to_string),
+                    request_value.as_ref().map(Value::to_string),
+                    response_value.as_ref().map(Value::to_string),
+                    response_raw_value.as_ref().map(Value::to_string),
+                    None::<String>,
+                    error_value.as_ref().map(Value::to_string),
+                    now_iso()
+                ],
+            );
+        }
+    }
+
+    let Some(dir) = llm_dev_log_dir() else {
+        return;
+    };
     if let Err(error) = fs::create_dir_all(&dir) {
         eprintln!(
             "[LLM][file][error] create_dir={} error={}",
@@ -333,21 +372,6 @@ fn llm_dev_write_file_log(
             eprintln!("[LLM][file][error] serialize error={}", error);
         }
     }
-}
-
-#[cfg(not(debug_assertions))]
-fn llm_dev_write_file_log(
-    _provider: &str,
-    _model: &str,
-    _operation: &str,
-    _status: &str,
-    _started_at_ms: i64,
-    _endpoint: Option<&str>,
-    _request: Option<&Value>,
-    _response: Option<&Value>,
-    _response_raw: Option<&str>,
-    _error: Option<&str>,
-) {
 }
 
 async fn resolve_source_bytes(
@@ -2614,7 +2638,7 @@ async fn poll_openai_compatible_image_task(
             .send()
             .await
             .map_err(|error| {
-                let message = error.to_string();
+                let message = build_llm_transport_error_message(&error);
                 llm_dev_write_file_log(
                     "custom_openai",
                     model_id,
@@ -2631,7 +2655,7 @@ async fn poll_openai_compatible_image_task(
             })?;
         let status = response.status();
         let body_text = response.text().await.map_err(|error| {
-            let message = error.to_string();
+            let message = build_llm_transport_error_message(&error);
             llm_dev_write_file_log(
                 "custom_openai",
                 model_id,
@@ -2883,7 +2907,7 @@ async fn request_custom_openai_image_generation(
                 .send()
                 .await
                 .map_err(|error| {
-                    let message = error.to_string();
+                    let message = build_llm_transport_error_message(&error);
                     llm_dev_write_file_log(
                         "custom_openai",
                         model_id,
@@ -2933,7 +2957,7 @@ async fn request_custom_openai_image_generation(
                 .send()
                 .await
                 .map_err(|error| {
-                    let message = error.to_string();
+                    let message = build_llm_transport_error_message(&error);
                     llm_dev_write_file_log(
                         "custom_openai",
                         model_id,
@@ -9915,7 +9939,7 @@ fn write_model_debug_log(
     let error_message = error
         .and_then(|value| value.get("message").and_then(Value::as_str))
         .or_else(|| error.and_then(Value::as_str));
-    llm_dev_write_file_log(
+    llm_dev_write_file_log_impl(
         provider,
         model,
         operation,
@@ -9926,6 +9950,7 @@ fn write_model_debug_log(
         response,
         None,
         error_message,
+        false,
     );
     conn.execute(
         "INSERT INTO model_debug_logs (
@@ -14156,6 +14181,8 @@ struct TosStorageConfig {
     key_prefix: Option<String>,
     public_base_url: Option<String>,
     is_custom_domain: bool,
+    proxy_host: Option<String>,
+    proxy_port: Option<isize>,
 }
 
 fn tos_config_string(config: &Value, key: &str) -> String {
@@ -14242,6 +14269,7 @@ fn load_tos_config() -> TosStorageConfig {
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let (endpoint, endpoint_protocol) = normalize_endpoint(&tos_config_string(&config, "endpoint"));
+    let proxy = resolve_tos_proxy_config();
     let enabled_flag = config
         .get("enabled")
         .and_then(Value::as_bool)
@@ -14264,6 +14292,8 @@ fn load_tos_config() -> TosStorageConfig {
         key_prefix,
         public_base_url,
         is_custom_domain,
+        proxy_host: proxy.as_ref().map(|value| value.host.clone()),
+        proxy_port: proxy.as_ref().map(|value| value.port),
     }
 }
 
@@ -14345,6 +14375,10 @@ pub(super) async fn api_tos_files(
         .get("continuationToken")
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
+    let sort_last_modified_desc = query
+        .get("sort")
+        .map(|value| value.trim().eq_ignore_ascii_case("lastModifiedDesc"))
+        .unwrap_or(false);
 
     let list_prefix = if delimiter.is_some() {
         base_prefix
@@ -14365,7 +14399,7 @@ pub(super) async fn api_tos_files(
             query_config.endpoint_protocol, query_config.endpoint
         );
         let mut builder = tos::builder()
-            .connection_timeout(3000)
+            .connection_timeout(15000)
             .request_timeout(15000)
             .max_retry_count(1)
             .ak(query_config.access_key_id.clone())
@@ -14376,58 +14410,122 @@ pub(super) async fn api_tos_files(
         if let Some(token) = &query_config.security_token {
             builder = builder.security_token(token.clone());
         }
+        if let (Some(proxy_host), Some(proxy_port)) =
+            (&query_config.proxy_host, query_config.proxy_port)
+        {
+            builder = builder.proxy_host(proxy_host.clone()).proxy_port(proxy_port);
+        }
         let client = builder.build().map_err(|error| error.to_string())?;
 
-        let mut input = ListObjectsType2Input::new(query_config.bucket.clone());
-        input.set_list_only_once(true);
-        input.set_fetch_meta(false);
-        input.set_max_keys(max_keys as isize);
-        if !query_list_prefix.is_empty() {
-            input.set_prefix(query_list_prefix.clone());
-        }
-        if let Some(value) = &query_delimiter {
-            input.set_delimiter(value.clone());
-        }
-        if let Some(value) = &query_continuation_token {
-            input.set_continuation_token(value.clone());
-        }
+        let scan_limit = if sort_last_modified_desc {
+            max_keys.max(1000).min(5000)
+        } else {
+            max_keys
+        };
+        let mut files = Vec::new();
+        let mut common_prefixes = Vec::new();
+        let mut next_token = query_continuation_token;
+        let mut output_bucket: String;
+        let mut output_prefix: String;
+        let mut output_delimiter: Option<String>;
+        let mut output_max_keys: isize;
+        let mut is_truncated: bool;
 
-        let output = client
-            .list_objects_type2(&input)
-            .map_err(|error| error.to_string())?;
-        let files = output
-            .contents()
-            .iter()
-            .map(|item| {
+        loop {
+            let mut input = ListObjectsType2Input::new(query_config.bucket.clone());
+            input.set_list_only_once(true);
+            input.set_fetch_meta(false);
+            input.set_max_keys(if sort_last_modified_desc {
+                1000
+            } else {
+                max_keys as isize
+            });
+            if !query_list_prefix.is_empty() {
+                input.set_prefix(query_list_prefix.clone());
+            }
+            if let Some(value) = &query_delimiter {
+                input.set_delimiter(value.clone());
+            }
+            if let Some(value) = &next_token {
+                input.set_continuation_token(value.clone());
+            }
+
+            let output = client
+                .list_objects_type2(&input)
+                .map_err(|error| error.to_string())?;
+            output_bucket = output.name().to_string();
+            output_prefix = output.prefix().to_string();
+            output_delimiter = if output.delimiter().trim().is_empty() {
+                query_delimiter.clone()
+            } else {
+                Some(output.delimiter().to_string())
+            };
+            output_max_keys = output.max_keys();
+            is_truncated = output.is_truncated();
+
+            for item in output.contents() {
                 let storage_class = item
                     .storage_class()
                     .as_ref()
                     .map(|value| value.as_str().to_string())
                     .unwrap_or_default();
-                json!({
+                files.push(json!({
                   "key": item.key(),
                   "size": item.size(),
                   "lastModified": item.last_modified().map(|value| value.to_rfc3339()).unwrap_or_default(),
                   "storageClass": storage_class,
                   "etag": item.etag().trim_matches('\"'),
                   "url": build_tos_public_url(&query_config, item.key())
-                })
-            })
-            .collect::<Vec<_>>();
-        let common_prefixes = output
-            .common_prefixes()
-            .iter()
-            .map(|item| item.prefix().to_string())
-            .collect::<Vec<_>>();
-        let next_token = output.next_continuation_token().trim().to_string();
+                }));
+            }
+            for item in output.common_prefixes() {
+                let prefix = item.prefix().to_string();
+                if !common_prefixes.contains(&prefix) {
+                    common_prefixes.push(prefix);
+                }
+            }
+
+            let output_next_token = output.next_continuation_token().trim().to_string();
+            if !sort_last_modified_desc || !output.is_truncated() || output_next_token.is_empty() {
+                next_token = if output_next_token.is_empty() {
+                    None
+                } else {
+                    Some(output_next_token)
+                };
+                break;
+            }
+            if files.len() >= scan_limit {
+                next_token = Some(output_next_token);
+                break;
+            }
+            next_token = Some(output_next_token);
+        }
+
+        if sort_last_modified_desc {
+            files.sort_by(|left, right| {
+                let left_time = left
+                    .get("lastModified")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let right_time = right
+                    .get("lastModified")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                right_time.cmp(left_time)
+            });
+            if files.len() > max_keys {
+                files.truncate(max_keys);
+            }
+        }
+        let next_token_text = next_token.unwrap_or_default();
 
         Ok(json!({
-          "bucket": output.name(),
-          "prefix": output.prefix(),
-          "delimiter": if output.delimiter().trim().is_empty() { query_delimiter } else { Some(output.delimiter().to_string()) },
-          "maxKeys": output.max_keys(),
-          "isTruncated": output.is_truncated(),
-          "nextContinuationToken": if next_token.is_empty() { Value::Null } else { json!(next_token) },
+          "bucket": output_bucket,
+          "prefix": output_prefix,
+          "delimiter": output_delimiter,
+          "maxKeys": output_max_keys,
+          "isTruncated": is_truncated,
+          "nextContinuationToken": if sort_last_modified_desc || next_token_text.is_empty() { Value::Null } else { json!(next_token_text) },
           "commonPrefixes": common_prefixes,
           "files": files
         }))
