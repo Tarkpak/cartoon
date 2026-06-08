@@ -98,7 +98,7 @@ const tabs = computed(() => [
   { key: 'characters' as AssetTab, label: '角色', count: props.characters.length },
   { key: 'environments' as AssetTab, label: '环境', count: props.environmentAssetCards.length },
   { key: 'props' as AssetTab, label: '道具', count: propAssetsOfType.value.length },
-  { key: 'others' as AssetTab, label: '其他', count: otherAssetsOfType.value.length }
+  { key: 'others' as AssetTab, label: '其他素材', count: otherAssetsOfType.value.length }
 ])
 
 const hasSeedAssets = computed(() => {
@@ -273,7 +273,9 @@ const hasSeedAssets = computed(() => {
         :allow-voice-upload="true"
         :enable-media-sub-tabs="true"
         add-category="other"
-        asset-label="其他"
+        asset-label="其他素材"
+        empty-title="暂无其他素材"
+        empty-description="可新增图片或声音素材，用于场景改写和分镜视频参考。"
         @add-prop="emit('add-prop', $event)"
         @remove-prop="emit('remove-prop', $event)"
         @generate-prop="emit('generate-prop', $event)"

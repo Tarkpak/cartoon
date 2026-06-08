@@ -83,7 +83,7 @@ import {
   requestBrowserNotificationPermission
 } from '~/composables/useGenerationCompletionNotification'
 
-// 资产工作台页面
+// 创作工作台页面
 definePageMeta({
   layout: 'default',
   hideSidebar: true

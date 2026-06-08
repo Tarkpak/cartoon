@@ -6,7 +6,7 @@ import ProjectDeleteDialog from '@/components/projects/ProjectDeleteDialog.vue'
 import ProjectsFiltersBar from '@/components/projects/ProjectsFiltersBar.vue'
 import ProjectsTable from '@/components/projects/ProjectsTable.vue'
 
-// 项目管理页面
+// 我的项目页面
 definePageMeta({
   layout: 'default'
 })
@@ -57,10 +57,10 @@ const aspectRatioOptions = projectAspectRatioOptions
     <div class="flex justify-between items-center mb-8">
       <div>
         <h1 class="text-2xl font-bold">
-          项目管理
+          我的项目
         </h1>
         <p class="text-muted-foreground">
-          管理您的 AI 影视项目
+          创建、继续和管理 AI 影视项目
         </p>
       </div>
       <Button

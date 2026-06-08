@@ -6,8 +6,8 @@ export const PROMPT_FLOW_STAGES = ['parse', 'assets', 'videos'] as const
 export type PromptFlowStage = (typeof PROMPT_FLOW_STAGES)[number]
 
 export const PROMPT_FLOW_STAGE_LABELS: Record<PromptFlowStage, string> = {
-  parse: '解析',
-  assets: '资产',
+  parse: '剧本解析',
+  assets: '资产准备',
   videos: '分镜视频'
 }
 

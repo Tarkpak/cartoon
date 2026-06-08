@@ -12,10 +12,10 @@ let sidebarMediaQuery: MediaQueryList | null = null
 let syncNarrowSidebar: (() => void) | null = null
 
 const navigation = [
-  { name: '首页概览', path: '/', icon: Home },
-  { name: '项目管理', path: '/projects', icon: Folder },
-  { name: '模型日志', path: '/model-logs', icon: ScrollText },
-  { name: '云端文件', path: '/tos-files', icon: Cloud },
+  { name: '首页', path: '/', icon: Home },
+  { name: '我的项目', path: '/projects', icon: Folder },
+  { name: '调用日志', path: '/model-logs', icon: ScrollText },
+  { name: '云端素材', path: '/tos-files', icon: Cloud },
   { name: '设置', path: '/settings', icon: Settings }
 ]
 
@@ -32,8 +32,8 @@ const settingsSubNavigation: Array<{
   { name: '模型供应商', section: 'providers', icon: Boxes },
   { name: '模型分配', section: 'workflow', icon: Workflow },
   { name: '模型测试', section: 'test', icon: FlaskConical },
-  { name: '对象存储', section: 'storage', icon: CloudCog },
-  { name: '提示词', section: 'prompts', icon: FileText },
+  { name: '云存储设置', section: 'storage', icon: CloudCog },
+  { name: '提示词模板', section: 'prompts', icon: FileText },
   { name: '画风预设', section: 'styles', icon: Palette }
 ]
 

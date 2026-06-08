@@ -28,7 +28,7 @@ const {
   handlePromptSaved
 } = useSettingsPrompts()
 
-const promptFlowLabel = '解析 → 资产 → 视频'
+const promptFlowLabel = '剧本解析 → 资产准备 → 分镜视频'
 
 type TextDialogMode = 'create' | 'rename'
 

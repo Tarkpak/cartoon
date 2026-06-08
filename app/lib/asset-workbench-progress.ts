@@ -11,7 +11,7 @@ export const AUTO_STAGE_HINTS: Record<AutoStageKey, string> = {
   parse: '粘贴剧本后先生成分集目录，再按集解析并生成场景。',
   assets: '默认自动补齐资产；也支持用户手动上传角色图、环境图、道具图并随时替换。',
   videos: '批量生成分镜视频并自动重试失败场景一次；生成效果不理想时可拆分或合并场景后再重试。',
-  final: '合成并下载最终视频（可选）。'
+  final: '合成并导出成片（可选）。'
 }
 
 export function buildQueueSummary(queueItems: QueueItem[]): QueueSummary {
@@ -75,7 +75,7 @@ export function buildAutoStages(options: {
     },
     {
       key: 'final',
-      label: '最终成片',
+      label: '成片导出',
       status: resolveAutoStageStatus({
         key: 'final',
         done: options.finalDone,
@@ -148,13 +148,13 @@ export function resolveSceneVideoBadge(
   queueItems: QueueItem[]
 ): SceneVideoBadge {
   if (scene.videoStatus === 'done') {
-    return { variant: 'secondary', label: '视频完成' }
+    return { variant: 'secondary', label: '分镜完成' }
   }
   if (scene.videoStatus === 'error') {
-    return { variant: 'destructive', label: '视频失败' }
+    return { variant: 'destructive', label: '分镜失败' }
   }
   if (scene.videoStatus === 'generating') {
-    return { variant: 'default', label: '视频生成中' }
+    return { variant: 'default', label: '分镜生成中' }
   }
   if (isScenePreparing(scene, queueItems)) {
     return { variant: 'default', label: '准备中' }

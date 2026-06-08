@@ -79,8 +79,8 @@ function buildTosCategoryPrefix(category: string): string {
 }
 
 const assetTabs = computed(() => [
-  { id: 'image', label: 'Image', prefix: buildTosCategoryPrefix('images') },
-  { id: 'video', label: 'Video', prefix: buildTosCategoryPrefix('videos') }
+  { id: 'image', label: '图片', prefix: buildTosCategoryPrefix('images') },
+  { id: 'video', label: '视频', prefix: buildTosCategoryPrefix('videos') }
 ] as const)
 
 const prefixPlaceholder = computed(() => `例如：${buildTosCategoryPrefix('images')}`)
@@ -323,11 +323,11 @@ onMounted(() => {
           <div class="flex items-center gap-2">
             <Cloud class="h-5 w-5 text-primary" />
             <h1 class="text-2xl font-semibold">
-              TOS 云端文件
+              云端素材
             </h1>
           </div>
           <p class="mt-1 text-sm text-muted-foreground">
-            查看当前 TOS Bucket 中的对象，默认按配置前缀分组显示。
+            查看当前 TOS Bucket 中的素材对象，默认按配置前缀分组显示。
           </p>
         </div>
 

@@ -27,19 +27,19 @@ const features = [
   },
   {
     icon: Film,
-    title: '视频生成',
-    description: '批量生成分镜视频并导出最终成片',
+    title: '分镜视频',
+    description: '批量生成分镜片段并导出成片',
     path: '/projects'
   }
 ]
 
 // 快捷入口数据
 const quickActions = [
-  { icon: FolderOpen, label: '项目管理', path: '/projects' },
+  { icon: FolderOpen, label: '我的项目', path: '/projects' },
   { icon: Sparkles, label: '开始创作', path: '/projects' },
-  { icon: Layers3, label: '资产工作台', path: '/projects' },
-  { icon: Settings, label: '系统设置', path: '/settings' },
-  { icon: ScrollText, label: '模型日志', path: '/model-logs' }
+  { icon: Layers3, label: '继续创作', path: '/projects' },
+  { icon: Settings, label: '设置', path: '/settings' },
+  { icon: ScrollText, label: '调用日志', path: '/model-logs' }
 ]
 </script>
 
@@ -69,7 +69,7 @@ const quickActions = [
             class="font-semibold px-8"
             @click="navigateTo('/settings')"
           >
-            系统设置
+            设置
           </Button>
         </div>
       </div>

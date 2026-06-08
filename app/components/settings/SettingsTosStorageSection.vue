@@ -73,7 +73,7 @@ async function saveConfig() {
   const missingFields = getMissingRequiredFields()
   if (missingFields.length > 0) {
     message.value = ''
-    errorMessage.value = `启用对象存储前请补齐：${missingFields.join('、')}`
+    errorMessage.value = `启用云存储前请补齐：${missingFields.join('、')}`
     return
   }
 
@@ -125,8 +125,8 @@ onMounted(() => {
   <div class="@container h-full overflow-y-auto p-6">
     <div class="mx-auto max-w-3xl space-y-4">
       <SettingsSectionHeader
-        title="对象存储"
-        description="配置火山引擎 TOS 对象存储。未启用时，生成的媒体文件将保存在本地。此处为存储凭证配置，区别于左侧导航的「云端文件」（浏览已上传文件）。"
+        title="云存储设置"
+        description="配置火山引擎 TOS 对象存储。未启用时，生成的媒体文件将保存在本地。此处为存储凭证配置，区别于左侧导航的「云端素材」（浏览已上传素材）。"
       />
 
       <div
@@ -141,7 +141,7 @@ onMounted(() => {
         <div class="flex items-center justify-between rounded-lg border bg-background p-4">
           <div>
             <h3 class="text-sm font-medium">
-              启用 TOS 对象存储
+              启用 TOS 云存储
             </h3>
             <p class="mt-1 text-xs text-muted-foreground">
               需填写完整的 Access Key、Secret Key、Region、Endpoint、Bucket。

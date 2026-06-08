@@ -128,7 +128,7 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
         await options.saveWorkflowMeta()
       }
     } catch (error) {
-      autoRunError.value = options.resolveUiError(error, '最终成片合成失败')
+      autoRunError.value = options.resolveUiError(error, '成片导出失败')
     } finally {
       autoRunning.value = false
       autoRunCurrentStage.value = null
