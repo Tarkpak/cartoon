@@ -1,26 +1,109 @@
 import { computed, ref } from 'vue'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SceneData } from '~/lib/asset-workbench-models'
 import type { QueueItem } from '~/lib/asset-workbench-types'
 import { resolveSceneEnvironmentAssetId } from '~/lib/asset-workbench-environment'
-import { useAssetWorkbenchSceneGeneration } from './useAssetWorkbenchSceneGeneration'
 
-const {
-  requestSceneBaselineGenerationMock,
-  requestSceneVideoTaskMock,
-  pollSceneVideoTaskMock
-} = vi.hoisted(() => {
-  return {
-    requestSceneBaselineGenerationMock: vi.fn(async () => 'https://example.com/generated-env.png'),
-    requestSceneVideoTaskMock: vi.fn(async () => 'video_task_1'),
-    pollSceneVideoTaskMock: vi.fn(async () => ({ videoUrl: 'https://example.com/generated-video.mp4' }))
-  }
-})
+const requestSceneBaselineGenerationMock = vi.fn(async () => 'https://example.com/generated-env.png')
+const requestSceneVideoTaskMock = vi.fn(async () => 'video_task_1')
+const pollSceneVideoTaskMock = vi.fn(async () => ({ videoUrl: 'https://example.com/generated-video.mp4' }))
+let useAssetWorkbenchSceneGeneration: typeof import('./useAssetWorkbenchSceneGeneration')['useAssetWorkbenchSceneGeneration']
 
-vi.mock('~/lib/asset-workbench-scene-generation', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('~/lib/asset-workbench-scene-generation')>()
+function keepCurrentVideoInHistory(scene: SceneData) {
+  const videoUrl = scene.videoUrl?.trim()
+  if (!videoUrl) return
+
+  const history = Array.isArray(scene.videoHistory) ? scene.videoHistory : []
+  if (history.some(entry => entry.videoUrl === videoUrl)) return
+
+  scene.videoHistory = [
+    {
+      id: `test_video_history_${history.length + 1}`,
+      videoUrl,
+      source: 'legacy'
+    },
+    ...history
+  ]
+}
+
+vi.mock('~/lib/asset-workbench-scene-generation', async () => {
   return {
-    ...actual,
+    buildAssetWorkflowScenePayload: (options: {
+      scene: SceneData
+      scenes: SceneData[]
+      resolveSceneDescriptionWithoutAssetMentions: (raw?: string) => string
+    }) => ({
+      id: options.scene.id,
+      title: options.scene.title,
+      sceneIndex: options.scenes.findIndex(scene => scene.id === options.scene.id) + 1,
+      description: options.resolveSceneDescriptionWithoutAssetMentions(options.scene.description),
+      dramatic: options.scene.dramatic,
+      cameraNote: options.scene.cameraNote,
+      duration: options.scene.duration,
+      setting: options.scene.setting,
+      narration: options.scene.narration,
+      characters: options.scene.characters
+    }),
+    applySceneBaselineReference: (scene: SceneData, referenceImage: string) => {
+      keepCurrentVideoInHistory(scene)
+      scene.firstFrame = referenceImage
+      scene.lastFrame = undefined
+      scene.referenceStatus = 'done'
+      scene.referenceError = undefined
+      scene.videoUrl = undefined
+      scene.videoStatus = 'pending'
+      scene.videoError = undefined
+    },
+    applySceneVideoUrl: (scene: SceneData, videoUrl: string) => {
+      keepCurrentVideoInHistory(scene)
+      scene.videoUrl = videoUrl
+      scene.videoError = undefined
+      scene.videoStatus = 'done'
+    },
+    buildAssetWorkflowVideoReferences: (options: {
+      scene: SceneData
+      environmentAssetId?: string
+      environmentAssetName?: string
+      environmentImage: string
+      characterImages: string[]
+      characterAssets: Array<{
+        assetId: string
+        name: string
+        type: 'character' | 'prop' | 'other'
+        image: string
+      }>
+      continuityFirstFrame?: string
+      narrationVoiceAsset?: {
+        id: string
+        name: string
+        audioUrl: string
+      }
+    }) => ({
+      environmentImage: options.environmentImage,
+      continuityFirstFrame: options.continuityFirstFrame,
+      characterImage: options.characterImages[0],
+      characterImages: options.characterImages,
+      narrationVoiceAsset: options.narrationVoiceAsset?.audioUrl
+        ? {
+            id: options.narrationVoiceAsset.id,
+            name: options.narrationVoiceAsset.name,
+            type: 'other',
+            audioUrl: options.narrationVoiceAsset.audioUrl
+          }
+        : undefined,
+      environmentAsset: {
+        id: options.environmentAssetId || resolveSceneEnvironmentAssetId(options.scene),
+        name: options.environmentAssetName || options.scene.title,
+        type: 'environment',
+        image: options.environmentImage
+      },
+      characterAssets: options.characterAssets.map(asset => ({
+        id: asset.assetId,
+        name: asset.name,
+        type: asset.type,
+        image: asset.image
+      }))
+    }),
     requestSceneBaselineGeneration: requestSceneBaselineGenerationMock,
     requestSceneVideoTask: requestSceneVideoTaskMock,
     pollSceneVideoTask: pollSceneVideoTaskMock
@@ -33,7 +116,6 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
     title: input.title,
     description: input.description,
     characters: input.characters || [],
-    dialogues: input.dialogues || [],
     narration: input.narration,
     duration: input.duration || 8,
     setting: input.setting,
@@ -57,6 +139,10 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
 }
 
 describe('useAssetWorkbenchSceneGeneration', () => {
+  beforeAll(async () => {
+    ;({ useAssetWorkbenchSceneGeneration } = await import('./useAssetWorkbenchSceneGeneration'))
+  })
+
   beforeEach(() => {
     requestSceneBaselineGenerationMock.mockClear()
     requestSceneVideoTaskMock.mockClear()

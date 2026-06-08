@@ -37,7 +37,6 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
     title: input.title,
     description: input.description,
     characters: input.characters || [],
-    dialogues: input.dialogues || [],
     narration: input.narration,
     duration: input.duration || 8,
     setting: input.setting,
@@ -73,8 +72,7 @@ describe('scene video reference assets', () => {
     const scene = createScene({
       id: 'scene_1',
       title: '病房',
-      description: '阿强走进病房。',
-      dialogues: [{ character: '阿强', text: '阿明，你快过来。' }]
+      description: '阿强走进病房。'
     })
     const characters = [
       createCharacter({ id: 'char_qiang', name: '阿强', baseImage: 'char_qiang.png' }),
@@ -97,8 +95,7 @@ describe('scene video reference assets', () => {
     const scene = createScene({
       id: 'scene_legacy',
       title: '巷口',
-      description: '阿强站在巷口。',
-      dialogues: [{ character: '阿强', text: '快走。' }]
+      description: '阿强站在巷口。'
     })
     const characters = [
       createCharacter({ id: 'char_qiang', name: '阿强', baseImage: 'char_qiang.png' })
@@ -118,8 +115,7 @@ describe('scene video reference assets', () => {
     const scene = createScene({
       id: 'scene_2',
       title: '走廊',
-      description: '阿强在走廊回头。\n\n[引用资产]\n@阿明',
-      dialogues: [{ character: '阿强', text: '阿明，跟上。' }]
+      description: '阿强在走廊回头。\n\n[引用资产]\n@阿明'
     })
     const characters = [
       createCharacter({ id: 'char_qiang', name: '阿强', baseImage: 'char_qiang.png' }),

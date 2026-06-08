@@ -247,15 +247,6 @@ export const SceneSettingSchema = z.object({
 })
 export type SceneSetting = z.infer<typeof SceneSettingSchema>
 
-/** 对话内容 */
-export const DialogueSchema = z.object({
-  character: z.string().describe('说话角色名'),
-  text: z.string().describe('对话内容'),
-  emotion: EmotionSchema.optional().describe('情绪'),
-  isInnerThought: z.boolean().optional().describe('是否为内心独白')
-})
-export type Dialogue = z.infer<typeof DialogueSchema>
-
 /** 场景中的角色 */
 export const SceneCharacterSchema = z.object({
   name: z.string().describe('角色名'),
@@ -347,7 +338,6 @@ export const SceneSchema = z.object({
   dramatic: SceneDramaticSchema,
   setting: SceneSettingSchema.describe('场景设定'),
   characters: z.array(SceneCharacterSchema).describe('登场角色'),
-  dialogues: z.array(DialogueSchema).optional().describe('对话列表'),
   usePreviousLastFrameAsFirstFrame: z.boolean().optional().describe('是否建议使用上一镜头末帧作为本镜头首帧参考'),
   continuityLinkReason: z.string().optional().describe('承接上一镜头末帧的原因说明'),
   duration: SceneDurationSchema,

@@ -60,7 +60,6 @@ export interface ParseScriptResponse {
       description: string
       dramatic?: SceneDramatic
       characters: Array<{ name: string, appearance?: string, emotion?: string }>
-      dialogues?: Array<{ character: string, text: string, emotion?: string }>
       narration?: string | null
       duration: number
       setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string }
@@ -105,10 +104,6 @@ interface ScriptDocxExportSceneInput {
     timeOfDay?: string
   }
   characters?: Array<{ name?: string }>
-  dialogues?: Array<{
-    character?: string
-    text?: string
-  }>
 }
 
 interface ScriptDocxExportOptions {
@@ -122,18 +117,13 @@ interface ScriptDocxExportResult {
   fileName: string
 }
 
-interface JianyingExportSceneDialogueInput {
-  character?: string
-  text?: string
-}
-
 interface JianyingExportSceneInput {
   id: string
   title?: string
+  description?: string
   videoUrl: string
   duration?: number
   narration?: string | null
-  dialogues?: JianyingExportSceneDialogueInput[]
 }
 
 interface JianyingExportOptions {

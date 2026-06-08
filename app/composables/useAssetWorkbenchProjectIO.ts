@@ -181,9 +181,9 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
           scenes: orderedReadyScenes.map(scene => ({
             id: scene.id,
             title: scene.title,
+            description: scene.description,
             videoUrl: scene.videoUrl,
-            duration: scene.duration,
-            dialogues: scene.dialogues
+            duration: scene.duration
           })),
           options: {
             transition: {
@@ -258,7 +258,6 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
             description: string
             setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string } | null
             characters?: Array<{ name: string, appearance?: string, emotion?: string }>
-            dialogues?: Array<{ character: string, text: string, emotion?: string }>
             narration?: string | null
             duration: number
             firstFrame?: string | null

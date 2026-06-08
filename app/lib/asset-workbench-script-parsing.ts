@@ -368,6 +368,23 @@ function normalizeParsedSceneDialogues(
     .filter(dialogue => !!dialogue.character && !!dialogue.text)
 }
 
+function appendLegacyDialoguesToDescription(
+  description: string,
+  dialogues: Array<{ character: string, text: string }>
+): string {
+  const normalizedDescription = description.trim()
+  const lines = dialogues
+    .filter(dialogue => !normalizedDescription.includes(dialogue.text.trim()))
+    .map(dialogue => `- ${dialogue.character}：${dialogue.text}`)
+
+  if (lines.length === 0) return normalizedDescription
+  return [
+    normalizedDescription,
+    '对白：',
+    ...lines
+  ].filter(Boolean).join('\n')
+}
+
 export function buildParsedScenes(options: {
   scenes: ParsedScriptScene[]
   descriptionFormat?: 'visual' | 'timeline'
@@ -393,6 +410,10 @@ export function buildParsedScenes(options: {
       .map(dialogue => dialogue.text?.trim())
       .filter((text): text is string => !!text)
       .join('\n')
+    const descriptionWithLegacyDialogues = appendLegacyDialoguesToDescription(
+      normalizedDescription,
+      normalizedDialogues
+    )
 
     return {
       id: scene.id || `scene_${index + 1}`,
@@ -402,10 +423,9 @@ export function buildParsedScenes(options: {
       title: scene.title || `${scene.setting?.location || '场景'} - ${scene.setting?.timeOfDay || ''}`,
       dramatic,
       description: options.descriptionFormat === 'timeline'
-        ? normalizedDescription
-        : ensureDramaticDescriptionSections(scene.description, dramatic),
+        ? descriptionWithLegacyDialogues
+        : ensureDramaticDescriptionSections(descriptionWithLegacyDialogues, dramatic),
       characters,
-      dialogues: normalizedDialogues,
       narration: mergeNarrationTexts(normalizeParsedSceneNarration(scene.narration), narrationFromDialogues),
       duration: scene.duration || 8,
       setting: scene.setting,

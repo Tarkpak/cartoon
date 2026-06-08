@@ -31,7 +31,6 @@ export interface AssetWorkflowScenePayload {
   setting?: SceneData['setting']
   narration?: string
   characters: SceneData['characters']
-  dialogues: SceneData['dialogues']
 }
 
 interface BuildSceneGenerationCameraNoteOptions {
@@ -153,8 +152,7 @@ export function buildAssetWorkflowScenePayload(
     duration: options.scene.duration,
     setting: options.scene.setting,
     narration: options.scene.narration,
-    characters: options.scene.characters,
-    dialogues: options.scene.dialogues
+    characters: options.scene.characters
   }
 }
 

@@ -116,11 +116,6 @@ export const EnhancedFrameGenerationRequestSchema = z.object({
       action: z.string().optional(),
       emotion: z.string().optional()
     })),
-    dialogues: z.array(z.object({
-      character: z.string(),
-      text: z.string(),
-      emotion: z.string().optional()
-    })).optional(),
     duration: z.number().optional()
   }).describe('场景信息'),
 
@@ -163,11 +158,6 @@ export interface SceneToSummaryInput {
     appearance?: string
     emotion?: string
     action?: string
-  }>
-  dialogues?: Array<{
-    character: string
-    text: string
-    emotion?: string
   }>
   lastFrame?: string
 }

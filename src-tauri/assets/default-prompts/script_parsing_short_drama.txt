@@ -84,7 +84,7 @@
 
 【角色规则】
 1. 只识别真实角色，不要把旁白/音效当角色。
-2. narration 字段仅放旁白/画外音；dialogues 仅放真实角色台词。
+2. narration 字段仅放旁白/画外音；不要单独输出对白属性，真实角色台词必须写进 description 的镜头行和“台词节奏”中。
 3. characters 顶层数组要给出稳定可复用的角色描述，便于后续角色资产生成。
 
 【角色资产沿用约束 (characters)】
@@ -130,13 +130,6 @@
 "name": "角色名",
 "appearance": "外观描述",
 "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
-}
-],
-"dialogues": [
-{
-"character": "角色名",
-"text": "台词",
-"emotion": "determined"
 }
 ],
 "narration": "旁白/画外音（可选）",

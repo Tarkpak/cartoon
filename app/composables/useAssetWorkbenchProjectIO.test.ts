@@ -19,7 +19,6 @@ function createScene(id: string): SceneData {
     title: '场景 1',
     description: '夜晚，主角推门进入。',
     characters: [],
-    dialogues: [],
     duration: 8,
     active: true,
     referenceStatus: 'pending',
@@ -62,8 +61,7 @@ function createLoadResponse() {
           title: '场景 1',
           description: '夜晚，主角推门进入。',
           duration: 8,
-          characters: [],
-          dialogues: []
+          characters: []
         }
       ],
       characters: [
@@ -134,14 +132,23 @@ describe('useAssetWorkbenchProjectIO', () => {
   const fetchMock = vi.fn(async (_url: string, _options?: FetchOptions) => {
     return { success: true }
   })
+  const testGlobal = globalThis as typeof globalThis & { $fetch?: unknown }
+  let hadOriginalFetch = false
+  let originalFetch: unknown
 
   beforeEach(() => {
     fetchMock.mockReset()
-    vi.stubGlobal('$fetch', fetchMock)
+    hadOriginalFetch = Object.prototype.hasOwnProperty.call(testGlobal, '$fetch')
+    originalFetch = testGlobal.$fetch
+    testGlobal.$fetch = fetchMock
   })
 
   afterEach(() => {
-    vi.unstubAllGlobals()
+    if (hadOriginalFetch) {
+      testGlobal.$fetch = originalFetch
+    } else {
+      delete testGlobal.$fetch
+    }
   })
 
   it('skips duplicate PUT when project payload is unchanged after load', async () => {

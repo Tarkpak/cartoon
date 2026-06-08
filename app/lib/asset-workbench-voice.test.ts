@@ -5,9 +5,7 @@ describe('resolveSceneVoiceReferenceSummary', () => {
   it('returns explicit audio mode for a single-speaker scene with a voice asset', () => {
     const summary = resolveSceneVoiceReferenceSummary({
       scene: {
-        dialogues: [
-          { character: '阿青', text: '你终于来了' }
-        ]
+        description: '- 阿青：你终于来了'
       },
       characters: [
         {
@@ -36,10 +34,7 @@ describe('resolveSceneVoiceReferenceSummary', () => {
   it('uses explicit audio mode when only one matched speaker has a voice asset', () => {
     const summary = resolveSceneVoiceReferenceSummary({
       scene: {
-        dialogues: [
-          { character: '阿青', text: '你终于来了' },
-          { character: '老周', text: '先别说话' }
-        ]
+        description: '- 阿青：你终于来了\n- 老周：先别说话'
       },
       characters: [
         {
@@ -65,9 +60,7 @@ describe('resolveSceneVoiceReferenceSummary', () => {
   it('classifies extracted samples as auto references', () => {
     const summary = resolveSceneVoiceReferenceSummary({
       scene: {
-        dialogues: [
-          { character: '白老板', text: '开始交易吧' }
-        ]
+        description: '- 白老板：开始交易吧'
       },
       characters: [
         {
@@ -90,9 +83,7 @@ describe('resolveSceneVoiceReferenceSummary', () => {
   it('falls back to prompt-only mode when explicit audio reference is unsupported', () => {
     const summary = resolveSceneVoiceReferenceSummary({
       scene: {
-        dialogues: [
-          { character: '阿青', text: '你终于来了' }
-        ]
+        description: '- 阿青：你终于来了'
       },
       characters: [
         {
@@ -113,9 +104,7 @@ describe('resolveSceneVoiceReferenceSummary', () => {
   it('returns none when the scene has dialogue but no usable voice asset', () => {
     const summary = resolveSceneVoiceReferenceSummary({
       scene: {
-        dialogues: [
-          { character: '阿青', text: '你终于来了' }
-        ]
+        description: '- 阿青：你终于来了'
       },
       characters: [
         {

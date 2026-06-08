@@ -70,12 +70,6 @@ export function useAssetWorkbenchCharacterActions(options: {
           char.name = nextName
         }
       }
-
-      for (const dialogue of scene.dialogues) {
-        if (dialogue.character === oldName) {
-          dialogue.character = nextName
-        }
-      }
     }
   }
 

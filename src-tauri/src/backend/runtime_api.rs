@@ -990,7 +990,6 @@ fn build_parsed_script_payload(body: &Value) -> Value {
               "title": format!("场景 {}", index + 1),
               "description": format!("0-{}秒：中景，固定镜头。{}", duration, line.trim()),
               "characters": characters.iter().take(3).map(|name| json!({"name": name})).collect::<Vec<_>>(),
-              "dialogues": [],
               "narration": Value::Null,
               "duration": duration,
               "setting": {
@@ -1335,40 +1334,6 @@ fn build_scene_character_text(scene: &Value) -> String {
     }
 }
 
-fn build_scene_dialogue_text(scene: &Value) -> String {
-    let lines = scene
-        .get("dialogues")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|dialogue| {
-                    let speaker = dialogue
-                        .get("character")
-                        .and_then(Value::as_str)
-                        .unwrap_or("角色")
-                        .trim();
-                    let text = dialogue
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .trim();
-                    if text.is_empty() {
-                        None
-                    } else {
-                        Some(format!("- {}：{}", speaker, text))
-                    }
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    if lines.is_empty() {
-        "无".to_string()
-    } else {
-        lines.join("\n")
-    }
-}
-
 fn build_scene_refine_history_text(body: &Value) -> String {
     let lines = body
         .get("history")
@@ -1544,7 +1509,6 @@ fn build_scene_description_refinement_prompt(
     let duration = duration_hint.to_string();
     let setting = build_scene_setting_text(&scene);
     let characters = build_scene_character_text(&scene);
-    let dialogues = build_scene_dialogue_text(&scene);
     let history = build_scene_refine_history_text(body);
     let assets = build_mentioned_assets_text(body);
     render_configured_prompt(
@@ -1559,7 +1523,6 @@ fn build_scene_description_refinement_prompt(
             ("setting", setting.as_str()),
             ("characters", characters.as_str()),
             ("narration", narration),
-            ("dialogues", dialogues.as_str()),
             ("history", history.as_str()),
             ("assets", assets.as_str()),
             ("mentionedAssets", assets.as_str()),
@@ -1737,43 +1700,70 @@ fn normalize_model_scene_characters(value: Option<Value>) -> Value {
     Value::Array(normalized)
 }
 
-fn normalize_model_scene_dialogues(value: Option<Value>) -> Value {
+fn is_narration_speaker(value: &str) -> bool {
+    let normalized = value
+        .trim()
+        .to_ascii_lowercase()
+        .replace([' ', '-', '_', '.', ':', '：'], "");
+    matches!(
+        normalized.as_str(),
+        "旁白" | "画外音" | "narration" | "voiceover" | "os" | "vo" | "内心独白"
+    )
+}
+
+fn normalize_model_scene_dialogue_lines(value: Option<Value>) -> (Vec<String>, Vec<String>) {
     let Some(Value::Array(items)) = value else {
-        return json!([]);
+        return (Vec::new(), Vec::new());
     };
 
-    let normalized = items
-        .into_iter()
-        .filter_map(|item| {
-            let Value::Object(object) = item else {
-                return None;
-            };
-            let character = object
-                .get("character")
-                .or_else(|| object.get("speaker"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())?
-                .to_string();
-            let text = object
-                .get("text")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())?
-                .to_string();
-            let mut normalized = serde_json::Map::new();
-            normalized.insert("character".to_string(), json!(character));
-            normalized.insert("text".to_string(), json!(text));
-            for key in ["emotion", "isInnerThought"] {
-                if let Some(value) = object.get(key).filter(|value| !value.is_null()) {
-                    normalized.insert(key.to_string(), value.clone());
-                }
-            }
-            Some(Value::Object(normalized))
-        })
+    let mut dialogue_lines = Vec::new();
+    let mut narration_lines = Vec::new();
+    for item in items {
+        let Value::Object(object) = item else {
+            continue;
+        };
+        let character = object
+            .get("character")
+            .or_else(|| object.get("speaker"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let text = object
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let (Some(character), Some(text)) = (character, text) else {
+            continue;
+        };
+        if is_narration_speaker(character) {
+            narration_lines.push(text.to_string());
+        } else {
+            dialogue_lines.push(format!("- {}：{}", character, text));
+        }
+    }
+
+    (dialogue_lines, narration_lines)
+}
+
+fn append_dialogue_lines_to_description(description: &str, dialogue_lines: &[String]) -> String {
+    let trimmed = description.trim();
+    let lines = dialogue_lines
+        .iter()
+        .filter(|line| !trimmed.contains(line.trim_start_matches("- ")))
+        .cloned()
         .collect::<Vec<_>>();
 
-    Value::Array(normalized)
+    if lines.is_empty() {
+        return trimmed.to_string();
+    }
+
+    [vec![trimmed.to_string(), "对白：".to_string()], lines]
+        .concat()
+        .into_iter()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn trimmed_json_string(value: &Value) -> Option<String> {
@@ -2064,14 +2054,14 @@ fn normalize_model_scene_environment_capture_mode(
         .unwrap_or_else(|| infer_model_scene_environment_capture_mode(description, camera_note))
 }
 
-fn normalize_model_scene_narration(value: Option<Value>) -> Option<Value> {
+fn normalize_model_scene_narration(value: Option<Value>) -> Option<String> {
     match value? {
         Value::String(text) => {
             let text = text.trim();
             if text.is_empty() {
                 None
             } else {
-                Some(json!(text))
+                Some(text.to_string())
             }
         }
         Value::Array(items) => {
@@ -2094,7 +2084,7 @@ fn normalize_model_scene_narration(value: Option<Value>) -> Option<Value> {
             if lines.is_empty() {
                 None
             } else {
-                Some(json!(lines.join("\n")))
+                Some(lines.join("\n"))
             }
         }
         _ => None,
@@ -2202,8 +2192,17 @@ fn normalize_model_script_result(model_value: Value, fallback_body: &Value) -> V
             }
             let characters = normalize_model_scene_characters(scene_obj.remove("characters"));
             scene_obj.insert("characters".to_string(), characters);
-            let dialogues = normalize_model_scene_dialogues(scene_obj.remove("dialogues"));
-            scene_obj.insert("dialogues".to_string(), dialogues);
+            let (dialogue_lines, legacy_narration_lines) =
+                normalize_model_scene_dialogue_lines(scene_obj.remove("dialogues"));
+            if !dialogue_lines.is_empty() {
+                let description = scene_obj
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let merged_description =
+                    append_dialogue_lines_to_description(description, &dialogue_lines);
+                scene_obj.insert("description".to_string(), json!(merged_description));
+            }
             if let Some(dramatic) =
                 normalize_model_scene_dramatic(scene_obj.remove("dramatic"), &description_text)
             {
@@ -2234,9 +2233,14 @@ fn normalize_model_script_result(model_value: Value, fallback_body: &Value) -> V
                 "environmentCaptureMode".to_string(),
                 json!(environment_capture_mode),
             );
+            let mut narration_lines = Vec::new();
             if let Some(narration) = normalize_model_scene_narration(scene_obj.remove("narration"))
             {
-                scene_obj.insert("narration".to_string(), narration);
+                narration_lines.push(narration);
+            }
+            narration_lines.extend(legacy_narration_lines);
+            if !narration_lines.is_empty() {
+                scene_obj.insert("narration".to_string(), json!(narration_lines.join("\n")));
             }
             if !scene_obj.contains_key("setting") {
                 scene_obj.insert(
@@ -4935,7 +4939,6 @@ fn build_video_prompt_from_scene(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("无");
-    let dialogues = build_scene_dialogue_text(scene);
 
     render_configured_prompt(
         conn,
@@ -4953,7 +4956,6 @@ fn build_video_prompt_from_scene(
             ("referenceMaterials", reference_materials.as_str()),
             ("executionConstraints", execution_constraints.as_str()),
             ("narration", narration),
-            ("dialogues", dialogues.as_str()),
         ],
     )
 }
@@ -4980,20 +4982,130 @@ fn normalize_speaker_name(value: &str) -> String {
         .collect()
 }
 
+fn is_scene_dialogue_label(value: &str) -> bool {
+    matches!(
+        value,
+        "场景功能"
+            | "情绪定位"
+            | "镜头设计"
+            | "声音设计"
+            | "台词节奏"
+            | "表演关键点"
+            | "对白"
+            | "对话"
+            | "台词"
+            | "旁白"
+            | "画外音"
+    )
+}
+
+fn normalize_description_dialogue_speaker(value: &str) -> String {
+    value
+        .trim()
+        .trim_start_matches(['-', '*', '•', ' '])
+        .trim_matches(['"', '\'', '“', '”', '‘', '’', '「', '」', '『', '』'])
+        .trim()
+        .to_string()
+}
+
+fn normalize_description_dialogue_text(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches(['"', '\'', '“', '”', '‘', '’', '「', '」', '『', '』'])
+        .trim()
+        .to_string()
+}
+
+fn last_dialogue_speaker_token(value: &str) -> String {
+    let candidate = value
+        .rsplit(['。', '，', '；', ',', '.', '!', '?', '！', '？', ' ', '\t'])
+        .next()
+        .unwrap_or(value);
+    normalize_description_dialogue_speaker(candidate)
+}
+
+fn extract_description_dialogue_from_line(line: &str) -> Option<(String, String)> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+
+    for marker in [
+        "说：",
+        "说:",
+        "问：",
+        "问:",
+        "喊：",
+        "喊:",
+        "答：",
+        "答:",
+        "道：",
+        "道:",
+        "回应：",
+        "回应:",
+        "低语：",
+        "低语:",
+        "喃喃：",
+        "喃喃:",
+    ] {
+        if let Some(index) = line.find(marker) {
+            let speaker = last_dialogue_speaker_token(&line[..index]);
+            let text = normalize_description_dialogue_text(&line[index + marker.len()..]);
+            if !speaker.is_empty() && !text.is_empty() {
+                return Some((speaker, text));
+            }
+        }
+    }
+
+    let (left, right) = line.split_once('：').or_else(|| line.split_once(':'))?;
+    if left.contains('秒') {
+        return None;
+    }
+    let speaker = normalize_description_dialogue_speaker(left);
+    let text = normalize_description_dialogue_text(right);
+    if speaker.is_empty() || text.is_empty() {
+        None
+    } else {
+        Some((speaker, text))
+    }
+}
+
+fn extract_description_dialogues(description: &str) -> Vec<(String, String)> {
+    let mut seen = HashSet::<String>::new();
+    let mut dialogues = Vec::new();
+    for line in description.lines() {
+        let Some((speaker, text)) = extract_description_dialogue_from_line(line) else {
+            continue;
+        };
+        if speaker.chars().count() > 16
+            || speaker.contains('秒')
+            || is_scene_dialogue_label(&speaker)
+            || is_narration_speaker(&speaker)
+        {
+            continue;
+        }
+        let key = format!("{}::{}", normalize_speaker_name(&speaker), text);
+        if seen.insert(key) {
+            dialogues.push((speaker, text));
+        }
+    }
+    dialogues
+}
+
 fn scene_dialogue_speakers(scene: &Value) -> Vec<String> {
-    scene
-        .get("dialogues")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|dialogue| dialogue.get("character").and_then(Value::as_str))
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
+    let Some(description) = scene.get("description").and_then(Value::as_str) else {
+        return Vec::new();
+    };
+
+    let mut speakers = Vec::new();
+    let mut seen = HashSet::<String>::new();
+    for (speaker, _) in extract_description_dialogues(description) {
+        let key = normalize_speaker_name(&speaker);
+        if !key.is_empty() && seen.insert(key) {
+            speakers.push(speaker);
+        }
+    }
+    speakers
 }
 
 fn voice_asset_audio_url(value: &Value) -> Option<String> {
@@ -11957,51 +12069,17 @@ fn normalize_docx_characters(scene: &Value) -> Vec<String> {
 }
 
 fn normalize_docx_dialogues(
-    scene: &Value,
     description: &str,
     include_from_description: bool,
 ) -> Vec<(String, String)> {
     let mut seen = HashSet::<String>::new();
     let mut dialogues = Vec::new();
-    if let Some(items) = scene.get("dialogues").and_then(Value::as_array) {
-        for item in items {
-            let character = normalize_docx_text(item.get("character"));
-            let text = normalize_docx_text(item.get("text"));
-            if character.is_empty() || text.is_empty() {
-                continue;
-            }
-            let key = format!("{}::{}", character, text);
-            if seen.insert(key) {
-                dialogues.push((character, text));
-            }
-        }
-    }
 
     if include_from_description {
-        for line in description
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-        {
-            let Some((speaker, text)) = line.split_once('：').or_else(|| line.split_once(':'))
-            else {
-                continue;
-            };
-            let speaker = speaker.trim();
-            let text = text.trim();
-            if speaker.is_empty() || text.is_empty() || speaker.chars().count() > 16 {
-                continue;
-            }
-            if speaker.contains('秒')
-                || speaker.contains('-')
-                || speaker.contains('，')
-                || speaker.contains('。')
-            {
-                continue;
-            }
+        for (speaker, text) in extract_description_dialogues(description) {
             let key = format!("{}::{}", speaker, text);
             if seen.insert(key) {
-                dialogues.push((speaker.to_string(), text.to_string()));
+                dialogues.push((speaker, text));
             }
         }
     }
@@ -12081,16 +12159,6 @@ fn validate_script_docx_payload(body: &Value) -> Result<&Vec<Value>, ApiError> {
                     "name",
                     &format!("{path}.characters.{character_index}"),
                 )?;
-            }
-        }
-        if let Some(dialogues) = scene.get("dialogues").filter(|value| !value.is_null()) {
-            let items = dialogues.as_array().ok_or_else(|| {
-                export_validation_error(format!("{path}.dialogues"), "Expected array")
-            })?;
-            for (dialogue_index, dialogue) in items.iter().enumerate() {
-                let dialogue_path = format!("{path}.dialogues.{dialogue_index}");
-                optional_export_string(dialogue, "character", &dialogue_path)?;
-                optional_export_string(dialogue, "text", &dialogue_path)?;
             }
         }
     }
@@ -12173,8 +12241,7 @@ pub(super) async fn api_script_export_docx(Json(body): Json<Value>) -> Result<Re
                 }
             }
         }
-        let dialogues =
-            normalize_docx_dialogues(scene, &description, include_dialogues_from_description);
+        let dialogues = normalize_docx_dialogues(&description, include_dialogues_from_description);
         if !dialogues.is_empty() {
             lines.push("对白".to_string());
             for (character, text) in dialogues {
@@ -12661,28 +12728,6 @@ fn validate_workflow_scene(
             workflow_required_string(character, "name", &item_path)?;
             workflow_optional_string(character, "appearance", &item_path)?;
             workflow_optional_string(character, "emotion", &item_path)?;
-        }
-    }
-    if let Some(dialogues) = scene.get("dialogues").filter(|value| !value.is_null()) {
-        let items = dialogues.as_array().ok_or_else(|| {
-            workflow_validation_error(format!("{path}.dialogues"), "Expected array")
-        })?;
-        for (index, dialogue) in items.iter().enumerate() {
-            let item_path = format!("{path}.dialogues.{index}");
-            workflow_required_string(dialogue, "character", &item_path)?;
-            workflow_required_string(dialogue, "text", &item_path)?;
-            workflow_optional_string(dialogue, "emotion", &item_path)?;
-            if let Some(value) = dialogue
-                .get("isInnerThought")
-                .filter(|value| !value.is_null())
-            {
-                if !value.is_boolean() {
-                    return Err(workflow_validation_error(
-                        format!("{item_path}.isInnerThought"),
-                        "Expected boolean",
-                    ));
-                }
-            }
         }
     }
     Ok(())
@@ -13862,42 +13907,33 @@ fn build_scene_subtitles(scenes: &[Value]) -> Vec<Value> {
     let mut subtitles = Vec::new();
     let mut subtitle_time = 0.0;
     for scene in scenes {
-        if let Some(dialogues) = scene.get("dialogues").and_then(Value::as_array) {
-            for dialogue in dialogues {
-                let character = dialogue
-                    .get("character")
-                    .and_then(Value::as_str)
-                    .unwrap_or("角色")
-                    .trim();
-                let text = dialogue
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .trim();
-                if text.is_empty() {
-                    continue;
-                }
-                let start = dialogue
-                    .get("startTime")
-                    .and_then(Value::as_f64)
-                    .unwrap_or(subtitle_time);
-                let end = dialogue
-                    .get("endTime")
-                    .and_then(Value::as_f64)
-                    .unwrap_or(start + 3.0);
-                subtitles.push(json!({
-                  "text": format!("{}: {}", if character.is_empty() { "角色" } else { character }, text),
-                  "startTime": start,
-                  "endTime": end
-                }));
-                subtitle_time = end;
-            }
-        }
-        subtitle_time += scene
+        let duration = scene
             .get("duration")
             .and_then(Value::as_f64)
             .unwrap_or(0.0)
             .max(0.0);
+        let description = scene
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let dialogue_lines = extract_description_dialogues(description);
+        if !dialogue_lines.is_empty() {
+            let line_duration = if duration > 0.0 {
+                (duration / dialogue_lines.len() as f64).max(1.0)
+            } else {
+                3.0
+            };
+            for (index, (character, text)) in dialogue_lines.into_iter().enumerate() {
+                let start = subtitle_time + index as f64 * line_duration;
+                let end = (start + line_duration).min(subtitle_time + duration.max(line_duration));
+                subtitles.push(json!({
+                  "text": format!("{}: {}", if character.is_empty() { "角色" } else { character.as_str() }, text),
+                  "startTime": start,
+                  "endTime": end
+                }));
+            }
+        }
+        subtitle_time += duration;
     }
     subtitles
 }
@@ -14070,21 +14106,7 @@ fn validate_merge_video_scene(scene: &Value, path: &str) -> Result<(), ApiError>
         ));
     }
     workflow_optional_string(scene, "title", path)?;
-    if let Some(dialogues) = scene.get("dialogues").filter(|value| !value.is_null()) {
-        let items = dialogues.as_array().ok_or_else(|| {
-            workflow_validation_error(format!("{path}.dialogues"), "Expected array")
-        })?;
-        for (index, dialogue) in items.iter().enumerate() {
-            let dialogue_path = format!("{path}.dialogues.{index}");
-            if !dialogue.is_object() {
-                return Err(workflow_validation_error(&dialogue_path, "Expected object"));
-            }
-            required_json_string(dialogue, "character", &dialogue_path)?;
-            required_json_string(dialogue, "text", &dialogue_path)?;
-            workflow_optional_number(dialogue, "startTime", &dialogue_path)?;
-            workflow_optional_number(dialogue, "endTime", &dialogue_path)?;
-        }
-    }
+    workflow_optional_string(scene, "description", path)?;
     Ok(())
 }
 
@@ -14423,18 +14445,9 @@ fn validate_jianying_export_payload(body: &Value) -> Result<&Vec<Value>, ApiErro
             }
         }
         optional_export_string(scene, "title", &path)?;
+        optional_export_string(scene, "description", &path)?;
         optional_export_number(scene, "duration", &path)?;
         optional_export_string(scene, "narration", &path)?;
-        if let Some(dialogues) = scene.get("dialogues").filter(|value| !value.is_null()) {
-            let items = dialogues.as_array().ok_or_else(|| {
-                export_validation_error(format!("{path}.dialogues"), "Expected array")
-            })?;
-            for (dialogue_index, dialogue) in items.iter().enumerate() {
-                let dialogue_path = format!("{path}.dialogues.{dialogue_index}");
-                optional_export_string(dialogue, "character", &dialogue_path)?;
-                optional_export_string(dialogue, "text", &dialogue_path)?;
-            }
-        }
     }
 
     if let Some(options) = body.get("options").filter(|value| !value.is_null()) {
@@ -14597,26 +14610,16 @@ fn create_text_material_content(text: &str) -> String {
 
 fn resolve_scene_subtitle_lines(scene: &Value) -> Vec<String> {
     let mut lines = Vec::new();
-    if let Some(dialogues) = scene.get("dialogues").and_then(Value::as_array) {
-        for dialogue in dialogues {
-            let character = dialogue
-                .get("character")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim();
-            let text = dialogue
-                .get("text")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim();
-            if !text.is_empty() {
-                lines.push(if character.is_empty() {
-                    text.to_string()
+    if let Some(description) = scene.get("description").and_then(Value::as_str) {
+        lines.extend(extract_description_dialogues(description).into_iter().map(
+            |(character, text)| {
+                if character.is_empty() {
+                    text
                 } else {
                     format!("{}：{}", character, text)
-                });
-            }
-        }
+                }
+            },
+        ));
     }
     if lines.is_empty() {
         if let Some(narration) = scene

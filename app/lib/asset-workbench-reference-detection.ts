@@ -19,6 +19,27 @@ const SCENE_IMAGE_TAG_REGEX = /(?:\[(?:图片|Image\s*#)\s*\d+\]|@(?:图片|Imag
 const SCENE_QUOTED_DIALOGUE_REGEX = /'[^'\n]*'|"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’|「[^」\n]*」|『[^』\n]*』/gu
 const SCENE_DIALOGUE_SENTENCE_REGEX = /[^。！？!?\n]*(?:说|问|答|喊|道|回应|低语|喃喃|旁白|画外音)\s*[：:][^。！？!?\n]*/gu
 const SCENE_TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]/gmu
+const SCENE_DIALOGUE_SPEAKER_MARKERS = [
+  '说',
+  '问',
+  '答',
+  '喊',
+  '道',
+  '回应',
+  '低语',
+  '喃喃'
+]
+const SCENE_DIALOGUE_LABELS = new Set([
+  '场景功能',
+  '情绪定位',
+  '镜头设计',
+  '声音设计',
+  '台词节奏',
+  '表演关键点',
+  '对白',
+  '对话',
+  '台词'
+])
 
 export interface SceneCharacterCandidate {
   primaryName: string
@@ -74,6 +95,57 @@ function createSceneCharacterCandidate(
   }
 }
 
+function normalizeDialogueSpeakerCandidate(rawName?: string): string {
+  return (rawName || '')
+    .replace(/^\s*[-*•]\s*/u, '')
+    .replace(/["'“”‘’「」『』]/gu, '')
+    .trim()
+}
+
+function lastSpeakerToken(text: string): string {
+  return normalizeDialogueSpeakerCandidate(
+    text
+      .split(/[。！？!?，,；;\s]+/u)
+      .filter(Boolean)
+      .at(-1) || ''
+  )
+}
+
+function collectDescriptionDialogueSpeakerSet(description: string): Set<string> {
+  const speakerSet = new Set<string>()
+
+  for (const rawLine of description.split('\n')) {
+    const line = rawLine.trim()
+    if (!line) continue
+
+    let speaker = ''
+    for (const marker of SCENE_DIALOGUE_SPEAKER_MARKERS) {
+      const colonIndex = line.indexOf(`${marker}：`) >= 0
+        ? line.indexOf(`${marker}：`)
+        : line.indexOf(`${marker}:`)
+      if (colonIndex >= 0) {
+        speaker = lastSpeakerToken(line.slice(0, colonIndex))
+        break
+      }
+    }
+
+    if (!speaker) {
+      const directMatch = line.match(/^\s*[-*•]?\s*([^：:\n]{1,16})\s*[：:]/u)
+      if (directMatch && !directMatch[1]?.includes('秒')) {
+        speaker = normalizeDialogueSpeakerCandidate(directMatch[1])
+      }
+    }
+
+    if (!speaker || speaker.length > 16 || isNarrationSpeaker(speaker) || SCENE_DIALOGUE_LABELS.has(speaker)) {
+      continue
+    }
+    const normalized = normalizeToken(speaker)
+    if (normalized) speakerSet.add(normalized)
+  }
+
+  return speakerSet
+}
+
 export function findCharacterByNameLike(
   name: string,
   characters: CharacterData[]
@@ -119,26 +191,6 @@ function normalizeVisualDescriptionText(description?: string): string {
   )
 }
 
-function collectDialogueSpeakerNameSet(scene: SceneData): Set<string> {
-  const speakerSet = new Set<string>()
-
-  for (const dialogue of scene.dialogues) {
-    for (const alias of splitCandidateNames(dialogue.character)) {
-      const normalized = normalizeToken(alias)
-      if (!normalized || isNarrationSpeaker(alias)) continue
-      speakerSet.add(normalized)
-    }
-  }
-
-  return speakerSet
-}
-
-function collectDialogueTextTokens(scene: SceneData): string[] {
-  return scene.dialogues
-    .map(dialogue => normalizeToken(dialogue.text))
-    .filter(Boolean)
-}
-
 function hasAliasInTokens(aliases: string[], tokenPool: string[]): boolean {
   if (aliases.length === 0 || tokenPool.length === 0) return false
 
@@ -154,23 +206,10 @@ function hasAliasInTokens(aliases: string[], tokenPool: string[]): boolean {
   return false
 }
 
-function hasAliasInSpeakerSet(aliases: string[], speakerSet: Set<string>): boolean {
-  if (aliases.length === 0 || speakerSet.size === 0) return false
-
-  for (const alias of aliases) {
-    const normalized = normalizeToken(alias)
-    if (!normalized) continue
-    if (speakerSet.has(normalized)) return true
-  }
-
-  return false
-}
-
 export function collectSceneCharacterCandidates(scene: SceneData): SceneCharacterCandidate[] {
   const map = new Map<string, SceneCharacterCandidate>()
   const visualDescriptionToken = normalizeVisualDescriptionText(scene.description)
-  const dialogueTextTokens = collectDialogueTextTokens(scene)
-  const dialogueSpeakerSet = collectDialogueSpeakerNameSet(scene)
+  const dialogueSpeakerSet = collectDescriptionDialogueSpeakerSet(scene.description)
 
   for (const sceneCharacter of scene.characters) {
     const candidate = createSceneCharacterCandidate(sceneCharacter.name, sceneCharacter.appearance)
@@ -178,14 +217,10 @@ export function collectSceneCharacterCandidates(scene: SceneData): SceneCharacte
 
     const hasVisualMetadata = !!sceneCharacter.appearance?.trim()
       || !!sceneCharacter.emotion?.trim()
-    const appearsInDialogueText = hasAliasInTokens(candidate.aliases, dialogueTextTokens)
     const appearsInVisualDescription = hasAliasInTokens(candidate.aliases, [visualDescriptionToken])
-    const appearsAsDialogueSpeaker = hasAliasInSpeakerSet(candidate.aliases, dialogueSpeakerSet)
-    const mentionedOnlyByDialogue = !hasVisualMetadata
-      && !appearsAsDialogueSpeaker
-      && appearsInDialogueText
-      && !appearsInVisualDescription
-    if (mentionedOnlyByDialogue) continue
+    const appearsAsDialogueSpeaker = candidate.aliases
+      .some(alias => dialogueSpeakerSet.has(normalizeToken(alias)))
+    if (!hasVisualMetadata && !appearsInVisualDescription && !appearsAsDialogueSpeaker) continue
 
     const key = normalizeToken(candidate.primaryName)
     if (!key) continue
@@ -202,10 +237,9 @@ export function collectSceneCharacterCandidates(scene: SceneData): SceneCharacte
     map.set(key, candidate)
   }
 
-  for (const dialogue of scene.dialogues) {
-    const candidate = createSceneCharacterCandidate(dialogue.character)
+  for (const speakerKey of dialogueSpeakerSet) {
+    const candidate = createSceneCharacterCandidate(speakerKey)
     if (!candidate) continue
-
     const key = normalizeToken(candidate.primaryName)
     if (!key || map.has(key)) continue
     map.set(key, candidate)
@@ -221,8 +255,7 @@ function getSceneText(
   return [
     scene.title || '',
     resolveSceneDescriptionWithoutAssetMentions(scene.description),
-    scene.narration || '',
-    scene.dialogues.map(item => `${item.character}:${item.text}`).join('\n')
+    scene.narration || ''
   ]
     .join('\n')
     .toLowerCase()

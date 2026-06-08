@@ -11,7 +11,6 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
     title: input.title,
     description: input.description,
     characters: input.characters || [],
-    dialogues: input.dialogues || [],
     narration: input.narration,
     duration: input.duration || 8,
     setting: input.setting,
@@ -46,6 +45,16 @@ function createSceneConfig(
     usePreviousLastFrameAsFirstFrame: false,
     continuityLinkReason: '',
     ...overrides
+  }
+}
+
+function toPlainSceneConfig(
+  config: SceneConsistencyConfig | undefined
+): SceneConsistencyConfig | undefined {
+  if (!config) return undefined
+  return {
+    ...config,
+    mustReferenceAssetIds: [...config.mustReferenceAssetIds]
   }
 }
 
@@ -175,7 +184,7 @@ describe('useAssetWorkbenchSceneManagement', () => {
 
     expect(harness.scenes.value).toHaveLength(1)
     expect(harness.sceneConfigs.value[sceneB.id]).toBeUndefined()
-    expect(harness.sceneConfigs.value[sceneA.id]).toMatchObject({
+    expect(toPlainSceneConfig(harness.sceneConfigs.value[sceneA.id])).toEqual({
       sceneId: sceneA.id,
       mustReferenceAssetIds: ['char:a', 'prop:b'],
       consistencyLevel: 'lock',
@@ -219,7 +228,7 @@ describe('useAssetWorkbenchSceneManagement', () => {
     const newScene = harness.scenes.value[1]
     expect(newScene).toBeDefined()
     expect(newScene?.id).not.toBe(sceneA.id)
-    expect(harness.sceneConfigs.value[newScene!.id]).toMatchObject({
+    expect(toPlainSceneConfig(harness.sceneConfigs.value[newScene!.id])).toEqual({
       sceneId: newScene!.id,
       mustReferenceAssetIds: ['char:a', 'prop:b'],
       consistencyLevel: 'lock',

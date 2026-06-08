@@ -1050,11 +1050,6 @@ function buildAutoPlanSnapshotKey(): string {
       name: character.name || '',
       appearance: character.appearance || '',
       emotion: character.emotion || ''
-    })),
-    dialogues: scene.dialogues.map(dialogue => ({
-      character: dialogue.character || '',
-      text: dialogue.text || '',
-      emotion: dialogue.emotion || ''
     }))
   }))
 
@@ -2691,8 +2686,7 @@ async function generateEnvironmentAssetFromCard(
             timeOfDay: generationSetting.timeOfDay,
             mood: generationSetting.mood
           },
-          characters: [],
-          dialogues: []
+          characters: []
         },
         style: workflowStylePrompt.value,
         aspectRatio: ENVIRONMENT_REFERENCE_ASPECT_RATIO,
@@ -2949,13 +2943,10 @@ async function handleExportJianyingProject() {
       scenes: orderedScenes.map(scene => ({
         id: scene.id,
         title: scene.title,
+        description: scene.description,
         videoUrl: scene.videoUrl || '',
         duration: scene.duration,
-        narration: scene.narration || null,
-        dialogues: (scene.dialogues || []).map(dialogue => ({
-          character: dialogue.character,
-          text: dialogue.text
-        }))
+        narration: scene.narration || null
       })),
       options: {
         addSubtitles: finalStageMergeOptions.value.addSubtitles === true,
@@ -3002,10 +2993,6 @@ async function handleExportFormattedScriptDocx() {
           : undefined,
         characters: scene.characters?.map(character => ({
           name: character.name
-        })) || [],
-        dialogues: scene.dialogues?.map(dialogue => ({
-          character: dialogue.character,
-          text: dialogue.text
         })) || []
       }))
     })

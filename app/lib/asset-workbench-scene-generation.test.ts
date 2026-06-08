@@ -11,7 +11,6 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
     title: input.title,
     description: input.description,
     characters: input.characters || [],
-    dialogues: input.dialogues || [],
     narration: input.narration,
     duration: input.duration || 8,
     setting: input.setting,

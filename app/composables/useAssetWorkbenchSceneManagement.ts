@@ -58,7 +58,6 @@ export function useAssetWorkbenchSceneManagement(options: {
       title: currentScene.title,
       description: currentScene.description,
       characters: currentScene.characters,
-      dialogues: currentScene.dialogues,
       narration: currentScene.narration || '',
       duration: currentScene.duration,
       setting: currentScene.setting || null,
@@ -73,7 +72,6 @@ export function useAssetWorkbenchSceneManagement(options: {
       title: nextScene.title,
       description: nextScene.description,
       characters: nextScene.characters,
-      dialogues: nextScene.dialogues,
       narration: nextScene.narration || '',
       duration: nextScene.duration,
       setting: nextScene.setting || null,
@@ -348,8 +346,7 @@ export function useAssetWorkbenchSceneManagement(options: {
       setting: scene.setting
         ? { ...scene.setting }
         : { location: '未知', timeOfDay: '白天' },
-      characters: scene.characters.map(char => ({ ...char })),
-      dialogues: scene.dialogues.map(dialogue => ({ ...dialogue }))
+      characters: scene.characters.map(char => ({ ...char }))
     }
     options.sceneEditDialogOpen.value = true
   }

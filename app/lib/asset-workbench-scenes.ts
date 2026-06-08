@@ -80,7 +80,6 @@ function buildSceneGenerationInputSnapshot(scene: Pick<
   | 'title'
   | 'description'
   | 'characters'
-  | 'dialogues'
   | 'narration'
   | 'duration'
   | 'setting'
@@ -93,7 +92,6 @@ function buildSceneGenerationInputSnapshot(scene: Pick<
     title: scene.title,
     description: scene.description,
     characters: scene.characters,
-    dialogues: scene.dialogues,
     narration: scene.narration || '',
     duration: scene.duration,
     setting: scene.setting || null,
@@ -190,7 +188,6 @@ export function mergeScenesInList(
     title: `${currentScene.title} + ${nextScene.title}`,
     description: `${currentScene.description}\n\n${nextScene.description}`,
     characters: mergedCharacters,
-    dialogues: [...currentScene.dialogues, ...nextScene.dialogues],
     narration: mergeNarrationTexts(currentScene.narration, nextScene.narration),
     duration: currentScene.duration + nextScene.duration,
     setting: currentScene.setting || nextScene.setting,
@@ -224,7 +221,6 @@ export function splitSceneInList(
   const midPoint = Math.ceil(sentences.length / 2)
   const firstHalf = sentences.slice(0, midPoint).join('')
   const secondHalf = sentences.slice(midPoint).join('')
-  const dialogueMidPoint = Math.ceil(scene.dialogues.length / 2)
   const [firstNarration, secondNarration] = splitNarrationText(scene.narration)
 
   const firstScene = resetSceneGenerationState({
@@ -232,7 +228,6 @@ export function splitSceneInList(
     id: scene.id,
     title: `${scene.title} (上)`,
     description: firstHalf,
-    dialogues: scene.dialogues.slice(0, dialogueMidPoint),
     narration: firstNarration,
     duration: Math.ceil(scene.duration / 2),
     active: scene.active,
@@ -244,7 +239,6 @@ export function splitSceneInList(
     id: `scene_${Date.now()}`,
     title: `${scene.title} (下)`,
     description: secondHalf,
-    dialogues: scene.dialogues.slice(dialogueMidPoint),
     narration: secondNarration,
     duration: Math.max(1, Math.floor(scene.duration / 2)),
     active: false,

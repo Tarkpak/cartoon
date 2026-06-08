@@ -19,9 +19,6 @@
 【旁白】
 {{narration}}
 
-【对白】
-{{dialogues}}
-
 【历史编辑对话】
 {{history}}
 

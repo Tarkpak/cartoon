@@ -30,7 +30,6 @@ export interface SceneData {
   description: string
   dramatic?: SceneDramatic
   characters: Array<{ name: string, appearance?: string, emotion?: string }>
-  dialogues: Array<{ character: string, text: string, emotion?: string }>
   narration?: string
   duration: number
   setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string }

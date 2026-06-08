@@ -35,13 +35,7 @@ describe('asset-workbench-script-parsing', () => {
       { name: '白叙' },
       { name: '江沉' }
     ])
-    expect(scenes[0]?.dialogues).toEqual([
-      {
-        character: '江沉',
-        text: '没打死啊？',
-        emotion: '轻蔑'
-      }
-    ])
+    expect(scenes[0]?.description).toContain('江沉：没打死啊？')
     expect(scenes[0]?.narration).toBe('他必须先忍住。')
 
     const characters = buildParsedCharacters(undefined, scenes)
@@ -60,7 +54,6 @@ describe('asset-workbench-script-parsing', () => {
           timeOfDay: '黄昏'
         },
         characters: ['陈泽'],
-        dialogues: [],
         dramatic: '现代悠闲摆烂氛围，为突发死亡制造反差。',
         shotType: '中景、近景、逆光环境镜头',
         cameraMovement: '逆光环境镜头',

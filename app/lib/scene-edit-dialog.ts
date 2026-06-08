@@ -8,7 +8,6 @@ import {
   resolveDisplayAssetTypeOrder
 } from '~/lib/asset-workbench-mentions'
 
-export type DialogueItem = SceneData['dialogues'][number]
 export type CharacterItem = SceneData['characters'][number]
 export type SceneEditData = Pick<
   SceneData,
@@ -17,7 +16,6 @@ export type SceneEditData = Pick<
   | 'description'
   | 'narration'
   | 'characters'
-  | 'dialogues'
   | 'duration'
   | 'shotType'
   | 'cameraMovement'

@@ -183,7 +183,6 @@ struct ProjectSceneRow {
     dramatic: Option<String>,
     setting: Option<String>,
     characters: Option<String>,
-    dialogues: Option<String>,
     duration: i64,
     narration: Option<String>,
     shot_type: Option<String>,
@@ -1723,12 +1722,29 @@ fn merge_prompt_templates_with_defaults(value: Value) -> Value {
         return value;
     };
 
-    let mut merged = saved_items.clone();
-    let mut existing_ids = merged
+    let default_by_id = default_items
         .iter()
-        .filter_map(|item| item.get("id").and_then(Value::as_str))
-        .map(str::to_string)
-        .collect::<HashSet<_>>();
+        .filter_map(|item| item.get("id").and_then(Value::as_str).map(|id| (id, item)))
+        .collect::<HashMap<_, _>>();
+    let mut existing_ids = HashSet::<String>::new();
+    let mut merged = Vec::new();
+    for item in saved_items {
+        let Some(id) = item.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        existing_ids.insert(id.to_string());
+        if item
+            .get("isCustomized")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            merged.push(item.clone());
+        } else if let Some(default_item) = default_by_id.get(id) {
+            merged.push((*default_item).clone());
+        } else {
+            merged.push(item.clone());
+        }
+    }
     for item in default_items {
         let Some(id) = item.get("id").and_then(Value::as_str) else {
             continue;
@@ -2016,7 +2032,6 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         dramatic TEXT,
         setting TEXT,
         characters TEXT,
-        dialogues TEXT,
         duration INTEGER DEFAULT 8,
         narration TEXT,
         shot_type TEXT,
@@ -3028,7 +3043,7 @@ async fn api_project_get(
         let mut stmt = conn
             .prepare(
                 "SELECT id, order_index, episode_id, episode_title, episode_index, title, description,
-                        dramatic, setting, characters, dialogues, duration, narration, shot_type, camera_movement,
+                        dramatic, setting, characters, duration, narration, shot_type, camera_movement,
                         camera_note, environment_capture_mode, transition_in, transition_out, transition_duration,
                         first_frame, last_frame, video_url, status
                  FROM scenes WHERE script_id = ?1 ORDER BY order_index ASC",
@@ -3042,8 +3057,8 @@ async fn api_project_get(
                         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
                         .unwrap_or(Value::Null)
                 };
-                let video_url: Option<String> = row.get(22)?;
-                let status: Option<String> = row.get(23)?;
+                let video_url: Option<String> = row.get(21)?;
+                let status: Option<String> = row.get(22)?;
                 Ok(json!({
                   "id": row.get::<_, String>(0)?,
                   "orderIndex": row.get::<_, i64>(1)?,
@@ -3055,18 +3070,17 @@ async fn api_project_get(
                   "dramatic": parse(row.get(7)?),
                   "setting": parse(row.get(8)?),
                   "characters": parse(row.get(9)?),
-                  "dialogues": parse(row.get(10)?),
-                  "duration": row.get::<_, Option<i64>>(11)?.unwrap_or(8),
-                  "narration": row.get::<_, Option<String>>(12)?,
-                  "shotType": row.get::<_, Option<String>>(13)?,
-                  "cameraMovement": row.get::<_, Option<String>>(14)?,
-                  "cameraNote": row.get::<_, Option<String>>(15)?,
-                  "environmentCaptureMode": row.get::<_, Option<String>>(16)?,
-                  "transitionIn": row.get::<_, Option<String>>(17)?,
-                  "transitionOut": row.get::<_, Option<String>>(18)?,
-                  "transitionDuration": row.get::<_, Option<f64>>(19)?,
-                  "firstFrame": row.get::<_, Option<String>>(20)?,
-                  "lastFrame": row.get::<_, Option<String>>(21)?,
+                  "duration": row.get::<_, Option<i64>>(10)?.unwrap_or(8),
+                  "narration": row.get::<_, Option<String>>(11)?,
+                  "shotType": row.get::<_, Option<String>>(12)?,
+                  "cameraMovement": row.get::<_, Option<String>>(13)?,
+                  "cameraNote": row.get::<_, Option<String>>(14)?,
+                  "environmentCaptureMode": row.get::<_, Option<String>>(15)?,
+                  "transitionIn": row.get::<_, Option<String>>(16)?,
+                  "transitionOut": row.get::<_, Option<String>>(17)?,
+                  "transitionDuration": row.get::<_, Option<f64>>(18)?,
+                  "firstFrame": row.get::<_, Option<String>>(19)?,
+                  "lastFrame": row.get::<_, Option<String>>(20)?,
                   "videoUrl": video_url,
                   "status": if video_url.as_ref().is_some_and(|value| !value.trim().is_empty()) {
                     "video_ready".to_string()
@@ -3689,25 +3703,6 @@ fn validate_scene_json_fields(scene: &Value, path: &str) -> Result<(), ApiError>
         }
     }
 
-    if let Some(dialogues) = scene.get("dialogues").filter(|value| !value.is_null()) {
-        let items = dialogues
-            .as_array()
-            .ok_or_else(|| validation_error(format!("{path}.dialogues"), "Expected array"))?;
-        for (index, item) in items.iter().enumerate() {
-            let item_path = format!("{path}.dialogues.{index}");
-            required_string(item, "character", &item_path)?;
-            required_string(item, "text", &item_path)?;
-            optional_string(item, "emotion", &item_path)?;
-            if let Some(value) = item.get("isInnerThought").filter(|value| !value.is_null()) {
-                if !value.is_boolean() {
-                    return Err(validation_error(
-                        format!("{item_path}.isInnerThought"),
-                        "Expected boolean",
-                    ));
-                }
-            }
-        }
-    }
     Ok(())
 }
 
@@ -4061,7 +4056,6 @@ async fn api_project_put(
                 dramatic: encode("dramatic"),
                 setting: normalize_scene_setting(scene, &path)?,
                 characters: encode("characters"),
-                dialogues: encode("dialogues"),
                 duration,
                 narration: optional_string(scene, "narration", &path)?.map(str::to_string),
                 shot_type,
@@ -4088,13 +4082,13 @@ async fn api_project_put(
             conn.execute(
                 "INSERT INTO scenes (
                   id, script_id, order_index, episode_id, episode_title, episode_index, title, description,
-                  dramatic, setting, characters, dialogues, duration, narration, shot_type, camera_movement,
+                  dramatic, setting, characters, duration, narration, shot_type, camera_movement,
                   camera_note, environment_capture_mode, transition_in, transition_out, transition_duration,
                   first_frame, last_frame, video_url, status, created_at, updated_at
                 ) VALUES (
                   ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
-                  ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                  ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27
+                  ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+                  ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26
                 )",
                 params![
                     scene_row.id,
@@ -4108,7 +4102,6 @@ async fn api_project_put(
                     scene_row.dramatic,
                     scene_row.setting,
                     scene_row.characters,
-                    scene_row.dialogues,
                     scene_row.duration,
                     scene_row.narration,
                     scene_row.shot_type,

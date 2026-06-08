@@ -402,11 +402,6 @@
         "example": "旁白：空气里弥漫着消毒水气味。"
       },
       {
-        "name": "{{dialogues}}",
-        "description": "对白文本",
-        "example": "- 陆哲：你们等着看。"
-      },
-      {
         "name": "{{history}}",
         "description": "最近的场景编辑对话",
         "example": "用户：把节奏改快一些"
@@ -496,11 +491,6 @@
         "name": "{{narration}}",
         "description": "旁白文本",
         "example": "雨势渐大，空气里弥漫着紧张。"
-      },
-      {
-        "name": "{{dialogues}}",
-        "description": "对白文本",
-        "example": "- 陆哲：你们等着看。"
       }
     ],
     "isCustomized": false,

@@ -36,7 +36,6 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
     title: input.title,
     description: input.description,
     characters: input.characters || [],
-    dialogues: input.dialogues || [],
     narration: input.narration,
     duration: input.duration || 8,
     setting: input.setting,
@@ -67,9 +66,6 @@ describe('scene character reference detection', () => {
       characters: [
         { name: '张三' },
         { name: '李四' }
-      ],
-      dialogues: [
-        { character: '张三', text: '李四，你别过来' }
       ]
     })
     const characters = [
@@ -93,11 +89,8 @@ describe('scene character reference detection', () => {
     const scene = createScene({
       id: 'scene_2',
       title: '争执',
-      description: '0-6秒：中景，固定镜头。阿强皱眉。',
-      characters: [],
-      dialogues: [
-        { character: '阿强：阿明，你给我闭嘴', text: '你给我闭嘴' }
-      ]
+      description: '0-6秒：中景，固定镜头。阿强皱眉。\n- 阿强：阿明，你给我闭嘴',
+      characters: []
     })
     const characters = [
       createCharacter({ id: 'char_qiang', name: '阿强' }),

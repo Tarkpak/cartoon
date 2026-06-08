@@ -91,7 +91,7 @@
 【角色与旁白规则】
 1. 只识别真实角色，不要把旁白、画外音、系统说明、音效、抽象概念当作角色。
 2. 场景中的旁白、画外音、内心独白必须同时输出到 scenes[i].narration 字段，并以画外音格式嵌入 description 的对应时间轴行中。
-3. dialogues 仅保留真实角色台词，不要把“旁白”写成角色。
+3. 不要单独输出对白属性；真实角色台词必须写进 description 的镜头行和“台词节奏”中，避免和独立字段重复。
 4. characters 数组中的角色描述要稳定可复用，便于后续角色资产生成，角色描述要具体。
 5. 对每个场景，明确角色、环境和关键道具等资产需求，但不要额外新增无关元素。
 
@@ -126,13 +126,6 @@
 "name": "陆哲",
 "appearance": "角色在此场景中的外观描述",
 "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
-}
-],
-"dialogues": [
-{
-"character": "陆哲",
-"text": "你们等着看。",
-"emotion": "determined"
 }
 ],
 "narration": "旁白/画外音（可选）",
