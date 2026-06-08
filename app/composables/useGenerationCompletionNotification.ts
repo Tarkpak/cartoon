@@ -132,7 +132,7 @@ async function resolveDesktopNotificationStatus(
     const granted = await isTauriNotificationPermissionGranted()
     const permission: NotificationPermission = granted
       ? 'granted'
-      : current.permission === 'denied' || cachedDesktopNotificationPermission === 'denied'
+      : cachedDesktopNotificationPermission === 'denied'
         ? 'denied'
         : 'default'
     cachedDesktopNotificationPermission = permission
@@ -155,9 +155,7 @@ export async function requestBrowserNotificationPermission(): Promise<BrowserNot
   }
 
   if (detectDesktopRuntime()) {
-    let permission: NotificationPermission = current.permission === 'granted' || current.permission === 'denied'
-      ? current.permission
-      : 'default'
+    let permission: NotificationPermission = cachedDesktopNotificationPermission || 'default'
 
     try {
       const granted = await isTauriNotificationPermissionGranted()

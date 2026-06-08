@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, Loader2, RefreshCw, Save, X } from 'lucide-vue-next'
+import { Check, Loader2, Save, X } from 'lucide-vue-next'
 import type { CustomOpenAIProviderPublicConfig } from '#shared/types/provider'
 
 const props = defineProps<{
@@ -13,7 +13,6 @@ interface CustomOpenAIProviderResponse {
 
 const loading = ref(false)
 const saving = ref(false)
-const syncing = ref(false)
 const message = ref('')
 const errorMessage = ref('')
 const config = ref<CustomOpenAIProviderPublicConfig>({
@@ -91,39 +90,6 @@ async function saveConfig() {
     errorMessage.value = error instanceof Error ? error.message : '保存自定义供应商失败'
   } finally {
     saving.value = false
-  }
-}
-
-async function syncModels() {
-  syncing.value = true
-  message.value = ''
-  errorMessage.value = ''
-
-  try {
-    const body: Record<string, unknown> = {
-      enabled: true,
-      displayName: config.value.displayName,
-      baseUrl: config.value.baseUrl
-    }
-
-    if (apiKeyInput.value || !config.value.hasApiKey) {
-      body.apiKey = apiKeyInput.value
-    }
-
-    const response = await $fetch<CustomOpenAIProviderResponse>('/api/models/custom-openai/sync', {
-      method: 'POST',
-      body
-    })
-
-    if (response.success) {
-      syncForm(response.data)
-      message.value = `已同步 ${response.data.availableTextModels.length} 个模型`
-      await props.onSaved()
-    }
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '同步模型失败'
-  } finally {
-    syncing.value = false
   }
 }
 
@@ -216,7 +182,7 @@ onMounted(() => {
           placeholder="gpt-4.1&#10;claude-sonnet-4-5"
         />
         <p class="text-[11px] text-muted-foreground">
-          优先点击“同步模型”从供应商 /models 接口获取；也可以手动补充或修正模型 ID。
+          保存配置后，可使用页面头部“同步模型”从供应商 /models 接口获取；也可以手动补充或修正模型 ID。
         </p>
         <p
           v-if="syncedAtLabel"
@@ -242,42 +208,22 @@ onMounted(() => {
         </p>
         <span v-else />
 
-        <div class="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            class="h-8 gap-1.5"
-            :disabled="saving || syncing"
-            @click="syncModels"
-          >
-            <Loader2
-              v-if="syncing"
-              class="h-3.5 w-3.5 animate-spin"
-            />
-            <RefreshCw
-              v-else
-              class="h-3.5 w-3.5"
-            />
-            同步模型
-          </Button>
-
-          <Button
-            size="sm"
-            class="h-8 gap-1.5"
-            :disabled="saving || syncing"
-            @click="saveConfig"
-          >
-            <Loader2
-              v-if="saving"
-              class="h-3.5 w-3.5 animate-spin"
-            />
-            <Save
-              v-else
-              class="h-3.5 w-3.5"
-            />
-            保存
-          </Button>
-        </div>
+        <Button
+          size="sm"
+          class="h-8 gap-1.5"
+          :disabled="saving"
+          @click="saveConfig"
+        >
+          <Loader2
+            v-if="saving"
+            class="h-3.5 w-3.5 animate-spin"
+          />
+          <Save
+            v-else
+            class="h-3.5 w-3.5"
+          />
+          保存
+        </Button>
       </div>
     </template>
   </div>

@@ -313,7 +313,11 @@ fn llm_dev_write_file_log(
     }
 
     if let Err(error) = fs::create_dir_all(&dir) {
-        eprintln!("[LLM][file][error] create_dir={} error={}", dir.display(), error);
+        eprintln!(
+            "[LLM][file][error] create_dir={} error={}",
+            dir.display(),
+            error
+        );
         return;
     }
     let path = dir.join(filename);
@@ -537,7 +541,47 @@ async fn persist_image_source(
                 "仅支持图片 dataURL、base64 或图片 URL",
             )
         })?;
-    persist_image_bytes(state, prefix, Some(normalized_mime), "png", &bytes)
+    persist_image_bytes_async(state, prefix, Some(normalized_mime), "png", bytes).await
+}
+
+async fn upload_media_bytes_to_tos_async(
+    category: &'static str,
+    filename: String,
+    bytes: Vec<u8>,
+) -> Result<Option<String>, ApiError> {
+    tokio::task::spawn_blocking(move || upload_media_bytes_to_tos(category, &filename, &bytes))
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("等待 TOS 上传任务失败: {}", error),
+            )
+        })?
+}
+
+async fn persist_image_bytes_async(
+    state: &BackendState,
+    prefix: &str,
+    mime_type: Option<&str>,
+    fallback_ext: &str,
+    bytes: Vec<u8>,
+) -> Result<String, ApiError> {
+    let ext = infer_extension_from_mime(mime_type.unwrap_or(""), fallback_ext);
+    let filename = build_unique_filename(prefix, &ext);
+    if load_backend_tos_config().enabled {
+        match upload_media_bytes_to_tos_async("images", filename.clone(), bytes.clone()).await {
+            Ok(Some(url)) => return Ok(url),
+            Ok(None) => {
+                eprintln!("[MediaPersist] TOS 已启用但未返回图片上传地址，降级写入本地文件");
+            }
+            Err(error) => {
+                eprintln!("[MediaPersist] 图片上传 TOS 失败，降级写入本地文件: {}", error.message);
+            }
+        }
+    }
+    let path = state.public_dir.join("generated-images").join(&filename);
+    write_file_bytes(&path, &bytes)?;
+    Ok(format!("/api/image/file/{}", filename))
 }
 
 fn detect_audio_mime_type(bytes: &[u8]) -> Option<&'static str> {
@@ -618,22 +662,55 @@ async fn persist_video_source(
     prefix: &str,
 ) -> Result<String, ApiError> {
     let (bytes, mime) = resolve_source_bytes(state, source, 250 * 1024 * 1024).await?;
-    persist_video_bytes(state, prefix, mime.as_deref(), "mp4", &bytes)
+    persist_video_bytes_async(state, prefix, mime.as_deref(), "mp4", bytes).await
 }
 
-fn persist_audio_bytes(
+async fn persist_video_bytes_async(
     state: &BackendState,
     prefix: &str,
     mime_type: Option<&str>,
-    bytes: &[u8],
+    fallback_ext: &str,
+    bytes: Vec<u8>,
+) -> Result<String, ApiError> {
+    let ext = infer_extension_from_mime(mime_type.unwrap_or(""), fallback_ext);
+    let filename = build_unique_filename(prefix, &ext);
+    if load_backend_tos_config().enabled {
+        match upload_media_bytes_to_tos_async("videos", filename.clone(), bytes.clone()).await {
+            Ok(Some(url)) => return Ok(url),
+            Ok(None) => {
+                eprintln!("[MediaPersist] TOS 已启用但未返回视频上传地址，降级写入本地文件");
+            }
+            Err(error) => {
+                eprintln!("[MediaPersist] 视频上传 TOS 失败，降级写入本地文件: {}", error.message);
+            }
+        }
+    }
+    let path = state.public_dir.join("videos").join(&filename);
+    write_file_bytes(&path, &bytes)?;
+    Ok(format!("/api/video/file/{}", filename))
+}
+
+async fn persist_audio_bytes_async(
+    state: &BackendState,
+    prefix: &str,
+    mime_type: Option<&str>,
+    bytes: Vec<u8>,
 ) -> Result<String, ApiError> {
     let ext = infer_extension_from_mime(mime_type.unwrap_or(""), "mp3");
     let filename = build_unique_filename(prefix, &ext);
-    if let Some(url) = upload_media_bytes_to_tos("voice-assets", &filename, bytes)? {
-        return Ok(url);
+    if load_backend_tos_config().enabled {
+        match upload_media_bytes_to_tos_async("voice-assets", filename.clone(), bytes.clone()).await {
+            Ok(Some(url)) => return Ok(url),
+            Ok(None) => {
+                eprintln!("[MediaPersist] TOS 已启用但未返回音频上传地址，降级写入本地文件");
+            }
+            Err(error) => {
+                eprintln!("[MediaPersist] 音频上传 TOS 失败，降级写入本地文件: {}", error.message);
+            }
+        }
     }
     let path = state.public_dir.join("audios").join(&filename);
-    write_file_bytes(&path, bytes)?;
+    write_file_bytes(&path, &bytes)?;
     Ok(format!("/audios/{}", filename))
 }
 
@@ -656,7 +733,7 @@ async fn persist_audio_source(
         .filter(|value| value.starts_with("audio/"))
         .or(detected_mime)
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "仅支持音频 dataURL 或音频 URL"))?;
-    persist_audio_bytes(state, prefix, Some(normalized_mime), &bytes)
+    persist_audio_bytes_async(state, prefix, Some(normalized_mime), bytes).await
 }
 
 fn extract_scene_split_lines(text: &str) -> Vec<String> {
@@ -1737,7 +1814,8 @@ fn episode_asset_string(value: &Value) -> Option<String> {
 
 fn episode_asset_field(item: &Value, keys: &[&str]) -> Option<String> {
     let object = item.as_object()?;
-    keys.iter().find_map(|key| object.get(*key).and_then(episode_asset_string))
+    keys.iter()
+        .find_map(|key| object.get(*key).and_then(episode_asset_string))
 }
 
 fn insert_episode_asset_field(
@@ -1757,14 +1835,32 @@ fn normalize_episode_asset_character(item: &Value) -> Option<Value> {
 
     let name = episode_asset_field(
         item,
-        &["name", "角色名", "姓名", "角色", "人物", "character", "characterName"],
+        &[
+            "name",
+            "角色名",
+            "姓名",
+            "角色",
+            "人物",
+            "character",
+            "characterName",
+        ],
     )?;
     let mut object = serde_json::Map::new();
     object.insert("name".to_string(), json!(name));
     insert_episode_asset_field(
         &mut object,
         "description",
-        episode_asset_field(item, &["description", "描述", "外观", "人物描述", "角色描述", "appearance"]),
+        episode_asset_field(
+            item,
+            &[
+                "description",
+                "描述",
+                "外观",
+                "人物描述",
+                "角色描述",
+                "appearance",
+            ],
+        ),
     );
     insert_episode_asset_field(
         &mut object,
@@ -1846,12 +1942,18 @@ fn normalize_episode_asset_environment(item: &Value) -> Option<Value> {
     insert_episode_asset_field(
         &mut object,
         "timeOfDay",
-        episode_asset_field(item, &["timeOfDay", "时间", "时段", "时间段", "daytime", "time"]),
+        episode_asset_field(
+            item,
+            &["timeOfDay", "时间", "时段", "时间段", "daytime", "time"],
+        ),
     );
     insert_episode_asset_field(
         &mut object,
         "mood",
-        episode_asset_field(item, &["mood", "氛围", "气氛", "环境氛围", "description", "描述"]),
+        episode_asset_field(
+            item,
+            &["mood", "氛围", "气氛", "环境氛围", "description", "描述"],
+        ),
     );
     Some(Value::Object(object))
 }
@@ -3737,7 +3839,8 @@ async fn run_workflow_image_model(
         let bytes = BASE64_STANDARD
             .decode(source.replace(|c: char| c.is_whitespace(), ""))
             .map_err(|error| format!("解码图片 base64 失败: {}", error))?;
-        persist_image_bytes(state, prefix, mime_type.as_deref(), "png", &bytes)
+        persist_image_bytes_async(state, prefix, mime_type.as_deref(), "png", bytes)
+            .await
             .map_err(|error| error.message)?
     };
 
@@ -4740,8 +4843,7 @@ where
     loop {
         tokio::time::sleep(Duration::from_secs(10)).await;
         let elapsed = Utc::now().timestamp_millis() - started_at;
-        let progress =
-            30 + ((elapsed as f64 / progress_window_ms as f64) * 60.0).round() as i64;
+        let progress = 30 + ((elapsed as f64 / progress_window_ms as f64) * 60.0).round() as i64;
         on_progress(progress.clamp(30, 90));
         let response = llm_http_client()
             .get(&endpoint)
@@ -5694,8 +5796,7 @@ where
     loop {
         tokio::time::sleep(Duration::from_secs(10)).await;
         let elapsed = Utc::now().timestamp_millis() - started_at;
-        let progress =
-            30 + ((elapsed as f64 / progress_window_ms as f64) * 60.0).round() as i64;
+        let progress = 30 + ((elapsed as f64 / progress_window_ms as f64) * 60.0).round() as i64;
         on_progress(progress.clamp(30, 90));
 
         let response = llm_http_client()
@@ -7100,8 +7201,7 @@ where
     loop {
         tokio::time::sleep(Duration::from_secs(10)).await;
         let elapsed = Utc::now().timestamp_millis() - started_at;
-        let progress =
-            30 + ((elapsed as f64 / progress_window_ms as f64) * 60.0).round() as i64;
+        let progress = 30 + ((elapsed as f64 / progress_window_ms as f64) * 60.0).round() as i64;
         on_progress(progress.clamp(30, 90));
         let token = build_kling_jwt(&access_key, &secret_key)?;
         let response = llm_http_client()
@@ -7863,8 +7963,7 @@ where
     loop {
         tokio::time::sleep(Duration::from_secs(10)).await;
         let elapsed = Utc::now().timestamp_millis() - started_at;
-        let progress =
-            30 + ((elapsed as f64 / progress_window_ms as f64) * 60.0).round() as i64;
+        let progress = 30 + ((elapsed as f64 / progress_window_ms as f64) * 60.0).round() as i64;
         on_progress(progress.clamp(30, 90));
         let response = llm_http_client()
             .get(&endpoint)
@@ -8097,7 +8196,7 @@ async fn persist_gemini_video_source(
                 format!("解码 Gemini 视频失败: {}", error),
             )
         })?;
-    persist_video_bytes(state, prefix, mime, "mp4", &bytes)
+    persist_video_bytes_async(state, prefix, mime, "mp4", bytes).await
 }
 
 async fn run_gemini_video_task_background(
@@ -8746,12 +8845,8 @@ fn model_size_constraints_support_panorama_source(
         .and_then(Value::as_u64)
         .map(|value| value as u32)
         .filter(|value| *value > 0);
-    let min_pixels = size_constraints
-        .get("minPixels")
-        .and_then(Value::as_u64);
-    let max_pixels = size_constraints
-        .get("maxPixels")
-        .and_then(Value::as_u64);
+    let min_pixels = size_constraints.get("minPixels").and_then(Value::as_u64);
+    let max_pixels = size_constraints.get("maxPixels").and_then(Value::as_u64);
     let max_aspect_ratio = parse_size_constraint_ratio(size_constraints.get("maxAspectRatio"));
     let pixels = u64::from(width) * u64::from(height);
     let actual_ratio = f64::from(width.max(height)) / f64::from(width.min(height));
@@ -8794,12 +8889,9 @@ fn model_supports_panorama_source(
     let Some(config) = model_config else {
         return true;
     };
-    if let Some(result) = config
-        .get("sizeConstraints")
-        .and_then(|constraints| {
-            model_size_constraints_support_panorama_source(constraints, aspect_ratio, size)
-        })
-    {
+    if let Some(result) = config.get("sizeConstraints").and_then(|constraints| {
+        model_size_constraints_support_panorama_source(constraints, aspect_ratio, size)
+    }) {
         return result;
     }
 
@@ -8908,8 +9000,7 @@ fn parse_png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
 fn is_jpeg_sof_marker(marker: u8) -> bool {
     matches!(
         marker,
-        0xc0 | 0xc1 | 0xc2 | 0xc3 | 0xc5 | 0xc6 | 0xc7 | 0xc9 | 0xca | 0xcb | 0xcd | 0xce
-            | 0xcf
+        0xc0 | 0xc1 | 0xc2 | 0xc3 | 0xc5 | 0xc6 | 0xc7 | 0xc9 | 0xca | 0xcb | 0xcd | 0xce | 0xcf
     )
 }
 
@@ -9045,9 +9136,8 @@ async fn assert_generated_environment_image_size(
     panorama_source: &PanoramaSourceProfile,
 ) -> Result<(), ApiError> {
     let (bytes, _) = resolve_source_bytes(state, image_url, 35 * 1024 * 1024).await?;
-    let (width, height) = parse_image_dimensions_from_bytes(&bytes).ok_or_else(|| {
-        ApiError::new(StatusCode::BAD_GATEWAY, "环境源图尺寸无效，无法检查比例")
-    })?;
+    let (width, height) = parse_image_dimensions_from_bytes(&bytes)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "环境源图尺寸无效，无法检查比例"))?;
     let expected_ratio = parse_panorama_aspect_ratio_value(&panorama_source.aspect_ratio)
         .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "环境源图目标比例无效"))?;
     let actual_ratio = f64::from(width) / f64::from(height);
@@ -10026,13 +10116,14 @@ pub(super) async fn api_models_test(
                             format!("解码图片 base64 失败: {}", error),
                         )
                     })?;
-                persist_image_bytes(
+                persist_image_bytes_async(
                     &state,
                     "model_test_image",
                     mime_type.as_deref(),
                     "png",
-                    &bytes,
-                )?
+                    bytes,
+                )
+                .await?
             };
             json!({
               "imageUrl": image_url,
@@ -10187,7 +10278,8 @@ pub(super) async fn api_models_test(
                             format!("解码音频 base64 失败: {}", error),
                         )
                     })?;
-                persist_audio_bytes(&state, "model_test_tts", mime_type.as_deref(), &bytes)?
+                persist_audio_bytes_async(&state, "model_test_tts", mime_type.as_deref(), bytes)
+                    .await?
             };
             let response_payload = json!({
               "hasAudioData": !is_url,
@@ -11058,7 +11150,7 @@ fn validate_character_voice_asset(value: Option<&Value>, path: &str) -> Result<(
             return Err(workflow_validation_error(
                 format!("{path}.audioUrl"),
                 "Expected string",
-            ))
+            ));
         }
     }
     match object.get("updatedAt") {
@@ -11067,7 +11159,7 @@ fn validate_character_voice_asset(value: Option<&Value>, path: &str) -> Result<(
             return Err(workflow_validation_error(
                 format!("{path}.updatedAt"),
                 "Expected datetime string",
-            ))
+            ));
         }
     }
     if let Some(value) = object.get("locked").filter(|value| !value.is_null()) {
@@ -13170,7 +13262,7 @@ fn validate_jianying_export_payload(body: &Value) -> Result<&Vec<Value>, ApiErro
                 return Err(export_validation_error(
                     format!("{path}.id"),
                     "Expected string",
-                ))
+                ));
             }
         }
         match scene.get("videoUrl") {
@@ -13232,7 +13324,7 @@ fn validate_jianying_export_payload(body: &Value) -> Result<&Vec<Value>, ApiErro
                     return Err(export_validation_error(
                         "options.bgm.url",
                         "Expected string",
-                    ))
+                    ));
                 }
             }
             optional_export_number(bgm, "volume", "options.bgm")?;
