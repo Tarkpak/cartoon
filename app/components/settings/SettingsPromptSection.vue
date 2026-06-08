@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Loader2, FileText, Lock, Plus, TriangleAlert } from 'lucide-vue-next'
+import { Loader2, FileText, TriangleAlert } from 'lucide-vue-next'
 import SettingsPromptSidebar from '@/components/settings/SettingsPromptSidebar.vue'
 import SettingsTextInputDialog from '@/components/settings/SettingsTextInputDialog.vue'
 import SettingsConfirmDialog from '@/components/settings/SettingsConfirmDialog.vue'
@@ -30,7 +30,7 @@ const {
 
 const promptFlowLabel = '解析 → 资产 → 视频'
 
-type TextDialogMode = 'create' | 'rename' | 'copy'
+type TextDialogMode = 'create' | 'rename'
 
 const textDialogOpen = ref(false)
 const textDialogMode = ref<TextDialogMode>('create')
@@ -50,14 +50,6 @@ const textDialogConfig = computed(() => {
         label: '配置名称',
         confirmText: '保存',
         initialValue: activePromptProfile.value?.name || ''
-      }
-    case 'copy':
-      return {
-        title: '创建可编辑副本',
-        description: '将复制当前默认配置内容并切换到新副本，原默认配置会完整保留。',
-        label: '副本名称',
-        confirmText: '创建',
-        initialValue: '我的配置'
       }
     case 'create':
     default:
@@ -87,10 +79,6 @@ function handleCreateProfile() {
   openTextDialog('create')
 }
 
-function handleCreateEditableCopy() {
-  openTextDialog('copy')
-}
-
 function handleRenameProfile() {
   if (!activePromptProfile.value || !canRenameActivePromptProfile.value) return
   openTextDialog('rename')
@@ -114,7 +102,6 @@ async function handleTextDialogConfirm(name: string) {
     return
   }
 
-  // create / copy 共用同一接口：可编辑副本由后端基于当前默认内容复制
   const success = await createPromptProfile(name, '', true)
   if (success) {
     textDialogOpen.value = false
@@ -194,32 +181,6 @@ async function handleActivateProfile(profileId: string) {
           >
             关闭
           </button>
-        </div>
-
-        <div
-          v-if="isActiveReadonlyPromptProfile"
-          class="flex flex-shrink-0 flex-col gap-3 border-b bg-amber-50 px-6 py-3 @2xl:flex-row @2xl:items-start dark:bg-amber-950/30"
-        >
-          <div class="flex min-w-0 flex-1 items-start gap-3">
-            <Lock class="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
-            <div class="min-w-0 flex-1">
-              <p class="text-sm font-medium text-amber-800 dark:text-amber-200">
-                「默认配置」为只读基准模板，不可直接编辑
-              </p>
-              <p class="mt-0.5 text-xs leading-5 text-amber-700/90 dark:text-amber-300/80">
-                创建一份可编辑副本（自动复制当前内容并切换过去）即可开始修改；原默认配置会完整保留，可在左侧「配置方案」随时切回。
-              </p>
-            </div>
-          </div>
-          <Button
-            size="sm"
-            class="flex-shrink-0"
-            :disabled="promptProfileBusy"
-            @click="handleCreateEditableCopy"
-          >
-            <Plus class="mr-1.5 h-4 w-4" />
-            创建可编辑副本
-          </Button>
         </div>
 
         <div
