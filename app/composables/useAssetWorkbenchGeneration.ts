@@ -177,9 +177,15 @@ export function useAssetWorkbenchGeneration(
     const normalizedEpisodeId = episodeId.trim()
     const untouchedScenes = options.scenes.value.filter(scene => (scene.episodeId?.trim() || '') !== normalizedEpisodeId)
     const allocateSceneId = createSceneIdAllocator(untouchedScenes)
+    const targetEpisode = options.episodePlan.value.find(episode => episode.id?.trim() === normalizedEpisodeId)
     const replacementScenes = parsedEpisodeScenes.map(scene => ({
       ...scene,
-      id: allocateSceneId()
+      id: allocateSceneId(),
+      episodeId: normalizedEpisodeId,
+      episodeTitle: targetEpisode?.title || scene.episodeTitle,
+      episodeIndex: typeof targetEpisode?.index === 'number' && Number.isFinite(targetEpisode.index)
+        ? targetEpisode.index
+        : scene.episodeIndex
     }))
     const mergedScenes = [...untouchedScenes, ...replacementScenes]
     const episodeOrderMap = resolveEpisodeOrderMap()
