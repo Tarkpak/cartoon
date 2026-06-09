@@ -18,6 +18,7 @@ interface SceneEpisodeGroup {
   title: string
   index: number
   scenes: SceneData[]
+  duration: number
 }
 
 interface EpisodePlanItemForVideoStage {
@@ -46,6 +47,7 @@ interface EpisodeDirectoryItem {
   index: number
   sceneCount: number
   doneCount: number
+  duration: number
   startOffset: number | null
   endOffset: number | null
   charCount: number | null
@@ -164,6 +166,17 @@ function resolveSceneEpisodeMeta(scene: SceneData): { id: string, title: string,
   }
 }
 
+function resolveSceneDuration(scene: SceneData): number {
+  const duration = Number(scene.duration)
+  return Number.isFinite(duration) && duration > 0 ? duration : 0
+}
+
+function resolveScenesDuration(scenes: SceneData[]): number {
+  return scenes.reduce((sum, scene) => {
+    return sum + resolveSceneDuration(scene)
+  }, 0)
+}
+
 const sceneEpisodeGroups = computed<SceneEpisodeGroup[]>(() => {
   const groups: SceneEpisodeGroup[] = []
   const groupMap = new Map<string, SceneEpisodeGroup>()
@@ -178,13 +191,17 @@ const sceneEpisodeGroups = computed<SceneEpisodeGroup[]>(() => {
         id: episodeId,
         title: episodeTitle,
         index: episodeMeta.index,
-        scenes: []
+        scenes: [],
+        duration: 0
       }
       groups.push(group)
       groupMap.set(episodeId, group)
     }
     group.scenes.push(scene)
   }
+  groups.forEach((group) => {
+    group.duration = resolveScenesDuration(group.scenes)
+  })
 
   return groups.sort((a, b) => {
     if (a.index !== b.index) return a.index - b.index
@@ -219,6 +236,7 @@ const episodeDirectoryItems = computed<EpisodeDirectoryItem[]>(() => {
       index: episode.index,
       sceneCount: resolveEpisodeSceneCountById(episode.id),
       doneCount: resolveEpisodeDoneCountById(episode.id),
+      duration: resolveEpisodeDurationById(episode.id),
       startOffset: episode.startOffset,
       endOffset: episode.endOffset,
       charCount: episode.charCount,
@@ -233,6 +251,7 @@ const episodeDirectoryItems = computed<EpisodeDirectoryItem[]>(() => {
     index: group.index,
     sceneCount: group.scenes.length,
     doneCount: group.scenes.filter(scene => scene.videoStatus === 'done').length,
+    duration: group.duration,
     startOffset: null,
     endOffset: null,
     charCount: null,
@@ -298,7 +317,11 @@ const sceneListHeaderLabel = computed(() => {
 
   const episodeIndex = selectedEpisodeDirectoryItem.value?.index
   if (typeof episodeIndex === 'number' && Number.isFinite(episodeIndex) && episodeIndex > 0) {
-    return `当前分集场景列表（第${episodeIndex}集）`
+    return `当前分集场景列表（第${episodeIndex}集，${selectedEpisodeSceneStatsText.value}）`
+  }
+
+  if (selectedEpisodeDirectoryItem.value) {
+    return `当前分集场景列表（${selectedEpisodeSceneStatsText.value}）`
   }
 
   return '当前分集场景列表'
@@ -336,6 +359,27 @@ function resolveEpisodeSceneCountById(episodeId: string): number {
 function resolveEpisodeDoneCountById(episodeId: string): number {
   return sceneEpisodeGroupMap.value.get(episodeId)?.scenes.filter(scene => scene.videoStatus === 'done').length || 0
 }
+
+function resolveEpisodeDurationById(episodeId: string): number {
+  return sceneEpisodeGroupMap.value.get(episodeId)?.duration || 0
+}
+
+function formatEpisodeDuration(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.round(seconds))
+  const mins = Math.floor(safeSeconds / 60)
+  const secs = safeSeconds % 60
+  if (mins > 0) return `${mins}分${secs}秒`
+  return `${secs}秒`
+}
+
+function resolveEpisodeStatsText(episode: Pick<EpisodeDirectoryItem, 'sceneCount' | 'doneCount' | 'duration'>): string {
+  return `场景 ${episode.sceneCount} · 完成 ${episode.doneCount} · 时长 ${formatEpisodeDuration(episode.duration)}`
+}
+
+const selectedEpisodeSceneStatsText = computed(() => {
+  const episode = selectedEpisodeDirectoryItem.value
+  return episode ? `${episode.sceneCount}镜，${formatEpisodeDuration(episode.duration)}` : '0镜，0秒'
+})
 
 const sceneIndexMap = computed(() => {
   const indexMap = new Map<string, number>()
@@ -576,7 +620,7 @@ watch(episodeDirectoryCollapsed, (value) => {
                   {{ resolveEpisodeDisplayTitle(episode) }}
                 </div>
                 <div class="mt-0.5 text-[11px] text-muted-foreground">
-                  场景 {{ episode.sceneCount }} · 完成 {{ episode.doneCount }}
+                  {{ resolveEpisodeStatsText(episode) }}
                 </div>
               </Button>
             </div>
