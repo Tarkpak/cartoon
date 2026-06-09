@@ -17,7 +17,23 @@ export function downloadSettingsConfigExport(payload: unknown, kind: string) {
 
   anchor.href = url
   anchor.download = buildSettingsConfigExportFileName(kind)
+  anchor.style.display = 'none'
+  document.body.appendChild(anchor)
   anchor.click()
 
-  URL.revokeObjectURL(url)
+  window.setTimeout(() => {
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  }, 1000)
+}
+
+export function downloadSettingsConfigExportUrl(url: string, kind: string) {
+  const anchor = document.createElement('a')
+
+  anchor.href = url
+  anchor.download = buildSettingsConfigExportFileName(kind)
+  anchor.style.display = 'none'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
 }

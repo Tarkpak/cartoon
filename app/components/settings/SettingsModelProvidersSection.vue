@@ -18,7 +18,7 @@ import SettingsProviderLogo from '@/components/settings/SettingsProviderLogo.vue
 import SettingsConfirmDialog from '@/components/settings/SettingsConfirmDialog.vue'
 import { useSettingsModelCatalog } from '@/composables/useSettingsModelCatalog'
 import {
-  downloadSettingsConfigExport,
+  downloadSettingsConfigExportUrl,
   parseSettingsConfigImportFile
 } from '@/lib/settings-config-transfer'
 
@@ -178,22 +178,17 @@ async function handleProviderConfigImport(event: Event) {
   }
 }
 
-async function exportProviderConfig() {
+function exportProviderConfig() {
   providerConfigExporting.value = true
   providerConfigMessage.value = ''
   errorMessage.value = ''
 
-  try {
-    const response = await $fetch<SettingsConfigTransferResponse>('/api/model-providers/config/export')
-    if (response.success) {
-      downloadSettingsConfigExport(response.data, 'model-providers')
-      providerConfigMessage.value = '已导出供应商配置'
-    }
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '导出供应商配置失败'
-  } finally {
+  downloadSettingsConfigExportUrl('/api/model-providers/config/download', 'model-providers')
+  providerConfigMessage.value = '已开始导出供应商配置'
+
+  window.setTimeout(() => {
     providerConfigExporting.value = false
-  }
+  }, 300)
 }
 
 async function refreshModelCatalog() {

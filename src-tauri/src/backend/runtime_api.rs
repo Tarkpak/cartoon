@@ -5155,6 +5155,155 @@ fn select_voice_reference_candidate(
     candidates.first().cloned()
 }
 
+/// Flatten the workbench `references` object into the flat config keys that the
+/// provider request builders actually read (`imageUrl` / `firstFrame` /
+/// `referenceImages` / `audioUrl`). The asset workbench sends environment,
+/// character, continuity and narration-voice references nested under
+/// `config.references`, but `build_{qwen,volcengine,kling,gemini}_video_request`
+/// only look at the flat keys — without this step a scene video is generated
+/// with no image or audio references at all.
+fn apply_scene_video_reference_inputs(
+    config: &mut Value,
+    scene: &Value,
+    provider: &str,
+    model_id: &str,
+) {
+    let references = config.get("references").cloned().unwrap_or(Value::Null);
+
+    let read_str = |value: Option<&Value>| -> Option<String> {
+        value
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(str::to_string)
+    };
+
+    let environment_image = read_str(references.get("environmentImage")).or_else(|| {
+        read_str(
+            references
+                .get("environmentAsset")
+                .and_then(|asset| asset.get("image")),
+        )
+    });
+    let continuity_first_frame = read_str(references.get("continuityFirstFrame"));
+
+    let mut character_candidates: Vec<String> = Vec::new();
+    if let Some(items) = references.get("characterImages").and_then(Value::as_array) {
+        for item in items {
+            if let Some(image) = read_str(Some(item)) {
+                character_candidates.push(image);
+            }
+        }
+    }
+    if let Some(image) = read_str(references.get("characterImage")) {
+        character_candidates.push(image);
+    }
+    if let Some(items) = references.get("characterAssets").and_then(Value::as_array) {
+        for item in items {
+            if let Some(image) = read_str(item.get("image")) {
+                character_candidates.push(image);
+            }
+        }
+    }
+    let mut seen_character = HashSet::<String>::new();
+    let character_images: Vec<String> = character_candidates
+        .into_iter()
+        .filter(|image| seen_character.insert(image.clone()))
+        .collect();
+    let has_character_ref = !character_images.is_empty();
+    let primary_character_image = character_images.first().cloned();
+
+    let (_, model_caps) = build_available_model_entry(provider, model_id);
+    let support_image_to_video = model_caps
+        .get("supportImageToVideo")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let support_reference_images = model_caps
+        .get("supportReferenceImages")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let reference_limit = model_caps
+        .get("maxReferenceImages")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .unwrap_or(if support_reference_images { 3 } else { 1 })
+        .clamp(1, 9);
+
+    let mut seen_reference = HashSet::<String>::new();
+    let mut ordered_references: Vec<String> = Vec::new();
+    for image in environment_image.iter().chain(character_images.iter()) {
+        if seen_reference.insert(image.clone()) {
+            ordered_references.push(image.clone());
+        }
+    }
+
+    let supports_multi_reference = support_reference_images && reference_limit > 1;
+    let wants_multi_reference = has_character_ref && ordered_references.len() > 1;
+    let multi_reference_images: Vec<String> = if supports_multi_reference && wants_multi_reference {
+        ordered_references
+            .iter()
+            .take(reference_limit)
+            .cloned()
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Kling single-image mode treats `imageUrl` as a first frame, so prefer the
+    // environment image as the anchor to avoid forcing a character into frame 1.
+    let prefer_environment_as_primary = provider == "kling" && !supports_multi_reference;
+    let primary_reference = continuity_first_frame.clone().or_else(|| {
+        if has_character_ref {
+            if supports_multi_reference || prefer_environment_as_primary {
+                environment_image
+                    .clone()
+                    .or_else(|| primary_character_image.clone())
+            } else {
+                primary_character_image
+                    .clone()
+                    .or_else(|| environment_image.clone())
+            }
+        } else {
+            environment_image
+                .clone()
+                .or_else(|| primary_character_image.clone())
+        }
+    });
+
+    if let Some(object) = config.as_object_mut() {
+        if support_image_to_video {
+            if let Some(primary) = primary_reference.as_deref() {
+                object.insert("imageUrl".to_string(), json!(primary));
+            }
+        }
+        if let Some(first_frame) = continuity_first_frame.as_deref() {
+            object.insert("firstFrame".to_string(), json!(first_frame));
+        }
+        if !multi_reference_images.is_empty() {
+            object.insert("referenceImages".to_string(), json!(multi_reference_images));
+        }
+    }
+
+    // Narration voice only applies when the scene narrates without spoken
+    // dialogue; character dialogue voices are injected separately downstream.
+    let has_narration = scene
+        .get("narration")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+    if has_narration && scene_dialogue_speakers(scene).is_empty() {
+        if let Some(audio_url) = read_str(
+            references
+                .get("narrationVoiceAsset")
+                .and_then(|asset| asset.get("audioUrl")),
+        ) {
+            if let Some(object) = config.as_object_mut() {
+                object.insert("audioUrl".to_string(), json!(audio_url));
+            }
+        }
+    }
+}
+
 fn inject_scene_voice_reference(
     state: &BackendState,
     scene_id: &str,
@@ -9760,6 +9909,79 @@ mod tests {
     }
 
     #[test]
+    fn scene_video_references_flatten_into_flat_provider_keys() {
+        // Regression guard: the asset workbench sends references nested under
+        // `config.references`, but provider request builders only read the flat
+        // `imageUrl` / `firstFrame` / `referenceImages` keys. Without flattening,
+        // scene videos are generated with no image references at all.
+        let provider = "custom_openai";
+        let model_id = "doubao-seedance-2-0-260128";
+        let (kind, caps) = build_available_model_entry(provider, model_id);
+        assert_eq!(kind, AvailableModelKind::Video);
+        let supports_image_to_video = caps
+            .get("supportImageToVideo")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let supports_reference_images = caps
+            .get("supportReferenceImages")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        let mut config = json!({
+          "references": {
+            "environmentImage": "env-image",
+            "characterImage": "char-image-1",
+            "characterImages": ["char-image-1", "char-image-2"],
+            "characterAssets": [{ "image": "char-image-2" }]
+          }
+        });
+        let scene = json!({ "description": "一个安静的空房间", "narration": "" });
+        apply_scene_video_reference_inputs(&mut config, &scene, provider, model_id);
+
+        let primary_image = config.get("imageUrl").and_then(Value::as_str);
+        let reference_images = config
+            .get("referenceImages")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        // The core invariant the regression broke: references must reach a flat key.
+        assert!(
+            primary_image.is_some_and(|value| !value.is_empty()) || !reference_images.is_empty(),
+            "expected references to populate imageUrl or referenceImages"
+        );
+        if supports_image_to_video {
+            assert_eq!(primary_image, Some("env-image"));
+        }
+        if supports_reference_images {
+            assert!(reference_images.contains(&"env-image".to_string()));
+            assert!(reference_images.contains(&"char-image-1".to_string()));
+        }
+    }
+
+    #[test]
+    fn scene_video_references_inject_narration_voice_without_dialogue() {
+        let mut config = json!({
+          "references": {
+            "environmentImage": "env-image",
+            "narrationVoiceAsset": { "audioUrl": "narration-voice-url" }
+          }
+        });
+        let scene = json!({ "description": "镜头缓缓推进", "narration": "夜色渐深" });
+        apply_scene_video_reference_inputs(&mut config, &scene, "qwen", "wan2.7-i2v");
+        assert_eq!(
+            config.get("audioUrl").and_then(Value::as_str),
+            Some("narration-voice-url")
+        );
+    }
+
+    #[test]
     fn build_episode_plan_normalizes_model_asset_variants() {
         let text = "苏晚拖着行李走进林家别墅，婆婆冷眼看着她。夜晚，苏晚在医院走廊拿出玉佩。第二天，陆霆出现撑腰。";
         let output = json!({
@@ -13471,6 +13693,7 @@ pub(super) async fn api_asset_video_generate(
       "provider": provider,
       "references": body.get("references").cloned().expect("validated references object")
     });
+    apply_scene_video_reference_inputs(&mut config, &scene, &provider, &model_id);
     let model_id_for_voice = config
         .get("modelId")
         .and_then(Value::as_str)

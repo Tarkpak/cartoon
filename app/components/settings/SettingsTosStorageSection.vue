@@ -3,18 +3,13 @@ import { Check, Download, Loader2, Save, Upload, X } from 'lucide-vue-next'
 import type { TosConfigPublic } from '#shared/types/provider'
 import SettingsSectionHeader from '@/components/settings/SettingsSectionHeader.vue'
 import {
-  downloadSettingsConfigExport,
+  downloadSettingsConfigExportUrl,
   parseSettingsConfigImportFile
 } from '@/lib/settings-config-transfer'
 
 interface TosConfigResponse {
   success: boolean
   data: TosConfigPublic
-}
-
-interface SettingsConfigTransferResponse {
-  success: boolean
-  data: unknown
 }
 
 const loading = ref(false)
@@ -113,22 +108,17 @@ async function handleConfigImport(event: Event) {
   }
 }
 
-async function exportConfig() {
+function exportConfig() {
   exporting.value = true
   message.value = ''
   errorMessage.value = ''
 
-  try {
-    const response = await $fetch<SettingsConfigTransferResponse>('/api/tos/config/export')
-    if (response.success) {
-      downloadSettingsConfigExport(response.data, 'tos-storage')
-      message.value = '已导出 TOS 配置'
-    }
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '导出 TOS 配置失败'
-  } finally {
+  downloadSettingsConfigExportUrl('/api/tos/config/download', 'tos-storage')
+  message.value = '已开始导出 TOS 配置'
+
+  window.setTimeout(() => {
     exporting.value = false
-  }
+  }, 300)
 }
 
 async function saveConfig() {

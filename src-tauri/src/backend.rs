@@ -2314,6 +2314,10 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             get(api_model_providers_config_export),
         )
         .route(
+            "/api/model-providers/config/download",
+            get(api_model_providers_config_download),
+        )
+        .route(
             "/api/model-providers/config/import",
             post(api_model_providers_config_import),
         )
@@ -2398,6 +2402,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             get(api_tos_config_get).put(api_tos_config_put),
         )
         .route("/api/tos/config/export", get(api_tos_config_export))
+        .route("/api/tos/config/download", get(api_tos_config_download))
         .route("/api/tos/config/import", post(api_tos_config_import))
         .route("/api/video/generate", post(api_video_generate))
         .route("/api/video/merge", post(api_video_merge))
@@ -5549,6 +5554,34 @@ fn settings_provider_entries_have_any_key(value: &Value, keys: &[&str]) -> bool 
     })
 }
 
+fn settings_export_file_name(kind: &str) -> String {
+    format!(
+        "playlet-{}-{}.json",
+        kind,
+        Utc::now().format("%Y%m%d-%H%M%S")
+    )
+}
+
+fn settings_json_attachment(file_name: &str, payload: &Value) -> Result<Response, ApiError> {
+    let bytes = serde_json::to_vec_pretty(payload)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok((
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json; charset=utf-8"),
+            ),
+            (
+                header::CONTENT_DISPOSITION,
+                HeaderValue::from_str(&format!("attachment; filename=\"{}\"", file_name))
+                    .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+            ),
+        ],
+        bytes,
+    )
+        .into_response())
+}
+
 fn validate_custom_openai_body(
     body: &CustomOpenAIPutBody,
     sync_only: bool,
@@ -6618,10 +6651,7 @@ async fn api_custom_openai_sync(
     api_custom_openai_get(State(state)).await
 }
 
-async fn api_model_providers_config_export(
-    State(state): State<BackendState>,
-) -> Result<Json<Value>, ApiError> {
-    let conn = db_connection(&state)?;
+fn model_providers_config_export_payload(conn: &Connection) -> Result<Value, ApiError> {
     let provider_credentials = get_config_json(&conn, PROVIDER_CREDENTIALS_KEY)?
         .filter(Value::is_object)
         .unwrap_or_else(default_provider_credentials);
@@ -6632,18 +6662,35 @@ async fn api_model_providers_config_export(
         .filter(Value::is_object)
         .unwrap_or_else(|| json!({}));
 
+    Ok(json!({
+      "type": "playlet.model_providers",
+      "version": SETTINGS_CONFIG_EXPORT_VERSION,
+      "exportedAt": now_iso(),
+      "includesSecrets": true,
+      "providerCredentials": provider_credentials,
+      "customOpenaiProvider": custom_openai_provider,
+      "providerModelCatalog": provider_model_catalog
+    }))
+}
+
+async fn api_model_providers_config_export(
+    State(state): State<BackendState>,
+) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let payload = model_providers_config_export_payload(&conn)?;
+
     Ok(Json(json!({
       "success": true,
-      "data": {
-        "type": "playlet.model_providers",
-        "version": SETTINGS_CONFIG_EXPORT_VERSION,
-        "exportedAt": now_iso(),
-        "includesSecrets": true,
-        "providerCredentials": provider_credentials,
-        "customOpenaiProvider": custom_openai_provider,
-        "providerModelCatalog": provider_model_catalog
-      }
+      "data": payload
     })))
+}
+
+async fn api_model_providers_config_download(
+    State(state): State<BackendState>,
+) -> Result<Response, ApiError> {
+    let conn = db_connection(&state)?;
+    let payload = model_providers_config_export_payload(&conn)?;
+    settings_json_attachment(&settings_export_file_name("model-providers"), &payload)
 }
 
 async fn api_model_providers_config_import(
@@ -6917,22 +6964,34 @@ async fn api_tos_config_put(
     api_tos_config_get(State(state)).await
 }
 
-async fn api_tos_config_export(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
-    let conn = db_connection(&state)?;
+fn tos_config_export_payload(conn: &Connection) -> Result<Value, ApiError> {
     let config = get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)?
         .filter(Value::is_object)
         .unwrap_or_else(default_tos_config);
 
+    Ok(json!({
+      "type": "playlet.tos_storage",
+      "version": SETTINGS_CONFIG_EXPORT_VERSION,
+      "exportedAt": now_iso(),
+      "includesSecrets": true,
+      "tosStorageConfig": config
+    }))
+}
+
+async fn api_tos_config_export(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let payload = tos_config_export_payload(&conn)?;
+
     Ok(Json(json!({
       "success": true,
-      "data": {
-        "type": "playlet.tos_storage",
-        "version": SETTINGS_CONFIG_EXPORT_VERSION,
-        "exportedAt": now_iso(),
-        "includesSecrets": true,
-        "tosStorageConfig": config
-      }
+      "data": payload
     })))
+}
+
+async fn api_tos_config_download(State(state): State<BackendState>) -> Result<Response, ApiError> {
+    let conn = db_connection(&state)?;
+    let payload = tos_config_export_payload(&conn)?;
+    settings_json_attachment(&settings_export_file_name("tos-storage"), &payload)
 }
 
 async fn api_tos_config_import(
