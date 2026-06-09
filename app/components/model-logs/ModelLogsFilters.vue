@@ -14,6 +14,7 @@ const provider = defineModel<string>('provider', { required: true })
 const operation = defineModel<string>('operation', { required: true })
 const status = defineModel<string>('status', { required: true })
 const model = defineModel<string>('model', { required: true })
+const requestId = defineModel<string>('requestId', { required: true })
 const keyword = defineModel<string>('keyword', { required: true })
 const limit = defineModel<number>('limit', { required: true })
 
@@ -42,7 +43,7 @@ function normalizeSelectValue(value: string) {
       <CardDescription>用于定位模型调用问题：可查看请求参数、返回结果、耗时与错误信息</CardDescription>
     </CardHeader>
     <CardContent class="space-y-4">
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-6">
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-7">
         <Select
           :model-value="provider || props.allFilterValue"
           @update:model-value="(value) => provider = normalizeSelectValue(String(value))"
@@ -108,6 +109,10 @@ function normalizeSelectValue(value: string) {
         <Input
           v-model="model"
           placeholder="模型名关键词"
+        />
+        <Input
+          v-model="requestId"
+          placeholder="Request ID"
         />
         <Input
           v-model="keyword"

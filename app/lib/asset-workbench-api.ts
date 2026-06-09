@@ -10,6 +10,7 @@ import {
   toOptionalString,
   toOptionalStringArray
 } from '~/lib/asset-workbench-values'
+import { observedFetch } from '~/lib/observability'
 
 export interface ScriptEpisodeAssetSummary {
   characters: Array<{
@@ -202,7 +203,7 @@ export async function parseAssetWorkbenchScript(options: {
     })
   }
 
-  const response = await fetch('/api/script/parse-stream', {
+  const response = await observedFetch('/api/script/parse-stream', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -355,7 +356,7 @@ export async function generateAssetWorkbenchCharacter(options: {
 export async function exportAssetWorkbenchScriptDocx(
   options: ScriptDocxExportOptions
 ): Promise<ScriptDocxExportResult> {
-  const response = await fetch('/api/script/export-docx', {
+  const response = await observedFetch('/api/script/export-docx', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -406,7 +407,7 @@ export async function exportAssetWorkbenchScriptDocx(
 export async function exportAssetWorkbenchJianyingProject(
   options: JianyingExportOptions
 ): Promise<JianyingExportResult> {
-  const response = await fetch('/api/video/export-jianying', {
+  const response = await observedFetch('/api/video/export-jianying', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'

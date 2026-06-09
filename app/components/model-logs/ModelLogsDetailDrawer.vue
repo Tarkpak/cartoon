@@ -276,6 +276,28 @@ watch(open, (value) => {
                 {{ props.formatDuration(props.activeLog.durationMs) }}
               </p>
             </div>
+            <div
+              v-if="props.activeLog.requestId"
+              class="rounded border p-3 md:col-span-2"
+            >
+              <p class="text-xs text-muted-foreground">
+                Request ID
+              </p>
+              <p class="mt-1 break-all font-mono text-xs">
+                {{ props.activeLog.requestId }}
+              </p>
+            </div>
+            <div
+              v-if="props.activeLog.endpoint"
+              class="rounded border p-3 md:col-span-2"
+            >
+              <p class="text-xs text-muted-foreground">
+                Endpoint
+              </p>
+              <p class="mt-1 break-all">
+                {{ props.activeLog.endpoint }}
+              </p>
+            </div>
           </div>
 
           <div class="flex flex-wrap gap-2">

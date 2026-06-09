@@ -6,7 +6,10 @@
 // biome-ignore lint: disable
 export {}
 declare global {
-  const $fetch: typeof import('ofetch')['$fetch']
+  const $fetch: typeof import('@/lib/observability')['$fetch']
+  const APP_LOG_ALL_FILTER_VALUE: typeof import('./app/composables/useAppLogs')['APP_LOG_ALL_FILTER_VALUE']
+  const APP_LOG_LEVEL_OPTIONS: typeof import('./app/composables/useAppLogs')['APP_LOG_LEVEL_OPTIONS']
+  const APP_LOG_SOURCE_OPTIONS: typeof import('./app/composables/useAppLogs')['APP_LOG_SOURCE_OPTIONS']
   const EffectScope: typeof import('vue')['EffectScope']
   const MODEL_DEBUG_ALL_FILTER_VALUE: typeof import('./app/composables/useModelDebugLogs')['MODEL_DEBUG_ALL_FILTER_VALUE']
   const MODEL_DEBUG_OPERATION_OPTIONS: typeof import('./app/composables/useModelDebugLogs')['MODEL_DEBUG_OPERATION_OPTIONS']
@@ -82,6 +85,7 @@ declare global {
   const toValue: typeof import('vue')['toValue']
   const triggerRef: typeof import('vue')['triggerRef']
   const unref: typeof import('vue')['unref']
+  const useAppLogs: typeof import('./app/composables/useAppLogs')['useAppLogs']
   const useAssetWorkbench: typeof import('./app/composables/useAssetWorkbench')['useAssetWorkbench']
   const useAssetWorkbenchAssetMedia: typeof import('./app/composables/useAssetWorkbenchAssetMedia')['useAssetWorkbenchAssetMedia']
   const useAssetWorkbenchAutoFlow: typeof import('./app/composables/useAssetWorkbenchAutoFlow')['useAssetWorkbenchAutoFlow']
@@ -144,6 +148,9 @@ declare global {
   export type { Component, Slot, Slots, ComponentPublicInstance, ComputedRef, DirectiveBinding, ExtractDefaultPropTypes, ExtractPropTypes, ExtractPublicPropTypes, InjectionKey, PropType, Ref, MaybeRef, MaybeRefOrGetter, VNode, WritableComputedRef } from 'vue'
   import('vue')
   // @ts-ignore
+  export type { AppLogEntry } from './app/composables/useAppLogs'
+  import('./app/composables/useAppLogs')
+  // @ts-ignore
   export type { AssetWorkbenchTransitionType, CharacterData, SceneData } from './app/composables/useAssetWorkbench'
   import('./app/composables/useAssetWorkbench')
   // @ts-ignore
@@ -189,7 +196,10 @@ import { UnwrapRef } from 'vue'
 declare module 'vue' {
   interface GlobalComponents {}
   interface ComponentCustomProperties {
-    readonly $fetch: UnwrapRef<typeof import('ofetch')['$fetch']>
+    readonly $fetch: UnwrapRef<typeof import('@/lib/observability')['$fetch']>
+    readonly APP_LOG_ALL_FILTER_VALUE: UnwrapRef<typeof import('./app/composables/useAppLogs')['APP_LOG_ALL_FILTER_VALUE']>
+    readonly APP_LOG_LEVEL_OPTIONS: UnwrapRef<typeof import('./app/composables/useAppLogs')['APP_LOG_LEVEL_OPTIONS']>
+    readonly APP_LOG_SOURCE_OPTIONS: UnwrapRef<typeof import('./app/composables/useAppLogs')['APP_LOG_SOURCE_OPTIONS']>
     readonly EffectScope: UnwrapRef<typeof import('vue')['EffectScope']>
     readonly MODEL_DEBUG_ALL_FILTER_VALUE: UnwrapRef<typeof import('./app/composables/useModelDebugLogs')['MODEL_DEBUG_ALL_FILTER_VALUE']>
     readonly MODEL_DEBUG_OPERATION_OPTIONS: UnwrapRef<typeof import('./app/composables/useModelDebugLogs')['MODEL_DEBUG_OPERATION_OPTIONS']>
@@ -265,6 +275,7 @@ declare module 'vue' {
     readonly toValue: UnwrapRef<typeof import('vue')['toValue']>
     readonly triggerRef: UnwrapRef<typeof import('vue')['triggerRef']>
     readonly unref: UnwrapRef<typeof import('vue')['unref']>
+    readonly useAppLogs: UnwrapRef<typeof import('./app/composables/useAppLogs')['useAppLogs']>
     readonly useAssetWorkbench: UnwrapRef<typeof import('./app/composables/useAssetWorkbench')['useAssetWorkbench']>
     readonly useAssetWorkbenchAssetMedia: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchAssetMedia')['useAssetWorkbenchAssetMedia']>
     readonly useAssetWorkbenchAutoFlow: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchAutoFlow')['useAssetWorkbenchAutoFlow']>

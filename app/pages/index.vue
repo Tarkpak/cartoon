@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileText, FolderOpen, Sparkles, Layers3, Film, ScrollText, Settings, History } from 'lucide-vue-next'
+import { FileText, FolderOpen, Sparkles, Layers3, Film, ScrollText, Settings, History, Activity } from 'lucide-vue-next'
 import { resolveProjectWorkbenchPath } from '#shared/types/project'
 
 definePageMeta({
@@ -57,7 +57,8 @@ const quickActions = computed(() => [
     ? [{ icon: History, label: '继续创作', handler: continueLast }]
     : []),
   { icon: Settings, label: '设置', handler: () => navigateTo('/settings') },
-  { icon: ScrollText, label: '调用日志', handler: () => navigateTo('/model-logs') }
+  { icon: ScrollText, label: '调用日志', handler: () => navigateTo('/model-logs') },
+  { icon: Activity, label: '系统日志', handler: () => navigateTo('/app-logs') }
 ])
 </script>
 

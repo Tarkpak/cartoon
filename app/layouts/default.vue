@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, Boxes, FlaskConical, CloudCog, ChevronsLeft, ChevronsRight } from 'lucide-vue-next'
+import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, Boxes, FlaskConical, CloudCog, ChevronsLeft, ChevronsRight, Activity } from 'lucide-vue-next'
 
 const route = useRoute()
 const { isDark, toggleTheme, initTheme } = useTheme()
@@ -18,6 +18,7 @@ const navigation = [
   { name: '首页', path: '/', icon: Home },
   { name: '我的项目', path: '/projects', icon: Folder },
   { name: '调用日志', path: '/model-logs', icon: ScrollText },
+  { name: '系统日志', path: '/app-logs', icon: Activity },
   { name: '云端素材', path: '/tos-files', icon: Cloud },
   { name: '设置', path: '/settings', icon: Settings }
 ]

@@ -37,6 +37,7 @@ const {
       v-model:model="filters.model"
       v-model:operation="filters.operation"
       v-model:provider="filters.provider"
+      v-model:request-id="filters.requestId"
       v-model:status="filters.status"
       :all-filter-value="allFilterValue"
       :clearing="clearing"

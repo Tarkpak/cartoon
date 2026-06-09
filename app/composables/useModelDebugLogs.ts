@@ -24,6 +24,8 @@ export interface ModelDebugLogEntry {
   operation: string
   status: 'success' | 'error'
   durationMs: number
+  endpoint?: string
+  requestId?: string
   request?: unknown
   requestRaw?: unknown
   response?: unknown
@@ -59,6 +61,7 @@ export function useModelDebugLogs() {
     operation: '',
     status: '',
     model: '',
+    requestId: '',
     keyword: '',
     limit: 100
   })
@@ -158,6 +161,7 @@ export function useModelDebugLogs() {
       operation: filters.operation || undefined,
       status: filters.status || undefined,
       model: filters.model || undefined,
+      requestId: filters.requestId || undefined,
       keyword: filters.keyword || undefined
     }
   }

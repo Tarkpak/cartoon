@@ -26,7 +26,7 @@ export default defineConfig({
         'vue-router',
         'pinia',
         {
-          ofetch: ['$fetch']
+          '@/lib/observability': ['$fetch']
         }
       ],
       dirs: ['app/composables'],

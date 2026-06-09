@@ -232,7 +232,7 @@ fn llm_dev_file_response_raw_value(raw: &str) -> Value {
     json!(raw)
 }
 
-fn llm_dev_write_file_log(
+fn llm_dev_write_db_log(
     provider: &str,
     model: &str,
     operation: &str,
@@ -244,7 +244,7 @@ fn llm_dev_write_file_log(
     response_raw: Option<&str>,
     error: Option<&str>,
 ) {
-    llm_dev_write_file_log_impl(
+    llm_dev_write_db_log_impl(
         provider,
         model,
         operation,
@@ -255,11 +255,10 @@ fn llm_dev_write_file_log(
         response,
         response_raw,
         error,
-        true,
     );
 }
 
-fn llm_dev_write_file_log_impl(
+fn llm_dev_write_db_log_impl(
     provider: &str,
     model: &str,
     operation: &str,
@@ -270,101 +269,44 @@ fn llm_dev_write_file_log_impl(
     response: Option<&Value>,
     response_raw: Option<&str>,
     error: Option<&str>,
-    record_db: bool,
 ) {
     let now = Utc::now();
     let duration_ms = (now.timestamp_millis() - started_at_ms).max(1);
-    let id = format!("llm_{}", Uuid::new_v4().simple());
-    let filename = format!(
-        "{}-{}-{}-{}.json",
-        now.timestamp_millis(),
-        sanitize_file_component(provider),
-        sanitize_file_component(operation),
-        &id[4..12]
-    );
+    let endpoint_value = endpoint.map(llm_dev_log_url_without_query);
+    let request_id = current_request_id();
     let request_value = request.map(|value| llm_dev_file_sanitize_value(value, None));
     let response_value = response.map(|value| llm_dev_file_sanitize_value(value, None));
     let response_raw_value = response_raw.map(llm_dev_file_response_raw_value);
     let error_value = error.map(|message| json!({ "message": message }));
 
-    let mut payload = serde_json::Map::new();
-    payload.insert("id".to_string(), json!(id));
-    payload.insert("timestamp".to_string(), json!(now.to_rfc3339()));
-    payload.insert("provider".to_string(), json!(provider));
-    payload.insert("model".to_string(), json!(model));
-    payload.insert("operation".to_string(), json!(operation));
-    payload.insert("status".to_string(), json!(status));
-    payload.insert("durationMs".to_string(), json!(duration_ms));
-
-    if let Some(endpoint) = endpoint {
-        payload.insert(
-            "endpoint".to_string(),
-            json!(llm_dev_log_url_without_query(endpoint)),
+    if let Some(conn) = config_connection() {
+        let _ = conn.execute(
+            "INSERT INTO model_debug_logs (
+          id, timestamp, provider, model, operation, status, duration_ms, endpoint, request_id,
+          request_json, request_raw_json, response_json, response_raw_json,
+          media_refs_json, error_json, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            params![
+                format!("log_{}", Uuid::new_v4().simple()),
+                now.to_rfc3339(),
+                provider,
+                model,
+                operation,
+                status,
+                duration_ms,
+                endpoint_value,
+                request_id,
+                request_value.as_ref().map(Value::to_string),
+                request_value.as_ref().map(Value::to_string),
+                response_value.as_ref().map(Value::to_string),
+                response_raw_value.as_ref().map(Value::to_string),
+                None::<String>,
+                error_value.as_ref().map(Value::to_string),
+                now_iso()
+            ],
         );
-    }
-    if let Some(value) = &request_value {
-        payload.insert("request".to_string(), value.clone());
-    }
-    if let Some(value) = &response_value {
-        payload.insert("response".to_string(), value.clone());
-    }
-    if let Some(value) = &response_raw_value {
-        payload.insert("responseRaw".to_string(), value.clone());
-    }
-    if let Some(value) = &error_value {
-        payload.insert("error".to_string(), value.clone());
-    }
-
-    if record_db {
-        if let Some(conn) = config_connection() {
-            let _ = conn.execute(
-                "INSERT INTO model_debug_logs (
-              id, timestamp, provider, model, operation, status, duration_ms,
-              request_json, request_raw_json, response_json, response_raw_json,
-              media_refs_json, error_json, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-                params![
-                    format!("log_{}", Uuid::new_v4().simple()),
-                    now.to_rfc3339(),
-                    provider,
-                    model,
-                    operation,
-                    status,
-                    duration_ms,
-                    request_value.as_ref().map(Value::to_string),
-                    request_value.as_ref().map(Value::to_string),
-                    response_value.as_ref().map(Value::to_string),
-                    response_raw_value.as_ref().map(Value::to_string),
-                    None::<String>,
-                    error_value.as_ref().map(Value::to_string),
-                    now_iso()
-                ],
-            );
-        }
-    }
-
-    let Some(dir) = llm_dev_log_dir() else {
-        return;
-    };
-    if let Err(error) = fs::create_dir_all(&dir) {
-        eprintln!(
-            "[LLM][file][error] create_dir={} error={}",
-            dir.display(),
-            error
-        );
-        return;
-    }
-    let path = dir.join(filename);
-    match serde_json::to_vec_pretty(&Value::Object(payload)) {
-        Ok(bytes) => {
-            if let Err(error) = fs::write(&path, bytes) {
-                eprintln!("[LLM][file][error] path={} error={}", path.display(), error);
-            } else {
-                eprintln!("[LLM][file] path={}", path.display());
-            }
-        }
-        Err(error) => {
-            eprintln!("[LLM][file][error] serialize error={}", error);
+        if should_run_log_retention() {
+            prune_log_table(&conn, "model_debug_logs", MODEL_DEBUG_LOG_RETENTION_LIMIT);
         }
     }
 }
@@ -3540,7 +3482,7 @@ async fn poll_openai_compatible_image_task(
             .await
             .map_err(|error| {
                 let message = build_llm_transport_error_message(&error);
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "custom_openai",
                     model_id,
                     "generateImage",
@@ -3557,7 +3499,7 @@ async fn poll_openai_compatible_image_task(
         let status = response.status();
         let body_text = response.text().await.map_err(|error| {
             let message = build_llm_transport_error_message(&error);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "custom_openai",
                 model_id,
                 "generateImage",
@@ -3573,7 +3515,7 @@ async fn poll_openai_compatible_image_task(
         })?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "custom_openai",
                 model_id,
                 "generateImage",
@@ -3593,7 +3535,7 @@ async fn poll_openai_compatible_image_task(
                 error,
                 truncate_for_error(&body_text, 160)
             );
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "custom_openai",
                 model_id,
                 "generateImage",
@@ -3608,7 +3550,7 @@ async fn poll_openai_compatible_image_task(
             message
         })?;
         if let Some(result) = parse_openai_compatible_image_result(&payload) {
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "custom_openai",
                 model_id,
                 "generateImage",
@@ -3629,7 +3571,7 @@ async fn poll_openai_compatible_image_task(
         let task_status = openai_compatible_task_status(&payload);
         if openai_compatible_task_success(&task_status) {
             let message = "图片任务已完成但未返回图片 URL 或 base64".to_string();
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "custom_openai",
                 model_id,
                 "generateImage",
@@ -3645,7 +3587,7 @@ async fn poll_openai_compatible_image_task(
         }
         if openai_compatible_task_failed(&task_status) {
             let message = openai_compatible_task_error_message(&payload);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "custom_openai",
                 model_id,
                 "generateImage",
@@ -3776,7 +3718,7 @@ async fn request_custom_openai_image_generation(
                 form = form.part(
                     "image[]",
                     reference_image_part(reference, index).map_err(|error| {
-                        llm_dev_write_file_log(
+                        llm_dev_write_db_log(
                             "custom_openai",
                             model_id,
                             "generateImage",
@@ -3809,7 +3751,7 @@ async fn request_custom_openai_image_generation(
                 .await
                 .map_err(|error| {
                     let message = build_llm_transport_error_message(&error);
-                    llm_dev_write_file_log(
+                    llm_dev_write_db_log(
                         "custom_openai",
                         model_id,
                         "generateImage",
@@ -3859,7 +3801,7 @@ async fn request_custom_openai_image_generation(
                 .await
                 .map_err(|error| {
                     let message = build_llm_transport_error_message(&error);
-                    llm_dev_write_file_log(
+                    llm_dev_write_db_log(
                         "custom_openai",
                         model_id,
                         "generateImage",
@@ -3887,7 +3829,7 @@ async fn request_custom_openai_image_generation(
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "custom_openai",
                 model_id,
                 "generateImage",
@@ -3908,7 +3850,7 @@ async fn request_custom_openai_image_generation(
                 error,
                 truncate_for_error(&body_text, 160)
             );
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "custom_openai",
                 model_id,
                 "generateImage",
@@ -3927,7 +3869,7 @@ async fn request_custom_openai_image_generation(
               "source": result.0.as_str(),
               "mimeType": result.1.as_deref()
             });
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "custom_openai",
                 model_id,
                 "generateImage",
@@ -3952,7 +3894,7 @@ async fn request_custom_openai_image_generation(
         }
         if let Some(task_id) = parse_openai_compatible_image_task_id(&payload) {
             let parsed_response = json!({ "taskId": task_id.as_str() });
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "custom_openai",
                 model_id,
                 "generateImage",
@@ -3981,7 +3923,7 @@ async fn request_custom_openai_image_generation(
                       "source": result.0.as_str(),
                       "mimeType": result.1.as_deref()
                     });
-                    llm_dev_write_file_log(
+                    llm_dev_write_db_log(
                         "custom_openai",
                         model_id,
                         "generateImage",
@@ -4005,7 +3947,7 @@ async fn request_custom_openai_image_generation(
                     Ok(result)
                 }
                 Err(error) => {
-                    llm_dev_write_file_log(
+                    llm_dev_write_db_log(
                         "custom_openai",
                         model_id,
                         "generateImage",
@@ -4031,7 +3973,7 @@ async fn request_custom_openai_image_generation(
             };
         }
         let message = "OpenAI 兼容图片生成未返回图片 URL 或 base64".to_string();
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "custom_openai",
             model_id,
             "generateImage",
@@ -4186,7 +4128,7 @@ async fn request_openai_compatible_image_generation(
             .await
             .map_err(|error| {
                 let message = error.to_string();
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     provider,
                     model_id,
                     "generateImage",
@@ -4213,7 +4155,7 @@ async fn request_openai_compatible_image_generation(
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 provider,
                 model_id,
                 "generateImage",
@@ -4235,7 +4177,7 @@ async fn request_openai_compatible_image_generation(
                 error,
                 truncate_for_error(&body_text, 160)
             );
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 provider,
                 model_id,
                 "generateImage",
@@ -4254,7 +4196,7 @@ async fn request_openai_compatible_image_generation(
               "source": result.0.as_str(),
               "mimeType": result.1.as_deref()
             });
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 provider,
                 model_id,
                 "generateImage",
@@ -4278,7 +4220,7 @@ async fn request_openai_compatible_image_generation(
             return Ok(result);
         }
         let message = "图片模型未返回可用图片".to_string();
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             provider,
             model_id,
             "generateImage",
@@ -4403,7 +4345,7 @@ async fn request_qwen_image_generation(
             .await
             .map_err(|error| {
                 let message = error.to_string();
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "qwen",
                     model_id,
                     "generateImage",
@@ -4430,7 +4372,7 @@ async fn request_qwen_image_generation(
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "qwen",
                 model_id,
                 "generateImage",
@@ -4452,7 +4394,7 @@ async fn request_qwen_image_generation(
                 error,
                 truncate_for_error(&body_text, 160)
             );
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "qwen",
                 model_id,
                 "generateImage",
@@ -4471,7 +4413,7 @@ async fn request_qwen_image_generation(
               "source": result.0.as_str(),
               "mimeType": result.1.as_deref()
             });
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "qwen",
                 model_id,
                 "generateImage",
@@ -4495,7 +4437,7 @@ async fn request_qwen_image_generation(
             return Ok(result);
         }
         let message = "Qwen 图片模型未返回可用图片".to_string();
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "qwen",
             model_id,
             "generateImage",
@@ -4601,7 +4543,7 @@ async fn request_gemini_image_generation(
             .await
             .map_err(|error| {
                 let message = error.to_string();
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "gemini",
                     model_id,
                     "generateImage",
@@ -4628,7 +4570,7 @@ async fn request_gemini_image_generation(
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "gemini",
                 model_id,
                 "generateImage",
@@ -4650,7 +4592,7 @@ async fn request_gemini_image_generation(
                 error,
                 truncate_for_error(&body_text, 160)
             );
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "gemini",
                 model_id,
                 "generateImage",
@@ -4669,7 +4611,7 @@ async fn request_gemini_image_generation(
               "source": result.0.as_str(),
               "mimeType": result.1.as_deref()
             });
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "gemini",
                 model_id,
                 "generateImage",
@@ -4693,7 +4635,7 @@ async fn request_gemini_image_generation(
             return Ok(result);
         }
         let message = "Gemini 未返回可用图片".to_string();
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "gemini",
             model_id,
             "generateImage",
@@ -6038,7 +5980,7 @@ async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(Strin
         .await
         .map_err(|error| {
             let message = error.to_string();
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "qwen",
                 model_id,
                 "generateVideo",
@@ -6064,7 +6006,7 @@ async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(Strin
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "qwen",
             model_id,
             "generateVideo",
@@ -6093,7 +6035,7 @@ async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(Strin
             error,
             truncate_for_error(&body_text, 160)
         );
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "qwen",
             model_id,
             "generateVideo",
@@ -6119,7 +6061,7 @@ async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(Strin
         Some(task_id) => task_id,
         None => {
             let message = "Qwen 未返回 task_id";
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "qwen",
                 model_id,
                 "generateVideo",
@@ -6151,7 +6093,7 @@ async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(Strin
         "status" => status.as_u16(),
         "taskId" => upstream_task_id.as_str()
     );
-    llm_dev_write_file_log(
+    llm_dev_write_db_log(
         "qwen",
         model_id,
         "generateVideo",
@@ -6194,7 +6136,7 @@ where
             .await
             .map_err(|error| {
                 let message = error.to_string();
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "qwen",
                     model_id,
                     "generateVideo",
@@ -6212,7 +6154,7 @@ where
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "qwen",
                 model_id,
                 "generateVideo",
@@ -6232,7 +6174,7 @@ where
                 error,
                 truncate_for_error(&body_text, 160)
             );
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "qwen",
                 model_id,
                 "generateVideo",
@@ -6250,7 +6192,7 @@ where
             "SUCCEEDED" => {
                 let url = parse_qwen_video_url(&payload)
                     .ok_or_else(|| "Qwen 视频成功但未返回 URL".to_string())?;
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "qwen",
                     model_id,
                     "generateVideo",
@@ -6273,7 +6215,7 @@ where
                     .and_then(|output| output.get("message"))
                     .and_then(Value::as_str)
                     .unwrap_or("Qwen 视频生成失败");
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "qwen",
                     model_id,
                     "generateVideo",
@@ -6289,7 +6231,7 @@ where
             }
             "UNKNOWN" => {
                 let message = "Qwen 视频任务不存在或已过期".to_string();
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "qwen",
                     model_id,
                     "generateVideo",
@@ -6327,7 +6269,7 @@ async fn query_qwen_video_task(
         .await
         .map_err(|error| {
             let message = error.to_string();
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "qwen",
                 model_id,
                 "generateVideo",
@@ -6344,7 +6286,7 @@ async fn query_qwen_video_task(
     let status = response.status();
     let body_text = response.text().await.map_err(|error| {
         let message = error.to_string();
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "qwen",
             model_id,
             "generateVideo",
@@ -6360,7 +6302,7 @@ async fn query_qwen_video_task(
     })?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "qwen",
             model_id,
             "generateVideo",
@@ -6380,7 +6322,7 @@ async fn query_qwen_video_task(
             error,
             truncate_for_error(&body_text, 160)
         );
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "qwen",
             model_id,
             "generateVideo",
@@ -6394,7 +6336,7 @@ async fn query_qwen_video_task(
         );
         message
     })?;
-    llm_dev_write_file_log(
+    llm_dev_write_db_log(
         "qwen",
         model_id,
         "generateVideo",
@@ -6545,7 +6487,7 @@ async fn request_qwen_text_to_speech(
         .await
         .map_err(|error| {
             let message = error.to_string();
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "qwen",
                 model_id,
                 "textToSpeech",
@@ -6570,7 +6512,7 @@ async fn request_qwen_text_to_speech(
     let status = response.status();
     let body_text = response.text().await.map_err(|error| {
         let message = error.to_string();
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "qwen",
             model_id,
             "textToSpeech",
@@ -6586,7 +6528,7 @@ async fn request_qwen_text_to_speech(
     })?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "qwen",
             model_id,
             "textToSpeech",
@@ -6615,7 +6557,7 @@ async fn request_qwen_text_to_speech(
             error,
             truncate_for_error(&body_text, 160)
         );
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "qwen",
             model_id,
             "textToSpeech",
@@ -6641,7 +6583,7 @@ async fn request_qwen_text_to_speech(
         Some(result) => result,
         None => {
             let message = "TTS 生成失败";
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "qwen",
                 model_id,
                 "textToSpeech",
@@ -6676,7 +6618,7 @@ async fn request_qwen_text_to_speech(
         "mimeType" => mime_type.as_deref().unwrap_or("unknown"),
         "isUrl" => is_url
     );
-    llm_dev_write_file_log(
+    llm_dev_write_db_log(
         "qwen",
         model_id,
         "textToSpeech",
@@ -6987,7 +6929,7 @@ async fn submit_volcengine_video_task(
         .await
         .map_err(|error| {
             let message = error.to_string();
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "volcengine",
                 model_id,
                 "generateVideo",
@@ -7013,7 +6955,7 @@ async fn submit_volcengine_video_task(
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "volcengine",
             model_id,
             "generateVideo",
@@ -7042,7 +6984,7 @@ async fn submit_volcengine_video_task(
             error,
             truncate_for_error(&body_text, 160)
         );
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "volcengine",
             model_id,
             "generateVideo",
@@ -7068,7 +7010,7 @@ async fn submit_volcengine_video_task(
         Some(task_id) => task_id,
         None => {
             let message = "Volcengine 未返回任务 id";
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "volcengine",
                 model_id,
                 "generateVideo",
@@ -7100,7 +7042,7 @@ async fn submit_volcengine_video_task(
         "status" => status.as_u16(),
         "taskId" => upstream_task_id.as_str()
     );
-    llm_dev_write_file_log(
+    llm_dev_write_db_log(
         "volcengine",
         model_id,
         "generateVideo",
@@ -7148,7 +7090,7 @@ where
             .await
             .map_err(|error| {
                 let message = error.to_string();
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "volcengine",
                     model_id,
                     "generateVideo",
@@ -7166,7 +7108,7 @@ where
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "volcengine",
                 model_id,
                 "generateVideo",
@@ -7186,7 +7128,7 @@ where
                 error,
                 truncate_for_error(&body_text, 160)
             );
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "volcengine",
                 model_id,
                 "generateVideo",
@@ -7204,7 +7146,7 @@ where
             "succeeded" => {
                 let url = parse_volcengine_video_url(&payload)
                     .ok_or_else(|| "Volcengine 视频成功但未返回 URL".to_string())?;
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "volcengine",
                     model_id,
                     "generateVideo",
@@ -7227,7 +7169,7 @@ where
                     .and_then(|error| error.get("message"))
                     .and_then(Value::as_str)
                     .unwrap_or("Volcengine 视频生成失败");
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "volcengine",
                     model_id,
                     "generateVideo",
@@ -7268,7 +7210,7 @@ async fn query_volcengine_video_task(
         .await
         .map_err(|error| {
             let message = error.to_string();
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "volcengine",
                 model_id,
                 "generateVideo",
@@ -7285,7 +7227,7 @@ async fn query_volcengine_video_task(
     let status = response.status();
     let body_text = response.text().await.map_err(|error| {
         let message = error.to_string();
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "volcengine",
             model_id,
             "generateVideo",
@@ -7301,7 +7243,7 @@ async fn query_volcengine_video_task(
     })?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "volcengine",
             model_id,
             "generateVideo",
@@ -7321,7 +7263,7 @@ async fn query_volcengine_video_task(
             error,
             truncate_for_error(&body_text, 160)
         );
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "volcengine",
             model_id,
             "generateVideo",
@@ -7335,7 +7277,7 @@ async fn query_volcengine_video_task(
         );
         message
     })?;
-    llm_dev_write_file_log(
+    llm_dev_write_db_log(
         "volcengine",
         model_id,
         "generateVideo",
@@ -7898,7 +7840,7 @@ async fn request_kling_image_generation(
         .await
         .map_err(|error| {
             let message = error.to_string();
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "kling",
                 model_id,
                 "generateImage",
@@ -7924,7 +7866,7 @@ async fn request_kling_image_generation(
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "kling",
             model_id,
             "generateImage",
@@ -7953,7 +7895,7 @@ async fn request_kling_image_generation(
             error,
             truncate_for_error(&body_text, 160)
         );
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "kling",
             model_id,
             "generateImage",
@@ -7981,7 +7923,7 @@ async fn request_kling_image_generation(
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or("Kling API 错误");
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "kling",
             model_id,
             "generateImage",
@@ -8008,7 +7950,7 @@ async fn request_kling_image_generation(
         Some(task_id) => task_id,
         None => {
             let message = "Kling 未返回 task_id";
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "kling",
                 model_id,
                 "generateImage",
@@ -8040,7 +7982,7 @@ async fn request_kling_image_generation(
         Some(Utc::now().timestamp_millis() - _log_started_at),
         "taskId" => upstream_task_id.as_str()
     );
-    llm_dev_write_file_log(
+    llm_dev_write_db_log(
         "kling",
         model_id,
         "generateImage",
@@ -8058,7 +8000,7 @@ async fn request_kling_image_generation(
     loop {
         tokio::time::sleep(Duration::from_secs(5)).await;
         let token = build_kling_jwt(&access_key, &secret_key).map_err(|error| {
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "kling",
                 model_id,
                 "generateImage",
@@ -8089,7 +8031,7 @@ async fn request_kling_image_generation(
             .await
             .map_err(|error| {
                 let message = error.to_string();
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "kling",
                     model_id,
                     "generateImage",
@@ -8115,7 +8057,7 @@ async fn request_kling_image_generation(
         let status = response.status();
         let body_text = response.text().await.map_err(|error| {
             let message = error.to_string();
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "kling",
                 model_id,
                 "generateImage",
@@ -8131,7 +8073,7 @@ async fn request_kling_image_generation(
         })?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "kling",
                 model_id,
                 "generateImage",
@@ -8161,7 +8103,7 @@ async fn request_kling_image_generation(
                 error,
                 truncate_for_error(&body_text, 160)
             );
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "kling",
                 model_id,
                 "generateImage",
@@ -8190,7 +8132,7 @@ async fn request_kling_image_generation(
                 .get("message")
                 .and_then(Value::as_str)
                 .unwrap_or("Kling API 错误");
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "kling",
                 model_id,
                 "generateImage",
@@ -8218,7 +8160,7 @@ async fn request_kling_image_generation(
             "succeed" => {
                 let Some(url) = parse_kling_image_url(&payload) else {
                     let message = "Kling 图片成功但未返回 URL";
-                    llm_dev_write_file_log(
+                    llm_dev_write_db_log(
                         "kling",
                         model_id,
                         "generateImage",
@@ -8250,7 +8192,7 @@ async fn request_kling_image_generation(
                     "taskId" => upstream_task_id.as_str(),
                     "result" => llm_dev_log_source_summary(&url)
                 );
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "kling",
                     model_id,
                     "generateImage",
@@ -8274,7 +8216,7 @@ async fn request_kling_image_generation(
                     .and_then(Value::as_str)
                     .or_else(|| payload.get("message").and_then(Value::as_str))
                     .unwrap_or("Kling 图片生成失败");
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "kling",
                     model_id,
                     "generateImage",
@@ -8366,7 +8308,7 @@ async fn submit_kling_video_task(
         .await
         .map_err(|error| {
             let message = error.to_string();
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "kling",
                 model_id,
                 "generateVideo",
@@ -8392,7 +8334,7 @@ async fn submit_kling_video_task(
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "kling",
             model_id,
             "generateVideo",
@@ -8421,7 +8363,7 @@ async fn submit_kling_video_task(
             error,
             truncate_for_error(&body_text, 160)
         );
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "kling",
             model_id,
             "generateVideo",
@@ -8449,7 +8391,7 @@ async fn submit_kling_video_task(
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or("Kling API 错误");
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "kling",
             model_id,
             "generateVideo",
@@ -8476,7 +8418,7 @@ async fn submit_kling_video_task(
         Some(task_id) => task_id,
         None => {
             let message = "Kling 未返回 task_id";
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "kling",
                 model_id,
                 "generateVideo",
@@ -8508,7 +8450,7 @@ async fn submit_kling_video_task(
         "status" => status.as_u16(),
         "taskId" => upstream_task_id.as_str()
     );
-    llm_dev_write_file_log(
+    llm_dev_write_db_log(
         "kling",
         model_id,
         "generateVideo",
@@ -8553,7 +8495,7 @@ where
             .await
             .map_err(|error| {
                 let message = error.to_string();
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "kling",
                     model_id,
                     "generateVideo",
@@ -8571,7 +8513,7 @@ where
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "kling",
                 model_id,
                 "generateVideo",
@@ -8591,7 +8533,7 @@ where
                 error,
                 truncate_for_error(&body_text, 160)
             );
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "kling",
                 model_id,
                 "generateVideo",
@@ -8611,7 +8553,7 @@ where
                 .get("message")
                 .and_then(Value::as_str)
                 .unwrap_or("Kling API 错误");
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "kling",
                 model_id,
                 "generateVideo",
@@ -8629,7 +8571,7 @@ where
             "succeed" => {
                 let url = parse_kling_video_url(&payload)
                     .ok_or_else(|| "Kling 视频成功但未返回 URL".to_string())?;
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "kling",
                     model_id,
                     "generateVideo",
@@ -8653,7 +8595,7 @@ where
                     .and_then(Value::as_str)
                     .or_else(|| payload.get("message").and_then(Value::as_str))
                     .unwrap_or("Kling 视频生成失败");
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "kling",
                     model_id,
                     "generateVideo",
@@ -8796,7 +8738,7 @@ async fn query_kling_video_task(
         .await
         .map_err(|error| {
             let message = error.to_string();
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "kling",
                 model_id,
                 "generateVideo",
@@ -8813,7 +8755,7 @@ async fn query_kling_video_task(
     let status = response.status();
     let body_text = response.text().await.map_err(|error| {
         let message = error.to_string();
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "kling",
             model_id,
             "generateVideo",
@@ -8829,7 +8771,7 @@ async fn query_kling_video_task(
     })?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "kling",
             model_id,
             "generateVideo",
@@ -8849,7 +8791,7 @@ async fn query_kling_video_task(
             error,
             truncate_for_error(&body_text, 160)
         );
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "kling",
             model_id,
             "generateVideo",
@@ -8869,7 +8811,7 @@ async fn query_kling_video_task(
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or("Kling API 错误");
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "kling",
             model_id,
             "generateVideo",
@@ -8883,7 +8825,7 @@ async fn query_kling_video_task(
         );
         return Err(message.to_string());
     }
-    llm_dev_write_file_log(
+    llm_dev_write_db_log(
         "kling",
         model_id,
         "generateVideo",
@@ -9154,7 +9096,7 @@ async fn submit_gemini_video_task(
         .await
         .map_err(|error| {
             let message = error.to_string();
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "gemini",
                 model_id,
                 "generateVideo",
@@ -9180,7 +9122,7 @@ async fn submit_gemini_video_task(
     let body_text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "gemini",
             model_id,
             "generateVideo",
@@ -9209,7 +9151,7 @@ async fn submit_gemini_video_task(
             error,
             truncate_for_error(&body_text, 160)
         );
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "gemini",
             model_id,
             "generateVideo",
@@ -9235,7 +9177,7 @@ async fn submit_gemini_video_task(
         Some(name) => name,
         None => {
             let message = "Gemini 未返回 operation name";
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "gemini",
                 model_id,
                 "generateVideo",
@@ -9267,7 +9209,7 @@ async fn submit_gemini_video_task(
         "status" => status.as_u16(),
         "operationName" => operation_name.as_str()
     );
-    llm_dev_write_file_log(
+    llm_dev_write_db_log(
         "gemini",
         model_id,
         "generateVideo",
@@ -9314,7 +9256,7 @@ where
             .await
             .map_err(|error| {
                 let message = error.to_string();
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "gemini",
                     model_id,
                     "generateVideo",
@@ -9332,7 +9274,7 @@ where
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "gemini",
                 model_id,
                 "generateVideo",
@@ -9352,7 +9294,7 @@ where
                 error,
                 truncate_for_error(&body_text, 160)
             );
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "gemini",
                 model_id,
                 "generateVideo",
@@ -9367,7 +9309,7 @@ where
             message
         })?;
         if let Some(error) = parse_gemini_operation_error(&payload) {
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "gemini",
                 model_id,
                 "generateVideo",
@@ -9382,7 +9324,7 @@ where
             return Err(error);
         }
         if parse_gemini_operation_done(&payload) {
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "gemini",
                 model_id,
                 "generateVideo",
@@ -9422,7 +9364,7 @@ async fn query_gemini_video_task(
         .await
         .map_err(|error| {
             let message = error.to_string();
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "gemini",
                 model_id,
                 "generateVideo",
@@ -9439,7 +9381,7 @@ async fn query_gemini_video_task(
     let status = response.status();
     let body_text = response.text().await.map_err(|error| {
         let message = error.to_string();
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "gemini",
             model_id,
             "generateVideo",
@@ -9455,7 +9397,7 @@ async fn query_gemini_video_task(
     })?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "gemini",
             model_id,
             "generateVideo",
@@ -9475,7 +9417,7 @@ async fn query_gemini_video_task(
             error,
             truncate_for_error(&body_text, 160)
         );
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "gemini",
             model_id,
             "generateVideo",
@@ -9489,7 +9431,7 @@ async fn query_gemini_video_task(
         );
         message
     })?;
-    llm_dev_write_file_log(
+    llm_dev_write_db_log(
         "gemini",
         model_id,
         "generateVideo",
@@ -10966,7 +10908,7 @@ async fn request_openai_compatible_text_completion(
             .await
             .map_err(|error| {
                 let message = error.to_string();
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     provider,
                     model_id,
                     "generateText",
@@ -10993,7 +10935,7 @@ async fn request_openai_compatible_text_completion(
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 provider,
                 model_id,
                 "generateText",
@@ -11010,7 +10952,7 @@ async fn request_openai_compatible_text_completion(
         }
 
         let parsed = parse_openai_compatible_text_response(&body_text).map_err(|error| {
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 provider,
                 model_id,
                 "generateText",
@@ -11034,7 +10976,7 @@ async fn request_openai_compatible_text_completion(
         })?;
         if let Some(text) = parsed {
             let parsed_response = json!({ "text": text });
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 provider,
                 model_id,
                 "generateText",
@@ -11058,7 +11000,7 @@ async fn request_openai_compatible_text_completion(
             return Ok(text);
         }
         let message = "模型返回为空文本".to_string();
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             provider,
             model_id,
             "generateText",
@@ -11137,7 +11079,7 @@ async fn request_gemini_text_completion(
             .await
             .map_err(|error| {
                 let message = error.to_string();
-                llm_dev_write_file_log(
+                llm_dev_write_db_log(
                     "gemini",
                     model_id,
                     "generateText",
@@ -11164,7 +11106,7 @@ async fn request_gemini_text_completion(
         let body_text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "gemini",
                 model_id,
                 "generateText",
@@ -11186,7 +11128,7 @@ async fn request_gemini_text_completion(
                 error,
                 truncate_for_error(&body_text, 160)
             );
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "gemini",
                 model_id,
                 "generateText",
@@ -11202,7 +11144,7 @@ async fn request_gemini_text_completion(
         })?;
         if let Some(text) = parse_gemini_text_result(&payload) {
             let parsed_response = json!({ "text": text });
-            llm_dev_write_file_log(
+            llm_dev_write_db_log(
                 "gemini",
                 model_id,
                 "generateText",
@@ -11226,7 +11168,7 @@ async fn request_gemini_text_completion(
             return Ok(text);
         }
         let message = "模型返回为空文本".to_string();
-        llm_dev_write_file_log(
+        llm_dev_write_db_log(
             "gemini",
             model_id,
             "generateText",
@@ -11323,31 +11265,15 @@ fn write_model_debug_log(
 ) -> Result<(), ApiError> {
     let conn = db_connection(state)?;
     let now = now_iso();
+    let request_id = current_request_id();
     let response_value = response.cloned().unwrap_or(Value::Null);
     let media_refs = collect_log_media_refs(&response_value);
-    let started_at = Utc::now().timestamp_millis() - duration_ms.max(1);
-    let error_message = error
-        .and_then(|value| value.get("message").and_then(Value::as_str))
-        .or_else(|| error.and_then(Value::as_str));
-    llm_dev_write_file_log_impl(
-        provider,
-        model,
-        operation,
-        status,
-        started_at,
-        None,
-        Some(request),
-        response,
-        None,
-        error_message,
-        false,
-    );
     conn.execute(
         "INSERT INTO model_debug_logs (
-          id, timestamp, provider, model, operation, status, duration_ms,
+          id, timestamp, provider, model, operation, status, duration_ms, request_id,
           request_json, request_raw_json, response_json, response_raw_json,
           media_refs_json, error_json, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             format!("log_{}", Uuid::new_v4().simple()),
             now,
@@ -11356,6 +11282,7 @@ fn write_model_debug_log(
             operation,
             status,
             duration_ms.max(1),
+            request_id,
             request.to_string(),
             request.to_string(),
             if response.is_some() {
@@ -11378,6 +11305,9 @@ fn write_model_debug_log(
         ],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if should_run_log_retention() {
+        prune_log_table(&conn, "model_debug_logs", MODEL_DEBUG_LOG_RETENTION_LIMIT);
+    }
     Ok(())
 }
 

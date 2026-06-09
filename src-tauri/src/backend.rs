@@ -1,5 +1,6 @@
-use axum::extract::{DefaultBodyLimit, Path, Query, State};
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::extract::{DefaultBodyLimit, Path, Query, Request, State};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post, put};
 use axum::{Json, Router};
@@ -17,7 +18,7 @@ use std::path::{Path as FsPath, PathBuf};
 #[cfg(target_os = "windows")]
 use std::process::Command;
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -43,6 +44,11 @@ const PROMPT_PROFILE_STATE_KEY: &str = "prompt_profile_state_default";
 const ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES: usize = 50 * 1024 * 1024;
 const SETTINGS_CONFIG_EXPORT_VERSION: i32 = 1;
 const SETTINGS_CONFIG_TEXT_MAX_CHARS: usize = 16 * 1024;
+const APP_LOG_RETENTION_LIMIT: i64 = 10_000;
+const MODEL_DEBUG_LOG_RETENTION_LIMIT: i64 = 5_000;
+const APP_LOG_MESSAGE_MAX_CHARS: usize = 16 * 1024;
+const APP_LOG_JSON_MAX_CHARS: usize = 64 * 1024;
+const REQUEST_ID_HEADER: &str = "x-request-id";
 
 const DEFAULT_STYLE_PRESETS_JSON: &str = include_str!("../assets/default-style-presets.json");
 const DEFAULT_STYLE_CATEGORIES_JSON: &str = include_str!("../assets/default-style-categories.json");
@@ -62,6 +68,10 @@ mod runtime_api;
 use model_constraints::{build_available_model_entry, image_model_config, AvailableModelKind};
 use prompts_api::*;
 use runtime_api::*;
+
+tokio::task_local! {
+    static CURRENT_REQUEST_ID: String;
+}
 
 #[derive(Clone)]
 pub struct BackendState {
@@ -88,11 +98,14 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        let body = Json(json!({
+        let mut body = json!({
           "success": false,
           "message": self.message
-        }));
-        (self.status, body).into_response()
+        });
+        if let Some(request_id) = current_request_id() {
+            body["requestId"] = json!(request_id);
+        }
+        (self.status, Json(body)).into_response()
     }
 }
 
@@ -310,18 +323,9 @@ fn path_content_type(path: &FsPath) -> &'static str {
 }
 
 static DB_PATH: OnceLock<PathBuf> = OnceLock::new();
-static LLM_DEV_LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 fn set_global_db_path(path: PathBuf) {
     let _ = DB_PATH.set(path);
-}
-
-fn set_global_llm_dev_log_dir(path: PathBuf) {
-    let _ = LLM_DEV_LOG_DIR.set(path);
-}
-
-fn llm_dev_log_dir() -> Option<PathBuf> {
-    LLM_DEV_LOG_DIR.get().cloned()
 }
 
 fn db_connection(state: &BackendState) -> Result<Connection, ApiError> {
@@ -340,6 +344,10 @@ fn open_db_connection(path: &FsPath) -> Result<Connection, ApiError> {
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    // WAL 允许并发读，但并发写仍会串行；没有 busy_timeout 时第二个写者会立刻拿到
+    // SQLITE_BUSY。日志观测中间件让每个请求都写库，写竞争概率明显上升，因此统一等待。
+    conn.busy_timeout(Duration::from_secs(5))
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(conn)
 }
 
@@ -347,6 +355,238 @@ fn open_db_connection(path: &FsPath) -> Result<Connection, ApiError> {
 fn config_connection() -> Option<Connection> {
     let path = DB_PATH.get()?;
     open_db_connection(path).ok()
+}
+
+fn current_request_id() -> Option<String> {
+    CURRENT_REQUEST_ID.try_with(|value| value.clone()).ok()
+}
+
+fn new_request_id() -> String {
+    format!("req_{}", Uuid::new_v4().simple())
+}
+
+fn sanitize_request_id(raw: &str) -> Option<String> {
+    let sanitized = raw
+        .trim()
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | ':'))
+        .take(128)
+        .collect::<String>();
+    if sanitized.is_empty() {
+        None
+    } else {
+        Some(sanitized)
+    }
+}
+
+fn request_id_from_headers(headers: &HeaderMap) -> String {
+    headers
+        .get(REQUEST_ID_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(sanitize_request_id)
+        .unwrap_or_else(new_request_id)
+}
+
+fn truncate_log_text(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+
+    let preview = value.chars().take(max_chars).collect::<String>();
+    format!("{}...", preview)
+}
+
+fn app_log_json_string(value: Option<&Value>) -> Option<String> {
+    let value = value?;
+    let raw = value.to_string();
+    let char_count = raw.chars().count();
+    if char_count <= APP_LOG_JSON_MAX_CHARS {
+        return Some(raw);
+    }
+
+    Some(
+        json!({
+          "kind": "truncated-json",
+          "chars": char_count,
+          "preview": truncate_log_text(&raw, APP_LOG_JSON_MAX_CHARS)
+        })
+        .to_string(),
+    )
+}
+
+fn normalize_app_log_level(value: &str) -> &'static str {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "debug" => "debug",
+        "info" => "info",
+        "warn" | "warning" => "warn",
+        "error" => "error",
+        _ => "info",
+    }
+}
+
+fn sanitize_app_log_token(value: Option<&str>, fallback: &str) -> String {
+    let sanitized = value
+        .unwrap_or(fallback)
+        .trim()
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | ':'))
+        .take(80)
+        .collect::<String>();
+    if sanitized.is_empty() {
+        fallback.to_string()
+    } else {
+        sanitized
+    }
+}
+
+/// 采样网关：让保留清理不必每次插入都执行。约每 64 次调用返回一次 true，
+/// 期间表可能短暂超出上限若干行，滚动清理会再次收敛，属可接受的折中。
+fn should_run_log_retention() -> bool {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    COUNTER.fetch_add(1, Ordering::Relaxed) % 64 == 0
+}
+
+/// 将日志表裁剪到最新的 `limit` 行。`table` 必须是受信任的字符串字面量
+/// （永不来自用户输入），因为它会被直接拼进 SQL。
+fn prune_log_table(conn: &Connection, table: &str, limit: i64) {
+    let _ = conn.execute(
+        &format!(
+            "DELETE FROM {table}
+             WHERE rowid NOT IN (
+               SELECT rowid FROM {table} ORDER BY timestamp DESC LIMIT ?1
+             )"
+        ),
+        params![limit],
+    );
+}
+
+fn insert_app_log(
+    state: &BackendState,
+    level: &str,
+    source: &str,
+    category: &str,
+    message: &str,
+    request_id: Option<&str>,
+    method: Option<&str>,
+    path: Option<&str>,
+    status: Option<u16>,
+    duration_ms: Option<i64>,
+    metadata: Option<&Value>,
+    error: Option<&Value>,
+) -> Result<(), ApiError> {
+    let conn = db_connection(state)?;
+    let now = now_iso();
+    let request_id = request_id.and_then(sanitize_request_id);
+    let status = status.map(i64::from);
+    conn.execute(
+        "INSERT INTO app_logs (
+          id, timestamp, level, source, category, message, request_id,
+          method, path, status, duration_ms, metadata_json, error_json, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        params![
+            format!("log_{}", Uuid::new_v4().simple()),
+            now,
+            normalize_app_log_level(level),
+            sanitize_app_log_token(Some(source), "backend"),
+            sanitize_app_log_token(Some(category), "event"),
+            truncate_log_text(message, APP_LOG_MESSAGE_MAX_CHARS),
+            request_id,
+            method.map(|value| truncate_log_text(value, 16)),
+            path.map(|value| truncate_log_text(value, 512)),
+            status,
+            duration_ms,
+            app_log_json_string(metadata),
+            app_log_json_string(error),
+            now_iso()
+        ],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    if should_run_log_retention() {
+        prune_log_table(&conn, "app_logs", APP_LOG_RETENTION_LIMIT);
+    }
+
+    Ok(())
+}
+
+fn should_log_http_request(path: &str) -> bool {
+    path.starts_with("/api")
+        && !path.starts_with("/api/debug/app-logs")
+        && !path.starts_with("/api/debug/model-logs")
+}
+
+fn http_log_level(status: StatusCode) -> &'static str {
+    if status.is_server_error() {
+        "error"
+    } else if status.is_client_error() {
+        "warn"
+    } else {
+        "info"
+    }
+}
+
+async fn request_observability_middleware(
+    State(state): State<BackendState>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let request_id = request_id_from_headers(request.headers());
+    let method = request.method().as_str().to_string();
+    let path = request.uri().path().to_string();
+    let has_query = request.uri().query().is_some();
+    let user_agent = request
+        .headers()
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| truncate_log_text(value, 512));
+    let started_at = Instant::now();
+
+    request.extensions_mut().insert(request_id.clone());
+
+    let mut response = CURRENT_REQUEST_ID
+        .scope(request_id.clone(), async move { next.run(request).await })
+        .await;
+    let status = response.status();
+    let duration_ms = started_at.elapsed().as_millis().min(i64::MAX as u128) as i64;
+
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static(REQUEST_ID_HEADER), value);
+    }
+
+    if should_log_http_request(&path) {
+        let metadata = json!({
+          "hasQuery": has_query,
+          "userAgent": user_agent
+        });
+        let error = if status.is_client_error() || status.is_server_error() {
+            Some(json!({
+              "status": status.as_u16(),
+              "reason": status.canonical_reason().unwrap_or("")
+            }))
+        } else {
+            None
+        };
+        let message = format!("{} {} -> {}", method, path, status.as_u16());
+        let _ = insert_app_log(
+            &state,
+            http_log_level(status),
+            "backend",
+            "http_request",
+            &message,
+            Some(&request_id),
+            Some(&method),
+            Some(&path),
+            Some(status.as_u16()),
+            Some(duration_ms),
+            Some(&metadata),
+            error.as_ref(),
+        );
+    }
+
+    response
 }
 
 fn http_client() -> &'static Client {
@@ -1988,6 +2228,8 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ("response_raw_json", "TEXT"),
         ("media_refs_json", "TEXT"),
         ("error_json", "TEXT"),
+        ("endpoint", "TEXT"),
+        ("request_id", "TEXT"),
     ] {
         ensure_column(conn, "model_debug_logs", column, definition)?;
     }
@@ -2117,6 +2359,8 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         operation TEXT NOT NULL,
         status TEXT NOT NULL,
         duration_ms INTEGER NOT NULL,
+        endpoint TEXT,
+        request_id TEXT,
         request_json TEXT,
         request_raw_json TEXT,
         response_json TEXT,
@@ -2125,11 +2369,46 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         error_json TEXT,
         created_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS app_logs (
+        id TEXT PRIMARY KEY,
+        timestamp TEXT NOT NULL,
+        level TEXT NOT NULL,
+        source TEXT NOT NULL,
+        category TEXT NOT NULL,
+        message TEXT NOT NULL,
+        request_id TEXT,
+        method TEXT,
+        path TEXT,
+        status INTEGER,
+        duration_ms INTEGER,
+        metadata_json TEXT,
+        error_json TEXT,
+        created_at TEXT NOT NULL
+      );
     ",
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     ensure_runtime_schema(&conn)?;
+    conn.execute_batch(
+        "
+      CREATE INDEX IF NOT EXISTS idx_model_debug_logs_timestamp ON model_debug_logs(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_app_logs_timestamp ON app_logs(timestamp);
+      -- 日志查询统一按 timestamp DESC 排序取 LIMIT，过滤走大小写无关 / 子串匹配，
+      -- 规划器不会用到下面这些二级索引；清理掉以省去写入开销。
+      DROP INDEX IF EXISTS idx_model_debug_logs_provider;
+      DROP INDEX IF EXISTS idx_model_debug_logs_operation;
+      DROP INDEX IF EXISTS idx_model_debug_logs_status;
+      DROP INDEX IF EXISTS idx_model_debug_logs_request_id;
+      DROP INDEX IF EXISTS idx_app_logs_level;
+      DROP INDEX IF EXISTS idx_app_logs_source;
+      DROP INDEX IF EXISTS idx_app_logs_category;
+      DROP INDEX IF EXISTS idx_app_logs_request_id;
+      DROP INDEX IF EXISTS idx_app_logs_status;
+    ",
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     let default_catalog = default_style_catalog();
     let default_style_presets_value = default_catalog
@@ -2256,17 +2535,15 @@ fn ensure_dirs(state: &BackendState) -> Result<(), ApiError> {
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     fs::create_dir_all(state.data_dir.join("exports"))
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    fs::create_dir_all(state.data_dir.join("llm-debug-logs"))
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(())
 }
 
 pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<(), String> {
     set_global_db_path(state.db_path.clone());
-    set_global_llm_dev_log_dir(state.data_dir.join("llm-debug-logs"));
     ensure_dirs(&state).map_err(|error| error.message.clone())?;
     init_database(&state).map_err(|error| error.message.clone())?;
 
+    let observability_state = state.clone();
     let router = Router::new()
         .route("/api/project/list", get(api_project_list))
         .route("/api/project/create", post(api_project_create))
@@ -2414,13 +2691,23 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/video/file/{*filename}", get(api_video_file))
         .route("/audios/{*filename}", get(api_audio_file))
         .route(
+            "/api/debug/app-logs",
+            get(api_app_logs_get)
+                .post(api_app_logs_post)
+                .delete(api_app_logs_delete),
+        )
+        .route(
             "/api/debug/model-logs",
             get(api_debug_logs_get).delete(api_debug_logs_delete),
         )
         .route("/api/{*path}", any(api_not_implemented))
         .route("/", get(frontend_index))
         .route("/{*path}", get(frontend_assets))
-        .with_state(state);
+        .with_state(state)
+        .layer(middleware::from_fn_with_state(
+            observability_state,
+            request_observability_middleware,
+        ));
 
     let listener = TcpListener::bind((host, port))
         .await
@@ -7032,6 +7319,255 @@ async fn api_tos_config_import(
     api_tos_config_get(State(state)).await
 }
 
+async fn api_app_logs_get(
+    State(state): State<BackendState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let limit = match query.get("limit") {
+        Some(raw) => {
+            let parsed = raw
+                .parse::<usize>()
+                .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "limit 必须是整数"))?;
+            if !(1..=500).contains(&parsed) {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "limit 必须在 1 到 500 之间",
+                ));
+            }
+            parsed
+        }
+        None => 200,
+    };
+    let normalize_query = |key: &str| -> Result<Option<String>, ApiError> {
+        match query.get(key) {
+            None => Ok(None),
+            Some(value) => {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    return Err(ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        format!("{} 不能为空", key),
+                    ));
+                }
+                Ok(Some(trimmed.to_ascii_lowercase()))
+            }
+        }
+    };
+    let level_filter = normalize_query("level")?;
+    let source_filter = normalize_query("source")?;
+    let category_filter = normalize_query("category")?;
+    let path_filter = normalize_query("path")?;
+    let request_id_filter = match query.get("requestId").or_else(|| query.get("request_id")) {
+        None => None,
+        Some(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                return Err(ApiError::new(StatusCode::BAD_REQUEST, "requestId 不能为空"));
+            }
+            Some(trimmed.to_ascii_lowercase())
+        }
+    };
+    let status_filter = match query.get("status") {
+        None => None,
+        Some(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                return Err(ApiError::new(StatusCode::BAD_REQUEST, "status 不能为空"));
+            }
+            Some(
+                trimmed
+                    .parse::<i64>()
+                    .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "status 必须是整数"))?,
+            )
+        }
+    };
+    let keyword_filter = normalize_query("keyword")?;
+
+    use rusqlite::types::Value as Bind;
+    let mut where_parts: Vec<String> = Vec::new();
+    let mut binds: Vec<Bind> = Vec::new();
+    if let Some(value) = &level_filter {
+        where_parts.push("lower(level) = ?".to_string());
+        binds.push(Bind::Text(value.clone()));
+    }
+    if let Some(value) = &source_filter {
+        where_parts.push("lower(source) = ?".to_string());
+        binds.push(Bind::Text(value.clone()));
+    }
+    if let Some(value) = &category_filter {
+        where_parts.push("lower(category) = ?".to_string());
+        binds.push(Bind::Text(value.clone()));
+    }
+    if let Some(value) = &path_filter {
+        where_parts.push("lower(coalesce(path, '')) LIKE ?".to_string());
+        binds.push(Bind::Text(format!("%{}%", value)));
+    }
+    if let Some(value) = &request_id_filter {
+        where_parts.push("lower(coalesce(request_id, '')) LIKE ?".to_string());
+        binds.push(Bind::Text(format!("%{}%", value)));
+    }
+    if let Some(value) = status_filter {
+        where_parts.push("status = ?".to_string());
+        binds.push(Bind::Integer(value));
+    }
+    if let Some(keyword) = &keyword_filter {
+        where_parts.push(
+            "(lower(level) LIKE ? OR lower(source) LIKE ? OR lower(category) LIKE ? \
+              OR lower(message) LIKE ? OR lower(coalesce(path, '')) LIKE ? \
+              OR lower(coalesce(request_id, '')) LIKE ? OR lower(coalesce(metadata_json, '')) LIKE ? \
+              OR lower(coalesce(error_json, '')) LIKE ?)"
+                .to_string(),
+        );
+        let pattern = format!("%{}%", keyword);
+        for _ in 0..8 {
+            binds.push(Bind::Text(pattern.clone()));
+        }
+    }
+    let where_clause = if where_parts.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", where_parts.join(" AND "))
+    };
+    binds.push(Bind::Integer(limit as i64));
+
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT id, timestamp, level, source, category, message, request_id,
+                    method, path, status, duration_ms, metadata_json, error_json
+             FROM app_logs{} ORDER BY timestamp DESC LIMIT ?",
+            where_clause
+        ))
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    let logs_raw = stmt
+        .query_map(rusqlite::params_from_iter(binds), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<i64>>(9)?,
+                row.get::<_, Option<i64>>(10)?,
+                row.get::<_, Option<String>>(11)?,
+                row.get::<_, Option<String>>(12)?,
+            ))
+        })
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    let parse_json = |raw: Option<String>| -> Option<Value> {
+        let text = raw?;
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        serde_json::from_str::<Value>(trimmed)
+            .ok()
+            .or_else(|| Some(Value::String(text)))
+    };
+
+    let mut logs = Vec::new();
+    for (
+        id,
+        timestamp,
+        level,
+        source,
+        category,
+        message,
+        request_id,
+        method,
+        path,
+        status,
+        duration_ms,
+        metadata_json,
+        error_json,
+    ) in logs_raw
+    {
+        logs.push(json!({
+          "id": id,
+          "timestamp": timestamp,
+          "level": level,
+          "source": source,
+          "category": category,
+          "message": message,
+          "requestId": request_id,
+          "method": method,
+          "path": path,
+          "status": status,
+          "durationMs": duration_ms,
+          "metadata": parse_json(metadata_json),
+          "error": parse_json(error_json)
+        }));
+    }
+    let total = logs.len();
+
+    Ok(Json(
+        json!({ "success": true, "data": { "logs": logs, "total": total } }),
+    ))
+}
+
+async fn api_app_logs_post(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let level = body
+        .get("level")
+        .and_then(Value::as_str)
+        .unwrap_or("info");
+    let source = sanitize_app_log_token(body.get("source").and_then(Value::as_str), "frontend");
+    let category =
+        sanitize_app_log_token(body.get("category").and_then(Value::as_str), "frontend_event");
+    let message = body
+        .get("message")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("frontend log");
+    let current_request_id = current_request_id();
+    let request_id = body
+        .get("requestId")
+        .or_else(|| body.get("request_id"))
+        .and_then(Value::as_str)
+        .or(current_request_id.as_deref());
+    let status = body
+        .get("status")
+        .and_then(|value| value.as_i64())
+        .and_then(|value| u16::try_from(value).ok());
+    let duration_ms = body.get("durationMs").and_then(Value::as_i64);
+    let metadata = body.get("metadata");
+    let error = body.get("error");
+
+    insert_app_log(
+        &state,
+        level,
+        &source,
+        &category,
+        message,
+        request_id,
+        body.get("method").and_then(Value::as_str),
+        body.get("path").and_then(Value::as_str),
+        status,
+        duration_ms,
+        metadata,
+        error,
+    )?;
+
+    Ok(Json(json!({ "success": true })))
+}
+
+async fn api_app_logs_delete(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    conn.execute("DELETE FROM app_logs", [])
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(Json(json!({ "success": true })))
+}
+
 async fn api_debug_logs_get(
     State(state): State<BackendState>,
     Query(query): Query<HashMap<String, String>>,
@@ -7097,18 +7633,73 @@ async fn api_debug_logs_get(
         .map(|_| require_non_empty_query("keyword"))
         .transpose()?
         .flatten();
+    let request_id_filter = match query.get("requestId").or_else(|| query.get("request_id")) {
+        None => None,
+        Some(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                return Err(ApiError::new(StatusCode::BAD_REQUEST, "requestId 不能为空"));
+            }
+            Some(trimmed.to_ascii_lowercase())
+        }
+    };
+
+    use rusqlite::types::Value as Bind;
+    let mut where_parts: Vec<String> = Vec::new();
+    let mut binds: Vec<Bind> = Vec::new();
+    if let Some(value) = &provider_filter {
+        where_parts.push("lower(provider) = ?".to_string());
+        binds.push(Bind::Text(value.clone()));
+    }
+    if let Some(value) = &operation_filter {
+        where_parts.push("lower(operation) = ?".to_string());
+        binds.push(Bind::Text(value.clone()));
+    }
+    if let Some(value) = &status_filter {
+        where_parts.push("lower(status) = ?".to_string());
+        binds.push(Bind::Text(value.clone()));
+    }
+    if let Some(value) = &model_filter {
+        where_parts.push("lower(model) LIKE ?".to_string());
+        binds.push(Bind::Text(format!("%{}%", value)));
+    }
+    if let Some(value) = &request_id_filter {
+        where_parts.push("lower(coalesce(request_id, '')) LIKE ?".to_string());
+        binds.push(Bind::Text(format!("%{}%", value)));
+    }
+    if let Some(keyword) = &keyword_filter {
+        where_parts.push(
+            "(lower(provider) LIKE ? OR lower(model) LIKE ? OR lower(operation) LIKE ? \
+              OR lower(coalesce(request_id, '')) LIKE ? OR lower(coalesce(endpoint, '')) LIKE ? \
+              OR lower(coalesce(request_json, '')) LIKE ? OR lower(coalesce(request_raw_json, '')) LIKE ? \
+              OR lower(coalesce(response_json, '')) LIKE ? OR lower(coalesce(response_raw_json, '')) LIKE ? \
+              OR lower(coalesce(error_json, '')) LIKE ?)"
+                .to_string(),
+        );
+        let pattern = format!("%{}%", keyword);
+        for _ in 0..10 {
+            binds.push(Bind::Text(pattern.clone()));
+        }
+    }
+    let where_clause = if where_parts.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", where_parts.join(" AND "))
+    };
+    binds.push(Bind::Integer(limit as i64));
 
     let mut stmt = conn
-        .prepare(
+        .prepare(&format!(
             "SELECT id, timestamp, provider, model, operation, status, duration_ms,
-                    request_json, request_raw_json, response_json, response_raw_json,
+                    endpoint, request_id, request_json, request_raw_json, response_json, response_raw_json,
                     media_refs_json, error_json
-             FROM model_debug_logs ORDER BY timestamp DESC LIMIT 1000",
-        )
+             FROM model_debug_logs{} ORDER BY timestamp DESC LIMIT ?",
+            where_clause
+        ))
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     let logs_raw = stmt
-        .query_map([], |row| {
+        .query_map(rusqlite::params_from_iter(binds), |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -7123,6 +7714,8 @@ async fn api_debug_logs_get(
                 row.get::<_, Option<String>>(10)?,
                 row.get::<_, Option<String>>(11)?,
                 row.get::<_, Option<String>>(12)?,
+                row.get::<_, Option<String>>(13)?,
+                row.get::<_, Option<String>>(14)?,
             ))
         })
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -7149,6 +7742,8 @@ async fn api_debug_logs_get(
         operation,
         status,
         duration_ms,
+        endpoint,
+        request_id,
         request_json,
         request_raw_json,
         response_json,
@@ -7157,68 +7752,6 @@ async fn api_debug_logs_get(
         error_json,
     ) in logs_raw
     {
-        let provider_lower = provider.to_ascii_lowercase();
-        let model_lower = model.to_ascii_lowercase();
-        let operation_lower = operation.to_ascii_lowercase();
-        let status_lower = status.to_ascii_lowercase();
-
-        if provider_filter
-            .as_ref()
-            .is_some_and(|value| provider_lower != *value)
-        {
-            continue;
-        }
-        if operation_filter
-            .as_ref()
-            .is_some_and(|value| operation_lower != *value)
-        {
-            continue;
-        }
-        if status_filter
-            .as_ref()
-            .is_some_and(|value| status_lower != *value)
-        {
-            continue;
-        }
-        if model_filter
-            .as_ref()
-            .is_some_and(|value| !model_lower.contains(value))
-        {
-            continue;
-        }
-        if let Some(keyword) = &keyword_filter {
-            let mut haystack = String::new();
-            haystack.push_str(&provider_lower);
-            haystack.push('\n');
-            haystack.push_str(&model_lower);
-            haystack.push('\n');
-            haystack.push_str(&operation_lower);
-            haystack.push('\n');
-            if let Some(value) = &request_json {
-                haystack.push_str(&value.to_ascii_lowercase());
-                haystack.push('\n');
-            }
-            if let Some(value) = &request_raw_json {
-                haystack.push_str(&value.to_ascii_lowercase());
-                haystack.push('\n');
-            }
-            if let Some(value) = &response_json {
-                haystack.push_str(&value.to_ascii_lowercase());
-                haystack.push('\n');
-            }
-            if let Some(value) = &response_raw_json {
-                haystack.push_str(&value.to_ascii_lowercase());
-                haystack.push('\n');
-            }
-            if let Some(value) = &error_json {
-                haystack.push_str(&value.to_ascii_lowercase());
-                haystack.push('\n');
-            }
-            if !haystack.contains(keyword) {
-                continue;
-            }
-        }
-
         logs.push(json!({
           "id": id,
           "timestamp": timestamp,
@@ -7227,6 +7760,8 @@ async fn api_debug_logs_get(
           "operation": operation,
           "status": status,
           "durationMs": duration_ms,
+          "endpoint": endpoint,
+          "requestId": request_id,
           "request": parse_json(request_json),
           "requestRaw": parse_json(request_raw_json),
           "response": parse_json(response_json),
@@ -7235,7 +7770,6 @@ async fn api_debug_logs_get(
           "error": parse_json(error_json)
         }))
     }
-    logs.truncate(limit);
     let total = logs.len();
 
     Ok(Json(
@@ -7247,13 +7781,11 @@ async fn api_debug_logs_delete(State(state): State<BackendState>) -> Result<Json
     let conn = db_connection(&state)?;
     conn.execute("DELETE FROM model_debug_logs", [])
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    let dir = state.data_dir.join("llm-debug-logs");
-    if dir.exists() {
-        fs::remove_dir_all(&dir)
+    let legacy_dir = state.data_dir.join("llm-debug-logs");
+    if legacy_dir.exists() {
+        fs::remove_dir_all(&legacy_dir)
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     }
-    fs::create_dir_all(&dir)
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(Json(json!({ "success": true })))
 }
 

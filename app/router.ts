@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import AppLogsPage from './pages/app-logs.vue'
 import AssetWorkbenchPage from './pages/asset-workbench.vue'
 import HomePage from './pages/index.vue'
 import ModelLogsPage from './pages/model-logs.vue'
@@ -36,6 +37,11 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/model-logs',
     component: ModelLogsPage,
+    meta: { layout: 'default' }
+  },
+  {
+    path: '/app-logs',
+    component: AppLogsPage,
     meta: { layout: 'default' }
   },
   {
