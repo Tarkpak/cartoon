@@ -72,30 +72,30 @@ interface UseAssetWorkbenchGenerationOptions {
 export function useAssetWorkbenchGeneration(
   options: UseAssetWorkbenchGenerationOptions
 ) {
-  function notifyModelTaskCompleted(payload: {
+  async function notifyModelTaskCompleted(payload: {
     title: string
     body?: string
   }) {
     if (!options.onModelTaskCompleted) return
 
-    // 通知是附加能力，不应阻塞主流程（避免 loading 无法回收）
-    void Promise.resolve(options.onModelTaskCompleted(payload))
-      .catch((error) => {
-        console.warn('[useAssetWorkbench] 模型任务完成通知失败:', error)
-      })
+    try {
+      await options.onModelTaskCompleted(payload)
+    } catch (error) {
+      console.warn('[useAssetWorkbench] 模型任务完成通知失败:', error)
+    }
   }
 
-  function notifyModelTaskFailed(payload: {
+  async function notifyModelTaskFailed(payload: {
     title: string
     body?: string
   }) {
     if (!options.onModelTaskFailed) return
 
-    // 失败提醒不应阻塞主流程（避免 loading 无法回收）
-    void Promise.resolve(options.onModelTaskFailed(payload))
-      .catch((error) => {
-        console.warn('[useAssetWorkbench] 模型任务失败通知失败:', error)
-      })
+    try {
+      await options.onModelTaskFailed(payload)
+    } catch (error) {
+      console.warn('[useAssetWorkbench] 模型任务失败通知失败:', error)
+    }
   }
 
   async function saveProjectOrThrow(context: string): Promise<void> {
@@ -432,7 +432,7 @@ export function useAssetWorkbenchGeneration(
       options.parseProgress.value.progress = 100
       appendProgressLog(`分集目录已生成，共 ${episodes.length} 集`, 'progress')
       if (episodes.length > 0) {
-        notifyModelTaskCompleted({
+        await notifyModelTaskCompleted({
           title: '分集目录生成完成',
           body: `共生成 ${episodes.length} 集分集目录`
         })
@@ -444,7 +444,7 @@ export function useAssetWorkbenchGeneration(
       options.parseProgress.value.step = 'error'
       options.parseProgress.value.message = message
       appendProgressLog(message, 'progress')
-      notifyModelTaskFailed({
+      await notifyModelTaskFailed({
         title: '分集目录生成失败',
         body: message
       })
@@ -495,7 +495,7 @@ export function useAssetWorkbenchGeneration(
       if (!response.success || !response.data?.scenes) {
         const message = '解析失败：模型未返回有效场景数据'
         options.parseProgress.value.message = message
-        notifyModelTaskFailed({
+        await notifyModelTaskFailed({
           title: parsePayload.targetEpisodeId ? '分集解析失败' : '剧本解析失败',
           body: message
         })
@@ -529,7 +529,7 @@ export function useAssetWorkbenchGeneration(
         : '剧本解析完成'
       options.parseProgress.value.progress = 100
       appendProgressLog(options.parseProgress.value.message, 'progress')
-      notifyModelTaskCompleted({
+      await notifyModelTaskCompleted({
         title: parsePayload.targetEpisodeId ? '分集解析完成' : '剧本解析完成',
         body: `已生成 ${options.scenes.value.length} 个场景和 ${options.characters.value.length} 个角色`
       })
@@ -540,7 +540,7 @@ export function useAssetWorkbenchGeneration(
       options.parseProgress.value.step = 'error'
       options.parseProgress.value.message = message
       appendProgressLog(message, 'progress')
-      notifyModelTaskFailed({
+      await notifyModelTaskFailed({
         title: input?.targetEpisodeId ? '分集解析失败' : '剧本解析失败',
         body: message
       })
@@ -586,7 +586,7 @@ export function useAssetWorkbenchGeneration(
 
       const generatedImage = char.baseImage?.trim() || ''
       if (generatedImage && generatedImage !== previousImage && !input?.skipCompletionNotice) {
-        notifyModelTaskCompleted({
+        await notifyModelTaskCompleted({
           title: regenerationPrompt ? '角色二次生成完成' : '角色图生成完成',
           body: `角色：${char.name}`
         })
@@ -595,7 +595,7 @@ export function useAssetWorkbenchGeneration(
       console.error('[useAssetWorkbench] 角色生成失败:', error)
       if (!input?.skipCompletionNotice) {
         const message = error instanceof Error ? error.message : '角色图生成失败'
-        notifyModelTaskFailed({
+        await notifyModelTaskFailed({
           title: regenerationPrompt ? '角色二次生成失败' : '角色图生成失败',
           body: `角色：${char.name}（${message}）`
         })
@@ -636,7 +636,7 @@ export function useAssetWorkbenchGeneration(
       }
     }
 
-    notifyModelTaskCompleted({
+    await notifyModelTaskCompleted({
       title: '角色批量生成完成',
       body: `成功 ${generated} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
     })

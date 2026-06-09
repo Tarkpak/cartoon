@@ -63,7 +63,10 @@ function createGeneration() {
 }
 
 describe('useAssetWorkbenchGeneration', () => {
-  const prepareEpisodePlanMock = vi.mocked(prepareAssetWorkbenchEpisodePlan)
+  const prepareEpisodePlanMock = prepareAssetWorkbenchEpisodePlan as unknown as {
+    mockReset: () => void
+    mockResolvedValue: (value: ScriptEpisodePlanItem[]) => void
+  }
 
   beforeEach(() => {
     prepareEpisodePlanMock.mockReset()
