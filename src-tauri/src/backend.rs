@@ -41,6 +41,8 @@ const PROMPT_PROFILES_KEY: &str = "prompt_profiles_default";
 const PROMPT_VERSIONS_KEY: &str = "prompt_versions_default";
 const PROMPT_PROFILE_STATE_KEY: &str = "prompt_profile_state_default";
 const ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES: usize = 50 * 1024 * 1024;
+const SETTINGS_CONFIG_EXPORT_VERSION: i32 = 1;
+const SETTINGS_CONFIG_TEXT_MAX_CHARS: usize = 16 * 1024;
 
 const DEFAULT_STYLE_PRESETS_JSON: &str = include_str!("../assets/default-style-presets.json");
 const DEFAULT_STYLE_CATEGORIES_JSON: &str = include_str!("../assets/default-style-categories.json");
@@ -2308,6 +2310,14 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/model-providers", get(api_model_providers))
         .route("/api/model-providers/index", get(api_model_providers))
         .route(
+            "/api/model-providers/config/export",
+            get(api_model_providers_config_export),
+        )
+        .route(
+            "/api/model-providers/config/import",
+            post(api_model_providers_config_import),
+        )
+        .route(
             "/api/model-providers/credentials",
             get(api_provider_credentials_get),
         )
@@ -2387,6 +2397,8 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             "/api/tos/config",
             get(api_tos_config_get).put(api_tos_config_put),
         )
+        .route("/api/tos/config/export", get(api_tos_config_export))
+        .route("/api/tos/config/import", post(api_tos_config_import))
         .route("/api/video/generate", post(api_video_generate))
         .route("/api/video/merge", post(api_video_merge))
         .route(
@@ -5380,6 +5392,163 @@ fn normalize_non_empty_string_list(
     Ok(output)
 }
 
+fn settings_import_payload(body: &Value) -> &Value {
+    body.get("payload").unwrap_or(body)
+}
+
+fn settings_import_section<'a>(payload: &'a Value, keys: &[&str]) -> Option<&'a Value> {
+    keys.iter().find_map(|key| payload.get(*key))
+}
+
+fn settings_object_section<'a>(
+    value: &'a Value,
+    path: &str,
+) -> Result<&'a serde_json::Map<String, Value>, ApiError> {
+    value
+        .as_object()
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, format!("{path} 必须是对象")))
+}
+
+fn settings_optional_object_field<'a>(
+    value: &'a Value,
+    key: &str,
+    path: &str,
+) -> Result<Option<&'a Value>, ApiError> {
+    match value.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(item) if item.is_object() => Ok(Some(item)),
+        _ => Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("{path}.{key} 必须是对象"),
+        )),
+    }
+}
+
+fn settings_string_field(
+    value: &Value,
+    key: &str,
+    path: &str,
+    max_chars: usize,
+) -> Result<String, ApiError> {
+    match value.get(key) {
+        None | Some(Value::Null) => Ok(String::new()),
+        Some(Value::String(raw)) => {
+            let trimmed = raw.trim().to_string();
+            if trimmed.chars().count() > max_chars {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    format!("{path}.{key} 最多 {max_chars} 个字符"),
+                ));
+            }
+            Ok(trimmed)
+        }
+        _ => Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("{path}.{key} 必须是字符串"),
+        )),
+    }
+}
+
+fn settings_nullable_string_field(
+    value: &Value,
+    key: &str,
+    path: &str,
+    max_chars: usize,
+) -> Result<Value, ApiError> {
+    let text = settings_string_field(value, key, path, max_chars)?;
+    if text.is_empty() {
+        Ok(Value::Null)
+    } else {
+        Ok(json!(text))
+    }
+}
+
+fn settings_bool_field(
+    value: &Value,
+    key: &str,
+    path: &str,
+    fallback: bool,
+) -> Result<bool, ApiError> {
+    match value.get(key) {
+        None | Some(Value::Null) => Ok(fallback),
+        Some(Value::Bool(raw)) => Ok(*raw),
+        _ => Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("{path}.{key} 必须是布尔值"),
+        )),
+    }
+}
+
+fn settings_string_list_field(
+    value: &Value,
+    key: &str,
+    path: &str,
+    max_items: usize,
+    max_chars: usize,
+) -> Result<Vec<String>, ApiError> {
+    let Some(raw_items) = value.get(key) else {
+        return Ok(Vec::new());
+    };
+    if raw_items.is_null() {
+        return Ok(Vec::new());
+    }
+    let items = raw_items.as_array().ok_or_else(|| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("{path}.{key} 必须是字符串数组"),
+        )
+    })?;
+    if items.len() > max_items {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("{path}.{key} 最多 {max_items} 项"),
+        ));
+    }
+
+    let mut output = Vec::new();
+    let mut seen = HashSet::new();
+    for (index, item) in items.iter().enumerate() {
+        let Some(raw) = item.as_str() else {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                format!("{path}.{key}.{index} 必须是字符串"),
+            ));
+        };
+        let normalized = raw.trim();
+        if normalized.is_empty() {
+            continue;
+        }
+        if normalized.chars().count() > max_chars {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                format!("{path}.{key}.{index} 最多 {max_chars} 个字符"),
+            ));
+        }
+        if seen.insert(normalized.to_string()) {
+            output.push(normalized.to_string());
+        }
+    }
+
+    Ok(output)
+}
+
+fn settings_has_any_key(value: &Value, keys: &[&str]) -> bool {
+    value
+        .as_object()
+        .is_some_and(|object| keys.iter().any(|key| object.contains_key(*key)))
+}
+
+fn settings_provider_entries_have_any_key(value: &Value, keys: &[&str]) -> bool {
+    value.as_object().is_some_and(|object| {
+        SUPPORTED_MODEL_PROVIDERS.iter().any(|provider| {
+            object
+                .get(*provider)
+                .and_then(Value::as_object)
+                .is_some_and(|entry| keys.iter().any(|key| entry.contains_key(*key)))
+        })
+    })
+}
+
 fn validate_custom_openai_body(
     body: &CustomOpenAIPutBody,
     sync_only: bool,
@@ -5409,6 +5578,219 @@ fn validate_custom_openai_body(
         normalize_non_empty_string_list(items, "availableTextModels")?;
     }
     Ok(())
+}
+
+fn normalize_imported_api_key_provider_credentials(
+    source: Option<&Value>,
+    provider: &str,
+) -> Result<Value, ApiError> {
+    let path = format!("providerCredentials.{provider}");
+    let api_key = match source {
+        Some(value) => {
+            settings_string_field(value, "apiKey", &path, SETTINGS_CONFIG_TEXT_MAX_CHARS)?
+        }
+        None => String::new(),
+    };
+    let base_url = match source {
+        Some(value) => settings_string_field(value, "baseUrl", &path, 2048)?,
+        None => String::new(),
+    };
+    Ok(json!({
+      "apiKey": api_key,
+      "baseUrl": base_url
+    }))
+}
+
+fn normalize_imported_kling_credentials(source: Option<&Value>) -> Result<Value, ApiError> {
+    let path = "providerCredentials.kling";
+    let access_key = match source {
+        Some(value) => {
+            settings_string_field(value, "accessKey", path, SETTINGS_CONFIG_TEXT_MAX_CHARS)?
+        }
+        None => String::new(),
+    };
+    let secret_key = match source {
+        Some(value) => {
+            settings_string_field(value, "secretKey", path, SETTINGS_CONFIG_TEXT_MAX_CHARS)?
+        }
+        None => String::new(),
+    };
+    let base_url = match source {
+        Some(value) => settings_string_field(value, "baseUrl", path, 2048)?,
+        None => String::new(),
+    };
+    Ok(json!({
+      "accessKey": access_key,
+      "secretKey": secret_key,
+      "baseUrl": base_url
+    }))
+}
+
+fn normalize_imported_provider_credentials(input: &Value) -> Result<Value, ApiError> {
+    settings_object_section(input, "providerCredentials")?;
+
+    let gemini = settings_optional_object_field(input, "gemini", "providerCredentials")?;
+    let qwen = settings_optional_object_field(input, "qwen", "providerCredentials")?;
+    let volcengine = settings_optional_object_field(input, "volcengine", "providerCredentials")?;
+    let deepseek = settings_optional_object_field(input, "deepseek", "providerCredentials")?;
+    let kling = settings_optional_object_field(input, "kling", "providerCredentials")?;
+
+    Ok(json!({
+      "gemini": normalize_imported_api_key_provider_credentials(gemini, "gemini")?,
+      "qwen": normalize_imported_api_key_provider_credentials(qwen, "qwen")?,
+      "volcengine": normalize_imported_api_key_provider_credentials(volcengine, "volcengine")?,
+      "deepseek": normalize_imported_api_key_provider_credentials(deepseek, "deepseek")?,
+      "kling": normalize_imported_kling_credentials(kling)?
+    }))
+}
+
+fn normalize_imported_custom_openai_config(input: &Value) -> Result<Value, ApiError> {
+    settings_object_section(input, "customOpenaiProvider")?;
+    let enabled = settings_bool_field(input, "enabled", "customOpenaiProvider", false)?;
+    let display_name = match input.get("displayName") {
+        None | Some(Value::Null) => "自定义 OpenAI".to_string(),
+        Some(Value::String(raw)) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "customOpenaiProvider.displayName 不能为空",
+                ));
+            }
+            if trimmed.chars().count() > 60 {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "customOpenaiProvider.displayName 不能超过 60 个字符",
+                ));
+            }
+            trimmed.to_string()
+        }
+        _ => {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "customOpenaiProvider.displayName 必须是字符串",
+            ))
+        }
+    };
+
+    Ok(json!({
+      "enabled": enabled,
+      "displayName": display_name,
+      "baseUrl": settings_string_field(input, "baseUrl", "customOpenaiProvider", 2048)?,
+      "apiKey": settings_string_field(
+        input,
+        "apiKey",
+        "customOpenaiProvider",
+        SETTINGS_CONFIG_TEXT_MAX_CHARS,
+      )?,
+      "textModels": settings_string_list_field(
+        input,
+        "textModels",
+        "customOpenaiProvider",
+        1000,
+        512,
+      )?,
+      "availableTextModels": settings_string_list_field(
+        input,
+        "availableTextModels",
+        "customOpenaiProvider",
+        2000,
+        512,
+      )?,
+      "modelsSyncedAt": settings_nullable_string_field(
+        input,
+        "modelsSyncedAt",
+        "customOpenaiProvider",
+        128,
+      )?,
+      "modelsSyncError": settings_nullable_string_field(
+        input,
+        "modelsSyncError",
+        "customOpenaiProvider",
+        2048,
+      )?
+    }))
+}
+
+fn normalize_imported_provider_model_catalog(input: &Value) -> Result<Value, ApiError> {
+    settings_object_section(input, "providerModelCatalog")?;
+    let mut catalog = serde_json::Map::new();
+
+    for provider in SUPPORTED_MODEL_PROVIDERS {
+        let Some(entry) = settings_optional_object_field(input, provider, "providerModelCatalog")?
+        else {
+            continue;
+        };
+        let models = settings_string_list_field(
+            entry,
+            "models",
+            &format!("providerModelCatalog.{provider}"),
+            2000,
+            512,
+        )?;
+        let available_models = settings_string_list_field(
+            entry,
+            "availableModels",
+            &format!("providerModelCatalog.{provider}"),
+            3000,
+            512,
+        )?;
+        let synced_at = settings_nullable_string_field(
+            entry,
+            "syncedAt",
+            &format!("providerModelCatalog.{provider}"),
+            128,
+        )?;
+        let sync_error = settings_nullable_string_field(
+            entry,
+            "syncError",
+            &format!("providerModelCatalog.{provider}"),
+            2048,
+        )?;
+
+        catalog.insert(
+            provider.to_string(),
+            json!({
+              "models": models,
+              "availableModels": available_models,
+              "syncedAt": synced_at,
+              "syncError": sync_error
+            }),
+        );
+    }
+
+    Ok(Value::Object(catalog))
+}
+
+fn normalize_imported_tos_config(input: &Value) -> Result<Value, ApiError> {
+    settings_object_section(input, "tosStorageConfig")?;
+    Ok(json!({
+      "enabled": settings_bool_field(input, "enabled", "tosStorageConfig", false)?,
+      "accessKeyId": settings_string_field(
+        input,
+        "accessKeyId",
+        "tosStorageConfig",
+        SETTINGS_CONFIG_TEXT_MAX_CHARS,
+      )?,
+      "secretKey": settings_string_field(
+        input,
+        "secretKey",
+        "tosStorageConfig",
+        SETTINGS_CONFIG_TEXT_MAX_CHARS,
+      )?,
+      "securityToken": settings_string_field(
+        input,
+        "securityToken",
+        "tosStorageConfig",
+        SETTINGS_CONFIG_TEXT_MAX_CHARS,
+      )?,
+      "region": settings_string_field(input, "region", "tosStorageConfig", 256)?,
+      "endpoint": settings_string_field(input, "endpoint", "tosStorageConfig", 2048)?,
+      "bucket": settings_string_field(input, "bucket", "tosStorageConfig", 512)?,
+      "keyPrefix": settings_string_field(input, "keyPrefix", "tosStorageConfig", 2048)?,
+      "publicBaseUrl": settings_string_field(input, "publicBaseUrl", "tosStorageConfig", 2048)?,
+      "isCustomDomain": settings_bool_field(input, "isCustomDomain", "tosStorageConfig", false)?
+    }))
 }
 
 fn split_keys(raw: &str) -> Vec<String> {
@@ -6236,6 +6618,136 @@ async fn api_custom_openai_sync(
     api_custom_openai_get(State(state)).await
 }
 
+async fn api_model_providers_config_export(
+    State(state): State<BackendState>,
+) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let provider_credentials = get_config_json(&conn, PROVIDER_CREDENTIALS_KEY)?
+        .filter(Value::is_object)
+        .unwrap_or_else(default_provider_credentials);
+    let custom_openai_provider = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
+        .filter(Value::is_object)
+        .unwrap_or_else(default_custom_openai_config);
+    let provider_model_catalog = get_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY)?
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({}));
+
+    Ok(Json(json!({
+      "success": true,
+      "data": {
+        "type": "playlet.model_providers",
+        "version": SETTINGS_CONFIG_EXPORT_VERSION,
+        "exportedAt": now_iso(),
+        "includesSecrets": true,
+        "providerCredentials": provider_credentials,
+        "customOpenaiProvider": custom_openai_provider,
+        "providerModelCatalog": provider_model_catalog
+      }
+    })))
+}
+
+async fn api_model_providers_config_import(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let payload = settings_import_payload(&body);
+    let credentials_section = settings_import_section(
+        payload,
+        &["providerCredentials", "credentials", "provider_credentials"],
+    )
+    .or_else(|| {
+        if settings_provider_entries_have_any_key(
+            payload,
+            &["apiKey", "baseUrl", "accessKey", "secretKey"],
+        ) {
+            Some(payload)
+        } else {
+            None
+        }
+    });
+    let custom_openai_section = settings_import_section(
+        payload,
+        &[
+            "customOpenaiProvider",
+            "customOpenAIProvider",
+            "customOpenai",
+            "custom_openai_provider",
+        ],
+    )
+    .or_else(|| {
+        if settings_has_any_key(
+            payload,
+            &[
+                "enabled",
+                "displayName",
+                "baseUrl",
+                "apiKey",
+                "textModels",
+                "availableTextModels",
+            ],
+        ) && !settings_provider_entries_have_any_key(
+            payload,
+            &["apiKey", "baseUrl", "accessKey", "secretKey", "models"],
+        ) {
+            Some(payload)
+        } else {
+            None
+        }
+    });
+    let catalog_section = settings_import_section(
+        payload,
+        &[
+            "providerModelCatalog",
+            "modelCatalog",
+            "provider_model_catalog",
+        ],
+    )
+    .or_else(|| {
+        if settings_provider_entries_have_any_key(
+            payload,
+            &["models", "availableModels", "syncedAt", "syncError"],
+        ) {
+            Some(payload)
+        } else {
+            None
+        }
+    });
+
+    if credentials_section.is_none() && custom_openai_section.is_none() && catalog_section.is_none()
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "导入数据缺少供应商配置",
+        ));
+    }
+
+    let conn = db_connection(&state)?;
+    let mut imported = Vec::<String>::new();
+    if let Some(section) = credentials_section {
+        let config = normalize_imported_provider_credentials(section)?;
+        set_config_json(&conn, PROVIDER_CREDENTIALS_KEY, &config)?;
+        imported.push("providerCredentials".to_string());
+    }
+    if let Some(section) = custom_openai_section {
+        let config = normalize_imported_custom_openai_config(section)?;
+        set_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY, &config)?;
+        imported.push("customOpenaiProvider".to_string());
+    }
+    if let Some(section) = catalog_section {
+        let config = normalize_imported_provider_model_catalog(section)?;
+        set_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY, &config)?;
+        imported.push("providerModelCatalog".to_string());
+    }
+
+    Ok(Json(json!({
+      "success": true,
+      "data": {
+        "imported": imported,
+        "providers": provider_summary(&conn)?
+      }
+    })))
+}
+
 /// 构造脱敏后的供应商凭证视图（不回传密钥明文，仅返回是否已配置 + Base URL）。
 fn provider_credentials_public(creds: &Value) -> Value {
     let mask =
@@ -6401,6 +6913,62 @@ async fn api_tos_config_put(
         }
     }
 
+    set_config_json(&conn, TOS_STORAGE_CONFIG_KEY, &config)?;
+    api_tos_config_get(State(state)).await
+}
+
+async fn api_tos_config_export(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let config = get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)?
+        .filter(Value::is_object)
+        .unwrap_or_else(default_tos_config);
+
+    Ok(Json(json!({
+      "success": true,
+      "data": {
+        "type": "playlet.tos_storage",
+        "version": SETTINGS_CONFIG_EXPORT_VERSION,
+        "exportedAt": now_iso(),
+        "includesSecrets": true,
+        "tosStorageConfig": config
+      }
+    })))
+}
+
+async fn api_tos_config_import(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let payload = settings_import_payload(&body);
+    let config_section = settings_import_section(
+        payload,
+        &["tosStorageConfig", "tosConfig", "tos_storage_config"],
+    )
+    .unwrap_or(payload);
+
+    if !settings_has_any_key(
+        config_section,
+        &[
+            "enabled",
+            "accessKeyId",
+            "secretKey",
+            "securityToken",
+            "region",
+            "endpoint",
+            "bucket",
+            "keyPrefix",
+            "publicBaseUrl",
+            "isCustomDomain",
+        ],
+    ) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "导入数据缺少 TOS 云存储配置",
+        ));
+    }
+
+    let config = normalize_imported_tos_config(config_section)?;
+    let conn = db_connection(&state)?;
     set_config_json(&conn, TOS_STORAGE_CONFIG_KEY, &config)?;
     api_tos_config_get(State(state)).await
 }
