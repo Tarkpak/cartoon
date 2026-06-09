@@ -17,7 +17,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'fs'
-import { execSync } from 'child_process'
+import { execFileSync, execSync, type ExecSyncOptions } from 'child_process'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import * as readline from 'readline'
@@ -130,11 +130,21 @@ function bumpVersion(currentVersion: string, type: string): string {
   return versionToString(v)
 }
 
+const GIT_BASH = 'C:\\Program Files\\Git\\bin\\bash.exe'
+
+function execCommand(cmd: string, options: ExecSyncOptions = {}): Buffer | string {
+  if (process.platform === 'win32') {
+    return execFileSync(GIT_BASH, ['-lc', cmd], options)
+  }
+
+  return execSync(cmd, options)
+}
+
 // 执行命令
 function run(cmd: string, options: { cwd?: string, stdio?: 'inherit' | 'pipe' } = {}): void {
   console.log(`> ${cmd}`)
   try {
-    execSync(cmd, {
+    execCommand(cmd, {
       cwd: ROOT,
       stdio: 'inherit',
       ...options
@@ -147,7 +157,7 @@ function run(cmd: string, options: { cwd?: string, stdio?: 'inherit' | 'pipe' } 
 
 // 获取命令输出
 function getOutput(cmd: string): string {
-  return execSync(cmd, { cwd: ROOT, encoding: 'utf-8' }).trim()
+  return execCommand(cmd, { cwd: ROOT, encoding: 'utf-8' }).toString().trim()
 }
 
 function shellQuote(value: string): string {
@@ -365,7 +375,7 @@ function pushRelease(branch: string, version: string): void {
 // 检查工作区是否干净
 function checkWorkingDirectory(): void {
   try {
-    const status = execSync('git status --porcelain', { cwd: ROOT, encoding: 'utf-8' })
+    const status = getOutput('git status --porcelain')
     if (status.trim()) {
       console.log('\n⚠️  工作区有未提交的更改:')
       console.log(status)
@@ -385,7 +395,7 @@ function deleteTag(version: string): void {
 
   // 删除本地 tag
   try {
-    execSync(`git tag -d ${tag}`, { cwd: ROOT, stdio: 'pipe' })
+    execCommand(`git tag -d ${tag}`, { cwd: ROOT, stdio: 'pipe' })
     console.log(`✅ 已删除本地 tag: ${tag}`)
   } catch {
     console.log(`ℹ️  本地 tag 不存在: ${tag}`)
@@ -393,7 +403,7 @@ function deleteTag(version: string): void {
 
   // 删除远程 tag
   try {
-    execSync(`git push origin :refs/tags/${tag}`, { cwd: ROOT, stdio: 'pipe' })
+    execCommand(`git push origin :refs/tags/${tag}`, { cwd: ROOT, stdio: 'pipe' })
     console.log(`✅ 已删除远程 tag: ${tag}`)
   } catch {
     console.log(`ℹ️  远程 tag 不存在: ${tag}`)
