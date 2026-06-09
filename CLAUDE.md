@@ -32,20 +32,32 @@ Historical prompt workflows are intentionally removed. When updating prompts, AP
 ## Common Commands
 
 ```bash
-bun dev                   # Start dev server
-bun build                 # Production build
-bun preview               # Preview production build
-bun dev:backend           # Start standalone Rust backend
-bun dev:frontend          # Start Vite frontend only
+bun dev                   # Run Rust backend + Vite frontend in parallel
+bun dev:backend           # Start only the Rust backend (cargo run --example playlet-backend)
+bun dev:frontend          # Start only the Vite frontend
+bun build                 # Production frontend build → .output/public
+bun preview               # Run the Rust backend serving the built frontend
 
-bun lint                  # Lint check
-bun lint:fix              # Lint and auto-fix
-bun typecheck             # vue-tsc type checking
-bun test                  # Run vitest
+bun lint                  # vue-tsc --noEmit (alias of typecheck; ESLint config has no active rules)
+bun typecheck             # vue-tsc --noEmit
+bun test                  # Run vitest (watch mode)
 bun test:coverage         # Run vitest with coverage
+
+# Run a single test file or filter by name:
+bun test app/lib/asset-workbench-api.test.ts
+bun test -t "parses script"
+
+# Desktop (Tauri) build & dev:
+bun desktop:dev           # build frontend then `tauri dev`
+bun desktop:build         # full desktop bundle with updater config
+
+# Rust check without running:
+cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-Note: vitest is configured but no test files currently exist in the project.
+Ports: Vite dev server runs on `:3000` and proxies `/api` to the Rust backend at `http://127.0.0.1:43127` (override with `RUST_BACKEND_URL`).
+
+Tests live alongside the code they cover (`app/lib/*.test.ts`, `app/composables/*.test.ts`, `shared/types/*.test.ts`). `bun lint`/`bun lint:fix` are both just `vue-tsc --noEmit` — there is no ESLint-based formatting step despite `eslint.config.mjs` existing (its rule set is empty). Match surrounding style manually; the codebase convention is no trailing commas, 2-space indent.
 
 ## Architecture
 
@@ -94,10 +106,15 @@ Large utility library (`app/lib/asset-workbench-*.ts`) containing pure functions
 
 Database initialization and bootstrap are handled in Rust startup (`start_server` + helper functions in `backend.rs` / split modules).
 
-### Path Aliases
+### Path Aliases & Auto-Imports
 
+Vite aliases (`vite.config.ts`):
+- `@` and `~` → `app/`
 - `#shared` → `shared/`
-- `@/components/*` → `app/components/*`
+
+Auto-imported (no manual import needed):
+- Vue, vue-router, and pinia APIs, plus `$fetch` from `ofetch` (`unplugin-auto-import`, declared in `auto-imports.d.ts`).
+- Everything under `app/composables/` (auto-import) and `app/components/` (auto-registered with directory namespacing; UI primitives under the `ui` namespace — see `components.d.ts`).
 
 ## Workflow Rules
 
@@ -145,6 +162,6 @@ When renaming routes or workflow identifiers, update both the server endpoint an
 - Gemini API Key 支持多 key 轮换（在设置表单内用逗号/分号/换行分隔）。
 - TOS cloud storage is opt-in (在设置中开启并填写完整凭证)。Without it, media files are stored locally.
 - Gemini video generation uses a separate code path (`/api/video/generate`) from the unified `generateVideo()` API.
-- Nitro experimental features enabled: `asyncContext` and `websocket`.
-- ESLint stylistic rules: `commaDangle: 'never'`, `braceStyle: '1tbs'`. No Prettier — ESLint handles formatting.
-- Production deploys via PM2 (`ecosystem.config.cjs`) on port 4000, CI/CD through GitHub Actions on `master` push.
+- This is a Tauri desktop app, not a server deployment. The frontend is static (`.output/public`); all backend logic runs in the embedded Rust process. There is no Nitro/PM2/Node server.
+- CI/CD: `.github/workflows/desktop-release.yml` builds and publishes desktop bundles, triggered on **git tag push** (use `bun run release` to cut a version and tag). It does not deploy on `master` push.
+- Rust backend (`src-tauri/src/backend.rs`, ~6.6k lines) is served via Axum on `/api/*` and split into `model_constraints`, `prompts_api`, and `runtime_api` submodules under `src-tauri/src/backend/`. The standalone dev entrypoint is the `playlet-backend` cargo example.
