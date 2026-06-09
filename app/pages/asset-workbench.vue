@@ -96,7 +96,7 @@ const {
 const { resolveStyleById, loadStylePresets } = useStylePresets()
 void loadStylePresets()
 
-const MAX_ASSET_UPLOAD_SIZE = 20 * 1024 * 1024
+const MAX_ASSET_UPLOAD_SIZE = 50 * 1024 * 1024
 const MAX_VOICE_UPLOAD_SIZE = 30 * 1024 * 1024
 const ENVIRONMENT_REFERENCE_ASPECT_RATIO = '16:9' as const
 const DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO = '2:1'

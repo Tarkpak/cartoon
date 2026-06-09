@@ -1,8 +1,11 @@
 import { z } from 'zod'
 import { persistImageToPublic } from '../../utils/image-storage'
 
+const MAX_IMAGE_UPLOAD_SIZE = 50 * 1024 * 1024
+const MAX_IMAGE_DATA_LENGTH = 70 * 1024 * 1024
+
 const UploadAssetImageSchema = z.object({
-  imageData: z.string().trim().min(1, '图片内容不能为空').max(35 * 1024 * 1024, '图片内容过大'),
+  imageData: z.string().trim().min(1, '图片内容不能为空').max(MAX_IMAGE_DATA_LENGTH, '图片内容过大'),
   prefix: z.string().trim().max(80).optional()
 })
 
@@ -41,6 +44,17 @@ export default defineEventHandler(async (event) => {
   }
 
   const imageData = parsed.data.imageData.trim()
+  if (imageData.startsWith('data:image/') || looksLikeBase64Image(imageData)) {
+    const estimatedBinarySize = Math.floor(imageData.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '').replace(/\s+/g, '').length * 3 / 4)
+    if (estimatedBinarySize > MAX_IMAGE_UPLOAD_SIZE) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Bad Request',
+        message: '图片大小不能超过 50MB'
+      })
+    }
+  }
+
   if (!isSupportedImageSource(imageData)) {
     throw createError({
       statusCode: 400,
