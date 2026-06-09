@@ -78,7 +78,7 @@ function handleOpenChange(nextOpen: boolean) {
           class="rounded-lg border bg-background p-3"
         >
           <p class="text-xs font-medium text-foreground">安装位置</p>
-          <p class="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+          <p class="mt-1 break-all font-mono text-xs text-muted-foreground">
             {{ managedPathLabel }}
           </p>
         </div>

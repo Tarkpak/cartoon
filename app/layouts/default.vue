@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, Boxes, FlaskConical, CloudCog } from 'lucide-vue-next'
+import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, Boxes, FlaskConical, CloudCog, ChevronsLeft, ChevronsRight } from 'lucide-vue-next'
 
 const route = useRoute()
 const { isDark, toggleTheme, initTheme } = useTheme()
+
+const appVersion = __APP_VERSION__
+const currentYear = new Date().getFullYear()
 
 // 侧边栏折叠状态
 const isCollapsed = useState('sidebar-collapsed', () => false)
@@ -120,38 +123,17 @@ onUnmounted(() => {
         size="icon"
         class="absolute -right-3 top-20 w-6 h-6 bg-muted border rounded-full flex items-center justify-center shadow-sm hover:bg-accent transition z-10"
         :title="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
+        :aria-label="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
         @click="isCollapsed = !isCollapsed"
       >
-        <svg
+        <ChevronsLeft
           v-if="!visualSidebarCollapsed"
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          class="text-muted-foreground"
-        >
-          <path d="m11 17-5-5 5-5" /><path d="m18 17-5-5 5-5" />
-        </svg>
-        <svg
+          class="h-3.5 w-3.5 text-muted-foreground"
+        />
+        <ChevronsRight
           v-else
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          class="text-muted-foreground"
-        >
-          <path d="m6 17 5-5-5-5" /><path d="m13 17 5-5-5-5" />
-        </svg>
+          class="h-3.5 w-3.5 text-muted-foreground"
+        />
       </Button>
 
       <!-- Logo -->
@@ -242,12 +224,14 @@ onUnmounted(() => {
       </nav>
 
       <!-- 主题切换 -->
-      <div class="px-4 pb-2">
+      <div class="px-4 pb-4">
         <Button
           type="button"
           variant="ghost"
           class="w-full flex items-center rounded-md transition-colors duration-200 text-muted-foreground hover:bg-accent hover:text-foreground"
           :class="visualSidebarCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5'"
+          :title="visualSidebarCollapsed ? (isDark ? '浅色模式' : '深色模式') : undefined"
+          :aria-label="isDark ? '切换到浅色模式' : '切换到深色模式'"
           @click="toggleTheme"
         >
           <Moon
@@ -260,29 +244,6 @@ onUnmounted(() => {
           />
           <span v-if="!visualSidebarCollapsed">{{ isDark ? '浅色模式' : '深色模式' }}</span>
         </Button>
-      </div>
-
-      <!-- 底部用户信息 -->
-      <div class="p-4 border-t">
-        <div
-          class="flex items-center rounded-md hover:bg-accent cursor-pointer transition-colors duration-200"
-          :class="visualSidebarCollapsed ? 'justify-center p-2' : 'space-x-3 px-3 py-2.5'"
-        >
-          <div class="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-foreground font-medium flex-shrink-0">
-            U
-          </div>
-          <template v-if="!visualSidebarCollapsed">
-            <div class="flex-1 min-w-0">
-              <div class="font-medium text-sm truncate">
-                用户名
-              </div>
-              <div class="text-xs text-muted-foreground">
-                免费版
-              </div>
-            </div>
-            <Settings class="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          </template>
-        </div>
       </div>
     </aside>
 
@@ -301,18 +262,8 @@ onUnmounted(() => {
         class="flex-shrink-0 px-8 py-6 border-t bg-card/50"
       >
         <div class="flex items-center justify-between text-sm text-muted-foreground">
-          <div class="flex items-center space-x-4">
-            <span>© 2025 playlet</span>
-            <a
-              href="#"
-              class="hover:text-foreground transition"
-            >帮助文档</a>
-            <a
-              href="#"
-              class="hover:text-foreground transition"
-            >反馈建议</a>
-          </div>
-          <div>v1.0.0</div>
+          <span>© {{ currentYear }} playlet</span>
+          <div>v{{ appVersion }}</div>
         </div>
       </footer>
     </main>

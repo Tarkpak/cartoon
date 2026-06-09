@@ -2,6 +2,8 @@
 import DesktopFfmpegInstallDialog from '@/components/desktop/DesktopFfmpegInstallDialog.vue'
 import DesktopUpdatePromptDialog from '@/components/desktop/DesktopUpdatePromptDialog.vue'
 import DefaultLayout from '@/layouts/default.vue'
+import Toaster from '@/components/ui/toast/Toaster.vue'
+import ConfirmHost from '@/components/ui/confirm/ConfirmHost.vue'
 import { useDesktopFfmpeg } from '@/composables/useDesktopFfmpeg'
 
 useHead({
@@ -37,5 +39,7 @@ onMounted(() => {
     <RouterView />
     <DesktopFfmpegInstallDialog />
     <DesktopUpdatePromptDialog />
+    <Toaster />
+    <ConfirmHost />
   </DefaultLayout>
 </template>

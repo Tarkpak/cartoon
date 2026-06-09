@@ -187,7 +187,7 @@ const videoReferenceMaterialReady = computed(() => {
           </Select>
           <span
             v-if="props.currentImageModelSizeHelp"
-            class="max-w-[260px] truncate text-[11px] text-muted-foreground/70"
+            class="max-w-[260px] truncate text-xs text-muted-foreground/70"
             :title="props.currentImageModelSizeHelp"
           >{{ props.currentImageModelSizeHelp }}</span>
         </div>
@@ -279,7 +279,7 @@ const videoReferenceMaterialReady = computed(() => {
 
       <p
         v-if="activeTab === 'image' && props.currentImageModelSupportsReference"
-        class="mt-1 text-[11px] text-muted-foreground/70"
+        class="mt-1 text-xs text-muted-foreground/70"
       >
         输入 `@` 可直接选择参考图
       </p>
@@ -333,7 +333,7 @@ const videoReferenceMaterialReady = computed(() => {
             :src="img"
             class="h-full w-full object-cover"
           >
-          <span class="absolute left-0.5 top-0.5 rounded bg-black/60 px-1 py-0.5 text-[10px] leading-none text-white">
+          <span class="absolute left-0.5 top-0.5 rounded bg-black/60 px-1 py-0.5 text-xs leading-none text-white">
             图{{ index + 1 }}
           </span>
           <Button
@@ -491,7 +491,7 @@ const videoReferenceMaterialReady = computed(() => {
               :src="img"
               class="h-full w-full object-cover"
             >
-            <span class="absolute left-0.5 top-0.5 rounded bg-black/60 px-1 py-0.5 text-[10px] leading-none text-white">
+            <span class="absolute left-0.5 top-0.5 rounded bg-black/60 px-1 py-0.5 text-xs leading-none text-white">
               图{{ index + 1 }}
             </span>
             <Button
@@ -553,7 +553,7 @@ const videoReferenceMaterialReady = computed(() => {
             />
             <div class="flex items-center justify-between gap-2 border-t px-2 py-1">
               <span
-                class="truncate text-[11px] text-muted-foreground"
+                class="truncate text-xs text-muted-foreground"
                 :title="props.videoReferenceVideoNames[index] || `参考视频 ${index + 1}`"
               >
                 {{ props.videoReferenceVideoNames[index] || `参考视频 ${index + 1}` }}
@@ -617,7 +617,7 @@ const videoReferenceMaterialReady = computed(() => {
               preload="metadata"
             />
             <span
-              class="max-w-[260px] truncate text-[11px] text-muted-foreground"
+              class="max-w-[260px] truncate text-xs text-muted-foreground"
               :title="props.videoAudioReferenceNames[index] || `参考音频 ${index + 1}`"
             >
               {{ props.videoAudioReferenceNames[index] || `参考音频 ${index + 1}` }}

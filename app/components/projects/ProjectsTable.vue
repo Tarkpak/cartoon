@@ -155,6 +155,7 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
                 size="icon"
                 class="h-8 w-8 text-muted-foreground opacity-100 transition-opacity hover:text-destructive focus-visible:opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
                 title="删除项目"
+                aria-label="删除项目"
                 @click="emit('confirm-delete', project, $event)"
               >
                 <Trash2 class="h-4 w-4" />

@@ -156,7 +156,7 @@ onMounted(() => {
         <div class="flex items-center justify-between">
           <label class="text-xs text-muted-foreground">API Key</label>
           <span
-            class="inline-flex items-center gap-1 text-[11px]"
+            class="inline-flex items-center gap-1 text-xs"
             :class="config.hasApiKey ? 'text-emerald-600' : 'text-muted-foreground'"
           >
             <component
@@ -181,18 +181,18 @@ onMounted(() => {
           class="min-h-20 text-sm"
           placeholder="gpt-4.1&#10;claude-sonnet-4-5"
         />
-        <p class="text-[11px] text-muted-foreground">
+        <p class="text-xs text-muted-foreground">
           保存配置后，可使用页面头部“同步模型”从供应商 /models 接口获取；也可以手动补充或修正模型 ID。
         </p>
         <p
           v-if="syncedAtLabel"
-          class="text-[11px] text-muted-foreground"
+          class="text-xs text-muted-foreground"
         >
           上次同步：{{ syncedAtLabel }}
         </p>
         <p
           v-if="config.modelsSyncError"
-          class="text-[11px] text-amber-600"
+          class="text-xs text-amber-600"
         >
           上次同步失败：{{ config.modelsSyncError }}
         </p>

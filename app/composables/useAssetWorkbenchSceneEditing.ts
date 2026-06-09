@@ -14,8 +14,17 @@ interface UseAssetWorkbenchSceneEditingOptions {
 export function useAssetWorkbenchSceneEditing(
   options: UseAssetWorkbenchSceneEditingOptions
 ) {
-  function deleteScene(scene: SceneData) {
-    if (!confirm(`确定要删除场景"${scene.title}"吗？`)) return
+  const { toast } = useToast()
+  const { confirm } = useConfirm()
+
+  async function deleteScene(scene: SceneData) {
+    const ok = await confirm({
+      title: '删除场景',
+      description: `确定要删除场景"${scene.title}"吗？此操作无法撤销。`,
+      confirmText: '删除',
+      variant: 'destructive'
+    })
+    if (!ok) return
     options.scenes.value = deleteSceneFromList(options.scenes.value, scene.id)
     void options.saveProject()
   }
@@ -24,9 +33,9 @@ export function useAssetWorkbenchSceneEditing(
     options.scenes.value = updateSceneInList(options.scenes.value, updatedScene)
   }
 
-  function mergeWithNextScene(sceneIndex: number) {
+  async function mergeWithNextScene(sceneIndex: number) {
     if (sceneIndex >= options.scenes.value.length - 1) {
-      alert('这是最后一个场景，无法向后合并')
+      toast.warning('这是最后一个场景，无法向后合并')
       return
     }
 
@@ -34,7 +43,12 @@ export function useAssetWorkbenchSceneEditing(
     const nextScene = options.scenes.value[sceneIndex + 1]
     if (!currentScene || !nextScene) return
 
-    if (!confirm(`确定要将"${currentScene.title}"与"${nextScene.title}"合并吗？`)) return
+    const ok = await confirm({
+      title: '合并场景',
+      description: `确定要将"${currentScene.title}"与"${nextScene.title}"合并吗？`,
+      confirmText: '合并'
+    })
+    if (!ok) return
 
     const nextScenes = mergeScenesInList(options.scenes.value, sceneIndex)
     if (!nextScenes) return
@@ -43,17 +57,22 @@ export function useAssetWorkbenchSceneEditing(
     void options.saveProject()
   }
 
-  function splitScene(sceneIndex: number) {
+  async function splitScene(sceneIndex: number) {
     const scene = options.scenes.value[sceneIndex]
     if (!scene) return
 
     const sentences = scene.description.split(/(?<=[。！？.!?])/g).filter(item => item.trim())
     if (sentences.length < 2) {
-      alert('场景描述太短，无法拆分。请先在编辑对话框中添加更多内容。')
+      toast.warning('场景描述太短，无法拆分', { description: '请先在编辑对话框中添加更多内容。' })
       return
     }
 
-    if (!confirm(`确定要将"${scene.title}"拆分为两个场景吗？`)) return
+    const ok = await confirm({
+      title: '拆分场景',
+      description: `确定要将"${scene.title}"拆分为两个场景吗？`,
+      confirmText: '拆分'
+    })
+    if (!ok) return
 
     const nextScenes = splitSceneInList(options.scenes.value, sceneIndex)
     if (!nextScenes) return

@@ -140,7 +140,7 @@ const styleIsPro = useStyleFormField('isPro')
               v-model="styleThumbnail"
               placeholder="https://playlet-ai.tos-cn-guangzhou.volces.com/manju-assets/styles/example.webp"
             />
-            <p class="text-[11px] text-muted-foreground">
+            <p class="text-xs text-muted-foreground">
               请填写云存储 URL，避免使用本地路径（如 /styles/...）
             </p>
           </div>

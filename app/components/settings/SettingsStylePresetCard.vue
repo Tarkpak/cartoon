@@ -39,13 +39,13 @@ const categoryIcon = computed(() => resolveStyleCategoryIcon(props.stylePreset.c
       >
       <div
         v-else
-        class="flex h-full w-full items-center justify-center text-[11px] text-muted-foreground/50"
+        class="flex h-full w-full items-center justify-center text-xs text-muted-foreground/50"
       >
         无缩略图
       </div>
 
       <!-- Category badge -->
-      <div class="absolute left-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+      <div class="absolute left-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
         <component
           :is="categoryIcon"
           class="h-2.5 w-2.5"
@@ -56,7 +56,7 @@ const categoryIcon = computed(() => resolveStyleCategoryIcon(props.stylePreset.c
       <!-- Default badge -->
       <div
         v-if="isDefault"
-        class="absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-yellow-500/90 px-1.5 py-0.5 text-[10px] font-medium text-white"
+        class="absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-yellow-500/90 px-1.5 py-0.5 text-xs font-medium text-white"
       >
         <Star class="h-2.5 w-2.5" />
         默认
@@ -68,7 +68,7 @@ const categoryIcon = computed(() => resolveStyleCategoryIcon(props.stylePreset.c
           <Button
             variant="secondary"
             size="sm"
-            class="h-7 flex-1 gap-1 bg-white/90 text-[11px] font-medium text-foreground shadow-sm backdrop-blur-sm hover:bg-white"
+            class="h-7 flex-1 gap-1 bg-white/90 text-xs font-medium text-foreground shadow-sm backdrop-blur-sm hover:bg-white"
             @click="$emit('edit', stylePreset)"
           >
             <Pencil class="h-3 w-3" />
@@ -103,7 +103,7 @@ const categoryIcon = computed(() => resolveStyleCategoryIcon(props.stylePreset.c
         </div>
         <div
           v-if="stylePreset.nameEn"
-          class="mt-0.5 truncate text-[11px] text-muted-foreground"
+          class="mt-0.5 truncate text-xs text-muted-foreground"
         >
           {{ stylePreset.nameEn }}
         </div>
@@ -112,7 +112,7 @@ const categoryIcon = computed(() => resolveStyleCategoryIcon(props.stylePreset.c
       <!-- Footer actions -->
       <div class="flex items-center justify-between border-t pt-2">
         <label
-          class="inline-flex cursor-pointer items-center gap-1.5 text-[11px]"
+          class="inline-flex cursor-pointer items-center gap-1.5 text-xs"
           @click.stop
         >
           <Switch
@@ -127,7 +127,7 @@ const categoryIcon = computed(() => resolveStyleCategoryIcon(props.stylePreset.c
           v-if="!isDefault"
           size="sm"
           variant="ghost"
-          class="h-6 gap-0.5 px-1.5 text-[11px] text-muted-foreground"
+          class="h-6 gap-0.5 px-1.5 text-xs text-muted-foreground"
           :disabled="!enabled"
           @click="$emit('set-default', stylePreset.id)"
         >

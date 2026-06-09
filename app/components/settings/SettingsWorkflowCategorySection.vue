@@ -61,7 +61,7 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
               {{ workflow.name }}
             </h4>
             <span
-              class="rounded px-1.5 py-0.5 text-[10px]"
+              class="rounded px-1.5 py-0.5 text-xs"
               :class="getWorkflowStatusClass(workflow)"
             >
               {{ getWorkflowStatusLabel(workflow) }}
@@ -69,7 +69,7 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
             <span
               v-for="cap in workflow.requiredCapabilities"
               :key="cap"
-              class="rounded bg-red-100 px-1.5 py-0.5 text-[10px] text-red-700 dark:bg-red-900 dark:text-red-300"
+              class="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700 dark:bg-red-900 dark:text-red-300"
             >
               {{ props.getCapabilityLabel(cap) }}
             </span>
@@ -134,7 +134,7 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
           <span
             v-for="cap in (getSelectedModel(workflow)?.capabilities || [])"
             :key="cap"
-            class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
           >{{ cap }}</span>
         </div>
 

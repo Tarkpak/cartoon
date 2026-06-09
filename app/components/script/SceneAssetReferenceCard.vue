@@ -52,7 +52,7 @@ const secondaryText = computed(() => {
     >
     <div
       v-else
-      class="flex h-8 w-8 items-center justify-center rounded border bg-muted/30 text-[10px] text-muted-foreground"
+      class="flex h-8 w-8 items-center justify-center rounded border bg-muted/30 text-xs text-muted-foreground"
     >
       {{ previewLabel }}
     </div>
@@ -62,14 +62,14 @@ const secondaryText = computed(() => {
       </p>
       <p
         v-if="secondaryText"
-        class="truncate text-[10px] text-muted-foreground"
+        class="truncate text-xs text-muted-foreground"
       >
         {{ secondaryText }}
       </p>
     </div>
     <Badge
       :variant="badgeVariant"
-      class="text-[10px]"
+      class="text-xs"
     >
       {{ resolveAssetTypeLabel(asset.type) }}
     </Badge>

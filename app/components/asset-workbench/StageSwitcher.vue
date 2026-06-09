@@ -48,7 +48,7 @@ const emit = defineEmits<{
         >
           <!-- Step indicator -->
           <span
-            class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold transition-colors"
+            class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors"
             :class="[
               activeStage === stage.key
                 ? 'bg-primary-foreground/20 text-primary-foreground'

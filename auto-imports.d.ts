@@ -99,6 +99,7 @@ declare global {
   const useAttrs: typeof import('vue')['useAttrs']
   const useCharacter: typeof import('./app/composables/useCharacter')['useCharacter']
   const useCompletionNotificationSettings: typeof import('./app/composables/useCompletionNotificationSettings')['useCompletionNotificationSettings']
+  const useConfirm: typeof import('./app/composables/useConfirm')['useConfirm']
   const useCssModule: typeof import('vue')['useCssModule']
   const useCssVars: typeof import('vue')['useCssVars']
   const useDesktopFfmpeg: typeof import('./app/composables/useDesktopFfmpeg')['useDesktopFfmpeg']
@@ -131,6 +132,7 @@ declare global {
   const useStylePresets: typeof import('./app/composables/useStylePresets')['useStylePresets']
   const useTemplateRef: typeof import('vue')['useTemplateRef']
   const useTheme: typeof import('./app/composables/useTheme')['useTheme']
+  const useToast: typeof import('./app/composables/useToast')['useToast']
   const watch: typeof import('vue')['watch']
   const watchEffect: typeof import('vue')['watchEffect']
   const watchPostEffect: typeof import('vue')['watchPostEffect']
@@ -154,6 +156,9 @@ declare global {
   export type { GenerateCharacterOptions } from './app/composables/useCharacter'
   import('./app/composables/useCharacter')
   // @ts-ignore
+  export type { ConfirmOptions } from './app/composables/useConfirm'
+  import('./app/composables/useConfirm')
+  // @ts-ignore
   export type { DesktopFfmpegStatus } from './app/composables/useDesktopFfmpeg'
   import('./app/composables/useDesktopFfmpeg')
   // @ts-ignore
@@ -174,6 +179,9 @@ declare global {
   // @ts-ignore
   export type { CompatibleModel, WorkflowConfig, WorkflowData, WorkflowCategoryKey, WorkflowCategoryMeta, WorkflowCategorySummary } from './app/composables/useSettingsWorkflowModels'
   import('./app/composables/useSettingsWorkflowModels')
+  // @ts-ignore
+  export type { ToastVariant, ToastItem, ToastOptions } from './app/composables/useToast'
+  import('./app/composables/useToast')
 }
 
 // for vue template auto import
@@ -274,6 +282,7 @@ declare module 'vue' {
     readonly useAttrs: UnwrapRef<typeof import('vue')['useAttrs']>
     readonly useCharacter: UnwrapRef<typeof import('./app/composables/useCharacter')['useCharacter']>
     readonly useCompletionNotificationSettings: UnwrapRef<typeof import('./app/composables/useCompletionNotificationSettings')['useCompletionNotificationSettings']>
+    readonly useConfirm: UnwrapRef<typeof import('./app/composables/useConfirm')['useConfirm']>
     readonly useCssModule: UnwrapRef<typeof import('vue')['useCssModule']>
     readonly useCssVars: UnwrapRef<typeof import('vue')['useCssVars']>
     readonly useDesktopFfmpeg: UnwrapRef<typeof import('./app/composables/useDesktopFfmpeg')['useDesktopFfmpeg']>
@@ -306,6 +315,7 @@ declare module 'vue' {
     readonly useStylePresets: UnwrapRef<typeof import('./app/composables/useStylePresets')['useStylePresets']>
     readonly useTemplateRef: UnwrapRef<typeof import('vue')['useTemplateRef']>
     readonly useTheme: UnwrapRef<typeof import('./app/composables/useTheme')['useTheme']>
+    readonly useToast: UnwrapRef<typeof import('./app/composables/useToast')['useToast']>
     readonly watch: UnwrapRef<typeof import('vue')['watch']>
     readonly watchEffect: UnwrapRef<typeof import('vue')['watchEffect']>
     readonly watchPostEffect: UnwrapRef<typeof import('vue')['watchPostEffect']>

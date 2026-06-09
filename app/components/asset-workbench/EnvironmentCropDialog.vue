@@ -438,7 +438,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="flex h-9 min-w-[260px] flex-1 items-center gap-2 rounded-md border bg-muted/20 px-3">
-            <span class="w-8 shrink-0 text-[11px] text-muted-foreground">缩放</span>
+            <span class="w-8 shrink-0 text-xs text-muted-foreground">缩放</span>
             <Slider
               :model-value="[zoomFovDegrees]"
               :min="MIN_VIEW_FOV_DEGREES"
@@ -448,7 +448,7 @@ onBeforeUnmount(() => {
               :disabled="loadingPreview || !selection"
               @update:model-value="handleZoomSliderChange"
             />
-            <span class="w-10 shrink-0 text-right text-[11px] font-medium">
+            <span class="w-10 shrink-0 text-right text-xs font-medium">
               {{ zoomFovLabel }}
             </span>
           </div>

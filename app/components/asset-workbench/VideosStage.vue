@@ -429,10 +429,12 @@ async function handleParseSelectedEpisode() {
   parseEpisodeError.value = ''
 
   if (selectedEpisodeHasParsedScenes.value) {
-    const confirmed = window.confirm(
-      `当前分集已存在 ${selectedEpisodeScenes.value.length} 个场景。\n`
-      + '重新解析将覆盖本集场景并重置本集视频状态，是否继续？'
-    )
+    const confirmed = await useConfirm().confirm({
+      title: '重新解析本集',
+      description: `当前分集已存在 ${selectedEpisodeScenes.value.length} 个场景。重新解析将覆盖本集场景并重置本集视频状态，是否继续？`,
+      confirmText: '重新解析',
+      variant: 'destructive'
+    })
     if (!confirmed) return
   }
 
@@ -487,9 +489,15 @@ watch(episodeDirectoryCollapsed, (value) => {
   <template v-else>
     <!-- Stats & actions -->
     <div class="shrink-0 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-      <div class="flex items-center gap-4">
+      <div
+        class="flex items-center gap-4"
+        aria-live="polite"
+      >
         <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span class="inline-block h-2 w-2 rounded-full bg-blue-500" />
+          <span
+            class="inline-block h-2 w-2 rounded-full bg-blue-500"
+            aria-hidden="true"
+          />
           场景 {{ scenes.length }}
         </div>
         <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -520,7 +528,8 @@ watch(episodeDirectoryCollapsed, (value) => {
         </div>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- 生成 -->
         <Button
           size="sm"
           :disabled="autoRunning"
@@ -541,6 +550,12 @@ watch(episodeDirectoryCollapsed, (value) => {
         >
           仅生成{{ selectedEpisodeTitle }}
         </Button>
+
+        <!-- 修复 -->
+        <span
+          class="mx-1 hidden h-5 w-px bg-border sm:block"
+          aria-hidden="true"
+        />
         <Button
           size="sm"
           variant="outline"
@@ -549,10 +564,12 @@ watch(episodeDirectoryCollapsed, (value) => {
         >
           重试失败场景
         </Button>
+
+        <!-- 导出（工具类操作，弱化并靠右分离） -->
         <Button
           size="sm"
-          variant="outline"
-          class="gap-2"
+          variant="ghost"
+          class="gap-2 text-muted-foreground sm:ml-auto"
           :disabled="exportingScriptDocx || scenes.length === 0"
           @click="onExportFormattedScriptDocx()"
         >
@@ -593,7 +610,7 @@ watch(episodeDirectoryCollapsed, (value) => {
                   <div class="text-xs font-medium text-foreground">
                     分集目录
                   </div>
-                  <div class="mt-0.5 text-[11px] text-muted-foreground">
+                  <div class="mt-0.5 text-xs text-muted-foreground">
                     共 {{ episodeCount }} 集
                   </div>
                 </div>
@@ -619,7 +636,7 @@ watch(episodeDirectoryCollapsed, (value) => {
                 >
                   {{ resolveEpisodeDisplayTitle(episode) }}
                 </div>
-                <div class="mt-0.5 text-[11px] text-muted-foreground">
+                <div class="mt-0.5 text-xs text-muted-foreground">
                   {{ resolveEpisodeStatsText(episode) }}
                 </div>
               </Button>
@@ -629,7 +646,7 @@ watch(episodeDirectoryCollapsed, (value) => {
               class="space-y-2 border-t border-border/60 px-3 py-2"
             >
               <div class="space-y-1">
-                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                   <span v-if="selectedEpisodeDirectoryItem.startOffset !== null && selectedEpisodeDirectoryItem.endOffset !== null">
                     范围 {{ selectedEpisodeDirectoryItem.startOffset }} - {{ selectedEpisodeDirectoryItem.endOffset }}
                   </span>
@@ -642,7 +659,7 @@ watch(episodeDirectoryCollapsed, (value) => {
                 </div>
                 <p
                   v-if="selectedEpisodeDirectoryItem.overview"
-                  class="line-clamp-2 text-[11px] text-foreground/75"
+                  class="line-clamp-2 text-xs text-foreground/75"
                   :title="`概览：${selectedEpisodeDirectoryItem.overview}`"
                 >
                   概览：{{ selectedEpisodeDirectoryItem.overview }}
@@ -667,13 +684,13 @@ watch(episodeDirectoryCollapsed, (value) => {
               </Button>
               <p
                 v-if="selectedEpisodeParsing"
-                class="rounded-md border border-border/60 bg-background px-2 py-1.5 text-[11px] text-muted-foreground"
+                class="rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs text-muted-foreground"
               >
                 {{ parseProgressMessage || '本集解析任务已创建，等待模型响应' }}
               </p>
               <p
                 v-else-if="parseEpisodeError"
-                class="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[11px] text-destructive"
+                class="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs text-destructive"
               >
                 {{ parseEpisodeError }}
               </p>

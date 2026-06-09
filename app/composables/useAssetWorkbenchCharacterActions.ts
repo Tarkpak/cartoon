@@ -89,9 +89,10 @@ export function useAssetWorkbenchCharacterActions(options: {
       return
     }
 
+    const { toast } = useToast()
     const nextName = characterEditDraft.name.trim()
     if (!nextName) {
-      alert('角色名称不能为空')
+      toast.warning('角色名称不能为空')
       return
     }
 
@@ -111,8 +112,9 @@ export function useAssetWorkbenchCharacterActions(options: {
   }
 
   function openCharacterRegenerateDialog(char: CharacterData) {
+    const { toast } = useToast()
     if (!char.baseImage?.trim()) {
-      alert('请先生成角色图，再进行二次生成')
+      toast.warning('请先生成角色图，再进行二次生成')
       return
     }
     characterRegenerateTargetId.value = char.id

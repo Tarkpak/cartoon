@@ -189,7 +189,13 @@ export function useModelDebugLogs() {
   }
 
   async function clearLogs() {
-    if (!confirm('确定要清空所有模型调用日志吗？')) return
+    const confirmed = await useConfirm().confirm({
+      title: '清空调用日志',
+      description: '确定要清空所有模型调用日志吗？此操作无法撤销。',
+      confirmText: '清空',
+      variant: 'destructive'
+    })
+    if (!confirmed) return
     clearing.value = true
     try {
       await $fetch('/api/debug/model-logs', { method: 'DELETE' })

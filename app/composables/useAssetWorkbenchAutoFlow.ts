@@ -57,7 +57,7 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
 
   async function handleMergeVideos(input?: FinalMergeOptions) {
     if (options.scenes.value.length === 0) {
-      alert('请先生成分镜视频')
+      useToast().toast.warning('请先生成分镜视频')
       return
     }
 

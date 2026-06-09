@@ -94,7 +94,7 @@ function toSelectString(value: unknown): string {
           <Button
             variant="outline"
             size="sm"
-            class="h-7 px-2 text-[11px]"
+            class="h-7 px-2 text-xs"
             :disabled="props.profileBusy"
             @click="emit('create-profile')"
           >
@@ -104,7 +104,7 @@ function toSelectString(value: unknown): string {
           <Button
             variant="outline"
             size="sm"
-            class="h-7 px-2 text-[11px]"
+            class="h-7 px-2 text-xs"
             :disabled="props.profileBusy || !props.canRenameProfile"
             @click="emit('rename-profile')"
           >
@@ -114,7 +114,7 @@ function toSelectString(value: unknown): string {
           <Button
             variant="outline"
             size="sm"
-            class="h-7 px-2 text-[11px] text-destructive hover:text-destructive"
+            class="h-7 px-2 text-xs text-destructive hover:text-destructive"
             :disabled="props.profileBusy || !props.canDeleteProfile"
             @click="emit('delete-profile')"
           >
@@ -163,7 +163,7 @@ function toSelectString(value: unknown): string {
               <div class="text-sm font-medium">
                 {{ group.name }}
               </div>
-              <div class="text-[11px] text-muted-foreground">
+              <div class="text-xs text-muted-foreground">
                 {{ group.templates.length }} 个模板
               </div>
             </div>
@@ -222,7 +222,7 @@ function toSelectString(value: unknown): string {
 
                   <span
                     v-if="template.isCustomized && !props.activeProfileReadonly"
-                    class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                    class="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300"
                   >
                     已自定义
                   </span>

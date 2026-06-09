@@ -51,7 +51,7 @@ const fallbackLabel = computed(() => {
     >
     <div
       v-else
-      class="flex h-full w-full items-center justify-center bg-muted text-[9px] font-semibold text-muted-foreground"
+      class="flex h-full w-full items-center justify-center bg-muted text-xs font-semibold text-muted-foreground"
     >
       {{ fallbackLabel }}
     </div>

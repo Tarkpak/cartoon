@@ -120,11 +120,15 @@ const hasSeedAssets = computed(() => {
   <template v-else>
     <!-- Status bar & actions -->
     <div class="shrink-0 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-      <div class="flex items-center gap-4">
+      <div
+        class="flex items-center gap-4"
+        aria-live="polite"
+      >
         <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span
             class="inline-block h-2 w-2 rounded-full"
             :class="characterReadyCount === characters.length ? 'bg-emerald-500' : 'bg-amber-500'"
+            aria-hidden="true"
           />
           角色图 {{ characterReadyCount }}/{{ characters.length }}
         </div>
@@ -139,7 +143,10 @@ const hasSeedAssets = computed(() => {
           v-if="characterMissingCount > 0"
           class="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"
         >
-          <span class="inline-block h-2 w-2 rounded-full bg-amber-500" />
+          <span
+            class="inline-block h-2 w-2 rounded-full bg-amber-500"
+            aria-hidden="true"
+          />
           待生成 {{ characterMissingCount }}
         </div>
         <div

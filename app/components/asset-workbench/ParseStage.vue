@@ -68,6 +68,8 @@ const emit = defineEmits<{
   (e: 'prepare-episodes' | 'clear-episode-plan'): void
 }>()
 
+const { toast } = useToast()
+
 function isTextFile(file: File): boolean {
   if (file.type.startsWith('text/')) return true
 
@@ -122,14 +124,14 @@ async function handleDrop(event: DragEvent) {
   const fileList = Array.from(files)
   const textFile = fileList.find(isTextFile)
   if (!textFile) {
-    window.alert('请拖拽文本文件（.txt /.md）')
+    toast.warning('请拖拽文本文件', { description: '仅支持 .txt / .md 文本文件。' })
     return
   }
 
   try {
     const fileText = (await textFile.text()).replace(/^\uFEFF/, '')
     if (!fileText.trim()) {
-      window.alert('文本文件内容为空，请检查后重试')
+      toast.warning('文本文件内容为空，请检查后重试')
       return
     }
 
@@ -137,7 +139,7 @@ async function handleDrop(event: DragEvent) {
     emit('prepare-episodes')
   } catch (error) {
     console.error('[ParseStage] 读取文本文件失败:', error)
-    window.alert('文本文件读取失败，请重试')
+    toast.error('文本文件读取失败，请重试')
   }
 }
 </script>
@@ -204,13 +206,20 @@ async function handleDrop(event: DragEvent) {
       <div
         v-if="scenesCount > 0 || charactersCount > 0"
         class="flex items-center gap-2 text-xs text-muted-foreground"
+        aria-live="polite"
       >
         <span class="inline-flex items-center gap-1">
-          <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <span
+            class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"
+            aria-hidden="true"
+          />
           {{ scenesCount }} 个场景
         </span>
         <span class="inline-flex items-center gap-1">
-          <span class="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
+          <span
+            class="inline-block h-1.5 w-1.5 rounded-full bg-blue-500"
+            aria-hidden="true"
+          />
           {{ charactersCount }} 个角色
         </span>
       </div>
@@ -226,6 +235,8 @@ async function handleDrop(event: DragEvent) {
     <div
       v-if="parsing"
       class="shrink-0 rounded-md border border-primary/20 bg-primary/5 p-3"
+      role="status"
+      aria-live="polite"
     >
       <div class="flex items-center justify-between gap-2 text-xs">
         <p class="text-foreground/90">
@@ -243,13 +254,14 @@ async function handleDrop(event: DragEvent) {
       </div>
       <p
         v-if="parseProgressChunkText"
-        class="mt-2 text-[11px] text-muted-foreground"
+        class="mt-2 text-xs text-muted-foreground"
       >
         {{ parseProgressChunkText }}
       </p>
       <ul
         v-if="parseProgressLogs.length > 0"
-        class="mt-2 max-h-28 space-y-1 overflow-y-auto text-[11px] text-muted-foreground"
+        class="mt-2 max-h-28 space-y-1 overflow-y-auto text-xs text-muted-foreground"
+        aria-hidden="true"
       >
         <li
           v-for="item in parseProgressLogs"

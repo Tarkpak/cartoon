@@ -64,7 +64,7 @@ const emit = defineEmits<{
 
     <!-- Models header -->
     <div class="px-3 py-2">
-      <h3 class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
+      <h3 class="text-xs font-medium uppercase tracking-wider text-muted-foreground/60">
         可用模型
       </h3>
     </div>
@@ -92,7 +92,7 @@ const emit = defineEmits<{
             />
           </div>
           <span class="flex-1 truncate text-sm font-medium">{{ group.displayName }}</span>
-          <span class="text-[11px] text-muted-foreground/60">{{ group.models.length }}</span>
+          <span class="text-xs text-muted-foreground/60">{{ group.models.length }}</span>
         </div>
 
         <!-- Models list -->
@@ -121,7 +121,7 @@ const emit = defineEmits<{
 
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1">
-                <span class="truncate text-[13px]">{{ model.displayName }}</span>
+                <span class="truncate text-sm">{{ model.displayName }}</span>
                 <a
                   v-if="getModelDocUrl(model)"
                   :href="getModelDocUrl(model)"
@@ -139,15 +139,15 @@ const emit = defineEmits<{
               >
                 <span
                   v-if="modelSupportsThinking(model)"
-                  class="rounded bg-purple-500/10 px-1 py-0.5 text-[9px] text-purple-600 dark:text-purple-400"
+                  class="rounded bg-purple-500/10 px-1 py-0.5 text-xs text-purple-600 dark:text-purple-400"
                 >思考</span>
                 <span
                   v-if="modelSupportsReferenceImage(model)"
-                  class="rounded bg-cyan-500/10 px-1 py-0.5 text-[9px] text-cyan-600 dark:text-cyan-400"
+                  class="rounded bg-cyan-500/10 px-1 py-0.5 text-xs text-cyan-600 dark:text-cyan-400"
                 >参考图</span>
                 <span
                   v-if="getModelMaxDuration(model)"
-                  class="rounded bg-muted px-1 py-0.5 text-[9px] text-muted-foreground"
+                  class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground"
                 >{{ getModelMaxDuration(model) }}s</span>
               </div>
             </div>

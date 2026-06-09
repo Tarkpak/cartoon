@@ -119,7 +119,7 @@ defineProps<{
             >
             <div
               v-else
-              class="flex h-7 w-7 items-center justify-center rounded border bg-muted/30 text-[10px] text-muted-foreground"
+              class="flex h-7 w-7 items-center justify-center rounded border bg-muted/30 text-xs text-muted-foreground"
             >
               {{ resolveAssetTypeLabel(item.asset.type) }}
             </div>
@@ -127,13 +127,13 @@ defineProps<{
               <p class="truncate text-xs">
                 {{ item.token }}
               </p>
-              <p class="truncate text-[10px] text-muted-foreground">
+              <p class="truncate text-xs text-muted-foreground">
                 {{ item.asset.name }}
               </p>
             </div>
             <Badge
               variant="outline"
-              class="text-[10px]"
+              class="text-xs"
             >
               {{ resolveAssetTypeLabel(item.asset.type) }}
             </Badge>

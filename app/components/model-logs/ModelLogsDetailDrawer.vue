@@ -315,7 +315,7 @@ watch(open, (value) => {
                   type="button"
                   size="sm"
                   variant="outline"
-                  class="h-7 gap-1.5 px-2 text-[11px]"
+                  class="h-7 gap-1.5 px-2 text-xs"
                   :disabled="!requestReadable || copyingSection === 'request-readable'"
                   @click="copySection('request-readable', requestReadable)"
                 >
@@ -378,7 +378,7 @@ watch(open, (value) => {
                   type="button"
                   size="sm"
                   variant="outline"
-                  class="h-7 gap-1.5 px-2 text-[11px]"
+                  class="h-7 gap-1.5 px-2 text-xs"
                   :disabled="!responseReadable || copyingSection === 'response-readable'"
                   @click="copySection('response-readable', responseReadable)"
                 >
@@ -443,7 +443,7 @@ watch(open, (value) => {
                   type="button"
                   size="sm"
                   variant="outline"
-                  class="h-7 gap-1.5 px-2 text-[11px]"
+                  class="h-7 gap-1.5 px-2 text-xs"
                   :disabled="!requestRaw || copyingSection === 'request-raw'"
                   @click="copySection('request-raw', requestRaw)"
                 >
@@ -470,7 +470,7 @@ watch(open, (value) => {
                   type="button"
                   size="sm"
                   variant="outline"
-                  class="h-7 gap-1.5 px-2 text-[11px]"
+                  class="h-7 gap-1.5 px-2 text-xs"
                   :disabled="!responseRaw || copyingSection === 'response-raw'"
                   @click="copySection('response-raw', responseRaw)"
                 >

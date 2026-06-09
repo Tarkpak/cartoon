@@ -116,7 +116,7 @@ function getProviderBadge(provider: string) {
               <span class="font-medium text-sm">{{ model.displayName }}</span>
               <span
                 :class="[
-                  'px-1.5 py-0.5 text-[10px] rounded',
+                  'px-1.5 py-0.5 text-xs rounded',
                   getProviderBadge(model.provider).class
                 ]"
               >

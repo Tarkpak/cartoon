@@ -168,7 +168,7 @@ onMounted(() => {
             <div class="flex items-center justify-between">
               <label class="text-xs text-muted-foreground">Secret Key</label>
               <span
-                class="inline-flex items-center gap-1 text-[11px]"
+                class="inline-flex items-center gap-1 text-xs"
                 :class="hasSecretKey ? 'text-emerald-600' : 'text-muted-foreground'"
               >
                 <component
@@ -226,7 +226,7 @@ onMounted(() => {
             <div class="flex items-center justify-between">
               <label class="text-xs text-muted-foreground">Security Token（可选）</label>
               <span
-                class="inline-flex items-center gap-1 text-[11px]"
+                class="inline-flex items-center gap-1 text-xs"
                 :class="hasSecurityToken ? 'text-emerald-600' : 'text-muted-foreground'"
               >
                 <component

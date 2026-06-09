@@ -172,7 +172,7 @@ function resolveHistoryCount(char: CharacterData): number {
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
             <span class="truncate text-sm font-medium">{{ char.name }}</span>
-            <span class="shrink-0 text-[10px] text-muted-foreground/70">{{ resolveCharacterRoleLabel(char.role) }}</span>
+            <span class="shrink-0 text-xs text-muted-foreground/70">{{ resolveCharacterRoleLabel(char.role) }}</span>
           </div>
 
           <template v-if="editingCharacterId === char.id">
@@ -207,7 +207,7 @@ function resolveHistoryCount(char: CharacterData): number {
             <p class="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
               {{ char.appearance || '暂无外观描述' }}
             </p>
-            <div class="mt-1.5 flex items-center gap-3 text-[11px] text-muted-foreground/70">
+            <div class="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground/70">
               <span>{{ getCharacterSceneCount(char) }} 个场景</span>
               <span class="flex items-center gap-1">
                 <span
@@ -231,7 +231,7 @@ function resolveHistoryCount(char: CharacterData): number {
               <p class="text-xs font-medium">
                 角色参考音频
               </p>
-              <p class="text-[11px] text-muted-foreground">
+              <p class="text-xs text-muted-foreground">
                 {{ resolveVoiceSourceLabel(char) }}
                 <span v-if="resolveVoiceUpdatedText(char)"> · {{ resolveVoiceUpdatedText(char) }}</span>
               </p>
@@ -239,7 +239,7 @@ function resolveHistoryCount(char: CharacterData): number {
           </div>
           <div
             v-if="char.voiceAsset?.audioUrl"
-            class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] text-muted-foreground"
+            class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs text-muted-foreground"
           >
             <Lock
               v-if="char.voiceAsset.locked"
@@ -261,22 +261,22 @@ function resolveHistoryCount(char: CharacterData): number {
           />
           <div class="flex flex-col gap-2 rounded-md bg-muted/35 px-2.5 py-2 lg:flex-row lg:items-center lg:justify-between">
             <div class="min-w-0">
-              <p class="text-[11px] font-medium">
+              <p class="text-xs font-medium">
                 后续分镜视频生成时自动作为该角色声音参考
               </p>
               <p
                 v-if="char.voiceAsset.transcript"
-                class="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground"
+                class="mt-0.5 line-clamp-2 text-xs text-muted-foreground"
               >
                 {{ char.voiceAsset.transcript }}
               </p>
             </div>
             <div class="shrink-0">
-              <p class="mb-1 text-[10px] text-muted-foreground">
+              <p class="mb-1 text-xs text-muted-foreground">
                 锁定后不会被自动提取结果覆盖
               </p>
               <div class="flex items-center justify-end gap-2">
-                <span class="text-[11px] text-muted-foreground">锁定参考</span>
+                <span class="text-xs text-muted-foreground">锁定参考</span>
                 <Switch
                   :checked="!!char.voiceAsset.locked"
                   :disabled="autoRunning || uploadingCharacterVoiceId === char.id"
@@ -288,7 +288,7 @@ function resolveHistoryCount(char: CharacterData): number {
         </div>
         <div
           v-else
-          class="mt-2 rounded-md border border-dashed bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground"
+          class="mt-2 rounded-md border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
         >
           生成带对白的视频后会自动抽取人物声音，也可以直接上传现有配音作为参考。
         </div>

@@ -466,7 +466,7 @@ onMounted(() => {
               </h2>
 
               <span
-                class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]"
+                class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs"
                 :class="activeProviderSummary.configured
                   ? 'bg-emerald-500/10 text-emerald-600'
                   : 'bg-muted text-muted-foreground'"
@@ -479,7 +479,7 @@ onMounted(() => {
               </span>
 
               <span
-                class="rounded px-1.5 py-0.5 text-[11px]"
+                class="rounded px-1.5 py-0.5 text-xs"
                 :class="activeProviderSummary.supportedDynamicSync
                   ? 'bg-blue-500/10 text-blue-600'
                   : 'bg-muted text-muted-foreground'"
@@ -580,7 +580,7 @@ onMounted(() => {
 
                 <p
                   v-if="availableModelsFor(activeProviderSummary).length === 0"
-                  class="mt-3 break-words rounded bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground"
+                  class="mt-3 break-words rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
                 >
                   {{ previewModels(activeProviderSummary.models) }}
                 </p>
@@ -597,7 +597,7 @@ onMounted(() => {
                     />
                   </div>
 
-                  <div class="text-[11px] text-muted-foreground">
+                  <div class="text-xs text-muted-foreground">
                     共 {{ availableModelsFor(activeProviderSummary).length }} 个模型，当前显示 {{ activeProviderFilteredModelCount }} 个
                   </div>
 
@@ -622,11 +622,11 @@ onMounted(() => {
                           <h4 class="text-xs font-medium">
                             {{ group.label }}
                           </h4>
-                          <p class="mt-0.5 text-[11px] text-muted-foreground">
+                          <p class="mt-0.5 text-xs text-muted-foreground">
                             {{ group.description }}
                           </p>
                         </div>
-                        <span class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        <span class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                           {{ group.models.length }} 个
                         </span>
                       </div>

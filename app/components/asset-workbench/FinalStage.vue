@@ -208,7 +208,7 @@ function handleRunFinal() {
         </div>
 
         <div class="space-y-1">
-          <p class="text-[11px] text-muted-foreground">
+          <p class="text-xs text-muted-foreground">
             转场类型
           </p>
           <Select
@@ -231,7 +231,7 @@ function handleRunFinal() {
         </div>
 
         <div class="space-y-1">
-          <p class="text-[11px] text-muted-foreground">
+          <p class="text-xs text-muted-foreground">
             转场时长（0.1 - 2 秒）
           </p>
           <Input
@@ -246,7 +246,7 @@ function handleRunFinal() {
         </div>
 
         <div class="flex items-center justify-between rounded-md border bg-muted/15 px-2.5 py-2">
-          <p class="text-[11px] text-muted-foreground">
+          <p class="text-xs text-muted-foreground">
             合成时叠加字幕
           </p>
           <Switch
@@ -256,7 +256,7 @@ function handleRunFinal() {
         </div>
 
         <div class="space-y-1">
-          <p class="text-[11px] text-muted-foreground">
+          <p class="text-xs text-muted-foreground">
             BGM 地址（可选）
           </p>
           <Input
@@ -268,7 +268,7 @@ function handleRunFinal() {
         </div>
 
         <div class="space-y-1">
-          <div class="flex items-center justify-between text-[11px] text-muted-foreground">
+          <div class="flex items-center justify-between text-xs text-muted-foreground">
             <span>BGM 音量</span>
             <span>{{ Number(mergeOptions.bgmVolume ?? 0.3).toFixed(2) }}</span>
           </div>
@@ -305,12 +305,12 @@ function handleRunFinal() {
               :key="`final_scene_order_${scene.id}`"
               class="flex items-center gap-2 rounded-md border bg-muted/10 px-2 py-1.5"
             >
-              <span class="w-5 text-[11px] text-muted-foreground">{{ index + 1 }}</span>
+              <span class="w-5 text-xs text-muted-foreground">{{ index + 1 }}</span>
               <div class="min-w-0 flex-1">
                 <p class="truncate text-xs font-medium">
                   {{ scene.title }}
                 </p>
-                <p class="text-[10px] text-muted-foreground">
+                <p class="text-xs text-muted-foreground">
                   {{ scene.duration }}s
                 </p>
               </div>

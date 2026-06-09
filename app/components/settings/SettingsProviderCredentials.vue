@@ -143,7 +143,7 @@ onMounted(() => {
           <div class="flex items-center justify-between">
             <label class="text-xs text-muted-foreground">Access Key</label>
             <span
-              class="inline-flex items-center gap-1 text-[11px]"
+              class="inline-flex items-center gap-1 text-xs"
               :class="hasAccessKey ? 'text-emerald-600' : 'text-muted-foreground'"
             >
               <component
@@ -165,7 +165,7 @@ onMounted(() => {
           <div class="flex items-center justify-between">
             <label class="text-xs text-muted-foreground">Secret Key</label>
             <span
-              class="inline-flex items-center gap-1 text-[11px]"
+              class="inline-flex items-center gap-1 text-xs"
               :class="hasSecretKey ? 'text-emerald-600' : 'text-muted-foreground'"
             >
               <component
@@ -191,7 +191,7 @@ onMounted(() => {
         <div class="flex items-center justify-between">
           <label class="text-xs text-muted-foreground">API Key</label>
           <span
-            class="inline-flex items-center gap-1 text-[11px]"
+            class="inline-flex items-center gap-1 text-xs"
             :class="hasApiKey ? 'text-emerald-600' : 'text-muted-foreground'"
           >
             <component
@@ -209,7 +209,7 @@ onMounted(() => {
         />
         <p
           v-if="isGemini"
-          class="text-[11px] text-muted-foreground"
+          class="text-xs text-muted-foreground"
         >
           支持多个密钥轮换，用英文逗号、分号或换行分隔。
         </p>

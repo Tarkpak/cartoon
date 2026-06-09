@@ -91,6 +91,7 @@ definePageMeta({
 
 const route = useRoute()
 const router = useRouter()
+const { toast } = useToast()
 const {
   notifyGenerationCompleted,
   notifyGenerationFailed
@@ -1596,7 +1597,7 @@ async function clearEpisodePlan() {
 
 async function handlePrepareEpisodePlan() {
   if (!novelText.value.trim()) {
-    alert('请先输入剧本原文')
+    toast.warning('请先输入剧本原文')
     return
   }
   const notificationStatus = getBrowserNotificationStatus()
@@ -1612,13 +1613,13 @@ async function handlePrepareEpisodePlan() {
 
 async function handleParseSingleEpisode(payload: { id: string }) {
   if (!novelText.value.trim()) {
-    alert('请先输入剧本原文')
+    toast.warning('请先输入剧本原文')
     return
   }
 
   const episodeId = payload.id?.trim()
   if (!episodeId) {
-    alert('请选择要解析的分集')
+    toast.warning('请选择要解析的分集')
     return
   }
 
@@ -1923,7 +1924,7 @@ function openEnvironmentCropDialog(
 ) {
   const asset = resolveEnvironmentCard(assetId)
   if (!asset?.panoramaImage?.trim() && !asset?.referenceImage?.trim()) {
-    alert(`请先生成或上传 ${environmentPanoramaSourceAspectRatio.value} 的环境源图，再选择取景区域`)
+    toast.warning(`请先生成或上传 ${environmentPanoramaSourceAspectRatio.value} 的环境源图，再选择取景区域`)
     return
   }
 
@@ -2920,7 +2921,7 @@ async function handleExportJianyingProject() {
 
   const orderedScenes = buildFinalStageExportScenes()
   if (orderedScenes.length === 0) {
-    alert('请先生成至少一个分镜视频')
+    toast.warning('请先生成至少一个分镜视频')
     return
   }
 
@@ -2965,7 +2966,7 @@ async function handleExportJianyingProject() {
 
     downloadBlobFile(blob, fileName)
   } catch (error) {
-    alert(resolveUiError(error, '导出剪映工程失败'))
+    toast.error(resolveUiError(error, '导出剪映工程失败'))
   } finally {
     exportingJianyingProject.value = false
   }
@@ -2999,7 +3000,7 @@ async function handleExportFormattedScriptDocx() {
 
     downloadBlobFile(blob, fileName)
   } catch (error) {
-    alert(resolveUiError(error, '导出格式化 DOCX 失败'))
+    toast.error(resolveUiError(error, '导出格式化 DOCX 失败'))
   } finally {
     exportingScriptDocx.value = false
   }

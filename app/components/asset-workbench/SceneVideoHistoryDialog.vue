@@ -204,11 +204,11 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
             :class="entry.id === selectedEntryId ? 'bg-muted/50' : ''"
             @click="handleSelectEntry(entry)"
           >
-            <span class="mt-0.5 shrink-0 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <span class="mt-0.5 shrink-0 rounded border px-1.5 py-0.5 text-xs text-muted-foreground">
               #{{ entries.length - index }}
             </span>
             <div class="min-w-0 flex-1 space-y-1">
-              <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+              <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                 <span class="rounded-full border px-1.5 py-0.5">{{ resolveSourceLabel(entry) }}</span>
                 <span
                   v-if="isCurrent(entry)"
@@ -228,7 +228,7 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
               </p>
               <p
                 v-if="entry.prompt"
-                class="truncate text-[11px] text-muted-foreground/80"
+                class="truncate text-xs text-muted-foreground/80"
               >
                 {{ entry.prompt }}
               </p>
@@ -260,7 +260,7 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
           </div>
 
           <div class="space-y-2 px-3 py-2.5">
-            <div class="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span class="rounded-full border px-2 py-0.5">{{ resolveSourceLabel(previewEntry) }}</span>
               <span>{{ formatEntryTime(previewEntry) }}</span>
               <span

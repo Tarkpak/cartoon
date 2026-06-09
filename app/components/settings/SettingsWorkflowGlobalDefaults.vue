@@ -233,7 +233,7 @@ function toCheckedBoolean(value: unknown): boolean {
         <h5 class="text-xs font-medium">
           环境源图格式
         </h5>
-        <p class="mt-1 text-[11px] text-muted-foreground">
+        <p class="mt-1 text-xs text-muted-foreground">
           环境参考图会按这里指定的源图类型生成，并按该类型校验画幅比例。2:1 并非唯一选项。
         </p>
       </div>
@@ -288,7 +288,7 @@ function toCheckedBoolean(value: unknown): boolean {
         </div>
       </div>
 
-      <p class="text-[11px] text-muted-foreground">
+      <p class="text-xs text-muted-foreground">
         预设模式会自动匹配推荐比例和尺寸；自定义模式需填写合法比例与尺寸（如 3:2、1536*1024）。
       </p>
     </div>
@@ -302,7 +302,7 @@ function toCheckedBoolean(value: unknown): boolean {
         <h5 class="text-xs font-medium">
           视频默认音频配置
         </h5>
-        <p class="mt-1 text-[11px] text-muted-foreground">
+        <p class="mt-1 text-xs text-muted-foreground">
           当请求未显式传入 withAudio 时，按模型提供商使用这里的默认值。
         </p>
       </div>
@@ -346,7 +346,7 @@ function toCheckedBoolean(value: unknown): boolean {
         <h5 class="text-xs font-medium">
           Kling v3 Omni 额外配置
         </h5>
-        <p class="mt-1 text-[11px] text-muted-foreground">
+        <p class="mt-1 text-xs text-muted-foreground">
           仅当视频流程使用 kling-v3-omni 模型时生效。
         </p>
       </div>
@@ -405,7 +405,7 @@ function toCheckedBoolean(value: unknown): boolean {
         <h5 class="text-xs font-medium">
           Seedance 额外配置
         </h5>
-        <p class="mt-1 text-[11px] text-muted-foreground">
+        <p class="mt-1 text-xs text-muted-foreground">
           仅当视频流程使用 Seedance 系列模型时生效。
         </p>
       </div>
@@ -430,7 +430,7 @@ function toCheckedBoolean(value: unknown): boolean {
             </SelectItem>
           </SelectContent>
         </Select>
-        <p class="text-[11px] text-muted-foreground">
+        <p class="text-xs text-muted-foreground">
           Seedance 2.0 支持 480p / 720p / 1080p；Seedance 2.0 Fast 仅支持 480p / 720p，选择 1080p 时会自动回退到 720p。
         </p>
       </div>
@@ -445,7 +445,7 @@ function toCheckedBoolean(value: unknown): boolean {
         <h5 class="text-xs font-medium">
           图片生成额外配置
         </h5>
-        <p class="mt-1 text-[11px] text-muted-foreground">
+        <p class="mt-1 text-xs text-muted-foreground">
           对角色资产生成和环境参考图生成统一生效；不同图片模型按各自能力读取对应配置项。
         </p>
       </div>
@@ -473,7 +473,7 @@ function toCheckedBoolean(value: unknown): boolean {
             </SelectItem>
           </SelectContent>
         </Select>
-        <p class="text-[11px] text-muted-foreground">
+        <p class="text-xs text-muted-foreground">
           支持 1K / 2K / 4K；512 仅 Gemini 3.1 Flash Image 支持，其他模型会自动回退到 1K。
         </p>
       </div>
@@ -501,7 +501,7 @@ function toCheckedBoolean(value: unknown): boolean {
             </SelectItem>
           </SelectContent>
         </Select>
-        <p class="text-[11px] text-muted-foreground">
+        <p class="text-xs text-muted-foreground">
           OpenAI 图片生成请求参数支持 auto / low / medium / high；gpt-image-2 的尺寸还支持满足约束的自定义分辨率。
         </p>
       </div>

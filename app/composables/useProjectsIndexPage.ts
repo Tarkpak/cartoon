@@ -17,6 +17,7 @@ import {
 
 export function useProjectsIndexPage() {
   const router = useRouter()
+  const route = useRoute()
   const {
     presets: availableStylePresets,
     categories: availableStyleCategories,
@@ -166,6 +167,9 @@ export function useProjectsIndexPage() {
   }
 
   function openProject(project: Project) {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('playlet:last-project-id', project.id)
+    }
     router.push(resolveProjectDetailPath(project.id))
   }
 
@@ -182,7 +186,7 @@ export function useProjectsIndexPage() {
       await fetchProjects(currentPage.value)
     } catch (deleteProjectError) {
       console.error('删除项目失败:', deleteProjectError)
-      alert('删除失败，请重试')
+      useToast().toast.error('删除失败，请重试')
     } finally {
       deleting.value = null
     }
@@ -225,6 +229,12 @@ export function useProjectsIndexPage() {
 
     if (!newProject.value.styleId) {
       ensureCreateStyleId(true)
+    }
+
+    // 来自首页"开始创作"快捷入口：自动打开新建项目对话框
+    const newQuery = Array.isArray(route.query.new) ? route.query.new[0] : route.query.new
+    if (newQuery === '1') {
+      await openCreateDialog()
     }
   })
 

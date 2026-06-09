@@ -180,13 +180,13 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       <div class="flex items-center gap-1">
         <Badge
           :variant="scene.referenceStatus === 'done' ? 'secondary' : scene.referenceStatus === 'error' ? 'destructive' : scene.referenceStatus === 'generating' ? 'default' : 'outline'"
-          class="text-[10px]"
+          class="text-xs"
         >
           {{ scene.referenceStatus === 'done' ? '环境图就绪' : scene.referenceStatus === 'error' ? '环境图失败' : scene.referenceStatus === 'generating' ? '环境图生成中' : '环境图待生成' }}
         </Badge>
         <Badge
           :variant="videoBadge.variant"
-          class="text-[10px]"
+          class="text-xs"
         >
           {{ videoBadge.label }}
         </Badge>
@@ -259,14 +259,14 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
             :alt="`${segment.asset.name} 参考图`"
             class="h-5 w-5 rounded border object-cover"
           >
-          <span class="truncate text-[10px]">
+          <span class="truncate text-xs">
             {{ segment.asset.name }}
           </span>
         </Button>
         <Badge
           v-else-if="segment.asset"
           variant="outline"
-          class="mx-0.5 inline-flex max-w-[140px] align-middle text-[10px]"
+          class="mx-0.5 inline-flex max-w-[140px] align-middle text-xs"
         >
           <span class="truncate">
             {{ segment.asset.name }}
@@ -295,14 +295,14 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
             :alt="`${mention.asset.name} 参考图`"
             class="h-6 w-6 rounded border object-cover"
           >
-          <span class="truncate text-[10px]">
+          <span class="truncate text-xs">
             {{ mention.asset.name }}
           </span>
         </Button>
         <Badge
           v-else
           variant="outline"
-          class="max-w-[180px] text-[10px]"
+          class="max-w-[180px] text-xs"
         >
           <span class="truncate">
             {{ mention.asset?.name || mention.token }}
@@ -326,7 +326,7 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       >
         <Badge
           variant="outline"
-          class="text-[10px]"
+          class="text-xs"
         >
           旁白音频
         </Badge>
@@ -335,7 +335,7 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
           @update:model-value="handleSetSceneNarrationVoiceReference"
         >
           <SelectTrigger
-            class="h-6 min-w-[168px] max-w-[240px] px-2 text-[11px]"
+            class="h-6 min-w-[168px] max-w-[240px] px-2 text-xs"
             :disabled="sceneBusy || sceneNarrationVoiceOptions.length === 0"
           >
             <SelectValue placeholder="自动选择" />
@@ -355,13 +355,13 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
                 </span>
                 <span
                   v-if="option.source === 'auto'"
-                  class="shrink-0 text-[10px] text-muted-foreground"
+                  class="shrink-0 text-xs text-muted-foreground"
                 >
                   自动
                 </span>
                 <span
                   v-if="option.locked"
-                  class="shrink-0 text-[10px] text-amber-600"
+                  class="shrink-0 text-xs text-amber-600"
                 >
                   锁定
                 </span>
@@ -371,7 +371,7 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
         </Select>
         <span
           v-if="sceneNarrationVoiceOptions.length === 0"
-          class="text-[10px] text-muted-foreground"
+          class="text-xs text-muted-foreground"
         >
           暂无可用旁白音频
         </span>
@@ -397,13 +397,13 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       class="mt-2 flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 px-2 py-2"
       @click.stop
     >
-      <span class="text-[11px] text-muted-foreground">环境引用视图</span>
+      <span class="text-xs text-muted-foreground">环境引用视图</span>
       <Select
         :model-value="sceneEnvironmentReferenceAssetSelection"
         @update:model-value="handleSetSceneEnvironmentReferenceAsset"
       >
         <SelectTrigger
-          class="h-6 min-w-[168px] max-w-[220px] px-2 text-[11px]"
+          class="h-6 min-w-[168px] max-w-[220px] px-2 text-xs"
           :disabled="sceneBusy"
         >
           <SelectValue placeholder="选择环境资产" />
@@ -433,7 +433,7 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       </Select>
       <Button
         size="sm"
-        class="h-6 px-2 text-[11px]"
+        class="h-6 px-2 text-xs"
         :variant="sceneEnvironmentCaptureMode === 'single' ? 'default' : 'outline'"
         :disabled="sceneBusy"
         @click.stop="handleSetSceneEnvironmentCaptureMode('single')"
@@ -442,7 +442,7 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       </Button>
       <Button
         size="sm"
-        class="h-6 px-2 text-[11px]"
+        class="h-6 px-2 text-xs"
         :variant="sceneEnvironmentCaptureMode === 'four_view' ? 'default' : 'outline'"
         :disabled="sceneBusy"
         @click.stop="handleSetSceneEnvironmentCaptureMode('four_view')"
@@ -454,20 +454,20 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       <Badge
         v-if="scene.setting?.location"
         variant="outline"
-        class="text-[10px]"
+        class="text-xs"
       >
         {{ scene.setting.location }}
       </Badge>
       <Badge
         v-if="scene.setting?.timeOfDay"
         variant="outline"
-        class="text-[10px]"
+        class="text-xs"
       >
         {{ resolveTimeOfDayText(scene.setting.timeOfDay) }}
       </Badge>
       <Badge
         variant="outline"
-        class="text-[10px]"
+        class="text-xs"
       >
         {{ scene.duration }}s
       </Badge>
@@ -483,7 +483,7 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
         <div class="text-xs font-medium">
           承接上一镜头末帧
         </div>
-        <div class="truncate text-[11px] text-muted-foreground">
+        <div class="truncate text-xs text-muted-foreground">
           {{ continuityLinkReason || (canUsePreviousLastFrameReference ? '生成时使用上一镜头末帧作为首帧参考' : '上一镜头末帧生成后自动生效') }}
         </div>
       </div>

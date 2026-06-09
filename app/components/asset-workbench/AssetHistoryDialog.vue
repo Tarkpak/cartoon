@@ -216,13 +216,13 @@ watch(
                 :alt="`${targetLabel} 历史资产`"
                 class="h-full w-full object-cover"
               >
-              <span class="absolute left-1 top-1 rounded border bg-background/90 px-1 py-0.5 text-[10px] text-muted-foreground">
+              <span class="absolute left-1 top-1 rounded border bg-background/90 px-1 py-0.5 text-xs text-muted-foreground">
                 #{{ displayedEntries.length - index }}
               </span>
             </div>
 
             <div class="min-w-0 flex-1 space-y-1">
-              <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+              <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                 <span class="rounded-full border px-1.5 py-0.5">{{ resolveSourceLabel(entry) }}</span>
                 <span
                   v-if="isCurrent(entry)"
@@ -231,12 +231,12 @@ watch(
                   当前
                 </span>
               </div>
-              <p class="truncate text-[11px] text-muted-foreground">
+              <p class="truncate text-xs text-muted-foreground">
                 {{ formatEntryTime(entry) }}
               </p>
               <p
                 v-if="entry.prompt"
-                class="line-clamp-1 text-[11px] text-muted-foreground/85"
+                class="line-clamp-1 text-xs text-muted-foreground/85"
               >
                 {{ entry.prompt }}
               </p>
@@ -267,7 +267,7 @@ watch(
           </Button>
 
           <div class="space-y-2 px-3 py-2.5">
-            <div class="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span class="rounded-full border px-2 py-0.5">{{ resolveSourceLabel(selectedEntry) }}</span>
               <span>{{ formatEntryTime(selectedEntry) }}</span>
               <span
@@ -346,7 +346,7 @@ watch(
           </Button>
 
           <div class="space-y-2 px-3 py-2.5">
-            <div class="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span class="rounded-full border px-2 py-0.5">{{ resolveSourceLabel(entry) }}</span>
               <span>{{ formatEntryTime(entry) }}</span>
               <span

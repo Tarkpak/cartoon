@@ -258,20 +258,20 @@ function handlePromptKeydown(event: KeyboardEvent) {
               >
               <span
                 v-else
-                class="inline-flex h-5 w-5 items-center justify-center rounded border text-[10px]"
+                class="inline-flex h-5 w-5 items-center justify-center rounded border text-xs"
               >
                 {{ (resolveDisplayAssetTypeLabel?.(item.asset.type) || '资产').slice(0, 1) }}
               </span>
               <span class="truncate">
                 {{ item.asset.name }}
               </span>
-              <span class="ml-auto text-[10px] text-muted-foreground">
+              <span class="ml-auto text-xs text-muted-foreground">
                 {{ item.token }}
               </span>
             </Button>
           </div>
         </div>
-        <p class="text-[11px] text-muted-foreground">
+        <p class="text-xs text-muted-foreground">
           输入 `@` 可引用角色 / 环境 / 道具 / 其他资产
         </p>
         <p

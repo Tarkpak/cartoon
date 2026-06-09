@@ -19,7 +19,7 @@ const label = computed(() => {
   >
     <Badge
       :variant="summary.mode === 'explicit_audio' ? 'secondary' : 'outline'"
-      class="text-[10px]"
+      class="text-xs"
     >
       {{ label }}
     </Badge>
@@ -27,7 +27,7 @@ const label = computed(() => {
       v-for="character in summary.characters"
       :key="character.id"
       variant="outline"
-      class="inline-flex max-w-[220px] items-center gap-1 text-[10px]"
+      class="inline-flex max-w-[220px] items-center gap-1 text-xs"
     >
       <span class="truncate">
         {{ character.name }}

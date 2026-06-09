@@ -105,9 +105,11 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   }
 
   async function mergeAllVideos(input?: FinalMergeOptions) {
+    const { toast } = useToast()
+    const { confirm } = useConfirm()
     const readyScenes = options.scenes.value.filter(scene => scene.videoStatus === 'done' && scene.videoUrl)
     if (readyScenes.length === 0) {
-      alert('没有可合成的视频（请先生成分镜视频）')
+      toast.warning('没有可合成的视频', { description: '请先生成分镜视频。' })
       return null
     }
 
@@ -142,11 +144,11 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         .join('、')
       const hasMore = pendingScenes.length > 3 ? ' 等' : ''
 
-      const shouldContinue = confirm(
-        `当前仅 ${readyScenes.length}/${options.scenes.value.length} 个分镜视频可用。\n`
-        + `未就绪场景：${previewTitles}${hasMore}。\n\n`
-        + '继续合成将导致最终视频缺少部分剧情，是否继续？'
-      )
+      const shouldContinue = await confirm({
+        title: '部分场景尚未就绪',
+        description: `当前仅 ${readyScenes.length}/${options.scenes.value.length} 个分镜视频可用。未就绪场景：${previewTitles}${hasMore}。继续合成将导致最终视频缺少部分剧情，是否继续？`,
+        confirmText: '继续合成'
+      })
 
       if (!shouldContinue) {
         return null

@@ -170,7 +170,7 @@ onMounted(async () => {
       >
         <div
           v-if="style.id === defaultStyleId"
-          class="absolute top-2 left-2 z-10 inline-flex items-center gap-1 rounded-full bg-amber-500/90 px-2 py-0.5 text-[10px] font-medium text-white"
+          class="absolute top-2 left-2 z-10 inline-flex items-center gap-1 rounded-full bg-amber-500/90 px-2 py-0.5 text-xs font-medium text-white"
         >
           <Star class="h-3 w-3 fill-current" />
           系统默认
@@ -193,7 +193,7 @@ onMounted(async () => {
             <span class="text-sm font-medium truncate">{{ style.name }}</span>
             <span
               v-if="style.isNew"
-              class="px-1 py-0.5 text-[10px] bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded"
+              class="px-1 py-0.5 text-xs bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded"
             >NEW</span>
           </div>
           <p class="text-xs text-muted-foreground truncate">

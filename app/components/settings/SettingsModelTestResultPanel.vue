@@ -187,7 +187,7 @@ const videoResultMeta = computed(() => {
           type="button"
           size="sm"
           variant="outline"
-          class="h-7 px-2 text-[11px]"
+          class="h-7 px-2 text-xs"
           :disabled="copyingErrorMessage"
           @click="copyErrorMessage"
         >

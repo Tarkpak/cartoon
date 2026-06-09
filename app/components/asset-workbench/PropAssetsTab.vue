@@ -129,7 +129,7 @@ function handleAddProp() {
   const name = newPropName.value.trim()
   const description = newPropDescription.value.trim()
   if (!name) {
-    alert(showMediaSubTabs.value && otherAssetMediaSubTab.value === 'voice'
+    useToast().toast.warning(showMediaSubTabs.value && otherAssetMediaSubTab.value === 'voice'
       ? '请先输入声音资产名称'
       : '请先输入资产名称')
     return
@@ -358,7 +358,7 @@ function buildImageLoadKey(prop: PropAsset): string {
               class="flex h-full w-full flex-col items-center justify-center gap-1 px-1 text-center"
             >
               <Package class="h-4 w-4 text-destructive/60" />
-              <span class="text-[10px] leading-tight text-destructive/80">图片加载失败</span>
+              <span class="text-xs leading-tight text-destructive/80">图片加载失败</span>
             </div>
             <Package
               v-else
@@ -394,7 +394,7 @@ function buildImageLoadKey(prop: PropAsset): string {
                 <p class="text-xs font-medium">
                   旁白参考音频
                 </p>
-                <p class="text-[11px] text-muted-foreground">
+                <p class="text-xs text-muted-foreground">
                   {{ resolveVoiceSourceLabel(prop) }}
                   <span v-if="resolveVoiceUpdatedText(prop)"> · {{ resolveVoiceUpdatedText(prop) }}</span>
                 </p>
@@ -402,7 +402,7 @@ function buildImageLoadKey(prop: PropAsset): string {
             </div>
             <div
               v-if="prop.voiceAsset?.audioUrl"
-              class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] text-muted-foreground"
+              class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs text-muted-foreground"
             >
               <Lock
                 v-if="prop.voiceAsset.locked"
@@ -423,7 +423,7 @@ function buildImageLoadKey(prop: PropAsset): string {
               preload="none"
             />
             <div class="flex items-center justify-end gap-2 rounded-md bg-muted/35 px-2.5 py-2">
-              <span class="text-[11px] text-muted-foreground">锁定参考</span>
+              <span class="text-xs text-muted-foreground">锁定参考</span>
               <Switch
                 :checked="!!prop.voiceAsset.locked"
                 :disabled="autoRunning || uploadingPropVoiceId === prop.id"
@@ -433,7 +433,7 @@ function buildImageLoadKey(prop: PropAsset): string {
           </div>
           <div
             v-else
-            class="mt-2 rounded-md border border-dashed bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground"
+            class="mt-2 rounded-md border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
           >
             上传固定旁白音频后，后续含旁白的镜头将优先复用该音色。
           </div>
@@ -441,7 +441,7 @@ function buildImageLoadKey(prop: PropAsset): string {
 
         <!-- Actions -->
         <div class="flex items-center justify-between border-t px-3 py-1.5">
-          <span class="text-[11px] text-muted-foreground/60">
+          <span class="text-xs text-muted-foreground/60">
             {{ getPropUsageCount(prop.id) }} 个场景引用
           </span>
           <div class="flex items-center gap-1">

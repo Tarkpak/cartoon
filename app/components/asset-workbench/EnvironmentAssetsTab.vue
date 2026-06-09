@@ -144,18 +144,18 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
                   class="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground/45"
                 >
                   <Image class="h-6 w-6" />
-                  <span class="text-[10px]">暂无{{ resolveEnvironmentViewLabel(viewMode) }}</span>
+                  <span class="text-xs">暂无{{ resolveEnvironmentViewLabel(viewMode) }}</span>
                 </div>
               </Button>
               <span
-                class="absolute left-2 top-2 rounded border bg-background/90 px-1 py-0.5 text-[10px] text-muted-foreground"
+                class="absolute left-2 top-2 rounded border bg-background/90 px-1 py-0.5 text-xs text-muted-foreground"
               >
                 {{ resolveEnvironmentViewLabel(viewMode) }}
               </span>
               <Button
                 size="sm"
                 variant="secondary"
-                class="absolute bottom-2 right-2 h-6 px-2 text-[10px]"
+                class="absolute bottom-2 right-2 h-6 px-2 text-xs"
                 :disabled="asset.referenceStatus === 'generating' || !canOpenEnvironmentCrop(asset)"
                 @click.stop="emit('open-crop', { assetId: asset.id, captureMode: viewMode })"
               >
@@ -166,7 +166,7 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
           </div>
           <!-- Status pill -->
           <span
-            class="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-medium backdrop-blur-sm"
+            class="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-background/80 px-2 py-0.5 text-xs font-medium backdrop-blur-sm"
           >
             <span
               class="inline-block h-1.5 w-1.5 rounded-full"
@@ -183,15 +183,15 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
               <div class="truncate text-sm font-medium">
                 {{ asset.name }}
               </div>
-              <p class="truncate text-[11px] text-muted-foreground/70">
+              <p class="truncate text-xs text-muted-foreground/70">
                 {{ getEnvironmentSceneSummary(asset) }}
               </p>
             </div>
-            <span class="shrink-0 text-[10px] text-muted-foreground/50">{{ idx + 1 }}</span>
+            <span class="shrink-0 text-xs text-muted-foreground/50">{{ idx + 1 }}</span>
           </div>
           <p
             v-if="asset.referenceError"
-            class="mt-1 line-clamp-2 text-[11px] text-destructive"
+            class="mt-1 line-clamp-2 text-xs text-destructive"
           >
             {{ asset.referenceError }}
           </p>

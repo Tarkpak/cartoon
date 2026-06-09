@@ -29,7 +29,7 @@ function forwardDragStart(assetId: string, event: DragEvent) {
     v-if="assets.length > 0"
     class="space-y-1"
   >
-    <div class="text-[11px] text-muted-foreground">
+    <div class="text-xs text-muted-foreground">
       {{ title }}
     </div>
     <div class="space-y-1">

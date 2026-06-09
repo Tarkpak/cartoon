@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { FileText, FolderOpen, Sparkles, Layers3, Film, ScrollText, Settings } from 'lucide-vue-next'
+import { FileText, FolderOpen, Sparkles, Layers3, Film, ScrollText, Settings, History } from 'lucide-vue-next'
+import { resolveProjectWorkbenchPath } from '#shared/types/project'
 
 definePageMeta({
   layout: 'default'
@@ -7,40 +8,57 @@ definePageMeta({
 
 const router = useRouter()
 
+const lastProjectId = ref<string | null>(null)
+
+onMounted(() => {
+  if (typeof window === 'undefined') return
+  lastProjectId.value = window.localStorage.getItem('playlet:last-project-id')
+})
+
 function navigateTo(path: string) {
   router.push(path)
 }
 
-// 功能卡片数据
+// 开始创作：直接打开「新建项目」对话框
+function startCreate() {
+  router.push('/projects?new=1')
+}
+
+// 继续创作：回到最近一次打开的项目工作台
+function continueLast() {
+  if (!lastProjectId.value) return
+  router.push(resolveProjectWorkbenchPath(lastProjectId.value))
+}
+
+// 功能展示卡片（说明产品能力，非独立入口）
 const features = [
   {
     icon: FileText,
     title: '剧本解析',
-    description: 'AI 智能解析小说/剧本文本，自动提取场景、角色、对话',
-    path: '/projects'
+    description: 'AI 智能解析小说/剧本文本，自动提取场景、角色、对话'
   },
   {
     icon: Layers3,
     title: '资产准备',
-    description: '统一管理角色、环境和道具素材，保持全片视觉一致性',
-    path: '/projects'
+    description: '统一管理角色、环境和道具素材，保持全片视觉一致性'
   },
   {
     icon: Film,
     title: '分镜视频',
-    description: '批量生成分镜片段并导出成片',
-    path: '/projects'
+    description: '批量生成分镜片段并导出成片'
   }
 ]
 
-// 快捷入口数据
-const quickActions = [
-  { icon: FolderOpen, label: '我的项目', path: '/projects' },
-  { icon: Sparkles, label: '开始创作', path: '/projects' },
-  { icon: Layers3, label: '继续创作', path: '/projects' },
-  { icon: Settings, label: '设置', path: '/settings' },
-  { icon: ScrollText, label: '调用日志', path: '/model-logs' }
-]
+// 快捷入口（各入口行为相互区分）
+const quickActions = computed(() => [
+  { icon: FolderOpen, label: '我的项目', handler: () => navigateTo('/projects') },
+  { icon: Sparkles, label: '开始创作', handler: startCreate },
+  ...(lastProjectId.value
+    ? [{ icon: History, label: '继续创作', handler: continueLast }]
+    : []),
+  { icon: Settings, label: '设置', handler: () => navigateTo('/settings') },
+  { icon: ScrollText, label: '调用日志', handler: () => navigateTo('/model-logs') }
+])
 </script>
 
 <template>
@@ -59,23 +77,24 @@ const quickActions = [
           <Button
             size="lg"
             class="font-semibold px-8"
-            @click="navigateTo('/projects')"
+            @click="startCreate"
           >
             开始创作
           </Button>
           <Button
+            v-if="lastProjectId"
             variant="outline"
             size="lg"
             class="font-semibold px-8"
-            @click="navigateTo('/settings')"
+            @click="continueLast"
           >
-            设置
+            继续创作
           </Button>
         </div>
       </div>
     </div>
 
-    <!-- 功能卡片 -->
+    <!-- 功能展示 -->
     <div class="mb-8">
       <h2 class="text-xl font-bold mb-6">
         核心功能
@@ -84,16 +103,14 @@ const quickActions = [
         <Card
           v-for="feature in features"
           :key="feature.title"
-          class="cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5"
-          @click="navigateTo(feature.path)"
         >
           <CardHeader>
             <div
-              class="w-12 h-12 rounded-md bg-muted flex items-center justify-center mb-3"
+              class="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center mb-3"
             >
               <component
                 :is="feature.icon"
-                class="w-6 h-6 text-foreground"
+                class="w-6 h-6 text-primary"
               />
             </div>
             <CardTitle class="text-lg">
@@ -113,11 +130,12 @@ const quickActions = [
     <Card>
       <CardContent class="pt-6">
         <div class="grid grid-cols-2 md:grid-cols-5 gap-6">
-          <div
+          <button
             v-for="action in quickActions"
             :key="action.label"
-            class="flex flex-col items-center p-4 rounded-md cursor-pointer transition-all duration-200 hover:bg-accent"
-            @click="navigateTo(action.path)"
+            type="button"
+            class="flex flex-col items-center p-4 rounded-md cursor-pointer transition-all duration-200 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            @click="action.handler()"
           >
             <div
               class="w-14 h-14 rounded-md bg-muted flex items-center justify-center mb-3"
@@ -128,7 +146,7 @@ const quickActions = [
               />
             </div>
             <span class="text-sm font-medium text-foreground">{{ action.label }}</span>
-          </div>
+          </button>
         </div>
       </CardContent>
     </Card>

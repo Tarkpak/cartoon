@@ -36,7 +36,7 @@ defineProps<{
       </h4>
       <Badge
         variant="outline"
-        class="text-[10px]"
+        class="text-xs"
       >
         已选 {{ selectedAssetReferenceIds.length }}
       </Badge>

@@ -426,7 +426,7 @@ export function useAssetWorkbenchAssetMedia(options: {
     if (!asset) return
 
     if (!asset.referenceImage?.trim() && !asset.panoramaImage?.trim()) {
-      alert('请先生成或上传环境图，再进行二次生成')
+      useToast().toast.warning('请先生成或上传环境图，再进行二次生成')
       return
     }
 

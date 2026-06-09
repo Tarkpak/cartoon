@@ -66,7 +66,7 @@ function triggerUpload() {
         <p class="truncate text-xs font-medium">
           对话修改场景
         </p>
-        <p class="truncate text-[11px] text-muted-foreground">
+        <p class="truncate text-xs text-muted-foreground">
           {{ sceneTitle }}
         </p>
       </div>
@@ -113,14 +113,14 @@ function triggerUpload() {
                   :alt="resolveMessageAsset(assetId)?.name || '上传资产'"
                   class="h-5 w-5 rounded border object-cover"
                 >
-                <span class="truncate text-[10px]">
+                <span class="truncate text-xs">
                   {{ resolveMessageAsset(assetId)?.name || assetId }}
                 </span>
               </Button>
               <Badge
                 v-else
                 variant="outline"
-                class="max-w-[140px] text-[10px]"
+                class="max-w-[140px] text-xs"
               >
                 <span class="truncate">
                   {{ resolveMessageAsset(assetId)?.name || assetId }}
@@ -141,7 +141,7 @@ function triggerUpload() {
           v-for="asset in composerAssets"
           :key="`scene_chat_composer_${asset.id}`"
           variant="secondary"
-          class="gap-1 text-[10px]"
+          class="gap-1 text-xs"
         >
           <span class="max-w-[110px] truncate">
             {{ asset.name }}
@@ -192,21 +192,21 @@ function triggerUpload() {
           >
           <span
             v-else
-            class="inline-flex h-5 w-5 items-center justify-center rounded border text-[10px]"
+            class="inline-flex h-5 w-5 items-center justify-center rounded border text-xs"
           >
             {{ resolveDisplayAssetTypeLabel(item.asset.type).slice(0, 1) }}
           </span>
           <span class="truncate">
             {{ item.asset.name }}
           </span>
-          <span class="ml-auto text-[10px] text-muted-foreground">
+          <span class="ml-auto text-xs text-muted-foreground">
             {{ item.token }}
           </span>
         </Button>
       </div>
 
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <p class="text-[10px] text-muted-foreground">
+        <p class="text-xs text-muted-foreground">
           可 @角色/@环境/@道具/@其他，上传图片后会自动归类到“其他”并加入可引用资产。
         </p>
         <div class="flex items-center gap-1.5">
@@ -248,7 +248,7 @@ function triggerUpload() {
 
       <p
         v-if="error"
-        class="text-[11px] text-destructive"
+        class="text-xs text-destructive"
       >
         {{ error }}
       </p>
