@@ -84,6 +84,7 @@ interface AssetWorkflowVideoReferences {
 }
 
 interface RequestSceneVideoTaskOptions {
+  projectId?: string
   scenePayload: AssetWorkflowScenePayload
   style: string
   aspectRatio: AssetWorkbenchAspectRatio
@@ -266,6 +267,7 @@ export async function requestSceneVideoTask(options: RequestSceneVideoTaskOption
   }>('/api/asset-workflow/video/generate', {
     method: 'POST',
     body: {
+      projectId: options.projectId,
       scene: options.scenePayload,
       style: options.style,
       aspectRatio: options.aspectRatio,

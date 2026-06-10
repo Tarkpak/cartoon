@@ -1,11 +1,7 @@
 <script setup lang="ts">
-import { Check, Download, Loader2, Save, Upload, X } from 'lucide-vue-next'
+import { Check, Loader2, Save, X } from 'lucide-vue-next'
 import type { TosConfigPublic } from '#shared/types/provider'
 import SettingsSectionHeader from '@/components/settings/SettingsSectionHeader.vue'
-import {
-  downloadSettingsConfigExportUrl,
-  parseSettingsConfigImportFile
-} from '@/lib/settings-config-transfer'
 
 interface TosConfigResponse {
   success: boolean
@@ -14,11 +10,9 @@ interface TosConfigResponse {
 
 const loading = ref(false)
 const saving = ref(false)
-const importing = ref(false)
-const exporting = ref(false)
 const message = ref('')
 const errorMessage = ref('')
-const importInputRef = ref<{ click: () => void } | null>(null)
+const SETTINGS_CONFIG_IMPORTED_EVENT = 'playlet:settings-config-imported'
 
 const enabled = ref(false)
 const accessKeyId = ref('')
@@ -76,51 +70,6 @@ async function loadConfig() {
   }
 }
 
-function triggerConfigImport() {
-  importInputRef.value?.click()
-}
-
-async function handleConfigImport(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-
-  importing.value = true
-  message.value = ''
-  errorMessage.value = ''
-
-  try {
-    const payload = await parseSettingsConfigImportFile(file)
-    const response = await $fetch<TosConfigResponse>('/api/tos/config/import', {
-      method: 'POST',
-      body: { payload }
-    })
-
-    if (response.success) {
-      applyData(response.data)
-      message.value = '已导入 TOS 配置'
-    }
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '导入 TOS 配置失败'
-  } finally {
-    importing.value = false
-    input.value = ''
-  }
-}
-
-function exportConfig() {
-  exporting.value = true
-  message.value = ''
-  errorMessage.value = ''
-
-  downloadSettingsConfigExportUrl('/api/tos/config/download', 'tos-storage')
-  message.value = '已开始导出 TOS 配置'
-
-  window.setTimeout(() => {
-    exporting.value = false
-  }, 300)
-}
-
 async function saveConfig() {
   const missingFields = getMissingRequiredFields()
   if (missingFields.length > 0) {
@@ -169,7 +118,12 @@ async function saveConfig() {
 }
 
 onMounted(() => {
+  window.addEventListener(SETTINGS_CONFIG_IMPORTED_EVENT, loadConfig)
   void loadConfig()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(SETTINGS_CONFIG_IMPORTED_EVENT, loadConfig)
 })
 </script>
 
@@ -179,53 +133,7 @@ onMounted(() => {
       <SettingsSectionHeader
         title="云存储设置"
         description="配置火山引擎 TOS 对象存储。未启用时，生成的媒体文件将保存在本地。此处为存储凭证配置，区别于左侧导航的「云端素材」（浏览已上传素材）。"
-      >
-        <template #actions>
-          <Input
-            ref="importInputRef"
-            type="file"
-            accept=".json,application/json"
-            class="hidden"
-            @change="handleConfigImport"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            class="h-8 gap-1.5"
-            :disabled="loading || saving || importing || exporting"
-            title="导入 TOS 配置"
-            @click="triggerConfigImport"
-          >
-            <Loader2
-              v-if="importing"
-              class="h-3.5 w-3.5 animate-spin"
-            />
-            <Upload
-              v-else
-              class="h-3.5 w-3.5"
-            />
-            导入配置
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            class="h-8 gap-1.5"
-            :disabled="loading || saving || importing || exporting"
-            title="导出 TOS 配置"
-            @click="exportConfig"
-          >
-            <Loader2
-              v-if="exporting"
-              class="h-3.5 w-3.5 animate-spin"
-            />
-            <Download
-              v-else
-              class="h-3.5 w-3.5"
-            />
-            导出配置
-          </Button>
-        </template>
-      </SettingsSectionHeader>
+      />
 
       <div
         v-if="loading"

@@ -49,6 +49,7 @@ interface UseAssetWorkbenchSceneGenerationOptions {
   queueItems: Ref<QueueItem[]>
   batchRunning: Ref<boolean>
   workflowStylePrompt: ComputedRef<string>
+  projectId?: ComputedRef<string | undefined>
   projectAspectRatio: Ref<'16:9' | '9:16' | '1:1'>
   normalizeWorkflowText: (value: string) => string
   resolveUiError: (error: unknown, fallback: string) => string
@@ -662,6 +663,7 @@ export function useAssetWorkbenchSceneGeneration(
 
     try {
       const taskId = await requestSceneVideoTask({
+        projectId: options.projectId?.value,
         scenePayload: buildAssetWorkflowScenePayload(scene),
         style: options.workflowStylePrompt.value,
         aspectRatio: options.projectAspectRatio.value,

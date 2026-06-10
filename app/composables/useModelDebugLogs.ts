@@ -26,6 +26,9 @@ export interface ModelDebugLogEntry {
   durationMs: number
   endpoint?: string
   requestId?: string
+  projectId?: string
+  sceneId?: string
+  taskId?: string
   request?: unknown
   requestRaw?: unknown
   response?: unknown
@@ -62,6 +65,9 @@ export function useModelDebugLogs() {
     status: '',
     model: '',
     requestId: '',
+    projectId: '',
+    sceneId: '',
+    taskId: '',
     keyword: '',
     limit: 100
   })
@@ -162,6 +168,9 @@ export function useModelDebugLogs() {
       status: filters.status || undefined,
       model: filters.model || undefined,
       requestId: filters.requestId || undefined,
+      projectId: filters.projectId || undefined,
+      sceneId: filters.sceneId || undefined,
+      taskId: filters.taskId || undefined,
       keyword: filters.keyword || undefined
     }
   }

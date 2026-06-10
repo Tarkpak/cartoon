@@ -1005,6 +1005,7 @@ const {
   queueItems,
   batchRunning,
   workflowStylePrompt,
+  projectId,
   projectAspectRatio,
   normalizeWorkflowText,
   resolveUiError,

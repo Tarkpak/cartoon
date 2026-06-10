@@ -15,6 +15,9 @@ const operation = defineModel<string>('operation', { required: true })
 const status = defineModel<string>('status', { required: true })
 const model = defineModel<string>('model', { required: true })
 const requestId = defineModel<string>('requestId', { required: true })
+const projectId = defineModel<string>('projectId', { required: true })
+const sceneId = defineModel<string>('sceneId', { required: true })
+const taskId = defineModel<string>('taskId', { required: true })
 const keyword = defineModel<string>('keyword', { required: true })
 const limit = defineModel<number>('limit', { required: true })
 
@@ -46,7 +49,7 @@ function normalizeSelectValue(value: string) {
       <slot name="tabs" />
     </CardHeader>
     <CardContent class="space-y-4">
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-7">
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
         <Select
           :model-value="provider || props.allFilterValue"
           @update:model-value="(value) => provider = normalizeSelectValue(String(value))"
@@ -116,6 +119,18 @@ function normalizeSelectValue(value: string) {
         <Input
           v-model="requestId"
           placeholder="Request ID"
+        />
+        <Input
+          v-model="projectId"
+          placeholder="Project ID"
+        />
+        <Input
+          v-model="sceneId"
+          placeholder="Scene ID"
+        />
+        <Input
+          v-model="taskId"
+          placeholder="Task ID"
         />
         <Input
           v-model="keyword"

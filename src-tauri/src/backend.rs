@@ -8,9 +8,12 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use chrono::Utc;
 use reqwest::Client;
+use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
+use ring::rand::{SecureRandom, SystemRandom};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
@@ -44,6 +47,12 @@ const PROMPT_PROFILE_STATE_KEY: &str = "prompt_profile_state_default";
 const ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES: usize = 50 * 1024 * 1024;
 const SETTINGS_CONFIG_EXPORT_VERSION: i32 = 1;
 const SETTINGS_CONFIG_TEXT_MAX_CHARS: usize = 16 * 1024;
+const SETTINGS_CONFIG_ENCRYPTED_TYPE: &str = "playlet.settings_config.encrypted";
+const SETTINGS_CONFIG_BUNDLE_TYPE: &str = "playlet.settings_bundle";
+const SETTINGS_CONFIG_ENCRYPTION_NONCE_LEN: usize = 12;
+const SETTINGS_CONFIG_ENCRYPTION_AAD: &[u8] = b"playlet.settings-config.v1";
+const SETTINGS_CONFIG_ENCRYPTION_CONTEXT: &[u8] =
+    b"playlet.desktop.local-settings-config-export.v1";
 const APP_LOG_RETENTION_LIMIT: i64 = 10_000;
 const MODEL_DEBUG_LOG_RETENTION_LIMIT: i64 = 5_000;
 const APP_LOG_MESSAGE_MAX_CHARS: usize = 16 * 1024;
@@ -71,6 +80,14 @@ use runtime_api::*;
 
 tokio::task_local! {
     static CURRENT_REQUEST_ID: String;
+    static CURRENT_MODEL_LOG_CONTEXT: ModelLogContext;
+}
+
+#[derive(Clone, Debug, Default)]
+struct ModelLogContext {
+    project_id: Option<String>,
+    scene_id: Option<String>,
+    task_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -359,6 +376,30 @@ fn config_connection() -> Option<Connection> {
 
 fn current_request_id() -> Option<String> {
     CURRENT_REQUEST_ID.try_with(|value| value.clone()).ok()
+}
+
+fn sanitize_model_log_context_value(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn build_model_log_context(
+    project_id: Option<String>,
+    scene_id: Option<String>,
+    task_id: Option<String>,
+) -> ModelLogContext {
+    ModelLogContext {
+        project_id: sanitize_model_log_context_value(project_id),
+        scene_id: sanitize_model_log_context_value(scene_id),
+        task_id: sanitize_model_log_context_value(task_id),
+    }
+}
+
+fn current_model_log_context() -> ModelLogContext {
+    CURRENT_MODEL_LOG_CONTEXT
+        .try_with(|value| value.clone())
+        .unwrap_or_default()
 }
 
 fn new_request_id() -> String {
@@ -2230,6 +2271,9 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ("error_json", "TEXT"),
         ("endpoint", "TEXT"),
         ("request_id", "TEXT"),
+        ("project_id", "TEXT"),
+        ("scene_id", "TEXT"),
+        ("task_id", "TEXT"),
     ] {
         ensure_column(conn, "model_debug_logs", column, definition)?;
     }
@@ -2361,6 +2405,9 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         duration_ms INTEGER NOT NULL,
         endpoint TEXT,
         request_id TEXT,
+        project_id TEXT,
+        scene_id TEXT,
+        task_id TEXT,
         request_json TEXT,
         request_raw_json TEXT,
         response_json TEXT,
@@ -2572,6 +2619,18 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/models/index", get(api_models))
         .route("/api/models/select", post(api_models_select))
         .route("/api/models/switch", post(api_models_switch))
+        .route(
+            "/api/settings/config/export",
+            get(api_settings_config_export),
+        )
+        .route(
+            "/api/settings/config/download",
+            get(api_settings_config_download),
+        )
+        .route(
+            "/api/settings/config/import",
+            post(api_settings_config_import),
+        )
         .route(
             "/api/models/workflow",
             get(api_models_workflow_get).post(api_models_workflow_post),
@@ -5869,6 +5928,93 @@ fn settings_json_attachment(file_name: &str, payload: &Value) -> Result<Response
         .into_response())
 }
 
+fn settings_config_encryption_key() -> Result<LessSafeKey, ApiError> {
+    let digest = Sha256::digest(SETTINGS_CONFIG_ENCRYPTION_CONTEXT);
+    let unbound = UnboundKey::new(&AES_256_GCM, digest.as_slice())
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "初始化配置导出加密失败"))?;
+    Ok(LessSafeKey::new(unbound))
+}
+
+fn encrypt_settings_config_payload(payload: &Value) -> Result<Value, ApiError> {
+    let mut bytes = serde_json::to_vec(payload)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let mut nonce_bytes = [0u8; SETTINGS_CONFIG_ENCRYPTION_NONCE_LEN];
+    SystemRandom::new().fill(&mut nonce_bytes).map_err(|_| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "生成配置导出加密随机数失败",
+        )
+    })?;
+
+    let key = settings_config_encryption_key()?;
+    key.seal_in_place_append_tag(
+        Nonce::assume_unique_for_key(nonce_bytes),
+        Aad::from(SETTINGS_CONFIG_ENCRYPTION_AAD),
+        &mut bytes,
+    )
+    .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "加密配置导出失败"))?;
+
+    let mut payload_bytes = Vec::with_capacity(nonce_bytes.len() + bytes.len());
+    payload_bytes.extend_from_slice(&nonce_bytes);
+    payload_bytes.extend_from_slice(&bytes);
+
+    Ok(json!({
+      "type": SETTINGS_CONFIG_ENCRYPTED_TYPE,
+      "version": SETTINGS_CONFIG_EXPORT_VERSION,
+      "exportedAt": now_iso(),
+      "payload": BASE64_STANDARD.encode(payload_bytes)
+    }))
+}
+
+fn decrypt_settings_config_payload(payload: &Value) -> Result<Option<Value>, ApiError> {
+    if payload.get("type").and_then(Value::as_str) != Some(SETTINGS_CONFIG_ENCRYPTED_TYPE) {
+        return Ok(None);
+    }
+
+    let encoded = payload
+        .get("payload")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "加密配置文件缺少 payload"))?;
+    let raw = BASE64_STANDARD
+        .decode(normalize_base64_payload(encoded))
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "加密配置文件 payload 不是有效 Base64",
+            )
+        })?;
+    if raw.len() <= SETTINGS_CONFIG_ENCRYPTION_NONCE_LEN {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "加密配置文件 payload 不完整",
+        ));
+    }
+
+    let mut nonce_bytes = [0u8; SETTINGS_CONFIG_ENCRYPTION_NONCE_LEN];
+    nonce_bytes.copy_from_slice(&raw[..SETTINGS_CONFIG_ENCRYPTION_NONCE_LEN]);
+    let mut ciphertext = raw[SETTINGS_CONFIG_ENCRYPTION_NONCE_LEN..].to_vec();
+    let key = settings_config_encryption_key()?;
+    let plaintext = key
+        .open_in_place(
+            Nonce::assume_unique_for_key(nonce_bytes),
+            Aad::from(SETTINGS_CONFIG_ENCRYPTION_AAD),
+            &mut ciphertext,
+        )
+        .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "配置文件解密失败"))?;
+
+    let value = serde_json::from_slice::<Value>(plaintext)
+        .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "配置文件内容无效"))?;
+    Ok(Some(value))
+}
+
+fn settings_import_payload_owned(body: &Value) -> Result<Value, ApiError> {
+    let payload = settings_import_payload(body);
+    match decrypt_settings_config_payload(payload)? {
+        Some(value) => Ok(value),
+        None => Ok(payload.clone()),
+    }
+}
+
 fn validate_custom_openai_body(
     body: &CustomOpenAIPutBody,
     sync_only: bool,
@@ -6965,10 +7111,11 @@ async fn api_model_providers_config_export(
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
     let payload = model_providers_config_export_payload(&conn)?;
+    let encrypted_payload = encrypt_settings_config_payload(&payload)?;
 
     Ok(Json(json!({
       "success": true,
-      "data": payload
+      "data": encrypted_payload
     })))
 }
 
@@ -6977,14 +7124,17 @@ async fn api_model_providers_config_download(
 ) -> Result<Response, ApiError> {
     let conn = db_connection(&state)?;
     let payload = model_providers_config_export_payload(&conn)?;
-    settings_json_attachment(&settings_export_file_name("model-providers"), &payload)
+    let encrypted_payload = encrypt_settings_config_payload(&payload)?;
+    settings_json_attachment(
+        &settings_export_file_name("model-providers"),
+        &encrypted_payload,
+    )
 }
 
-async fn api_model_providers_config_import(
-    State(state): State<BackendState>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let payload = settings_import_payload(&body);
+fn import_model_providers_config_payload(
+    conn: &Connection,
+    payload: &Value,
+) -> Result<Value, ApiError> {
     let credentials_section = settings_import_section(
         payload,
         &["providerCredentials", "credentials", "provider_credentials"],
@@ -7055,30 +7205,40 @@ async fn api_model_providers_config_import(
         ));
     }
 
-    let conn = db_connection(&state)?;
     let mut imported = Vec::<String>::new();
     if let Some(section) = credentials_section {
         let config = normalize_imported_provider_credentials(section)?;
-        set_config_json(&conn, PROVIDER_CREDENTIALS_KEY, &config)?;
+        set_config_json(conn, PROVIDER_CREDENTIALS_KEY, &config)?;
         imported.push("providerCredentials".to_string());
     }
     if let Some(section) = custom_openai_section {
         let config = normalize_imported_custom_openai_config(section)?;
-        set_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY, &config)?;
+        set_config_json(conn, CUSTOM_OPENAI_CONFIG_KEY, &config)?;
         imported.push("customOpenaiProvider".to_string());
     }
     if let Some(section) = catalog_section {
         let config = normalize_imported_provider_model_catalog(section)?;
-        set_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY, &config)?;
+        set_config_json(conn, PROVIDER_MODEL_CATALOG_KEY, &config)?;
         imported.push("providerModelCatalog".to_string());
     }
 
+    Ok(json!({
+      "imported": imported,
+      "providers": provider_summary(conn)?
+    }))
+}
+
+async fn api_model_providers_config_import(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let payload = settings_import_payload_owned(&body)?;
+    let conn = db_connection(&state)?;
+    let data = import_model_providers_config_payload(&conn, &payload)?;
+
     Ok(Json(json!({
       "success": true,
-      "data": {
-        "imported": imported,
-        "providers": provider_summary(&conn)?
-      }
+      "data": data
     })))
 }
 
@@ -7268,24 +7428,25 @@ fn tos_config_export_payload(conn: &Connection) -> Result<Value, ApiError> {
 async fn api_tos_config_export(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
     let payload = tos_config_export_payload(&conn)?;
+    let encrypted_payload = encrypt_settings_config_payload(&payload)?;
 
     Ok(Json(json!({
       "success": true,
-      "data": payload
+      "data": encrypted_payload
     })))
 }
 
 async fn api_tos_config_download(State(state): State<BackendState>) -> Result<Response, ApiError> {
     let conn = db_connection(&state)?;
     let payload = tos_config_export_payload(&conn)?;
-    settings_json_attachment(&settings_export_file_name("tos-storage"), &payload)
+    let encrypted_payload = encrypt_settings_config_payload(&payload)?;
+    settings_json_attachment(
+        &settings_export_file_name("tos-storage"),
+        &encrypted_payload,
+    )
 }
 
-async fn api_tos_config_import(
-    State(state): State<BackendState>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let payload = settings_import_payload(&body);
+fn import_tos_config_payload(conn: &Connection, payload: &Value) -> Result<Value, ApiError> {
     let config_section = settings_import_section(
         payload,
         &["tosStorageConfig", "tosConfig", "tos_storage_config"],
@@ -7314,9 +7475,213 @@ async fn api_tos_config_import(
     }
 
     let config = normalize_imported_tos_config(config_section)?;
+    set_config_json(conn, TOS_STORAGE_CONFIG_KEY, &config)?;
+    Ok(tos_config_public(&config))
+}
+
+async fn api_tos_config_import(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let payload = settings_import_payload_owned(&body)?;
     let conn = db_connection(&state)?;
-    set_config_json(&conn, TOS_STORAGE_CONFIG_KEY, &config)?;
-    api_tos_config_get(State(state)).await
+    let data = import_tos_config_payload(&conn, &payload)?;
+
+    Ok(Json(json!({
+      "success": true,
+      "data": data
+    })))
+}
+
+fn settings_config_bundle_export_payload(conn: &Connection) -> Result<Value, ApiError> {
+    Ok(json!({
+      "type": SETTINGS_CONFIG_BUNDLE_TYPE,
+      "version": SETTINGS_CONFIG_EXPORT_VERSION,
+      "exportedAt": now_iso(),
+      "includesSecrets": true,
+      "modelProviders": model_providers_config_export_payload(conn)?,
+      "tosStorage": tos_config_export_payload(conn)?
+    }))
+}
+
+fn settings_payload_has_model_provider_config(payload: &Value) -> bool {
+    payload.get("type").and_then(Value::as_str) == Some("playlet.model_providers")
+        || settings_import_section(
+            payload,
+            &[
+                "modelProviders",
+                "modelProviderConfig",
+                "modelProvidersConfig",
+                "model_providers",
+                "providerCredentials",
+                "credentials",
+                "provider_credentials",
+                "customOpenaiProvider",
+                "customOpenAIProvider",
+                "customOpenai",
+                "custom_openai_provider",
+                "providerModelCatalog",
+                "modelCatalog",
+                "provider_model_catalog",
+            ],
+        )
+        .is_some()
+        || settings_provider_entries_have_any_key(
+            payload,
+            &[
+                "apiKey",
+                "baseUrl",
+                "accessKey",
+                "secretKey",
+                "models",
+                "availableModels",
+                "syncedAt",
+                "syncError",
+            ],
+        )
+        || (settings_has_any_key(
+            payload,
+            &[
+                "displayName",
+                "baseUrl",
+                "apiKey",
+                "textModels",
+                "availableTextModels",
+            ],
+        ) && !settings_has_any_key(
+            payload,
+            &[
+                "accessKeyId",
+                "securityToken",
+                "region",
+                "endpoint",
+                "bucket",
+                "keyPrefix",
+                "publicBaseUrl",
+                "isCustomDomain",
+            ],
+        ))
+}
+
+fn settings_payload_has_tos_config(payload: &Value) -> bool {
+    payload.get("type").and_then(Value::as_str) == Some("playlet.tos_storage")
+        || settings_import_section(
+            payload,
+            &[
+                "tosStorage",
+                "tosStorageConfig",
+                "tosConfig",
+                "tos_storage",
+                "tos_storage_config",
+            ],
+        )
+        .is_some()
+        || (settings_has_any_key(
+            payload,
+            &[
+                "accessKeyId",
+                "secretKey",
+                "securityToken",
+                "region",
+                "endpoint",
+                "bucket",
+                "keyPrefix",
+                "publicBaseUrl",
+                "isCustomDomain",
+            ],
+        ) && !settings_has_any_key(
+            payload,
+            &[
+                "displayName",
+                "baseUrl",
+                "apiKey",
+                "textModels",
+                "availableTextModels",
+            ],
+        ))
+}
+
+async fn api_settings_config_export(
+    State(state): State<BackendState>,
+) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let payload = settings_config_bundle_export_payload(&conn)?;
+    let encrypted_payload = encrypt_settings_config_payload(&payload)?;
+
+    Ok(Json(json!({
+      "success": true,
+      "data": encrypted_payload
+    })))
+}
+
+async fn api_settings_config_download(
+    State(state): State<BackendState>,
+) -> Result<Response, ApiError> {
+    let conn = db_connection(&state)?;
+    let payload = settings_config_bundle_export_payload(&conn)?;
+    let encrypted_payload = encrypt_settings_config_payload(&payload)?;
+    settings_json_attachment(&settings_export_file_name("settings"), &encrypted_payload)
+}
+
+async fn api_settings_config_import(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let payload = settings_import_payload_owned(&body)?;
+    let conn = db_connection(&state)?;
+    let mut imported = Vec::<String>::new();
+
+    if let Some(section) = settings_import_section(
+        &payload,
+        &[
+            "modelProviders",
+            "modelProviderConfig",
+            "modelProvidersConfig",
+            "model_providers",
+        ],
+    ) {
+        import_model_providers_config_payload(&conn, section)?;
+        imported.push("modelProviders".to_string());
+    } else if settings_payload_has_model_provider_config(&payload) {
+        import_model_providers_config_payload(&conn, &payload)?;
+        imported.push("modelProviders".to_string());
+    }
+
+    if let Some(section) = settings_import_section(
+        &payload,
+        &[
+            "tosStorage",
+            "tosStorageConfig",
+            "tosConfig",
+            "tos_storage",
+            "tos_storage_config",
+        ],
+    ) {
+        import_tos_config_payload(&conn, section)?;
+        imported.push("tosStorage".to_string());
+    } else if settings_payload_has_tos_config(&payload) {
+        import_tos_config_payload(&conn, &payload)?;
+        imported.push("tosStorage".to_string());
+    }
+
+    if imported.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "导入文件不包含可识别的通用设置配置",
+        ));
+    }
+
+    let tos_config =
+        get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)?.unwrap_or_else(default_tos_config);
+
+    Ok(Json(json!({
+      "success": true,
+      "data": {
+        "imported": imported,
+        "providers": provider_summary(&conn)?,
+        "tosStorageConfig": tos_config_public(&tos_config)
+      }
+    })))
 }
 
 async fn api_app_logs_get(
@@ -7517,13 +7882,12 @@ async fn api_app_logs_post(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let level = body
-        .get("level")
-        .and_then(Value::as_str)
-        .unwrap_or("info");
+    let level = body.get("level").and_then(Value::as_str).unwrap_or("info");
     let source = sanitize_app_log_token(body.get("source").and_then(Value::as_str), "frontend");
-    let category =
-        sanitize_app_log_token(body.get("category").and_then(Value::as_str), "frontend_event");
+    let category = sanitize_app_log_token(
+        body.get("category").and_then(Value::as_str),
+        "frontend_event",
+    );
     let message = body
         .get("message")
         .and_then(Value::as_str)
@@ -7643,6 +8007,26 @@ async fn api_debug_logs_get(
             Some(trimmed.to_ascii_lowercase())
         }
     };
+    let require_non_empty_alias =
+        |label: &str, keys: &[&str]| -> Result<Option<String>, ApiError> {
+            for key in keys {
+                let Some(value) = query.get(*key) else {
+                    continue;
+                };
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    return Err(ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        format!("{} 不能为空", label),
+                    ));
+                }
+                return Ok(Some(trimmed.to_ascii_lowercase()));
+            }
+            Ok(None)
+        };
+    let project_id_filter = require_non_empty_alias("projectId", &["projectId", "project_id"])?;
+    let scene_id_filter = require_non_empty_alias("sceneId", &["sceneId", "scene_id"])?;
+    let task_id_filter = require_non_empty_alias("taskId", &["taskId", "task_id"])?;
 
     use rusqlite::types::Value as Bind;
     let mut where_parts: Vec<String> = Vec::new();
@@ -7667,17 +8051,31 @@ async fn api_debug_logs_get(
         where_parts.push("lower(coalesce(request_id, '')) LIKE ?".to_string());
         binds.push(Bind::Text(format!("%{}%", value)));
     }
+    if let Some(value) = &project_id_filter {
+        where_parts.push("lower(coalesce(project_id, '')) LIKE ?".to_string());
+        binds.push(Bind::Text(format!("%{}%", value)));
+    }
+    if let Some(value) = &scene_id_filter {
+        where_parts.push("lower(coalesce(scene_id, '')) LIKE ?".to_string());
+        binds.push(Bind::Text(format!("%{}%", value)));
+    }
+    if let Some(value) = &task_id_filter {
+        where_parts.push("lower(coalesce(task_id, '')) LIKE ?".to_string());
+        binds.push(Bind::Text(format!("%{}%", value)));
+    }
     if let Some(keyword) = &keyword_filter {
         where_parts.push(
             "(lower(provider) LIKE ? OR lower(model) LIKE ? OR lower(operation) LIKE ? \
-              OR lower(coalesce(request_id, '')) LIKE ? OR lower(coalesce(endpoint, '')) LIKE ? \
+              OR lower(coalesce(request_id, '')) LIKE ? OR lower(coalesce(project_id, '')) LIKE ? \
+              OR lower(coalesce(scene_id, '')) LIKE ? OR lower(coalesce(task_id, '')) LIKE ? \
+              OR lower(coalesce(endpoint, '')) LIKE ? \
               OR lower(coalesce(request_json, '')) LIKE ? OR lower(coalesce(request_raw_json, '')) LIKE ? \
               OR lower(coalesce(response_json, '')) LIKE ? OR lower(coalesce(response_raw_json, '')) LIKE ? \
               OR lower(coalesce(error_json, '')) LIKE ?)"
                 .to_string(),
         );
         let pattern = format!("%{}%", keyword);
-        for _ in 0..10 {
+        for _ in 0..13 {
             binds.push(Bind::Text(pattern.clone()));
         }
     }
@@ -7691,8 +8089,8 @@ async fn api_debug_logs_get(
     let mut stmt = conn
         .prepare(&format!(
             "SELECT id, timestamp, provider, model, operation, status, duration_ms,
-                    endpoint, request_id, request_json, request_raw_json, response_json, response_raw_json,
-                    media_refs_json, error_json
+                    endpoint, request_id, project_id, scene_id, task_id, request_json, request_raw_json,
+                    response_json, response_raw_json, media_refs_json, error_json
              FROM model_debug_logs{} ORDER BY timestamp DESC LIMIT ?",
             where_clause
         ))
@@ -7716,6 +8114,9 @@ async fn api_debug_logs_get(
                 row.get::<_, Option<String>>(12)?,
                 row.get::<_, Option<String>>(13)?,
                 row.get::<_, Option<String>>(14)?,
+                row.get::<_, Option<String>>(15)?,
+                row.get::<_, Option<String>>(16)?,
+                row.get::<_, Option<String>>(17)?,
             ))
         })
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -7744,6 +8145,9 @@ async fn api_debug_logs_get(
         duration_ms,
         endpoint,
         request_id,
+        project_id,
+        scene_id,
+        task_id,
         request_json,
         request_raw_json,
         response_json,
@@ -7762,6 +8166,9 @@ async fn api_debug_logs_get(
           "durationMs": duration_ms,
           "endpoint": endpoint,
           "requestId": request_id,
+          "projectId": project_id,
+          "sceneId": scene_id,
+          "taskId": task_id,
           "request": parse_json(request_json),
           "requestRaw": parse_json(request_raw_json),
           "response": parse_json(response_json),

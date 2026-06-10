@@ -274,6 +274,7 @@ fn llm_dev_write_db_log_impl(
     let duration_ms = (now.timestamp_millis() - started_at_ms).max(1);
     let endpoint_value = endpoint.map(llm_dev_log_url_without_query);
     let request_id = current_request_id();
+    let context = current_model_log_context();
     let request_value = request.map(|value| llm_dev_file_sanitize_value(value, None));
     let response_value = response.map(|value| llm_dev_file_sanitize_value(value, None));
     let response_raw_value = response_raw.map(llm_dev_file_response_raw_value);
@@ -283,9 +284,9 @@ fn llm_dev_write_db_log_impl(
         let _ = conn.execute(
             "INSERT INTO model_debug_logs (
           id, timestamp, provider, model, operation, status, duration_ms, endpoint, request_id,
-          request_json, request_raw_json, response_json, response_raw_json,
-          media_refs_json, error_json, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+          project_id, scene_id, task_id, request_json, request_raw_json, response_json,
+          response_raw_json, media_refs_json, error_json, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             params![
                 format!("log_{}", Uuid::new_v4().simple()),
                 now.to_rfc3339(),
@@ -296,6 +297,9 @@ fn llm_dev_write_db_log_impl(
                 duration_ms,
                 endpoint_value,
                 request_id,
+                context.project_id,
+                context.scene_id,
+                context.task_id,
                 request_value.as_ref().map(Value::to_string),
                 request_value.as_ref().map(Value::to_string),
                 response_value.as_ref().map(Value::to_string),
@@ -5356,6 +5360,91 @@ fn inject_scene_voice_reference(
     Ok(())
 }
 
+fn resolve_project_id_for_scene(
+    state: &BackendState,
+    scene_id: &str,
+) -> Result<Option<String>, ApiError> {
+    let scene_id = scene_id.trim();
+    if scene_id.is_empty() {
+        return Ok(None);
+    }
+
+    let conn = db_connection(state)?;
+    let project_id = conn
+        .query_row(
+            "SELECT scripts.project_id
+             FROM scenes
+             JOIN scripts ON scripts.id = scenes.script_id
+             WHERE scenes.id = ?1
+             LIMIT 1",
+            params![scene_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .flatten();
+    Ok(sanitize_model_log_context_value(project_id))
+}
+
+fn model_log_context_for_video_task(
+    state: &BackendState,
+    project_id: Option<String>,
+    scene_id: &str,
+    task_id: &str,
+) -> Result<ModelLogContext, ApiError> {
+    let project_id = match sanitize_model_log_context_value(project_id) {
+        Some(value) => Some(value),
+        None => resolve_project_id_for_scene(state, scene_id)?,
+    };
+    Ok(build_model_log_context(
+        project_id,
+        Some(scene_id.to_string()),
+        Some(task_id.to_string()),
+    ))
+}
+
+fn model_log_context_from_video_metadata(
+    state: &BackendState,
+    metadata: &Value,
+    scene_id: &str,
+    task_id: &str,
+) -> ModelLogContext {
+    let project_id = metadata
+        .get("projectId")
+        .and_then(trimmed_json_string)
+        .or_else(|| resolve_project_id_for_scene(state, scene_id).ok().flatten());
+    build_model_log_context(
+        project_id,
+        Some(scene_id.to_string()),
+        Some(task_id.to_string()),
+    )
+}
+
+fn video_task_metadata_with_model_log_context(metadata: &Value) -> Value {
+    let context = current_model_log_context();
+    let mut output = metadata.clone();
+    let Some(object) = output.as_object_mut() else {
+        return output;
+    };
+    if let Some(project_id) = context.project_id.as_ref() {
+        object.insert("projectId".to_string(), json!(project_id));
+    }
+    if let Some(scene_id) = context.scene_id.as_ref() {
+        object.insert("sceneId".to_string(), json!(scene_id));
+    }
+    if let Some(task_id) = context.task_id.as_ref() {
+        object.insert("taskId".to_string(), json!(task_id));
+    }
+    output
+}
+
+fn spawn_video_task_background<F>(context: ModelLogContext, future: F)
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    tauri::async_runtime::spawn(CURRENT_MODEL_LOG_CONTEXT.scope(context, future));
+}
+
 fn insert_pending_video_task(
     state: &BackendState,
     task_id: &str,
@@ -5365,6 +5454,7 @@ fn insert_pending_video_task(
 ) -> Result<(), ApiError> {
     let conn = db_connection(state)?;
     let now = now_iso();
+    let metadata = video_task_metadata_with_model_log_context(metadata);
     conn.execute(
         "INSERT INTO video_tasks (id, scene_id, status, progress, config, video_data, metadata, created_at, updated_at)
          VALUES (?1, ?2, 'pending', 0, ?3, NULL, ?4, ?5, ?6)",
@@ -5392,6 +5482,7 @@ fn update_video_task_progress(
 ) -> Result<(), ApiError> {
     let conn = db_connection(state)?;
     let now = now_iso();
+    let metadata_value = metadata.map(video_task_metadata_with_model_log_context);
     conn.execute(
         "UPDATE video_tasks
          SET status = ?2, progress = ?3, error = ?4, video_data = COALESCE(?5, video_data), metadata = COALESCE(?6, metadata), updated_at = ?7
@@ -5402,7 +5493,7 @@ fn update_video_task_progress(
             progress,
             error,
             video_data,
-            metadata.map(Value::to_string),
+            metadata_value.as_ref().map(Value::to_string),
             now
         ],
     )
@@ -5600,7 +5691,9 @@ async fn refresh_tracked_video_task(
         .and_then(Value::as_str)
         .or_else(|| upstream_task.get("modelId").and_then(Value::as_str));
 
-    let refresh_result = async {
+    let context = model_log_context_from_video_metadata(state, metadata, scene_id, task_id);
+    let refresh_result = CURRENT_MODEL_LOG_CONTEXT
+        .scope(context, async {
         match provider {
             "qwen" => {
                 let upstream_task_id = upstream_task.get("taskId").and_then(Value::as_str).unwrap_or("");
@@ -5751,8 +5844,8 @@ async fn refresh_tracked_video_task(
             _ => {}
         }
         Ok::<(), ApiError>(())
-    }
-    .await;
+        })
+        .await;
 
     if let Err(error) = refresh_result {
         eprintln!(
@@ -11266,14 +11359,15 @@ fn write_model_debug_log(
     let conn = db_connection(state)?;
     let now = now_iso();
     let request_id = current_request_id();
+    let context = current_model_log_context();
     let response_value = response.cloned().unwrap_or(Value::Null);
     let media_refs = collect_log_media_refs(&response_value);
     conn.execute(
         "INSERT INTO model_debug_logs (
           id, timestamp, provider, model, operation, status, duration_ms, request_id,
-          request_json, request_raw_json, response_json, response_raw_json,
-          media_refs_json, error_json, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+          project_id, scene_id, task_id, request_json, request_raw_json, response_json,
+          response_raw_json, media_refs_json, error_json, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             format!("log_{}", Uuid::new_v4().simple()),
             now,
@@ -11283,6 +11377,9 @@ fn write_model_debug_log(
             status,
             duration_ms.max(1),
             request_id,
+            context.project_id,
+            context.scene_id,
+            context.task_id,
             request.to_string(),
             request.to_string(),
             if response.is_some() {
@@ -11514,50 +11611,67 @@ pub(super) async fn api_models_test(
                         .unwrap_or("视频模型测试失败"),
                 ));
             }
-            insert_pending_video_task(
-                &state,
-                &task_id,
-                &scene_id,
-                &config,
-                &json!({
-                  "provider": provider,
-                  "modelId": model_id,
-                  "fallback": false,
-                  "test": true
-                }),
-            )?;
+            let context = model_log_context_for_video_task(&state, None, &scene_id, &task_id)?;
+            CURRENT_MODEL_LOG_CONTEXT
+                .scope(context.clone(), async {
+                    insert_pending_video_task(
+                        &state,
+                        &task_id,
+                        &scene_id,
+                        &config,
+                        &json!({
+                          "provider": provider,
+                          "modelId": model_id,
+                          "fallback": false,
+                          "test": true
+                        }),
+                    )
+                })
+                .await?;
             if provider == "qwen" {
-                tauri::async_runtime::spawn(run_qwen_video_task_background(
-                    state.clone(),
-                    task_id.clone(),
-                    scene_id.clone(),
-                    model_id.clone(),
-                    config.clone(),
-                ));
+                spawn_video_task_background(
+                    context.clone(),
+                    run_qwen_video_task_background(
+                        state.clone(),
+                        task_id.clone(),
+                        scene_id.clone(),
+                        model_id.clone(),
+                        config.clone(),
+                    ),
+                );
             } else if provider == "volcengine" {
-                tauri::async_runtime::spawn(run_volcengine_video_task_background(
-                    state.clone(),
-                    task_id.clone(),
-                    scene_id.clone(),
-                    model_id.clone(),
-                    config.clone(),
-                ));
+                spawn_video_task_background(
+                    context.clone(),
+                    run_volcengine_video_task_background(
+                        state.clone(),
+                        task_id.clone(),
+                        scene_id.clone(),
+                        model_id.clone(),
+                        config.clone(),
+                    ),
+                );
             } else if provider == "kling" {
-                tauri::async_runtime::spawn(run_kling_video_task_background(
-                    state.clone(),
-                    task_id.clone(),
-                    scene_id.clone(),
-                    model_id.clone(),
-                    config.clone(),
-                ));
+                spawn_video_task_background(
+                    context.clone(),
+                    run_kling_video_task_background(
+                        state.clone(),
+                        task_id.clone(),
+                        scene_id.clone(),
+                        model_id.clone(),
+                        config.clone(),
+                    ),
+                );
             } else {
-                tauri::async_runtime::spawn(run_gemini_video_task_background(
-                    state.clone(),
-                    task_id.clone(),
-                    scene_id.clone(),
-                    model_id.clone(),
-                    config.clone(),
-                ));
+                spawn_video_task_background(
+                    context,
+                    run_gemini_video_task_background(
+                        state.clone(),
+                        task_id.clone(),
+                        scene_id.clone(),
+                        model_id.clone(),
+                        config.clone(),
+                    ),
+                );
             }
             json!({
               "videoUrl": Value::Null,
@@ -13070,6 +13184,7 @@ fn validate_video_generate_payload(body: &Value) -> Result<(), ApiError> {
     }
     validate_workflow_aspect_ratio(body)?;
     workflow_optional_string(body, "style", "body")?;
+    workflow_optional_string(body, "projectId", "body")?;
     let references = workflow_required_object(body, "references", "body")?;
     workflow_optional_string(references, "environmentImage", "body.references")?;
     workflow_optional_string(references, "continuityFirstFrame", "body.references")?;
@@ -13309,6 +13424,7 @@ fn parse_video_generate_request(body: &Value) -> Result<(String, Value), ApiErro
         return Err(workflow_validation_error("body", "Expected object"));
     }
     let scene_id = required_json_string(body, "sceneId", "body")?.to_string();
+    workflow_optional_string(body, "projectId", "body")?;
     let mut config = workflow_required_object(body, "config", "body")?.clone();
     validate_video_generation_config(&mut config)?;
     Ok((scene_id, config))
@@ -13607,6 +13723,7 @@ pub(super) async fn api_asset_video_generate(
     validate_video_generate_payload(&body)?;
     let scene = body.get("scene").cloned().expect("validated scene object");
     let scene_id = json_string(scene.get("id"), "");
+    let project_id = body.get("projectId").and_then(trimmed_json_string);
     let aspect_ratio = json_string(body.get("aspectRatio"), "16:9");
     let task_id = format!("video_{}", Uuid::new_v4().simple());
     let model_id = resolve_workflow_model_id(&state, "video_generation")?;
@@ -13657,17 +13774,22 @@ pub(super) async fn api_asset_video_generate(
         ));
     }
 
-    insert_pending_video_task(
-        &state,
-        &task_id,
-        &scene_id,
-        &config,
-        &json!({
-          "provider": provider_name,
-          "modelId": config["modelId"],
-          "fallback": false
-        }),
-    )?;
+    let context = model_log_context_for_video_task(&state, project_id, &scene_id, &task_id)?;
+    CURRENT_MODEL_LOG_CONTEXT
+        .scope(context.clone(), async {
+            insert_pending_video_task(
+                &state,
+                &task_id,
+                &scene_id,
+                &config,
+                &json!({
+                  "provider": provider_name,
+                  "modelId": config["modelId"],
+                  "fallback": false
+                }),
+            )
+        })
+        .await?;
     let model_id = config
         .get("modelId")
         .and_then(Value::as_str)
@@ -13676,37 +13798,49 @@ pub(super) async fn api_asset_video_generate(
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "视频模型未配置"))?
         .to_string();
     if provider_name == "qwen" {
-        tauri::async_runtime::spawn(run_qwen_video_task_background(
-            state.clone(),
-            task_id.clone(),
-            scene_id.clone(),
-            model_id,
-            config.clone(),
-        ));
+        spawn_video_task_background(
+            context.clone(),
+            run_qwen_video_task_background(
+                state.clone(),
+                task_id.clone(),
+                scene_id.clone(),
+                model_id,
+                config.clone(),
+            ),
+        );
     } else if provider_name == "volcengine" {
-        tauri::async_runtime::spawn(run_volcengine_video_task_background(
-            state.clone(),
-            task_id.clone(),
-            scene_id.clone(),
-            model_id,
-            config.clone(),
-        ));
+        spawn_video_task_background(
+            context.clone(),
+            run_volcengine_video_task_background(
+                state.clone(),
+                task_id.clone(),
+                scene_id.clone(),
+                model_id,
+                config.clone(),
+            ),
+        );
     } else if provider_name == "kling" {
-        tauri::async_runtime::spawn(run_kling_video_task_background(
-            state.clone(),
-            task_id.clone(),
-            scene_id.clone(),
-            model_id,
-            config.clone(),
-        ));
+        spawn_video_task_background(
+            context.clone(),
+            run_kling_video_task_background(
+                state.clone(),
+                task_id.clone(),
+                scene_id.clone(),
+                model_id,
+                config.clone(),
+            ),
+        );
     } else {
-        tauri::async_runtime::spawn(run_gemini_video_task_background(
-            state.clone(),
-            task_id.clone(),
-            scene_id.clone(),
-            model_id,
-            config.clone(),
-        ));
+        spawn_video_task_background(
+            context,
+            run_gemini_video_task_background(
+                state.clone(),
+                task_id.clone(),
+                scene_id.clone(),
+                model_id,
+                config.clone(),
+            ),
+        );
     }
 
     Ok(Json(json!({
@@ -13728,6 +13862,7 @@ pub(super) async fn api_video_generate(
 ) -> Result<Json<Value>, ApiError> {
     let start = Utc::now().timestamp_millis();
     let (scene_id, mut config) = parse_video_generate_request(&body)?;
+    let project_id = body.get("projectId").and_then(trimmed_json_string);
     let task_id = format!("video_{}", Uuid::new_v4().simple());
     let configured_model = match config
         .get("modelId")
@@ -13790,17 +13925,22 @@ pub(super) async fn api_video_generate(
         &model_id_for_voice,
     )?;
 
-    insert_pending_video_task(
-        &state,
-        &task_id,
-        &scene_id,
-        &config,
-        &json!({
-          "provider": provider_name,
-          "modelId": config["modelId"],
-          "fallback": false
-        }),
-    )?;
+    let context = model_log_context_for_video_task(&state, project_id, &scene_id, &task_id)?;
+    CURRENT_MODEL_LOG_CONTEXT
+        .scope(context.clone(), async {
+            insert_pending_video_task(
+                &state,
+                &task_id,
+                &scene_id,
+                &config,
+                &json!({
+                  "provider": provider_name,
+                  "modelId": config["modelId"],
+                  "fallback": false
+                }),
+            )
+        })
+        .await?;
     let model_id = config
         .get("modelId")
         .and_then(Value::as_str)
@@ -13809,37 +13949,49 @@ pub(super) async fn api_video_generate(
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "视频模型未配置"))?
         .to_string();
     if provider_name == "qwen" {
-        tauri::async_runtime::spawn(run_qwen_video_task_background(
-            state.clone(),
-            task_id.clone(),
-            scene_id.clone(),
-            model_id,
-            config.clone(),
-        ));
+        spawn_video_task_background(
+            context.clone(),
+            run_qwen_video_task_background(
+                state.clone(),
+                task_id.clone(),
+                scene_id.clone(),
+                model_id,
+                config.clone(),
+            ),
+        );
     } else if provider_name == "volcengine" {
-        tauri::async_runtime::spawn(run_volcengine_video_task_background(
-            state.clone(),
-            task_id.clone(),
-            scene_id.clone(),
-            model_id,
-            config.clone(),
-        ));
+        spawn_video_task_background(
+            context.clone(),
+            run_volcengine_video_task_background(
+                state.clone(),
+                task_id.clone(),
+                scene_id.clone(),
+                model_id,
+                config.clone(),
+            ),
+        );
     } else if provider_name == "kling" {
-        tauri::async_runtime::spawn(run_kling_video_task_background(
-            state.clone(),
-            task_id.clone(),
-            scene_id.clone(),
-            model_id,
-            config.clone(),
-        ));
+        spawn_video_task_background(
+            context.clone(),
+            run_kling_video_task_background(
+                state.clone(),
+                task_id.clone(),
+                scene_id.clone(),
+                model_id,
+                config.clone(),
+            ),
+        );
     } else {
-        tauri::async_runtime::spawn(run_gemini_video_task_background(
-            state.clone(),
-            task_id.clone(),
-            scene_id.clone(),
-            model_id,
-            config.clone(),
-        ));
+        spawn_video_task_background(
+            context,
+            run_gemini_video_task_background(
+                state.clone(),
+                task_id.clone(),
+                scene_id.clone(),
+                model_id,
+                config.clone(),
+            ),
+        );
     }
 
     Ok(Json(json!({

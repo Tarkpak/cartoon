@@ -39,6 +39,9 @@ defineProps<{
               <TableHead>
                 操作
               </TableHead>
+              <TableHead class="whitespace-nowrap">
+                关联
+              </TableHead>
               <TableHead>
                 模型
               </TableHead>
@@ -71,6 +74,40 @@ defineProps<{
               >
                 {{ item.operation }}
               </TableCell>
+              <TableCell class="min-w-[180px] max-w-[260px] text-xs">
+                <div
+                  v-if="item.taskId || item.sceneId || item.projectId"
+                  class="space-y-1 font-mono text-muted-foreground"
+                >
+                  <p
+                    v-if="item.taskId"
+                    class="truncate"
+                    :title="item.taskId"
+                  >
+                    task {{ item.taskId }}
+                  </p>
+                  <p
+                    v-if="item.sceneId"
+                    class="truncate"
+                    :title="item.sceneId"
+                  >
+                    scene {{ item.sceneId }}
+                  </p>
+                  <p
+                    v-if="item.projectId"
+                    class="truncate"
+                    :title="item.projectId"
+                  >
+                    project {{ item.projectId }}
+                  </p>
+                </div>
+                <span
+                  v-else
+                  class="text-muted-foreground"
+                >
+                  -
+                </span>
+              </TableCell>
               <TableCell
                 class="max-w-[280px] truncate"
                 :title="item.model"
@@ -91,7 +128,7 @@ defineProps<{
           <TableBody v-else>
             <TableRow>
               <TableCell
-                :colspan="6"
+                :colspan="7"
                 class="h-24 text-center text-muted-foreground"
               >
                 暂无日志

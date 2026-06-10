@@ -78,7 +78,12 @@ fn path_to_string(path: &Path) -> String {
 /// 只继承精简版 PATH，不含 Homebrew / MacPorts 等目录，导致系统 ffmpeg 不可见。
 fn common_ffmpeg_dirs() -> Vec<PathBuf> {
     let raw: &[&str] = if cfg!(target_os = "macos") {
-        &["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", "/usr/bin"]
+        &[
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/opt/local/bin",
+            "/usr/bin",
+        ]
     } else if cfg!(target_os = "linux") {
         &["/usr/bin", "/usr/local/bin", "/snap/bin"]
     } else {

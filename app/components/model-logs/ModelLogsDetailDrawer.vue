@@ -288,6 +288,39 @@ watch(open, (value) => {
               </p>
             </div>
             <div
+              v-if="props.activeLog.projectId"
+              class="rounded border p-3"
+            >
+              <p class="text-xs text-muted-foreground">
+                Project ID
+              </p>
+              <p class="mt-1 break-all font-mono text-xs">
+                {{ props.activeLog.projectId }}
+              </p>
+            </div>
+            <div
+              v-if="props.activeLog.sceneId"
+              class="rounded border p-3"
+            >
+              <p class="text-xs text-muted-foreground">
+                Scene ID
+              </p>
+              <p class="mt-1 break-all font-mono text-xs">
+                {{ props.activeLog.sceneId }}
+              </p>
+            </div>
+            <div
+              v-if="props.activeLog.taskId"
+              class="rounded border p-3 md:col-span-2"
+            >
+              <p class="text-xs text-muted-foreground">
+                Task ID
+              </p>
+              <p class="mt-1 break-all font-mono text-xs">
+                {{ props.activeLog.taskId }}
+              </p>
+            </div>
+            <div
               v-if="props.activeLog.endpoint"
               class="rounded border p-3 md:col-span-2"
             >

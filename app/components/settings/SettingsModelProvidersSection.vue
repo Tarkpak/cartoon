@@ -3,13 +3,11 @@ import {
   CheckCheck,
   CheckCircle2,
   Database,
-  Download,
   Loader2,
   RefreshCw,
   Search,
   Trash2,
   TriangleAlert,
-  Upload,
   XCircle
 } from 'lucide-vue-next'
 import SettingsCustomOpenAIProvider from '@/components/settings/SettingsCustomOpenAIProvider.vue'
@@ -17,10 +15,6 @@ import SettingsProviderCredentials from '@/components/settings/SettingsProviderC
 import SettingsProviderLogo from '@/components/settings/SettingsProviderLogo.vue'
 import SettingsConfirmDialog from '@/components/settings/SettingsConfirmDialog.vue'
 import { useSettingsModelCatalog } from '@/composables/useSettingsModelCatalog'
-import {
-  downloadSettingsConfigExportUrl,
-  parseSettingsConfigImportFile
-} from '@/lib/settings-config-transfer'
 
 type ProviderId = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'deepseek' | 'custom_openai'
 
@@ -61,11 +55,6 @@ interface ModelProviderResponse {
   data: ModelProviderSummary
 }
 
-interface SettingsConfigTransferResponse {
-  success: boolean
-  data: unknown
-}
-
 type ModelCategoryKey = 'text' | 'image' | 'video' | 'voice' | 'three_d' | 'other'
 
 interface ModelCategoryGroup {
@@ -91,14 +80,11 @@ const providersLoading = ref(false)
 const providers = ref<ModelProviderSummary[]>([])
 const enabledModelsByProvider = ref<Partial<Record<ProviderId, string[]>>>({})
 const errorMessage = ref('')
-const providerConfigMessage = ref('')
 const activeProvider = ref<ProviderId | null>(null)
 const modelSearchKeyword = ref('')
-const providerConfigImporting = ref(false)
-const providerConfigExporting = ref(false)
 const providerConfigReloadToken = ref(0)
-const providerConfigImportInputRef = ref<{ click: () => void } | null>(null)
 const { loadModels } = useSettingsModelCatalog()
+const SETTINGS_CONFIG_IMPORTED_EVENT = 'playlet:settings-config-imported'
 
 const activeProviderSummary = computed(() => {
   return providers.value.find(provider => provider.provider === activeProvider.value) || providers.value[0] || null
@@ -144,55 +130,14 @@ function retryLoadProviders() {
   void loadProviders()
 }
 
-function triggerProviderConfigImport() {
-  providerConfigImportInputRef.value?.click()
-}
-
-async function handleProviderConfigImport(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-
-  providerConfigImporting.value = true
-  providerConfigMessage.value = ''
-  errorMessage.value = ''
-
-  try {
-    const payload = await parseSettingsConfigImportFile(file)
-    const response = await $fetch<SettingsConfigTransferResponse>('/api/model-providers/config/import', {
-      method: 'POST',
-      body: { payload }
-    })
-
-    if (response.success) {
-      providerConfigReloadToken.value += 1
-      providerConfigMessage.value = '已导入供应商配置'
-      await loadProviders()
-      await refreshModelCatalog()
-    }
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '导入供应商配置失败'
-  } finally {
-    providerConfigImporting.value = false
-    input.value = ''
-  }
-}
-
-function exportProviderConfig() {
-  providerConfigExporting.value = true
-  providerConfigMessage.value = ''
-  errorMessage.value = ''
-
-  downloadSettingsConfigExportUrl('/api/model-providers/config/download', 'model-providers')
-  providerConfigMessage.value = '已开始导出供应商配置'
-
-  window.setTimeout(() => {
-    providerConfigExporting.value = false
-  }, 300)
-}
-
 async function refreshModelCatalog() {
   await loadModels(true)
+}
+
+async function handleSettingsConfigImported() {
+  providerConfigReloadToken.value += 1
+  await loadProviders()
+  await refreshModelCatalog()
 }
 
 async function handleCustomProviderSaved() {
@@ -448,20 +393,17 @@ watch(activeProvider, () => {
 })
 
 onMounted(() => {
+  window.addEventListener(SETTINGS_CONFIG_IMPORTED_EVENT, handleSettingsConfigImported)
   void loadProviders()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(SETTINGS_CONFIG_IMPORTED_EVENT, handleSettingsConfigImported)
 })
 </script>
 
 <template>
   <div class="flex h-full flex-col overflow-hidden xl:flex-row">
-    <Input
-      ref="providerConfigImportInputRef"
-      type="file"
-      accept=".json,application/json"
-      class="hidden"
-      @change="handleProviderConfigImport"
-    />
-
     <div class="flex max-h-[36vh] w-full shrink-0 flex-col border-b bg-muted/30 xl:max-h-none xl:w-60 xl:border-b-0 xl:border-r">
       <div class="border-b px-4 py-4">
         <h2 class="text-base font-semibold">
@@ -569,42 +511,6 @@ onMounted(() => {
               variant="outline"
               size="sm"
               class="h-8 gap-1.5"
-              :disabled="providersLoading || providerConfigImporting || providerConfigExporting"
-              title="导入供应商配置"
-              @click="triggerProviderConfigImport"
-            >
-              <Loader2
-                v-if="providerConfigImporting"
-                class="h-3.5 w-3.5 animate-spin"
-              />
-              <Upload
-                v-else
-                class="h-3.5 w-3.5"
-              />
-              导入配置
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              class="h-8 gap-1.5"
-              :disabled="providersLoading || providerConfigImporting || providerConfigExporting"
-              title="导出供应商配置"
-              @click="exportProviderConfig"
-            >
-              <Loader2
-                v-if="providerConfigExporting"
-                class="h-3.5 w-3.5 animate-spin"
-              />
-              <Download
-                v-else
-                class="h-3.5 w-3.5"
-              />
-              导出配置
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              class="h-8 gap-1.5"
               :disabled="!activeProviderHasEnabledModels || savingProvider !== null || syncingProvider !== null"
               @click="clearModelsForActiveProvider"
             >
@@ -658,14 +564,6 @@ onMounted(() => {
             :provider="activeCredentialProvider"
             :on-saved="handleCustomProviderSaved"
           />
-
-          <div
-            v-if="providerConfigMessage"
-            class="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-600"
-          >
-            <CheckCircle2 class="mt-0.5 h-4 w-4 shrink-0" />
-            {{ providerConfigMessage }}
-          </div>
 
           <div
             v-if="errorMessage"

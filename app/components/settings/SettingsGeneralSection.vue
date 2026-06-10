@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import SettingsSectionHeader from '@/components/settings/SettingsSectionHeader.vue'
+import SettingsConfigTransfer from '@/components/settings/SettingsConfigTransfer.vue'
 import SettingsCompletionNotification from '@/components/settings/SettingsCompletionNotification.vue'
 import SettingsDesktopFfmpeg from '@/components/settings/SettingsDesktopFfmpeg.vue'
 import SettingsDesktopUpdate from '@/components/settings/SettingsDesktopUpdate.vue'
@@ -13,6 +14,7 @@ import SettingsDesktopUpdate from '@/components/settings/SettingsDesktopUpdate.v
         description="全局偏好设置，应用于所有项目与工作流程。"
       />
 
+      <SettingsConfigTransfer />
       <SettingsCompletionNotification />
       <SettingsDesktopFfmpeg />
       <SettingsDesktopUpdate />
