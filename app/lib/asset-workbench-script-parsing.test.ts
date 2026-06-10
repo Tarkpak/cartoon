@@ -54,6 +54,9 @@ describe('asset-workbench-script-parsing', () => {
           timeOfDay: '黄昏'
         },
         characters: ['陈泽'],
+        props: [
+          { name: '白色大卡车', description: '车头逼近，喇叭刺耳' }
+        ],
         dramatic: '现代悠闲摆烂氛围，为突发死亡制造反差。',
         shotType: '中景、近景、逆光环境镜头',
         cameraMovement: '逆光环境镜头',
@@ -63,9 +66,44 @@ describe('asset-workbench-script-parsing', () => {
     })
 
     expect(scenes[0]?.dramatic).toBeUndefined()
+    expect(scenes[0]?.props).toEqual([
+      { name: '白色大卡车', description: '车头逼近，喇叭刺耳' }
+    ])
     expect(scenes[0]?.shotType).toBe('medium')
     expect(scenes[0]?.cameraMovement).toBe('static')
     expect(scenes[0]?.environmentCaptureMode).toBe('four_view')
     expect(scenes[0]?.narration).toBe('字幕：2026年 夏\n黄昏老街路口。')
+  })
+
+  it('keeps dramatic analysis labels out of saved scene descriptions', () => {
+    const scenes = buildParsedScenes({
+      scenes: [{
+        id: 'scene_001',
+        title: '摆烂摊贩的黄昏',
+        description: [
+          '戏剧冲突：陈泽的摆烂日常被突发死亡危机撕开。',
+          '爽点/痛点：普通人刚说完安稳就被灾难碾来。',
+          '情绪曲线：悠闲摆烂->瞬间警觉。',
+          '反击或反转：平静生活被车头撞碎。',
+          '结尾钩子：白色大卡车的喇叭压过一切。',
+          '镜头设计：',
+          '0-2秒：，中景，跟拍。陈泽推着烧烤三轮车穿过老街。',
+          '2-5秒：，近景，缓慢推近。陈泽抬头，眼神突然僵住。'
+        ].join('\n'),
+        duration: 8,
+        setting: {
+          location: '现代都市老街路口',
+          timeOfDay: '傍晚'
+        },
+        characters: ['陈泽']
+      }]
+    })
+
+    expect(scenes[0]?.dramatic?.conflict).toBe('陈泽的摆烂日常被突发死亡危机撕开。')
+    expect(scenes[0]?.dramatic?.cliffhanger).toBe('白色大卡车的喇叭压过一切。')
+    expect(scenes[0]?.description).toContain('镜头设计：')
+    expect(scenes[0]?.description).not.toContain('戏剧冲突：')
+    expect(scenes[0]?.description).not.toContain('爽点/痛点：')
+    expect(scenes[0]?.description).not.toContain('结尾钩子：')
   })
 })

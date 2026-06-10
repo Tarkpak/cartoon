@@ -80,6 +80,7 @@ function buildSceneGenerationInputSnapshot(scene: Pick<
   | 'title'
   | 'description'
   | 'characters'
+  | 'props'
   | 'narration'
   | 'duration'
   | 'setting'
@@ -92,6 +93,7 @@ function buildSceneGenerationInputSnapshot(scene: Pick<
     title: scene.title,
     description: scene.description,
     characters: scene.characters,
+    props: scene.props || [],
     narration: scene.narration || '',
     duration: scene.duration,
     setting: scene.setting || null,

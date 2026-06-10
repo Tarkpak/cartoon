@@ -338,6 +338,10 @@ export const SceneSchema = z.object({
   dramatic: SceneDramaticSchema,
   setting: SceneSettingSchema.describe('场景设定'),
   characters: z.array(SceneCharacterSchema).describe('登场角色'),
+  props: z.array(z.object({
+    name: z.string().trim().min(1).describe('本场明确出现且需要资产一致性的道具名'),
+    description: z.string().optional().describe('本场道具外观或使用方式')
+  })).optional().describe('本场明确出现且需要参考资产锁定的道具'),
   usePreviousLastFrameAsFirstFrame: z.boolean().optional().describe('是否建议使用上一镜头末帧作为本镜头首帧参考'),
   continuityLinkReason: z.string().optional().describe('承接上一镜头末帧的原因说明'),
   duration: SceneDurationSchema,

@@ -58,14 +58,13 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
 }
 
 describe('scene character reference detection', () => {
-  it('ignores scene characters that are only mentioned in dialogue text', () => {
+  it('uses structured scene characters without inferring characters from dialogue text', () => {
     const scene = createScene({
       id: 'scene_1',
       title: '巷口对话',
       description: '0-8秒：中景，固定镜头。张三站在巷口。张三说：\'李四，你别过来\'',
       characters: [
-        { name: '张三' },
-        { name: '李四' }
+        { name: '张三' }
       ]
     })
     const characters = [
@@ -75,7 +74,7 @@ describe('scene character reference detection', () => {
 
     const candidates = collectSceneCharacterCandidates(scene)
     const candidateNames = candidates.map(item => item.primaryName)
-    expect(candidateNames).toContain('张三')
+    expect(candidateNames).toEqual(['张三'])
     expect(candidateNames).not.toContain('李四')
 
     const { refs } = resolveCharacterRefsFromScene({
@@ -85,7 +84,7 @@ describe('scene character reference detection', () => {
     expect(refs).toEqual(['char:char_1'])
   })
 
-  it('parses malformed speaker field by keeping the true speaker before colon', () => {
+  it('does not parse malformed speaker fields as character references', () => {
     const scene = createScene({
       id: 'scene_2',
       title: '争执',
@@ -102,6 +101,27 @@ describe('scene character reference detection', () => {
       characters
     })
 
-    expect(refs).toEqual(['char:char_qiang'])
+    expect(refs).toEqual([])
+  })
+
+  it('matches structured scene characters by normalized exact name only', () => {
+    const scene = createScene({
+      id: 'scene_3',
+      title: '争执',
+      description: '0-6秒：中景，固定镜头。阿强哥皱眉。',
+      characters: [
+        { name: '阿强哥' }
+      ]
+    })
+    const characters = [
+      createCharacter({ id: 'char_qiang', name: '阿强' })
+    ]
+
+    const { refs } = resolveCharacterRefsFromScene({
+      scene,
+      characters
+    })
+
+    expect(refs).toEqual([])
   })
 })

@@ -5590,10 +5590,10 @@ async fn api_models_workflow_post(
 const SUPPORTED_MODEL_PROVIDERS: [&str; 6] = [
     "qwen",
     "volcengine",
+    "kling",
+    "gemini",
     "deepseek",
     "custom_openai",
-    "gemini",
-    "kling",
 ];
 
 fn is_supported_provider(provider: &str) -> bool {

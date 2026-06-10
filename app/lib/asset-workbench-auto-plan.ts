@@ -4,10 +4,9 @@ import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWo
 import { buildSceneEnvironmentCrossSpaceNote } from '~/lib/asset-workbench-environment'
 import {
   collectSceneCharacterCandidates,
-  findCharacterByNameLike,
+  findCharacterByNormalizedName,
   getValidAssetIdSet,
   resolveCharacterRefsFromScene,
-  resolvePropRefsFromScene,
   sceneHasSameLocation
 } from '~/lib/asset-workbench-reference-detection'
 import {
@@ -23,7 +22,6 @@ interface ApplyAutomaticAssetPlanOptions {
   environmentAssetIds: string[]
   overwriteExistingConfigs?: boolean
   resolveSceneEnvironmentAssetId: (scene: SceneData) => string
-  resolveSceneDescriptionWithoutAssetMentions: (description?: string) => string
   createCharacterId?: () => string
 }
 
@@ -92,12 +90,15 @@ function buildAutoSceneConfig(
   })
   for (const ref of characterRefs) refs.add(ref)
 
-  const propRefs = resolvePropRefsFromScene({
-    scene,
-    propAssets: options.propAssets,
-    resolveSceneDescriptionWithoutAssetMentions: options.resolveSceneDescriptionWithoutAssetMentions
-  })
-  for (const ref of propRefs) refs.add(ref)
+  const propRefMap = new Map(
+    options.propAssets
+      .map(prop => [normalizeToken(prop.name), `prop:${prop.id}`] as const)
+      .filter(([key]) => !!key)
+  )
+  for (const sceneProp of scene.props || []) {
+    const ref = propRefMap.get(normalizeToken(sceneProp.name))
+    if (ref) refs.add(ref)
+  }
 
   const previous = index > 0 ? options.scenes[index - 1] : undefined
   if (previous && sceneHasSameLocation(scene, previous)) {
@@ -135,7 +136,7 @@ function upsertCharactersFromScenes(
     for (const candidate of collectSceneCharacterCandidates(scene)) {
       let matched: CharacterData | undefined
       for (const alias of candidate.aliases) {
-        matched = findCharacterByNameLike(alias, characters)
+        matched = findCharacterByNormalizedName(alias, characters)
         if (matched) break
       }
 
@@ -186,7 +187,7 @@ export function applyAutomaticAssetPlan(
   const validAssetIds = getValidAssetIdSet(
     options.characters,
     options.environmentAssetIds,
-    options.propAssets
+    options.propAssets.map(prop => prop.id)
   )
   const nextSceneConfigs: Record<string, SceneConsistencyConfig> = {}
   let configChanged = false

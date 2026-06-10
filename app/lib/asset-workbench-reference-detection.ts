@@ -1,5 +1,4 @@
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
-import type { PropAsset } from '~/composables/useAssetWorkflowMeta'
 import {
   normalizeToken,
   uniqueSorted
@@ -15,32 +14,6 @@ const NARRATION_SPEAKERS = [
   '内心独白'
 ]
 
-const SCENE_IMAGE_TAG_REGEX = /(?:\[(?:图片|Image\s*#)\s*\d+\]|@(?:图片|Image\s*#)\s*\d+)/giu
-const SCENE_QUOTED_DIALOGUE_REGEX = /'[^'\n]*'|"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’|「[^」\n]*」|『[^』\n]*』/gu
-const SCENE_DIALOGUE_SENTENCE_REGEX = /[^。！？!?\n]*(?:说|问|答|喊|道|回应|低语|喃喃|旁白|画外音)\s*[：:][^。！？!?\n]*/gu
-const SCENE_TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]/gmu
-const SCENE_DIALOGUE_SPEAKER_MARKERS = [
-  '说',
-  '问',
-  '答',
-  '喊',
-  '道',
-  '回应',
-  '低语',
-  '喃喃'
-]
-const SCENE_DIALOGUE_LABELS = new Set([
-  '场景功能',
-  '情绪定位',
-  '镜头设计',
-  '声音设计',
-  '台词节奏',
-  '表演关键点',
-  '对白',
-  '对话',
-  '台词'
-])
-
 export interface SceneCharacterCandidate {
   primaryName: string
   aliases: string[]
@@ -50,12 +23,6 @@ export interface SceneCharacterCandidate {
 interface ResolveCharacterRefsOptions {
   scene: SceneData
   characters: CharacterData[]
-}
-
-interface ResolvePropRefsOptions {
-  scene: SceneData
-  propAssets: PropAsset[]
-  resolveSceneDescriptionWithoutAssetMentions: (description?: string) => string
 }
 
 function isNarrationSpeaker(name: string): boolean {
@@ -95,65 +62,13 @@ function createSceneCharacterCandidate(
   }
 }
 
-function normalizeDialogueSpeakerCandidate(rawName?: string): string {
-  return (rawName || '')
-    .replace(/^\s*[-*•]\s*/u, '')
-    .replace(/["'“”‘’「」『』]/gu, '')
-    .trim()
-}
-
-function lastSpeakerToken(text: string): string {
-  return normalizeDialogueSpeakerCandidate(
-    text
-      .split(/[。！？!?，,；;\s]+/u)
-      .filter(Boolean)
-      .at(-1) || ''
-  )
-}
-
-function collectDescriptionDialogueSpeakerSet(description: string): Set<string> {
-  const speakerSet = new Set<string>()
-
-  for (const rawLine of description.split('\n')) {
-    const line = rawLine.trim()
-    if (!line) continue
-
-    let speaker = ''
-    for (const marker of SCENE_DIALOGUE_SPEAKER_MARKERS) {
-      const colonIndex = line.indexOf(`${marker}：`) >= 0
-        ? line.indexOf(`${marker}：`)
-        : line.indexOf(`${marker}:`)
-      if (colonIndex >= 0) {
-        speaker = lastSpeakerToken(line.slice(0, colonIndex))
-        break
-      }
-    }
-
-    if (!speaker) {
-      const directMatch = line.match(/^\s*[-*•]?\s*([^：:\n]{1,16})\s*[：:]/u)
-      if (directMatch && !directMatch[1]?.includes('秒')) {
-        speaker = normalizeDialogueSpeakerCandidate(directMatch[1])
-      }
-    }
-
-    if (!speaker || speaker.length > 16 || isNarrationSpeaker(speaker) || SCENE_DIALOGUE_LABELS.has(speaker)) {
-      continue
-    }
-    const normalized = normalizeToken(speaker)
-    if (normalized) speakerSet.add(normalized)
-  }
-
-  return speakerSet
-}
-
-export function findCharacterByNameLike(
+export function findCharacterByNormalizedName(
   name: string,
   characters: CharacterData[]
 ): CharacterData | undefined {
   const normalized = normalizeToken(name)
   if (!normalized) return undefined
 
-  let fuzzyMatch: CharacterData | undefined
   for (const character of characters) {
     const target = normalizeToken(character.name)
     if (!target) continue
@@ -161,66 +76,17 @@ export function findCharacterByNameLike(
     if (target === normalized) {
       return character
     }
-
-    const longer = target.length >= normalized.length ? target : normalized
-    const shorter = longer === target ? normalized : target
-    const lengthGap = longer.length - shorter.length
-    const canFuzzyMatch = shorter.length >= 2
-      && lengthGap <= 2
-      && longer.includes(shorter)
-
-    if (!fuzzyMatch && canFuzzyMatch) {
-      fuzzyMatch = character
-    }
   }
 
-  return fuzzyMatch
-}
-
-function normalizeVisualDescriptionText(description?: string): string {
-  if (!description) return ''
-
-  return normalizeToken(
-    description
-      .replace(SCENE_IMAGE_TAG_REGEX, ' ')
-      .replace(SCENE_QUOTED_DIALOGUE_REGEX, ' ')
-      .replace(SCENE_DIALOGUE_SENTENCE_REGEX, ' ')
-      .replace(SCENE_TIMELINE_PREFIX_REGEX, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-  )
-}
-
-function hasAliasInTokens(aliases: string[], tokenPool: string[]): boolean {
-  if (aliases.length === 0 || tokenPool.length === 0) return false
-
-  for (const alias of aliases) {
-    const normalized = normalizeToken(alias)
-    if (!normalized) continue
-
-    if (tokenPool.some(token => token.includes(normalized))) {
-      return true
-    }
-  }
-
-  return false
+  return undefined
 }
 
 export function collectSceneCharacterCandidates(scene: SceneData): SceneCharacterCandidate[] {
   const map = new Map<string, SceneCharacterCandidate>()
-  const visualDescriptionToken = normalizeVisualDescriptionText(scene.description)
-  const dialogueSpeakerSet = collectDescriptionDialogueSpeakerSet(scene.description)
 
   for (const sceneCharacter of scene.characters) {
     const candidate = createSceneCharacterCandidate(sceneCharacter.name, sceneCharacter.appearance)
     if (!candidate) continue
-
-    const hasVisualMetadata = !!sceneCharacter.appearance?.trim()
-      || !!sceneCharacter.emotion?.trim()
-    const appearsInVisualDescription = hasAliasInTokens(candidate.aliases, [visualDescriptionToken])
-    const appearsAsDialogueSpeaker = candidate.aliases
-      .some(alias => dialogueSpeakerSet.has(normalizeToken(alias)))
-    if (!hasVisualMetadata && !appearsInVisualDescription && !appearsAsDialogueSpeaker) continue
 
     const key = normalizeToken(candidate.primaryName)
     if (!key) continue
@@ -237,39 +103,18 @@ export function collectSceneCharacterCandidates(scene: SceneData): SceneCharacte
     map.set(key, candidate)
   }
 
-  for (const speakerKey of dialogueSpeakerSet) {
-    const candidate = createSceneCharacterCandidate(speakerKey)
-    if (!candidate) continue
-    const key = normalizeToken(candidate.primaryName)
-    if (!key || map.has(key)) continue
-    map.set(key, candidate)
-  }
-
   return Array.from(map.values())
-}
-
-function getSceneText(
-  scene: SceneData,
-  resolveSceneDescriptionWithoutAssetMentions: ResolvePropRefsOptions['resolveSceneDescriptionWithoutAssetMentions']
-): string {
-  return [
-    scene.title || '',
-    resolveSceneDescriptionWithoutAssetMentions(scene.description),
-    scene.narration || ''
-  ]
-    .join('\n')
-    .toLowerCase()
 }
 
 export function getValidAssetIdSet(
   characters: CharacterData[],
   environmentAssetIds: string[],
-  propAssets: PropAsset[]
+  propAssets: Array<string | { id: string }>
 ): Set<string> {
   return new Set([
     ...characters.map(character => `char:${character.id}`),
     ...environmentAssetIds,
-    ...propAssets.map(prop => `prop:${prop.id}`)
+    ...propAssets.map(prop => `prop:${typeof prop === 'string' ? prop : prop.id}`)
   ])
 }
 
@@ -284,12 +129,12 @@ export function resolveCharacterRefsFromScene(
     let matched: CharacterData | undefined
 
     for (const alias of candidate.aliases) {
-      matched = findCharacterByNameLike(alias, options.characters)
+      matched = findCharacterByNormalizedName(alias, options.characters)
       if (matched) break
     }
 
     if (!matched) {
-      matched = findCharacterByNameLike(candidate.primaryName, options.characters)
+      matched = findCharacterByNormalizedName(candidate.primaryName, options.characters)
     }
 
     if (!matched) continue
@@ -302,23 +147,6 @@ export function resolveCharacterRefsFromScene(
     refs: Array.from(refs),
     matchedCharacterNames: Array.from(matchedCharacterNames)
   }
-}
-
-export function resolvePropRefsFromScene(options: ResolvePropRefsOptions): string[] {
-  if (options.propAssets.length === 0) return []
-
-  const sceneText = getSceneText(
-    options.scene,
-    options.resolveSceneDescriptionWithoutAssetMentions
-  )
-
-  return options.propAssets
-    .filter((prop) => {
-      const name = prop.name.trim().toLowerCase()
-      if (name.length < 2) return false
-      return sceneText.includes(name)
-    })
-    .map(prop => `prop:${prop.id}`)
 }
 
 export function sceneHasSameLocation(currentScene: SceneData, previousScene?: SceneData): boolean {

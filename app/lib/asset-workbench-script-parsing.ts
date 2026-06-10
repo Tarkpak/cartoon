@@ -76,6 +76,7 @@ const SCENE_DRAMATIC_DESCRIPTION_LABELS: Partial<Record<ParsedSceneDramaticTextF
   cliffhanger: '结尾钩子'
 }
 
+const DESCRIPTION_DRAMATIC_LABEL_REGEX = /^\s*(?:戏剧冲突|爽点\s*[\/／]?\s*痛点|情绪曲线|反击或反转|结尾钩子)\s*[：:]/u
 const SCENE_TIMELINE_PREFIX_REGEX = /^\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?(?:s|秒)\s*[：:]/gmu
 const MULTI_VIEW_HINT_REGEX = /(多视角|多个视角|多机位|多镜头|多景别|镜头切换|切换镜头|视角切换|镜头切到|切到|转到|angle switch|multi[- ]?angle|multi[- ]?shot)/iu
 const SCENE_SHOT_KEYWORDS = [
@@ -113,6 +114,7 @@ interface ParsedScriptScene {
   dramatic?: unknown
   description: string
   characters?: Array<string | { name?: string, appearance?: string, emotion?: string }>
+  props?: Array<string | { name?: string, description?: string }>
   dialogues?: Array<{ character?: string, speaker?: string, text?: string, emotion?: string }>
   narration?: unknown
   usePreviousLastFrameAsFirstFrame?: boolean
@@ -289,24 +291,25 @@ function normalizeParsedSceneDramatic(raw: unknown, fallbackDescription = ''): S
   return Object.keys(normalized).length > 0 ? normalized : undefined
 }
 
-function ensureDramaticDescriptionSections(description: string, dramatic?: SceneDramatic): string {
+function stripDramaticMetadataFromDescription(description: string): string {
+  return description
+    .split('\n')
+    .filter(line => !DESCRIPTION_DRAMATIC_LABEL_REGEX.test(line))
+    .join('\n')
+    .trim()
+}
+
+function normalizeSceneDescription(description: string, dramatic?: SceneDramatic): string {
   const normalizedDescription = description.trim()
-  if (!dramatic) return normalizedDescription
-  if (/戏剧冲突\s*[：:]/u.test(normalizedDescription) && /结尾钩子\s*[：:]/u.test(normalizedDescription)) {
-    return normalizedDescription
-  }
+  if (normalizedDescription || !dramatic) return normalizedDescription
 
-  const prefix = [
-    `戏剧冲突：${dramatic.conflict || dramatic.antagonistPressure || '本场必须围绕明确压迫与反击展开。'}`,
-    `爽点/痛点：${dramatic.payoff || dramatic.painPoint || '突出观众共情、愤怒或期待被释放的瞬间。'}`,
-    `情绪曲线：${dramatic.emotionalCurve || '压迫->情绪绷紧->反击预兆。'}`,
-    `反击或反转：${dramatic.protagonistCounter || dramatic.payoff || '保留主角主动反击或埋下反击的动作。'}`,
-    `结尾钩子：${dramatic.cliffhanger || dramatic.audienceHook || '最后2秒给出下一场期待。'}`
-  ].join('\n')
+  const fallback = [
+    dramatic.conflict || dramatic.antagonistPressure,
+    dramatic.protagonistCounter || dramatic.payoff,
+    dramatic.cliffhanger || dramatic.audienceHook
+  ].filter(Boolean).join('；')
 
-  return normalizedDescription
-    ? `${prefix}\n${normalizedDescription}`
-    : prefix
+  return fallback ? `场景功能/情绪定位：${fallback}` : ''
 }
 
 function normalizeParsedSceneNarration(raw: unknown): string | undefined {
@@ -350,6 +353,27 @@ function normalizeParsedSceneCharacters(
     .filter(character => !!character.name)
 }
 
+function normalizeParsedSceneProps(
+  props: ParsedScriptScene['props']
+): NonNullable<SceneData['props']> {
+  if (!Array.isArray(props)) return []
+
+  return props
+    .map((prop) => {
+      if (typeof prop === 'string') {
+        return {
+          name: prop.trim()
+        }
+      }
+
+      return {
+        name: normalizeOptionalString(prop?.name) || '',
+        description: normalizeOptionalString(prop?.description)
+      }
+    })
+    .filter(prop => !!prop.name)
+}
+
 function normalizeParsedSceneDialogues(
   dialogues: ParsedScriptScene['dialogues']
 ): Array<{ character: string, text: string, emotion?: string }> {
@@ -391,13 +415,15 @@ export function buildParsedScenes(options: {
 }): SceneData[] {
   return options.scenes.map((scene, index) => {
     const normalizedDescription = (scene.description || '').trim()
+    const descriptionWithoutDramaticMetadata = stripDramaticMetadataFromDescription(normalizedDescription)
     const fallbackText = [
       scene.title,
-      normalizedDescription,
+      descriptionWithoutDramaticMetadata,
       scene.setting?.location
     ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0).join(' ')
     const dramatic = normalizeParsedSceneDramatic(scene.dramatic, normalizedDescription)
     const characters = normalizeParsedSceneCharacters(scene.characters)
+    const props = normalizeParsedSceneProps(scene.props)
     const dialogues = normalizeParsedSceneDialogues(scene.dialogues)
     const normalizedDialogues = dialogues.filter((dialogue) => {
       return !NARRATION_SPEAKER_SET.has(normalizeCharacterName(dialogue.character))
@@ -411,7 +437,7 @@ export function buildParsedScenes(options: {
       .filter((text): text is string => !!text)
       .join('\n')
     const descriptionWithLegacyDialogues = appendLegacyDialoguesToDescription(
-      normalizedDescription,
+      descriptionWithoutDramaticMetadata,
       normalizedDialogues
     )
 
@@ -424,8 +450,9 @@ export function buildParsedScenes(options: {
       dramatic,
       description: options.descriptionFormat === 'timeline'
         ? descriptionWithLegacyDialogues
-        : ensureDramaticDescriptionSections(descriptionWithLegacyDialogues, dramatic),
+        : normalizeSceneDescription(descriptionWithLegacyDialogues, dramatic),
       characters,
+      props,
       narration: mergeNarrationTexts(normalizeParsedSceneNarration(scene.narration), narrationFromDialogues),
       duration: scene.duration || 8,
       setting: scene.setting,
