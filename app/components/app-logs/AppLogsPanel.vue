@@ -8,11 +8,14 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
+import AppLogsDetailDrawer from '@/components/app-logs/AppLogsDetailDrawer.vue'
 import { useAppLogs, type AppLogEntry } from '@/composables/useAppLogs'
 
 const props = defineProps<{
   initialRequestId?: string
 }>()
+
+const detailOpen = ref(false)
 
 const {
   logs,
@@ -52,13 +55,21 @@ function levelVariant(level: AppLogEntry['level']) {
   if (level === 'debug') return 'outline'
   return 'secondary'
 }
+
+function openLogDetail(item: AppLogEntry) {
+  activeLogId.value = item.id
+  detailOpen.value = true
+}
 </script>
 
 <template>
   <div class="space-y-6">
     <Card>
-      <CardHeader>
-        <CardTitle>系统日志</CardTitle>
+      <CardHeader class="gap-4 space-y-0 md:flex-row md:items-start md:justify-between">
+        <div class="space-y-1.5">
+          <CardTitle>系统日志</CardTitle>
+        </div>
+        <slot name="tabs" />
       </CardHeader>
       <CardContent class="space-y-4">
         <div class="grid grid-cols-1 gap-3 md:grid-cols-7">
@@ -175,163 +186,109 @@ function levelVariant(level: AppLogEntry['level']) {
       </CardContent>
     </Card>
 
-    <div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <Card>
-        <CardHeader class="pb-3">
-          <CardTitle>日志列表（{{ logs.length }}）</CardTitle>
-        </CardHeader>
-        <CardContent class="p-0">
-          <div class="max-h-[72vh] overflow-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead class="whitespace-nowrap">
-                    时间
-                  </TableHead>
-                  <TableHead>
-                    级别
-                  </TableHead>
-                  <TableHead>
-                    来源
-                  </TableHead>
-                  <TableHead>
-                    类别
-                  </TableHead>
-                  <TableHead>
-                    路径
-                  </TableHead>
-                  <TableHead class="whitespace-nowrap">
-                    状态
-                  </TableHead>
-                  <TableHead>
-                    Request ID
-                  </TableHead>
-                  <TableHead>
-                    信息
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
+    <Card>
+      <CardHeader class="pb-3">
+        <CardTitle>日志列表（{{ logs.length }}）</CardTitle>
+      </CardHeader>
+      <CardContent class="p-0">
+        <div class="max-h-[72vh] overflow-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead class="whitespace-nowrap">
+                  时间
+                </TableHead>
+                <TableHead>
+                  级别
+                </TableHead>
+                <TableHead>
+                  来源
+                </TableHead>
+                <TableHead>
+                  类别
+                </TableHead>
+                <TableHead>
+                  路径
+                </TableHead>
+                <TableHead class="whitespace-nowrap">
+                  状态
+                </TableHead>
+                <TableHead>
+                  Request ID
+                </TableHead>
+                <TableHead>
+                  信息
+                </TableHead>
+              </TableRow>
+            </TableHeader>
 
-              <TableBody v-if="logs.length > 0">
-                <TableRow
-                  v-for="item in logs"
-                  :key="item.id"
-                  class="cursor-pointer"
-                  :class="item.id === activeLogId ? 'bg-muted/60' : ''"
-                  @click="activeLogId = item.id"
+            <TableBody v-if="logs.length > 0">
+              <TableRow
+                v-for="item in logs"
+                :key="item.id"
+                class="cursor-pointer"
+                :class="item.id === activeLogId && detailOpen ? 'bg-muted/60' : ''"
+                @click="openLogDetail(item)"
+              >
+                <TableCell class="whitespace-nowrap text-xs text-muted-foreground">
+                  {{ formatDate(item.timestamp) }}
+                </TableCell>
+                <TableCell>
+                  <Badge :variant="levelVariant(item.level)">
+                    {{ item.level }}
+                  </Badge>
+                </TableCell>
+                <TableCell class="whitespace-nowrap">
+                  {{ item.source }}
+                </TableCell>
+                <TableCell class="whitespace-nowrap">
+                  {{ item.category }}
+                </TableCell>
+                <TableCell
+                  class="max-w-[220px] truncate"
+                  :title="item.path"
                 >
-                  <TableCell class="whitespace-nowrap text-xs text-muted-foreground">
-                    {{ formatDate(item.timestamp) }}
-                  </TableCell>
-                  <TableCell>
-                    <Badge :variant="levelVariant(item.level)">
-                      {{ item.level }}
-                    </Badge>
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap">
-                    {{ item.source }}
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap">
-                    {{ item.category }}
-                  </TableCell>
-                  <TableCell
-                    class="max-w-[220px] truncate"
-                    :title="item.path"
-                  >
-                    {{ item.path || '-' }}
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap">
-                    {{ item.status || '-' }}
-                  </TableCell>
-                  <TableCell
-                    class="max-w-[220px] truncate font-mono text-xs"
-                    :title="item.requestId"
-                  >
-                    {{ item.requestId || '-' }}
-                  </TableCell>
-                  <TableCell
-                    class="max-w-[320px] truncate"
-                    :title="item.message"
-                  >
-                    {{ item.message }}
-                  </TableCell>
-                </TableRow>
-              </TableBody>
+                  {{ item.path || '-' }}
+                </TableCell>
+                <TableCell class="whitespace-nowrap">
+                  {{ item.status || '-' }}
+                </TableCell>
+                <TableCell
+                  class="max-w-[220px] truncate font-mono text-xs"
+                  :title="item.requestId"
+                >
+                  {{ item.requestId || '-' }}
+                </TableCell>
+                <TableCell
+                  class="max-w-[320px] truncate"
+                  :title="item.message"
+                >
+                  {{ item.message }}
+                </TableCell>
+              </TableRow>
+            </TableBody>
 
-              <TableBody v-else>
-                <TableRow>
-                  <TableCell
-                    :colspan="8"
-                    class="h-24 text-center text-muted-foreground"
-                  >
-                    暂无日志
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+            <TableBody v-else>
+              <TableRow>
+                <TableCell
+                  :colspan="8"
+                  class="h-24 text-center text-muted-foreground"
+                >
+                  暂无日志
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
 
-      <Card class="h-fit">
-        <CardHeader>
-          <CardTitle>详情</CardTitle>
-        </CardHeader>
-        <CardContent
-          v-if="activeLog"
-          class="space-y-3 text-sm"
-        >
-          <div class="grid grid-cols-[92px_minmax(0,1fr)] gap-x-3 gap-y-2">
-            <span class="text-muted-foreground">时间</span>
-            <span>{{ formatDate(activeLog.timestamp) }}</span>
-            <span class="text-muted-foreground">级别</span>
-            <span>{{ activeLog.level }}</span>
-            <span class="text-muted-foreground">来源</span>
-            <span>{{ activeLog.source }}</span>
-            <span class="text-muted-foreground">类别</span>
-            <span class="break-all">{{ activeLog.category }}</span>
-            <span class="text-muted-foreground">方法</span>
-            <span>{{ activeLog.method || '-' }}</span>
-            <span class="text-muted-foreground">路径</span>
-            <span class="break-all">{{ activeLog.path || '-' }}</span>
-            <span class="text-muted-foreground">状态</span>
-            <span>{{ activeLog.status || '-' }}</span>
-            <span class="text-muted-foreground">耗时</span>
-            <span>{{ formatDuration(activeLog.durationMs) }}</span>
-            <span class="text-muted-foreground">Request ID</span>
-            <span class="break-all font-mono text-xs">{{ activeLog.requestId || '-' }}</span>
-          </div>
-
-          <div>
-            <p class="text-xs text-muted-foreground">
-              信息
-            </p>
-            <p class="mt-1 whitespace-pre-wrap break-words">
-              {{ activeLog.message }}
-            </p>
-          </div>
-
-          <div v-if="activeLog.metadata">
-            <p class="text-xs text-muted-foreground">
-              Metadata
-            </p>
-            <pre class="mt-1 max-h-64 overflow-auto rounded border bg-muted/40 p-3 text-xs">{{ toPrettyJson(activeLog.metadata) }}</pre>
-          </div>
-
-          <div v-if="activeLog.error">
-            <p class="text-xs text-muted-foreground">
-              Error
-            </p>
-            <pre class="mt-1 max-h-64 overflow-auto rounded border bg-muted/40 p-3 text-xs">{{ toPrettyJson(activeLog.error) }}</pre>
-          </div>
-        </CardContent>
-        <CardContent
-          v-else
-          class="text-sm text-muted-foreground"
-        >
-          选择一条日志
-        </CardContent>
-      </Card>
-    </div>
+    <AppLogsDetailDrawer
+      v-model:open="detailOpen"
+      :active-log="activeLog"
+      :format-date="formatDate"
+      :format-duration="formatDuration"
+      :to-pretty-json="toPrettyJson"
+    />
   </div>
 </template>

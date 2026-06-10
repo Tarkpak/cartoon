@@ -58,7 +58,11 @@ watch(() => props.initialRequestId, (value) => {
       :provider-options="providerOptions"
       @clear="clearLogs"
       @refresh="fetchLogs"
-    />
+    >
+      <template #tabs>
+        <slot name="tabs" />
+      </template>
+    </ModelLogsFilters>
 
     <ModelLogsTable
       :active-log-id="activeLogId"

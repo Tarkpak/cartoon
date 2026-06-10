@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { TosConfigPublic } from '#shared/types/provider'
 import {
-  Cloud,
   ExternalLink,
   File,
   Folder,
@@ -54,8 +53,8 @@ const errorMessage = ref('')
 const tosKeyPrefix = ref('')
 const prefixInput = ref('images')
 const activePrefix = ref('images')
-const pageSize = ref('20')
-const pageSizeOptions = [20, 50, 100, 200]
+const pageSize = ref('15')
+const pageSizeOptions = [15, 20, 50, 100, 200]
 const continuationToken = ref<string | undefined>()
 const tokenHistory = ref<string[]>([])
 const currentPage = ref(1)
@@ -87,7 +86,7 @@ const prefixPlaceholder = computed(() => `例如：${buildTosCategoryPrefix('ima
 
 const pageSizeNumber = computed(() => {
   const parsed = Number.parseInt(pageSize.value, 10)
-  if (!Number.isFinite(parsed) || parsed <= 0) return 100
+  if (!Number.isFinite(parsed) || parsed <= 0) return 15
   return Math.min(1000, parsed)
 })
 
@@ -317,39 +316,8 @@ onMounted(() => {
 
 <template>
   <div class="h-full overflow-y-auto bg-background">
-    <div class="mx-auto max-w-7xl space-y-6 p-6">
-      <div class="flex flex-col gap-4 border-b pb-5 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div class="flex items-center gap-2">
-            <Cloud class="h-5 w-5 text-primary" />
-            <h1 class="text-2xl font-semibold">
-              云端素材
-            </h1>
-          </div>
-          <p class="mt-1 text-sm text-muted-foreground">
-            查看当前 TOS Bucket 中的素材对象，默认按配置前缀分组显示。
-          </p>
-        </div>
-
-        <Button
-          variant="outline"
-          class="gap-2"
-          :disabled="loading"
-          @click="loadFiles()"
-        >
-          <Loader2
-            v-if="loading"
-            class="h-4 w-4 animate-spin"
-          />
-          <RefreshCw
-            v-else
-            class="h-4 w-4"
-          />
-          刷新
-        </Button>
-      </div>
-
-      <div class="grid gap-3 rounded-lg border bg-card p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+    <div class="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
+      <div class="grid gap-3 rounded-lg border bg-card p-4 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-end">
         <div class="space-y-1.5">
           <label class="text-xs text-muted-foreground">对象前缀</label>
           <Input
@@ -365,6 +333,22 @@ onMounted(() => {
         >
           <Search class="h-4 w-4" />
           查询
+        </Button>
+        <Button
+          variant="outline"
+          class="gap-2"
+          :disabled="loading"
+          @click="loadFiles()"
+        >
+          <Loader2
+            v-if="loading"
+            class="h-4 w-4 animate-spin"
+          />
+          <RefreshCw
+            v-else
+            class="h-4 w-4"
+          />
+          刷新
         </Button>
       </div>
 

@@ -38,9 +38,12 @@ function normalizeSelectValue(value: string) {
 
 <template>
   <Card>
-    <CardHeader>
-      <CardTitle>模型调用日志</CardTitle>
-      <CardDescription>用于定位模型调用问题：可查看请求参数、返回结果、耗时与错误信息</CardDescription>
+    <CardHeader class="gap-4 space-y-0 md:flex-row md:items-start md:justify-between">
+      <div class="space-y-1.5">
+        <CardTitle>模型调用日志</CardTitle>
+        <CardDescription>用于定位模型调用问题：可查看请求参数、返回结果、耗时与错误信息</CardDescription>
+      </div>
+      <slot name="tabs" />
     </CardHeader>
     <CardContent class="space-y-4">
       <div class="grid grid-cols-1 gap-3 md:grid-cols-7">

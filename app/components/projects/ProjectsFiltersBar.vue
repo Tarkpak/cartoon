@@ -33,9 +33,9 @@ const sortByModel = computed({
 </script>
 
 <template>
-  <Card class="mb-6">
-    <CardContent class="pt-6">
-      <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(280px,1fr)_160px_160px_auto] lg:items-center">
+  <Card class="mb-4">
+    <CardContent class="p-4">
+      <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(240px,1fr)_160px_160px_auto_auto] lg:items-center">
         <div class="relative">
           <Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -82,6 +82,7 @@ const sortByModel = computed({
         <div class="text-xs text-muted-foreground lg:text-right">
           当前页 {{ projectsCount }} 条 · 共 {{ totalProjects }} 条
         </div>
+        <slot name="actions" />
       </div>
     </CardContent>
   </Card>

@@ -53,32 +53,24 @@ const aspectRatioOptions = projectAspectRatioOptions
 </script>
 
 <template>
-  <div class="p-8">
-    <div class="flex justify-between items-center mb-8">
-      <div>
-        <h1 class="text-2xl font-bold">
-          我的项目
-        </h1>
-        <p class="text-muted-foreground">
-          创建、继续和管理 AI 影视项目
-        </p>
-      </div>
-      <Button
-        size="lg"
-        @click="openCreateDialog"
-      >
-        <Plus class="mr-2 h-5 w-5" />
-        新建项目
-      </Button>
-    </div>
-
+  <div class="p-4 md:p-6">
     <ProjectsFiltersBar
       v-model:search-keyword="searchKeyword"
       v-model:status-filter="statusFilter"
       v-model:sort-by="sortBy"
       :projects-count="projects.length"
       :total-projects="totalProjects"
-    />
+    >
+      <template #actions>
+        <Button
+          class="w-full gap-2 lg:w-auto"
+          @click="openCreateDialog"
+        >
+          <Plus class="h-4 w-4" />
+          新建项目
+        </Button>
+      </template>
+    </ProjectsFiltersBar>
 
     <ProjectsTable
       :projects="projects"

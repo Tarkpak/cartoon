@@ -14,7 +14,8 @@ definePageMeta({ layout: 'default' })
 
 const route = useRoute()
 const SETTINGS_MENU_STORAGE_KEY = 'playlet:settings-menu-state'
-const SETTINGS_SECTIONS: MenuSection[] = ['general', 'providers', 'workflow', 'test', 'storage', 'prompts', 'styles']
+const DEFAULT_SETTINGS_SECTION: MenuSection = 'providers'
+const SETTINGS_SECTIONS: MenuSection[] = ['providers', 'workflow', 'test', 'prompts', 'styles', 'storage', 'general']
 
 // 旧版菜单状态（section=models + sub=...）到扁平 section 的映射
 const LEGACY_SUB_TO_SECTION: Record<string, MenuSection> = {
@@ -24,7 +25,7 @@ const LEGACY_SUB_TO_SECTION: Record<string, MenuSection> = {
   storage: 'storage'
 }
 
-const activeSection = ref<MenuSection>('general')
+const activeSection = ref<MenuSection>(DEFAULT_SETTINGS_SECTION)
 const restoringMenuState = ref(true)
 
 function getSingleQueryValue(value: string | string[] | undefined): string | undefined {
@@ -43,7 +44,7 @@ function normalizeMenuSection(rawSection: unknown, rawSub?: unknown): MenuSectio
       return LEGACY_SUB_TO_SECTION[sub] || 'providers'
     }
   }
-  return 'general'
+  return DEFAULT_SETTINGS_SECTION
 }
 
 function saveSection(section: MenuSection) {
@@ -79,9 +80,9 @@ async function restoreMenuStateFromBrowser() {
     return
   }
 
-  activeSection.value = 'general'
-  saveSection('general')
-  await navigateTo({ path: '/settings', query: { section: 'general' } }, { replace: true })
+  activeSection.value = DEFAULT_SETTINGS_SECTION
+  saveSection(DEFAULT_SETTINGS_SECTION)
+  await navigateTo({ path: '/settings', query: { section: DEFAULT_SETTINGS_SECTION } }, { replace: true })
 }
 
 const currentSectionComponent = computed(() => {
@@ -100,7 +101,7 @@ const currentSectionComponent = computed(() => {
 watch(() => [route.query.section, route.query.sub], () => {
   if (restoringMenuState.value) return
 
-  const section = getSectionFromRoute() || 'general'
+  const section = getSectionFromRoute() || DEFAULT_SETTINGS_SECTION
   activeSection.value = section
   saveSection(section)
 })

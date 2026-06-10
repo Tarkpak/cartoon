@@ -1051,6 +1051,10 @@ function buildAutoPlanSnapshotKey(): string {
       name: character.name || '',
       appearance: character.appearance || '',
       emotion: character.emotion || ''
+    })),
+    props: (scene.props || []).map(prop => ({
+      name: prop.name || '',
+      description: prop.description || ''
     }))
   }))
 
@@ -1253,8 +1257,7 @@ function applyAutomaticAssetPlan(
     propAssets: propAssets.value,
     environmentAssetIds: environmentAssets.value.map(asset => asset.id),
     overwriteExistingConfigs: options.overwriteExistingConfigs,
-    resolveSceneEnvironmentAssetId,
-    resolveSceneDescriptionWithoutAssetMentions
+    resolveSceneEnvironmentAssetId
   })
 
   let generationInvalidated = false

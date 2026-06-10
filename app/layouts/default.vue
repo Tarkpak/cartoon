@@ -24,20 +24,21 @@ const navigation = [
 
 type SettingsSection = 'general' | 'providers' | 'workflow' | 'test' | 'storage' | 'prompts' | 'styles'
 
-const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'providers', 'workflow', 'test', 'storage', 'prompts', 'styles']
+const DEFAULT_SETTINGS_SECTION: SettingsSection = 'providers'
+const SETTINGS_SECTIONS: SettingsSection[] = ['providers', 'workflow', 'test', 'prompts', 'styles', 'storage', 'general']
 
 const settingsSubNavigation: Array<{
   name: string
   section: SettingsSection
   icon: unknown
 }> = [
-  { name: '通用', section: 'general', icon: SlidersHorizontal },
   { name: '模型供应商', section: 'providers', icon: Boxes },
   { name: '模型分配', section: 'workflow', icon: Workflow },
   { name: '模型测试', section: 'test', icon: FlaskConical },
-  { name: '云存储设置', section: 'storage', icon: CloudCog },
   { name: '提示词模板', section: 'prompts', icon: FileText },
-  { name: '画风预设', section: 'styles', icon: Palette }
+  { name: '画风预设', section: 'styles', icon: Palette },
+  { name: '云存储设置', section: 'storage', icon: CloudCog },
+  { name: '通用', section: 'general', icon: SlidersHorizontal }
 ]
 
 function getSingleQueryValue(value: string | string[] | undefined): string | undefined {
@@ -50,7 +51,7 @@ const currentSettingsSection = computed<SettingsSection>(() => {
   if (SETTINGS_SECTIONS.includes(raw as SettingsSection)) {
     return raw as SettingsSection
   }
-  return 'general'
+  return DEFAULT_SETTINGS_SECTION
 })
 
 function isSettingsSubActive(item: { section: SettingsSection }): boolean {
