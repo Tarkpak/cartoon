@@ -1,8 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
-import AppLogsPage from './pages/app-logs.vue'
 import AssetWorkbenchPage from './pages/asset-workbench.vue'
 import HomePage from './pages/index.vue'
-import ModelLogsPage from './pages/model-logs.vue'
+import LogsPage from './pages/logs.vue'
 import ProjectRedirectPage from './pages/projects/[id].vue'
 import ProjectsPage from './pages/projects/index.vue'
 import SettingsPage from './pages/settings.vue'
@@ -35,14 +34,29 @@ const routes: RouteRecordRaw[] = [
     meta: { layout: 'default' }
   },
   {
-    path: '/model-logs',
-    component: ModelLogsPage,
+    path: '/logs',
+    component: LogsPage,
     meta: { layout: 'default' }
   },
   {
+    path: '/model-logs',
+    redirect: to => ({
+      path: '/logs',
+      query: {
+        ...to.query,
+        tab: 'model'
+      }
+    })
+  },
+  {
     path: '/app-logs',
-    component: AppLogsPage,
-    meta: { layout: 'default' }
+    redirect: to => ({
+      path: '/logs',
+      query: {
+        ...to.query,
+        tab: 'system'
+      }
+    })
   },
   {
     path: '/tos-files',

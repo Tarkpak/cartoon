@@ -8,6 +8,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AppLogsPanel: typeof import('./app/components/app-logs/AppLogsPanel.vue')['default']
     AssetWorkbenchAssetHistoryDialog: typeof import('./app/components/asset-workbench/AssetHistoryDialog.vue')['default']
     AssetWorkbenchAssetsStage: typeof import('./app/components/asset-workbench/AssetsStage.vue')['default']
     AssetWorkbenchCharacterAssetsTab: typeof import('./app/components/asset-workbench/CharacterAssetsTab.vue')['default']
@@ -57,6 +58,7 @@ declare module 'vue' {
     Input: typeof import('./app/components/ui/input/Input.vue')['default']
     ModelLogsDetailDrawer: typeof import('./app/components/model-logs/ModelLogsDetailDrawer.vue')['default']
     ModelLogsFilters: typeof import('./app/components/model-logs/ModelLogsFilters.vue')['default']
+    ModelLogsPanel: typeof import('./app/components/model-logs/ModelLogsPanel.vue')['default']
     ModelLogsTable: typeof import('./app/components/model-logs/ModelLogsTable.vue')['default']
     ModelSelector: typeof import('./app/components/ModelSelector.vue')['default']
     Progress: typeof import('./app/components/ui/progress/Progress.vue')['default']
