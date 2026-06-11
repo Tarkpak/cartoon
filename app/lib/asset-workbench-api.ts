@@ -186,6 +186,7 @@ function buildFallbackJianyingProjectFileName(date = new Date()): string {
 export async function parseAssetWorkbenchScript(options: {
   text: string
   projectId?: string
+  targetEpisodeId: string
   scriptParseMode?: ScriptParseMode
   style?: string
   episodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset' | 'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType' | 'episodeAssets'>>
@@ -194,6 +195,7 @@ export async function parseAssetWorkbenchScript(options: {
   const requestBody = {
     text: options.text,
     projectId: options.projectId || undefined,
+    targetEpisodeId: options.targetEpisodeId,
     scriptParseMode: options.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
     style: options.style || undefined,
     episodePlan: options.episodePlan

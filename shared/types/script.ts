@@ -432,9 +432,10 @@ export function resolveScriptParseModeLabel(
 
 /** 剧本解析请求 */
 export const ParseScriptRequestSchema = z.object({
-  text: z.string().min(10).describe('原始小说文本'),
+  text: z.string().min(10).max(32000).describe('当前分集正文'),
   maxScenes: z.number().int().min(1).optional().describe('场景数量提示（可选，不做硬上限限制）'),
-  episodePlan: z.array(ScriptEpisodePlanItemSchema).min(1).describe('分集规划（必填，按该规划进行分集解析）'),
+  targetEpisodeId: z.string().min(1).describe('当前解析的分集 ID'),
+  episodePlan: z.array(ScriptEpisodePlanItemSchema).length(1).describe('当前分集规划（必填，仅允许单集解析）'),
   scriptParseMode: z.enum(SCRIPT_PARSE_MODES).optional().default(DEFAULT_SCRIPT_PARSE_MODE).describe('解析模式'),
   style: z.string().optional().describe('画风描述（可选）')
 })

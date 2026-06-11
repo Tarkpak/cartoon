@@ -35,7 +35,6 @@ playlet 当前版本聚焦资产工作台，主流程固定为：
 - `script_episode_plan`
 - `script_parsing`
 - `script_parsing_short_drama`
-- `script_parsing_segment_context`
 - `script_parsing_episode_drama_context`
 - `prompt_translation_system`
 - `prompt_translation_user`
@@ -47,9 +46,7 @@ playlet 当前版本聚焦资产工作台，主流程固定为：
 - 角色资产生成
 - 角色资产二次生成规则（模板能力，当前二次生成流程以参考图 + 用户指令为主）
 - 环境参考图生成
-- 环境参考图负向约束
 - 道具/其他资产参考图生成
-- 道具/其他资产负向约束
 - 场景描述二次改写
 
 对应接口：
@@ -64,9 +61,7 @@ playlet 当前版本聚焦资产工作台，主流程固定为：
 - `character_sheet`
 - `character_regeneration`
 - `environment_reference_generation`
-- `environment_reference_negative_prompt`
 - `prop_asset_generation`
-- `prop_asset_negative_prompt`
 - `scene_description_refinement`
 
 ### 2.3 视频
@@ -98,10 +93,10 @@ playlet 当前版本聚焦资产工作台，主流程固定为：
 
 ## 3. 提示词中心约束
 
-提示词中心必须只保留当前主流程模板（含系统补充与负向模板）：
+提示词中心必须只保留当前主流程模板（含系统补充模板）：
 
-- 解析阶段：`script_episode_plan`、`script_parsing`、`script_parsing_short_drama`、`script_parsing_segment_context`、`script_parsing_episode_drama_context`、`prompt_translation_system`、`prompt_translation_user`
-- 资产阶段：`character_sheet`、`character_regeneration`、`environment_reference_generation`、`environment_reference_negative_prompt`、`prop_asset_generation`、`prop_asset_negative_prompt`、`scene_description_refinement`
+- 解析阶段：`script_episode_plan`、`script_parsing`、`script_parsing_short_drama`、`script_parsing_episode_drama_context`、`prompt_translation_system`、`prompt_translation_user`
+- 资产阶段：`character_sheet`、`character_regeneration`、`environment_reference_generation`、`prop_asset_generation`、`scene_description_refinement`
 - 视频阶段：`scene_video_generation`
 
 设置页中的提示词分组按以下阶段展示：

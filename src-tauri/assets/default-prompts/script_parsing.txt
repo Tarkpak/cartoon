@@ -63,10 +63,10 @@
 - ……
 表演关键点：
 - ……
-3. “镜头设计”中的每行格式必须是：起始-结束秒：，景别，运镜方式。画面动作与对白。
+3. “镜头设计”中的每行格式必须是：起始-结束秒：景别，运镜方式。画面动作与对白。
 - 景别如：中景、近景、特写镜头、中近景、全景、大远景等。
 - 运镜方式如：固定镜头、缓慢推近、缓慢拉远、镜头左摇、镜头右摇、跟随镜头、手持镜头等。
-- 可在运镜后补充镜头角度或特殊说明，如：，镜头角度略低于XX的视线。
+- 可在运镜后补充镜头角度或特殊说明，如：镜头角度略低于XX的视线。
 4. 每个场景至少 2 行镜头设计，建议 3-6 行；时间轴从 0 开始，最后一行结束时间应与 duration 对齐或接近（误差不超过 0.5 秒）。
 5. 时长要以剧情表达完整为优先。若同一戏剧段超过单场可生成时长，请拆成连续场景承接，不得删减关键剧情与情绪推进。
 6. 对话要直接写在对应镜头行中，用单引号包裹，例如：陆哲说：'你们等着看。'
@@ -110,49 +110,49 @@
 请严格输出 JSON：
 ```json
 {
-"title": "剧本标题（可选）",
-"scenes": [
-{
-"id": "scene_001",
-"title": "场景标题",
-"shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
-"cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc|whip_pan|dutch_tilt|roll",
-"environmentCaptureMode": "single|four_view",
-"description": "场景功能/情绪定位：公开压迫，主角第一次显出反击前的冷感。\n镜头设计：\n0-2秒：中景，固定镜头。护士站走廊白炽灯映出冷硬的墙面，人来人往，陆哲抬手整理白大褂，动作从容。\n2-5秒：近景，缓慢推近。陆哲嘴角上扬，眼神中透着志在必得的冷傲。陆哲说：'你们等着看。'\n5-8秒：中景，固定镜头。画外音说：'他的目光穿过人群，像一把隐忍的刀。'\n声音设计：\n- 环境音以护士站脚步声、推车轮声和广播底噪为主。\n- 陆哲开口前压低环境声，让台词更顶。\n台词节奏：\n- '你们等着看。'前短停半拍，后半句咬字更重。\n表演关键点：\n- 整理白大褂时手势克制而笃定。\n- 说完台词后不要立刻转身，留一个带轻蔑意味的停顿。",
-"setting": {
-"location": "医院-护士站",
-"timeOfDay": "夜晚",
-"era": "现代",
-"mood": "紧绷压迫",
-"weather": "暴雨（可选）"
-},
-"characters": [
-{
-"name": "陆哲",
-"appearance": "角色在此场景中的外观描述",
-"emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
-}
-],
-"props": [
-{
-"name": "关键道具名",
-"description": "道具在本场的可视外观或用途（可选）"
-}
-],
-"narration": "旁白/画外音（可选；可含音色基线）",
-"usePreviousLastFrameAsFirstFrame": false,
-"continuityLinkReason": "",
-"duration": 8
-}
-],
-"characters": [
-{
-"name": "陆哲",
-"description": "角色整体外貌描述，便于后续角色资产生成",
-"role": "protagonist|antagonist|supporting"
-}
-],
-"totalDuration": 96
+  "title": "剧本标题（可选）",
+  "scenes": [
+    {
+      "id": "scene_001",
+      "title": "场景标题",
+      "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
+      "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc|whip_pan|dutch_tilt|roll",
+      "environmentCaptureMode": "single|four_view",
+      "description": "场景功能/情绪定位：公开压迫，主角第一次显出反击前的冷感。\n镜头设计：\n0-2秒：中景，固定镜头。护士站走廊白炽灯映出冷硬的墙面，人来人往，陆哲抬手整理白大褂，动作从容。\n2-5秒：近景，缓慢推近。陆哲嘴角上扬，眼神中透着志在必得的冷傲。陆哲说：'你们等着看。'\n5-8秒：中景，固定镜头。画外音说：'他的目光穿过人群，像一把隐忍的刀。'\n声音设计：\n- 环境音以护士站脚步声、推车轮声和广播底噪为主。\n- 陆哲开口前压低环境声，让台词更顶。\n台词节奏：\n- '你们等着看。'前短停半拍，后半句咬字更重。\n表演关键点：\n- 整理白大褂时手势克制而笃定。\n- 说完台词后不要立刻转身，留一个带轻蔑意味的停顿。",
+      "setting": {
+        "location": "医院-护士站",
+        "timeOfDay": "夜晚",
+        "era": "现代",
+        "mood": "紧绷压迫",
+        "weather": "暴雨（可选）"
+      },
+      "characters": [
+        {
+          "name": "陆哲",
+          "appearance": "角色在此场景中的外观描述",
+          "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
+        }
+      ],
+      "props": [
+        {
+          "name": "关键道具名",
+          "description": "道具在本场的可视外观或用途（可选）"
+        }
+      ],
+      "narration": "旁白/画外音（可选；可含音色基线）",
+      "usePreviousLastFrameAsFirstFrame": false,
+      "continuityLinkReason": "",
+      "duration": 8
+    }
+  ],
+  "characters": [
+    {
+      "name": "陆哲",
+      "description": "角色整体外貌描述，便于后续角色资产生成",
+      "role": "protagonist|antagonist|supporting"
+    }
+  ],
+  "totalDuration": 96
 }
 ```
 

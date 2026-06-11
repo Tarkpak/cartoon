@@ -749,6 +749,7 @@ const EPISODE_PLAN_CHUNK_TARGET_CHARS: usize = 24_000;
 const EPISODE_PLAN_CHUNK_MAX_CHARS: usize = 32_000;
 const EPISODE_PLAN_CHUNK_MIN_CHARS: usize = 10_000;
 const EPISODE_PLAN_MAX_CHUNK_COUNT: usize = 64;
+const SCRIPT_PARSE_MAX_TEXT_CHARS: usize = EPISODE_PLAN_CHUNK_MAX_CHARS;
 
 struct EpisodePlanChunk {
     index: usize,
@@ -4742,6 +4743,14 @@ fn compact_prompt_text(value: &str, max_chars: usize) -> String {
     )
 }
 
+fn normalize_timeline_line_punctuation(value: &str) -> String {
+    value
+        .replace("秒：，", "秒：")
+        .replace("秒：,", "秒：")
+        .replace("秒:，", "秒:")
+        .replace("秒:,", "秒:")
+}
+
 fn build_scene_video_reference_materials(config: &Value) -> String {
     let references = config.get("references").unwrap_or(&Value::Null);
     let mut lines = Vec::new();
@@ -4854,7 +4863,10 @@ fn build_video_prompt_from_scene(
         return Ok(prompt);
     }
     let title = json_string(scene.get("title"), "未命名场景");
-    let description = json_string(scene.get("description"), "未提供分镜描述");
+    let description = normalize_timeline_line_punctuation(&json_string(
+        scene.get("description"),
+        "未提供分镜描述",
+    ));
     let scene_summary = compact_prompt_text(&description, 220);
     let style = json_string(config.get("style"), "保持项目默认画风");
     let aspect_ratio = json_string(config.get("aspectRatio"), "16:9");
@@ -11991,6 +12003,18 @@ fn validate_script_parse_request(body: &Value) -> Result<(), ApiError> {
         return Err(workflow_validation_error("body", "Expected object"));
     }
     validate_min_text_chars(body, "text", "body", 10)?;
+    let text_char_count = required_json_string(body, "text", "body")?
+        .trim()
+        .chars()
+        .count();
+    if text_char_count > SCRIPT_PARSE_MAX_TEXT_CHARS {
+        return Err(workflow_validation_error(
+            "body.text",
+            format!(
+                "单次剧本解析最多支持 {SCRIPT_PARSE_MAX_TEXT_CHARS} 字，请按分集解析或调整分集边界"
+            ),
+        ));
+    }
     if let Some(max_scenes) = body.get("maxScenes").filter(|value| !value.is_null()) {
         let raw = max_scenes
             .as_f64()
@@ -12004,6 +12028,7 @@ fn validate_script_parse_request(body: &Value) -> Result<(), ApiError> {
         }
     }
     workflow_optional_string(body, "style", "body")?;
+    let target_episode_id = workflow_required_string(body, "targetEpisodeId", "body")?;
     validate_script_parse_mode(body.get("scriptParseMode"), "body.scriptParseMode")?;
 
     let episode_plan = body
@@ -12016,8 +12041,26 @@ fn validate_script_parse_request(body: &Value) -> Result<(), ApiError> {
             "Array must contain at least 1 item",
         ));
     }
+    if episode_plan.len() != 1 {
+        return Err(workflow_validation_error(
+            "body.episodePlan",
+            "剧本解析只支持按单集执行，请只传入当前分集规划",
+        ));
+    }
     for (index, item) in episode_plan.iter().enumerate() {
         validate_script_episode_plan_item(item, &format!("body.episodePlan.{index}"))?;
+    }
+    let episode_id = episode_plan
+        .first()
+        .and_then(|item| item.get("id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    if episode_id != target_episode_id.trim() {
+        return Err(workflow_validation_error(
+            "body.targetEpisodeId",
+            "targetEpisodeId 必须与 episodePlan[0].id 一致",
+        ));
     }
     Ok(())
 }

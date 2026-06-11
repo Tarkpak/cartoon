@@ -37,9 +37,27 @@ JSON 结构（严格遵守）：
       "cliffhanger": "本集最后2-5秒的追看钩子",
       "payoffType": "打脸",
       "episodeAssets": {
-        "characters": [{ "name": "角色名", "description": "完整外观基线", "role": "protagonist|antagonist|supporting", "gender": "male|female|other" }],
-        "props": [{ "name": "道具名", "description": "可选" }],
-        "environments": [{ "location": "地点", "timeOfDay": "可选", "mood": "可选" }]
+        "characters": [
+          {
+            "name": "角色名",
+            "description": "完整外观基线",
+            "role": "protagonist|antagonist|supporting",
+            "gender": "male|female|other"
+          }
+        ],
+        "props": [
+          {
+            "name": "道具名",
+            "description": "可选"
+          }
+        ],
+        "environments": [
+          {
+            "location": "地点",
+            "timeOfDay": "可选",
+            "mood": "可选"
+          }
+        ]
       }
     }
   ]

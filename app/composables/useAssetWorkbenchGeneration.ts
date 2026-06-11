@@ -272,33 +272,13 @@ export function useAssetWorkbenchGeneration(
     return merged
   }
 
-  function resolveEpisodeParsePayload(targetEpisodeId?: string): {
+  function resolveEpisodeParsePayload(targetEpisodeId: string): {
     requestText: string
     requestEpisodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset' | 'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType' | 'episodeAssets'>>
     targetEpisodeTitle?: string
-    targetEpisodeId?: string
+    targetEpisodeId: string
   } {
-    const normalizedTargetId = targetEpisodeId?.trim() || ''
-    if (!normalizedTargetId) {
-      return {
-        requestText: options.novelText.value,
-        requestEpisodePlan: options.episodePlan.value.map(item => ({
-          id: item.id,
-          title: item.title,
-          index: item.index,
-          startOffset: item.startOffset,
-          endOffset: item.endOffset,
-          episodeHook: item.episodeHook,
-          humiliationOrThreat: item.humiliationOrThreat,
-          reversalPoint: item.reversalPoint,
-          emotionalCurve: item.emotionalCurve,
-          cliffhanger: item.cliffhanger,
-          payoffType: item.payoffType,
-          episodeAssets: item.episodeAssets
-        }))
-      }
-    }
-
+    const normalizedTargetId = targetEpisodeId.trim()
     const targetEpisode = options.episodePlan.value.find(item => item.id === normalizedTargetId)
     if (!targetEpisode) {
       throw new Error('目标分集不存在，请先重新生成分集目录')
@@ -465,13 +445,21 @@ export function useAssetWorkbenchGeneration(
     }
   }
 
-  async function parseScript(input?: {
+  async function parseScript(input: {
     style?: string
     scriptParseMode?: ScriptParseMode
     descriptionFormat?: 'visual' | 'timeline'
-    targetEpisodeId?: string
+    targetEpisodeId: string
   }): Promise<boolean> {
     if (!options.novelText.value.trim()) return false
+    if (!input.targetEpisodeId.trim()) {
+      options.parseProgress.value = {
+        ...createInitialAssetWorkbenchParseProgressState(),
+        step: 'error',
+        message: '请选择要解析的分集'
+      }
+      return false
+    }
     if (options.episodePlan.value.length === 0) {
       options.parseProgress.value = {
         ...createInitialAssetWorkbenchParseProgressState(),
@@ -482,7 +470,7 @@ export function useAssetWorkbenchGeneration(
     }
 
     options.parsing.value = true
-    const parseModeText = input?.targetEpisodeId ? '分集解析任务已创建，等待模型响应' : '解析任务已创建，等待模型响应'
+    const parseModeText = '分集解析任务已创建，等待模型响应'
     options.parseProgress.value = {
       ...createInitialAssetWorkbenchParseProgressState(),
       active: true,
@@ -493,10 +481,11 @@ export function useAssetWorkbenchGeneration(
     appendProgressLog(parseModeText, 'progress')
 
     try {
-      const parsePayload = resolveEpisodeParsePayload(input?.targetEpisodeId)
+      const parsePayload = resolveEpisodeParsePayload(input.targetEpisodeId)
       const response = await parseAssetWorkbenchScript({
         text: parsePayload.requestText,
         projectId: options.projectId?.value,
+        targetEpisodeId: parsePayload.targetEpisodeId,
         scriptParseMode: input?.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
         style: input?.style || options.currentStylePrompt.value || undefined,
         episodePlan: parsePayload.requestEpisodePlan,
@@ -507,7 +496,7 @@ export function useAssetWorkbenchGeneration(
         const message = '解析失败：模型未返回有效场景数据'
         options.parseProgress.value.message = message
         await notifyModelTaskFailed({
-          title: parsePayload.targetEpisodeId ? '分集解析失败' : '剧本解析失败',
+          title: '分集解析失败',
           body: message
         })
         return false
@@ -523,25 +512,16 @@ export function useAssetWorkbenchGeneration(
       })
       const parsedCharacters = buildParsedCharacters(response.data.characters, parsedScenes)
 
-      if (parsePayload.targetEpisodeId) {
-        options.scenes.value = mergeScenesForEpisode(parsePayload.targetEpisodeId, parsedScenes)
-        options.characters.value = mergeCharactersFromPartialParse(parsedCharacters)
-      } else {
-        options.scenes.value = parsedScenes
-        options.characters.value = parsedCharacters
-      }
+      options.scenes.value = mergeScenesForEpisode(parsePayload.targetEpisodeId, parsedScenes)
+      options.characters.value = mergeCharactersFromPartialParse(parsedCharacters)
 
-      await saveProjectOrThrow(parsePayload.targetEpisodeId
-        ? `${parsePayload.targetEpisodeTitle || '当前分集'}解析完成`
-        : '剧本解析完成')
+      await saveProjectOrThrow(`${parsePayload.targetEpisodeTitle || '当前分集'}解析完成`)
       options.parseProgress.value.step = 'completed'
-      options.parseProgress.value.message = parsePayload.targetEpisodeId
-        ? `已完成 ${parsePayload.targetEpisodeTitle || '当前分集'} 解析`
-        : '剧本解析完成'
+      options.parseProgress.value.message = `已完成 ${parsePayload.targetEpisodeTitle || '当前分集'} 解析`
       options.parseProgress.value.progress = 100
       appendProgressLog(options.parseProgress.value.message, 'progress')
       await notifyModelTaskCompleted({
-        title: parsePayload.targetEpisodeId ? '分集解析完成' : '剧本解析完成',
+        title: '分集解析完成',
         body: `已生成 ${options.scenes.value.length} 个场景和 ${options.characters.value.length} 个角色`
       })
       return true
@@ -552,7 +532,7 @@ export function useAssetWorkbenchGeneration(
       options.parseProgress.value.message = message
       appendProgressLog(message, 'progress')
       await notifyModelTaskFailed({
-        title: input?.targetEpisodeId ? '分集解析失败' : '剧本解析失败',
+        title: '分集解析失败',
         body: message
       })
       return false

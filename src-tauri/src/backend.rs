@@ -1904,9 +1904,6 @@ fn default_prompt_template_content(content_file: &str) -> Option<&'static str> {
         "default-prompts/script_parsing_short_drama.txt" => Some(include_str!(
             "../assets/default-prompts/script_parsing_short_drama.txt"
         )),
-        "default-prompts/script_parsing_segment_context.txt" => Some(include_str!(
-            "../assets/default-prompts/script_parsing_segment_context.txt"
-        )),
         "default-prompts/script_parsing_episode_drama_context.txt" => Some(include_str!(
             "../assets/default-prompts/script_parsing_episode_drama_context.txt"
         )),
@@ -1919,14 +1916,8 @@ fn default_prompt_template_content(content_file: &str) -> Option<&'static str> {
         "default-prompts/environment_reference_generation.txt" => Some(include_str!(
             "../assets/default-prompts/environment_reference_generation.txt"
         )),
-        "default-prompts/environment_reference_negative_prompt.txt" => Some(include_str!(
-            "../assets/default-prompts/environment_reference_negative_prompt.txt"
-        )),
         "default-prompts/prop_asset_generation.txt" => Some(include_str!(
             "../assets/default-prompts/prop_asset_generation.txt"
-        )),
-        "default-prompts/prop_asset_negative_prompt.txt" => Some(include_str!(
-            "../assets/default-prompts/prop_asset_negative_prompt.txt"
         )),
         "default-prompts/scene_description_refinement.txt" => Some(include_str!(
             "../assets/default-prompts/scene_description_refinement.txt"

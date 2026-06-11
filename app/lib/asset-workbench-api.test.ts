@@ -1,5 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { parseAssetWorkbenchScript } from './asset-workbench-api'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { observedFetch } from '~/lib/observability'
+
+vi.mock('~/lib/observability', () => ({
+  observedFetch: vi.fn()
+}))
 
 function createJsonLineStream(lines: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
@@ -14,16 +18,22 @@ function createJsonLineStream(lines: string[]): ReadableStream<Uint8Array> {
 }
 
 describe('asset-workbench-api', () => {
-  const originalFetch = globalThis.fetch
+  const observedFetchMock = observedFetch as unknown as {
+    mockReset: () => void
+    mockResolvedValue: (value: Response) => void
+    mock: {
+      calls: Array<[RequestInfo | URL, RequestInit | undefined]>
+    }
+  }
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch
+  beforeEach(() => {
+    observedFetchMock.mockReset()
   })
 
   it('does not attach an abort signal to script parse stream requests', async () => {
-    const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      expect(init?.signal).toBeUndefined()
-      return new Response(createJsonLineStream([
+    const { parseAssetWorkbenchScript } = await import('./asset-workbench-api')
+    observedFetchMock.mockResolvedValue(
+      new Response(createJsonLineStream([
         JSON.stringify({
           type: 'progress',
           payload: {
@@ -44,12 +54,12 @@ describe('asset-workbench-api', () => {
       ]), {
         status: 200
       })
-    })
-    globalThis.fetch = fetchMock as unknown as typeof fetch
+    )
 
     const onProgress = vi.fn()
     const response = await parseAssetWorkbenchScript({
       text: 'source text',
+      targetEpisodeId: 'episode_001',
       scriptParseMode: 'short_drama',
       style: 'anime',
       episodePlan: [{
@@ -63,7 +73,13 @@ describe('asset-workbench-api', () => {
     })
 
     expect(response.success).toBe(true)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(observedFetchMock.mock.calls).toHaveLength(1)
+    const [, requestInit] = observedFetchMock.mock.calls[0]
+    expect(requestInit?.signal).toBeUndefined()
+    expect(JSON.parse(String(requestInit?.body))).toMatchObject({
+      text: 'source text',
+      targetEpisodeId: 'episode_001'
+    })
     expect(onProgress).toHaveBeenCalledWith({
       source: 'progress',
       step: 'parsing',

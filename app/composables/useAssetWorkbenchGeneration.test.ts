@@ -7,6 +7,7 @@ import {
   useAssetWorkbenchGeneration
 } from './useAssetWorkbenchGeneration'
 import {
+  parseAssetWorkbenchScript,
   prepareAssetWorkbenchEpisodePlan,
   type ScriptEpisodePlanItem
 } from '~/lib/asset-workbench-api'
@@ -28,9 +29,9 @@ function createEpisode(index: number): ScriptEpisodePlanItem {
   }
 }
 
-function createGeneration() {
+function createGeneration(initialNovelText = '测试剧本正文') {
   const projectName = ref('新项目')
-  const novelText = ref('测试剧本正文')
+  const novelText = ref(initialNovelText)
   const scenes = ref<SceneData[]>([])
   const characters = ref<CharacterData[]>([])
   const scriptParseMode = ref(DEFAULT_SCRIPT_PARSE_MODE)
@@ -57,6 +58,8 @@ function createGeneration() {
 
   return {
     generation,
+    novelText,
+    scenes,
     episodePlan,
     onModelTaskCompleted
   }
@@ -67,9 +70,17 @@ describe('useAssetWorkbenchGeneration', () => {
     mockReset: () => void
     mockResolvedValue: (value: ScriptEpisodePlanItem[]) => void
   }
+  const parseScriptMock = parseAssetWorkbenchScript as unknown as {
+    mockReset: () => void
+    mockResolvedValue: (value: unknown) => void
+    mock: {
+      calls: Array<[Record<string, unknown>]>
+    }
+  }
 
   beforeEach(() => {
     prepareEpisodePlanMock.mockReset()
+    parseScriptMock.mockReset()
   })
 
   it('notifies completion after generating episode plan', async () => {
@@ -98,5 +109,48 @@ describe('useAssetWorkbenchGeneration', () => {
 
     expect(success).toBe(false)
     expect(onModelTaskCompleted).not.toHaveBeenCalled()
+  })
+
+  it('parses only the selected episode text', async () => {
+    parseScriptMock.mockResolvedValue({
+      success: true,
+      data: {
+        scenes: [{
+          id: 'scene_001',
+          title: '场景1',
+          description: '场景说明',
+          duration: 8
+        }],
+        characters: []
+      }
+    })
+    const { generation, episodePlan, scenes } = createGeneration('0000TARGET9999')
+    episodePlan.value = [{
+      id: 'episode_002',
+      title: '第2集',
+      index: 2,
+      startOffset: 4,
+      endOffset: 10,
+      charCount: 6
+    }]
+
+    const success = await generation.parseScript({
+      targetEpisodeId: 'episode_002',
+      scriptParseMode: DEFAULT_SCRIPT_PARSE_MODE,
+      style: '动漫风格',
+      descriptionFormat: 'timeline'
+    })
+
+    expect(success).toBe(true)
+    expect(scenes.value).toHaveLength(1)
+    expect(parseScriptMock.mock.calls[0]?.[0]).toMatchObject({
+      text: 'TARGET',
+      targetEpisodeId: 'episode_002',
+      episodePlan: [{
+        id: 'episode_002',
+        startOffset: 0,
+        endOffset: 6
+      }]
+    })
   })
 })

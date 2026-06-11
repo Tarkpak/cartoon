@@ -299,6 +299,10 @@ function stripDramaticMetadataFromDescription(description: string): string {
     .trim()
 }
 
+function normalizeTimelineLinePunctuation(description: string): string {
+  return description.replace(/(秒\s*[：:])\s*[，,]\s*/gu, '$1')
+}
+
 function normalizeSceneDescription(description: string, dramatic?: SceneDramatic): string {
   const normalizedDescription = description.trim()
   if (normalizedDescription || !dramatic) return normalizedDescription
@@ -414,7 +418,7 @@ export function buildParsedScenes(options: {
   descriptionFormat?: 'visual' | 'timeline'
 }): SceneData[] {
   return options.scenes.map((scene, index) => {
-    const normalizedDescription = (scene.description || '').trim()
+    const normalizedDescription = normalizeTimelineLinePunctuation((scene.description || '').trim())
     const descriptionWithoutDramaticMetadata = stripDramaticMetadataFromDescription(normalizedDescription)
     const fallbackText = [
       scene.title,

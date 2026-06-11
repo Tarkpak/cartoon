@@ -102,6 +102,8 @@ describe('asset-workbench-script-parsing', () => {
     expect(scenes[0]?.dramatic?.conflict).toBe('陈泽的摆烂日常被突发死亡危机撕开。')
     expect(scenes[0]?.dramatic?.cliffhanger).toBe('白色大卡车的喇叭压过一切。')
     expect(scenes[0]?.description).toContain('镜头设计：')
+    expect(scenes[0]?.description).toContain('0-2秒：中景，跟拍。')
+    expect(scenes[0]?.description).not.toContain('0-2秒：，')
     expect(scenes[0]?.description).not.toContain('戏剧冲突：')
     expect(scenes[0]?.description).not.toContain('爽点/痛点：')
     expect(scenes[0]?.description).not.toContain('结尾钩子：')

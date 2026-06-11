@@ -63,14 +63,11 @@ export const PROMPT_TEMPLATE_IDS = {
   SCRIPT_PARSING: 'script_parsing',
   SCRIPT_PARSING_SHORT_DRAMA: 'script_parsing_short_drama',
   SCRIPT_EPISODE_PLAN: 'script_episode_plan',
-  SCRIPT_PARSING_SEGMENT_CONTEXT: 'script_parsing_segment_context',
   SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT: 'script_parsing_episode_drama_context',
   CHARACTER_SHEET: 'character_sheet',
   CHARACTER_REGENERATION: 'character_regeneration',
   ENVIRONMENT_REFERENCE_GENERATION: 'environment_reference_generation',
-  ENVIRONMENT_REFERENCE_NEGATIVE_PROMPT: 'environment_reference_negative_prompt',
   PROP_ASSET_GENERATION: 'prop_asset_generation',
-  PROP_ASSET_NEGATIVE_PROMPT: 'prop_asset_negative_prompt',
   SCENE_DESCRIPTION_REFINEMENT: 'scene_description_refinement',
   SCENE_VIDEO_GENERATION: 'scene_video_generation'
 } as const
@@ -105,14 +102,11 @@ const PROMPT_TEMPLATE_STAGES: Record<PromptTemplateId, PromptFlowStage> = {
   script_episode_plan: 'parse',
   script_parsing: 'parse',
   script_parsing_short_drama: 'parse',
-  script_parsing_segment_context: 'parse',
   script_parsing_episode_drama_context: 'parse',
   character_sheet: 'assets',
   character_regeneration: 'assets',
   environment_reference_generation: 'assets',
-  environment_reference_negative_prompt: 'assets',
   prop_asset_generation: 'assets',
-  prop_asset_negative_prompt: 'assets',
   scene_description_refinement: 'assets',
   scene_video_generation: 'videos'
 }

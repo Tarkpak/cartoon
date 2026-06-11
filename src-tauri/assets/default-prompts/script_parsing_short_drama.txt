@@ -72,7 +72,7 @@
 【description 写作规则】
 1. 必须是“可拍摄”的时间轴分镜块，禁止一句话概述。
 2. 每个场景至少 2 行镜头设计，建议 3-6 行，时间从 0 秒起。
-3. 镜头行格式：起始-结束秒：，景别，运镜方式。画面动作与对白。
+3. 镜头行格式：起始-结束秒：景别，运镜方式。画面动作与对白。
 4. 对白写在镜头行，用单引号；旁白嵌入镜头行时写成：画外音说：'...'，不要在 description 里写“音色：...”括号。
 5. 如需指定旁白音色，只能写在 narration 字段中，description 仅保留可拍摄画面与台词。
 6. 必须包含“声音设计/台词节奏/表演关键点”，突出停顿、眼神、手部动作和压迫感。
@@ -98,62 +98,62 @@
 请严格输出 JSON：
 ```json
 {
-"title": "剧本标题（可选）",
-"scenes": [
-{
-"id": "scene_001",
-"title": "场景标题",
-"shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
-"cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
-"environmentCaptureMode": "single|four_view",
-"dramatic": {
-  "function": "hook|escalation|confrontation|reversal|payoff|cliffhanger|aftermath",
-  "conflict": "本场核心冲突：谁压迫谁、争夺什么",
-  "emotionalCurve": "羞辱→震惊→冷感反击",
-  "audienceHook": "观众继续看的理由",
-  "painPoint": "观众共情或愤怒的痛点",
-  "payoff": "本场爽点/回报点",
-  "powerShift": "权力关系如何变化",
-  "antagonistPressure": "反派如何施压",
-  "protagonistCounter": "主角如何反击或埋下反击",
-  "cliffhanger": "结尾钩子或下一场期待"
-},
-"description": "场景功能/情绪定位：开场钩子，冲突强压。\n镜头设计：\n0-2秒：，中景，固定镜头。离婚协议被推到桌面中央，纸张边缘刮过手背。\n2-5秒：，近景，缓慢推近。女儿盯着男主，冷声补刀：'你早该签了。'\n5-8秒：，特写镜头，固定镜头。男主眼神发冷，手指停在签字处。\n声音设计：\n- 纸张摩擦声与椅脚拖地声前置。\n台词节奏：\n- '你早该签了。'中段停顿半拍。\n表演关键点：\n- 签字前手部细颤，随后逐步稳定。",
-"setting": {
-"location": "客厅-餐桌区",
-"timeOfDay": "夜晚",
-"era": "现代",
-"mood": "压迫",
-"weather": "雨夜（可选）"
-},
-"characters": [
-{
-"name": "角色名",
-"appearance": "外观描述",
-"emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
-}
-],
-"props": [
-{
-"name": "关键道具名",
-"description": "道具在本场的可视外观或用途（可选）"
-}
-],
-"narration": "旁白/画外音（可选；可含音色基线）",
-"usePreviousLastFrameAsFirstFrame": false,
-"continuityLinkReason": "",
-"duration": 8
-}
-],
-"characters": [
-{
-"name": "角色名",
-"description": "角色整体外貌描述",
-"role": "protagonist|antagonist|supporting",
-"gender": "male|female|other"
-}
-],
-"totalDuration": 96
+  "title": "剧本标题（可选）",
+  "scenes": [
+    {
+      "id": "scene_001",
+      "title": "场景标题",
+      "shotType": "extreme_wide|wide|medium_wide|medium|medium_close|close|extreme_close|detail",
+      "cameraMovement": "static|push|pull|pan_left|pan_right|tilt_up|tilt_down|track|dolly|zoom_in|zoom_out|crane|handheld|arc",
+      "environmentCaptureMode": "single|four_view",
+      "dramatic": {
+        "function": "hook|escalation|confrontation|reversal|payoff|cliffhanger|aftermath",
+        "conflict": "本场核心冲突：谁压迫谁、争夺什么",
+        "emotionalCurve": "羞辱→震惊→冷感反击",
+        "audienceHook": "观众继续看的理由",
+        "painPoint": "观众共情或愤怒的痛点",
+        "payoff": "本场爽点/回报点",
+        "powerShift": "权力关系如何变化",
+        "antagonistPressure": "反派如何施压",
+        "protagonistCounter": "主角如何反击或埋下反击",
+        "cliffhanger": "结尾钩子或下一场期待"
+      },
+      "description": "场景功能/情绪定位：开场钩子，冲突强压。\n镜头设计：\n0-2秒：中景，固定镜头。离婚协议被推到桌面中央，纸张边缘刮过手背。\n2-5秒：近景，缓慢推近。女儿盯着男主，冷声补刀：'你早该签了。'\n5-8秒：特写镜头，固定镜头。男主眼神发冷，手指停在签字处。\n声音设计：\n- 纸张摩擦声与椅脚拖地声前置。\n台词节奏：\n- '你早该签了。'中段停顿半拍。\n表演关键点：\n- 签字前手部细颤，随后逐步稳定。",
+      "setting": {
+        "location": "客厅-餐桌区",
+        "timeOfDay": "夜晚",
+        "era": "现代",
+        "mood": "压迫",
+        "weather": "雨夜（可选）"
+      },
+      "characters": [
+        {
+          "name": "角色名",
+          "appearance": "外观描述",
+          "emotion": "neutral|happy|sad|angry|surprised|scared|worried|determined"
+        }
+      ],
+      "props": [
+        {
+          "name": "关键道具名",
+          "description": "道具在本场的可视外观或用途（可选）"
+        }
+      ],
+      "narration": "旁白/画外音（可选；可含音色基线）",
+      "usePreviousLastFrameAsFirstFrame": false,
+      "continuityLinkReason": "",
+      "duration": 8
+    }
+  ],
+  "characters": [
+    {
+      "name": "角色名",
+      "description": "角色整体外貌描述",
+      "role": "protagonist|antagonist|supporting",
+      "gender": "male|female|other"
+    }
+  ],
+  "totalDuration": 96
 }
 ```
 
