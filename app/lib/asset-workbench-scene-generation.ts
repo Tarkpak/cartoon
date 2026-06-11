@@ -48,6 +48,7 @@ interface BuildAssetWorkflowScenePayloadOptions extends BuildSceneGenerationCame
 }
 
 interface RequestSceneBaselineGenerationOptions {
+  projectId?: string
   scene: SceneData
   scenes: SceneData[]
   scenePayload: AssetWorkflowScenePayload
@@ -244,6 +245,7 @@ export async function requestSceneBaselineGeneration(
   }>('/api/asset-workflow/reference/generate', {
     method: 'POST',
     body: {
+      projectId: options.projectId,
       scene: options.scenePayload,
       style: options.style,
       aspectRatio: options.aspectRatio,

@@ -49,6 +49,7 @@ export function createInitialAssetWorkbenchParseProgressState(): AssetWorkbenchP
 }
 
 interface UseAssetWorkbenchGenerationOptions {
+  projectId?: Readonly<Ref<string | undefined>>
   projectName: Ref<string>
   novelText: Ref<string>
   scenes: Ref<SceneData[]>
@@ -428,7 +429,10 @@ export function useAssetWorkbenchGeneration(
     try {
       const episodes = await prepareAssetWorkbenchEpisodePlan(
         options.novelText.value,
-        options.scriptParseMode.value
+        options.scriptParseMode.value,
+        {
+          projectId: options.projectId?.value
+        }
       )
       options.episodePlan.value = episodes
       mergeCharactersFromEpisodeAssets(episodes)
@@ -492,6 +496,7 @@ export function useAssetWorkbenchGeneration(
       const parsePayload = resolveEpisodeParsePayload(input?.targetEpisodeId)
       const response = await parseAssetWorkbenchScript({
         text: parsePayload.requestText,
+        projectId: options.projectId?.value,
         scriptParseMode: input?.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
         style: input?.style || options.currentStylePrompt.value || undefined,
         episodePlan: parsePayload.requestEpisodePlan,
@@ -578,6 +583,7 @@ export function useAssetWorkbenchGeneration(
     try {
       const response = await generateAssetWorkbenchCharacter({
         character: char,
+        projectId: options.projectId?.value,
         style: options.currentStylePrompt.value,
         regenerationPrompt,
         referenceImage

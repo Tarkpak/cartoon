@@ -43,6 +43,7 @@ import type {
   SceneDescriptionMentionItem,
   SceneDescriptionRenderSegment
 } from '~/lib/asset-workbench-types'
+import { formatWorkflowStylePrompt } from '~/lib/workflow-style-prompt'
 
 interface UseAssetWorkbenchPageStateOptions {
   scenes: Ref<SceneData[]>
@@ -248,12 +249,7 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
 
   const workflowStylePrompt = computed(() => {
     const styleId = options.selectedStyleId.value || options.projectStyleId.value
-    if (!styleId) return ''
-
-    const style = options.resolveStyleById(styleId)
-    if (!style) return styleId
-
-    return `${style.name}, ${style.prompt} style`
+    return formatWorkflowStylePrompt(styleId, options.resolveStyleById(styleId))
   })
 
   const queueSummary = computed(() => {

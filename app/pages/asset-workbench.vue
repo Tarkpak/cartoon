@@ -2695,6 +2695,7 @@ async function generateEnvironmentAssetFromCard(
     }>('/api/asset-workflow/reference/generate', {
       method: 'POST',
       body: {
+        projectId: projectId.value,
         scene: {
           id: asset.id,
           title: asset.name,

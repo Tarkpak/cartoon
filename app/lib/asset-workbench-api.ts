@@ -185,6 +185,7 @@ function buildFallbackJianyingProjectFileName(date = new Date()): string {
 
 export async function parseAssetWorkbenchScript(options: {
   text: string
+  projectId?: string
   scriptParseMode?: ScriptParseMode
   style?: string
   episodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset' | 'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType' | 'episodeAssets'>>
@@ -192,6 +193,7 @@ export async function parseAssetWorkbenchScript(options: {
 }) {
   const requestBody = {
     text: options.text,
+    projectId: options.projectId || undefined,
     scriptParseMode: options.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
     style: options.style || undefined,
     episodePlan: options.episodePlan
@@ -309,11 +311,18 @@ export async function parseAssetWorkbenchScript(options: {
 
 export async function prepareAssetWorkbenchEpisodePlan(
   text: string,
-  scriptParseMode: ScriptParseMode = DEFAULT_SCRIPT_PARSE_MODE
+  scriptParseMode: ScriptParseMode = DEFAULT_SCRIPT_PARSE_MODE,
+  options: {
+    projectId?: string
+  } = {}
 ): Promise<ScriptEpisodePlanItem[]> {
   const response = await $fetch<EpisodePlanResponse>('/api/script/episode-plan', {
     method: 'POST',
-    body: { text, scriptParseMode }
+    body: {
+      text,
+      projectId: options.projectId || undefined,
+      scriptParseMode
+    }
   })
 
   if (!response.success || !Array.isArray(response.data?.episodes)) {
@@ -325,6 +334,7 @@ export async function prepareAssetWorkbenchEpisodePlan(
 
 export async function generateAssetWorkbenchCharacter(options: {
   character: CharacterData
+  projectId?: string
   style: string
   regenerationPrompt?: string
   referenceImage?: string
@@ -332,6 +342,7 @@ export async function generateAssetWorkbenchCharacter(options: {
   return await $fetch<GenerateCharacterResponse>('/api/character/generate', {
     method: 'POST',
     body: {
+      projectId: options.projectId || undefined,
       character: {
         id: options.character.id,
         name: options.character.name,

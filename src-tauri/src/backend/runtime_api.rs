@@ -5420,6 +5420,18 @@ fn model_log_context_from_video_metadata(
     )
 }
 
+fn model_log_context_from_workflow_body(
+    body: &Value,
+    scene_id: Option<String>,
+    task_id: Option<String>,
+) -> ModelLogContext {
+    build_model_log_context(
+        body.get("projectId").and_then(trimmed_json_string),
+        scene_id,
+        task_id,
+    )
+}
+
 fn video_task_metadata_with_model_log_context(metadata: &Value) -> Value {
     let context = current_model_log_context();
     let mut output = metadata.clone();
@@ -11303,6 +11315,13 @@ async fn run_text_model_test_remote(
     }
 }
 
+fn text_model_test_error_has_transport_log(provider: &str, error: &str) -> bool {
+    matches!(
+        provider,
+        "qwen" | "volcengine" | "deepseek" | "custom_openai" | "gemini"
+    ) && !matches!(error, "未配置 API Key" | "未配置 Base URL")
+}
+
 fn collect_log_media_refs(result: &Value) -> Value {
     let mut refs: Vec<Value> = Vec::new();
 
@@ -11468,21 +11487,24 @@ pub(super) async fn api_models_test(
             {
                 Ok(text) => text,
                 Err(error) => {
-                    let error_payload = json!({ "message": error });
-                    let _ = write_model_debug_log(
-                        &state,
-                        &provider,
-                        &model_id,
-                        operation,
-                        "error",
-                        (Utc::now().timestamp_millis() - start).max(1),
-                        &request_payload,
-                        None,
-                        Some(&error_payload),
-                    );
+                    let error_message = error;
+                    let error_payload = json!({ "message": error_message.as_str() });
+                    if !text_model_test_error_has_transport_log(&provider, &error_message) {
+                        let _ = write_model_debug_log(
+                            &state,
+                            &provider,
+                            &model_id,
+                            operation,
+                            "error",
+                            (Utc::now().timestamp_millis() - start).max(1),
+                            &request_payload,
+                            None,
+                            Some(&error_payload),
+                        );
+                    }
                     return Err(ApiError::new(
                         StatusCode::BAD_GATEWAY,
-                        format!("文本模型测试失败: {}", error),
+                        format!("文本模型测试失败: {}", error_message),
                     ));
                 }
             };
@@ -11781,23 +11803,25 @@ pub(super) async fn api_models_test(
       "latencyMs": latency_ms
     });
 
-    let _ = write_model_debug_log(
-        &state,
-        response_result
-            .get("provider")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown"),
-        response_result
-            .get("modelId")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown"),
-        operation,
-        "success",
-        latency_ms,
-        &request_payload,
-        response_result.get("result"),
-        None,
-    );
+    if model_type != "text" {
+        let _ = write_model_debug_log(
+            &state,
+            response_result
+                .get("provider")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown"),
+            response_result
+                .get("modelId")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown"),
+            operation,
+            "success",
+            latency_ms,
+            &request_payload,
+            response_result.get("result"),
+            None,
+        );
+    }
 
     Ok(Json(json!({
       "success": true,
@@ -12012,6 +12036,7 @@ pub(super) async fn api_script_episode_plan(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_episode_plan_request(&body)?;
+    let context = model_log_context_from_workflow_body(&body, None, None);
     let text = body
         .get("text")
         .and_then(Value::as_str)
@@ -12019,30 +12044,34 @@ pub(super) async fn api_script_episode_plan(
         .unwrap_or("");
 
     let script_parse_mode = json_string(body.get("scriptParseMode"), "short_drama");
-    match build_model_episode_plan(&state, text, &script_parse_mode).await {
-        Ok((episodes, provider, model_id, segmented)) => {
-            if episodes.is_empty() {
-                return Err(ApiError::new(
+    CURRENT_MODEL_LOG_CONTEXT
+        .scope(context, async {
+            match build_model_episode_plan(&state, text, &script_parse_mode).await {
+                Ok((episodes, provider, model_id, segmented)) => {
+                    if episodes.is_empty() {
+                        return Err(ApiError::new(
+                            StatusCode::BAD_GATEWAY,
+                            "分集目录模型结果为空",
+                        ));
+                    }
+                    Ok(Json(json!({
+                      "success": true,
+                      "data": { "episodes": episodes },
+                      "usage": {
+                        "modelProvider": provider,
+                        "modelId": model_id,
+                        "fallback": false,
+                        "segmented": segmented
+                      }
+                    })))
+                }
+                Err(error) => Err(ApiError::new(
                     StatusCode::BAD_GATEWAY,
-                    "分集目录模型结果为空",
-                ));
+                    format!("大模型分集失败: {}", error),
+                )),
             }
-            Ok(Json(json!({
-              "success": true,
-              "data": { "episodes": episodes },
-              "usage": {
-                "modelProvider": provider,
-                "modelId": model_id,
-                "fallback": false,
-                "segmented": segmented
-              }
-            })))
-        }
-        Err(error) => Err(ApiError::new(
-            StatusCode::BAD_GATEWAY,
-            format!("大模型分集失败: {}", error),
-        )),
-    }
+        })
+        .await
 }
 
 pub(super) async fn api_script_parse(
@@ -12050,19 +12079,22 @@ pub(super) async fn api_script_parse(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_script_parse_request(&body)?;
+    let context = model_log_context_from_workflow_body(&body, None, None);
     let prompt = {
         let conn = db_connection(&state)?;
         build_script_parse_prompt(&conn, &body)?
     };
-    let (model_text, provider, model_id) =
-        run_workflow_text_model(&state, "script_parsing", &prompt)
-            .await
-            .map_err(|error| {
-                ApiError::new(
-                    StatusCode::BAD_GATEWAY,
-                    format!("剧本解析模型调用失败: {}", error),
-                )
-            })?;
+    let (model_text, provider, model_id) = CURRENT_MODEL_LOG_CONTEXT
+        .scope(context, async {
+            run_workflow_text_model(&state, "script_parsing", &prompt).await
+        })
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                format!("剧本解析模型调用失败: {}", error),
+            )
+        })?;
     let value = extract_json_from_text(&model_text).map_err(|error| {
         ApiError::new(
             StatusCode::BAD_GATEWAY,
@@ -12089,11 +12121,24 @@ pub(super) async fn api_script_parse_stream(
     Json(body): Json<Value>,
 ) -> Result<Response, ApiError> {
     validate_script_parse_request(&body)?;
+    let request_id = current_request_id();
 
     enum ParseStreamState {
-        Accepted { state: BackendState, body: Value },
-        Parsing { state: BackendState, body: Value },
-        Model { state: BackendState, body: Value },
+        Accepted {
+            state: BackendState,
+            body: Value,
+            request_id: Option<String>,
+        },
+        Parsing {
+            state: BackendState,
+            body: Value,
+            request_id: Option<String>,
+        },
+        Model {
+            state: BackendState,
+            body: Value,
+            request_id: Option<String>,
+        },
         Done,
     }
 
@@ -12102,10 +12147,18 @@ pub(super) async fn api_script_parse_stream(
     }
 
     let body_stream = stream::unfold(
-        ParseStreamState::Accepted { state, body },
+        ParseStreamState::Accepted {
+            state,
+            body,
+            request_id,
+        },
         |stream_state| async move {
             match stream_state {
-                ParseStreamState::Accepted { state, body } => Some((
+                ParseStreamState::Accepted {
+                    state,
+                    body,
+                    request_id,
+                } => Some((
                     ndjson_line(json!({
                       "type": "progress",
                       "payload": {
@@ -12115,9 +12168,17 @@ pub(super) async fn api_script_parse_stream(
                       },
                       "timestamp": now_iso()
                     })),
-                    ParseStreamState::Parsing { state, body },
+                    ParseStreamState::Parsing {
+                        state,
+                        body,
+                        request_id,
+                    },
                 )),
-                ParseStreamState::Parsing { state, body } => Some((
+                ParseStreamState::Parsing {
+                    state,
+                    body,
+                    request_id,
+                } => Some((
                     ndjson_line(json!({
                       "type": "progress",
                       "payload": {
@@ -12127,10 +12188,28 @@ pub(super) async fn api_script_parse_stream(
                       },
                       "timestamp": now_iso()
                     })),
-                    ParseStreamState::Model { state, body },
+                    ParseStreamState::Model {
+                        state,
+                        body,
+                        request_id,
+                    },
                 )),
-                ParseStreamState::Model { state, body } => {
-                    let event = match api_script_parse(State(state), Json(body)).await {
+                ParseStreamState::Model {
+                    state,
+                    body,
+                    request_id,
+                } => {
+                    let parse_result = match request_id {
+                        Some(request_id) => {
+                            CURRENT_REQUEST_ID
+                                .scope(request_id, async {
+                                    api_script_parse(State(state), Json(body)).await
+                                })
+                                .await
+                        }
+                        None => api_script_parse(State(state), Json(body)).await,
+                    };
+                    let event = match parse_result {
                         Ok(parsed) => json!({
                           "type": "result",
                           "payload": parsed.0,
@@ -12817,19 +12896,24 @@ pub(super) async fn api_character_generate(
             )?
         }
     };
-    let (image_url, provider, model_id) = run_workflow_image_model(
-        &state,
-        "character_portrait",
-        &prompt,
-        "1792x1024",
-        &format!("char_{}", character_id),
-        &reference_images,
-    )
-    .await
-    .map_err(|error| {
-        eprintln!("[CharacterGen] 图片模型调用失败: {}", error);
-        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error)
-    })?;
+    let context = model_log_context_from_workflow_body(&body, None, Some(character_id.to_string()));
+    let (image_url, provider, model_id) = CURRENT_MODEL_LOG_CONTEXT
+        .scope(context, async {
+            run_workflow_image_model(
+                &state,
+                "character_portrait",
+                &prompt,
+                "1792x1024",
+                &format!("char_{}", character_id),
+                &reference_images,
+            )
+            .await
+        })
+        .await
+        .map_err(|error| {
+            eprintln!("[CharacterGen] 图片模型调用失败: {}", error);
+            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error)
+        })?;
 
     let now = now_iso();
     Ok(Json(json!({
@@ -13610,19 +13694,24 @@ pub(super) async fn api_asset_reference_generate(
             ],
         )?
     };
-    let (image_url, provider, model_id) = run_workflow_image_model(
-        &state,
-        "frame_generation",
-        &prompt,
-        &panorama_source.size,
-        &format!("env_{}", scene_id),
-        &reference_images,
-    )
-    .await
-    .map_err(|error| {
-        eprintln!("[AssetWorkflow/Reference] 图片模型调用失败: {}", error);
-        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error)
-    })?;
+    let context = model_log_context_from_workflow_body(&body, Some(scene_id.to_string()), None);
+    let (image_url, provider, model_id) = CURRENT_MODEL_LOG_CONTEXT
+        .scope(context, async {
+            run_workflow_image_model(
+                &state,
+                "frame_generation",
+                &prompt,
+                &panorama_source.size,
+                &format!("env_{}", scene_id),
+                &reference_images,
+            )
+            .await
+        })
+        .await
+        .map_err(|error| {
+            eprintln!("[AssetWorkflow/Reference] 图片模型调用失败: {}", error);
+            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error)
+        })?;
     assert_generated_environment_image_size(&state, &image_url, &panorama_source).await?;
     Ok(Json(json!({
       "success": true,

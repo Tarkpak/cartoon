@@ -455,6 +455,7 @@ export function useAssetWorkbenchSceneGeneration(
     try {
       const referenceInputs = resolveSceneBaselineReferenceInputs(scene, generationOptions)
       const panoramaImage = await requestSceneBaselineGeneration({
+        projectId: options.projectId?.value,
         scene,
         scenes: options.scenes.value,
         scenePayload: buildAssetWorkflowScenePayload(scene),

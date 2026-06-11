@@ -12,6 +12,7 @@ import {
 } from '~/composables/useAssetWorkbenchGeneration'
 import { useAssetWorkbenchSceneEditing } from '~/composables/useAssetWorkbenchSceneEditing'
 import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
+import { formatWorkflowStylePrompt } from '~/lib/workflow-style-prompt'
 
 export type {
   AssetWorkbenchTransitionType,
@@ -85,12 +86,7 @@ export function useAssetWorkbench() {
 
   const currentStylePrompt = computed(() => {
     const styleId = selectedStyleId.value || projectStyleId.value
-    if (!styleId) return ''
-
-    const style = resolveStyleById(styleId)
-    if (!style) return `${styleId} style`
-
-    return `${style.name}, ${style.prompt} style`
+    return formatWorkflowStylePrompt(styleId, resolveStyleById(styleId))
   })
 
   const {
@@ -118,6 +114,7 @@ export function useAssetWorkbench() {
     parsing,
     parseProgress,
     currentStylePrompt,
+    projectId,
     saveProject,
     onModelTaskCompleted: notifyGenerationCompleted,
     onModelTaskFailed: notifyGenerationFailed
