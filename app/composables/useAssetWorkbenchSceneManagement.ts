@@ -87,9 +87,21 @@ export function useAssetWorkbenchSceneManagement(options: {
 
   function resolveCharacterSceneCount(character: CharacterData): number {
     const target = options.normalizeToken(character.name)
-    if (!target) return 0
+    const targetRefs = new Set<string>([`char:${character.id}`])
+    if (!character.parentCharacterId) {
+      for (const item of options.characters.value) {
+        if (item.parentCharacterId === character.id) {
+          targetRefs.add(`char:${item.id}`)
+        }
+      }
+    }
 
     return options.scenes.value.filter((scene) => {
+      const refs = options.sceneConfigs.value[scene.id]?.mustReferenceAssetIds || []
+      if (refs.some(assetId => targetRefs.has(assetId))) {
+        return true
+      }
+      if (!target) return false
       return scene.characters.some((sceneCharacter) => {
         const candidate = options.normalizeToken(sceneCharacter.name)
         if (!candidate) return false

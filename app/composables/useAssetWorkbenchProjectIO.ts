@@ -274,6 +274,8 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
           }>
           characters: Array<{
             id: string
+            parentCharacterId?: string | null
+            variantName?: string | null
             name: string
             role?: string | null
             appearance: string

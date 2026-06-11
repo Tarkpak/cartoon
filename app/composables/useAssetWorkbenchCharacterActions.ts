@@ -1,4 +1,5 @@
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
+import { normalizeToken } from '~/lib/asset-workbench-strings'
 
 interface CharacterGenerationOptions {
   regenerationPrompt?: string
@@ -14,9 +15,14 @@ export function useAssetWorkbenchCharacterActions(options: {
     options?: CharacterGenerationOptions
   ) => Promise<unknown>
   resolveUiError: (error: unknown, fallback: string) => string
+  createCharacterId?: () => string
 }) {
   const CHARACTER_REGENERATION_INITIAL_PROMPT = ''
   const editingCharacterId = ref<string | null>(null)
+  const characterVariantDialogOpen = ref(false)
+  const characterVariantTargetId = ref<string | null>(null)
+  const characterVariantError = ref<string | null>(null)
+  const characterVariantSubmitting = ref(false)
   const characterRegenerateDialogOpen = ref(false)
   const characterRegenerateTargetId = ref<string | null>(null)
   const characterRegeneratePrompt = ref(CHARACTER_REGENERATION_INITIAL_PROMPT)
@@ -28,16 +34,68 @@ export function useAssetWorkbenchCharacterActions(options: {
     role: 'supporting'
   })
 
+  watch(characterVariantDialogOpen, (open) => {
+    if (open) return
+    characterVariantTargetId.value = null
+    characterVariantError.value = null
+  })
+
   watch(characterRegenerateDialogOpen, (open) => {
     if (open) return
     characterRegenerateTargetId.value = null
     characterRegenerateError.value = null
   })
 
+  const characterVariantTarget = computed(() => {
+    if (!characterVariantTargetId.value) return null
+    return options.characters.value.find(char => char.id === characterVariantTargetId.value) || null
+  })
+
   const characterRegenerateTarget = computed(() => {
     if (!characterRegenerateTargetId.value) return null
     return options.characters.value.find(char => char.id === characterRegenerateTargetId.value) || null
   })
+
+  function createDefaultCharacterId(): string {
+    return `char_variant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  }
+
+  function normalizeVariantInput(parent: CharacterData, rawValue: string): {
+    displayName: string
+    variantName: string
+  } | null {
+    const normalized = rawValue
+      .trim()
+      .replace(/[－—–]/g, '-')
+      .replace(/\s*-\s*/g, '-')
+    if (!normalized) return null
+
+    const separatorIndex = normalized.indexOf('-')
+    if (separatorIndex > 0 && separatorIndex < normalized.length - 1) {
+      return {
+        displayName: normalized,
+        variantName: normalized.slice(separatorIndex + 1).trim()
+      }
+    }
+
+    const parentName = parent.name.trim() || '角色'
+    return {
+      displayName: `${parentName}-${normalized}`,
+      variantName: normalized
+    }
+  }
+
+  function buildVariantAppearance(parent: CharacterData, variantName: string): string {
+    const parentAppearance = parent.appearance?.trim() || ''
+    const variantLine = `形态：${variantName}`
+    if (!parentAppearance) {
+      return `${parent.name}的${variantName}，保持与父角色设定一致`
+    }
+    if (normalizeToken(parentAppearance).includes(normalizeToken(variantName))) {
+      return parentAppearance
+    }
+    return `${variantLine}。${parentAppearance}`
+  }
 
   function startEditCharacter(char: CharacterData) {
     editingCharacterId.value = char.id
@@ -78,6 +136,93 @@ export function useAssetWorkbenchCharacterActions(options: {
     if (!target) return
 
     await options.generateCharacter(target)
+  }
+
+  function openCharacterVariantDialog(char: CharacterData) {
+    const { toast } = useToast()
+    if (char.parentCharacterId) {
+      toast.warning('请从原始角色添加变体')
+      return
+    }
+    characterVariantTargetId.value = char.id
+    characterVariantError.value = null
+    characterVariantDialogOpen.value = true
+  }
+
+  function closeCharacterVariantDialog() {
+    characterVariantDialogOpen.value = false
+    characterVariantTargetId.value = null
+    characterVariantError.value = null
+  }
+
+  function setCharacterVariantDialogOpen(open: boolean) {
+    if (open) {
+      if (characterVariantTargetId.value) {
+        characterVariantDialogOpen.value = true
+      }
+      return
+    }
+    if (characterVariantSubmitting.value) return
+    closeCharacterVariantDialog()
+  }
+
+  async function submitCharacterVariant(rawValue: string) {
+    const parent = characterVariantTarget.value
+    if (!parent) {
+      closeCharacterVariantDialog()
+      return
+    }
+
+    const normalized = normalizeVariantInput(parent, rawValue)
+    if (!normalized?.variantName) {
+      characterVariantError.value = '变体名称不能为空'
+      return
+    }
+
+    const displayNameKey = normalizeToken(normalized.displayName)
+    const duplicate = options.characters.value.some(character => normalizeToken(character.name) === displayNameKey)
+    if (duplicate) {
+      characterVariantError.value = '同名角色资产已存在'
+      return
+    }
+
+    const { toast } = useToast()
+    const variant: CharacterData = {
+      id: (options.createCharacterId || createDefaultCharacterId)(),
+      parentCharacterId: parent.id,
+      variantName: normalized.variantName,
+      name: normalized.displayName,
+      appearance: buildVariantAppearance(parent, normalized.variantName),
+      role: parent.role || 'supporting',
+      personality: parent.personality,
+      traits: parent.traits ? [...parent.traits] : undefined,
+      background: parent.background,
+      motivation: parent.motivation,
+      speakingStyle: parent.speakingStyle,
+      catchphrase: parent.catchphrase,
+      voiceTone: parent.voiceTone,
+      age: parent.age,
+      gender: parent.gender,
+      generating: false,
+      generatingViews: false
+    }
+
+    characterVariantSubmitting.value = true
+    characterVariantError.value = null
+    try {
+      options.characters.value.push(variant)
+      const saved = await options.saveProject()
+      if (saved === false) {
+        toast.error('角色变体已添加，但项目保存失败')
+        return
+      }
+      toast.success(`已添加角色变体：${variant.name}`)
+      closeCharacterVariantDialog()
+    } catch (error) {
+      characterVariantError.value = options.resolveUiError(error, '角色变体创建失败')
+    } finally {
+      characterVariantSubmitting.value = false
+    }
   }
 
   async function saveCharacterEdit(saveOptions: { regenerate?: boolean } = {}) {
@@ -177,6 +322,10 @@ export function useAssetWorkbenchCharacterActions(options: {
   return {
     editingCharacterId,
     characterEditDraft,
+    characterVariantDialogOpen,
+    characterVariantError,
+    characterVariantSubmitting,
+    characterVariantTarget,
     characterRegenerateDialogOpen,
     characterRegeneratePrompt,
     characterRegenerateError,
@@ -184,6 +333,9 @@ export function useAssetWorkbenchCharacterActions(options: {
     startEditCharacter,
     updateCharacterEditDraft,
     cancelEditCharacter,
+    openCharacterVariantDialog,
+    setCharacterVariantDialogOpen,
+    submitCharacterVariant,
     handleGenerateCharacter,
     saveCharacterEdit,
     openCharacterRegenerateDialog,

@@ -8,6 +8,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AppLogsDetailDrawer: typeof import('./app/components/app-logs/AppLogsDetailDrawer.vue')['default']
     AppLogsPanel: typeof import('./app/components/app-logs/AppLogsPanel.vue')['default']
     AssetWorkbenchAssetHistoryDialog: typeof import('./app/components/asset-workbench/AssetHistoryDialog.vue')['default']
     AssetWorkbenchAssetsStage: typeof import('./app/components/asset-workbench/AssetsStage.vue')['default']
@@ -56,6 +57,7 @@ declare module 'vue' {
     DrawerTitle: typeof import('./app/components/ui/drawer/DrawerTitle.vue')['default']
     ImagePreview: typeof import('./app/components/ImagePreview.vue')['default']
     Input: typeof import('./app/components/ui/input/Input.vue')['default']
+    LogsTabSwitcher: typeof import('./app/components/logs/LogsTabSwitcher.vue')['default']
     ModelLogsDetailDrawer: typeof import('./app/components/model-logs/ModelLogsDetailDrawer.vue')['default']
     ModelLogsFilters: typeof import('./app/components/model-logs/ModelLogsFilters.vue')['default']
     ModelLogsPanel: typeof import('./app/components/model-logs/ModelLogsPanel.vue')['default']
@@ -94,6 +96,7 @@ declare module 'vue' {
     SelectTrigger: typeof import('./app/components/ui/select/SelectTrigger.vue')['default']
     SelectValue: typeof import('./app/components/ui/select/SelectValue.vue')['default']
     SettingsCompletionNotification: typeof import('./app/components/settings/SettingsCompletionNotification.vue')['default']
+    SettingsConfigTransfer: typeof import('./app/components/settings/SettingsConfigTransfer.vue')['default']
     SettingsConfirmDialog: typeof import('./app/components/settings/SettingsConfirmDialog.vue')['default']
     SettingsCustomOpenAIProvider: typeof import('./app/components/settings/SettingsCustomOpenAIProvider.vue')['default']
     SettingsDesktopFfmpeg: typeof import('./app/components/settings/SettingsDesktopFfmpeg.vue')['default']

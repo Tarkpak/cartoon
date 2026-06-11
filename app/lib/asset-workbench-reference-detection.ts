@@ -18,6 +18,8 @@ export interface SceneCharacterCandidate {
   primaryName: string
   aliases: string[]
   appearance?: string
+  compoundName?: string
+  context?: string
 }
 
 interface ResolveCharacterRefsOptions {
@@ -40,25 +42,99 @@ function splitCandidateNames(rawName?: string): string[] {
     .replace(/[（(][^）)]*[）)]/gu, ' ')
     .trim()
 
-  return uniqueSorted(
-    normalizedRaw
-      .split(/[/／|｜、,，\s]+/g)
-      .map(name => name.trim())
-      .filter(Boolean)
-  )
+  const seen = new Set<string>()
+  const names: string[] = []
+  for (const name of normalizedRaw
+    .split(/[/／|｜、,，\s]+/g)
+    .map(item => item.trim())
+    .filter(Boolean)
+  ) {
+    const key = normalizeToken(name)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    names.push(name)
+  }
+
+  return names
+}
+
+function normalizeCompoundCharacterName(rawName?: string): string {
+  return (rawName || '')
+    .split(/[:：]/u)[0]
+    .replace(/[（(][^）)]*[）)]/gu, ' ')
+    .trim()
+}
+
+function countNormalizedOccurrences(context: string, name: string): number {
+  const normalizedContext = normalizeToken(context)
+  const normalizedName = normalizeToken(name)
+  if (!normalizedContext || !normalizedName) return 0
+
+  let count = 0
+  let index = normalizedContext.indexOf(normalizedName)
+  while (index >= 0) {
+    count += 1
+    index = normalizedContext.indexOf(normalizedName, index + normalizedName.length)
+  }
+  return count
+}
+
+function selectPrimaryAlias(aliases: string[], context?: string): string {
+  let primary = aliases[0] || ''
+  let bestScore = 0
+
+  for (const alias of aliases) {
+    const score = countNormalizedOccurrences(context || '', alias)
+    if (score > bestScore) {
+      primary = alias
+      bestScore = score
+    }
+  }
+
+  return primary
+}
+
+function buildCandidateAliases(
+  primaryName: string,
+  aliases: string[],
+  rawName?: string
+): string[] {
+  const compoundName = normalizeCompoundCharacterName(rawName)
+  const values = [
+    primaryName,
+    ...aliases,
+    aliases.length > 1 ? compoundName : ''
+  ]
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  for (const value of values) {
+    const name = value.trim()
+    const key = normalizeToken(name)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    result.push(name)
+  }
+
+  return result
 }
 
 function createSceneCharacterCandidate(
   rawName?: string,
-  appearance?: string
+  appearance?: string,
+  context?: string
 ): SceneCharacterCandidate | null {
   const aliases = splitCandidateNames(rawName).filter(name => !isNarrationSpeaker(name))
   if (aliases.length === 0) return null
+  const primaryName = selectPrimaryAlias(aliases, context)
+  const compoundName = aliases.length > 1 ? normalizeCompoundCharacterName(rawName) : ''
 
   return {
-    primaryName: aliases[0] || rawName || '未命名角色',
-    aliases,
-    appearance: appearance?.trim() || undefined
+    primaryName: primaryName || rawName || '未命名角色',
+    aliases: buildCandidateAliases(primaryName, aliases, rawName),
+    appearance: appearance?.trim() || undefined,
+    compoundName: compoundName || undefined,
+    context: context?.trim() || undefined
   }
 }
 
@@ -83,9 +159,18 @@ export function findCharacterByNormalizedName(
 
 export function collectSceneCharacterCandidates(scene: SceneData): SceneCharacterCandidate[] {
   const map = new Map<string, SceneCharacterCandidate>()
+  const sceneContext = [
+    scene.title || '',
+    scene.description || '',
+    scene.narration || ''
+  ].join('\n')
 
   for (const sceneCharacter of scene.characters) {
-    const candidate = createSceneCharacterCandidate(sceneCharacter.name, sceneCharacter.appearance)
+    const candidate = createSceneCharacterCandidate(
+      sceneCharacter.name,
+      sceneCharacter.appearance,
+      [sceneCharacter.appearance || '', sceneContext].join('\n')
+    )
     if (!candidate) continue
 
     const key = normalizeToken(candidate.primaryName)
@@ -118,6 +203,78 @@ export function getValidAssetIdSet(
   ])
 }
 
+function findCompoundParentForCandidate(
+  candidate: SceneCharacterCandidate,
+  characters: CharacterData[]
+): CharacterData | undefined {
+  if (!candidate.compoundName) return undefined
+  const compoundKey = normalizeToken(candidate.compoundName)
+  if (!compoundKey) return undefined
+
+  return characters.find((character) => {
+    if (character.parentCharacterId) return false
+    return normalizeToken(character.name) === compoundKey
+  })
+}
+
+function scoreCharacterVariantForCandidate(
+  candidate: SceneCharacterCandidate,
+  variant: CharacterData
+): number {
+  const context = candidate.context || candidate.appearance || ''
+  let score = 0
+
+  if (variant.variantName) {
+    score += countNormalizedOccurrences(context, variant.variantName) * 4
+  }
+  score += countNormalizedOccurrences(context, variant.name) * 2
+
+  const candidateAppearance = normalizeToken(candidate.appearance)
+  const variantAppearance = normalizeToken(variant.appearance)
+  if (candidateAppearance && variantAppearance) {
+    if (candidateAppearance === variantAppearance) {
+      score += 8
+    } else if (
+      candidateAppearance.includes(variantAppearance)
+      || variantAppearance.includes(candidateAppearance)
+    ) {
+      score += 4
+    }
+  }
+
+  return score
+}
+
+function findCharacterVariantForCandidate(
+  candidate: SceneCharacterCandidate,
+  characters: CharacterData[]
+): CharacterData | undefined {
+  const parent = findCompoundParentForCandidate(candidate, characters)
+  if (!parent) return undefined
+
+  const primaryKey = normalizeToken(candidate.primaryName)
+  if (!primaryKey) return undefined
+
+  const variants = characters.filter((character) => {
+    if (character.parentCharacterId !== parent.id) return false
+    const nameKey = normalizeToken(character.name)
+    return !!nameKey && nameKey.startsWith(primaryKey)
+  })
+  if (variants.length === 0) return undefined
+  if (variants.length === 1) return variants[0]
+
+  const scored = variants
+    .map(character => ({
+      character,
+      score: scoreCharacterVariantForCandidate(candidate, character)
+    }))
+    .sort((left, right) => right.score - left.score)
+
+  const best = scored[0]
+  if (!best || best.score <= 0) return undefined
+  return best.character
+}
+
 export function resolveCharacterRefsFromScene(
   options: ResolveCharacterRefsOptions
 ): { refs: string[], matchedCharacterNames: string[] } {
@@ -126,11 +283,16 @@ export function resolveCharacterRefsFromScene(
 
   const candidates = collectSceneCharacterCandidates(options.scene)
   for (const candidate of candidates) {
-    let matched: CharacterData | undefined
+    let matched: CharacterData | undefined = findCharacterVariantForCandidate(
+      candidate,
+      options.characters
+    )
 
-    for (const alias of candidate.aliases) {
-      matched = findCharacterByNormalizedName(alias, options.characters)
-      if (matched) break
+    if (!matched) {
+      for (const alias of candidate.aliases) {
+        matched = findCharacterByNormalizedName(alias, options.characters)
+        if (matched) break
+      }
     }
 
     if (!matched) {

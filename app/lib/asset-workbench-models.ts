@@ -56,6 +56,8 @@ export interface SceneData {
 
 export interface CharacterData {
   id: string
+  parentCharacterId?: string
+  variantName?: string
   name: string
   appearance: string
   role: string

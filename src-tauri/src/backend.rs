@@ -232,6 +232,8 @@ struct ProjectSceneRow {
 
 struct ProjectCharacterRow {
     id: String,
+    parent_character_id: Option<String>,
+    variant_name: Option<String>,
     name: String,
     role: String,
     appearance: String,
@@ -2230,6 +2232,8 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
     }
 
     for (column, definition) in [
+        ("parent_character_id", "TEXT"),
+        ("variant_name", "TEXT"),
         ("traits", "TEXT"),
         ("background", "TEXT"),
         ("motivation", "TEXT"),
@@ -2340,6 +2344,8 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
       CREATE TABLE IF NOT EXISTS characters (
         id TEXT PRIMARY KEY,
         project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        parent_character_id TEXT,
+        variant_name TEXT,
         name TEXT NOT NULL,
         role TEXT,
         appearance TEXT NOT NULL,
@@ -3563,7 +3569,7 @@ async fn api_project_get(
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, role, appearance, personality, traits, background, motivation,
+            "SELECT id, parent_character_id, variant_name, name, role, appearance, personality, traits, background, motivation,
                     speaking_style, catchphrase, voice_tone, voice_asset, age, gender, base_image, expressions, views
              FROM characters WHERE project_id = ?1",
         )
@@ -3576,26 +3582,28 @@ async fn api_project_get(
                     .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
                     .unwrap_or(Value::Null)
             };
-            let base_image: Option<String> = row.get(14)?;
+            let base_image: Option<String> = row.get(16)?;
             Ok(json!({
               "id": row.get::<_, String>(0)?,
-              "name": row.get::<_, String>(1)?,
-              "role": row.get::<_, Option<String>>(2)?,
-              "appearance": row.get::<_, String>(3)?,
-              "personality": row.get::<_, Option<String>>(4)?,
-              "traits": parse(row.get(5)?),
-              "background": row.get::<_, Option<String>>(6)?,
-              "motivation": row.get::<_, Option<String>>(7)?,
-              "speakingStyle": row.get::<_, Option<String>>(8)?,
-              "catchphrase": row.get::<_, Option<String>>(9)?,
-              "voiceTone": row.get::<_, Option<String>>(10)?,
-              "voiceAsset": parse(row.get(11)?),
-              "age": row.get::<_, Option<i64>>(12)?,
-              "gender": row.get::<_, Option<String>>(13)?,
+              "parentCharacterId": row.get::<_, Option<String>>(1)?,
+              "variantName": row.get::<_, Option<String>>(2)?,
+              "name": row.get::<_, String>(3)?,
+              "role": row.get::<_, Option<String>>(4)?,
+              "appearance": row.get::<_, String>(5)?,
+              "personality": row.get::<_, Option<String>>(6)?,
+              "traits": parse(row.get(7)?),
+              "background": row.get::<_, Option<String>>(8)?,
+              "motivation": row.get::<_, Option<String>>(9)?,
+              "speakingStyle": row.get::<_, Option<String>>(10)?,
+              "catchphrase": row.get::<_, Option<String>>(11)?,
+              "voiceTone": row.get::<_, Option<String>>(12)?,
+              "voiceAsset": parse(row.get(13)?),
+              "age": row.get::<_, Option<i64>>(14)?,
+              "gender": row.get::<_, Option<String>>(15)?,
               "imageUrl": base_image,
               "baseImage": base_image,
-              "expressions": parse(row.get(15)?),
-              "views": parse(row.get(16)?)
+              "expressions": parse(row.get(17)?),
+              "views": parse(row.get(18)?)
             }))
         })
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -4572,6 +4580,9 @@ async fn api_project_put(
 
             character_rows.push(ProjectCharacterRow {
                 id: character_id,
+                parent_character_id: optional_string(character, "parentCharacterId", &path)?
+                    .map(|value| normalize_scoped_id("char", &id, value)),
+                variant_name: optional_string(character, "variantName", &path)?.map(str::to_string),
                 name,
                 role: optional_string(character, "role", &path)?
                     .unwrap_or("supporting")
@@ -4603,14 +4614,16 @@ async fn api_project_put(
         for character_row in character_rows {
             conn.execute(
                 "INSERT INTO characters (
-                  id, project_id, name, role, appearance, personality, traits, background, motivation, speaking_style,
+                  id, project_id, parent_character_id, variant_name, name, role, appearance, personality, traits, background, motivation, speaking_style,
                   catchphrase, voice_tone, voice_asset, age, gender, base_image, expressions, views, created_at, updated_at
                 ) VALUES (
-                  ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
+                  ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22
                 )",
                 params![
                     character_row.id,
                     id,
+                    character_row.parent_character_id,
+                    character_row.variant_name,
                     character_row.name,
                     character_row.role,
                     character_row.appearance,

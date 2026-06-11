@@ -54,6 +54,7 @@ const emit = defineEmits<{
   'select-stage': [stage: AutoStageKey]
   'preview-image': [payload: { src: string | undefined, alt: string }]
   'start-character-edit': [character: CharacterData]
+  'add-character-variant': [character: CharacterData]
   'cancel-character-edit': []
   'save-character-edit': []
   'save-character-edit-regenerate': []
@@ -221,6 +222,7 @@ const hasSeedAssets = computed(() => {
         :set-character-edit-draft="setCharacterEditDraft"
         @preview-image="emit('preview-image', $event)"
         @start-edit="emit('start-character-edit', $event)"
+        @add-variant="emit('add-character-variant', $event)"
         @cancel-edit="emit('cancel-character-edit')"
         @save-edit="emit('save-character-edit')"
         @save-edit-regenerate="emit('save-character-edit-regenerate')"

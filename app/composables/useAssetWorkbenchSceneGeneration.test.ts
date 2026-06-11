@@ -31,19 +31,27 @@ vi.mock('~/lib/asset-workbench-scene-generation', async () => {
     buildAssetWorkflowScenePayload: (options: {
       scene: SceneData
       scenes: SceneData[]
+      referenceAssetNames?: string[]
       resolveSceneDescriptionWithoutAssetMentions: (raw?: string) => string
-    }) => ({
-      id: options.scene.id,
-      title: options.scene.title,
-      sceneIndex: options.scenes.findIndex(scene => scene.id === options.scene.id) + 1,
-      description: options.resolveSceneDescriptionWithoutAssetMentions(options.scene.description),
-      dramatic: options.scene.dramatic,
-      cameraNote: options.scene.cameraNote,
-      duration: options.scene.duration,
-      setting: options.scene.setting,
-      narration: options.scene.narration,
-      characters: options.scene.characters
-    }),
+    }) => {
+      const referenceAssetNames = Array.isArray(options.referenceAssetNames)
+        ? options.referenceAssetNames.map(name => name.trim()).filter(Boolean)
+        : undefined
+      return {
+        id: options.scene.id,
+        title: options.scene.title,
+        sceneIndex: options.scenes.findIndex(scene => scene.id === options.scene.id) + 1,
+        description: options.resolveSceneDescriptionWithoutAssetMentions(options.scene.description),
+        dramatic: options.scene.dramatic,
+        cameraNote: referenceAssetNames
+          ? (referenceAssetNames.length > 0 ? `引用资产：${referenceAssetNames.join('、')}` : undefined)
+          : options.scene.cameraNote,
+        duration: options.scene.duration,
+        setting: options.scene.setting,
+        narration: options.scene.narration,
+        characters: options.scene.characters
+      }
+    },
     applySceneBaselineReference: (scene: SceneData, referenceImage: string) => {
       keepCurrentVideoInHistory(scene)
       scene.firstFrame = referenceImage

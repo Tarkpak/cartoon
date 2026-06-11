@@ -920,9 +920,16 @@ const {
   characterRegeneratePrompt,
   characterRegenerateError,
   characterRegenerateTarget,
+  characterVariantDialogOpen,
+  characterVariantError,
+  characterVariantSubmitting,
+  characterVariantTarget,
   startEditCharacter,
   updateCharacterEditDraft,
   cancelEditCharacter,
+  openCharacterVariantDialog,
+  setCharacterVariantDialogOpen,
+  submitCharacterVariant,
   handleGenerateCharacter,
   saveCharacterEdit,
   openCharacterRegenerateDialog,
@@ -935,6 +942,11 @@ const {
   saveProject,
   generateCharacter,
   resolveUiError
+})
+
+const characterVariantDialogTitle = computed(() => {
+  const targetName = characterVariantTarget.value?.name?.trim()
+  return targetName ? `为 ${targetName} 添加变体` : '添加角色变体'
 })
 
 const {
@@ -1061,6 +1073,8 @@ function buildAutoPlanSnapshotKey(): string {
 
   const characterSnapshot = characters.value.map(character => ({
     id: character.id,
+    parentCharacterId: character.parentCharacterId || '',
+    variantName: character.variantName || '',
     name: character.name || '',
     appearance: character.appearance || '',
     role: character.role || ''
@@ -3083,6 +3097,7 @@ async function handleBatchGenerateCharacters() {
           @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
           @preview-image="openImagePreview($event.src, $event.alt)"
           @start-character-edit="startEditCharacter"
+          @add-character-variant="openCharacterVariantDialog"
           @cancel-character-edit="cancelEditCharacter"
           @save-character-edit="saveCharacterEdit()"
           @save-character-edit-regenerate="saveCharacterEdit({ regenerate: true })"
@@ -3263,6 +3278,18 @@ async function handleBatchGenerateCharacters() {
       :set-image-preview-open="setImagePreviewState"
       :image-preview-src="imagePreviewSrc"
       :image-preview-alt="imagePreviewAlt"
+    />
+
+    <SettingsTextInputDialog
+      :open="characterVariantDialogOpen"
+      :title="characterVariantDialogTitle"
+      label="变体名称"
+      placeholder="现代形态"
+      confirm-text="创建变体"
+      :busy="characterVariantSubmitting"
+      :error="characterVariantError || ''"
+      @update:open="setCharacterVariantDialogOpen"
+      @confirm="submitCharacterVariant"
     />
   </div>
 </template>

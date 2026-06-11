@@ -7,7 +7,8 @@ import {
   findCharacterByNormalizedName,
   getValidAssetIdSet,
   resolveCharacterRefsFromScene,
-  sceneHasSameLocation
+  sceneHasSameLocation,
+  type SceneCharacterCandidate
 } from '~/lib/asset-workbench-reference-detection'
 import {
   normalizeToken,
@@ -125,6 +126,150 @@ function createDefaultCharacterId(): string {
   return `char_auto_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 }
 
+const EXPLICIT_VARIANT_NAME_REGEX = /([\p{L}\p{N}]{1,12}形态)/u
+const VARIANT_KEYWORD_RULES: Array<{ pattern: RegExp, variantName: string }> = [
+  { pattern: /(废土|末日|荒野|破败|灾变|三百年后)/u, variantName: '废土形态' },
+  { pattern: /(现代|都市|城市|公司|办公室|街|医院|学校|公寓|手机|汽车|卡车|烧烤)/u, variantName: '现代形态' },
+  { pattern: /(古代|王朝|宫廷|江湖|修仙|仙门|宗门|灵力|剑修)/u, variantName: '古代形态' }
+]
+
+function buildCandidateVariantContext(scene: SceneData, candidate: SceneCharacterCandidate): string {
+  return [
+    candidate.appearance || '',
+    candidate.context || '',
+    scene.title || '',
+    scene.description || '',
+    scene.narration || '',
+    scene.setting?.location || '',
+    scene.setting?.era || '',
+    scene.setting?.mood || ''
+  ].join('\n')
+}
+
+function inferCharacterVariantName(scene: SceneData, candidate: SceneCharacterCandidate): string {
+  const context = buildCandidateVariantContext(scene, candidate)
+  const explicit = context.match(EXPLICIT_VARIANT_NAME_REGEX)?.[1]?.trim()
+  if (explicit) return explicit
+
+  for (const rule of VARIANT_KEYWORD_RULES) {
+    if (rule.pattern.test(context)) return rule.variantName
+  }
+
+  return '场景形态'
+}
+
+function findCompoundParentForCandidate(
+  candidate: SceneCharacterCandidate,
+  characters: CharacterData[]
+): CharacterData | undefined {
+  const compoundKey = normalizeToken(candidate.compoundName)
+  if (!compoundKey) return undefined
+
+  return characters.find((character) => {
+    if (character.parentCharacterId) return false
+    return normalizeToken(character.name) === compoundKey
+  })
+}
+
+function buildVariantCharacterName(candidate: SceneCharacterCandidate, variantName: string): string {
+  return `${candidate.primaryName}-${variantName}`
+}
+
+function findExistingVariantCharacter(
+  candidate: SceneCharacterCandidate,
+  parent: CharacterData,
+  variantName: string,
+  characters: CharacterData[]
+): CharacterData | undefined {
+  const displayNameKey = normalizeToken(buildVariantCharacterName(candidate, variantName))
+  const primaryKey = normalizeToken(candidate.primaryName)
+  const variantKey = normalizeToken(variantName)
+
+  return characters.find((character) => {
+    if (character.parentCharacterId !== parent.id) return false
+
+    const nameKey = normalizeToken(character.name)
+    if (nameKey && nameKey === displayNameKey) return true
+
+    const characterVariantKey = normalizeToken(character.variantName)
+    return !!primaryKey
+      && !!variantKey
+      && nameKey.startsWith(primaryKey)
+      && characterVariantKey === variantKey
+  })
+}
+
+function findLegacyAliasCharacter(
+  candidate: SceneCharacterCandidate,
+  parent: CharacterData,
+  characters: CharacterData[]
+): CharacterData | undefined {
+  const primaryKey = normalizeToken(candidate.primaryName)
+  if (!primaryKey) return undefined
+
+  return characters.find((character) => {
+    if (character.id === parent.id || character.parentCharacterId) return false
+    return normalizeToken(character.name) === primaryKey
+  })
+}
+
+function applyCharacterVariantMetadata(
+  character: CharacterData,
+  parent: CharacterData,
+  candidate: SceneCharacterCandidate,
+  variantName: string
+): boolean {
+  let changed = false
+  const displayName = buildVariantCharacterName(candidate, variantName)
+
+  if (character.parentCharacterId !== parent.id) {
+    character.parentCharacterId = parent.id
+    changed = true
+  }
+  if (character.variantName !== variantName) {
+    character.variantName = variantName
+    changed = true
+  }
+  if (character.name !== displayName) {
+    character.name = displayName
+    changed = true
+  }
+  if (!character.appearance && candidate.appearance) {
+    character.appearance = candidate.appearance
+    changed = true
+  }
+
+  return changed
+}
+
+function buildVariantCharacter(
+  parent: CharacterData,
+  candidate: SceneCharacterCandidate,
+  variantName: string,
+  createCharacterId: () => string
+): CharacterData {
+  return {
+    id: createCharacterId(),
+    parentCharacterId: parent.id,
+    variantName,
+    name: buildVariantCharacterName(candidate, variantName),
+    appearance: candidate.appearance
+      || `${candidate.primaryName}的${variantName}，${parent.appearance || '保持与剧情设定一致'}`,
+    role: parent.role || 'supporting',
+    personality: parent.personality,
+    traits: parent.traits ? [...parent.traits] : undefined,
+    background: parent.background,
+    motivation: parent.motivation,
+    speakingStyle: parent.speakingStyle,
+    catchphrase: parent.catchphrase,
+    voiceTone: parent.voiceTone,
+    age: parent.age,
+    gender: parent.gender,
+    generating: false,
+    generatingViews: false
+  }
+}
+
 function upsertCharactersFromScenes(
   scenes: SceneData[],
   characters: CharacterData[],
@@ -134,11 +279,45 @@ function upsertCharactersFromScenes(
 
   for (const scene of scenes) {
     for (const candidate of collectSceneCharacterCandidates(scene)) {
-      let matched: CharacterData | undefined
-      for (const alias of candidate.aliases) {
-        matched = findCharacterByNormalizedName(alias, characters)
-        if (matched) break
+      const compoundParent = findCompoundParentForCandidate(candidate, characters)
+      if (compoundParent) {
+        const variantName = inferCharacterVariantName(scene, candidate)
+        const existingVariant = findExistingVariantCharacter(
+          candidate,
+          compoundParent,
+          variantName,
+          characters
+        )
+        const legacyAlias = existingVariant
+          ? undefined
+          : findLegacyAliasCharacter(candidate, compoundParent, characters)
+        const matchedVariant = existingVariant || legacyAlias
+
+        if (matchedVariant) {
+          changed = applyCharacterVariantMetadata(
+            matchedVariant,
+            compoundParent,
+            candidate,
+            variantName
+          ) || changed
+          if (!matchedVariant.appearance && candidate.appearance) {
+            matchedVariant.appearance = candidate.appearance
+            changed = true
+          }
+          continue
+        }
+
+        characters.push(buildVariantCharacter(
+          compoundParent,
+          candidate,
+          variantName,
+          createCharacterId
+        ))
+        changed = true
+        continue
       }
+
+      const matched = findCharacterByNormalizedName(candidate.primaryName, characters)
 
       if (matched) {
         if (!matched.appearance && candidate.appearance) {

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { SceneData } from '~/lib/asset-workbench-models'
 import {
   applySceneBaselineReference,
-  applySceneVideoUrl
+  applySceneVideoUrl,
+  buildAssetWorkflowScenePayload
 } from './asset-workbench-scene-generation'
 
 function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' | 'description'>): SceneData {
@@ -67,5 +68,38 @@ describe('asset-workbench-scene-generation', () => {
     expect(scene.videoUrl).toBe('https://example.com/video-new.mp4')
     expect(scene.videoStatus).toBe('done')
     expect(scene.videoHistory?.[0]?.videoUrl).toBe('https://example.com/video-old.mp4')
+  })
+
+  it('uses actual video reference asset names in camera notes when provided', () => {
+    const scene = createScene({
+      id: 'scene_video_prompt',
+      title: '黄昏老街的摆烂人生',
+      description: [
+        '0-5秒：陈泽骑着烧烤三轮车穿过老街。',
+        '',
+        '[引用资产]',
+        '@白叙',
+        '@烧烤三轮车',
+        '@旁白音色'
+      ].join('\n')
+    })
+
+    const payload = buildAssetWorkflowScenePayload({
+      scene,
+      scenes: [scene],
+      sceneConfig: {
+        sceneId: scene.id,
+        mustReferenceAssetIds: [],
+        consistencyLevel: 'lock',
+        continuityNotes: ''
+      },
+      resolveAssetName: assetId => assetId,
+      referenceAssetNames: ['白叙'],
+      resolveSceneDescriptionWithoutAssetMentions: raw => (raw || '').split('\n\n[引用资产]')[0] || ''
+    })
+
+    expect(payload.cameraNote).toContain('引用资产：白叙')
+    expect(payload.cameraNote).not.toContain('烧烤三轮车')
+    expect(payload.cameraNote).not.toContain('旁白音色')
   })
 })

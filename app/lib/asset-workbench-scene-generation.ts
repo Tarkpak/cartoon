@@ -39,6 +39,7 @@ interface BuildSceneGenerationCameraNoteOptions {
   scenes: SceneData[]
   sceneConfig: SceneConsistencyConfig
   resolveAssetName: (assetId: string) => string
+  referenceAssetNames?: string[]
 }
 
 interface BuildAssetWorkflowScenePayloadOptions extends BuildSceneGenerationCameraNoteOptions {
@@ -122,9 +123,15 @@ export function buildSceneGenerationCameraNote(
   }
 
   const baseNote = options.scene.cameraNote?.trim() || ''
-  const refNames = extractSceneDescriptionMentionTokens(options.scene.description || '')
-    .map(resolveMentionName)
+  const hasExplicitReferenceAssetNames = Array.isArray(options.referenceAssetNames)
+  const referenceAssetNames = options.referenceAssetNames
+    ?.map(name => name.trim())
     .filter(Boolean)
+  const refNames = hasExplicitReferenceAssetNames
+    ? referenceAssetNames || []
+    : extractSceneDescriptionMentionTokens(options.scene.description || '')
+        .map(resolveMentionName)
+        .filter(Boolean)
   const continuityNote = options.sceneConfig.continuityNotes.trim()
   const crossSpaceNote = buildSceneEnvironmentCrossSpaceNote(options.scene, options.scenes)
   const shouldAppendCrossSpaceNote = !!crossSpaceNote

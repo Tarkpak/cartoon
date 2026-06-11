@@ -115,4 +115,82 @@ describe('asset-workbench-auto-plan', () => {
       'prop:prop_truck'
     ])
   })
+
+  it('creates scene-specific character assets for compound identity names', () => {
+    const characters = [
+      createCharacter({
+        id: 'char_compound',
+        name: '陈泽/白叙',
+        appearance: '现代身份陈泽为25岁卖烧烤青年；穿越后身体为18岁白叙。'
+      })
+    ]
+    const scenes = [
+      createScene({
+        id: 'scene_modern',
+        title: '黄昏老街的摆烂人生',
+        description: '0-5秒：陈泽骑着烧烤三轮车穿过老街，陈泽懒散地哼着小调。',
+        characters: [
+          {
+            name: '陈泽/白叙',
+            appearance: '现代形态为25岁男性，歪戴鸭舌帽，白T恤沾油渍。'
+          }
+        ],
+        setting: {
+          location: '现代都市老街路口',
+          timeOfDay: '傍晚'
+        }
+      }),
+      createScene({
+        id: 'scene_wasteland',
+        title: '三百年后醒成白叙',
+        description: '0-5秒：白叙在破败窝棚里猛地睁眼，低头看见手臂淤青。',
+        characters: [
+          {
+            name: '陈泽/白叙',
+            appearance: '18岁身体，偏瘦身形，穿破旧灰麻布短褐，手臂有旧伤痕。'
+          }
+        ],
+        setting: {
+          location: '末日荒野破败窝棚',
+          timeOfDay: '白天'
+        }
+      })
+    ]
+    const generatedIds = ['char_chen', 'char_bai']
+
+    const result = applyAutomaticAssetPlan({
+      scenes,
+      characters,
+      sceneConfigs: {},
+      propAssets: [],
+      environmentAssetIds: ['env:modern_street', 'env:wasteland_hut'],
+      resolveSceneEnvironmentAssetId: scene => scene.id === 'scene_modern'
+        ? 'env:modern_street'
+        : 'env:wasteland_hut',
+      createCharacterId: () => generatedIds.shift() || 'char_extra'
+    })
+
+    expect(result.characterChanged).toBe(true)
+    expect(characters.map(character => character.name)).toEqual([
+      '陈泽/白叙',
+      '陈泽-现代形态',
+      '白叙-废土形态'
+    ])
+    expect(characters[1]).toMatchObject({
+      parentCharacterId: 'char_compound',
+      variantName: '现代形态'
+    })
+    expect(characters[2]).toMatchObject({
+      parentCharacterId: 'char_compound',
+      variantName: '废土形态'
+    })
+    expect(result.nextSceneConfigs.scene_modern?.mustReferenceAssetIds).toEqual([
+      'char:char_chen',
+      'env:modern_street'
+    ])
+    expect(result.nextSceneConfigs.scene_wasteland?.mustReferenceAssetIds).toEqual([
+      'char:char_bai',
+      'env:wasteland_hut'
+    ])
+  })
 })

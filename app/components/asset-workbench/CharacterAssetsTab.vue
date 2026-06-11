@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AudioLines, History, Loader2, Lock, Pencil, Sparkles, Upload, User } from 'lucide-vue-next'
+import { AudioLines, History, Loader2, Lock, Pencil, Plus, Sparkles, Upload, User } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
 import type { CharacterRoleOption } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId, resolveCharacterRoleLabel } from '~/lib/asset-workbench-types'
@@ -25,6 +25,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'preview-image': [payload: { src: string | undefined, alt: string }]
   'start-edit': [character: CharacterData]
+  'add-variant': [character: CharacterData]
   'cancel-edit': []
   'save-edit': []
   'save-edit-regenerate': []
@@ -121,6 +122,15 @@ function resolveVoiceUpdatedText(char: CharacterData): string {
 function resolveHistoryCount(char: CharacterData): number {
   return Array.isArray(char.assetHistory) ? char.assetHistory.length : 0
 }
+
+function resolveParentCharacterName(char: CharacterData): string {
+  if (!char.parentCharacterId) return ''
+  return props.characters.find(item => item.id === char.parentCharacterId)?.name || ''
+}
+
+function resolveVariantCount(char: CharacterData): number {
+  return props.characters.filter(item => item.parentCharacterId === char.id).length
+}
 </script>
 
 <template>
@@ -173,6 +183,20 @@ function resolveHistoryCount(char: CharacterData): number {
           <div class="flex items-center gap-2">
             <span class="truncate text-sm font-medium">{{ char.name }}</span>
             <span class="shrink-0 text-xs text-muted-foreground/70">{{ resolveCharacterRoleLabel(char.role) }}</span>
+            <span
+              v-if="!char.parentCharacterId && resolveVariantCount(char) > 0"
+              class="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+            >
+              {{ resolveVariantCount(char) }} 个变体
+            </span>
+          </div>
+          <div
+            v-if="char.variantName || char.parentCharacterId"
+            class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"
+          >
+            <span class="rounded bg-primary/10 px-1.5 py-0.5 text-primary">变体</span>
+            <span v-if="char.variantName">{{ char.variantName }}</span>
+            <span v-if="resolveParentCharacterName(char)">源自 {{ resolveParentCharacterName(char) }}</span>
           </div>
 
           <template v-if="editingCharacterId === char.id">
@@ -379,6 +403,17 @@ function resolveHistoryCount(char: CharacterData): number {
               class="mr-1 h-3 w-3"
             />
             {{ char.voiceAsset?.audioUrl ? '替换音频' : '上传音频' }}
+          </Button>
+          <Button
+            v-if="!char.parentCharacterId"
+            size="sm"
+            variant="ghost"
+            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            :disabled="autoRunning || char.generating"
+            @click="emit('add-variant', char)"
+          >
+            <Plus class="mr-1 h-3 w-3" />
+            添加变体
           </Button>
           <Button
             v-if="char.baseImage"

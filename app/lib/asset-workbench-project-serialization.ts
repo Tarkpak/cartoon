@@ -45,6 +45,8 @@ interface LoadedProjectScene {
 
 interface LoadedProjectCharacter {
   id: string
+  parentCharacterId?: string | null
+  variantName?: string | null
   name: string
   role?: string | null
   appearance: string
@@ -103,6 +105,8 @@ export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
 export function buildLoadedCharacters(characters: LoadedProjectCharacter[]): CharacterData[] {
   return characters.map(character => ({
     id: character.id,
+    parentCharacterId: toOptionalString(character.parentCharacterId),
+    variantName: toOptionalString(character.variantName),
     name: character.name,
     appearance: character.appearance,
     role: character.role || 'supporting',
@@ -145,6 +149,9 @@ export function applyScopedEntityIds(
 
   characters.forEach((character) => {
     character.id = normalizeScopedEntityId('char', projectId, character.id)
+    if (character.parentCharacterId) {
+      character.parentCharacterId = normalizeScopedEntityId('char', projectId, character.parentCharacterId)
+    }
   })
 }
 
@@ -185,6 +192,8 @@ export function buildSaveScenesPayload(scenes: SceneData[]) {
 export function buildSaveCharactersPayload(characters: CharacterData[]) {
   return characters.map(character => ({
     id: character.id,
+    parentCharacterId: character.parentCharacterId,
+    variantName: character.variantName,
     name: character.name,
     role: character.role,
     appearance: character.appearance,

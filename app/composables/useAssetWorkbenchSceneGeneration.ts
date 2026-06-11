@@ -268,14 +268,29 @@ export function useAssetWorkbenchSceneGeneration(
     }
   }
 
-  function buildAssetWorkflowScenePayload(scene: SceneData) {
+  function buildAssetWorkflowScenePayload(
+    scene: SceneData,
+    payloadOptions: { referenceAssetNames?: string[] } = {}
+  ) {
     return createAssetWorkflowScenePayload({
       scene,
       scenes: options.scenes.value,
       sceneConfig: options.ensureSceneConfig(scene.id),
       resolveAssetName: options.resolveAssetName,
+      referenceAssetNames: payloadOptions.referenceAssetNames,
       resolveSceneDescriptionWithoutAssetMentions: options.resolveSceneDescriptionWithoutAssetMentions
     })
+  }
+
+  function buildVideoReferenceAssetNames(
+    characterReferenceAssets: ReturnType<typeof resolveSceneVideoReferenceAssets>,
+    narrationVoiceReference?: ReturnType<typeof resolveSceneNarrationVoiceAsset>
+  ): string[] {
+    const names = characterReferenceAssets.map(asset => asset.name)
+    if (narrationVoiceReference?.audioUrl?.trim()) {
+      names.push(narrationVoiceReference.name)
+    }
+    return uniqueSorted(names.map(name => name.trim()).filter(Boolean))
   }
 
   function buildSceneBaselineGenerationKey(
@@ -350,8 +365,12 @@ export function useAssetWorkbenchSceneGeneration(
     characterReferenceAssets: ReturnType<typeof resolveSceneVideoReferenceAssets>,
     narrationVoiceReference?: ReturnType<typeof resolveSceneNarrationVoiceAsset>
   ): string {
+    const referenceAssetNames = buildVideoReferenceAssetNames(
+      characterReferenceAssets,
+      narrationVoiceReference
+    )
     return JSON.stringify({
-      scenePayload: buildAssetWorkflowScenePayload(scene),
+      scenePayload: buildAssetWorkflowScenePayload(scene, { referenceAssetNames }),
       style: options.workflowStylePrompt.value,
       aspectRatio: options.projectAspectRatio.value,
       environmentImage,
@@ -648,6 +667,10 @@ export function useAssetWorkbenchSceneGeneration(
       sceneConfigs: options.sceneConfigs.value
     })
     const continuityFirstFrame = resolvePreviousSceneLastFrameForContinuity(scene)
+    const referenceAssetNames = buildVideoReferenceAssetNames(
+      characterReferenceAssets,
+      narrationVoiceReference
+    )
     const generationKey = buildSceneVideoGenerationKey(
       scene,
       environmentImage,
@@ -664,7 +687,7 @@ export function useAssetWorkbenchSceneGeneration(
     try {
       const taskId = await requestSceneVideoTask({
         projectId: options.projectId?.value,
-        scenePayload: buildAssetWorkflowScenePayload(scene),
+        scenePayload: buildAssetWorkflowScenePayload(scene, { referenceAssetNames }),
         style: options.workflowStylePrompt.value,
         aspectRatio: options.projectAspectRatio.value,
         references: buildAssetWorkflowVideoReferences({
