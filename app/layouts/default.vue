@@ -17,28 +17,28 @@ let syncNarrowSidebar: (() => void) | null = null
 const navigation = [
   { name: '首页', path: '/', icon: Home },
   { name: '我的项目', path: '/projects', icon: Folder },
-  { name: '日志', path: '/logs', icon: ScrollText },
   { name: '云端素材', path: '/tos-files', icon: Cloud },
+  { name: '日志', path: '/logs', icon: ScrollText },
   { name: '设置', path: '/settings', icon: Settings }
 ]
 
 type SettingsSection = 'general' | 'providers' | 'workflow' | 'test' | 'storage' | 'prompts' | 'styles'
 
-const DEFAULT_SETTINGS_SECTION: SettingsSection = 'providers'
-const SETTINGS_SECTIONS: SettingsSection[] = ['providers', 'workflow', 'test', 'prompts', 'styles', 'storage', 'general']
+const DEFAULT_SETTINGS_SECTION: SettingsSection = 'general'
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'providers', 'workflow', 'test', 'prompts', 'styles', 'storage']
 
 const settingsSubNavigation: Array<{
   name: string
   section: SettingsSection
   icon: unknown
 }> = [
+  { name: '通用', section: 'general', icon: SlidersHorizontal },
   { name: '模型供应商', section: 'providers', icon: Boxes },
   { name: '模型分配', section: 'workflow', icon: Workflow },
   { name: '模型测试', section: 'test', icon: FlaskConical },
   { name: '提示词模板', section: 'prompts', icon: FileText },
   { name: '画风预设', section: 'styles', icon: Palette },
-  { name: '云存储设置', section: 'storage', icon: CloudCog },
-  { name: '通用', section: 'general', icon: SlidersHorizontal }
+  { name: '云存储设置', section: 'storage', icon: CloudCog }
 ]
 
 function getSingleQueryValue(value: string | string[] | undefined): string | undefined {

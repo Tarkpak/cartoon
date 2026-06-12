@@ -78,17 +78,25 @@ async function handleImport(event: Event) {
   }
 }
 
-function exportConfig() {
+async function exportConfig() {
   exporting.value = true
   message.value = ''
   errorMessage.value = ''
 
-  downloadSettingsConfigExportUrl('/api/settings/config/download', 'settings')
-  message.value = '已开始导出通用配置'
-
-  window.setTimeout(() => {
+  try {
+    const result = await downloadSettingsConfigExportUrl('/api/settings/config/download', 'settings')
+    if (result.status === 'cancelled') {
+      message.value = '已取消导出通用配置'
+    } else if (result.status === 'saved') {
+      message.value = `已导出通用配置：${result.fileName}。保存位置：${result.path}`
+    } else {
+      message.value = `已开始下载通用配置：${result.fileName}。请在浏览器或系统默认下载目录查看。`
+    }
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '导出通用配置失败'
+  } finally {
     exporting.value = false
-  }, 300)
+  }
 }
 </script>
 
@@ -161,7 +169,7 @@ function exportConfig() {
       class="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-600"
     >
       <CheckCircle2 class="mt-0.5 h-4 w-4 shrink-0" />
-      {{ message }}
+      <span class="min-w-0 flex-1 break-all">{{ message }}</span>
     </div>
 
     <div

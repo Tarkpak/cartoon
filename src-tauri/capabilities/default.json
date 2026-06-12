@@ -13,8 +13,10 @@
   "permissions": [
     "core:default",
     "core:app:allow-version",
+    "dialog:allow-save",
     "allow-check-ffmpeg-status",
     "allow-install-ffmpeg",
+    "allow-save-settings-config-export",
     "notification:default",
     "process:default",
     "updater:default"

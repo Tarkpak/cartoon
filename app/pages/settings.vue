@@ -14,8 +14,8 @@ definePageMeta({ layout: 'default' })
 
 const route = useRoute()
 const SETTINGS_MENU_STORAGE_KEY = 'playlet:settings-menu-state'
-const DEFAULT_SETTINGS_SECTION: MenuSection = 'providers'
-const SETTINGS_SECTIONS: MenuSection[] = ['providers', 'workflow', 'test', 'prompts', 'styles', 'storage', 'general']
+const DEFAULT_SETTINGS_SECTION: MenuSection = 'general'
+const SETTINGS_SECTIONS: MenuSection[] = ['general', 'providers', 'workflow', 'test', 'prompts', 'styles', 'storage']
 
 // 旧版菜单状态（section=models + sub=...）到扁平 section 的映射
 const LEGACY_SUB_TO_SECTION: Record<string, MenuSection> = {

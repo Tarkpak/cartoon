@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-save-settings-config-export"
+description = "Allows saving an exported settings configuration JSON file to a user-selected path."
+commands.allow = ["save_settings_config_export"]
