@@ -1,0 +1,112 @@
+import { createError } from 'h3'
+import { randomUUID } from 'node:crypto'
+import { getDb, jsonText, nowIso } from '../../../utils/db'
+import { readJsonBody, requireAuth } from '../../../utils/auth'
+import { optionalJson, optionalString } from '../../../utils/http'
+
+interface ProjectPayload {
+  id?: string
+  localProjectId?: string
+  name?: string
+  title?: string
+  description?: string
+  scriptParseMode?: string
+  script_parse_mode?: string
+  styleId?: string
+  style_id?: string
+  aspectRatio?: string
+  aspect_ratio?: string
+  status?: string
+  createdAt?: string
+  created_at?: string
+  updatedAt?: string
+  updated_at?: string
+  summary?: unknown
+  snapshot?: unknown
+}
+
+function normalizeProjects(body: Record<string, unknown>) {
+  if (Array.isArray(body.projects)) return body.projects as ProjectPayload[]
+  if (body.project && typeof body.project === 'object') return [body.project as ProjectPayload]
+  return [body as ProjectPayload]
+}
+
+export default defineEventHandler(async (event) => {
+  const auth = requireAuth(event)
+  const body = await readJsonBody<Record<string, unknown>>(event)
+  const projects = normalizeProjects(body)
+  if (projects.length === 0) {
+    throw createError({ statusCode: 400, statusMessage: 'projects is required' })
+  }
+
+  const db = getDb()
+  const timestamp = nowIso()
+  const upsertProject = db.prepare(`
+    INSERT INTO user_projects
+      (id, user_id, local_project_id, name, description, script_parse_mode, style_id, aspect_ratio, status,
+       summary_json, local_created_at, local_updated_at, last_synced_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, local_project_id) DO UPDATE SET
+      name = excluded.name,
+      description = excluded.description,
+      script_parse_mode = excluded.script_parse_mode,
+      style_id = excluded.style_id,
+      aspect_ratio = excluded.aspect_ratio,
+      status = excluded.status,
+      summary_json = excluded.summary_json,
+      local_created_at = excluded.local_created_at,
+      local_updated_at = excluded.local_updated_at,
+      last_synced_at = excluded.last_synced_at,
+      updated_at = excluded.updated_at
+  `)
+  const selectProject = db.prepare('SELECT id FROM user_projects WHERE user_id = ? AND local_project_id = ? LIMIT 1')
+  const insertSnapshot = db.prepare(`
+    INSERT INTO user_project_snapshots
+      (id, user_id, project_id, snapshot_json, snapshot_version, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+
+  const synced = db.transaction((items: ProjectPayload[]) => {
+    const result: Array<{ localProjectId: string, projectId: string }> = []
+    for (const project of items) {
+      const localProjectId = optionalString(project.localProjectId || project.id, 128)
+      if (!localProjectId) {
+        throw createError({ statusCode: 400, statusMessage: 'project.localProjectId is required' })
+      }
+      const name = optionalString(project.name || project.title, 256) || '未命名项目'
+      const existing = selectProject.get(auth.user.id, localProjectId) as { id: string } | undefined
+      const projectId = existing?.id || randomUUID()
+      const snapshot = optionalJson(project.snapshot) ?? project
+
+      upsertProject.run(
+        projectId,
+        auth.user.id,
+        localProjectId,
+        name,
+        optionalString(project.description, 2048),
+        optionalString(project.scriptParseMode || project.script_parse_mode, 64),
+        optionalString(project.styleId || project.style_id, 128),
+        optionalString(project.aspectRatio || project.aspect_ratio, 32),
+        optionalString(project.status, 64) || 'draft',
+        jsonText(project.summary || {}),
+        optionalString(project.createdAt || project.created_at, 64),
+        optionalString(project.updatedAt || project.updated_at, 64),
+        timestamp,
+        timestamp,
+        timestamp
+      )
+
+      insertSnapshot.run(randomUUID(), auth.user.id, projectId, jsonText(snapshot), 1, timestamp)
+      result.push({ localProjectId, projectId })
+    }
+    return result
+  })(projects)
+
+  return {
+    success: true,
+    data: {
+      synced
+    }
+  }
+})
+

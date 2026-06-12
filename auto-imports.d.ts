@@ -102,6 +102,7 @@ declare global {
   const useAssetWorkflowMeta: typeof import('./app/composables/useAssetWorkflowMeta')['useAssetWorkflowMeta']
   const useAttrs: typeof import('vue')['useAttrs']
   const useCharacter: typeof import('./app/composables/useCharacter')['useCharacter']
+  const useCloudAdmin: typeof import('./app/composables/useCloudAdmin')['useCloudAdmin']
   const useCompletionNotificationSettings: typeof import('./app/composables/useCompletionNotificationSettings')['useCompletionNotificationSettings']
   const useConfirm: typeof import('./app/composables/useConfirm')['useConfirm']
   const useCssModule: typeof import('vue')['useCssModule']
@@ -292,6 +293,7 @@ declare module 'vue' {
     readonly useAssetWorkflowMeta: UnwrapRef<typeof import('./app/composables/useAssetWorkflowMeta')['useAssetWorkflowMeta']>
     readonly useAttrs: UnwrapRef<typeof import('vue')['useAttrs']>
     readonly useCharacter: UnwrapRef<typeof import('./app/composables/useCharacter')['useCharacter']>
+    readonly useCloudAdmin: UnwrapRef<typeof import('./app/composables/useCloudAdmin')['useCloudAdmin']>
     readonly useCompletionNotificationSettings: UnwrapRef<typeof import('./app/composables/useCompletionNotificationSettings')['useCompletionNotificationSettings']>
     readonly useConfirm: UnwrapRef<typeof import('./app/composables/useConfirm')['useConfirm']>
     readonly useCssModule: UnwrapRef<typeof import('vue')['useCssModule']>

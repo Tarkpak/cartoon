@@ -20,7 +20,7 @@ use std::io::Write;
 use std::path::{Path as FsPath, PathBuf};
 #[cfg(target_os = "windows")]
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::net::TcpListener;
@@ -59,6 +59,10 @@ const MODEL_DEBUG_LOG_RETENTION_LIMIT: i64 = 5_000;
 const APP_LOG_MESSAGE_MAX_CHARS: usize = 16 * 1024;
 const APP_LOG_JSON_MAX_CHARS: usize = 64 * 1024;
 const REQUEST_ID_HEADER: &str = "x-request-id";
+const CLOUD_ADMIN_CONFIG_KEY: &str = "cloud_admin_config";
+const CLOUD_ADMIN_SESSION_KEY: &str = "cloud_admin_session";
+const CLOUD_PROVIDER_CREDENTIALS_KEY: &str = "cloud_provider_credentials";
+const CLOUD_DEVICE_ID_KEY: &str = "cloud_device_id";
 
 const DEFAULT_STYLE_PRESETS_JSON: &str = include_str!("../assets/default-style-presets.json");
 const DEFAULT_STYLE_CATEGORIES_JSON: &str = include_str!("../assets/default-style-categories.json");
@@ -183,6 +187,20 @@ struct ProviderCredentialsPutBody {
     access_key: Option<String>,
     #[serde(rename = "secretKey")]
     secret_key: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CloudLoginBody {
+    #[serde(rename = "baseUrl")]
+    base_url: String,
+    account: String,
+    password: String,
+}
+
+#[derive(Deserialize)]
+struct CloudConfigPutBody {
+    #[serde(rename = "baseUrl")]
+    base_url: String,
 }
 
 #[derive(Deserialize)]
@@ -655,6 +673,30 @@ fn llm_http_client() -> &'static Client {
     })
 }
 
+fn cloud_runtime_credentials() -> &'static RwLock<Value> {
+    static CREDENTIALS: OnceLock<RwLock<Value>> = OnceLock::new();
+    CREDENTIALS.get_or_init(|| RwLock::new(json!({})))
+}
+
+fn set_cloud_runtime_credentials(value: Value) {
+    if let Ok(mut guard) = cloud_runtime_credentials().write() {
+        *guard = value;
+    }
+}
+
+fn get_cloud_runtime_credentials() -> Option<Value> {
+    let value = cloud_runtime_credentials().read().ok()?.clone();
+    if value.as_object().is_some_and(|object| !object.is_empty()) {
+        Some(value)
+    } else {
+        None
+    }
+}
+
+fn clear_cloud_runtime_credentials() {
+    set_cloud_runtime_credentials(json!({}));
+}
+
 fn build_llm_transport_error_message(error: &reqwest::Error) -> String {
     if error.is_timeout() {
         return format!("模型服务请求超时: {}", error);
@@ -663,6 +705,229 @@ fn build_llm_transport_error_message(error: &reqwest::Error) -> String {
         return format!("模型服务连接失败: {}", error);
     }
     error.to_string()
+}
+
+fn normalize_cloud_base_url(value: &str) -> Result<String, ApiError> {
+    let trimmed = value.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "后台地址不能为空"));
+    }
+    if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "后台地址必须以 http:// 或 https:// 开头",
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn cloud_config(conn: &Connection) -> Value {
+    get_config_json(conn, CLOUD_ADMIN_CONFIG_KEY)
+        .ok()
+        .flatten()
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({ "baseUrl": "" }))
+}
+
+fn cloud_base_url(conn: &Connection) -> Option<String> {
+    cloud_config(conn)
+        .get("baseUrl")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn cloud_session(conn: &Connection) -> Option<Value> {
+    get_config_json(conn, CLOUD_ADMIN_SESSION_KEY)
+        .ok()
+        .flatten()
+        .filter(Value::is_object)
+}
+
+fn cloud_token(conn: &Connection) -> Option<String> {
+    cloud_session(conn)
+        .and_then(|session| session.get("token").and_then(Value::as_str).map(str::to_string))
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn cloud_user_public(conn: &Connection) -> Option<Value> {
+    cloud_session(conn).and_then(|session| session.get("user").cloned())
+}
+
+fn get_or_create_cloud_device_id(conn: &Connection) -> Result<String, ApiError> {
+    if let Some(value) = get_config_json(conn, CLOUD_DEVICE_ID_KEY)?
+        .and_then(|value| value.as_str().map(str::to_string))
+        .filter(|value| !value.trim().is_empty())
+    {
+        return Ok(value);
+    }
+    let device_id = format!("desktop_{}", Uuid::new_v4().simple());
+    set_config_json(conn, CLOUD_DEVICE_ID_KEY, &json!(device_id))?;
+    Ok(device_id)
+}
+
+fn cloud_auth_headers(
+    request: reqwest::RequestBuilder,
+    token: Option<&str>,
+) -> reqwest::RequestBuilder {
+    match token.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(token) => request.bearer_auth(token),
+        None => request,
+    }
+}
+
+async fn cloud_request_json(
+    base_url: &str,
+    method: reqwest::Method,
+    path: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+) -> Result<Value, ApiError> {
+    let url = format!(
+        "{}/{}",
+        base_url.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    );
+    let mut request = http_client().request(method, url);
+    request = cloud_auth_headers(request, token);
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    let response = request.send().await.map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("连接后台失败: {}", build_llm_transport_error_message(&error)),
+        )
+    })?;
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    let payload = serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({ "message": text }));
+    if !status.is_success() {
+        let message = payload
+            .get("statusMessage")
+            .or_else(|| payload.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or("后台接口返回失败");
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("后台接口失败: {message}"),
+        ));
+    }
+    Ok(payload)
+}
+
+fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
+    let Some(items) = raw.and_then(|value| value.as_array().cloned()) else {
+        return json!({});
+    };
+    let mut output = serde_json::Map::new();
+    for item in items {
+        let Some(provider) = item.get("providerKey").and_then(Value::as_str) else {
+            continue;
+        };
+        let has_api_key = item
+            .get("apiKey")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty());
+        let has_access_key = item
+            .get("accessKey")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty());
+        let has_secret_key = item
+            .get("secretKey")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty());
+        output.insert(
+            provider.to_string(),
+            json!({
+              "baseUrl": item.get("baseUrl").and_then(Value::as_str).unwrap_or(""),
+              "hasApiKey": has_api_key,
+              "hasAccessKey": has_access_key,
+              "hasSecretKey": has_secret_key
+            }),
+        );
+    }
+    Value::Object(output)
+}
+
+fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
+    let mut output = serde_json::Map::new();
+    let Some(items) = raw.and_then(|value| value.as_array().cloned()) else {
+        return Value::Object(output);
+    };
+    for item in items {
+        let provider = item
+            .get("providerKey")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        if provider.is_empty() {
+            continue;
+        }
+        let base_url = item
+            .get("baseUrl")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let api_key = item
+            .get("apiKey")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let access_key = item
+            .get("accessKey")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let secret_key = item
+            .get("secretKey")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+
+        let target_provider = if provider == "openai" {
+            "custom_openai"
+        } else {
+            provider
+        };
+
+        if target_provider == "kling" {
+            output.insert(
+                target_provider.to_string(),
+                json!({
+                  "accessKey": access_key,
+                  "secretKey": secret_key,
+                  "baseUrl": base_url
+                }),
+            );
+        } else {
+            output.insert(
+                target_provider.to_string(),
+                json!({
+                  "apiKey": api_key,
+                  "baseUrl": base_url
+                }),
+            );
+        }
+    }
+    Value::Object(output)
+}
+
+fn overlay_cloud_provider_creds(conn: &Connection, creds: &mut Value) {
+    let _ = conn;
+    let Some(cloud_creds) = get_cloud_runtime_credentials() else {
+        return;
+    };
+    let Some(root) = creds.as_object_mut() else {
+        return;
+    };
+    let Some(cloud_obj) = cloud_creds.as_object() else {
+        return;
+    };
+    for (provider, value) in cloud_obj {
+        root.insert(provider.clone(), value.clone());
+    }
 }
 
 fn sanitize_file_component(raw: &str) -> String {
@@ -2721,6 +2986,12 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
     if get_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY)?.is_none() {
         set_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY, &json!({}))?;
     }
+    if get_config_json(&conn, CLOUD_ADMIN_CONFIG_KEY)?.is_none() {
+        set_config_json(&conn, CLOUD_ADMIN_CONFIG_KEY, &json!({ "baseUrl": "" }))?;
+    }
+    if get_config_json(&conn, CLOUD_PROVIDER_CREDENTIALS_KEY)?.is_none() {
+        set_config_json(&conn, CLOUD_PROVIDER_CREDENTIALS_KEY, &json!({}))?;
+    }
     match get_config_json(&conn, PROMPT_TEMPLATES_KEY)? {
         Some(saved) => {
             if is_legacy_minimal_prompt_templates(&saved) {
@@ -2902,6 +3173,14 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/prompts/reset-all", post(api_prompts_reset_all))
         .route("/api/models/test", post(api_models_test))
         .route("/api/test", get(api_test))
+        .route(
+            "/api/cloud/status",
+            get(api_cloud_status).put(api_cloud_config_put),
+        )
+        .route("/api/cloud/login", post(api_cloud_login))
+        .route("/api/cloud/logout", post(api_cloud_logout))
+        .route("/api/cloud/bootstrap", post(api_cloud_bootstrap))
+        .route("/api/cloud/heartbeat", post(api_cloud_heartbeat))
         .route("/api/script/episode-plan", post(api_script_episode_plan))
         .route("/api/script/parse", post(api_script_parse))
         .route("/api/script/parse-stream", post(api_script_parse_stream))
@@ -4858,6 +5137,11 @@ async fn api_project_put(
         }
     }
 
+    drop(conn);
+    if let Err(error) = cloud_sync_project_by_id(&state, &id).await {
+        eprintln!("[CloudSync] project sync failed: {}", error.message);
+    }
+
     Ok(Json(json!({
       "success": true
     })))
@@ -5857,6 +6141,11 @@ async fn api_models_workflow_post(
     }
 
     let current_selections = workflow_current_selections(&conn, &available)?;
+    let model_options = workflow_model_options(&conn)?;
+    drop(conn);
+    if let Err(error) = cloud_sync_model_preferences(&state).await {
+        eprintln!("[CloudSync] model preferences sync failed: {}", error.message);
+    }
     Ok(Json(json!({
       "success": true,
       "data": {
@@ -5864,7 +6153,7 @@ async fn api_models_workflow_post(
         "modelId": response_model_id,
         "updated": response_models,
         "currentSelections": current_selections,
-        "modelOptions": workflow_model_options(&conn)?
+        "modelOptions": model_options
       }
     })))
 }
@@ -5895,6 +6184,7 @@ fn load_provider_creds(conn: &Connection) -> Value {
     if let Some(obj) = creds.as_object_mut() {
         obj.insert("custom_openai".to_string(), custom_openai);
     }
+    overlay_cloud_provider_creds(conn, &mut creds);
     creds
 }
 
@@ -7482,6 +7772,375 @@ fn provider_credentials_public(creds: &Value) -> Value {
         "baseUrl": base_url("kling")
       }
     })
+}
+
+fn cloud_status_payload(conn: &Connection) -> Result<Value, ApiError> {
+    let base_url = cloud_base_url(conn).unwrap_or_default();
+    let session = cloud_session(conn);
+    let raw_cloud_creds = get_cloud_runtime_credentials();
+    Ok(json!({
+      "configured": !base_url.is_empty(),
+      "baseUrl": base_url,
+      "authenticated": session
+        .as_ref()
+        .and_then(|value| value.get("token"))
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty()),
+      "user": cloud_user_public(conn),
+      "deviceId": get_or_create_cloud_device_id(conn)?,
+      "lastBootstrapAt": session
+        .as_ref()
+        .and_then(|value| value.get("lastBootstrapAt"))
+        .cloned()
+        .unwrap_or(Value::Null),
+      "credentials": cloud_provider_credentials_public(raw_cloud_creds)
+    }))
+}
+
+async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value, ApiError> {
+    let (base_url, token) = {
+        let conn = db_connection(state)?;
+        let base_url = cloud_base_url(&conn).ok_or_else(|| {
+            ApiError::new(StatusCode::UNAUTHORIZED, "请先配置并登录后台")
+        })?;
+        let token = cloud_token(&conn).ok_or_else(|| {
+            ApiError::new(StatusCode::UNAUTHORIZED, "请先登录后台")
+        })?;
+        (base_url, token)
+    };
+
+    let bootstrap = cloud_request_json(
+        &base_url,
+        reqwest::Method::GET,
+        "/api/client/bootstrap",
+        Some(&token),
+        None,
+    )
+    .await?;
+    let credentials = cloud_request_json(
+        &base_url,
+        reqwest::Method::GET,
+        "/api/client/provider-credentials",
+        Some(&token),
+        None,
+    )
+    .await?;
+
+    let credentials_data = credentials.get("data").cloned().unwrap_or_else(|| json!([]));
+    let local_credentials = cloud_provider_credentials_to_local(Some(credentials_data.clone()));
+    let conn = db_connection(state)?;
+    set_cloud_runtime_credentials(local_credentials);
+
+    let mut session = cloud_session(&conn).unwrap_or_else(|| json!({}));
+    if let Some(obj) = session.as_object_mut() {
+        obj.insert("lastBootstrapAt".to_string(), json!(now_iso()));
+        if let Some(user) = bootstrap
+            .get("data")
+            .and_then(|data| data.get("user"))
+            .cloned()
+        {
+            obj.insert("user".to_string(), user);
+        }
+        obj.insert(
+            "bootstrap".to_string(),
+            bootstrap.get("data").cloned().unwrap_or(Value::Null),
+        );
+    }
+    set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &session)?;
+    cloud_status_payload(&conn)
+}
+
+async fn cloud_post_client_json(
+    state: &BackendState,
+    path: &str,
+    body: Value,
+) -> Result<Value, ApiError> {
+    let (base_url, token) = {
+        let conn = db_connection(state)?;
+        let Some(base_url) = cloud_base_url(&conn) else {
+            return Ok(json!({ "success": false, "skipped": "cloud_not_configured" }));
+        };
+        let Some(token) = cloud_token(&conn) else {
+            return Ok(json!({ "success": false, "skipped": "cloud_not_authenticated" }));
+        };
+        (base_url, token)
+    };
+    cloud_request_json(
+        &base_url,
+        reqwest::Method::POST,
+        path,
+        Some(&token),
+        Some(body),
+    )
+    .await
+}
+
+fn cloud_spawn_model_call_log_upload(body: Value) {
+    let Some((base_url, token)) = config_connection().and_then(|conn| {
+        let base_url = cloud_base_url(&conn)?;
+        let token = cloud_token(&conn)?;
+        Some((base_url, token))
+    }) else {
+        return;
+    };
+    tokio::spawn(async move {
+        if let Err(error) = cloud_request_json(
+            &base_url,
+            reqwest::Method::POST,
+            "/api/client/model-call-logs",
+            Some(&token),
+            Some(body),
+        )
+        .await
+        {
+            eprintln!("[CloudSync] model call log upload failed: {}", error.message);
+        }
+    });
+}
+
+async fn cloud_sync_project_by_id(state: &BackendState, project_id: &str) -> Result<(), ApiError> {
+    let Json(project_response) =
+        api_project_get(Path(project_id.to_string()), State(state.clone())).await?;
+    let data = project_response
+        .get("data")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let project = data.get("project").cloned().unwrap_or_else(|| json!({}));
+    let body = json!({
+      "localProjectId": project_id,
+      "name": project.get("name").and_then(Value::as_str).unwrap_or("未命名项目"),
+      "description": project.get("description").cloned().unwrap_or(Value::Null),
+      "scriptParseMode": project.get("scriptParseMode").cloned().unwrap_or(Value::Null),
+      "styleId": project.get("styleId").cloned().unwrap_or(Value::Null),
+      "aspectRatio": project.get("aspectRatio").cloned().unwrap_or(Value::Null),
+      "status": project.get("status").cloned().unwrap_or(Value::Null),
+      "summary": {
+        "sceneCount": data.get("scenes").and_then(Value::as_array).map(Vec::len).unwrap_or(0),
+        "characterCount": data.get("characters").and_then(Value::as_array).map(Vec::len).unwrap_or(0)
+      },
+      "snapshot": data
+    });
+    cloud_post_client_json(state, "/api/client/projects/sync", body)
+        .await
+        .map(|_| ())
+}
+
+async fn cloud_sync_prompt_state(state: &BackendState) -> Result<(), ApiError> {
+    let Json(prompts) = api_prompts_get(State(state.clone())).await?;
+    let data = prompts.get("data").cloned().unwrap_or_else(|| json!({}));
+    let templates = data
+        .get("templates")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|item| {
+            json!({
+              "id": item.get("id").cloned().unwrap_or(Value::Null),
+              "templateKey": item.get("id").cloned().unwrap_or(Value::Null),
+              "title": item.get("title").or_else(|| item.get("name")).cloned().unwrap_or(Value::Null),
+              "content": item.get("content").cloned().unwrap_or(Value::Null),
+              "source": if item.get("isCustomized").and_then(Value::as_bool).unwrap_or(false) { "user_custom" } else { "system_default" }
+            })
+        })
+        .collect::<Vec<_>>();
+    let profiles = data
+        .get("profiles")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|item| {
+            let id = item.get("id").and_then(Value::as_str).unwrap_or("default");
+            json!({
+              "id": id,
+              "localProfileId": id,
+              "name": item.get("name").cloned().unwrap_or_else(|| json!(id)),
+              "description": item.get("description").cloned().unwrap_or(Value::Null),
+              "isActive": data.get("activeProfileId").and_then(Value::as_str) == Some(id)
+            })
+        })
+        .collect::<Vec<_>>();
+    cloud_post_client_json(
+        state,
+        "/api/client/prompts/sync",
+        json!({
+          "snapshot": data,
+          "profiles": profiles,
+          "templates": templates
+        }),
+    )
+    .await
+    .map(|_| ())
+}
+
+async fn cloud_sync_model_preferences(state: &BackendState) -> Result<(), ApiError> {
+    let Json(workflow) = api_models_workflow_get(State(state.clone())).await?;
+    let data = workflow.get("data").cloned().unwrap_or_else(|| json!({}));
+    let selections = data
+        .get("currentSelections")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let options = data.get("modelOptions").cloned().unwrap_or_else(|| json!({}));
+    let preferences = selections
+        .into_iter()
+        .filter_map(|(step, model_id)| {
+            let model_id = model_id.as_str()?.trim().to_string();
+            if model_id.is_empty() {
+                return None;
+            }
+            Some(json!({
+              "workflowStep": step,
+              "modelId": model_id,
+              "modelOptions": options.get(&step).cloned().unwrap_or_else(|| json!({}))
+            }))
+        })
+        .collect::<Vec<_>>();
+    cloud_post_client_json(
+        state,
+        "/api/client/model-preferences/sync",
+        json!({ "preferences": preferences }),
+    )
+    .await
+    .map(|_| ())
+}
+
+async fn api_cloud_status(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    Ok(Json(json!({
+      "success": true,
+      "data": cloud_status_payload(&conn)?
+    })))
+}
+
+async fn api_cloud_config_put(
+    State(state): State<BackendState>,
+    Json(body): Json<CloudConfigPutBody>,
+) -> Result<Json<Value>, ApiError> {
+    let base_url = normalize_cloud_base_url(&body.base_url)?;
+    let conn = db_connection(&state)?;
+    set_config_json(&conn, CLOUD_ADMIN_CONFIG_KEY, &json!({ "baseUrl": base_url }))?;
+    set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &json!({}))?;
+    clear_cloud_runtime_credentials();
+    Ok(Json(json!({
+      "success": true,
+      "data": cloud_status_payload(&conn)?
+    })))
+}
+
+async fn api_cloud_login(
+    State(state): State<BackendState>,
+    Json(body): Json<CloudLoginBody>,
+) -> Result<Json<Value>, ApiError> {
+    let base_url = normalize_cloud_base_url(&body.base_url)?;
+    let (device_id, login_body) = {
+        let conn = db_connection(&state)?;
+        let device_id = get_or_create_cloud_device_id(&conn)?;
+        (
+            device_id.clone(),
+            json!({
+              "account": body.account.trim(),
+              "password": body.password,
+              "deviceId": device_id,
+              "deviceName": "Playlet Desktop",
+              "os": std::env::consts::OS,
+              "clientVersion": env!("CARGO_PKG_VERSION")
+            }),
+        )
+    };
+    let login_response = cloud_request_json(
+        &base_url,
+        reqwest::Method::POST,
+        "/api/auth/login",
+        None,
+        Some(login_body),
+    )
+    .await?;
+    let data = login_response.get("data").cloned().unwrap_or_else(|| json!({}));
+    let token = data
+        .get("token")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "后台未返回登录 token"))?
+        .to_string();
+    {
+        let conn = db_connection(&state)?;
+        set_config_json(&conn, CLOUD_ADMIN_CONFIG_KEY, &json!({ "baseUrl": base_url }))?;
+        set_config_json(
+            &conn,
+            CLOUD_ADMIN_SESSION_KEY,
+            &json!({
+              "token": token,
+              "user": data.get("user").cloned().unwrap_or(Value::Null),
+              "expiresAt": data.get("expiresAt").cloned().unwrap_or(Value::Null),
+              "deviceId": device_id,
+              "loggedInAt": now_iso()
+            }),
+        )?;
+    }
+    let status = cloud_refresh_runtime_credentials(&state).await?;
+    Ok(Json(json!({
+      "success": true,
+      "data": status
+    })))
+}
+
+async fn api_cloud_logout(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let (base_url, token) = {
+        let conn = db_connection(&state)?;
+        (cloud_base_url(&conn), cloud_token(&conn))
+    };
+    if let (Some(base_url), Some(token)) = (base_url, token) {
+        let _ = cloud_request_json(
+            &base_url,
+            reqwest::Method::POST,
+            "/api/auth/logout",
+            Some(&token),
+            Some(json!({})),
+        )
+        .await;
+    }
+    let conn = db_connection(&state)?;
+    set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &json!({}))?;
+    clear_cloud_runtime_credentials();
+    Ok(Json(json!({
+      "success": true,
+      "data": cloud_status_payload(&conn)?
+    })))
+}
+
+async fn api_cloud_bootstrap(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let status = cloud_refresh_runtime_credentials(&state).await?;
+    Ok(Json(json!({
+      "success": true,
+      "data": status
+    })))
+}
+
+async fn api_cloud_heartbeat(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let (device_id, body) = {
+        let conn = db_connection(&state)?;
+        let device_id = get_or_create_cloud_device_id(&conn)?;
+        (
+            device_id.clone(),
+            json!({
+              "deviceId": device_id,
+              "deviceName": "Playlet Desktop",
+              "os": std::env::consts::OS,
+              "clientVersion": env!("CARGO_PKG_VERSION")
+            }),
+        )
+    };
+    let result = cloud_post_client_json(&state, "/api/client/device/heartbeat", body).await?;
+    Ok(Json(json!({
+      "success": true,
+      "data": {
+        "deviceId": device_id,
+        "remote": result
+      }
+    })))
 }
 
 async fn api_provider_credentials_get(

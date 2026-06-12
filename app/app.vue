@@ -5,6 +5,7 @@ import DefaultLayout from '@/layouts/default.vue'
 import Toaster from '@/components/ui/toast/Toaster.vue'
 import ConfirmHost from '@/components/ui/confirm/ConfirmHost.vue'
 import { useDesktopFfmpeg } from '@/composables/useDesktopFfmpeg'
+import { useCloudAdmin } from '@/composables/useCloudAdmin'
 
 useHead({
   meta: [
@@ -21,6 +22,8 @@ useHead({
 const title = 'playlet - AI 影视生成系统'
 const description = 'AI 驱动的影视创作平台。从文本到视频，生成专业级 AI 影视内容。'
 const { ensureDesktopFfmpegStatus } = useDesktopFfmpeg()
+const { heartbeat, loadStatus, authenticated } = useCloudAdmin()
+let heartbeatTimer: number | null = null
 
 useSeoMeta({
   title,
@@ -31,6 +34,22 @@ useSeoMeta({
 
 onMounted(() => {
   void ensureDesktopFfmpegStatus()
+  void loadStatus().then((status) => {
+    if (!status?.authenticated) return
+    void heartbeat()
+    heartbeatTimer = window.setInterval(() => {
+      if (authenticated.value) {
+        void heartbeat()
+      }
+    }, 60_000) as unknown as number
+  })
+})
+
+onUnmounted(() => {
+  if (heartbeatTimer) {
+    window.clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
 })
 </script>
 

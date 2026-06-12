@@ -279,6 +279,24 @@ fn llm_dev_write_db_log_impl(
     let response_value = response.map(|value| llm_dev_file_sanitize_value(value, None));
     let response_raw_value = response_raw.map(llm_dev_file_response_raw_value);
     let error_value = error.map(|message| json!({ "message": message }));
+    let log_payload = json!({
+      "requestId": request_id.clone(),
+      "provider": provider,
+      "modelId": model,
+      "operation": operation,
+      "projectId": context.project_id.clone(),
+      "sceneId": context.scene_id.clone(),
+      "status": status,
+      "durationMs": duration_ms,
+      "errorMessage": error.unwrap_or_default(),
+      "request": request_value.clone().unwrap_or(Value::Null),
+      "response": response_value
+        .clone()
+        .or(response_raw_value.clone())
+        .unwrap_or(Value::Null),
+      "error": error_value.clone().unwrap_or(Value::Null),
+      "createdAt": now.to_rfc3339()
+    });
 
     if let Some(conn) = config_connection() {
         let _ = conn.execute(
@@ -313,6 +331,7 @@ fn llm_dev_write_db_log_impl(
             prune_log_table(&conn, "model_debug_logs", MODEL_DEBUG_LOG_RETENTION_LIMIT);
         }
     }
+    cloud_spawn_model_call_log_upload(log_payload);
 }
 
 async fn resolve_source_bytes(
@@ -11875,6 +11894,23 @@ fn write_model_debug_log(
     let context = current_model_log_context();
     let response_value = response.cloned().unwrap_or(Value::Null);
     let media_refs = collect_log_media_refs(&response_value);
+    let log_payload = json!({
+      "requestId": request_id.clone(),
+      "provider": provider,
+      "modelId": model,
+      "operation": operation,
+      "projectId": context.project_id.clone(),
+      "sceneId": context.scene_id.clone(),
+      "status": status,
+      "durationMs": duration_ms.max(1),
+      "request": request,
+      "response": response_value,
+      "error": error.cloned().unwrap_or(Value::Null),
+      "errorMessage": error
+        .and_then(|value| value.get("message").and_then(Value::as_str))
+        .unwrap_or_default(),
+      "createdAt": now
+    });
     conn.execute(
         "INSERT INTO model_debug_logs (
           id, timestamp, provider, model, operation, status, duration_ms, request_id,
@@ -11918,6 +11954,7 @@ fn write_model_debug_log(
     if should_run_log_retention() {
         prune_log_table(&conn, "model_debug_logs", MODEL_DEBUG_LOG_RETENTION_LIMIT);
     }
+    cloud_spawn_model_call_log_upload(log_payload);
     Ok(())
 }
 

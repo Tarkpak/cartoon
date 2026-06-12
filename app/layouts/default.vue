@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, Boxes, FlaskConical, CloudCog, ChevronsLeft, ChevronsRight } from 'lucide-vue-next'
+import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, Boxes, FlaskConical, CloudCog, ChevronsLeft, ChevronsRight, LogOut, UserCheck } from 'lucide-vue-next'
+import { useCloudAdmin } from '@/composables/useCloudAdmin'
 
 const route = useRoute()
+const router = useRouter()
 const { isDark, toggleTheme, initTheme } = useTheme()
+const { currentUser, authenticated, logout: cloudLogout, loadStatus } = useCloudAdmin()
 
 const appVersion = __APP_VERSION__
 const currentYear = new Date().getFullYear()
@@ -79,6 +82,7 @@ const visualSidebarCollapsed = computed(() => isCollapsed.value || isNarrowSideb
 // 初始化主题
 onMounted(() => {
   initTheme()
+  void loadStatus()
 
   if (typeof window === 'undefined') return
 
@@ -107,6 +111,11 @@ onUnmounted(() => {
   if (!sidebarMediaQuery || !syncNarrowSidebar) return
   sidebarMediaQuery.removeEventListener('change', syncNarrowSidebar)
 })
+
+async function handleCloudLogout() {
+  await cloudLogout()
+  await router.push('/login')
+}
 </script>
 
 <template>
@@ -223,6 +232,36 @@ onUnmounted(() => {
           </div>
         </div>
       </nav>
+
+      <div
+        v-if="authenticated"
+        class="px-4 pb-2"
+      >
+        <div
+          class="rounded-md border bg-background/60 p-2 text-xs"
+          :class="visualSidebarCollapsed ? 'text-center' : ''"
+        >
+          <div class="flex items-center gap-2 text-foreground">
+            <UserCheck class="h-4 w-4 text-primary" />
+            <span
+              v-if="!visualSidebarCollapsed"
+              class="truncate"
+            >{{ currentUser?.displayName || currentUser?.account || '已登录' }}</span>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            class="mt-2 w-full justify-start px-2 text-xs"
+            :class="visualSidebarCollapsed ? 'justify-center' : ''"
+            title="退出后台"
+            @click="handleCloudLogout"
+          >
+            <LogOut class="h-3.5 w-3.5" />
+            <span v-if="!visualSidebarCollapsed" class="ml-1">退出后台</span>
+          </Button>
+        </div>
+      </div>
 
       <!-- 主题切换 -->
       <div class="px-4 pb-4">

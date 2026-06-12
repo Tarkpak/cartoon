@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Check, Loader2, Save, X } from 'lucide-vue-next'
+import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import type { ProviderCredentialsPublic } from '#shared/types/provider'
 
 type CredentialProvider = 'gemini' | 'qwen' | 'volcengine' | 'deepseek' | 'kling'
@@ -26,6 +27,7 @@ const loading = ref(false)
 const saving = ref(false)
 const message = ref('')
 const errorMessage = ref('')
+const { authenticated: cloudAuthenticated, loadStatus: loadCloudStatus } = useCloudAdmin()
 
 const baseUrl = ref('')
 const apiKeyInput = ref('')
@@ -114,6 +116,7 @@ watch(() => props.provider, () => {
 })
 
 onMounted(() => {
+  void loadCloudStatus()
   void loadConfig()
 })
 </script>
@@ -125,8 +128,15 @@ onMounted(() => {
         供应商凭证
       </h3>
       <p class="mt-1 text-xs text-muted-foreground">
-        在此填写密钥与接口地址，配置保存在本地数据库，不再依赖环境变量。
+        模型密钥由后台统一管理。已登录后台时，本地密钥配置只显示状态，不允许编辑。
       </p>
+    </div>
+
+    <div
+      v-if="cloudAuthenticated"
+      class="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary"
+    >
+      当前客户端已连接后台，供应商 Key 会在启动时从后台拉取。
     </div>
 
     <div
@@ -157,6 +167,7 @@ onMounted(() => {
             v-model="accessKeyInput"
             class="h-9 text-sm"
             type="password"
+            :disabled="cloudAuthenticated"
             :placeholder="hasAccessKey ? '留空则继续使用已保存值' : '请输入 Access Key'"
           />
         </div>
@@ -179,6 +190,7 @@ onMounted(() => {
             v-model="secretKeyInput"
             class="h-9 text-sm"
             type="password"
+            :disabled="cloudAuthenticated"
             :placeholder="hasSecretKey ? '留空则继续使用已保存值' : '请输入 Secret Key'"
           />
         </div>
@@ -205,6 +217,7 @@ onMounted(() => {
           v-model="apiKeyInput"
           class="h-9 text-sm"
           type="password"
+          :disabled="cloudAuthenticated"
           :placeholder="hasApiKey ? '留空则继续使用已保存密钥' : '请输入 API Key'"
         />
         <p
@@ -220,6 +233,7 @@ onMounted(() => {
         <Input
           v-model="baseUrl"
           class="h-9 text-sm"
+          :disabled="cloudAuthenticated"
           :placeholder="PROVIDER_BASE_URL_PLACEHOLDER[props.provider]"
         />
       </div>
@@ -237,7 +251,7 @@ onMounted(() => {
         <Button
           size="sm"
           class="h-8 gap-1.5"
-          :disabled="saving"
+          :disabled="saving || cloudAuthenticated"
           @click="saveConfig"
         >
           <Loader2

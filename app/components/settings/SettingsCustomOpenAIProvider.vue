@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Check, Loader2, Save, X } from 'lucide-vue-next'
+import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import type { CustomOpenAIProviderPublicConfig } from '#shared/types/provider'
 
 const props = defineProps<{
@@ -15,6 +16,7 @@ const loading = ref(false)
 const saving = ref(false)
 const message = ref('')
 const errorMessage = ref('')
+const { authenticated: cloudAuthenticated, loadStatus: loadCloudStatus } = useCloudAdmin()
 const config = ref<CustomOpenAIProviderPublicConfig>({
   enabled: false,
   displayName: '自定义 OpenAI',
@@ -101,6 +103,7 @@ const syncedAtLabel = computed(() => {
 })
 
 onMounted(() => {
+  void loadCloudStatus()
   void loadConfig()
 })
 </script>
@@ -113,7 +116,7 @@ onMounted(() => {
           自定义 OpenAI 兼容供应商
         </h3>
         <p class="mt-1 text-xs text-muted-foreground">
-          通过 OpenAI 兼容接口获取模型列表，并按本地能力表归类。
+          通过 OpenAI 兼容接口获取模型列表，并按本地能力表归类。已登录后台时，Key 与 Base URL 由后台统一下发。
         </p>
       </div>
       <Switch
@@ -147,6 +150,7 @@ onMounted(() => {
           <Input
             v-model="config.baseUrl"
             class="h-9 text-sm"
+            :disabled="cloudAuthenticated"
             placeholder="https://api.example.com/v1"
           />
         </div>
@@ -170,6 +174,7 @@ onMounted(() => {
           v-model="apiKeyInput"
           class="h-9 text-sm"
           type="password"
+          :disabled="cloudAuthenticated"
           :placeholder="config.hasApiKey ? '留空则继续使用已保存密钥' : 'sk-...'"
         />
       </div>
@@ -211,7 +216,7 @@ onMounted(() => {
         <Button
           size="sm"
           class="h-8 gap-1.5"
-          :disabled="saving"
+          :disabled="saving || cloudAuthenticated"
           @click="saveConfig"
         >
           <Loader2

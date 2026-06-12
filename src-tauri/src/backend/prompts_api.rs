@@ -1,5 +1,11 @@
 use super::*;
 
+async fn sync_prompt_state_best_effort(state: &BackendState) {
+    if let Err(error) = cloud_sync_prompt_state(state).await {
+        eprintln!("[CloudSync] prompt sync failed: {}", error.message);
+    }
+}
+
 fn append_prompt_version(
     conn: &Connection,
     template_id: &str,
@@ -410,6 +416,8 @@ pub(super) async fn api_prompts_single_put(
     append_prompt_version(&conn, &id, &previous_content, body.note)?;
     set_config_json(&conn, PROMPT_TEMPLATES_KEY, &templates)?;
     sync_active_prompt_profile_snapshot(&conn)?;
+    drop(conn);
+    sync_prompt_state_best_effort(&state).await;
     Ok(Json(
         json!({ "success": true, "data": updated, "message": "模板更新成功" }),
     ))
@@ -483,6 +491,8 @@ pub(super) async fn api_prompts_single_reset(
     )?;
     set_config_json(&conn, PROMPT_TEMPLATES_KEY, &templates)?;
     sync_active_prompt_profile_snapshot(&conn)?;
+    drop(conn);
+    sync_prompt_state_best_effort(&state).await;
     Ok(Json(json!({
       "success": true,
       "data": updated_template,
@@ -550,6 +560,8 @@ pub(super) async fn api_prompts_single_restore(
     )?;
     set_config_json(&conn, PROMPT_TEMPLATES_KEY, &templates)?;
     sync_active_prompt_profile_snapshot(&conn)?;
+    drop(conn);
+    sync_prompt_state_best_effort(&state).await;
     Ok(Json(json!({
       "success": true,
       "data": updated_template,
@@ -566,6 +578,8 @@ pub(super) async fn api_prompts_reset_all(
     set_config_json(&conn, PROMPT_VERSIONS_KEY, &json!([]))?;
     sync_active_prompt_profile_snapshot(&conn)?;
     let templates = get_prompt_templates_config(&conn)?;
+    drop(conn);
+    sync_prompt_state_best_effort(&state).await;
     Ok(Json(
         json!({ "success": true, "data": templates, "message": "所有模板已重置为默认值" }),
     ))
@@ -688,9 +702,12 @@ pub(super) async fn api_prompt_profiles_post(
     }
 
     save_prompt_profile_state(&conn, &profiles_payload)?;
+    let result = prompt_profile_result(&profiles_payload);
+    drop(conn);
+    sync_prompt_state_best_effort(&state).await;
     Ok(Json(json!({
       "success": true,
-      "data": prompt_profile_result(&profiles_payload),
+      "data": result,
       "message": "提示词配置方案创建成功"
     })))
 }
@@ -772,8 +789,11 @@ pub(super) async fn api_prompt_profiles_put(
         }
     }
     save_prompt_profile_state(&conn, &profiles_payload)?;
+    let result = prompt_profile_result(&profiles_payload);
+    drop(conn);
+    sync_prompt_state_best_effort(&state).await;
     Ok(Json(
-        json!({ "success": true, "data": prompt_profile_result(&profiles_payload), "message": "提示词配置方案已更新" }),
+        json!({ "success": true, "data": result, "message": "提示词配置方案已更新" }),
     ))
 }
 
@@ -854,8 +874,11 @@ pub(super) async fn api_prompt_profiles_delete(
     }
 
     save_prompt_profile_state(&conn, &profiles_payload)?;
+    let result = prompt_profile_result(&profiles_payload);
+    drop(conn);
+    sync_prompt_state_best_effort(&state).await;
     Ok(Json(
-        json!({ "success": true, "data": prompt_profile_result(&profiles_payload), "message": "提示词配置方案已删除" }),
+        json!({ "success": true, "data": result, "message": "提示词配置方案已删除" }),
     ))
 }
 
@@ -894,7 +917,10 @@ pub(super) async fn api_prompt_profiles_activate(
         }
     }
     save_prompt_profile_state(&conn, &profiles_payload)?;
+    let result = prompt_profile_result(&profiles_payload);
+    drop(conn);
+    sync_prompt_state_best_effort(&state).await;
     Ok(Json(
-        json!({ "success": true, "data": prompt_profile_result(&profiles_payload), "message": "已切换提示词配置方案" }),
+        json!({ "success": true, "data": result, "message": "已切换提示词配置方案" }),
     ))
 }
