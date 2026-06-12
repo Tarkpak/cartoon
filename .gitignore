@@ -4,6 +4,7 @@ node_modules/
 .nitro
 dist
 .playwright-mcp
+.playwright-cli
 .DS_Store
 app/.DS_Store
 

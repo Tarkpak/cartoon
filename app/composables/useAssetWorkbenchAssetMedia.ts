@@ -27,6 +27,7 @@ export function useAssetWorkbenchAssetMedia(options: {
   scenes: Ref<SceneData[]>
   characters: Ref<CharacterData[]>
   propAssets: Ref<PropAsset[]>
+  projectId?: Ref<string | undefined>
   workflowStylePrompt: Ref<string>
   saveProject: () => Promise<unknown>
   saveWorkflowMeta: () => Promise<unknown>
@@ -383,6 +384,7 @@ export function useAssetWorkbenchAssetMedia(options: {
       }>('/api/asset-workflow/prop/generate', {
         method: 'POST',
         body: {
+          projectId: options.projectId?.value || undefined,
           prop: {
             id: target.id,
             name: target.name,

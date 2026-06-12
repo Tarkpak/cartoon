@@ -1836,6 +1836,7 @@ const {
   scenes,
   characters,
   propAssets,
+  projectId,
   workflowStylePrompt,
   saveProject,
   saveWorkflowMeta,

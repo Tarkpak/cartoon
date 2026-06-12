@@ -13142,6 +13142,7 @@ fn validate_prop_generate_payload(body: &Value) -> Result<(), ApiError> {
             ));
         }
     }
+    workflow_optional_string(body, "projectId", "body")?;
     workflow_optional_string(body, "style", "body")?;
     Ok(())
 }
@@ -13587,19 +13588,24 @@ pub(super) async fn api_asset_prop_generate(
             ],
         )?
     };
-    let (image_url, provider, model_id) = run_workflow_image_model(
-        &state,
-        "character_portrait",
-        &prompt,
-        "1024x1024",
-        &format!("prop_{}", prop_id),
-        &[],
-    )
-    .await
-    .map_err(|error| {
-        eprintln!("[AssetWorkflow/Prop] 图片模型调用失败: {}", error);
-        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error)
-    })?;
+    let context = model_log_context_from_workflow_body(&body, None, Some(prop_id.to_string()));
+    let (image_url, provider, model_id) = CURRENT_MODEL_LOG_CONTEXT
+        .scope(context, async {
+            run_workflow_image_model(
+                &state,
+                "character_portrait",
+                &prompt,
+                "1024x1024",
+                &format!("prop_{}", prop_id),
+                &[],
+            )
+            .await
+        })
+        .await
+        .map_err(|error| {
+            eprintln!("[AssetWorkflow/Prop] 图片模型调用失败: {}", error);
+            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error)
+        })?;
     Ok(Json(json!({
       "success": true,
       "imageUrl": image_url,
