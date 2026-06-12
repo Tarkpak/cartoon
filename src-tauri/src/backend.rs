@@ -49,6 +49,7 @@ const SETTINGS_CONFIG_EXPORT_VERSION: i32 = 1;
 const SETTINGS_CONFIG_TEXT_MAX_CHARS: usize = 16 * 1024;
 const SETTINGS_CONFIG_ENCRYPTED_TYPE: &str = "playlet.settings_config.encrypted";
 const SETTINGS_CONFIG_BUNDLE_TYPE: &str = "playlet.settings_bundle";
+const WORKFLOW_MODELS_CONFIG_TYPE: &str = "playlet.workflow_models";
 const SETTINGS_CONFIG_ENCRYPTION_NONCE_LEN: usize = 12;
 const SETTINGS_CONFIG_ENCRYPTION_AAD: &[u8] = b"playlet.settings-config.v1";
 const SETTINGS_CONFIG_ENCRYPTION_CONTEXT: &[u8] =
@@ -1866,6 +1867,207 @@ fn validate_workflow_model_options(step: &str, options: &Value) -> Result<(), Ap
             "不支持的模型扩展配置",
         )),
     }
+}
+
+fn settings_has_workflow_step_key(value: &Value) -> bool {
+    settings_has_any_key(
+        value,
+        &[
+            "script_parsing",
+            "scene_description_refinement",
+            "character_portrait",
+            "frame_generation",
+            "video_generation",
+        ],
+    )
+}
+
+fn normalize_imported_selected_models(input: &Value, available: &Value) -> Result<Value, ApiError> {
+    settings_object_section(input, "selectedModels")?;
+    let mut selected = default_selected_models();
+
+    for model_type in ["text", "image", "video", "tts", "asr"] {
+        let model_id = settings_string_field(input, model_type, "selectedModels", 512)?;
+        if model_id.is_empty() {
+            continue;
+        }
+        if find_available_model_for_type(available, model_type, &model_id).is_none() {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                format!("selectedModels.{model_type} 引用的模型不可用: {model_id}"),
+            ));
+        }
+        set_selected_model_by_user(&mut selected, model_type, &model_id);
+    }
+
+    Ok(selected)
+}
+
+fn normalize_imported_workflow_model_overrides(
+    input: &Value,
+    available: &Value,
+) -> Result<Value, ApiError> {
+    let object = settings_object_section(input, "workflowModels")?;
+    let mut normalized = serde_json::Map::new();
+
+    for (step, value) in object {
+        if !is_workflow_step(step) {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                format!("无效工作流步骤: {step}"),
+            ));
+        }
+
+        let model_id = match value {
+            Value::Null => continue,
+            Value::String(raw) => raw.trim(),
+            _ => {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    format!("workflowModels.{step} 必须是字符串"),
+                ))
+            }
+        };
+        if model_id.is_empty() {
+            continue;
+        }
+        if model_id.chars().count() > 512 {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                format!("workflowModels.{step} 最多 512 个字符"),
+            ));
+        }
+        if !workflow_model_exists_for_step(available, step, model_id) {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                format!("workflowModels.{step} 引用的模型不可用: {model_id}"),
+            ));
+        }
+
+        normalized.insert(step.clone(), json!(model_id));
+    }
+
+    Ok(Value::Object(normalized))
+}
+
+fn normalize_imported_workflow_model_options(input: &Value) -> Result<Value, ApiError> {
+    settings_object_section(input, "modelOptions")?;
+    let defaults = default_workflow_model_options();
+    let mut normalized = defaults.clone();
+
+    for step in [
+        "image_options",
+        "video_generation",
+        "completion_notification",
+    ] {
+        let Some(options) = input.get(step) else {
+            continue;
+        };
+        if options.is_null() {
+            continue;
+        }
+        validate_workflow_model_options(step, options)?;
+        let merged =
+            merge_json_object_defaults(options.clone(), defaults.get(step).unwrap_or(&Value::Null));
+        if let Some(object) = normalized.as_object_mut() {
+            object.insert(step.to_string(), merged);
+        }
+    }
+
+    Ok(normalized)
+}
+
+fn workflow_models_config_state(conn: &Connection) -> Result<Value, ApiError> {
+    let selected =
+        get_config_json(conn, SELECTED_MODELS_KEY)?.unwrap_or_else(default_selected_models);
+    Ok(json!({
+      "selectedModels": selected_models_public_view(&selected),
+      "workflowModels": workflow_overrides(conn)?,
+      "modelOptions": workflow_model_options(conn)?
+    }))
+}
+
+fn workflow_models_config_export_payload(conn: &Connection) -> Result<Value, ApiError> {
+    let state = workflow_models_config_state(conn)?;
+    Ok(json!({
+      "type": WORKFLOW_MODELS_CONFIG_TYPE,
+      "version": SETTINGS_CONFIG_EXPORT_VERSION,
+      "exportedAt": now_iso(),
+      "selectedModels": state.get("selectedModels").cloned().unwrap_or_else(|| json!({})),
+      "workflowModels": state.get("workflowModels").cloned().unwrap_or_else(|| json!({})),
+      "modelOptions": state.get("modelOptions").cloned().unwrap_or_else(default_workflow_model_options)
+    }))
+}
+
+fn import_workflow_models_config_payload(
+    conn: &Connection,
+    payload: &Value,
+) -> Result<Value, ApiError> {
+    let selected_section = settings_import_section(
+        payload,
+        &[
+            "selectedModels",
+            "selected_models",
+            "globalDefaults",
+            "globalDefaultModels",
+            "modelDefaults",
+        ],
+    );
+    let workflow_models_section = settings_import_section(
+        payload,
+        &[
+            "workflowModels",
+            "workflowModelOverrides",
+            "workflow_models",
+            "workflow_model_overrides",
+        ],
+    )
+    .or_else(|| {
+        if settings_has_workflow_step_key(payload) {
+            Some(payload)
+        } else {
+            None
+        }
+    });
+    let model_options_section = settings_import_section(
+        payload,
+        &["modelOptions", "workflowModelOptions", "model_options"],
+    );
+
+    if selected_section.is_none()
+        && workflow_models_section.is_none()
+        && model_options_section.is_none()
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "导入数据缺少模型配置",
+        ));
+    }
+
+    let available = build_available_models(conn)?;
+    let mut imported = Vec::<String>::new();
+
+    if let Some(section) = selected_section {
+        let config = normalize_imported_selected_models(section, &available)?;
+        set_config_json(conn, SELECTED_MODELS_KEY, &config)?;
+        imported.push("selectedModels".to_string());
+    }
+    if let Some(section) = workflow_models_section {
+        let config = normalize_imported_workflow_model_overrides(section, &available)?;
+        set_config_json(conn, WORKFLOW_MODELS_KEY, &config)?;
+        imported.push("workflowModels".to_string());
+    }
+    if let Some(section) = model_options_section {
+        let config = normalize_imported_workflow_model_options(section)?;
+        set_config_json(conn, WORKFLOW_MODEL_OPTIONS_KEY, &config)?;
+        imported.push("modelOptions".to_string());
+    }
+
+    let mut state = workflow_models_config_state(conn)?;
+    if let Some(object) = state.as_object_mut() {
+        object.insert("imported".to_string(), json!(imported));
+    }
+    Ok(state)
 }
 
 fn fallback_prompt_templates() -> Value {
@@ -7521,6 +7723,7 @@ fn settings_config_bundle_export_payload(conn: &Connection) -> Result<Value, Api
       "exportedAt": now_iso(),
       "includesSecrets": true,
       "modelProviders": model_providers_config_export_payload(conn)?,
+      "workflowModels": workflow_models_config_export_payload(conn)?,
       "tosStorage": tos_config_export_payload(conn)?
     }))
 }
@@ -7622,6 +7825,29 @@ fn settings_payload_has_tos_config(payload: &Value) -> bool {
         ))
 }
 
+fn settings_payload_has_workflow_model_config(payload: &Value) -> bool {
+    payload.get("type").and_then(Value::as_str) == Some(WORKFLOW_MODELS_CONFIG_TYPE)
+        || settings_import_section(
+            payload,
+            &[
+                "workflowModels",
+                "workflowModelConfig",
+                "workflowModelsConfig",
+                "workflow_model_config",
+                "selectedModels",
+                "selected_models",
+                "globalDefaults",
+                "globalDefaultModels",
+                "modelDefaults",
+                "modelOptions",
+                "workflowModelOptions",
+                "model_options",
+            ],
+        )
+        .is_some()
+        || settings_has_workflow_step_key(payload)
+}
+
 async fn api_settings_config_export(
     State(state): State<BackendState>,
 ) -> Result<Json<Value>, ApiError> {
@@ -7668,6 +7894,25 @@ async fn api_settings_config_import(
         imported.push("modelProviders".to_string());
     }
 
+    if payload.get("type").and_then(Value::as_str) == Some(WORKFLOW_MODELS_CONFIG_TYPE) {
+        import_workflow_models_config_payload(&conn, &payload)?;
+        imported.push("workflowModels".to_string());
+    } else if let Some(section) = settings_import_section(
+        &payload,
+        &[
+            "workflowModels",
+            "workflowModelConfig",
+            "workflowModelsConfig",
+            "workflow_model_config",
+        ],
+    ) {
+        import_workflow_models_config_payload(&conn, section)?;
+        imported.push("workflowModels".to_string());
+    } else if settings_payload_has_workflow_model_config(&payload) {
+        import_workflow_models_config_payload(&conn, &payload)?;
+        imported.push("workflowModels".to_string());
+    }
+
     if let Some(section) = settings_import_section(
         &payload,
         &[
@@ -7700,6 +7945,7 @@ async fn api_settings_config_import(
       "data": {
         "imported": imported,
         "providers": provider_summary(&conn)?,
+        "workflowModels": workflow_models_config_state(&conn)?,
         "tosStorageConfig": tos_config_public(&tos_config)
       }
     })))

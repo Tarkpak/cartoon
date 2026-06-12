@@ -120,6 +120,8 @@ const DEFAULT_COMPLETION_NOTIFICATION_OPTIONS: WorkflowCompletionNotificationOpt
   systemNotification: true
 }
 
+const SETTINGS_CONFIG_IMPORTED_EVENT = 'playlet:settings-config-imported'
+
 export function useSettingsWorkflowModels() {
   const { models, selectedModels, errorMessage: modelCatalogError, loadModels } = useSettingsModelCatalog()
   const {
@@ -578,8 +580,13 @@ export function useSettingsWorkflowModels() {
   }
 
   onMounted(() => {
+    window.addEventListener(SETTINGS_CONFIG_IMPORTED_EVENT, reloadModelSettings)
     void loadModels()
     void loadWorkflowModels()
+  })
+
+  onBeforeUnmount(() => {
+    window.removeEventListener(SETTINGS_CONFIG_IMPORTED_EVENT, reloadModelSettings)
   })
 
   watch(() => models.value, (next, prev) => {
