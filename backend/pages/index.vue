@@ -1,13 +1,6 @@
 <template>
   <AdminShell>
     <div class="page">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">总览</h1>
-          <p class="page-subtitle">单机后台控制面，数据来自 SQLite。</p>
-        </div>
-      </div>
-
       <n-grid :cols="4" :x-gap="16">
         <n-gi>
           <n-card>
@@ -48,4 +41,3 @@ const logs = await useFetch<{ data: { pagination: { total: number } } }>('/api/a
 const userTotal = computed(() => users.data.value?.data.pagination.total || 0)
 const logTotal = computed(() => logs.data.value?.data.pagination.total || 0)
 </script>
-

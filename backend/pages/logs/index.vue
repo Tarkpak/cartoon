@@ -1,19 +1,10 @@
 <template>
   <AdminShell>
     <div class="page">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">调用日志</h1>
-          <p class="page-subtitle">客户端上报的模型调用请求、响应和错误信息。</p>
-        </div>
-      </div>
-
-      <n-card>
-        <n-space vertical>
-          <n-input v-model:value="keyword" placeholder="搜索 request id、错误、用户" clearable @keyup.enter="loadLogs" />
-          <n-data-table :columns="columns" :data="logs" :loading="pending" />
-        </n-space>
-      </n-card>
+      <n-space vertical class="table-section">
+        <n-input v-model:value="keyword" placeholder="搜索 request id、错误、用户" clearable @keyup.enter="loadLogs" />
+        <n-data-table :columns="columns" :data="logs" :loading="pending" />
+      </n-space>
 
       <n-drawer v-model:show="drawer" width="760">
         <n-drawer-content title="日志详情">
@@ -89,4 +80,3 @@ onMounted(loadLogs)
   font-size: 12px;
 }
 </style>
-

@@ -1,7 +1,69 @@
-import { create } from 'naive-ui'
+import {
+  create,
+  NAlert,
+  NButton,
+  NCard,
+  NConfigProvider,
+  NDataTable,
+  NDialogProvider,
+  NDrawer,
+  NDrawerContent,
+  NForm,
+  NFormItem,
+  NGi,
+  NGrid,
+  NInput,
+  NInputNumber,
+  NLayout,
+  NLayoutContent,
+  NLayoutHeader,
+  NLayoutSider,
+  NMenu,
+  NMessageProvider,
+  NModal,
+  NSelect,
+  NSpace,
+  NSpin,
+  NStatistic,
+  NSwitch,
+  NTabPane,
+  NTabs,
+  NTag
+} from 'naive-ui'
 
 export default defineNuxtPlugin((nuxtApp) => {
-  const naive = create()
+  const naive = create({
+    components: [
+      NAlert,
+      NButton,
+      NCard,
+      NConfigProvider,
+      NDataTable,
+      NDialogProvider,
+      NDrawer,
+      NDrawerContent,
+      NForm,
+      NFormItem,
+      NGi,
+      NGrid,
+      NInput,
+      NInputNumber,
+      NLayout,
+      NLayoutContent,
+      NLayoutHeader,
+      NLayoutSider,
+      NMenu,
+      NMessageProvider,
+      NModal,
+      NSelect,
+      NSpace,
+      NSpin,
+      NStatistic,
+      NSwitch,
+      NTabPane,
+      NTabs,
+      NTag
+    ]
+  })
   nuxtApp.vueApp.use(naive)
 })
-

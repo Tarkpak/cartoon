@@ -12,13 +12,15 @@ export default defineEventHandler(async (event) => {
     apiKey?: string
     accessKey?: string
     secretKey?: string
-    securityToken?: string
   }>(event)
   const db = getDb()
-  const provider = db.prepare('SELECT id FROM model_providers WHERE id = ? LIMIT 1').get(providerId)
+  const provider = db
+    .prepare('SELECT id, provider_key FROM model_providers WHERE id = ? LIMIT 1')
+    .get(providerId) as { id: string, provider_key: string } | undefined
   if (!provider) {
     throw createError({ statusCode: 404, statusMessage: 'Provider not found' })
   }
+  const isKling = provider.provider_key === 'kling'
   db.prepare(`
     INSERT INTO provider_credentials
       (provider_id, encrypted_api_key, encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
@@ -31,10 +33,10 @@ export default defineEventHandler(async (event) => {
       updated_at = excluded.updated_at
   `).run(
     providerId,
-    encryptText(body.apiKey),
-    encryptText(body.accessKey),
-    encryptText(body.secretKey),
-    encryptText(body.securityToken),
+    encryptText(isKling ? '' : body.apiKey),
+    encryptText(isKling ? body.accessKey : ''),
+    encryptText(isKling ? body.secretKey : ''),
+    '',
     nowIso()
   )
 
@@ -44,10 +46,10 @@ export default defineEventHandler(async (event) => {
     targetType: 'model_provider',
     targetId: providerId,
     metadata: {
-      hasApiKey: Boolean(body.apiKey),
-      hasAccessKey: Boolean(body.accessKey),
-      hasSecretKey: Boolean(body.secretKey),
-      hasSecurityToken: Boolean(body.securityToken)
+      credentialMode: isKling ? 'access_secret' : 'api_key',
+      hasApiKey: !isKling && Boolean(body.apiKey),
+      hasAccessKey: isKling && Boolean(body.accessKey),
+      hasSecretKey: isKling && Boolean(body.secretKey)
     }
   })
 

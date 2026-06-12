@@ -1,11 +1,7 @@
 <template>
   <AdminShell>
     <div class="page">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">{{ detail?.user.display_name || '用户详情' }}</h1>
-          <p class="page-subtitle">{{ detail?.user.account }}</p>
-        </div>
+      <div class="page-header page-header--actions">
         <n-button @click="$router.push('/users')">返回用户列表</n-button>
       </div>
 
@@ -166,4 +162,3 @@ onMounted(load)
   font-size: 12px;
 }
 </style>
-

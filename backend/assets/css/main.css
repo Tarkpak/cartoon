@@ -17,7 +17,7 @@ a {
 }
 
 .page {
-  padding: 24px;
+  padding: 20px 16px;
 }
 
 .page-header {
@@ -26,6 +26,15 @@ a {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 16px;
+}
+
+.page-header--actions {
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.table-section {
+  width: 100%;
 }
 
 .page-title {
@@ -47,4 +56,3 @@ a {
 .mono {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
-

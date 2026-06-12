@@ -1,20 +1,14 @@
 <template>
   <AdminShell>
     <div class="page">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">用户管理</h1>
-          <p class="page-subtitle">管理员创建账号，普通用户不开放自助注册。</p>
-        </div>
+      <div class="page-header page-header--actions">
         <n-button type="primary" @click="showCreate = true">新建用户</n-button>
       </div>
 
-      <n-card>
-        <n-space vertical>
-          <n-input v-model:value="keyword" placeholder="搜索账号、名称、邮箱或手机号" clearable @keyup.enter="fetchUsers" />
-          <n-data-table :columns="columns" :data="rows" :loading="pending" />
-        </n-space>
-      </n-card>
+      <n-space vertical class="table-section">
+        <n-input v-model:value="keyword" placeholder="搜索账号、名称、邮箱或手机号" clearable @keyup.enter="fetchUsers" />
+        <n-data-table :columns="columns" :data="rows" :loading="pending" />
+      </n-space>
 
       <n-modal v-model:show="showCreate" preset="card" title="新建用户" style="width: 480px">
         <n-form>
@@ -150,4 +144,3 @@ async function updateStatus(row: UserRow) {
 
 onMounted(fetchUsers)
 </script>
-

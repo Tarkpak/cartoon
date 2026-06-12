@@ -1,13 +1,6 @@
 <template>
   <AdminShell>
     <div class="page">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">系统设置</h1>
-          <p class="page-subtitle">设备限制和日志归档阈值均为单机后台配置。</p>
-        </div>
-      </div>
-
       <n-card style="max-width: 680px">
         <n-spin :show="pending">
           <n-form label-placement="left" label-width="160">
@@ -76,4 +69,3 @@ async function save() {
 
 onMounted(load)
 </script>
-

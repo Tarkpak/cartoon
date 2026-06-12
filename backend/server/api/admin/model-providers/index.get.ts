@@ -6,7 +6,7 @@ export default defineEventHandler((event) => {
   const providers = getDb()
     .prepare(`
       SELECT p.id, p.provider_key, p.display_name, p.base_url, p.enabled, p.created_at, p.updated_at,
-             c.encrypted_api_key, c.encrypted_access_key, c.encrypted_secret_key, c.encrypted_security_token, c.updated_at AS credentials_updated_at
+             c.encrypted_api_key, c.encrypted_access_key, c.encrypted_secret_key, c.updated_at AS credentials_updated_at
       FROM model_providers p
       LEFT JOIN provider_credentials c ON c.provider_id = p.id
       ORDER BY p.display_name ASC
@@ -15,7 +15,6 @@ export default defineEventHandler((event) => {
       encrypted_api_key?: string
       encrypted_access_key?: string
       encrypted_secret_key?: string
-      encrypted_security_token?: string
     }>
 
   return {
@@ -32,10 +31,8 @@ export default defineEventHandler((event) => {
         credentialsUpdatedAt: provider.credentials_updated_at,
         hasApiKey: Boolean(provider.encrypted_api_key),
         hasAccessKey: Boolean(provider.encrypted_access_key),
-        hasSecretKey: Boolean(provider.encrypted_secret_key),
-        hasSecurityToken: Boolean(provider.encrypted_security_token)
+        hasSecretKey: Boolean(provider.encrypted_secret_key)
       }))
     }
   }
 })
-
