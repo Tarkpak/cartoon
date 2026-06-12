@@ -1626,7 +1626,10 @@ async function handlePrepareEpisodePlan() {
       console.warn('[asset-workbench] 申请系统通知权限失败:', error)
     }
   }
-  await prepareEpisodePlanWithAssetHydration()
+  const prepared = await prepareEpisodePlanWithAssetHydration()
+  if (prepared) {
+    selectAutoStage('assets')
+  }
 }
 
 async function handleParseSingleEpisode(payload: { id: string }) {

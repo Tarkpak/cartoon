@@ -4751,42 +4751,245 @@ fn normalize_timeline_line_punctuation(value: &str) -> String {
         .replace("秒:,", "秒:")
 }
 
-fn build_scene_video_reference_materials(config: &Value) -> String {
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SceneVideoReferenceLabel {
+    url: String,
+    label: String,
+}
+
+fn optional_trimmed_json_string(value: Option<&Value>) -> Option<String> {
+    value.and_then(trimmed_json_string)
+}
+
+fn named_scene_video_reference_label(
+    kind: &str,
+    name: Option<&Value>,
+    fallback_name: Option<&str>,
+) -> String {
+    let display_name = name
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or(fallback_name);
+    match display_name {
+        Some(display_name) => format!("{kind}（{display_name}）"),
+        None => kind.to_string(),
+    }
+}
+
+fn character_asset_reference_kind(item: &Value) -> &'static str {
+    match item.get("type").and_then(Value::as_str) {
+        Some("prop") => "道具参考",
+        Some("other") => "资产参考",
+        _ => "角色参考",
+    }
+}
+
+fn push_scene_video_reference_label(
+    labels: &mut Vec<SceneVideoReferenceLabel>,
+    url: Option<String>,
+    label: String,
+) {
+    let Some(url) = url else {
+        return;
+    };
+    if labels.iter().any(|item| item.url == url) {
+        return;
+    }
+    labels.push(SceneVideoReferenceLabel { url, label });
+}
+
+fn push_unique_scene_video_url(
+    urls: &mut Vec<String>,
+    seen: &mut HashSet<String>,
+    url: Option<String>,
+) {
+    if let Some(url) = url {
+        if seen.insert(url.clone()) {
+            urls.push(url);
+        }
+    }
+}
+
+fn scene_video_reference_label_candidates(config: &Value) -> Vec<SceneVideoReferenceLabel> {
     let references = config.get("references").unwrap_or(&Value::Null);
-    let mut lines = Vec::new();
-    if has_non_empty_string(references.get("environmentImage")) {
-        let name = references
+    let mut labels = Vec::new();
+
+    let environment_image = optional_trimmed_json_string(references.get("environmentImage"))
+        .or_else(|| {
+            optional_trimmed_json_string(
+                references
+                    .get("environmentAsset")
+                    .and_then(|asset| asset.get("image")),
+            )
+        });
+    let environment_label = named_scene_video_reference_label(
+        "环境参考",
+        references
             .get("environmentAsset")
-            .and_then(|value| value.get("name"))
-            .and_then(Value::as_str)
-            .unwrap_or("环境参考图");
-        lines.push(format!("- 环境参考：{name}"));
-    }
-    if has_non_empty_string(references.get("continuityFirstFrame")) {
-        lines.push("- 连续性首帧：使用上一镜头末帧承接动作与构图".to_string());
-    }
+            .and_then(|asset| asset.get("name")),
+        Some("环境参考图"),
+    );
+    push_scene_video_reference_label(&mut labels, environment_image, environment_label);
+
+    push_scene_video_reference_label(
+        &mut labels,
+        optional_trimmed_json_string(references.get("continuityFirstFrame")),
+        "连续性首帧（上一镜头末帧）".to_string(),
+    );
+
+    // Prefer named asset labels over generic character image labels when the
+    // same URL appears in both arrays.
     if let Some(items) = references.get("characterAssets").and_then(Value::as_array) {
-        let names = items
-            .iter()
-            .filter_map(|item| item.get("name").and_then(Value::as_str))
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .take(12)
-            .collect::<Vec<_>>();
-        if !names.is_empty() {
-            lines.push(format!("- 角色/道具参考：{}", names.join("、")));
+        for item in items {
+            let kind = character_asset_reference_kind(item);
+            let label = named_scene_video_reference_label(kind, item.get("name"), None);
+            push_scene_video_reference_label(
+                &mut labels,
+                optional_trimmed_json_string(item.get("image")),
+                label,
+            );
         }
-    } else if has_non_empty_string(references.get("characterImage")) {
-        lines.push("- 角色参考：使用随请求提供的角色参考图".to_string());
     }
-    if let Some(voice_asset) = references.get("narrationVoiceAsset") {
-        if has_non_empty_string(voice_asset.get("audioUrl")) {
-            let name = voice_asset
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("旁白音色");
-            lines.push(format!("- 旁白音色参考：{name}"));
+
+    push_scene_video_reference_label(
+        &mut labels,
+        optional_trimmed_json_string(references.get("characterImage")),
+        "角色参考".to_string(),
+    );
+    if let Some(items) = references.get("characterImages").and_then(Value::as_array) {
+        for item in items {
+            push_scene_video_reference_label(
+                &mut labels,
+                optional_trimmed_json_string(Some(item)),
+                "角色参考".to_string(),
+            );
         }
+    }
+
+    labels
+}
+
+fn scene_video_nested_reference_urls(config: &Value) -> Vec<String> {
+    let references = config.get("references").unwrap_or(&Value::Null);
+    let mut urls = Vec::new();
+    let mut seen = HashSet::<String>::new();
+
+    push_unique_scene_video_url(
+        &mut urls,
+        &mut seen,
+        optional_trimmed_json_string(references.get("environmentImage")).or_else(|| {
+            optional_trimmed_json_string(
+                references
+                    .get("environmentAsset")
+                    .and_then(|asset| asset.get("image")),
+            )
+        }),
+    );
+
+    if let Some(items) = references.get("characterImages").and_then(Value::as_array) {
+        for item in items {
+            push_unique_scene_video_url(
+                &mut urls,
+                &mut seen,
+                optional_trimmed_json_string(Some(item)),
+            );
+        }
+    }
+    push_unique_scene_video_url(
+        &mut urls,
+        &mut seen,
+        optional_trimmed_json_string(references.get("characterImage")),
+    );
+    if let Some(items) = references.get("characterAssets").and_then(Value::as_array) {
+        for item in items {
+            push_unique_scene_video_url(
+                &mut urls,
+                &mut seen,
+                optional_trimmed_json_string(item.get("image")),
+            );
+        }
+    }
+    if urls.is_empty() {
+        push_unique_scene_video_url(
+            &mut urls,
+            &mut seen,
+            optional_trimmed_json_string(references.get("continuityFirstFrame")),
+        );
+    }
+
+    urls
+}
+
+fn scene_video_visual_reference_urls(config: &Value) -> Vec<String> {
+    let reference_images = config
+        .get("referenceImages")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|item| trimmed_json_string(&item))
+        .take(9)
+        .collect::<Vec<_>>();
+    if !reference_images.is_empty() {
+        return reference_images;
+    }
+
+    let image_url = optional_trimmed_json_string(config.get("imageUrl"));
+    let first_frame = optional_trimmed_json_string(config.get("firstFrame"));
+    let last_frame = optional_trimmed_json_string(config.get("lastFrame"));
+    if let (Some(first_frame), Some(last_frame)) = (first_frame.clone(), last_frame) {
+        return vec![first_frame, last_frame];
+    }
+    if let Some(single_image) = image_url.or(first_frame) {
+        return vec![single_image];
+    }
+
+    scene_video_nested_reference_urls(config)
+}
+
+fn scene_video_visual_reference_labels(config: &Value) -> Vec<String> {
+    let candidates = scene_video_reference_label_candidates(config);
+    scene_video_visual_reference_urls(config)
+        .into_iter()
+        .map(|url| {
+            candidates
+                .iter()
+                .find(|item| item.url == url)
+                .map(|item| item.label.clone())
+                .unwrap_or_else(|| "参考图".to_string())
+        })
+        .collect()
+}
+
+fn scene_video_audio_reference_label(config: &Value) -> Option<String> {
+    let audio_url = optional_trimmed_json_string(config.get("audioUrl"))?;
+    let references = config.get("references").unwrap_or(&Value::Null);
+    if let Some(voice_asset) = references.get("narrationVoiceAsset") {
+        let voice_url = optional_trimmed_json_string(voice_asset.get("audioUrl"));
+        if voice_url.as_deref() == Some(audio_url.as_str()) {
+            return Some(named_scene_video_reference_label(
+                "旁白音色参考",
+                voice_asset.get("name"),
+                Some("旁白音色"),
+            ));
+        }
+    }
+    Some("音色参考".to_string())
+}
+
+fn build_scene_video_reference_materials(config: &Value) -> String {
+    let mut lines = Vec::new();
+
+    for (index, label) in scene_video_visual_reference_labels(config)
+        .into_iter()
+        .enumerate()
+    {
+        lines.push(format!("- 图片{}：{}", index + 1, label));
+    }
+
+    if let Some(label) = scene_video_audio_reference_label(config) {
+        lines.push(format!("- 音频1：{label}"));
     }
 
     if lines.is_empty() {
@@ -4799,6 +5002,9 @@ fn build_scene_video_reference_materials(config: &Value) -> String {
 fn build_scene_video_reference_guide(scene: &Value, config: &Value) -> String {
     let references = config.get("references").unwrap_or(&Value::Null);
     let mut lines = Vec::new();
+    if !scene_video_visual_reference_urls(config).is_empty() {
+        lines.push("引用参考素材时必须使用图片1、图片2等编号，禁止使用资产 ID、文件名或 URL。");
+    }
     if has_non_empty_string(references.get("environmentImage")) {
         lines.push("优先锁定环境参考图中的空间结构、材质、光线方向和主要陈设。");
     }
@@ -6877,6 +7083,61 @@ fn normalize_volcengine_aspect_ratio(value: Option<&Value>) -> String {
     }
 }
 
+fn is_seedance_model(model_id: &str) -> bool {
+    model_id.trim().to_ascii_lowercase().contains("seedance")
+}
+
+fn is_seedance_fast_model(model_id: &str) -> bool {
+    let normalized = model_id.trim().to_ascii_lowercase();
+    normalized.contains("seedance") && normalized.contains("fast")
+}
+
+fn normalize_volcengine_resolution(model_id: &str, value: Option<&Value>) -> String {
+    let resolution = match value.and_then(Value::as_str).map(str::trim) {
+        Some("480p") => "480p",
+        Some("1080p") => "1080p",
+        _ => "720p",
+    };
+    if resolution == "1080p" && is_seedance_fast_model(model_id) {
+        "720p".to_string()
+    } else {
+        resolution.to_string()
+    }
+}
+
+fn workflow_seedance_video_resolution(
+    workflow_model_options: &Value,
+    model_id: &str,
+) -> Option<String> {
+    if !is_seedance_model(model_id) {
+        return None;
+    }
+    let configured_quality = workflow_model_options
+        .get("video_generation")
+        .and_then(|value| value.get("seedance"))
+        .and_then(|value| value.get("quality"));
+    Some(normalize_volcengine_resolution(
+        model_id,
+        configured_quality,
+    ))
+}
+
+fn apply_workflow_video_generation_options(
+    config: &mut Value,
+    workflow_model_options: &Value,
+    provider: &str,
+    model_id: &str,
+) {
+    if provider != "volcengine" {
+        return;
+    }
+    if let Some(resolution) = workflow_seedance_video_resolution(workflow_model_options, model_id) {
+        if let Some(object) = config.as_object_mut() {
+            object.insert("resolution".to_string(), json!(resolution));
+        }
+    }
+}
+
 fn normalize_video_url_input(value: Option<&Value>) -> Option<String> {
     value
         .and_then(Value::as_str)
@@ -6889,12 +7150,7 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
     let prompt = json_string(config.get("prompt"), "");
     let aspect_ratio = normalize_volcengine_aspect_ratio(config.get("aspectRatio"));
     let duration = normalize_video_duration(config.get("duration")).clamp(4, 15);
-    let resolution = config
-        .get("resolution")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("720p");
+    let resolution = normalize_volcengine_resolution(model_id, config.get("resolution"));
     let image_url = normalize_video_url_input(config.get("imageUrl"));
     let first_frame = normalize_video_url_input(config.get("firstFrame"));
     let last_frame = normalize_video_url_input(config.get("lastFrame"));
@@ -10037,6 +10293,105 @@ mod tests {
         assert_eq!(
             config.get("audioUrl").and_then(Value::as_str),
             Some("narration-voice-url")
+        );
+    }
+
+    #[test]
+    fn scene_video_reference_materials_use_seedance_image_numbers_in_request_order() {
+        let mut config = json!({
+          "references": {
+            "environmentImage": "env-url",
+            "environmentAsset": {
+              "name": "老街路口",
+              "type": "environment",
+              "image": "env-url"
+            },
+            "characterImages": ["char-url"],
+            "characterAssets": [
+              { "name": "陈泽", "type": "character", "image": "char-url" },
+              { "name": "白色大卡车", "type": "prop", "image": "truck-url" }
+            ],
+            "narrationVoiceAsset": {
+              "name": "旁白音色",
+              "type": "other",
+              "audioUrl": "voice-url"
+            }
+          }
+        });
+        let scene = json!({ "description": "镜头缓缓推进", "narration": "夜色渐深" });
+        let provider = "volcengine";
+        let model_id = "doubao-seedance-2-0-260128";
+        apply_scene_video_reference_inputs(&mut config, &scene, provider, model_id);
+
+        assert_eq!(
+            scene_video_visual_reference_labels(&config),
+            vec![
+                "环境参考（老街路口）".to_string(),
+                "角色参考（陈泽）".to_string(),
+                "道具参考（白色大卡车）".to_string(),
+            ]
+        );
+        let materials = build_scene_video_reference_materials(&config);
+        assert!(materials.contains("- 图片1：环境参考（老街路口）"));
+        assert!(materials.contains("- 图片2：角色参考（陈泽）"));
+        assert!(materials.contains("- 图片3：道具参考（白色大卡车）"));
+        assert!(materials.contains("- 音频1：旁白音色参考（旁白音色）"));
+
+        let request = build_volcengine_video_request(model_id, &config);
+        let image_urls = request
+            .get("content")
+            .and_then(Value::as_array)
+            .expect("volcengine content array")
+            .iter()
+            .filter(|item| item.get("type").and_then(Value::as_str) == Some("image_url"))
+            .filter_map(|item| {
+                item.get("image_url")
+                    .and_then(|value| value.get("url"))
+                    .and_then(Value::as_str)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(image_urls, vec!["env-url", "char-url", "truck-url"]);
+    }
+
+    #[test]
+    fn seedance_workflow_resolution_applies_and_fast_1080p_falls_back() {
+        let workflow_model_options = json!({
+          "video_generation": {
+            "seedance": { "quality": "1080p" }
+          }
+        });
+
+        let mut fast_config = json!({});
+        apply_workflow_video_generation_options(
+            &mut fast_config,
+            &workflow_model_options,
+            "volcengine",
+            "doubao-seedance-2-0-fast-260128",
+        );
+        assert_eq!(
+            fast_config.get("resolution").and_then(Value::as_str),
+            Some("720p")
+        );
+
+        let mut standard_config = json!({});
+        apply_workflow_video_generation_options(
+            &mut standard_config,
+            &workflow_model_options,
+            "volcengine",
+            "doubao-seedance-2-0-260128",
+        );
+        assert_eq!(
+            standard_config.get("resolution").and_then(Value::as_str),
+            Some("1080p")
+        );
+
+        let request = build_volcengine_video_request(
+            "doubao-seedance-2-0-fast-260128",
+            &json!({ "prompt": "生成视频", "resolution": "1080p" }),
+        );
+        assert_eq!(
+            request.get("resolution").and_then(Value::as_str),
+            Some("720p")
         );
     }
 
@@ -13864,21 +14219,38 @@ pub(super) async fn api_asset_video_generate(
     let project_id = body.get("projectId").and_then(trimmed_json_string);
     let aspect_ratio = json_string(body.get("aspectRatio"), "16:9");
     let task_id = format!("video_{}", Uuid::new_v4().simple());
-    let model_id = resolve_workflow_model_id(&state, "video_generation")?;
-    let provider = infer_model_provider_required(&model_id)?;
-    let prompt = {
+    let (model_id, workflow_model_options) = {
         let conn = db_connection(&state)?;
-        build_video_prompt_from_scene(&conn, &scene, &body)?
+        let model_id = resolve_runtime_workflow_model_id(&conn, "video_generation")
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+        let workflow_model_options = get_config_json(&conn, WORKFLOW_MODEL_OPTIONS_KEY)?
+            .unwrap_or_else(default_workflow_model_options);
+        (model_id, workflow_model_options)
     };
+    let provider = infer_model_provider_required(&model_id)?;
     let mut config = json!({
-      "prompt": prompt,
       "duration": scene.get("duration").cloned().unwrap_or_else(|| json!(8)),
       "aspectRatio": aspect_ratio,
       "modelId": model_id,
       "provider": provider,
       "references": body.get("references").cloned().expect("validated references object")
     });
+    if let Some(prompt) = body.get("prompt").and_then(trimmed_json_string) {
+        config["prompt"] = json!(prompt);
+    }
+    if let Some(style) = body.get("style").and_then(trimmed_json_string) {
+        config["style"] = json!(style);
+    }
+    if let Some(negative_prompt) = body.get("negativePrompt").and_then(trimmed_json_string) {
+        config["negativePrompt"] = json!(negative_prompt);
+    }
     apply_scene_video_reference_inputs(&mut config, &scene, &provider, &model_id);
+    apply_workflow_video_generation_options(
+        &mut config,
+        &workflow_model_options,
+        &provider,
+        &model_id,
+    );
     let model_id_for_voice = config
         .get("modelId")
         .and_then(Value::as_str)
@@ -13892,6 +14264,11 @@ pub(super) async fn api_asset_video_generate(
         &provider,
         &model_id_for_voice,
     )?;
+    let prompt = {
+        let conn = db_connection(&state)?;
+        build_video_prompt_from_scene(&conn, &scene, &config)?
+    };
+    config["prompt"] = json!(prompt);
     let provider_name = config
         .get("provider")
         .and_then(Value::as_str)

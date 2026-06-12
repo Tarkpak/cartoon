@@ -162,7 +162,8 @@ function handleSave() {
     const normalized = normalizeSceneDescriptionMentionsForSave({
       text: editForm.value.description || '',
       candidates: buildSceneAssetMentionCandidates(assetReferenceOptions.value),
-      selectedAssetReferenceIds: selectedAssetReferenceIdsInternal.value
+      selectedAssetReferenceIds: selectedAssetReferenceIdsInternal.value,
+      preserveSelectedAssetReferenceIds: true
     })
 
     editForm.value.description = normalized.description
