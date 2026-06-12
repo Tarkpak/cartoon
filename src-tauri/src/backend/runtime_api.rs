@@ -4999,6 +4999,102 @@ fn build_scene_video_reference_materials(config: &Value) -> String {
     }
 }
 
+fn scene_video_reference_label_name(label: &str) -> Option<String> {
+    let start = label.find('（')? + '（'.len_utf8();
+    let end = label[start..].find('）')? + start;
+    let name = label[start..end].trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+fn push_scene_video_reference_alias(aliases: &mut Vec<String>, value: &str) {
+    let alias = value.trim();
+    if alias.chars().count() < 2 {
+        return;
+    }
+    if matches!(alias, "参考图" | "环境参考图" | "上一镜头末帧") {
+        return;
+    }
+    if aliases.iter().any(|item| item == alias) {
+        return;
+    }
+    aliases.push(alias.to_string());
+}
+
+fn scene_video_reference_binding_aliases(label: &str) -> Vec<String> {
+    let Some(name) = scene_video_reference_label_name(label) else {
+        return Vec::new();
+    };
+
+    let mut aliases = Vec::new();
+    if label.starts_with("环境参考") {
+        let location = name
+            .split('/')
+            .next()
+            .unwrap_or(name.as_str())
+            .split("||")
+            .next()
+            .unwrap_or(name.as_str());
+        push_scene_video_reference_alias(&mut aliases, location);
+    } else {
+        push_scene_video_reference_alias(&mut aliases, &name);
+    }
+    aliases
+}
+
+fn scene_video_visual_reference_bindings(config: &Value) -> Vec<(usize, Vec<String>)> {
+    scene_video_visual_reference_labels(config)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, label)| {
+            let aliases = scene_video_reference_binding_aliases(&label);
+            if aliases.is_empty() {
+                None
+            } else {
+                Some((index + 1, aliases))
+            }
+        })
+        .collect()
+}
+
+fn bind_scene_video_reference_name(value: &str, name: &str, image_number: usize) -> String {
+    if name.is_empty() || !value.contains(name) {
+        return value.to_string();
+    }
+
+    let tag = format!("（图片{}）", image_number);
+    let mut result = String::with_capacity(value.len() + tag.len() * 4);
+    let mut rest = value;
+
+    while let Some(index) = rest.find(name) {
+        result.push_str(&rest[..index]);
+        result.push_str(name);
+
+        let after = &rest[index + name.len()..];
+        if !after.starts_with(&tag) && !after.starts_with("（图片") && !after.starts_with("@图片")
+        {
+            result.push_str(&tag);
+        }
+        rest = after;
+    }
+
+    result.push_str(rest);
+    result
+}
+
+fn bind_scene_video_reference_numbers_to_text(value: &str, config: &Value) -> String {
+    let mut output = value.to_string();
+    for (image_number, aliases) in scene_video_visual_reference_bindings(config) {
+        for alias in aliases {
+            output = bind_scene_video_reference_name(&output, &alias, image_number);
+        }
+    }
+    output
+}
+
 fn build_scene_video_reference_guide(scene: &Value, config: &Value) -> String {
     let references = config.get("references").unwrap_or(&Value::Null);
     let mut lines = Vec::new();
@@ -5069,10 +5165,11 @@ fn build_video_prompt_from_scene(
         return Ok(prompt);
     }
     let title = json_string(scene.get("title"), "未命名场景");
-    let description = normalize_timeline_line_punctuation(&json_string(
+    let raw_description = normalize_timeline_line_punctuation(&json_string(
         scene.get("description"),
         "未提供分镜描述",
     ));
+    let description = bind_scene_video_reference_numbers_to_text(&raw_description, config);
     let scene_summary = compact_prompt_text(&description, 220);
     let style = json_string(config.get("style"), "保持项目默认画风");
     let aspect_ratio = json_string(config.get("aspectRatio"), "16:9");
@@ -10351,6 +10448,36 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(image_urls, vec!["env-url", "char-url", "truck-url"]);
+    }
+
+    #[test]
+    fn scene_video_prompt_binds_reference_numbers_to_scene_subjects() {
+        let mut config = json!({
+          "references": {
+            "environmentImage": "env-url",
+            "environmentAsset": {
+              "name": "现代都市·老街路口 / 傍晚",
+              "type": "environment",
+              "image": "env-url"
+            },
+            "characterAssets": [
+              { "name": "陈泽", "type": "character", "image": "char-url" },
+              { "name": "烧烤三轮车", "type": "prop", "image": "cart-url" }
+            ]
+          }
+        });
+        let scene = json!({ "description": "镜头缓缓推进", "narration": "夜色渐深" });
+        let provider = "volcengine";
+        let model_id = "doubao-seedance-2-0-260128";
+        apply_scene_video_reference_inputs(&mut config, &scene, provider, model_id);
+
+        let description = "0-2秒：全景，固定镜头。现代都市·老街路口被夕阳斜射。\n2-5秒：中景，跟随镜头。陈泽骑着烧烤三轮车驶入，陈泽抬头。";
+        let bound = bind_scene_video_reference_numbers_to_text(description, &config);
+
+        assert!(bound.contains("现代都市·老街路口（图片1）"));
+        assert!(bound.contains("陈泽（图片2）骑着烧烤三轮车（图片3）"));
+        assert!(bound.contains("陈泽（图片2）抬头"));
+        assert!(!bound.contains("陈泽（图片2）（图片2）"));
     }
 
     #[test]

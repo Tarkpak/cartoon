@@ -215,6 +215,7 @@ struct ProjectSceneRow {
     dramatic: Option<String>,
     setting: Option<String>,
     characters: Option<String>,
+    props: Option<String>,
     duration: i64,
     narration: Option<String>,
     shot_type: Option<String>,
@@ -2208,6 +2209,7 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ("episode_title", "TEXT"),
         ("episode_index", "INTEGER"),
         ("dramatic", "TEXT"),
+        ("props", "TEXT"),
         ("shot_type", "TEXT"),
         ("camera_movement", "TEXT"),
         ("camera_note", "TEXT"),
@@ -2315,6 +2317,7 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         dramatic TEXT,
         setting TEXT,
         characters TEXT,
+        props TEXT,
         duration INTEGER DEFAULT 8,
         narration TEXT,
         shot_type TEXT,
@@ -3403,7 +3406,7 @@ async fn api_project_get(
         let mut stmt = conn
             .prepare(
                 "SELECT id, order_index, episode_id, episode_title, episode_index, title, description,
-                        dramatic, setting, characters, duration, narration, shot_type, camera_movement,
+                        dramatic, setting, characters, props, duration, narration, shot_type, camera_movement,
                         camera_note, environment_capture_mode, transition_in, transition_out, transition_duration,
                         first_frame, last_frame, video_url, status
                  FROM scenes WHERE script_id = ?1 ORDER BY order_index ASC",
@@ -3417,8 +3420,8 @@ async fn api_project_get(
                         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
                         .unwrap_or(Value::Null)
                 };
-                let video_url: Option<String> = row.get(21)?;
-                let status: Option<String> = row.get(22)?;
+                let video_url: Option<String> = row.get(22)?;
+                let status: Option<String> = row.get(23)?;
                 Ok(json!({
                   "id": row.get::<_, String>(0)?,
                   "orderIndex": row.get::<_, i64>(1)?,
@@ -3430,17 +3433,18 @@ async fn api_project_get(
                   "dramatic": parse(row.get(7)?),
                   "setting": parse(row.get(8)?),
                   "characters": parse(row.get(9)?),
-                  "duration": row.get::<_, Option<i64>>(10)?.unwrap_or(8),
-                  "narration": row.get::<_, Option<String>>(11)?,
-                  "shotType": row.get::<_, Option<String>>(12)?,
-                  "cameraMovement": row.get::<_, Option<String>>(13)?,
-                  "cameraNote": row.get::<_, Option<String>>(14)?,
-                  "environmentCaptureMode": row.get::<_, Option<String>>(15)?,
-                  "transitionIn": row.get::<_, Option<String>>(16)?,
-                  "transitionOut": row.get::<_, Option<String>>(17)?,
-                  "transitionDuration": row.get::<_, Option<f64>>(18)?,
-                  "firstFrame": row.get::<_, Option<String>>(19)?,
-                  "lastFrame": row.get::<_, Option<String>>(20)?,
+                  "props": parse(row.get(10)?),
+                  "duration": row.get::<_, Option<i64>>(11)?.unwrap_or(8),
+                  "narration": row.get::<_, Option<String>>(12)?,
+                  "shotType": row.get::<_, Option<String>>(13)?,
+                  "cameraMovement": row.get::<_, Option<String>>(14)?,
+                  "cameraNote": row.get::<_, Option<String>>(15)?,
+                  "environmentCaptureMode": row.get::<_, Option<String>>(16)?,
+                  "transitionIn": row.get::<_, Option<String>>(17)?,
+                  "transitionOut": row.get::<_, Option<String>>(18)?,
+                  "transitionDuration": row.get::<_, Option<f64>>(19)?,
+                  "firstFrame": row.get::<_, Option<String>>(20)?,
+                  "lastFrame": row.get::<_, Option<String>>(21)?,
                   "videoUrl": video_url,
                   "status": if video_url.as_ref().is_some_and(|value| !value.trim().is_empty()) {
                     "video_ready".to_string()
@@ -4065,6 +4069,17 @@ fn validate_scene_json_fields(scene: &Value, path: &str) -> Result<(), ApiError>
         }
     }
 
+    if let Some(props) = scene.get("props").filter(|value| !value.is_null()) {
+        let items = props
+            .as_array()
+            .ok_or_else(|| validation_error(format!("{path}.props"), "Expected array"))?;
+        for (index, item) in items.iter().enumerate() {
+            let item_path = format!("{path}.props.{index}");
+            required_string(item, "name", &item_path)?;
+            optional_string(item, "description", &item_path)?;
+        }
+    }
+
     Ok(())
 }
 
@@ -4418,6 +4433,7 @@ async fn api_project_put(
                 dramatic: encode("dramatic"),
                 setting: normalize_scene_setting(scene, &path)?,
                 characters: encode("characters"),
+                props: encode("props"),
                 duration,
                 narration: optional_string(scene, "narration", &path)?.map(str::to_string),
                 shot_type,
@@ -4444,13 +4460,13 @@ async fn api_project_put(
             conn.execute(
                 "INSERT INTO scenes (
                   id, script_id, order_index, episode_id, episode_title, episode_index, title, description,
-                  dramatic, setting, characters, duration, narration, shot_type, camera_movement,
+                  dramatic, setting, characters, props, duration, narration, shot_type, camera_movement,
                   camera_note, environment_capture_mode, transition_in, transition_out, transition_duration,
                   first_frame, last_frame, video_url, status, created_at, updated_at
                 ) VALUES (
                   ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
                   ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-                  ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26
+                  ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27
                 )",
                 params![
                     scene_row.id,
@@ -4464,6 +4480,7 @@ async fn api_project_put(
                     scene_row.dramatic,
                     scene_row.setting,
                     scene_row.characters,
+                    scene_row.props,
                     scene_row.duration,
                     scene_row.narration,
                     scene_row.shot_type,

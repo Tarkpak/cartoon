@@ -24,9 +24,6 @@
 【场景详细说明】
 {{sceneDescription}}
 
-【参考图说明】
-{{referenceGuide}}
-
 【参考素材】
 {{referenceMaterials}}
 

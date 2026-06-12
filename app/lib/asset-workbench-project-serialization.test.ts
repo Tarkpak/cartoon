@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildLoadedCharacters,
-  buildSaveCharactersPayload
+  buildLoadedScenes,
+  buildSaveCharactersPayload,
+  buildSaveScenesPayload
 } from './asset-workbench-project-serialization'
 
 describe('asset workbench project serialization', () => {
@@ -39,5 +41,31 @@ describe('asset workbench project serialization', () => {
       parentCharacterId: 'char_compound',
       variantName: '现代形态'
     })
+  })
+
+  it('preserves scene props while loading and saving', () => {
+    const scenes = buildLoadedScenes([
+      {
+        id: 'scene_1',
+        title: '烧烤摊开场',
+        description: '陈泽骑着烧烤三轮车驶入。',
+        duration: 8,
+        props: [
+          {
+            name: '烧烤三轮车',
+            description: '老旧三轮车改装烧烤摊'
+          }
+        ]
+      }
+    ])
+
+    expect(scenes[0]?.props).toEqual([
+      {
+        name: '烧烤三轮车',
+        description: '老旧三轮车改装烧烤摊'
+      }
+    ])
+
+    expect(buildSaveScenesPayload(scenes)[0]?.props).toEqual(scenes[0]?.props)
   })
 })

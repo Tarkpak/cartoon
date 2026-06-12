@@ -200,7 +200,10 @@ watch(open, (value) => {
     <DrawerContent
       class="mt-0 h-screen max-h-screen w-[95vw] max-w-none overflow-hidden rounded-none border-l border-border p-0 sm:w-[820px] data-[vaul-drawer-direction=right]:top-0 data-[vaul-drawer-direction=right]:bottom-auto data-[vaul-drawer-direction=right]:left-auto data-[vaul-drawer-direction=right]:right-0 data-[vaul-drawer-direction=right]:inset-y-0 [&>div:first-child]:hidden"
     >
-      <div class="flex h-full min-h-0 flex-col">
+      <div
+        class="flex h-full min-h-0 flex-col"
+        data-log-detail-drawer-content
+      >
         <DrawerHeader class="border-b px-5 py-4 pr-12 text-left">
           <DrawerTitle>日志详情</DrawerTitle>
           <DrawerDescription v-if="props.activeLog">
@@ -629,3 +632,11 @@ watch(open, (value) => {
     </DrawerContent>
   </Drawer>
 </template>
+
+<style scoped>
+:deep([data-log-detail-drawer-content]),
+:deep([data-log-detail-drawer-content] *) {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+</style>

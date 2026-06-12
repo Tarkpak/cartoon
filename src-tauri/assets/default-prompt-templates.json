@@ -417,11 +417,6 @@
         "example": "- 输入模式：single_image\n- 参考策略：多参考图模式（环境+角色）\n- 主参考图：环境（雨夜街头）"
       },
       {
-        "name": "{{referenceGuide}}",
-        "description": "参考图策略说明",
-        "example": "多参考图模式（环境+角色）"
-      },
-      {
         "name": "{{duration}}",
         "description": "目标时长（秒）",
         "example": "8"

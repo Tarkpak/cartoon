@@ -29,6 +29,7 @@ interface LoadedProjectScene {
   dramatic?: SceneDramatic | null
   setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string } | null
   characters?: Array<{ name: string, appearance?: string, emotion?: string }>
+  props?: Array<{ name: string, description?: string }> | null
   narration?: string | null
   duration: number
   firstFrame?: string | null
@@ -76,6 +77,7 @@ export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
     description: scene.description,
     dramatic: scene.dramatic || undefined,
     characters: scene.characters || [],
+    props: scene.props || [],
     narration: scene.narration || undefined,
     duration: scene.duration || 8,
     setting: scene.setting
@@ -171,6 +173,7 @@ export function buildSaveScenesPayload(scenes: SceneData[]) {
         }
       : undefined,
     characters: scene.characters,
+    props: scene.props || [],
     narration: scene.narration,
     duration: scene.duration,
     shotType: scene.shotType,
