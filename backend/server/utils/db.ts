@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { Database } from 'bun:sqlite'
+import { manualProviderSeedAvailableModels } from './model-provider-models'
 
 let db: Database | null = null
 
@@ -101,6 +102,31 @@ function initSchema(conn: Database) {
       encrypted_access_key TEXT,
       encrypted_secret_key TEXT,
       encrypted_security_token TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS model_provider_models (
+      provider_id TEXT PRIMARY KEY REFERENCES model_providers(id) ON DELETE CASCADE,
+      models_json TEXT NOT NULL DEFAULT '[]',
+      available_models_json TEXT NOT NULL DEFAULT '[]',
+      synced_at TEXT,
+      sync_error TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS tos_storage_config (
+      id TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      access_key_id TEXT NOT NULL DEFAULT '',
+      encrypted_secret_key TEXT NOT NULL DEFAULT '',
+      encrypted_security_token TEXT NOT NULL DEFAULT '',
+      region TEXT NOT NULL DEFAULT '',
+      endpoint TEXT NOT NULL DEFAULT '',
+      bucket TEXT NOT NULL DEFAULT '',
+      key_prefix TEXT NOT NULL DEFAULT '',
+      public_base_url TEXT NOT NULL DEFAULT '',
+      is_custom_domain INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
 
@@ -244,6 +270,8 @@ function initSchema(conn: Database) {
 
   ensureDefaultSettings(conn)
   ensureDefaultProviders(conn)
+  ensureDefaultProviderModels(conn)
+  ensureDefaultTosStorageConfig(conn)
 }
 
 function ensureDefaultSettings(conn: Database) {
@@ -267,10 +295,10 @@ function ensureDefaultSettings(conn: Database) {
 
 function ensureDefaultProviders(conn: Database) {
   const providers = [
-    ['openai', 'OpenAI', 'https://api.openai.com/v1'],
     ['gemini', 'Gemini', 'https://generativelanguage.googleapis.com/v1beta'],
-    ['qwen', '通义千问', 'https://dashscope.aliyuncs.com/api/v1'],
+    ['qwen', '通义千问', 'https://dashscope.aliyuncs.com/compatible-mode/v1'],
     ['volcengine', '火山方舟', 'https://ark.cn-beijing.volces.com/api/v3'],
+    ['deepseek', 'DeepSeek', 'https://api.deepseek.com'],
     ['kling', '可灵', 'https://api-beijing.klingai.com'],
     ['custom_openai', '自定义 OpenAI 兼容', '']
   ]
@@ -291,6 +319,65 @@ function ensureDefaultProviders(conn: Database) {
     insertProvider.run(id, providerKey, displayName, baseUrl, timestamp, timestamp)
     insertCreds.run(id, timestamp)
   }
+
+  conn.prepare(`
+    UPDATE model_providers
+    SET base_url = ?, updated_at = ?
+    WHERE provider_key = 'qwen' AND base_url = ?
+  `).run(
+    'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    timestamp,
+    'https://dashscope.aliyuncs.com/api/v1'
+  )
+}
+
+function ensureDefaultProviderModels(conn: Database) {
+  const timestamp = nowIso()
+  const providers = conn
+    .prepare('SELECT id, provider_key FROM model_providers')
+    .all() as Array<{ id: string, provider_key: string }>
+  const resetMigrationDone = Boolean(conn
+    .prepare("SELECT value FROM app_settings WHERE key = 'model_provider_default_selection_reset_v1' LIMIT 1")
+    .get())
+  const insertModels = conn.prepare(`
+    INSERT OR IGNORE INTO model_provider_models
+      (provider_id, models_json, available_models_json, synced_at, sync_error, updated_at)
+    VALUES (?, ?, ?, NULL, NULL, ?)
+  `)
+  const resetDefaultSelectedModels = conn.prepare(`
+    UPDATE model_provider_models
+    SET models_json = '[]', updated_at = ?
+    WHERE provider_id = ?
+      AND models_json = ?
+      AND available_models_json = ?
+      AND synced_at IS NULL
+      AND sync_error IS NULL
+  `)
+
+  for (const provider of providers) {
+    const models = manualProviderSeedAvailableModels(provider.provider_key)
+    const modelsJson = JSON.stringify(models)
+    insertModels.run(provider.id, '[]', modelsJson, timestamp)
+    if (!resetMigrationDone) {
+      resetDefaultSelectedModels.run(timestamp, provider.id, modelsJson, modelsJson)
+    }
+  }
+
+  if (!resetMigrationDone) {
+    conn.prepare(`
+      INSERT INTO app_settings (key, value, updated_at)
+      VALUES ('model_provider_default_selection_reset_v1', 'true', ?)
+    `).run(timestamp)
+  }
+}
+
+function ensureDefaultTosStorageConfig(conn: Database) {
+  const timestamp = nowIso()
+  conn.prepare(`
+    INSERT OR IGNORE INTO tos_storage_config
+      (id, enabled, access_key_id, encrypted_secret_key, encrypted_security_token, region, endpoint, bucket, key_prefix, public_base_url, is_custom_domain, created_at, updated_at)
+    VALUES ('default', 0, '', '', '', '', '', '', '', '', 0, ?, ?)
+  `).run(timestamp, timestamp)
 }
 
 export function getSetting(key: string, fallback = '') {

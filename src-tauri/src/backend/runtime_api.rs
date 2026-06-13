@@ -16291,6 +16291,7 @@ struct TosStorageConfig {
     key_prefix: Option<String>,
     public_base_url: Option<String>,
     is_custom_domain: bool,
+    restrict_to_key_prefix: bool,
     proxy_host: Option<String>,
     proxy_port: Option<isize>,
 }
@@ -16314,6 +16315,32 @@ fn normalize_object_path(value: &str) -> String {
         .filter(|segment| !segment.trim().is_empty())
         .collect::<Vec<_>>()
         .join("/")
+}
+
+fn join_object_path(left: &str, right: &str) -> String {
+    [left, right]
+        .into_iter()
+        .map(normalize_object_path)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn strip_object_scope_prefix(scope_prefix: Option<&str>, value: &str) -> String {
+    let normalized = normalize_object_path(value);
+    let Some(scope_prefix) = scope_prefix
+        .map(normalize_object_path)
+        .filter(|value| !value.is_empty())
+    else {
+        return normalized;
+    };
+    if normalized == scope_prefix {
+        return String::new();
+    }
+    normalized
+        .strip_prefix(&format!("{scope_prefix}/"))
+        .unwrap_or(&normalized)
+        .to_string()
 }
 
 fn normalize_base_url(value: &str) -> Option<String> {
@@ -16345,11 +16372,15 @@ fn normalize_endpoint(raw: &str) -> (String, String) {
 }
 
 fn load_tos_config() -> TosStorageConfig {
-    let config = config_connection()
-        .and_then(|conn| {
-            get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)
-                .ok()
-                .flatten()
+    let cloud_config = get_cloud_runtime_tos_config();
+    let use_cloud_scope = cloud_config.is_some();
+    let config = cloud_config
+        .or_else(|| {
+            config_connection().and_then(|conn| {
+                get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)
+                    .ok()
+                    .flatten()
+            })
         })
         .unwrap_or_else(default_tos_config);
 
@@ -16365,14 +16396,8 @@ fn load_tos_config() -> TosStorageConfig {
     };
     let region = tos_config_string(&config, "region");
     let bucket = tos_config_string(&config, "bucket");
-    let key_prefix = {
-        let prefix = normalize_object_path(&tos_config_string(&config, "keyPrefix"));
-        if prefix.is_empty() {
-            None
-        } else {
-            Some(prefix)
-        }
-    };
+    let (key_prefix, restrict_to_key_prefix) =
+        build_scoped_tos_key_prefix(&tos_config_string(&config, "keyPrefix"), use_cloud_scope);
     let public_base_url = normalize_base_url(&tos_config_string(&config, "publicBaseUrl"));
     let is_custom_domain = config
         .get("isCustomDomain")
@@ -16402,6 +16427,7 @@ fn load_tos_config() -> TosStorageConfig {
         key_prefix,
         public_base_url,
         is_custom_domain,
+        restrict_to_key_prefix,
         proxy_host: proxy.as_ref().map(|value| value.host.clone()),
         proxy_port: proxy.as_ref().map(|value| value.port),
     }
@@ -16452,15 +16478,27 @@ pub(super) async fn api_tos_files(
     if !config.enabled {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
-            "TOS 未启用或配置不完整（请在设置 → TOS 云存储中填写 Access Key / Secret Key / Region / Endpoint / Bucket 并启用）",
+            "TOS 未启用或配置不完整（请在后台系统设置 → 云存储中填写 Access Key / Secret Key / Region / Endpoint / Bucket 并启用）",
         ));
     }
 
-    let query_prefix = query
+    let virtual_query_prefix = query
         .get("prefix")
         .map(|value| normalize_object_path(value))
         .filter(|value| !value.is_empty());
-    let base_prefix = query_prefix.or_else(|| config.key_prefix.clone());
+    if config.restrict_to_key_prefix && config.key_prefix.is_none() {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "当前用户没有可访问的云端素材目录",
+        ));
+    }
+    let object_scope_prefix = config.key_prefix.clone();
+    let base_prefix = match (&object_scope_prefix, virtual_query_prefix.as_deref()) {
+        (Some(scope_prefix), Some(prefix)) => Some(join_object_path(scope_prefix, prefix)),
+        (Some(scope_prefix), None) => Some(scope_prefix.clone()),
+        (None, Some(prefix)) => Some(prefix.to_string()),
+        (None, None) => None,
+    };
     let delimiter = query
         .get("delimiter")
         .map(|value| value.trim().to_string())
@@ -16503,6 +16541,7 @@ pub(super) async fn api_tos_files(
     let query_delimiter = delimiter.clone();
     let query_continuation_token = continuation_token.clone();
     let query_list_prefix = list_prefix.clone();
+    let query_scope_prefix = object_scope_prefix.clone();
     let listing = tokio::task::spawn_blocking(move || -> Result<Value, String> {
         let endpoint = format!(
             "{}://{}",
@@ -16579,8 +16618,9 @@ pub(super) async fn api_tos_files(
                     .as_ref()
                     .map(|value| value.as_str().to_string())
                     .unwrap_or_default();
+                let display_key = strip_object_scope_prefix(query_scope_prefix.as_deref(), item.key());
                 files.push(json!({
-                  "key": item.key(),
+                  "key": display_key,
                   "size": item.size(),
                   "lastModified": item.last_modified().map(|value| value.to_rfc3339()).unwrap_or_default(),
                   "storageClass": storage_class,
@@ -16589,7 +16629,7 @@ pub(super) async fn api_tos_files(
                 }));
             }
             for item in output.common_prefixes() {
-                let prefix = item.prefix().to_string();
+                let prefix = strip_object_scope_prefix(query_scope_prefix.as_deref(), item.prefix());
                 if !common_prefixes.contains(&prefix) {
                     common_prefixes.push(prefix);
                 }
@@ -16631,7 +16671,7 @@ pub(super) async fn api_tos_files(
 
         Ok(json!({
           "bucket": output_bucket,
-          "prefix": output_prefix,
+          "prefix": strip_object_scope_prefix(query_scope_prefix.as_deref(), &output_prefix),
           "delimiter": output_delimiter,
           "maxKeys": output_max_keys,
           "isTruncated": is_truncated,

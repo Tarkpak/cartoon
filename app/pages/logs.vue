@@ -17,7 +17,7 @@ function getSingleQueryValue(value: unknown): string | undefined {
 
 function normalizeTab(value: unknown): LogsTab {
   const raw = getSingleQueryValue(value)
-  return raw === 'model' ? 'model' : 'system'
+  return raw === 'system' ? 'system' : 'model'
 }
 
 const activeTab = computed<LogsTab>(() => normalizeTab(route.query.tab))

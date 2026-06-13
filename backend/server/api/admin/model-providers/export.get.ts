@@ -3,6 +3,7 @@ import { getDb, nowIso } from '../../../utils/db'
 import { requireAdmin } from '../../../utils/auth'
 import { decryptText } from '../../../utils/crypto'
 import { writeAudit } from '../../../utils/audit'
+import { resolveProviderModelState } from '../../../utils/model-provider-models'
 
 const EXPORT_TYPE = 'playlet.model_providers'
 const EXPORT_VERSION = 1
@@ -15,6 +16,10 @@ interface ProviderExportRow {
   encrypted_api_key: string | null
   encrypted_access_key: string | null
   encrypted_secret_key: string | null
+  models_json: string | null
+  available_models_json: string | null
+  synced_at: string | null
+  sync_error: string | null
 }
 
 export default defineEventHandler((event) => {
@@ -23,9 +28,11 @@ export default defineEventHandler((event) => {
   const rows = getDb()
     .prepare(`
       SELECT p.provider_key, p.display_name, p.base_url, p.enabled,
-             c.encrypted_api_key, c.encrypted_access_key, c.encrypted_secret_key
+             c.encrypted_api_key, c.encrypted_access_key, c.encrypted_secret_key,
+             m.models_json, m.available_models_json, m.synced_at, m.sync_error
       FROM model_providers p
       LEFT JOIN provider_credentials c ON c.provider_id = p.id
+      LEFT JOIN model_provider_models m ON m.provider_id = p.id
       ORDER BY p.display_name ASC
     `)
     .all() as ProviderExportRow[]
@@ -43,12 +50,23 @@ export default defineEventHandler((event) => {
         : {
             apiKey: decryptText(row.encrypted_api_key)
           }
+      const modelState = resolveProviderModelState({
+        providerKey: row.provider_key,
+        modelsJson: row.models_json,
+        availableModelsJson: row.available_models_json,
+        syncedAt: row.synced_at,
+        syncError: row.sync_error
+      })
       return {
         providerKey: row.provider_key,
         displayName: row.display_name,
         baseUrl: row.base_url || '',
         enabled: Boolean(row.enabled),
-        credentials
+        credentials,
+        models: modelState.models,
+        availableModels: modelState.availableModels,
+        syncedAt: modelState.syncedAt,
+        syncError: modelState.syncError
       }
     })
   }

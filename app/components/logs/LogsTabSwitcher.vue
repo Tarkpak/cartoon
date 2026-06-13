@@ -17,8 +17,8 @@ const tabs: Array<{
   label: string
   icon: Component
 }> = [
-  { value: 'system', label: '系统日志', icon: Activity },
-  { value: 'model', label: '模型调用', icon: ScrollText }
+  { value: 'model', label: '大模型日志', icon: ScrollText },
+  { value: 'system', label: '系统日志', icon: Activity }
 ]
 </script>
 

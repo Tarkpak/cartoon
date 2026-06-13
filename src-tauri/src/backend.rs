@@ -697,6 +697,31 @@ fn clear_cloud_runtime_credentials() {
     set_cloud_runtime_credentials(json!({}));
 }
 
+fn cloud_runtime_tos_config() -> &'static RwLock<Value> {
+    static TOS_CONFIG: OnceLock<RwLock<Value>> = OnceLock::new();
+    TOS_CONFIG.get_or_init(|| RwLock::new(json!({})))
+}
+
+fn set_cloud_runtime_tos_config(value: Value) {
+    if let Ok(mut guard) = cloud_runtime_tos_config().write() {
+        *guard = value;
+    }
+}
+
+fn get_cloud_runtime_tos_config() -> Option<Value> {
+    let value = cloud_runtime_tos_config().read().ok()?.clone();
+    if value.as_object().is_some_and(|object| !object.is_empty()) {
+        Some(value)
+    } else {
+        None
+    }
+}
+
+fn clear_cloud_runtime_config() {
+    clear_cloud_runtime_credentials();
+    set_cloud_runtime_tos_config(json!({}));
+}
+
 fn build_llm_transport_error_message(error: &reqwest::Error) -> String {
     if error.is_timeout() {
         return format!("模型服务请求超时: {}", error);
@@ -747,12 +772,84 @@ fn cloud_session(conn: &Connection) -> Option<Value> {
 
 fn cloud_token(conn: &Connection) -> Option<String> {
     cloud_session(conn)
-        .and_then(|session| session.get("token").and_then(Value::as_str).map(str::to_string))
+        .and_then(|session| {
+            session
+                .get("token")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .filter(|value| !value.trim().is_empty())
 }
 
 fn cloud_user_public(conn: &Connection) -> Option<Value> {
     cloud_session(conn).and_then(|session| session.get("user").cloned())
+}
+
+fn normalize_cloud_model_policy_provider(provider: &str) -> Option<String> {
+    let provider = provider.trim();
+    if provider.is_empty() {
+        return None;
+    }
+    let normalized = if provider == "openai" {
+        "custom_openai"
+    } else {
+        provider
+    };
+    if is_supported_provider(normalized) {
+        Some(normalized.to_string())
+    } else {
+        None
+    }
+}
+
+fn insert_cloud_model_policy(
+    policy: &mut HashMap<String, Vec<String>>,
+    provider: &str,
+    models: Option<&Value>,
+) {
+    let Some(provider_key) = normalize_cloud_model_policy_provider(provider) else {
+        return;
+    };
+    let entry = policy.entry(provider_key).or_default();
+    let mut seen: HashSet<String> = entry.iter().cloned().collect();
+    for model in json_string_list(models) {
+        if seen.insert(model.clone()) {
+            entry.push(model);
+        }
+    }
+}
+
+fn cloud_allowed_models_by_provider(conn: &Connection) -> Option<HashMap<String, Vec<String>>> {
+    let session = cloud_session(conn)?;
+    let bootstrap = session.get("bootstrap")?;
+    let has_policy = bootstrap.get("providerModels").is_some()
+        || bootstrap.get("allowedModelsByProvider").is_some();
+    if !has_policy {
+        return None;
+    }
+
+    let mut policy = HashMap::new();
+    if let Some(items) = bootstrap.get("providerModels").and_then(Value::as_array) {
+        for item in items {
+            let provider = item
+                .get("providerKey")
+                .or_else(|| item.get("provider"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            insert_cloud_model_policy(&mut policy, provider, item.get("models"));
+        }
+    }
+
+    if let Some(object) = bootstrap
+        .get("allowedModelsByProvider")
+        .and_then(Value::as_object)
+    {
+        for (provider, models) in object {
+            insert_cloud_model_policy(&mut policy, provider, Some(models));
+        }
+    }
+
+    Some(policy)
 }
 
 fn get_or_create_cloud_device_id(conn: &Connection) -> Result<String, ApiError> {
@@ -797,12 +894,16 @@ async fn cloud_request_json(
     let response = request.send().await.map_err(|error| {
         ApiError::new(
             StatusCode::BAD_GATEWAY,
-            format!("连接后台失败: {}", build_llm_transport_error_message(&error)),
+            format!(
+                "连接后台失败: {}",
+                build_llm_transport_error_message(&error)
+            ),
         )
     })?;
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
-    let payload = serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({ "message": text }));
+    let payload =
+        serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({ "message": text }));
     if !status.is_success() {
         let message = payload
             .get("statusMessage")
@@ -851,6 +952,37 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
     Value::Object(output)
 }
 
+fn cloud_tos_storage_public(raw: Option<Value>) -> Value {
+    let Some(config) = raw.filter(Value::is_object) else {
+        return json!({});
+    };
+    let has = |key: &str| {
+        config
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    };
+    let text = |key: &str| {
+        config
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    json!({
+      "enabled": config.get("enabled").and_then(Value::as_bool).unwrap_or(false),
+      "accessKeyId": text("accessKeyId"),
+      "hasSecretKey": has("secretKey"),
+      "hasSecurityToken": has("securityToken"),
+      "region": text("region"),
+      "endpoint": text("endpoint"),
+      "bucket": text("bucket"),
+      "keyPrefix": text("keyPrefix"),
+      "publicBaseUrl": text("publicBaseUrl"),
+      "isCustomDomain": config.get("isCustomDomain").and_then(Value::as_bool).unwrap_or(false)
+    })
+}
+
 fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
     let mut output = serde_json::Map::new();
     let Some(items) = raw.and_then(|value| value.as_array().cloned()) else {
@@ -893,6 +1025,9 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
         };
 
         if target_provider == "kling" {
+            if access_key.is_empty() || secret_key.is_empty() {
+                continue;
+            }
             output.insert(
                 target_provider.to_string(),
                 json!({
@@ -902,6 +1037,9 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
                 }),
             );
         } else {
+            if api_key.is_empty() || (target_provider == "custom_openai" && base_url.is_empty()) {
+                continue;
+            }
             output.insert(
                 target_provider.to_string(),
                 json!({
@@ -1105,6 +1243,66 @@ fn normalize_tos_object_path(value: &str) -> String {
         .join("/")
 }
 
+fn cloud_tos_user_scope_prefix() -> Option<String> {
+    let conn = config_connection()?;
+    let session = cloud_session(&conn)?;
+    let username = session
+        .get("user")
+        .and_then(|user| user.get("account"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let component = username
+        .chars()
+        .filter_map(|ch| {
+            if ch == '/' || ch == '\\' {
+                Some('_')
+            } else if ch.is_control() {
+                None
+            } else {
+                Some(ch)
+            }
+        })
+        .collect::<String>();
+    if component.is_empty() {
+        return None;
+    }
+    Some(format!("users/{}", component))
+}
+
+fn build_scoped_tos_key_prefix(
+    raw_key_prefix: &str,
+    use_cloud_scope: bool,
+) -> (Option<String>, bool) {
+    let base_prefix = normalize_tos_object_path(raw_key_prefix);
+    let mut parts = Vec::new();
+    if !base_prefix.is_empty() {
+        parts.push(base_prefix.clone());
+    }
+
+    let user_scoped = if use_cloud_scope {
+        if let Some(user_prefix) = cloud_tos_user_scope_prefix() {
+            let already_scoped =
+                base_prefix == user_prefix || base_prefix.ends_with(&format!("/{user_prefix}"));
+            if !already_scoped {
+                parts.push(user_prefix);
+            }
+            true
+        } else {
+            return (None, true);
+        }
+    } else {
+        false
+    };
+
+    let prefix = parts.join("/");
+    if prefix.is_empty() {
+        (None, user_scoped)
+    } else {
+        (Some(prefix), user_scoped)
+    }
+}
+
 fn normalize_tos_base_url(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -1211,11 +1409,15 @@ fn resolve_tos_proxy_config() -> Option<TosProxyConfig> {
 }
 
 fn load_backend_tos_config() -> BackendTosStorageConfig {
-    let config = config_connection()
-        .and_then(|conn| {
-            get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)
-                .ok()
-                .flatten()
+    let cloud_config = get_cloud_runtime_tos_config();
+    let use_cloud_scope = cloud_config.is_some();
+    let config = cloud_config
+        .or_else(|| {
+            config_connection().and_then(|conn| {
+                get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)
+                    .ok()
+                    .flatten()
+            })
         })
         .unwrap_or_else(default_tos_config);
 
@@ -1231,14 +1433,8 @@ fn load_backend_tos_config() -> BackendTosStorageConfig {
     };
     let region = tos_config_text(&config, "region");
     let bucket = tos_config_text(&config, "bucket");
-    let key_prefix = {
-        let prefix = normalize_tos_object_path(&tos_config_text(&config, "keyPrefix"));
-        if prefix.is_empty() {
-            None
-        } else {
-            Some(prefix)
-        }
-    };
+    let (key_prefix, has_required_scope) =
+        build_scoped_tos_key_prefix(&tos_config_text(&config, "keyPrefix"), use_cloud_scope);
     let public_base_url = normalize_tos_base_url(&tos_config_text(&config, "publicBaseUrl"));
     let is_custom_domain = config
         .get("isCustomDomain")
@@ -1258,7 +1454,7 @@ fn load_backend_tos_config() -> BackendTosStorageConfig {
         && !endpoint.is_empty();
 
     BackendTosStorageConfig {
-        enabled: enabled_flag && has_required,
+        enabled: enabled_flag && has_required && (!use_cloud_scope || has_required_scope),
         access_key_id,
         access_key_secret,
         security_token,
@@ -1688,7 +1884,7 @@ fn default_provider_credentials() -> Value {
     })
 }
 
-/// TOS 云存储配置，客户端可配，持久化到 system_config。
+/// TOS 云存储配置，本地保留旧配置；登录后台后优先使用后台下发配置。
 fn default_tos_config() -> Value {
     json!({
       "enabled": false,
@@ -1711,6 +1907,7 @@ fn build_available_models(conn: &Connection) -> Result<Value, ApiError> {
     let mut video_models: Vec<Value> = Vec::new();
     let mut voice_models: Vec<Value> = Vec::new();
     let mut seen = HashSet::new();
+    let cloud_model_policy = cloud_allowed_models_by_provider(conn);
 
     for provider_item in provider_summary(conn)? {
         let Some(provider) = provider_item.get("provider").and_then(Value::as_str) else {
@@ -1724,7 +1921,12 @@ fn build_available_models(conn: &Connection) -> Result<Value, ApiError> {
         {
             continue;
         }
-        for model_id in json_string_list(provider_item.get("models")) {
+        let provider_models = if let Some(policy) = cloud_model_policy.as_ref() {
+            policy.get(provider).cloned().unwrap_or_default()
+        } else {
+            json_string_list(provider_item.get("models"))
+        };
+        for model_id in provider_models {
             let key = format!("{}::{}", provider, model_id);
             if !seen.insert(key) {
                 continue;
@@ -6144,7 +6346,10 @@ async fn api_models_workflow_post(
     let model_options = workflow_model_options(&conn)?;
     drop(conn);
     if let Err(error) = cloud_sync_model_preferences(&state).await {
-        eprintln!("[CloudSync] model preferences sync failed: {}", error.message);
+        eprintln!(
+            "[CloudSync] model preferences sync failed: {}",
+            error.message
+        );
     }
     Ok(Json(json!({
       "success": true,
@@ -7778,6 +7983,7 @@ fn cloud_status_payload(conn: &Connection) -> Result<Value, ApiError> {
     let base_url = cloud_base_url(conn).unwrap_or_default();
     let session = cloud_session(conn);
     let raw_cloud_creds = get_cloud_runtime_credentials();
+    let raw_cloud_tos_config = get_cloud_runtime_tos_config();
     Ok(json!({
       "configured": !base_url.is_empty(),
       "baseUrl": base_url,
@@ -7793,19 +7999,18 @@ fn cloud_status_payload(conn: &Connection) -> Result<Value, ApiError> {
         .and_then(|value| value.get("lastBootstrapAt"))
         .cloned()
         .unwrap_or(Value::Null),
-      "credentials": cloud_provider_credentials_public(raw_cloud_creds)
+      "credentials": cloud_provider_credentials_public(raw_cloud_creds),
+      "tosStorage": cloud_tos_storage_public(raw_cloud_tos_config)
     }))
 }
 
 async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value, ApiError> {
     let (base_url, token) = {
         let conn = db_connection(state)?;
-        let base_url = cloud_base_url(&conn).ok_or_else(|| {
-            ApiError::new(StatusCode::UNAUTHORIZED, "请先配置并登录后台")
-        })?;
-        let token = cloud_token(&conn).ok_or_else(|| {
-            ApiError::new(StatusCode::UNAUTHORIZED, "请先登录后台")
-        })?;
+        let base_url = cloud_base_url(&conn)
+            .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "请先配置并登录后台"))?;
+        let token = cloud_token(&conn)
+            .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "请先登录后台"))?;
         (base_url, token)
     };
 
@@ -7825,11 +8030,27 @@ async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value
         None,
     )
     .await?;
+    let tos_storage_config = cloud_request_json(
+        &base_url,
+        reqwest::Method::GET,
+        "/api/client/tos-storage-config",
+        Some(&token),
+        None,
+    )
+    .await?;
 
-    let credentials_data = credentials.get("data").cloned().unwrap_or_else(|| json!([]));
+    let credentials_data = credentials
+        .get("data")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     let local_credentials = cloud_provider_credentials_to_local(Some(credentials_data.clone()));
+    let tos_storage_data = tos_storage_config
+        .get("data")
+        .cloned()
+        .unwrap_or_else(default_tos_config);
     let conn = db_connection(state)?;
     set_cloud_runtime_credentials(local_credentials);
+    set_cloud_runtime_tos_config(tos_storage_data.clone());
 
     let mut session = cloud_session(&conn).unwrap_or_else(|| json!({}));
     if let Some(obj) = session.as_object_mut() {
@@ -7845,6 +8066,7 @@ async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value
             "bootstrap".to_string(),
             bootstrap.get("data").cloned().unwrap_or(Value::Null),
         );
+        obj.insert("tosStorageConfig".to_string(), tos_storage_data);
     }
     set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &session)?;
     cloud_status_payload(&conn)
@@ -7893,7 +8115,10 @@ fn cloud_spawn_model_call_log_upload(body: Value) {
         )
         .await
         {
-            eprintln!("[CloudSync] model call log upload failed: {}", error.message);
+            eprintln!(
+                "[CloudSync] model call log upload failed: {}",
+                error.message
+            );
         }
     });
 }
@@ -7982,7 +8207,10 @@ async fn cloud_sync_model_preferences(state: &BackendState) -> Result<(), ApiErr
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    let options = data.get("modelOptions").cloned().unwrap_or_else(|| json!({}));
+    let options = data
+        .get("modelOptions")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let preferences = selections
         .into_iter()
         .filter_map(|(step, model_id)| {
@@ -8020,9 +8248,13 @@ async fn api_cloud_config_put(
 ) -> Result<Json<Value>, ApiError> {
     let base_url = normalize_cloud_base_url(&body.base_url)?;
     let conn = db_connection(&state)?;
-    set_config_json(&conn, CLOUD_ADMIN_CONFIG_KEY, &json!({ "baseUrl": base_url }))?;
+    set_config_json(
+        &conn,
+        CLOUD_ADMIN_CONFIG_KEY,
+        &json!({ "baseUrl": base_url }),
+    )?;
     set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &json!({}))?;
-    clear_cloud_runtime_credentials();
+    clear_cloud_runtime_config();
     Ok(Json(json!({
       "success": true,
       "data": cloud_status_payload(&conn)?
@@ -8057,7 +8289,10 @@ async fn api_cloud_login(
         Some(login_body),
     )
     .await?;
-    let data = login_response.get("data").cloned().unwrap_or_else(|| json!({}));
+    let data = login_response
+        .get("data")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let token = data
         .get("token")
         .and_then(Value::as_str)
@@ -8067,7 +8302,11 @@ async fn api_cloud_login(
         .to_string();
     {
         let conn = db_connection(&state)?;
-        set_config_json(&conn, CLOUD_ADMIN_CONFIG_KEY, &json!({ "baseUrl": base_url }))?;
+        set_config_json(
+            &conn,
+            CLOUD_ADMIN_CONFIG_KEY,
+            &json!({ "baseUrl": base_url }),
+        )?;
         set_config_json(
             &conn,
             CLOUD_ADMIN_SESSION_KEY,
@@ -8104,7 +8343,7 @@ async fn api_cloud_logout(State(state): State<BackendState>) -> Result<Json<Valu
     }
     let conn = db_connection(&state)?;
     set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &json!({}))?;
-    clear_cloud_runtime_credentials();
+    clear_cloud_runtime_config();
     Ok(Json(json!({
       "success": true,
       "data": cloud_status_payload(&conn)?
@@ -8239,10 +8478,21 @@ fn tos_config_public(config: &Value) -> Value {
 
 async fn api_tos_config_get(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
-    let config = get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)?.unwrap_or_else(default_tos_config);
+    let cloud_config = get_cloud_runtime_tos_config();
+    let config = cloud_config
+        .or_else(|| {
+            get_config_json(&conn, TOS_STORAGE_CONFIG_KEY)
+                .ok()
+                .flatten()
+        })
+        .unwrap_or_else(default_tos_config);
+    let mut public_config = config.clone();
+    if let Some(obj) = public_config.as_object_mut() {
+        obj.insert("keyPrefix".to_string(), json!(""));
+    }
     Ok(Json(json!({
       "success": true,
-      "data": tos_config_public(&config)
+      "data": tos_config_public(&public_config)
     })))
 }
 

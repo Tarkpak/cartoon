@@ -1,28 +1,26 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import SettingsGeneralSection from '@/components/settings/SettingsGeneralSection.vue'
-import SettingsModelProvidersSection from '@/components/settings/SettingsModelProvidersSection.vue'
 import SettingsWorkflowModelsSection from '@/components/settings/SettingsWorkflowModelsSection.vue'
 import SettingsModelTestSection from '@/components/settings/SettingsModelTestSection.vue'
-import SettingsTosStorageSection from '@/components/settings/SettingsTosStorageSection.vue'
 import SettingsPromptSection from '@/components/settings/SettingsPromptSection.vue'
 import SettingsStyleSection from '@/components/settings/SettingsStyleSection.vue'
 
-type MenuSection = 'general' | 'providers' | 'workflow' | 'test' | 'storage' | 'prompts' | 'styles'
+type MenuSection = 'general' | 'workflow' | 'test' | 'prompts' | 'styles'
 
 definePageMeta({ layout: 'default' })
 
 const route = useRoute()
 const SETTINGS_MENU_STORAGE_KEY = 'playlet:settings-menu-state'
 const DEFAULT_SETTINGS_SECTION: MenuSection = 'general'
-const SETTINGS_SECTIONS: MenuSection[] = ['general', 'providers', 'workflow', 'test', 'prompts', 'styles', 'storage']
+const SETTINGS_SECTIONS: MenuSection[] = ['general', 'workflow', 'test', 'prompts', 'styles']
 
 // 旧版菜单状态（section=models + sub=...）到扁平 section 的映射
 const LEGACY_SUB_TO_SECTION: Record<string, MenuSection> = {
-  providers: 'providers',
+  providers: 'general',
   workflow: 'workflow',
   test: 'test',
-  storage: 'storage'
+  storage: 'general'
 }
 
 const activeSection = ref<MenuSection>(DEFAULT_SETTINGS_SECTION)
@@ -41,7 +39,7 @@ function normalizeMenuSection(rawSection: unknown, rawSub?: unknown): MenuSectio
     // 兼容旧版：section=models 时由 sub 决定具体分区
     if (rawSection === 'models') {
       const sub = typeof rawSub === 'string' ? rawSub : ''
-      return LEGACY_SUB_TO_SECTION[sub] || 'providers'
+      return LEGACY_SUB_TO_SECTION[sub] || DEFAULT_SETTINGS_SECTION
     }
   }
   return DEFAULT_SETTINGS_SECTION
@@ -88,13 +86,11 @@ async function restoreMenuStateFromBrowser() {
 const currentSectionComponent = computed(() => {
   switch (activeSection.value) {
     case 'general': return SettingsGeneralSection
-    case 'providers': return SettingsModelProvidersSection
     case 'workflow': return SettingsWorkflowModelsSection
     case 'test': return SettingsModelTestSection
-    case 'storage': return SettingsTosStorageSection
     case 'prompts': return SettingsPromptSection
     case 'styles': return SettingsStyleSection
-    default: return SettingsModelProvidersSection
+    default: return SettingsGeneralSection
   }
 })
 

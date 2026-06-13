@@ -112,7 +112,7 @@ async function exportConfig() {
             配置迁移
           </h3>
           <p class="mt-1 text-xs text-muted-foreground">
-            一次导入或导出模型供应商、模型配置与云存储配置，导出文件内容已加密。
+            一次导入或导出模型供应商与模型配置，导出文件内容已加密。
           </p>
         </div>
       </div>

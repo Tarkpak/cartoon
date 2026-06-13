@@ -5,8 +5,6 @@ import {
   File,
   Folder,
   Loader2,
-  RefreshCw,
-  Search,
   Video
 } from 'lucide-vue-next'
 
@@ -50,8 +48,6 @@ type FetchErrorWithData = Error & {
 
 const loading = ref(false)
 const errorMessage = ref('')
-const tosKeyPrefix = ref('')
-const prefixInput = ref('images')
 const activePrefix = ref('images')
 const pageSize = ref('15')
 const pageSizeOptions = [15, 20, 50, 100, 200]
@@ -71,18 +67,13 @@ function normalizePrefixValue(value: string): string {
 }
 
 function buildTosCategoryPrefix(category: string): string {
-  return [tosKeyPrefix.value, category]
-    .map(normalizePrefixValue)
-    .filter(Boolean)
-    .join('/')
+  return normalizePrefixValue(category)
 }
 
 const assetTabs = computed(() => [
   { id: 'image', label: '图片', prefix: buildTosCategoryPrefix('images') },
   { id: 'video', label: '视频', prefix: buildTosCategoryPrefix('videos') }
 ] as const)
-
-const prefixPlaceholder = computed(() => `例如：${buildTosCategoryPrefix('images')}`)
 
 const pageSizeNumber = computed(() => {
   const parsed = Number.parseInt(pageSize.value, 10)
@@ -228,10 +219,8 @@ async function loadTosConfig() {
   const response = await $fetch<TosConfigResponse>('/api/tos/config')
   if (!response.success) return
 
-  tosKeyPrefix.value = response.data.keyPrefix || ''
   const imagePrefix = buildTosCategoryPrefix('images')
   activePrefix.value = imagePrefix
-  prefixInput.value = imagePrefix
 }
 
 async function initializePage() {
@@ -250,16 +239,8 @@ function resetPagination() {
   currentPage.value = 1
 }
 
-function applyPrefix() {
-  activePrefix.value = normalizePrefixValue(prefixInput.value)
-  prefixInput.value = activePrefix.value
-  resetPagination()
-  void loadFiles({ reset: true })
-}
-
 function openPrefix(prefix: string) {
   activePrefix.value = normalizePrefixValue(prefix)
-  prefixInput.value = activePrefix.value
   resetPagination()
   void loadFiles({ reset: true })
 }
@@ -269,7 +250,6 @@ function switchAssetTab(prefix: string) {
   if (!normalizedPrefix) return
   if (activePrefix.value === normalizedPrefix) return
   activePrefix.value = normalizedPrefix
-  prefixInput.value = normalizedPrefix
   resetPagination()
   void loadFiles({ reset: true })
 }
@@ -317,41 +297,6 @@ onMounted(() => {
 <template>
   <div class="h-full overflow-y-auto bg-background">
     <div class="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
-      <div class="grid gap-3 rounded-lg border bg-card p-4 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-end">
-        <div class="space-y-1.5">
-          <label class="text-xs text-muted-foreground">对象前缀</label>
-          <Input
-            v-model="prefixInput"
-            :placeholder="prefixPlaceholder"
-            @keydown.enter="applyPrefix"
-          />
-        </div>
-        <Button
-          class="gap-2"
-          :disabled="loading"
-          @click="applyPrefix"
-        >
-          <Search class="h-4 w-4" />
-          查询
-        </Button>
-        <Button
-          variant="outline"
-          class="gap-2"
-          :disabled="loading"
-          @click="loadFiles()"
-        >
-          <Loader2
-            v-if="loading"
-            class="h-4 w-4 animate-spin"
-          />
-          <RefreshCw
-            v-else
-            class="h-4 w-4"
-          />
-          刷新
-        </Button>
-      </div>
-
       <div
         v-if="errorMessage"
         class="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
@@ -373,7 +318,7 @@ onMounted(() => {
         </div>
         <div class="rounded-lg border bg-card p-4">
           <p class="text-xs text-muted-foreground">
-            当前前缀
+            当前目录
           </p>
           <p class="mt-1 truncate text-sm font-medium">
             {{ responseData.prefix || '-' }}
@@ -428,7 +373,7 @@ onMounted(() => {
           v-else-if="responseData && responseData.commonPrefixes.length === 0 && responseData.files.length === 0"
           class="py-16 text-center text-sm text-muted-foreground"
         >
-          当前前缀下没有文件
+          当前目录下没有文件
         </div>
 
         <Table

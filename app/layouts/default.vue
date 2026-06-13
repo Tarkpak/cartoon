@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, Boxes, FlaskConical, CloudCog, ChevronsLeft, ChevronsRight, LogOut, UserCheck } from 'lucide-vue-next'
+import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 
 const route = useRoute()
@@ -25,10 +25,10 @@ const navigation = [
   { name: '设置', path: '/settings', icon: Settings }
 ]
 
-type SettingsSection = 'general' | 'providers' | 'workflow' | 'test' | 'storage' | 'prompts' | 'styles'
+type SettingsSection = 'general' | 'workflow' | 'test' | 'prompts' | 'styles'
 
 const DEFAULT_SETTINGS_SECTION: SettingsSection = 'general'
-const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'providers', 'workflow', 'test', 'prompts', 'styles', 'storage']
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'workflow', 'test', 'prompts', 'styles']
 
 const settingsSubNavigation: Array<{
   name: string
@@ -36,12 +36,10 @@ const settingsSubNavigation: Array<{
   icon: unknown
 }> = [
   { name: '通用', section: 'general', icon: SlidersHorizontal },
-  { name: '模型供应商', section: 'providers', icon: Boxes },
   { name: '模型分配', section: 'workflow', icon: Workflow },
   { name: '模型测试', section: 'test', icon: FlaskConical },
   { name: '提示词模板', section: 'prompts', icon: FileText },
-  { name: '画风预设', section: 'styles', icon: Palette },
-  { name: '云存储设置', section: 'storage', icon: CloudCog }
+  { name: '画风预设', section: 'styles', icon: Palette }
 ]
 
 function getSingleQueryValue(value: string | string[] | undefined): string | undefined {
@@ -235,30 +233,29 @@ async function handleCloudLogout() {
 
       <div
         v-if="authenticated"
-        class="px-4 pb-2"
+        class="pb-2"
+        :class="visualSidebarCollapsed ? 'px-2' : 'px-4'"
       >
         <div
-          class="rounded-md border bg-background/60 p-2 text-xs"
-          :class="visualSidebarCollapsed ? 'text-center' : ''"
+          class="flex items-center rounded-md border bg-background/60 p-2 text-xs"
+          :class="visualSidebarCollapsed ? 'justify-center gap-1' : 'justify-center gap-2'"
         >
-          <div class="flex items-center gap-2 text-foreground">
-            <UserCheck class="h-4 w-4 text-primary" />
-            <span
-              v-if="!visualSidebarCollapsed"
-              class="truncate"
-            >{{ currentUser?.displayName || currentUser?.account || '已登录' }}</span>
+          <div
+            class="flex h-7 w-7 items-center justify-center text-foreground"
+            :title="currentUser?.displayName || currentUser?.account || '已登录'"
+          >
+            <UserCheck class="h-4 w-4 shrink-0 text-primary" />
           </div>
           <Button
             type="button"
             variant="ghost"
-            size="sm"
-            class="mt-2 w-full justify-start px-2 text-xs"
-            :class="visualSidebarCollapsed ? 'justify-center' : ''"
+            size="icon"
+            class="h-7 w-7 shrink-0"
             title="退出后台"
+            aria-label="退出后台"
             @click="handleCloudLogout"
           >
             <LogOut class="h-3.5 w-3.5" />
-            <span v-if="!visualSidebarCollapsed" class="ml-1">退出后台</span>
           </Button>
         </div>
       </div>

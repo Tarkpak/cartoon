@@ -1,9 +1,10 @@
 import { createError } from 'h3'
 import { randomUUID } from 'node:crypto'
-import { getDb, nowIso } from '../../../utils/db'
+import { getDb, jsonText, nowIso } from '../../../utils/db'
 import { encryptText } from '../../../utils/crypto'
 import { readJsonBody, requireAdmin } from '../../../utils/auth'
 import { writeAudit } from '../../../utils/audit'
+import { manualProviderSeedAvailableModels, normalizeModelList } from '../../../utils/model-provider-models'
 
 const EXPORT_TYPE = 'playlet.model_providers'
 const EXPORT_VERSION = 1
@@ -21,12 +22,20 @@ interface NormalizedCredentials {
   secretKey: string
 }
 
+interface NormalizedProviderModels {
+  models: string[]
+  availableModels: string[]
+  syncedAt: string | null
+  syncError: string | null
+}
+
 interface NormalizedProvider {
   providerKey: string
   displayName: string
   baseUrl: string
   enabled: boolean
   credentials?: NormalizedCredentials
+  modelConfig?: NormalizedProviderModels
 }
 
 function asRecord(value: unknown) {
@@ -39,6 +48,37 @@ function stringValue(value: unknown, maxLength: number) {
   if (typeof value !== 'string') return ''
   const trimmed = value.trim()
   return trimmed.length > maxLength ? trimmed.slice(0, maxLength) : trimmed
+}
+
+function mergeModelLists(primary: string[], secondary: string[]) {
+  return normalizeModelList([...primary, ...secondary])
+}
+
+function normalizeProviderModels(provider: Record<string, unknown>, providerKey: string): NormalizedProviderModels | undefined {
+  const modelsInput = provider.models ?? provider.selectedModels ?? provider.selected_models
+  const availableInput = provider.availableModels ?? provider.available_models
+  const hasModelConfig = Array.isArray(modelsInput)
+    || Array.isArray(availableInput)
+    || typeof provider.syncedAt === 'string'
+    || typeof provider.synced_at === 'string'
+    || typeof provider.syncError === 'string'
+    || typeof provider.sync_error === 'string'
+  if (!hasModelConfig) return undefined
+
+  const models = normalizeModelList(modelsInput)
+  const seedModels = manualProviderSeedAvailableModels(providerKey)
+  const importedAvailableModels = normalizeModelList(availableInput)
+  const availableModels = mergeModelLists(
+    importedAvailableModels.length > 0 ? importedAvailableModels : seedModels,
+    models
+  )
+
+  return {
+    models,
+    availableModels,
+    syncedAt: stringValue(provider.syncedAt ?? provider.synced_at, 128) || null,
+    syncError: stringValue(provider.syncError ?? provider.sync_error, 1024) || null
+  }
 }
 
 function normalizeProvider(value: unknown, index: number): NormalizedProvider {
@@ -68,7 +108,8 @@ function normalizeProvider(value: unknown, index: number): NormalizedProvider {
           accessKey: isKling ? stringValue(credentials.accessKey, 4096) : '',
           secretKey: isKling ? stringValue(credentials.secretKey, 4096) : ''
         }
-      : undefined
+      : undefined,
+    modelConfig: normalizeProviderModels(provider, providerKey)
   }
 }
 
@@ -110,11 +151,23 @@ export default defineEventHandler(async (event) => {
       encrypted_security_token = excluded.encrypted_security_token,
       updated_at = excluded.updated_at
   `)
+  const upsertModels = db.prepare(`
+    INSERT INTO model_provider_models
+      (provider_id, models_json, available_models_json, synced_at, sync_error, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(provider_id) DO UPDATE SET
+      models_json = excluded.models_json,
+      available_models_json = excluded.available_models_json,
+      synced_at = excluded.synced_at,
+      sync_error = excluded.sync_error,
+      updated_at = excluded.updated_at
+  `)
 
   const result = db.transaction((items: NormalizedProvider[]) => {
     let created = 0
     let updated = 0
     let credentialsUpdated = 0
+    let modelSelectionsUpdated = 0
 
     for (const provider of items) {
       const existing = selectProvider.get(provider.providerKey) as { id: string } | undefined
@@ -152,12 +205,25 @@ export default defineEventHandler(async (event) => {
         )
         credentialsUpdated += 1
       }
+
+      if (provider.modelConfig) {
+        upsertModels.run(
+          providerId,
+          jsonText(provider.modelConfig.models),
+          jsonText(provider.modelConfig.availableModels),
+          provider.modelConfig.syncedAt,
+          provider.modelConfig.syncError,
+          timestamp
+        )
+        modelSelectionsUpdated += 1
+      }
     }
 
     return {
       created,
       updated,
-      credentialsUpdated
+      credentialsUpdated,
+      modelSelectionsUpdated
     }
   })(providers)
 

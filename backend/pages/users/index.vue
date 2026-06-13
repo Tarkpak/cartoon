@@ -7,7 +7,12 @@
 
       <n-space vertical class="table-section">
         <n-input v-model:value="keyword" placeholder="搜索账号、名称、邮箱或手机号" clearable @keyup.enter="fetchUsers" />
-        <n-data-table :columns="columns" :data="rows" :loading="pending" />
+        <n-data-table
+          :columns="columns"
+          :data="rows"
+          :loading="pending"
+          :row-props="rowProps"
+        />
       </n-space>
 
       <n-modal v-model:show="showCreate" preset="card" title="新建用户" style="width: 480px">
@@ -83,26 +88,40 @@ const columns = [
       return h(NTag, { size: 'small', type: row.status === 'active' ? 'success' : 'error' }, { default: () => row.status })
     }
   },
-  { title: '最近登录', key: 'last_login_at' },
+  {
+    title: '最近登录',
+    key: 'last_login_at',
+    width: 180,
+    render(row: UserRow) {
+      return formatAdminDateTime(row.last_login_at)
+    }
+  },
   {
     title: '操作',
     key: 'actions',
     render(row: UserRow) {
-      return h('div', { style: 'display:flex;gap:8px' }, [
-        h(NButton, { size: 'small', onClick: () => router.push(`/users/${row.id}`) }, { default: () => '详情' }),
-        h(
-          NButton,
-          {
-            size: 'small',
-            type: row.status === 'active' ? 'error' : 'success',
-            onClick: () => updateStatus(row)
-          },
-          { default: () => row.status === 'active' ? '禁用' : '启用' }
-        )
-      ])
+      return h(
+        NButton,
+        {
+          size: 'small',
+          type: row.status === 'active' ? 'error' : 'success',
+          onClick: (event: MouseEvent) => {
+            event.stopPropagation()
+            void updateStatus(row)
+          }
+        },
+        { default: () => row.status === 'active' ? '禁用' : '启用' }
+      )
     }
   }
 ]
+
+function rowProps(row: UserRow) {
+  return {
+    class: 'users-table-row',
+    onClick: () => router.push(`/users/${row.id}`)
+  }
+}
 
 async function fetchUsers() {
   pending.value = true
@@ -144,3 +163,13 @@ async function updateStatus(row: UserRow) {
 
 onMounted(fetchUsers)
 </script>
+
+<style scoped>
+:deep(.users-table-row) {
+  cursor: pointer;
+}
+
+:deep(.users-table-row:hover td) {
+  background: rgba(24, 160, 88, 0.06);
+}
+</style>
