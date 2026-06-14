@@ -1170,6 +1170,198 @@ fn cloud_tos_storage_public(raw: Option<Value>) -> Value {
     })
 }
 
+fn cloud_value_text(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn cloud_value_text_from<'a>(sources: impl IntoIterator<Item = &'a Value>, key: &str) -> String {
+    for source in sources {
+        let value = cloud_value_text(source, key);
+        if !value.is_empty() {
+            return value;
+        }
+    }
+    String::new()
+}
+
+fn valid_project_status(value: &str) -> &str {
+    if matches!(value, "draft" | "in_progress" | "completed") {
+        value
+    } else {
+        "draft"
+    }
+}
+
+fn valid_project_aspect_ratio(value: &str) -> &str {
+    if matches!(value, "16:9" | "9:16" | "1:1") {
+        value
+    } else {
+        "16:9"
+    }
+}
+
+fn cloud_project_remote_updated_at(project: &Value, snapshot: &Value) -> String {
+    let snapshot_project = snapshot.get("project").unwrap_or(&Value::Null);
+    for value in [
+        cloud_value_text(project, "localUpdatedAt"),
+        cloud_value_text(project, "updatedAt"),
+        cloud_value_text(project, "lastSyncedAt"),
+        cloud_value_text(snapshot_project, "updatedAt"),
+    ] {
+        if !value.is_empty() {
+            return value;
+        }
+    }
+    String::new()
+}
+
+fn local_project_updated_at(conn: &Connection, project_id: &str) -> Result<Option<String>, ApiError> {
+    conn.query_row(
+        "SELECT updated_at FROM projects WHERE id = ?1 LIMIT 1",
+        params![project_id],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+fn local_config_updated_at(conn: &Connection, key: &str) -> Result<Option<String>, ApiError> {
+    conn.query_row(
+        "SELECT updated_at FROM system_config WHERE key = ?1 LIMIT 1",
+        params![key],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+fn should_apply_cloud_update(local_updated_at: Option<String>, remote_updated_at: &str) -> bool {
+    let remote = remote_updated_at.trim();
+    if remote.is_empty() {
+        return local_updated_at.is_none();
+    }
+    local_updated_at
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|local| local < remote)
+        .unwrap_or(true)
+}
+
+fn build_cloud_project_put_body(snapshot: &Value, fallback: &Value) -> Value {
+    let snapshot_project = snapshot.get("project").unwrap_or(&Value::Null);
+    let script = snapshot.get("script").unwrap_or(&Value::Null);
+    let mut body = serde_json::Map::new();
+
+    let name = cloud_value_text_from([snapshot_project, fallback], "name");
+    if !name.is_empty() {
+        body.insert("name".to_string(), json!(name));
+    }
+    let description = cloud_value_text_from([snapshot_project, fallback], "description");
+    body.insert("description".to_string(), json!(description));
+    let status = cloud_value_text_from([snapshot_project, fallback], "status");
+    body.insert("status".to_string(), json!(valid_project_status(&status)));
+
+    for key in [
+        "storyIdea",
+        "novelText",
+        "rawText",
+        "selectedStyleId",
+        "inputMode",
+        "episodePlan",
+        "assetWorkflow",
+    ] {
+        if let Some(value) = script.get(key).filter(|value| !value.is_null()) {
+            body.insert(key.to_string(), value.clone());
+        }
+    }
+    if let Some(value) = script
+        .get("scriptParseMode")
+        .and_then(Value::as_str)
+        .filter(|value| matches!(*value, "premium_drama" | "short_drama"))
+    {
+        body.insert("scriptParseMode".to_string(), json!(value));
+    }
+    if let Some(value) = snapshot.get("scenes").filter(|value| value.is_array()) {
+        body.insert("scenes".to_string(), value.clone());
+    }
+    if let Some(value) = snapshot.get("characters").filter(|value| value.is_array()) {
+        body.insert("characters".to_string(), value.clone());
+    }
+
+    Value::Object(body)
+}
+
+fn upsert_cloud_project_placeholder(
+    state: &BackendState,
+    project_id: &str,
+    project: &Value,
+    snapshot: &Value,
+    remote_updated_at: &str,
+) -> Result<(), ApiError> {
+    let conn = db_connection(state)?;
+    let snapshot_project = snapshot.get("project").unwrap_or(&Value::Null);
+    let now = now_iso();
+    let name = cloud_value_text_from([snapshot_project, project], "name");
+    let description = cloud_value_text_from([snapshot_project, project], "description");
+    let script_parse_mode_raw = cloud_value_text_from([snapshot_project, project], "scriptParseMode");
+    let script_parse_mode = normalize_script_parse_mode(
+        if script_parse_mode_raw.is_empty() {
+            None
+        } else {
+            Some(script_parse_mode_raw.as_str())
+        },
+    );
+    let style_id = cloud_value_text_from([snapshot_project, project], "styleId");
+    let aspect_ratio = cloud_value_text_from([snapshot_project, project], "aspectRatio");
+    let status = cloud_value_text_from([snapshot_project, project], "status");
+    let local_created_at = cloud_value_text(project, "localCreatedAt");
+    let snapshot_created_at = cloud_value_text(snapshot_project, "createdAt");
+    let created_at = if !local_created_at.is_empty() {
+        local_created_at
+    } else if !snapshot_created_at.is_empty() {
+        snapshot_created_at
+    } else {
+        now.clone()
+    };
+    let updated_at = if remote_updated_at.trim().is_empty() {
+        now.clone()
+    } else {
+        remote_updated_at.trim().to_string()
+    };
+
+    conn.execute(
+        "INSERT INTO projects (id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name,
+           description = excluded.description,
+           script_parse_mode = excluded.script_parse_mode,
+           style_id = excluded.style_id,
+           aspect_ratio = excluded.aspect_ratio,
+           status = excluded.status,
+           updated_at = excluded.updated_at",
+        params![
+            project_id,
+            if name.is_empty() { "未命名项目" } else { name.as_str() },
+            description,
+            script_parse_mode,
+            style_id,
+            valid_project_aspect_ratio(&aspect_ratio),
+            valid_project_status(&status),
+            created_at,
+            updated_at
+        ],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(())
+}
+
 fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
     let mut output = serde_json::Map::new();
     let Some(items) = raw.and_then(|value| value.as_array().cloned()) else {
@@ -8000,6 +8192,16 @@ fn cloud_status_payload(conn: &Connection) -> Result<Value, ApiError> {
         .and_then(|value| value.get("lastBootstrapAt"))
         .cloned()
         .unwrap_or(Value::Null),
+      "lastDataSyncAt": session
+        .as_ref()
+        .and_then(|value| value.get("lastDataSyncAt"))
+        .cloned()
+        .unwrap_or(Value::Null),
+      "dataSync": session
+        .as_ref()
+        .and_then(|value| value.get("dataSync"))
+        .cloned()
+        .unwrap_or(Value::Null),
       "credentials": cloud_provider_credentials_public(raw_cloud_creds),
       "tosStorage": cloud_tos_storage_public(raw_cloud_tos_config)
     }))
@@ -8068,6 +8270,25 @@ async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value
             bootstrap.get("data").cloned().unwrap_or(Value::Null),
         );
         obj.insert("tosStorageConfig".to_string(), tos_storage_data);
+    }
+    set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &session)?;
+    drop(conn);
+
+    let data_sync_result = match cloud_pull_account_data(state, &base_url, &token).await {
+        Ok(result) => result,
+        Err(error) => {
+            eprintln!("[CloudSync] account data pull failed: {}", error.message);
+            json!({
+              "success": false,
+              "message": error.message
+            })
+        }
+    };
+    let conn = db_connection(state)?;
+    let mut session = cloud_session(&conn).unwrap_or_else(|| json!({}));
+    if let Some(obj) = session.as_object_mut() {
+        obj.insert("lastDataSyncAt".to_string(), json!(now_iso()));
+        obj.insert("dataSync".to_string(), data_sync_result);
     }
     set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &session)?;
     cloud_status_payload(&conn)
@@ -8233,6 +8454,227 @@ async fn cloud_sync_model_preferences(state: &BackendState) -> Result<(), ApiErr
     )
     .await
     .map(|_| ())
+}
+
+async fn apply_cloud_project_snapshot(
+    state: &BackendState,
+    project: &Value,
+) -> Result<bool, ApiError> {
+    let local_project_id = cloud_value_text(project, "localProjectId");
+    if local_project_id.is_empty() {
+        return Ok(false);
+    }
+    let Some(snapshot) = project.get("snapshot").filter(|value| value.is_object()) else {
+        return Ok(false);
+    };
+    let remote_updated_at = cloud_project_remote_updated_at(project, snapshot);
+    let local_updated_at = {
+        let conn = db_connection(state)?;
+        local_project_updated_at(&conn, &local_project_id)?
+    };
+    if !should_apply_cloud_update(local_updated_at, &remote_updated_at) {
+        return Ok(false);
+    }
+
+    upsert_cloud_project_placeholder(
+        state,
+        &local_project_id,
+        project,
+        snapshot,
+        &remote_updated_at,
+    )?;
+    let body = build_cloud_project_put_body(snapshot, project);
+    let _ = api_project_put(
+        Path(local_project_id),
+        State(state.clone()),
+        Json(body),
+    )
+    .await?;
+    Ok(true)
+}
+
+async fn apply_cloud_projects(state: &BackendState, projects: &Value) -> Value {
+    let Some(items) = projects.as_array() else {
+        return json!({ "imported": 0, "skipped": 0, "failed": 0 });
+    };
+    let mut imported = 0;
+    let mut skipped = 0;
+    let mut failed = 0;
+    for project in items {
+        match apply_cloud_project_snapshot(state, project).await {
+            Ok(true) => imported += 1,
+            Ok(false) => skipped += 1,
+            Err(error) => {
+                failed += 1;
+                eprintln!("[CloudSync] project pull failed: {}", error.message);
+            }
+        }
+    }
+    json!({ "imported": imported, "skipped": skipped, "failed": failed })
+}
+
+fn apply_cloud_prompt_state(state: &BackendState, prompt_state: &Value) -> Result<bool, ApiError> {
+    let Some(snapshot) = prompt_state
+        .get("snapshot")
+        .filter(|value| value.is_object())
+    else {
+        return Ok(false);
+    };
+    let remote_updated_at = cloud_value_text(prompt_state, "updatedAt");
+    let conn = db_connection(state)?;
+    let local_updated_at = local_config_updated_at(&conn, PROMPT_PROFILE_STATE_KEY)?;
+    if !should_apply_cloud_update(local_updated_at, &remote_updated_at) {
+        return Ok(false);
+    }
+
+    let templates = snapshot
+        .get("templates")
+        .cloned()
+        .map(merge_prompt_templates_with_defaults)
+        .unwrap_or_else(default_prompt_templates);
+    let versions = snapshot
+        .get("versions")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let profiles = snapshot
+        .get("profiles")
+        .and_then(Value::as_array)
+        .cloned()
+        .filter(|items| !items.is_empty())
+        .unwrap_or_else(|| {
+            default_prompt_profiles()
+                .get("profiles")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        });
+    let active_profile_id = snapshot
+        .get("activeProfileId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("default")
+        .to_string();
+    let profiles_value = json!({
+      "profiles": profiles,
+      "activeProfileId": active_profile_id
+    });
+
+    let mut snapshots = serde_json::Map::new();
+    snapshots.insert(
+        "default".to_string(),
+        json!({ "templates": default_prompt_templates(), "versions": [] }),
+    );
+    snapshots.insert(
+        active_profile_id.clone(),
+        json!({ "templates": templates.clone(), "versions": versions.clone() }),
+    );
+    if let Some(profile_items) = profiles_value.get("profiles").and_then(Value::as_array) {
+        for profile in profile_items {
+            let Some(profile_id) = profile.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            snapshots
+                .entry(profile_id.to_string())
+                .or_insert_with(|| json!({ "templates": default_prompt_templates(), "versions": [] }));
+        }
+    }
+    let profile_state = json!({
+      "activeProfileId": active_profile_id,
+      "profiles": profiles_value.get("profiles").cloned().unwrap_or_else(|| json!([])),
+      "snapshots": Value::Object(snapshots)
+    });
+
+    set_config_json(&conn, PROMPT_TEMPLATES_KEY, &templates)?;
+    set_config_json(&conn, PROMPT_VERSIONS_KEY, &versions)?;
+    set_config_json(&conn, PROMPT_PROFILES_KEY, &profiles_value)?;
+    set_config_json(&conn, PROMPT_PROFILE_STATE_KEY, &profile_state)?;
+    Ok(true)
+}
+
+fn apply_cloud_model_preferences(
+    state: &BackendState,
+    model_preferences: &Value,
+) -> Result<bool, ApiError> {
+    let Some(items) = model_preferences.as_array() else {
+        return Ok(false);
+    };
+    if items.is_empty() {
+        return Ok(false);
+    }
+
+    let remote_updated_at = items
+        .iter()
+        .filter_map(|item| item.get("updatedAt").and_then(Value::as_str))
+        .max()
+        .unwrap_or("");
+    let conn = db_connection(state)?;
+    let local_models_updated = local_config_updated_at(&conn, WORKFLOW_MODELS_KEY)?;
+    let local_options_updated = local_config_updated_at(&conn, WORKFLOW_MODEL_OPTIONS_KEY)?;
+    let local_updated_at = [local_models_updated, local_options_updated]
+        .into_iter()
+        .flatten()
+        .max();
+    if !should_apply_cloud_update(local_updated_at, remote_updated_at) {
+        return Ok(false);
+    }
+
+    let mut models = serde_json::Map::new();
+    let mut options = serde_json::Map::new();
+    for item in items {
+        let step = cloud_value_text(item, "workflowStep");
+        let model_id = cloud_value_text(item, "modelId");
+        if !is_workflow_step(&step) || model_id.is_empty() {
+            continue;
+        }
+        models.insert(step.clone(), json!(model_id));
+        options.insert(
+            step,
+            item.get("modelOptions").cloned().unwrap_or_else(|| json!({})),
+        );
+    }
+    if models.is_empty() {
+        return Ok(false);
+    }
+    set_config_json(&conn, WORKFLOW_MODELS_KEY, &Value::Object(models))?;
+    set_config_json(&conn, WORKFLOW_MODEL_OPTIONS_KEY, &Value::Object(options))?;
+    Ok(true)
+}
+
+async fn cloud_pull_account_data(
+    state: &BackendState,
+    base_url: &str,
+    token: &str,
+) -> Result<Value, ApiError> {
+    let response = cloud_request_json(
+        base_url,
+        reqwest::Method::GET,
+        "/api/client/account-data",
+        Some(token),
+        None,
+    )
+    .await?;
+    let data = response.get("data").cloned().unwrap_or_else(|| json!({}));
+    let projects = apply_cloud_projects(
+        state,
+        data.get("projects").unwrap_or(&Value::Null),
+    )
+    .await;
+    let prompts_imported = apply_cloud_prompt_state(
+        state,
+        data.get("promptState").unwrap_or(&Value::Null),
+    )?;
+    let model_preferences_imported = apply_cloud_model_preferences(
+        state,
+        data.get("modelPreferences").unwrap_or(&Value::Null),
+    )?;
+
+    Ok(json!({
+      "success": true,
+      "projects": projects,
+      "promptsImported": prompts_imported,
+      "modelPreferencesImported": model_preferences_imported
+    }))
 }
 
 async fn api_cloud_status(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {

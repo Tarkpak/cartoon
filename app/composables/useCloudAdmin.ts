@@ -11,6 +11,8 @@ interface CloudAdminStatus {
   } | null
   deviceId?: string
   lastBootstrapAt?: string | null
+  lastDataSyncAt?: string | null
+  dataSync?: Record<string, unknown> | null
   credentials?: Record<string, unknown>
 }
 
