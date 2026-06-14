@@ -5,6 +5,7 @@ import {
   tosStorageClientConfig,
   tosStoragePublicConfig
 } from '../../utils/tos-storage'
+import { encryptedClientResponse } from '../../utils/secure-transport'
 
 export default defineEventHandler((event) => {
   const auth = requireAuth(event)
@@ -22,8 +23,5 @@ export default defineEventHandler((event) => {
     }
   })
 
-  return {
-    success: true,
-    data: tosStorageClientConfig()
-  }
+  return encryptedClientResponse(event, tosStorageClientConfig())
 })

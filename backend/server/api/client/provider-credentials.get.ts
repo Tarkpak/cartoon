@@ -2,6 +2,7 @@ import { getDb } from '../../utils/db'
 import { requireAuth } from '../../utils/auth'
 import { decryptText } from '../../utils/crypto'
 import { writeAudit } from '../../utils/audit'
+import { encryptedClientResponse } from '../../utils/secure-transport'
 
 export default defineEventHandler((event) => {
   const auth = requireAuth(event)
@@ -32,17 +33,13 @@ export default defineEventHandler((event) => {
     metadata: { providerCount: rows.length }
   })
 
-  return {
-    success: true,
-    data: rows.map(row => ({
-      providerKey: row.provider_key,
-      displayName: row.display_name,
-      baseUrl: row.base_url,
-      apiKey: decryptText(row.encrypted_api_key),
-      accessKey: decryptText(row.encrypted_access_key),
-      secretKey: decryptText(row.encrypted_secret_key),
-      securityToken: decryptText(row.encrypted_security_token)
-    }))
-  }
+  return encryptedClientResponse(event, rows.map(row => ({
+    providerKey: row.provider_key,
+    displayName: row.display_name,
+    baseUrl: row.base_url,
+    apiKey: decryptText(row.encrypted_api_key),
+    accessKey: decryptText(row.encrypted_access_key),
+    secretKey: decryptText(row.encrypted_secret_key),
+    securityToken: decryptText(row.encrypted_security_token)
+  })))
 })
-

@@ -9,6 +9,7 @@ use base64::Engine;
 use chrono::Utc;
 use reqwest::Client;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
+use ring::agreement::{self, EphemeralPrivateKey, UnparsedPublicKey};
 use ring::rand::{SecureRandom, SystemRandom};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Deserialize;
@@ -61,6 +62,10 @@ const CLOUD_ADMIN_CONFIG_KEY: &str = "cloud_admin_config";
 const CLOUD_ADMIN_SESSION_KEY: &str = "cloud_admin_session";
 const CLOUD_PROVIDER_CREDENTIALS_KEY: &str = "cloud_provider_credentials";
 const CLOUD_DEVICE_ID_KEY: &str = "cloud_device_id";
+const CLOUD_SECRET_TRANSPORT_HEADER: &str = "x-playlet-secure-request";
+const CLOUD_SECRET_TRANSPORT_CONTEXT: &[u8] = b"playlet.cloud-secret-transport.v1";
+const CLOUD_SECRET_TRANSPORT_AAD: &[u8] = b"playlet.cloud-secret-response.v1";
+const CLOUD_SECRET_TRANSPORT_NONCE_LEN: usize = 12;
 const DEV_CLOUD_ADMIN_BASE_URL: &str = "http://127.0.0.1:43200";
 const PROD_CLOUD_ADMIN_BASE_URL: &str = "https://admin.tempocc.cn";
 
@@ -933,6 +938,159 @@ async fn cloud_request_json(
             StatusCode::BAD_GATEWAY
         };
         return Err(ApiError::new(local_status, message));
+    }
+    Ok(payload)
+}
+
+fn cloud_secret_transport_key(
+    shared_secret: &[u8],
+    client_public_key: &[u8],
+    server_public_key: &[u8],
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(CLOUD_SECRET_TRANSPORT_CONTEXT);
+    hasher.update(shared_secret);
+    hasher.update(client_public_key);
+    hasher.update(server_public_key);
+    let digest = hasher.finalize();
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&digest);
+    key
+}
+
+fn cloud_secure_envelope_field<'a>(data: &'a Value, key: &str) -> Result<&'a str, ApiError> {
+    data.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应格式无效"))
+}
+
+fn decrypt_cloud_secure_data(
+    data: &Value,
+    client_private_key: EphemeralPrivateKey,
+    client_public_key: &[u8],
+) -> Result<Value, ApiError> {
+    if data.get("encrypted").and_then(Value::as_bool) != Some(true) {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "后台未使用加密通道下发配置",
+        ));
+    }
+
+    let server_public_key =
+        decode_base64_bytes(cloud_secure_envelope_field(data, "serverPublicKey")?).ok_or_else(
+            || ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应格式无效"),
+        )?;
+    if server_public_key.len() != 32 {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "后台加密响应格式无效",
+        ));
+    }
+
+    let nonce =
+        decode_base64_bytes(cloud_secure_envelope_field(data, "nonce")?).ok_or_else(|| {
+            ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应格式无效")
+        })?;
+    if nonce.len() != CLOUD_SECRET_TRANSPORT_NONCE_LEN {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "后台加密响应格式无效",
+        ));
+    }
+
+    let mut nonce_bytes = [0u8; CLOUD_SECRET_TRANSPORT_NONCE_LEN];
+    nonce_bytes.copy_from_slice(&nonce);
+    let mut encrypted_payload =
+        decode_base64_bytes(cloud_secure_envelope_field(data, "payload")?).ok_or_else(|| {
+            ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应格式无效")
+        })?;
+
+    let peer_public_key = UnparsedPublicKey::new(&agreement::X25519, server_public_key.as_slice());
+    let shared_secret = agreement::agree_ephemeral(client_private_key, &peer_public_key, |secret| {
+        secret.to_vec()
+    })
+    .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "后台加密通道协商失败"))?;
+    let key_bytes = cloud_secret_transport_key(&shared_secret, client_public_key, &server_public_key);
+    let unbound = UnboundKey::new(&AES_256_GCM, &key_bytes)
+        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应解密失败"))?;
+    let key = LessSafeKey::new(unbound);
+    let plaintext = key
+        .open_in_place(
+            Nonce::assume_unique_for_key(nonce_bytes),
+            Aad::from(CLOUD_SECRET_TRANSPORT_AAD),
+            &mut encrypted_payload,
+        )
+        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应解密失败"))?;
+
+    serde_json::from_slice::<Value>(plaintext)
+        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应 JSON 无效"))
+}
+
+async fn cloud_request_secure_json(
+    base_url: &str,
+    method: reqwest::Method,
+    path: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+) -> Result<Value, ApiError> {
+    let rng = SystemRandom::new();
+    let client_private_key = EphemeralPrivateKey::generate(&agreement::X25519, &rng)
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "初始化加密通道失败"))?;
+    let client_public_key = client_private_key
+        .compute_public_key()
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "初始化加密通道失败"))?;
+    let client_public_key_bytes = client_public_key.as_ref().to_vec();
+    let url = format!(
+        "{}/{}",
+        base_url.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    );
+    let mut request = http_client()
+        .request(method, url)
+        .header(
+            CLOUD_SECRET_TRANSPORT_HEADER,
+            format!("v1:{}", BASE64_STANDARD.encode(&client_public_key_bytes)),
+        );
+    request = cloud_auth_headers(request, token);
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+
+    let response = request.send().await.map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!(
+                "连接后台失败: {}",
+                build_llm_transport_error_message(&error)
+            ),
+        )
+    })?;
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    let mut payload =
+        serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({ "message": text }));
+    if !status.is_success() {
+        let message = payload
+            .get("statusMessage")
+            .or_else(|| payload.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or("后台接口返回失败");
+        let local_status = if status.is_client_error() {
+            status
+        } else {
+            StatusCode::BAD_GATEWAY
+        };
+        return Err(ApiError::new(local_status, message));
+    }
+
+    let data = payload
+        .get("data")
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "后台响应格式无效"))?;
+    let decrypted = decrypt_cloud_secure_data(data, client_private_key, &client_public_key_bytes)?;
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("data".to_string(), decrypted);
     }
     Ok(payload)
 }
@@ -7855,7 +8013,7 @@ async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value
         None,
     )
     .await?;
-    let credentials = cloud_request_json(
+    let credentials = cloud_request_secure_json(
         &base_url,
         reqwest::Method::GET,
         "/api/client/provider-credentials",
@@ -7863,7 +8021,7 @@ async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value
         None,
     )
     .await?;
-    let tos_storage_config = cloud_request_json(
+    let tos_storage_config = cloud_request_secure_json(
         &base_url,
         reqwest::Method::GET,
         "/api/client/tos-storage-config",

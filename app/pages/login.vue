@@ -81,7 +81,7 @@ async function submit() {
             v-if="loading"
             class="mr-2 h-4 w-4 animate-spin"
           />
-          登录并拉取 Key
+          登录并同步配置
         </Button>
       </CardFooter>
     </Card>
