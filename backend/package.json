@@ -7,6 +7,7 @@
     "dev": "bunx --bun nuxt dev --host 127.0.0.1 --port 43200",
     "build": "bunx --bun nuxt build --preset bun",
     "preview": "bunx --bun nuxt preview --host 127.0.0.1 --port 43200",
+    "deploy:pm2": "./scripts/deploy-pm2.sh",
     "typecheck": "bunx --bun nuxt typecheck"
   },
   "dependencies": {

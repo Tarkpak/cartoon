@@ -66,6 +66,26 @@ bun run typecheck
 bun run build
 ```
 
+PM2 部署：
+
+```bash
+cd backend
+bun run deploy:pm2
+```
+
+默认使用 PM2 应用名 `playlet-admin-backend`，监听 `127.0.0.1:43200`，数据目录为 `backend/data`。生产服务器可按需覆盖：
+
+```bash
+HOST=127.0.0.1 PORT=43200 PLAYLET_ADMIN_DATA_DIR=/var/lib/playlet-admin bun run deploy:pm2
+```
+
+首次在服务器上配置开机自启时执行：
+
+```bash
+pm2 startup
+pm2 save
+```
+
 默认后台地址：
 
 ```text
