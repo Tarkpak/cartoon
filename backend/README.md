@@ -79,6 +79,8 @@ bun run deploy:pm2
 HOST=127.0.0.1 PORT=43200 PLAYLET_ADMIN_DATA_DIR=/var/lib/playlet-admin bun run deploy:pm2
 ```
 
+客户端版本管理从后台云存储配置同步，默认读取 `Key Prefix/desktop-updater/latest.json`，并扫描同目录下已上传的桌面安装包；不需要配置 GitHub 仓库或 token。
+
 首次在服务器上配置开机自启时执行：
 
 ```bash

@@ -4,6 +4,7 @@
       <div class="page-header page-header--actions">
         <n-space>
           <n-button :loading="pending" @click="loadVersions">刷新</n-button>
+          <n-button :loading="syncingCloud" @click="syncCloudVersions">同步云端版本</n-button>
           <n-button type="primary" @click="openCreate">新建版本</n-button>
         </n-space>
       </div>
@@ -229,6 +230,7 @@ const statusFilterOptions = statusOptions
 const message = useMessage()
 const pending = ref(false)
 const saving = ref(false)
+const syncingCloud = ref(false)
 const showModal = ref(false)
 const versions = ref<ClientVersionRow[]>([])
 const deviceVersions = ref<DeviceVersionRow[]>([])
@@ -535,6 +537,34 @@ async function updateVersionStatus(row: ClientVersionRow, status: ClientVersionR
     await loadVersions()
   } catch (error) {
     message.error(errorText(error, '更新版本状态失败'))
+  }
+}
+
+async function syncCloudVersions() {
+  syncingCloud.value = true
+  try {
+    const response = await $fetch<{
+      data: {
+        sourceUrl: string
+        created: number
+        updated: number
+        skipped: number
+        scannedFiles: number
+        listWarning: string
+      }
+    }>('/api/admin/client-versions/sync-updater', {
+      method: 'POST'
+    })
+    const data = response.data
+    message.success(`已同步云端版本：新增 ${data.created}，更新 ${data.updated}，跳过 ${data.skipped}`)
+    if (data.listWarning) {
+      message.warning(`云端目录扫描未完成：${data.listWarning}`)
+    }
+    await loadVersions()
+  } catch (error) {
+    message.error(errorText(error, '同步云端版本失败'))
+  } finally {
+    syncingCloud.value = false
   }
 }
 
