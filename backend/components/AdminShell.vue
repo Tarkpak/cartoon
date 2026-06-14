@@ -159,10 +159,10 @@ function renderMenuIcon(name: keyof typeof menuIconPaths) {
 const menuOptions = [
   { label: '总览', key: '/', icon: () => renderMenuIcon('overview') },
   { label: '用户管理', key: '/users', icon: () => renderMenuIcon('users') },
-  { label: '供应商 Key', key: '/providers', icon: () => renderMenuIcon('providers') },
   { label: '云端素材', key: '/tos-files', icon: () => renderMenuIcon('assets') },
-  { label: '客户端版本', key: '/client-versions', icon: () => renderMenuIcon('versions') },
   { label: '调用日志', key: '/logs', icon: () => renderMenuIcon('logs') },
+  { label: '供应商 Key', key: '/providers', icon: () => renderMenuIcon('providers') },
+  { label: '客户端版本', key: '/client-versions', icon: () => renderMenuIcon('versions') },
   { label: '系统设置', key: '/settings', icon: () => renderMenuIcon('settings') }
 ]
 

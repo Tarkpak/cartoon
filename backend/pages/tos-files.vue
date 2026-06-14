@@ -97,6 +97,7 @@
             'tos-image-viewer--pannable': imagePreviewScale > 1,
             'tos-image-viewer--dragging': imagePreviewDragging
           }"
+          @click.self="closeImagePreview"
           @wheel.prevent="handleImagePreviewWheel"
           @mousedown="startImagePreviewDrag"
           @mousemove="moveImagePreviewDrag"
@@ -237,6 +238,15 @@ const tablePagination = computed(() => ({
 
 const columns = [
   {
+    title: '预览',
+    key: 'preview',
+    width: 132,
+    fixed: 'left' as const,
+    render(row: TosRow) {
+      return renderPreview(row)
+    }
+  },
+  {
     title: '名称',
     key: 'name',
     width: 260,
@@ -263,14 +273,6 @@ const columns = [
     render(row: TosRow) {
       const tag = rowTypeTag(row.type)
       return h(NTag, { size: 'small', type: tag.type }, { default: () => tag.label })
-    }
-  },
-  {
-    title: '预览',
-    key: 'preview',
-    width: 132,
-    render(row: TosRow) {
-      return renderPreview(row)
     }
   },
   {
@@ -675,6 +677,10 @@ function openImagePreview(row: TosRow) {
   imagePreviewOpen.value = true
 }
 
+function closeImagePreview() {
+  imagePreviewOpen.value = false
+}
+
 function zoomImagePreview(delta: number) {
   const nextScale = clampImageScale(imagePreviewScale.value + delta)
   imagePreviewScale.value = nextScale
@@ -874,7 +880,7 @@ onMounted(() => {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  pointer-events: none;
+  pointer-events: auto;
   transform-origin: center center;
   transition: transform 0.08s ease;
   user-select: none;
