@@ -82,9 +82,7 @@ const enabledModelsByProvider = ref<Partial<Record<ProviderId, string[]>>>({})
 const errorMessage = ref('')
 const activeProvider = ref<ProviderId | null>(null)
 const modelSearchKeyword = ref('')
-const providerConfigReloadToken = ref(0)
 const { loadModels } = useSettingsModelCatalog()
-const SETTINGS_CONFIG_IMPORTED_EVENT = 'playlet:settings-config-imported'
 
 const activeProviderSummary = computed(() => {
   return providers.value.find(provider => provider.provider === activeProvider.value) || providers.value[0] || null
@@ -132,12 +130,6 @@ function retryLoadProviders() {
 
 async function refreshModelCatalog() {
   await loadModels(true)
-}
-
-async function handleSettingsConfigImported() {
-  providerConfigReloadToken.value += 1
-  await loadProviders()
-  await refreshModelCatalog()
 }
 
 async function handleCustomProviderSaved() {
@@ -393,12 +385,7 @@ watch(activeProvider, () => {
 })
 
 onMounted(() => {
-  window.addEventListener(SETTINGS_CONFIG_IMPORTED_EVENT, handleSettingsConfigImported)
   void loadProviders()
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener(SETTINGS_CONFIG_IMPORTED_EVENT, handleSettingsConfigImported)
 })
 </script>
 
@@ -555,12 +542,11 @@ onBeforeUnmount(() => {
         <div class="mx-auto max-w-5xl space-y-4">
           <SettingsCustomOpenAIProvider
             v-if="activeProviderSummary.provider === 'custom_openai'"
-            :key="`custom_openai_${providerConfigReloadToken}`"
             :on-saved="handleCustomProviderSaved"
           />
           <SettingsProviderCredentials
             v-else-if="activeCredentialProvider"
-            :key="`${activeCredentialProvider}_${providerConfigReloadToken}`"
+            :key="activeCredentialProvider"
             :provider="activeCredentialProvider"
             :on-saved="handleCustomProviderSaved"
           />

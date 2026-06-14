@@ -10,7 +10,6 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 const DESKTOP_HOST: &str = "127.0.0.1";
 const DESKTOP_PORT: u16 = 43127;
 const STARTUP_TIMEOUT_SECS: u64 = 90;
-const SETTINGS_CONFIG_EXPORT_MAX_BYTES: usize = 2 * 1024 * 1024;
 
 fn desktop_base_url() -> String {
     format!("http://{}:{}", DESKTOP_HOST, DESKTOP_PORT)
@@ -138,35 +137,6 @@ fn create_main_window(app: &tauri::App) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-async fn save_settings_config_export(path: String, content: String) -> Result<(), String> {
-    let path = path.trim();
-    if path.is_empty() {
-        return Err("保存路径不能为空".to_string());
-    }
-    if content.len() > SETTINGS_CONFIG_EXPORT_MAX_BYTES {
-        return Err("导出配置内容过大".to_string());
-    }
-    serde_json::from_str::<serde_json::Value>(&content)
-        .map_err(|_| "导出配置内容不是有效 JSON".to_string())?;
-
-    let target = std::path::PathBuf::from(path);
-    if target
-        .extension()
-        .and_then(|value| value.to_str())
-        .map_or(true, |value| !value.eq_ignore_ascii_case("json"))
-    {
-        return Err("导出文件必须使用 .json 后缀".to_string());
-    }
-
-    tauri::async_runtime::spawn_blocking(move || std::fs::write(target, content))
-        .await
-        .map_err(|error| format!("写入导出文件失败: {}", error))?
-        .map_err(|error| format!("写入导出文件失败: {}", error))?;
-
-    Ok(())
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = dotenvy::dotenv();
@@ -188,8 +158,7 @@ pub fn run() {
     let app = builder
         .invoke_handler(tauri::generate_handler![
             desktop_ffmpeg::check_ffmpeg_status,
-            desktop_ffmpeg::install_ffmpeg,
-            save_settings_config_export
+            desktop_ffmpeg::install_ffmpeg
         ])
         .setup(|app| {
             load_desktop_env_files(app);

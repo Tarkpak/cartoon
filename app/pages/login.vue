@@ -26,8 +26,12 @@ onMounted(async () => {
 })
 
 async function submit() {
-  await login(form)
-  await router.replace(typeof route.query.redirect === 'string' ? route.query.redirect : '/')
+  try {
+    await login(form)
+    await router.replace(typeof route.query.redirect === 'string' ? route.query.redirect : '/')
+  } catch {
+    // useCloudAdmin already exposes the readable error message for the form.
+  }
 }
 </script>
 
@@ -51,13 +55,6 @@ async function submit() {
           {{ error }}
         </div>
 
-        <div class="space-y-2">
-          <label class="text-sm font-medium">后台地址</label>
-          <Input
-            v-model="form.baseUrl"
-            :placeholder="DEFAULT_CLOUD_ADMIN_BASE_URL"
-          />
-        </div>
         <div class="space-y-2">
           <label class="text-sm font-medium">账号</label>
           <Input

@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type { WorkflowCompletionNotificationOptions } from '#shared/types/workflow-models'
 import {
   getBrowserNotificationStatus,
@@ -14,8 +14,6 @@ import {
  * 复用 useGenerationCompletionNotification 的共享状态与加载/写入工具，
  * 持久化走 POST /api/models/workflow（step=completion_notification）。
  */
-const SETTINGS_CONFIG_IMPORTED_EVENT = 'playlet:settings-config-imported'
-
 export function useCompletionNotificationSettings() {
   const {
     completionNotificationOptions,
@@ -198,12 +196,7 @@ export function useCompletionNotificationSettings() {
   }
 
   onMounted(() => {
-    window.addEventListener(SETTINGS_CONFIG_IMPORTED_EVENT, reloadCompletionNotificationSettings)
     void reloadCompletionNotificationSettings()
-  })
-
-  onBeforeUnmount(() => {
-    window.removeEventListener(SETTINGS_CONFIG_IMPORTED_EVENT, reloadCompletionNotificationSettings)
   })
 
   return {

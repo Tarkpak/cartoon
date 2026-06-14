@@ -12,7 +12,6 @@ const loading = ref(false)
 const saving = ref(false)
 const message = ref('')
 const errorMessage = ref('')
-const SETTINGS_CONFIG_IMPORTED_EVENT = 'playlet:settings-config-imported'
 
 const enabled = ref(false)
 const accessKeyId = ref('')
@@ -118,12 +117,7 @@ async function saveConfig() {
 }
 
 onMounted(() => {
-  window.addEventListener(SETTINGS_CONFIG_IMPORTED_EVENT, loadConfig)
   void loadConfig()
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener(SETTINGS_CONFIG_IMPORTED_EVENT, loadConfig)
 })
 </script>
 

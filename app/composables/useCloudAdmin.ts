@@ -18,6 +18,32 @@ const status = ref<CloudAdminStatus | null>(null)
 const loading = ref(false)
 const error = ref('')
 
+function errorPayload(error: unknown) {
+  return error as {
+    data?: { message?: string, statusMessage?: string }
+    response?: { _data?: { message?: string, statusMessage?: string } }
+    message?: string
+  }
+}
+
+function normalizeCloudError(error: unknown, fallback: string) {
+  const payload = errorPayload(error)
+  const message = payload.data?.message
+    || payload.data?.statusMessage
+    || payload.response?._data?.message
+    || payload.response?._data?.statusMessage
+    || payload.message
+    || fallback
+
+  const cleaned = String(message).replace(/^后台接口失败[:：]\s*/u, '').trim()
+  if (cleaned === 'Invalid account or password') return '账号或密码错误'
+  if (cleaned === 'User disabled') return '账号已被禁用'
+  if (cleaned === 'Device disabled') return '当前设备已被禁用'
+  if (cleaned === 'Device limit reached') return '登录设备数量已达到上限'
+  if (/^\[(GET|POST|PUT|PATCH|DELETE)\]/u.test(cleaned)) return fallback
+  return cleaned || fallback
+}
+
 export function useCloudAdmin() {
   const authenticated = computed(() => status.value?.authenticated === true)
   const baseUrl = computed(() => status.value?.baseUrl || '')
@@ -31,7 +57,7 @@ export function useCloudAdmin() {
       status.value = response.data
       return response.data
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '后台状态加载失败'
+      error.value = normalizeCloudError(err, '后台状态加载失败')
       status.value = null
       return null
     } finally {
@@ -50,7 +76,7 @@ export function useCloudAdmin() {
       status.value = response.data
       return response.data
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '登录后台失败'
+      error.value = normalizeCloudError(err, '登录后台失败')
       throw err
     } finally {
       loading.value = false
@@ -90,4 +116,3 @@ export function useCloudAdmin() {
     heartbeat
   }
 }
-
