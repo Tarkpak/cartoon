@@ -130,6 +130,27 @@ function initSchema(conn: Database) {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS client_versions (
+      id TEXT PRIMARY KEY,
+      app_key TEXT NOT NULL DEFAULT 'cartoon-desktop',
+      platform TEXT NOT NULL,
+      arch TEXT NOT NULL,
+      channel TEXT NOT NULL DEFAULT 'stable',
+      version TEXT NOT NULL,
+      build_number INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'draft',
+      download_url TEXT NOT NULL DEFAULT '',
+      sha256 TEXT NOT NULL DEFAULT '',
+      signature TEXT NOT NULL DEFAULT '',
+      release_notes TEXT NOT NULL DEFAULT '',
+      force_update INTEGER NOT NULL DEFAULT 0,
+      min_supported_version TEXT NOT NULL DEFAULT '',
+      rollout_percent INTEGER NOT NULL DEFAULT 100,
+      published_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS user_projects (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -266,6 +287,8 @@ function initSchema(conn: Database) {
     CREATE INDEX IF NOT EXISTS idx_model_preferences_user_id ON user_model_preferences(user_id);
     CREATE INDEX IF NOT EXISTS idx_model_call_logs_created_at ON model_call_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_client_versions_lookup ON client_versions(app_key, platform, arch, channel, status);
+    CREATE INDEX IF NOT EXISTS idx_client_versions_version ON client_versions(version);
   `)
 
   ensureDefaultSettings(conn)

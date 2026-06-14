@@ -63,6 +63,8 @@ const CLOUD_ADMIN_CONFIG_KEY: &str = "cloud_admin_config";
 const CLOUD_ADMIN_SESSION_KEY: &str = "cloud_admin_session";
 const CLOUD_PROVIDER_CREDENTIALS_KEY: &str = "cloud_provider_credentials";
 const CLOUD_DEVICE_ID_KEY: &str = "cloud_device_id";
+const DEV_CLOUD_ADMIN_BASE_URL: &str = "http://127.0.0.1:43200";
+const PROD_CLOUD_ADMIN_BASE_URL: &str = "https://admin.tempocc.cn";
 
 const DEFAULT_STYLE_PRESETS_JSON: &str = include_str!("../assets/default-style-presets.json");
 const DEFAULT_STYLE_CATEGORIES_JSON: &str = include_str!("../assets/default-style-categories.json");
@@ -746,12 +748,29 @@ fn normalize_cloud_base_url(value: &str) -> Result<String, ApiError> {
     Ok(trimmed.to_string())
 }
 
+fn default_cloud_admin_base_url() -> &'static str {
+    if cfg!(debug_assertions) {
+        DEV_CLOUD_ADMIN_BASE_URL
+    } else {
+        PROD_CLOUD_ADMIN_BASE_URL
+    }
+}
+
+fn should_use_default_cloud_admin_base_url(value: &str) -> bool {
+    let normalized = value.trim().trim_end_matches('/');
+    if normalized.is_empty() {
+        return true;
+    }
+    !cfg!(debug_assertions)
+        && (normalized == DEV_CLOUD_ADMIN_BASE_URL || normalized == "http://localhost:43200")
+}
+
 fn cloud_config(conn: &Connection) -> Value {
     get_config_json(conn, CLOUD_ADMIN_CONFIG_KEY)
         .ok()
         .flatten()
         .filter(Value::is_object)
-        .unwrap_or_else(|| json!({ "baseUrl": "" }))
+        .unwrap_or_else(|| json!({ "baseUrl": default_cloud_admin_base_url() }))
 }
 
 fn cloud_base_url(conn: &Connection) -> Option<String> {
@@ -3188,8 +3207,34 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
     if get_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY)?.is_none() {
         set_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY, &json!({}))?;
     }
-    if get_config_json(&conn, CLOUD_ADMIN_CONFIG_KEY)?.is_none() {
-        set_config_json(&conn, CLOUD_ADMIN_CONFIG_KEY, &json!({ "baseUrl": "" }))?;
+    match get_config_json(&conn, CLOUD_ADMIN_CONFIG_KEY)? {
+        Some(config) => {
+            let current_base_url = config
+                .get("baseUrl")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .trim_end_matches('/');
+            let default_base_url = default_cloud_admin_base_url();
+            if should_use_default_cloud_admin_base_url(current_base_url)
+                && current_base_url != default_base_url
+            {
+                set_config_json(
+                    &conn,
+                    CLOUD_ADMIN_CONFIG_KEY,
+                    &json!({ "baseUrl": default_base_url }),
+                )?;
+                set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &json!({}))?;
+            }
+        }
+        None => {
+            set_config_json(
+                &conn,
+                CLOUD_ADMIN_CONFIG_KEY,
+                &json!({ "baseUrl": default_cloud_admin_base_url() }),
+            )?;
+            set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &json!({}))?;
+        }
     }
     if get_config_json(&conn, CLOUD_PROVIDER_CREDENTIALS_KEY)?.is_none() {
         set_config_json(&conn, CLOUD_PROVIDER_CREDENTIALS_KEY, &json!({}))?;
@@ -3383,6 +3428,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/cloud/logout", post(api_cloud_logout))
         .route("/api/cloud/bootstrap", post(api_cloud_bootstrap))
         .route("/api/cloud/heartbeat", post(api_cloud_heartbeat))
+        .route("/api/cloud/update-check", post(api_cloud_update_check))
         .route("/api/script/episode-plan", post(api_script_episode_plan))
         .route("/api/script/parse", post(api_script_parse))
         .route("/api/script/parse-stream", post(api_script_parse_stream))
@@ -8373,6 +8419,35 @@ async fn api_cloud_heartbeat(State(state): State<BackendState>) -> Result<Json<V
         )
     };
     let result = cloud_post_client_json(&state, "/api/client/device/heartbeat", body).await?;
+    Ok(Json(json!({
+      "success": true,
+      "data": {
+        "deviceId": device_id,
+        "remote": result
+      }
+    })))
+}
+
+async fn api_cloud_update_check(
+    State(state): State<BackendState>,
+) -> Result<Json<Value>, ApiError> {
+    let (device_id, body) = {
+        let conn = db_connection(&state)?;
+        let device_id = get_or_create_cloud_device_id(&conn)?;
+        (
+            device_id.clone(),
+            json!({
+              "appKey": "cartoon-desktop",
+              "version": env!("CARGO_PKG_VERSION"),
+              "platform": std::env::consts::OS,
+              "arch": std::env::consts::ARCH,
+              "channel": "stable",
+              "deviceId": device_id,
+              "deviceName": "Playlet Desktop"
+            }),
+        )
+    };
+    let result = cloud_post_client_json(&state, "/api/client/update-check", body).await?;
     Ok(Json(json!({
       "success": true,
       "data": {

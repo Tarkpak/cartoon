@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, Loader2, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { Download, ExternalLink, Loader2, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -10,17 +10,26 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
+import { useClientUpdateCheck } from '@/composables/useClientUpdateCheck'
 import { useDesktopUpdater } from '@/composables/useDesktopUpdater'
 
 const STARTUP_UPDATE_CHECK_DELAY_MS = 1200
 
 const {
+  updateInfo: clientUpdateInfo,
+  checking: clientUpdateChecking,
+  error: clientUpdateError,
+  checkForClientUpdate,
+  dismissClientUpdate,
+  openClientUpdateDownload
+} = useClientUpdateCheck()
+const {
   availableUpdate,
-  checking,
+  checking: desktopChecking,
   installing,
   downloadedBytes,
   totalBytes,
-  error,
+  error: desktopError,
   statusMessage,
   isDesktopRuntime,
   downloadProgress,
@@ -33,10 +42,50 @@ const startupCheckStarted = useState<boolean>('desktop-updater-startup-check-sta
 const dismissedVersion = useState<string>('desktop-updater-dismissed-version', () => '')
 let startupCheckTimer: number | null = null
 
+const activeClientUpdate = computed(() => {
+  return clientUpdateInfo.value?.hasUpdate ? clientUpdateInfo.value : null
+})
+const activeUpdateBody = computed(() => {
+  return activeClientUpdate.value?.releaseNotes || availableUpdate.value?.body || ''
+})
+const isChecking = computed(() => clientUpdateChecking.value || desktopChecking.value)
+const displayError = computed(() => clientUpdateError.value || desktopError.value)
+const isForceUpdate = computed(() => activeClientUpdate.value?.forceUpdate === true)
+const blocksDismiss = computed(() => isForceUpdate.value && Boolean(activeClientUpdate.value?.downloadUrl))
+const updateTitle = computed(() => {
+  if (activeClientUpdate.value) {
+    return `${isForceUpdate.value ? '需要更新客户端' : '发现新版本'} ${activeClientUpdate.value.latestVersion}`
+  }
+  return availableUpdate.value ? `发现新版本 ${availableUpdate.value.version}` : '发现新版本'
+})
+const updateDescription = computed(() => {
+  if (activeClientUpdate.value) {
+    return `当前版本 ${activeClientUpdate.value.currentVersion || '未知'}，可更新到 ${activeClientUpdate.value.latestVersion}。`
+  }
+  if (availableUpdate.value) {
+    return `当前版本 ${availableUpdate.value.currentVersion}，可更新到 ${availableUpdate.value.version}。`
+  }
+  return ''
+})
+const versionBadgeLabel = computed(() => {
+  if (activeClientUpdate.value) {
+    return `${activeClientUpdate.value.currentVersion || '未知'} -> ${activeClientUpdate.value.latestVersion}`
+  }
+  if (availableUpdate.value) {
+    return `${availableUpdate.value.currentVersion} -> ${availableUpdate.value.version}`
+  }
+  return ''
+})
+const canRunPrimaryAction = computed(() => {
+  if (activeClientUpdate.value) return Boolean(activeClientUpdate.value.downloadUrl)
+  return Boolean(availableUpdate.value)
+})
+
 const formattedUpdateDate = computed(() => {
-  if (!availableUpdate.value?.date) return ''
-  const date = new Date(availableUpdate.value.date)
-  if (Number.isNaN(date.getTime())) return availableUpdate.value.date
+  const value = activeClientUpdate.value?.publishedAt || availableUpdate.value?.date || ''
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString()
 })
 
@@ -64,7 +113,13 @@ const downloadStatusLabel = computed(() => {
 })
 
 async function runStartupUpdateCheck() {
-  if (!isDesktopRuntime.value || checking.value || installing.value) return
+  if (!isDesktopRuntime.value || isChecking.value || installing.value) return
+
+  const clientUpdate = await checkForClientUpdate()
+  if (clientUpdate) {
+    dialogOpen.value = true
+    return
+  }
 
   const update = await checkDesktopUpdate()
   if (!update || dismissedVersion.value === update.version) return
@@ -73,6 +128,12 @@ async function runStartupUpdateCheck() {
 }
 
 function dismissUpdatePrompt() {
+  if (activeClientUpdate.value) {
+    dismissClientUpdate()
+    dialogOpen.value = false
+    return
+  }
+
   if (availableUpdate.value) {
     dismissedVersion.value = availableUpdate.value.version
   }
@@ -85,8 +146,16 @@ function handleOpenChange(nextOpen: boolean) {
     return
   }
 
-  if (installing.value) return
+  if (installing.value || blocksDismiss.value) return
   dismissUpdatePrompt()
+}
+
+function handlePrimaryAction() {
+  if (activeClientUpdate.value) {
+    openClientUpdateDownload()
+    return
+  }
+  void installDesktopUpdate()
 }
 
 onMounted(() => {
@@ -107,7 +176,7 @@ onBeforeUnmount(() => {
 
 <template>
   <Dialog
-    v-if="isDesktopRuntime && availableUpdate"
+    v-if="isDesktopRuntime && (activeClientUpdate || availableUpdate)"
     :open="dialogOpen"
     @update:open="handleOpenChange"
   >
@@ -115,17 +184,26 @@ onBeforeUnmount(() => {
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <Sparkles class="h-5 w-5 text-primary" />
-          发现新版本 {{ availableUpdate.version }}
+          {{ updateTitle }}
         </DialogTitle>
         <DialogDescription>
-          当前版本 {{ availableUpdate.currentVersion }}，可更新到 {{ availableUpdate.version }}。
+          {{ updateDescription }}
         </DialogDescription>
       </DialogHeader>
 
       <div class="min-h-0 space-y-4">
         <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span class="rounded-md border bg-muted/30 px-2 py-1 font-medium text-foreground">
-            {{ availableUpdate.currentVersion }} -> {{ availableUpdate.version }}
+          <span
+            v-if="versionBadgeLabel"
+            class="rounded-md border bg-muted/30 px-2 py-1 font-medium text-foreground"
+          >
+            {{ versionBadgeLabel }}
+          </span>
+          <span
+            v-if="activeClientUpdate"
+            class="rounded-md border bg-muted/30 px-2 py-1"
+          >
+            {{ activeClientUpdate.platform }} / {{ activeClientUpdate.arch }} / {{ activeClientUpdate.channel }}
           </span>
           <span v-if="formattedUpdateDate">
             发布时间：{{ formattedUpdateDate }}
@@ -133,10 +211,10 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="availableUpdate.body"
+          v-if="activeUpdateBody"
           class="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/20 p-3 text-xs leading-6 text-muted-foreground"
         >
-          {{ availableUpdate.body }}
+          {{ activeUpdateBody }}
         </div>
         <p
           v-else
@@ -146,15 +224,31 @@ onBeforeUnmount(() => {
         </p>
 
         <div
-          v-if="error"
-          class="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+          v-if="isForceUpdate"
+          class="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300"
         >
           <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{{ error }}</span>
+          <span>当前版本低于后台允许的最低版本，需要更新后继续使用。</span>
         </div>
 
         <div
-          v-if="installing"
+          v-if="activeClientUpdate && !activeClientUpdate.downloadUrl"
+          class="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300"
+        >
+          <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+          <span>后台没有配置下载地址，请联系管理员获取安装包。</span>
+        </div>
+
+        <div
+          v-if="displayError"
+          class="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+        >
+          <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{{ displayError }}</span>
+        </div>
+
+        <div
+          v-if="!activeClientUpdate && installing"
           class="space-y-2"
         >
           <div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -170,6 +264,7 @@ onBeforeUnmount(() => {
 
       <DialogFooter class="gap-2 sm:justify-end">
         <Button
+          v-if="!blocksDismiss"
           variant="outline"
           :disabled="installing"
           @click="dismissUpdatePrompt"
@@ -177,18 +272,22 @@ onBeforeUnmount(() => {
           稍后
         </Button>
         <Button
-          :disabled="installing || checking"
-          @click="installDesktopUpdate"
+          :disabled="installing || isChecking || !canRunPrimaryAction"
+          @click="handlePrimaryAction"
         >
           <Loader2
             v-if="installing"
             class="h-4 w-4 animate-spin"
           />
+          <ExternalLink
+            v-else-if="activeClientUpdate"
+            class="h-4 w-4"
+          />
           <Download
             v-else
             class="h-4 w-4"
           />
-          {{ installing ? '安装中...' : '下载并安装' }}
+          {{ activeClientUpdate ? '下载更新' : (installing ? '安装中...' : '下载并安装') }}
         </Button>
       </DialogFooter>
     </DialogContent>

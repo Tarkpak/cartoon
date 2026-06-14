@@ -5,9 +5,12 @@ import { useCloudAdmin } from '@/composables/useCloudAdmin'
 const router = useRouter()
 const route = useRoute()
 const { login, loadStatus, loading, error } = useCloudAdmin()
+const DEFAULT_CLOUD_ADMIN_BASE_URL = import.meta.env.DEV
+  ? 'http://127.0.0.1:43200'
+  : 'https://admin.tempocc.cn'
 
 const form = reactive({
-  baseUrl: 'http://127.0.0.1:43200',
+  baseUrl: DEFAULT_CLOUD_ADMIN_BASE_URL,
   account: '',
   password: ''
 })
@@ -52,7 +55,7 @@ async function submit() {
           <label class="text-sm font-medium">后台地址</label>
           <Input
             v-model="form.baseUrl"
-            placeholder="http://127.0.0.1:43200"
+            :placeholder="DEFAULT_CLOUD_ADMIN_BASE_URL"
           />
         </div>
         <div class="space-y-2">

@@ -119,6 +119,12 @@ const menuIconPaths = {
     'M8 20h8',
     'M12 12v8'
   ],
+  versions: [
+    'M21 16v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4',
+    'M7 10l5 5 5-5',
+    'M12 15V3',
+    'M5 6h14'
+  ],
   logs: [
     'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z',
     'M14 2v6h6',
@@ -155,6 +161,7 @@ const menuOptions = [
   { label: '用户管理', key: '/users', icon: () => renderMenuIcon('users') },
   { label: '供应商 Key', key: '/providers', icon: () => renderMenuIcon('providers') },
   { label: '云端素材', key: '/tos-files', icon: () => renderMenuIcon('assets') },
+  { label: '客户端版本', key: '/client-versions', icon: () => renderMenuIcon('versions') },
   { label: '调用日志', key: '/logs', icon: () => renderMenuIcon('logs') },
   { label: '系统设置', key: '/settings', icon: () => renderMenuIcon('settings') }
 ]
@@ -163,6 +170,7 @@ const selectedKey = computed(() => {
   if (route.path.startsWith('/users')) return '/users'
   if (route.path.startsWith('/providers')) return '/providers'
   if (route.path.startsWith('/tos-files')) return '/tos-files'
+  if (route.path.startsWith('/client-versions')) return '/client-versions'
   if (route.path.startsWith('/logs')) return '/logs'
   if (route.path.startsWith('/settings')) return '/settings'
   return '/'
