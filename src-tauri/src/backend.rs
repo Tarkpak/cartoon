@@ -737,6 +737,16 @@ fn build_llm_transport_error_message(error: &reqwest::Error) -> String {
     error.to_string()
 }
 
+fn build_cloud_transport_error_message(error: &reqwest::Error) -> String {
+    if error.is_timeout() {
+        return format!("后台请求超时: {}", error);
+    }
+    if error.is_connect() {
+        return format!("后台服务连接失败: {}", error);
+    }
+    error.to_string()
+}
+
 fn normalize_cloud_base_url(value: &str) -> Result<String, ApiError> {
     let trimmed = value.trim().trim_end_matches('/');
     if trimmed.is_empty() {
@@ -918,7 +928,7 @@ async fn cloud_request_json(
             StatusCode::BAD_GATEWAY,
             format!(
                 "连接后台失败: {}",
-                build_llm_transport_error_message(&error)
+                build_cloud_transport_error_message(&error)
             ),
         )
     })?;
@@ -1063,7 +1073,7 @@ async fn cloud_request_secure_json(
             StatusCode::BAD_GATEWAY,
             format!(
                 "连接后台失败: {}",
-                build_llm_transport_error_message(&error)
+                build_cloud_transport_error_message(&error)
             ),
         )
     })?;
