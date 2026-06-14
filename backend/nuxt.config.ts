@@ -1,4 +1,5 @@
 export default defineNuxtConfig({
+  ssr: false,
   compatibilityDate: '2025-01-01',
   devtools: { enabled: false },
   css: ['~/assets/css/main.css'],
@@ -18,4 +19,3 @@ export default defineNuxtConfig({
     strict: true
   }
 })
-
