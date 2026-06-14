@@ -2,6 +2,13 @@ export default defineNuxtConfig({
   ssr: false,
   compatibilityDate: '2025-01-01',
   devtools: { enabled: false },
+  app: {
+    head: {
+      link: [
+        { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }
+      ]
+    }
+  },
   css: ['~/assets/css/main.css'],
   modules: [],
   runtimeConfig: {
