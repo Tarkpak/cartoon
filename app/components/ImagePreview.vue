@@ -25,8 +25,10 @@ const dragStart = reactive({
   x: 0,
   y: 0,
   translateX: 0,
-  translateY: 0
+  translateY: 0,
+  moved: false
 })
+const suppressNextFrameClick = ref(false)
 
 const minScale = 0.5
 const maxScale = 6
@@ -125,12 +127,16 @@ function handlePointerDown(event: PointerEvent) {
   dragStart.y = event.clientY
   dragStart.translateX = translate.x
   dragStart.translateY = translate.y
+  dragStart.moved = false
   const target = event.currentTarget as HTMLElement | null
   target?.setPointerCapture?.(event.pointerId)
 }
 
 function handlePointerMove(event: PointerEvent) {
   if (!dragging.value || event.pointerId !== dragStart.pointerId) return
+  if (Math.abs(event.clientX - dragStart.x) > 3 || Math.abs(event.clientY - dragStart.y) > 3) {
+    dragStart.moved = true
+  }
   translate.x = dragStart.translateX + event.clientX - dragStart.x
   translate.y = dragStart.translateY + event.clientY - dragStart.y
   clampTranslate()
@@ -140,12 +146,16 @@ function handlePointerUp(event: PointerEvent) {
   if (event.pointerId !== dragStart.pointerId) return
   const target = event.currentTarget as HTMLElement | null
   target?.releasePointerCapture?.(event.pointerId)
+  if (dragStart.moved) {
+    suppressNextFrameClick.value = true
+  }
   stopDragging()
 }
 
 function stopDragging() {
   dragging.value = false
   dragStart.pointerId = -1
+  dragStart.moved = false
 }
 
 function handleDoubleClick(event: MouseEvent) {
@@ -157,6 +167,16 @@ function handleDoubleClick(event: MouseEvent) {
     clientX: event.clientX,
     clientY: event.clientY
   })
+}
+
+function handleFrameClick(event: MouseEvent) {
+  if (suppressNextFrameClick.value) {
+    suppressNextFrameClick.value = false
+    return
+  }
+  if (event.target === event.currentTarget) {
+    close()
+  }
 }
 
 function download() {
@@ -286,7 +306,7 @@ onUnmounted(() => {
         <div
           ref="previewFrame"
           class="relative z-10 flex h-[90vh] w-[90vw] touch-none select-none items-center justify-center overflow-hidden"
-          @click.stop
+          @click="handleFrameClick"
           @wheel.prevent="handleWheel"
           @pointerdown.stop="handlePointerDown"
           @pointermove.stop="handlePointerMove"
@@ -300,6 +320,7 @@ onUnmounted(() => {
             class="max-h-full max-w-full object-contain will-change-transform"
             :style="imageStyle"
             draggable="false"
+            @click.stop
           >
         </div>
 
