@@ -63,8 +63,8 @@ function openLogDetail(item: AppLogEntry) {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <Card>
+  <div class="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
+    <Card class="shrink-0">
       <CardHeader class="gap-4 space-y-0 md:flex-row md:items-start md:justify-between">
         <div class="space-y-1.5">
           <CardTitle>系统日志</CardTitle>
@@ -186,100 +186,95 @@ function openLogDetail(item: AppLogEntry) {
       </CardContent>
     </Card>
 
-    <Card>
-      <CardHeader class="pb-3">
-        <CardTitle>日志列表（{{ logs.length }}）</CardTitle>
-      </CardHeader>
-      <CardContent class="p-0">
-        <div class="max-h-[72vh] overflow-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead class="whitespace-nowrap">
-                  时间
-                </TableHead>
-                <TableHead>
-                  级别
-                </TableHead>
-                <TableHead>
-                  来源
-                </TableHead>
-                <TableHead>
-                  类别
-                </TableHead>
-                <TableHead>
-                  路径
-                </TableHead>
-                <TableHead class="whitespace-nowrap">
-                  状态
-                </TableHead>
-                <TableHead>
-                  Request ID
-                </TableHead>
-                <TableHead>
-                  信息
-                </TableHead>
-              </TableRow>
-            </TableHeader>
+    <Card class="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <CardContent class="min-h-0 flex-1 p-0">
+        <Table container-class="h-full">
+          <TableHeader>
+            <TableRow>
+              <TableHead class="whitespace-nowrap">
+                时间
+              </TableHead>
+              <TableHead>
+                级别
+              </TableHead>
+              <TableHead>
+                来源
+              </TableHead>
+              <TableHead>
+                类别
+              </TableHead>
+              <TableHead>
+                路径
+              </TableHead>
+              <TableHead class="whitespace-nowrap">
+                状态
+              </TableHead>
+              <TableHead>
+                Request ID
+              </TableHead>
+              <TableHead>
+                信息
+              </TableHead>
+            </TableRow>
+          </TableHeader>
 
-            <TableBody v-if="logs.length > 0">
-              <TableRow
-                v-for="item in logs"
-                :key="item.id"
-                class="cursor-pointer"
-                :class="item.id === activeLogId && detailOpen ? 'bg-muted/60' : ''"
-                @click="openLogDetail(item)"
+          <TableBody v-if="logs.length > 0">
+            <TableRow
+              v-for="item in logs"
+              :key="item.id"
+              class="cursor-pointer"
+              :class="item.id === activeLogId && detailOpen ? 'bg-muted/60' : ''"
+              @click="openLogDetail(item)"
+            >
+              <TableCell class="whitespace-nowrap text-xs text-muted-foreground">
+                {{ formatDate(item.timestamp) }}
+              </TableCell>
+              <TableCell>
+                <Badge :variant="levelVariant(item.level)">
+                  {{ item.level }}
+                </Badge>
+              </TableCell>
+              <TableCell class="whitespace-nowrap">
+                {{ item.source }}
+              </TableCell>
+              <TableCell class="whitespace-nowrap">
+                {{ item.category }}
+              </TableCell>
+              <TableCell
+                class="max-w-[220px] truncate"
+                :title="item.path"
               >
-                <TableCell class="whitespace-nowrap text-xs text-muted-foreground">
-                  {{ formatDate(item.timestamp) }}
-                </TableCell>
-                <TableCell>
-                  <Badge :variant="levelVariant(item.level)">
-                    {{ item.level }}
-                  </Badge>
-                </TableCell>
-                <TableCell class="whitespace-nowrap">
-                  {{ item.source }}
-                </TableCell>
-                <TableCell class="whitespace-nowrap">
-                  {{ item.category }}
-                </TableCell>
-                <TableCell
-                  class="max-w-[220px] truncate"
-                  :title="item.path"
-                >
-                  {{ item.path || '-' }}
-                </TableCell>
-                <TableCell class="whitespace-nowrap">
-                  {{ item.status || '-' }}
-                </TableCell>
-                <TableCell
-                  class="max-w-[220px] truncate font-mono text-xs"
-                  :title="item.requestId"
-                >
-                  {{ item.requestId || '-' }}
-                </TableCell>
-                <TableCell
-                  class="max-w-[320px] truncate"
-                  :title="item.message"
-                >
-                  {{ item.message }}
-                </TableCell>
-              </TableRow>
-            </TableBody>
+                {{ item.path || '-' }}
+              </TableCell>
+              <TableCell class="whitespace-nowrap">
+                {{ item.status || '-' }}
+              </TableCell>
+              <TableCell
+                class="max-w-[220px] truncate font-mono text-xs"
+                :title="item.requestId"
+              >
+                {{ item.requestId || '-' }}
+              </TableCell>
+              <TableCell
+                class="max-w-[320px] truncate"
+                :title="item.message"
+              >
+                {{ item.message }}
+              </TableCell>
+            </TableRow>
+          </TableBody>
 
-            <TableBody v-else>
-              <TableRow>
-                <TableCell
-                  :colspan="8"
-                  class="h-24 text-center text-muted-foreground"
-                >
-                  暂无日志
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
+          <TableBody v-else>
+            <TableRow>
+              <TableCell
+                :colspan="8"
+                class="h-24 text-center text-muted-foreground"
+              >
+                暂无日志
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
       </CardContent>
     </Card>
 

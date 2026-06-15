@@ -295,18 +295,18 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full overflow-y-auto bg-background">
-    <div class="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
+  <div class="h-full min-h-0 overflow-hidden bg-background">
+    <div class="mx-auto flex h-full min-h-0 max-w-7xl flex-col gap-4 p-4 md:p-6">
       <div
         v-if="errorMessage"
-        class="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+        class="shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
       >
         {{ errorMessage }}
       </div>
 
       <div
         v-if="responseData"
-        class="grid gap-3 md:grid-cols-4"
+        class="shrink-0 grid gap-3 md:grid-cols-4"
       >
         <div class="rounded-lg border bg-card p-4">
           <p class="text-xs text-muted-foreground">
@@ -342,8 +342,8 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="overflow-hidden rounded-lg border bg-card">
-        <div class="flex items-center justify-between gap-3 border-b px-4 py-3">
+      <div class="min-h-0 flex-1 overflow-hidden rounded-lg border bg-card flex flex-col">
+        <div class="shrink-0 flex items-center justify-between gap-3 border-b px-4 py-3">
           <h2 class="text-sm font-medium">
             对象列表
           </h2>
@@ -363,7 +363,7 @@ onMounted(() => {
 
         <div
           v-if="loading && !responseData"
-          class="flex items-center justify-center py-16 text-sm text-muted-foreground"
+          class="flex min-h-0 flex-1 items-center justify-center py-16 text-sm text-muted-foreground"
         >
           <Loader2 class="mr-2 h-4 w-4 animate-spin" />
           加载 TOS 文件...
@@ -371,7 +371,7 @@ onMounted(() => {
 
         <div
           v-else-if="responseData && responseData.commonPrefixes.length === 0 && responseData.files.length === 0"
-          class="py-16 text-center text-sm text-muted-foreground"
+          class="flex min-h-0 flex-1 items-center justify-center py-16 text-center text-sm text-muted-foreground"
         >
           当前目录下没有文件
         </div>
@@ -379,6 +379,7 @@ onMounted(() => {
         <Table
           v-else
           class="table-fixed"
+          container-class="min-h-0 flex-1"
         >
           <colgroup>
             <col>
@@ -521,7 +522,7 @@ onMounted(() => {
 
         <div
           v-if="responseData"
-          class="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+          class="shrink-0 flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
         >
           <div class="text-xs text-muted-foreground">
             第 {{ currentPage }} 页 · 每页 {{ pageSizeNumber }} 条

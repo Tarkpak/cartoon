@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Loader2, Trash2, Video } from 'lucide-vue-next'
+import { cn } from '@/lib/utils'
 import {
   formatProjectDateTime,
   formatProjectRelativeTime,
@@ -12,6 +13,7 @@ import {
 } from '#shared/types/script'
 
 defineProps<{
+  class?: string
   projects: Project[]
   loading: boolean
   error: string | null
@@ -42,20 +44,23 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
 <template>
   <div
     v-if="loading"
-    class="flex items-center justify-center py-12"
+    :class="cn('flex items-center justify-center py-12', $props.class)"
   >
     <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
   </div>
 
   <div
     v-else-if="error"
-    class="py-12 text-center text-destructive"
+    :class="cn('py-12 text-center text-destructive', $props.class)"
   >
     {{ error }}
   </div>
 
-  <Card v-else>
-    <Table>
+  <Card
+    v-else
+    :class="cn('flex flex-col overflow-hidden', $props.class)"
+  >
+    <Table container-class="min-h-0 flex-1">
       <TableHeader>
         <TableRow>
           <TableHead class="w-[250px]">
@@ -186,7 +191,7 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
       </TableBody>
     </Table>
 
-    <div class="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <div class="shrink-0 flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="text-xs text-muted-foreground">
         第 {{ currentPage }} / {{ totalPages }} 页，共 {{ totalProjects }} 条
       </div>

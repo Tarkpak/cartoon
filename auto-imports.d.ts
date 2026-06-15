@@ -102,6 +102,7 @@ declare global {
   const useAssetWorkflowMeta: typeof import('./app/composables/useAssetWorkflowMeta')['useAssetWorkflowMeta']
   const useAttrs: typeof import('vue')['useAttrs']
   const useCharacter: typeof import('./app/composables/useCharacter')['useCharacter']
+  const useClientUpdateCheck: typeof import('./app/composables/useClientUpdateCheck')['useClientUpdateCheck']
   const useCloudAdmin: typeof import('./app/composables/useCloudAdmin')['useCloudAdmin']
   const useCompletionNotificationSettings: typeof import('./app/composables/useCompletionNotificationSettings')['useCompletionNotificationSettings']
   const useConfirm: typeof import('./app/composables/useConfirm')['useConfirm']
@@ -163,6 +164,9 @@ declare global {
   // @ts-ignore
   export type { GenerateCharacterOptions } from './app/composables/useCharacter'
   import('./app/composables/useCharacter')
+  // @ts-ignore
+  export type { ClientUpdateInfo } from './app/composables/useClientUpdateCheck'
+  import('./app/composables/useClientUpdateCheck')
   // @ts-ignore
   export type { ConfirmOptions } from './app/composables/useConfirm'
   import('./app/composables/useConfirm')
@@ -293,6 +297,7 @@ declare module 'vue' {
     readonly useAssetWorkflowMeta: UnwrapRef<typeof import('./app/composables/useAssetWorkflowMeta')['useAssetWorkflowMeta']>
     readonly useAttrs: UnwrapRef<typeof import('vue')['useAttrs']>
     readonly useCharacter: UnwrapRef<typeof import('./app/composables/useCharacter')['useCharacter']>
+    readonly useClientUpdateCheck: UnwrapRef<typeof import('./app/composables/useClientUpdateCheck')['useClientUpdateCheck']>
     readonly useCloudAdmin: UnwrapRef<typeof import('./app/composables/useCloudAdmin')['useCloudAdmin']>
     readonly useCompletionNotificationSettings: UnwrapRef<typeof import('./app/composables/useCompletionNotificationSettings')['useCompletionNotificationSettings']>
     readonly useConfirm: UnwrapRef<typeof import('./app/composables/useConfirm')['useConfirm']>

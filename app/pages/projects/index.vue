@@ -53,8 +53,9 @@ const aspectRatioOptions = projectAspectRatioOptions
 </script>
 
 <template>
-  <div class="p-4 md:p-6">
+  <div class="flex h-full min-h-0 flex-col overflow-hidden p-4 md:p-6">
     <ProjectsFiltersBar
+      class="shrink-0"
       v-model:search-keyword="searchKeyword"
       v-model:status-filter="statusFilter"
       v-model:sort-by="sortBy"
@@ -73,6 +74,7 @@ const aspectRatioOptions = projectAspectRatioOptions
     </ProjectsFiltersBar>
 
     <ProjectsTable
+      class="min-h-0 flex-1"
       :projects="projects"
       :loading="loading"
       :error="error"

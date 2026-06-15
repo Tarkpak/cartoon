@@ -40,8 +40,9 @@ watch(() => props.initialRequestId, (value) => {
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
     <ModelLogsFilters
+      class="shrink-0"
       v-model:auto-refresh="autoRefresh"
       v-model:keyword="filters.keyword"
       v-model:limit="filters.limit"
@@ -68,6 +69,7 @@ watch(() => props.initialRequestId, (value) => {
     </ModelLogsFilters>
 
     <ModelLogsTable
+      class="min-h-0 flex-1"
       :active-log-id="activeLogId"
       :detail-open="detailOpen"
       :format-date="formatDate"

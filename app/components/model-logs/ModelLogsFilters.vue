@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { ChevronDown, Loader2, RefreshCw, Trash2 } from 'lucide-vue-next'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
@@ -34,6 +34,8 @@ const emit = defineEmits<{
   (e: 'refresh' | 'clear'): void
 }>()
 
+const filtersOpen = ref(false)
+
 function normalizeSelectValue(value: string) {
   return value === props.allFilterValue ? '' : value
 }
@@ -46,9 +48,29 @@ function normalizeSelectValue(value: string) {
         <CardTitle>模型调用日志</CardTitle>
         <CardDescription>用于定位模型调用问题：可查看请求参数、返回结果、耗时与错误信息</CardDescription>
       </div>
-      <slot name="tabs" />
+      <div class="flex flex-wrap items-center gap-2">
+        <slot name="tabs" />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          class="h-8 gap-1.5"
+          :aria-expanded="filtersOpen"
+          :aria-label="filtersOpen ? '收起筛选条件' : '展开筛选条件'"
+          @click="filtersOpen = !filtersOpen"
+        >
+          <ChevronDown
+            class="h-4 w-4 transition-transform"
+            :class="{ 'rotate-180': filtersOpen }"
+          />
+          {{ filtersOpen ? '收起' : '筛选' }}
+        </Button>
+      </div>
     </CardHeader>
-    <CardContent class="space-y-4">
+    <CardContent
+      v-if="filtersOpen"
+      class="space-y-4"
+    >
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
         <Select
           :model-value="provider || props.allFilterValue"

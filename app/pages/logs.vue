@@ -36,7 +36,7 @@ function selectTab(tab: LogsTab) {
 </script>
 
 <template>
-  <div class="min-h-screen bg-background p-4 md:p-6">
+  <div class="flex h-full min-h-0 flex-col overflow-hidden bg-background p-4 md:p-6">
     <AppLogsPanel
       v-if="activeTab === 'system'"
       :initial-request-id="requestIdFilter"
