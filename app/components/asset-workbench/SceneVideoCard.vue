@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { resolveTimeOfDayText } from '#shared/types/script'
 import { History, Loader2, Merge, MessageCircle, Split, Trash2 } from 'lucide-vue-next'
+import LazyImage from '~/components/LazyImage.vue'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
   DisplayAsset,
@@ -11,7 +12,6 @@ import type {
   SceneVideoBadge,
   SceneVoiceReferenceSummary
 } from '~/lib/asset-workbench-types'
-import { toImageSrc } from '~/lib/media'
 
 const props = defineProps<{
   scene: SceneData
@@ -254,11 +254,11 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
           class="mx-0.5 inline-flex h-7 max-w-[140px] items-center gap-1 rounded border bg-muted/30 px-1 align-middle"
           @click.stop="onPreviewImage(segment.asset.referenceImage, `${scene.title} · ${segment.asset.name}`)"
         >
-          <img
-            :src="toImageSrc(segment.asset.referenceImage)"
+          <LazyImage
+            :image="segment.asset.referenceImage"
             :alt="`${segment.asset.name} 参考图`"
             class="h-5 w-5 rounded border object-cover"
-          >
+          />
           <span class="truncate text-xs">
             {{ segment.asset.name }}
           </span>
@@ -290,11 +290,11 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
           class="h-8 max-w-[180px] gap-1 rounded border bg-muted/30 px-1.5"
           @click.stop="onPreviewImage(mention.asset.referenceImage, `${scene.title} · ${mention.asset.name}`)"
         >
-          <img
-            :src="toImageSrc(mention.asset.referenceImage)"
+          <LazyImage
+            :image="mention.asset.referenceImage"
             :alt="`${mention.asset.name} 参考图`"
             class="h-6 w-6 rounded border object-cover"
-          >
+          />
           <span class="truncate text-xs">
             {{ mention.asset.name }}
           </span>
@@ -385,12 +385,12 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       class="mt-3 inline-flex h-auto rounded-lg border bg-muted/20 p-2 hover:bg-muted/30"
       @click.stop="onPreviewImage(activeModeReferenceImage, `${scene.title} · 环境图`)"
     >
-      <img
+      <LazyImage
         :key="activeModeReferenceImage"
-        :src="toImageSrc(activeModeReferenceImage)"
+        :image="activeModeReferenceImage"
         :alt="`${scene.title} 环境图`"
         class="h-12 w-12 shrink-0 rounded-md border object-cover"
-      >
+      />
     </Button>
 
     <div
@@ -418,12 +418,12 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
             :value="asset.id"
           >
             <div class="flex items-center gap-2">
-              <img
+              <LazyImage
                 v-if="asset.previewImage"
-                :src="toImageSrc(asset.previewImage)"
+                :image="asset.previewImage"
                 :alt="`${asset.label} 预览`"
                 class="h-5 w-5 rounded border object-cover"
-              >
+              />
               <span class="truncate">
                 {{ asset.label }}{{ asset.hasReference ? '' : '（未就绪）' }}
               </span>

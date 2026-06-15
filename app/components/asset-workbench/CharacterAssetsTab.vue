@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { AudioLines, History, Loader2, Lock, Pencil, Plus, Sparkles, Upload, User } from 'lucide-vue-next'
+import LazyImage from '~/components/LazyImage.vue'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
 import type { CharacterRoleOption } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId, resolveCharacterRoleLabel } from '~/lib/asset-workbench-types'
-import { toImageSrc } from '~/lib/media'
 
 const props = defineProps<{
   characters: CharacterData[]
@@ -159,13 +159,13 @@ function resolveVariantCount(char: CharacterData): number {
       <div class="flex items-start gap-3 p-3">
         <!-- Avatar -->
         <div class="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted/40">
-          <img
+          <LazyImage
             v-if="char.baseImage"
-            :src="toImageSrc(char.baseImage)"
+            :image="char.baseImage"
             :alt="`${char.name} 角色图`"
             class="h-full w-full cursor-zoom-in object-cover transition-transform hover:scale-105"
             @click="emit('preview-image', { src: char.baseImage, alt: `${char.name} 角色图` })"
-          >
+          />
           <User
             v-else
             class="h-8 w-8 text-muted-foreground/40"

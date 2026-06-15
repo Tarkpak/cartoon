@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Loader2, Sparkles, Upload, X } from 'lucide-vue-next'
+import LazyImage from '~/components/LazyImage.vue'
 import type { DisplayAsset, SceneChatMentionCandidate, SceneChatMessage } from '~/lib/asset-workbench-types'
-import { toImageSrc } from '~/lib/media'
 
 const props = defineProps<{
   sceneId: string
@@ -108,11 +108,11 @@ function triggerUpload() {
                 class="h-7 max-w-[140px] gap-1 rounded border bg-background px-1.5"
                 @click.stop="onPreviewImage(resolveMessageAsset(assetId)?.referenceImage, resolveMessageAsset(assetId)?.name || '上传资产')"
               >
-                <img
-                  :src="toImageSrc(resolveMessageAsset(assetId)?.referenceImage)"
+                <LazyImage
+                  :image="resolveMessageAsset(assetId)?.referenceImage"
                   :alt="resolveMessageAsset(assetId)?.name || '上传资产'"
                   class="h-5 w-5 rounded border object-cover"
-                >
+                />
                 <span class="truncate text-xs">
                   {{ resolveMessageAsset(assetId)?.name || assetId }}
                 </span>
@@ -184,12 +184,12 @@ function triggerUpload() {
           :class="mentionIndex === mentionActiveIndex ? 'bg-accent' : 'hover:bg-accent/60'"
           @mousedown.prevent="onApplyMention(item)"
         >
-          <img
+          <LazyImage
             v-if="item.asset.referenceImage"
-            :src="toImageSrc(item.asset.referenceImage)"
+            :image="item.asset.referenceImage"
             :alt="item.asset.name"
             class="h-5 w-5 rounded border object-cover"
-          >
+          />
           <span
             v-else
             class="inline-flex h-5 w-5 items-center justify-center rounded border text-xs"

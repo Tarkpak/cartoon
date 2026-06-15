@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { toImageSrc } from '~/lib/media'
+import LazyImage from '~/components/LazyImage.vue'
 import type { AssetReferenceOption } from '~/lib/scene-edit-dialog'
 import { resolveAssetTypeLabel } from '~/lib/scene-edit-dialog'
 
@@ -44,12 +44,12 @@ const secondaryText = computed(() => {
     @dragstart="emit('drag-start', asset.id, $event)"
     @dragend="emit('drag-end')"
   >
-    <img
+    <LazyImage
       v-if="asset.referenceImage"
-      :src="toImageSrc(asset.referenceImage)"
+      :image="asset.referenceImage"
       :alt="`${asset.name} 参考图`"
       class="h-8 w-8 rounded border object-cover"
-    >
+    />
     <div
       v-else
       class="flex h-8 w-8 items-center justify-center rounded border bg-muted/30 text-xs text-muted-foreground"

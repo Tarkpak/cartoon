@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { Check, Eye, Loader2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
+import LazyImage from '~/components/LazyImage.vue'
 import type { AssetImageHistoryEntry, EnvironmentCropCaptureMode } from '~/lib/asset-workbench-types'
-import { toImageSrc } from '~/lib/media'
 
 const props = defineProps<{
   open: boolean
@@ -211,11 +211,11 @@ watch(
             @click="selectPreviewEntry(entry)"
           >
             <div class="relative h-14 w-24 shrink-0 overflow-hidden rounded-md bg-muted/30">
-              <img
-                :src="toImageSrc(entry.image)"
+              <LazyImage
+                :image="entry.image"
                 :alt="`${targetLabel} 历史资产`"
                 class="h-full w-full object-cover"
-              >
+              />
               <span class="absolute left-1 top-1 rounded border bg-background/90 px-1 py-0.5 text-xs text-muted-foreground">
                 #{{ displayedEntries.length - index }}
               </span>
@@ -259,11 +259,11 @@ watch(
             ]"
             @click="emit('preview', { src: selectedEntry.image, alt: `${targetLabel} 历史资产` })"
           >
-            <img
-              :src="toImageSrc(selectedEntry.image)"
+            <LazyImage
+              :image="selectedEntry.image"
               :alt="`${targetLabel} 历史资产`"
               class="block h-full w-full object-contain"
-            >
+            />
           </Button>
 
           <div class="space-y-2 px-3 py-2.5">
@@ -338,11 +338,11 @@ watch(
             ]"
             @click="emit('preview', { src: entry.image, alt: `${targetLabel} 历史资产` })"
           >
-            <img
-              :src="toImageSrc(entry.image)"
+            <LazyImage
+              :image="entry.image"
               :alt="`${targetLabel} 历史资产`"
               class="h-full w-full object-cover"
-            >
+            />
           </Button>
 
           <div class="space-y-2 px-3 py-2.5">

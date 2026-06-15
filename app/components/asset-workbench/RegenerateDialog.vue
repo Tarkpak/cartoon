@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Loader2 } from 'lucide-vue-next'
+import LazyImage from '~/components/LazyImage.vue'
 import type { SceneChatMentionCandidate, DisplayAsset } from '~/lib/asset-workbench-types'
 import {
   applySceneChatMentionToText,
@@ -7,7 +8,6 @@ import {
   resolveSceneChatMentionState,
   resolveSceneChatTextareaElement
 } from '~/lib/asset-workbench-scene-chat'
-import { toImageSrc } from '~/lib/media'
 
 const props = defineProps<{
   open: boolean
@@ -250,12 +250,12 @@ function handlePromptKeydown(event: KeyboardEvent) {
               :class="mentionIndex === mentionActiveIndex ? 'bg-accent' : 'hover:bg-accent/60'"
               @mousedown.prevent="applyMention(item)"
             >
-              <img
+              <LazyImage
                 v-if="item.asset.referenceImage"
-                :src="toImageSrc(item.asset.referenceImage)"
+                :image="item.asset.referenceImage"
                 :alt="item.asset.name"
                 class="h-5 w-5 rounded border object-cover"
-              >
+              />
               <span
                 v-else
                 class="inline-flex h-5 w-5 items-center justify-center rounded border text-xs"

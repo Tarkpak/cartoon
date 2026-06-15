@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ArrowRight, History, Image, Loader2, Pencil, RefreshCw, ScanSearch, Sparkles, Upload } from 'lucide-vue-next'
+import LazyImage from '~/components/LazyImage.vue'
 import type { EnvironmentAssetCard, EnvironmentCropCaptureMode } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { resolveEnvironmentViewImageForCard } from '~/lib/asset-workbench-environment-views'
-import { toImageSrc } from '~/lib/media'
 
 const props = defineProps<{
   environmentAssetCards: EnvironmentAssetCard[]
@@ -133,12 +133,12 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
                   alt: `${asset.name} - ${resolveEnvironmentViewLabel(viewMode)}`
                 })"
               >
-                <img
+                <LazyImage
                   v-if="resolveEnvironmentViewImage(asset, viewMode)"
-                  :src="toImageSrc(resolveEnvironmentViewImage(asset, viewMode))"
+                  :image="resolveEnvironmentViewImage(asset, viewMode)"
                   :alt="`${asset.name} ${resolveEnvironmentViewLabel(viewMode)}`"
                   class="h-full w-full object-cover"
-                >
+                />
                 <div
                   v-else
                   class="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground/45"

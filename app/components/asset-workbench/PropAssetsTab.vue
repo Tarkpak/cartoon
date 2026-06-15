@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { AudioLines, History, Loader2, Lock, Package, Plus, Sparkles, Trash2, Upload } from 'lucide-vue-next'
+import LazyImage from '~/components/LazyImage.vue'
 import type {
   PropAsset,
   PropAssetCategory,
   PropAssetMediaType
 } from '~/composables/useAssetWorkflowMeta'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
-import { toImageSrc } from '~/lib/media'
 
 type OtherAssetMediaSubTab = 'image' | 'voice'
 const OTHER_ASSET_VOICE_HINT_REGEX = /(旁白|画外音|voiceover|narration|音色|声线|配音|旁述)/iu
@@ -346,13 +346,13 @@ function buildImageLoadKey(prop: PropAsset): string {
             :class="prop.referenceImage ? 'cursor-zoom-in' : ''"
             @click="prop.referenceImage && emit('preview-image', { src: prop.referenceImage, alt: `${prop.name} 参考图` })"
           >
-            <img
+            <LazyImage
               v-if="prop.referenceImage && !hasImageLoadFailed(prop.id)"
-              :src="toImageSrc(prop.referenceImage)"
+              :image="prop.referenceImage"
               :alt="`${prop.name} 参考图`"
               class="h-full w-full object-cover"
               @error="markImageLoadFailed(prop.id)"
-            >
+            />
             <div
               v-else-if="prop.referenceImage"
               class="flex h-full w-full flex-col items-center justify-center gap-1 px-1 text-center"
