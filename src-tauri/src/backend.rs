@@ -774,8 +774,11 @@ fn should_use_default_cloud_admin_base_url(value: &str) -> bool {
     if normalized.is_empty() {
         return true;
     }
-    !cfg!(debug_assertions)
-        && (normalized == DEV_CLOUD_ADMIN_BASE_URL || normalized == "http://localhost:43200")
+    if cfg!(debug_assertions) {
+        normalized == PROD_CLOUD_ADMIN_BASE_URL
+    } else {
+        normalized == DEV_CLOUD_ADMIN_BASE_URL || normalized == "http://localhost:43200"
+    }
 }
 
 fn cloud_config(conn: &Connection) -> Value {

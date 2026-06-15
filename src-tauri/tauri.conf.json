@@ -6,6 +6,7 @@
   "mainBinaryName": "playlet-desktop",
   "build": {
     "frontendDist": "../.output/public",
+    "devUrl": "http://localhost:3000",
     "beforeBuildCommand": "bun run build:desktop"
   },
   "app": {

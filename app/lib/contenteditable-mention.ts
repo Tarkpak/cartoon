@@ -40,12 +40,14 @@ interface RenderContentEditableTextWithMatchesOptions {
 
 interface ResolveAtMentionStateOptions {
   maxQueryLength: number
+  triggerChars?: string[]
   invalidQueryPattern?: RegExp
   invalidPrefixPattern?: RegExp
 }
 
 const DEFAULT_INVALID_QUERY_PATTERN = /[\s\r\n]/
 const DEFAULT_INVALID_PREFIX_PATTERN = /[a-zA-Z0-9_]/
+const DEFAULT_TRIGGER_CHARS = ['@', '＠']
 
 function resolveMentionToken(element: HTMLElement, mentionDatasetKeys: string[]) {
   for (const key of mentionDatasetKeys) {
@@ -268,7 +270,10 @@ export function resolveAtMentionState(
   options: ResolveAtMentionStateOptions
 ): AtMentionState {
   const beforeCaret = text.slice(0, caret)
-  const atIndex = beforeCaret.lastIndexOf('@')
+  const triggerChars = options.triggerChars?.length
+    ? options.triggerChars
+    : DEFAULT_TRIGGER_CHARS
+  const atIndex = Math.max(...triggerChars.map(char => beforeCaret.lastIndexOf(char)))
   if (atIndex < 0) {
     return {
       open: false,

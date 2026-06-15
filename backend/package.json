@@ -4,17 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bunx --bun nuxt dev --host 127.0.0.1 --port 43200",
-    "build": "bunx --bun nuxt build --preset bun",
-    "preview": "bunx --bun nuxt preview --host 127.0.0.1 --port 43200",
+    "dev": "bun --bun ./node_modules/nuxt/bin/nuxt.mjs dev --host 127.0.0.1 --port 43200",
+    "build": "bun --bun ./node_modules/nuxt/bin/nuxt.mjs build --preset bun",
+    "preview": "bun --bun ./node_modules/nuxt/bin/nuxt.mjs preview --host 127.0.0.1 --port 43200",
     "deploy:pm2": "./scripts/deploy-pm2.sh",
-    "typecheck": "bunx --bun nuxt typecheck"
+    "typecheck": "bun --bun ./node_modules/nuxt/bin/nuxt.mjs typecheck"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "^5.2.4",
     "fast-xml-parser": "^4.5.0",
     "naive-ui": "^2.41.0",
-    "nuxt": "^3.15.4",
+    "nuxt": "3.20.1",
     "vue": "^3.5.25"
   },
   "devDependencies": {

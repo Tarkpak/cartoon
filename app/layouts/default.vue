@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Moon, Sun, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck } from 'lucide-vue-next'
+import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 
 const route = useRoute()
@@ -76,10 +76,20 @@ const hideSidebar = computed(() => route.meta.hideSidebar === true)
 // 是否显示页脚（设置页与自动工作台不显示）
 const showFooter = computed(() => !['/settings', '/asset-workbench'].includes(route.path))
 const visualSidebarCollapsed = computed(() => isCollapsed.value || isNarrowSidebar.value)
+const themeIconDark = ref(false)
+let themeIconTimer: number | null = null
+
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (updateCallback: () => void) => {
+    ready: Promise<void>
+    finished: Promise<void>
+  }
+}
 
 // 初始化主题
 onMounted(() => {
   initTheme()
+  themeIconDark.value = isDark.value
   void loadStatus()
 
   if (typeof window === 'undefined') return
@@ -106,61 +116,143 @@ watch(isCollapsed, (value) => {
 })
 
 onUnmounted(() => {
-  if (!sidebarMediaQuery || !syncNarrowSidebar) return
-  sidebarMediaQuery.removeEventListener('change', syncNarrowSidebar)
+  if (sidebarMediaQuery && syncNarrowSidebar) {
+    sidebarMediaQuery.removeEventListener('change', syncNarrowSidebar)
+  }
+  if (themeIconTimer !== null) {
+    window.clearTimeout(themeIconTimer)
+    themeIconTimer = null
+  }
 })
 
 async function handleCloudLogout() {
   await cloudLogout()
   await router.push('/login')
 }
+
+function shouldReduceMotion(): boolean {
+  if (typeof window === 'undefined') return true
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+function runThemeViewTransition(x: number, y: number, endRadius: number) {
+  const viewTransitionDocument = document as ViewTransitionDocument
+
+  try {
+    const transition = viewTransitionDocument.startViewTransition?.(() => {
+      toggleTheme()
+    })
+
+    if (!transition) {
+      toggleTheme()
+      themeIconDark.value = isDark.value
+      themeIconTimer = null
+      return
+    }
+
+    void transition.ready.then(() => {
+      document.documentElement.animate(
+        {
+          clipPath: [
+            `circle(0px at ${x}px ${y}px)`,
+            `circle(${endRadius}px at ${x}px ${y}px)`
+          ]
+        },
+        {
+          duration: 520,
+          easing: 'cubic-bezier(0.2, 0, 0, 1)',
+          pseudoElement: '::view-transition-new(root)'
+        }
+      )
+    }).catch(() => {
+      // Theme has already been applied by the view transition callback.
+    }).finally(() => {
+      themeIconDark.value = isDark.value
+      themeIconTimer = null
+    })
+  } catch {
+    toggleTheme()
+    themeIconDark.value = isDark.value
+    themeIconTimer = null
+  }
+}
+
+function handleThemeToggle(event: MouseEvent) {
+  const nextIconDark = !isDark.value
+  themeIconDark.value = nextIconDark
+  if (themeIconTimer !== null) {
+    window.clearTimeout(themeIconTimer)
+    themeIconTimer = null
+  }
+
+  if (typeof document === 'undefined' || typeof window === 'undefined' || shouldReduceMotion()) {
+    toggleTheme()
+    themeIconDark.value = isDark.value
+    return
+  }
+
+  const viewTransitionDocument = document as ViewTransitionDocument
+  if (!viewTransitionDocument.startViewTransition) {
+    themeIconTimer = window.setTimeout(() => {
+      toggleTheme()
+      themeIconDark.value = isDark.value
+      themeIconTimer = null
+    }, 220)
+    return
+  }
+
+  const trigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  const rect = trigger?.getBoundingClientRect()
+  const x = rect ? rect.left + rect.width / 2 : event.clientX
+  const y = rect ? rect.top + rect.height / 2 : event.clientY
+  const endRadius = Math.hypot(
+    Math.max(x, window.innerWidth - x),
+    Math.max(y, window.innerHeight - y)
+  )
+
+  themeIconTimer = window.setTimeout(() => {
+    runThemeViewTransition(x, y, endRadius)
+  }, 180)
+}
 </script>
 
 <template>
-  <div class="flex h-screen bg-background transition-colors duration-300">
+  <div class="theme-page-surface flex h-screen bg-background">
     <!-- 左侧菜单栏 -->
     <aside
       v-if="!hideSidebar"
-      class="bg-card border-r flex flex-col transition-all duration-300 relative"
-      :class="visualSidebarCollapsed ? 'w-20' : 'w-56'"
+      class="theme-surface relative flex flex-col border-r bg-card transition-[width,background-color,border-color,box-shadow] duration-300 ease-out"
+      :class="visualSidebarCollapsed ? 'w-16' : 'w-56'"
     >
-      <!-- 折叠按钮 - 使用双箭头图标避免与返回按钮混淆 -->
-      <Button
+      <!-- Logo with collapse toggle -->
+      <button
         type="button"
-        variant="ghost"
-        size="icon"
-        class="absolute -right-3 top-20 w-6 h-6 bg-muted border rounded-full flex items-center justify-center shadow-sm hover:bg-accent transition z-10"
+        class="theme-surface group h-16 flex items-center border-b transition-colors hover:bg-accent/50"
+        :class="visualSidebarCollapsed ? 'justify-center px-2' : 'justify-between px-6'"
         :title="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
         :aria-label="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
         @click="isCollapsed = !isCollapsed"
       >
-        <ChevronsLeft
-          v-if="!visualSidebarCollapsed"
-          class="h-3.5 w-3.5 text-muted-foreground"
-        />
-        <ChevronsRight
-          v-else
-          class="h-3.5 w-3.5 text-muted-foreground"
-        />
-      </Button>
-
-      <!-- Logo -->
-      <div
-        class="h-16 flex items-center border-b"
-        :class="visualSidebarCollapsed ? 'justify-center px-2' : 'px-6'"
-      >
-        <NuxtLink
-          to="/"
-          class="font-bold text-foreground flex items-center"
-          :class="visualSidebarCollapsed ? 'text-xl' : 'text-2xl'"
-        >
+        <div class="font-bold text-foreground flex items-center" :class="visualSidebarCollapsed ? 'text-xl' : 'text-2xl'">
           <Clapperboard class="w-6 h-6 text-primary" />
           <span
             v-if="!visualSidebarCollapsed"
             class="ml-1"
           >playlet</span>
-        </NuxtLink>
-      </div>
+        </div>
+        <div
+          v-if="!visualSidebarCollapsed"
+          class="opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <ChevronsLeft class="h-4 w-4 text-muted-foreground" />
+        </div>
+        <div
+          v-else
+          class="opacity-0 group-hover:opacity-100 transition-opacity absolute"
+        >
+          <ChevronsRight class="h-4 w-4 text-muted-foreground" />
+        </div>
+      </button>
 
       <!-- 导航菜单 -->
       <nav class="flex-1 p-4 space-y-1">
@@ -171,7 +263,7 @@ async function handleCloudLogout() {
         >
           <NuxtLink
             :to="item.path"
-            class="flex items-center rounded-md transition-colors duration-200"
+            class="theme-content flex items-center rounded-md transition-colors duration-200"
             :class="[
               visualSidebarCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5',
               activeStates[index]
@@ -195,7 +287,7 @@ async function handleCloudLogout() {
               v-for="sub in settingsSubNavigation"
               :key="sub.section"
               :to="getSettingsSubRoute(sub)"
-              class="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
+              class="theme-content flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
               :class="isSettingsSubActive(sub)
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
@@ -210,13 +302,13 @@ async function handleCloudLogout() {
 
           <div
             v-if="item.path === '/settings' && visualSidebarCollapsed"
-            class="absolute left-full top-0 z-30 w-48 rounded-md border bg-popover p-1 shadow-md opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
+            class="theme-surface absolute left-full top-0 z-30 w-48 rounded-md border bg-popover p-1 shadow-md opacity-0 pointer-events-none transition-[background-color,border-color,box-shadow,opacity] duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
           >
             <NuxtLink
               v-for="sub in settingsSubNavigation"
               :key="`collapsed-${sub.section}`"
               :to="getSettingsSubRoute(sub)"
-              class="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
+              class="theme-content flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
               :class="isSettingsSubActive(sub)
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
@@ -232,55 +324,68 @@ async function handleCloudLogout() {
       </nav>
 
       <div
-        v-if="authenticated"
-        class="pb-2"
+        class="pb-4"
         :class="visualSidebarCollapsed ? 'px-2' : 'px-4'"
       >
         <div
-          class="flex items-center rounded-md border bg-background/60 p-2 text-xs"
-          :class="visualSidebarCollapsed ? 'justify-center gap-1' : 'justify-center gap-2'"
+          class="theme-surface rounded-md border bg-background/60 p-1"
+          :class="visualSidebarCollapsed ? 'grid gap-1' : 'flex items-center gap-1'"
         >
+          <template v-if="authenticated">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              class="theme-content h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+              :title="currentUser?.displayName || currentUser?.account || '已登录'"
+              :aria-label="currentUser?.displayName || currentUser?.account || '已登录'"
+            >
+              <UserCheck class="h-4 w-4 text-primary" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              class="theme-content h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+              title="退出后台"
+              aria-label="退出后台"
+              @click="handleCloudLogout"
+            >
+              <LogOut class="h-4 w-4" />
+            </Button>
+          </template>
+
           <div
-            class="flex h-7 w-7 items-center justify-center text-foreground"
-            :title="currentUser?.displayName || currentUser?.account || '已登录'"
-          >
-            <UserCheck class="h-4 w-4 shrink-0 text-primary" />
-          </div>
+            v-if="!visualSidebarCollapsed"
+            class="flex-1"
+          />
+
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            class="h-7 w-7 shrink-0"
-            title="退出后台"
-            aria-label="退出后台"
-            @click="handleCloudLogout"
+            class="theme-content relative h-8 w-8 shrink-0 overflow-hidden rounded-md text-muted-foreground hover:text-foreground"
+            :title="isDark ? '浅色模式' : '深色模式'"
+            :aria-label="isDark ? '切换到浅色模式' : '切换到深色模式'"
+            @click="handleThemeToggle"
           >
-            <LogOut class="h-3.5 w-3.5" />
+            <span
+              class="theme-morph-icon"
+              :class="{ 'is-dark': themeIconDark }"
+              aria-hidden="true"
+            >
+              <span class="theme-morph-orb">
+                <span class="theme-morph-cutout" />
+              </span>
+              <span
+                v-for="ray in 8"
+                :key="ray"
+                class="theme-morph-ray"
+                :style="{ '--ray-index': ray - 1 }"
+              />
+            </span>
           </Button>
         </div>
-      </div>
-
-      <!-- 主题切换 -->
-      <div class="px-4 pb-4">
-        <Button
-          type="button"
-          variant="ghost"
-          class="w-full flex items-center rounded-md transition-colors duration-200 text-muted-foreground hover:bg-accent hover:text-foreground"
-          :class="visualSidebarCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5'"
-          :title="visualSidebarCollapsed ? (isDark ? '浅色模式' : '深色模式') : undefined"
-          :aria-label="isDark ? '切换到浅色模式' : '切换到深色模式'"
-          @click="toggleTheme"
-        >
-          <Moon
-            v-if="!isDark"
-            class="w-5 h-5 flex-shrink-0"
-          />
-          <Sun
-            v-else
-            class="w-5 h-5 flex-shrink-0"
-          />
-          <span v-if="!visualSidebarCollapsed">{{ isDark ? '浅色模式' : '深色模式' }}</span>
-        </Button>
       </div>
     </aside>
 
@@ -296,7 +401,7 @@ async function handleCloudLogout() {
       <!-- 页脚 - 设置页面不显示 -->
       <footer
         v-if="showFooter"
-        class="flex-shrink-0 px-8 py-6 border-t bg-card/50"
+        class="theme-surface flex-shrink-0 px-8 py-6 border-t bg-card/50"
       >
         <div class="flex items-center justify-between text-sm text-muted-foreground">
           <span>© {{ currentYear }} playlet</span>

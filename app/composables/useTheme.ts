@@ -16,11 +16,11 @@ export function useTheme() {
 
   function updateDOM() {
     if (import.meta.client) {
-      if (colorMode.value === 'dark') {
-        document.documentElement.classList.add('dark')
-      } else {
-        document.documentElement.classList.remove('dark')
-      }
+      const root = document.documentElement
+      root.classList.toggle('dark', colorMode.value === 'dark')
+      root.dataset.theme = colorMode.value
+      root.style.colorScheme = colorMode.value
+      root.classList.add('theme-ready')
       localStorage.setItem('theme', colorMode.value)
     }
   }

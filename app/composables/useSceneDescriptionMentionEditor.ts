@@ -27,7 +27,7 @@ export function useSceneDescriptionMentionEditor(options: UseSceneDescriptionMen
   const sceneDescriptionComposing = ref(false)
 
   const sceneDescriptionSupportsMention = computed(() => {
-    return options.assetReferenceOptions.value.length > 0
+    return true
   })
 
   const sceneAssetMentionCandidatesSource = computed<AssetMentionCandidate[]>(() => {
