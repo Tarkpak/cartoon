@@ -52,8 +52,9 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
+    strictPort: true,
     watch: {
-      ignored: ['**/src-tauri/**', '**/.output/**', '**/data/**']
+      ignored: ['**/src-tauri/**', '**/.output/**', '**/data/**', '**/backend/.nuxt/**']
     },
     proxy: {
       '/api': {

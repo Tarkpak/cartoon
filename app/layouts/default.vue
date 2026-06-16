@@ -7,9 +7,6 @@ const router = useRouter()
 const { isDark, toggleTheme, initTheme } = useTheme()
 const { currentUser, authenticated, logout: cloudLogout, loadStatus } = useCloudAdmin()
 
-const appVersion = __APP_VERSION__
-const currentYear = new Date().getFullYear()
-
 // 侧边栏折叠状态
 const isCollapsed = useState('sidebar-collapsed', () => false)
 const SIDEBAR_COLLAPSE_STORAGE_KEY = 'playlet:sidebar-collapsed'
@@ -73,8 +70,6 @@ const activeStates = computed(() => {
 
 const hideSidebar = computed(() => route.meta.hideSidebar === true)
 
-// 是否显示页脚（设置页与自动工作台不显示）
-const showFooter = computed(() => !['/settings', '/asset-workbench'].includes(route.path))
 const visualSidebarCollapsed = computed(() => isCollapsed.value || isNarrowSidebar.value)
 const themeIconDark = ref(false)
 let themeIconTimer: number | null = null
@@ -227,15 +222,16 @@ function handleThemeToggle(event: MouseEvent) {
       <!-- Logo with collapse toggle -->
       <button
         type="button"
-        class="theme-surface group relative h-16 flex items-center border-b transition-colors hover:bg-accent/50"
-        :class="visualSidebarCollapsed ? 'justify-center px-2' : 'justify-center px-6'"
+        class="theme-surface group relative h-16 flex items-center justify-center border-b transition-colors hover:bg-accent/50"
+        :class="visualSidebarCollapsed ? 'px-2' : 'px-6'"
         :title="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
         :aria-label="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
         @click="isCollapsed = !isCollapsed"
       >
+        <!-- Logo - 默认显示，hover 时隐藏 -->
         <div
-          class="font-bold text-foreground flex items-center"
-          :class="visualSidebarCollapsed ? 'text-xl group-hover:hidden' : 'text-2xl transition-opacity group-hover:opacity-0'"
+          class="font-bold text-foreground flex items-center transition-opacity duration-200 group-hover:opacity-0"
+          :class="visualSidebarCollapsed ? 'text-xl' : 'text-2xl'"
         >
           <Clapperboard class="w-6 h-6 text-primary" />
           <span
@@ -243,17 +239,17 @@ function handleThemeToggle(event: MouseEvent) {
             class="ml-1"
           >playlet</span>
         </div>
-        <div
-          v-if="!visualSidebarCollapsed"
-          class="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
-        >
-          <ChevronsLeft class="h-4 w-4 text-muted-foreground" />
-        </div>
-        <div
-          v-else
-          class="absolute inset-0 hidden items-center justify-center group-hover:flex"
-        >
-          <ChevronsRight class="h-4 w-4 text-muted-foreground" />
+
+        <!-- 箭头 - hover 时显示 -->
+        <div class="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+          <ChevronsLeft
+            v-if="!visualSidebarCollapsed"
+            class="h-4 w-4 text-muted-foreground"
+          />
+          <ChevronsRight
+            v-else
+            class="h-4 w-4 text-muted-foreground"
+          />
         </div>
       </button>
 
@@ -394,23 +390,9 @@ function handleThemeToggle(event: MouseEvent) {
 
     <!-- 右侧内容区 -->
     <main class="flex-1 overflow-hidden flex flex-col">
-      <div
-        class="flex-1 overflow-y-auto"
-        :class="{ 'overflow-hidden': !showFooter }"
-      >
+      <div class="flex-1 overflow-y-auto">
         <slot />
       </div>
-
-      <!-- 页脚 - 设置页面不显示 -->
-      <footer
-        v-if="showFooter"
-        class="theme-surface flex-shrink-0 px-8 py-6 border-t bg-card/50"
-      >
-        <div class="flex items-center justify-between text-sm text-muted-foreground">
-          <span>© {{ currentYear }} playlet</span>
-          <div>v{{ appVersion }}</div>
-        </div>
-      </footer>
     </main>
   </div>
 </template>

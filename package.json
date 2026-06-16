@@ -5,7 +5,8 @@
   "type": "module",
   "description": "AI影视自动化生成系统 - 基于Vue 3 + Vite + Rust后端",
   "scripts": {
-    "dev": "bun run --parallel dev:backend dev:frontend",
+    "dev": "bun run dev:cleanup && bun run --parallel dev:backend dev:frontend",
+    "dev:cleanup": "node ./scripts/dev-cleanup-ports.mjs",
     "dev:frontend": "vite",
     "dev:backend": "cargo run --manifest-path src-tauri/Cargo.toml --bin playlet-backend",
     "build": "vite build",
@@ -16,7 +17,7 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
-    "desktop:dev": "bun run --parallel dev:frontend tauri:dev",
+    "desktop:dev": "bun run dev:cleanup && bun run --parallel dev:frontend tauri:dev",
     "tauri:dev": "tauri dev",
     "desktop:prepare-updater-config": "node ./scripts/desktop-prepare-updater-config.mjs",
     "desktop:publish-updater-cdn": "node ./scripts/desktop-publish-updater-cdn.mjs",
