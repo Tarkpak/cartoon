@@ -6,6 +6,48 @@
       </div>
 
       <n-spin :show="pending">
+        <!-- 用户基本信息卡片 -->
+        <n-card v-if="detail" style="margin-bottom: 16px">
+          <div class="user-detail-header">
+            <div class="user-avatar-section">
+              <n-avatar :size="64" round>
+                {{ detail.user.display_name?.charAt(0) || detail.user.account.charAt(0) }}
+              </n-avatar>
+            </div>
+            <div class="user-info-section">
+              <div class="user-title-row">
+                <h2 class="user-title">{{ detail.user.display_name || detail.user.account }}</h2>
+                <n-tag :type="detail.user.role === 'admin' ? 'warning' : 'info'" size="small">
+                  {{ detail.user.role === 'admin' ? '管理员' : '普通用户' }}
+                </n-tag>
+                <n-tag :type="detail.user.status === 'active' ? 'success' : 'error'" size="small">
+                  {{ detail.user.status === 'active' ? '活跃' : '禁用' }}
+                </n-tag>
+              </div>
+              <div class="user-meta-grid">
+                <span><strong>账号：</strong>{{ detail.user.account }}</span>
+                <span v-if="detail.user.email"><strong>邮箱：</strong>{{ detail.user.email }}</span>
+                <span v-if="detail.user.phone"><strong>手机：</strong>{{ detail.user.phone }}</span>
+                <span><strong>注册时间：</strong>{{ formatAdminDateTime(detail.user.created_at) }}</span>
+                <span><strong>最后登录：</strong>{{ formatAdminDateTime(detail.user.last_login_at) }}</span>
+                <span><strong>更新时间：</strong>{{ formatAdminDateTime(detail.user.updated_at) }}</span>
+              </div>
+            </div>
+            <div class="user-actions-section">
+              <n-space vertical>
+                <n-button
+                  :type="detail.user.status === 'active' ? 'error' : 'success'"
+                  @click="showStatusConfirm = true"
+                >
+                  {{ detail.user.status === 'active' ? '禁用用户' : '启用用户' }}
+                </n-button>
+                <n-button @click="showEditDialog = true">编辑信息</n-button>
+                <n-button @click="showResetPasswordDialog = true">重置密码</n-button>
+              </n-space>
+            </div>
+          </div>
+        </n-card>
+
         <n-grid v-if="detail" :cols="4" :x-gap="16" style="margin-bottom: 16px">
           <n-gi><n-card><n-statistic label="项目" :value="detail.stats.projectCount" /></n-card></n-gi>
           <n-gi><n-card><n-statistic label="提示词模板" :value="detail.stats.promptTemplateCount" /></n-card></n-gi>
@@ -422,18 +464,93 @@
             <n-tab-pane name="devices" tab="设备">
               <n-data-table :columns="deviceColumns" :data="devices" />
             </n-tab-pane>
+            <n-tab-pane name="logs" tab="调用日志">
+              <n-space vertical>
+                <n-space>
+                  <n-input v-model:value="logsKeyword" placeholder="搜索请求ID或错误信息" clearable style="width: 300px" />
+                  <n-select v-model:value="logsProvider" placeholder="供应商" clearable style="width: 150px" :options="providerOptions" />
+                  <n-select v-model:value="logsStatus" placeholder="状态" clearable style="width: 120px" :options="statusOptions" />
+                  <n-button type="primary" @click="loadLogs">搜索</n-button>
+                </n-space>
+                <n-data-table
+                  :columns="logColumns"
+                  :data="logs"
+                  :loading="logsLoading"
+                  :pagination="logsPagination"
+                  @update:page="handleLogsPageChange"
+                />
+              </n-space>
+            </n-tab-pane>
+            <n-tab-pane name="audit" tab="操作审计">
+              <n-space vertical>
+                <n-input v-model:value="auditKeyword" placeholder="搜索操作类型或目标" clearable style="width: 300px" @keyup.enter="loadAuditLogs" />
+                <n-data-table
+                  :columns="auditColumns"
+                  :data="auditLogs"
+                  :loading="auditLoading"
+                  :pagination="auditPagination"
+                  @update:page="handleAuditPageChange"
+                />
+              </n-space>
+            </n-tab-pane>
           </n-tabs>
         </ClientOnly>
       </n-spin>
+
+      <!-- 禁用/启用用户确认对话框 -->
+      <n-modal v-model:show="showStatusConfirm" preset="dialog" :title="`确认${detail?.user.status === 'active' ? '禁用' : '启用'}用户`">
+        <p>{{ detail?.user.status === 'active' ? '禁用后该用户将无法登录客户端' : '启用后该用户可以正常登录客户端' }}</p>
+        <template #action>
+          <n-button @click="showStatusConfirm = false">取消</n-button>
+          <n-button :type="detail?.user.status === 'active' ? 'error' : 'success'" @click="toggleUserStatus">确认</n-button>
+        </template>
+      </n-modal>
+
+      <!-- 编辑用户信息对话框 -->
+      <n-modal v-model:show="showEditDialog" preset="card" title="编辑用户信息" style="width: 480px">
+        <n-form>
+          <n-form-item label="显示名称">
+            <n-input v-model:value="editForm.displayName" />
+          </n-form-item>
+          <n-form-item label="邮箱">
+            <n-input v-model:value="editForm.email" />
+          </n-form-item>
+          <n-form-item label="手机号">
+            <n-input v-model:value="editForm.phone" />
+          </n-form-item>
+          <n-form-item label="角色">
+            <n-select v-model:value="editForm.role" :options="roleOptions" />
+          </n-form-item>
+          <n-space justify="end">
+            <n-button @click="showEditDialog = false">取消</n-button>
+            <n-button type="primary" :loading="editLoading" @click="updateUserInfo">保存</n-button>
+          </n-space>
+        </n-form>
+      </n-modal>
+
+      <!-- 重置密码对话框 -->
+      <n-modal v-model:show="showResetPasswordDialog" preset="card" title="重置密码" style="width: 400px">
+        <n-form>
+          <n-form-item label="新密码">
+            <n-input v-model:value="resetPasswordForm.password" type="password" show-password-on="click" placeholder="至少6位" />
+          </n-form-item>
+          <n-space justify="end">
+            <n-button @click="showResetPasswordDialog = false">取消</n-button>
+            <n-button type="primary" :loading="resetPasswordLoading" @click="resetPassword">确认重置</n-button>
+          </n-space>
+        </n-form>
+      </n-modal>
     </div>
   </AdminShell>
 </template>
 
 <script setup lang="ts">
 import { h } from 'vue'
-import { NButton, NTag } from 'naive-ui'
+import { NButton, NTag, useMessage } from 'naive-ui'
 
 type TagType = 'default' | 'success' | 'warning' | 'error' | 'info'
+
+const message = useMessage()
 
 interface DetailItem {
   label: string
@@ -605,6 +722,55 @@ const activeProjectStage = ref<ProjectStageKey>('parse')
 const activeProjectAssetTab = ref<ProjectAssetTabKey>('characters')
 const selectedProjectEpisodeId = ref('')
 
+// 用户操作相关
+const showStatusConfirm = ref(false)
+const showEditDialog = ref(false)
+const showResetPasswordDialog = ref(false)
+const editLoading = ref(false)
+const resetPasswordLoading = ref(false)
+const editForm = reactive({
+  displayName: '',
+  email: '',
+  phone: '',
+  role: 'user'
+})
+const resetPasswordForm = reactive({
+  password: ''
+})
+const roleOptions = [
+  { label: '普通用户', value: 'user' },
+  { label: '管理员', value: 'admin' }
+]
+
+// 调用日志相关
+const logs = ref<any[]>([])
+const logsLoading = ref(false)
+const logsKeyword = ref('')
+const logsProvider = ref('')
+const logsStatus = ref('')
+const logsPage = ref(1)
+const logsPageSize = ref(20)
+const logsTotal = ref(0)
+const providerOptions = [
+  { label: 'Gemini', value: 'gemini' },
+  { label: '通义', value: 'qwen' },
+  { label: '火山', value: 'volcengine' },
+  { label: 'DeepSeek', value: 'deepseek' },
+  { label: 'Kling', value: 'kling' }
+]
+const statusOptions = [
+  { label: '成功', value: 'success' },
+  { label: '失败', value: 'error' }
+]
+
+// 审计日志相关
+const auditLogs = ref<any[]>([])
+const auditLoading = ref(false)
+const auditKeyword = ref('')
+const auditPage = ref(1)
+const auditPageSize = ref(20)
+const auditTotal = ref(0)
+
 const selectedProjectData = computed(() => toRecord(selectedProjectSnapshot.value?.data))
 const selectedProjectSnapshotProject = computed(() => toRecord(selectedProjectData.value.project))
 const selectedProjectScript = computed(() => toRecord(selectedProjectData.value.script))
@@ -689,7 +855,7 @@ const projectMetricItems = computed<MetricItem[]>(() => {
 const projectTotalDuration = computed(() => {
   const explicitDuration = Number(firstPresent(selectedProjectScript.value, ['totalDuration', 'duration']))
   if (Number.isFinite(explicitDuration) && explicitDuration > 0) return explicitDuration
-  return rawProjectScenes.value.reduce((total, scene) => {
+  return rawProjectScenes.value.reduce((total: number, scene) => {
     const duration = Number(firstPresent(scene, ['duration', 'seconds']))
     return Number.isFinite(duration) ? total + duration : total
   }, 0)
@@ -1232,13 +1398,14 @@ const preferenceColumns = [
 ]
 
 const deviceColumns = [
-  { title: '设备 ID', key: 'device_id' },
+  { title: '设备 ID', key: 'device_id', width: 200 },
   { title: '名称', key: 'device_name' },
-  { title: '系统', key: 'os' },
-  { title: '版本', key: 'client_version' },
+  { title: '系统', key: 'os', width: 100 },
+  { title: '版本', key: 'client_version', width: 100 },
   {
     title: '状态',
     key: 'status',
+    width: 80,
     render(row: any) {
       return h(NTag, { size: 'small', type: row.status === 'active' ? 'success' : 'error' }, { default: () => row.status })
     }
@@ -1254,19 +1421,125 @@ const deviceColumns = [
   {
     title: '操作',
     key: 'actions',
+    width: 180,
     render(row: any) {
-      return h(
-        NButton,
-        {
-          size: 'small',
-          type: row.status === 'active' ? 'error' : 'success',
-          onClick: () => updateDeviceStatus(row)
-        },
-        { default: () => row.status === 'active' ? '禁用' : '启用' }
-      )
+      return h('div', { style: { display: 'flex', gap: '8px' } }, [
+        h(
+          NButton,
+          {
+            size: 'small',
+            type: row.status === 'active' ? 'error' : 'success',
+            onClick: () => updateDeviceStatus(row)
+          },
+          { default: () => row.status === 'active' ? '禁用' : '启用' }
+        ),
+        h(
+          NButton,
+          {
+            size: 'small',
+            type: 'error',
+            onClick: () => deleteDevice(row)
+          },
+          { default: () => '删除' }
+        )
+      ])
     }
   }
 ]
+
+const logColumns = [
+  { title: '请求ID', key: 'request_id', width: 180, ellipsis: { tooltip: true } },
+  { title: '供应商', key: 'provider', width: 100 },
+  { title: '模型', key: 'model_id', width: 150, ellipsis: { tooltip: true } },
+  { title: '操作', key: 'operation', width: 120 },
+  {
+    title: '状态',
+    key: 'status',
+    width: 80,
+    render(row: any) {
+      return h(NTag, { size: 'small', type: row.status === 'success' ? 'success' : 'error' }, { default: () => row.status })
+    }
+  },
+  {
+    title: '耗时',
+    key: 'duration_ms',
+    width: 100,
+    render(row: any) {
+      return row.duration_ms ? `${row.duration_ms}ms` : '-'
+    }
+  },
+  {
+    title: '成本',
+    key: 'estimated_cost',
+    width: 100,
+    render(row: any) {
+      return row.estimated_cost || '-'
+    }
+  },
+  {
+    title: '错误信息',
+    key: 'error_message',
+    ellipsis: { tooltip: true },
+    render(row: any) {
+      return row.error_message || '-'
+    }
+  },
+  {
+    title: '时间',
+    key: 'created_at',
+    width: 180,
+    render(row: any) {
+      return formatAdminDateTime(row.created_at)
+    }
+  }
+]
+
+const auditColumns = [
+  { title: 'ID', key: 'id', width: 80 },
+  {
+    title: '操作者',
+    key: 'actor',
+    width: 150,
+    render(row: any) {
+      return row.actor_display_name || row.actor_account || '-'
+    }
+  },
+  { title: '操作类型', key: 'action', width: 200 },
+  { title: '目标类型', key: 'target_type', width: 120 },
+  { title: '目标ID', key: 'target_id', width: 150, ellipsis: { tooltip: true } },
+  {
+    title: 'IP',
+    key: 'ip',
+    width: 140,
+    render(row: any) {
+      return row.ip || '-'
+    }
+  },
+  {
+    title: '时间',
+    key: 'created_at',
+    width: 180,
+    render(row: any) {
+      return formatAdminDateTime(row.created_at)
+    }
+  }
+]
+
+const logsPagination = computed(() => ({
+  page: logsPage.value,
+  pageSize: logsPageSize.value,
+  pageCount: Math.ceil(logsTotal.value / logsPageSize.value),
+  showSizePicker: true,
+  pageSizes: [10, 20, 50, 100]
+}))
+
+const auditPagination = computed(() => ({
+  page: auditPage.value,
+  pageSize: auditPageSize.value,
+  pageCount: Math.ceil(auditTotal.value / auditPageSize.value),
+  showSizePicker: true,
+  pageSizes: [10, 20, 50, 100]
+}))
 
 async function load() {
   pending.value = true
@@ -1285,8 +1558,131 @@ async function load() {
     devices.value = devicesResponse.data.devices
     promptProfiles.value = promptsResponse.data.profiles || []
     promptTemplates.value = promptsResponse.data.templates || []
+
+    // 填充编辑表单
+    if (detail.value?.user) {
+      editForm.displayName = detail.value.user.display_name || ''
+      editForm.email = detail.value.user.email || ''
+      editForm.phone = detail.value.user.phone || ''
+      editForm.role = detail.value.user.role || 'user'
+    }
   } finally {
     pending.value = false
+  }
+}
+
+async function toggleUserStatus() {
+  try {
+    const newStatus = detail.value.user.status === 'active' ? 'disabled' : 'active'
+    await $fetch(`/api/admin/users/${userId.value}/status`, {
+      method: 'PATCH',
+      body: { status: newStatus }
+    })
+    message.success(`已${newStatus === 'active' ? '启用' : '禁用'}用户`)
+    showStatusConfirm.value = false
+    await load()
+  } catch (err: any) {
+    message.error(err.message || '操作失败')
+  }
+}
+
+async function updateUserInfo() {
+  editLoading.value = true
+  try {
+    await $fetch(`/api/admin/users/${userId.value}`, {
+      method: 'PATCH',
+      body: editForm
+    })
+    message.success('用户信息已更新')
+    showEditDialog.value = false
+    await load()
+  } catch (err: any) {
+    message.error(err.message || '更新失败')
+  } finally {
+    editLoading.value = false
+  }
+}
+
+async function resetPassword() {
+  if (!resetPasswordForm.password || resetPasswordForm.password.length < 6) {
+    message.warning('密码长度至少为 6 位')
+    return
+  }
+  resetPasswordLoading.value = true
+  try {
+    await $fetch(`/api/admin/users/${userId.value}/reset-password`, {
+      method: 'POST',
+      body: { password: resetPasswordForm.password }
+    })
+    message.success('密码已重置')
+    showResetPasswordDialog.value = false
+    resetPasswordForm.password = ''
+  } catch (err: any) {
+    message.error(err.message || '重置失败')
+  } finally {
+    resetPasswordLoading.value = false
+  }
+}
+
+async function loadLogs() {
+  logsLoading.value = true
+  try {
+    const response = await $fetch<any>(`/api/admin/users/${userId.value}/logs`, {
+      query: {
+        page: logsPage.value,
+        pageSize: logsPageSize.value,
+        keyword: logsKeyword.value,
+        provider: logsProvider.value,
+        status: logsStatus.value
+      }
+    })
+    logs.value = response.data.logs
+    logsTotal.value = Number(response.data.pagination.total)
+  } catch (err: any) {
+    message.error(err.message || '加载日志失败')
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+function handleLogsPageChange(page: number) {
+  logsPage.value = page
+  void loadLogs()
+}
+
+async function loadAuditLogs() {
+  auditLoading.value = true
+  try {
+    const response = await $fetch<any>(`/api/admin/users/${userId.value}/audit-logs`, {
+      query: {
+        page: auditPage.value,
+        pageSize: auditPageSize.value,
+        keyword: auditKeyword.value
+      }
+    })
+    auditLogs.value = response.data.logs
+    auditTotal.value = Number(response.data.pagination.total)
+  } catch (err: any) {
+    message.error(err.message || '加载审计日志失败')
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+function handleAuditPageChange(page: number) {
+  auditPage.value = page
+  void loadAuditLogs()
+}
+
+async function deleteDevice(row: any) {
+  try {
+    await $fetch(`/api/admin/devices/${row.id}`, {
+      method: 'DELETE'
+    })
+    message.success('设备已删除')
+    await load()
+  } catch (err: any) {
+    message.error(err.message || '删除失败')
   }
 }
 
@@ -1591,7 +1987,7 @@ function resolveEpisodeDoneCount(episodeId: string, episodeIndex: number): numbe
 }
 
 function resolveEpisodeDuration(episodeId: string, episodeIndex: number): number {
-  return rawProjectScenes.value.reduce((sum, scene) => {
+  return rawProjectScenes.value.reduce((sum: number, scene) => {
     const record = toRecord(scene)
     const matched = firstText(record, ['episodeId']) === episodeId
       || Number(firstPresent(record, ['episodeIndex'])) === episodeIndex
@@ -1803,10 +2199,60 @@ function formatFileSize(value: unknown): string {
   return `${(size / 1024 / 1024 / 1024).toFixed(1)} GB`
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  void loadLogs()
+  void loadAuditLogs()
+})
 </script>
 
 <style scoped>
+.user-detail-header {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.user-avatar-section {
+  flex: 0 0 auto;
+}
+
+.user-info-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-title-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.user-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #101828;
+}
+
+.user-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+  color: #475467;
+  font-size: 13px;
+}
+
+.user-meta-grid strong {
+  color: #344054;
+  font-weight: 600;
+}
+
+.user-actions-section {
+  flex: 0 0 auto;
+}
+
 .detail-stack {
   display: flex;
   flex-direction: column;
