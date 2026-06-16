@@ -10,7 +10,7 @@ Historical prompt workflows are intentionally removed. When updating prompts, AP
 
 ## Project Overview
 
-**playlet** is an AI-assisted video production system built with Vue 3 + Vite + Rust backend. The active product path is:
+**Playlet** is an AI-assisted video production system built with Vue 3 + Vite + Rust backend. The active product path is:
 
 1. **Parse** — Parse source text into scenes, characters, and video-ready timeline descriptions.
 2. **Assets** — Generate and manage reusable assets (character references, environment references).

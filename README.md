@@ -1,4 +1,4 @@
-# playlet
+# Playlet
 
 AI 驱动的影视内容生成系统，基于 Vue 3 + Vite + Rust 后端构建。从故事创意或剧本自动生成动态视频内容。
 

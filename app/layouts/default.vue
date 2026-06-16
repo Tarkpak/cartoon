@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck } from 'lucide-vue-next'
+import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 
 const route = useRoute()
@@ -71,8 +71,6 @@ const activeStates = computed(() => {
 const hideSidebar = computed(() => route.meta.hideSidebar === true)
 
 const visualSidebarCollapsed = computed(() => isCollapsed.value || isNarrowSidebar.value)
-const themeIconDark = ref(false)
-let themeIconTimer: number | null = null
 
 type ViewTransitionDocument = Document & {
   startViewTransition?: (updateCallback: () => void) => {
@@ -84,7 +82,6 @@ type ViewTransitionDocument = Document & {
 // 初始化主题
 onMounted(() => {
   initTheme()
-  themeIconDark.value = isDark.value
   void loadStatus()
 
   if (typeof window === 'undefined') return
@@ -114,10 +111,6 @@ onUnmounted(() => {
   if (sidebarMediaQuery && syncNarrowSidebar) {
     sidebarMediaQuery.removeEventListener('change', syncNarrowSidebar)
   }
-  if (themeIconTimer !== null) {
-    window.clearTimeout(themeIconTimer)
-    themeIconTimer = null
-  }
 })
 
 async function handleCloudLogout() {
@@ -125,74 +118,15 @@ async function handleCloudLogout() {
   await router.push('/login')
 }
 
-function shouldReduceMotion(): boolean {
-  if (typeof window === 'undefined') return true
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-function runThemeViewTransition(x: number, y: number, endRadius: number) {
-  const viewTransitionDocument = document as ViewTransitionDocument
-
-  try {
-    const transition = viewTransitionDocument.startViewTransition?.(() => {
-      toggleTheme()
-    })
-
-    if (!transition) {
-      toggleTheme()
-      themeIconDark.value = isDark.value
-      themeIconTimer = null
-      return
-    }
-
-    void transition.ready.then(() => {
-      document.documentElement.animate(
-        {
-          clipPath: [
-            `circle(0px at ${x}px ${y}px)`,
-            `circle(${endRadius}px at ${x}px ${y}px)`
-          ]
-        },
-        {
-          duration: 520,
-          easing: 'cubic-bezier(0.2, 0, 0, 1)',
-          pseudoElement: '::view-transition-new(root)'
-        }
-      )
-    }).catch(() => {
-      // Theme has already been applied by the view transition callback.
-    }).finally(() => {
-      themeIconDark.value = isDark.value
-      themeIconTimer = null
-    })
-  } catch {
-    toggleTheme()
-    themeIconDark.value = isDark.value
-    themeIconTimer = null
-  }
-}
-
 function handleThemeToggle(event: MouseEvent) {
-  const nextIconDark = !isDark.value
-  themeIconDark.value = nextIconDark
-  if (themeIconTimer !== null) {
-    window.clearTimeout(themeIconTimer)
-    themeIconTimer = null
-  }
-
-  if (typeof document === 'undefined' || typeof window === 'undefined' || shouldReduceMotion()) {
+  if (typeof document === 'undefined' || typeof window === 'undefined') {
     toggleTheme()
-    themeIconDark.value = isDark.value
     return
   }
 
   const viewTransitionDocument = document as ViewTransitionDocument
   if (!viewTransitionDocument.startViewTransition) {
-    themeIconTimer = window.setTimeout(() => {
-      toggleTheme()
-      themeIconDark.value = isDark.value
-      themeIconTimer = null
-    }, 220)
+    toggleTheme()
     return
   }
 
@@ -205,9 +139,27 @@ function handleThemeToggle(event: MouseEvent) {
     Math.max(y, window.innerHeight - y)
   )
 
-  themeIconTimer = window.setTimeout(() => {
-    runThemeViewTransition(x, y, endRadius)
-  }, 180)
+  const transition = viewTransitionDocument.startViewTransition(() => {
+    toggleTheme()
+  })
+
+  void transition.ready.then(() => {
+    document.documentElement.animate(
+      {
+        clipPath: [
+          `circle(0px at ${x}px ${y}px)`,
+          `circle(${endRadius}px at ${x}px ${y}px)`
+        ]
+      },
+      {
+        duration: 400,
+        easing: 'ease-in-out',
+        pseudoElement: '::view-transition-new(root)'
+      }
+    )
+  }).catch(() => {
+    // View transition failed, theme already toggled
+  })
 }
 </script>
 
@@ -219,42 +171,38 @@ function handleThemeToggle(event: MouseEvent) {
       class="theme-surface relative flex flex-col border-r bg-card transition-[width,background-color,border-color,box-shadow] duration-300 ease-out"
       :class="visualSidebarCollapsed ? 'w-16' : 'w-56'"
     >
-    <h1>hello</h1>
       <!-- Logo with collapse toggle -->
-      <button
-        type="button"
-        class="theme-surface group relative h-16 flex items-center justify-center border-b transition-colors hover:bg-accent/50"
-        :class="visualSidebarCollapsed ? 'px-2' : 'px-6'"
-        :title="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
-        :aria-label="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
-        @click="isCollapsed = !isCollapsed"
+      <div
+        class="theme-surface h-16 flex items-center border-b"
+        :class="visualSidebarCollapsed ? 'justify-center px-2' : 'justify-start px-6'"
       >
-        <!-- Logo - 默认显示，hover 时隐藏 -->
-        <div
-          class="absolute inset-0 flex items-center justify-center font-bold text-foreground transition-opacity duration-200 group-hover:opacity-0"
-          :class="visualSidebarCollapsed ? 'text-xl' : 'text-2xl'"
+        <!-- Logo 图标按钮 - hover 时显示箭头 -->
+        <button
+          type="button"
+          class="group relative grid h-6 w-6 flex-shrink-0 place-items-center overflow-hidden"
+          :title="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
+          :aria-label="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
+          @click="isCollapsed = !isCollapsed"
         >
-          <div class="flex items-center">
-            <Clapperboard class="w-6 h-6 text-primary" />
-            <span
+          <Clapperboard class="pointer-events-none absolute inset-0 h-6 w-6 text-primary transition-opacity duration-150 group-hover:opacity-0" />
+          <div class="pointer-events-none absolute inset-0 grid place-items-center opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+            <ChevronsLeft
               v-if="!visualSidebarCollapsed"
-              class="ml-1"
-            >playlet</span>
+              class="h-4 w-4 text-muted-foreground"
+            />
+            <ChevronsRight
+              v-else
+              class="h-4 w-4 text-muted-foreground"
+            />
           </div>
-        </div>
+        </button>
 
-        <!-- 箭头 - hover 时显示 -->
-        <div class="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-          <ChevronsLeft
-            v-if="!visualSidebarCollapsed"
-            class="h-4 w-4 text-muted-foreground"
-          />
-          <ChevronsRight
-            v-else
-            class="h-4 w-4 text-muted-foreground"
-          />
-        </div>
-      </button>
+        <!-- Logo 文字 - 始终显示 -->
+        <span
+          v-if="!visualSidebarCollapsed"
+          class="ml-1 font-bold text-2xl text-foreground"
+        >Playlet</span>
+      </div>
 
       <!-- 导航菜单 -->
       <nav class="flex-1 p-4 space-y-1">
@@ -366,26 +314,13 @@ function handleThemeToggle(event: MouseEvent) {
             type="button"
             variant="ghost"
             size="icon"
-            class="theme-content relative h-8 w-8 shrink-0 overflow-hidden rounded-md text-muted-foreground hover:text-foreground"
+            class="theme-content relative h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
             :title="isDark ? '浅色模式' : '深色模式'"
             :aria-label="isDark ? '切换到浅色模式' : '切换到深色模式'"
             @click="handleThemeToggle"
           >
-            <span
-              class="theme-morph-icon"
-              :class="{ 'is-dark': themeIconDark }"
-              aria-hidden="true"
-            >
-              <span class="theme-morph-orb">
-                <span class="theme-morph-cutout" />
-              </span>
-              <span
-                v-for="ray in 8"
-                :key="ray"
-                class="theme-morph-ray"
-                :style="{ '--ray-index': ray - 1 }"
-              />
-            </span>
+            <Sun class="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+            <Moon class="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
           </Button>
         </div>
       </div>

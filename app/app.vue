@@ -19,7 +19,7 @@ useHead({
   }
 })
 
-const title = 'playlet - AI 影视生成系统'
+const title = 'Playlet - AI 影视生成系统'
 const description = 'AI 驱动的影视创作平台。从文本到视频，生成专业级 AI 影视内容。'
 const { ensureDesktopFfmpegStatus } = useDesktopFfmpeg()
 const { heartbeat, loadStatus, authenticated } = useCloudAdmin()
