@@ -206,14 +206,27 @@ export function useSceneDescriptionMentionEditorActions(
 
   function handleSceneDescriptionCursorChange() {
     if (!options.sceneDescriptionSupportsMention.value || options.sceneDescriptionComposing.value) return
-    updateSceneDescriptionMentionState()
+    const state = syncSceneDescriptionFromEditor()
+    updateSceneDescriptionMentionState(state)
   }
 
   function handleSceneDescriptionFocus() {
     if (!options.sceneDescriptionSupportsMention.value) return
     if (!options.sceneDescriptionComposing.value) {
-      updateSceneDescriptionMentionState()
+      const state = syncSceneDescriptionFromEditor()
+      updateSceneDescriptionMentionState(state)
     }
+  }
+
+  function handleSceneDescriptionBeforeInput(event: InputEvent) {
+    if (!options.sceneDescriptionSupportsMention.value || options.sceneDescriptionComposing.value) return
+    if (event.inputType !== 'insertText' || (event.data !== '@' && event.data !== '＠')) return
+
+    setTimeout(() => {
+      if (!options.sceneDescriptionSupportsMention.value || options.sceneDescriptionComposing.value) return
+      const state = syncSceneDescriptionFromEditor()
+      updateSceneDescriptionMentionState(state)
+    }, 0)
   }
 
   function handleSceneDescriptionCompositionStart() {
@@ -307,6 +320,7 @@ export function useSceneDescriptionMentionEditorActions(
     syncSceneDescriptionFromEditor,
     insertSceneAssetMention,
     handleSceneDescriptionInput,
+    handleSceneDescriptionBeforeInput,
     handleSceneDescriptionCursorChange,
     handleSceneDescriptionFocus,
     handleSceneDescriptionCompositionStart,

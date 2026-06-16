@@ -27,6 +27,7 @@ defineProps<{
   handleSceneAssetUpload: (event: Event) => void
   insertSceneAssetMention: (assetId: string) => void
   handleSceneDescriptionInput: () => void
+  handleSceneDescriptionBeforeInput: (event: InputEvent) => void
   handleSceneDescriptionCursorChange: () => void
   handleSceneDescriptionFocus: () => void
   handleSceneDescriptionCompositionStart: () => void
@@ -75,6 +76,7 @@ defineProps<{
             contenteditable="true"
             class="min-h-[110px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-6 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring whitespace-pre-wrap break-words"
             @keydown="handleSceneDescriptionKeydown"
+            @beforeinput="handleSceneDescriptionBeforeInput"
             @input="handleSceneDescriptionInput"
             @click="handleSceneDescriptionCursorChange"
             @keyup="handleSceneDescriptionCursorChange"

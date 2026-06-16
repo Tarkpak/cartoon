@@ -227,13 +227,16 @@ function handleThemeToggle(event: MouseEvent) {
       <!-- Logo with collapse toggle -->
       <button
         type="button"
-        class="theme-surface group h-16 flex items-center border-b transition-colors hover:bg-accent/50"
-        :class="visualSidebarCollapsed ? 'justify-center px-2' : 'justify-between px-6'"
+        class="theme-surface group relative h-16 flex items-center border-b transition-colors hover:bg-accent/50"
+        :class="visualSidebarCollapsed ? 'justify-center px-2' : 'justify-center px-6'"
         :title="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
         :aria-label="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
         @click="isCollapsed = !isCollapsed"
       >
-        <div class="font-bold text-foreground flex items-center" :class="visualSidebarCollapsed ? 'text-xl' : 'text-2xl'">
+        <div
+          class="font-bold text-foreground flex items-center"
+          :class="visualSidebarCollapsed ? 'text-xl group-hover:hidden' : 'text-2xl transition-opacity group-hover:opacity-0'"
+        >
           <Clapperboard class="w-6 h-6 text-primary" />
           <span
             v-if="!visualSidebarCollapsed"
@@ -242,13 +245,13 @@ function handleThemeToggle(event: MouseEvent) {
         </div>
         <div
           v-if="!visualSidebarCollapsed"
-          class="opacity-0 group-hover:opacity-100 transition-opacity"
+          class="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
         >
           <ChevronsLeft class="h-4 w-4 text-muted-foreground" />
         </div>
         <div
           v-else
-          class="opacity-0 group-hover:opacity-100 transition-opacity absolute"
+          class="absolute inset-0 hidden items-center justify-center group-hover:flex"
         >
           <ChevronsRight class="h-4 w-4 text-muted-foreground" />
         </div>

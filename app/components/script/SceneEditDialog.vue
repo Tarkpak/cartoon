@@ -89,6 +89,7 @@ const {
   handleSceneDescriptionCompositionEnd,
   handleSceneDescriptionBlur,
   handleSceneDescriptionKeydown,
+  handleSceneDescriptionBeforeInput,
   extractMentionedAssetIdsFromDescription
 } = useSceneDescriptionMentionEditor({
   description: sceneDescription,
@@ -386,6 +387,7 @@ function handleSceneAssetUpload(event: Event) {
           :handle-scene-asset-upload="handleSceneAssetUpload"
           :insert-scene-asset-mention="insertSceneAssetMention"
           :handle-scene-description-input="handleSceneDescriptionInput"
+          :handle-scene-description-before-input="handleSceneDescriptionBeforeInput"
           :handle-scene-description-cursor-change="handleSceneDescriptionCursorChange"
           :handle-scene-description-focus="handleSceneDescriptionFocus"
           :handle-scene-description-composition-start="handleSceneDescriptionCompositionStart"
