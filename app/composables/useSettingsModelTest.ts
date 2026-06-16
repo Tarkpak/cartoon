@@ -36,6 +36,7 @@ export function useSettingsModelTest() {
   const videoLastFrame = ref<string | null>(null)
   const videoAudioReferences = ref<string[]>([])
   const videoAudioReferenceNames = ref<string[]>([])
+  const videoImageInputMode = ref<'firstLastFrame' | 'referenceImages'>('firstLastFrame')
   const testResults = ref<Record<ModelTestTab, TestResult>>({
     text: { status: 'idle' },
     image: { status: 'idle' },
@@ -143,6 +144,11 @@ export function useSettingsModelTest() {
     const raw = currentVideoModel.value?.maxReferenceAudios
     if (typeof raw !== 'number' || !Number.isFinite(raw)) return 1
     return Math.min(8, Math.max(1, Math.floor(raw)))
+  })
+
+  const currentVideoModelSupportsBothImageModes = computed(() => {
+    return currentVideoModelSupportsFirstLastFrame.value
+      && currentVideoModelSupportsImageReference.value
   })
 
   const {
@@ -541,6 +547,7 @@ export function useSettingsModelTest() {
       clearVideoFirstFrame()
       clearVideoLastFrame()
       clearVideoAudioReference()
+      videoImageInputMode.value = 'firstLastFrame'
     }
 
     closeImageMention()
@@ -609,6 +616,7 @@ export function useSettingsModelTest() {
       if (
         modelType === 'video'
         && currentVideoModelSupportsFirstLastFrame.value
+        && videoImageInputMode.value === 'firstLastFrame'
       ) {
         if (videoFirstFrame.value) {
           body.firstFrame = videoFirstFrame.value
@@ -620,6 +628,7 @@ export function useSettingsModelTest() {
       } else if (
         modelType === 'video'
         && currentVideoModelSupportsImageReference.value
+        && videoImageInputMode.value === 'referenceImages'
         && videoReferenceImages.value.length > 0
       ) {
         const refs = videoReferenceImages.value.slice(0, currentVideoModelMaxReferenceImages.value)
@@ -808,6 +817,8 @@ export function useSettingsModelTest() {
     currentVideoModelMaxReferenceImages,
     currentVideoModelMaxReferenceVideos,
     currentVideoModelMaxReferenceAudios,
+    currentVideoModelSupportsBothImageModes,
+    videoImageInputMode,
     currentImageModelAspectRatioOptions,
     currentImageModelSizeOptions,
     currentImageModelSizeSelectionMode,

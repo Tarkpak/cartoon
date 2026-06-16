@@ -50,6 +50,8 @@ const props = defineProps<{
   currentVideoModelMaxReferenceImages: number
   currentVideoModelMaxReferenceVideos: number
   currentVideoModelMaxReferenceAudios: number
+  currentVideoModelSupportsBothImageModes: boolean
+  videoImageInputMode: 'firstLastFrame' | 'referenceImages'
   setFileInputRef: (element: Element | ComponentPublicInstance | null) => void
   setPromptEditorRef: (element: Element | ComponentPublicInstance | null) => void
   imagePromptIsEmpty: boolean
@@ -81,6 +83,8 @@ const props = defineProps<{
   openReferenceImagePreview: (image: string, index: number) => void
   testModel: (modelType: ModelTestTab) => Promise<void>
 }>()
+
+const videoImageInputModeModel = defineModel<'firstLastFrame' | 'referenceImages'>('videoImageInputMode', { default: 'firstLastFrame' })
 
 const currentTestStatus = computed(() => props.testResults[activeTab.value].status)
 const videoReferenceInputRef = ref<HTMLInputElement | null>(null)
@@ -373,7 +377,36 @@ const videoReferenceMaterialReady = computed(() => {
       class="space-y-3"
     >
       <div
-        v-if="props.currentVideoModelSupportsFirstLastFrame"
+        v-if="props.currentVideoModelSupportsBothImageModes"
+        class="flex items-center gap-2 rounded-lg border bg-muted/30 p-3"
+      >
+        <label class="text-xs font-medium text-muted-foreground">
+          图片输入模式:
+        </label>
+        <div class="flex items-center gap-2">
+          <label class="flex cursor-pointer items-center gap-1.5">
+            <input
+              v-model="videoImageInputModeModel"
+              type="radio"
+              value="firstLastFrame"
+              class="h-3.5 w-3.5 cursor-pointer"
+            >
+            <span class="text-xs">首尾帧</span>
+          </label>
+          <label class="flex cursor-pointer items-center gap-1.5">
+            <input
+              v-model="videoImageInputModeModel"
+              type="radio"
+              value="referenceImages"
+              class="h-3.5 w-3.5 cursor-pointer"
+            >
+            <span class="text-xs">参考图片 (最多 {{ props.currentVideoModelMaxReferenceImages }} 张)</span>
+          </label>
+        </div>
+      </div>
+
+      <div
+        v-if="props.currentVideoModelSupportsFirstLastFrame && (!props.currentVideoModelSupportsBothImageModes || videoImageInputModeModel === 'firstLastFrame')"
         class="space-y-2"
       >
         <label class="flex items-center gap-1 text-xs text-muted-foreground/70">
@@ -468,7 +501,7 @@ const videoReferenceMaterialReady = computed(() => {
       </div>
 
       <div
-        v-if="props.currentVideoModelSupportsImageReference && !props.currentVideoModelSupportsFirstLastFrame"
+        v-if="props.currentVideoModelSupportsImageReference && (!props.currentVideoModelSupportsBothImageModes || videoImageInputModeModel === 'referenceImages')"
         class="space-y-1.5"
       >
         <label class="flex items-center gap-1 text-xs text-muted-foreground/70">

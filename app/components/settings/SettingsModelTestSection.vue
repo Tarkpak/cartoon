@@ -36,6 +36,8 @@ const {
   currentVideoModelMaxReferenceImages,
   currentVideoModelMaxReferenceVideos,
   currentVideoModelMaxReferenceAudios,
+  currentVideoModelSupportsBothImageModes,
+  videoImageInputMode,
   currentImageModelAspectRatioOptions,
   currentImageModelSizeOptions,
   currentImageModelSizeSelectionMode,
@@ -168,6 +170,8 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
           :current-video-model-max-reference-images="currentVideoModelMaxReferenceImages"
           :current-video-model-max-reference-videos="currentVideoModelMaxReferenceVideos"
           :current-video-model-max-reference-audios="currentVideoModelMaxReferenceAudios"
+          :current-video-model-supports-both-image-modes="currentVideoModelSupportsBothImageModes"
+          v-model:video-image-input-mode="videoImageInputMode"
           :set-file-input-ref="setFileInputElement"
           :handle-prompt-textarea-blur="handlePromptTextareaBlur"
           :handle-prompt-textarea-composition-end="handlePromptTextareaCompositionEnd"

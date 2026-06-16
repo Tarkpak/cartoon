@@ -12127,7 +12127,7 @@ pub(super) async fn api_models_test(
         "video" => {
             let task_id = format!("test_{}", Uuid::new_v4().simple());
             let scene_id = format!("model_test_{}", Uuid::new_v4().simple());
-            let config = json!({
+            let mut config = json!({
               "prompt": prompt,
               "duration": 5,
               "aspectRatio": "16:9",
@@ -12136,6 +12136,33 @@ pub(super) async fn api_models_test(
               "modelId": model_id,
               "provider": provider
             });
+
+            if let Some(obj) = config.as_object_mut() {
+                if let Some(reference_images) = body.get("referenceImages") {
+                    obj.insert("referenceImages".to_string(), reference_images.clone());
+                }
+                if let Some(first_frame) = body.get("firstFrame").or_else(|| body.get("imageUrl")) {
+                    obj.insert("firstFrame".to_string(), first_frame.clone());
+                }
+                if let Some(last_frame) = body.get("lastFrame") {
+                    obj.insert("lastFrame".to_string(), last_frame.clone());
+                }
+                if let Some(image_url) = body.get("imageUrl") {
+                    obj.insert("imageUrl".to_string(), image_url.clone());
+                }
+                if let Some(reference_videos) = body.get("referenceVideos").or_else(|| body.get("videoReferences")) {
+                    obj.insert("referenceVideos".to_string(), reference_videos.clone());
+                }
+                if let Some(video_url) = body.get("videoUrl").or_else(|| body.get("firstClip")) {
+                    obj.insert("videoUrl".to_string(), video_url.clone());
+                }
+                if let Some(audio_url) = body.get("audioUrl") {
+                    obj.insert("audioUrl".to_string(), audio_url.clone());
+                }
+                if let Some(audio_references) = body.get("audioReferences").or_else(|| body.get("referenceAudios")) {
+                    obj.insert("audioReferences".to_string(), audio_references.clone());
+                }
+            }
             if !matches!(
                 provider.as_str(),
                 "qwen" | "volcengine" | "kling" | "gemini"
