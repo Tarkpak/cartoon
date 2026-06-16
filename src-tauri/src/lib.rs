@@ -9,14 +9,28 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 const DESKTOP_HOST: &str = "127.0.0.1";
 const DESKTOP_PORT: u16 = 43127;
+const FRONTEND_DEV_HOST: &str = "localhost";
+const FRONTEND_DEV_PORT: u16 = 3000;
 const STARTUP_TIMEOUT_SECS: u64 = 90;
 
 fn desktop_base_url() -> String {
     format!("http://{}:{}", DESKTOP_HOST, DESKTOP_PORT)
 }
 
-fn wait_for_server(timeout: Duration) -> Result<(), String> {
-    let address = format!("{}:{}", DESKTOP_HOST, DESKTOP_PORT);
+fn frontend_dev_base_url() -> String {
+    format!("http://{}:{}", FRONTEND_DEV_HOST, FRONTEND_DEV_PORT)
+}
+
+fn desktop_window_base_url() -> String {
+    if cfg!(debug_assertions) {
+        frontend_dev_base_url()
+    } else {
+        desktop_base_url()
+    }
+}
+
+fn wait_for_tcp(host: &str, port: u16, timeout: Duration, label: &str) -> Result<(), String> {
+    let address = format!("{}:{}", host, port);
     let start = Instant::now();
 
     while start.elapsed() < timeout {
@@ -27,10 +41,24 @@ fn wait_for_server(timeout: Duration) -> Result<(), String> {
     }
 
     Err(format!(
-        "本地 Rust 服务启动超时（{} 秒）：{}",
+        "{}启动超时（{} 秒）：{}",
+        label,
         timeout.as_secs(),
-        address
+        address,
     ))
+}
+
+fn wait_for_backend(timeout: Duration) -> Result<(), String> {
+    wait_for_tcp(DESKTOP_HOST, DESKTOP_PORT, timeout, "本地 Rust 服务")
+}
+
+fn wait_for_frontend_dev_server(timeout: Duration) -> Result<(), String> {
+    wait_for_tcp(
+        FRONTEND_DEV_HOST,
+        FRONTEND_DEV_PORT,
+        timeout,
+        "Vite 开发服务",
+    )
 }
 
 fn ensure_backend_port_available() -> Result<(), String> {
@@ -121,7 +149,7 @@ fn start_embedded_backend(app: &tauri::App) -> Result<(), String> {
 }
 
 fn create_main_window(app: &tauri::App) -> Result<(), String> {
-    let base_url = desktop_base_url();
+    let base_url = desktop_window_base_url();
     let url = base_url
         .parse()
         .map_err(|error| format!("解析服务地址失败: {}", error))?;
@@ -165,8 +193,12 @@ pub fn run() {
             desktop_ffmpeg::configure_managed_ffmpeg(&app.handle())
                 .map_err(std::io::Error::other)?;
             start_embedded_backend(app).map_err(std::io::Error::other)?;
-            wait_for_server(Duration::from_secs(STARTUP_TIMEOUT_SECS))
+            wait_for_backend(Duration::from_secs(STARTUP_TIMEOUT_SECS))
                 .map_err(std::io::Error::other)?;
+            if cfg!(debug_assertions) {
+                wait_for_frontend_dev_server(Duration::from_secs(STARTUP_TIMEOUT_SECS))
+                    .map_err(std::io::Error::other)?;
+            }
             create_main_window(app).map_err(std::io::Error::other)?;
             Ok(())
         })
