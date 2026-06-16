@@ -43,6 +43,7 @@ zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 dotenvy = "0.15.7"
 ve-tos-rust-sdk = "2.9.16"
 futures-util = "0.3.31"
+machine-uid = "0.5.3"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-process = "2.3.1"

@@ -219,6 +219,7 @@ function handleThemeToggle(event: MouseEvent) {
       class="theme-surface relative flex flex-col border-r bg-card transition-[width,background-color,border-color,box-shadow] duration-300 ease-out"
       :class="visualSidebarCollapsed ? 'w-16' : 'w-56'"
     >
+    <h1>hello</h1>
       <!-- Logo with collapse toggle -->
       <button
         type="button"
@@ -230,14 +231,16 @@ function handleThemeToggle(event: MouseEvent) {
       >
         <!-- Logo - 默认显示，hover 时隐藏 -->
         <div
-          class="font-bold text-foreground flex items-center transition-opacity duration-200 group-hover:opacity-0"
+          class="absolute inset-0 flex items-center justify-center font-bold text-foreground transition-opacity duration-200 group-hover:opacity-0"
           :class="visualSidebarCollapsed ? 'text-xl' : 'text-2xl'"
         >
-          <Clapperboard class="w-6 h-6 text-primary" />
-          <span
-            v-if="!visualSidebarCollapsed"
-            class="ml-1"
-          >playlet</span>
+          <div class="flex items-center">
+            <Clapperboard class="w-6 h-6 text-primary" />
+            <span
+              v-if="!visualSidebarCollapsed"
+              class="ml-1"
+            >playlet</span>
+          </div>
         </div>
 
         <!-- 箭头 - hover 时显示 -->

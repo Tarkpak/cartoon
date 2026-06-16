@@ -888,13 +888,37 @@ fn cloud_allowed_models_by_provider(conn: &Connection) -> Option<HashMap<String,
 }
 
 fn get_or_create_cloud_device_id(conn: &Connection) -> Result<String, ApiError> {
+    // 先检查数据库中是否已有设备ID
     if let Some(value) = get_config_json(conn, CLOUD_DEVICE_ID_KEY)?
         .and_then(|value| value.as_str().map(str::to_string))
         .filter(|value| !value.trim().is_empty())
     {
         return Ok(value);
     }
-    let device_id = format!("desktop_{}", Uuid::new_v4().simple());
+
+    // 尝试基于机器硬件生成唯一设备ID
+    let device_id = match machine_uid::get() {
+        Ok(machine_id) => {
+            // 使用机器ID + 应用标识生成设备ID
+            // 格式: desktop_<machine_id_hash>
+            let hash = {
+                use sha2::{Sha256, Digest};
+                let mut hasher = Sha256::new();
+                hasher.update(b"playlet-desktop-v1:");
+                hasher.update(machine_id.as_bytes());
+                let result = hasher.finalize();
+                format!("{:x}", result)[..16].to_string()
+            };
+            format!("desktop_{}", hash)
+        }
+        Err(err) => {
+            // 如果无法获取机器ID（虚拟机、权限问题等），回退到UUID
+            // 但记录警告日志
+            log::warn!("无法获取机器唯一ID，回退到随机UUID: {}", err);
+            format!("desktop_{}", Uuid::new_v4().simple())
+        }
+    };
+
     set_config_json(conn, CLOUD_DEVICE_ID_KEY, &json!(device_id))?;
     Ok(device_id)
 }
