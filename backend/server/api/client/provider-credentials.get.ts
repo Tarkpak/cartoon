@@ -3,28 +3,12 @@ import { requireAuth } from '../../utils/auth'
 import { decryptText } from '../../utils/crypto'
 import { writeAudit } from '../../utils/audit'
 import { encryptedClientResponse } from '../../utils/secure-transport'
+import { listAdminProviderRows } from '../../utils/custom-openai-providers'
+import { resolveProviderModelState } from '../../utils/model-provider-models'
 
 export default defineEventHandler((event) => {
   const auth = requireAuth(event)
-  const rows = getDb()
-    .prepare(`
-      SELECT p.provider_key, p.display_name, p.base_url, p.enabled,
-             c.encrypted_api_key, c.encrypted_access_key, c.encrypted_secret_key, c.encrypted_security_token
-      FROM model_providers p
-      LEFT JOIN provider_credentials c ON c.provider_id = p.id
-      WHERE p.enabled = 1
-      ORDER BY p.display_name ASC
-    `)
-    .all() as Array<{
-      provider_key: string
-      display_name: string
-      base_url: string
-      enabled: number
-      encrypted_api_key: string
-      encrypted_access_key: string
-      encrypted_secret_key: string
-      encrypted_security_token: string
-    }>
+  const rows = listAdminProviderRows(getDb()).filter(row => Boolean(row.enabled))
 
   writeAudit(event, {
     actorUserId: auth.user.id,
@@ -33,13 +17,25 @@ export default defineEventHandler((event) => {
     metadata: { providerCount: rows.length }
   })
 
-  return encryptedClientResponse(event, rows.map(row => ({
-    providerKey: row.provider_key,
-    displayName: row.display_name,
-    baseUrl: row.base_url,
-    apiKey: decryptText(row.encrypted_api_key),
-    accessKey: decryptText(row.encrypted_access_key),
-    secretKey: decryptText(row.encrypted_secret_key),
-    securityToken: decryptText(row.encrypted_security_token)
-  })))
+  return encryptedClientResponse(event, rows.map((row) => {
+    const modelState = resolveProviderModelState({
+      providerKey: row.provider_key,
+      modelsJson: row.models_json,
+      availableModelsJson: row.available_models_json,
+      syncedAt: row.synced_at,
+      syncError: row.sync_error
+    })
+    return {
+      id: row.id,
+      providerKey: row.provider_key,
+      displayName: row.display_name,
+      baseUrl: row.base_url,
+      apiKey: decryptText(row.encrypted_api_key),
+      accessKey: decryptText(row.encrypted_access_key),
+      secretKey: decryptText(row.encrypted_secret_key),
+      securityToken: decryptText(row.encrypted_security_token),
+      models: modelState.models,
+      availableModels: modelState.availableModels
+    }
+  }))
 })

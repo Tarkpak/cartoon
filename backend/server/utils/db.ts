@@ -105,6 +105,20 @@ function initSchema(conn: Database) {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS custom_openai_providers (
+      id TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      base_url TEXT NOT NULL DEFAULT '',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      encrypted_api_key TEXT NOT NULL DEFAULT '',
+      models_json TEXT NOT NULL DEFAULT '[]',
+      available_models_json TEXT NOT NULL DEFAULT '[]',
+      synced_at TEXT,
+      sync_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS model_provider_models (
       provider_id TEXT PRIMARY KEY REFERENCES model_providers(id) ON DELETE CASCADE,
       models_json TEXT NOT NULL DEFAULT '[]',

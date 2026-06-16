@@ -30,6 +30,7 @@ interface NormalizedProviderModels {
 }
 
 interface NormalizedProvider {
+  id: string
   providerKey: string
   displayName: string
   baseUrl: string
@@ -98,6 +99,7 @@ function normalizeProvider(value: unknown, index: number): NormalizedProvider {
   const isKling = providerKey === 'kling'
 
   return {
+    id: stringValue(provider.id, 128),
     providerKey,
     displayName,
     baseUrl,
@@ -130,6 +132,8 @@ export default defineEventHandler(async (event) => {
   const timestamp = nowIso()
   const db = getDb()
   const selectProvider = db.prepare('SELECT id FROM model_providers WHERE provider_key = ? LIMIT 1')
+  const selectProviderById = db.prepare('SELECT id FROM model_providers WHERE id = ? LIMIT 1')
+  const selectExtraCustomProvider = db.prepare('SELECT id FROM custom_openai_providers WHERE id = ? LIMIT 1')
   const insertProvider = db.prepare(`
     INSERT INTO model_providers
       (id, provider_key, display_name, base_url, enabled, created_at, updated_at)
@@ -162,15 +166,100 @@ export default defineEventHandler(async (event) => {
       sync_error = excluded.sync_error,
       updated_at = excluded.updated_at
   `)
+  const insertExtraCustomProvider = db.prepare(`
+    INSERT INTO custom_openai_providers
+      (id, display_name, base_url, enabled, encrypted_api_key, models_json,
+       available_models_json, synced_at, sync_error, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+  const updateExtraCustomProvider = db.prepare(`
+    UPDATE custom_openai_providers
+    SET display_name = ?, base_url = ?, enabled = ?, updated_at = ?
+    WHERE id = ?
+  `)
+  const updateExtraCustomCredentials = db.prepare(`
+    UPDATE custom_openai_providers
+    SET encrypted_api_key = ?, updated_at = ?
+    WHERE id = ?
+  `)
+  const updateExtraCustomModels = db.prepare(`
+    UPDATE custom_openai_providers
+    SET models_json = ?, available_models_json = ?, synced_at = ?, sync_error = ?, updated_at = ?
+    WHERE id = ?
+  `)
 
   const result = db.transaction((items: NormalizedProvider[]) => {
     let created = 0
     let updated = 0
     let credentialsUpdated = 0
     let modelSelectionsUpdated = 0
+    let coreCustomConsumed = false
 
     for (const provider of items) {
-      const existing = selectProvider.get(provider.providerKey) as { id: string } | undefined
+      const isCustomOpenAI = provider.providerKey === 'custom_openai'
+      const coreById = provider.id
+        ? selectProviderById.get(provider.id) as { id: string } | undefined
+        : undefined
+      const extraById = provider.id
+        ? selectExtraCustomProvider.get(provider.id) as { id: string } | undefined
+        : undefined
+
+      if (isCustomOpenAI && (extraById || (provider.id && !coreById && provider.id !== 'provider_custom_openai'))) {
+        const providerId = extraById?.id || provider.id || randomUUID()
+        if (extraById) {
+          updateExtraCustomProvider.run(
+            provider.displayName,
+            provider.baseUrl,
+            provider.enabled ? 1 : 0,
+            timestamp,
+            providerId
+          )
+          updated += 1
+        } else {
+          insertExtraCustomProvider.run(
+            providerId,
+            provider.displayName,
+            provider.baseUrl,
+            provider.enabled ? 1 : 0,
+            encryptText(provider.credentials?.apiKey || ''),
+            jsonText(provider.modelConfig?.models || []),
+            jsonText(provider.modelConfig?.availableModels || []),
+            provider.modelConfig?.syncedAt || null,
+            provider.modelConfig?.syncError || null,
+            timestamp,
+            timestamp
+          )
+          created += 1
+          if (provider.credentials) credentialsUpdated += 1
+          if (provider.modelConfig) modelSelectionsUpdated += 1
+          continue
+        }
+
+        if (provider.credentials) {
+          updateExtraCustomCredentials.run(
+            encryptText(provider.credentials.apiKey),
+            timestamp,
+            providerId
+          )
+          credentialsUpdated += 1
+        }
+        if (provider.modelConfig) {
+          updateExtraCustomModels.run(
+            jsonText(provider.modelConfig.models),
+            jsonText(provider.modelConfig.availableModels),
+            provider.modelConfig.syncedAt,
+            provider.modelConfig.syncError,
+            timestamp,
+            providerId
+          )
+          modelSelectionsUpdated += 1
+        }
+        continue
+      }
+
+      const existing = isCustomOpenAI && !coreCustomConsumed
+        ? (coreById || selectProvider.get(provider.providerKey) as { id: string } | undefined)
+        : (!isCustomOpenAI ? selectProvider.get(provider.providerKey) as { id: string } | undefined : undefined)
       const providerId = existing?.id || randomUUID()
       if (existing) {
         updateProvider.run(
@@ -181,7 +270,27 @@ export default defineEventHandler(async (event) => {
           providerId
         )
         updated += 1
+        if (isCustomOpenAI) coreCustomConsumed = true
       } else {
+        if (isCustomOpenAI) {
+          insertExtraCustomProvider.run(
+            provider.id || providerId,
+            provider.displayName,
+            provider.baseUrl,
+            provider.enabled ? 1 : 0,
+            encryptText(provider.credentials?.apiKey || ''),
+            jsonText(provider.modelConfig?.models || []),
+            jsonText(provider.modelConfig?.availableModels || []),
+            provider.modelConfig?.syncedAt || null,
+            provider.modelConfig?.syncError || null,
+            timestamp,
+            timestamp
+          )
+          created += 1
+          if (provider.credentials) credentialsUpdated += 1
+          if (provider.modelConfig) modelSelectionsUpdated += 1
+          continue
+        }
         insertProvider.run(
           providerId,
           provider.providerKey,

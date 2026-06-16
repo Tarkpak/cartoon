@@ -4,6 +4,7 @@ import { encryptText } from '../../../../utils/crypto'
 import { readJsonBody, requireAdmin } from '../../../../utils/auth'
 import { writeAudit } from '../../../../utils/audit'
 import { requiredParam } from '../../../../utils/http'
+import { getAdminProviderRow } from '../../../../utils/custom-openai-providers'
 
 export default defineEventHandler(async (event) => {
   const auth = requireAdmin(event)
@@ -14,13 +15,22 @@ export default defineEventHandler(async (event) => {
     secretKey?: string
   }>(event)
   const db = getDb()
-  const provider = db
-    .prepare('SELECT id, provider_key FROM model_providers WHERE id = ? LIMIT 1')
-    .get(providerId) as { id: string, provider_key: string } | undefined
+  const provider = getAdminProviderRow(db, providerId)
   if (!provider) {
     throw createError({ statusCode: 404, statusMessage: 'Provider not found' })
   }
   const isKling = provider.provider_key === 'kling'
+  if (provider.source === 'custom_openai_extra') {
+    db.prepare(`
+      UPDATE custom_openai_providers
+      SET encrypted_api_key = ?, updated_at = ?
+      WHERE id = ?
+    `).run(
+      encryptText(body.apiKey),
+      nowIso(),
+      providerId
+    )
+  } else {
   db.prepare(`
     INSERT INTO provider_credentials
       (provider_id, encrypted_api_key, encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
@@ -39,6 +49,7 @@ export default defineEventHandler(async (event) => {
     '',
     nowIso()
   )
+  }
 
   writeAudit(event, {
     actorUserId: auth.user.id,

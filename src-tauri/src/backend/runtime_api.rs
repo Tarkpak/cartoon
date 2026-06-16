@@ -3636,11 +3636,10 @@ async fn request_custom_openai_image_generation(
     reference_images: &[String],
     creds: &Value,
 ) -> Result<(String, Option<String>), String> {
-    let custom_openai = creds
-        .get("custom_openai")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    let api_keys = provider_sync_api_keys("custom_openai", creds);
+    let custom_openai = custom_openai_entry_for_model(model_id, creds)
+        .ok_or_else(|| "未配置自定义 OpenAI 供应商".to_string())?;
+    let request_creds = wrap_custom_openai_creds(&custom_openai);
+    let api_keys = provider_sync_api_keys("custom_openai", &request_creds);
     if api_keys.is_empty() {
         llm_dev_log!(
             "error",
@@ -3652,7 +3651,7 @@ async fn request_custom_openai_image_generation(
         );
         return Err("未配置 API Key".to_string());
     }
-    let base_url = provider_sync_base_url("custom_openai", creds)
+    let base_url = provider_sync_base_url("custom_openai", &request_creds)
         .ok_or_else(|| "未配置 Base URL".to_string())?;
     let model = normalize_model_id_for_remote(model_id);
     let normalized_model = model.to_ascii_lowercase();
@@ -10167,20 +10166,8 @@ fn infer_model_provider_required_string(model_id: &str) -> Result<String, String
 
 /// 判断模型是否属于已配置的「自定义 OpenAI」供应商（按其配置的模型列表精确匹配）。
 fn is_custom_openai_model(model_id: &str, creds: &Value) -> bool {
-    let target = model_id.trim();
-    if target.is_empty() {
-        return false;
-    }
-    let Some(custom) = creds.get("custom_openai") else {
-        return false;
-    };
-    ["textModels", "availableTextModels"]
-        .iter()
-        .filter_map(|key| custom.get(*key))
-        .filter_map(Value::as_array)
-        .flatten()
-        .filter_map(Value::as_str)
-        .any(|candidate| candidate.trim() == target)
+    custom_openai_entry_for_model(model_id, creds)
+        .is_some_and(|entry| custom_openai_entry_has_model(&entry, model_id))
 }
 
 /// 解析模型对应的供应商：优先按「自定义 OpenAI」已配置模型精确匹配，再回退到按模型名
@@ -11479,6 +11466,15 @@ async fn request_openai_compatible_text_completion(
     prompt: &str,
     creds: &Value,
 ) -> Result<String, String> {
+    let resolved_custom_openai;
+    let request_creds = if provider == "custom_openai" {
+        resolved_custom_openai = custom_openai_entry_for_model(model_id, creds)
+            .ok_or_else(|| "未配置自定义 OpenAI 供应商".to_string())?;
+        wrap_custom_openai_creds(&resolved_custom_openai)
+    } else {
+        creds.clone()
+    };
+    let creds = &request_creds;
     let api_keys = provider_sync_api_keys(provider, creds);
     if api_keys.is_empty() {
         llm_dev_log!(

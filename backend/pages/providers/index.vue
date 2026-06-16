@@ -4,6 +4,12 @@
       <div class="page-header page-header--actions">
         <n-space>
           <n-button
+            :loading="creatingProvider"
+            @click="createCustomOpenAIProvider"
+          >
+            新增自定义 OpenAI
+          </n-button>
+          <n-button
             :loading="importing"
             @click="openImportFile"
           >
@@ -147,7 +153,7 @@
                     :key="`${modelsProvider.providerKey}_${model}`"
                     :checked="isDraftModelSelected(model)"
                     :disabled="savingModels"
-                    @update:checked="value => updateDraftModel(model, value)"
+                    @update:checked="(value: boolean | 'indeterminate') => updateDraftModel(model, value)"
                   >
                     <span class="provider-models__model-id">{{ model }}</span>
                   </n-checkbox>
@@ -172,7 +178,7 @@
 
 <script setup lang="ts">
 import { h } from 'vue'
-import { NButton, NEllipsis, NSpace, NTag, useMessage } from 'naive-ui'
+import { NButton, NEllipsis, NSpace, NSwitch, NTag, useMessage } from 'naive-ui'
 
 interface ModelCatalogEntry {
   model: string
@@ -196,6 +202,8 @@ interface ProviderRow {
   availableModelCatalog: ModelCatalogEntry[]
   syncedAt: string | null
   syncError: string | null
+  source: 'core' | 'custom_openai_extra'
+  canDelete: boolean
 }
 
 interface ProviderModelUpdate {
@@ -231,6 +239,8 @@ const providers = ref<ProviderRow[]>([])
 const pending = ref(false)
 const exporting = ref(false)
 const importing = ref(false)
+const creatingProvider = ref(false)
+const togglingProvider = ref<string | null>(null)
 const importInputRef = ref<HTMLInputElement | null>(null)
 const showProviderModal = ref(false)
 const showCredentialModal = ref(false)
@@ -318,7 +328,17 @@ const columns = [
     title: '状态',
     key: 'enabled',
     render(row: ProviderRow) {
-      return h(NTag, { size: 'small', type: row.enabled ? 'success' : 'error' }, { default: () => row.enabled ? '启用' : '禁用' })
+      return h(NSpace, { size: 8, align: 'center' }, {
+        default: () => [
+          h(NSwitch, {
+            value: row.enabled,
+            loading: togglingProvider.value === row.id,
+            onClick: (event: MouseEvent) => event.stopPropagation(),
+            'onUpdate:value': (value: boolean) => toggleProviderEnabled(row, value)
+          }),
+          h(NTag, { size: 'small', type: row.enabled ? 'success' : 'error' }, { default: () => row.enabled ? '启用' : '禁用' })
+        ]
+      })
     }
   },
   {
@@ -354,11 +374,17 @@ const columns = [
     title: '操作',
     key: 'actions',
     render(row: ProviderRow) {
+      const actions = [
+        h(NButton, { size: 'small', onClick: (event: MouseEvent) => handleActionClick(event, () => openProvider(row)) }, { default: () => '编辑' }),
+        h(NButton, { size: 'small', type: 'primary', onClick: (event: MouseEvent) => handleActionClick(event, () => openCredentials(row)) }, { default: () => '更新 Key' })
+      ]
+      if (row.canDelete) {
+        actions.push(
+          h(NButton, { size: 'small', type: 'error', ghost: true, onClick: (event: MouseEvent) => handleActionClick(event, () => deleteProvider(row)) }, { default: () => '删除' })
+        )
+      }
       return h(NSpace, { size: 8 }, {
-        default: () => [
-          h(NButton, { size: 'small', onClick: (event: MouseEvent) => handleActionClick(event, () => openProvider(row)) }, { default: () => '编辑' }),
-          h(NButton, { size: 'small', type: 'primary', onClick: (event: MouseEvent) => handleActionClick(event, () => openCredentials(row)) }, { default: () => '更新 Key' })
-        ]
+        default: () => actions
       })
     }
   }
@@ -490,6 +516,65 @@ async function saveProvider() {
   await loadProviders()
 }
 
+async function toggleProviderEnabled(row: ProviderRow, enabled: boolean) {
+  togglingProvider.value = row.id
+  try {
+    await $fetch(`/api/admin/model-providers/${row.id}`, {
+      method: 'PUT',
+      body: {
+        displayName: row.displayName,
+        baseUrl: row.baseUrl,
+        enabled
+      }
+    })
+    row.enabled = enabled
+    message.success(enabled ? '供应商已启用' : '供应商已禁用')
+    await loadProviders()
+  } catch (err) {
+    message.error(errorMessage(err, enabled ? '启用供应商失败' : '禁用供应商失败'))
+  } finally {
+    togglingProvider.value = null
+  }
+}
+
+async function createCustomOpenAIProvider() {
+  creatingProvider.value = true
+  try {
+    await $fetch('/api/admin/model-providers', {
+      method: 'POST',
+      body: {
+        providerKey: 'custom_openai',
+        displayName: `自定义 OpenAI ${providers.value.filter(provider => provider.providerKey === 'custom_openai').length + 1}`,
+        baseUrl: '',
+        enabled: true
+      }
+    })
+    message.success('自定义 OpenAI 供应商已新增')
+    await loadProviders()
+  } catch (err) {
+    message.error(errorMessage(err, '新增供应商失败'))
+  } finally {
+    creatingProvider.value = false
+  }
+}
+
+async function deleteProvider(row: ProviderRow) {
+  if (!row.canDelete) return
+  try {
+    await $fetch(`/api/admin/model-providers/${row.id}`, {
+      method: 'DELETE'
+    })
+    message.success('供应商已删除')
+    if (modelsProvider.value?.id === row.id) {
+      showModelsDrawer.value = false
+      modelsProvider.value = null
+    }
+    await loadProviders()
+  } catch (err) {
+    message.error(errorMessage(err, '删除供应商失败'))
+  }
+}
+
 async function saveCredentials() {
   const body = credentialProvider.value?.providerKey === 'kling'
     ? {
@@ -602,7 +687,7 @@ async function importProviders(event: Event) {
 
   importing.value = true
   try {
-    const payload = JSON.parse(await file.text()) as unknown
+    const payload = JSON.parse(await file.text()) as Record<string, unknown>
     const response = await $fetch<{
       data: {
         created: number

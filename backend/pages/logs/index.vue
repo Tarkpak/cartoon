@@ -368,7 +368,7 @@ function jsonTextForPayload(kind: JsonPayloadKind) {
   return rawPayloadText(kind) || stringifyRawJson(payloadValue(kind))
 }
 
-function valueToText(value: unknown) {
+function valueToText(value: unknown): string {
   if (!hasContent(value)) return ''
   if (typeof value === 'string') return value
   if (Array.isArray(value) && value.every(isMessageLike)) {

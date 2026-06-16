@@ -145,7 +145,8 @@ export type SwitchModelRequest = z.infer<typeof SwitchModelRequestSchema>
 // ==================== 自定义供应商 ====================
 
 /** OpenAI 兼容格式自定义供应商配置 */
-export const CustomOpenAIProviderConfigSchema = z.object({
+export const CustomOpenAIProviderEntryConfigSchema = z.object({
+  id: z.string().trim().min(1).max(80).default('default'),
   enabled: z.boolean().default(false),
   displayName: z.string().trim().min(1).max(60).default('自定义 OpenAI'),
   baseUrl: z.string().trim().min(1).default(''),
@@ -155,13 +156,37 @@ export const CustomOpenAIProviderConfigSchema = z.object({
   modelsSyncedAt: z.string().optional(),
   modelsSyncError: z.string().optional()
 })
-export type CustomOpenAIProviderConfig = z.infer<typeof CustomOpenAIProviderConfigSchema>
+export type CustomOpenAIProviderEntryConfig = z.infer<typeof CustomOpenAIProviderEntryConfigSchema>
 
 /** 返回给前端时不暴露密钥明文 */
-export const CustomOpenAIProviderPublicConfigSchema = CustomOpenAIProviderConfigSchema.omit({
+export const CustomOpenAIProviderEntryPublicConfigSchema = CustomOpenAIProviderEntryConfigSchema.omit({
   apiKey: true
 }).extend({
   hasApiKey: z.boolean().default(false)
+})
+export type CustomOpenAIProviderEntryPublicConfig = z.infer<typeof CustomOpenAIProviderEntryPublicConfigSchema>
+
+/** 自定义 OpenAI 兼容供应商配置集合 */
+export const CustomOpenAIProvidersConfigSchema = z.object({
+  providers: z.array(CustomOpenAIProviderEntryConfigSchema).default([])
+})
+export type CustomOpenAIProvidersConfig = z.infer<typeof CustomOpenAIProvidersConfigSchema>
+
+/** 自定义 OpenAI 兼容供应商脱敏配置集合 */
+export const CustomOpenAIProvidersPublicConfigSchema = z.object({
+  providers: z.array(CustomOpenAIProviderEntryPublicConfigSchema).default([])
+})
+export type CustomOpenAIProvidersPublicConfig = z.infer<typeof CustomOpenAIProvidersPublicConfigSchema>
+
+/** @deprecated 旧版单供应商视图，仅用于兼容历史调用方。 */
+export const CustomOpenAIProviderConfigSchema = CustomOpenAIProviderEntryConfigSchema.omit({
+  id: true
+})
+export type CustomOpenAIProviderConfig = z.infer<typeof CustomOpenAIProviderConfigSchema>
+
+/** @deprecated 旧版单供应商脱敏视图，仅用于兼容历史调用方。 */
+export const CustomOpenAIProviderPublicConfigSchema = CustomOpenAIProviderEntryPublicConfigSchema.omit({
+  id: true
 })
 export type CustomOpenAIProviderPublicConfig = z.infer<typeof CustomOpenAIProviderPublicConfigSchema>
 

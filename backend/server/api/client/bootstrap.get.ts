@@ -2,34 +2,12 @@ import { getAppSettings, getDb, parseJsonText } from '../../utils/db'
 import { requireAuth, publicUser } from '../../utils/auth'
 import { resolveProviderModelState } from '../../utils/model-provider-models'
 import { tosStoragePublicConfig } from '../../utils/tos-storage'
+import { listAdminProviderRows } from '../../utils/custom-openai-providers'
 
 export default defineEventHandler((event) => {
   const auth = requireAuth(event)
   const db = getDb()
-  const providers = db
-    .prepare(`
-      SELECT p.id, p.provider_key, p.display_name, p.base_url, p.enabled,
-             c.encrypted_api_key, c.encrypted_access_key, c.encrypted_secret_key,
-             m.models_json, m.available_models_json, m.synced_at, m.sync_error
-      FROM model_providers p
-      LEFT JOIN provider_credentials c ON c.provider_id = p.id
-      LEFT JOIN model_provider_models m ON m.provider_id = p.id
-      ORDER BY p.display_name ASC
-    `)
-    .all() as Array<{
-      id: string
-      provider_key: string
-      display_name: string
-      base_url: string
-      enabled: number
-      encrypted_api_key: string
-      encrypted_access_key: string
-      encrypted_secret_key: string
-      models_json: string | null
-      available_models_json: string | null
-      synced_at: string | null
-      sync_error: string | null
-    }>
+  const providers = listAdminProviderRows(db)
 
   const preferences = db
     .prepare('SELECT workflow_step, model_id, model_options_json FROM user_model_preferences WHERE user_id = ? ORDER BY workflow_step ASC')
@@ -38,7 +16,7 @@ export default defineEventHandler((event) => {
   const defaultModelsRow = db
     .prepare("SELECT value FROM app_settings WHERE key = 'default_model_preferences' LIMIT 1")
     .get() as { value: string } | undefined
-  const providerModels = providers.map((provider) => {
+  const providerModelItems = providers.map((provider) => {
     const modelState = resolveProviderModelState({
       providerKey: provider.provider_key,
       modelsJson: provider.models_json,
@@ -58,6 +36,21 @@ export default defineEventHandler((event) => {
       availableModels: enabled ? modelState.availableModels : []
     }
   })
+  const providerModelsByKey = new Map<string, { providerKey: string, models: string[], availableModels: string[] }>()
+  for (const provider of providerModelItems) {
+    const current = providerModelsByKey.get(provider.providerKey)
+    if (!current) {
+      providerModelsByKey.set(provider.providerKey, {
+        providerKey: provider.providerKey,
+        models: [...provider.models],
+        availableModels: [...provider.availableModels]
+      })
+      continue
+    }
+    current.models = Array.from(new Set([...current.models, ...provider.models]))
+    current.availableModels = Array.from(new Set([...current.availableModels, ...provider.availableModels]))
+  }
+  const providerModels = Array.from(providerModelsByKey.values())
 
   return {
     success: true,

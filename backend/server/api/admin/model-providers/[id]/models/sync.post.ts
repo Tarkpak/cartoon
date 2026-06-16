@@ -12,6 +12,7 @@ import {
   resolveProviderModelState,
   retainEnabledModels
 } from '../../../../../utils/model-provider-models'
+import { getAdminProviderRow } from '../../../../../utils/custom-openai-providers'
 
 async function fetchProviderModels(baseUrl: string, apiKey: string) {
   const controller = new AbortController()
@@ -48,27 +49,7 @@ export default defineEventHandler(async (event) => {
   const auth = requireAdmin(event)
   const providerId = requiredParam(event, 'id')
   const db = getDb()
-  const provider = db
-    .prepare(`
-      SELECT p.id, p.provider_key, p.base_url,
-             c.encrypted_api_key,
-             m.models_json, m.available_models_json, m.synced_at, m.sync_error
-      FROM model_providers p
-      LEFT JOIN provider_credentials c ON c.provider_id = p.id
-      LEFT JOIN model_provider_models m ON m.provider_id = p.id
-      WHERE p.id = ?
-      LIMIT 1
-    `)
-    .get(providerId) as {
-      id: string
-      provider_key: string
-      base_url: string | null
-      encrypted_api_key: string | null
-      models_json: string | null
-      available_models_json: string | null
-      synced_at: string | null
-      sync_error: string | null
-    } | undefined
+  const provider = getAdminProviderRow(db, providerId)
   if (!provider) {
     throw createError({ statusCode: 404, statusMessage: 'Provider not found' })
   }
@@ -98,6 +79,19 @@ export default defineEventHandler(async (event) => {
   try {
     const availableModels = await fetchProviderModels(baseUrl, apiKey)
     const nextModels = retainEnabledModels(current.models, availableModels)
+    if (provider.source === 'custom_openai_extra') {
+      db.prepare(`
+        UPDATE custom_openai_providers
+        SET models_json = ?, available_models_json = ?, synced_at = ?, sync_error = NULL, updated_at = ?
+        WHERE id = ?
+      `).run(
+        jsonText(nextModels),
+        jsonText(availableModels),
+        timestamp,
+        timestamp,
+        provider.id
+      )
+    } else {
     db.prepare(`
       INSERT INTO model_provider_models
         (provider_id, models_json, available_models_json, synced_at, sync_error, updated_at)
@@ -115,6 +109,7 @@ export default defineEventHandler(async (event) => {
       timestamp,
       timestamp
     )
+    }
 
     const updated = resolveProviderModelState({
       providerKey: provider.provider_key,
@@ -150,6 +145,18 @@ export default defineEventHandler(async (event) => {
     }
   } catch (error) {
     const syncError = error instanceof Error ? error.message : 'sync failed'
+    if (provider.source === 'custom_openai_extra') {
+      db.prepare(`
+        UPDATE custom_openai_providers
+        SET synced_at = ?, sync_error = ?, updated_at = ?
+        WHERE id = ?
+      `).run(
+        timestamp,
+        syncError,
+        timestamp,
+        provider.id
+      )
+    } else {
     db.prepare(`
       INSERT INTO model_provider_models
         (provider_id, models_json, available_models_json, synced_at, sync_error, updated_at)
@@ -166,6 +173,7 @@ export default defineEventHandler(async (event) => {
       syncError,
       timestamp
     )
+    }
     throw createError({ statusCode: 502, statusMessage: `Sync models failed: ${syncError}` })
   }
 })

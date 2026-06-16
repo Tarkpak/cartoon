@@ -1133,7 +1133,48 @@ async fn cloud_request_secure_json(
 }
 
 fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
-    let Some(items) = raw.and_then(|value| value.as_array().cloned()) else {
+    let Some(value) = raw else {
+        return json!({});
+    };
+    if let Some(object) = value.as_object() {
+        let mut output = serde_json::Map::new();
+        for (provider, item) in object {
+            if provider == "custom_openai" {
+                output.insert(
+                    "customOpenaiProviders".to_string(),
+                    json!(custom_openai_provider_entries(item)
+                        .iter()
+                        .map(custom_openai_public_entry)
+                        .collect::<Vec<_>>()),
+                );
+                continue;
+            }
+            let has_api_key = item
+                .get("apiKey")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty());
+            let has_access_key = item
+                .get("accessKey")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty());
+            let has_secret_key = item
+                .get("secretKey")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty());
+            output.insert(
+                provider.to_string(),
+                json!({
+                  "baseUrl": item.get("baseUrl").and_then(Value::as_str).unwrap_or(""),
+                  "hasApiKey": has_api_key,
+                  "hasAccessKey": has_access_key,
+                  "hasSecretKey": has_secret_key
+                }),
+            );
+        }
+        return Value::Object(output);
+    }
+
+    let Some(items) = value.as_array().cloned() else {
         return json!({});
     };
     let mut output = serde_json::Map::new();
@@ -1391,6 +1432,7 @@ fn upsert_cloud_project_placeholder(
 
 fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
     let mut output = serde_json::Map::new();
+    let mut custom_openai_entries = Vec::<Value>::new();
     let Some(items) = raw.and_then(|value| value.as_array().cloned()) else {
         return Value::Object(output);
     };
@@ -1423,12 +1465,45 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
             .and_then(Value::as_str)
             .unwrap_or("")
             .trim();
+        let display_name = item
+            .get("displayName")
+            .and_then(Value::as_str)
+            .unwrap_or("自定义 OpenAI")
+            .trim();
+        let id = item
+            .get("id")
+            .and_then(Value::as_str)
+            .and_then(sanitize_custom_openai_provider_id)
+            .unwrap_or_else(|| {
+                format!(
+                    "cloud_{}",
+                    custom_openai_entries.len().saturating_add(1)
+                )
+            });
 
         let target_provider = if provider == "openai" {
             "custom_openai"
         } else {
             provider
         };
+
+        if target_provider == "custom_openai" {
+            if api_key.is_empty() || base_url.is_empty() {
+                continue;
+            }
+            custom_openai_entries.push(json!({
+              "id": id,
+              "enabled": true,
+              "displayName": if display_name.is_empty() { "自定义 OpenAI" } else { display_name },
+              "baseUrl": base_url,
+              "apiKey": api_key,
+              "textModels": json_string_list(item.get("models")),
+              "availableTextModels": json_string_list(item.get("availableModels")),
+              "modelsSyncedAt": Value::Null,
+              "modelsSyncError": Value::Null
+            }));
+            continue;
+        }
 
         if target_provider == "kling" {
             if access_key.is_empty() || secret_key.is_empty() {
@@ -1443,7 +1518,7 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
                 }),
             );
         } else {
-            if api_key.is_empty() || (target_provider == "custom_openai" && base_url.is_empty()) {
+            if api_key.is_empty() {
                 continue;
             }
             output.insert(
@@ -1454,6 +1529,12 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
                 }),
             );
         }
+    }
+    if !custom_openai_entries.is_empty() {
+        output.insert(
+            "custom_openai".to_string(),
+            custom_openai_config_from_entries(custom_openai_entries),
+        );
     }
     Value::Object(output)
 }
@@ -2268,6 +2349,13 @@ fn default_workflow_model_options() -> Value {
 
 fn default_custom_openai_config() -> Value {
     json!({
+      "providers": [default_custom_openai_provider_entry()]
+    })
+}
+
+fn default_custom_openai_provider_entry() -> Value {
+    json!({
+      "id": "default",
       "enabled": false,
       "displayName": "自定义 OpenAI",
       "baseUrl": "",
@@ -3531,11 +3619,21 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         )
         .route(
             "/api/models/custom-openai",
-            get(api_custom_openai_get).put(api_custom_openai_put),
+            get(api_custom_openai_get)
+                .post(api_custom_openai_create)
+                .put(api_custom_openai_put),
+        )
+        .route(
+            "/api/models/custom-openai/{id}",
+            put(api_custom_openai_provider_put).delete(api_custom_openai_provider_delete),
         )
         .route(
             "/api/models/custom-openai/sync",
             post(api_custom_openai_sync),
+        )
+        .route(
+            "/api/models/custom-openai/{id}/sync",
+            post(api_custom_openai_provider_sync),
         )
         .route("/api/model-providers", get(api_model_providers))
         .route("/api/model-providers/index", get(api_model_providers))
@@ -6602,10 +6700,12 @@ fn load_provider_creds(conn: &Connection) -> Value {
         .ok()
         .flatten()
         .unwrap_or_else(default_provider_credentials);
-    let custom_openai = get_config_json(conn, CUSTOM_OPENAI_CONFIG_KEY)
+    let custom_openai_raw = get_config_json(conn, CUSTOM_OPENAI_CONFIG_KEY)
         .ok()
         .flatten()
         .unwrap_or_else(default_custom_openai_config);
+    let custom_openai =
+        custom_openai_config_from_entries(custom_openai_provider_entries(&custom_openai_raw));
     if let Some(obj) = creds.as_object_mut() {
         obj.insert("custom_openai".to_string(), custom_openai);
     }
@@ -6615,7 +6715,7 @@ fn load_provider_creds(conn: &Connection) -> Value {
 
 /// 把单个 custom_openai 配置包装成合并凭证结构，供共享供应商助手读取。
 fn wrap_custom_openai_creds(custom_openai: &Value) -> Value {
-    json!({ "custom_openai": custom_openai.clone() })
+    json!({ "custom_openai": custom_openai_config_from_entries(vec![custom_openai.clone()]) })
 }
 
 /// 供无 `&Connection` 的深层助手按需加载合并凭证（依赖全局 DB 路径）。
@@ -6627,6 +6727,34 @@ fn current_provider_creds() -> Value {
 
 /// 读取某供应商凭证的指定字段（去空白、过滤空串）。
 fn provider_credential_field(creds: &Value, provider: &str, field: &str) -> Option<String> {
+    if provider == "custom_openai" {
+        if let Some(value) = creds
+            .get(provider)
+            .and_then(|node| node.get(field))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+        {
+            return Some(value);
+        }
+        return creds
+            .get("custom_openai")
+            .and_then(|node| {
+                custom_openai_provider_entries(node)
+                    .into_iter()
+                    .find(custom_openai_entry_is_configured)
+            })
+            .and_then(|entry| {
+                entry
+                    .get(field)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            });
+    }
+
     creds
         .get(provider)
         .and_then(|node| node.get(field))
@@ -6658,6 +6786,162 @@ fn json_string_list(value: Option<&Value>) -> Vec<String> {
     }
 
     output
+}
+
+fn sanitize_custom_openai_provider_id(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > 80 {
+        return None;
+    }
+    if trimmed
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+    {
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
+}
+
+fn custom_openai_provider_entry_from_value(input: &Value, fallback_id: &str) -> Value {
+    let id = input
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(sanitize_custom_openai_provider_id)
+        .unwrap_or_else(|| fallback_id.to_string());
+    let display_name = input
+        .get("displayName")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("自定义 OpenAI")
+        .chars()
+        .take(60)
+        .collect::<String>();
+    json!({
+      "id": id,
+      "enabled": input.get("enabled").and_then(Value::as_bool).unwrap_or(false),
+      "displayName": display_name,
+      "baseUrl": input.get("baseUrl").and_then(Value::as_str).unwrap_or("").trim(),
+      "apiKey": input.get("apiKey").and_then(Value::as_str).unwrap_or(""),
+      "textModels": json_string_list(input.get("textModels")),
+      "availableTextModels": json_string_list(input.get("availableTextModels")),
+      "modelsSyncedAt": input.get("modelsSyncedAt").and_then(Value::as_str).map(|value| json!(value)).unwrap_or(Value::Null),
+      "modelsSyncError": input.get("modelsSyncError").and_then(Value::as_str).map(|value| json!(value)).unwrap_or(Value::Null)
+    })
+}
+
+fn custom_openai_provider_entries(config: &Value) -> Vec<Value> {
+    let mut entries = Vec::new();
+    let mut seen = HashSet::new();
+
+    if let Some(items) = config.get("providers").and_then(Value::as_array) {
+        for (index, item) in items.iter().enumerate() {
+            if !item.is_object() {
+                continue;
+            }
+            let fallback_id = format!("provider_{}", index + 1);
+            let mut entry = custom_openai_provider_entry_from_value(item, &fallback_id);
+            let id = entry
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or(fallback_id.as_str())
+                .to_string();
+            let unique_id = if seen.insert(id.clone()) {
+                id
+            } else {
+                let generated = format!("{}_{}", id, index + 1);
+                if let Some(obj) = entry.as_object_mut() {
+                    obj.insert("id".to_string(), json!(generated.clone()));
+                }
+                seen.insert(generated.clone());
+                generated
+            };
+            if let Some(obj) = entry.as_object_mut() {
+                obj.insert("id".to_string(), json!(unique_id));
+            }
+            entries.push(entry);
+        }
+    } else if config.is_object() {
+        entries.push(custom_openai_provider_entry_from_value(config, "default"));
+    }
+
+    if entries.is_empty() {
+        entries.push(default_custom_openai_provider_entry());
+    }
+    entries
+}
+
+fn custom_openai_config_from_entries(entries: Vec<Value>) -> Value {
+    json!({ "providers": entries })
+}
+
+fn custom_openai_public_entry(entry: &Value) -> Value {
+    let has_key = entry
+        .get("apiKey")
+        .and_then(Value::as_str)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    let mut public_entry = entry.clone();
+    if let Some(obj) = public_entry.as_object_mut() {
+        obj.remove("apiKey");
+        obj.insert("hasApiKey".to_string(), json!(has_key));
+    }
+    public_entry
+}
+
+fn custom_openai_public_config(config: &Value) -> Value {
+    json!({
+      "providers": custom_openai_provider_entries(config)
+        .iter()
+        .map(custom_openai_public_entry)
+        .collect::<Vec<_>>()
+    })
+}
+
+fn custom_openai_entry_is_configured(entry: &Value) -> bool {
+    entry.get("enabled").and_then(Value::as_bool).unwrap_or(false)
+        && entry
+        .get("apiKey")
+        .and_then(Value::as_str)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+        && entry
+            .get("baseUrl")
+            .and_then(Value::as_str)
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+}
+
+fn custom_openai_entry_has_model(entry: &Value, model_id: &str) -> bool {
+    if !custom_openai_entry_is_configured(entry) {
+        return false;
+    }
+    let target = model_id.trim();
+    if target.is_empty() {
+        return false;
+    }
+    ["textModels", "availableTextModels"]
+        .iter()
+        .filter_map(|key| entry.get(*key))
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(Value::as_str)
+        .any(|candidate| candidate.trim() == target)
+}
+
+fn custom_openai_entry_for_model(model_id: &str, creds: &Value) -> Option<Value> {
+    let custom = creds.get("custom_openai")?;
+    let entries = custom_openai_provider_entries(custom);
+    entries
+        .iter()
+        .find(|entry| custom_openai_entry_has_model(entry, model_id))
+        .cloned()
+        .or_else(|| {
+            entries
+                .into_iter()
+                .find(|entry| custom_openai_entry_is_configured(entry))
+        })
 }
 
 fn normalize_non_empty_string_list(
@@ -7050,6 +7334,87 @@ fn normalize_imported_provider_credentials(input: &Value) -> Result<Value, ApiEr
 
 fn normalize_imported_custom_openai_config(input: &Value) -> Result<Value, ApiError> {
     settings_object_section(input, "customOpenaiProvider")?;
+    if let Some(items) = input.get("providers") {
+        let providers = items.as_array().ok_or_else(|| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "customOpenaiProvider.providers 必须是数组",
+            )
+        })?;
+        if providers.len() > 20 {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "customOpenaiProvider.providers 最多 20 项",
+            ));
+        }
+        let mut output = Vec::new();
+        let mut seen = HashSet::new();
+        for (index, provider) in providers.iter().enumerate() {
+            let path = format!("customOpenaiProvider.providers.{index}");
+            settings_object_section(provider, &path)?;
+            let raw_id = provider
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or(if index == 0 { "default" } else { "" });
+            let id = sanitize_custom_openai_provider_id(raw_id)
+                .unwrap_or_else(|| format!("provider_{}", index + 1));
+            if !seen.insert(id.clone()) {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    format!("{path}.id 重复"),
+                ));
+            }
+            let display_name = match provider.get("displayName") {
+                None | Some(Value::Null) => "自定义 OpenAI".to_string(),
+                Some(Value::String(raw)) => {
+                    let trimmed = raw.trim();
+                    if trimmed.is_empty() {
+                        return Err(ApiError::new(
+                            StatusCode::BAD_REQUEST,
+                            format!("{path}.displayName 不能为空"),
+                        ));
+                    }
+                    if trimmed.chars().count() > 60 {
+                        return Err(ApiError::new(
+                            StatusCode::BAD_REQUEST,
+                            format!("{path}.displayName 不能超过 60 个字符"),
+                        ));
+                    }
+                    trimmed.to_string()
+                }
+                _ => {
+                    return Err(ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        format!("{path}.displayName 必须是字符串"),
+                    ))
+                }
+            };
+            output.push(json!({
+              "id": id,
+              "enabled": settings_bool_field(provider, "enabled", &path, false)?,
+              "displayName": display_name,
+              "baseUrl": settings_string_field(provider, "baseUrl", &path, 2048)?,
+              "apiKey": settings_string_field(
+                provider,
+                "apiKey",
+                &path,
+                SETTINGS_CONFIG_TEXT_MAX_CHARS,
+              )?,
+              "textModels": settings_string_list_field(provider, "textModels", &path, 1000, 512)?,
+              "availableTextModels": settings_string_list_field(
+                provider,
+                "availableTextModels",
+                &path,
+                2000,
+                512,
+              )?,
+              "modelsSyncedAt": settings_nullable_string_field(provider, "modelsSyncedAt", &path, 128)?,
+              "modelsSyncError": settings_nullable_string_field(provider, "modelsSyncError", &path, 2048)?
+            }));
+        }
+        return Ok(custom_openai_config_from_entries(output));
+    }
+
     let enabled = settings_bool_field(input, "enabled", "customOpenaiProvider", false)?;
     let display_name = match input.get("displayName") {
         None | Some(Value::Null) => "自定义 OpenAI".to_string(),
@@ -7077,7 +7442,8 @@ fn normalize_imported_custom_openai_config(input: &Value) -> Result<Value, ApiEr
         }
     };
 
-    Ok(json!({
+    Ok(custom_openai_config_from_entries(vec![json!({
+      "id": "default",
       "enabled": enabled,
       "displayName": display_name,
       "baseUrl": settings_string_field(input, "baseUrl", "customOpenaiProvider", 2048)?,
@@ -7113,7 +7479,7 @@ fn normalize_imported_custom_openai_config(input: &Value) -> Result<Value, ApiEr
         "customOpenaiProvider",
         2048,
       )?
-    }))
+    })]))
 }
 
 fn normalize_imported_provider_model_catalog(input: &Value) -> Result<Value, ApiError> {
@@ -7498,8 +7864,12 @@ fn resolve_provider_configured(provider: &str, creds: &Value) -> bool {
                 && provider_credential_field(creds, "kling", "secretKey").is_some()
         }
         "custom_openai" => {
-            provider_credential_field(creds, "custom_openai", "apiKey").is_some()
-                && provider_credential_field(creds, "custom_openai", "baseUrl").is_some()
+            creds.get("custom_openai")
+                .is_some_and(|node| {
+                    custom_openai_provider_entries(node)
+                        .iter()
+                        .any(custom_openai_entry_is_configured)
+                })
         }
         _ => false,
     }
@@ -7511,27 +7881,52 @@ fn resolve_provider_models(
     creds: &Value,
 ) -> (Vec<String>, Vec<String>, Option<String>, Option<String>) {
     if provider == "custom_openai" {
-        let custom_openai = creds
+        let entries = creds
             .get("custom_openai")
-            .cloned()
-            .unwrap_or_else(default_custom_openai_config);
-        let models = json_string_list(custom_openai.get("textModels"));
-        let available = {
-            let custom_available = json_string_list(custom_openai.get("availableTextModels"));
-            if custom_available.is_empty() {
-                models.clone()
-            } else {
-                custom_available
+            .map(custom_openai_provider_entries)
+            .unwrap_or_else(|| custom_openai_provider_entries(&default_custom_openai_config()));
+        let mut models = Vec::new();
+        let mut available = Vec::new();
+        let mut seen_models = HashSet::new();
+        let mut seen_available = HashSet::new();
+        let mut synced_at = None::<String>;
+        let mut sync_error = None::<String>;
+
+        for entry in entries {
+            if !entry.get("enabled").and_then(Value::as_bool).unwrap_or(false) {
+                continue;
             }
-        };
-        let synced_at = custom_openai
-            .get("modelsSyncedAt")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let sync_error = custom_openai
-            .get("modelsSyncError")
-            .and_then(Value::as_str)
-            .map(str::to_string);
+            for model in json_string_list(entry.get("textModels")) {
+                if seen_models.insert(model.clone()) {
+                    models.push(model);
+                }
+            }
+            let entry_available = {
+                let synced = json_string_list(entry.get("availableTextModels"));
+                if synced.is_empty() {
+                    json_string_list(entry.get("textModels"))
+                } else {
+                    synced
+                }
+            };
+            for model in entry_available {
+                if seen_available.insert(model.clone()) {
+                    available.push(model);
+                }
+            }
+            if synced_at.is_none() {
+                synced_at = entry
+                    .get("modelsSyncedAt")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+            }
+            if sync_error.is_none() {
+                sync_error = entry
+                    .get("modelsSyncError")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+            }
+        }
 
         return (models, available, synced_at, sync_error);
     }
@@ -7613,14 +8008,26 @@ fn manual_provider_seed_available_models(provider: &str) -> Vec<String> {
 fn provider_summary(conn: &Connection) -> Result<Vec<Value>, ApiError> {
     let catalog = get_config_json(conn, PROVIDER_MODEL_CATALOG_KEY)?.unwrap_or_else(|| json!({}));
     let creds = load_provider_creds(conn);
-    let custom_display_name = creds
+    let custom_provider_count = creds
         .get("custom_openai")
-        .and_then(|node| node.get("displayName"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("自定义 OpenAI")
-        .to_string();
+        .map(custom_openai_provider_entries)
+        .map(|items| items.len())
+        .unwrap_or(1);
+    let custom_display_name = if custom_provider_count > 1 {
+        format!("自定义 OpenAI ({custom_provider_count})")
+    } else {
+        creds.get("custom_openai")
+            .map(custom_openai_provider_entries)
+            .and_then(|items| items.first().cloned())
+            .and_then(|node| {
+                node.get("displayName")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| "自定义 OpenAI".to_string())
+    };
 
     let mut providers = Vec::new();
     for provider in SUPPORTED_MODEL_PROVIDERS {
@@ -7705,9 +8112,7 @@ async fn api_model_provider_models_put(
     if !is_supported_provider(&provider) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "供应商不存在"));
     }
-    if body.models.is_empty() {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "models 不能为空"));
-    }
+    let requested_models_was_empty = body.models.is_empty();
     let requested_models = normalize_non_empty_string_list(body.models, "models")?;
 
     let conn = db_connection(&state)?;
@@ -7735,11 +8140,50 @@ async fn api_model_provider_models_put(
             next_models.push(normalized);
         }
     }
-    if next_models.is_empty() {
+    if !requested_models_was_empty && next_models.is_empty() {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             "models 未匹配到可用模型",
         ));
+    }
+
+    if provider == "custom_openai" {
+        let mut custom_openai = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
+            .unwrap_or_else(default_custom_openai_config);
+        let requested_set: HashSet<String> = next_models.iter().cloned().collect();
+        let entries = custom_openai_provider_entries(&custom_openai)
+            .into_iter()
+            .map(|mut entry| {
+                let entry_available = {
+                    let synced = json_string_list(entry.get("availableTextModels"));
+                    if synced.is_empty() {
+                        json_string_list(entry.get("textModels"))
+                    } else {
+                        synced
+                    }
+                };
+                let selected = entry_available
+                    .into_iter()
+                    .filter(|model| requested_set.contains(model))
+                    .collect::<Vec<_>>();
+                if let Some(obj) = entry.as_object_mut() {
+                    obj.insert("textModels".to_string(), json!(selected));
+                }
+                entry
+            })
+            .collect::<Vec<_>>();
+        custom_openai = custom_openai_config_from_entries(entries);
+        set_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY, &custom_openai)?;
+
+        let updated = provider_summary(&conn)?
+            .into_iter()
+            .find(|item| item.get("provider").and_then(Value::as_str) == Some(provider.as_str()))
+            .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "供应商不存在"))?;
+
+        return Ok(Json(json!({
+          "success": true,
+          "data": updated
+        })));
     }
 
     if let Some(obj) = catalog.as_object_mut() {
@@ -7792,6 +8236,71 @@ async fn api_model_provider_sync(
         get_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY)?.unwrap_or_else(|| json!({}));
     if !catalog.is_object() {
         catalog = json!({});
+    }
+
+    if provider == "custom_openai" {
+        let entries = custom_openai_provider_entries(&custom_openai);
+        let mut next_entries = Vec::new();
+        let mut last_error = None::<String>;
+        let mut any_success = false;
+
+        for mut entry in entries {
+            let previous_selected_models = json_string_list(entry.get("textModels"));
+            let sync_result =
+                fetch_provider_models_from_remote("custom_openai", &wrap_custom_openai_creds(&entry))
+                    .await;
+            let synced_at = now_iso();
+            let sync_error = sync_result.as_ref().err().cloned();
+            if let Some(error) = sync_error.as_ref() {
+                last_error = Some(error.clone());
+            }
+            if sync_result.is_ok() {
+                any_success = true;
+            }
+            let synced_models = sync_result.clone().unwrap_or_default();
+            let next_selected_models = if let Ok(models) = sync_result.as_ref() {
+                retain_enabled_models(&previous_selected_models, models)
+            } else {
+                previous_selected_models
+            };
+
+            if let Some(obj) = entry.as_object_mut() {
+                if sync_result.is_ok() {
+                    obj.insert("textModels".to_string(), json!(next_selected_models));
+                    obj.insert("availableTextModels".to_string(), json!(synced_models));
+                }
+                obj.insert("modelsSyncedAt".to_string(), json!(synced_at));
+                obj.insert(
+                    "modelsSyncError".to_string(),
+                    sync_error.map(|value| json!(value)).unwrap_or(Value::Null),
+                );
+            }
+            next_entries.push(entry);
+        }
+
+        custom_openai = custom_openai_config_from_entries(next_entries);
+        set_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY, &custom_openai)?;
+        set_config_json(&conn, PROVIDER_MODEL_CATALOG_KEY, &catalog)?;
+
+        if !any_success {
+            return Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                format!(
+                    "同步模型失败: {}",
+                    last_error.unwrap_or_else(|| "同步模型失败".to_string())
+                ),
+            ));
+        }
+
+        let updated = provider_summary(&conn)?
+            .into_iter()
+            .find(|item| item.get("provider").and_then(Value::as_str) == Some(provider.as_str()))
+            .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "供应商不存在"))?;
+
+        return Ok(Json(json!({
+          "success": true,
+          "data": updated
+        })));
     }
 
     let previous_selected_models = if provider == "custom_openai" {
@@ -7886,21 +8395,10 @@ async fn api_custom_openai_get(State(state): State<BackendState>) -> Result<Json
     let conn = db_connection(&state)?;
     let config = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
         .unwrap_or_else(default_custom_openai_config);
-    let has_key = config
-        .get("apiKey")
-        .and_then(Value::as_str)
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false);
-
-    let mut public_config = config.clone();
-    if let Some(obj) = public_config.as_object_mut() {
-        obj.remove("apiKey");
-        obj.insert("hasApiKey".to_string(), json!(has_key));
-    }
 
     Ok(Json(json!({
       "success": true,
-      "data": public_config
+      "data": custom_openai_public_config(&config)
     })))
 }
 
@@ -7912,8 +8410,12 @@ async fn api_custom_openai_put(
     let conn = db_connection(&state)?;
     let mut config = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
         .unwrap_or_else(default_custom_openai_config);
+    let mut entries = custom_openai_provider_entries(&config);
+    let Some(entry) = entries.first_mut() else {
+        return Err(ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "自定义供应商配置无效"));
+    };
 
-    if let Some(obj) = config.as_object_mut() {
+    if let Some(obj) = entry.as_object_mut() {
         if let Some(enabled) = body.enabled {
             obj.insert("enabled".to_string(), json!(enabled));
         }
@@ -7949,7 +8451,159 @@ async fn api_custom_openai_put(
         }
     }
 
+    config = custom_openai_config_from_entries(entries);
     set_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY, &config)?;
+    api_custom_openai_get(State(state)).await
+}
+
+async fn api_custom_openai_create(
+    State(state): State<BackendState>,
+    Json(body): Json<CustomOpenAIPutBody>,
+) -> Result<Json<Value>, ApiError> {
+    validate_custom_openai_body(&body, false)?;
+    let conn = db_connection(&state)?;
+    let config = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
+        .unwrap_or_else(default_custom_openai_config);
+    let mut entries = custom_openai_provider_entries(&config);
+    if entries.len() >= 20 {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "自定义 OpenAI 兼容供应商最多 20 个",
+        ));
+    }
+
+    let id = format!("custom_{}", Uuid::new_v4().simple());
+    let mut entry = default_custom_openai_provider_entry();
+    if let Some(obj) = entry.as_object_mut() {
+        obj.insert("id".to_string(), json!(id));
+        if let Some(enabled) = body.enabled {
+            obj.insert("enabled".to_string(), json!(enabled));
+        }
+        if let Some(display_name) = body.display_name {
+            obj.insert("displayName".to_string(), json!(display_name.trim()));
+        }
+        if let Some(base_url) = body.base_url {
+            obj.insert("baseUrl".to_string(), json!(base_url));
+        }
+        if let Some(api_key) = body.api_key {
+            obj.insert("apiKey".to_string(), json!(api_key));
+        }
+        if let Some(text_models) = body.text_models {
+            obj.insert(
+                "textModels".to_string(),
+                json!(normalize_non_empty_string_list(text_models, "textModels")?),
+            );
+        }
+        if let Some(available) = body.available_text_models {
+            obj.insert(
+                "availableTextModels".to_string(),
+                json!(normalize_non_empty_string_list(
+                    available,
+                    "availableTextModels"
+                )?),
+            );
+        }
+    }
+    entries.push(entry);
+    set_config_json(
+        &conn,
+        CUSTOM_OPENAI_CONFIG_KEY,
+        &custom_openai_config_from_entries(entries),
+    )?;
+    api_custom_openai_get(State(state)).await
+}
+
+async fn api_custom_openai_provider_put(
+    Path(id): Path<String>,
+    State(state): State<BackendState>,
+    Json(body): Json<CustomOpenAIPutBody>,
+) -> Result<Json<Value>, ApiError> {
+    validate_custom_openai_body(&body, false)?;
+    let id = sanitize_custom_openai_provider_id(&id)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "供应商 ID 无效"))?;
+    let conn = db_connection(&state)?;
+    let config = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
+        .unwrap_or_else(default_custom_openai_config);
+    let mut found = false;
+    let entries = custom_openai_provider_entries(&config)
+        .into_iter()
+        .map(|mut entry| {
+            if entry.get("id").and_then(Value::as_str) != Some(id.as_str()) {
+                return Ok(entry);
+            }
+            found = true;
+            if let Some(obj) = entry.as_object_mut() {
+                if let Some(enabled) = body.enabled {
+                    obj.insert("enabled".to_string(), json!(enabled));
+                }
+                if let Some(display_name) = body.display_name.as_deref() {
+                    obj.insert("displayName".to_string(), json!(display_name.trim()));
+                }
+                if let Some(base_url) = body.base_url.as_deref() {
+                    obj.insert("baseUrl".to_string(), json!(base_url));
+                }
+                if let Some(api_key) = body.api_key.as_deref() {
+                    obj.insert("apiKey".to_string(), json!(api_key));
+                }
+                if let Some(text_models) = body.text_models.clone() {
+                    obj.insert(
+                        "textModels".to_string(),
+                        json!(normalize_non_empty_string_list(text_models, "textModels")?),
+                    );
+                }
+                if let Some(available) = body.available_text_models.clone() {
+                    obj.insert(
+                        "availableTextModels".to_string(),
+                        json!(normalize_non_empty_string_list(
+                            available,
+                            "availableTextModels"
+                        )?),
+                    );
+                }
+            }
+            Ok(entry)
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+    if !found {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "自定义供应商不存在"));
+    }
+
+    set_config_json(
+        &conn,
+        CUSTOM_OPENAI_CONFIG_KEY,
+        &custom_openai_config_from_entries(entries),
+    )?;
+    api_custom_openai_get(State(state)).await
+}
+
+async fn api_custom_openai_provider_delete(
+    Path(id): Path<String>,
+    State(state): State<BackendState>,
+) -> Result<Json<Value>, ApiError> {
+    let id = sanitize_custom_openai_provider_id(&id)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "供应商 ID 无效"))?;
+    let conn = db_connection(&state)?;
+    let config = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
+        .unwrap_or_else(default_custom_openai_config);
+    let entries = custom_openai_provider_entries(&config);
+    if entries.len() <= 1 {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "至少保留一个自定义供应商",
+        ));
+    }
+    let next_entries = entries
+        .into_iter()
+        .filter(|entry| entry.get("id").and_then(Value::as_str) != Some(id.as_str()))
+        .collect::<Vec<_>>();
+    if next_entries.len() == custom_openai_provider_entries(&config).len() {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "自定义供应商不存在"));
+    }
+    set_config_json(
+        &conn,
+        CUSTOM_OPENAI_CONFIG_KEY,
+        &custom_openai_config_from_entries(next_entries),
+    )?;
     api_custom_openai_get(State(state)).await
 }
 
@@ -7960,10 +8614,14 @@ async fn api_custom_openai_sync(
     let conn = db_connection(&state)?;
     let mut config = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
         .unwrap_or_else(default_custom_openai_config);
+    let mut entries = custom_openai_provider_entries(&config);
 
     if let Some(Json(body)) = payload {
         validate_custom_openai_body(&body, true)?;
-        if let Some(obj) = config.as_object_mut() {
+        let Some(entry) = entries.first_mut() else {
+            return Err(ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "自定义供应商配置无效"));
+        };
+        if let Some(obj) = entry.as_object_mut() {
             if let Some(enabled) = body.enabled {
                 obj.insert("enabled".to_string(), json!(enabled));
             }
@@ -7985,40 +8643,120 @@ async fn api_custom_openai_sync(
         }
     }
 
-    let sync_result =
-        fetch_provider_models_from_remote("custom_openai", &wrap_custom_openai_creds(&config))
-            .await;
-    let synced_at = now_iso();
-    let sync_error = sync_result.as_ref().err().cloned();
-    let synced_models = sync_result.clone().unwrap_or_default();
-    let previous_selected_models = json_string_list(config.get("textModels"));
-    let next_selected_models = if let Ok(models) = sync_result.as_ref() {
-        retain_enabled_models(&previous_selected_models, models)
-    } else {
-        previous_selected_models
-    };
-
-    if let Some(obj) = config.as_object_mut() {
-        if sync_result.is_ok() {
-            obj.insert("textModels".to_string(), json!(next_selected_models));
-            obj.insert("availableTextModels".to_string(), json!(synced_models));
+    let mut last_error = None::<String>;
+    let mut any_success = false;
+    let mut next_entries = Vec::new();
+    for mut entry in entries {
+        let sync_result =
+            fetch_provider_models_from_remote("custom_openai", &wrap_custom_openai_creds(&entry))
+                .await;
+        let synced_at = now_iso();
+        let sync_error = sync_result.as_ref().err().cloned();
+        if let Some(error) = sync_error.as_ref() {
+            last_error = Some(error.clone());
         }
-        obj.insert("modelsSyncedAt".to_string(), json!(synced_at));
-        obj.insert(
-            "modelsSyncError".to_string(),
-            sync_error.map(|value| json!(value)).unwrap_or(Value::Null),
-        );
+        if sync_result.is_ok() {
+            any_success = true;
+        }
+        let synced_models = sync_result.clone().unwrap_or_default();
+        let previous_selected_models = json_string_list(entry.get("textModels"));
+        let next_selected_models = if let Ok(models) = sync_result.as_ref() {
+            retain_enabled_models(&previous_selected_models, models)
+        } else {
+            previous_selected_models
+        };
+
+        if let Some(obj) = entry.as_object_mut() {
+            if sync_result.is_ok() {
+                obj.insert("textModels".to_string(), json!(next_selected_models));
+                obj.insert("availableTextModels".to_string(), json!(synced_models));
+            }
+            obj.insert("modelsSyncedAt".to_string(), json!(synced_at));
+            obj.insert(
+                "modelsSyncError".to_string(),
+                sync_error.map(|value| json!(value)).unwrap_or(Value::Null),
+            );
+        }
+        next_entries.push(entry);
     }
 
+    config = custom_openai_config_from_entries(next_entries);
     set_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY, &config)?;
 
-    if let Err(error) = sync_result {
+    if !any_success {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!(
+                "同步模型失败: {}",
+                last_error.unwrap_or_else(|| "同步模型失败".to_string())
+            ),
+        ));
+    }
+
+    api_custom_openai_get(State(state)).await
+}
+
+async fn api_custom_openai_provider_sync(
+    Path(id): Path<String>,
+    State(state): State<BackendState>,
+) -> Result<Json<Value>, ApiError> {
+    let id = sanitize_custom_openai_provider_id(&id)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "供应商 ID 无效"))?;
+    let conn = db_connection(&state)?;
+    let config = get_config_json(&conn, CUSTOM_OPENAI_CONFIG_KEY)?
+        .unwrap_or_else(default_custom_openai_config);
+    let mut found = false;
+    let mut sync_error = None::<String>;
+    let mut entries = Vec::new();
+    for mut entry in custom_openai_provider_entries(&config) {
+        if entry.get("id").and_then(Value::as_str) != Some(id.as_str()) {
+            entries.push(entry);
+            continue;
+        }
+        found = true;
+        let previous_selected_models = json_string_list(entry.get("textModels"));
+        let sync_result = fetch_provider_models_from_remote(
+            "custom_openai",
+            &wrap_custom_openai_creds(&entry),
+        )
+        .await;
+        let synced_at = now_iso();
+        let entry_sync_error = sync_result.as_ref().err().cloned();
+        sync_error = entry_sync_error.clone();
+        let synced_models = sync_result.clone().unwrap_or_default();
+        let next_selected_models = if let Ok(models) = sync_result.as_ref() {
+            retain_enabled_models(&previous_selected_models, models)
+        } else {
+            previous_selected_models
+        };
+
+        if let Some(obj) = entry.as_object_mut() {
+            if sync_result.is_ok() {
+                obj.insert("textModels".to_string(), json!(next_selected_models));
+                obj.insert("availableTextModels".to_string(), json!(synced_models));
+            }
+            obj.insert("modelsSyncedAt".to_string(), json!(synced_at));
+            obj.insert(
+                "modelsSyncError".to_string(),
+                entry_sync_error.map(|value| json!(value)).unwrap_or(Value::Null),
+            );
+        }
+        entries.push(entry);
+    }
+    if !found {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "自定义供应商不存在"));
+    }
+    set_config_json(
+        &conn,
+        CUSTOM_OPENAI_CONFIG_KEY,
+        &custom_openai_config_from_entries(entries),
+    )?;
+    if let Some(error) = sync_error {
         return Err(ApiError::new(
             StatusCode::BAD_GATEWAY,
             format!("同步模型失败: {}", error),
         ));
     }
-
     api_custom_openai_get(State(state)).await
 }
 

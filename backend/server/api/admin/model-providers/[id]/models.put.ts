@@ -4,6 +4,7 @@ import { readJsonBody, requireAdmin } from '../../../../utils/auth'
 import { requiredParam } from '../../../../utils/http'
 import { writeAudit } from '../../../../utils/audit'
 import { normalizeModelList, resolveProviderModelState } from '../../../../utils/model-provider-models'
+import { getAdminProviderRow } from '../../../../utils/custom-openai-providers'
 
 export default defineEventHandler(async (event) => {
   const auth = requireAdmin(event)
@@ -14,29 +15,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const db = getDb()
-  const provider = db
-    .prepare(`
-      SELECT p.id, p.provider_key, p.base_url,
-             c.encrypted_api_key, c.encrypted_access_key, c.encrypted_secret_key,
-             m.models_json, m.available_models_json, m.synced_at, m.sync_error
-      FROM model_providers p
-      LEFT JOIN provider_credentials c ON c.provider_id = p.id
-      LEFT JOIN model_provider_models m ON m.provider_id = p.id
-      WHERE p.id = ?
-      LIMIT 1
-    `)
-    .get(providerId) as {
-      id: string
-      provider_key: string
-      base_url: string | null
-      encrypted_api_key: string | null
-      encrypted_access_key: string | null
-      encrypted_secret_key: string | null
-      models_json: string | null
-      available_models_json: string | null
-      synced_at: string | null
-      sync_error: string | null
-    } | undefined
+  const provider = getAdminProviderRow(db, providerId)
   if (!provider) {
     throw createError({ statusCode: 404, statusMessage: 'Provider not found' })
   }
@@ -67,6 +46,18 @@ export default defineEventHandler(async (event) => {
   }
 
   const timestamp = nowIso()
+  if (provider.source === 'custom_openai_extra') {
+    db.prepare(`
+      UPDATE custom_openai_providers
+      SET models_json = ?, available_models_json = ?, updated_at = ?
+      WHERE id = ?
+    `).run(
+      jsonText(requestedModels),
+      jsonText(current.availableModels),
+      timestamp,
+      provider.id
+    )
+  } else {
   db.prepare(`
     INSERT INTO model_provider_models
       (provider_id, models_json, available_models_json, synced_at, sync_error, updated_at)
@@ -83,6 +74,7 @@ export default defineEventHandler(async (event) => {
     current.syncError,
     timestamp
   )
+  }
 
   const updated = resolveProviderModelState({
     providerKey: provider.provider_key,
