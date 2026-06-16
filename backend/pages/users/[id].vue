@@ -58,7 +58,14 @@
         <ClientOnly>
           <n-tabs type="line">
             <n-tab-pane name="projects" tab="项目">
-              <n-data-table :columns="projectColumns" :data="projects" :row-props="projectRowProps" />
+              <n-data-table
+                :columns="projectColumns"
+                :data="projects"
+                :row-props="projectRowProps"
+                :loading="projectsLoading"
+                :pagination="projectsPagination"
+                @update:page="handleProjectsPageChange"
+              />
               <n-drawer v-model:show="projectDrawer" :width="projectDrawerWidth">
                 <n-drawer-content title="项目详情">
                   <div v-if="selectedProject" class="workbench-readonly">
@@ -459,10 +466,22 @@
               </div>
             </n-tab-pane>
             <n-tab-pane name="models" tab="模型选择">
-              <n-data-table :columns="preferenceColumns" :data="preferences" />
+              <n-data-table
+                :columns="preferenceColumns"
+                :data="preferences"
+                :loading="preferencesLoading"
+                :pagination="preferencesPagination"
+                @update:page="handlePreferencesPageChange"
+              />
             </n-tab-pane>
             <n-tab-pane name="devices" tab="设备">
-              <n-data-table :columns="deviceColumns" :data="devices" />
+              <n-data-table
+                :columns="deviceColumns"
+                :data="devices"
+                :loading="devicesLoading"
+                :pagination="devicesPagination"
+                @update:page="handleDevicesPageChange"
+              />
             </n-tab-pane>
             <n-tab-pane name="logs" tab="调用日志">
               <n-space vertical>
@@ -721,6 +740,24 @@ const projectDrawerWidth = 'min(960px, 100vw)'
 const activeProjectStage = ref<ProjectStageKey>('parse')
 const activeProjectAssetTab = ref<ProjectAssetTabKey>('characters')
 const selectedProjectEpisodeId = ref('')
+
+// 项目分页
+const projectsLoading = ref(false)
+const projectsPage = ref(1)
+const projectsPageSize = ref(20)
+const projectsTotal = ref(0)
+
+// 模型偏好分页
+const preferencesLoading = ref(false)
+const preferencesPage = ref(1)
+const preferencesPageSize = ref(20)
+const preferencesTotal = ref(0)
+
+// 设备分页
+const devicesLoading = ref(false)
+const devicesPage = ref(1)
+const devicesPageSize = ref(20)
+const devicesTotal = ref(0)
 
 // 用户操作相关
 const showStatusConfirm = ref(false)
@@ -1541,21 +1578,39 @@ const auditPagination = computed(() => ({
   pageSizes: [10, 20, 50, 100]
 }))
 
+const projectsPagination = computed(() => ({
+  page: projectsPage.value,
+  pageSize: projectsPageSize.value,
+  pageCount: Math.ceil(projectsTotal.value / projectsPageSize.value),
+  showSizePicker: true,
+  pageSizes: [10, 20, 50]
+}))
+
+const preferencesPagination = computed(() => ({
+  page: preferencesPage.value,
+  pageSize: preferencesPageSize.value,
+  pageCount: Math.ceil(preferencesTotal.value / preferencesPageSize.value),
+  showSizePicker: true,
+  pageSizes: [10, 20, 50]
+}))
+
+const devicesPagination = computed(() => ({
+  page: devicesPage.value,
+  pageSize: devicesPageSize.value,
+  pageCount: Math.ceil(devicesTotal.value / devicesPageSize.value),
+  showSizePicker: true,
+  pageSizes: [10, 20, 50]
+}))
+
 async function load() {
   pending.value = true
   try {
-    const [detailResponse, projectsResponse, promptsResponse, preferencesResponse, devicesResponse] = await Promise.all([
+    const [detailResponse, promptsResponse] = await Promise.all([
       $fetch<any>(`/api/admin/users/${userId.value}`),
-      $fetch<any>(`/api/admin/users/${userId.value}/projects`),
-      $fetch<any>(`/api/admin/users/${userId.value}/prompts`),
-      $fetch<any>(`/api/admin/users/${userId.value}/model-preferences`),
-      $fetch<any>(`/api/admin/users/${userId.value}/devices`)
+      $fetch<any>(`/api/admin/users/${userId.value}/prompts`)
     ])
     detail.value = detailResponse.data
-    projects.value = projectsResponse.data.projects
     promptState.value = promptsResponse.data.state
-    preferences.value = preferencesResponse.data.preferences
-    devices.value = devicesResponse.data.devices
     promptProfiles.value = promptsResponse.data.profiles || []
     promptTemplates.value = promptsResponse.data.templates || []
 
@@ -1569,6 +1624,75 @@ async function load() {
   } finally {
     pending.value = false
   }
+}
+
+async function loadProjects() {
+  projectsLoading.value = true
+  try {
+    const response = await $fetch<any>(`/api/admin/users/${userId.value}/projects`, {
+      query: {
+        page: projectsPage.value,
+        pageSize: projectsPageSize.value
+      }
+    })
+    projects.value = response.data.projects
+    projectsTotal.value = Number(response.data.pagination.total)
+  } catch (err: any) {
+    message.error(err.message || '加载项目失败')
+  } finally {
+    projectsLoading.value = false
+  }
+}
+
+async function loadPreferences() {
+  preferencesLoading.value = true
+  try {
+    const response = await $fetch<any>(`/api/admin/users/${userId.value}/model-preferences`, {
+      query: {
+        page: preferencesPage.value,
+        pageSize: preferencesPageSize.value
+      }
+    })
+    preferences.value = response.data.preferences
+    preferencesTotal.value = Number(response.data.pagination.total)
+  } catch (err: any) {
+    message.error(err.message || '加载模型偏好失败')
+  } finally {
+    preferencesLoading.value = false
+  }
+}
+
+async function loadDevices() {
+  devicesLoading.value = true
+  try {
+    const response = await $fetch<any>(`/api/admin/users/${userId.value}/devices`, {
+      query: {
+        page: devicesPage.value,
+        pageSize: devicesPageSize.value
+      }
+    })
+    devices.value = response.data.devices
+    devicesTotal.value = Number(response.data.pagination.total)
+  } catch (err: any) {
+    message.error(err.message || '加载设备失败')
+  } finally {
+    devicesLoading.value = false
+  }
+}
+
+function handleProjectsPageChange(page: number) {
+  projectsPage.value = page
+  void loadProjects()
+}
+
+function handlePreferencesPageChange(page: number) {
+  preferencesPage.value = page
+  void loadPreferences()
+}
+
+function handleDevicesPageChange(page: number) {
+  devicesPage.value = page
+  void loadDevices()
 }
 
 async function toggleUserStatus() {
@@ -1680,10 +1804,18 @@ async function deleteDevice(row: any) {
       method: 'DELETE'
     })
     message.success('设备已删除')
-    await load()
+    await loadDevices()
   } catch (err: any) {
     message.error(err.message || '删除失败')
   }
+}
+
+async function updateDeviceStatus(row: any) {
+  await $fetch(`/api/admin/devices/${row.id}/status`, {
+    method: 'PATCH',
+    body: { status: row.status === 'active' ? 'disabled' : 'active' }
+  })
+  await loadDevices()
 }
 
 async function openProject(projectId: string) {
@@ -1703,14 +1835,6 @@ function projectRowProps(row: any) {
       void openProject(row.id)
     }
   }
-}
-
-async function updateDeviceStatus(row: any) {
-  await $fetch(`/api/admin/devices/${row.id}/status`, {
-    method: 'PATCH',
-    body: { status: row.status === 'active' ? 'disabled' : 'active' }
-  })
-  await load()
 }
 
 function toRecord(value: unknown): Record<string, any> {
@@ -2201,6 +2325,9 @@ function formatFileSize(value: unknown): string {
 
 onMounted(() => {
   void load()
+  void loadProjects()
+  void loadPreferences()
+  void loadDevices()
   void loadLogs()
   void loadAuditLogs()
 })

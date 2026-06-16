@@ -119,6 +119,7 @@
             :src="imagePreviewUrl"
             :alt="imagePreviewName"
             :style="imagePreviewStyle"
+            loading="lazy"
             draggable="false"
           >
         </div>
