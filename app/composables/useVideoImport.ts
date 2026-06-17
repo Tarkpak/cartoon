@@ -54,9 +54,33 @@ export interface VideoImportTaskDetail {
   task: VideoImportTask
   artifacts: VideoImportArtifact[]
   stepRuns: VideoImportStepRun[]
+  episodes?: VideoImportTask[]
   subtitleText?: string | null
   scriptText?: string | null
   parseResult?: unknown
+}
+
+export interface VideoImportSeriesPreviewFile {
+  episodeNumber: number
+  filename: string
+  path: string
+  sizeBytes: number
+  durationSeconds?: number | null
+}
+
+export interface VideoImportSeriesPreview {
+  folderPath: string
+  episodeCount: number
+  seriesImportMode?: 'episodes' | 'short_clips'
+  shortClipRecommended?: boolean
+  durationSummary?: {
+    knownCount?: number
+    shortCount?: number
+    totalSeconds?: number
+    averageSeconds?: number | null
+    shortClipRecommended?: boolean
+  }
+  files: VideoImportSeriesPreviewFile[]
 }
 
 export interface VideoImportConfig {
@@ -169,6 +193,27 @@ export function useVideoImport() {
       throw err
     } finally {
       uploading.value = false
+    }
+  }
+
+  async function previewSeriesFolder(folderPath: string) {
+    error.value = null
+    try {
+      const response = await $fetch<{
+        success: boolean
+        data?: VideoImportSeriesPreview
+        message?: string
+      }>('/api/import/video/preview-series', {
+        method: 'POST',
+        body: { folderPath }
+      })
+      if (!response.success || !response.data) {
+        throw new Error(response.message || '读取剧集文件夹失败')
+      }
+      return response.data
+    } catch (err) {
+      error.value = getVideoImportErrorMessage(err)
+      throw err
     }
   }
 
@@ -296,6 +341,7 @@ export function useVideoImport() {
     fetchTask,
     uploadVideo,
     uploadSeriesFolder,
+    previewSeriesFolder,
     updateSubtitle,
     generateScript,
     updateScript,
@@ -308,6 +354,23 @@ export function useVideoImport() {
 }
 
 function getVideoImportErrorMessage(error: unknown): string {
+  const raw = getRawVideoImportErrorMessage(error)
+  if (/FOREIGN KEY constraint failed/i.test(raw)) {
+    return '创建转换任务失败，任务数据关联异常。请重试；如果仍失败，请删除失败记录后再导入。'
+  }
+  if (/路径必须是文件夹|folderPath is required|文件夹中没有找到视频文件|读取文件夹失败|复制视频文件失败|不支持的视频格式/.test(raw)) {
+    return raw
+  }
+  if (/Failed to fetch|NetworkError|Load failed|fetch/i.test(raw)) {
+    return '连接本地转换服务失败，请确认后端或桌面端正在运行。'
+  }
+  if (/permission denied|denied|operation not permitted/i.test(raw)) {
+    return '无法访问所选文件或文件夹，请检查系统权限后重试。'
+  }
+  return raw || '操作失败'
+}
+
+function getRawVideoImportErrorMessage(error: unknown): string {
   if (typeof error === 'object' && error && 'data' in error) {
     const data = (error as { data?: { message?: string, statusMessage?: string } }).data
     if (data?.message) return data.message

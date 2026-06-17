@@ -3797,6 +3797,10 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             post(api_video_import_upload_series),
         )
         .route(
+            "/api/import/video/preview-series",
+            post(api_video_import_preview_series),
+        )
+        .route(
             "/api/import/video/tasks",
             get(api_video_import_tasks),
         )
