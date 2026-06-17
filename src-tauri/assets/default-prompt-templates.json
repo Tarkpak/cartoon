@@ -157,13 +157,13 @@
   },
   {
     "id": "video_import_script_generation",
-    "name": "视频导入剧本生成",
+    "name": "视频转项目剧本生成",
     "category": "text",
     "description": "将视频 ASR 字幕整理为适合现有剧本解析流程消费的分场剧本文本",
     "variables": [
       {
         "name": "{{taskTitle}}",
-        "description": "视频导入任务标题",
+        "description": "视频转项目任务标题",
         "example": "短剧第1集"
       },
       {
