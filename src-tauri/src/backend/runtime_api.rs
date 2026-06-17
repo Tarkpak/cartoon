@@ -12739,7 +12739,7 @@ pub(super) async fn generate_video_import_script_text(
         .map_err(|error| {
             ApiError::new(
                 StatusCode::BAD_GATEWAY,
-                format!("视频导入剧本生成失败: {}", error),
+                format!("视频转换剧本生成失败: {}", error),
             )
         })
 }

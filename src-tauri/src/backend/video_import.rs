@@ -406,7 +406,7 @@ pub(super) async fn api_video_import_import_project(
         State(state.clone()),
         Json(CreateProjectBody {
             title: project_title.clone(),
-            description: Some(format!("从视频导入：{}", task.original_filename)),
+            description: Some(format!("从视频转换：{}", task.original_filename)),
             script_parse_mode: Some(script_parse_mode.clone()),
             style_id: Some(style_id.clone()),
             aspect_ratio: Some(aspect_ratio.clone()),
@@ -876,7 +876,7 @@ fn build_project_save_body(
 
     json!({
       "name": project_title,
-      "description": format!("从视频导入：{source_filename}"),
+      "description": format!("从视频转换：{source_filename}"),
       "status": "in_progress",
       "styleId": style_id,
       "aspectRatio": aspect_ratio,
@@ -934,7 +934,7 @@ fn load_task(conn: &Connection, id: &str) -> Result<VideoImportTaskRecord, ApiEr
     )
     .optional()
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "视频导入任务不存在"))
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "视频转换任务不存在"))
 }
 
 fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<VideoImportTaskRecord> {
