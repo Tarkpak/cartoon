@@ -196,7 +196,7 @@ declare global {
   export type { ToastVariant, ToastItem, ToastOptions } from './app/composables/useToast'
   import('./app/composables/useToast')
   // @ts-ignore
-  export type { VideoImportTask, VideoImportArtifact, VideoImportStepRun, VideoImportTaskDetail, VideoImportConfig, VideoImportRetryStep } from './app/composables/useVideoImport'
+  export type { VideoImportTask, VideoImportArtifact, VideoImportStepRun, VideoImportTaskDetail, VideoImportSeriesPreviewFile, VideoImportSeriesPreview, VideoImportConfig, VideoImportRetryStep } from './app/composables/useVideoImport'
   import('./app/composables/useVideoImport')
 }
 

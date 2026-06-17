@@ -2,8 +2,6 @@
 import {
   ArrowLeft,
   FileVideo,
-  RefreshCw,
-  Upload,
   Wand2,
   Save,
   RotateCcw,
@@ -11,11 +9,11 @@ import {
   FolderInput,
   AlertCircle,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Trash2
+  Pencil
 } from 'lucide-vue-next'
-import { useVideoImport, type VideoImportConfig, type VideoImportRetryStep, type VideoImportSeriesPreview } from '@/composables/useVideoImport'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { useVideoImport, type VideoImportRetryStep } from '@/composables/useVideoImport'
 
 definePageMeta({
   layout: 'default'
@@ -24,42 +22,25 @@ definePageMeta({
 const router = useRouter()
 const route = useRoute()
 const {
-  tasks,
   activeTask,
-  loading,
-  uploading,
   acting,
   error,
-  fetchTasks,
   fetchTask,
-  uploadVideo,
-  uploadSeriesFolder,
-  previewSeriesFolder,
   updateSubtitle,
   generateScript,
   updateScript,
   importToProject,
   retryTask,
   cancelTask,
-  deleteTask,
-  deleteTasks
+  deleteTask
 } = useVideoImport()
 
-const fileInputKey = ref(0)
-const selectedFile = ref<File | null>(null)
-const selectedFolder = ref<string | null>(null)
-const selectedSeriesPreview = ref<VideoImportSeriesPreview | null>(null)
-const previewingSeriesFolder = ref(false)
-const uploadMode = ref<'single' | 'series'>('single')
-const projectTitle = ref('')
-const aspectRatio = ref<'16:9' | '9:16' | '1:1'>('9:16')
-const scriptParseMode = ref<'short_drama' | 'premium_drama'>('short_drama')
 const subtitleDraft = ref('')
 const scriptDraft = ref('')
-const sidebarCollapsed = ref(false)
 const contentView = ref<'subtitle' | 'script' | 'logs'>('subtitle')
-const selectedTaskIds = ref<Set<string>>(new Set())
-const showBatchActions = ref(false)
+const logsExpanded = ref(false)
+const roleNamingDialogOpen = ref(false)
+const roleNamingDraft = ref<Array<{ placeholder: string, name: string }>>([])
 let refreshTimer: number | null = null
 const routeTaskId = computed(() => {
   const raw = route.params.id
@@ -68,7 +49,7 @@ const routeTaskId = computed(() => {
 
 const runningStatuses = new Set(['pending', 'extracting', 'transcribing', 'generating_script', 'importing'])
 
-const hasRunningTasks = computed(() => tasks.value.some(task => runningStatuses.has(task.status)))
+const hasRunningTasks = computed(() => runningStatuses.has(selectedTask.value?.status || ''))
 const selectedTask = computed(() => activeTask.value?.task || null)
 const canEditSubtitle = computed(() => ['subtitle_ready', 'script_ready', 'failed'].includes(selectedTask.value?.status || ''))
 const canGenerateScript = computed(() => !!selectedTask.value && ['subtitle_ready', 'script_ready', 'failed'].includes(selectedTask.value.status))
@@ -79,10 +60,6 @@ const subtitleHasChanges = computed(() => subtitleDraft.value !== (activeTask.va
 const scriptHasChanges = computed(() => scriptDraft.value !== (activeTask.value?.scriptText || ''))
 const showSubtitleNextStep = computed(() => canGenerateScript.value && selectedTask.value?.status === 'subtitle_ready')
 const showScriptNextStep = computed(() => canImport.value && selectedTask.value?.status === 'script_ready')
-const failedTasks = computed(() => tasks.value.filter(task => task.status === 'failed' || task.status === 'cancelled'))
-const completedTasks = computed(() => tasks.value.filter(task => task.status === 'imported'))
-const hasSelection = computed(() => selectedTaskIds.value.size > 0)
-const allTasksSelected = computed(() => tasks.value.length > 0 && selectedTaskIds.value.size === tasks.value.length)
 const seriesEpisodes = computed(() => activeTask.value?.episodes || [])
 const seriesEpisodeStats = computed(() => {
   const episodes = seriesEpisodes.value
@@ -112,27 +89,84 @@ const primaryAction = computed(() => {
   }
   return null
 })
-const workflowSteps = computed(() => {
+const currentStageLabel = computed(() => {
   const task = selectedTask.value
-  if (!task) return []
-  const current = getCurrentStepIndex(task.status)
-  return [
-    { label: '导入视频', done: current >= 1, active: current <= 2 && runningStatuses.has(task.status) },
-    { label: '识别字幕', done: current >= 3, active: current < 3 && runningStatuses.has(task.status) },
-    { label: '确认字幕', done: current >= 4, active: task.status === 'subtitle_ready' },
-    { label: '生成剧本', done: current >= 5, active: task.status === 'generating_script' },
-    { label: '创建项目', done: current >= 7, active: ['script_ready', 'importing'].includes(task.status) }
-  ]
+  if (!task) return ''
+  const map: Record<string, string> = {
+    pending: '等待处理',
+    extracting: '正在提取音频',
+    transcribing: '正在识别字幕',
+    subtitle_ready: '等待确认字幕',
+    generating_script: '正在生成剧本',
+    script_ready: '等待确认剧本',
+    importing: '正在创建项目',
+    imported: '项目已创建',
+    failed: '任务失败',
+    cancelled: '任务已取消'
+  }
+  return map[task.status] || statusLabel(task.status)
 })
+const contentTabs = computed(() => {
+  const tabs: Array<{ key: 'subtitle' | 'script' | 'logs', label: string, badge: string }> = [
+    {
+      key: 'subtitle',
+      label: '字幕内容',
+      badge: selectedTask.value?.status === 'subtitle_ready' ? '待确认' : ''
+    },
+    {
+      key: 'script',
+      label: '剧本内容',
+      badge: selectedTask.value?.status === 'script_ready' ? '待确认' : ''
+    }
+  ]
+  if (activeTask.value?.stepRuns?.length || activeTask.value?.artifacts?.length) {
+    tabs.push({
+      key: 'logs',
+      label: '执行记录',
+      badge: activeTask.value?.stepRuns?.length ? String(activeTask.value.stepRuns.length) : ''
+    })
+  }
+  return tabs
+})
+const detectedRolePlaceholders = computed(() => {
+  const text = scriptDraft.value || activeTask.value?.scriptText || ''
+  const matches = new Set<string>()
+  const patterns = [
+    /角色\s*([A-Z])(?=\b|[：:，。、！？\s]|$)/g,
+    /(?:^|\n)\s*([A-Z])(?=\s*[：:])/g
+  ]
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const value = match[1]?.trim()
+      if (value) matches.add(value)
+    }
+  }
+  return Array.from(matches).sort()
+})
+
+function normalizeScriptForEditing(text: string) {
+  return text
+    .replace(/^##\s*角色[\s\S]*?(?=^##\s|\Z)/m, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
 
 watch(activeTask, (value) => {
   subtitleDraft.value = value?.subtitleText || ''
-  scriptDraft.value = value?.scriptText || ''
+  scriptDraft.value = normalizeScriptForEditing(value?.scriptText || '')
   if (value?.task.status === 'script_ready') {
     contentView.value = 'script'
   } else if (value?.task.status === 'subtitle_ready') {
     contentView.value = 'subtitle'
   }
+})
+
+watch(roleNamingDialogOpen, (open) => {
+  if (!open) return
+  roleNamingDraft.value = detectedRolePlaceholders.value.map((placeholder) => ({
+    placeholder,
+    name: ''
+  }))
 })
 
 watch(hasRunningTasks, (running) => {
@@ -148,7 +182,6 @@ watch(routeTaskId, async (taskId) => {
 }, { immediate: true })
 
 onMounted(async () => {
-  await fetchTasks()
   syncRefreshTimer(hasRunningTasks.value)
 })
 
@@ -163,102 +196,14 @@ function syncRefreshTimer(running: boolean) {
   if (typeof window === 'undefined') return
   if (running && !refreshTimer) {
     refreshTimer = window.setInterval(() => {
-      void fetchTasks()
+      if (routeTaskId.value) {
+        void fetchTask(routeTaskId.value)
+      }
     }, 2500)
   }
   if (!running && refreshTimer) {
     window.clearInterval(refreshTimer)
     refreshTimer = null
-  }
-}
-
-function handleFileChange(event: Event) {
-  const input = event.target as HTMLInputElement
-  selectedFile.value = input.files?.[0] || null
-  if (!projectTitle.value && selectedFile.value) {
-    projectTitle.value = selectedFile.value.name.replace(/\.[^.]+$/, '')
-  }
-}
-
-async function handleSelectFolder() {
-  try {
-    const { open } = await import('@tauri-apps/plugin-dialog')
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: '选择剧集文件夹'
-    })
-
-    if (selected && typeof selected === 'string') {
-      selectedFolder.value = selected
-      selectedSeriesPreview.value = null
-      if (!projectTitle.value) {
-        const folderName = selected.split(/[/\\]/).pop() || '未命名剧集'
-        projectTitle.value = folderName
-      }
-      previewingSeriesFolder.value = true
-      try {
-        selectedSeriesPreview.value = await previewSeriesFolder(selected)
-      } finally {
-        previewingSeriesFolder.value = false
-      }
-    }
-  } catch (err) {
-    console.error('Failed to open folder dialog:', err)
-    if (!selectedFolder.value) {
-      window.alert('当前环境无法打开文件夹选择器，请在桌面端使用整部剧导入。')
-    }
-  }
-}
-
-async function handleUpload() {
-  if (uploadMode.value === 'single') {
-    if (!selectedFile.value) return
-    const config: VideoImportConfig = {
-      projectTitle: projectTitle.value.trim() || undefined,
-      aspectRatio: aspectRatio.value,
-      scriptParseMode: scriptParseMode.value
-    }
-    const taskId = await uploadVideo(selectedFile.value, config)
-    selectedFile.value = null
-    fileInputKey.value += 1
-    await router.push(`/import/video/${taskId}`)
-  } else {
-    if (!selectedFolder.value) return
-    const config: VideoImportConfig = {
-      projectTitle: projectTitle.value.trim() || undefined,
-      aspectRatio: aspectRatio.value,
-      scriptParseMode: scriptParseMode.value
-    }
-    const result = await uploadSeriesFolder(selectedFolder.value, config)
-    selectedFolder.value = null
-    selectedSeriesPreview.value = null
-    await router.push(`/import/video/${result.seriesId}`)
-  }
-}
-
-function setUploadMode(mode: 'single' | 'series') {
-  uploadMode.value = mode
-  if (mode === 'single') {
-    selectedFolder.value = null
-    selectedSeriesPreview.value = null
-  } else {
-    selectedFile.value = null
-  }
-}
-
-async function handleTaskSelect(taskId: string) {
-  if (taskId !== routeTaskId.value) {
-    await router.push(`/import/video/${taskId}`)
-    return
-  }
-  await fetchTask(taskId)
-}
-
-async function handleRefresh() {
-  await fetchTasks()
-  if (routeTaskId.value) {
-    await fetchTask(routeTaskId.value)
   }
 }
 
@@ -393,16 +338,6 @@ function formatDuration(value?: number | null) {
   return `${Math.floor(seconds / 60)} 分 ${Math.round(seconds % 60)} 秒`
 }
 
-function getCurrentStepIndex(status: string): number {
-  const steps = ['pending', 'extracting', 'transcribing', 'subtitle_ready', 'generating_script', 'script_ready', 'importing', 'imported']
-  const index = steps.indexOf(status)
-  return index >= 0 ? index : 0
-}
-
-function isStepActive(status: string, stepIndex: number): boolean {
-  return getCurrentStepIndex(status) >= stepIndex
-}
-
 function statusVariant(status: string) {
   if (status === 'failed') return 'destructive'
   if (status === 'imported') return 'default'
@@ -417,22 +352,6 @@ function formatDate(value?: string | null) {
   return date.toLocaleString()
 }
 
-function formatDateRelative(value?: string | null) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  const now = Date.now()
-  const diff = now - date.getTime()
-  const minutes = Math.floor(diff / 60000)
-  const hours = Math.floor(diff / 3600000)
-  const days = Math.floor(diff / 86400000)
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes}分钟前`
-  if (hours < 24) return `${hours}小时前`
-  if (days < 7) return `${days}天前`
-  return date.toLocaleDateString()
-}
-
 function formatBytes(value?: number | null) {
   if (!value || value <= 0) return ''
   if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`
@@ -440,43 +359,45 @@ function formatBytes(value?: number | null) {
   return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`
 }
 
-function toggleTaskSelection(taskId: string) {
-  if (selectedTaskIds.value.has(taskId)) {
-    selectedTaskIds.value.delete(taskId)
-  } else {
-    selectedTaskIds.value.add(taskId)
+async function handleOpenArtifactPath(path: string) {
+  const target = path.trim()
+  if (!target) return
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('open_local_path', { path: target })
+  } catch (error) {
+    console.error('Failed to open artifact path:', error)
+    window.alert('当前环境无法直接打开该文件。')
   }
 }
 
-function toggleAllTasks() {
-  if (allTasksSelected.value) {
-    selectedTaskIds.value.clear()
-  } else {
-    tasks.value.forEach(task => selectedTaskIds.value.add(task.id))
+function replaceRolePlaceholders(input: string, replacements: Array<{ placeholder: string, name: string }>) {
+  let output = input
+  for (const replacement of replacements) {
+    const placeholder = replacement.placeholder.trim()
+    const name = replacement.name.trim()
+    if (!placeholder || !name) continue
+    output = output.replace(new RegExp(`角色\\s*${placeholder}(?=\\b|[：:，。、！？\\s]|$)`, 'g'), name)
+    output = output.replace(new RegExp(`(^|\\n)(\\s*)${placeholder}(?=\\s*[：:])`, 'g'), `$1$2${name}`)
   }
+  return output
 }
 
-async function handleDeleteSelected() {
-  if (!hasSelection.value) return
-  const count = selectedTaskIds.value.size
-  if (!confirm(`确定要删除选中的 ${count} 个任务吗？此操作无法撤销。`)) return
-  await deleteTasks(Array.from(selectedTaskIds.value))
-  selectedTaskIds.value.clear()
-  showBatchActions.value = false
+function handleOpenRoleNamingDialog() {
+  if (detectedRolePlaceholders.value.length === 0) return
+  roleNamingDialogOpen.value = true
 }
 
-async function handleDeleteFailed() {
-  if (failedTasks.value.length === 0) return
-  if (!confirm(`确定要删除所有失败的任务吗？共 ${failedTasks.value.length} 个任务，此操作无法撤销。`)) return
-  await deleteTasks(failedTasks.value.map(t => t.id))
-  showBatchActions.value = false
-}
-
-async function handleDeleteCompleted() {
-  if (completedTasks.value.length === 0) return
-  if (!confirm(`确定要删除所有已完成的任务吗？共 ${completedTasks.value.length} 个任务，此操作无法撤销。`)) return
-  await deleteTasks(completedTasks.value.map(t => t.id))
-  showBatchActions.value = false
+function applyRoleNaming() {
+  const validMappings = roleNamingDraft.value
+    .map(item => ({ placeholder: item.placeholder, name: item.name.trim() }))
+    .filter(item => item.name)
+  if (validMappings.length === 0) {
+    roleNamingDialogOpen.value = false
+    return
+  }
+  scriptDraft.value = replaceRolePlaceholders(scriptDraft.value, validMappings)
+  roleNamingDialogOpen.value = false
 }
 
 async function handleDeleteTask(taskId: string) {
@@ -486,38 +407,34 @@ async function handleDeleteTask(taskId: string) {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col gap-4 overflow-hidden p-4 md:p-6">
-    <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-      <div>
-        <div class="mb-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            class="-ml-2 gap-2"
-            @click="router.push('/import/video')"
-          >
-            <ArrowLeft class="h-4 w-4" />
-            返回任务列表
-          </Button>
-        </div>
-        <h1 class="text-2xl font-semibold tracking-normal">
+  <div class="flex min-h-full flex-col gap-4 overflow-y-auto p-4 md:p-6">
+    <div class="flex items-center justify-between gap-4">
+      <div class="flex min-w-0 items-center gap-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          class="-ml-2 gap-2"
+          @click="router.push('/import/video')"
+        >
+          <ArrowLeft class="h-4 w-4" />
+          返回任务列表
+        </Button>
+        <h1 class="truncate text-2xl font-semibold tracking-normal">
           {{ selectedTask?.originalFilename || '视频转项目详情' }}
         </h1>
-        <p class="text-sm text-muted-foreground">
-          确认字幕和剧本，完成后创建项目
-        </p>
+        <Badge v-if="selectedTask" :variant="statusVariant(selectedTask.status)" class="shrink-0">
+          {{ currentStageLabel }}
+        </Badge>
       </div>
       <Button
-        variant="outline"
-        class="gap-2"
-        :disabled="loading"
-        @click="handleRefresh"
+        v-if="selectedTask && primaryAction"
+        class="gap-2 shrink-0"
+        :disabled="primaryAction.disabled"
+        @click="primaryAction.action"
       >
-        <RefreshCw
-          class="h-4 w-4"
-          :class="loading ? 'animate-spin' : ''"
-        />
-        刷新
+        <Wand2 v-if="primaryAction.icon === 'script'" class="h-4 w-4" />
+        <FolderInput v-else class="h-4 w-4" />
+        {{ primaryAction.label }}
       </Button>
     </div>
 
@@ -529,326 +446,22 @@ async function handleDeleteTask(taskId: string) {
       {{ error }}
     </div>
 
-    <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)]">
-      <div
-        class="flex min-h-0 gap-4 transition-all"
-        :class="sidebarCollapsed ? 'xl:grid-cols-[80px_minmax(0,1fr)]' : 'xl:grid-cols-[390px_minmax(0,1fr)]'"
-        style="display: grid;"
-      >
-        <div class="flex min-h-0 flex-col gap-4">
-          <Button
-            variant="outline"
-            size="sm"
-            class="hidden gap-2 xl:flex"
-            @click="sidebarCollapsed = !sidebarCollapsed"
-          >
-            <ChevronLeft v-if="!sidebarCollapsed" class="h-4 w-4" />
-            <ChevronRight v-if="sidebarCollapsed" class="h-4 w-4" />
-            <span v-if="!sidebarCollapsed">收起侧边栏</span>
-            <span v-else>展开侧边栏</span>
-          </Button>
-
-          <Card v-if="false" class="shrink-0">
-          <CardHeader class="pb-3">
-            <CardTitle class="flex items-center gap-2 text-base">
-              <Upload class="h-4 w-4" />
-              上传视频
-            </CardTitle>
-          </CardHeader>
-          <CardContent class="space-y-3">
-            <div class="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                class="flex-1"
-                :class="uploadMode === 'single' ? 'bg-muted' : ''"
-                @click="setUploadMode('single')"
-              >
-                单集
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                class="flex-1"
-                :class="uploadMode === 'series' ? 'bg-muted' : ''"
-                @click="setUploadMode('series')"
-              >
-                整部剧
-              </Button>
-            </div>
-
-            <div v-if="uploadMode === 'single'">
-              <Input
-                :key="fileInputKey"
-                type="file"
-                accept="video/*"
-                @change="handleFileChange"
-              />
-            </div>
-
-            <div v-else class="space-y-2">
-              <Button
-                variant="outline"
-                class="w-full justify-start"
-                @click="handleSelectFolder"
-              >
-                <FolderInput class="mr-2 h-4 w-4" />
-                {{ selectedFolder ? '重新选择文件夹' : '选择剧集文件夹' }}
-              </Button>
-              <div v-if="selectedFolder" class="rounded-md border bg-muted/40 px-3 py-2 text-xs">
-                <div class="break-all text-muted-foreground">
-                  {{ selectedFolder }}
-                </div>
-                <div v-if="previewingSeriesFolder" class="mt-2 text-muted-foreground">
-                  正在检查剧集文件...
-                </div>
-                <div v-else-if="selectedSeriesPreview" class="mt-2 space-y-2">
-                  <div class="flex items-center justify-between gap-2">
-                    <span class="font-medium text-foreground">
-                      识别到 {{ selectedSeriesPreview?.episodeCount || 0 }} 个视频
-                    </span>
-                    <span class="text-muted-foreground">按文件名数字顺序导入</span>
-                  </div>
-                  <div class="max-h-36 overflow-y-auto rounded border bg-background">
-                    <div
-                      v-for="file in selectedSeriesPreview?.files.slice(0, 12) || []"
-                      :key="file.path"
-                      class="flex items-center justify-between gap-2 border-b px-2 py-1.5 last:border-b-0"
-                    >
-                      <span class="min-w-0 truncate">
-                        第{{ file.episodeNumber }}集 · {{ file.filename }}
-                      </span>
-                      <span class="shrink-0 text-muted-foreground">
-                        {{ formatBytes(file.sizeBytes) }}
-                      </span>
-                    </div>
-                    <div
-                      v-if="(selectedSeriesPreview?.files.length || 0) > 12"
-                      class="px-2 py-1.5 text-muted-foreground"
-                    >
-                      还有 {{ (selectedSeriesPreview?.files.length || 0) - 12 }} 个视频将按同样顺序导入
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <Input
-              v-model="projectTitle"
-              placeholder="项目标题（选填）"
-            />
-            <div class="grid grid-cols-2 gap-2">
-              <Select v-model="aspectRatio">
-                <SelectTrigger>
-                  <SelectValue placeholder="画幅" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="9:16">
-                    竖屏 9:16
-                  </SelectItem>
-                  <SelectItem value="16:9">
-                    横屏 16:9
-                  </SelectItem>
-                  <SelectItem value="1:1">
-                    方形 1:1
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <Select v-model="scriptParseMode">
-                <SelectTrigger>
-                  <SelectValue placeholder="剧本类型" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="short_drama">
-                    短剧
-                  </SelectItem>
-                  <SelectItem value="premium_drama">
-                    精品剧
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <Button
-              class="w-full gap-2"
-              :disabled="(uploadMode === 'single' ? !selectedFile : !selectedFolder || previewingSeriesFolder || !selectedSeriesPreview?.episodeCount) || uploading"
-              @click="handleUpload"
-            >
-              <Upload class="h-4 w-4" />
-              {{
-                uploading
-                  ? '上传中...'
-                  : (uploadMode === 'series' && selectedSeriesPreview?.episodeCount
-                    ? `导入并识别 ${selectedSeriesPreview?.episodeCount || 0} 集`
-                    : (uploadMode === 'series' ? '开始转换剧集' : '开始转换'))
-              }}
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card v-if="!sidebarCollapsed" class="min-h-0 flex-1 overflow-hidden">
-          <CardHeader class="pb-3">
-            <div class="flex items-center justify-between gap-2">
-              <CardTitle class="flex items-center gap-2 text-base">
-                <FileVideo class="h-4 w-4" />
-                转换历史
-              </CardTitle>
-              <Button
-                variant="ghost"
-                size="sm"
-                @click="showBatchActions = !showBatchActions"
-              >
-                {{ showBatchActions ? '取消' : '管理' }}
-              </Button>
-            </div>
-            <div v-if="showBatchActions" class="mt-3 space-y-2">
-              <div class="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  class="flex-1"
-                  @click="toggleAllTasks"
-                >
-                  {{ allTasksSelected ? '取消全选' : '全选' }}
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  class="flex-1"
-                  :disabled="!hasSelection"
-                  @click="handleDeleteSelected"
-                >
-                  <Trash2 class="mr-1 h-3 w-3" />
-                  删除 ({{ selectedTaskIds.size }})
-                </Button>
-              </div>
-              <div class="flex gap-2 text-xs">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 flex-1 text-xs"
-                  :disabled="failedTasks.length === 0"
-                  @click="handleDeleteFailed"
-                >
-                  清空失败 ({{ failedTasks.length }})
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 flex-1 text-xs"
-                  :disabled="completedTasks.length === 0"
-                  @click="handleDeleteCompleted"
-                >
-                  清空完成 ({{ completedTasks.length }})
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent class="min-h-0 overflow-y-auto p-0">
-            <button
-              v-for="task in tasks"
-              :key="task.id"
-              type="button"
-              class="w-full border-t px-4 py-3 text-left transition-colors hover:bg-muted/50"
-              :class="activeTask?.task.id === task.id ? 'bg-muted' : ''"
-              @click="showBatchActions ? toggleTaskSelection(task.id) : handleTaskSelect(task.id)"
-            >
-              <div class="mb-2 flex items-start justify-between gap-2">
-                <div class="flex min-w-0 flex-1 items-start gap-2">
-                  <input
-                    v-if="showBatchActions"
-                    type="checkbox"
-                    :checked="selectedTaskIds.has(task.id)"
-                    class="mt-1 h-4 w-4 shrink-0 rounded border-gray-300"
-                    @click.stop="toggleTaskSelection(task.id)"
-                  />
-                  <div class="min-w-0 flex-1">
-                    <div class="mb-1 font-medium" :title="task.originalFilename">
-                      {{ task.originalFilename }}
-                    </div>
-                    <div class="text-xs text-muted-foreground">
-                      <template v-if="task.isSeriesGroup">
-                        整部剧
-                        <template v-if="task.config?.episodeCount">
-                          · {{ task.config.episodeCount }} 集
-                        </template>
-                        ·
-                      </template>
-                      {{ formatDateRelative(task.updatedAt) }}
-                    </div>
-                  </div>
-                </div>
-                <Badge :variant="statusVariant(task.status)" class="shrink-0">
-                  {{ statusLabel(task.status) }}
-                </Badge>
-              </div>
-              <Progress :model-value="task.progress" class="h-1.5" />
-              <div
-                v-if="task.errorMessage"
-                class="mt-2 rounded bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
-                :title="task.errorMessage"
-              >
-                {{ friendlyErrorMessage(task.errorMessage) }}
-              </div>
-            </button>
-            <div
-              v-if="tasks.length === 0"
-              class="px-4 py-10 text-center text-sm text-muted-foreground"
-            >
-              暂无转换记录
-            </div>
-          </CardContent>
-        </Card>
-
-        <div v-if="sidebarCollapsed" class="flex min-h-0 flex-col gap-2 overflow-y-auto pt-2">
-          <button
-            v-for="task in tasks"
-            :key="task.id"
-            type="button"
-            class="flex flex-col items-center gap-2 rounded-md border p-2 transition-colors hover:bg-muted"
-            :class="activeTask?.task.id === task.id ? 'border-primary bg-muted' : ''"
-            :title="task.originalFilename"
-            @click="handleTaskSelect(task.id)"
-          >
-            <FileVideo class="h-5 w-5 shrink-0" :class="runningStatuses.has(task.status) ? 'animate-pulse text-primary' : ''" />
-            <div class="h-1 w-full overflow-hidden rounded-full bg-muted">
-              <div class="h-full bg-primary transition-all" :style="{ width: task.progress + '%' }" />
-            </div>
-            <Badge :variant="statusVariant(task.status)" class="text-xs px-1 py-0">
-              {{ task.status === 'failed' ? '!' : task.status === 'imported' ? '✓' : task.progress + '%' }}
-            </Badge>
-          </button>
-        </div>
-      </div>
-
-      <Card class="flex min-h-0 flex-col overflow-hidden">
+    <div class="flex flex-col gap-4">
+      <Card class="flex flex-col overflow-hidden">
         <CardHeader class="border-b pb-4">
           <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div class="min-w-0">
-              <CardTitle class="truncate text-lg">
-                {{ selectedTask?.originalFilename || '选择任务查看详情' }}
-              </CardTitle>
-              <CardDescription v-if="selectedTask">
-                {{ statusLabel(selectedTask.status) }}
+              <div v-if="selectedTask" class="text-sm text-muted-foreground">
+                当前状态：{{ currentStageLabel }}
                 <template v-if="selectedTask.status !== 'imported' && selectedTask.status !== 'failed' && selectedTask.status !== 'cancelled'">
-                  · {{ selectedTask.progress }}%
+                  · 完成度 {{ selectedTask.progress }}%
                 </template>
-              </CardDescription>
+              </div>
             </div>
             <div
               v-if="selectedTask"
               class="flex flex-wrap gap-2"
             >
-              <Button
-                v-if="primaryAction"
-                size="sm"
-                class="gap-2"
-                :disabled="primaryAction.disabled"
-                @click="primaryAction.action"
-              >
-                <Wand2 v-if="primaryAction.icon === 'script'" class="h-4 w-4" />
-                <FolderInput v-else class="h-4 w-4" />
-                {{ primaryAction.label }}
-              </Button>
               <Button
                 v-if="canCancel"
                 variant="outline"
@@ -931,85 +544,30 @@ async function handleDeleteTask(taskId: string) {
             </div>
           </div>
 
-          <div v-if="selectedTask && selectedTask.status !== 'cancelled'" class="mt-4 flex items-center gap-2">
-            <div class="flex flex-1 items-center gap-2">
-              <template
-                v-for="(step, index) in workflowSteps"
-                :key="step.label"
-              >
-              <div class="flex items-center gap-2">
-                <div
-                  class="flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium transition-colors"
-                  :class="step.done ? 'bg-primary text-primary-foreground' : (step.active ? 'bg-primary text-primary-foreground animate-pulse' : 'bg-muted text-muted-foreground')"
-                >
-                  <span v-if="step.done">✓</span>
-                  <span v-else>{{ index + 1 }}</span>
-                </div>
-                <span class="text-xs font-medium" :class="step.done || step.active ? '' : 'text-muted-foreground'">{{ step.label }}</span>
-              </div>
-              <div
-                v-if="index < workflowSteps.length - 1"
-                class="h-px flex-1 bg-border transition-colors"
-                :class="workflowSteps[index + 1]?.done || workflowSteps[index + 1]?.active ? 'bg-primary' : ''"
-              />
-              </template>
-            </div>
-          </div>
         </CardHeader>
 
         <CardContent
           v-if="selectedTask"
-          class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4"
+          class="flex min-h-0 flex-1 flex-col gap-4 p-4"
         >
-          <div class="flex gap-2 border-b pb-3">
+          <div class="flex flex-wrap gap-2 border-b pb-3">
             <Button
+              v-for="tab in contentTabs"
+              :key="tab.key"
               variant="ghost"
               size="sm"
-              :class="contentView === 'subtitle' ? 'bg-muted' : ''"
-              @click="contentView = 'subtitle'"
+              class="gap-2"
+              :class="contentView === tab.key ? 'bg-muted' : ''"
+              @click="contentView = tab.key"
             >
-              字幕内容
-              <Badge
-                v-if="selectedTask.status === 'subtitle_ready'"
-                variant="secondary"
-                class="ml-2 text-xs"
-              >
-                待确认
-              </Badge>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              :class="contentView === 'script' ? 'bg-muted' : ''"
-              @click="contentView = 'script'"
-            >
-              剧本内容
-              <Badge
-                v-if="selectedTask.status === 'script_ready'"
-                variant="secondary"
-                class="ml-2 text-xs"
-              >
-                待确认
-              </Badge>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              :class="contentView === 'logs' ? 'bg-muted' : ''"
-              @click="contentView = 'logs'"
-            >
-              执行记录
-              <Badge
-                v-if="activeTask?.stepRuns?.length"
-                variant="secondary"
-                class="ml-2 text-xs"
-              >
-                {{ activeTask.stepRuns.length }}
+              {{ tab.label }}
+              <Badge v-if="tab.badge" variant="secondary" class="text-xs">
+                {{ tab.badge }}
               </Badge>
             </Button>
           </div>
 
-          <section v-show="contentView === 'subtitle'" class="flex min-h-0 flex-1 flex-col gap-3">
+          <section v-show="contentView === 'subtitle'" class="flex flex-1 flex-col gap-3">
             <div class="flex items-center justify-between gap-3">
               <h2 class="text-sm font-medium text-muted-foreground">
                 字幕内容
@@ -1029,10 +587,10 @@ async function handleDeleteTask(taskId: string) {
                 </Button>
               </div>
             </div>
-            <div class="relative min-h-0 flex-1">
+            <div class="relative flex-1">
               <Textarea
                 v-model="subtitleDraft"
-                class="h-full resize-none rounded-md border font-mono text-sm leading-6"
+                class="min-h-[420px] w-full resize-y rounded-md border font-mono text-sm leading-6"
                 :class="canEditSubtitle ? 'border-primary/50 ring-1 ring-primary/20' : 'bg-muted/30'"
                 :disabled="!canEditSubtitle"
                 placeholder="识别完成后将显示字幕内容，你可以在此编辑修正"
@@ -1040,13 +598,23 @@ async function handleDeleteTask(taskId: string) {
             </div>
           </section>
 
-          <section v-show="contentView === 'script'" class="flex min-h-0 flex-1 flex-col gap-3">
+          <section v-show="contentView === 'script'" class="flex flex-1 flex-col gap-3">
             <div class="flex items-center justify-between gap-3">
               <h2 class="text-sm font-medium text-muted-foreground">
                 剧本内容
                 <span v-if="!canEditScript" class="ml-2 text-xs">(只读)</span>
               </h2>
               <div class="flex gap-2">
+                <Button
+                  v-if="detectedRolePlaceholders.length > 0"
+                  variant="outline"
+                  size="sm"
+                  class="gap-2"
+                  @click="handleOpenRoleNamingDialog"
+                >
+                  <Pencil class="h-4 w-4" />
+                  命名角色
+                </Button>
                 <Button
                   v-if="scriptHasChanges && canEditScript"
                   variant="outline"
@@ -1060,10 +628,10 @@ async function handleDeleteTask(taskId: string) {
                 </Button>
               </div>
             </div>
-            <div class="relative min-h-0 flex-1">
+            <div class="relative flex-1">
               <Textarea
                 v-model="scriptDraft"
-                class="h-full resize-none rounded-md border font-mono text-sm leading-6"
+                class="min-h-[520px] w-full resize-y rounded-md border font-mono text-sm leading-6"
                 :class="canEditScript ? 'border-primary/50 ring-1 ring-primary/20' : 'bg-muted/30'"
                 :disabled="!canEditScript"
                 placeholder="从字幕生成的剧本将显示在这里，确认无误后即可创建项目"
@@ -1071,12 +639,24 @@ async function handleDeleteTask(taskId: string) {
             </div>
           </section>
 
-          <section v-show="contentView === 'logs'" class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
-            <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.6fr)]">
-              <div class="rounded-md border">
-                <div class="border-b px-3 py-2">
-                  <h2 class="text-sm font-medium">步骤记录</h2>
+          <section v-show="contentView === 'logs'" class="flex flex-col gap-4">
+            <div class="rounded-md border">
+              <button
+                type="button"
+                class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+                @click="logsExpanded = !logsExpanded"
+              >
+                <div class="flex items-center gap-2">
+                  <h2 class="text-sm font-medium">执行记录</h2>
+                  <Badge v-if="activeTask?.stepRuns?.length" variant="secondary" class="text-xs">
+                    {{ activeTask.stepRuns.length }}
+                  </Badge>
                 </div>
+                <span class="text-xs text-muted-foreground">
+                  {{ logsExpanded ? '收起' : '展开' }}
+                </span>
+              </button>
+              <div v-show="logsExpanded" class="border-t">
                 <div v-if="activeTask?.stepRuns?.length" class="divide-y">
                   <div
                     v-for="run in activeTask.stepRuns"
@@ -1121,41 +701,56 @@ async function handleDeleteTask(taskId: string) {
                   暂无执行记录
                 </div>
               </div>
+            </div>
 
-              <div class="rounded-md border">
-                <div class="border-b px-3 py-2">
-                  <h2 class="text-sm font-medium">产物文件</h2>
-                </div>
-                <div v-if="activeTask?.artifacts?.length" class="divide-y">
-                  <div
-                    v-for="artifact in activeTask.artifacts"
-                    :key="artifact.id"
-                    class="px-3 py-3 text-sm"
-                  >
-                    <div class="flex items-start justify-between gap-2">
-                      <div class="min-w-0">
-                        <div class="font-medium">{{ artifactKindLabel(artifact.kind) }}</div>
-                        <div class="mt-1 truncate text-xs text-muted-foreground" :title="artifact.path">
-                          {{ artifact.path }}
-                        </div>
-                      </div>
-                      <span class="shrink-0 text-xs text-muted-foreground">
+            <div class="rounded-md border">
+              <div class="border-b px-3 py-2">
+                <h2 class="text-sm font-medium">产物文件</h2>
+              </div>
+              <div v-if="activeTask?.artifacts?.length" class="divide-y">
+                <div
+                  v-for="artifact in activeTask.artifacts"
+                  :key="artifact.id"
+                  class="px-3 py-3 text-sm"
+                >
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <div class="font-medium">{{ artifactKindLabel(artifact.kind) }}</div>
+                      <button
+                        type="button"
+                        class="mt-1 block truncate text-left text-xs text-primary underline-offset-2 hover:underline"
+                        :title="artifact.path"
+                        @click="handleOpenArtifactPath(artifact.path)"
+                      >
+                        {{ artifact.path }}
+                      </button>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-2">
+                      <span class="text-xs text-muted-foreground">
                         {{ formatBytes(artifact.sizeBytes) }}
                       </span>
-                    </div>
-                    <div class="mt-1 text-xs text-muted-foreground">
-                      {{ formatDate(artifact.createdAt) }}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        class="h-7 px-2 text-xs"
+                        @click="handleOpenArtifactPath(artifact.path)"
+                      >
+                        打开
+                      </Button>
                     </div>
                   </div>
+                  <div class="mt-1 text-xs text-muted-foreground">
+                    {{ formatDate(artifact.createdAt) }}
+                  </div>
                 </div>
-                <div v-else class="px-3 py-8 text-center text-sm text-muted-foreground">
-                  暂无产物文件
-                </div>
+              </div>
+              <div v-else class="px-3 py-8 text-center text-sm text-muted-foreground">
+                暂无产物文件
               </div>
             </div>
           </section>
 
-          <div class="xl:col-span-2">
+          <div>
             <div
               v-if="selectedTask.status === 'imported'"
               class="flex items-center justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300"
@@ -1192,21 +787,57 @@ async function handleDeleteTask(taskId: string) {
           <div class="space-y-2">
             <div class="text-base font-medium text-foreground">暂未选择任务</div>
             <div class="text-muted-foreground">
-              {{ tasks.length > 0 ? '从左侧选择一个任务查看详情和进行编辑' : '返回任务列表开始第一个转换任务' }}
+              返回任务列表开始第一个转换任务
             </div>
           </div>
-          <Button
-            v-if="tasks.length === 0"
-            variant="outline"
-            class="gap-2 mt-2"
-            @click="router.push('/import/video')"
-          >
+          <Button variant="outline" class="gap-2 mt-2" @click="router.push('/import/video')">
             <ArrowLeft class="h-4 w-4" />
             返回任务列表
           </Button>
         </CardContent>
       </Card>
     </div>
-  </div>
+
+    <Dialog
+      :open="roleNamingDialogOpen"
+      @update:open="roleNamingDialogOpen = $event"
+    >
+      <DialogContent class="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>命名角色</DialogTitle>
+          <DialogDescription>
+            为剧本中的占位角色批量填写真实名称，确认后会直接替换当前剧本草稿。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-3 py-1">
+          <div
+            v-for="item in roleNamingDraft"
+            :key="item.placeholder"
+            class="grid grid-cols-[96px_minmax(0,1fr)] items-center gap-3"
+          >
+            <div class="text-sm font-medium text-foreground">
+              角色{{ item.placeholder }}
+            </div>
+            <Input
+              v-model="item.name"
+              :placeholder="`输入角色${item.placeholder}的名字`"
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            @click="roleNamingDialogOpen = false"
+          >
+            取消
+          </Button>
+          <Button @click="applyRoleNaming">
+            应用名称
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

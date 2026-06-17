@@ -28,6 +28,7 @@ tauri = { version = "2.11.2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-shell = "2"
 axum = { version = "0.8.7", features = ["macros", "json", "multipart"] }
 tokio = { version = "1.48.0", features = ["rt-multi-thread", "macros", "net", "signal", "fs"] }
 tower-http = { version = "0.6.6", features = ["fs", "trace"] }

@@ -28,11 +28,12 @@ const {
 } = useVideoImport()
 
 const fileInputKey = ref(0)
+const singleFileInput = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
 const selectedFolder = ref<string | null>(null)
 const selectedSeriesPreview = ref<VideoImportSeriesPreview | null>(null)
 const previewingSeriesFolder = ref(false)
-const uploadMode = ref<'single' | 'series'>('single')
+const uploadMode = ref<'single' | 'series'>('series')
 const projectTitle = ref('')
 const aspectRatio = ref<'16:9' | '9:16' | '1:1'>('9:16')
 const scriptParseMode = ref<'short_drama' | 'premium_drama'>('short_drama')
@@ -91,6 +92,10 @@ function handleFileChange(event: Event) {
   if (!projectTitle.value && selectedFile.value) {
     projectTitle.value = selectedFile.value.name.replace(/\.[^.]+$/, '')
   }
+}
+
+function triggerSingleFileSelect() {
+  singleFileInput.value?.click()
 }
 
 async function handleSelectFolder() {
@@ -278,8 +283,8 @@ function formatSeconds(value?: number | null) {
       {{ error }}
     </div>
 
-    <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[390px_minmax(0,1fr)]">
-      <Card class="shrink-0 self-start">
+    <div class="flex min-h-0 flex-1 flex-col gap-4">
+      <Card class="w-full">
         <CardHeader class="pb-3">
           <CardTitle class="flex items-center gap-2 text-base">
             <Upload class="h-4 w-4" />
@@ -308,13 +313,27 @@ function formatSeconds(value?: number | null) {
             </Button>
           </div>
 
-          <Input
-            v-if="uploadMode === 'single'"
-            :key="fileInputKey"
-            type="file"
-            accept="video/*"
-            @change="handleFileChange"
-          />
+          <div v-if="uploadMode === 'single'" class="space-y-2">
+            <input
+              :key="fileInputKey"
+              ref="singleFileInput"
+              type="file"
+              accept="video/*"
+              class="hidden"
+              @change="handleFileChange"
+            >
+            <Button
+              variant="outline"
+              class="w-full justify-start"
+              @click="triggerSingleFileSelect"
+            >
+              <Upload class="mr-2 h-4 w-4" />
+              {{ selectedFile ? '重新选择视频' : '选择视频文件' }}
+            </Button>
+            <div v-if="selectedFile" class="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <div class="break-all">{{ selectedFile.name }}</div>
+            </div>
+          </div>
 
           <div v-else class="space-y-2">
             <Button
@@ -413,7 +432,7 @@ function formatSeconds(value?: number | null) {
         </CardContent>
       </Card>
 
-      <Card class="flex min-h-0 flex-col overflow-hidden">
+      <Card class="flex min-h-0 w-full flex-col overflow-hidden">
         <CardHeader class="border-b pb-3">
           <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>

@@ -165,6 +165,13 @@ fn create_main_window(app: &tauri::App) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn open_local_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    tauri_plugin_shell::ShellExt::shell(&app)
+        .open(&path, None)
+        .map_err(|error| format!("打开文件失败: {}", error))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = dotenvy::dotenv();
@@ -172,6 +179,7 @@ pub fn run() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build());
 
@@ -185,6 +193,7 @@ pub fn run() {
 
     let app = builder
         .invoke_handler(tauri::generate_handler![
+            open_local_path,
             desktop_ffmpeg::check_ffmpeg_status,
             desktop_ffmpeg::install_ffmpeg
         ])
