@@ -46,6 +46,7 @@ const PROMPT_PROFILES_KEY: &str = "prompt_profiles_default";
 const PROMPT_VERSIONS_KEY: &str = "prompt_versions_default";
 const PROMPT_PROFILE_STATE_KEY: &str = "prompt_profile_state_default";
 const ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES: usize = 50 * 1024 * 1024;
+const VIDEO_IMPORT_UPLOAD_BODY_LIMIT_BYTES: usize = 2 * 1024 * 1024 * 1024;
 const SETTINGS_CONFIG_EXPORT_VERSION: i32 = 1;
 const SETTINGS_CONFIG_TEXT_MAX_CHARS: usize = 16 * 1024;
 const SETTINGS_CONFIG_ENCRYPTED_TYPE: &str = "playlet.settings_config.encrypted";
@@ -83,10 +84,13 @@ mod model_constraints;
 mod prompts_api;
 #[path = "backend/runtime_api.rs"]
 mod runtime_api;
+#[path = "backend/video_import.rs"]
+mod video_import;
 
 use model_constraints::{build_available_model_entry, image_model_config, AvailableModelKind};
 use prompts_api::*;
 use runtime_api::*;
+use video_import::*;
 
 tokio::task_local! {
     static CURRENT_REQUEST_ID: String;
@@ -2870,6 +2874,9 @@ fn default_prompt_template_content(content_file: &str) -> Option<&'static str> {
         "default-prompts/script_parsing_episode_drama_context.txt" => Some(include_str!(
             "../assets/default-prompts/script_parsing_episode_drama_context.txt"
         )),
+        "default-prompts/video_import_script_generation.txt" => Some(include_str!(
+            "../assets/default-prompts/video_import_script_generation.txt"
+        )),
         "default-prompts/character_sheet.txt" => Some(include_str!(
             "../assets/default-prompts/character_sheet.txt"
         )),
@@ -3395,6 +3402,61 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         error_json TEXT,
         created_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS video_import_tasks (
+        id TEXT PRIMARY KEY,
+        original_filename TEXT NOT NULL,
+        source_kind TEXT NOT NULL DEFAULT 'upload',
+        source_path TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        current_step TEXT NOT NULL DEFAULT 'created',
+        progress INTEGER NOT NULL DEFAULT 0,
+        error_message TEXT,
+        asr_provider TEXT NOT NULL DEFAULT 'bcut',
+        script_model_id TEXT,
+        config_json TEXT NOT NULL DEFAULT '{}',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        cancelled_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS video_import_artifacts (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES video_import_tasks(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        path TEXT NOT NULL,
+        mime_type TEXT,
+        size_bytes INTEGER,
+        sha256 TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS video_import_step_runs (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES video_import_tasks(id) ON DELETE CASCADE,
+        step TEXT NOT NULL,
+        attempt INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        duration_ms INTEGER,
+        provider TEXT,
+        external_task_id TEXT,
+        error_message TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+      );
+
+      CREATE TABLE IF NOT EXISTS video_import_projects (
+        import_id TEXT NOT NULL REFERENCES video_import_tasks(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL,
+        imported_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        PRIMARY KEY (import_id, project_id)
+      );
     ",
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -3404,6 +3466,13 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         "
       CREATE INDEX IF NOT EXISTS idx_model_debug_logs_timestamp ON model_debug_logs(timestamp);
       CREATE INDEX IF NOT EXISTS idx_app_logs_timestamp ON app_logs(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_video_import_tasks_status ON video_import_tasks(status);
+      CREATE INDEX IF NOT EXISTS idx_video_import_tasks_created ON video_import_tasks(created_at);
+      CREATE INDEX IF NOT EXISTS idx_video_import_tasks_updated ON video_import_tasks(updated_at);
+      CREATE INDEX IF NOT EXISTS idx_video_import_artifacts_task ON video_import_artifacts(task_id);
+      CREATE INDEX IF NOT EXISTS idx_video_import_artifacts_kind ON video_import_artifacts(kind);
+      CREATE INDEX IF NOT EXISTS idx_video_import_step_runs_task ON video_import_step_runs(task_id);
+      CREATE INDEX IF NOT EXISTS idx_video_import_step_runs_step ON video_import_step_runs(step);
       -- 日志查询统一按 timestamp DESC 排序取 LIMIT，过滤走大小写无关 / 子串匹配，
       -- 规划器不会用到下面这些二级索引；清理掉以省去写入开销。
       DROP INDEX IF EXISTS idx_model_debug_logs_provider;
@@ -3705,6 +3774,44 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/script/parse", post(api_script_parse))
         .route("/api/script/parse-stream", post(api_script_parse_stream))
         .route("/api/script/export-docx", post(api_script_export_docx))
+        .route(
+            "/api/import/video/upload",
+            post(api_video_import_upload)
+                .layer(DefaultBodyLimit::max(VIDEO_IMPORT_UPLOAD_BODY_LIMIT_BYTES)),
+        )
+        .route(
+            "/api/import/video/tasks",
+            get(api_video_import_tasks),
+        )
+        .route(
+            "/api/import/video/tasks/{id}",
+            get(api_video_import_task),
+        )
+        .route(
+            "/api/import/video/tasks/{id}/subtitle",
+            put(api_video_import_subtitle_put),
+        )
+        .route(
+            "/api/import/video/tasks/{id}/script",
+            put(api_video_import_script_put),
+        )
+        .route(
+            "/api/import/video/tasks/{id}/generate-script",
+            post(api_video_import_generate_script),
+        )
+        .route(
+            "/api/import/video/tasks/{id}/import",
+            post(api_video_import_import_project),
+        )
+        .route(
+            "/api/import/video/tasks/{id}/retry",
+            post(api_video_import_retry),
+        )
+        .route(
+            "/api/import/video/tasks/{id}/cancel",
+            post(api_video_import_cancel),
+        )
+        .route("/api/import/video/events", get(api_video_import_events))
         .route("/api/character/generate", post(api_character_generate))
         .route(
             "/api/character/voice/upload",

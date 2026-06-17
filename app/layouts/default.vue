@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon } from 'lucide-vue-next'
+import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 
 const route = useRoute()
@@ -17,6 +17,7 @@ let syncNarrowSidebar: (() => void) | null = null
 const navigation = [
   { name: '首页', path: '/', icon: Home },
   { name: '我的项目', path: '/projects', icon: Folder },
+  { name: '视频导入', path: '/import/video', icon: FileVideo },
   { name: '云端素材', path: '/tos-files', icon: Cloud },
   { name: '日志', path: '/logs', icon: ScrollText },
   { name: '设置', path: '/settings', icon: Settings }
@@ -65,7 +66,7 @@ function getSettingsSubRoute(item: { section: SettingsSection }) {
 }
 
 const activeStates = computed(() => {
-  return navigation.map(item => route.path === item.path)
+  return navigation.map(item => route.path === item.path || (item.path !== '/' && route.path.startsWith(`${item.path}/`)))
 })
 
 const hideSidebar = computed(() => route.meta.hideSidebar === true)

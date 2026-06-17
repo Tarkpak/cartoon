@@ -139,6 +139,7 @@ declare global {
   const useTemplateRef: typeof import('vue')['useTemplateRef']
   const useTheme: typeof import('./app/composables/useTheme')['useTheme']
   const useToast: typeof import('./app/composables/useToast')['useToast']
+  const useVideoImport: typeof import('./app/composables/useVideoImport')['useVideoImport']
   const watch: typeof import('vue')['watch']
   const watchEffect: typeof import('vue')['watchEffect']
   const watchPostEffect: typeof import('vue')['watchPostEffect']
@@ -194,6 +195,9 @@ declare global {
   // @ts-ignore
   export type { ToastVariant, ToastItem, ToastOptions } from './app/composables/useToast'
   import('./app/composables/useToast')
+  // @ts-ignore
+  export type { VideoImportTask, VideoImportArtifact, VideoImportStepRun, VideoImportTaskDetail, VideoImportConfig, VideoImportRetryStep } from './app/composables/useVideoImport'
+  import('./app/composables/useVideoImport')
 }
 
 // for vue template auto import
@@ -334,6 +338,7 @@ declare module 'vue' {
     readonly useTemplateRef: UnwrapRef<typeof import('vue')['useTemplateRef']>
     readonly useTheme: UnwrapRef<typeof import('./app/composables/useTheme')['useTheme']>
     readonly useToast: UnwrapRef<typeof import('./app/composables/useToast')['useToast']>
+    readonly useVideoImport: UnwrapRef<typeof import('./app/composables/useVideoImport')['useVideoImport']>
     readonly watch: UnwrapRef<typeof import('vue')['watch']>
     readonly watchEffect: UnwrapRef<typeof import('vue')['watchEffect']>
     readonly watchPostEffect: UnwrapRef<typeof import('vue')['watchPostEffect']>

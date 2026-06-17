@@ -156,6 +156,32 @@
     "contentFile": "default-prompts/script_parsing_episode_drama_context.txt"
   },
   {
+    "id": "video_import_script_generation",
+    "name": "视频导入剧本生成",
+    "category": "text",
+    "description": "将视频 ASR 字幕整理为适合现有剧本解析流程消费的分场剧本文本",
+    "variables": [
+      {
+        "name": "{{taskTitle}}",
+        "description": "视频导入任务标题",
+        "example": "短剧第1集"
+      },
+      {
+        "name": "{{sourceFilename}}",
+        "description": "原始视频文件名",
+        "example": "episode-01.mp4"
+      },
+      {
+        "name": "{{subtitleText}}",
+        "description": "ASR 识别或用户编辑后的字幕文本",
+        "example": "你终于回来了..."
+      }
+    ],
+    "isCustomized": false,
+    "updatedAt": "2026-06-17T00:00:00.000Z",
+    "contentFile": "default-prompts/video_import_script_generation.txt"
+  },
+  {
     "id": "character_sheet",
     "name": "角色资产生成",
     "category": "image",

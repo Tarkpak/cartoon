@@ -15,6 +15,7 @@ const PROMPT_TEMPLATE_SCRIPT_PARSING: &str = "script_parsing";
 const PROMPT_TEMPLATE_SCRIPT_PARSING_SHORT_DRAMA: &str = "script_parsing_short_drama";
 const PROMPT_TEMPLATE_SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT: &str =
     "script_parsing_episode_drama_context";
+const PROMPT_TEMPLATE_VIDEO_IMPORT_SCRIPT_GENERATION: &str = "video_import_script_generation";
 const PROMPT_TEMPLATE_CHARACTER_SHEET: &str = "character_sheet";
 const PROMPT_TEMPLATE_CHARACTER_REGENERATION: &str = "character_regeneration";
 const PROMPT_TEMPLATE_ENVIRONMENT_REFERENCE_GENERATION: &str = "environment_reference_generation";
@@ -12699,6 +12700,68 @@ pub(super) async fn api_script_parse(
         );
     }
     Ok(Json(payload))
+}
+
+pub(super) async fn generate_video_import_script_text(
+    state: &BackendState,
+    task_title: &str,
+    source_filename: &str,
+    subtitle_text: &str,
+) -> Result<(String, String, String), ApiError> {
+    let normalized_subtitle = subtitle_text.trim();
+    if normalized_subtitle.is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "字幕内容不能为空"));
+    }
+
+    let prompt = {
+        let conn = db_connection(state)?;
+        render_configured_prompt(
+            &conn,
+            PROMPT_TEMPLATE_VIDEO_IMPORT_SCRIPT_GENERATION,
+            &[
+                ("taskTitle", task_title),
+                ("sourceFilename", source_filename),
+                ("subtitleText", normalized_subtitle),
+            ],
+        )?
+    };
+
+    let context = ModelLogContext {
+        project_id: None,
+        scene_id: None,
+        task_id: None,
+    };
+    CURRENT_MODEL_LOG_CONTEXT
+        .scope(context, async {
+            run_workflow_text_model(state, "script_parsing", &prompt).await
+        })
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                format!("视频导入剧本生成失败: {}", error),
+            )
+        })
+}
+
+pub(super) async fn parse_video_import_script(
+    state: BackendState,
+    project_id: &str,
+    script_text: &str,
+    script_parse_mode: &str,
+    style: Option<&str>,
+) -> Result<Value, ApiError> {
+    let body = json!({
+      "text": script_text,
+      "projectId": project_id,
+      "targetEpisodeId": "episode-1",
+      "scriptParseMode": normalize_runtime_script_parse_mode(script_parse_mode),
+      "style": style.unwrap_or(""),
+      "episodePlan": []
+    });
+
+    let parsed = api_script_parse(State(state), Json(body)).await?;
+    Ok(parsed.0)
 }
 
 pub(super) async fn api_script_parse_stream(
