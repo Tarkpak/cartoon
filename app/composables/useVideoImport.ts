@@ -258,7 +258,7 @@ export function useVideoImport() {
         data?: { projectId: string, redirectUrl: string }
         message?: string
       }>(`/api/import/video/tasks/${taskId}/import`, {
-        method: 'POST'
+        method: 'POST',
         body: config || undefined
       })
       if (!response.success || !response.data?.projectId) {

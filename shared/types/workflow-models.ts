@@ -8,6 +8,7 @@ import { z } from 'zod'
 export const WorkflowStepSchema = z.enum([
   // 文本流程
   'script_parsing',
+  'video_import_script_generation',
   'scene_description_refinement',
 
   // 图片流程
@@ -42,6 +43,7 @@ export type WorkflowStepConfig = z.infer<typeof WorkflowStepConfigSchema>
 
 export const WorkflowModelsSchema = z.object({
   script_parsing: z.string().optional(),
+  video_import_script_generation: z.string().optional(),
   scene_description_refinement: z.string().optional(),
   character_portrait: z.string().optional(),
   frame_generation: z.string().optional(),
@@ -165,6 +167,14 @@ export const WORKFLOW_STEP_CONFIGS: WorkflowStepConfig[] = [
     category: 'text',
     requiredCapabilities: ['text_generation'],
     tips: '需要稳定的长文本理解和结构化输出能力'
+  },
+  {
+    id: 'video_import_script_generation',
+    name: '视频转项目剧本整理',
+    description: '将视频字幕整理为适合项目创建的分场剧本文本',
+    category: 'text',
+    requiredCapabilities: ['text_generation'],
+    tips: '要求对白整理、分场归纳和结构化输出稳定'
   },
   {
     id: 'scene_description_refinement',

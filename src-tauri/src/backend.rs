@@ -2295,6 +2295,14 @@ fn default_workflow_steps() -> Value {
         "optionalCapabilities": []
       },
       {
+        "id": "video_import_script_generation",
+        "name": "视频转项目剧本整理",
+        "description": "将视频字幕整理为分场剧本文本",
+        "category": "text",
+        "requiredCapabilities": ["text_generation"],
+        "optionalCapabilities": []
+      },
+      {
         "id": "scene_description_refinement",
         "name": "场景描述二次改写",
         "description": "按指令重写场景描述",
@@ -2505,7 +2513,9 @@ fn find_available_model_for_type(
 
 fn workflow_step_category(step_id: &str) -> Option<&'static str> {
     match step_id {
-        "script_parsing" | "scene_description_refinement" => Some("text"),
+        "script_parsing" | "video_import_script_generation" | "scene_description_refinement" => {
+            Some("text")
+        }
         "character_portrait" | "frame_generation" => Some("image"),
         "video_generation" => Some("video"),
         _ => None,
@@ -2592,6 +2602,7 @@ fn selected_models_public_view(selected: &Value) -> Value {
 fn legacy_workflow_default_model_for_step(step_id: &str) -> Option<&'static str> {
     match step_id {
         "script_parsing" => Some("qwen3.6-plus"),
+        "video_import_script_generation" => Some("qwen3.6-plus"),
         "scene_description_refinement" => Some("qwen3.6-plus"),
         "character_portrait" => Some("qwen-image-2.0-pro"),
         "frame_generation" => Some("qwen-image-2.0-pro"),
@@ -2632,6 +2643,7 @@ fn workflow_overrides(conn: &Connection) -> Result<Value, ApiError> {
     };
     let workflow_steps = [
         "script_parsing",
+        "video_import_script_generation",
         "scene_description_refinement",
         "character_portrait",
         "frame_generation",
@@ -2676,6 +2688,7 @@ fn workflow_current_selections(conn: &Connection, available: &Value) -> Result<V
     let mut output = serde_json::Map::new();
     for step_id in [
         "script_parsing",
+        "video_import_script_generation",
         "scene_description_refinement",
         "character_portrait",
         "frame_generation",

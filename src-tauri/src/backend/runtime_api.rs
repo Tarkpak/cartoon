@@ -3125,6 +3125,7 @@ fn resolve_runtime_workflow_model_id(
 fn workflow_step_label(workflow_step: &str) -> &'static str {
     match workflow_step {
         "script_parsing" => "分集目录规划与剧本解析",
+        "video_import_script_generation" => "视频转项目剧本整理",
         "scene_description_refinement" => "场景描述二次改写",
         "character_portrait" => "角色资产生成",
         "frame_generation" => "环境参考图生成",
@@ -12733,7 +12734,7 @@ pub(super) async fn generate_video_import_script_text(
     };
     CURRENT_MODEL_LOG_CONTEXT
         .scope(context, async {
-            run_workflow_text_model(state, "script_parsing", &prompt).await
+            run_workflow_text_model(state, "video_import_script_generation", &prompt).await
         })
         .await
         .map_err(|error| {

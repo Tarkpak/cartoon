@@ -1404,7 +1404,7 @@ pub(super) async fn api_video_import_retry(
             Ok(Json(json!({ "success": true })))
         }
         "generate_script" => api_video_import_generate_script(Path(id), State(state)).await.map(|_| Json(json!({ "success": true }))),
-        "import" => api_video_import_import_project(Path(id), State(state)).await.map(|_| Json(json!({ "success": true }))),
+        "import" => api_video_import_import_project(Path(id), State(state), Json(None)).await.map(|_| Json(json!({ "success": true }))),
         _ => Err(ApiError::new(StatusCode::BAD_REQUEST, "fromStep 无效")),
     }
 }
