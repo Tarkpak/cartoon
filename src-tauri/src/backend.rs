@@ -2,7 +2,7 @@ use axum::extract::{DefaultBodyLimit, Path, Query, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, get, post, put};
+use axum::routing::{any, delete, get, post, put};
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
@@ -3229,6 +3229,14 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
     }
 
     for (column, definition) in [
+        ("series_id", "TEXT"),
+        ("episode_number", "INTEGER"),
+        ("is_series_group", "INTEGER NOT NULL DEFAULT 0"),
+    ] {
+        ensure_column(conn, "video_import_tasks", column, definition)?;
+    }
+
+    for (column, definition) in [
         ("request_json", "TEXT"),
         ("request_raw_json", "TEXT"),
         ("response_json", "TEXT"),
@@ -3420,7 +3428,10 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         updated_at TEXT NOT NULL,
         started_at TEXT,
         completed_at TEXT,
-        cancelled_at TEXT
+        cancelled_at TEXT,
+        series_id TEXT,
+        episode_number INTEGER,
+        is_series_group INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS video_import_artifacts (
@@ -3469,6 +3480,8 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
       CREATE INDEX IF NOT EXISTS idx_video_import_tasks_status ON video_import_tasks(status);
       CREATE INDEX IF NOT EXISTS idx_video_import_tasks_created ON video_import_tasks(created_at);
       CREATE INDEX IF NOT EXISTS idx_video_import_tasks_updated ON video_import_tasks(updated_at);
+      CREATE INDEX IF NOT EXISTS idx_video_import_tasks_series
+        ON video_import_tasks(series_id) WHERE series_id IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_video_import_artifacts_task ON video_import_artifacts(task_id);
       CREATE INDEX IF NOT EXISTS idx_video_import_artifacts_kind ON video_import_artifacts(kind);
       CREATE INDEX IF NOT EXISTS idx_video_import_step_runs_task ON video_import_step_runs(task_id);
@@ -3780,6 +3793,10 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
                 .layer(DefaultBodyLimit::max(VIDEO_IMPORT_UPLOAD_BODY_LIMIT_BYTES)),
         )
         .route(
+            "/api/import/video/upload-series",
+            post(api_video_import_upload_series),
+        )
+        .route(
             "/api/import/video/tasks",
             get(api_video_import_tasks),
         )
@@ -3810,6 +3827,14 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route(
             "/api/import/video/tasks/{id}/cancel",
             post(api_video_import_cancel),
+        )
+        .route(
+            "/api/import/video/tasks/{id}",
+            delete(api_video_import_delete),
+        )
+        .route(
+            "/api/import/video/tasks/batch-delete",
+            post(api_video_import_delete_batch),
         )
         .route("/api/import/video/events", get(api_video_import_events))
         .route("/api/character/generate", post(api_character_generate))

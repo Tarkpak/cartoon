@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import AssetWorkbenchPage from './pages/asset-workbench.vue'
 import HomePage from './pages/index.vue'
+import ImportVideoPage from './pages/import/video.vue'
 import LoginPage from './pages/login.vue'
 import LogsPage from './pages/logs.vue'
 import ProjectRedirectPage from './pages/projects/[id].vue'
@@ -28,6 +29,11 @@ const routes: RouteRecordRaw[] = [
     path: '/projects/:id',
     component: ProjectRedirectPage,
     meta: { layout: 'default', hideSidebar: true }
+  },
+  {
+    path: '/import/video',
+    component: ImportVideoPage,
+    meta: { layout: 'default' }
   },
   {
     path: '/asset-workbench',

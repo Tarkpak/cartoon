@@ -12751,15 +12751,66 @@ pub(super) async fn parse_video_import_script(
     script_parse_mode: &str,
     style: Option<&str>,
 ) -> Result<Value, ApiError> {
+    let episode_plan = json!([{
+      "id": "episode-1",
+      "title": "第1集",
+      "index": 1,
+      "startOffset": 0,
+      "endOffset": 1,
+      "episodeHook": "",
+      "humiliationOrThreat": "",
+      "reversalPoint": "",
+      "emotionalCurve": "",
+      "cliffhanger": "",
+      "episodeAssets": {
+        "characters": [],
+        "props": [],
+        "environments": []
+      }
+    }]);
     let body = json!({
       "text": script_text,
       "projectId": project_id,
       "targetEpisodeId": "episode-1",
       "scriptParseMode": normalize_runtime_script_parse_mode(script_parse_mode),
       "style": style.unwrap_or(""),
-      "episodePlan": []
+      "episodePlan": episode_plan
     });
 
+    parse_video_import_script_body(state, body).await
+}
+
+pub(super) async fn parse_video_import_script_with_episode_plan(
+    state: BackendState,
+    project_id: &str,
+    script_text: &str,
+    script_parse_mode: &str,
+    style: Option<&str>,
+    episode_plan: Value,
+) -> Result<Value, ApiError> {
+    let target_episode_id = episode_plan
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("episode-1")
+        .to_string();
+    let body = json!({
+      "text": script_text,
+      "projectId": project_id,
+      "targetEpisodeId": target_episode_id,
+      "scriptParseMode": normalize_runtime_script_parse_mode(script_parse_mode),
+      "style": style.unwrap_or(""),
+      "episodePlan": episode_plan
+    });
+
+    parse_video_import_script_body(state, body).await
+}
+
+async fn parse_video_import_script_body(
+    state: BackendState,
+    body: Value,
+) -> Result<Value, ApiError> {
     let parsed = api_script_parse(State(state), Json(body)).await?;
     Ok(parsed.0)
 }

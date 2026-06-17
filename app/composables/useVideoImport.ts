@@ -18,6 +18,9 @@ export interface VideoImportTask {
   startedAt?: string | null
   completedAt?: string | null
   cancelledAt?: string | null
+  seriesId?: string | null
+  episodeNumber?: number | null
+  isSeriesGroup?: boolean
 }
 
 export interface VideoImportArtifact {
@@ -140,6 +143,35 @@ export function useVideoImport() {
     }
   }
 
+  async function uploadSeriesFolder(folderPath: string, config: VideoImportConfig) {
+    uploading.value = true
+    error.value = null
+    try {
+      const response = await $fetch<{
+        success: boolean
+        data?: { seriesId: string, episodeIds: string[], episodeCount: number }
+        message?: string
+      }>('/api/import/video/upload-series', {
+        method: 'POST',
+        body: {
+          folderPath,
+          config
+        }
+      })
+      if (!response.success || !response.data?.seriesId) {
+        throw new Error(response.message || '上传失败')
+      }
+      await fetchTasks()
+      await fetchTask(response.data.seriesId)
+      return response.data
+    } catch (err) {
+      error.value = getVideoImportErrorMessage(err)
+      throw err
+    } finally {
+      uploading.value = false
+    }
+  }
+
   async function updateSubtitle(taskId: string, text: string) {
     await runAction(async () => {
       await $fetch(`/api/import/video/tasks/${taskId}/subtitle`, {
@@ -209,6 +241,36 @@ export function useVideoImport() {
     })
   }
 
+  async function deleteTask(taskId: string) {
+    await runAction(async () => {
+      await $fetch(`/api/import/video/tasks/${taskId}`, {
+        method: 'DELETE'
+      })
+      if (activeTaskId.value === taskId) {
+        activeTask.value = null
+      }
+      await fetchTasks()
+    })
+  }
+
+  async function deleteTasks(taskIds: string[]) {
+    await runAction(async () => {
+      const response = await $fetch<{
+        success: boolean
+        data?: { deletedCount: number }
+        message?: string
+      }>('/api/import/video/tasks/batch-delete', {
+        method: 'POST',
+        body: { taskIds }
+      })
+      if (taskIds.includes(activeTaskId.value || '')) {
+        activeTask.value = null
+      }
+      await fetchTasks()
+      return response.data
+    })
+  }
+
   async function runAction<T>(action: () => Promise<T>): Promise<T> {
     acting.value = true
     error.value = null
@@ -233,21 +295,24 @@ export function useVideoImport() {
     fetchTasks,
     fetchTask,
     uploadVideo,
+    uploadSeriesFolder,
     updateSubtitle,
     generateScript,
     updateScript,
     importToProject,
     retryTask,
-    cancelTask
+    cancelTask,
+    deleteTask,
+    deleteTasks
   }
 }
 
 function getVideoImportErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message
   if (typeof error === 'object' && error && 'data' in error) {
     const data = (error as { data?: { message?: string, statusMessage?: string } }).data
     if (data?.message) return data.message
     if (data?.statusMessage) return data.statusMessage
   }
+  if (error instanceof Error && error.message) return error.message
   return '操作失败'
 }
