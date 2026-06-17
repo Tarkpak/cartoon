@@ -13,6 +13,7 @@ import {
 } from 'lucide-vue-next'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useVideoImport, type VideoImportRetryStep } from '@/composables/useVideoImport'
 
 definePageMeta({
@@ -39,6 +40,10 @@ const subtitleDraft = ref('')
 const scriptDraft = ref('')
 const contentView = ref<'subtitle' | 'script' | 'logs'>('subtitle')
 const logsExpanded = ref(false)
+const createProjectDialogOpen = ref(false)
+const createProjectTitle = ref('')
+const createProjectAspectRatio = ref<'16:9' | '9:16' | '1:1'>('9:16')
+const createProjectScriptParseMode = ref<'short_drama' | 'premium_drama'>('short_drama')
 const roleNamingDialogOpen = ref(false)
 const roleNamingDraft = ref<Array<{ placeholder: string, name: string }>>([])
 let refreshTimer: number | null = null
@@ -231,7 +236,12 @@ async function handleImport() {
   if (scriptHasChanges.value) {
     await updateScript(selectedTask.value.id, scriptDraft.value)
   }
-  const result = await importToProject(selectedTask.value.id)
+  const result = await importToProject(selectedTask.value.id, {
+    projectTitle: createProjectTitle.value.trim() || undefined,
+    aspectRatio: createProjectAspectRatio.value,
+    scriptParseMode: createProjectScriptParseMode.value
+  })
+  createProjectDialogOpen.value = false
   if (result?.redirectUrl) {
     await router.push(result.redirectUrl)
   }
@@ -388,6 +398,14 @@ function handleOpenRoleNamingDialog() {
   roleNamingDialogOpen.value = true
 }
 
+function openCreateProjectDialog() {
+  if (!selectedTask.value) return
+  createProjectTitle.value = selectedTask.value.originalFilename.replace(/\.[^.]+$/, '')
+  createProjectAspectRatio.value = '9:16'
+  createProjectScriptParseMode.value = 'short_drama'
+  createProjectDialogOpen.value = true
+}
+
 function applyRoleNaming() {
   const validMappings = roleNamingDraft.value
     .map(item => ({ placeholder: item.placeholder, name: item.name.trim() }))
@@ -430,7 +448,7 @@ async function handleDeleteTask(taskId: string) {
         v-if="selectedTask && primaryAction"
         class="gap-2 shrink-0"
         :disabled="primaryAction.disabled"
-        @click="primaryAction.action"
+        @click="primaryAction.icon === 'project' ? openCreateProjectDialog() : primaryAction.action()"
       >
         <Wand2 v-if="primaryAction.icon === 'script'" class="h-4 w-4" />
         <FolderInput v-else class="h-4 w-4" />
@@ -835,6 +853,57 @@ async function handleDeleteTask(taskId: string) {
           </Button>
           <Button @click="applyRoleNaming">
             应用名称
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog
+      :open="createProjectDialogOpen"
+      @update:open="createProjectDialogOpen = $event"
+    >
+      <DialogContent class="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>创建项目</DialogTitle>
+          <DialogDescription>
+            确认项目名称、画幅和剧本类型后再创建项目。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-3 py-1">
+          <Input
+            v-model="createProjectTitle"
+            placeholder="项目标题（选填）"
+          />
+          <div class="grid grid-cols-2 gap-2">
+            <Select v-model="createProjectAspectRatio">
+              <SelectTrigger>
+                <SelectValue placeholder="画幅" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="9:16">竖屏 9:16</SelectItem>
+                <SelectItem value="16:9">横屏 16:9</SelectItem>
+                <SelectItem value="1:1">方形 1:1</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select v-model="createProjectScriptParseMode">
+              <SelectTrigger>
+                <SelectValue placeholder="剧本类型" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="short_drama">短剧</SelectItem>
+                <SelectItem value="premium_drama">精品剧</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" @click="createProjectDialogOpen = false">
+            取消
+          </Button>
+          <Button :disabled="acting" @click="handleImport">
+            确认并创建项目
           </Button>
         </DialogFooter>
       </DialogContent>

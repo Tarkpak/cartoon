@@ -45,6 +45,16 @@ pub(super) struct VideoImportRetryBody {
     from_step: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub(super) struct VideoImportImportBody {
+    #[serde(rename = "projectTitle")]
+    project_title: Option<String>,
+    #[serde(rename = "aspectRatio")]
+    aspect_ratio: Option<String>,
+    #[serde(rename = "scriptParseMode")]
+    script_parse_mode: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct VideoImportArtifactView {
@@ -802,37 +812,54 @@ async fn api_video_import_generate_series_script(
 pub(super) async fn api_video_import_import_project(
     Path(id): Path<String>,
     State(state): State<BackendState>,
+    Json(body): Json<Option<VideoImportImportBody>>,
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
     let task = load_task(&conn, &id)?;
     if task.is_series_group != 0 {
         drop(conn);
-        return api_video_import_import_series_project(state, id, task).await;
+        return api_video_import_import_series_project(state, id, task, body).await;
     }
     let script = latest_artifact_text(&conn, &id, "script_edited")?
         .or(latest_artifact_text(&conn, &id, "script_draft")?)
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请先生成或编辑剧本"))?;
     let config = parse_json_object(&task.config_json);
+    let override_project_title = body
+        .as_ref()
+        .and_then(|value| value.project_title.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let override_aspect_ratio = body
+        .as_ref()
+        .and_then(|value| value.aspect_ratio.as_deref())
+        .filter(|value| matches!(*value, "16:9" | "9:16" | "1:1"))
+        .map(str::to_string);
+    let override_script_parse_mode = body
+        .as_ref()
+        .and_then(|value| value.script_parse_mode.as_deref())
+        .filter(|value| matches!(*value, "premium_drama" | "short_drama"))
+        .map(str::to_string);
     let style_id = resolve_import_style_id(&conn, config.get("styleId").and_then(Value::as_str))?;
-    let aspect_ratio = config
+    let aspect_ratio = override_aspect_ratio.unwrap_or_else(|| config
         .get("aspectRatio")
         .and_then(Value::as_str)
         .filter(|value| matches!(*value, "16:9" | "9:16" | "1:1"))
         .unwrap_or("16:9")
-        .to_string();
-    let script_parse_mode = config
+        .to_string());
+    let script_parse_mode = override_script_parse_mode.unwrap_or_else(|| config
         .get("scriptParseMode")
         .and_then(Value::as_str)
         .filter(|value| matches!(*value, "premium_drama" | "short_drama"))
         .unwrap_or("short_drama")
-        .to_string();
-    let project_title = config
+        .to_string());
+    let project_title = override_project_title.unwrap_or_else(|| config
         .get("projectTitle")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| task_title(&task));
+        .unwrap_or_else(|| task_title(&task)));
     update_task_status(&conn, &id, "importing", "import", 85, None)?;
     let run_id = start_step_run(&conn, &id, "import", None)?;
     drop(conn);
@@ -973,6 +1000,7 @@ async fn api_video_import_import_series_project(
     state: BackendState,
     id: String,
     task: VideoImportTaskRecord,
+    body: Option<VideoImportImportBody>,
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
     let episodes = load_series_episode_tasks(&conn, &id)?;
@@ -980,26 +1008,42 @@ async fn api_video_import_import_series_project(
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "剧集任务没有可导入的分集"));
     }
     let config = parse_json_object(&task.config_json);
+    let override_project_title = body
+        .as_ref()
+        .and_then(|value| value.project_title.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let override_aspect_ratio = body
+        .as_ref()
+        .and_then(|value| value.aspect_ratio.as_deref())
+        .filter(|value| matches!(*value, "16:9" | "9:16" | "1:1"))
+        .map(str::to_string);
+    let override_script_parse_mode = body
+        .as_ref()
+        .and_then(|value| value.script_parse_mode.as_deref())
+        .filter(|value| matches!(*value, "premium_drama" | "short_drama"))
+        .map(str::to_string);
     let style_id = resolve_import_style_id(&conn, config.get("styleId").and_then(Value::as_str))?;
-    let aspect_ratio = config
+    let aspect_ratio = override_aspect_ratio.unwrap_or_else(|| config
         .get("aspectRatio")
         .and_then(Value::as_str)
         .filter(|value| matches!(*value, "16:9" | "9:16" | "1:1"))
         .unwrap_or("16:9")
-        .to_string();
-    let script_parse_mode = config
+        .to_string());
+    let script_parse_mode = override_script_parse_mode.unwrap_or_else(|| config
         .get("scriptParseMode")
         .and_then(Value::as_str)
         .filter(|value| matches!(*value, "premium_drama" | "short_drama"))
         .unwrap_or("short_drama")
-        .to_string();
-    let project_title = config
+        .to_string());
+    let project_title = override_project_title.unwrap_or_else(|| config
         .get("projectTitle")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| task_title(&task));
+        .unwrap_or_else(|| task_title(&task)));
     update_task_status(&conn, &id, "importing", "import", 85, None)?;
     let run_id = start_step_run(&conn, &id, "import", None)?;
     drop(conn);

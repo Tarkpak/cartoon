@@ -247,7 +247,11 @@ export function useVideoImport() {
     })
   }
 
-  async function importToProject(taskId: string) {
+  async function importToProject(taskId: string, config?: {
+    projectTitle?: string
+    aspectRatio?: '16:9' | '9:16' | '1:1'
+    scriptParseMode?: 'short_drama' | 'premium_drama'
+  }) {
     return await runAction(async () => {
       const response = await $fetch<{
         success: boolean
@@ -255,6 +259,7 @@ export function useVideoImport() {
         message?: string
       }>(`/api/import/video/tasks/${taskId}/import`, {
         method: 'POST'
+        body: config || undefined
       })
       if (!response.success || !response.data?.projectId) {
         throw new Error(response.message || '导入项目失败')

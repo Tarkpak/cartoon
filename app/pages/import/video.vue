@@ -34,9 +34,6 @@ const selectedFolder = ref<string | null>(null)
 const selectedSeriesPreview = ref<VideoImportSeriesPreview | null>(null)
 const previewingSeriesFolder = ref(false)
 const uploadMode = ref<'single' | 'series'>('series')
-const projectTitle = ref('')
-const aspectRatio = ref<'16:9' | '9:16' | '1:1'>('9:16')
-const scriptParseMode = ref<'short_drama' | 'premium_drama'>('short_drama')
 const selectedTaskIds = ref<Set<string>>(new Set())
 const showBatchActions = ref(false)
 let refreshTimer: number | null = null
@@ -89,9 +86,6 @@ function setUploadMode(mode: 'single' | 'series') {
 function handleFileChange(event: Event) {
   const input = event.target as HTMLInputElement
   selectedFile.value = input.files?.[0] || null
-  if (!projectTitle.value && selectedFile.value) {
-    projectTitle.value = selectedFile.value.name.replace(/\.[^.]+$/, '')
-  }
 }
 
 function triggerSingleFileSelect() {
@@ -110,9 +104,6 @@ async function handleSelectFolder() {
     if (!selected || typeof selected !== 'string') return
     selectedFolder.value = selected
     selectedSeriesPreview.value = null
-    if (!projectTitle.value) {
-      projectTitle.value = selected.split(/[/\\]/).pop() || '未命名剧集'
-    }
     previewingSeriesFolder.value = true
     try {
       selectedSeriesPreview.value = await previewSeriesFolder(selected)
@@ -128,11 +119,7 @@ async function handleSelectFolder() {
 }
 
 async function handleUpload() {
-  const config: VideoImportConfig = {
-    projectTitle: projectTitle.value.trim() || undefined,
-    aspectRatio: aspectRatio.value,
-    scriptParseMode: scriptParseMode.value
-  }
+  const config: VideoImportConfig = {}
 
   if (uploadMode.value === 'single') {
     if (!selectedFile.value) return
@@ -297,19 +284,19 @@ function formatSeconds(value?: number | null) {
               variant="outline"
               size="sm"
               class="flex-1"
-              :class="uploadMode === 'single' ? 'bg-muted' : ''"
-              @click="setUploadMode('single')"
+              :class="uploadMode === 'series' ? 'bg-muted' : ''"
+              @click="setUploadMode('series')"
             >
-              单集
+              整部剧
             </Button>
             <Button
               variant="outline"
               size="sm"
               class="flex-1"
-              :class="uploadMode === 'series' ? 'bg-muted' : ''"
-              @click="setUploadMode('series')"
+              :class="uploadMode === 'single' ? 'bg-muted' : ''"
+              @click="setUploadMode('single')"
             >
-              整部剧
+              单集
             </Button>
           </div>
 
@@ -390,31 +377,6 @@ function formatSeconds(value?: number | null) {
             </div>
           </div>
 
-          <Input
-            v-model="projectTitle"
-            placeholder="项目标题（选填）"
-          />
-          <div class="grid grid-cols-2 gap-2">
-            <Select v-model="aspectRatio">
-              <SelectTrigger>
-                <SelectValue placeholder="画幅" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="9:16">竖屏 9:16</SelectItem>
-                <SelectItem value="16:9">横屏 16:9</SelectItem>
-                <SelectItem value="1:1">方形 1:1</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select v-model="scriptParseMode">
-              <SelectTrigger>
-                <SelectValue placeholder="剧本类型" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="short_drama">短剧</SelectItem>
-                <SelectItem value="premium_drama">精品剧</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
           <Button
             class="w-full gap-2"
             :disabled="(uploadMode === 'single' ? !selectedFile : !selectedFolder || previewingSeriesFolder || !selectedSeriesPreview?.episodeCount) || uploading"
