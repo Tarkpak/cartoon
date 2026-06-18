@@ -373,13 +373,24 @@ fn insert_optional_string(
     }
 }
 
+fn constraint_lookup_model_id(normalized_model_id: &str) -> &str {
+    if normalized_model_id.contains("image-2") {
+        return "gpt-image-2";
+    }
+    normalized_model_id
+}
+
 pub(super) fn build_available_model_entry(
     provider: &str,
     model_id: &str,
 ) -> (AvailableModelKind, Value) {
     let normalized_model_id = model_id.trim().to_ascii_lowercase();
     let registry = model_registry();
-    let matched_rule = resolve_rule(registry, provider, &normalized_model_id);
+    let matched_rule = resolve_rule(
+        registry,
+        provider,
+        constraint_lookup_model_id(&normalized_model_id),
+    );
     let kind = parse_model_kind(matched_rule);
 
     let display_name = matched_rule
@@ -808,5 +819,20 @@ mod tests {
             entry.get("description").and_then(Value::as_str),
             Some("图片生成模型")
         );
+    }
+
+    #[test]
+    fn custom_openai_image_2_variants_reuse_gpt_image_2_constraints() {
+        for model_id in ["gpt-image-2-official", "my-image-2-compatible"] {
+            let (kind, entry) = build_available_model_entry("custom_openai", model_id);
+
+            assert_eq!(kind, AvailableModelKind::Image);
+            assert_eq!(entry.get("model").and_then(Value::as_str), Some(model_id));
+            assert!(entry.get("sizeConstraints").is_some());
+            assert_eq!(
+                entry.get("sizeSelectionMode").and_then(Value::as_str),
+                Some("constraint")
+            );
+        }
     }
 }
