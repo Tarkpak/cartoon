@@ -1085,92 +1085,142 @@ async fn api_video_import_import_series_project(
         .to_string();
 
     if is_short_clip_series_task(&task) {
-        let episode_plan = episodes
-            .iter()
-            .enumerate()
-            .map(|(index, episode)| {
-                build_series_episode_plan_item(episode, episode.episode_number.unwrap_or((index + 1) as i64).max(1))
-            })
-            .collect::<Vec<_>>();
-        let combined_script = {
+        let episode_count = episodes.len();
+        let group_script = {
             let conn = db_connection(&state)?;
-            if let Some(group_script) = latest_artifact_text(&conn, &id, "script_edited")?
+            latest_artifact_text(&conn, &id, "script_edited")?
                 .or(latest_artifact_text(&conn, &id, "script_draft")?)
-                .filter(|value| !value.trim().is_empty())
-            {
-                group_script
-            } else {
-                let mut sections = Vec::new();
-                for episode in &episodes {
-                    let episode_number = episode.episode_number.unwrap_or(1).max(1);
-                    let script = latest_artifact_text(&conn, &episode.id, "script_edited")?
-                        .or(latest_artifact_text(&conn, &episode.id, "script_draft")?)
-                        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, format!("第{}段尚未生成剧本", episode_number)))?;
-                    sections.push(format!(
-                        "## 第{}段：{}\n\n{}",
-                        episode_number,
-                        episode_title_from_task(episode, episode_number),
-                        script.trim()
-                    ));
-                }
-                format!("# {}\n\n{}", project_title, sections.join("\n\n"))
-            }
         };
-
-        let conn = db_connection(&state)?;
-        let parse_run_id = start_step_run(&conn, &id, "parse_combined_script", None)?;
-        drop(conn);
-        let parsed = match tokio::time::timeout(
-            Duration::from_millis(VIDEO_IMPORT_PARSE_TIMEOUT_MS),
-            parse_video_import_script_with_episode_plan(
-                state.clone(),
-                &project_id,
-                &combined_script,
-                &script_parse_mode,
-                Some(&style_id),
-                Value::Array(episode_plan.clone()),
-            ),
-        )
-        .await
-        {
-            Ok(Ok(value)) => {
-                let conn = db_connection(&state)?;
-                finish_step_run(&conn, &parse_run_id, "success", None, None, json!({ "projectId": project_id, "mode": "short_clips" }))?;
-                value
-            }
-            Ok(Err(error)) => {
-                let conn = db_connection(&state)?;
-                finish_step_run(&conn, &parse_run_id, "failed", None, Some(&error.message), json!({ "projectId": project_id, "mode": "short_clips" }))?;
-                finish_step_run(&conn, &run_id, "failed", None, Some(&error.message), json!({ "projectId": project_id }))?;
-                cleanup_empty_import_project(&conn, &project_id)?;
-                update_task_status(&conn, &id, "failed", "import", 85, Some(&error.message))?;
-                return Err(error);
-            }
-            Err(_) => {
-                let message = "短片段剧本解析超时，请稍后重试或减少导入片段数量";
-                let conn = db_connection(&state)?;
-                finish_step_run(&conn, &parse_run_id, "failed", None, Some(message), json!({ "projectId": project_id, "mode": "short_clips" }))?;
-                finish_step_run(&conn, &run_id, "failed", None, Some(message), json!({ "projectId": project_id }))?;
-                cleanup_empty_import_project(&conn, &project_id)?;
-                update_task_status(&conn, &id, "failed", "import", 85, Some(message))?;
-                return Err(ApiError::new(StatusCode::GATEWAY_TIMEOUT, message));
-            }
-        };
-
-        let parsed_data = parsed.get("data").cloned().unwrap_or_else(|| json!({}));
-        let scenes = parsed_data
-            .get("scenes")
-            .and_then(Value::as_array)
-            .cloned()
+        let group_script_sections = group_script
+            .as_deref()
+            .map(split_series_script_sections)
             .unwrap_or_default();
-        if scenes.is_empty() {
-            let message = "短片段脚本解析结果没有场景，请编辑剧本后重试";
+        let mut episode_plan = Vec::new();
+        let mut all_scenes = Vec::new();
+        let mut all_characters = Vec::new();
+        let mut combined_script_sections = Vec::new();
+        let mut parsed_episodes = Vec::new();
+
+        for (episode_index, episode) in episodes.into_iter().enumerate() {
             let conn = db_connection(&state)?;
-            finish_step_run(&conn, &run_id, "failed", None, Some(message), json!({ "projectId": project_id }))?;
-            cleanup_empty_import_project(&conn, &project_id)?;
-            update_task_status(&conn, &id, "failed", "import", 85, Some(message))?;
-            return Err(ApiError::new(StatusCode::BAD_GATEWAY, message));
+            let child_script = latest_artifact_text(&conn, &episode.id, "script_edited")?
+                .or(latest_artifact_text(&conn, &episode.id, "script_draft")?);
+            let child_subtitle = latest_artifact_text(&conn, &episode.id, "subtitle_txt")?;
+            drop(conn);
+
+            let episode_number = episode.episode_number.unwrap_or(1).max(1);
+            let episode_title = episode_title_from_task(&episode, episode_number);
+            let script = group_script_sections
+                .get(episode_index)
+                .cloned()
+                .filter(|value| !value.trim().is_empty())
+                .or(child_script.filter(|value| !value.trim().is_empty()))
+                .or_else(|| {
+                    child_subtitle.filter(|value| !value.trim().is_empty()).map(|subtitle| {
+                        format!("## 第{}段：{}\n\n{}", episode_number, episode_title, subtitle.trim())
+                    })
+                })
+                .or_else(|| {
+                    if episode_count == 1 {
+                        group_script.clone().filter(|value| !value.trim().is_empty())
+                    } else {
+                        None
+                    }
+                })
+                .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, format!("第{}段尚未生成剧本或字幕", episode_number)))?;
+            let episode_item = build_series_episode_plan_item(&episode, episode_number);
+            let episode_plan_value = json!([episode_item.clone()]);
+            let conn = db_connection(&state)?;
+            let parse_run_id = start_step_run(&conn, &id, "parse_clip", None)?;
+            drop(conn);
+            let parsed = match tokio::time::timeout(
+                Duration::from_millis(VIDEO_IMPORT_PARSE_TIMEOUT_MS),
+                parse_video_import_script_with_episode_plan(
+                    state.clone(),
+                    &project_id,
+                    &script,
+                    &script_parse_mode,
+                    Some(&style_id),
+                    episode_plan_value,
+                ),
+            )
+            .await
+            {
+                Ok(Ok(value)) => {
+                    let conn = db_connection(&state)?;
+                    finish_step_run(&conn, &parse_run_id, "success", None, None, json!({ "projectId": project_id, "episodeId": episode.id, "episodeNumber": episode_number, "mode": "short_clips" }))?;
+                    value
+                }
+                Ok(Err(error)) => {
+                    let conn = db_connection(&state)?;
+                    finish_step_run(&conn, &parse_run_id, "failed", None, Some(&error.message), json!({ "projectId": project_id, "episodeId": episode.id, "episodeNumber": episode_number, "mode": "short_clips" }))?;
+                    finish_step_run(&conn, &run_id, "failed", None, Some(&error.message), json!({ "projectId": project_id, "episodeId": episode.id }))?;
+                    cleanup_empty_import_project(&conn, &project_id)?;
+                    update_task_status(&conn, &id, "failed", "import", 85, Some(&error.message))?;
+                    return Err(error);
+                }
+                Err(_) => {
+                    let message = format!("第{}段脚本解析超时，请稍后重试", episode_number);
+                    let conn = db_connection(&state)?;
+                    finish_step_run(&conn, &parse_run_id, "failed", None, Some(&message), json!({ "projectId": project_id, "episodeId": episode.id, "episodeNumber": episode_number, "mode": "short_clips" }))?;
+                    finish_step_run(&conn, &run_id, "failed", None, Some(&message), json!({ "projectId": project_id, "episodeId": episode.id }))?;
+                    cleanup_empty_import_project(&conn, &project_id)?;
+                    update_task_status(&conn, &id, "failed", "import", 85, Some(&message))?;
+                    return Err(ApiError::new(StatusCode::GATEWAY_TIMEOUT, message));
+                }
+            };
+
+            let parsed_data = parsed.get("data").cloned().unwrap_or_else(|| json!({}));
+            let scenes = parsed_data
+                .get("scenes")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            if scenes.is_empty() {
+                let message = format!("第{}段脚本解析结果没有场景，请编辑剧本后重试", episode_number);
+                let conn = db_connection(&state)?;
+                finish_step_run(&conn, &run_id, "failed", None, Some(&message), json!({ "projectId": project_id, "episodeId": episode.id }))?;
+                cleanup_empty_import_project(&conn, &project_id)?;
+                update_task_status(&conn, &id, "failed", "import", 85, Some(&message))?;
+                return Err(ApiError::new(StatusCode::BAD_GATEWAY, message));
+            }
+
+            let episode_id = episode_item
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("episode-1")
+                .to_string();
+            for (scene_index, scene) in scenes.into_iter().enumerate() {
+                all_scenes.push(normalize_series_scene(
+                    scene,
+                    &episode_id,
+                    &episode_title,
+                    episode_number,
+                    scene_index + 1,
+                ));
+            }
+            if let Some(characters) = parsed_data.get("characters").and_then(Value::as_array) {
+                for character in characters {
+                    let mut character = character.clone();
+                    if let Some(object) = character.as_object_mut() {
+                        object.remove("id");
+                    }
+                    all_characters.push(character);
+                }
+            }
+            episode_plan.push(episode_item);
+            combined_script_sections.push(format!("## 第{}段：{}\n\n{}", episode_number, episode_title, script.trim()));
+            parsed_episodes.push(parsed);
         }
+
+        let combined_script = group_script
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| format!("# {}\n\n{}", project_title, combined_script_sections.join("\n\n")));
+        let parsed_data = json!({
+          "episodePlan": episode_plan,
+          "scenes": all_scenes,
+          "characters": all_characters
+        });
 
         let save_body = build_project_save_body(
             &project_title,
@@ -1195,7 +1245,7 @@ async fn api_video_import_import_series_project(
         let conn = db_connection(&state)?;
         finish_step_run(&conn, &save_run_id, "success", None, None, json!({ "projectId": project_id }))?;
         let parse_path = task_dir(&state, &id).join("parse-result.json");
-        write_text_file(&parse_path, &json!({ "success": true, "data": parsed_data, "mode": "short_clips" }).to_string())?;
+        write_text_file(&parse_path, &json!({ "success": true, "data": parsed_data, "episodes": parsed_episodes, "mode": "short_clips" }).to_string())?;
         insert_artifact(&conn, &id, "parse_result", &parse_path, Some("application/json"), json!({ "projectId": project_id, "series": true, "mode": "short_clips" }))?;
         conn.execute(
             "INSERT OR REPLACE INTO video_import_projects (import_id, project_id, imported_at, metadata_json) VALUES (?1, ?2, ?3, ?4)",
@@ -1990,13 +2040,15 @@ fn normalize_series_scene(
 
 fn split_series_script_sections(script: &str) -> Vec<String> {
     let mut sections = Vec::<String>::new();
+    let mut prelude = Vec::<String>::new();
     let mut current = Vec::<String>::new();
     let mut seen_episode_heading = false;
     for line in script.lines() {
         let trimmed = line.trim_start();
-        let is_episode_heading = trimmed.starts_with("## 第") && trimmed.contains('集');
+        let is_episode_heading = trimmed.starts_with("## 第")
+            && (trimmed.contains('集') || trimmed.contains('段'));
         if is_episode_heading {
-            if !current.is_empty() {
+            if seen_episode_heading && !current.is_empty() {
                 sections.push(current.join("\n").trim().to_string());
                 current.clear();
             }
@@ -2007,11 +2059,15 @@ fn split_series_script_sections(script: &str) -> Vec<String> {
         if seen_episode_heading {
             current.push(line.to_string());
         } else if !trimmed.starts_with("# ") && !trimmed.is_empty() {
-            current.push(line.to_string());
+            prelude.push(line.to_string());
         }
     }
-    if !current.is_empty() {
-        sections.push(current.join("\n").trim().to_string());
+    if seen_episode_heading {
+        if !current.is_empty() {
+            sections.push(current.join("\n").trim().to_string());
+        }
+    } else if !prelude.is_empty() {
+        sections.push(prelude.join("\n").trim().to_string());
     }
     sections
         .into_iter()
@@ -2706,4 +2762,21 @@ fn first_number_in_text(value: &str) -> Option<i64> {
         }
     }
     number.parse::<i64>().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_series_script_sections_drops_prelude_when_episode_headings_exist() {
+        let sections = split_series_script_sections(
+            "# 总标题\n\n## 角色\n- A\n\n## 第1段：开场\n正文1\n\n## 第2集：反转\n正文2",
+        );
+
+        assert_eq!(sections.len(), 2);
+        assert!(sections[0].starts_with("## 第1段"));
+        assert!(sections[1].starts_with("## 第2集"));
+        assert!(!sections[0].contains("## 角色"));
+    }
 }
