@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ExternalLink, ListChecks, Loader2, Upload, WandSparkles } from 'lucide-vue-next'
+import { ChevronDown, ExternalLink, FileVideo, ListChecks, Loader2, Settings, Upload, WandSparkles } from 'lucide-vue-next'
 
 definePageMeta({
   layout: 'default'
@@ -19,11 +19,14 @@ interface EnhanceUploadResponse {
 }
 
 const router = useRouter()
+const { toast } = useToast()
 
 const kind = ref<EnhanceKind>('standard')
 const sourceVideoUrl = ref('')
 const sourceObjectKey = ref('')
 const selectedFileName = ref('')
+const selectedFileSize = ref(0)
+const selectedFileType = ref('')
 const scene = ref('aigc')
 const resolution = ref('1080p')
 const resolutionLimit = ref(720)
@@ -31,14 +34,56 @@ const fps = ref<number | undefined>(undefined)
 const resolutionMode = ref<'preset' | 'limit'>('preset')
 const submitting = ref(false)
 const uploadingSource = ref(false)
+const uploadProgress = ref(0)
 const errorMessage = ref('')
+const showAdvancedOptions = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
-const kindOptions: Array<{ value: EnhanceKind, label: string, description: string }> = [
-  { value: 'standard', label: '标准版', description: '平衡处理速度、画质和成本，适合常规分发。' },
-  { value: 'professional', label: '专业版', description: '投入更多算力，适合老片修复和高质量交付。' },
-  { value: 'fast', label: '极速版', description: '速度优先，适合直播、短视频等时效场景。' },
-  { value: 'generative', label: '大模型', description: '生成式增强修复，适合 480p 级别低清视频。' }
+const kindOptions: Array<{
+  value: EnhanceKind
+  label: string
+  description: string
+  speed: string
+  cost: string
+  bestFor: string
+  limit: string
+}> = [
+  {
+    value: 'standard',
+    label: '标准版',
+    description: '平衡处理速度、画质和成本，适合常规分发。',
+    speed: '常规',
+    cost: '中',
+    bestFor: '短剧、AIGC、常规素材',
+    limit: '支持最高 4K'
+  },
+  {
+    value: 'professional',
+    label: '专业版',
+    description: '投入更多算力，适合老片修复和高质量交付。',
+    speed: '较慢',
+    cost: '高',
+    bestFor: '老片修复、高质量交付',
+    limit: '支持最高 4K'
+  },
+  {
+    value: 'fast',
+    label: '极速版',
+    description: '速度优先，适合直播、短视频等时效场景。',
+    speed: '快',
+    cost: '低',
+    bestFor: '直播切片、UGC 短视频',
+    limit: '不支持 4K'
+  },
+  {
+    value: 'generative',
+    label: '大模型',
+    description: '生成式增强修复，适合 480p 级别低清视频。',
+    speed: '慢',
+    cost: '高',
+    bestFor: '低清修复、细节补全',
+    limit: '输入短边 360-520，SDR'
+  }
 ]
 
 const sceneOptions = [
@@ -54,7 +99,15 @@ const resolutionOptions = [
   { value: '4k', label: '4K' }
 ]
 
-const canSubmit = computed(() => sourceVideoUrl.value.trim().length > 0 && !uploadingSource.value && !submitting.value)
+const sourceUploaded = computed(() => sourceVideoUrl.value.trim().length > 0 && !uploadingSource.value)
+const canSubmit = computed(() => sourceUploaded.value && !submitting.value)
+const submitHint = computed(() => {
+  if (submitting.value) return '正在提交任务，请稍候。'
+  if (uploadingSource.value) return '源视频正在上传，上传完成后才能提交。'
+  if (!sourceVideoUrl.value.trim()) return '请先选择并上传一个本地视频。'
+  return ''
+})
+const selectedKindOption = computed(() => kindOptions.find(option => option.value === kind.value))
 
 watch(kind, (value) => {
   if (value === 'fast' || value === 'generative') {
@@ -91,27 +144,67 @@ function triggerFileUpload() {
   fileInputRef.value?.click()
 }
 
+function formatBytes(value: number) {
+  if (!value) return '未知大小'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = value
+  let unitIndex = 0
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex += 1
+  }
+  return `${size >= 10 || unitIndex === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`
+}
+
+function uploadSourceVideo(formData: FormData): Promise<EnhanceUploadResponse> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', '/api/tools/video-enhance/upload-source')
+    xhr.responseType = 'json'
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return
+      uploadProgress.value = Math.min(99, Math.round((event.loaded / event.total) * 100))
+    }
+    xhr.onload = () => {
+      const response = xhr.response as EnhanceUploadResponse | { message?: string } | null
+      if (xhr.status >= 200 && xhr.status < 300 && response && 'videoUrl' in response) {
+        uploadProgress.value = 100
+        resolve(response)
+        return
+      }
+      reject(new Error(response && 'message' in response && response.message ? response.message : '上传源视频到 TOS 失败'))
+    }
+    xhr.onerror = () => reject(new Error('上传源视频到 TOS 失败，请检查网络或 TOS 配置'))
+    xhr.send(formData)
+  })
+}
+
 async function handleSourceFileChange(event: Event) {
   const input = event.target as HTMLInputElement | null
   const file = input?.files?.[0]
   if (!file) return
 
   uploadingSource.value = true
+  uploadProgress.value = 0
   errorMessage.value = ''
   sourceVideoUrl.value = ''
+  sourceObjectKey.value = ''
   selectedFileName.value = file.name
+  selectedFileSize.value = file.size
+  selectedFileType.value = file.type || '视频文件'
   try {
     const formData = new FormData()
     formData.append('video', file, file.name)
-    const response = await $fetch<EnhanceUploadResponse>('/api/tools/video-enhance/upload-source', {
-      method: 'POST',
-      body: formData
-    })
+    const response = await uploadSourceVideo(formData)
     sourceVideoUrl.value = response.videoUrl
     sourceObjectKey.value = response.sourceObjectKey || ''
+    toast.success('源视频上传完成', { description: file.name })
   } catch (error) {
     selectedFileName.value = ''
+    selectedFileSize.value = 0
+    selectedFileType.value = ''
     sourceObjectKey.value = ''
+    uploadProgress.value = 0
     errorMessage.value = error instanceof Error ? error.message : '上传源视频到 TOS 失败'
   } finally {
     uploadingSource.value = false
@@ -202,11 +295,29 @@ async function submitTask() {
               :class="kind === option.value ? 'border-primary bg-primary/5' : 'border-border'"
               @click="kind = option.value"
             >
-              <div class="text-sm font-medium text-foreground">
-                {{ option.label }}
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-sm font-medium text-foreground">
+                  {{ option.label }}
+                </div>
+                <Badge
+                  variant="outline"
+                  class="shrink-0"
+                >
+                  {{ option.speed }}
+                </Badge>
               </div>
               <div class="mt-1 text-xs leading-5 text-muted-foreground">
                 {{ option.description }}
+              </div>
+              <div class="mt-3 grid gap-1 text-xs text-muted-foreground">
+                <div class="flex justify-between gap-2">
+                  <span>成本</span>
+                  <span class="text-foreground">{{ option.cost }}</span>
+                </div>
+                <div class="flex justify-between gap-2">
+                  <span>限制</span>
+                  <span class="text-right text-foreground">{{ option.limit }}</span>
+                </div>
               </div>
             </button>
           </div>
@@ -242,18 +353,74 @@ async function submitTask() {
                   v-else
                   class="mr-2 h-4 w-4"
                 />
-                {{ selectedFileName ? '重新选择' : '选择视频' }}
+              {{ selectedFileName ? '重新选择' : '选择视频' }}
               </Button>
             </div>
             <div
               v-if="selectedFileName"
-              class="mt-3 rounded-md bg-background px-3 py-2 text-sm text-foreground"
+              class="mt-3 rounded-md border bg-background px-3 py-3"
             >
-              {{ uploadingSource ? '正在上传：' : '已上传：' }}{{ selectedFileName }}
+              <div class="flex items-start gap-3">
+                <FileVideo class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="truncate text-sm font-medium text-foreground">
+                      {{ selectedFileName }}
+                    </div>
+                    <Badge :variant="sourceUploaded ? 'success' : 'secondary'">
+                      {{ sourceUploaded ? '已上传' : '上传中' }}
+                    </Badge>
+                  </div>
+                  <div class="mt-1 text-xs text-muted-foreground">
+                    {{ formatBytes(selectedFileSize) }} · {{ selectedFileType }}
+                  </div>
+                  <div
+                    v-if="uploadingSource"
+                    class="mt-3 space-y-1"
+                  >
+                    <Progress :model-value="uploadProgress" />
+                    <div class="text-xs text-muted-foreground">
+                      正在上传到 TOS：{{ uploadProgress }}%
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div class="grid gap-4 md:grid-cols-3">
+          <div
+            v-if="selectedKindOption"
+            class="rounded-md border bg-background p-3 text-sm"
+          >
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <div class="font-medium text-foreground">
+                  {{ selectedKindOption.label }}适用：{{ selectedKindOption.bestFor }}
+                </div>
+                <div class="mt-1 text-xs text-muted-foreground">
+                  速度 {{ selectedKindOption.speed }} · 成本 {{ selectedKindOption.cost }} · {{ selectedKindOption.limit }}
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                @click="showAdvancedOptions = !showAdvancedOptions"
+              >
+                <Settings class="h-4 w-4" />
+                高级参数
+                <ChevronDown
+                  class="h-4 w-4 transition-transform"
+                  :class="showAdvancedOptions ? 'rotate-180' : ''"
+                />
+              </Button>
+            </div>
+          </div>
+
+          <div
+            v-if="showAdvancedOptions"
+            class="grid gap-4 md:grid-cols-3"
+          >
             <div
               v-if="kind === 'standard' || kind === 'professional'"
               class="space-y-2"
@@ -363,6 +530,12 @@ async function submitTask() {
             />
             提交增强
           </Button>
+          <div
+            v-if="submitHint"
+            class="text-xs text-muted-foreground"
+          >
+            {{ submitHint }}
+          </div>
         </CardContent>
       </Card>
     </div>
