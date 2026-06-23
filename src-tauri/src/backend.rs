@@ -3994,6 +3994,11 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             "/api/tools/video-enhance/tasks/{id}/{asset}",
             delete(api_tools_video_enhance_delete_asset),
         )
+        .route(
+            "/api/tools/local-video-enhance",
+            post(api_tools_local_video_enhance)
+                .layer(DefaultBodyLimit::max(VIDEO_ENHANCE_UPLOAD_LIMIT_BYTES)),
+        )
         .route("/api/video/generate", post(api_video_generate))
         .route("/api/video/merge", post(api_video_merge))
         .route(

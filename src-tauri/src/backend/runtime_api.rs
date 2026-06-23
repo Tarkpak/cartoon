@@ -1257,6 +1257,146 @@ pub(super) async fn api_tools_video_enhance_delete_asset(
     })))
 }
 
+fn local_video_enhance_preset_label(preset: &str) -> &'static str {
+    match preset {
+        "clarity" => "清晰增强",
+        "upscale_1080p" => "1080p 放大",
+        "high_fps" => "高帧率",
+        _ => "轻度增强",
+    }
+}
+
+fn local_video_enhance_filter(preset: &str) -> &'static str {
+    match preset {
+        "clarity" => {
+            "hqdn3d=2.0:1.5:8.0:8.0,eq=contrast=1.06:saturation=1.05,unsharp=5:5:0.8:3:3:0.4"
+        }
+        "upscale_1080p" => {
+            "hqdn3d=1.5:1.5:6.0:6.0,scale=1920:-2:flags=lanczos,unsharp=5:5:0.75:3:3:0.35"
+        }
+        "high_fps" => {
+            "hqdn3d=1.2:1.2:6.0:6.0,unsharp=5:5:0.55:3:3:0.25,minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir"
+        }
+        _ => "hqdn3d=1.2:1.2:6.0:6.0,unsharp=5:5:0.55:3:3:0.25",
+    }
+}
+
+fn run_local_video_enhance(
+    input_path: &FsPath,
+    output_path: &FsPath,
+    preset: &str,
+) -> Result<(), ApiError> {
+    run_ffmpeg(&[
+        "-y".to_string(),
+        "-i".to_string(),
+        input_path.to_string_lossy().to_string(),
+        "-map".to_string(),
+        "0:v:0".to_string(),
+        "-map".to_string(),
+        "0:a?".to_string(),
+        "-vf".to_string(),
+        local_video_enhance_filter(preset).to_string(),
+        "-c:v".to_string(),
+        "libx264".to_string(),
+        "-crf".to_string(),
+        "18".to_string(),
+        "-preset".to_string(),
+        "medium".to_string(),
+        "-pix_fmt".to_string(),
+        "yuv420p".to_string(),
+        "-c:a".to_string(),
+        "copy".to_string(),
+        "-movflags".to_string(),
+        "+faststart".to_string(),
+        output_path.to_string_lossy().to_string(),
+    ])
+}
+
+pub(super) async fn api_tools_local_video_enhance(
+    State(state): State<BackendState>,
+    mut multipart: Multipart,
+) -> Result<Json<Value>, ApiError> {
+    let started_at = Utc::now().timestamp_millis();
+    let task_id = Uuid::new_v4().to_string();
+    let temp_dir = std::env::temp_dir().join(format!("playlet_local_enhance_{}", task_id));
+    fs::create_dir_all(&temp_dir)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    let mut preset = "light".to_string();
+    let mut input_filename = "source.mp4".to_string();
+    let mut input_path: Option<PathBuf> = None;
+
+    let result = async {
+        while let Some(mut field) = multipart
+            .next_field()
+            .await
+            .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?
+        {
+            let name = field.name().unwrap_or("").to_string();
+            if name == "preset" {
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
+                let normalized = value.trim();
+                if matches!(normalized, "light" | "clarity" | "upscale_1080p" | "high_fps") {
+                    preset = normalized.to_string();
+                }
+                continue;
+            }
+            if name != "video" {
+                continue;
+            }
+
+            let filename = field.file_name().map(str::to_string);
+            let content_type = field.content_type().map(str::to_string);
+            input_filename = filename.clone().unwrap_or_else(|| "source.mp4".to_string());
+            let ext = uploaded_video_extension(filename.as_deref(), content_type.as_deref());
+            let path = temp_dir.join(format!("input.{}", ext));
+            let mut bytes = Vec::new();
+            while let Some(chunk) = field
+                .chunk()
+                .await
+                .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?
+            {
+                if bytes.len().saturating_add(chunk.len()) > VIDEO_ENHANCE_UPLOAD_LIMIT_BYTES {
+                    return Err(ApiError::new(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "视频文件超过 2GB 处理上限",
+                    ));
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            write_file_bytes(&path, &bytes)?;
+            input_path = Some(path);
+        }
+
+        let input_path = input_path
+            .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请选择要增强的视频文件"))?;
+        let output_filename = format!("local-enhance-{}.mp4", Uuid::new_v4().simple());
+        let output_dir = state.public_dir.join("videos");
+        fs::create_dir_all(&output_dir)
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let output_path = output_dir.join(&output_filename);
+        run_local_video_enhance(&input_path, &output_path, &preset)?;
+        let elapsed_ms = Utc::now().timestamp_millis().saturating_sub(started_at);
+
+        Ok::<Value, ApiError>(json!({
+            "success": true,
+            "taskId": task_id,
+            "preset": preset,
+            "presetLabel": local_video_enhance_preset_label(&preset),
+            "sourceFileName": input_filename,
+            "videoUrl": format!("/api/video/file/{}", output_filename),
+            "elapsedMs": elapsed_ms
+        }))
+    }
+    .await;
+
+    let _ = fs::remove_dir_all(&temp_dir);
+    result.map(Json)
+}
+
 pub(super) fn spawn_video_enhance_task_poller(state: BackendState) {
     tokio::spawn(async move {
         loop {

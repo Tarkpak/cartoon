@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, ListChecks } from 'lucide-vue-next'
+import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, ListChecks, MonitorCog } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 
 const route = useRoute()
@@ -24,6 +24,7 @@ const navigation = [
     icon: Wrench,
     children: [
       { name: '画质增强', path: '/tools/video-enhance', icon: WandSparkles },
+      { name: '本地增强', path: '/tools/local-video-enhance', icon: MonitorCog },
       { name: '增强任务', path: '/tools/video-enhance-tasks', icon: ListChecks }
     ]
   },

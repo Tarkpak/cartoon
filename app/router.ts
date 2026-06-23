@@ -9,6 +9,7 @@ import ProjectRedirectPage from './pages/projects/[id].vue'
 import ProjectsPage from './pages/projects/index.vue'
 import SettingsPage from './pages/settings.vue'
 import TosFilesPage from './pages/tos-files.vue'
+import LocalVideoEnhancePage from './pages/tools/local-video-enhance.vue'
 import VideoEnhancePage from './pages/tools/video-enhance.vue'
 import VideoEnhanceTasksPage from './pages/tools/video-enhance-tasks.vue'
 
@@ -86,6 +87,11 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/tools/video-enhance',
     component: VideoEnhancePage,
+    meta: { layout: 'default' }
+  },
+  {
+    path: '/tools/local-video-enhance',
+    component: LocalVideoEnhancePage,
     meta: { layout: 'default' }
   },
   {
