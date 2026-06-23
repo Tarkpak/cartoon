@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo } from 'lucide-vue-next'
+import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, ListChecks } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 
 const route = useRoute()
@@ -18,6 +18,15 @@ const navigation = [
   { name: '首页', path: '/', icon: Home },
   { name: '我的项目', path: '/projects', icon: Folder },
   { name: '视频转项目', path: '/import/video', icon: FileVideo },
+  {
+    name: '工具',
+    path: '/tools/video-enhance',
+    icon: Wrench,
+    children: [
+      { name: '画质增强', path: '/tools/video-enhance', icon: WandSparkles },
+      { name: '增强任务', path: '/tools/video-enhance-tasks', icon: ListChecks }
+    ]
+  },
   { name: '云端素材', path: '/tos-files', icon: Cloud },
   { name: '日志', path: '/logs', icon: ScrollText },
   { name: '设置', path: '/settings', icon: Settings }
@@ -65,8 +74,17 @@ function getSettingsSubRoute(item: { section: SettingsSection }) {
   }
 }
 
+function isNavigationChildActive(item: { path: string }): boolean {
+  return route.path === item.path || route.path.startsWith(`${item.path}/`)
+}
+
 const activeStates = computed(() => {
-  return navigation.map(item => route.path === item.path || (item.path !== '/' && route.path.startsWith(`${item.path}/`)))
+  return navigation.map((item) => {
+    if (route.path === item.path || (item.path !== '/' && route.path.startsWith(`${item.path}/`))) {
+      return true
+    }
+    return 'children' in item && item.children?.some(child => isNavigationChildActive(child)) === true
+  })
 })
 
 const hideSidebar = computed(() => route.meta.hideSidebar === true)
@@ -252,6 +270,27 @@ function handleThemeToggle(event: MouseEvent) {
           </div>
 
           <div
+            v-if="'children' in item && item.children?.length && route.path.startsWith('/tools') && !visualSidebarCollapsed"
+            class="mt-1 ml-8 space-y-0.5"
+          >
+            <NuxtLink
+              v-for="sub in item.children"
+              :key="sub.path"
+              :to="sub.path"
+              class="theme-content flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
+              :class="isNavigationChildActive(sub)
+                ? 'bg-primary/10 text-primary font-medium'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+            >
+              <component
+                :is="sub.icon"
+                class="w-3.5 h-3.5 flex-shrink-0"
+              />
+              <span>{{ sub.name }}</span>
+            </NuxtLink>
+          </div>
+
+          <div
             v-if="item.path === '/settings' && visualSidebarCollapsed"
             class="theme-surface absolute left-full top-0 z-30 w-48 rounded-md border bg-popover p-1 shadow-md opacity-0 pointer-events-none transition-[background-color,border-color,box-shadow,opacity] duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
           >
@@ -261,6 +300,27 @@ function handleThemeToggle(event: MouseEvent) {
               :to="getSettingsSubRoute(sub)"
               class="theme-content flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
               :class="isSettingsSubActive(sub)
+                ? 'bg-primary/10 text-primary font-medium'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+            >
+              <component
+                :is="sub.icon"
+                class="w-3.5 h-3.5 flex-shrink-0"
+              />
+              <span>{{ sub.name }}</span>
+            </NuxtLink>
+          </div>
+
+          <div
+            v-if="'children' in item && item.children?.length && visualSidebarCollapsed"
+            class="theme-surface absolute left-full top-0 z-30 w-48 rounded-md border bg-popover p-1 shadow-md opacity-0 pointer-events-none transition-[background-color,border-color,box-shadow,opacity] duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
+          >
+            <NuxtLink
+              v-for="sub in item.children"
+              :key="`collapsed-${sub.path}`"
+              :to="sub.path"
+              class="theme-content flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
+              :class="isNavigationChildActive(sub)
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
             >

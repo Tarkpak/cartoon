@@ -1,4 +1,4 @@
-use axum::extract::{DefaultBodyLimit, Path, Query, Request, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::net::TcpListener;
 use uuid::Uuid;
-use ve_tos_rust_sdk::object::{ObjectAPI, PutObjectFromBufferInput};
+use ve_tos_rust_sdk::object::{DeleteObjectInput, ObjectAPI, PutObjectFromBufferInput};
 use ve_tos_rust_sdk::tos;
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
@@ -2070,6 +2070,62 @@ fn upload_media_bytes_to_tos(
     Ok(Some(build_backend_tos_public_url(&config, &object_key)))
 }
 
+fn delete_backend_tos_object(object_key: &str) -> Result<(), ApiError> {
+    let config = load_backend_tos_config();
+    if !config.enabled {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "TOS 未启用或配置不完整，无法删除对象",
+        ));
+    }
+    let object_key = normalize_tos_object_path(object_key);
+    if object_key.is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "TOS 对象路径为空"));
+    }
+    if let Some(prefix) = &config.key_prefix {
+        let prefix = normalize_tos_object_path(prefix);
+        if !prefix.is_empty() && object_key != prefix && !object_key.starts_with(&format!("{prefix}/")) {
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "只能删除当前 TOS 作用域内的对象",
+            ));
+        }
+    }
+
+    let endpoint = format!("{}://{}", config.endpoint_protocol, config.endpoint);
+    let mut builder = tos::builder()
+        .connection_timeout(15000)
+        .request_timeout(60000)
+        .max_retry_count(1)
+        .ak(config.access_key_id.clone())
+        .sk(config.access_key_secret.clone())
+        .region(config.region.clone())
+        .endpoint(endpoint)
+        .is_custom_domain(config.is_custom_domain);
+    if let Some(token) = &config.security_token {
+        builder = builder.security_token(token.clone());
+    }
+    if let (Some(proxy_host), Some(proxy_port)) = (&config.proxy_host, config.proxy_port) {
+        builder = builder
+            .proxy_host(proxy_host.clone())
+            .proxy_port(proxy_port);
+    }
+    let client = builder.build().map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("初始化 TOS 客户端失败: {}", error),
+        )
+    })?;
+    let input = DeleteObjectInput::new(config.bucket.clone(), object_key);
+    client.delete_object(&input).map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("删除 TOS 对象失败: {}", error),
+        )
+    })?;
+    Ok(())
+}
+
 fn persist_image_bytes(
     state: &BackendState,
     prefix: &str,
@@ -3481,6 +3537,29 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         metadata_json TEXT NOT NULL DEFAULT '{}',
         PRIMARY KEY (import_id, project_id)
       );
+
+      CREATE TABLE IF NOT EXISTS video_enhance_tasks (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL UNIQUE,
+        kind TEXT NOT NULL,
+        kind_label TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        source_video_url TEXT NOT NULL,
+        source_object_key TEXT,
+        source_deleted INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'processing',
+        raw_status TEXT,
+        result_video_url TEXT,
+        saved_video_url TEXT,
+        result_object_key TEXT,
+        result_deleted INTEGER NOT NULL DEFAULT 0,
+        request_json TEXT NOT NULL DEFAULT '{}',
+        response_json TEXT NOT NULL DEFAULT '{}',
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
     ",
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -3499,6 +3578,8 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
       CREATE INDEX IF NOT EXISTS idx_video_import_artifacts_kind ON video_import_artifacts(kind);
       CREATE INDEX IF NOT EXISTS idx_video_import_step_runs_task ON video_import_step_runs(task_id);
       CREATE INDEX IF NOT EXISTS idx_video_import_step_runs_step ON video_import_step_runs(step);
+      CREATE INDEX IF NOT EXISTS idx_video_enhance_tasks_status ON video_enhance_tasks(status);
+      CREATE INDEX IF NOT EXISTS idx_video_enhance_tasks_created ON video_enhance_tasks(created_at);
       -- 日志查询统一按 timestamp DESC 排序取 LIMIT，过滤走大小写无关 / 子串匹配，
       -- 规划器不会用到下面这些二级索引；清理掉以省去写入开销。
       DROP INDEX IF EXISTS idx_model_debug_logs_provider;
@@ -3678,6 +3759,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
     set_global_db_path(state.db_path.clone());
     ensure_dirs(&state).map_err(|error| error.message.clone())?;
     init_database(&state).map_err(|error| error.message.clone())?;
+    spawn_video_enhance_task_poller(state.clone());
 
     let observability_state = state.clone();
     let router = Router::new()
@@ -3890,6 +3972,28 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/tos/config/export", get(api_tos_config_export))
         .route("/api/tos/config/download", get(api_tos_config_download))
         .route("/api/tos/config/import", post(api_tos_config_import))
+        .route("/api/tools/video-enhance", post(api_tools_video_enhance_submit))
+        .route(
+            "/api/tools/video-enhance/tasks",
+            get(api_tools_video_enhance_tasks),
+        )
+        .route(
+            "/api/tools/video-enhance/upload-source",
+            post(api_tools_video_enhance_upload_source)
+                .layer(DefaultBodyLimit::max(VIDEO_ENHANCE_UPLOAD_LIMIT_BYTES)),
+        )
+        .route(
+            "/api/tools/video-enhance/status/{id}",
+            get(api_tools_video_enhance_status),
+        )
+        .route(
+            "/api/tools/video-enhance/save",
+            post(api_tools_video_enhance_save),
+        )
+        .route(
+            "/api/tools/video-enhance/tasks/{id}/{asset}",
+            delete(api_tools_video_enhance_delete_asset),
+        )
         .route("/api/video/generate", post(api_video_generate))
         .route("/api/video/merge", post(api_video_merge))
         .route(
