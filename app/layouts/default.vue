@@ -18,6 +18,7 @@ const navigation = [
   { name: '首页', path: '/', icon: Home },
   { name: '我的项目', path: '/projects', icon: Folder },
   { name: '视频转项目', path: '/import/video', icon: FileVideo },
+  { name: '云端素材', path: '/tos-files', icon: Cloud },
   {
     name: '工具',
     path: '/tools/enhance',
@@ -28,7 +29,6 @@ const navigation = [
       { name: '增强任务', path: '/tools/enhance-tasks', icon: ListChecks }
     ]
   },
-  { name: '云端素材', path: '/tos-files', icon: Cloud },
   { name: '日志', path: '/logs', icon: ScrollText },
   { name: '设置', path: '/settings', icon: Settings }
 ]
