@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, ListChecks, MonitorCog } from 'lucide-vue-next'
+import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, ListChecks, MonitorCog, Image } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 
 const route = useRoute()
@@ -20,12 +20,12 @@ const navigation = [
   { name: '视频转项目', path: '/import/video', icon: FileVideo },
   {
     name: '工具',
-    path: '/tools/video-enhance',
+    path: '/tools/enhance',
     icon: Wrench,
     children: [
-      { name: '画质增强', path: '/tools/video-enhance', icon: WandSparkles },
-      { name: '本地增强', path: '/tools/local-video-enhance', icon: MonitorCog },
-      { name: '增强任务', path: '/tools/video-enhance-tasks', icon: ListChecks }
+      { name: '云端增强', path: '/tools/enhance', icon: WandSparkles },
+      { name: '本地增强', path: '/tools/local-enhance', icon: MonitorCog },
+      { name: '增强任务', path: '/tools/enhance-tasks', icon: ListChecks }
     ]
   },
   { name: '云端素材', path: '/tos-files', icon: Cloud },

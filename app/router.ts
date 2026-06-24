@@ -9,9 +9,9 @@ import ProjectRedirectPage from './pages/projects/[id].vue'
 import ProjectsPage from './pages/projects/index.vue'
 import SettingsPage from './pages/settings.vue'
 import TosFilesPage from './pages/tos-files.vue'
-import LocalVideoEnhancePage from './pages/tools/local-video-enhance.vue'
-import VideoEnhancePage from './pages/tools/video-enhance.vue'
-import VideoEnhanceTasksPage from './pages/tools/video-enhance-tasks.vue'
+import EnhancePage from './pages/tools/enhance.vue'
+import EnhanceTasksPage from './pages/tools/enhance-tasks.vue'
+import LocalEnhancePage from './pages/tools/local-enhance.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -86,18 +86,78 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/tools/video-enhance',
-    component: VideoEnhancePage,
+    redirect: to => ({
+      path: '/tools/enhance',
+      query: {
+        ...to.query,
+        type: 'video'
+      }
+    })
+  },
+  {
+    path: '/tools/enhance',
+    component: EnhancePage,
     meta: { layout: 'default' }
   },
   {
     path: '/tools/local-video-enhance',
-    component: LocalVideoEnhancePage,
+    redirect: to => ({
+      path: '/tools/local-enhance',
+      query: {
+        ...to.query,
+        type: 'video'
+      }
+    })
+  },
+  {
+    path: '/tools/local-enhance',
+    component: LocalEnhancePage,
     meta: { layout: 'default' }
   },
   {
     path: '/tools/video-enhance-tasks',
-    component: VideoEnhanceTasksPage,
+    redirect: to => ({
+      path: '/tools/enhance-tasks',
+      query: {
+        ...to.query,
+        type: 'video'
+      }
+    })
+  },
+  {
+    path: '/tools/enhance-tasks',
+    component: EnhanceTasksPage,
     meta: { layout: 'default' }
+  },
+  {
+    path: '/tools/image-enhance',
+    redirect: to => ({
+      path: '/tools/enhance',
+      query: {
+        ...to.query,
+        type: 'image'
+      }
+    })
+  },
+  {
+    path: '/tools/local-image-enhance',
+    redirect: to => ({
+      path: '/tools/local-enhance',
+      query: {
+        ...to.query,
+        type: 'image'
+      }
+    })
+  },
+  {
+    path: '/tools/image-enhance-tasks',
+    redirect: to => ({
+      path: '/tools/enhance-tasks',
+      query: {
+        ...to.query,
+        type: 'image'
+      }
+    })
   },
   {
     path: '/:pathMatch(.*)*',

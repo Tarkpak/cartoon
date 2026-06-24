@@ -27,6 +27,7 @@ const SCRIPT_PARSE_MAX_DURATION: &str = "15";
 const ENVIRONMENT_CAPTURE_MODE_PROMPT_RULES: &str = "【环境视角打标（必须执行）】\n1. 每个 scenes[i] 必须输出 environmentCaptureMode 字段：single 或 four_view。\n2. 当场景描述存在明确多视角/多机位/镜头切换（含时间轴多段切镜）时，environmentCaptureMode=four_view。\n3. 单一连续视角表达时，environmentCaptureMode=single。\n4. 禁止省略该字段。";
 const MEDIAKIT_BASE_URL: &str = "https://mediakit.cn-beijing.volces.com";
 pub(super) const VIDEO_ENHANCE_UPLOAD_LIMIT_BYTES: usize = 2 * 1024 * 1024 * 1024;
+pub(super) const IMAGE_ENHANCE_UPLOAD_LIMIT_BYTES: usize = 50 * 1024 * 1024;
 
 fn render_runtime_prompt(template: &str, variables: &[(&str, &str)]) -> String {
     let mut output = template.to_string();
@@ -670,6 +671,26 @@ async fn persist_video_source_with_object_key(
     Ok((format!("/api/video/file/{}", filename), None))
 }
 
+async fn persist_image_source_with_object_key(
+    state: &BackendState,
+    source: &str,
+    prefix: &str,
+) -> Result<(String, Option<String>), ApiError> {
+    let (bytes, mime) = resolve_source_bytes(state, source, IMAGE_ENHANCE_UPLOAD_LIMIT_BYTES).await?;
+    let ext = infer_extension_from_mime(mime.as_deref().unwrap_or(""), "png");
+    let filename = build_unique_filename(prefix, &ext);
+    if load_backend_tos_config().enabled {
+        let object_key = build_backend_tos_object_key(&load_backend_tos_config(), "images", &filename);
+        let url = upload_media_bytes_to_tos_async("images", filename, bytes)
+            .await?
+            .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "TOS 已启用但未返回图片上传地址"))?;
+        return Ok((url, Some(object_key)));
+    }
+    let path = state.public_dir.join("generated-images").join(&filename);
+    write_file_bytes(&path, &bytes)?;
+    Ok((format!("/api/image/file/{}", filename), None))
+}
+
 fn mediakit_video_enhance_tool_path(kind: &str) -> Result<&'static str, ApiError> {
     match kind.trim() {
         "standard" | "professional" => Ok("/api/v1/tools/enhance-video"),
@@ -889,6 +910,741 @@ fn uploaded_video_extension(filename: Option<&str>, content_type: Option<&str>) 
         }
     }
     infer_extension_from_mime(content_type.unwrap_or(""), "mp4")
+}
+
+fn mediakit_image_enhance_tool_path(kind: &str) -> Result<&'static str, ApiError> {
+    match kind.trim() {
+        "standard" | "portrait" | "old_photo" | "upscale" => Ok("/api/v1/tools/enhance-image"),
+        _ => Err(ApiError::new(StatusCode::BAD_REQUEST, "不支持的图片增强类型")),
+    }
+}
+
+fn mediakit_image_enhance_kind_label(kind: &str) -> &'static str {
+    match kind.trim() {
+        "portrait" => "人像增强",
+        "old_photo" => "老照片修复",
+        "upscale" => "超分放大",
+        _ => "标准增强",
+    }
+}
+
+fn image_enhance_task_to_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
+    let source_deleted: i64 = row.get(7)?;
+    let result_deleted: i64 = row.get(13)?;
+    Ok(json!({
+      "id": row.get::<_, String>(0)?,
+      "taskId": row.get::<_, String>(1)?,
+      "kind": row.get::<_, String>(2)?,
+      "kindLabel": row.get::<_, String>(3)?,
+      "fileName": row.get::<_, String>(4)?,
+      "sourceImageUrl": row.get::<_, String>(5)?,
+      "sourceObjectKey": row.get::<_, Option<String>>(6)?,
+      "sourceDeleted": source_deleted != 0,
+      "status": row.get::<_, String>(8)?,
+      "rawStatus": row.get::<_, Option<String>>(9)?,
+      "resultImageUrl": row.get::<_, Option<String>>(10)?,
+      "savedImageUrl": row.get::<_, Option<String>>(11)?,
+      "resultObjectKey": row.get::<_, Option<String>>(12)?,
+      "resultDeleted": result_deleted != 0,
+      "errorMessage": row.get::<_, Option<String>>(14)?,
+      "createdAt": row.get::<_, String>(15)?,
+      "updatedAt": row.get::<_, String>(16)?,
+      "completedAt": row.get::<_, Option<String>>(17)?
+    }))
+}
+
+fn mediakit_result_image_url(payload: &Value) -> Option<String> {
+    fn from_object(object: &Value) -> Option<String> {
+        object
+            .get("image_url")
+            .and_then(Value::as_str)
+            .or_else(|| object.get("image").and_then(Value::as_str))
+            .or_else(|| {
+                object
+                    .get("image_urls")
+                    .and_then(Value::as_array)
+                    .and_then(|items| items.first())
+                    .and_then(Value::as_str)
+            })
+            .or_else(|| {
+                object
+                    .get("images")
+                    .and_then(Value::as_array)
+                    .and_then(|items| items.first())
+                    .and_then(Value::as_str)
+            })
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    }
+    payload
+        .get("result")
+        .and_then(from_object)
+        .or_else(|| payload.get("content").and_then(from_object))
+        .or_else(|| from_object(payload))
+}
+
+fn build_mediakit_image_enhance_request(body: &Value) -> Result<(String, Value), ApiError> {
+    let kind = body
+        .get("kind")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("standard")
+        .to_string();
+    let image_url = body
+        .get("imageUrl")
+        .or_else(|| body.get("image_url"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请填写待增强图片 URL"))?;
+    let endpoint = format!("{}{}", MEDIAKIT_BASE_URL, mediakit_image_enhance_tool_path(&kind)?);
+    let mut request_body = json!({ "image_url": image_url });
+
+    request_body["tool_version"] = json!(kind);
+    if let Some(scale) = body.get("scale").and_then(Value::as_u64).filter(|value| *value > 0) {
+        request_body["scale"] = json!(scale);
+    }
+    if let Some(format) = body
+        .get("format")
+        .or_else(|| body.get("output_format"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "original")
+    {
+        request_body["output_format"] = json!(format);
+    }
+    if let Some(scene) = body
+        .get("scene")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        request_body["scene"] = json!(scene);
+    }
+
+    Ok((endpoint, request_body))
+}
+
+async fn query_mediakit_image_enhance_task(
+    state: &BackendState,
+    task_id: &str,
+) -> Result<(Value, String, String, Option<String>), ApiError> {
+    let conn = db_connection(state)?;
+    let creds = load_provider_creds(&conn);
+    let api_key = provider_sync_api_key("volcengine", &creds).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "未配置火山引擎 API Key，请在设置中配置",
+        )
+    })?;
+    let endpoint = format!("{}/api/v1/tasks/{}", MEDIAKIT_BASE_URL, task_id);
+    let response = llm_http_client()
+        .get(&endpoint)
+        .bearer_auth(api_key)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .send()
+        .await
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+    let status = response.status();
+    let body_text = response
+        .text()
+        .await
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+    if !status.is_success() {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            build_sync_error_message(status, &body_text),
+        ));
+    }
+    let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("解析 MediaKit 图片增强任务状态失败: {}", error),
+        )
+    })?;
+    let raw_status = payload
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("processing")
+        .to_string();
+    let normalized_status = mediakit_task_status_label(&raw_status).to_string();
+    let image_url = mediakit_result_image_url(&payload);
+    Ok((payload, raw_status, normalized_status, image_url))
+}
+
+fn update_image_enhance_task_status(
+    state: &BackendState,
+    task_id: &str,
+    status: &str,
+    raw_status: &str,
+    result_image_url: Option<&str>,
+    response_json: &Value,
+    error_message: Option<&str>,
+) -> Result<(), ApiError> {
+    let conn = db_connection(state)?;
+    let now = now_iso();
+    let completed_at = if status == "completed" || status == "failed" {
+        Some(now.as_str())
+    } else {
+        None
+    };
+    conn.execute(
+        "UPDATE image_enhance_tasks
+         SET status = ?1,
+             raw_status = ?2,
+             result_image_url = COALESCE(?3, result_image_url),
+             response_json = ?4,
+             error_message = ?5,
+             updated_at = ?6,
+             completed_at = COALESCE(completed_at, ?7)
+         WHERE task_id = ?8",
+        params![
+            status,
+            raw_status,
+            result_image_url,
+            response_json.to_string(),
+            error_message,
+            now,
+            completed_at,
+            task_id
+        ],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(())
+}
+
+fn uploaded_image_extension(filename: Option<&str>, content_type: Option<&str>) -> String {
+    let from_filename = filename
+        .and_then(|value| value.rsplit('.').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != filename.unwrap_or(""))
+        .map(|value| value.to_ascii_lowercase());
+    if let Some(ext) = from_filename {
+        if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "bmp") {
+            return ext;
+        }
+    }
+    infer_extension_from_mime(content_type.unwrap_or(""), "png")
+}
+
+pub(super) async fn api_tools_image_enhance_upload_source(
+    mut multipart: Multipart,
+) -> Result<Json<Value>, ApiError> {
+    if !load_backend_tos_config().enabled {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "请先在设置中启用并配置 TOS，本地图片需上传为公网可访问地址后才能提交火山图片增强",
+        ));
+    }
+
+    let mut uploaded_url: Option<String> = None;
+    let mut uploaded_object_key: Option<String> = None;
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?
+    {
+        if field.name().unwrap_or("") != "image" {
+            continue;
+        }
+
+        let filename = field.file_name().map(str::to_string);
+        let content_type = field.content_type().map(str::to_string);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = field
+            .chunk()
+            .await
+            .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?
+        {
+            if bytes.len().saturating_add(chunk.len()) > IMAGE_ENHANCE_UPLOAD_LIMIT_BYTES {
+                return Err(ApiError::new(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "图片文件超过 50MB 上传上限",
+                ));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+
+        if bytes.is_empty() {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "图片文件为空"));
+        }
+
+        let ext = uploaded_image_extension(filename.as_deref(), content_type.as_deref());
+        let object_filename = build_unique_filename("image-enhance-source", &ext);
+        let object_key = build_backend_tos_object_key(
+            &load_backend_tos_config(),
+            "images",
+            &object_filename,
+        );
+        uploaded_url = upload_media_bytes_to_tos_async("images", object_filename, bytes).await?;
+        uploaded_object_key = Some(object_key);
+        break;
+    }
+
+    let image_url = uploaded_url.ok_or_else(|| {
+        ApiError::new(StatusCode::BAD_REQUEST, "缺少 image 文件字段")
+    })?;
+
+    Ok(Json(json!({
+      "success": true,
+      "imageUrl": image_url,
+      "sourceObjectKey": uploaded_object_key
+    })))
+}
+
+pub(super) async fn api_tools_image_enhance_submit(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state).map_err(|error| error)?;
+    let creds = load_provider_creds(&conn);
+    let api_key = provider_sync_api_key("volcengine", &creds).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "未配置火山引擎 API Key，请在设置中配置",
+        )
+    })?;
+    let (endpoint, request_body) = build_mediakit_image_enhance_request(&body)?;
+    let started_at = Utc::now().timestamp_millis();
+
+    llm_dev_log!(
+        "request",
+        "volcengine",
+        "ai-mediakit",
+        "imageEnhance",
+        None::<i64>,
+        "endpoint" => endpoint.as_str(),
+        "imageUrl" => request_body.get("image_url").and_then(Value::as_str).unwrap_or("")
+    );
+
+    let response = llm_http_client()
+        .post(&endpoint)
+        .bearer_auth(api_key)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+    let status = response.status();
+    let body_text = response
+        .text()
+        .await
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+    if !status.is_success() {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            build_sync_error_message(status, &body_text),
+        ));
+    }
+    let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("解析 MediaKit 图片增强响应失败: {}", error),
+        )
+    })?;
+    let task_id = payload
+        .get("task_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "MediaKit 未返回 task_id"))?;
+
+    llm_dev_log!(
+        "task",
+        "volcengine",
+        "ai-mediakit",
+        "imageEnhance",
+        Some(Utc::now().timestamp_millis() - started_at),
+        "taskId" => task_id
+    );
+
+    let kind = body
+        .get("kind")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("standard");
+    let file_name = body
+        .get("sourceFileName")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("本地图片");
+    let source_image_url = request_body
+        .get("image_url")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let source_object_key = body
+        .get("sourceObjectKey")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let now = now_iso();
+    conn.execute(
+        "INSERT OR REPLACE INTO image_enhance_tasks (
+          id, task_id, kind, kind_label, file_name, source_image_url, source_object_key,
+          status, raw_status, request_json, response_json, created_at, updated_at
+        ) VALUES (
+          COALESCE((SELECT id FROM image_enhance_tasks WHERE task_id = ?1), ?2),
+          ?1, ?3, ?4, ?5, ?6, ?7, 'processing', 'submitted', ?8, ?9,
+          COALESCE((SELECT created_at FROM image_enhance_tasks WHERE task_id = ?1), ?10),
+          ?10
+        )",
+        params![
+            task_id,
+            format!("ienh_{}", Uuid::new_v4().simple()),
+            kind,
+            mediakit_image_enhance_kind_label(kind),
+            file_name,
+            source_image_url,
+            source_object_key,
+            request_body.to_string(),
+            payload.to_string(),
+            now
+        ],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    Ok(Json(json!({
+      "success": true,
+      "taskId": task_id,
+      "raw": payload
+    })))
+}
+
+pub(super) async fn api_tools_image_enhance_status(
+    State(state): State<BackendState>,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let task_id = task_id.trim();
+    if task_id.is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "任务 ID 不能为空"));
+    }
+    let (payload, raw_status, normalized_status, image_url) =
+        query_mediakit_image_enhance_task(&state, task_id).await?;
+    update_image_enhance_task_status(
+        &state,
+        task_id,
+        &normalized_status,
+        &raw_status,
+        image_url.as_deref(),
+        &payload,
+        None,
+    )?;
+
+    Ok(Json(json!({
+      "success": true,
+      "taskId": task_id,
+      "status": normalized_status,
+      "rawStatus": raw_status,
+      "imageUrl": image_url,
+      "raw": payload
+    })))
+}
+
+pub(super) async fn api_tools_image_enhance_save(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let task_id = body
+        .get("taskId")
+        .or_else(|| body.get("task_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let image_url = body
+        .get("imageUrl")
+        .or_else(|| body.get("image_url"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请提供增强后图片 URL"))?;
+    let (local_url, object_key) =
+        persist_image_source_with_object_key(&state, image_url, "image-enhance").await?;
+    if let Some(task_id) = task_id {
+        let conn = db_connection(&state)?;
+        let now = now_iso();
+        conn.execute(
+            "UPDATE image_enhance_tasks
+             SET saved_image_url = ?1,
+                 result_object_key = COALESCE(?2, result_object_key),
+                 result_deleted = 0,
+                 updated_at = ?3
+             WHERE task_id = ?4",
+            params![local_url, object_key, now, task_id],
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    }
+    Ok(Json(json!({
+      "success": true,
+      "imageUrl": local_url,
+      "resultObjectKey": object_key
+    })))
+}
+
+pub(super) async fn api_tools_image_enhance_tasks(
+    State(state): State<BackendState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let status = query
+        .get("status")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "all");
+    let limit = query
+        .get("limit")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(50)
+        .clamp(1, 200);
+    let conn = db_connection(&state)?;
+    let select_sql = "SELECT id, task_id, kind, kind_label, file_name, source_image_url,
+             source_object_key, source_deleted, status, raw_status, result_image_url,
+             saved_image_url, result_object_key, result_deleted, error_message,
+             created_at, updated_at, completed_at
+       FROM image_enhance_tasks";
+    let rows = if let Some(status) = status {
+        let mut stmt = conn
+            .prepare(&format!("{select_sql} WHERE status = ?1 ORDER BY created_at DESC LIMIT ?2"))
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let rows = stmt
+            .query_map(params![status, limit as i64], image_enhance_task_to_json)
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        rows
+    } else {
+        let mut stmt = conn
+            .prepare(&format!("{select_sql} ORDER BY created_at DESC LIMIT ?1"))
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let rows = stmt
+            .query_map(params![limit as i64], image_enhance_task_to_json)
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        rows
+    };
+
+    Ok(Json(json!({
+      "success": true,
+      "data": {
+        "tasks": rows
+      }
+    })))
+}
+
+pub(super) async fn api_tools_image_enhance_delete_asset(
+    State(state): State<BackendState>,
+    Path((task_id, asset)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let task_id = task_id.trim();
+    let asset = asset.trim();
+    if task_id.is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "任务 ID 不能为空"));
+    }
+    if !matches!(asset, "source" | "result") {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "不支持的任务文件类型"));
+    }
+
+    let conn = db_connection(&state)?;
+    let column = if asset == "source" {
+        "source_object_key"
+    } else {
+        "result_object_key"
+    };
+    let object_key = conn
+        .query_row(
+            &format!("SELECT {column} FROM image_enhance_tasks WHERE task_id = ?1"),
+            params![task_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .flatten()
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "任务文件不存在或未记录 TOS 对象路径"))?;
+
+    let delete_key = object_key.clone();
+    tokio::task::spawn_blocking(move || delete_backend_tos_object(&delete_key))
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("等待 TOS 删除任务失败: {}", error),
+            )
+        })??;
+
+    let now = now_iso();
+    if asset == "source" {
+        conn.execute(
+            "UPDATE image_enhance_tasks SET source_deleted = 1, updated_at = ?1 WHERE task_id = ?2",
+            params![now, task_id],
+        )
+    } else {
+        conn.execute(
+            "UPDATE image_enhance_tasks SET result_deleted = 1, updated_at = ?1 WHERE task_id = ?2",
+            params![now, task_id],
+        )
+    }
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    Ok(Json(json!({
+      "success": true,
+      "taskId": task_id,
+      "asset": asset
+    })))
+}
+
+fn local_image_enhance_preset_label(preset: &str) -> &'static str {
+    match preset {
+        "clarity" => "清晰增强",
+        "denoise" => "降噪",
+        "sharpen" => "锐化",
+        "upscale_2x" => "2x 放大",
+        "upscale_4x" => "4x 放大",
+        "webp" => "WebP 转换",
+        "jpeg" => "JPEG 压缩",
+        _ => "轻度增强",
+    }
+}
+
+fn local_image_enhance_filter(preset: &str) -> &'static str {
+    match preset {
+        "clarity" => "eq=contrast=1.08:saturation=1.06,unsharp=5:5:0.75:3:3:0.35",
+        "denoise" => "hqdn3d=1.5:1.5:6.0:6.0",
+        "sharpen" => "unsharp=5:5:0.9:3:3:0.45",
+        "upscale_2x" => "scale=iw*2:ih*2:flags=lanczos,unsharp=5:5:0.5:3:3:0.25",
+        "upscale_4x" => "scale=iw*4:ih*4:flags=lanczos,unsharp=5:5:0.45:3:3:0.2",
+        _ => "eq=contrast=1.04:saturation=1.03,unsharp=5:5:0.45:3:3:0.2",
+    }
+}
+
+fn local_image_output_ext(preset: &str, source_ext: &str) -> &'static str {
+    match preset {
+        "webp" => "webp",
+        "jpeg" => "jpg",
+        _ if source_ext.eq_ignore_ascii_case("jpg") || source_ext.eq_ignore_ascii_case("jpeg") => "jpg",
+        _ if source_ext.eq_ignore_ascii_case("webp") => "webp",
+        _ => "png",
+    }
+}
+
+fn run_local_image_enhance(
+    input_path: &FsPath,
+    output_path: &FsPath,
+    preset: &str,
+) -> Result<(), ApiError> {
+    let mut args = vec![
+        "-y".to_string(),
+        "-i".to_string(),
+        input_path.to_string_lossy().to_string(),
+        "-frames:v".to_string(),
+        "1".to_string(),
+    ];
+    if !matches!(preset, "webp" | "jpeg") {
+        args.push("-vf".to_string());
+        args.push(local_image_enhance_filter(preset).to_string());
+    }
+    if preset == "jpeg" {
+        args.push("-q:v".to_string());
+        args.push("2".to_string());
+    }
+    args.push(output_path.to_string_lossy().to_string());
+    run_ffmpeg(&args)
+}
+
+pub(super) async fn api_tools_local_image_enhance(
+    State(state): State<BackendState>,
+    mut multipart: Multipart,
+) -> Result<Json<Value>, ApiError> {
+    let started_at = Utc::now().timestamp_millis();
+    let task_id = Uuid::new_v4().to_string();
+    let temp_dir = std::env::temp_dir().join(format!("playlet_local_image_enhance_{}", task_id));
+    fs::create_dir_all(&temp_dir)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    let mut preset = "light".to_string();
+    let mut input_filename = "source.png".to_string();
+    let mut source_ext = "png".to_string();
+    let mut input_path: Option<PathBuf> = None;
+
+    let result = async {
+        while let Some(mut field) = multipart
+            .next_field()
+            .await
+            .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?
+        {
+            let name = field.name().unwrap_or("").to_string();
+            if name == "preset" {
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
+                let normalized = value.trim();
+                if matches!(
+                    normalized,
+                    "light" | "clarity" | "denoise" | "sharpen" | "upscale_2x" | "upscale_4x" | "webp" | "jpeg"
+                ) {
+                    preset = normalized.to_string();
+                }
+                continue;
+            }
+            if name != "image" {
+                continue;
+            }
+
+            let filename = field.file_name().map(str::to_string);
+            let content_type = field.content_type().map(str::to_string);
+            input_filename = filename.clone().unwrap_or_else(|| "source.png".to_string());
+            let ext = uploaded_image_extension(filename.as_deref(), content_type.as_deref());
+            source_ext = ext.clone();
+            let path = temp_dir.join(format!("input.{}", ext));
+            let mut bytes = Vec::new();
+            while let Some(chunk) = field
+                .chunk()
+                .await
+                .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?
+            {
+                if bytes.len().saturating_add(chunk.len()) > IMAGE_ENHANCE_UPLOAD_LIMIT_BYTES {
+                    return Err(ApiError::new(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "图片文件超过 50MB 处理上限",
+                    ));
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            if bytes.is_empty() {
+                return Err(ApiError::new(StatusCode::BAD_REQUEST, "图片文件为空"));
+            }
+            write_file_bytes(&path, &bytes)?;
+            input_path = Some(path);
+        }
+
+        let input_path = input_path
+            .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请选择要处理的图片文件"))?;
+        let output_ext = local_image_output_ext(&preset, &source_ext);
+        let output_filename = format!("local-image-enhance-{}.{}", Uuid::new_v4().simple(), output_ext);
+        let output_dir = state.public_dir.join("generated-images");
+        fs::create_dir_all(&output_dir)
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let output_path = output_dir.join(&output_filename);
+        run_local_image_enhance(&input_path, &output_path, &preset)?;
+        let elapsed_ms = Utc::now().timestamp_millis().saturating_sub(started_at);
+
+        Ok::<Value, ApiError>(json!({
+            "success": true,
+            "taskId": task_id,
+            "preset": preset,
+            "presetLabel": local_image_enhance_preset_label(&preset),
+            "sourceFileName": input_filename,
+            "imageUrl": format!("/api/image/file/{}", output_filename),
+            "elapsedMs": elapsed_ms
+        }))
+    }
+    .await;
+
+    let _ = fs::remove_dir_all(&temp_dir);
+    result.map(Json)
 }
 
 pub(super) async fn api_tools_video_enhance_upload_source(
@@ -1441,6 +2197,57 @@ pub(super) fn spawn_video_enhance_task_poller(state: BackendState) {
                     }
                     Err(error) => {
                         eprintln!("[VideoEnhancePoller] 查询任务 {} 失败: {}", task_id, error.message);
+                    }
+                }
+            }
+        }
+    });
+}
+
+pub(super) fn spawn_image_enhance_task_poller(state: BackendState) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            let task_ids = match db_connection(&state).and_then(|conn| {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT task_id FROM image_enhance_tasks
+                         WHERE status IN ('processing', 'idle')
+                         ORDER BY created_at ASC
+                         LIMIT 20",
+                    )
+                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+                let task_ids = stmt
+                    .query_map([], |row| row.get::<_, String>(0))
+                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+                Ok(task_ids)
+            }) {
+                Ok(value) => value,
+                Err(error) => {
+                    eprintln!("[ImageEnhancePoller] 读取任务失败: {}", error.message);
+                    continue;
+                }
+            };
+
+            for task_id in task_ids {
+                match query_mediakit_image_enhance_task(&state, &task_id).await {
+                    Ok((payload, raw_status, status, image_url)) => {
+                        if let Err(error) = update_image_enhance_task_status(
+                            &state,
+                            &task_id,
+                            &status,
+                            &raw_status,
+                            image_url.as_deref(),
+                            &payload,
+                            None,
+                        ) {
+                            eprintln!("[ImageEnhancePoller] 更新任务失败: {}", error.message);
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!("[ImageEnhancePoller] 查询任务 {} 失败: {}", task_id, error.message);
                     }
                 }
             }

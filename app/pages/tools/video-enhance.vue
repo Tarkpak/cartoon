@@ -39,6 +39,9 @@ const errorMessage = ref('')
 const showAdvancedOptions = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
+const route = useRoute()
+const embeddedInUnifiedEnhance = computed(() => route.path === '/tools/enhance')
+
 const kindOptions: Array<{
   value: EnhanceKind
   label: string
@@ -221,8 +224,8 @@ async function submitTask() {
       body: buildRequestBody()
     })
     await router.push({
-      path: '/tools/video-enhance-tasks',
-      query: { taskId: response.taskId }
+      path: '/tools/enhance-tasks',
+      query: { type: 'video', taskId: response.taskId }
     })
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '提交画质增强任务失败'
@@ -235,7 +238,10 @@ async function submitTask() {
 <template>
   <div class="min-h-screen bg-background p-6 lg:p-8">
     <div class="mx-auto max-w-5xl space-y-6">
-      <div class="flex flex-col gap-3 border-b pb-5 md:flex-row md:items-end md:justify-between">
+      <div
+        v-if="!embeddedInUnifiedEnhance"
+        class="flex flex-col gap-3 border-b pb-5 md:flex-row md:items-end md:justify-between"
+      >
         <div>
           <div class="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
             <WandSparkles class="h-4 w-4" />
@@ -254,7 +260,7 @@ async function submitTask() {
             size="sm"
             as-child
           >
-            <NuxtLink to="/tools/video-enhance-tasks">
+            <NuxtLink :to="{ path: '/tools/enhance-tasks', query: { type: 'video' } }">
               <ListChecks class="mr-2 h-4 w-4" />
               任务
             </NuxtLink>

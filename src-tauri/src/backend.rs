@@ -3560,6 +3560,29 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         updated_at TEXT NOT NULL,
         completed_at TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS image_enhance_tasks (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL UNIQUE,
+        kind TEXT NOT NULL,
+        kind_label TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        source_image_url TEXT NOT NULL,
+        source_object_key TEXT,
+        source_deleted INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'processing',
+        raw_status TEXT,
+        result_image_url TEXT,
+        saved_image_url TEXT,
+        result_object_key TEXT,
+        result_deleted INTEGER NOT NULL DEFAULT 0,
+        request_json TEXT NOT NULL DEFAULT '{}',
+        response_json TEXT NOT NULL DEFAULT '{}',
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
     ",
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -3580,6 +3603,8 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
       CREATE INDEX IF NOT EXISTS idx_video_import_step_runs_step ON video_import_step_runs(step);
       CREATE INDEX IF NOT EXISTS idx_video_enhance_tasks_status ON video_enhance_tasks(status);
       CREATE INDEX IF NOT EXISTS idx_video_enhance_tasks_created ON video_enhance_tasks(created_at);
+      CREATE INDEX IF NOT EXISTS idx_image_enhance_tasks_status ON image_enhance_tasks(status);
+      CREATE INDEX IF NOT EXISTS idx_image_enhance_tasks_created ON image_enhance_tasks(created_at);
       -- 日志查询统一按 timestamp DESC 排序取 LIMIT，过滤走大小写无关 / 子串匹配，
       -- 规划器不会用到下面这些二级索引；清理掉以省去写入开销。
       DROP INDEX IF EXISTS idx_model_debug_logs_provider;
@@ -3760,6 +3785,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
     ensure_dirs(&state).map_err(|error| error.message.clone())?;
     init_database(&state).map_err(|error| error.message.clone())?;
     spawn_video_enhance_task_poller(state.clone());
+    spawn_image_enhance_task_poller(state.clone());
 
     let observability_state = state.clone();
     let router = Router::new()
@@ -3998,6 +4024,33 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             "/api/tools/local-video-enhance",
             post(api_tools_local_video_enhance)
                 .layer(DefaultBodyLimit::max(VIDEO_ENHANCE_UPLOAD_LIMIT_BYTES)),
+        )
+        .route("/api/tools/image-enhance", post(api_tools_image_enhance_submit))
+        .route(
+            "/api/tools/image-enhance/tasks",
+            get(api_tools_image_enhance_tasks),
+        )
+        .route(
+            "/api/tools/image-enhance/upload-source",
+            post(api_tools_image_enhance_upload_source)
+                .layer(DefaultBodyLimit::max(IMAGE_ENHANCE_UPLOAD_LIMIT_BYTES)),
+        )
+        .route(
+            "/api/tools/image-enhance/status/{id}",
+            get(api_tools_image_enhance_status),
+        )
+        .route(
+            "/api/tools/image-enhance/save",
+            post(api_tools_image_enhance_save),
+        )
+        .route(
+            "/api/tools/image-enhance/tasks/{id}/{asset}",
+            delete(api_tools_image_enhance_delete_asset),
+        )
+        .route(
+            "/api/tools/local-image-enhance",
+            post(api_tools_local_image_enhance)
+                .layer(DefaultBodyLimit::max(IMAGE_ENHANCE_UPLOAD_LIMIT_BYTES)),
         )
         .route("/api/video/generate", post(api_video_generate))
         .route("/api/video/merge", post(api_video_merge))

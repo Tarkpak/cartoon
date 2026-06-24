@@ -18,6 +18,7 @@ interface LocalEnhanceResponse {
 }
 
 const { toast } = useToast()
+const route = useRoute()
 
 const preset = ref<LocalEnhancePreset>('light')
 const selectedFile = ref<File | null>(null)
@@ -29,6 +30,8 @@ const processing = ref(false)
 const errorMessage = ref('')
 const result = ref<LocalEnhanceResponse | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+
+const embeddedInUnifiedLocalEnhance = computed(() => route.path === '/tools/local-enhance')
 
 const presetOptions: Array<{
   value: LocalEnhancePreset
@@ -158,7 +161,10 @@ async function submitLocalEnhance() {
 <template>
   <div class="min-h-screen bg-background p-6 lg:p-8">
     <div class="mx-auto max-w-6xl space-y-6">
-      <div class="flex flex-col gap-3 border-b pb-5 md:flex-row md:items-end md:justify-between">
+      <div
+        v-if="!embeddedInUnifiedLocalEnhance"
+        class="flex flex-col gap-3 border-b pb-5 md:flex-row md:items-end md:justify-between"
+      >
         <div>
           <div class="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
             <WandSparkles class="h-4 w-4" />
@@ -176,7 +182,7 @@ async function submitLocalEnhance() {
           size="sm"
           as-child
         >
-          <NuxtLink to="/tools/video-enhance">
+          <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'video' } }">
             云端 AI 增强
           </NuxtLink>
         </Button>
