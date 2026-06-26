@@ -22,7 +22,7 @@ defineProps<{
 </script>
 
 <template>
-  <Card :class="cn('flex flex-col overflow-hidden', $props.class)">
+  <Card :class="cn('flex flex-col overflow-hidden shadow-none', $props.class)">
     <CardContent class="min-h-0 flex-1 p-0">
       <Table container-class="h-full">
         <TableHeader>

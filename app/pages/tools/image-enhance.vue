@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { FileImage, ListChecks, Loader2, Upload, WandSparkles } from 'lucide-vue-next'
+import AppPageContent from '@/components/layout/AppPageContent.vue'
+import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
 definePageMeta({
   layout: 'default'
@@ -16,6 +18,7 @@ interface EnhanceUploadResponse {
   success: boolean
   imageUrl: string
   sourceObjectKey?: string
+  reused?: boolean
 }
 
 const router = useRouter()
@@ -174,7 +177,7 @@ async function handleSourceFileChange(event: Event) {
     const response = await uploadSourceImage(formData)
     sourceImageUrl.value = response.imageUrl
     sourceObjectKey.value = response.sourceObjectKey || ''
-    toast.success('源图片上传完成', { description: file.name })
+    toast.success(response.reused ? '已复用源图片链接' : '源图片上传完成', { description: file.name })
   } catch (error) {
     selectedFileName.value = ''
     selectedFileSize.value = 0
@@ -209,24 +212,13 @@ async function submitTask() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-background p-6 lg:p-8">
-    <div class="mx-auto max-w-5xl space-y-6">
-      <div
-        v-if="!embeddedInUnifiedEnhance"
-        class="flex flex-col gap-3 border-b pb-5 md:flex-row md:items-end md:justify-between"
-      >
-        <div>
-          <div class="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
-            <WandSparkles class="h-4 w-4" />
-            工具
-          </div>
-          <h1 class="text-2xl font-semibold text-foreground">
-            图片增强
-          </h1>
-          <p class="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-            选择本地图片上传到 TOS 后，提交到火山引擎 AI MediaKit 进行云端增强。
-          </p>
-        </div>
+  <div class="flex h-full min-h-0 flex-1 flex-col bg-background">
+    <AppPageHeader
+      v-if="!embeddedInUnifiedEnhance"
+      title="图片增强"
+      description="选择本地图片上传到 TOS 后，提交到火山引擎 AI MediaKit 进行云端增强。"
+    >
+      <template #actions>
         <div class="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" as-child>
             <NuxtLink :to="{ path: '/tools/enhance-tasks', query: { type: 'image' } }">
@@ -240,8 +232,10 @@ async function submitTask() {
             </NuxtLink>
           </Button>
         </div>
-      </div>
+      </template>
+    </AppPageHeader>
 
+    <AppPageContent scroll inner-class="space-y-6">
       <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <Card>
           <CardHeader class="border-b">
@@ -375,6 +369,6 @@ async function submitTask() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </AppPageContent>
   </div>
 </template>

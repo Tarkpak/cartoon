@@ -42,36 +42,13 @@ function normalizeSelectValue(value: string) {
 </script>
 
 <template>
-  <Card>
-    <CardHeader class="gap-4 space-y-0 md:flex-row md:items-start md:justify-between">
-      <div class="space-y-1.5">
-        <CardTitle>模型调用日志</CardTitle>
-        <CardDescription>用于定位模型调用问题：可查看请求参数、返回结果、耗时与错误信息</CardDescription>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <slot name="tabs" />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          class="h-8 gap-1.5"
-          :aria-expanded="filtersOpen"
-          :aria-label="filtersOpen ? '收起筛选条件' : '展开筛选条件'"
-          @click="filtersOpen = !filtersOpen"
-        >
-          <ChevronDown
-            class="h-4 w-4 transition-transform"
-            :class="{ 'rotate-180': filtersOpen }"
-          />
-          {{ filtersOpen ? '收起' : '筛选' }}
-        </Button>
-      </div>
-    </CardHeader>
-    <CardContent
-      v-if="filtersOpen"
-      class="space-y-4"
-    >
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
+  <Card class="shadow-none">
+    <CardHeader class="p-4">
+      <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(180px,1fr)_160px_140px_96px_auto] lg:items-center">
+        <Input
+          v-model="keyword"
+          placeholder="请求/返回关键词"
+        />
         <Select
           :model-value="provider || props.allFilterValue"
           @update:model-value="(value) => provider = normalizeSelectValue(String(value))"
@@ -92,7 +69,55 @@ function normalizeSelectValue(value: string) {
             </SelectItem>
           </SelectContent>
         </Select>
-
+        <Select
+          :model-value="status || props.allFilterValue"
+          @update:model-value="(value) => status = normalizeSelectValue(String(value))"
+        >
+          <SelectTrigger class="h-9">
+            <SelectValue placeholder="全部状态" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem :value="props.allFilterValue">
+              全部状态
+            </SelectItem>
+            <SelectItem value="success">
+              success
+            </SelectItem>
+            <SelectItem value="error">
+              error
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        <Input
+          v-model.number="limit"
+          type="number"
+          min="1"
+          max="500"
+        />
+        <div class="flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            class="h-9 gap-1.5"
+            :aria-expanded="filtersOpen"
+            :aria-label="filtersOpen ? '收起筛选条件' : '展开筛选条件'"
+            @click="filtersOpen = !filtersOpen"
+          >
+            <ChevronDown
+              class="h-4 w-4 transition-transform"
+              :class="{ 'rotate-180': filtersOpen }"
+            />
+            {{ filtersOpen ? '收起' : '筛选' }}
+          </Button>
+        </div>
+      </div>
+    </CardHeader>
+    <CardContent
+      v-if="filtersOpen"
+      class="space-y-4 border-t p-4"
+    >
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
         <Select
           :model-value="operation || props.allFilterValue"
           @update:model-value="(value) => operation = normalizeSelectValue(String(value))"
@@ -110,26 +135,6 @@ function normalizeSelectValue(value: string) {
               :value="item"
             >
               {{ item }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select
-          :model-value="status || props.allFilterValue"
-          @update:model-value="(value) => status = normalizeSelectValue(String(value))"
-        >
-          <SelectTrigger class="h-9">
-            <SelectValue placeholder="全部状态" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem :value="props.allFilterValue">
-              全部状态
-            </SelectItem>
-            <SelectItem value="success">
-              success
-            </SelectItem>
-            <SelectItem value="error">
-              error
             </SelectItem>
           </SelectContent>
         </Select>
@@ -153,17 +158,6 @@ function normalizeSelectValue(value: string) {
         <Input
           v-model="taskId"
           placeholder="Task ID"
-        />
-        <Input
-          v-model="keyword"
-          placeholder="请求/返回关键词"
-        />
-
-        <Input
-          v-model.number="limit"
-          type="number"
-          min="1"
-          max="500"
         />
       </div>
 

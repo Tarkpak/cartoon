@@ -8,7 +8,7 @@ withDefaults(defineProps<{
 </script>
 
 <template>
-  <div class="flex flex-col gap-3 @xl:flex-row @xl:items-start @xl:justify-between">
+  <div class="flex min-h-16 flex-col justify-center gap-3 @xl:flex-row @xl:items-center @xl:justify-between">
     <div class="min-w-0 space-y-1">
       <h2 class="text-lg font-semibold">
         {{ title }}

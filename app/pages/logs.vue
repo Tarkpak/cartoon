@@ -2,6 +2,9 @@
 import AppLogsPanel from '@/components/app-logs/AppLogsPanel.vue'
 import LogsTabSwitcher from '@/components/logs/LogsTabSwitcher.vue'
 import ModelLogsPanel from '@/components/model-logs/ModelLogsPanel.vue'
+import AppPage from '@/components/layout/AppPage.vue'
+import AppPageContent from '@/components/layout/AppPageContent.vue'
+import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
 definePageMeta({ layout: 'default' })
 
@@ -36,28 +39,28 @@ function selectTab(tab: LogsTab) {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col overflow-hidden bg-background p-4 md:p-6">
-    <AppLogsPanel
-      v-if="activeTab === 'system'"
-      :initial-request-id="requestIdFilter"
+  <AppPage>
+    <AppPageHeader
+      title="日志"
+      description="查看系统运行日志和大模型调用记录"
     >
-      <template #tabs>
-        <LogsTabSwitcher
-          :active-tab="activeTab"
-          @select="selectTab"
-        />
+      <template #actions>
+      <LogsTabSwitcher
+        :active-tab="activeTab"
+        @select="selectTab"
+      />
       </template>
-    </AppLogsPanel>
-    <ModelLogsPanel
-      v-else
-      :initial-request-id="requestIdFilter"
-    >
-      <template #tabs>
-        <LogsTabSwitcher
-          :active-tab="activeTab"
-          @select="selectTab"
-        />
-      </template>
-    </ModelLogsPanel>
-  </div>
+    </AppPageHeader>
+
+    <AppPageContent>
+      <AppLogsPanel
+        v-if="activeTab === 'system'"
+        :initial-request-id="requestIdFilter"
+      />
+      <ModelLogsPanel
+        v-else
+        :initial-request-id="requestIdFilter"
+      />
+    </AppPageContent>
+  </AppPage>
 </template>

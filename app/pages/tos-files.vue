@@ -5,8 +5,12 @@ import {
   File,
   Folder,
   Loader2,
+  RefreshCw,
   Video
 } from 'lucide-vue-next'
+import AppPage from '@/components/layout/AppPage.vue'
+import AppPageContent from '@/components/layout/AppPageContent.vue'
+import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
 type TosFileEntry = {
   key: string
@@ -295,8 +299,42 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full min-h-0 overflow-hidden bg-background">
-    <div class="mx-auto flex h-full min-h-0 max-w-7xl flex-col gap-4 p-4 md:p-6">
+  <AppPage>
+    <AppPageHeader
+      title="云端素材"
+      description="浏览 TOS 中的图片、视频和子目录"
+    >
+      <template #actions>
+          <div class="flex rounded-md border bg-muted/30 p-1">
+            <button
+              v-for="tab in assetTabs"
+              :key="tab.id"
+              type="button"
+              class="inline-flex items-center rounded-sm px-3 py-1.5 text-sm transition-colors"
+              :class="activeAssetTabId === tab.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+              :disabled="loading"
+              @click="switchAssetTab(tab.prefix)"
+            >
+              {{ tab.label }}
+            </button>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            class="gap-2"
+            :disabled="loading"
+            @click="loadFiles({ reset: true })"
+          >
+            <RefreshCw
+              class="h-4 w-4"
+              :class="loading ? 'animate-spin' : ''"
+            />
+            刷新
+          </Button>
+      </template>
+    </AppPageHeader>
+
+    <AppPageContent inner-class="flex h-full min-h-0 flex-col gap-4">
       <div
         v-if="errorMessage"
         class="shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
@@ -347,18 +385,9 @@ onMounted(() => {
           <h2 class="text-sm font-medium">
             对象列表
           </h2>
-          <div class="flex items-center gap-2">
-            <Button
-              v-for="tab in assetTabs"
-              :key="tab.id"
-              size="sm"
-              :variant="activeAssetTabId === tab.id ? 'default' : 'outline'"
-              :disabled="loading"
-              @click="switchAssetTab(tab.prefix)"
-            >
-              {{ tab.label }}
-            </Button>
-          </div>
+          <p class="text-xs text-muted-foreground">
+            当前页 {{ currentPage }}
+          </p>
         </div>
 
         <div
@@ -406,7 +435,7 @@ onMounted(() => {
               <TableHead class="whitespace-nowrap">
                 存储类型
               </TableHead>
-              <TableHead class="whitespace-nowrap text-right">
+              <TableHead class="sticky right-0 top-0 z-30 whitespace-nowrap bg-background text-right shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
                 操作
               </TableHead>
             </TableRow>
@@ -439,7 +468,7 @@ onMounted(() => {
               <TableCell class="whitespace-nowrap">
                 -
               </TableCell>
-              <TableCell />
+              <TableCell class="sticky right-0 z-20 bg-background text-right shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]" />
             </TableRow>
 
             <TableRow
@@ -502,7 +531,7 @@ onMounted(() => {
               <TableCell class="whitespace-nowrap">
                 {{ file.storageClass || '-' }}
               </TableCell>
-              <TableCell class="text-right">
+              <TableCell class="sticky right-0 z-20 bg-background text-right shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
                 <Button
                   as="a"
                   variant="ghost"
@@ -578,7 +607,7 @@ onMounted(() => {
           </div>
         </div>
       </div>
-    </div>
+    </AppPageContent>
     <Teleport to="body">
       <div
         v-if="hoverPreviewFile"
@@ -616,5 +645,5 @@ onMounted(() => {
       :src="imagePreviewSrc"
       :alt="imagePreviewAlt"
     />
-  </div>
+  </AppPage>
 </template>

@@ -212,7 +212,7 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
           <TableHead class="w-[180px] whitespace-nowrap">
             更新时间
           </TableHead>
-          <TableHead class="sticky right-0 top-0 z-30 w-[72px] whitespace-nowrap bg-background text-center shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
+          <TableHead class="sticky right-0 top-0 z-30 w-[72px] whitespace-nowrap bg-background text-center shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
             操作
           </TableHead>
         </TableRow>
@@ -270,12 +270,12 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
               </span>
             </div>
           </TableCell>
-          <TableCell class="sticky right-0 z-20 w-[72px] whitespace-nowrap bg-background text-center shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)] group-hover:bg-muted">
+          <TableCell class="sticky right-0 z-20 w-[72px] whitespace-nowrap bg-background text-center shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
             <div class="inline-flex items-center justify-center gap-1">
               <Button
                 variant="ghost"
                 size="icon"
-                class="h-8 w-8 text-muted-foreground opacity-100 transition-opacity hover:text-destructive focus-visible:opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
+                class="h-8 w-8 text-muted-foreground hover:text-destructive"
                 title="删除项目"
                 aria-label="删除项目"
                 @click="emit('confirm-delete', project, $event)"

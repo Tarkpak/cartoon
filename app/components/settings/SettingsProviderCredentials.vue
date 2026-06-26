@@ -31,9 +31,11 @@ const { authenticated: cloudAuthenticated, loadStatus: loadCloudStatus } = useCl
 
 const baseUrl = ref('')
 const apiKeyInput = ref('')
+const mediakitApiKeyInput = ref('')
 const accessKeyInput = ref('')
 const secretKeyInput = ref('')
 const hasApiKey = ref(false)
+const hasMediakitApiKey = ref(false)
 const hasAccessKey = ref(false)
 const hasSecretKey = ref(false)
 
@@ -44,6 +46,7 @@ function applyData(data: ProviderCredentialsPublic) {
   const entry = data[props.provider]
   baseUrl.value = entry?.baseUrl || ''
   apiKeyInput.value = ''
+  mediakitApiKeyInput.value = ''
   accessKeyInput.value = ''
   secretKeyInput.value = ''
   if (props.provider === 'kling') {
@@ -51,6 +54,9 @@ function applyData(data: ProviderCredentialsPublic) {
     hasSecretKey.value = (entry as ProviderCredentialsPublic['kling'])?.hasSecretKey ?? false
   } else {
     hasApiKey.value = (entry as ProviderCredentialsPublic['gemini'])?.hasApiKey ?? false
+    hasMediakitApiKey.value = props.provider === 'volcengine'
+      ? ((entry as ProviderCredentialsPublic['volcengine'])?.hasMediakitApiKey ?? false)
+      : false
   }
 }
 
@@ -89,6 +95,9 @@ async function saveConfig() {
       }
     } else if (apiKeyInput.value || !hasApiKey.value) {
       body.apiKey = apiKeyInput.value
+    }
+    if (props.provider === 'volcengine' && (mediakitApiKeyInput.value || !hasMediakitApiKey.value)) {
+      body.mediakitApiKey = mediakitApiKeyInput.value
     }
 
     const response = await $fetch<ProviderCredentialsResponse>(
@@ -226,6 +235,32 @@ onMounted(() => {
         >
           支持多个密钥轮换，用英文逗号、分号或换行分隔。
         </p>
+      </div>
+
+      <div
+        v-if="props.provider === 'volcengine'"
+        class="space-y-1.5"
+      >
+        <div class="flex items-center justify-between">
+          <label class="text-xs text-muted-foreground">AI MediaKit API Key</label>
+          <span
+            class="inline-flex items-center gap-1 text-xs"
+            :class="hasMediakitApiKey ? 'text-emerald-600' : 'text-muted-foreground'"
+          >
+            <component
+              :is="hasMediakitApiKey ? Check : X"
+              class="h-3 w-3"
+            />
+            {{ hasMediakitApiKey ? '已保存' : '未保存' }}
+          </span>
+        </div>
+        <Input
+          v-model="mediakitApiKeyInput"
+          class="h-9 text-sm"
+          type="password"
+          :disabled="cloudAuthenticated"
+          :placeholder="hasMediakitApiKey ? '留空则继续使用已保存密钥' : '请输入 AI MediaKit API Key'"
+        />
       </div>
 
       <div class="space-y-1.5">

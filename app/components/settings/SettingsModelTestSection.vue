@@ -1,10 +1,25 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue'
-import { Loader2, TriangleAlert } from 'lucide-vue-next'
+import { ExternalLink, Loader2, TriangleAlert } from 'lucide-vue-next'
 import { useSettingsModelTest } from '@/composables/useSettingsModelTest'
 import SettingsModelTestControls from '@/components/settings/SettingsModelTestControls.vue'
 import SettingsModelTestResultPanel from '@/components/settings/SettingsModelTestResultPanel.vue'
-import SettingsModelTestSidebar from '@/components/settings/SettingsModelTestSidebar.vue'
+import SettingsProviderLogo from '@/components/settings/SettingsProviderLogo.vue'
+import {
+  getModelDocUrl,
+  getModelMaxDuration,
+  modelSupportsReferenceImage,
+  modelSupportsThinking
+} from '@/lib/settings-models'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger
+} from '@/components/ui/select'
 
 const {
   loading,
@@ -81,10 +96,32 @@ const {
   triggerFileInput,
   openReferenceImagePreview,
   selectTestModel,
-  toggleProvider,
   retryLoadModels,
   testModel
 } = useSettingsModelTest()
+
+const selectedModelValue = computed({
+  get: () => currentSelectedModel.value,
+  set: (modelId: string) => {
+    if (!modelId) return
+    selectTestModel(activeTab.value, modelId)
+  }
+})
+
+const currentSelectedModelMeta = computed(() => {
+  for (const group of groupedModels.value) {
+    const model = group.models.find(item => item.model === currentSelectedModel.value)
+    if (model) {
+      return {
+        provider: group.provider,
+        providerName: group.displayName,
+        model
+      }
+    }
+  }
+
+  return null
+})
 
 function setFileInputElement(element: Element | ComponentPublicInstance | null) {
   const component = element as (ComponentPublicInstance & { inputElement?: HTMLInputElement }) | null
@@ -99,7 +136,7 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden xl:flex-row">
+  <div class="flex h-full flex-col overflow-hidden">
     <div
       v-if="loading"
       class="flex flex-1 items-center justify-center"
@@ -136,15 +173,126 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
     </div>
 
     <template v-else-if="models">
-      <SettingsModelTestSidebar
-        v-model:active-tab="activeTab"
-        :current-selected-model="currentSelectedModel"
-        :grouped-models="groupedModels"
-        @select-model="({ type, modelId }) => selectTestModel(type, modelId)"
-        @toggle-provider="toggleProvider"
-      />
-
       <div class="flex flex-1 flex-col overflow-hidden">
+        <div class="bg-background px-4 py-3 md:px-6">
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div class="min-w-0">
+              <div class="text-xs font-medium text-muted-foreground">
+                当前测试模型
+              </div>
+              <div
+                v-if="currentSelectedModelMeta"
+                class="mt-1 flex min-w-0 items-center gap-2"
+              >
+                <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-muted/30">
+                  <SettingsProviderLogo
+                    :provider="currentSelectedModelMeta.provider"
+                    size-class="h-4 w-4"
+                  />
+                </div>
+                <div class="min-w-0">
+                  <div class="truncate text-sm font-semibold">
+                    {{ currentSelectedModelMeta.model.displayName }}
+                  </div>
+                  <div class="truncate text-xs text-muted-foreground">
+                    {{ currentSelectedModelMeta.providerName }} / {{ currentSelectedModelMeta.model.model }}
+                  </div>
+                </div>
+              </div>
+              <div
+                v-else
+                class="mt-1 text-sm text-muted-foreground"
+              >
+                当前类型暂无可用模型
+              </div>
+            </div>
+
+            <Select
+              v-if="groupedModels.length > 0"
+              v-model="selectedModelValue"
+            >
+              <SelectTrigger class="h-10 w-full min-w-0 bg-background text-sm lg:w-[360px]">
+                <div
+                  v-if="currentSelectedModelMeta"
+                  class="flex min-w-0 items-center gap-2"
+                >
+                  <SettingsProviderLogo
+                    :provider="currentSelectedModelMeta.provider"
+                    size-class="h-4 w-4"
+                  />
+                  <span class="truncate">{{ currentSelectedModelMeta.providerName }} / {{ currentSelectedModelMeta.model.displayName }}</span>
+                </div>
+                <span
+                  v-else
+                  class="text-muted-foreground"
+                >
+                  选择测试模型
+                </span>
+              </SelectTrigger>
+              <SelectContent class="max-h-[420px] lg:w-[420px]">
+                <template
+                  v-for="(group, groupIndex) in groupedModels"
+                  :key="group.provider"
+                >
+                  <SelectSeparator v-if="groupIndex > 0" />
+                  <SelectGroup class="p-1">
+                    <SelectLabel class="flex items-center gap-2 px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                      <SettingsProviderLogo
+                        :provider="group.provider"
+                        size-class="h-4 w-4"
+                      />
+                      <span class="flex-1 truncate">{{ group.displayName }}</span>
+                      <span class="text-[11px] font-normal text-muted-foreground/70">{{ group.models.length }}</span>
+                    </SelectLabel>
+                    <SelectItem
+                      v-for="model in group.models"
+                      :key="`${group.provider}:${model.model}`"
+                      :value="model.model"
+                      class="items-start gap-2 py-2 pl-2 pr-8"
+                    >
+                      <div class="min-w-0 flex-1">
+                        <div class="flex min-w-0 items-center gap-1.5">
+                          <span class="truncate text-sm font-medium">{{ model.displayName }}</span>
+                          <a
+                            v-if="getModelDocUrl(model)"
+                            :href="getModelDocUrl(model)"
+                            class="shrink-0 text-muted-foreground/60 hover:text-primary"
+                            target="_blank"
+                            rel="noreferrer"
+                            @click.stop
+                          >
+                            <ExternalLink class="h-3 w-3" />
+                          </a>
+                        </div>
+                        <div class="mt-0.5 truncate text-xs text-muted-foreground">
+                          {{ model.model }}
+                        </div>
+                        <div
+                          v-if="modelSupportsThinking(model) || modelSupportsReferenceImage(model) || getModelMaxDuration(model)"
+                          class="mt-1 flex flex-wrap gap-1"
+                        >
+                          <span
+                            v-if="modelSupportsThinking(model)"
+                            class="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+                          >思考</span>
+                          <span
+                            v-if="modelSupportsReferenceImage(model)"
+                            class="rounded bg-cyan-500/10 px-1.5 py-0.5 text-[11px] text-cyan-700 dark:text-cyan-300"
+                          >参考图</span>
+                          <span
+                            v-if="getModelMaxDuration(model)"
+                            class="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                          >{{ getModelMaxDuration(model) }}s</span>
+                        </div>
+                      </div>
+                    </SelectItem>
+                  </SelectGroup>
+                </template>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
         <SettingsModelTestControls
           v-model:active-tab="activeTab"
           v-model:custom-prompts="customPrompts"

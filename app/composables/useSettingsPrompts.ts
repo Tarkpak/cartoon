@@ -79,6 +79,7 @@ export function useSettingsPrompts() {
 
   const selectedPromptId = ref<string | null>(null)
   const selectedPromptTemplate = ref<PromptTemplate | null>(null)
+  const activePromptStage = useState<PromptFlowStage>('settings:prompt-stage', () => 'parse')
   const expandedPromptStages = ref<Set<PromptFlowStage>>(new Set(PROMPT_FLOW_STAGES))
 
   const groupedPrompts = computed(() => {
@@ -113,6 +114,14 @@ export function useSettingsPrompts() {
         }
       })
       .filter(group => group.templates.length > 0)
+  })
+
+  const activePromptStageGroup = computed(() => {
+    return groupedPromptTemplates.value.find(group => group.stage === activePromptStage.value) || null
+  })
+
+  const activePromptStageTemplates = computed(() => {
+    return activePromptStageGroup.value?.templates || []
   })
 
   const selectedPromptCategory = computed<PromptCategory | null>(() => {
@@ -166,6 +175,7 @@ export function useSettingsPrompts() {
     const selectedMeta = getPromptTemplateMetadataForWorkflow()
       .find(item => item.id === selectedPromptTemplate.value?.id)
     if (selectedMeta) {
+      activePromptStage.value = selectedMeta.stage
       expandPromptStage(selectedMeta.stage)
     }
   }
@@ -230,7 +240,20 @@ export function useSettingsPrompts() {
     const selectedMeta = getPromptTemplateMetadataForWorkflow()
       .find(item => item.id === selectedPromptTemplate.value?.id)
     if (selectedMeta) {
+      activePromptStage.value = selectedMeta.stage
       expandPromptStage(selectedMeta.stage)
+    }
+  }
+
+  function selectPromptStage(stage: PromptFlowStage) {
+    activePromptStage.value = stage
+    expandPromptStage(stage)
+    const currentStageTemplates = activePromptStageTemplates.value
+    if (
+      currentStageTemplates.length > 0
+      && !currentStageTemplates.some(template => template.id === selectedPromptId.value)
+    ) {
+      selectPrompt(currentStageTemplates[0]!.id)
     }
   }
 
@@ -370,6 +393,13 @@ export function useSettingsPrompts() {
   function handlePromptSaved() {
   }
 
+  watch(activePromptStage, (stage) => {
+    const currentStageTemplates = activePromptStageTemplates.value
+    if (currentStageTemplates.length === 0) return
+    if (currentStageTemplates.some(template => template.id === selectedPromptId.value)) return
+    selectPrompt(currentStageTemplates[0]!.id)
+  })
+
   onMounted(() => {
     if (promptTemplates.value.length > 0) return
     void Promise.all([
@@ -393,9 +423,13 @@ export function useSettingsPrompts() {
     selectedPromptId,
     selectedPromptTemplate,
     selectedPromptCategory,
+    activePromptStage,
+    activePromptStageGroup,
+    activePromptStageTemplates,
     expandedPromptStages,
     groupedPromptTemplates,
     selectPrompt,
+    selectPromptStage,
     togglePromptStage,
     activatePromptProfile,
     createPromptProfile,

@@ -1,9 +1,24 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Loader2, FileText, TriangleAlert } from 'lucide-vue-next'
-import SettingsPromptSidebar from '@/components/settings/SettingsPromptSidebar.vue'
+import {
+  FileText,
+  Loader2,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Trash2,
+  TriangleAlert
+} from 'lucide-vue-next'
 import SettingsTextInputDialog from '@/components/settings/SettingsTextInputDialog.vue'
 import SettingsConfirmDialog from '@/components/settings/SettingsConfirmDialog.vue'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 
 const {
   promptsLoading,
@@ -17,18 +32,15 @@ const {
   promptTemplates,
   selectedPromptId,
   selectedPromptTemplate,
-  groupedPromptTemplates,
+  activePromptStageTemplates,
   activatePromptProfile,
   createPromptProfile,
   updatePromptProfileName,
   deletePromptProfile,
   selectPrompt,
-  togglePromptStage,
   handlePromptUpdate,
   handlePromptSaved
 } = useSettingsPrompts()
-
-const promptFlowLabel = '剧本解析 → 资产准备 → 分镜视频'
 
 type TextDialogMode = 'create' | 'rename'
 
@@ -40,6 +52,14 @@ const deleteDialogOpen = ref(false)
 const deleteDialogError = ref('')
 
 const activateError = ref('')
+
+const selectedPromptValue = computed({
+  get: () => selectedPromptId.value || '',
+  set: (templateId: string) => {
+    if (!templateId) return
+    selectPrompt(templateId)
+  }
+})
 
 const textDialogConfig = computed(() => {
   switch (textDialogMode.value) {
@@ -137,7 +157,7 @@ async function handleActivateProfile(profileId: string) {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden xl:flex-row">
+  <div class="flex h-full flex-col overflow-hidden">
     <div
       v-if="promptsLoading && !selectedPromptTemplate"
       class="flex flex-1 items-center justify-center text-muted-foreground"
@@ -147,27 +167,137 @@ async function handleActivateProfile(profileId: string) {
     </div>
 
     <template v-else>
-      <SettingsPromptSidebar
-        :grouped-prompt-templates="groupedPromptTemplates"
-        :active-profile-id="activePromptProfileId"
-        :active-profile-readonly="isActiveReadonlyPromptProfile"
-        :can-rename-profile="canRenameActivePromptProfile"
-        :can-delete-profile="canDeleteActivePromptProfile"
-        :profile-busy="promptProfileBusy"
-        :profiles="promptProfiles"
-        :prompt-count="promptTemplates.length"
-        :prompts-loading="promptsLoading"
-        :selected-prompt-id="selectedPromptId"
-        :workflow-label="promptFlowLabel"
-        @activate-profile="handleActivateProfile"
-        @create-profile="handleCreateProfile"
-        @delete-profile="handleDeleteProfile"
-        @rename-profile="handleRenameProfile"
-        @select-prompt="selectPrompt"
-        @toggle-stage="togglePromptStage"
-      />
-
       <div class="@container flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div class="bg-background px-4 py-2.5 md:px-6">
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
+            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <span class="shrink-0 text-sm font-medium text-muted-foreground">
+                配置方案
+              </span>
+              <Select
+                :model-value="activePromptProfileId"
+                :disabled="promptProfileBusy || promptProfiles.length === 0"
+                @update:model-value="handleActivateProfile(String($event))"
+              >
+                <SelectTrigger class="h-9 w-full text-sm sm:w-56">
+                  <SelectValue placeholder="选择配置方案" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="profile in promptProfiles"
+                    :key="profile.id"
+                    :value="profile.id"
+                  >
+                    {{ profile.name }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="h-9 gap-1.5"
+                    :disabled="promptProfileBusy"
+                  >
+                    <MoreHorizontal class="h-4 w-4" />
+                    方案管理
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  class="w-44"
+                >
+                  <DropdownMenuLabel class="text-xs text-muted-foreground">
+                    配置方案
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem @select="handleCreateProfile">
+                    <Plus class="h-4 w-4 text-muted-foreground" />
+                    新建方案
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    :disabled="!canRenameActivePromptProfile"
+                    @select="handleRenameProfile"
+                  >
+                    <Pencil class="h-4 w-4 text-muted-foreground" />
+                    重命名
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    destructive
+                    :disabled="!canDeleteActivePromptProfile"
+                    @select="handleDeleteProfile"
+                  >
+                    <Trash2 class="h-4 w-4" />
+                    删除方案
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            <div class="flex min-w-0 flex-1 flex-wrap items-center justify-start gap-2 xl:justify-end">
+              <span class="shrink-0 text-sm font-medium text-muted-foreground">
+                模板
+              </span>
+              <Select
+                v-if="activePromptStageTemplates.length > 0"
+                v-model="selectedPromptValue"
+              >
+                <SelectTrigger class="h-9 w-full min-w-0 bg-background text-sm sm:w-[360px]">
+                  <div
+                    v-if="selectedPromptTemplate"
+                    class="flex min-w-0 items-center gap-2"
+                  >
+                    <FileText class="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span class="truncate">{{ selectedPromptTemplate.name }}</span>
+                    <span
+                      v-if="selectedPromptTemplate.isCustomized && !isActiveReadonlyPromptProfile"
+                      class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                    >
+                      已自定义
+                    </span>
+                  </div>
+                  <span
+                    v-else
+                    class="text-muted-foreground"
+                  >
+                    选择提示词模板
+                  </span>
+                </SelectTrigger>
+                <SelectContent class="max-h-[420px] sm:w-[420px]">
+                  <SelectItem
+                    v-for="template in activePromptStageTemplates"
+                    :key="template.id"
+                    :value="template.id"
+                    class="items-start py-2 pl-2 pr-8"
+                  >
+                    <div class="min-w-0 flex-1">
+                      <div class="flex min-w-0 items-center gap-1.5">
+                        <span class="truncate text-sm font-medium">{{ template.name }}</span>
+                        <span
+                          v-if="template.isCustomized && !isActiveReadonlyPromptProfile"
+                          class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                        >
+                          已自定义
+                        </span>
+                      </div>
+                      <div class="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                        {{ template.description }}
+                      </div>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <span
+                v-else
+                class="text-sm text-muted-foreground"
+              >
+                当前阶段暂无模板
+              </span>
+            </div>
+          </div>
+        </div>
+
         <div
           v-if="activateError"
           class="flex flex-shrink-0 items-center gap-2 border-b bg-destructive/5 px-6 py-2.5 text-sm text-destructive"

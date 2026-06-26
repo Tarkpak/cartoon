@@ -5,6 +5,26 @@ import SettingsWorkflowModelsSection from '@/components/settings/SettingsWorkflo
 import SettingsModelTestSection from '@/components/settings/SettingsModelTestSection.vue'
 import SettingsPromptSection from '@/components/settings/SettingsPromptSection.vue'
 import SettingsStyleSection from '@/components/settings/SettingsStyleSection.vue'
+import {
+  SETTINGS_MODEL_TEST_TABS,
+  type ModelTestTab
+} from '@/lib/settings-models'
+import {
+  WORKFLOW_CATEGORY_CONFIG,
+  WORKFLOW_CATEGORY_ORDER,
+  type WorkflowCategoryKey
+} from '@/composables/useSettingsWorkflowModels'
+import {
+  PROMPT_STAGE_CONFIG,
+  type PromptStageMeta
+} from '@/composables/useSettingsPrompts'
+import {
+  PROMPT_FLOW_STAGES,
+  type PromptFlowStage
+} from '#shared/types/prompt-template'
+import AppPage from '@/components/layout/AppPage.vue'
+import AppPageContent from '@/components/layout/AppPageContent.vue'
+import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
 type MenuSection = 'general' | 'workflow' | 'test' | 'prompts' | 'styles'
 
@@ -25,6 +45,19 @@ const LEGACY_SUB_TO_SECTION: Record<string, MenuSection> = {
 
 const activeSection = ref<MenuSection>(DEFAULT_SETTINGS_SECTION)
 const restoringMenuState = ref(true)
+const activeWorkflowCategory = useState<WorkflowCategoryKey>('settings:workflow-category', () => 'text')
+const activeModelTestTab = useState<ModelTestTab>('settings:model-test-tab', () => 'text')
+const activePromptStage = useState<PromptFlowStage>('settings:prompt-stage', () => 'parse')
+
+const workflowCategoryTabs = WORKFLOW_CATEGORY_ORDER.map(key => ({
+  key,
+  ...WORKFLOW_CATEGORY_CONFIG[key]
+}))
+
+const promptStageTabs: Array<PromptStageMeta & { key: PromptFlowStage }> = PROMPT_FLOW_STAGES.map(key => ({
+  key,
+  ...PROMPT_STAGE_CONFIG[key]
+}))
 
 function getSingleQueryValue(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) return value[0]
@@ -53,6 +86,18 @@ function saveSection(section: MenuSection) {
   } catch {
     // ignore localStorage write failures
   }
+}
+
+function switchWorkflowCategory(category: WorkflowCategoryKey) {
+  activeWorkflowCategory.value = category
+}
+
+function switchModelTestTab(tab: ModelTestTab) {
+  activeModelTestTab.value = tab
+}
+
+function switchPromptStage(stage: PromptFlowStage) {
+  activePromptStage.value = stage
 }
 
 function getSectionFromRoute(): MenuSection | null {
@@ -111,14 +156,83 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex overflow-hidden">
-    <div class="flex-1 flex flex-col overflow-hidden">
+  <AppPage>
+    <AppPageHeader
+      title="设置"
+      description="配置模型、提示词、画风和应用偏好"
+      class="h-16"
+    >
+      <template #actions>
+        <div
+          v-if="activeSection === 'workflow'"
+          class="flex rounded-md border bg-muted/30 p-1"
+        >
+          <button
+            v-for="tab in workflowCategoryTabs"
+            :key="tab.key"
+            type="button"
+            class="inline-flex items-center rounded-sm px-3 py-1.5 text-sm transition-colors"
+            :class="activeWorkflowCategory === tab.key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+            @click="switchWorkflowCategory(tab.key)"
+          >
+            <component
+              :is="tab.icon"
+              class="mr-2 h-4 w-4"
+            />
+            {{ tab.name }}
+          </button>
+        </div>
+        <div
+          v-else-if="activeSection === 'test'"
+          class="flex rounded-md border bg-muted/30 p-1"
+        >
+          <button
+            v-for="tab in SETTINGS_MODEL_TEST_TABS"
+            :key="tab.key"
+            type="button"
+            class="inline-flex items-center rounded-sm px-3 py-1.5 text-sm transition-colors"
+            :class="activeModelTestTab === tab.key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+            @click="switchModelTestTab(tab.key)"
+          >
+            <component
+              :is="tab.icon"
+              class="mr-2 h-4 w-4"
+            />
+            {{ tab.label }}
+          </button>
+        </div>
+        <div
+          v-else-if="activeSection === 'prompts'"
+          class="flex rounded-md border bg-muted/30 p-1"
+        >
+          <button
+            v-for="tab in promptStageTabs"
+            :key="tab.key"
+            type="button"
+            class="inline-flex items-center rounded-sm px-3 py-1.5 text-sm transition-colors"
+            :class="activePromptStage === tab.key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+            @click="switchPromptStage(tab.key)"
+          >
+            <component
+              :is="tab.icon"
+              class="mr-2 h-4 w-4"
+            />
+            {{ tab.name }}
+          </button>
+        </div>
+      </template>
+    </AppPageHeader>
+
+    <AppPageContent
+      :padded="false"
+      class="overflow-hidden"
+    >
       <KeepAlive>
         <component
           :is="currentSectionComponent"
           class="h-full"
         />
       </KeepAlive>
-    </div>
-  </div>
+    </AppPageContent>
+  </AppPage>
 </template>

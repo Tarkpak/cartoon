@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ExternalLink, FileVideo, Loader2, MonitorCog, Sparkles, Upload, WandSparkles } from 'lucide-vue-next'
+import { ExternalLink, FileVideo, Loader2, MonitorCog, Sparkles, Upload } from 'lucide-vue-next'
+import AppPageContent from '@/components/layout/AppPageContent.vue'
+import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
 definePageMeta({
   layout: 'default'
@@ -159,24 +161,13 @@ async function submitLocalEnhance() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-background p-6 lg:p-8">
-    <div class="mx-auto max-w-6xl space-y-6">
-      <div
-        v-if="!embeddedInUnifiedLocalEnhance"
-        class="flex flex-col gap-3 border-b pb-5 md:flex-row md:items-end md:justify-between"
-      >
-        <div>
-          <div class="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
-            <WandSparkles class="h-4 w-4" />
-            工具
-          </div>
-          <h1 class="text-2xl font-semibold text-foreground">
-            本地视频增强
-          </h1>
-          <p class="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-            使用本机 FFmpeg 对视频做基础去噪、锐化、放大或插帧，不上传云端。
-          </p>
-        </div>
+  <div class="flex h-full min-h-0 flex-1 flex-col bg-background">
+    <AppPageHeader
+      v-if="!embeddedInUnifiedLocalEnhance"
+      title="本地视频增强"
+      description="使用本机 FFmpeg 对视频做基础去噪、锐化、放大或插帧，不上传云端。"
+    >
+      <template #actions>
         <Button
           variant="outline"
           size="sm"
@@ -186,8 +177,10 @@ async function submitLocalEnhance() {
             云端 AI 增强
           </NuxtLink>
         </Button>
-      </div>
+      </template>
+    </AppPageHeader>
 
+    <AppPageContent scroll inner-class="space-y-6">
       <Card>
         <CardHeader class="border-b">
           <CardTitle class="text-lg">
@@ -356,6 +349,6 @@ async function submitLocalEnhance() {
           </section>
         </CardContent>
       </Card>
-    </div>
+    </AppPageContent>
   </div>
 </template>

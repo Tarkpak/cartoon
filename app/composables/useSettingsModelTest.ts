@@ -20,7 +20,7 @@ export function useSettingsModelTest() {
   const DEFAULT_IMAGE_QUALITY = 'auto'
   const MODEL_TEST_TAB_STORAGE_KEY = 'playlet:model-test-active-tab'
 
-  const activeTab = ref<ModelTestTab>('text')
+  const activeTab = useState<ModelTestTab>('settings:model-test-tab', () => 'text')
   const expandedProviders = ref<Set<string>>(new Set())
   const customPrompts = ref<Record<ModelTestTab, string>>({
     text: '',

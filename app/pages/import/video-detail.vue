@@ -15,6 +15,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useVideoImport, type VideoImportRetryStep } from '@/composables/useVideoImport'
+import AppPage from '@/components/layout/AppPage.vue'
+import AppPageContent from '@/components/layout/AppPageContent.vue'
+import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
 definePageMeta({
   layout: 'default'
@@ -425,8 +428,8 @@ async function handleDeleteTask(taskId: string) {
 </script>
 
 <template>
-  <div class="flex min-h-full flex-col gap-4 overflow-y-auto p-4 md:p-6">
-    <div class="flex items-center justify-between gap-4">
+  <AppPage>
+    <AppPageHeader>
       <div class="flex min-w-0 items-center gap-3">
         <Button
           variant="ghost"
@@ -437,13 +440,14 @@ async function handleDeleteTask(taskId: string) {
           <ArrowLeft class="h-4 w-4" />
           返回任务列表
         </Button>
-        <h1 class="truncate text-2xl font-semibold tracking-normal">
+        <h1 class="truncate text-xl font-semibold tracking-normal">
           {{ selectedTask?.originalFilename || '视频转项目详情' }}
         </h1>
         <Badge v-if="selectedTask" :variant="statusVariant(selectedTask.status)" class="shrink-0">
           {{ currentStageLabel }}
         </Badge>
       </div>
+      <template #actions>
       <Button
         v-if="selectedTask && primaryAction"
         class="gap-2 shrink-0"
@@ -454,17 +458,21 @@ async function handleDeleteTask(taskId: string) {
         <FolderInput v-else class="h-4 w-4" />
         {{ primaryAction.label }}
       </Button>
-    </div>
+      </template>
+    </AppPageHeader>
 
-    <div
-      v-if="error"
-      class="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+    <AppPageContent
+      scroll
+      inner-class="flex flex-col gap-4"
     >
-      <AlertCircle class="h-4 w-4 shrink-0" />
-      {{ error }}
-    </div>
+      <div
+        v-if="error"
+        class="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+      >
+        <AlertCircle class="h-4 w-4 shrink-0" />
+        {{ error }}
+      </div>
 
-    <div class="flex flex-col gap-4">
       <Card class="flex flex-col overflow-hidden">
         <CardHeader class="border-b pb-4">
           <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -814,7 +822,7 @@ async function handleDeleteTask(taskId: string) {
           </Button>
         </CardContent>
       </Card>
-    </div>
+    </AppPageContent>
 
     <Dialog
       :open="roleNamingDialogOpen"
@@ -908,5 +916,5 @@ async function handleDeleteTask(taskId: string) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  </div>
+  </AppPage>
 </template>

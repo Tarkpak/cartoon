@@ -6,12 +6,6 @@ import {
 } from 'lucide-vue-next'
 import SettingsWorkflowCategorySection from '@/components/settings/SettingsWorkflowCategorySection.vue'
 import SettingsWorkflowGlobalDefaults from '@/components/settings/SettingsWorkflowGlobalDefaults.vue'
-import SettingsWorkflowSidebar from '@/components/settings/SettingsWorkflowSidebar.vue'
-import {
-  WORKFLOW_CATEGORY_CONFIG,
-  useSettingsWorkflowModels
-} from '@/composables/useSettingsWorkflowModels'
-
 const {
   models,
   selectedModels,
@@ -19,9 +13,7 @@ const {
   workflowLoading,
   workflowError,
   workflowSaving,
-  workflowCategories,
   activeCategory,
-  activeCategoryMeta,
   activeCategoryWorkflows,
   klingV3OmniOptions,
   seedanceVideoOptions,
@@ -29,7 +21,6 @@ const {
   imageGenerationOptions,
   getCapabilityLabel,
   getProviderLabel,
-  selectWorkflowCategory,
   reloadModelSettings,
   updateWorkflowModel,
   updateVideoGenerationModelOptions,
@@ -43,20 +34,10 @@ const {
   updateGlobalWorkflowDefault,
   toSelectString
 } = useSettingsWorkflowModels()
-
-const ACTIVE_CATEGORY_ICON_CLASS: Record<string, string> = {
-  blue: 'text-blue-600 bg-blue-50 border-blue-200 dark:text-blue-300 dark:bg-blue-950/40 dark:border-blue-900',
-  green: 'text-emerald-600 bg-emerald-50 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-900',
-  purple: 'text-violet-600 bg-violet-50 border-violet-200 dark:text-violet-300 dark:bg-violet-950/40 dark:border-violet-900'
-}
-
-const activeCategoryIconClass = computed(() => {
-  return ACTIVE_CATEGORY_ICON_CLASS[activeCategoryMeta.value.color] || 'text-muted-foreground bg-muted border-border'
-})
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden xl:flex-row">
+  <div class="flex h-full flex-col overflow-hidden">
     <div
       v-if="workflowLoading"
       class="flex flex-1 items-center justify-center"
@@ -66,12 +47,6 @@ const activeCategoryIconClass = computed(() => {
     </div>
 
     <template v-else>
-      <SettingsWorkflowSidebar
-        :active-category="activeCategory"
-        :categories="workflowCategories"
-        @select-category="selectWorkflowCategory"
-      />
-
       <div class="@container flex flex-1 flex-col overflow-hidden">
         <div
           v-if="modelCatalogError || workflowError"
@@ -101,30 +76,8 @@ const activeCategoryIconClass = computed(() => {
           </div>
         </div>
 
-        <div class="border-b px-6 py-4">
-          <div class="flex items-center gap-3">
-            <div
-              class="flex h-11 w-11 items-center justify-center rounded-xl border"
-              :class="activeCategoryIconClass"
-            >
-              <component
-                :is="WORKFLOW_CATEGORY_CONFIG[activeCategory]?.icon"
-                class="h-5 w-5"
-              />
-            </div>
-            <div>
-              <h2 class="text-lg font-semibold">
-                {{ activeCategoryMeta.name }}
-              </h2>
-              <p class="text-sm text-muted-foreground">
-                {{ activeCategoryMeta.description }}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div class="flex-1 overflow-y-auto p-6">
-          <div class="mx-auto max-w-5xl space-y-4">
+        <div class="flex-1 overflow-y-auto px-4 py-4 md:px-6">
+          <div class="space-y-4">
             <div class="flex items-start gap-2 rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
               <Info class="mt-0.5 h-4 w-4 flex-shrink-0" />
               <div>

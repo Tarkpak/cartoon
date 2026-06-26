@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ChevronDown, ExternalLink, FileVideo, ListChecks, Loader2, Settings, Upload, WandSparkles } from 'lucide-vue-next'
+import { ChevronDown, ExternalLink, FileVideo, ListChecks, Loader2, Settings, Upload } from 'lucide-vue-next'
+import AppPageContent from '@/components/layout/AppPageContent.vue'
+import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
 definePageMeta({
   layout: 'default'
@@ -16,6 +18,17 @@ interface EnhanceUploadResponse {
   success: boolean
   videoUrl: string
   sourceObjectKey?: string
+  reused?: boolean
+}
+
+type FetchErrorWithData = Error & {
+  data?: {
+    data?: {
+      message?: string
+    }
+    message?: string
+    statusMessage?: string
+  }
 }
 
 const router = useRouter()
@@ -182,6 +195,14 @@ function uploadSourceVideo(formData: FormData): Promise<EnhanceUploadResponse> {
   })
 }
 
+function resolveFetchErrorMessage(error: unknown, fallback: string): string {
+  const fetchError = error as FetchErrorWithData
+  return fetchError.data?.data?.message
+    || fetchError.data?.message
+    || fetchError.data?.statusMessage
+    || (error instanceof Error ? error.message : fallback)
+}
+
 async function handleSourceFileChange(event: Event) {
   const input = event.target as HTMLInputElement | null
   const file = input?.files?.[0]
@@ -201,14 +222,14 @@ async function handleSourceFileChange(event: Event) {
     const response = await uploadSourceVideo(formData)
     sourceVideoUrl.value = response.videoUrl
     sourceObjectKey.value = response.sourceObjectKey || ''
-    toast.success('源视频上传完成', { description: file.name })
+    toast.success(response.reused ? '已复用源视频链接' : '源视频上传完成', { description: file.name })
   } catch (error) {
     selectedFileName.value = ''
     selectedFileSize.value = 0
     selectedFileType.value = ''
     sourceObjectKey.value = ''
     uploadProgress.value = 0
-    errorMessage.value = error instanceof Error ? error.message : '上传源视频到 TOS 失败'
+    errorMessage.value = resolveFetchErrorMessage(error, '上传源视频到 TOS 失败')
   } finally {
     uploadingSource.value = false
     if (input) input.value = ''
@@ -228,7 +249,7 @@ async function submitTask() {
       query: { type: 'video', taskId: response.taskId }
     })
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '提交画质增强任务失败'
+    errorMessage.value = resolveFetchErrorMessage(error, '提交画质增强任务失败')
   } finally {
     submitting.value = false
   }
@@ -236,24 +257,13 @@ async function submitTask() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-background p-6 lg:p-8">
-    <div class="mx-auto max-w-5xl space-y-6">
-      <div
-        v-if="!embeddedInUnifiedEnhance"
-        class="flex flex-col gap-3 border-b pb-5 md:flex-row md:items-end md:justify-between"
-      >
-        <div>
-          <div class="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
-            <WandSparkles class="h-4 w-4" />
-            工具
-          </div>
-          <h1 class="text-2xl font-semibold text-foreground">
-            画质增强
-          </h1>
-          <p class="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-            选择本地视频上传到 TOS 后，提交到火山引擎 AI MediaKit 进行画质增强。
-          </p>
-        </div>
+  <div class="flex h-full min-h-0 flex-1 flex-col bg-background">
+    <AppPageHeader
+      v-if="!embeddedInUnifiedEnhance"
+      title="画质增强"
+      description="选择本地视频上传到 TOS 后，提交到火山引擎 AI MediaKit 进行画质增强。"
+    >
+      <template #actions>
         <div class="flex flex-wrap gap-2">
           <Button
             variant="outline"
@@ -280,8 +290,10 @@ async function submitTask() {
             </a>
           </Button>
         </div>
-      </div>
+      </template>
+    </AppPageHeader>
 
+    <AppPageContent scroll inner-class="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle class="text-lg">
@@ -544,6 +556,6 @@ async function submitTask() {
           </div>
         </CardContent>
       </Card>
-    </div>
+    </AppPageContent>
   </div>
 </template>

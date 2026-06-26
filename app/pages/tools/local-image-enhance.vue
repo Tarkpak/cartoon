@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { FileImage, Loader2, MonitorCog, Upload, WandSparkles } from 'lucide-vue-next'
+import { FileImage, Loader2, MonitorCog, Upload } from 'lucide-vue-next'
+import AppPageContent from '@/components/layout/AppPageContent.vue'
+import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
 definePageMeta({
   layout: 'default'
@@ -144,31 +146,22 @@ async function submitLocalEnhance() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-background p-6 lg:p-8">
-    <div class="mx-auto max-w-6xl space-y-6">
-      <div
-        v-if="!embeddedInUnifiedLocalEnhance"
-        class="flex flex-col gap-3 border-b pb-5 md:flex-row md:items-end md:justify-between"
-      >
-        <div>
-          <div class="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
-            <WandSparkles class="h-4 w-4" />
-            工具
-          </div>
-          <h1 class="text-2xl font-semibold text-foreground">
-            本地图片处理
-          </h1>
-          <p class="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-            使用本机 FFmpeg 对图片做基础增强、放大或格式转换，不上传云端。
-          </p>
-        </div>
+  <div class="flex h-full min-h-0 flex-1 flex-col bg-background">
+    <AppPageHeader
+      v-if="!embeddedInUnifiedLocalEnhance"
+      title="本地图片处理"
+      description="使用本机 FFmpeg 对图片做基础增强、放大或格式转换，不上传云端。"
+    >
+      <template #actions>
         <Button variant="outline" size="sm" as-child>
           <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'image' } }">
             云端图片增强
           </NuxtLink>
         </Button>
-      </div>
+      </template>
+    </AppPageHeader>
 
+    <AppPageContent scroll inner-class="space-y-6">
       <Card>
         <CardHeader class="border-b">
           <CardTitle class="text-lg">
@@ -284,6 +277,6 @@ async function submitLocalEnhance() {
           </section>
         </CardContent>
       </Card>
-    </div>
+    </AppPageContent>
   </div>
 </template>

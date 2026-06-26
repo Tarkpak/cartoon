@@ -537,9 +537,9 @@ onMounted(() => {
 
       <div
         v-if="activeProviderSummary"
-        class="flex-1 overflow-y-auto p-6"
+        class="flex-1 overflow-y-auto px-4 py-4 md:px-6"
       >
-        <div class="mx-auto max-w-5xl space-y-4">
+        <div class="space-y-4">
           <SettingsCustomOpenAIProvider
             v-if="activeProviderSummary.provider === 'custom_openai'"
             :on-saved="handleCustomProviderSaved"

@@ -188,12 +188,12 @@ function handleThemeToggle(event: MouseEvent) {
     <!-- 左侧菜单栏 -->
     <aside
       v-if="!hideSidebar"
-      class="theme-surface relative flex flex-col border-r bg-card transition-[width,background-color,border-color,box-shadow] duration-300 ease-out"
+      class="theme-surface relative flex flex-col bg-background transition-[width,background-color,border-color,box-shadow] duration-300 ease-out"
       :class="visualSidebarCollapsed ? 'w-16' : 'w-56'"
     >
       <!-- Logo with collapse toggle -->
       <div
-        class="theme-surface h-16 flex items-center border-b"
+        class="theme-surface h-16 flex items-center"
         :class="visualSidebarCollapsed ? 'justify-center px-2' : 'justify-start px-6'"
       >
         <!-- Logo 图标按钮 - hover 时显示箭头 -->
@@ -340,7 +340,7 @@ function handleThemeToggle(event: MouseEvent) {
         :class="visualSidebarCollapsed ? 'px-2' : 'px-4'"
       >
         <div
-          class="theme-surface rounded-md border bg-background/60 p-1"
+          class="theme-surface rounded-md border bg-background p-1"
           :class="visualSidebarCollapsed ? 'grid gap-1' : 'flex items-center gap-1'"
         >
           <template v-if="authenticated">
@@ -358,12 +358,13 @@ function handleThemeToggle(event: MouseEvent) {
               type="button"
               variant="ghost"
               size="icon"
-              class="theme-content h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-              title="退出后台"
-              aria-label="退出后台"
-              @click="handleCloudLogout"
+              class="theme-content relative h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+              :title="isDark ? '浅色模式' : '深色模式'"
+              :aria-label="isDark ? '切换到浅色模式' : '切换到深色模式'"
+              @click="handleThemeToggle"
             >
-              <LogOut class="h-4 w-4" />
+              <Sun class="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+              <Moon class="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
             </Button>
           </template>
 
@@ -373,6 +374,19 @@ function handleThemeToggle(event: MouseEvent) {
           />
 
           <Button
+            v-if="authenticated"
+            type="button"
+            variant="ghost"
+            size="icon"
+            class="theme-content h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+            title="退出后台"
+            aria-label="退出后台"
+            @click="handleCloudLogout"
+          >
+            <LogOut class="h-4 w-4" />
+          </Button>
+          <Button
+            v-else
             type="button"
             variant="ghost"
             size="icon"

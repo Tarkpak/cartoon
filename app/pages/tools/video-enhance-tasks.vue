@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { AlertCircle, CheckCircle2, Clock3, Copy, ExternalLink, FileVideo, Loader2, RefreshCw, Save, Trash2, WandSparkles } from 'lucide-vue-next'
+import { AlertCircle, CheckCircle2, Clock3, Copy, ExternalLink, FileVideo, Loader2, RefreshCw, Save, Trash2 } from 'lucide-vue-next'
+import AppPageContent from '@/components/layout/AppPageContent.vue'
+import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
 definePageMeta({
   layout: 'default'
@@ -252,24 +254,13 @@ function taskStatusVariant(value: TaskStatus | string) {
 </script>
 
 <template>
-  <div class="min-h-screen bg-background p-6 lg:p-8">
-    <div class="mx-auto max-w-6xl space-y-6">
-      <div
-        v-if="!embeddedInUnifiedTasks"
-        class="flex flex-col gap-3 border-b pb-5 md:flex-row md:items-end md:justify-between"
-      >
-        <div>
-          <div class="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
-            <WandSparkles class="h-4 w-4" />
-            工具
-          </div>
-          <h1 class="text-2xl font-semibold text-foreground">
-            画质增强任务
-          </h1>
-          <p class="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-            查询火山引擎 AI MediaKit 画质增强任务状态，完成后保存结果视频。
-          </p>
-        </div>
+  <div class="flex h-full min-h-0 flex-1 flex-col bg-background">
+    <AppPageHeader
+      v-if="!embeddedInUnifiedTasks"
+      title="画质增强任务"
+      description="查询火山引擎 AI MediaKit 画质增强任务状态，完成后保存结果视频。"
+    >
+      <template #actions>
         <Button
           variant="outline"
           size="sm"
@@ -279,8 +270,10 @@ function taskStatusVariant(value: TaskStatus | string) {
             提交增强
           </NuxtLink>
         </Button>
-      </div>
+      </template>
+    </AppPageHeader>
 
+    <AppPageContent scroll inner-class="space-y-6">
       <Card>
         <CardHeader class="border-b">
           <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -592,7 +585,6 @@ function taskStatusVariant(value: TaskStatus | string) {
           </section>
         </CardContent>
       </Card>
-
-    </div>
+    </AppPageContent>
   </div>
 </template>

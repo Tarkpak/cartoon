@@ -9,6 +9,9 @@ import {
   Upload
 } from 'lucide-vue-next'
 import { useVideoImport, type VideoImportConfig, type VideoImportSeriesPreview } from '@/composables/useVideoImport'
+import AppPage from '@/components/layout/AppPage.vue'
+import AppPageContent from '@/components/layout/AppPageContent.vue'
+import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
 definePageMeta({
   layout: 'default'
@@ -238,16 +241,12 @@ function formatSeconds(value?: number | null) {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col gap-4 overflow-hidden p-4 md:p-6">
-    <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-      <div>
-        <h1 class="text-2xl font-semibold tracking-normal">
-          视频转项目
-        </h1>
-        <p class="text-sm text-muted-foreground">
-          导入单集或整部剧，转换完成后进入详情页确认字幕和剧本
-        </p>
-      </div>
+  <AppPage>
+    <AppPageHeader
+      title="视频转项目"
+      description="导入单集或整部剧，转换完成后进入详情页确认字幕和剧本"
+    >
+      <template #actions>
       <Button
         variant="outline"
         class="gap-2"
@@ -260,17 +259,18 @@ function formatSeconds(value?: number | null) {
         />
         刷新
       </Button>
-    </div>
+      </template>
+    </AppPageHeader>
 
-    <div
-      v-if="error"
-      class="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-    >
-      <AlertCircle class="h-4 w-4 shrink-0" />
-      {{ error }}
-    </div>
+    <AppPageContent inner-class="flex h-full min-h-0 flex-col gap-4">
+      <div
+        v-if="error"
+        class="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+      >
+        <AlertCircle class="h-4 w-4 shrink-0" />
+        {{ error }}
+      </div>
 
-    <div class="flex min-h-0 flex-1 flex-col gap-4">
       <Card class="w-full">
         <CardHeader class="pb-3">
           <CardTitle class="flex items-center gap-2 text-base">
@@ -528,6 +528,6 @@ function formatSeconds(value?: number | null) {
           </div>
         </CardContent>
       </Card>
-    </div>
-  </div>
+    </AppPageContent>
+  </AppPage>
 </template>

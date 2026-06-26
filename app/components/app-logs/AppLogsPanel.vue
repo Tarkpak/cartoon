@@ -63,15 +63,9 @@ function openLogDetail(item: AppLogEntry) {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
-    <Card class="shrink-0">
-      <CardHeader class="gap-4 space-y-0 md:flex-row md:items-start md:justify-between">
-        <div class="space-y-1.5">
-          <CardTitle>系统日志</CardTitle>
-        </div>
-        <slot name="tabs" />
-      </CardHeader>
-      <CardContent class="space-y-4">
+  <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+    <Card class="shrink-0 shadow-none">
+      <CardContent class="space-y-4 p-4">
         <div class="grid grid-cols-1 gap-3 md:grid-cols-7">
           <Select
             :model-value="filters.level || allFilterValue"

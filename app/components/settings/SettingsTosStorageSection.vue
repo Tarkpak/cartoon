@@ -122,8 +122,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="@container h-full overflow-y-auto p-6">
-    <div class="mx-auto max-w-3xl space-y-4">
+  <div class="@container h-full overflow-y-auto px-4 pb-6 md:px-6">
+    <div class="space-y-4">
       <SettingsSectionHeader
         title="云存储设置"
         description="配置火山引擎 TOS 对象存储。未启用时，生成的媒体文件将保存在本地。此处为存储凭证配置，区别于左侧导航的「云端素材」（浏览已上传素材）。"

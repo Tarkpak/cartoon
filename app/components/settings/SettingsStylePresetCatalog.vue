@@ -26,20 +26,20 @@ defineProps<{
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="space-y-3">
     <!-- Filter bar -->
-    <div class="flex flex-col gap-3 md:flex-row">
+    <div class="flex flex-col gap-2 md:flex-row">
       <div class="relative md:flex-1">
         <Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           v-model="styleSearchKeyword"
-          class="h-10 pl-9"
+          class="h-9 pl-9"
           placeholder="搜索画风名称或 ID…"
         />
       </div>
 
       <Select v-model="styleCategoryFilter">
-        <SelectTrigger class="h-10 text-sm md:w-48">
+        <SelectTrigger class="h-9 text-sm md:w-48">
           <SelectValue placeholder="全部分类" />
         </SelectTrigger>
         <SelectContent>

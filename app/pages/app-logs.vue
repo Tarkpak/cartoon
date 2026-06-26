@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import AppPage from '@/components/layout/AppPage.vue'
+import AppPageContent from '@/components/layout/AppPageContent.vue'
+
 definePageMeta({ layout: 'default' })
 
 const route = useRoute()
@@ -16,7 +19,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-background p-6 text-sm text-muted-foreground">
-    正在打开日志...
-  </div>
+  <AppPage>
+    <AppPageContent scroll inner-class="text-sm text-muted-foreground">
+      正在打开日志...
+    </AppPageContent>
+  </AppPage>
 </template>

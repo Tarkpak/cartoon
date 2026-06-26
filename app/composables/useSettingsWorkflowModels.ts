@@ -90,7 +90,7 @@ export const WORKFLOW_PANORAMA_SOURCE_MODES: WorkflowPanoramaSourceMode[] = [
   'custom'
 ]
 export const WORKFLOW_SEEDANCE_VIDEO_QUALITIES: SeedanceVideoQuality[] = ['480p', '720p', '1080p']
-const WORKFLOW_CATEGORY_ORDER: WorkflowCategoryKey[] = ['text', 'image', 'video']
+export const WORKFLOW_CATEGORY_ORDER: WorkflowCategoryKey[] = ['text', 'image', 'video']
 
 const DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS: KlingV3OmniVideoOptions = {
   sound: 'off',
@@ -131,7 +131,7 @@ export function useSettingsWorkflowModels() {
   const workflowError = ref('')
   const workflowSaving = ref(false)
   const workflowData = ref<WorkflowData | null>(null)
-  const activeCategory = ref<WorkflowCategoryKey>('text')
+  const activeCategory = useState<WorkflowCategoryKey>('settings:workflow-category', () => 'text')
 
   const filteredWorkflows = computed(() => {
     if (!workflowData.value) return {}

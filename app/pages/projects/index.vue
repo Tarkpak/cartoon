@@ -5,6 +5,9 @@ import ProjectCreateDialog from '@/components/projects/ProjectCreateDialog.vue'
 import ProjectDeleteDialog from '@/components/projects/ProjectDeleteDialog.vue'
 import ProjectsFiltersBar from '@/components/projects/ProjectsFiltersBar.vue'
 import ProjectsTable from '@/components/projects/ProjectsTable.vue'
+import AppPage from '@/components/layout/AppPage.vue'
+import AppPageContent from '@/components/layout/AppPageContent.vue'
+import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
 // 我的项目页面
 definePageMeta({
@@ -53,45 +56,52 @@ const aspectRatioOptions = projectAspectRatioOptions
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col overflow-hidden p-4 md:p-6">
-    <ProjectsFiltersBar
-      class="shrink-0"
-      v-model:search-keyword="searchKeyword"
-      v-model:status-filter="statusFilter"
-      v-model:sort-by="sortBy"
-      :projects-count="projects.length"
-      :total-projects="totalProjects"
+  <AppPage>
+    <AppPageHeader
+      title="我的项目"
+      description="管理剧本解析、分镜资产和视频生成项目"
     >
       <template #actions>
-        <Button
-          class="w-full gap-2 lg:w-auto"
-          @click="openCreateDialog"
-        >
-          <Plus class="h-4 w-4" />
-          新建项目
-        </Button>
+      <Button
+        class="gap-2"
+        @click="openCreateDialog"
+      >
+        <Plus class="h-4 w-4" />
+        新建项目
+      </Button>
       </template>
-    </ProjectsFiltersBar>
+    </AppPageHeader>
 
-    <ProjectsTable
-      class="min-h-0 flex-1"
-      :projects="projects"
-      :loading="loading"
-      :error="error"
-      :current-page="currentPage"
-      :total-pages="totalPages"
-      :total-projects="totalProjects"
-      :page-size="pageSize"
-      :page-size-options="pageSizeOptions"
-      :has-active-filters="hasActiveFilters"
-      :status-map="statusMap"
-      :get-style-name="getStyleName"
-      @open-create="openCreateDialog"
-      @open-project="openProject"
-      @confirm-delete="confirmDelete"
-      @page-change="goToPage"
-      @page-size-change="handlePageSizeChange"
-    />
+    <AppPageContent inner-class="flex h-full min-h-0 flex-col overflow-hidden">
+      <ProjectsFiltersBar
+        class="shrink-0"
+        v-model:search-keyword="searchKeyword"
+        v-model:status-filter="statusFilter"
+        v-model:sort-by="sortBy"
+        :projects-count="projects.length"
+        :total-projects="totalProjects"
+      />
+
+      <ProjectsTable
+        class="min-h-0 flex-1"
+        :projects="projects"
+        :loading="loading"
+        :error="error"
+        :current-page="currentPage"
+        :total-pages="totalPages"
+        :total-projects="totalProjects"
+        :page-size="pageSize"
+        :page-size-options="pageSizeOptions"
+        :has-active-filters="hasActiveFilters"
+        :status-map="statusMap"
+        :get-style-name="getStyleName"
+        @open-create="openCreateDialog"
+        @open-project="openProject"
+        @confirm-delete="confirmDelete"
+        @page-change="goToPage"
+        @page-size-change="handlePageSizeChange"
+      />
+    </AppPageContent>
 
     <ProjectDeleteDialog
       v-model:open="showDeleteDialog"
@@ -115,6 +125,7 @@ const aspectRatioOptions = projectAspectRatioOptions
       @select-style="handleStyleSelect"
       @next-step="goToStyleStep"
       @create="createProject"
-    />
-  </div>
+    >
+    </ProjectCreateDialog>
+  </AppPage>
 </template>

@@ -40,7 +40,7 @@ watch(() => props.initialRequestId, (value) => {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
+  <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
     <ModelLogsFilters
       class="shrink-0"
       v-model:auto-refresh="autoRefresh"

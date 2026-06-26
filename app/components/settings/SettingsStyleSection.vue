@@ -12,8 +12,14 @@ import {
 import type { StyleFormState } from '@/lib/style-preset-settings'
 import SettingsConfirmDialog from '@/components/settings/SettingsConfirmDialog.vue'
 import SettingsStyleEditorDialog from '@/components/settings/SettingsStyleEditorDialog.vue'
-import SettingsStyleOverview from '@/components/settings/SettingsStyleOverview.vue'
 import SettingsStylePresetCatalog from '@/components/settings/SettingsStylePresetCatalog.vue'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 
 const {
   styleConfigLoading,
@@ -57,7 +63,6 @@ const {
   saveStyleConfig
 } = useStylePresetSettings()
 
-const showMoreMenu = ref(false)
 const deleteConfirmOpen = ref(false)
 const resetConfirmOpen = ref(false)
 const pendingDeleteStyleId = ref('')
@@ -104,20 +109,29 @@ async function confirmResetStylePresets() {
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <!-- Header -->
-    <div class="flex-shrink-0 border-b px-6 py-4">
-      <div class="flex items-center justify-between">
-        <div>
-          <h2 class="text-lg font-semibold">
-            画风预设
-          </h2>
-          <p class="mt-1 text-sm text-muted-foreground">
-            管理项目创建时可选的画风范围与默认画风
-          </p>
+  <div class="flex h-full flex-col overflow-hidden">
+    <div class="bg-background px-4 py-2.5 md:px-6">
+      <div class="flex min-w-0 flex-wrap items-center gap-2">
+        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <span class="shrink-0 text-sm font-medium text-muted-foreground">
+            画风范围
+          </span>
+          <span class="rounded-md border bg-muted/30 px-2.5 py-1 text-sm text-muted-foreground">
+            总预设
+            <span class="ml-1 font-semibold tabular-nums text-foreground">{{ allStylePresets.length }}</span>
+          </span>
+          <span class="rounded-md border bg-muted/30 px-2.5 py-1 text-sm text-muted-foreground">
+            已启用
+            <span class="ml-1 font-semibold tabular-nums text-foreground">{{ enabledStyleCount }}</span>
+            <span class="text-muted-foreground/70"> / {{ allStylePresets.length }}</span>
+          </span>
+          <span class="min-w-0 rounded-md border bg-muted/30 px-2.5 py-1 text-sm text-muted-foreground">
+            默认
+            <span class="ml-1 font-medium text-foreground">{{ currentDefaultStyle?.name || '未设置' }}</span>
+          </span>
         </div>
 
-        <div class="flex items-center gap-2.5">
+        <div class="flex flex-wrap items-center gap-2">
           <Input
             ref="styleImportInputRef"
             type="file"
@@ -126,76 +140,55 @@ async function confirmResetStylePresets() {
             @change="handleStyleImport"
           />
 
-          <!-- Secondary actions popover -->
-          <div class="relative">
-            <Button
-              variant="outline"
-              size="sm"
-              class="h-9 gap-1.5 text-muted-foreground"
-              :disabled="styleConfigLoading"
-              @click="showMoreMenu = !showMoreMenu"
-            >
-              <MoreHorizontal class="h-4 w-4" />
-              更多操作
-            </Button>
-
-            <Transition
-              enter-active-class="transition duration-150 ease-out"
-              enter-from-class="opacity-0 translate-y-1"
-              enter-to-class="opacity-100 translate-y-0"
-              leave-active-class="transition duration-100 ease-in"
-              leave-from-class="opacity-100 translate-y-0"
-              leave-to-class="opacity-0 translate-y-1"
-            >
-              <div
-                v-if="showMoreMenu"
-                class="absolute right-0 top-full z-30 mt-1.5 w-44 rounded-lg border bg-popover p-1 shadow-lg"
-                @mouseleave="showMoreMenu = false"
+          <!-- Secondary actions -->
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child>
+              <Button
+                variant="outline"
+                size="sm"
+                class="h-9 gap-1.5 text-muted-foreground"
+                :disabled="styleConfigLoading"
               >
-                <Button
-                  type="button"
-                  variant="ghost"
-                  class="h-auto w-full justify-start gap-2.5 rounded-md px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent"
-                  :disabled="styleConfigLoading || styleCrudSaving || styleImporting"
-                  @click="triggerStyleImport(); showMoreMenu = false"
-                >
-                  <Upload class="h-4 w-4 text-muted-foreground" />
-                  {{ styleImporting ? '导入中...' : '导入预设' }}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  class="h-auto w-full justify-start gap-2.5 rounded-md px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent"
-                  :disabled="styleConfigLoading || styleCrudSaving || styleExporting"
-                  @click="exportStylePresets(); showMoreMenu = false"
-                >
-                  <Download class="h-4 w-4 text-muted-foreground" />
-                  {{ styleExporting ? '导出中...' : '导出预设' }}
-                </Button>
-                <div class="my-1 border-t" />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  class="h-auto w-full justify-start gap-2.5 rounded-md px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-accent"
-                  :disabled="styleConfigLoading || styleConfigSaving"
-                  @click="enableAllStyles(); showMoreMenu = false"
-                >
-                  <CheckCheck class="h-4 w-4 text-muted-foreground" />
-                  全部启用
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  class="h-auto w-full justify-start gap-2.5 rounded-md px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
-                  :disabled="styleConfigLoading || styleCrudSaving || styleResetting"
-                  @click="requestResetStylePresets(); showMoreMenu = false"
-                >
-                  <RotateCcw class="h-4 w-4" />
-                  {{ styleResetting ? '重置中...' : '重置为默认' }}
-                </Button>
-              </div>
-            </Transition>
-          </div>
+                <MoreHorizontal class="h-4 w-4" />
+                更多操作
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              class="w-44"
+            >
+              <DropdownMenuItem
+                :disabled="styleConfigLoading || styleCrudSaving || styleImporting"
+                @select="triggerStyleImport"
+              >
+                <Upload class="h-4 w-4 text-muted-foreground" />
+                {{ styleImporting ? '导入中...' : '导入预设' }}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                :disabled="styleConfigLoading || styleCrudSaving || styleExporting"
+                @select="exportStylePresets"
+              >
+                <Download class="h-4 w-4 text-muted-foreground" />
+                {{ styleExporting ? '导出中...' : '导出预设' }}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                :disabled="styleConfigLoading || styleConfigSaving"
+                @select="enableAllStyles"
+              >
+                <CheckCheck class="h-4 w-4 text-muted-foreground" />
+                全部启用
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                destructive
+                :disabled="styleConfigLoading || styleCrudSaving || styleResetting"
+                @select="requestResetStylePresets"
+              >
+                <RotateCcw class="h-4 w-4" />
+                {{ styleResetting ? '重置中...' : '重置为默认' }}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <!-- Primary actions -->
           <Button
@@ -225,8 +218,7 @@ async function confirmResetStylePresets() {
       </div>
     </div>
 
-    <!-- Content -->
-    <div class="flex-1 overflow-y-auto px-8 py-6">
+    <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">
       <div
         v-if="styleConfigLoading"
         class="flex flex-col items-center justify-center py-24 text-muted-foreground"
@@ -237,7 +229,7 @@ async function confirmResetStylePresets() {
 
       <div
         v-else-if="styleConfigError && allStylePresets.length === 0"
-        class="mx-auto flex max-w-3xl items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+        class="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
       >
         <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
         <div class="min-w-0 flex-1">
@@ -260,7 +252,7 @@ async function confirmResetStylePresets() {
 
       <div
         v-else
-        class="mx-auto max-w-[1400px] space-y-6"
+        class="space-y-4"
       >
         <div
           v-if="styleConfigError || styleActionError"
@@ -269,13 +261,6 @@ async function confirmResetStylePresets() {
           <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
           <span class="min-w-0 flex-1 break-words">{{ styleActionError || styleConfigError }}</span>
         </div>
-
-        <SettingsStyleOverview
-          :all-style-presets="allStylePresets"
-          :current-default-style="currentDefaultStyle"
-          :enabled-style-count="enabledStyleCount"
-          :style-default-id="styleDefaultId"
-        />
 
         <SettingsStylePresetCatalog
           v-model:style-search-keyword="styleSearchKeyword"
