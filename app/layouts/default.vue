@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, ListChecks, MonitorCog, Image } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
+import { createClickRipple } from '@/lib/ripple'
 
 const route = useRoute()
 const router = useRouter()
@@ -77,6 +78,10 @@ function getSettingsSubRoute(item: { section: SettingsSection }) {
 
 function isNavigationChildActive(item: { path: string }): boolean {
   return route.path === item.path || route.path.startsWith(`${item.path}/`)
+}
+
+function handleSidebarPointerDown(event: PointerEvent) {
+  createClickRipple(event)
 }
 
 const activeStates = computed(() => {
@@ -202,6 +207,7 @@ function handleThemeToggle(event: MouseEvent) {
           class="group relative grid h-6 w-6 flex-shrink-0 place-items-center overflow-hidden"
           :title="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
           :aria-label="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
+          @pointerdown="handleSidebarPointerDown"
           @click="isCollapsed = !isCollapsed"
         >
           <Clapperboard class="pointer-events-none absolute inset-0 h-6 w-6 text-primary transition-opacity duration-150 group-hover:opacity-0" />
@@ -233,7 +239,7 @@ function handleThemeToggle(event: MouseEvent) {
         >
           <NuxtLink
             :to="item.path"
-            class="theme-content flex items-center rounded-md transition-colors duration-200"
+            class="theme-content relative flex items-center overflow-hidden rounded-md transition-colors duration-200"
             :class="[
               visualSidebarCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5',
               activeStates[index]
@@ -241,6 +247,7 @@ function handleThemeToggle(event: MouseEvent) {
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'
             ]"
             :title="visualSidebarCollapsed ? item.name : undefined"
+            @pointerdown="handleSidebarPointerDown"
           >
             <component
               :is="item.icon"
@@ -257,10 +264,11 @@ function handleThemeToggle(event: MouseEvent) {
               v-for="sub in settingsSubNavigation"
               :key="sub.section"
               :to="getSettingsSubRoute(sub)"
-              class="theme-content flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
+              class="theme-content relative flex items-center gap-2 overflow-hidden px-2 py-1.5 rounded-md text-xs transition-colors"
               :class="isSettingsSubActive(sub)
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+              @pointerdown="handleSidebarPointerDown"
             >
               <component
                 :is="sub.icon"
@@ -278,10 +286,11 @@ function handleThemeToggle(event: MouseEvent) {
               v-for="sub in item.children"
               :key="sub.path"
               :to="sub.path"
-              class="theme-content flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
+              class="theme-content relative flex items-center gap-2 overflow-hidden px-2 py-1.5 rounded-md text-xs transition-colors"
               :class="isNavigationChildActive(sub)
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+              @pointerdown="handleSidebarPointerDown"
             >
               <component
                 :is="sub.icon"
@@ -299,10 +308,11 @@ function handleThemeToggle(event: MouseEvent) {
               v-for="sub in settingsSubNavigation"
               :key="`collapsed-${sub.section}`"
               :to="getSettingsSubRoute(sub)"
-              class="theme-content flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
+              class="theme-content relative flex items-center gap-2 overflow-hidden px-2 py-1.5 rounded-md text-xs transition-colors"
               :class="isSettingsSubActive(sub)
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+              @pointerdown="handleSidebarPointerDown"
             >
               <component
                 :is="sub.icon"
@@ -320,10 +330,11 @@ function handleThemeToggle(event: MouseEvent) {
               v-for="sub in item.children"
               :key="`collapsed-${sub.path}`"
               :to="sub.path"
-              class="theme-content flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
+              class="theme-content relative flex items-center gap-2 overflow-hidden px-2 py-1.5 rounded-md text-xs transition-colors"
               :class="isNavigationChildActive(sub)
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+              @pointerdown="handleSidebarPointerDown"
             >
               <component
                 :is="sub.icon"

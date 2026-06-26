@@ -2,7 +2,7 @@ use super::*;
 use axum::body::{Body, Bytes};
 use futures_util::stream;
 use hmac::{Hmac, Mac};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use std::convert::Infallible;
 use std::process::Command;
 use ve_tos_rust_sdk::object::{ListObjectsType2Input, ObjectAPI};
@@ -723,10 +723,10 @@ async fn query_mediakit_video_enhance_task(
 ) -> Result<(Value, String, String, Option<String>), ApiError> {
     let conn = db_connection(state)?;
     let creds = load_provider_creds(&conn);
-    let api_key = provider_sync_api_key("volcengine", &creds).ok_or_else(|| {
+    let api_key = provider_sync_mediakit_api_key(&creds).ok_or_else(|| {
         ApiError::new(
             StatusCode::BAD_REQUEST,
-            "未配置火山引擎 API Key，请在设置中配置",
+            "未配置火山引擎 AI MediaKit API Key，请在设置中配置",
         )
     })?;
     let endpoint = format!("{}/api/v1/tasks/{}", MEDIAKIT_BASE_URL, task_id);
@@ -1033,10 +1033,10 @@ async fn query_mediakit_image_enhance_task(
 ) -> Result<(Value, String, String, Option<String>), ApiError> {
     let conn = db_connection(state)?;
     let creds = load_provider_creds(&conn);
-    let api_key = provider_sync_api_key("volcengine", &creds).ok_or_else(|| {
+    let api_key = provider_sync_mediakit_api_key(&creds).ok_or_else(|| {
         ApiError::new(
             StatusCode::BAD_REQUEST,
-            "未配置火山引擎 API Key，请在设置中配置",
+            "未配置火山引擎 AI MediaKit API Key，请在设置中配置",
         )
     })?;
     let endpoint = format!("{}/api/v1/tasks/{}", MEDIAKIT_BASE_URL, task_id);
@@ -1129,7 +1129,92 @@ fn uploaded_image_extension(filename: Option<&str>, content_type: Option<&str>) 
     infer_extension_from_mime(content_type.unwrap_or(""), "png")
 }
 
+#[derive(Clone, Debug)]
+struct UploadedMediaCacheEntry {
+    url: String,
+    object_key: String,
+}
+
+fn media_bytes_sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn load_uploaded_media_cache(
+    conn: &Connection,
+    category: &str,
+    sha256: &str,
+) -> Result<Option<UploadedMediaCacheEntry>, ApiError> {
+    conn.query_row(
+        "SELECT url, object_key FROM uploaded_media_cache WHERE category = ?1 AND sha256 = ?2",
+        params![category, sha256],
+        |row| {
+            Ok(UploadedMediaCacheEntry {
+                url: row.get(0)?,
+                object_key: row.get(1)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+fn touch_uploaded_media_cache(
+    conn: &Connection,
+    category: &str,
+    sha256: &str,
+) -> Result<(), ApiError> {
+    conn.execute(
+        "UPDATE uploaded_media_cache SET last_used_at = ?3, updated_at = ?3 WHERE category = ?1 AND sha256 = ?2",
+        params![category, sha256, now_iso()],
+    )
+    .map(|_| ())
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+fn save_uploaded_media_cache(
+    conn: &Connection,
+    category: &str,
+    sha256: &str,
+    file_name: Option<&str>,
+    mime_type: Option<&str>,
+    size_bytes: usize,
+    object_key: &str,
+    url: &str,
+) -> Result<(), ApiError> {
+    let now = now_iso();
+    conn.execute(
+        "INSERT INTO uploaded_media_cache (
+          id, category, sha256, file_name, mime_type, size_bytes, object_key, url,
+          created_at, updated_at, last_used_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?9)
+        ON CONFLICT(category, sha256) DO UPDATE SET
+          file_name = excluded.file_name,
+          mime_type = excluded.mime_type,
+          size_bytes = excluded.size_bytes,
+          object_key = excluded.object_key,
+          url = excluded.url,
+          updated_at = excluded.updated_at,
+          last_used_at = excluded.last_used_at",
+        params![
+            format!("umc_{}", Uuid::new_v4().simple()),
+            category,
+            sha256,
+            file_name,
+            mime_type,
+            size_bytes as i64,
+            object_key,
+            url,
+            now
+        ],
+    )
+    .map(|_| ())
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
 pub(super) async fn api_tools_image_enhance_upload_source(
+    State(state): State<BackendState>,
     mut multipart: Multipart,
 ) -> Result<Json<Value>, ApiError> {
     if !load_backend_tos_config().enabled {
@@ -1141,6 +1226,7 @@ pub(super) async fn api_tools_image_enhance_upload_source(
 
     let mut uploaded_url: Option<String> = None;
     let mut uploaded_object_key: Option<String> = None;
+    let mut reused_upload = false;
     while let Some(mut field) = multipart
         .next_field()
         .await
@@ -1172,6 +1258,17 @@ pub(super) async fn api_tools_image_enhance_upload_source(
         }
 
         let ext = uploaded_image_extension(filename.as_deref(), content_type.as_deref());
+        let sha256 = media_bytes_sha256_hex(&bytes);
+        let size_bytes = bytes.len();
+        let conn = db_connection(&state)?;
+        if let Some(cached) = load_uploaded_media_cache(&conn, "images", &sha256)? {
+            touch_uploaded_media_cache(&conn, "images", &sha256)?;
+            uploaded_url = Some(cached.url);
+            uploaded_object_key = Some(cached.object_key);
+            reused_upload = true;
+            break;
+        }
+
         let object_filename = build_unique_filename("image-enhance-source", &ext);
         let object_key = build_backend_tos_object_key(
             &load_backend_tos_config(),
@@ -1180,6 +1277,18 @@ pub(super) async fn api_tools_image_enhance_upload_source(
         );
         uploaded_url = upload_media_bytes_to_tos_async("images", object_filename, bytes).await?;
         uploaded_object_key = Some(object_key);
+        if let Some(url) = uploaded_url.as_deref() {
+            save_uploaded_media_cache(
+                &conn,
+                "images",
+                &sha256,
+                filename.as_deref(),
+                content_type.as_deref(),
+                size_bytes,
+                uploaded_object_key.as_deref().unwrap_or(""),
+                url,
+            )?;
+        }
         break;
     }
 
@@ -1190,7 +1299,8 @@ pub(super) async fn api_tools_image_enhance_upload_source(
     Ok(Json(json!({
       "success": true,
       "imageUrl": image_url,
-      "sourceObjectKey": uploaded_object_key
+      "sourceObjectKey": uploaded_object_key,
+      "reused": reused_upload
     })))
 }
 
@@ -1200,10 +1310,10 @@ pub(super) async fn api_tools_image_enhance_submit(
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state).map_err(|error| error)?;
     let creds = load_provider_creds(&conn);
-    let api_key = provider_sync_api_key("volcengine", &creds).ok_or_else(|| {
+    let api_key = provider_sync_mediakit_api_key(&creds).ok_or_else(|| {
         ApiError::new(
             StatusCode::BAD_REQUEST,
-            "未配置火山引擎 API Key，请在设置中配置",
+            "未配置火山引擎 AI MediaKit API Key，请在设置中配置",
         )
     })?;
     let (endpoint, request_body) = build_mediakit_image_enhance_request(&body)?;
@@ -1648,6 +1758,7 @@ pub(super) async fn api_tools_local_image_enhance(
 }
 
 pub(super) async fn api_tools_video_enhance_upload_source(
+    State(state): State<BackendState>,
     mut multipart: Multipart,
 ) -> Result<Json<Value>, ApiError> {
     if !load_backend_tos_config().enabled {
@@ -1659,6 +1770,7 @@ pub(super) async fn api_tools_video_enhance_upload_source(
 
     let mut uploaded_url: Option<String> = None;
     let mut uploaded_object_key: Option<String> = None;
+    let mut reused_upload = false;
     while let Some(mut field) = multipart
         .next_field()
         .await
@@ -1690,6 +1802,17 @@ pub(super) async fn api_tools_video_enhance_upload_source(
         }
 
         let ext = uploaded_video_extension(filename.as_deref(), content_type.as_deref());
+        let sha256 = media_bytes_sha256_hex(&bytes);
+        let size_bytes = bytes.len();
+        let conn = db_connection(&state)?;
+        if let Some(cached) = load_uploaded_media_cache(&conn, "videos", &sha256)? {
+            touch_uploaded_media_cache(&conn, "videos", &sha256)?;
+            uploaded_url = Some(cached.url);
+            uploaded_object_key = Some(cached.object_key);
+            reused_upload = true;
+            break;
+        }
+
         let object_filename = build_unique_filename("video-enhance-source", &ext);
         let object_key = build_backend_tos_object_key(
             &load_backend_tos_config(),
@@ -1698,6 +1821,18 @@ pub(super) async fn api_tools_video_enhance_upload_source(
         );
         uploaded_url = upload_media_bytes_to_tos_async("videos", object_filename, bytes).await?;
         uploaded_object_key = Some(object_key);
+        if let Some(url) = uploaded_url.as_deref() {
+            save_uploaded_media_cache(
+                &conn,
+                "videos",
+                &sha256,
+                filename.as_deref(),
+                content_type.as_deref(),
+                size_bytes,
+                uploaded_object_key.as_deref().unwrap_or(""),
+                url,
+            )?;
+        }
         break;
     }
 
@@ -1708,7 +1843,8 @@ pub(super) async fn api_tools_video_enhance_upload_source(
     Ok(Json(json!({
       "success": true,
       "videoUrl": video_url,
-      "sourceObjectKey": uploaded_object_key
+      "sourceObjectKey": uploaded_object_key,
+      "reused": reused_upload
     })))
 }
 
@@ -1718,10 +1854,10 @@ pub(super) async fn api_tools_video_enhance_submit(
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state).map_err(|error| error)?;
     let creds = load_provider_creds(&conn);
-    let api_key = provider_sync_api_key("volcengine", &creds).ok_or_else(|| {
+    let api_key = provider_sync_mediakit_api_key(&creds).ok_or_else(|| {
         ApiError::new(
             StatusCode::BAD_REQUEST,
-            "未配置火山引擎 API Key，请在设置中配置",
+            "未配置火山引擎 AI MediaKit API Key，请在设置中配置",
         )
     })?;
     let (endpoint, request_body) = build_mediakit_video_enhance_request(&body)?;
@@ -1744,30 +1880,95 @@ pub(super) async fn api_tools_video_enhance_submit(
         .json(&request_body)
         .send()
         .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+        .map_err(|error| {
+            let message = error.to_string();
+            llm_dev_write_db_log(
+                "volcengine",
+                "ai-mediakit",
+                "videoEnhance",
+                "error",
+                started_at,
+                Some(&endpoint),
+                Some(&request_body),
+                None,
+                None,
+                Some(&message),
+            );
+            ApiError::new(StatusCode::BAD_GATEWAY, message)
+        })?;
     let status = response.status();
     let body_text = response
         .text()
         .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+        .map_err(|error| {
+            let message = error.to_string();
+            llm_dev_write_db_log(
+                "volcengine",
+                "ai-mediakit",
+                "videoEnhance",
+                "error",
+                started_at,
+                Some(&endpoint),
+                Some(&request_body),
+                None,
+                None,
+                Some(&message),
+            );
+            ApiError::new(StatusCode::BAD_GATEWAY, message)
+        })?;
     if !status.is_success() {
-        return Err(ApiError::new(
-            StatusCode::BAD_GATEWAY,
-            build_sync_error_message(status, &body_text),
-        ));
+        let message = build_sync_error_message(status, &body_text);
+        llm_dev_write_db_log(
+            "volcengine",
+            "ai-mediakit",
+            "videoEnhance",
+            "error",
+            started_at,
+            Some(&endpoint),
+            Some(&request_body),
+            None,
+            Some(&body_text),
+            Some(&message),
+        );
+        return Err(ApiError::new(StatusCode::BAD_GATEWAY, message));
     }
     let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-        ApiError::new(
-            StatusCode::BAD_GATEWAY,
-            format!("解析 MediaKit 画质增强响应失败: {}", error),
-        )
+        let message = format!("解析 MediaKit 画质增强响应失败: {}", error);
+        llm_dev_write_db_log(
+            "volcengine",
+            "ai-mediakit",
+            "videoEnhance",
+            "error",
+            started_at,
+            Some(&endpoint),
+            Some(&request_body),
+            None,
+            Some(&body_text),
+            Some(&message),
+        );
+        ApiError::new(StatusCode::BAD_GATEWAY, message)
     })?;
     let task_id = payload
         .get("task_id")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "MediaKit 未返回 task_id"))?;
+        .ok_or_else(|| {
+            let message = "MediaKit 未返回 task_id";
+            llm_dev_write_db_log(
+                "volcengine",
+                "ai-mediakit",
+                "videoEnhance",
+                "error",
+                started_at,
+                Some(&endpoint),
+                Some(&request_body),
+                Some(&payload),
+                Some(&body_text),
+                Some(message),
+            );
+            ApiError::new(StatusCode::BAD_GATEWAY, message)
+        })?;
 
     llm_dev_log!(
         "task",

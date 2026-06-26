@@ -17,7 +17,7 @@ const props = withDefaults(defineProps<{
 <template>
   <div
     :class="cn(
-      'flex w-full flex-wrap items-center justify-between gap-3 bg-background px-4 md:px-6',
+      'flex w-full flex-wrap items-center justify-between gap-3 bg-background pr-4 md:pr-6',
       compact ? 'min-h-14 py-2' : 'min-h-16 py-3 md:py-0',
       props.class
     )"

@@ -17,6 +17,17 @@ export function nowIso(date = new Date()) {
   return date.toISOString()
 }
 
+function addColumnIfMissing(conn: Database, table: string, definition: string) {
+  try {
+    conn.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!message.toLowerCase().includes('duplicate column name')) {
+      throw error
+    }
+  }
+}
+
 export function dataDir() {
   return resolve(process.cwd(), process.env.PLAYLET_ADMIN_DATA_DIR || './data')
 }
@@ -99,6 +110,7 @@ function initSchema(conn: Database) {
     CREATE TABLE IF NOT EXISTS provider_credentials (
       provider_id TEXT PRIMARY KEY REFERENCES model_providers(id) ON DELETE CASCADE,
       encrypted_api_key TEXT,
+      encrypted_mediakit_api_key TEXT NOT NULL DEFAULT '',
       encrypted_access_key TEXT,
       encrypted_secret_key TEXT,
       encrypted_security_token TEXT,
@@ -345,10 +357,12 @@ function ensureDefaultProviders(conn: Database) {
       (id, provider_key, display_name, base_url, enabled, created_at, updated_at)
     VALUES (?, ?, ?, ?, 1, ?, ?)
   `)
+  addColumnIfMissing(conn, 'provider_credentials', "encrypted_mediakit_api_key TEXT NOT NULL DEFAULT ''")
+
   const insertCreds = conn.prepare(`
     INSERT OR IGNORE INTO provider_credentials
-      (provider_id, encrypted_api_key, encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
-    VALUES (?, '', '', '', '', ?)
+      (provider_id, encrypted_api_key, encrypted_mediakit_api_key, encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
+    VALUES (?, '', '', '', '', '', ?)
   `)
   const timestamp = nowIso()
   for (const [providerKey, displayName, baseUrl] of providers) {

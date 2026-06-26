@@ -199,6 +199,7 @@ async function submitTask() {
       method: 'POST',
       body: buildRequestBody()
     })
+    toast.success('图片增强任务已提交', { description: response.taskId })
     await router.push({
       path: '/tools/enhance-tasks',
       query: { type: 'image', taskId: response.taskId }

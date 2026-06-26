@@ -21,7 +21,7 @@ const props = withDefaults(defineProps<{
       'min-h-0',
       fill ? 'flex-1' : 'flex-none',
       scroll ? 'overflow-y-auto' : 'overflow-hidden',
-      padded && 'px-4 pb-4 md:px-6 md:pb-6',
+      padded && 'pr-4 pb-4 md:pr-6 md:pb-6',
       props.class
     )"
   >

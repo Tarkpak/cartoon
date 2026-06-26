@@ -58,8 +58,11 @@ const { confirm } = useConfirm()
 const taskId = ref('')
 const status = ref<TaskStatus>('idle')
 const rawStatus = ref('')
+const sourceImageUrl = ref('')
+const sourceDeleted = ref(false)
 const resultImageUrl = ref('')
 const localImageUrl = ref('')
+const resultDeleted = ref(false)
 const errorMessage = ref('')
 const querying = ref(false)
 const saving = ref(false)
@@ -72,6 +75,9 @@ const embeddedInUnifiedTasks = computed(() => route.path === '/tools/enhance-tas
 const canQuery = computed(() => taskId.value.trim().length > 0 && !querying.value)
 const canSave = computed(() => resultImageUrl.value && !localImageUrl.value && !saving.value)
 const pollingActive = computed(() => status.value === 'processing' && pollingTimer !== null)
+const displayResultImageUrl = computed(() => localImageUrl.value || resultImageUrl.value)
+const compareSourceImageUrl = computed(() => sourceDeleted.value ? '' : sourceImageUrl.value)
+const compareResultImageUrl = computed(() => resultDeleted.value ? '' : displayResultImageUrl.value)
 
 onMounted(() => {
   void loadRecentTasks()
@@ -99,11 +105,28 @@ async function loadRecentTasks() {
       query: { limit: 100 }
     })
     recentTasks.value = response.data.tasks
+    syncSelectedTaskFromRecords()
   } catch (error) {
     recentTasks.value = []
     errorMessage.value = error instanceof Error ? error.message : '读取图片增强任务失败'
   } finally {
     loadingTasks.value = false
+  }
+}
+
+function syncSelectedTaskFromRecords() {
+  const selectedTaskId = taskId.value.trim()
+  if (!selectedTaskId) return
+  const selectedRecord = recentTasks.value.find(record => record.taskId === selectedTaskId)
+  if (!selectedRecord) return
+  sourceImageUrl.value = selectedRecord.sourceImageUrl || sourceImageUrl.value
+  sourceDeleted.value = selectedRecord.sourceDeleted
+  resultDeleted.value = selectedRecord.resultDeleted
+  if (!resultImageUrl.value) {
+    resultImageUrl.value = selectedRecord.resultImageUrl || ''
+  }
+  if (!localImageUrl.value) {
+    localImageUrl.value = selectedRecord.savedImageUrl || ''
   }
 }
 
@@ -118,8 +141,11 @@ function selectTask(record: ImageEnhanceTaskRecord) {
   taskId.value = record.taskId
   status.value = record.status
   rawStatus.value = record.rawStatus || record.status
+  sourceImageUrl.value = record.sourceImageUrl || ''
+  sourceDeleted.value = record.sourceDeleted
   resultImageUrl.value = record.resultImageUrl || ''
   localImageUrl.value = record.savedImageUrl || ''
+  resultDeleted.value = record.resultDeleted
   errorMessage.value = record.errorMessage || ''
   void queryStatus(true)
 }
@@ -135,6 +161,7 @@ async function queryStatus(autoPoll = false) {
     const response = await $fetch<EnhanceStatusResponse>(`/api/tools/image-enhance/status/${encodeURIComponent(id)}`)
     rawStatus.value = response.rawStatus || response.status
     localImageUrl.value = ''
+    resultDeleted.value = false
     if (response.status === 'completed') {
       status.value = 'completed'
       resultImageUrl.value = response.imageUrl || ''
@@ -175,6 +202,7 @@ async function saveResult() {
       body: { taskId: taskId.value, imageUrl: resultImageUrl.value }
     })
     localImageUrl.value = response.imageUrl
+    resultDeleted.value = false
     toast.success('结果图片已保存')
     void loadRecentTasks()
   } catch (error) {
@@ -204,6 +232,15 @@ async function deleteTaskAsset(record: ImageEnhanceTaskRecord, asset: 'source' |
       method: 'DELETE'
     })
     toast.success(asset === 'source' ? '源图片已删除' : '结果图片已删除')
+    if (taskId.value === record.taskId) {
+      if (asset === 'source') {
+        sourceDeleted.value = true
+      } else {
+        resultDeleted.value = true
+        resultImageUrl.value = ''
+        localImageUrl.value = ''
+      }
+    }
     await loadRecentTasks()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '删除任务文件失败'
@@ -287,36 +324,13 @@ function statusLabel(value: TaskStatus) {
                     复制
                   </Button>
                 </div>
-                <div class="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <div class="mb-2 text-xs font-medium text-muted-foreground">
-                      云端结果
-                    </div>
-                    <div class="flex min-h-[260px] items-center justify-center rounded-md bg-background">
-                      <img
-                        v-if="resultImageUrl"
-                        :src="resultImageUrl"
-                        alt="云端增强结果"
-                        class="max-h-[420px] max-w-full rounded-md object-contain"
-                      >
-                      <span v-else class="text-sm text-muted-foreground">暂无结果</span>
-                    </div>
-                  </div>
-                  <div>
-                    <div class="mb-2 text-xs font-medium text-muted-foreground">
-                      已保存结果
-                    </div>
-                    <div class="flex min-h-[260px] items-center justify-center rounded-md bg-background">
-                      <img
-                        v-if="localImageUrl"
-                        :src="localImageUrl"
-                        alt="已保存结果"
-                        class="max-h-[420px] max-w-full rounded-md object-contain"
-                      >
-                      <span v-else class="text-sm text-muted-foreground">保存后在这里预览</span>
-                    </div>
-                  </div>
-                </div>
+                <ToolsImageCompareViewer
+                  :before-url="compareSourceImageUrl"
+                  :after-url="compareResultImageUrl"
+                  before-label="源图"
+                  :after-label="localImageUrl ? '已保存结果' : '云端结果'"
+                  empty-label="暂无结果"
+                />
                 <div class="mt-4 flex flex-wrap justify-end gap-2">
                   <Button v-if="resultImageUrl" variant="outline" as-child>
                     <a :href="resultImageUrl" target="_blank" rel="noreferrer">
@@ -407,7 +421,6 @@ function statusLabel(value: TaskStatus) {
             </CardContent>
           </Card>
         </div>
-      </div>
     </AppPageContent>
   </div>
 </template>

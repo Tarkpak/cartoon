@@ -11,6 +11,7 @@ export interface AdminProviderRow {
   created_at?: string
   updated_at?: string
   encrypted_api_key?: string | null
+  encrypted_mediakit_api_key?: string | null
   encrypted_access_key?: string | null
   encrypted_secret_key?: string | null
   encrypted_security_token?: string | null
@@ -32,6 +33,7 @@ export interface ProviderApiShape {
   updatedAt?: string
   credentialsUpdatedAt?: string | null
   hasApiKey: boolean
+  hasMediakitApiKey: boolean
   hasAccessKey: boolean
   hasSecretKey: boolean
   configured: boolean
@@ -50,7 +52,7 @@ export function listCoreProviderRows(db: Database): AdminProviderRow[] {
   return db
     .prepare(`
       SELECT p.id, p.provider_key, p.display_name, p.base_url, p.enabled, p.created_at, p.updated_at,
-             c.encrypted_api_key, c.encrypted_access_key, c.encrypted_secret_key,
+             c.encrypted_api_key, c.encrypted_mediakit_api_key, c.encrypted_access_key, c.encrypted_secret_key,
              c.encrypted_security_token, c.updated_at AS credentials_updated_at,
              m.models_json, m.available_models_json, m.synced_at, m.sync_error
       FROM model_providers p
@@ -66,7 +68,7 @@ export function listExtraCustomOpenAIProviderRows(db: Database): AdminProviderRo
   return db
     .prepare(`
       SELECT id, 'custom_openai' AS provider_key, display_name, base_url, enabled,
-             created_at, updated_at, encrypted_api_key, '' AS encrypted_access_key,
+             created_at, updated_at, encrypted_api_key, '' AS encrypted_mediakit_api_key, '' AS encrypted_access_key,
              '' AS encrypted_secret_key, '' AS encrypted_security_token,
              updated_at AS credentials_updated_at, models_json, available_models_json,
              synced_at, sync_error
@@ -94,6 +96,7 @@ export function providerRowToApi(row: AdminProviderRow): ProviderApiShape {
     syncError: row.sync_error
   })
   const hasApiKey = Boolean(row.encrypted_api_key)
+  const hasMediakitApiKey = Boolean(row.encrypted_mediakit_api_key)
   const hasAccessKey = Boolean(row.encrypted_access_key)
   const hasSecretKey = Boolean(row.encrypted_secret_key)
   const configured = providerKey === 'kling'
@@ -114,6 +117,7 @@ export function providerRowToApi(row: AdminProviderRow): ProviderApiShape {
     updatedAt: row.updated_at,
     credentialsUpdatedAt: row.credentials_updated_at || null,
     hasApiKey,
+    hasMediakitApiKey,
     hasAccessKey,
     hasSecretKey,
     configured,

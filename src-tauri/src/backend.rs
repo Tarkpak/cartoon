@@ -190,6 +190,8 @@ struct PutProviderModelsBody {
 struct ProviderCredentialsPutBody {
     #[serde(rename = "apiKey")]
     api_key: Option<String>,
+    #[serde(rename = "mediakitApiKey")]
+    mediakit_api_key: Option<String>,
     #[serde(rename = "baseUrl")]
     base_url: Option<String>,
     #[serde(rename = "accessKey")]
@@ -1157,6 +1159,10 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
                 .get("apiKey")
                 .and_then(Value::as_str)
                 .is_some_and(|value| !value.trim().is_empty());
+            let has_mediakit_api_key = item
+                .get("mediakitApiKey")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty());
             let has_access_key = item
                 .get("accessKey")
                 .and_then(Value::as_str)
@@ -1170,6 +1176,7 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
                 json!({
                   "baseUrl": item.get("baseUrl").and_then(Value::as_str).unwrap_or(""),
                   "hasApiKey": has_api_key,
+                  "hasMediakitApiKey": has_mediakit_api_key,
                   "hasAccessKey": has_access_key,
                   "hasSecretKey": has_secret_key
                 }),
@@ -1190,6 +1197,10 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
             .get("apiKey")
             .and_then(Value::as_str)
             .is_some_and(|value| !value.trim().is_empty());
+        let has_mediakit_api_key = item
+            .get("mediakitApiKey")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty());
         let has_access_key = item
             .get("accessKey")
             .and_then(Value::as_str)
@@ -1203,6 +1214,7 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
             json!({
               "baseUrl": item.get("baseUrl").and_then(Value::as_str).unwrap_or(""),
               "hasApiKey": has_api_key,
+              "hasMediakitApiKey": has_mediakit_api_key,
               "hasAccessKey": has_access_key,
               "hasSecretKey": has_secret_key
             }),
@@ -1459,6 +1471,11 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
             .and_then(Value::as_str)
             .unwrap_or("")
             .trim();
+        let mediakit_api_key = item
+            .get("mediakitApiKey")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         let access_key = item
             .get("accessKey")
             .and_then(Value::as_str)
@@ -1522,15 +1539,26 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
                 }),
             );
         } else {
-            if api_key.is_empty() {
+            if target_provider == "volcengine" && api_key.is_empty() && mediakit_api_key.is_empty() {
+                continue;
+            }
+            if target_provider != "volcengine" && api_key.is_empty() {
                 continue;
             }
             output.insert(
                 target_provider.to_string(),
-                json!({
+                if target_provider == "volcengine" {
+                    json!({
+                      "apiKey": api_key,
+                      "mediakitApiKey": mediakit_api_key,
+                      "baseUrl": base_url
+                    })
+                } else {
+                    json!({
                   "apiKey": api_key,
                   "baseUrl": base_url
-                }),
+                    })
+                },
             );
         }
     }
@@ -2440,7 +2468,7 @@ fn default_provider_credentials() -> Value {
     json!({
       "gemini":     { "apiKey": "", "baseUrl": "" },
       "qwen":       { "apiKey": "", "baseUrl": "" },
-      "volcengine": { "apiKey": "", "baseUrl": "" },
+      "volcengine": { "apiKey": "", "mediakitApiKey": "", "baseUrl": "" },
       "deepseek":   { "apiKey": "", "baseUrl": "" },
       "kling":      { "accessKey": "", "secretKey": "", "baseUrl": "" }
     })
@@ -3583,6 +3611,21 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         updated_at TEXT NOT NULL,
         completed_at TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS uploaded_media_cache (
+        id TEXT PRIMARY KEY,
+        category TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        file_name TEXT,
+        mime_type TEXT,
+        size_bytes INTEGER NOT NULL,
+        object_key TEXT NOT NULL,
+        url TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_used_at TEXT NOT NULL,
+        UNIQUE(category, sha256)
+      );
     ",
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -3605,6 +3648,8 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
       CREATE INDEX IF NOT EXISTS idx_video_enhance_tasks_created ON video_enhance_tasks(created_at);
       CREATE INDEX IF NOT EXISTS idx_image_enhance_tasks_status ON image_enhance_tasks(status);
       CREATE INDEX IF NOT EXISTS idx_image_enhance_tasks_created ON image_enhance_tasks(created_at);
+      CREATE INDEX IF NOT EXISTS idx_uploaded_media_cache_category_sha256
+        ON uploaded_media_cache(category, sha256);
       -- 日志查询统一按 timestamp DESC 排序取 LIMIT，过滤走大小写无关 / 子串匹配，
       -- 规划器不会用到下面这些二级索引；清理掉以省去写入开销。
       DROP INDEX IF EXISTS idx_model_debug_logs_provider;
@@ -7594,8 +7639,19 @@ fn normalize_imported_api_key_provider_credentials(
         Some(value) => settings_string_field(value, "baseUrl", &path, 2048)?,
         None => String::new(),
     };
+    let mediakit_api_key = if provider == "volcengine" {
+        match source {
+            Some(value) => {
+                settings_string_field(value, "mediakitApiKey", &path, SETTINGS_CONFIG_TEXT_MAX_CHARS)?
+            }
+            None => String::new(),
+        }
+    } else {
+        String::new()
+    };
     Ok(json!({
       "apiKey": api_key,
+      "mediakitApiKey": mediakit_api_key,
       "baseUrl": base_url
     }))
 }
@@ -7923,6 +7979,10 @@ fn provider_sync_api_key(provider: &str, creds: &Value) -> Option<String> {
         }
         _ => None,
     }
+}
+
+fn provider_sync_mediakit_api_key(creds: &Value) -> Option<String> {
+    provider_credential_field(creds, "volcengine", "mediakitApiKey")
 }
 
 fn provider_sync_api_keys(provider: &str, creds: &Value) -> Vec<String> {
@@ -9238,7 +9298,11 @@ fn provider_credentials_public(creds: &Value) -> Value {
     json!({
       "gemini":     { "hasApiKey": mask("gemini", "apiKey"), "baseUrl": base_url("gemini") },
       "qwen":       { "hasApiKey": mask("qwen", "apiKey"), "baseUrl": base_url("qwen") },
-      "volcengine": { "hasApiKey": mask("volcengine", "apiKey"), "baseUrl": base_url("volcengine") },
+      "volcengine": {
+        "hasApiKey": mask("volcengine", "apiKey"),
+        "hasMediakitApiKey": mask("volcengine", "mediakitApiKey"),
+        "baseUrl": base_url("volcengine")
+      },
       "deepseek":   { "hasApiKey": mask("deepseek", "apiKey"), "baseUrl": base_url("deepseek") },
       "kling": {
         "hasAccessKey": mask("kling", "accessKey"),
@@ -9984,6 +10048,14 @@ async fn api_provider_credentials_put(
             }
         } else if let Some(api_key) = body.api_key {
             entry_obj.insert("apiKey".to_string(), json!(api_key.trim()));
+        }
+        if provider == "volcengine" {
+            if let Some(mediakit_api_key) = body.mediakit_api_key {
+                entry_obj.insert(
+                    "mediakitApiKey".to_string(),
+                    json!(mediakit_api_key.trim()),
+                );
+            }
         }
         if let Some(base_url) = body.base_url {
             entry_obj.insert("baseUrl".to_string(), json!(base_url.trim()));

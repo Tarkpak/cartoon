@@ -216,45 +216,31 @@ async function submitLocalEnhance() {
               </Button>
             </div>
 
-            <div class="grid gap-4 lg:grid-cols-2">
-              <div class="rounded-md border bg-muted/20 p-4">
-                <div class="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
-                  <FileImage class="h-4 w-4 text-primary" />
-                  原图
-                </div>
-                <div class="flex min-h-[260px] items-center justify-center rounded-md bg-background">
-                  <img
-                    v-if="previewUrl"
-                    :src="previewUrl"
-                    alt="原图预览"
-                    class="max-h-[420px] max-w-full rounded-md object-contain"
-                  >
-                  <span v-else class="text-sm text-muted-foreground">尚未选择图片</span>
-                </div>
-                <div v-if="selectedFileName" class="mt-3 text-xs text-muted-foreground">
-                  {{ selectedFileName }} · {{ selectedFileType }} · {{ formatBytes(selectedFileSize) }}
-                </div>
+            <ToolsImageCompareViewer
+              :before-url="previewUrl"
+              :after-url="result?.imageUrl || ''"
+              before-label="原图"
+              after-label="处理结果"
+              empty-label="尚未选择图片"
+            />
+            <div
+              v-if="selectedFileName || result"
+              class="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground"
+            >
+              <div class="flex min-w-0 items-center gap-2">
+                <FileImage class="h-4 w-4 shrink-0 text-primary" />
+                <span class="truncate">
+                  {{ selectedFileName ? `${selectedFileName} · ${selectedFileType} · ${formatBytes(selectedFileSize)}` : '尚未选择图片' }}
+                </span>
               </div>
-              <div class="rounded-md border bg-muted/20 p-4">
-                <div class="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
-                  <MonitorCog class="h-4 w-4 text-primary" />
-                  结果
-                </div>
-                <div class="flex min-h-[260px] items-center justify-center rounded-md bg-background">
-                  <img
-                    v-if="result?.imageUrl"
-                    :src="result.imageUrl"
-                    alt="处理结果"
-                    class="max-h-[420px] max-w-full rounded-md object-contain"
-                  >
-                  <span v-else class="text-sm text-muted-foreground">处理完成后在这里预览</span>
-                </div>
-                <div v-if="result" class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                  <span>{{ result.presetLabel }} · {{ formatDuration(result.elapsedMs) }}</span>
-                  <Button variant="outline" size="sm" as-child>
-                    <a :href="result.imageUrl" target="_blank" rel="noreferrer">打开图片</a>
-                  </Button>
-                </div>
+              <div
+                v-if="result"
+                class="flex flex-wrap items-center gap-2"
+              >
+                <span>{{ result.presetLabel }} · {{ formatDuration(result.elapsedMs) }}</span>
+                <Button variant="outline" size="sm" as-child>
+                  <a :href="result.imageUrl" target="_blank" rel="noreferrer">打开图片</a>
+                </Button>
               </div>
             </div>
 

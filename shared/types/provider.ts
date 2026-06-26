@@ -195,6 +195,7 @@ export type CustomOpenAIProviderPublicConfig = z.infer<typeof CustomOpenAIProvid
 /** 单个 OpenAI 兼容供应商的脱敏凭证视图（apiKey 不回传，只返回是否已配置） */
 export const ProviderApiKeyCredentialSchema = z.object({
   hasApiKey: z.boolean().default(false),
+  hasMediakitApiKey: z.boolean().optional().default(false),
   baseUrl: z.string().default('')
 })
 export type ProviderApiKeyCredential = z.infer<typeof ProviderApiKeyCredentialSchema>

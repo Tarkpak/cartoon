@@ -244,6 +244,7 @@ async function submitTask() {
       method: 'POST',
       body: buildRequestBody()
     })
+    toast.success('视频增强任务已提交', { description: response.taskId })
     await router.push({
       path: '/tools/enhance-tasks',
       query: { type: 'video', taskId: response.taskId }
@@ -295,15 +296,7 @@ async function submitTask() {
 
     <AppPageContent scroll inner-class="space-y-6">
       <Card>
-        <CardHeader>
-          <CardTitle class="text-lg">
-            提交增强
-          </CardTitle>
-          <CardDescription>
-            本地视频会先上传到已配置的 TOS。若未启用 TOS，上传会被后端拒绝。
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="space-y-5">
+        <CardContent class="space-y-5 pt-6">
           <div class="grid gap-3 md:grid-cols-4">
             <button
               v-for="option in kindOptions"

@@ -58,8 +58,11 @@ const { confirm } = useConfirm()
 const taskId = ref('')
 const status = ref<TaskStatus>('idle')
 const rawStatus = ref('')
+const sourceVideoUrl = ref('')
+const sourceDeleted = ref(false)
 const resultVideoUrl = ref('')
 const localVideoUrl = ref('')
+const resultDeleted = ref(false)
 const errorMessage = ref('')
 const querying = ref(false)
 const saving = ref(false)
@@ -72,6 +75,9 @@ const embeddedInUnifiedTasks = computed(() => route.path === '/tools/enhance-tas
 const canQuery = computed(() => taskId.value.trim().length > 0 && !querying.value)
 const canSave = computed(() => resultVideoUrl.value && !localVideoUrl.value && !saving.value)
 const pollingActive = computed(() => status.value === 'processing' && pollingTimer !== null)
+const displayResultVideoUrl = computed(() => localVideoUrl.value || resultVideoUrl.value)
+const compareSourceVideoUrl = computed(() => sourceDeleted.value ? '' : sourceVideoUrl.value)
+const compareResultVideoUrl = computed(() => resultDeleted.value ? '' : displayResultVideoUrl.value)
 
 onMounted(() => {
   void loadRecentTasks()
@@ -99,11 +105,28 @@ async function loadRecentTasks() {
       query: { limit: 100 }
     })
     recentTasks.value = response.data.tasks
+    syncSelectedTaskFromRecords()
   } catch (error) {
     recentTasks.value = []
     errorMessage.value = error instanceof Error ? error.message : '读取画质增强任务失败'
   } finally {
     loadingTasks.value = false
+  }
+}
+
+function syncSelectedTaskFromRecords() {
+  const selectedTaskId = taskId.value.trim()
+  if (!selectedTaskId) return
+  const selectedRecord = recentTasks.value.find(record => record.taskId === selectedTaskId)
+  if (!selectedRecord) return
+  sourceVideoUrl.value = selectedRecord.sourceVideoUrl || sourceVideoUrl.value
+  sourceDeleted.value = selectedRecord.sourceDeleted
+  resultDeleted.value = selectedRecord.resultDeleted
+  if (!resultVideoUrl.value) {
+    resultVideoUrl.value = selectedRecord.resultVideoUrl || ''
+  }
+  if (!localVideoUrl.value) {
+    localVideoUrl.value = selectedRecord.savedVideoUrl || ''
   }
 }
 
@@ -118,8 +141,11 @@ function selectTask(record: VideoEnhanceTaskRecord) {
   taskId.value = record.taskId
   status.value = record.status
   rawStatus.value = record.rawStatus || record.status
+  sourceVideoUrl.value = record.sourceVideoUrl || ''
+  sourceDeleted.value = record.sourceDeleted
   resultVideoUrl.value = record.resultVideoUrl || ''
   localVideoUrl.value = record.savedVideoUrl || ''
+  resultDeleted.value = record.resultDeleted
   errorMessage.value = record.errorMessage || ''
   void queryStatus(true)
 }
@@ -135,6 +161,7 @@ async function queryStatus(autoPoll = false) {
     const response = await $fetch<EnhanceStatusResponse>(`/api/tools/video-enhance/status/${encodeURIComponent(id)}`)
     rawStatus.value = response.rawStatus || response.status
     localVideoUrl.value = ''
+    resultDeleted.value = false
     if (response.status === 'completed') {
       status.value = 'completed'
       resultVideoUrl.value = response.videoUrl || ''
@@ -175,6 +202,7 @@ async function saveResult() {
       body: { taskId: taskId.value, videoUrl: resultVideoUrl.value }
     })
     localVideoUrl.value = response.videoUrl
+    resultDeleted.value = false
     toast.success('结果视频已保存')
     void loadRecentTasks()
   } catch (error) {
@@ -204,6 +232,15 @@ async function deleteTaskAsset(record: VideoEnhanceTaskRecord, asset: 'source' |
       method: 'DELETE'
     })
     toast.success(asset === 'source' ? '源视频已删除' : '结果视频已删除')
+    if (taskId.value === record.taskId) {
+      if (asset === 'source') {
+        sourceDeleted.value = true
+      } else {
+        resultDeleted.value = true
+        resultVideoUrl.value = ''
+        localVideoUrl.value = ''
+      }
+    }
     await loadRecentTasks()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '删除任务文件失败'
@@ -420,10 +457,12 @@ function taskStatusVariant(value: TaskStatus | string) {
               v-if="resultVideoUrl"
               class="space-y-3"
             >
-              <video
-                :src="localVideoUrl || resultVideoUrl"
-                controls
-                class="aspect-video w-full rounded-md border bg-black"
+              <ToolsVideoCompareViewer
+                :before-url="compareSourceVideoUrl"
+                :after-url="compareResultVideoUrl"
+                before-label="源视频"
+                :after-label="localVideoUrl ? '已保存结果' : '云端结果'"
+                empty-label="暂无结果"
               />
               <div class="flex flex-wrap gap-2">
                 <Button

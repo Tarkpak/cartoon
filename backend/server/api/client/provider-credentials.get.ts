@@ -31,6 +31,9 @@ export default defineEventHandler((event) => {
       displayName: row.display_name,
       baseUrl: row.base_url,
       apiKey: decryptText(row.encrypted_api_key),
+      mediakitApiKey: row.provider_key === 'volcengine'
+        ? decryptText(row.encrypted_mediakit_api_key)
+        : '',
       accessKey: decryptText(row.encrypted_access_key),
       secretKey: decryptText(row.encrypted_secret_key),
       securityToken: decryptText(row.encrypted_security_token),

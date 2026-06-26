@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { FileText, FolderOpen, Sparkles, Layers3, Film, ScrollText, Settings, History } from 'lucide-vue-next'
+import { createClickRipple } from '@/lib/ripple'
 import { resolveProjectWorkbenchPath } from '#shared/types/project'
 
 definePageMeta({
@@ -28,6 +29,10 @@ function startCreate() {
 function continueLast() {
   if (!lastProjectId.value) return
   router.push(resolveProjectWorkbenchPath(lastProjectId.value))
+}
+
+function handleQuickActionPointerDown(event: PointerEvent) {
+  createClickRipple(event)
 }
 
 // 功能展示卡片（说明产品能力，非独立入口）
@@ -77,8 +82,8 @@ const heroStats = computed(() => [
 </script>
 
 <template>
-  <div class="min-h-screen bg-background px-5 py-5 sm:px-8 lg:px-10">
-    <section class="mx-auto grid max-w-7xl items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+  <div class="min-h-screen bg-background py-5 pr-5 sm:pr-8 lg:pr-10">
+    <section class="grid items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div class="relative flex min-h-[23rem] flex-col justify-between overflow-hidden rounded-lg border border-border/60 bg-card/65 px-6 py-7 shadow-[0_20px_58px_hsl(var(--foreground)/0.055)] sm:px-9 sm:py-9">
         <div class="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_16%_18%,hsl(var(--primary)/0.11),transparent_32%),radial-gradient(circle_at_86%_8%,hsl(var(--warning)/0.08),transparent_24%)]" />
         <div class="relative max-w-3xl">
@@ -139,7 +144,8 @@ const heroStats = computed(() => [
               v-for="action in quickActions"
               :key="action.label"
               type="button"
-              class="group flex min-h-12 items-center gap-3 rounded-md border border-transparent bg-transparent px-3 py-2 text-left transition-[background-color,border-color,transform] duration-200 hover:-translate-y-0.5 hover:border-border hover:bg-accent/70 active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              class="group relative flex min-h-12 items-center gap-3 overflow-hidden rounded-md border border-transparent bg-transparent px-3 py-2 text-left transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              @pointerdown="handleQuickActionPointerDown"
               @click="action.handler()"
             >
               <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted text-foreground transition-colors group-hover:bg-background">
@@ -155,7 +161,7 @@ const heroStats = computed(() => [
       </Card>
     </section>
 
-    <section class="mx-auto mt-6 max-w-7xl">
+    <section class="mt-6">
       <div class="mb-4 flex items-end justify-between gap-4">
         <div>
           <p class="text-sm font-medium text-primary">

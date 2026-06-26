@@ -151,19 +151,36 @@
 }
 
 /* 页面过渡动画 */
-.page-enter-active,
+.page-enter-active {
+  transition:
+    opacity 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: 50% 40%;
+  will-change: opacity, transform;
+}
+
 .page-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 180ms cubic-bezier(0.4, 0, 1, 1),
+    transform 180ms cubic-bezier(0.4, 0, 1, 1);
+  transform-origin: 50% 40%;
+  will-change: opacity, transform;
 }
 
 .page-enter-from {
   opacity: 0;
-  transform: translateY(10px);
+  transform: translate3d(0, 8px, 0) scale(0.992);
+}
+
+.page-enter-to,
+.page-leave-from {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
 }
 
 .page-leave-to {
   opacity: 0;
-  transform: translateY(-10px);
+  transform: translate3d(0, -4px, 0) scale(0.996);
 }
 
 /* 布局过渡动画 */
@@ -175,6 +192,30 @@
 .layout-enter-from,
 .layout-leave-to {
   opacity: 0;
+}
+
+@keyframes click-ripple {
+  from {
+    opacity: 0.22;
+    transform: scale(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+.button-ripple-effect {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0;
+  transform: scale(0);
+  transform-origin: center;
+  animation: click-ripple 1100ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* 滚动条美化 */

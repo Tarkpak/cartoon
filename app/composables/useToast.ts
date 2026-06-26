@@ -18,6 +18,7 @@ export interface ToastOptions {
 }
 
 const toasts = reactive<ToastItem[]>([])
+const toastTimers = new Map<number, ReturnType<typeof setTimeout>>()
 let seq = 0
 
 const DEFAULT_DURATION: Record<ToastVariant, number> = {
@@ -28,12 +29,30 @@ const DEFAULT_DURATION: Record<ToastVariant, number> = {
   error: 6000
 }
 
+function clearDismissTimer(id: number) {
+  const timer = toastTimers.get(id)
+  if (!timer) return
+  clearTimeout(timer)
+  toastTimers.delete(id)
+}
+
+function scheduleDismiss(id: number, duration: number) {
+  clearDismissTimer(id)
+  if (duration <= 0) return
+  const timer = setTimeout(() => dismiss(id), duration)
+  toastTimers.set(id, timer)
+}
+
 function dismiss(id: number) {
+  clearDismissTimer(id)
   const index = toasts.findIndex(item => item.id === id)
   if (index !== -1) toasts.splice(index, 1)
 }
 
 function clear() {
+  for (const id of toastTimers.keys()) {
+    clearDismissTimer(id)
+  }
   toasts.splice(0, toasts.length)
 }
 
@@ -50,12 +69,13 @@ function push(message: string, variant: ToastVariant, options?: ToastOptions): n
 
   // 队列上限，避免长时间运行后堆积过多
   if (toasts.length > 6) {
-    toasts.splice(0, toasts.length - 6)
+    const removed = toasts.splice(0, toasts.length - 6)
+    for (const item of removed) {
+      clearDismissTimer(item.id)
+    }
   }
 
-  if (duration > 0 && import.meta.client) {
-    window.setTimeout(() => dismiss(id), duration)
-  }
+  scheduleDismiss(id, duration)
 
   return id
 }

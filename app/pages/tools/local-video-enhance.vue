@@ -27,6 +27,7 @@ const selectedFile = ref<File | null>(null)
 const selectedFileName = ref('')
 const selectedFileSize = ref(0)
 const selectedFileType = ref('')
+const previewUrl = ref('')
 const uploadProgress = ref(0)
 const processing = ref(false)
 const errorMessage = ref('')
@@ -75,6 +76,10 @@ const presetOptions: Array<{
 const canSubmit = computed(() => !!selectedFile.value && !processing.value)
 const activePreset = computed(() => presetOptions.find(option => option.value === preset.value))
 
+onUnmounted(() => {
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+})
+
 function triggerFileUpload() {
   fileInputRef.value?.click()
 }
@@ -111,6 +116,8 @@ function handleFileChange(event: Event) {
   uploadProgress.value = 0
   errorMessage.value = ''
   result.value = null
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  previewUrl.value = URL.createObjectURL(file)
   if (input) input.value = ''
 }
 
@@ -341,10 +348,12 @@ async function submitLocalEnhance() {
                 </a>
               </Button>
             </div>
-            <video
-              :src="result.videoUrl"
-              controls
-              class="aspect-video w-full rounded-md border bg-black"
+            <ToolsVideoCompareViewer
+              :before-url="previewUrl"
+              :after-url="result.videoUrl"
+              before-label="原视频"
+              after-label="增强结果"
+              empty-label="暂无结果"
             />
           </section>
         </CardContent>

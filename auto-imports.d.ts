@@ -16,6 +16,7 @@ declare global {
   const MODEL_DEBUG_PROVIDER_OPTIONS: typeof import('./app/composables/useModelDebugLogs')['MODEL_DEBUG_PROVIDER_OPTIONS']
   const PROMPT_STAGE_CONFIG: typeof import('./app/composables/useSettingsPrompts')['PROMPT_STAGE_CONFIG']
   const WORKFLOW_CATEGORY_CONFIG: typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_CATEGORY_CONFIG']
+  const WORKFLOW_CATEGORY_ORDER: typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_CATEGORY_ORDER']
   const WORKFLOW_GEMINI_IMAGE_SIZES: typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_GEMINI_IMAGE_SIZES']
   const WORKFLOW_OPENAI_IMAGE_QUALITIES: typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_OPENAI_IMAGE_QUALITIES']
   const WORKFLOW_PANORAMA_SOURCE_MODES: typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_PANORAMA_SOURCE_MODES']
@@ -215,6 +216,7 @@ declare module 'vue' {
     readonly MODEL_DEBUG_PROVIDER_OPTIONS: UnwrapRef<typeof import('./app/composables/useModelDebugLogs')['MODEL_DEBUG_PROVIDER_OPTIONS']>
     readonly PROMPT_STAGE_CONFIG: UnwrapRef<typeof import('./app/composables/useSettingsPrompts')['PROMPT_STAGE_CONFIG']>
     readonly WORKFLOW_CATEGORY_CONFIG: UnwrapRef<typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_CATEGORY_CONFIG']>
+    readonly WORKFLOW_CATEGORY_ORDER: UnwrapRef<typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_CATEGORY_ORDER']>
     readonly WORKFLOW_GEMINI_IMAGE_SIZES: UnwrapRef<typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_GEMINI_IMAGE_SIZES']>
     readonly WORKFLOW_OPENAI_IMAGE_QUALITIES: UnwrapRef<typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_OPENAI_IMAGE_QUALITIES']>
     readonly WORKFLOW_PANORAMA_SOURCE_MODES: UnwrapRef<typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_PANORAMA_SOURCE_MODES']>

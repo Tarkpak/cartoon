@@ -25,7 +25,10 @@ export default defineEventHandler((event) => {
             secretKey: decryptText(row.encrypted_secret_key)
           }
         : {
-            apiKey: decryptText(row.encrypted_api_key)
+            apiKey: decryptText(row.encrypted_api_key),
+            mediakitApiKey: row.provider_key === 'volcengine'
+              ? decryptText(row.encrypted_mediakit_api_key)
+              : undefined
           }
       const modelState = resolveProviderModelState({
         providerKey: row.provider_key,
