@@ -40,9 +40,9 @@ const sourceObjectKey = ref('')
 const selectedFileName = ref('')
 const selectedFileSize = ref(0)
 const selectedFileType = ref('')
-const scene = ref('aigc')
+const scene = ref('common')
 const resolution = ref('1080p')
-const resolutionLimit = ref(720)
+const resolutionLimit = ref(1080)
 const fps = ref<number | undefined>(undefined)
 const resolutionMode = ref<'preset' | 'limit'>('preset')
 const submitting = ref(false)
@@ -89,20 +89,21 @@ const kindOptions: Array<{
     speed: '快',
     cost: '低',
     bestFor: '直播切片、UGC 短视频',
-    limit: '不支持 4K'
+    limit: '支持最高 4K'
   },
   {
     value: 'generative',
     label: '大模型',
-    description: '生成式增强修复，适合 480p 级别低清视频。',
+    description: '生成式增强修复，适合低清修复和细节补全。',
     speed: '慢',
     cost: '高',
     bestFor: '低清修复、细节补全',
-    limit: '输入短边 360-520，SDR'
+    limit: '输入最高 1080p，SDR'
   }
 ]
 
 const sceneOptions = [
+  { value: 'common', label: '通用' },
   { value: 'aigc', label: 'AIGC' },
   { value: 'short_series', label: '短剧' },
   { value: 'ugc', label: 'UGC 短视频' },
@@ -110,28 +111,44 @@ const sceneOptions = [
 ]
 
 const resolutionOptions = [
-  { value: '720p', label: '720p' },
   { value: '1080p', label: '1080p' },
+  { value: '2k', label: '2K' },
   { value: '4k', label: '4K' }
 ]
 
 const sourceUploaded = computed(() => sourceVideoUrl.value.trim().length > 0 && !uploadingSource.value)
-const canSubmit = computed(() => sourceUploaded.value && !submitting.value)
+const normalizedFps = computed(() => {
+  if (fps.value === undefined || fps.value === null) return undefined
+  const value = Number(fps.value)
+  return Number.isFinite(value) ? value : undefined
+})
+const fpsValid = computed(() => normalizedFps.value === undefined || (normalizedFps.value >= 15 && normalizedFps.value <= 120))
+const canSubmit = computed(() => sourceUploaded.value && !submitting.value && fpsValid.value)
 const submitHint = computed(() => {
   if (submitting.value) return '正在提交任务，请稍候。'
   if (uploadingSource.value) return '源视频正在上传，上传完成后才能提交。'
   if (!sourceVideoUrl.value.trim()) return '请先选择并上传一个本地视频。'
+  if (!fpsValid.value) return '帧率需在 15-120 fps 之间。'
   return ''
 })
 const selectedKindOption = computed(() => kindOptions.find(option => option.value === kind.value))
+const selectedDocsUrl = computed(() => {
+  switch (kind.value) {
+    case 'fast':
+      return 'https://www.volcengine.com/docs/6448/2487478?lang=zh'
+    case 'generative':
+      return 'https://www.volcengine.com/docs/6448/2464595?lang=zh'
+    default:
+      return 'https://www.volcengine.com/docs/6448/2279230?lang=zh'
+  }
+})
+const supportsResolutionLimit = computed(() => kind.value !== 'generative')
 
 watch(kind, (value) => {
-  if (value === 'fast' || value === 'generative') {
-    scene.value = 'aigc'
-    if (resolution.value === '4k') resolution.value = '720p'
-  }
+  if (value !== 'standard') scene.value = 'common'
   if (value === 'generative') {
-    resolution.value = '720p'
+    resolutionMode.value = 'preset'
+    if (resolution.value === '4k') resolution.value = '1080p'
   }
 })
 
@@ -142,16 +159,16 @@ function buildRequestBody() {
     sourceFileName: selectedFileName.value || '本地视频',
     sourceObjectKey: sourceObjectKey.value || undefined
   }
-  if (kind.value === 'standard' || kind.value === 'professional') {
+  if (kind.value === 'standard') {
     body.scene = scene.value
   }
-  if (resolutionMode.value === 'limit') {
+  if (kind.value !== 'generative' && resolutionMode.value === 'limit') {
     body.resolutionLimit = resolutionLimit.value
   } else {
     body.resolution = resolution.value
   }
-  if (fps.value && fps.value > 0) {
-    body.fps = fps.value
+  if (normalizedFps.value !== undefined) {
+    body.fps = normalizedFps.value
   }
   return body
 }
@@ -282,7 +299,7 @@ async function submitTask() {
             as-child
           >
             <a
-              href="https://www.volcengine.com/docs/6448/2222230?lang=zh"
+              :href="selectedDocsUrl"
               target="_blank"
               rel="noreferrer"
             >
@@ -433,7 +450,7 @@ async function submitTask() {
             class="grid gap-4 md:grid-cols-3"
           >
             <div
-              v-if="kind === 'standard' || kind === 'professional'"
+              v-if="kind === 'standard'"
               class="space-y-2"
             >
               <label class="text-sm font-medium text-foreground">业务场景</label>
@@ -453,7 +470,10 @@ async function submitTask() {
               </Select>
             </div>
 
-            <div class="space-y-2">
+            <div
+              v-if="supportsResolutionLimit"
+              class="space-y-2"
+            >
               <label class="text-sm font-medium text-foreground">分辨率方式</label>
               <Select v-model="resolutionMode">
                 <SelectTrigger>
@@ -484,7 +504,7 @@ async function submitTask() {
                     v-for="option in resolutionOptions"
                     :key="option.value"
                     :value="option.value"
-                    :disabled="(kind === 'fast' || kind === 'generative') && option.value === '4k'"
+                    :disabled="kind === 'generative' && option.value === '4k'"
                   >
                     {{ option.label }}
                   </SelectItem>
@@ -510,7 +530,7 @@ async function submitTask() {
               <Input
                 v-model.number="fps"
                 type="number"
-                min="1"
+                min="15"
                 max="120"
                 placeholder="保持原帧率"
               />
@@ -521,7 +541,7 @@ async function submitTask() {
             v-if="kind === 'generative'"
             class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
           >
-            大模型版本仅适合 480p 级别输入视频，短边需在 360-520 像素之间，且仅支持 SDR 视频。
+            大模型版本输入最高支持 1080p：短边需在 360-1080 像素之间，长边需在 360-1920 像素之间，且仅支持 SDR 视频。
           </div>
 
           <div

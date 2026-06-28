@@ -16,6 +16,7 @@ interface EnhanceStatusResponse {
   status: 'processing' | 'completed' | 'failed'
   rawStatus?: string
   videoUrl?: string | null
+  errorMessage?: string | null
 }
 
 interface EnhanceSaveResponse {
@@ -171,7 +172,7 @@ async function queryStatus(autoPoll = false) {
     if (response.status === 'failed') {
       status.value = 'failed'
       resultVideoUrl.value = ''
-      errorMessage.value = '火山引擎任务处理失败，请检查任务 ID 或模型日志。'
+      errorMessage.value = response.errorMessage || '火山引擎任务处理失败，请检查任务 ID 或模型日志。'
       void loadRecentTasks()
       return
     }

@@ -717,10 +717,63 @@ fn mediakit_task_status_label(status: &str) -> &'static str {
     }
 }
 
+fn mediakit_payload_error_message(payload: &Value) -> Option<String> {
+    let error = payload.get("error")?;
+    if error.is_string() {
+        return error
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+    }
+
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let code = error
+        .get("code")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let param = error
+        .get("param")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    match (message, code, param) {
+        (Some(message), Some(code), Some(param)) => {
+            Some(format!("{}（{}，参数：{}）", message, code, param))
+        }
+        (Some(message), Some(code), None) => Some(format!("{}（{}）", message, code)),
+        (Some(message), None, _) => Some(message.to_string()),
+        (None, Some(code), Some(param)) => Some(format!("{}（参数：{}）", code, param)),
+        (None, Some(code), None) => Some(code.to_string()),
+        _ => None,
+    }
+}
+
+fn ensure_mediakit_api_success(payload: &Value) -> Result<(), ApiError> {
+    if payload
+        .get("success")
+        .and_then(Value::as_bool)
+        .is_some_and(|success| !success)
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            mediakit_payload_error_message(payload)
+                .unwrap_or_else(|| "MediaKit 返回任务提交失败".to_string()),
+        ));
+    }
+    Ok(())
+}
+
 async fn query_mediakit_video_enhance_task(
     state: &BackendState,
     task_id: &str,
-) -> Result<(Value, String, String, Option<String>), ApiError> {
+) -> Result<(Value, String, String, Option<String>, Option<String>), ApiError> {
     let conn = db_connection(state)?;
     let creds = load_provider_creds(&conn);
     let api_key = provider_sync_mediakit_api_key(&creds).ok_or_else(|| {
@@ -754,6 +807,7 @@ async fn query_mediakit_video_enhance_task(
             format!("解析 MediaKit 任务状态失败: {}", error),
         )
     })?;
+    ensure_mediakit_api_success(&payload)?;
     let raw_status = payload
         .get("status")
         .and_then(Value::as_str)
@@ -761,7 +815,8 @@ async fn query_mediakit_video_enhance_task(
         .to_string();
     let normalized_status = mediakit_task_status_label(&raw_status).to_string();
     let video_url = mediakit_result_video_url(&payload);
-    Ok((payload, raw_status, normalized_status, video_url))
+    let error_message = mediakit_payload_error_message(&payload);
+    Ok((payload, raw_status, normalized_status, video_url, error_message))
 }
 
 fn update_video_enhance_task_status(
@@ -866,33 +921,71 @@ fn build_mediakit_video_enhance_request(body: &Value) -> Result<(String, Value),
 
     if matches!(kind.as_str(), "standard" | "professional") {
         request_body["tool_version"] = json!(kind);
+    }
+
+    if kind == "standard" {
         if let Some(scene) = body
             .get("scene")
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
+            if !matches!(scene, "common" | "ugc" | "short_series" | "aigc" | "old_film") {
+                return Err(ApiError::new(StatusCode::BAD_REQUEST, "不支持的画质增强场景"));
+            }
             request_body["scene"] = json!(scene);
         }
     }
 
-    if let Some(resolution) = body
+    let resolution = body
         .get("resolution")
         .and_then(Value::as_str)
         .map(str::trim)
-        .filter(|value| !value.is_empty() && *value != "custom")
-    {
+        .filter(|value| !value.is_empty() && *value != "custom");
+    let resolution_limit = body
+        .get("resolutionLimit")
+        .and_then(Value::as_u64)
+        .or_else(|| body.get("resolution_limit").and_then(Value::as_u64));
+
+    if resolution.is_some() && resolution_limit.is_some() {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "resolution 与 resolution_limit 不可同时配置",
+        ));
+    }
+
+    if let Some(resolution) = resolution {
+        if kind == "generative" && !matches!(resolution, "720p" | "1080p" | "2k") {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "大模型画质增强仅支持 720p、1080p 或 2k 输出分辨率",
+            ));
+        }
         request_body["resolution"] = json!(resolution);
-    } else if let Some(limit) = body.get("resolutionLimit").and_then(Value::as_u64) {
-        request_body["resolution_limit"] = json!(limit);
-    } else if let Some(limit) = body.get("resolution_limit").and_then(Value::as_u64) {
+    } else if let Some(limit) = resolution_limit {
+        if kind == "generative" {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "大模型画质增强不支持 resolution_limit，请使用 resolution",
+            ));
+        }
+        if !(128..=2160).contains(&limit) {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "resolution_limit 需在 128-2160 之间",
+            ));
+        }
         request_body["resolution_limit"] = json!(limit);
     }
 
     if let Some(fps) = body.get("fps").and_then(Value::as_u64) {
-        if fps > 0 {
-            request_body["fps"] = json!(fps);
+        if !(15..=120).contains(&fps) {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "fps 需在 15-120 之间",
+            ));
         }
+        request_body["fps"] = json!(fps);
     }
 
     Ok((endpoint, request_body))
@@ -1948,6 +2041,28 @@ pub(super) async fn api_tools_video_enhance_submit(
         );
         ApiError::new(StatusCode::BAD_GATEWAY, message)
     })?;
+    ensure_mediakit_api_success(&payload)?;
+    if payload
+        .get("status")
+        .and_then(Value::as_str)
+        .is_some_and(|status| mediakit_task_status_label(status) == "failed")
+    {
+        let message = mediakit_payload_error_message(&payload)
+            .unwrap_or_else(|| "MediaKit 返回画质增强任务失败".to_string());
+        llm_dev_write_db_log(
+            "volcengine",
+            "ai-mediakit",
+            "videoEnhance",
+            "error",
+            started_at,
+            Some(&endpoint),
+            Some(&request_body),
+            Some(&payload),
+            Some(&body_text),
+            Some(&message),
+        );
+        return Err(ApiError::new(StatusCode::BAD_GATEWAY, message));
+    }
     let task_id = payload
         .get("task_id")
         .and_then(Value::as_str)
@@ -2041,7 +2156,7 @@ pub(super) async fn api_tools_video_enhance_status(
     if task_id.is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "任务 ID 不能为空"));
     }
-    let (payload, raw_status, normalized_status, video_url) =
+    let (payload, raw_status, normalized_status, video_url, error_message) =
         query_mediakit_video_enhance_task(&state, task_id).await?;
     update_video_enhance_task_status(
         &state,
@@ -2050,7 +2165,7 @@ pub(super) async fn api_tools_video_enhance_status(
         &raw_status,
         video_url.as_deref(),
         &payload,
-        None,
+        error_message.as_deref(),
     )?;
 
     Ok(Json(json!({
@@ -2059,6 +2174,7 @@ pub(super) async fn api_tools_video_enhance_status(
       "status": normalized_status,
       "rawStatus": raw_status,
       "videoUrl": video_url,
+      "errorMessage": error_message,
       "raw": payload
     })))
 }
@@ -2383,7 +2499,7 @@ pub(super) fn spawn_video_enhance_task_poller(state: BackendState) {
 
             for task_id in task_ids {
                 match query_mediakit_video_enhance_task(&state, &task_id).await {
-                    Ok((payload, raw_status, status, video_url)) => {
+                    Ok((payload, raw_status, status, video_url, error_message)) => {
                         if let Err(error) = update_video_enhance_task_status(
                             &state,
                             &task_id,
@@ -2391,7 +2507,7 @@ pub(super) fn spawn_video_enhance_task_poller(state: BackendState) {
                             &raw_status,
                             video_url.as_deref(),
                             &payload,
-                            None,
+                            error_message.as_deref(),
                         ) {
                             eprintln!("[VideoEnhancePoller] 更新任务失败: {}", error.message);
                         }
