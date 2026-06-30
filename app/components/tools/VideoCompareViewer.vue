@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Columns2, Pause, Play, Sparkles, Video, Volume2, VolumeX } from 'lucide-vue-next'
+import { Columns2, Loader2, Pause, Play, Sparkles, Video, Volume2, VolumeX } from 'lucide-vue-next'
 
 type CompareMode = 'compare' | 'before' | 'after'
 
@@ -21,11 +21,13 @@ const mode = ref<CompareMode>('compare')
 const beforeVideoRef = ref<HTMLVideoElement | null>(null)
 const afterVideoRef = ref<HTMLVideoElement | null>(null)
 const playing = ref(false)
+const startingPlayback = ref(false)
 const muted = ref(false)
 const currentTime = ref(0)
 const duration = ref(0)
 const seekValue = ref([0])
 let syncing = false
+let playbackRequestId = 0
 
 const cleanBeforeUrl = computed(() => props.beforeUrl.trim())
 const cleanAfterUrl = computed(() => props.afterUrl.trim())
@@ -105,6 +107,41 @@ function setVideoTime(nextTime: number) {
   }, 0)
 }
 
+function waitForPlayable(videoElement: HTMLVideoElement) {
+  videoElement.preload = 'auto'
+  if (videoElement.networkState === videoElement.NETWORK_EMPTY) {
+    videoElement.load()
+  }
+
+  if (videoElement.readyState >= videoElement.HAVE_FUTURE_DATA) {
+    return Promise.resolve()
+  }
+
+  return new Promise<void>((resolve) => {
+    let settled = false
+    let timeoutId: number | null = null
+
+    const cleanup = () => {
+      videoElement.removeEventListener('canplay', finish)
+      videoElement.removeEventListener('error', finish)
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+    }
+
+    const finish = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve()
+    }
+
+    videoElement.addEventListener('canplay', finish)
+    videoElement.addEventListener('error', finish)
+    timeoutId = window.setTimeout(finish, 5000)
+  })
+}
+
 function handleTimeUpdate(source: HTMLVideoElement | null) {
   if (!source || syncing) return
   currentTime.value = source.currentTime
@@ -126,25 +163,41 @@ function handleSeek(value?: number[]) {
 }
 
 async function playCompareVideos() {
-  setVideoTime(currentTime.value)
   const videos = getCompareVideos()
+  if (videos.length === 0) return
+
+  const requestId = ++playbackRequestId
+  startingPlayback.value = true
+  setVideoTime(currentTime.value)
   try {
+    await Promise.all(videos.map(videoElement => waitForPlayable(videoElement)))
+    if (requestId !== playbackRequestId) return
+    setVideoTime(currentTime.value)
     await Promise.all(videos.map(videoElement => videoElement.play()))
+    if (requestId !== playbackRequestId) return
     playing.value = true
   } catch {
-    playing.value = videos.some(videoElement => !videoElement.paused)
+    if (requestId === playbackRequestId) {
+      playing.value = videos.some(videoElement => !videoElement.paused)
+    }
+  } finally {
+    if (requestId === playbackRequestId) {
+      startingPlayback.value = false
+    }
   }
 }
 
 function pauseCompareVideos() {
+  playbackRequestId += 1
   for (const videoElement of getCompareVideos()) {
     videoElement.pause()
   }
+  startingPlayback.value = false
   playing.value = false
 }
 
 function togglePlayback() {
-  if (playing.value) {
+  if (playing.value || startingPlayback.value) {
     pauseCompareVideos()
     return
   }
@@ -152,6 +205,7 @@ function togglePlayback() {
 }
 
 function handleEnded() {
+  startingPlayback.value = false
   playing.value = false
 }
 
@@ -223,7 +277,7 @@ onUnmounted(() => {
           :src="cleanBeforeUrl"
           muted
           playsinline
-          preload="metadata"
+          preload="auto"
           class="aspect-video w-full bg-black object-contain"
           @loadedmetadata="updateDuration"
           @timeupdate="handleTimeUpdate(beforeVideoRef)"
@@ -248,7 +302,7 @@ onUnmounted(() => {
           :src="cleanAfterUrl"
           :muted="muted"
           playsinline
-          preload="metadata"
+          preload="auto"
           class="aspect-video w-full bg-black object-contain"
           @loadedmetadata="updateDuration"
           @timeupdate="handleTimeUpdate(afterVideoRef)"
@@ -290,7 +344,8 @@ onUnmounted(() => {
           class="h-9 w-9 p-0"
           @click="togglePlayback"
         >
-          <Pause v-if="playing" class="h-4 w-4" />
+          <Loader2 v-if="startingPlayback" class="h-4 w-4 animate-spin" />
+          <Pause v-else-if="playing" class="h-4 w-4" />
           <Play v-else class="h-4 w-4" />
         </Button>
         <Slider

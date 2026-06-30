@@ -311,268 +311,271 @@ function taskStatusVariant(value: TaskStatus | string) {
       </template>
     </AppPageHeader>
 
-    <AppPageContent scroll inner-class="space-y-6">
-      <Card>
-        <CardContent class="space-y-6 pt-6">
-          <section class="space-y-4">
-            <div class="flex items-center justify-between gap-4">
-              <div>
-                <h2 class="text-base font-semibold text-foreground">
-                  任务状态
-                </h2>
-                <p class="mt-1 text-sm text-muted-foreground">
-                  选择列表中的任务，或手动输入 task_id 查询。
-                </p>
-              </div>
-            </div>
+    <AppPageContent
+      scroll
+      inner-class="w-full max-w-7xl space-y-5"
+    >
+      <section class="rounded-lg border bg-muted/20 p-4">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div class="min-w-0">
+            <h2 class="text-base font-semibold text-foreground">
+              查询任务
+            </h2>
+            <p class="mt-1 text-sm text-muted-foreground">
+              输入 task_id，或点击下方任务行查看增强结果。
+            </p>
+          </div>
 
-            <div class="flex max-w-3xl gap-3">
-              <div class="flex min-w-0 flex-1 gap-2">
-                <Input
-                  v-model="taskId"
-                  placeholder="输入 task_id"
-                  class="font-mono"
-                />
-                <Button
-                  v-if="taskId"
-                  variant="outline"
-                  size="icon"
-                  class="shrink-0"
-                  title="复制任务 ID"
-                  @click="copyText(taskId)"
-                >
-                  <Copy class="h-4 w-4" />
-                </Button>
-                <Button
-                  class="shrink-0"
-                  :disabled="!canQuery"
-                  @click="queryStatus(true)"
-                >
-                  <Loader2
-                    v-if="querying"
-                    class="mr-2 h-4 w-4 animate-spin"
-                  />
-                  <RefreshCw
-                    v-else
-                    class="mr-2 h-4 w-4"
-                  />
-                  查询
-                </Button>
-              </div>
-            </div>
-
-            <div
-              v-if="pollingActive"
-              class="flex items-center justify-between rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm"
+          <div class="flex w-full min-w-0 gap-2 xl:max-w-2xl">
+            <Input
+              v-model="taskId"
+              placeholder="输入 task_id"
+              class="min-w-0 flex-1 bg-background font-mono"
+            />
+            <Button
+              v-if="taskId"
+              variant="outline"
+              size="icon"
+              class="shrink-0 bg-background"
+              title="复制任务 ID"
+              @click="copyText(taskId)"
             >
-              <div class="flex items-center gap-2 text-primary">
-                <Loader2 class="h-4 w-4 animate-spin" />
-                正在自动轮询，每 10 秒刷新一次。
+              <Copy class="h-4 w-4" />
+            </Button>
+            <Button
+              class="shrink-0"
+              :disabled="!canQuery"
+              @click="queryStatus(true)"
+            >
+              <Loader2
+                v-if="querying"
+                class="mr-2 h-4 w-4 animate-spin"
+              />
+              <RefreshCw
+                v-else
+                class="mr-2 h-4 w-4"
+              />
+              查询
+            </Button>
+          </div>
+        </div>
+
+        <div
+          v-if="pollingActive"
+          class="mt-4 flex items-center justify-between rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm"
+        >
+          <div class="flex items-center gap-2 text-primary">
+            <Loader2 class="h-4 w-4 animate-spin" />
+            正在自动轮询，每 10 秒刷新一次。
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            @click="stopPolling"
+          >
+            停止轮询
+          </Button>
+        </div>
+
+        <div
+          v-if="errorMessage"
+          class="mt-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm leading-6 text-destructive"
+        >
+          {{ errorMessage }}
+        </div>
+      </section>
+
+      <section
+        v-if="resultVideoUrl"
+        class="space-y-3"
+      >
+        <ToolsVideoCompareViewer
+          :before-url="compareSourceVideoUrl"
+          :after-url="compareResultVideoUrl"
+          before-label="源视频"
+          :after-label="localVideoUrl ? '已保存结果' : '云端结果'"
+          empty-label="暂无结果"
+        />
+        <div class="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            as-child
+          >
+            <a
+              :href="localVideoUrl || resultVideoUrl"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <ExternalLink class="mr-2 h-4 w-4" />
+              打开视频
+            </a>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="!canSave"
+            @click="saveResult"
+          >
+            <Loader2
+              v-if="saving"
+              class="mr-2 h-4 w-4 animate-spin"
+            />
+            <Save
+              v-else
+              class="mr-2 h-4 w-4"
+            />
+            {{ localVideoUrl ? '已保存' : '保存结果' }}
+          </Button>
+        </div>
+        <div
+          v-if="localVideoUrl"
+          class="rounded-md bg-green-50 p-3 text-sm text-green-800 dark:bg-green-950/30 dark:text-green-200"
+        >
+          已保存：{{ localVideoUrl }}
+        </div>
+      </section>
+
+      <section class="space-y-3">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 class="text-base font-semibold text-foreground">
+              任务列表
+            </h2>
+            <p class="mt-1 text-sm text-muted-foreground">
+              后端持久化的画质增强任务，点击任务即可查询状态。
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            class="shrink-0"
+            :disabled="loadingTasks"
+            @click="loadRecentTasks"
+          >
+            <Loader2
+              v-if="loadingTasks"
+              class="mr-2 h-4 w-4 animate-spin"
+            />
+            <RefreshCw
+              v-else
+              class="mr-2 h-4 w-4"
+            />
+            {{ loadingTasks ? '正在刷新' : '刷新列表' }}
+          </Button>
+        </div>
+
+        <div
+          v-if="recentTasks.length === 0"
+          class="rounded-lg border border-dashed bg-background p-8 text-center"
+        >
+          <FileVideo class="mx-auto h-8 w-8 text-muted-foreground/70" />
+          <div class="mt-3 text-sm font-medium text-foreground">
+            暂无增强任务
+          </div>
+          <div class="mt-1 text-xs leading-5 text-muted-foreground">
+            提交视频增强后，任务会出现在这里。
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            class="mt-4"
+            as-child
+          >
+            <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'video' } }">
+              提交增强
+            </NuxtLink>
+          </Button>
+        </div>
+        <div
+          v-else
+          class="overflow-hidden rounded-lg border bg-background"
+        >
+          <div class="hidden grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_120px_120px_160px] gap-4 border-b bg-muted/30 px-4 py-2.5 text-xs font-medium text-muted-foreground lg:grid">
+            <div>文件</div>
+            <div>任务 ID</div>
+            <div>类型</div>
+            <div>状态</div>
+            <div class="text-right">操作</div>
+          </div>
+          <div
+            v-for="record in recentTasks"
+            :key="record.taskId"
+            class="grid gap-3 border-b p-4 transition-colors last:border-b-0 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_120px_120px_160px] lg:items-center"
+            :class="taskId === record.taskId ? 'bg-primary/5' : 'hover:bg-muted/30'"
+          >
+            <button
+              type="button"
+              class="min-w-0 text-left"
+              @click="selectTask(record)"
+            >
+              <div class="truncate text-sm font-medium text-foreground">
+                {{ record.fileName }}
               </div>
+              <div class="mt-1 text-xs text-muted-foreground">
+                {{ formatDate(record.createdAt) }}
+              </div>
+            </button>
+            <button
+              type="button"
+              class="min-w-0 text-left"
+              @click="selectTask(record)"
+            >
+              <div class="truncate font-mono text-xs text-muted-foreground">
+                {{ record.taskId }}
+              </div>
+            </button>
+            <div>
+              <Badge variant="outline">
+                {{ record.kindLabel }}
+              </Badge>
+            </div>
+            <div>
+              <Badge :variant="taskStatusVariant(record.status)">
+                {{ taskStatusLabel(record.status) }}
+              </Badge>
+            </div>
+            <div class="flex flex-wrap justify-end gap-2">
               <Button
+                v-if="record.sourceObjectKey && !record.sourceDeleted"
                 variant="ghost"
                 size="sm"
-                @click="stopPolling"
-              >
-                停止轮询
-              </Button>
-            </div>
-
-            <div
-              v-if="errorMessage"
-              class="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm leading-6 text-destructive"
-            >
-              {{ errorMessage }}
-            </div>
-
-            <div
-              v-if="resultVideoUrl"
-              class="space-y-3"
-            >
-              <ToolsVideoCompareViewer
-                :before-url="compareSourceVideoUrl"
-                :after-url="compareResultVideoUrl"
-                before-label="源视频"
-                :after-label="localVideoUrl ? '已保存结果' : '云端结果'"
-                empty-label="暂无结果"
-              />
-              <div class="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  as-child
-                >
-                  <a
-                    :href="localVideoUrl || resultVideoUrl"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <ExternalLink class="mr-2 h-4 w-4" />
-                    打开视频
-                  </a>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  :disabled="!canSave"
-                  @click="saveResult"
-                >
-                  <Loader2
-                    v-if="saving"
-                    class="mr-2 h-4 w-4 animate-spin"
-                  />
-                  <Save
-                    v-else
-                    class="mr-2 h-4 w-4"
-                  />
-                  {{ localVideoUrl ? '已保存' : '保存结果' }}
-                </Button>
-              </div>
-              <div
-                v-if="localVideoUrl"
-                class="rounded-md bg-green-50 p-3 text-sm text-green-800 dark:bg-green-950/30 dark:text-green-200"
-              >
-                已保存：{{ localVideoUrl }}
-              </div>
-            </div>
-          </section>
-
-          <section class="space-y-3 border-t pt-6">
-            <div class="flex items-center justify-between gap-4">
-              <div>
-                <h2 class="text-base font-semibold text-foreground">
-                  任务列表
-                </h2>
-                <p class="mt-1 text-sm text-muted-foreground">
-                  后端持久化的画质增强任务，点击任一任务即可查询状态。
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                class="shrink-0"
-                :disabled="loadingTasks"
-                @click="loadRecentTasks"
+                class="text-destructive hover:text-destructive"
+                :disabled="deletingAsset === `${record.taskId}:source`"
+                @click="deleteTaskAsset(record, 'source')"
               >
                 <Loader2
-                  v-if="loadingTasks"
+                  v-if="deletingAsset === `${record.taskId}:source`"
                   class="mr-2 h-4 w-4 animate-spin"
                 />
-                <RefreshCw
+                <Trash2
                   v-else
                   class="mr-2 h-4 w-4"
                 />
-                {{ loadingTasks ? '正在刷新' : '刷新列表' }}
+                删除源
               </Button>
-            </div>
-
-            <div
-              v-if="recentTasks.length === 0"
-              class="rounded-md border border-dashed p-8 text-center"
-            >
-              <FileVideo class="mx-auto h-8 w-8 text-muted-foreground/70" />
-              <div class="mt-3 text-sm font-medium text-foreground">
-                暂无增强任务
-              </div>
-              <div class="mt-1 text-xs leading-5 text-muted-foreground">
-                提交视频增强后，任务会出现在这里。
-              </div>
               <Button
-                variant="outline"
+                v-if="record.resultObjectKey && !record.resultDeleted"
+                variant="ghost"
                 size="sm"
-                class="mt-4"
-                as-child
+                class="text-destructive hover:text-destructive"
+                :disabled="deletingAsset === `${record.taskId}:result`"
+                @click="deleteTaskAsset(record, 'result')"
               >
-                <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'video' } }">
-                  提交增强
-                </NuxtLink>
+                <Loader2
+                  v-if="deletingAsset === `${record.taskId}:result`"
+                  class="mr-2 h-4 w-4 animate-spin"
+                />
+                <Trash2
+                  v-else
+                  class="mr-2 h-4 w-4"
+                />
+                删除结果
               </Button>
             </div>
-            <div
-              v-else
-              class="divide-y rounded-md border"
-            >
-              <div
-                v-for="record in recentTasks"
-                :key="record.taskId"
-                class="grid gap-3 p-4 transition-colors lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_160px_auto]"
-                :class="taskId === record.taskId ? 'bg-primary/5' : 'hover:bg-muted/30'"
-              >
-                <button
-                  type="button"
-                  class="min-w-0 text-left"
-                  @click="selectTask(record)"
-                >
-                  <div class="truncate text-sm font-medium text-foreground">
-                    {{ record.fileName }}
-                  </div>
-                  <div class="mt-1 text-xs text-muted-foreground">
-                    {{ formatDate(record.createdAt) }}
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  class="min-w-0 text-left"
-                  @click="selectTask(record)"
-                >
-                  <div class="truncate font-mono text-xs text-muted-foreground">
-                    {{ record.taskId }}
-                  </div>
-                  <div class="mt-1 text-xs text-muted-foreground">
-                    {{ record.rawStatus || taskStatusLabel(record.status) }}
-                  </div>
-                </button>
-                <div class="flex items-start gap-2">
-                  <Badge variant="outline">
-                    {{ record.kindLabel }}
-                  </Badge>
-                  <Badge :variant="taskStatusVariant(record.status)">
-                    {{ taskStatusLabel(record.status) }}
-                  </Badge>
-                </div>
-                <div class="flex flex-wrap justify-end gap-2">
-                  <Button
-                    v-if="record.sourceObjectKey && !record.sourceDeleted"
-                    variant="ghost"
-                    size="sm"
-                    class="text-destructive hover:text-destructive"
-                    :disabled="deletingAsset === `${record.taskId}:source`"
-                    @click="deleteTaskAsset(record, 'source')"
-                  >
-                    <Loader2
-                      v-if="deletingAsset === `${record.taskId}:source`"
-                      class="mr-2 h-4 w-4 animate-spin"
-                    />
-                    <Trash2
-                      v-else
-                      class="mr-2 h-4 w-4"
-                    />
-                    删除源
-                  </Button>
-                  <Button
-                    v-if="record.resultObjectKey && !record.resultDeleted"
-                    variant="ghost"
-                    size="sm"
-                    class="text-destructive hover:text-destructive"
-                    :disabled="deletingAsset === `${record.taskId}:result`"
-                    @click="deleteTaskAsset(record, 'result')"
-                  >
-                    <Loader2
-                      v-if="deletingAsset === `${record.taskId}:result`"
-                      class="mr-2 h-4 w-4 animate-spin"
-                    />
-                    <Trash2
-                      v-else
-                      class="mr-2 h-4 w-4"
-                    />
-                    删除结果
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </section>
-        </CardContent>
-      </Card>
+          </div>
+        </div>
+      </section>
     </AppPageContent>
   </div>
 </template>
