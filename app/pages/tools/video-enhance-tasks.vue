@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertCircle, CheckCircle2, Clock3, Copy, ExternalLink, FileVideo, Loader2, RefreshCw, Save, Trash2 } from 'lucide-vue-next'
+import { Copy, ExternalLink, FileVideo, Loader2, RefreshCw, Save, Trash2 } from 'lucide-vue-next'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
@@ -313,34 +313,6 @@ function taskStatusVariant(value: TaskStatus | string) {
 
     <AppPageContent scroll inner-class="space-y-6">
       <Card>
-        <CardHeader class="border-b">
-          <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <CardTitle class="text-lg">
-                任务工作区
-              </CardTitle>
-              <CardDescription>
-                查询任务状态，查看历史任务，并在完成后保存或清理视频文件。
-              </CardDescription>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              :disabled="loadingTasks"
-              @click="loadRecentTasks"
-            >
-              <Loader2
-                v-if="loadingTasks"
-                class="mr-2 h-4 w-4 animate-spin"
-              />
-              <RefreshCw
-                v-else
-                class="mr-2 h-4 w-4"
-              />
-              {{ loadingTasks ? '正在刷新' : '刷新列表' }}
-            </Button>
-          </div>
-        </CardHeader>
         <CardContent class="space-y-6 pt-6">
           <section class="space-y-4">
             <div class="flex items-center justify-between gap-4">
@@ -354,13 +326,23 @@ function taskStatusVariant(value: TaskStatus | string) {
               </div>
             </div>
 
-            <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px_220px]">
-              <div class="flex gap-3">
+            <div class="flex max-w-3xl gap-3">
+              <div class="flex min-w-0 flex-1 gap-2">
                 <Input
                   v-model="taskId"
                   placeholder="输入 task_id"
                   class="font-mono"
                 />
+                <Button
+                  v-if="taskId"
+                  variant="outline"
+                  size="icon"
+                  class="shrink-0"
+                  title="复制任务 ID"
+                  @click="copyText(taskId)"
+                >
+                  <Copy class="h-4 w-4" />
+                </Button>
                 <Button
                   class="shrink-0"
                   :disabled="!canQuery"
@@ -376,57 +358,6 @@ function taskStatusVariant(value: TaskStatus | string) {
                   />
                   查询
                 </Button>
-              </div>
-
-              <div class="rounded-md border bg-muted/30 p-3">
-                <div class="text-xs text-muted-foreground">
-                  任务 ID
-                </div>
-                <div class="mt-1 flex items-center gap-2">
-                  <code class="min-w-0 flex-1 truncate text-sm">{{ taskId || '未选择' }}</code>
-                  <Button
-                    v-if="taskId"
-                    variant="ghost"
-                    size="icon"
-                    class="h-8 w-8"
-                    @click="copyText(taskId)"
-                  >
-                    <Copy class="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <div class="rounded-md border bg-muted/30 p-3">
-                <div class="text-xs text-muted-foreground">
-                  状态
-                </div>
-                <div class="mt-1 flex items-center gap-2 text-sm font-medium">
-                  <Loader2
-                    v-if="querying || status === 'processing'"
-                    class="h-4 w-4 animate-spin text-primary"
-                  />
-                  <CheckCircle2
-                    v-else-if="status === 'completed'"
-                    class="h-4 w-4 text-green-600"
-                  />
-                  <AlertCircle
-                    v-else-if="status === 'failed'"
-                    class="h-4 w-4 text-destructive"
-                  />
-                  <Clock3
-                    v-else
-                    class="h-4 w-4 text-muted-foreground"
-                  />
-                  <Badge :variant="taskStatusVariant(status)">
-                    {{ taskStatusLabel(status) }}
-                  </Badge>
-                  <span
-                    v-if="rawStatus && rawStatus !== status"
-                    class="text-xs text-muted-foreground"
-                  >
-                    {{ rawStatus }}
-                  </span>
-                </div>
               </div>
             </div>
 
@@ -516,6 +447,23 @@ function taskStatusVariant(value: TaskStatus | string) {
                   后端持久化的画质增强任务，点击任一任务即可查询状态。
                 </p>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                class="shrink-0"
+                :disabled="loadingTasks"
+                @click="loadRecentTasks"
+              >
+                <Loader2
+                  v-if="loadingTasks"
+                  class="mr-2 h-4 w-4 animate-spin"
+                />
+                <RefreshCw
+                  v-else
+                  class="mr-2 h-4 w-4"
+                />
+                {{ loadingTasks ? '正在刷新' : '刷新列表' }}
+              </Button>
             </div>
 
             <div
