@@ -226,6 +226,7 @@ onMounted(() => {
     <AppPageContent
       :padded="false"
       class="overflow-hidden"
+      inner-class="h-full min-h-0"
     >
       <KeepAlive>
         <component
