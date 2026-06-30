@@ -62,6 +62,7 @@ fn llm_dev_log_preview(value: &str, max_chars: usize) -> String {
     format!("{}...", truncated)
 }
 
+#[cfg(debug_assertions)]
 fn llm_dev_log_source_summary(source: &str) -> String {
     let trimmed = source.trim();
     if trimmed.starts_with("data:") {
@@ -73,6 +74,7 @@ fn llm_dev_log_source_summary(source: &str) -> String {
     format!("base64-or-inline({} chars)", trimmed.len())
 }
 
+#[cfg(debug_assertions)]
 fn llm_dev_log_url_summary(value: &str, max_chars: usize) -> String {
     let query_index = value.find('?');
     let fragment_index = value.find('#');
@@ -90,10 +92,12 @@ fn llm_dev_log_url_summary(value: &str, max_chars: usize) -> String {
     llm_dev_log_preview(value, max_chars)
 }
 
+#[cfg(debug_assertions)]
 fn llm_dev_log_line_value(value: &str) -> String {
     llm_dev_log_preview(&value.replace('\n', "\\n"), 500)
 }
 
+#[cfg(debug_assertions)]
 fn llm_dev_log_line(
     phase: &str,
     provider: &str,
@@ -1410,7 +1414,7 @@ pub(super) async fn api_tools_image_enhance_submit(
         )
     })?;
     let (endpoint, request_body) = build_mediakit_image_enhance_request(&body)?;
-    let started_at = Utc::now().timestamp_millis();
+    let _started_at = Utc::now().timestamp_millis();
 
     llm_dev_log!(
         "request",
@@ -1459,7 +1463,7 @@ pub(super) async fn api_tools_image_enhance_submit(
         "volcengine",
         "ai-mediakit",
         "imageEnhance",
-        Some(Utc::now().timestamp_millis() - started_at),
+        Some(Utc::now().timestamp_millis() - _started_at),
         "taskId" => task_id
     );
 
