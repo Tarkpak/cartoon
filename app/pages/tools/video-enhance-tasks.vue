@@ -73,7 +73,6 @@ const recentTasks = ref<VideoEnhanceTaskRecord[]>([])
 let pollingTimer: number | null = null
 
 const embeddedInUnifiedTasks = computed(() => route.path === '/tools/enhance-tasks')
-const canQuery = computed(() => taskId.value.trim().length > 0 && !querying.value)
 const canSave = computed(() => resultVideoUrl.value && !localVideoUrl.value && !saving.value)
 const pollingActive = computed(() => status.value === 'processing' && pollingTimer !== null)
 const displayResultVideoUrl = computed(() => localVideoUrl.value || resultVideoUrl.value)
@@ -153,7 +152,7 @@ function selectTask(record: VideoEnhanceTaskRecord) {
 
 async function queryStatus(autoPoll = false) {
   const id = taskId.value.trim()
-  if (!id) return
+  if (!id || querying.value) return
 
   stopPolling()
   querying.value = true
@@ -313,23 +312,17 @@ function taskStatusVariant(value: TaskStatus | string) {
 
     <AppPageContent
       scroll
-      inner-class="w-full max-w-7xl space-y-5"
+      inner-class="w-full max-w-6xl space-y-5"
     >
-      <section class="rounded-lg border bg-muted/20 p-4">
-        <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div class="min-w-0">
-            <h2 class="text-base font-semibold text-foreground">
-              查询任务
-            </h2>
-            <p class="mt-1 text-sm text-muted-foreground">
-              输入 task_id，或点击下方任务行查看增强结果。
-            </p>
-          </div>
-
-          <div class="flex w-full min-w-0 gap-2 xl:max-w-2xl">
+      <section class="p-1">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+          <form
+            class="flex w-full min-w-0 gap-2 sm:max-w-xl"
+            @submit.prevent="queryStatus(true)"
+          >
             <Input
               v-model="taskId"
-              placeholder="输入 task_id"
+              placeholder="输入 task_id，回车查询"
               class="min-w-0 flex-1 bg-background font-mono"
             />
             <Button
@@ -342,22 +335,7 @@ function taskStatusVariant(value: TaskStatus | string) {
             >
               <Copy class="h-4 w-4" />
             </Button>
-            <Button
-              class="shrink-0"
-              :disabled="!canQuery"
-              @click="queryStatus(true)"
-            >
-              <Loader2
-                v-if="querying"
-                class="mr-2 h-4 w-4 animate-spin"
-              />
-              <RefreshCw
-                v-else
-                class="mr-2 h-4 w-4"
-              />
-              查询
-            </Button>
-          </div>
+          </form>
         </div>
 
         <div
@@ -439,12 +417,9 @@ function taskStatusVariant(value: TaskStatus | string) {
       <section class="space-y-3">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 class="text-base font-semibold text-foreground">
+            <h2 class="text-lg font-semibold text-foreground">
               任务列表
             </h2>
-            <p class="mt-1 text-sm text-muted-foreground">
-              后端持久化的画质增强任务，点击任务即可查询状态。
-            </p>
           </div>
           <Button
             variant="outline"
@@ -467,17 +442,18 @@ function taskStatusVariant(value: TaskStatus | string) {
 
         <div
           v-if="recentTasks.length === 0"
-          class="rounded-lg border border-dashed bg-background p-8 text-center"
+          class="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed bg-muted/10 p-8 text-center"
         >
-          <FileVideo class="mx-auto h-8 w-8 text-muted-foreground/70" />
-          <div class="mt-3 text-sm font-medium text-foreground">
+          <div class="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <FileVideo class="h-6 w-6" />
+          </div>
+          <div class="mt-4 text-base font-semibold text-foreground">
             暂无增强任务
           </div>
-          <div class="mt-1 text-xs leading-5 text-muted-foreground">
+          <div class="mt-1 max-w-sm text-sm leading-6 text-muted-foreground">
             提交视频增强后，任务会出现在这里。
           </div>
           <Button
-            variant="outline"
             size="sm"
             class="mt-4"
             as-child

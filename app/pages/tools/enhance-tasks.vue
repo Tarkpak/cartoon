@@ -36,11 +36,11 @@ function switchType(type: TaskType) {
       class="h-16"
     >
       <template #actions>
-        <div class="flex rounded-md border bg-muted/30 p-1">
+        <div class="flex rounded-lg border bg-muted/40 p-1 shadow-sm">
           <button
             type="button"
-            class="inline-flex items-center rounded-sm px-3 py-1.5 text-sm transition-colors"
-            :class="activeType === 'video' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+            class="inline-flex h-9 items-center rounded-md px-4 text-sm font-semibold transition-colors"
+            :class="activeType === 'video' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'"
             @click="switchType('video')"
           >
             <FileVideo class="mr-2 h-4 w-4" />
@@ -48,8 +48,8 @@ function switchType(type: TaskType) {
           </button>
           <button
             type="button"
-            class="inline-flex items-center rounded-sm px-3 py-1.5 text-sm transition-colors"
-            :class="activeType === 'image' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+            class="inline-flex h-9 items-center rounded-md px-4 text-sm font-semibold transition-colors"
+            :class="activeType === 'image' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'"
             @click="switchType('image')"
           >
             <FileImage class="mr-2 h-4 w-4" />

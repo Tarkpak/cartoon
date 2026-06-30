@@ -37,7 +37,7 @@ fi
 log_info "开始构建桌面客户端（app bundle）..."
 (
   cd "$ROOT_DIR"
-  CI=true bunx tauri build --bundles app
+  CI=true bunx tauri build --config scripts/tauri.local-install.json --bundles app
 )
 
 if [[ ! -d "$BUNDLE_PATH" ]]; then

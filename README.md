@@ -84,7 +84,7 @@ bun typecheck              # TypeScript 类型检查
 - `bun desktop:dev`：启动 Tauri 客户端（Rust 后端监听 `127.0.0.1:43127`）。
 - `bun desktop:build`：先执行 `bun build:desktop`，再打包桌面应用。
 - `bun desktop:sync-env`：将项目根目录 `.env` 同步到 `~/Library/Application Support/com.playlet.desktop/.env`（会自动备份旧文件）。
-- `bun desktop:install`：一键执行“构建 app bundle → 安装到 `/Applications`（无权限时自动回退 `~/Applications`）→ 启动客户端”。
+- `bun desktop:install`：一键执行“构建本地 app bundle（不生成 updater 签名产物）→ 安装到 `/Applications`（无权限时自动回退 `~/Applications`）→ 启动客户端”。
 - 打包时会将前端静态资源 `.output/public` 写入应用资源目录 `web/public`。
 - 可用 `PLAYLET_INSTALL_DIR` 指定安装目录，例如：`PLAYLET_INSTALL_DIR="$HOME/Applications" bun desktop:install`
 - `desktop:install` 默认会自动同步 `.env`；如不希望自动同步可设置 `PLAYLET_SYNC_ENV=0`。

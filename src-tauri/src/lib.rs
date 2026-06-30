@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::path::BaseDirectory;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{RunEvent, WindowEvent};
 
 const DESKTOP_HOST: &str = "127.0.0.1";
 const DESKTOP_PORT: u16 = 43127;
@@ -214,5 +215,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|_, _| {});
+    app.run(|app_handle, event| {
+        if let RunEvent::WindowEvent {
+            label,
+            event: WindowEvent::Destroyed,
+            ..
+        } = event
+        {
+            if label == "main" {
+                app_handle.exit(0);
+            }
+        }
+    });
 }
