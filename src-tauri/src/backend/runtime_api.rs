@@ -181,7 +181,12 @@ fn llm_dev_file_sanitize_string(key: Option<&str>, value: &str) -> Value {
 
     let trimmed = value.trim();
     if is_http_url(trimmed) {
-        return json!(llm_dev_log_url_without_query(trimmed));
+        let key_is_media = key.is_some_and(llm_dev_file_key_is_media);
+        return json!(if key_is_media {
+            trimmed.to_string()
+        } else {
+            llm_dev_log_url_without_query(trimmed)
+        });
     }
 
     let key_is_media = key.is_some_and(llm_dev_file_key_is_media);

@@ -106,13 +106,36 @@ fn load_env_from_file(path: &std::path::Path) {
     }
 }
 
+fn desktop_app_data_root(app: &tauri::App) -> Result<std::path::PathBuf, String> {
+    if let Ok(custom_path) = std::env::var("PLAYLET_APP_DATA_DIR") {
+        let custom_path = std::path::PathBuf::from(custom_path.trim());
+        if !custom_path.as_os_str().is_empty() {
+            return Ok(custom_path);
+        }
+    }
+
+    let app_data_root = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| format!("获取本地数据目录失败: {}", error))?;
+
+    if cfg!(debug_assertions) {
+        let Some(dir_name) = app_data_root.file_name().and_then(|value| value.to_str()) else {
+            return Ok(app_data_root.join("dev"));
+        };
+        return Ok(app_data_root.with_file_name(format!("{dir_name}-dev")));
+    }
+
+    Ok(app_data_root)
+}
+
 fn load_desktop_env_files(app: &tauri::App) {
     if let Ok(custom_path) = std::env::var("PLAYLET_ENV_FILE") {
         let custom_path = std::path::PathBuf::from(custom_path.trim());
         load_env_from_file(&custom_path);
     }
 
-    if let Ok(app_local_data_dir) = app.path().app_local_data_dir() {
+    if let Ok(app_local_data_dir) = desktop_app_data_root(app) {
         load_env_from_file(&app_local_data_dir.join(".env"));
     }
 
@@ -124,10 +147,7 @@ fn load_desktop_env_files(app: &tauri::App) {
 fn start_embedded_backend(app: &tauri::App) -> Result<(), String> {
     ensure_backend_port_available()?;
 
-    let app_data_root = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| format!("获取本地数据目录失败: {}", error))?;
+    let app_data_root = desktop_app_data_root(app)?;
     let data_dir = app_data_root.join("data");
     let public_dir = app_data_root.join("public");
     let web_dir = resolve_web_dir(app)?;

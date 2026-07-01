@@ -67,6 +67,41 @@ function inferMediaType(path: string, url: string): 'image' | 'audio' | 'video' 
   return null
 }
 
+function collectSanitizedMediaObject(
+  current: Record<string, unknown>,
+  path: string,
+  direction: 'request' | 'response',
+  refs: ModelDebugMediaRef[],
+  seenUrls: Set<string>
+): boolean {
+  const kind = typeof current.kind === 'string' ? current.kind : ''
+  if (kind !== 'data-url' && kind !== 'large-media-or-inline-string') return false
+
+  const preview = typeof current.preview === 'string' ? current.preview : ''
+  const chars = typeof current.chars === 'number' ? current.chars : preview.length
+  const mediaType = preview.startsWith('data:image/')
+    ? 'image'
+    : preview.startsWith('data:audio/')
+      ? 'audio'
+      : preview.startsWith('data:video/')
+        ? 'video'
+        : inferMediaType(path, preview) || 'binary'
+  const key = `${direction}|${mediaType}|${path}|${kind}|${chars}`
+  if (seenUrls.has(key)) return true
+  seenUrls.add(key)
+  refs.push({
+    id: `media_${direction}_sanitized_${refs.length + 1}`,
+    direction,
+    path,
+    mediaType,
+    mimeType: preview.match(/^data:([^;,]+)/)?.[1],
+    originalLength: chars,
+    status: 'skipped',
+    note: '日志中该媒体内容已脱敏，无法直接预览；新日志会优先使用 URL 展示。'
+  })
+  return true
+}
+
 function collectMediaRefsFromValue(
   value: unknown,
   direction: 'request' | 'response'
@@ -111,6 +146,7 @@ function collectMediaRefsFromValue(
       const objectValue = current as Record<string, unknown>
       if (seenObjects.has(objectValue)) return
       seenObjects.add(objectValue)
+      if (collectSanitizedMediaObject(objectValue, path, direction, refs, seenUrls)) return
 
       Object.entries(objectValue).forEach(([key, item]) => {
         const childPath = path === '$' ? `$.${key}` : `${path}.${key}`
@@ -608,6 +644,13 @@ watch(open, (value) => {
                 controls
                 class="max-h-64 w-full rounded border bg-black"
               />
+
+              <div
+                v-else
+                class="rounded border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground"
+              >
+                没有可直接预览的媒体 URL
+              </div>
             </div>
           </template>
 
