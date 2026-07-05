@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ExternalLink, FileVideo, ListChecks, Loader2, Settings, Upload } from 'lucide-vue-next'
+import { ChevronDown, ExternalLink, FileVideo, ListChecks, Loader2, Settings, Trash2, Upload } from 'lucide-vue-next'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
@@ -21,6 +21,23 @@ interface EnhanceUploadResponse {
   reused?: boolean
 }
 
+type QueueStatus = 'pending' | 'uploading' | 'uploaded' | 'submitting' | 'submitted' | 'failed'
+
+interface VideoEnhanceQueueItem {
+  id: string
+  file: File
+  fileName: string
+  fileSize: number
+  fileType: string
+  sourceVideoUrl: string
+  sourceObjectKey: string
+  uploadProgress: number
+  status: QueueStatus
+  taskId: string
+  errorMessage: string
+  reused: boolean
+}
+
 type FetchErrorWithData = Error & {
   data?: {
     data?: {
@@ -35,11 +52,7 @@ const router = useRouter()
 const { toast } = useToast()
 
 const kind = ref<EnhanceKind>('standard')
-const sourceVideoUrl = ref('')
-const sourceObjectKey = ref('')
-const selectedFileName = ref('')
-const selectedFileSize = ref(0)
-const selectedFileType = ref('')
+const queue = ref<VideoEnhanceQueueItem[]>([])
 const scene = ref('common')
 const resolution = ref('1080p')
 const resolutionLimit = ref(1080)
@@ -47,10 +60,10 @@ const fps = ref<number | undefined>(undefined)
 const resolutionMode = ref<'preset' | 'limit'>('preset')
 const submitting = ref(false)
 const uploadingSource = ref(false)
-const uploadProgress = ref(0)
 const errorMessage = ref('')
 const showAdvancedOptions = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const draggingFiles = ref(false)
 
 const route = useRoute()
 const embeddedInUnifiedEnhance = computed(() => route.path === '/tools/enhance')
@@ -116,18 +129,19 @@ const resolutionOptions = [
   { value: '4k', label: '4K' }
 ]
 
-const sourceUploaded = computed(() => sourceVideoUrl.value.trim().length > 0 && !uploadingSource.value)
 const normalizedFps = computed(() => {
   if (fps.value === undefined || fps.value === null) return undefined
   const value = Number(fps.value)
   return Number.isFinite(value) ? value : undefined
 })
 const fpsValid = computed(() => normalizedFps.value === undefined || (normalizedFps.value >= 15 && normalizedFps.value <= 120))
-const canSubmit = computed(() => sourceUploaded.value && !submitting.value && fpsValid.value)
+const activeQueue = computed(() => uploadingSource.value || submitting.value)
+const pendingQueue = computed(() => queue.value.filter(item => item.status !== 'submitted'))
+const canSubmit = computed(() => queue.value.length > 0 && pendingQueue.value.length > 0 && !activeQueue.value && fpsValid.value)
 const submitHint = computed(() => {
   if (submitting.value) return '正在提交任务，请稍候。'
-  if (uploadingSource.value) return '源视频正在上传，上传完成后才能提交。'
-  if (!sourceVideoUrl.value.trim()) return '请先选择并上传一个本地视频。'
+  if (uploadingSource.value) return '源视频正在上传，请稍候。'
+  if (queue.value.length === 0) return '请选择一个或多个本地视频。'
   if (!fpsValid.value) return '帧率需在 15-120 fps 之间。'
   return ''
 })
@@ -152,12 +166,16 @@ watch(kind, (value) => {
   }
 })
 
-function buildRequestBody() {
+function createQueueId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function buildRequestBody(item: VideoEnhanceQueueItem) {
   const body: Record<string, unknown> = {
     kind: kind.value,
-    videoUrl: sourceVideoUrl.value.trim(),
-    sourceFileName: selectedFileName.value || '本地视频',
-    sourceObjectKey: sourceObjectKey.value || undefined
+    videoUrl: item.sourceVideoUrl.trim(),
+    sourceFileName: item.fileName || '本地视频',
+    sourceObjectKey: item.sourceObjectKey || undefined
   }
   if (kind.value === 'standard') {
     body.scene = scene.value
@@ -177,6 +195,38 @@ function triggerFileUpload() {
   fileInputRef.value?.click()
 }
 
+function isVideoFile(file: File) {
+  return file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name)
+}
+
+function addFilesToQueue(files: File[]) {
+  const videoFiles = files.filter(isVideoFile)
+  if (videoFiles.length === 0) {
+    errorMessage.value = '请拖入视频文件。'
+    return
+  }
+
+  errorMessage.value = ''
+  queue.value.push(...videoFiles.map(file => ({
+    id: createQueueId(),
+    file,
+    fileName: file.name,
+    fileSize: file.size,
+    fileType: file.type || '视频文件',
+    sourceVideoUrl: '',
+    sourceObjectKey: '',
+    uploadProgress: 0,
+    status: 'pending' as QueueStatus,
+    taskId: '',
+    errorMessage: '',
+    reused: false
+  })))
+
+  if (videoFiles.length < files.length) {
+    toast.warning(`已忽略 ${files.length - videoFiles.length} 个非视频文件`)
+  }
+}
+
 function formatBytes(value: number) {
   if (!value) return '未知大小'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -189,19 +239,19 @@ function formatBytes(value: number) {
   return `${size >= 10 || unitIndex === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`
 }
 
-function uploadSourceVideo(formData: FormData): Promise<EnhanceUploadResponse> {
+function uploadSourceVideo(formData: FormData, onProgress: (progress: number) => void): Promise<EnhanceUploadResponse> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', '/api/tools/video-enhance/upload-source')
     xhr.responseType = 'json'
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return
-      uploadProgress.value = Math.min(99, Math.round((event.loaded / event.total) * 100))
+      onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)))
     }
     xhr.onload = () => {
       const response = xhr.response as EnhanceUploadResponse | { message?: string } | null
       if (xhr.status >= 200 && xhr.status < 300 && response && 'videoUrl' in response) {
-        uploadProgress.value = 100
+        onProgress(100)
         resolve(response)
         return
       }
@@ -222,53 +272,96 @@ function resolveFetchErrorMessage(error: unknown, fallback: string): string {
 
 async function handleSourceFileChange(event: Event) {
   const input = event.target as HTMLInputElement | null
-  const file = input?.files?.[0]
-  if (!file) return
+  const files = Array.from(input?.files || [])
+  if (files.length > 0) addFilesToQueue(files)
+  if (input) input.value = ''
+}
 
-  uploadingSource.value = true
-  uploadProgress.value = 0
-  errorMessage.value = ''
-  sourceVideoUrl.value = ''
-  sourceObjectKey.value = ''
-  selectedFileName.value = file.name
-  selectedFileSize.value = file.size
-  selectedFileType.value = file.type || '视频文件'
-  try {
+function handleDragEnter(event: DragEvent) {
+  if (activeQueue.value || !event.dataTransfer?.types.includes('Files')) return
+  draggingFiles.value = true
+}
+
+function handleDragLeave(event: DragEvent) {
+  const currentTarget = event.currentTarget as Node | null
+  const relatedTarget = event.relatedTarget as Node | null
+  if (currentTarget && relatedTarget && currentTarget.contains(relatedTarget)) return
+  draggingFiles.value = false
+}
+
+function handleDrop(event: DragEvent) {
+  draggingFiles.value = false
+  if (activeQueue.value) return
+  const files = Array.from(event.dataTransfer?.files || [])
+  if (files.length > 0) addFilesToQueue(files)
+}
+
+function removeQueueItem(id: string) {
+  if (activeQueue.value) return
+  queue.value = queue.value.filter(item => item.id !== id)
+}
+
+async function submitQueueItem(item: VideoEnhanceQueueItem) {
+  item.errorMessage = ''
+  if (!item.sourceVideoUrl) {
+    item.status = 'uploading'
+    uploadingSource.value = true
+    item.uploadProgress = 0
     const formData = new FormData()
-    formData.append('video', file, file.name)
-    const response = await uploadSourceVideo(formData)
-    sourceVideoUrl.value = response.videoUrl
-    sourceObjectKey.value = response.sourceObjectKey || ''
-    toast.success(response.reused ? '已复用源视频链接' : '源视频上传完成', { description: file.name })
-  } catch (error) {
-    selectedFileName.value = ''
-    selectedFileSize.value = 0
-    selectedFileType.value = ''
-    sourceObjectKey.value = ''
-    uploadProgress.value = 0
-    errorMessage.value = resolveFetchErrorMessage(error, '上传源视频到 TOS 失败')
-  } finally {
-    uploadingSource.value = false
-    if (input) input.value = ''
+    formData.append('video', item.file, item.fileName)
+    const uploadResponse = await uploadSourceVideo(formData, (progress) => {
+      item.uploadProgress = progress
+    })
+    item.sourceVideoUrl = uploadResponse.videoUrl
+    item.sourceObjectKey = uploadResponse.sourceObjectKey || ''
+    item.reused = uploadResponse.reused === true
+    item.status = 'uploaded'
   }
+
+  item.status = 'submitting'
+  const response = await $fetch<EnhanceSubmitResponse>('/api/tools/video-enhance', {
+    method: 'POST',
+    body: buildRequestBody(item)
+  })
+  item.taskId = response.taskId
+  item.status = 'submitted'
 }
 
 async function submitTask() {
   errorMessage.value = ''
   submitting.value = true
+  let successCount = 0
+  let failedCount = 0
   try {
-    const response = await $fetch<EnhanceSubmitResponse>('/api/tools/video-enhance', {
-      method: 'POST',
-      body: buildRequestBody()
-    })
-    toast.success('视频增强任务已提交', { description: response.taskId })
-    await router.push({
-      path: '/tools/enhance-tasks',
-      query: { type: 'video', taskId: response.taskId }
-    })
-  } catch (error) {
-    errorMessage.value = resolveFetchErrorMessage(error, '提交画质增强任务失败')
+    for (const item of queue.value) {
+      if (item.status === 'submitted') continue
+      try {
+        await submitQueueItem(item)
+        successCount += 1
+      } catch (error) {
+        item.status = 'failed'
+        item.errorMessage = resolveFetchErrorMessage(error, '提交画质增强任务失败')
+        failedCount += 1
+      } finally {
+        uploadingSource.value = false
+      }
+    }
+
+    if (successCount > 0) {
+      toast.success(`已提交 ${successCount} 个视频增强任务`)
+    }
+    if (failedCount > 0) {
+      errorMessage.value = `${failedCount} 个任务提交失败，请检查队列中的错误信息后重试。`
+      return
+    }
+    if (successCount > 0) {
+      await router.push({
+        path: '/tools/enhance-tasks',
+        query: { type: 'video' }
+      })
+    }
   } finally {
+    uploadingSource.value = false
     submitting.value = false
   }
 }
@@ -350,19 +443,27 @@ async function submitTask() {
             </button>
           </div>
 
-          <div class="rounded-md border bg-muted/30 p-4">
+          <div
+            class="rounded-md border border-dashed bg-muted/30 p-4 transition-colors"
+            :class="draggingFiles ? 'border-primary bg-primary/5' : 'border-border'"
+            @dragenter.prevent="handleDragEnter"
+            @dragover.prevent
+            @dragleave.prevent="handleDragLeave"
+            @drop.prevent="handleDrop"
+          >
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div class="text-sm font-medium text-foreground">
                   本地视频
                 </div>
                 <div class="mt-1 text-xs text-muted-foreground">
-                  支持常见视频格式，上传后自动使用 TOS 公网地址提交任务。
+                  支持点击选择或拖拽导入多个视频。
                 </div>
               </div>
               <input
                 ref="fileInputRef"
                 type="file"
+                multiple
                 accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi"
                 class="hidden"
                 @change="handleSourceFileChange"
@@ -370,49 +471,91 @@ async function submitTask() {
               <Button
                 type="button"
                 variant="outline"
-                :disabled="uploadingSource || submitting"
+                :disabled="activeQueue"
                 @click="triggerFileUpload"
               >
-                <Loader2
-                  v-if="uploadingSource"
-                  class="mr-2 h-4 w-4 animate-spin"
-                />
-                <Upload
-                  v-else
-                  class="mr-2 h-4 w-4"
-                />
-              {{ selectedFileName ? '重新选择' : '选择视频' }}
+                <Upload class="mr-2 h-4 w-4" />
+                选择视频
               </Button>
             </div>
             <div
-              v-if="selectedFileName"
-              class="mt-3 rounded-md border bg-background px-3 py-3"
+              v-if="queue.length > 0"
+              class="mt-3 space-y-2"
             >
-              <div class="flex items-start gap-3">
-                <FileVideo class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-center justify-between gap-3">
-                    <div class="truncate text-sm font-medium text-foreground">
-                      {{ selectedFileName }}
+              <div
+                v-for="item in queue"
+                :key="item.id"
+                class="rounded-md border bg-background px-3 py-3"
+              >
+                <div class="flex items-start gap-3">
+                  <FileVideo class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="truncate text-sm font-medium text-foreground">
+                        {{ item.fileName }}
+                      </div>
+                      <div class="flex shrink-0 items-center gap-2">
+                        <Badge :variant="item.status === 'failed' ? 'destructive' : item.status === 'submitted' ? 'success' : item.status === 'pending' ? 'secondary' : 'default'">
+                          {{
+                            item.status === 'pending'
+                              ? '待提交'
+                              : item.status === 'uploading'
+                                ? '上传中'
+                                : item.status === 'uploaded'
+                                  ? '已上传'
+                                  : item.status === 'submitting'
+                                    ? '提交中'
+                                    : item.status === 'submitted'
+                                      ? '已提交'
+                                      : '失败'
+                          }}
+                        </Badge>
+                        <Button
+                          v-if="!activeQueue && item.status !== 'submitted'"
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          class="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          title="移除"
+                          @click="removeQueueItem(item.id)"
+                        >
+                          <Trash2 class="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <Badge :variant="sourceUploaded ? 'success' : 'secondary'">
-                      {{ sourceUploaded ? '已上传' : '上传中' }}
-                    </Badge>
-                  </div>
-                  <div class="mt-1 text-xs text-muted-foreground">
-                    {{ formatBytes(selectedFileSize) }} · {{ selectedFileType }}
-                  </div>
-                  <div
-                    v-if="uploadingSource"
-                    class="mt-3 space-y-1"
-                  >
-                    <Progress :model-value="uploadProgress" />
-                    <div class="text-xs text-muted-foreground">
-                      正在上传到 TOS：{{ uploadProgress }}%
+                    <div class="mt-1 text-xs text-muted-foreground">
+                      {{ formatBytes(item.fileSize) }} · {{ item.fileType }}
+                    </div>
+                    <div
+                      v-if="item.status === 'uploading' || item.uploadProgress > 0 && item.status !== 'submitted'"
+                      class="mt-3 space-y-1"
+                    >
+                      <Progress :model-value="item.uploadProgress" />
+                      <div class="text-xs text-muted-foreground">
+                        正在上传到 TOS：{{ item.uploadProgress }}%
+                      </div>
+                    </div>
+                    <div
+                      v-if="item.taskId"
+                      class="mt-2 truncate font-mono text-xs text-muted-foreground"
+                    >
+                      {{ item.taskId }}
+                    </div>
+                    <div
+                      v-if="item.errorMessage"
+                      class="mt-2 text-xs leading-5 text-destructive"
+                    >
+                      {{ item.errorMessage }}
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
+            <div
+              v-else
+              class="mt-3 rounded-md border border-dashed bg-background/60 p-6 text-center text-sm text-muted-foreground"
+            >
+              拖拽视频到这里，或点击“选择视频”
             </div>
           </div>
 
@@ -556,10 +699,10 @@ async function submitTask() {
             @click="submitTask"
           >
             <Loader2
-              v-if="submitting"
+              v-if="activeQueue"
               class="mr-2 h-4 w-4 animate-spin"
             />
-            提交增强
+            提交 {{ pendingQueue.length }} 个增强任务
           </Button>
           <div
             v-if="submitHint"

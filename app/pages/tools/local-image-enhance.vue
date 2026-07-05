@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileImage, Loader2, MonitorCog, Upload } from 'lucide-vue-next'
+import { FileImage, Loader2, MonitorCog, Trash2, Upload } from 'lucide-vue-next'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
@@ -19,20 +19,32 @@ interface LocalEnhanceResponse {
   elapsedMs: number
 }
 
+type QueueStatus = 'pending' | 'processing' | 'completed' | 'failed'
+
+interface LocalImageQueueItem {
+  id: string
+  file: File
+  fileName: string
+  fileSize: number
+  fileType: string
+  previewUrl: string
+  preset: LocalEnhancePreset
+  presetLabel: string
+  progress: number
+  status: QueueStatus
+  result: LocalEnhanceResponse | null
+  errorMessage: string
+}
+
 const { toast } = useToast()
 const route = useRoute()
 
 const preset = ref<LocalEnhancePreset>('light')
-const selectedFile = ref<File | null>(null)
-const selectedFileName = ref('')
-const selectedFileSize = ref(0)
-const selectedFileType = ref('')
-const previewUrl = ref('')
-const uploadProgress = ref(0)
+const queue = ref<LocalImageQueueItem[]>([])
 const processing = ref(false)
 const errorMessage = ref('')
-const result = ref<LocalEnhanceResponse | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const draggingFiles = ref(false)
 
 const embeddedInUnifiedLocalEnhance = computed(() => route.path === '/tools/local-enhance')
 
@@ -52,10 +64,14 @@ const presetOptions: Array<{
   { value: 'jpeg', label: '转 JPEG', description: '转换为高质量 JPEG。', output: 'JPG' }
 ]
 
-const canSubmit = computed(() => !!selectedFile.value && !processing.value)
+const pendingQueue = computed(() => queue.value.filter(item => item.status !== 'completed'))
+const canSubmit = computed(() => queue.value.length > 0 && pendingQueue.value.length > 0 && !processing.value)
+const activePreset = computed(() => presetOptions.find(option => option.value === preset.value))
 
 onUnmounted(() => {
-  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  for (const item of queue.value) {
+    URL.revokeObjectURL(item.previewUrl)
+  }
 })
 
 function triggerFileUpload() {
@@ -83,41 +99,92 @@ function formatDuration(ms: number) {
   return `${minutes} 分 ${rest} 秒`
 }
 
+function createQueueId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function isImageFile(file: File) {
+  return file.type.startsWith('image/') || /\.(png|jpe?g|webp|bmp)$/i.test(file.name)
+}
+
+function addFilesToQueue(files: File[]) {
+  const imageFiles = files.filter(isImageFile)
+  if (imageFiles.length === 0) {
+    errorMessage.value = '请拖入图片文件。'
+    return
+  }
+
+  errorMessage.value = ''
+  queue.value.push(...imageFiles.map(file => ({
+    id: createQueueId(),
+    file,
+    fileName: file.name,
+    fileSize: file.size,
+    fileType: file.type || '图片文件',
+    previewUrl: URL.createObjectURL(file),
+    preset: preset.value,
+    presetLabel: activePreset.value?.label || '轻度增强',
+    progress: 0,
+    status: 'pending' as QueueStatus,
+    result: null,
+    errorMessage: ''
+  })))
+
+  if (imageFiles.length < files.length) {
+    toast.warning(`已忽略 ${files.length - imageFiles.length} 个非图片文件`)
+  }
+}
+
 function handleFileChange(event: Event) {
   const input = event.target as HTMLInputElement | null
-  const file = input?.files?.[0]
-  if (!file) return
-  selectedFile.value = file
-  selectedFileName.value = file.name
-  selectedFileSize.value = file.size
-  selectedFileType.value = file.type || '图片文件'
-  uploadProgress.value = 0
-  errorMessage.value = ''
-  result.value = null
-  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-  previewUrl.value = URL.createObjectURL(file)
+  const files = Array.from(input?.files || [])
+  if (files.length > 0) addFilesToQueue(files)
   if (input) input.value = ''
 }
 
-function runLocalEnhance(): Promise<LocalEnhanceResponse> {
-  const file = selectedFile.value
-  if (!file) return Promise.reject(new Error('请先选择图片文件'))
+function removeQueueItem(id: string) {
+  if (processing.value) return
+  const item = queue.value.find(value => value.id === id)
+  if (item) URL.revokeObjectURL(item.previewUrl)
+  queue.value = queue.value.filter(value => value.id !== id)
+}
+
+function handleDragEnter(event: DragEvent) {
+  if (processing.value || !event.dataTransfer?.types.includes('Files')) return
+  draggingFiles.value = true
+}
+
+function handleDragLeave(event: DragEvent) {
+  const currentTarget = event.currentTarget as Node | null
+  const relatedTarget = event.relatedTarget as Node | null
+  if (currentTarget && relatedTarget && currentTarget.contains(relatedTarget)) return
+  draggingFiles.value = false
+}
+
+function handleDrop(event: DragEvent) {
+  draggingFiles.value = false
+  if (processing.value) return
+  const files = Array.from(event.dataTransfer?.files || [])
+  if (files.length > 0) addFilesToQueue(files)
+}
+
+function runLocalEnhance(item: LocalImageQueueItem): Promise<LocalEnhanceResponse> {
   return new Promise((resolve, reject) => {
     const formData = new FormData()
-    formData.append('preset', preset.value)
-    formData.append('image', file, file.name)
+    formData.append('preset', item.preset)
+    formData.append('image', item.file, item.fileName)
 
     const xhr = new XMLHttpRequest()
     xhr.open('POST', '/api/tools/local-image-enhance')
     xhr.responseType = 'json'
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return
-      uploadProgress.value = Math.min(99, Math.round((event.loaded / event.total) * 100))
+      item.progress = Math.min(99, Math.round((event.loaded / event.total) * 100))
     }
     xhr.onload = () => {
       const response = xhr.response as LocalEnhanceResponse | { message?: string } | null
       if (xhr.status >= 200 && xhr.status < 300 && response && 'imageUrl' in response) {
-        uploadProgress.value = 100
+        item.progress = 100
         resolve(response)
         return
       }
@@ -131,14 +198,32 @@ function runLocalEnhance(): Promise<LocalEnhanceResponse> {
 async function submitLocalEnhance() {
   processing.value = true
   errorMessage.value = ''
-  result.value = null
-  uploadProgress.value = 0
+  let successCount = 0
+  let failedCount = 0
   try {
-    const response = await runLocalEnhance()
-    result.value = response
-    toast.success('本地图片处理完成', { description: `${response.presetLabel} · ${formatDuration(response.elapsedMs)}` })
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '本地图片处理失败'
+    for (const item of queue.value) {
+      if (item.status === 'completed') continue
+      item.status = 'processing'
+      item.errorMessage = ''
+      item.result = null
+      item.progress = 0
+      try {
+        const response = await runLocalEnhance(item)
+        item.result = response
+        item.status = 'completed'
+        successCount += 1
+      } catch (error) {
+        item.status = 'failed'
+        item.errorMessage = error instanceof Error ? error.message : '本地图片处理失败'
+        failedCount += 1
+      }
+    }
+    if (successCount > 0) {
+      toast.success(`本地图片处理完成 ${successCount} 张`)
+    }
+    if (failedCount > 0) {
+      errorMessage.value = `${failedCount} 张图片处理失败，请检查队列中的错误信息后重试。`
+    }
   } finally {
     processing.value = false
   }
@@ -206,50 +291,116 @@ async function submitLocalEnhance() {
               <input
                 ref="fileInputRef"
                 type="file"
+                multiple
                 accept="image/*,.png,.jpg,.jpeg,.webp,.bmp"
                 class="hidden"
                 @change="handleFileChange"
               >
-              <Button type="button" variant="outline" :disabled="processing" @click="triggerFileUpload">
+              <Button
+                type="button"
+                variant="outline"
+                :disabled="processing"
+                @click="triggerFileUpload"
+              >
                 <Upload class="mr-2 h-4 w-4" />
-                {{ selectedFileName ? '重新选择' : '选择图片' }}
+                选择图片
               </Button>
             </div>
 
-            <ToolsImageCompareViewer
-              :before-url="previewUrl"
-              :after-url="result?.imageUrl || ''"
-              before-label="原图"
-              after-label="处理结果"
-              empty-label="尚未选择图片"
-            />
             <div
-              v-if="selectedFileName || result"
-              class="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground"
+              class="rounded-md border border-dashed bg-muted/30 p-4 transition-colors"
+              :class="draggingFiles ? 'border-primary bg-primary/5' : 'border-border'"
+              @dragenter.prevent="handleDragEnter"
+              @dragover.prevent
+              @dragleave.prevent="handleDragLeave"
+              @drop.prevent="handleDrop"
             >
-              <div class="flex min-w-0 items-center gap-2">
-                <FileImage class="h-4 w-4 shrink-0 text-primary" />
-                <span class="truncate">
-                  {{ selectedFileName ? `${selectedFileName} · ${selectedFileType} · ${formatBytes(selectedFileSize)}` : '尚未选择图片' }}
-                </span>
+              <div
+                v-if="queue.length === 0"
+                class="py-8 text-center text-sm text-muted-foreground"
+              >
+                拖拽图片到这里，或点击“选择图片”
               </div>
               <div
-                v-if="result"
-                class="flex flex-wrap items-center gap-2"
+                v-else
+                class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
               >
-                <span>{{ result.presetLabel }} · {{ formatDuration(result.elapsedMs) }}</span>
-                <Button variant="outline" size="sm" as-child>
-                  <a :href="result.imageUrl" target="_blank" rel="noreferrer">打开图片</a>
-                </Button>
+                <div
+                  v-for="item in queue"
+                  :key="item.id"
+                  class="overflow-hidden rounded-md border bg-background"
+                >
+                  <div class="flex aspect-video items-center justify-center bg-muted/30">
+                    <img
+                      :src="item.previewUrl"
+                      alt="源图片预览"
+                      class="h-full w-full object-contain"
+                    >
+                  </div>
+                  <div class="space-y-2 p-3">
+                    <div class="flex items-start justify-between gap-2">
+                      <div class="min-w-0">
+                        <div class="truncate text-sm font-medium text-foreground">
+                          {{ item.fileName }}
+                        </div>
+                        <div class="mt-1 text-xs text-muted-foreground">
+                          {{ item.fileType }} · {{ formatBytes(item.fileSize) }} · {{ item.presetLabel }}
+                        </div>
+                      </div>
+                      <div class="flex shrink-0 items-center gap-1">
+                        <Badge :variant="item.status === 'failed' ? 'destructive' : item.status === 'completed' ? 'success' : item.status === 'processing' ? 'default' : 'secondary'">
+                          {{
+                            item.status === 'pending'
+                              ? '待处理'
+                              : item.status === 'processing'
+                                ? '处理中'
+                                : item.status === 'completed'
+                                  ? '已完成'
+                                  : '失败'
+                          }}
+                        </Badge>
+                        <Button
+                          v-if="!processing && item.status !== 'completed'"
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          class="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          title="移除"
+                          @click="removeQueueItem(item.id)"
+                        >
+                          <Trash2 class="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div
+                      v-if="item.status === 'processing' || item.progress > 0 && item.status !== 'completed'"
+                      class="space-y-1"
+                    >
+                      <Progress :model-value="item.progress" />
+                      <div class="text-xs text-muted-foreground">
+                        上传进度 {{ item.progress }}%
+                      </div>
+                    </div>
+                    <div
+                      v-if="item.result"
+                      class="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/30 p-2 text-xs text-muted-foreground"
+                    >
+                      <span>{{ item.result.presetLabel }} · {{ formatDuration(item.result.elapsedMs) }}</span>
+                      <Button variant="outline" size="sm" as-child>
+                        <a :href="item.result.imageUrl" target="_blank" rel="noreferrer">打开图片</a>
+                      </Button>
+                    </div>
+                    <div
+                      v-if="item.errorMessage"
+                      class="text-xs leading-5 text-destructive"
+                    >
+                      {{ item.errorMessage }}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div v-if="processing || uploadProgress > 0" class="space-y-2">
-              <Progress :model-value="uploadProgress" />
-              <div class="text-xs text-muted-foreground">
-                上传进度 {{ uploadProgress }}%
-              </div>
-            </div>
             <Alert v-if="errorMessage" variant="destructive">
               <AlertDescription>{{ errorMessage }}</AlertDescription>
             </Alert>
@@ -257,8 +408,28 @@ async function submitLocalEnhance() {
               <Button :disabled="!canSubmit" @click="submitLocalEnhance">
                 <Loader2 v-if="processing" class="mr-2 h-4 w-4 animate-spin" />
                 <MonitorCog v-else class="mr-2 h-4 w-4" />
-                开始本地处理
+                开始处理 {{ pendingQueue.length }} 张图片
               </Button>
+            </div>
+          </section>
+
+          <section
+            v-if="queue.some(item => item.result)"
+            class="space-y-3 border-t pt-6"
+          >
+            <h2 class="text-base font-semibold text-foreground">
+              处理结果
+            </h2>
+            <div class="grid gap-4 lg:grid-cols-2">
+              <ToolsImageCompareViewer
+                v-for="item in queue.filter(value => value.result)"
+                :key="item.id"
+                :before-url="item.previewUrl"
+                :after-url="item.result?.imageUrl || ''"
+                :before-label="item.fileName"
+                after-label="处理结果"
+                empty-label="暂无结果"
+              />
             </div>
           </section>
         </CardContent>

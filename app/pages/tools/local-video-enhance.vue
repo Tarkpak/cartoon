@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ExternalLink, FileVideo, Loader2, MonitorCog, Sparkles, Upload } from 'lucide-vue-next'
+import { ExternalLink, FileVideo, Loader2, MonitorCog, Sparkles, Trash2, Upload } from 'lucide-vue-next'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
@@ -19,20 +19,32 @@ interface LocalEnhanceResponse {
   elapsedMs: number
 }
 
+type QueueStatus = 'pending' | 'processing' | 'completed' | 'failed'
+
+interface LocalVideoQueueItem {
+  id: string
+  file: File
+  fileName: string
+  fileSize: number
+  fileType: string
+  previewUrl: string
+  preset: LocalEnhancePreset
+  presetLabel: string
+  progress: number
+  status: QueueStatus
+  result: LocalEnhanceResponse | null
+  errorMessage: string
+}
+
 const { toast } = useToast()
 const route = useRoute()
 
 const preset = ref<LocalEnhancePreset>('light')
-const selectedFile = ref<File | null>(null)
-const selectedFileName = ref('')
-const selectedFileSize = ref(0)
-const selectedFileType = ref('')
-const previewUrl = ref('')
-const uploadProgress = ref(0)
+const queue = ref<LocalVideoQueueItem[]>([])
 const processing = ref(false)
 const errorMessage = ref('')
-const result = ref<LocalEnhanceResponse | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const draggingFiles = ref(false)
 
 const embeddedInUnifiedLocalEnhance = computed(() => route.path === '/tools/local-enhance')
 
@@ -73,11 +85,14 @@ const presetOptions: Array<{
   }
 ]
 
-const canSubmit = computed(() => !!selectedFile.value && !processing.value)
+const pendingQueue = computed(() => queue.value.filter(item => item.status !== 'completed'))
+const canSubmit = computed(() => queue.value.length > 0 && pendingQueue.value.length > 0 && !processing.value)
 const activePreset = computed(() => presetOptions.find(option => option.value === preset.value))
 
 onUnmounted(() => {
-  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  for (const item of queue.value) {
+    URL.revokeObjectURL(item.previewUrl)
+  }
 })
 
 function triggerFileUpload() {
@@ -105,41 +120,92 @@ function formatDuration(ms: number) {
   return `${minutes} 分 ${rest} 秒`
 }
 
+function createQueueId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function isVideoFile(file: File) {
+  return file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name)
+}
+
+function addFilesToQueue(files: File[]) {
+  const videoFiles = files.filter(isVideoFile)
+  if (videoFiles.length === 0) {
+    errorMessage.value = '请拖入视频文件。'
+    return
+  }
+
+  errorMessage.value = ''
+  queue.value.push(...videoFiles.map(file => ({
+    id: createQueueId(),
+    file,
+    fileName: file.name,
+    fileSize: file.size,
+    fileType: file.type || '视频文件',
+    previewUrl: URL.createObjectURL(file),
+    preset: preset.value,
+    presetLabel: activePreset.value?.label || '轻度增强',
+    progress: 0,
+    status: 'pending' as QueueStatus,
+    result: null,
+    errorMessage: ''
+  })))
+
+  if (videoFiles.length < files.length) {
+    toast.warning(`已忽略 ${files.length - videoFiles.length} 个非视频文件`)
+  }
+}
+
 function handleFileChange(event: Event) {
   const input = event.target as HTMLInputElement | null
-  const file = input?.files?.[0]
-  if (!file) return
-  selectedFile.value = file
-  selectedFileName.value = file.name
-  selectedFileSize.value = file.size
-  selectedFileType.value = file.type || '视频文件'
-  uploadProgress.value = 0
-  errorMessage.value = ''
-  result.value = null
-  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-  previewUrl.value = URL.createObjectURL(file)
+  const files = Array.from(input?.files || [])
+  if (files.length > 0) addFilesToQueue(files)
   if (input) input.value = ''
 }
 
-function runLocalEnhance(): Promise<LocalEnhanceResponse> {
-  const file = selectedFile.value
-  if (!file) return Promise.reject(new Error('请先选择视频文件'))
+function removeQueueItem(id: string) {
+  if (processing.value) return
+  const item = queue.value.find(value => value.id === id)
+  if (item) URL.revokeObjectURL(item.previewUrl)
+  queue.value = queue.value.filter(value => value.id !== id)
+}
+
+function handleDragEnter(event: DragEvent) {
+  if (processing.value || !event.dataTransfer?.types.includes('Files')) return
+  draggingFiles.value = true
+}
+
+function handleDragLeave(event: DragEvent) {
+  const currentTarget = event.currentTarget as Node | null
+  const relatedTarget = event.relatedTarget as Node | null
+  if (currentTarget && relatedTarget && currentTarget.contains(relatedTarget)) return
+  draggingFiles.value = false
+}
+
+function handleDrop(event: DragEvent) {
+  draggingFiles.value = false
+  if (processing.value) return
+  const files = Array.from(event.dataTransfer?.files || [])
+  if (files.length > 0) addFilesToQueue(files)
+}
+
+function runLocalEnhance(item: LocalVideoQueueItem): Promise<LocalEnhanceResponse> {
   return new Promise((resolve, reject) => {
     const formData = new FormData()
-    formData.append('preset', preset.value)
-    formData.append('video', file, file.name)
+    formData.append('preset', item.preset)
+    formData.append('video', item.file, item.fileName)
 
     const xhr = new XMLHttpRequest()
     xhr.open('POST', '/api/tools/local-video-enhance')
     xhr.responseType = 'json'
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return
-      uploadProgress.value = Math.min(99, Math.round((event.loaded / event.total) * 100))
+      item.progress = Math.min(99, Math.round((event.loaded / event.total) * 100))
     }
     xhr.onload = () => {
       const response = xhr.response as LocalEnhanceResponse | { message?: string } | null
       if (xhr.status >= 200 && xhr.status < 300 && response && 'videoUrl' in response) {
-        uploadProgress.value = 100
+        item.progress = 100
         resolve(response)
         return
       }
@@ -153,14 +219,32 @@ function runLocalEnhance(): Promise<LocalEnhanceResponse> {
 async function submitLocalEnhance() {
   processing.value = true
   errorMessage.value = ''
-  result.value = null
-  uploadProgress.value = 0
+  let successCount = 0
+  let failedCount = 0
   try {
-    const response = await runLocalEnhance()
-    result.value = response
-    toast.success('本地增强完成', { description: `${response.presetLabel} · ${formatDuration(response.elapsedMs)}` })
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '本地增强失败'
+    for (const item of queue.value) {
+      if (item.status === 'completed') continue
+      item.status = 'processing'
+      item.errorMessage = ''
+      item.result = null
+      item.progress = 0
+      try {
+        const response = await runLocalEnhance(item)
+        item.result = response
+        item.status = 'completed'
+        successCount += 1
+      } catch (error) {
+        item.status = 'failed'
+        item.errorMessage = error instanceof Error ? error.message : '本地增强失败'
+        failedCount += 1
+      }
+    }
+    if (successCount > 0) {
+      toast.success(`本地增强完成 ${successCount} 个视频`)
+    }
+    if (failedCount > 0) {
+      errorMessage.value = `${failedCount} 个视频处理失败，请检查队列中的错误信息后重试。`
+    }
   } finally {
     processing.value = false
   }
@@ -242,6 +326,7 @@ async function submitLocalEnhance() {
               <input
                 ref="fileInputRef"
                 type="file"
+                multiple
                 accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi"
                 class="hidden"
                 @change="handleFileChange"
@@ -253,39 +338,109 @@ async function submitLocalEnhance() {
                 @click="triggerFileUpload"
               >
                 <Upload class="mr-2 h-4 w-4" />
-                {{ selectedFileName ? '重新选择' : '选择视频' }}
+                选择视频
               </Button>
             </div>
 
             <div
-              v-if="selectedFileName"
-              class="rounded-md border bg-muted/30 p-4"
+              class="rounded-md border border-dashed bg-muted/30 p-4 transition-colors"
+              :class="draggingFiles ? 'border-primary bg-primary/5' : 'border-border'"
+              @dragenter.prevent="handleDragEnter"
+              @dragover.prevent
+              @dragleave.prevent="handleDragLeave"
+              @drop.prevent="handleDrop"
             >
-              <div class="flex items-start gap-3">
-                <FileVideo class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                <div class="min-w-0 flex-1">
-                  <div class="truncate text-sm font-medium text-foreground">
-                    {{ selectedFileName }}
-                  </div>
-                  <div class="mt-1 text-xs text-muted-foreground">
-                    {{ formatBytes(selectedFileSize) }} · {{ selectedFileType }}
-                  </div>
-                </div>
-                <Badge
-                  v-if="activePreset"
-                  variant="secondary"
-                >
-                  {{ activePreset.label }}
-                </Badge>
+              <div
+                v-if="queue.length === 0"
+                class="py-8 text-center text-sm text-muted-foreground"
+              >
+                拖拽视频到这里，或点击“选择视频”
               </div>
               <div
-                v-if="processing"
-                class="mt-4 space-y-2"
+                v-else
+                class="space-y-2"
               >
-                <Progress :model-value="uploadProgress" />
-                <div class="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 class="h-4 w-4 animate-spin text-primary" />
-                  {{ uploadProgress < 100 ? `正在上传到本地后端：${uploadProgress}%` : 'FFmpeg 正在处理视频，请保持页面打开。' }}
+                <div
+                  v-for="item in queue"
+                  :key="item.id"
+                  class="rounded-md border bg-background p-3"
+                >
+                  <div class="flex items-start gap-3">
+                    <FileVideo class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center justify-between gap-3">
+                        <div class="truncate text-sm font-medium text-foreground">
+                          {{ item.fileName }}
+                        </div>
+                        <div class="flex shrink-0 items-center gap-2">
+                          <Badge :variant="item.status === 'failed' ? 'destructive' : item.status === 'completed' ? 'success' : item.status === 'processing' ? 'default' : 'secondary'">
+                            {{
+                              item.status === 'pending'
+                                ? '待处理'
+                                : item.status === 'processing'
+                                  ? '处理中'
+                                  : item.status === 'completed'
+                                    ? '已完成'
+                                    : '失败'
+                            }}
+                          </Badge>
+                          <Button
+                            v-if="!processing && item.status !== 'completed'"
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            class="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            title="移除"
+                            @click="removeQueueItem(item.id)"
+                          >
+                            <Trash2 class="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div class="mt-1 text-xs text-muted-foreground">
+                      {{ formatBytes(item.fileSize) }} · {{ item.fileType }} · {{ item.presetLabel }}
+                      </div>
+                      <div
+                        v-if="item.status === 'processing' || item.progress > 0 && item.status !== 'completed'"
+                        class="mt-3 space-y-2"
+                      >
+                        <Progress :model-value="item.progress" />
+                        <div class="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2
+                            v-if="item.status === 'processing'"
+                            class="h-4 w-4 animate-spin text-primary"
+                          />
+                          {{ item.progress < 100 ? `正在上传到本地后端：${item.progress}%` : 'FFmpeg 正在处理视频，请保持页面打开。' }}
+                        </div>
+                      </div>
+                      <div
+                        v-if="item.errorMessage"
+                        class="mt-2 text-xs leading-5 text-destructive"
+                      >
+                        {{ item.errorMessage }}
+                      </div>
+                      <div
+                        v-if="item.result"
+                        class="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/30 p-2 text-xs text-muted-foreground"
+                      >
+                        <span>{{ item.result.presetLabel }} · 处理耗时 {{ formatDuration(item.result.elapsedMs) }}</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          as-child
+                        >
+                          <a
+                            :href="item.result.videoUrl"
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <ExternalLink class="mr-2 h-4 w-4" />
+                            打开视频
+                          </a>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -309,18 +464,18 @@ async function submitLocalEnhance() {
                 v-else
                 class="mr-2 h-4 w-4"
               />
-              开始本地增强
+              开始处理 {{ pendingQueue.length }} 个视频
             </Button>
             <div
-              v-if="!selectedFileName"
+              v-if="queue.length === 0"
               class="text-xs text-muted-foreground"
             >
-              请先选择一个本地视频。
+              请先选择或拖入本地视频。
             </div>
           </section>
 
           <section
-            v-if="result"
+            v-if="queue.some(item => item.result)"
             class="space-y-3 border-t pt-6"
           >
             <div class="flex items-center justify-between gap-4">
@@ -330,31 +485,21 @@ async function submitLocalEnhance() {
                   增强结果
                 </h2>
                 <p class="mt-1 text-sm text-muted-foreground">
-                  {{ result.presetLabel }} · 处理耗时 {{ formatDuration(result.elapsedMs) }}
+                  可在队列中打开每个增强结果。
                 </p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                as-child
-              >
-                <a
-                  :href="result.videoUrl"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <ExternalLink class="mr-2 h-4 w-4" />
-                  打开视频
-                </a>
-              </Button>
             </div>
-            <ToolsVideoCompareViewer
-              :before-url="previewUrl"
-              :after-url="result.videoUrl"
-              before-label="原视频"
-              after-label="增强结果"
-              empty-label="暂无结果"
-            />
+            <div class="grid gap-4 lg:grid-cols-2">
+              <ToolsVideoCompareViewer
+                v-for="item in queue.filter(value => value.result)"
+                :key="item.id"
+                :before-url="item.previewUrl"
+                :after-url="item.result?.videoUrl || ''"
+                :before-label="item.fileName"
+                after-label="增强结果"
+                empty-label="暂无结果"
+              />
+            </div>
           </section>
         </CardContent>
       </Card>

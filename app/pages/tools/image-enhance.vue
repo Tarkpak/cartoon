@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileImage, ListChecks, Loader2, Upload, WandSparkles } from 'lucide-vue-next'
+import { FileImage, ListChecks, Loader2, Trash2, Upload, WandSparkles } from 'lucide-vue-next'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
@@ -21,24 +21,37 @@ interface EnhanceUploadResponse {
   reused?: boolean
 }
 
+type QueueStatus = 'pending' | 'uploading' | 'uploaded' | 'submitting' | 'submitted' | 'failed'
+
+interface ImageEnhanceQueueItem {
+  id: string
+  file: File
+  fileName: string
+  fileSize: number
+  fileType: string
+  previewUrl: string
+  sourceImageUrl: string
+  sourceObjectKey: string
+  uploadProgress: number
+  status: QueueStatus
+  taskId: string
+  errorMessage: string
+  reused: boolean
+}
+
 const router = useRouter()
 const route = useRoute()
 const { toast } = useToast()
 
 const kind = ref<EnhanceKind>('standard')
-const sourceImageUrl = ref('')
-const sourceObjectKey = ref('')
-const selectedFileName = ref('')
-const selectedFileSize = ref(0)
-const selectedFileType = ref('')
-const previewUrl = ref('')
+const queue = ref<ImageEnhanceQueueItem[]>([])
 const scale = ref('2')
 const outputFormat = ref('original')
 const submitting = ref(false)
 const uploadingSource = ref(false)
-const uploadProgress = ref(0)
 const errorMessage = ref('')
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const draggingFiles = ref(false)
 
 const embeddedInUnifiedEnhance = computed(() => route.path === '/tools/enhance')
 
@@ -81,13 +94,14 @@ const formatOptions = [
   { value: 'webp', label: 'WebP' }
 ]
 
-const sourceUploaded = computed(() => sourceImageUrl.value.trim().length > 0 && !uploadingSource.value)
-const canSubmit = computed(() => sourceUploaded.value && !submitting.value)
+const activeQueue = computed(() => uploadingSource.value || submitting.value)
+const pendingQueue = computed(() => queue.value.filter(item => item.status !== 'submitted'))
+const canSubmit = computed(() => queue.value.length > 0 && pendingQueue.value.length > 0 && !activeQueue.value)
 const activeKindOption = computed(() => kindOptions.find(option => option.value === kind.value))
 const submitHint = computed(() => {
   if (submitting.value) return '正在提交任务，请稍候。'
-  if (uploadingSource.value) return '源图片正在上传，上传完成后才能提交。'
-  if (!sourceImageUrl.value.trim()) return '请先选择并上传一张本地图片。'
+  if (uploadingSource.value) return '源图片正在上传，请稍候。'
+  if (queue.value.length === 0) return '请选择一张或多张本地图片。'
   return ''
 })
 
@@ -98,11 +112,46 @@ watch(kind, (value) => {
 })
 
 onUnmounted(() => {
-  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  for (const item of queue.value) {
+    URL.revokeObjectURL(item.previewUrl)
+  }
 })
 
 function triggerFileUpload() {
   fileInputRef.value?.click()
+}
+
+function isImageFile(file: File) {
+  return file.type.startsWith('image/') || /\.(png|jpe?g|webp|bmp)$/i.test(file.name)
+}
+
+function addFilesToQueue(files: File[]) {
+  const imageFiles = files.filter(isImageFile)
+  if (imageFiles.length === 0) {
+    errorMessage.value = '请拖入图片文件。'
+    return
+  }
+
+  errorMessage.value = ''
+  queue.value.push(...imageFiles.map(file => ({
+    id: createQueueId(),
+    file,
+    fileName: file.name,
+    fileSize: file.size,
+    fileType: file.type || '图片文件',
+    previewUrl: URL.createObjectURL(file),
+    sourceImageUrl: '',
+    sourceObjectKey: '',
+    uploadProgress: 0,
+    status: 'pending' as QueueStatus,
+    taskId: '',
+    errorMessage: '',
+    reused: false
+  })))
+
+  if (imageFiles.length < files.length) {
+    toast.warning(`已忽略 ${files.length - imageFiles.length} 个非图片文件`)
+  }
 }
 
 function formatBytes(value: number) {
@@ -117,12 +166,16 @@ function formatBytes(value: number) {
   return `${size >= 10 || unitIndex === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`
 }
 
-function buildRequestBody() {
+function createQueueId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function buildRequestBody(item: ImageEnhanceQueueItem) {
   const body: Record<string, unknown> = {
     kind: kind.value,
-    imageUrl: sourceImageUrl.value.trim(),
-    sourceFileName: selectedFileName.value || '本地图片',
-    sourceObjectKey: sourceObjectKey.value || undefined
+    imageUrl: item.sourceImageUrl.trim(),
+    sourceFileName: item.fileName || '本地图片',
+    sourceObjectKey: item.sourceObjectKey || undefined
   }
   if (kind.value === 'upscale') {
     body.scale = Number(scale.value)
@@ -133,19 +186,19 @@ function buildRequestBody() {
   return body
 }
 
-function uploadSourceImage(formData: FormData): Promise<EnhanceUploadResponse> {
+function uploadSourceImage(formData: FormData, onProgress: (progress: number) => void): Promise<EnhanceUploadResponse> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', '/api/tools/image-enhance/upload-source')
     xhr.responseType = 'json'
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return
-      uploadProgress.value = Math.min(99, Math.round((event.loaded / event.total) * 100))
+      onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)))
     }
     xhr.onload = () => {
       const response = xhr.response as EnhanceUploadResponse | { message?: string } | null
       if (xhr.status >= 200 && xhr.status < 300 && response && 'imageUrl' in response) {
-        uploadProgress.value = 100
+        onProgress(100)
         resolve(response)
         return
       }
@@ -158,55 +211,98 @@ function uploadSourceImage(formData: FormData): Promise<EnhanceUploadResponse> {
 
 async function handleSourceFileChange(event: Event) {
   const input = event.target as HTMLInputElement | null
-  const file = input?.files?.[0]
-  if (!file) return
+  const files = Array.from(input?.files || [])
+  if (files.length > 0) addFilesToQueue(files)
+  if (input) input.value = ''
+}
 
-  uploadingSource.value = true
-  uploadProgress.value = 0
-  errorMessage.value = ''
-  sourceImageUrl.value = ''
-  sourceObjectKey.value = ''
-  selectedFileName.value = file.name
-  selectedFileSize.value = file.size
-  selectedFileType.value = file.type || '图片文件'
-  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-  previewUrl.value = URL.createObjectURL(file)
-  try {
+function handleDragEnter(event: DragEvent) {
+  if (activeQueue.value || !event.dataTransfer?.types.includes('Files')) return
+  draggingFiles.value = true
+}
+
+function handleDragLeave(event: DragEvent) {
+  const currentTarget = event.currentTarget as Node | null
+  const relatedTarget = event.relatedTarget as Node | null
+  if (currentTarget && relatedTarget && currentTarget.contains(relatedTarget)) return
+  draggingFiles.value = false
+}
+
+function handleDrop(event: DragEvent) {
+  draggingFiles.value = false
+  if (activeQueue.value) return
+  const files = Array.from(event.dataTransfer?.files || [])
+  if (files.length > 0) addFilesToQueue(files)
+}
+
+function removeQueueItem(id: string) {
+  if (activeQueue.value) return
+  const item = queue.value.find(value => value.id === id)
+  if (item) URL.revokeObjectURL(item.previewUrl)
+  queue.value = queue.value.filter(value => value.id !== id)
+}
+
+async function submitQueueItem(item: ImageEnhanceQueueItem) {
+  item.errorMessage = ''
+  if (!item.sourceImageUrl) {
+    item.status = 'uploading'
+    uploadingSource.value = true
+    item.uploadProgress = 0
     const formData = new FormData()
-    formData.append('image', file, file.name)
-    const response = await uploadSourceImage(formData)
-    sourceImageUrl.value = response.imageUrl
-    sourceObjectKey.value = response.sourceObjectKey || ''
-    toast.success(response.reused ? '已复用源图片链接' : '源图片上传完成', { description: file.name })
-  } catch (error) {
-    selectedFileName.value = ''
-    selectedFileSize.value = 0
-    selectedFileType.value = ''
-    sourceObjectKey.value = ''
-    uploadProgress.value = 0
-    errorMessage.value = error instanceof Error ? error.message : '上传源图片到 TOS 失败'
-  } finally {
-    uploadingSource.value = false
-    if (input) input.value = ''
+    formData.append('image', item.file, item.fileName)
+    const uploadResponse = await uploadSourceImage(formData, (progress) => {
+      item.uploadProgress = progress
+    })
+    item.sourceImageUrl = uploadResponse.imageUrl
+    item.sourceObjectKey = uploadResponse.sourceObjectKey || ''
+    item.reused = uploadResponse.reused === true
+    item.status = 'uploaded'
   }
+
+  item.status = 'submitting'
+  const response = await $fetch<EnhanceSubmitResponse>('/api/tools/image-enhance', {
+    method: 'POST',
+    body: buildRequestBody(item)
+  })
+  item.taskId = response.taskId
+  item.status = 'submitted'
 }
 
 async function submitTask() {
   errorMessage.value = ''
   submitting.value = true
+  let successCount = 0
+  let failedCount = 0
   try {
-    const response = await $fetch<EnhanceSubmitResponse>('/api/tools/image-enhance', {
-      method: 'POST',
-      body: buildRequestBody()
-    })
-    toast.success('图片增强任务已提交', { description: response.taskId })
-    await router.push({
-      path: '/tools/enhance-tasks',
-      query: { type: 'image', taskId: response.taskId }
-    })
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '提交图片增强任务失败'
+    for (const item of queue.value) {
+      if (item.status === 'submitted') continue
+      try {
+        await submitQueueItem(item)
+        successCount += 1
+      } catch (error) {
+        item.status = 'failed'
+        item.errorMessage = error instanceof Error ? error.message : '提交图片增强任务失败'
+        failedCount += 1
+      } finally {
+        uploadingSource.value = false
+      }
+    }
+
+    if (successCount > 0) {
+      toast.success(`已提交 ${successCount} 个图片增强任务`)
+    }
+    if (failedCount > 0) {
+      errorMessage.value = `${failedCount} 个任务提交失败，请检查队列中的错误信息后重试。`
+      return
+    }
+    if (successCount > 0) {
+      await router.push({
+        path: '/tools/enhance-tasks',
+        query: { type: 'image' }
+      })
+    }
   } finally {
+    uploadingSource.value = false
     submitting.value = false
   }
 }
@@ -238,58 +334,136 @@ async function submitTask() {
 
     <AppPageContent scroll inner-class="space-y-6">
       <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <Card>
+        <Card
+          class="transition-colors"
+          :class="draggingFiles ? 'border-primary bg-primary/5' : ''"
+          @dragenter.prevent="handleDragEnter"
+          @dragover.prevent
+          @dragleave.prevent="handleDragLeave"
+          @drop.prevent="handleDrop"
+        >
           <CardHeader class="border-b">
             <CardTitle class="text-lg">
               源图片
             </CardTitle>
             <CardDescription>
-              支持 PNG、JPG、WebP、BMP，单张上限 50MB。
+              支持点击选择或拖拽导入多张图片，单张上限 50MB。
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-5 pt-6">
             <input
               ref="fileInputRef"
               type="file"
+              multiple
               accept="image/*,.png,.jpg,.jpeg,.webp,.bmp"
               class="hidden"
               @change="handleSourceFileChange"
             >
             <div
+              v-if="queue.length === 0"
               class="flex min-h-[280px] items-center justify-center rounded-md border border-dashed bg-muted/30 p-4"
             >
-              <img
-                v-if="previewUrl"
-                :src="previewUrl"
-                alt="源图片预览"
-                class="max-h-[420px] max-w-full rounded-md object-contain"
-              >
-              <div v-else class="text-center">
+              <div class="text-center">
                 <FileImage class="mx-auto h-10 w-10 text-muted-foreground" />
                 <p class="mt-3 text-sm text-muted-foreground">
-                  选择一张图片开始增强
+                  拖拽图片到这里，或点击“选择图片”
                 </p>
+              </div>
+            </div>
+            <div
+              v-else
+              class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
+            >
+              <div
+                v-for="item in queue"
+                :key="item.id"
+                class="overflow-hidden rounded-md border bg-background"
+              >
+                <div class="flex aspect-video items-center justify-center bg-muted/30">
+                  <img
+                    :src="item.previewUrl"
+                    alt="源图片预览"
+                    class="h-full w-full object-contain"
+                  >
+                </div>
+                <div class="space-y-2 p-3">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <div class="truncate text-sm font-medium text-foreground">
+                        {{ item.fileName }}
+                      </div>
+                      <div class="mt-1 text-xs text-muted-foreground">
+                        {{ item.fileType }} · {{ formatBytes(item.fileSize) }}
+                      </div>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-1">
+                      <Badge :variant="item.status === 'failed' ? 'destructive' : item.status === 'submitted' ? 'success' : item.status === 'pending' ? 'secondary' : 'default'">
+                        {{
+                          item.status === 'pending'
+                            ? '待提交'
+                            : item.status === 'uploading'
+                              ? '上传中'
+                              : item.status === 'uploaded'
+                                ? '已上传'
+                                : item.status === 'submitting'
+                                  ? '提交中'
+                                  : item.status === 'submitted'
+                                    ? '已提交'
+                                    : '失败'
+                        }}
+                      </Badge>
+                      <Button
+                        v-if="!activeQueue && item.status !== 'submitted'"
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        class="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        title="移除"
+                        @click="removeQueueItem(item.id)"
+                      >
+                        <Trash2 class="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div
+                    v-if="item.status === 'uploading' || item.uploadProgress > 0 && item.status !== 'submitted'"
+                    class="space-y-1"
+                  >
+                    <Progress :model-value="item.uploadProgress" />
+                    <div class="text-xs text-muted-foreground">
+                      上传进度 {{ item.uploadProgress }}%
+                    </div>
+                  </div>
+                  <div
+                    v-if="item.taskId"
+                    class="truncate font-mono text-xs text-muted-foreground"
+                  >
+                    {{ item.taskId }}
+                  </div>
+                  <div
+                    v-if="item.errorMessage"
+                    class="text-xs leading-5 text-destructive"
+                  >
+                    {{ item.errorMessage }}
+                  </div>
+                </div>
               </div>
             </div>
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div class="min-w-0 text-sm">
-                <div v-if="selectedFileName" class="truncate font-medium text-foreground">
-                  {{ selectedFileName }}
-                </div>
                 <div class="text-muted-foreground">
-                  {{ selectedFileName ? `${selectedFileType} · ${formatBytes(selectedFileSize)}` : '尚未选择图片' }}
+                  {{ queue.length > 0 ? `已选择 ${queue.length} 张图片` : '尚未选择图片' }}
                 </div>
               </div>
-              <Button type="button" variant="outline" :disabled="uploadingSource || submitting" @click="triggerFileUpload">
+              <Button
+                type="button"
+                variant="outline"
+                :disabled="activeQueue"
+                @click="triggerFileUpload"
+              >
                 <Upload class="mr-2 h-4 w-4" />
-                {{ selectedFileName ? '重新选择' : '选择图片' }}
+                选择图片
               </Button>
-            </div>
-            <div v-if="uploadingSource || uploadProgress > 0" class="space-y-2">
-              <Progress :model-value="uploadProgress" />
-              <div class="text-xs text-muted-foreground">
-                上传进度 {{ uploadProgress }}%
-              </div>
             </div>
           </CardContent>
         </Card>
@@ -360,9 +534,9 @@ async function submitTask() {
               <AlertDescription>{{ errorMessage }}</AlertDescription>
             </Alert>
             <Button class="w-full" :disabled="!canSubmit" @click="submitTask">
-              <Loader2 v-if="submitting" class="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 v-if="activeQueue" class="mr-2 h-4 w-4 animate-spin" />
               <WandSparkles v-else class="mr-2 h-4 w-4" />
-              提交云端增强
+              提交 {{ pendingQueue.length }} 个云端增强
             </Button>
             <p v-if="submitHint" class="text-xs text-muted-foreground">
               {{ submitHint }}

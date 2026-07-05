@@ -1741,7 +1741,7 @@ fn local_image_output_ext(preset: &str, source_ext: &str) -> &'static str {
     }
 }
 
-fn run_local_image_enhance(
+async fn run_local_image_enhance(
     input_path: &FsPath,
     output_path: &FsPath,
     preset: &str,
@@ -1762,7 +1762,7 @@ fn run_local_image_enhance(
         args.push("2".to_string());
     }
     args.push(output_path.to_string_lossy().to_string());
-    run_ffmpeg(&args)
+    run_ffmpeg_blocking(args).await
 }
 
 pub(super) async fn api_tools_local_image_enhance(
@@ -1840,7 +1840,7 @@ pub(super) async fn api_tools_local_image_enhance(
         fs::create_dir_all(&output_dir)
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
         let output_path = output_dir.join(&output_filename);
-        run_local_image_enhance(&input_path, &output_path, &preset)?;
+        run_local_image_enhance(&input_path, &output_path, &preset).await?;
         let elapsed_ms = Utc::now().timestamp_millis().saturating_sub(started_at);
 
         Ok::<Value, ApiError>(json!({
@@ -2363,12 +2363,12 @@ fn local_video_enhance_filter(preset: &str) -> &'static str {
     }
 }
 
-fn run_local_video_enhance(
+async fn run_local_video_enhance(
     input_path: &FsPath,
     output_path: &FsPath,
     preset: &str,
 ) -> Result<(), ApiError> {
-    run_ffmpeg(&[
+    run_ffmpeg_blocking(vec![
         "-y".to_string(),
         "-i".to_string(),
         input_path.to_string_lossy().to_string(),
@@ -2387,11 +2387,13 @@ fn run_local_video_enhance(
         "-pix_fmt".to_string(),
         "yuv420p".to_string(),
         "-c:a".to_string(),
-        "copy".to_string(),
+        "aac".to_string(),
+        "-b:a".to_string(),
+        "192k".to_string(),
         "-movflags".to_string(),
         "+faststart".to_string(),
         output_path.to_string_lossy().to_string(),
-    ])
+    ]).await
 }
 
 pub(super) async fn api_tools_local_video_enhance(
@@ -2460,7 +2462,7 @@ pub(super) async fn api_tools_local_video_enhance(
         fs::create_dir_all(&output_dir)
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
         let output_path = output_dir.join(&output_filename);
-        run_local_video_enhance(&input_path, &output_path, &preset)?;
+        run_local_video_enhance(&input_path, &output_path, &preset).await?;
         let elapsed_ms = Utc::now().timestamp_millis().saturating_sub(started_at);
 
         Ok::<Value, ApiError>(json!({
@@ -16966,6 +16968,17 @@ fn run_ffmpeg(args: &[String]) -> Result<(), ApiError> {
         StatusCode::INTERNAL_SERVER_ERROR,
         format!("FFmpeg 执行失败: {}", truncate_for_error(&stderr, 500)),
     ))
+}
+
+async fn run_ffmpeg_blocking(args: Vec<String>) -> Result<(), ApiError> {
+    tokio::task::spawn_blocking(move || run_ffmpeg(&args))
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("等待 FFmpeg 任务失败: {}", error),
+            )
+        })?
 }
 
 fn escape_ffmpeg_concat_path(path: &FsPath) -> String {

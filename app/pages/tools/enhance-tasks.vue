@@ -12,19 +12,21 @@ definePageMeta({
 type TaskType = 'video' | 'image'
 
 const route = useRoute()
-const router = useRouter()
 
-const activeType = computed<TaskType>(() => {
+function resolveTaskType(): TaskType {
   const raw = Array.isArray(route.query.type) ? route.query.type[0] : route.query.type
   return raw === 'image' ? 'image' : 'video'
-})
+}
+
+const activeType = ref<TaskType>(resolveTaskType())
 
 function switchType(type: TaskType) {
   if (activeType.value === type) return
-  void router.replace({
-    path: '/tools/enhance-tasks',
-    query: { type }
-  })
+  activeType.value = type
+  if (typeof window === 'undefined') return
+  const url = new URL(window.location.href)
+  url.search = `?type=${type}`
+  window.history.replaceState(window.history.state, '', url)
 }
 </script>
 

@@ -81,6 +81,8 @@ const compareResultVideoUrl = computed(() => resultDeleted.value ? '' : displayR
 
 onMounted(() => {
   void loadRecentTasks()
+  const queryType = getSingleQueryValue(route.query.type as string | string[] | undefined)
+  if (embeddedInUnifiedTasks.value && queryType === 'image') return
   const queryTaskId = getSingleQueryValue(route.query.taskId as string | string[] | undefined)
   if (queryTaskId) {
     taskId.value = queryTaskId
