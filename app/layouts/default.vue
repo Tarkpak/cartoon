@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, ListChecks, MonitorCog, Image } from 'lucide-vue-next'
+import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, ListChecks, MonitorCog, Download } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import { createClickRipple } from '@/lib/ripple'
 
 const route = useRoute()
 const router = useRouter()
 const { isDark, toggleTheme, initTheme } = useTheme()
-const { currentUser, authenticated, logout: cloudLogout, loadStatus } = useCloudAdmin()
+const { currentUser, authenticated, logout: cloudLogout, loadStatus, bootstrap: cloudBootstrap, status: cloudStatus } = useCloudAdmin()
 
 // 侧边栏折叠状态
 const isCollapsed = useState('sidebar-collapsed', () => false)
@@ -15,24 +15,29 @@ const isNarrowSidebar = ref(false)
 let sidebarMediaQuery: MediaQueryList | null = null
 let syncNarrowSidebar: (() => void) | null = null
 
-const navigation = [
-  { name: '首页', path: '/', icon: Home },
-  { name: '我的项目', path: '/projects', icon: Folder },
-  { name: '视频转项目', path: '/import/video', icon: FileVideo },
-  { name: '云端素材', path: '/tos-files', icon: Cloud },
-  {
-    name: '工具',
-    path: '/tools/enhance',
-    icon: Wrench,
-    children: [
-      { name: '云端增强', path: '/tools/enhance', icon: WandSparkles },
-      { name: '本地增强', path: '/tools/local-enhance', icon: MonitorCog },
-      { name: '增强任务', path: '/tools/enhance-tasks', icon: ListChecks }
-    ]
-  },
-  { name: '日志', path: '/logs', icon: ScrollText },
-  { name: '设置', path: '/settings', icon: Settings }
-]
+const navigation = computed(() => {
+  const toolChildren = [
+    { name: '云端增强', path: '/tools/enhance', icon: WandSparkles },
+    { name: '本地增强', path: '/tools/local-enhance', icon: MonitorCog },
+    { name: '增强任务', path: '/tools/enhance-tasks', icon: ListChecks },
+    { name: '短视频下载', path: '/tools/short-video-download', icon: Download }
+  ]
+
+  return [
+    { name: '首页', path: '/', icon: Home },
+    { name: '我的项目', path: '/projects', icon: Folder },
+    { name: '视频转项目', path: '/import/video', icon: FileVideo },
+    { name: '云端素材', path: '/tos-files', icon: Cloud },
+    {
+      name: '工具',
+      path: '/tools/enhance',
+      icon: Wrench,
+      children: toolChildren
+    },
+    { name: '日志', path: '/logs', icon: ScrollText },
+    { name: '设置', path: '/settings', icon: Settings }
+  ]
+})
 
 type SettingsSection = 'general' | 'workflow' | 'test' | 'prompts' | 'styles'
 
@@ -85,7 +90,7 @@ function handleSidebarPointerDown(event: PointerEvent) {
 }
 
 const activeStates = computed(() => {
-  return navigation.map((item) => {
+  return navigation.value.map((item) => {
     if (route.path === item.path || (item.path !== '/' && route.path.startsWith(`${item.path}/`))) {
       return true
     }
@@ -107,7 +112,7 @@ type ViewTransitionDocument = Document & {
 // 初始化主题
 onMounted(() => {
   initTheme()
-  void loadStatus()
+  void cloudBootstrap().catch(() => loadStatus())
 
   if (typeof window === 'undefined') return
 

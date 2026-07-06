@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "allow-open-local-path"
+description = "Allow opening local files or folders from the desktop shell"
+commands.allow = ["open_local_path"]
+
+[[permission]]
+identifier = "allow-open-local-directory"
+description = "Allow opening local folders from the desktop shell"
+commands.allow = ["open_local_directory"]

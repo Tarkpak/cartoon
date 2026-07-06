@@ -12,6 +12,7 @@ import TosFilesPage from './pages/tos-files.vue'
 import EnhancePage from './pages/tools/enhance.vue'
 import EnhanceTasksPage from './pages/tools/enhance-tasks.vue'
 import LocalEnhancePage from './pages/tools/local-enhance.vue'
+import ShortVideoDownloadPage from './pages/tools/short-video-download.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -130,6 +131,19 @@ const routes: RouteRecordRaw[] = [
     meta: { layout: 'default' }
   },
   {
+    path: '/tools/short-video-download',
+    component: ShortVideoDownloadPage,
+    meta: { layout: 'default' }
+  },
+  {
+    path: '/tools/wx-channels-download',
+    redirect: '/tools/short-video-download'
+  },
+  {
+    path: '/tools/douyin-download',
+    redirect: '/tools/short-video-download'
+  },
+  {
     path: '/tools/image-enhance',
     redirect: to => ({
       path: '/tools/enhance',
@@ -180,7 +194,10 @@ router.beforeEach(async (to) => {
     if (!statusResponse.ok) throw new Error('cloud status failed')
     const statusPayload = await statusResponse.json() as {
       success: boolean
-      data?: { authenticated?: boolean }
+      data?: {
+        authenticated?: boolean
+        wxChannels?: { hasYuanbaoCookie?: boolean }
+      }
     }
     if (!statusPayload.data?.authenticated) {
       return {
@@ -189,9 +206,17 @@ router.beforeEach(async (to) => {
       }
     }
 
-    if (!cloudBootstrapped) {
+    let cloudStatus = statusPayload.data
+    if (!cloudBootstrapped || to.path === '/tools/short-video-download') {
       const bootstrapResponse = await fetch('/api/cloud/bootstrap', { method: 'POST' })
       if (!bootstrapResponse.ok) throw new Error('cloud bootstrap failed')
+      const bootstrapPayload = await bootstrapResponse.json() as {
+        success: boolean
+        data?: {
+          wxChannels?: { hasYuanbaoCookie?: boolean }
+        }
+      }
+      cloudStatus = { ...cloudStatus, ...bootstrapPayload.data }
       cloudBootstrapped = true
     }
 

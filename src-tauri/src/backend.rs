@@ -90,10 +90,17 @@ mod prompts_api;
 mod runtime_api;
 #[path = "backend/video_import.rs"]
 mod video_import;
+#[path = "backend/douyin.rs"]
+mod douyin;
+#[path = "backend/short_video.rs"]
+mod short_video;
+#[path = "backend/wx_channels.rs"]
+mod wx_channels;
 
 use model_constraints::{build_available_model_entry, image_model_config, AvailableModelKind};
 use prompts_api::*;
 use runtime_api::*;
+use short_video::*;
 use video_import::*;
 
 tokio::task_local! {
@@ -720,6 +727,26 @@ fn clear_cloud_runtime_credentials() {
     set_cloud_runtime_credentials(json!({}));
 }
 
+fn cloud_runtime_wx_channels_config() -> &'static RwLock<Value> {
+    static WX_CHANNELS_CONFIG: OnceLock<RwLock<Value>> = OnceLock::new();
+    WX_CHANNELS_CONFIG.get_or_init(|| RwLock::new(json!({})))
+}
+
+fn set_cloud_runtime_wx_channels_config(value: Value) {
+    if let Ok(mut guard) = cloud_runtime_wx_channels_config().write() {
+        *guard = value;
+    }
+}
+
+fn get_cloud_runtime_wx_channels_config() -> Option<Value> {
+    let value = cloud_runtime_wx_channels_config().read().ok()?.clone();
+    if value.as_object().is_some_and(|object| !object.is_empty()) {
+        Some(value)
+    } else {
+        None
+    }
+}
+
 fn cloud_runtime_tos_config() -> &'static RwLock<Value> {
     static TOS_CONFIG: OnceLock<RwLock<Value>> = OnceLock::new();
     TOS_CONFIG.get_or_init(|| RwLock::new(json!({})))
@@ -742,6 +769,7 @@ fn get_cloud_runtime_tos_config() -> Option<Value> {
 
 fn clear_cloud_runtime_config() {
     clear_cloud_runtime_credentials();
+    set_cloud_runtime_wx_channels_config(json!({}));
     set_cloud_runtime_tos_config(json!({}));
 }
 
@@ -1264,6 +1292,33 @@ fn cloud_tos_storage_public(raw: Option<Value>) -> Value {
       "publicBaseUrl": text("publicBaseUrl"),
       "isCustomDomain": config.get("isCustomDomain").and_then(Value::as_bool).unwrap_or(false)
     })
+}
+
+fn cloud_wx_channels_public(raw: Option<Value>) -> Value {
+    let Some(config) = raw.filter(Value::is_object) else {
+        return json!({
+          "source": "cloud",
+          "hasYuanbaoCookie": false
+        });
+    };
+    let has_yuanbao_cookie = config
+        .get("yuanbaoCookie")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty());
+    json!({
+      "source": "cloud",
+      "hasYuanbaoCookie": has_yuanbao_cookie
+    })
+}
+
+fn normalize_cloud_wx_channels_config(raw: Value) -> Value {
+    if raw.get("yuanbaoCookie").is_some() {
+        return raw;
+    }
+    raw.get("config")
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or(raw)
 }
 
 fn cloud_value_text(value: &Value, key: &str) -> String {
@@ -3638,6 +3693,41 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         last_used_at TEXT NOT NULL,
         UNIQUE(category, sha256)
       );
+
+      CREATE TABLE IF NOT EXISTS wx_channels_history (
+        id TEXT PRIMARY KEY,
+        share_url TEXT NOT NULL UNIQUE,
+        author TEXT NOT NULL DEFAULT '',
+        author_icon TEXT NOT NULL DEFAULT '',
+        cover_url TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        video_url TEXT NOT NULL DEFAULT '',
+        origin_video_url TEXT NOT NULL DEFAULT '',
+        create_time INTEGER,
+        downloaded_path TEXT,
+        downloaded_filename TEXT,
+        download_dir TEXT,
+        size_bytes INTEGER,
+        parsed_at TEXT NOT NULL,
+        downloaded_at TEXT,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS douyin_history (
+        id TEXT PRIMARY KEY,
+        aweme_id TEXT NOT NULL UNIQUE,
+        real_url TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL DEFAULT '',
+        cover_url TEXT NOT NULL DEFAULT '',
+        video_url TEXT NOT NULL DEFAULT '',
+        downloaded_path TEXT,
+        downloaded_filename TEXT,
+        download_dir TEXT,
+        size_bytes INTEGER,
+        parsed_at TEXT NOT NULL,
+        downloaded_at TEXT,
+        updated_at TEXT NOT NULL
+      );
     ",
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -3662,6 +3752,10 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
       CREATE INDEX IF NOT EXISTS idx_image_enhance_tasks_created ON image_enhance_tasks(created_at);
       CREATE INDEX IF NOT EXISTS idx_uploaded_media_cache_category_sha256
         ON uploaded_media_cache(category, sha256);
+      CREATE INDEX IF NOT EXISTS idx_wx_channels_history_updated
+        ON wx_channels_history(updated_at);
+      CREATE INDEX IF NOT EXISTS idx_douyin_history_updated
+        ON douyin_history(updated_at);
       -- 日志查询统一按 timestamp DESC 排序取 LIMIT，过滤走大小写无关 / 子串匹配，
       -- 规划器不会用到下面这些二级索引；清理掉以省去写入开销。
       DROP INDEX IF EXISTS idx_model_debug_logs_provider;
@@ -4072,6 +4166,26 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/tos/config/export", get(api_tos_config_export))
         .route("/api/tos/config/download", get(api_tos_config_download))
         .route("/api/tos/config/import", post(api_tos_config_import))
+        .route(
+            "/api/tools/short-video/parse",
+            post(api_tools_short_video_parse),
+        )
+        .route(
+            "/api/tools/short-video/download",
+            post(api_tools_short_video_download),
+        )
+        .route(
+            "/api/tools/short-video/preview",
+            get(api_tools_short_video_preview),
+        )
+        .route(
+            "/api/tools/short-video/history",
+            get(api_tools_short_video_history_get),
+        )
+        .route(
+            "/api/tools/short-video/history/{platform}/{id}",
+            delete(api_tools_short_video_history_delete),
+        )
         .route("/api/tools/video-enhance", post(api_tools_video_enhance_submit))
         .route(
             "/api/tools/video-enhance/tasks",
@@ -9385,6 +9499,7 @@ fn cloud_status_payload(conn: &Connection) -> Result<Value, ApiError> {
     let session = cloud_session(conn);
     let raw_cloud_creds = get_cloud_runtime_credentials();
     let raw_cloud_tos_config = get_cloud_runtime_tos_config();
+    let raw_cloud_wx_channels_config = get_cloud_runtime_wx_channels_config();
     Ok(json!({
       "configured": !base_url.is_empty(),
       "baseUrl": base_url,
@@ -9411,7 +9526,8 @@ fn cloud_status_payload(conn: &Connection) -> Result<Value, ApiError> {
         .cloned()
         .unwrap_or(Value::Null),
       "credentials": cloud_provider_credentials_public(raw_cloud_creds),
-      "tosStorage": cloud_tos_storage_public(raw_cloud_tos_config)
+      "tosStorage": cloud_tos_storage_public(raw_cloud_tos_config),
+      "wxChannels": cloud_wx_channels_public(raw_cloud_wx_channels_config)
     }))
 }
 
@@ -9449,6 +9565,24 @@ async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value
         None,
     )
     .await?;
+    let wx_channels_config = match cloud_request_secure_json(
+        &base_url,
+        reqwest::Method::GET,
+        "/api/client/wx-channels-config",
+        Some(&token),
+        None,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!(
+                "[CloudSync] wx channels config pull failed: {}",
+                error.message
+            );
+            json!({ "data": {} })
+        }
+    };
 
     let credentials_data = credentials
         .get("data")
@@ -9459,9 +9593,15 @@ async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value
         .get("data")
         .cloned()
         .unwrap_or_else(default_tos_config);
+    let wx_channels_data = wx_channels_config
+        .get("data")
+        .cloned()
+        .map(normalize_cloud_wx_channels_config)
+        .unwrap_or_else(|| json!({}));
     let conn = db_connection(state)?;
     set_cloud_runtime_credentials(local_credentials);
     set_cloud_runtime_tos_config(tos_storage_data.clone());
+    set_cloud_runtime_wx_channels_config(wx_channels_data.clone());
 
     let mut session = cloud_session(&conn).unwrap_or_else(|| json!({}));
     if let Some(obj) = session.as_object_mut() {

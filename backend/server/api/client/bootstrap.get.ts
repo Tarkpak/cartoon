@@ -3,6 +3,7 @@ import { requireAuth, publicUser } from '../../utils/auth'
 import { resolveProviderModelState } from '../../utils/model-provider-models'
 import { tosStoragePublicConfig } from '../../utils/tos-storage'
 import { listAdminProviderRows } from '../../utils/custom-openai-providers'
+import { wxChannelsPublicConfig } from '../../utils/wx-channels'
 
 export default defineEventHandler((event) => {
   const auth = requireAuth(event)
@@ -72,6 +73,7 @@ export default defineEventHandler((event) => {
         hasSecretKey: Boolean(provider.encrypted_secret_key)
       })),
       tosStorageConfig: tosStoragePublicConfig(),
+      wxChannelsConfig: wxChannelsPublicConfig(),
       providerModels,
       allowedModelsByProvider: Object.fromEntries(
         providerModels.map(provider => [provider.providerKey, provider.models])

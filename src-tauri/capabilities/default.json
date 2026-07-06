@@ -4,7 +4,9 @@
   "description": "enables the default permissions",
   "remote": {
     "urls": [
-      "http://127.0.0.1:43127/*"
+      "http://127.0.0.1:43127/*",
+      "http://localhost:3000/*",
+      "http://127.0.0.1:3000/*"
     ]
   },
   "windows": [
@@ -17,6 +19,8 @@
     "dialog:allow-save",
     "allow-check-ffmpeg-status",
     "allow-install-ffmpeg",
+    "allow-open-local-path",
+    "allow-open-local-directory",
     "allow-save-settings-config-export",
     "notification:default",
     "process:default",

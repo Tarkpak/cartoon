@@ -156,6 +156,13 @@ function initSchema(conn: Database) {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS wx_channels_config (
+      id TEXT PRIMARY KEY,
+      encrypted_yuanbao_cookie TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS client_versions (
       id TEXT PRIMARY KEY,
       app_key TEXT NOT NULL DEFAULT 'cartoon-desktop',
@@ -321,6 +328,7 @@ function initSchema(conn: Database) {
   ensureDefaultProviders(conn)
   ensureDefaultProviderModels(conn)
   ensureDefaultTosStorageConfig(conn)
+  ensureDefaultWxChannelsConfig(conn)
 }
 
 function ensureDefaultSettings(conn: Database) {
@@ -428,6 +436,15 @@ function ensureDefaultTosStorageConfig(conn: Database) {
     INSERT OR IGNORE INTO tos_storage_config
       (id, enabled, access_key_id, encrypted_secret_key, encrypted_security_token, region, endpoint, bucket, key_prefix, public_base_url, is_custom_domain, created_at, updated_at)
     VALUES ('default', 0, '', '', '', '', '', '', '', '', 0, ?, ?)
+  `).run(timestamp, timestamp)
+}
+
+function ensureDefaultWxChannelsConfig(conn: Database) {
+  const timestamp = nowIso()
+  conn.prepare(`
+    INSERT OR IGNORE INTO wx_channels_config
+      (id, encrypted_yuanbao_cookie, created_at, updated_at)
+    VALUES ('default', '', ?, ?)
   `).run(timestamp, timestamp)
 }
 

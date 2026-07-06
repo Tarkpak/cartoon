@@ -2,6 +2,8 @@ mod backend;
 mod desktop_ffmpeg;
 
 use std::net::TcpStream;
+use std::path::PathBuf;
+use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::path::BaseDirectory;
@@ -188,9 +190,73 @@ fn create_main_window(app: &tauri::App) -> Result<(), String> {
 
 #[tauri::command]
 async fn open_local_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
-    tauri_plugin_opener::OpenerExt::opener(&app)
-        .open_path(path, None::<&str>)
-        .map_err(|error| format!("打开文件失败: {}", error))
+    let target = normalize_open_target(&path, false)?;
+    open_path_with_fallback(&app, &target).map_err(|error| format!("打开文件失败: {}", error))
+}
+
+#[tauri::command]
+async fn open_local_directory(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let target = normalize_open_target(&path, true)?;
+    open_path_with_fallback(&app, &target).map_err(|error| format!("打开目录失败: {}", error))
+}
+
+fn open_path_with_fallback(app: &tauri::AppHandle, target: &PathBuf) -> Result<(), String> {
+    let path = target.to_string_lossy().to_string();
+    if tauri_plugin_opener::OpenerExt::opener(app)
+        .open_path(path.clone(), None::<&str>)
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    open_path_with_system_command(target)
+}
+
+fn open_path_with_system_command(target: &PathBuf) -> Result<(), String> {
+    let mut command = if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(target);
+        command
+    } else if cfg!(target_os = "windows") {
+        let mut command = Command::new("explorer");
+        command.arg(target);
+        command
+    } else {
+        let mut command = Command::new("xdg-open");
+        command.arg(target);
+        command
+    };
+
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn normalize_open_target(path: &str, directory: bool) -> Result<PathBuf, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("路径不能为空".to_string());
+    }
+
+    let target = PathBuf::from(trimmed);
+    if directory {
+        if target.is_dir() {
+            return Ok(target);
+        }
+        if target.is_file() {
+            return target
+                .parent()
+                .map(PathBuf::from)
+                .ok_or_else(|| "无法定位文件所在目录".to_string());
+        }
+        return Err(format!("目录不存在: {}", trimmed));
+    }
+
+    if target.exists() {
+        return Ok(target);
+    }
+    Err(format!("路径不存在: {}", trimmed))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -215,6 +281,7 @@ pub fn run() {
     let app = builder
         .invoke_handler(tauri::generate_handler![
             open_local_path,
+            open_local_directory,
             desktop_ffmpeg::check_ffmpeg_status,
             desktop_ffmpeg::install_ffmpeg
         ])
