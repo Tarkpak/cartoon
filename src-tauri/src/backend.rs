@@ -4648,6 +4648,11 @@ async fn api_project_create(
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
+    drop(conn);
+    if let Err(error) = cloud_sync_project_by_id(&state, &id).await {
+        eprintln!("[CloudSync] project create sync failed: {}", error.message);
+    }
+
     Ok(Json(json!({
       "success": true,
       "project": {
@@ -5568,13 +5573,41 @@ fn normalize_script_parse_mode(value: Option<&str>) -> &'static str {
     }
 }
 
+#[derive(Default)]
+struct ProjectPutOptions {
+    skip_cloud_sync: bool,
+    preserve_updated_at: Option<String>,
+}
+
 async fn api_project_put(
     Path(id): Path<String>,
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    api_project_put_inner(
+        Path(id),
+        State(state),
+        Json(body),
+        ProjectPutOptions::default(),
+    )
+    .await
+}
+
+async fn api_project_put_inner(
+    Path(id): Path<String>,
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+    options: ProjectPutOptions,
+) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
     let now = now_iso();
+    let save_updated_at = options
+        .preserve_updated_at
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(now.as_str())
+        .to_string();
 
     let existing_project: (String, Option<String>, Option<String>, String, String, String) = conn
         .query_row(
@@ -5643,7 +5676,7 @@ async fn api_project_put(
 
     conn.execute(
         "UPDATE projects SET name = ?1, description = ?2, status = ?3, style_id = ?4, aspect_ratio = ?5, script_parse_mode = ?6, updated_at = ?7 WHERE id = ?8",
-        params![name, description, status, style_id, aspect_ratio, script_parse_mode, now, id],
+        params![name, description, status, style_id, aspect_ratio, script_parse_mode, save_updated_at, id],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
@@ -5681,7 +5714,7 @@ async fn api_project_put(
         merge_script_payload(existing_script_raw.as_deref(), &body, &script_parse_mode);
     conn.execute(
         "UPDATE scripts SET raw_text = ?1, updated_at = ?2 WHERE id = ?3",
-        params![script_payload, now, script_id],
+        params![script_payload, save_updated_at, script_id],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
@@ -5880,8 +5913,8 @@ async fn api_project_put(
                     scene_row.last_frame,
                     scene_row.video_url,
                     scene_row.status,
-                    now,
-                    now
+                    save_updated_at,
+                    save_updated_at
                 ],
             )
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -5889,7 +5922,7 @@ async fn api_project_put(
 
         conn.execute(
             "UPDATE scripts SET total_duration = ?1, updated_at = ?2 WHERE id = ?3",
-            params![total_duration, now, script_id],
+            params![total_duration, save_updated_at, script_id],
         )
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     }
@@ -6034,8 +6067,8 @@ async fn api_project_put(
                     character_row.base_image,
                     character_row.expressions,
                     character_row.views,
-                    now,
-                    now
+                    save_updated_at,
+                    save_updated_at
                 ],
             )
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -6043,8 +6076,10 @@ async fn api_project_put(
     }
 
     drop(conn);
-    if let Err(error) = cloud_sync_project_by_id(&state, &id).await {
-        eprintln!("[CloudSync] project sync failed: {}", error.message);
+    if !options.skip_cloud_sync {
+        if let Err(error) = cloud_sync_project_by_id(&state, &id).await {
+            eprintln!("[CloudSync] project sync failed: {}", error.message);
+        }
     }
 
     Ok(Json(json!({
@@ -9657,10 +9692,15 @@ async fn apply_cloud_project_snapshot(
         &remote_updated_at,
     )?;
     let body = build_cloud_project_put_body(snapshot, project);
-    let _ = api_project_put(
+    let _ = api_project_put_inner(
         Path(local_project_id),
         State(state.clone()),
         Json(body),
+        ProjectPutOptions {
+            skip_cloud_sync: true,
+            preserve_updated_at: (!remote_updated_at.trim().is_empty())
+                .then(|| remote_updated_at.trim().to_string()),
+        },
     )
     .await?;
     Ok(true)
