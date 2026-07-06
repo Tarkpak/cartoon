@@ -32,6 +32,22 @@ export interface AssetImageHistoryEntry {
   prompt?: string
 }
 
+export type ArkVirtualAssetStatus = 'Processing' | 'Active' | 'Failed' | 'Unknown'
+
+export interface ArkVirtualAssetBinding {
+  provider: 'volcengine'
+  libraryType: 'virtual_human'
+  projectName: string
+  groupId: string
+  assetId?: string
+  assetType: 'Image' | 'Video' | 'Audio'
+  sourceUrl?: string
+  name?: string
+  status: ArkVirtualAssetStatus
+  errorMessage?: string
+  updatedAt?: string
+}
+
 export interface AssetVideoHistoryEntry {
   id: string
   videoUrl: string
@@ -86,6 +102,8 @@ export interface DisplayAsset {
   type: 'character' | 'environment' | 'prop' | 'other'
   description?: string
   referenceImage?: string
+  arkAssetId?: string
+  arkAssetStatus?: ArkVirtualAssetStatus
   assetHistory?: AssetImageHistoryEntry[]
   panoramaImage?: string
 }
@@ -106,6 +124,8 @@ export interface SceneVideoReferenceAsset {
   name: string
   type: 'character' | 'prop' | 'other'
   image: string
+  arkAssetId?: string
+  arkAssetStatus?: ArkVirtualAssetStatus
   source: 'configured' | 'fallback'
 }
 

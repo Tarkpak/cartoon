@@ -26,7 +26,9 @@ function buildMentionableSceneAssets(
       id: `char:${character.id}`,
       name: character.name || '角色',
       type: 'character' as const,
-      referenceImage: character.baseImage
+      referenceImage: character.baseImage,
+      arkAssetId: character.arkAsset?.status === 'Active' ? character.arkAsset.assetId : undefined,
+      arkAssetStatus: character.arkAsset?.status
     })),
     ...propAssets.map(prop => ({
       id: `prop:${prop.id}`,
@@ -180,6 +182,8 @@ function resolveConfiguredCharacterReferenceAssets(
       name: character.name.trim() || '角色',
       type: 'character',
       image,
+      arkAssetId: character.arkAsset?.status === 'Active' ? character.arkAsset.assetId : undefined,
+      arkAssetStatus: character.arkAsset?.status,
       source: 'configured'
     })
   }
@@ -221,12 +225,13 @@ export function resolveSceneVideoReferenceAssets(
   options: SceneReferenceOptions
 ): SceneVideoReferenceAsset[] {
   const assets: SceneVideoReferenceAsset[] = []
-  const seenImage = new Set<string>()
+  const seenReference = new Set<string>()
 
   const appendAsset = (asset: SceneVideoReferenceAsset) => {
     const image = asset.image?.trim()
-    if (!image || seenImage.has(image)) return
-    seenImage.add(image)
+    const key = asset.arkAssetId?.trim() || image
+    if (!image || seenReference.has(key)) return
+    seenReference.add(key)
     assets.push({
       ...asset,
       image

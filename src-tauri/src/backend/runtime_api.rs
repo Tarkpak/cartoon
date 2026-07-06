@@ -7467,22 +7467,41 @@ fn apply_scene_video_reference_inputs(
     });
     let continuity_first_frame = read_str(references.get("continuityFirstFrame"));
 
+    let use_volcengine_ark_asset_ids = provider == "volcengine";
     let mut character_candidates: Vec<String> = Vec::new();
-    if let Some(items) = references.get("characterImages").and_then(Value::as_array) {
+    let mut has_structured_character_assets = false;
+    if let Some(items) = references.get("characterAssets").and_then(Value::as_array) {
+        has_structured_character_assets = !items.is_empty();
         for item in items {
-            if let Some(image) = read_str(Some(item)) {
+            let asset_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+            let ark_asset_id = read_str(item.get("arkAssetId"));
+            let image = read_str(item.get("image"));
+            if use_volcengine_ark_asset_ids && asset_type == "character" {
+                if let Some(asset_id) = ark_asset_id {
+                    let asset_url = if asset_id.starts_with("asset://") {
+                        asset_id
+                    } else {
+                        format!("asset://{asset_id}")
+                    };
+                    character_candidates.push(asset_url);
+                    continue;
+                }
+            }
+            if let Some(image) = image {
                 character_candidates.push(image);
             }
         }
     }
-    if let Some(image) = read_str(references.get("characterImage")) {
-        character_candidates.push(image);
-    }
-    if let Some(items) = references.get("characterAssets").and_then(Value::as_array) {
-        for item in items {
-            if let Some(image) = read_str(item.get("image")) {
-                character_candidates.push(image);
+    if !has_structured_character_assets {
+        if let Some(items) = references.get("characterImages").and_then(Value::as_array) {
+            for item in items {
+                if let Some(image) = read_str(Some(item)) {
+                    character_candidates.push(image);
+                }
             }
+        }
+        if let Some(image) = read_str(references.get("characterImage")) {
+            character_candidates.push(image);
         }
     }
     let mut seen_character = HashSet::<String>::new();
@@ -9285,7 +9304,6 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
         })
         .take(9)
         .collect::<Vec<_>>();
-
     let has_reference_images = !reference_images.is_empty();
     let using_first_last = !has_reference_images && first_frame.is_some() && last_frame.is_some();
     let using_single_image = !has_reference_images
@@ -12423,7 +12441,7 @@ mod tests {
             },
             "characterImages": ["char-url"],
             "characterAssets": [
-              { "name": "陈泽", "type": "character", "image": "char-url" },
+              { "name": "陈泽", "type": "character", "image": "char-url", "arkAssetId": "asset-chenze" },
               { "name": "白色大卡车", "type": "prop", "image": "truck-url" }
             ],
             "narrationVoiceAsset": {
@@ -12465,7 +12483,7 @@ mod tests {
                     .and_then(Value::as_str)
             })
             .collect::<Vec<_>>();
-        assert_eq!(image_urls, vec!["env-url", "char-url", "truck-url"]);
+        assert_eq!(image_urls, vec!["env-url", "asset://asset-chenze", "truck-url"]);
     }
 
     #[test]
@@ -15348,6 +15366,313 @@ pub(super) async fn api_asset_upload_image(
     })))
 }
 
+fn ark_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn ark_sha256_hex(input: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input);
+    ark_hex(&hasher.finalize())
+}
+
+fn ark_hmac_sha256(key: &[u8], input: &str) -> Result<Vec<u8>, ApiError> {
+    let mut mac = HmacSha256::new_from_slice(key).map_err(|_| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "初始化火山 OpenAPI 签名失败",
+        )
+    })?;
+    mac.update(input.as_bytes());
+    Ok(mac.finalize().into_bytes().to_vec())
+}
+
+fn ark_openapi_endpoint(creds: &Value) -> String {
+    provider_credential_field(creds, "volcengine", "arkOpenApiBaseUrl")
+        .unwrap_or_else(|| ARK_OPENAPI_ENDPOINT.to_string())
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn ark_project_name(creds: &Value, body: &Value) -> String {
+    body.get("ProjectName")
+        .or_else(|| body.get("projectName"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| provider_credential_field(creds, "volcengine", "arkProjectName"))
+        .unwrap_or_else(|| "default".to_string())
+}
+
+fn ark_signed_headers(
+    endpoint: &str,
+    action: &str,
+    payload: &[u8],
+    access_key: &str,
+    secret_key: &str,
+) -> Result<(String, String), ApiError> {
+    let parsed = reqwest::Url::parse(endpoint).map_err(|_| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "火山 OpenAPI Base URL 配置无效",
+        )
+    })?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "火山 OpenAPI Host 为空"))?;
+    let now = Utc::now();
+    let x_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+    let short_date = now.format("%Y%m%d").to_string();
+    let canonical_query = format!("Action={action}&Version={ARK_OPENAPI_VERSION}");
+    let payload_hash = ark_sha256_hex(payload);
+    let canonical_headers = format!(
+        "content-type:application/json\nhost:{host}\nx-date:{x_date}\n"
+    );
+    let signed_headers = "content-type;host;x-date";
+    let canonical_request = format!(
+        "POST\n/\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
+    );
+    let credential_scope =
+        format!("{short_date}/{ARK_OPENAPI_REGION}/{ARK_OPENAPI_SERVICE}/request");
+    let string_to_sign = format!(
+        "HMAC-SHA256\n{x_date}\n{credential_scope}\n{}",
+        ark_sha256_hex(canonical_request.as_bytes())
+    );
+    let k_date = ark_hmac_sha256(secret_key.as_bytes(), &short_date)?;
+    let k_region = ark_hmac_sha256(&k_date, ARK_OPENAPI_REGION)?;
+    let k_service = ark_hmac_sha256(&k_region, ARK_OPENAPI_SERVICE)?;
+    let k_signing = ark_hmac_sha256(&k_service, "request")?;
+    let signature = ark_hex(&ark_hmac_sha256(&k_signing, &string_to_sign)?);
+    let authorization = format!(
+        "HMAC-SHA256 Credential={access_key}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}"
+    );
+    Ok((x_date, authorization))
+}
+
+async fn ark_openapi_call(action: &str, mut body: Value) -> Result<Value, ApiError> {
+    let creds = current_provider_creds();
+    let access_key = provider_credential_field(&creds, "volcengine", "arkAccessKey")
+        .or_else(|| provider_credential_field(&creds, "volcengine", "accessKey"))
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请先配置火山 Ark OpenAPI Access Key"))?;
+    let secret_key = provider_credential_field(&creds, "volcengine", "arkSecretKey")
+        .or_else(|| provider_credential_field(&creds, "volcengine", "secretKey"))
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请先配置火山 Ark OpenAPI Secret Key"))?;
+    let project_name = ark_project_name(&creds, &body);
+    if let Some(object) = body.as_object_mut() {
+        object.insert("ProjectName".to_string(), json!(project_name));
+    }
+    let endpoint = ark_openapi_endpoint(&creds);
+    let url = format!("{endpoint}/?Action={action}&Version={ARK_OPENAPI_VERSION}");
+    let payload = serde_json::to_vec(&body).map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("序列化火山 OpenAPI 请求失败: {error}"),
+        )
+    })?;
+    let (x_date, authorization) =
+        ark_signed_headers(&endpoint, action, &payload, &access_key, &secret_key)?;
+    let response = http_client()
+        .post(&url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header("X-Date", x_date)
+        .header(reqwest::header::AUTHORIZATION, authorization)
+        .body(payload)
+        .send()
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                format!("请求火山 OpenAPI 失败: {}", build_cloud_transport_error_message(&error)),
+            )
+        })?;
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    let payload = serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({ "raw": text }));
+    let api_error = payload
+        .get("ResponseMetadata")
+        .and_then(|meta| meta.get("Error"))
+        .filter(|error| !error.is_null());
+    if !status.is_success() || api_error.is_some() {
+        let message = api_error
+            .and_then(|error| error.get("Message").and_then(Value::as_str))
+            .or_else(|| payload.get("Message").and_then(Value::as_str))
+            .unwrap_or("火山 OpenAPI 返回错误");
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("{action} 失败: {message}"),
+        ));
+    }
+    Ok(payload.get("Result").cloned().unwrap_or(payload))
+}
+
+fn ark_asset_status(payload: &Value) -> String {
+    payload
+        .get("Status")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn ark_asset_public_payload(payload: Value) -> Value {
+    let status = ark_asset_status(&payload);
+    json!({
+      "asset": payload,
+      "status": status
+    })
+}
+
+pub(super) async fn api_ark_virtual_asset_group_create(
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let name = json_string(body.get("name").or_else(|| body.get("Name")), "虚拟人像素材组");
+    let description = json_string(
+        body.get("description").or_else(|| body.get("Description")),
+        "Created by Playlet Desktop",
+    );
+    let mut request = json!({
+      "Name": name,
+      "Description": description,
+      "GroupType": "AIGC"
+    });
+    if let Some(project_name) = body.get("projectName").or_else(|| body.get("ProjectName")).and_then(Value::as_str) {
+        request["ProjectName"] = json!(project_name);
+    }
+    let result = ark_openapi_call("CreateAssetGroup", request).await?;
+    Ok(Json(json!({
+      "success": true,
+      "data": result
+    })))
+}
+
+pub(super) async fn api_ark_virtual_asset_upload(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let group_id = body
+        .get("groupId")
+        .or_else(|| body.get("GroupId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "素材组 ID 不能为空"))?;
+    let name = json_string(body.get("name").or_else(|| body.get("Name")), "虚拟人像素材");
+    let source_url = body
+        .get("sourceUrl")
+        .or_else(|| body.get("URL"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| {
+            let lower = value.to_ascii_lowercase();
+            (lower.starts_with("http://") || lower.starts_with("https://"))
+                && !lower.starts_with("http://localhost")
+                && !lower.starts_with("https://localhost")
+                && !lower.starts_with("http://127.0.0.1")
+                && !lower.starts_with("https://127.0.0.1")
+                && !lower.starts_with("http://[::1]")
+                && !lower.starts_with("https://[::1]")
+        })
+        .map(str::to_string);
+    let image_url = match source_url {
+        Some(url) => url,
+        None => {
+            let image_data = body
+                .get("imageData")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请提供可访问的素材 URL 或图片内容"))?;
+            let uploaded = persist_image_source(&state, image_data, "ark_virtual_asset").await?;
+            if !(uploaded.starts_with("http://") || uploaded.starts_with("https://")) {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "火山素材库需要公网可访问 URL，请先启用 TOS 云存储配置",
+                ));
+            }
+            uploaded
+        }
+    };
+    let mut request = json!({
+      "GroupId": group_id,
+      "URL": image_url,
+      "AssetType": "Image",
+      "Name": name
+    });
+    if let Some(project_name) = body.get("projectName").or_else(|| body.get("ProjectName")).and_then(Value::as_str) {
+        request["ProjectName"] = json!(project_name);
+    }
+    let result = ark_openapi_call("CreateAsset", request).await?;
+    Ok(Json(json!({
+      "success": true,
+      "data": {
+        "sourceUrl": image_url,
+        "asset": result
+      }
+    })))
+}
+
+pub(super) async fn api_ark_virtual_asset_get(
+    Path(asset_id): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let mut request = json!({ "Id": asset_id });
+    if let Some(project_name) = query.get("projectName").map(String::as_str).map(str::trim).filter(|value| !value.is_empty()) {
+        request["ProjectName"] = json!(project_name);
+    }
+    let result = ark_openapi_call("GetAsset", request).await?;
+    Ok(Json(json!({
+      "success": true,
+      "data": ark_asset_public_payload(result)
+    })))
+}
+
+pub(super) async fn api_ark_virtual_asset_poll(
+    Path(asset_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let timeout_ms = body
+        .get("timeoutMs")
+        .and_then(Value::as_u64)
+        .unwrap_or(10 * 60 * 1000)
+        .clamp(5_000, 20 * 60 * 1000);
+    let interval_ms = body
+        .get("intervalMs")
+        .and_then(Value::as_u64)
+        .unwrap_or(5_000)
+        .clamp(1_000, 30_000);
+    let project_name = body
+        .get("projectName")
+        .or_else(|| body.get("ProjectName"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let started = std::time::Instant::now();
+    loop {
+        let mut request = json!({ "Id": asset_id });
+        if let Some(project_name) = &project_name {
+            request["ProjectName"] = json!(project_name);
+        }
+        let result = ark_openapi_call("GetAsset", request).await?;
+        let status = ark_asset_status(&result);
+        if matches!(status.as_str(), "Active" | "Failed") {
+            return Ok(Json(json!({
+              "success": true,
+              "data": ark_asset_public_payload(result)
+            })));
+        }
+        if started.elapsed() >= Duration::from_millis(timeout_ms) {
+            return Ok(Json(json!({
+              "success": true,
+              "data": ark_asset_public_payload(result),
+              "timeout": true
+            })));
+        }
+        tokio::time::sleep(Duration::from_millis(interval_ms)).await;
+    }
+}
+
 pub(super) async fn api_character_voice_upload(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
@@ -16042,6 +16367,8 @@ fn validate_video_generate_payload(body: &Value) -> Result<(), ApiError> {
             let item_path = format!("body.references.characterAssets.{index}");
             workflow_optional_string(item, "id", &item_path)?;
             workflow_optional_string(item, "name", &item_path)?;
+            workflow_optional_string(item, "arkAssetId", &item_path)?;
+            workflow_optional_string(item, "arkAssetStatus", &item_path)?;
             if let Some(asset_type) = item.get("type").filter(|value| !value.is_null()) {
                 let raw = asset_type.as_str().ok_or_else(|| {
                     workflow_validation_error(format!("{item_path}.type"), "Expected string")

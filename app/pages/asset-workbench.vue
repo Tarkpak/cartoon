@@ -1814,6 +1814,7 @@ const {
   environmentRegenerateError,
   environmentRegenerateTarget,
   uploadingCharacterId,
+  uploadingArkCharacterId,
   uploadingCharacterVoiceId,
   uploadingEnvironmentAssetId,
   uploadingPropId,
@@ -1821,6 +1822,7 @@ const {
   generatingPropId,
   openImagePreview,
   handleCharacterImageUpload: handleCharacterImageUploadCore,
+  ingestCharacterToArkVirtualAsset,
   handleCharacterVoiceUpload,
   handleCharacterVoiceLockChange,
   handleEnvironmentImageUpload: handleEnvironmentImageUploadCore,
@@ -3085,6 +3087,7 @@ async function handleBatchGenerateCharacters() {
           :character-edit-draft="characterEditDraft"
           :character-role-options="characterRoleOptions"
           :uploading-character-id="uploadingCharacterId"
+          :uploading-ark-character-id="uploadingArkCharacterId"
           :uploading-character-voice-id="uploadingCharacterVoiceId"
           :uploading-environment-asset-id="uploadingEnvironmentAssetId"
           :uploading-prop-id="uploadingPropId"
@@ -3110,6 +3113,7 @@ async function handleBatchGenerateCharacters() {
           @open-character-regenerate="openCharacterRegenerateDialog"
           @open-character-history="openCharacterHistory"
           @upload-character-image="handleCharacterImageUpload($event.characterId, $event.event)"
+          @ingest-character-ark-asset="ingestCharacterToArkVirtualAsset($event)"
           @upload-character-voice="handleCharacterVoiceUpload($event.characterId, $event.event)"
           @update-character-voice-lock="handleCharacterVoiceLockChange($event.characterId, $event.locked)"
           @edit-environment-scene="openEnvironmentAssetSceneEditor"

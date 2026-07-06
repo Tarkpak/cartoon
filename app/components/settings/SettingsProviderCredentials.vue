@@ -32,10 +32,16 @@ const { authenticated: cloudAuthenticated, loadStatus: loadCloudStatus } = useCl
 const baseUrl = ref('')
 const apiKeyInput = ref('')
 const mediakitApiKeyInput = ref('')
+const arkAccessKeyInput = ref('')
+const arkSecretKeyInput = ref('')
+const arkProjectName = ref('default')
+const arkOpenApiBaseUrl = ref('')
 const accessKeyInput = ref('')
 const secretKeyInput = ref('')
 const hasApiKey = ref(false)
 const hasMediakitApiKey = ref(false)
+const hasArkAccessKey = ref(false)
+const hasArkSecretKey = ref(false)
 const hasAccessKey = ref(false)
 const hasSecretKey = ref(false)
 
@@ -47,6 +53,10 @@ function applyData(data: ProviderCredentialsPublic) {
   baseUrl.value = entry?.baseUrl || ''
   apiKeyInput.value = ''
   mediakitApiKeyInput.value = ''
+  arkAccessKeyInput.value = ''
+  arkSecretKeyInput.value = ''
+  arkProjectName.value = 'default'
+  arkOpenApiBaseUrl.value = ''
   accessKeyInput.value = ''
   secretKeyInput.value = ''
   if (props.provider === 'kling') {
@@ -57,6 +67,18 @@ function applyData(data: ProviderCredentialsPublic) {
     hasMediakitApiKey.value = props.provider === 'volcengine'
       ? ((entry as ProviderCredentialsPublic['volcengine'])?.hasMediakitApiKey ?? false)
       : false
+    hasArkAccessKey.value = props.provider === 'volcengine'
+      ? ((entry as ProviderCredentialsPublic['volcengine'])?.hasArkAccessKey ?? false)
+      : false
+    hasArkSecretKey.value = props.provider === 'volcengine'
+      ? ((entry as ProviderCredentialsPublic['volcengine'])?.hasArkSecretKey ?? false)
+      : false
+    arkProjectName.value = props.provider === 'volcengine'
+      ? ((entry as ProviderCredentialsPublic['volcengine'])?.arkProjectName || 'default')
+      : 'default'
+    arkOpenApiBaseUrl.value = props.provider === 'volcengine'
+      ? ((entry as ProviderCredentialsPublic['volcengine'])?.arkOpenApiBaseUrl || '')
+      : ''
   }
 }
 
@@ -98,6 +120,16 @@ async function saveConfig() {
     }
     if (props.provider === 'volcengine' && (mediakitApiKeyInput.value || !hasMediakitApiKey.value)) {
       body.mediakitApiKey = mediakitApiKeyInput.value
+    }
+    if (props.provider === 'volcengine') {
+      if (arkAccessKeyInput.value || !hasArkAccessKey.value) {
+        body.arkAccessKey = arkAccessKeyInput.value
+      }
+      if (arkSecretKeyInput.value || !hasArkSecretKey.value) {
+        body.arkSecretKey = arkSecretKeyInput.value
+      }
+      body.arkProjectName = arkProjectName.value || 'default'
+      body.arkOpenApiBaseUrl = arkOpenApiBaseUrl.value
     }
 
     const response = await $fetch<ProviderCredentialsResponse>(
@@ -261,6 +293,86 @@ onMounted(() => {
           :disabled="cloudAuthenticated"
           :placeholder="hasMediakitApiKey ? '留空则继续使用已保存密钥' : '请输入 AI MediaKit API Key'"
         />
+      </div>
+
+      <div
+        v-if="props.provider === 'volcengine'"
+        class="space-y-3 rounded-md border bg-muted/20 p-3"
+      >
+        <div>
+          <p class="text-xs font-medium">
+            Ark OpenAPI（私域虚拟人像素材库）
+          </p>
+          <p class="mt-0.5 text-xs text-muted-foreground">
+            用于 CreateAssetGroup / CreateAsset / GetAsset，需具备 Ark 素材库权限。
+          </p>
+        </div>
+
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between">
+            <label class="text-xs text-muted-foreground">Access Key</label>
+            <span
+              class="inline-flex items-center gap-1 text-xs"
+              :class="hasArkAccessKey ? 'text-emerald-600' : 'text-muted-foreground'"
+            >
+              <component
+                :is="hasArkAccessKey ? Check : X"
+                class="h-3 w-3"
+              />
+              {{ hasArkAccessKey ? '已保存' : '未保存' }}
+            </span>
+          </div>
+          <Input
+            v-model="arkAccessKeyInput"
+            class="h-9 text-sm"
+            type="password"
+            :disabled="cloudAuthenticated"
+            :placeholder="hasArkAccessKey ? '留空则继续使用已保存值' : '请输入 Access Key'"
+          />
+        </div>
+
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between">
+            <label class="text-xs text-muted-foreground">Secret Key</label>
+            <span
+              class="inline-flex items-center gap-1 text-xs"
+              :class="hasArkSecretKey ? 'text-emerald-600' : 'text-muted-foreground'"
+            >
+              <component
+                :is="hasArkSecretKey ? Check : X"
+                class="h-3 w-3"
+              />
+              {{ hasArkSecretKey ? '已保存' : '未保存' }}
+            </span>
+          </div>
+          <Input
+            v-model="arkSecretKeyInput"
+            class="h-9 text-sm"
+            type="password"
+            :disabled="cloudAuthenticated"
+            :placeholder="hasArkSecretKey ? '留空则继续使用已保存值' : '请输入 Secret Key'"
+          />
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="text-xs text-muted-foreground">ProjectName</label>
+          <Input
+            v-model="arkProjectName"
+            class="h-9 text-sm"
+            :disabled="cloudAuthenticated"
+            placeholder="default"
+          />
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="text-xs text-muted-foreground">OpenAPI Base URL（可选）</label>
+          <Input
+            v-model="arkOpenApiBaseUrl"
+            class="h-9 text-sm"
+            :disabled="cloudAuthenticated"
+            placeholder="https://open.volcengineapi.com"
+          />
+        </div>
       </div>
 
       <div class="space-y-1.5">

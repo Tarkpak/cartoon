@@ -389,6 +389,8 @@ export function useAssetWorkbenchSceneGeneration(
         name: asset.name,
         type: asset.type,
         image: asset.image,
+        arkAssetId: asset.arkAssetId,
+        arkAssetStatus: asset.arkAssetStatus,
         source: asset.source
       }))
     })

@@ -79,6 +79,8 @@ vi.mock('~/lib/asset-workbench-scene-generation', async () => {
         name: string
         type: 'character' | 'prop' | 'other'
         image: string
+        arkAssetId?: string
+        arkAssetStatus?: string
       }>
       continuityFirstFrame?: string
       narrationVoiceAsset?: {
@@ -109,7 +111,9 @@ vi.mock('~/lib/asset-workbench-scene-generation', async () => {
         id: asset.assetId,
         name: asset.name,
         type: asset.type,
-        image: asset.image
+        image: asset.image,
+        arkAssetId: asset.arkAssetId,
+        arkAssetStatus: asset.arkAssetStatus
       }))
     }),
     requestSceneBaselineGeneration: requestSceneBaselineGenerationMock,
@@ -679,6 +683,8 @@ describe('useAssetWorkbenchSceneGeneration', () => {
           name: string
           type: 'character' | 'prop' | 'other'
           image: string
+          arkAssetId?: string
+          arkAssetStatus?: string
         }>
       }
     }]>

@@ -12,6 +12,7 @@ import type {
   CharacterData,
   SceneData
 } from '~/composables/useAssetWorkbench'
+import type { ArkVirtualAssetBinding } from '~/lib/asset-workbench-types'
 import {
   toOptionalNumber,
   toOptionalString,
@@ -59,6 +60,7 @@ interface LoadedProjectCharacter {
   catchphrase?: string | null
   voiceTone?: string | null
   voiceAsset?: CharacterVoiceAsset | null
+  arkAsset?: ArkVirtualAssetBinding | null
   age?: number | null
   gender?: string | null
   imageUrl?: string | null
@@ -120,6 +122,7 @@ export function buildLoadedCharacters(characters: LoadedProjectCharacter[]): Cha
     catchphrase: toOptionalString(character.catchphrase),
     voiceTone: toOptionalString(character.voiceTone),
     voiceAsset: character.voiceAsset || undefined,
+    arkAsset: character.arkAsset || undefined,
     age: toOptionalNumber(character.age),
     gender: toOptionalString(character.gender),
     baseImage: toOptionalString(character.imageUrl) || toOptionalString(character.baseImage),
@@ -208,6 +211,7 @@ export function buildSaveCharactersPayload(characters: CharacterData[]) {
     catchphrase: character.catchphrase,
     voiceTone: character.voiceTone,
     voiceAsset: character.voiceAsset,
+    arkAsset: character.arkAsset,
     age: character.age,
     gender: character.gender,
     baseImage: character.baseImage,

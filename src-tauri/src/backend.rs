@@ -77,6 +77,10 @@ const STYLE_THUMBNAIL_CDN_BASE: &str =
 const LEGACY_STYLE_THUMBNAIL_CDN_BASE: &str =
     "https://playlet-ai.tos-cn-guangzhou.volces.com/playlet-assets/styles";
 const DEFAULT_PROMPT_TEMPLATES_JSON: &str = include_str!("../assets/default-prompt-templates.json");
+const ARK_OPENAPI_ENDPOINT: &str = "https://open.volcengineapi.com";
+const ARK_OPENAPI_REGION: &str = "cn-beijing";
+const ARK_OPENAPI_SERVICE: &str = "ark";
+const ARK_OPENAPI_VERSION: &str = "2024-01-01";
 
 #[path = "backend/model_constraints.rs"]
 mod model_constraints;
@@ -192,6 +196,14 @@ struct ProviderCredentialsPutBody {
     api_key: Option<String>,
     #[serde(rename = "mediakitApiKey")]
     mediakit_api_key: Option<String>,
+    #[serde(rename = "arkAccessKey")]
+    ark_access_key: Option<String>,
+    #[serde(rename = "arkSecretKey")]
+    ark_secret_key: Option<String>,
+    #[serde(rename = "arkProjectName")]
+    ark_project_name: Option<String>,
+    #[serde(rename = "arkOpenApiBaseUrl")]
+    ark_open_api_base_url: Option<String>,
     #[serde(rename = "baseUrl")]
     base_url: Option<String>,
     #[serde(rename = "accessKey")]
@@ -2468,7 +2480,7 @@ fn default_provider_credentials() -> Value {
     json!({
       "gemini":     { "apiKey": "", "baseUrl": "" },
       "qwen":       { "apiKey": "", "baseUrl": "" },
-      "volcengine": { "apiKey": "", "mediakitApiKey": "", "baseUrl": "" },
+      "volcengine": { "apiKey": "", "mediakitApiKey": "", "arkAccessKey": "", "arkSecretKey": "", "arkProjectName": "default", "arkOpenApiBaseUrl": "", "baseUrl": "" },
       "deepseek":   { "apiKey": "", "baseUrl": "" },
       "kling":      { "accessKey": "", "secretKey": "", "baseUrl": "" }
     })
@@ -4032,6 +4044,23 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             "/api/asset-workflow/upload-image",
             post(api_asset_upload_image)
                 .layer(DefaultBodyLimit::max(ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES)),
+        )
+        .route(
+            "/api/ark-assets/virtual/groups",
+            post(api_ark_virtual_asset_group_create),
+        )
+        .route(
+            "/api/ark-assets/virtual/assets/upload",
+            post(api_ark_virtual_asset_upload)
+                .layer(DefaultBodyLimit::max(ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES)),
+        )
+        .route(
+            "/api/ark-assets/virtual/assets/{assetId}",
+            get(api_ark_virtual_asset_get),
+        )
+        .route(
+            "/api/ark-assets/virtual/assets/{assetId}/poll",
+            post(api_ark_virtual_asset_poll),
         )
         .route("/api/image/file/{*filename}", get(api_image_file))
         .route("/api/image/proxy", get(api_image_proxy))
@@ -9301,6 +9330,10 @@ fn provider_credentials_public(creds: &Value) -> Value {
       "volcengine": {
         "hasApiKey": mask("volcengine", "apiKey"),
         "hasMediakitApiKey": mask("volcengine", "mediakitApiKey"),
+        "hasArkAccessKey": mask("volcengine", "arkAccessKey"),
+        "hasArkSecretKey": mask("volcengine", "arkSecretKey"),
+        "arkProjectName": provider_credential_field(creds, "volcengine", "arkProjectName").unwrap_or_else(|| "default".to_string()),
+        "arkOpenApiBaseUrl": provider_credential_field(creds, "volcengine", "arkOpenApiBaseUrl").unwrap_or_default(),
         "baseUrl": base_url("volcengine")
       },
       "deepseek":   { "hasApiKey": mask("deepseek", "apiKey"), "baseUrl": base_url("deepseek") },
@@ -10054,6 +10087,25 @@ async fn api_provider_credentials_put(
                 entry_obj.insert(
                     "mediakitApiKey".to_string(),
                     json!(mediakit_api_key.trim()),
+                );
+            }
+            if let Some(ark_access_key) = body.ark_access_key {
+                entry_obj.insert("arkAccessKey".to_string(), json!(ark_access_key.trim()));
+            }
+            if let Some(ark_secret_key) = body.ark_secret_key {
+                entry_obj.insert("arkSecretKey".to_string(), json!(ark_secret_key.trim()));
+            }
+            if let Some(ark_project_name) = body.ark_project_name {
+                let project_name = ark_project_name.trim();
+                entry_obj.insert(
+                    "arkProjectName".to_string(),
+                    json!(if project_name.is_empty() { "default" } else { project_name }),
+                );
+            }
+            if let Some(ark_open_api_base_url) = body.ark_open_api_base_url {
+                entry_obj.insert(
+                    "arkOpenApiBaseUrl".to_string(),
+                    json!(ark_open_api_base_url.trim().trim_end_matches('/')),
                 );
             }
         }

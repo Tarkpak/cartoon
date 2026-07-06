@@ -82,6 +82,8 @@ interface AssetWorkflowVideoReferences {
     name: string
     type: 'character' | 'prop' | 'other'
     image: string
+    arkAssetId?: string
+    arkAssetStatus?: string
   }>
 }
 
@@ -230,7 +232,9 @@ export function buildAssetWorkflowVideoReferences(options: {
       id: item.assetId,
       name: item.name,
       type: item.type,
-      image: item.image
+      image: item.image,
+      arkAssetId: item.arkAssetId,
+      arkAssetStatus: item.arkAssetStatus
     }))
   }
 }

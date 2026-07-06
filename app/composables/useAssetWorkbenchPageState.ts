@@ -191,6 +191,8 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
       type: 'character' as const,
       description: char.appearance,
       referenceImage: char.baseImage,
+      arkAssetId: char.arkAsset?.status === 'Active' ? char.arkAsset.assetId : undefined,
+      arkAssetStatus: char.arkAsset?.status,
       assetHistory: char.assetHistory
     }))
   })

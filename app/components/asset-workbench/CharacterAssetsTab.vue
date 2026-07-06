@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AudioLines, History, Loader2, Lock, Pencil, Plus, Sparkles, Upload, User } from 'lucide-vue-next'
+import { AudioLines, CloudUpload, History, Loader2, Lock, Pencil, Plus, Sparkles, Upload, User } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
 import type { CharacterRoleOption } from '~/lib/asset-workbench-types'
@@ -17,6 +17,7 @@ const props = defineProps<{
   }
   characterRoleOptions: CharacterRoleOption[]
   uploadingCharacterId: string | null
+  uploadingArkCharacterId: string | null
   uploadingCharacterVoiceId: string | null
   getCharacterSceneCount: (character: CharacterData) => number
   setCharacterEditDraft: (draft: { name: string, role: string, appearance: string }) => void
@@ -33,6 +34,7 @@ const emit = defineEmits<{
   'open-regenerate': [character: CharacterData]
   'open-history': [characterId: string]
   'upload-image': [payload: { characterId: string, event: Event }]
+  'ingest-ark-asset': [characterId: string]
   'upload-voice': [payload: { characterId: string, event: Event }]
   'update-voice-lock': [payload: { characterId: string, locked: boolean }]
 }>()
@@ -121,6 +123,22 @@ function resolveVoiceUpdatedText(char: CharacterData): string {
 
 function resolveHistoryCount(char: CharacterData): number {
   return Array.isArray(char.assetHistory) ? char.assetHistory.length : 0
+}
+
+function resolveArkAssetLabel(char: CharacterData): string {
+  const asset = char.arkAsset
+  if (!asset?.assetId && asset?.status !== 'Processing') return '未入库'
+  if (asset.status === 'Active') return '已入库'
+  if (asset.status === 'Failed') return '入库失败'
+  return '入库处理中'
+}
+
+function resolveArkAssetClass(char: CharacterData): string {
+  const status = char.arkAsset?.status
+  if (status === 'Active') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (status === 'Failed') return 'border-destructive/25 bg-destructive/5 text-destructive'
+  if (status === 'Processing') return 'border-blue-200 bg-blue-50 text-blue-700'
+  return 'border-dashed bg-muted/20 text-muted-foreground'
 }
 
 function resolveParentCharacterName(char: CharacterData): string {
@@ -242,6 +260,24 @@ function resolveVariantCount(char: CharacterData): number {
               </span>
             </div>
           </template>
+        </div>
+      </div>
+
+      <div class="border-t px-3 py-2">
+        <div
+          class="flex items-center justify-between gap-3 rounded-md border px-2.5 py-2 text-xs"
+          :class="resolveArkAssetClass(char)"
+        >
+          <div class="min-w-0">
+            <p class="font-medium">
+              火山私域虚拟人像
+            </p>
+            <p class="mt-0.5 truncate">
+              <span v-if="char.arkAsset?.assetId">{{ char.arkAsset.assetId }}</span>
+              <span v-else>{{ char.arkAsset?.errorMessage || '将角色图入库后可作为 Seedance 可信素材使用' }}</span>
+            </p>
+          </div>
+          <span class="shrink-0 font-medium">{{ resolveArkAssetLabel(char) }}</span>
         </div>
       </div>
 
@@ -386,6 +422,23 @@ function resolveVariantCount(char: CharacterData): number {
               class="mr-1 h-3 w-3"
             />
             上传
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            :disabled="autoRunning || char.generating || !char.baseImage || !!uploadingArkCharacterId"
+            @click="emit('ingest-ark-asset', char.id)"
+          >
+            <Loader2
+              v-if="uploadingArkCharacterId === char.id"
+              class="mr-1 h-3 w-3 animate-spin"
+            />
+            <CloudUpload
+              v-else
+              class="mr-1 h-3 w-3"
+            />
+            {{ char.arkAsset?.status === 'Active' ? '重新入库' : '入库虚拟人像' }}
           </Button>
           <Button
             size="sm"

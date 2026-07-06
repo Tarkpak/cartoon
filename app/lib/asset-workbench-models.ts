@@ -6,6 +6,7 @@ import type {
   SceneShotType
 } from '#shared/types/script'
 import type {
+  ArkVirtualAssetBinding,
   AssetImageHistoryEntry,
   AssetVideoHistoryEntry
 } from '~/lib/asset-workbench-types'
@@ -75,6 +76,7 @@ export interface CharacterData {
   catchphrase?: string
   voiceTone?: string
   voiceAsset?: CharacterVoiceAsset
+  arkAsset?: ArkVirtualAssetBinding
   age?: number
   gender?: string
 }

@@ -10,6 +10,11 @@ import {
   uploadAudioFile,
   uploadImageFile
 } from '~/lib/asset-workbench-upload'
+import {
+  createArkVirtualAssetGroup,
+  pollArkVirtualAsset,
+  uploadArkVirtualAsset
+} from '~/lib/ark-virtual-assets'
 import { isPanoramaSourceSize } from '~/lib/asset-workbench-environment-panorama'
 import {
   resolveEnvironmentCaptureModeForScene,
@@ -59,6 +64,7 @@ export function useAssetWorkbenchAssetMedia(options: {
   const environmentRegeneratePrompt = ref('')
   const environmentRegenerateError = ref<string | null>(null)
   const uploadingCharacterId = ref<string | null>(null)
+  const uploadingArkCharacterId = ref<string | null>(null)
   const uploadingCharacterVoiceId = ref<string | null>(null)
   const uploadingEnvironmentAssetId = ref<string | null>(null)
   const uploadingPropId = ref<string | null>(null)
@@ -221,6 +227,107 @@ export function useAssetWorkbenchAssetMedia(options: {
         locked: !locked
       }
       options.statusError.value = options.resolveUiError(error, locked ? '锁定角色音频失败' : '取消锁定角色音频失败')
+    }
+  }
+
+  async function ingestCharacterToArkVirtualAsset(characterId: string) {
+    const target = options.characters.value.find(char => char.id === characterId)
+    if (!target) return
+
+    const { toast } = useToast()
+    const source = target.baseImage?.trim()
+    if (!source) {
+      toast.warning('请先生成或上传角色图')
+      return
+    }
+
+    uploadingArkCharacterId.value = characterId
+    options.statusError.value = null
+
+    const previous = target.arkAsset
+    try {
+      const projectName = previous?.projectName || 'default'
+      let groupId = previous?.groupId || ''
+      if (!groupId) {
+        groupId = await createArkVirtualAssetGroup({
+          name: target.name || '虚拟人像',
+          description: `Playlet Desktop 角色资产：${target.name || target.id}`,
+          projectName
+        })
+      }
+
+      target.arkAsset = {
+        provider: 'volcengine',
+        libraryType: 'virtual_human',
+        projectName,
+        groupId,
+        assetType: 'Image',
+        sourceUrl: source,
+        name: target.name,
+        status: 'Processing',
+        updatedAt: new Date().toISOString()
+      }
+      await options.saveProject()
+
+      const isPublicHttpSource = /^https?:\/\//i.test(source)
+        && !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/i.test(source)
+      const uploaded = await uploadArkVirtualAsset({
+        groupId,
+        name: target.name || '虚拟人像素材',
+        sourceUrl: isPublicHttpSource ? source : undefined,
+        imageData: isPublicHttpSource ? undefined : source,
+        projectName
+      })
+      target.arkAsset = uploaded
+      await options.saveProject()
+
+      const assetId = uploaded.assetId
+      if (!assetId) {
+        throw new Error('火山未返回素材 ID')
+      }
+
+      const polled = await pollArkVirtualAsset({
+        assetId,
+        projectName,
+        timeoutMs: 10 * 60 * 1000,
+        intervalMs: 5000,
+        fallback: uploaded
+      })
+      target.arkAsset = polled.asset
+      await options.saveProject()
+
+      if (polled.asset.status === 'Active') {
+        toast.success('虚拟人像已入库，可用于 Seedance 生成')
+      } else if (polled.asset.status === 'Failed') {
+        toast.error('虚拟人像入库失败', { description: '请检查素材合规性或稍后重试。' })
+      } else if (polled.timeout) {
+        toast.warning('虚拟人像仍在处理中', { description: '稍后可再次点击查询或重新入库。' })
+      }
+    } catch (error) {
+      const message = options.resolveUiError(error, '虚拟人像入库失败')
+      target.arkAsset = previous
+        ? {
+            ...previous,
+            status: previous.status === 'Active' ? 'Active' : 'Failed',
+            errorMessage: message,
+            updatedAt: new Date().toISOString()
+          }
+        : {
+            provider: 'volcengine',
+            libraryType: 'virtual_human',
+            projectName: 'default',
+            groupId: '',
+            assetType: 'Image',
+            sourceUrl: source,
+            name: target.name,
+            status: 'Failed',
+            errorMessage: message,
+            updatedAt: new Date().toISOString()
+          }
+      options.statusError.value = message
+      await options.saveProject().catch(() => undefined)
+    } finally {
+      uploadingArkCharacterId.value = null
     }
   }
 
@@ -548,6 +655,7 @@ export function useAssetWorkbenchAssetMedia(options: {
     environmentRegenerateError,
     environmentRegenerateTarget,
     uploadingCharacterId,
+    uploadingArkCharacterId,
     uploadingCharacterVoiceId,
     uploadingEnvironmentAssetId,
     uploadingPropId,
@@ -555,6 +663,7 @@ export function useAssetWorkbenchAssetMedia(options: {
     generatingPropId,
     openImagePreview,
     handleCharacterImageUpload,
+    ingestCharacterToArkVirtualAsset,
     handleCharacterVoiceUpload,
     handleCharacterVoiceLockChange,
     handleEnvironmentImageUpload,

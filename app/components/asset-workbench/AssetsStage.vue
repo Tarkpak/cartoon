@@ -34,6 +34,7 @@ const props = defineProps<{
   }
   characterRoleOptions: CharacterRoleOption[]
   uploadingCharacterId: string | null
+  uploadingArkCharacterId: string | null
   uploadingCharacterVoiceId: string | null
   uploadingEnvironmentAssetId: string | null
   uploadingPropId: string | null
@@ -62,6 +63,7 @@ const emit = defineEmits<{
   'open-character-regenerate': [character: CharacterData]
   'open-character-history': [characterId: string]
   'upload-character-image': [payload: { characterId: string, event: Event }]
+  'ingest-character-ark-asset': [characterId: string]
   'upload-character-voice': [payload: { characterId: string, event: Event }]
   'update-character-voice-lock': [payload: { characterId: string, locked: boolean }]
   'edit-environment-scene': [assetId: string]
@@ -217,6 +219,7 @@ const hasSeedAssets = computed(() => {
         :character-edit-draft="characterEditDraft"
         :character-role-options="characterRoleOptions"
         :uploading-character-id="uploadingCharacterId"
+        :uploading-ark-character-id="uploadingArkCharacterId"
         :uploading-character-voice-id="uploadingCharacterVoiceId"
         :get-character-scene-count="getCharacterSceneCount"
         :set-character-edit-draft="setCharacterEditDraft"
@@ -230,6 +233,7 @@ const hasSeedAssets = computed(() => {
         @open-regenerate="emit('open-character-regenerate', $event)"
         @open-history="emit('open-character-history', $event)"
         @upload-image="emit('upload-character-image', $event)"
+        @ingest-ark-asset="emit('ingest-character-ark-asset', $event)"
         @upload-voice="emit('upload-character-voice', $event)"
         @update-voice-lock="emit('update-character-voice-lock', $event)"
       />

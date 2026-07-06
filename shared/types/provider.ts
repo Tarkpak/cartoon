@@ -196,6 +196,10 @@ export type CustomOpenAIProviderPublicConfig = z.infer<typeof CustomOpenAIProvid
 export const ProviderApiKeyCredentialSchema = z.object({
   hasApiKey: z.boolean().default(false),
   hasMediakitApiKey: z.boolean().optional().default(false),
+  hasArkAccessKey: z.boolean().optional().default(false),
+  hasArkSecretKey: z.boolean().optional().default(false),
+  arkProjectName: z.string().optional().default('default'),
+  arkOpenApiBaseUrl: z.string().optional().default(''),
   baseUrl: z.string().default('')
 })
 export type ProviderApiKeyCredential = z.infer<typeof ProviderApiKeyCredentialSchema>
