@@ -13,6 +13,7 @@ type HmacSha256 = Hmac<Sha256>;
 const PROMPT_TEMPLATE_SCRIPT_EPISODE_PLAN: &str = "script_episode_plan";
 const PROMPT_TEMPLATE_SCRIPT_PARSING: &str = "script_parsing";
 const PROMPT_TEMPLATE_SCRIPT_PARSING_SHORT_DRAMA: &str = "script_parsing_short_drama";
+const PROMPT_TEMPLATE_ORIGIN_EXPLAINER_PLANNING: &str = "origin_explainer_planning";
 const PROMPT_TEMPLATE_SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT: &str =
     "script_parsing_episode_drama_context";
 const PROMPT_TEMPLATE_VIDEO_IMPORT_SCRIPT_GENERATION: &str = "video_import_script_generation";
@@ -22,6 +23,9 @@ const PROMPT_TEMPLATE_ENVIRONMENT_REFERENCE_GENERATION: &str = "environment_refe
 const PROMPT_TEMPLATE_PROP_ASSET_GENERATION: &str = "prop_asset_generation";
 const PROMPT_TEMPLATE_SCENE_DESCRIPTION_REFINEMENT: &str = "scene_description_refinement";
 const PROMPT_TEMPLATE_SCENE_VIDEO_GENERATION: &str = "scene_video_generation";
+const PROMPT_TEMPLATE_ORIGIN_EXPLAINER_VIDEO_GENERATION: &str =
+    "origin_explainer_video_generation";
+const ORIGIN_EXPLAINER_DEFAULT_STYLE_PROMPT: &str = "高精度 3D 科普动画，微距特写、横截面透视与解构拆解图，半透明结晶材质，发光粒子流与高保真流体动力学特效，极简深色石砖平台，中国传统写意远山与云海背景，画面清晰克制、结构精密、无字幕无水印";
 const SCRIPT_PARSE_MIN_DURATION: &str = "2";
 const SCRIPT_PARSE_MAX_DURATION: &str = "15";
 const ENVIRONMENT_CAPTURE_MODE_PROMPT_RULES: &str = "【环境视角打标（必须执行）】\n1. 每个 scenes[i] 必须输出 environmentCaptureMode 字段：single 或 four_view。\n2. 当场景描述存在明确多视角/多机位/镜头切换（含时间轴多段切镜）时，environmentCaptureMode=four_view。\n3. 单一连续视角表达时，environmentCaptureMode=single。\n4. 禁止省略该字段。";
@@ -4234,13 +4238,23 @@ fn prompt_template_string(value: Option<&Value>) -> Option<String> {
 fn normalize_runtime_script_parse_mode(value: &str) -> &'static str {
     match value.trim() {
         "premium_drama" => "premium_drama",
+        "origin_explainer" => "origin_explainer",
         _ => "short_drama",
+    }
+}
+
+fn resolve_script_parse_style_prompt<'a>(script_parse_mode: &str, style: Option<&'a str>) -> &'a str {
+    if normalize_runtime_script_parse_mode(script_parse_mode) == "origin_explainer" {
+        ORIGIN_EXPLAINER_DEFAULT_STYLE_PROMPT
+    } else {
+        style.unwrap_or("")
     }
 }
 
 fn runtime_script_parse_mode_label(mode: &str) -> &'static str {
     match mode {
         "premium_drama" => "精品剧",
+        "origin_explainer" => "科普拆解",
         _ => "短剧",
     }
 }
@@ -4248,12 +4262,14 @@ fn runtime_script_parse_mode_label(mode: &str) -> &'static str {
 fn runtime_script_parse_mode_rules(mode: &str) -> &'static str {
     match mode {
         "premium_drama" => "根据剧情节奏与情绪起伏安排场景密度，保证每集叙事完整。",
+        "origin_explainer" => "当前为科普拆解视频。请把主题拆成多镜头原理演示，不需要剧情冲突、角色对白或短剧爆点。",
         _ => "硬性约束：当前为短剧分集解析。每一集场景总时长必须小于等于300秒（5分钟）；若超出请主动拆分为更多集，并保持剧情连续。",
     }
 }
 
 fn runtime_script_parse_template_id(mode: &str) -> &'static str {
     match mode {
+        "origin_explainer" => PROMPT_TEMPLATE_ORIGIN_EXPLAINER_PLANNING,
         "short_drama" => PROMPT_TEMPLATE_SCRIPT_PARSING_SHORT_DRAMA,
         _ => PROMPT_TEMPLATE_SCRIPT_PARSING,
     }
@@ -4536,6 +4552,10 @@ fn build_script_parse_prompt(
             ("eraHint", era_hint.as_str()),
         ],
     );
+
+    if parse_mode == "origin_explainer" {
+        return Ok(append_environment_capture_mode_rule(rendered));
+    }
 
     let episode_context_brief = build_episode_context_brief(&episode_plan);
     let with_episode_context = if episode_context_brief.trim().is_empty() {
@@ -4975,6 +4995,29 @@ async fn build_model_episode_plan(
     script_parse_mode: &str,
 ) -> Result<(Vec<Value>, String, String, bool), String> {
     let normalized_text = normalize_script_input_text(text);
+    if normalize_runtime_script_parse_mode(script_parse_mode) == "origin_explainer" {
+        let char_count = normalized_text.chars().count();
+        return Ok((
+            vec![json!({
+              "id": "episode_origin_explainer",
+              "title": "科普拆解",
+              "index": 1,
+              "startOffset": 0,
+              "endOffset": char_count,
+              "charCount": char_count,
+              "episodeHook": "用多镜头视觉拆解讲清楚核心原理",
+              "emotionalCurve": "结构出现 -> 能量或力进入 -> 关键变化 -> 输出结果",
+              "episodeAssets": {
+                "characters": [],
+                "props": [],
+                "environments": []
+              }
+            })],
+            "local".to_string(),
+            "origin_explainer_planning".to_string(),
+            false,
+        ));
+    }
     if normalized_text.chars().count() <= EPISODE_PLAN_SINGLE_PASS_MAX_CHARS {
         let prompt = {
             let conn = db_connection(state).map_err(|error| error.message)?;
@@ -7219,10 +7262,19 @@ fn build_video_prompt_from_scene(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("无");
+    let camera_note = json_string(scene.get("cameraNote"), "");
+    let script_parse_mode = normalize_runtime_script_parse_mode(&json_string(
+        config.get("scriptParseMode"),
+        "short_drama",
+    ));
+    let template_id = match script_parse_mode {
+        "origin_explainer" => PROMPT_TEMPLATE_ORIGIN_EXPLAINER_VIDEO_GENERATION,
+        _ => PROMPT_TEMPLATE_SCENE_VIDEO_GENERATION,
+    };
 
     render_configured_prompt(
         conn,
-        PROMPT_TEMPLATE_SCENE_VIDEO_GENERATION,
+        template_id,
         &[
             ("shotNumber", shot_number.as_str()),
             ("sceneTitle", title.as_str()),
@@ -7232,6 +7284,7 @@ fn build_video_prompt_from_scene(
             ("aspectRatio", aspect_ratio.as_str()),
             ("setting", setting.as_str()),
             ("sceneDescription", description.as_str()),
+            ("cameraNote", camera_note.as_str()),
             ("referenceGuide", reference_guide.as_str()),
             ("referenceMaterials", reference_materials.as_str()),
             ("executionConstraints", execution_constraints.as_str()),
@@ -9271,6 +9324,85 @@ fn apply_workflow_video_generation_options(
             object.insert("resolution".to_string(), json!(resolution));
         }
     }
+}
+
+fn is_remote_video_image_url(value: &str) -> bool {
+    is_http_url(value) || value.starts_with("data:image/") || value.starts_with("asset://")
+}
+
+async fn normalize_volcengine_video_image_url(
+    state: &BackendState,
+    value: &str,
+) -> Result<String, ApiError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || is_remote_video_image_url(trimmed) {
+        return Ok(trimmed.to_string());
+    }
+    let (bytes, mime) = resolve_source_bytes(state, trimmed, 35 * 1024 * 1024).await?;
+    let mime = mime
+        .filter(|value| value.starts_with("image/"))
+        .unwrap_or_else(|| {
+            detect_image_proxy_mime_type(&bytes)
+                .unwrap_or("image/png")
+                .to_string()
+        });
+    if load_backend_tos_config().enabled {
+        let ext = infer_extension_from_mime(&mime, "png");
+        let filename = build_unique_filename("video-reference", &ext);
+        if let Some(url) = upload_media_bytes_to_tos_async("images", filename, bytes.clone()).await?
+        {
+            return Ok(url);
+        }
+    }
+    Ok(format!("data:{};base64,{}", mime, BASE64_STANDARD.encode(bytes)))
+}
+
+async fn normalize_volcengine_video_config_images(
+    state: &BackendState,
+    config: &mut Value,
+) -> Result<(), ApiError> {
+    for key in ["imageUrl", "firstFrame", "lastFrame"] {
+        let Some(raw) = config
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        let normalized = normalize_volcengine_video_image_url(state, &raw).await?;
+        if let Some(object) = config.as_object_mut() {
+            object.insert(key.to_string(), json!(normalized));
+        }
+    }
+
+    let Some(items) = config
+        .get("referenceImages")
+        .and_then(Value::as_array)
+        .cloned()
+    else {
+        return Ok(());
+    };
+    let mut normalized_items = Vec::new();
+    let mut seen = HashSet::new();
+    for item in items {
+        let Some(raw) = item
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let normalized = normalize_volcengine_video_image_url(state, raw).await?;
+        if seen.insert(normalized.clone()) {
+            normalized_items.push(json!(normalized));
+        }
+    }
+    if let Some(object) = config.as_object_mut() {
+        object.insert("referenceImages".to_string(), Value::Array(normalized_items));
+    }
+    Ok(())
 }
 
 fn normalize_video_url_input(value: Option<&Value>) -> Option<String> {
@@ -14427,7 +14559,7 @@ fn validate_script_parse_mode(value: Option<&Value>, path: &str) -> Result<(), A
     let raw = value
         .as_str()
         .ok_or_else(|| workflow_validation_error(path, "Expected string"))?;
-    if !matches!(raw, "short_drama" | "premium_drama") {
+    if !matches!(raw, "short_drama" | "premium_drama" | "origin_explainer") {
         return Err(workflow_validation_error(path, "Invalid enum value"));
     }
     Ok(())
@@ -14574,7 +14706,17 @@ fn validate_script_parse_request(body: &Value) -> Result<(), ApiError> {
     if !body.is_object() {
         return Err(workflow_validation_error("body", "Expected object"));
     }
-    validate_min_text_chars(body, "text", "body", 10)?;
+    validate_script_parse_mode(body.get("scriptParseMode"), "body.scriptParseMode")?;
+    let script_parse_mode = normalize_runtime_script_parse_mode(&json_string(
+        body.get("scriptParseMode"),
+        "short_drama",
+    ));
+    let min_text_chars = if script_parse_mode == "origin_explainer" {
+        2
+    } else {
+        10
+    };
+    validate_min_text_chars(body, "text", "body", min_text_chars)?;
     let text_char_count = required_json_string(body, "text", "body")?
         .trim()
         .chars()
@@ -14601,7 +14743,6 @@ fn validate_script_parse_request(body: &Value) -> Result<(), ApiError> {
     }
     workflow_optional_string(body, "style", "body")?;
     let target_episode_id = workflow_required_string(body, "targetEpisodeId", "body")?;
-    validate_script_parse_mode(body.get("scriptParseMode"), "body.scriptParseMode")?;
 
     let episode_plan = body
         .get("episodePlan")
@@ -14736,6 +14877,7 @@ pub(super) async fn generate_video_import_script_text(
     task_title: &str,
     source_filename: &str,
     subtitle_text: &str,
+    script_parse_mode: &str,
 ) -> Result<(String, String, String), ApiError> {
     let normalized_subtitle = subtitle_text.trim();
     if normalized_subtitle.is_empty() {
@@ -14744,12 +14886,15 @@ pub(super) async fn generate_video_import_script_text(
 
     let prompt = {
         let conn = db_connection(state)?;
+        let normalized_mode = normalize_runtime_script_parse_mode(script_parse_mode);
         render_configured_prompt(
             &conn,
             PROMPT_TEMPLATE_VIDEO_IMPORT_SCRIPT_GENERATION,
             &[
                 ("taskTitle", task_title),
                 ("sourceFilename", source_filename),
+                ("scriptParseMode", normalized_mode),
+                ("scriptParseModeLabel", runtime_script_parse_mode_label(normalized_mode)),
                 ("subtitleText", normalized_subtitle),
             ],
         )?
@@ -14780,6 +14925,8 @@ pub(super) async fn parse_video_import_script(
     script_parse_mode: &str,
     style: Option<&str>,
 ) -> Result<Value, ApiError> {
+    let normalized_mode = normalize_runtime_script_parse_mode(script_parse_mode);
+    let style_prompt = resolve_script_parse_style_prompt(normalized_mode, style);
     let episode_plan = json!([{
       "id": "episode-1",
       "title": "第1集",
@@ -14801,8 +14948,8 @@ pub(super) async fn parse_video_import_script(
       "text": script_text,
       "projectId": project_id,
       "targetEpisodeId": "episode-1",
-      "scriptParseMode": normalize_runtime_script_parse_mode(script_parse_mode),
-      "style": style.unwrap_or(""),
+      "scriptParseMode": normalized_mode,
+      "style": style_prompt,
       "episodePlan": episode_plan
     });
 
@@ -14817,6 +14964,8 @@ pub(super) async fn parse_video_import_script_with_episode_plan(
     style: Option<&str>,
     episode_plan: Value,
 ) -> Result<Value, ApiError> {
+    let normalized_mode = normalize_runtime_script_parse_mode(script_parse_mode);
+    let style_prompt = resolve_script_parse_style_prompt(normalized_mode, style);
     let target_episode_id = episode_plan
         .as_array()
         .and_then(|items| items.first())
@@ -14828,8 +14977,8 @@ pub(super) async fn parse_video_import_script_with_episode_plan(
       "text": script_text,
       "projectId": project_id,
       "targetEpisodeId": target_episode_id,
-      "scriptParseMode": normalize_runtime_script_parse_mode(script_parse_mode),
-      "style": style.unwrap_or(""),
+      "scriptParseMode": normalized_mode,
+      "style": style_prompt,
       "episodePlan": episode_plan
     });
 
@@ -16305,6 +16454,7 @@ fn validate_video_generate_payload(body: &Value) -> Result<(), ApiError> {
     validate_workflow_aspect_ratio(body)?;
     workflow_optional_string(body, "style", "body")?;
     workflow_optional_string(body, "projectId", "body")?;
+    validate_script_parse_mode(body.get("scriptParseMode"), "body.scriptParseMode")?;
     let references = workflow_required_object(body, "references", "body")?;
     workflow_optional_string(references, "environmentImage", "body.references")?;
     workflow_optional_string(references, "continuityFirstFrame", "body.references")?;
@@ -16880,6 +17030,11 @@ pub(super) async fn api_asset_video_generate(
     if let Some(style) = body.get("style").and_then(trimmed_json_string) {
         config["style"] = json!(style);
     }
+    let script_parse_mode = normalize_runtime_script_parse_mode(&json_string(
+        body.get("scriptParseMode"),
+        "short_drama",
+    ));
+    config["scriptParseMode"] = json!(script_parse_mode);
     if let Some(negative_prompt) = body.get("negativePrompt").and_then(trimmed_json_string) {
         config["negativePrompt"] = json!(negative_prompt);
     }
@@ -16903,6 +17058,9 @@ pub(super) async fn api_asset_video_generate(
         &provider,
         &model_id_for_voice,
     )?;
+    if provider == "volcengine" {
+        normalize_volcengine_video_config_images(&state, &mut config).await?;
+    }
     let prompt = {
         let conn = db_connection(&state)?;
         build_video_prompt_from_scene(&conn, &scene, &config)?
@@ -17078,6 +17236,9 @@ pub(super) async fn api_video_generate(
         &provider_name,
         &model_id_for_voice,
     )?;
+    if provider_name == "volcengine" {
+        normalize_volcengine_video_config_images(&state, &mut config).await?;
+    }
 
     let context = model_log_context_for_video_task(&state, project_id, &scene_id, &task_id)?;
     CURRENT_MODEL_LOG_CONTEXT

@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import type { ScriptParseMode } from '#shared/types/script'
 
 export interface VideoImportTask {
   id: string
@@ -87,7 +88,7 @@ export interface VideoImportConfig {
   projectTitle?: string
   styleId?: string
   aspectRatio?: '16:9' | '9:16' | '1:1'
-  scriptParseMode?: 'short_drama' | 'premium_drama'
+  scriptParseMode?: ScriptParseMode
 }
 
 export type VideoImportRetryStep = 'extract' | 'transcribe' | 'generate_script' | 'import'
@@ -250,7 +251,7 @@ export function useVideoImport() {
   async function importToProject(taskId: string, config?: {
     projectTitle?: string
     aspectRatio?: '16:9' | '9:16' | '1:1'
-    scriptParseMode?: 'short_drama' | 'premium_drama'
+    scriptParseMode?: ScriptParseMode
   }) {
     return await runAction(async () => {
       const response = await $fetch<{

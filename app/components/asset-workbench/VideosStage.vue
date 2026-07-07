@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ChevronLeft, ChevronRight, FileDown, Loader2, Play } from 'lucide-vue-next'
+import type { ScriptParseMode } from '#shared/types/script'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
   AutoStageKey,
@@ -57,6 +58,7 @@ interface EpisodeDirectoryItem {
 
 const props = defineProps<{
   scenes: SceneData[]
+  scriptParseMode?: ScriptParseMode
   episodePlan: EpisodePlanItemForVideoStage[]
   episodeOverviews?: Record<string, string>
   selectedSceneId: string
@@ -336,6 +338,21 @@ const selectedEpisodeScenes = computed(() => {
   return sceneEpisodeGroupMap.value.get(selectedEpisodeId.value)?.scenes || []
 })
 
+const isOriginExplainer = computed(() => props.scriptParseMode === 'origin_explainer')
+
+const emptyProjectMessage = computed(() => {
+  return isOriginExplainer.value
+    ? '请先在“镜头规划”步骤生成镜头规划入口'
+    : '请先在“剧本解析”步骤生成分集目录'
+})
+
+const emptySelectedEpisodeMessage = computed(() => {
+  if (isOriginExplainer.value) {
+    return selectedEpisodePlanItem.value ? '当前镜头规划暂无场景，请先点击“解析本集”。' : '当前镜头规划暂无场景。'
+  }
+  return selectedEpisodePlanItem.value ? '当前分集暂无场景，请先点击“解析本集”。' : '当前分集暂无场景。'
+})
+
 const selectedEpisodeHasParsedScenes = computed(() => {
   return selectedEpisodeScenes.value.length > 0
 })
@@ -483,7 +500,7 @@ watch(episodeDirectoryCollapsed, (value) => {
     class="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground"
   >
     <p class="text-sm">
-      请先在“剧本解析”步骤生成分集目录
+      {{ emptyProjectMessage }}
     </p>
   </div>
   <template v-else>
@@ -726,7 +743,7 @@ watch(episodeDirectoryCollapsed, (value) => {
           v-if="selectedEpisodeScenes.length === 0"
           class="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-4 text-xs text-muted-foreground"
         >
-          {{ selectedEpisodePlanItem ? '当前分集暂无场景，请先点击“解析本集”。' : '当前分集暂无场景。' }}
+          {{ emptySelectedEpisodeMessage }}
         </div>
         <AssetWorkbenchSceneVideoCard
           v-for="scene in selectedEpisodeScenes"

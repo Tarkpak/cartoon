@@ -1,6 +1,7 @@
 import { useDebounceFn } from '@vueuse/core'
 import type { StylePreset } from '#shared/types/styles'
 import { resolveProjectDetailPath } from '#shared/types/project'
+import { resolveVideoWorkflowPreset } from '#shared/types/video-workflow'
 import {
   createProjectDraft,
   hasProjectStyle,
@@ -154,6 +155,10 @@ export function useProjectsIndexPage() {
 
   function goToStyleStep() {
     ensureCreateStyleId(false)
+    if (resolveVideoWorkflowPreset(newProject.value.scriptParseMode).stylePickerMode === 'hidden') {
+      void createProject()
+      return
+    }
     createStep.value = 'style'
   }
 

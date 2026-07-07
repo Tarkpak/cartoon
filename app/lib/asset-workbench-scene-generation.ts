@@ -1,4 +1,5 @@
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
+import type { ScriptParseMode } from '#shared/types/script'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import { ensureVideoHistoryEntry } from '~/lib/asset-history'
 import type { SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
@@ -92,6 +93,7 @@ interface RequestSceneVideoTaskOptions {
   scenePayload: AssetWorkflowScenePayload
   style: string
   aspectRatio: AssetWorkbenchAspectRatio
+  scriptParseMode?: ScriptParseMode
   references: AssetWorkflowVideoReferences
 }
 
@@ -284,6 +286,7 @@ export async function requestSceneVideoTask(options: RequestSceneVideoTaskOption
       scene: options.scenePayload,
       style: options.style,
       aspectRatio: options.aspectRatio,
+      scriptParseMode: options.scriptParseMode,
       references: options.references
     }
   })

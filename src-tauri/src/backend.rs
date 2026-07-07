@@ -1434,7 +1434,7 @@ fn build_cloud_project_put_body(snapshot: &Value, fallback: &Value) -> Value {
     if let Some(value) = script
         .get("scriptParseMode")
         .and_then(Value::as_str)
-        .filter(|value| matches!(*value, "premium_drama" | "short_drama"))
+        .filter(|value| matches!(*value, "premium_drama" | "short_drama" | "origin_explainer"))
     {
         body.insert("scriptParseMode".to_string(), json!(value));
     }
@@ -3038,6 +3038,9 @@ fn default_prompt_template_content(content_file: &str) -> Option<&'static str> {
         "default-prompts/script_parsing_episode_drama_context.txt" => Some(include_str!(
             "../assets/default-prompts/script_parsing_episode_drama_context.txt"
         )),
+        "default-prompts/origin_explainer_planning.txt" => Some(include_str!(
+            "../assets/default-prompts/origin_explainer_planning.txt"
+        )),
         "default-prompts/video_import_script_generation.txt" => Some(include_str!(
             "../assets/default-prompts/video_import_script_generation.txt"
         )),
@@ -3058,6 +3061,9 @@ fn default_prompt_template_content(content_file: &str) -> Option<&'static str> {
         )),
         "default-prompts/scene_video_generation.txt" => Some(include_str!(
             "../assets/default-prompts/scene_video_generation.txt"
+        )),
+        "default-prompts/origin_explainer_video_generation.txt" => Some(include_str!(
+            "../assets/default-prompts/origin_explainer_video_generation.txt"
         )),
         _ => None,
     }
@@ -4732,7 +4738,10 @@ async fn api_project_create(
         .unwrap_or_else(|| "short_drama".to_string())
         .trim()
         .to_string();
-    if !matches!(script_parse_mode.as_str(), "premium_drama" | "short_drama") {
+    if !matches!(
+        script_parse_mode.as_str(),
+        "premium_drama" | "short_drama" | "origin_explainer"
+    ) {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             "scriptParseMode 无效",
@@ -5683,6 +5692,7 @@ fn normalize_script_parse_mode(value: Option<&str>) -> &'static str {
     match value {
         Some("premium_drama") => "premium_drama",
         Some("short_drama") => "short_drama",
+        Some("origin_explainer") => "origin_explainer",
         _ => "short_drama",
     }
 }
@@ -5781,7 +5791,10 @@ async fn api_project_put_inner(
         .unwrap_or(&existing_project.5)
         .trim()
         .to_string();
-    if !matches!(script_parse_mode.as_str(), "premium_drama" | "short_drama") {
+    if !matches!(
+        script_parse_mode.as_str(),
+        "premium_drama" | "short_drama" | "origin_explainer"
+    ) {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             "scriptParseMode 无效",

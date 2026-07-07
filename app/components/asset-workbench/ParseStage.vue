@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ScriptParseMode } from '#shared/types/script'
+import { resolveVideoWorkflowPreset } from '#shared/types/video-workflow'
 import { Loader2, Sparkles } from 'lucide-vue-next'
 
 const novelText = defineModel<string>('novelText', { required: true })
@@ -56,6 +57,29 @@ const parseProgressLogs = computed(() => {
   return (props.parseProgress?.logs || []).slice(-6).reverse()
 })
 const hasEpisodePlan = computed(() => (props.episodePlan?.length || 0) > 0)
+const workflowPreset = computed(() => resolveVideoWorkflowPreset(props.scriptParseMode))
+const isOriginExplainer = computed(() => props.scriptParseMode === 'origin_explainer')
+const inputPlaceholder = computed(() => {
+  return isOriginExplainer.value
+    ? '输入科学原理、机械结构或工艺过程，例如：蒸汽机原理...'
+    : '粘贴完整剧本原文...'
+})
+const textDropHint = computed(() => {
+  return isOriginExplainer.value
+    ? '支持粘贴文本 / 拖拽 .txt .md 生成镜头规划'
+    : '支持粘贴文本 / 拖拽 .txt .md 生成分集目录'
+})
+const planActionLabel = computed(() => {
+  if (isOriginExplainer.value) return hasEpisodePlan.value ? '重新生成镜头规划入口' : '生成镜头规划入口'
+  return hasEpisodePlan.value ? '重新生成分集目录' : '生成分集目录'
+})
+const clearPlanLabel = computed(() => isOriginExplainer.value ? '重新规划' : '重新分集')
+const planReadyMessage = computed(() => {
+  if (isOriginExplainer.value) {
+    return `已生成镜头规划入口。请到“分镜视频”步骤按主题拆解并生成 ${workflowPreset.value.name} 多镜头场景。`
+  }
+  return `已生成分集目录（共 ${props.episodePlan?.length || 0} 集）。短剧模式会带入每集钩子、压迫点、反击点和结尾悬念，请到“分镜视频”步骤管理分集边界并按集解析。`
+})
 const parseProgressChunkText = computed(() => {
   const chunkIndex = props.parseProgress?.chunkIndex
   const chunkCount = props.parseProgress?.chunkCount
@@ -159,18 +183,18 @@ async function handleDrop(event: DragEvent) {
       <Textarea
         v-model="novelText"
         class="h-full min-h-[280px] w-full resize-none overflow-y-auto rounded-lg border-0 bg-transparent placeholder:text-muted-foreground/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        placeholder="粘贴完整剧本原文..."
+        :placeholder="inputPlaceholder"
       />
       <div
         v-if="isDraggingTextFile"
         class="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-primary/10 text-sm font-medium text-primary"
       >
-        松开导入文本并生成分集目录
+        松开导入文本并{{ isOriginExplainer ? '生成镜头规划入口' : '生成分集目录' }}
       </div>
       <div
         class="pointer-events-none absolute right-3 top-2 rounded bg-background/85 px-2 py-1 text-xs text-muted-foreground/90 backdrop-blur-sm"
       >
-        支持粘贴文本 / 拖拽 .txt .md 生成分集目录
+        {{ textDropHint }}
       </div>
       <div
         class="pointer-events-none absolute bottom-2 right-3 rounded bg-background/85 px-2 py-1 text-xs text-muted-foreground backdrop-blur-sm tabular-nums"
@@ -193,7 +217,7 @@ async function handleDrop(event: DragEvent) {
           v-else
           class="h-4 w-4"
         />
-        {{ hasEpisodePlan ? '重新生成分集目录' : '生成分集目录' }}
+        {{ planActionLabel }}
       </Button>
       <Button
         v-if="hasEpisodePlan"
@@ -201,7 +225,7 @@ async function handleDrop(event: DragEvent) {
         :disabled="parsing"
         @click="emit('clear-episode-plan')"
       >
-        重新分集
+        {{ clearPlanLabel }}
       </Button>
       <div
         v-if="scenesCount > 0 || charactersCount > 0"
@@ -229,7 +253,7 @@ async function handleDrop(event: DragEvent) {
       v-if="hasEpisodePlan"
       class="shrink-0 rounded-md border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground"
     >
-      已生成分集目录（共 {{ episodePlan?.length || 0 }} 集）。短剧模式会带入每集钩子、压迫点、反击点和结尾悬念，请到“分镜视频”步骤管理分集边界并按集解析。
+      {{ planReadyMessage }}
     </div>
 
     <div

@@ -21,6 +21,8 @@ import type {
   EnvironmentCropSelection,
   EnvironmentPanoramaState
 } from '~/lib/asset-workbench-types'
+import type { ScriptParseMode } from '#shared/types/script'
+import { DEFAULT_SCRIPT_PARSE_MODE } from '#shared/types/script'
 import { uniqueSorted } from '~/lib/asset-workbench-strings'
 import {
   findReusableEnvironmentImage,
@@ -51,6 +53,7 @@ interface UseAssetWorkbenchSceneGenerationOptions {
   workflowStylePrompt: ComputedRef<string>
   projectId?: ComputedRef<string | undefined>
   projectAspectRatio: Ref<'16:9' | '9:16' | '1:1'>
+  scriptParseMode?: Ref<ScriptParseMode>
   normalizeWorkflowText: (value: string) => string
   resolveUiError: (error: unknown, fallback: string) => string
   ensureSceneConfig: (sceneId: string) => SceneConsistencyConfig
@@ -693,6 +696,7 @@ export function useAssetWorkbenchSceneGeneration(
         scenePayload: buildAssetWorkflowScenePayload(scene, { referenceAssetNames }),
         style: options.workflowStylePrompt.value,
         aspectRatio: options.projectAspectRatio.value,
+        scriptParseMode: options.scriptParseMode?.value || DEFAULT_SCRIPT_PARSE_MODE,
         references: buildAssetWorkflowVideoReferences({
           scene,
           environmentAssetId: resolveSceneEnvironmentReferenceAssetId(scene),

@@ -407,18 +407,19 @@ export const ScriptEpisodePlanItemSchema = z.object({
 })
 export type ScriptEpisodePlanItem = z.infer<typeof ScriptEpisodePlanItemSchema>
 
-export const SCRIPT_PARSE_MODES = ['short_drama', 'premium_drama'] as const
+export const SCRIPT_PARSE_MODES = ['short_drama', 'premium_drama', 'origin_explainer'] as const
 export type ScriptParseMode = (typeof SCRIPT_PARSE_MODES)[number]
 
 export const DEFAULT_SCRIPT_PARSE_MODE: ScriptParseMode = 'short_drama'
 
 export const SCRIPT_PARSE_MODE_LABELS: Record<ScriptParseMode, string> = {
   premium_drama: '精品剧',
-  short_drama: '短剧'
+  short_drama: '短剧',
+  origin_explainer: '科普拆解'
 }
 
 export function normalizeScriptParseMode(raw: unknown): ScriptParseMode {
-  if (raw === 'short_drama' || raw === 'premium_drama') {
+  if (raw === 'short_drama' || raw === 'premium_drama' || raw === 'origin_explainer') {
     return raw
   }
   return DEFAULT_SCRIPT_PARSE_MODE
@@ -432,7 +433,7 @@ export function resolveScriptParseModeLabel(
 
 /** 剧本解析请求 */
 export const ParseScriptRequestSchema = z.object({
-  text: z.string().min(10).max(32000).describe('当前分集正文'),
+  text: z.string().min(2).max(32000).describe('当前分集正文'),
   maxScenes: z.number().int().min(1).optional().describe('场景数量提示（可选，不做硬上限限制）'),
   targetEpisodeId: z.string().min(1).describe('当前解析的分集 ID'),
   episodePlan: z.array(ScriptEpisodePlanItemSchema).length(1).describe('当前分集规划（必填，仅允许单集解析）'),

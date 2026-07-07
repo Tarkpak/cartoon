@@ -26,6 +26,14 @@ const SHORT_CLIP_MAX_SECONDS: f64 = 60.0;
 const SHORT_CLIP_MIN_RATIO: f64 = 0.6;
 const VIDEO_IMPORT_PARSE_TIMEOUT_MS: u64 = 300_000;
 
+fn normalize_video_import_script_parse_mode(value: Option<&str>) -> &'static str {
+    match value.map(str::trim) {
+        Some("premium_drama") => "premium_drama",
+        Some("origin_explainer") => "origin_explainer",
+        _ => "short_drama",
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub(super) struct VideoImportTasksQuery {
     status: Option<String>,
@@ -269,9 +277,9 @@ pub(super) async fn api_video_import_upload_series(
     let aspect_ratio = config.get("aspectRatio")
         .and_then(Value::as_str)
         .unwrap_or("9:16");
-    let script_parse_mode = config.get("scriptParseMode")
-        .and_then(Value::as_str)
-        .unwrap_or("short_drama");
+    let script_parse_mode = normalize_video_import_script_parse_mode(
+        config.get("scriptParseMode").and_then(Value::as_str),
+    );
 
     let folder = FsPath::new(folder_path);
     let video_files = scan_series_video_files(folder)?;
@@ -617,11 +625,17 @@ pub(super) async fn api_video_import_generate_script(
     drop(conn);
 
     let title = task_title(&task);
+    let script_parse_mode = normalize_video_import_script_parse_mode(
+        parse_json_object(&task.config_json)
+            .get("scriptParseMode")
+            .and_then(Value::as_str),
+    );
     let (script, provider, model_id) = match generate_video_import_script_text(
         &state,
         &title,
         &task.original_filename,
         &subtitle,
+        script_parse_mode,
     )
     .await
     {
@@ -682,11 +696,17 @@ async fn api_video_import_generate_series_script(
         let subtitle = build_series_subtitle_text(&conn, &id)?;
         drop(conn);
         let title = task_title(&task);
+        let script_parse_mode = normalize_video_import_script_parse_mode(
+            parse_json_object(&task.config_json)
+                .get("scriptParseMode")
+                .and_then(Value::as_str),
+        );
         let (script, provider, model_id) = match generate_video_import_script_text(
             &state,
             &title,
             &task.original_filename,
             &subtitle,
+            script_parse_mode,
         )
         .await
         {
@@ -744,11 +764,17 @@ async fn api_video_import_generate_series_script(
             script
         } else {
             let title = task_title(&episode);
+            let script_parse_mode = normalize_video_import_script_parse_mode(
+                parse_json_object(&episode.config_json)
+                    .get("scriptParseMode")
+                    .and_then(Value::as_str),
+            );
             let (script, provider, model_id) = match generate_video_import_script_text(
                 &state,
                 &title,
                 &episode.original_filename,
                 &subtitle,
+                script_parse_mode,
             )
             .await
             {
@@ -838,8 +864,7 @@ pub(super) async fn api_video_import_import_project(
     let override_script_parse_mode = body
         .as_ref()
         .and_then(|value| value.script_parse_mode.as_deref())
-        .filter(|value| matches!(*value, "premium_drama" | "short_drama"))
-        .map(str::to_string);
+        .map(|value| normalize_video_import_script_parse_mode(Some(value)).to_string());
     let style_id = resolve_import_style_id(&conn, config.get("styleId").and_then(Value::as_str))?;
     let aspect_ratio = override_aspect_ratio.unwrap_or_else(|| config
         .get("aspectRatio")
@@ -850,9 +875,8 @@ pub(super) async fn api_video_import_import_project(
     let script_parse_mode = override_script_parse_mode.unwrap_or_else(|| config
         .get("scriptParseMode")
         .and_then(Value::as_str)
-        .filter(|value| matches!(*value, "premium_drama" | "short_drama"))
-        .unwrap_or("short_drama")
-        .to_string());
+        .map(|value| normalize_video_import_script_parse_mode(Some(value)).to_string())
+        .unwrap_or_else(|| "short_drama".to_string()));
     let project_title = override_project_title.unwrap_or_else(|| config
         .get("projectTitle")
         .and_then(Value::as_str)
@@ -1022,8 +1046,7 @@ async fn api_video_import_import_series_project(
     let override_script_parse_mode = body
         .as_ref()
         .and_then(|value| value.script_parse_mode.as_deref())
-        .filter(|value| matches!(*value, "premium_drama" | "short_drama"))
-        .map(str::to_string);
+        .map(|value| normalize_video_import_script_parse_mode(Some(value)).to_string());
     let style_id = resolve_import_style_id(&conn, config.get("styleId").and_then(Value::as_str))?;
     let aspect_ratio = override_aspect_ratio.unwrap_or_else(|| config
         .get("aspectRatio")
@@ -1034,9 +1057,8 @@ async fn api_video_import_import_series_project(
     let script_parse_mode = override_script_parse_mode.unwrap_or_else(|| config
         .get("scriptParseMode")
         .and_then(Value::as_str)
-        .filter(|value| matches!(*value, "premium_drama" | "short_drama"))
-        .unwrap_or("short_drama")
-        .to_string());
+        .map(|value| normalize_video_import_script_parse_mode(Some(value)).to_string())
+        .unwrap_or_else(|| "short_drama".to_string()));
     let project_title = override_project_title.unwrap_or_else(|| config
         .get("projectTitle")
         .and_then(Value::as_str)

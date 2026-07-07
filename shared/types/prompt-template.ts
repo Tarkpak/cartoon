@@ -64,13 +64,15 @@ export const PROMPT_TEMPLATE_IDS = {
   SCRIPT_PARSING_SHORT_DRAMA: 'script_parsing_short_drama',
   SCRIPT_EPISODE_PLAN: 'script_episode_plan',
   SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT: 'script_parsing_episode_drama_context',
+  ORIGIN_EXPLAINER_PLANNING: 'origin_explainer_planning',
   VIDEO_IMPORT_SCRIPT_GENERATION: 'video_import_script_generation',
   CHARACTER_SHEET: 'character_sheet',
   CHARACTER_REGENERATION: 'character_regeneration',
   ENVIRONMENT_REFERENCE_GENERATION: 'environment_reference_generation',
   PROP_ASSET_GENERATION: 'prop_asset_generation',
   SCENE_DESCRIPTION_REFINEMENT: 'scene_description_refinement',
-  SCENE_VIDEO_GENERATION: 'scene_video_generation'
+  SCENE_VIDEO_GENERATION: 'scene_video_generation',
+  ORIGIN_EXPLAINER_VIDEO_GENERATION: 'origin_explainer_video_generation'
 } as const
 
 export type PromptTemplateId = typeof PROMPT_TEMPLATE_IDS[keyof typeof PROMPT_TEMPLATE_IDS]
@@ -104,13 +106,15 @@ const PROMPT_TEMPLATE_STAGES: Record<PromptTemplateId, PromptFlowStage> = {
   script_parsing: 'parse',
   script_parsing_short_drama: 'parse',
   script_parsing_episode_drama_context: 'parse',
+  origin_explainer_planning: 'parse',
   video_import_script_generation: 'parse',
   character_sheet: 'assets',
   character_regeneration: 'assets',
   environment_reference_generation: 'assets',
   prop_asset_generation: 'assets',
   scene_description_refinement: 'assets',
-  scene_video_generation: 'videos'
+  scene_video_generation: 'videos',
+  origin_explainer_video_generation: 'videos'
 }
 
 const PROMPT_TEMPLATE_ID_SET = new Set<string>(Object.values(PROMPT_TEMPLATE_IDS))

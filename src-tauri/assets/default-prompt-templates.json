@@ -156,6 +156,37 @@
     "contentFile": "default-prompts/script_parsing_episode_drama_context.txt"
   },
   {
+    "id": "origin_explainer_planning",
+    "name": "科普拆解多镜头规划",
+    "category": "text",
+    "description": "将科学原理、机械结构或工艺过程拆解为可生成视频的多镜头方案",
+    "variables": [
+      {
+        "name": "{{novelText}}",
+        "description": "待拆解主题或说明文本",
+        "example": "四冲程发动机工作原理"
+      },
+      {
+        "name": "{{style}}",
+        "description": "项目画风描述",
+        "example": "高精度 3D 科普动画"
+      },
+      {
+        "name": "{{sceneDurationMin}}",
+        "description": "单镜头最小时长（秒）",
+        "example": "5"
+      },
+      {
+        "name": "{{sceneDurationMax}}",
+        "description": "单镜头最大时长（秒）",
+        "example": "15"
+      }
+    ],
+    "isCustomized": false,
+    "updatedAt": "2026-07-07T00:00:00.000Z",
+    "contentFile": "default-prompts/origin_explainer_planning.txt"
+  },
+  {
     "id": "video_import_script_generation",
     "name": "视频转项目剧本生成",
     "category": "text",
@@ -170,6 +201,16 @@
         "name": "{{sourceFilename}}",
         "description": "原始视频文件名",
         "example": "episode-01.mp4"
+      },
+      {
+        "name": "{{scriptParseMode}}",
+        "description": "项目解析模式 ID",
+        "example": "origin_explainer"
+      },
+      {
+        "name": "{{scriptParseModeLabel}}",
+        "description": "项目解析模式名称",
+        "example": "科普拆解"
       },
       {
         "name": "{{subtitleText}}",
@@ -461,5 +502,76 @@
     "isCustomized": false,
     "updatedAt": "2026-05-14T16:44:50.716Z",
     "contentFile": "default-prompts/scene_video_generation.txt"
+  },
+  {
+    "id": "origin_explainer_video_generation",
+    "name": "科普拆解单镜头视频生成",
+    "category": "video",
+    "description": "基于科普拆解镜头描述生成单个原理解释视频片段",
+    "variables": [
+      {
+        "name": "{{shotNumber}}",
+        "description": "镜头序号",
+        "example": "2"
+      },
+      {
+        "name": "{{sceneTitle}}",
+        "description": "镜头主题",
+        "example": "活塞压缩混合气"
+      },
+      {
+        "name": "{{sceneSummary}}",
+        "description": "镜头概要",
+        "example": "半透明汽缸中活塞上行，压力粒子逐渐密集"
+      },
+      {
+        "name": "{{sceneDescription}}",
+        "description": "视觉提示词",
+        "example": "横截面透视的半透明汽缸..."
+      },
+      {
+        "name": "{{setting}}",
+        "description": "场景设定文本",
+        "example": "极简深色石砖平台 / 白天 / 清晰、克制、精密 / 远山云海"
+      },
+      {
+        "name": "{{style}}",
+        "description": "项目画风描述",
+        "example": "高精度 3D 科普动画"
+      },
+      {
+        "name": "{{cameraNote}}",
+        "description": "镜头运动说明",
+        "example": "微距慢推，顺着发光粒子流推进"
+      },
+      {
+        "name": "{{referenceMaterials}}",
+        "description": "参考素材列表文本",
+        "example": "图1：结构参考图..."
+      },
+      {
+        "name": "{{executionConstraints}}",
+        "description": "执行上下文信息",
+        "example": "- 输入模式：single_image"
+      },
+      {
+        "name": "{{duration}}",
+        "description": "目标时长（秒）",
+        "example": "8"
+      },
+      {
+        "name": "{{aspectRatio}}",
+        "description": "输出画面比例",
+        "example": "16:9"
+      },
+      {
+        "name": "{{narration}}",
+        "description": "旁白文本",
+        "example": "压力在密闭空间中持续升高。"
+      }
+    ],
+    "isCustomized": false,
+    "updatedAt": "2026-07-07T00:00:00.000Z",
+    "contentFile": "default-prompts/origin_explainer_video_generation.txt"
   }
 ]

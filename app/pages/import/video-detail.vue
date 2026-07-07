@@ -15,6 +15,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useVideoImport, type VideoImportRetryStep } from '@/composables/useVideoImport'
+import {
+  normalizeScriptParseMode,
+  resolveScriptParseModeLabel,
+  type ScriptParseMode
+} from '#shared/types/script'
+import { projectScriptParseModeOptions } from '~/lib/projects-page'
 import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
@@ -46,7 +52,7 @@ const logsExpanded = ref(false)
 const createProjectDialogOpen = ref(false)
 const createProjectTitle = ref('')
 const createProjectAspectRatio = ref<'16:9' | '9:16' | '1:1'>('9:16')
-const createProjectScriptParseMode = ref<'short_drama' | 'premium_drama'>('short_drama')
+const createProjectScriptParseMode = ref<ScriptParseMode>('short_drama')
 const roleNamingDialogOpen = ref(false)
 const roleNamingDraft = ref<Array<{ placeholder: string, name: string }>>([])
 let refreshTimer: number | null = null
@@ -69,6 +75,28 @@ const scriptHasChanges = computed(() => scriptDraft.value !== (activeTask.value?
 const showSubtitleNextStep = computed(() => canGenerateScript.value && selectedTask.value?.status === 'subtitle_ready')
 const showScriptNextStep = computed(() => canImport.value && selectedTask.value?.status === 'script_ready')
 const seriesEpisodes = computed(() => activeTask.value?.episodes || [])
+const selectedScriptParseMode = computed<ScriptParseMode>(() => {
+  return normalizeScriptParseMode(selectedTask.value?.config?.scriptParseMode)
+})
+const selectedScriptParseModeLabel = computed(() => resolveScriptParseModeLabel(selectedScriptParseMode.value))
+const selectedScriptParseModeDescription = computed(() => {
+  return projectScriptParseModeOptions.find(option => option.value === selectedScriptParseMode.value)?.description || ''
+})
+const isOriginExplainerTask = computed(() => selectedScriptParseMode.value === 'origin_explainer')
+const scriptContentLabel = computed(() => isOriginExplainerTask.value ? '科普脚本' : '剧本')
+const generateScriptActionLabel = computed(() => {
+  return isOriginExplainerTask.value ? '用当前字幕生成科普脚本' : '用当前字幕生成剧本'
+})
+const subtitleNextStepText = computed(() => {
+  return isOriginExplainerTask.value
+    ? '确认字幕后，将生成适合科普拆解的多镜头脚本。'
+    : '确认字幕后，将生成可编辑的剧本草稿。'
+})
+const scriptNextStepText = computed(() => {
+  return isOriginExplainerTask.value
+    ? '确认科普脚本后，将创建项目并进入镜头规划。'
+    : '确认剧本后，将创建项目并进入剧本解析。'
+})
 const seriesEpisodeStats = computed(() => {
   const episodes = seriesEpisodes.value
   const total = episodes.length
@@ -81,7 +109,7 @@ const primaryAction = computed(() => {
   if (!selectedTask.value) return null
   if (showSubtitleNextStep.value) {
     return {
-      label: '用当前字幕生成剧本',
+      label: generateScriptActionLabel.value,
       disabled: acting.value || !subtitleDraft.value.trim(),
       action: handleGenerateScript,
       icon: 'script'
@@ -123,7 +151,7 @@ const contentTabs = computed(() => {
     },
     {
       key: 'script',
-      label: '剧本内容',
+      label: `${scriptContentLabel.value}内容`,
       badge: selectedTask.value?.status === 'script_ready' ? '待确认' : ''
     }
   ]
@@ -236,15 +264,29 @@ async function handleSaveScript() {
 
 async function handleImport() {
   if (!selectedTask.value) return
+  const taskId = selectedTask.value.id
   if (scriptHasChanges.value) {
-    await updateScript(selectedTask.value.id, scriptDraft.value)
+    await updateScript(taskId, scriptDraft.value)
   }
-  const result = await importToProject(selectedTask.value.id, {
+  createProjectDialogOpen.value = false
+  if (activeTask.value?.task.id === taskId) {
+    activeTask.value = {
+      ...activeTask.value,
+      task: {
+        ...activeTask.value.task,
+        status: 'importing',
+        currentStep: 'import',
+        progress: Math.max(activeTask.value.task.progress || 0, 85),
+        errorMessage: null
+      }
+    }
+    syncRefreshTimer(true)
+  }
+  const result = await importToProject(taskId, {
     projectTitle: createProjectTitle.value.trim() || undefined,
     aspectRatio: createProjectAspectRatio.value,
     scriptParseMode: createProjectScriptParseMode.value
   })
-  createProjectDialogOpen.value = false
   if (result?.redirectUrl) {
     await router.push(result.redirectUrl)
   }
@@ -405,7 +447,7 @@ function openCreateProjectDialog() {
   if (!selectedTask.value) return
   createProjectTitle.value = selectedTask.value.originalFilename.replace(/\.[^.]+$/, '')
   createProjectAspectRatio.value = '9:16'
-  createProjectScriptParseMode.value = 'short_drama'
+  createProjectScriptParseMode.value = selectedScriptParseMode.value
   createProjectDialogOpen.value = true
 }
 
@@ -443,22 +485,13 @@ async function handleDeleteTask(taskId: string) {
         <h1 class="truncate text-xl font-semibold tracking-normal">
           {{ selectedTask?.originalFilename || '视频转项目详情' }}
         </h1>
+        <Badge v-if="selectedTask" variant="secondary" class="shrink-0">
+          {{ selectedScriptParseModeLabel }}
+        </Badge>
         <Badge v-if="selectedTask" :variant="statusVariant(selectedTask.status)" class="shrink-0">
           {{ currentStageLabel }}
         </Badge>
       </div>
-      <template #actions>
-      <Button
-        v-if="selectedTask && primaryAction"
-        class="gap-2 shrink-0"
-        :disabled="primaryAction.disabled"
-        @click="primaryAction.icon === 'project' ? openCreateProjectDialog() : primaryAction.action()"
-      >
-        <Wand2 v-if="primaryAction.icon === 'script'" class="h-4 w-4" />
-        <FolderInput v-else class="h-4 w-4" />
-        {{ primaryAction.label }}
-      </Button>
-      </template>
     </AppPageHeader>
 
     <AppPageContent
@@ -474,13 +507,14 @@ async function handleDeleteTask(taskId: string) {
       </div>
 
       <Card class="flex flex-col overflow-hidden">
-        <CardHeader class="border-b pb-4">
-          <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <CardHeader class="border-b pb-3">
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div class="min-w-0">
-              <div v-if="selectedTask" class="text-sm text-muted-foreground">
-                当前状态：{{ currentStageLabel }}
+              <div v-if="selectedTask" class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                <span>{{ currentStageLabel }}</span>
                 <template v-if="selectedTask.status !== 'imported' && selectedTask.status !== 'failed' && selectedTask.status !== 'cancelled'">
-                  · 完成度 {{ selectedTask.progress }}%
+                  <span class="text-border">/</span>
+                  <span>完成度 {{ selectedTask.progress }}%</span>
                 </template>
               </div>
             </div>
@@ -532,6 +566,27 @@ async function handleDeleteTask(taskId: string) {
                 <RotateCcw class="h-4 w-4" />
                 重新导入
               </Button>
+            </div>
+          </div>
+
+          <div
+            v-if="selectedTask"
+            class="mt-4 flex flex-col gap-2 rounded-md border bg-muted/20 px-3 py-2.5 text-sm lg:flex-row lg:items-center lg:justify-between"
+          >
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
+              <Badge variant="secondary" class="shrink-0">
+                {{ selectedScriptParseModeLabel }}
+              </Badge>
+              <span class="truncate text-muted-foreground">
+                {{ selectedScriptParseModeDescription }}
+              </span>
+            </div>
+            <div class="flex shrink-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>{{ currentStageLabel }}</span>
+              <span class="text-border">/</span>
+              <span v-if="showSubtitleNextStep">{{ generateScriptActionLabel }}</span>
+              <span v-else-if="showScriptNextStep">确认并创建项目</span>
+              <span v-else>{{ selectedTask.progress }}%</span>
             </div>
           </div>
 
@@ -595,10 +650,15 @@ async function handleDeleteTask(taskId: string) {
 
           <section v-show="contentView === 'subtitle'" class="flex flex-1 flex-col gap-3">
             <div class="flex items-center justify-between gap-3">
-              <h2 class="text-sm font-medium text-muted-foreground">
-                字幕内容
-                <span v-if="!canEditSubtitle" class="ml-2 text-xs">(只读)</span>
-              </h2>
+              <div>
+                <h2 class="text-sm font-medium text-muted-foreground">
+                  字幕内容
+                  <span v-if="!canEditSubtitle" class="ml-2 text-xs">(只读)</span>
+                </h2>
+                <p v-if="showSubtitleNextStep" class="mt-1 text-xs text-muted-foreground">
+                  {{ subtitleNextStepText }}
+                </p>
+              </div>
               <div class="flex gap-2">
                 <Button
                   v-if="subtitleHasChanges && canEditSubtitle"
@@ -611,6 +671,16 @@ async function handleDeleteTask(taskId: string) {
                   <Save class="h-4 w-4" />
                   保存修改
                 </Button>
+                <Button
+                  v-if="showSubtitleNextStep && primaryAction"
+                  size="sm"
+                  class="gap-2"
+                  :disabled="primaryAction.disabled"
+                  @click="primaryAction.action()"
+                >
+                  <Wand2 class="h-4 w-4" />
+                  {{ primaryAction.label }}
+                </Button>
               </div>
             </div>
             <div class="relative flex-1">
@@ -619,17 +689,22 @@ async function handleDeleteTask(taskId: string) {
                 class="min-h-[420px] w-full resize-y rounded-md border font-mono text-sm leading-6"
                 :class="canEditSubtitle ? 'border-primary/50 ring-1 ring-primary/20' : 'bg-muted/30'"
                 :disabled="!canEditSubtitle"
-                placeholder="识别完成后将显示字幕内容，你可以在此编辑修正"
+                :placeholder="`识别完成后将显示字幕内容，你可以在此编辑修正。当前内容类型：${selectedScriptParseModeLabel}`"
               />
             </div>
           </section>
 
           <section v-show="contentView === 'script'" class="flex flex-1 flex-col gap-3">
             <div class="flex items-center justify-between gap-3">
-              <h2 class="text-sm font-medium text-muted-foreground">
-                剧本内容
-                <span v-if="!canEditScript" class="ml-2 text-xs">(只读)</span>
-              </h2>
+              <div>
+                <h2 class="text-sm font-medium text-muted-foreground">
+                  {{ scriptContentLabel }}内容
+                  <span v-if="!canEditScript" class="ml-2 text-xs">(只读)</span>
+                </h2>
+                <p v-if="showScriptNextStep" class="mt-1 text-xs text-muted-foreground">
+                  {{ scriptNextStepText }}
+                </p>
+              </div>
               <div class="flex gap-2">
                 <Button
                   v-if="detectedRolePlaceholders.length > 0"
@@ -652,6 +727,16 @@ async function handleDeleteTask(taskId: string) {
                   <Save class="h-4 w-4" />
                   保存修改
                 </Button>
+                <Button
+                  v-if="showScriptNextStep && primaryAction"
+                  size="sm"
+                  class="gap-2"
+                  :disabled="primaryAction.disabled"
+                  @click="openCreateProjectDialog"
+                >
+                  <FolderInput class="h-4 w-4" />
+                  {{ primaryAction.label }}
+                </Button>
               </div>
             </div>
             <div class="relative flex-1">
@@ -660,7 +745,7 @@ async function handleDeleteTask(taskId: string) {
                 class="min-h-[520px] w-full resize-y rounded-md border font-mono text-sm leading-6"
                 :class="canEditScript ? 'border-primary/50 ring-1 ring-primary/20' : 'bg-muted/30'"
                 :disabled="!canEditScript"
-                placeholder="从字幕生成的剧本将显示在这里，确认无误后即可创建项目"
+                :placeholder="`从字幕生成的${scriptContentLabel}将显示在这里，确认无误后即可创建项目`"
               />
             </div>
           </section>
@@ -874,35 +959,42 @@ async function handleDeleteTask(taskId: string) {
         <DialogHeader>
           <DialogTitle>创建项目</DialogTitle>
           <DialogDescription>
-            确认项目名称、画幅和剧本类型后再创建项目。
+            确认项目名称和画幅后创建项目。内容类型沿用当前导入任务。
           </DialogDescription>
         </DialogHeader>
 
-        <div class="space-y-3 py-1">
+        <div class="space-y-4 py-1">
           <Input
             v-model="createProjectTitle"
             placeholder="项目标题（选填）"
           />
-          <div class="grid grid-cols-2 gap-2">
-            <Select v-model="createProjectAspectRatio">
-              <SelectTrigger>
-                <SelectValue placeholder="画幅" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="9:16">竖屏 9:16</SelectItem>
-                <SelectItem value="16:9">横屏 16:9</SelectItem>
-                <SelectItem value="1:1">方形 1:1</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select v-model="createProjectScriptParseMode">
-              <SelectTrigger>
-                <SelectValue placeholder="剧本类型" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="short_drama">短剧</SelectItem>
-                <SelectItem value="premium_drama">精品剧</SelectItem>
-              </SelectContent>
-            </Select>
+
+          <div class="rounded-md border bg-muted/25 p-3">
+            <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <div class="grid gap-1.5">
+                <label class="text-xs font-medium text-muted-foreground">画幅</label>
+                <Select v-model="createProjectAspectRatio">
+                  <SelectTrigger class="bg-background">
+                    <SelectValue placeholder="画幅" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="9:16">竖屏 9:16</SelectItem>
+                    <SelectItem value="16:9">横屏 16:9</SelectItem>
+                    <SelectItem value="1:1">方形 1:1</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div class="grid gap-1.5 sm:min-w-[132px]">
+                <div class="text-xs font-medium text-muted-foreground">内容类型</div>
+                <div class="flex h-10 items-center rounded-md border bg-background px-3 text-sm font-medium text-foreground">
+                  {{ resolveScriptParseModeLabel(createProjectScriptParseMode) }}
+                </div>
+              </div>
+            </div>
+            <div class="mt-2 text-xs leading-5 text-muted-foreground">
+              {{ projectScriptParseModeOptions.find(option => option.value === createProjectScriptParseMode)?.description }}
+            </div>
           </div>
         </div>
 
@@ -911,7 +1003,11 @@ async function handleDeleteTask(taskId: string) {
             取消
           </Button>
           <Button :disabled="acting" @click="handleImport">
-            确认并创建项目
+            <Loader2
+              v-if="acting"
+              class="mr-2 h-4 w-4 animate-spin"
+            />
+            {{ acting ? '正在创建...' : '确认并创建项目' }}
           </Button>
         </DialogFooter>
       </DialogContent>

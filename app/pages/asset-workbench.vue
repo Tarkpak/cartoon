@@ -78,6 +78,7 @@ import {
 } from '~/lib/asset-workbench-scene-generation'
 import { uploadAssetImage, uploadImageFile } from '~/lib/asset-workbench-upload'
 import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
+import { resolveVideoWorkflowPreset } from '#shared/types/video-workflow'
 import {
   getBrowserNotificationStatus,
   requestBrowserNotificationPermission
@@ -290,6 +291,7 @@ const {
   selectedSceneId,
   selectedStyleId,
   projectStyleId,
+  scriptParseMode,
   supportsExplicitVoiceAudioReference,
   queueItems,
   resolveStyleById,
@@ -1019,6 +1021,7 @@ const {
   workflowStylePrompt,
   projectId,
   projectAspectRatio,
+  scriptParseMode,
   normalizeWorkflowText,
   resolveUiError,
   ensureSceneConfig,
@@ -1627,9 +1630,21 @@ async function handlePrepareEpisodePlan() {
     }
   }
   const prepared = await prepareEpisodePlanWithAssetHydration()
-  if (prepared) {
-    selectAutoStage('assets')
+  if (!prepared) return
+
+  if (scriptParseMode.value === 'origin_explainer') {
+    const episodeId = episodePlan.value[0]?.id?.trim()
+    if (!episodeId) {
+      selectAutoStage('parse')
+      return
+    }
+
+    await handleParseSingleEpisode({ id: episodeId })
+    selectAutoStage(scenes.value.length > 0 ? 'assets' : 'parse')
+    return
   }
+
+  selectAutoStage('assets')
 }
 
 async function handleParseSingleEpisode(payload: { id: string }) {
@@ -1674,6 +1689,7 @@ async function handleParseSingleEpisode(payload: { id: string }) {
 const autoStages = computed(() => {
   const videosDone = queueSummary.value.total > 0
     && queueSummary.value.done === queueSummary.value.total
+  const workflowPreset = resolveVideoWorkflowPreset(scriptParseMode.value)
 
   return buildAutoStages({
     hasScenes: scenes.value.length > 0,
@@ -1681,7 +1697,8 @@ const autoStages = computed(() => {
     videosDone,
     finalDone: !!finalVideo.value?.videoUrl,
     autoRunning: autoRunning.value,
-    autoRunCurrentStage: autoRunCurrentStage.value
+    autoRunCurrentStage: autoRunCurrentStage.value,
+    parseLabel: workflowPreset.id === 'origin_explainer' ? '镜头规划' : undefined
   })
 })
 
@@ -1689,6 +1706,9 @@ const stageHints = AUTO_STAGE_HINTS
 const parseStageHint = computed(() => {
   if (parsing.value && parseProgress.value.message) {
     return parseProgress.value.message
+  }
+  if (scriptParseMode.value === 'origin_explainer') {
+    return '输入科普主题后生成镜头规划入口，再按主题拆解为多镜头场景。'
   }
   return stageHints.parse
 })
@@ -3043,6 +3063,7 @@ async function handleBatchGenerateCharacters() {
       :project-description="projectDescription"
       :selected-style-id="selectedStyleId"
       :project-style-id="projectStyleId"
+      :script-parse-mode="scriptParseMode"
       :project-aspect-ratio="projectAspectRatio"
       :stages="autoStages"
       :active-stage="activeAutoStage"
@@ -3079,6 +3100,7 @@ async function handleBatchGenerateCharacters() {
           :prop-assets="propAssets"
           :auto-running="autoRunning"
           :auto-run-current-stage="autoRunCurrentStage"
+          :parse-stage-label="scriptParseMode === 'origin_explainer' ? '镜头规划' : '剧本解析'"
           :character-ready-count="characterReadyCount"
           :character-generating-count="characterGeneratingCount"
           :character-missing-count="characterMissingCount"
@@ -3136,6 +3158,7 @@ async function handleBatchGenerateCharacters() {
           v-else
           key="videos-stage"
           :scenes="scenes"
+          :script-parse-mode="scriptParseMode"
           :episode-plan="episodePlan"
           :episode-overviews="episodeOverviewById"
           :selected-scene-id="selectedSceneId"

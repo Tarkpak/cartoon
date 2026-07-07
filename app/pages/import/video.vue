@@ -8,7 +8,9 @@ import {
   Trash2,
   Upload
 } from 'lucide-vue-next'
+import type { ScriptParseMode } from '#shared/types/script'
 import { useVideoImport, type VideoImportConfig, type VideoImportSeriesPreview } from '@/composables/useVideoImport'
+import { projectScriptParseModeOptions } from '~/lib/projects-page'
 import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
@@ -37,6 +39,7 @@ const selectedFolder = ref<string | null>(null)
 const selectedSeriesPreview = ref<VideoImportSeriesPreview | null>(null)
 const previewingSeriesFolder = ref(false)
 const uploadMode = ref<'single' | 'series'>('series')
+const scriptParseMode = ref<ScriptParseMode>('short_drama')
 const selectedTaskIds = ref<Set<string>>(new Set())
 const showBatchActions = ref(false)
 let refreshTimer: number | null = null
@@ -122,7 +125,9 @@ async function handleSelectFolder() {
 }
 
 async function handleUpload() {
-  const config: VideoImportConfig = {}
+  const config: VideoImportConfig = {
+    scriptParseMode: scriptParseMode.value
+  }
 
   if (uploadMode.value === 'single') {
     if (!selectedFile.value) return
@@ -375,6 +380,24 @@ function formatSeconds(value?: number | null) {
                 </div>
               </div>
             </div>
+          </div>
+
+          <div class="grid gap-1.5">
+            <label class="text-xs font-medium text-muted-foreground">内容类型</label>
+            <Select v-model="scriptParseMode">
+              <SelectTrigger>
+                <SelectValue placeholder="内容类型" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="option in projectScriptParseModeOptions"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <Button

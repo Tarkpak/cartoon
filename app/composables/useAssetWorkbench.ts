@@ -6,6 +6,7 @@ import {
   DEFAULT_SCRIPT_PARSE_MODE,
   type ScriptParseMode
 } from '#shared/types/script'
+import { resolveVideoWorkflowPreset } from '#shared/types/video-workflow'
 import {
   createInitialAssetWorkbenchParseProgressState,
   useAssetWorkbenchGeneration
@@ -85,6 +86,9 @@ export function useAssetWorkbench() {
   })
 
   const currentStylePrompt = computed(() => {
+    const workflowPreset = resolveVideoWorkflowPreset(scriptParseMode.value)
+    if (workflowPreset.defaultStylePrompt) return workflowPreset.defaultStylePrompt
+
     const styleId = selectedStyleId.value || projectStyleId.value
     return formatWorkflowStylePrompt(styleId, resolveStyleById(styleId))
   })

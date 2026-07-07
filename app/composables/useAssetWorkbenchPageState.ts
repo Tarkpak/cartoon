@@ -1,6 +1,7 @@
 import { computed } from 'vue'
 import type { Ref } from 'vue'
-import { resolveTimeOfDayText } from '#shared/types/script'
+import { DEFAULT_SCRIPT_PARSE_MODE, resolveTimeOfDayText, type ScriptParseMode } from '#shared/types/script'
+import { resolveVideoWorkflowPreset } from '#shared/types/video-workflow'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
@@ -56,6 +57,7 @@ interface UseAssetWorkbenchPageStateOptions {
   selectedSceneId: Ref<string>
   selectedStyleId: Ref<string>
   projectStyleId: Ref<string>
+  scriptParseMode?: Ref<ScriptParseMode>
   supportsExplicitVoiceAudioReference: Ref<boolean>
   queueItems: Ref<QueueItem[]>
   resolveStyleById: (styleId: string) => {
@@ -250,6 +252,9 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
   })
 
   const workflowStylePrompt = computed(() => {
+    const workflowPreset = resolveVideoWorkflowPreset(options.scriptParseMode?.value || DEFAULT_SCRIPT_PARSE_MODE)
+    if (workflowPreset.defaultStylePrompt) return workflowPreset.defaultStylePrompt
+
     const styleId = options.selectedStyleId.value || options.projectStyleId.value
     return formatWorkflowStylePrompt(styleId, options.resolveStyleById(styleId))
   })

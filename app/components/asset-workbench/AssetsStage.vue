@@ -21,6 +21,7 @@ const props = defineProps<{
   propAssets: PropAsset[]
   autoRunning: boolean
   autoRunCurrentStage: AutoStageKey | null
+  parseStageLabel?: string
   characterReadyCount: number
   characterGeneratingCount: number
   characterMissingCount: number
@@ -117,7 +118,7 @@ const hasSeedAssets = computed(() => {
     class="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground"
   >
     <p class="text-sm">
-      请先完成"剧本解析"步骤
+      请先完成"{{ parseStageLabel || '剧本解析' }}"步骤
     </p>
   </div>
   <template v-else>

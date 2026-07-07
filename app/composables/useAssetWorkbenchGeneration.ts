@@ -396,6 +396,36 @@ export function useAssetWorkbenchGeneration(
   async function prepareEpisodePlan(): Promise<boolean> {
     if (!options.novelText.value.trim()) return false
 
+    if (options.scriptParseMode.value === 'origin_explainer') {
+      const normalizedText = normalizeScriptInputText(options.novelText.value)
+      const title = options.projectName.value && options.projectName.value !== '新项目'
+        ? options.projectName.value
+        : '科普拆解'
+      options.episodePlan.value = [{
+        id: 'episode_origin_explainer',
+        title,
+        index: 1,
+        startOffset: 0,
+        endOffset: normalizedText.length,
+        charCount: normalizedText.length,
+        episodeHook: '用多镜头视觉拆解讲清楚核心原理',
+        emotionalCurve: '结构出现 -> 能量或力进入 -> 关键变化 -> 输出结果',
+        episodeAssets: {
+          characters: [],
+          environments: [],
+          props: []
+        }
+      }]
+      await saveProjectOrThrow('科普拆解目录已创建')
+      options.parseProgress.value = {
+        ...createInitialAssetWorkbenchParseProgressState(),
+        step: 'episode-plan-completed',
+        message: '已创建科普拆解镜头规划入口',
+        progress: 100
+      }
+      return true
+    }
+
     options.parsing.value = true
     options.parseProgress.value = {
       ...createInitialAssetWorkbenchParseProgressState(),

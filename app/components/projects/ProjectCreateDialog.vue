@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-vue-next'
 import type { StyleCategoryInfo, StylePreset } from '#shared/types/styles'
 import type { ProjectAspectRatio, ProjectDraft } from '~/lib/projects-page'
 import type { ScriptParseMode } from '#shared/types/script'
+import { resolveVideoWorkflowPreset } from '#shared/types/video-workflow'
 import StyleSelector from '@/components/StyleSelector.vue'
 
 const props = defineProps<{
@@ -73,6 +74,9 @@ const isUsingDefaultStyle = computed(() => {
   const targetId = props.defaultStyleId?.trim()
   return !!targetId && props.newProject.styleId === targetId
 })
+
+const selectedWorkflowPreset = computed(() => resolveVideoWorkflowPreset(props.newProject.scriptParseMode))
+const hidesStylePicker = computed(() => selectedWorkflowPreset.value.stylePickerMode === 'hidden')
 
 function setAspectRatio(value: string) {
   updateNewProject({ aspectRatio: value as ProjectAspectRatio })
@@ -233,10 +237,14 @@ function applyDefaultStyle() {
         </Button>
         <Button
           v-if="createStep === 'basic'"
-          :disabled="!newProject.title.trim()"
+          :disabled="!newProject.title.trim() || creating"
           @click="$emit('next-step')"
         >
-          下一步：选择画风
+          <Loader2
+            v-if="creating && hidesStylePicker"
+            class="mr-2 h-4 w-4 animate-spin"
+          />
+          {{ hidesStylePicker ? '创建项目' : '下一步：选择画风' }}
         </Button>
         <Button
           v-else

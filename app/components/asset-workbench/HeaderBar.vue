@@ -1,21 +1,32 @@
 <script setup lang="ts">
 import { ArrowLeft } from 'lucide-vue-next'
+import type { ScriptParseMode } from '#shared/types/script'
+import { resolveVideoWorkflowPreset } from '#shared/types/video-workflow'
 import type {
   AutoStageKey,
   AutoStageStatus
 } from '~/lib/asset-workbench-types'
 
-defineProps<{
+const props = defineProps<{
   projectName: string
   projectDescription: string
   selectedStyleId: string
   projectStyleId: string
+  scriptParseMode: ScriptParseMode
   projectAspectRatio: string
   stages: Array<{ key: AutoStageKey, label: string, status: AutoStageStatus }>
   activeStage: AutoStageKey
   autoRunError?: string | null
   saveError?: string | null
 }>()
+
+const workflowPreset = computed(() => resolveVideoWorkflowPreset(props.scriptParseMode))
+const styleSummary = computed(() => {
+  if (workflowPreset.value.stylePickerMode === 'hidden') {
+    return `视觉风格 ${workflowPreset.value.name}默认`
+  }
+  return `画风 ${props.selectedStyleId || props.projectStyleId || '未选择'}`
+})
 
 const emit = defineEmits<{
   (e: 'back'): void
@@ -47,7 +58,7 @@ const emit = defineEmits<{
           >{{ projectDescription }}</span>
           <span class="inline-flex items-center gap-1">
             <span class="inline-block h-1 w-1 rounded-full bg-muted-foreground/40" />
-            画风 {{ selectedStyleId || projectStyleId || '未选择' }}
+            {{ styleSummary }}
           </span>
           <span class="inline-flex items-center gap-1">
             <span class="inline-block h-1 w-1 rounded-full bg-muted-foreground/40" />

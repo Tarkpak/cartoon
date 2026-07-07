@@ -41,11 +41,12 @@ export function buildAutoStages(options: {
   finalDone: boolean
   autoRunning: boolean
   autoRunCurrentStage: AutoStageKey | null
+  parseLabel?: string
 }): Array<{ key: AutoStageKey, label: string, status: AutoStageStatus }> {
   return [
     {
       key: 'parse',
-      label: '剧本解析',
+      label: options.parseLabel || '剧本解析',
       status: resolveAutoStageStatus({
         key: 'parse',
         done: options.hasScenes,

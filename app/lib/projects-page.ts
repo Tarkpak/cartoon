@@ -2,6 +2,7 @@ import {
   DEFAULT_SCRIPT_PARSE_MODE,
   type ScriptParseMode
 } from '#shared/types/script'
+import { VIDEO_WORKFLOW_PRESETS } from '#shared/types/video-workflow'
 
 export type ProjectStatusFilter = 'all' | 'in_progress' | 'completed' | 'draft'
 export type ProjectSortBy = 'updated' | 'created' | 'name'
@@ -47,10 +48,11 @@ export const projectAspectRatioOptions = [
   { value: '1:1', label: '1:1 方形', description: '适合社交媒体' }
 ] as const
 
-export const projectScriptParseModeOptions = [
-  { value: 'short_drama', label: '短剧', description: '短剧强节奏结构，优先钩子、暴击与反击预告。' },
-  { value: 'premium_drama', label: '精品剧', description: '忠实还原原文，按剧情密度自然拆场。' }
-] as const satisfies ReadonlyArray<{
+export const projectScriptParseModeOptions = VIDEO_WORKFLOW_PRESETS.map(preset => ({
+  value: preset.id,
+  label: preset.name,
+  description: preset.description
+})) satisfies ReadonlyArray<{
   value: ScriptParseMode
   label: string
   description: string

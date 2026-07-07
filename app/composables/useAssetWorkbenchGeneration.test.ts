@@ -59,6 +59,7 @@ function createGeneration(initialNovelText = '测试剧本正文') {
   return {
     generation,
     novelText,
+    scriptParseMode,
     scenes,
     episodePlan,
     onModelTaskCompleted
@@ -108,6 +109,27 @@ describe('useAssetWorkbenchGeneration', () => {
     const success = await generation.prepareEpisodePlan()
 
     expect(success).toBe(false)
+    expect(onModelTaskCompleted).not.toHaveBeenCalled()
+  })
+
+  it('creates a single local planning episode for origin explainer projects', async () => {
+    const { generation, scriptParseMode, episodePlan, onModelTaskCompleted } = createGeneration('四冲程发动机工作原理')
+    scriptParseMode.value = 'origin_explainer'
+
+    const success = await generation.prepareEpisodePlan()
+
+    expect(success).toBe(true)
+    expect(prepareEpisodePlanMock).not.toHaveBeenCalled()
+    expect(episodePlan.value).toEqual([
+      expect.objectContaining({
+        id: 'episode_origin_explainer',
+        title: '科普拆解',
+        index: 1,
+        startOffset: 0,
+        endOffset: 10,
+        charCount: 10
+      })
+    ])
     expect(onModelTaskCompleted).not.toHaveBeenCalled()
   })
 
