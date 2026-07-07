@@ -549,12 +549,50 @@ async fn upload_media_bytes_to_tos_async(
     filename: String,
     bytes: Vec<u8>,
 ) -> Result<Option<String>, ApiError> {
-    tokio::task::spawn_blocking(move || upload_media_bytes_to_tos(category, &filename, &bytes))
+    run_tos_sdk_on_dedicated_thread("upload", move || {
+        upload_media_bytes_to_tos(category, &filename, &bytes)
+    })
+    .await
+}
+
+async fn delete_backend_tos_object_async(object_key: String) -> Result<(), ApiError> {
+    run_tos_sdk_on_dedicated_thread("delete", move || delete_backend_tos_object(&object_key)).await
+}
+
+async fn run_tos_sdk_on_dedicated_thread<T, F>(
+    operation: &'static str,
+    task: F,
+) -> Result<T, ApiError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, ApiError> + Send + 'static,
+{
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name(format!("tos-{operation}"))
+        .spawn(move || {
+            let result = task();
+            let _ = sender.send(result);
+        })
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("启动 TOS {operation} 线程失败: {}", error),
+            )
+        })?;
+
+    tokio::task::spawn_blocking(move || receiver.recv())
         .await
         .map_err(|error| {
             ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("等待 TOS 上传任务失败: {}", error),
+                format!("等待 TOS {operation} 任务失败: {}", error),
+            )
+        })?
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("TOS {operation} 线程未返回结果: {}", error),
             )
         })?
 }
@@ -1719,15 +1757,7 @@ pub(super) async fn api_tools_image_enhance_delete_asset(
             ApiError::new(StatusCode::NOT_FOUND, "任务文件不存在或未记录 TOS 对象路径")
         })?;
 
-    let delete_key = object_key.clone();
-    tokio::task::spawn_blocking(move || delete_backend_tos_object(&delete_key))
-        .await
-        .map_err(|error| {
-            ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("等待 TOS 删除任务失败: {}", error),
-            )
-        })??;
+    delete_backend_tos_object_async(object_key.clone()).await?;
 
     let now = now_iso();
     if asset == "source" {
@@ -2364,15 +2394,7 @@ pub(super) async fn api_tools_video_enhance_delete_asset(
             ApiError::new(StatusCode::NOT_FOUND, "任务文件不存在或未记录 TOS 对象路径")
         })?;
 
-    let delete_key = object_key.clone();
-    tokio::task::spawn_blocking(move || delete_backend_tos_object(&delete_key))
-        .await
-        .map_err(|error| {
-            ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("等待 TOS 删除任务失败: {}", error),
-            )
-        })??;
+    delete_backend_tos_object_async(object_key.clone()).await?;
 
     let now = now_iso();
     if asset == "source" {
