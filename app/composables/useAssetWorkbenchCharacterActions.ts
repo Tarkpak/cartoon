@@ -1,4 +1,6 @@
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
+import type { SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
+import { invalidateSceneGenerationState } from '~/lib/asset-workbench-scenes'
 import { normalizeToken } from '~/lib/asset-workbench-strings'
 
 interface CharacterGenerationOptions {
@@ -9,7 +11,10 @@ interface CharacterGenerationOptions {
 export function useAssetWorkbenchCharacterActions(options: {
   characters: Ref<CharacterData[]>
   scenes: Ref<SceneData[]>
+  sceneConfigs?: Ref<Record<string, SceneConsistencyConfig>>
   saveProject: () => Promise<unknown>
+  saveWorkflowMeta?: () => Promise<unknown>
+  synchronizeQueueItems?: () => void
   generateCharacter: (
     character: CharacterData,
     options?: CharacterGenerationOptions
@@ -252,6 +257,21 @@ export function useAssetWorkbenchCharacterActions(options: {
     })
     if (!confirmed) return
 
+    const fullAssetId = `char:${characterId}`
+    let affectedSceneCount = 0
+    if (options.sceneConfigs) {
+      for (const scene of options.scenes.value) {
+        const config = options.sceneConfigs.value[scene.id]
+        if (!config?.mustReferenceAssetIds?.includes(fullAssetId)) continue
+        config.mustReferenceAssetIds = config.mustReferenceAssetIds.filter(assetId => assetId !== fullAssetId)
+        affectedSceneCount += 1
+        invalidateSceneGenerationState(scene)
+      }
+      if (affectedSceneCount > 0) {
+        options.synchronizeQueueItems?.()
+      }
+    }
+
     options.characters.value = options.characters.value.filter(character => character.id !== characterId)
     if (editingCharacterId.value === characterId) {
       cancelEditCharacter()
@@ -262,7 +282,12 @@ export function useAssetWorkbenchCharacterActions(options: {
       toast.error('角色变体已删除，但项目保存失败')
       return
     }
-    toast.success(`已删除角色变体：${target.name}`)
+    if (affectedSceneCount > 0) {
+      await options.saveWorkflowMeta?.()
+    }
+    toast.success(`已删除角色变体：${target.name}`, {
+      description: affectedSceneCount > 0 ? `已同步移除 ${affectedSceneCount} 个场景中的引用。` : undefined
+    })
   }
 
   async function saveCharacterEdit(saveOptions: { regenerate?: boolean } = {}) {

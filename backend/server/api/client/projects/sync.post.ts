@@ -6,6 +6,7 @@ import { optionalJson, optionalString } from '../../../utils/http'
 
 interface ProjectPayload {
   id?: string
+  force?: boolean
   localProjectId?: string
   name?: string
   title?: string
@@ -81,9 +82,10 @@ export default defineEventHandler(async (event) => {
       const existing = selectProject.get(auth.user.id, localProjectId) as { id: string, local_updated_at: string | null } | undefined
       const projectId = existing?.id || randomUUID()
       const snapshot = optionalJson(project.snapshot) ?? project
+      const force = project.force === true
       const localCreatedAt = optionalString(project.localCreatedAt || project.local_created_at || project.createdAt || project.created_at, 64)
       const localUpdatedAt = optionalString(project.localUpdatedAt || project.local_updated_at || project.updatedAt || project.updated_at, 64)
-      if (existing?.local_updated_at && localUpdatedAt && localUpdatedAt < existing.local_updated_at) {
+      if (!force && existing?.local_updated_at && localUpdatedAt && localUpdatedAt < existing.local_updated_at) {
         result.push({
           localProjectId,
           projectId,

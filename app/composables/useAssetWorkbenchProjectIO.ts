@@ -372,10 +372,21 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         return true
       }
 
-      await $fetch(`/api/project/${id}`, {
+      const saveResponse = await $fetch<{
+        success?: boolean
+        cloudSync?: {
+          status?: string
+          message?: string
+          reason?: string
+        }
+      }>(`/api/project/${id}`, {
         method: 'PUT',
         body: saveBody
       })
+      if (saveResponse.cloudSync?.status === 'error') {
+        saveError.value = `本地已保存，但云端同步失败：${saveResponse.cloudSync.message || saveResponse.cloudSync.reason || '未知错误'}`
+        return false
+      }
       lastSavedProjectSnapshot = nextSnapshot
       return true
     } catch (error) {

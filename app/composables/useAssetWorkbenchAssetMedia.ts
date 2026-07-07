@@ -256,14 +256,21 @@ export function useAssetWorkbenchAssetMedia(options: {
     }
   }
 
-  async function ingestCharacterToArkVirtualAsset(characterId: string) {
+  async function ingestCharacterToArkVirtualAsset(
+    characterId: string,
+    ingestOptions: {
+      silent?: boolean
+    } = {}
+  ) {
     const target = options.characters.value.find(char => char.id === characterId)
     if (!target) return
 
     const { toast } = useToast()
     const source = target.baseImage?.trim()
     if (!source) {
-      toast.warning('请先生成或上传角色图')
+      if (!ingestOptions.silent) {
+        toast.warning('请先生成或上传角色图')
+      }
       return
     }
 
@@ -271,8 +278,12 @@ export function useAssetWorkbenchAssetMedia(options: {
     options.statusError.value = null
 
     const previous = target.arkAsset
+    const parentArkAsset = target.parentCharacterId
+      ? options.characters.value.find(char => char.id === target.parentCharacterId)?.arkAsset
+      : undefined
+    const arkTemplate = previous || parentArkAsset
     try {
-      const projectName = previous?.projectName || 'default'
+      const projectName = arkTemplate?.projectName || 'default'
       const groupId = await resolveProjectArkVirtualAssetGroupId(projectName)
 
       target.arkAsset = {
@@ -316,11 +327,17 @@ export function useAssetWorkbenchAssetMedia(options: {
       await options.saveProject()
 
       if (polled.asset.status === 'Active') {
-        toast.success('虚拟人像已入库，可用于 Seedance 生成')
+        if (!ingestOptions.silent) {
+          toast.success('虚拟人像已入库，可用于 Seedance 生成')
+        }
       } else if (polled.asset.status === 'Failed') {
-        toast.error('虚拟人像入库失败', { description: '请检查素材合规性或稍后重试。' })
+        if (!ingestOptions.silent) {
+          toast.error('虚拟人像入库失败', { description: '请检查素材合规性或稍后重试。' })
+        }
       } else if (polled.timeout) {
-        toast.warning('虚拟人像仍在处理中', { description: '稍后可再次点击查询或重新入库。' })
+        if (!ingestOptions.silent) {
+          toast.warning('虚拟人像仍在处理中', { description: '稍后可再次点击查询或重新入库。' })
+        }
       }
     } catch (error) {
       const message = options.resolveUiError(error, '虚拟人像入库失败')

@@ -880,6 +880,13 @@ async function generateCharacter(
   if (options.persistHistory !== false) {
     await saveWorkflowMeta()
   }
+
+  const parentCharacter = character.parentCharacterId
+    ? characters.value.find(item => item.id === character.parentCharacterId)
+    : undefined
+  if (parentCharacter?.arkAsset?.status === 'Active') {
+    await ingestCharacterToArkVirtualAsset(character.id, { silent: true })
+  }
 }
 
 async function batchGenerateCharacters(
@@ -949,7 +956,10 @@ const {
 } = useAssetWorkbenchCharacterActions({
   characters,
   scenes,
+  sceneConfigs,
   saveProject,
+  saveWorkflowMeta,
+  synchronizeQueueItems,
   generateCharacter,
   resolveUiError
 })

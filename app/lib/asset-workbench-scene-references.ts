@@ -27,6 +27,8 @@ function buildMentionableSceneAssets(
       name: character.name || '角色',
       type: 'character' as const,
       referenceImage: character.baseImage,
+      characterParentId: character.parentCharacterId,
+      characterVariantName: character.variantName,
       arkAssetId: character.arkAsset?.status === 'Active' ? character.arkAsset.assetId : undefined,
       arkAssetStatus: character.arkAsset?.status
     })),

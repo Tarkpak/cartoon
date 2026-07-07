@@ -193,6 +193,8 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
       type: 'character' as const,
       description: char.appearance,
       referenceImage: char.baseImage,
+      characterParentId: char.parentCharacterId,
+      characterVariantName: char.variantName,
       arkAssetId: char.arkAsset?.status === 'Active' ? char.arkAsset.assetId : undefined,
       arkAssetStatus: char.arkAsset?.status,
       assetHistory: char.assetHistory

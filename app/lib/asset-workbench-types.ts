@@ -102,6 +102,8 @@ export interface DisplayAsset {
   type: 'character' | 'environment' | 'prop' | 'other'
   description?: string
   referenceImage?: string
+  characterParentId?: string
+  characterVariantName?: string
   arkAssetId?: string
   arkAssetStatus?: ArkVirtualAssetStatus
   assetHistory?: AssetImageHistoryEntry[]

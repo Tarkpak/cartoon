@@ -116,7 +116,12 @@ pub(super) async fn api_tools_short_video_history_get(
         .and_then(|value| value.get("items"))
         .and_then(Value::as_array)
     {
-        items.extend(douyin_items.iter().cloned().map(normalize_douyin_history_item));
+        items.extend(
+            douyin_items
+                .iter()
+                .cloned()
+                .map(normalize_douyin_history_item),
+        );
     }
 
     if let Some(wx_items) = wx_payload
@@ -124,7 +129,12 @@ pub(super) async fn api_tools_short_video_history_get(
         .and_then(|value| value.get("items"))
         .and_then(Value::as_array)
     {
-        items.extend(wx_items.iter().cloned().map(normalize_wx_channels_history_item));
+        items.extend(
+            wx_items
+                .iter()
+                .cloned()
+                .map(normalize_wx_channels_history_item),
+        );
     }
 
     items.sort_by(|left, right| {
@@ -213,7 +223,8 @@ fn normalize_wx_channels_download(data: Value, source_url: &str) -> Value {
 }
 
 fn normalize_douyin_history_item(item: Value) -> Value {
-    let profile = normalize_douyin_profile(item.get("profile").cloned().unwrap_or_else(|| json!({})));
+    let profile =
+        normalize_douyin_profile(item.get("profile").cloned().unwrap_or_else(|| json!({})));
     json!({
       "id": value_string(&item, "id"),
       "platform": ShortVideoPlatform::Douyin.as_str(),

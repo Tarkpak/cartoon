@@ -90,8 +90,7 @@ pub(super) async fn api_tools_wx_channels_download(
         size_bytes: file_size,
     };
     let conn = db_connection(&state)?;
-    let history_id =
-        upsert_wx_channels_history(&conn, &share_url, &profile, Some(&download))?;
+    let history_id = upsert_wx_channels_history(&conn, &share_url, &profile, Some(&download))?;
 
     Ok(Json(json!({
       "success": true,
@@ -138,11 +137,17 @@ pub(super) async fn api_tools_wx_channels_history_delete(
 ) -> Result<Json<Value>, ApiError> {
     let target = id.trim();
     if target.is_empty() {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "历史记录 ID 不能为空"));
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "历史记录 ID 不能为空",
+        ));
     }
     let conn = db_connection(&state)?;
-    conn.execute("DELETE FROM wx_channels_history WHERE id = ?1", params![target])
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    conn.execute(
+        "DELETE FROM wx_channels_history WHERE id = ?1",
+        params![target],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(Json(json!({ "success": true })))
 }
 

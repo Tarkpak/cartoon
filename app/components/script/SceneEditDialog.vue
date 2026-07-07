@@ -15,6 +15,7 @@ import {
 } from '~/lib/scene-edit-dialog'
 import { resetFileInput } from '~/lib/asset-workbench-upload'
 import { resolveChatUploadAssetName } from '~/lib/asset-workbench-scene-chat'
+import { toImageSrc } from '~/lib/media'
 
 const props = defineProps<{
   open: boolean
@@ -54,6 +55,7 @@ const sceneAssetNameDialogOpen = ref(false)
 const sceneAssetPendingFiles = ref<File[]>([])
 const sceneAssetPendingNames = ref<string[]>([])
 const uploadedAssetReferenceOptions = ref<AssetReferenceOption[]>([])
+const AUTO_CHARACTER_STATE_VALUE = '__auto__'
 
 const dialogOpen = toRef(props, 'open')
 
@@ -62,6 +64,101 @@ const assetReferenceOptions = computed<AssetReferenceOption[]>(() => {
     uploadedAssetReferenceOptions.value,
     Array.isArray(props.assetReferenceOptions) ? props.assetReferenceOptions : []
   )
+})
+
+function normalizeCharacterStateName(value?: string): string {
+  return (value || '').trim().toLowerCase().replace(/[\s\r\n\t/／·・-]+/g, '')
+}
+
+function resolveRawCharacterAssetId(assetId: string): string {
+  return assetId.startsWith('char:') ? assetId.slice('char:'.length) : assetId
+}
+
+const characterStateGroups = computed(() => {
+  const characterAssets = assetReferenceOptions.value.filter(asset => asset.type === 'character')
+  const rootAssets = characterAssets.filter(asset => !asset.characterParentId)
+  const rootAssetByRawId = new Map(rootAssets.map(asset => [resolveRawCharacterAssetId(asset.id), asset] as const))
+  const variantsByParentId = new Map<string, AssetReferenceOption[]>()
+
+  for (const asset of characterAssets) {
+    if (!asset.characterParentId) continue
+    const variants = variantsByParentId.get(asset.characterParentId) || []
+    variants.push(asset)
+    variantsByParentId.set(asset.characterParentId, variants)
+  }
+
+  return rootAssets.map((rootAsset) => {
+    const rootId = resolveRawCharacterAssetId(rootAsset.id)
+    const variants = (variantsByParentId.get(rootId) || [])
+      .slice()
+      .sort((left, right) => (left.characterVariantName || left.name).localeCompare(right.characterVariantName || right.name, 'zh-CN'))
+    return {
+      root: rootAssetByRawId.get(rootId) || rootAsset,
+      assetIds: [rootAsset.id, ...variants.map(variant => variant.id)],
+      options: [
+        {
+          asset: rootAsset,
+          label: '默认形态'
+        },
+        ...variants.map(variant => ({
+          asset: variant,
+          label: variant.characterVariantName || variant.name
+        }))
+      ]
+    }
+  })
+})
+
+const sceneCharacterStateRows = computed(() => {
+  const selectedIds = new Set(selectedAssetReferenceIdsInternal.value)
+  const normalizedSceneNames = editForm.value.characters
+    .map(character => normalizeCharacterStateName(character.name))
+    .filter(Boolean)
+  const sceneNameSet = new Set(normalizedSceneNames)
+  const includedRootIds = new Set<string>()
+  const rows: Array<{
+    key: string
+    sceneName: string
+    root: AssetReferenceOption
+    options: Array<{ asset: AssetReferenceOption, label: string }>
+    selectedValue: string
+  }> = []
+
+  for (const group of characterStateGroups.value) {
+    const rootName = normalizeCharacterStateName(group.root.name)
+    const selectedInGroup = group.assetIds.find(assetId => selectedIds.has(assetId))
+    const appearsInScene = !!rootName && Array.from(sceneNameSet).some((sceneName) => {
+      return sceneName === rootName || sceneName.includes(rootName) || rootName.includes(sceneName)
+    })
+
+    if (!appearsInScene && !selectedInGroup) continue
+
+    const rootRawId = resolveRawCharacterAssetId(group.root.id)
+    includedRootIds.add(rootRawId)
+    rows.push({
+      key: rootRawId,
+      sceneName: group.root.name,
+      root: group.root,
+      options: group.options,
+      selectedValue: selectedInGroup || AUTO_CHARACTER_STATE_VALUE
+    })
+  }
+
+  for (const group of characterStateGroups.value) {
+    const rootRawId = resolveRawCharacterAssetId(group.root.id)
+    if (includedRootIds.has(rootRawId)) continue
+    const hasVariant = group.options.length > 1
+    if (!hasVariant) continue
+    rows.push({
+      key: rootRawId,
+      sceneName: group.root.name,
+      root: group.root,
+      options: group.options,
+      selectedValue: AUTO_CHARACTER_STATE_VALUE
+    })
+  }
+
+  return rows
 })
 
 const sceneDescription = computed({
@@ -185,6 +282,18 @@ function handleSave() {
     })
   }
   emit('update:open', false)
+}
+
+function updateCharacterStateReference(rowKey: string, nextAssetId: string) {
+  const group = characterStateGroups.value.find(item => resolveRawCharacterAssetId(item.root.id) === rowKey)
+  if (!group) return
+
+  const groupAssetIds = new Set(group.assetIds)
+  const nextIds = selectedAssetReferenceIdsInternal.value.filter(assetId => !groupAssetIds.has(assetId))
+  if (nextAssetId && nextAssetId !== AUTO_CHARACTER_STATE_VALUE) {
+    nextIds.push(nextAssetId)
+  }
+  selectedAssetReferenceIdsInternal.value = uniqueValues(nextIds)
 }
 
 // 取消
@@ -395,6 +504,79 @@ function handleSceneAssetUpload(event: Event) {
           :handle-scene-description-blur="handleSceneDescriptionBlur"
           :handle-scene-description-keydown="handleSceneDescriptionKeydown"
         />
+
+        <div
+          v-if="sceneCharacterStateRows.length > 0"
+          class="space-y-3 rounded-lg border bg-muted/15 p-3"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <h4 class="text-sm font-medium">
+                角色状态
+              </h4>
+              <p class="mt-0.5 text-xs text-muted-foreground">
+                为本场景指定主角色或变体；保存后会作为分镜生成的角色引用。
+              </p>
+            </div>
+            <Badge
+              variant="outline"
+              class="text-xs"
+            >
+              {{ sceneCharacterStateRows.filter(row => row.selectedValue !== AUTO_CHARACTER_STATE_VALUE).length }} 已指定
+            </Badge>
+          </div>
+
+          <div class="space-y-2">
+            <div
+              v-for="row in sceneCharacterStateRows"
+              :key="`scene_character_state_${row.key}`"
+              class="flex items-center gap-3 rounded-md border bg-background px-2.5 py-2"
+            >
+              <img
+                v-if="row.root.referenceImage"
+                :src="toImageSrc(row.root.referenceImage)"
+                :alt="`${row.root.name} 角色图`"
+                class="h-10 w-10 shrink-0 rounded border object-cover"
+              >
+              <div
+                v-else
+                class="flex h-10 w-10 shrink-0 items-center justify-center rounded border bg-muted text-xs text-muted-foreground"
+              >
+                角色
+              </div>
+
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium">
+                  {{ row.sceneName }}
+                </p>
+                <p class="truncate text-xs text-muted-foreground">
+                  {{ row.root.description || '暂无角色描述' }}
+                </p>
+              </div>
+
+              <Select
+                :model-value="row.selectedValue"
+                @update:model-value="updateCharacterStateReference(row.key, String($event))"
+              >
+                <SelectTrigger class="h-8 w-[180px] text-xs">
+                  <SelectValue placeholder="选择角色状态" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem :value="AUTO_CHARACTER_STATE_VALUE">
+                    自动匹配
+                  </SelectItem>
+                  <SelectItem
+                    v-for="option in row.options"
+                    :key="option.asset.id"
+                    :value="option.asset.id"
+                  >
+                    {{ option.label }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
       </div>
 
       <DialogFooter class="flex-shrink-0">

@@ -6,7 +6,7 @@ use axum::routing::{any, delete, get, post, put};
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
-use chrono::Utc;
+use chrono::{SecondsFormat, Utc};
 use reqwest::Client;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
 use ring::agreement::{self, EphemeralPrivateKey, UnparsedPublicKey};
@@ -345,7 +345,7 @@ struct UpdateProfileBody {
 }
 
 fn now_iso() -> String {
-    Utc::now().to_rfc3339()
+    Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
 fn sanitize_rel_path(raw: &str) -> Option<String> {
@@ -6317,14 +6317,27 @@ async fn api_project_put_inner(
     }
 
     drop(conn);
+    let mut cloud_sync = json!({
+      "status": if options.skip_cloud_sync { "skipped" } else { "disabled" }
+    });
     if !options.skip_cloud_sync {
-        if let Err(error) = cloud_sync_project_by_id(&state, &id).await {
-            eprintln!("[CloudSync] project sync failed: {}", error.message);
+        match cloud_sync_project_by_id(&state, &id).await {
+            Ok(()) => {
+                cloud_sync = json!({ "status": "synced" });
+            }
+            Err(error) => {
+                eprintln!("[CloudSync] project sync failed: {}", error.message);
+                cloud_sync = json!({
+                  "status": "error",
+                  "message": error.message
+                });
+            }
         }
     }
 
     Ok(Json(json!({
-      "success": true
+      "success": true,
+      "cloudSync": cloud_sync
     })))
 }
 
@@ -9845,6 +9858,7 @@ async fn cloud_sync_project_by_id(state: &BackendState, project_id: &str) -> Res
         .unwrap_or_else(|| json!({}));
     let project = data.get("project").cloned().unwrap_or_else(|| json!({}));
     let body = json!({
+      "force": true,
       "localProjectId": project_id,
       "name": project.get("name").and_then(Value::as_str).unwrap_or("未命名项目"),
       "description": project.get("description").cloned().unwrap_or(Value::Null),
@@ -9862,9 +9876,56 @@ async fn cloud_sync_project_by_id(state: &BackendState, project_id: &str) -> Res
       },
       "snapshot": data
     });
-    cloud_post_client_json(state, "/api/client/projects/sync", body)
-        .await
-        .map(|_| ())
+    let response = cloud_post_client_json(state, "/api/client/projects/sync", body).await?;
+    ensure_cloud_project_sync_accepted(&response, project_id)
+}
+
+fn ensure_cloud_project_sync_accepted(response: &Value, project_id: &str) -> Result<(), ApiError> {
+    if response
+        .get("skipped")
+        .and_then(Value::as_str)
+        .is_some_and(|reason| {
+            reason == "cloud_not_configured" || reason == "cloud_not_authenticated"
+        })
+    {
+        return Ok(());
+    }
+
+    if response.get("success").and_then(Value::as_bool) == Some(false) {
+        return Err(ApiError::new(StatusCode::BAD_GATEWAY, "云端项目同步失败"));
+    }
+
+    let Some(items) = response
+        .get("data")
+        .and_then(|data| data.get("synced"))
+        .and_then(Value::as_array)
+    else {
+        return Ok(());
+    };
+
+    for item in items {
+        let local_project_id = item
+            .get("localProjectId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if local_project_id != project_id {
+            continue;
+        }
+        let status = item.get("status").and_then(Value::as_str).unwrap_or("");
+        if status == "synced" {
+            return Ok(());
+        }
+        let reason = item
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            format!("云端项目同步被跳过: {reason}"),
+        ));
+    }
+
+    Ok(())
 }
 
 async fn cloud_sync_prompt_state(state: &BackendState) -> Result<(), ApiError> {

@@ -48,7 +48,10 @@ pub(super) async fn api_tools_douyin_download(
 ) -> Result<Json<Value>, ApiError> {
     let profile = fetch_douyin_profile(&body.url).await?;
     if profile.video_url.trim().is_empty() {
-        return Err(ApiError::new(StatusCode::BAD_GATEWAY, "未获取到可下载视频地址"));
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "未获取到可下载视频地址",
+        ));
     }
 
     let dir = douyin_download_dir(&state);
@@ -106,10 +109,16 @@ pub(super) async fn api_tools_douyin_preview(
         .filter(|item| !item.is_empty())
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "url 不能为空"))?;
     if target.chars().count() > 4096 {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "url 不能超过 4096 个字符"));
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "url 不能超过 4096 个字符",
+        ));
     }
     if !(target.starts_with("https://") || target.starts_with("http://")) {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "仅支持 http/https 视频地址"));
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "仅支持 http/https 视频地址",
+        ));
     }
 
     let client = Client::builder()
@@ -129,10 +138,12 @@ pub(super) async fn api_tools_douyin_preview(
         request = request.header(reqwest::header::RANGE, range);
     }
 
-    let response = request
-        .send()
-        .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, format!("加载预览视频失败: {error}")))?;
+    let response = request.send().await.map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("加载预览视频失败: {error}"),
+        )
+    })?;
     let status = response.status();
     if !(status.is_success() || status == reqwest::StatusCode::PARTIAL_CONTENT) {
         return Err(ApiError::new(
@@ -141,22 +152,23 @@ pub(super) async fn api_tools_douyin_preview(
         ));
     }
     let upstream_headers = response.headers().clone();
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, format!("读取预览视频失败: {error}")))?;
-
-    let mut builder = Response::builder().status(
-        StatusCode::from_u16(status.as_u16())
-            .unwrap_or(if status == reqwest::StatusCode::PARTIAL_CONTENT {
-                StatusCode::PARTIAL_CONTENT
-            } else {
-                StatusCode::OK
-            }),
-    );
-    let response_headers = builder.headers_mut().ok_or_else(|| {
-        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "创建预览响应失败")
+    let bytes = response.bytes().await.map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("读取预览视频失败: {error}"),
+        )
     })?;
+
+    let mut builder = Response::builder().status(StatusCode::from_u16(status.as_u16()).unwrap_or(
+        if status == reqwest::StatusCode::PARTIAL_CONTENT {
+            StatusCode::PARTIAL_CONTENT
+        } else {
+            StatusCode::OK
+        },
+    ));
+    let response_headers = builder
+        .headers_mut()
+        .ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "创建预览响应失败"))?;
     response_headers.insert(
         header::CONTENT_TYPE,
         upstream_headers
@@ -217,7 +229,10 @@ pub(super) async fn api_tools_douyin_history_delete(
 ) -> Result<Json<Value>, ApiError> {
     let target = id.trim();
     if target.is_empty() {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "历史记录 ID 不能为空"));
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "历史记录 ID 不能为空",
+        ));
     }
     let conn = db_connection(&state)?;
     conn.execute("DELETE FROM douyin_history WHERE id = ?1", params![target])
@@ -230,9 +245,8 @@ fn douyin_download_dir(state: &BackendState) -> PathBuf {
 }
 
 async fn fetch_douyin_profile(input: &str) -> Result<DouyinProfile, ApiError> {
-    let url = extract_input_url(input).ok_or_else(|| {
-        ApiError::new(StatusCode::BAD_REQUEST, "请填写抖音分享链接或分享文案")
-    })?;
+    let url = extract_input_url(input)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请填写抖音分享链接或分享文案"))?;
     let real_url = if is_douyin_short_url(&url) {
         fetch_douyin_redirect_url(&url).await?
     } else {
@@ -244,7 +258,10 @@ async fn fetch_douyin_profile(input: &str) -> Result<DouyinProfile, ApiError> {
     }
     let aweme_id = extract_aweme_id(&real_url);
     if aweme_id.is_empty() {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "未识别到抖音视频 ID"));
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "未识别到抖音视频 ID",
+        ));
     }
 
     let ms_token = generate_ms_token(107);
@@ -267,17 +284,24 @@ async fn fetch_douyin_profile(input: &str) -> Result<DouyinProfile, ApiError> {
         .headers(douyin_headers(&referer, &ms_token)?)
         .send()
         .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, format!("请求抖音详情失败: {error}")))?;
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                format!("请求抖音详情失败: {error}"),
+            )
+        })?;
     if !response.status().is_success() {
         return Err(ApiError::new(
             StatusCode::BAD_GATEWAY,
             format!("抖音详情请求失败: HTTP {}", response.status()),
         ));
     }
-    let body = response
-        .json::<Value>()
-        .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, format!("解析抖音响应失败: {error}")))?;
+    let body = response.json::<Value>().await.map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("解析抖音响应失败: {error}"),
+        )
+    })?;
     let detail = body
         .get("aweme_detail")
         .filter(|value| value.is_object())
@@ -289,7 +313,10 @@ async fn fetch_douyin_profile(input: &str) -> Result<DouyinProfile, ApiError> {
         .to_string();
     let video_url = first_douyin_video_url(detail);
     if video_url.is_empty() {
-        return Err(ApiError::new(StatusCode::BAD_GATEWAY, "解析成功但没有可下载视频地址"));
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "解析成功但没有可下载视频地址",
+        ));
     }
     let cover_url = detail
         .get("video")
@@ -326,11 +353,18 @@ async fn fetch_douyin_redirect_url(url: &str) -> Result<String, ApiError> {
             .send()
             .await
             .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, format!("请求抖音短链失败: {error}")))?;
-        if let Some(location) = response.headers().get("location").and_then(|value| value.to_str().ok()) {
+        if let Some(location) = response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok())
+        {
             let next_url = absolutize_url(&current_url, location);
             let domain = url_domain(&next_url);
             if domain == "webcast.amemv.com" || next_url.contains("/webcast/") {
-                return Err(ApiError::new(StatusCode::BAD_REQUEST, "这是抖音直播链接，不是视频链接"));
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "这是抖音直播链接，不是视频链接",
+                ));
             }
             if domain == "www.douyin.com" || domain == "www.iesdouyin.com" {
                 return Ok(extract_douyin_video_address(&next_url));
@@ -346,7 +380,10 @@ async fn fetch_douyin_redirect_url(url: &str) -> Result<String, ApiError> {
         }
         break;
     }
-    Err(ApiError::new(StatusCode::BAD_GATEWAY, "无法获取抖音短链跳转地址"))
+    Err(ApiError::new(
+        StatusCode::BAD_GATEWAY,
+        "无法获取抖音短链跳转地址",
+    ))
 }
 
 async fn download_douyin_video(video_url: &str, target_path: &FsPath) -> Result<(), ApiError> {
@@ -360,7 +397,9 @@ async fn download_douyin_video(video_url: &str, target_path: &FsPath) -> Result<
         .header("Referer", "https://www.douyin.com/")
         .send()
         .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, format!("下载视频失败: {error}")))?;
+        .map_err(|error| {
+            ApiError::new(StatusCode::BAD_GATEWAY, format!("下载视频失败: {error}"))
+        })?;
     if !response.status().is_success() {
         return Err(ApiError::new(
             StatusCode::BAD_GATEWAY,
@@ -370,7 +409,10 @@ async fn download_douyin_video(video_url: &str, target_path: &FsPath) -> Result<
     let mut file = File::create(target_path)
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     while let Some(chunk) = response.chunk().await.map_err(|error| {
-        ApiError::new(StatusCode::BAD_GATEWAY, format!("读取视频数据失败: {error}"))
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("读取视频数据失败: {error}"),
+        )
     })? {
         file.write_all(&chunk)
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -384,13 +426,21 @@ fn douyin_headers(referer: &str, ms_token: &str) -> Result<ReqwestHeaderMap, Api
     header(&mut headers, "Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")?;
     header(&mut headers, "User-Agent", DOUYIN_USER_AGENT)?;
     header(&mut headers, "Referer", referer)?;
-    header(&mut headers, "sec-ch-ua", "\"Google Chrome\";v=\"123\", \"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"123\"")?;
+    header(
+        &mut headers,
+        "sec-ch-ua",
+        "\"Google Chrome\";v=\"123\", \"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"123\"",
+    )?;
     header(&mut headers, "sec-ch-ua-mobile", "?0")?;
     header(&mut headers, "sec-ch-ua-platform", "\"Windows\"")?;
     header(&mut headers, "Sec-Fetch-Site", "same-origin")?;
     header(&mut headers, "Sec-Fetch-Mode", "cors")?;
     header(&mut headers, "Sec-Fetch-Dest", "empty")?;
-    header(&mut headers, "Cookie", &format!("ttwid={}; msToken={}", DOUYIN_TTWID, ms_token))?;
+    header(
+        &mut headers,
+        "Cookie",
+        &format!("ttwid={}; msToken={}", DOUYIN_TTWID, ms_token),
+    )?;
     Ok(headers)
 }
 
@@ -413,7 +463,11 @@ fn extract_input_url(input: &str) -> Option<String> {
     let url = rest[..end]
         .trim_end_matches(|ch: char| ",，。！!?？;；:：'\"".contains(ch))
         .to_string();
-    if url.is_empty() { None } else { Some(url) }
+    if url.is_empty() {
+        None
+    } else {
+        Some(url)
+    }
 }
 
 fn is_cjk_or_fullwidth(ch: char) -> bool {
@@ -476,7 +530,12 @@ fn extract_aweme_id(url: &str) -> String {
             return pair[1].trim_end_matches('w').to_string();
         }
     }
-    parts.last().copied().unwrap_or("").trim_end_matches('w').to_string()
+    parts
+        .last()
+        .copied()
+        .unwrap_or("")
+        .trim_end_matches('w')
+        .to_string()
 }
 
 fn absolutize_url(current_url: &str, location: &str) -> String {
@@ -587,7 +646,11 @@ fn gener_random(random: u16, option: [u8; 2]) -> [u8; 4] {
     ]
 }
 
-fn generate_rc4_bb_bytes(url_search_params: &str, user_agent: &str, window_env_str: &str) -> Vec<u8> {
+fn generate_rc4_bb_bytes(
+    url_search_params: &str,
+    user_agent: &str,
+    window_env_str: &str,
+) -> Vec<u8> {
     let start_time = Utc::now().timestamp_millis();
     let url_hash_source = url_search_params.as_bytes_with_suffix("cus");
     let url_hash_once = sm3_sum(&url_hash_source);
@@ -635,15 +698,52 @@ fn generate_rc4_bb_bytes(url_search_params: &str, user_agent: &str, window_env_s
     b[64] = env.len() as u8;
     b[65] = (env.len() & 255) as u8;
     b[66] = ((env.len() >> 8) & 255) as u8;
-    b[72] = b[18] ^ b[20] ^ b[26] ^ b[30] ^ b[38] ^ b[40] ^ b[42] ^ b[21] ^ b[27]
-        ^ b[31] ^ b[35] ^ b[39] ^ b[41] ^ b[43] ^ b[22] ^ b[28] ^ b[32] ^ b[36]
-        ^ b[23] ^ b[29] ^ b[33] ^ b[37] ^ b[44] ^ b[45] ^ b[46] ^ b[47] ^ b[48]
-        ^ b[49] ^ b[50] ^ b[24] ^ b[25] ^ b[52] ^ b[53] ^ b[54] ^ b[55] ^ b[57]
-        ^ b[58] ^ b[59] ^ b[60] ^ b[65] ^ b[66] ^ b[70] ^ b[71];
+    b[72] = b[18]
+        ^ b[20]
+        ^ b[26]
+        ^ b[30]
+        ^ b[38]
+        ^ b[40]
+        ^ b[42]
+        ^ b[21]
+        ^ b[27]
+        ^ b[31]
+        ^ b[35]
+        ^ b[39]
+        ^ b[41]
+        ^ b[43]
+        ^ b[22]
+        ^ b[28]
+        ^ b[32]
+        ^ b[36]
+        ^ b[23]
+        ^ b[29]
+        ^ b[33]
+        ^ b[37]
+        ^ b[44]
+        ^ b[45]
+        ^ b[46]
+        ^ b[47]
+        ^ b[48]
+        ^ b[49]
+        ^ b[50]
+        ^ b[24]
+        ^ b[25]
+        ^ b[52]
+        ^ b[53]
+        ^ b[54]
+        ^ b[55]
+        ^ b[57]
+        ^ b[58]
+        ^ b[59]
+        ^ b[60]
+        ^ b[65]
+        ^ b[66]
+        ^ b[70]
+        ^ b[71];
     let order = [
-        18, 20, 52, 26, 30, 34, 58, 38, 40, 53, 42, 21, 27, 54, 55, 31, 35, 57, 39, 41, 43,
-        22, 28, 32, 60, 36, 23, 29, 33, 37, 44, 45, 59, 46, 47, 48, 49, 50, 24, 25, 65, 66,
-        70, 71,
+        18, 20, 52, 26, 30, 34, 58, 38, 40, 53, 42, 21, 27, 54, 55, 31, 35, 57, 39, 41, 43, 22, 28,
+        32, 60, 36, 23, 29, 33, 37, 44, 45, 59, 46, 47, 48, 49, 50, 24, 25, 65, 66, 70, 71,
     ];
     let mut bb: Vec<u8> = order.into_iter().map(|index| b[index]).collect();
     bb.extend(env);
@@ -807,10 +907,7 @@ fn sm3_compress(reg: &mut [u32; 8], block: &[u8]) {
             .wrapping_add(v[3])
             .wrapping_add(ss2)
             .wrapping_add(w[i + 68]);
-        let tt2 = gg
-            .wrapping_add(v[7])
-            .wrapping_add(ss1)
-            .wrapping_add(w[i]);
+        let tt2 = gg.wrapping_add(v[7]).wrapping_add(ss1).wrapping_add(w[i]);
         v[3] = v[2];
         v[2] = v[1].rotate_left(9);
         v[1] = v[0];
@@ -961,8 +1058,10 @@ fn unique_douyin_download_path(dir: &FsPath, raw_filename: &str) -> PathBuf {
 fn sanitize_filename(input: &str) -> String {
     let mut output = String::with_capacity(input.len().min(120));
     for ch in input.chars() {
-        if matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0')
-            || ch.is_control()
+        if matches!(
+            ch,
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0'
+        ) || ch.is_control()
         {
             output.push('_');
         } else {

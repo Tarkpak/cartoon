@@ -18,6 +18,11 @@ interface TextRange {
   end: number
 }
 
+interface InlineMentionAsset {
+  asset: DisplayAsset
+  name: string
+}
+
 function normalizeSceneDescriptionForDisplay(text: string): string {
   if (!text) return ''
   return text
@@ -209,12 +214,58 @@ function findNextAssetMentionMatch(
   }
 }
 
+function resolveConfiguredVariantParentAssetMap(options: {
+  assets: DisplayAsset[]
+  configAssetIds?: string[]
+}): Map<string, DisplayAsset> {
+  const configuredAssetIdSet = new Set(options.configAssetIds || [])
+  if (configuredAssetIdSet.size === 0) return new Map()
+
+  const assetById = new Map(options.assets.map(asset => [asset.id, asset] as const))
+  const variantByParentAssetId = new Map<string, DisplayAsset>()
+
+  for (const assetId of configuredAssetIdSet) {
+    const asset = assetById.get(assetId)
+    if (!asset || asset.type !== 'character' || !asset.characterParentId) continue
+
+    variantByParentAssetId.set(`char:${asset.characterParentId}`, asset)
+  }
+
+  return variantByParentAssetId
+}
+
+function resolveSceneDescriptionMentionAssetMap(options: {
+  assets: DisplayAsset[]
+  configAssetIds?: string[]
+}): Map<string, DisplayAsset> {
+  const mentionAssetMap = resolveAssetByMentionTokenMap(options.assets)
+  const configuredVariantByParentAssetId = resolveConfiguredVariantParentAssetMap(options)
+  if (configuredVariantByParentAssetId.size === 0) return mentionAssetMap
+
+  const mentionTokenByAssetId = new Map<string, string>()
+  for (const [token, asset] of mentionAssetMap) {
+    mentionTokenByAssetId.set(asset.id, token)
+  }
+
+  const next = new Map(mentionAssetMap)
+  for (const [parentAssetId, variantAsset] of configuredVariantByParentAssetId) {
+    const parentToken = mentionTokenByAssetId.get(parentAssetId)
+    if (parentToken) {
+      next.set(parentToken, variantAsset)
+    }
+  }
+
+  return next
+}
+
 function resolveSceneDescriptionInlineMentionAssets(options: {
   scene: SceneData
   assets: DisplayAsset[]
   configAssetIds?: string[]
   uniqueSorted: (values: string[]) => string[]
-}): DisplayAsset[] {
+}): InlineMentionAsset[] {
+  const assetById = new Map(options.assets.map(asset => [asset.id, asset] as const))
+  const configuredVariantByParentAssetId = resolveConfiguredVariantParentAssetMap(options)
   const assets = resolveSceneDescriptionMentionItems(options)
     .map(item => item.asset)
     .filter((asset): asset is DisplayAsset => {
@@ -222,19 +273,56 @@ function resolveSceneDescriptionInlineMentionAssets(options: {
         && asset.type !== 'environment'
         && !!asset.name?.trim()
     })
+  const mentionedAssetIdSet = new Set(assets.map(asset => asset.id))
+
+  const aliasedAssets: InlineMentionAsset[] = []
+  for (const asset of assets) {
+    const configuredVariant = configuredVariantByParentAssetId.get(asset.id)
+    if (configuredVariant) {
+      aliasedAssets.push({
+        asset: configuredVariant,
+        name: asset.name
+      })
+      continue
+    }
+
+    const parentAssetId = asset.characterParentId ? `char:${asset.characterParentId}` : ''
+    if (
+      parentAssetId
+      && !mentionedAssetIdSet.has(parentAssetId)
+      && configuredVariantByParentAssetId.get(parentAssetId)?.id === asset.id
+    ) {
+      const parentAsset = assetById.get(parentAssetId)
+      if (parentAsset?.name?.trim()) {
+        aliasedAssets.push({
+          asset,
+          name: parentAsset.name
+        })
+      }
+    }
+
+    aliasedAssets.push({
+      asset,
+      name: asset.name
+    })
+  }
 
   const nameCount = new Map<string, number>()
-  for (const asset of assets) {
-    const key = asset.name.trim()
+  for (const item of aliasedAssets) {
+    const key = item.name.trim()
     nameCount.set(key, (nameCount.get(key) || 0) + 1)
   }
 
-  const resolved = new Map<string, DisplayAsset>()
-  for (const asset of assets) {
-    const name = asset.name.trim()
+  const resolved = new Map<string, InlineMentionAsset>()
+  for (const item of aliasedAssets) {
+    const name = item.name.trim()
     if ((nameCount.get(name) || 0) > 1) continue
-    if (!resolved.has(asset.id)) {
-      resolved.set(asset.id, asset)
+    const key = `${item.asset.id}::${name}`
+    if (!resolved.has(key)) {
+      resolved.set(key, {
+        asset: item.asset,
+        name
+      })
     }
   }
 
@@ -247,13 +335,13 @@ export function resolveSceneDescriptionRenderSegments(options: {
   configAssetIds?: string[]
   uniqueSorted: (values: string[]) => string[]
 }): SceneDescriptionRenderSegment[] {
-  const mentionAssetMap = resolveAssetByMentionTokenMap(options.assets)
+  const mentionAssetMap = resolveSceneDescriptionMentionAssetMap(options)
   const inlineMentionAssets = resolveSceneDescriptionInlineMentionAssets(options)
     .slice()
     .sort((left, right) => right.name.length - left.name.length)
   const characterNames = inlineMentionAssets
-    .filter(asset => asset.type === 'character')
-    .map(asset => asset.name)
+    .filter(item => item.asset.type === 'character')
+    .map(item => item.name)
 
   const description = stripRedundantBracketedCharacterTags(
     normalizeSceneDescriptionForDisplay(
@@ -277,8 +365,8 @@ export function resolveSceneDescriptionRenderSegments(options: {
     let nextAsset: DisplayAsset | undefined = nextMentionMatch.asset
     let nextMatchLength = nextMentionMatch.token.length
 
-    for (const asset of inlineMentionAssets) {
-      const name = asset.name.trim()
+    for (const item of inlineMentionAssets) {
+      const name = item.name.trim()
       if (!name) continue
 
       const index = findNextCharacterMentionIndex(description, name, cursor, dialogueLikeRanges)
@@ -290,7 +378,7 @@ export function resolveSceneDescriptionRenderSegments(options: {
         || (index === nextMatchIndex && nextMatchLength < name.length)
       ) {
         nextMatchIndex = index
-        nextAsset = asset
+        nextAsset = item.asset
         nextMatchLength = name.length
       }
     }

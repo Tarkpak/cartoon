@@ -133,6 +133,7 @@ function resolveArkAssetLabel(char: CharacterData): string {
   if (!asset?.assetId && asset?.status !== 'Processing') return '未入库'
   if (asset.status === 'Active') return '已入库'
   if (asset.status === 'Failed') return '入库失败'
+  if (asset.status === 'Unknown') return '状态未知'
   return '入库处理中'
 }
 
@@ -141,6 +142,7 @@ function resolveArkAssetClass(char: CharacterData): string {
   if (status === 'Active') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (status === 'Failed') return 'border-destructive/25 bg-destructive/5 text-destructive'
   if (status === 'Processing') return 'border-blue-200 bg-blue-50 text-blue-700'
+  if (status === 'Unknown') return 'border-amber-200 bg-amber-50 text-amber-700'
   return 'border-dashed bg-muted/20 text-muted-foreground'
 }
 
@@ -184,6 +186,10 @@ function toggleVariantSection(characterId: string) {
 
 function resolveVariantReadyCount(variants: CharacterData[]): number {
   return variants.filter(variant => !!variant.baseImage).length
+}
+
+function resolveVariantArkReadyCount(variants: CharacterData[]): number {
+  return variants.filter(variant => variant.arkAsset?.status === 'Active').length
 }
 
 watch(
@@ -417,9 +423,17 @@ watch(
               class="h-3.5 w-3.5 shrink-0 text-muted-foreground"
             />
             <div class="min-w-0">
-              <p class="text-xs font-medium text-foreground">
-                角色变体
-              </p>
+              <div class="flex flex-wrap items-center gap-1.5">
+                <p class="text-xs font-medium text-foreground">
+                  角色变体
+                </p>
+                <span
+                  v-if="resolveVariantArkReadyCount(resolveCharacterVariants(char)) > 0"
+                  class="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700"
+                >
+                  {{ resolveVariantArkReadyCount(resolveCharacterVariants(char)) }} 已入库
+                </span>
+              </div>
               <p class="text-[11px] text-muted-foreground">
                 {{ resolveVariantReadyCount(resolveCharacterVariants(char)) }}/{{ resolveVariantCount(char) }} 已就绪
               </p>
@@ -447,6 +461,14 @@ watch(
                   class="absolute bottom-0.5 right-0.5 h-1.5 w-1.5 rounded-full ring-1 ring-card"
                   :class="resolveStatusColor(variant)"
                 />
+                <span
+                  v-if="variant.arkAsset?.status"
+                  class="absolute left-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full border bg-card shadow-sm"
+                  :class="resolveArkAssetClass(variant)"
+                  :title="`火山素材：${resolveArkAssetLabel(variant)}`"
+                >
+                  <Database class="h-3 w-3" />
+                </span>
               </div>
             </div>
             <span
@@ -515,15 +537,31 @@ watch(
                 </div>
 
                 <div class="min-w-0 flex-1">
-                  <div class="flex flex-wrap items-center gap-1.5">
-                    <span class="truncate text-xs font-medium">{{ variant.name }}</span>
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span class="truncate text-xs font-medium">{{ variant.name }}</span>
+                      <span
+                        v-if="variant.variantName"
+                        class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+                      >
+                        {{ variant.variantName }}
+                      </span>
+                      <span class="text-[11px] text-muted-foreground">{{ resolveStatusText(variant) }}</span>
+                    </div>
                     <span
-                      v-if="variant.variantName"
-                      class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+                      class="inline-flex max-w-[46%] shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] font-medium"
+                      :class="resolveArkAssetClass(variant)"
+                      :title="variant.arkAsset?.assetId || variant.arkAsset?.errorMessage || '未绑定虚拟人像'"
                     >
-                      {{ variant.variantName }}
+                      <Database class="h-3 w-3 shrink-0" />
+                      <span class="shrink-0">{{ resolveArkAssetLabel(variant) }}</span>
+                      <span
+                        v-if="variant.arkAsset?.assetId"
+                        class="max-w-[120px] truncate"
+                      >
+                        {{ variant.arkAsset.assetId }}
+                      </span>
                     </span>
-                    <span class="text-[11px] text-muted-foreground">{{ resolveStatusText(variant) }}</span>
                   </div>
 
                   <template v-if="editingCharacterId === variant.id">
@@ -641,7 +679,7 @@ watch(
                           v-else
                           class="mr-1 h-3 w-3"
                         />
-                        入库
+                        {{ variant.arkAsset?.status === 'Active' ? '重新入库' : '入库' }}
                       </Button>
                       <Button
                         size="sm"

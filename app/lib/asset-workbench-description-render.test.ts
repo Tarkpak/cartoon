@@ -150,4 +150,47 @@ describe('scene description render segments', () => {
       text: '0-3秒：对白：阿强：“快走，别回头。”'
     })
   })
+
+  it('renders the configured character variant when the description mentions the parent character name', () => {
+    const scene = createScene({
+      id: 'scene_4',
+      title: '电梯旁',
+      description: '阿强站在电梯旁，低头整理沾灰的外套。\n\n[引用资产]\n@阿强'
+    })
+    const assets: DisplayAsset[] = [
+      {
+        id: 'char:char_parent',
+        name: '阿强',
+        type: 'character',
+        referenceImage: 'parent.png'
+      },
+      {
+        id: 'char:char_variant',
+        name: '阿强-战损',
+        type: 'character',
+        referenceImage: 'variant.png',
+        characterParentId: 'char_parent',
+        characterVariantName: '战损'
+      }
+    ]
+
+    const segments = resolveSceneDescriptionRenderSegments({
+      scene,
+      assets,
+      configAssetIds: ['char:char_variant'],
+      uniqueSorted: values => Array.from(new Set(values))
+    })
+
+    expect(segments[0]).toMatchObject({
+      type: 'asset',
+      asset: {
+        id: 'char:char_variant',
+        referenceImage: 'variant.png'
+      }
+    })
+    expect(segments[1]).toMatchObject({
+      type: 'text',
+      text: '站在电梯旁，低头整理沾灰的外套。'
+    })
+  })
 })
