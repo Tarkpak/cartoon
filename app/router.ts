@@ -184,8 +184,6 @@ export const router = createRouter({
   routes
 })
 
-let cloudBootstrapped = false
-
 router.beforeEach(async (to) => {
   if (to.path === '/login') return true
 
@@ -204,20 +202,6 @@ router.beforeEach(async (to) => {
         path: '/login',
         query: { redirect: to.fullPath }
       }
-    }
-
-    let cloudStatus = statusPayload.data
-    if (!cloudBootstrapped || to.path === '/tools/short-video-download') {
-      const bootstrapResponse = await fetch('/api/cloud/bootstrap', { method: 'POST' })
-      if (!bootstrapResponse.ok) throw new Error('cloud bootstrap failed')
-      const bootstrapPayload = await bootstrapResponse.json() as {
-        success: boolean
-        data?: {
-          wxChannels?: { hasYuanbaoCookie?: boolean }
-        }
-      }
-      cloudStatus = { ...cloudStatus, ...bootstrapPayload.data }
-      cloudBootstrapped = true
     }
 
     return true

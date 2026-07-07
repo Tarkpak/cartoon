@@ -53,6 +53,7 @@ type ApiError = Error & {
 }
 
 const { toast } = useToast()
+const { bootstrap: cloudBootstrap } = useCloudAdmin()
 
 const shareUrl = ref('')
 const filename = ref('')
@@ -89,6 +90,9 @@ const selectedHistoryPreviewVideoUrl = computed(() => {
 })
 
 onMounted(() => {
+  void cloudBootstrap().catch((error) => {
+    console.warn('Failed to refresh cloud runtime config for short video tools:', error)
+  })
   void loadHistory()
 })
 
