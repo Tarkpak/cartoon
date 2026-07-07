@@ -12,6 +12,7 @@ import {
 } from '~/lib/asset-workbench-upload'
 import {
   createArkVirtualAssetGroup,
+  listArkVirtualAssetGroups,
   pollArkVirtualAsset,
   uploadArkVirtualAsset
 } from '~/lib/ark-virtual-assets'
@@ -32,6 +33,7 @@ export function useAssetWorkbenchAssetMedia(options: {
   scenes: Ref<SceneData[]>
   characters: Ref<CharacterData[]>
   propAssets: Ref<PropAsset[]>
+  projectName?: Ref<string>
   projectId?: Ref<string | undefined>
   workflowStylePrompt: Ref<string>
   saveProject: () => Promise<unknown>
@@ -93,6 +95,30 @@ export function useAssetWorkbenchAssetMedia(options: {
     } catch (error) {
       console.warn('[useAssetWorkbenchAssetMedia] 模型任务失败通知失败:', error)
     }
+  }
+
+  function resolveArkGroupName() {
+    return options.projectName?.value?.trim() || 'Playlet 项目素材'
+  }
+
+  async function resolveProjectArkVirtualAssetGroupId(projectName: string) {
+    const groupName = resolveArkGroupName()
+    const page = await listArkVirtualAssetGroups({
+      name: groupName,
+      projectName,
+      pageNumber: 1,
+      pageSize: 50
+    })
+    const existing = page.items.find(group => (group.Name || group.Title || '').trim() === groupName)
+    if (existing?.Id) {
+      return existing.Id
+    }
+
+    return await createArkVirtualAssetGroup({
+      name: groupName,
+      description: `Playlet Desktop 项目素材：${groupName}`,
+      projectName
+    })
   }
 
   async function isPanoramaFile(file: File): Promise<boolean> {
@@ -247,14 +273,7 @@ export function useAssetWorkbenchAssetMedia(options: {
     const previous = target.arkAsset
     try {
       const projectName = previous?.projectName || 'default'
-      let groupId = previous?.groupId || ''
-      if (!groupId) {
-        groupId = await createArkVirtualAssetGroup({
-          name: target.name || '虚拟人像',
-          description: `Playlet Desktop 角色资产：${target.name || target.id}`,
-          projectName
-        })
-      }
+      const groupId = await resolveProjectArkVirtualAssetGroupId(projectName)
 
       target.arkAsset = {
         provider: 'volcengine',

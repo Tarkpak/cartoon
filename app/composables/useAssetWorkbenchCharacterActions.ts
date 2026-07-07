@@ -210,19 +210,59 @@ export function useAssetWorkbenchCharacterActions(options: {
     characterVariantSubmitting.value = true
     characterVariantError.value = null
     try {
-      options.characters.value.push(variant)
+      const parentIndex = options.characters.value.findIndex(character => character.id === parent.id)
+      if (parentIndex >= 0) {
+        options.characters.value.splice(parentIndex + 1, 0, variant)
+      } else {
+        options.characters.value.push(variant)
+      }
       const saved = await options.saveProject()
       if (saved === false) {
         toast.error('角色变体已添加，但项目保存失败')
         return
       }
-      toast.success(`已添加角色变体：${variant.name}`)
       closeCharacterVariantDialog()
+      startEditCharacter(variant)
+      toast.success(`已添加角色变体：${variant.name}`, {
+        description: '已加入原角色卡片的变体列表，可确认描述后保存并生成角色图。'
+      })
     } catch (error) {
       characterVariantError.value = options.resolveUiError(error, '角色变体创建失败')
     } finally {
       characterVariantSubmitting.value = false
     }
+  }
+
+  async function removeCharacterVariant(characterId: string) {
+    const target = options.characters.value.find(character => character.id === characterId)
+    if (!target) return
+
+    const { toast } = useToast()
+    if (!target.parentCharacterId) {
+      toast.warning('只能删除角色变体')
+      return
+    }
+
+    const confirmed = await useConfirm().confirm({
+      title: '删除角色变体',
+      description: `确定删除「${target.name}」？已生成的角色图、历史记录和绑定素材会从项目中移除。`,
+      confirmText: '删除',
+      cancelText: '取消',
+      variant: 'destructive'
+    })
+    if (!confirmed) return
+
+    options.characters.value = options.characters.value.filter(character => character.id !== characterId)
+    if (editingCharacterId.value === characterId) {
+      cancelEditCharacter()
+    }
+
+    const saved = await options.saveProject()
+    if (saved === false) {
+      toast.error('角色变体已删除，但项目保存失败')
+      return
+    }
+    toast.success(`已删除角色变体：${target.name}`)
   }
 
   async function saveCharacterEdit(saveOptions: { regenerate?: boolean } = {}) {
@@ -336,6 +376,7 @@ export function useAssetWorkbenchCharacterActions(options: {
     openCharacterVariantDialog,
     setCharacterVariantDialogOpen,
     submitCharacterVariant,
+    removeCharacterVariant,
     handleGenerateCharacter,
     saveCharacterEdit,
     openCharacterRegenerateDialog,

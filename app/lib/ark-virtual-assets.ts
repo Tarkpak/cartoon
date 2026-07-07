@@ -1,5 +1,36 @@
 import type { ArkVirtualAssetBinding, ArkVirtualAssetStatus } from '~/lib/asset-workbench-types'
 
+export interface ArkVirtualAssetGroup {
+  Id: string
+  Name?: string
+  Title?: string
+  Description?: string
+  GroupType?: string
+  ProjectName?: string
+  CreateTime?: string
+  UpdateTime?: string
+}
+
+export interface ArkVirtualAssetListItem {
+  Id: string
+  GroupId?: string
+  Status?: string
+  ProjectName?: string
+  URL?: string
+  Name?: string
+  AssetType?: 'Image' | 'Video' | 'Audio'
+  CreateTime?: string
+  UpdateTime?: string
+  Moderation?: unknown
+}
+
+export interface ArkVirtualAssetPage<T> {
+  items: T[]
+  totalCount: number
+  pageNumber: number
+  pageSize: number
+}
+
 interface ArkAssetResponse {
   Id?: string
   GroupId?: string
@@ -8,6 +39,22 @@ interface ArkAssetResponse {
   URL?: string
   Name?: string
   AssetType?: 'Image' | 'Video' | 'Audio'
+}
+
+interface ArkListResponse<T> {
+  Items?: T[]
+  TotalCount?: number
+  PageNumber?: number
+  PageSize?: number
+}
+
+function normalizePage<T>(data: ArkListResponse<T> | undefined, fallbackPageNumber: number, fallbackPageSize: number): ArkVirtualAssetPage<T> {
+  return {
+    items: Array.isArray(data?.Items) ? data.Items : [],
+    totalCount: Number(data?.TotalCount || 0),
+    pageNumber: Number(data?.PageNumber || fallbackPageNumber),
+    pageSize: Number(data?.PageSize || fallbackPageSize)
+  }
 }
 
 function normalizeStatus(status: unknown): ArkVirtualAssetStatus {
@@ -52,6 +99,86 @@ export async function createArkVirtualAssetGroup(input: {
   return response.data.Id
 }
 
+export async function listArkVirtualAssetGroups(input: {
+  name?: string
+  groupId?: string
+  projectName?: string
+  pageNumber?: number
+  pageSize?: number
+} = {}) {
+  const pageNumber = input.pageNumber || 1
+  const pageSize = input.pageSize || 20
+  const response = await $fetch<{
+    success: boolean
+    data?: ArkListResponse<ArkVirtualAssetGroup>
+    message?: string
+  }>('/api/ark-assets/virtual/groups', {
+    query: {
+      name: input.name || undefined,
+      groupId: input.groupId || undefined,
+      projectName: input.projectName || undefined,
+      pageNumber,
+      pageSize
+    }
+  })
+
+  if (!response.success) {
+    throw new Error(response.message || '查询火山虚拟人像素材组失败')
+  }
+
+  return normalizePage(response.data, pageNumber, pageSize)
+}
+
+export async function updateArkVirtualAssetGroup(input: {
+  groupId: string
+  name?: string
+  title?: string
+  description?: string
+  projectName?: string
+}) {
+  const response = await $fetch<{
+    success: boolean
+    data?: unknown
+    message?: string
+  }>(`/api/ark-assets/virtual/groups/${encodeURIComponent(input.groupId)}`, {
+    method: 'PUT',
+    body: {
+      name: input.name,
+      title: input.title,
+      description: input.description,
+      projectName: input.projectName
+    }
+  })
+
+  if (!response.success) {
+    throw new Error(response.message || '更新火山虚拟人像素材组失败')
+  }
+
+  return response.data
+}
+
+export async function deleteArkVirtualAssetGroup(input: {
+  groupId: string
+  projectName?: string
+}) {
+  const response = await $fetch<{
+    success: boolean
+    data?: unknown
+    message?: string
+  }>(`/api/ark-assets/virtual/groups/${encodeURIComponent(input.groupId)}`, {
+    method: 'DELETE',
+    query: {
+      projectName: input.projectName || undefined
+    }
+  })
+
+  if (!response.success) {
+    throw new Error(response.message || '删除火山虚拟人像素材组失败')
+  }
+
+  return response.data
+}
+
 export async function uploadArkVirtualAsset(input: {
   groupId: string
   name: string
@@ -82,6 +209,87 @@ export async function uploadArkVirtualAsset(input: {
     name: input.name,
     status: 'Processing'
   })
+}
+
+export async function listArkVirtualAssets(input: {
+  groupId?: string
+  name?: string
+  status?: string
+  projectName?: string
+  pageNumber?: number
+  pageSize?: number
+} = {}) {
+  const pageNumber = input.pageNumber || 1
+  const pageSize = input.pageSize || 20
+  const response = await $fetch<{
+    success: boolean
+    data?: ArkListResponse<ArkVirtualAssetListItem>
+    message?: string
+  }>('/api/ark-assets/virtual/assets', {
+    method: 'POST',
+    body: {
+      groupId: input.groupId,
+      name: input.name,
+      status: input.status,
+      projectName: input.projectName,
+      pageNumber,
+      pageSize,
+      sortBy: 'UpdateTime',
+      sortOrder: 'Desc'
+    }
+  })
+
+  if (!response.success) {
+    throw new Error(response.message || '查询火山虚拟人像素材失败')
+  }
+
+  return normalizePage(response.data, pageNumber, pageSize)
+}
+
+export async function updateArkVirtualAsset(input: {
+  assetId: string
+  name?: string
+  projectName?: string
+}) {
+  const response = await $fetch<{
+    success: boolean
+    data?: unknown
+    message?: string
+  }>(`/api/ark-assets/virtual/assets/${encodeURIComponent(input.assetId)}`, {
+    method: 'PUT',
+    body: {
+      name: input.name,
+      projectName: input.projectName
+    }
+  })
+
+  if (!response.success) {
+    throw new Error(response.message || '更新火山虚拟人像素材失败')
+  }
+
+  return response.data
+}
+
+export async function deleteArkVirtualAsset(input: {
+  assetId: string
+  projectName?: string
+}) {
+  const response = await $fetch<{
+    success: boolean
+    data?: unknown
+    message?: string
+  }>(`/api/ark-assets/virtual/assets/${encodeURIComponent(input.assetId)}`, {
+    method: 'DELETE',
+    query: {
+      projectName: input.projectName || undefined
+    }
+  })
+
+  if (!response.success) {
+    throw new Error(response.message || '删除火山虚拟人像素材失败')
+  }
+
+  return response.data
 }
 
 export async function pollArkVirtualAsset(input: {

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { useDebounceFn } from '@vueuse/core'
-import type { SceneData } from '~/composables/useAssetWorkbench'
+import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import type {
   AutoStageKey,
   AssetImageHistoryEntry,
   AssetVideoHistoryEntry,
+  ArkVirtualAssetBinding,
   CharacterRoleOption,
   DisplayAsset,
   EnvironmentAssetCard,
@@ -233,6 +234,12 @@ const environmentAssetGenerationStates = ref<Record<string, {
 const batchRunning = ref(false)
 const queueItems = ref<QueueItem[]>([])
 const sceneEditDialogOpen = ref(false)
+const arkAssetSelectDialogOpen = ref(false)
+const arkAssetSelectCharacterId = ref('')
+
+const arkAssetSelectCharacter = computed(() => {
+  return characters.value.find(character => character.id === arkAssetSelectCharacterId.value)
+})
 const editingScene = ref<SceneData | null>(null)
 const exportingScriptDocx = ref(false)
 const exportingJianyingProject = ref(false)
@@ -932,6 +939,7 @@ const {
   openCharacterVariantDialog,
   setCharacterVariantDialogOpen,
   submitCharacterVariant,
+  removeCharacterVariant,
   handleGenerateCharacter,
   saveCharacterEdit,
   openCharacterRegenerateDialog,
@@ -1825,6 +1833,36 @@ async function waitUntilProjectSaveIdle(maxWaitMs = 3000) {
   }
 }
 
+function openCharacterArkAssetSelect(character: CharacterData) {
+  arkAssetSelectCharacterId.value = character.id
+  arkAssetSelectDialogOpen.value = true
+}
+
+async function handleCharacterArkAssetSelect(asset: ArkVirtualAssetBinding) {
+  const target = arkAssetSelectCharacter.value
+  if (!target) return
+
+  const previousArkAsset = target.arkAsset
+  const previousBaseImage = target.baseImage
+  target.arkAsset = asset
+  if (!target.baseImage?.trim() && asset.sourceUrl?.trim()) {
+    target.baseImage = asset.sourceUrl.trim()
+  }
+
+  try {
+    await saveProject()
+    toast.success('已绑定火山虚拟人像素材', {
+      description: asset.assetId ? `asset://${asset.assetId}` : undefined
+    })
+  } catch (error) {
+    target.arkAsset = previousArkAsset
+    target.baseImage = previousBaseImage
+    toast.error('绑定火山素材失败', {
+      description: getDisplayErrorMessage(error, '保存项目失败')
+    })
+  }
+}
+
 const {
   imagePreviewOpen,
   imagePreviewSrc,
@@ -1862,6 +1900,7 @@ const {
   characters,
   propAssets,
   projectId,
+  projectName,
   workflowStylePrompt,
   saveProject,
   saveWorkflowMeta,
@@ -3084,7 +3123,6 @@ async function handleBatchGenerateCharacters() {
       :characters-count="characters.length"
       :hint="parseStageHint"
       @prepare-episodes="handlePrepareEpisodePlan"
-      @clear-episode-plan="clearEpisodePlan"
     />
 
     <AssetWorkbenchStagePanel
@@ -3128,6 +3166,7 @@ async function handleBatchGenerateCharacters() {
           @preview-image="openImagePreview($event.src, $event.alt)"
           @start-character-edit="startEditCharacter"
           @add-character-variant="openCharacterVariantDialog"
+          @remove-character-variant="removeCharacterVariant"
           @cancel-character-edit="cancelEditCharacter"
           @save-character-edit="saveCharacterEdit()"
           @save-character-edit-regenerate="saveCharacterEdit({ regenerate: true })"
@@ -3136,6 +3175,7 @@ async function handleBatchGenerateCharacters() {
           @open-character-history="openCharacterHistory"
           @upload-character-image="handleCharacterImageUpload($event.characterId, $event.event)"
           @ingest-character-ark-asset="ingestCharacterToArkVirtualAsset($event)"
+          @select-character-ark-asset="openCharacterArkAssetSelect"
           @upload-character-voice="handleCharacterVoiceUpload($event.characterId, $event.event)"
           @update-character-voice-lock="handleCharacterVoiceLockChange($event.characterId, $event.locked)"
           @edit-environment-scene="openEnvironmentAssetSceneEditor"
@@ -3322,6 +3362,13 @@ async function handleBatchGenerateCharacters() {
       :error="characterVariantError || ''"
       @update:open="setCharacterVariantDialogOpen"
       @confirm="submitCharacterVariant"
+    />
+
+    <AssetWorkbenchArkVirtualAssetSelectDialog
+      v-model:open="arkAssetSelectDialogOpen"
+      :character-name="arkAssetSelectCharacter?.name"
+      :current-asset-id="arkAssetSelectCharacter?.arkAsset?.assetId"
+      @select="handleCharacterArkAssetSelect"
     />
   </div>
 </template>

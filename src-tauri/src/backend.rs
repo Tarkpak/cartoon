@@ -63,6 +63,7 @@ const CLOUD_ADMIN_CONFIG_KEY: &str = "cloud_admin_config";
 const CLOUD_ADMIN_SESSION_KEY: &str = "cloud_admin_session";
 const CLOUD_PROVIDER_CREDENTIALS_KEY: &str = "cloud_provider_credentials";
 const CLOUD_DEVICE_ID_KEY: &str = "cloud_device_id";
+const CLOUD_DELETED_PROJECT_TOMBSTONES_KEY: &str = "cloud_deleted_project_tombstones";
 const CLOUD_SECRET_TRANSPORT_HEADER: &str = "x-playlet-secure-request";
 const CLOUD_SECRET_TRANSPORT_CONTEXT: &[u8] = b"playlet.cloud-secret-transport.v1";
 const CLOUD_SECRET_TRANSPORT_AAD: &[u8] = b"playlet.cloud-secret-response.v1";
@@ -82,18 +83,18 @@ const ARK_OPENAPI_REGION: &str = "cn-beijing";
 const ARK_OPENAPI_SERVICE: &str = "ark";
 const ARK_OPENAPI_VERSION: &str = "2024-01-01";
 
+#[path = "backend/douyin.rs"]
+mod douyin;
 #[path = "backend/model_constraints.rs"]
 mod model_constraints;
 #[path = "backend/prompts_api.rs"]
 mod prompts_api;
 #[path = "backend/runtime_api.rs"]
 mod runtime_api;
-#[path = "backend/video_import.rs"]
-mod video_import;
-#[path = "backend/douyin.rs"]
-mod douyin;
 #[path = "backend/short_video.rs"]
 mod short_video;
+#[path = "backend/video_import.rs"]
+mod video_import;
 #[path = "backend/wx_channels.rs"]
 mod wx_channels;
 
@@ -295,6 +296,7 @@ struct ProjectCharacterRow {
     catchphrase: Option<String>,
     voice_tone: Option<String>,
     voice_asset: Option<String>,
+    ark_asset: Option<String>,
     age: Option<i64>,
     gender: Option<String>,
     base_image: Option<String>,
@@ -948,7 +950,7 @@ fn get_or_create_cloud_device_id(conn: &Connection) -> Result<String, ApiError> 
             // 使用机器ID + 应用标识生成设备ID
             // 格式: desktop_<machine_id_hash>
             let hash = {
-                use sha2::{Sha256, Digest};
+                use sha2::{Digest, Sha256};
                 let mut hasher = Sha256::new();
                 hasher.update(b"playlet-desktop-v1:");
                 hasher.update(machine_id.as_bytes());
@@ -1062,9 +1064,8 @@ fn decrypt_cloud_secure_data(
     }
 
     let server_public_key =
-        decode_base64_bytes(cloud_secure_envelope_field(data, "serverPublicKey")?).ok_or_else(
-            || ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应格式无效"),
-        )?;
+        decode_base64_bytes(cloud_secure_envelope_field(data, "serverPublicKey")?)
+            .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应格式无效"))?;
     if server_public_key.len() != 32 {
         return Err(ApiError::new(
             StatusCode::BAD_GATEWAY,
@@ -1072,10 +1073,8 @@ fn decrypt_cloud_secure_data(
         ));
     }
 
-    let nonce =
-        decode_base64_bytes(cloud_secure_envelope_field(data, "nonce")?).ok_or_else(|| {
-            ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应格式无效")
-        })?;
+    let nonce = decode_base64_bytes(cloud_secure_envelope_field(data, "nonce")?)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应格式无效"))?;
     if nonce.len() != CLOUD_SECRET_TRANSPORT_NONCE_LEN {
         return Err(ApiError::new(
             StatusCode::BAD_GATEWAY,
@@ -1085,17 +1084,17 @@ fn decrypt_cloud_secure_data(
 
     let mut nonce_bytes = [0u8; CLOUD_SECRET_TRANSPORT_NONCE_LEN];
     nonce_bytes.copy_from_slice(&nonce);
-    let mut encrypted_payload =
-        decode_base64_bytes(cloud_secure_envelope_field(data, "payload")?).ok_or_else(|| {
-            ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应格式无效")
-        })?;
+    let mut encrypted_payload = decode_base64_bytes(cloud_secure_envelope_field(data, "payload")?)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应格式无效"))?;
 
     let peer_public_key = UnparsedPublicKey::new(&agreement::X25519, server_public_key.as_slice());
-    let shared_secret = agreement::agree_ephemeral(client_private_key, &peer_public_key, |secret| {
-        secret.to_vec()
-    })
-    .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "后台加密通道协商失败"))?;
-    let key_bytes = cloud_secret_transport_key(&shared_secret, client_public_key, &server_public_key);
+    let shared_secret =
+        agreement::agree_ephemeral(client_private_key, &peer_public_key, |secret| {
+            secret.to_vec()
+        })
+        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "后台加密通道协商失败"))?;
+    let key_bytes =
+        cloud_secret_transport_key(&shared_secret, client_public_key, &server_public_key);
     let unbound = UnboundKey::new(&AES_256_GCM, &key_bytes)
         .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "后台加密响应解密失败"))?;
     let key = LessSafeKey::new(unbound);
@@ -1130,12 +1129,10 @@ async fn cloud_request_secure_json(
         base_url.trim_end_matches('/'),
         path.trim_start_matches('/')
     );
-    let mut request = http_client()
-        .request(method, url)
-        .header(
-            CLOUD_SECRET_TRANSPORT_HEADER,
-            format!("v1:{}", BASE64_STANDARD.encode(&client_public_key_bytes)),
-        );
+    let mut request = http_client().request(method, url).header(
+        CLOUD_SECRET_TRANSPORT_HEADER,
+        format!("v1:{}", BASE64_STANDARD.encode(&client_public_key_bytes)),
+    );
     request = cloud_auth_headers(request, token);
     if let Some(body) = body {
         request = request.json(&body);
@@ -1371,7 +1368,10 @@ fn cloud_project_remote_updated_at(project: &Value, snapshot: &Value) -> String 
     String::new()
 }
 
-fn local_project_updated_at(conn: &Connection, project_id: &str) -> Result<Option<String>, ApiError> {
+fn local_project_updated_at(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<Option<String>, ApiError> {
     conn.query_row(
         "SELECT updated_at FROM projects WHERE id = ?1 LIMIT 1",
         params![project_id],
@@ -1460,14 +1460,13 @@ fn upsert_cloud_project_placeholder(
     let now = now_iso();
     let name = cloud_value_text_from([snapshot_project, project], "name");
     let description = cloud_value_text_from([snapshot_project, project], "description");
-    let script_parse_mode_raw = cloud_value_text_from([snapshot_project, project], "scriptParseMode");
-    let script_parse_mode = normalize_script_parse_mode(
-        if script_parse_mode_raw.is_empty() {
-            None
-        } else {
-            Some(script_parse_mode_raw.as_str())
-        },
-    );
+    let script_parse_mode_raw =
+        cloud_value_text_from([snapshot_project, project], "scriptParseMode");
+    let script_parse_mode = normalize_script_parse_mode(if script_parse_mode_raw.is_empty() {
+        None
+    } else {
+        Some(script_parse_mode_raw.as_str())
+    });
     let style_id = cloud_value_text_from([snapshot_project, project], "styleId");
     let aspect_ratio = cloud_value_text_from([snapshot_project, project], "aspectRatio");
     let status = cloud_value_text_from([snapshot_project, project], "status");
@@ -1562,12 +1561,7 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
             .get("id")
             .and_then(Value::as_str)
             .and_then(sanitize_custom_openai_provider_id)
-            .unwrap_or_else(|| {
-                format!(
-                    "cloud_{}",
-                    custom_openai_entries.len().saturating_add(1)
-                )
-            });
+            .unwrap_or_else(|| format!("cloud_{}", custom_openai_entries.len().saturating_add(1)));
 
         let target_provider = if provider == "openai" {
             "custom_openai"
@@ -1606,7 +1600,8 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
                 }),
             );
         } else {
-            if target_provider == "volcengine" && api_key.is_empty() && mediakit_api_key.is_empty() {
+            if target_provider == "volcengine" && api_key.is_empty() && mediakit_api_key.is_empty()
+            {
                 continue;
             }
             if target_provider != "volcengine" && api_key.is_empty() {
@@ -1622,9 +1617,9 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
                     })
                 } else {
                     json!({
-                  "apiKey": api_key,
-                  "baseUrl": base_url
-                    })
+                    "apiKey": api_key,
+                    "baseUrl": base_url
+                      })
                 },
             );
         }
@@ -2179,7 +2174,10 @@ fn delete_backend_tos_object(object_key: &str) -> Result<(), ApiError> {
     }
     if let Some(prefix) = &config.key_prefix {
         let prefix = normalize_tos_object_path(prefix);
-        if !prefix.is_empty() && object_key != prefix && !object_key.starts_with(&format!("{prefix}/")) {
+        if !prefix.is_empty()
+            && object_key != prefix
+            && !object_key.starts_with(&format!("{prefix}/"))
+        {
             return Err(ApiError::new(
                 StatusCode::FORBIDDEN,
                 "只能删除当前 TOS 作用域内的对象",
@@ -3227,6 +3225,53 @@ fn set_config_json(conn: &Connection, key: &str, value: &Value) -> Result<(), Ap
     Ok(())
 }
 
+fn deleted_project_tombstones(conn: &Connection) -> Result<HashSet<String>, ApiError> {
+    let value = get_config_json(conn, CLOUD_DELETED_PROJECT_TOMBSTONES_KEY)?
+        .unwrap_or_else(|| json!({ "ids": {} }));
+    if let Some(items) = value.as_array() {
+        return Ok(items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect());
+    }
+    Ok(value
+        .get("ids")
+        .and_then(Value::as_object)
+        .map(|items| {
+            items
+                .keys()
+                .filter(|id| !id.trim().is_empty())
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+fn is_deleted_project_tombstone(conn: &Connection, project_id: &str) -> Result<bool, ApiError> {
+    if project_id.trim().is_empty() {
+        return Ok(false);
+    }
+    Ok(deleted_project_tombstones(conn)?.contains(project_id))
+}
+
+fn remember_deleted_project_tombstone(conn: &Connection, project_id: &str) -> Result<(), ApiError> {
+    let project_id = project_id.trim();
+    if project_id.is_empty() {
+        return Ok(());
+    }
+
+    let mut ids = get_config_json(conn, CLOUD_DELETED_PROJECT_TOMBSTONES_KEY)?
+        .and_then(|value| value.get("ids").and_then(Value::as_object).cloned())
+        .unwrap_or_default();
+    ids.insert(project_id.to_string(), json!(now_iso()));
+    set_config_json(
+        conn,
+        CLOUD_DELETED_PROJECT_TOMBSTONES_KEY,
+        &json!({ "ids": ids }),
+    )
+}
+
 fn extract_id_set(value: &Value) -> HashSet<String> {
     value
         .as_array()
@@ -3373,6 +3418,7 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ("catchphrase", "TEXT"),
         ("voice_tone", "TEXT"),
         ("voice_asset", "TEXT"),
+        ("ark_asset", "TEXT"),
         ("views", "TEXT"),
     ] {
         ensure_column(conn, "characters", column, definition)?;
@@ -3498,6 +3544,7 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         catchphrase TEXT,
         voice_tone TEXT,
         voice_asset TEXT,
+        ark_asset TEXT,
         age INTEGER,
         gender TEXT,
         base_image TEXT,
@@ -4078,14 +4125,8 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             "/api/import/video/preview-series",
             post(api_video_import_preview_series),
         )
-        .route(
-            "/api/import/video/tasks",
-            get(api_video_import_tasks),
-        )
-        .route(
-            "/api/import/video/tasks/{id}",
-            get(api_video_import_task),
-        )
+        .route("/api/import/video/tasks", get(api_video_import_tasks))
+        .route("/api/import/video/tasks/{id}", get(api_video_import_task))
         .route(
             "/api/import/video/tasks/{id}/subtitle",
             put(api_video_import_subtitle_put),
@@ -4147,7 +4188,11 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         )
         .route(
             "/api/ark-assets/virtual/groups",
-            post(api_ark_virtual_asset_group_create),
+            get(api_ark_virtual_asset_groups_list).post(api_ark_virtual_asset_group_create),
+        )
+        .route(
+            "/api/ark-assets/virtual/groups/{groupId}",
+            put(api_ark_virtual_asset_group_update).delete(api_ark_virtual_asset_group_delete),
         )
         .route(
             "/api/ark-assets/virtual/assets/upload",
@@ -4155,8 +4200,14 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
                 .layer(DefaultBodyLimit::max(ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES)),
         )
         .route(
+            "/api/ark-assets/virtual/assets",
+            post(api_ark_virtual_assets_list),
+        )
+        .route(
             "/api/ark-assets/virtual/assets/{assetId}",
-            get(api_ark_virtual_asset_get),
+            get(api_ark_virtual_asset_get)
+                .put(api_ark_virtual_asset_update)
+                .delete(api_ark_virtual_asset_delete),
         )
         .route(
             "/api/ark-assets/virtual/assets/{assetId}/poll",
@@ -4192,7 +4243,10 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             "/api/tools/short-video/history/{platform}/{id}",
             delete(api_tools_short_video_history_delete),
         )
-        .route("/api/tools/video-enhance", post(api_tools_video_enhance_submit))
+        .route(
+            "/api/tools/video-enhance",
+            post(api_tools_video_enhance_submit),
+        )
         .route(
             "/api/tools/video-enhance/tasks",
             get(api_tools_video_enhance_tasks),
@@ -4219,7 +4273,10 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             post(api_tools_local_video_enhance)
                 .layer(DefaultBodyLimit::max(VIDEO_ENHANCE_UPLOAD_LIMIT_BYTES)),
         )
-        .route("/api/tools/image-enhance", post(api_tools_image_enhance_submit))
+        .route(
+            "/api/tools/image-enhance",
+            post(api_tools_image_enhance_submit),
+        )
         .route(
             "/api/tools/image-enhance/tasks",
             get(api_tools_image_enhance_tasks),
@@ -4815,6 +4872,7 @@ async fn api_project_delete(
     if !exists {
         return Err(ApiError::new(StatusCode::NOT_FOUND, "项目不存在"));
     }
+    remember_deleted_project_tombstone(&conn, id.as_str())?;
 
     let script_ids = {
         let mut stmt = conn
@@ -5079,7 +5137,7 @@ async fn api_project_get(
     let mut stmt = conn
         .prepare(
             "SELECT id, parent_character_id, variant_name, name, role, appearance, personality, traits, background, motivation,
-                    speaking_style, catchphrase, voice_tone, voice_asset, age, gender, base_image, expressions, views
+                    speaking_style, catchphrase, voice_tone, voice_asset, ark_asset, age, gender, base_image, expressions, views
              FROM characters WHERE project_id = ?1",
         )
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -5091,7 +5149,7 @@ async fn api_project_get(
                     .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
                     .unwrap_or(Value::Null)
             };
-            let base_image: Option<String> = row.get(16)?;
+            let base_image: Option<String> = row.get(17)?;
             Ok(json!({
               "id": row.get::<_, String>(0)?,
               "parentCharacterId": row.get::<_, Option<String>>(1)?,
@@ -5107,12 +5165,13 @@ async fn api_project_get(
               "catchphrase": row.get::<_, Option<String>>(11)?,
               "voiceTone": row.get::<_, Option<String>>(12)?,
               "voiceAsset": parse(row.get(13)?),
-              "age": row.get::<_, Option<i64>>(14)?,
-              "gender": row.get::<_, Option<String>>(15)?,
+              "arkAsset": parse(row.get(14)?),
+              "age": row.get::<_, Option<i64>>(15)?,
+              "gender": row.get::<_, Option<String>>(16)?,
               "imageUrl": base_image,
               "baseImage": base_image,
-              "expressions": parse(row.get(17)?),
-              "views": parse(row.get(18)?)
+              "expressions": parse(row.get(18)?),
+              "views": parse(row.get(19)?)
             }))
         })
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -5668,6 +5727,41 @@ fn validate_voice_asset(value: Option<&Value>, path: &str) -> Result<Option<Stri
     Ok(Some(value.to_string()))
 }
 
+fn validate_ark_virtual_asset(
+    value: Option<&Value>,
+    path: &str,
+) -> Result<Option<String>, ApiError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let object = value
+        .as_object()
+        .ok_or_else(|| validation_error(path, "Expected object"))?;
+    for key in [
+        "provider",
+        "libraryType",
+        "projectName",
+        "groupId",
+        "assetId",
+        "assetType",
+        "sourceUrl",
+        "name",
+        "status",
+        "errorMessage",
+        "updatedAt",
+    ] {
+        if let Some(value) = object.get(key).filter(|value| !value.is_null()) {
+            if !value.is_string() {
+                return Err(validation_error(format!("{path}.{key}"), "Expected string"));
+            }
+        }
+    }
+    Ok(Some(value.to_string()))
+}
+
 fn is_style_id_enabled(conn: &Connection, style_id: &str) -> Result<bool, ApiError> {
     let style_id = style_id.trim();
     if style_id.is_empty() {
@@ -6055,25 +6149,30 @@ async fn api_project_put_inner(
     }
 
     if let Some(characters) = body.get("characters").and_then(Value::as_array) {
-        let mut existing_character_by_id: HashMap<String, Option<String>> = HashMap::new();
+        let mut existing_character_by_id: HashMap<String, (Option<String>, Option<String>)> =
+            HashMap::new();
         {
             let mut stmt = conn
-                .prepare("SELECT id, voice_asset FROM characters WHERE project_id = ?1")
+                .prepare("SELECT id, voice_asset, ark_asset FROM characters WHERE project_id = ?1")
                 .map_err(|error| {
                     ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
                 })?;
             let rows = stmt
                 .query_map(params![id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
                 })
                 .map_err(|error| {
                     ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
                 })?;
             for row in rows {
-                let (character_id, voice_asset) = row.map_err(|error| {
+                let (character_id, voice_asset, ark_asset) = row.map_err(|error| {
                     ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
                 })?;
-                existing_character_by_id.insert(character_id, voice_asset);
+                existing_character_by_id.insert(character_id, (voice_asset, ark_asset));
             }
         }
 
@@ -6123,10 +6222,23 @@ async fn api_project_put_inner(
             } else {
                 existing_character_by_id
                     .get(&character_id)
-                    .and_then(|raw| raw.as_ref())
+                    .and_then(|(raw, _)| raw.as_ref())
                     .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
                     .and_then(|value| {
                         validate_voice_asset(Some(&value), &format!("{path}.voiceAsset"))
+                            .ok()
+                            .flatten()
+                    })
+            };
+            let ark_asset = if character.get("arkAsset").is_some() {
+                validate_ark_virtual_asset(character.get("arkAsset"), &format!("{path}.arkAsset"))?
+            } else {
+                existing_character_by_id
+                    .get(&character_id)
+                    .and_then(|(_, raw)| raw.as_ref())
+                    .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+                    .and_then(|value| {
+                        validate_ark_virtual_asset(Some(&value), &format!("{path}.arkAsset"))
                             .ok()
                             .flatten()
                     })
@@ -6154,6 +6266,7 @@ async fn api_project_put_inner(
                 catchphrase: optional_string(character, "catchphrase", &path)?.map(str::to_string),
                 voice_tone: optional_string(character, "voiceTone", &path)?.map(str::to_string),
                 voice_asset,
+                ark_asset,
                 age,
                 gender: optional_string(character, "gender", &path)?.map(str::to_string),
                 base_image,
@@ -6169,9 +6282,9 @@ async fn api_project_put_inner(
             conn.execute(
                 "INSERT INTO characters (
                   id, project_id, parent_character_id, variant_name, name, role, appearance, personality, traits, background, motivation, speaking_style,
-                  catchphrase, voice_tone, voice_asset, age, gender, base_image, expressions, views, created_at, updated_at
+                  catchphrase, voice_tone, voice_asset, ark_asset, age, gender, base_image, expressions, views, created_at, updated_at
                 ) VALUES (
-                  ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22
+                  ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23
                 )",
                 params![
                     character_row.id,
@@ -6189,6 +6302,7 @@ async fn api_project_put_inner(
                     character_row.catchphrase,
                     character_row.voice_tone,
                     character_row.voice_asset,
+                    character_row.ark_asset,
                     character_row.age,
                     character_row.gender,
                     character_row.base_image,
@@ -7447,12 +7561,15 @@ fn custom_openai_public_config(config: &Value) -> Value {
 }
 
 fn custom_openai_entry_is_configured(entry: &Value) -> bool {
-    entry.get("enabled").and_then(Value::as_bool).unwrap_or(false)
-        && entry
-        .get("apiKey")
-        .and_then(Value::as_str)
-        .map(|value| !value.trim().is_empty())
+    entry
+        .get("enabled")
+        .and_then(Value::as_bool)
         .unwrap_or(false)
+        && entry
+            .get("apiKey")
+            .and_then(Value::as_str)
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
         && entry
             .get("baseUrl")
             .and_then(Value::as_str)
@@ -7832,9 +7949,12 @@ fn normalize_imported_api_key_provider_credentials(
     };
     let mediakit_api_key = if provider == "volcengine" {
         match source {
-            Some(value) => {
-                settings_string_field(value, "mediakitApiKey", &path, SETTINGS_CONFIG_TEXT_MAX_CHARS)?
-            }
+            Some(value) => settings_string_field(
+                value,
+                "mediakitApiKey",
+                &path,
+                SETTINGS_CONFIG_TEXT_MAX_CHARS,
+            )?,
             None => String::new(),
         }
     } else {
@@ -8425,14 +8545,11 @@ fn resolve_provider_configured(provider: &str, creds: &Value) -> bool {
             provider_credential_field(creds, "kling", "accessKey").is_some()
                 && provider_credential_field(creds, "kling", "secretKey").is_some()
         }
-        "custom_openai" => {
-            creds.get("custom_openai")
-                .is_some_and(|node| {
-                    custom_openai_provider_entries(node)
-                        .iter()
-                        .any(custom_openai_entry_is_configured)
-                })
-        }
+        "custom_openai" => creds.get("custom_openai").is_some_and(|node| {
+            custom_openai_provider_entries(node)
+                .iter()
+                .any(custom_openai_entry_is_configured)
+        }),
         _ => false,
     }
 }
@@ -8455,7 +8572,11 @@ fn resolve_provider_models(
         let mut sync_error = None::<String>;
 
         for entry in entries {
-            if !entry.get("enabled").and_then(Value::as_bool).unwrap_or(false) {
+            if !entry
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
                 continue;
             }
             for model in json_string_list(entry.get("textModels")) {
@@ -8578,7 +8699,8 @@ fn provider_summary(conn: &Connection) -> Result<Vec<Value>, ApiError> {
     let custom_display_name = if custom_provider_count > 1 {
         format!("自定义 OpenAI ({custom_provider_count})")
     } else {
-        creds.get("custom_openai")
+        creds
+            .get("custom_openai")
             .map(custom_openai_provider_entries)
             .and_then(|items| items.first().cloned())
             .and_then(|node| {
@@ -8808,9 +8930,11 @@ async fn api_model_provider_sync(
 
         for mut entry in entries {
             let previous_selected_models = json_string_list(entry.get("textModels"));
-            let sync_result =
-                fetch_provider_models_from_remote("custom_openai", &wrap_custom_openai_creds(&entry))
-                    .await;
+            let sync_result = fetch_provider_models_from_remote(
+                "custom_openai",
+                &wrap_custom_openai_creds(&entry),
+            )
+            .await;
             let synced_at = now_iso();
             let sync_error = sync_result.as_ref().err().cloned();
             if let Some(error) = sync_error.as_ref() {
@@ -8974,7 +9098,10 @@ async fn api_custom_openai_put(
         .unwrap_or_else(default_custom_openai_config);
     let mut entries = custom_openai_provider_entries(&config);
     let Some(entry) = entries.first_mut() else {
-        return Err(ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "自定义供应商配置无效"));
+        return Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "自定义供应商配置无效",
+        ));
     };
 
     if let Some(obj) = entry.as_object_mut() {
@@ -9181,7 +9308,10 @@ async fn api_custom_openai_sync(
     if let Some(Json(body)) = payload {
         validate_custom_openai_body(&body, true)?;
         let Some(entry) = entries.first_mut() else {
-            return Err(ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "自定义供应商配置无效"));
+            return Err(ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "自定义供应商配置无效",
+            ));
         };
         if let Some(obj) = entry.as_object_mut() {
             if let Some(enabled) = body.enabled {
@@ -9277,11 +9407,9 @@ async fn api_custom_openai_provider_sync(
         }
         found = true;
         let previous_selected_models = json_string_list(entry.get("textModels"));
-        let sync_result = fetch_provider_models_from_remote(
-            "custom_openai",
-            &wrap_custom_openai_creds(&entry),
-        )
-        .await;
+        let sync_result =
+            fetch_provider_models_from_remote("custom_openai", &wrap_custom_openai_creds(&entry))
+                .await;
         let synced_at = now_iso();
         let entry_sync_error = sync_result.as_ref().err().cloned();
         sync_error = entry_sync_error.clone();
@@ -9300,7 +9428,9 @@ async fn api_custom_openai_provider_sync(
             obj.insert("modelsSyncedAt".to_string(), json!(synced_at));
             obj.insert(
                 "modelsSyncError".to_string(),
-                entry_sync_error.map(|value| json!(value)).unwrap_or(Value::Null),
+                entry_sync_error
+                    .map(|value| json!(value))
+                    .unwrap_or(Value::Null),
             );
         }
         entries.push(entry);
@@ -9722,6 +9852,10 @@ async fn cloud_sync_project_by_id(state: &BackendState, project_id: &str) -> Res
       "styleId": project.get("styleId").cloned().unwrap_or(Value::Null),
       "aspectRatio": project.get("aspectRatio").cloned().unwrap_or(Value::Null),
       "status": project.get("status").cloned().unwrap_or(Value::Null),
+      "createdAt": project.get("createdAt").cloned().unwrap_or(Value::Null),
+      "updatedAt": project.get("updatedAt").cloned().unwrap_or(Value::Null),
+      "localCreatedAt": project.get("createdAt").cloned().unwrap_or(Value::Null),
+      "localUpdatedAt": project.get("updatedAt").cloned().unwrap_or(Value::Null),
       "summary": {
         "sceneCount": data.get("scenes").and_then(Value::as_array).map(Vec::len).unwrap_or(0),
         "characterCount": data.get("characters").and_then(Value::as_array).map(Vec::len).unwrap_or(0)
@@ -9824,6 +9958,12 @@ async fn apply_cloud_project_snapshot(
     let local_project_id = cloud_value_text(project, "localProjectId");
     if local_project_id.is_empty() {
         return Ok(false);
+    }
+    {
+        let conn = db_connection(state)?;
+        if is_deleted_project_tombstone(&conn, &local_project_id)? {
+            return Ok(false);
+        }
     }
     let Some(snapshot) = project.get("snapshot").filter(|value| value.is_object()) else {
         return Ok(false);
@@ -9940,9 +10080,9 @@ fn apply_cloud_prompt_state(state: &BackendState, prompt_state: &Value) -> Resul
             let Some(profile_id) = profile.get("id").and_then(Value::as_str) else {
                 continue;
             };
-            snapshots
-                .entry(profile_id.to_string())
-                .or_insert_with(|| json!({ "templates": default_prompt_templates(), "versions": [] }));
+            snapshots.entry(profile_id.to_string()).or_insert_with(
+                || json!({ "templates": default_prompt_templates(), "versions": [] }),
+            );
         }
     }
     let profile_state = json!({
@@ -9996,7 +10136,9 @@ fn apply_cloud_model_preferences(
         models.insert(step.clone(), json!(model_id));
         options.insert(
             step,
-            item.get("modelOptions").cloned().unwrap_or_else(|| json!({})),
+            item.get("modelOptions")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
         );
     }
     if models.is_empty() {
@@ -10021,19 +10163,11 @@ async fn cloud_pull_account_data(
     )
     .await?;
     let data = response.get("data").cloned().unwrap_or_else(|| json!({}));
-    let projects = apply_cloud_projects(
-        state,
-        data.get("projects").unwrap_or(&Value::Null),
-    )
-    .await;
-    let prompts_imported = apply_cloud_prompt_state(
-        state,
-        data.get("promptState").unwrap_or(&Value::Null),
-    )?;
-    let model_preferences_imported = apply_cloud_model_preferences(
-        state,
-        data.get("modelPreferences").unwrap_or(&Value::Null),
-    )?;
+    let projects = apply_cloud_projects(state, data.get("projects").unwrap_or(&Value::Null)).await;
+    let prompts_imported =
+        apply_cloud_prompt_state(state, data.get("promptState").unwrap_or(&Value::Null))?;
+    let model_preferences_imported =
+        apply_cloud_model_preferences(state, data.get("modelPreferences").unwrap_or(&Value::Null))?;
 
     Ok(json!({
       "success": true,
@@ -10277,10 +10411,7 @@ async fn api_provider_credentials_put(
         }
         if provider == "volcengine" {
             if let Some(mediakit_api_key) = body.mediakit_api_key {
-                entry_obj.insert(
-                    "mediakitApiKey".to_string(),
-                    json!(mediakit_api_key.trim()),
-                );
+                entry_obj.insert("mediakitApiKey".to_string(), json!(mediakit_api_key.trim()));
             }
             if let Some(ark_access_key) = body.ark_access_key {
                 entry_obj.insert("arkAccessKey".to_string(), json!(ark_access_key.trim()));
@@ -10292,7 +10423,11 @@ async fn api_provider_credentials_put(
                 let project_name = ark_project_name.trim();
                 entry_obj.insert(
                     "arkProjectName".to_string(),
-                    json!(if project_name.is_empty() { "default" } else { project_name }),
+                    json!(if project_name.is_empty() {
+                        "default"
+                    } else {
+                        project_name
+                    }),
                 );
             }
             if let Some(ark_open_api_base_url) = body.ark_open_api_base_url {

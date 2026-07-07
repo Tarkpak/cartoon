@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, ListChecks, MonitorCog, Download } from 'lucide-vue-next'
+import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, ListChecks, MonitorCog, Download, Database, ChevronDown } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import { createClickRipple } from '@/lib/ripple'
 
@@ -17,6 +17,7 @@ let syncNarrowSidebar: (() => void) | null = null
 
 const navigation = computed(() => {
   const toolChildren = [
+    { name: '视频转项目', path: '/import/video', icon: FileVideo },
     { name: '云端增强', path: '/tools/enhance', icon: WandSparkles },
     { name: '本地增强', path: '/tools/local-enhance', icon: MonitorCog },
     { name: '增强任务', path: '/tools/enhance-tasks', icon: ListChecks },
@@ -26,15 +27,15 @@ const navigation = computed(() => {
   return [
     { name: '首页', path: '/', icon: Home },
     { name: '我的项目', path: '/projects', icon: Folder },
-    { name: '视频转项目', path: '/import/video', icon: FileVideo },
+    { name: '火山素材库', path: '/ark-assets', icon: Database },
     { name: '云端素材', path: '/tos-files', icon: Cloud },
+    { name: '日志', path: '/logs', icon: ScrollText },
     {
       name: '工具',
-      path: '/tools/enhance',
+      path: '/import/video',
       icon: Wrench,
       children: toolChildren
     },
-    { name: '日志', path: '/logs', icon: ScrollText },
     { name: '设置', path: '/settings', icon: Settings }
   ]
 })
@@ -98,6 +99,43 @@ const activeStates = computed(() => {
   })
 })
 
+const expandedNavigationPaths = ref<string[]>([])
+
+function hasNavigationChildren(item: { path: string, children?: unknown[] }): boolean {
+  return item.path === '/settings' || Boolean(item.children?.length)
+}
+
+function isNavigationExpanded(item: { path: string }): boolean {
+  return expandedNavigationPaths.value.includes(item.path)
+}
+
+function toggleNavigationExpanded(item: { path: string }) {
+  if (isNavigationExpanded(item)) {
+    expandedNavigationPaths.value = expandedNavigationPaths.value.filter(path => path !== item.path)
+    return
+  }
+  expandedNavigationPaths.value = [...expandedNavigationPaths.value, item.path]
+}
+
+function syncExpandedNavigationWithRoute() {
+  const nextExpandedPaths = new Set(expandedNavigationPaths.value)
+
+  navigation.value.forEach((item, index) => {
+    if (hasNavigationChildren(item) && activeStates.value[index]) {
+      nextExpandedPaths.add(item.path)
+    }
+  })
+
+  expandedNavigationPaths.value = Array.from(nextExpandedPaths)
+}
+
+function handleNavigationClick(event: MouseEvent, item: { path: string, children?: unknown[] }) {
+  if (visualSidebarCollapsed.value || !hasNavigationChildren(item)) return
+
+  event.preventDefault()
+  toggleNavigationExpanded(item)
+}
+
 const hideSidebar = computed(() => route.meta.hideSidebar === true)
 
 const visualSidebarCollapsed = computed(() => isCollapsed.value || isNarrowSidebar.value)
@@ -136,6 +174,12 @@ watch(isCollapsed, (value) => {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(SIDEBAR_COLLAPSE_STORAGE_KEY, value ? '1' : '0')
 })
+
+watch(
+  () => route.fullPath,
+  () => syncExpandedNavigationWithRoute(),
+  { immediate: true }
+)
 
 onUnmounted(() => {
   if (sidebarMediaQuery && syncNarrowSidebar) {
@@ -253,57 +297,70 @@ function handleThemeToggle(event: MouseEvent) {
             ]"
             :title="visualSidebarCollapsed ? item.name : undefined"
             @pointerdown="handleSidebarPointerDown"
+            @click="handleNavigationClick($event, item)"
           >
             <component
               :is="item.icon"
               class="w-5 h-5 flex-shrink-0"
             />
-            <span v-if="!visualSidebarCollapsed">{{ item.name }}</span>
+            <span
+              v-if="!visualSidebarCollapsed"
+              class="min-w-0 flex-1 truncate"
+            >{{ item.name }}</span>
+            <ChevronDown
+              v-if="!visualSidebarCollapsed && hasNavigationChildren(item)"
+              class="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200"
+              :class="isNavigationExpanded(item) ? 'rotate-180' : 'rotate-0'"
+            />
           </NuxtLink>
 
-          <div
-            v-if="item.path === '/settings' && route.path === '/settings' && !visualSidebarCollapsed"
-            class="mt-1 ml-8 space-y-0.5"
-          >
-            <NuxtLink
-              v-for="sub in settingsSubNavigation"
-              :key="sub.section"
-              :to="getSettingsSubRoute(sub)"
-              class="theme-content relative flex items-center gap-2 overflow-hidden px-2 py-1.5 rounded-md text-xs transition-colors"
-              :class="isSettingsSubActive(sub)
-                ? 'bg-primary/10 text-primary font-medium'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
-              @pointerdown="handleSidebarPointerDown"
+          <Transition name="sidebar-submenu">
+            <div
+              v-if="item.path === '/settings' && isNavigationExpanded(item) && !visualSidebarCollapsed"
+              class="mt-1 ml-8 space-y-0.5 overflow-hidden"
             >
-              <component
-                :is="sub.icon"
-                class="w-3.5 h-3.5 flex-shrink-0"
-              />
-              <span>{{ sub.name }}</span>
-            </NuxtLink>
-          </div>
+              <NuxtLink
+                v-for="sub in settingsSubNavigation"
+                :key="sub.section"
+                :to="getSettingsSubRoute(sub)"
+                class="theme-content relative flex items-center gap-2 overflow-hidden px-2 py-1.5 rounded-md text-xs transition-colors"
+                :class="isSettingsSubActive(sub)
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+                @pointerdown="handleSidebarPointerDown"
+              >
+                <component
+                  :is="sub.icon"
+                  class="w-3.5 h-3.5 flex-shrink-0"
+                />
+                <span>{{ sub.name }}</span>
+              </NuxtLink>
+            </div>
+          </Transition>
 
-          <div
-            v-if="'children' in item && item.children?.length && route.path.startsWith('/tools') && !visualSidebarCollapsed"
-            class="mt-1 ml-8 space-y-0.5"
-          >
-            <NuxtLink
-              v-for="sub in item.children"
-              :key="sub.path"
-              :to="sub.path"
-              class="theme-content relative flex items-center gap-2 overflow-hidden px-2 py-1.5 rounded-md text-xs transition-colors"
-              :class="isNavigationChildActive(sub)
-                ? 'bg-primary/10 text-primary font-medium'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
-              @pointerdown="handleSidebarPointerDown"
+          <Transition name="sidebar-submenu">
+            <div
+              v-if="'children' in item && item.children?.length && isNavigationExpanded(item) && !visualSidebarCollapsed"
+              class="mt-1 ml-8 space-y-0.5 overflow-hidden"
             >
-              <component
-                :is="sub.icon"
-                class="w-3.5 h-3.5 flex-shrink-0"
-              />
-              <span>{{ sub.name }}</span>
-            </NuxtLink>
-          </div>
+              <NuxtLink
+                v-for="sub in item.children"
+                :key="sub.path"
+                :to="sub.path"
+                class="theme-content relative flex items-center gap-2 overflow-hidden px-2 py-1.5 rounded-md text-xs transition-colors"
+                :class="isNavigationChildActive(sub)
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+                @pointerdown="handleSidebarPointerDown"
+              >
+                <component
+                  :is="sub.icon"
+                  class="w-3.5 h-3.5 flex-shrink-0"
+                />
+                <span>{{ sub.name }}</span>
+              </NuxtLink>
+            </div>
+          </Transition>
 
           <div
             v-if="item.path === '/settings' && visualSidebarCollapsed"
@@ -426,3 +483,27 @@ function handleThemeToggle(event: MouseEvent) {
     </main>
   </div>
 </template>
+
+<style scoped>
+.sidebar-submenu-enter-active,
+.sidebar-submenu-leave-active {
+  transition:
+    max-height 180ms ease,
+    opacity 160ms ease,
+    transform 180ms ease;
+}
+
+.sidebar-submenu-enter-from,
+.sidebar-submenu-leave-to {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.sidebar-submenu-enter-to,
+.sidebar-submenu-leave-from {
+  max-height: 18rem;
+  opacity: 1;
+  transform: translateY(0);
+}
+</style>

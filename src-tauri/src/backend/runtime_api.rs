@@ -23,8 +23,7 @@ const PROMPT_TEMPLATE_ENVIRONMENT_REFERENCE_GENERATION: &str = "environment_refe
 const PROMPT_TEMPLATE_PROP_ASSET_GENERATION: &str = "prop_asset_generation";
 const PROMPT_TEMPLATE_SCENE_DESCRIPTION_REFINEMENT: &str = "scene_description_refinement";
 const PROMPT_TEMPLATE_SCENE_VIDEO_GENERATION: &str = "scene_video_generation";
-const PROMPT_TEMPLATE_ORIGIN_EXPLAINER_VIDEO_GENERATION: &str =
-    "origin_explainer_video_generation";
+const PROMPT_TEMPLATE_ORIGIN_EXPLAINER_VIDEO_GENERATION: &str = "origin_explainer_video_generation";
 const ORIGIN_EXPLAINER_DEFAULT_STYLE_PROMPT: &str = "高精度 3D 科普动画，微距特写、横截面透视与解构拆解图，半透明结晶材质，发光粒子流与高保真流体动力学特效，极简深色石砖平台，中国传统写意远山与云海背景，画面清晰克制、结构精密、无字幕无水印";
 const SCRIPT_PARSE_MIN_DURATION: &str = "2";
 const SCRIPT_PARSE_MAX_DURATION: &str = "15";
@@ -673,10 +672,13 @@ async fn persist_video_source_with_object_key(
     let ext = infer_extension_from_mime(mime.as_deref().unwrap_or(""), "mp4");
     let filename = build_unique_filename(prefix, &ext);
     if load_backend_tos_config().enabled {
-        let object_key = build_backend_tos_object_key(&load_backend_tos_config(), "videos", &filename);
+        let object_key =
+            build_backend_tos_object_key(&load_backend_tos_config(), "videos", &filename);
         let url = upload_media_bytes_to_tos_async("videos", filename, bytes)
             .await?
-            .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "TOS 已启用但未返回视频上传地址"))?;
+            .ok_or_else(|| {
+                ApiError::new(StatusCode::BAD_GATEWAY, "TOS 已启用但未返回视频上传地址")
+            })?;
         return Ok((url, Some(object_key)));
     }
     let path = state.public_dir.join("videos").join(&filename);
@@ -689,14 +691,18 @@ async fn persist_image_source_with_object_key(
     source: &str,
     prefix: &str,
 ) -> Result<(String, Option<String>), ApiError> {
-    let (bytes, mime) = resolve_source_bytes(state, source, IMAGE_ENHANCE_UPLOAD_LIMIT_BYTES).await?;
+    let (bytes, mime) =
+        resolve_source_bytes(state, source, IMAGE_ENHANCE_UPLOAD_LIMIT_BYTES).await?;
     let ext = infer_extension_from_mime(mime.as_deref().unwrap_or(""), "png");
     let filename = build_unique_filename(prefix, &ext);
     if load_backend_tos_config().enabled {
-        let object_key = build_backend_tos_object_key(&load_backend_tos_config(), "images", &filename);
+        let object_key =
+            build_backend_tos_object_key(&load_backend_tos_config(), "images", &filename);
         let url = upload_media_bytes_to_tos_async("images", filename, bytes)
             .await?
-            .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "TOS 已启用但未返回图片上传地址"))?;
+            .ok_or_else(|| {
+                ApiError::new(StatusCode::BAD_GATEWAY, "TOS 已启用但未返回图片上传地址")
+            })?;
         return Ok((url, Some(object_key)));
     }
     let path = state.public_dir.join("generated-images").join(&filename);
@@ -709,7 +715,10 @@ fn mediakit_video_enhance_tool_path(kind: &str) -> Result<&'static str, ApiError
         "standard" | "professional" => Ok("/api/v1/tools/enhance-video"),
         "fast" => Ok("/api/v1/tools/enhance-video-fast"),
         "generative" => Ok("/api/v1/tools/enhance-video-generative"),
-        _ => Err(ApiError::new(StatusCode::BAD_REQUEST, "不支持的画质增强类型")),
+        _ => Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "不支持的画质增强类型",
+        )),
     }
 }
 
@@ -829,7 +838,13 @@ async fn query_mediakit_video_enhance_task(
     let normalized_status = mediakit_task_status_label(&raw_status).to_string();
     let video_url = mediakit_result_video_url(&payload);
     let error_message = mediakit_payload_error_message(&payload);
-    Ok((payload, raw_status, normalized_status, video_url, error_message))
+    Ok((
+        payload,
+        raw_status,
+        normalized_status,
+        video_url,
+        error_message,
+    ))
 }
 
 fn update_video_enhance_task_status(
@@ -929,7 +944,11 @@ fn build_mediakit_video_enhance_request(body: &Value) -> Result<(String, Value),
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请填写待增强视频 URL"))?;
-    let endpoint = format!("{}{}", MEDIAKIT_BASE_URL, mediakit_video_enhance_tool_path(&kind)?);
+    let endpoint = format!(
+        "{}{}",
+        MEDIAKIT_BASE_URL,
+        mediakit_video_enhance_tool_path(&kind)?
+    );
     let mut request_body = json!({ "video_url": video_url });
 
     if matches!(kind.as_str(), "standard" | "professional") {
@@ -943,8 +962,14 @@ fn build_mediakit_video_enhance_request(body: &Value) -> Result<(String, Value),
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            if !matches!(scene, "common" | "ugc" | "short_series" | "aigc" | "old_film") {
-                return Err(ApiError::new(StatusCode::BAD_REQUEST, "不支持的画质增强场景"));
+            if !matches!(
+                scene,
+                "common" | "ugc" | "short_series" | "aigc" | "old_film"
+            ) {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "不支持的画质增强场景",
+                ));
             }
             request_body["scene"] = json!(scene);
         }
@@ -1021,7 +1046,10 @@ fn uploaded_video_extension(filename: Option<&str>, content_type: Option<&str>) 
 fn mediakit_image_enhance_tool_path(kind: &str) -> Result<&'static str, ApiError> {
     match kind.trim() {
         "standard" | "portrait" | "old_photo" | "upscale" => Ok("/api/v1/tools/enhance-image"),
-        _ => Err(ApiError::new(StatusCode::BAD_REQUEST, "不支持的图片增强类型")),
+        _ => Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "不支持的图片增强类型",
+        )),
     }
 }
 
@@ -1105,11 +1133,19 @@ fn build_mediakit_image_enhance_request(body: &Value) -> Result<(String, Value),
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请填写待增强图片 URL"))?;
-    let endpoint = format!("{}{}", MEDIAKIT_BASE_URL, mediakit_image_enhance_tool_path(&kind)?);
+    let endpoint = format!(
+        "{}{}",
+        MEDIAKIT_BASE_URL,
+        mediakit_image_enhance_tool_path(&kind)?
+    );
     let mut request_body = json!({ "image_url": image_url });
 
     request_body["tool_version"] = json!(kind);
-    if let Some(scale) = body.get("scale").and_then(Value::as_u64).filter(|value| *value > 0) {
+    if let Some(scale) = body
+        .get("scale")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+    {
         request_body["scale"] = json!(scale);
     }
     if let Some(format) = body
@@ -1376,11 +1412,8 @@ pub(super) async fn api_tools_image_enhance_upload_source(
         }
 
         let object_filename = build_unique_filename("image-enhance-source", &ext);
-        let object_key = build_backend_tos_object_key(
-            &load_backend_tos_config(),
-            "images",
-            &object_filename,
-        );
+        let object_key =
+            build_backend_tos_object_key(&load_backend_tos_config(), "images", &object_filename);
         uploaded_url = upload_media_bytes_to_tos_async("images", object_filename, bytes).await?;
         uploaded_object_key = Some(object_key);
         if let Some(url) = uploaded_url.as_deref() {
@@ -1398,9 +1431,8 @@ pub(super) async fn api_tools_image_enhance_upload_source(
         break;
     }
 
-    let image_url = uploaded_url.ok_or_else(|| {
-        ApiError::new(StatusCode::BAD_REQUEST, "缺少 image 文件字段")
-    })?;
+    let image_url = uploaded_url
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "缺少 image 文件字段"))?;
 
     Ok(Json(json!({
       "success": true,
@@ -1622,7 +1654,9 @@ pub(super) async fn api_tools_image_enhance_tasks(
        FROM image_enhance_tasks";
     let rows = if let Some(status) = status {
         let mut stmt = conn
-            .prepare(&format!("{select_sql} WHERE status = ?1 ORDER BY created_at DESC LIMIT ?2"))
+            .prepare(&format!(
+                "{select_sql} WHERE status = ?1 ORDER BY created_at DESC LIMIT ?2"
+            ))
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
         let rows = stmt
             .query_map(params![status, limit as i64], image_enhance_task_to_json)
@@ -1660,7 +1694,10 @@ pub(super) async fn api_tools_image_enhance_delete_asset(
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "任务 ID 不能为空"));
     }
     if !matches!(asset, "source" | "result") {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "不支持的任务文件类型"));
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "不支持的任务文件类型",
+        ));
     }
 
     let conn = db_connection(&state)?;
@@ -1678,7 +1715,9 @@ pub(super) async fn api_tools_image_enhance_delete_asset(
         .optional()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
         .flatten()
-        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "任务文件不存在或未记录 TOS 对象路径"))?;
+        .ok_or_else(|| {
+            ApiError::new(StatusCode::NOT_FOUND, "任务文件不存在或未记录 TOS 对象路径")
+        })?;
 
     let delete_key = object_key.clone();
     tokio::task::spawn_blocking(move || delete_backend_tos_object(&delete_key))
@@ -1739,7 +1778,9 @@ fn local_image_output_ext(preset: &str, source_ext: &str) -> &'static str {
     match preset {
         "webp" => "webp",
         "jpeg" => "jpg",
-        _ if source_ext.eq_ignore_ascii_case("jpg") || source_ext.eq_ignore_ascii_case("jpeg") => "jpg",
+        _ if source_ext.eq_ignore_ascii_case("jpg") || source_ext.eq_ignore_ascii_case("jpeg") => {
+            "jpg"
+        }
         _ if source_ext.eq_ignore_ascii_case("webp") => "webp",
         _ => "png",
     }
@@ -1799,7 +1840,14 @@ pub(super) async fn api_tools_local_image_enhance(
                 let normalized = value.trim();
                 if matches!(
                     normalized,
-                    "light" | "clarity" | "denoise" | "sharpen" | "upscale_2x" | "upscale_4x" | "webp" | "jpeg"
+                    "light"
+                        | "clarity"
+                        | "denoise"
+                        | "sharpen"
+                        | "upscale_2x"
+                        | "upscale_4x"
+                        | "webp"
+                        | "jpeg"
                 ) {
                     preset = normalized.to_string();
                 }
@@ -1839,7 +1887,11 @@ pub(super) async fn api_tools_local_image_enhance(
         let input_path = input_path
             .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请选择要处理的图片文件"))?;
         let output_ext = local_image_output_ext(&preset, &source_ext);
-        let output_filename = format!("local-image-enhance-{}.{}", Uuid::new_v4().simple(), output_ext);
+        let output_filename = format!(
+            "local-image-enhance-{}.{}",
+            Uuid::new_v4().simple(),
+            output_ext
+        );
         let output_dir = state.public_dir.join("generated-images");
         fs::create_dir_all(&output_dir)
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -1920,11 +1972,8 @@ pub(super) async fn api_tools_video_enhance_upload_source(
         }
 
         let object_filename = build_unique_filename("video-enhance-source", &ext);
-        let object_key = build_backend_tos_object_key(
-            &load_backend_tos_config(),
-            "videos",
-            &object_filename,
-        );
+        let object_key =
+            build_backend_tos_object_key(&load_backend_tos_config(), "videos", &object_filename);
         uploaded_url = upload_media_bytes_to_tos_async("videos", object_filename, bytes).await?;
         uploaded_object_key = Some(object_key);
         if let Some(url) = uploaded_url.as_deref() {
@@ -1942,9 +1991,8 @@ pub(super) async fn api_tools_video_enhance_upload_source(
         break;
     }
 
-    let video_url = uploaded_url.ok_or_else(|| {
-        ApiError::new(StatusCode::BAD_REQUEST, "缺少 video 文件字段")
-    })?;
+    let video_url = uploaded_url
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "缺少 video 文件字段"))?;
 
     Ok(Json(json!({
       "success": true,
@@ -2003,25 +2051,22 @@ pub(super) async fn api_tools_video_enhance_submit(
             ApiError::new(StatusCode::BAD_GATEWAY, message)
         })?;
     let status = response.status();
-    let body_text = response
-        .text()
-        .await
-        .map_err(|error| {
-            let message = error.to_string();
-            llm_dev_write_db_log(
-                "volcengine",
-                "ai-mediakit",
-                "videoEnhance",
-                "error",
-                started_at,
-                Some(&endpoint),
-                Some(&request_body),
-                None,
-                None,
-                Some(&message),
-            );
-            ApiError::new(StatusCode::BAD_GATEWAY, message)
-        })?;
+    let body_text = response.text().await.map_err(|error| {
+        let message = error.to_string();
+        llm_dev_write_db_log(
+            "volcengine",
+            "ai-mediakit",
+            "videoEnhance",
+            "error",
+            started_at,
+            Some(&endpoint),
+            Some(&request_body),
+            None,
+            None,
+            Some(&message),
+        );
+        ApiError::new(StatusCode::BAD_GATEWAY, message)
+    })?;
     if !status.is_success() {
         let message = build_sync_error_message(status, &body_text);
         llm_dev_write_db_log(
@@ -2254,7 +2299,9 @@ pub(super) async fn api_tools_video_enhance_tasks(
        FROM video_enhance_tasks";
     let rows = if let Some(status) = status {
         let mut stmt = conn
-            .prepare(&format!("{select_sql} WHERE status = ?1 ORDER BY created_at DESC LIMIT ?2"))
+            .prepare(&format!(
+                "{select_sql} WHERE status = ?1 ORDER BY created_at DESC LIMIT ?2"
+            ))
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
         let rows = stmt
             .query_map(params![status, limit as i64], video_enhance_task_to_json)
@@ -2292,7 +2339,10 @@ pub(super) async fn api_tools_video_enhance_delete_asset(
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "任务 ID 不能为空"));
     }
     if !matches!(asset, "source" | "result") {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "不支持的任务文件类型"));
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "不支持的任务文件类型",
+        ));
     }
 
     let conn = db_connection(&state)?;
@@ -2310,7 +2360,9 @@ pub(super) async fn api_tools_video_enhance_delete_asset(
         .optional()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
         .flatten()
-        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "任务文件不存在或未记录 TOS 对象路径"))?;
+        .ok_or_else(|| {
+            ApiError::new(StatusCode::NOT_FOUND, "任务文件不存在或未记录 TOS 对象路径")
+        })?;
 
     let delete_key = object_key.clone();
     tokio::task::spawn_blocking(move || delete_backend_tos_object(&delete_key))
@@ -2397,7 +2449,8 @@ async fn run_local_video_enhance(
         "-movflags".to_string(),
         "+faststart".to_string(),
         output_path.to_string_lossy().to_string(),
-    ]).await
+    ])
+    .await
 }
 
 pub(super) async fn api_tools_local_video_enhance(
@@ -2427,7 +2480,10 @@ pub(super) async fn api_tools_local_video_enhance(
                     .await
                     .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
                 let normalized = value.trim();
-                if matches!(normalized, "light" | "clarity" | "upscale_1080p" | "high_fps") {
+                if matches!(
+                    normalized,
+                    "light" | "clarity" | "upscale_1080p" | "high_fps"
+                ) {
                     preset = normalized.to_string();
                 }
                 continue;
@@ -2497,12 +2553,18 @@ pub(super) fn spawn_video_enhance_task_poller(state: BackendState) {
                          ORDER BY created_at ASC
                          LIMIT 20",
                     )
-                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+                    .map_err(|error| {
+                        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                    })?;
                 let task_ids = stmt
                     .query_map([], |row| row.get::<_, String>(0))
-                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+                    .map_err(|error| {
+                        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                    })?
                     .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+                    .map_err(|error| {
+                        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                    })?;
                 Ok(task_ids)
             }) {
                 Ok(value) => value,
@@ -2528,7 +2590,10 @@ pub(super) fn spawn_video_enhance_task_poller(state: BackendState) {
                         }
                     }
                     Err(error) => {
-                        eprintln!("[VideoEnhancePoller] 查询任务 {} 失败: {}", task_id, error.message);
+                        eprintln!(
+                            "[VideoEnhancePoller] 查询任务 {} 失败: {}",
+                            task_id, error.message
+                        );
                     }
                 }
             }
@@ -2548,12 +2613,18 @@ pub(super) fn spawn_image_enhance_task_poller(state: BackendState) {
                          ORDER BY created_at ASC
                          LIMIT 20",
                     )
-                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+                    .map_err(|error| {
+                        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                    })?;
                 let task_ids = stmt
                     .query_map([], |row| row.get::<_, String>(0))
-                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+                    .map_err(|error| {
+                        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                    })?
                     .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+                    .map_err(|error| {
+                        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                    })?;
                 Ok(task_ids)
             }) {
                 Ok(value) => value,
@@ -2579,7 +2650,10 @@ pub(super) fn spawn_image_enhance_task_poller(state: BackendState) {
                         }
                     }
                     Err(error) => {
-                        eprintln!("[ImageEnhancePoller] 查询任务 {} 失败: {}", task_id, error.message);
+                        eprintln!(
+                            "[ImageEnhancePoller] 查询任务 {} 失败: {}",
+                            task_id, error.message
+                        );
                     }
                 }
             }
@@ -4243,7 +4317,10 @@ fn normalize_runtime_script_parse_mode(value: &str) -> &'static str {
     }
 }
 
-fn resolve_script_parse_style_prompt<'a>(script_parse_mode: &str, style: Option<&'a str>) -> &'a str {
+fn resolve_script_parse_style_prompt<'a>(
+    script_parse_mode: &str,
+    style: Option<&'a str>,
+) -> &'a str {
     if normalize_runtime_script_parse_mode(script_parse_mode) == "origin_explainer" {
         ORIGIN_EXPLAINER_DEFAULT_STYLE_PROMPT
     } else {
@@ -5494,7 +5571,9 @@ async fn gpt_image_2_reference_urls(reference_images: &[String]) -> Result<Vec<S
                 .to_string();
             (mime, bytes)
         } else {
-            return Err("gpt-image-2 参考图必须使用公网 URL；本地路径不能直接提交给模型服务".to_string());
+            return Err(
+                "gpt-image-2 参考图必须使用公网 URL；本地路径不能直接提交给模型服务".to_string(),
+            );
         };
         if bytes.is_empty() {
             return Err("gpt-image-2 参考图数据为空".to_string());
@@ -5503,7 +5582,10 @@ async fn gpt_image_2_reference_urls(reference_images: &[String]) -> Result<Vec<S
             return Err("gpt-image-2 参考图超过 35MB 上限".to_string());
         }
         if !load_backend_tos_config().enabled {
-            return Err("gpt-image-2 参考图必须使用公网 URL。请启用 TOS/CDN，或直接传入公网图片 URL".to_string());
+            return Err(
+                "gpt-image-2 参考图必须使用公网 URL。请启用 TOS/CDN，或直接传入公网图片 URL"
+                    .to_string(),
+            );
         }
 
         let normalized_mime = if mime.starts_with("image/") {
@@ -6861,6 +6943,19 @@ fn push_scene_video_reference_label(
     labels.push(SceneVideoReferenceLabel { url, label });
 }
 
+fn scene_video_character_asset_reference_url(item: &Value) -> Option<String> {
+    if item.get("type").and_then(Value::as_str) == Some("character") {
+        if let Some(asset_uri) = item
+            .get("arkAssetId")
+            .and_then(Value::as_str)
+            .and_then(volcengine_ark_asset_uri)
+        {
+            return Some(asset_uri);
+        }
+    }
+    optional_trimmed_json_string(item.get("image"))
+}
+
 fn push_unique_scene_video_url(
     urls: &mut Vec<String>,
     seen: &mut HashSet<String>,
@@ -6909,6 +7004,11 @@ fn scene_video_reference_label_candidates(config: &Value) -> Vec<SceneVideoRefer
             push_scene_video_reference_label(
                 &mut labels,
                 optional_trimmed_json_string(item.get("image")),
+                label.clone(),
+            );
+            push_scene_video_reference_label(
+                &mut labels,
+                scene_video_character_asset_reference_url(item),
                 label,
             );
         }
@@ -9349,12 +9449,17 @@ async fn normalize_volcengine_video_image_url(
     if load_backend_tos_config().enabled {
         let ext = infer_extension_from_mime(&mime, "png");
         let filename = build_unique_filename("video-reference", &ext);
-        if let Some(url) = upload_media_bytes_to_tos_async("images", filename, bytes.clone()).await?
+        if let Some(url) =
+            upload_media_bytes_to_tos_async("images", filename, bytes.clone()).await?
         {
             return Ok(url);
         }
     }
-    Ok(format!("data:{};base64,{}", mime, BASE64_STANDARD.encode(bytes)))
+    Ok(format!(
+        "data:{};base64,{}",
+        mime,
+        BASE64_STANDARD.encode(bytes)
+    ))
 }
 
 async fn normalize_volcengine_video_config_images(
@@ -9400,7 +9505,10 @@ async fn normalize_volcengine_video_config_images(
         }
     }
     if let Some(object) = config.as_object_mut() {
-        object.insert("referenceImages".to_string(), Value::Array(normalized_items));
+        object.insert(
+            "referenceImages".to_string(),
+            Value::Array(normalized_items),
+        );
     }
     Ok(())
 }
@@ -9411,6 +9519,48 @@ fn normalize_video_url_input(value: Option<&Value>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn volcengine_ark_asset_uri(value: &str) -> Option<String> {
+    let asset_id = value.trim();
+    if asset_id.is_empty() {
+        return None;
+    }
+    if asset_id.starts_with("asset://") {
+        Some(asset_id.to_string())
+    } else {
+        Some(format!("asset://{asset_id}"))
+    }
+}
+
+fn push_volcengine_ark_asset_uri(
+    output: &mut Vec<String>,
+    seen: &mut HashSet<String>,
+    value: Option<&Value>,
+) {
+    let Some(asset_uri) = value
+        .and_then(Value::as_str)
+        .and_then(volcengine_ark_asset_uri)
+    else {
+        return;
+    };
+    if seen.insert(asset_uri.clone()) {
+        output.push(asset_uri);
+    }
+}
+
+fn volcengine_ark_reference_images(config: &Value) -> Vec<String> {
+    let mut output = Vec::new();
+    let mut seen = HashSet::<String>::new();
+    push_volcengine_ark_asset_uri(&mut output, &mut seen, config.get("arkAssetId"));
+
+    if let Some(items) = config.get("arkAssetIds").and_then(Value::as_array) {
+        for item in items {
+            push_volcengine_ark_asset_uri(&mut output, &mut seen, Some(item));
+        }
+    }
+
+    output
 }
 
 fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
@@ -9436,6 +9586,12 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
         })
         .take(9)
         .collect::<Vec<_>>();
+    let ark_reference_images = volcengine_ark_reference_images(config);
+    let reference_images = if ark_reference_images.is_empty() {
+        reference_images
+    } else {
+        ark_reference_images.into_iter().take(9).collect::<Vec<_>>()
+    };
     let has_reference_images = !reference_images.is_empty();
     let using_first_last = !has_reference_images && first_frame.is_some() && last_frame.is_some();
     let using_single_image = !has_reference_images
@@ -12479,7 +12635,11 @@ mod tests {
 
     #[test]
     fn image_2_variants_use_image_urls_generation_path() {
-        for model in ["gpt-image-2", "gpt-image-2-official", "my-image-2-compatible"] {
+        for model in [
+            "gpt-image-2",
+            "gpt-image-2-official",
+            "my-image-2-compatible",
+        ] {
             assert!(
                 is_gpt_image_2_model(model),
                 "expected {model} to use image_urls request format"
@@ -12615,7 +12775,45 @@ mod tests {
                     .and_then(Value::as_str)
             })
             .collect::<Vec<_>>();
-        assert_eq!(image_urls, vec!["env-url", "asset://asset-chenze", "truck-url"]);
+        assert_eq!(
+            image_urls,
+            vec!["env-url", "asset://asset-chenze", "truck-url"]
+        );
+    }
+
+    #[test]
+    fn volcengine_video_request_prefers_private_ark_asset_id_over_image_url() {
+        let request = build_volcengine_video_request(
+            "doubao-seedance-2-0-260128",
+            &json!({
+              "prompt": "生成视频",
+              "imageUrl": "https://example.com/character.png",
+              "referenceImages": ["https://example.com/character.png"],
+              "arkAssetId": "asset-20260401123823-6d4x2"
+            }),
+        );
+
+        let image_items = request
+            .get("content")
+            .and_then(Value::as_array)
+            .expect("volcengine content array")
+            .iter()
+            .filter(|item| item.get("type").and_then(Value::as_str) == Some("image_url"))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        assert_eq!(image_items.len(), 1);
+        assert_eq!(
+            image_items[0].get("role").and_then(Value::as_str),
+            Some("reference_image")
+        );
+        assert_eq!(
+            image_items[0]
+                .get("image_url")
+                .and_then(|value| value.get("url"))
+                .and_then(Value::as_str),
+            Some("asset://asset-20260401123823-6d4x2")
+        );
     }
 
     #[test]
@@ -14312,7 +14510,10 @@ pub(super) async fn api_models_test(
                 if let Some(image_url) = body.get("imageUrl") {
                     obj.insert("imageUrl".to_string(), image_url.clone());
                 }
-                if let Some(reference_videos) = body.get("referenceVideos").or_else(|| body.get("videoReferences")) {
+                if let Some(reference_videos) = body
+                    .get("referenceVideos")
+                    .or_else(|| body.get("videoReferences"))
+                {
                     obj.insert("referenceVideos".to_string(), reference_videos.clone());
                 }
                 if let Some(video_url) = body.get("videoUrl").or_else(|| body.get("firstClip")) {
@@ -14321,7 +14522,10 @@ pub(super) async fn api_models_test(
                 if let Some(audio_url) = body.get("audioUrl") {
                     obj.insert("audioUrl".to_string(), audio_url.clone());
                 }
-                if let Some(audio_references) = body.get("audioReferences").or_else(|| body.get("referenceAudios")) {
+                if let Some(audio_references) = body
+                    .get("audioReferences")
+                    .or_else(|| body.get("referenceAudios"))
+                {
                     obj.insert("audioReferences".to_string(), audio_references.clone());
                 }
             }
@@ -14894,7 +15098,10 @@ pub(super) async fn generate_video_import_script_text(
                 ("taskTitle", task_title),
                 ("sourceFilename", source_filename),
                 ("scriptParseMode", normalized_mode),
-                ("scriptParseModeLabel", runtime_script_parse_mode_label(normalized_mode)),
+                (
+                    "scriptParseModeLabel",
+                    runtime_script_parse_mode_label(normalized_mode),
+                ),
                 ("subtitleText", normalized_subtitle),
             ],
         )?
@@ -15561,12 +15768,8 @@ fn ark_signed_headers(
     access_key: &str,
     secret_key: &str,
 ) -> Result<(String, String), ApiError> {
-    let parsed = reqwest::Url::parse(endpoint).map_err(|_| {
-        ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "火山 OpenAPI Base URL 配置无效",
-        )
-    })?;
+    let parsed = reqwest::Url::parse(endpoint)
+        .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "火山 OpenAPI Base URL 配置无效"))?;
     let host = parsed
         .host_str()
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "火山 OpenAPI Host 为空"))?;
@@ -15575,9 +15778,8 @@ fn ark_signed_headers(
     let short_date = now.format("%Y%m%d").to_string();
     let canonical_query = format!("Action={action}&Version={ARK_OPENAPI_VERSION}");
     let payload_hash = ark_sha256_hex(payload);
-    let canonical_headers = format!(
-        "content-type:application/json\nhost:{host}\nx-date:{x_date}\n"
-    );
+    let canonical_headers =
+        format!("content-type:application/json\nhost:{host}\nx-date:{x_date}\n");
     let signed_headers = "content-type;host;x-date";
     let canonical_request = format!(
         "POST\n/\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
@@ -15601,12 +15803,37 @@ fn ark_signed_headers(
 
 async fn ark_openapi_call(action: &str, mut body: Value) -> Result<Value, ApiError> {
     let creds = current_provider_creds();
+    let tos_config = load_backend_tos_config();
     let access_key = provider_credential_field(&creds, "volcengine", "arkAccessKey")
         .or_else(|| provider_credential_field(&creds, "volcengine", "accessKey"))
-        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请先配置火山 Ark OpenAPI Access Key"))?;
+        .or_else(|| {
+            if tos_config.access_key_id.is_empty() {
+                None
+            } else {
+                Some(tos_config.access_key_id.clone())
+            }
+        })
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "请先配置火山 Ark OpenAPI Access Key，或配置可复用的火山 TOS Access Key",
+            )
+        })?;
     let secret_key = provider_credential_field(&creds, "volcengine", "arkSecretKey")
         .or_else(|| provider_credential_field(&creds, "volcengine", "secretKey"))
-        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请先配置火山 Ark OpenAPI Secret Key"))?;
+        .or_else(|| {
+            if tos_config.access_key_secret.is_empty() {
+                None
+            } else {
+                Some(tos_config.access_key_secret.clone())
+            }
+        })
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "请先配置火山 Ark OpenAPI Secret Key，或配置可复用的火山 TOS Secret Key",
+            )
+        })?;
     let project_name = ark_project_name(&creds, &body);
     if let Some(object) = body.as_object_mut() {
         object.insert("ProjectName".to_string(), json!(project_name));
@@ -15633,7 +15860,10 @@ async fn ark_openapi_call(action: &str, mut body: Value) -> Result<Value, ApiErr
         .map_err(|error| {
             ApiError::new(
                 StatusCode::BAD_GATEWAY,
-                format!("请求火山 OpenAPI 失败: {}", build_cloud_transport_error_message(&error)),
+                format!(
+                    "请求火山 OpenAPI 失败: {}",
+                    build_cloud_transport_error_message(&error)
+                ),
             )
         })?;
     let status = response.status();
@@ -15672,10 +15902,36 @@ fn ark_asset_public_payload(payload: Value) -> Value {
     })
 }
 
+fn ark_pagination_body(body: &Value) -> (u64, u64) {
+    let page_number = body
+        .get("pageNumber")
+        .or_else(|| body.get("PageNumber"))
+        .and_then(Value::as_u64)
+        .unwrap_or(1)
+        .max(1);
+    let page_size = body
+        .get("pageSize")
+        .or_else(|| body.get("PageSize"))
+        .and_then(Value::as_u64)
+        .unwrap_or(20)
+        .clamp(1, 100);
+    (page_number, page_size)
+}
+
+fn ark_optional_string<'a>(body: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| body.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
 pub(super) async fn api_ark_virtual_asset_group_create(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let name = json_string(body.get("name").or_else(|| body.get("Name")), "虚拟人像素材组");
+    let name = json_string(
+        body.get("name").or_else(|| body.get("Name")),
+        "虚拟人像素材组",
+    );
     let description = json_string(
         body.get("description").or_else(|| body.get("Description")),
         "Created by Playlet Desktop",
@@ -15685,10 +15941,108 @@ pub(super) async fn api_ark_virtual_asset_group_create(
       "Description": description,
       "GroupType": "AIGC"
     });
-    if let Some(project_name) = body.get("projectName").or_else(|| body.get("ProjectName")).and_then(Value::as_str) {
+    if let Some(project_name) = body
+        .get("projectName")
+        .or_else(|| body.get("ProjectName"))
+        .and_then(Value::as_str)
+    {
         request["ProjectName"] = json!(project_name);
     }
     let result = ark_openapi_call("CreateAssetGroup", request).await?;
+    Ok(Json(json!({
+      "success": true,
+      "data": result
+    })))
+}
+
+pub(super) async fn api_ark_virtual_asset_groups_list(
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let page_number = query
+        .get("pageNumber")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(1)
+        .max(1);
+    let page_size = query
+        .get("pageSize")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(20)
+        .clamp(1, 100);
+    let mut filter = json!({ "GroupType": "AIGC" });
+    if let Some(name) = query
+        .get("name")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        filter["Name"] = json!(name);
+    }
+    if let Some(group_id) = query
+        .get("groupId")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        filter["GroupIds"] = json!([group_id]);
+    }
+    let mut request = json!({
+      "Filter": filter,
+      "PageNumber": page_number,
+      "PageSize": page_size
+    });
+    if let Some(project_name) = query
+        .get("projectName")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        request["ProjectName"] = json!(project_name);
+    }
+    let result = ark_openapi_call("ListAssetGroups", request).await?;
+    Ok(Json(json!({
+      "success": true,
+      "data": result
+    })))
+}
+
+pub(super) async fn api_ark_virtual_asset_group_update(
+    Path(group_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let mut request = json!({ "Id": group_id });
+    if let Some(name) = ark_optional_string(&body, &["name", "Name"]) {
+        request["Name"] = json!(name);
+    }
+    if let Some(title) = ark_optional_string(&body, &["title", "Title"]) {
+        request["Title"] = json!(title);
+    }
+    if let Some(description) = ark_optional_string(&body, &["description", "Description"]) {
+        request["Description"] = json!(description);
+    }
+    if let Some(project_name) = ark_optional_string(&body, &["projectName", "ProjectName"]) {
+        request["ProjectName"] = json!(project_name);
+    }
+    let result = ark_openapi_call("UpdateAssetGroup", request).await?;
+    Ok(Json(json!({
+      "success": true,
+      "data": result
+    })))
+}
+
+pub(super) async fn api_ark_virtual_asset_group_delete(
+    Path(group_id): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let mut request = json!({ "Id": group_id });
+    if let Some(project_name) = query
+        .get("projectName")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        request["ProjectName"] = json!(project_name);
+    }
+    let result = ark_openapi_call("DeleteAssetGroup", request).await?;
     Ok(Json(json!({
       "success": true,
       "data": result
@@ -15706,7 +16060,10 @@ pub(super) async fn api_ark_virtual_asset_upload(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "素材组 ID 不能为空"))?;
-    let name = json_string(body.get("name").or_else(|| body.get("Name")), "虚拟人像素材");
+    let name = json_string(
+        body.get("name").or_else(|| body.get("Name")),
+        "虚拟人像素材",
+    );
     let source_url = body
         .get("sourceUrl")
         .or_else(|| body.get("URL"))
@@ -15731,7 +16088,9 @@ pub(super) async fn api_ark_virtual_asset_upload(
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请提供可访问的素材 URL 或图片内容"))?;
+                .ok_or_else(|| {
+                    ApiError::new(StatusCode::BAD_REQUEST, "请提供可访问的素材 URL 或图片内容")
+                })?;
             let uploaded = persist_image_source(&state, image_data, "ark_virtual_asset").await?;
             if !(uploaded.starts_with("http://") || uploaded.starts_with("https://")) {
                 return Err(ApiError::new(
@@ -15748,7 +16107,11 @@ pub(super) async fn api_ark_virtual_asset_upload(
       "AssetType": "Image",
       "Name": name
     });
-    if let Some(project_name) = body.get("projectName").or_else(|| body.get("ProjectName")).and_then(Value::as_str) {
+    if let Some(project_name) = body
+        .get("projectName")
+        .or_else(|| body.get("ProjectName"))
+        .and_then(Value::as_str)
+    {
         request["ProjectName"] = json!(project_name);
     }
     let result = ark_openapi_call("CreateAsset", request).await?;
@@ -15761,18 +16124,102 @@ pub(super) async fn api_ark_virtual_asset_upload(
     })))
 }
 
+pub(super) async fn api_ark_virtual_assets_list(
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let (page_number, page_size) = ark_pagination_body(&body);
+    let mut filter = json!({ "GroupType": "AIGC" });
+    if let Some(group_id) = ark_optional_string(&body, &["groupId", "GroupId"]) {
+        filter["GroupIds"] = json!([group_id]);
+    }
+    if let Some(name) = ark_optional_string(&body, &["name", "Name"]) {
+        filter["Name"] = json!(name);
+    }
+    if let Some(status) = ark_optional_string(&body, &["status", "Status"]) {
+        filter["Statuses"] = json!([status]);
+    } else if let Some(statuses) = body
+        .get("statuses")
+        .or_else(|| body.get("Statuses"))
+        .and_then(Value::as_array)
+    {
+        filter["Statuses"] = json!(statuses);
+    }
+    let mut request = json!({
+      "Filter": filter,
+      "PageNumber": page_number,
+      "PageSize": page_size
+    });
+    if let Some(sort_by) = ark_optional_string(&body, &["sortBy", "SortBy"]) {
+        request["SortBy"] = json!(sort_by);
+    }
+    if let Some(sort_order) = ark_optional_string(&body, &["sortOrder", "SortOrder"]) {
+        request["SortOrder"] = json!(sort_order);
+    }
+    if let Some(project_name) = ark_optional_string(&body, &["projectName", "ProjectName"]) {
+        request["ProjectName"] = json!(project_name);
+    }
+    let result = ark_openapi_call("ListAssets", request).await?;
+    Ok(Json(json!({
+      "success": true,
+      "data": result
+    })))
+}
+
 pub(super) async fn api_ark_virtual_asset_get(
     Path(asset_id): Path<String>,
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let mut request = json!({ "Id": asset_id });
-    if let Some(project_name) = query.get("projectName").map(String::as_str).map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(project_name) = query
+        .get("projectName")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         request["ProjectName"] = json!(project_name);
     }
     let result = ark_openapi_call("GetAsset", request).await?;
     Ok(Json(json!({
       "success": true,
       "data": ark_asset_public_payload(result)
+    })))
+}
+
+pub(super) async fn api_ark_virtual_asset_update(
+    Path(asset_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let mut request = json!({ "Id": asset_id });
+    if let Some(name) = ark_optional_string(&body, &["name", "Name"]) {
+        request["Name"] = json!(name);
+    }
+    if let Some(project_name) = ark_optional_string(&body, &["projectName", "ProjectName"]) {
+        request["ProjectName"] = json!(project_name);
+    }
+    let result = ark_openapi_call("UpdateAsset", request).await?;
+    Ok(Json(json!({
+      "success": true,
+      "data": result
+    })))
+}
+
+pub(super) async fn api_ark_virtual_asset_delete(
+    Path(asset_id): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let mut request = json!({ "Id": asset_id });
+    if let Some(project_name) = query
+        .get("projectName")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        request["ProjectName"] = json!(project_name);
+    }
+    let result = ark_openapi_call("DeleteAsset", request).await?;
+    Ok(Json(json!({
+      "success": true,
+      "data": result
     })))
 }
 
@@ -16608,6 +17055,7 @@ fn validate_video_generation_config(config: &mut Value) -> Result<(), ApiError> 
     workflow_optional_string(config, "lastFrame", "body.config")?;
     workflow_optional_string(config, "imageUrl", "body.config")?;
     workflow_optional_string(config, "audioUrl", "body.config")?;
+    workflow_optional_string(config, "arkAssetId", "body.config")?;
     workflow_optional_string(config, "negativePrompt", "body.config")?;
     workflow_optional_string(config, "size", "body.config")?;
     workflow_optional_string(config, "modelId", "body.config")?;
@@ -16616,6 +17064,7 @@ fn validate_video_generation_config(config: &mut Value) -> Result<(), ApiError> 
     workflow_optional_bool(config, "watermark", "body.config")?;
     workflow_optional_number(config, "seed", "body.config")?;
     validate_optional_string_array(config, "referenceImages", "body.config", 9)?;
+    validate_optional_string_array(config, "arkAssetIds", "body.config", 9)?;
 
     match config.get("duration").filter(|value| !value.is_null()) {
         Some(value) => {

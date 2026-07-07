@@ -109,7 +109,7 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
       </Button>
     </div>
 
-    <div class="grid grid-cols-1 gap-3 xl:grid-cols-2">
+    <div class="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
       <div
         v-for="(asset, idx) in environmentAssetCards"
         :key="`asset_env_${asset.id}`"

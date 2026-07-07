@@ -73,7 +73,6 @@ const planActionLabel = computed(() => {
   if (isOriginExplainer.value) return hasEpisodePlan.value ? '重新生成镜头规划入口' : '生成镜头规划入口'
   return hasEpisodePlan.value ? '重新生成分集目录' : '生成分集目录'
 })
-const clearPlanLabel = computed(() => isOriginExplainer.value ? '重新规划' : '重新分集')
 const planReadyMessage = computed(() => {
   if (isOriginExplainer.value) {
     return `已生成镜头规划入口。请到“分镜视频”步骤按主题拆解并生成 ${workflowPreset.value.name} 多镜头场景。`
@@ -89,7 +88,7 @@ const parseProgressChunkText = computed(() => {
 })
 
 const emit = defineEmits<{
-  (e: 'prepare-episodes' | 'clear-episode-plan'): void
+  (e: 'prepare-episodes'): void
 }>()
 
 const { toast } = useToast()
@@ -218,14 +217,6 @@ async function handleDrop(event: DragEvent) {
           class="h-4 w-4"
         />
         {{ planActionLabel }}
-      </Button>
-      <Button
-        v-if="hasEpisodePlan"
-        variant="outline"
-        :disabled="parsing"
-        @click="emit('clear-episode-plan')"
-      >
-        {{ clearPlanLabel }}
       </Button>
       <div
         v-if="scenesCount > 0 || charactersCount > 0"

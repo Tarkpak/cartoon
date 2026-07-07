@@ -43,6 +43,37 @@ describe('asset workbench project serialization', () => {
     })
   })
 
+  it('preserves character Ark virtual asset binding while loading and saving', () => {
+    const characters = buildLoadedCharacters([
+      {
+        id: 'char_linwan',
+        name: '林婉',
+        appearance: '红裙少女',
+        arkAsset: {
+          provider: 'volcengine',
+          libraryType: 'virtual_human',
+          projectName: 'default',
+          groupId: 'group-1',
+          assetId: 'asset-linwan',
+          assetType: 'Image',
+          sourceUrl: 'https://example.com/linwan.png',
+          name: '林婉-1',
+          status: 'Active',
+          updatedAt: '2026-07-06T09:18:09Z'
+        }
+      }
+    ])
+
+    expect(characters[0]?.arkAsset).toMatchObject({
+      assetId: 'asset-linwan',
+      status: 'Active'
+    })
+    expect(buildSaveCharactersPayload(characters)[0]?.arkAsset).toMatchObject({
+      assetId: 'asset-linwan',
+      status: 'Active'
+    })
+  })
+
   it('preserves scene props while loading and saving', () => {
     const scenes = buildLoadedScenes([
       {

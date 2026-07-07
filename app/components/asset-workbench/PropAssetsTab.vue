@@ -332,7 +332,7 @@ function buildImageLoadKey(prop: PropAsset): string {
     <!-- Prop cards -->
     <div
       v-else
-      class="grid grid-cols-1 gap-3 md:grid-cols-2"
+      class="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3"
     >
       <div
         v-for="prop in displayedPropAssets"

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import AssetWorkbenchPage from './pages/asset-workbench.vue'
+import ArkAssetsPage from './pages/ark-assets.vue'
 import HomePage from './pages/index.vue'
 import ImportVideoDetailPage from './pages/import/video-detail.vue'
 import ImportVideoPage from './pages/import/video.vue'
@@ -83,6 +84,11 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/tos-files',
     component: TosFilesPage,
+    meta: { layout: 'default' }
+  },
+  {
+    path: '/ark-assets',
+    component: ArkAssetsPage,
     meta: { layout: 'default' }
   },
   {

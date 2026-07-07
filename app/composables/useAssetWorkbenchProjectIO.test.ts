@@ -75,11 +75,12 @@ function createLoadResponse() {
   }
 }
 
-function createProjectIO() {
+function createProjectIO(input: { routeProjectId?: ReturnType<typeof ref<string | undefined>> } = {}) {
   const route = { query: { project: projectId } } as never
   const router = {
     replace: vi.fn(async () => undefined)
   } as never
+  const routeProjectId = input.routeProjectId || ref<string | undefined>(projectId)
 
   const projectName = ref('新项目')
   const projectDescription = ref('')
@@ -96,7 +97,7 @@ function createProjectIO() {
   const io = useAssetWorkbenchProjectIO({
     route,
     router,
-    projectId: computed(() => projectId),
+    projectId: computed(() => routeProjectId.value),
     projectName,
     projectDescription,
     projectStyleId,
@@ -113,6 +114,7 @@ function createProjectIO() {
   return {
     io,
     state: {
+      routeProjectId,
       projectName,
       projectDescription,
       projectStyleId,
@@ -191,6 +193,43 @@ describe('useAssetWorkbenchProjectIO', () => {
     const putCalls = fetchMock.mock.calls.filter(([, options]) => {
       return (options as FetchOptions | undefined)?.method === 'PUT'
     })
+    expect(putCalls).toHaveLength(1)
+  })
+
+  it('keeps saving the loaded project after route project query disappears', async () => {
+    fetchMock.mockImplementation(async (url: string, options?: FetchOptions) => {
+      if (url === projectRoute && options?.method === 'PUT') {
+        return { success: true }
+      }
+      if (url === projectRoute) {
+        return createLoadResponse()
+      }
+      if (url === '/api/project/create') {
+        throw new Error('saveProject should not create a duplicate project')
+      }
+      throw new Error(`Unexpected fetch call: ${url}`)
+    })
+
+    const routeProjectId = ref<string | undefined>(projectId)
+    const { io, state } = createProjectIO({ routeProjectId })
+    await io.loadProject(projectId)
+    routeProjectId.value = undefined
+    state.characters.value[0]!.arkAsset = {
+      provider: 'volcengine',
+      libraryType: 'virtual_human',
+      projectName: 'default',
+      groupId: 'group-1',
+      assetId: 'asset-1',
+      assetType: 'Image',
+      status: 'Active'
+    }
+    await io.saveProject()
+
+    const createCalls = fetchMock.mock.calls.filter(([url]) => url === '/api/project/create')
+    const putCalls = fetchMock.mock.calls.filter(([url, options]) => {
+      return url === projectRoute && (options as FetchOptions | undefined)?.method === 'PUT'
+    })
+    expect(createCalls).toHaveLength(0)
     expect(putCalls).toHaveLength(1)
   })
 })

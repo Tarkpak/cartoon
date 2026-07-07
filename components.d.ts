@@ -10,6 +10,8 @@ declare module 'vue' {
   export interface GlobalComponents {
     AppLogsDetailDrawer: typeof import('./app/components/app-logs/AppLogsDetailDrawer.vue')['default']
     AppLogsPanel: typeof import('./app/components/app-logs/AppLogsPanel.vue')['default']
+    AssetWorkbenchArkVirtualAssetSelectDialog: typeof import('./app/components/asset-workbench/ArkVirtualAssetSelectDialog.vue')['default']
+    AssetWorkbenchArkVirtualAssetsTab: typeof import('./app/components/asset-workbench/ArkVirtualAssetsTab.vue')['default']
     AssetWorkbenchAssetHistoryDialog: typeof import('./app/components/asset-workbench/AssetHistoryDialog.vue')['default']
     AssetWorkbenchAssetsStage: typeof import('./app/components/asset-workbench/AssetsStage.vue')['default']
     AssetWorkbenchCharacterAssetsTab: typeof import('./app/components/asset-workbench/CharacterAssetsTab.vue')['default']

@@ -19,8 +19,12 @@ interface ProjectPayload {
   status?: string
   createdAt?: string
   created_at?: string
+  localCreatedAt?: string
+  local_created_at?: string
   updatedAt?: string
   updated_at?: string
+  localUpdatedAt?: string
+  local_updated_at?: string
   summary?: unknown
   snapshot?: unknown
 }
@@ -59,7 +63,7 @@ export default defineEventHandler(async (event) => {
       last_synced_at = excluded.last_synced_at,
       updated_at = excluded.updated_at
   `)
-  const selectProject = db.prepare('SELECT id FROM user_projects WHERE user_id = ? AND local_project_id = ? LIMIT 1')
+  const selectProject = db.prepare('SELECT id, local_updated_at FROM user_projects WHERE user_id = ? AND local_project_id = ? LIMIT 1')
   const insertSnapshot = db.prepare(`
     INSERT INTO user_project_snapshots
       (id, user_id, project_id, snapshot_json, snapshot_version, created_at)
@@ -67,16 +71,27 @@ export default defineEventHandler(async (event) => {
   `)
 
   const synced = db.transaction((items: ProjectPayload[]) => {
-    const result: Array<{ localProjectId: string, projectId: string }> = []
+    const result: Array<{ localProjectId: string, projectId: string, status: 'synced' | 'skipped', reason?: string }> = []
     for (const project of items) {
       const localProjectId = optionalString(project.localProjectId || project.id, 128)
       if (!localProjectId) {
         throw createError({ statusCode: 400, statusMessage: 'project.localProjectId is required' })
       }
       const name = optionalString(project.name || project.title, 256) || '未命名项目'
-      const existing = selectProject.get(auth.user.id, localProjectId) as { id: string } | undefined
+      const existing = selectProject.get(auth.user.id, localProjectId) as { id: string, local_updated_at: string | null } | undefined
       const projectId = existing?.id || randomUUID()
       const snapshot = optionalJson(project.snapshot) ?? project
+      const localCreatedAt = optionalString(project.localCreatedAt || project.local_created_at || project.createdAt || project.created_at, 64)
+      const localUpdatedAt = optionalString(project.localUpdatedAt || project.local_updated_at || project.updatedAt || project.updated_at, 64)
+      if (existing?.local_updated_at && localUpdatedAt && localUpdatedAt < existing.local_updated_at) {
+        result.push({
+          localProjectId,
+          projectId,
+          status: 'skipped',
+          reason: 'stale_local_update'
+        })
+        continue
+      }
 
       upsertProject.run(
         projectId,
@@ -89,15 +104,15 @@ export default defineEventHandler(async (event) => {
         optionalString(project.aspectRatio || project.aspect_ratio, 32),
         optionalString(project.status, 64) || 'draft',
         jsonText(project.summary || {}),
-        optionalString(project.createdAt || project.created_at, 64),
-        optionalString(project.updatedAt || project.updated_at, 64),
+        localCreatedAt,
+        localUpdatedAt || timestamp,
         timestamp,
         timestamp,
         timestamp
       )
 
       insertSnapshot.run(randomUUID(), auth.user.id, projectId, jsonText(snapshot), 1, timestamp)
-      result.push({ localProjectId, projectId })
+      result.push({ localProjectId, projectId, status: 'synced' })
     }
     return result
   })(projects)
@@ -109,4 +124,3 @@ export default defineEventHandler(async (event) => {
     }
   }
 })
-

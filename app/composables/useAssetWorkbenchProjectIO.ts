@@ -37,6 +37,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   const saving = ref(false)
   const saveError = ref<string | null>(null)
   const loading = ref(false)
+  const activeProjectId = ref(options.projectId.value || '')
   let lastSavedProjectSnapshot: string | null = null
   const mergeStatus = ref<{
     running: boolean
@@ -228,6 +229,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
 
   async function loadProject(id: string) {
     loading.value = true
+    activeProjectId.value = id
     lastSavedProjectSnapshot = null
     mergeStatus.value = { running: false, progress: 0 }
     finalVideo.value = null
@@ -287,6 +289,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
             catchphrase?: string | null
             voiceTone?: string | null
             voiceAsset?: CharacterVoiceAsset | null
+            arkAsset?: CharacterData['arkAsset'] | null
             age?: number | null
             gender?: string | null
             imageUrl?: string | null
@@ -328,7 +331,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         finalVideo.value = null
       }
 
-      let id = options.projectId.value
+      let id = activeProjectId.value || options.projectId.value
 
       if (!id) {
         if (!options.projectStyleId.value) {
@@ -354,6 +357,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         }
 
         id = createResponse.project.id
+        activeProjectId.value = id
         await options.router.replace({ query: { ...options.route.query, project: id } })
       }
 
@@ -392,7 +396,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     attempts?: number
     delayMs?: number
   } = {}) {
-    const id = options.projectId.value
+    const id = activeProjectId.value || options.projectId.value
     if (!id || options.characters.value.length === 0) return
 
     const attempts = Math.max(1, input.attempts ?? 1)

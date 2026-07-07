@@ -57,6 +57,7 @@ const emit = defineEmits<{
   'preview-image': [payload: { src: string | undefined, alt: string }]
   'start-character-edit': [character: CharacterData]
   'add-character-variant': [character: CharacterData]
+  'remove-character-variant': [characterId: string]
   'cancel-character-edit': []
   'save-character-edit': []
   'save-character-edit-regenerate': []
@@ -65,6 +66,7 @@ const emit = defineEmits<{
   'open-character-history': [characterId: string]
   'upload-character-image': [payload: { characterId: string, event: Event }]
   'ingest-character-ark-asset': [characterId: string]
+  'select-character-ark-asset': [character: CharacterData]
   'upload-character-voice': [payload: { characterId: string, event: Event }]
   'update-character-voice-lock': [payload: { characterId: string, locked: boolean }]
   'edit-environment-scene': [assetId: string]
@@ -227,6 +229,7 @@ const hasSeedAssets = computed(() => {
         @preview-image="emit('preview-image', $event)"
         @start-edit="emit('start-character-edit', $event)"
         @add-variant="emit('add-character-variant', $event)"
+        @remove-variant="emit('remove-character-variant', $event)"
         @cancel-edit="emit('cancel-character-edit')"
         @save-edit="emit('save-character-edit')"
         @save-edit-regenerate="emit('save-character-edit-regenerate')"
@@ -235,6 +238,7 @@ const hasSeedAssets = computed(() => {
         @open-history="emit('open-character-history', $event)"
         @upload-image="emit('upload-character-image', $event)"
         @ingest-ark-asset="emit('ingest-character-ark-asset', $event)"
+        @select-ark-asset="emit('select-character-ark-asset', $event)"
         @upload-voice="emit('upload-character-voice', $event)"
         @update-voice-lock="emit('update-character-voice-lock', $event)"
       />
