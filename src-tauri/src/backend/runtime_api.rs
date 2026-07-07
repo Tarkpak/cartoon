@@ -549,17 +549,41 @@ async fn upload_media_bytes_to_tos_async(
     filename: String,
     bytes: Vec<u8>,
 ) -> Result<Option<String>, ApiError> {
-    run_tos_sdk_on_dedicated_thread("upload", move || {
+    run_tos_sdk_on_dedicated_thread_async("upload", move || {
         upload_media_bytes_to_tos(category, &filename, &bytes)
     })
     .await
 }
 
 async fn delete_backend_tos_object_async(object_key: String) -> Result<(), ApiError> {
-    run_tos_sdk_on_dedicated_thread("delete", move || delete_backend_tos_object(&object_key)).await
+    run_tos_sdk_on_dedicated_thread_async("delete", move || delete_backend_tos_object(&object_key))
+        .await
 }
 
-async fn run_tos_sdk_on_dedicated_thread<T, F>(
+fn run_tos_sdk_on_dedicated_thread<T, F>(operation: &'static str, task: F) -> Result<T, ApiError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, ApiError> + Send + 'static,
+{
+    std::thread::Builder::new()
+        .name(format!("tos-{operation}"))
+        .spawn(task)
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("启动 TOS {operation} 线程失败: {}", error),
+            )
+        })?
+        .join()
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("TOS {operation} 线程异常退出"),
+            )
+        })?
+}
+
+async fn run_tos_sdk_on_dedicated_thread_async<T, F>(
     operation: &'static str,
     task: F,
 ) -> Result<T, ApiError>
@@ -567,32 +591,12 @@ where
     T: Send + 'static,
     F: FnOnce() -> Result<T, ApiError> + Send + 'static,
 {
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    std::thread::Builder::new()
-        .name(format!("tos-{operation}"))
-        .spawn(move || {
-            let result = task();
-            let _ = sender.send(result);
-        })
-        .map_err(|error| {
-            ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("启动 TOS {operation} 线程失败: {}", error),
-            )
-        })?;
-
-    tokio::task::spawn_blocking(move || receiver.recv())
+    tokio::task::spawn_blocking(move || run_tos_sdk_on_dedicated_thread(operation, task))
         .await
         .map_err(|error| {
             ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("等待 TOS {operation} 任务失败: {}", error),
-            )
-        })?
-        .map_err(|error| {
-            ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("TOS {operation} 线程未返回结果: {}", error),
             )
         })?
 }
@@ -608,6 +612,31 @@ async fn persist_image_bytes_async(
     let filename = build_unique_filename(prefix, &ext);
     if load_backend_tos_config().enabled {
         return match upload_media_bytes_to_tos_async("images", filename, bytes).await? {
+            Some(url) => Ok(url),
+            None => Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "TOS 已启用但未返回图片上传地址",
+            )),
+        };
+    }
+    let path = state.public_dir.join("generated-images").join(&filename);
+    write_file_bytes(&path, &bytes)?;
+    Ok(format!("/api/image/file/{}", filename))
+}
+
+fn persist_image_bytes_runtime_safe(
+    state: &BackendState,
+    prefix: &str,
+    mime_type: Option<&str>,
+    fallback_ext: &str,
+    bytes: Vec<u8>,
+) -> Result<String, ApiError> {
+    let ext = infer_extension_from_mime(mime_type.unwrap_or(""), fallback_ext);
+    let filename = build_unique_filename(prefix, &ext);
+    if load_backend_tos_config().enabled {
+        return match run_tos_sdk_on_dedicated_thread("upload", move || {
+            upload_media_bytes_to_tos("images", &filename, &bytes)
+        })? {
             Some(url) => Ok(url),
             None => Err(ApiError::new(
                 StatusCode::BAD_GATEWAY,
@@ -8077,12 +8106,12 @@ fn persist_last_frame_from_video_url(
     .ok()
     .and_then(|_| fs::read(&frame_path).ok())
     .and_then(|bytes| {
-        persist_image_bytes(
+        persist_image_bytes_runtime_safe(
             state,
             &format!("video_last_frame_{}", scene_id),
             Some("image/png"),
             "png",
-            &bytes,
+            bytes,
         )
         .ok()
     });
