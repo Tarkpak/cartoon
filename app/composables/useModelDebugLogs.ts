@@ -58,6 +58,8 @@ export function useModelDebugLogs() {
   const clearing = ref(false)
   const fetchError = ref('')
   const autoRefresh = ref(true)
+  const total = ref(0)
+  const page = ref(1)
 
   const filters = reactive({
     provider: '',
@@ -73,6 +75,9 @@ export function useModelDebugLogs() {
   })
 
   const activeLog = computed(() => logs.value.find(item => item.id === activeLogId.value) || null)
+  const totalPages = computed(() => Math.max(1, Math.ceil(total.value / Math.max(1, filters.limit))))
+  const pageStart = computed(() => total.value === 0 ? 0 : (page.value - 1) * filters.limit + 1)
+  const pageEnd = computed(() => Math.min(total.value, page.value * filters.limit))
 
   let refreshTimer: ReturnType<typeof setInterval> | null = null
 
@@ -163,6 +168,7 @@ export function useModelDebugLogs() {
   function buildQuery() {
     return {
       limit: filters.limit,
+      offset: (page.value - 1) * filters.limit,
       provider: filters.provider || undefined,
       operation: filters.operation || undefined,
       status: filters.status || undefined,
@@ -183,12 +189,19 @@ export function useModelDebugLogs() {
         success: boolean
         data: {
           logs: ModelDebugLogEntry[]
+          total: number
         }
       }>('/api/debug/model-logs', {
         query: buildQuery()
       })
 
       logs.value = response.data.logs || []
+      total.value = Number.isFinite(response.data.total) ? response.data.total : logs.value.length
+      if (page.value > totalPages.value) {
+        page.value = totalPages.value
+        await fetchLogs()
+        return
+      }
 
       if (activeLogId.value && !logs.value.some(item => item.id === activeLogId.value)) {
         activeLogId.value = ''
@@ -213,6 +226,8 @@ export function useModelDebugLogs() {
     try {
       await $fetch('/api/debug/model-logs', { method: 'DELETE' })
       logs.value = []
+      total.value = 0
+      page.value = 1
       activeLogId.value = ''
       detailOpen.value = false
     } catch (error) {
@@ -233,6 +248,39 @@ export function useModelDebugLogs() {
       fetchLogs()
     }, 5000)
   }
+
+  async function goToPage(nextPage: number) {
+    const normalized = Math.min(Math.max(1, nextPage), totalPages.value)
+    if (normalized === page.value) return
+    page.value = normalized
+    await fetchLogs()
+  }
+
+  async function previousPage() {
+    await goToPage(page.value - 1)
+  }
+
+  async function nextPage() {
+    await goToPage(page.value + 1)
+  }
+
+  watch(
+    () => [
+      filters.provider,
+      filters.operation,
+      filters.status,
+      filters.model,
+      filters.requestId,
+      filters.projectId,
+      filters.sceneId,
+      filters.taskId,
+      filters.keyword,
+      filters.limit
+    ],
+    () => {
+      page.value = 1
+    }
+  )
 
   watch(autoRefresh, () => {
     startAutoRefresh()
@@ -259,6 +307,11 @@ export function useModelDebugLogs() {
     clearing,
     fetchError,
     autoRefresh,
+    total,
+    page,
+    totalPages,
+    pageStart,
+    pageEnd,
     filters,
     providerOptions: MODEL_DEBUG_PROVIDER_OPTIONS,
     operationOptions: MODEL_DEBUG_OPERATION_OPTIONS,
@@ -270,6 +323,8 @@ export function useModelDebugLogs() {
     toReadableText,
     toSelectString,
     fetchLogs,
+    previousPage,
+    nextPage,
     clearLogs
   }
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import ModelLogsDetailDrawer from '@/components/model-logs/ModelLogsDetailDrawer.vue'
 import ModelLogsFilters from '@/components/model-logs/ModelLogsFilters.vue'
 import ModelLogsTable from '@/components/model-logs/ModelLogsTable.vue'
@@ -16,6 +17,11 @@ const {
   clearing,
   fetchError,
   autoRefresh,
+  total,
+  page,
+  totalPages,
+  pageStart,
+  pageEnd,
   filters,
   providerOptions,
   operationOptions,
@@ -26,6 +32,8 @@ const {
   toPrettyJson,
   toReadableText,
   fetchLogs,
+  previousPage,
+  nextPage,
   clearLogs
 } = useModelDebugLogs()
 
@@ -77,6 +85,36 @@ watch(() => props.initialRequestId, (value) => {
       :logs="logs"
       :open-log-detail="openLogDetail"
     />
+
+    <Card class="shrink-0 shadow-none">
+      <CardContent class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="text-sm text-muted-foreground">
+          第 {{ page }} / {{ totalPages }} 页，显示 {{ pageStart }}-{{ pageEnd }} 条，共 {{ total }} 条
+        </div>
+        <div class="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            :disabled="loading || page <= 1"
+            @click="previousPage"
+          >
+            <ChevronLeft class="mr-1 h-4 w-4" />
+            上一页
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            :disabled="loading || page >= totalPages"
+            @click="nextPage"
+          >
+            下一页
+            <ChevronRight class="ml-1 h-4 w-4" />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
 
     <ModelLogsDetailDrawer
       v-model:open="detailOpen"

@@ -25,6 +25,8 @@ export function useAppLogs() {
   const clearing = ref(false)
   const fetchError = ref('')
   const autoRefresh = ref(true)
+  const total = ref(0)
+  const page = ref(1)
 
   const filters = reactive({
     level: '',
@@ -34,10 +36,14 @@ export function useAppLogs() {
     requestId: '',
     status: '',
     keyword: '',
+    modelOnly: false,
     limit: 200
   })
 
   const activeLog = computed(() => logs.value.find(item => item.id === activeLogId.value) || null)
+  const totalPages = computed(() => Math.max(1, Math.ceil(total.value / Math.max(1, filters.limit))))
+  const pageStart = computed(() => total.value === 0 ? 0 : (page.value - 1) * filters.limit + 1)
+  const pageEnd = computed(() => Math.min(total.value, page.value * filters.limit))
 
   let refreshTimer: ReturnType<typeof setInterval> | null = null
 
@@ -63,13 +69,15 @@ export function useAppLogs() {
   function buildQuery() {
     return {
       limit: filters.limit,
+      offset: (page.value - 1) * filters.limit,
       level: filters.level || undefined,
       source: filters.source || undefined,
       category: filters.category || undefined,
       path: filters.path || undefined,
       requestId: filters.requestId || undefined,
       status: filters.status || undefined,
-      keyword: filters.keyword || undefined
+      keyword: filters.keyword || undefined,
+      modelOnly: filters.modelOnly ? '1' : undefined
     }
   }
 
@@ -81,12 +89,19 @@ export function useAppLogs() {
         success: boolean
         data: {
           logs: AppLogEntry[]
+          total: number
         }
       }>('/api/debug/app-logs', {
         query: buildQuery()
       })
 
       logs.value = response.data.logs || []
+      total.value = Number.isFinite(response.data.total) ? response.data.total : logs.value.length
+      if (page.value > totalPages.value) {
+        page.value = totalPages.value
+        await fetchLogs()
+        return
+      }
       if (activeLogId.value && !logs.value.some(item => item.id === activeLogId.value)) {
         activeLogId.value = ''
       }
@@ -109,6 +124,8 @@ export function useAppLogs() {
     try {
       await $fetch('/api/debug/app-logs', { method: 'DELETE' })
       logs.value = []
+      total.value = 0
+      page.value = 1
       activeLogId.value = ''
     } catch (error) {
       fetchError.value = error instanceof Error ? error.message : '清空日志失败'
@@ -128,6 +145,38 @@ export function useAppLogs() {
       fetchLogs()
     }, 5000)
   }
+
+  async function goToPage(nextPage: number) {
+    const normalized = Math.min(Math.max(1, nextPage), totalPages.value)
+    if (normalized === page.value) return
+    page.value = normalized
+    await fetchLogs()
+  }
+
+  async function previousPage() {
+    await goToPage(page.value - 1)
+  }
+
+  async function nextPage() {
+    await goToPage(page.value + 1)
+  }
+
+  watch(
+    () => [
+      filters.level,
+      filters.source,
+      filters.category,
+      filters.path,
+      filters.requestId,
+      filters.status,
+      filters.keyword,
+      filters.modelOnly,
+      filters.limit
+    ],
+    () => {
+      page.value = 1
+    }
+  )
 
   watch(autoRefresh, () => {
     startAutoRefresh()
@@ -153,6 +202,11 @@ export function useAppLogs() {
     clearing,
     fetchError,
     autoRefresh,
+    total,
+    page,
+    totalPages,
+    pageStart,
+    pageEnd,
     filters,
     levelOptions: APP_LOG_LEVEL_OPTIONS,
     sourceOptions: APP_LOG_SOURCE_OPTIONS,
@@ -161,6 +215,8 @@ export function useAppLogs() {
     formatDuration,
     toPrettyJson,
     fetchLogs,
+    previousPage,
+    nextPage,
     clearLogs
   }
 }

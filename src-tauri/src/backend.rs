@@ -609,6 +609,7 @@ fn should_log_http_request(path: &str) -> bool {
     path.starts_with("/api")
         && !path.starts_with("/api/debug/app-logs")
         && !path.starts_with("/api/debug/model-logs")
+        && !path.starts_with("/api/video/status/")
 }
 
 fn http_log_level(status: StatusCode) -> &'static str {
@@ -10711,6 +10712,21 @@ async fn api_app_logs_get(
         }
         None => 200,
     };
+    let offset = match query.get("offset") {
+        Some(raw) => {
+            let parsed = raw
+                .parse::<usize>()
+                .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "offset 必须是整数"))?;
+            if parsed > 1_000_000 {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "offset 必须小于等于 1000000",
+                ));
+            }
+            parsed
+        }
+        None => 0,
+    };
     let normalize_query = |key: &str| -> Result<Option<String>, ApiError> {
         match query.get(key) {
             None => Ok(None),
@@ -10755,6 +10771,15 @@ async fn api_app_logs_get(
         }
     };
     let keyword_filter = normalize_query("keyword")?;
+    let model_only_filter = query
+        .get("modelOnly")
+        .or_else(|| query.get("model_only"))
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        });
 
     use rusqlite::types::Value as Bind;
     let mut where_parts: Vec<String> = Vec::new();
@@ -10796,18 +10821,41 @@ async fn api_app_logs_get(
             binds.push(Bind::Text(pattern.clone()));
         }
     }
+    if model_only_filter {
+        where_parts.push(
+            "(request_id IN (
+                SELECT request_id FROM model_debug_logs
+                WHERE request_id IS NOT NULL AND TRIM(request_id) != ''
+              )
+              OR path LIKE '/api/models%'
+              OR path LIKE '/api/model-providers%'
+              OR path LIKE '/api/script/%'
+              OR path LIKE '/api/asset-workflow/%'
+              OR path LIKE '/api/character/generate%')"
+                .to_string(),
+        );
+    }
     let where_clause = if where_parts.is_empty() {
         String::new()
     } else {
         format!(" WHERE {}", where_parts.join(" AND "))
     };
+    let total = conn
+        .query_row(
+            &format!("SELECT COUNT(*) FROM app_logs{}", where_clause),
+            rusqlite::params_from_iter(binds.clone()),
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
     binds.push(Bind::Integer(limit as i64));
+    binds.push(Bind::Integer(offset as i64));
 
     let mut stmt = conn
         .prepare(&format!(
             "SELECT id, timestamp, level, source, category, message, request_id,
                     method, path, status, duration_ms, metadata_json, error_json
-             FROM app_logs{} ORDER BY timestamp DESC LIMIT ?",
+             FROM app_logs{} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
             where_clause
         ))
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -10878,8 +10926,6 @@ async fn api_app_logs_get(
           "error": parse_json(error_json)
         }));
     }
-    let total = logs.len();
-
     Ok(Json(
         json!({ "success": true, "data": { "logs": logs, "total": total } }),
     ))
@@ -10958,6 +11004,21 @@ async fn api_debug_logs_get(
             parsed
         }
         None => 100,
+    };
+    let offset = match query.get("offset") {
+        Some(raw) => {
+            let parsed = raw
+                .parse::<usize>()
+                .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "offset 必须是整数"))?;
+            if parsed > 1_000_000 {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "offset 必须小于等于 1000000",
+                ));
+            }
+            parsed
+        }
+        None => 0,
     };
     let require_non_empty_query = |key: &str| -> Result<Option<String>, ApiError> {
         match query.get(key) {
@@ -11091,14 +11152,23 @@ async fn api_debug_logs_get(
     } else {
         format!(" WHERE {}", where_parts.join(" AND "))
     };
+    let total = conn
+        .query_row(
+            &format!("SELECT COUNT(*) FROM model_debug_logs{}", where_clause),
+            rusqlite::params_from_iter(binds.clone()),
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
     binds.push(Bind::Integer(limit as i64));
+    binds.push(Bind::Integer(offset as i64));
 
     let mut stmt = conn
         .prepare(&format!(
             "SELECT id, timestamp, provider, model, operation, status, duration_ms,
                     endpoint, request_id, project_id, scene_id, task_id, request_json, request_raw_json,
                     response_json, response_raw_json, media_refs_json, error_json
-             FROM model_debug_logs{} ORDER BY timestamp DESC LIMIT ?",
+             FROM model_debug_logs{} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
             where_clause
         ))
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -11184,8 +11254,6 @@ async fn api_debug_logs_get(
           "error": parse_json(error_json)
         }))
     }
-    let total = logs.len();
-
     Ok(Json(
         json!({ "success": true, "data": { "logs": logs, "total": total } }),
     ))

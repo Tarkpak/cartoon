@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Loader2, RefreshCw, Trash2 } from 'lucide-vue-next'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
@@ -25,6 +25,11 @@ const {
   clearing,
   fetchError,
   autoRefresh,
+  total,
+  page,
+  totalPages,
+  pageStart,
+  pageEnd,
   filters,
   levelOptions,
   sourceOptions,
@@ -33,6 +38,8 @@ const {
   formatDuration,
   toPrettyJson,
   fetchLogs,
+  previousPage,
+  nextPage,
   clearLogs
 } = useAppLogs()
 
@@ -169,6 +176,11 @@ function openLogDetail(item: AppLogEntry) {
             <Checkbox v-model:checked="autoRefresh" />
             自动刷新（5秒）
           </label>
+
+          <label class="flex items-center gap-2 text-sm text-muted-foreground">
+            <Checkbox v-model:checked="filters.modelOnly" />
+            只看大模型相关调用
+          </label>
         </div>
 
         <p
@@ -270,6 +282,33 @@ function openLogDetail(item: AppLogEntry) {
           </TableBody>
         </Table>
       </CardContent>
+      <CardFooter class="flex shrink-0 flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="text-sm text-muted-foreground">
+          第 {{ page }} / {{ totalPages }} 页，显示 {{ pageStart }}-{{ pageEnd }} 条，共 {{ total }} 条
+        </div>
+        <div class="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            :disabled="loading || page <= 1"
+            @click="previousPage"
+          >
+            <ChevronLeft class="mr-1 h-4 w-4" />
+            上一页
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            :disabled="loading || page >= totalPages"
+            @click="nextPage"
+          >
+            下一页
+            <ChevronRight class="ml-1 h-4 w-4" />
+          </Button>
+        </div>
+      </CardFooter>
     </Card>
 
     <AppLogsDetailDrawer
