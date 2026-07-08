@@ -48,7 +48,7 @@ export const VIDEO_WORKFLOW_PRESETS = [
     description: '将科学原理、机械结构或工艺过程拆成多镜头解释视频。',
     inputLabel: '输入科学原理、机械结构或工艺过程',
     stylePickerMode: 'hidden',
-    defaultStylePrompt: '高精度 3D 科普动画，微距特写、横截面透视与解构拆解图，半透明结晶材质，发光粒子流与高保真流体动力学特效，极简深色石砖平台，中国传统写意远山与云海背景，画面清晰克制、结构精密、无字幕无水印',
+    defaultStylePrompt: '高精度 3D 科普解释动画，适用于机械结构、工程原理、自然现象、传统工艺与古代智慧解说。根据镜头内容选择宏观场景、剖面透视、结构拆解、微距特写或流程演示。主体外观保持真实可识别，必要时使用局部半透明剖视展示内部结构；只有涉及水流、热量、压力、电流、磁场、应力、气流等不可见或难观察因素时，才使用发光粒子流、流体动力学特效、箭头流线或可视化力线。背景和场景应服务于原理说明：工程类优先使用真实比例环境场景，结构类可使用中性演示空间，传统工艺类可使用克制的历史场景或工坊环境。整体画面清晰克制、结构精密、无字幕无水印',
     planningPromptId: 'origin_explainer_planning',
     shotVideoPromptId: 'origin_explainer_video_generation',
     assetStrategy: 'objects',
