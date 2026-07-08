@@ -1,5 +1,8 @@
 <template>
-  <n-layout has-sider style="min-height: 100vh">
+  <n-layout
+    has-sider
+    class="admin-shell"
+  >
     <n-layout-sider
       bordered
       collapse-mode="width"
@@ -62,14 +65,17 @@
         </template>
       </ClientOnly>
     </n-layout-sider>
-    <n-layout>
-      <n-layout-header bordered style="height: 56px; display: flex; align-items: center; justify-content: flex-end; padding: 0 16px">
+    <n-layout class="admin-shell__main">
+      <n-layout-header
+        bordered
+        class="admin-shell__header"
+      >
         <n-space align="center">
           <n-tag v-if="me?.role" size="small" type="info">{{ me.role }}</n-tag>
           <n-button size="small" @click="logout">退出</n-button>
         </n-space>
       </n-layout-header>
-      <n-layout-content>
+      <n-layout-content class="admin-shell__content">
         <slot />
       </n-layout-content>
     </n-layout>
@@ -201,6 +207,29 @@ watch(menuCollapsed, (value) => {
 </script>
 
 <style scoped>
+.admin-shell {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.admin-shell__main {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.admin-shell__header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 56px;
+  padding: 0 16px;
+}
+
+.admin-shell__content {
+  height: calc(100vh - 56px);
+  overflow: auto;
+}
+
 .admin-brand {
   box-sizing: border-box;
   display: flex;
