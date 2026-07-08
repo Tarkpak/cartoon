@@ -476,8 +476,8 @@ function handleThemeToggle(event: MouseEvent) {
     </aside>
 
     <!-- 右侧内容区 -->
-    <main class="flex-1 overflow-hidden flex flex-col">
-      <div class="flex-1 overflow-y-auto">
+    <main class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div class="min-h-0 flex-1 overflow-y-auto">
         <slot />
       </div>
     </main>

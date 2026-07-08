@@ -52,7 +52,7 @@ function selectTab(tab: LogsTab) {
       </template>
     </AppPageHeader>
 
-    <AppPageContent>
+    <AppPageContent inner-class="flex h-full min-h-0 flex-col">
       <AppLogsPanel
         v-if="activeTab === 'system'"
         :initial-request-id="requestIdFilter"
