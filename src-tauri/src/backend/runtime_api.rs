@@ -8998,18 +8998,6 @@ async fn query_qwen_video_task(
         );
         message
     })?;
-    llm_dev_write_db_log(
-        "qwen",
-        model_id,
-        "generateVideo",
-        "status",
-        started_at,
-        Some(endpoint.as_str()),
-        Some(&request_body),
-        Some(&payload),
-        Some(body_text.as_str()),
-        None,
-    );
     Ok(payload)
 }
 
@@ -10123,18 +10111,6 @@ async fn query_volcengine_video_task(
         );
         message
     })?;
-    llm_dev_write_db_log(
-        "volcengine",
-        model_id,
-        "generateVideo",
-        "status",
-        started_at,
-        Some(endpoint.as_str()),
-        Some(&request_body),
-        Some(&payload),
-        Some(body_text.as_str()),
-        None,
-    );
     Ok(payload)
 }
 
@@ -11671,18 +11647,6 @@ async fn query_kling_video_task(
         );
         return Err(message.to_string());
     }
-    llm_dev_write_db_log(
-        "kling",
-        model_id,
-        "generateVideo",
-        "status",
-        started_at,
-        Some(task_endpoint.as_str()),
-        Some(&request_body),
-        Some(&payload),
-        Some(body_text.as_str()),
-        None,
-    );
     Ok(payload)
 }
 
@@ -12277,18 +12241,6 @@ async fn query_gemini_video_task(
         );
         message
     })?;
-    llm_dev_write_db_log(
-        "gemini",
-        model_id,
-        "generateVideo",
-        "status",
-        started_at,
-        Some(endpoint.as_str()),
-        Some(&request_body),
-        Some(&payload),
-        Some(body_text.as_str()),
-        None,
-    );
     Ok(payload)
 }
 
