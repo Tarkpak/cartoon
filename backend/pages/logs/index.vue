@@ -2,12 +2,16 @@
   <AdminShell>
     <div class="page">
       <n-space vertical class="table-section">
-        <n-input v-model:value="keyword" placeholder="搜索 request id、错误、用户" clearable @keyup.enter="loadLogs" />
+        <n-input v-model:value="keyword" placeholder="搜索 request id、错误、用户" clearable @keyup.enter="refreshLogsFromFirstPage" />
         <n-data-table
           :columns="columns"
           :data="logs"
           :loading="pending"
+          :pagination="logsPagination"
           :row-props="rowProps"
+          remote
+          @update:page="handleLogsPageChange"
+          @update:page-size="handleLogsPageSizeChange"
         />
       </n-space>
 
@@ -255,6 +259,9 @@ const message = useMessage()
 const keyword = ref('')
 const pending = ref(false)
 const logs = ref<ModelCallLog[]>([])
+const logsPage = ref(1)
+const logsPageSize = ref(20)
+const logsTotal = ref(0)
 const drawer = ref(false)
 const selectedLog = ref<ModelCallLog | null>(null)
 const payloadViewModes = reactive<Record<JsonPayloadKind, PayloadViewMode>>({
@@ -290,6 +297,16 @@ const columns = [
   },
   { title: '耗时 ms', key: 'duration_ms' }
 ]
+
+const logsPagination = computed(() => ({
+  page: logsPage.value,
+  pageSize: logsPageSize.value,
+  itemCount: logsTotal.value,
+  pageCount: Math.max(1, Math.ceil(logsTotal.value / logsPageSize.value)),
+  showSizePicker: true,
+  pageSizes: [10, 20, 50, 100],
+  prefix: ({ itemCount }: { itemCount: number }) => `共 ${itemCount} 条`
+}))
 
 function rowProps(row: ModelCallLog) {
   return {
@@ -461,13 +478,34 @@ async function copyText(text: string, label: string) {
 async function loadLogs() {
   pending.value = true
   try {
-    const response = await $fetch<{ data: { logs: ModelCallLog[] } }>('/api/admin/model-call-logs', {
-      query: { keyword: keyword.value }
+    const response = await $fetch<{ data: { logs: ModelCallLog[], pagination: { total: number } } }>('/api/admin/model-call-logs', {
+      query: {
+        page: logsPage.value,
+        pageSize: logsPageSize.value,
+        keyword: keyword.value
+      }
     })
     logs.value = response.data.logs
+    logsTotal.value = Number(response.data.pagination.total)
   } finally {
     pending.value = false
   }
+}
+
+function refreshLogsFromFirstPage() {
+  logsPage.value = 1
+  void loadLogs()
+}
+
+function handleLogsPageChange(page: number) {
+  logsPage.value = page
+  void loadLogs()
+}
+
+function handleLogsPageSizeChange(pageSize: number) {
+  logsPageSize.value = pageSize
+  logsPage.value = 1
+  void loadLogs()
 }
 
 async function openLog(id: string) {
