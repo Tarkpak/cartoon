@@ -1,5 +1,7 @@
 #[path = "../backend.rs"]
 mod backend;
+#[path = "../process_util.rs"]
+mod process_util;
 
 use backend::{start_server, BackendState};
 use std::env;

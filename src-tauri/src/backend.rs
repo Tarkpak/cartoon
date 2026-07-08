@@ -1,3 +1,5 @@
+#[cfg(target_os = "windows")]
+use crate::process_util::hidden_command;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
@@ -19,8 +21,6 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path as FsPath, PathBuf};
-#[cfg(target_os = "windows")]
-use std::process::Command;
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -1962,7 +1962,7 @@ fn resolve_tos_proxy_config() -> Option<TosProxyConfig> {
 
     #[cfg(target_os = "windows")]
     {
-        let output = Command::new("reg")
+        let output = hidden_command("reg")
             .args([
                 "query",
                 r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings",

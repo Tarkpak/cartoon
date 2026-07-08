@@ -1,9 +1,10 @@
 mod backend;
 mod desktop_ffmpeg;
+mod process_util;
 
+use crate::process_util::hidden_command;
 use std::net::TcpStream;
 use std::path::PathBuf;
-use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::path::BaseDirectory;
@@ -214,15 +215,15 @@ fn open_path_with_fallback(app: &tauri::AppHandle, target: &PathBuf) -> Result<(
 
 fn open_path_with_system_command(target: &PathBuf) -> Result<(), String> {
     let mut command = if cfg!(target_os = "macos") {
-        let mut command = Command::new("open");
+        let mut command = hidden_command("open");
         command.arg(target);
         command
     } else if cfg!(target_os = "windows") {
-        let mut command = Command::new("explorer");
+        let mut command = hidden_command("explorer");
         command.arg(target);
         command
     } else {
-        let mut command = Command::new("xdg-open");
+        let mut command = hidden_command("xdg-open");
         command.arg(target);
         command
     };

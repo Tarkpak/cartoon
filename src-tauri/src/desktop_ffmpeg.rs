@@ -1,9 +1,9 @@
+use crate::process_util::hidden_command;
 use serde::Serialize;
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{self, Cursor};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 use zip::ZipArchive;
@@ -129,7 +129,7 @@ fn system_ffmpeg_candidates() -> Vec<PathBuf> {
 }
 
 fn probe_ffmpeg_version<S: AsRef<OsStr>>(program: S) -> Option<String> {
-    let output = Command::new(program).arg("-version").output().ok()?;
+    let output = hidden_command(program).arg("-version").output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -148,7 +148,7 @@ fn resolve_system_ffmpeg_path() -> Option<String> {
         ("which", &["ffmpeg"])
     };
 
-    let output = Command::new(command_name).args(args).output().ok()?;
+    let output = hidden_command(command_name).args(args).output().ok()?;
     if !output.status.success() {
         return None;
     }

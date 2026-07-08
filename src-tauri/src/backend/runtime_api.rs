@@ -1,10 +1,10 @@
 use super::*;
+use crate::process_util::hidden_command;
 use axum::body::{Body, Bytes};
 use futures_util::stream;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use std::convert::Infallible;
-use std::process::Command;
 use ve_tos_rust_sdk::object::{ListObjectsType2Input, ObjectAPI};
 use ve_tos_rust_sdk::tos;
 
@@ -17939,7 +17939,7 @@ fn ffmpeg_binary() -> String {
 }
 
 fn run_ffmpeg(args: &[String]) -> Result<(), ApiError> {
-    let output = Command::new(ffmpeg_binary())
+    let output = hidden_command(ffmpeg_binary())
         .args(args)
         .output()
         .map_err(|error| {

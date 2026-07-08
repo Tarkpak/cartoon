@@ -1,4 +1,5 @@
 use super::*;
+use crate::process_util::hidden_command;
 use axum::extract::Multipart;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use chrono::Utc;
@@ -10,7 +11,6 @@ use std::convert::Infallible;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path as FsPath, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -2260,7 +2260,7 @@ async fn run_initial_video_import_task(state: BackendState, task_id: &str) -> Re
 async fn extract_audio(video_path: PathBuf, audio_path: PathBuf) -> Result<(), ApiError> {
     let ffmpeg = std::env::var("FFMPEG_PATH").unwrap_or_else(|_| "ffmpeg".to_string());
     tokio::task::spawn_blocking(move || {
-        let output = Command::new(ffmpeg)
+        let output = hidden_command(ffmpeg)
             .arg("-hide_banner")
             .arg("-loglevel")
             .arg("error")
@@ -3456,7 +3456,7 @@ fn build_series_duration_summary(video_files: &[(String, PathBuf)]) -> SeriesDur
 
 fn probe_video_duration_seconds(path: &FsPath) -> Result<Option<f64>, ApiError> {
     let ffprobe = std::env::var("FFPROBE_PATH").unwrap_or_else(|_| "ffprobe".to_string());
-    let output = Command::new(ffprobe)
+    let output = hidden_command(ffprobe)
         .args([
             "-v",
             "error",
