@@ -495,16 +495,6 @@ watch(
               </p>
             </div>
           </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="autoRunning || char.generating"
-            @click="emit('add-variant', char)"
-          >
-            <Plus class="mr-1 h-3 w-3" />
-            添加
-          </Button>
         </div>
         <Transition name="character-variant-collapse">
           <div
