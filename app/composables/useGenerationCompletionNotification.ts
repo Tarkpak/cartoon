@@ -83,8 +83,9 @@ export function getBrowserNotificationStatus(): BrowserNotificationStatus {
     })
   }
 
-  const supported = 'Notification' in window
   const desktopRuntime = detectDesktopRuntime()
+  const browserNotificationSupported = 'Notification' in window
+  const supported = desktopRuntime || browserNotificationSupported
   const secureContext = window.isSecureContext || desktopRuntime
 
   if (!supported) {
@@ -101,8 +102,8 @@ export function getBrowserNotificationStatus(): BrowserNotificationStatus {
     })
   }
 
-  const permission = desktopRuntime && cachedDesktopNotificationPermission
-    ? cachedDesktopNotificationPermission
+  const permission = desktopRuntime
+    ? cachedDesktopNotificationPermission || 'default'
     : Notification.permission
 
   return createBrowserNotificationStatus(permission, {
@@ -150,7 +151,7 @@ export async function refreshBrowserNotificationStatus(): Promise<BrowserNotific
 
 export async function requestBrowserNotificationPermission(): Promise<BrowserNotificationStatus> {
   const current = getBrowserNotificationStatus()
-  if (!current.supported || !current.secureContext) {
+  if (!current.secureContext) {
     return current
   }
 
@@ -171,16 +172,20 @@ export async function requestBrowserNotificationPermission(): Promise<BrowserNot
     } catch (error) {
       console.warn('[useGenerationCompletionNotification] 申请桌面系统通知权限失败:', error)
       try {
-        if (permission === 'default') {
+        if (permission === 'default' && 'Notification' in window) {
           permission = await Notification.requestPermission()
         }
       } catch {
-        permission = Notification.permission
+        permission = 'Notification' in window ? Notification.permission : permission
       }
     }
 
     cachedDesktopNotificationPermission = permission
     return createStatusFromCurrent(permission, current)
+  }
+
+  if (!current.supported) {
+    return current
   }
 
   let permission = current.permission
@@ -471,6 +476,12 @@ async function showSystemNotification(
   }
 
   try {
+    if (!('Notification' in window)) {
+      return {
+        sent: false
+      }
+    }
+
     const notification = new Notification(payload.title, notificationOptions)
     activeWindowNotifications.add(notification)
     const cleanup = () => {

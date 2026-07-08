@@ -54,7 +54,14 @@ const parseProgressPercent = computed(() => {
   return Math.max(0, Math.min(100, Math.round(value)))
 })
 const parseProgressLogs = computed(() => {
-  return (props.parseProgress?.logs || []).slice(-6).reverse()
+  const currentMessage = props.parseProgress?.message?.trim()
+  return (props.parseProgress?.logs || [])
+    .filter((item) => {
+      if (!currentMessage) return true
+      return item.message.trim() !== currentMessage
+    })
+    .slice(-6)
+    .reverse()
 })
 const hasEpisodePlan = computed(() => (props.episodePlan?.length || 0) > 0)
 const workflowPreset = computed(() => resolveVideoWorkflowPreset(props.scriptParseMode))

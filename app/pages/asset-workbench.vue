@@ -1722,8 +1722,8 @@ const autoStages = computed(() => {
 
 const stageHints = AUTO_STAGE_HINTS
 const parseStageHint = computed(() => {
-  if (parsing.value && parseProgress.value.message) {
-    return parseProgress.value.message
+  if (parsing.value) {
+    return ''
   }
   if (scriptParseMode.value === 'origin_explainer') {
     return '输入科普主题后生成镜头规划入口，再按主题拆解为多镜头场景。'
