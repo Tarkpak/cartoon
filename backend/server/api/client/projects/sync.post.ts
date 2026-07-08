@@ -36,6 +36,19 @@ function normalizeProjects(body: Record<string, unknown>) {
   return [body as ProjectPayload]
 }
 
+function skippedProjectResult(input: {
+  localProjectId: string
+  projectId: string
+  reason?: string
+}) {
+  return {
+    localProjectId: input.localProjectId,
+    projectId: input.projectId,
+    status: 'skipped' as const,
+    reason: input.reason || 'unknown'
+  }
+}
+
 export default defineEventHandler(async (event) => {
   const auth = requireAuth(event)
   const body = await readJsonBody<Record<string, unknown>>(event)
@@ -86,12 +99,11 @@ export default defineEventHandler(async (event) => {
       const localCreatedAt = optionalString(project.localCreatedAt || project.local_created_at || project.createdAt || project.created_at, 64)
       const localUpdatedAt = optionalString(project.localUpdatedAt || project.local_updated_at || project.updatedAt || project.updated_at, 64)
       if (!force && existing?.local_updated_at && localUpdatedAt && localUpdatedAt < existing.local_updated_at) {
-        result.push({
+        result.push(skippedProjectResult({
           localProjectId,
           projectId,
-          status: 'skipped',
           reason: 'stale_local_update'
-        })
+        }))
         continue
       }
 

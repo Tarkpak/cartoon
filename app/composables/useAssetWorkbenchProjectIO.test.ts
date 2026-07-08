@@ -196,6 +196,43 @@ describe('useAssetWorkbenchProjectIO', () => {
     expect(putCalls).toHaveLength(1)
   })
 
+  it('keeps local save successful when cloud sync is skipped without a reason', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    fetchMock.mockImplementation(async (url: string, options?: FetchOptions) => {
+      if (url === projectRoute && options?.method === 'PUT') {
+        return {
+          success: true,
+          cloudSync: {
+            status: 'error',
+            message: '云端项目同步被跳过: unknown'
+          }
+        }
+      }
+      if (url === projectRoute) {
+        return createLoadResponse()
+      }
+      throw new Error(`Unexpected fetch call: ${url}`)
+    })
+
+    const { io, state } = createProjectIO()
+    await io.loadProject(projectId)
+    state.projectName.value = '项目 A（云端跳过）'
+
+    const saved = await io.saveProject()
+
+    expect(saved).toBe(true)
+    expect(io.saveError.value).toBeNull()
+    expect(io.saveWarning.value).toBe('本地已保存，云端同步未完成：云端返回跳过同步，但未说明原因')
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[useAssetWorkbenchProjectIO] 云端项目同步未完成:',
+      {
+        status: 'error',
+        message: '云端项目同步被跳过: unknown'
+      }
+    )
+    warnSpy.mockRestore()
+  })
+
   it('keeps saving the loaded project after route project query disappears', async () => {
     fetchMock.mockImplementation(async (url: string, options?: FetchOptions) => {
       if (url === projectRoute && options?.method === 'PUT') {

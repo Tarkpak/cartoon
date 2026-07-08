@@ -33,9 +33,34 @@ interface UseAssetWorkbenchProjectIOOptions {
   episodePlan: Ref<ScriptEpisodePlanItem[]>
 }
 
+interface ProjectCloudSyncResult {
+  status?: string
+  message?: string
+  reason?: string
+}
+
+const CLOUD_SYNC_REASON_TEXT: Record<string, string> = {
+  stale_local_update: '云端已有更新版本，已保留云端数据',
+  cloud_not_configured: '未配置云端地址',
+  cloud_not_authenticated: '未登录云端账号',
+  unknown: '云端返回跳过同步，但未说明原因'
+}
+
+function resolveCloudSyncWarning(cloudSync?: ProjectCloudSyncResult): string | null {
+  if (cloudSync?.status !== 'error') return null
+
+  const rawMessage = (cloudSync.message || cloudSync.reason || '').trim()
+  const normalized = rawMessage
+    .replace(/^云端项目同步被跳过:\s*/u, '')
+    .trim()
+  const message = CLOUD_SYNC_REASON_TEXT[normalized] || rawMessage || '云端返回异常，请稍后重试'
+  return `本地已保存，云端同步未完成：${message}`
+}
+
 export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOptions) {
   const saving = ref(false)
   const saveError = ref<string | null>(null)
+  const saveWarning = ref<string | null>(null)
   const loading = ref(false)
   const activeProjectId = ref(options.projectId.value || '')
   let lastSavedProjectSnapshot: string | null = null
@@ -325,6 +350,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   async function saveProject() {
     saving.value = true
     saveError.value = null
+    saveWarning.value = null
 
     try {
       if (finalVideo.value) {
@@ -374,18 +400,15 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
 
       const saveResponse = await $fetch<{
         success?: boolean
-        cloudSync?: {
-          status?: string
-          message?: string
-          reason?: string
-        }
+        cloudSync?: ProjectCloudSyncResult
       }>(`/api/project/${id}`, {
         method: 'PUT',
         body: saveBody
       })
-      if (saveResponse.cloudSync?.status === 'error') {
-        saveError.value = `本地已保存，但云端同步失败：${saveResponse.cloudSync.message || saveResponse.cloudSync.reason || '未知错误'}`
-        return false
+      const cloudSyncWarning = resolveCloudSyncWarning(saveResponse.cloudSync)
+      if (cloudSyncWarning) {
+        saveWarning.value = cloudSyncWarning
+        console.warn('[useAssetWorkbenchProjectIO] 云端项目同步未完成:', saveResponse.cloudSync)
       }
       lastSavedProjectSnapshot = nextSnapshot
       return true
@@ -456,6 +479,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     loading,
     saving,
     saveError,
+    saveWarning,
     saveProject,
     loadProject,
     refreshCharacterVoiceAssets,

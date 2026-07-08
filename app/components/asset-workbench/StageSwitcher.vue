@@ -10,6 +10,7 @@ defineProps<{
   activeStage: string
   autoRunError?: string | null
   saveError?: string | null
+  saveWarning?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -84,6 +85,12 @@ const emit = defineEmits<{
       class="rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive"
     >
       {{ saveError }}
+    </p>
+    <p
+      v-if="saveWarning"
+      class="rounded-md bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-300"
+    >
+      {{ saveWarning }}
     </p>
   </div>
 </template>

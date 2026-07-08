@@ -18,6 +18,7 @@ const props = defineProps<{
   activeStage: AutoStageKey
   autoRunError?: string | null
   saveError?: string | null
+  saveWarning?: string | null
 }>()
 
 const workflowPreset = computed(() => resolveVideoWorkflowPreset(props.scriptParseMode))
@@ -73,6 +74,7 @@ const emit = defineEmits<{
         :active-stage="activeStage"
         :auto-run-error="autoRunError"
         :save-error="saveError"
+        :save-warning="saveWarning"
         @select-stage="emit('select-stage', $event as AutoStageKey)"
       />
     </div>

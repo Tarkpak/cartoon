@@ -9919,9 +9919,14 @@ fn ensure_cloud_project_sync_accepted(response: &Value, project_id: &str) -> Res
             .get("reason")
             .and_then(Value::as_str)
             .unwrap_or("unknown");
+        let message = match reason {
+            "stale_local_update" => "云端已有更新版本，已保留云端数据".to_string(),
+            "unknown" => "云端返回跳过同步，但未说明原因".to_string(),
+            _ => reason.to_string(),
+        };
         return Err(ApiError::new(
             StatusCode::CONFLICT,
-            format!("云端项目同步被跳过: {reason}"),
+            format!("云端项目同步被跳过: {message}"),
         ));
     }
 

@@ -203,6 +203,7 @@ const {
   loading,
   saving,
   saveError,
+  saveWarning,
   saveProject,
   loadProject,
   deleteScene,
@@ -3118,6 +3119,7 @@ async function handleBatchGenerateCharacters() {
       :active-stage="activeAutoStage"
       :auto-run-error="autoRunError"
       :save-error="saveError"
+      :save-warning="saveWarning"
       @back="router.push('/projects')"
       @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
     />
