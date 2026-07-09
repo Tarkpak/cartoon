@@ -6318,6 +6318,16 @@ async fn request_openai_compatible_image_generation(
           "size": size,
           "n": 1
         });
+        let normalized_model = model.to_ascii_lowercase();
+        if is_openai_image_quality_model(&normalized_model) {
+            if let Some(quality) = quality_override
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .and_then(|value| normalize_openai_quality(Some(value)))
+            {
+                request_body["quality"] = json!(quality);
+            }
+        }
         if !reference_images.is_empty() {
             if provider == "volcengine" {
                 request_body["image"] = json!(reference_images[0]);
@@ -9512,12 +9522,22 @@ fn workflow_gemini_image_size(workflow_model_options: &Value) -> Option<String> 
     matches!(normalized, "512" | "1K" | "2K" | "4K").then(|| normalized.to_string())
 }
 
+fn is_openai_image_quality_provider(provider: &str) -> bool {
+    matches!(provider, "custom_openai" | "volcengine")
+}
+
+fn is_openai_image_quality_model(normalized_model: &str) -> bool {
+    normalized_model.starts_with("gpt-image")
+        || normalized_model.contains("image-2")
+        || normalized_model.contains("openai")
+}
+
 fn workflow_image_generation_options(
     workflow_model_options: &Value,
     provider: &str,
 ) -> (Option<String>, Option<String>) {
     (
-        (provider == "custom_openai")
+        is_openai_image_quality_provider(provider)
             .then(|| workflow_openai_image_quality(workflow_model_options))
             .flatten(),
         (provider == "gemini")
@@ -12965,6 +12985,10 @@ mod tests {
 
         assert_eq!(
             workflow_image_generation_options(&workflow_model_options, "custom_openai"),
+            (Some("high".to_string()), None)
+        );
+        assert_eq!(
+            workflow_image_generation_options(&workflow_model_options, "volcengine"),
             (Some("high".to_string()), None)
         );
         assert_eq!(
