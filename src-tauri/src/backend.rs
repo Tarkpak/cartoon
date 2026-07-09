@@ -36,6 +36,7 @@ const STYLE_PRESET_DATA_KEY: &str = "style_preset_data";
 const SELECTED_MODELS_KEY: &str = "selected_models";
 const WORKFLOW_MODELS_KEY: &str = "workflow_models";
 const WORKFLOW_MODEL_OPTIONS_KEY: &str = "workflow_model_options";
+const CLOUD_MODEL_OPTIONS_MODEL_ID: &str = "__model_options__";
 const SELECTED_MODELS_USER_SELECTED_KEY: &str = "_userSelected";
 const CUSTOM_OPENAI_CONFIG_KEY: &str = "custom_openai_provider";
 const PROVIDER_CREDENTIALS_KEY: &str = "provider_credentials";
@@ -2674,6 +2675,10 @@ fn workflow_step_category(step_id: &str) -> Option<&'static str> {
 
 fn is_workflow_step(step_id: &str) -> bool {
     workflow_step_category(step_id).is_some()
+}
+
+fn is_cloud_model_options_step(step_id: &str) -> bool {
+    matches!(step_id, "image_options" | "completion_notification")
 }
 
 fn legacy_selected_model_for_type(model_type: &str) -> Option<&'static str> {
@@ -9995,7 +10000,7 @@ async fn cloud_sync_model_preferences(state: &BackendState) -> Result<(), ApiErr
         .get("modelOptions")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let preferences = selections
+    let mut preferences = selections
         .into_iter()
         .filter_map(|(step, model_id)| {
             let model_id = model_id.as_str()?.trim().to_string();
@@ -10009,6 +10014,15 @@ async fn cloud_sync_model_preferences(state: &BackendState) -> Result<(), ApiErr
             }))
         })
         .collect::<Vec<_>>();
+    for step in ["image_options", "completion_notification"] {
+        if let Some(model_options) = options.get(step) {
+            preferences.push(json!({
+              "workflowStep": step,
+              "modelId": CLOUD_MODEL_OPTIONS_MODEL_ID,
+              "modelOptions": model_options
+            }));
+        }
+    }
     cloud_post_client_json(
         state,
         "/api/client/model-preferences/sync",
@@ -10193,10 +10207,29 @@ fn apply_cloud_model_preferences(
     }
 
     let mut models = serde_json::Map::new();
-    let mut options = serde_json::Map::new();
+    let mut options = workflow_model_options(&conn)?
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let mut applied_options = false;
     for item in items {
         let step = cloud_value_text(item, "workflowStep");
         let model_id = cloud_value_text(item, "modelId");
+        if is_cloud_model_options_step(&step) {
+            let model_options = item
+                .get("modelOptions")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            validate_workflow_model_options(&step, &model_options)?;
+            let default_options = default_workflow_model_options();
+            let merged = merge_json_object_defaults(
+                model_options,
+                default_options.get(&step).unwrap_or(&json!({})),
+            );
+            options.insert(step, merged);
+            applied_options = true;
+            continue;
+        }
         if !is_workflow_step(&step) || model_id.is_empty() {
             continue;
         }
@@ -10208,10 +10241,12 @@ fn apply_cloud_model_preferences(
                 .unwrap_or_else(|| json!({})),
         );
     }
-    if models.is_empty() {
+    if models.is_empty() && !applied_options {
         return Ok(false);
     }
-    set_config_json(&conn, WORKFLOW_MODELS_KEY, &Value::Object(models))?;
+    if !models.is_empty() {
+        set_config_json(&conn, WORKFLOW_MODELS_KEY, &Value::Object(models))?;
+    }
     set_config_json(&conn, WORKFLOW_MODEL_OPTIONS_KEY, &Value::Object(options))?;
     Ok(true)
 }

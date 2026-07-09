@@ -5301,16 +5301,14 @@ fn provider_image_task_endpoint(base_url: &str, task_id: &str) -> String {
 
 fn is_apimart_base_url(base_url: &str) -> bool {
     let normalized = base_url.trim().to_ascii_lowercase();
-    if normalized.contains("apimart") {
+    if normalized.contains("apimart") || normalized.contains("apib.ai") {
         return true;
     }
     reqwest::Url::parse(base_url)
         .ok()
         .map(|url| {
-            url.host_str()
-                .unwrap_or("")
-                .to_ascii_lowercase()
-                .contains("apimart")
+            let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+            host.contains("apimart") || host.contains("apib.ai")
         })
         .unwrap_or(false)
 }
@@ -5883,6 +5881,8 @@ async fn request_custom_openai_image_generation(
         },
         "prompt" => llm_dev_log_preview(prompt, 220),
         "size" => resolved_size.as_str(),
+        "quality" => quality.as_deref().unwrap_or(""),
+        "resolution" => resolution.as_deref().unwrap_or(""),
         "image_urls" => image_url_references.len(),
         "referenceImages" => if use_image_urls_in_generations { 0 } else { reference_images.len() },
         "apiKeys" => api_keys.len()
@@ -5907,6 +5907,11 @@ async fn request_custom_openai_image_generation(
         } else {
             Value::Null
         };
+        if use_multipart_edit {
+            if let Some(quality) = &quality {
+                request_log_payload["quality"] = json!(quality);
+            }
+        }
 
         let response = if use_multipart_edit {
             let mut form = reqwest::multipart::Form::new()
@@ -6307,6 +6312,7 @@ async fn request_openai_compatible_image_generation(
         "endpoint" => endpoint.as_str(),
         "prompt" => llm_dev_log_preview(prompt, 220),
         "size" => size,
+        "quality" => quality_override.unwrap_or(""),
         "referenceImages" => reference_images.len(),
         "apiKeys" => api_keys.len()
     );
@@ -6894,12 +6900,9 @@ async fn run_workflow_image_model(
 ) -> Result<(String, String, String), String> {
     let conn = db_connection(state).map_err(|error| error.message)?;
     let creds = load_provider_creds(&conn);
-    let workflow_model_options =
-        get_config_json(&conn, WORKFLOW_MODEL_OPTIONS_KEY).map_err(|error| error.message)?;
-    let workflow_model_options =
-        workflow_model_options.unwrap_or_else(default_workflow_model_options);
+    let workflow_model_options = workflow_model_options(&conn).map_err(|error| error.message)?;
     let model_id = resolve_runtime_workflow_model_id(&conn, workflow_step)?;
-    let provider = infer_model_provider_required_string(&model_id)?;
+    let provider = resolve_model_provider_required_string(&model_id, &creds)?;
     let (openai_image_quality, gemini_image_size) =
         workflow_image_generation_options(&workflow_model_options, &provider);
     let (source, mime_type) = match provider.as_str() {
@@ -12551,10 +12554,6 @@ fn infer_model_provider_required(model_id: &str) -> Result<String, ApiError> {
     })
 }
 
-fn infer_model_provider_required_string(model_id: &str) -> Result<String, String> {
-    infer_model_provider(model_id).ok_or_else(|| format!("无法识别模型提供商: {}", model_id.trim()))
-}
-
 /// 判断模型是否属于已配置的「自定义 OpenAI」供应商（按其配置的模型列表精确匹配）。
 fn is_custom_openai_model(model_id: &str, creds: &Value) -> bool {
     custom_openai_entry_for_model(model_id, creds)
@@ -12999,6 +12998,26 @@ mod tests {
             workflow_image_generation_options(&workflow_model_options, "qwen"),
             (None, None)
         );
+    }
+
+    #[test]
+    fn apimart_gpt_image_2_maps_openai_quality_to_resolution() {
+        assert!(is_apimart_base_url("https://api.apimart.ai/v1"));
+        assert!(is_apimart_base_url("https://api.apib.ai/v1"));
+        assert_eq!(
+            normalize_apimart_resolution(Some("high")),
+            Some("4k".to_string())
+        );
+        assert_eq!(
+            normalize_apimart_resolution(Some("medium")),
+            Some("2k".to_string())
+        );
+        assert_eq!(
+            normalize_apimart_resolution(Some("auto")),
+            Some("1k".to_string())
+        );
+        assert_eq!(resolve_apimart_image_size("2048x1024"), "2:1");
+        assert_eq!(resolve_apimart_image_size("2048*1024"), "2:1");
     }
 
     #[test]
@@ -17418,8 +17437,7 @@ pub(super) async fn api_asset_reference_generate(
     let reference_images = normalize_image_reference_sources(&state, reference_sources, 4).await?;
     let (model_id, workflow_model_options) = {
         let conn = db_connection(&state)?;
-        let workflow_model_options = get_config_json(&conn, WORKFLOW_MODEL_OPTIONS_KEY)?
-            .unwrap_or_else(default_workflow_model_options);
+        let workflow_model_options = workflow_model_options(&conn)?;
         let model_id = resolve_runtime_workflow_model_id(&conn, "frame_generation")
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error))?;
         (model_id, workflow_model_options)
@@ -17592,8 +17610,7 @@ pub(super) async fn api_asset_video_generate(
         let conn = db_connection(&state)?;
         let model_id = resolve_runtime_workflow_model_id(&conn, "video_generation")
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error))?;
-        let workflow_model_options = get_config_json(&conn, WORKFLOW_MODEL_OPTIONS_KEY)?
-            .unwrap_or_else(default_workflow_model_options);
+        let workflow_model_options = workflow_model_options(&conn)?;
         (model_id, workflow_model_options)
     };
     let provider = infer_model_provider_required(&model_id)?;
