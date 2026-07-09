@@ -5805,6 +5805,7 @@ async fn request_custom_openai_image_generation(
     model_id: &str,
     prompt: &str,
     size: &str,
+    quality_override: Option<&str>,
     reference_images: &[String],
     creds: &Value,
 ) -> Result<(String, Option<String>), String> {
@@ -5836,10 +5837,14 @@ async fn request_custom_openai_image_generation(
         return Err(format!("模型 {} 不支持参考图编辑", model));
     }
 
-    let raw_quality = custom_openai
+    let configured_quality = custom_openai
         .get("imageQuality")
         .and_then(Value::as_str)
         .or_else(|| custom_openai.get("quality").and_then(Value::as_str));
+    let raw_quality = quality_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or(configured_quality);
     let quality = normalize_openai_quality(raw_quality);
     let resolution = if is_apimart_gpt_image_2 {
         normalize_apimart_resolution(raw_quality)
@@ -5848,10 +5853,10 @@ async fn request_custom_openai_image_generation(
             custom_openai
                 .get("imageResolution")
                 .and_then(Value::as_str)
-                .or(raw_quality),
+                .or(configured_quality),
         )
     };
-    let resolved_size = if is_gpt_image_2_series {
+    let resolved_size = if is_apimart_gpt_image_2 {
         resolve_apimart_image_size(size)
     } else {
         size.replace('*', "x")
@@ -6259,6 +6264,7 @@ async fn request_openai_compatible_image_generation(
     model_id: &str,
     prompt: &str,
     size: &str,
+    quality_override: Option<&str>,
     reference_images: &[String],
     creds: &Value,
 ) -> Result<(String, Option<String>), String> {
@@ -6267,6 +6273,7 @@ async fn request_openai_compatible_image_generation(
             model_id,
             prompt,
             size,
+            quality_override,
             reference_images,
             creds,
         )
@@ -6884,6 +6891,7 @@ async fn run_workflow_image_model(
                 &model_id,
                 prompt,
                 size,
+                None,
                 reference_images,
                 &creds,
             )
@@ -12524,6 +12532,7 @@ fn validate_models_test_payload(body: &Value) -> Result<(), ApiError> {
         "provider",
         "prompt",
         "imageAspectRatio",
+        "imageSize",
         "imageQuality",
     ] {
         if let Some(value) = body.get(key).filter(|value| !value.is_null()) {
@@ -12589,6 +12598,7 @@ fn models_test_sanitized_payload(body: &Value) -> Value {
         "provider",
         "prompt",
         "imageAspectRatio",
+        "imageSize",
         "imageQuality",
         "referenceImages",
     ] {
@@ -14403,7 +14413,18 @@ pub(super) async fn api_models_test(
         "image" => {
             let aspect_ratio =
                 normalize_image_aspect_ratio(body.get("imageAspectRatio").and_then(Value::as_str));
-            let size = resolve_image_test_size(&model_id, &provider, &aspect_ratio);
+            let size = body
+                .get("imageSize")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| resolve_image_test_size(&model_id, &provider, &aspect_ratio));
+            let image_quality = body
+                .get("imageQuality")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
             let reference_images = models_test_reference_images(&body);
             let (source, mime_type) = match provider.as_str() {
                 "qwen" => {
@@ -14422,6 +14443,7 @@ pub(super) async fn api_models_test(
                         &model_id,
                         &prompt,
                         &size,
+                        image_quality,
                         &reference_images,
                         &creds,
                     )

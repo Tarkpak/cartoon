@@ -242,24 +242,24 @@ function handleThemeToggle(event: MouseEvent) {
     <!-- 左侧菜单栏 -->
     <aside
       v-if="!hideSidebar"
-      class="theme-surface relative flex flex-col bg-background transition-[width,background-color,border-color,box-shadow] duration-300 ease-out"
-      :class="visualSidebarCollapsed ? 'w-16' : 'w-56'"
+      class="theme-surface relative flex min-h-0 flex-col overflow-hidden bg-background transition-[width,background-color,border-color,box-shadow] duration-300 ease-out"
+      :class="visualSidebarCollapsed ? 'w-14' : 'w-48'"
     >
       <!-- Logo with collapse toggle -->
       <div
-        class="theme-surface h-16 flex items-center"
-        :class="visualSidebarCollapsed ? 'justify-center px-2' : 'justify-start px-6'"
+        class="theme-surface flex h-16 shrink-0 items-center"
+        :class="visualSidebarCollapsed ? 'justify-center px-2' : 'justify-start px-4'"
       >
         <!-- Logo 图标按钮 - hover 时显示箭头 -->
         <button
           type="button"
-          class="group relative grid h-6 w-6 flex-shrink-0 place-items-center overflow-hidden"
+          class="group relative grid h-5 w-5 flex-shrink-0 place-items-center overflow-hidden"
           :title="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
           :aria-label="visualSidebarCollapsed ? '展开菜单' : '收起菜单'"
           @pointerdown="handleSidebarPointerDown"
           @click="isCollapsed = !isCollapsed"
         >
-          <Clapperboard class="pointer-events-none absolute inset-0 h-6 w-6 text-primary transition-opacity duration-150 group-hover:opacity-0" />
+          <Clapperboard class="pointer-events-none absolute inset-0 h-5 w-5 text-primary transition-opacity duration-150 group-hover:opacity-0" />
           <div class="pointer-events-none absolute inset-0 grid place-items-center opacity-0 transition-opacity duration-150 group-hover:opacity-100">
             <ChevronsLeft
               v-if="!visualSidebarCollapsed"
@@ -275,12 +275,15 @@ function handleThemeToggle(event: MouseEvent) {
         <!-- Logo 文字 - 始终显示 -->
         <span
           v-if="!visualSidebarCollapsed"
-          class="ml-1 font-bold text-2xl text-foreground"
+          class="ml-2 font-bold text-xl text-foreground"
         >Playlet</span>
       </div>
 
       <!-- 导航菜单 -->
-      <nav class="flex-1 p-4 space-y-1">
+      <nav
+        class="min-h-0 flex-1 space-y-0.5 p-3"
+        :class="visualSidebarCollapsed ? 'overflow-visible' : 'overflow-y-auto overflow-x-hidden overscroll-contain'"
+      >
         <div
           v-for="(item, index) in navigation"
           :key="item.path"
@@ -290,7 +293,7 @@ function handleThemeToggle(event: MouseEvent) {
             :to="item.path"
             class="theme-content relative flex items-center overflow-hidden rounded-md transition-colors duration-200"
             :class="[
-              visualSidebarCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-3 px-3 py-2.5',
+              visualSidebarCollapsed ? 'justify-center px-2 py-2' : 'space-x-2.5 px-2.5 py-2 text-sm',
               activeStates[index]
                 ? 'bg-accent text-foreground font-medium'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -301,7 +304,7 @@ function handleThemeToggle(event: MouseEvent) {
           >
             <component
               :is="item.icon"
-              class="w-5 h-5 flex-shrink-0"
+              class="h-[1.125rem] w-[1.125rem] flex-shrink-0"
             />
             <span
               v-if="!visualSidebarCollapsed"
@@ -317,7 +320,7 @@ function handleThemeToggle(event: MouseEvent) {
           <Transition name="sidebar-submenu">
             <div
               v-if="item.path === '/settings' && isNavigationExpanded(item) && !visualSidebarCollapsed"
-              class="mt-1 ml-8 space-y-0.5 overflow-hidden"
+              class="mt-1 ml-7 space-y-0.5 overflow-hidden"
             >
               <NuxtLink
                 v-for="sub in settingsSubNavigation"
@@ -341,7 +344,7 @@ function handleThemeToggle(event: MouseEvent) {
           <Transition name="sidebar-submenu">
             <div
               v-if="'children' in item && item.children?.length && isNavigationExpanded(item) && !visualSidebarCollapsed"
-              class="mt-1 ml-8 space-y-0.5 overflow-hidden"
+              class="mt-1 ml-7 space-y-0.5 overflow-hidden"
             >
               <NuxtLink
                 v-for="sub in item.children"
@@ -409,7 +412,7 @@ function handleThemeToggle(event: MouseEvent) {
       </nav>
 
       <div
-        class="pb-4"
+        class="shrink-0 pb-4"
         :class="visualSidebarCollapsed ? 'px-2' : 'px-4'"
       >
         <div
