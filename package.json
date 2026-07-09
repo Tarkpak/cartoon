@@ -84,5 +84,13 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "overrides": {
+    "baseline-browser-mapping": "^2.10.42",
+    "browserslist": "^4.28.5",
+    "caniuse-lite": "^1.0.30001803",
+    "electron-to-chromium": "^1.5.389",
+    "node-releases": "^2.0.51",
+    "update-browserslist-db": "^1.2.3"
+  },
   "packageManager": "bun@1.2.15"
 }
