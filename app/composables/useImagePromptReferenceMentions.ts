@@ -80,18 +80,18 @@ export function useImagePromptReferenceMentions(
   function createImageMentionNode(imageIndex: number): HTMLSpanElement {
     const token = getImageMentionToken(imageIndex)
     const mention = document.createElement('span')
-    mention.className = 'inline-flex items-center gap-1 rounded-md border bg-muted/70 px-1.5 py-0.5 align-middle'
+    mention.className = 'inline-flex min-h-6 cursor-default select-none items-center gap-1 rounded-md border bg-muted/70 px-1.5 py-0.5 align-middle leading-none'
     mention.contentEditable = 'false'
     mention.dataset.mentionToken = token
     mention.dataset.mentionIndex = String(imageIndex)
 
     const image = document.createElement('img')
     image.src = options.referenceImages.value[imageIndex] || ''
-    image.className = 'h-4 w-4 rounded object-cover'
+    image.className = 'pointer-events-none h-4 w-4 rounded object-cover'
     image.alt = token
 
     const label = document.createElement('span')
-    label.className = 'text-xs'
+    label.className = 'pointer-events-none text-xs'
     label.textContent = token
 
     mention.append(image, label)

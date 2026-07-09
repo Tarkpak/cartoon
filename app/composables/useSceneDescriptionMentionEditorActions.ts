@@ -90,7 +90,7 @@ export function useSceneDescriptionMentionEditorActions(
 
   function createSceneAssetMentionNode(candidate: AssetMentionCandidate): HTMLSpanElement {
     const mention = document.createElement('span')
-    mention.className = 'inline-flex items-center gap-1 rounded-md border bg-muted/70 px-1.5 py-0.5 align-middle'
+    mention.className = 'inline-flex min-h-6 cursor-default select-none items-center gap-1 rounded-md border bg-muted/70 px-1.5 py-0.5 align-middle leading-none'
     mention.contentEditable = 'false'
     mention.dataset.assetMentionToken = candidate.token
     mention.dataset.assetId = candidate.asset.id
@@ -98,13 +98,13 @@ export function useSceneDescriptionMentionEditorActions(
     if (candidate.asset.referenceImage) {
       const image = document.createElement('img')
       image.src = toImageSrc(candidate.asset.referenceImage) || ''
-      image.className = 'h-4 w-4 rounded object-cover'
+      image.className = 'pointer-events-none h-4 w-4 rounded object-cover'
       image.alt = `${candidate.asset.name} 缩略图`
       mention.append(image)
     }
 
     const label = document.createElement('span')
-    label.className = 'text-xs'
+    label.className = 'pointer-events-none text-xs'
     label.textContent = candidate.token
     mention.append(label)
 

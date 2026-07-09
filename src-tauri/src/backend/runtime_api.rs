@@ -6674,6 +6674,7 @@ async fn request_qwen_image_generation(
 async fn request_gemini_image_generation(
     model_id: &str,
     prompt: &str,
+    image_size: Option<&str>,
     reference_images: &[String],
     creds: &Value,
 ) -> Result<(String, Option<String>), String> {
@@ -6703,6 +6704,7 @@ async fn request_gemini_image_generation(
         None::<i64>,
         "endpoint" => endpoint.as_str(),
         "prompt" => llm_dev_log_preview(prompt, 220),
+        "image_size" => image_size.unwrap_or(""),
         "referenceImages" => reference_images.len(),
         "apiKeys" => api_keys.len()
     );
@@ -6730,7 +6732,7 @@ async fn request_gemini_image_generation(
             }
         }
 
-        let request_body = json!({
+        let mut request_body = json!({
           "contents": [
             {
               "role": "user",
@@ -6741,6 +6743,9 @@ async fn request_gemini_image_generation(
             "responseModalities": ["TEXT", "IMAGE"]
           }
         });
+        if let Some(image_size) = image_size {
+            request_body["generationConfig"]["image_size"] = json!(image_size);
+        }
         let response = llm_http_client()
             .post(&endpoint)
             .query(&[("key", api_key.as_str())])
@@ -6879,8 +6884,14 @@ async fn run_workflow_image_model(
 ) -> Result<(String, String, String), String> {
     let conn = db_connection(state).map_err(|error| error.message)?;
     let creds = load_provider_creds(&conn);
+    let workflow_model_options =
+        get_config_json(&conn, WORKFLOW_MODEL_OPTIONS_KEY).map_err(|error| error.message)?;
+    let workflow_model_options =
+        workflow_model_options.unwrap_or_else(default_workflow_model_options);
     let model_id = resolve_runtime_workflow_model_id(&conn, workflow_step)?;
     let provider = infer_model_provider_required_string(&model_id)?;
+    let (openai_image_quality, gemini_image_size) =
+        workflow_image_generation_options(&workflow_model_options, &provider);
     let (source, mime_type) = match provider.as_str() {
         "qwen" => {
             request_qwen_image_generation(&model_id, prompt, size, reference_images, &creds).await?
@@ -6891,14 +6902,21 @@ async fn run_workflow_image_model(
                 &model_id,
                 prompt,
                 size,
-                None,
+                openai_image_quality.as_deref(),
                 reference_images,
                 &creds,
             )
             .await?
         }
         "gemini" => {
-            request_gemini_image_generation(&model_id, prompt, reference_images, &creds).await?
+            request_gemini_image_generation(
+                &model_id,
+                prompt,
+                gemini_image_size.as_deref(),
+                reference_images,
+                &creds,
+            )
+            .await?
         }
         "kling" => {
             request_kling_image_generation(&model_id, prompt, size, reference_images).await?
@@ -9471,6 +9489,41 @@ fn apply_workflow_video_generation_options(
             object.insert("resolution".to_string(), json!(resolution));
         }
     }
+}
+
+fn workflow_image_options(workflow_model_options: &Value) -> &Value {
+    workflow_model_options
+        .get("image_options")
+        .unwrap_or(workflow_model_options)
+}
+
+fn workflow_openai_image_quality(workflow_model_options: &Value) -> Option<String> {
+    workflow_image_options(workflow_model_options)
+        .get("openaiImageQuality")
+        .and_then(Value::as_str)
+        .and_then(|value| normalize_openai_quality(Some(value)))
+}
+
+fn workflow_gemini_image_size(workflow_model_options: &Value) -> Option<String> {
+    let normalized = workflow_image_options(workflow_model_options)
+        .get("geminiImageSize")
+        .and_then(Value::as_str)?
+        .trim();
+    matches!(normalized, "512" | "1K" | "2K" | "4K").then(|| normalized.to_string())
+}
+
+fn workflow_image_generation_options(
+    workflow_model_options: &Value,
+    provider: &str,
+) -> (Option<String>, Option<String>) {
+    (
+        (provider == "custom_openai")
+            .then(|| workflow_openai_image_quality(workflow_model_options))
+            .flatten(),
+        (provider == "gemini")
+            .then(|| workflow_gemini_image_size(workflow_model_options))
+            .flatten(),
+    )
 }
 
 fn is_remote_video_image_url(value: &str) -> bool {
@@ -12902,6 +12955,29 @@ mod tests {
     }
 
     #[test]
+    fn workflow_image_generation_options_apply_provider_specific_fields() {
+        let workflow_model_options = json!({
+          "image_options": {
+            "openaiImageQuality": "high",
+            "geminiImageSize": "2K"
+          }
+        });
+
+        assert_eq!(
+            workflow_image_generation_options(&workflow_model_options, "custom_openai"),
+            (Some("high".to_string()), None)
+        );
+        assert_eq!(
+            workflow_image_generation_options(&workflow_model_options, "gemini"),
+            (None, Some("2K".to_string()))
+        );
+        assert_eq!(
+            workflow_image_generation_options(&workflow_model_options, "qwen"),
+            (None, None)
+        );
+    }
+
+    #[test]
     fn build_episode_plan_normalizes_model_asset_variants() {
         let text = "苏晚拖着行李走进林家别墅，婆婆冷眼看着她。夜晚，苏晚在医院走廊拿出玉佩。第二天，陆霆出现撑腰。";
         let output = json!({
@@ -14450,8 +14526,14 @@ pub(super) async fn api_models_test(
                     .await
                 }
                 "gemini" => {
-                    request_gemini_image_generation(&model_id, &prompt, &reference_images, &creds)
-                        .await
+                    request_gemini_image_generation(
+                        &model_id,
+                        &prompt,
+                        None,
+                        &reference_images,
+                        &creds,
+                    )
+                    .await
                 }
                 "kling" => {
                     request_kling_image_generation(&model_id, &prompt, &size, &reference_images)
