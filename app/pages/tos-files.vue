@@ -585,7 +585,7 @@ onMounted(() => {
         <Table
           v-else
           class="table-fixed"
-          container-class="min-h-0 flex-1"
+          container-class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
         >
           <colgroup>
             <col>
@@ -593,11 +593,11 @@ onMounted(() => {
             <col class="w-[92px]">
             <col class="w-[190px]">
             <col class="w-[140px]">
-            <col class="w-[72px]">
+            <col class="w-[104px]">
           </colgroup>
           <TableHeader>
             <TableRow>
-              <TableHead class="min-w-[320px]">
+              <TableHead>
                 名称
               </TableHead>
               <TableHead class="whitespace-nowrap">
@@ -612,7 +612,7 @@ onMounted(() => {
               <TableHead class="whitespace-nowrap">
                 存储类型
               </TableHead>
-              <TableHead class="sticky right-0 top-0 z-30 whitespace-nowrap bg-background text-right shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
+              <TableHead class="w-[104px] whitespace-nowrap bg-background text-center">
                 操作
               </TableHead>
             </TableRow>
@@ -622,11 +622,11 @@ onMounted(() => {
               v-for="prefix in responseData?.commonPrefixes || []"
               :key="`prefix_${prefix}`"
             >
-              <TableCell>
+              <TableCell class="min-w-0 overflow-hidden">
                 <Button
                   type="button"
                   variant="link"
-                  class="h-auto max-w-full justify-start gap-2 p-0 text-left text-sm font-medium"
+                  class="h-auto w-full min-w-0 justify-start gap-2 overflow-hidden p-0 text-left text-sm font-medium"
                   @click="openPrefix(prefix)"
                 >
                   <UserRound
@@ -649,7 +649,7 @@ onMounted(() => {
               <TableCell class="whitespace-nowrap">
                 -
               </TableCell>
-              <TableCell class="sticky right-0 z-20 bg-background text-right shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]" />
+              <TableCell class="w-[104px] bg-background text-center" />
             </TableRow>
 
             <TableRow
@@ -658,7 +658,7 @@ onMounted(() => {
               :class="isImageFile(file.key) && !failedPreviewMediaKeys[file.key] ? 'cursor-pointer hover:bg-muted/50' : undefined"
               @click="openImagePreview(file)"
             >
-              <TableCell>
+              <TableCell class="min-w-0 overflow-hidden">
                 <div
                   class="flex min-w-0 items-center gap-3"
                   @mouseenter="openHoverPreview(file, $event)"
@@ -712,8 +712,8 @@ onMounted(() => {
               <TableCell class="whitespace-nowrap">
                 {{ file.storageClass || '-' }}
               </TableCell>
-              <TableCell class="sticky right-0 z-20 bg-background text-right shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
-                <div class="inline-flex items-center gap-1">
+              <TableCell class="w-[104px] bg-background text-center">
+                <div class="inline-flex w-full items-center justify-center gap-1">
                   <Button
                     as="a"
                     variant="ghost"
