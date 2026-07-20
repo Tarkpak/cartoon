@@ -35,6 +35,8 @@ export interface ModelDebugLogEntry {
   responseRaw?: unknown
   mediaRefs?: ModelDebugMediaRef[]
   error?: ModelDebugErrorInfo
+  ownerAccount?: string
+  ownerDisplayName?: string
 }
 
 export const MODEL_DEBUG_PROVIDER_OPTIONS = ['gemini', 'qwen', 'kling', 'volcengine', 'deepseek', 'custom_openai']
@@ -51,6 +53,7 @@ export const MODEL_DEBUG_OPERATION_OPTIONS = [
 export const MODEL_DEBUG_ALL_FILTER_VALUE = '__all__'
 
 export function useModelDebugLogs() {
+  const { bootstrap, currentUser, loadStatus } = useCloudAdmin()
   const logs = ref<ModelDebugLogEntry[]>([])
   const activeLogId = ref('')
   const detailOpen = ref(false)
@@ -287,6 +290,10 @@ export function useModelDebugLogs() {
   })
 
   onMounted(async () => {
+    await loadStatus()
+    if (currentUser.value?.role === 'admin') {
+      await bootstrap().catch(error => console.error('管理员日志同步失败:', error))
+    }
     await fetchLogs()
     startAutoRefresh()
   })

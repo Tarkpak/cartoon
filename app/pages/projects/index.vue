@@ -53,13 +53,15 @@ const {
 } = useProjectsIndexPage()
 
 const aspectRatioOptions = projectAspectRatioOptions
+const { currentUser } = useCloudAdmin()
+const isAdmin = computed(() => currentUser.value?.role === 'admin')
 </script>
 
 <template>
   <AppPage>
     <AppPageHeader
-      title="我的项目"
-      description="管理剧本解析、分镜资产和视频生成项目"
+      :title="isAdmin ? '全部项目' : '我的项目'"
+      :description="isAdmin ? '管理所有成员创建的项目' : '管理剧本解析、分镜资产和视频生成项目'"
     >
       <template #actions>
       <Button

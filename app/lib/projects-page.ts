@@ -19,6 +19,8 @@ export interface Project {
   totalScenes: number
   createdAt: string
   updatedAt: string
+  ownerAccount?: string | null
+  ownerDisplayName?: string | null
 }
 
 export interface ProjectListResponse {

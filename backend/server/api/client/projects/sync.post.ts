@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { getDb, jsonText, nowIso } from '../../../utils/db'
 import { readJsonBody, requireAuth } from '../../../utils/auth'
 import { optionalJson, optionalString } from '../../../utils/http'
+import { projectSyncOwnerId } from '../../../utils/admin-resource-scope'
 
 interface ProjectPayload {
   id?: string
@@ -28,6 +29,7 @@ interface ProjectPayload {
   local_updated_at?: string
   summary?: unknown
   snapshot?: unknown
+  ownerUserId?: string
 }
 
 function normalizeProjects(body: Record<string, unknown>) {
@@ -58,6 +60,18 @@ export default defineEventHandler(async (event) => {
   }
 
   const db = getDb()
+  const resolveOwnerUserId = (project: ProjectPayload) => {
+    const requestedOwnerId = optionalString(project.ownerUserId, 128)
+    const ownerUserId = projectSyncOwnerId({
+      role: auth.user.role,
+      authenticatedUserId: auth.user.id,
+      requestedOwnerId
+    })
+    if (ownerUserId === auth.user.id) return ownerUserId
+    const owner = db.prepare('SELECT id FROM users WHERE id = ? LIMIT 1').get(ownerUserId)
+    if (!owner) throw createError({ statusCode: 400, statusMessage: 'project.ownerUserId is invalid' })
+    return ownerUserId
+  }
   const timestamp = nowIso()
   const upsertProject = db.prepare(`
     INSERT INTO user_projects
@@ -87,12 +101,13 @@ export default defineEventHandler(async (event) => {
   const synced = db.transaction((items: ProjectPayload[]) => {
     const result: Array<{ localProjectId: string, projectId: string, status: 'synced' | 'skipped', reason?: string }> = []
     for (const project of items) {
+      const ownerUserId = resolveOwnerUserId(project)
       const localProjectId = optionalString(project.localProjectId || project.id, 128)
       if (!localProjectId) {
         throw createError({ statusCode: 400, statusMessage: 'project.localProjectId is required' })
       }
       const name = optionalString(project.name || project.title, 256) || '未命名项目'
-      const existing = selectProject.get(auth.user.id, localProjectId) as { id: string, local_updated_at: string | null } | undefined
+      const existing = selectProject.get(ownerUserId, localProjectId) as { id: string, local_updated_at: string | null } | undefined
       const projectId = existing?.id || randomUUID()
       const snapshot = optionalJson(project.snapshot) ?? project
       const force = project.force === true
@@ -109,7 +124,7 @@ export default defineEventHandler(async (event) => {
 
       upsertProject.run(
         projectId,
-        auth.user.id,
+        ownerUserId,
         localProjectId,
         name,
         optionalString(project.description, 2048),
@@ -125,7 +140,7 @@ export default defineEventHandler(async (event) => {
         timestamp
       )
 
-      insertSnapshot.run(randomUUID(), auth.user.id, projectId, jsonText(snapshot), 1, timestamp)
+      insertSnapshot.run(randomUUID(), ownerUserId, projectId, jsonText(snapshot), 1, timestamp)
       result.push({ localProjectId, projectId, status: 'synced' })
     }
     return result

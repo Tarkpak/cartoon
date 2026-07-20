@@ -875,6 +875,13 @@ fn cloud_user_public(conn: &Connection) -> Option<Value> {
     cloud_session(conn).and_then(|session| session.get("user").cloned())
 }
 
+fn cloud_user_is_admin() -> bool {
+    config_connection()
+        .and_then(|conn| cloud_user_public(&conn))
+        .and_then(|user| user.get("role").and_then(Value::as_str).map(str::to_string))
+        .is_some_and(|role| role == "admin")
+}
+
 fn normalize_cloud_model_policy_provider(provider: &str) -> Option<String> {
     let provider = provider.trim();
     if provider.is_empty() {
@@ -1493,8 +1500,8 @@ fn upsert_cloud_project_placeholder(
     };
 
     conn.execute(
-        "INSERT INTO projects (id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        "INSERT INTO projects (id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            description = excluded.description,
@@ -1502,6 +1509,9 @@ fn upsert_cloud_project_placeholder(
            style_id = excluded.style_id,
            aspect_ratio = excluded.aspect_ratio,
            status = excluded.status,
+           owner_user_id = excluded.owner_user_id,
+           owner_account = excluded.owner_account,
+           owner_display_name = excluded.owner_display_name,
            updated_at = excluded.updated_at",
         params![
             project_id,
@@ -1512,7 +1522,10 @@ fn upsert_cloud_project_placeholder(
             valid_project_aspect_ratio(&aspect_ratio),
             valid_project_status(&status),
             created_at,
-            updated_at
+            updated_at,
+            cloud_value_text(project, "ownerUserId"),
+            cloud_value_text(project, "ownerAccount"),
+            cloud_value_text(project, "ownerDisplayName")
         ],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -1868,7 +1881,7 @@ fn build_scoped_tos_key_prefix(
         parts.push(base_prefix.clone());
     }
 
-    let user_scoped = if use_cloud_scope {
+    let user_scoped = if use_cloud_scope && !cloud_user_is_admin() {
         if let Some(user_prefix) = cloud_tos_user_scope_prefix() {
             let already_scoped =
                 base_prefix == user_prefix || base_prefix.ends_with(&format!("/{user_prefix}"));
@@ -3395,6 +3408,9 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ("script_parse_mode", "TEXT NOT NULL DEFAULT 'short_drama'"),
         ("style_id", "TEXT NOT NULL DEFAULT ''"),
         ("aspect_ratio", "TEXT NOT NULL DEFAULT '16:9'"),
+        ("owner_user_id", "TEXT"),
+        ("owner_account", "TEXT"),
+        ("owner_display_name", "TEXT"),
     ] {
         ensure_column(conn, "projects", column, definition)?;
     }
@@ -3480,6 +3496,8 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ("cloud_sync_attempts", "INTEGER NOT NULL DEFAULT 0"),
         ("cloud_sync_error", "TEXT"),
         ("cloud_synced_at", "TEXT"),
+        ("owner_account", "TEXT"),
+        ("owner_display_name", "TEXT"),
     ] {
         ensure_column(conn, "model_debug_logs", column, definition)?;
     }
@@ -4706,7 +4724,7 @@ async fn api_project_list(
     };
 
     let mut list_sql = format!(
-        "SELECT id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at FROM projects{} ORDER BY {}",
+        "SELECT id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name FROM projects{} ORDER BY {}",
         where_clause, order_by
     );
     let mut list_params = where_params.clone();
@@ -4750,7 +4768,10 @@ async fn api_project_list(
               "completedScenes": scene_stats.1,
               "totalDuration": scene_stats.2,
               "createdAt": row.get::<_, String>(7)?,
-              "updatedAt": row.get::<_, String>(8)?
+              "updatedAt": row.get::<_, String>(8)?,
+              "ownerUserId": row.get::<_, Option<String>>(9)?,
+              "ownerAccount": row.get::<_, Option<String>>(10)?,
+              "ownerDisplayName": row.get::<_, Option<String>>(11)?
             }))
         })
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -9943,9 +9964,19 @@ async fn cloud_sync_project_by_id(state: &BackendState, project_id: &str) -> Res
         .cloned()
         .unwrap_or_else(|| json!({}));
     let project = data.get("project").cloned().unwrap_or_else(|| json!({}));
+    let owner_user_id = db_connection(state)?
+        .query_row(
+            "SELECT owner_user_id FROM projects WHERE id = ?1",
+            params![project_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .flatten();
     let body = json!({
       "force": true,
       "localProjectId": project_id,
+      "ownerUserId": owner_user_id,
       "name": project.get("name").and_then(Value::as_str).unwrap_or("未命名项目"),
       "description": project.get("description").cloned().unwrap_or(Value::Null),
       "scriptParseMode": project.get("scriptParseMode").cloned().unwrap_or(Value::Null),
@@ -10180,6 +10211,49 @@ async fn apply_cloud_projects(state: &BackendState, projects: &Value) -> Value {
     json!({ "imported": imported, "skipped": skipped, "failed": failed })
 }
 
+fn apply_cloud_model_call_logs(state: &BackendState, logs: &Value) -> Result<usize, ApiError> {
+    let Some(items) = logs.as_array() else {
+        return Ok(0);
+    };
+    let conn = db_connection(state)?;
+    let mut imported = 0;
+    for log in items {
+        let id = cloud_value_text(log, "id");
+        if id.is_empty() {
+            continue;
+        }
+        let timestamp = cloud_value_text(log, "created_at");
+        conn.execute(
+            "INSERT OR REPLACE INTO model_debug_logs (
+               id, timestamp, provider, model, operation, status, duration_ms, request_id,
+               project_id, scene_id, request_json, request_raw_json, response_json,
+               response_raw_json, error_json, created_at, cloud_sync_status, cloud_synced_at,
+               owner_account, owner_display_name
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?12, ?13, ?2, 'synced', ?2, ?14, ?15)",
+            params![
+                id,
+                if timestamp.is_empty() { now_iso() } else { timestamp },
+                cloud_value_text(log, "provider"),
+                cloud_value_text(log, "model_id"),
+                cloud_value_text(log, "operation"),
+                cloud_value_text(log, "status"),
+                log.get("duration_ms").and_then(Value::as_i64).unwrap_or(0),
+                cloud_value_text(log, "request_id"),
+                cloud_value_text(log, "project_id"),
+                cloud_value_text(log, "scene_id"),
+                log.get("request_json").and_then(Value::as_str),
+                log.get("response_json").and_then(Value::as_str),
+                log.get("error_json").and_then(Value::as_str),
+                cloud_value_text(log, "owner_account"),
+                cloud_value_text(log, "owner_display_name")
+            ],
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        imported += 1;
+    }
+    Ok(imported)
+}
+
 fn apply_cloud_prompt_state(state: &BackendState, prompt_state: &Value) -> Result<bool, ApiError> {
     let Some(snapshot) = prompt_state
         .get("snapshot")
@@ -10350,12 +10424,15 @@ async fn cloud_pull_account_data(
         apply_cloud_prompt_state(state, data.get("promptState").unwrap_or(&Value::Null))?;
     let model_preferences_imported =
         apply_cloud_model_preferences(state, data.get("modelPreferences").unwrap_or(&Value::Null))?;
+    let model_call_logs_imported =
+        apply_cloud_model_call_logs(state, data.get("modelCallLogs").unwrap_or(&Value::Null))?;
 
     Ok(json!({
       "success": true,
       "projects": projects,
       "promptsImported": prompts_imported,
-      "modelPreferencesImported": model_preferences_imported
+      "modelPreferencesImported": model_preferences_imported,
+      "modelCallLogsImported": model_call_logs_imported
     }))
 }
 
@@ -11282,7 +11359,8 @@ async fn api_debug_logs_get(
         .prepare(&format!(
             "SELECT id, timestamp, provider, model, operation, status, duration_ms,
                     endpoint, request_id, project_id, scene_id, task_id, request_json, request_raw_json,
-                    response_json, response_raw_json, media_refs_json, error_json
+                    response_json, response_raw_json, media_refs_json, error_json,
+                    owner_account, owner_display_name
              FROM model_debug_logs{} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
             where_clause
         ))
@@ -11309,6 +11387,8 @@ async fn api_debug_logs_get(
                 row.get::<_, Option<String>>(15)?,
                 row.get::<_, Option<String>>(16)?,
                 row.get::<_, Option<String>>(17)?,
+                row.get::<_, Option<String>>(18)?,
+                row.get::<_, Option<String>>(19)?,
             ))
         })
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -11346,6 +11426,8 @@ async fn api_debug_logs_get(
         response_raw_json,
         media_refs_json,
         error_json,
+        owner_account,
+        owner_display_name,
     ) in logs_raw
     {
         logs.push(json!({
@@ -11366,7 +11448,9 @@ async fn api_debug_logs_get(
           "response": parse_json(response_json),
           "responseRaw": parse_json(response_raw_json),
           "mediaRefs": parse_json(media_refs_json),
-          "error": parse_json(error_json)
+          "error": parse_json(error_json),
+          "ownerAccount": owner_account,
+          "ownerDisplayName": owner_display_name
         }))
     }
     Ok(Json(

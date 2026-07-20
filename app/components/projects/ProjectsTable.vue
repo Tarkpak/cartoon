@@ -79,6 +79,9 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
               <p class="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
                 {{ project.description || '暂无描述' }}
               </p>
+              <p v-if="project.ownerAccount" class="mt-1 text-xs text-muted-foreground">
+                创建成员：{{ project.ownerDisplayName || project.ownerAccount }}
+              </p>
             </div>
             <Badge
               class="shrink-0"
@@ -194,6 +197,9 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
           <TableHead class="w-[100px] whitespace-nowrap">
             画风
           </TableHead>
+          <TableHead class="w-[120px] whitespace-nowrap">
+            创建成员
+          </TableHead>
           <TableHead class="w-[96px] whitespace-nowrap">
             剧本类型
           </TableHead>
@@ -232,6 +238,9 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
           </TableCell>
           <TableCell class="whitespace-nowrap">
             <span class="text-sm">{{ getStyleName(project.styleId) }}</span>
+          </TableCell>
+          <TableCell class="whitespace-nowrap text-sm">
+            {{ project.ownerDisplayName || project.ownerAccount || '-' }}
           </TableCell>
           <TableCell class="whitespace-nowrap">
             <Badge variant="outline">
@@ -288,7 +297,7 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
 
         <TableRow v-if="projects.length === 0">
           <TableCell
-            :colspan="10"
+            :colspan="11"
             class="h-32 text-center"
           >
             <div class="flex flex-col items-center justify-center text-muted-foreground">

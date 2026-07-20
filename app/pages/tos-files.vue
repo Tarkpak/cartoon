@@ -65,6 +65,8 @@ const hoverPreviewPosition = ref({ x: 0, y: 0 })
 const imagePreviewOpen = ref(false)
 const imagePreviewSrc = ref('')
 const imagePreviewAlt = ref('图片预览')
+const { currentUser, loadStatus } = useCloudAdmin()
+const isAdmin = computed(() => currentUser.value?.role === 'admin')
 
 function normalizePrefixValue(value: string): string {
   return value.trim().replace(/^\/+|\/+$/g, '')
@@ -223,12 +225,14 @@ async function loadTosConfig() {
   const response = await $fetch<TosConfigResponse>('/api/tos/config')
   if (!response.success) return
 
-  const imagePrefix = buildTosCategoryPrefix('images')
-  activePrefix.value = imagePrefix
+  activePrefix.value = currentUser.value?.role === 'admin'
+    ? 'users'
+    : buildTosCategoryPrefix('images')
 }
 
 async function initializePage() {
   try {
+    await loadStatus()
     await loadTosConfig()
   } catch {
     // The files endpoint will surface missing or invalid TOS configuration.
@@ -305,7 +309,7 @@ onMounted(() => {
       description="浏览 TOS 中的图片、视频和子目录"
     >
       <template #actions>
-          <div class="flex rounded-md border bg-muted/30 p-1">
+          <div v-if="!isAdmin" class="flex rounded-md border bg-muted/30 p-1">
             <button
               v-for="tab in assetTabs"
               :key="tab.id"
@@ -318,6 +322,7 @@ onMounted(() => {
               {{ tab.label }}
             </button>
           </div>
+          <Badge v-else variant="outline">成员目录</Badge>
           <Button
             type="button"
             variant="outline"

@@ -247,7 +247,9 @@ export function useSceneDescriptionMentionEditorActions(
 
     syncSceneDescriptionFromEditor()
     const state = getSceneDescriptionEditorState()
-    renderSceneDescriptionEditor(state.text, state.caret)
+    // Keep mention chips normalized without restoring the caret: doing so would
+    // focus the editor again and interrupt the control the user just clicked.
+    renderSceneDescriptionEditor(state.text)
 
     setTimeout(() => {
       closeSceneDescriptionMention()

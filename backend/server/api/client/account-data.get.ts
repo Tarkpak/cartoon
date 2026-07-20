@@ -1,14 +1,19 @@
 import { getDb, parseJsonText } from '../../utils/db'
 import { requireAuth } from '../../utils/auth'
+import { projectOwnerScope } from '../../utils/admin-resource-scope'
 
 export default defineEventHandler((event) => {
   const auth = requireAuth(event)
   const db = getDb()
 
+  const projectScope = projectOwnerScope(auth.user.role, auth.user.id)
   const projects = db
     .prepare(`
       SELECT
         p.id,
+        p.user_id,
+        u.account AS owner_account,
+        u.display_name AS owner_display_name,
         p.local_project_id,
         p.name,
         p.description,
@@ -25,6 +30,7 @@ export default defineEventHandler((event) => {
         s.snapshot_json,
         s.created_at AS snapshot_created_at
       FROM user_projects p
+      JOIN users u ON u.id = p.user_id
       LEFT JOIN user_project_snapshots s
         ON s.id = (
           SELECT latest.id
@@ -33,11 +39,14 @@ export default defineEventHandler((event) => {
           ORDER BY latest.created_at DESC
           LIMIT 1
         )
-      WHERE p.user_id = ?
+      ${projectScope.where}
       ORDER BY p.updated_at DESC
     `)
-    .all(auth.user.id) as Array<{
+    .all(...projectScope.params) as Array<{
       id: string
+      user_id: string
+      owner_account: string
+      owner_display_name: string
       local_project_id: string
       name: string
       description: string | null
@@ -73,11 +82,25 @@ export default defineEventHandler((event) => {
       updated_at: string
     }>
 
+  const modelCallLogs = auth.user.role === 'admin'
+    ? db.prepare(`
+        SELECT l.*, u.account AS owner_account, u.display_name AS owner_display_name
+        FROM model_call_logs l
+        JOIN users u ON u.id = l.user_id
+        WHERE l.archived_at IS NULL
+        ORDER BY l.created_at DESC
+        LIMIT 1000
+      `).all() as Array<Record<string, unknown>>
+    : []
+
   return {
     success: true,
     data: {
       projects: projects.map(project => ({
         id: project.id,
+        ownerUserId: project.user_id,
+        ownerAccount: project.owner_account,
+        ownerDisplayName: project.owner_display_name,
         localProjectId: project.local_project_id,
         name: project.name,
         description: project.description || '',
@@ -104,7 +127,8 @@ export default defineEventHandler((event) => {
         modelId: preference.model_id,
         modelOptions: parseJsonText(preference.model_options_json, {}),
         updatedAt: preference.updated_at
-      }))
+      })),
+      modelCallLogs
     }
   }
 })

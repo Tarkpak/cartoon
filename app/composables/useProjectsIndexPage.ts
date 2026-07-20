@@ -19,6 +19,7 @@ import {
 export function useProjectsIndexPage() {
   const router = useRouter()
   const route = useRoute()
+  const { bootstrap, currentUser, loadStatus } = useCloudAdmin()
   const {
     presets: availableStylePresets,
     categories: availableStyleCategories,
@@ -227,6 +228,10 @@ export function useProjectsIndexPage() {
   }, 300)
 
   onMounted(async () => {
+    await loadStatus()
+    if (currentUser.value?.role === 'admin') {
+      await bootstrap().catch(error => console.error('管理员项目同步失败:', error))
+    }
     await Promise.all([
       fetchProjects(),
       loadStylePresets()

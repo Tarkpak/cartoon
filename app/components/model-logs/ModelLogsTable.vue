@@ -33,6 +33,9 @@ defineProps<{
             <TableHead>
               Provider
             </TableHead>
+            <TableHead class="whitespace-nowrap">
+              成员
+            </TableHead>
             <TableHead>
               操作
             </TableHead>
@@ -64,6 +67,9 @@ defineProps<{
             </TableCell>
             <TableCell class="font-medium">
               {{ item.provider }}
+            </TableCell>
+            <TableCell class="whitespace-nowrap text-sm">
+              {{ item.ownerDisplayName || item.ownerAccount || '-' }}
             </TableCell>
             <TableCell
               class="max-w-[220px] truncate"
@@ -125,7 +131,7 @@ defineProps<{
         <TableBody v-else>
           <TableRow>
             <TableCell
-              :colspan="7"
+              :colspan="8"
               class="h-24 text-center text-muted-foreground"
             >
               暂无日志
