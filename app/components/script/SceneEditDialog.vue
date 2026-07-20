@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Plus, Trash2, Users } from 'lucide-vue-next'
 import type { ComponentPublicInstance } from 'vue'
 import { useSceneDescriptionMentionEditor } from '~/composables/useSceneDescriptionMentionEditor'
 import type {
@@ -109,57 +110,82 @@ const characterStateGroups = computed(() => {
   })
 })
 
-const sceneCharacterStateRows = computed(() => {
-  const selectedIds = new Set(selectedAssetReferenceIdsInternal.value)
-  const normalizedSceneNames = editForm.value.characters
-    .map(character => normalizeCharacterStateName(character.name))
-    .filter(Boolean)
-  const sceneNameSet = new Set(normalizedSceneNames)
-  const includedRootIds = new Set<string>()
-  const rows: Array<{
-    key: string
-    sceneName: string
-    root: AssetReferenceOption
-    options: Array<{ asset: AssetReferenceOption, label: string }>
-    selectedValue: string
-  }> = []
-
-  for (const group of characterStateGroups.value) {
-    const rootName = normalizeCharacterStateName(group.root.name)
-    const selectedInGroup = group.assetIds.find(assetId => selectedIds.has(assetId))
-    const appearsInScene = !!rootName && Array.from(sceneNameSet).some((sceneName) => {
-      return sceneName === rootName || sceneName.includes(rootName) || rootName.includes(sceneName)
-    })
-
-    if (!appearsInScene && !selectedInGroup) continue
-
-    const rootRawId = resolveRawCharacterAssetId(group.root.id)
-    includedRootIds.add(rootRawId)
-    rows.push({
-      key: rootRawId,
-      sceneName: group.root.name,
-      root: group.root,
-      options: group.options,
-      selectedValue: selectedInGroup || AUTO_CHARACTER_STATE_VALUE
-    })
-  }
-
-  for (const group of characterStateGroups.value) {
-    const rootRawId = resolveRawCharacterAssetId(group.root.id)
-    if (includedRootIds.has(rootRawId)) continue
-    const hasVariant = group.options.length > 1
-    if (!hasVariant) continue
-    rows.push({
-      key: rootRawId,
-      sceneName: group.root.name,
-      root: group.root,
-      options: group.options,
-      selectedValue: AUTO_CHARACTER_STATE_VALUE
-    })
-  }
-
-  return rows
+const sceneCharacterNameSet = computed(() => {
+  return new Set(
+    editForm.value.characters
+      .map(character => normalizeCharacterStateName(character.name))
+      .filter(Boolean)
+  )
 })
+
+const availableSceneCharacterAssets = computed(() => {
+  return characterStateGroups.value
+    .map(group => group.root)
+    .filter((asset) => {
+      return !editForm.value.characters.some((character) => {
+        return resolveSceneCharacterGroup(character.name)?.root.id === asset.id
+      })
+    })
+})
+
+function resolveSceneCharacterGroup(characterName: string) {
+  const normalizedName = normalizeCharacterStateName(characterName)
+  if (!normalizedName) return undefined
+
+  return characterStateGroups.value.find((group) => {
+    const rootName = normalizeCharacterStateName(group.root.name)
+    return rootName === normalizedName
+  }) || characterStateGroups.value.find((group) => {
+    const rootName = normalizeCharacterStateName(group.root.name)
+    return rootName.includes(normalizedName) || normalizedName.includes(rootName)
+  })
+}
+
+const sceneCharacterRows = computed(() => {
+  const selectedIds = new Set(selectedAssetReferenceIdsInternal.value)
+
+  return editForm.value.characters.map((character, index) => {
+    const group = resolveSceneCharacterGroup(character.name)
+    const selectedInGroup = group?.assetIds.find(assetId => selectedIds.has(assetId))
+    return {
+      character,
+      index,
+      key: `${normalizeCharacterStateName(character.name) || 'character'}_${index}`,
+      group,
+      selectedValue: selectedInGroup || AUTO_CHARACTER_STATE_VALUE
+    }
+  })
+})
+
+function addSceneCharacter(asset: AssetReferenceOption) {
+  const normalizedName = normalizeCharacterStateName(asset.name)
+  if (!normalizedName || sceneCharacterNameSet.value.has(normalizedName)) return
+
+  editForm.value.characters.push({ name: asset.name })
+  selectedAssetReferenceIdsInternal.value = uniqueValues([
+    ...selectedAssetReferenceIdsInternal.value,
+    asset.id
+  ])
+}
+
+function removeSceneCharacter(index: number) {
+  const character = editForm.value.characters[index]
+  if (!character) return
+
+  const group = resolveSceneCharacterGroup(character.name)
+  editForm.value.characters.splice(index, 1)
+
+  if (!group) return
+  const rootName = normalizeCharacterStateName(group.root.name)
+  const groupStillInScene = editForm.value.characters.some((item) => {
+    return normalizeCharacterStateName(item.name) === rootName
+  })
+  if (groupStillInScene) return
+
+  const groupAssetIds = new Set(group.assetIds)
+  selectedAssetReferenceIdsInternal.value = selectedAssetReferenceIdsInternal.value
+    .filter(assetId => !groupAssetIds.has(assetId))
+}
 
 const sceneDescription = computed({
   get: () => editForm.value.description || '',
@@ -213,7 +239,7 @@ watch(() => props.scene, (newScene) => {
       title: newScene.title,
       description: restoredDescription,
       narration: newScene.narration || '',
-      characters: [...newScene.characters],
+      characters: newScene.characters.map(character => ({ ...character })),
       duration: newScene.duration,
       setting: newScene.setting ? { ...newScene.setting } : { location: '', timeOfDay: '白天' },
       shotType: newScene.shotType || 'medium',
@@ -254,6 +280,14 @@ watch(
 
 // 保存
 function handleSave() {
+  editForm.value.characters = editForm.value.characters
+    .map(character => ({
+      name: character.name.trim(),
+      appearance: character.appearance?.trim() || undefined,
+      emotion: character.emotion?.trim() || undefined
+    }))
+    .filter(character => !!character.name)
+
   if (sceneDescriptionSupportsMention.value) {
     syncSceneDescriptionFromEditor()
 
@@ -284,8 +318,8 @@ function handleSave() {
   emit('update:open', false)
 }
 
-function updateCharacterStateReference(rowKey: string, nextAssetId: string) {
-  const group = characterStateGroups.value.find(item => resolveRawCharacterAssetId(item.root.id) === rowKey)
+function updateCharacterStateReference(characterName: string, nextAssetId: string) {
+  const group = resolveSceneCharacterGroup(characterName)
   if (!group) return
 
   const groupAssetIds = new Set(group.assetIds)
@@ -505,78 +539,162 @@ function handleSceneAssetUpload(event: Event) {
           :handle-scene-description-keydown="handleSceneDescriptionKeydown"
         />
 
-        <div
-          v-if="sceneCharacterStateRows.length > 0"
-          class="space-y-3 rounded-lg border bg-muted/15 p-3"
-        >
+        <section class="space-y-3">
           <div class="flex items-center justify-between gap-2">
             <div>
-              <h4 class="text-sm font-medium">
-                角色状态
+              <h4 class="flex items-center gap-2 text-sm font-medium">
+                <Users class="h-4 w-4" />
+                场景人物
               </h4>
               <p class="mt-0.5 text-xs text-muted-foreground">
-                为本场景指定主角色或变体；保存后会作为分镜生成的角色引用。
+                管理本场景的登场人物、形态和表演状态。
               </p>
             </div>
-            <Badge
-              variant="outline"
-              class="text-xs"
-            >
-              {{ sceneCharacterStateRows.filter(row => row.selectedValue !== AUTO_CHARACTER_STATE_VALUE).length }} 已指定
-            </Badge>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  class="h-8 gap-1.5"
+                  :disabled="availableSceneCharacterAssets.length === 0"
+                >
+                  <Plus class="h-3.5 w-3.5" />
+                  添加人物
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                class="max-h-64 w-64 overflow-y-auto"
+              >
+                <DropdownMenuLabel>选择人物资产</DropdownMenuLabel>
+                <DropdownMenuItem
+                  v-for="asset in availableSceneCharacterAssets"
+                  :key="`add_scene_character_${asset.id}`"
+                  @select="addSceneCharacter(asset)"
+                >
+                  <img
+                    v-if="asset.referenceImage"
+                    :src="toImageSrc(asset.referenceImage)"
+                    :alt="`${asset.name} 角色图`"
+                    class="h-7 w-7 rounded border object-cover"
+                  >
+                  <div
+                    v-else
+                    class="flex h-7 w-7 items-center justify-center rounded border bg-muted text-xs text-muted-foreground"
+                  >
+                    人物
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-sm">
+                      {{ asset.name }}
+                    </p>
+                    <p class="truncate text-xs text-muted-foreground">
+                      {{ asset.description || '暂无人物描述' }}
+                    </p>
+                  </div>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
-          <div class="space-y-2">
+          <div
+            v-if="sceneCharacterRows.length === 0"
+            class="flex min-h-24 flex-col items-center justify-center gap-2 rounded-md border border-dashed px-4 py-5 text-center"
+          >
+            <Users class="h-5 w-5 text-muted-foreground" />
+            <p class="text-sm text-muted-foreground">
+              本场景暂无登场人物
+            </p>
+          </div>
+
+          <div
+            v-else
+            class="space-y-2"
+          >
             <div
-              v-for="row in sceneCharacterStateRows"
-              :key="`scene_character_state_${row.key}`"
-              class="flex items-center gap-3 rounded-md border bg-background px-2.5 py-2"
+              v-for="row in sceneCharacterRows"
+              :key="`scene_character_${row.key}`"
+              class="space-y-3 rounded-md border bg-background p-3"
             >
-              <img
-                v-if="row.root.referenceImage"
-                :src="toImageSrc(row.root.referenceImage)"
-                :alt="`${row.root.name} 角色图`"
-                class="h-10 w-10 shrink-0 rounded border object-cover"
-              >
-              <div
-                v-else
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded border bg-muted text-xs text-muted-foreground"
-              >
-                角色
+              <div class="flex items-center gap-3">
+                <img
+                  v-if="row.group?.root.referenceImage"
+                  :src="toImageSrc(row.group.root.referenceImage)"
+                  :alt="`${row.character.name} 角色图`"
+                  class="h-10 w-10 shrink-0 rounded border object-cover"
+                >
+                <div
+                  v-else
+                  class="flex h-10 w-10 shrink-0 items-center justify-center rounded border bg-muted text-xs text-muted-foreground"
+                >
+                  人物
+                </div>
+
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-medium">
+                    {{ row.character.name }}
+                  </p>
+                  <p class="truncate text-xs text-muted-foreground">
+                    {{ row.group?.root.description || '未关联到现有人物资产' }}
+                  </p>
+                </div>
+
+                <Select
+                  v-if="row.group"
+                  :model-value="row.selectedValue"
+                  @update:model-value="updateCharacterStateReference(row.character.name, String($event))"
+                >
+                  <SelectTrigger class="h-8 w-[160px] text-xs">
+                    <SelectValue placeholder="选择人物形态" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem :value="AUTO_CHARACTER_STATE_VALUE">
+                      自动匹配
+                    </SelectItem>
+                    <SelectItem
+                      v-for="option in row.group.options"
+                      :key="option.asset.id"
+                      :value="option.asset.id"
+                    >
+                      {{ option.label }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  class="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                  :title="`从场景移除${row.character.name}`"
+                  @click="removeSceneCharacter(row.index)"
+                >
+                  <Trash2 class="h-4 w-4" />
+                  <span class="sr-only">从场景移除{{ row.character.name }}</span>
+                </Button>
               </div>
 
-              <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-medium">
-                  {{ row.sceneName }}
-                </p>
-                <p class="truncate text-xs text-muted-foreground">
-                  {{ row.root.description || '暂无角色描述' }}
-                </p>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div class="space-y-1.5">
+                  <label class="text-xs font-medium text-muted-foreground">本场景情绪</label>
+                  <Input
+                    v-model="row.character.emotion"
+                    placeholder="例如：紧张、克制"
+                  />
+                </div>
+                <div class="space-y-1.5">
+                  <label class="text-xs font-medium text-muted-foreground">本场景外观补充</label>
+                  <Input
+                    v-model="row.character.appearance"
+                    placeholder="例如：外套被雨水打湿"
+                  />
+                </div>
               </div>
-
-              <Select
-                :model-value="row.selectedValue"
-                @update:model-value="updateCharacterStateReference(row.key, String($event))"
-              >
-                <SelectTrigger class="h-8 w-[180px] text-xs">
-                  <SelectValue placeholder="选择角色状态" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem :value="AUTO_CHARACTER_STATE_VALUE">
-                    自动匹配
-                  </SelectItem>
-                  <SelectItem
-                    v-for="option in row.options"
-                    :key="option.asset.id"
-                    :value="option.asset.id"
-                  >
-                    {{ option.label }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
             </div>
           </div>
-        </div>
+        </section>
       </div>
 
       <DialogFooter class="flex-shrink-0">
