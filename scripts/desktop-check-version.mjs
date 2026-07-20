@@ -4,8 +4,12 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
+function readText(relativePath) {
+  return readFileSync(resolve(root, relativePath), 'utf8').replace(/\r\n?/g, '\n')
+}
+
 function readJsonVersion(relativePath) {
-  const content = readFileSync(resolve(root, relativePath), 'utf8')
+  const content = readText(relativePath)
   const version = JSON.parse(content).version
 
   if (typeof version !== 'string' || !version.trim()) {
@@ -17,7 +21,7 @@ function readJsonVersion(relativePath) {
 
 function readCargoPackageVersion() {
   const relativePath = 'src-tauri/Cargo.toml'
-  const content = readFileSync(resolve(root, relativePath), 'utf8')
+  const content = readText(relativePath)
   const packageSection = content.match(/\[package\]([\s\S]*?)(?:\n\[|$)/)?.[1]
   const version = packageSection?.match(/^version\s*=\s*"([^"]+)"\s*$/m)?.[1]
 
@@ -30,7 +34,7 @@ function readCargoPackageVersion() {
 
 function readCargoLockVersion() {
   const relativePath = 'src-tauri/Cargo.lock'
-  const content = readFileSync(resolve(root, relativePath), 'utf8')
+  const content = readText(relativePath)
   const version = content.match(
     /\[\[package\]\]\nname = "playlet-desktop"\nversion = "([^"]+)"/
   )?.[1]
