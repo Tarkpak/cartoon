@@ -42,6 +42,8 @@ import {
 } from '~/lib/asset-workbench-environment-views'
 
 const ENVIRONMENT_REFERENCE_ASPECT_RATIO = '16:9' as const
+const VIDEO_RESULT_SAVE_ATTEMPTS = 3
+const VIDEO_RESULT_SAVE_RETRY_DELAY_MS = 500
 
 interface UseAssetWorkbenchSceneGenerationOptions {
   scenes: Ref<SceneData[]>
@@ -179,6 +181,19 @@ export function useAssetWorkbenchSceneGeneration(
     options.synchronizeQueueItems()
     await options.saveProject()
     return true
+  }
+
+  async function saveGeneratedVideoToProject(): Promise<void> {
+    for (let attempt = 0; attempt < VIDEO_RESULT_SAVE_ATTEMPTS; attempt += 1) {
+      const saved = await options.saveProject()
+      if (saved !== false) return
+
+      if (attempt < VIDEO_RESULT_SAVE_ATTEMPTS - 1) {
+        await new Promise(resolve => setTimeout(resolve, VIDEO_RESULT_SAVE_RETRY_DELAY_MS))
+      }
+    }
+
+    throw new Error('视频已生成，但同步到项目失败，请稍后重试保存')
   }
 
   async function ensureSceneReferencedAssetsReady(scene: SceneData): Promise<void> {
@@ -756,7 +771,7 @@ export function useAssetWorkbenchSceneGeneration(
       options.recordSceneVideoHistory?.(scene.id, videoResult.videoUrl, {
         source: 'generated'
       })
-      await options.saveProject()
+      await saveGeneratedVideoToProject()
       if (!runOptions.skipCompletionNotice) {
         await notifyModelTaskCompleted({
           title: '分镜视频生成完成',

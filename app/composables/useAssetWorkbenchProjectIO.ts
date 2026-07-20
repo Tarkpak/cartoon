@@ -64,6 +64,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   const loading = ref(false)
   const activeProjectId = ref(options.projectId.value || '')
   let lastSavedProjectSnapshot: string | null = null
+  let saveQueue: Promise<void> = Promise.resolve()
   const mergeStatus = ref<{
     running: boolean
     progress: number
@@ -347,7 +348,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     }
   }
 
-  async function saveProject() {
+  async function performSaveProject() {
     saving.value = true
     saveError.value = null
     saveWarning.value = null
@@ -405,6 +406,9 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         method: 'PUT',
         body: saveBody
       })
+      if (saveResponse.success === false) {
+        throw new Error('保存项目失败')
+      }
       const cloudSyncWarning = resolveCloudSyncWarning(saveResponse.cloudSync)
       if (cloudSyncWarning) {
         saveWarning.value = cloudSyncWarning
@@ -424,6 +428,15 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     } finally {
       saving.value = false
     }
+  }
+
+  function saveProject(): Promise<boolean> {
+    const pendingSave = saveQueue.then(performSaveProject, performSaveProject)
+    saveQueue = pendingSave.then(
+      () => undefined,
+      () => undefined
+    )
+    return pendingSave
   }
 
   async function refreshCharacterVoiceAssets(input: {

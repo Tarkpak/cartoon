@@ -292,6 +292,76 @@ describe('useAssetWorkbenchSceneGeneration', () => {
     expect(saveProject).toHaveBeenCalled()
   })
 
+  it('retries project persistence before reporting video generation completion', async () => {
+    vi.useFakeTimers()
+    try {
+      const scene = createScene({
+        id: 'scene_save_retry',
+        title: '保存重试场景',
+        description: '主角走入房间。',
+        firstFrame: 'https://example.com/env.png',
+        referenceStatus: 'done',
+        videoStatus: 'pending'
+      })
+      const saveProject = vi.fn()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true)
+      const onModelTaskCompleted = vi.fn(async () => undefined)
+      const sceneGeneration = useAssetWorkbenchSceneGeneration({
+        scenes: ref([scene]),
+        characters: ref([]),
+        sceneConfigs: ref({
+          [scene.id]: {
+            sceneId: scene.id,
+            mustReferenceAssetIds: [],
+            consistencyLevel: 'soft',
+            continuityNotes: ''
+          }
+        }),
+        propAssets: ref([]),
+        queueItems: ref([{ sceneId: scene.id, status: 'pending' }]),
+        batchRunning: ref(false),
+        workflowStylePrompt: computed(() => ''),
+        projectAspectRatio: ref('16:9'),
+        normalizeWorkflowText: value => value,
+        resolveUiError: (_error, fallback) => fallback,
+        ensureSceneConfig: sceneId => ({
+          sceneId,
+          mustReferenceAssetIds: [],
+          consistencyLevel: 'soft',
+          continuityNotes: ''
+        }),
+        resolveAssetName: assetId => assetId,
+        resolveSceneDescriptionWithoutAssetMentions: raw => raw || '',
+        synchronizeQueueItems: () => undefined,
+        saveProject,
+        refreshCharacterVoiceAssets: async () => undefined,
+        generateCharacter: async () => undefined,
+        batchGenerateCharacters: async () => undefined,
+        persistAutomaticAssetPlan: async () => undefined,
+        recordEnvironmentHistory: () => undefined,
+        resolveEnvironmentPanoramaState: () => undefined,
+        setEnvironmentPanoramaState: () => undefined,
+        recordSceneVideoHistory: () => undefined,
+        onModelTaskCompleted
+      })
+
+      const generation = sceneGeneration.retryScene(scene.id)
+      for (let index = 0; index < 10; index += 1) {
+        await Promise.resolve()
+      }
+      expect(saveProject).toHaveBeenCalledTimes(1)
+      vi.advanceTimersByTime(500)
+      await generation
+
+      expect(saveProject).toHaveBeenCalledTimes(2)
+      expect(scene.videoStatus).toBe('done')
+      expect(onModelTaskCompleted).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('sends previous scene last frame as continuity first frame when enabled', async () => {
     const previousScene = createScene({
       id: 'scene_prev',

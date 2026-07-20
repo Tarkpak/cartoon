@@ -196,6 +196,36 @@ describe('useAssetWorkbenchProjectIO', () => {
     expect(putCalls).toHaveLength(1)
   })
 
+  it('serializes overlapping saves so an older snapshot cannot overwrite a generated video', async () => {
+    let resolveFirstSave: ((value: { success: boolean }) => void) | undefined
+    const firstSave = new Promise<{ success: boolean }>((resolve) => {
+      resolveFirstSave = resolve
+    })
+    fetchMock
+      .mockImplementationOnce(async () => await firstSave)
+      .mockImplementationOnce(async () => ({ success: true }))
+
+    const { io, state } = createProjectIO()
+    const olderSave = io.saveProject()
+    await Promise.resolve()
+
+    state.scenes.value[0]!.videoUrl = 'https://example.com/generated-video.mp4'
+    state.scenes.value[0]!.videoStatus = 'done'
+    const videoSave = io.saveProject()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    resolveFirstSave?.({ success: true })
+    await olderSave
+    await videoSave
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const secondSaveBody = (fetchMock.mock.calls[1]?.[1] as FetchOptions | undefined)?.body as {
+      scenes?: Array<{ videoUrl?: string }>
+    }
+    expect(secondSaveBody.scenes?.[0]?.videoUrl)
+      .toBe('https://example.com/generated-video.mp4')
+  })
+
   it('keeps local save successful when cloud sync is skipped without a reason', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     fetchMock.mockImplementation(async (url: string, options?: FetchOptions) => {

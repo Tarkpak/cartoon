@@ -5055,9 +5055,7 @@ async fn api_project_get(
                 .get("status")
                 .and_then(Value::as_str)
                 .unwrap_or("pending");
-            if video_url.as_deref().map(str::trim).unwrap_or("").is_empty()
-                && status == "video_ready"
-            {
+            if video_url.as_deref().map(str::trim).unwrap_or("").is_empty() {
                 video_url = conn
                     .query_row(
                         "SELECT video_data FROM video_tasks WHERE scene_id = ?1 AND status = 'completed' AND video_data IS NOT NULL AND TRIM(video_data) != '' ORDER BY updated_at DESC LIMIT 1",
