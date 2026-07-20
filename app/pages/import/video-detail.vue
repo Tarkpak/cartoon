@@ -9,7 +9,8 @@ import {
   FolderInput,
   AlertCircle,
   CheckCircle2,
-  Pencil
+  Pencil,
+  Loader2
 } from 'lucide-vue-next'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -24,6 +25,7 @@ import { projectScriptParseModeOptions } from '~/lib/projects-page'
 import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
+import StyleSelector from '@/components/StyleSelector.vue'
 
 definePageMeta({
   layout: 'default'
@@ -53,6 +55,7 @@ const createProjectDialogOpen = ref(false)
 const createProjectTitle = ref('')
 const createProjectAspectRatio = ref<'16:9' | '9:16' | '1:1'>('9:16')
 const createProjectScriptParseMode = ref<ScriptParseMode>('short_drama')
+const createProjectStyleId = ref('')
 const roleNamingDialogOpen = ref(false)
 const roleNamingDraft = ref<Array<{ placeholder: string, name: string }>>([])
 let refreshTimer: number | null = null
@@ -60,6 +63,14 @@ const routeTaskId = computed(() => {
   const raw = route.params.id
   return typeof raw === 'string' ? raw.trim() : ''
 })
+const {
+  presets: availableStylePresets,
+  categories: availableStyleCategories,
+  defaultStyleId,
+  loading: styleConfigLoading,
+  error: styleConfigError,
+  loadStylePresets
+} = useStylePresets()
 
 const runningStatuses = new Set(['pending', 'extracting', 'transcribing', 'generating_script', 'importing'])
 
@@ -78,11 +89,44 @@ const seriesEpisodes = computed(() => activeTask.value?.episodes || [])
 const selectedScriptParseMode = computed<ScriptParseMode>(() => {
   return normalizeScriptParseMode(selectedTask.value?.config?.scriptParseMode)
 })
-const selectedScriptParseModeLabel = computed(() => resolveScriptParseModeLabel(selectedScriptParseMode.value))
-const selectedScriptParseModeDescription = computed(() => {
-  return projectScriptParseModeOptions.find(option => option.value === selectedScriptParseMode.value)?.description || ''
-})
 const isOriginExplainerTask = computed(() => selectedScriptParseMode.value === 'origin_explainer')
+const selectedImportContentLabel = computed(() => isOriginExplainerTask.value ? '科普内容' : '剧情内容')
+const selectedImportContentDescription = computed(() => {
+  return isOriginExplainerTask.value
+    ? '字幕将整理为科普主题输入稿，并按科普拆解方式创建项目。'
+    : '字幕先整理为通用剧情剧本，创建项目时再选择具体解析方式。'
+})
+const createProjectScriptParseModeOptions = computed(() => {
+  if (isOriginExplainerTask.value) {
+    return projectScriptParseModeOptions.filter(option => option.value === 'origin_explainer')
+  }
+  return projectScriptParseModeOptions.filter(option => option.value !== 'origin_explainer')
+})
+
+function ensureCreateProjectStyleId() {
+  if (
+    !createProjectDialogOpen.value
+    || isOriginExplainerTask.value
+    || createProjectStyleId.value
+  ) return
+
+  const configuredStyleId = typeof selectedTask.value?.config?.styleId === 'string'
+    ? selectedTask.value.config.styleId
+    : ''
+  const availableStyleIds = new Set(availableStylePresets.value.map(style => style.id))
+  if (availableStyleIds.has(configuredStyleId)) {
+    createProjectStyleId.value = configuredStyleId
+    return
+  }
+  createProjectStyleId.value = availableStyleIds.has(defaultStyleId.value)
+    ? defaultStyleId.value
+    : (availableStylePresets.value[0]?.id || '')
+}
+
+watch(
+  [availableStylePresets, defaultStyleId, createProjectDialogOpen],
+  ensureCreateProjectStyleId
+)
 const scriptContentLabel = computed(() => isOriginExplainerTask.value ? '科普脚本' : '剧本')
 const generateScriptActionLabel = computed(() => {
   return isOriginExplainerTask.value ? '用当前字幕生成科普脚本' : '用当前字幕生成剧本'
@@ -284,6 +328,7 @@ async function handleImport() {
   }
   const result = await importToProject(taskId, {
     projectTitle: createProjectTitle.value.trim() || undefined,
+    styleId: isOriginExplainerTask.value ? undefined : createProjectStyleId.value,
     aspectRatio: createProjectAspectRatio.value,
     scriptParseMode: createProjectScriptParseMode.value
   })
@@ -443,12 +488,18 @@ function handleOpenRoleNamingDialog() {
   roleNamingDialogOpen.value = true
 }
 
-function openCreateProjectDialog() {
+async function openCreateProjectDialog() {
   if (!selectedTask.value) return
   createProjectTitle.value = selectedTask.value.originalFilename.replace(/\.[^.]+$/, '')
   createProjectAspectRatio.value = '9:16'
   createProjectScriptParseMode.value = selectedScriptParseMode.value
+  createProjectStyleId.value = ''
   createProjectDialogOpen.value = true
+
+  if (isOriginExplainerTask.value) return
+
+  await loadStylePresets()
+  ensureCreateProjectStyleId()
 }
 
 function applyRoleNaming() {
@@ -486,7 +537,7 @@ async function handleDeleteTask(taskId: string) {
           {{ selectedTask?.originalFilename || '视频转项目详情' }}
         </h1>
         <Badge v-if="selectedTask" variant="secondary" class="shrink-0">
-          {{ selectedScriptParseModeLabel }}
+          {{ selectedImportContentLabel }}
         </Badge>
         <Badge v-if="selectedTask" :variant="statusVariant(selectedTask.status)" class="shrink-0">
           {{ currentStageLabel }}
@@ -575,10 +626,10 @@ async function handleDeleteTask(taskId: string) {
           >
             <div class="flex min-w-0 flex-wrap items-center gap-2">
               <Badge variant="secondary" class="shrink-0">
-                {{ selectedScriptParseModeLabel }}
+                {{ selectedImportContentLabel }}
               </Badge>
               <span class="truncate text-muted-foreground">
-                {{ selectedScriptParseModeDescription }}
+                {{ selectedImportContentDescription }}
               </span>
             </div>
             <div class="flex shrink-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -689,7 +740,7 @@ async function handleDeleteTask(taskId: string) {
                 class="min-h-[420px] w-full resize-y rounded-md border font-mono text-sm leading-6"
                 :class="canEditSubtitle ? 'border-primary/50 ring-1 ring-primary/20' : 'bg-muted/30'"
                 :disabled="!canEditSubtitle"
-                :placeholder="`识别完成后将显示字幕内容，你可以在此编辑修正。当前内容类型：${selectedScriptParseModeLabel}`"
+                :placeholder="`识别完成后将显示字幕内容，你可以在此编辑修正。当前视频内容：${selectedImportContentLabel}`"
               />
             </div>
           </section>
@@ -955,15 +1006,17 @@ async function handleDeleteTask(taskId: string) {
       :open="createProjectDialogOpen"
       @update:open="createProjectDialogOpen = $event"
     >
-      <DialogContent class="sm:max-w-lg">
+      <DialogContent class="flex max-h-[90vh] flex-col sm:max-w-[800px]">
         <DialogHeader>
           <DialogTitle>创建项目</DialogTitle>
           <DialogDescription>
-            确认项目名称和画幅后创建项目。内容类型沿用当前导入任务。
+            {{ isOriginExplainerTask
+              ? '确认项目名称和画幅后，按科普拆解方式创建项目。'
+              : '确认项目名称、画幅和解析方式后创建项目。' }}
           </DialogDescription>
         </DialogHeader>
 
-        <div class="space-y-4 py-1">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto py-1 pr-1">
           <Input
             v-model="createProjectTitle"
             placeholder="项目标题（选填）"
@@ -985,9 +1038,29 @@ async function handleDeleteTask(taskId: string) {
                 </Select>
               </div>
 
-              <div class="grid gap-1.5 sm:min-w-[132px]">
-                <div class="text-xs font-medium text-muted-foreground">内容类型</div>
-                <div class="flex h-10 items-center rounded-md border bg-background px-3 text-sm font-medium text-foreground">
+              <div class="grid gap-1.5 sm:min-w-[160px]">
+                <label class="text-xs font-medium text-muted-foreground">项目解析方式</label>
+                <Select
+                  v-if="!isOriginExplainerTask"
+                  v-model="createProjectScriptParseMode"
+                >
+                  <SelectTrigger class="bg-background">
+                    <SelectValue placeholder="解析方式" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem
+                      v-for="option in createProjectScriptParseModeOptions"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <div
+                  v-else
+                  class="flex h-10 items-center rounded-md border bg-background px-3 text-sm font-medium text-foreground"
+                >
                   {{ resolveScriptParseModeLabel(createProjectScriptParseMode) }}
                 </div>
               </div>
@@ -996,13 +1069,46 @@ async function handleDeleteTask(taskId: string) {
               {{ projectScriptParseModeOptions.find(option => option.value === createProjectScriptParseMode)?.description }}
             </div>
           </div>
+
+          <div v-if="!isOriginExplainerTask" class="grid gap-2">
+            <div>
+              <div class="text-sm font-medium text-foreground">项目画风</div>
+              <div class="mt-0.5 text-xs text-muted-foreground">
+                该画风将用于后续角色、环境和分镜视频生成。
+              </div>
+            </div>
+            <div
+              v-if="styleConfigLoading && availableStylePresets.length === 0"
+              class="flex min-h-32 items-center justify-center text-sm text-muted-foreground"
+            >
+              <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+              加载画风配置中...
+            </div>
+            <div
+              v-else-if="availableStylePresets.length === 0"
+              class="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-3 text-sm text-destructive"
+            >
+              {{ styleConfigError || '没有可用画风，请先在设置中启用画风预设。' }}
+            </div>
+            <StyleSelector
+              v-else
+              v-model="createProjectStyleId"
+              :styles="availableStylePresets"
+              :categories="availableStyleCategories"
+              :default-style-id="defaultStyleId"
+              :show-search="true"
+            />
+          </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" @click="createProjectDialogOpen = false">
             取消
           </Button>
-          <Button :disabled="acting" @click="handleImport">
+          <Button
+            :disabled="acting || (!isOriginExplainerTask && !createProjectStyleId)"
+            @click="handleImport"
+          >
             <Loader2
               v-if="acting"
               class="mr-2 h-4 w-4 animate-spin"

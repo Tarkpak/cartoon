@@ -57,6 +57,8 @@ pub(super) struct VideoImportRetryBody {
 pub(super) struct VideoImportImportBody {
     #[serde(rename = "projectTitle")]
     project_title: Option<String>,
+    #[serde(rename = "styleId")]
+    style_id: Option<String>,
     #[serde(rename = "aspectRatio")]
     aspect_ratio: Option<String>,
     #[serde(rename = "scriptParseMode")]
@@ -1028,7 +1030,11 @@ pub(super) async fn api_video_import_import_project(
         .as_ref()
         .and_then(|value| value.script_parse_mode.as_deref())
         .map(|value| normalize_video_import_script_parse_mode(Some(value)).to_string());
-    let style_id = resolve_import_style_id(&conn, config.get("styleId").and_then(Value::as_str))?;
+    let requested_style_id = body
+        .as_ref()
+        .and_then(|value| value.style_id.as_deref())
+        .or_else(|| config.get("styleId").and_then(Value::as_str));
+    let style_id = resolve_import_style_id(&conn, requested_style_id)?;
     let aspect_ratio = override_aspect_ratio.unwrap_or_else(|| {
         config
             .get("aspectRatio")
@@ -1316,7 +1322,11 @@ async fn api_video_import_import_series_project(
         .as_ref()
         .and_then(|value| value.script_parse_mode.as_deref())
         .map(|value| normalize_video_import_script_parse_mode(Some(value)).to_string());
-    let style_id = resolve_import_style_id(&conn, config.get("styleId").and_then(Value::as_str))?;
+    let requested_style_id = body
+        .as_ref()
+        .and_then(|value| value.style_id.as_deref())
+        .or_else(|| config.get("styleId").and_then(Value::as_str));
+    let style_id = resolve_import_style_id(&conn, requested_style_id)?;
     let aspect_ratio = override_aspect_ratio.unwrap_or_else(|| {
         config
             .get("aspectRatio")

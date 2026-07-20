@@ -15241,17 +15241,19 @@ pub(super) async fn generate_video_import_script_text(
     let prompt = {
         let conn = db_connection(state)?;
         let normalized_mode = normalize_runtime_script_parse_mode(script_parse_mode);
+        let (content_type, content_type_label) = if normalized_mode == "origin_explainer" {
+            ("origin_explainer", "科普内容")
+        } else {
+            ("story", "剧情内容")
+        };
         render_configured_prompt(
             &conn,
             PROMPT_TEMPLATE_VIDEO_IMPORT_SCRIPT_GENERATION,
             &[
                 ("taskTitle", task_title),
                 ("sourceFilename", source_filename),
-                ("scriptParseMode", normalized_mode),
-                (
-                    "scriptParseModeLabel",
-                    runtime_script_parse_mode_label(normalized_mode),
-                ),
+                ("scriptParseMode", content_type),
+                ("scriptParseModeLabel", content_type_label),
                 ("subtitleText", normalized_subtitle),
             ],
         )?

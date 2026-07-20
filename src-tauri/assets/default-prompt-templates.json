@@ -204,13 +204,13 @@
       },
       {
         "name": "{{scriptParseMode}}",
-        "description": "项目解析模式 ID",
-        "example": "origin_explainer"
+        "description": "视频内容分类 ID",
+        "example": "story"
       },
       {
         "name": "{{scriptParseModeLabel}}",
-        "description": "项目解析模式名称",
-        "example": "科普拆解"
+        "description": "视频内容分类名称",
+        "example": "剧情内容"
       },
       {
         "name": "{{subtitleText}}",

@@ -8,9 +8,7 @@ import {
   Trash2,
   Upload
 } from 'lucide-vue-next'
-import type { ScriptParseMode } from '#shared/types/script'
 import { useVideoImport, type VideoImportConfig, type VideoImportSeriesPreview } from '@/composables/useVideoImport'
-import { projectScriptParseModeOptions } from '~/lib/projects-page'
 import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
@@ -39,7 +37,19 @@ const selectedFolder = ref<string | null>(null)
 const selectedSeriesPreview = ref<VideoImportSeriesPreview | null>(null)
 const previewingSeriesFolder = ref(false)
 const uploadMode = ref<'single' | 'series'>('series')
-const scriptParseMode = ref<ScriptParseMode>('short_drama')
+const contentType = ref<'story' | 'origin_explainer'>('story')
+const contentTypeOptions = [
+  {
+    value: 'story',
+    label: '剧情内容',
+    description: '先按通用剧情剧本整理，创建项目时再选择短剧或精品剧解析方式。'
+  },
+  {
+    value: 'origin_explainer',
+    label: '科普内容',
+    description: '提取知识点、过程步骤和可视化线索，按科普拆解方式创建项目。'
+  }
+] as const
 const selectedTaskIds = ref<Set<string>>(new Set())
 const showBatchActions = ref(false)
 let refreshTimer: number | null = null
@@ -126,7 +136,7 @@ async function handleSelectFolder() {
 
 async function handleUpload() {
   const config: VideoImportConfig = {
-    scriptParseMode: scriptParseMode.value
+    scriptParseMode: contentType.value === 'origin_explainer' ? 'origin_explainer' : 'short_drama'
   }
 
   if (uploadMode.value === 'single') {
@@ -383,14 +393,14 @@ function formatSeconds(value?: number | null) {
           </div>
 
           <div class="grid gap-1.5">
-            <label class="text-xs font-medium text-muted-foreground">内容类型</label>
-            <Select v-model="scriptParseMode">
+            <label class="text-xs font-medium text-muted-foreground">视频内容</label>
+            <Select v-model="contentType">
               <SelectTrigger>
-                <SelectValue placeholder="内容类型" />
+                <SelectValue placeholder="视频内容" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem
-                  v-for="option in projectScriptParseModeOptions"
+                  v-for="option in contentTypeOptions"
                   :key="option.value"
                   :value="option.value"
                 >
@@ -398,6 +408,9 @@ function formatSeconds(value?: number | null) {
                 </SelectItem>
               </SelectContent>
             </Select>
+            <p class="text-xs leading-5 text-muted-foreground">
+              {{ contentTypeOptions.find(option => option.value === contentType)?.description }}
+            </p>
           </div>
 
           <Button

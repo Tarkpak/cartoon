@@ -250,6 +250,7 @@ export function useVideoImport() {
 
   async function importToProject(taskId: string, config?: {
     projectTitle?: string
+    styleId?: string
     aspectRatio?: '16:9' | '9:16' | '1:1'
     scriptParseMode?: ScriptParseMode
   }) {
