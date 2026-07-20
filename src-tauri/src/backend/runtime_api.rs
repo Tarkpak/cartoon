@@ -287,6 +287,7 @@ fn llm_dev_write_db_log_impl(
     error: Option<&str>,
 ) {
     let now = Utc::now();
+    let log_id = format!("log_{}", Uuid::new_v4().simple());
     let duration_ms = (now.timestamp_millis() - started_at_ms).max(1);
     let endpoint_value = endpoint.map(llm_dev_log_url_without_query);
     let request_id = current_request_id();
@@ -296,6 +297,7 @@ fn llm_dev_write_db_log_impl(
     let response_raw_value = response_raw.map(llm_dev_file_response_raw_value);
     let error_value = error.map(|message| json!({ "message": message }));
     let log_payload = json!({
+      "eventId": log_id.clone(),
       "requestId": request_id.clone(),
       "provider": provider,
       "modelId": model,
@@ -319,10 +321,11 @@ fn llm_dev_write_db_log_impl(
             "INSERT INTO model_debug_logs (
           id, timestamp, provider, model, operation, status, duration_ms, endpoint, request_id,
           project_id, scene_id, task_id, request_json, request_raw_json, response_json,
-          response_raw_json, media_refs_json, error_json, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+          response_raw_json, media_refs_json, error_json, created_at, cloud_payload_json,
+          cloud_sync_status
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, 'pending')",
             params![
-                format!("log_{}", Uuid::new_v4().simple()),
+                log_id,
                 now.to_rfc3339(),
                 provider,
                 model,
@@ -340,14 +343,15 @@ fn llm_dev_write_db_log_impl(
                 response_raw_value.as_ref().map(Value::to_string),
                 None::<String>,
                 error_value.as_ref().map(Value::to_string),
-                now_iso()
+                now_iso(),
+                log_payload.to_string()
             ],
         );
         if should_run_log_retention() {
             prune_log_table(&conn, "model_debug_logs", MODEL_DEBUG_LOG_RETENTION_LIMIT);
         }
     }
-    cloud_spawn_model_call_log_upload(log_payload);
+    cloud_spawn_model_call_log_upload(log_id, log_payload);
 }
 
 async fn resolve_source_bytes(
@@ -14378,11 +14382,13 @@ fn write_model_debug_log(
 ) -> Result<(), ApiError> {
     let conn = db_connection(state)?;
     let now = now_iso();
+    let log_id = format!("log_{}", Uuid::new_v4().simple());
     let request_id = current_request_id();
     let context = current_model_log_context();
     let response_value = response.cloned().unwrap_or(Value::Null);
     let media_refs = collect_log_media_refs(&response_value);
     let log_payload = json!({
+      "eventId": log_id.clone(),
       "requestId": request_id.clone(),
       "provider": provider,
       "modelId": model,
@@ -14403,10 +14409,11 @@ fn write_model_debug_log(
         "INSERT INTO model_debug_logs (
           id, timestamp, provider, model, operation, status, duration_ms, request_id,
           project_id, scene_id, task_id, request_json, request_raw_json, response_json,
-          response_raw_json, media_refs_json, error_json, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+          response_raw_json, media_refs_json, error_json, created_at, cloud_payload_json,
+          cloud_sync_status
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, 'pending')",
         params![
-            format!("log_{}", Uuid::new_v4().simple()),
+            log_id,
             now,
             provider,
             model,
@@ -14435,14 +14442,15 @@ fn write_model_debug_log(
                 None::<String>
             },
             error.map(Value::to_string),
-            now_iso()
+            now_iso(),
+            log_payload.to_string()
         ],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     if should_run_log_retention() {
         prune_log_table(&conn, "model_debug_logs", MODEL_DEBUG_LOG_RETENTION_LIMIT);
     }
-    cloud_spawn_model_call_log_upload(log_payload);
+    cloud_spawn_model_call_log_upload(log_id, log_payload);
     Ok(())
 }
 
@@ -14872,26 +14880,6 @@ pub(super) async fn api_models_test(
       "result": result,
       "latencyMs": latency_ms
     });
-
-    if model_type != "text" {
-        let _ = write_model_debug_log(
-            &state,
-            response_result
-                .get("provider")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown"),
-            response_result
-                .get("modelId")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown"),
-            operation,
-            "success",
-            latency_ms,
-            &request_payload,
-            response_result.get("result"),
-            None,
-        );
-    }
 
     Ok(Json(json!({
       "success": true,

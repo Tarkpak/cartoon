@@ -31,6 +31,65 @@
 
           <n-card :bordered="false" class="settings-card">
             <div class="settings-section-heading">
+              <span class="settings-section-title">积分计费规则</span>
+              <n-button size="small" type="primary" @click="showCreditRuleCreate = true">新增规则</n-button>
+            </div>
+            <n-text depth="3" class="settings-help">
+              模型调用成功后按操作类型扣除整数积分；失败调用不扣分。兜底规则用于尚未单独配置的操作。
+            </n-text>
+            <n-form label-placement="left" label-width="150">
+              <n-form-item
+                v-for="rule in creditRules"
+                :key="rule.id"
+                :label="creditRuleLabel(rule.operation)"
+              >
+                <n-space align="center">
+                  <n-tag size="small">{{ creditRuleScope(rule) }}</n-tag>
+                  <n-input-number v-model:value="rule.credits" :min="0" :max="1000000" :precision="0" />
+                  <n-switch v-model:value="rule.enabled" />
+                  <n-text depth="3">积分 / 次</n-text>
+                  <n-button
+                    v-if="!rule.id.startsWith('credit_rule_')"
+                    size="tiny"
+                    type="error"
+                    tertiary
+                    @click="deleteCreditRule(rule)"
+                  >
+                    删除
+                  </n-button>
+                </n-space>
+              </n-form-item>
+              <n-space justify="end">
+                <n-button type="primary" :loading="creditRulesSaving" @click="saveCreditRules">
+                  保存积分规则
+                </n-button>
+              </n-space>
+            </n-form>
+          </n-card>
+
+          <n-modal v-model:show="showCreditRuleCreate" preset="card" title="新增积分规则" style="width: 480px">
+            <n-form label-placement="top">
+              <n-form-item label="操作类型">
+                <n-select v-model:value="creditRuleForm.operation" :options="creditOperationOptions" />
+              </n-form-item>
+              <n-form-item label="供应商（留空表示全部）">
+                <n-select v-model:value="creditRuleForm.provider" clearable :options="creditProviderOptions" />
+              </n-form-item>
+              <n-form-item label="模型 ID（留空表示全部）">
+                <n-input v-model:value="creditRuleForm.modelId" placeholder="例如 veo-3.1-generate-preview" />
+              </n-form-item>
+              <n-form-item label="每次扣除积分">
+                <n-input-number v-model:value="creditRuleForm.credits" :min="0" :max="1000000" :precision="0" />
+              </n-form-item>
+              <n-space justify="end">
+                <n-button @click="showCreditRuleCreate = false">取消</n-button>
+                <n-button type="primary" :loading="creditRuleCreating" @click="createCreditRule">创建</n-button>
+              </n-space>
+            </n-form>
+          </n-modal>
+
+          <n-card :bordered="false" class="settings-card">
+            <div class="settings-section-heading">
               <span class="settings-section-title">云存储</span>
               <n-tag size="small" :type="storageForm.enabled ? 'success' : 'default'">
                 {{ storageForm.enabled ? '已启用' : '未启用' }}
@@ -183,6 +242,15 @@ interface WxChannelsPublic {
   updatedAt?: string | null
 }
 
+interface CreditRule {
+  id: string
+  operation: string
+  provider: string
+  model_id: string
+  credits: number
+  enabled: boolean
+}
+
 const message = useMessage()
 const pending = ref(false)
 const saving = ref(false)
@@ -192,6 +260,31 @@ const storageHasSecretKey = ref(false)
 const storageHasSecurityToken = ref(false)
 const wxChannelsPending = ref(false)
 const wxChannelsSaving = ref(false)
+const creditRulesSaving = ref(false)
+const creditRules = ref<CreditRule[]>([])
+const showCreditRuleCreate = ref(false)
+const creditRuleCreating = ref(false)
+const creditRuleForm = reactive({
+  operation: 'generateText',
+  provider: '',
+  modelId: '',
+  credits: 1
+})
+const creditOperationOptions = [
+  { label: '文本生成', value: 'generateText' },
+  { label: '图片生成', value: 'generateImage' },
+  { label: '视频生成', value: 'generateVideo' },
+  { label: '语音生成', value: 'textToSpeech' },
+  { label: '其他操作（兜底）', value: '*' }
+]
+const creditProviderOptions = [
+  { label: 'Gemini', value: 'gemini' },
+  { label: '通义千问', value: 'qwen' },
+  { label: '火山方舟', value: 'volcengine' },
+  { label: 'DeepSeek', value: 'deepseek' },
+  { label: '可灵', value: 'kling' },
+  { label: '自定义 OpenAI', value: 'custom_openai' }
+]
 const wxChannelsHasCookie = ref(false)
 
 const form = reactive<AppSettingsForm>({
@@ -222,6 +315,22 @@ const wxChannelsForm = reactive({
 function errorText(error: unknown, fallback: string) {
   const data = (error as { data?: { statusMessage?: string, message?: string } })?.data
   return data?.statusMessage || data?.message || (error instanceof Error ? error.message : fallback)
+}
+
+function creditRuleLabel(operation: string) {
+  const labels: Record<string, string> = {
+    '*': '其他操作（兜底）',
+    generateText: '文本生成',
+    generateImage: '图片生成',
+    generateVideo: '视频生成',
+    textToSpeech: '语音生成'
+  }
+  return labels[operation] || operation
+}
+
+function creditRuleScope(rule: CreditRule) {
+  const parts = [rule.provider || '全部供应商', rule.model_id || '全部模型']
+  return parts.join(' / ')
 }
 
 function applyStorageConfig(data: TosStoragePublic) {
@@ -288,6 +397,68 @@ async function loadWxChannelsConfig() {
     message.error(errorText(error, '加载视频号配置失败'))
   } finally {
     wxChannelsPending.value = false
+  }
+}
+
+async function loadCreditRules() {
+  try {
+    const response = await $fetch<{ data: { rules: Array<Omit<CreditRule, 'enabled'> & { enabled: number | boolean }> } }>('/api/admin/credit-rules')
+    creditRules.value = response.data.rules.map(rule => ({
+      ...rule,
+      enabled: rule.enabled === true || rule.enabled === 1
+    }))
+  } catch (error) {
+    message.error(errorText(error, '加载积分规则失败'))
+  }
+}
+
+async function saveCreditRules() {
+  creditRulesSaving.value = true
+  try {
+    await $fetch('/api/admin/credit-rules', {
+      method: 'PUT',
+      body: {
+        rules: creditRules.value.map(rule => ({
+          id: rule.id,
+          credits: rule.credits,
+          enabled: rule.enabled
+        }))
+      }
+    })
+    message.success('积分规则已保存')
+    await loadCreditRules()
+  } catch (error) {
+    message.error(errorText(error, '保存积分规则失败'))
+  } finally {
+    creditRulesSaving.value = false
+  }
+}
+
+async function createCreditRule() {
+  creditRuleCreating.value = true
+  try {
+    await $fetch('/api/admin/credit-rules', {
+      method: 'POST',
+      body: creditRuleForm
+    })
+    message.success('积分规则已创建')
+    showCreditRuleCreate.value = false
+    Object.assign(creditRuleForm, { operation: 'generateText', provider: '', modelId: '', credits: 1 })
+    await loadCreditRules()
+  } catch (error) {
+    message.error(errorText(error, '创建积分规则失败'))
+  } finally {
+    creditRuleCreating.value = false
+  }
+}
+
+async function deleteCreditRule(rule: CreditRule) {
+  try {
+    await $fetch(`/api/admin/credit-rules/${rule.id}`, { method: 'DELETE' })
+    message.success('积分规则已删除')
+    await loadCreditRules()
+  } catch (error) {
+    message.error(errorText(error, '删除积分规则失败'))
   }
 }
 
@@ -392,6 +563,7 @@ onMounted(() => {
   void load()
   void loadStorageConfig()
   void loadWxChannelsConfig()
+  void loadCreditRules()
 })
 </script>
 

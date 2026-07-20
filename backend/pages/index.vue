@@ -13,14 +13,10 @@
           </n-card>
         </n-gi>
         <n-gi>
-          <n-card>
-            <n-statistic label="Key 下发策略" value="启动拉取" />
-          </n-card>
+          <n-card><n-statistic label="积分总余额" :value="creditSummary.total_balance" /></n-card>
         </n-gi>
         <n-gi>
-          <n-card>
-            <n-statistic label="部署模式" value="单机" />
-          </n-card>
+          <n-card><n-statistic label="本月积分消耗" :value="creditSummary.month_consumed" /></n-card>
         </n-gi>
       </n-grid>
 
@@ -37,7 +33,9 @@
 <script setup lang="ts">
 const users = await useFetch<{ data: { pagination: { total: number } } }>('/api/admin/users', { server: false })
 const logs = await useFetch<{ data: { pagination: { total: number } } }>('/api/admin/model-call-logs', { server: false })
+const credits = await useFetch<{ data: { total_balance: number, month_consumed: number } }>('/api/admin/credits/summary', { server: false })
 
 const userTotal = computed(() => users.data.value?.data.pagination.total || 0)
 const logTotal = computed(() => logs.data.value?.data.pagination.total || 0)
+const creditSummary = computed(() => credits.data.value?.data || { total_balance: 0, month_consumed: 0 })
 </script>

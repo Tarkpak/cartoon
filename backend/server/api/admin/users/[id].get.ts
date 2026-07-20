@@ -2,6 +2,7 @@ import { createError } from 'h3'
 import { getDb } from '../../../utils/db'
 import { requireAdmin } from '../../../utils/auth'
 import { requiredParam } from '../../../utils/http'
+import { getCreditAccount } from '../../../utils/credits'
 
 export default defineEventHandler((event) => {
   requireAdmin(event)
@@ -30,7 +31,8 @@ export default defineEventHandler((event) => {
         projectCount: projectCount.count,
         promptTemplateCount: promptTemplateCount.count,
         preferenceCount: preferenceCount.count,
-        logCount: logCount.count
+        logCount: logCount.count,
+        credits: getCreditAccount(userId)
       }
     }
   }

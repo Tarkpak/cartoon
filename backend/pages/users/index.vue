@@ -6,12 +6,16 @@
       </div>
 
       <n-space vertical class="table-section">
-        <n-input v-model:value="keyword" placeholder="搜索账号、名称、邮箱或手机号" clearable @keyup.enter="fetchUsers" />
+        <n-input v-model:value="keyword" placeholder="搜索账号、名称、邮箱或手机号" clearable @keyup.enter="refreshUsers" />
         <n-data-table
           :columns="columns"
           :data="rows"
           :loading="pending"
           :row-props="rowProps"
+          :pagination="usersPagination"
+          remote
+          @update:page="handlePageChange"
+          @update:page-size="handlePageSizeChange"
         />
       </n-space>
 
@@ -51,6 +55,8 @@ interface UserRow {
   status: string
   last_login_at?: string
   created_at: string
+  credit_balance: number
+  credits_consumed: number
 }
 
 const router = useRouter()
@@ -58,6 +64,9 @@ const message = useMessage()
 const keyword = ref('')
 const pending = ref(false)
 const rows = ref<UserRow[]>([])
+const page = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 const showCreate = ref(false)
 const creating = ref(false)
 const createForm = reactive({
@@ -70,6 +79,16 @@ const roleOptions = [
   { label: '普通用户', value: 'user' },
   { label: '管理员', value: 'admin' }
 ]
+
+const usersPagination = computed(() => ({
+  page: page.value,
+  pageSize: pageSize.value,
+  itemCount: total.value,
+  pageCount: Math.max(1, Math.ceil(total.value / pageSize.value)),
+  showSizePicker: true,
+  pageSizes: [10, 20, 50, 100],
+  prefix: ({ itemCount }: { itemCount: number }) => `共 ${itemCount} 个用户`
+}))
 
 const columns = [
   { title: '账号', key: 'account' },
@@ -87,6 +106,16 @@ const columns = [
     render(row: UserRow) {
       return h(NTag, { size: 'small', type: row.status === 'active' ? 'success' : 'error' }, { default: () => row.status })
     }
+  },
+  {
+    title: '积分余额',
+    key: 'credit_balance',
+    width: 110
+  },
+  {
+    title: '累计消耗',
+    key: 'credits_consumed',
+    width: 110
   },
   {
     title: '最近登录',
@@ -126,13 +155,30 @@ function rowProps(row: UserRow) {
 async function fetchUsers() {
   pending.value = true
   try {
-    const response = await $fetch<{ data: { users: UserRow[] } }>('/api/admin/users', {
-      query: { keyword: keyword.value }
+    const response = await $fetch<{ data: { users: UserRow[], pagination: { total: number } } }>('/api/admin/users', {
+      query: { keyword: keyword.value, page: page.value, pageSize: pageSize.value }
     })
     rows.value = response.data.users
+    total.value = response.data.pagination.total
   } finally {
     pending.value = false
   }
+}
+
+function refreshUsers() {
+  page.value = 1
+  void fetchUsers()
+}
+
+function handlePageChange(value: number) {
+  page.value = value
+  void fetchUsers()
+}
+
+function handlePageSizeChange(value: number) {
+  pageSize.value = value
+  page.value = 1
+  void fetchUsers()
 }
 
 async function createUser() {

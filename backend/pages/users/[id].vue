@@ -43,6 +43,8 @@
                 </n-button>
                 <n-button @click="showEditDialog = true">编辑信息</n-button>
                 <n-button @click="showResetPasswordDialog = true">重置密码</n-button>
+                <n-button type="primary" @click="openCreditAdjustment('add')">增加积分</n-button>
+                <n-button type="warning" @click="openCreditAdjustment('deduct')">减少积分</n-button>
               </n-space>
             </div>
           </div>
@@ -53,6 +55,9 @@
           <n-gi><n-card><n-statistic label="提示词模板" :value="detail.stats.promptTemplateCount" /></n-card></n-gi>
           <n-gi><n-card><n-statistic label="模型偏好" :value="detail.stats.preferenceCount" /></n-card></n-gi>
           <n-gi><n-card><n-statistic label="调用日志" :value="detail.stats.logCount" /></n-card></n-gi>
+          <n-gi><n-card><n-statistic label="积分余额" :value="creditAccount.balance" /></n-card></n-gi>
+          <n-gi><n-card><n-statistic label="累计增加" :value="creditAccount.totalAdded" /></n-card></n-gi>
+          <n-gi><n-card><n-statistic label="累计消耗" :value="creditAccount.totalConsumed" /></n-card></n-gi>
         </n-grid>
 
         <ClientOnly>
@@ -483,6 +488,42 @@
                 @update:page="handleDevicesPageChange"
               />
             </n-tab-pane>
+            <n-tab-pane name="credits" tab="积分流水">
+              <n-space vertical>
+                <n-space>
+                  <n-select
+                    v-model:value="creditTransactionType"
+                    placeholder="流水类型"
+                    clearable
+                    style="width: 160px"
+                    :options="creditTransactionTypeOptions"
+                  />
+                  <n-date-picker
+                    v-model:value="creditDateRange"
+                    type="daterange"
+                    clearable
+                    style="width: 260px"
+                  />
+                  <n-button type="primary" @click="refreshCredits">筛选</n-button>
+                  <n-button @click="exportCredits">导出 CSV</n-button>
+                </n-space>
+                <n-grid :cols="4" :x-gap="12">
+                  <n-gi><n-card size="small"><n-statistic label="区间增加" :value="creditPeriod.added" /></n-card></n-gi>
+                  <n-gi><n-card size="small"><n-statistic label="区间手动减少" :value="creditPeriod.deducted" /></n-card></n-gi>
+                  <n-gi><n-card size="small"><n-statistic label="区间模型消耗" :value="creditPeriod.consumed" /></n-card></n-gi>
+                  <n-gi><n-card size="small"><n-statistic label="流水条数" :value="creditPeriod.transactionCount" /></n-card></n-gi>
+                </n-grid>
+                <n-data-table
+                  :columns="creditColumns"
+                  :data="creditTransactions"
+                  :loading="creditsLoading"
+                  :pagination="creditsPagination"
+                  remote
+                  @update:page="handleCreditsPageChange"
+                  @update:page-size="handleCreditsPageSizeChange"
+                />
+              </n-space>
+            </n-tab-pane>
             <n-tab-pane name="logs" tab="调用日志">
               <n-space vertical>
                 <n-space>
@@ -556,6 +597,42 @@
           <n-space justify="end">
             <n-button @click="showResetPasswordDialog = false">取消</n-button>
             <n-button type="primary" :loading="resetPasswordLoading" @click="resetPassword">确认重置</n-button>
+          </n-space>
+        </n-form>
+      </n-modal>
+
+      <n-modal
+        v-model:show="showCreditAdjustmentDialog"
+        preset="card"
+        :title="creditAdjustmentMode === 'add' ? '增加积分' : '减少积分'"
+        style="width: 440px"
+      >
+        <n-form label-placement="top">
+          <n-form-item label="积分数量">
+            <n-input-number
+              v-model:value="creditAdjustmentForm.amount"
+              :min="1"
+              :precision="0"
+              style="width: 100%"
+            />
+          </n-form-item>
+          <n-form-item label="调整原因">
+            <n-input
+              v-model:value="creditAdjustmentForm.reason"
+              type="textarea"
+              :autosize="{ minRows: 3, maxRows: 6 }"
+              placeholder="例如：月度额度、临时补充、纠正误差"
+            />
+          </n-form-item>
+          <n-space justify="end">
+            <n-button @click="showCreditAdjustmentDialog = false">取消</n-button>
+            <n-button
+              :type="creditAdjustmentMode === 'add' ? 'primary' : 'warning'"
+              :loading="creditAdjusting"
+              @click="submitCreditAdjustment"
+            >
+              确认{{ creditAdjustmentMode === 'add' ? '增加' : '减少' }}
+            </n-button>
           </n-space>
         </n-form>
       </n-modal>
@@ -763,8 +840,10 @@ const devicesTotal = ref(0)
 const showStatusConfirm = ref(false)
 const showEditDialog = ref(false)
 const showResetPasswordDialog = ref(false)
+const showCreditAdjustmentDialog = ref(false)
 const editLoading = ref(false)
 const resetPasswordLoading = ref(false)
+const creditAdjusting = ref(false)
 const editForm = reactive({
   displayName: '',
   email: '',
@@ -774,6 +853,26 @@ const editForm = reactive({
 const resetPasswordForm = reactive({
   password: ''
 })
+const creditAdjustmentMode = ref<'add' | 'deduct'>('add')
+const creditAdjustmentForm = reactive<{ amount: number | null, reason: string }>({
+  amount: null,
+  reason: ''
+})
+
+const creditAccount = ref({ balance: 0, totalAdded: 0, totalConsumed: 0, transactionCount: 0 })
+const creditTransactions = ref<any[]>([])
+const creditsLoading = ref(false)
+const creditsPage = ref(1)
+const creditsPageSize = ref(20)
+const creditsTotal = ref(0)
+const creditTransactionType = ref('')
+const creditDateRange = ref<[number, number] | null>(null)
+const creditPeriod = ref({ added: 0, deducted: 0, consumed: 0, transactionCount: 0 })
+const creditTransactionTypeOptions = [
+  { label: '管理员增加', value: 'admin_add' },
+  { label: '管理员减少', value: 'admin_deduct' },
+  { label: '模型调用', value: 'model_call' }
+]
 const roleOptions = [
   { label: '普通用户', value: 'user' },
   { label: '管理员', value: 'admin' }
@@ -1506,11 +1605,11 @@ const logColumns = [
     }
   },
   {
-    title: '成本',
-    key: 'estimated_cost',
+    title: '积分',
+    key: 'credits_charged',
     width: 100,
     render(row: any) {
-      return row.estimated_cost || '-'
+      return row.credits_charged || '-'
     }
   },
   {
@@ -1521,6 +1620,46 @@ const logColumns = [
       return row.error_message || '-'
     }
   },
+  {
+    title: '时间',
+    key: 'created_at',
+    width: 180,
+    render(row: any) {
+      return formatAdminDateTime(row.created_at)
+    }
+  }
+]
+
+const creditColumns = [
+  {
+    title: '类型',
+    key: 'type',
+    width: 120,
+    render(row: any) {
+      const labels: Record<string, string> = {
+        admin_add: '管理员增加',
+        admin_deduct: '管理员减少',
+        model_call: '模型调用'
+      }
+      return labels[row.type] || row.type
+    }
+  },
+  {
+    title: '变动',
+    key: 'amount',
+    width: 100,
+    render(row: any) {
+      return h(
+        NTag,
+        { size: 'small', type: row.amount > 0 ? 'success' : 'warning' },
+        { default: () => row.amount > 0 ? `+${row.amount}` : String(row.amount) }
+      )
+    }
+  },
+  { title: '变动后余额', key: 'balance_after', width: 120 },
+  { title: '原因', key: 'reason', ellipsis: { tooltip: true } },
+  { title: '操作', key: 'operation', width: 130, render: (row: any) => row.operation || '-' },
+  { title: '模型', key: 'model_id', width: 160, ellipsis: { tooltip: true }, render: (row: any) => row.model_id || '-' },
   {
     title: '时间',
     key: 'created_at',
@@ -1570,6 +1709,14 @@ const logsPagination = computed(() => ({
   pageSizes: [10, 20, 50, 100]
 }))
 
+const creditsPagination = computed(() => ({
+  page: creditsPage.value,
+  pageSize: creditsPageSize.value,
+  pageCount: Math.ceil(creditsTotal.value / creditsPageSize.value),
+  showSizePicker: true,
+  pageSizes: [10, 20, 50, 100]
+}))
+
 const auditPagination = computed(() => ({
   page: auditPage.value,
   pageSize: auditPageSize.value,
@@ -1610,6 +1757,7 @@ async function load() {
       $fetch<any>(`/api/admin/users/${userId.value}/prompts`)
     ])
     detail.value = detailResponse.data
+    creditAccount.value = detailResponse.data.stats.credits || creditAccount.value
     promptState.value = promptsResponse.data.state
     promptProfiles.value = promptsResponse.data.profiles || []
     promptTemplates.value = promptsResponse.data.templates || []
@@ -1623,6 +1771,106 @@ async function load() {
     }
   } finally {
     pending.value = false
+  }
+}
+
+async function loadCredits() {
+  creditsLoading.value = true
+  try {
+    const dateQuery = creditDateQuery()
+    const response = await $fetch<any>(`/api/admin/users/${userId.value}/credits`, {
+      query: {
+        page: creditsPage.value,
+        pageSize: creditsPageSize.value,
+        type: creditTransactionType.value,
+        ...dateQuery
+      }
+    })
+    creditAccount.value = response.data.account
+    creditTransactions.value = response.data.transactions
+    creditPeriod.value = response.data.period
+    creditsTotal.value = Number(response.data.pagination.total)
+  } catch (err: any) {
+    message.error(err.message || '加载积分流水失败')
+  } finally {
+    creditsLoading.value = false
+  }
+}
+
+function formatLocalDate(timestamp: number) {
+  const date = new Date(timestamp)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function creditDateQuery(): Record<string, string> {
+  if (!creditDateRange.value) return {}
+  return {
+    startDate: formatLocalDate(creditDateRange.value[0]),
+    endDate: formatLocalDate(creditDateRange.value[1])
+  }
+}
+
+function refreshCredits() {
+  creditsPage.value = 1
+  void loadCredits()
+}
+
+function exportCredits() {
+  if (!import.meta.client) return
+  const query = new URLSearchParams({
+    type: creditTransactionType.value,
+    ...creditDateQuery()
+  })
+  window.location.href = `/api/admin/users/${userId.value}/credits/export?${query.toString()}`
+}
+
+function handleCreditsPageChange(page: number) {
+  creditsPage.value = page
+  void loadCredits()
+}
+
+function handleCreditsPageSizeChange(pageSize: number) {
+  creditsPageSize.value = pageSize
+  creditsPage.value = 1
+  void loadCredits()
+}
+
+function openCreditAdjustment(mode: 'add' | 'deduct') {
+  creditAdjustmentMode.value = mode
+  creditAdjustmentForm.amount = null
+  creditAdjustmentForm.reason = ''
+  showCreditAdjustmentDialog.value = true
+}
+
+async function submitCreditAdjustment() {
+  const amount = Number(creditAdjustmentForm.amount)
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    message.warning('请输入大于 0 的整数积分')
+    return
+  }
+  if (!creditAdjustmentForm.reason.trim()) {
+    message.warning('请填写调整原因')
+    return
+  }
+  creditAdjusting.value = true
+  try {
+    await $fetch(`/api/admin/users/${userId.value}/credits`, {
+      method: 'POST',
+      body: {
+        amount: creditAdjustmentMode.value === 'add' ? amount : -amount,
+        reason: creditAdjustmentForm.reason
+      }
+    })
+    message.success('积分已调整')
+    showCreditAdjustmentDialog.value = false
+    await Promise.all([load(), loadCredits(), loadAuditLogs()])
+  } catch (err: any) {
+    message.error(err.message || '积分调整失败')
+  } finally {
+    creditAdjusting.value = false
   }
 }
 
@@ -1772,6 +2020,7 @@ async function loadLogs() {
 function handleLogsPageChange(page: number) {
   logsPage.value = page
   void loadLogs()
+  void loadCredits()
 }
 
 async function loadAuditLogs() {

@@ -53,6 +53,10 @@
                 <span class="log-summary-label">费用</span>
                 <span>{{ formatCost(selectedLog.estimated_cost) }}</span>
               </div>
+              <div class="log-summary-item">
+                <span class="log-summary-label">扣除积分</span>
+                <span>{{ selectedLog.credits_charged || '-' }}</span>
+              </div>
               <div class="log-summary-item log-summary-item--wide">
                 <span class="log-summary-label">Request ID</span>
                 <span class="log-mono">{{ displayValue(selectedLog.request_id) }}</span>
@@ -236,6 +240,7 @@ interface ModelCallLog {
   status?: string
   duration_ms?: number
   estimated_cost?: number
+  credits_charged?: number
   error_message?: string
   created_at?: string
   request_json?: string
@@ -295,7 +300,15 @@ const columns = [
       return h(NTag, { size: 'small', type: statusTagType(row.status) }, { default: () => row.status || '-' })
     }
   },
-  { title: '耗时 ms', key: 'duration_ms' }
+  { title: '耗时 ms', key: 'duration_ms' },
+  {
+    title: '积分',
+    key: 'credits_charged',
+    width: 80,
+    render(row: ModelCallLog) {
+      return row.credits_charged || '-'
+    }
+  }
 ]
 
 const logsPagination = computed(() => ({

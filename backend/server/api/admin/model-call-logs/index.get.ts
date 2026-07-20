@@ -45,6 +45,7 @@ export default defineEventHandler((event) => {
     .prepare(`
       SELECT l.id, l.user_id, u.account, u.display_name, l.request_id, l.provider, l.model_id,
              l.operation, l.project_id, l.scene_id, l.status, l.duration_ms, l.estimated_cost,
+             l.credits_charged,
              l.error_message, l.created_at
       FROM model_call_logs l
       LEFT JOIN users u ON u.id = l.user_id

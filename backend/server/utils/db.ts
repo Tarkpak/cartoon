@@ -274,6 +274,7 @@ function initSchema(conn: Database) {
     CREATE TABLE IF NOT EXISTS model_call_logs (
       id TEXT PRIMARY KEY,
       user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      client_event_id TEXT,
       request_id TEXT,
       provider TEXT,
       model_id TEXT,
@@ -283,12 +284,49 @@ function initSchema(conn: Database) {
       status TEXT NOT NULL,
       duration_ms INTEGER,
       estimated_cost REAL,
+      credits_charged INTEGER NOT NULL DEFAULT 0,
       error_message TEXT,
       request_json TEXT,
       response_json TEXT,
       error_json TEXT,
       created_at TEXT NOT NULL,
       archived_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS credit_accounts (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      balance INTEGER NOT NULL DEFAULT 0,
+      total_added INTEGER NOT NULL DEFAULT 0,
+      total_consumed INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS credit_rules (
+      id TEXT PRIMARY KEY,
+      operation TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT '',
+      model_id TEXT NOT NULL DEFAULT '',
+      credits INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(operation, provider, model_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS credit_transactions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      balance_after INTEGER NOT NULL,
+      reason TEXT NOT NULL DEFAULT '',
+      operation TEXT,
+      provider TEXT,
+      model_id TEXT,
+      model_call_log_id TEXT UNIQUE REFERENCES model_call_logs(id) ON DELETE SET NULL,
+      actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS audit_logs (
@@ -319,9 +357,21 @@ function initSchema(conn: Database) {
     CREATE INDEX IF NOT EXISTS idx_prompt_templates_user_id ON user_prompt_templates(user_id);
     CREATE INDEX IF NOT EXISTS idx_model_preferences_user_id ON user_model_preferences(user_id);
     CREATE INDEX IF NOT EXISTS idx_model_call_logs_created_at ON model_call_logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_credit_transactions_user_created
+      ON credit_transactions(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_credit_transactions_type_created
+      ON credit_transactions(type, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_client_versions_lookup ON client_versions(app_key, platform, arch, channel, status);
     CREATE INDEX IF NOT EXISTS idx_client_versions_version ON client_versions(version);
+  `)
+
+  addColumnIfMissing(conn, 'model_call_logs', 'credits_charged INTEGER NOT NULL DEFAULT 0')
+  addColumnIfMissing(conn, 'model_call_logs', 'client_event_id TEXT')
+  conn.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_model_call_logs_user_event
+      ON model_call_logs(user_id, client_event_id)
+      WHERE client_event_id IS NOT NULL
   `)
 
   ensureDefaultSettings(conn)
@@ -329,6 +379,26 @@ function initSchema(conn: Database) {
   ensureDefaultProviderModels(conn)
   ensureDefaultTosStorageConfig(conn)
   ensureDefaultWxChannelsConfig(conn)
+  ensureDefaultCreditRules(conn)
+}
+
+function ensureDefaultCreditRules(conn: Database) {
+  const timestamp = nowIso()
+  const rules = [
+    ['credit_rule_default', '*', '', '', 1],
+    ['credit_rule_text', 'generateText', '', '', 1],
+    ['credit_rule_image', 'generateImage', '', '', 10],
+    ['credit_rule_video', 'generateVideo', '', '', 50],
+    ['credit_rule_speech', 'textToSpeech', '', '', 2]
+  ] as const
+  const insert = conn.prepare(`
+    INSERT OR IGNORE INTO credit_rules
+      (id, operation, provider, model_id, credits, enabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+  `)
+  for (const [id, operation, provider, modelId, credits] of rules) {
+    insert.run(id, operation, provider, modelId, credits, timestamp, timestamp)
+  }
 }
 
 function ensureDefaultSettings(conn: Database) {

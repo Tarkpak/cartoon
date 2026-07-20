@@ -2,8 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { getAppSettings, getDb, jsonText, nowIso } from '../../utils/db'
 import { readJsonBody, requireAuth } from '../../utils/auth'
 import { optionalJson, optionalString } from '../../utils/http'
+import { chargeModelCall, isBillableModelCallStatus } from '../../utils/credits'
 
 interface LogPayload {
+  eventId?: string
+  event_id?: string
   requestId?: string
   request_id?: string
   provider?: string
@@ -65,17 +68,21 @@ export default defineEventHandler(async (event) => {
   const logs = normalizeLogs(body)
   const db = getDb()
   const insert = db.prepare(`
-    INSERT INTO model_call_logs
-      (id, user_id, request_id, provider, model_id, operation, project_id, scene_id, status,
+    INSERT OR IGNORE INTO model_call_logs
+      (id, user_id, client_event_id, request_id, provider, model_id, operation, project_id, scene_id, status,
        duration_ms, estimated_cost, error_message, request_json, response_json, error_json, created_at, archived_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
   `)
 
+  let inserted = 0
   db.transaction((items: LogPayload[]) => {
     for (const log of items) {
-      insert.run(
-        randomUUID(),
+      const logId = randomUUID()
+      const eventId = optionalString(log.eventId || log.event_id, 128) || null
+      const result = insert.run(
+        logId,
         auth.user.id,
+        eventId,
         optionalString(log.requestId || log.request_id, 128),
         optionalString(log.provider, 128),
         optionalString(log.modelId || log.model_id, 256),
@@ -91,6 +98,17 @@ export default defineEventHandler(async (event) => {
         jsonText(optionalJson(log.error) || {}),
         optionalString(log.createdAt || log.created_at, 64) || nowIso()
       )
+      if (result.changes === 0) continue
+      inserted += 1
+      if (isBillableModelCallStatus(optionalString(log.status, 64))) {
+        chargeModelCall({
+          userId: auth.user.id,
+          logId,
+          operation: optionalString(log.operation, 128),
+          provider: optionalString(log.provider, 128),
+          modelId: optionalString(log.modelId || log.model_id, 256)
+        })
+      }
     }
   })(logs)
 
@@ -99,8 +117,8 @@ export default defineEventHandler(async (event) => {
   return {
     success: true,
     data: {
-      inserted: logs.length
+      inserted,
+      duplicates: logs.length - inserted
     }
   }
 })
-

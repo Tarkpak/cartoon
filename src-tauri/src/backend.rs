@@ -546,12 +546,17 @@ fn should_run_log_retention() -> bool {
 /// 将日志表裁剪到最新的 `limit` 行。`table` 必须是受信任的字符串字面量
 /// （永不来自用户输入），因为它会被直接拼进 SQL。
 fn prune_log_table(conn: &Connection, table: &str, limit: i64) {
+    let pending_guard = if table == "model_debug_logs" {
+        "AND COALESCE(cloud_sync_status, 'legacy') NOT IN ('pending', 'syncing')"
+    } else {
+        ""
+    };
     let _ = conn.execute(
         &format!(
             "DELETE FROM {table}
              WHERE rowid NOT IN (
                SELECT rowid FROM {table} ORDER BY timestamp DESC LIMIT ?1
-             )"
+             ) {pending_guard}"
         ),
         params![limit],
     );
@@ -3470,6 +3475,11 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ("project_id", "TEXT"),
         ("scene_id", "TEXT"),
         ("task_id", "TEXT"),
+        ("cloud_payload_json", "TEXT"),
+        ("cloud_sync_status", "TEXT NOT NULL DEFAULT 'legacy'"),
+        ("cloud_sync_attempts", "INTEGER NOT NULL DEFAULT 0"),
+        ("cloud_sync_error", "TEXT"),
+        ("cloud_synced_at", "TEXT"),
     ] {
         ensure_column(conn, "model_debug_logs", column, definition)?;
     }
@@ -3795,6 +3805,8 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
     conn.execute_batch(
         "
       CREATE INDEX IF NOT EXISTS idx_model_debug_logs_timestamp ON model_debug_logs(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_model_debug_logs_cloud_sync
+        ON model_debug_logs(cloud_sync_status, timestamp);
       CREATE INDEX IF NOT EXISTS idx_app_logs_timestamp ON app_logs(timestamp);
       CREATE INDEX IF NOT EXISTS idx_video_import_tasks_status ON video_import_tasks(status);
       CREATE INDEX IF NOT EXISTS idx_video_import_tasks_created ON video_import_tasks(created_at);
@@ -3996,6 +4008,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
     init_database(&state).map_err(|error| error.message.clone())?;
     spawn_video_enhance_task_poller(state.clone());
     spawn_image_enhance_task_poller(state.clone());
+    spawn_model_call_log_sync_poller();
 
     let observability_state = state.clone();
     let router = Router::new()
@@ -9827,28 +9840,97 @@ async fn cloud_post_client_json(
     .await
 }
 
-fn cloud_spawn_model_call_log_upload(body: Value) {
-    let Some((base_url, token)) = config_connection().and_then(|conn| {
-        let base_url = cloud_base_url(&conn)?;
-        let token = cloud_token(&conn)?;
-        Some((base_url, token))
-    }) else {
-        return;
+async fn cloud_upload_model_call_log(log_id: &str, body: Value) -> Result<(), ApiError> {
+    let Some((base_url, token)) =
+        config_connection().and_then(|conn| Some((cloud_base_url(&conn)?, cloud_token(&conn)?)))
+    else {
+        return Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "后台未登录，模型日志等待同步",
+        ));
     };
+
+    let result = cloud_request_json(
+        &base_url,
+        reqwest::Method::POST,
+        "/api/client/model-call-logs",
+        Some(&token),
+        Some(body),
+    )
+    .await;
+
+    if let Some(conn) = config_connection() {
+        match &result {
+            Ok(_) => {
+                let _ = conn.execute(
+                    "UPDATE model_debug_logs
+                     SET cloud_sync_status = 'synced', cloud_synced_at = ?1,
+                         cloud_sync_error = NULL, cloud_sync_attempts = cloud_sync_attempts + 1
+                     WHERE id = ?2",
+                    params![now_iso(), log_id],
+                );
+            }
+            Err(error) => {
+                let _ = conn.execute(
+                    "UPDATE model_debug_logs
+                     SET cloud_sync_status = 'pending', cloud_sync_error = ?1,
+                         cloud_sync_attempts = cloud_sync_attempts + 1
+                     WHERE id = ?2",
+                    params![truncate_log_text(&error.message, 1000), log_id],
+                );
+            }
+        }
+    }
+    result.map(|_| ())
+}
+
+fn cloud_spawn_model_call_log_upload(log_id: String, body: Value) {
     tokio::spawn(async move {
-        if let Err(error) = cloud_request_json(
-            &base_url,
-            reqwest::Method::POST,
-            "/api/client/model-call-logs",
-            Some(&token),
-            Some(body),
-        )
-        .await
-        {
+        if let Err(error) = cloud_upload_model_call_log(&log_id, body).await {
             eprintln!(
                 "[CloudSync] model call log upload failed: {}",
                 error.message
             );
+        }
+    });
+}
+
+fn pending_model_call_logs(limit: i64) -> Vec<(String, Value)> {
+    let Some(conn) = config_connection() else {
+        return Vec::new();
+    };
+    let Ok(mut statement) = conn.prepare(
+        "SELECT id, cloud_payload_json FROM model_debug_logs
+         WHERE cloud_sync_status = 'pending' AND cloud_payload_json IS NOT NULL
+         ORDER BY timestamp ASC LIMIT ?1",
+    ) else {
+        return Vec::new();
+    };
+    let Ok(rows) = statement.query_map(params![limit], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }) else {
+        return Vec::new();
+    };
+    rows.filter_map(Result::ok)
+        .filter_map(|(id, raw)| {
+            serde_json::from_str::<Value>(&raw)
+                .ok()
+                .map(|body| (id, body))
+        })
+        .collect()
+}
+
+fn spawn_model_call_log_sync_poller() {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            for (log_id, body) in pending_model_call_logs(100) {
+                if let Err(error) = cloud_upload_model_call_log(&log_id, body).await {
+                    eprintln!("[CloudSync] model call log retry failed: {}", error.message);
+                    break;
+                }
+            }
         }
     });
 }
