@@ -238,6 +238,7 @@ function buildPresignedUrl(input: {
   region: string
   isCustomDomain: boolean
   expires: number
+  downloadName?: string
 }) {
   const protocol = input.secure ? 'https' : 'http'
   const path = `/${encodeObjectPath(input.key)}`
@@ -259,6 +260,9 @@ function buildPresignedUrl(input: {
   if (input.securityToken) {
     queryWithoutSignature['X-Tos-Security-Token'] = input.securityToken
   }
+  if (input.downloadName) {
+    queryWithoutSignature['response-content-disposition'] = downloadContentDisposition(input.downloadName)
+  }
   const query = canonicalQueryString(queryWithoutSignature)
   const canonicalRequest = buildCanonicalRequest({
     method: 'GET',
@@ -275,6 +279,35 @@ function buildPresignedUrl(input: {
   ].join('\n')
   const signature = hmacSha256Hex(signingKey(input.secretKey, date, input.region), stringToSign)
   return `${protocol}://${host}${path}?${query}&X-Tos-Signature=${signature}`
+}
+
+export function downloadContentDisposition(filename: string) {
+  const normalized = filename.replace(/[\r\n]/g, '').trim() || 'download'
+  const fallbackName = normalized.replace(/[^A-Za-z0-9._-]/g, '_')
+  return `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(normalized)}`
+}
+
+export function tosFileDownloadUrl(key: string, downloadName?: string) {
+  const config = tosStorageClientConfig()
+  assertConfigured(config)
+  const normalizedKey = normalizeObjectPath(key)
+  if (!normalizedKey) {
+    throw createError({ statusCode: 400, statusMessage: '文件 Key 不能为空' })
+  }
+  const { endpoint, secure } = normalizeEndpoint(config.endpoint)
+  return buildPresignedUrl({
+    endpoint,
+    secure,
+    bucket: config.bucket,
+    key: normalizedKey,
+    accessKeyId: config.accessKeyId,
+    secretKey: config.secretKey,
+    securityToken: config.securityToken,
+    region: config.region,
+    isCustomDomain: config.isCustomDomain,
+    expires: 300,
+    downloadName: downloadName || normalizedKey.split('/').pop() || 'download'
+  })
 }
 
 function buildPublicUrl(input: {

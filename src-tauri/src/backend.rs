@@ -4253,6 +4253,8 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/image/file/{*filename}", get(api_image_file))
         .route("/api/image/proxy", get(api_image_proxy))
         .route("/api/tos/files", get(api_tos_files))
+        .route("/api/tos/members", get(api_tos_members))
+        .route("/api/tos/download-url", get(api_tos_download_url))
         .route(
             "/api/tos/config",
             get(api_tos_config_get).put(api_tos_config_put),
@@ -10434,6 +10436,43 @@ async fn cloud_pull_account_data(
       "modelPreferencesImported": model_preferences_imported,
       "modelCallLogsImported": model_call_logs_imported
     }))
+}
+
+async fn api_tos_members() -> Result<Json<Value>, ApiError> {
+    let (base_url, token, is_admin) = {
+        let conn = config_connection().ok_or_else(|| {
+            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "读取本地配置失败")
+        })?;
+        (
+            cloud_base_url(&conn),
+            cloud_token(&conn),
+            cloud_user_public(&conn)
+                .and_then(|user| user.get("role").cloned())
+                .and_then(|role| role.as_str().map(str::to_string))
+                .is_some_and(|role| role == "admin"),
+        )
+    };
+    if !is_admin {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "仅管理员可查看成员素材目录",
+        ));
+    }
+    let base_url = base_url.ok_or_else(|| {
+        ApiError::new(StatusCode::BAD_REQUEST, "未配置云端后台地址")
+    })?;
+    let token = token.ok_or_else(|| {
+        ApiError::new(StatusCode::UNAUTHORIZED, "未登录云端账号")
+    })?;
+    let response = cloud_request_json(
+        &base_url,
+        reqwest::Method::GET,
+        "/api/client/tos-members",
+        Some(&token),
+        None,
+    )
+    .await?;
+    Ok(Json(response))
 }
 
 async fn api_cloud_status(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {

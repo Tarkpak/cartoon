@@ -5,6 +5,8 @@ use futures_util::stream;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use std::convert::Infallible;
+use ve_tos_rust_sdk::auth::{PreSignedURLInput, SignerAPI};
+use ve_tos_rust_sdk::enumeration::HttpMethodType::HttpMethodGet;
 use ve_tos_rust_sdk::object::{ListObjectsType2Input, ObjectAPI};
 use ve_tos_rust_sdk::tos;
 
@@ -19922,6 +19924,88 @@ pub(super) async fn api_tos_files(
       "success": true,
       "data": listing
     })))
+}
+
+pub(super) async fn api_tos_download_url(
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let config = load_tos_config();
+    if !config.enabled {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "TOS 未启用或配置不完整",
+        ));
+    }
+    let virtual_key = query
+        .get("key")
+        .map(|value| normalize_object_path(value))
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "文件 Key 不能为空"))?;
+    if config.restrict_to_key_prefix && config.key_prefix.is_none() {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "当前用户没有可访问的云端素材目录",
+        ));
+    }
+    let object_key = config
+        .key_prefix
+        .as_deref()
+        .map(|prefix| join_object_path(prefix, &virtual_key))
+        .unwrap_or(virtual_key);
+    let requested_name = query
+        .get("filename")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| object_key.rsplit('/').next().unwrap_or("download"));
+    let fallback_name = requested_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let disposition = format!(
+        "attachment; filename=\"{}\"; filename*=UTF-8''{}",
+        fallback_name,
+        tos_percent_encode(requested_name)
+    );
+
+    let url = tokio::task::spawn_blocking(move || -> Result<String, String> {
+        let endpoint = format!("{}://{}", config.endpoint_protocol, config.endpoint);
+        let mut builder = tos::builder()
+            .connection_timeout(15000)
+            .request_timeout(15000)
+            .max_retry_count(1)
+            .ak(config.access_key_id)
+            .sk(config.access_key_secret)
+            .region(config.region)
+            .endpoint(endpoint)
+            .is_custom_domain(config.is_custom_domain);
+        if let Some(token) = config.security_token {
+            builder = builder.security_token(token);
+        }
+        let client = builder.build().map_err(|error| error.to_string())?;
+        let mut input = PreSignedURLInput::new_with_key(config.bucket, object_key);
+        input.set_http_method(HttpMethodGet);
+        input.set_expires(300);
+        input.set_is_custom_domain(config.is_custom_domain);
+        input.set_query(HashMap::from([(
+            "response-content-disposition".to_string(),
+            disposition,
+        )]));
+        client
+            .pre_signed_url(&input)
+            .map(|output| output.signed_url().to_string())
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?
+    .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
+
+    Ok(Json(json!({ "success": true, "data": { "url": url } })))
 }
 
 fn is_disallowed_image_proxy_hostname(hostname: &str) -> bool {

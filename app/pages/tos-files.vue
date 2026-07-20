@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import type { TosConfigPublic } from '#shared/types/provider'
 import {
+  ArrowLeft,
   ExternalLink,
+  Download,
   File,
   Folder,
   Loader2,
   RefreshCw,
+  UserRound,
+  Users,
   Video
 } from 'lucide-vue-next'
 import AppPage from '@/components/layout/AppPage.vue'
@@ -40,6 +44,20 @@ type TosConfigResponse = {
   data: TosConfigPublic
 }
 
+type TosMember = {
+  id: string
+  account: string
+  displayName: string
+  status: string
+}
+
+type TosMembersResponse = {
+  success: boolean
+  data: {
+    members: TosMember[]
+  }
+}
+
 type FetchErrorWithData = Error & {
   data?: {
     data?: {
@@ -59,6 +77,10 @@ const continuationToken = ref<string | undefined>()
 const tokenHistory = ref<string[]>([])
 const currentPage = ref(1)
 const responseData = ref<TosFilesResponse['data'] | null>(null)
+const members = ref<TosMember[]>([])
+const membersLoading = ref(false)
+const selectedMemberAccount = ref('__all__')
+const selectedAdminCategory = ref<'all' | 'images' | 'videos'>('all')
 const failedPreviewMediaKeys = ref<Record<string, true>>({})
 const hoverPreviewFile = ref<TosFileEntry | null>(null)
 const hoverPreviewPosition = ref({ x: 0, y: 0 })
@@ -67,6 +89,14 @@ const imagePreviewSrc = ref('')
 const imagePreviewAlt = ref('图片预览')
 const { currentUser, loadStatus } = useCloudAdmin()
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
+const selectedMember = computed(() => members.value.find(member => member.account === selectedMemberAccount.value))
+const memberByAccount = computed(() => new Map(members.value.map(member => [member.account, member])))
+
+const adminCategoryTabs = [
+  { id: 'all', label: '全部' },
+  { id: 'images', label: '图片' },
+  { id: 'videos', label: '视频' }
+] as const
 
 function normalizePrefixValue(value: string): string {
   return value.trim().replace(/^\/+|\/+$/g, '')
@@ -107,6 +137,27 @@ function formatDate(value: string): string {
 
 function fileNameFromKey(key: string): string {
   return key.split('/').filter(Boolean).at(-1) || key
+}
+
+function accountFromMemberPrefix(prefix: string): string | null {
+  const segments = normalizePrefixValue(prefix).split('/')
+  if (segments[0] !== 'users' || !segments[1]) return null
+  return segments[1]
+}
+
+function directoryNameFromPrefix(prefix: string): string {
+  const normalized = normalizePrefixValue(prefix)
+  const account = accountFromMemberPrefix(normalized)
+  if (normalized.split('/').length === 2 && account) {
+    const member = memberByAccount.value.get(account)
+    return member ? `${member.displayName}（${member.account}）` : account
+  }
+  return normalized.split('/').at(-1) || normalized
+}
+
+function buildAdminPrefix(account: string, category: 'all' | 'images' | 'videos'): string {
+  if (account === '__all__') return 'users'
+  return category === 'all' ? `users/${account}` : `users/${account}/${category}`
 }
 
 const activeAssetTabId = computed<string | null>(() => {
@@ -221,6 +272,24 @@ async function loadFiles(options: { reset?: boolean } = {}) {
   }
 }
 
+async function downloadFile(file: TosFileEntry) {
+  try {
+    const response = await $fetch<{ success: boolean, data: { url: string } }>('/api/tos/download-url', {
+      query: {
+        key: file.key,
+        filename: fileNameFromKey(file.key)
+      }
+    })
+    if (response.data.url) window.location.assign(response.data.url)
+  } catch (error) {
+    const fetchError = error as FetchErrorWithData
+    errorMessage.value = fetchError.data?.data?.message
+      || fetchError.data?.message
+      || fetchError.data?.statusMessage
+      || (error instanceof Error ? error.message : '下载文件失败')
+  }
+}
+
 async function loadTosConfig() {
   const response = await $fetch<TosConfigResponse>('/api/tos/config')
   if (!response.success) return
@@ -230,6 +299,23 @@ async function loadTosConfig() {
     : buildTosCategoryPrefix('images')
 }
 
+async function loadMembers() {
+  if (!isAdmin.value) return
+  membersLoading.value = true
+  try {
+    const response = await $fetch<TosMembersResponse>('/api/tos/members')
+    members.value = response.data.members
+  } catch (error) {
+    const fetchError = error as FetchErrorWithData
+    errorMessage.value = fetchError.data?.data?.message
+      || fetchError.data?.message
+      || fetchError.data?.statusMessage
+      || (error instanceof Error ? error.message : '读取成员列表失败')
+  } finally {
+    membersLoading.value = false
+  }
+}
+
 async function initializePage() {
   try {
     await loadStatus()
@@ -237,7 +323,10 @@ async function initializePage() {
   } catch {
     // The files endpoint will surface missing or invalid TOS configuration.
   }
-  await loadFiles({ reset: true })
+  await Promise.all([
+    loadFiles({ reset: true }),
+    loadMembers()
+  ])
 }
 
 function resetPagination() {
@@ -249,8 +338,31 @@ function resetPagination() {
 
 function openPrefix(prefix: string) {
   activePrefix.value = normalizePrefixValue(prefix)
+  if (isAdmin.value) {
+    const account = accountFromMemberPrefix(activePrefix.value)
+    if (account) selectedMemberAccount.value = account
+    if (activePrefix.value.endsWith('/images')) selectedAdminCategory.value = 'images'
+    else if (activePrefix.value.endsWith('/videos')) selectedAdminCategory.value = 'videos'
+    else selectedAdminCategory.value = 'all'
+  }
   resetPagination()
   void loadFiles({ reset: true })
+}
+
+function switchMember(account: string) {
+  selectedMemberAccount.value = account
+  if (account === '__all__') selectedAdminCategory.value = 'all'
+  openPrefix(buildAdminPrefix(account, selectedAdminCategory.value))
+}
+
+function switchAdminCategory(category: 'all' | 'images' | 'videos') {
+  if (selectedMemberAccount.value === '__all__' && category !== 'all') return
+  selectedAdminCategory.value = category
+  openPrefix(buildAdminPrefix(selectedMemberAccount.value, category))
+}
+
+function returnToMembers() {
+  switchMember('__all__')
 }
 
 function switchAssetTab(prefix: string) {
@@ -306,7 +418,7 @@ onMounted(() => {
   <AppPage>
     <AppPageHeader
       title="云端素材"
-      description="浏览 TOS 中的图片、视频和子目录"
+      :description="isAdmin ? '按成员浏览和管理云端图片、视频素材' : '浏览云端图片和视频素材'"
     >
       <template #actions>
           <div v-if="!isAdmin" class="flex rounded-md border bg-muted/30 p-1">
@@ -322,7 +434,6 @@ onMounted(() => {
               {{ tab.label }}
             </button>
           </div>
-          <Badge v-else variant="outline">成员目录</Badge>
           <Button
             type="button"
             variant="outline"
@@ -340,6 +451,67 @@ onMounted(() => {
     </AppPageHeader>
 
     <AppPageContent inner-class="flex h-full min-h-0 flex-col gap-4">
+      <div
+        v-if="isAdmin"
+        class="shrink-0 flex flex-col gap-3 border-b pb-4 lg:flex-row lg:items-center lg:justify-between"
+      >
+        <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+          <Button
+            v-if="selectedMemberAccount !== '__all__'"
+            type="button"
+            variant="ghost"
+            size="icon"
+            class="shrink-0"
+            title="返回全部成员"
+            :disabled="loading"
+            @click="returnToMembers"
+          >
+            <ArrowLeft class="h-4 w-4" />
+          </Button>
+          <div class="flex min-w-0 items-center gap-2">
+            <Users class="h-4 w-4 shrink-0 text-muted-foreground" />
+            <Select
+              :model-value="selectedMemberAccount"
+              :disabled="loading || membersLoading"
+              @update:model-value="switchMember(String($event))"
+            >
+              <SelectTrigger class="w-full sm:w-[260px]">
+                <SelectValue :placeholder="membersLoading ? '加载成员...' : '选择成员'" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">
+                  全部成员
+                </SelectItem>
+                <SelectItem
+                  v-for="member in members"
+                  :key="member.id"
+                  :value="member.account"
+                >
+                  {{ member.displayName }}（{{ member.account }}）{{ member.status === 'active' ? '' : ' · 已停用' }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <p class="truncate text-xs text-muted-foreground">
+            {{ selectedMember ? `正在查看 ${selectedMember.displayName} 的素材` : `共 ${members.length} 位成员` }}
+          </p>
+        </div>
+
+        <div class="flex w-fit rounded-md border bg-muted/30 p-1">
+          <button
+            v-for="tab in adminCategoryTabs"
+            :key="tab.id"
+            type="button"
+            class="inline-flex min-w-[64px] items-center justify-center rounded-sm px-3 py-1.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+            :class="selectedAdminCategory === tab.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+            :disabled="loading || (selectedMemberAccount === '__all__' && tab.id !== 'all')"
+            @click="switchAdminCategory(tab.id)"
+          >
+            {{ tab.label }}
+          </button>
+        </div>
+      </div>
+
       <div
         v-if="errorMessage"
         class="shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
@@ -388,7 +560,7 @@ onMounted(() => {
       <div class="min-h-0 flex-1 overflow-hidden rounded-lg border bg-card flex flex-col">
         <div class="shrink-0 flex items-center justify-between gap-3 border-b px-4 py-3">
           <h2 class="text-sm font-medium">
-            对象列表
+            {{ selectedMember ? `${selectedMember.displayName}的素材` : (isAdmin ? '成员素材' : '对象列表') }}
           </h2>
           <p class="text-xs text-muted-foreground">
             当前页 {{ currentPage }}
@@ -457,8 +629,12 @@ onMounted(() => {
                   class="h-auto max-w-full justify-start gap-2 p-0 text-left text-sm font-medium"
                   @click="openPrefix(prefix)"
                 >
-                  <Folder class="h-4 w-4 shrink-0" />
-                  <span class="truncate">{{ prefix }}</span>
+                  <UserRound
+                    v-if="isAdmin && normalizePrefixValue(prefix).split('/').length === 2"
+                    class="h-4 w-4 shrink-0"
+                  />
+                  <Folder v-else class="h-4 w-4 shrink-0" />
+                  <span class="truncate">{{ directoryNameFromPrefix(prefix) }}</span>
                 </Button>
               </TableCell>
               <TableCell class="whitespace-nowrap">
@@ -537,18 +713,29 @@ onMounted(() => {
                 {{ file.storageClass || '-' }}
               </TableCell>
               <TableCell class="sticky right-0 z-20 bg-background text-right shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
-                <Button
-                  as="a"
-                  variant="ghost"
-                  size="icon"
-                  :href="file.url"
-                  target="_blank"
-                  rel="noreferrer"
-                  title="打开文件"
-                  @click.stop
-                >
-                  <ExternalLink class="h-4 w-4" />
-                </Button>
+                <div class="inline-flex items-center gap-1">
+                  <Button
+                    as="a"
+                    variant="ghost"
+                    size="icon"
+                    :href="file.url"
+                    target="_blank"
+                    rel="noreferrer"
+                    title="打开文件"
+                    @click.stop
+                  >
+                    <ExternalLink class="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    title="下载文件"
+                    @click.stop="downloadFile(file)"
+                  >
+                    <Download class="h-4 w-4" />
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           </TableBody>

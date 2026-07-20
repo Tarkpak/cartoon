@@ -130,7 +130,7 @@
 
 <script setup lang="ts">
 import { h } from 'vue'
-import { NButton, NEllipsis, NTag, useMessage } from 'naive-ui'
+import { NButton, NEllipsis, NSpace, NTag, useMessage } from 'naive-ui'
 
 interface TosFile {
   key: string
@@ -311,19 +311,37 @@ const columns = [
   {
     title: '操作',
     key: 'actions',
-    width: 110,
+    width: 170,
     render(row: TosRow) {
       if (row.type === 'directory') {
         return h(NButton, { size: 'small', onClick: () => openDirectory(row.key) }, { default: () => '打开' })
       }
       return h(
-        NButton,
+        NSpace,
+        { size: 8, wrap: false },
         {
-          size: 'small',
-          disabled: !row.url,
-          onClick: () => openFile(row.url)
-        },
-        { default: () => '查看' }
+          default: () => [
+            h(
+              NButton,
+              {
+                size: 'small',
+                disabled: !row.url,
+                onClick: () => openFile(row.url)
+              },
+              { default: () => '查看' }
+            ),
+            h(
+              NButton,
+              {
+                size: 'small',
+                type: 'primary',
+                secondary: true,
+                onClick: () => downloadFile(row)
+              },
+              { default: () => '下载' }
+            )
+          ]
+        }
       )
     }
   }
@@ -651,6 +669,12 @@ function openDirectory(prefix: string) {
 function openFile(url: string) {
   if (!url || !import.meta.client) return
   window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+function downloadFile(row: TosRow) {
+  if (!row.key || !import.meta.client) return
+  const query = new URLSearchParams({ key: row.key, filename: row.name })
+  window.location.assign(`/api/admin/tos-files/download?${query.toString()}`)
 }
 
 function clampImageScale(value: number) {
