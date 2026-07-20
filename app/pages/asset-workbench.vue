@@ -3094,6 +3094,9 @@ async function handleExportFormattedScriptDocx() {
     })
 
     downloadBlobFile(blob, fileName)
+    toast.success('格式化 DOCX 已导出', {
+      description: fileName
+    })
   } catch (error) {
     toast.error(resolveUiError(error, '导出格式化 DOCX 失败'))
   } finally {
