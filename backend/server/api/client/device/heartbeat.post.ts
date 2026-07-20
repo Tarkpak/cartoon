@@ -1,6 +1,7 @@
 import { getDb, nowIso } from '../../../utils/db'
 import { readJsonBody, registerOrUpdateDevice, requireAuth } from '../../../utils/auth'
 import { optionalString } from '../../../utils/http'
+import { getCreditAccount } from '../../../utils/credits'
 
 export default defineEventHandler(async (event) => {
   const auth = requireAuth(event)
@@ -22,5 +23,10 @@ export default defineEventHandler(async (event) => {
     })
   }
   getDb().prepare('UPDATE sessions SET last_seen_at = ? WHERE id = ?').run(nowIso(), auth.sessionId)
-  return { success: true }
+  return {
+    success: true,
+    data: {
+      creditAccount: getCreditAccount(auth.user.id)
+    }
+  }
 })

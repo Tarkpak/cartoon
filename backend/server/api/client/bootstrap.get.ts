@@ -4,11 +4,13 @@ import { resolveProviderModelState } from '../../utils/model-provider-models'
 import { tosStoragePublicConfig } from '../../utils/tos-storage'
 import { listAdminProviderRows } from '../../utils/custom-openai-providers'
 import { wxChannelsPublicConfig } from '../../utils/wx-channels'
+import { getCreditAccount } from '../../utils/credits'
 
 export default defineEventHandler((event) => {
   const auth = requireAuth(event)
   const db = getDb()
   const providers = listAdminProviderRows(db)
+  const creditAccount = getCreditAccount(auth.user.id)
 
   const preferences = db
     .prepare('SELECT workflow_step, model_id, model_options_json FROM user_model_preferences WHERE user_id = ? ORDER BY workflow_step ASC')
@@ -56,7 +58,11 @@ export default defineEventHandler((event) => {
   return {
     success: true,
     data: {
-      user: publicUser(auth.user),
+      user: {
+        ...publicUser(auth.user),
+        creditBalance: creditAccount.balance
+      },
+      creditAccount,
       deviceId: auth.deviceId,
       settings: getAppSettings(),
       keyFetchPolicy: 'startup',

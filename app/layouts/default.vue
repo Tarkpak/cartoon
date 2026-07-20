@@ -6,7 +6,15 @@ import { createClickRipple } from '@/lib/ripple'
 const route = useRoute()
 const router = useRouter()
 const { isDark, toggleTheme, initTheme } = useTheme()
-const { currentUser, authenticated, logout: cloudLogout, loadStatus, bootstrap: cloudBootstrap, status: cloudStatus } = useCloudAdmin()
+const {
+  currentUser,
+  authenticated,
+  logout: cloudLogout,
+  loadStatus,
+  bootstrap: cloudBootstrap,
+  heartbeat: cloudHeartbeat,
+  status: cloudStatus
+} = useCloudAdmin()
 
 // 侧边栏折叠状态
 const isCollapsed = useState('sidebar-collapsed', () => false)
@@ -14,6 +22,26 @@ const SIDEBAR_COLLAPSE_STORAGE_KEY = 'playlet:sidebar-collapsed'
 const isNarrowSidebar = ref(false)
 let sidebarMediaQuery: MediaQueryList | null = null
 let syncNarrowSidebar: (() => void) | null = null
+let creditRefreshTimer: ReturnType<typeof setInterval> | null = null
+
+const currentUserCreditBalance = computed(() => {
+  const balance = Number(currentUser.value?.creditBalance ?? 0)
+  return Number.isFinite(balance) ? Math.trunc(balance) : 0
+})
+
+const currentUserTitle = computed(() => {
+  const name = currentUser.value?.displayName || currentUser.value?.account || '已登录'
+  return `${name} · 积分 ${currentUserCreditBalance.value.toLocaleString('zh-CN')}`
+})
+
+async function refreshCloudCredit() {
+  if (!authenticated.value) return
+  await cloudHeartbeat().catch(() => undefined)
+}
+
+function handleWindowFocus() {
+  void refreshCloudCredit()
+}
 
 const navigation = computed(() => {
   const toolChildren = [
@@ -168,6 +196,8 @@ onMounted(() => {
 
   syncNarrowSidebar()
   sidebarMediaQuery.addEventListener('change', syncNarrowSidebar)
+  window.addEventListener('focus', handleWindowFocus)
+  creditRefreshTimer = setInterval(() => void refreshCloudCredit(), 30_000)
 })
 
 watch(isCollapsed, (value) => {
@@ -184,6 +214,13 @@ watch(
 onUnmounted(() => {
   if (sidebarMediaQuery && syncNarrowSidebar) {
     sidebarMediaQuery.removeEventListener('change', syncNarrowSidebar)
+  }
+  if (creditRefreshTimer) {
+    clearInterval(creditRefreshTimer)
+    creditRefreshTimer = null
+  }
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('focus', handleWindowFocus)
   }
 })
 
@@ -416,25 +453,63 @@ function handleThemeToggle(event: MouseEvent) {
         :class="visualSidebarCollapsed ? 'px-2' : 'px-4'"
       >
         <div
-          class="theme-surface rounded-md border bg-background p-1"
-          :class="visualSidebarCollapsed ? 'grid gap-1' : 'flex items-center gap-1'"
+          class="theme-surface rounded-md border bg-background"
+          :class="visualSidebarCollapsed ? 'grid gap-1 p-1' : 'p-2'"
         >
-          <template v-if="authenticated">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              class="theme-content h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-              :title="currentUser?.displayName || currentUser?.account || '已登录'"
-              :aria-label="currentUser?.displayName || currentUser?.account || '已登录'"
+          <template v-if="authenticated && !visualSidebarCollapsed">
+            <div class="flex min-w-0 items-center gap-2 px-1 pb-2">
+              <div class="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary/10">
+                <UserCheck class="h-4 w-4 text-primary" />
+              </div>
+              <div class="flex min-w-0 flex-1 flex-col leading-tight">
+                <span class="truncate text-xs font-medium text-foreground">
+                  {{ currentUser?.displayName || currentUser?.account || '已登录' }}
+                </span>
+                <span class="mt-0.5 truncate text-[11px] text-muted-foreground">
+                  积分 {{ currentUserCreditBalance.toLocaleString('zh-CN') }}
+                </span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between border-t px-0.5 pt-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                class="theme-content relative h-8 w-8 text-muted-foreground hover:text-foreground"
+                :title="isDark ? '浅色模式' : '深色模式'"
+                :aria-label="isDark ? '切换到浅色模式' : '切换到深色模式'"
+                @click="handleThemeToggle"
+              >
+                <Sun class="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+                <Moon class="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                class="theme-content h-8 w-8 text-muted-foreground hover:text-foreground"
+                title="退出后台"
+                aria-label="退出后台"
+                @click="handleCloudLogout"
+              >
+                <LogOut class="h-4 w-4" />
+              </Button>
+            </div>
+          </template>
+
+          <template v-else-if="authenticated">
+            <div
+              class="theme-content grid h-8 w-8 place-items-center text-muted-foreground"
+              :title="currentUserTitle"
+              :aria-label="currentUserTitle"
             >
               <UserCheck class="h-4 w-4 text-primary" />
-            </Button>
+            </div>
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              class="theme-content relative h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+              class="theme-content relative h-8 w-8 text-muted-foreground hover:text-foreground"
               :title="isDark ? '浅色模式' : '深色模式'"
               :aria-label="isDark ? '切换到浅色模式' : '切换到深色模式'"
               @click="handleThemeToggle"
@@ -442,25 +517,19 @@ function handleThemeToggle(event: MouseEvent) {
               <Sun class="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
               <Moon class="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
             </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              class="theme-content h-8 w-8 text-muted-foreground hover:text-foreground"
+              title="退出后台"
+              aria-label="退出后台"
+              @click="handleCloudLogout"
+            >
+              <LogOut class="h-4 w-4" />
+            </Button>
           </template>
 
-          <div
-            v-if="!visualSidebarCollapsed"
-            class="flex-1"
-          />
-
-          <Button
-            v-if="authenticated"
-            type="button"
-            variant="ghost"
-            size="icon"
-            class="theme-content h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-            title="退出后台"
-            aria-label="退出后台"
-            @click="handleCloudLogout"
-          >
-            <LogOut class="h-4 w-4" />
-          </Button>
           <Button
             v-else
             type="button"

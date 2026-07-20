@@ -10561,26 +10561,38 @@ async fn api_cloud_bootstrap(State(state): State<BackendState>) -> Result<Json<V
 }
 
 async fn api_cloud_heartbeat(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
-    let (device_id, body) = {
+    let body = {
         let conn = db_connection(&state)?;
         let device_id = get_or_create_cloud_device_id(&conn)?;
-        (
-            device_id.clone(),
-            json!({
-              "deviceId": device_id,
-              "deviceName": "Playlet Desktop",
-              "os": std::env::consts::OS,
-              "clientVersion": env!("CARGO_PKG_VERSION")
-            }),
-        )
+        json!({
+          "deviceId": device_id,
+          "deviceName": "Playlet Desktop",
+          "os": std::env::consts::OS,
+          "clientVersion": env!("CARGO_PKG_VERSION")
+        })
     };
     let result = cloud_post_client_json(&state, "/api/client/device/heartbeat", body).await?;
+    if let Some(credit_balance) = result
+        .get("data")
+        .and_then(|data| data.get("creditAccount"))
+        .and_then(|account| account.get("balance"))
+        .cloned()
+    {
+        let conn = db_connection(&state)?;
+        let mut session = cloud_session(&conn).unwrap_or_else(|| json!({}));
+        if let Some(user) = session
+            .as_object_mut()
+            .and_then(|object| object.get_mut("user"))
+            .and_then(Value::as_object_mut)
+        {
+            user.insert("creditBalance".to_string(), credit_balance);
+        }
+        set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &session)?;
+    }
+    let conn = db_connection(&state)?;
     Ok(Json(json!({
       "success": true,
-      "data": {
-        "deviceId": device_id,
-        "remote": result
-      }
+      "data": cloud_status_payload(&conn)?
     })))
 }
 

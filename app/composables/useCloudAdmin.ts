@@ -8,6 +8,7 @@ interface CloudAdminStatus {
     account?: string
     displayName?: string
     role?: string
+    creditBalance?: number
   } | null
   deviceId?: string
   lastBootstrapAt?: string | null
@@ -106,7 +107,9 @@ export function useCloudAdmin() {
   }
 
   async function heartbeat() {
-    await $fetch('/api/cloud/heartbeat', { method: 'POST' })
+    const response = await $fetch<{ success: boolean, data: CloudAdminStatus }>('/api/cloud/heartbeat', { method: 'POST' })
+    status.value = response.data
+    return response.data
   }
 
   return {
