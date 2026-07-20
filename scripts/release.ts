@@ -46,6 +46,8 @@ const GITHUB_TOKEN = process.env.GITHUB_TOKEN
 // 文件路径
 const PACKAGE_JSON = join(ROOT, 'package.json')
 const TAURI_CONF_JSON = join(ROOT, 'src-tauri', 'tauri.conf.json')
+const CARGO_TOML = join(ROOT, 'src-tauri', 'Cargo.toml')
+const CARGO_LOCK = join(ROOT, 'src-tauri', 'Cargo.lock')
 
 interface PackageJson {
   version: string
@@ -89,6 +91,26 @@ function readJson<T>(path: string): T {
 // 写入 JSON 文件
 function writeJson(path: string, data: unknown): void {
   writeFileSync(path, JSON.stringify(data, null, 2) + '\n')
+}
+
+function updateCargoPackageVersion(version: string): void {
+  const cargoToml = readFileSync(CARGO_TOML, 'utf-8')
+  const packageSectionPattern = /(\[package\][\s\S]*?\nversion\s*=\s*")[^"]+("\s*\n)/
+
+  if (!packageSectionPattern.test(cargoToml)) {
+    throw new Error('Cannot find [package] version in src-tauri/Cargo.toml')
+  }
+
+  writeFileSync(CARGO_TOML, cargoToml.replace(packageSectionPattern, `$1${version}$2`))
+
+  const cargoLock = readFileSync(CARGO_LOCK, 'utf-8')
+  const lockPackagePattern = /(\[\[package\]\]\nname = "playlet-desktop"\nversion = ")[^"]+("\s*\n)/
+
+  if (!lockPackagePattern.test(cargoLock)) {
+    throw new Error('Cannot find playlet-desktop package version in src-tauri/Cargo.lock')
+  }
+
+  writeFileSync(CARGO_LOCK, cargoLock.replace(lockPackagePattern, `$1${version}$2`))
 }
 
 // 解析版本号
@@ -505,6 +527,9 @@ async function main(): Promise<void> {
   if (forceMode && !versionType) {
     console.log(`🔄 强制重新发布: v${currentVersion}\n`)
 
+    // Force releases skip version updates, so verify the existing files first.
+    run('bun run desktop:check-version')
+
     // 确认
     if (!skipConfirm) {
       const confirmed = await askConfirmation(
@@ -562,6 +587,10 @@ async function main(): Promise<void> {
   tauriConfJson.version = newVersion
   writeJson(TAURI_CONF_JSON, tauriConfJson)
   console.log(`✅ 更新 src-tauri/tauri.conf.json`)
+
+  // The Rust backend reports CARGO_PKG_VERSION to the cloud update service.
+  updateCargoPackageVersion(newVersion)
+  console.log(`✅ 更新 Rust 包版本`)
 
   // Git 提交
   run('git add .')
