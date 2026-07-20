@@ -3,6 +3,24 @@ function formatUploadLimit(maxFileSize: number): string {
   return Number.isInteger(sizeInMb) ? `${sizeInMb}MB` : `${sizeInMb.toFixed(1)}MB`
 }
 
+const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+  svg: 'image/svg+xml'
+}
+
+export function resolveImageFileMimeType(file: Pick<File, 'name' | 'type'>): string | undefined {
+  const reportedType = file.type.trim().toLowerCase()
+  if (reportedType.startsWith('image/')) return reportedType
+
+  const extension = file.name.split('.').pop()?.trim().toLowerCase() || ''
+  return IMAGE_MIME_BY_EXTENSION[extension]
+}
+
 export function resetFileInput(event: Event) {
   const input = event.target as HTMLInputElement | null
   if (input) {
@@ -11,7 +29,7 @@ export function resetFileInput(event: Event) {
 }
 
 export function assertValidImageFile(file: File, maxFileSize: number) {
-  if (!file.type.startsWith('image/')) {
+  if (!resolveImageFileMimeType(file)) {
     throw new Error('仅支持上传图片文件')
   }
 
@@ -31,17 +49,29 @@ export function assertValidAudioFile(file: File, maxFileSize: number) {
 }
 
 export async function fileToDataUrl(file: File): Promise<string> {
+  const mimeType = resolveImageFileMimeType(file)
+  if (!mimeType) {
+    throw new Error('仅支持上传图片文件')
+  }
+
   return await new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = () => {
       reject(new Error('读取图片文件失败，请重试'))
     }
     reader.onload = () => {
-      if (typeof reader.result !== 'string' || !reader.result.startsWith('data:image/')) {
+      if (typeof reader.result !== 'string') {
         reject(new Error('仅支持图片文件上传'))
         return
       }
-      resolve(reader.result)
+
+      const separatorIndex = reader.result.indexOf(',')
+      if (separatorIndex < 0) {
+        reject(new Error('读取图片文件失败，请重试'))
+        return
+      }
+
+      resolve(`data:${mimeType};base64,${reader.result.slice(separatorIndex + 1)}`)
     }
     reader.readAsDataURL(file)
   })

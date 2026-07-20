@@ -406,8 +406,13 @@ export function useAssetWorkbenchAssetMedia(options: {
       )
       options.synchronizeQueueItems()
       await options.saveProject()
+      useToast().toast.success('环境图片上传成功')
     } catch (error) {
-      options.statusError.value = options.resolveUiError(error, '环境图片上传失败')
+      const message = options.resolveUiError(error, '环境图片上传失败')
+      options.statusError.value = message
+      useToast().toast.error('环境图片上传失败', {
+        description: message
+      })
     } finally {
       uploadingEnvironmentAssetId.value = null
       resetFileInput(event)

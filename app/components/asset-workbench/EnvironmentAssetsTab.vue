@@ -69,10 +69,15 @@ function hasEnvironmentImage(asset: EnvironmentAssetCard): boolean {
     || !!asset.panoramaImage?.trim()
 }
 
-function canOpenEnvironmentCrop(asset: EnvironmentAssetCard): boolean {
+function hasEnvironmentPanorama(asset: EnvironmentAssetCard): boolean {
   return !!asset.panoramaImage?.trim()
-    || !!asset.referenceImage?.trim()
-    || hasEnvironmentImage(asset)
+}
+
+function resolveDirectEnvironmentImage(asset: EnvironmentAssetCard): string | undefined {
+  return asset.referenceImage?.trim()
+    || resolveEnvironmentViewImage(asset, 'single')
+    || resolveEnvironmentViewImage(asset, 'four_view')
+    || undefined
 }
 
 function canGenerateEnvironmentAsset(assetId: string): boolean {
@@ -117,7 +122,10 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
       >
         <!-- Image area -->
         <div class="relative overflow-hidden bg-muted/30">
-          <div class="grid grid-cols-1 gap-px bg-border/60 sm:grid-cols-2">
+          <div
+            v-if="hasEnvironmentPanorama(asset)"
+            class="grid grid-cols-1 gap-px bg-border/60 sm:grid-cols-2"
+          >
             <div
               v-for="viewMode in ['single', 'four_view'] as const"
               :key="`${asset.id}_${viewMode}`"
@@ -156,13 +164,42 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
                 size="sm"
                 variant="secondary"
                 class="absolute bottom-2 right-2 h-6 px-2 text-xs"
-                :disabled="asset.referenceStatus === 'generating' || !canOpenEnvironmentCrop(asset)"
+                :disabled="asset.referenceStatus === 'generating'"
                 @click.stop="emit('open-crop', { assetId: asset.id, captureMode: viewMode })"
               >
                 <ScanSearch class="mr-1 h-3 w-3" />
                 取景
               </Button>
             </div>
+          </div>
+          <div
+            v-else
+            class="relative aspect-video overflow-hidden bg-muted/30 sm:aspect-[32/9]"
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              class="absolute inset-0 h-full w-full rounded-none p-0 hover:bg-transparent"
+              :disabled="!resolveDirectEnvironmentImage(asset)"
+              @click="emit('preview-image', {
+                src: resolveDirectEnvironmentImage(asset),
+                alt: asset.name
+              })"
+            >
+              <LazyImage
+                v-if="resolveDirectEnvironmentImage(asset)"
+                :image="resolveDirectEnvironmentImage(asset)"
+                :alt="asset.name"
+                class="h-full min-h-0 w-full min-w-0 object-contain"
+              />
+              <div
+                v-else
+                class="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground/45"
+              >
+                <Image class="h-6 w-6" />
+                <span class="text-xs">暂无环境图</span>
+              </div>
+            </Button>
           </div>
           <!-- Status pill -->
           <span
