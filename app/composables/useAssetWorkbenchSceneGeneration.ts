@@ -535,11 +535,11 @@ export function useAssetWorkbenchSceneGeneration(
           crop = croppedResult.crop
           captureMode = croppedResult.captureMode
           const normalizedSingleViewImage = croppedResult.singleViewImage?.trim()
-            || (croppedResult.captureMode === 'single'
+            || (croppedResult.captureMode === '单视角'
               ? croppedResult.imageUrl?.trim()
               : undefined)
           const normalizedFourViewImage = croppedResult.fourViewImage?.trim()
-            || (croppedResult.captureMode === 'four_view'
+            || (croppedResult.captureMode === '四视角'
               ? croppedResult.imageUrl?.trim()
               : undefined)
           singleViewImage = normalizedSingleViewImage || singleViewImage
@@ -568,8 +568,8 @@ export function useAssetWorkbenchSceneGeneration(
         panoramaImage,
         crop
       }
-      if (captureMode === 'four_view') {
-        panoramaState.captureMode = 'four_view'
+      if (captureMode === '四视角') {
+        panoramaState.captureMode = '四视角'
       }
       if (singleViewImage?.trim()) {
         panoramaState.singleViewImage = singleViewImage
@@ -588,7 +588,7 @@ export function useAssetWorkbenchSceneGeneration(
           {
             source: 'generated',
             prompt: customPrompt,
-            viewMode: 'single'
+            viewMode: '单视角'
           }
         )
       }
@@ -599,7 +599,7 @@ export function useAssetWorkbenchSceneGeneration(
           {
             source: 'generated',
             prompt: customPrompt,
-            viewMode: 'four_view'
+            viewMode: '四视角'
           }
         )
       }

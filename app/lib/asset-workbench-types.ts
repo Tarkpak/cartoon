@@ -13,7 +13,7 @@ export interface EnvironmentCropSelection {
   height: number
 }
 
-export type EnvironmentCropCaptureMode = 'single' | 'four_view'
+export type EnvironmentCropCaptureMode = '单视角' | '四视角'
 
 export interface EnvironmentPanoramaState {
   panoramaImage?: string
@@ -181,11 +181,6 @@ export interface SceneVoiceReferenceSummary {
   characters: SceneVoiceReferenceCharacter[]
 }
 
-export interface CharacterRoleOption {
-  value: string
-  label: string
-}
-
 export function createPropAssetId() {
   return `prop_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 }
@@ -209,9 +204,9 @@ export function buildAssetUploadInputId(type: AssetUploadInputType, rawId: strin
 }
 
 export function resolveCharacterRoleLabel(role?: string): string {
-  if (role === 'protagonist') return '主角'
-  if (role === 'antagonist') return '反派'
-  if (role === 'supporting') return '配角'
+  if (role === '主角') return '主角'
+  if (role === '反派') return '反派'
+  if (role === '配角') return '配角'
   if (role === 'extra') return '群演'
   return role || '角色'
 }

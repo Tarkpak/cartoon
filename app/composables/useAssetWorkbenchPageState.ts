@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import type { Ref } from 'vue'
-import { DEFAULT_SCRIPT_PARSE_MODE, resolveTimeOfDayText, type ScriptParseMode } from '#shared/types/script'
+import { DEFAULT_SCRIPT_PARSE_MODE, resolveTimeOfDayCategoryText, type ScriptParseMode } from '#shared/types/script'
 import { resolveVideoWorkflowPreset } from '#shared/types/video-workflow'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
@@ -89,7 +89,7 @@ function buildEpisodeEnvironmentHintCards(options: {
     for (const item of episode.episodeAssets?.environments || []) {
       const location = item.location?.trim() || ''
       const rawTimeOfDay = item.timeOfDay?.trim() || ''
-      const timeOfDay = resolveTimeOfDayText(rawTimeOfDay, '').trim()
+      const timeOfDay = resolveTimeOfDayCategoryText(rawTimeOfDay, '').trim()
       const mood = item.mood?.trim() || ''
       if (!location) continue
 
@@ -114,7 +114,7 @@ function buildEpisodeEnvironmentHintCards(options: {
         || ''
       const captureMode = options.environmentPanoramaStates?.[assetId]?.captureMode
         || options.environmentPanoramaStates?.[legacyAssetId]?.captureMode
-      const referenceImage = captureMode === 'four_view'
+      const referenceImage = captureMode === '四视角'
         ? (fourViewImage || singleViewImage || history[0]?.image || panoramaImage || undefined)
         : (singleViewImage || fourViewImage || history[0]?.image || panoramaImage || undefined)
       const referenceStatus = referenceImage ? 'done' : 'pending'
@@ -381,8 +381,8 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
       if (!crop && state.crop) {
         crop = state.crop
       }
-      if (state.captureMode === 'four_view') {
-        captureMode = 'four_view'
+      if (state.captureMode === '四视角') {
+        captureMode = '四视角'
       }
     }
 
@@ -418,10 +418,10 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
       captureMode: panoramaState?.captureMode || environmentCard?.captureMode,
       singleViewImage: panoramaState?.singleViewImage
         || environmentCard?.singleViewImage
-        || resolveEnvironmentHistoryImageByView(environmentCard, 'single'),
+        || resolveEnvironmentHistoryImageByView(environmentCard, '单视角'),
       fourViewImage: panoramaState?.fourViewImage
         || environmentCard?.fourViewImage
-        || resolveEnvironmentHistoryImageByView(environmentCard, 'four_view')
+        || resolveEnvironmentHistoryImageByView(environmentCard, '四视角')
     }
     return resolveEnvironmentReferenceImageForScene(scene, referenceState)
       || resolveSceneDirectReferenceImage(scene)

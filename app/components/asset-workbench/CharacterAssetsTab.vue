@@ -2,7 +2,6 @@
 import { AudioLines, ChevronDown, ChevronRight, CloudUpload, Database, History, Loader2, Lock, Pencil, Plus, Sparkles, Trash2, Upload, User } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
-import type { CharacterRoleOption } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId, resolveCharacterRoleLabel } from '~/lib/asset-workbench-types'
 
 const props = defineProps<{
@@ -15,7 +14,6 @@ const props = defineProps<{
     appearance: string
     role: string
   }
-  characterRoleOptions: CharacterRoleOption[]
   uploadingCharacterId: string | null
   uploadingArkCharacterId: string | null
   uploadingCharacterVoiceId: string | null
@@ -55,7 +53,7 @@ function triggerVoiceUploadInput(characterId: string) {
 
 const localDraft = reactive({
   name: '',
-  role: 'supporting',
+  role: '配角',
   appearance: ''
 })
 const expandedVariantCharacterIds = ref<Set<string>>(new Set())
@@ -293,20 +291,11 @@ watch(
                 class="h-8 text-xs"
                 placeholder="角色名称"
               />
-              <Select v-model="localDraft.role">
-                <SelectTrigger class="h-8 w-full text-xs">
-                  <SelectValue placeholder="选择角色类型" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem
-                    v-for="opt in characterRoleOptions"
-                    :key="opt.value"
-                    :value="opt.value"
-                  >
-                    {{ opt.label }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+              <Input
+                v-model="localDraft.role"
+                class="h-8 text-xs"
+                placeholder="角色定位，如关键证人"
+              />
               <Textarea
                 v-model="localDraft.appearance"
                 class="min-h-[72px] text-xs"
@@ -561,20 +550,11 @@ watch(
                         class="h-8 text-xs"
                         placeholder="变体名称"
                       />
-                      <Select v-model="localDraft.role">
-                        <SelectTrigger class="h-8 w-full text-xs">
-                          <SelectValue placeholder="选择角色类型" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem
-                            v-for="opt in characterRoleOptions"
-                            :key="opt.value"
-                            :value="opt.value"
-                          >
-                            {{ opt.label }}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <Input
+                        v-model="localDraft.role"
+                        class="h-8 text-xs"
+                        placeholder="角色定位，如阶段性对手"
+                      />
                       <Textarea
                         v-model="localDraft.appearance"
                         class="min-h-[64px] text-xs"

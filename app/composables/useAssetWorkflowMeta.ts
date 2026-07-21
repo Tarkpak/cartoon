@@ -164,11 +164,11 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
             || !!state?.singleViewImage?.trim()
             || !!state?.fourViewImage?.trim()
             || !!state?.crop
-            || state?.captureMode === 'four_view'
+            || state?.captureMode === '四视角'
         })
         .map(([assetId, state]) => {
-          const captureMode = state.captureMode === 'four_view'
-            ? 'four_view' as const
+          const captureMode = state.captureMode === '四视角'
+            ? '四视角' as const
             : undefined
           return [
             assetId,
@@ -355,7 +355,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
           continue
         }
 
-        const item = rawValue as Partial<EnvironmentPanoramaState>
+        const item = rawValue as Omit<Partial<EnvironmentPanoramaState>, 'captureMode'> & { captureMode?: unknown }
         const panoramaImage = typeof item.panoramaImage === 'string' && item.panoramaImage.trim()
           ? item.panoramaImage.trim()
           : undefined
@@ -365,8 +365,8 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         const fourViewImage = typeof item.fourViewImage === 'string' && item.fourViewImage.trim()
           ? item.fourViewImage.trim()
           : undefined
-        const captureMode = item.captureMode === 'four_view'
-          ? 'four_view'
+        const captureMode = item.captureMode === '四视角' || item.captureMode === 'four_view'
+          ? '四视角'
           : undefined
         const crop = item.crop
           && typeof item.crop === 'object'

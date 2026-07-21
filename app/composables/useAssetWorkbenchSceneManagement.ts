@@ -48,7 +48,7 @@ export function useAssetWorkbenchSceneManagement(options: {
   resolveSceneBaselineReferenceImage?: (scene: SceneData) => string | undefined
   resolveSceneEnvironmentReferenceImageForMode?: (
     scene: SceneData,
-    mode: 'single' | 'four_view'
+    mode: '单视角' | '四视角'
   ) => string | undefined
 }) {
   let pendingSceneEditSave: { sceneId: string, sceneChanged: boolean } | null = null
@@ -226,13 +226,13 @@ export function useAssetWorkbenchSceneManagement(options: {
 
   async function setSceneEnvironmentCaptureMode(
     sceneId: string,
-    mode: 'single' | 'four_view'
+    mode: '单视角' | '四视角'
   ) {
     const scene = options.scenes.value.find(item => item.id === sceneId)
     if (!scene) return
 
-    const nextMode = mode === 'four_view' ? 'four_view' : 'single'
-    const currentMode = scene.environmentCaptureMode === 'four_view' ? 'four_view' : 'single'
+    const nextMode = mode === '四视角' ? '四视角' : '单视角'
+    const currentMode = scene.environmentCaptureMode === '四视角' ? '四视角' : '单视角'
     if (currentMode === nextMode) return
 
     options.updateScene({
@@ -289,7 +289,7 @@ export function useAssetWorkbenchSceneManagement(options: {
       delete config.environmentAssetId
     }
 
-    const mode = scene.environmentCaptureMode === 'four_view' ? 'four_view' : 'single'
+    const mode = scene.environmentCaptureMode === '四视角' ? '四视角' : '单视角'
     const preferredReferenceImage = options.resolveSceneEnvironmentReferenceImageForMode?.(scene, mode)?.trim()
       || options.resolveSceneBaselineReferenceImage?.(scene)?.trim()
       || ''

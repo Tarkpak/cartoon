@@ -1,9 +1,14 @@
-import type { CharacterView, CharacterVoiceAsset } from '#shared/types/character'
 import {
+  normalizeCharacterGenderText,
+  normalizeCharacterRoleText,
+  type CharacterView,
+  type CharacterVoiceAsset
+} from '#shared/types/character'
+import {
+  normalizeSceneEnvironmentCaptureMode,
   normalizeTimeOfDayValue,
   type SceneDramatic,
   type SceneCameraMovement,
-  type SceneEnvironmentCaptureMode,
   type SceneShotType
 } from '#shared/types/script'
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
@@ -39,7 +44,7 @@ interface LoadedProjectScene {
   shotType?: SceneShotType | null
   cameraMovement?: SceneCameraMovement | null
   cameraNote?: string | null
-  environmentCaptureMode?: SceneEnvironmentCaptureMode | null
+  environmentCaptureMode?: string | null
   transitionIn?: AssetWorkbenchTransitionType | null
   transitionOut?: AssetWorkbenchTransitionType | null
   transitionDuration?: number | null
@@ -89,10 +94,10 @@ export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
         }
       : undefined,
     active: index === 0,
-    shotType: scene.shotType || 'medium',
-    cameraMovement: scene.cameraMovement || 'static',
+    shotType: scene.shotType || '中景',
+    cameraMovement: scene.cameraMovement || '固定镜头',
     cameraNote: scene.cameraNote || '',
-    environmentCaptureMode: scene.environmentCaptureMode || undefined,
+    environmentCaptureMode: normalizeSceneEnvironmentCaptureMode(scene.environmentCaptureMode),
     transitionIn: scene.transitionIn || 'cut',
     transitionOut: scene.transitionOut || 'cut',
     transitionDuration: scene.transitionDuration ?? 0.5,
@@ -113,7 +118,7 @@ export function buildLoadedCharacters(characters: LoadedProjectCharacter[]): Cha
     variantName: toOptionalString(character.variantName),
     name: character.name,
     appearance: character.appearance,
-    role: character.role || 'supporting',
+    role: normalizeCharacterRoleText(character.role) || '配角',
     personality: toOptionalString(character.personality),
     traits: toOptionalStringArray(character.traits),
     background: toOptionalString(character.background),
@@ -124,7 +129,7 @@ export function buildLoadedCharacters(characters: LoadedProjectCharacter[]): Cha
     voiceAsset: character.voiceAsset || undefined,
     arkAsset: character.arkAsset || undefined,
     age: toOptionalNumber(character.age),
-    gender: toOptionalString(character.gender),
+    gender: normalizeCharacterGenderText(character.gender),
     baseImage: toOptionalString(character.imageUrl) || toOptionalString(character.baseImage),
     expressions: toOptionalStringRecord(character.expressions),
     views: toOptionalStringRecord(character.views) as Partial<Record<CharacterView, string>> | undefined,

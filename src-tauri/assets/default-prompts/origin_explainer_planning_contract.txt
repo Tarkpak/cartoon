@@ -25,8 +25,9 @@
 1. 只输出合法 JSON，不要 Markdown 或解释。
 2. 每个 duration 必须在规定范围内。
 3. shotType、cameraMovement、setting、props 和 environmentCaptureMode 不得缺失。
-4. environmentCaptureMode 只能是 single 或 four_view。
-5. 不生成字幕、屏幕文字、UI、水印或图表文字。
+4. environmentCaptureMode 只能是单视角或四视角。
+5. shotType 和 cameraMovement 使用简洁、准确的中文自然语言，不限制固定词表。
+6. 不生成字幕、屏幕文字、UI、水印或图表文字。
 
 严格使用以下 JSON 结构：
 {
@@ -40,8 +41,8 @@
       "description": "可直接用于视频生成的视觉描述",
       "narration": "旁白，可为空",
       "duration": 8,
-      "shotType": "detail",
-      "cameraMovement": "push",
+      "shotType": "细节镜头",
+      "cameraMovement": "推进",
       "cameraNote": "具体镜头运动",
       "setting": {
         "location": "演示空间",
@@ -57,7 +58,7 @@
           "description": "镜头中的作用"
         }
       ],
-      "environmentCaptureMode": "single"
+      "environmentCaptureMode": "单视角"
     }
   ]
 }

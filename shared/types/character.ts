@@ -5,47 +5,51 @@ const nullToUndefined = (value: unknown) => (value === null ? undefined : value)
 
 // ==================== 角色资产 ====================
 
-/** 角色类型 */
-export const CharacterRoleSchema = z.enum([
-  'protagonist', // 主角
-  'antagonist', // 反派
-  'supporting', // 配角
-  'extra' // 龙套
-])
+/** 角色资产分类 */
+export const CHARACTER_ROLE_CATEGORIES = [
+  '主角',
+  '反派',
+  '配角',
+  '龙套'
+] as const
+export type CharacterRoleCategory = (typeof CHARACTER_ROLE_CATEGORIES)[number]
+
+/** 模型或用户填写的角色定位，允许自然语言描述。 */
+export const CharacterRoleSchema = z.string().trim().min(1)
 export type CharacterRole = z.infer<typeof CharacterRoleSchema>
 
-const CHARACTER_ROLE_ALIAS_MAP: Record<string, CharacterRole> = {
-  protagonist: 'protagonist',
-  lead: 'protagonist',
-  hero: 'protagonist',
-  main: 'protagonist',
-  maincharacter: 'protagonist',
-  malelead: 'protagonist',
-  femalelead: 'protagonist',
-  主角: 'protagonist',
-  男主: 'protagonist',
-  女主: 'protagonist',
-  男一: 'protagonist',
-  女一: 'protagonist',
-  一番: 'protagonist',
-  antagonist: 'antagonist',
-  villain: 'antagonist',
-  反派: 'antagonist',
-  反角: 'antagonist',
-  男反: 'antagonist',
-  女反: 'antagonist',
-  supporting: 'supporting',
-  support: 'supporting',
-  supportingrole: 'supporting',
-  supportingcharacter: 'supporting',
-  配角: 'supporting',
-  次要角色: 'supporting',
-  extra: 'extra',
-  crowd: 'extra',
-  background: 'extra',
-  群演: 'extra',
-  龙套: 'extra',
-  路人: 'extra'
+const CHARACTER_ROLE_ALIAS_MAP: Record<string, CharacterRoleCategory> = {
+  protagonist: '主角',
+  lead: '主角',
+  hero: '主角',
+  main: '主角',
+  maincharacter: '主角',
+  malelead: '主角',
+  femalelead: '主角',
+  主角: '主角',
+  男主: '主角',
+  女主: '主角',
+  男一: '主角',
+  女一: '主角',
+  一番: '主角',
+  antagonist: '反派',
+  villain: '反派',
+  反派: '反派',
+  反角: '反派',
+  男反: '反派',
+  女反: '反派',
+  supporting: '配角',
+  support: '配角',
+  supportingrole: '配角',
+  supportingcharacter: '配角',
+  配角: '配角',
+  次要角色: '配角',
+  extra: '龙套',
+  crowd: '龙套',
+  background: '龙套',
+  群演: '龙套',
+  龙套: '龙套',
+  路人: '龙套'
 }
 
 function normalizeCharacterRoleAliasKey(value: string): string {
@@ -55,58 +59,73 @@ function normalizeCharacterRoleAliasKey(value: string): string {
     .replace(/[\s_-]+/g, '')
 }
 
-export function normalizeCharacterRole(value: unknown): CharacterRole | undefined {
+export function normalizeCharacterRole(value: unknown): CharacterRoleCategory | undefined {
   if (typeof value !== 'string') return undefined
   const key = normalizeCharacterRoleAliasKey(value)
   if (!key) return undefined
   return CHARACTER_ROLE_ALIAS_MAP[key]
 }
 
-export type CharacterGender = 'male' | 'female' | 'other'
-
-const CHARACTER_GENDER_ALIAS_MAP: Record<string, CharacterGender> = {
-  male: 'male',
-  man: 'male',
-  boy: 'male',
-  masculine: 'male',
-  男: 'male',
-  男性: 'male',
-  男生: 'male',
-  男人: 'male',
-  少年: 'male',
-  男孩: 'male',
-  男主: 'male',
-  女: 'female',
-  female: 'female',
-  woman: 'female',
-  girl: 'female',
-  feminine: 'female',
-  女性: 'female',
-  女生: 'female',
-  女人: 'female',
-  少女: 'female',
-  女孩: 'female',
-  女主: 'female',
-  other: 'other',
-  nonbinary: 'other',
-  nonbinaryperson: 'other',
-  unspecified: 'other',
-  其他: 'other',
-  非二元: 'other',
-  未指定: 'other'
+export function normalizeCharacterRoleText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const text = value.trim()
+  if (!text) return undefined
+  return normalizeCharacterRole(text) || text
 }
 
-export function normalizeCharacterGender(value: unknown): CharacterGender | undefined {
+export type CharacterGenderCategory = '男' | '女' | '其他'
+export type CharacterGender = string
+
+const CHARACTER_GENDER_ALIAS_MAP: Record<string, CharacterGenderCategory> = {
+  male: '男',
+  man: '男',
+  boy: '男',
+  masculine: '男',
+  男: '男',
+  男性: '男',
+  男生: '男',
+  男人: '男',
+  少年: '男',
+  男孩: '男',
+  男主: '男',
+  女: '女',
+  female: '女',
+  woman: '女',
+  girl: '女',
+  feminine: '女',
+  女性: '女',
+  女生: '女',
+  女人: '女',
+  少女: '女',
+  女孩: '女',
+  女主: '女',
+  other: '其他',
+  nonbinary: '其他',
+  nonbinaryperson: '其他',
+  unspecified: '其他',
+  其他: '其他',
+  非二元: '其他',
+  未指定: '其他'
+}
+
+export function normalizeCharacterGender(value: unknown): CharacterGenderCategory | undefined {
   if (typeof value !== 'string') return undefined
   const rawValue = value.trim()
   const key = normalizeCharacterRoleAliasKey(value)
   if (!key) return undefined
   const mapped = CHARACTER_GENDER_ALIAS_MAP[key]
   if (mapped) return mapped
-  if (/非二元|中性|其他/u.test(rawValue) || /nonbinary|nonbinaryperson|neutral/u.test(key)) return 'other'
-  if (/女性|女人|女生|女孩|少女|女主|女/u.test(rawValue) || /female|woman|girl|feminine/u.test(key)) return 'female'
-  if (/男性|男人|男生|男孩|少年|男主|男/u.test(rawValue) || /male|man|boy|masculine/u.test(key)) return 'male'
+  if (/非二元|中性|其他/u.test(rawValue) || /nonbinary|nonbinaryperson|neutral/u.test(key)) return '其他'
+  if (/女性|女人|女生|女孩|少女|女主|女/u.test(rawValue) || /female|woman|girl|feminine/u.test(key)) return '女'
+  if (/男性|男人|男生|男孩|少年|男主|男/u.test(rawValue) || /male|man|boy|masculine/u.test(key)) return '男'
   return undefined
+}
+
+export function normalizeCharacterGenderText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const text = value.trim()
+  if (!text) return undefined
+  return CHARACTER_GENDER_ALIAS_MAP[normalizeCharacterRoleAliasKey(text)] || text
 }
 
 /** 角色视角 (基于飞书文档 2.7.2 角色库) */
@@ -129,19 +148,8 @@ export const CharacterOutfitSchema = z.object({
 })
 export type CharacterOutfit = z.infer<typeof CharacterOutfitSchema>
 
-/** 说话风格 */
-export const SpeakingStyleSchema = z.enum([
-  'formal', // 正式
-  'casual', // 随意
-  'polite', // 礼貌
-  'rude', // 粗鲁
-  'childish', // 孩子气
-  'mature', // 成熟
-  'humorous', // 幽默
-  'serious', // 严肃
-  'mysterious', // 神秘
-  'energetic' // 活泼
-])
+/** 说话风格，允许自然语言描述。 */
+export const SpeakingStyleSchema = z.string().trim().min(1)
 export type SpeakingStyle = z.infer<typeof SpeakingStyleSchema>
 
 /** 角色声音资产 */
@@ -164,15 +172,15 @@ export const CharacterSchema = z.object({
   id: z.string().describe('角色ID'),
   name: z.string().describe('角色名'),
   role: z.preprocess(
-    value => normalizeCharacterRole(value),
+    value => normalizeCharacterRoleText(value),
     CharacterRoleSchema.optional()
   ).describe('角色类型'),
   // 外观相关
   appearance: z.string().describe('外观描述'),
   age: z.preprocess(nullToUndefined, z.number().optional()).describe('年龄'),
   gender: z.preprocess(
-    value => normalizeCharacterGender(value) ?? nullToUndefined(value),
-    z.enum(['male', 'female', 'other']).optional()
+    value => normalizeCharacterGenderText(value) ?? nullToUndefined(value),
+    z.string().trim().min(1).optional()
   ).describe('性别'),
   // 性格相关 (新增)
   personality: z.preprocess(nullToUndefined, z.string().optional()).describe('性格描述'),
@@ -246,7 +254,7 @@ export interface CharacterState {
   id: string
   name: string
   description: string
-  role?: 'protagonist' | 'antagonist' | 'supporting'
+  role?: string
   avatar?: string
   expressions?: Array<{
     emotion: string

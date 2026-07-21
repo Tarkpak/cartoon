@@ -3,7 +3,11 @@ import {
   DEFAULT_SCRIPT_PARSE_MODE,
   type ScriptParseMode
 } from '#shared/types/script'
-import { normalizeCharacterGender, normalizeCharacterRole } from '#shared/types/character'
+import {
+  normalizeCharacterGenderText,
+  normalizeCharacterRole,
+  normalizeCharacterRoleText
+} from '#shared/types/character'
 import type {
   CharacterData,
   SceneData
@@ -206,7 +210,7 @@ export function useAssetWorkbenchGeneration(
   function mergeCharactersFromPartialParse(parsedCharacters: CharacterData[]): CharacterData[] {
     const merged: CharacterData[] = options.characters.value.map(character => ({
       ...character,
-      role: normalizeCharacterRole(character.role) || 'supporting'
+      role: normalizeCharacterRoleText(character.role) || '配角'
     }))
     const nameMap = new Map<string, CharacterData>()
     const idSet = new Set<string>(merged.map(character => character.id))
@@ -246,12 +250,12 @@ export function useAssetWorkbenchGeneration(
         if (!existing.gender && incoming.gender) {
           existing.gender = incoming.gender
         }
-        const incomingRole = normalizeCharacterRole(incoming.role)
+        const incomingRole = normalizeCharacterRoleText(incoming.role)
         const existingRole = normalizeCharacterRole(existing.role)
         if (
           incomingRole
-          && incomingRole !== 'supporting'
-          && (!existingRole || existingRole === 'supporting')
+          && incomingRole !== '配角'
+          && (!existingRole || existingRole === '配角')
         ) {
           existing.role = incomingRole
         }
@@ -260,7 +264,7 @@ export function useAssetWorkbenchGeneration(
 
       const nextCharacter: CharacterData = {
         ...incoming,
-        role: normalizeCharacterRole(incoming.role) || 'supporting',
+        role: normalizeCharacterRoleText(incoming.role) || '配角',
         id: createUniqueCharacterId(),
         generating: false,
         generatingViews: false
@@ -326,8 +330,8 @@ export function useAssetWorkbenchGeneration(
 
         const existing = existingNameMap.get(name)
         const description = item.description?.trim() || ''
-        const role = normalizeCharacterRole(item.role) || 'supporting'
-        const gender = normalizeCharacterGender(item.gender)
+        const role = normalizeCharacterRoleText(item.role) || '配角'
+        const gender = normalizeCharacterGenderText(item.gender)
         if (existing) {
           if (!existing.appearance && description) {
             existing.appearance = description
@@ -337,8 +341,8 @@ export function useAssetWorkbenchGeneration(
             existing.gender = gender
             changed = true
           }
-          const existingRole = normalizeCharacterRole(existing.role) || 'supporting'
-          if (role !== 'supporting' && existingRole === 'supporting') {
+          const existingRole = normalizeCharacterRole(existing.role) || '配角'
+          if (role !== '配角' && existingRole === '配角') {
             existing.role = role
             changed = true
           }

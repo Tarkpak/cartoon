@@ -255,7 +255,7 @@ function buildVariantCharacter(
     name: buildVariantCharacterName(candidate, variantName),
     appearance: candidate.appearance
       || `${candidate.primaryName}的${variantName}，${parent.appearance || '保持与剧情设定一致'}`,
-    role: parent.role || 'supporting',
+    role: parent.role || '配角',
     personality: parent.personality,
     traits: parent.traits ? [...parent.traits] : undefined,
     background: parent.background,
@@ -331,7 +331,7 @@ function upsertCharactersFromScenes(
         id: createCharacterId(),
         name: candidate.primaryName,
         appearance: candidate.appearance || `${candidate.primaryName}，保持与剧情设定一致`,
-        role: characters.length === 0 ? 'protagonist' : 'supporting',
+        role: characters.length === 0 ? '主角' : '配角',
         generating: false,
         generatingViews: false
       })

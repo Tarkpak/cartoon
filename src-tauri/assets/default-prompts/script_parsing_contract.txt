@@ -27,19 +27,20 @@
 【系统 JSON 协议（最高优先级）】
 1. 只输出合法 JSON，不要 Markdown 代码块、解释、标题或额外文本。
 2. 必须保留下方根结构与字段；分镜提示词只能影响内容表达，不得改变数据结构。
-3. scenes[i].shotType 只能是：extreme_wide、wide、medium_wide、medium、medium_close、close、extreme_close、detail。
-4. scenes[i].cameraMovement 只能是：static、push、pull、pan_left、pan_right、tilt_up、tilt_down、track、dolly、zoom_in、zoom_out、crane、handheld、arc、whip_pan、dutch_tilt、roll。
-5. scenes[i].environmentCaptureMode 只能是 single 或 four_view；存在多视角、多机位或时间轴切镜时使用 four_view，单一连续视角使用 single。
-6. scenes[i].setting.timeOfDay 只能是：黎明、早晨、白天、中午、下午、傍晚、夜晚。
-7. scenes[i].setting.era 只能是：古代、民国、现代、近未来、架空。
-8. scenes[i].characters[].emotion 只能是：neutral、happy、sad、angry、surprised、scared、worried、determined。
-9. 顶层 characters[].role 只能是：protagonist、antagonist、supporting；gender 只能是 male、female、other。
-10. 每个 duration 必须是数字并处于规定时长范围；totalDuration 必须严格等于所有 duration 之和。
-11. 第一场 usePreviousLastFrameAsFirstFrame 必须为 false；只有时空、人物和动作连续时才可为 true。为 true 时填写 continuityLinkReason，否则使用空字符串。
-12. 旁白同时写入 narration，并以画外音形式出现在 description 的对应时间轴；真实角色对白只写入 description。
-13. scenes[i].props 只包含需要维持视觉一致的真实道具；characters、setting、props、narration、duration 等系统字段不得因分镜提示词而缺失。
-14. 若本集规划补充包含角色、环境或道具锚点，必须优先沿用；冲突优先级为：原文事实 > 本集规划补充 > 分镜提示词。
-15. 禁止自行生成 @图片N、[图片N] 或其他引用编号。
+3. scenes[i].shotType 使用简洁、准确的中文描述镜头景别或构图；常用值包括大远景、全景、中景、近景、特写，但不限制于这些值。
+4. scenes[i].cameraMovement 使用简洁、准确的中文描述运镜；常用值包括固定镜头、推进、拉远、摇镜、跟拍、环绕，但不限制于这些值。
+5. scenes[i].environmentCaptureMode 只能是单视角或四视角；存在多视角、多机位或时间轴切镜时使用四视角，单一连续视角使用单视角。
+6. scenes[i].setting.timeOfDay 使用准确的中文自然语言描述场景时段与光照状态，可参考黎明、早晨、白天、中午、下午、傍晚、夜晚，但不限制于这些值。
+7. scenes[i].setting.era 使用准确的中文时代描述，可参考古代、民国、现代、近未来、架空；原文有明确朝代或世界观时直接使用更具体的描述。
+8. scenes[i].characters[].emotion 使用符合当前表演状态的中文情绪描述，不限制固定词表。
+9. 顶层 characters[].role 使用简洁中文描述角色在故事中的定位，可参考主角、反派、配角、龙套，但不限制于这些值；gender 使用符合原文设定的简洁中文描述，不限制固定词表。
+10. scenes[i].dramatic.function 使用简洁中文概括本场戏剧功能，不限制固定词表。
+11. 每个 duration 必须是数字并处于规定时长范围；totalDuration 必须严格等于所有 duration 之和。
+12. 第一场 usePreviousLastFrameAsFirstFrame 必须为 false；只有时空、人物和动作连续时才可为 true。为 true 时填写 continuityLinkReason，否则使用空字符串。
+13. 旁白同时写入 narration，并以画外音形式出现在 description 的对应时间轴；真实角色对白只写入 description。
+14. scenes[i].props 只包含需要维持视觉一致的真实道具；characters、setting、props、narration、duration 等系统字段不得因分镜提示词而缺失。
+15. 若本集规划补充包含角色、环境或道具锚点，必须优先沿用；冲突优先级为：原文事实 > 本集规划补充 > 分镜提示词。
+16. 禁止自行生成 @图片N、[图片N] 或其他引用编号。
 
 严格使用以下 JSON 结构：
 {
@@ -48,11 +49,11 @@
     {
       "id": "scene_001",
       "title": "场景标题",
-      "shotType": "medium",
-      "cameraMovement": "static",
-      "environmentCaptureMode": "single",
+      "shotType": "中景",
+      "cameraMovement": "固定镜头",
+      "environmentCaptureMode": "单视角",
       "dramatic": {
-        "function": "hook|escalation|confrontation|reversal|payoff|cliffhanger|aftermath",
+        "function": "钩子",
         "conflict": "本场核心冲突",
         "emotionalCurve": "情绪变化",
         "audienceHook": "继续观看的理由",
@@ -75,7 +76,7 @@
         {
           "name": "角色名",
           "appearance": "本场外观说明",
-          "emotion": "neutral"
+          "emotion": "中性"
         }
       ],
       "props": [
@@ -94,8 +95,8 @@
     {
       "name": "角色名",
       "description": "稳定可复用的角色资产描述",
-      "role": "protagonist",
-      "gender": "male"
+      "role": "主角",
+      "gender": "男"
     }
   ],
   "totalDuration": 8

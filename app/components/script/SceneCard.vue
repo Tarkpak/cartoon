@@ -55,33 +55,36 @@ const statusConfig = {
 }
 
 // 景别标签映射
-const shotTypeLabels: Record<SceneShotType, string> = {
-  extreme_wide: '大远景',
-  wide: '全景',
-  medium_wide: '中全景',
-  medium: '中景',
-  medium_close: '中近景',
-  close: '近景',
-  extreme_close: '特写',
-  detail: '细节'
+const shotTypeLabels: Record<string, string> = {
+  大远景: '大远景',
+  全景: '全景',
+  中全景: '中全景',
+  中景: '中景',
+  中近景: '中近景',
+  近景: '近景',
+  大特写: '大特写',
+  细节镜头: '细节镜头'
 }
 
 // 运镜标签映射
-const cameraMovementLabels: Record<SceneCameraMovement, string> = {
-  static: '固定镜头',
-  push: '推',
-  pull: '拉',
-  pan_left: '左摇',
-  pan_right: '右摇',
-  tilt_up: '上摇',
-  tilt_down: '下摇',
-  track: '跟',
-  dolly: '移',
-  zoom_in: '变焦推',
-  zoom_out: '变焦拉',
-  crane: '升降',
-  handheld: '手持',
-  arc: '环绕'
+const cameraMovementLabels: Record<string, string> = {
+  固定镜头: '固定镜头',
+  推进: '推进',
+  拉远: '拉远',
+  左摇: '左摇',
+  右摇: '右摇',
+  上摇: '上摇',
+  下摇: '下摇',
+  跟拍: '跟拍',
+  轨道移动: '轨道移动',
+  变焦推进: '变焦推进',
+  变焦拉远: '变焦拉远',
+  升降: '升降',
+  手持: '手持',
+  环绕: '环绕',
+  甩镜: '甩镜',
+  荷兰角: '荷兰角',
+  旋转: '旋转'
 }
 
 // 转场标签映射
@@ -101,12 +104,14 @@ const currentStatus = computed(() => statusConfig[props.scene.status] || statusC
 
 // 获取景别标签
 const shotTypeLabel = computed(() => {
-  return props.scene.shotType ? shotTypeLabels[props.scene.shotType] : null
+  return props.scene.shotType ? shotTypeLabels[props.scene.shotType] || props.scene.shotType : null
 })
 
 // 获取运镜标签
 const cameraMovementLabel = computed(() => {
-  return props.scene.cameraMovement ? cameraMovementLabels[props.scene.cameraMovement] : null
+  return props.scene.cameraMovement
+    ? cameraMovementLabels[props.scene.cameraMovement] || props.scene.cameraMovement
+    : null
 })
 
 // 获取转场标签

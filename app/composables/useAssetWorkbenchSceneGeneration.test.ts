@@ -542,7 +542,7 @@ describe('useAssetWorkbenchSceneGeneration', () => {
         width: 0.3,
         height: 0.3
       },
-      captureMode: 'single' as const,
+      captureMode: '单视角' as const,
       singleViewImage: 'https://example.com/single-view.png',
       fourViewImage: 'https://example.com/four-view.png'
     }))
@@ -615,7 +615,7 @@ describe('useAssetWorkbenchSceneGeneration', () => {
       title: '医院走廊对峙',
       description: '0-3秒：中景，主角快步进入。\\n3-6秒：特写，反派抬手示意。',
       setting: { location: '医院-走廊', timeOfDay: 'night' },
-      environmentCaptureMode: 'single',
+      environmentCaptureMode: '单视角',
       referenceStatus: 'pending',
       videoStatus: 'pending'
     })
@@ -627,7 +627,7 @@ describe('useAssetWorkbenchSceneGeneration', () => {
         width: 0.3,
         height: 0.3
       },
-      captureMode: 'single' as const,
+      captureMode: '单视角' as const,
       singleViewImage: 'https://example.com/single-view.png',
       fourViewImage: 'https://example.com/four-view.png'
     }))

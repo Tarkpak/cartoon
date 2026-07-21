@@ -59,12 +59,12 @@ function resolveEnvironmentViewImage(
 }
 
 function resolveEnvironmentViewLabel(viewMode: EnvironmentCropCaptureMode): string {
-  return viewMode === 'four_view' ? '四视图' : '单视图'
+  return viewMode === '四视角' ? '四视图' : '单视图'
 }
 
 function hasEnvironmentImage(asset: EnvironmentAssetCard): boolean {
-  return !!resolveEnvironmentViewImage(asset, 'single')
-    || !!resolveEnvironmentViewImage(asset, 'four_view')
+  return !!resolveEnvironmentViewImage(asset, '单视角')
+    || !!resolveEnvironmentViewImage(asset, '四视角')
     || !!asset.referenceImage?.trim()
     || !!asset.panoramaImage?.trim()
 }
@@ -75,8 +75,8 @@ function hasEnvironmentPanorama(asset: EnvironmentAssetCard): boolean {
 
 function resolveDirectEnvironmentImage(asset: EnvironmentAssetCard): string | undefined {
   return asset.referenceImage?.trim()
-    || resolveEnvironmentViewImage(asset, 'single')
-    || resolveEnvironmentViewImage(asset, 'four_view')
+    || resolveEnvironmentViewImage(asset, '单视角')
+    || resolveEnvironmentViewImage(asset, '四视角')
     || undefined
 }
 
@@ -127,7 +127,7 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
             class="grid grid-cols-1 gap-px bg-border/60 sm:grid-cols-2"
           >
             <div
-              v-for="viewMode in ['single', 'four_view'] as const"
+              v-for="viewMode in ['单视角', '四视角'] as const"
               :key="`${asset.id}_${viewMode}`"
               class="relative aspect-video overflow-hidden bg-muted/30"
             >

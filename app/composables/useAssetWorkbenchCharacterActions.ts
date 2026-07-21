@@ -36,7 +36,7 @@ export function useAssetWorkbenchCharacterActions(options: {
     id: '',
     name: '',
     appearance: '',
-    role: 'supporting'
+    role: '配角'
   })
 
   watch(characterVariantDialogOpen, (open) => {
@@ -107,7 +107,7 @@ export function useAssetWorkbenchCharacterActions(options: {
     characterEditDraft.id = char.id
     characterEditDraft.name = char.name
     characterEditDraft.appearance = char.appearance || ''
-    characterEditDraft.role = char.role || 'supporting'
+    characterEditDraft.role = char.role || '配角'
   }
 
   function updateCharacterEditDraft(draft: { name: string, role: string, appearance: string }) {
@@ -121,7 +121,7 @@ export function useAssetWorkbenchCharacterActions(options: {
     characterEditDraft.id = ''
     characterEditDraft.name = ''
     characterEditDraft.appearance = ''
-    characterEditDraft.role = 'supporting'
+    characterEditDraft.role = '配角'
   }
 
   function synchronizeCharacterNameInScenes(oldName: string, nextName: string) {
@@ -198,7 +198,7 @@ export function useAssetWorkbenchCharacterActions(options: {
       variantName: normalized.variantName,
       name: normalized.displayName,
       appearance: buildVariantAppearance(parent, normalized.variantName),
-      role: parent.role || 'supporting',
+      role: parent.role || '配角',
       personality: parent.personality,
       traits: parent.traits ? [...parent.traits] : undefined,
       background: parent.background,
@@ -309,7 +309,7 @@ export function useAssetWorkbenchCharacterActions(options: {
     const oldName = target.name
     target.name = nextName
     target.appearance = characterEditDraft.appearance.trim()
-    target.role = characterEditDraft.role || 'supporting'
+    target.role = characterEditDraft.role || '配角'
 
     synchronizeCharacterNameInScenes(oldName, target.name)
 

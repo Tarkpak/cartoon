@@ -9,7 +9,6 @@ import type {
 import type {
   AutoStageKey,
   AssetTab,
-  CharacterRoleOption,
   EnvironmentAssetCard,
   EnvironmentCropCaptureMode
 } from '~/lib/asset-workbench-types'
@@ -33,7 +32,6 @@ const props = defineProps<{
     appearance: string
     role: string
   }
-  characterRoleOptions: CharacterRoleOption[]
   uploadingCharacterId: string | null
   uploadingArkCharacterId: string | null
   uploadingCharacterVoiceId: string | null
@@ -220,7 +218,6 @@ const hasSeedAssets = computed(() => {
         :auto-running="autoRunning"
         :editing-character-id="editingCharacterId"
         :character-edit-draft="characterEditDraft"
-        :character-role-options="characterRoleOptions"
         :uploading-character-id="uploadingCharacterId"
         :uploading-ark-character-id="uploadingArkCharacterId"
         :uploading-character-voice-id="uploadingCharacterVoiceId"

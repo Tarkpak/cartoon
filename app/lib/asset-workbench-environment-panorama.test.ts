@@ -74,10 +74,12 @@ describe('environment panorama crop helpers', () => {
   })
 
   it('resolves crop capture mode with single-view fallback', () => {
-    expect(resolveEnvironmentCropCaptureMode('four_view')).toBe('four_view')
-    expect(resolveEnvironmentCropCaptureMode('single')).toBe('single')
-    expect(resolveEnvironmentCropCaptureMode('anything')).toBe('single')
-    expect(resolveEnvironmentCropCaptureMode(undefined)).toBe('single')
+    expect(resolveEnvironmentCropCaptureMode('四视角')).toBe('四视角')
+    expect(resolveEnvironmentCropCaptureMode('单视角')).toBe('单视角')
+    expect(resolveEnvironmentCropCaptureMode('four_view')).toBe('四视角')
+    expect(resolveEnvironmentCropCaptureMode('single')).toBe('单视角')
+    expect(resolveEnvironmentCropCaptureMode('anything')).toBe('单视角')
+    expect(resolveEnvironmentCropCaptureMode(undefined)).toBe('单视角')
   })
 
   it('normalizes both horizontal and vertical bounds inside the source image', () => {

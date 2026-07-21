@@ -4,28 +4,28 @@ import { z } from 'zod'
 
 /** 常用情绪类型（用于 UI 提示，实际接受任意字符串） */
 export const CommonEmotions = [
-  'neutral',
-  'happy',
-  'sad',
-  'angry',
-  'surprised',
-  'confused',
-  'excited',
-  'scared',
-  'worried',
-  'concerned',
-  'determined',
-  'thoughtful',
-  'nervous',
-  'relieved',
-  'hopeful',
-  'disappointed',
-  'anxious',
-  'fearful',
-  'terrified',
-  'calm',
-  'shocked',
-  'suspicious'
+  '中性',
+  '开心',
+  '悲伤',
+  '愤怒',
+  '惊讶',
+  '困惑',
+  '兴奋',
+  '害怕',
+  '担忧',
+  '关切',
+  '坚定',
+  '沉思',
+  '紧张',
+  '释然',
+  '期待',
+  '失望',
+  '焦虑',
+  '恐惧',
+  '惊恐',
+  '平静',
+  '震惊',
+  '怀疑'
 ] as const
 
 /** 情绪类型 - 接受任意字符串以兼容 AI 生成的多样化情绪 */
@@ -42,18 +42,19 @@ export const TIME_OF_DAY_VALUES = [
   '傍晚',
   '夜晚'
 ] as const
-export type TimeOfDay = (typeof TIME_OF_DAY_VALUES)[number]
+export type TimeOfDayCategory = (typeof TIME_OF_DAY_VALUES)[number]
+export type TimeOfDay = string
 
-export const DEFAULT_TIME_OF_DAY: TimeOfDay = '白天'
+export const DEFAULT_TIME_OF_DAY: TimeOfDayCategory = '白天'
 
 export const TIME_OF_DAY_OPTIONS = TIME_OF_DAY_VALUES.map(value => ({
   value,
   label: value
-})) satisfies ReadonlyArray<{ value: TimeOfDay, label: string }>
+})) satisfies ReadonlyArray<{ value: TimeOfDayCategory, label: string }>
 
 const TIME_OF_DAY_SET = new Set<string>(TIME_OF_DAY_VALUES)
 
-const TIME_OF_DAY_ALIAS_MAP: Record<string, TimeOfDay> = {
+const TIME_OF_DAY_ALIAS_MAP: Record<string, TimeOfDayCategory> = {
   dawn: '黎明',
   sunrise: '黎明',
   morning: '早晨',
@@ -72,19 +73,19 @@ const TIME_OF_DAY_ALIAS_MAP: Record<string, TimeOfDay> = {
   midnight: '夜晚'
 }
 
-export function normalizeOptionalTimeOfDayValue(raw: unknown): TimeOfDay | undefined {
+export function normalizeOptionalTimeOfDayCategory(raw: unknown): TimeOfDayCategory | undefined {
   if (typeof raw !== 'string') return undefined
 
   const value = raw.trim()
   if (!value) return undefined
-  if (TIME_OF_DAY_SET.has(value)) return value as TimeOfDay
+  if (TIME_OF_DAY_SET.has(value)) return value as TimeOfDayCategory
 
   const normalized = value.toLowerCase()
   if (TIME_OF_DAY_ALIAS_MAP[normalized]) {
     return TIME_OF_DAY_ALIAS_MAP[normalized]
   }
 
-  if (/none|null|unknown|n\/a|na|unspecified|未指定|未知|无/u.test(normalized)) return undefined
+  if (/^(?:none|null|unknown|n\/a|na|unspecified|未指定|未知|无)$/u.test(normalized)) return undefined
   if (/拂晓|黎明|凌晨/u.test(value)) return '黎明'
   if (/清晨|早晨|早上|上午/u.test(value)) return '早晨'
   if (/白天|日间/u.test(value)) return '白天'
@@ -94,6 +95,14 @@ export function normalizeOptionalTimeOfDayValue(raw: unknown): TimeOfDay | undef
   if (/夜晚|夜里|晚上|深夜|午夜/u.test(value)) return '夜晚'
 
   return undefined
+}
+
+export function normalizeOptionalTimeOfDayValue(raw: unknown): TimeOfDay | undefined {
+  if (typeof raw !== 'string') return undefined
+  const value = raw.trim()
+  if (!value) return undefined
+  if (TIME_OF_DAY_SET.has(value)) return value
+  return TIME_OF_DAY_ALIAS_MAP[value.toLowerCase()] || value
 }
 
 export function normalizeTimeOfDayValue(
@@ -110,9 +119,14 @@ export function resolveTimeOfDayText(raw: unknown, fallback = ''): string {
   return fallback
 }
 
+/** Derives a coarse category for grouping while retaining unclassifiable source text. */
+export function resolveTimeOfDayCategoryText(raw: unknown, fallback = ''): string {
+  return normalizeOptionalTimeOfDayCategory(raw) || resolveTimeOfDayText(raw, fallback)
+}
+
 export const TimeOfDaySchema = z.preprocess(
   value => normalizeOptionalTimeOfDayValue(value) ?? value,
-  z.enum(TIME_OF_DAY_VALUES)
+  z.string().trim().min(1)
 )
 
 /** 时代背景 */
@@ -240,7 +254,7 @@ export const SceneSettingSchema = z.object({
   timeOfDay: TimeOfDaySchema.describe('时间段'),
   era: z.preprocess(
     value => normalizeOptionalSceneEraValue(value) ?? value,
-    z.enum(SCENE_ERA_VALUES).optional()
+    z.string().trim().min(1).optional()
   ).describe('时代背景'),
   mood: z.string().optional().describe('氛围描述'),
   weather: z.string().optional().describe('天气')
@@ -257,43 +271,29 @@ export const SceneCharacterSchema = z.object({
 export type SceneCharacter = z.infer<typeof SceneCharacterSchema>
 
 /** 场景景别 */
-export const SceneShotTypeSchema = z.enum([
-  'extreme_wide',
-  'wide',
-  'medium_wide',
-  'medium',
-  'medium_close',
-  'close',
-  'extreme_close',
-  'detail'
-]).describe('景别')
+export const SceneShotTypeSchema = z.string().trim().min(1).describe('景别或镜头构图')
 export type SceneShotType = z.infer<typeof SceneShotTypeSchema>
 
 /** 场景运镜 */
-export const SceneCameraMovementSchema = z.enum([
-  'static',
-  'push',
-  'pull',
-  'pan_left',
-  'pan_right',
-  'tilt_up',
-  'tilt_down',
-  'track',
-  'dolly',
-  'zoom_in',
-  'zoom_out',
-  'crane',
-  'handheld',
-  'arc'
-]).describe('运镜方式')
+export const SceneCameraMovementSchema = z.string().trim().min(1).describe('运镜方式')
 export type SceneCameraMovement = z.infer<typeof SceneCameraMovementSchema>
 
 /** 环境参考取景模式（用于环境资产引用） */
 export const SceneEnvironmentCaptureModeSchema = z.enum([
-  'single',
-  'four_view'
+  '单视角',
+  '四视角'
 ]).describe('环境参考取景模式')
 export type SceneEnvironmentCaptureMode = z.infer<typeof SceneEnvironmentCaptureModeSchema>
+
+export function normalizeSceneEnvironmentCaptureMode(
+  raw: unknown
+): SceneEnvironmentCaptureMode | undefined {
+  if (typeof raw !== 'string') return undefined
+  const value = raw.trim()
+  if (value === '单视角' || value === 'single') return '单视角'
+  if (value === '四视角' || value === '四视图' || value === 'four_view') return '四视角'
+  return undefined
+}
 
 /** 场景时长（秒） */
 export const SceneDurationSchema = z.coerce.number().min(2).max(15).default(8).describe('视频时长(秒，2-15)')
@@ -309,7 +309,7 @@ export type ScriptEpisode = z.infer<typeof ScriptEpisodeSchema>
 
 /** 短剧戏剧目标，用于保留冲突、爽点和钩子，避免分镜退化成平铺直叙 */
 export const SceneDramaticSchema = z.object({
-  function: z.enum(['hook', 'escalation', 'confrontation', 'reversal', 'payoff', 'cliffhanger', 'aftermath']).optional()
+  function: z.string().trim().min(1).optional()
     .describe('场景戏剧功能'),
   conflict: z.string().optional().describe('本场核心冲突：谁压迫谁、争夺什么'),
   emotionalCurve: z.string().optional().describe('情绪曲线，例如：羞辱->震惊->冷感反击'),
@@ -333,7 +333,7 @@ export const SceneSchema = z.object({
   shotType: SceneShotTypeSchema.optional(),
   cameraMovement: SceneCameraMovementSchema.optional(),
   environmentCaptureMode: SceneEnvironmentCaptureModeSchema.optional()
-    .describe('环境参考取景模式：single=单视角，four_view=多视角拼图'),
+    .describe('环境参考取景模式：单视角或四视角'),
   description: z.string().describe('场景描述'),
   dramatic: SceneDramaticSchema,
   setting: SceneSettingSchema.describe('场景设定'),
@@ -359,8 +359,8 @@ export const ParsedScriptSchema = z.object({
   characters: z.array(z.object({
     name: z.string(),
     description: z.string(),
-    role: z.enum(['protagonist', 'antagonist', 'supporting']).optional(),
-    gender: z.enum(['male', 'female', 'other']).optional()
+    role: z.string().trim().min(1).optional(),
+    gender: z.string().trim().min(1).optional()
   })).describe('角色列表'),
   totalDuration: z.number().describe('总时长(秒)')
 })
@@ -402,7 +402,7 @@ export const ScriptEpisodePlanItemSchema = z.object({
   emotionalCurve: z.string().optional().describe('本集情绪曲线'),
   cliffhanger: z.string().optional().describe('本集结尾钩子'),
   episodeAssets: ScriptEpisodeAssetSummarySchema.optional().describe('本集资产摘要（可选）'),
-  payoffType: z.enum(['打脸', '反杀', '揭露', '甜宠撑腰', '身世反转', '危机升级', '搞钱逆袭', '权力升级']).optional()
+  payoffType: z.string().trim().min(1).optional()
     .describe('本集主要爽点类型')
 })
 export type ScriptEpisodePlanItem = z.infer<typeof ScriptEpisodePlanItemSchema>

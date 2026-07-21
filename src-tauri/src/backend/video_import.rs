@@ -2581,7 +2581,7 @@ fn build_project_save_body(
             json!({
               "id": character.get("id").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("import_char_{}", index + 1)),
               "name": name,
-              "role": character.get("role").and_then(Value::as_str).unwrap_or("supporting"),
+              "role": character.get("role").and_then(Value::as_str).unwrap_or("配角"),
               "appearance": character.get("appearance").or_else(|| character.get("description")).and_then(Value::as_str).unwrap_or(name),
               "gender": character.get("gender").and_then(Value::as_str),
               "personality": character.get("personality").and_then(Value::as_str),

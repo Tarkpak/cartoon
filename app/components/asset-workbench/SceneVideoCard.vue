@@ -39,7 +39,7 @@ const props = defineProps<{
   resolveSceneReferenceImage: (scene: SceneData) => string | undefined
   resolveSceneEnvironmentReferenceImageForMode: (
     scene: SceneData,
-    mode: 'single' | 'four_view'
+    mode: '单视角' | '四视角'
   ) => string | undefined
   sceneEnvironmentAssetOptions: Array<{
     id: string
@@ -73,7 +73,7 @@ const props = defineProps<{
   onRetryScene: (sceneId: string) => void
   onOpenSceneVideoHistory: (sceneId: string) => void
   onSetScenePreviousLastFrameReference: (sceneId: string, enabled: boolean) => void
-  onSetSceneEnvironmentCaptureMode: (sceneId: string, mode: 'single' | 'four_view') => void
+  onSetSceneEnvironmentCaptureMode: (sceneId: string, mode: '单视角' | '四视角') => void
   onSetSceneEnvironmentReferenceAsset: (sceneId: string, assetId: string) => void | Promise<void>
   onSetSceneNarrationVoiceReference: (sceneId: string, assetId: string) => void | Promise<void>
   onPreviewImage: (src: string | undefined, alt: string) => void
@@ -103,13 +103,13 @@ const inlineRenderedMentionAssetIdSet = computed(() => {
 })
 const sceneReferenceImage = computed(() => props.resolveSceneReferenceImage(props.scene))
 const sceneSingleViewReferenceImage = computed(() => {
-  return props.resolveSceneEnvironmentReferenceImageForMode(props.scene, 'single')
+  return props.resolveSceneEnvironmentReferenceImageForMode(props.scene, '单视角')
 })
 const sceneFourViewReferenceImage = computed(() => {
-  return props.resolveSceneEnvironmentReferenceImageForMode(props.scene, 'four_view')
+  return props.resolveSceneEnvironmentReferenceImageForMode(props.scene, '四视角')
 })
 const activeModeReferenceImage = computed(() => {
-  if (sceneEnvironmentCaptureMode.value === 'four_view') {
+  if (sceneEnvironmentCaptureMode.value === '四视角') {
     return sceneFourViewReferenceImage.value || sceneReferenceImage.value
   }
   return sceneSingleViewReferenceImage.value || sceneReferenceImage.value
@@ -131,8 +131,8 @@ const continuitySwitchTitle = computed(() => {
   if (!props.canUsePreviousLastFrameReference) return '上一镜头还没有可用末帧，生成时会自动回退'
   return props.continuityLinkReason || '使用上一镜头末帧作为本镜头首帧参考'
 })
-const sceneEnvironmentCaptureMode = computed<'single' | 'four_view'>(() => {
-  return props.scene.environmentCaptureMode === 'four_view' ? 'four_view' : 'single'
+const sceneEnvironmentCaptureMode = computed<'单视角' | '四视角'>(() => {
+  return props.scene.environmentCaptureMode === '四视角' ? '四视角' : '单视角'
 })
 const sceneEnvironmentReferenceAssetSelection = computed(() => {
   return props.resolveSceneEnvironmentReferenceAssetSelection(props.scene.id) || '__auto__'
@@ -145,7 +145,7 @@ const sceneNarrationVoiceReferenceSelection = computed(() => {
   return props.resolveSceneNarrationVoiceReferenceSelection(props.scene.id) || '__auto__'
 })
 
-function handleSetSceneEnvironmentCaptureMode(mode: 'single' | 'four_view') {
+function handleSetSceneEnvironmentCaptureMode(mode: '单视角' | '四视角') {
   props.onSetSceneEnvironmentCaptureMode(props.scene.id, mode)
 }
 
@@ -434,18 +434,18 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       <Button
         size="sm"
         class="h-6 px-2 text-xs"
-        :variant="sceneEnvironmentCaptureMode === 'single' ? 'default' : 'outline'"
+        :variant="sceneEnvironmentCaptureMode === '单视角' ? 'default' : 'outline'"
         :disabled="sceneBusy"
-        @click.stop="handleSetSceneEnvironmentCaptureMode('single')"
+        @click.stop="handleSetSceneEnvironmentCaptureMode('单视角')"
       >
         单视图
       </Button>
       <Button
         size="sm"
         class="h-6 px-2 text-xs"
-        :variant="sceneEnvironmentCaptureMode === 'four_view' ? 'default' : 'outline'"
+        :variant="sceneEnvironmentCaptureMode === '四视角' ? 'default' : 'outline'"
         :disabled="sceneBusy"
-        @click.stop="handleSetSceneEnvironmentCaptureMode('four_view')"
+        @click.stop="handleSetSceneEnvironmentCaptureMode('四视角')"
       >
         四视图
       </Button>

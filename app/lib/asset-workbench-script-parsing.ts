@@ -1,6 +1,6 @@
 import { mergeNarrationTexts } from '~/lib/asset-workbench-scenes'
 import { normalizeCharacterName } from '~/lib/asset-workbench-values'
-import { normalizeCharacterGender, normalizeCharacterRole } from '#shared/types/character'
+import { normalizeCharacterGenderText, normalizeCharacterRoleText } from '#shared/types/character'
 import type {
   SceneCameraMovement,
   SceneDramatic,
@@ -10,51 +10,44 @@ import type {
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 
 const SCENE_SHOT_TYPE_SET = new Set<SceneShotType>([
-  'extreme_wide',
-  'wide',
-  'medium_wide',
-  'medium',
-  'medium_close',
-  'close',
-  'extreme_close',
-  'detail'
+  '大远景',
+  '全景',
+  '中全景',
+  '中景',
+  '中近景',
+  '近景',
+  '大特写',
+  '细节镜头'
 ])
 
 const SCENE_CAMERA_MOVEMENT_SET = new Set<SceneCameraMovement>([
-  'static',
-  'push',
-  'pull',
-  'pan_left',
-  'pan_right',
-  'tilt_up',
-  'tilt_down',
-  'track',
-  'dolly',
-  'zoom_in',
-  'zoom_out',
-  'crane',
-  'handheld',
-  'arc'
+  '固定镜头',
+  '推进',
+  '拉远',
+  '左摇',
+  '右摇',
+  '上摇',
+  '下摇',
+  '跟拍',
+  '轨道移动',
+  '变焦推进',
+  '变焦拉远',
+  '升降',
+  '手持',
+  '环绕',
+  '甩镜',
+  '荷兰角',
+  '旋转'
 ])
 
 const SCENE_ENVIRONMENT_CAPTURE_MODE_SET = new Set<SceneEnvironmentCaptureMode>([
-  'single',
-  'four_view'
+  '单视角',
+  '四视角'
 ])
 
 type ParsedSceneDramaticObject = NonNullable<SceneDramatic>
 type ParsedSceneDramaticFunction = NonNullable<ParsedSceneDramaticObject['function']>
 type ParsedSceneDramaticTextField = Exclude<keyof ParsedSceneDramaticObject, 'function'>
-
-const SCENE_DRAMATIC_FUNCTION_SET = new Set<ParsedSceneDramaticFunction>([
-  'hook',
-  'escalation',
-  'confrontation',
-  'reversal',
-  'payoff',
-  'cliffhanger',
-  'aftermath'
-])
 
 const SCENE_DRAMATIC_TEXT_FIELDS: ParsedSceneDramaticTextField[] = [
   'conflict',
@@ -164,7 +157,7 @@ function countShotKeywordKinds(text: string): number {
   return count
 }
 
-function normalizeParsedSceneShotType(raw: unknown): SceneShotType | undefined {
+function normalizeParsedSceneShotType(raw: unknown, preserveUnknown = false): SceneShotType | undefined {
   const exact = normalizeEnumValue(raw, SCENE_SHOT_TYPE_SET)
   if (exact) return exact
 
@@ -172,28 +165,28 @@ function normalizeParsedSceneShotType(raw: unknown): SceneShotType | undefined {
   if (!value) return undefined
 
   const lower = value.toLowerCase()
-  if (lower === 'extreme wide' || lower === 'establishing') return 'extreme_wide'
-  if (lower === 'wide shot' || lower === 'full shot') return 'wide'
-  if (lower === 'medium wide') return 'medium_wide'
-  if (lower === 'medium shot') return 'medium'
-  if (lower === 'medium close' || lower === 'medium close-up' || lower === 'medium closeup') return 'medium_close'
-  if (lower === 'close-up' || lower === 'closeup' || lower === 'close shot') return 'close'
-  if (lower === 'extreme close-up' || lower === 'extreme closeup') return 'extreme_close'
-  if (lower === 'detail shot' || lower === 'insert shot') return 'detail'
+  if (lower === 'extreme_wide' || lower === 'extreme wide' || lower === 'establishing') return '大远景'
+  if (lower === 'wide' || lower === 'wide shot' || lower === 'full shot') return '全景'
+  if (lower === 'medium_wide' || lower === 'medium wide') return '中全景'
+  if (lower === 'medium' || lower === 'medium shot') return '中景'
+  if (lower === 'medium_close' || lower === 'medium close' || lower === 'medium close-up' || lower === 'medium closeup') return '中近景'
+  if (lower === 'close' || lower === 'close-up' || lower === 'closeup' || lower === 'close shot') return '近景'
+  if (lower === 'extreme_close' || lower === 'extreme close-up' || lower === 'extreme closeup') return '大特写'
+  if (lower === 'detail' || lower === 'detail shot' || lower === 'insert shot') return '细节镜头'
 
-  if (/大远景|超远景/u.test(value)) return 'extreme_wide'
-  if (/中全景/u.test(value)) return 'medium_wide'
-  if (/中近景/u.test(value)) return 'medium_close'
-  if (/中景/u.test(value)) return 'medium'
-  if (/全景|远景/u.test(value)) return 'wide'
-  if (/近景/u.test(value)) return 'close'
-  if (/大特写|特写/u.test(value)) return 'extreme_close'
-  if (/细节|插入镜头/u.test(value)) return 'detail'
+  if (/细节|插入镜头/u.test(value)) return '细节镜头'
+  if (/大远景|超远景/u.test(value)) return '大远景'
+  if (/中全景/u.test(value)) return '中全景'
+  if (/中近景/u.test(value)) return '中近景'
+  if (/中景/u.test(value)) return '中景'
+  if (/全景|远景/u.test(value)) return '全景'
+  if (/近景/u.test(value)) return '近景'
+  if (/大特写|特写/u.test(value)) return '大特写'
 
-  return undefined
+  return preserveUnknown ? value : undefined
 }
 
-function normalizeParsedSceneCameraMovement(raw: unknown): SceneCameraMovement | undefined {
+function normalizeParsedSceneCameraMovement(raw: unknown, preserveUnknown = false): SceneCameraMovement | undefined {
   const exact = normalizeEnumValue(raw, SCENE_CAMERA_MOVEMENT_SET)
   if (exact) return exact
 
@@ -201,34 +194,38 @@ function normalizeParsedSceneCameraMovement(raw: unknown): SceneCameraMovement |
   if (!value) return undefined
 
   const lower = value.toLowerCase()
-  if (lower === 'fixed' || lower === 'locked' || lower === 'still') return 'static'
-  if (lower === 'push in' || lower === 'push-in') return 'push'
-  if (lower === 'pull out' || lower === 'pull-out') return 'pull'
-  if (lower === 'pan left') return 'pan_left'
-  if (lower === 'pan right') return 'pan_right'
-  if (lower === 'tilt up') return 'tilt_up'
-  if (lower === 'tilt down') return 'tilt_down'
-  if (lower === 'tracking' || lower === 'tracking shot') return 'track'
-  if (lower === 'zoom in') return 'zoom_in'
-  if (lower === 'zoom out') return 'zoom_out'
-  if (lower === 'handheld shot') return 'handheld'
-  if (lower === 'orbit' || lower === 'arc shot') return 'arc'
+  const englishAliases: Record<string, SceneCameraMovement> = {
+    static: '固定镜头', fixed: '固定镜头', locked: '固定镜头', still: '固定镜头',
+    push: '推进', 'push in': '推进', 'push-in': '推进',
+    pull: '拉远', 'pull out': '拉远', 'pull-out': '拉远',
+    pan_left: '左摇', 'pan left': '左摇', pan_right: '右摇', 'pan right': '右摇',
+    tilt_up: '上摇', 'tilt up': '上摇', tilt_down: '下摇', 'tilt down': '下摇',
+    track: '跟拍', tracking: '跟拍', 'tracking shot': '跟拍', dolly: '轨道移动',
+    zoom_in: '变焦推进', 'zoom in': '变焦推进', zoom_out: '变焦拉远', 'zoom out': '变焦拉远',
+    crane: '升降', handheld: '手持', 'handheld shot': '手持', arc: '环绕', orbit: '环绕', 'arc shot': '环绕',
+    whip_pan: '甩镜', 'whip pan': '甩镜', dutch_tilt: '荷兰角', 'dutch tilt': '荷兰角', roll: '旋转'
+  }
+  if (englishAliases[lower]) return englishAliases[lower]
 
-  if (/固定|定镜|静止/u.test(value)) return 'static'
-  if (/推镜|推进|推近/u.test(value)) return 'push'
-  if (/拉镜|拉远|后拉/u.test(value)) return 'pull'
-  if (/左摇/u.test(value)) return 'pan_left'
-  if (/右摇/u.test(value)) return 'pan_right'
-  if (/上摇/u.test(value)) return 'tilt_up'
-  if (/下摇/u.test(value)) return 'tilt_down'
-  if (/跟拍|跟镜/u.test(value)) return 'track'
-  if (/变焦推|放大/u.test(value)) return 'zoom_in'
-  if (/变焦拉|缩小/u.test(value)) return 'zoom_out'
-  if (/升降/u.test(value)) return 'crane'
-  if (/手持/u.test(value)) return 'handheld'
-  if (/环绕/u.test(value)) return 'arc'
+  if (/固定|定镜|静止/u.test(value)) return '固定镜头'
+  if (/变焦推|放大/u.test(value)) return '变焦推进'
+  if (/变焦拉|缩小/u.test(value)) return '变焦拉远'
+  if (/推镜|推进|推近/u.test(value)) return '推进'
+  if (/拉镜|拉远|后拉/u.test(value)) return '拉远'
+  if (/左摇/u.test(value)) return '左摇'
+  if (/右摇/u.test(value)) return '右摇'
+  if (/上摇/u.test(value)) return '上摇'
+  if (/下摇/u.test(value)) return '下摇'
+  if (/跟拍|跟镜/u.test(value)) return '跟拍'
+  if (/轨道|移镜/u.test(value)) return '轨道移动'
+  if (/升降/u.test(value)) return '升降'
+  if (/手持/u.test(value)) return '手持'
+  if (/环绕/u.test(value)) return '环绕'
+  if (/甩镜/u.test(value)) return '甩镜'
+  if (/荷兰角|倾斜构图/u.test(value)) return '荷兰角'
+  if (/旋转|滚转/u.test(value)) return '旋转'
 
-  return undefined
+  return preserveUnknown ? value : undefined
 }
 
 function inferParsedEnvironmentCaptureMode(options: {
@@ -238,13 +235,13 @@ function inferParsedEnvironmentCaptureMode(options: {
   const description = options.description?.trim() || ''
   const cameraNote = options.cameraNote?.trim() || ''
   const text = [description, cameraNote].filter(Boolean).join('\n')
-  if (!text) return 'single'
+  if (!text) return '单视角'
 
-  if (countTimelineSegments(description) >= 2) return 'four_view'
-  if (MULTI_VIEW_HINT_REGEX.test(text)) return 'four_view'
-  if (countShotKeywordKinds(description) >= 2) return 'four_view'
+  if (countTimelineSegments(description) >= 2) return '四视角'
+  if (MULTI_VIEW_HINT_REGEX.test(text)) return '四视角'
+  if (countShotKeywordKinds(description) >= 2) return '四视角'
 
-  return 'single'
+  return '单视角'
 }
 
 function normalizeParsedEnvironmentCaptureMode(raw: unknown): SceneEnvironmentCaptureMode | undefined {
@@ -255,10 +252,10 @@ function normalizeParsedEnvironmentCaptureMode(raw: unknown): SceneEnvironmentCa
   if (!value) return undefined
 
   const lower = value.toLowerCase()
-  if (lower === 'single view' || lower === 'single image') return 'single'
-  if (lower === 'four view' || lower === 'four views' || lower === 'multi view' || lower === 'multi-view') return 'four_view'
-  if (/单视角|单张|单图/u.test(value)) return 'single'
-  if (/四视图|四视角|多视角|多角度/u.test(value)) return 'four_view'
+  if (lower === 'single' || lower === 'single view' || lower === 'single image') return '单视角'
+  if (lower === 'four_view' || lower === 'four view' || lower === 'four views' || lower === 'multi view' || lower === 'multi-view') return '四视角'
+  if (/单视角|单张|单图/u.test(value)) return '单视角'
+  if (/四视图|四视角|多视角|多角度/u.test(value)) return '四视角'
 
   return undefined
 }
@@ -274,8 +271,20 @@ function normalizeParsedSceneDramatic(raw: unknown, fallbackDescription = ''): S
     : {}
   const normalized: ParsedSceneDramaticObject = {}
   const rawFunction = normalizeOptionalString(source.function)
-  if (rawFunction && SCENE_DRAMATIC_FUNCTION_SET.has(rawFunction as ParsedSceneDramaticFunction)) {
-    normalized.function = rawFunction as ParsedSceneDramaticFunction
+  const dramaticFunctionAliases: Record<string, ParsedSceneDramaticFunction> = {
+    hook: '钩子',
+    escalation: '升级',
+    confrontation: '对抗',
+    reversal: '反转',
+    payoff: '回报',
+    cliffhanger: '悬念',
+    aftermath: '余波'
+  }
+  const normalizedFunction = rawFunction
+    ? dramaticFunctionAliases[rawFunction.toLowerCase()] || rawFunction
+    : undefined
+  if (normalizedFunction) {
+    normalized.function = normalizedFunction
   }
 
   SCENE_DRAMATIC_TEXT_FIELDS.forEach((key) => {
@@ -351,10 +360,26 @@ function normalizeParsedSceneCharacters(
       return {
         name: character?.name?.trim() || '',
         appearance: character?.appearance,
-        emotion: character?.emotion
+        emotion: normalizeParsedEmotion(character?.emotion)
       }
     })
     .filter(character => !!character.name)
+}
+
+function normalizeParsedEmotion(raw: unknown): string | undefined {
+  const value = normalizeOptionalString(raw)
+  if (!value) return undefined
+  const aliases: Record<string, string> = {
+    neutral: '中性',
+    happy: '开心',
+    sad: '悲伤',
+    angry: '愤怒',
+    surprised: '惊讶',
+    scared: '害怕',
+    worried: '担忧',
+    determined: '坚定'
+  }
+  return aliases[value.toLowerCase()] || value
 }
 
 function normalizeParsedSceneProps(
@@ -461,12 +486,12 @@ export function buildParsedScenes(options: {
       duration: scene.duration || 8,
       setting: scene.setting,
       active: index === 0,
-      shotType: normalizeParsedSceneShotType(scene.shotType)
+      shotType: normalizeParsedSceneShotType(scene.shotType, true)
         || normalizeParsedSceneShotType(fallbackText)
-        || 'medium',
-      cameraMovement: normalizeParsedSceneCameraMovement(scene.cameraMovement)
+      || '中景',
+      cameraMovement: normalizeParsedSceneCameraMovement(scene.cameraMovement, true)
         || normalizeParsedSceneCameraMovement(fallbackText)
-        || 'static',
+      || '固定镜头',
       cameraNote: '',
       environmentCaptureMode: normalizeParsedEnvironmentCaptureMode(scene.environmentCaptureMode)
         || inferParsedEnvironmentCaptureMode({ description: scene.description, cameraNote: '' }),
@@ -501,8 +526,8 @@ export function buildParsedCharacters(
       id: `char_${index + 1}`,
       name: character.name,
       appearance: character.description || '',
-      role: normalizeCharacterRole(character.role) || 'supporting',
-      gender: normalizeCharacterGender(character.gender),
+      role: normalizeCharacterRoleText(character.role) || '配角',
+      gender: normalizeCharacterGenderText(character.gender),
       generating: false,
       generatingViews: false
     }))
@@ -517,7 +542,7 @@ export function buildParsedCharacters(
       id: `char_${index + 1}`,
       name,
       appearance: sceneCharacter?.appearance || '',
-      role: 'supporting',
+      role: '配角',
       generating: false,
       generatingViews: false
     }

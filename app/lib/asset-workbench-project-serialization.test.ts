@@ -99,4 +99,46 @@ describe('asset workbench project serialization', () => {
 
     expect(buildSaveScenesPayload(scenes)[0]?.props).toEqual(scenes[0]?.props)
   })
+
+  it('preserves open-ended model metadata while loading and saving', () => {
+    const scenes = buildLoadedScenes([{
+      id: 'scene_open_metadata',
+      title: '极地观察',
+      description: '观察员记录极夜中的异常光带。',
+      duration: 8,
+      setting: {
+        location: '极地观测站',
+        timeOfDay: '极夜，无自然日照'
+      }
+    }])
+    const characters = buildLoadedCharacters([{
+      id: 'char_open_metadata',
+      name: '零号',
+      appearance: '银色仿生外壳',
+      role: '失忆的叙事观察者',
+      gender: '无性别机械生命',
+      speakingStyle: '克制疏离，带机械式停顿'
+    }])
+
+    expect(buildSaveScenesPayload(scenes)[0]?.setting?.timeOfDay).toBe('极夜，无自然日照')
+    expect(buildSaveCharactersPayload(characters)[0]).toMatchObject({
+      role: '失忆的叙事观察者',
+      gender: '无性别机械生命',
+      speakingStyle: '克制疏离，带机械式停顿'
+    })
+  })
+
+  it('normalizes legacy environment capture modes while loading', () => {
+    const scenes = buildLoadedScenes([
+      {
+        id: 'scene_legacy',
+        title: '旧场景',
+        description: '旧项目场景',
+        duration: 8,
+        environmentCaptureMode: 'four_view'
+      }
+    ])
+
+    expect(scenes[0]?.environmentCaptureMode).toBe('四视角')
+  })
 })

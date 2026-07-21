@@ -15,8 +15,8 @@
 1. 只输出合法 JSON，不要 Markdown、解释或空分集。
 2. 必须按剧情节点分集，不得按字数平均切分。
 3. startAnchor 必须逐字摘录原文中的连续片段；第 2 集及以后应位于该集开头附近。
-4. payoffType 只能是：打脸、反杀、揭露、甜宠撑腰、身世反转、危机升级、搞钱逆袭、权力升级。
-5. episodeAssets.characters[].role 只能是 protagonist、antagonist、supporting；gender 只能是 male、female、other。
+4. payoffType 使用简洁中文概括本集核心回报，可参考打脸、反杀、揭露、甜宠撑腰、身世反转、危机升级、搞钱逆袭、权力升级，但不限制于这些类型。
+5. episodeAssets.characters[].role 使用简洁中文描述角色在故事中的定位，可参考主角、反派、配角、龙套，但不限制于这些值；gender 使用符合原文设定的简洁中文描述，不限制固定词表。
 6. 同一角色在所有分集中的资产描述必须一致；资产只保留少而关键的真实实体。
 
 严格使用以下 JSON 结构：
@@ -37,8 +37,8 @@
           {
             "name": "角色名",
             "description": "稳定的完整外观基线",
-            "role": "protagonist",
-            "gender": "male"
+            "role": "主角",
+            "gender": "男"
           }
         ],
         "props": [

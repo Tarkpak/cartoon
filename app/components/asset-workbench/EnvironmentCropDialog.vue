@@ -52,7 +52,7 @@ const panoramaImage = shallowRef<HTMLImageElement | null>(null)
 const loadingPreview = ref(false)
 const previewError = ref<string | null>(null)
 const previewCssSize = ref({ width: 960, height: 540 })
-const captureMode = ref<EnvironmentCropCaptureMode>('single')
+const captureMode = ref<EnvironmentCropCaptureMode>('单视角')
 let renderFrameId = 0
 
 const dragState = reactive({
@@ -194,7 +194,7 @@ function renderPreview() {
   }
 
   try {
-    if (captureMode.value === 'four_view') {
+    if (captureMode.value === '四视角') {
       renderPanoramaFourViewToCanvas(renderOptions)
     } else {
       renderPanoramaSelectionToCanvas(renderOptions)
@@ -268,7 +268,7 @@ function moveView(event: PointerEvent) {
   const bounds = canvasRef.value.getBoundingClientRect()
   if (!bounds.width || !bounds.height) return
 
-  const tileScale = captureMode.value === 'four_view' ? 2 : 1
+  const tileScale = captureMode.value === '四视角' ? 2 : 1
   const deltaX = (event.clientX - dragState.lastX) / Math.max(1, bounds.width / tileScale)
   const deltaY = (event.clientY - dragState.lastY) / Math.max(1, bounds.height / tileScale)
   dragState.lastX = event.clientX
@@ -433,7 +433,7 @@ onBeforeUnmount(() => {
           <div class="flex h-9 shrink-0 items-center rounded-md border bg-muted/20 px-3 text-xs text-muted-foreground">
             当前输出：
             <span class="ml-1 font-medium text-foreground">
-              {{ captureMode === 'four_view' ? '四视图' : '单视图' }}
+              {{ captureMode === '四视角' ? '四视图' : '单视图' }}
             </span>
           </div>
 
@@ -470,7 +470,7 @@ onBeforeUnmount(() => {
                 v-if="loading"
                 class="mr-2 h-4 w-4 animate-spin"
               />
-              {{ captureMode === 'four_view' ? '保存四视图取景' : '保存单视图取景' }}
+              {{ captureMode === '四视角' ? '保存四视图取景' : '保存单视图取景' }}
             </Button>
           </div>
         </div>

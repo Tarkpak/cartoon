@@ -90,7 +90,7 @@ const props = defineProps<{
   resolveSceneReferenceImage: (scene: SceneData) => string | undefined
   resolveSceneEnvironmentReferenceImageForMode: (
     scene: SceneData,
-    mode: 'single' | 'four_view'
+    mode: '单视角' | '四视角'
   ) => string | undefined
   sceneEnvironmentAssetOptions: Array<{
     id: string
@@ -130,7 +130,7 @@ const props = defineProps<{
   onRetryScene: (sceneId: string) => void
   onOpenSceneVideoHistory: (sceneId: string) => void
   onSetScenePreviousLastFrameReference: (sceneId: string, enabled: boolean) => void
-  onSetSceneEnvironmentCaptureMode: (sceneId: string, mode: 'single' | 'four_view') => void
+  onSetSceneEnvironmentCaptureMode: (sceneId: string, mode: '单视角' | '四视角') => void
   onSetSceneEnvironmentReferenceAsset: (sceneId: string, assetId: string) => void | Promise<void>
   onSetSceneNarrationVoiceReference: (sceneId: string, assetId: string) => void | Promise<void>
   onPreviewImage: (src: string | undefined, alt: string) => void

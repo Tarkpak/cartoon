@@ -16,7 +16,10 @@
       </n-space>
 
       <n-drawer v-model:show="drawer" :width="detailDrawerWidth">
-        <n-drawer-content title="日志详情">
+        <n-drawer-content
+          title="日志详情"
+          :native-scrollbar="true"
+        >
           <div v-if="selectedLog" class="log-detail">
             <div class="log-summary-grid">
               <div class="log-summary-item">
@@ -88,7 +91,7 @@
               <div class="log-error-message">{{ selectedLog.error_message }}</div>
             </n-alert>
 
-            <n-tabs type="line" animated>
+            <n-tabs class="log-detail-tabs" type="line">
               <n-tab-pane name="request" tab="请求">
                 <div class="log-detail-stack">
                   <div class="log-detail-toolbar">
@@ -108,8 +111,9 @@
                       原始 JSON
                     </n-button>
                   </div>
-                  <n-card v-if="payloadViewModes.request === 'text'" size="small" title="请求内容">
-                    <div class="log-text-blocks">
+                  <section v-if="payloadViewModes.request === 'text'" class="log-payload-panel">
+                    <header class="log-payload-header">请求内容</header>
+                    <div class="log-payload-body log-text-blocks">
                       <section
                         v-for="block in requestTextBlocks"
                         :key="block.title"
@@ -120,14 +124,17 @@
                       </section>
                       <div v-if="requestTextBlocks.length === 0" class="log-empty">无可读请求内容</div>
                     </div>
-                  </n-card>
-                  <n-card v-else size="small" title="请求 JSON">
-                    <template #header-extra>
+                  </section>
+                  <section v-else class="log-payload-panel">
+                    <header class="log-payload-header">
+                      <span>请求 JSON</span>
                       <n-button size="tiny" quaternary @click="copyText(jsonTextForPayload('request'), '请求 JSON')">复制</n-button>
-                    </template>
-                    <pre v-if="hasContent(jsonTextForPayload('request'))" class="json-view">{{ jsonTextForPayload('request') }}</pre>
-                    <div v-else class="log-empty">无请求数据</div>
-                  </n-card>
+                    </header>
+                    <div class="log-payload-body">
+                      <pre v-if="hasContent(jsonTextForPayload('request'))" class="json-view">{{ jsonTextForPayload('request') }}</pre>
+                      <div v-else class="log-empty">无请求数据</div>
+                    </div>
+                  </section>
                 </div>
               </n-tab-pane>
 
@@ -150,8 +157,9 @@
                       原始 JSON
                     </n-button>
                   </div>
-                  <n-card v-if="payloadViewModes.response === 'text'" size="small" title="响应内容">
-                    <div class="log-text-blocks">
+                  <section v-if="payloadViewModes.response === 'text'" class="log-payload-panel">
+                    <header class="log-payload-header">响应内容</header>
+                    <div class="log-payload-body log-text-blocks">
                       <section
                         v-for="block in responseTextBlocks"
                         :key="block.title"
@@ -162,14 +170,17 @@
                       </section>
                       <div v-if="responseTextBlocks.length === 0" class="log-empty">无可读响应内容</div>
                     </div>
-                  </n-card>
-                  <n-card v-else size="small" title="响应 JSON">
-                    <template #header-extra>
+                  </section>
+                  <section v-else class="log-payload-panel">
+                    <header class="log-payload-header">
+                      <span>响应 JSON</span>
                       <n-button size="tiny" quaternary @click="copyText(jsonTextForPayload('response'), '响应 JSON')">复制</n-button>
-                    </template>
-                    <pre v-if="hasContent(jsonTextForPayload('response'))" class="json-view">{{ jsonTextForPayload('response') }}</pre>
-                    <div v-else class="log-empty">无响应数据</div>
-                  </n-card>
+                    </header>
+                    <div class="log-payload-body">
+                      <pre v-if="hasContent(jsonTextForPayload('response'))" class="json-view">{{ jsonTextForPayload('response') }}</pre>
+                      <div v-else class="log-empty">无响应数据</div>
+                    </div>
+                  </section>
                 </div>
               </n-tab-pane>
 
@@ -192,27 +203,36 @@
                       原始 JSON
                     </n-button>
                   </div>
-                  <n-card v-if="payloadViewModes.error === 'text'" size="small" title="错误摘要">
-                    <pre class="log-error-block">{{ selectedLog.error_message }}</pre>
-                    <div v-if="!selectedLog.error_message" class="log-empty">无错误摘要</div>
-                  </n-card>
-                  <n-card v-else size="small" title="错误 JSON">
-                    <template #header-extra>
+                  <section v-if="payloadViewModes.error === 'text'" class="log-payload-panel">
+                    <header class="log-payload-header">错误摘要</header>
+                    <div class="log-payload-body">
+                      <pre v-if="selectedLog.error_message" class="log-error-block">{{ selectedLog.error_message }}</pre>
+                      <div v-else class="log-empty">无错误摘要</div>
+                    </div>
+                  </section>
+                  <section v-else class="log-payload-panel">
+                    <header class="log-payload-header">
+                      <span>错误 JSON</span>
                       <n-button size="tiny" quaternary @click="copyText(jsonTextForPayload('error'), '错误 JSON')">复制</n-button>
-                    </template>
-                    <pre v-if="hasContent(jsonTextForPayload('error'))" class="json-view">{{ jsonTextForPayload('error') }}</pre>
-                    <div v-else class="log-empty">无错误数据</div>
-                  </n-card>
+                    </header>
+                    <div class="log-payload-body">
+                      <pre v-if="hasContent(jsonTextForPayload('error'))" class="json-view">{{ jsonTextForPayload('error') }}</pre>
+                      <div v-else class="log-empty">无错误数据</div>
+                    </div>
+                  </section>
                 </div>
               </n-tab-pane>
 
               <n-tab-pane name="raw" tab="原始数据">
-                <n-card size="small" title="完整日志">
-                  <template #header-extra>
+                <section class="log-payload-panel">
+                  <header class="log-payload-header">
+                    <span>完整日志</span>
                     <n-button size="tiny" quaternary @click="copyText(selectedLogJson, '完整日志')">复制</n-button>
-                  </template>
-                  <pre class="json-view json-view--tall">{{ selectedLogJson }}</pre>
-                </n-card>
+                  </header>
+                  <div class="log-payload-body">
+                    <pre class="json-view json-view--tall">{{ selectedLogJson }}</pre>
+                  </div>
+                </section>
               </n-tab-pane>
             </n-tabs>
           </div>
@@ -550,8 +570,28 @@ onMounted(loadLogs)
 }
 
 .log-detail {
-  display: grid;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
   gap: 14px;
+  overflow: hidden;
+}
+
+.log-detail-tabs {
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.log-detail-tabs :deep(.n-tab-pane) {
+  box-sizing: border-box;
+  display: flex;
+  height: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .log-summary-grid {
@@ -607,8 +647,13 @@ onMounted(loadLogs)
 }
 
 .log-detail-stack {
-  display: grid;
+  display: flex;
+  height: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
   gap: 12px;
+  overflow: hidden;
 }
 
 .log-text-blocks {
@@ -619,6 +664,49 @@ onMounted(loadLogs)
 .log-text-block {
   display: grid;
   gap: 6px;
+}
+
+.log-payload-panel {
+  display: flex;
+  height: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  border: 1px solid rgb(239, 239, 245);
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.log-payload-header {
+  display: flex;
+  min-height: 52px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  color: #1f2328;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.log-payload-body {
+  height: 0;
+  min-height: 0;
+  flex: 1;
+  padding: 0 18px 18px;
+  overflow-x: auto;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.log-payload-body .json-view,
+.log-payload-body .log-error-block,
+.log-payload-body .log-text-block pre {
+  min-height: 0;
+  max-height: none;
 }
 
 .log-block-title {
@@ -658,6 +746,34 @@ onMounted(loadLogs)
 }
 
 @media (max-width: 860px) {
+  .log-detail {
+    height: auto;
+    overflow: visible;
+  }
+
+  .log-detail-tabs,
+  .log-detail-tabs :deep(.n-tab-pane),
+  .log-detail-stack {
+    height: auto;
+    overflow: visible;
+  }
+
+  .log-payload-panel {
+    height: auto;
+    overflow: visible;
+  }
+
+  .log-payload-body {
+    height: auto;
+    overflow: visible;
+  }
+
+  .log-payload-body .json-view,
+  .log-payload-body .log-error-block,
+  .log-text-block pre {
+    max-height: 280px;
+  }
+
   .log-summary-grid {
     grid-template-columns: 1fr;
   }

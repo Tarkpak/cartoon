@@ -92,7 +92,7 @@ function wrapUnit(value: number): number {
 export function resolveEnvironmentCropCaptureMode(
   value: unknown
 ): EnvironmentCropCaptureMode {
-  return value === 'four_view' ? 'four_view' : 'single'
+  return value === '四视角' || value === 'four_view' ? '四视角' : '单视角'
 }
 
 function resolveSelectionBounds() {

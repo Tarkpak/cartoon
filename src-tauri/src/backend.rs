@@ -5143,16 +5143,16 @@ async fn api_project_get(
                   "episodeIndex": row.get::<_, Option<i64>>(4)?,
                   "title": row.get::<_, Option<String>>(5)?,
                   "description": row.get::<_, String>(6)?,
-                  "dramatic": parse(row.get(7)?),
+                  "dramatic": normalize_scene_dramatic_value(parse(row.get(7)?)),
                   "setting": parse(row.get(8)?),
-                  "characters": parse(row.get(9)?),
+                  "characters": normalize_scene_characters_value(parse(row.get(9)?)),
                   "props": parse(row.get(10)?),
                   "duration": row.get::<_, Option<i64>>(11)?.unwrap_or(8),
                   "narration": row.get::<_, Option<String>>(12)?,
-                  "shotType": row.get::<_, Option<String>>(13)?,
-                  "cameraMovement": row.get::<_, Option<String>>(14)?,
+                  "shotType": normalize_scene_shot_type_value(row.get::<_, Option<String>>(13)?.as_deref()),
+                  "cameraMovement": normalize_scene_camera_movement_value(row.get::<_, Option<String>>(14)?.as_deref()),
                   "cameraNote": row.get::<_, Option<String>>(15)?,
-                  "environmentCaptureMode": row.get::<_, Option<String>>(16)?,
+                  "environmentCaptureMode": normalize_scene_environment_capture_mode_value(row.get::<_, Option<String>>(16)?.as_deref()),
                   "transitionIn": row.get::<_, Option<String>>(17)?,
                   "transitionOut": row.get::<_, Option<String>>(18)?,
                   "transitionDuration": row.get::<_, Option<f64>>(19)?,
@@ -5294,7 +5294,7 @@ async fn api_project_get(
               "parentCharacterId": row.get::<_, Option<String>>(1)?,
               "variantName": row.get::<_, Option<String>>(2)?,
               "name": row.get::<_, String>(3)?,
-              "role": row.get::<_, Option<String>>(4)?,
+              "role": normalize_character_role_value(row.get::<_, Option<String>>(4)?.as_deref()),
               "appearance": row.get::<_, String>(5)?,
               "personality": row.get::<_, Option<String>>(6)?,
               "traits": parse(row.get(7)?),
@@ -5306,7 +5306,7 @@ async fn api_project_get(
               "voiceAsset": parse(row.get(13)?),
               "arkAsset": parse(row.get(14)?),
               "age": row.get::<_, Option<i64>>(15)?,
-              "gender": row.get::<_, Option<String>>(16)?,
+              "gender": normalize_character_gender_value(row.get::<_, Option<String>>(16)?.as_deref()),
               "imageUrl": base_image,
               "baseImage": base_image,
               "expressions": parse(row.get(18)?),
@@ -5688,8 +5688,168 @@ fn normalize_time_of_day_value(raw: &str) -> String {
         {
             value.to_string()
         }
-        _ => "白天".to_string(),
+        _ => value.to_string(),
     }
+}
+
+fn normalize_character_role_value(raw: Option<&str>) -> Option<String> {
+    let value = raw.map(str::trim).filter(|value| !value.is_empty())?;
+    let normalized = match value.to_ascii_lowercase().as_str() {
+        "protagonist" | "lead" | "hero" => "主角",
+        "antagonist" | "villain" => "反派",
+        "supporting" | "support" => "配角",
+        "extra" | "crowd" | "background" => "龙套",
+        _ if matches!(value, "主角" | "反派" | "配角" | "龙套") => value,
+        _ => value,
+    };
+    Some(normalized.to_string())
+}
+
+fn normalize_character_gender_value(raw: Option<&str>) -> Option<String> {
+    let value = raw.map(str::trim).filter(|value| !value.is_empty())?;
+    let normalized = match value.to_ascii_lowercase().as_str() {
+        "male" | "man" | "boy" => "男",
+        "female" | "woman" | "girl" => "女",
+        "other" | "nonbinary" | "unspecified" => "其他",
+        _ if matches!(value, "男" | "女" | "其他") => value,
+        _ => value,
+    };
+    Some(normalized.to_string())
+}
+
+fn normalize_scene_shot_type_value(raw: Option<&str>) -> Option<String> {
+    let value = raw.map(str::trim).filter(|value| !value.is_empty())?;
+    let normalized = match value.to_ascii_lowercase().as_str() {
+        "extreme_wide" => "大远景",
+        "wide" => "全景",
+        "medium_wide" => "中全景",
+        "medium" => "中景",
+        "medium_close" => "中近景",
+        "close" => "近景",
+        "extreme_close" => "大特写",
+        "detail" => "细节镜头",
+        _ if matches!(
+            value,
+            "大远景" | "全景" | "中全景" | "中景" | "中近景" | "近景" | "大特写" | "细节镜头"
+        ) =>
+        {
+            value
+        }
+        _ => value,
+    };
+    Some(normalized.to_string())
+}
+
+fn normalize_scene_camera_movement_value(raw: Option<&str>) -> Option<String> {
+    let value = raw.map(str::trim).filter(|value| !value.is_empty())?;
+    let normalized = match value.to_ascii_lowercase().as_str() {
+        "static" => "固定镜头",
+        "push" => "推进",
+        "pull" => "拉远",
+        "pan_left" => "左摇",
+        "pan_right" => "右摇",
+        "tilt_up" => "上摇",
+        "tilt_down" => "下摇",
+        "track" => "跟拍",
+        "dolly" => "轨道移动",
+        "zoom_in" => "变焦推进",
+        "zoom_out" => "变焦拉远",
+        "crane" => "升降",
+        "handheld" => "手持",
+        "arc" => "环绕",
+        "whip_pan" => "甩镜",
+        "dutch_tilt" => "荷兰角",
+        "roll" => "旋转",
+        _ if matches!(
+            value,
+            "固定镜头"
+                | "推进"
+                | "拉远"
+                | "左摇"
+                | "右摇"
+                | "上摇"
+                | "下摇"
+                | "跟拍"
+                | "轨道移动"
+                | "变焦推进"
+                | "变焦拉远"
+                | "升降"
+                | "手持"
+                | "环绕"
+                | "甩镜"
+                | "荷兰角"
+                | "旋转"
+        ) =>
+        {
+            value
+        }
+        _ => value,
+    };
+    Some(normalized.to_string())
+}
+
+fn normalize_scene_environment_capture_mode_value(raw: Option<&str>) -> Option<String> {
+    let value = raw.map(str::trim).filter(|value| !value.is_empty())?;
+    match value {
+        "single" | "单视角" => Some("单视角".to_string()),
+        "four_view" | "四视角" | "四视图" => Some("四视角".to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_scene_dramatic_value(value: Value) -> Value {
+    let Value::Object(mut object) = value else {
+        return value;
+    };
+    if let Some(raw) = object.get("function").and_then(Value::as_str) {
+        let normalized = match raw {
+            "hook" | "钩子" => Some("钩子"),
+            "escalation" | "升级" => Some("升级"),
+            "confrontation" | "对抗" => Some("对抗"),
+            "reversal" | "反转" => Some("反转"),
+            "payoff" | "回报" => Some("回报"),
+            "cliffhanger" | "悬念" => Some("悬念"),
+            "aftermath" | "余波" => Some("余波"),
+            _ => None,
+        };
+        if let Some(normalized) = normalized {
+            object.insert("function".to_string(), json!(normalized));
+        }
+    }
+    Value::Object(object)
+}
+
+fn normalize_scene_characters_value(value: Value) -> Value {
+    let Value::Array(items) = value else {
+        return value;
+    };
+    Value::Array(
+        items
+            .into_iter()
+            .map(|item| {
+                let Value::Object(mut object) = item else {
+                    return item;
+                };
+                if let Some(raw) = object.get("emotion").and_then(Value::as_str) {
+                    let normalized = match raw {
+                        "neutral" => Some("中性"),
+                        "happy" => Some("开心"),
+                        "sad" => Some("悲伤"),
+                        "angry" => Some("愤怒"),
+                        "surprised" => Some("惊讶"),
+                        "scared" => Some("害怕"),
+                        "worried" => Some("担忧"),
+                        "determined" => Some("坚定"),
+                        _ => None,
+                    };
+                    if let Some(normalized) = normalized {
+                        object.insert("emotion".to_string(), json!(normalized));
+                    }
+                }
+                Value::Object(object)
+            })
+            .collect(),
+    )
 }
 
 fn normalize_scene_era_value(raw: Option<&str>) -> Option<String> {
@@ -5702,7 +5862,7 @@ fn normalize_scene_era_value(raw: Option<&str>) -> Option<String> {
         "near_future" | "future" | "scifi" | "sci_fi" | "cyberpunk" => "近未来",
         "fantasy" | "alternate" => "架空",
         _ if matches!(value, "古代" | "民国" | "现代" | "近未来" | "架空") => value,
-        _ => return None,
+        _ => value,
     };
     Some(normalized.to_string())
 }
@@ -5746,25 +5906,9 @@ fn validate_scene_json_fields(scene: &Value, path: &str) -> Result<(), ApiError>
             .as_object()
             .ok_or_else(|| validation_error(format!("{path}.dramatic"), "Expected object"))?;
         if let Some(function) = object.get("function").filter(|value| !value.is_null()) {
-            let raw = function.as_str().ok_or_else(|| {
+            function.as_str().ok_or_else(|| {
                 validation_error(format!("{path}.dramatic.function"), "Expected string")
             })?;
-            if ![
-                "hook",
-                "escalation",
-                "confrontation",
-                "reversal",
-                "payoff",
-                "cliffhanger",
-                "aftermath",
-            ]
-            .contains(&raw)
-            {
-                return Err(validation_error(
-                    format!("{path}.dramatic.function"),
-                    "Invalid enum value",
-                ));
-            }
         }
     }
 
@@ -6131,51 +6275,32 @@ async fn api_project_put_inner(
                     },
                 )
                 .to_string();
-            let shot_type = optional_enum_string(
-                scene,
-                "shotType",
-                &path,
-                &[
-                    "extreme_wide",
-                    "wide",
-                    "medium_wide",
-                    "medium",
-                    "medium_close",
-                    "close",
-                    "extreme_close",
-                    "detail",
-                ],
-            )?
-            .map(str::to_string);
-            let camera_movement = optional_enum_string(
-                scene,
-                "cameraMovement",
-                &path,
-                &[
-                    "static",
-                    "push",
-                    "pull",
-                    "pan_left",
-                    "pan_right",
-                    "tilt_up",
-                    "tilt_down",
-                    "track",
-                    "dolly",
-                    "zoom_in",
-                    "zoom_out",
-                    "crane",
-                    "handheld",
-                    "arc",
-                ],
-            )?
-            .map(str::to_string);
-            let environment_capture_mode = optional_enum_string(
-                scene,
-                "environmentCaptureMode",
-                &path,
-                &["single", "four_view"],
-            )?
-            .map(str::to_string);
+            let raw_shot_type = optional_string(scene, "shotType", &path)?;
+            let shot_type = normalize_scene_shot_type_value(raw_shot_type);
+            if raw_shot_type.is_some() && shot_type.is_none() {
+                return Err(validation_error(
+                    format!("{path}.shotType"),
+                    "Invalid enum value",
+                ));
+            }
+            let raw_camera_movement = optional_string(scene, "cameraMovement", &path)?;
+            let camera_movement = normalize_scene_camera_movement_value(raw_camera_movement);
+            if raw_camera_movement.is_some() && camera_movement.is_none() {
+                return Err(validation_error(
+                    format!("{path}.cameraMovement"),
+                    "Invalid enum value",
+                ));
+            }
+            let raw_environment_capture_mode =
+                optional_string(scene, "environmentCaptureMode", &path)?;
+            let environment_capture_mode =
+                normalize_scene_environment_capture_mode_value(raw_environment_capture_mode);
+            if raw_environment_capture_mode.is_some() && environment_capture_mode.is_none() {
+                return Err(validation_error(
+                    format!("{path}.environmentCaptureMode"),
+                    "Invalid enum value",
+                ));
+            }
             let transition_in = optional_enum_string(
                 scene,
                 "transitionIn",
@@ -6209,9 +6334,19 @@ async fn api_project_put_inner(
                 episode_index,
                 title: optional_string(scene, "title", &path)?.map(str::to_string),
                 description,
-                dramatic: encode("dramatic"),
+                dramatic: scene
+                    .get("dramatic")
+                    .filter(|value| !value.is_null())
+                    .cloned()
+                    .map(normalize_scene_dramatic_value)
+                    .map(|value| value.to_string()),
                 setting: normalize_scene_setting(scene, &path)?,
-                characters: encode("characters"),
+                characters: scene
+                    .get("characters")
+                    .filter(|value| !value.is_null())
+                    .cloned()
+                    .map(normalize_scene_characters_value)
+                    .map(|value| value.to_string()),
                 props: encode("props"),
                 duration,
                 narration: optional_string(scene, "narration", &path)?.map(str::to_string),
@@ -6389,9 +6524,8 @@ async fn api_project_put_inner(
                     .map(|value| normalize_scoped_id("char", &id, value)),
                 variant_name: optional_string(character, "variantName", &path)?.map(str::to_string),
                 name,
-                role: optional_string(character, "role", &path)?
-                    .unwrap_or("supporting")
-                    .to_string(),
+                role: normalize_character_role_value(optional_string(character, "role", &path)?)
+                    .unwrap_or_else(|| "配角".to_string()),
                 appearance,
                 personality: optional_string(character, "personality", &path)?.map(str::to_string),
                 traits: character
@@ -6407,7 +6541,9 @@ async fn api_project_put_inner(
                 voice_asset,
                 ark_asset,
                 age,
-                gender: optional_string(character, "gender", &path)?.map(str::to_string),
+                gender: normalize_character_gender_value(optional_string(
+                    character, "gender", &path,
+                )?),
                 base_image,
                 expressions,
                 views,
@@ -10319,27 +10455,101 @@ async fn apply_cloud_projects(state: &BackendState, projects: &Value) -> Value {
     json!({ "imported": imported, "skipped": skipped, "failed": failed })
 }
 
+fn cloud_model_log_identity(log: &Value) -> Option<(String, Option<String>)> {
+    let cloud_id = cloud_value_text(log, "id");
+    if cloud_id.is_empty() {
+        return None;
+    }
+    let client_event_id = ["client_event_id", "clientEventId"]
+        .into_iter()
+        .map(|key| cloud_value_text(log, key))
+        .find(|value| !value.is_empty());
+    Some((cloud_id, client_event_id))
+}
+
 fn apply_cloud_model_call_logs(state: &BackendState, logs: &Value) -> Result<usize, ApiError> {
     let Some(items) = logs.as_array() else {
         return Ok(0);
     };
-    let conn = db_connection(state)?;
+    let mut conn = db_connection(state)?;
+    let transaction = conn
+        .transaction()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let mut imported = 0;
     for log in items {
-        let id = cloud_value_text(log, "id");
-        if id.is_empty() {
+        let Some((cloud_id, client_event_id)) = cloud_model_log_identity(log) else {
             continue;
-        }
+        };
+        let local_id = if let Some(client_event_id) = client_event_id {
+            let has_local_event = transaction
+                .query_row(
+                    "SELECT 1 FROM model_debug_logs WHERE id = ?1 LIMIT 1",
+                    params![client_event_id],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map_err(|error| {
+                    ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                })?
+                .is_some();
+            if has_local_event {
+                if cloud_id != client_event_id {
+                    transaction
+                        .execute(
+                            "DELETE FROM model_debug_logs WHERE id = ?1",
+                            params![cloud_id],
+                        )
+                        .map_err(|error| {
+                            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                        })?;
+                }
+                client_event_id
+            } else {
+                cloud_id
+            }
+        } else {
+            cloud_id
+        };
         let timestamp = cloud_value_text(log, "created_at");
-        conn.execute(
-            "INSERT OR REPLACE INTO model_debug_logs (
+        transaction.execute(
+            "INSERT INTO model_debug_logs (
                id, timestamp, provider, model, operation, status, duration_ms, request_id,
                project_id, scene_id, request_json, request_raw_json, response_json,
-               response_raw_json, error_json, created_at, cloud_sync_status, cloud_synced_at,
+               response_raw_json, media_refs_json, error_json, created_at, cloud_sync_status, cloud_synced_at,
                owner_account, owner_display_name
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?12, ?13, ?2, 'synced', ?2, ?14, ?15)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?12, ?13, ?14, ?2, 'synced', ?2, ?15, ?16)
+             ON CONFLICT(id) DO UPDATE SET
+               timestamp = excluded.timestamp,
+               provider = excluded.provider,
+               model = excluded.model,
+               operation = excluded.operation,
+               status = excluded.status,
+               duration_ms = excluded.duration_ms,
+               request_id = excluded.request_id,
+               project_id = excluded.project_id,
+               scene_id = excluded.scene_id,
+               request_json = CASE
+                 WHEN model_debug_logs.cloud_payload_json IS NOT NULL
+                   THEN COALESCE(model_debug_logs.request_json, excluded.request_json)
+                 ELSE excluded.request_json
+               END,
+               response_json = CASE
+                 WHEN model_debug_logs.cloud_payload_json IS NOT NULL
+                   THEN COALESCE(model_debug_logs.response_json, excluded.response_json)
+                 ELSE excluded.response_json
+               END,
+               media_refs_json = CASE
+                 WHEN model_debug_logs.cloud_payload_json IS NOT NULL
+                   THEN COALESCE(model_debug_logs.media_refs_json, excluded.media_refs_json)
+                 ELSE excluded.media_refs_json
+               END,
+               error_json = excluded.error_json,
+               cloud_sync_status = 'synced',
+               cloud_synced_at = excluded.cloud_synced_at,
+               owner_account = excluded.owner_account,
+               owner_display_name = excluded.owner_display_name",
             params![
-                id,
+                local_id,
                 if timestamp.is_empty() { now_iso() } else { timestamp },
                 cloud_value_text(log, "provider"),
                 cloud_value_text(log, "model_id"),
@@ -10351,6 +10561,7 @@ fn apply_cloud_model_call_logs(state: &BackendState, logs: &Value) -> Result<usi
                 cloud_value_text(log, "scene_id"),
                 log.get("request_json").and_then(Value::as_str),
                 log.get("response_json").and_then(Value::as_str),
+                log.get("media_refs_json").and_then(Value::as_str),
                 log.get("error_json").and_then(Value::as_str),
                 cloud_value_text(log, "owner_account"),
                 cloud_value_text(log, "owner_display_name")
@@ -10359,6 +10570,9 @@ fn apply_cloud_model_call_logs(state: &BackendState, logs: &Value) -> Result<usi
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
         imported += 1;
     }
+    transaction
+        .commit()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(imported)
 }
 
@@ -11677,9 +11891,43 @@ async fn api_not_implemented(Path(path): Path<String>) -> (StatusCode, Json<Valu
 mod tests {
     use super::{
         build_scoped_tos_key_prefix_for_user, clear_workflow_overrides_for_category,
-        default_prompt_director_preferences, merge_prompt_templates_with_defaults,
+        cloud_model_log_identity, default_prompt_director_preferences,
+        merge_prompt_templates_with_defaults, normalize_character_gender_value,
+        normalize_character_role_value, normalize_time_of_day_value,
     };
     use serde_json::{json, Value};
+
+    #[test]
+    fn project_storage_preserves_open_ended_model_metadata() {
+        assert_eq!(normalize_time_of_day_value("极夜，无自然日照"), "极夜，无自然日照");
+        assert_eq!(
+            normalize_character_role_value(Some("关键证人兼叙事误导者")),
+            Some("关键证人兼叙事误导者".to_string())
+        );
+        assert_eq!(
+            normalize_character_gender_value(Some("无性别机械生命")),
+            Some("无性别机械生命".to_string())
+        );
+    }
+
+    #[test]
+    fn cloud_model_log_identity_preserves_client_event_id_for_local_deduplication() {
+        assert_eq!(
+            cloud_model_log_identity(&json!({
+              "id": "cloud-log-id",
+              "client_event_id": "log_local_event_id"
+            })),
+            Some((
+                "cloud-log-id".to_string(),
+                Some("log_local_event_id".to_string())
+            ))
+        );
+        assert_eq!(
+            cloud_model_log_identity(&json!({ "id": "cloud-only-id" })),
+            Some(("cloud-only-id".to_string(), None))
+        );
+        assert_eq!(cloud_model_log_identity(&json!({})), None);
+    }
 
     #[test]
     fn global_model_switch_clears_only_matching_workflow_overrides() {

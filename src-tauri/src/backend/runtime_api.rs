@@ -27,7 +27,7 @@ const SCRIPT_PARSE_MIN_DURATION: &str = "2";
 const SCRIPT_PARSE_MAX_DURATION: &str = "15";
 const SCRIPT_PARSING_CONTRACT: &str =
     include_str!("../../assets/default-prompts/script_parsing_contract.txt");
-const ENVIRONMENT_CAPTURE_MODE_PROMPT_RULES: &str = "【环境视角打标（必须执行）】\n1. 每个 scenes[i] 必须输出 environmentCaptureMode 字段：single 或 four_view。\n2. 当场景描述存在明确多视角/多机位/镜头切换（含时间轴多段切镜）时，environmentCaptureMode=four_view。\n3. 单一连续视角表达时，environmentCaptureMode=single。\n4. 禁止省略该字段。";
+const ENVIRONMENT_CAPTURE_MODE_PROMPT_RULES: &str = "【环境视角打标（必须执行）】\n1. 每个 scenes[i] 必须输出 environmentCaptureMode 字段：单视角或四视角。\n2. 当场景描述存在明确多视角/多机位/镜头切换（含时间轴多段切镜）时，environmentCaptureMode=四视角。\n3. 单一连续视角表达时，environmentCaptureMode=单视角。\n4. 禁止省略该字段。";
 const MEDIAKIT_BASE_URL: &str = "https://mediakit.cn-beijing.volces.com";
 pub(super) const VIDEO_ENHANCE_UPLOAD_LIMIT_BYTES: usize = 2 * 1024 * 1024 * 1024;
 pub(super) const IMAGE_ENHANCE_UPLOAD_LIMIT_BYTES: usize = 50 * 1024 * 1024;
@@ -382,6 +382,164 @@ fn collect_model_log_media_refs(value: &Value, direction: &str, refs: &mut Vec<V
     visit(value, direction, "$", 0, refs);
 }
 
+fn model_log_media_operation(media_type: &str) -> Option<&'static str> {
+    match media_type {
+        "image" => Some("generateImage"),
+        "audio" => Some("textToSpeech"),
+        "video" => Some("generateVideo"),
+        _ => None,
+    }
+}
+
+fn model_log_media_result_field(media_type: &str) -> Option<&'static str> {
+    match media_type {
+        "image" => Some("imageUrl"),
+        "audio" => Some("audioUrl"),
+        "video" => Some("videoUrl"),
+        _ => None,
+    }
+}
+
+fn build_persisted_media_log_values(
+    response_json: Option<&str>,
+    media_refs_json: Option<&str>,
+    cloud_payload_json: Option<&str>,
+    media_type: &str,
+    url: &str,
+) -> Option<(Value, Value, Value)> {
+    let result_field = model_log_media_result_field(media_type)?;
+    let mut response = response_json
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .unwrap_or_else(|| json!({}));
+    if !response.is_object() {
+        response = json!({ "providerResponse": response });
+    }
+    if let Some(object) = response.as_object_mut() {
+        object.insert(result_field.to_string(), json!(url));
+    }
+
+    let mut media_refs = media_refs_json
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default();
+    media_refs.retain(|item| {
+        item.get("direction").and_then(Value::as_str) != Some("response")
+            || item.get("mediaType").and_then(Value::as_str) != Some(media_type)
+    });
+    media_refs.push(json!({
+      "id": format!("media_response_{}_result", media_type),
+      "direction": "response",
+      "path": format!("$.{}", result_field),
+      "mediaType": media_type,
+      "originalLength": url.len(),
+      "url": url,
+      "status": "ready",
+      "note": if is_http_url(url) {
+          "生成结果已上传到 CDN"
+      } else {
+          "TOS 未启用，生成结果仅保存在当前设备"
+      }
+    }));
+    let media_refs_value = Value::Array(media_refs);
+
+    let mut cloud_payload = cloud_payload_json
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .unwrap_or_else(|| json!({}));
+    if let Some(object) = cloud_payload.as_object_mut() {
+        object.insert("response".to_string(), response.clone());
+        object.insert("mediaRefs".to_string(), media_refs_value.clone());
+    }
+    Some((response, media_refs_value, cloud_payload))
+}
+
+fn attach_persisted_media_to_latest_model_log(
+    media_type: &str,
+    url: &str,
+) -> Result<bool, ApiError> {
+    let Some(operation) = model_log_media_operation(media_type) else {
+        return Ok(false);
+    };
+    let request_id = current_request_id();
+    let context = current_model_log_context();
+    if request_id.is_none() && context.task_id.is_none() && context.scene_id.is_none() {
+        return Ok(false);
+    }
+
+    let Some(conn) = config_connection() else {
+        return Ok(false);
+    };
+    let row = conn
+        .query_row(
+            "SELECT id, response_json, media_refs_json, cloud_payload_json
+             FROM model_debug_logs
+             WHERE operation = ?1 AND status = 'success' AND cloud_payload_json IS NOT NULL
+               AND ((?2 IS NOT NULL AND request_id = ?2)
+                 OR (?3 IS NOT NULL AND task_id = ?3)
+                 OR (?4 IS NOT NULL AND scene_id = ?4))
+             ORDER BY CASE
+               WHEN ?2 IS NOT NULL AND request_id = ?2 THEN 0
+               WHEN ?3 IS NOT NULL AND task_id = ?3 THEN 1
+               ELSE 2
+             END, timestamp DESC
+             LIMIT 1",
+            params![
+                operation,
+                request_id.as_deref(),
+                context.task_id.as_deref(),
+                context.scene_id.as_deref()
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let Some((log_id, response_json, media_refs_json, cloud_payload_json)) = row else {
+        return Ok(false);
+    };
+
+    let Some((response, media_refs_value, cloud_payload)) = build_persisted_media_log_values(
+        response_json.as_deref(),
+        media_refs_json.as_deref(),
+        cloud_payload_json.as_deref(),
+        media_type,
+        url,
+    ) else {
+        return Ok(false);
+    };
+
+    conn.execute(
+        "UPDATE model_debug_logs
+         SET response_json = ?1, media_refs_json = ?2, cloud_payload_json = ?3,
+             cloud_sync_status = 'pending', cloud_sync_error = NULL
+         WHERE id = ?4",
+        params![
+            response.to_string(),
+            media_refs_value.to_string(),
+            cloud_payload.to_string(),
+            log_id
+        ],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    drop(conn);
+    cloud_spawn_model_call_log_upload(log_id, cloud_payload);
+    Ok(true)
+}
+
+fn attach_persisted_media_to_model_log_best_effort(media_type: &str, url: &str) {
+    if let Err(error) = attach_persisted_media_to_latest_model_log(media_type, url) {
+        eprintln!(
+            "[ModelLog] failed to attach persisted {} result: {}",
+            media_type, error.message
+        );
+    }
+}
+
 fn llm_dev_write_db_log(
     provider: &str,
     model: &str,
@@ -453,6 +611,7 @@ fn llm_dev_write_db_log_impl(
         .clone()
         .or(response_raw_value.clone())
         .unwrap_or(Value::Null),
+      "mediaRefs": media_refs.clone(),
       "error": error_value.clone().unwrap_or(Value::Null),
       "createdAt": now.to_rfc3339()
     });
@@ -759,18 +918,21 @@ async fn persist_image_bytes_async(
 ) -> Result<String, ApiError> {
     let ext = infer_extension_from_mime(mime_type.unwrap_or(""), fallback_ext);
     let filename = build_unique_filename(prefix, &ext);
-    if load_backend_tos_config().enabled {
-        return match upload_media_bytes_to_tos_async("images", filename, bytes).await? {
+    let url = if load_backend_tos_config().enabled {
+        match upload_media_bytes_to_tos_async("images", filename, bytes).await? {
             Some(url) => Ok(url),
             None => Err(ApiError::new(
                 StatusCode::BAD_GATEWAY,
                 "TOS 已启用但未返回图片上传地址",
             )),
-        };
-    }
-    let path = state.public_dir.join("generated-images").join(&filename);
-    write_file_bytes(&path, &bytes)?;
-    Ok(format!("/api/image/file/{}", filename))
+        }?
+    } else {
+        let path = state.public_dir.join("generated-images").join(&filename);
+        write_file_bytes(&path, &bytes)?;
+        format!("/api/image/file/{}", filename)
+    };
+    attach_persisted_media_to_model_log_best_effort("image", &url);
+    Ok(url)
 }
 
 fn persist_image_bytes_runtime_safe(
@@ -782,8 +944,8 @@ fn persist_image_bytes_runtime_safe(
 ) -> Result<String, ApiError> {
     let ext = infer_extension_from_mime(mime_type.unwrap_or(""), fallback_ext);
     let filename = build_unique_filename(prefix, &ext);
-    if load_backend_tos_config().enabled {
-        return match run_tos_sdk_on_dedicated_thread("upload", move || {
+    let url = if load_backend_tos_config().enabled {
+        match run_tos_sdk_on_dedicated_thread("upload", move || {
             upload_media_bytes_to_tos("images", &filename, &bytes)
         })? {
             Some(url) => Ok(url),
@@ -791,11 +953,14 @@ fn persist_image_bytes_runtime_safe(
                 StatusCode::BAD_GATEWAY,
                 "TOS 已启用但未返回图片上传地址",
             )),
-        };
-    }
-    let path = state.public_dir.join("generated-images").join(&filename);
-    write_file_bytes(&path, &bytes)?;
-    Ok(format!("/api/image/file/{}", filename))
+        }?
+    } else {
+        let path = state.public_dir.join("generated-images").join(&filename);
+        write_file_bytes(&path, &bytes)?;
+        format!("/api/image/file/{}", filename)
+    };
+    attach_persisted_media_to_model_log_best_effort("image", &url);
+    Ok(url)
 }
 
 fn detect_audio_mime_type(bytes: &[u8]) -> Option<&'static str> {
@@ -2870,18 +3035,21 @@ async fn persist_video_bytes_async(
 ) -> Result<String, ApiError> {
     let ext = infer_extension_from_mime(mime_type.unwrap_or(""), fallback_ext);
     let filename = build_unique_filename(prefix, &ext);
-    if load_backend_tos_config().enabled {
-        return match upload_media_bytes_to_tos_async("videos", filename, bytes).await? {
+    let url = if load_backend_tos_config().enabled {
+        match upload_media_bytes_to_tos_async("videos", filename, bytes).await? {
             Some(url) => Ok(url),
             None => Err(ApiError::new(
                 StatusCode::BAD_GATEWAY,
                 "TOS 已启用但未返回视频上传地址",
             )),
-        };
-    }
-    let path = state.public_dir.join("videos").join(&filename);
-    write_file_bytes(&path, &bytes)?;
-    Ok(format!("/api/video/file/{}", filename))
+        }?
+    } else {
+        let path = state.public_dir.join("videos").join(&filename);
+        write_file_bytes(&path, &bytes)?;
+        format!("/api/video/file/{}", filename)
+    };
+    attach_persisted_media_to_model_log_best_effort("video", &url);
+    Ok(url)
 }
 
 async fn persist_audio_bytes_async(
@@ -2892,18 +3060,21 @@ async fn persist_audio_bytes_async(
 ) -> Result<String, ApiError> {
     let ext = infer_extension_from_mime(mime_type.unwrap_or(""), "mp3");
     let filename = build_unique_filename(prefix, &ext);
-    if load_backend_tos_config().enabled {
-        return match upload_media_bytes_to_tos_async("voice-assets", filename, bytes).await? {
+    let url = if load_backend_tos_config().enabled {
+        match upload_media_bytes_to_tos_async("voice-assets", filename, bytes).await? {
             Some(url) => Ok(url),
             None => Err(ApiError::new(
                 StatusCode::BAD_GATEWAY,
                 "TOS 已启用但未返回音频上传地址",
             )),
-        };
-    }
-    let path = state.public_dir.join("audios").join(&filename);
-    write_file_bytes(&path, &bytes)?;
-    Ok(format!("/audios/{}", filename))
+        }?
+    } else {
+        let path = state.public_dir.join("audios").join(&filename);
+        write_file_bytes(&path, &bytes)?;
+        format!("/audios/{}", filename)
+    };
+    attach_persisted_media_to_model_log_best_effort("audio", &url);
+    Ok(url)
 }
 
 async fn persist_audio_source(
@@ -3289,7 +3460,7 @@ fn build_parsed_script_payload(body: &Value) -> Value {
       "data": {
         "title": format!("{}脚本", style),
         "scenes": scenes,
-        "characters": characters.into_iter().map(|name| json!({"name": name, "role": "supporting"})).collect::<Vec<_>>()
+        "characters": characters.into_iter().map(|name| json!({"name": name, "role": "配角"})).collect::<Vec<_>>()
       },
       "formattedTimeline": {
         "lines": formatted_lines,
@@ -3962,6 +4133,20 @@ fn normalize_model_scene_characters(value: Option<Value>) -> Value {
                     .filter(|value| !value.is_empty())?
                     .to_string();
                 object.insert("name".to_string(), json!(name));
+                if let Some(emotion) = object.get("emotion").and_then(Value::as_str) {
+                    let normalized = match emotion.trim().to_ascii_lowercase().as_str() {
+                        "neutral" => "中性",
+                        "happy" => "开心",
+                        "sad" => "悲伤",
+                        "angry" => "愤怒",
+                        "surprised" => "惊讶",
+                        "scared" => "害怕",
+                        "worried" => "担忧",
+                        "determined" => "坚定",
+                        _ => emotion.trim(),
+                    };
+                    object.insert("emotion".to_string(), json!(normalized));
+                }
                 Some(Value::Object(object))
             }
             _ => None,
@@ -4073,18 +4258,17 @@ fn normalize_model_scene_dramatic(
 
     let mut normalized = serde_json::Map::new();
     if let Some(function) = object.get("function").and_then(trimmed_json_string) {
-        if matches!(
-            function.as_str(),
-            "hook"
-                | "escalation"
-                | "confrontation"
-                | "reversal"
-                | "payoff"
-                | "cliffhanger"
-                | "aftermath"
-        ) {
-            normalized.insert("function".to_string(), json!(function));
-        }
+        let normalized_function = match function.as_str() {
+            "hook" | "钩子" => "钩子",
+            "escalation" | "升级" => "升级",
+            "confrontation" | "对抗" => "对抗",
+            "reversal" | "反转" => "反转",
+            "payoff" | "回报" => "回报",
+            "cliffhanger" | "悬念" => "悬念",
+            "aftermath" | "余波" => "余波",
+            _ => function.as_str(),
+        };
+        normalized.insert("function".to_string(), json!(normalized_function));
     }
 
     for (key, label) in [
@@ -4121,22 +4305,22 @@ fn infer_model_scene_shot_type_from_text(text: &str) -> Option<String> {
 
     let lower = text.to_ascii_lowercase();
     let normalized = match lower.as_str() {
-        "extreme_wide" | "extreme wide" | "establishing" => "extreme_wide",
-        "wide" | "wide shot" | "full shot" => "wide",
-        "medium_wide" | "medium wide" => "medium_wide",
-        "medium" | "medium shot" => "medium",
-        "medium_close" | "medium close" | "medium close-up" | "medium closeup" => "medium_close",
-        "close" | "close-up" | "closeup" | "close shot" => "close",
-        "extreme_close" | "extreme close-up" | "extreme closeup" => "extreme_close",
-        "detail" | "detail shot" | "insert shot" => "detail",
-        _ if text.contains("大远景") || text.contains("超远景") => "extreme_wide",
-        _ if text.contains("中全景") => "medium_wide",
-        _ if text.contains("中近景") => "medium_close",
-        _ if text.contains("中景") => "medium",
-        _ if text.contains("全景") || text.contains("远景") => "wide",
-        _ if text.contains("近景") => "close",
-        _ if text.contains("大特写") || text.contains("特写") => "extreme_close",
-        _ if text.contains("细节") || text.contains("插入镜头") => "detail",
+        "extreme_wide" | "extreme wide" | "establishing" => "大远景",
+        "wide" | "wide shot" | "full shot" => "全景",
+        "medium_wide" | "medium wide" => "中全景",
+        "medium" | "medium shot" => "中景",
+        "medium_close" | "medium close" | "medium close-up" | "medium closeup" => "中近景",
+        "close" | "close-up" | "closeup" | "close shot" => "近景",
+        "extreme_close" | "extreme close-up" | "extreme closeup" => "大特写",
+        "detail" | "detail shot" | "insert shot" => "细节镜头",
+        _ if text.contains("细节") || text.contains("插入镜头") => "细节镜头",
+        _ if text.contains("大远景") || text.contains("超远景") => "大远景",
+        _ if text.contains("中全景") => "中全景",
+        _ if text.contains("中近景") => "中近景",
+        _ if text.contains("中景") => "中景",
+        _ if text.contains("全景") || text.contains("远景") => "全景",
+        _ if text.contains("近景") => "近景",
+        _ if text.contains("大特写") || text.contains("特写") => "大特写",
         _ => return None,
     };
 
@@ -4148,9 +4332,13 @@ fn normalize_model_scene_shot_type(value: Option<Value>, fallback_text: &str) ->
         if let Some(normalized) = infer_model_scene_shot_type_from_text(&raw) {
             return normalized;
         }
+        let raw = raw.trim();
+        if !raw.is_empty() {
+            return raw.to_string();
+        }
     }
 
-    infer_model_scene_shot_type_from_text(fallback_text).unwrap_or_else(|| "medium".to_string())
+    infer_model_scene_shot_type_from_text(fallback_text).unwrap_or_else(|| "中景".to_string())
 }
 
 fn infer_model_scene_camera_movement_from_text(text: &str) -> Option<String> {
@@ -4161,39 +4349,46 @@ fn infer_model_scene_camera_movement_from_text(text: &str) -> Option<String> {
 
     let lower = text.to_ascii_lowercase();
     let normalized = match lower.as_str() {
-        "static" | "fixed" | "locked" | "still" => "static",
-        "push" | "push in" | "push-in" => "push",
-        "pull" | "pull out" | "pull-out" => "pull",
-        "pan_left" | "pan left" => "pan_left",
-        "pan_right" | "pan right" => "pan_right",
-        "tilt_up" | "tilt up" => "tilt_up",
-        "tilt_down" | "tilt down" => "tilt_down",
-        "track" | "tracking" | "tracking shot" => "track",
-        "dolly" => "dolly",
-        "zoom_in" | "zoom in" => "zoom_in",
-        "zoom_out" | "zoom out" => "zoom_out",
-        "crane" => "crane",
-        "handheld" | "handheld shot" => "handheld",
-        "arc" | "orbit" | "arc shot" => "arc",
+        "static" | "fixed" | "locked" | "still" => "固定镜头",
+        "push" | "push in" | "push-in" => "推进",
+        "pull" | "pull out" | "pull-out" => "拉远",
+        "pan_left" | "pan left" => "左摇",
+        "pan_right" | "pan right" => "右摇",
+        "tilt_up" | "tilt up" => "上摇",
+        "tilt_down" | "tilt down" => "下摇",
+        "track" | "tracking" | "tracking shot" => "跟拍",
+        "dolly" => "轨道移动",
+        "zoom_in" | "zoom in" => "变焦推进",
+        "zoom_out" | "zoom out" => "变焦拉远",
+        "crane" => "升降",
+        "handheld" | "handheld shot" => "手持",
+        "arc" | "orbit" | "arc shot" => "环绕",
+        "whip_pan" | "whip pan" => "甩镜",
+        "dutch_tilt" | "dutch tilt" => "荷兰角",
+        "roll" => "旋转",
         _ if text.contains("固定") || text.contains("定镜") || text.contains("静止") => {
-            "static"
+            "固定镜头"
         }
         _ if text.contains("推镜") || text.contains("推进") || text.contains("推近") => {
-            "push"
+            "推进"
         }
         _ if text.contains("拉镜") || text.contains("拉远") || text.contains("后拉") => {
-            "pull"
+            "拉远"
         }
-        _ if text.contains("左摇") => "pan_left",
-        _ if text.contains("右摇") => "pan_right",
-        _ if text.contains("上摇") => "tilt_up",
-        _ if text.contains("下摇") => "tilt_down",
-        _ if text.contains("跟拍") || text.contains("跟镜") => "track",
-        _ if text.contains("变焦推") || text.contains("放大") => "zoom_in",
-        _ if text.contains("变焦拉") || text.contains("缩小") => "zoom_out",
-        _ if text.contains("升降") => "crane",
-        _ if text.contains("手持") => "handheld",
-        _ if text.contains("环绕") => "arc",
+        _ if text.contains("左摇") => "左摇",
+        _ if text.contains("右摇") => "右摇",
+        _ if text.contains("上摇") => "上摇",
+        _ if text.contains("下摇") => "下摇",
+        _ if text.contains("跟拍") || text.contains("跟镜") => "跟拍",
+        _ if text.contains("轨道") || text.contains("移镜") => "轨道移动",
+        _ if text.contains("变焦推") || text.contains("放大") => "变焦推进",
+        _ if text.contains("变焦拉") || text.contains("缩小") => "变焦拉远",
+        _ if text.contains("升降") => "升降",
+        _ if text.contains("手持") => "手持",
+        _ if text.contains("环绕") => "环绕",
+        _ if text.contains("甩镜") => "甩镜",
+        _ if text.contains("荷兰角") || text.contains("倾斜构图") => "荷兰角",
+        _ if text.contains("旋转") || text.contains("滚转") => "旋转",
         _ => return None,
     };
 
@@ -4205,10 +4400,14 @@ fn normalize_model_scene_camera_movement(value: Option<Value>, fallback_text: &s
         if let Some(normalized) = infer_model_scene_camera_movement_from_text(&raw) {
             return normalized;
         }
+        let raw = raw.trim();
+        if !raw.is_empty() {
+            return raw.to_string();
+        }
     }
 
     infer_model_scene_camera_movement_from_text(fallback_text)
-        .unwrap_or_else(|| "static".to_string())
+        .unwrap_or_else(|| "固定镜头".to_string())
 }
 
 fn normalize_model_scene_environment_capture_mode_value(value: Option<Value>) -> Option<String> {
@@ -4222,17 +4421,17 @@ fn normalize_model_scene_environment_capture_mode_value(value: Option<Value>) ->
 
     let lower = text.to_ascii_lowercase();
     let normalized = match lower.as_str() {
-        "single" | "single view" | "single image" => "single",
-        "four_view" | "four view" | "four views" | "multi view" | "multi-view" => "four_view",
+        "single" | "single view" | "single image" => "单视角",
+        "four_view" | "four view" | "four views" | "multi view" | "multi-view" => "四视角",
         _ if text.contains("单视角") || text.contains("单张") || text.contains("单图") => {
-            "single"
+            "单视角"
         }
         _ if text.contains("四视图")
             || text.contains("四视角")
             || text.contains("多视角")
             || text.contains("多角度") =>
         {
-            "four_view"
+            "四视角"
         }
         _ => return None,
     };
@@ -4277,11 +4476,11 @@ fn infer_model_scene_environment_capture_mode(description: &str, camera_note: &s
         .collect::<Vec<_>>()
         .join("\n");
     if text.is_empty() {
-        return "single".to_string();
+        return "单视角".to_string();
     }
 
     if count_model_scene_timeline_segments(description) >= 2 {
-        return "four_view".to_string();
+        return "四视角".to_string();
     }
 
     let lower = text.to_ascii_lowercase();
@@ -4306,14 +4505,14 @@ fn infer_model_scene_environment_capture_mode(description: &str, camera_note: &s
     .iter()
     .any(|keyword| lower.contains(*keyword))
     {
-        return "four_view".to_string();
+        return "四视角".to_string();
     }
 
     if count_model_scene_shot_keyword_kinds(description) >= 2 {
-        return "four_view".to_string();
+        return "四视角".to_string();
     }
 
-    "single".to_string()
+    "单视角".to_string()
 }
 
 fn normalize_model_scene_environment_capture_mode(
@@ -5211,16 +5410,25 @@ fn normalize_episode_asset_character(item: &Value) -> Option<Value> {
             ],
         ),
     );
-    insert_episode_asset_field(
-        &mut object,
-        "role",
-        episode_asset_field(item, &["role", "定位", "角色定位", "人物定位"]),
-    );
-    insert_episode_asset_field(
-        &mut object,
-        "gender",
-        episode_asset_field(item, &["gender", "性别"]),
-    );
+    let role =
+        episode_asset_field(item, &["role", "定位", "角色定位", "人物定位"]).map(
+            |value| match value.trim().to_ascii_lowercase().as_str() {
+                "protagonist" | "lead" | "hero" => "主角".to_string(),
+                "antagonist" | "villain" => "反派".to_string(),
+                "supporting" | "support" => "配角".to_string(),
+                _ => value,
+            },
+        );
+    insert_episode_asset_field(&mut object, "role", role);
+    let gender = episode_asset_field(item, &["gender", "性别"]).map(|value| {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "male" | "man" | "boy" => "男".to_string(),
+            "female" | "woman" | "girl" => "女".to_string(),
+            "other" | "nonbinary" | "unspecified" => "其他".to_string(),
+            _ => value,
+        }
+    });
+    insert_episode_asset_field(&mut object, "gender", gender);
     Some(Value::Object(object))
 }
 
@@ -13106,6 +13314,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn model_scene_normalization_preserves_open_ended_creative_values() {
+        assert_eq!(
+            normalize_model_scene_shot_type(Some(json!("过肩双人构图")), ""),
+            "过肩双人构图"
+        );
+        assert_eq!(
+            normalize_model_scene_camera_movement(Some(json!("斯坦尼康贴身游移")), ""),
+            "斯坦尼康贴身游移"
+        );
+        let dramatic =
+            normalize_model_scene_dramatic(Some(json!({ "function": "误导与信息遮蔽" })), "")
+                .expect("dramatic metadata should be preserved");
+        assert_eq!(dramatic["function"], "误导与信息遮蔽");
+    }
+
+    #[test]
+    fn workflow_validation_accepts_open_ended_episode_and_character_metadata() {
+        assert!(validate_script_episode_plan_item(
+            &json!({
+              "startOffset": 0,
+              "endOffset": 12,
+              "payoffType": "牺牲后的情感和解"
+            }),
+            "episode"
+        )
+        .is_ok());
+
+        assert!(validate_character_generate_payload(&json!({
+          "character": {
+            "id": "char_1",
+            "name": "零号",
+            "appearance": "银色仿生外壳",
+            "role": "失忆的叙事观察者",
+            "gender": "无性别机械生命",
+            "speakingStyle": "克制疏离，带机械式停顿"
+          },
+          "style": "科幻动画"
+        }))
+        .is_ok());
+    }
+
+    #[test]
     fn model_log_media_refs_include_request_audio() {
         let mut refs = Vec::new();
         collect_model_log_media_refs(
@@ -13140,6 +13390,43 @@ mod tests {
         assert_eq!(refs[0]["mediaType"], "audio");
         assert_eq!(refs[0]["status"], "skipped");
         assert!(refs[0].get("url").is_none());
+    }
+
+    #[test]
+    fn persisted_media_cdn_urls_replace_inline_placeholders_in_local_and_cloud_logs() {
+        for (media_type, result_field, extension) in [
+            ("image", "imageUrl", "png"),
+            ("audio", "audioUrl", "mp3"),
+            ("video", "videoUrl", "mp4"),
+        ] {
+            let url = format!("https://cdn.example.com/results/result.{extension}");
+            let response = json!({
+              "source": { "kind": "large-media-or-inline-string", "chars": 100_000 }
+            });
+            let media_refs = json!([{
+              "direction": "response",
+              "path": "$.source",
+              "mediaType": media_type,
+              "status": "skipped"
+            }]);
+            let cloud_payload = json!({ "eventId": "log_test", "response": response });
+
+            let (updated_response, updated_refs, updated_cloud) = build_persisted_media_log_values(
+                Some(&response.to_string()),
+                Some(&media_refs.to_string()),
+                Some(&cloud_payload.to_string()),
+                media_type,
+                &url,
+            )
+            .expect("supported media type");
+
+            assert_eq!(updated_response[result_field], url);
+            assert_eq!(updated_cloud["response"][result_field], url);
+            let refs = updated_refs.as_array().expect("media refs array");
+            assert_eq!(refs.len(), 1);
+            assert_eq!(refs[0]["url"], url);
+            assert_eq!(refs[0]["status"], "ready");
+        }
     }
 
     #[test]
@@ -14824,6 +15111,7 @@ fn write_model_debug_log(
       "durationMs": duration_ms.max(1),
       "request": request,
       "response": response_value,
+      "mediaRefs": media_refs.clone(),
       "error": error.cloned().unwrap_or(Value::Null),
       "errorMessage": error
         .and_then(|value| value.get("message").and_then(Value::as_str))
@@ -15420,27 +15708,7 @@ fn validate_script_episode_plan_item(item: &Value, path: &str) -> Result<(), Api
     workflow_optional_string(item, "reversalPoint", path)?;
     workflow_optional_string(item, "emotionalCurve", path)?;
     workflow_optional_string(item, "cliffhanger", path)?;
-    if let Some(payoff_type) = item.get("payoffType").filter(|value| !value.is_null()) {
-        let raw = payoff_type.as_str().ok_or_else(|| {
-            workflow_validation_error(format!("{path}.payoffType"), "Expected string")
-        })?;
-        if !matches!(
-            raw,
-            "打脸"
-                | "反杀"
-                | "揭露"
-                | "甜宠撑腰"
-                | "身世反转"
-                | "危机升级"
-                | "搞钱逆袭"
-                | "权力升级"
-        ) {
-            return Err(workflow_validation_error(
-                format!("{path}.payoffType"),
-                "Invalid enum value",
-            ));
-        }
-    }
+    workflow_optional_string(item, "payoffType", path)?;
     if let Some(assets) = item.get("episodeAssets").filter(|value| !value.is_null()) {
         if !assets.is_object() {
             return Err(workflow_validation_error(
@@ -16942,46 +17210,11 @@ fn validate_character_generate_payload(body: &Value) -> Result<(), ApiError> {
 
     workflow_optional_string(character, "role", "body.character")?;
     workflow_optional_number(character, "age", "body.character")?;
-    if let Some(gender) = character.get("gender").filter(|value| !value.is_null()) {
-        let raw = gender
-            .as_str()
-            .ok_or_else(|| workflow_validation_error("body.character.gender", "Expected string"))?;
-        if !matches!(raw, "male" | "female" | "other") {
-            return Err(workflow_validation_error(
-                "body.character.gender",
-                "Invalid enum value",
-            ));
-        }
-    }
+    workflow_optional_string(character, "gender", "body.character")?;
     workflow_optional_string(character, "personality", "body.character")?;
     workflow_optional_string(character, "background", "body.character")?;
     workflow_optional_string(character, "motivation", "body.character")?;
-    if let Some(speaking_style) = character
-        .get("speakingStyle")
-        .filter(|value| !value.is_null())
-    {
-        let raw = speaking_style.as_str().ok_or_else(|| {
-            workflow_validation_error("body.character.speakingStyle", "Expected string")
-        })?;
-        if !matches!(
-            raw,
-            "formal"
-                | "casual"
-                | "polite"
-                | "rude"
-                | "childish"
-                | "mature"
-                | "humorous"
-                | "serious"
-                | "mysterious"
-                | "energetic"
-        ) {
-            return Err(workflow_validation_error(
-                "body.character.speakingStyle",
-                "Invalid enum value",
-            ));
-        }
-    }
+    workflow_optional_string(character, "speakingStyle", "body.character")?;
     workflow_optional_string(character, "catchphrase", "body.character")?;
     workflow_optional_string(character, "voiceTone", "body.character")?;
     if let Some(traits) = character.get("traits").filter(|value| !value.is_null()) {

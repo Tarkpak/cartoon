@@ -42,7 +42,7 @@ describe('asset-workbench-script-parsing', () => {
     expect(characters.map(character => character.name)).toEqual(['白叙', '江沉'])
   })
 
-  it('sanitizes free-text model metadata before saving scenes', () => {
+  it('normalizes known metadata and preserves open-ended creative values', () => {
     const scenes = buildParsedScenes({
       scenes: [{
         id: 'scene_001',
@@ -69,9 +69,9 @@ describe('asset-workbench-script-parsing', () => {
     expect(scenes[0]?.props).toEqual([
       { name: '白色大卡车', description: '车头逼近，喇叭刺耳' }
     ])
-    expect(scenes[0]?.shotType).toBe('medium')
-    expect(scenes[0]?.cameraMovement).toBe('static')
-    expect(scenes[0]?.environmentCaptureMode).toBe('four_view')
+    expect(scenes[0]?.shotType).toBe('中景')
+    expect(scenes[0]?.cameraMovement).toBe('逆光环境镜头')
+    expect(scenes[0]?.environmentCaptureMode).toBe('四视角')
     expect(scenes[0]?.narration).toBe('字幕：2026年 夏\n黄昏老街路口。')
   })
 
@@ -107,5 +107,31 @@ describe('asset-workbench-script-parsing', () => {
     expect(scenes[0]?.description).not.toContain('戏剧冲突：')
     expect(scenes[0]?.description).not.toContain('爽点/痛点：')
     expect(scenes[0]?.description).not.toContain('结尾钩子：')
+  })
+
+  it('keeps model-authored creative classifications outside the common suggestions', () => {
+    const scenes = buildParsedScenes({
+      scenes: [{
+        id: 'scene_open',
+        title: '审讯室',
+        description: '两人隔桌对峙，真相仍被遮蔽。',
+        duration: 8,
+        setting: {
+          location: '审讯室',
+          timeOfDay: '夜晚'
+        },
+        characters: [{ name: '林默', emotion: '强装镇定下的迟疑' }],
+        shotType: '过肩双人构图',
+        cameraMovement: '斯坦尼康贴身游移',
+        dramatic: {
+          function: '误导与信息遮蔽'
+        }
+      }]
+    })
+
+    expect(scenes[0]?.shotType).toBe('过肩双人构图')
+    expect(scenes[0]?.cameraMovement).toBe('斯坦尼康贴身游移')
+    expect(scenes[0]?.dramatic?.function).toBe('误导与信息遮蔽')
+    expect(scenes[0]?.characters[0]?.emotion).toBe('强装镇定下的迟疑')
   })
 })

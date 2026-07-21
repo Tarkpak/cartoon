@@ -30,44 +30,44 @@ describe('asset-workbench environment views', () => {
   it('resolves capture mode per scene with fallback', () => {
     expect(resolveEnvironmentCaptureModeForScene({
       description: '0-3秒：中景。\\n3-6秒：特写。'
-    })).toBe('four_view')
+    })).toBe('四视角')
 
     expect(resolveEnvironmentCaptureModeForScene({
       description: '0-6秒：中景，固定机位。'
-    })).toBe('single')
+    })).toBe('单视角')
 
     expect(resolveEnvironmentCaptureModeForScene(
       { description: '0-6秒：中景，固定机位。' },
-      { fallbackCaptureMode: 'four_view' }
-    )).toBe('four_view')
+      { fallbackCaptureMode: '四视角' }
+    )).toBe('四视角')
   })
 
   it('prefers model tag when environmentCaptureMode is provided', () => {
     expect(resolveEnvironmentCaptureModeForScene({
       description: '0-6秒：中景，固定机位。',
-      environmentCaptureMode: 'four_view'
-    })).toBe('four_view')
+      environmentCaptureMode: '四视角'
+    })).toBe('四视角')
 
     expect(resolveEnvironmentCaptureModeForScene({
       description: '0-3秒：中景。\\n3-6秒：特写。',
-      environmentCaptureMode: 'single'
-    })).toBe('single')
+      environmentCaptureMode: '单视角'
+    })).toBe('单视角')
   })
 
   it('resolves reference image by capture mode with graceful fallback', () => {
     expect(resolveEnvironmentReferenceImageByCaptureMode({
       singleViewImage: 'single.png',
       fourViewImage: 'four.png'
-    }, 'single')).toBe('single.png')
+    }, '单视角')).toBe('single.png')
 
     expect(resolveEnvironmentReferenceImageByCaptureMode({
       singleViewImage: 'single.png',
       fourViewImage: 'four.png'
-    }, 'four_view')).toBe('four.png')
+    }, '四视角')).toBe('four.png')
 
     expect(resolveEnvironmentReferenceImageByCaptureMode({
       singleViewImage: 'single.png'
-    }, 'four_view')).toBe('single.png')
+    }, '四视角')).toBe('single.png')
   })
 
   it('does not show panorama source as single or four-view card image', () => {
@@ -76,8 +76,8 @@ describe('asset-workbench environment views', () => {
       panoramaImage: 'panorama.png'
     }
 
-    expect(resolveEnvironmentViewImageForCard(asset, 'single')).toBeUndefined()
-    expect(resolveEnvironmentViewImageForCard(asset, 'four_view')).toBeUndefined()
+    expect(resolveEnvironmentViewImageForCard(asset, '单视角')).toBeUndefined()
+    expect(resolveEnvironmentViewImageForCard(asset, '四视角')).toBeUndefined()
   })
 
   it('ignores panorama-polluted typed and legacy history for card view images', () => {
@@ -88,12 +88,12 @@ describe('asset-workbench environment views', () => {
         {
           id: 'hist_single',
           image: 'panorama.png',
-          viewMode: 'single' as const
+          viewMode: '单视角' as const
         },
         {
           id: 'hist_four',
           image: 'panorama.png',
-          viewMode: 'four_view' as const
+          viewMode: '四视角' as const
         },
         {
           id: 'hist_legacy',
@@ -102,8 +102,8 @@ describe('asset-workbench environment views', () => {
       ]
     }
 
-    expect(resolveEnvironmentViewImageForCard(asset, 'single')).toBeUndefined()
-    expect(resolveEnvironmentViewImageForCard(asset, 'four_view')).toBeUndefined()
+    expect(resolveEnvironmentViewImageForCard(asset, '单视角')).toBeUndefined()
+    expect(resolveEnvironmentViewImageForCard(asset, '四视角')).toBeUndefined()
   })
 
   it('resolves explicit single and four-view card images before reference fallback', () => {
@@ -114,8 +114,8 @@ describe('asset-workbench environment views', () => {
       fourViewImage: 'four.png'
     }
 
-    expect(resolveEnvironmentViewImageForCard(asset, 'single')).toBe('single.png')
-    expect(resolveEnvironmentViewImageForCard(asset, 'four_view')).toBe('four.png')
+    expect(resolveEnvironmentViewImageForCard(asset, '单视角')).toBe('single.png')
+    expect(resolveEnvironmentViewImageForCard(asset, '四视角')).toBe('four.png')
   })
 
   it('does not use legacy reference images for four-view card image', () => {
@@ -129,8 +129,8 @@ describe('asset-workbench environment views', () => {
       ]
     }
 
-    expect(resolveEnvironmentViewImageForCard(asset, 'single')).toBe('single-reference.png')
-    expect(resolveEnvironmentViewImageForCard(asset, 'four_view')).toBeUndefined()
+    expect(resolveEnvironmentViewImageForCard(asset, '单视角')).toBe('single-reference.png')
+    expect(resolveEnvironmentViewImageForCard(asset, '四视角')).toBeUndefined()
   })
 
   it('prefers four-view image for multi-view scenes', () => {
@@ -151,7 +151,7 @@ describe('asset-workbench environment views', () => {
       previousFourViewImage: 'old-four.png',
       nextSingleViewImage: 'new-single.png',
       nextFourViewImage: 'new-four.png',
-      captureMode: 'single'
+      captureMode: '单视角'
     })).toEqual({
       singleViewImage: 'new-single.png',
       fourViewImage: 'old-four.png'
@@ -164,7 +164,7 @@ describe('asset-workbench environment views', () => {
       previousFourViewImage: 'old-four.png',
       nextSingleViewImage: 'new-single.png',
       nextFourViewImage: 'new-four.png',
-      captureMode: 'four_view'
+      captureMode: '四视角'
     })).toEqual({
       singleViewImage: 'old-single.png',
       fourViewImage: 'new-four.png'
@@ -177,7 +177,7 @@ describe('asset-workbench environment views', () => {
       previousFourViewImage: 'old-four.png',
       nextSingleViewImage: 'new-single.png',
       nextFourViewImage: 'new-four.png',
-      captureMode: 'four_view'
+      captureMode: '四视角'
     })).toEqual({
       singleViewImage: 'new-single.png',
       fourViewImage: 'new-four.png'
@@ -188,7 +188,7 @@ describe('asset-workbench environment views', () => {
       previousFourViewImage: '',
       nextSingleViewImage: 'new-single.png',
       nextFourViewImage: 'new-four.png',
-      captureMode: 'single'
+      captureMode: '单视角'
     })).toEqual({
       singleViewImage: 'new-single.png',
       fourViewImage: 'new-four.png'

@@ -192,20 +192,18 @@ defineProps<{
       </div>
       <div class="space-y-2">
         <label class="text-sm font-medium">时间</label>
-        <Select v-model="editForm.setting!.timeOfDay">
-          <SelectTrigger class="w-full">
-            <SelectValue placeholder="选择时间" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem
-              v-for="opt in timeOfDayOptions"
-              :key="opt.value"
-              :value="opt.value"
-            >
-              {{ opt.label }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
+        <Input
+          v-model="editForm.setting!.timeOfDay"
+          list="scene-time-of-day-suggestions"
+          placeholder="例如：深夜、黎明前、极夜"
+        />
+        <datalist id="scene-time-of-day-suggestions">
+          <option
+            v-for="opt in timeOfDayOptions"
+            :key="opt.value"
+            :value="opt.value"
+          />
+        </datalist>
       </div>
     </div>
 

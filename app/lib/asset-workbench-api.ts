@@ -4,7 +4,7 @@ import {
   type SceneDramatic,
   type ScriptParseMode
 } from '#shared/types/script'
-import { normalizeCharacterRole } from '#shared/types/character'
+import { normalizeCharacterRoleText } from '#shared/types/character'
 import {
   toOptionalNumber,
   toOptionalString,
@@ -349,7 +349,7 @@ export async function generateAssetWorkbenchCharacter(options: {
         id: options.character.id,
         name: options.character.name,
         appearance: options.character.appearance || `${options.character.name}，动漫风格角色`,
-        role: normalizeCharacterRole(options.character.role) || 'supporting',
+        role: normalizeCharacterRoleText(options.character.role) || '配角',
         gender: toOptionalString(options.character.gender),
         age: toOptionalNumber(options.character.age),
         personality: toOptionalString(options.character.personality),

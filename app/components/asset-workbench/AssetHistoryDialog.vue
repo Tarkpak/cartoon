@@ -53,14 +53,14 @@ function formatEntryTime(entry: AssetImageHistoryEntry): string {
 const denseModeThreshold = 9
 const ultraDenseModeThreshold = 16
 const selectedEntryId = ref('')
-const environmentViewTab = ref<EnvironmentCropCaptureMode>('single')
+const environmentViewTab = ref<EnvironmentCropCaptureMode>('单视角')
 
 const isEnvironmentHistory = computed(() => props.targetType === 'environment')
 const isCharacterHistory = computed(() => props.targetType === 'character')
 const isSplitPreviewLayout = computed(() => isEnvironmentHistory.value || isCharacterHistory.value)
 
 function resolveEntryViewMode(entry: AssetImageHistoryEntry): EnvironmentCropCaptureMode | undefined {
-  return entry.viewMode === 'single' || entry.viewMode === 'four_view'
+  return entry.viewMode === '单视角' || entry.viewMode === '四视角'
     ? entry.viewMode
     : undefined
 }
@@ -80,11 +80,11 @@ const displayedEntries = computed(() => {
 })
 
 const environmentSingleEntryCount = computed(() => {
-  return props.entries.filter(entry => matchesEnvironmentViewTab(entry, 'single')).length
+  return props.entries.filter(entry => matchesEnvironmentViewTab(entry, '单视角')).length
 })
 
 const environmentFourViewEntryCount = computed(() => {
-  return props.entries.filter(entry => matchesEnvironmentViewTab(entry, 'four_view')).length
+  return props.entries.filter(entry => matchesEnvironmentViewTab(entry, '四视角')).length
 })
 
 function resolveDefaultEntryId(entries: AssetImageHistoryEntry[] = displayedEntries.value): string {
@@ -99,9 +99,9 @@ function resolveDefaultEnvironmentViewTab(): EnvironmentCropCaptureMode {
   if (currentEntryViewMode) return currentEntryViewMode
 
   if (environmentFourViewEntryCount.value > environmentSingleEntryCount.value) {
-    return 'four_view'
+    return '四视角'
   }
-  return 'single'
+  return '单视角'
 }
 
 const selectedEntry = computed(() => {
@@ -173,17 +173,17 @@ watch(
       >
         <Button
           size="sm"
-          :variant="environmentViewTab === 'single' ? 'default' : 'outline'"
+          :variant="environmentViewTab === '单视角' ? 'default' : 'outline'"
           class="h-7 px-2 text-xs"
-          @click="environmentViewTab = 'single'"
+          @click="environmentViewTab = '单视角'"
         >
           单视图 {{ environmentSingleEntryCount }}
         </Button>
         <Button
           size="sm"
-          :variant="environmentViewTab === 'four_view' ? 'default' : 'outline'"
+          :variant="environmentViewTab === '四视角' ? 'default' : 'outline'"
           class="h-7 px-2 text-xs"
-          @click="environmentViewTab = 'four_view'"
+          @click="environmentViewTab = '四视角'"
         >
           四视图 {{ environmentFourViewEntryCount }}
         </Button>

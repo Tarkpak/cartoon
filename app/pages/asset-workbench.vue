@@ -7,7 +7,6 @@ import type {
   AssetImageHistoryEntry,
   AssetVideoHistoryEntry,
   ArkVirtualAssetBinding,
-  CharacterRoleOption,
   DisplayAsset,
   EnvironmentAssetCard,
   EnvironmentCropCaptureMode,
@@ -252,13 +251,6 @@ const finalStageMergeOptions = ref<FinalMergeOptions>({
   bgmUrl: '',
   bgmVolume: 0.3
 })
-
-const characterRoleOptions: CharacterRoleOption[] = [
-  { value: 'protagonist', label: '主角' },
-  { value: 'antagonist', label: '反派' },
-  { value: 'supporting', label: '配角' },
-  { value: 'extra', label: '群演' }
-]
 
 const {
   selectedScene,
@@ -623,8 +615,8 @@ function resolveEnvironmentPanoramaStateForScene(scene: SceneData): EnvironmentP
     if (!crop && state.crop) {
       crop = state.crop
     }
-    if (state.captureMode === 'four_view') {
-      captureMode = 'four_view'
+    if (state.captureMode === '四视角') {
+      captureMode = '四视角'
     }
   }
 
@@ -657,7 +649,7 @@ function setEnvironmentPanoramaState(
   const panoramaImage = state?.panoramaImage?.trim() || undefined
   const singleViewImage = state?.singleViewImage?.trim() || undefined
   const fourViewImage = state?.fourViewImage?.trim() || undefined
-  const captureMode = state?.captureMode === 'four_view' ? 'four_view' : undefined
+  const captureMode = state?.captureMode === '四视角' ? '四视角' : undefined
   const hasPayload = !!panoramaImage || !!singleViewImage || !!fourViewImage || !!state?.crop || !!captureMode
   const nextStates = { ...environmentPanoramaStates.value }
 
@@ -699,10 +691,10 @@ function resolveSceneBaselineReferenceImage(scene: SceneData): string | undefine
     captureMode: panoramaState?.captureMode || environmentCard?.captureMode,
     singleViewImage: panoramaState?.singleViewImage
       || environmentCard?.singleViewImage
-      || resolveEnvironmentHistoryImageByView(environmentCard, 'single'),
+      || resolveEnvironmentHistoryImageByView(environmentCard, '单视角'),
     fourViewImage: panoramaState?.fourViewImage
       || environmentCard?.fourViewImage
-      || resolveEnvironmentHistoryImageByView(environmentCard, 'four_view')
+      || resolveEnvironmentHistoryImageByView(environmentCard, '四视角')
   }
   return resolveEnvironmentReferenceImageForScene(scene, referenceState)
     || resolveSceneReferenceImage(scene)
@@ -722,10 +714,10 @@ function resolveSceneEnvironmentReferenceImageForMode(
     captureMode: panoramaState?.captureMode || environmentCard?.captureMode,
     singleViewImage: panoramaState?.singleViewImage
       || environmentCard?.singleViewImage
-      || resolveEnvironmentHistoryImageByView(environmentCard, 'single'),
+      || resolveEnvironmentHistoryImageByView(environmentCard, '单视角'),
     fourViewImage: panoramaState?.fourViewImage
       || environmentCard?.fourViewImage
-      || resolveEnvironmentHistoryImageByView(environmentCard, 'four_view')
+      || resolveEnvironmentHistoryImageByView(environmentCard, '四视角')
   }
   return resolveEnvironmentReferenceImageByCaptureMode(referenceState, mode)
     || resolveSceneReferenceImage(scene)
@@ -776,7 +768,7 @@ async function createEnvironmentCropImage(options: {
   const uploadPrefix = buildEnvironmentCropUploadPrefix(options.assetId)
   const singleViewImage = await uploadAssetImage(singleViewResult.imageData, `${uploadPrefix}_single`)
   const fourViewImage = await uploadAssetImage(fourViewResult.imageData, `${uploadPrefix}_four`)
-  const imageUrl = captureMode === 'four_view' ? fourViewImage : singleViewImage
+  const imageUrl = captureMode === '四视角' ? fourViewImage : singleViewImage
 
   return {
     imageUrl,
@@ -2004,7 +1996,7 @@ const environmentCropInitialCaptureMode = computed<EnvironmentCropCaptureMode>((
   if (environmentCropRequestedCaptureMode.value) {
     return resolveEnvironmentCropCaptureMode(environmentCropRequestedCaptureMode.value)
   }
-  if (!environmentCropTarget.value) return 'single'
+  if (!environmentCropTarget.value) return '单视角'
   const captureMode = resolveEnvironmentPanoramaState(environmentCropTarget.value.id)?.captureMode
     || environmentCropTarget.value.captureMode
   return resolveEnvironmentCropCaptureMode(
@@ -2061,21 +2053,21 @@ async function submitEnvironmentCropSelection(payload: {
     })
 
     const normalizedSingleViewImage = result.singleViewImage?.trim()
-      || (result.captureMode === 'single'
+      || (result.captureMode === '单视角'
         ? (result.imageUrl?.trim() || undefined)
         : undefined)
     const normalizedFourViewImage = result.fourViewImage?.trim()
-      || (result.captureMode === 'four_view'
+      || (result.captureMode === '四视角'
         ? (result.imageUrl?.trim() || undefined)
         : undefined)
     const latestPanoramaState = resolveEnvironmentPanoramaState(target.id)
     const previousSingleViewImage = latestPanoramaState?.singleViewImage?.trim()
       || target.singleViewImage?.trim()
-      || resolveEnvironmentHistoryImageByView(target, 'single')
+      || resolveEnvironmentHistoryImageByView(target, '单视角')
       || undefined
     const previousFourViewImage = latestPanoramaState?.fourViewImage?.trim()
       || target.fourViewImage?.trim()
-      || resolveEnvironmentHistoryImageByView(target, 'four_view')
+      || resolveEnvironmentHistoryImageByView(target, '四视角')
       || undefined
     const nextViewImages = mergeEnvironmentReferenceViewImages({
       previousSingleViewImage,
@@ -2092,7 +2084,7 @@ async function submitEnvironmentCropSelection(payload: {
       fourViewImage: nextViewImages.fourViewImage
     })
 
-    const selectedViewImage = result.captureMode === 'four_view'
+    const selectedViewImage = result.captureMode === '四视角'
       ? (result.fourViewImage?.trim() || result.imageUrl?.trim() || '')
       : (result.singleViewImage?.trim() || result.imageUrl?.trim() || '')
 
@@ -2261,18 +2253,18 @@ async function handleAssetHistorySelect(entry: AssetImageHistoryEntry) {
         crop: latestState.crop
       }
 
-      if (entry.viewMode === 'single') {
+      if (entry.viewMode === '单视角') {
         nextPanoramaState.singleViewImage = nextImage
         nextPanoramaState.fourViewImage = latestState.fourViewImage?.trim() || undefined
-      } else if (entry.viewMode === 'four_view') {
+      } else if (entry.viewMode === '四视角') {
         nextPanoramaState.singleViewImage = latestState.singleViewImage?.trim() || undefined
         nextPanoramaState.fourViewImage = nextImage
-        nextPanoramaState.captureMode = 'four_view'
+        nextPanoramaState.captureMode = '四视角'
       } else {
         nextPanoramaState.singleViewImage = latestState.singleViewImage?.trim() || undefined
         nextPanoramaState.fourViewImage = latestState.fourViewImage?.trim() || undefined
-        if (latestState.captureMode === 'four_view') {
-          nextPanoramaState.captureMode = 'four_view'
+        if (latestState.captureMode === '四视角') {
+          nextPanoramaState.captureMode = '四视角'
         }
       }
 
@@ -2850,14 +2842,14 @@ async function generateEnvironmentAssetFromCard(
       recordEnvironmentHistory(assetId, normalizedSingleViewImage, {
         source: 'generated',
         prompt: customPrompt || undefined,
-        viewMode: 'single'
+        viewMode: '单视角'
       })
     }
     if (normalizedFourViewImage) {
       recordEnvironmentHistory(assetId, normalizedFourViewImage, {
         source: 'generated',
         prompt: customPrompt || undefined,
-        viewMode: 'four_view'
+        viewMode: '四视角'
       })
     }
     if (!normalizedSingleViewImage && !normalizedFourViewImage && finalReferenceImage?.trim()) {
@@ -3160,7 +3152,6 @@ async function handleBatchGenerateCharacters() {
           :assets-primary-action-label="assetsPrimaryActionLabel"
           :editing-character-id="editingCharacterId"
           :character-edit-draft="characterEditDraft"
-          :character-role-options="characterRoleOptions"
           :uploading-character-id="uploadingCharacterId"
           :uploading-ark-character-id="uploadingArkCharacterId"
           :uploading-character-voice-id="uploadingCharacterVoiceId"

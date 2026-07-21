@@ -1,5 +1,5 @@
 import type { SceneData } from '~/composables/useAssetWorkbench'
-import { resolveTimeOfDayText } from '#shared/types/script'
+import { resolveTimeOfDayCategoryText, resolveTimeOfDayText } from '#shared/types/script'
 import { uniqueSorted } from '~/lib/asset-workbench-strings'
 
 export interface SceneEnvironmentConsistencyContext {
@@ -371,7 +371,7 @@ export function buildSceneEnvironmentConsistencyContext(
 
 export function buildLegacySceneEnvironmentKey(scene: SceneData): string {
   const location = normalizeEnvironmentToken(scene.setting?.location)
-  const timeOfDay = normalizeEnvironmentToken(resolveTimeOfDayText(scene.setting?.timeOfDay))
+  const timeOfDay = normalizeEnvironmentToken(resolveTimeOfDayCategoryText(scene.setting?.timeOfDay))
   const weather = normalizeEnvironmentToken(scene.setting?.weather)
 
   if (!location && !timeOfDay && !weather) return ''
@@ -380,7 +380,7 @@ export function buildLegacySceneEnvironmentKey(scene: SceneData): string {
 
 export function buildExactSceneEnvironmentKey(scene: SceneData): string {
   const location = normalizeEnvironmentToken(scene.setting?.location)
-  const timeOfDay = normalizeEnvironmentToken(resolveTimeOfDayText(scene.setting?.timeOfDay))
+  const timeOfDay = normalizeEnvironmentToken(resolveTimeOfDayCategoryText(scene.setting?.timeOfDay))
 
   if (!location && !timeOfDay) {
     return buildLegacySceneEnvironmentKey(scene)
@@ -416,6 +416,16 @@ export function resolveSceneEnvironmentAssetIdAliases(scene: SceneData): string[
   }
   if (legacyKey) {
     aliases.add(`env:${legacyKey}`)
+  }
+
+  const rawLocation = normalizeEnvironmentToken(scene.setting?.location)
+  const rawTimeOfDay = normalizeEnvironmentToken(resolveTimeOfDayText(scene.setting?.timeOfDay))
+  const rawWeather = normalizeEnvironmentToken(scene.setting?.weather)
+  if (rawLocation || rawTimeOfDay) {
+    aliases.add(`env:${rawLocation}||${rawTimeOfDay}`)
+  }
+  if (rawLocation || rawTimeOfDay || rawWeather) {
+    aliases.add(`env:${rawLocation}||${rawTimeOfDay}||${rawWeather}`)
   }
 
   return Array.from(aliases)

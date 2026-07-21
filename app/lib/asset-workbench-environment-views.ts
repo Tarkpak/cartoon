@@ -43,8 +43,8 @@ function countShotKeywordKinds(text: string): number {
 export function isSceneLikelyMultiView(
   scene: Pick<SceneData, 'description' | 'cameraNote' | 'environmentCaptureMode'>
 ): boolean {
-  if (scene.environmentCaptureMode === 'four_view') return true
-  if (scene.environmentCaptureMode === 'single') return false
+  if (scene.environmentCaptureMode === '四视角') return true
+  if (scene.environmentCaptureMode === '单视角') return false
 
   const description = (scene.description || '').trim()
   const cameraNote = (scene.cameraNote || '').trim()
@@ -69,9 +69,9 @@ export function resolveEnvironmentCaptureModeForScene(
   } = {}
 ): EnvironmentCropCaptureMode {
   if (isSceneLikelyMultiView(scene)) {
-    return 'four_view'
+    return '四视角'
   }
-  return options.fallbackCaptureMode === 'four_view' ? 'four_view' : 'single'
+  return options.fallbackCaptureMode === '四视角' ? '四视角' : '单视角'
 }
 
 type EnvironmentPanoramaReferenceState = Pick<
@@ -141,10 +141,10 @@ export function resolveEnvironmentViewImageForCard(
   const panoramaImage = normalizeOptionalImage(asset.panoramaImage)
   const singleViewImage = resolveNonPanoramaImage(asset.singleViewImage, panoramaImage)
   const fourViewImage = resolveNonPanoramaImage(asset.fourViewImage, panoramaImage)
-  const historySingleViewImage = resolveHistoryViewImage(asset.assetHistory, 'single', panoramaImage)
-  const historyFourViewImage = resolveHistoryViewImage(asset.assetHistory, 'four_view', panoramaImage)
+  const historySingleViewImage = resolveHistoryViewImage(asset.assetHistory, '单视角', panoramaImage)
+  const historyFourViewImage = resolveHistoryViewImage(asset.assetHistory, '四视角', panoramaImage)
 
-  if (viewMode === 'four_view') {
+  if (viewMode === '四视角') {
     return fourViewImage || historyFourViewImage
   }
 
@@ -168,7 +168,7 @@ export function resolveEnvironmentReferenceImageByCaptureMode(
   const fourViewImage = state.fourViewImage?.trim() || ''
   const panoramaImage = state.panoramaImage?.trim() || ''
 
-  if (captureMode === 'four_view') {
+  if (captureMode === '四视角') {
     return fourViewImage || singleViewImage || panoramaImage || undefined
   }
 
@@ -187,7 +187,7 @@ export function mergeEnvironmentReferenceViewImages(options: {
   const nextSingleViewImage = normalizeOptionalImage(options.nextSingleViewImage)
   const nextFourViewImage = normalizeOptionalImage(options.nextFourViewImage)
 
-  if (options.captureMode === 'four_view') {
+  if (options.captureMode === '四视角') {
     return {
       // 仅更新四视图；若单视图尚未存在，则首次用本次生成结果补齐。
       singleViewImage: previousSingleViewImage || nextSingleViewImage,

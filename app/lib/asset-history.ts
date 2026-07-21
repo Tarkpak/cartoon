@@ -50,16 +50,16 @@ function normalizeHistoryEntry(
     return null
   }
 
-  const item = rawValue as Partial<AssetImageHistoryEntry>
+  const item = rawValue as Omit<Partial<AssetImageHistoryEntry>, 'viewMode'> & { viewMode?: unknown }
   const image = normalizeImage(item.image)
   if (!image) return null
 
   const createdAt = typeof item.createdAt === 'string' && item.createdAt.trim()
     ? item.createdAt
     : undefined
-  const viewMode = item.viewMode === 'single' || item.viewMode === 'four_view'
-    ? item.viewMode
-    : undefined
+  const viewMode = item.viewMode === '单视角' || item.viewMode === 'single'
+    ? '单视角'
+    : (item.viewMode === '四视角' || item.viewMode === 'four_view' ? '四视角' : undefined)
 
   return {
     id: typeof item.id === 'string' && item.id.trim()
@@ -143,7 +143,7 @@ export function ensureAssetHistoryEntry(
   const entries = Array.isArray(history) ? [...history] : []
   if (!nextImage) return entries
 
-  const normalizedViewMode = input.viewMode === 'single' || input.viewMode === 'four_view'
+  const normalizedViewMode = input.viewMode === '单视角' || input.viewMode === '四视角'
     ? input.viewMode
     : undefined
   const existingIndex = entries.findIndex(entry => (

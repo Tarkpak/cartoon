@@ -288,6 +288,7 @@ function initSchema(conn: Database) {
       error_message TEXT,
       request_json TEXT,
       response_json TEXT,
+      media_refs_json TEXT,
       error_json TEXT,
       created_at TEXT NOT NULL,
       archived_at TEXT
@@ -368,6 +369,7 @@ function initSchema(conn: Database) {
 
   addColumnIfMissing(conn, 'model_call_logs', 'credits_charged INTEGER NOT NULL DEFAULT 0')
   addColumnIfMissing(conn, 'model_call_logs', 'client_event_id TEXT')
+  addColumnIfMissing(conn, 'model_call_logs', 'media_refs_json TEXT')
   conn.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_model_call_logs_user_event
       ON model_call_logs(user_id, client_event_id)
