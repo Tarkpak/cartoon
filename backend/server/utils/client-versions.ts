@@ -123,7 +123,7 @@ function rolloutAllows(row: ClientVersionRow, deviceId?: string) {
   return deterministicPercent(seed) < percent
 }
 
-export function selectLatestClientVersion(input: Omit<ClientUpdateCheckInput, 'currentVersion'>) {
+function selectMatchingClientVersions(input: Omit<ClientUpdateCheckInput, 'currentVersion'>) {
   const appKey = normalizeClientTarget(input.appKey, 'cartoon-desktop')
   const channel = normalizeClientTarget(input.channel, 'stable')
   const platform = normalizeClientTarget(input.platform)
@@ -143,12 +143,65 @@ export function selectLatestClientVersion(input: Omit<ClientUpdateCheckInput, 'c
   return rows
     .filter(row => targetMatches(row.platform, platform))
     .filter(row => targetMatches(row.arch, arch))
-    .filter(row => rolloutAllows(row, input.deviceId))
     .sort((left, right) => {
       const versionDiff = compareClientVersions(right.version, left.version)
       if (versionDiff !== 0) return versionDiff
       return (right.build_number || 0) - (left.build_number || 0)
-    })[0] || null
+    })
+}
+
+export function selectLatestClientVersion(input: Omit<ClientUpdateCheckInput, 'currentVersion'>) {
+  return selectMatchingClientVersions(input)
+    .filter(row => rolloutAllows(row, input.deviceId))[0] || null
+}
+
+function releaseNotesBody(notes: string) {
+  const lines = notes.trim().split(/\r?\n/)
+  const generatedHeader = /^版本：/u.test(lines[0] || '')
+    && lines.slice(1, 4).some(line => /^更新内容\s*$/u.test(line.trim()))
+
+  if (!generatedHeader) return notes.trim()
+
+  let bodyStart = 1
+  if (/^范围：/u.test(lines[bodyStart]?.trim() || '')) bodyStart += 1
+  while (bodyStart < lines.length && !lines[bodyStart].trim()) bodyStart += 1
+  if (/^更新内容\s*$/u.test(lines[bodyStart]?.trim() || '')) bodyStart += 1
+  return lines.slice(bodyStart).join('\n').trim()
+}
+
+export function buildClientReleaseNotes(
+  rows: ClientVersionRow[],
+  currentVersion: string,
+  latestVersion: string
+) {
+  if (!currentVersion || !latestVersion) {
+    return rows.find(row => (
+      compareClientVersions(row.version, latestVersion) === 0 && row.release_notes.trim()
+    ))?.release_notes.trim() || ''
+  }
+
+  const seenVersions = new Set<string>()
+  const releases = rows
+    .filter(row => isClientVersionLessThan(currentVersion, row.version))
+    .filter(row => compareClientVersions(row.version, latestVersion) <= 0)
+    .filter(row => row.release_notes.trim())
+    .sort((left, right) => compareClientVersions(right.version, left.version))
+    .filter((row) => {
+      const version = row.version.trim().replace(/^v/i, '')
+      if (seenVersions.has(version)) return false
+      seenVersions.add(version)
+      return true
+    })
+
+  if (releases.length <= 1) return releases[0]?.release_notes.trim() || ''
+
+  return releases
+    .map((row) => {
+      const version = /^v/i.test(row.version) ? row.version : `v${row.version}`
+      const body = releaseNotesBody(row.release_notes)
+      return body ? `版本：${version}\n${body}` : `版本：${version}`
+    })
+    .join('\n\n')
 }
 
 export function buildClientUpdateCheckResponse(input: ClientUpdateCheckInput) {
@@ -182,6 +235,9 @@ export function buildClientUpdateCheckResponse(input: ClientUpdateCheckInput) {
     ? !currentVersion || isClientVersionLessThan(currentVersion, latest.min_supported_version)
     : false
   const hasUpdate = versionBehind || belowMinimum
+  const releaseNotes = hasUpdate
+    ? buildClientReleaseNotes(selectMatchingClientVersions(input), currentVersion, latest.version)
+    : latest.release_notes
 
   return {
     ...base,
@@ -192,7 +248,7 @@ export function buildClientUpdateCheckResponse(input: ClientUpdateCheckInput) {
     downloadUrl: latest.download_url,
     sha256: latest.sha256,
     signature: latest.signature,
-    releaseNotes: latest.release_notes,
+    releaseNotes,
     minSupportedVersion: latest.min_supported_version,
     publishedAt: latest.published_at
   }
