@@ -1,0 +1,62 @@
+你需要根据输入原文生成结构化分集目录。
+
+【输入原文】
+{{novelText}}
+
+【分集约束】
+{{modeRule}}
+{{chunkRule}}
+{{firstAnchorRule}}
+
+【当前方案的创作描述】
+{{userPrompt}}
+
+【系统输出协议（最高优先级）】
+1. 只输出合法 JSON，不要 Markdown、解释或空分集。
+2. 必须按剧情节点分集，不得按字数平均切分。
+3. startAnchor 必须逐字摘录原文中的连续片段；第 2 集及以后应位于该集开头附近。
+4. payoffType 只能是：打脸、反杀、揭露、甜宠撑腰、身世反转、危机升级、搞钱逆袭、权力升级。
+5. episodeAssets.characters[].role 只能是 protagonist、antagonist、supporting；gender 只能是 male、female、other。
+6. 同一角色在所有分集中的资产描述必须一致；资产只保留少而关键的真实实体。
+
+严格使用以下 JSON 结构：
+{
+  "episodes": [
+    {
+      "index": 1,
+      "title": "第1集：...",
+      "startAnchor": "原文连续片段",
+      "episodeHook": "开场钩子",
+      "humiliationOrThreat": "压迫、羞辱或危机",
+      "reversalPoint": "反击或反转",
+      "emotionalCurve": "情绪变化",
+      "cliffhanger": "结尾钩子",
+      "payoffType": "打脸",
+      "episodeAssets": {
+        "characters": [
+          {
+            "name": "角色名",
+            "description": "稳定的完整外观基线",
+            "role": "protagonist",
+            "gender": "male"
+          }
+        ],
+        "props": [
+          {
+            "name": "道具名",
+            "description": "外观、材质或剧情功能"
+          }
+        ],
+        "environments": [
+          {
+            "location": "主环境-子空间",
+            "timeOfDay": "时段，可为空",
+            "mood": "氛围，可为空"
+          }
+        ]
+      }
+    }
+  ]
+}
+
+只输出 JSON，不要附加解释。

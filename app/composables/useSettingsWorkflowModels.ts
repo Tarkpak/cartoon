@@ -560,6 +560,7 @@ export function useSettingsWorkflowModels() {
   ) {
     if (selectedModels.value[type] === modelId) return
 
+    workflowSaving.value = true
     try {
       await $fetch('/api/models/switch', {
         method: 'POST',
@@ -570,6 +571,8 @@ export function useSettingsWorkflowModels() {
       await loadWorkflowModels()
     } catch (error) {
       console.error('[useSettingsWorkflowModels] 更新全局默认模型失败:', error)
+    } finally {
+      workflowSaving.value = false
     }
   }
 

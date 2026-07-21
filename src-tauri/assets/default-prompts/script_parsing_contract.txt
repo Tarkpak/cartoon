@@ -1,0 +1,104 @@
+你需要根据以下输入生成结构化分镜数据。
+
+【输入文本】
+{{novelText}}
+
+【项目画风】
+{{style}}
+
+【时代推断提示】
+{{eraHint}}
+
+【输入规模与模式】
+- 文本长度：约 {{textLength}} 字
+- 单场时长：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
+- 场景数量参考：{{recommendedMinScenes}}
+- 解析模式：{{scriptParseModeLabel}}
+
+【解析模式策略】
+{{scriptParseModeRules}}
+
+【本集规划补充】
+{{episodeDramaBrief}}
+
+【当前方案的分镜提示词】
+{{directorPrompt}}
+
+【系统 JSON 协议（最高优先级）】
+1. 只输出合法 JSON，不要 Markdown 代码块、解释、标题或额外文本。
+2. 必须保留下方根结构与字段；分镜提示词只能影响内容表达，不得改变数据结构。
+3. scenes[i].shotType 只能是：extreme_wide、wide、medium_wide、medium、medium_close、close、extreme_close、detail。
+4. scenes[i].cameraMovement 只能是：static、push、pull、pan_left、pan_right、tilt_up、tilt_down、track、dolly、zoom_in、zoom_out、crane、handheld、arc、whip_pan、dutch_tilt、roll。
+5. scenes[i].environmentCaptureMode 只能是 single 或 four_view；存在多视角、多机位或时间轴切镜时使用 four_view，单一连续视角使用 single。
+6. scenes[i].setting.timeOfDay 只能是：黎明、早晨、白天、中午、下午、傍晚、夜晚。
+7. scenes[i].setting.era 只能是：古代、民国、现代、近未来、架空。
+8. scenes[i].characters[].emotion 只能是：neutral、happy、sad、angry、surprised、scared、worried、determined。
+9. 顶层 characters[].role 只能是：protagonist、antagonist、supporting；gender 只能是 male、female、other。
+10. 每个 duration 必须是数字并处于规定时长范围；totalDuration 必须严格等于所有 duration 之和。
+11. 第一场 usePreviousLastFrameAsFirstFrame 必须为 false；只有时空、人物和动作连续时才可为 true。为 true 时填写 continuityLinkReason，否则使用空字符串。
+12. 旁白同时写入 narration，并以画外音形式出现在 description 的对应时间轴；真实角色对白只写入 description。
+13. scenes[i].props 只包含需要维持视觉一致的真实道具；characters、setting、props、narration、duration 等系统字段不得因分镜提示词而缺失。
+14. 若本集规划补充包含角色、环境或道具锚点，必须优先沿用；冲突优先级为：原文事实 > 本集规划补充 > 分镜提示词。
+15. 禁止自行生成 @图片N、[图片N] 或其他引用编号。
+
+严格使用以下 JSON 结构：
+{
+  "title": "剧本标题",
+  "scenes": [
+    {
+      "id": "scene_001",
+      "title": "场景标题",
+      "shotType": "medium",
+      "cameraMovement": "static",
+      "environmentCaptureMode": "single",
+      "dramatic": {
+        "function": "hook|escalation|confrontation|reversal|payoff|cliffhanger|aftermath",
+        "conflict": "本场核心冲突",
+        "emotionalCurve": "情绪变化",
+        "audienceHook": "继续观看的理由",
+        "painPoint": "共情或愤怒点",
+        "payoff": "爽点或回报点",
+        "powerShift": "权力关系变化",
+        "antagonistPressure": "施压方式",
+        "protagonistCounter": "反击或铺垫",
+        "cliffhanger": "结尾钩子"
+      },
+      "description": "包含时间轴镜头、声音、台词节奏和表演关键点的完整场景说明",
+      "setting": {
+        "location": "主环境-子空间",
+        "timeOfDay": "夜晚",
+        "era": "现代",
+        "mood": "情绪氛围",
+        "weather": "天气，可为空"
+      },
+      "characters": [
+        {
+          "name": "角色名",
+          "appearance": "本场外观说明",
+          "emotion": "neutral"
+        }
+      ],
+      "props": [
+        {
+          "name": "道具名",
+          "description": "外观或用途"
+        }
+      ],
+      "narration": "旁白或画外音，可为空",
+      "usePreviousLastFrameAsFirstFrame": false,
+      "continuityLinkReason": "",
+      "duration": 8
+    }
+  ],
+  "characters": [
+    {
+      "name": "角色名",
+      "description": "稳定可复用的角色资产描述",
+      "role": "protagonist",
+      "gender": "male"
+    }
+  ],
+  "totalDuration": 8
+}
+
+只输出 JSON，不要附加解释。

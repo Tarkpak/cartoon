@@ -112,7 +112,7 @@ const PROMPT_TEMPLATE_STAGES: Record<PromptTemplateId, PromptFlowStage> = {
   character_regeneration: 'assets',
   environment_reference_generation: 'assets',
   prop_asset_generation: 'assets',
-  scene_description_refinement: 'assets',
+  scene_description_refinement: 'parse',
   scene_video_generation: 'videos',
   origin_explainer_video_generation: 'videos'
 }

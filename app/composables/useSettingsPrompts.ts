@@ -11,6 +11,10 @@ import type {
   PromptTemplateProfile
 } from '#shared/types/prompt-template'
 import {
+  getDirectorPreferencesValidationError,
+  normalizeDirectorPreferences
+} from '@/lib/director-preferences'
+import {
   getPromptTemplateMetadataForWorkflow,
   isPromptReadonlyProfile,
   PROMPT_FLOW_STAGES,
@@ -21,6 +25,7 @@ interface PromptTemplatesResponse {
   success: boolean
   data?: {
     templates: PromptTemplate[]
+    directorPreferences?: string
     profiles?: PromptTemplateProfile[]
     activeProfileId?: string
   }
@@ -76,6 +81,9 @@ export function useSettingsPrompts() {
   const promptProfileMutating = ref(false)
 
   const promptTemplates = ref<PromptTemplate[]>([])
+  const directorPreferences = ref('')
+  const directorPreferencesSaving = ref(false)
+  const directorPreferencesError = ref('')
   const promptProfiles = ref<PromptTemplateProfile[]>([])
   const activePromptProfileId = ref<string>('')
 
@@ -207,6 +215,7 @@ export function useSettingsPrompts() {
       if (!response.success || !response.data?.templates) return
 
       promptTemplates.value = response.data.templates
+      directorPreferences.value = response.data.directorPreferences || ''
       syncSelectedPrompt(response.data.templates)
 
       if (response.data.profiles && response.data.activeProfileId) {
@@ -380,6 +389,44 @@ export function useSettingsPrompts() {
     }
   }
 
+  async function saveDirectorPreferences(content: string): Promise<boolean> {
+    if (isActiveReadonlyPromptProfile.value) return false
+    const validationError = getDirectorPreferencesValidationError(content)
+    if (validationError) {
+      directorPreferencesError.value = validationError
+      return false
+    }
+
+    directorPreferencesSaving.value = true
+    directorPreferencesError.value = ''
+
+    try {
+      const response = await $fetch<{
+        success: boolean
+        data: { content: string }
+      }>('/api/prompts/director-preferences', {
+        method: 'PUT',
+        body: { content }
+      })
+
+      if (!response.success) {
+        directorPreferencesError.value = '保存分镜提示词失败'
+        return false
+      }
+
+      directorPreferences.value = normalizeDirectorPreferences(response.data.content)
+      return true
+    } catch (error) {
+      console.error('[useSettingsPrompts] 保存分镜提示词失败:', error)
+      directorPreferencesError.value = error instanceof Error
+        ? error.message
+        : '保存分镜提示词失败'
+      return false
+    } finally {
+      directorPreferencesSaving.value = false
+    }
+  }
+
   function toSelectString(value: unknown): string {
     return typeof value === 'string' ? value : ''
   }
@@ -417,6 +464,9 @@ export function useSettingsPrompts() {
     promptProfileMutating,
     promptProfileBusy,
     promptTemplates,
+    directorPreferences,
+    directorPreferencesSaving,
+    directorPreferencesError,
     promptProfiles,
     activePromptProfileId,
     activePromptProfile,
@@ -438,6 +488,7 @@ export function useSettingsPrompts() {
     createPromptProfile,
     updatePromptProfileName,
     deletePromptProfile,
+    saveDirectorPreferences,
     toSelectString,
     handlePromptUpdate,
     handlePromptSaved,

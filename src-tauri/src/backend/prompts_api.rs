@@ -87,14 +87,16 @@ fn get_all_prompt_versions(conn: &Connection) -> Result<Vec<Value>, ApiError> {
 fn prompt_default_snapshot() -> Value {
     json!({
       "templates": default_prompt_templates(),
-      "versions": []
+      "versions": [],
+      "directorPreferences": default_prompt_director_preferences()
     })
 }
 
 fn build_prompt_snapshot(conn: &Connection) -> Result<Value, ApiError> {
     Ok(json!({
       "templates": get_prompt_templates_config(conn)?,
-      "versions": Value::Array(get_all_prompt_versions(conn)?)
+      "versions": Value::Array(get_all_prompt_versions(conn)?),
+      "directorPreferences": get_prompt_director_preferences(conn)?
     }))
 }
 
@@ -259,10 +261,14 @@ fn ensure_prompt_profile_state(conn: &Connection) -> Result<Value, ApiError> {
             snapshot_object
                 .entry("versions".to_string())
                 .or_insert_with(|| json!([]));
+            snapshot_object
+                .entry("directorPreferences".to_string())
+                .or_insert_with(|| json!(default_prompt_director_preferences()));
         } else {
             *snapshot = json!({
               "templates": templates,
-              "versions": []
+              "versions": [],
+              "directorPreferences": default_prompt_director_preferences()
             });
         }
     }
@@ -303,8 +309,17 @@ fn apply_prompt_snapshot(conn: &Connection, snapshot: &Value) -> Result<(), ApiE
         .get("versions")
         .cloned()
         .unwrap_or_else(|| json!([]));
+    let director_preferences = snapshot
+        .get("directorPreferences")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     set_config_json(conn, PROMPT_TEMPLATES_KEY, &templates)?;
-    set_config_json(conn, PROMPT_VERSIONS_KEY, &versions)
+    set_config_json(conn, PROMPT_VERSIONS_KEY, &versions)?;
+    set_config_json(
+        conn,
+        PROMPT_DIRECTOR_PREFERENCES_KEY,
+        &json!(director_preferences),
+    )
 }
 
 fn sync_active_prompt_profile_snapshot(conn: &Connection) -> Result<(), ApiError> {
@@ -351,17 +366,84 @@ pub(super) async fn api_prompts_get(
     State(state): State<BackendState>,
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
+    let profile_state = ensure_prompt_profile_state(&conn)?;
+    if profile_state.get("activeProfileId").and_then(Value::as_str) == Some("default") {
+        if let Some(snapshot) = profile_state
+            .get("snapshots")
+            .and_then(|value| value.get("default"))
+        {
+            apply_prompt_snapshot(&conn, snapshot)?;
+        }
+    }
     let templates = get_prompt_templates_config(&conn)?;
-    let profiles =
-        get_config_json(&conn, PROMPT_PROFILES_KEY)?.unwrap_or_else(default_prompt_profiles);
+    let profiles = prompt_profile_result(&profile_state);
 
     Ok(Json(json!({
       "success": true,
       "data": {
         "templates": templates,
+        "directorPreferences": get_prompt_director_preferences(&conn)?,
         "profiles": profiles.get("profiles").cloned().unwrap_or_else(|| json!([])),
         "activeProfileId": profiles.get("activeProfileId").cloned().unwrap_or(json!("default"))
       }
+    })))
+}
+
+pub(super) async fn api_prompt_director_preferences_get(
+    State(state): State<BackendState>,
+) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    Ok(Json(json!({
+      "success": true,
+      "data": {
+        "content": get_prompt_director_preferences(&conn)?
+      }
+    })))
+}
+
+pub(super) async fn api_prompt_director_preferences_put(
+    State(state): State<BackendState>,
+    Json(body): Json<PutDirectorPreferencesBody>,
+) -> Result<Json<Value>, ApiError> {
+    if body.content.chars().count() > PROMPT_DIRECTOR_PREFERENCES_MAX_CHARS {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "自定义提示词不能超过 {} 个字符",
+                PROMPT_DIRECTOR_PREFERENCES_MAX_CHARS
+            ),
+        ));
+    }
+
+    let conn = db_connection(&state)?;
+    assert_active_prompt_profile_writable(&conn)?;
+    let content = body.content.trim().to_string();
+    set_config_json(&conn, PROMPT_DIRECTOR_PREFERENCES_KEY, &json!(content))?;
+    sync_active_prompt_profile_snapshot(&conn)?;
+    drop(conn);
+    spawn_prompt_state_sync(state.clone());
+
+    Ok(Json(json!({
+      "success": true,
+      "data": { "content": content },
+      "message": "分镜提示词已保存"
+    })))
+}
+
+pub(super) async fn api_prompt_director_preferences_delete(
+    State(state): State<BackendState>,
+) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    assert_active_prompt_profile_writable(&conn)?;
+    set_config_json(&conn, PROMPT_DIRECTOR_PREFERENCES_KEY, &json!(""))?;
+    sync_active_prompt_profile_snapshot(&conn)?;
+    drop(conn);
+    spawn_prompt_state_sync(state.clone());
+
+    Ok(Json(json!({
+      "success": true,
+      "data": { "content": "" },
+      "message": "分镜提示词已清空，将使用系统默认内容"
     })))
 }
 
@@ -393,6 +475,10 @@ pub(super) async fn api_prompts_single_put(
     if id.trim().is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "缺少模板 ID"));
     }
+    let content = body.content.trim().to_string();
+    if content.is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "提示词内容不能为空"));
+    }
     let conn = db_connection(&state)?;
     assert_active_prompt_profile_writable(&conn)?;
     let mut templates = get_prompt_templates_config(&conn)?;
@@ -410,7 +496,7 @@ pub(super) async fn api_prompts_single_put(
         .to_string();
 
     if let Some(obj) = item.as_object_mut() {
-        obj.insert("content".to_string(), json!(body.content));
+        obj.insert("content".to_string(), json!(content));
         obj.insert("isCustomized".to_string(), json!(true));
         obj.insert("updatedAt".to_string(), json!(now_iso()));
     }

@@ -1,0 +1,48 @@
+根据以下场景上下文和用户指令改写场景描述。
+
+【项目画风】
+{{style}}
+
+【场景标题】
+{{sceneTitle}}
+
+【当前场景描述】
+{{sceneDescription}}
+
+【场景设定】
+{{setting}}
+
+【角色信息】
+{{characters}}
+
+【旁白】
+{{narration}}
+
+【历史编辑对话】
+{{history}}
+
+【本次用户指令】
+{{userMessage}}
+
+【本次提及资产】
+{{mentionedAssets}}
+
+【总时长参考】
+约 {{durationHint}} 秒
+
+【当前方案的改写描述】
+{{userPrompt}}
+
+【系统输出协议（最高优先级）】
+1. 只输出合法 JSON，不要 Markdown 或解释。
+2. JSON 根对象只能包含 description 字段。
+3. description 必须保留可执行的镜头时间序列，并融合镜头、声音、台词节奏和表演提示。
+4. 资产引用统一使用 @图片N；旧格式 [图片N] 必须转换并保持编号稳定。
+5. 不输出独立的引用资产区块，不添加字幕、BGM 等后期制作指令。
+
+严格使用以下 JSON 结构：
+{
+  "description": "改写后的完整场景描述"
+}
+
+只输出 JSON，不要附加解释。

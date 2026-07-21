@@ -46,6 +46,8 @@ const PROMPT_TEMPLATES_KEY: &str = "prompt_templates_default";
 const PROMPT_PROFILES_KEY: &str = "prompt_profiles_default";
 const PROMPT_VERSIONS_KEY: &str = "prompt_versions_default";
 const PROMPT_PROFILE_STATE_KEY: &str = "prompt_profile_state_default";
+const PROMPT_DIRECTOR_PREFERENCES_KEY: &str = "prompt_director_preferences_default";
+const PROMPT_DIRECTOR_PREFERENCES_MAX_CHARS: usize = 50_000;
 const ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES: usize = 50 * 1024 * 1024;
 const VIDEO_IMPORT_UPLOAD_BODY_LIMIT_BYTES: usize = 2 * 1024 * 1024 * 1024;
 const SETTINGS_CONFIG_EXPORT_VERSION: i32 = 1;
@@ -79,6 +81,8 @@ const STYLE_THUMBNAIL_CDN_BASE: &str =
 const LEGACY_STYLE_THUMBNAIL_CDN_BASE: &str =
     "https://playlet-ai.tos-cn-guangzhou.volces.com/playlet-assets/styles";
 const DEFAULT_PROMPT_TEMPLATES_JSON: &str = include_str!("../assets/default-prompt-templates.json");
+const DEFAULT_PROMPT_DIRECTOR_PREFERENCES: &str =
+    include_str!("../assets/default-prompts/director_preferences.txt");
 const ARK_OPENAPI_ENDPOINT: &str = "https://open.volcengineapi.com";
 const ARK_OPENAPI_REGION: &str = "cn-beijing";
 const ARK_OPENAPI_SERVICE: &str = "ark";
@@ -328,6 +332,11 @@ struct CustomOpenAIPutBody {
 struct PutPromptBody {
     content: String,
     note: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PutDirectorPreferencesBody {
+    content: String,
 }
 
 #[derive(Deserialize)]
@@ -2874,6 +2883,21 @@ fn workflow_overrides(conn: &Connection) -> Result<Value, ApiError> {
     Ok(Value::Object(normalized))
 }
 
+fn clear_workflow_overrides_for_category(overrides: &mut Value, category: &str) -> Vec<String> {
+    let Some(object) = overrides.as_object_mut() else {
+        return Vec::new();
+    };
+    let cleared = object
+        .keys()
+        .filter(|step| workflow_step_category(step) == Some(category))
+        .cloned()
+        .collect::<Vec<_>>();
+    for step in &cleared {
+        object.remove(step);
+    }
+    cleared
+}
+
 fn workflow_current_selections(conn: &Connection, available: &Value) -> Result<Value, ApiError> {
     let selected =
         get_config_json(conn, SELECTED_MODELS_KEY)?.unwrap_or_else(default_selected_models);
@@ -3190,17 +3214,36 @@ fn merge_prompt_templates_with_defaults(value: Value) -> Value {
         let Some(id) = item.get("id").and_then(Value::as_str) else {
             continue;
         };
+        let Some(default_item) = default_by_id.get(id) else {
+            continue;
+        };
         existing_ids.insert(id.to_string());
-        if item
+        let is_customized = item
             .get("isCustomized")
             .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
+            .unwrap_or(false);
+        let content = item.get("content").and_then(Value::as_str).unwrap_or("");
+        let has_legacy_protocol = content.contains("{{")
+            || content.contains("【输出格式】")
+            || content.contains("只输出 JSON");
+
+        if is_customized && !has_legacy_protocol {
             merged.push(item.clone());
-        } else if let Some(default_item) = default_by_id.get(id) {
-            merged.push((*default_item).clone());
+        } else if is_customized {
+            let mut migrated = (*default_item).clone();
+            if let Some(object) = migrated.as_object_mut() {
+                object.insert("legacyContent".to_string(), json!(content));
+                object.insert("isCustomized".to_string(), json!(false));
+            }
+            merged.push(migrated);
         } else {
-            merged.push(item.clone());
+            let mut current = (*default_item).clone();
+            if let Some(legacy_content) = item.get("legacyContent").and_then(Value::as_str) {
+                if let Some(object) = current.as_object_mut() {
+                    object.insert("legacyContent".to_string(), json!(legacy_content));
+                }
+            }
+            merged.push(current);
         }
     }
     for item in default_items {
@@ -3218,6 +3261,28 @@ fn get_prompt_templates_config(conn: &Connection) -> Result<Value, ApiError> {
     Ok(get_config_json(conn, PROMPT_TEMPLATES_KEY)?
         .map(merge_prompt_templates_with_defaults)
         .unwrap_or_else(default_prompt_templates))
+}
+
+fn get_prompt_director_preferences(conn: &Connection) -> Result<String, ApiError> {
+    let active_profile_id = get_config_json(conn, PROMPT_PROFILE_STATE_KEY)?
+        .and_then(|state| {
+            state
+                .get("activeProfileId")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "default".to_string());
+    if matches!(active_profile_id.as_str(), "default" | "default_seedance") {
+        return Ok(default_prompt_director_preferences().to_string());
+    }
+
+    Ok(get_config_json(conn, PROMPT_DIRECTOR_PREFERENCES_KEY)?
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_default())
+}
+
+fn default_prompt_director_preferences() -> &'static str {
+    DEFAULT_PROMPT_DIRECTOR_PREFERENCES.trim()
 }
 
 fn default_prompt_profiles() -> Value {
@@ -4002,7 +4067,8 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
             "default".to_string(),
             json!({
               "templates": default_prompt_templates(),
-              "versions": []
+              "versions": [],
+              "directorPreferences": default_prompt_director_preferences()
             }),
         );
         set_config_json(
@@ -4017,6 +4083,13 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
     }
     if get_config_json(&conn, PROMPT_VERSIONS_KEY)?.is_none() {
         set_config_json(&conn, PROMPT_VERSIONS_KEY, &json!({}))?;
+    }
+    if get_config_json(&conn, PROMPT_DIRECTOR_PREFERENCES_KEY)?.is_none() {
+        set_config_json(
+            &conn,
+            PROMPT_DIRECTOR_PREFERENCES_KEY,
+            &json!(default_prompt_director_preferences()),
+        )?;
     }
 
     Ok(())
@@ -4131,6 +4204,12 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         )
         .route("/api/prompts", get(api_prompts_get))
         .route("/api/prompts/index", get(api_prompts_get))
+        .route(
+            "/api/prompts/director-preferences",
+            get(api_prompt_director_preferences_get)
+                .put(api_prompt_director_preferences_put)
+                .delete(api_prompt_director_preferences_delete),
+        )
         .route(
             "/api/prompts/profiles",
             get(api_prompt_profiles_get).post(api_prompt_profiles_post),
@@ -7230,6 +7309,12 @@ async fn api_models_switch(
         get_config_json(&conn, SELECTED_MODELS_KEY)?.unwrap_or_else(default_selected_models);
     set_selected_model_by_user(&mut selected, model_type, model_id);
     set_config_json(&conn, SELECTED_MODELS_KEY, &selected)?;
+    let mut overrides = workflow_overrides(&conn)?;
+    let reset_workflow_overrides =
+        clear_workflow_overrides_for_category(&mut overrides, model_type);
+    if !reset_workflow_overrides.is_empty() {
+        set_config_json(&conn, WORKFLOW_MODELS_KEY, &overrides)?;
+    }
     Ok(Json(json!({
       "success": true,
       "message": format!("已切换 {} 模型", model_type),
@@ -7237,6 +7322,7 @@ async fn api_models_switch(
         "type": model_type,
         "modelId": model_id,
         "modelInfo": model_info,
+        "resetWorkflowOverrides": reset_workflow_overrides,
         "selected": selected_models_public_view(&selected)
       },
       "selected": selected_models_public_view(&selected)
@@ -10318,6 +10404,15 @@ fn apply_cloud_prompt_state(state: &BackendState, prompt_state: &Value) -> Resul
         .filter(|value| !value.is_empty())
         .unwrap_or("default")
         .to_string();
+    let director_preferences = if active_profile_id == "default" {
+        default_prompt_director_preferences().to_string()
+    } else {
+        snapshot
+            .get("directorPreferences")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
     let profiles_value = json!({
       "profiles": profiles,
       "activeProfileId": active_profile_id
@@ -10326,20 +10421,32 @@ fn apply_cloud_prompt_state(state: &BackendState, prompt_state: &Value) -> Resul
     let mut snapshots = serde_json::Map::new();
     snapshots.insert(
         "default".to_string(),
-        json!({ "templates": default_prompt_templates(), "versions": [] }),
+        json!({
+          "templates": default_prompt_templates(),
+          "versions": [],
+          "directorPreferences": default_prompt_director_preferences()
+        }),
     );
     snapshots.insert(
         active_profile_id.clone(),
-        json!({ "templates": templates.clone(), "versions": versions.clone() }),
+        json!({
+          "templates": templates.clone(),
+          "versions": versions.clone(),
+          "directorPreferences": director_preferences.clone()
+        }),
     );
     if let Some(profile_items) = profiles_value.get("profiles").and_then(Value::as_array) {
         for profile in profile_items {
             let Some(profile_id) = profile.get("id").and_then(Value::as_str) else {
                 continue;
             };
-            snapshots.entry(profile_id.to_string()).or_insert_with(
-                || json!({ "templates": default_prompt_templates(), "versions": [] }),
-            );
+            snapshots.entry(profile_id.to_string()).or_insert_with(|| {
+                json!({
+                  "templates": default_prompt_templates(),
+                  "versions": [],
+                  "directorPreferences": default_prompt_director_preferences()
+                })
+            });
         }
     }
     let profile_state = json!({
@@ -10350,6 +10457,11 @@ fn apply_cloud_prompt_state(state: &BackendState, prompt_state: &Value) -> Resul
 
     set_config_json(&conn, PROMPT_TEMPLATES_KEY, &templates)?;
     set_config_json(&conn, PROMPT_VERSIONS_KEY, &versions)?;
+    set_config_json(
+        &conn,
+        PROMPT_DIRECTOR_PREFERENCES_KEY,
+        &json!(director_preferences),
+    )?;
     set_config_json(&conn, PROMPT_PROFILES_KEY, &profiles_value)?;
     set_config_json(&conn, PROMPT_PROFILE_STATE_KEY, &profile_state)?;
     Ok(true)
@@ -10460,9 +10572,8 @@ async fn cloud_pull_account_data(
 
 async fn api_tos_members() -> Result<Json<Value>, ApiError> {
     let (base_url, token, is_admin) = {
-        let conn = config_connection().ok_or_else(|| {
-            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "读取本地配置失败")
-        })?;
+        let conn = config_connection()
+            .ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "读取本地配置失败"))?;
         (
             cloud_base_url(&conn),
             cloud_token(&conn),
@@ -10478,12 +10589,9 @@ async fn api_tos_members() -> Result<Json<Value>, ApiError> {
             "仅管理员可查看成员素材目录",
         ));
     }
-    let base_url = base_url.ok_or_else(|| {
-        ApiError::new(StatusCode::BAD_REQUEST, "未配置云端后台地址")
-    })?;
-    let token = token.ok_or_else(|| {
-        ApiError::new(StatusCode::UNAUTHORIZED, "未登录云端账号")
-    })?;
+    let base_url =
+        base_url.ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "未配置云端后台地址"))?;
+    let token = token.ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "未登录云端账号"))?;
     let response = cloud_request_json(
         &base_url,
         reqwest::Method::GET,
@@ -11567,7 +11675,98 @@ async fn api_not_implemented(Path(path): Path<String>) -> (StatusCode, Json<Valu
 
 #[cfg(test)]
 mod tests {
-    use super::build_scoped_tos_key_prefix_for_user;
+    use super::{
+        build_scoped_tos_key_prefix_for_user, clear_workflow_overrides_for_category,
+        default_prompt_director_preferences, merge_prompt_templates_with_defaults,
+    };
+    use serde_json::{json, Value};
+
+    #[test]
+    fn global_model_switch_clears_only_matching_workflow_overrides() {
+        let mut overrides = json!({
+          "script_parsing": "text-model-a",
+          "video_import_script_generation": "text-model-b",
+          "character_portrait": "image-model-a",
+          "video_generation": "video-model-a"
+        });
+
+        let mut cleared = clear_workflow_overrides_for_category(&mut overrides, "text");
+        cleared.sort();
+
+        assert_eq!(
+            cleared,
+            vec![
+                "script_parsing".to_string(),
+                "video_import_script_generation".to_string()
+            ]
+        );
+        assert!(overrides.get("script_parsing").is_none());
+        assert!(overrides.get("video_import_script_generation").is_none());
+        assert_eq!(overrides["character_portrait"], "image-model-a");
+        assert_eq!(overrides["video_generation"], "video-model-a");
+    }
+
+    #[test]
+    fn default_director_preferences_are_visible_without_system_protocol() {
+        let content = default_prompt_director_preferences();
+
+        assert!(content.contains("资深分镜师"));
+        assert!(content.contains("视频生成稳定性"));
+        assert!(!content.contains("只输出 JSON"));
+    }
+
+    #[test]
+    fn legacy_prompt_protocols_are_migrated_without_touching_plain_custom_content() {
+        let merged = merge_prompt_templates_with_defaults(json!([
+          {
+            "id": "character_sheet",
+            "content": "角色：{{characterName}}\n只输出 JSON",
+            "isCustomized": true
+          },
+          {
+            "id": "scene_video_generation",
+            "content": "保留用户自己的纯文本视频描述",
+            "isCustomized": true
+          },
+          {
+            "id": "retired_prompt",
+            "content": "废弃内容",
+            "isCustomized": true
+          }
+        ]));
+        let items = merged.as_array().unwrap();
+        let character_sheet = items
+            .iter()
+            .find(|item| item.get("id").and_then(Value::as_str) == Some("character_sheet"))
+            .unwrap();
+        let scene_video = items
+            .iter()
+            .find(|item| item.get("id").and_then(Value::as_str) == Some("scene_video_generation"))
+            .unwrap();
+
+        assert_eq!(character_sheet["isCustomized"], false);
+        assert_eq!(
+            character_sheet["legacyContent"],
+            "角色：{{characterName}}\n只输出 JSON"
+        );
+        assert!(!character_sheet["content"].as_str().unwrap().contains("{{"));
+        assert_eq!(scene_video["content"], "保留用户自己的纯文本视频描述");
+        assert!(!items
+            .iter()
+            .any(|item| item.get("id").and_then(Value::as_str) == Some("retired_prompt")));
+
+        let merged_again = merge_prompt_templates_with_defaults(merged);
+        let migrated_again = merged_again
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item.get("id").and_then(Value::as_str) == Some("character_sheet"))
+            .unwrap();
+        assert_eq!(
+            migrated_again["legacyContent"],
+            "角色：{{characterName}}\n只输出 JSON"
+        );
+    }
 
     #[test]
     fn cloud_admin_tos_scope_is_valid_without_a_user_prefix() {

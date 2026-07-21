@@ -11,6 +11,9 @@ import {
 } from 'lucide-vue-next'
 import SettingsTextInputDialog from '@/components/settings/SettingsTextInputDialog.vue'
 import SettingsConfirmDialog from '@/components/settings/SettingsConfirmDialog.vue'
+import SettingsDirectorPreferencesEditor from '@/components/settings/SettingsDirectorPreferencesEditor.vue'
+import SettingsPlainPromptEditor from '@/components/settings/SettingsPlainPromptEditor.vue'
+import type { PromptTemplate } from '#shared/types/prompt-template'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,18 +32,102 @@ const {
   isActiveReadonlyPromptProfile,
   canRenameActivePromptProfile,
   canDeleteActivePromptProfile,
+  directorPreferences,
+  directorPreferencesSaving,
+  directorPreferencesError,
   promptTemplates,
-  selectedPromptId,
-  selectedPromptTemplate,
+  activePromptStage,
   activePromptStageTemplates,
   activatePromptProfile,
   createPromptProfile,
   updatePromptProfileName,
   deletePromptProfile,
+  saveDirectorPreferences,
   selectPrompt,
-  handlePromptUpdate,
-  handlePromptSaved
+  handlePromptUpdate
 } = useSettingsPrompts()
+
+const DIRECTOR_EDITOR_ID = 'director_preferences'
+const REPLACED_SCRIPT_TEMPLATE_IDS = new Set([
+  'script_parsing',
+  'script_parsing_short_drama',
+  'script_parsing_episode_drama_context'
+])
+const PROMPT_EDITOR_ORDER: Record<string, number> = {
+  script_episode_plan: 10,
+  director_preferences: 20,
+  scene_description_refinement: 30,
+  video_import_script_generation: 40,
+  origin_explainer_planning: 50,
+  character_sheet: 10,
+  character_regeneration: 20,
+  environment_reference_generation: 30,
+  prop_asset_generation: 40,
+  scene_video_generation: 10,
+  origin_explainer_video_generation: 20
+}
+
+type PromptEditorOption = {
+  id: string
+  name: string
+  description: string
+  isCustomized: boolean
+}
+
+const selectedEditorId = ref('')
+
+const editableStageTemplates = computed(() => {
+  return activePromptStageTemplates.value.filter(template => !REPLACED_SCRIPT_TEMPLATE_IDS.has(template.id))
+})
+
+const promptEditorOptions = computed<PromptEditorOption[]>(() => {
+  const options = editableStageTemplates.value.map(template => ({
+    id: template.id,
+    name: template.name,
+    description: template.description,
+    isCustomized: template.isCustomized
+  }))
+
+  if (activePromptStage.value === 'parse') {
+    options.push({
+      id: DIRECTOR_EDITOR_ID,
+      name: '分镜解析提示词',
+      description: '控制剧本拆场、镜头语言、节奏、表演与连续性。',
+      isCustomized: false
+    })
+  }
+
+  return options.sort((left, right) => {
+    return (PROMPT_EDITOR_ORDER[left.id] ?? Number.MAX_SAFE_INTEGER)
+      - (PROMPT_EDITOR_ORDER[right.id] ?? Number.MAX_SAFE_INTEGER)
+  })
+})
+
+const selectedEditorOption = computed(() => {
+  return promptEditorOptions.value.find(option => option.id === selectedEditorId.value) || null
+})
+
+const selectedStandardTemplate = computed<PromptTemplate | null>(() => {
+  if (!selectedEditorId.value || selectedEditorId.value === DIRECTOR_EDITOR_ID) return null
+  return promptTemplates.value.find(template => template.id === selectedEditorId.value) || null
+})
+
+watch([activePromptStage, promptEditorOptions], () => {
+  if (promptEditorOptions.value.some(option => option.id === selectedEditorId.value)) return
+
+  const nextId = promptEditorOptions.value[0]?.id || ''
+  selectedEditorId.value = nextId
+  if (nextId && nextId !== DIRECTOR_EDITOR_ID) {
+    selectPrompt(nextId)
+  }
+}, { immediate: true })
+
+function handleSelectEditor(templateId: string) {
+  selectedEditorId.value = templateId
+  if (templateId !== DIRECTOR_EDITOR_ID) {
+    selectPrompt(templateId)
+  }
+}
 
 type TextDialogMode = 'create' | 'rename'
 
@@ -52,14 +139,6 @@ const deleteDialogOpen = ref(false)
 const deleteDialogError = ref('')
 
 const activateError = ref('')
-
-const selectedPromptValue = computed({
-  get: () => selectedPromptId.value || '',
-  set: (templateId: string) => {
-    if (!templateId) return
-    selectPrompt(templateId)
-  }
-})
 
 const textDialogConfig = computed(() => {
   switch (textDialogMode.value) {
@@ -157,16 +236,20 @@ async function handleActivateProfile(profileId: string) {
     activateError.value = '切换配置方案失败，请稍后重试'
   }
 }
+
+async function handleDirectorPreferencesSave(content: string) {
+  await saveDirectorPreferences(content)
+}
 </script>
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
     <div
-      v-if="promptsLoading && !selectedPromptTemplate"
+      v-if="promptsLoading"
       class="flex flex-1 items-center justify-center text-muted-foreground"
     >
       <Loader2 class="h-6 w-6 animate-spin" />
-      <span class="ml-2 text-sm">加载提示词模板中...</span>
+      <span class="ml-2 text-sm">加载提示词配置中...</span>
     </div>
 
     <template v-else>
@@ -240,63 +323,56 @@ async function handleActivateProfile(profileId: string) {
 
             <div class="flex min-w-0 flex-1 flex-wrap items-center justify-start gap-2 xl:justify-end">
               <span class="shrink-0 text-sm font-medium text-muted-foreground">
-                模板
+                提示词
               </span>
               <Select
-                v-if="activePromptStageTemplates.length > 0"
-                v-model="selectedPromptValue"
+                :model-value="selectedEditorId"
+                :disabled="promptEditorOptions.length === 0"
+                @update:model-value="handleSelectEditor(String($event))"
               >
                 <SelectTrigger class="h-9 w-full min-w-0 bg-background text-sm sm:w-[360px]">
                   <div
-                    v-if="selectedPromptTemplate"
+                    v-if="selectedEditorOption"
                     class="flex min-w-0 items-center gap-2"
                   >
                     <FileText class="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span class="truncate">{{ selectedPromptTemplate.name }}</span>
+                    <span class="truncate">{{ selectedEditorOption.name }}</span>
                     <span
-                      v-if="selectedPromptTemplate.isCustomized && !isActiveReadonlyPromptProfile"
+                      v-if="selectedEditorOption.isCustomized && !isActiveReadonlyPromptProfile"
                       class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-900 dark:text-amber-300"
                     >
                       已自定义
                     </span>
                   </div>
-                  <span
+                  <SelectValue
                     v-else
-                    class="text-muted-foreground"
-                  >
-                    选择提示词模板
-                  </span>
+                    placeholder="选择提示词"
+                  />
                 </SelectTrigger>
                 <SelectContent class="max-h-[420px] sm:w-[420px]">
                   <SelectItem
-                    v-for="template in activePromptStageTemplates"
-                    :key="template.id"
-                    :value="template.id"
+                    v-for="option in promptEditorOptions"
+                    :key="option.id"
+                    :value="option.id"
                     class="items-start py-2 pl-2 pr-8"
                   >
                     <div class="min-w-0 flex-1">
                       <div class="flex min-w-0 items-center gap-1.5">
-                        <span class="truncate text-sm font-medium">{{ template.name }}</span>
+                        <span class="truncate text-sm font-medium">{{ option.name }}</span>
                         <span
-                          v-if="template.isCustomized && !isActiveReadonlyPromptProfile"
+                          v-if="option.isCustomized && !isActiveReadonlyPromptProfile"
                           class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-900 dark:text-amber-300"
                         >
                           已自定义
                         </span>
                       </div>
                       <div class="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                        {{ template.description }}
+                        {{ option.description }}
                       </div>
                     </div>
                   </SelectItem>
                 </SelectContent>
               </Select>
-              <span
-                v-else
-                class="text-sm text-muted-foreground"
-              >
-                当前阶段暂无模板
-              </span>
             </div>
           </div>
         </div>
@@ -316,25 +392,31 @@ async function handleActivateProfile(profileId: string) {
           </button>
         </div>
 
-        <div
-          v-if="!selectedPromptTemplate"
-          class="flex min-h-0 flex-1 flex-col items-center justify-center text-muted-foreground"
-        >
-          <FileText class="mb-3 h-12 w-12 opacity-20" />
-          <p class="text-sm">
-            请选择一个提示词模板进行编辑
-          </p>
-        </div>
+        <SettingsDirectorPreferencesEditor
+          v-if="selectedEditorId === DIRECTOR_EDITOR_ID"
+          :content="directorPreferences"
+          :readonly="isActiveReadonlyPromptProfile"
+          :saving="directorPreferencesSaving"
+          :error="directorPreferencesError"
+          @create-profile="handleCreateProfile"
+          @save="handleDirectorPreferencesSave"
+        />
 
-        <PromptEditor
-          v-else
-          :key="selectedPromptTemplate.id"
-          class="min-h-0 flex-1"
-          :template="selectedPromptTemplate"
+        <SettingsPlainPromptEditor
+          v-else-if="selectedStandardTemplate"
+          :key="selectedStandardTemplate.id"
+          :template="selectedStandardTemplate"
           :readonly="isActiveReadonlyPromptProfile"
           @update="handlePromptUpdate"
-          @saved="handlePromptSaved"
         />
+
+        <div
+          v-else
+          class="flex min-h-0 flex-1 flex-col items-center justify-center text-muted-foreground"
+        >
+          <FileText class="mb-3 h-10 w-10 opacity-20" />
+          <p class="text-sm">当前阶段暂无可编辑提示词</p>
+        </div>
       </div>
     </template>
 

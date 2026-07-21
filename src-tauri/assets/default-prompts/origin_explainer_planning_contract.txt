@@ -1,0 +1,65 @@
+你需要根据以下输入生成结构化科普镜头方案。
+
+【输入主题】
+{{novelText}}
+
+【项目画风】
+{{style}}
+
+【输入规模与模式】
+- 文本长度：约 {{textLength}} 字
+- 场景数量参考：{{recommendedMinScenes}}
+- 单镜头时长：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
+- 解析模式：{{scriptParseModeLabel}}
+
+【模式约束】
+{{scriptParseModeRules}}
+
+【时代提示】
+{{eraHint}}
+
+【当前方案的创作描述】
+{{userPrompt}}
+
+【系统输出协议（最高优先级）】
+1. 只输出合法 JSON，不要 Markdown 或解释。
+2. 每个 duration 必须在规定范围内。
+3. shotType、cameraMovement、setting、props 和 environmentCaptureMode 不得缺失。
+4. environmentCaptureMode 只能是 single 或 four_view。
+5. 不生成字幕、屏幕文字、UI、水印或图表文字。
+
+严格使用以下 JSON 结构：
+{
+  "title": "项目标题",
+  "summary": "一句话原理说明",
+  "characters": [],
+  "scenes": [
+    {
+      "id": "scene_001",
+      "title": "镜头主题",
+      "description": "可直接用于视频生成的视觉描述",
+      "narration": "旁白，可为空",
+      "duration": 8,
+      "shotType": "detail",
+      "cameraMovement": "push",
+      "cameraNote": "具体镜头运动",
+      "setting": {
+        "location": "演示空间",
+        "timeOfDay": "白天",
+        "era": "架空",
+        "mood": "清晰、克制、精密",
+        "weather": "天气或背景"
+      },
+      "characters": [],
+      "props": [
+        {
+          "name": "核心结构或部件",
+          "description": "镜头中的作用"
+        }
+      ],
+      "environmentCaptureMode": "single"
+    }
+  ]
+}
+
+只输出 JSON，不要附加解释。

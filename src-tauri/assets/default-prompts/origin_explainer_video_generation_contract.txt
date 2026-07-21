@@ -1,0 +1,36 @@
+根据以下科普镜头数据生成一个视频片段。
+
+【镜头信息】
+- 镜头编号：{{shotNumber}}
+- 镜头主题：{{sceneTitle}}
+- 镜头概要：{{sceneSummary}}
+- 项目画风：{{style}}
+- 时长：约 {{duration}} 秒
+- 画幅：{{aspectRatio}}
+
+【场景设定】
+{{setting}}
+
+【镜头运动】
+{{cameraNote}}
+
+【视觉描述】
+{{sceneDescription}}
+
+【参考素材】
+{{referenceMaterials}}
+
+【执行上下文】
+{{executionConstraints}}
+
+【旁白参考】
+{{narration}}
+
+【当前方案的科普视频描述】
+{{userPrompt}}
+
+【系统输出协议（最高优先级）】
+1. 直接输出一个符合指定时长和画幅的科普视频片段，不要返回文字说明。
+2. 严格执行视觉描述、参考素材、镜头运动和执行上下文。
+3. 旁白只作为画面节奏与动作信息参考，不生成人物口型或旁白音频。
+4. 不生成字幕、中英文文字、UI、图表标注、水印或 Logo。

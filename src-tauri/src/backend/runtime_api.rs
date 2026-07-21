@@ -13,11 +13,7 @@ use ve_tos_rust_sdk::tos;
 type HmacSha256 = Hmac<Sha256>;
 
 const PROMPT_TEMPLATE_SCRIPT_EPISODE_PLAN: &str = "script_episode_plan";
-const PROMPT_TEMPLATE_SCRIPT_PARSING: &str = "script_parsing";
-const PROMPT_TEMPLATE_SCRIPT_PARSING_SHORT_DRAMA: &str = "script_parsing_short_drama";
 const PROMPT_TEMPLATE_ORIGIN_EXPLAINER_PLANNING: &str = "origin_explainer_planning";
-const PROMPT_TEMPLATE_SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT: &str =
-    "script_parsing_episode_drama_context";
 const PROMPT_TEMPLATE_VIDEO_IMPORT_SCRIPT_GENERATION: &str = "video_import_script_generation";
 const PROMPT_TEMPLATE_CHARACTER_SHEET: &str = "character_sheet";
 const PROMPT_TEMPLATE_CHARACTER_REGENERATION: &str = "character_regeneration";
@@ -29,6 +25,8 @@ const PROMPT_TEMPLATE_ORIGIN_EXPLAINER_VIDEO_GENERATION: &str = "origin_explaine
 const ORIGIN_EXPLAINER_DEFAULT_STYLE_PROMPT: &str = "高精度 3D 科普动画，微距特写、横截面透视与解构拆解图，半透明结晶材质，发光粒子流与高保真流体动力学特效，极简深色石砖平台，中国传统写意远山与云海背景，画面清晰克制、结构精密、无字幕无水印";
 const SCRIPT_PARSE_MIN_DURATION: &str = "2";
 const SCRIPT_PARSE_MAX_DURATION: &str = "15";
+const SCRIPT_PARSING_CONTRACT: &str =
+    include_str!("../../assets/default-prompts/script_parsing_contract.txt");
 const ENVIRONMENT_CAPTURE_MODE_PROMPT_RULES: &str = "【环境视角打标（必须执行）】\n1. 每个 scenes[i] 必须输出 environmentCaptureMode 字段：single 或 four_view。\n2. 当场景描述存在明确多视角/多机位/镜头切换（含时间轴多段切镜）时，environmentCaptureMode=four_view。\n3. 单一连续视角表达时，environmentCaptureMode=single。\n4. 禁止省略该字段。";
 const MEDIAKIT_BASE_URL: &str = "https://mediakit.cn-beijing.volces.com";
 pub(super) const VIDEO_ENHANCE_UPLOAD_LIMIT_BYTES: usize = 2 * 1024 * 1024 * 1024;
@@ -4585,13 +4583,77 @@ fn configured_prompt_template_content(
     Ok(content)
 }
 
+fn configured_prompt_runtime_contract(template_id: &str) -> Option<&'static str> {
+    match template_id {
+        PROMPT_TEMPLATE_SCRIPT_EPISODE_PLAN => Some(include_str!(
+            "../../assets/default-prompts/script_episode_plan_contract.txt"
+        )),
+        PROMPT_TEMPLATE_ORIGIN_EXPLAINER_PLANNING => Some(include_str!(
+            "../../assets/default-prompts/origin_explainer_planning_contract.txt"
+        )),
+        PROMPT_TEMPLATE_VIDEO_IMPORT_SCRIPT_GENERATION => Some(include_str!(
+            "../../assets/default-prompts/video_import_script_generation_contract.txt"
+        )),
+        PROMPT_TEMPLATE_CHARACTER_SHEET => Some(include_str!(
+            "../../assets/default-prompts/character_sheet_contract.txt"
+        )),
+        PROMPT_TEMPLATE_CHARACTER_REGENERATION => Some(include_str!(
+            "../../assets/default-prompts/character_regeneration_contract.txt"
+        )),
+        PROMPT_TEMPLATE_ENVIRONMENT_REFERENCE_GENERATION => Some(include_str!(
+            "../../assets/default-prompts/environment_reference_generation_contract.txt"
+        )),
+        PROMPT_TEMPLATE_PROP_ASSET_GENERATION => Some(include_str!(
+            "../../assets/default-prompts/prop_asset_generation_contract.txt"
+        )),
+        PROMPT_TEMPLATE_SCENE_DESCRIPTION_REFINEMENT => Some(include_str!(
+            "../../assets/default-prompts/scene_description_refinement_contract.txt"
+        )),
+        PROMPT_TEMPLATE_SCENE_VIDEO_GENERATION => Some(include_str!(
+            "../../assets/default-prompts/scene_video_generation_contract.txt"
+        )),
+        PROMPT_TEMPLATE_ORIGIN_EXPLAINER_VIDEO_GENERATION => Some(include_str!(
+            "../../assets/default-prompts/origin_explainer_video_generation_contract.txt"
+        )),
+        _ => None,
+    }
+}
+
 fn render_configured_prompt(
     conn: &rusqlite::Connection,
     template_id: &str,
     variables: &[(&str, &str)],
 ) -> Result<String, ApiError> {
-    let template = configured_prompt_template_content(conn, template_id)?;
-    Ok(render_runtime_prompt(&template, variables))
+    let user_prompt = configured_prompt_template_content(conn, template_id)?;
+    let contract = configured_prompt_runtime_contract(template_id).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("未找到提示词系统协议: {template_id}"),
+        )
+    })?;
+    let mut remaining = contract;
+    while let Some(start) = remaining.find("{{") {
+        let after_start = &remaining[start + 2..];
+        let Some(end) = after_start.find("}}") else {
+            return Err(ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("提示词系统协议存在未闭合占位符: {template_id}"),
+            ));
+        };
+        let key = &after_start[..end];
+        if key != "userPrompt" && !variables.iter().any(|(name, _)| *name == key) {
+            return Err(ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("提示词系统协议缺少变量 {key}: {template_id}"),
+            ));
+        }
+        remaining = &after_start[end + 2..];
+    }
+    let rendered = render_runtime_prompt(contract, variables);
+    Ok(render_runtime_prompt(
+        &rendered,
+        &[("userPrompt", user_prompt.trim())],
+    ))
 }
 
 fn prompt_template_string(value: Option<&Value>) -> Option<String> {
@@ -4634,14 +4696,6 @@ fn runtime_script_parse_mode_rules(mode: &str) -> &'static str {
         "premium_drama" => "根据剧情节奏与情绪起伏安排场景密度，保证每集叙事完整。",
         "origin_explainer" => "当前为科普拆解视频。请把主题拆成多镜头原理演示，不需要剧情冲突、角色对白或短剧爆点。",
         _ => "硬性约束：当前为短剧分集解析。每一集场景总时长必须小于等于300秒（5分钟）；若超出请主动拆分为更多集，并保持剧情连续。",
-    }
-}
-
-fn runtime_script_parse_template_id(mode: &str) -> &'static str {
-    match mode {
-        "origin_explainer" => PROMPT_TEMPLATE_ORIGIN_EXPLAINER_PLANNING,
-        "short_drama" => PROMPT_TEMPLATE_SCRIPT_PARSING_SHORT_DRAMA,
-        _ => PROMPT_TEMPLATE_SCRIPT_PARSING,
     }
 }
 
@@ -4897,13 +4951,44 @@ fn build_script_parse_prompt(
         .get("episodePlan")
         .cloned()
         .unwrap_or_else(|| json!([]));
-    let template =
-        configured_prompt_template_content(conn, runtime_script_parse_template_id(parse_mode))?;
     let text_length = text.chars().count().to_string();
     let recommended_min_scenes = runtime_scene_count_hint(body);
     let era_hint = resolve_runtime_script_era_hint(&text, &style);
-    let rendered = render_runtime_prompt(
-        &template,
+
+    if parse_mode == "origin_explainer" {
+        let rendered = render_configured_prompt(
+            conn,
+            PROMPT_TEMPLATE_ORIGIN_EXPLAINER_PLANNING,
+            &[
+                ("novelText", text.as_str()),
+                ("style", style.as_str()),
+                ("textLength", text_length.as_str()),
+                ("recommendedMinScenes", recommended_min_scenes.as_str()),
+                ("sceneDurationMin", SCRIPT_PARSE_MIN_DURATION),
+                ("sceneDurationMax", SCRIPT_PARSE_MAX_DURATION),
+                (
+                    "scriptParseModeLabel",
+                    runtime_script_parse_mode_label(parse_mode),
+                ),
+                (
+                    "scriptParseModeRules",
+                    runtime_script_parse_mode_rules(parse_mode),
+                ),
+                ("eraHint", era_hint.as_str()),
+            ],
+        )?;
+        return Ok(append_environment_capture_mode_rule(rendered));
+    }
+
+    let episode_context_brief = build_episode_context_brief(&episode_plan);
+    let director_preferences = get_prompt_director_preferences(conn)?;
+    let director_prompt = if director_preferences.trim().is_empty() {
+        default_prompt_director_preferences()
+    } else {
+        director_preferences.trim()
+    };
+    Ok(render_runtime_prompt(
+        SCRIPT_PARSING_CONTRACT,
         &[
             ("novelText", text.as_str()),
             ("style", style.as_str()),
@@ -4920,31 +5005,86 @@ fn build_script_parse_prompt(
                 runtime_script_parse_mode_rules(parse_mode),
             ),
             ("eraHint", era_hint.as_str()),
+            ("episodeDramaBrief", episode_context_brief.as_str()),
+            // Render user-editable text last so placeholders inside it stay literal.
+            ("directorPrompt", director_prompt),
         ],
-    );
+    ))
+}
 
-    if parse_mode == "origin_explainer" {
-        return Ok(append_environment_capture_mode_rule(rendered));
+#[cfg(test)]
+mod director_preferences_tests {
+    use super::*;
+
+    const EDITABLE_TEMPLATE_IDS: [&str; 10] = [
+        PROMPT_TEMPLATE_SCRIPT_EPISODE_PLAN,
+        PROMPT_TEMPLATE_ORIGIN_EXPLAINER_PLANNING,
+        PROMPT_TEMPLATE_VIDEO_IMPORT_SCRIPT_GENERATION,
+        PROMPT_TEMPLATE_CHARACTER_SHEET,
+        PROMPT_TEMPLATE_CHARACTER_REGENERATION,
+        PROMPT_TEMPLATE_ENVIRONMENT_REFERENCE_GENERATION,
+        PROMPT_TEMPLATE_PROP_ASSET_GENERATION,
+        PROMPT_TEMPLATE_SCENE_DESCRIPTION_REFINEMENT,
+        PROMPT_TEMPLATE_SCENE_VIDEO_GENERATION,
+        PROMPT_TEMPLATE_ORIGIN_EXPLAINER_VIDEO_GENERATION,
+    ];
+
+    #[test]
+    fn director_prompt_is_followed_by_hidden_json_contract() {
+        let prompt = render_runtime_prompt(
+            SCRIPT_PARSING_CONTRACT,
+            &[("directorPrompt", "请使用慢推镜头。")],
+        );
+
+        let preference_position = prompt.find("请使用慢推镜头").unwrap();
+        let guard_position = prompt.find("【系统 JSON 协议").unwrap();
+        assert!(preference_position < guard_position);
+        assert!(prompt.trim_end().ends_with("只输出 JSON，不要附加解释。"));
+        assert!(prompt.contains("严格使用以下 JSON 结构"));
     }
 
-    let episode_context_brief = build_episode_context_brief(&episode_plan);
-    let with_episode_context = if episode_context_brief.trim().is_empty() {
-        rendered
-    } else {
-        let context_template = configured_prompt_template_content(
-            conn,
-            PROMPT_TEMPLATE_SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT,
-        )?;
-        render_runtime_prompt(
-            &context_template,
+    #[test]
+    fn placeholders_inside_director_prompt_are_not_rendered() {
+        let prompt = render_runtime_prompt(
+            SCRIPT_PARSING_CONTRACT,
             &[
-                ("basePrompt", rendered.as_str()),
-                ("episodeDramaBrief", episode_context_brief.as_str()),
+                ("novelText", "原始剧本"),
+                ("directorPrompt", "保留字面量 {{novelText}}"),
             ],
-        )
-    };
+        );
 
-    Ok(append_environment_capture_mode_rule(with_episode_context))
+        assert!(prompt.contains("保留字面量 {{novelText}}"));
+    }
+
+    #[test]
+    fn all_default_prompt_contents_contain_only_creative_descriptions() {
+        let templates = default_prompt_templates();
+        let items = templates.as_array().unwrap();
+
+        for item in items {
+            let template_id = item.get("id").and_then(Value::as_str).unwrap();
+            let content = item.get("content").and_then(Value::as_str).unwrap();
+            assert!(!content.contains("{{"), "{template_id} 暴露了输入占位符");
+            assert!(
+                !content.to_ascii_uppercase().contains("JSON"),
+                "{template_id} 暴露了 JSON 协议"
+            );
+        }
+    }
+
+    #[test]
+    fn hidden_contracts_follow_user_descriptions() {
+        for template_id in EDITABLE_TEMPLATE_IDS {
+            let contract = configured_prompt_runtime_contract(template_id).unwrap();
+            let user_prompt_position = contract.find("{{userPrompt}}").unwrap();
+            let protocol_position = contract.find("【系统输出协议").unwrap();
+
+            assert!(
+                user_prompt_position < protocol_position,
+                "{template_id} 协议顺序错误"
+            );
+        }
+    }
 }
 
 fn build_episode_plan_prompt_text(
@@ -4975,16 +5115,16 @@ fn build_episode_plan_prompt_text(
     } else {
         "第1集 startAnchor 必须取原文开头连续片段。"
     };
-    let template = configured_prompt_template_content(conn, PROMPT_TEMPLATE_SCRIPT_EPISODE_PLAN)?;
-    Ok(render_runtime_prompt(
-        &template,
+    render_configured_prompt(
+        conn,
+        PROMPT_TEMPLATE_SCRIPT_EPISODE_PLAN,
         &[
             ("novelText", text),
             ("modeRule", mode_rule),
             ("chunkRule", chunk_rule.as_str()),
             ("firstAnchorRule", first_anchor_rule),
         ],
-    ))
+    )
 }
 
 fn find_anchor_offset(text: &str, anchor: &str, from_offset: usize) -> Option<usize> {
