@@ -2930,6 +2930,97 @@ async fn persist_audio_source(
     persist_audio_bytes_async(state, prefix, Some(normalized_mime), bytes).await
 }
 
+fn is_current_tos_public_url(config: &BackendTosStorageConfig, value: &str) -> bool {
+    if !config.enabled || !is_http_url(value) {
+        return false;
+    }
+    let Ok(root) = reqwest::Url::parse(&build_backend_tos_public_url(config, "")) else {
+        return false;
+    };
+    let Ok(candidate) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    candidate.scheme() == root.scheme()
+        && candidate.host_str() == root.host_str()
+        && candidate.port_or_known_default() == root.port_or_known_default()
+        && candidate.path().starts_with(root.path())
+}
+
+fn video_audio_reference_prefix(config: &Value) -> String {
+    config
+        .get("audioReferenceSource")
+        .and_then(|source| source.get("characterName"))
+        .or_else(|| {
+            config
+                .get("references")
+                .and_then(|references| references.get("narrationVoiceAsset"))
+                .and_then(|asset| asset.get("name"))
+        })
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("video_voice_{}", sanitize_file_component(value)))
+        .unwrap_or_else(|| "video_voice_reference".to_string())
+}
+
+async fn normalize_video_audio_reference_url(
+    state: &BackendState,
+    config: &mut Value,
+) -> Result<(), ApiError> {
+    let Some(source) = config
+        .get("audioUrl")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+    else {
+        return Ok(());
+    };
+
+    let tos_config = load_backend_tos_config();
+    if is_current_tos_public_url(&tos_config, &source) {
+        return Ok(());
+    }
+    if !tos_config.enabled {
+        if is_http_url(&source) {
+            return Ok(());
+        }
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "参考音频是本地地址，且 TOS 未启用或配置不完整，无法提交给视频模型",
+        ));
+    }
+
+    let (bytes, mime) = resolve_source_bytes(state, &source, 40 * 1024 * 1024).await?;
+    let detected_mime = detect_audio_mime_type(&bytes);
+    let normalized_mime = mime
+        .as_deref()
+        .filter(|value| value.starts_with("audio/"))
+        .or(detected_mime)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "参考音频格式无效"))?;
+    let prefix = video_audio_reference_prefix(config);
+    let audio_url = persist_audio_bytes_async(state, &prefix, Some(normalized_mime), bytes).await?;
+    if !is_http_url(&audio_url) {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "参考音频上传到 TOS 后未返回公网 URL",
+        ));
+    }
+
+    if let Some(object) = config.as_object_mut() {
+        object.insert("audioUrl".to_string(), json!(audio_url.clone()));
+        if let Some(voice_asset) = object
+            .get_mut("references")
+            .and_then(Value::as_object_mut)
+            .and_then(|references| references.get_mut("narrationVoiceAsset"))
+            .and_then(Value::as_object_mut)
+        {
+            voice_asset.insert("audioUrl".to_string(), json!(audio_url));
+        }
+    }
+    Ok(())
+}
+
 fn extract_scene_split_lines(text: &str) -> Vec<String> {
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
     let mut lines: Vec<String> = normalized
@@ -7977,14 +8068,15 @@ fn apply_scene_video_reference_inputs(
         }
     }
 
-    // Narration voice only applies when the scene narrates without spoken
-    // dialogue; character dialogue voices are injected separately downstream.
+    // An explicitly selected narration voice is the scene-level audio reference.
+    // Keep it even when narration and dialogue coexist; otherwise the selected
+    // sample silently disappears when no matching character voice is available.
     let has_narration = scene
         .get("narration")
         .and_then(Value::as_str)
         .map(str::trim)
         .is_some_and(|value| !value.is_empty());
-    if has_narration && scene_dialogue_speakers(scene).is_empty() {
+    if has_narration && model_supports_audio_reference(provider, model_id) {
         if let Some(audio_url) = read_str(
             references
                 .get("narrationVoiceAsset")
@@ -7992,6 +8084,18 @@ fn apply_scene_video_reference_inputs(
         ) {
             if let Some(object) = config.as_object_mut() {
                 object.insert("audioUrl".to_string(), json!(audio_url));
+                object.insert(
+                    "audioReferenceSource".to_string(),
+                    json!({
+                      "type": "narration_voice_asset",
+                      "assetId": references
+                        .get("narrationVoiceAsset")
+                        .and_then(|asset| asset.get("id")),
+                      "assetName": references
+                        .get("narrationVoiceAsset")
+                        .and_then(|asset| asset.get("name"))
+                    }),
+                );
             }
         }
     }
@@ -12979,18 +13083,37 @@ mod tests {
     }
 
     #[test]
-    fn scene_video_references_inject_narration_voice_without_dialogue() {
+    fn scene_video_references_keep_explicit_narration_voice_with_dialogue() {
         let mut config = json!({
           "references": {
             "environmentImage": "env-image",
-            "narrationVoiceAsset": { "audioUrl": "narration-voice-url" }
+            "narrationVoiceAsset": {
+              "id": "prop:guangxi-voice",
+              "name": "广西音色",
+              "audioUrl": "https://playlet-ai.tos-cn-guangzhou.volces.com/voice-assets/guangxi.mp3"
+            }
           }
         });
-        let scene = json!({ "description": "镜头缓缓推进", "narration": "夜色渐深" });
-        apply_scene_video_reference_inputs(&mut config, &scene, "qwen", "wan2.7-i2v");
+        let scene = json!({
+          "description": "陈泽说：今天也是混吃等死的一天。",
+          "narration": "夜色渐深"
+        });
+        apply_scene_video_reference_inputs(
+            &mut config,
+            &scene,
+            "volcengine",
+            "doubao-seedance-2-0-mini-260615",
+        );
         assert_eq!(
             config.get("audioUrl").and_then(Value::as_str),
-            Some("narration-voice-url")
+            Some("https://playlet-ai.tos-cn-guangzhou.volces.com/voice-assets/guangxi.mp3")
+        );
+        assert_eq!(
+            config
+                .get("audioReferenceSource")
+                .and_then(|source| source.get("assetName"))
+                .and_then(Value::as_str),
+            Some("广西音色")
         );
     }
 
@@ -13012,7 +13135,7 @@ mod tests {
             "narrationVoiceAsset": {
               "name": "旁白音色",
               "type": "other",
-              "audioUrl": "voice-url"
+              "audioUrl": "https://playlet-ai.tos-cn-guangzhou.volces.com/voice-assets/narration.mp3"
             }
           }
         });
@@ -13051,6 +13174,19 @@ mod tests {
         assert_eq!(
             image_urls,
             vec!["env-url", "asset://asset-chenze", "truck-url"]
+        );
+        let audio_url = request
+            .get("content")
+            .and_then(Value::as_array)
+            .expect("volcengine content array")
+            .iter()
+            .find(|item| item.get("role").and_then(Value::as_str) == Some("reference_audio"))
+            .and_then(|item| item.get("audio_url"))
+            .and_then(|item| item.get("url"))
+            .and_then(Value::as_str);
+        assert_eq!(
+            audio_url,
+            Some("https://playlet-ai.tos-cn-guangzhou.volces.com/voice-assets/narration.mp3")
         );
     }
 
@@ -14836,6 +14972,7 @@ pub(super) async fn api_models_test(
                     obj.insert("audioReferences".to_string(), audio_references.clone());
                 }
             }
+            normalize_video_audio_reference_url(&state, &mut config).await?;
             if !matches!(
                 provider.as_str(),
                 "qwen" | "volcengine" | "kling" | "gemini"
@@ -17794,6 +17931,7 @@ pub(super) async fn api_asset_video_generate(
         &provider,
         &model_id_for_voice,
     )?;
+    normalize_video_audio_reference_url(&state, &mut config).await?;
     if provider == "volcengine" {
         normalize_volcengine_video_config_images(&state, &mut config).await?;
     }
@@ -17972,6 +18110,7 @@ pub(super) async fn api_video_generate(
         &provider_name,
         &model_id_for_voice,
     )?;
+    normalize_video_audio_reference_url(&state, &mut config).await?;
     if provider_name == "volcengine" {
         normalize_volcengine_video_config_images(&state, &mut config).await?;
     }

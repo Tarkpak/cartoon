@@ -30,6 +30,20 @@ const requestReadable = computed(() => props.toReadableText(props.activeLog?.req
 const responseReadable = computed(() => props.toReadableText(props.activeLog?.response))
 const requestRaw = computed(() => props.toPrettyJson(props.activeLog?.requestRaw ?? props.activeLog?.request))
 const responseRaw = computed(() => props.toPrettyJson(props.activeLog?.responseRaw ?? props.activeLog?.response))
+
+function hasMeaningfulError(value: unknown): boolean {
+  if (value === null || value === undefined) return false
+  if (typeof value === 'string') return value.trim().length > 0
+  if (Array.isArray(value)) return value.some(hasMeaningfulError)
+  if (typeof value === 'object') return Object.values(value).some(hasMeaningfulError)
+  return true
+}
+
+const errorDetails = computed(() => {
+  const error = props.activeLog?.error
+  return hasMeaningfulError(error) ? props.toPrettyJson(error) : ''
+})
+
 function isRenderableMediaType(type: ModelDebugMediaRef['mediaType']): type is 'image' | 'audio' | 'video' {
   return type === 'image' || type === 'audio' || type === 'video'
 }
@@ -736,13 +750,13 @@ watch(open, (value) => {
           </template>
 
           <div
-            v-if="props.activeLog.error"
+            v-if="errorDetails"
             class="space-y-2"
           >
             <h4 class="text-sm font-medium text-destructive">
               错误信息
             </h4>
-            <pre class="overflow-auto whitespace-pre-wrap break-all rounded bg-destructive/10 p-3 text-xs">{{ props.toPrettyJson(props.activeLog.error) }}</pre>
+            <pre class="overflow-auto whitespace-pre-wrap break-all rounded bg-destructive/10 p-3 text-xs">{{ errorDetails }}</pre>
           </div>
         </div>
 
