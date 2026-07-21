@@ -87,6 +87,8 @@ const hoverPreviewPosition = ref({ x: 0, y: 0 })
 const imagePreviewOpen = ref(false)
 const imagePreviewSrc = ref('')
 const imagePreviewAlt = ref('图片预览')
+const downloadingFileKey = ref<string | null>(null)
+const { toast } = useToast()
 const { currentUser, loadStatus } = useCloudAdmin()
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
 const selectedMember = computed(() => members.value.find(member => member.account === selectedMemberAccount.value))
@@ -273,6 +275,10 @@ async function loadFiles(options: { reset?: boolean } = {}) {
 }
 
 async function downloadFile(file: TosFileEntry) {
+  if (downloadingFileKey.value) return
+
+  downloadingFileKey.value = file.key
+  errorMessage.value = ''
   try {
     const response = await $fetch<{ success: boolean, data: { url: string } }>('/api/tos/download-url', {
       query: {
@@ -280,13 +286,27 @@ async function downloadFile(file: TosFileEntry) {
         filename: fileNameFromKey(file.key)
       }
     })
-    if (response.data.url) window.location.assign(response.data.url)
+    const downloadUrl = response.data?.url
+    if (!downloadUrl) throw new Error('下载地址为空')
+
+    const anchor = document.createElement('a')
+    anchor.href = downloadUrl
+    anchor.download = fileNameFromKey(file.key)
+    anchor.style.display = 'none'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    toast.success('下载已开始', {
+      description: `${fileNameFromKey(file.key)} 将保存到系统下载目录`
+    })
   } catch (error) {
     const fetchError = error as FetchErrorWithData
     errorMessage.value = fetchError.data?.data?.message
       || fetchError.data?.message
       || fetchError.data?.statusMessage
       || (error instanceof Error ? error.message : '下载文件失败')
+  } finally {
+    downloadingFileKey.value = null
   }
 }
 
@@ -722,9 +742,14 @@ onMounted(() => {
                     variant="ghost"
                     size="icon"
                     title="下载文件"
+                    :disabled="downloadingFileKey !== null"
                     @click.stop="downloadFile(file)"
                   >
-                    <Download class="h-4 w-4" />
+                    <Loader2
+                      v-if="downloadingFileKey === file.key"
+                      class="h-4 w-4 animate-spin"
+                    />
+                    <Download v-else class="h-4 w-4" />
                   </Button>
                 </div>
               </TableCell>
