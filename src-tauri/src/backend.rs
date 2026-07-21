@@ -1875,32 +1875,52 @@ fn build_scoped_tos_key_prefix(
     raw_key_prefix: &str,
     use_cloud_scope: bool,
 ) -> (Option<String>, bool) {
+    let is_admin = cloud_user_is_admin();
+    let user_scope_prefix = if use_cloud_scope && !is_admin {
+        cloud_tos_user_scope_prefix()
+    } else {
+        None
+    };
+    build_scoped_tos_key_prefix_for_user(
+        raw_key_prefix,
+        use_cloud_scope,
+        is_admin,
+        user_scope_prefix.as_deref(),
+    )
+}
+
+fn build_scoped_tos_key_prefix_for_user(
+    raw_key_prefix: &str,
+    use_cloud_scope: bool,
+    is_admin: bool,
+    user_scope_prefix: Option<&str>,
+) -> (Option<String>, bool) {
     let base_prefix = normalize_tos_object_path(raw_key_prefix);
     let mut parts = Vec::new();
     if !base_prefix.is_empty() {
         parts.push(base_prefix.clone());
     }
 
-    let user_scoped = if use_cloud_scope && !cloud_user_is_admin() {
-        if let Some(user_prefix) = cloud_tos_user_scope_prefix() {
+    let scope_valid = if use_cloud_scope && !is_admin {
+        if let Some(user_prefix) = user_scope_prefix {
             let already_scoped =
                 base_prefix == user_prefix || base_prefix.ends_with(&format!("/{user_prefix}"));
             if !already_scoped {
-                parts.push(user_prefix);
+                parts.push(user_prefix.to_string());
             }
             true
         } else {
-            return (None, true);
+            false
         }
     } else {
-        false
+        true
     };
 
     let prefix = parts.join("/");
     if prefix.is_empty() {
-        (None, user_scoped)
+        (None, scope_valid)
     } else {
-        (Some(prefix), user_scoped)
+        (Some(prefix), scope_valid)
     }
 }
 
@@ -11543,4 +11563,34 @@ async fn api_not_implemented(Path(path): Path<String>) -> (StatusCode, Json<Valu
           "message": format!("Rust 后端暂未实现该接口: /api/{}", path)
         })),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_scoped_tos_key_prefix_for_user;
+
+    #[test]
+    fn cloud_admin_tos_scope_is_valid_without_a_user_prefix() {
+        assert_eq!(
+            build_scoped_tos_key_prefix_for_user("manju-assets", true, true, None),
+            (Some("manju-assets".to_string()), true)
+        );
+    }
+
+    #[test]
+    fn cloud_user_tos_scope_requires_and_appends_a_user_prefix() {
+        assert_eq!(
+            build_scoped_tos_key_prefix_for_user(
+                "manju-assets",
+                true,
+                false,
+                Some("users/example")
+            ),
+            (Some("manju-assets/users/example".to_string()), true)
+        );
+        assert_eq!(
+            build_scoped_tos_key_prefix_for_user("manju-assets", true, false, None),
+            (Some("manju-assets".to_string()), false)
+        );
+    }
 }

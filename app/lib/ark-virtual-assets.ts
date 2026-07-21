@@ -1,4 +1,5 @@
 import type { ArkVirtualAssetBinding, ArkVirtualAssetStatus } from '~/lib/asset-workbench-types'
+import { resolveApiErrorMessage } from '~/lib/api-error'
 
 export interface ArkVirtualAssetGroup {
   Id: string
@@ -186,17 +187,23 @@ export async function uploadArkVirtualAsset(input: {
   imageData?: string
   projectName?: string
 }) {
-  const response = await $fetch<{
+  let response: {
     success: boolean
     data?: {
       sourceUrl?: string
       asset?: ArkAssetResponse
     }
     message?: string
-  }>('/api/ark-assets/virtual/assets/upload', {
-    method: 'POST',
-    body: input
-  })
+  }
+
+  try {
+    response = await $fetch('/api/ark-assets/virtual/assets/upload', {
+      method: 'POST',
+      body: input
+    })
+  } catch (error) {
+    throw new Error(resolveApiErrorMessage(error, '上传火山虚拟人像素材失败'))
+  }
 
   if (!response.success || !response.data?.asset?.Id) {
     throw new Error(response.message || '上传火山虚拟人像素材失败')
