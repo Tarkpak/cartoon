@@ -10472,7 +10472,21 @@ async fn api_tos_members() -> Result<Json<Value>, ApiError> {
         None,
     )
     .await?;
-    Ok(Json(response))
+    let members = response
+        .get("data")
+        .and_then(|data| data.get("members"))
+        .and_then(Value::as_array)
+        .cloned()
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "云端成员列表响应格式无效，请确认云端后台版本",
+            )
+        })?;
+    Ok(Json(json!({
+      "success": true,
+      "data": { "members": members }
+    })))
 }
 
 async fn api_cloud_status(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {

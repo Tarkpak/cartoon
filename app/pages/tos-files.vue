@@ -2,7 +2,6 @@
 import type { TosConfigPublic } from '#shared/types/provider'
 import {
   ArrowLeft,
-  ExternalLink,
   Download,
   File,
   Folder,
@@ -53,9 +52,10 @@ type TosMember = {
 
 type TosMembersResponse = {
   success: boolean
-  data: {
-    members: TosMember[]
+  data?: {
+    members?: TosMember[]
   }
+  message?: string
 }
 
 type FetchErrorWithData = Error & {
@@ -304,6 +304,9 @@ async function loadMembers() {
   membersLoading.value = true
   try {
     const response = await $fetch<TosMembersResponse>('/api/tos/members')
+    if (!response.success || !Array.isArray(response.data?.members)) {
+      throw new Error(response.message || '云端成员列表响应格式无效，请确认云端后台版本')
+    }
     members.value = response.data.members
   } catch (error) {
     const fetchError = error as FetchErrorWithData
@@ -593,7 +596,7 @@ onMounted(() => {
             <col class="w-[92px]">
             <col class="w-[190px]">
             <col class="w-[140px]">
-            <col class="w-[104px]">
+            <col class="w-[64px]">
           </colgroup>
           <TableHeader>
             <TableRow>
@@ -612,7 +615,7 @@ onMounted(() => {
               <TableHead class="whitespace-nowrap">
                 存储类型
               </TableHead>
-              <TableHead class="w-[104px] whitespace-nowrap bg-background text-center">
+              <TableHead class="w-[64px] whitespace-nowrap bg-background text-center">
                 操作
               </TableHead>
             </TableRow>
@@ -649,7 +652,7 @@ onMounted(() => {
               <TableCell class="whitespace-nowrap">
                 -
               </TableCell>
-              <TableCell class="w-[104px] bg-background text-center" />
+              <TableCell class="w-[64px] bg-background text-center" />
             </TableRow>
 
             <TableRow
@@ -712,20 +715,8 @@ onMounted(() => {
               <TableCell class="whitespace-nowrap">
                 {{ file.storageClass || '-' }}
               </TableCell>
-              <TableCell class="w-[104px] bg-background text-center">
+              <TableCell class="w-[64px] bg-background text-center">
                 <div class="inline-flex w-full items-center justify-center gap-1">
-                  <Button
-                    as="a"
-                    variant="ghost"
-                    size="icon"
-                    :href="file.url"
-                    target="_blank"
-                    rel="noreferrer"
-                    title="打开文件"
-                    @click.stop
-                  >
-                    <ExternalLink class="h-4 w-4" />
-                  </Button>
                   <Button
                     type="button"
                     variant="ghost"

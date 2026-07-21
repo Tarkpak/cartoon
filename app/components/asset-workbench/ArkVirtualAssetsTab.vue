@@ -694,171 +694,175 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="grid min-h-9 items-center gap-3 border-b bg-muted/20 px-3 text-xs font-medium text-muted-foreground xl:grid-cols-[minmax(260px,1fr)_72px_112px_128px_116px]">
-            <div>素材</div>
-            <div class="hidden xl:block">类型</div>
-            <div>状态</div>
-            <div>更新时间</div>
-            <div class="text-right">操作</div>
-          </div>
-
-        <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-          <div
-            v-if="loadingAssets"
-            class="flex h-32 items-center justify-center text-sm text-muted-foreground"
-          >
-            <span class="inline-flex items-center gap-2">
-              <Loader2 class="h-4 w-4 animate-spin" />
-              正在查询素材
-            </span>
-          </div>
-
-          <div
-            v-else-if="assets.length === 0"
-            class="flex h-full min-h-56 flex-col items-center justify-center px-4 text-center"
-          >
-            <div class="flex h-12 w-12 items-center justify-center rounded-md bg-muted text-muted-foreground">
-              <ImageIcon class="h-6 w-6" />
-            </div>
-            <p class="mt-3 text-sm font-medium text-foreground">没有素材</p>
-            <p class="mt-1 text-xs text-muted-foreground">选择素材组后上传图片，生成可在分镜中引用的 asset URI。</p>
-            <Button
-              v-if="selectedGroupId"
-              size="sm"
-              class="mt-4 gap-2"
-              @click="openUploadAssetDialog"
-            >
-              <Upload class="h-4 w-4" />
-              上传素材
-            </Button>
-          </div>
-
-          <div
-            v-else
-            class="min-w-0"
-          >
-            <div
-              v-for="asset in assets"
-              :key="asset.Id"
-              class="grid min-h-[92px] items-center gap-3 border-b px-3 py-3 transition-colors hover:bg-muted/30 xl:grid-cols-[minmax(260px,1fr)_72px_112px_128px_116px]"
-            >
-              <div class="flex min-w-0 items-center gap-3">
-                <div class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
-                  <img
-                    v-if="assetPreviewUrl(asset)"
-                    :src="assetPreviewUrl(asset)"
-                    :alt="asset.Name || asset.Id"
-                    class="h-full w-full object-cover"
-                    loading="lazy"
-                  >
-                  <ImageIcon
-                    v-else
-                    class="h-5 w-5 text-muted-foreground"
-                  />
-                </div>
-                <div class="min-w-0">
-                  <p class="truncate text-sm font-medium">{{ asset.Name || asset.Id }}</p>
-                  <p class="mt-1 truncate font-mono text-xs text-muted-foreground">{{ asset.Id }}</p>
-                  <p class="mt-1 truncate text-xs text-muted-foreground">{{ asset.GroupId || '-' }}</p>
-                </div>
+          <div class="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+            <div class="flex h-full min-h-0 min-w-0 flex-col xl:min-w-[760px]">
+              <div class="grid min-h-9 shrink-0 items-center gap-3 border-b bg-muted/20 px-3 text-xs font-medium text-muted-foreground xl:grid-cols-[minmax(260px,1fr)_72px_112px_128px_116px]">
+                <div>素材</div>
+                <div class="hidden xl:block">类型</div>
+                <div>状态</div>
+                <div>更新时间</div>
+                <div class="text-right">操作</div>
               </div>
 
-              <div class="hidden text-sm xl:block">{{ assetTypeLabel(asset.AssetType) }}</div>
-              <div>
-                <span
-                  class="inline-flex rounded-md border px-2 py-0.5 text-xs font-medium"
-                  :class="statusClass(asset.Status)"
+              <div class="min-h-0 flex-1 overflow-y-auto">
+                <div
+                  v-if="loadingAssets"
+                  class="flex h-32 items-center justify-center text-sm text-muted-foreground"
                 >
-                  {{ asset.Status || 'Unknown' }}
-                </span>
-              </div>
-              <div class="whitespace-nowrap text-sm text-muted-foreground">
-                {{ formatDateTime(asset.UpdateTime || asset.CreateTime) }}
-              </div>
-              <div class="flex items-center justify-end gap-1">
-                <TooltipRoot>
-                  <TooltipTrigger as-child>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      class="h-8 w-8"
-                      @click="copyAssetUri(asset.Id)"
-                    >
-                      <Check
-                        v-if="copiedAssetId === asset.Id"
-                        class="h-4 w-4 text-emerald-600"
-                      />
-                      <Copy
-                        v-else
-                        class="h-4 w-4"
-                      />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipPortal>
-                    <TooltipContent
-                      side="top"
-                      :side-offset="6"
-                      class="z-[70] rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
-                    >
-                      复制 asset URI
-                    </TooltipContent>
-                  </TooltipPortal>
-                </TooltipRoot>
-                <TooltipRoot>
-                  <TooltipTrigger as-child>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      class="h-8 w-8"
-                      :disabled="!!mutatingId"
-                      @click="openEditAssetDialog(asset)"
-                    >
-                      <Pencil class="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipPortal>
-                    <TooltipContent
-                      side="top"
-                      :side-offset="6"
-                      class="z-[70] rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
-                    >
-                      编辑素材
-                    </TooltipContent>
-                  </TooltipPortal>
-                </TooltipRoot>
-                <TooltipRoot>
-                  <TooltipTrigger as-child>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      class="h-8 w-8 text-destructive hover:text-destructive"
-                      :disabled="!!mutatingId"
-                      @click="confirmDeleteAsset(asset)"
-                    >
-                      <Loader2
-                        v-if="mutatingId === asset.Id"
-                        class="h-4 w-4 animate-spin"
-                      />
-                      <Trash2
-                        v-else
-                        class="h-4 w-4"
-                      />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipPortal>
-                    <TooltipContent
-                      side="top"
-                      :side-offset="6"
-                      class="z-[70] rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
-                    >
-                      删除素材
-                    </TooltipContent>
-                  </TooltipPortal>
-                </TooltipRoot>
+                  <span class="inline-flex items-center gap-2">
+                    <Loader2 class="h-4 w-4 animate-spin" />
+                    正在查询素材
+                  </span>
+                </div>
+
+                <div
+                  v-else-if="assets.length === 0"
+                  class="flex h-full min-h-56 flex-col items-center justify-center px-4 text-center"
+                >
+                  <div class="flex h-12 w-12 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                    <ImageIcon class="h-6 w-6" />
+                  </div>
+                  <p class="mt-3 text-sm font-medium text-foreground">没有素材</p>
+                  <p class="mt-1 text-xs text-muted-foreground">选择素材组后上传图片，生成可在分镜中引用的 asset URI。</p>
+                  <Button
+                    v-if="selectedGroupId"
+                    size="sm"
+                    class="mt-4 gap-2"
+                    @click="openUploadAssetDialog"
+                  >
+                    <Upload class="h-4 w-4" />
+                    上传素材
+                  </Button>
+                </div>
+
+                <div
+                  v-else
+                  class="min-w-0"
+                >
+                  <div
+                    v-for="asset in assets"
+                    :key="asset.Id"
+                    class="grid min-h-[92px] items-center gap-3 border-b px-3 py-3 transition-colors hover:bg-muted/30 xl:grid-cols-[minmax(260px,1fr)_72px_112px_128px_116px]"
+                  >
+                    <div class="flex min-w-0 items-center gap-3">
+                      <div class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+                        <img
+                          v-if="assetPreviewUrl(asset)"
+                          :src="assetPreviewUrl(asset)"
+                          :alt="asset.Name || asset.Id"
+                          class="h-full w-full object-cover"
+                          loading="lazy"
+                        >
+                        <ImageIcon
+                          v-else
+                          class="h-5 w-5 text-muted-foreground"
+                        />
+                      </div>
+                      <div class="min-w-0">
+                        <p class="truncate text-sm font-medium">{{ asset.Name || asset.Id }}</p>
+                        <p class="mt-1 truncate font-mono text-xs text-muted-foreground">{{ asset.Id }}</p>
+                        <p class="mt-1 truncate text-xs text-muted-foreground">{{ asset.GroupId || '-' }}</p>
+                      </div>
+                    </div>
+
+                    <div class="hidden text-sm xl:block">{{ assetTypeLabel(asset.AssetType) }}</div>
+                    <div>
+                      <span
+                        class="inline-flex rounded-md border px-2 py-0.5 text-xs font-medium"
+                        :class="statusClass(asset.Status)"
+                      >
+                        {{ asset.Status || 'Unknown' }}
+                      </span>
+                    </div>
+                    <div class="whitespace-nowrap text-sm text-muted-foreground">
+                      {{ formatDateTime(asset.UpdateTime || asset.CreateTime) }}
+                    </div>
+                    <div class="flex items-center justify-end gap-1">
+                      <TooltipRoot>
+                        <TooltipTrigger as-child>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            class="h-8 w-8"
+                            @click="copyAssetUri(asset.Id)"
+                          >
+                            <Check
+                              v-if="copiedAssetId === asset.Id"
+                              class="h-4 w-4 text-emerald-600"
+                            />
+                            <Copy
+                              v-else
+                              class="h-4 w-4"
+                            />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipPortal>
+                          <TooltipContent
+                            side="top"
+                            :side-offset="6"
+                            class="z-[70] rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+                          >
+                            复制 asset URI
+                          </TooltipContent>
+                        </TooltipPortal>
+                      </TooltipRoot>
+                      <TooltipRoot>
+                        <TooltipTrigger as-child>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            class="h-8 w-8"
+                            :disabled="!!mutatingId"
+                            @click="openEditAssetDialog(asset)"
+                          >
+                            <Pencil class="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipPortal>
+                          <TooltipContent
+                            side="top"
+                            :side-offset="6"
+                            class="z-[70] rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+                          >
+                            编辑素材
+                          </TooltipContent>
+                        </TooltipPortal>
+                      </TooltipRoot>
+                      <TooltipRoot>
+                        <TooltipTrigger as-child>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            class="h-8 w-8 text-destructive hover:text-destructive"
+                            :disabled="!!mutatingId"
+                            @click="confirmDeleteAsset(asset)"
+                          >
+                            <Loader2
+                              v-if="mutatingId === asset.Id"
+                              class="h-4 w-4 animate-spin"
+                            />
+                            <Trash2
+                              v-else
+                              class="h-4 w-4"
+                            />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipPortal>
+                          <TooltipContent
+                            side="top"
+                            :side-offset="6"
+                            class="z-[70] rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+                          >
+                            删除素材
+                          </TooltipContent>
+                        </TooltipPortal>
+                      </TooltipRoot>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
         <div class="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
           <span>共 {{ assetTotal }} 个，第 {{ assetPage }} / {{ assetTotalPages }} 页</span>
