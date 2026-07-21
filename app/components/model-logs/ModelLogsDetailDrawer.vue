@@ -228,7 +228,6 @@ const requestReadableMedia = computed(() => mediaRefs.value.filter(item => (
 )))
 const responseReadableMedia = computed(() => mediaRefs.value.filter(item => (
   item.direction === 'response'
-  && Boolean(item.url)
   && isRenderableMediaType(item.mediaType)
 )))
 
@@ -588,7 +587,7 @@ watch(open, (value) => {
                 class="space-y-2"
               >
                 <p class="text-xs text-muted-foreground">
-                  媒体引用预览
+                  媒体结果
                 </p>
                 <div
                   v-for="item in responseReadableMedia"
@@ -617,6 +616,12 @@ watch(open, (value) => {
                     controls
                     class="max-h-64 w-full rounded border bg-black"
                   />
+                  <div
+                    v-else
+                    class="rounded border border-dashed bg-background p-3 text-xs text-muted-foreground"
+                  >
+                    {{ item.note || '该媒体未保存可预览地址' }}
+                  </div>
                 </div>
               </div>
             </div>

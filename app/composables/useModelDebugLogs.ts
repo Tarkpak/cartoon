@@ -138,6 +138,15 @@ export function useModelDebugLogs() {
     }
 
     if (typeof value === 'object') {
+      const objectValue = value as Record<string, unknown>
+      const kind = typeof objectValue.kind === 'string' ? objectValue.kind : ''
+      if (kind === 'data-url' || kind === 'large-media-or-inline-string') {
+        const chars = typeof objectValue.chars === 'number' ? objectValue.chars : 0
+        return chars > 0
+          ? `[媒体内容已省略，原始长度 ${chars.toLocaleString()} 字符]`
+          : '[媒体内容已省略]'
+      }
+
       const entries = Object.entries(value as Record<string, unknown>)
       if (entries.length === 0) return '{}'
 

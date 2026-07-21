@@ -96,12 +96,13 @@ function openTextDialog(mode: TextDialogMode) {
 }
 
 function handleCreateProfile() {
-  openTextDialog('create')
+  // Let the dropdown release its body interaction lock before opening a modal.
+  setTimeout(() => openTextDialog('create'), 0)
 }
 
 function handleRenameProfile() {
   if (!activePromptProfile.value || !canRenameActivePromptProfile.value) return
-  openTextDialog('rename')
+  setTimeout(() => openTextDialog('rename'), 0)
 }
 
 async function handleTextDialogConfirm(name: string) {
@@ -132,8 +133,10 @@ async function handleTextDialogConfirm(name: string) {
 
 function handleDeleteProfile() {
   if (!activePromptProfile.value || !canDeleteActivePromptProfile.value) return
-  deleteDialogError.value = ''
-  deleteDialogOpen.value = true
+  setTimeout(() => {
+    deleteDialogError.value = ''
+    deleteDialogOpen.value = true
+  }, 0)
 }
 
 async function handleDeleteConfirm() {

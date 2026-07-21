@@ -34,6 +34,8 @@ interface PromptProfilesResponse {
   }
 }
 
+const PROMPT_PROFILE_CREATE_TIMEOUT_MS = 10_000
+
 export interface PromptStageMeta {
   name: string
   color: string
@@ -299,6 +301,7 @@ export function useSettingsPrompts() {
     try {
       const response = await $fetch<PromptProfilesResponse>('/api/prompts/profiles', {
         method: 'POST',
+        timeout: PROMPT_PROFILE_CREATE_TIMEOUT_MS,
         body: {
           name: normalizedName,
           description: description.trim() || undefined,

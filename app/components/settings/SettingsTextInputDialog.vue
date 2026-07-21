@@ -38,8 +38,6 @@ watch(() => props.open, (open) => {
 })
 
 function handleOpenChange(open: boolean) {
-  // 保存过程中不允许通过遮罩/ESC 关闭，避免状态错乱
-  if (!open && props.busy) return
   emit('update:open', open)
 }
 
@@ -86,7 +84,6 @@ function submit() {
       <DialogFooter>
         <Button
           variant="outline"
-          :disabled="busy"
           @click="handleOpenChange(false)"
         >
           取消
