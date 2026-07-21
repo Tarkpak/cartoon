@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ModelDebugLogEntry } from '@/composables/useModelDebugLogs'
+import type { BadgeVariants } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import {
   Table,
@@ -19,6 +20,13 @@ defineProps<{
   formatDuration: (value: number) => string
   openLogDetail: (item: ModelDebugLogEntry) => void
 }>()
+
+function statusVariant(status: ModelDebugLogEntry['status']): BadgeVariants['variant'] {
+  if (status === 'success') return 'success'
+  if (status === 'error') return 'destructive'
+  if (status === 'task' || status === 'status') return 'secondary'
+  return 'outline'
+}
 </script>
 
 <template>
@@ -118,7 +126,7 @@ defineProps<{
               {{ item.model || '-' }}
             </TableCell>
             <TableCell>
-              <Badge :variant="item.status === 'success' ? 'default' : 'destructive'">
+              <Badge :variant="statusVariant(item.status)">
                 {{ item.status }}
               </Badge>
             </TableCell>

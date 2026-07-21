@@ -22,7 +22,7 @@ export interface ModelDebugLogEntry {
   provider: string
   model: string
   operation: string
-  status: 'success' | 'error'
+  status: 'success' | 'error' | 'task' | 'status' | (string & {})
   durationMs: number
   endpoint?: string
   requestId?: string

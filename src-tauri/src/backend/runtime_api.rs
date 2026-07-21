@@ -250,6 +250,140 @@ fn llm_dev_file_response_raw_value(raw: &str) -> Value {
     json!(raw)
 }
 
+fn model_log_media_type(path: &str, url: &str) -> Option<&'static str> {
+    let normalized_path = path.to_ascii_lowercase();
+    let normalized_url = url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(url)
+        .to_ascii_lowercase();
+
+    if normalized_url.starts_with("data:image/")
+        || normalized_url.ends_with(".png")
+        || normalized_url.ends_with(".jpg")
+        || normalized_url.ends_with(".jpeg")
+        || normalized_url.ends_with(".webp")
+        || normalized_url.ends_with(".gif")
+    {
+        return Some("image");
+    }
+    if normalized_url.starts_with("data:audio/")
+        || normalized_url.ends_with(".mp3")
+        || normalized_url.ends_with(".wav")
+        || normalized_url.ends_with(".m4a")
+        || normalized_url.ends_with(".aac")
+        || normalized_url.ends_with(".ogg")
+        || normalized_url.ends_with(".flac")
+        || normalized_url.ends_with(".opus")
+    {
+        return Some("audio");
+    }
+    if normalized_url.starts_with("data:video/")
+        || normalized_url.ends_with(".mp4")
+        || normalized_url.ends_with(".webm")
+        || normalized_url.ends_with(".mov")
+        || normalized_url.ends_with(".m3u8")
+    {
+        return Some("video");
+    }
+    if normalized_path.contains("audio")
+        || normalized_path.contains("voice")
+        || normalized_path.contains("speech")
+        || normalized_path.contains("sound")
+    {
+        return Some("audio");
+    }
+    if normalized_path.contains("image")
+        || normalized_path.contains("frame")
+        || normalized_path.contains("thumbnail")
+        || normalized_path.contains("poster")
+    {
+        return Some("image");
+    }
+    if normalized_path.contains("video") || normalized_path.contains("clip") {
+        return Some("video");
+    }
+    None
+}
+
+fn collect_model_log_media_refs(value: &Value, direction: &str, refs: &mut Vec<Value>) {
+    fn visit(value: &Value, direction: &str, path: &str, depth: usize, refs: &mut Vec<Value>) {
+        if depth > 10 {
+            return;
+        }
+        match value {
+            Value::String(url) => {
+                let trimmed = url.trim();
+                if trimmed.is_empty()
+                    || !(is_http_url(trimmed)
+                        || trimmed.starts_with('/')
+                        || trimmed.starts_with("data:"))
+                {
+                    return;
+                }
+                let Some(media_type) = model_log_media_type(path, trimmed) else {
+                    return;
+                };
+                if trimmed.starts_with("data:") {
+                    refs.push(json!({
+                      "id": format!("media_{}", refs.len() + 1),
+                      "direction": direction,
+                      "path": path,
+                      "mediaType": media_type,
+                      "mimeType": trimmed
+                        .strip_prefix("data:")
+                        .and_then(|value| value.split([';', ',']).next()),
+                      "originalLength": url.len(),
+                      "status": "skipped",
+                      "note": "内嵌媒体内容未写入媒体索引"
+                    }));
+                    return;
+                }
+                if refs.iter().any(|item| {
+                    item.get("direction").and_then(Value::as_str) == Some(direction)
+                        && item.get("url").and_then(Value::as_str) == Some(trimmed)
+                }) {
+                    return;
+                }
+                refs.push(json!({
+                  "id": format!("media_{}", refs.len() + 1),
+                  "direction": direction,
+                  "path": path,
+                  "mediaType": media_type,
+                  "originalLength": url.len(),
+                  "url": trimmed,
+                  "status": "ready"
+                }));
+            }
+            Value::Array(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    visit(
+                        item,
+                        direction,
+                        &format!("{}[{}]", path, index),
+                        depth + 1,
+                        refs,
+                    );
+                }
+            }
+            Value::Object(object) => {
+                for (key, item) in object {
+                    visit(
+                        item,
+                        direction,
+                        &format!("{}.{}", path, key),
+                        depth + 1,
+                        refs,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    visit(value, direction, "$", 0, refs);
+}
+
 fn llm_dev_write_db_log(
     provider: &str,
     model: &str,
@@ -298,6 +432,13 @@ fn llm_dev_write_db_log_impl(
     let response_value = response.map(|value| llm_dev_file_sanitize_value(value, None));
     let response_raw_value = response_raw.map(llm_dev_file_response_raw_value);
     let error_value = error.map(|message| json!({ "message": message }));
+    let mut media_refs = Vec::new();
+    if let Some(value) = request_value.as_ref() {
+        collect_model_log_media_refs(value, "request", &mut media_refs);
+    }
+    if let Some(value) = response_value.as_ref().or(response_raw_value.as_ref()) {
+        collect_model_log_media_refs(value, "response", &mut media_refs);
+    }
     let log_payload = json!({
       "eventId": log_id.clone(),
       "requestId": request_id.clone(),
@@ -343,7 +484,11 @@ fn llm_dev_write_db_log_impl(
                 request_value.as_ref().map(Value::to_string),
                 response_value.as_ref().map(Value::to_string),
                 response_raw_value.as_ref().map(Value::to_string),
-                None::<String>,
+                if media_refs.is_empty() {
+                    None::<String>
+                } else {
+                    Some(Value::Array(media_refs).to_string())
+                },
                 error_value.as_ref().map(Value::to_string),
                 now_iso(),
                 log_payload.to_string()
@@ -12717,6 +12862,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn model_log_media_refs_include_request_audio() {
+        let mut refs = Vec::new();
+        collect_model_log_media_refs(
+            &json!({
+              "content": [{
+                "type": "audio_url",
+                "role": "reference_audio",
+                "audio_url": { "url": "/audios/guangxi-voice.mp3" }
+              }]
+            }),
+            "request",
+            &mut refs,
+        );
+
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0]["direction"], "request");
+        assert_eq!(refs[0]["mediaType"], "audio");
+        assert_eq!(refs[0]["url"], "/audios/guangxi-voice.mp3");
+        assert_eq!(refs[0]["status"], "ready");
+    }
+
+    #[test]
+    fn model_log_media_refs_do_not_copy_inline_audio() {
+        let mut refs = Vec::new();
+        collect_model_log_media_refs(
+            &json!({ "audioUrl": "data:audio/mpeg;base64,AAAA" }),
+            "request",
+            &mut refs,
+        );
+
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0]["mediaType"], "audio");
+        assert_eq!(refs[0]["status"], "skipped");
+        assert!(refs[0].get("url").is_none());
+    }
+
+    #[test]
     fn infer_model_provider_handles_claude_as_custom_openai() {
         assert_eq!(
             infer_model_provider("claude-sonnet-4-5").as_deref(),
@@ -14329,45 +14511,10 @@ fn text_model_test_error_has_transport_log(provider: &str, error: &str) -> bool 
     ) && !matches!(error, "未配置 API Key" | "未配置 Base URL")
 }
 
-fn collect_log_media_refs(result: &Value) -> Value {
-    let mut refs: Vec<Value> = Vec::new();
-
-    if let Some(image_url) = result.get("imageUrl").and_then(Value::as_str) {
-        refs.push(json!({
-          "id": format!("media_{}", refs.len() + 1),
-          "direction": "response",
-          "path": "$.result.imageUrl",
-          "mediaType": "image",
-          "originalLength": image_url.len(),
-          "url": image_url,
-          "status": "ready"
-        }));
-    }
-    if let Some(video_url) = result.get("videoUrl").and_then(Value::as_str) {
-        refs.push(json!({
-          "id": format!("media_{}", refs.len() + 1),
-          "direction": "response",
-          "path": "$.result.videoUrl",
-          "mediaType": "video",
-          "originalLength": video_url.len(),
-          "url": video_url,
-          "status": "ready"
-        }));
-    }
-    if let Some(audio_url) = result.get("audioUrl").and_then(Value::as_str) {
-        if !audio_url.trim().is_empty() {
-            refs.push(json!({
-              "id": format!("media_{}", refs.len() + 1),
-              "direction": "response",
-              "path": "$.result.audioUrl",
-              "mediaType": "audio",
-              "originalLength": audio_url.len(),
-              "url": audio_url,
-              "status": "ready"
-            }));
-        }
-    }
-
+fn collect_log_media_refs(request: &Value, response: &Value) -> Value {
+    let mut refs = Vec::new();
+    collect_model_log_media_refs(request, "request", &mut refs);
+    collect_model_log_media_refs(response, "response", &mut refs);
     Value::Array(refs)
 }
 
@@ -14388,7 +14535,7 @@ fn write_model_debug_log(
     let request_id = current_request_id();
     let context = current_model_log_context();
     let response_value = response.cloned().unwrap_or(Value::Null);
-    let media_refs = collect_log_media_refs(&response_value);
+    let media_refs = collect_log_media_refs(request, &response_value);
     let log_payload = json!({
       "eventId": log_id.clone(),
       "requestId": request_id.clone(),

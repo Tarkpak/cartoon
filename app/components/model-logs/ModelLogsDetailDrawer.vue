@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, Copy, X } from 'lucide-vue-next'
+import { Check, Copy, Music2, X } from 'lucide-vue-next'
 import type { ModelDebugLogEntry, ModelDebugMediaRef } from '@/composables/useModelDebugLogs'
 import {
   Drawer,
@@ -41,7 +41,18 @@ function normalizeMediaUrl(input: string): string | null {
   if (!normalized) return null
   if (/^https?:\/\//i.test(normalized)) return normalized
   if (/^data:(image|audio|video)\//i.test(normalized)) return normalized
+  if (/^\/(?!\/)/.test(normalized)) return normalized
   return null
+}
+
+function mediaFileName(item: ModelDebugMediaRef): string {
+  if (!item.url || item.url.startsWith('data:')) return '内嵌参考音频'
+  try {
+    const pathname = new URL(item.url, 'http://local').pathname
+    return decodeURIComponent(pathname.split('/').filter(Boolean).at(-1) || '参考音频')
+  } catch {
+    return '参考音频'
+  }
 }
 
 function inferMediaType(path: string, url: string): 'image' | 'audio' | 'video' | null {
@@ -161,8 +172,14 @@ function collectMediaRefsFromValue(
 
 const mediaRefs = computed<ModelDebugMediaRef[]>(() => {
   const persistedRefs = props.activeLog?.mediaRefs || []
-  const requestInlineRefs = collectMediaRefsFromValue(props.activeLog?.request, 'request')
-  const responseInlineRefs = collectMediaRefsFromValue(props.activeLog?.response, 'response')
+  const requestInlineRefs = [
+    ...collectMediaRefsFromValue(props.activeLog?.request, 'request'),
+    ...collectMediaRefsFromValue(props.activeLog?.requestRaw, 'request')
+  ]
+  const responseInlineRefs = [
+    ...collectMediaRefsFromValue(props.activeLog?.response, 'response'),
+    ...collectMediaRefsFromValue(props.activeLog?.responseRaw, 'response')
+  ]
 
   const mergedRefs = [...persistedRefs]
   const dedupe = new Set(
@@ -180,8 +197,18 @@ const mediaRefs = computed<ModelDebugMediaRef[]>(() => {
 
   return mergedRefs
 })
+const requestAudioRefs = computed(() => mediaRefs.value.filter(item => (
+  item.direction === 'request'
+  && item.mediaType === 'audio'
+  && Boolean(item.url)
+)))
+const showAudioReferenceStatus = computed(() => (
+  requestAudioRefs.value.length > 0
+  || props.activeLog?.operation === 'generateVideo'
+))
 const requestReadableMedia = computed(() => mediaRefs.value.filter(item => (
   item.direction === 'request'
+  && item.mediaType !== 'audio'
   && Boolean(item.url)
   && isRenderableMediaType(item.mediaType)
 )))
@@ -397,6 +424,60 @@ watch(open, (value) => {
             >
               媒体引用（{{ mediaRefs.length }}）
             </Button>
+          </div>
+
+          <div
+            v-if="showAudioReferenceStatus"
+            class="space-y-3 rounded border p-3"
+            :class="requestAudioRefs.length > 0 ? 'border-primary/30 bg-primary/5' : 'border-dashed bg-muted/20'"
+          >
+            <div class="flex items-center gap-2">
+              <Music2 class="h-4 w-4 shrink-0 text-primary" />
+              <div>
+                <p class="text-sm font-medium">
+                  {{ requestAudioRefs.length > 0
+                    ? `本次模型请求已引用 ${requestAudioRefs.length} 个参考音频`
+                    : '本次模型请求未检测到参考音频' }}
+                </p>
+                <p class="text-xs text-muted-foreground">
+                  {{ requestAudioRefs.length > 0
+                    ? '可直接播放，核对实际提交给模型的音色样本'
+                    : '该日志记录的上游请求中没有音频引用字段' }}
+                </p>
+              </div>
+            </div>
+            <div
+              v-for="item in requestAudioRefs"
+              :key="item.id"
+              class="space-y-2 rounded border bg-background p-2.5"
+            >
+              <div class="flex flex-wrap items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-medium">
+                    {{ mediaFileName(item) }}
+                  </p>
+                  <p class="break-all text-xs text-muted-foreground">
+                    请求位置：{{ item.path }}
+                  </p>
+                </div>
+                <a
+                  v-if="item.url"
+                  :href="item.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="shrink-0 text-xs text-primary underline underline-offset-4"
+                >
+                  打开音频
+                </a>
+              </div>
+              <audio
+                v-if="item.url"
+                :src="item.url"
+                controls
+                preload="metadata"
+                class="w-full"
+              />
+            </div>
           </div>
 
           <template v-if="viewMode === 'readable'">
