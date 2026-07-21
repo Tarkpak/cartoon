@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url'
+
 export default defineNuxtConfig({
   ssr: false,
   compatibilityDate: '2025-01-01',
@@ -11,6 +13,9 @@ export default defineNuxtConfig({
   },
   css: ['~/assets/css/main.css'],
   modules: [],
+  alias: {
+    '@playlet-shared': fileURLToPath(new URL('../shared', import.meta.url))
+  },
   runtimeConfig: {
     dataDir: process.env.PLAYLET_ADMIN_DATA_DIR || './data',
     public: {

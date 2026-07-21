@@ -12,6 +12,7 @@ import {
 import { Progress } from '@/components/ui/progress'
 import { useClientUpdateCheck } from '@/composables/useClientUpdateCheck'
 import { useDesktopUpdater } from '@/composables/useDesktopUpdater'
+import { clientArchLabel, clientChannelLabel, clientPlatformLabel } from '#shared/utils/display-labels'
 
 const STARTUP_UPDATE_CHECK_DELAY_MS = 1200
 
@@ -203,7 +204,7 @@ onBeforeUnmount(() => {
             v-if="activeClientUpdate"
             class="rounded-md border bg-muted/30 px-2 py-1"
           >
-            {{ activeClientUpdate.platform }} / {{ activeClientUpdate.arch }} / {{ activeClientUpdate.channel }}
+            {{ clientPlatformLabel(activeClientUpdate.platform) }} / {{ clientArchLabel(activeClientUpdate.arch) }} / {{ clientChannelLabel(activeClientUpdate.channel) }}
           </span>
           <span v-if="formattedUpdateDate">
             发布时间：{{ formattedUpdateDate }}

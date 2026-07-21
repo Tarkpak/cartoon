@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronDown, Loader2, RefreshCw, Trash2 } from 'lucide-vue-next'
 import { Checkbox } from '@/components/ui/checkbox'
+import { modelOperationLabel, modelStatusLabel, providerLabel } from '#shared/utils/display-labels'
 import {
   Select,
   SelectContent,
@@ -54,18 +55,18 @@ function normalizeSelectValue(value: string) {
           @update:model-value="(value) => provider = normalizeSelectValue(String(value))"
         >
           <SelectTrigger class="h-9">
-            <SelectValue placeholder="全部 Provider" />
+            <SelectValue placeholder="全部提供商" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem :value="props.allFilterValue">
-              全部 Provider
+              全部提供商
             </SelectItem>
             <SelectItem
               v-for="item in props.providerOptions"
               :key="item"
               :value="item"
             >
-              {{ item }}
+              {{ providerLabel(item) }}
             </SelectItem>
           </SelectContent>
         </Select>
@@ -81,10 +82,10 @@ function normalizeSelectValue(value: string) {
               全部状态
             </SelectItem>
             <SelectItem value="success">
-              success
+              {{ modelStatusLabel('success') }}
             </SelectItem>
             <SelectItem value="error">
-              error
+              {{ modelStatusLabel('error') }}
             </SelectItem>
           </SelectContent>
         </Select>
@@ -134,7 +135,7 @@ function normalizeSelectValue(value: string) {
               :key="item"
               :value="item"
             >
-              {{ item }}
+              {{ modelOperationLabel(item) }}
             </SelectItem>
           </SelectContent>
         </Select>
@@ -149,15 +150,15 @@ function normalizeSelectValue(value: string) {
         />
         <Input
           v-model="projectId"
-          placeholder="Project ID"
+          placeholder="项目 ID"
         />
         <Input
           v-model="sceneId"
-          placeholder="Scene ID"
+          placeholder="场景 ID"
         />
         <Input
           v-model="taskId"
-          placeholder="Task ID"
+          placeholder="任务 ID"
         />
       </div>
 

@@ -215,6 +215,7 @@
 
 <script setup lang="ts">
 import { useMessage } from 'naive-ui'
+import { modelOperationLabel, providerLabel } from '@playlet-shared/utils/display-labels'
 
 interface AppSettingsForm {
   maxDevicesPerUser: number
@@ -318,18 +319,11 @@ function errorText(error: unknown, fallback: string) {
 }
 
 function creditRuleLabel(operation: string) {
-  const labels: Record<string, string> = {
-    '*': '其他操作（兜底）',
-    generateText: '文本生成',
-    generateImage: '图片生成',
-    generateVideo: '视频生成',
-    textToSpeech: '语音生成'
-  }
-  return labels[operation] || operation
+  return operation === '*' ? '其他操作（兜底）' : modelOperationLabel(operation)
 }
 
 function creditRuleScope(rule: CreditRule) {
-  const parts = [rule.provider || '全部供应商', rule.model_id || '全部模型']
+  const parts = [rule.provider ? providerLabel(rule.provider) : '全部供应商', rule.model_id || '全部模型']
   return parts.join(' / ')
 }
 

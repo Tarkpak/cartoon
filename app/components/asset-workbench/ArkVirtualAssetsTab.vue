@@ -38,6 +38,7 @@ import {
   fileToDataUrl,
   resetFileInput
 } from '~/lib/asset-workbench-upload'
+import { statusLabel } from '#shared/utils/display-labels'
 
 const { toast } = useToast()
 const MAX_UPLOAD_IMAGE_BYTES = 50 * 1024 * 1024
@@ -667,9 +668,9 @@ onMounted(() => {
                   class="h-8 rounded-md border bg-background px-2 text-xs"
                 >
                   <option value="">全部状态</option>
-                  <option value="Active">Active</option>
-                  <option value="Processing">Processing</option>
-                  <option value="Failed">Failed</option>
+                  <option value="Active">已启用</option>
+                  <option value="Processing">处理中</option>
+                  <option value="Failed">失败</option>
                 </select>
                 <Button
                   size="sm"
@@ -771,7 +772,7 @@ onMounted(() => {
                         class="inline-flex rounded-md border px-2 py-0.5 text-xs font-medium"
                         :class="statusClass(asset.Status)"
                       >
-                        {{ asset.Status || 'Unknown' }}
+                        {{ statusLabel(asset.Status) }}
                       </span>
                     </div>
                     <div class="whitespace-nowrap text-sm text-muted-foreground">

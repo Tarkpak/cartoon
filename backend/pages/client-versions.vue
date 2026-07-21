@@ -154,6 +154,7 @@
 <script setup lang="ts">
 import { h } from 'vue'
 import { NButton, NEllipsis, NSpace, NTag, useMessage } from 'naive-ui'
+import { clientArchLabel, clientChannelLabel, clientPlatformLabel } from '@playlet-shared/utils/display-labels'
 
 interface ClientVersionRow {
   id: string
@@ -213,9 +214,9 @@ const archOptions = [
   { label: 'x86_64', value: 'x86_64' }
 ]
 const channelOptions = [
-  { label: 'stable', value: 'stable' },
-  { label: 'beta', value: 'beta' },
-  { label: 'alpha', value: 'alpha' }
+  { label: '稳定版', value: 'stable' },
+  { label: '测试版', value: 'beta' },
+  { label: '内测版', value: 'alpha' }
 ]
 const statusOptions = [
   { label: '草稿', value: 'draft' },
@@ -268,9 +269,9 @@ const columns = [
     render(row: ClientVersionRow) {
       return h(NSpace, { size: 4 }, {
         default: () => [
-          h(NTag, { size: 'small' }, { default: () => row.platform }),
-          h(NTag, { size: 'small' }, { default: () => row.arch }),
-          h(NTag, { size: 'small', type: 'info' }, { default: () => row.channel })
+          h(NTag, { size: 'small' }, { default: () => clientPlatformLabel(row.platform) }),
+          h(NTag, { size: 'small' }, { default: () => clientArchLabel(row.arch) }),
+          h(NTag, { size: 'small', type: 'info' }, { default: () => clientChannelLabel(row.channel) })
         ]
       })
     }
@@ -367,7 +368,13 @@ const columns = [
 
 const deviceColumns = [
   { title: '版本', key: 'version' },
-  { title: '平台', key: 'platform' },
+  {
+    title: '平台',
+    key: 'platform',
+    render(row: DeviceVersionRow) {
+      return clientPlatformLabel(row.platform)
+    }
+  },
   { title: '设备数', key: 'count', width: 120 },
   {
     title: '最近在线',

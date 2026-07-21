@@ -25,7 +25,7 @@
               <div class="log-summary-item">
                 <span class="log-summary-label">状态</span>
                 <n-tag size="small" :type="statusTagType(selectedLog.status)">
-                  {{ selectedLog.status || '-' }}
+                  {{ modelStatusLabel(selectedLog.status) }}
                 </n-tag>
               </div>
               <div class="log-summary-item">
@@ -42,7 +42,7 @@
               </div>
               <div class="log-summary-item">
                 <span class="log-summary-label">供应商</span>
-                <span>{{ displayValue(selectedLog.provider) }}</span>
+                <span>{{ providerLabel(selectedLog.provider) }}</span>
               </div>
               <div class="log-summary-item">
                 <span class="log-summary-label">模型</span>
@@ -50,7 +50,7 @@
               </div>
               <div class="log-summary-item">
                 <span class="log-summary-label">操作</span>
-                <span>{{ displayValue(selectedLog.operation) }}</span>
+                <span>{{ modelOperationLabel(selectedLog.operation) }}</span>
               </div>
               <div class="log-summary-item">
                 <span class="log-summary-label">费用</span>
@@ -245,6 +245,7 @@
 <script setup lang="ts">
 import { h } from 'vue'
 import { NTag, useMessage } from 'naive-ui'
+import { modelOperationLabel, modelStatusLabel, providerLabel } from '@playlet-shared/utils/display-labels'
 
 interface ModelCallLog {
   id: string
@@ -310,14 +311,26 @@ const columns = [
     }
   },
   { title: '用户', key: 'account' },
-  { title: '供应商', key: 'provider' },
+  {
+    title: '供应商',
+    key: 'provider',
+    render(row: ModelCallLog) {
+      return providerLabel(row.provider)
+    }
+  },
   { title: '模型', key: 'model_id' },
-  { title: '操作', key: 'operation' },
+  {
+    title: '操作',
+    key: 'operation',
+    render(row: ModelCallLog) {
+      return modelOperationLabel(row.operation)
+    }
+  },
   {
     title: '状态',
     key: 'status',
     render(row: ModelCallLog) {
-      return h(NTag, { size: 'small', type: statusTagType(row.status) }, { default: () => row.status || '-' })
+      return h(NTag, { size: 'small', type: statusTagType(row.status) }, { default: () => modelStatusLabel(row.status) })
     }
   },
   { title: '耗时 ms', key: 'duration_ms' },

@@ -46,6 +46,7 @@
 <script setup lang="ts">
 import { h } from 'vue'
 import { NButton, NTag, useMessage } from 'naive-ui'
+import { userRoleLabel, userStatusLabel } from '@playlet-shared/utils/display-labels'
 
 interface UserRow {
   id: string
@@ -97,14 +98,14 @@ const columns = [
     title: '角色',
     key: 'role',
     render(row: UserRow) {
-      return h(NTag, { size: 'small', type: row.role === 'admin' ? 'warning' : 'info' }, { default: () => row.role })
+      return h(NTag, { size: 'small', type: row.role === 'admin' ? 'warning' : 'info' }, { default: () => userRoleLabel(row.role) })
     }
   },
   {
     title: '状态',
     key: 'status',
     render(row: UserRow) {
-      return h(NTag, { size: 'small', type: row.status === 'active' ? 'success' : 'error' }, { default: () => row.status })
+      return h(NTag, { size: 'small', type: row.status === 'active' ? 'success' : 'error' }, { default: () => userStatusLabel(row.status) })
     }
   },
   {

@@ -18,10 +18,10 @@
               <div class="user-title-row">
                 <h2 class="user-title">{{ detail.user.display_name || detail.user.account }}</h2>
                 <n-tag :type="detail.user.role === 'admin' ? 'warning' : 'info'" size="small">
-                  {{ detail.user.role === 'admin' ? '管理员' : '普通用户' }}
+                  {{ userRoleLabel(detail.user.role) }}
                 </n-tag>
                 <n-tag :type="detail.user.status === 'active' ? 'success' : 'error'" size="small">
-                  {{ detail.user.status === 'active' ? '活跃' : '禁用' }}
+                  {{ userStatusLabel(detail.user.status) }}
                 </n-tag>
               </div>
               <div class="user-meta-grid">
@@ -643,6 +643,17 @@
 <script setup lang="ts">
 import { h } from 'vue'
 import { NButton, NTag, useMessage } from 'naive-ui'
+import {
+  auditActionLabel,
+  auditTargetTypeLabel,
+  creditTransactionTypeLabel,
+  modelOperationLabel,
+  modelStatusLabel,
+  providerLabel,
+  statusLabel,
+  userRoleLabel,
+  userStatusLabel
+} from '@playlet-shared/utils/display-labels'
 
 type TagType = 'default' | 'success' | 'warning' | 'error' | 'info'
 
@@ -1486,7 +1497,7 @@ const projectColumns = [
     title: '状态',
     key: 'status',
     render(row: any) {
-      return h(NTag, { size: 'small', type: projectStatusTagType(row.status) }, { default: () => row.status || '-' })
+      return h(NTag, { size: 'small', type: projectStatusTagType(row.status) }, { default: () => statusLabel(row.status) })
     }
   },
   {
@@ -1543,7 +1554,7 @@ const deviceColumns = [
     key: 'status',
     width: 80,
     render(row: any) {
-      return h(NTag, { size: 'small', type: row.status === 'active' ? 'success' : 'error' }, { default: () => row.status })
+      return h(NTag, { size: 'small', type: row.status === 'active' ? 'success' : 'error' }, { default: () => userStatusLabel(row.status) })
     }
   },
   {
@@ -1585,15 +1596,15 @@ const deviceColumns = [
 
 const logColumns = [
   { title: '请求ID', key: 'request_id', width: 180, ellipsis: { tooltip: true } },
-  { title: '供应商', key: 'provider', width: 100 },
+  { title: '供应商', key: 'provider', width: 100, render: (row: any) => providerLabel(row.provider) },
   { title: '模型', key: 'model_id', width: 150, ellipsis: { tooltip: true } },
-  { title: '操作', key: 'operation', width: 120 },
+  { title: '操作', key: 'operation', width: 120, render: (row: any) => modelOperationLabel(row.operation) },
   {
     title: '状态',
     key: 'status',
     width: 80,
     render(row: any) {
-      return h(NTag, { size: 'small', type: row.status === 'success' ? 'success' : 'error' }, { default: () => row.status })
+      return h(NTag, { size: 'small', type: row.status === 'success' ? 'success' : 'error' }, { default: () => modelStatusLabel(row.status) })
     }
   },
   {
@@ -1636,12 +1647,7 @@ const creditColumns = [
     key: 'type',
     width: 120,
     render(row: any) {
-      const labels: Record<string, string> = {
-        admin_add: '管理员增加',
-        admin_deduct: '管理员减少',
-        model_call: '模型调用'
-      }
-      return labels[row.type] || row.type
+      return creditTransactionTypeLabel(row.type)
     }
   },
   {
@@ -1658,7 +1664,7 @@ const creditColumns = [
   },
   { title: '变动后余额', key: 'balance_after', width: 120 },
   { title: '原因', key: 'reason', ellipsis: { tooltip: true } },
-  { title: '操作', key: 'operation', width: 130, render: (row: any) => row.operation || '-' },
+  { title: '操作', key: 'operation', width: 130, render: (row: any) => modelOperationLabel(row.operation) },
   { title: '模型', key: 'model_id', width: 160, ellipsis: { tooltip: true }, render: (row: any) => row.model_id || '-' },
   {
     title: '时间',
@@ -1680,8 +1686,8 @@ const auditColumns = [
       return row.actor_display_name || row.actor_account || '-'
     }
   },
-  { title: '操作类型', key: 'action', width: 200 },
-  { title: '目标类型', key: 'target_type', width: 120 },
+  { title: '操作类型', key: 'action', width: 200, render: (row: any) => auditActionLabel(row.action) },
+  { title: '目标类型', key: 'target_type', width: 120, render: (row: any) => auditTargetTypeLabel(row.target_type) },
   { title: '目标ID', key: 'target_id', width: 150, ellipsis: { tooltip: true } },
   {
     title: 'IP',

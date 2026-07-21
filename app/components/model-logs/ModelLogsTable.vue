@@ -2,6 +2,7 @@
 import type { ModelDebugLogEntry } from '@/composables/useModelDebugLogs'
 import type { BadgeVariants } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { modelOperationLabel, modelStatusLabel, providerLabel } from '#shared/utils/display-labels'
 import {
   Table,
   TableBody,
@@ -39,7 +40,7 @@ function statusVariant(status: ModelDebugLogEntry['status']): BadgeVariants['var
               时间
             </TableHead>
             <TableHead>
-              Provider
+              提供商
             </TableHead>
             <TableHead class="whitespace-nowrap">
               成员
@@ -74,16 +75,16 @@ function statusVariant(status: ModelDebugLogEntry['status']): BadgeVariants['var
               {{ formatDate(item.timestamp) }}
             </TableCell>
             <TableCell class="font-medium">
-              {{ item.provider }}
+              {{ providerLabel(item.provider) }}
             </TableCell>
             <TableCell class="whitespace-nowrap text-sm">
               {{ item.ownerDisplayName || item.ownerAccount || '-' }}
             </TableCell>
             <TableCell
               class="max-w-[220px] truncate"
-              :title="item.operation"
+              :title="modelOperationLabel(item.operation)"
             >
-              {{ item.operation }}
+              {{ modelOperationLabel(item.operation) }}
             </TableCell>
             <TableCell class="min-w-[180px] max-w-[260px] text-xs">
               <div
@@ -95,21 +96,21 @@ function statusVariant(status: ModelDebugLogEntry['status']): BadgeVariants['var
                   class="truncate"
                   :title="item.taskId"
                 >
-                  task {{ item.taskId }}
+                  任务 {{ item.taskId }}
                 </p>
                 <p
                   v-if="item.sceneId"
                   class="truncate"
                   :title="item.sceneId"
                 >
-                  scene {{ item.sceneId }}
+                  场景 {{ item.sceneId }}
                 </p>
                 <p
                   v-if="item.projectId"
                   class="truncate"
                   :title="item.projectId"
                 >
-                  project {{ item.projectId }}
+                  项目 {{ item.projectId }}
                 </p>
               </div>
               <span
@@ -127,7 +128,7 @@ function statusVariant(status: ModelDebugLogEntry['status']): BadgeVariants['var
             </TableCell>
             <TableCell>
               <Badge :variant="statusVariant(item.status)">
-                {{ item.status }}
+                {{ modelStatusLabel(item.status) }}
               </Badge>
             </TableCell>
             <TableCell class="whitespace-nowrap">

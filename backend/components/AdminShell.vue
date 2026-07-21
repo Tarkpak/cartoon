@@ -71,7 +71,7 @@
         class="admin-shell__header"
       >
         <n-space align="center">
-          <n-tag v-if="me?.role" size="small" type="info">{{ me.role }}</n-tag>
+          <n-tag v-if="me?.role" size="small" type="info">{{ userRoleLabel(me.role) }}</n-tag>
           <n-button size="small" @click="logout">退出</n-button>
         </n-space>
       </n-layout-header>
@@ -84,6 +84,7 @@
 
 <script setup lang="ts">
 import { h } from 'vue'
+import { userRoleLabel } from '@playlet-shared/utils/display-labels'
 
 const SIDEBAR_COLLAPSED_KEY = 'playlet-admin-sidebar-collapsed'
 

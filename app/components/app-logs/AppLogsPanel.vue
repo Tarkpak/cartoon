@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/select'
 import AppLogsDetailDrawer from '@/components/app-logs/AppLogsDetailDrawer.vue'
 import { useAppLogs, type AppLogEntry } from '@/composables/useAppLogs'
+import { logCategoryLabel, logLevelLabel, logSourceLabel } from '#shared/utils/display-labels'
 
 const props = defineProps<{
   initialRequestId?: string
@@ -90,7 +91,7 @@ function openLogDetail(item: AppLogEntry) {
                 :key="item"
                 :value="item"
               >
-                {{ item }}
+                {{ logLevelLabel(item) }}
               </SelectItem>
             </SelectContent>
           </Select>
@@ -111,7 +112,7 @@ function openLogDetail(item: AppLogEntry) {
                 :key="item"
                 :value="item"
               >
-                {{ item }}
+                {{ logSourceLabel(item) }}
               </SelectItem>
             </SelectContent>
           </Select>
@@ -237,14 +238,14 @@ function openLogDetail(item: AppLogEntry) {
               </TableCell>
               <TableCell>
                 <Badge :variant="levelVariant(item.level)">
-                  {{ item.level }}
+                  {{ logLevelLabel(item.level) }}
                 </Badge>
               </TableCell>
               <TableCell class="whitespace-nowrap">
-                {{ item.source }}
+                {{ logSourceLabel(item.source) }}
               </TableCell>
               <TableCell class="whitespace-nowrap">
-                {{ item.category }}
+                {{ logCategoryLabel(item.category) }}
               </TableCell>
               <TableCell
                 class="max-w-[220px] truncate"

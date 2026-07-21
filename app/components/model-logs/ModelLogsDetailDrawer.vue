@@ -2,6 +2,14 @@
 import { Check, Copy, Music2, X } from 'lucide-vue-next'
 import type { ModelDebugLogEntry, ModelDebugMediaRef } from '@/composables/useModelDebugLogs'
 import {
+  mediaDirectionLabel,
+  mediaStatusLabel,
+  mediaTypeLabel,
+  modelOperationLabel,
+  modelStatusLabel,
+  providerLabel
+} from '#shared/utils/display-labels'
+import {
   Drawer,
   DrawerClose,
   DrawerContent,
@@ -283,7 +291,7 @@ watch(open, (value) => {
         <DrawerHeader class="border-b px-5 py-4 pr-12 text-left">
           <DrawerTitle>日志详情</DrawerTitle>
           <DrawerDescription v-if="props.activeLog">
-            {{ props.activeLog.provider }} · {{ props.activeLog.operation }} · {{ props.formatDate(props.activeLog.timestamp) }}
+            {{ providerLabel(props.activeLog.provider) }} · {{ modelOperationLabel(props.activeLog.operation) }} · {{ props.formatDate(props.activeLog.timestamp) }}
           </DrawerDescription>
           <DrawerDescription v-else>
             当前日志已不存在（可能被筛选或清空）
@@ -317,10 +325,10 @@ watch(open, (value) => {
             </div>
             <div class="rounded border p-3">
               <p class="text-xs text-muted-foreground">
-                Provider
+                提供商
               </p>
               <p class="mt-1">
-                {{ props.activeLog.provider }}
+                {{ providerLabel(props.activeLog.provider) }}
               </p>
             </div>
             <div class="rounded border p-3">
@@ -328,7 +336,7 @@ watch(open, (value) => {
                 操作
               </p>
               <p class="mt-1 break-all">
-                {{ props.activeLog.operation }}
+                {{ modelOperationLabel(props.activeLog.operation) }}
               </p>
             </div>
             <div class="rounded border p-3">
@@ -344,7 +352,7 @@ watch(open, (value) => {
                 状态
               </p>
               <p class="mt-1">
-                {{ props.activeLog.status }}
+                {{ modelStatusLabel(props.activeLog.status) }}
               </p>
             </div>
             <div class="rounded border p-3">
@@ -371,7 +379,7 @@ watch(open, (value) => {
               class="rounded border p-3"
             >
               <p class="text-xs text-muted-foreground">
-                Project ID
+                项目 ID
               </p>
               <p class="mt-1 break-all font-mono text-xs">
                 {{ props.activeLog.projectId }}
@@ -382,7 +390,7 @@ watch(open, (value) => {
               class="rounded border p-3"
             >
               <p class="text-xs text-muted-foreground">
-                Scene ID
+                场景 ID
               </p>
               <p class="mt-1 break-all font-mono text-xs">
                 {{ props.activeLog.sceneId }}
@@ -393,7 +401,7 @@ watch(open, (value) => {
               class="rounded border p-3 md:col-span-2"
             >
               <p class="text-xs text-muted-foreground">
-                Task ID
+                任务 ID
               </p>
               <p class="mt-1 break-all font-mono text-xs">
                 {{ props.activeLog.taskId }}
@@ -532,7 +540,7 @@ watch(open, (value) => {
                   class="space-y-2 rounded border bg-muted/20 p-2"
                 >
                   <p class="text-xs text-muted-foreground break-all">
-                    {{ item.path }} · {{ item.mediaType }} · {{ item.mimeType || '-' }}
+                    {{ item.path }} · {{ mediaTypeLabel(item.mediaType) }} · {{ item.mimeType || '-' }}
                   </p>
                   <img
                     v-if="item.url && item.mediaType === 'image'"
@@ -595,7 +603,7 @@ watch(open, (value) => {
                   class="space-y-2 rounded border bg-muted/20 p-2"
                 >
                   <p class="text-xs text-muted-foreground break-all">
-                    {{ item.path }} · {{ item.mediaType }} · {{ item.mimeType || '-' }}
+                    {{ item.path }} · {{ mediaTypeLabel(item.mediaType) }} · {{ item.mimeType || '-' }}
                   </p>
                   <img
                     v-if="item.url && item.mediaType === 'image'"
@@ -699,10 +707,10 @@ watch(open, (value) => {
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="text-sm">
                   <p class="font-medium">
-                    {{ item.mediaType }} · {{ item.direction }} · {{ item.status }}
+                    {{ mediaTypeLabel(item.mediaType) }} · {{ mediaDirectionLabel(item.direction) }} · {{ mediaStatusLabel(item.status) }}
                   </p>
                   <p class="text-xs text-muted-foreground break-all">
-                    路径: {{ item.path }} · MIME: {{ item.mimeType || '-' }} · 原始长度: {{ item.originalLength }}
+                  路径：{{ item.path }} · MIME：{{ item.mimeType || '-' }} · 原始长度：{{ item.originalLength }}
                   </p>
                 </div>
                 <a
@@ -712,7 +720,7 @@ watch(open, (value) => {
                   rel="noopener noreferrer"
                   class="text-xs text-primary underline underline-offset-4"
                 >
-                  打开 CDN 链接
+                  打开媒体链接
                 </a>
               </div>
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { X } from 'lucide-vue-next'
 import type { AppLogEntry } from '@/composables/useAppLogs'
+import { logCategoryLabel, logLevelLabel, logSourceLabel } from '#shared/utils/display-labels'
 import {
   Drawer,
   DrawerClose,
@@ -37,7 +38,7 @@ const props = defineProps<{
         <DrawerHeader class="border-b px-5 py-4 pr-12 text-left">
           <DrawerTitle>日志详情</DrawerTitle>
           <DrawerDescription v-if="props.activeLog">
-            {{ props.activeLog.source }} · {{ props.activeLog.category }} · {{ props.formatDate(props.activeLog.timestamp) }}
+            {{ logSourceLabel(props.activeLog.source) }} · {{ logCategoryLabel(props.activeLog.category) }} · {{ props.formatDate(props.activeLog.timestamp) }}
           </DrawerDescription>
           <DrawerDescription v-else>
             当前日志已不存在（可能被筛选或清空）
@@ -74,7 +75,7 @@ const props = defineProps<{
                 级别
               </p>
               <p class="mt-1">
-                {{ props.activeLog.level }}
+                {{ logLevelLabel(props.activeLog.level) }}
               </p>
             </div>
             <div class="rounded border p-3">
@@ -82,7 +83,7 @@ const props = defineProps<{
                 来源
               </p>
               <p class="mt-1">
-                {{ props.activeLog.source }}
+                {{ logSourceLabel(props.activeLog.source) }}
               </p>
             </div>
             <div class="rounded border p-3">
@@ -90,7 +91,7 @@ const props = defineProps<{
                 类别
               </p>
               <p class="mt-1 break-all">
-                {{ props.activeLog.category }}
+                {{ logCategoryLabel(props.activeLog.category) }}
               </p>
             </div>
             <div class="rounded border p-3">
@@ -150,7 +151,7 @@ const props = defineProps<{
             class="rounded border p-3"
           >
             <p class="text-xs text-muted-foreground">
-              Metadata
+              元数据
             </p>
             <pre class="mt-2 max-h-80 overflow-auto rounded border bg-muted/40 p-3 text-xs">{{ props.toPrettyJson(props.activeLog.metadata) }}</pre>
           </div>
@@ -160,7 +161,7 @@ const props = defineProps<{
             class="rounded border p-3"
           >
             <p class="text-xs text-muted-foreground">
-              Error
+              错误
             </p>
             <pre class="mt-2 max-h-80 overflow-auto rounded border bg-muted/40 p-3 text-xs">{{ props.toPrettyJson(props.activeLog.error) }}</pre>
           </div>
