@@ -643,6 +643,7 @@
 <script setup lang="ts">
 import { h } from 'vue'
 import { NButton, NTag, useMessage } from 'naive-ui'
+import DurationIndicator from '~/components/logs/DurationIndicator.vue'
 import {
   auditActionLabel,
   auditTargetTypeLabel,
@@ -1610,9 +1611,9 @@ const logColumns = [
   {
     title: '耗时',
     key: 'duration_ms',
-    width: 100,
+    width: 136,
     render(row: any) {
-      return row.duration_ms ? `${row.duration_ms}ms` : '-'
+      return h(DurationIndicator, { value: row.duration_ms })
     }
   },
   {

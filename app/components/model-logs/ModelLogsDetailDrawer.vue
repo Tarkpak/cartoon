@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Check, Copy, Music2, X } from 'lucide-vue-next'
 import type { ModelDebugLogEntry, ModelDebugMediaRef } from '@/composables/useModelDebugLogs'
+import DurationIndicator from '@/components/logs/DurationIndicator.vue'
 import {
   mediaDirectionLabel,
   mediaStatusLabel,
@@ -23,7 +24,6 @@ const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{
   activeLog: ModelDebugLogEntry | null
   formatDate: (value: string) => string
-  formatDuration: (value: number) => string
   toPrettyJson: (value: unknown) => string
   toReadableText: (value: unknown) => string
 }>()
@@ -359,9 +359,12 @@ watch(open, (value) => {
               <p class="text-xs text-muted-foreground">
                 耗时
               </p>
-              <p class="mt-1">
-                {{ props.formatDuration(props.activeLog.durationMs) }}
-              </p>
+              <div class="mt-1">
+                <DurationIndicator
+                  :value="props.activeLog.durationMs"
+                  profile="model"
+                />
+              </div>
             </div>
             <div
               v-if="props.activeLog.requestId"

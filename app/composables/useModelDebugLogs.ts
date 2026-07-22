@@ -93,12 +93,6 @@ export function useModelDebugLogs() {
     return new Date(value).toLocaleString()
   }
 
-  function formatDuration(value: number): string {
-    if (!Number.isFinite(value)) return '-'
-    if (value < 1000) return `${value}ms`
-    return `${(value / 1000).toFixed(2)}s`
-  }
-
   function toPrettyJson(value: unknown): string {
     if (value === undefined) return ''
     try {
@@ -334,7 +328,6 @@ export function useModelDebugLogs() {
     allFilterValue: MODEL_DEBUG_ALL_FILTER_VALUE,
     openLogDetail,
     formatDate,
-    formatDuration,
     toPrettyJson,
     toReadableText,
     toSelectString,

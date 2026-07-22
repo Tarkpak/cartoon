@@ -1,6 +1,6 @@
 <template>
-  <AdminShell>
-    <div class="page">
+  <AdminShell content-mode="fixed">
+    <div class="page fixed-table-page">
       <div class="page-header page-header--actions">
         <n-space>
           <n-button
@@ -25,17 +25,19 @@
         </n-space>
       </div>
 
-      <n-space vertical class="table-section">
+      <div class="fixed-table-content">
         <n-alert type="warning">
           导出的配置文件包含供应商明文 Key，仅用于管理员备份和迁移。
         </n-alert>
         <n-data-table
+          class="fixed-data-table"
           :columns="columns"
           :data="providers"
           :loading="pending"
           :row-props="rowProps"
+          flex-height
         />
-      </n-space>
+      </div>
 
       <input
         ref="importInputRef"

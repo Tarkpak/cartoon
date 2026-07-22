@@ -18,7 +18,7 @@ a {
 }
 
 .page {
-  padding: 20px 16px;
+  padding: 12px;
 }
 
 .page-header {
@@ -36,6 +36,59 @@ a {
 
 .table-section {
   width: 100%;
+}
+
+.fixed-table-page {
+  box-sizing: border-box;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.fixed-table-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.fixed-table-toolbar .n-input {
+  min-width: 240px;
+  flex: 1;
+}
+
+.fixed-table-content {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fixed-data-table {
+  min-height: 180px;
+  flex: 1;
+}
+
+@media (max-width: 860px) {
+  .fixed-table-page {
+    height: auto;
+    min-height: 100%;
+    overflow: auto;
+  }
+
+  .fixed-table-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .fixed-data-table {
+    height: 520px;
+    flex: 0 0 auto;
+  }
 }
 
 .page-title {

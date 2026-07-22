@@ -51,12 +51,6 @@ export function useAppLogs() {
     return new Date(value).toLocaleString()
   }
 
-  function formatDuration(value?: number): string {
-    if (value === undefined || !Number.isFinite(value)) return '-'
-    if (value < 1000) return `${value}ms`
-    return `${(value / 1000).toFixed(2)}s`
-  }
-
   function toPrettyJson(value: unknown): string {
     if (value === undefined || value === null) return ''
     try {
@@ -212,7 +206,6 @@ export function useAppLogs() {
     sourceOptions: APP_LOG_SOURCE_OPTIONS,
     allFilterValue: APP_LOG_ALL_FILTER_VALUE,
     formatDate,
-    formatDuration,
     toPrettyJson,
     fetchLogs,
     previousPage,

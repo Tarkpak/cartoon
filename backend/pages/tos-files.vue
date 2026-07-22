@@ -1,7 +1,7 @@
 <template>
-  <AdminShell>
-    <div class="page tos-files-page">
-      <n-space vertical :size="10" class="table-section">
+  <AdminShell content-mode="fixed">
+    <div class="page tos-files-page fixed-table-page">
+      <div class="tos-files-content fixed-table-content">
         <div class="tos-files-shortcuts">
           <n-button
             size="small"
@@ -73,18 +73,20 @@
         </div>
 
         <n-data-table
+          class="fixed-data-table"
           :columns="columns"
           :data="rows"
           :loading="pending"
           :pagination="tablePagination"
           :row-key="rowKey"
           :scroll-x="1220"
+          flex-height
         />
 
         <div v-if="nextContinuationToken" class="tos-files-footer">
           <n-button :loading="loadingMore" @click="loadMore">加载更多</n-button>
         </div>
-      </n-space>
+      </div>
 
       <n-modal
         v-model:show="imagePreviewOpen"

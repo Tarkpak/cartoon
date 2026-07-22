@@ -1,25 +1,20 @@
 <template>
   <AdminShell content-mode="fixed">
     <div class="page logs-page">
-      <header class="page-header logs-header">
-        <div>
-          <h1 class="page-title">日志中心</h1>
-          <p class="page-subtitle">查询模型调用、后台操作与自动归档记录</p>
-        </div>
-        <div class="header-actions">
+      <n-tabs v-model:value="activeTab" type="line" animated class="logs-tabs" @update:value="handleTabChange">
+        <template #suffix>
+          <div class="logs-toolbar">
           <span class="refresh-status">{{ lastUpdatedLabel }}</span>
           <span class="auto-refresh-control">自动刷新 <n-switch v-model:value="autoRefresh" size="small" /></span>
-          <n-button :loading="activeLoading" @click="refreshActiveTab">刷新</n-button>
-          <n-button :loading="exporting" :disabled="activeTab === 'archives'" @click="exportActiveResults">导出 CSV</n-button>
-        </div>
-      </header>
-
-      <n-tabs v-model:value="activeTab" type="line" animated class="logs-tabs" @update:value="handleTabChange">
+            <n-button size="small" :loading="activeLoading" @click="refreshActiveTab">刷新</n-button>
+            <n-button size="small" :loading="exporting" :disabled="activeTab === 'archives'" @click="exportActiveResults">导出 CSV</n-button>
+          </div>
+        </template>
         <n-tab-pane name="calls" tab="调用日志">
           <div class="summary-strip">
             <div class="summary-metric"><span>调用量</span><strong>{{ summary.total }}</strong></div>
             <div class="summary-metric summary-metric--danger"><span>失败率</span><strong>{{ failureRate }}</strong></div>
-            <div class="summary-metric"><span>平均耗时</span><strong>{{ formatDuration(summary.averageDuration) }}</strong></div>
+            <div class="summary-metric"><span>平均耗时</span><strong><DurationIndicator :value="summary.averageDuration" /></strong></div>
             <div class="summary-metric"><span>积分消耗</span><strong>{{ summary.totalCredits }}</strong></div>
           </div>
 
@@ -145,7 +140,7 @@
               </div>
               <div class="log-summary-item">
                 <span class="log-summary-label">耗时</span>
-                <span>{{ formatDuration(selectedLog.duration_ms) }}</span>
+                <DurationIndicator :value="selectedLog.duration_ms" />
               </div>
               <div class="log-summary-item">
                 <span class="log-summary-label">用户</span>
@@ -343,6 +338,7 @@ import {
   modelStatusLabel,
   providerLabel
 } from '@playlet-shared/utils/display-labels'
+import DurationIndicator from '~/components/logs/DurationIndicator.vue'
 
 interface ModelCallLog {
   id: string
@@ -555,7 +551,7 @@ const columns = [
       return h(NTag, { size: 'small', type: statusTagType(row.status) }, { default: () => modelStatusLabel(row.status) })
     }
   },
-  { title: '耗时', key: 'duration_ms', width: 108, render: (row: ModelCallLog) => formatDuration(row.duration_ms) },
+  { title: '耗时', key: 'duration_ms', width: 136, render: (row: ModelCallLog) => h(DurationIndicator, { value: row.duration_ms }) },
   { title: '费用', key: 'estimated_cost', width: 96, render: (row: ModelCallLog) => formatCost(row.estimated_cost) },
   {
     title: '积分',
@@ -652,11 +648,6 @@ function displayValue(value: unknown) {
 
 function displayUser(log: ModelCallLog) {
   return log.display_name || log.account || log.user_id || '-'
-}
-
-function formatDuration(value: unknown) {
-  const duration = Number(value)
-  return value !== null && value !== undefined && Number.isFinite(duration) && duration >= 0 ? `${Math.round(duration)} ms` : '-'
 }
 
 function formatCost(value: unknown) {
@@ -1112,24 +1103,14 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
+  padding: 8px 12px 12px;
 }
 
-.logs-header {
-  flex: 0 0 auto;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-.header-actions,
+.logs-toolbar,
 .auto-refresh-control {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.header-actions {
-  flex-wrap: wrap;
-  justify-content: flex-end;
 }
 
 .refresh-status,
@@ -1147,7 +1128,7 @@ onBeforeUnmount(() => {
 
 .logs-tabs :deep(.n-tabs-nav) {
   flex: 0 0 auto;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 
 .logs-tabs :deep(.n-tabs-pane-wrapper) {
@@ -1171,7 +1152,7 @@ onBeforeUnmount(() => {
 .summary-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-bottom: 14px;
+  margin-bottom: 8px;
   border-top: 1px solid #e4e7ec;
   border-bottom: 1px solid #e4e7ec;
   background: #fff;
@@ -1179,8 +1160,8 @@ onBeforeUnmount(() => {
 
 .summary-metric {
   display: grid;
-  gap: 4px;
-  padding: 14px 18px;
+  gap: 2px;
+  padding: 8px 14px;
   border-right: 1px solid #e4e7ec;
 }
 
@@ -1195,7 +1176,7 @@ onBeforeUnmount(() => {
 
 .summary-metric strong {
   color: #1d2939;
-  font-size: 20px;
+  font-size: 18px;
   font-variant-numeric: tabular-nums;
   font-weight: 650;
 }
@@ -1206,9 +1187,9 @@ onBeforeUnmount(() => {
 
 .filter-panel {
   display: grid;
-  gap: 10px;
-  margin-bottom: 14px;
-  padding: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px;
   border: 1px solid #e4e7ec;
   border-radius: 6px;
   background: #fff;
@@ -1473,6 +1454,12 @@ onBeforeUnmount(() => {
   outline-offset: -2px;
 }
 
+@media (max-width: 1100px) {
+  .logs-toolbar .refresh-status {
+    display: none;
+  }
+}
+
 @media (max-width: 860px) {
   .logs-page {
     overflow: auto;
@@ -1494,15 +1481,14 @@ onBeforeUnmount(() => {
     flex: 0 0 auto;
   }
 
-  .logs-header,
   .filter-row,
   .filter-panel--single {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .header-actions {
-    justify-content: flex-start;
+  .logs-toolbar .auto-refresh-control {
+    display: none;
   }
 
   .summary-strip {

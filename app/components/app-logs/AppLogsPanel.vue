@@ -9,6 +9,7 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import AppLogsDetailDrawer from '@/components/app-logs/AppLogsDetailDrawer.vue'
+import DurationIndicator from '@/components/logs/DurationIndicator.vue'
 import { useAppLogs, type AppLogEntry } from '@/composables/useAppLogs'
 import { logCategoryLabel, logLevelLabel, logSourceLabel } from '#shared/utils/display-labels'
 
@@ -36,7 +37,6 @@ const {
   sourceOptions,
   allFilterValue,
   formatDate,
-  formatDuration,
   toPrettyJson,
   fetchLogs,
   previousPage,
@@ -216,6 +216,9 @@ function openLogDetail(item: AppLogEntry) {
               <TableHead class="whitespace-nowrap">
                 状态
               </TableHead>
+              <TableHead class="whitespace-nowrap">
+                耗时
+              </TableHead>
               <TableHead>
                 Request ID
               </TableHead>
@@ -256,6 +259,12 @@ function openLogDetail(item: AppLogEntry) {
               <TableCell class="whitespace-nowrap">
                 {{ item.status || '-' }}
               </TableCell>
+              <TableCell>
+                <DurationIndicator
+                  :value="item.durationMs"
+                  profile="http"
+                />
+              </TableCell>
               <TableCell
                 class="max-w-[220px] truncate font-mono text-xs"
                 :title="item.requestId"
@@ -274,7 +283,7 @@ function openLogDetail(item: AppLogEntry) {
           <TableBody v-else>
             <TableRow>
               <TableCell
-                :colspan="8"
+                :colspan="9"
                 class="h-24 text-center text-muted-foreground"
               >
                 暂无日志
@@ -316,7 +325,6 @@ function openLogDetail(item: AppLogEntry) {
       v-model:open="detailOpen"
       :active-log="activeLog"
       :format-date="formatDate"
-      :format-duration="formatDuration"
       :to-pretty-json="toPrettyJson"
     />
   </div>

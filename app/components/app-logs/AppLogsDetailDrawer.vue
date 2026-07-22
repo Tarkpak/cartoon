@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { X } from 'lucide-vue-next'
 import type { AppLogEntry } from '@/composables/useAppLogs'
+import DurationIndicator from '@/components/logs/DurationIndicator.vue'
 import { logCategoryLabel, logLevelLabel, logSourceLabel } from '#shared/utils/display-labels'
 import {
   Drawer,
@@ -16,7 +17,6 @@ const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{
   activeLog: AppLogEntry | null
   formatDate: (value: string) => string
-  formatDuration: (value?: number) => string
   toPrettyJson: (value: unknown) => string
 }>()
 </script>
@@ -114,9 +114,12 @@ const props = defineProps<{
               <p class="text-xs text-muted-foreground">
                 耗时
               </p>
-              <p class="mt-1">
-                {{ props.formatDuration(props.activeLog.durationMs) }}
-              </p>
+              <div class="mt-1">
+                <DurationIndicator
+                  :value="props.activeLog.durationMs"
+                  profile="http"
+                />
+              </div>
             </div>
             <div class="rounded border p-3">
               <p class="text-xs text-muted-foreground">

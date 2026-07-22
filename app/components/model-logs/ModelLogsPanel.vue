@@ -28,7 +28,6 @@ const {
   allFilterValue,
   openLogDetail,
   formatDate,
-  formatDuration,
   toPrettyJson,
   toReadableText,
   fetchLogs,
@@ -81,7 +80,6 @@ watch(() => props.initialRequestId, (value) => {
       :active-log-id="activeLogId"
       :detail-open="detailOpen"
       :format-date="formatDate"
-      :format-duration="formatDuration"
       :logs="logs"
       :open-log-detail="openLogDetail"
     />
@@ -120,7 +118,6 @@ watch(() => props.initialRequestId, (value) => {
       v-model:open="detailOpen"
       :active-log="activeLog"
       :format-date="formatDate"
-      :format-duration="formatDuration"
       :to-pretty-json="toPrettyJson"
       :to-readable-text="toReadableText"
     />

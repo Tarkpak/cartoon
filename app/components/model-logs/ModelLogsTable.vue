@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ModelDebugLogEntry } from '@/composables/useModelDebugLogs'
 import type { BadgeVariants } from '@/components/ui/badge'
+import DurationIndicator from '@/components/logs/DurationIndicator.vue'
 import { cn } from '@/lib/utils'
 import { modelOperationLabel, modelStatusLabel, providerLabel } from '#shared/utils/display-labels'
 import {
@@ -18,7 +19,6 @@ defineProps<{
   activeLogId: string
   detailOpen: boolean
   formatDate: (value: string) => string
-  formatDuration: (value: number) => string
   openLogDetail: (item: ModelDebugLogEntry) => void
 }>()
 
@@ -132,7 +132,10 @@ function statusVariant(status: ModelDebugLogEntry['status']): BadgeVariants['var
               </Badge>
             </TableCell>
             <TableCell class="whitespace-nowrap">
-              {{ formatDuration(item.durationMs) }}
+              <DurationIndicator
+                :value="item.durationMs"
+                profile="model"
+              />
             </TableCell>
           </TableRow>
         </TableBody>

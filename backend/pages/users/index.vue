@@ -1,23 +1,25 @@
 <template>
-  <AdminShell>
-    <div class="page">
-      <div class="page-header page-header--actions">
+  <AdminShell content-mode="fixed">
+    <div class="page fixed-table-page">
+      <div class="fixed-table-toolbar">
+        <n-input v-model:value="keyword" placeholder="搜索账号、名称、邮箱或手机号" clearable @keyup.enter="refreshUsers" />
         <n-button type="primary" @click="showCreate = true">新建用户</n-button>
       </div>
 
-      <n-space vertical class="table-section">
-        <n-input v-model:value="keyword" placeholder="搜索账号、名称、邮箱或手机号" clearable @keyup.enter="refreshUsers" />
+      <div class="fixed-table-content">
         <n-data-table
+          class="fixed-data-table"
           :columns="columns"
           :data="rows"
           :loading="pending"
           :row-props="rowProps"
           :pagination="usersPagination"
+          flex-height
           remote
           @update:page="handlePageChange"
           @update:page-size="handlePageSizeChange"
         />
-      </n-space>
+      </div>
 
       <n-modal v-model:show="showCreate" preset="card" title="新建用户" style="width: 480px">
         <n-form>

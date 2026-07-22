@@ -1,6 +1,6 @@
 <template>
-  <AdminShell>
-    <div class="page client-versions-page">
+  <AdminShell content-mode="fixed">
+    <div class="page client-versions-page fixed-table-page">
       <div class="page-header page-header--actions">
         <n-space>
           <n-button :loading="pending" @click="loadVersions">刷新</n-button>
@@ -9,7 +9,7 @@
         </n-space>
       </div>
 
-      <n-space vertical :size="10" class="table-section">
+      <div class="client-versions-content fixed-table-content">
         <div class="client-versions-filters">
           <n-input
             v-model:value="filters.keyword"
@@ -49,11 +49,13 @@
         </div>
 
         <n-data-table
+          class="client-versions-table"
           :columns="columns"
           :data="versions"
           :loading="pending"
           :row-key="rowKey"
           :scroll-x="1320"
+          flex-height
           size="small"
         />
 
@@ -75,14 +77,16 @@
             <n-tag size="small">{{ deviceVersions.length }}</n-tag>
           </div>
           <n-data-table
+            class="device-version-table"
             :columns="deviceColumns"
             :data="deviceVersions"
             :loading="pending"
             :row-key="deviceRowKey"
+            flex-height
             size="small"
           />
         </section>
-      </n-space>
+      </div>
 
       <n-modal
         v-model:show="showModal"
@@ -579,6 +583,11 @@ onMounted(loadVersions)
 </script>
 
 <style scoped>
+.client-versions-table {
+  min-height: 240px;
+  flex: 1;
+}
+
 .client-versions-filters {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) repeat(4, minmax(120px, 150px)) auto;
@@ -591,6 +600,10 @@ onMounted(loadVersions)
 }
 
 .device-version-section {
+  display: flex;
+  min-height: 180px;
+  flex: 0 1 240px;
+  flex-direction: column;
   margin-top: 8px;
 }
 
@@ -601,6 +614,11 @@ onMounted(loadVersions)
   margin-bottom: 8px;
   font-size: 14px;
   font-weight: 650;
+}
+
+.device-version-table {
+  min-height: 140px;
+  flex: 1;
 }
 
 .client-version-form-grid {
@@ -623,6 +641,16 @@ onMounted(loadVersions)
   .client-versions-filters,
   .client-version-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .client-versions-table,
+  .device-version-table {
+    height: 420px;
+    flex: 0 0 auto;
+  }
+
+  .device-version-section {
+    flex: 0 0 auto;
   }
 }
 </style>
