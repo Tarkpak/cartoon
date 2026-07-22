@@ -5,6 +5,7 @@
   >
     <n-layout-sider
       bordered
+      class="admin-shell__sider"
       collapse-mode="width"
       :collapsed="menuCollapsed"
       :collapsed-width="56"
@@ -39,43 +40,72 @@
         </button>
         <div v-if="!menuCollapsed" class="admin-brand__body">
           <div class="admin-brand__title">Playlet Admin</div>
-          <div class="muted admin-brand__meta">{{ meLabel }}</div>
+          <div class="muted admin-brand__meta">管理后台</div>
         </div>
       </div>
-      <ClientOnly>
-        <n-menu
-          :value="selectedKey"
-          :options="menuOptions"
-          :collapsed="menuCollapsed"
-          :collapsed-icon-size="20"
-          :collapsed-width="56"
-          @update:value="handleNavigate"
-        />
-        <template #fallback>
-          <nav class="admin-menu-fallback" aria-label="后台菜单">
-            <a
-              v-for="item in menuOptions"
-              :key="item.key"
-              class="admin-menu-fallback__item"
-              :href="item.key"
-            >
-              {{ item.label }}
-            </a>
-          </nav>
-        </template>
-      </ClientOnly>
+      <div class="admin-shell__navigation">
+        <ClientOnly>
+          <n-menu
+            :value="selectedKey"
+            :options="menuOptions"
+            :collapsed="menuCollapsed"
+            :collapsed-icon-size="20"
+            :collapsed-width="56"
+            @update:value="handleNavigate"
+          />
+          <template #fallback>
+            <nav class="admin-menu-fallback" aria-label="后台菜单">
+              <a
+                v-for="item in menuOptions"
+                :key="item.key"
+                class="admin-menu-fallback__item"
+                :href="item.key"
+              >
+                {{ item.label }}
+              </a>
+            </nav>
+          </template>
+        </ClientOnly>
+      </div>
+      <footer
+        class="admin-account"
+        :class="{ 'admin-account--collapsed': menuCollapsed }"
+      >
+        <div class="admin-account__avatar" aria-hidden="true">{{ meInitial }}</div>
+        <div v-if="!menuCollapsed" class="admin-account__body">
+          <strong class="admin-account__name" :title="meLabel">{{ meLabel }}</strong>
+          <span class="admin-account__meta" :title="accountMeta">{{ accountMeta }}</span>
+        </div>
+        <button
+          class="admin-account__logout"
+          type="button"
+          aria-label="退出登录"
+          title="退出登录"
+          @click="logout"
+        >
+          <svg
+            aria-hidden="true"
+            fill="none"
+            height="17"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.8"
+            viewBox="0 0 24 24"
+            width="17"
+          >
+            <path d="M10 17l5-5-5-5" />
+            <path d="M15 12H3" />
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+          </svg>
+        </button>
+      </footer>
     </n-layout-sider>
     <n-layout class="admin-shell__main">
-      <n-layout-header
-        bordered
-        class="admin-shell__header"
+      <n-layout-content
+        class="admin-shell__content"
+        :class="{ 'admin-shell__content--fixed': contentMode === 'fixed' }"
       >
-        <n-space align="center">
-          <n-tag v-if="me?.role" size="small" type="info">{{ userRoleLabel(me.role) }}</n-tag>
-          <n-button size="small" @click="logout">退出</n-button>
-        </n-space>
-      </n-layout-header>
-      <n-layout-content class="admin-shell__content">
         <slot />
       </n-layout-content>
     </n-layout>
@@ -88,6 +118,10 @@ import { userRoleLabel } from '@playlet-shared/utils/display-labels'
 
 const SIDEBAR_COLLAPSED_KEY = 'playlet-admin-sidebar-collapsed'
 
+const { contentMode = 'scroll' } = defineProps<{
+  contentMode?: 'scroll' | 'fixed'
+}>()
+
 const route = useRoute()
 const router = useRouter()
 const menuCollapsed = ref(false)
@@ -98,6 +132,14 @@ const { data } = await useFetch<{ success: boolean, data: { user: { account: str
 
 const me = computed(() => data.value?.data.user)
 const meLabel = computed(() => me.value ? `${me.value.displayName || me.value.account}` : '未登录')
+const meInitial = computed(() => meLabel.value.trim().charAt(0).toUpperCase() || '?')
+const accountMeta = computed(() => {
+  if (!me.value) return '身份未知'
+  const role = userRoleLabel(me.value.role)
+  return me.value.displayName && me.value.displayName !== me.value.account
+    ? `${role} · ${me.value.account}`
+    : role
+})
 const menuToggleLabel = computed(() => menuCollapsed.value ? '展开菜单' : '折叠菜单')
 
 const menuIconPaths = {
@@ -218,17 +260,25 @@ watch(menuCollapsed, (value) => {
   overflow: hidden;
 }
 
-.admin-shell__header {
+.admin-shell__sider :deep(.n-layout-sider-scroll-container) {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  height: 56px;
-  padding: 0 16px;
+  height: 100%;
+  flex-direction: column;
 }
 
 .admin-shell__content {
-  height: calc(100vh - 56px);
+  height: 100vh;
   overflow: auto;
+}
+
+.admin-shell__content--fixed {
+  overflow: hidden;
+}
+
+.admin-shell__navigation {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
 }
 
 .admin-brand {
@@ -328,5 +378,85 @@ watch(menuCollapsed, (value) => {
 
 .admin-menu-fallback__item:hover {
   background: #f3f3f5;
+}
+
+.admin-account {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 8px;
+  margin: 8px;
+  border-top: 1px solid #e4e7ec;
+  padding: 12px 4px 4px;
+}
+
+.admin-account--collapsed {
+  grid-template-columns: 32px;
+  justify-content: center;
+  gap: 8px;
+  margin-right: 8px;
+  margin-left: 8px;
+  padding-right: 4px;
+  padding-left: 4px;
+}
+
+.admin-account__avatar {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 6px;
+  background: #e8f5ee;
+  color: #137a43;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-account__body {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.admin-account__name,
+.admin-account__meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-account__name {
+  color: #1f2328;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.admin-account__meta {
+  color: #667085;
+  font-size: 11px;
+}
+
+.admin-account__logout {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  background: transparent;
+  color: #667085;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.admin-account__logout:hover {
+  background: #f2f4f7;
+  color: #b42318;
+}
+
+.admin-account__logout:focus-visible {
+  outline: 2px solid rgba(24, 160, 88, 0.3);
+  outline-offset: 1px;
 }
 </style>

@@ -1,25 +1,136 @@
 <template>
-  <AdminShell>
-    <div class="page">
-      <n-space vertical class="table-section">
-        <n-input v-model:value="keyword" placeholder="搜索 request id、错误、用户" clearable @keyup.enter="refreshLogsFromFirstPage" />
-        <n-data-table
-          :columns="columns"
-          :data="logs"
-          :loading="pending"
-          :pagination="logsPagination"
-          :row-props="rowProps"
-          remote
-          @update:page="handleLogsPageChange"
-          @update:page-size="handleLogsPageSizeChange"
-        />
-      </n-space>
+  <AdminShell content-mode="fixed">
+    <div class="page logs-page">
+      <header class="page-header logs-header">
+        <div>
+          <h1 class="page-title">日志中心</h1>
+          <p class="page-subtitle">查询模型调用、后台操作与自动归档记录</p>
+        </div>
+        <div class="header-actions">
+          <span class="refresh-status">{{ lastUpdatedLabel }}</span>
+          <span class="auto-refresh-control">自动刷新 <n-switch v-model:value="autoRefresh" size="small" /></span>
+          <n-button :loading="activeLoading" @click="refreshActiveTab">刷新</n-button>
+          <n-button :loading="exporting" :disabled="activeTab === 'archives'" @click="exportActiveResults">导出 CSV</n-button>
+        </div>
+      </header>
+
+      <n-tabs v-model:value="activeTab" type="line" animated class="logs-tabs" @update:value="handleTabChange">
+        <n-tab-pane name="calls" tab="调用日志">
+          <div class="summary-strip">
+            <div class="summary-metric"><span>调用量</span><strong>{{ summary.total }}</strong></div>
+            <div class="summary-metric summary-metric--danger"><span>失败率</span><strong>{{ failureRate }}</strong></div>
+            <div class="summary-metric"><span>平均耗时</span><strong>{{ formatDuration(summary.averageDuration) }}</strong></div>
+            <div class="summary-metric"><span>积分消耗</span><strong>{{ summary.totalCredits }}</strong></div>
+          </div>
+
+          <section class="filter-panel" aria-label="调用日志筛选">
+            <div class="filter-row">
+              <n-input v-model:value="keyword" class="filter-search" placeholder="Request ID、错误、用户、项目或场景" clearable @keyup.enter="refreshLogsFromFirstPage" />
+              <n-select v-model:value="filters.status" placeholder="状态" clearable :options="statusOptions" />
+              <n-select v-model:value="filters.userId" placeholder="用户" clearable filterable :options="userOptions" />
+              <n-select v-model:value="filters.provider" placeholder="供应商" clearable filterable :options="providerOptions" />
+              <n-select v-model:value="filters.modelId" placeholder="模型" clearable filterable :options="modelOptions" />
+              <n-select v-model:value="filters.operation" placeholder="操作" clearable :options="operationOptions" />
+            </div>
+            <div class="filter-row filter-row--secondary">
+              <n-date-picker
+                v-model:value="dateRange"
+                type="datetimerange"
+                clearable
+                class="date-filter"
+                start-placeholder="开始时间"
+                end-placeholder="结束时间"
+              />
+              <n-input-number v-model:value="filters.minDuration" placeholder="最短耗时 ms" :min="0" clearable />
+              <span class="range-separator">至</span>
+              <n-input-number v-model:value="filters.maxDuration" placeholder="最长耗时 ms" :min="0" clearable />
+              <n-select v-model:value="filters.sortBy" :options="sortOptions" class="sort-filter" />
+              <n-button type="primary" @click="refreshLogsFromFirstPage">查询</n-button>
+              <n-button :disabled="activeCallFilterCount === 0" @click="resetCallFilters">重置<span v-if="activeCallFilterCount">（{{ activeCallFilterCount }}）</span></n-button>
+            </div>
+          </section>
+
+          <n-alert v-if="logsError" type="error" :bordered="false" class="state-alert">
+            {{ logsError }} <n-button text type="primary" @click="loadLogs">重试</n-button>
+          </n-alert>
+          <n-data-table
+            class="logs-data-table"
+            :columns="columns"
+            :data="logs"
+            :loading="pending"
+            :pagination="logsPagination"
+            :row-props="rowProps"
+            :scroll-x="1560"
+            flex-height
+            remote
+            @update:page="handleLogsPageChange"
+            @update:page-size="handleLogsPageSizeChange"
+          >
+            <template #empty><n-empty description="没有符合当前条件的调用日志" /></template>
+          </n-data-table>
+        </n-tab-pane>
+
+        <n-tab-pane name="audit" tab="操作审计">
+          <section class="filter-panel filter-panel--single" aria-label="操作审计筛选">
+            <n-input v-model:value="auditKeyword" class="filter-search" placeholder="操作、目标或管理员" clearable @keyup.enter="refreshAuditFromFirstPage" />
+            <n-date-picker
+              v-model:value="auditDateRange"
+              type="datetimerange"
+              clearable
+              class="date-filter"
+              start-placeholder="开始时间"
+              end-placeholder="结束时间"
+            />
+            <n-button type="primary" @click="refreshAuditFromFirstPage">查询</n-button>
+            <n-button :disabled="!auditKeyword && !auditDateRange" @click="resetAuditFilters">重置</n-button>
+          </section>
+          <n-alert v-if="auditError" type="error" :bordered="false" class="state-alert">
+            {{ auditError }} <n-button text type="primary" @click="loadAuditLogs">重试</n-button>
+          </n-alert>
+          <n-data-table
+            class="logs-data-table"
+            :columns="auditColumns"
+            :data="auditLogs"
+            :loading="auditLoading"
+            :pagination="auditPagination"
+            :scroll-x="1240"
+            flex-height
+            remote
+            @update:page="handleAuditPageChange"
+            @update:page-size="handleAuditPageSizeChange"
+          >
+            <template #empty><n-empty description="没有符合当前条件的操作记录" /></template>
+          </n-data-table>
+        </n-tab-pane>
+
+        <n-tab-pane name="archives" tab="归档记录">
+          <n-alert type="info" :bordered="false" class="archive-note">系统达到日志保留上限后自动归档旧记录。归档载荷不会在列表中直接展开。</n-alert>
+          <n-alert v-if="archivesError" type="error" :bordered="false" class="state-alert">
+            {{ archivesError }} <n-button text type="primary" @click="loadArchives">重试</n-button>
+          </n-alert>
+          <n-data-table
+            class="logs-data-table"
+            :columns="archiveColumns"
+            :data="archives"
+            :loading="archivesLoading"
+            :pagination="archivesPagination"
+            flex-height
+            remote
+            @update:page="handleArchivesPageChange"
+            @update:page-size="handleArchivesPageSizeChange"
+          >
+            <template #empty><n-empty description="暂无归档记录" /></template>
+          </n-data-table>
+        </n-tab-pane>
+      </n-tabs>
 
       <n-drawer v-model:show="drawer" :width="detailDrawerWidth">
         <n-drawer-content
           title="日志详情"
+          closable
           :native-scrollbar="true"
         >
+          <n-spin :show="detailLoading" class="detail-spin">
           <div v-if="selectedLog" class="log-detail">
             <div class="log-summary-grid">
               <div class="log-summary-item">
@@ -58,7 +169,7 @@
               </div>
               <div class="log-summary-item">
                 <span class="log-summary-label">扣除积分</span>
-                <span>{{ selectedLog.credits_charged || '-' }}</span>
+                <span>{{ selectedLog.credits_charged ?? '-' }}</span>
               </div>
               <div class="log-summary-item log-summary-item--wide">
                 <span class="log-summary-label">Request ID</span>
@@ -96,20 +207,10 @@
                 <div class="log-detail-stack">
                   <div class="log-detail-toolbar">
                     <span class="log-summary-label">请求展示</span>
-                    <n-button
-                      size="small"
-                      :type="payloadViewModes.request === 'text' ? 'primary' : 'default'"
-                      @click="payloadViewModes.request = 'text'"
-                    >
-                      格式化文本
-                    </n-button>
-                    <n-button
-                      size="small"
-                      :type="payloadViewModes.request === 'json' ? 'primary' : 'default'"
-                      @click="payloadViewModes.request = 'json'"
-                    >
-                      原始 JSON
-                    </n-button>
+                    <n-radio-group v-model:value="payloadViewModes.request" size="small">
+                      <n-radio-button value="text">格式化文本</n-radio-button>
+                      <n-radio-button value="json">原始 JSON</n-radio-button>
+                    </n-radio-group>
                   </div>
                   <section v-if="payloadViewModes.request === 'text'" class="log-payload-panel">
                     <header class="log-payload-header">请求内容</header>
@@ -142,20 +243,10 @@
                 <div class="log-detail-stack">
                   <div class="log-detail-toolbar">
                     <span class="log-summary-label">响应展示</span>
-                    <n-button
-                      size="small"
-                      :type="payloadViewModes.response === 'text' ? 'primary' : 'default'"
-                      @click="payloadViewModes.response = 'text'"
-                    >
-                      格式化文本
-                    </n-button>
-                    <n-button
-                      size="small"
-                      :type="payloadViewModes.response === 'json' ? 'primary' : 'default'"
-                      @click="payloadViewModes.response = 'json'"
-                    >
-                      原始 JSON
-                    </n-button>
+                    <n-radio-group v-model:value="payloadViewModes.response" size="small">
+                      <n-radio-button value="text">格式化文本</n-radio-button>
+                      <n-radio-button value="json">原始 JSON</n-radio-button>
+                    </n-radio-group>
                   </div>
                   <section v-if="payloadViewModes.response === 'text'" class="log-payload-panel">
                     <header class="log-payload-header">响应内容</header>
@@ -184,24 +275,14 @@
                 </div>
               </n-tab-pane>
 
-              <n-tab-pane name="error" tab="错误">
+              <n-tab-pane v-if="hasLogError" name="error" tab="错误">
                 <div class="log-detail-stack">
                   <div class="log-detail-toolbar">
                     <span class="log-summary-label">错误展示</span>
-                    <n-button
-                      size="small"
-                      :type="payloadViewModes.error === 'text' ? 'primary' : 'default'"
-                      @click="payloadViewModes.error = 'text'"
-                    >
-                      格式化文本
-                    </n-button>
-                    <n-button
-                      size="small"
-                      :type="payloadViewModes.error === 'json' ? 'primary' : 'default'"
-                      @click="payloadViewModes.error = 'json'"
-                    >
-                      原始 JSON
-                    </n-button>
+                    <n-radio-group v-model:value="payloadViewModes.error" size="small">
+                      <n-radio-button value="text">格式化文本</n-radio-button>
+                      <n-radio-button value="json">原始 JSON</n-radio-button>
+                    </n-radio-group>
                   </div>
                   <section v-if="payloadViewModes.error === 'text'" class="log-payload-panel">
                     <header class="log-payload-header">错误摘要</header>
@@ -236,6 +317,8 @@
               </n-tab-pane>
             </n-tabs>
           </div>
+          <n-empty v-else-if="!detailLoading" description="日志详情不可用" />
+          </n-spin>
         </n-drawer-content>
       </n-drawer>
     </div>
@@ -244,8 +327,22 @@
 
 <script setup lang="ts">
 import { h } from 'vue'
-import { NTag, useMessage } from 'naive-ui'
-import { modelOperationLabel, modelStatusLabel, providerLabel } from '@playlet-shared/utils/display-labels'
+import {
+  NButton,
+  NDatePicker,
+  NEllipsis,
+  NRadioButton,
+  NRadioGroup,
+  NTag,
+  useMessage
+} from 'naive-ui'
+import {
+  auditActionLabel,
+  auditTargetTypeLabel,
+  modelOperationLabel,
+  modelStatusLabel,
+  providerLabel
+} from '@playlet-shared/utils/display-labels'
 
 interface ModelCallLog {
   id: string
@@ -278,18 +375,97 @@ interface TextBlock {
   content: string
 }
 
+interface AuditLog {
+  id: string
+  account?: string
+  display_name?: string
+  actor_user_id?: string
+  action?: string
+  target_type?: string
+  target_id?: string
+  metadata?: unknown
+  ip?: string
+  user_agent?: string
+  created_at?: string
+}
+
+interface LogArchive {
+  id: string
+  archive_type?: string
+  row_count?: number
+  created_at?: string
+}
+
+interface LogSummary {
+  total: number
+  failed: number
+  averageDuration: number
+  totalCost: number
+  totalCredits: number
+}
+
+interface SelectOption {
+  value: string
+  label?: string
+}
+
+interface LogOptions {
+  users: SelectOption[]
+  providers: SelectOption[]
+  models: SelectOption[]
+  operations: SelectOption[]
+  statuses: SelectOption[]
+}
+
 type JsonPayloadKind = 'request' | 'response' | 'error'
 type PayloadViewMode = 'text' | 'json'
 
 const message = useMessage()
+const route = useRoute()
+const router = useRouter()
+const activeTab = ref<'calls' | 'audit' | 'archives'>('calls')
+const autoRefresh = ref(false)
+const lastUpdated = ref<Date | null>(null)
+const exporting = ref(false)
 const keyword = ref('')
 const pending = ref(false)
+const logsError = ref('')
 const logs = ref<ModelCallLog[]>([])
 const logsPage = ref(1)
 const logsPageSize = ref(20)
 const logsTotal = ref(0)
+const summary = reactive<LogSummary>({ total: 0, failed: 0, averageDuration: 0, totalCost: 0, totalCredits: 0 })
+const logOptions = reactive<LogOptions>({ users: [], providers: [], models: [], operations: [], statuses: [] })
+const dateRange = ref<[number, number] | null>(null)
+const filters = reactive({
+  status: null as string | null,
+  userId: null as string | null,
+  provider: null as string | null,
+  modelId: null as string | null,
+  operation: null as string | null,
+  minDuration: null as number | null,
+  maxDuration: null as number | null,
+  sortBy: 'createdAt:desc'
+})
+const auditKeyword = ref('')
+const auditDateRange = ref<[number, number] | null>(null)
+const auditLoading = ref(false)
+const auditError = ref('')
+const auditLogs = ref<AuditLog[]>([])
+const auditPage = ref(1)
+const auditPageSize = ref(20)
+const auditTotal = ref(0)
+const archivesLoading = ref(false)
+const archivesError = ref('')
+const archives = ref<LogArchive[]>([])
+const archivesPage = ref(1)
+const archivesPageSize = ref(20)
+const archivesTotal = ref(0)
 const drawer = ref(false)
 const selectedLog = ref<ModelCallLog | null>(null)
+const detailLoading = ref(false)
+let detailRequestSequence = 0
+let refreshTimer: ReturnType<typeof setInterval> | null = null
 const payloadViewModes = reactive<Record<JsonPayloadKind, PayloadViewMode>>({
   request: 'text',
   response: 'text',
@@ -300,28 +476,73 @@ const detailDrawerWidth = 'min(1080px, 92vw)'
 const selectedLogJson = computed(() => selectedLog.value ? stringifyJson(selectedLog.value) : '')
 const requestTextBlocks = computed(() => selectedLog.value ? readableBlocksFor(selectedLog.value.request, 'request') : [])
 const responseTextBlocks = computed(() => selectedLog.value ? readableBlocksFor(selectedLog.value.response, 'response') : [])
+const hasLogError = computed(() => Boolean(selectedLog.value && (
+  selectedLog.value.error_message
+  || hasContent(selectedLog.value.error)
+  || ['failed', 'error'].includes(selectedLog.value.status || '')
+)))
+const failureRate = computed(() => summary.total ? `${((summary.failed / summary.total) * 100).toFixed(1)}%` : '0%')
+const lastUpdatedLabel = computed(() => lastUpdated.value
+  ? `更新于 ${lastUpdated.value.toLocaleTimeString('zh-CN', { hour12: false })}`
+  : '尚未更新')
+const activeLoading = computed(() => activeTab.value === 'calls'
+  ? pending.value
+  : activeTab.value === 'audit' ? auditLoading.value : archivesLoading.value)
+const activeCallFilterCount = computed(() => [
+  keyword.value,
+  filters.status,
+  filters.userId,
+  filters.provider,
+  filters.modelId,
+  filters.operation,
+  filters.minDuration,
+  filters.maxDuration,
+  dateRange.value
+].filter(value => value !== null && value !== '').length)
+
+const statusOptions = computed(() => logOptions.statuses.map(option => ({ ...option, label: modelStatusLabel(option.value) })))
+const userOptions = computed(() => logOptions.users.map(option => ({ ...option, label: option.label || option.value })))
+const providerOptions = computed(() => logOptions.providers.map(option => ({ ...option, label: providerLabel(option.value) })))
+const modelOptions = computed(() => logOptions.models.map(option => ({ ...option, label: option.value })))
+const operationOptions = computed(() => logOptions.operations.map(option => ({ ...option, label: modelOperationLabel(option.value) })))
+const sortOptions = [
+  { label: '时间：最新优先', value: 'createdAt:desc' },
+  { label: '时间：最早优先', value: 'createdAt:asc' },
+  { label: '耗时：从高到低', value: 'duration:desc' },
+  { label: '耗时：从低到高', value: 'duration:asc' },
+  { label: '费用：从高到低', value: 'cost:desc' },
+  { label: '积分：从高到低', value: 'credits:desc' }
+]
 
 const columns = [
   {
     title: '时间',
     key: 'created_at',
-    width: 180,
+    width: 176,
     render(row: ModelCallLog) {
       return formatAdminDateTime(row.created_at)
     }
   },
-  { title: '用户', key: 'account' },
+  {
+    title: '用户', key: 'account', width: 136,
+    render: (row: ModelCallLog) => h(NEllipsis, { tooltip: true }, { default: () => displayUser(row) })
+  },
   {
     title: '供应商',
     key: 'provider',
+    width: 124,
     render(row: ModelCallLog) {
       return providerLabel(row.provider)
     }
   },
-  { title: '模型', key: 'model_id' },
+  {
+    title: '模型', key: 'model_id', width: 210,
+    render: (row: ModelCallLog) => h(NEllipsis, { tooltip: true }, { default: () => displayValue(row.model_id) })
+  },
   {
     title: '操作',
     key: 'operation',
+    width: 124,
     render(row: ModelCallLog) {
       return modelOperationLabel(row.operation)
     }
@@ -329,19 +550,57 @@ const columns = [
   {
     title: '状态',
     key: 'status',
+    width: 92,
     render(row: ModelCallLog) {
       return h(NTag, { size: 'small', type: statusTagType(row.status) }, { default: () => modelStatusLabel(row.status) })
     }
   },
-  { title: '耗时 ms', key: 'duration_ms' },
+  { title: '耗时', key: 'duration_ms', width: 108, render: (row: ModelCallLog) => formatDuration(row.duration_ms) },
+  { title: '费用', key: 'estimated_cost', width: 96, render: (row: ModelCallLog) => formatCost(row.estimated_cost) },
   {
     title: '积分',
     key: 'credits_charged',
     width: 80,
     render(row: ModelCallLog) {
-      return row.credits_charged || '-'
+      return row.credits_charged ?? '-'
     }
+  },
+  {
+    title: 'Request ID', key: 'request_id', width: 216,
+    render(row: ModelCallLog) {
+      if (!row.request_id) return '-'
+      return h(NButton, {
+        text: true,
+        class: 'request-id-button',
+        onClick: (event: MouseEvent) => {
+          event.stopPropagation()
+          void copyText(row.request_id || '', 'Request ID')
+        }
+      }, { default: () => row.request_id })
+    }
+  },
+  {
+    title: '错误摘要', key: 'error_message', width: 270,
+    render: (row: ModelCallLog) => row.error_message
+      ? h(NEllipsis, { tooltip: true }, { default: () => row.error_message })
+      : '-'
   }
+]
+
+const auditColumns = [
+  { title: '时间', key: 'created_at', width: 180, render: (row: AuditLog) => formatAdminDateTime(row.created_at) },
+  { title: '管理员', key: 'account', width: 140, render: (row: AuditLog) => row.display_name || row.account || row.actor_user_id || '-' },
+  { title: '操作', key: 'action', width: 180, render: (row: AuditLog) => auditActionLabel(row.action) },
+  { title: '目标类型', key: 'target_type', width: 130, render: (row: AuditLog) => auditTargetTypeLabel(row.target_type) },
+  { title: '目标', key: 'target_id', width: 180, render: (row: AuditLog) => h(NEllipsis, { tooltip: true }, { default: () => row.target_id || '-' }) },
+  { title: 'IP', key: 'ip', width: 130 },
+  { title: '详情', key: 'metadata', width: 260, render: (row: AuditLog) => h(NEllipsis, { tooltip: true }, { default: () => stringifyJson(row.metadata) || '-' }) }
+]
+
+const archiveColumns = [
+  { title: '归档时间', key: 'created_at', width: 220, render: (row: LogArchive) => formatAdminDateTime(row.created_at) },
+  { title: '归档类型', key: 'archive_type', render: (row: LogArchive) => row.archive_type === 'model_call_logs' ? '模型调用日志' : displayValue(row.archive_type) },
+  { title: '记录数', key: 'row_count', width: 160 }
 ]
 
 const logsPagination = computed(() => ({
@@ -354,10 +613,35 @@ const logsPagination = computed(() => ({
   prefix: ({ itemCount }: { itemCount: number }) => `共 ${itemCount} 条`
 }))
 
+const auditPagination = computed(() => ({
+  page: auditPage.value,
+  pageSize: auditPageSize.value,
+  itemCount: auditTotal.value,
+  showSizePicker: true,
+  pageSizes: [10, 20, 50, 100],
+  prefix: ({ itemCount }: { itemCount: number }) => `共 ${itemCount} 条`
+}))
+
+const archivesPagination = computed(() => ({
+  page: archivesPage.value,
+  pageSize: archivesPageSize.value,
+  itemCount: archivesTotal.value,
+  showSizePicker: true,
+  pageSizes: [10, 20, 50, 100],
+  prefix: ({ itemCount }: { itemCount: number }) => `共 ${itemCount} 个归档`
+}))
+
 function rowProps(row: ModelCallLog) {
   return {
     class: 'logs-table-row',
-    onClick: () => openLog(row.id)
+    tabindex: 0,
+    onClick: () => openLog(row.id),
+    onKeydown: (event: KeyboardEvent) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        void openLog(row.id)
+      }
+    }
   }
 }
 
@@ -372,12 +656,13 @@ function displayUser(log: ModelCallLog) {
 
 function formatDuration(value: unknown) {
   const duration = Number(value)
-  return Number.isFinite(duration) && duration > 0 ? `${duration} ms` : '-'
+  return value !== null && value !== undefined && Number.isFinite(duration) && duration >= 0 ? `${Math.round(duration)} ms` : '-'
 }
 
 function formatCost(value: unknown) {
   const cost = Number(value)
-  if (!Number.isFinite(cost) || cost <= 0) return '-'
+  if (value === null || value === undefined || !Number.isFinite(cost) || cost < 0) return '-'
+  if (cost === 0) return '0'
   return cost < 0.0001 ? String(cost) : cost.toFixed(6).replace(/0+$/g, '').replace(/\.$/, '')
 }
 
@@ -523,24 +808,120 @@ async function copyText(text: string, label: string) {
 
 async function loadLogs() {
   pending.value = true
+  logsError.value = ''
   try {
-    const response = await $fetch<{ data: { logs: ModelCallLog[], pagination: { total: number } } }>('/api/admin/model-call-logs', {
-      query: {
-        page: logsPage.value,
-        pageSize: logsPageSize.value,
-        keyword: keyword.value
-      }
+    const response = await $fetch<{ data: {
+      logs: ModelCallLog[]
+      pagination: { total: number }
+      summary: LogSummary
+      options: LogOptions
+    } }>('/api/admin/model-call-logs', {
+      query: callQuery(logsPage.value, logsPageSize.value)
     })
     logs.value = response.data.logs
     logsTotal.value = Number(response.data.pagination.total)
+    Object.assign(summary, response.data.summary)
+    Object.assign(logOptions, response.data.options)
+    lastUpdated.value = new Date()
+  } catch (error) {
+    logsError.value = errorText(error, '调用日志加载失败')
   } finally {
     pending.value = false
   }
 }
 
+function callQuery(page: number, pageSize: number) {
+  const [sortBy, sortOrder] = filters.sortBy.split(':')
+  return {
+    page,
+    pageSize,
+    keyword: keyword.value || undefined,
+    status: filters.status || undefined,
+    userId: filters.userId || undefined,
+    provider: filters.provider || undefined,
+    modelId: filters.modelId || undefined,
+    operation: filters.operation || undefined,
+    minDuration: filters.minDuration ?? undefined,
+    maxDuration: filters.maxDuration ?? undefined,
+    startAt: dateRange.value ? new Date(dateRange.value[0]).toISOString() : undefined,
+    endAt: dateRange.value ? new Date(dateRange.value[1]).toISOString() : undefined,
+    sortBy,
+    sortOrder
+  }
+}
+
+function auditQuery(page: number, pageSize: number) {
+  return {
+    page,
+    pageSize,
+    keyword: auditKeyword.value || undefined,
+    startAt: auditDateRange.value ? new Date(auditDateRange.value[0]).toISOString() : undefined,
+    endAt: auditDateRange.value ? new Date(auditDateRange.value[1]).toISOString() : undefined
+  }
+}
+
+function errorText(error: unknown, fallback: string) {
+  if (error && typeof error === 'object') {
+    const candidate = error as { data?: { statusMessage?: string, message?: string }, message?: string }
+    return candidate.data?.statusMessage || candidate.data?.message || candidate.message || fallback
+  }
+  return fallback
+}
+
+async function loadAuditLogs() {
+  auditLoading.value = true
+  auditError.value = ''
+  try {
+    const response = await $fetch<{ data: { logs: AuditLog[], pagination: { total: number } } }>('/api/admin/audit-logs', {
+      query: auditQuery(auditPage.value, auditPageSize.value)
+    })
+    auditLogs.value = response.data.logs
+    auditTotal.value = Number(response.data.pagination.total)
+    lastUpdated.value = new Date()
+  } catch (error) {
+    auditError.value = errorText(error, '操作审计加载失败')
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+async function loadArchives() {
+  archivesLoading.value = true
+  archivesError.value = ''
+  try {
+    const response = await $fetch<{ data: { archives: LogArchive[], pagination: { total: number } } }>('/api/admin/log-archives', {
+      query: { page: archivesPage.value, pageSize: archivesPageSize.value }
+    })
+    archives.value = response.data.archives
+    archivesTotal.value = Number(response.data.pagination.total)
+    lastUpdated.value = new Date()
+  } catch (error) {
+    archivesError.value = errorText(error, '归档记录加载失败')
+  } finally {
+    archivesLoading.value = false
+  }
+}
+
 function refreshLogsFromFirstPage() {
   logsPage.value = 1
+  syncRouteQuery()
   void loadLogs()
+}
+
+function resetCallFilters() {
+  keyword.value = ''
+  Object.assign(filters, {
+    status: null,
+    userId: null,
+    provider: null,
+    modelId: null,
+    operation: null,
+    minDuration: null,
+    maxDuration: null,
+    sortBy: 'createdAt:desc'
+  })
+  dateRange.value = null
+  refreshLogsFromFirstPage()
 }
 
 function handleLogsPageChange(page: number) {
@@ -554,17 +935,340 @@ function handleLogsPageSizeChange(pageSize: number) {
   void loadLogs()
 }
 
-async function openLog(id: string) {
-  const response = await $fetch<{ data: { log: ModelCallLog } }>(`/api/admin/model-call-logs/${id}`)
-  selectedLog.value = response.data.log
-  Object.assign(payloadViewModes, { request: 'text', response: 'text', error: 'text' })
-  drawer.value = true
+function refreshAuditFromFirstPage() {
+  auditPage.value = 1
+  syncRouteQuery()
+  void loadAuditLogs()
 }
 
-onMounted(loadLogs)
+function resetAuditFilters() {
+  auditKeyword.value = ''
+  auditDateRange.value = null
+  refreshAuditFromFirstPage()
+}
+
+function handleAuditPageChange(page: number) {
+  auditPage.value = page
+  void loadAuditLogs()
+}
+
+function handleAuditPageSizeChange(pageSize: number) {
+  auditPageSize.value = pageSize
+  auditPage.value = 1
+  void loadAuditLogs()
+}
+
+function handleArchivesPageChange(page: number) {
+  archivesPage.value = page
+  void loadArchives()
+}
+
+function handleArchivesPageSizeChange(pageSize: number) {
+  archivesPageSize.value = pageSize
+  archivesPage.value = 1
+  void loadArchives()
+}
+
+function refreshActiveTab() {
+  if (activeTab.value === 'calls') return void loadLogs()
+  if (activeTab.value === 'audit') return void loadAuditLogs()
+  return void loadArchives()
+}
+
+function handleTabChange(value: string) {
+  activeTab.value = value as typeof activeTab.value
+  syncRouteQuery()
+  if (value === 'audit' && auditLogs.value.length === 0) void loadAuditLogs()
+  if (value === 'archives' && archives.value.length === 0) void loadArchives()
+}
+
+function syncRouteQuery() {
+  const query: Record<string, string> = { tab: activeTab.value }
+  if (activeTab.value === 'calls') {
+    const values = callQuery(1, logsPageSize.value)
+    for (const [key, value] of Object.entries(values)) {
+      if (!['page', 'pageSize'].includes(key) && value !== undefined) query[key] = String(value)
+    }
+  } else if (activeTab.value === 'audit') {
+    const values = auditQuery(1, auditPageSize.value)
+    for (const [key, value] of Object.entries(values)) {
+      if (!['page', 'pageSize'].includes(key) && value !== undefined) query[key] = String(value)
+    }
+  }
+  void router.replace({ query })
+}
+
+function restoreRouteQuery() {
+  const tab = String(route.query.tab || '')
+  if (['calls', 'audit', 'archives'].includes(tab)) activeTab.value = tab as typeof activeTab.value
+  const value = (key: string) => typeof route.query[key] === 'string' ? route.query[key] as string : ''
+  if (activeTab.value === 'calls') {
+    keyword.value = value('keyword')
+    filters.status = value('status') || null
+    filters.userId = value('userId') || null
+    filters.provider = value('provider') || null
+    filters.modelId = value('modelId') || null
+    filters.operation = value('operation') || null
+    filters.minDuration = value('minDuration') ? Number(value('minDuration')) : null
+    filters.maxDuration = value('maxDuration') ? Number(value('maxDuration')) : null
+    filters.sortBy = `${value('sortBy') || 'createdAt'}:${value('sortOrder') || 'desc'}`
+    if (value('startAt') && value('endAt')) dateRange.value = [Date.parse(value('startAt')), Date.parse(value('endAt'))]
+  } else if (activeTab.value === 'audit') {
+    auditKeyword.value = value('keyword')
+    if (value('startAt') && value('endAt')) auditDateRange.value = [Date.parse(value('startAt')), Date.parse(value('endAt'))]
+  }
+}
+
+function csvCell(value: unknown) {
+  const text = value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+function downloadCsv(filename: string, headers: string[], rows: unknown[][]) {
+  const content = `\uFEFF${[headers, ...rows].map(row => row.map(csvCell).join(',')).join('\n')}`
+  const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+async function exportActiveResults() {
+  exporting.value = true
+  try {
+    if (activeTab.value === 'calls') {
+      const all: ModelCallLog[] = []
+      const pages = Math.max(1, Math.ceil(logsTotal.value / 100))
+      for (let page = 1; page <= pages; page += 1) {
+        const response = await $fetch<{ data: { logs: ModelCallLog[] } }>('/api/admin/model-call-logs', { query: { ...callQuery(page, 100), includeOptions: false } })
+        all.push(...response.data.logs)
+      }
+      downloadCsv(`model-call-logs-${new Date().toISOString().slice(0, 10)}.csv`,
+        ['时间', '用户', 'Request ID', '供应商', '模型', '操作', '状态', '耗时 ms', '费用', '积分', '项目', '场景', '错误'],
+        all.map(row => [row.created_at, displayUser(row), row.request_id, row.provider, row.model_id, row.operation, row.status, row.duration_ms, row.estimated_cost, row.credits_charged, row.project_id, row.scene_id, row.error_message]))
+    } else {
+      const all: AuditLog[] = []
+      const pages = Math.max(1, Math.ceil(auditTotal.value / 100))
+      for (let page = 1; page <= pages; page += 1) {
+        const response = await $fetch<{ data: { logs: AuditLog[] } }>('/api/admin/audit-logs', { query: auditQuery(page, 100) })
+        all.push(...response.data.logs)
+      }
+      downloadCsv(`audit-logs-${new Date().toISOString().slice(0, 10)}.csv`,
+        ['时间', '管理员', '操作', '目标类型', '目标', 'IP', 'User Agent', '详情'],
+        all.map(row => [row.created_at, row.display_name || row.account || row.actor_user_id, row.action, row.target_type, row.target_id, row.ip, row.user_agent, row.metadata]))
+    }
+    message.success('日志已导出')
+  } catch (error) {
+    message.error(errorText(error, '导出失败'))
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function openLog(id: string) {
+  const requestSequence = ++detailRequestSequence
+  selectedLog.value = null
+  detailLoading.value = true
+  drawer.value = true
+  try {
+    const response = await $fetch<{ data: { log: ModelCallLog } }>(`/api/admin/model-call-logs/${id}`)
+    if (requestSequence !== detailRequestSequence) return
+    selectedLog.value = response.data.log
+    Object.assign(payloadViewModes, { request: 'text', response: 'text', error: 'text' })
+  } catch (error) {
+    if (requestSequence === detailRequestSequence) message.error(errorText(error, '日志详情加载失败'))
+  } finally {
+    if (requestSequence === detailRequestSequence) detailLoading.value = false
+  }
+}
+
+watch(autoRefresh, (enabled) => {
+  if (refreshTimer) clearInterval(refreshTimer)
+  refreshTimer = enabled
+    ? setInterval(() => {
+        if (document.visibilityState === 'visible' && !activeLoading.value) refreshActiveTab()
+      }, 30_000)
+    : null
+})
+
+onMounted(() => {
+  restoreRouteQuery()
+  refreshActiveTab()
+})
+
+onBeforeUnmount(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+})
 </script>
 
 <style scoped>
+.logs-page {
+  box-sizing: border-box;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.logs-header {
+  flex: 0 0 auto;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.header-actions,
+.auto-refresh-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.refresh-status,
+.auto-refresh-control {
+  color: #667085;
+  font-size: 12px;
+}
+
+.logs-tabs {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.logs-tabs :deep(.n-tabs-nav) {
+  flex: 0 0 auto;
+  margin-bottom: 14px;
+}
+
+.logs-tabs :deep(.n-tabs-pane-wrapper) {
+  min-height: 0;
+  flex: 1;
+}
+
+.logs-tabs :deep(.n-tab-pane) {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.logs-data-table {
+  min-height: 180px;
+  flex: 1;
+}
+
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 14px;
+  border-top: 1px solid #e4e7ec;
+  border-bottom: 1px solid #e4e7ec;
+  background: #fff;
+}
+
+.summary-metric {
+  display: grid;
+  gap: 4px;
+  padding: 14px 18px;
+  border-right: 1px solid #e4e7ec;
+}
+
+.summary-metric:last-child {
+  border-right: 0;
+}
+
+.summary-metric span {
+  color: #667085;
+  font-size: 12px;
+}
+
+.summary-metric strong {
+  color: #1d2939;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.summary-metric--danger strong {
+  color: #c4320a;
+}
+
+.filter-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid #e4e7ec;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.filter-row,
+.filter-panel--single {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-row > :deep(.n-select) {
+  width: 150px;
+}
+
+.filter-search {
+  min-width: 260px;
+  flex: 1;
+}
+
+.date-filter {
+  width: 360px;
+}
+
+.filter-row--secondary :deep(.n-input-number) {
+  width: 150px;
+}
+
+.sort-filter {
+  width: 180px;
+  margin-left: auto;
+}
+
+.range-separator {
+  color: #98a2b3;
+  font-size: 12px;
+}
+
+.state-alert,
+.archive-note {
+  margin-bottom: 12px;
+}
+
+.request-id-button {
+  display: block;
+  max-width: 150px;
+  overflow: hidden;
+  color: #175cd3;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-spin,
+.detail-spin :deep(.n-spin-content) {
+  height: 100%;
+  min-height: 0;
+}
+
 .json-view {
   max-height: 420px;
   overflow: auto;
@@ -758,7 +1462,74 @@ onMounted(loadLogs)
   background: rgba(24, 160, 88, 0.06);
 }
 
+:deep(.n-data-table-th),
+:deep(.n-data-table-th__title) {
+  white-space: nowrap;
+}
+
+:deep(.logs-table-row:focus-visible td) {
+  background: rgba(23, 92, 211, 0.08);
+  outline: 2px solid #175cd3;
+  outline-offset: -2px;
+}
+
 @media (max-width: 860px) {
+  .logs-page {
+    overflow: auto;
+  }
+
+  .logs-tabs {
+    min-height: auto;
+    flex: 0 0 auto;
+  }
+
+  .logs-tabs :deep(.n-tabs-pane-wrapper),
+  .logs-tabs :deep(.n-tab-pane) {
+    height: auto;
+    overflow: visible;
+  }
+
+  .logs-data-table {
+    height: 520px;
+    flex: 0 0 auto;
+  }
+
+  .logs-header,
+  .filter-row,
+  .filter-panel--single {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .header-actions {
+    justify-content: flex-start;
+  }
+
+  .summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .summary-metric:nth-child(2) {
+    border-right: 0;
+  }
+
+  .filter-search,
+  .date-filter,
+  .sort-filter,
+  .filter-row > :deep(.n-select),
+  .filter-row--secondary :deep(.n-input-number) {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .sort-filter {
+    margin-left: 0;
+  }
+
+  .range-separator {
+    display: none;
+  }
+
   .log-detail {
     height: auto;
     overflow: visible;

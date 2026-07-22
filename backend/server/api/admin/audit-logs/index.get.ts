@@ -10,12 +10,23 @@ export default defineEventHandler((event) => {
   const query = getQuery(event)
   const keyword = String(query.keyword || '').trim()
   const params: SqlBinding[] = []
-  let where = ''
+  const whereParts: string[] = []
   if (keyword) {
-    where = 'WHERE a.action LIKE ? OR a.target_type LIKE ? OR a.target_id LIKE ? OR u.account LIKE ?'
+    whereParts.push('(a.action LIKE ? OR a.target_type LIKE ? OR a.target_id LIKE ? OR u.account LIKE ? OR u.display_name LIKE ?)')
     const value = `%${keyword}%`
-    params.push(value, value, value, value)
+    params.push(value, value, value, value, value)
   }
+  const startAt = String(query.startAt || '').trim()
+  const endAt = String(query.endAt || '').trim()
+  if (startAt) {
+    whereParts.push('a.created_at >= ?')
+    params.push(startAt)
+  }
+  if (endAt) {
+    whereParts.push('a.created_at <= ?')
+    params.push(endAt)
+  }
+  const where = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : ''
   const total = db
     .prepare(`
       SELECT COUNT(*) AS count
