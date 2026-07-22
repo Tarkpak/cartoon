@@ -3,12 +3,11 @@ import {
   Landmark,
   Box,
   Palette,
-  Clock3,
   Heart,
-  PenTool,
-  MessageSquare,
   Gamepad2,
-  Star,
+  Clapperboard,
+  Globe2,
+  Music2,
   type LucideIcon
 } from 'lucide-vue-next'
 import {
@@ -22,12 +21,11 @@ const ICON_COMPONENTS: Record<StyleCategoryIcon, LucideIcon> = {
   landmark: Landmark,
   box: Box,
   palette: Palette,
-  clock3: Clock3,
   heart: Heart,
-  pen_tool: PenTool,
-  message_square: MessageSquare,
   gamepad2: Gamepad2,
-  star: Star
+  clapperboard: Clapperboard,
+  globe2: Globe2,
+  music2: Music2
 }
 
 const categoryIconMap = new Map<StyleCategory, StyleCategoryIcon>(

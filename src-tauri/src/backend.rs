@@ -33,6 +33,8 @@ use zip::ZipWriter;
 
 const STYLE_PRESET_CONFIG_KEY: &str = "style_preset_config";
 const STYLE_PRESET_DATA_KEY: &str = "style_preset_data";
+const STYLE_PRESET_CATALOG_VERSION_KEY: &str = "style_preset_catalog_version";
+const STYLE_PRESET_CATALOG_VERSION: u64 = 3;
 const SELECTED_MODELS_KEY: &str = "selected_models";
 const WORKFLOW_MODELS_KEY: &str = "workflow_models";
 const WORKFLOW_MODEL_OPTIONS_KEY: &str = "workflow_model_options";
@@ -76,6 +78,8 @@ const PROD_CLOUD_ADMIN_BASE_URL: &str = "https://admin.tempocc.cn";
 
 const DEFAULT_STYLE_PRESETS_JSON: &str = include_str!("../assets/default-style-presets.json");
 const DEFAULT_STYLE_CATEGORIES_JSON: &str = include_str!("../assets/default-style-categories.json");
+const LEGACY_STYLE_PRESET_IDS_V1_JSON: &str =
+    include_str!("../assets/legacy-style-preset-ids-v1.json");
 const STYLE_THUMBNAIL_CDN_BASE: &str =
     "https://playlet-ai.tos-cn-guangzhou.volces.com/manju-assets/styles";
 const LEGACY_STYLE_THUMBNAIL_CDN_BASE: &str =
@@ -2383,7 +2387,7 @@ fn fallback_style_presets() -> Value {
         "id": "live_action",
         "name": "AI真人",
         "nameEn": "Live-Action",
-        "category": "3d_render",
+        "category": "live_action",
         "description": "影视级写实风格",
         "prompt": "live action",
         "thumbnail": null,
@@ -2394,7 +2398,7 @@ fn fallback_style_presets() -> Value {
         "id": "city_romance",
         "name": "都市言情",
         "nameEn": "City Romance",
-        "category": "illustration",
+        "category": "2d",
         "description": "都市恋爱叙事氛围",
         "prompt": "city romance",
         "thumbnail": null,
@@ -2455,18 +2459,18 @@ fn default_style_categories() -> Value {
     )
     .unwrap_or_else(|| {
         json!([
-          { "id": "japanese_anime", "name": "日系动漫", "nameEn": "Japanese Anime", "icon": "sparkles" },
-          { "id": "3d_render", "name": "3D渲染", "nameEn": "3D Render", "icon": "box" },
-          { "id": "illustration", "name": "插画", "nameEn": "Illustration", "icon": "palette" }
+          { "id": "live_action", "name": "真人剧", "nameEn": "Live Action", "icon": "clapperboard" },
+          { "id": "3d", "name": "3D", "nameEn": "3D", "icon": "box" },
+          { "id": "2d", "name": "2D", "nameEn": "2D", "icon": "palette" }
         ])
     });
     if parsed.is_array() {
         parsed
     } else {
         json!([
-          { "id": "japanese_anime", "name": "日系动漫", "nameEn": "Japanese Anime", "icon": "sparkles" },
-          { "id": "3d_render", "name": "3D渲染", "nameEn": "3D Render", "icon": "box" },
-          { "id": "illustration", "name": "插画", "nameEn": "Illustration", "icon": "palette" }
+          { "id": "live_action", "name": "真人剧", "nameEn": "Live Action", "icon": "clapperboard" },
+          { "id": "3d", "name": "3D", "nameEn": "3D", "icon": "box" },
+          { "id": "2d", "name": "2D", "nameEn": "2D", "icon": "palette" }
         ])
     }
 }
@@ -3391,6 +3395,74 @@ fn extract_id_set(value: &Value) -> HashSet<String> {
         .unwrap_or_default()
 }
 
+fn legacy_style_preset_ids_v1() -> HashSet<String> {
+    parse_embedded_json(
+        LEGACY_STYLE_PRESET_IDS_V1_JSON,
+        "legacy-style-preset-ids-v1.json",
+    )
+    .and_then(|value| value.as_array().cloned())
+    .map(|items| {
+        items
+            .into_iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+fn merge_style_presets_with_catalog(
+    saved: &Value,
+    defaults: &Value,
+    legacy_ids: &HashSet<String>,
+) -> Value {
+    let mut merged = defaults.as_array().cloned().unwrap_or_default();
+    let mut used_ids = extract_id_set(defaults);
+
+    for item in saved.as_array().cloned().unwrap_or_default() {
+        let Some(id) = item.get("id").and_then(Value::as_str).map(str::to_string) else {
+            continue;
+        };
+        if legacy_ids.contains(&id) || !used_ids.insert(id) {
+            continue;
+        }
+        merged.push(item);
+    }
+
+    Value::Array(merged)
+}
+
+fn upgrade_style_config_for_catalog(
+    config: &Value,
+    previous_preset_ids: &HashSet<String>,
+    presets: &Value,
+) -> Value {
+    let mut normalized = normalize_style_config_for_presets(config, presets);
+    let enabled = normalized
+        .get_mut("enabledStyleIds")
+        .and_then(Value::as_array_mut);
+    let Some(enabled) = enabled else {
+        return normalized;
+    };
+    let mut enabled_ids = enabled
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+
+    for id in presets
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.get("id").and_then(Value::as_str))
+    {
+        if !previous_preset_ids.contains(id) && enabled_ids.insert(id.to_string()) {
+            enabled.push(Value::String(id.to_string()));
+        }
+    }
+
+    normalized
+}
+
 fn is_legacy_minimal_style_presets(value: &Value) -> bool {
     let ids = extract_id_set(value);
     ids.len() == 3
@@ -3958,12 +4030,25 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
       "defaultStyleId": default_catalog["defaultStyleId"]
     });
 
+    let saved_catalog_version = get_config_json(&conn, STYLE_PRESET_CATALOG_VERSION_KEY)?
+        .and_then(|value| value.as_u64())
+        .unwrap_or_default();
     let mut reset_style_config = false;
+    let mut upgraded_style_config = None;
     match get_config_json(&conn, STYLE_PRESET_DATA_KEY)? {
         Some(saved) => {
             if is_legacy_minimal_style_presets(&saved) {
                 set_config_json(&conn, STYLE_PRESET_DATA_KEY, &default_style_presets_value)?;
                 reset_style_config = true;
+            } else if saved_catalog_version < STYLE_PRESET_CATALOG_VERSION {
+                let previous_preset_ids = extract_id_set(&saved);
+                let merged = merge_style_presets_with_catalog(
+                    &saved,
+                    &default_style_presets_value,
+                    &legacy_style_preset_ids_v1(),
+                );
+                set_config_json(&conn, STYLE_PRESET_DATA_KEY, &merged)?;
+                upgraded_style_config = Some((previous_preset_ids, merged));
             }
         }
         None => {
@@ -3972,10 +4057,22 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         }
     }
     match get_config_json(&conn, STYLE_PRESET_CONFIG_KEY)? {
+        Some(saved) if upgraded_style_config.is_some() => {
+            let (previous_preset_ids, presets) = upgraded_style_config.as_ref().unwrap();
+            let upgraded = upgrade_style_config_for_catalog(&saved, previous_preset_ids, presets);
+            set_config_json(&conn, STYLE_PRESET_CONFIG_KEY, &upgraded)?;
+        }
         Some(_) if !reset_style_config => {}
         _ => {
             set_config_json(&conn, STYLE_PRESET_CONFIG_KEY, &default_style_config_value)?;
         }
+    }
+    if saved_catalog_version < STYLE_PRESET_CATALOG_VERSION {
+        set_config_json(
+            &conn,
+            STYLE_PRESET_CATALOG_VERSION_KEY,
+            &json!(STYLE_PRESET_CATALOG_VERSION),
+        )?;
     }
     if get_config_json(&conn, SELECTED_MODELS_KEY)?.is_none() {
         set_config_json(&conn, SELECTED_MODELS_KEY, &default_selected_models())?;
@@ -6823,7 +6920,14 @@ fn style_runtime_response(presets: &Value, config: &Value) -> Value {
         .collect::<Vec<_>>();
     let enabled_category_ids = enabled_presets
         .iter()
-        .filter_map(|item| item.get("category").and_then(Value::as_str))
+        .flat_map(|item| {
+            item.get("categories")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .chain(item.get("category").and_then(Value::as_str))
+        })
         .collect::<HashSet<_>>();
     let enabled_categories = default_style_categories()
         .as_array()
@@ -7000,6 +7104,7 @@ async fn api_styles_preset_create(
       "name": name,
       "nameEn": name_en,
       "category": category,
+      "categories": [category],
       "description": description,
       "prompt": prompt,
       "negativePrompt": negative_prompt,
@@ -7140,6 +7245,7 @@ async fn api_styles_preset_update(
       "name": name,
       "nameEn": name_en,
       "category": category,
+      "categories": [category],
       "description": description,
       "prompt": prompt,
       "negativePrompt": negative_prompt,
@@ -11888,10 +11994,12 @@ mod tests {
     use super::{
         build_scoped_tos_key_prefix_for_user, clear_workflow_overrides_for_category,
         cloud_model_log_identity, default_prompt_director_preferences,
-        merge_prompt_templates_with_defaults, normalize_character_gender_value,
-        normalize_character_role_value, normalize_time_of_day_value,
+        merge_prompt_templates_with_defaults, merge_style_presets_with_catalog,
+        normalize_character_gender_value, normalize_character_role_value,
+        normalize_time_of_day_value, upgrade_style_config_for_catalog,
     };
     use serde_json::{json, Value};
+    use std::collections::HashSet;
 
     #[test]
     fn project_storage_preserves_open_ended_model_metadata() {
@@ -12010,6 +12118,52 @@ mod tests {
             migrated_again["legacyContent"],
             "角色：{{characterName}}\n只输出 JSON"
         );
+    }
+
+    #[test]
+    fn style_catalog_upgrade_replaces_built_ins_and_preserves_custom_presets() {
+        let legacy_ids = HashSet::from(["old_builtin".to_string()]);
+        let merged = merge_style_presets_with_catalog(
+            &json!([
+              { "id": "old_builtin", "name": "旧内置" },
+              { "id": "custom_style", "name": "用户自建" }
+            ]),
+            &json!([
+              { "id": "new_builtin", "name": "新内置" }
+            ]),
+            &legacy_ids,
+        );
+
+        assert_eq!(merged.as_array().unwrap().len(), 2);
+        assert_eq!(merged[0]["id"], "new_builtin");
+        assert_eq!(merged[1]["id"], "custom_style");
+    }
+
+    #[test]
+    fn style_catalog_upgrade_keeps_disabled_choices_and_enables_new_styles() {
+        let upgraded = upgrade_style_config_for_catalog(
+            &json!({
+              "enabledStyleIds": ["enabled_builtin", "custom_style"],
+              "defaultStyleId": "enabled_builtin"
+            }),
+            &HashSet::from([
+                "enabled_builtin".to_string(),
+                "disabled_builtin".to_string(),
+                "custom_style".to_string(),
+            ]),
+            &json!([
+              { "id": "enabled_builtin" },
+              { "id": "disabled_builtin" },
+              { "id": "new_builtin" },
+              { "id": "custom_style" }
+            ]),
+        );
+
+        assert_eq!(
+            upgraded["enabledStyleIds"],
+            json!(["enabled_builtin", "custom_style", "new_builtin"])
+        );
+        assert_eq!(upgraded["defaultStyleId"], "enabled_builtin");
     }
 
     #[test]

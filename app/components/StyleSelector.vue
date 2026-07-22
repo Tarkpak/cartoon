@@ -44,7 +44,7 @@ const availableStyles = computed(() => {
 })
 
 const availableCategories = computed(() => {
-  const categorySet = new Set(availableStyles.value.map(style => style.category))
+  const categorySet = new Set(availableStyles.value.flatMap(style => style.categories || [style.category]))
 
   const sourceCategories = props.categories && props.categories.length > 0
     ? props.categories
@@ -58,7 +58,7 @@ const filteredStyles = computed(() => {
   if (activeCategory.value === 'new') {
     styles = styles.filter(s => s.isNew)
   } else if (activeCategory.value !== 'all') {
-    styles = styles.filter(style => style.category === activeCategory.value)
+    styles = styles.filter(style => (style.categories || [style.category]).includes(activeCategory.value as StyleCategory))
   }
   if (searchQuery.value.trim()) {
     const query = searchQuery.value.toLowerCase()

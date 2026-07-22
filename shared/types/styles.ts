@@ -15,26 +15,26 @@ function resolveStyleThumbnail(path?: string): string | undefined {
 }
 
 export type StyleCategory
-  = | 'japanese_anime' | 'chinese_style' | '3d_render' | 'illustration'
-    | 'retro' | 'cute_q' | 'artistic' | 'comic' | 'pixel_game' | 'special'
+  = | 'live_action' | '3d' | 'chinese' | '2d' | 'chibi'
+    | 'game' | 'japanese_anime' | 'western' | 'korean'
 
 export type StyleCategoryIcon
   = | 'sparkles'
     | 'landmark'
     | 'box'
     | 'palette'
-    | 'clock3'
     | 'heart'
-    | 'pen_tool'
-    | 'message_square'
     | 'gamepad2'
-    | 'star'
+    | 'clapperboard'
+    | 'globe2'
+    | 'music2'
 
 export interface StylePreset {
   id: string
   name: string
   nameEn: string
   category: StyleCategory
+  categories?: StyleCategory[]
   description: string
   prompt: string
   negativePrompt?: string
@@ -55,6 +55,7 @@ type RawStylePreset = {
   name?: unknown
   nameEn?: unknown
   category?: unknown
+  categories?: unknown
   description?: unknown
   prompt?: unknown
   negativePrompt?: unknown
@@ -64,16 +65,15 @@ type RawStylePreset = {
 }
 
 export const STYLE_CATEGORIES: StyleCategoryInfo[] = [
-  { id: 'japanese_anime', name: '日系动漫', nameEn: 'Japanese Anime', icon: 'sparkles' },
-  { id: 'chinese_style', name: '国风', nameEn: 'Chinese Style', icon: 'landmark' },
-  { id: '3d_render', name: '3D渲染', nameEn: '3D Render', icon: 'box' },
-  { id: 'illustration', name: '插画', nameEn: 'Illustration', icon: 'palette' },
-  { id: 'retro', name: '复古', nameEn: 'Retro', icon: 'clock3' },
-  { id: 'cute_q', name: 'Q萌可爱', nameEn: 'Cute & Chibi', icon: 'heart' },
-  { id: 'artistic', name: '艺术风格', nameEn: 'Artistic', icon: 'pen_tool' },
-  { id: 'comic', name: '漫画', nameEn: 'Comic', icon: 'message_square' },
-  { id: 'pixel_game', name: '像素游戏', nameEn: 'Pixel & Game', icon: 'gamepad2' },
-  { id: 'special', name: '特殊IP', nameEn: 'Special IP', icon: 'star' }
+  { id: 'live_action', name: '真人剧', nameEn: 'Live Action', icon: 'clapperboard' },
+  { id: '3d', name: '3D', nameEn: '3D', icon: 'box' },
+  { id: 'chinese', name: '国风', nameEn: 'Chinese', icon: 'landmark' },
+  { id: '2d', name: '2D', nameEn: '2D', icon: 'palette' },
+  { id: 'chibi', name: 'Q版', nameEn: 'Chibi', icon: 'heart' },
+  { id: 'game', name: '游戏', nameEn: 'Game', icon: 'gamepad2' },
+  { id: 'japanese_anime', name: '日漫', nameEn: 'Japanese Anime', icon: 'sparkles' },
+  { id: 'western', name: '欧美', nameEn: 'Western', icon: 'globe2' },
+  { id: 'korean', name: '韩流', nameEn: 'Korean', icon: 'music2' }
 ]
 
 const STYLE_CATEGORY_IDS = new Set<StyleCategory>(STYLE_CATEGORIES.map(category => category.id))
@@ -97,12 +97,19 @@ function normalizeStylePreset(style: RawStylePreset): StylePreset | null {
   const description = normalizeString(style.description)
   const prompt = normalizeString(style.prompt)
   if (!id || !name || !nameEn || !description || !prompt) return null
+  const categories = Array.isArray(style.categories)
+    ? style.categories
+        .map(normalizeString)
+        .filter((item): item is StyleCategory => STYLE_CATEGORY_IDS.has(item as StyleCategory))
+    : []
+  if (!categories.includes(category)) categories.unshift(category)
 
   return {
     id,
     name,
     nameEn,
     category,
+    categories,
     description,
     prompt,
     negativePrompt: normalizeOptionalString(style.negativePrompt),

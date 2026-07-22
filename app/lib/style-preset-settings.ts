@@ -43,7 +43,7 @@ export function createDefaultStyleFormState(): StyleFormState {
     id: '',
     name: '',
     nameEn: '',
-    category: STYLE_CATEGORIES[0]?.id || 'japanese_anime',
+    category: STYLE_CATEGORIES[0]?.id || 'live_action',
     description: '',
     prompt: '',
     negativePrompt: '',
@@ -119,7 +119,7 @@ export function filterStylePresets(options: {
     if (
       options.styleCategoryFilter !== 'all'
       && options.styleCategoryFilter !== 'enabled'
-      && style.category !== options.styleCategoryFilter
+      && !(style.categories || [style.category]).includes(options.styleCategoryFilter)
     ) {
       return false
     }

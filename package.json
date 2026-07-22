@@ -24,6 +24,7 @@
     "desktop:check-version": "node ./scripts/desktop-check-version.mjs",
     "desktop:build": "bun run desktop:check-version && bun run desktop:prepare-updater-config && CI=true tauri build --config .output/tauri.updater.json",
     "desktop:build:finder": "bun run desktop:check-version && bun run desktop:prepare-updater-config && tauri build --config .output/tauri.updater.json",
+    "styles:sync": "bun scripts/sync-style-presets.mjs --write",
     "desktop:sync-env": "bash ./scripts/desktop-sync-env.sh",
     "desktop:install": "bash ./scripts/desktop-build-install.sh",
     "release": "bun run scripts/release.ts",
