@@ -790,8 +790,8 @@ export function useAssetWorkbenchSceneGeneration(
         })
       }
       void options.refreshCharacterVoiceAssets?.({
-        attempts: 4,
-        delayMs: 1500
+        attempts: 45,
+        delayMs: 2000
       })
     } catch (error) {
       scene.videoStatus = 'error'

@@ -3137,43 +3137,30 @@ fn video_audio_reference_prefix(config: &Value) -> String {
         .unwrap_or_else(|| "video_voice_reference".to_string())
 }
 
-async fn normalize_video_audio_reference_url(
+async fn normalize_video_audio_reference_source(
     state: &BackendState,
-    config: &mut Value,
-) -> Result<(), ApiError> {
-    let Some(source) = config
-        .get("audioUrl")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-    else {
-        return Ok(());
-    };
-
+    source: &str,
+    prefix: &str,
+) -> Result<String, ApiError> {
     let tos_config = load_backend_tos_config();
-    if is_current_tos_public_url(&tos_config, &source) {
-        return Ok(());
+    if is_current_tos_public_url(&tos_config, source) || is_http_url(source) {
+        return Ok(source.to_string());
     }
     if !tos_config.enabled {
-        if is_http_url(&source) {
-            return Ok(());
-        }
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             "参考音频是本地地址，且 TOS 未启用或配置不完整，无法提交给视频模型",
         ));
     }
 
-    let (bytes, mime) = resolve_source_bytes(state, &source, 40 * 1024 * 1024).await?;
+    let (bytes, mime) = resolve_source_bytes(state, source, 40 * 1024 * 1024).await?;
     let detected_mime = detect_audio_mime_type(&bytes);
     let normalized_mime = mime
         .as_deref()
         .filter(|value| value.starts_with("audio/"))
         .or(detected_mime)
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "参考音频格式无效"))?;
-    let prefix = video_audio_reference_prefix(config);
-    let audio_url = persist_audio_bytes_async(state, &prefix, Some(normalized_mime), bytes).await?;
+    let audio_url = persist_audio_bytes_async(state, prefix, Some(normalized_mime), bytes).await?;
     if !is_http_url(&audio_url) {
         return Err(ApiError::new(
             StatusCode::BAD_GATEWAY,
@@ -3181,15 +3168,41 @@ async fn normalize_video_audio_reference_url(
         ));
     }
 
+    Ok(audio_url)
+}
+
+async fn normalize_video_audio_reference_url(
+    state: &BackendState,
+    config: &mut Value,
+) -> Result<(), ApiError> {
+    let sources = config_audio_reference_urls(config);
+    if sources.is_empty() {
+        return Ok(());
+    }
+    let prefix = video_audio_reference_prefix(config);
+    let mut normalized = Vec::new();
+    for (index, source) in sources.iter().enumerate() {
+        let audio_url = normalize_video_audio_reference_source(
+            state,
+            source,
+            &format!("{}_{}", prefix, index + 1),
+        )
+        .await?;
+        if !normalized.contains(&audio_url) {
+            normalized.push(audio_url);
+        }
+    }
+    set_config_audio_reference_urls(config, normalized.clone());
     if let Some(object) = config.as_object_mut() {
-        object.insert("audioUrl".to_string(), json!(audio_url.clone()));
         if let Some(voice_asset) = object
             .get_mut("references")
             .and_then(Value::as_object_mut)
             .and_then(|references| references.get_mut("narrationVoiceAsset"))
             .and_then(Value::as_object_mut)
         {
-            voice_asset.insert("audioUrl".to_string(), json!(audio_url));
+            if let Some(audio_url) = normalized.first() {
+                voice_asset.insert("audioUrl".to_string(), json!(audio_url));
+            }
         }
     }
     Ok(())
@@ -8036,6 +8049,743 @@ fn extract_description_dialogues(description: &str) -> Vec<(String, String)> {
     dialogues
 }
 
+const VOICE_MATCH_SEARCH_WINDOW: usize = 6;
+const VOICE_MAX_GROUP_SEGMENTS: usize = 3;
+const VOICE_MIN_CLIP_DURATION_MS: i64 = 1_800;
+const VOICE_MAX_CLIP_DURATION_MS: i64 = 15_000;
+const VOICE_MATCH_PADDING_START_MS: i64 = 120;
+const VOICE_MATCH_PADDING_END_MS: i64 = 180;
+
+#[derive(Debug, Clone)]
+struct VoiceCharacterRecord {
+    id: String,
+    name: String,
+}
+
+#[derive(Debug)]
+struct SceneVoiceContext {
+    dialogues: Vec<(String, String)>,
+    characters: Vec<VoiceCharacterRecord>,
+    narration: Option<NarrationVoiceContext>,
+}
+
+#[derive(Debug, Clone)]
+struct NarrationVoiceContext {
+    script_id: String,
+    prop_id: String,
+    prop_name: String,
+    text: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct DialogueVoiceMatch {
+    character_id: String,
+    character_name: String,
+    transcript: String,
+    match_score: f64,
+    start_time_ms: i64,
+    end_time_ms: i64,
+    duration_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct VoiceClipMatch {
+    transcript: String,
+    match_score: f64,
+    start_time_ms: i64,
+    end_time_ms: i64,
+    duration_ms: i64,
+}
+
+fn normalize_comparable_voice_text(value: &str) -> Vec<char> {
+    value
+        .to_lowercase()
+        .chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .collect()
+}
+
+fn voice_lcs_length(left: &[char], right: &[char]) -> usize {
+    if left.is_empty() || right.is_empty() {
+        return 0;
+    }
+    let mut previous = vec![0usize; right.len() + 1];
+    let mut next = vec![0usize; right.len() + 1];
+    for left_char in left {
+        for (index, right_char) in right.iter().enumerate() {
+            next[index + 1] = if left_char == right_char {
+                previous[index] + 1
+            } else {
+                next[index].max(previous[index + 1])
+            };
+        }
+        std::mem::swap(&mut previous, &mut next);
+        next.fill(0);
+    }
+    previous[right.len()]
+}
+
+fn calculate_transcript_match_score(expected_text: &str, actual_text: &str) -> f64 {
+    let expected = normalize_comparable_voice_text(expected_text);
+    let actual = normalize_comparable_voice_text(actual_text);
+    if expected.is_empty() || actual.is_empty() {
+        return 0.0;
+    }
+    if expected == actual {
+        return 1.0;
+    }
+    let (shorter, longer) = if expected.len() < actual.len() {
+        (&expected, &actual)
+    } else {
+        (&actual, &expected)
+    };
+    if longer
+        .windows(shorter.len())
+        .any(|window| window == shorter)
+    {
+        return shorter.len() as f64 / longer.len() as f64;
+    }
+    let common = voice_lcs_length(&expected, &actual);
+    (2 * common) as f64 / (expected.len() + actual.len()) as f64
+}
+
+fn normalize_narration_voice_text(value: &str) -> String {
+    let value = value.trim();
+    for separator in ["说：", "说:"] {
+        if let Some((prefix, text)) = value.split_once(separator) {
+            if !text.trim().is_empty() && prefix.chars().count() <= 40 {
+                return text.trim().to_string();
+            }
+        }
+    }
+    for prefix in [
+        "旁白：",
+        "旁白:",
+        "画外音：",
+        "画外音:",
+        "内心独白：",
+        "内心独白:",
+        "narration:",
+        "voiceover:",
+    ] {
+        if let Some(text) = value.strip_prefix(prefix) {
+            return text.trim().to_string();
+        }
+    }
+    value.to_string()
+}
+
+fn voice_match_threshold(expected_text: &str) -> f64 {
+    match normalize_comparable_voice_text(expected_text).len() {
+        0..=4 => 0.34,
+        5..=8 => 0.42,
+        _ => 0.48,
+    }
+}
+
+fn resolve_voice_character<'a>(
+    speaker_name: &str,
+    characters: &'a [VoiceCharacterRecord],
+) -> Option<&'a VoiceCharacterRecord> {
+    let normalized_speaker = normalize_speaker_name(speaker_name);
+    if normalized_speaker.is_empty() {
+        return None;
+    }
+    characters
+        .iter()
+        .find(|character| normalize_speaker_name(&character.name) == normalized_speaker)
+        .or_else(|| {
+            characters.iter().find(|character| {
+                let normalized_name = normalize_speaker_name(&character.name);
+                !normalized_name.is_empty()
+                    && (normalized_name.contains(&normalized_speaker)
+                        || normalized_speaker.contains(&normalized_name))
+            })
+        })
+}
+
+fn match_dialogues_to_asr_segments(
+    context: &SceneVoiceContext,
+    segments: &[super::video_import::BcutSegment],
+) -> Vec<DialogueVoiceMatch> {
+    let mut results = Vec::new();
+    let mut cursor = 0usize;
+    for (speaker, expected_text) in &context.dialogues {
+        let Some(character) = resolve_voice_character(speaker, &context.characters) else {
+            continue;
+        };
+        if cursor >= segments.len() {
+            break;
+        }
+        let threshold = voice_match_threshold(expected_text);
+        let max_start = (cursor + VOICE_MATCH_SEARCH_WINDOW).min(segments.len() - 1);
+        let mut best_match: Option<(usize, usize, String, f64)> = None;
+        for start_index in cursor..=max_start {
+            let mut transcript = String::new();
+            let max_end = (start_index + VOICE_MAX_GROUP_SEGMENTS).min(segments.len());
+            for end_index in start_index..max_end {
+                transcript.push_str(&segments[end_index].transcript);
+                let score = calculate_transcript_match_score(expected_text, &transcript);
+                if best_match
+                    .as_ref()
+                    .map(|(_, _, _, current_score)| score > *current_score)
+                    .unwrap_or(true)
+                {
+                    best_match = Some((start_index, end_index, transcript.clone(), score));
+                }
+            }
+        }
+        let Some((start_index, end_index, transcript, score)) = best_match else {
+            continue;
+        };
+        if score < threshold {
+            continue;
+        }
+        let start_time_ms =
+            (segments[start_index].start_time - VOICE_MATCH_PADDING_START_MS).max(0);
+        let end_time_ms = segments[end_index].end_time + VOICE_MATCH_PADDING_END_MS;
+        let duration_ms = end_time_ms - start_time_ms;
+        if !(VOICE_MIN_CLIP_DURATION_MS..=VOICE_MAX_CLIP_DURATION_MS).contains(&duration_ms) {
+            continue;
+        }
+        results.push(DialogueVoiceMatch {
+            character_id: character.id.clone(),
+            character_name: character.name.clone(),
+            transcript,
+            match_score: score,
+            start_time_ms,
+            end_time_ms,
+            duration_ms,
+        });
+        cursor = end_index + 1;
+    }
+    results
+}
+
+fn match_voice_text_to_asr_segments(
+    expected_text: &str,
+    segments: &[super::video_import::BcutSegment],
+) -> Option<VoiceClipMatch> {
+    let expected_text = normalize_narration_voice_text(expected_text);
+    if expected_text.is_empty() || segments.is_empty() {
+        return None;
+    }
+    let threshold = voice_match_threshold(&expected_text);
+    let mut best_match: Option<(usize, usize, String, f64)> = None;
+    for start_index in 0..segments.len() {
+        let mut transcript = String::new();
+        let max_end = (start_index + VOICE_MAX_GROUP_SEGMENTS).min(segments.len());
+        for end_index in start_index..max_end {
+            transcript.push_str(&segments[end_index].transcript);
+            let score = calculate_transcript_match_score(&expected_text, &transcript);
+            if best_match
+                .as_ref()
+                .map(|(_, _, _, current_score)| score > *current_score)
+                .unwrap_or(true)
+            {
+                best_match = Some((start_index, end_index, transcript.clone(), score));
+            }
+        }
+    }
+    let (start_index, end_index, transcript, match_score) = best_match?;
+    if match_score < threshold {
+        return None;
+    }
+    let start_time_ms = (segments[start_index].start_time - VOICE_MATCH_PADDING_START_MS).max(0);
+    let end_time_ms = segments[end_index].end_time + VOICE_MATCH_PADDING_END_MS;
+    let duration_ms = end_time_ms - start_time_ms;
+    if !(VOICE_MIN_CLIP_DURATION_MS..=VOICE_MAX_CLIP_DURATION_MS).contains(&duration_ms) {
+        return None;
+    }
+    Some(VoiceClipMatch {
+        transcript,
+        match_score,
+        start_time_ms,
+        end_time_ms,
+        duration_ms,
+    })
+}
+
+fn is_narration_voice_prop(prop: &Value) -> bool {
+    if prop.get("category").and_then(Value::as_str) != Some("other") {
+        return false;
+    }
+    if prop.get("mediaType").and_then(Value::as_str) == Some("voice") {
+        return true;
+    }
+    let name = prop
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_lowercase();
+    ["旁白", "画外音", "narration", "voiceover"]
+        .iter()
+        .any(|hint| name.contains(hint))
+}
+
+fn resolve_narration_voice_target(
+    script_id: &str,
+    scene_id: &str,
+    narration: &str,
+    script_payload: &Value,
+) -> Option<NarrationVoiceContext> {
+    let narration = narration.trim();
+    if narration.is_empty() {
+        return None;
+    }
+    let workflow = script_payload.get("assetWorkflow")?;
+    let props = workflow.get("props")?.as_array()?;
+    let candidates = props
+        .iter()
+        .filter(|prop| is_narration_voice_prop(prop))
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        return None;
+    }
+    let explicit_ids = workflow
+        .get("sceneConfigs")
+        .and_then(|configs| configs.get(scene_id))
+        .and_then(|config| config.get("mustReferenceAssetIds"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter_map(|id| id.strip_prefix("prop:"))
+        .collect::<HashSet<_>>();
+    let selected = candidates
+        .iter()
+        .copied()
+        .find(|prop| {
+            prop.get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| explicit_ids.contains(id))
+        })
+        .or_else(|| {
+            candidates.iter().copied().find(|prop| {
+                let name = prop
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_lowercase();
+                ["旁白", "画外音", "narration", "voiceover"]
+                    .iter()
+                    .any(|hint| name.contains(hint))
+            })
+        })
+        .or_else(|| (candidates.len() == 1).then_some(candidates[0]))?;
+    Some(NarrationVoiceContext {
+        script_id: script_id.to_string(),
+        prop_id: selected.get("id")?.as_str()?.to_string(),
+        prop_name: selected
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("旁白音色")
+            .to_string(),
+        text: narration.to_string(),
+    })
+}
+
+fn pick_best_voice_matches(matches: Vec<DialogueVoiceMatch>) -> Vec<DialogueVoiceMatch> {
+    let mut best_by_character = HashMap::<String, DialogueVoiceMatch>::new();
+    for candidate in matches {
+        let replace = best_by_character
+            .get(&candidate.character_id)
+            .map(|previous| {
+                let previous_weight =
+                    previous.match_score + (previous.duration_ms as f64 / 8_000.0).min(1.0) * 0.1;
+                let candidate_weight =
+                    candidate.match_score + (candidate.duration_ms as f64 / 8_000.0).min(1.0) * 0.1;
+                candidate_weight > previous_weight
+            })
+            .unwrap_or(true);
+        if replace {
+            best_by_character.insert(candidate.character_id.clone(), candidate);
+        }
+    }
+    best_by_character.into_values().collect()
+}
+
+fn should_replace_character_voice_asset(existing: Option<&Value>, next: &Value) -> bool {
+    let Some(existing) = existing.filter(|asset| voice_asset_audio_url(asset).is_some()) else {
+        return true;
+    };
+    if existing
+        .get("locked")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    let existing_score = existing
+        .get("matchScore")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let next_score = next
+        .get("matchScore")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let existing_duration = existing
+        .get("durationMs")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let next_duration = next.get("durationMs").and_then(Value::as_i64).unwrap_or(0);
+    next_score >= existing_score + 0.12
+        || (next_duration
+            >= ((existing_duration as f64 * 1.2) as i64).max(existing_duration + 1_200)
+            && next_score >= existing_score - 0.05)
+}
+
+fn resolve_persisted_character_voice_asset(existing: Option<&Value>, mut next: Value) -> Value {
+    if existing.and_then(voice_asset_audio_url).is_none() {
+        next["locked"] = json!(true);
+    }
+    next
+}
+
+fn load_scene_voice_context(
+    state: &BackendState,
+    scene_id: &str,
+) -> Result<Option<SceneVoiceContext>, ApiError> {
+    let conn = db_connection(state)?;
+    let scene = conn
+        .query_row(
+            "SELECT scenes.description, scenes.narration, scripts.id, scripts.project_id, scripts.raw_text
+             FROM scenes LEFT JOIN scripts ON scripts.id = scenes.script_id
+             WHERE scenes.id = ?1 LIMIT 1",
+            params![scene_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let Some((description, narration, Some(script_id), Some(project_id), raw_text)) = scene else {
+        return Ok(None);
+    };
+    let dialogues = extract_description_dialogues(&description);
+    let script_payload = raw_text
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .unwrap_or(Value::Null);
+    let narration = narration.as_deref().and_then(|text| {
+        resolve_narration_voice_target(&script_id, scene_id, text, &script_payload)
+    });
+    if dialogues.is_empty() && narration.is_none() {
+        return Ok(None);
+    }
+    let mut statement = conn
+        .prepare("SELECT id, name FROM characters WHERE project_id = ?1")
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let characters = statement
+        .query_map(params![project_id], |row| {
+            Ok(VoiceCharacterRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+            })
+        })
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(Some(SceneVoiceContext {
+        dialogues,
+        characters,
+        narration,
+    }))
+}
+
+fn apply_character_voice_asset(
+    state: &BackendState,
+    character_id: &str,
+    mut next_asset: Value,
+) -> Result<bool, ApiError> {
+    let mut conn = db_connection(state)?;
+    let transaction = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let raw_existing = transaction
+        .query_row(
+            "SELECT voice_asset FROM characters WHERE id = ?1 LIMIT 1",
+            params![character_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .flatten();
+    let existing = raw_existing
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+    if !should_replace_character_voice_asset(existing.as_ref(), &next_asset) {
+        return Ok(false);
+    }
+    next_asset = resolve_persisted_character_voice_asset(existing.as_ref(), next_asset);
+    transaction
+        .execute(
+            "UPDATE characters SET voice_asset = ?1, updated_at = ?2 WHERE id = ?3",
+            params![next_asset.to_string(), now_iso(), character_id],
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    transaction
+        .commit()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(true)
+}
+
+fn apply_narration_voice_asset(
+    state: &BackendState,
+    target: &NarrationVoiceContext,
+    mut next_asset: Value,
+) -> Result<bool, ApiError> {
+    let mut conn = db_connection(state)?;
+    let transaction = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let raw_text = transaction
+        .query_row(
+            "SELECT raw_text FROM scripts WHERE id = ?1 LIMIT 1",
+            params![target.script_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let Some(raw_text) = raw_text else {
+        return Ok(false);
+    };
+    let mut script_payload = serde_json::from_str::<Value>(&raw_text)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let Some(prop) = script_payload
+        .get_mut("assetWorkflow")
+        .and_then(|workflow| workflow.get_mut("props"))
+        .and_then(Value::as_array_mut)
+        .and_then(|props| {
+            props.iter_mut().find(|prop| {
+                prop.get("id").and_then(Value::as_str) == Some(target.prop_id.as_str())
+            })
+        })
+    else {
+        return Ok(false);
+    };
+    let existing = prop.get("voiceAsset").cloned();
+    if !should_replace_character_voice_asset(existing.as_ref(), &next_asset) {
+        return Ok(false);
+    }
+    next_asset = resolve_persisted_character_voice_asset(existing.as_ref(), next_asset);
+    let Some(prop_object) = prop.as_object_mut() else {
+        return Ok(false);
+    };
+    prop_object.insert("mediaType".to_string(), json!("voice"));
+    prop_object.insert("voiceAsset".to_string(), next_asset);
+    transaction
+        .execute(
+            "UPDATE scripts SET raw_text = ?1, updated_at = ?2 WHERE id = ?3",
+            params![script_payload.to_string(), now_iso(), target.script_id],
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    transaction
+        .commit()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(true)
+}
+
+async fn extract_character_voice_assets_from_scene_video(
+    state: &BackendState,
+    scene_id: &str,
+    task_id: &str,
+    video_url: &str,
+) -> Result<(), ApiError> {
+    let Some(context) = load_scene_voice_context(state, scene_id)? else {
+        return Ok(());
+    };
+    let temp_dir = std::env::temp_dir().join(format!(
+        "playlet_voice_assets_{}_{}",
+        sanitize_file_component(task_id),
+        Uuid::new_v4().simple()
+    ));
+    fs::create_dir_all(&temp_dir)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let result = async {
+        let video_path = if let Some(path) =
+            resolve_video_source_path(state, video_url).filter(|path| path.exists())
+        {
+            path
+        } else if is_http_url(video_url) {
+            let (bytes, mime_type) =
+                resolve_source_bytes(state, video_url, 250 * 1024 * 1024).await?;
+            let extension =
+                infer_extension_from_mime(mime_type.as_deref().unwrap_or("video/mp4"), "mp4");
+            let path = temp_dir.join(format!("source.{extension}"));
+            tokio::fs::write(&path, bytes).await.map_err(|error| {
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+            })?;
+            path
+        } else {
+            return Ok(());
+        };
+        let audio_path = temp_dir.join("source.mp3");
+        run_ffmpeg_blocking(vec![
+            "-y".to_string(),
+            "-i".to_string(),
+            video_path.to_string_lossy().to_string(),
+            "-vn".to_string(),
+            "-c:a".to_string(),
+            "libmp3lame".to_string(),
+            "-ar".to_string(),
+            "16000".to_string(),
+            "-ac".to_string(),
+            "1".to_string(),
+            "-b:a".to_string(),
+            "64k".to_string(),
+            audio_path.to_string_lossy().to_string(),
+        ])
+        .await?;
+        let transcription = super::video_import::transcribe_bcut(audio_path.clone()).await?;
+        let narration_match = context.narration.as_ref().and_then(|narration| {
+            match_voice_text_to_asr_segments(&narration.text, &transcription.segments)
+        });
+        let matches = pick_best_voice_matches(match_dialogues_to_asr_segments(
+            &context,
+            &transcription.segments,
+        ));
+        for voice_match in matches {
+            let clipped_path = temp_dir.join(format!("{}.mp3", voice_match.character_id));
+            run_ffmpeg_blocking(vec![
+                "-y".to_string(),
+                "-ss".to_string(),
+                format!("{:.3}", voice_match.start_time_ms as f64 / 1_000.0),
+                "-i".to_string(),
+                audio_path.to_string_lossy().to_string(),
+                "-t".to_string(),
+                format!("{:.3}", voice_match.duration_ms as f64 / 1_000.0),
+                "-vn".to_string(),
+                "-c:a".to_string(),
+                "libmp3lame".to_string(),
+                "-ar".to_string(),
+                "16000".to_string(),
+                "-ac".to_string(),
+                "1".to_string(),
+                "-b:a".to_string(),
+                "64k".to_string(),
+                clipped_path.to_string_lossy().to_string(),
+            ])
+            .await?;
+            let bytes = tokio::fs::read(&clipped_path).await.map_err(|error| {
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+            })?;
+            let audio_url = persist_audio_bytes_async(
+                state,
+                &format!("voice_{}_{}", voice_match.character_name, scene_id),
+                Some("audio/mpeg"),
+                bytes,
+            )
+            .await?;
+            let next_asset = json!({
+                "audioUrl": audio_url,
+                "locked": false,
+                "transcript": voice_match.transcript,
+                "sourceSceneId": scene_id,
+                "sourceTaskId": task_id,
+                "startTimeMs": voice_match.start_time_ms,
+                "endTimeMs": voice_match.end_time_ms,
+                "durationMs": voice_match.duration_ms,
+                "matchScore": (voice_match.match_score * 10_000.0).round() / 10_000.0,
+                "updatedAt": now_iso()
+            });
+            if apply_character_voice_asset(state, &voice_match.character_id, next_asset)? {
+                eprintln!(
+                    "[VoiceAsset] 已更新角色声音资产: {} ({:.3})",
+                    voice_match.character_name, voice_match.match_score
+                );
+            }
+        }
+        if let (Some(target), Some(voice_match)) = (context.narration.as_ref(), narration_match) {
+            let clipped_path = temp_dir.join(format!("narration_{}.mp3", target.prop_id));
+            run_ffmpeg_blocking(vec![
+                "-y".to_string(),
+                "-ss".to_string(),
+                format!("{:.3}", voice_match.start_time_ms as f64 / 1_000.0),
+                "-i".to_string(),
+                audio_path.to_string_lossy().to_string(),
+                "-t".to_string(),
+                format!("{:.3}", voice_match.duration_ms as f64 / 1_000.0),
+                "-vn".to_string(),
+                "-c:a".to_string(),
+                "libmp3lame".to_string(),
+                "-ar".to_string(),
+                "16000".to_string(),
+                "-ac".to_string(),
+                "1".to_string(),
+                "-b:a".to_string(),
+                "64k".to_string(),
+                clipped_path.to_string_lossy().to_string(),
+            ])
+            .await?;
+            let bytes = tokio::fs::read(&clipped_path).await.map_err(|error| {
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+            })?;
+            let audio_url = persist_audio_bytes_async(
+                state,
+                &format!("voice_{}_{}", target.prop_name, scene_id),
+                Some("audio/mpeg"),
+                bytes,
+            )
+            .await?;
+            let next_asset = json!({
+                "audioUrl": audio_url,
+                "locked": false,
+                "transcript": voice_match.transcript,
+                "sourceSceneId": scene_id,
+                "sourceTaskId": task_id,
+                "startTimeMs": voice_match.start_time_ms,
+                "endTimeMs": voice_match.end_time_ms,
+                "durationMs": voice_match.duration_ms,
+                "matchScore": (voice_match.match_score * 10_000.0).round() / 10_000.0,
+                "updatedAt": now_iso()
+            });
+            if apply_narration_voice_asset(state, target, next_asset)? {
+                eprintln!(
+                    "[VoiceAsset] 已更新旁白声音资产: {} ({:.3})",
+                    target.prop_name, voice_match.match_score
+                );
+            }
+        }
+        Ok::<(), ApiError>(())
+    }
+    .await;
+    let _ = fs::remove_dir_all(&temp_dir);
+    result
+}
+
+fn trigger_character_voice_asset_extraction(
+    state: &BackendState,
+    scene_id: &str,
+    task_id: &str,
+    video_url: &str,
+) {
+    if is_model_test_video_task(task_id, scene_id) {
+        return;
+    }
+    let state = state.clone();
+    let scene_id = scene_id.to_string();
+    let task_id = task_id.to_string();
+    let video_url = video_url.to_string();
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) =
+            extract_character_voice_assets_from_scene_video(&state, &scene_id, &task_id, &video_url)
+                .await
+        {
+            eprintln!(
+                "[VoiceAsset] 场景声音资产提取失败: sceneId={}, taskId={}, error={}",
+                scene_id, task_id, error.message
+            );
+        }
+    });
+}
+
 fn scene_dialogue_speakers(scene: &Value) -> Vec<String> {
     let Some(description) = scene.get("description").and_then(Value::as_str) else {
         return Vec::new();
@@ -8062,15 +8812,60 @@ fn voice_asset_audio_url(value: &Value) -> Option<String> {
 }
 
 fn model_supports_audio_reference(provider: &str, model_id: &str) -> bool {
-    if provider == "qwen" {
-        return true;
-    }
     let (kind, config) = build_available_model_entry(provider, model_id);
     kind == AvailableModelKind::Video
         && config
             .get("supportAudioReference")
             .and_then(Value::as_bool)
             .unwrap_or(false)
+}
+
+fn model_max_audio_references(provider: &str, model_id: &str) -> usize {
+    let (_, config) = build_available_model_entry(provider, model_id);
+    config
+        .get("maxReferenceAudios")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .unwrap_or(1)
+        .clamp(1, 8)
+}
+
+fn config_audio_reference_urls(config: &Value) -> Vec<String> {
+    let mut urls = Vec::new();
+    let mut seen = HashSet::new();
+    if let Some(items) = config.get("audioReferences").and_then(Value::as_array) {
+        for item in items {
+            let value = item
+                .as_str()
+                .or_else(|| item.get("audioUrl").and_then(Value::as_str))
+                .or_else(|| item.get("url").and_then(Value::as_str));
+            if let Some(url) = value.map(str::trim).filter(|value| !value.is_empty()) {
+                if seen.insert(url.to_string()) {
+                    urls.push(url.to_string());
+                }
+            }
+        }
+    }
+    if let Some(url) = config
+        .get("audioUrl")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if seen.insert(url.to_string()) {
+            urls.insert(0, url.to_string());
+        }
+    }
+    urls
+}
+
+fn set_config_audio_reference_urls(config: &mut Value, urls: Vec<String>) {
+    if let Some(object) = config.as_object_mut() {
+        if let Some(first) = urls.first() {
+            object.insert("audioUrl".to_string(), json!(first));
+            object.insert("audioReferences".to_string(), json!(urls));
+        }
+    }
 }
 
 fn select_voice_reference_candidate(
@@ -8263,6 +9058,7 @@ fn apply_scene_video_reference_inputs(
         ) {
             if let Some(object) = config.as_object_mut() {
                 object.insert("audioUrl".to_string(), json!(audio_url));
+                object.insert("audioReferences".to_string(), json!([audio_url]));
                 object.insert(
                     "audioReferenceSource".to_string(),
                     json!({
@@ -8288,15 +9084,12 @@ fn inject_scene_voice_reference(
     provider: &str,
     model_id: &str,
 ) -> Result<(), ApiError> {
-    if config
-        .get("audioUrl")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .is_some_and(|value| !value.is_empty())
-    {
+    if !model_supports_audio_reference(provider, model_id) {
         return Ok(());
     }
-    if !model_supports_audio_reference(provider, model_id) {
+    let max_audio_references = model_max_audio_references(provider, model_id);
+    let mut audio_urls = config_audio_reference_urls(config);
+    if audio_urls.len() >= max_audio_references {
         return Ok(());
     }
 
@@ -8370,21 +9163,39 @@ fn inject_scene_voice_reference(
         });
     }
 
-    let allow_multi_candidate_fallback =
-        provider == "kling" && model_supports_audio_reference(provider, model_id);
-    if let Some(candidate) =
-        select_voice_reference_candidate(&speakers, &candidates, allow_multi_candidate_fallback)
-    {
-        if let Some(object) = config.as_object_mut() {
-            object.insert("audioUrl".to_string(), json!(candidate.audio_url));
-            object.insert(
-                "audioReferenceSource".to_string(),
-                json!({
-                  "type": "character_voice_asset",
-                  "characterId": candidate.character_id,
-                  "characterName": candidate.character_name
-                }),
-            );
+    if max_audio_references > 1 {
+        candidates.sort_by(|left, right| {
+            right
+                .locked
+                .cmp(&left.locked)
+                .then_with(|| left.character_name.cmp(&right.character_name))
+        });
+        for candidate in candidates {
+            if audio_urls.len() >= max_audio_references {
+                break;
+            }
+            if !audio_urls.contains(&candidate.audio_url) {
+                audio_urls.push(candidate.audio_url);
+            }
+        }
+        set_config_audio_reference_urls(config, audio_urls);
+    } else {
+        let allow_multi_candidate_fallback = provider == "kling";
+        if let Some(candidate) =
+            select_voice_reference_candidate(&speakers, &candidates, allow_multi_candidate_fallback)
+        {
+            if let Some(object) = config.as_object_mut() {
+                object.insert("audioUrl".to_string(), json!(candidate.audio_url));
+                object.insert("audioReferences".to_string(), json!([candidate.audio_url]));
+                object.insert(
+                    "audioReferenceSource".to_string(),
+                    json!({
+                      "type": "character_voice_asset",
+                      "characterId": candidate.character_id,
+                      "characterName": candidate.character_name
+                    }),
+                );
+            }
         }
     }
     Ok(())
@@ -8707,7 +9518,9 @@ async fn complete_tracked_video_task(
         None,
         Some(&local_video_url),
         Some(&completed_metadata),
-    )
+    )?;
+    trigger_character_voice_asset_extraction(state, scene_id, task_id, &local_video_url);
+    Ok(())
 }
 
 async fn fail_tracked_video_task(
@@ -8888,6 +9701,12 @@ async fn refresh_tracked_video_task(
                         Some(&local_video_url),
                         Some(&completed_metadata),
                     )?;
+                    trigger_character_voice_asset_extraction(
+                        state,
+                        scene_id,
+                        task_id,
+                        &local_video_url,
+                    );
                 }
             }
             _ => {}
@@ -10469,6 +11288,7 @@ async fn run_grok_video_task_background(
             Some(&local_video_url),
             Some(&completed_metadata),
         )?;
+        trigger_character_voice_asset_extraction(&state, &scene_id, &task_id, &local_video_url);
         Ok::<(), ApiError>(())
     }
     .await;
@@ -10569,6 +11389,7 @@ async fn run_qwen_video_task_background(
             Some(&local_video_url),
             Some(&completed_metadata),
         )?;
+        trigger_character_voice_asset_extraction(&state, &scene_id, &task_id, &local_video_url);
         Ok::<(), ApiError>(())
     }
     .await;
@@ -10825,7 +11646,12 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
     let image_url = normalize_video_url_input(config.get("imageUrl"));
     let first_frame = normalize_video_url_input(config.get("firstFrame"));
     let last_frame = normalize_video_url_input(config.get("lastFrame"));
-    let audio_url = normalize_video_url_input(config.get("audioUrl"));
+    let audio_urls = config_audio_reference_urls(config)
+        .into_iter()
+        .map(|url| url.trim().to_string())
+        .filter(|url| !url.is_empty())
+        .take(model_max_audio_references("volcengine", model_id))
+        .collect::<Vec<_>>();
     let reference_images = config
         .get("referenceImages")
         .and_then(Value::as_array)
@@ -10886,15 +11712,12 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
         }
     }
 
-    let has_visual_reference = has_reference_images || using_first_last || using_single_image;
-    if has_visual_reference {
-        if let Some(audio_url) = audio_url {
-            content.push(json!({
-              "type": "audio_url",
-              "role": "reference_audio",
-              "audio_url": { "url": audio_url }
-            }));
-        }
+    for audio_url in audio_urls {
+        content.push(json!({
+          "type": "audio_url",
+          "role": "reference_audio",
+          "audio_url": { "url": audio_url }
+        }));
     }
 
     json!({
@@ -11414,6 +12237,7 @@ async fn run_volcengine_video_task_background(
             Some(&local_video_url),
             Some(&completed_metadata),
         )?;
+        trigger_character_voice_asset_extraction(&state, &scene_id, &task_id, &local_video_url);
         Ok::<(), ApiError>(())
     }
     .await;
@@ -12738,6 +13562,7 @@ async fn run_kling_video_task_background(
             Some(&local_video_url),
             Some(&completed_metadata),
         )?;
+        trigger_character_voice_asset_extraction(&state, &scene_id, &task_id, &local_video_url);
         Ok::<(), ApiError>(())
     }
     .await;
@@ -13587,6 +14412,7 @@ async fn run_gemini_video_task_background(
             Some(&local_video_url),
             Some(&completed_metadata),
         )?;
+        trigger_character_voice_asset_extraction(&state, &scene_id, &task_id, &local_video_url);
         Ok::<(), ApiError>(())
     }
     .await;
@@ -13988,6 +14814,167 @@ mod tests {
     }
 
     #[test]
+    fn character_voice_transcript_matching_normalizes_punctuation() {
+        assert_eq!(
+            calculate_transcript_match_score("你终于来了", "你终于来了"),
+            1.0
+        );
+        assert!(calculate_transcript_match_score("别废话，快走！", "别废话快走") > 0.8);
+    }
+
+    #[test]
+    fn character_voice_dialogues_match_asr_segments_in_order() {
+        let context = SceneVoiceContext {
+            dialogues: vec![
+                ("阿青".to_string(), "你终于来了".to_string()),
+                ("老周".to_string(), "别废话，快走".to_string()),
+            ],
+            characters: vec![
+                VoiceCharacterRecord {
+                    id: "char_1".to_string(),
+                    name: "阿青".to_string(),
+                },
+                VoiceCharacterRecord {
+                    id: "char_2".to_string(),
+                    name: "老周".to_string(),
+                },
+            ],
+            narration: None,
+        };
+        let segments = vec![
+            super::super::video_import::BcutSegment {
+                start_time: 0,
+                end_time: 800,
+                transcript: "风越来越大了".to_string(),
+            },
+            super::super::video_import::BcutSegment {
+                start_time: 1_000,
+                end_time: 2_800,
+                transcript: "你终于来了".to_string(),
+            },
+            super::super::video_import::BcutSegment {
+                start_time: 3_100,
+                end_time: 5_200,
+                transcript: "别废话快走".to_string(),
+            },
+        ];
+
+        let matches = match_dialogues_to_asr_segments(&context, &segments);
+
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].character_id, "char_1");
+        assert_eq!(matches[1].character_id, "char_2");
+        assert_eq!(matches[1].transcript, "别废话快走");
+    }
+
+    #[test]
+    fn character_voice_accepts_exact_minimum_clip_duration() {
+        let context = SceneVoiceContext {
+            dialogues: vec![("阿青".to_string(), "你终于来了".to_string())],
+            characters: vec![VoiceCharacterRecord {
+                id: "char_1".to_string(),
+                name: "阿青".to_string(),
+            }],
+            narration: None,
+        };
+        let segments = vec![super::super::video_import::BcutSegment {
+            start_time: 1_000,
+            end_time: 2_500,
+            transcript: "你终于来了".to_string(),
+        }];
+
+        let matches = match_dialogues_to_asr_segments(&context, &segments);
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].duration_ms, VOICE_MIN_CLIP_DURATION_MS);
+    }
+
+    #[test]
+    fn character_voice_does_not_replace_locked_asset() {
+        let existing = json!({
+            "audioUrl": "https://example.com/locked.mp3",
+            "locked": true,
+            "durationMs": 2_000,
+            "matchScore": 0.6
+        });
+        let next = json!({
+            "audioUrl": "https://example.com/new.mp3",
+            "locked": false,
+            "durationMs": 5_000,
+            "matchScore": 0.95
+        });
+
+        assert!(!should_replace_character_voice_asset(
+            Some(&existing),
+            &next
+        ));
+    }
+
+    #[test]
+    fn character_voice_locks_first_auto_extracted_asset() {
+        let next = json!({
+            "audioUrl": "https://example.com/new.mp3",
+            "locked": false,
+            "durationMs": 2_600,
+            "matchScore": 0.9
+        });
+
+        let persisted = resolve_persisted_character_voice_asset(None, next);
+
+        assert_eq!(persisted["locked"], true);
+    }
+
+    #[test]
+    fn narration_voice_matching_strips_speaker_and_profile_prefix() {
+        let segments = vec![super::super::video_import::BcutSegment {
+            start_time: 1_000,
+            end_time: 3_100,
+            transcript: "夜色渐深故事才刚刚开始".to_string(),
+        }];
+
+        let matched = match_voice_text_to_asr_segments(
+            "画外音（音色：女性，沉稳）说：夜色渐深，故事才刚刚开始。",
+            &segments,
+        )
+        .expect("narration should match ASR segment");
+
+        assert_eq!(matched.transcript, "夜色渐深故事才刚刚开始");
+        assert!(matched.match_score > 0.9);
+    }
+
+    #[test]
+    fn narration_voice_target_prefers_explicit_scene_reference() {
+        let payload = json!({
+          "assetWorkflow": {
+            "sceneConfigs": {
+              "scene_1": {
+                "mustReferenceAssetIds": ["prop:voice_b"]
+              }
+            },
+            "props": [
+              { "id": "voice_a", "name": "旁白音色", "category": "other", "mediaType": "voice" },
+              { "id": "voice_b", "name": "纪录片女声", "category": "other", "mediaType": "voice" }
+            ]
+          }
+        });
+
+        let target =
+            resolve_narration_voice_target("script_1", "scene_1", "旁白：故事开始。", &payload)
+                .expect("explicit narration voice target");
+
+        assert_eq!(target.prop_id, "voice_b");
+    }
+
+    #[test]
+    fn qwen_wan_2_7_audio_reference_capability_comes_from_registry() {
+        assert!(model_supports_audio_reference("qwen", "wan2.7-t2v"));
+        assert!(model_supports_audio_reference("qwen", "wan2.7-i2v"));
+        assert!(model_supports_audio_reference("qwen", "wan2.7-flf2v"));
+        assert_eq!(model_max_audio_references("qwen", "wan2.7-t2v"), 1);
+        assert!(!model_supports_audio_reference("qwen", "wan2.6-t2v"));
+    }
+
+    #[test]
     fn grok_video_endpoints_preserve_openai_compatible_base_path() {
         assert_eq!(
             provider_videos_generations_endpoint("http://localhost:8317/v1"),
@@ -14255,6 +15242,45 @@ mod tests {
         assert_eq!(
             audio_url,
             Some("https://playlet-ai.tos-cn-guangzhou.volces.com/voice-assets/narration.mp3")
+        );
+    }
+
+    #[test]
+    fn seedance_video_request_keeps_multiple_audio_references_in_order() {
+        let request = build_volcengine_video_request(
+            "doubao-seedance-2-0-260128",
+            &json!({
+              "prompt": "生成带旁白和对白的视频",
+              "audioUrl": "https://example.com/narration.mp3",
+              "audioReferences": [
+                "https://example.com/narration.mp3",
+                "https://example.com/character-a.mp3",
+                "https://example.com/character-b.mp3",
+                "https://example.com/overflow.mp3"
+              ]
+            }),
+        );
+
+        let audio_urls = request
+            .get("content")
+            .and_then(Value::as_array)
+            .expect("volcengine content array")
+            .iter()
+            .filter(|item| item.get("type").and_then(Value::as_str) == Some("audio_url"))
+            .filter_map(|item| {
+                item.get("audio_url")
+                    .and_then(|value| value.get("url"))
+                    .and_then(Value::as_str)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            audio_urls,
+            vec![
+                "https://example.com/narration.mp3",
+                "https://example.com/character-a.mp3",
+                "https://example.com/character-b.mp3"
+            ]
         );
     }
 

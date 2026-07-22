@@ -104,6 +104,7 @@ const props = defineProps<{
     source: 'manual' | 'auto'
   }>
   resolveSceneNarrationVoiceReferenceSelection: (sceneId: string) => string
+  supportsNarrationVoiceReference: boolean
   isSceneBusy: (scene: SceneData) => boolean
   isScenePreparing: (scene: SceneData) => boolean
   canMergeSceneByIndex: (index: number) => boolean
@@ -740,6 +741,7 @@ watch(episodeDirectoryCollapsed, (value) => {
             :resolve-scene-environment-reference-asset-selection="resolveSceneEnvironmentReferenceAssetSelection"
             :resolve-scene-narration-voice-options="resolveSceneNarrationVoiceOptions"
             :resolve-scene-narration-voice-reference-selection="resolveSceneNarrationVoiceReferenceSelection"
+            :supports-narration-voice-reference="supportsNarrationVoiceReference"
             :is-scene-busy="isSceneBusy"
             :is-scene-preparing="isScenePreparing"
             :normalize-workflow-text="normalizeWorkflowText"

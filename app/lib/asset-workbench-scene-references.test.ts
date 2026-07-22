@@ -363,4 +363,89 @@ describe('scene video reference assets', () => {
     expect(narrationVoice?.assetId).toBe('prop:other_narration_voice')
     expect(narrationVoice?.audioUrl).toBe('https://example.com/narration.mp3')
   })
+
+  it('does not guess between multiple generic voice assets', () => {
+    const scene = createScene({
+      id: 'scene_narration_ambiguous',
+      title: '旁白场景',
+      description: '镜头推进。',
+      narration: '旁白：故事继续。'
+    })
+
+    const narrationVoice = resolveSceneNarrationVoiceAsset({
+      scene,
+      characters: [],
+      propAssets: [
+        {
+          id: 'voice_a',
+          name: '沉稳女声',
+          description: '',
+          category: 'other',
+          mediaType: 'voice',
+          voiceAsset: {
+            audioUrl: 'https://example.com/a.mp3',
+            updatedAt: new Date().toISOString()
+          }
+        },
+        {
+          id: 'voice_b',
+          name: '磁性男声',
+          description: '',
+          category: 'other',
+          mediaType: 'voice',
+          voiceAsset: {
+            audioUrl: 'https://example.com/b.mp3',
+            updatedAt: new Date().toISOString()
+          }
+        }
+      ],
+      sceneConfigs: {}
+    })
+
+    expect(narrationVoice).toBeNull()
+  })
+
+  it('uses an explicitly referenced generic voice asset', () => {
+    const scene = createScene({
+      id: 'scene_narration_explicit',
+      title: '旁白场景',
+      description: '镜头推进。',
+      narration: '旁白：故事继续。'
+    })
+
+    const narrationVoice = resolveSceneNarrationVoiceAsset({
+      scene,
+      characters: [],
+      propAssets: [
+        {
+          id: 'voice_a',
+          name: '沉稳女声',
+          description: '',
+          category: 'other',
+          mediaType: 'voice',
+          voiceAsset: {
+            audioUrl: 'https://example.com/a.mp3',
+            updatedAt: new Date().toISOString()
+          }
+        },
+        {
+          id: 'voice_b',
+          name: '磁性男声',
+          description: '',
+          category: 'other',
+          mediaType: 'voice',
+          voiceAsset: {
+            audioUrl: 'https://example.com/b.mp3',
+            updatedAt: new Date().toISOString()
+          }
+        }
+      ],
+      sceneConfigs: {
+        [scene.id]: createSceneConfig(scene.id, ['prop:voice_b'])
+      }
+    })
+
+    expect(narrationVoice?.assetId).toBe('prop:voice_b')
+    expect(narrationVoice?.audioUrl).toBe('https://example.com/b.mp3')
+  })
 })

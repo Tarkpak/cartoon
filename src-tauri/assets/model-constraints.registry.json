@@ -174,7 +174,9 @@
       "video": {
         "supportTextToVideo": true,
         "supportImageToVideo": false,
-        "supportFirstLastFrame": false
+        "supportFirstLastFrame": false,
+        "supportAudioReference": true,
+        "maxReferenceAudios": 1
       }
     },
     {
@@ -187,7 +189,9 @@
         "supportTextToVideo": false,
         "supportImageToVideo": true,
         "supportReferenceImages": true,
-        "maxReferenceImages": 1
+        "maxReferenceImages": 1,
+        "supportAudioReference": true,
+        "maxReferenceAudios": 1
       }
     },
     {
@@ -201,7 +205,9 @@
         "supportImageToVideo": true,
         "supportFirstLastFrame": true,
         "supportReferenceImages": true,
-        "maxReferenceImages": 2
+        "maxReferenceImages": 2,
+        "supportAudioReference": true,
+        "maxReferenceAudios": 1
       }
     },
     {
@@ -215,7 +221,9 @@
         "supportImageToVideo": true,
         "supportFirstLastFrame": true,
         "supportReferenceImages": true,
-        "maxReferenceImages": 2
+        "maxReferenceImages": 2,
+        "supportAudioReference": true,
+        "maxReferenceAudios": 1
       }
     },
     {

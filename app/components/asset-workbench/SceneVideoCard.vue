@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, History, Loader2, Merge, MessageCircle, SlidersHorizontal, Split, Trash2 } from 'lucide-vue-next'
+import { History, Loader2, Merge, MessageCircle, Split, Trash2 } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
@@ -54,6 +54,7 @@ const props = defineProps<{
     source: 'manual' | 'auto'
   }>
   resolveSceneNarrationVoiceReferenceSelection: (sceneId: string) => string
+  supportsNarrationVoiceReference: boolean
   isSceneBusy: (scene: SceneData) => boolean
   isScenePreparing: (scene: SceneData) => boolean
   normalizeWorkflowText: (value: string) => string
@@ -143,8 +144,6 @@ const sceneNarrationVoiceOptions = computed(() => {
 const sceneNarrationVoiceReferenceSelection = computed(() => {
   return props.resolveSceneNarrationVoiceReferenceSelection(props.scene.id) || '__auto__'
 })
-const generationSettingsOpen = ref(false)
-
 function handleSetSceneEnvironmentCaptureMode(mode: '单视角' | '四视角') {
   props.onSetSceneEnvironmentCaptureMode(props.scene.id, mode)
 }
@@ -312,7 +311,6 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
     </div>
 
     <div
-      v-if="generationSettingsOpen"
       class="mt-2 overflow-hidden rounded-md border bg-muted/15"
       @click.stop
     >
@@ -337,7 +335,8 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
             >
               <SelectTrigger
                 class="h-7 w-[220px] max-w-full px-2 text-xs"
-                :disabled="sceneBusy"
+                :disabled="sceneBusy || !supportsNarrationVoiceReference"
+                :title="supportsNarrationVoiceReference ? '选择旁白参考音频' : '当前视频模型不支持音频参考'"
               >
                 <SelectValue placeholder="自动选择" />
               </SelectTrigger>
@@ -364,6 +363,13 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
                 </SelectItem>
               </SelectContent>
             </Select>
+            <Badge
+              v-if="!supportsNarrationVoiceReference"
+              variant="outline"
+              class="text-xs text-muted-foreground"
+            >
+              当前模型不支持
+            </Badge>
           </div>
           <span
             v-if="voiceReferenceSummary.mode === 'none' && sceneNarrationVoiceOptions.length === 0"
@@ -499,20 +505,6 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       >
         <History class="mr-1 h-3.5 w-3.5" />
         历史 {{ sceneVideoHistoryCount }}
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        class="ml-auto h-7 px-2 text-xs text-muted-foreground"
-        :aria-expanded="generationSettingsOpen"
-        @click.stop="generationSettingsOpen = !generationSettingsOpen"
-      >
-        <SlidersHorizontal class="mr-1 h-3.5 w-3.5" />
-        生成设置
-        <ChevronDown
-          class="ml-1 h-3.5 w-3.5 transition-transform"
-          :class="generationSettingsOpen ? 'rotate-180' : ''"
-        />
       </Button>
     </div>
 

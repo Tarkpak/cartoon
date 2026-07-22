@@ -13,6 +13,7 @@ import {
   invalidateSceneVideoState
 } from '~/lib/asset-workbench-scenes'
 import { resolveSceneEnvironmentAssetId } from '~/lib/asset-workbench-environment'
+import { isNarrationVoiceAsset } from '~/lib/asset-workbench-scene-references'
 
 export function useAssetWorkbenchSceneManagement(options: {
   selectedSceneId: Ref<string>
@@ -315,9 +316,7 @@ export function useAssetWorkbenchSceneManagement(options: {
     const config = ensureSceneConfig(sceneId)
     const normalizedAssetId = assetId.trim()
     const narrationVoiceAssetIds = options.propAssets.value
-      .filter((asset) => {
-        return asset.category === 'other' && !!asset.voiceAsset?.audioUrl?.trim()
-      })
+      .filter(isNarrationVoiceAsset)
       .map(asset => `prop:${asset.id}`)
     const narrationVoiceAssetIdSet = new Set(narrationVoiceAssetIds)
     const nextAssetIds = config.mustReferenceAssetIds.filter(item => !narrationVoiceAssetIdSet.has(item))

@@ -8,7 +8,12 @@ import {
   Trash2,
   Upload
 } from 'lucide-vue-next'
-import { useVideoImport, type VideoImportConfig, type VideoImportSeriesPreview } from '@/composables/useVideoImport'
+import {
+  useVideoImport,
+  type VideoImportConfig,
+  type VideoImportSeriesPreview,
+  type VideoImportTask
+} from '@/composables/useVideoImport'
 import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
@@ -27,6 +32,7 @@ const {
   uploadVideo,
   uploadSeriesFolder,
   previewSeriesFolder,
+  deleteTask,
   deleteTasks
 } = useVideoImport()
 
@@ -52,6 +58,7 @@ const contentTypeOptions = [
 ] as const
 const selectedTaskIds = ref<Set<string>>(new Set())
 const showBatchActions = ref(false)
+const deletingTaskId = ref<string | null>(null)
 let refreshTimer: number | null = null
 
 const runningStatuses = new Set(['pending', 'extracting', 'transcribing', 'generating_script', 'importing'])
@@ -178,6 +185,19 @@ async function handleDeleteSelected() {
   await deleteTasks(Array.from(selectedTaskIds.value))
   selectedTaskIds.value.clear()
   showBatchActions.value = false
+}
+
+async function handleDeleteTask(task: VideoImportTask) {
+  if (deletingTaskId.value) return
+  if (!confirm(`确定要删除任务“${task.originalFilename}”吗？此操作无法撤销。`)) return
+
+  deletingTaskId.value = task.id
+  try {
+    await deleteTask(task.id)
+    selectedTaskIds.value.delete(task.id)
+  } finally {
+    deletingTaskId.value = null
+  }
 }
 
 async function handleDeleteFailed() {
@@ -492,65 +512,84 @@ function formatSeconds(value?: number | null) {
         </CardHeader>
 
         <CardContent class="min-h-0 flex-1 overflow-auto p-0">
-          <button
+          <div
             v-for="task in tasks"
             :key="task.id"
-            type="button"
-            class="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-4 border-b px-4 py-3 text-left transition-colors hover:bg-muted/50 md:grid-cols-[minmax(0,1.4fr)_120px_140px_120px]"
-            @click="showBatchActions ? toggleTaskSelection(task.id) : router.push(`/import/video/${task.id}`)"
+            class="group flex w-full items-stretch border-b transition-colors hover:bg-muted/50"
           >
-            <div class="flex min-w-0 items-start gap-3">
-              <input
-                v-if="showBatchActions"
-                type="checkbox"
-                :checked="selectedTaskIds.has(task.id)"
-                class="mt-1 h-4 w-4 shrink-0 rounded border-gray-300"
-                @click.stop="toggleTaskSelection(task.id)"
-              />
-              <div class="min-w-0">
-                <div class="truncate font-medium" :title="task.originalFilename">
-                  {{ task.originalFilename }}
-                </div>
-                <div class="mt-1 text-xs text-muted-foreground">
-                  <template v-if="task.isSeriesGroup">
-                    整部剧
-                    <template v-if="task.config?.episodeCount">
-                      · {{ task.config.episodeCount }} 集
+            <button
+              type="button"
+              class="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] gap-4 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:grid-cols-[minmax(0,1.4fr)_120px_140px_120px]"
+              @click="showBatchActions ? toggleTaskSelection(task.id) : router.push(`/import/video/${task.id}`)"
+            >
+              <div class="flex min-w-0 items-start gap-3">
+                <input
+                  v-if="showBatchActions"
+                  type="checkbox"
+                  :checked="selectedTaskIds.has(task.id)"
+                  class="mt-1 h-4 w-4 shrink-0 rounded border-gray-300"
+                  @click.stop="toggleTaskSelection(task.id)"
+                />
+                <div class="min-w-0">
+                  <div class="truncate font-medium" :title="task.originalFilename">
+                    {{ task.originalFilename }}
+                  </div>
+                  <div class="mt-1 text-xs text-muted-foreground">
+                    <template v-if="task.isSeriesGroup">
+                      整部剧
+                      <template v-if="task.config?.episodeCount">
+                        · {{ task.config.episodeCount }} 集
+                      </template>
+                      ·
                     </template>
-                    ·
-                  </template>
-                  {{ task.sourceKind === 'folder' ? '文件夹导入' : '单集导入' }}
-                </div>
-                <div
-                  v-if="task.errorMessage"
-                  class="mt-2 rounded bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
-                  :title="task.errorMessage"
-                >
-                  {{ friendlyErrorMessage(task.errorMessage) }}
+                    {{ task.sourceKind === 'folder' ? '文件夹导入' : '单集导入' }}
+                  </div>
+                  <div
+                    v-if="task.errorMessage"
+                    class="mt-2 rounded bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
+                    :title="task.errorMessage"
+                  >
+                    {{ friendlyErrorMessage(task.errorMessage) }}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div class="hidden items-center md:flex">
-              <Badge :variant="statusVariant(task.status)">
-                {{ statusLabel(task.status) }}
-              </Badge>
-            </div>
-            <div class="hidden items-center gap-2 md:flex">
-              <Progress :model-value="task.progress" class="h-1.5" />
-              <span class="w-9 text-right text-xs text-muted-foreground">{{ task.progress }}%</span>
-            </div>
-            <div class="hidden items-center text-xs text-muted-foreground md:flex">
-              {{ formatDateRelative(task.updatedAt) }}
-            </div>
+              <div class="hidden items-center md:flex">
+                <Badge :variant="statusVariant(task.status)">
+                  {{ statusLabel(task.status) }}
+                </Badge>
+              </div>
+              <div class="hidden items-center gap-2 md:flex">
+                <Progress :model-value="task.progress" class="h-1.5" />
+                <span class="w-9 text-right text-xs text-muted-foreground">{{ task.progress }}%</span>
+              </div>
+              <div class="hidden items-center text-xs text-muted-foreground md:flex">
+                {{ formatDateRelative(task.updatedAt) }}
+              </div>
 
-            <div class="flex flex-col items-end gap-2 md:hidden">
-              <Badge :variant="statusVariant(task.status)">
-                {{ statusLabel(task.status) }}
-              </Badge>
-              <span class="text-xs text-muted-foreground">{{ task.progress }}%</span>
+              <div class="flex flex-col items-end gap-2 md:hidden">
+                <Badge :variant="statusVariant(task.status)">
+                  {{ statusLabel(task.status) }}
+                </Badge>
+                <span class="text-xs text-muted-foreground">{{ task.progress }}%</span>
+              </div>
+            </button>
+
+            <div class="flex shrink-0 items-center pr-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                :disabled="deletingTaskId !== null"
+                :aria-label="`删除任务 ${task.originalFilename}`"
+                title="删除任务"
+                @click="handleDeleteTask(task)"
+              >
+                <Trash2 class="h-4 w-4" />
+              </Button>
             </div>
-          </button>
+          </div>
 
           <div
             v-if="tasks.length === 0"

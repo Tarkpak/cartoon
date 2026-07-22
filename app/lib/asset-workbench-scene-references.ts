@@ -272,6 +272,11 @@ function isNarrationAssetName(name: string): boolean {
   })
 }
 
+export function isNarrationVoiceAsset(prop: PropAsset): boolean {
+  if (prop.category !== 'other' || !prop.voiceAsset?.audioUrl?.trim()) return false
+  return prop.mediaType === 'voice' || isNarrationAssetName(prop.name || '')
+}
+
 function resolveVoiceAssetSource(prop: PropAsset): 'manual' | 'auto' {
   if (prop.voiceAsset?.sourceSceneId || prop.voiceAsset?.sourceTaskId) {
     return 'auto'
@@ -293,9 +298,7 @@ export function resolveSceneNarrationVoiceAsset(
 ): SceneNarrationVoiceReference | null {
   if (!options.scene.narration?.trim()) return null
 
-  const voiceProps = options.propAssets.filter((asset) => {
-    return asset.category === 'other' && !!asset.voiceAsset?.audioUrl?.trim()
-  })
+  const voiceProps = options.propAssets.filter(isNarrationVoiceAsset)
   if (voiceProps.length === 0) return null
 
   const explicitPropIds = new Set([
@@ -307,12 +310,15 @@ export function resolveSceneNarrationVoiceAsset(
       .map(assetId => assetId.slice('prop:'.length))
   ])
 
-  const explicitlyReferencedVoiceProps = explicitPropIds.size > 0
-    ? voiceProps.filter(asset => explicitPropIds.has(asset.id))
-    : voiceProps
+  const explicitlyReferencedVoiceProps = voiceProps.filter(asset => explicitPropIds.has(asset.id))
+  const hintedVoiceProps = voiceProps.filter(asset => isNarrationAssetName(asset.name || ''))
   const candidateProps = explicitlyReferencedVoiceProps.length > 0
     ? explicitlyReferencedVoiceProps
-    : voiceProps
+    : hintedVoiceProps.length > 0
+      ? hintedVoiceProps
+      : voiceProps.length === 1
+        ? voiceProps
+        : []
   if (candidateProps.length === 0) return null
 
   const sorted = candidateProps

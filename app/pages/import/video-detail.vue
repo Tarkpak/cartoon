@@ -17,11 +17,14 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useVideoImport, type VideoImportRetryStep } from '@/composables/useVideoImport'
 import {
+  applyVideoImportRoleRenames,
+  parseVideoImportRoleCandidates,
+  type VideoImportRoleCandidate
+} from '~/lib/video-import-role-naming'
+import {
   normalizeScriptParseMode,
-  resolveScriptParseModeLabel,
   type ScriptParseMode
 } from '#shared/types/script'
-import { projectScriptParseModeOptions } from '~/lib/projects-page'
 import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
@@ -57,7 +60,8 @@ const createProjectAspectRatio = ref<'16:9' | '9:16' | '1:1'>('9:16')
 const createProjectScriptParseMode = ref<ScriptParseMode>('premium_drama')
 const createProjectStyleId = ref('')
 const roleNamingDialogOpen = ref(false)
-const roleNamingDraft = ref<Array<{ placeholder: string, name: string }>>([])
+const roleNamingDraft = ref<Array<VideoImportRoleCandidate & { name: string }>>([])
+const selectedEpisodeNumber = ref<number | null>(null)
 let refreshTimer: number | null = null
 const routeTaskId = computed(() => {
   const raw = route.params.id
@@ -86,23 +90,13 @@ const scriptHasChanges = computed(() => scriptDraft.value !== (activeTask.value?
 const showSubtitleNextStep = computed(() => canGenerateScript.value && selectedTask.value?.status === 'subtitle_ready')
 const showScriptNextStep = computed(() => canImport.value && selectedTask.value?.status === 'script_ready')
 const seriesEpisodes = computed(() => activeTask.value?.episodes || [])
+const subtitleHasEpisodeSections = computed(() => hasMultipleEpisodeSections(subtitleDraft.value))
+const scriptHasEpisodeSections = computed(() => hasMultipleEpisodeSections(scriptDraft.value))
 const selectedScriptParseMode = computed<ScriptParseMode>(() => {
   return normalizeScriptParseMode(selectedTask.value?.config?.scriptParseMode)
 })
 const isOriginExplainerTask = computed(() => selectedScriptParseMode.value === 'origin_explainer')
 const selectedImportContentLabel = computed(() => isOriginExplainerTask.value ? '科普内容' : '剧情内容')
-const selectedImportContentDescription = computed(() => {
-  return isOriginExplainerTask.value
-    ? '字幕将整理为科普主题输入稿，并按科普拆解方式创建项目。'
-    : '字幕将整理为剧情剧本，并按精品剧方式创建项目。'
-})
-const createProjectScriptParseModeOptions = computed(() => {
-  if (isOriginExplainerTask.value) {
-    return projectScriptParseModeOptions.filter(option => option.value === 'origin_explainer')
-  }
-  return projectScriptParseModeOptions.filter(option => option.value !== 'origin_explainer')
-})
-
 function ensureCreateProjectStyleId() {
   if (
     !createProjectDialogOpen.value
@@ -129,17 +123,7 @@ watch(
 )
 const scriptContentLabel = computed(() => isOriginExplainerTask.value ? '科普脚本' : '剧本')
 const generateScriptActionLabel = computed(() => {
-  return isOriginExplainerTask.value ? '用当前字幕生成科普脚本' : '用当前字幕生成剧本'
-})
-const subtitleNextStepText = computed(() => {
-  return isOriginExplainerTask.value
-    ? '确认字幕后，将生成适合科普拆解的多镜头脚本。'
-    : '确认字幕后，将生成可编辑的剧本草稿。'
-})
-const scriptNextStepText = computed(() => {
-  return isOriginExplainerTask.value
-    ? '确认科普脚本后，将创建项目并进入镜头规划。'
-    : '确认剧本后，将创建项目并进入剧本解析。'
+  return isOriginExplainerTask.value ? '确认字幕并生成科普脚本' : '确认字幕并生成剧本'
 })
 const seriesEpisodeStats = computed(() => {
   const episodes = seriesEpisodes.value
@@ -148,6 +132,33 @@ const seriesEpisodeStats = computed(() => {
   const done = episodes.filter(task => ['subtitle_ready', 'script_ready', 'importing', 'imported'].includes(task.status)).length
   const running = episodes.filter(task => runningStatuses.has(task.status)).length
   return { total, failed, done, running }
+})
+const workflowSteps = computed(() => {
+  const status = selectedTask.value?.status || 'pending'
+  const currentStep = selectedTask.value?.currentStep || ''
+  let activeIndex = 0
+  if (status === 'transcribing') activeIndex = 1
+  if (status === 'subtitle_ready') activeIndex = 2
+  if (['generating_script', 'script_ready'].includes(status)) activeIndex = 3
+  if (['importing', 'imported'].includes(status)) activeIndex = 4
+  if (status === 'failed') {
+    if (currentStep === 'transcribe') activeIndex = 1
+    if (currentStep === 'generate_script') activeIndex = 3
+    if (currentStep === 'import') activeIndex = 4
+  }
+  const labels = ['提取内容', '识别字幕', '确认字幕', `确认${scriptContentLabel.value}`, '创建项目']
+  return labels.map((label, index) => ({
+    label,
+    state: status === 'imported' || index < activeIndex
+      ? 'complete'
+      : index === activeIndex
+        ? (status === 'failed' ? 'failed' : 'current')
+        : 'upcoming'
+  }))
+})
+const currentWorkflowStepNumber = computed(() => {
+  const activeIndex = workflowSteps.value.findIndex(step => ['current', 'failed'].includes(step.state))
+  return activeIndex >= 0 ? activeIndex + 1 : workflowSteps.value.length
 })
 const primaryAction = computed(() => {
   if (!selectedTask.value) return null
@@ -208,32 +219,18 @@ const contentTabs = computed(() => {
   }
   return tabs
 })
-const detectedRolePlaceholders = computed(() => {
-  const text = scriptDraft.value || activeTask.value?.scriptText || ''
-  const matches = new Set<string>()
-  const patterns = [
-    /角色\s*([A-Z])(?=\b|[：:，。、！？\s]|$)/g,
-    /(?:^|\n)\s*([A-Z])(?=\s*[：:])/g
-  ]
-  for (const pattern of patterns) {
-    for (const match of text.matchAll(pattern)) {
-      const value = match[1]?.trim()
-      if (value) matches.add(value)
-    }
-  }
-  return Array.from(matches).sort()
+const detectedRoleCandidates = computed(() => {
+  return parseVideoImportRoleCandidates(scriptDraft.value || activeTask.value?.scriptText || '')
 })
 
 function normalizeScriptForEditing(text: string) {
   return text
-    .replace(/^##\s*角色[\s\S]*?(?=^##\s|\Z)/m, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
 }
 
 watch(activeTask, (value) => {
   subtitleDraft.value = value?.subtitleText || ''
   scriptDraft.value = normalizeScriptForEditing(value?.scriptText || '')
+  selectedEpisodeNumber.value = value?.episodes?.[0]?.episodeNumber || null
   if (value?.task.status === 'script_ready') {
     contentView.value = 'script'
   } else if (value?.task.status === 'subtitle_ready') {
@@ -243,9 +240,9 @@ watch(activeTask, (value) => {
 
 watch(roleNamingDialogOpen, (open) => {
   if (!open) return
-  roleNamingDraft.value = detectedRolePlaceholders.value.map((placeholder) => ({
-    placeholder,
-    name: ''
+  roleNamingDraft.value = detectedRoleCandidates.value.map(candidate => ({
+    ...candidate,
+    name: candidate.name
   }))
 })
 
@@ -471,21 +468,47 @@ async function handleOpenArtifactPath(path: string) {
   }
 }
 
-function replaceRolePlaceholders(input: string, replacements: Array<{ placeholder: string, name: string }>) {
-  let output = input
-  for (const replacement of replacements) {
-    const placeholder = replacement.placeholder.trim()
-    const name = replacement.name.trim()
-    if (!placeholder || !name) continue
-    output = output.replace(new RegExp(`角色\\s*${placeholder}(?=\\b|[：:，。、！？\\s]|$)`, 'g'), name)
-    output = output.replace(new RegExp(`(^|\\n)(\\s*)${placeholder}(?=\\s*[：:])`, 'g'), `$1$2${name}`)
-  }
-  return output
+function handleOpenRoleNamingDialog() {
+  if (detectedRoleCandidates.value.length === 0) return
+  roleNamingDialogOpen.value = true
 }
 
-function handleOpenRoleNamingDialog() {
-  if (detectedRolePlaceholders.value.length === 0) return
-  roleNamingDialogOpen.value = true
+function episodeStatusLabel(status: string) {
+  if (status === 'failed') return '失败'
+  if (runningStatuses.has(status)) return '处理中'
+  if (['subtitle_ready', 'script_ready', 'importing', 'imported'].includes(status)) return '已就绪'
+  return statusLabel(status)
+}
+
+function hasMultipleEpisodeSections(text: string) {
+  const episodeNumbers = new Set<number>()
+  for (const match of text.matchAll(/^#{1,3}\s*第\s*(\d+)\s*集(?:[：:\s]|$)/gm)) {
+    const episodeNumber = Number(match[1])
+    if (Number.isFinite(episodeNumber)) episodeNumbers.add(episodeNumber)
+    if (episodeNumbers.size >= 2) return true
+  }
+  return false
+}
+
+function locateEpisode(episodeNumber?: number | null) {
+  if (!episodeNumber) return
+  selectedEpisodeNumber.value = episodeNumber
+  const source = contentView.value === 'script' ? scriptDraft.value : subtitleDraft.value
+  const pattern = new RegExp(`(?:^|\\n)#{0,3}\\s*第\\s*${episodeNumber}\\s*集`, 'm')
+  const match = pattern.exec(source)
+  if (!match) return
+
+  nextTick(() => {
+    const id = contentView.value === 'script' ? 'script-editor' : 'subtitle-editor'
+    const editor = document.getElementById(id) as HTMLTextAreaElement | null
+    if (!editor) return
+    const start = match.index + (match[0].startsWith('\n') ? 1 : 0)
+    const lineHeight = Number.parseFloat(getComputedStyle(editor).lineHeight) || 24
+    const lineCount = source.slice(0, start).split('\n').length - 1
+    editor.focus()
+    editor.setSelectionRange(start, start)
+    editor.scrollTo({ top: Math.max(0, lineCount * lineHeight - lineHeight * 2), behavior: 'smooth' })
+  })
 }
 
 async function openCreateProjectDialog() {
@@ -504,13 +527,19 @@ async function openCreateProjectDialog() {
 
 function applyRoleNaming() {
   const validMappings = roleNamingDraft.value
-    .map(item => ({ placeholder: item.placeholder, name: item.name.trim() }))
+    .map(item => ({
+      id: item.id,
+      currentLabel: item.currentLabel,
+      name: item.name.trim(),
+      source: item.source,
+      legacyPlaceholder: item.legacyPlaceholder
+    }))
     .filter(item => item.name)
   if (validMappings.length === 0) {
     roleNamingDialogOpen.value = false
     return
   }
-  scriptDraft.value = replaceRolePlaceholders(scriptDraft.value, validMappings)
+  scriptDraft.value = applyVideoImportRoleRenames(scriptDraft.value, validMappings)
   roleNamingDialogOpen.value = false
 }
 
@@ -522,23 +551,26 @@ async function handleDeleteTask(taskId: string) {
 
 <template>
   <AppPage>
-    <AppPageHeader>
+    <AppPageHeader compact>
       <div class="flex min-w-0 items-center gap-3">
         <Button
           variant="ghost"
           size="sm"
-          class="-ml-2 gap-2"
+          class="-ml-2 shrink-0 gap-2"
           @click="router.push('/import/video')"
         >
           <ArrowLeft class="h-4 w-4" />
           返回任务列表
         </Button>
-        <h1 class="truncate text-xl font-semibold tracking-normal">
+        <h1 class="min-w-0 truncate text-xl font-semibold tracking-normal">
           {{ selectedTask?.originalFilename || '视频转项目详情' }}
         </h1>
-        <Badge v-if="selectedTask" variant="secondary" class="shrink-0">
+        <span v-if="selectedTask" class="hidden shrink-0 text-xs text-muted-foreground sm:inline">
           {{ selectedImportContentLabel }}
-        </Badge>
+          <template v-if="selectedTask.isSeriesGroup && seriesEpisodeStats.total > 0">
+            · {{ seriesEpisodeStats.total }} 集
+          </template>
+        </span>
         <Badge v-if="selectedTask" :variant="statusVariant(selectedTask.status)" class="shrink-0">
           {{ currentStageLabel }}
         </Badge>
@@ -547,7 +579,7 @@ async function handleDeleteTask(taskId: string) {
 
     <AppPageContent
       scroll
-      inner-class="flex flex-col gap-4"
+      inner-class="flex min-h-full flex-col gap-4"
     >
       <div
         v-if="error"
@@ -557,22 +589,55 @@ async function handleDeleteTask(taskId: string) {
         {{ error }}
       </div>
 
-      <Card class="flex flex-col overflow-hidden">
-        <CardHeader class="border-b pb-3">
-          <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div class="min-w-0">
-              <div v-if="selectedTask" class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                <span>{{ currentStageLabel }}</span>
-                <template v-if="selectedTask.status !== 'imported' && selectedTask.status !== 'failed' && selectedTask.status !== 'cancelled'">
-                  <span class="text-border">/</span>
-                  <span>完成度 {{ selectedTask.progress }}%</span>
-                </template>
-              </div>
+      <Card class="flex min-h-0 flex-1 flex-col overflow-visible border-border/70 shadow-none">
+        <CardHeader v-if="selectedTask" class="rounded-t-lg border-b bg-muted/10 px-4 py-2.5">
+          <div class="flex flex-col gap-2 lg:flex-row lg:items-center">
+            <div class="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+              <span>任务进度</span>
+              <span class="rounded border border-primary/25 bg-primary/10 px-1.5 py-0.5 font-semibold tabular-nums text-primary">
+                {{ currentWorkflowStepNumber }}/{{ workflowSteps.length }}
+              </span>
             </div>
-            <div
-              v-if="selectedTask"
-              class="flex flex-wrap gap-2"
-            >
+
+            <ol class="grid min-w-0 flex-1 grid-cols-5" aria-label="任务进度">
+              <li
+                v-for="(step, index) in workflowSteps"
+                :key="step.label"
+                class="relative flex min-w-0 items-center justify-center gap-1.5 px-1 text-center"
+              >
+                <div
+                  v-if="index > 0"
+                  class="absolute right-1/2 top-1/2 h-px w-full"
+                  :class="step.state === 'upcoming' ? 'bg-border' : 'bg-primary/60'"
+                />
+                <span
+                  class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold transition-colors"
+                  :class="{
+                    'border-primary bg-primary text-primary-foreground': step.state === 'complete',
+                    'border-primary bg-background text-primary ring-4 ring-primary/10': step.state === 'current',
+                    'border-destructive bg-destructive text-destructive-foreground': step.state === 'failed',
+                    'border-border bg-background text-muted-foreground': step.state === 'upcoming'
+                  }"
+                >
+                  {{ step.state === 'complete' ? '✓' : index + 1 }}
+                </span>
+                <span
+                  class="relative z-10 hidden truncate bg-card/90 px-1 text-[11px] sm:inline"
+                  :class="['current', 'failed'].includes(step.state) ? 'font-semibold text-foreground' : 'text-muted-foreground'"
+                >
+                  {{ step.label }}
+                </span>
+              </li>
+            </ol>
+
+            <div class="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-2 text-xs text-muted-foreground">
+              <template v-if="selectedTask.isSeriesGroup && seriesEpisodeStats.total > 0">
+                <span>已就绪 <b class="font-semibold tabular-nums text-foreground">{{ seriesEpisodeStats.done }}</b></span>
+                <span>处理中 <b class="font-semibold tabular-nums text-foreground">{{ seriesEpisodeStats.running }}</b></span>
+                <span :class="seriesEpisodeStats.failed > 0 ? 'text-destructive' : ''">
+                  失败 <b class="font-semibold tabular-nums">{{ seriesEpisodeStats.failed }}</b>
+                </span>
+              </template>
               <Button
                 v-if="canCancel"
                 variant="outline"
@@ -620,48 +685,6 @@ async function handleDeleteTask(taskId: string) {
             </div>
           </div>
 
-          <div
-            v-if="selectedTask"
-            class="mt-4 flex flex-col gap-2 rounded-md border bg-muted/20 px-3 py-2.5 text-sm lg:flex-row lg:items-center lg:justify-between"
-          >
-            <div class="flex min-w-0 flex-wrap items-center gap-2">
-              <Badge variant="secondary" class="shrink-0">
-                {{ selectedImportContentLabel }}
-              </Badge>
-              <span class="truncate text-muted-foreground">
-                {{ selectedImportContentDescription }}
-              </span>
-            </div>
-            <div class="flex shrink-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span>{{ currentStageLabel }}</span>
-              <span class="text-border">/</span>
-              <span v-if="showSubtitleNextStep">{{ generateScriptActionLabel }}</span>
-              <span v-else-if="showScriptNextStep">确认并创建项目</span>
-              <span v-else>{{ selectedTask.progress }}%</span>
-            </div>
-          </div>
-
-          <div v-if="selectedTask?.isSeriesGroup && seriesEpisodeStats.total > 0" class="mt-4 grid gap-2 rounded-md border bg-muted/30 p-3 text-xs md:grid-cols-4">
-            <div>
-              <div class="text-muted-foreground">分集数量</div>
-              <div class="mt-1 font-medium text-foreground">{{ seriesEpisodeStats.total }} 集</div>
-            </div>
-            <div>
-              <div class="text-muted-foreground">字幕就绪</div>
-              <div class="mt-1 font-medium text-foreground">{{ seriesEpisodeStats.done }} 集</div>
-            </div>
-            <div>
-              <div class="text-muted-foreground">处理中</div>
-              <div class="mt-1 font-medium text-foreground">{{ seriesEpisodeStats.running }} 集</div>
-            </div>
-            <div>
-              <div class="text-muted-foreground">失败</div>
-              <div class="mt-1 font-medium" :class="seriesEpisodeStats.failed > 0 ? 'text-destructive' : 'text-foreground'">
-                {{ seriesEpisodeStats.failed }} 集
-              </div>
-            </div>
-          </div>
-
           <div v-if="selectedTask?.isSeriesGroup && seriesEpisodes.some(episode => episode.status === 'failed')" class="mt-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
             <div class="mb-2 font-medium">失败分集</div>
             <div class="space-y-1">
@@ -680,124 +703,179 @@ async function handleDeleteTask(taskId: string) {
 
         <CardContent
           v-if="selectedTask"
-          class="flex min-h-0 flex-1 flex-col gap-4 p-4"
+          class="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-0"
         >
-          <div class="flex flex-wrap gap-2 border-b pb-3">
-            <Button
+          <div class="flex min-h-10 shrink-0 items-end gap-6 border-b" role="tablist" aria-label="任务内容">
+            <button
               v-for="tab in contentTabs"
               :key="tab.key"
-              variant="ghost"
-              size="sm"
-              class="gap-2"
-              :class="contentView === tab.key ? 'bg-muted' : ''"
+              type="button"
+              role="tab"
+              :aria-selected="contentView === tab.key"
+              class="relative flex h-10 items-center gap-2 whitespace-nowrap px-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              :class="contentView === tab.key ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground'"
               @click="contentView = tab.key"
             >
               {{ tab.label }}
-              <Badge v-if="tab.badge" variant="secondary" class="text-xs">
+              <Badge v-if="tab.badge" variant="secondary" class="h-5 rounded px-1.5 text-[10px]">
                 {{ tab.badge }}
               </Badge>
-            </Button>
+              <span v-if="contentView === tab.key" class="absolute inset-x-0 bottom-[-1px] h-0.5 bg-primary" />
+            </button>
           </div>
 
-          <section v-show="contentView === 'subtitle'" class="flex flex-1 flex-col gap-3">
-            <div class="flex items-center justify-between gap-3">
-              <div>
-                <h2 class="text-sm font-medium text-muted-foreground">
-                  字幕内容
-                  <span v-if="!canEditSubtitle" class="ml-2 text-xs">(只读)</span>
-                </h2>
-                <p v-if="showSubtitleNextStep" class="mt-1 text-xs text-muted-foreground">
-                  {{ subtitleNextStepText }}
-                </p>
-              </div>
-              <div class="flex gap-2">
-                <Button
-                  v-if="subtitleHasChanges && canEditSubtitle"
-                  variant="outline"
-                  size="sm"
-                  class="gap-2"
-                  :disabled="acting"
-                  @click="handleSaveSubtitle"
+          <section v-show="contentView === 'subtitle'" class="flex min-h-0 flex-1 flex-col pt-3" role="tabpanel">
+            <div
+              class="flex min-h-0 flex-1 flex-col overflow-clip rounded-md border bg-background"
+              :class="subtitleHasEpisodeSections ? 'lg:grid lg:grid-cols-[9rem_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_auto]' : ''"
+            >
+              <aside
+                v-if="subtitleHasEpisodeSections"
+                class="max-h-44 overflow-y-auto border-b bg-muted/15 p-2 lg:max-h-none lg:min-h-0 lg:border-b-0 lg:border-r"
+                aria-label="分集导航"
+              >
+                <div class="px-2 pb-1.5 pt-1 text-[11px] font-medium text-muted-foreground">分集</div>
+                <button
+                  v-for="episode in seriesEpisodes"
+                  :key="episode.id"
+                  type="button"
+                  class="flex h-9 w-full items-center gap-2 rounded border-l-2 px-2 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  :class="selectedEpisodeNumber === episode.episodeNumber ? 'border-primary bg-muted font-semibold text-foreground' : 'border-transparent text-muted-foreground'"
+                  :title="`${episode.originalFilename} · ${episodeStatusLabel(episode.status)}`"
+                  @click="locateEpisode(episode.episodeNumber)"
                 >
-                  <Save class="h-4 w-4" />
-                  保存修改
-                </Button>
-                <Button
-                  v-if="showSubtitleNextStep && primaryAction"
-                  size="sm"
-                  class="gap-2"
-                  :disabled="primaryAction.disabled"
-                  @click="primaryAction.action()"
-                >
-                  <Wand2 class="h-4 w-4" />
-                  {{ primaryAction.label }}
-                </Button>
+                  <span class="min-w-0 flex-1 truncate">第{{ episode.episodeNumber || '-' }}集</span>
+                  <span class="flex h-5 w-5 shrink-0 items-center justify-center" :aria-label="episodeStatusLabel(episode.status)">
+                    <Loader2 v-if="runningStatuses.has(episode.status)" class="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
+                    <AlertCircle v-else-if="episode.status === 'failed'" class="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+                    <Ban v-else-if="episode.status === 'cancelled'" class="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                    <CheckCircle2 v-else class="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                  </span>
+                </button>
+              </aside>
+              <div class="flex min-h-0 min-w-0 flex-1 bg-muted/10">
+                <Textarea
+                  id="subtitle-editor"
+                  v-model="subtitleDraft"
+                  class="min-h-[30rem] w-full self-stretch resize-none rounded-none border-0 bg-background px-6 py-5 text-[15px] leading-7 shadow-none focus-visible:ring-2 md:px-10 xl:px-14 2xl:px-16 lg:min-h-0"
+                  :class="canEditSubtitle ? '' : 'bg-muted/30'"
+                  :disabled="!canEditSubtitle"
+                  :placeholder="`识别完成后将显示字幕内容，你可以在此编辑修正。当前视频内容：${selectedImportContentLabel}`"
+                />
               </div>
-            </div>
-            <div class="relative flex-1">
-              <Textarea
-                v-model="subtitleDraft"
-                class="min-h-[420px] w-full resize-y rounded-md border font-mono text-sm leading-6"
-                :class="canEditSubtitle ? 'border-primary/50 ring-1 ring-primary/20' : 'bg-muted/30'"
-                :disabled="!canEditSubtitle"
-                :placeholder="`识别完成后将显示字幕内容，你可以在此编辑修正。当前视频内容：${selectedImportContentLabel}`"
-              />
+              <footer class="z-20 flex shrink-0 flex-col gap-3 border-t bg-background/95 px-4 py-3 shadow-[0_-8px_24px_hsl(var(--foreground)/0.05)] backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between" :class="subtitleHasEpisodeSections ? 'lg:col-span-2' : ''">
+                <div class="text-xs text-muted-foreground">
+                  <span v-if="subtitleHasChanges" class="font-medium text-amber-700 dark:text-amber-400">有未保存修改</span>
+                  <span v-else>所有修改已保存</span>
+                  <span v-if="showSubtitleNextStep"> · 继续时会自动保存</span>
+                </div>
+                <div class="flex flex-wrap justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="gap-2"
+                    :disabled="acting || !subtitleHasChanges || !canEditSubtitle"
+                    @click="handleSaveSubtitle"
+                  >
+                    <Save class="h-4 w-4" />
+                    保存修改
+                  </Button>
+                  <Button
+                    v-if="showSubtitleNextStep && primaryAction"
+                    size="sm"
+                    class="gap-2"
+                    :disabled="primaryAction.disabled"
+                    @click="primaryAction.action()"
+                  >
+                    <Loader2 v-if="acting" class="h-4 w-4 animate-spin" />
+                    <Wand2 v-else class="h-4 w-4" />
+                    {{ acting ? '正在生成...' : primaryAction.label }}
+                  </Button>
+                </div>
+              </footer>
             </div>
           </section>
 
-          <section v-show="contentView === 'script'" class="flex flex-1 flex-col gap-3">
-            <div class="flex items-center justify-between gap-3">
-              <div>
-                <h2 class="text-sm font-medium text-muted-foreground">
-                  {{ scriptContentLabel }}内容
-                  <span v-if="!canEditScript" class="ml-2 text-xs">(只读)</span>
-                </h2>
-                <p v-if="showScriptNextStep" class="mt-1 text-xs text-muted-foreground">
-                  {{ scriptNextStepText }}
-                </p>
+          <section v-show="contentView === 'script'" class="flex min-h-0 flex-1 flex-col pt-3" role="tabpanel">
+            <div
+              class="flex min-h-0 flex-1 flex-col overflow-clip rounded-md border bg-background"
+              :class="scriptHasEpisodeSections ? 'lg:grid lg:grid-cols-[9rem_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_auto]' : ''"
+            >
+              <aside
+                v-if="scriptHasEpisodeSections"
+                class="max-h-44 overflow-y-auto border-b bg-muted/15 p-2 lg:max-h-none lg:min-h-0 lg:border-b-0 lg:border-r"
+                aria-label="分集导航"
+              >
+                <div class="px-2 pb-1.5 pt-1 text-[11px] font-medium text-muted-foreground">分集</div>
+                <button
+                  v-for="episode in seriesEpisodes"
+                  :key="episode.id"
+                  type="button"
+                  class="flex h-9 w-full items-center gap-2 rounded border-l-2 px-2 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  :class="selectedEpisodeNumber === episode.episodeNumber ? 'border-primary bg-muted font-semibold text-foreground' : 'border-transparent text-muted-foreground'"
+                  :title="`${episode.originalFilename} · ${episodeStatusLabel(episode.status)}`"
+                  @click="locateEpisode(episode.episodeNumber)"
+                >
+                  <span class="min-w-0 flex-1 truncate">第{{ episode.episodeNumber || '-' }}集</span>
+                  <span class="flex h-5 w-5 shrink-0 items-center justify-center" :aria-label="episodeStatusLabel(episode.status)">
+                    <Loader2 v-if="runningStatuses.has(episode.status)" class="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
+                    <AlertCircle v-else-if="episode.status === 'failed'" class="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+                    <Ban v-else-if="episode.status === 'cancelled'" class="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                    <CheckCircle2 v-else class="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                  </span>
+                </button>
+              </aside>
+              <div class="flex min-h-0 min-w-0 flex-1 bg-muted/10">
+                <Textarea
+                  id="script-editor"
+                  v-model="scriptDraft"
+                  class="min-h-[30rem] w-full self-stretch resize-none rounded-none border-0 bg-background px-6 py-5 text-[15px] leading-7 shadow-none focus-visible:ring-2 md:px-10 xl:px-14 2xl:px-16 lg:min-h-0"
+                  :class="canEditScript ? '' : 'bg-muted/30'"
+                  :disabled="!canEditScript"
+                  :placeholder="`从字幕生成的${scriptContentLabel}将显示在这里，确认无误后即可创建项目`"
+                />
               </div>
-              <div class="flex gap-2">
-                <Button
-                  v-if="detectedRolePlaceholders.length > 0"
-                  variant="outline"
-                  size="sm"
-                  class="gap-2"
-                  @click="handleOpenRoleNamingDialog"
-                >
-                  <Pencil class="h-4 w-4" />
-                  命名角色
-                </Button>
-                <Button
-                  v-if="scriptHasChanges && canEditScript"
-                  variant="outline"
-                  size="sm"
-                  class="gap-2"
-                  :disabled="acting"
-                  @click="handleSaveScript"
-                >
-                  <Save class="h-4 w-4" />
-                  保存修改
-                </Button>
-                <Button
-                  v-if="showScriptNextStep && primaryAction"
-                  size="sm"
-                  class="gap-2"
-                  :disabled="primaryAction.disabled"
-                  @click="openCreateProjectDialog"
-                >
-                  <FolderInput class="h-4 w-4" />
-                  {{ primaryAction.label }}
-                </Button>
-              </div>
-            </div>
-            <div class="relative flex-1">
-              <Textarea
-                v-model="scriptDraft"
-                class="min-h-[520px] w-full resize-y rounded-md border font-mono text-sm leading-6"
-                :class="canEditScript ? 'border-primary/50 ring-1 ring-primary/20' : 'bg-muted/30'"
-                :disabled="!canEditScript"
-                :placeholder="`从字幕生成的${scriptContentLabel}将显示在这里，确认无误后即可创建项目`"
-              />
+              <footer class="z-20 flex shrink-0 flex-col gap-3 border-t bg-background/95 px-4 py-3 shadow-[0_-8px_24px_hsl(var(--foreground)/0.05)] backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between" :class="scriptHasEpisodeSections ? 'lg:col-span-2' : ''">
+                <div class="text-xs text-muted-foreground">
+                  <span v-if="scriptHasChanges" class="font-medium text-amber-700 dark:text-amber-400">有未保存修改</span>
+                  <span v-else>所有修改已保存</span>
+                  <span v-if="showScriptNextStep"> · 创建项目时会自动保存</span>
+                </div>
+                <div class="flex flex-wrap justify-end gap-2">
+                  <Button
+                    v-if="!isOriginExplainerTask"
+                    variant="outline"
+                    size="sm"
+                    class="gap-2"
+                    :disabled="detectedRoleCandidates.length === 0"
+                    :title="detectedRoleCandidates.length === 0 ? '当前剧本未检测到可命名的角色条目' : '批量填写或修改角色名称'"
+                    @click="handleOpenRoleNamingDialog"
+                  >
+                    <Pencil class="h-4 w-4" />
+                    命名角色
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="gap-2"
+                    :disabled="acting || !scriptHasChanges || !canEditScript"
+                    @click="handleSaveScript"
+                  >
+                    <Save class="h-4 w-4" />
+                    保存修改
+                  </Button>
+                  <Button
+                    v-if="showScriptNextStep && primaryAction"
+                    size="sm"
+                    class="gap-2"
+                    :disabled="primaryAction.disabled"
+                    @click="openCreateProjectDialog"
+                  >
+                    <FolderInput class="h-4 w-4" />
+                    {{ primaryAction.label }}
+                  </Button>
+                </div>
+              </footer>
             </div>
           </section>
 
@@ -968,22 +1046,27 @@ async function handleDeleteTask(taskId: string) {
         <DialogHeader>
           <DialogTitle>命名角色</DialogTitle>
           <DialogDescription>
-            为剧本中的占位角色批量填写真实名称，确认后会直接替换当前剧本草稿。
+            为角色填写或修改名称，确认后会同步更新角色清单和当前剧本引用。
           </DialogDescription>
         </DialogHeader>
 
-        <div class="space-y-3 py-1">
+        <div class="max-h-[min(60vh,32rem)] space-y-3 overflow-y-auto py-1 pr-1">
           <div
             v-for="item in roleNamingDraft"
-            :key="item.placeholder"
-            class="grid grid-cols-[96px_minmax(0,1fr)] items-center gap-3"
+            :key="item.id"
+            class="grid grid-cols-[minmax(0,150px)_minmax(0,1fr)] items-center gap-3"
           >
-            <div class="text-sm font-medium text-foreground">
-              角色{{ item.placeholder }}
+            <div class="min-w-0">
+              <div class="truncate text-sm font-medium text-foreground" :title="item.currentLabel">
+                {{ item.currentLabel }}
+              </div>
+              <div class="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+                {{ item.aliases.length > 0 ? `别名：${item.aliases.join('、')}` : '暂无别名' }}
+              </div>
             </div>
             <Input
               v-model="item.name"
-              :placeholder="`输入角色${item.placeholder}的名字`"
+              :placeholder="`输入${item.currentLabel}的真实名称`"
             />
           </div>
         </div>
@@ -1012,7 +1095,7 @@ async function handleDeleteTask(taskId: string) {
           <DialogDescription>
             {{ isOriginExplainerTask
               ? '确认项目名称和画幅后，按科普拆解方式创建项目。'
-              : '确认项目名称、画幅和解析方式后创建项目。' }}
+              : '确认项目名称、画幅和画风后创建项目。' }}
           </DialogDescription>
         </DialogHeader>
 
@@ -1022,52 +1105,18 @@ async function handleDeleteTask(taskId: string) {
             placeholder="项目标题（选填）"
           />
 
-          <div class="rounded-md border bg-muted/25 p-3">
-            <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-              <div class="grid gap-1.5">
-                <label class="text-xs font-medium text-muted-foreground">画幅</label>
-                <Select v-model="createProjectAspectRatio">
-                  <SelectTrigger class="bg-background">
-                    <SelectValue placeholder="画幅" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="9:16">竖屏 9:16</SelectItem>
-                    <SelectItem value="16:9">横屏 16:9</SelectItem>
-                    <SelectItem value="1:1">方形 1:1</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div class="grid gap-1.5 sm:min-w-[160px]">
-                <label class="text-xs font-medium text-muted-foreground">项目解析方式</label>
-                <Select
-                  v-if="!isOriginExplainerTask"
-                  v-model="createProjectScriptParseMode"
-                >
-                  <SelectTrigger class="bg-background">
-                    <SelectValue placeholder="解析方式" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem
-                      v-for="option in createProjectScriptParseModeOptions"
-                      :key="option.value"
-                      :value="option.value"
-                    >
-                      {{ option.label }}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <div
-                  v-else
-                  class="flex h-10 items-center rounded-md border bg-background px-3 text-sm font-medium text-foreground"
-                >
-                  {{ resolveScriptParseModeLabel(createProjectScriptParseMode) }}
-                </div>
-              </div>
-            </div>
-            <div class="mt-2 text-xs leading-5 text-muted-foreground">
-              {{ projectScriptParseModeOptions.find(option => option.value === createProjectScriptParseMode)?.description }}
-            </div>
+          <div class="grid gap-1.5">
+            <label class="text-xs font-medium text-muted-foreground">画幅</label>
+            <Select v-model="createProjectAspectRatio">
+              <SelectTrigger class="bg-background">
+                <SelectValue placeholder="画幅" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="9:16">竖屏 9:16</SelectItem>
+                <SelectItem value="16:9">横屏 16:9</SelectItem>
+                <SelectItem value="1:1">方形 1:1</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div v-if="!isOriginExplainerTask" class="grid gap-2">

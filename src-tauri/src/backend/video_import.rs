@@ -120,18 +120,18 @@ struct VideoImportTaskRecord {
 }
 
 #[derive(Debug, Clone)]
-struct BcutSegment {
-    start_time: i64,
-    end_time: i64,
-    transcript: String,
+pub(super) struct BcutSegment {
+    pub(super) start_time: i64,
+    pub(super) end_time: i64,
+    pub(super) transcript: String,
 }
 
-struct BcutOutput {
+pub(super) struct BcutOutput {
     task_id: String,
     raw: Value,
     text: String,
     srt: String,
-    segments: Vec<BcutSegment>,
+    pub(super) segments: Vec<BcutSegment>,
 }
 
 struct SeriesDurationSummary {
@@ -2305,7 +2305,7 @@ async fn extract_audio(video_path: PathBuf, audio_path: PathBuf) -> Result<(), A
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
-async fn transcribe_bcut(audio_path: PathBuf) -> Result<BcutOutput, ApiError> {
+pub(super) async fn transcribe_bcut(audio_path: PathBuf) -> Result<BcutOutput, ApiError> {
     let mut file = File::open(&audio_path)
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let mut bytes = Vec::new();
