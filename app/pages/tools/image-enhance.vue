@@ -297,8 +297,8 @@ async function submitTask() {
     }
     if (successCount > 0) {
       await router.push({
-        path: '/tools/enhance-tasks',
-        query: { type: 'image' }
+        path: '/tools/enhance',
+        query: { type: 'image', view: 'tasks' }
       })
     }
   } finally {
@@ -318,13 +318,13 @@ async function submitTask() {
       <template #actions>
         <div class="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" as-child>
-            <NuxtLink :to="{ path: '/tools/enhance-tasks', query: { type: 'image' } }">
+            <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'image', view: 'tasks' } }">
               <ListChecks class="mr-2 h-4 w-4" />
               任务
             </NuxtLink>
           </Button>
           <Button variant="outline" size="sm" as-child>
-            <NuxtLink :to="{ path: '/tools/local-enhance', query: { type: 'image' } }">
+            <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'image', view: 'create', mode: 'local' } }">
               本地图片
             </NuxtLink>
           </Button>

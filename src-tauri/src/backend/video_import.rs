@@ -19,6 +19,8 @@ const BCUT_USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 const BCUT_MODEL_ID: &str = "7";
 const VIDEO_IMPORT_DIR: &str = "video-import";
+const ASR_TOOL_DIR: &str = "asr-tool";
+const ASR_HISTORY_DIR: &str = "history";
 const ASR_POLL_INTERVAL_MS: u64 = 2_000;
 const ASR_TIMEOUT_MS: u64 = 600_000;
 const SERIES_IMPORT_MAX_CONCURRENT_TASKS: usize = 2;
@@ -119,7 +121,8 @@ struct VideoImportTaskRecord {
     is_series_group: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct BcutSegment {
     pub(super) start_time: i64,
     pub(super) end_time: i64,
@@ -140,6 +143,219 @@ struct SeriesDurationSummary {
     total_seconds: f64,
     average_seconds: Option<f64>,
     short_clip_recommended: bool,
+}
+
+pub(super) async fn api_asr_transcribe(
+    State(state): State<BackendState>,
+    mut multipart: Multipart,
+) -> Result<Json<Value>, ApiError> {
+    let request_id = format!("asr_{}", Uuid::new_v4().simple());
+    let request_dir = state.data_dir.join(ASR_TOOL_DIR).join(&request_id);
+    fs::create_dir_all(&request_dir)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    let result = async {
+        let mut original_filename = String::new();
+        let mut media_extension = String::new();
+        let mut source_path: Option<PathBuf> = None;
+
+        while let Some(mut field) = multipart
+            .next_field()
+            .await
+            .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?
+        {
+            if field.name().unwrap_or("") != "media" {
+                continue;
+            }
+
+            let filename = field
+                .file_name()
+                .map(str::to_string)
+                .unwrap_or_else(|| "media.mp3".to_string());
+            let extension = file_extension(&filename)
+                .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "无法识别文件格式"))?;
+            validate_asr_media_extension(&extension)?;
+            original_filename = filename;
+            media_extension = extension.clone();
+
+            let output_path = request_dir.join(format!("source.{extension}"));
+            let mut file = File::create(&output_path).map_err(|error| {
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+            })?;
+            while let Some(chunk) = field
+                .chunk()
+                .await
+                .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?
+            {
+                file.write_all(&chunk).map_err(|error| {
+                    ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                })?;
+            }
+            source_path = Some(output_path);
+            break;
+        }
+
+        let source_path = source_path
+            .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "缺少 media 文件字段"))?;
+        let file_size_bytes = fs::metadata(&source_path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        let audio_path = request_dir.join("audio.wav");
+        extract_audio(source_path, audio_path.clone())
+            .await
+            .map_err(|_| {
+                ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "无法读取媒体中的声音，请确认文件可以正常播放",
+                )
+            })?;
+        let output = transcribe_bcut(audio_path).await.map_err(|error| {
+            ApiError::new(
+                error.status,
+                error
+                    .message
+                    .replace("Bcut ASR", "语音识别")
+                    .replace("Bcut", "语音识别")
+                    .replace("ASR", "语音识别"),
+            )
+        })?;
+        let duration_ms = output
+            .segments
+            .iter()
+            .map(|segment| segment.end_time)
+            .max()
+            .unwrap_or(0);
+        let segment_count = output.segments.len();
+        let created_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let data = json!({
+          "id": request_id.clone(),
+          "taskId": output.task_id,
+          "fileName": original_filename,
+          "mediaKind": asr_media_kind(&media_extension),
+          "fileSizeBytes": file_size_bytes,
+          "text": output.text,
+          "srt": output.srt,
+          "segments": output.segments,
+          "segmentCount": segment_count,
+          "durationMs": duration_ms,
+          "createdAt": created_at
+        });
+        write_asr_history_item(&state, &request_id, &data)?;
+
+        Ok(Json(json!({
+          "success": true,
+          "data": data
+        })))
+    }
+    .await;
+
+    let _ = fs::remove_dir_all(&request_dir);
+    result
+}
+
+pub(super) async fn api_asr_history_get(
+    State(state): State<BackendState>,
+) -> Result<Json<Value>, ApiError> {
+    let history_dir = state.data_dir.join(ASR_TOOL_DIR).join(ASR_HISTORY_DIR);
+    let mut items = Vec::new();
+    if history_dir.exists() {
+        for entry in fs::read_dir(&history_dir)
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        {
+            let entry = entry.map_err(|error| {
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+            })?;
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(bytes) = fs::read(path) else {
+                continue;
+            };
+            if let Ok(item) = serde_json::from_slice::<Value>(&bytes) {
+                items.push(item);
+            }
+        }
+    }
+    items.sort_by(|left, right| {
+        let left_created = left.get("createdAt").and_then(Value::as_str).unwrap_or("");
+        let right_created = right.get("createdAt").and_then(Value::as_str).unwrap_or("");
+        right_created.cmp(left_created)
+    });
+
+    Ok(Json(json!({
+      "success": true,
+      "data": { "items": items }
+    })))
+}
+
+pub(super) async fn api_asr_history_delete(
+    State(state): State<BackendState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_asr_history_id(&id)?;
+    let path = state
+        .data_dir
+        .join(ASR_TOOL_DIR)
+        .join(ASR_HISTORY_DIR)
+        .join(format!("{id}.json"));
+    if path.exists() {
+        fs::remove_file(path)
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    }
+    Ok(Json(json!({ "success": true })))
+}
+
+fn write_asr_history_item(state: &BackendState, id: &str, item: &Value) -> Result<(), ApiError> {
+    validate_asr_history_id(id)?;
+    let history_dir = state.data_dir.join(ASR_TOOL_DIR).join(ASR_HISTORY_DIR);
+    fs::create_dir_all(&history_dir)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let path = history_dir.join(format!("{id}.json"));
+    let temporary_path = history_dir.join(format!("{id}.json.tmp"));
+    let bytes = serde_json::to_vec_pretty(item)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    fs::write(&temporary_path, bytes)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    fs::rename(temporary_path, path)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(())
+}
+
+fn validate_asr_history_id(id: &str) -> Result<(), ApiError> {
+    if id.starts_with("asr_")
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|value| value.is_ascii_alphanumeric() || value == '_')
+    {
+        return Ok(());
+    }
+    Err(ApiError::new(StatusCode::BAD_REQUEST, "无效的历史记录 ID"))
+}
+
+fn asr_media_kind(extension: &str) -> &'static str {
+    if matches!(
+        extension,
+        "mp4"
+            | "mov"
+            | "mkv"
+            | "avi"
+            | "webm"
+            | "flv"
+            | "wmv"
+            | "m4v"
+            | "mpeg"
+            | "mpg"
+            | "ts"
+            | "m2ts"
+            | "mts"
+            | "3gp"
+    ) {
+        "video"
+    } else {
+        "audio"
+    }
 }
 
 impl SeriesDurationSummary {
@@ -3399,6 +3615,42 @@ fn validate_video_extension(extension: &str) -> Result<(), ApiError> {
     }
 }
 
+fn validate_asr_media_extension(extension: &str) -> Result<(), ApiError> {
+    if matches!(
+        extension,
+        "mp3"
+            | "wav"
+            | "m4a"
+            | "aac"
+            | "flac"
+            | "ogg"
+            | "opus"
+            | "wma"
+            | "amr"
+            | "mp4"
+            | "mov"
+            | "mkv"
+            | "avi"
+            | "webm"
+            | "flv"
+            | "wmv"
+            | "m4v"
+            | "mpeg"
+            | "mpg"
+            | "ts"
+            | "m2ts"
+            | "mts"
+            | "3gp"
+    ) {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "不支持的音频或视频格式",
+        ))
+    }
+}
+
 fn scan_series_video_files(folder: &FsPath) -> Result<Vec<(String, PathBuf)>, ApiError> {
     if !folder.is_dir() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "路径必须是文件夹"));
@@ -3508,6 +3760,19 @@ fn first_number_in_text(value: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn asr_history_id_validation_rejects_path_traversal() {
+        assert!(validate_asr_history_id("asr_0123456789abcdef").is_ok());
+        assert!(validate_asr_history_id("../../asr_record").is_err());
+        assert!(validate_asr_history_id("asr_record.json").is_err());
+    }
+
+    #[test]
+    fn asr_media_kind_distinguishes_audio_and_video() {
+        assert_eq!(asr_media_kind("mp3"), "audio");
+        assert_eq!(asr_media_kind("mp4"), "video");
+    }
 
     #[test]
     fn split_series_script_sections_drops_prelude_when_episode_headings_exist() {

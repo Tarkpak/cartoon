@@ -72,7 +72,7 @@ const deletingAsset = ref('')
 const recentTasks = ref<VideoEnhanceTaskRecord[]>([])
 let pollingTimer: number | null = null
 
-const embeddedInUnifiedTasks = computed(() => route.path === '/tools/enhance-tasks')
+const embeddedInUnifiedTasks = computed(() => ['/tools/enhance', '/tools/enhance-tasks'].includes(route.path))
 const canSave = computed(() => resultVideoUrl.value && !localVideoUrl.value && !saving.value)
 const pollingActive = computed(() => status.value === 'processing' && pollingTimer !== null)
 const displayResultVideoUrl = computed(() => localVideoUrl.value || resultVideoUrl.value)
@@ -305,7 +305,7 @@ function taskStatusVariant(value: TaskStatus | string) {
           size="sm"
           as-child
         >
-          <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'video' } }">
+          <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'video', view: 'create' } }">
             提交增强
           </NuxtLink>
         </Button>
@@ -460,7 +460,7 @@ function taskStatusVariant(value: TaskStatus | string) {
             class="mt-4"
             as-child
           >
-            <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'video' } }">
+            <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'video', view: 'create' } }">
               提交增强
             </NuxtLink>
           </Button>

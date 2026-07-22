@@ -4349,6 +4349,16 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/script/parse-stream", post(api_script_parse_stream))
         .route("/api/script/export-docx", post(api_script_export_docx))
         .route(
+            "/api/tools/asr/transcribe",
+            post(api_asr_transcribe)
+                .layer(DefaultBodyLimit::max(VIDEO_IMPORT_UPLOAD_BODY_LIMIT_BYTES)),
+        )
+        .route("/api/tools/asr/history", get(api_asr_history_get))
+        .route(
+            "/api/tools/asr/history/{id}",
+            delete(api_asr_history_delete),
+        )
+        .route(
             "/api/import/video/upload",
             post(api_video_import_upload)
                 .layer(DefaultBodyLimit::max(VIDEO_IMPORT_UPLOAD_BODY_LIMIT_BYTES)),

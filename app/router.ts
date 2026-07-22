@@ -11,8 +11,7 @@ import ProjectsPage from './pages/projects/index.vue'
 import SettingsPage from './pages/settings.vue'
 import TosFilesPage from './pages/tos-files.vue'
 import EnhancePage from './pages/tools/enhance.vue'
-import EnhanceTasksPage from './pages/tools/enhance-tasks.vue'
-import LocalEnhancePage from './pages/tools/local-enhance.vue'
+import AsrPage from './pages/tools/asr.vue'
 import ShortVideoDownloadPage from './pages/tools/short-video-download.vue'
 
 const routes: RouteRecordRaw[] = [
@@ -97,7 +96,9 @@ const routes: RouteRecordRaw[] = [
       path: '/tools/enhance',
       query: {
         ...to.query,
-        type: 'video'
+        type: 'video',
+        view: 'create',
+        mode: 'cloud'
       }
     })
   },
@@ -107,34 +108,53 @@ const routes: RouteRecordRaw[] = [
     meta: { layout: 'default' }
   },
   {
+    path: '/tools/asr',
+    component: AsrPage,
+    meta: { layout: 'default' }
+  },
+  {
     path: '/tools/local-video-enhance',
     redirect: to => ({
-      path: '/tools/local-enhance',
+      path: '/tools/enhance',
       query: {
         ...to.query,
-        type: 'video'
+        type: 'video',
+        view: 'create',
+        mode: 'local'
       }
     })
   },
   {
     path: '/tools/local-enhance',
-    component: LocalEnhancePage,
-    meta: { layout: 'default' }
+    redirect: to => ({
+      path: '/tools/enhance',
+      query: {
+        ...to.query,
+        view: 'create',
+        mode: 'local'
+      }
+    })
   },
   {
     path: '/tools/video-enhance-tasks',
     redirect: to => ({
-      path: '/tools/enhance-tasks',
+      path: '/tools/enhance',
       query: {
         ...to.query,
-        type: 'video'
+        type: 'video',
+        view: 'tasks'
       }
     })
   },
   {
     path: '/tools/enhance-tasks',
-    component: EnhanceTasksPage,
-    meta: { layout: 'default' }
+    redirect: to => ({
+      path: '/tools/enhance',
+      query: {
+        ...to.query,
+        view: 'tasks'
+      }
+    })
   },
   {
     path: '/tools/short-video-download',
@@ -155,27 +175,32 @@ const routes: RouteRecordRaw[] = [
       path: '/tools/enhance',
       query: {
         ...to.query,
-        type: 'image'
+        type: 'image',
+        view: 'create',
+        mode: 'cloud'
       }
     })
   },
   {
     path: '/tools/local-image-enhance',
     redirect: to => ({
-      path: '/tools/local-enhance',
+      path: '/tools/enhance',
       query: {
         ...to.query,
-        type: 'image'
+        type: 'image',
+        view: 'create',
+        mode: 'local'
       }
     })
   },
   {
     path: '/tools/image-enhance-tasks',
     redirect: to => ({
-      path: '/tools/enhance-tasks',
+      path: '/tools/enhance',
       query: {
         ...to.query,
-        type: 'image'
+        type: 'image',
+        view: 'tasks'
       }
     })
   },

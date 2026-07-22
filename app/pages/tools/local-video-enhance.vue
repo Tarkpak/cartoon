@@ -46,7 +46,7 @@ const errorMessage = ref('')
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const draggingFiles = ref(false)
 
-const embeddedInUnifiedLocalEnhance = computed(() => route.path === '/tools/local-enhance')
+const embeddedInUnifiedLocalEnhance = computed(() => ['/tools/enhance', '/tools/local-enhance'].includes(route.path))
 
 const presetOptions: Array<{
   value: LocalEnhancePreset
@@ -264,7 +264,7 @@ async function submitLocalEnhance() {
           size="sm"
           as-child
         >
-          <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'video' } }">
+          <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'video', view: 'create', mode: 'cloud' } }">
             云端 AI 增强
           </NuxtLink>
         </Button>

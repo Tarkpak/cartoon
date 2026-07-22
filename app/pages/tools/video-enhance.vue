@@ -356,8 +356,8 @@ async function submitTask() {
     }
     if (successCount > 0) {
       await router.push({
-        path: '/tools/enhance-tasks',
-        query: { type: 'video' }
+        path: '/tools/enhance',
+        query: { type: 'video', view: 'tasks' }
       })
     }
   } finally {
@@ -381,7 +381,7 @@ async function submitTask() {
             size="sm"
             as-child
           >
-            <NuxtLink :to="{ path: '/tools/enhance-tasks', query: { type: 'video' } }">
+            <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'video', view: 'tasks' } }">
               <ListChecks class="mr-2 h-4 w-4" />
               任务
             </NuxtLink>

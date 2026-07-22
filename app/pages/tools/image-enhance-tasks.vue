@@ -71,7 +71,7 @@ const deletingAsset = ref('')
 const recentTasks = ref<ImageEnhanceTaskRecord[]>([])
 let pollingTimer: number | null = null
 
-const embeddedInUnifiedTasks = computed(() => route.path === '/tools/enhance-tasks')
+const embeddedInUnifiedTasks = computed(() => ['/tools/enhance', '/tools/enhance-tasks'].includes(route.path))
 const canSave = computed(() => resultImageUrl.value && !localImageUrl.value && !saving.value)
 const pollingActive = computed(() => status.value === 'processing' && pollingTimer !== null)
 const displayResultImageUrl = computed(() => localImageUrl.value || resultImageUrl.value)
@@ -292,7 +292,7 @@ function taskStatusVariant(value: TaskStatus | string) {
     >
       <template #actions>
         <Button variant="outline" size="sm" as-child>
-          <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'image' } }">
+          <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'image', view: 'create' } }">
             新建图片增强
           </NuxtLink>
         </Button>
@@ -456,7 +456,7 @@ function taskStatusVariant(value: TaskStatus | string) {
             class="mt-4"
             as-child
           >
-            <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'image' } }">
+            <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'image', view: 'create' } }">
               提交增强
             </NuxtLink>
           </Button>
