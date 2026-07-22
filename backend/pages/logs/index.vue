@@ -202,7 +202,7 @@
                 <div v-if="activeDetailTab !== 'raw'" class="log-detail-toolbar">
                   <span class="log-summary-label">{{ activePayloadViewLabel }}</span>
                   <n-radio-group v-model:value="activePayloadViewMode" size="small">
-                    <n-radio-button value="text">格式化文本</n-radio-button>
+                    <n-radio-button value="text">格式化</n-radio-button>
                     <n-radio-button value="json">原始 JSON</n-radio-button>
                   </n-radio-group>
                 </div>
@@ -217,10 +217,31 @@
                         :key="block.title"
                         class="log-text-block"
                       >
-                        <div class="log-block-title">{{ block.title }}</div>
+                        <div class="log-block-header">
+                          <div class="log-block-title">{{ block.title }}</div>
+                          <n-button size="tiny" quaternary @click="copyText(block.content, block.title)">复制</n-button>
+                        </div>
                         <pre>{{ block.content }}</pre>
                       </section>
-                      <div v-if="requestTextBlocks.length === 0" class="log-empty">无可读请求内容</div>
+                      <section v-if="requestMediaResources.length > 0" class="log-media-section">
+                        <div class="log-block-title">媒体资源（{{ requestMediaResources.length }}）</div>
+                        <div class="log-media-grid">
+                          <article v-for="item in requestMediaResources" :key="item.id" class="log-media-card">
+                            <div class="log-media-card-header">
+                              <div>
+                                <strong>{{ mediaKindLabel(item.kind) }}</strong>
+                                <span>{{ item.path }}</span>
+                              </div>
+                              <a v-if="item.url" :href="item.url" target="_blank" rel="noopener noreferrer">打开资源</a>
+                            </div>
+                            <img v-if="item.url && item.kind === 'image'" :src="item.url" alt="请求图片资源" loading="lazy">
+                            <video v-else-if="item.url && item.kind === 'video'" :src="item.url" controls preload="metadata" />
+                            <audio v-else-if="item.url && item.kind === 'audio'" :src="item.url" controls preload="metadata" />
+                            <div v-else class="log-media-unavailable">{{ item.note || '该媒体未保存可预览地址' }}</div>
+                          </article>
+                        </div>
+                      </section>
+                      <div v-if="requestTextBlocks.length === 0 && requestMediaResources.length === 0" class="log-empty">无可读请求内容</div>
                     </div>
                   </section>
                   <section v-else class="log-payload-panel">
@@ -245,47 +266,31 @@
                         :key="block.title"
                         class="log-text-block"
                       >
-                        <div class="log-block-title">{{ block.title }}</div>
-                        <div v-if="block.title === '结果地址' && responseResultUrl" class="log-result-output">
-                          <div class="log-result-link-row">
-                            <a
-                              :href="responseResultUrl"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              class="log-result-url"
-                            >{{ responseResultUrl }}</a>
-                            <a
-                              :href="responseResultUrl"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              class="log-result-open"
-                            >打开结果</a>
-                          </div>
-                          <img
-                            v-if="responseMediaKind === 'image'"
-                            :src="responseResultUrl"
-                            alt="模型响应图片"
-                            class="log-result-image"
-                            loading="lazy"
-                          >
-                          <video
-                            v-else-if="responseMediaKind === 'video'"
-                            :src="responseResultUrl"
-                            controls
-                            preload="metadata"
-                            class="log-result-video"
-                          />
-                          <audio
-                            v-else-if="responseMediaKind === 'audio'"
-                            :src="responseResultUrl"
-                            controls
-                            preload="metadata"
-                            class="log-result-audio"
-                          />
+                        <div class="log-block-header">
+                          <div class="log-block-title">{{ block.title }}</div>
+                          <n-button size="tiny" quaternary @click="copyText(block.content, block.title)">复制</n-button>
                         </div>
-                        <pre v-else>{{ block.content }}</pre>
+                        <pre>{{ block.content }}</pre>
                       </section>
-                      <div v-if="responseTextBlocks.length === 0" class="log-empty">无可读响应内容</div>
+                      <section v-if="responseMediaResources.length > 0" class="log-media-section">
+                        <div class="log-block-title">媒体资源（{{ responseMediaResources.length }}）</div>
+                        <div class="log-media-grid">
+                          <article v-for="item in responseMediaResources" :key="item.id" class="log-media-card">
+                            <div class="log-media-card-header">
+                              <div>
+                                <strong>{{ mediaKindLabel(item.kind) }}</strong>
+                                <span>{{ item.path }}</span>
+                              </div>
+                              <a v-if="item.url" :href="item.url" target="_blank" rel="noopener noreferrer">打开资源</a>
+                            </div>
+                            <img v-if="item.url && item.kind === 'image'" :src="item.url" alt="响应图片资源" loading="lazy">
+                            <video v-else-if="item.url && item.kind === 'video'" :src="item.url" controls preload="metadata" />
+                            <audio v-else-if="item.url && item.kind === 'audio'" :src="item.url" controls preload="metadata" />
+                            <div v-else class="log-media-unavailable">{{ item.note || '该媒体未保存可预览地址' }}</div>
+                          </article>
+                        </div>
+                      </section>
+                      <div v-if="responseTextBlocks.length === 0 && responseMediaResources.length === 0" class="log-empty">无可读响应内容</div>
                     </div>
                   </section>
                   <section v-else class="log-payload-panel">
@@ -386,6 +391,7 @@ interface ModelCallLog {
   error_json?: string
   request?: unknown
   response?: unknown
+  media_refs?: unknown
   error?: unknown
   [key: string]: unknown
 }
@@ -393,6 +399,16 @@ interface ModelCallLog {
 interface TextBlock {
   title: string
   content: string
+}
+
+type MediaKind = 'image' | 'audio' | 'video'
+
+interface MediaResource {
+  id: string
+  kind: MediaKind
+  path: string
+  url?: string
+  note?: string
 }
 
 interface AuditLog {
@@ -511,20 +527,8 @@ const activePayloadViewMode = computed<PayloadViewMode>({
 const selectedLogJson = computed(() => selectedLog.value ? stringifyJson(selectedLog.value) : '')
 const requestTextBlocks = computed(() => selectedLog.value ? readableBlocksFor(selectedLog.value.request, 'request') : [])
 const responseTextBlocks = computed(() => selectedLog.value ? readableBlocksFor(selectedLog.value.response, 'response') : [])
-const responseResultUrl = computed(() => responseTextBlocks.value.find(block => block.title === '结果地址')?.content || '')
-const responseMimeType = computed(() => responseTextBlocks.value.find(block => block.title === '媒体类型')?.content.toLowerCase() || '')
-const responseMediaKind = computed<'image' | 'video' | 'audio' | null>(() => {
-  const mimeType = responseMimeType.value
-  if (mimeType.startsWith('image/')) return 'image'
-  if (mimeType.startsWith('video/')) return 'video'
-  if (mimeType.startsWith('audio/')) return 'audio'
-
-  const path = responseResultUrl.value.toLowerCase().split(/[?#]/, 1)[0] || ''
-  if (/\.(png|jpe?g|gif|webp|avif|bmp)$/.test(path)) return 'image'
-  if (/\.(mp4|webm|mov|m4v)$/.test(path)) return 'video'
-  if (/\.(mp3|wav|ogg|m4a|aac|flac)$/.test(path)) return 'audio'
-  return null
-})
+const requestMediaResources = computed(() => mediaResourcesFor('request', selectedLog.value?.request))
+const responseMediaResources = computed(() => mediaResourcesFor('response', selectedLog.value?.response))
 const hasLogError = computed(() => Boolean(selectedLog.value && (
   selectedLog.value.error_message
   || hasContent(selectedLog.value.error)
@@ -731,6 +735,122 @@ function hasContent(value: unknown): boolean {
   if (Array.isArray(value)) return value.length > 0
   if (typeof value === 'object') return Object.keys(value).length > 0
   return true
+}
+
+function normalizeMediaUrl(value: string) {
+  const trimmed = value.trim()
+  const normalized = trimmed.startsWith('url:') ? trimmed.slice(4).trim() : trimmed
+  if (/^https?:\/\//i.test(normalized)) return normalized
+  if (/^data:(image|audio|video)\//i.test(normalized)) return normalized
+  if (/^\/(?!\/)/.test(normalized)) return normalized
+  return ''
+}
+
+function inferMediaKind(path: string, url = '', mimeType = ''): MediaKind | null {
+  const normalizedMime = mimeType.toLowerCase()
+  if (normalizedMime.startsWith('image/')) return 'image'
+  if (normalizedMime.startsWith('audio/')) return 'audio'
+  if (normalizedMime.startsWith('video/')) return 'video'
+
+  const lowerUrl = url.toLowerCase()
+  if (lowerUrl.startsWith('data:image/')) return 'image'
+  if (lowerUrl.startsWith('data:audio/')) return 'audio'
+  if (lowerUrl.startsWith('data:video/')) return 'video'
+
+  try {
+    const pathname = new URL(url, 'http://local').pathname.toLowerCase()
+    if (/\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/.test(pathname)) return 'image'
+    if (/\.(mp3|wav|m4a|aac|ogg|flac|opus)$/.test(pathname)) return 'audio'
+    if (/\.(mp4|webm|mov|mkv|avi|m4v|m3u8)$/.test(pathname)) return 'video'
+  } catch {
+    // Fall through to field-name inference.
+  }
+
+  const lowerPath = path.toLowerCase()
+  if (/(audio_url|reference_audio|input_audio|audio|voice|speech|sound)/.test(lowerPath)) return 'audio'
+  if (/(image_url|reference_image|image|avatar|thumbnail|cover|poster|picture|photo|first_frame|last_frame)/.test(lowerPath)) return 'image'
+  if (/(video_url|reference_video|video|movie|clip)/.test(lowerPath)) return 'video'
+  return null
+}
+
+function mediaKindLabel(kind: MediaKind) {
+  return { image: '图片', audio: '音频', video: '视频' }[kind]
+}
+
+function mediaResourcesFor(direction: 'request' | 'response', payload: unknown): MediaResource[] {
+  const resources: MediaResource[] = []
+  const dedupe = new Set<string>()
+  const seen = new WeakSet<object>()
+
+  function add(resource: Omit<MediaResource, 'id'>) {
+    const key = `${resource.kind}|${resource.url || ''}|${resource.path}`
+    if (dedupe.has(key)) return
+    dedupe.add(key)
+    resources.push({ ...resource, id: `${direction}-media-${resources.length + 1}` })
+  }
+
+  const persistedRefs = Array.isArray(selectedLog.value?.media_refs) ? selectedLog.value.media_refs : []
+  let persistedResourceCount = 0
+  for (const item of persistedRefs) {
+    if (!isRecord(item) || item.direction !== direction) continue
+    const path = typeof item.path === 'string' ? item.path : '$'
+    const url = typeof item.url === 'string' ? normalizeMediaUrl(item.url) : ''
+    const mimeType = typeof item.mimeType === 'string' ? item.mimeType : ''
+    const declaredKind = item.mediaType === 'image' || item.mediaType === 'audio' || item.mediaType === 'video'
+      ? item.mediaType
+      : null
+    const kind = declaredKind || inferMediaKind(path, url, mimeType)
+    if (!kind) continue
+    add({
+      kind,
+      path,
+      url: url || undefined,
+      note: typeof item.note === 'string' ? item.note : undefined
+    })
+    persistedResourceCount += 1
+  }
+
+  // Persisted refs are the canonical media index. Scanning the payload as well
+  // would list the same sanitized media object a second time at a child path.
+  if (persistedResourceCount > 0) return resources
+
+  function visit(value: unknown, path: string, depth: number) {
+    if (value == null || depth > 10) return
+    if (typeof value === 'string') {
+      const url = normalizeMediaUrl(value)
+      const kind = url ? inferMediaKind(path, url) : null
+      if (url && kind) add({ kind, path, url })
+      return
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, `${path}[${index}]`, depth + 1))
+      return
+    }
+    if (!isRecord(value) || seen.has(value)) return
+    seen.add(value)
+
+    const sanitizedKind = value.kind === 'data-url' || value.kind === 'large-media-or-inline-string'
+    if (sanitizedKind) {
+      const preview = typeof value.preview === 'string' ? value.preview : ''
+      const kind = inferMediaKind(path, preview)
+      if (kind) {
+        const chars = typeof value.chars === 'number' ? value.chars.toLocaleString() : ''
+        add({
+          kind,
+          path,
+          note: chars ? `媒体内容已脱敏，原始长度 ${chars} 字符` : '媒体内容已脱敏，无法预览'
+        })
+      }
+      return
+    }
+
+    for (const [key, child] of Object.entries(value)) {
+      visit(child, `${path}.${key}`, depth + 1)
+    }
+  }
+
+  visit(payload, '$', 0)
+  return resources
 }
 
 function stringifyJson(value: unknown) {
@@ -1470,49 +1590,73 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
-.log-result-output {
+.log-media-section {
   display: grid;
-  justify-items: start;
+  gap: 8px;
+}
+
+.log-media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 10px;
 }
 
-.log-result-link-row {
-  display: flex;
-  width: 100%;
+.log-media-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
   min-width: 0;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 6px;
-  background: #f6f7f9;
-}
-
-.log-result-url {
-  min-width: 0;
-  flex: 1;
-  overflow-wrap: anywhere;
-  color: #344054;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
-}
-
-.log-result-open {
-  flex: 0 0 auto;
-  color: #175cd3;
-  font-size: 12px;
-}
-
-.log-result-image,
-.log-result-video {
-  max-width: 100%;
-  max-height: 360px;
+  padding: 12px;
   border: 1px solid #e4e7ec;
   border-radius: 6px;
+  background: #f9fafb;
+}
+
+.log-media-card-header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  color: #344054;
+  font-size: 12px;
+}
+
+.log-media-card-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.log-media-card-header span {
+  overflow-wrap: anywhere;
+  color: #667085;
+}
+
+.log-media-card-header a {
+  flex: 0 0 auto;
+  color: #175cd3;
+}
+
+.log-media-card img,
+.log-media-card video {
+  width: 100%;
+  max-height: 360px;
+  border-radius: 4px;
+  background: #111827;
   object-fit: contain;
 }
 
-.log-result-audio {
-  width: min(100%, 520px);
+.log-media-card audio {
+  width: 100%;
+}
+
+.log-media-unavailable {
+  padding: 12px;
+  border: 1px dashed #d0d5dd;
+  border-radius: 4px;
+  color: #667085;
+  font-size: 12px;
 }
 
 .log-payload-panel {
@@ -1556,6 +1700,14 @@ onBeforeUnmount(() => {
 .log-payload-body .log-text-block pre {
   min-height: 0;
   max-height: none;
+}
+
+.log-block-header {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .log-block-title {

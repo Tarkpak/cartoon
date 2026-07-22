@@ -1,5 +1,6 @@
 import { mergeNarrationTexts } from '~/lib/asset-workbench-scenes'
 import { normalizeCharacterName } from '~/lib/asset-workbench-values'
+import { formatSceneDescriptionTimelineBreaks } from '~/lib/scene-description-format'
 import { normalizeCharacterGenderText, normalizeCharacterRoleText } from '#shared/types/character'
 import type {
   SceneCameraMovement,
@@ -309,7 +310,9 @@ function stripDramaticMetadataFromDescription(description: string): string {
 }
 
 function normalizeTimelineLinePunctuation(description: string): string {
-  return description.replace(/(秒\s*[：:])\s*[，,]\s*/gu, '$1')
+  return formatSceneDescriptionTimelineBreaks(
+    description.replace(/(秒\s*[：:])\s*[，,]\s*/gu, '$1')
+  )
 }
 
 function normalizeSceneDescription(description: string, dramatic?: SceneDramatic): string {

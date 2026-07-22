@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { resolveTimeOfDayText } from '#shared/types/script'
-import { History, Loader2, Merge, MessageCircle, Split, Trash2 } from 'lucide-vue-next'
+import { ChevronDown, History, Loader2, Merge, MessageCircle, SlidersHorizontal, Split, Trash2 } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
@@ -144,6 +143,7 @@ const sceneNarrationVoiceOptions = computed(() => {
 const sceneNarrationVoiceReferenceSelection = computed(() => {
   return props.resolveSceneNarrationVoiceReferenceSelection(props.scene.id) || '__auto__'
 })
+const generationSettingsOpen = ref(false)
 
 function handleSetSceneEnvironmentCaptureMode(mode: '单视角' | '四视角') {
   props.onSetSceneEnvironmentCaptureMode(props.scene.id, mode)
@@ -312,186 +312,156 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
     </div>
 
     <div
-      v-if="voiceReferenceSummary.hasDialogue || hasNarration"
-      class="mt-2 rounded-md border bg-muted/20 px-2 py-2"
+      v-if="generationSettingsOpen"
+      class="mt-2 overflow-hidden rounded-md border bg-muted/15"
       @click.stop
     >
-      <AssetWorkbenchSceneVoiceReferenceSummary
-        v-if="voiceReferenceSummary.hasDialogue"
-        :summary="voiceReferenceSummary"
-      />
       <div
-        v-if="hasNarration"
-        class="mt-1 flex flex-wrap items-center gap-1.5"
+        v-if="voiceReferenceSummary.hasDialogue || hasNarration"
+        class="grid min-h-10 grid-cols-[64px_minmax(0,1fr)] items-center gap-2 px-2.5 py-1.5"
       >
-        <Badge
-          variant="outline"
-          class="text-xs"
-        >
-          旁白音频
-        </Badge>
-        <Select
-          :model-value="sceneNarrationVoiceReferenceSelection"
-          @update:model-value="handleSetSceneNarrationVoiceReference"
-        >
-          <SelectTrigger
-            class="h-6 min-w-[168px] max-w-[240px] px-2 text-xs"
-            :disabled="sceneBusy || sceneNarrationVoiceOptions.length === 0"
+        <span class="text-xs font-medium text-muted-foreground">音频参考</span>
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <AssetWorkbenchSceneVoiceReferenceSummary
+            v-if="voiceReferenceSummary.hasDialogue && voiceReferenceSummary.mode !== 'none'"
+            :summary="voiceReferenceSummary"
+          />
+          <div
+            v-if="hasNarration && sceneNarrationVoiceOptions.length > 0"
+            class="flex flex-wrap items-center gap-2"
           >
-            <SelectValue placeholder="自动选择" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__auto__">
-              自动选择（按场景）
-            </SelectItem>
-            <SelectItem
-              v-for="option in sceneNarrationVoiceOptions"
-              :key="`scene_narration_voice_${scene.id}_${option.assetId}`"
-              :value="option.assetId"
+            <span class="text-xs text-muted-foreground">旁白</span>
+            <Select
+              :model-value="sceneNarrationVoiceReferenceSelection"
+              @update:model-value="handleSetSceneNarrationVoiceReference"
             >
-              <div class="flex items-center gap-1">
-                <span class="truncate">
-                  {{ option.name }}
-                </span>
-                <span
-                  v-if="option.source === 'auto'"
-                  class="shrink-0 text-xs text-muted-foreground"
+              <SelectTrigger
+                class="h-7 w-[220px] max-w-full px-2 text-xs"
+                :disabled="sceneBusy"
+              >
+                <SelectValue placeholder="自动选择" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__auto__">
+                  自动选择（按场景）
+                </SelectItem>
+                <SelectItem
+                  v-for="option in sceneNarrationVoiceOptions"
+                  :key="`scene_narration_voice_${scene.id}_${option.assetId}`"
+                  :value="option.assetId"
                 >
-                  自动
-                </span>
-                <span
-                  v-if="option.locked"
-                  class="shrink-0 text-xs text-amber-600"
-                >
-                  锁定
-                </span>
-              </div>
-            </SelectItem>
-          </SelectContent>
-        </Select>
-        <span
-          v-if="sceneNarrationVoiceOptions.length === 0"
-          class="text-xs text-muted-foreground"
-        >
-          暂无可用旁白音频
-        </span>
+                  <div class="flex items-center gap-1">
+                    <span class="truncate">{{ option.name }}</span>
+                    <span
+                      v-if="option.source === 'auto'"
+                      class="shrink-0 text-xs text-muted-foreground"
+                    >自动</span>
+                    <span
+                      v-if="option.locked"
+                      class="shrink-0 text-xs text-amber-600"
+                    >锁定</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <span
+            v-if="voiceReferenceSummary.mode === 'none' && sceneNarrationVoiceOptions.length === 0"
+            class="text-xs text-muted-foreground"
+          >暂无可用参考</span>
+        </div>
       </div>
-    </div>
 
-    <Button
-      v-if="activeModeReferenceImage"
-      type="button"
-      variant="ghost"
-      class="mt-3 inline-flex h-auto rounded-lg border bg-muted/20 p-2 hover:bg-muted/30"
-      @click.stop="onPreviewImage(activeModeReferenceImage, `${scene.title} · 环境图`)"
-    >
-      <LazyImage
-        :key="activeModeReferenceImage"
-        :image="activeModeReferenceImage"
-        :alt="`${scene.title} 环境图`"
-        class="h-12 w-12 shrink-0 rounded-md border object-cover"
-      />
-    </Button>
-
-    <div
-      class="mt-2 flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 px-2 py-2"
-      @click.stop
-    >
-      <span class="text-xs text-muted-foreground">环境引用视图</span>
-      <Select
-        :model-value="sceneEnvironmentReferenceAssetSelection"
-        @update:model-value="handleSetSceneEnvironmentReferenceAsset"
+      <div
+        class="grid min-h-10 grid-cols-[64px_minmax(0,1fr)] items-center gap-2 border-t px-2.5 py-1.5"
+        :class="voiceReferenceSummary.hasDialogue || hasNarration ? '' : 'border-t-0'"
       >
-        <SelectTrigger
-          class="h-6 min-w-[168px] max-w-[220px] px-2 text-xs"
-          :disabled="sceneBusy"
-        >
-          <SelectValue placeholder="选择环境资产" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__auto__">
-            自动（按场景环境）
-          </SelectItem>
-          <SelectItem
-            v-for="asset in sceneEnvironmentAssetOptions"
-            :key="`scene_env_asset_${scene.id}_${asset.id}`"
-            :value="asset.id"
+        <span class="text-xs font-medium text-muted-foreground">环境引用</span>
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <Button
+            v-if="activeModeReferenceImage"
+            type="button"
+            variant="ghost"
+            class="h-7 w-7 shrink-0 rounded border p-0"
+            title="预览当前环境引用图"
+            @click.stop="onPreviewImage(activeModeReferenceImage, `${scene.title} · 环境图`)"
           >
-            <div class="flex items-center gap-2">
-              <LazyImage
-                v-if="asset.previewImage"
-                :image="asset.previewImage"
-                :alt="`${asset.label} 预览`"
-                class="h-5 w-5 rounded border object-cover"
-              />
-              <span class="truncate">
-                {{ asset.label }}{{ asset.hasReference ? '' : '（未就绪）' }}
-              </span>
-            </div>
-          </SelectItem>
-        </SelectContent>
-      </Select>
-      <Button
-        size="sm"
-        class="h-6 px-2 text-xs"
-        :variant="sceneEnvironmentCaptureMode === '单视角' ? 'default' : 'outline'"
-        :disabled="sceneBusy"
-        @click.stop="handleSetSceneEnvironmentCaptureMode('单视角')"
-      >
-        单视图
-      </Button>
-      <Button
-        size="sm"
-        class="h-6 px-2 text-xs"
-        :variant="sceneEnvironmentCaptureMode === '四视角' ? 'default' : 'outline'"
-        :disabled="sceneBusy"
-        @click.stop="handleSetSceneEnvironmentCaptureMode('四视角')"
-      >
-        四视图
-      </Button>
-    </div>
-    <div class="mt-2 flex flex-wrap gap-1">
-      <Badge
-        v-if="scene.setting?.location"
-        variant="outline"
-        class="text-xs"
-      >
-        {{ scene.setting.location }}
-      </Badge>
-      <Badge
-        v-if="scene.setting?.timeOfDay"
-        variant="outline"
-        class="text-xs"
-      >
-        {{ resolveTimeOfDayText(scene.setting.timeOfDay) }}
-      </Badge>
-      <Badge
-        variant="outline"
-        class="text-xs"
-      >
-        {{ scene.duration }}s
-      </Badge>
-    </div>
-
-    <div
-      v-if="index > 0"
-      class="mt-3 flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-2 py-2"
-      :title="continuitySwitchTitle"
-      @click.stop
-    >
-      <div class="min-w-0">
-        <div class="text-xs font-medium">
-          承接上一镜头末帧
-        </div>
-        <div class="truncate text-xs text-muted-foreground">
-          {{ continuityLinkReason || (canUsePreviousLastFrameReference ? '生成时使用上一镜头末帧作为首帧参考' : '上一镜头末帧生成后自动生效') }}
+            <LazyImage
+              :key="activeModeReferenceImage"
+              :image="activeModeReferenceImage"
+              :alt="`${scene.title} 环境图`"
+              class="h-full w-full rounded object-cover"
+            />
+          </Button>
+          <Select
+            :model-value="sceneEnvironmentReferenceAssetSelection"
+            @update:model-value="handleSetSceneEnvironmentReferenceAsset"
+          >
+            <SelectTrigger
+              class="h-7 min-w-[180px] max-w-[280px] flex-1 px-2 text-xs"
+              :disabled="sceneBusy"
+            >
+              <SelectValue placeholder="选择环境资产" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__auto__">
+                自动（按场景环境）
+              </SelectItem>
+              <SelectItem
+                v-for="asset in sceneEnvironmentAssetOptions"
+                :key="`scene_env_asset_${scene.id}_${asset.id}`"
+                :value="asset.id"
+              >
+                <div class="flex items-center gap-2">
+                  <LazyImage
+                    v-if="asset.previewImage"
+                    :image="asset.previewImage"
+                    :alt="`${asset.label} 预览`"
+                    class="h-5 w-5 rounded border object-cover"
+                  />
+                  <span class="truncate">
+                    {{ asset.label }}{{ asset.hasReference ? '' : '（未就绪）' }}
+                  </span>
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <div class="inline-flex h-7 shrink-0 overflow-hidden rounded-md border bg-background p-0.5">
+            <Button
+              size="sm"
+              variant="ghost"
+              class="h-6 rounded px-2 text-xs"
+              :class="sceneEnvironmentCaptureMode === '单视角' ? 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground' : ''"
+              :disabled="sceneBusy"
+              @click.stop="handleSetSceneEnvironmentCaptureMode('单视角')"
+            >单视图</Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              class="h-6 rounded px-2 text-xs"
+              :class="sceneEnvironmentCaptureMode === '四视角' ? 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground' : ''"
+              :disabled="sceneBusy"
+              @click.stop="handleSetSceneEnvironmentCaptureMode('四视角')"
+            >四视图</Button>
+          </div>
         </div>
       </div>
-      <Switch
-        :checked="usePreviousLastFrameAsFirstFrame"
-        :disabled="sceneBusy"
-        @update:checked="(checked) => onSetScenePreviousLastFrameReference(scene.id, checked)"
-      />
+
+      <div
+        v-if="index > 0"
+        class="grid min-h-10 grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-2 border-t px-2.5 py-1.5"
+        :title="continuitySwitchTitle"
+      >
+        <span class="text-xs font-medium text-muted-foreground">镜头承接</span>
+        <span class="truncate text-xs text-muted-foreground">
+          {{ continuityLinkReason || (canUsePreviousLastFrameReference ? '使用上一镜头末帧作为首帧参考' : '上一镜头末帧生成后自动生效') }}
+        </span>
+        <Switch
+          :checked="usePreviousLastFrameAsFirstFrame"
+          :disabled="sceneBusy"
+          @update:checked="(checked) => onSetScenePreviousLastFrameReference(scene.id, checked)"
+        />
+      </div>
     </div>
 
     <div class="mt-3 flex items-center gap-2">
@@ -529,6 +499,20 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       >
         <History class="mr-1 h-3.5 w-3.5" />
         历史 {{ sceneVideoHistoryCount }}
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        class="ml-auto h-7 px-2 text-xs text-muted-foreground"
+        :aria-expanded="generationSettingsOpen"
+        @click.stop="generationSettingsOpen = !generationSettingsOpen"
+      >
+        <SlidersHorizontal class="mr-1 h-3.5 w-3.5" />
+        生成设置
+        <ChevronDown
+          class="ml-1 h-3.5 w-3.5 transition-transform"
+          :class="generationSettingsOpen ? 'rotate-180' : ''"
+        />
       </Button>
     </div>
 

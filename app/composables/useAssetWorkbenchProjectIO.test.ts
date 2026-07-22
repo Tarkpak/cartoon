@@ -37,12 +37,13 @@ function createCharacter(id: string): CharacterData {
   }
 }
 
-function createLoadResponse() {
+function createLoadResponse(input: { id?: string, name?: string } = {}) {
+  const responseProjectId = input.id || projectId
   return {
     success: true,
     data: {
       project: {
-        name: '项目 A',
+        name: input.name || '项目 A',
         description: '测试描述',
         scriptParseMode: DEFAULT_SCRIPT_PARSE_MODE,
         styleId: 'style_a',
@@ -57,7 +58,7 @@ function createLoadResponse() {
       },
       scenes: [
         {
-          id: `scene_${projectId}_scene_1`,
+          id: `scene_${responseProjectId}_scene_1`,
           title: '场景 1',
           description: '夜晚，主角推门进入。',
           duration: 8,
@@ -66,7 +67,7 @@ function createLoadResponse() {
       ],
       characters: [
         {
-          id: `char_${projectId}_char_1`,
+          id: `char_${responseProjectId}_char_1`,
           name: '主角',
           appearance: '黑色风衣，短发'
         }
@@ -194,6 +195,29 @@ describe('useAssetWorkbenchProjectIO', () => {
       return (options as FetchOptions | undefined)?.method === 'PUT'
     })
     expect(putCalls).toHaveLength(1)
+  })
+
+  it('ignores an older project response that arrives after the current project', async () => {
+    let resolveOlderLoad: ((value: ReturnType<typeof createLoadResponse>) => void) | undefined
+    const olderLoad = new Promise<ReturnType<typeof createLoadResponse>>((resolve) => {
+      resolveOlderLoad = resolve
+    })
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === '/api/project/project_old') return await olderLoad
+      if (url === '/api/project/project_new') {
+        return createLoadResponse({ id: 'project_new', name: '新项目' })
+      }
+      throw new Error(`Unexpected fetch call: ${url}`)
+    })
+
+    const { io, state } = createProjectIO()
+    const oldRequest = io.loadProject('project_old')
+    await io.loadProject('project_new')
+    resolveOlderLoad?.(createLoadResponse({ id: 'project_old', name: 'aaa' }))
+    await oldRequest
+
+    expect(state.projectName.value).toBe('新项目')
+    expect(state.scenes.value[0]?.id).toBe('scene_project_new_scene_1')
   })
 
   it('serializes overlapping saves so an older snapshot cannot overwrite a generated video', async () => {

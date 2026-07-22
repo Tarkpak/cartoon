@@ -17,6 +17,7 @@ import {
 import { resetFileInput } from '~/lib/asset-workbench-upload'
 import { resolveChatUploadAssetName } from '~/lib/asset-workbench-scene-chat'
 import { toImageSrc } from '~/lib/media'
+import { formatSceneDescriptionTimelineBreaks } from '~/lib/scene-description-format'
 
 const props = defineProps<{
   open: boolean
@@ -228,11 +229,11 @@ watch(() => props.scene, (newScene) => {
     const selectedAssetReferenceIds = Array.isArray(props.selectedAssetReferenceIds)
       ? props.selectedAssetReferenceIds.filter(Boolean)
       : []
-    const restoredDescription = restoreSceneDescriptionMentionsForEdit({
+    const restoredDescription = formatSceneDescriptionTimelineBreaks(restoreSceneDescriptionMentionsForEdit({
       text: newScene.description || '',
       candidates: mentionCandidates,
       selectedAssetReferenceIds
-    })
+    }))
 
     editForm.value = {
       id: newScene.id,

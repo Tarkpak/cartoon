@@ -332,8 +332,9 @@ fn collect_model_log_media_refs(value: &Value, direction: &str, refs: &mut Vec<V
                         .strip_prefix("data:")
                         .and_then(|value| value.split([';', ',']).next()),
                       "originalLength": url.len(),
-                      "status": "skipped",
-                      "note": "内嵌媒体内容未写入媒体索引"
+                      "url": trimmed,
+                      "status": "ready",
+                      "note": "内嵌媒体内容已保存，可直接预览"
                     }));
                     return;
                 }
@@ -589,11 +590,15 @@ fn llm_dev_write_db_log_impl(
     let response_raw_value = response_raw.map(llm_dev_file_response_raw_value);
     let error_value = error.map(|message| json!({ "message": message }));
     let mut media_refs = Vec::new();
-    if let Some(value) = request_value.as_ref() {
+    if let Some(value) = request {
         collect_model_log_media_refs(value, "request", &mut media_refs);
     }
-    if let Some(value) = response_value.as_ref().or(response_raw_value.as_ref()) {
+    if let Some(value) = response {
         collect_model_log_media_refs(value, "response", &mut media_refs);
+    } else if let Some(raw) = response_raw {
+        let raw_value = serde_json::from_str::<Value>(raw)
+            .unwrap_or_else(|_| Value::String(raw.to_string()));
+        collect_model_log_media_refs(&raw_value, "response", &mut media_refs);
     }
     let log_payload = json!({
       "eventId": log_id.clone(),
@@ -9832,13 +9837,65 @@ async fn normalize_grok_video_image_url(
     if normalized.is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "视频参考图不能为空"));
     }
-    if is_http_url(normalized) || normalized.starts_with("data:") {
-        return Ok(normalized.to_string());
-    }
+
     let (bytes, mime_type) = resolve_source_bytes(state, normalized, 35 * 1024 * 1024).await?;
+    let detected_mime_type = detect_image_proxy_mime_type(&bytes);
+    let mime_type = mime_type
+        .as_deref()
+        .filter(|value| value.starts_with("image/"))
+        .or(detected_mime_type)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "Grok 视频参考图格式无效"))?;
+
     Ok(format!(
         "data:{};base64,{}",
-        mime_type.unwrap_or_else(|| "image/png".to_string()),
+        mime_type,
+        BASE64_STANDARD.encode(bytes)
+    ))
+}
+
+async fn normalize_video_image_url_for_provider(
+    state: &BackendState,
+    value: &str,
+) -> Result<String, ApiError> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "视频参考图不能为空"));
+    }
+    if normalized.starts_with("asset://") {
+        return Ok(normalized.to_string());
+    }
+
+    let tos_config = load_backend_tos_config();
+    if is_current_tos_public_url(&tos_config, normalized)
+        || (is_http_url(normalized) && !tos_config.enabled)
+    {
+        return Ok(normalized.to_string());
+    }
+
+    let (bytes, mime_type) = resolve_source_bytes(state, normalized, 35 * 1024 * 1024).await?;
+    let mime_type = mime_type
+        .filter(|value| value.starts_with("image/"))
+        .unwrap_or_else(|| {
+            detect_image_proxy_mime_type(&bytes)
+                .unwrap_or("image/png")
+                .to_string()
+        });
+    if tos_config.enabled {
+        let hosted_url =
+            persist_image_bytes_async(state, "video-reference", Some(&mime_type), "png", bytes)
+                .await?;
+        if !is_http_url(&hosted_url) {
+            return Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "视频参考图上传到 TOS 后未返回公网 URL",
+            ));
+        }
+        return Ok(hosted_url);
+    }
+
+    Ok(format!(
+        "data:{};base64,{}",
+        mime_type,
         BASE64_STANDARD.encode(bytes)
     ))
 }
@@ -9929,6 +9986,39 @@ async fn build_grok_video_request(
     Ok(request)
 }
 
+fn build_grok_video_log_request(request: &Value, config: &Value) -> Value {
+    let mut log_request = request.clone();
+    let references = config
+        .get("referenceImages")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(trimmed_json_string)
+        .collect::<Vec<_>>();
+
+    if let Some(log_references) = log_request
+        .get_mut("reference_images")
+        .and_then(Value::as_array_mut)
+    {
+        for (item, original_url) in log_references.iter_mut().zip(references.iter()) {
+            if let Some(object) = item.as_object_mut() {
+                object.insert("url".to_string(), json!(original_url));
+            }
+        }
+    }
+
+    if let Some(image) = log_request.get_mut("image").and_then(Value::as_object_mut) {
+        let original_url = optional_trimmed_json_string(config.get("imageUrl"))
+            .or_else(|| optional_trimmed_json_string(config.get("firstFrame")))
+            .or_else(|| references.first().cloned());
+        if let Some(original_url) = original_url {
+            image.insert("url".to_string(), json!(original_url));
+        }
+    }
+
+    log_request
+}
+
 fn grok_video_error_message(payload: &Value) -> String {
     payload
         .get("error")
@@ -9984,6 +10074,7 @@ async fn submit_grok_video_task(
             );
             error.message
         })?;
+    let log_request_body = build_grok_video_log_request(&request_body, config);
     let response = llm_http_client()
         .post(&endpoint)
         .bearer_auth(api_key)
@@ -10000,7 +10091,7 @@ async fn submit_grok_video_task(
                 "error",
                 log_started_at,
                 Some(endpoint.as_str()),
-                Some(&request_body),
+                Some(&log_request_body),
                 None,
                 None,
                 Some(message.as_str()),
@@ -10017,7 +10108,7 @@ async fn submit_grok_video_task(
             "error",
             log_started_at,
             Some(endpoint.as_str()),
-            Some(&request_body),
+            Some(&log_request_body),
             None,
             None,
             Some(message.as_str()),
@@ -10033,7 +10124,7 @@ async fn submit_grok_video_task(
             "error",
             log_started_at,
             Some(endpoint.as_str()),
-            Some(&request_body),
+            Some(&log_request_body),
             None,
             Some(body_text.as_str()),
             Some(message.as_str()),
@@ -10053,7 +10144,7 @@ async fn submit_grok_video_task(
             "error",
             log_started_at,
             Some(endpoint.as_str()),
-            Some(&request_body),
+            Some(&log_request_body),
             None,
             Some(body_text.as_str()),
             Some(message.as_str()),
@@ -10076,7 +10167,7 @@ async fn submit_grok_video_task(
                 "error",
                 log_started_at,
                 Some(endpoint.as_str()),
-                Some(&request_body),
+                Some(&log_request_body),
                 Some(&payload),
                 Some(body_text.as_str()),
                 Some(message.as_str()),
@@ -10091,12 +10182,12 @@ async fn submit_grok_video_task(
         "task",
         log_started_at,
         Some(endpoint.as_str()),
-        Some(&request_body),
+        Some(&log_request_body),
         Some(&json!({ "taskId": request_id.as_str() })),
         Some(body_text.as_str()),
         None,
     );
-    Ok((request_id, request_body))
+    Ok((request_id, log_request_body))
 }
 
 async fn poll_grok_video_task<F>(
@@ -10618,40 +10709,11 @@ fn workflow_image_generation_options(
     )
 }
 
-fn is_remote_video_image_url(value: &str) -> bool {
-    is_http_url(value) || value.starts_with("data:image/") || value.starts_with("asset://")
-}
-
 async fn normalize_volcengine_video_image_url(
     state: &BackendState,
     value: &str,
 ) -> Result<String, ApiError> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() || is_remote_video_image_url(trimmed) {
-        return Ok(trimmed.to_string());
-    }
-    let (bytes, mime) = resolve_source_bytes(state, trimmed, 35 * 1024 * 1024).await?;
-    let mime = mime
-        .filter(|value| value.starts_with("image/"))
-        .unwrap_or_else(|| {
-            detect_image_proxy_mime_type(&bytes)
-                .unwrap_or("image/png")
-                .to_string()
-        });
-    if load_backend_tos_config().enabled {
-        let ext = infer_extension_from_mime(&mime, "png");
-        let filename = build_unique_filename("video-reference", &ext);
-        if let Some(url) =
-            upload_media_bytes_to_tos_async("images", filename, bytes.clone()).await?
-        {
-            return Ok(url);
-        }
-    }
-    Ok(format!(
-        "data:{};base64,{}",
-        mime,
-        BASE64_STANDARD.encode(bytes)
-    ))
+    normalize_video_image_url_for_provider(state, value).await
 }
 
 async fn normalize_volcengine_video_config_images(
@@ -13838,7 +13900,7 @@ mod tests {
     }
 
     #[test]
-    fn model_log_media_refs_do_not_copy_inline_audio() {
+    fn model_log_media_refs_preserve_inline_audio_for_preview() {
         let mut refs = Vec::new();
         collect_model_log_media_refs(
             &json!({ "audioUrl": "data:audio/mpeg;base64,AAAA" }),
@@ -13848,8 +13910,8 @@ mod tests {
 
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0]["mediaType"], "audio");
-        assert_eq!(refs[0]["status"], "skipped");
-        assert!(refs[0].get("url").is_none());
+        assert_eq!(refs[0]["status"], "ready");
+        assert_eq!(refs[0]["url"], "data:audio/mpeg;base64,AAAA");
     }
 
     #[test]
@@ -13939,6 +14001,44 @@ mod tests {
             provider_video_task_endpoint("http://localhost:8317/v1", "request id"),
             "http://localhost:8317/v1/videos/request%20id"
         );
+    }
+
+    #[test]
+    fn grok_video_logs_original_reference_urls_without_duplicate_inline_media() {
+        let request = json!({
+          "model": "grok-imagine-video",
+          "reference_images": [
+            { "url": "data:image/jpeg;base64,AAAA" },
+            { "url": "data:image/png;base64,BBBB" },
+            { "url": "data:image/png;base64,CCCC" }
+          ]
+        });
+        let config = json!({
+          "referenceImages": [
+            "https://cdn.example.com/environment.jpg",
+            "https://cdn.example.com/character.png",
+            "https://cdn.example.com/prop.png"
+          ]
+        });
+
+        let log_request = build_grok_video_log_request(&request, &config);
+        assert_eq!(
+            log_request["reference_images"][0]["url"],
+            "https://cdn.example.com/environment.jpg"
+        );
+        assert_eq!(
+            log_request["reference_images"][1]["url"],
+            "https://cdn.example.com/character.png"
+        );
+        assert_eq!(
+            log_request["reference_images"][2]["url"],
+            "https://cdn.example.com/prop.png"
+        );
+
+        let mut refs = Vec::new();
+        collect_model_log_media_refs(&log_request, "request", &mut refs);
+        assert_eq!(refs.len(), 3);
+        assert!(refs.iter().all(|item| item["status"] == "ready"));
     }
 
     #[test]

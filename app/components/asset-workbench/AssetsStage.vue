@@ -19,12 +19,10 @@ const props = defineProps<{
   environmentAssetCards: EnvironmentAssetCard[]
   propAssets: PropAsset[]
   autoRunning: boolean
-  autoRunCurrentStage: AutoStageKey | null
   parseStageLabel?: string
   characterReadyCount: number
   characterGeneratingCount: number
   characterMissingCount: number
-  assetsPrimaryActionLabel: string
   editingCharacterId: string | null
   characterEditDraft: {
     id: string
@@ -49,8 +47,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'run-assets': []
-  'generate-characters': []
   'select-stage': [stage: AutoStageKey]
   'preview-image': [payload: { src: string | undefined, alt: string }]
   'start-character-edit': [character: CharacterData]
@@ -122,7 +118,7 @@ const hasSeedAssets = computed(() => {
     </p>
   </div>
   <template v-else>
-    <!-- Status bar & actions -->
+    <!-- Status bar -->
     <div class="shrink-0 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div
         class="flex items-center gap-4"
@@ -159,30 +155,6 @@ const hasSeedAssets = computed(() => {
         >
           当前展示的是分集目录提取的资产候选
         </div>
-      </div>
-
-      <div class="flex items-center gap-2">
-        <Button
-          size="sm"
-          :disabled="autoRunning || scenesCount === 0"
-          class="gap-2"
-          @click="emit('run-assets')"
-        >
-          <Loader2
-            v-if="autoRunning && autoRunCurrentStage === 'assets'"
-            class="h-3.5 w-3.5 animate-spin"
-          />
-          {{ assetsPrimaryActionLabel }}
-        </Button>
-        <Button
-          v-if="characterMissingCount > 0"
-          size="sm"
-          variant="outline"
-          :disabled="autoRunning || characters.length === 0"
-          @click="emit('generate-characters')"
-        >
-          仅生成角色图
-        </Button>
       </div>
     </div>
 

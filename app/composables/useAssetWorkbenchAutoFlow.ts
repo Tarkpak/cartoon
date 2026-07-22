@@ -1,4 +1,4 @@
-import type { ComputedRef, Ref } from 'vue'
+import { ref, watch, type ComputedRef, type Ref } from 'vue'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
   AutoStageKey,
@@ -135,14 +135,17 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
     }
   }
 
-  onMounted(async () => {
-    const id = options.projectId.value || options.route.query.project
-    if (!id || typeof id !== 'string') {
-      await options.router.push('/projects')
-      return
+  async function initializeProject(id: string) {
+    const initializingProjectId = id
+    const isCurrentProjectRoute = () => {
+      return options.route.path === '/asset-workbench'
+        && options.projectId.value === initializingProjectId
     }
 
     await options.loadProject(id)
+
+    // Ignore initialization work that belongs to a project the user has left.
+    if (!isCurrentProjectRoute()) return
 
     if (!options.selectedStyleId.value && options.projectStyleId.value) {
       options.selectedStyleId.value = options.projectStyleId.value
@@ -150,9 +153,13 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
 
     const hasMeta = await options.loadWorkflowMeta(options.projectAssetWorkflow.value)
 
+    if (!isCurrentProjectRoute()) return
+
     await options.persistAutomaticAssetPlan({
       overwriteExistingConfigs: !hasMeta
     })
+
+    if (!isCurrentProjectRoute()) return
 
     const stageFromRoute = normalizeRouteAutoStage(options.route.query.stage)
     if (stageFromRoute) {
@@ -163,15 +170,35 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
 
     if (options.scenes.value.length > 0) {
       selectAutoStage(inferActiveAutoStage({
-        hasScenes: options.scenes.value.length > 0,
+        hasScenes: true,
         assetsReady: options.assetsReady.value,
         queueSummary: options.queueSummary.value
       }))
       options.selectedSceneId.value = options.scenes.value[0]?.id || ''
     } else {
       selectAutoStage('parse')
+      options.selectedSceneId.value = ''
     }
-  })
+  }
+
+  watch(() => [options.route.path, options.projectId.value] as const, async ([path, id]) => {
+    if (path !== '/asset-workbench') return
+
+    if (!id || typeof id !== 'string') {
+      await options.router.push('/projects')
+      return
+    }
+
+    await initializeProject(id)
+  }, { immediate: true })
+
+  watch(
+    () => options.route.query.stage,
+    (stage) => {
+      const normalizedStage = normalizeRouteAutoStage(stage)
+      if (normalizedStage) selectAutoStage(normalizedStage)
+    }
+  )
 
   return {
     autoRunning,

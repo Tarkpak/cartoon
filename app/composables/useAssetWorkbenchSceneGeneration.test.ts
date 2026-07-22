@@ -28,6 +28,13 @@ function keepCurrentVideoInHistory(scene: SceneData) {
 
 vi.mock('~/lib/asset-workbench-scene-generation', async () => {
   return {
+    isRetryableVideoImageDownloadError: (error: unknown) => {
+      const message = (error instanceof Error ? error.message : String(error || '')).toLowerCase()
+      return message.includes('image_download_error')
+        || message.includes('image_download_interrupted')
+        || message.includes('failed to download the provided image')
+        || message.includes('connection dropped while downloading the image')
+    },
     buildAssetWorkflowScenePayload: (options: {
       scene: SceneData
       scenes: SceneData[]

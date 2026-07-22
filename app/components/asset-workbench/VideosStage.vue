@@ -3,7 +3,6 @@ import { ChevronLeft, ChevronRight, FileDown, Loader2, Play } from 'lucide-vue-n
 import type { ScriptParseMode } from '#shared/types/script'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
-  AutoStageKey,
   DisplayAsset,
   QueueSummary,
   SceneChatMentionCandidate,
@@ -65,7 +64,6 @@ const props = defineProps<{
   selectedScene: SceneData | null
   queueSummary: QueueSummary
   autoRunning: boolean
-  autoRunCurrentStage: AutoStageKey | null
   parsing: boolean
   parseProgressMessage?: string | null
   sceneChatOpenSceneId: string | null
@@ -115,10 +113,7 @@ const props = defineProps<{
   setSceneChatInputRef: (element: unknown) => void
   setSceneChatMentionListRef: (element: unknown) => void
   setSceneChatComposerText: (value: string) => void
-  onRunVideosStep: () => void
-  onRunEpisodeVideosStep: (episodeId: string) => void
   onExportFormattedScriptDocx: () => void
-  onRetryFailedQueueItems: () => void
   onParseEpisode: (episodeId: string) => void | Promise<void>
   onSelectScene: (sceneId: string) => void
   onOpenSceneEdit: (scene: SceneData) => void
@@ -306,10 +301,6 @@ watch(selectedEpisodeId, () => {
   parseEpisodeError.value = ''
 })
 
-const selectedEpisodeTitle = computed(() => {
-  return episodeDirectoryMap.value.get(selectedEpisodeId.value)?.title || '当前集'
-})
-
 const selectedEpisodeDirectoryItem = computed(() => {
   return episodeDirectoryMap.value.get(selectedEpisodeId.value) || null
 })
@@ -418,11 +409,6 @@ const sceneIndexMap = computed(() => {
 
 function resolveSceneGlobalIndex(sceneId: string): number {
   return sceneIndexMap.value.get(sceneId) ?? -1
-}
-
-function handleRunCurrentEpisodeVideos() {
-  if (!selectedEpisodeId.value) return
-  props.onRunEpisodeVideosStep(selectedEpisodeId.value)
 }
 
 function handleSelectEpisode(groupId: string) {
@@ -560,43 +546,6 @@ watch(episodeDirectoryCollapsed, (value) => {
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <!-- 生成 -->
-        <Button
-          size="sm"
-          :disabled="autoRunning"
-          class="gap-2"
-          @click="onRunVideosStep()"
-        >
-          <Loader2
-            v-if="autoRunning && autoRunCurrentStage === 'videos'"
-            class="h-3.5 w-3.5 animate-spin"
-          />
-          批量生成分镜视频
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          :disabled="autoRunning || !selectedEpisodeId || selectedEpisodeScenes.length === 0"
-          @click="handleRunCurrentEpisodeVideos()"
-        >
-          仅生成{{ selectedEpisodeTitle }}
-        </Button>
-
-        <!-- 修复 -->
-        <span
-          class="mx-1 hidden h-5 w-px bg-border sm:block"
-          aria-hidden="true"
-        />
-        <Button
-          size="sm"
-          variant="outline"
-          :disabled="autoRunning || queueSummary.error === 0"
-          @click="onRetryFailedQueueItems()"
-        >
-          重试失败场景
-        </Button>
-
-        <!-- 导出（工具类操作，弱化并靠右分离） -->
         <Button
           size="sm"
           variant="ghost"
@@ -730,9 +679,9 @@ watch(episodeDirectoryCollapsed, (value) => {
         </div>
       </div>
 
-      <div class="order-2 relative min-h-0 space-y-2 overflow-y-auto pr-1">
+      <div class="order-2 relative min-h-0 flex flex-col gap-2 overflow-hidden pr-1">
         <div
-          class="flex items-center gap-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+          class="flex shrink-0 items-center gap-2 rounded-md border border-border/60 bg-background px-3 py-2 text-xs text-muted-foreground"
         >
           <Button
             v-if="episodeCount > 0"
@@ -753,74 +702,76 @@ watch(episodeDirectoryCollapsed, (value) => {
           </Button>
           <span>{{ sceneListHeaderLabel }}</span>
         </div>
-        <div
-          v-if="selectedEpisodeScenes.length === 0"
-          class="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-4 text-xs text-muted-foreground"
-        >
-          {{ emptySelectedEpisodeMessage }}
+        <div class="min-h-0 flex-1 space-y-2 overflow-y-auto">
+          <div
+            v-if="selectedEpisodeScenes.length === 0"
+            class="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-4 text-xs text-muted-foreground"
+          >
+            {{ emptySelectedEpisodeMessage }}
+          </div>
+          <AssetWorkbenchSceneVideoCard
+            v-for="scene in selectedEpisodeScenes"
+            :key="scene.id"
+            :scene="scene"
+            :index="resolveSceneGlobalIndex(scene.id)"
+            :selected="selectedSceneId === scene.id"
+            :can-merge-with-next="canMergeSceneByIndex(resolveSceneGlobalIndex(scene.id))"
+            :chat-open="sceneChatOpenSceneId === scene.id"
+            :chat-messages="sceneChatCurrentMessages"
+            :chat-composer-assets="sceneChatComposerAssets"
+            :chat-composer-text="sceneChatComposerText"
+            :chat-mention-open="sceneChatMentionOpen"
+            :chat-mention-candidates="sceneChatMentionCandidates"
+            :chat-mention-active-index="sceneChatMentionActiveIndex"
+            :chat-uploading="sceneChatUploading"
+            :chat-applying="sceneChatApplying"
+            :chat-error="sceneChatError"
+            :chat-can-submit="sceneChatCanSubmit"
+            :use-previous-last-frame-as-first-frame="resolveScenePreviousLastFrameReferenceEnabled(scene.id)"
+            :continuity-link-reason="resolveSceneContinuityLinkReason(scene.id)"
+            :can-use-previous-last-frame-reference="canUsePreviousLastFrameReference(scene.id)"
+            :resolve-scene-video-badge="resolveSceneVideoBadge"
+            :resolve-scene-voice-reference-summary="resolveSceneVoiceReferenceSummary"
+            :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
+            :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
+            :resolve-scene-reference-image="resolveSceneReferenceImage"
+            :resolve-scene-environment-reference-image-for-mode="resolveSceneEnvironmentReferenceImageForMode"
+            :scene-environment-asset-options="sceneEnvironmentAssetOptions"
+            :resolve-scene-environment-reference-asset-selection="resolveSceneEnvironmentReferenceAssetSelection"
+            :resolve-scene-narration-voice-options="resolveSceneNarrationVoiceOptions"
+            :resolve-scene-narration-voice-reference-selection="resolveSceneNarrationVoiceReferenceSelection"
+            :is-scene-busy="isSceneBusy"
+            :is-scene-preparing="isScenePreparing"
+            :normalize-workflow-text="normalizeWorkflowText"
+            :resolve-display-asset-by-id="resolveDisplayAssetById"
+            :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
+            :set-scene-chat-input-ref="setSceneChatInputRef"
+            :set-scene-chat-mention-list-ref="setSceneChatMentionListRef"
+            :set-scene-chat-composer-text="setSceneChatComposerText"
+            :on-select-scene="onSelectScene"
+            :on-open-scene-edit="onOpenSceneEdit"
+            :on-toggle-scene-chat="onToggleSceneChat"
+            :on-handle-split-scene="onHandleSplitScene"
+            :on-handle-merge-with-next-scene="onHandleMergeWithNextScene"
+            :on-handle-delete-scene="onHandleDeleteScene"
+            :on-generate-scene-baseline="onGenerateSceneBaseline"
+            :on-retry-scene="onRetryScene"
+            :on-open-scene-video-history="onOpenSceneVideoHistory"
+            :on-set-scene-previous-last-frame-reference="onSetScenePreviousLastFrameReference"
+            :on-set-scene-environment-capture-mode="onSetSceneEnvironmentCaptureMode"
+            :on-set-scene-environment-reference-asset="onSetSceneEnvironmentReferenceAsset"
+            :on-set-scene-narration-voice-reference="onSetSceneNarrationVoiceReference"
+            :on-preview-image="onPreviewImage"
+            :on-close-scene-chat="onCloseSceneChat"
+            :on-handle-scene-chat-composer-input="onHandleSceneChatComposerInput"
+            :on-handle-scene-chat-composer-cursor="onHandleSceneChatComposerCursor"
+            :on-handle-scene-chat-composer-keydown="onHandleSceneChatComposerKeydown"
+            :on-apply-scene-chat-mention="onApplySceneChatMention"
+            :on-remove-scene-chat-composer-asset="onRemoveSceneChatComposerAsset"
+            :on-handle-scene-chat-image-upload="onHandleSceneChatImageUpload"
+            :on-submit-scene-chat="onSubmitSceneChat"
+          />
         </div>
-        <AssetWorkbenchSceneVideoCard
-          v-for="scene in selectedEpisodeScenes"
-          :key="scene.id"
-          :scene="scene"
-          :index="resolveSceneGlobalIndex(scene.id)"
-          :selected="selectedSceneId === scene.id"
-          :can-merge-with-next="canMergeSceneByIndex(resolveSceneGlobalIndex(scene.id))"
-          :chat-open="sceneChatOpenSceneId === scene.id"
-          :chat-messages="sceneChatCurrentMessages"
-          :chat-composer-assets="sceneChatComposerAssets"
-          :chat-composer-text="sceneChatComposerText"
-          :chat-mention-open="sceneChatMentionOpen"
-          :chat-mention-candidates="sceneChatMentionCandidates"
-          :chat-mention-active-index="sceneChatMentionActiveIndex"
-          :chat-uploading="sceneChatUploading"
-          :chat-applying="sceneChatApplying"
-          :chat-error="sceneChatError"
-          :chat-can-submit="sceneChatCanSubmit"
-          :use-previous-last-frame-as-first-frame="resolveScenePreviousLastFrameReferenceEnabled(scene.id)"
-          :continuity-link-reason="resolveSceneContinuityLinkReason(scene.id)"
-          :can-use-previous-last-frame-reference="canUsePreviousLastFrameReference(scene.id)"
-          :resolve-scene-video-badge="resolveSceneVideoBadge"
-          :resolve-scene-voice-reference-summary="resolveSceneVoiceReferenceSummary"
-          :resolve-scene-description-render-segments="resolveSceneDescriptionRenderSegments"
-          :resolve-scene-description-secondary-mention-items="resolveSceneDescriptionSecondaryMentionItems"
-          :resolve-scene-reference-image="resolveSceneReferenceImage"
-          :resolve-scene-environment-reference-image-for-mode="resolveSceneEnvironmentReferenceImageForMode"
-          :scene-environment-asset-options="sceneEnvironmentAssetOptions"
-          :resolve-scene-environment-reference-asset-selection="resolveSceneEnvironmentReferenceAssetSelection"
-          :resolve-scene-narration-voice-options="resolveSceneNarrationVoiceOptions"
-          :resolve-scene-narration-voice-reference-selection="resolveSceneNarrationVoiceReferenceSelection"
-          :is-scene-busy="isSceneBusy"
-          :is-scene-preparing="isScenePreparing"
-          :normalize-workflow-text="normalizeWorkflowText"
-          :resolve-display-asset-by-id="resolveDisplayAssetById"
-          :resolve-display-asset-type-label="resolveDisplayAssetTypeLabel"
-          :set-scene-chat-input-ref="setSceneChatInputRef"
-          :set-scene-chat-mention-list-ref="setSceneChatMentionListRef"
-          :set-scene-chat-composer-text="setSceneChatComposerText"
-          :on-select-scene="onSelectScene"
-          :on-open-scene-edit="onOpenSceneEdit"
-          :on-toggle-scene-chat="onToggleSceneChat"
-          :on-handle-split-scene="onHandleSplitScene"
-          :on-handle-merge-with-next-scene="onHandleMergeWithNextScene"
-          :on-handle-delete-scene="onHandleDeleteScene"
-          :on-generate-scene-baseline="onGenerateSceneBaseline"
-          :on-retry-scene="onRetryScene"
-          :on-open-scene-video-history="onOpenSceneVideoHistory"
-          :on-set-scene-previous-last-frame-reference="onSetScenePreviousLastFrameReference"
-          :on-set-scene-environment-capture-mode="onSetSceneEnvironmentCaptureMode"
-          :on-set-scene-environment-reference-asset="onSetSceneEnvironmentReferenceAsset"
-          :on-set-scene-narration-voice-reference="onSetSceneNarrationVoiceReference"
-          :on-preview-image="onPreviewImage"
-          :on-close-scene-chat="onCloseSceneChat"
-          :on-handle-scene-chat-composer-input="onHandleSceneChatComposerInput"
-          :on-handle-scene-chat-composer-cursor="onHandleSceneChatComposerCursor"
-          :on-handle-scene-chat-composer-keydown="onHandleSceneChatComposerKeydown"
-          :on-apply-scene-chat-mention="onApplySceneChatMention"
-          :on-remove-scene-chat-composer-asset="onRemoveSceneChatComposerAsset"
-          :on-handle-scene-chat-image-upload="onHandleSceneChatImageUpload"
-          :on-submit-scene-chat="onSubmitSceneChat"
-        />
       </div>
 
       <!-- Video preview panel -->

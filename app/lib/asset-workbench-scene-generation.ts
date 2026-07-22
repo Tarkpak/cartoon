@@ -114,6 +114,14 @@ interface VideoTaskStatusResponse {
   }
 }
 
+export function isRetryableVideoImageDownloadError(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error || '')).toLowerCase()
+  return message.includes('image_download_error')
+    || message.includes('image_download_interrupted')
+    || message.includes('failed to download the provided image')
+    || message.includes('connection dropped while downloading the image')
+}
+
 export function buildSceneGenerationCameraNote(
   options: BuildSceneGenerationCameraNoteOptions
 ): string | undefined {

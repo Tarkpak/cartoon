@@ -6,6 +6,7 @@ import {
   applySceneVideoUrl,
   buildAssetWorkflowScenePayload as createAssetWorkflowScenePayload,
   buildAssetWorkflowVideoReferences,
+  isRetryableVideoImageDownloadError,
   pollSceneVideoTask,
   requestSceneBaselineGeneration,
   requestSceneVideoTask,
@@ -706,7 +707,7 @@ export function useAssetWorkbenchSceneGeneration(
     scene.videoError = undefined
 
     try {
-      const taskId = await requestSceneVideoTask({
+      const videoTaskOptions = {
         projectId: options.projectId?.value,
         scenePayload: buildAssetWorkflowScenePayload(scene, { referenceAssetNames }),
         style: options.workflowStylePrompt.value,
@@ -728,8 +729,18 @@ export function useAssetWorkbenchSceneGeneration(
               }
             : undefined
         })
-      })
-      const videoResult = await pollSceneVideoTask(taskId)
+      }
+      const createAndPollVideoTask = async () => {
+        const taskId = await requestSceneVideoTask(videoTaskOptions)
+        return await pollSceneVideoTask(taskId)
+      }
+      let videoResult
+      try {
+        videoResult = await createAndPollVideoTask()
+      } catch (error) {
+        if (!isRetryableVideoImageDownloadError(error)) throw error
+        videoResult = await createAndPollVideoTask()
+      }
 
       const latestGenerationKey = pendingVideoGenerationKeys.get(scene.id)
       const currentGenerationKey = buildSceneVideoGenerationKey(

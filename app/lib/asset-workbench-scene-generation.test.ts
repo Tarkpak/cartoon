@@ -3,7 +3,8 @@ import type { SceneData } from '~/lib/asset-workbench-models'
 import {
   applySceneBaselineReference,
   applySceneVideoUrl,
-  buildAssetWorkflowScenePayload
+  buildAssetWorkflowScenePayload,
+  isRetryableVideoImageDownloadError
 } from './asset-workbench-scene-generation'
 
 function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' | 'description'>): SceneData {
@@ -35,6 +36,14 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
 }
 
 describe('asset-workbench-scene-generation', () => {
+  it('retries only transient video reference image download failures', () => {
+    expect(isRetryableVideoImageDownloadError(new Error(
+      'Failed to download the provided image (image_download_error=image_download_interrupted): the connection dropped while downloading the image.'
+    ))).toBe(true)
+    expect(isRetryableVideoImageDownloadError(new Error('输入图片触发真人隐私拦截'))).toBe(false)
+    expect(isRetryableVideoImageDownloadError(new Error('Prompt length exceeds the maximum allowed length'))).toBe(false)
+  })
+
   it('keeps previous video in history when applying new baseline reference', () => {
     const scene = createScene({
       id: 'scene_baseline',

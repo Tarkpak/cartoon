@@ -65,6 +65,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   const activeProjectId = ref(options.projectId.value || '')
   let lastSavedProjectSnapshot: string | null = null
   let saveQueue: Promise<void> = Promise.resolve()
+  let loadRequestSequence = 0
   const mergeStatus = ref<{
     running: boolean
     progress: number
@@ -254,6 +255,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   }
 
   async function loadProject(id: string) {
+    const requestSequence = ++loadRequestSequence
     loading.value = true
     activeProjectId.value = id
     lastSavedProjectSnapshot = null
@@ -326,6 +328,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         }
       }>(`/api/project/${id}`)
 
+      if (requestSequence !== loadRequestSequence) return
       if (!response.success || !response.data) return
 
       options.projectName.value = response.data.project.name
@@ -342,9 +345,12 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       options.characters.value = buildLoadedCharacters(response.data.characters)
       lastSavedProjectSnapshot = buildNormalizedProjectSaveSnapshot(id)
     } catch (error) {
+      if (requestSequence !== loadRequestSequence) return
       console.error('[useAssetWorkbenchProjectIO] 加载项目失败:', error)
     } finally {
-      loading.value = false
+      if (requestSequence === loadRequestSequence) {
+        loading.value = false
+      }
     }
   }
 

@@ -540,6 +540,7 @@ export async function sendSystemNotificationTest(): Promise<{
 
 export function useGenerationCompletionNotification() {
   setupCompletionToneUnlockByUserGesture()
+  const { toast } = useToast()
 
   const completionNotificationOptions = useState<WorkflowCompletionNotificationOptions>(
     COMPLETION_NOTIFICATION_OPTIONS_STATE_KEY,
@@ -596,18 +597,34 @@ export function useGenerationCompletionNotification() {
 
     const options = completionNotificationOptions.value
     const noticeType = payload.type === 'error' ? 'error' : 'success'
+    const notificationsEnabled = options.sound || options.systemNotification
+
+    if (notificationsEnabled) {
+      const toastOptions = payload.body
+        ? { description: payload.body }
+        : undefined
+      if (noticeType === 'error') {
+        toast.error(payload.title, toastOptions)
+      } else {
+        toast.success(payload.title, toastOptions)
+      }
+    }
+
     if (options.sound) {
       await playCompletionTone(noticeType)
     }
 
     if (options.systemNotification) {
-      await showSystemNotification(payload, {
+      const result = await showSystemNotification(payload, {
         tag: noticeType === 'error'
           ? 'asset_workbench_generation_error'
           : 'asset_workbench_generation_complete',
         requireInteraction: noticeType === 'error',
         renotify: noticeType === 'error'
       })
+      if (!result.sent) {
+        console.warn('[useGenerationCompletionNotification] 系统通知未发送，已使用应用内通知。')
+      }
     }
   }
 

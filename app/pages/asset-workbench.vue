@@ -263,7 +263,6 @@ const {
   characterReadyCount,
   characterGeneratingCount,
   characterMissingCount,
-  assetsPrimaryActionLabel,
   resolveDisplayAssetTypeLabel,
   resolveEnvironmentSceneSummary,
   resolveSceneReferenceImage,
@@ -383,13 +382,16 @@ function resolveSceneEnvironmentReferenceAssetSelection(sceneId: string): string
   if (!scene) return '__auto__'
 
   const configuredAssetId = sceneConfigs.value[sceneId]?.environmentAssetId?.trim() || ''
-  if (!configuredAssetId) return '__auto__'
-  if (!resolveEnvironmentCard(configuredAssetId)) return '__auto__'
+  const configuredAsset = configuredAssetId
+    ? resolveEnvironmentCard(configuredAssetId)
+    : undefined
+  if (configuredAsset) return configuredAsset.id
 
   const defaultAssetId = resolveSceneEnvironmentAssetId(scene)
-  if (configuredAssetId === defaultAssetId) return '__auto__'
+  const defaultAsset = resolveEnvironmentCard(defaultAssetId)
+  if (defaultAsset) return defaultAsset.id
 
-  return configuredAssetId
+  return '__auto__'
 }
 
 interface SceneNarrationVoiceOption {
@@ -1019,7 +1021,6 @@ const {
   generateSceneBaseline,
   ensureCharacterAssetsReady,
   runBatchSceneGeneration,
-  runBatchSceneGenerationByEpisode,
   retryScene,
   retryFailedQueueItemsOnce
 } = useAssetWorkbenchSceneGeneration({
@@ -1576,8 +1577,6 @@ const {
   autoRunCurrentStage,
   activeAutoStage,
   selectAutoStage,
-  runSimpleAssetsStep,
-  runSimpleVideosStep,
   runSimpleFinalStep
 } = useAssetWorkbenchAutoFlow({
   route,
@@ -1604,10 +1603,6 @@ const {
   runBatchSceneGeneration,
   retryFailedQueueItemsOnce
 })
-
-async function runEpisodeVideosStep(episodeId: string) {
-  await runBatchSceneGenerationByEpisode(episodeId)
-}
 
 async function handleRunFinalStage(payload?: FinalMergeOptions) {
   const nextOptions: FinalMergeOptions = {
@@ -3096,9 +3091,6 @@ async function handleExportFormattedScriptDocx() {
   }
 }
 
-async function handleBatchGenerateCharacters() {
-  await batchGenerateCharacters()
-}
 </script>
 
 <template>
@@ -3144,12 +3136,10 @@ async function handleBatchGenerateCharacters() {
           :environment-asset-cards="displayEnvironmentAssetCards"
           :prop-assets="propAssets"
           :auto-running="autoRunning"
-          :auto-run-current-stage="autoRunCurrentStage"
           :parse-stage-label="scriptParseMode === 'origin_explainer' ? '镜头规划' : '剧本解析'"
           :character-ready-count="characterReadyCount"
           :character-generating-count="characterGeneratingCount"
           :character-missing-count="characterMissingCount"
-          :assets-primary-action-label="assetsPrimaryActionLabel"
           :editing-character-id="editingCharacterId"
           :character-edit-draft="characterEditDraft"
           :uploading-character-id="uploadingCharacterId"
@@ -3166,8 +3156,6 @@ async function handleBatchGenerateCharacters() {
           :has-environment-representative-scene="hasEnvironmentRepresentativeScene"
           :get-prop-usage-count="resolvePropUsageCount"
           :set-character-edit-draft="updateCharacterEditDraft"
-          @run-assets="runSimpleAssetsStep"
-          @generate-characters="handleBatchGenerateCharacters"
           @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
           @preview-image="openImagePreview($event.src, $event.alt)"
           @start-character-edit="startEditCharacter"
@@ -3211,7 +3199,6 @@ async function handleBatchGenerateCharacters() {
           :selected-scene="selectedScene"
           :queue-summary="queueSummary"
           :auto-running="autoRunning"
-          :auto-run-current-stage="autoRunCurrentStage"
           :parsing="parsing"
           :parse-progress-message="parseProgress.message"
           :scene-chat-open-scene-id="sceneChatOpenSceneId"
@@ -3247,10 +3234,7 @@ async function handleBatchGenerateCharacters() {
           :set-scene-chat-mention-list-ref="setSceneChatMentionListRef"
           :set-scene-chat-composer-text="setSceneChatComposerText"
           :exporting-script-docx="exportingScriptDocx"
-          :on-run-videos-step="runSimpleVideosStep"
-          :on-run-episode-videos-step="runEpisodeVideosStep"
           :on-export-formatted-script-docx="handleExportFormattedScriptDocx"
-          :on-retry-failed-queue-items="retryFailedQueueItemsOnce"
           :on-parse-episode="(episodeId) => handleParseSingleEpisode({ id: episodeId })"
           :on-select-scene="selectScene"
           :on-open-scene-edit="openSceneEdit"

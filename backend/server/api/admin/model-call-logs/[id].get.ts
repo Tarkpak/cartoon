@@ -19,6 +19,7 @@ export default defineEventHandler((event) => {
     .get(logId) as {
       request_json?: string
       response_json?: string
+      media_refs_json?: string
       error_json?: string
     } | undefined
   if (!log) {
@@ -27,14 +28,17 @@ export default defineEventHandler((event) => {
 
   const request = redactLogPayload(parseJsonText(log.request_json, {}))
   const response = redactLogPayload(parseJsonText(log.response_json, {}))
+  const mediaRefs = redactLogPayload(parseJsonText(log.media_refs_json, []))
   const error = redactLogPayload(parseJsonText(log.error_json, {}))
   const safeLog = redactLogPayload({
     ...log,
     request_json: JSON.stringify(request),
     response_json: JSON.stringify(response),
+    media_refs_json: JSON.stringify(mediaRefs),
     error_json: JSON.stringify(error),
     request,
     response,
+    media_refs: mediaRefs,
     error
   })
 
