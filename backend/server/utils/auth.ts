@@ -40,9 +40,10 @@ interface SessionRow {
   id: string
   user_id: string
   device_id: string | null
-  expires_at: string
   revoked_at: string | null
 }
+
+const NON_EXPIRING_SESSION_EXPIRES_AT = '9999-12-31T23:59:59.999Z'
 
 function isDisabledExpired(disabledAt: string | null | undefined) {
   const graceSeconds = getAppSettings().disabledGraceSeconds
@@ -107,11 +108,11 @@ export function requireAuth(event: H3Event): AuthContext {
 
   const db = getDb()
   const session = db
-    .prepare('SELECT id, user_id, device_id, expires_at, revoked_at FROM sessions WHERE token_hash = ? LIMIT 1')
+    .prepare('SELECT id, user_id, device_id, revoked_at FROM sessions WHERE token_hash = ? LIMIT 1')
     .get(hashToken(token)) as SessionRow | undefined
 
-  if (!session || session.revoked_at || session.expires_at <= nowIso()) {
-    throw createError({ statusCode: 401, statusMessage: 'Session expired' })
+  if (!session || session.revoked_at) {
+    throw createError({ statusCode: 401, statusMessage: 'Session invalid or revoked' })
   }
 
   const user = db
@@ -164,7 +165,7 @@ export function createSession(event: H3Event, input: {
 }) {
   const token = randomToken()
   const timestamp = nowIso()
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+  const expiresAt = NON_EXPIRING_SESSION_EXPIRES_AT
   const sessionId = randomUUID()
 
   getDb()
@@ -241,10 +242,9 @@ export function registerOrUpdateDevice(input: {
         SELECT id FROM sessions
         WHERE user_id = ?
           AND revoked_at IS NULL
-          AND expires_at > ?
         ORDER BY last_seen_at DESC
       `)
-      .all(input.userId, timestamp) as Array<{ id: string }>
+      .all(input.userId) as Array<{ id: string }>
     const sessionsToRevoke = activeSessions.slice(settings.maxConcurrentDevices)
     const revoke = db.prepare('UPDATE sessions SET revoked_at = ? WHERE id = ?')
     for (const session of sessionsToRevoke) {
