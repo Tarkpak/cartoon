@@ -8,11 +8,11 @@ import {
 
 describe('duration display helpers', () => {
   it('converts milliseconds into readable units', () => {
-    expect(formatDurationMs(320)).toBe('320 ms')
-    expect(formatDurationMs(1_250)).toBe('1.25 s')
-    expect(formatDurationMs(12_500)).toBe('12.5 s')
-    expect(formatDurationMs(125_000)).toBe('2 min 5 s')
-    expect(formatDurationMs(3_725_000)).toBe('1 h 2 min')
+    expect(formatDurationMs(320)).toBe('320ms')
+    expect(formatDurationMs(1_250)).toBe('1.25s')
+    expect(formatDurationMs(12_500)).toBe('12.5s')
+    expect(formatDurationMs(125_000)).toBe('2min 5s')
+    expect(formatDurationMs(3_725_000)).toBe('1h 2min')
   })
 
   it('handles missing and invalid durations', () => {

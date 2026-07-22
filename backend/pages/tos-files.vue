@@ -2,11 +2,29 @@
   <AdminShell content-mode="fixed">
     <div class="page tos-files-page fixed-table-page">
       <div class="tos-files-content fixed-table-content">
-        <div class="tos-files-shortcuts">
+        <div class="tos-member-toolbar">
+          <n-select
+            v-model:value="selectedMemberAccount"
+            class="tos-member-select"
+            :options="memberOptions"
+            :loading="membersLoading"
+            filterable
+            @update:value="switchMember"
+          />
+          <span class="muted">{{ selectedMemberLabel }}</span>
+          <div class="tos-files-shortcuts">
+          <n-button
+            size="small"
+            :type="activeAssetDirectory === 'all' ? 'primary' : 'default'"
+            :disabled="pending"
+            @click="openAssetDirectory('all')"
+          >
+            全部
+          </n-button>
           <n-button
             size="small"
             :type="activeAssetDirectory === 'images' ? 'primary' : 'default'"
-            :disabled="pending"
+            :disabled="pending || selectedMemberAccount === '__all__'"
             @click="openAssetDirectory('images')"
           >
             images
@@ -14,19 +32,19 @@
           <n-button
             size="small"
             :type="activeAssetDirectory === 'videos' ? 'primary' : 'default'"
-            :disabled="pending"
+            :disabled="pending || selectedMemberAccount === '__all__'"
             @click="openAssetDirectory('videos')"
           >
             videos
           </n-button>
+          </div>
         </div>
 
         <div class="tos-files-toolbar">
           <n-input
-            v-model:value="prefixInput"
+            v-model:value="searchQuery"
             clearable
-            placeholder="对象前缀，留空查看 bucket 根目录"
-            @keyup.enter="loadFromInput"
+            placeholder="搜索当前页名称或 Key"
           />
           <ClientOnly>
             <n-select
@@ -43,7 +61,7 @@
               :options="maxKeysOptions"
             />
             <template #fallback>
-              <div class="tos-files-select-fallback">100 条</div>
+              <div class="tos-files-select-fallback">每页 100 条</div>
             </template>
           </ClientOnly>
           <n-button type="primary" :loading="pending" @click="loadFromInput">查询</n-button>
@@ -54,37 +72,48 @@
         </n-alert>
 
         <div v-if="meta" class="tos-files-meta">
-          <n-space size="small" align="center">
-            <n-tag size="small">Bucket: {{ meta.bucket || '-' }}</n-tag>
-            <n-tag size="small" :type="meta.configuredPrefix ? 'info' : 'default'">
-              配置前缀: {{ meta.configuredPrefix || '无' }}
-            </n-tag>
-            <n-tag size="small">
-              当前前缀: {{ meta.prefix || '根目录' }}
-            </n-tag>
-          </n-space>
+          <nav class="tos-breadcrumbs" aria-label="当前目录">
+            <template v-for="(item, index) in breadcrumbItems" :key="item.prefix">
+              <span v-if="index" class="tos-breadcrumbs__separator">/</span>
+              <n-button
+                text
+                size="small"
+                :type="index === breadcrumbItems.length - 1 ? 'default' : 'primary'"
+                :disabled="pending || index === breadcrumbItems.length - 1"
+                @click="openDirectory(item.prefix)"
+              >
+                {{ item.label }}
+              </n-button>
+            </template>
+          </nav>
           <n-space size="small">
             <n-button size="small" :disabled="!canGoParent || pending" @click="goParent">上一级</n-button>
-            <n-button size="small" :disabled="!meta.configuredPrefix || pending" @click="goConfiguredPrefix">
-              配置前缀
-            </n-button>
-            <n-button size="small" :disabled="!prefixInput || pending" @click="goRoot">根目录</n-button>
+            <n-button size="small" :disabled="pending" @click="goRoot">成员根目录</n-button>
           </n-space>
         </div>
 
         <n-data-table
           class="fixed-data-table"
           :columns="columns"
-          :data="rows"
+          :data="filteredRows"
           :loading="pending"
-          :pagination="tablePagination"
+          :pagination="false"
           :row-key="rowKey"
-          :scroll-x="1220"
+          :scroll-x="1350"
           flex-height
-        />
+        >
+          <template #empty>
+            <n-empty :description="searchQuery.trim() ? '当前页没有匹配的素材' : '当前目录下没有素材'" />
+          </template>
+        </n-data-table>
 
-        <div v-if="nextContinuationToken" class="tos-files-footer">
-          <n-button :loading="loadingMore" @click="loadMore">加载更多</n-button>
+        <div v-if="meta" class="tos-files-footer">
+          <span class="muted">第 {{ currentPage }} 页 · 当前 {{ filteredRows.length }} 项</span>
+          <n-space size="small">
+            <n-button size="small" :disabled="pending || currentPage <= 1" @click="goFirstPage">第一页</n-button>
+            <n-button size="small" :disabled="pending || currentPage <= 1" @click="goPreviousPage">上一页</n-button>
+            <n-button size="small" type="primary" secondary :disabled="pending || !nextContinuationToken" @click="goNextPage">下一页</n-button>
+          </n-space>
         </div>
       </div>
 
@@ -116,7 +145,7 @@
             x
           </button>
           <img
-            v-if="imagePreviewUrl"
+            v-if="imagePreviewUrl && previewMediaType === 'image'"
             class="tos-image-viewer__image"
             :src="imagePreviewUrl"
             :alt="imagePreviewName"
@@ -124,6 +153,15 @@
             loading="lazy"
             draggable="false"
           >
+          <video
+            v-else-if="imagePreviewUrl"
+            class="tos-image-viewer__video"
+            :src="imagePreviewUrl"
+            controls
+            autoplay
+            playsinline
+            @mousedown.stop
+          />
         </div>
       </n-modal>
     </div>
@@ -156,7 +194,14 @@ interface TosFilesData {
 }
 
 type TosRowType = 'directory' | 'image' | 'video' | 'file'
-type AssetDirectory = 'images' | 'videos'
+type AssetDirectory = 'all' | 'images' | 'videos'
+
+interface TosMember {
+  id: string
+  account: string
+  displayName: string
+  status: string
+}
 
 interface TosRow {
   id: string
@@ -174,10 +219,10 @@ interface TosStorageConfigData {
 }
 
 interface TosFilesViewState {
-  prefix: string
+  selectedMemberAccount?: string
+  activeAssetDirectory?: AssetDirectory
   delimiter?: string
   maxKeys?: number
-  tablePageSize?: number
 }
 
 const TOS_FILES_VIEW_STATE_KEY = 'playlet-admin-tos-files-view-state'
@@ -187,21 +232,26 @@ const ASSET_DIRECTORIES = new Set<AssetDirectory>(['images', 'videos'])
 
 const message = useMessage()
 const pending = ref(false)
-const loadingMore = ref(false)
 const loadError = ref('')
+const searchQuery = ref('')
 const prefixInput = ref('')
-const activeAssetDirectory = ref<AssetDirectory>('images')
+const activeAssetDirectory = ref<AssetDirectory>('all')
+const members = ref<TosMember[]>([])
+const membersLoading = ref(false)
+const selectedMemberAccount = ref('__all__')
 const storageConfiguredPrefix = ref('')
 const delimiter = ref('/')
 const maxKeys = ref(100)
 const meta = ref<TosFilesData | null>(null)
 const rows = ref<TosRow[]>([])
 const nextContinuationToken = ref('')
-const tablePage = ref(1)
-const tablePageSize = ref(10)
+const continuationToken = ref('')
+const tokenHistory = ref<string[]>([])
+const currentPage = ref(1)
 const imagePreviewOpen = ref(false)
 const imagePreviewUrl = ref('')
 const imagePreviewName = ref('')
+const previewMediaType = ref<'image' | 'video'>('image')
 const imagePreviewScale = ref(1)
 const imagePreviewDragging = ref(false)
 const imagePreviewOffset = reactive({ x: 0, y: 0 })
@@ -218,26 +268,50 @@ const maxKeysOptions = [
   { label: '1000 条', value: 1000 }
 ]
 
-const canGoParent = computed(() => Boolean(normalizePrefix(prefixInput.value)))
+const memberOptions = computed(() => [
+  { label: `全部成员（${members.value.length}）`, value: '__all__' },
+  ...members.value.map(member => ({
+    label: `${member.displayName}（${member.account}）${member.status === 'active' ? '' : ' · 已停用'}`,
+    value: member.account
+  }))
+])
+const selectedMemberLabel = computed(() => {
+  if (selectedMemberAccount.value === '__all__') return `按成员浏览，共 ${members.value.length} 位成员`
+  const member = members.value.find(item => item.account === selectedMemberAccount.value)
+  return member ? `正在查看 ${member.displayName} 的素材` : '正在查看成员素材'
+})
+const filteredRows = computed(() => {
+  const query = searchQuery.value.trim().toLocaleLowerCase()
+  if (!query) return rows.value
+  return rows.value.filter(row =>
+    row.name.toLocaleLowerCase().includes(query)
+    || row.key.toLocaleLowerCase().includes(query)
+  )
+})
+
+const canGoParent = computed(() => normalizePrefix(prefixInput.value) !== selectedMemberRootPrefix())
 const imagePreviewStyle = computed(() => ({
   transform: `translate(${imagePreviewOffset.x}px, ${imagePreviewOffset.y}px) scale(${imagePreviewScale.value})`
 }))
-const tablePagination = computed(() => ({
-  page: tablePage.value,
-  pageSize: tablePageSize.value,
-  pageSizes: [10, 20, 50, 100],
-  showSizePicker: true,
-  itemCount: rows.value.length,
-  prefix: ({ itemCount }: { itemCount: number }) => `已加载 ${itemCount} 项`,
-  onUpdatePage: (page: number) => {
-    tablePage.value = page
-  },
-  onUpdatePageSize: (pageSize: number) => {
-    tablePageSize.value = pageSize
-    tablePage.value = 1
-    saveViewState()
-  }
-}))
+const breadcrumbItems = computed(() => {
+  const full = normalizePrefix(prefixInput.value)
+  const root = selectedMemberRootPrefix()
+  const rootParts = root.split('/').filter(Boolean)
+  const fullParts = full.split('/').filter(Boolean)
+  const start = Math.max(0, rootParts.length - (selectedMemberAccount.value === '__all__' ? 1 : 2))
+  return fullParts.slice(start).map((segment, relativeIndex) => {
+    const index = start + relativeIndex
+    let label = segment
+    if (segment === 'users') label = '全部成员'
+    else if (segment === 'images') label = '图片'
+    else if (segment === 'videos') label = '视频'
+    else if (index > 0 && fullParts[index - 1] === 'users') {
+      const member = members.value.find(item => userScopeComponent(item.account) === segment)
+      label = member?.displayName || segment
+    }
+    return { label, prefix: fullParts.slice(0, index + 1).join('/') }
+  })
+})
 
 const columns = [
   {
@@ -313,7 +387,7 @@ const columns = [
   {
     title: '操作',
     key: 'actions',
-    width: 170,
+    width: 300,
     render(row: TosRow) {
       if (row.type === 'directory') {
         return h(NButton, { size: 'small', onClick: () => openDirectory(row.key) }, { default: () => '打开' })
@@ -328,9 +402,19 @@ const columns = [
               {
                 size: 'small',
                 disabled: !row.url,
-                onClick: () => openFile(row.url)
+                onClick: () => openMediaPreview(row)
               },
-              { default: () => '查看' }
+              { default: () => '预览' }
+            ),
+            h(
+              NButton,
+              { size: 'small', quaternary: true, onClick: () => copyText(row.key, '对象 Key') },
+              { default: () => '复制 Key' }
+            ),
+            h(
+              NButton,
+              { size: 'small', quaternary: true, disabled: !row.url, onClick: () => copyText(row.url, '素材地址') },
+              { default: () => '复制 URL' }
             ),
             h(
               NButton,
@@ -384,16 +468,17 @@ function renderPreview(row: TosRow) {
   if (row.type === 'video') {
     return h(
       'div',
-      { class: 'tos-media-preview' },
+      { class: 'tos-media-preview tos-media-preview--video' },
       [
-        h('video', {
-          class: 'tos-media-preview__video',
-          src: row.url,
-          controls: true,
-          muted: true,
-          playsinline: true,
-          preload: 'metadata'
-        })
+        h(
+          'button',
+          {
+            class: 'tos-media-preview__button tos-media-preview__video-button',
+            type: 'button',
+            onClick: () => openMediaPreview(row)
+          },
+          '播放视频'
+        )
       ]
     )
   }
@@ -429,6 +514,27 @@ function configuredBasePrefix() {
   return normalizePrefix(meta.value?.configuredPrefix || storageConfiguredPrefix.value)
 }
 
+function userScopeComponent(account: string) {
+  return account
+    .replace(/[\\/]/g, '_')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim()
+}
+
+function membersRootPrefix(basePrefix = configuredBasePrefix()) {
+  const normalized = normalizePrefix(basePrefix)
+  return normalized === 'users' || normalized.endsWith('/users')
+    ? normalized
+    : joinObjectPath(normalized, 'users')
+}
+
+function selectedMemberRootPrefix(basePrefix = configuredBasePrefix()) {
+  const root = membersRootPrefix(basePrefix)
+  return selectedMemberAccount.value === '__all__'
+    ? root
+    : joinObjectPath(root, userScopeComponent(selectedMemberAccount.value))
+}
+
 function findLastAssetDirectoryIndex(parts: string[]) {
   for (let index = parts.length - 1; index >= 0; index -= 1) {
     if (ASSET_DIRECTORIES.has(parts[index] as AssetDirectory)) return index
@@ -443,13 +549,8 @@ function activeAssetDirectoryFromPrefix(prefix: string) {
 }
 
 function assetDirectoryPrefix(directory: AssetDirectory, fallbackBasePrefix: string) {
-  const currentParts = normalizePrefix(prefixInput.value || meta.value?.prefix || '').split('/').filter(Boolean)
-  const index = findLastAssetDirectoryIndex(currentParts)
-  if (index >= 0) {
-    currentParts[index] = directory
-    return currentParts.join('/')
-  }
-  return joinObjectPath(fallbackBasePrefix, directory)
+  const root = selectedMemberRootPrefix(fallbackBasePrefix)
+  return directory === 'all' ? root : joinObjectPath(root, directory)
 }
 
 function relativeToConfiguredPrefix(prefix: string, configuredPrefix: string) {
@@ -492,12 +593,20 @@ function displayNameForKey(key: string) {
   return normalized.split('/').filter(Boolean).pop() || normalized || '/'
 }
 
+function directoryDisplayName(prefix: string) {
+  const name = displayNameForKey(prefix)
+  const parent = normalizePrefix(stripTrailingSlash(prefix).split('/').slice(0, -1).join('/'))
+  if (parent !== membersRootPrefix()) return `${name}/`
+  const member = members.value.find(item => userScopeComponent(item.account) === name)
+  return member ? `${member.displayName}（${member.account}）/` : `${name}/`
+}
+
 function buildRows(data: TosFilesData) {
   const directories: TosRow[] = data.commonPrefixes.map(prefix => ({
     id: `dir:${prefix}`,
     type: 'directory',
     key: prefix,
-    name: `${displayNameForKey(prefix)}/`,
+    name: directoryDisplayName(prefix),
     size: 0,
     lastModified: '',
     storageClass: '',
@@ -540,27 +649,26 @@ function readViewState() {
     const raw = localStorage.getItem(TOS_FILES_VIEW_STATE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<TosFilesViewState>
-    if (!Object.prototype.hasOwnProperty.call(parsed, 'prefix')) return null
     return {
-      prefix: normalizePrefix(typeof parsed.prefix === 'string' ? parsed.prefix : ''),
+      selectedMemberAccount: typeof parsed.selectedMemberAccount === 'string' ? parsed.selectedMemberAccount : '__all__',
+      activeAssetDirectory: ['all', 'images', 'videos'].includes(String(parsed.activeAssetDirectory))
+        ? parsed.activeAssetDirectory
+        : 'all',
       delimiter: parsed.delimiter === '' || parsed.delimiter === '/' ? parsed.delimiter : undefined,
-      maxKeys: optionValueExists(maxKeysOptions, parsed.maxKeys) ? parsed.maxKeys : undefined,
-      tablePageSize: optionValueExists(tablePagination.value.pageSizes.map(value => ({ value })), parsed.tablePageSize)
-        ? parsed.tablePageSize
-        : undefined
+      maxKeys: optionValueExists(maxKeysOptions, parsed.maxKeys) ? parsed.maxKeys : undefined
     }
   } catch {
     return null
   }
 }
 
-function saveViewState(prefix = prefixInput.value) {
+function saveViewState() {
   if (!import.meta.client) return
   const state: TosFilesViewState = {
-    prefix: normalizePrefix(prefix),
+    selectedMemberAccount: selectedMemberAccount.value,
+    activeAssetDirectory: activeAssetDirectory.value,
     delimiter: delimiter.value,
-    maxKeys: maxKeys.value,
-    tablePageSize: tablePageSize.value
+    maxKeys: maxKeys.value
   }
   localStorage.setItem(TOS_FILES_VIEW_STATE_KEY, JSON.stringify(state))
 }
@@ -570,20 +678,27 @@ function restoreViewState() {
   if (!state) return false
   delimiter.value = state.delimiter ?? delimiter.value
   maxKeys.value = state.maxKeys ?? maxKeys.value
-  tablePageSize.value = state.tablePageSize ?? tablePageSize.value
-  prefixInput.value = state.prefix
-  void fetchFiles()
+  selectedMemberAccount.value = state.selectedMemberAccount || '__all__'
+  activeAssetDirectory.value = state.activeAssetDirectory || 'all'
   return true
 }
 
-async function fetchFiles(options: { append?: boolean, useInputPrefix?: boolean, continuationToken?: string } = {}) {
-  const append = Boolean(options.append)
-  if (append) {
-    loadingMore.value = true
-  } else {
-    pending.value = true
-    nextContinuationToken.value = ''
+async function loadMembers() {
+  membersLoading.value = true
+  try {
+    const response = await $fetch<{ data: { members: TosMember[] } }>('/api/client/tos-members')
+    members.value = response.data.members
+  } catch (error) {
+    const text = errorText(error, '加载成员列表失败')
+    loadError.value = text
+    message.error(text)
+  } finally {
+    membersLoading.value = false
   }
+}
+
+async function fetchFiles(options: { continuationToken?: string, preserveOnError?: boolean } = {}) {
+  pending.value = true
   loadError.value = ''
 
   try {
@@ -591,9 +706,7 @@ async function fetchFiles(options: { append?: boolean, useInputPrefix?: boolean,
       delimiter: delimiter.value,
       maxKeys: maxKeys.value
     }
-    if (options.useInputPrefix !== false) {
-      query.prefix = normalizePrefix(prefixInput.value)
-    }
+    query.prefix = normalizePrefix(prefixInput.value)
     if (options.continuationToken) {
       query.continuationToken = options.continuationToken
     }
@@ -603,30 +716,34 @@ async function fetchFiles(options: { append?: boolean, useInputPrefix?: boolean,
     storageConfiguredPrefix.value = normalizePrefix(response.data.configuredPrefix || storageConfiguredPrefix.value)
     syncActiveAssetDirectory(response.data)
     prefixInput.value = stripTrailingSlash(response.data.prefix || '')
-    saveViewState(prefixInput.value)
+    saveViewState()
     nextContinuationToken.value = response.data.nextContinuationToken || ''
-    rows.value = append
-      ? [...rows.value, ...buildRows(response.data)]
-      : buildRows(response.data)
-    if (!append) {
-      tablePage.value = 1
-    }
+    rows.value = buildRows(response.data)
+    return true
   } catch (error) {
     const text = errorText(error, '加载云端素材失败')
     loadError.value = text
     message.error(text)
-    if (!append) {
+    if (!options.preserveOnError) {
       meta.value = null
       rows.value = []
     }
+    return false
   } finally {
     pending.value = false
-    loadingMore.value = false
   }
 }
 
 function loadFromInput() {
+  resetPagination()
   void fetchFiles()
+}
+
+function resetPagination() {
+  continuationToken.value = ''
+  tokenHistory.value = []
+  currentPage.value = 1
+  nextContinuationToken.value = ''
 }
 
 async function ensureStorageConfiguredPrefix() {
@@ -639,12 +756,15 @@ async function ensureStorageConfiguredPrefix() {
 }
 
 async function openAssetDirectory(directory: AssetDirectory) {
+  if (selectedMemberAccount.value === '__all__' && directory !== 'all') return
   activeAssetDirectory.value = directory
   pending.value = true
   loadError.value = ''
   try {
     const basePrefix = await ensureStorageConfiguredPrefix()
     prefixInput.value = assetDirectoryPrefix(directory, basePrefix)
+    searchQuery.value = ''
+    resetPagination()
     await fetchFiles()
   } catch (error) {
     const text = errorText(error, '加载云存储配置失败')
@@ -655,28 +775,77 @@ async function openAssetDirectory(directory: AssetDirectory) {
   }
 }
 
-function loadMore() {
-  if (!nextContinuationToken.value) return
-  void fetchFiles({
-    append: true,
-    continuationToken: nextContinuationToken.value
-  })
+async function switchMember(account: string) {
+  selectedMemberAccount.value = account
+  activeAssetDirectory.value = 'all'
+  pending.value = true
+  loadError.value = ''
+  try {
+    const basePrefix = await ensureStorageConfiguredPrefix()
+    prefixInput.value = assetDirectoryPrefix('all', basePrefix)
+    searchQuery.value = ''
+    resetPagination()
+    await fetchFiles()
+  } catch (error) {
+    const text = errorText(error, '加载成员素材失败')
+    loadError.value = text
+    message.error(text)
+  } finally {
+    pending.value = false
+  }
 }
 
 function openDirectory(prefix: string) {
   prefixInput.value = stripTrailingSlash(prefix)
+  searchQuery.value = ''
+  resetPagination()
   void fetchFiles()
 }
 
-function openFile(url: string) {
-  if (!url || !import.meta.client) return
-  window.open(url, '_blank', 'noopener,noreferrer')
+async function goNextPage() {
+  if (!nextContinuationToken.value) return
+  const nextToken = nextContinuationToken.value
+  const loaded = await fetchFiles({ continuationToken: nextToken, preserveOnError: true })
+  if (!loaded) return
+  tokenHistory.value.push(continuationToken.value)
+  continuationToken.value = nextToken
+  currentPage.value += 1
+}
+
+async function goPreviousPage() {
+  if (currentPage.value <= 1) return
+  const previousToken = tokenHistory.value.at(-1) || ''
+  const loaded = await fetchFiles({ continuationToken: previousToken || undefined, preserveOnError: true })
+  if (!loaded) return
+  tokenHistory.value.pop()
+  continuationToken.value = previousToken
+  currentPage.value = Math.max(1, currentPage.value - 1)
+}
+
+async function goFirstPage() {
+  if (currentPage.value <= 1) return
+  const loaded = await fetchFiles({ preserveOnError: true })
+  if (loaded) {
+    continuationToken.value = ''
+    tokenHistory.value = []
+    currentPage.value = 1
+  }
 }
 
 function downloadFile(row: TosRow) {
   if (!row.key || !import.meta.client) return
   const query = new URLSearchParams({ key: row.key, filename: row.name })
   window.location.assign(`/api/admin/tos-files/download?${query.toString()}`)
+}
+
+async function copyText(value: string, label: string) {
+  if (!value || !import.meta.client) return
+  try {
+    await navigator.clipboard.writeText(value)
+    message.success(`${label}已复制`)
+  } catch {
+    message.error(`复制${label}失败`)
+  }
 }
 
 function clampImageScale(value: number) {
@@ -693,6 +862,7 @@ function resetImagePreviewView() {
 function resetImagePreview() {
   imagePreviewUrl.value = ''
   imagePreviewName.value = ''
+  previewMediaType.value = 'image'
   resetImagePreviewView()
 }
 
@@ -700,6 +870,24 @@ function openImagePreview(row: TosRow) {
   if (!row.url) return
   imagePreviewUrl.value = row.url
   imagePreviewName.value = row.name || row.key
+  previewMediaType.value = 'image'
+  resetImagePreviewView()
+  imagePreviewOpen.value = true
+}
+
+function openMediaPreview(row: TosRow) {
+  if (!row.url) return
+  if (row.type === 'image') {
+    openImagePreview(row)
+    return
+  }
+  if (row.type !== 'video') {
+    window.open(row.url, '_blank', 'noopener,noreferrer')
+    return
+  }
+  imagePreviewUrl.value = row.url
+  imagePreviewName.value = row.name || row.key
+  previewMediaType.value = 'video'
   resetImagePreviewView()
   imagePreviewOpen.value = true
 }
@@ -744,42 +932,77 @@ function stopImagePreviewDrag() {
 
 function goParent() {
   const normalized = normalizePrefix(prefixInput.value)
+  const scopeRoot = selectedMemberRootPrefix()
+  if (!normalized || normalized === scopeRoot) return
   const parts = normalized.split('/').filter(Boolean)
   parts.pop()
-  prefixInput.value = parts.join('/')
-  void fetchFiles()
-}
-
-function goConfiguredPrefix() {
-  if (!meta.value?.configuredPrefix) return
-  prefixInput.value = meta.value.configuredPrefix
+  const parent = parts.join('/')
+  prefixInput.value = parent === scopeRoot || parent.startsWith(`${scopeRoot}/`) ? parent : scopeRoot
+  searchQuery.value = ''
+  resetPagination()
   void fetchFiles()
 }
 
 function goRoot() {
-  prefixInput.value = ''
+  prefixInput.value = selectedMemberRootPrefix()
+  searchQuery.value = ''
+  resetPagination()
   void fetchFiles()
 }
 
-onMounted(() => {
-  if (!restoreViewState()) {
-    void openAssetDirectory('images')
+onMounted(async () => {
+  restoreViewState()
+  await loadMembers()
+  if (selectedMemberAccount.value !== '__all__' && !members.value.some(member => member.account === selectedMemberAccount.value)) {
+    selectedMemberAccount.value = '__all__'
+    activeAssetDirectory.value = 'all'
   }
+  await openAssetDirectory(activeAssetDirectory.value)
 })
 </script>
 
 <style scoped>
 .tos-files-shortcuts {
   display: flex;
+  margin-left: auto;
   gap: 8px;
   align-items: center;
 }
 
+.tos-member-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tos-member-select {
+  width: min(360px, 100%);
+}
+
 .tos-files-toolbar {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) 132px 104px auto;
+  grid-template-columns: minmax(220px, 1fr) 160px 120px auto;
   gap: 8px;
   align-items: center;
+}
+
+@media (max-width: 640px) {
+  .tos-member-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tos-member-select {
+    width: 100%;
+  }
+
+  .tos-files-shortcuts {
+    margin-left: 0;
+  }
+
+  .tos-files-toolbar {
+    grid-template-columns: 1fr;
+  }
 }
 
 .tos-files-meta {
@@ -789,9 +1012,24 @@ onMounted(() => {
   gap: 12px;
 }
 
+.tos-breadcrumbs {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.tos-breadcrumbs__separator {
+  margin: 0 6px;
+  color: #98a2b3;
+}
+
 .tos-files-footer {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .tos-files-select-fallback {
@@ -842,14 +1080,10 @@ onMounted(() => {
   cursor: zoom-in;
 }
 
-:deep(.tos-media-preview__video) {
-  display: block;
-  width: 104px;
-  height: 72px;
-  max-width: 104px;
-  max-height: 72px;
-  background: #111827;
-  object-fit: contain;
+:deep(.tos-media-preview__video-button) {
+  background: #eef1f5;
+  color: #475467;
+  font-size: 12px;
 }
 
 :deep(.tos-media-preview--folder),
@@ -911,6 +1145,18 @@ onMounted(() => {
   transform-origin: center center;
   transition: transform 0.08s ease;
   user-select: none;
+}
+
+.tos-image-viewer__video {
+  display: block;
+  width: min(1120px, 100%);
+  max-height: calc(100vh - 56px);
+  background: #000;
+  object-fit: contain;
+}
+
+:deep(.n-data-table-th) {
+  white-space: nowrap;
 }
 
 @media (max-width: 760px) {

@@ -2,11 +2,14 @@
 import type { TosConfigPublic } from '#shared/types/provider'
 import {
   ArrowLeft,
+  ChevronRight,
+  Copy,
   Download,
   File,
   Folder,
   Loader2,
   RefreshCw,
+  Search,
   UserRound,
   Users,
   Video
@@ -14,6 +17,7 @@ import {
 import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
+import { tosUserScopeComponent } from '@/lib/tos-path'
 
 type TosFileEntry = {
   key: string
@@ -87,12 +91,15 @@ const hoverPreviewPosition = ref({ x: 0, y: 0 })
 const imagePreviewOpen = ref(false)
 const imagePreviewSrc = ref('')
 const imagePreviewAlt = ref('图片预览')
+const videoPreviewFile = ref<TosFileEntry | null>(null)
 const downloadingFileKey = ref<string | null>(null)
+const searchQuery = ref('')
 const { toast } = useToast()
 const { currentUser, loadStatus } = useCloudAdmin()
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
 const selectedMember = computed(() => members.value.find(member => member.account === selectedMemberAccount.value))
 const memberByAccount = computed(() => new Map(members.value.map(member => [member.account, member])))
+const memberByScope = computed(() => new Map(members.value.map(member => [tosUserScopeComponent(member.account), member])))
 
 const adminCategoryTabs = [
   { id: 'all', label: '全部' },
@@ -151,7 +158,7 @@ function directoryNameFromPrefix(prefix: string): string {
   const normalized = normalizePrefixValue(prefix)
   const account = accountFromMemberPrefix(normalized)
   if (normalized.split('/').length === 2 && account) {
-    const member = memberByAccount.value.get(account)
+    const member = memberByScope.value.get(account) || memberByAccount.value.get(account)
     return member ? `${member.displayName}（${member.account}）` : account
   }
   return normalized.split('/').at(-1) || normalized
@@ -159,8 +166,42 @@ function directoryNameFromPrefix(prefix: string): string {
 
 function buildAdminPrefix(account: string, category: 'all' | 'images' | 'videos'): string {
   if (account === '__all__') return 'users'
-  return category === 'all' ? `users/${account}` : `users/${account}/${category}`
+  const scope = tosUserScopeComponent(account)
+  return category === 'all' ? `users/${scope}` : `users/${scope}/${category}`
 }
+
+const filteredCommonPrefixes = computed(() => {
+  const query = searchQuery.value.trim().toLocaleLowerCase()
+  if (!query) return responseData.value?.commonPrefixes || []
+  return (responseData.value?.commonPrefixes || []).filter(prefix =>
+    directoryNameFromPrefix(prefix).toLocaleLowerCase().includes(query)
+    || prefix.toLocaleLowerCase().includes(query)
+  )
+})
+
+const filteredFiles = computed(() => {
+  const query = searchQuery.value.trim().toLocaleLowerCase()
+  if (!query) return responseData.value?.files || []
+  return (responseData.value?.files || []).filter(file =>
+    fileNameFromKey(file.key).toLocaleLowerCase().includes(query)
+    || file.key.toLocaleLowerCase().includes(query)
+  )
+})
+
+const breadcrumbItems = computed(() => {
+  const segments = normalizePrefixValue(activePrefix.value).split('/').filter(Boolean)
+  return segments.map((segment, index) => {
+    let label = segment
+    if (segment === 'users') label = '全部成员'
+    else if (segment === 'images') label = '图片'
+    else if (segment === 'videos') label = '视频'
+    else if (index === 1 && segments[0] === 'users') {
+      const member = memberByScope.value.get(segment)
+      label = member ? member.displayName : segment
+    }
+    return { label, prefix: segments.slice(0, index + 1).join('/') }
+  })
+})
 
 const activeAssetTabId = computed<string | null>(() => {
   const normalizedPrefix = normalizePrefixValue(activePrefix.value)
@@ -186,7 +227,7 @@ function isMediaFile(key: string): boolean {
 }
 
 function canPreviewMedia(file: TosFileEntry): boolean {
-  return isMediaFile(file.key) && !failedPreviewMediaKeys.value[file.key]
+  return isImageFile(file.key) && !failedPreviewMediaKeys.value[file.key]
 }
 
 function markPreviewMediaFailed(key: string) {
@@ -245,6 +286,14 @@ function openImagePreview(file: TosFileEntry) {
   imagePreviewOpen.value = true
 }
 
+function openMediaPreview(file: TosFileEntry) {
+  if (isImageFile(file.key)) {
+    openImagePreview(file)
+  } else if (isVideoFile(file.key) && file.url) {
+    videoPreviewFile.value = file
+  }
+}
+
 async function loadFiles(options: { reset?: boolean } = {}) {
   loading.value = true
   errorMessage.value = ''
@@ -255,20 +304,22 @@ async function loadFiles(options: { reset?: boolean } = {}) {
         prefix: activePrefix.value,
         delimiter: '/',
         maxKeys: pageSizeNumber.value,
-        sort: 'lastModifiedDesc',
         continuationToken: options.reset ? undefined : continuationToken.value
       }
     })
 
     if (response.success) {
       responseData.value = response.data
+      return true
     }
+    return false
   } catch (error) {
     const fetchError = error as FetchErrorWithData
     errorMessage.value = fetchError.data?.data?.message
       || fetchError.data?.message
       || fetchError.data?.statusMessage
       || (error instanceof Error ? error.message : '读取 TOS 文件失败')
+    return false
   } finally {
     loading.value = false
   }
@@ -361,11 +412,14 @@ function resetPagination() {
 
 function openPrefix(prefix: string) {
   activePrefix.value = normalizePrefixValue(prefix)
+  searchQuery.value = ''
   if (isAdmin.value) {
-    const account = accountFromMemberPrefix(activePrefix.value)
-    if (account) selectedMemberAccount.value = account
-    if (activePrefix.value.endsWith('/images')) selectedAdminCategory.value = 'images'
-    else if (activePrefix.value.endsWith('/videos')) selectedAdminCategory.value = 'videos'
+    const accountScope = accountFromMemberPrefix(activePrefix.value)
+    const member = accountScope ? memberByScope.value.get(accountScope) : undefined
+    if (member) selectedMemberAccount.value = member.account
+    const segments = activePrefix.value.split('/')
+    if (segments.includes('images')) selectedAdminCategory.value = 'images'
+    else if (segments.includes('videos')) selectedAdminCategory.value = 'videos'
     else selectedAdminCategory.value = 'all'
   }
   resetPagination()
@@ -405,31 +459,48 @@ function handlePageSizeChange(value: string) {
   void loadFiles({ reset: true })
 }
 
-function goNextPage() {
+async function goNextPage() {
   const nextToken = responseData.value?.nextContinuationToken
   if (!nextToken) return
-  if (continuationToken.value) {
-    tokenHistory.value.push(continuationToken.value)
-  } else {
-    tokenHistory.value.push('')
-  }
+  const previousToken = continuationToken.value || ''
   continuationToken.value = nextToken
+  const loaded = await loadFiles()
+  if (!loaded) {
+    continuationToken.value = previousToken || undefined
+    return
+  }
+  tokenHistory.value.push(previousToken)
   currentPage.value += 1
-  void loadFiles()
 }
 
-function goPreviousPage() {
+async function goPreviousPage() {
   if (tokenHistory.value.length === 0) return
-  const previousToken = tokenHistory.value.pop()
+  const previousToken = tokenHistory.value.at(-1)
+  const currentToken = continuationToken.value
   continuationToken.value = previousToken || undefined
+  const loaded = await loadFiles()
+  if (!loaded) {
+    continuationToken.value = currentToken
+    return
+  }
+  tokenHistory.value.pop()
   currentPage.value = Math.max(1, currentPage.value - 1)
-  void loadFiles()
 }
 
-function goFirstPage() {
+async function goFirstPage() {
   if (currentPage.value <= 1) return
-  resetPagination()
-  void loadFiles({ reset: true })
+  const loaded = await loadFiles({ reset: true })
+  if (loaded) resetPagination()
+}
+
+async function copyText(value: string, label: string) {
+  if (!value || !import.meta.client) return
+  try {
+    await navigator.clipboard.writeText(value)
+    toast.success(`${label}已复制`)
+  } catch {
+    toast.error(`复制${label}失败`)
+  }
 }
 
 onMounted(() => {
@@ -542,52 +613,26 @@ onMounted(() => {
         {{ errorMessage }}
       </div>
 
-      <div
-        v-if="responseData"
-        class="shrink-0 grid gap-3 md:grid-cols-4"
-      >
-        <div class="rounded-lg border bg-card p-4">
-          <p class="text-xs text-muted-foreground">
-            Bucket
-          </p>
-          <p class="mt-1 truncate text-sm font-medium">
-            {{ responseData.bucket }}
-          </p>
-        </div>
-        <div class="rounded-lg border bg-card p-4">
-          <p class="text-xs text-muted-foreground">
-            当前目录
-          </p>
-          <p class="mt-1 truncate text-sm font-medium">
-            {{ responseData.prefix || '-' }}
-          </p>
-        </div>
-        <div class="rounded-lg border bg-card p-4">
-          <p class="text-xs text-muted-foreground">
-            文件数
-          </p>
-          <p class="mt-1 text-sm font-medium">
-            {{ responseData.files.length }}
-          </p>
-        </div>
-        <div class="rounded-lg border bg-card p-4">
-          <p class="text-xs text-muted-foreground">
-            子目录
-          </p>
-          <p class="mt-1 text-sm font-medium">
-            {{ responseData.commonPrefixes.length }}
-          </p>
-        </div>
-      </div>
-
       <div class="min-h-0 flex-1 overflow-hidden rounded-lg border bg-card flex flex-col">
-        <div class="shrink-0 flex items-center justify-between gap-3 border-b px-4 py-3">
-          <h2 class="text-sm font-medium">
-            {{ selectedMember ? `${selectedMember.displayName}的素材` : (isAdmin ? '成员素材' : '对象列表') }}
-          </h2>
-          <p class="text-xs text-muted-foreground">
-            当前页 {{ currentPage }}
-          </p>
+        <div class="shrink-0 flex flex-col gap-3 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+          <nav class="flex min-w-0 items-center overflow-x-auto text-sm" aria-label="当前目录">
+            <template v-for="(item, index) in breadcrumbItems" :key="item.prefix">
+              <ChevronRight v-if="index" class="mx-1 h-4 w-4 shrink-0 text-muted-foreground" />
+              <button
+                type="button"
+                class="max-w-[180px] shrink-0 truncate rounded px-1.5 py-1 hover:bg-muted disabled:font-medium disabled:text-foreground"
+                :class="index === breadcrumbItems.length - 1 ? 'text-foreground' : 'text-muted-foreground'"
+                :disabled="loading || index === breadcrumbItems.length - 1"
+                @click="openPrefix(item.prefix)"
+              >
+                {{ item.label }}
+              </button>
+            </template>
+          </nav>
+          <div class="relative w-full shrink-0 lg:w-[280px]">
+            <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input v-model="searchQuery" class="pl-9" placeholder="搜索当前页名称或 Key" />
+          </div>
         </div>
 
         <div
@@ -599,10 +644,10 @@ onMounted(() => {
         </div>
 
         <div
-          v-else-if="responseData && responseData.commonPrefixes.length === 0 && responseData.files.length === 0"
+          v-else-if="responseData && filteredCommonPrefixes.length === 0 && filteredFiles.length === 0"
           class="flex min-h-0 flex-1 items-center justify-center py-16 text-center text-sm text-muted-foreground"
         >
-          当前目录下没有文件
+          {{ searchQuery.trim() ? '当前页没有匹配的素材' : '当前目录下没有素材' }}
         </div>
 
         <Table
@@ -616,7 +661,7 @@ onMounted(() => {
             <col class="w-[92px]">
             <col class="w-[190px]">
             <col class="w-[140px]">
-            <col class="w-[64px]">
+            <col class="w-[160px]">
           </colgroup>
           <TableHeader>
             <TableRow>
@@ -635,14 +680,14 @@ onMounted(() => {
               <TableHead class="whitespace-nowrap">
                 存储类型
               </TableHead>
-              <TableHead class="w-[64px] whitespace-nowrap bg-background text-center">
+              <TableHead class="w-[160px] whitespace-nowrap bg-background text-center">
                 操作
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow
-              v-for="prefix in responseData?.commonPrefixes || []"
+              v-for="prefix in filteredCommonPrefixes"
               :key="`prefix_${prefix}`"
             >
               <TableCell class="min-w-0 overflow-hidden">
@@ -672,14 +717,14 @@ onMounted(() => {
               <TableCell class="whitespace-nowrap">
                 -
               </TableCell>
-              <TableCell class="w-[64px] bg-background text-center" />
+              <TableCell class="w-[160px] bg-background text-center" />
             </TableRow>
 
             <TableRow
-              v-for="file in responseData?.files || []"
+              v-for="file in filteredFiles"
               :key="file.key"
-              :class="isImageFile(file.key) && !failedPreviewMediaKeys[file.key] ? 'cursor-pointer hover:bg-muted/50' : undefined"
-              @click="openImagePreview(file)"
+              :class="isMediaFile(file.key) ? 'cursor-pointer hover:bg-muted/50' : undefined"
+              @click="openMediaPreview(file)"
             >
               <TableCell class="min-w-0 overflow-hidden">
                 <div
@@ -735,8 +780,14 @@ onMounted(() => {
               <TableCell class="whitespace-nowrap">
                 {{ file.storageClass || '-' }}
               </TableCell>
-              <TableCell class="w-[64px] bg-background text-center">
+              <TableCell class="w-[160px] bg-background text-center">
                 <div class="inline-flex w-full items-center justify-center gap-1">
+                  <Button type="button" variant="ghost" size="icon" title="复制对象 Key" @click.stop="copyText(file.key, '对象 Key')">
+                    <Copy class="h-4 w-4" />
+                  </Button>
+                  <Button type="button" variant="ghost" size="icon" title="复制素材地址" :disabled="!file.url" @click.stop="copyText(file.url, '素材地址')">
+                    <Copy class="h-4 w-4" />
+                  </Button>
                   <Button
                     type="button"
                     variant="ghost"
@@ -853,5 +904,23 @@ onMounted(() => {
       :src="imagePreviewSrc"
       :alt="imagePreviewAlt"
     />
+    <Teleport to="body">
+      <div
+        v-if="videoPreviewFile"
+        class="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-6"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="fileNameFromKey(videoPreviewFile.key)"
+        @click.self="videoPreviewFile = null"
+      >
+        <div class="relative flex max-h-full w-full max-w-5xl flex-col gap-3">
+          <div class="flex items-center justify-between gap-4 text-white">
+            <p class="truncate text-sm font-medium">{{ fileNameFromKey(videoPreviewFile.key) }}</p>
+            <Button variant="secondary" size="sm" @click="videoPreviewFile = null">关闭</Button>
+          </div>
+          <video :src="videoPreviewFile.url" class="max-h-[80vh] w-full bg-black object-contain" controls autoplay playsinline />
+        </div>
+      </div>
+    </Teleport>
   </AppPage>
 </template>

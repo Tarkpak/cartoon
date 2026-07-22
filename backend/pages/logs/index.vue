@@ -55,7 +55,7 @@
             :loading="pending"
             :pagination="logsPagination"
             :row-props="rowProps"
-            :scroll-x="1560"
+            :scroll-x="1500"
             flex-height
             remote
             @update:page="handleLogsPageChange"
@@ -197,18 +197,20 @@
               <div class="log-error-message">{{ selectedLog.error_message }}</div>
             </n-alert>
 
-            <n-tabs class="log-detail-tabs" type="line">
+            <n-tabs v-model:value="activeDetailTab" class="log-detail-tabs" type="line">
+              <template #suffix>
+                <div v-if="activeDetailTab !== 'raw'" class="log-detail-toolbar">
+                  <span class="log-summary-label">{{ activePayloadViewLabel }}</span>
+                  <n-radio-group v-model:value="activePayloadViewMode" size="small">
+                    <n-radio-button value="text">格式化文本</n-radio-button>
+                    <n-radio-button value="json">原始 JSON</n-radio-button>
+                  </n-radio-group>
+                </div>
+              </template>
+
               <n-tab-pane name="request" tab="请求">
                 <div class="log-detail-stack">
-                  <div class="log-detail-toolbar">
-                    <span class="log-summary-label">请求展示</span>
-                    <n-radio-group v-model:value="payloadViewModes.request" size="small">
-                      <n-radio-button value="text">格式化文本</n-radio-button>
-                      <n-radio-button value="json">原始 JSON</n-radio-button>
-                    </n-radio-group>
-                  </div>
                   <section v-if="payloadViewModes.request === 'text'" class="log-payload-panel">
-                    <header class="log-payload-header">请求内容</header>
                     <div class="log-payload-body log-text-blocks">
                       <section
                         v-for="block in requestTextBlocks"
@@ -216,7 +218,44 @@
                         class="log-text-block"
                       >
                         <div class="log-block-title">{{ block.title }}</div>
-                        <pre>{{ block.content }}</pre>
+                        <div v-if="block.title === '结果地址' && responseResultUrl" class="log-result-output">
+                          <div class="log-result-link-row">
+                            <a
+                              :href="responseResultUrl"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="log-result-url"
+                            >{{ responseResultUrl }}</a>
+                            <a
+                              :href="responseResultUrl"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="log-result-open"
+                            >打开结果</a>
+                          </div>
+                          <img
+                            v-if="responseMediaKind === 'image'"
+                            :src="responseResultUrl"
+                            alt="模型响应图片"
+                            class="log-result-image"
+                            loading="lazy"
+                          >
+                          <video
+                            v-else-if="responseMediaKind === 'video'"
+                            :src="responseResultUrl"
+                            controls
+                            preload="metadata"
+                            class="log-result-video"
+                          />
+                          <audio
+                            v-else-if="responseMediaKind === 'audio'"
+                            :src="responseResultUrl"
+                            controls
+                            preload="metadata"
+                            class="log-result-audio"
+                          />
+                        </div>
+                        <pre v-else>{{ block.content }}</pre>
                       </section>
                       <div v-if="requestTextBlocks.length === 0" class="log-empty">无可读请求内容</div>
                     </div>
@@ -236,15 +275,7 @@
 
               <n-tab-pane name="response" tab="响应">
                 <div class="log-detail-stack">
-                  <div class="log-detail-toolbar">
-                    <span class="log-summary-label">响应展示</span>
-                    <n-radio-group v-model:value="payloadViewModes.response" size="small">
-                      <n-radio-button value="text">格式化文本</n-radio-button>
-                      <n-radio-button value="json">原始 JSON</n-radio-button>
-                    </n-radio-group>
-                  </div>
                   <section v-if="payloadViewModes.response === 'text'" class="log-payload-panel">
-                    <header class="log-payload-header">响应内容</header>
                     <div class="log-payload-body log-text-blocks">
                       <section
                         v-for="block in responseTextBlocks"
@@ -272,13 +303,6 @@
 
               <n-tab-pane v-if="hasLogError" name="error" tab="错误">
                 <div class="log-detail-stack">
-                  <div class="log-detail-toolbar">
-                    <span class="log-summary-label">错误展示</span>
-                    <n-radio-group v-model:value="payloadViewModes.error" size="small">
-                      <n-radio-button value="text">格式化文本</n-radio-button>
-                      <n-radio-button value="json">原始 JSON</n-radio-button>
-                    </n-radio-group>
-                  </div>
                   <section v-if="payloadViewModes.error === 'text'" class="log-payload-panel">
                     <header class="log-payload-header">错误摘要</header>
                     <div class="log-payload-body">
@@ -415,6 +439,7 @@ interface LogOptions {
 
 type JsonPayloadKind = 'request' | 'response' | 'error'
 type PayloadViewMode = 'text' | 'json'
+type DetailTab = JsonPayloadKind | 'raw'
 
 const message = useMessage()
 const route = useRoute()
@@ -460,6 +485,7 @@ const archivesTotal = ref(0)
 const drawer = ref(false)
 const selectedLog = ref<ModelCallLog | null>(null)
 const detailLoading = ref(false)
+const activeDetailTab = ref<DetailTab>('request')
 let detailRequestSequence = 0
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 const payloadViewModes = reactive<Record<JsonPayloadKind, PayloadViewMode>>({
@@ -469,9 +495,36 @@ const payloadViewModes = reactive<Record<JsonPayloadKind, PayloadViewMode>>({
 })
 const detailDrawerWidth = 'min(1080px, 92vw)'
 
+const activePayloadViewLabel = computed(() => ({
+  request: '请求展示',
+  response: '响应展示',
+  error: '错误展示',
+  raw: ''
+}[activeDetailTab.value]))
+const activePayloadViewMode = computed<PayloadViewMode>({
+  get: () => activeDetailTab.value === 'raw' ? 'text' : payloadViewModes[activeDetailTab.value],
+  set: value => {
+    if (activeDetailTab.value !== 'raw') payloadViewModes[activeDetailTab.value] = value
+  }
+})
+
 const selectedLogJson = computed(() => selectedLog.value ? stringifyJson(selectedLog.value) : '')
 const requestTextBlocks = computed(() => selectedLog.value ? readableBlocksFor(selectedLog.value.request, 'request') : [])
 const responseTextBlocks = computed(() => selectedLog.value ? readableBlocksFor(selectedLog.value.response, 'response') : [])
+const responseResultUrl = computed(() => responseTextBlocks.value.find(block => block.title === '结果地址')?.content || '')
+const responseMimeType = computed(() => responseTextBlocks.value.find(block => block.title === '媒体类型')?.content.toLowerCase() || '')
+const responseMediaKind = computed<'image' | 'video' | 'audio' | null>(() => {
+  const mimeType = responseMimeType.value
+  if (mimeType.startsWith('image/')) return 'image'
+  if (mimeType.startsWith('video/')) return 'video'
+  if (mimeType.startsWith('audio/')) return 'audio'
+
+  const path = responseResultUrl.value.toLowerCase().split(/[?#]/, 1)[0] || ''
+  if (/\.(png|jpe?g|gif|webp|avif|bmp)$/.test(path)) return 'image'
+  if (/\.(mp4|webm|mov|m4v)$/.test(path)) return 'video'
+  if (/\.(mp3|wav|ogg|m4a|aac|flac)$/.test(path)) return 'audio'
+  return null
+})
 const hasLogError = computed(() => Boolean(selectedLog.value && (
   selectedLog.value.error_message
   || hasContent(selectedLog.value.error)
@@ -520,7 +573,7 @@ const columns = [
     }
   },
   {
-    title: '用户', key: 'account', width: 136,
+    title: '用户', key: 'account', width: 120,
     render: (row: ModelCallLog) => h(NEllipsis, { tooltip: true }, { default: () => displayUser(row) })
   },
   {
@@ -532,13 +585,13 @@ const columns = [
     }
   },
   {
-    title: '模型', key: 'model_id', width: 210,
+    title: '模型', key: 'model_id', width: 180,
     render: (row: ModelCallLog) => h(NEllipsis, { tooltip: true }, { default: () => displayValue(row.model_id) })
   },
   {
     title: '操作',
     key: 'operation',
-    width: 124,
+    width: 112,
     render(row: ModelCallLog) {
       return modelOperationLabel(row.operation)
     }
@@ -546,17 +599,17 @@ const columns = [
   {
     title: '状态',
     key: 'status',
-    width: 92,
+    width: 80,
     render(row: ModelCallLog) {
       return h(NTag, { size: 'small', type: statusTagType(row.status) }, { default: () => modelStatusLabel(row.status) })
     }
   },
-  { title: '耗时', key: 'duration_ms', width: 136, render: (row: ModelCallLog) => h(DurationIndicator, { value: row.duration_ms }) },
-  { title: '费用', key: 'estimated_cost', width: 96, render: (row: ModelCallLog) => formatCost(row.estimated_cost) },
+  { title: '耗时', key: 'duration_ms', width: 88, render: (row: ModelCallLog) => h(DurationIndicator, { value: row.duration_ms }) },
+  { title: '费用', key: 'estimated_cost', width: 72, render: (row: ModelCallLog) => formatCost(row.estimated_cost) },
   {
     title: '积分',
     key: 'credits_charged',
-    width: 80,
+    width: 64,
     render(row: ModelCallLog) {
       return row.credits_charged ?? '-'
     }
@@ -572,11 +625,16 @@ const columns = [
           event.stopPropagation()
           void copyText(row.request_id || '', 'Request ID')
         }
-      }, { default: () => row.request_id })
+      }, {
+        default: () => h('span', {
+          class: 'request-id-text',
+          title: row.request_id
+        }, row.request_id)
+      })
     }
   },
   {
-    title: '错误摘要', key: 'error_message', width: 270,
+    title: '错误摘要', key: 'error_message', width: 236,
     render: (row: ModelCallLog) => row.error_message
       ? h(NEllipsis, { tooltip: true }, { default: () => row.error_message })
       : '-'
@@ -762,6 +820,8 @@ function readableBlocksFor(value: unknown, type: 'request' | 'response'): TextBl
       ]
     : [
         { title: '输出', keys: ['output', 'result', 'text', 'content', 'message'] },
+        { title: '结果地址', keys: ['imageUrl', 'image_url', 'videoUrl', 'video_url', 'audioUrl', 'audio_url', 'fileUrl', 'file_url', 'url'] },
+        { title: '媒体类型', keys: ['mimeType', 'mime_type', 'contentType', 'content_type'] },
         { title: '候选结果', keys: ['choices', 'data'] },
         { title: '用量', keys: ['usage'] }
       ]
@@ -780,7 +840,7 @@ function readableBlocksFor(value: unknown, type: 'request' | 'response'): TextBl
     }
   }
 
-  if (blocks.length === 0 && hasContent(value) && !isRecord(value)) {
+  if (blocks.length === 0 && hasContent(value)) {
     blocks.push({ title: type === 'request' ? '请求内容' : '响应内容', content: valueToText(value) })
   }
 
@@ -1062,6 +1122,7 @@ async function exportActiveResults() {
 async function openLog(id: string) {
   const requestSequence = ++detailRequestSequence
   selectedLog.value = null
+  activeDetailTab.value = 'request'
   detailLoading.value = true
   drawer.value = true
   try {
@@ -1076,13 +1137,17 @@ async function openLog(id: string) {
   }
 }
 
-watch(autoRefresh, (enabled) => {
+function syncRefreshTimer(enabled: boolean) {
   if (refreshTimer) clearInterval(refreshTimer)
   refreshTimer = enabled
     ? setInterval(() => {
         if (document.visibilityState === 'visible' && !activeLoading.value) refreshActiveTab()
       }, 30_000)
     : null
+}
+
+watch(autoRefresh, (enabled) => {
+  syncRefreshTimer(enabled)
 })
 
 onMounted(() => {
@@ -1090,8 +1155,16 @@ onMounted(() => {
   refreshActiveTab()
 })
 
+onActivated(() => {
+  syncRefreshTimer(autoRefresh.value)
+})
+
+onDeactivated(() => {
+  syncRefreshTimer(false)
+})
+
 onBeforeUnmount(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
+  syncRefreshTimer(false)
 })
 </script>
 
@@ -1137,6 +1210,7 @@ onBeforeUnmount(() => {
 }
 
 .logs-tabs :deep(.n-tab-pane) {
+  box-sizing: border-box;
   display: flex;
   height: 100%;
   min-height: 0;
@@ -1145,8 +1219,18 @@ onBeforeUnmount(() => {
 }
 
 .logs-data-table {
+  height: 0;
   min-height: 180px;
   flex: 1;
+}
+
+.logs-data-table :deep(.n-data-table-wrapper),
+.logs-data-table :deep(.n-data-table-base-table) {
+  min-height: 0;
+}
+
+.logs-data-table :deep(.n-data-table__pagination) {
+  flex: 0 0 auto;
 }
 
 .summary-strip {
@@ -1234,12 +1318,31 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
 }
 
-.request-id-button {
-  display: block;
-  max-width: 150px;
+:deep(.request-id-button) {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  justify-content: flex-start;
   overflow: hidden;
   color: #175cd3;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:deep(.request-id-button .n-button__content) {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+}
+
+:deep(.request-id-text) {
+  display: block;
+  width: 100%;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1356,12 +1459,60 @@ onBeforeUnmount(() => {
 
 .log-text-blocks {
   display: grid;
+  align-content: start;
   gap: 10px;
+  padding-top: 18px;
 }
 
 .log-text-block {
   display: grid;
+  align-content: start;
   gap: 6px;
+}
+
+.log-result-output {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.log-result-link-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #f6f7f9;
+}
+
+.log-result-url {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+  color: #344054;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.log-result-open {
+  flex: 0 0 auto;
+  color: #175cd3;
+  font-size: 12px;
+}
+
+.log-result-image,
+.log-result-video {
+  max-width: 100%;
+  max-height: 360px;
+  border: 1px solid #e4e7ec;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+.log-result-audio {
+  width: min(100%, 520px);
 }
 
 .log-payload-panel {

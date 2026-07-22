@@ -15,11 +15,11 @@ export function formatDurationMs(value: unknown): string {
   const duration = normalizeDuration(value)
   if (duration === null) return '-'
 
-  if (duration < 1_000) return `${Math.round(duration)} ms`
+  if (duration < 1_000) return `${Math.round(duration)}ms`
   if (duration < 60_000) {
     const seconds = duration / 1_000
     const precision = seconds < 10 ? 2 : 1
-    return `${Number(seconds.toFixed(precision))} s`
+    return `${Number(seconds.toFixed(precision))}s`
   }
 
   const totalSeconds = Math.round(duration / 1_000)
@@ -28,11 +28,11 @@ export function formatDurationMs(value: unknown): string {
   const seconds = totalSeconds % 60
   const parts: string[] = []
 
-  if (hours > 0) parts.push(`${hours} h`)
-  if (minutes > 0) parts.push(`${minutes} min`)
-  if (seconds > 0 && hours === 0) parts.push(`${seconds} s`)
+  if (hours > 0) parts.push(`${hours}h`)
+  if (minutes > 0) parts.push(`${minutes}min`)
+  if (seconds > 0 && hours === 0) parts.push(`${seconds}s`)
 
-  return parts.join(' ') || '0 s'
+  return parts.join(' ') || '0s'
 }
 
 export function durationLevel(value: unknown, profile: DurationProfile): DurationLevel {
@@ -56,5 +56,5 @@ export function durationBarPercent(value: unknown, profile: DurationProfile): nu
 export function durationExactLabel(value: unknown): string {
   const duration = normalizeDuration(value)
   if (duration === null) return '无耗时数据'
-  return `精确耗时 ${Math.round(duration).toLocaleString('en-US')} ms`
+  return `精确耗时 ${Math.round(duration).toLocaleString('en-US')}ms`
 }

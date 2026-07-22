@@ -70,6 +70,7 @@ declare module 'vue' {
     LayoutAppPageContent: typeof import('./app/components/layout/AppPageContent.vue')['default']
     LayoutAppPageHeader: typeof import('./app/components/layout/AppPageHeader.vue')['default']
     LazyImage: typeof import('./app/components/LazyImage.vue')['default']
+    LogsDurationIndicator: typeof import('./app/components/logs/DurationIndicator.vue')['default']
     LogsTabSwitcher: typeof import('./app/components/logs/LogsTabSwitcher.vue')['default']
     ModelLogsDetailDrawer: typeof import('./app/components/model-logs/ModelLogsDetailDrawer.vue')['default']
     ModelLogsFilters: typeof import('./app/components/model-logs/ModelLogsFilters.vue')['default']
