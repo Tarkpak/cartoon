@@ -12,6 +12,8 @@ import { resolveStyleCategoryIconByName } from '@/lib/style-category-icons'
 const props = defineProps<{
   modelValue?: string
   showSearch?: boolean
+  gridScrollable?: boolean
+  showSelectedPreview?: boolean
   styles?: StylePreset[]
   categories?: StyleCategoryInfo[]
   defaultStyleId?: string
@@ -99,7 +101,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div
+    class="min-h-0"
+    :class="gridScrollable ? 'flex h-full flex-col gap-3' : 'space-y-4'"
+  >
     <div
       v-if="!props.styles && remoteLoading && filteredStyles.length === 0"
       class="flex items-center justify-center py-8 text-muted-foreground text-sm"
@@ -160,57 +165,66 @@ onMounted(async () => {
     </div>
 
     <!-- 风格网格 -->
-    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-      <div
-        v-for="style in prioritizedStyles"
-        :key="style.id"
-        class="relative group cursor-pointer rounded-lg border-2 transition-all overflow-hidden"
-        :class="modelValue === style.id ? 'border-primary ring-2 ring-primary/30' : 'border-transparent hover:border-primary/50'"
-        @click="selectStyle(style)"
-      >
-        <div
-          v-if="style.id === defaultStyleId"
-          class="absolute top-2 left-2 z-10 inline-flex items-center gap-1 rounded-full bg-amber-500/90 px-2 py-0.5 text-xs font-medium text-white"
+    <div
+      class="min-h-0"
+      :class="gridScrollable ? 'flex-1 overflow-y-auto overscroll-contain pr-1' : ''"
+    >
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <button
+          v-for="style in prioritizedStyles"
+          :key="style.id"
+          type="button"
+          class="group relative cursor-pointer overflow-hidden rounded-md border-2 bg-background text-left transition-[border-color,box-shadow,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.98]"
+          :class="modelValue === style.id ? 'border-primary ring-2 ring-primary/20' : 'border-transparent hover:border-primary/50'"
+          :aria-pressed="modelValue === style.id"
+          :aria-label="`选择${style.name}画风`"
+          :title="style.description"
+          @click="selectStyle(style)"
         >
-          <Star class="h-3 w-3 fill-current" />
-          系统默认
-        </div>
-        <div class="aspect-[9/16] bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center overflow-hidden">
-          <img
-            v-if="style.thumbnail"
-            :src="style.thumbnail"
-            :alt="style.name"
-            class="w-full h-full object-contain"
-            loading="lazy"
+          <div
+            v-if="style.id === defaultStyleId"
+            class="absolute left-2 top-2 z-10 inline-flex items-center gap-1 rounded bg-amber-500/90 px-1.5 py-0.5 text-[11px] font-medium text-white"
           >
-          <Palette
-            v-else
-            class="w-8 h-8 text-muted-foreground"
-          />
-        </div>
-        <div class="p-2 bg-background">
-          <div class="flex items-center gap-1">
-            <span class="text-sm font-medium truncate">{{ style.name }}</span>
-            <span
-              v-if="style.isNew"
-              class="px-1 py-0.5 text-xs bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded"
-            >NEW</span>
+            <Star class="h-3 w-3 fill-current" />
+            默认
           </div>
-          <p class="text-xs text-muted-foreground truncate">
-            {{ style.nameEn }}
-          </p>
-        </div>
-        <div
-          v-if="modelValue === style.id"
-          class="absolute top-2 right-2 w-5 h-5 bg-primary rounded-full flex items-center justify-center"
-        >
-          <Check class="w-3 h-3 text-primary-foreground" />
-        </div>
-        <div class="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-3">
-          <p class="text-white text-xs text-center leading-relaxed max-h-[85%] overflow-y-auto pr-1">
-            {{ style.description }}
-          </p>
-        </div>
+          <div class="flex aspect-[9/16] items-center justify-center overflow-hidden bg-muted">
+            <img
+              v-if="style.thumbnail"
+              :src="style.thumbnail"
+              :alt="style.name"
+              class="h-full w-full object-cover"
+              loading="lazy"
+            >
+            <Palette
+              v-else
+              class="h-8 w-8 text-muted-foreground"
+            />
+          </div>
+          <div class="bg-background p-2">
+            <div class="flex min-w-0 items-center gap-1">
+              <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ style.name }}</span>
+              <span
+                v-if="style.isNew"
+                class="shrink-0 rounded bg-fuchsia-500 px-1 py-0.5 text-[10px] font-semibold text-white"
+              >NEW</span>
+            </div>
+            <p class="truncate text-xs text-muted-foreground">
+              {{ style.nameEn }}
+            </p>
+          </div>
+          <div
+            v-if="modelValue === style.id"
+            class="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary shadow-sm"
+          >
+            <Check class="h-3 w-3 text-primary-foreground" />
+          </div>
+          <div class="pointer-events-none absolute inset-0 flex items-end bg-black/65 p-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100">
+            <p class="line-clamp-6 text-left text-xs leading-relaxed text-white">
+              {{ style.description }}
+            </p>
+          </div>
+        </button>
       </div>
     </div>
 
@@ -224,7 +238,7 @@ onMounted(async () => {
 
     <!-- 已选风格预览 -->
     <div
-      v-if="selectedStyle"
+      v-if="selectedStyle && showSelectedPreview !== false"
       class="p-4 bg-accent rounded-lg"
     >
       <div class="flex items-center gap-3">
@@ -253,7 +267,7 @@ onMounted(async () => {
           <p class="text-sm text-muted-foreground">
             {{ selectedStyle.nameEn }}
           </p>
-          <p class="text-xs text-muted-foreground mt-1 leading-relaxed max-h-20 overflow-y-auto pr-1">
+          <p class="mt-1 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
             {{ selectedStyle.description }}
           </p>
         </div>

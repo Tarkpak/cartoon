@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2 } from 'lucide-vue-next'
+import { Loader2, Star } from 'lucide-vue-next'
 import type { StyleCategoryInfo, StylePreset } from '#shared/types/styles'
 import type { ProjectAspectRatio, ProjectDraft } from '~/lib/projects-page'
 import type { ScriptParseMode } from '#shared/types/script'
@@ -98,7 +98,7 @@ function applyDefaultStyle() {
     :open="open"
     @update:open="$emit('update:open', $event)"
   >
-    <DialogContent class="flex max-h-[90vh] max-w-[800px] flex-col sm:max-w-[800px]">
+    <DialogContent class="flex h-[min(90vh,920px)] max-w-[800px] flex-col overflow-hidden sm:max-w-[800px]">
       <DialogHeader>
         <DialogTitle>新建项目</DialogTitle>
         <DialogDescription>
@@ -171,36 +171,34 @@ function applyDefaultStyle() {
 
       <div
         v-else
-        class="min-h-0 flex-1 overflow-y-auto py-4 pr-1"
+        class="flex min-h-0 flex-1 flex-col gap-3 py-3"
       >
         <div
           v-if="defaultStyleLabel"
-          class="mb-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3"
+          class="flex shrink-0 items-center gap-3 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2"
         >
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <p class="text-xs text-amber-700">
-                系统默认预设
-              </p>
-              <p class="text-sm font-semibold text-foreground truncate">
-                {{ defaultStyleLabel }}
-              </p>
-              <p
-                v-if="defaultStyleDescription"
-                class="mt-0.5 text-xs text-muted-foreground line-clamp-2"
-              >
-                {{ defaultStyleDescription }}
-              </p>
+          <Star class="h-4 w-4 shrink-0 fill-amber-500 text-amber-500" />
+          <div class="min-w-0 flex-1">
+            <div class="flex min-w-0 items-baseline gap-2">
+              <span class="shrink-0 text-xs font-medium text-amber-700">系统默认</span>
+              <span class="truncate text-sm font-semibold text-foreground">{{ defaultStyleLabel }}</span>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              :disabled="isUsingDefaultStyle"
-              @click="applyDefaultStyle"
+            <p
+              v-if="defaultStyleDescription"
+              class="truncate text-xs text-muted-foreground"
             >
-              {{ isUsingDefaultStyle ? '已在使用' : '一键使用默认' }}
-            </Button>
+              {{ defaultStyleDescription }}
+            </p>
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            class="shrink-0"
+            :disabled="isUsingDefaultStyle"
+            @click="applyDefaultStyle"
+          >
+            {{ isUsingDefaultStyle ? '使用中' : '设为当前' }}
+          </Button>
         </div>
         <div
           v-if="styleConfigLoading && availableStylePresets.length === 0"
@@ -216,6 +214,8 @@ function applyDefaultStyle() {
           :styles="availableStylePresets"
           :categories="availableStyleCategories"
           :default-style-id="defaultStyleId"
+          :grid-scrollable="true"
+          :show-selected-preview="false"
           @select="$emit('select-style', $event)"
         />
       </div>
