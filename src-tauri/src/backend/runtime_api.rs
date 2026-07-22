@@ -8794,6 +8794,9 @@ fn persist_generated_video_record(
     video_url: &str,
     metadata: &Value,
 ) -> Result<(), ApiError> {
+    if is_model_test_video_task(task_id, scene_id) {
+        return Ok(());
+    }
     let conn = db_connection(state)?;
     let duration = metadata.get("duration").and_then(Value::as_f64);
     let resolution = metadata.get("resolution").and_then(Value::as_str);
@@ -8832,6 +8835,10 @@ fn persist_generated_video_record(
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(())
+}
+
+fn is_model_test_video_task(task_id: &str, scene_id: &str) -> bool {
+    task_id.starts_with("test_") && scene_id.starts_with("model_test_")
 }
 
 async fn complete_tracked_video_task(
@@ -9927,6 +9934,617 @@ async fn request_qwen_text_to_speech(
         None,
     );
     Ok((source, mime_type, is_url, request_body))
+}
+
+fn is_grok_video_model(model_id: &str) -> bool {
+    normalize_model_id_for_remote(model_id)
+        .to_ascii_lowercase()
+        .starts_with("grok-imagine-video")
+}
+
+fn is_supported_video_provider(provider: &str, model_id: &str) -> bool {
+    matches!(provider, "qwen" | "volcengine" | "kling" | "gemini")
+        || (provider == "custom_openai" && is_grok_video_model(model_id))
+}
+
+fn provider_videos_generations_endpoint(base_url: &str) -> String {
+    let normalized = base_url.trim().trim_end_matches('/');
+    for suffix in [
+        "/chat/completions",
+        "/images/generations",
+        "/responses",
+        "/models",
+    ] {
+        if normalized.to_ascii_lowercase().ends_with(suffix) {
+            return format!(
+                "{}/videos/generations",
+                &normalized[..normalized.len() - suffix.len()]
+            );
+        }
+    }
+    if normalized
+        .to_ascii_lowercase()
+        .ends_with("/videos/generations")
+    {
+        normalized.to_string()
+    } else {
+        format!("{}/videos/generations", normalized)
+    }
+}
+
+fn provider_video_task_endpoint(base_url: &str, request_id: &str) -> String {
+    let generations_endpoint = provider_videos_generations_endpoint(base_url);
+    let root = generations_endpoint
+        .strip_suffix("/generations")
+        .unwrap_or(generations_endpoint.as_str());
+    format!(
+        "{}/{}",
+        root.trim_end_matches('/'),
+        tos_percent_encode(request_id.trim())
+    )
+}
+
+fn custom_openai_model_transport(model_id: &str) -> Result<(String, String), String> {
+    let creds = current_provider_creds();
+    let entry = custom_openai_entry_for_model(model_id, &creds)
+        .ok_or_else(|| "未配置自定义 OpenAI 供应商".to_string())?;
+    let request_creds = wrap_custom_openai_creds(&entry);
+    let base_url = provider_sync_base_url("custom_openai", &request_creds)
+        .ok_or_else(|| "未配置 Base URL".to_string())?;
+    let api_key = provider_sync_api_keys("custom_openai", &request_creds)
+        .into_iter()
+        .next()
+        .ok_or_else(|| "未配置 API Key".to_string())?;
+    Ok((base_url, api_key))
+}
+
+async fn normalize_grok_video_image_url(
+    state: &BackendState,
+    value: &str,
+) -> Result<String, ApiError> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "视频参考图不能为空"));
+    }
+    if is_http_url(normalized) || normalized.starts_with("data:") {
+        return Ok(normalized.to_string());
+    }
+    let (bytes, mime_type) = resolve_source_bytes(state, normalized, 35 * 1024 * 1024).await?;
+    Ok(format!(
+        "data:{};base64,{}",
+        mime_type.unwrap_or_else(|| "image/png".to_string()),
+        BASE64_STANDARD.encode(bytes)
+    ))
+}
+
+fn normalize_grok_video_resolution(value: Option<&Value>) -> String {
+    match value
+        .and_then(Value::as_str)
+        .unwrap_or("720p")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "480p" => "480p".to_string(),
+        "1080p" => "1080p".to_string(),
+        _ => "720p".to_string(),
+    }
+}
+
+async fn build_grok_video_request(
+    state: &BackendState,
+    model_id: &str,
+    config: &Value,
+) -> Result<Value, ApiError> {
+    let model = normalize_model_id_for_remote(model_id);
+    let prompt = json_string(config.get("prompt"), "");
+    if prompt.trim().is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "视频提示词不能为空"));
+    }
+
+    let mut duration = normalize_video_duration(config.get("duration"));
+    let mut request = json!({
+      "model": model,
+      "prompt": prompt,
+      "duration": duration,
+      "aspect_ratio": json_string(config.get("aspectRatio"), "16:9"),
+      "resolution": normalize_grok_video_resolution(config.get("resolution"))
+    });
+    let references = config
+        .get("referenceImages")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|item| trimmed_json_string(&item))
+        .collect::<Vec<_>>();
+    let primary_image = optional_trimmed_json_string(config.get("imageUrl"))
+        .or_else(|| optional_trimmed_json_string(config.get("firstFrame")));
+    let supports_reference_mode = model.eq_ignore_ascii_case("grok-imagine-video");
+
+    if supports_reference_mode && !references.is_empty() {
+        duration = duration.min(10);
+        request["duration"] = json!(duration);
+        let mut normalized_references = Vec::new();
+        for reference in references.into_iter().take(7) {
+            normalized_references.push(json!({
+              "url": normalize_grok_video_image_url(state, &reference).await?
+            }));
+        }
+        request["reference_images"] = Value::Array(normalized_references);
+    } else if let Some(image) = primary_image.or_else(|| references.into_iter().next()) {
+        request["image"] = json!({
+          "url": normalize_grok_video_image_url(state, &image).await?
+        });
+    }
+
+    Ok(request)
+}
+
+fn grok_video_error_message(payload: &Value) -> String {
+    payload
+        .get("error")
+        .and_then(|error| {
+            error
+                .get("message")
+                .and_then(Value::as_str)
+                .or_else(|| error.as_str())
+        })
+        .or_else(|| payload.get("message").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|message| !message.is_empty())
+        .unwrap_or("Grok 视频生成失败")
+        .to_string()
+}
+
+async fn submit_grok_video_task(
+    state: &BackendState,
+    model_id: &str,
+    config: &Value,
+) -> Result<(String, Value), String> {
+    let log_started_at = Utc::now().timestamp_millis();
+    let (base_url, api_key) = custom_openai_model_transport(model_id).map_err(|message| {
+        llm_dev_write_db_log(
+            "custom_openai",
+            model_id,
+            "generateVideo",
+            "error",
+            log_started_at,
+            None,
+            Some(config),
+            None,
+            None,
+            Some(message.as_str()),
+        );
+        message
+    })?;
+    let endpoint = provider_videos_generations_endpoint(&base_url);
+    let request_body = build_grok_video_request(state, model_id, config)
+        .await
+        .map_err(|error| {
+            llm_dev_write_db_log(
+                "custom_openai",
+                model_id,
+                "generateVideo",
+                "error",
+                log_started_at,
+                Some(endpoint.as_str()),
+                Some(config),
+                None,
+                None,
+                Some(error.message.as_str()),
+            );
+            error.message
+        })?;
+    let response = llm_http_client()
+        .post(&endpoint)
+        .bearer_auth(api_key)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|error| {
+            let message = error.to_string();
+            llm_dev_write_db_log(
+                "custom_openai",
+                model_id,
+                "generateVideo",
+                "error",
+                log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
+            message
+        })?;
+    let status = response.status();
+    let body_text = response.text().await.map_err(|error| {
+        let message = error.to_string();
+        llm_dev_write_db_log(
+            "custom_openai",
+            model_id,
+            "generateVideo",
+            "error",
+            log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            None,
+            Some(message.as_str()),
+        );
+        message
+    })?;
+    if !status.is_success() {
+        let message = build_sync_error_message(status, &body_text);
+        llm_dev_write_db_log(
+            "custom_openai",
+            model_id,
+            "generateVideo",
+            "error",
+            log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        return Err(message);
+    }
+    let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+        let message = format!(
+            "解析 Grok 视频任务响应失败: {} ({})",
+            error,
+            truncate_for_error(&body_text, 240)
+        );
+        llm_dev_write_db_log(
+            "custom_openai",
+            model_id,
+            "generateVideo",
+            "error",
+            log_started_at,
+            Some(endpoint.as_str()),
+            Some(&request_body),
+            None,
+            Some(body_text.as_str()),
+            Some(message.as_str()),
+        );
+        message
+    })?;
+    let request_id = match payload
+        .get("request_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(request_id) => request_id.to_string(),
+        None => {
+            let message = format!("Grok 视频任务未返回 request_id: {}", payload);
+            llm_dev_write_db_log(
+                "custom_openai",
+                model_id,
+                "generateVideo",
+                "error",
+                log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                Some(&payload),
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            return Err(message);
+        }
+    };
+    llm_dev_write_db_log(
+        "custom_openai",
+        model_id,
+        "generateVideo",
+        "task",
+        log_started_at,
+        Some(endpoint.as_str()),
+        Some(&request_body),
+        Some(&json!({ "taskId": request_id.as_str() })),
+        Some(body_text.as_str()),
+        None,
+    );
+    Ok((request_id, request_body))
+}
+
+async fn poll_grok_video_task<F>(
+    model_id: &str,
+    request_id: &str,
+    mut on_progress: F,
+) -> Result<String, String>
+where
+    F: FnMut(i64),
+{
+    let log_started_at = Utc::now().timestamp_millis();
+    let request_body = json!({ "taskId": request_id });
+    let (base_url, api_key) = custom_openai_model_transport(model_id).map_err(|message| {
+        llm_dev_write_db_log(
+            "custom_openai",
+            model_id,
+            "generateVideo",
+            "error",
+            log_started_at,
+            None,
+            Some(&request_body),
+            None,
+            None,
+            Some(message.as_str()),
+        );
+        message
+    })?;
+    let endpoint = provider_video_task_endpoint(&base_url, request_id);
+    for attempt in 0..120_i64 {
+        let response = llm_http_client()
+            .get(&endpoint)
+            .bearer_auth(&api_key)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
+            .await
+            .map_err(|error| {
+                let message = error.to_string();
+                llm_dev_write_db_log(
+                    "custom_openai",
+                    model_id,
+                    "generateVideo",
+                    "error",
+                    log_started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    None,
+                    None,
+                    Some(message.as_str()),
+                );
+                message
+            })?;
+        let status = response.status();
+        let body_text = response.text().await.map_err(|error| {
+            let message = error.to_string();
+            llm_dev_write_db_log(
+                "custom_openai",
+                model_id,
+                "generateVideo",
+                "error",
+                log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                None,
+                Some(message.as_str()),
+            );
+            message
+        })?;
+        if !status.is_success() {
+            let message = build_sync_error_message(status, &body_text);
+            llm_dev_write_db_log(
+                "custom_openai",
+                model_id,
+                "generateVideo",
+                "error",
+                log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            return Err(message);
+        }
+        let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+            let message = format!(
+                "解析 Grok 视频状态响应失败: {} ({})",
+                error,
+                truncate_for_error(&body_text, 240)
+            );
+            llm_dev_write_db_log(
+                "custom_openai",
+                model_id,
+                "generateVideo",
+                "error",
+                log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            message
+        })?;
+        match payload
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "done" => {
+                let video_url = match payload
+                    .get("video")
+                    .and_then(|video| video.get("url"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|url| !url.is_empty())
+                {
+                    Some(url) => url.to_string(),
+                    None => {
+                        let message = "Grok 视频任务完成但未返回 video.url";
+                        llm_dev_write_db_log(
+                            "custom_openai",
+                            model_id,
+                            "generateVideo",
+                            "error",
+                            log_started_at,
+                            Some(endpoint.as_str()),
+                            Some(&request_body),
+                            Some(&payload),
+                            Some(body_text.as_str()),
+                            Some(message),
+                        );
+                        return Err(message.to_string());
+                    }
+                };
+                llm_dev_write_db_log(
+                    "custom_openai",
+                    model_id,
+                    "generateVideo",
+                    "success",
+                    log_started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    Some(&json!({
+                      "taskId": request_id,
+                      "url": video_url.as_str()
+                    })),
+                    Some(body_text.as_str()),
+                    None,
+                );
+                return Ok(video_url);
+            }
+            "failed" | "expired" => {
+                let message = grok_video_error_message(&payload);
+                llm_dev_write_db_log(
+                    "custom_openai",
+                    model_id,
+                    "generateVideo",
+                    "error",
+                    log_started_at,
+                    Some(endpoint.as_str()),
+                    Some(&request_body),
+                    Some(&payload),
+                    Some(body_text.as_str()),
+                    Some(message.as_str()),
+                );
+                return Err(message);
+            }
+            _ => {
+                let upstream_progress = payload
+                    .get("progress")
+                    .and_then(Value::as_i64)
+                    .map(|value| 30 + value.clamp(0, 100) * 60 / 100)
+                    .unwrap_or_else(|| 30 + attempt.min(60));
+                on_progress(upstream_progress.clamp(30, 90));
+            }
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+    let message = "Grok 视频生成超时（等待超过 10 分钟）".to_string();
+    llm_dev_write_db_log(
+        "custom_openai",
+        model_id,
+        "generateVideo",
+        "error",
+        log_started_at,
+        Some(endpoint.as_str()),
+        Some(&request_body),
+        None,
+        None,
+        Some(message.as_str()),
+    );
+    Err(message)
+}
+
+async fn run_grok_video_task_background(
+    state: BackendState,
+    task_id: String,
+    scene_id: String,
+    model_id: String,
+    config: Value,
+) {
+    let result = async {
+        update_video_task_progress(&state, &task_id, "processing", 10, None, None, None)?;
+        let (upstream_task_id, request_body) = submit_grok_video_task(&state, &model_id, &config)
+            .await
+            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
+        let metadata = json!({
+          "provider": "custom_openai",
+          "modelId": model_id,
+          "fallback": false,
+          "upstreamTask": {
+            "provider": "xai-compatible",
+            "taskId": upstream_task_id,
+            "request": request_body
+          }
+        });
+        update_video_task_progress(
+            &state,
+            &task_id,
+            "processing",
+            30,
+            None,
+            None,
+            Some(&metadata),
+        )?;
+        let remote_video_url = poll_grok_video_task(&model_id, &upstream_task_id, |progress| {
+            let _ = update_video_task_progress(
+                &state,
+                &task_id,
+                "processing",
+                progress,
+                None,
+                None,
+                None,
+            );
+        })
+        .await
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
+        update_video_task_progress(
+            &state,
+            &task_id,
+            "processing",
+            95,
+            None,
+            None,
+            Some(&metadata),
+        )?;
+        let local_video_url =
+            persist_video_source(&state, &remote_video_url, &format!("video_{}", scene_id)).await?;
+        let last_frame = sync_scene_video_result(&state, &scene_id, &local_video_url)?;
+        let completed_metadata = json!({
+          "provider": "custom_openai",
+          "modelId": model_id,
+          "fallback": false,
+          "lastFrame": last_frame,
+          "remoteVideoUrl": remote_video_url,
+          "upstreamTask": {
+            "provider": "xai-compatible",
+            "taskId": upstream_task_id
+          }
+        });
+        persist_generated_video_record(
+            &state,
+            &task_id,
+            &scene_id,
+            &local_video_url,
+            &completed_metadata,
+        )?;
+        update_video_task_progress(
+            &state,
+            &task_id,
+            "completed",
+            100,
+            None,
+            Some(&local_video_url),
+            Some(&completed_metadata),
+        )?;
+        Ok::<(), ApiError>(())
+    }
+    .await;
+
+    if let Err(error) = result {
+        let _ = update_video_task_progress(
+            &state,
+            &task_id,
+            "failed",
+            100,
+            Some(&error.message),
+            None,
+            None,
+        );
+    }
 }
 
 async fn run_qwen_video_task_background(
@@ -13141,20 +13759,14 @@ fn infer_model_provider(model_id: &str) -> Option<String> {
     if normalized.contains("kling") {
         return Some("kling".to_string());
     }
+    if normalized.contains("grok") {
+        return Some("custom_openai".to_string());
+    }
     if normalized.contains("gpt") || normalized.contains("openai") || normalized.contains("claude")
     {
         return Some("custom_openai".to_string());
     }
     None
-}
-
-fn infer_model_provider_required(model_id: &str) -> Result<String, ApiError> {
-    infer_model_provider(model_id).ok_or_else(|| {
-        ApiError::new(
-            StatusCode::BAD_REQUEST,
-            format!("无法识别模型提供商: {}", model_id.trim()),
-        )
-    })
 }
 
 /// 判断模型是否属于已配置的「自定义 OpenAI」供应商（按其配置的模型列表精确匹配）。
@@ -13434,6 +14046,50 @@ mod tests {
         assert_eq!(
             infer_model_provider("claude-sonnet-4-5").as_deref(),
             Some("custom_openai")
+        );
+    }
+
+    #[test]
+    fn infer_model_provider_handles_grok_as_custom_openai() {
+        assert_eq!(
+            infer_model_provider("grok-imagine-video").as_deref(),
+            Some("custom_openai")
+        );
+        assert!(is_supported_video_provider(
+            "custom_openai",
+            "grok-imagine-video-1.5-preview"
+        ));
+        assert!(!is_supported_video_provider(
+            "custom_openai",
+            "some-other-video"
+        ));
+    }
+
+    #[test]
+    fn model_test_video_tasks_do_not_require_a_persisted_scene() {
+        assert!(is_model_test_video_task(
+            "test_2aab34735d96434d8ef6839d46596f23",
+            "model_test_9bd3c6418b904f5d816e322863450496"
+        ));
+        assert!(!is_model_test_video_task(
+            "video_2aab34735d96434d8ef6839d46596f23",
+            "scene_9bd3c6418b904f5d816e322863450496"
+        ));
+    }
+
+    #[test]
+    fn grok_video_endpoints_preserve_openai_compatible_base_path() {
+        assert_eq!(
+            provider_videos_generations_endpoint("http://localhost:8317/v1"),
+            "http://localhost:8317/v1/videos/generations"
+        );
+        assert_eq!(
+            provider_videos_generations_endpoint("http://localhost:8317/v1/chat/completions"),
+            "http://localhost:8317/v1/videos/generations"
+        );
+        assert_eq!(
+            provider_video_task_endpoint("http://localhost:8317/v1", "request id"),
+            "http://localhost:8317/v1/videos/request%20id"
         );
     }
 
@@ -15401,10 +16057,7 @@ pub(super) async fn api_models_test(
                 }
             }
             normalize_video_audio_reference_url(&state, &mut config).await?;
-            if !matches!(
-                provider.as_str(),
-                "qwen" | "volcengine" | "kling" | "gemini"
-            ) {
+            if !is_supported_video_provider(&provider, &model_id) {
                 let error_payload =
                     json!({ "message": format!("供应商 {} 暂不支持视频模型测试", provider) });
                 let _ = write_model_debug_log(
@@ -15468,6 +16121,17 @@ pub(super) async fn api_models_test(
                 spawn_video_task_background(
                     context.clone(),
                     run_kling_video_task_background(
+                        state.clone(),
+                        task_id.clone(),
+                        scene_id.clone(),
+                        model_id.clone(),
+                        config.clone(),
+                    ),
+                );
+            } else if provider == "custom_openai" {
+                spawn_video_task_background(
+                    context.clone(),
+                    run_grok_video_task_background(
                         state.clone(),
                         task_id.clone(),
                         scene_id.clone(),
@@ -17904,7 +18568,7 @@ fn validate_video_generation_config(config: &mut Value) -> Result<(), ApiError> 
         config,
         "provider",
         None,
-        &["gemini", "qwen", "kling", "volcengine"],
+        &["gemini", "qwen", "kling", "volcengine", "custom_openai"],
     )?;
 
     Ok(())
@@ -18084,14 +18748,16 @@ pub(super) async fn api_asset_reference_generate(
         ));
     }
     let reference_images = normalize_image_reference_sources(&state, reference_sources, 4).await?;
-    let (model_id, workflow_model_options) = {
+    let (model_id, workflow_model_options, provider) = {
         let conn = db_connection(&state)?;
         let workflow_model_options = workflow_model_options(&conn)?;
         let model_id = resolve_runtime_workflow_model_id(&conn, "frame_generation")
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error))?;
-        (model_id, workflow_model_options)
+        let provider =
+            resolve_model_provider_required_string(&model_id, &load_provider_creds(&conn))
+                .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error))?;
+        (model_id, workflow_model_options, provider)
     };
-    let provider = infer_model_provider_required(&model_id)?;
     let model_config = image_model_config(&provider, &model_id);
     let panorama_source =
         resolve_panorama_source_profile(&workflow_model_options, model_config.as_ref());
@@ -18255,14 +18921,16 @@ pub(super) async fn api_asset_video_generate(
     let project_id = body.get("projectId").and_then(trimmed_json_string);
     let aspect_ratio = json_string(body.get("aspectRatio"), "16:9");
     let task_id = format!("video_{}", Uuid::new_v4().simple());
-    let (model_id, workflow_model_options) = {
+    let (model_id, workflow_model_options, provider) = {
         let conn = db_connection(&state)?;
         let model_id = resolve_runtime_workflow_model_id(&conn, "video_generation")
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error))?;
         let workflow_model_options = workflow_model_options(&conn)?;
-        (model_id, workflow_model_options)
+        let provider =
+            resolve_model_provider_required_string(&model_id, &load_provider_creds(&conn))
+                .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error))?;
+        (model_id, workflow_model_options, provider)
     };
-    let provider = infer_model_provider_required(&model_id)?;
     let mut config = json!({
       "duration": scene.get("duration").cloned().unwrap_or_else(|| json!(8)),
       "aspectRatio": aspect_ratio,
@@ -18318,10 +18986,7 @@ pub(super) async fn api_asset_video_generate(
         .and_then(Value::as_str)
         .unwrap_or("unknown")
         .to_string();
-    let is_remote_video = matches!(
-        provider_name.as_str(),
-        "qwen" | "volcengine" | "kling" | "gemini"
-    );
+    let is_remote_video = is_supported_video_provider(&provider_name, &model_id);
     if !is_remote_video {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -18389,6 +19054,17 @@ pub(super) async fn api_asset_video_generate(
                 config.clone(),
             ),
         );
+    } else if provider_name == "custom_openai" {
+        spawn_video_task_background(
+            context.clone(),
+            run_grok_video_task_background(
+                state.clone(),
+                task_id.clone(),
+                scene_id.clone(),
+                model_id,
+                config.clone(),
+            ),
+        );
     } else {
         spawn_video_task_background(
             context,
@@ -18439,7 +19115,9 @@ pub(super) async fn api_video_generate(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| infer_model_provider(&configured_model).unwrap_or_default());
+        .unwrap_or_else(|| {
+            resolve_model_provider(&configured_model, &current_provider_creds()).unwrap_or_default()
+        });
     if provider.is_empty() {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -18455,10 +19133,7 @@ pub(super) async fn api_video_generate(
         .and_then(Value::as_str)
         .unwrap_or("unknown")
         .to_string();
-    let is_remote_video = matches!(
-        provider_name.as_str(),
-        "qwen" | "volcengine" | "kling" | "gemini"
-    );
+    let is_remote_video = is_supported_video_provider(&provider_name, &configured_model);
     if !is_remote_video {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -18537,6 +19212,17 @@ pub(super) async fn api_video_generate(
         spawn_video_task_background(
             context.clone(),
             run_kling_video_task_background(
+                state.clone(),
+                task_id.clone(),
+                scene_id.clone(),
+                model_id,
+                config.clone(),
+            ),
+        );
+    } else if provider_name == "custom_openai" {
+        spawn_video_task_background(
+            context.clone(),
+            run_grok_video_task_background(
                 state.clone(),
                 task_id.clone(),
                 scene_id.clone(),

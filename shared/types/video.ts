@@ -19,7 +19,7 @@ export const VideoModelSchema = z.enum(['standard', 'fast'])
 export type VideoModel = z.infer<typeof VideoModelSchema>
 
 /** 视频提供商 */
-export const VideoProviderSchema = z.enum(['gemini', 'qwen', 'kling', 'volcengine'])
+export const VideoProviderSchema = z.enum(['gemini', 'qwen', 'kling', 'volcengine', 'custom_openai'])
 export type VideoProvider = z.infer<typeof VideoProviderSchema>
 
 /** 视频生成配置 */

@@ -687,6 +687,36 @@
     },
 
     {
+      "provider": "custom_openai",
+      "match": { "type": "exact", "value": "grok-imagine-video" },
+      "modelKind": "video",
+      "displayName": "Grok Imagine Video",
+      "description": "Grok 文生视频、图生视频与多参考图视频模型",
+      "docUrl": "https://docs.x.ai/developers/model-capabilities/video/generation",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": false,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 7
+      }
+    },
+    {
+      "provider": "custom_openai",
+      "match": { "type": "prefix", "value": "grok-imagine-video-1.5" },
+      "modelKind": "video",
+      "displayName": "Grok Imagine Video 1.5",
+      "description": "Grok 文生视频与首帧图生视频模型",
+      "docUrl": "https://docs.x.ai/developers/model-capabilities/video/image-to-video",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": false,
+        "supportReferenceImages": false,
+        "maxReferenceImages": 1
+      }
+    },
+    {
       "provider": "*",
       "match": { "type": "contains", "value": "flf2v" },
       "modelKind": "video",

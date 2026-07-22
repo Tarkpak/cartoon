@@ -60,9 +60,16 @@ onUnmounted(() => {
         name="page"
         mode="out-in"
       >
+        <KeepAlive v-if="route.path !== '/login'" :max="12">
+          <component
+            :is="Component"
+            :key="route.path"
+          />
+        </KeepAlive>
         <component
           :is="Component"
-          :key="route.fullPath"
+          v-else
+          :key="route.path"
         />
       </Transition>
     </RouterView>

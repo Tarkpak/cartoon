@@ -776,6 +776,25 @@ mod tests {
 
     #[test]
     fn custom_openai_reuses_compatible_provider_categories() {
+        let (grok_video_kind, grok_video_entry) =
+            build_available_model_entry("custom_openai", "grok-imagine-video");
+        assert_eq!(grok_video_kind, AvailableModelKind::Video);
+        assert_eq!(
+            grok_video_entry
+                .get("maxReferenceImages")
+                .and_then(Value::as_u64),
+            Some(7)
+        );
+
+        let (_, grok_video_15_entry) =
+            build_available_model_entry("custom_openai", "grok-imagine-video-1.5-preview");
+        assert_eq!(
+            grok_video_15_entry
+                .get("supportReferenceImages")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+
         let (seedance_kind, seedance_entry) =
             build_available_model_entry("custom_openai", "doubao-seedance-2-0-260128");
         assert_eq!(seedance_kind, AvailableModelKind::Video);

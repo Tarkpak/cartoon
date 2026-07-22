@@ -218,6 +218,34 @@
                         class="log-text-block"
                       >
                         <div class="log-block-title">{{ block.title }}</div>
+                        <pre>{{ block.content }}</pre>
+                      </section>
+                      <div v-if="requestTextBlocks.length === 0" class="log-empty">无可读请求内容</div>
+                    </div>
+                  </section>
+                  <section v-else class="log-payload-panel">
+                    <header class="log-payload-header">
+                      <span>请求 JSON</span>
+                      <n-button size="tiny" quaternary @click="copyText(jsonTextForPayload('request'), '请求 JSON')">复制</n-button>
+                    </header>
+                    <div class="log-payload-body">
+                      <pre v-if="hasContent(jsonTextForPayload('request'))" class="json-view">{{ jsonTextForPayload('request') }}</pre>
+                      <div v-else class="log-empty">无请求数据</div>
+                    </div>
+                  </section>
+                </div>
+              </n-tab-pane>
+
+              <n-tab-pane name="response" tab="响应">
+                <div class="log-detail-stack">
+                  <section v-if="payloadViewModes.response === 'text'" class="log-payload-panel">
+                    <div class="log-payload-body log-text-blocks">
+                      <section
+                        v-for="block in responseTextBlocks"
+                        :key="block.title"
+                        class="log-text-block"
+                      >
+                        <div class="log-block-title">{{ block.title }}</div>
                         <div v-if="block.title === '结果地址' && responseResultUrl" class="log-result-output">
                           <div class="log-result-link-row">
                             <a
@@ -256,34 +284,6 @@
                           />
                         </div>
                         <pre v-else>{{ block.content }}</pre>
-                      </section>
-                      <div v-if="requestTextBlocks.length === 0" class="log-empty">无可读请求内容</div>
-                    </div>
-                  </section>
-                  <section v-else class="log-payload-panel">
-                    <header class="log-payload-header">
-                      <span>请求 JSON</span>
-                      <n-button size="tiny" quaternary @click="copyText(jsonTextForPayload('request'), '请求 JSON')">复制</n-button>
-                    </header>
-                    <div class="log-payload-body">
-                      <pre v-if="hasContent(jsonTextForPayload('request'))" class="json-view">{{ jsonTextForPayload('request') }}</pre>
-                      <div v-else class="log-empty">无请求数据</div>
-                    </div>
-                  </section>
-                </div>
-              </n-tab-pane>
-
-              <n-tab-pane name="response" tab="响应">
-                <div class="log-detail-stack">
-                  <section v-if="payloadViewModes.response === 'text'" class="log-payload-panel">
-                    <div class="log-payload-body log-text-blocks">
-                      <section
-                        v-for="block in responseTextBlocks"
-                        :key="block.title"
-                        class="log-text-block"
-                      >
-                        <div class="log-block-title">{{ block.title }}</div>
-                        <pre>{{ block.content }}</pre>
                       </section>
                       <div v-if="responseTextBlocks.length === 0" class="log-empty">无可读响应内容</div>
                     </div>
