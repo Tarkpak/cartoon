@@ -1,5 +1,7 @@
 import {
   getStyleById as getStaticStyleById,
+  normalizeStylePresets,
+  STYLE_CATEGORIES,
   type StyleCategoryInfo,
   type StylePreset
 } from '#shared/types/styles'
@@ -49,8 +51,19 @@ export function useStylePresets() {
         throw new Error('画风配置返回数据无效')
       }
 
-      presets.value = response.data.presets || []
-      categories.value = response.data.categories || []
+      presets.value = normalizeStylePresets(response.data.presets || []).map((style) => {
+        const currentCatalogStyle = getStaticStyleById(style.id)
+        if (!currentCatalogStyle) return style
+        return {
+          ...style,
+          category: currentCatalogStyle.category,
+          categories: currentCatalogStyle.categories
+        }
+      })
+      const availableCategoryIds = new Set(
+        presets.value.flatMap(style => style.categories || [style.category])
+      )
+      categories.value = STYLE_CATEGORIES.filter(category => availableCategoryIds.has(category.id))
       enabledStyleIds.value = response.data.enabledStyleIds || []
       defaultStyleId.value = response.data.defaultStyleId || ''
       loaded.value = true

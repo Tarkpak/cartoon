@@ -77,6 +77,18 @@ export const STYLE_CATEGORIES: StyleCategoryInfo[] = [
 ]
 
 const STYLE_CATEGORY_IDS = new Set<StyleCategory>(STYLE_CATEGORIES.map(category => category.id))
+const LEGACY_STYLE_CATEGORY_MAP: Record<string, StyleCategory> = {
+  japanese_anime: 'japanese_anime',
+  chinese_style: 'chinese',
+  '3d_render': '3d',
+  illustration: '2d',
+  retro: '2d',
+  cute_q: 'chibi',
+  artistic: '2d',
+  comic: '2d',
+  pixel_game: 'game',
+  special: '2d'
+}
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
@@ -87,9 +99,15 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return normalized || undefined
 }
 
-function normalizeStylePreset(style: RawStylePreset): StylePreset | null {
-  const category = normalizeString(style.category) as StyleCategory
-  if (!STYLE_CATEGORY_IDS.has(category)) return null
+export function normalizeStyleCategoryId(value: unknown): StyleCategory | null {
+  const id = normalizeString(value)
+  if (STYLE_CATEGORY_IDS.has(id as StyleCategory)) return id as StyleCategory
+  return LEGACY_STYLE_CATEGORY_MAP[id] || null
+}
+
+export function normalizeStylePreset(style: RawStylePreset): StylePreset | null {
+  const category = normalizeStyleCategoryId(style.category)
+  if (!category) return null
 
   const id = normalizeString(style.id)
   const name = normalizeString(style.name)
@@ -99,8 +117,8 @@ function normalizeStylePreset(style: RawStylePreset): StylePreset | null {
   if (!id || !name || !nameEn || !description || !prompt) return null
   const categories = Array.isArray(style.categories)
     ? style.categories
-        .map(normalizeString)
-        .filter((item): item is StyleCategory => STYLE_CATEGORY_IDS.has(item as StyleCategory))
+        .map(normalizeStyleCategoryId)
+        .filter((item): item is StyleCategory => item !== null)
     : []
   if (!categories.includes(category)) categories.unshift(category)
 
@@ -119,12 +137,16 @@ function normalizeStylePreset(style: RawStylePreset): StylePreset | null {
   }
 }
 
-export const STYLE_PRESETS: StylePreset[] = (defaultStylePresets as RawStylePreset[])
-  .map(normalizeStylePreset)
-  .filter((style): style is StylePreset => style !== null)
+export function normalizeStylePresets(styles: unknown[]): StylePreset[] {
+  return styles
+    .map(style => normalizeStylePreset(style as RawStylePreset))
+    .filter((style): style is StylePreset => style !== null)
+}
+
+export const STYLE_PRESETS: StylePreset[] = normalizeStylePresets(defaultStylePresets)
 
 export function getStylesByCategory(category: StyleCategory): StylePreset[] {
-  return STYLE_PRESETS.filter(style => style.category === category)
+  return STYLE_PRESETS.filter(style => (style.categories || [style.category]).includes(category))
 }
 
 export function getStyleById(id: string): StylePreset | undefined {
