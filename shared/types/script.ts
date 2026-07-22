@@ -307,7 +307,7 @@ export const ScriptEpisodeSchema = z.object({
 })
 export type ScriptEpisode = z.infer<typeof ScriptEpisodeSchema>
 
-/** 短剧戏剧目标，用于保留冲突、爽点和钩子，避免分镜退化成平铺直叙 */
+/** 分集戏剧目标，用于保留冲突、爽点和钩子，避免分镜退化成平铺直叙 */
 export const SceneDramaticSchema = z.object({
   function: z.string().trim().min(1).optional()
     .describe('场景戏剧功能'),
@@ -407,21 +407,22 @@ export const ScriptEpisodePlanItemSchema = z.object({
 })
 export type ScriptEpisodePlanItem = z.infer<typeof ScriptEpisodePlanItemSchema>
 
-export const SCRIPT_PARSE_MODES = ['short_drama', 'premium_drama', 'origin_explainer'] as const
+export const SCRIPT_PARSE_MODES = ['premium_drama', 'origin_explainer'] as const
 export type ScriptParseMode = (typeof SCRIPT_PARSE_MODES)[number]
 
-export const DEFAULT_SCRIPT_PARSE_MODE: ScriptParseMode = 'short_drama'
+export const DEFAULT_SCRIPT_PARSE_MODE: ScriptParseMode = 'premium_drama'
 
 export const SCRIPT_PARSE_MODE_LABELS: Record<ScriptParseMode, string> = {
   premium_drama: '精品剧',
-  short_drama: '短剧',
   origin_explainer: '科普拆解'
 }
 
 export function normalizeScriptParseMode(raw: unknown): ScriptParseMode {
-  if (raw === 'short_drama' || raw === 'premium_drama' || raw === 'origin_explainer') {
+  if (raw === 'premium_drama' || raw === 'origin_explainer') {
     return raw
   }
+  // Historical projects used short_drama; they now follow the premium drama workflow.
+  if (raw === 'short_drama') return 'premium_drama'
   return DEFAULT_SCRIPT_PARSE_MODE
 }
 

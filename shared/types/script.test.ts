@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_SCRIPT_PARSE_MODE,
   normalizeOptionalTimeOfDayCategory,
   normalizeTimeOfDayValue,
   resolveTimeOfDayCategoryText,
-  SceneSettingSchema
+  SCRIPT_PARSE_MODES,
+  SceneSettingSchema,
+  normalizeScriptParseMode
 } from './script'
 
 describe('open scene time descriptions', () => {
@@ -27,5 +30,17 @@ describe('open scene time descriptions', () => {
     expect(result.success).toBe(true)
     if (!result.success) return
     expect(result.data.timeOfDay).toBe('极夜，无自然日照')
+  })
+})
+
+describe('script parse modes', () => {
+  it('uses premium drama as the only drama workflow', () => {
+    expect(DEFAULT_SCRIPT_PARSE_MODE).toBe('premium_drama')
+    expect(SCRIPT_PARSE_MODES).toEqual(['premium_drama', 'origin_explainer'])
+  })
+
+  it('maps legacy short drama projects to premium drama', () => {
+    expect(normalizeScriptParseMode('short_drama')).toBe('premium_drama')
+    expect(normalizeScriptParseMode('unknown')).toBe('premium_drama')
   })
 })

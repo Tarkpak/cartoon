@@ -28,9 +28,8 @@ const VIDEO_IMPORT_PARSE_TIMEOUT_MS: u64 = 300_000;
 
 fn normalize_video_import_script_parse_mode(value: Option<&str>) -> &'static str {
     match value.map(str::trim) {
-        Some("premium_drama") => "premium_drama",
         Some("origin_explainer") => "origin_explainer",
-        _ => "short_drama",
+        _ => "premium_drama",
     }
 }
 
@@ -1048,7 +1047,7 @@ pub(super) async fn api_video_import_import_project(
             .get("scriptParseMode")
             .and_then(Value::as_str)
             .map(|value| normalize_video_import_script_parse_mode(Some(value)).to_string())
-            .unwrap_or_else(|| "short_drama".to_string())
+            .unwrap_or_else(|| "premium_drama".to_string())
     });
     let project_title = override_project_title.unwrap_or_else(|| {
         config
@@ -1340,7 +1339,7 @@ async fn api_video_import_import_series_project(
             .get("scriptParseMode")
             .and_then(Value::as_str)
             .map(|value| normalize_video_import_script_parse_mode(Some(value)).to_string())
-            .unwrap_or_else(|| "short_drama".to_string())
+            .unwrap_or_else(|| "premium_drama".to_string())
     });
     let project_title = override_project_title.unwrap_or_else(|| {
         config

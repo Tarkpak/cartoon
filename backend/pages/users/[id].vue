@@ -2203,7 +2203,8 @@ function projectStatusTagType(status: unknown): TagType {
 
 function scriptParseModeLabel(value: string): string {
   const labels: Record<string, string> = {
-    short_drama: '短剧',
+    short_drama: '精品剧',
+    premium_drama: '精品剧',
     standard: '标准',
     novel: '小说',
     idea: '创意'

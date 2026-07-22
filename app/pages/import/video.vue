@@ -42,7 +42,7 @@ const contentTypeOptions = [
   {
     value: 'story',
     label: '剧情内容',
-    description: '先按通用剧情剧本整理，创建项目时再选择短剧或精品剧解析方式。'
+    description: '提取剧情结构、人物关系和场景信息，按精品剧方式创建项目。'
   },
   {
     value: 'origin_explainer',
@@ -136,7 +136,7 @@ async function handleSelectFolder() {
 
 async function handleUpload() {
   const config: VideoImportConfig = {
-    scriptParseMode: contentType.value === 'origin_explainer' ? 'origin_explainer' : 'short_drama'
+    scriptParseMode: contentType.value === 'origin_explainer' ? 'origin_explainer' : 'premium_drama'
   }
 
   if (uploadMode.value === 'single') {

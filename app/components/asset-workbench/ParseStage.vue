@@ -84,7 +84,7 @@ const planReadyMessage = computed(() => {
   if (isOriginExplainer.value) {
     return `已生成镜头规划入口。请到“分镜视频”步骤按主题拆解并生成 ${workflowPreset.value.name} 多镜头场景。`
   }
-  return `已生成分集目录（共 ${props.episodePlan?.length || 0} 集）。短剧模式会带入每集钩子、压迫点、反击点和结尾悬念，请到“分镜视频”步骤管理分集边界并按集解析。`
+  return `已生成分集目录（共 ${props.episodePlan?.length || 0} 集）。精品剧模式会根据剧情节奏与情绪起伏自然拆分，请到“分镜视频”步骤管理分集边界并按集解析。`
 })
 const parseProgressChunkText = computed(() => {
   const chunkIndex = props.parseProgress?.chunkIndex

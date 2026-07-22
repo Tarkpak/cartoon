@@ -3383,7 +3383,7 @@ fn build_parsed_script_payload(body: &Value) -> Value {
         .and_then(Value::as_str)
         .map(str::trim)
         .unwrap_or("");
-    let parse_mode = json_string(body.get("scriptParseMode"), "short_drama");
+    let parse_mode = json_string(body.get("scriptParseMode"), "premium_drama");
     let style = json_string(body.get("style"), "默认画风");
     let lines = extract_scene_split_lines(raw_text);
     let episode_plan = body
@@ -3474,139 +3474,6 @@ fn build_parsed_script_payload(body: &Value) -> Value {
         "scriptParseMode": parse_mode
       }
     })
-}
-
-fn scene_duration_seconds(scene: &Value) -> f64 {
-    scene
-        .get("duration")
-        .and_then(Value::as_f64)
-        .filter(|value| value.is_finite() && *value > 0.0)
-        .unwrap_or(8.0)
-}
-
-fn episode_title_for_split(base_title: &str, split_index: usize) -> String {
-    if split_index <= 1 {
-        base_title.to_string()
-    } else {
-        format!("{}-{}", base_title, split_index)
-    }
-}
-
-fn enforce_short_drama_episode_duration_limit(mut payload: Value, limit_seconds: f64) -> Value {
-    if limit_seconds <= 0.0 || !limit_seconds.is_finite() {
-        return payload;
-    }
-
-    let Some(data) = payload.get_mut("data").and_then(Value::as_object_mut) else {
-        return payload;
-    };
-    let Some(scene_values) = data.get("scenes").and_then(Value::as_array).cloned() else {
-        return payload;
-    };
-    if scene_values.is_empty() {
-        return payload;
-    }
-
-    let mut next_scenes = Vec::new();
-    let mut next_episodes = Vec::new();
-    let mut current_source_episode = String::new();
-    let mut current_base_title = String::new();
-    let mut current_split_index = 0usize;
-    let mut current_episode_duration = 0.0f64;
-    let mut did_split = false;
-
-    for (scene_index, scene) in scene_values.into_iter().enumerate() {
-        let mut scene_obj = scene.as_object().cloned().unwrap_or_default();
-        let source_episode_id = scene_obj
-            .get("episodeId")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| "episode_001".to_string());
-        let source_episode_title = scene_obj
-            .get("episodeTitle")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("第{}集", next_episodes.len() + 1));
-        let duration = scene_duration_seconds(&Value::Object(scene_obj.clone()));
-
-        if current_source_episode != source_episode_id {
-            current_source_episode = source_episode_id;
-            current_base_title = source_episode_title;
-            current_split_index = 1;
-            current_episode_duration = 0.0;
-        } else if current_episode_duration > 0.0
-            && current_episode_duration + duration > limit_seconds
-        {
-            current_split_index += 1;
-            current_episode_duration = 0.0;
-            did_split = true;
-        }
-
-        let episode_number = next_episodes.len() + 1;
-        let episode_id = format!("episode_{:03}", episode_number);
-        let episode_title = episode_title_for_split(&current_base_title, current_split_index);
-        if next_episodes
-            .last()
-            .and_then(|item: &Value| item.get("id"))
-            .and_then(Value::as_str)
-            != Some(episode_id.as_str())
-        {
-            next_episodes.push(json!({
-              "id": episode_id,
-              "title": episode_title,
-              "index": episode_number
-            }));
-        }
-
-        scene_obj.insert(
-            "id".to_string(),
-            json!(format!("scene_{:03}", scene_index + 1)),
-        );
-        scene_obj.insert(
-            "episodeId".to_string(),
-            json!(format!("episode_{:03}", episode_number)),
-        );
-        scene_obj.insert("episodeTitle".to_string(), json!(episode_title));
-        scene_obj.insert("episodeIndex".to_string(), json!(episode_number));
-        next_scenes.push(Value::Object(scene_obj));
-        current_episode_duration += duration;
-    }
-
-    let mut updated_episode_count = None;
-    if did_split {
-        updated_episode_count = Some(next_episodes.len());
-        data.insert("episodes".to_string(), Value::Array(next_episodes));
-        data.insert("scenes".to_string(), Value::Array(next_scenes));
-    }
-
-    if let Some(episode_count) = updated_episode_count {
-        if let Some(strategy) = payload
-            .get_mut("parseStrategy")
-            .and_then(Value::as_object_mut)
-        {
-            strategy.insert("episodeDurationLimited".to_string(), json!(true));
-            strategy.insert(
-                "episodeDurationLimitSeconds".to_string(),
-                json!(limit_seconds),
-            );
-            strategy.insert("episodeCount".to_string(), json!(episode_count));
-        }
-    }
-
-    payload
-}
-
-fn apply_script_parse_postprocessing(payload: Value, body: &Value) -> Value {
-    let parse_mode = json_string(body.get("scriptParseMode"), "short_drama");
-    if parse_mode == "short_drama" {
-        enforce_short_drama_episode_duration_limit(payload, 300.0)
-    } else {
-        payload
-    }
 }
 
 fn scene_time_of_day_text(value: &str) -> &str {
@@ -4865,9 +4732,8 @@ fn prompt_template_string(value: Option<&Value>) -> Option<String> {
 
 fn normalize_runtime_script_parse_mode(value: &str) -> &'static str {
     match value.trim() {
-        "premium_drama" => "premium_drama",
         "origin_explainer" => "origin_explainer",
-        _ => "short_drama",
+        _ => "premium_drama",
     }
 }
 
@@ -4884,17 +4750,15 @@ fn resolve_script_parse_style_prompt<'a>(
 
 fn runtime_script_parse_mode_label(mode: &str) -> &'static str {
     match mode {
-        "premium_drama" => "精品剧",
         "origin_explainer" => "科普拆解",
-        _ => "短剧",
+        _ => "精品剧",
     }
 }
 
 fn runtime_script_parse_mode_rules(mode: &str) -> &'static str {
     match mode {
-        "premium_drama" => "根据剧情节奏与情绪起伏安排场景密度，保证每集叙事完整。",
-        "origin_explainer" => "当前为科普拆解视频。请把主题拆成多镜头原理演示，不需要剧情冲突、角色对白或短剧爆点。",
-        _ => "硬性约束：当前为短剧分集解析。每一集场景总时长必须小于等于300秒（5分钟）；若超出请主动拆分为更多集，并保持剧情连续。",
+        "origin_explainer" => "当前为科普拆解视频。请把主题拆成多镜头原理演示，不需要剧情冲突、角色对白或戏剧爆点。",
+        _ => "根据剧情节奏与情绪起伏安排场景密度，保证每集叙事完整。",
     }
 }
 
@@ -5144,7 +5008,7 @@ fn build_script_parse_prompt(
     let style = json_string(body.get("style"), "默认画风");
     let parse_mode = normalize_runtime_script_parse_mode(&json_string(
         body.get("scriptParseMode"),
-        "short_drama",
+        "premium_drama",
     ));
     let episode_plan = body
         .get("episodePlan")
@@ -5289,18 +5153,14 @@ mod director_preferences_tests {
 fn build_episode_plan_prompt_text(
     conn: &rusqlite::Connection,
     text: &str,
-    script_parse_mode: &str,
+    _script_parse_mode: &str,
     chunk_index: Option<usize>,
     chunk_count: Option<usize>,
 ) -> Result<String, ApiError> {
     let chunk_count = chunk_count.unwrap_or(1).max(1);
     let chunk_index = chunk_index.unwrap_or(1).max(1);
     let is_segmented = chunk_count > 1;
-    let mode_rule = if normalize_runtime_script_parse_mode(script_parse_mode) == "short_drama" {
-        "短剧模式额外约束：请由剧情节奏决定分集数量，并确保每集对应的场景合成总时长目标不超过 300 秒（5 分钟）。"
-    } else {
-        "精品剧模式：由剧情结构自行决定分集数量。"
-    };
+    let mode_rule = "精品剧模式：由剧情结构自行决定分集数量。";
     let chunk_rule = if is_segmented {
         format!(
             "当前仅提供原文第 {}/{} 段，请严格基于本段文本拆分，不得补写未提供段落。",
@@ -7552,21 +7412,6 @@ fn resolve_workflow_model_id(
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error))
 }
 
-fn compact_prompt_text(value: &str, max_chars: usize) -> String {
-    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    if normalized.chars().count() <= max_chars {
-        return normalized;
-    }
-    format!(
-        "{}...",
-        normalized
-            .chars()
-            .take(max_chars)
-            .collect::<String>()
-            .trim()
-    )
-}
-
 fn normalize_timeline_line_punctuation(value: &str) -> String {
     value
         .replace("秒：，", "秒：")
@@ -7908,22 +7753,19 @@ fn bind_scene_video_reference_name(value: &str, name: &str, image_number: usize)
     }
 
     let tag = format!("（图片{}）", image_number);
-    let mut result = String::with_capacity(value.len() + tag.len() * 4);
-    let mut rest = value;
-
-    while let Some(index) = rest.find(name) {
-        result.push_str(&rest[..index]);
-        result.push_str(name);
-
-        let after = &rest[index + name.len()..];
-        if !after.starts_with(&tag) && !after.starts_with("（图片") && !after.starts_with("@图片")
-        {
-            result.push_str(&tag);
-        }
-        rest = after;
+    let index = value.find(name).expect("name presence checked");
+    let after_name = &value[index + name.len()..];
+    if after_name.starts_with(&tag)
+        || after_name.starts_with("（图片")
+        || after_name.starts_with("@图片")
+    {
+        return value.to_string();
     }
 
-    result.push_str(rest);
+    let mut result = String::with_capacity(value.len() + tag.len());
+    result.push_str(&value[..index + name.len()]);
+    result.push_str(&tag);
+    result.push_str(after_name);
     result
 }
 
@@ -7937,47 +7779,8 @@ fn bind_scene_video_reference_numbers_to_text(value: &str, config: &Value) -> St
     output
 }
 
-fn build_scene_video_reference_guide(scene: &Value, config: &Value) -> String {
-    let references = config.get("references").unwrap_or(&Value::Null);
-    let mut lines = Vec::new();
-    if !scene_video_visual_reference_urls(config).is_empty() {
-        lines.push("引用参考素材时必须使用图片1、图片2等编号，禁止使用资产 ID、文件名或 URL。");
-    }
-    if has_non_empty_string(references.get("environmentImage")) {
-        lines.push("优先锁定环境参考图中的空间结构、材质、光线方向和主要陈设。");
-    }
-    if has_non_empty_string(references.get("characterImage"))
-        || references
-            .get("characterAssets")
-            .and_then(Value::as_array)
-            .is_some_and(|items| !items.is_empty())
-    {
-        lines.push("优先保持角色参考图中的脸型、发型、服装、体态和关键配饰。");
-    }
-    if has_non_empty_string(references.get("continuityFirstFrame")) {
-        lines.push("从连续性首帧自然承接，不要重置人物位置、镜头角度或物体状态。");
-    }
-    if let Some(camera_note) = scene
-        .get("cameraNote")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        lines.push(camera_note);
-    }
-
-    if lines.is_empty() {
-        "按场景详细说明执行；若存在参考图，保持主体身份与空间关系一致。".to_string()
-    } else {
-        lines.join("\n")
-    }
-}
-
 fn build_scene_video_execution_constraints(scene: &Value, config: &Value) -> String {
-    let mut lines = vec![
-        "画面稳定，镜头运动平滑，不生成字幕、水印、Logo 或 UI。".to_string(),
-        "不得生成背景音乐；对白和旁白只体现为口型、表演节奏和画面情绪。".to_string(),
-    ];
+    let mut lines = Vec::new();
     if let Some(camera_note) = scene
         .get("cameraNote")
         .and_then(Value::as_str)
@@ -7994,7 +7797,33 @@ fn build_scene_video_execution_constraints(scene: &Value, config: &Value) -> Str
     {
         lines.push(format!("负向约束：{negative_prompt}"));
     }
-    lines.join("\n")
+    if lines.is_empty() {
+        "无额外执行约束".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn build_scene_video_narration_supplement(description: &str, narration: &str) -> String {
+    let missing = narration
+        .split_inclusive(['。', '！', '？', '!', '?'])
+        .filter_map(|sentence| {
+            let sentence = sentence.trim();
+            let core = sentence
+                .trim_end_matches(['。', '！', '？', '!', '?'])
+                .trim();
+            if core.is_empty() || description.contains(core) {
+                None
+            } else {
+                Some(sentence)
+            }
+        })
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        "无".to_string()
+    } else {
+        missing.join("")
+    }
 }
 
 fn build_video_prompt_from_scene(
@@ -8012,7 +7841,6 @@ fn build_video_prompt_from_scene(
         "未提供分镜描述",
     ));
     let description = bind_scene_video_reference_numbers_to_text(&raw_description, config);
-    let scene_summary = compact_prompt_text(&description, 220);
     let style = json_string(config.get("style"), "保持项目默认画风");
     let aspect_ratio = json_string(config.get("aspectRatio"), "16:9");
     let duration = scene
@@ -8033,7 +7861,6 @@ fn build_video_prompt_from_scene(
         .map(|value| value.to_string())
         .unwrap_or_else(|| json_string(scene.get("id"), "1"));
     let setting = build_scene_setting_text(scene);
-    let reference_guide = build_scene_video_reference_guide(scene, config);
     let reference_materials = build_scene_video_reference_materials(config);
     let execution_constraints = build_scene_video_execution_constraints(scene, config);
     let narration = scene
@@ -8042,10 +7869,11 @@ fn build_video_prompt_from_scene(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("无");
+    let narration_supplement = build_scene_video_narration_supplement(&raw_description, narration);
     let camera_note = json_string(scene.get("cameraNote"), "");
     let script_parse_mode = normalize_runtime_script_parse_mode(&json_string(
         config.get("scriptParseMode"),
-        "short_drama",
+        "premium_drama",
     ));
     let template_id = match script_parse_mode {
         "origin_explainer" => PROMPT_TEMPLATE_ORIGIN_EXPLAINER_VIDEO_GENERATION,
@@ -8058,17 +7886,15 @@ fn build_video_prompt_from_scene(
         &[
             ("shotNumber", shot_number.as_str()),
             ("sceneTitle", title.as_str()),
-            ("sceneSummary", scene_summary.as_str()),
             ("style", style.as_str()),
             ("duration", duration.as_str()),
             ("aspectRatio", aspect_ratio.as_str()),
             ("setting", setting.as_str()),
             ("sceneDescription", description.as_str()),
             ("cameraNote", camera_note.as_str()),
-            ("referenceGuide", reference_guide.as_str()),
             ("referenceMaterials", reference_materials.as_str()),
             ("executionConstraints", execution_constraints.as_str()),
-            ("narration", narration),
+            ("narrationSupplement", narration_supplement.as_str()),
         ],
     )
 }
@@ -10031,13 +9857,35 @@ fn normalize_grok_video_resolution(value: Option<&Value>) -> String {
     }
 }
 
+const GROK_VIDEO_SAFE_PROMPT_CHARS: usize = 3_800;
+
+fn compact_grok_video_prompt(value: &str) -> String {
+    if value.chars().count() <= GROK_VIDEO_SAFE_PROMPT_CHARS {
+        return value.to_string();
+    }
+    let marker = "\n\n【已压缩超长上下文】\n\n";
+    let available = GROK_VIDEO_SAFE_PROMPT_CHARS - marker.chars().count();
+    let tail_chars = available.min(700);
+    let head_chars = available - tail_chars;
+    let head = value.chars().take(head_chars).collect::<String>();
+    let tail = value
+        .chars()
+        .rev()
+        .take(tail_chars)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>();
+    format!("{}{}{}", head.trim_end(), marker, tail.trim_start())
+}
+
 async fn build_grok_video_request(
     state: &BackendState,
     model_id: &str,
     config: &Value,
 ) -> Result<Value, ApiError> {
     let model = normalize_model_id_for_remote(model_id);
-    let prompt = json_string(config.get("prompt"), "");
+    let prompt = compact_grok_video_prompt(&json_string(config.get("prompt"), ""));
     if prompt.trim().is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "视频提示词不能为空"));
     }
@@ -14094,6 +13942,43 @@ mod tests {
     }
 
     #[test]
+    fn grok_video_prompt_stays_below_upstream_limit_and_preserves_rules() {
+        let prompt = format!(
+            "主体与时间轴：{}\n【系统输出协议】{}",
+            "动作描述".repeat(1_000),
+            "最高优先级规则".repeat(100)
+        );
+        let compacted = compact_grok_video_prompt(&prompt);
+        assert!(compacted.chars().count() <= GROK_VIDEO_SAFE_PROMPT_CHARS);
+        assert!(compacted.starts_with("主体与时间轴"));
+        assert!(compacted.ends_with("最高优先级规则"));
+        assert!(compacted.contains("【已压缩超长上下文】"));
+    }
+
+    #[test]
+    fn scene_video_narration_only_adds_content_missing_from_timeline() {
+        let description = "画外音响起：第一句。角色继续向前走，画外音说：第二句。";
+        assert_eq!(
+            build_scene_video_narration_supplement(description, "第一句。第二句。第三句。"),
+            "第三句。"
+        );
+        assert_eq!(
+            build_scene_video_narration_supplement(description, "第一句。第二句。"),
+            "无"
+        );
+    }
+
+    #[test]
+    fn scene_video_contract_distinguishes_dialogue_voiceover_and_required_text() {
+        let contract =
+            include_str!("../../assets/default-prompts/scene_video_generation_contract.txt");
+        assert!(!contract.contains("{{sceneSummary}}"));
+        assert!(contract.contains("对白驱动对应说话角色的口型"));
+        assert!(contract.contains("画外音不驱动任何角色口型"));
+        assert!(contract.contains("仅生成场景与时间轴明确要求的剧情文字"));
+    }
+
+    #[test]
     fn image_2_variants_use_image_urls_generation_path() {
         for model in [
             "gpt-image-2",
@@ -14334,7 +14219,8 @@ mod tests {
 
         assert!(bound.contains("现代都市·老街路口（图片1）"));
         assert!(bound.contains("陈泽（图片2）骑着烧烤三轮车（图片3）"));
-        assert!(bound.contains("陈泽（图片2）抬头"));
+        assert!(bound.contains("陈泽抬头"));
+        assert_eq!(bound.matches("陈泽（图片2）").count(), 1);
         assert!(!bound.contains("陈泽（图片2）（图片2）"));
     }
 
@@ -16409,7 +16295,7 @@ fn validate_script_parse_request(body: &Value) -> Result<(), ApiError> {
     validate_script_parse_mode(body.get("scriptParseMode"), "body.scriptParseMode")?;
     let script_parse_mode = normalize_runtime_script_parse_mode(&json_string(
         body.get("scriptParseMode"),
-        "short_drama",
+        "premium_drama",
     ));
     let min_text_chars = if script_parse_mode == "origin_explainer" {
         2
@@ -16499,7 +16385,7 @@ pub(super) async fn api_script_episode_plan(
         .map(str::trim)
         .unwrap_or("");
 
-    let script_parse_mode = json_string(body.get("scriptParseMode"), "short_drama");
+    let script_parse_mode = json_string(body.get("scriptParseMode"), "premium_drama");
     CURRENT_MODEL_LOG_CONTEXT
         .scope(context, async {
             match build_model_episode_plan(&state, text, &script_parse_mode).await {
@@ -16558,7 +16444,7 @@ pub(super) async fn api_script_parse(
         )
     })?;
     let mut payload =
-        apply_script_parse_postprocessing(normalize_model_script_result(value, &body), &body);
+        normalize_model_script_result(value, &body);
     if let Some(object) = payload.as_object_mut() {
         object.insert(
             "usage".to_string(),
@@ -18946,7 +18832,7 @@ pub(super) async fn api_asset_video_generate(
     }
     let script_parse_mode = normalize_runtime_script_parse_mode(&json_string(
         body.get("scriptParseMode"),
-        "short_drama",
+        "premium_drama",
     ));
     config["scriptParseMode"] = json!(script_parse_mode);
     if let Some(negative_prompt) = body.get("negativePrompt").and_then(trimmed_json_string) {

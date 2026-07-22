@@ -54,7 +54,7 @@ const logsExpanded = ref(false)
 const createProjectDialogOpen = ref(false)
 const createProjectTitle = ref('')
 const createProjectAspectRatio = ref<'16:9' | '9:16' | '1:1'>('9:16')
-const createProjectScriptParseMode = ref<ScriptParseMode>('short_drama')
+const createProjectScriptParseMode = ref<ScriptParseMode>('premium_drama')
 const createProjectStyleId = ref('')
 const roleNamingDialogOpen = ref(false)
 const roleNamingDraft = ref<Array<{ placeholder: string, name: string }>>([])
@@ -94,7 +94,7 @@ const selectedImportContentLabel = computed(() => isOriginExplainerTask.value ? 
 const selectedImportContentDescription = computed(() => {
   return isOriginExplainerTask.value
     ? '字幕将整理为科普主题输入稿，并按科普拆解方式创建项目。'
-    : '字幕先整理为通用剧情剧本，创建项目时再选择具体解析方式。'
+    : '字幕将整理为剧情剧本，并按精品剧方式创建项目。'
 })
 const createProjectScriptParseModeOptions = computed(() => {
   if (isOriginExplainerTask.value) {

@@ -60,7 +60,7 @@ describe('asset-workbench-api', () => {
     const response = await parseAssetWorkbenchScript({
       text: 'source text',
       targetEpisodeId: 'episode_001',
-      scriptParseMode: 'short_drama',
+      scriptParseMode: 'premium_drama',
       style: 'anime',
       episodePlan: [{
         id: 'episode_001',

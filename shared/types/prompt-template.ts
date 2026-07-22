@@ -61,7 +61,6 @@ export interface PromptVersion {
 
 export const PROMPT_TEMPLATE_IDS = {
   SCRIPT_PARSING: 'script_parsing',
-  SCRIPT_PARSING_SHORT_DRAMA: 'script_parsing_short_drama',
   SCRIPT_EPISODE_PLAN: 'script_episode_plan',
   SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT: 'script_parsing_episode_drama_context',
   ORIGIN_EXPLAINER_PLANNING: 'origin_explainer_planning',
@@ -104,7 +103,6 @@ type RawPromptVariable = {
 const PROMPT_TEMPLATE_STAGES: Record<PromptTemplateId, PromptFlowStage> = {
   script_episode_plan: 'parse',
   script_parsing: 'parse',
-  script_parsing_short_drama: 'parse',
   script_parsing_episode_drama_context: 'parse',
   origin_explainer_planning: 'parse',
   video_import_script_generation: 'parse',

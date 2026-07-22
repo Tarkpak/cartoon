@@ -3098,9 +3098,6 @@ fn default_prompt_template_content(content_file: &str) -> Option<&'static str> {
         "default-prompts/script_parsing.txt" => {
             Some(include_str!("../assets/default-prompts/script_parsing.txt"))
         }
-        "default-prompts/script_parsing_short_drama.txt" => Some(include_str!(
-            "../assets/default-prompts/script_parsing_short_drama.txt"
-        )),
         "default-prompts/script_parsing_episode_drama_context.txt" => Some(include_str!(
             "../assets/default-prompts/script_parsing_episode_drama_context.txt"
         )),
@@ -3490,7 +3487,7 @@ fn ensure_column(
 
 fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
     for (column, definition) in [
-        ("script_parse_mode", "TEXT NOT NULL DEFAULT 'short_drama'"),
+        ("script_parse_mode", "TEXT NOT NULL DEFAULT 'premium_drama'"),
         ("style_id", "TEXT NOT NULL DEFAULT ''"),
         ("aspect_ratio", "TEXT NOT NULL DEFAULT '16:9'"),
         ("owner_user_id", "TEXT"),
@@ -3587,6 +3584,12 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ensure_column(conn, "model_debug_logs", column, definition)?;
     }
 
+    conn.execute(
+        "UPDATE projects SET script_parse_mode = 'premium_drama' WHERE script_parse_mode = 'short_drama'",
+        [],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
     Ok(())
 }
 
@@ -3598,7 +3601,7 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         description TEXT,
-        script_parse_mode TEXT NOT NULL DEFAULT 'short_drama',
+        script_parse_mode TEXT NOT NULL DEFAULT 'premium_drama',
         style_id TEXT NOT NULL,
         aspect_ratio TEXT NOT NULL DEFAULT '16:9',
         status TEXT DEFAULT 'draft',
@@ -4931,20 +4934,14 @@ async fn api_project_create(
     if !matches!(aspect_ratio.as_str(), "16:9" | "9:16" | "1:1") {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "aspectRatio 无效"));
     }
-    let script_parse_mode = body
-        .script_parse_mode
-        .unwrap_or_else(|| "short_drama".to_string())
-        .trim()
-        .to_string();
-    if !matches!(
-        script_parse_mode.as_str(),
-        "premium_drama" | "short_drama" | "origin_explainer"
-    ) {
+    let requested_script_parse_mode = body.script_parse_mode.as_deref().unwrap_or("premium_drama");
+    if !matches!(requested_script_parse_mode.trim(), "premium_drama" | "short_drama" | "origin_explainer") {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             "scriptParseMode 无效",
         ));
     }
+    let script_parse_mode = normalize_script_parse_mode(Some(requested_script_parse_mode)).to_string();
     if !is_style_id_enabled(&conn, &style_id)? {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -5104,7 +5101,7 @@ async fn api_project_get(
               "rawText": parsed.get("rawText").cloned().or_else(|| parsed.get("storyIdea").cloned()).unwrap_or(json!("")),
               "selectedStyleId": parsed.get("selectedStyleId").cloned().unwrap_or(json!("")),
               "inputMode": parsed.get("inputMode").cloned().unwrap_or(json!("idea")),
-              "scriptParseMode": parsed.get("scriptParseMode").cloned().or_else(|| project.get("scriptParseMode").cloned()).unwrap_or(json!("short_drama")),
+              "scriptParseMode": normalize_script_parse_mode(parsed.get("scriptParseMode").and_then(Value::as_str).or_else(|| project.get("scriptParseMode").and_then(Value::as_str))),
               "episodePlan": parsed.get("episodePlan").cloned().unwrap_or_else(|| json!([])),
               "assetWorkflow": parsed.get("assetWorkflow").cloned().unwrap_or(Value::Null),
               "parsedData": parsed_data.and_then(|value| serde_json::from_str::<Value>(&value).ok()).unwrap_or(Value::Null),
@@ -6067,10 +6064,8 @@ fn is_style_id_enabled(conn: &Connection, style_id: &str) -> Result<bool, ApiErr
 
 fn normalize_script_parse_mode(value: Option<&str>) -> &'static str {
     match value {
-        Some("premium_drama") => "premium_drama",
-        Some("short_drama") => "short_drama",
         Some("origin_explainer") => "origin_explainer",
-        _ => "short_drama",
+        _ => "premium_drama",
     }
 }
 
@@ -6162,14 +6157,14 @@ async fn api_project_put_inner(
     if !matches!(aspect_ratio.as_str(), "16:9" | "9:16" | "1:1") {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "aspectRatio 无效"));
     }
-    let script_parse_mode = body
+    let requested_script_parse_mode = body
         .get("scriptParseMode")
         .and_then(Value::as_str)
         .unwrap_or(&existing_project.5)
         .trim()
         .to_string();
     if !matches!(
-        script_parse_mode.as_str(),
+        requested_script_parse_mode.as_str(),
         "premium_drama" | "short_drama" | "origin_explainer"
     ) {
         return Err(ApiError::new(
@@ -6177,6 +6172,7 @@ async fn api_project_put_inner(
             "scriptParseMode 无效",
         ));
     }
+    let script_parse_mode = normalize_script_parse_mode(Some(&requested_script_parse_mode)).to_string();
 
     conn.execute(
         "UPDATE projects SET name = ?1, description = ?2, status = ?3, style_id = ?4, aspect_ratio = ?5, script_parse_mode = ?6, updated_at = ?7 WHERE id = ?8",

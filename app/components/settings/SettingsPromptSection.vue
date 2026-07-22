@@ -50,7 +50,6 @@ const {
 const DIRECTOR_EDITOR_ID = 'director_preferences'
 const REPLACED_SCRIPT_TEMPLATE_IDS = new Set([
   'script_parsing',
-  'script_parsing_short_drama',
   'script_parsing_episode_drama_context'
 ])
 const PROMPT_EDITOR_ORDER: Record<string, number> = {

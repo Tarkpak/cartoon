@@ -19,18 +19,6 @@ export interface VideoWorkflowPreset {
 
 export const VIDEO_WORKFLOW_PRESETS = [
   {
-    id: 'short_drama',
-    name: '短剧',
-    description: '短剧强节奏结构，优先钩子、暴击与反击预告。',
-    inputLabel: '输入小说、剧本或剧情梗概',
-    stylePickerMode: 'style_preset',
-    planningPromptId: 'script_episode_plan',
-    shotVideoPromptId: 'scene_video_generation',
-    assetStrategy: 'mixed',
-    defaultDurationRange: { min: 2, max: 15 },
-    requiredShotFields: ['title', 'duration', 'description', 'characters', 'narration']
-  },
-  {
     id: 'premium_drama',
     name: '精品剧',
     description: '忠实还原原文，按剧情密度自然拆场。',
@@ -60,7 +48,8 @@ export const VIDEO_WORKFLOW_PRESETS = [
 export type VideoWorkflowPresetId = (typeof VIDEO_WORKFLOW_PRESETS)[number]['id']
 
 export function resolveVideoWorkflowPreset(id: string | null | undefined): VideoWorkflowPreset {
-  return VIDEO_WORKFLOW_PRESETS.find(item => item.id === id) || VIDEO_WORKFLOW_PRESETS[0]
+  const normalizedId = id === 'short_drama' ? 'premium_drama' : id
+  return VIDEO_WORKFLOW_PRESETS.find(item => item.id === normalizedId) || VIDEO_WORKFLOW_PRESETS[0]
 }
 
 export function isVideoWorkflowPresetId(id: string): id is VideoWorkflowPresetId {

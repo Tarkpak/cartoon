@@ -338,6 +338,16 @@ const selectedEpisodeScenes = computed(() => {
   return sceneEpisodeGroupMap.value.get(selectedEpisodeId.value)?.scenes || []
 })
 
+watch(
+  [episodeCount, selectedEpisodeId, () => selectedEpisodeScenes.value.length],
+  ([currentEpisodeCount, , sceneCount]) => {
+    if (currentEpisodeCount > 0 && sceneCount === 0) {
+      episodeDirectoryCollapsed.value = false
+    }
+  },
+  { immediate: true }
+)
+
 const isOriginExplainer = computed(() => props.scriptParseMode === 'origin_explainer')
 
 const emptyProjectMessage = computed(() => {
@@ -479,6 +489,10 @@ const selectedSceneVoiceReferenceSummary = computed(() => {
 
 onMounted(() => {
   if (typeof window === 'undefined') return
+  if (episodeCount.value > 0 && selectedEpisodeScenes.value.length === 0) {
+    episodeDirectoryCollapsed.value = false
+    return
+  }
 
   const stored = window.localStorage.getItem(EPISODE_DIRECTORY_COLLAPSE_STORAGE_KEY)
   if (stored === '1' || stored === 'true') {

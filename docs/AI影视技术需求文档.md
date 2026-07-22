@@ -34,7 +34,6 @@ playlet 当前版本聚焦资产工作台，主流程固定为：
 
 - `script_episode_plan`
 - `script_parsing`
-- `script_parsing_short_drama`
 - `script_parsing_episode_drama_context`
 - `prompt_translation_system`
 - `prompt_translation_user`
@@ -95,7 +94,7 @@ playlet 当前版本聚焦资产工作台，主流程固定为：
 
 提示词中心必须只保留当前主流程模板（含系统补充模板）：
 
-- 解析阶段：`script_episode_plan`、`script_parsing`、`script_parsing_short_drama`、`script_parsing_episode_drama_context`、`prompt_translation_system`、`prompt_translation_user`
+- 解析阶段：`script_episode_plan`、`script_parsing`、`script_parsing_episode_drama_context`、`prompt_translation_system`、`prompt_translation_user`
 - 资产阶段：`character_sheet`、`character_regeneration`、`environment_reference_generation`、`prop_asset_generation`、`scene_description_refinement`
 - 视频阶段：`scene_video_generation`
 
