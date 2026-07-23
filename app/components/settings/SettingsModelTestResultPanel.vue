@@ -136,12 +136,13 @@ const videoResultMeta = computed(() => {
       <!-- Video result -->
       <div
         v-if="props.activeTab === 'video' && videoResultUrl"
-        class="overflow-hidden rounded-lg border bg-black/90"
+        class="mx-auto aspect-video w-full max-w-5xl overflow-hidden rounded-lg border bg-black/90"
       >
         <video
           :src="videoResultUrl"
-          class="max-h-[400px] max-w-full"
+          class="h-full w-full object-contain"
           controls
+          playsinline
         />
       </div>
       <div

@@ -1,4 +1,6 @@
 import type { ImageModelConfig, VideoModelConfig } from '#shared/types/provider'
+import { resolveApiErrorMessage } from '@/lib/api-error'
+import { pollModelTestVideoTask } from '@/lib/model-test-video'
 import {
   buildTestSelectedModels,
   getModelDocUrl,
@@ -19,6 +21,12 @@ export function useSettingsModelTest() {
   const DEFAULT_IMAGE_ASPECT_RATIO = '1:1'
   const DEFAULT_IMAGE_QUALITY = 'auto'
   const MODEL_TEST_TAB_STORAGE_KEY = 'playlet:model-test-active-tab'
+  const testRunIds: Record<ModelTestTab, number> = {
+    text: 0,
+    image: 0,
+    video: 0,
+    tts: 0
+  }
 
   const activeTab = useState<ModelTestTab>('settings:model-test-tab', () => 'text')
   const expandedProviders = ref<Set<string>>(new Set())
@@ -534,6 +542,7 @@ export function useSettingsModelTest() {
   function selectTestModel(type: ModelTestTab, modelId: string) {
     if (testSelectedModels.value[type] === modelId) return
 
+    testRunIds[type] += 1
     testSelectedModels.value[type] = modelId
     testResults.value[type] = { status: 'idle' }
 
@@ -585,6 +594,8 @@ export function useSettingsModelTest() {
   }
 
   async function testModel(modelType: ModelTestTab) {
+    const runId = ++testRunIds[modelType]
+    const startedAt = Date.now()
     testResults.value[modelType] = { status: 'testing' }
 
     const rawPrompt = customPrompts.value[modelType] || SETTINGS_MODEL_TEST_PLACEHOLDERS[modelType]
@@ -688,23 +699,45 @@ export function useSettingsModelTest() {
       })
 
       if (response.success && response.data) {
+        let result = response.data.result
+        let latencyMs = response.data.latencyMs
+
+        if (modelType === 'video') {
+          const pendingResult = result as { taskId?: string } | undefined
+          const taskId = pendingResult?.taskId?.trim()
+          if (!taskId) {
+            throw new Error('视频模型测试未返回任务 ID')
+          }
+
+          const completedResult = await pollModelTestVideoTask(taskId)
+          result = {
+            ...pendingResult,
+            ...completedResult,
+            ...(completedResult.metadata || {})
+          }
+          latencyMs = Math.max(1, Date.now() - startedAt)
+        }
+
+        if (testRunIds[modelType] !== runId) return
         testResults.value[modelType] = {
           status: 'success',
-          message: `测试成功 (${response.data.latencyMs}ms)`,
-          latencyMs: response.data.latencyMs,
-          result: response.data.result
+          message: `测试成功 (${latencyMs}ms)`,
+          latencyMs,
+          result
         }
         return
       }
 
+      if (testRunIds[modelType] !== runId) return
       testResults.value[modelType] = {
         status: 'error',
         message: response.error || '测试失败'
       }
     } catch (error) {
+      if (testRunIds[modelType] !== runId) return
       testResults.value[modelType] = {
         status: 'error',
-        message: error instanceof Error ? error.message : '测试失败'
+        message: resolveApiErrorMessage(error, '测试失败')
       }
     }
   }
