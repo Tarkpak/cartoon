@@ -41,11 +41,18 @@ const COMPLETION_NOTIFICATION_OPTIONS_LOADED_STATE_KEY = 'workflow:completion-no
 const NOTIFICATION_SERVICE_WORKER_URL = '/notification-sw.js'
 const NOTIFICATION_SERVICE_WORKER_SCOPE = '/__notification__/'
 const COMPLETION_TONE_UNLOCK_EVENTS: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'touchstart']
+const NOTIFICATION_PERMISSION_WARMUP_EVENTS: Array<keyof WindowEventMap> = ['click', 'keydown']
 
 let completionAudioContext: AudioContext | null = null
 let completionToneUnlockListenerAttached = false
+let completionToneVisibilityListenerAttached = false
+let notificationPermissionWarmupListenerAttached = false
+let notificationPermissionWarmupInFlight = false
 let notificationServiceWorkerRegistrationPromise: Promise<ServiceWorkerRegistration | null> | null = null
+let completionNotificationOptionsLoadPromise: Promise<WorkflowCompletionNotificationOptions> | null = null
+let completionNotificationOptionsMutationVersion = 0
 let cachedDesktopNotificationPermission: NotificationPermission | null = null
+let notificationSequence = 0
 const activeWindowNotifications = new Set<Notification>()
 
 function detectDesktopRuntime(): boolean {
@@ -233,7 +240,7 @@ function ensureCompletionAudioContext(): AudioContext | null {
   const AudioContextConstructor = resolveAudioContextConstructor()
   if (!AudioContextConstructor) return null
 
-  if (!completionAudioContext) {
+  if (!completionAudioContext || completionAudioContext.state === 'closed') {
     completionAudioContext = new AudioContextConstructor()
   }
 
@@ -246,36 +253,32 @@ function setupCompletionToneUnlockByUserGesture() {
 
   completionToneUnlockListenerAttached = true
 
-  const cleanup = () => {
-    for (const eventName of COMPLETION_TONE_UNLOCK_EVENTS) {
-      window.removeEventListener(eventName, handleUserGesture)
-    }
-  }
-
   const handleUserGesture = () => {
     const context = ensureCompletionAudioContext()
-    if (!context) {
-      cleanup()
-      return
-    }
+    if (!context || context.state === 'running') return
 
-    if (context.state === 'running') {
-      cleanup()
-      return
-    }
-
-    void context.resume()
-      .catch(() => undefined)
-      .finally(() => {
-        if (context.state === 'running') {
-          cleanup()
-        }
-      })
+    void context.resume().catch(() => undefined)
   }
 
   for (const eventName of COMPLETION_TONE_UNLOCK_EVENTS) {
     window.addEventListener(eventName, handleUserGesture, { passive: true })
   }
+
+  if (!completionToneVisibilityListenerAttached) {
+    completionToneVisibilityListenerAttached = true
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return
+      const context = completionAudioContext
+      if (context?.state === 'suspended') {
+        void context.resume().catch(() => undefined)
+      }
+    })
+  }
+}
+
+function createNotificationTag(type: 'success' | 'error'): string {
+  notificationSequence += 1
+  return `asset_workbench_generation_${type}_${Date.now()}_${notificationSequence}`
 }
 
 function resolveCompletionToneNotes(type: CompletionNoticePayload['type']): number[] {
@@ -423,12 +426,9 @@ async function showSystemNotification(
   } = {}
 ): Promise<{ sent: boolean, channel?: SystemNotificationChannel }> {
   const desktopRuntime = detectDesktopRuntime()
-  let status = desktopRuntime
+  const status = desktopRuntime
     ? await refreshBrowserNotificationStatus()
     : getBrowserNotificationStatus()
-  if (!status.canNotify && status.canPrompt) {
-    status = await requestBrowserNotificationPermission()
-  }
   if (!status.canNotify) return { sent: false }
   if (!payload.title.trim()) return { sent: false }
 
@@ -551,6 +551,37 @@ export function useGenerationCompletionNotification() {
     () => false
   )
 
+  function setupSystemNotificationPermissionWarmup() {
+    if (!import.meta.client || notificationPermissionWarmupListenerAttached) return
+
+    notificationPermissionWarmupListenerAttached = true
+    const handleUserGesture = () => {
+      if (
+        notificationPermissionWarmupInFlight
+        || !completionNotificationOptionsLoaded.value
+        || !completionNotificationOptions.value.systemNotification
+      ) {
+        return
+      }
+
+      const status = getBrowserNotificationStatus()
+      if (!status.canPrompt || !status.supported || !status.secureContext) return
+
+      notificationPermissionWarmupInFlight = true
+      void requestBrowserNotificationPermission()
+        .catch(error => {
+          console.warn('[useGenerationCompletionNotification] 预热系统通知权限失败:', error)
+        })
+        .finally(() => {
+          notificationPermissionWarmupInFlight = false
+        })
+    }
+
+    for (const eventName of NOTIFICATION_PERMISSION_WARMUP_EVENTS) {
+      window.addEventListener(eventName, handleUserGesture, { passive: true })
+    }
+  }
+
   async function loadCompletionNotificationOptions(force = false): Promise<WorkflowCompletionNotificationOptions> {
     if (!import.meta.client) {
       return completionNotificationOptions.value
@@ -560,25 +591,43 @@ export function useGenerationCompletionNotification() {
       return completionNotificationOptions.value
     }
 
-    try {
-      const response = await $fetch<WorkflowModelOptionsResponse>('/api/models/workflow')
-      const options = normalizeCompletionNotificationOptions(
-        response?.data?.modelOptions?.completion_notification
-      )
-      completionNotificationOptions.value = options
-      completionNotificationOptionsLoaded.value = true
-      return options
-    } catch (error) {
-      console.error('[useGenerationCompletionNotification] 加载提醒配置失败:', error)
-      completionNotificationOptions.value = { ...DEFAULT_COMPLETION_NOTIFICATION_OPTIONS }
-      completionNotificationOptionsLoaded.value = true
-      return completionNotificationOptions.value
+    if (completionNotificationOptionsLoadPromise) {
+      return completionNotificationOptionsLoadPromise
     }
+
+    const mutationVersionAtStart = completionNotificationOptionsMutationVersion
+    completionNotificationOptionsLoadPromise = (async () => {
+      try {
+        const response = await $fetch<WorkflowModelOptionsResponse>('/api/models/workflow')
+        const options = normalizeCompletionNotificationOptions(
+          response?.data?.modelOptions?.completion_notification
+        )
+        if (mutationVersionAtStart === completionNotificationOptionsMutationVersion) {
+          completionNotificationOptions.value = options
+          completionNotificationOptionsLoaded.value = true
+        }
+        return completionNotificationOptions.value
+      } catch (error) {
+        console.error('[useGenerationCompletionNotification] 加载提醒配置失败:', error)
+        if (
+          mutationVersionAtStart === completionNotificationOptionsMutationVersion
+          && !completionNotificationOptionsLoaded.value
+        ) {
+          completionNotificationOptions.value = { ...DEFAULT_COMPLETION_NOTIFICATION_OPTIONS }
+        }
+        return completionNotificationOptions.value
+      } finally {
+        completionNotificationOptionsLoadPromise = null
+      }
+    })()
+
+    return completionNotificationOptionsLoadPromise
   }
 
   function setCompletionNotificationOptions(
     patch: Partial<WorkflowCompletionNotificationOptions>
   ): WorkflowCompletionNotificationOptions {
+    completionNotificationOptionsMutationVersion += 1
     const nextOptions = normalizeCompletionNotificationOptions({
       ...completionNotificationOptions.value,
       ...patch
@@ -616,9 +665,7 @@ export function useGenerationCompletionNotification() {
 
     if (options.systemNotification) {
       const result = await showSystemNotification(payload, {
-        tag: noticeType === 'error'
-          ? 'asset_workbench_generation_error'
-          : 'asset_workbench_generation_complete',
+        tag: createNotificationTag(noticeType),
         requireInteraction: noticeType === 'error',
         renotify: noticeType === 'error'
       })
@@ -637,6 +684,9 @@ export function useGenerationCompletionNotification() {
       type: 'error'
     })
   }
+
+  void loadCompletionNotificationOptions()
+  setupSystemNotificationPermissionWarmup()
 
   return {
     completionNotificationOptions,

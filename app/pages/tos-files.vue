@@ -17,7 +17,7 @@ import {
 import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
-import { tosUserScopeComponent } from '@/lib/tos-path'
+import { tosAdminAssetPrefix, tosUserScopeComponent } from '@/lib/tos-path'
 
 type TosFileEntry = {
   key: string
@@ -98,6 +98,10 @@ const { toast } = useToast()
 const { currentUser, loadStatus } = useCloudAdmin()
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
 const selectedMember = computed(() => members.value.find(member => member.account === selectedMemberAccount.value))
+const selectedOwnerLabel = computed(() => {
+  if (selectedMember.value) return `正在查看 ${selectedMember.value.displayName} 的素材`
+  return `共 ${members.value.length} 位成员`
+})
 const memberByAccount = computed(() => new Map(members.value.map(member => [member.account, member])))
 const memberByScope = computed(() => new Map(members.value.map(member => [tosUserScopeComponent(member.account), member])))
 
@@ -165,9 +169,7 @@ function directoryNameFromPrefix(prefix: string): string {
 }
 
 function buildAdminPrefix(account: string, category: 'all' | 'images' | 'videos'): string {
-  if (account === '__all__') return 'users'
-  const scope = tosUserScopeComponent(account)
-  return category === 'all' ? `users/${scope}` : `users/${scope}/${category}`
+  return tosAdminAssetPrefix(account, category)
 }
 
 const filteredCommonPrefixes = computed(() => {
@@ -365,20 +367,75 @@ async function loadTosConfig() {
   const response = await $fetch<TosConfigResponse>('/api/tos/config')
   if (!response.success) return
 
-  activePrefix.value = currentUser.value?.role === 'admin'
-    ? 'users'
-    : buildTosCategoryPrefix('images')
+  if (currentUser.value?.role === 'admin') {
+    const account = currentUser.value.account?.trim() || '__all__'
+    selectedMemberAccount.value = account
+    selectedAdminCategory.value = account === '__all__' ? 'all' : 'images'
+    activePrefix.value = buildAdminPrefix(account, selectedAdminCategory.value)
+  } else {
+    activePrefix.value = buildTosCategoryPrefix('images')
+  }
 }
 
 async function loadMembers() {
   if (!isAdmin.value) return
   membersLoading.value = true
   try {
-    const response = await $fetch<TosMembersResponse>('/api/tos/members')
-    if (!response.success || !Array.isArray(response.data?.members)) {
-      throw new Error(response.message || '云端成员列表响应格式无效，请确认云端后台版本')
+    const [cloudMembersResult, tosDirectoriesResult] = await Promise.allSettled([
+      $fetch<TosMembersResponse>('/api/tos/members'),
+      $fetch<TosFilesResponse>('/api/tos/files', {
+        query: {
+          prefix: 'users',
+          delimiter: '/',
+          maxKeys: 1000
+        }
+      })
+    ])
+
+    const merged = new Map<string, TosMember>()
+    const addMember = (member: TosMember) => {
+      const account = member.account.trim()
+      const scope = tosUserScopeComponent(account)
+      if (!account || !scope || merged.has(scope)) return
+      merged.set(scope, { ...member, account })
     }
-    members.value = response.data.members
+
+    const currentAccount = currentUser.value?.account?.trim()
+    if (currentAccount) {
+      addMember({
+        id: `current_${currentAccount}`,
+        account: currentAccount,
+        displayName: currentUser.value?.displayName?.trim() || currentAccount,
+        status: 'active'
+      })
+    }
+
+    if (cloudMembersResult.status === 'fulfilled') {
+      const response = cloudMembersResult.value
+      if (response.success && Array.isArray(response.data?.members)) {
+        response.data.members.forEach(addMember)
+      }
+    }
+
+    if (tosDirectoriesResult.status === 'fulfilled' && tosDirectoriesResult.value.success) {
+      for (const prefix of tosDirectoriesResult.value.data.commonPrefixes) {
+        const account = accountFromMemberPrefix(prefix)
+        if (!account || merged.has(account)) continue
+        addMember({
+          id: `tos_${account}`,
+          account,
+          displayName: account,
+          status: 'active'
+        })
+      }
+    }
+
+    if (merged.size === 0
+      && cloudMembersResult.status === 'rejected'
+      && tosDirectoriesResult.status === 'rejected') {
+      throw cloudMembersResult.reason
+    }
+    members.value = Array.from(merged.values())
   } catch (error) {
     const fetchError = error as FetchErrorWithData
     errorMessage.value = fetchError.data?.data?.message
@@ -587,7 +644,7 @@ onMounted(() => {
             </Select>
           </div>
           <p class="truncate text-xs text-muted-foreground">
-            {{ selectedMember ? `正在查看 ${selectedMember.displayName} 的素材` : `共 ${members.length} 位成员` }}
+            {{ selectedOwnerLabel }}
           </p>
         </div>
 

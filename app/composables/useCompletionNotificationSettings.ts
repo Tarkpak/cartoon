@@ -25,6 +25,10 @@ export function useCompletionNotificationSettings() {
   const systemNotificationStatus = ref<BrowserNotificationStatus>(getBrowserNotificationStatus())
   const systemNotificationTesting = ref(false)
   const completionNotificationHint = ref('')
+  let saveRevision = 0
+  let pendingSaves = 0
+  let saveQueue: Promise<void> = Promise.resolve()
+  let persistedCompletionNotificationOptions = { ...completionNotificationOptions.value }
 
   const isDesktopRuntime = computed(() => {
     if (!import.meta.client) return false
@@ -46,28 +50,38 @@ export function useCompletionNotificationSettings() {
   async function updateCompletionNotificationOptions(
     patch: Partial<WorkflowCompletionNotificationOptions>
   ) {
-    const previous = { ...completionNotificationOptions.value }
     const next = setCompletionNotificationOptions(patch)
+    const revision = ++saveRevision
+    pendingSaves += 1
     saving.value = true
 
-    try {
-      const response = await $fetch<{ success: boolean }>('/api/models/workflow', {
-        method: 'POST',
-        body: {
-          step: 'completion_notification',
-          modelOptions: next
-        }
-      })
+    const save = async () => {
+      try {
+        const response = await $fetch<{ success: boolean }>('/api/models/workflow', {
+          method: 'POST',
+          body: {
+            step: 'completion_notification',
+            modelOptions: next
+          }
+        })
 
-      if (!response.success) {
-        throw new Error('生成完成提醒配置保存失败')
+        if (!response.success) {
+          throw new Error('生成完成提醒配置保存失败')
+        }
+        persistedCompletionNotificationOptions = { ...next }
+      } catch (error) {
+        console.error('[useCompletionNotificationSettings] 更新生成完成提醒配置失败:', error)
+        if (revision === saveRevision) {
+          setCompletionNotificationOptions(persistedCompletionNotificationOptions)
+        }
+      } finally {
+        pendingSaves -= 1
+        saving.value = pendingSaves > 0
       }
-    } catch (error) {
-      console.error('[useCompletionNotificationSettings] 更新生成完成提醒配置失败:', error)
-      setCompletionNotificationOptions(previous)
-    } finally {
-      saving.value = false
     }
+
+    saveQueue = saveQueue.then(save, save)
+    await saveQueue
   }
 
   async function refreshSystemNotificationStatus() {
@@ -162,6 +176,7 @@ export function useCompletionNotificationSettings() {
   async function reloadCompletionNotificationSettings() {
     completionNotificationHint.value = ''
     await loadCompletionNotificationOptions()
+    persistedCompletionNotificationOptions = { ...completionNotificationOptions.value }
     await refreshSystemNotificationStatus()
 
     if (

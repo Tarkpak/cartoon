@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { tosUserScopeComponent } from './tos-path'
+import { tosAdminAssetPrefix, tosUserScopeComponent } from './tos-path'
 
 describe('tosUserScopeComponent', () => {
   it('matches the backend user scope encoding', () => {
@@ -8,5 +8,12 @@ describe('tosUserScopeComponent', () => {
 
   it('removes control characters', () => {
     expect(tosUserScopeComponent('user\n\u0000name\u007f')).toBe('username')
+  })
+})
+
+describe('tosAdminAssetPrefix', () => {
+  it('keeps member assets under their user scope', () => {
+    expect(tosAdminAssetPrefix('team/member', 'images')).toBe('users/team_member/images')
+    expect(tosAdminAssetPrefix('__all__', 'all')).toBe('users')
   })
 })

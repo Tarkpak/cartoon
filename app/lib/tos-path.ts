@@ -5,3 +5,11 @@ export function tosUserScopeComponent(account: string): string {
     .trim()
 }
 
+export type TosAssetCategory = 'all' | 'images' | 'videos'
+
+export function tosAdminAssetPrefix(account: string, category: TosAssetCategory): string {
+  if (account === '__all__') return 'users'
+
+  const scope = tosUserScopeComponent(account)
+  return category === 'all' ? `users/${scope}` : `users/${scope}/${category}`
+}

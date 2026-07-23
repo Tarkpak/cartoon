@@ -5,6 +5,10 @@ const appDir = fileURLToPath(new URL('./app/', import.meta.url))
 const sharedDir = fileURLToPath(new URL('./shared/', import.meta.url))
 
 export default defineConfig({
+  define: {
+    'import.meta.client': 'true',
+    'import.meta.server': 'false'
+  },
   resolve: {
     alias: [
       { find: /^~\//, replacement: appDir },

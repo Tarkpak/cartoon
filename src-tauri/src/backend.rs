@@ -1824,6 +1824,7 @@ struct BackendTosStorageConfig {
     endpoint_protocol: String,
     bucket: String,
     key_prefix: Option<String>,
+    upload_key_prefix: Option<String>,
     public_base_url: Option<String>,
     is_custom_domain: bool,
     proxy_host: Option<String>,
@@ -1935,6 +1936,14 @@ fn build_scoped_tos_key_prefix_for_user(
     } else {
         (Some(prefix), scope_valid)
     }
+}
+
+fn build_upload_tos_key_prefix_for_user(
+    raw_key_prefix: &str,
+    use_cloud_scope: bool,
+    user_scope_prefix: Option<&str>,
+) -> (Option<String>, bool) {
+    build_scoped_tos_key_prefix_for_user(raw_key_prefix, use_cloud_scope, false, user_scope_prefix)
 }
 
 fn normalize_tos_base_url(value: &str) -> Option<String> {
@@ -2067,8 +2076,19 @@ fn load_backend_tos_config() -> BackendTosStorageConfig {
     };
     let region = tos_config_text(&config, "region");
     let bucket = tos_config_text(&config, "bucket");
+    let raw_key_prefix = tos_config_text(&config, "keyPrefix");
     let (key_prefix, has_required_scope) =
-        build_scoped_tos_key_prefix(&tos_config_text(&config, "keyPrefix"), use_cloud_scope);
+        build_scoped_tos_key_prefix(&raw_key_prefix, use_cloud_scope);
+    let upload_user_scope_prefix = if use_cloud_scope {
+        cloud_tos_user_scope_prefix()
+    } else {
+        None
+    };
+    let (upload_key_prefix, has_required_upload_scope) = build_upload_tos_key_prefix_for_user(
+        &raw_key_prefix,
+        use_cloud_scope,
+        upload_user_scope_prefix.as_deref(),
+    );
     let public_base_url = normalize_tos_base_url(&tos_config_text(&config, "publicBaseUrl"));
     let is_custom_domain = config
         .get("isCustomDomain")
@@ -2088,7 +2108,9 @@ fn load_backend_tos_config() -> BackendTosStorageConfig {
         && !endpoint.is_empty();
 
     BackendTosStorageConfig {
-        enabled: enabled_flag && has_required && (!use_cloud_scope || has_required_scope),
+        enabled: enabled_flag
+            && has_required
+            && (!use_cloud_scope || (has_required_scope && has_required_upload_scope)),
         access_key_id,
         access_key_secret,
         security_token,
@@ -2097,6 +2119,7 @@ fn load_backend_tos_config() -> BackendTosStorageConfig {
         endpoint_protocol,
         bucket,
         key_prefix,
+        upload_key_prefix,
         public_base_url,
         is_custom_domain,
         proxy_host: proxy.as_ref().map(|value| value.host.clone()),
@@ -2147,13 +2170,17 @@ fn build_backend_tos_object_key(
     category: &str,
     filename: &str,
 ) -> String {
-    [config.key_prefix.as_deref(), Some(category), Some(filename)]
-        .into_iter()
-        .flatten()
-        .map(normalize_tos_object_path)
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("/")
+    [
+        config.upload_key_prefix.as_deref(),
+        Some(category),
+        Some(filename),
+    ]
+    .into_iter()
+    .flatten()
+    .map(normalize_tos_object_path)
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join("/")
 }
 
 fn upload_media_bytes_to_tos(
@@ -12002,11 +12029,12 @@ async fn api_not_implemented(Path(path): Path<String>) -> (StatusCode, Json<Valu
 #[cfg(test)]
 mod tests {
     use super::{
-        build_scoped_tos_key_prefix_for_user, clear_workflow_overrides_for_category,
-        cloud_model_log_identity, default_prompt_director_preferences,
-        merge_prompt_templates_with_defaults, merge_style_presets_with_catalog,
-        normalize_character_gender_value, normalize_character_role_value,
-        normalize_time_of_day_value, upgrade_style_config_for_catalog,
+        build_scoped_tos_key_prefix_for_user, build_upload_tos_key_prefix_for_user,
+        clear_workflow_overrides_for_category, cloud_model_log_identity,
+        default_prompt_director_preferences, merge_prompt_templates_with_defaults,
+        merge_style_presets_with_catalog, normalize_character_gender_value,
+        normalize_character_role_value, normalize_time_of_day_value,
+        upgrade_style_config_for_catalog,
     };
     use serde_json::{json, Value};
     use std::collections::HashSet;
@@ -12181,6 +12209,14 @@ mod tests {
         assert_eq!(
             build_scoped_tos_key_prefix_for_user("manju-assets", true, true, None),
             (Some("manju-assets".to_string()), true)
+        );
+    }
+
+    #[test]
+    fn cloud_admin_uploads_are_owned_by_the_admin_account() {
+        assert_eq!(
+            build_upload_tos_key_prefix_for_user("manju-assets", true, Some("users/admin")),
+            (Some("manju-assets/users/admin".to_string()), true)
         );
     }
 

@@ -190,13 +190,17 @@ function signTosRequest(input: {
   secretKey: string
   securityToken: string
   region: string
+  extraHeaders?: Record<string, string>
 }) {
   const datetime = utcDateTime()
   const date = datetime.slice(0, 8)
   const headers: Record<string, string> = {
     host: input.host,
     'x-tos-content-sha256': UNSIGNED_PAYLOAD,
-    'x-tos-date': datetime
+    'x-tos-date': datetime,
+    ...Object.fromEntries(
+      Object.entries(input.extraHeaders || {}).map(([key, value]) => [key.toLowerCase(), value])
+    )
   }
   if (input.securityToken) {
     headers['x-tos-security-token'] = input.securityToken
@@ -222,9 +226,25 @@ function signTosRequest(input: {
       'x-tos-content-sha256': UNSIGNED_PAYLOAD,
       'x-tos-date': datetime,
       ...(input.securityToken ? { 'x-tos-security-token': input.securityToken } : {}),
+      ...input.extraHeaders,
       authorization: `${TOS_ALGORITHM} Credential=${input.accessKeyId}/${scope}, SignedHeaders=${signedHeaders.join(';')}, Signature=${signature}`
     }
   }
+}
+
+function objectRequestTarget(
+  config: ReturnType<typeof tosStorageClientConfig>,
+  endpoint: string,
+  key: string
+) {
+  const encodedKey = encodeObjectPath(key)
+  if (config.isCustomDomain) {
+    return { host: endpoint, path: `/${encodedKey}` }
+  }
+  if (/^(\d|:)/.test(endpoint)) {
+    return { host: endpoint, path: `/${config.bucket}/${encodedKey}` }
+  }
+  return { host: `${config.bucket}.${endpoint}`, path: `/${encodedKey}` }
 }
 
 function buildPresignedUrl(input: {
@@ -548,4 +568,48 @@ export async function listTosFiles(options: TosFilesListOptions = {}) {
       }
     })
   }
+}
+
+export async function copyTosObject(sourceKey: string, targetKey: string) {
+  const config = tosStorageClientConfig()
+  assertConfigured(config)
+  const source = normalizeObjectPath(sourceKey)
+  const target = normalizeObjectPath(targetKey)
+  if (!source || !target) {
+    throw createError({ statusCode: 400, statusMessage: '复制源 Key 和目标 Key 不能为空' })
+  }
+
+  const { endpoint, secure } = normalizeEndpoint(config.endpoint)
+  const requestTarget = objectRequestTarget(config, endpoint, target)
+  const copySource = `${config.bucket}/${encodeObjectPath(source)}`
+  const signed = signTosRequest({
+    method: 'PUT',
+    path: requestTarget.path,
+    query: '',
+    host: requestTarget.host,
+    accessKeyId: config.accessKeyId,
+    secretKey: config.secretKey,
+    securityToken: config.securityToken,
+    region: config.region,
+    extraHeaders: {
+      'x-tos-copy-source': copySource,
+      'x-tos-forbid-overwrite': 'true'
+    }
+  })
+  const protocol = secure ? 'https' : 'http'
+  const response = await fetch(`${protocol}://${requestTarget.host}${requestTarget.path}`, {
+    method: 'PUT',
+    headers: signed.headers
+  })
+  const text = await response.text()
+  if (response.ok) return { copied: true as const }
+  if (response.status === 409 || response.status === 412) {
+    return { copied: false as const, reason: 'target-exists' as const }
+  }
+  const error = parseTosError(text)
+  throw createError({
+    statusCode: response.status,
+    statusMessage: tosErrorMessage(response.status, error.code, error.message),
+    data: { code: error.code, requestId: error.requestId }
+  })
 }
