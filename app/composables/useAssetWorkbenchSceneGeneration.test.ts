@@ -6,7 +6,10 @@ import { resolveSceneEnvironmentAssetId } from '~/lib/asset-workbench-environmen
 
 const requestSceneBaselineGenerationMock = vi.fn(async () => 'https://example.com/generated-env.png')
 const requestSceneVideoTaskMock = vi.fn(async () => 'video_task_1')
-const pollSceneVideoTaskMock = vi.fn(async () => ({ videoUrl: 'https://example.com/generated-video.mp4' }))
+const pollSceneVideoTaskMock = vi.fn(async (): Promise<{
+  videoUrl: string
+  lastFrame?: string
+}> => ({ videoUrl: 'https://example.com/generated-video.mp4' }))
 let useAssetWorkbenchSceneGeneration: typeof import('./useAssetWorkbenchSceneGeneration')['useAssetWorkbenchSceneGeneration']
 
 function keepCurrentVideoInHistory(scene: SceneData) {
@@ -446,6 +449,84 @@ describe('useAssetWorkbenchSceneGeneration', () => {
     const requestOptions = requestCalls[0]?.[0]
     expect(requestOptions?.references.continuityFirstFrame)
       .toBe('https://example.com/prev-last-frame.png')
+  })
+
+  it('invalidates the next generated video when its continuity frame becomes available', async () => {
+    const previousScene = createScene({
+      id: 'scene_prev_new_frame',
+      title: '走廊前段',
+      description: '角色向前奔跑。',
+      firstFrame: 'https://example.com/prev-env.png',
+      referenceStatus: 'done',
+      videoStatus: 'pending'
+    })
+    const nextScene = createScene({
+      id: 'scene_next_existing_video',
+      title: '走廊后段',
+      description: '角色继续奔跑。',
+      firstFrame: 'https://example.com/next-env.png',
+      videoUrl: 'https://example.com/next-old-video.mp4',
+      referenceStatus: 'done',
+      videoStatus: 'done'
+    })
+    const synchronizeQueueItems = vi.fn()
+    pollSceneVideoTaskMock.mockResolvedValueOnce({
+      videoUrl: 'https://example.com/prev-new-video.mp4',
+      lastFrame: 'https://example.com/prev-new-last-frame.png'
+    })
+
+    const sceneGeneration = useAssetWorkbenchSceneGeneration({
+      scenes: ref([previousScene, nextScene]),
+      characters: ref([]),
+      sceneConfigs: ref({
+        [previousScene.id]: {
+          sceneId: previousScene.id,
+          mustReferenceAssetIds: [],
+          consistencyLevel: 'soft',
+          continuityNotes: ''
+        },
+        [nextScene.id]: {
+          sceneId: nextScene.id,
+          mustReferenceAssetIds: [],
+          consistencyLevel: 'soft',
+          continuityNotes: '',
+          usePreviousLastFrameAsFirstFrame: true
+        }
+      }),
+      propAssets: ref([]),
+      queueItems: ref([{ sceneId: previousScene.id, status: 'pending' }]),
+      batchRunning: ref(false),
+      workflowStylePrompt: computed(() => ''),
+      projectAspectRatio: ref('16:9'),
+      normalizeWorkflowText: value => value,
+      resolveUiError: (_error, fallback) => fallback,
+      ensureSceneConfig: sceneId => ({
+        sceneId,
+        mustReferenceAssetIds: [],
+        consistencyLevel: 'soft',
+        continuityNotes: ''
+      }),
+      resolveAssetName: assetId => assetId,
+      resolveSceneDescriptionWithoutAssetMentions: raw => raw || '',
+      synchronizeQueueItems,
+      saveProject: vi.fn(async () => undefined),
+      refreshCharacterVoiceAssets: async () => undefined,
+      generateCharacter: async () => undefined,
+      batchGenerateCharacters: async () => undefined,
+      persistAutomaticAssetPlan: async () => undefined,
+      recordEnvironmentHistory: () => undefined,
+      resolveEnvironmentPanoramaState: () => undefined,
+      setEnvironmentPanoramaState: () => undefined,
+      recordSceneVideoHistory: () => undefined,
+      onModelTaskCompleted: async () => undefined
+    })
+
+    await sceneGeneration.retryScene(previousScene.id)
+
+    expect(previousScene.lastFrame).toBe('https://example.com/prev-new-last-frame.png')
+    expect(nextScene.videoStatus).toBe('pending')
+    expect(nextScene.videoUrl).toBe('https://example.com/next-old-video.mp4')
+    expect(synchronizeQueueItems).toHaveBeenCalled()
   })
 
   it('falls back to panorama image when automatic crop generation fails', async () => {

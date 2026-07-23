@@ -11680,7 +11680,19 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
     let mut content = vec![json!({ "type": "text", "text": prompt })];
 
     if has_reference_images {
-        for image in reference_images {
+        if let Some(first_frame) = first_frame.as_deref() {
+            content.push(json!({
+              "type": "image_url",
+              "role": "first_frame",
+              "image_url": { "url": first_frame }
+            }));
+        }
+        let remaining_limit = if first_frame.is_some() { 8 } else { 9 };
+        for image in reference_images
+            .into_iter()
+            .filter(|image| first_frame.as_deref() != Some(image.as_str()))
+            .take(remaining_limit)
+        {
             content.push(json!({
               "type": "image_url",
               "role": "reference_image",
@@ -15282,6 +15294,46 @@ mod tests {
                 "https://example.com/character-b.mp3"
             ]
         );
+    }
+
+    #[test]
+    fn seedance_video_request_keeps_continuity_first_frame_with_reference_images() {
+        let request = build_volcengine_video_request(
+            "doubao-seedance-2-0-260128",
+            &json!({
+              "prompt": "连续镜头",
+              "firstFrame": "https://example.com/previous-last-frame.png",
+              "imageUrl": "https://example.com/previous-last-frame.png",
+              "referenceImages": [
+                "https://example.com/environment.png",
+                "https://example.com/character.png"
+              ]
+            }),
+        );
+
+        let image_items = request
+            .get("content")
+            .and_then(Value::as_array)
+            .expect("volcengine content array")
+            .iter()
+            .filter(|item| item.get("type").and_then(Value::as_str) == Some("image_url"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(image_items.len(), 3);
+        assert_eq!(
+            image_items[0].get("role").and_then(Value::as_str),
+            Some("first_frame")
+        );
+        assert_eq!(
+            image_items[0]
+                .get("image_url")
+                .and_then(|value| value.get("url"))
+                .and_then(Value::as_str),
+            Some("https://example.com/previous-last-frame.png")
+        );
+        assert!(image_items[1..]
+            .iter()
+            .all(|item| { item.get("role").and_then(Value::as_str) == Some("reference_image") }));
     }
 
     #[test]

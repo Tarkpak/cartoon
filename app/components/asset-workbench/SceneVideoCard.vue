@@ -128,8 +128,15 @@ const sceneVideoHistoryCount = computed(() => {
 })
 const continuitySwitchTitle = computed(() => {
   if (props.index === 0) return '首个场景没有上一镜头可承接'
-  if (!props.canUsePreviousLastFrameReference) return '上一镜头还没有可用末帧，生成时会自动回退'
+  if (!props.usePreviousLastFrameAsFirstFrame) return '开启后，使用上一镜头末帧承接当前镜头'
+  if (!props.canUsePreviousLastFrameReference) return '上一镜头还没有可用末帧，就绪后将在下次生成时使用'
   return props.continuityLinkReason || '使用上一镜头末帧作为本镜头首帧参考'
+})
+const continuityStatusText = computed(() => {
+  if (!props.usePreviousLastFrameAsFirstFrame) return '未启用上一镜头末帧承接'
+  if (props.continuityLinkReason) return props.continuityLinkReason
+  if (props.canUsePreviousLastFrameReference) return '已使用上一镜头末帧作为首帧参考'
+  return '上一镜头末帧就绪后，下次生成时生效'
 })
 const sceneEnvironmentCaptureMode = computed<'单视角' | '四视角'>(() => {
   return props.scene.environmentCaptureMode === '四视角' ? '四视角' : '单视角'
@@ -467,7 +474,7 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       >
         <span class="text-xs font-medium text-muted-foreground">镜头承接</span>
         <span class="truncate text-xs text-muted-foreground">
-          {{ continuityLinkReason || (canUsePreviousLastFrameReference ? '使用上一镜头末帧作为首帧参考' : '上一镜头末帧生成后自动生效') }}
+          {{ continuityStatusText }}
         </span>
         <Switch
           :checked="usePreviousLastFrameAsFirstFrame"

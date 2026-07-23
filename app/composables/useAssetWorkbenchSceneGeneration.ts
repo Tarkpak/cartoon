@@ -434,6 +434,24 @@ export function useAssetWorkbenchSceneGeneration(
     return previous.lastFrame?.trim() || undefined
   }
 
+  function invalidateNextSceneVideoForContinuity(scene: SceneData): boolean {
+    const sceneIndex = options.scenes.value.findIndex(item => item.id === scene.id)
+    if (sceneIndex < 0) return false
+
+    const nextScene = options.scenes.value[sceneIndex + 1]
+    if (!nextScene) return false
+    const nextConfig = options.sceneConfigs.value[nextScene.id]
+    if (nextConfig?.usePreviousLastFrameAsFirstFrame !== true) return false
+
+    const currentEpisodeId = scene.episodeId?.trim() || ''
+    const nextEpisodeId = nextScene.episodeId?.trim() || ''
+    if (currentEpisodeId && nextEpisodeId && currentEpisodeId !== nextEpisodeId) {
+      return false
+    }
+
+    return invalidateSceneVideoState(nextScene)
+  }
+
   async function generateSceneBaseline(
     sceneId: string,
     generationOptions: GenerateSceneBaselineOptions & {
@@ -778,6 +796,9 @@ export function useAssetWorkbenchSceneGeneration(
       applySceneVideoUrl(scene, videoResult.videoUrl)
       if (videoResult.lastFrame) {
         scene.lastFrame = videoResult.lastFrame
+        if (invalidateNextSceneVideoForContinuity(scene)) {
+          options.synchronizeQueueItems()
+        }
       }
       options.recordSceneVideoHistory?.(scene.id, videoResult.videoUrl, {
         source: 'generated'
