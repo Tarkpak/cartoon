@@ -118,6 +118,37 @@ describe('asset-workbench environment views', () => {
     expect(resolveEnvironmentViewImageForCard(asset, '四视角')).toBe('four.png')
   })
 
+  it('prefers the current uploaded reference over older generated view history', () => {
+    const asset = {
+      referenceImage: 'uploaded-new.png',
+      assetHistory: [
+        {
+          id: 'hist_uploaded',
+          image: 'uploaded-new.png',
+          source: 'uploaded' as const,
+          createdAt: '2026-07-24T10:00:00.000Z'
+        },
+        {
+          id: 'hist_single',
+          image: 'generated-old-single.png',
+          source: 'generated' as const,
+          viewMode: '单视角' as const,
+          createdAt: '2026-07-23T10:00:00.000Z'
+        },
+        {
+          id: 'hist_four',
+          image: 'generated-old-four.png',
+          source: 'generated' as const,
+          viewMode: '四视角' as const,
+          createdAt: '2026-07-23T10:00:00.000Z'
+        }
+      ]
+    }
+
+    expect(resolveEnvironmentViewImageForCard(asset, '单视角')).toBe('uploaded-new.png')
+    expect(resolveEnvironmentViewImageForCard(asset, '四视角')).toBe('uploaded-new.png')
+  })
+
   it('does not use legacy reference images for four-view card image', () => {
     const asset = {
       referenceImage: 'single-reference.png',

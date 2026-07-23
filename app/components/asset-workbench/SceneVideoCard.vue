@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { History, Loader2, Merge, MessageCircle, Split, Trash2 } from 'lucide-vue-next'
+import { Clock3, History, Loader2, Merge, MessageCircle, Split, Trash2 } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
@@ -169,8 +169,15 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
   >
     <div class="flex items-start justify-between gap-2">
       <div class="min-w-0">
-        <div class="text-xs text-muted-foreground">
-          场景 {{ index + 1 }}
+        <div class="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>场景 {{ index + 1 }}</span>
+          <span
+            class="inline-flex items-center gap-1"
+            :aria-label="`分镜时长 ${scene.duration} 秒`"
+          >
+            <Clock3 class="h-3 w-3" />
+            {{ scene.duration }} 秒
+          </span>
         </div>
         <div class="truncate text-sm font-medium">
           {{ scene.title }}

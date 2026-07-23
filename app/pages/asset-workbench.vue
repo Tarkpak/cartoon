@@ -1978,6 +1978,7 @@ const {
   resolveEnvironmentCard,
   resolveEnvironmentRepresentativeScene,
   panoramaSourceAspectRatio: environmentPanoramaSourceAspectRatio,
+  recordEnvironmentHistory,
   setEnvironmentPanoramaState,
   generateSceneBaseline,
   onModelTaskCompleted: notifyGenerationCompleted,

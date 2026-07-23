@@ -143,12 +143,22 @@ export function resolveEnvironmentViewImageForCard(
   const fourViewImage = resolveNonPanoramaImage(asset.fourViewImage, panoramaImage)
   const historySingleViewImage = resolveHistoryViewImage(asset.assetHistory, '单视角', panoramaImage)
   const historyFourViewImage = resolveHistoryViewImage(asset.assetHistory, '四视角', panoramaImage)
+  const referenceImage = resolveNonPanoramaImage(asset.referenceImage, panoramaImage)
+  const currentUpload = referenceImage && asset.assetHistory?.some(entry => (
+    entry.source === 'uploaded'
+    && normalizeOptionalImage(entry.image) === referenceImage
+  ))
+    ? referenceImage
+    : undefined
+
+  // A direct upload replaces the active environment reference for every scene
+  // mode while older generated view images remain available in history.
+  if (currentUpload) return currentUpload
 
   if (viewMode === '四视角') {
     return fourViewImage || historyFourViewImage
   }
 
-  const referenceImage = resolveNonPanoramaImage(asset.referenceImage, panoramaImage)
   if (referenceImage && !isSameImage(referenceImage, fourViewImage || historyFourViewImage)) {
     return singleViewImage || historySingleViewImage || referenceImage
   }

@@ -22,6 +22,7 @@ import {
   resolveEnvironmentReferenceImageByCaptureMode
 } from '~/lib/asset-workbench-environment-views'
 import type {
+  EnvironmentCropCaptureMode,
   EnvironmentAssetCard,
   EnvironmentPanoramaState
 } from '~/lib/asset-workbench-types'
@@ -44,6 +45,15 @@ export function useAssetWorkbenchAssetMedia(options: {
   resolveEnvironmentCard: (assetId: string) => EnvironmentAssetCard | undefined
   resolveEnvironmentRepresentativeScene: (assetId: string) => SceneData | undefined
   panoramaSourceAspectRatio?: Ref<string>
+  recordEnvironmentHistory?: (
+    assetId: string,
+    image: string,
+    options?: {
+      source?: 'generated' | 'uploaded' | 'cropped' | 'legacy'
+      prompt?: string
+      viewMode?: EnvironmentCropCaptureMode
+    }
+  ) => void
   setEnvironmentPanoramaState?: (assetId: string, state: EnvironmentPanoramaState | undefined) => void
   generateSceneBaseline: (
     sceneId: string,
@@ -396,6 +406,12 @@ export function useAssetWorkbenchAssetMedia(options: {
 
         applySceneBaselineReference(scene, imageUrl)
       }
+
+      options.recordEnvironmentHistory?.(
+        assetId,
+        imageUrl,
+        { source: 'uploaded' }
+      )
 
       const panoramaCompatible = await isPanoramaFile(file)
       options.setEnvironmentPanoramaState?.(
