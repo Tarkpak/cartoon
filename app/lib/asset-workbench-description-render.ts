@@ -8,6 +8,7 @@ import {
   resolveSceneDescriptionMentionItems,
   resolveSceneDescriptionWithoutAssetMentions
 } from '~/lib/asset-workbench-mention-tokens'
+import { formatSceneDescriptionTimelineBreaks } from '~/lib/scene-description-format'
 
 const SCENE_IMAGE_TAG_REGEX = /(?:\[(?:图片|Image\s*#)\s*\d+\]|@(?:图片|Image\s*#)\s*\d+)/giu
 const SCENE_QUOTED_DIALOGUE_REGEX = /'[^'\n]*'|"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’|「[^」\n]*」|『[^』\n]*』/gu
@@ -25,12 +26,14 @@ interface InlineMentionAsset {
 
 function normalizeSceneDescriptionForDisplay(text: string): string {
   if (!text) return ''
-  return text
+  const normalized = text
     .replace(SCENE_IMAGE_TAG_REGEX, '')
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n[ \t]+/g, '\n')
     .trim()
+
+  return formatSceneDescriptionTimelineBreaks(normalized)
 }
 
 function escapeRegExpForSceneDescription(raw: string): string {

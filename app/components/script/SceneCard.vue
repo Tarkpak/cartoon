@@ -15,6 +15,7 @@ import {
 } from 'lucide-vue-next'
 import type { SceneShotType, SceneCameraMovement } from '#shared/types/script'
 import type { AssetWorkbenchTransitionType } from '~/lib/asset-workbench-models'
+import { formatSceneDescriptionTimelineBreaks } from '~/lib/scene-description-format'
 
 interface SceneCardProps {
   scene: {
@@ -101,6 +102,9 @@ const transitionLabels: Record<AssetWorkbenchTransitionType, string> = {
 }
 
 const currentStatus = computed(() => statusConfig[props.scene.status] || statusConfig.pending)
+const formattedDescription = computed(() => {
+  return formatSceneDescriptionTimelineBreaks(props.scene.description || '')
+})
 
 // 获取景别标签
 const shotTypeLabel = computed(() => {
@@ -210,8 +214,8 @@ const transitionLabel = computed(() => {
     <h4 class="font-medium mb-1 line-clamp-1">
       {{ scene.title }}
     </h4>
-    <p class="text-sm text-muted-foreground mb-3 line-clamp-2">
-      {{ scene.description }}
+    <p class="mb-3 line-clamp-2 whitespace-pre-line text-sm text-muted-foreground">
+      {{ formattedDescription }}
     </p>
 
     <!-- 底部信息 -->

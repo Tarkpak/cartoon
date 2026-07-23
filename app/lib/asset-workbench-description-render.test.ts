@@ -31,6 +31,25 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
 }
 
 describe('scene description render segments', () => {
+  it('formats consecutive timeline segments onto separate lines', () => {
+    const scene = createScene({
+      id: 'scene_timeline',
+      title: '连续镜头',
+      description: '0-3秒，大远景固定机位。3-8秒，摄影机侧向跟拍。'
+    })
+
+    const segments = resolveSceneDescriptionRenderSegments({
+      scene,
+      assets: [],
+      uniqueSorted: values => Array.from(new Set(values))
+    })
+
+    expect(segments).toEqual([{
+      type: 'text',
+      text: '0-3秒，大远景固定机位。\n3-8秒，摄影机侧向跟拍。'
+    }])
+  })
+
   it('renders inline asset mention tokens as asset segments', () => {
     const scene = createScene({
       id: 'scene_1',
