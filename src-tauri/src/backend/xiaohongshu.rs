@@ -1,8 +1,70 @@
 use super::*;
+use md5::Md5;
 use std::fs::File;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, OnceLock};
 
 const XIAOHONGSHU_DOWNLOAD_DIR: &str = "tools/xiaohongshu-download";
-const XIAOHONGSHU_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
+const XIAOHONGSHU_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
+const XIAOHONGSHU_FEED_PATH: &str = "/api/sns/web/v1/feed";
+const XIAOHONGSHU_COMMON_BASE64_ALPHABET: &[u8; 64] =
+    b"ZmserbBoHQtNP+wOcza/LpngG8yJq42KWYj0DSfdikx3VT16IlUAFM97hECvuRX5";
+const XIAOHONGSHU_MNS_BASE64_ALPHABET: &[u8; 64] =
+    b"MfgqrsbcyzPQRStuvC7mn501HIJBo2DEYZajkl63Gp89+/A4UVFTKdeNOwxWXLhi";
+const XIAOHONGSHU_XXTEA_KEY: &[u8; 16] = b"e6483ca2a1eed5e3";
+const XIAOHONGSHU_XXTEA_DELTA: u32 = 1_013_904_243;
+static XIAOHONGSHU_A1: OnceLock<String> = OnceLock::new();
+static XIAOHONGSHU_NAVIGATION_START: OnceLock<i64> = OnceLock::new();
+static XIAOHONGSHU_SIGN_COUNT: AtomicU32 = AtomicU32::new(0);
+
+#[derive(serde::Serialize)]
+struct XiaohongshuFeedExtra {
+    need_body_topic: u8,
+}
+
+#[derive(serde::Serialize)]
+struct XiaohongshuFeedBody<'a> {
+    source_note_id: &'a str,
+    image_formats: [&'static str; 3],
+    extra: XiaohongshuFeedExtra,
+    xsec_source: &'a str,
+    xsec_token: &'a str,
+}
+
+struct XiaohongshuSignature {
+    x_s: String,
+    x_t: i64,
+    x_s_common: String,
+}
+
+#[derive(serde::Serialize)]
+struct XiaohongshuCommonSignature<'a> {
+    s0: u8,
+    s1: &'static str,
+    x0: &'static str,
+    x1: &'static str,
+    x2: &'static str,
+    x3: &'static str,
+    x4: &'static str,
+    x5: &'a str,
+    x6: &'static str,
+    x7: &'static str,
+    x8: &'static str,
+    x9: i32,
+    x10: u8,
+    x11: &'static str,
+    x12: &'a str,
+}
+
+#[derive(serde::Serialize)]
+struct XiaohongshuXysPayload {
+    x0: &'static str,
+    x1: &'static str,
+    x2: &'static str,
+    x3: String,
+    x4: &'static str,
+    x5: String,
+}
 
 #[derive(Deserialize)]
 pub(super) struct XiaohongshuParseBody {
@@ -226,7 +288,7 @@ pub(super) async fn api_tools_xiaohongshu_history_delete(
 }
 
 async fn fetch_xiaohongshu_profile(
-    backend_state: &BackendState,
+    _backend_state: &BackendState,
     input: &str,
 ) -> Result<XiaohongshuProfile, ApiError> {
     let url = extract_input_url(input)
@@ -297,23 +359,8 @@ async fn fetch_xiaohongshu_profile(
         .as_object()
         .is_none_or(|value| value.is_empty())
     {
-        let fetcher = backend_state
-            .xiaohongshu_dynamic_fetcher
-            .as_ref()
-            .ok_or_else(|| {
-                ApiError::new(
-                    StatusCode::BAD_GATEWAY,
-                    "该笔记需要小红书页面动态加载，请使用桌面客户端解析",
-                )
-            })?;
-        let payload = fetcher(final_url.clone(), note_id_from_url.clone())
-            .await
-            .map_err(|error| {
-                ApiError::new(
-                    StatusCode::BAD_GATEWAY,
-                    format!("动态加载小红书笔记失败: {error}"),
-                )
-            })?;
+        let payload =
+            fetch_xiaohongshu_dynamic_note(&client, &final_url, &note_id_from_url).await?;
         dynamic_note = extract_dynamic_note(&payload).ok_or_else(|| {
             ApiError::new(StatusCode::BAD_GATEWAY, "小红书动态接口未返回笔记详情")
         })?;
@@ -323,6 +370,303 @@ async fn fetch_xiaohongshu_profile(
     };
 
     xiaohongshu_profile_from_note(note, note_id_from_url, final_url)
+}
+
+async fn fetch_xiaohongshu_dynamic_note(
+    client: &Client,
+    page_url: &str,
+    note_id: &str,
+) -> Result<Value, ApiError> {
+    let page_url = reqwest::Url::parse(page_url).map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("解析小红书笔记地址失败: {error}"),
+        )
+    })?;
+    let xsec_source = page_url
+        .query_pairs()
+        .find_map(|(name, value)| (name == "xsec_source").then(|| value.into_owned()))
+        .unwrap_or_else(|| "pc_feed".to_string());
+    let xsec_token = page_url
+        .query_pairs()
+        .find_map(|(name, value)| (name == "xsec_token").then(|| value.into_owned()))
+        .unwrap_or_default();
+    let body = XiaohongshuFeedBody {
+        source_note_id: note_id,
+        image_formats: ["jpg", "webp", "avif"],
+        extra: XiaohongshuFeedExtra { need_body_topic: 1 },
+        xsec_source: &xsec_source,
+        xsec_token: &xsec_token,
+    };
+    let body_json = serde_json::to_string(&body).map_err(|error| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("生成小红书动态请求失败: {error}"),
+        )
+    })?;
+    let signature = sign_xiaohongshu_request(XIAOHONGSHU_FEED_PATH, &body_json, None)?;
+    let response = client
+        .post(format!(
+            "https://edith.xiaohongshu.com{XIAOHONGSHU_FEED_PATH}"
+        ))
+        .header("User-Agent", XIAOHONGSHU_USER_AGENT)
+        .header("Origin", "https://www.xiaohongshu.com")
+        .header("Referer", page_url.as_str())
+        .header("Content-Type", "application/json;charset=UTF-8")
+        .header("X-s", &signature.x_s)
+        .header("X-t", signature.x_t.to_string())
+        .header("X-s-common", &signature.x_s_common)
+        .header("x-b3-traceid", &Uuid::new_v4().simple().to_string()[..16])
+        .header("x-xray-traceid", Uuid::new_v4().simple().to_string())
+        .body(body_json)
+        .send()
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                format!("请求小红书动态接口失败: {error}"),
+            )
+        })?;
+    let status = response.status();
+    let response_text = response.text().await.map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("读取小红书动态数据失败: {error}"),
+        )
+    })?;
+    if !status.is_success() {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!(
+                "小红书动态接口返回 HTTP {status}: {}",
+                response_text.chars().take(300).collect::<String>()
+            ),
+        ));
+    }
+    let payload: Value = serde_json::from_str(&response_text).map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("小红书动态接口返回了无效数据: {error}"),
+        )
+    })?;
+    if payload.get("success").and_then(Value::as_bool) == Some(false) {
+        let message = payload
+            .get("msg")
+            .or_else(|| payload.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or("小红书动态接口返回失败");
+        return Err(ApiError::new(StatusCode::BAD_GATEWAY, message));
+    }
+    Ok(payload)
+}
+
+fn sign_xiaohongshu_request(
+    path: &str,
+    body_json: &str,
+    timestamp: Option<i64>,
+) -> Result<XiaohongshuSignature, ApiError> {
+    let x_t = timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+    let a1 = xiaohongshu_a1().to_string();
+    let content = format!("{path}{body_json}");
+    let content_md5 = format!("{:x}", Md5::digest(content.as_bytes()));
+    let path_md5 = format!("{:x}", Md5::digest(path.as_bytes()));
+    let mns = xiaohongshu_mnsv2(&content, &content_md5, &path_md5, &a1, x_t)?;
+    let xys = XiaohongshuXysPayload {
+        x0: "4.3.9",
+        x1: "xhs-pc-web",
+        x2: "Windows",
+        x3: mns,
+        x4: "object",
+        x5: content_md5,
+    };
+    let x_s = format!(
+        "XYS_{}",
+        xiaohongshu_custom_base64(
+            &serde_json::to_vec(&xys).map_err(|error| {
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("生成小红书请求签名失败: {error}"),
+                )
+            })?,
+            XIAOHONGSHU_COMMON_BASE64_ALPHABET,
+        )
+    );
+    let common_fingerprint = "I38rHdgsjopgIvesdVwgI3H=";
+    let common_navigation_start = *XIAOHONGSHU_NAVIGATION_START.get_or_init(|| x_t - 4_000);
+    let common_browser_start = x_t - 24_729_688;
+    let common_timestamps = format!("{common_navigation_start};{common_browser_start}");
+    let common = XiaohongshuCommonSignature {
+        s0: 5,
+        s1: "",
+        x0: "1",
+        x1: "4.3.9",
+        x2: "Windows",
+        x3: "xhs-pc-web",
+        x4: "6.35.0",
+        x5: &a1,
+        x6: "",
+        x7: "",
+        x8: common_fingerprint,
+        x9: xiaohongshu_crc32(common_fingerprint.as_bytes()) as i32,
+        x10: 0,
+        x11: "normal",
+        x12: &common_timestamps,
+    };
+    let common_json = serde_json::to_vec(&common).map_err(|error| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("生成小红书公共签名失败: {error}"),
+        )
+    })?;
+    Ok(XiaohongshuSignature {
+        x_s,
+        x_t,
+        x_s_common: xiaohongshu_custom_base64(&common_json, XIAOHONGSHU_COMMON_BASE64_ALPHABET),
+    })
+}
+
+fn xiaohongshu_mnsv2(
+    content: &str,
+    content_md5: &str,
+    path_md5: &str,
+    a1: &str,
+    timestamp: i64,
+) -> Result<String, ApiError> {
+    let mut random = [0u8; 20];
+    SystemRandom::new().fill(&mut random).map_err(|_| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "生成小红书请求随机数失败",
+        )
+    })?;
+    let navigation_start = *XIAOHONGSHU_NAVIGATION_START.get_or_init(|| timestamp - 1_833);
+    let count = XIAOHONGSHU_SIGN_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    let mut packet = Vec::with_capacity(144);
+    packet.extend_from_slice(&[0x79, 0x68, 0x60, 0x29]);
+    packet.extend_from_slice(&random[..4]);
+    packet.extend_from_slice(&(timestamp as u64).to_le_bytes());
+    packet.extend_from_slice(&(navigation_start as u64).to_le_bytes());
+    packet.extend_from_slice(&count.to_le_bytes());
+    packet.extend_from_slice(&1_346u32.to_le_bytes());
+    packet.extend_from_slice(&(content.len() as u32).to_le_bytes());
+    let content_binding = xiaohongshu_masked_md5(content_md5, random[0])?;
+    packet.extend_from_slice(&content_binding[..8]);
+    push_xiaohongshu_short_bytes(&mut packet, a1.as_bytes())?;
+    push_xiaohongshu_short_bytes(&mut packet, b"xhs-pc-web")?;
+    packet.push(1);
+    packet.extend_from_slice(&[
+        0xaa, 0xf9, 0x41, 0x67, 0x67, 0xc9, 0xb5, 0x81, 0x63, 0x5e, 0x07, 0x44, 0xfa, 0x84, 0x15,
+    ]);
+    push_xiaohongshu_short_bytes(&mut packet, b"a3")?;
+    let path_binding = xiaohongshu_masked_md5(path_md5, random[0])?;
+    push_xiaohongshu_short_bytes(&mut packet, &path_binding)?;
+    let encrypted = xiaohongshu_xxtea_encrypt(&packet);
+    Ok(format!(
+        "mns0201_{}",
+        xiaohongshu_custom_base64(&encrypted, XIAOHONGSHU_MNS_BASE64_ALPHABET)
+    ))
+}
+
+fn xiaohongshu_masked_md5(value: &str, mask: u8) -> Result<[u8; 16], ApiError> {
+    if value.len() != 32 {
+        return Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "小红书签名摘要长度无效",
+        ));
+    }
+    let mut output = [0u8; 16];
+    for (index, byte) in output.iter_mut().enumerate() {
+        let offset = index * 2;
+        let parsed = u8::from_str_radix(&value[offset..offset + 2], 16).map_err(|_| {
+            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "小红书签名摘要格式无效")
+        })?;
+        *byte = parsed ^ mask;
+    }
+    Ok(output)
+}
+
+fn push_xiaohongshu_short_bytes(output: &mut Vec<u8>, value: &[u8]) -> Result<(), ApiError> {
+    let len = u8::try_from(value.len()).map_err(|_| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "小红书签名字段长度超出限制",
+        )
+    })?;
+    output.push(len);
+    output.extend_from_slice(value);
+    Ok(())
+}
+
+fn xiaohongshu_xxtea_encrypt(input: &[u8]) -> Vec<u8> {
+    let mut values = input
+        .chunks(4)
+        .map(|chunk| {
+            let mut bytes = [0u8; 4];
+            bytes[..chunk.len()].copy_from_slice(chunk);
+            u32::from_le_bytes(bytes)
+        })
+        .collect::<Vec<_>>();
+    values.push(input.len() as u32);
+    let key = XIAOHONGSHU_XXTEA_KEY
+        .chunks_exact(4)
+        .map(|chunk| u32::from_le_bytes(chunk.try_into().expect("four-byte key chunk")))
+        .collect::<Vec<_>>();
+    let rounds = 6 + 52 / values.len() as u32;
+    let mut sum = 0u32;
+    let mut z = *values.last().expect("XXTEA input is not empty");
+    for _ in 0..rounds {
+        sum = sum.wrapping_add(XIAOHONGSHU_XXTEA_DELTA);
+        let e = (sum >> 2) & 3;
+        for index in 0..values.len() {
+            let y = values[(index + 1) % values.len()];
+            let mix = ((z >> 5 ^ y << 2).wrapping_add(y >> 3 ^ z << 4))
+                ^ ((sum ^ y).wrapping_add(key[((index as u32 & 3) ^ e) as usize] ^ z));
+            values[index] = values[index].wrapping_add(mix);
+            z = values[index];
+        }
+    }
+    values.into_iter().flat_map(u32::to_le_bytes).collect()
+}
+
+fn xiaohongshu_a1() -> &'static str {
+    XIAOHONGSHU_A1
+        .get_or_init(|| "198caa7629bv66e5q25bgi30vat457l88mnryucvv50000230125".to_string())
+}
+
+fn xiaohongshu_crc32(input: &[u8]) -> u32 {
+    let mut value = u32::MAX;
+    for &byte in input.iter().take(57) {
+        value ^= u32::from(byte);
+        for _ in 0..8 {
+            value = if value & 1 == 1 {
+                0xedb8_8320 ^ (value >> 1)
+            } else {
+                value >> 1
+            };
+        }
+    }
+    value ^ u32::MAX ^ 0xedb8_8320
+}
+
+fn xiaohongshu_custom_base64(input: &[u8], alphabet: &[u8; 64]) -> String {
+    let mut output = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let first = u32::from(chunk[0]);
+        let second = chunk.get(1).copied().map(u32::from);
+        let third = chunk.get(2).copied().map(u32::from);
+        let triplet = (first << 16) | (second.unwrap_or(0) << 8) | third.unwrap_or(0);
+        output.push(alphabet[((triplet >> 18) & 63) as usize] as char);
+        output.push(alphabet[((triplet >> 12) & 63) as usize] as char);
+        output.push(match second {
+            Some(_) => alphabet[((triplet >> 6) & 63) as usize] as char,
+            None => '=',
+        });
+        output.push(match third {
+            Some(_) => alphabet[(triplet & 63) as usize] as char,
+            None => '=',
+        });
+    }
+    output
 }
 
 fn extract_dynamic_note(payload: &Value) -> Option<Value> {
@@ -508,8 +852,16 @@ async fn fetch_xiaohongshu_image(
 }
 
 fn xiaohongshu_client(timeout: Duration) -> Result<Client, ApiError> {
+    let jar = Arc::new(reqwest::cookie::Jar::default());
+    let root_url = reqwest::Url::parse("https://www.xiaohongshu.com/")
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    jar.add_cookie_str(
+        &format!("a1={}; Domain=.xiaohongshu.com; Path=/", xiaohongshu_a1()),
+        &root_url,
+    );
     Client::builder()
         .timeout(timeout)
+        .cookie_provider(jar)
         .build()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
@@ -727,6 +1079,14 @@ fn is_cjk_or_fullwidth(ch: char) -> bool {
 }
 
 fn extract_note_id(url: &str) -> String {
+    if let Some(query) = url.split_once('?').map(|(_, query)| query) {
+        for pair in query.split('&') {
+            let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
+            if matches!(name, "target_note_id" | "source_note_id") && !value.is_empty() {
+                return value.to_string();
+            }
+        }
+    }
     let path = url
         .split_once("://")
         .map(|(_, rest)| rest)
@@ -785,6 +1145,12 @@ mod tests {
             extract_note_id("https://www.xiaohongshu.com/discovery/item/6a445a2d0000000007011c3d?source=webshare"),
             "6a445a2d0000000007011c3d"
         );
+        assert_eq!(
+            extract_note_id(
+                "https://www.xiaohongshu.com/explore?target_note_id=6a41f69d00000000160252c9"
+            ),
+            "6a41f69d00000000160252c9"
+        );
     }
 
     #[test]
@@ -795,6 +1161,58 @@ mod tests {
         assert_eq!(
             xiaohongshu_original_image_url(image).as_deref(),
             Some("https://sns-img-qc.xhscdn.com/notes_pre_post/file")
+        );
+    }
+
+    #[test]
+    fn reproduces_current_xhs_xxtea_payload() {
+        let decode_hex = |value: &str| {
+            value
+                .as_bytes()
+                .chunks_exact(2)
+                .map(|pair| {
+                    u8::from_str_radix(std::str::from_utf8(pair).expect("ASCII hex"), 16)
+                        .expect("valid hex fixture")
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            xiaohongshu_xxtea_encrypt(&[1, 2, 3, 4, 5, 6, 7, 8]),
+            [0xfd, 0x18, 0x93, 0xf5, 0x40, 0x01, 0x6c, 0xfd, 0xbe, 0xfe, 0xa6, 0x7e]
+        );
+        assert_eq!(
+            xiaohongshu_custom_base64(b"abc", XIAOHONGSHU_MNS_BASE64_ALPHABET),
+            "H0zd"
+        );
+
+        let plaintext = decode_hex(concat!(
+            "79686029ffffffff9a53e8a39f010000714ce8a39f0100000100000043050000",
+            "dc0000004bc2f85e657e1c913431393863616137363239627636366535713235",
+            "62676933307661743435376c38386d6e72797563767635303030303233303132",
+            "350a7868732d70632d776562018cf8516767c8b581625e0744fa841502613310",
+            "8b96153b96a6cbf573e013996eda5c32"
+        ));
+        let ciphertext = decode_hex(concat!(
+            "56b3eebe04ce290b6f4ff2ae78f270f249c1988039bc1d712cd71bb63c0de30d",
+            "37a060917ed35fe6834adb58c8d69990d959b57f764de9e5bc7948dba4107aa0",
+            "35b3ae8492de2c02451120030069b75ae4713d55ab79a2264e16bb5b665c7912",
+            "5b273e0f4b4d6d1921a198602484f404646db8ddbc7ea3d4646fe3e6a32bc455",
+            "ff110b26c4e909e5e76aeac293e2ee2556570388"
+        ));
+        assert_eq!(xiaohongshu_xxtea_encrypt(&plaintext), ciphertext);
+        assert_eq!(
+            xiaohongshu_masked_md5("b43d07a19a81e36e626959a14a1058ab", 0xff).expect("valid md5"),
+            [
+                0x4b, 0xc2, 0xf8, 0x5e, 0x65, 0x7e, 0x1c, 0x91, 0x9d, 0x96, 0xa6, 0x5e, 0xb5, 0xef,
+                0xa7, 0x54,
+            ]
+        );
+        assert_eq!(
+            xiaohongshu_masked_md5("e975778a814d9fb705bf4aacc3e2d3eb", 0xff).expect("valid md5"),
+            [
+                0x16, 0x8a, 0x88, 0x75, 0x7e, 0xb2, 0x60, 0x48, 0xfa, 0x40, 0xb5, 0x53, 0x3c, 0x1d,
+                0x2c, 0x14,
+            ]
         );
     }
 }

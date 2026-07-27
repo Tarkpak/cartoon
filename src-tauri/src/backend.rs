@@ -19,11 +19,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::future::Future;
 use std::io::Write;
 use std::path::{Path as FsPath, PathBuf};
-use std::pin::Pin;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::net::TcpListener;
@@ -135,14 +133,7 @@ pub struct BackendState {
     pub data_dir: PathBuf,
     pub public_dir: PathBuf,
     pub web_dir: PathBuf,
-    pub xiaohongshu_dynamic_fetcher: Option<XiaohongshuDynamicFetcher>,
 }
-
-pub type XiaohongshuDynamicFetcher = Arc<
-    dyn Fn(String, String) -> Pin<Box<dyn Future<Output = Result<Value, String>> + Send>>
-        + Send
-        + Sync,
->;
 
 #[derive(Debug)]
 pub struct ApiError {

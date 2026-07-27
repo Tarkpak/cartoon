@@ -65,7 +65,6 @@ async fn main() {
         data_dir,
         public_dir,
         web_dir,
-        xiaohongshu_dynamic_fetcher: None,
     };
 
     println!(
