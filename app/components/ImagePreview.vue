@@ -119,6 +119,18 @@ function handleWheel(event: WheelEvent) {
   })
 }
 
+function handleDocumentWheel(event: WheelEvent) {
+  if (!props.open) return
+
+  event.preventDefault()
+  event.stopPropagation()
+
+  const target = event.target
+  if (target instanceof Node && previewFrame.value?.contains(target)) {
+    handleWheel(event)
+  }
+}
+
 function handlePointerDown(event: PointerEvent) {
   if (scale.value <= 1) return
   dragging.value = true
@@ -202,8 +214,10 @@ function handleKeydown(e: KeyboardEvent) {
 watch(() => props.open, (isOpen) => {
   if (isOpen) {
     document.addEventListener('keydown', handleKeydown)
+    document.addEventListener('wheel', handleDocumentWheel, { capture: true, passive: false })
   } else {
     document.removeEventListener('keydown', handleKeydown)
+    document.removeEventListener('wheel', handleDocumentWheel, true)
     resetState()
   }
 })
@@ -214,6 +228,7 @@ watch(() => props.src, () => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown)
+  document.removeEventListener('wheel', handleDocumentWheel, true)
 })
 </script>
 
@@ -227,7 +242,7 @@ onUnmounted(() => {
     >
       <div
         v-if="open"
-        class="fixed inset-0 z-[100] flex items-center justify-center"
+        class="pointer-events-auto fixed inset-0 z-[9999] flex items-center justify-center overscroll-none"
       >
         <!-- 背景遮罩 -->
         <div
@@ -307,7 +322,6 @@ onUnmounted(() => {
           ref="previewFrame"
           class="relative z-10 flex h-[90vh] w-[90vw] touch-none select-none items-center justify-center overflow-hidden"
           @click="handleFrameClick"
-          @wheel.prevent="handleWheel"
           @pointerdown.stop="handlePointerDown"
           @pointermove.stop="handlePointerMove"
           @pointerup.stop="handlePointerUp"

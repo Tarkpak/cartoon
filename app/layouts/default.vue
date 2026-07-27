@@ -48,7 +48,7 @@ const navigation = computed(() => {
     { name: '视频转项目', path: '/import/video', icon: FileVideo },
     { name: '画质增强', path: '/tools/enhance', icon: WandSparkles },
     { name: '语音识别', path: '/tools/asr', icon: AudioLines },
-    { name: '短视频下载', path: '/tools/short-video-download', icon: Download }
+    { name: '视频图文下载', path: '/tools/short-video-download', icon: Download }
   ]
 
   return [

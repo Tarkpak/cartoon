@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Clock3,
   Download,
@@ -8,6 +9,7 @@ import {
   FileVideo2,
   FolderOpen,
   History,
+  Images,
   Link2,
   Loader2,
   Maximize2,
@@ -23,7 +25,7 @@ definePageMeta({
   layout: 'default'
 })
 
-type Platform = 'douyin' | 'wxChannels'
+type Platform = 'douyin' | 'wxChannels' | 'xiaohongshu'
 
 interface ShortVideoProfile {
   historyId?: string
@@ -31,11 +33,15 @@ interface ShortVideoProfile {
   title: string
   coverUrl: string
   videoUrl: string
+  mediaType?: 'video' | 'image'
+  imageUrls?: string[]
   sourceUrl: string
   author?: string
   authorIcon?: string
   createTime?: number | null
   awemeId?: string
+  noteId?: string
+  description?: string
 }
 
 interface DownloadResult {
@@ -44,6 +50,7 @@ interface DownloadResult {
   filename: string
   downloadDir: string
   sizeBytes: number
+  imageIndex?: number | null
 }
 
 interface HistoryItem {
@@ -83,12 +90,18 @@ const historyFilename = ref('')
 const historyDrawerOpen = ref(false)
 const parsing = ref(false)
 const downloading = ref(false)
+const downloadingImage = ref(false)
 const loadingHistory = ref(false)
 const deletingHistoryId = ref('')
 const errorMessage = ref('')
+const currentImageIndex = ref(0)
+const historyImageIndex = ref(0)
+const imagePreviewOpen = ref(false)
+const imagePreviewSrc = ref('')
+const imagePreviewAlt = ref('图片预览')
 
-const canParse = computed(() => shareUrl.value.trim().length > 0 && !parsing.value && !downloading.value)
-const canDownload = computed(() => profile.value !== null && !parsing.value && !downloading.value)
+const canParse = computed(() => shareUrl.value.trim().length > 0 && !parsing.value && !downloading.value && !downloadingImage.value)
+const canDownload = computed(() => profile.value !== null && !parsing.value && !downloading.value && !downloadingImage.value)
 const previewVideoUrl = computed(() => {
   if (!profile.value?.videoUrl) return ''
   if (profile.value.platform === 'douyin') {
@@ -97,6 +110,9 @@ const previewVideoUrl = computed(() => {
   return profile.value.videoUrl
 })
 const platformLabel = computed(() => profile.value ? getPlatformLabel(profile.value.platform) : '')
+const isImagePost = computed(() => profile.value?.mediaType === 'image')
+const currentImageUrl = computed(() => profile.value?.imageUrls?.[currentImageIndex.value] || '')
+const historyCurrentImageUrl = computed(() => selectedHistoryItem.value?.profile.imageUrls?.[historyImageIndex.value] || '')
 const selectedHistoryPreviewVideoUrl = computed(() => {
   const item = selectedHistoryItem.value
   if (!item?.profile.videoUrl) return ''
@@ -124,7 +140,8 @@ async function parseShareUrl() {
     })
     if (!response.success || !response.data) throw new Error(response.message || '解析失败')
     profile.value = response.data
-    if (!filename.value.trim()) filename.value = response.data.title || `${getPlatformLabel(response.data.platform)}视频`
+    currentImageIndex.value = 0
+    if (!filename.value.trim()) filename.value = response.data.title || `${getPlatformLabel(response.data.platform)}${response.data.mediaType === 'image' ? '图文' : '视频'}`
     void loadHistory()
   } catch (error) {
     profile.value = null
@@ -132,6 +149,44 @@ async function parseShareUrl() {
     toast.error('解析失败', { description: errorMessage.value })
   } finally {
     parsing.value = false
+  }
+}
+
+async function downloadCurrentImage() {
+  if (!profile.value || !currentImageUrl.value) return
+  const response = await downloadSingleImage(
+    shareUrl.value || profile.value.sourceUrl,
+    filename.value,
+    currentImageIndex.value
+  )
+  if (response) {
+    result.value = response
+    profile.value = response.profile
+  }
+}
+
+async function downloadHistoryCurrentImage(item: HistoryItem) {
+  await downloadSingleImage(item.sourceUrl, historyFilename.value, historyImageIndex.value)
+  await loadHistory()
+}
+
+async function downloadSingleImage(sourceUrl: string, baseFilename: string, imageIndex: number) {
+  downloadingImage.value = true
+  errorMessage.value = ''
+  try {
+    const response = await $fetch<{ success: boolean, data?: DownloadResult, message?: string }>('/api/tools/short-video/download', {
+      method: 'POST',
+      body: { url: sourceUrl, filename: baseFilename, imageIndex }
+    })
+    if (!response.success || !response.data) throw new Error(response.message || '下载失败')
+    toast.success('图片下载完成', { description: response.data.filename })
+    return response.data
+  } catch (error) {
+    errorMessage.value = getErrorMessage(error)
+    toast.error('图片下载失败', { description: errorMessage.value })
+    return null
+  } finally {
+    downloadingImage.value = false
   }
 }
 
@@ -175,8 +230,48 @@ async function loadHistory() {
 
 function openHistoryDrawer(item: HistoryItem) {
   selectedHistoryItem.value = item
-  historyFilename.value = item.filename || item.profile.title || `${getPlatformLabel(item.platform)}视频`
+  historyFilename.value = item.filename || item.profile.title || `${getPlatformLabel(item.platform)}${item.profile.mediaType === 'image' ? '图文' : '视频'}`
+  historyImageIndex.value = 0
   historyDrawerOpen.value = true
+}
+
+function imagePreviewUrl(imageUrl: string, platform: Platform) {
+  if (platform === 'wxChannels') return imageUrl
+  return `/api/tools/short-video/preview?platform=${platform}&url=${encodeURIComponent(imageUrl)}`
+}
+
+function coverPreviewUrl(profile: ShortVideoProfile) {
+  if (!profile.coverUrl) return ''
+  return profile.mediaType === 'image'
+    ? imagePreviewUrl(profile.coverUrl, profile.platform)
+    : profile.coverUrl
+}
+
+function openImagePreview(imageUrl: string, imageIndex: number, platform: Platform) {
+  if (!imageUrl) return
+  imagePreviewSrc.value = imagePreviewUrl(imageUrl, platform)
+  imagePreviewAlt.value = `图文第 ${imageIndex + 1} 张`
+  imagePreviewOpen.value = true
+}
+
+function showPreviousImage(target: 'profile' | 'history') {
+  const images = target === 'profile' ? profile.value?.imageUrls : selectedHistoryItem.value?.profile.imageUrls
+  if (!images?.length) return
+  if (target === 'profile') {
+    currentImageIndex.value = (currentImageIndex.value - 1 + images.length) % images.length
+  } else {
+    historyImageIndex.value = (historyImageIndex.value - 1 + images.length) % images.length
+  }
+}
+
+function showNextImage(target: 'profile' | 'history') {
+  const images = target === 'profile' ? profile.value?.imageUrls : selectedHistoryItem.value?.profile.imageUrls
+  if (!images?.length) return
+  if (target === 'profile') {
+    currentImageIndex.value = (currentImageIndex.value + 1) % images.length
+  } else {
+    historyImageIndex.value = (historyImageIndex.value + 1) % images.length
+  }
 }
 
 async function downloadHistoryItem(item: HistoryItem) {
@@ -291,7 +386,13 @@ async function openVideoFullscreen(video: HTMLVideoElement | null) {
 }
 
 function getPlatformLabel(platform: Platform) {
-  return platform === 'douyin' ? '抖音' : '视频号'
+  if (platform === 'douyin') return '抖音'
+  if (platform === 'xiaohongshu') return '小红书'
+  return '视频号'
+}
+
+function mediaLabel(profile: ShortVideoProfile) {
+  return profile.mediaType === 'image' ? '图文' : '视频'
 }
 
 function formatBytes(value?: number | null) {
@@ -329,7 +430,7 @@ function getErrorMessage(error: unknown) {
 <template>
   <AppPage>
     <AppPageHeader
-      title="短视频下载"
+      title="视频图文下载"
       compact
       class="min-h-16"
     />
@@ -353,7 +454,7 @@ function getErrorMessage(error: unknown) {
                     id="short-video-share-url"
                     v-model="shareUrl"
                     class="h-11 bg-background pl-10"
-                    placeholder="粘贴抖音或视频号分享链接"
+                    placeholder="粘贴抖音、视频号或小红书分享链接"
                     autocomplete="off"
                   />
                 </div>
@@ -370,7 +471,7 @@ function getErrorMessage(error: unknown) {
                     v-else
                     class="h-4 w-4"
                   />
-                  {{ parsing ? '解析中' : '解析视频' }}
+                  {{ parsing ? '解析中' : '解析作品' }}
                 </Button>
               </div>
             </form>
@@ -431,10 +532,11 @@ function getErrorMessage(error: unknown) {
                   <div class="flex h-16 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-[hsl(224_18%_9%)] sm:h-16 sm:w-24">
                     <img
                       v-if="item.profile.coverUrl"
-                      :src="item.profile.coverUrl"
+                      :src="coverPreviewUrl(item.profile)"
                       :alt="`${item.profile.title || '未命名视频'}封面`"
                       class="h-full w-full object-cover"
                     >
+                    <Images v-if="item.profile.mediaType === 'image'" class="h-5 w-5 text-white/55" />
                     <FileVideo2 v-else class="h-5 w-5 text-white/55" />
                   </div>
 
@@ -448,7 +550,7 @@ function getErrorMessage(error: unknown) {
                       </p>
                     </div>
                     <div class="mt-1.5 flex min-w-0 items-center gap-3 text-xs text-muted-foreground">
-                      <span class="truncate">{{ item.profile.author || item.profile.awemeId || getPlatformLabel(item.platform) }}</span>
+                      <span class="truncate">{{ item.profile.author || item.profile.awemeId || item.profile.noteId || getPlatformLabel(item.platform) }}</span>
                       <span class="hidden shrink-0 items-center gap-1 md:inline-flex">
                         <Clock3 class="h-3 w-3" />
                         {{ formatHistoryTime(item.updatedAt) || '-' }}
@@ -478,7 +580,7 @@ function getErrorMessage(error: unknown) {
               </div>
               <div>
                 <p class="text-sm font-medium text-foreground">暂无解析记录</p>
-                <p class="mt-0.5 text-xs">解析过的视频会显示在这里</p>
+                  <p class="mt-0.5 text-xs">解析过的视频和图文会显示在这里</p>
               </div>
             </section>
 
@@ -487,7 +589,74 @@ function getErrorMessage(error: unknown) {
               class="order-3 grid gap-6 rounded-lg border border-border/70 bg-card p-4 shadow-[0_16px_42px_hsl(var(--foreground)/0.055)] sm:p-5 lg:grid-cols-[minmax(260px,0.82fr)_minmax(0,1.18fr)] lg:gap-8"
             >
               <div class="flex min-w-0 items-center justify-center rounded-md bg-[hsl(224_18%_9%)] p-3 sm:p-4">
-                <div class="group relative aspect-[9/16] h-[min(58vh,580px)] max-h-[580px] max-w-full overflow-hidden rounded-md bg-black shadow-[0_20px_44px_hsl(224_30%_4%/0.32)]">
+                <div
+                  v-if="isImagePost"
+                  class="flex w-full min-w-0 flex-col gap-3"
+                >
+                  <div class="group relative mx-auto aspect-[3/4] h-[min(52vh,560px)] max-w-full overflow-hidden rounded-md bg-black">
+                    <img
+                      v-if="currentImageUrl"
+                      :src="imagePreviewUrl(currentImageUrl, profile.platform)"
+                      :alt="`图文第 ${currentImageIndex + 1} 张`"
+                      class="h-full w-full cursor-zoom-in object-contain"
+                      @click="openImagePreview(currentImageUrl, currentImageIndex, profile.platform)"
+                    >
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      class="absolute right-3 top-3 h-9 w-9 bg-background/85 shadow-sm backdrop-blur"
+                      :title="`下载第 ${currentImageIndex + 1} 张图片`"
+                      :aria-label="`下载第 ${currentImageIndex + 1} 张图片`"
+                      :disabled="downloadingImage || !currentImageUrl"
+                      @click="downloadCurrentImage"
+                    >
+                      <Loader2 v-if="downloadingImage" class="h-4 w-4 animate-spin" />
+                      <Download v-else class="h-4 w-4" />
+                    </Button>
+                    <Button
+                      v-if="(profile.imageUrls?.length || 0) > 1"
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      class="absolute left-3 top-1/2 h-9 w-9 -translate-y-1/2 bg-background/85 opacity-90 shadow-sm backdrop-blur"
+                      title="上一张"
+                      aria-label="上一张"
+                      @click="showPreviousImage('profile')"
+                    >
+                      <ChevronLeft class="h-5 w-5" />
+                    </Button>
+                    <Button
+                      v-if="(profile.imageUrls?.length || 0) > 1"
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      class="absolute right-3 top-1/2 h-9 w-9 -translate-y-1/2 bg-background/85 opacity-90 shadow-sm backdrop-blur"
+                      title="下一张"
+                      aria-label="下一张"
+                      @click="showNextImage('profile')"
+                    >
+                      <ChevronRight class="h-5 w-5" />
+                    </Button>
+                    <span class="absolute bottom-3 right-3 rounded bg-black/65 px-2 py-1 text-xs font-medium text-white">
+                      {{ currentImageIndex + 1 }} / {{ profile.imageUrls?.length || 0 }}
+                    </span>
+                  </div>
+                  <div class="flex max-w-full gap-2 overflow-x-auto pb-1">
+                    <button
+                      v-for="(imageUrl, index) in profile.imageUrls"
+                      :key="imageUrl"
+                      type="button"
+                      class="h-16 w-12 shrink-0 overflow-hidden rounded border-2 bg-black transition-colors"
+                      :class="currentImageIndex === index ? 'border-primary' : 'border-transparent opacity-65 hover:opacity-100'"
+                      :aria-label="`查看第 ${index + 1} 张图片`"
+                      @click="currentImageIndex = index"
+                    >
+                      <img :src="imagePreviewUrl(imageUrl, profile.platform)" alt="" class="h-full w-full object-cover">
+                    </button>
+                  </div>
+                </div>
+                <div v-else class="group relative aspect-[9/16] h-[min(58vh,580px)] max-h-[580px] max-w-full overflow-hidden rounded-md bg-black shadow-[0_20px_44px_hsl(224_30%_4%/0.32)]">
                   <video
                     v-if="previewVideoUrl"
                     ref="previewVideoRef"
@@ -560,11 +729,11 @@ function getErrorMessage(error: unknown) {
                   <div class="grid grid-cols-3 gap-3 text-sm">
                     <div>
                       <p class="text-xs text-muted-foreground">格式</p>
-                      <p class="mt-1 font-medium">MP4</p>
+                      <p class="mt-1 font-medium">{{ isImagePost ? 'ZIP' : 'MP4' }}</p>
                     </div>
                     <div>
                       <p class="text-xs text-muted-foreground">质量</p>
-                      <p class="mt-1 font-medium">原始视频</p>
+                      <p class="mt-1 font-medium">{{ isImagePost ? `${profile.imageUrls?.length || 0} 张原图` : '原始视频' }}</p>
                     </div>
                     <div>
                       <p class="text-xs text-muted-foreground">保存到</p>
@@ -596,7 +765,7 @@ function getErrorMessage(error: unknown) {
                       v-else
                       class="h-4 w-4"
                     />
-                    {{ downloading ? '正在下载' : '下载视频' }}
+                    {{ downloading ? '正在下载' : isImagePost ? '下载全部图片' : '下载视频' }}
                   </Button>
                 </div>
 
@@ -624,10 +793,10 @@ function getErrorMessage(error: unknown) {
                       variant="outline"
                       size="sm"
                       class="gap-2 bg-background/70"
-                      @click="openLocalPath(result.path)"
+                        @click="openLocalPath(result.path)"
                     >
                       <ExternalLink class="h-4 w-4" />
-                      打开文件
+                      打开{{ result.imageIndex != null ? '图片' : isImagePost ? '压缩包' : '文件' }}
                     </Button>
                     <Button
                       type="button"
@@ -651,6 +820,7 @@ function getErrorMessage(error: unknown) {
     <Drawer
       v-model:open="historyDrawerOpen"
       direction="right"
+      :dismissible="!imagePreviewOpen"
     >
       <DrawerContent class="!bottom-auto !left-auto !right-0 !top-0 !mt-0 h-full w-full max-w-xl rounded-none border-l">
         <DrawerHeader class="border-b px-5 pb-4 text-left">
@@ -665,12 +835,80 @@ function getErrorMessage(error: unknown) {
 
         <div
           v-if="selectedHistoryItem"
-          class="min-h-0 flex-1 overflow-auto px-5 py-4"
+          class="min-h-0 flex-1 px-5 py-4"
+          :class="imagePreviewOpen ? 'overflow-hidden' : 'overflow-auto'"
         >
           <div class="space-y-5">
             <div class="group relative overflow-hidden rounded-md border bg-black">
+              <div
+                v-if="selectedHistoryItem.profile.mediaType === 'image'"
+                class="space-y-3 p-2"
+              >
+                <div class="relative mx-auto aspect-[3/4] max-h-[430px] overflow-hidden rounded bg-black">
+                  <img
+                    v-if="historyCurrentImageUrl"
+                    :src="imagePreviewUrl(historyCurrentImageUrl, selectedHistoryItem.platform)"
+                    :alt="`图文第 ${historyImageIndex + 1} 张`"
+                    class="h-full w-full cursor-zoom-in object-contain"
+                    @click="openImagePreview(historyCurrentImageUrl, historyImageIndex, selectedHistoryItem.platform)"
+                  >
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    class="absolute right-3 top-3 h-9 w-9 bg-background/85 shadow-sm backdrop-blur"
+                    :title="`下载第 ${historyImageIndex + 1} 张图片`"
+                    :aria-label="`下载第 ${historyImageIndex + 1} 张图片`"
+                    :disabled="downloadingImage || downloading || !historyCurrentImageUrl"
+                    @click="downloadHistoryCurrentImage(selectedHistoryItem)"
+                  >
+                    <Loader2 v-if="downloadingImage" class="h-4 w-4 animate-spin" />
+                    <Download v-else class="h-4 w-4" />
+                  </Button>
+                  <Button
+                    v-if="(selectedHistoryItem.profile.imageUrls?.length || 0) > 1"
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    class="absolute left-3 top-1/2 h-9 w-9 -translate-y-1/2 bg-background/85"
+                    title="上一张"
+                    aria-label="上一张"
+                    @click="showPreviousImage('history')"
+                  >
+                    <ChevronLeft class="h-5 w-5" />
+                  </Button>
+                  <Button
+                    v-if="(selectedHistoryItem.profile.imageUrls?.length || 0) > 1"
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    class="absolute right-3 top-1/2 h-9 w-9 -translate-y-1/2 bg-background/85"
+                    title="下一张"
+                    aria-label="下一张"
+                    @click="showNextImage('history')"
+                  >
+                    <ChevronRight class="h-5 w-5" />
+                  </Button>
+                  <span class="absolute bottom-3 right-3 rounded bg-black/65 px-2 py-1 text-xs font-medium text-white">
+                    {{ historyImageIndex + 1 }} / {{ selectedHistoryItem.profile.imageUrls?.length || 0 }}
+                  </span>
+                </div>
+                <div class="flex gap-2 overflow-x-auto pb-1">
+                  <button
+                    v-for="(imageUrl, index) in selectedHistoryItem.profile.imageUrls"
+                    :key="imageUrl"
+                    type="button"
+                    class="h-14 w-11 shrink-0 overflow-hidden rounded border-2"
+                    :class="historyImageIndex === index ? 'border-primary' : 'border-transparent opacity-65 hover:opacity-100'"
+                    :aria-label="`查看第 ${index + 1} 张图片`"
+                    @click="historyImageIndex = index"
+                  >
+                    <img :src="imagePreviewUrl(imageUrl, selectedHistoryItem.platform)" alt="" class="h-full w-full object-cover">
+                  </button>
+                </div>
+              </div>
               <video
-                v-if="selectedHistoryPreviewVideoUrl"
+                v-else-if="selectedHistoryPreviewVideoUrl"
                 ref="historyPreviewVideoRef"
                 :src="selectedHistoryPreviewVideoUrl"
                 :poster="selectedHistoryItem.profile.coverUrl || undefined"
@@ -704,6 +942,9 @@ function getErrorMessage(error: unknown) {
                 <Badge variant="outline">
                   {{ getPlatformLabel(selectedHistoryItem.platform) }}
                 </Badge>
+                <Badge variant="secondary">
+                  {{ mediaLabel(selectedHistoryItem.profile) }}
+                </Badge>
                 <Badge :variant="selectedHistoryItem.path ? 'success' : 'secondary'">
                   {{ downloadedStatus(selectedHistoryItem) }}
                 </Badge>
@@ -719,11 +960,11 @@ function getErrorMessage(error: unknown) {
               </div>
 
               <div
-                v-if="selectedHistoryItem.profile.author || selectedHistoryItem.profile.awemeId || formatCreateTime(selectedHistoryItem.profile.createTime)"
+                v-if="selectedHistoryItem.profile.author || selectedHistoryItem.profile.awemeId || selectedHistoryItem.profile.noteId || formatCreateTime(selectedHistoryItem.profile.createTime)"
                 class="grid gap-3 sm:grid-cols-2"
               >
                 <div
-                  v-if="selectedHistoryItem.profile.author || selectedHistoryItem.profile.awemeId"
+                  v-if="selectedHistoryItem.profile.author || selectedHistoryItem.profile.awemeId || selectedHistoryItem.profile.noteId"
                   class="space-y-1"
                 >
                   <p class="text-xs text-muted-foreground">
@@ -736,7 +977,7 @@ function getErrorMessage(error: unknown) {
                       :alt="`${selectedHistoryItem.profile.author || '视频作者'}头像`"
                       class="h-6 w-6 rounded-full object-cover"
                     >
-                    <span class="truncate">{{ selectedHistoryItem.profile.author || selectedHistoryItem.profile.awemeId }}</span>
+                    <span class="truncate">{{ selectedHistoryItem.profile.author || selectedHistoryItem.profile.awemeId || selectedHistoryItem.profile.noteId }}</span>
                   </div>
                 </div>
                 <div
@@ -797,12 +1038,12 @@ function getErrorMessage(error: unknown) {
             <Button
               type="button"
               class="gap-2"
-              :disabled="downloading || !historyFilename.trim()"
+              :disabled="downloading || downloadingImage || !historyFilename.trim()"
               @click="downloadHistoryItem(selectedHistoryItem)"
             >
               <Loader2 v-if="downloading" class="h-4 w-4 animate-spin" />
               <Download v-else class="h-4 w-4" />
-              {{ downloading ? '正在下载' : selectedHistoryItem.path ? '重新下载' : '下载视频' }}
+              {{ downloading ? '正在下载' : selectedHistoryItem.path ? '重新下载' : selectedHistoryItem.profile.mediaType === 'image' ? '下载全部图片' : '下载视频' }}
             </Button>
             <DropdownMenu v-if="selectedHistoryItem.path || selectedHistoryItem.downloadDir">
               <DropdownMenuTrigger as-child>
@@ -848,5 +1089,11 @@ function getErrorMessage(error: unknown) {
         </DrawerFooter>
       </DrawerContent>
     </Drawer>
+
+    <ImagePreview
+      v-model:open="imagePreviewOpen"
+      :src="imagePreviewSrc"
+      :alt="imagePreviewAlt"
+    />
   </AppPage>
 </template>

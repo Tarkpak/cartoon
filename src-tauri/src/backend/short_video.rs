@@ -1,16 +1,19 @@
 use super::*;
-use super::{douyin, wx_channels};
+use super::{douyin, wx_channels, xiaohongshu};
 
 #[derive(Deserialize)]
 pub(super) struct ShortVideoBody {
     url: String,
     filename: Option<String>,
+    #[serde(rename = "imageIndex")]
+    image_index: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ShortVideoPlatform {
     Douyin,
     WxChannels,
+    Xiaohongshu,
 }
 
 impl ShortVideoPlatform {
@@ -18,6 +21,7 @@ impl ShortVideoPlatform {
         match self {
             Self::Douyin => "douyin",
             Self::WxChannels => "wxChannels",
+            Self::Xiaohongshu => "xiaohongshu",
         }
     }
 
@@ -25,6 +29,7 @@ impl ShortVideoPlatform {
         match value {
             "douyin" => Some(Self::Douyin),
             "wxChannels" | "wx-channels" | "wx_channels" => Some(Self::WxChannels),
+            "xiaohongshu" | "xhs" => Some(Self::Xiaohongshu),
             _ => None,
         }
     }
@@ -56,6 +61,14 @@ pub(super) async fn api_tools_short_video_parse(
                 &source_url,
             )
         }
+        ShortVideoPlatform::Xiaohongshu => {
+            let Json(payload) = xiaohongshu::api_tools_xiaohongshu_parse(
+                State(state),
+                Json(xiaohongshu::XiaohongshuParseBody { url: body.url }),
+            )
+            .await?;
+            normalize_xiaohongshu_profile(payload.get("data").cloned().unwrap_or_else(|| json!({})))
+        }
     };
 
     Ok(Json(json!({
@@ -76,6 +89,7 @@ pub(super) async fn api_tools_short_video_download(
                 Json(douyin::DouyinDownloadBody {
                     url: body.url,
                     filename: body.filename,
+                    image_index: body.image_index,
                 }),
             )
             .await?;
@@ -96,6 +110,20 @@ pub(super) async fn api_tools_short_video_download(
                 &source_url,
             )
         }
+        ShortVideoPlatform::Xiaohongshu => {
+            let Json(payload) = xiaohongshu::api_tools_xiaohongshu_download(
+                State(state),
+                Json(xiaohongshu::XiaohongshuDownloadBody {
+                    url: body.url,
+                    filename: body.filename,
+                    image_index: body.image_index,
+                }),
+            )
+            .await?;
+            normalize_xiaohongshu_download(
+                payload.get("data").cloned().unwrap_or_else(|| json!({})),
+            )
+        }
     };
 
     Ok(Json(json!({
@@ -108,7 +136,10 @@ pub(super) async fn api_tools_short_video_history_get(
     State(state): State<BackendState>,
 ) -> Result<Json<Value>, ApiError> {
     let Json(douyin_payload) = douyin::api_tools_douyin_history_get(State(state.clone())).await?;
-    let Json(wx_payload) = wx_channels::api_tools_wx_channels_history_get(State(state)).await?;
+    let Json(wx_payload) =
+        wx_channels::api_tools_wx_channels_history_get(State(state.clone())).await?;
+    let Json(xiaohongshu_payload) =
+        xiaohongshu::api_tools_xiaohongshu_history_get(State(state)).await?;
     let mut items = Vec::new();
 
     if let Some(douyin_items) = douyin_payload
@@ -137,6 +168,19 @@ pub(super) async fn api_tools_short_video_history_get(
         );
     }
 
+    if let Some(xiaohongshu_items) = xiaohongshu_payload
+        .get("data")
+        .and_then(|value| value.get("items"))
+        .and_then(Value::as_array)
+    {
+        items.extend(
+            xiaohongshu_items
+                .iter()
+                .cloned()
+                .map(normalize_xiaohongshu_history_item),
+        );
+    }
+
     items.sort_by(|left, right| {
         let left_updated = value_string(left, "updatedAt");
         let right_updated = value_string(right, "updatedAt");
@@ -160,6 +204,9 @@ pub(super) async fn api_tools_short_video_history_delete(
         Some(ShortVideoPlatform::WxChannels) => {
             wx_channels::api_tools_wx_channels_history_delete(State(state), Path(id)).await
         }
+        Some(ShortVideoPlatform::Xiaohongshu) => {
+            xiaohongshu::api_tools_xiaohongshu_history_delete(State(state), Path(id)).await
+        }
         None => Err(ApiError::new(StatusCode::BAD_REQUEST, "不支持的平台")),
     }
 }
@@ -174,6 +221,9 @@ pub(super) async fn api_tools_short_video_preview(
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "platform 不能为空"))?;
     match platform {
         ShortVideoPlatform::Douyin => douyin::api_tools_douyin_preview(Query(query), headers).await,
+        ShortVideoPlatform::Xiaohongshu => {
+            xiaohongshu::api_tools_xiaohongshu_preview(Query(query)).await
+        }
         ShortVideoPlatform::WxChannels => Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             "视频号预览不需要本地代理",
@@ -189,6 +239,9 @@ fn detect_short_video_platform(input: &str) -> Result<ShortVideoPlatform, ApiErr
     if text.contains("weixin.qq.com/sph/") || text.contains("channels.weixin.qq.com") {
         return Ok(ShortVideoPlatform::WxChannels);
     }
+    if text.contains("xiaohongshu.com") || text.contains("xhslink.com") {
+        return Ok(ShortVideoPlatform::Xiaohongshu);
+    }
     if text.contains("v.douyin.com")
         || text.contains("www.douyin.com")
         || text.contains("douyin.com")
@@ -198,7 +251,7 @@ fn detect_short_video_platform(input: &str) -> Result<ShortVideoPlatform, ApiErr
     }
     Err(ApiError::new(
         StatusCode::BAD_REQUEST,
-        "暂只支持抖音、视频号分享链接",
+        "暂只支持抖音、视频号、小红书分享链接",
     ))
 }
 
@@ -208,7 +261,8 @@ fn normalize_douyin_download(data: Value) -> Value {
       "path": value_string(&data, "path"),
       "filename": value_string(&data, "filename"),
       "downloadDir": value_string(&data, "downloadDir"),
-      "sizeBytes": value_i64(&data, "sizeBytes")
+      "sizeBytes": value_i64(&data, "sizeBytes"),
+      "imageIndex": data.get("imageIndex").cloned().unwrap_or(Value::Null)
     })
 }
 
@@ -219,6 +273,17 @@ fn normalize_wx_channels_download(data: Value, source_url: &str) -> Value {
       "filename": value_string(&data, "filename"),
       "downloadDir": value_string(&data, "downloadDir"),
       "sizeBytes": value_i64(&data, "sizeBytes")
+    })
+}
+
+fn normalize_xiaohongshu_download(data: Value) -> Value {
+    json!({
+      "profile": normalize_xiaohongshu_profile(data.get("profile").cloned().unwrap_or_else(|| json!({}))),
+      "path": value_string(&data, "path"),
+      "filename": value_string(&data, "filename"),
+      "downloadDir": value_string(&data, "downloadDir"),
+      "sizeBytes": value_i64(&data, "sizeBytes"),
+      "imageIndex": data.get("imageIndex").cloned().unwrap_or(Value::Null)
     })
 }
 
@@ -261,6 +326,24 @@ fn normalize_wx_channels_history_item(item: Value) -> Value {
     })
 }
 
+fn normalize_xiaohongshu_history_item(item: Value) -> Value {
+    let profile =
+        normalize_xiaohongshu_profile(item.get("profile").cloned().unwrap_or_else(|| json!({})));
+    json!({
+      "id": value_string(&item, "id"),
+      "platform": ShortVideoPlatform::Xiaohongshu.as_str(),
+      "profile": profile,
+      "sourceUrl": profile.get("sourceUrl").and_then(Value::as_str).unwrap_or(""),
+      "path": value_string(&item, "path"),
+      "filename": value_string(&item, "filename"),
+      "downloadDir": value_string(&item, "downloadDir"),
+      "sizeBytes": value_i64(&item, "sizeBytes"),
+      "parsedAt": value_string(&item, "parsedAt"),
+      "downloadedAt": item.get("downloadedAt").cloned().unwrap_or(Value::Null),
+      "updatedAt": value_string(&item, "updatedAt")
+    })
+}
+
 fn normalize_douyin_profile(profile: Value) -> Value {
     json!({
       "historyId": profile.get("historyId").cloned().unwrap_or(Value::Null),
@@ -268,6 +351,8 @@ fn normalize_douyin_profile(profile: Value) -> Value {
       "title": value_string(&profile, "title"),
       "coverUrl": value_string(&profile, "coverUrl"),
       "videoUrl": value_string(&profile, "videoUrl"),
+      "mediaType": value_string(&profile, "mediaType"),
+      "imageUrls": profile.get("imageUrls").cloned().unwrap_or_else(|| json!([])),
       "sourceUrl": value_string(&profile, "realUrl"),
       "awemeId": value_string(&profile, "awemeId")
     })
@@ -290,6 +375,24 @@ fn normalize_wx_channels_profile(profile: Value, source_url: &str) -> Value {
       "author": value_string(&profile, "author"),
       "authorIcon": value_string(&profile, "authorIcon"),
       "createTime": profile.get("createTime").cloned().unwrap_or(Value::Null)
+    })
+}
+
+fn normalize_xiaohongshu_profile(profile: Value) -> Value {
+    json!({
+      "historyId": profile.get("historyId").cloned().unwrap_or(Value::Null),
+      "platform": ShortVideoPlatform::Xiaohongshu.as_str(),
+      "title": value_string(&profile, "title"),
+      "description": value_string(&profile, "description"),
+      "coverUrl": value_string(&profile, "coverUrl"),
+      "videoUrl": "",
+      "mediaType": "image",
+      "imageUrls": profile.get("imageUrls").cloned().unwrap_or_else(|| json!([])),
+      "sourceUrl": value_string(&profile, "realUrl"),
+      "author": value_string(&profile, "author"),
+      "authorIcon": value_string(&profile, "authorIcon"),
+      "createTime": profile.get("createTime").cloned().unwrap_or(Value::Null),
+      "noteId": value_string(&profile, "noteId")
     })
 }
 

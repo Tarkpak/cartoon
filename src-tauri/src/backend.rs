@@ -19,9 +19,11 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::future::Future;
 use std::io::Write;
 use std::path::{Path as FsPath, PathBuf};
-use std::sync::{OnceLock, RwLock};
+use std::pin::Pin;
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::net::TcpListener;
@@ -106,6 +108,8 @@ mod short_video;
 mod video_import;
 #[path = "backend/wx_channels.rs"]
 mod wx_channels;
+#[path = "backend/xiaohongshu.rs"]
+mod xiaohongshu;
 
 use model_constraints::{build_available_model_entry, image_model_config, AvailableModelKind};
 use prompts_api::*;
@@ -131,7 +135,14 @@ pub struct BackendState {
     pub data_dir: PathBuf,
     pub public_dir: PathBuf,
     pub web_dir: PathBuf,
+    pub xiaohongshu_dynamic_fetcher: Option<XiaohongshuDynamicFetcher>,
 }
+
+pub type XiaohongshuDynamicFetcher = Arc<
+    dyn Fn(String, String) -> Pin<Box<dyn Future<Output = Result<Value, String>> + Send>>
+        + Send
+        + Sync,
+>;
 
 #[derive(Debug)]
 pub struct ApiError {
@@ -3683,6 +3694,13 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ensure_column(conn, "model_debug_logs", column, definition)?;
     }
 
+    for (column, definition) in [
+        ("media_type", "TEXT NOT NULL DEFAULT 'video'"),
+        ("image_urls_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ] {
+        ensure_column(conn, "douyin_history", column, definition)?;
+    }
+
     conn.execute(
         "UPDATE projects SET script_parse_mode = 'premium_drama' WHERE script_parse_mode = 'short_drama'",
         [],
@@ -3994,6 +4012,28 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         title TEXT NOT NULL DEFAULT '',
         cover_url TEXT NOT NULL DEFAULT '',
         video_url TEXT NOT NULL DEFAULT '',
+        media_type TEXT NOT NULL DEFAULT 'video',
+        image_urls_json TEXT NOT NULL DEFAULT '[]',
+        downloaded_path TEXT,
+        downloaded_filename TEXT,
+        download_dir TEXT,
+        size_bytes INTEGER,
+        parsed_at TEXT NOT NULL,
+        downloaded_at TEXT,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS xiaohongshu_history (
+        id TEXT PRIMARY KEY,
+        note_id TEXT NOT NULL UNIQUE,
+        source_url TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        author TEXT NOT NULL DEFAULT '',
+        author_icon TEXT NOT NULL DEFAULT '',
+        create_time INTEGER,
+        cover_url TEXT NOT NULL DEFAULT '',
+        image_urls_json TEXT NOT NULL DEFAULT '[]',
         downloaded_path TEXT,
         downloaded_filename TEXT,
         download_dir TEXT,
@@ -4032,6 +4072,8 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         ON wx_channels_history(updated_at);
       CREATE INDEX IF NOT EXISTS idx_douyin_history_updated
         ON douyin_history(updated_at);
+      CREATE INDEX IF NOT EXISTS idx_xiaohongshu_history_updated
+        ON xiaohongshu_history(updated_at);
       -- 日志查询统一按 timestamp DESC 排序取 LIMIT，过滤走大小写无关 / 子串匹配，
       -- 规划器不会用到下面这些二级索引；清理掉以省去写入开销。
       DROP INDEX IF EXISTS idx_model_debug_logs_provider;
@@ -5069,13 +5111,17 @@ async fn api_project_create(
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "aspectRatio 无效"));
     }
     let requested_script_parse_mode = body.script_parse_mode.as_deref().unwrap_or("premium_drama");
-    if !matches!(requested_script_parse_mode.trim(), "premium_drama" | "short_drama" | "origin_explainer") {
+    if !matches!(
+        requested_script_parse_mode.trim(),
+        "premium_drama" | "short_drama" | "origin_explainer"
+    ) {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             "scriptParseMode 无效",
         ));
     }
-    let script_parse_mode = normalize_script_parse_mode(Some(requested_script_parse_mode)).to_string();
+    let script_parse_mode =
+        normalize_script_parse_mode(Some(requested_script_parse_mode)).to_string();
     if !is_style_id_enabled(&conn, &style_id)? {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -6306,7 +6352,8 @@ async fn api_project_put_inner(
             "scriptParseMode 无效",
         ));
     }
-    let script_parse_mode = normalize_script_parse_mode(Some(&requested_script_parse_mode)).to_string();
+    let script_parse_mode =
+        normalize_script_parse_mode(Some(&requested_script_parse_mode)).to_string();
 
     conn.execute(
         "UPDATE projects SET name = ?1, description = ?2, status = ?3, style_id = ?4, aspect_ratio = ?5, script_parse_mode = ?6, updated_at = ?7 WHERE id = ?8",
@@ -12041,7 +12088,10 @@ mod tests {
 
     #[test]
     fn project_storage_preserves_open_ended_model_metadata() {
-        assert_eq!(normalize_time_of_day_value("极夜，无自然日照"), "极夜，无自然日照");
+        assert_eq!(
+            normalize_time_of_day_value("极夜，无自然日照"),
+            "极夜，无自然日照"
+        );
         assert_eq!(
             normalize_character_role_value(Some("关键证人兼叙事误导者")),
             Some("关键证人兼叙事误导者".to_string())
