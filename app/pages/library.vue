@@ -19,7 +19,6 @@ import {
   Heart,
   History,
   ImageIcon,
-  Link,
   Loader2,
   MoreHorizontal,
   Package,
@@ -54,7 +53,6 @@ import {
   perceptualHashDistance,
   readAudioDuration,
   readImageMetadata,
-  readRemoteLibraryMetadata,
   updateLibraryAsset
 } from '@/lib/library-api'
 
@@ -102,15 +100,6 @@ const uploadInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(false)
 const uploadProgress = ref({ current: 0, total: 0, name: '' })
 const isDragging = ref(false)
-const urlDialogOpen = ref(false)
-const urlForm = reactive({
-  url: '',
-  name: '',
-  category: 'character' as LibraryAssetCategory,
-  tagsText: '',
-  copyrightNote: '',
-  licenseExpiresAt: ''
-})
 const pendingImportDialogOpen = ref(false)
 const pendingImports = shallowRef<PendingLibraryImport[]>([])
 const importSharedForm = reactive({ tagsText: '', sourceUrl: '', copyrightNote: '', licenseExpiresAt: '' })
@@ -144,6 +133,8 @@ const batchDialogOpen = ref(false)
 const batchTagsText = ref('')
 const batchCategory = ref<LibraryAssetCategory>('character')
 const previewAsset = ref<LibraryAsset | null>(null)
+const previewImageAsset = computed(() => previewAsset.value?.mediaType === 'image' ? previewAsset.value : null)
+const previewAudioAsset = computed(() => previewAsset.value?.mediaType === 'audio' ? previewAsset.value : null)
 const saving = ref(false)
 const versions = ref<LibraryAssetVersion[]>([])
 const versionLoading = ref(false)
@@ -239,19 +230,6 @@ const recycleBinCount = computed(() => assets.value.filter(asset => !!asset.dele
 function tagsFromText(value: string) {
   return Array.from(new Set(value.split(/[,，\n]/u).map(tag => tag.trim()).filter(Boolean))).slice(0, 30)
 }
-
-function inferNameFromUrl(value: string) {
-  try {
-    const pathName = new URL(value).pathname.split('/').filter(Boolean).at(-1) || ''
-    return decodeURIComponent(pathName).replace(/\.[^.]+$/, '')
-  } catch {
-    return ''
-  }
-}
-
-watch(() => urlForm.url, (value) => {
-  if (!urlForm.name.trim()) urlForm.name = inferNameFromUrl(value)
-})
 
 function formatDuration(durationMs?: number) {
   if (!durationMs) return ''
@@ -395,37 +373,6 @@ function handleFileInput(event: Event) {
 function handleDrop(event: DragEvent) {
   isDragging.value = false
   void uploadFiles(Array.from(event.dataTransfer?.files || []))
-}
-
-async function submitUrlImport() {
-  if (!urlForm.url.trim() || !urlForm.name.trim()) return
-  saving.value = true
-  try {
-    const created = await createLibraryAsset({
-      mediaType: libraryCategoryMediaType(urlForm.category),
-      category: urlForm.category,
-      name: urlForm.name.trim(),
-      sourceUrl: urlForm.url.trim(),
-      sourceType: 'url',
-      tags: tagsFromText(urlForm.tagsText),
-      copyrightNote: urlForm.copyrightNote.trim(),
-      licenseExpiresAt: urlForm.licenseExpiresAt || undefined
-    })
-    try {
-      const metadata = await readRemoteLibraryMetadata(created.url, created.mediaType)
-      await updateLibraryAsset(created.id, metadata)
-    } catch {
-      toast.warning('素材已保存，但无法读取完整格式或时长信息')
-    }
-    urlDialogOpen.value = false
-    Object.assign(urlForm, { url: '', name: '', category: 'character', tagsText: '', copyrightNote: '', licenseExpiresAt: '' })
-    await loadAssets()
-    toast.success('网络资源已存入资源库')
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : '网络资源导入失败')
-  } finally {
-    saving.value = false
-  }
 }
 
 function openEdit(asset: LibraryAsset) {
@@ -669,10 +616,6 @@ onMounted(() => void loadAssets())
     <AppPageHeader title="个人资源库" description="收藏并复用角色、场景、声音和制作素材。">
       <template #actions>
         <input ref="uploadInput" type="file" multiple accept="image/*,audio/*" class="hidden" @change="handleFileInput">
-        <Button variant="outline" class="gap-2" @click="urlDialogOpen = true">
-          <Link class="h-4 w-4" />
-          网址导入
-        </Button>
         <Button class="gap-2" @click="uploadInput?.click()">
           <Upload class="h-4 w-4" />
           上传资源
@@ -853,21 +796,6 @@ onMounted(() => void loadAssets())
       </DialogContent>
     </Dialog>
 
-    <Dialog v-model:open="urlDialogOpen">
-      <DialogContent>
-        <DialogHeader><DialogTitle>从网址导入</DialogTitle><DialogDescription>文件会下载并重新保存到 TOS，避免原链接失效。</DialogDescription></DialogHeader>
-        <div class="space-y-4">
-          <label class="block space-y-2"><span class="text-sm font-medium">网络地址</span><Input v-model="urlForm.url" type="url" placeholder="https://" /></label>
-          <label class="block space-y-2"><span class="text-sm font-medium">资源名称</span><Input v-model="urlForm.name" /></label>
-          <label class="block space-y-2"><span class="text-sm font-medium">分类</span><select v-model="urlForm.category" class="h-10 w-full rounded-md border bg-background px-3 text-sm"><option v-for="category in categories.filter(item => item.id !== 'all')" :key="category.id" :value="category.id">{{ category.label }}</option></select></label>
-          <label class="block space-y-2"><span class="text-sm font-medium">标签</span><Input v-model="urlForm.tagsText" placeholder="用逗号分隔" /></label>
-          <label class="block space-y-2"><span class="text-sm font-medium">授权到期日</span><Input v-model="urlForm.licenseExpiresAt" type="date" /></label>
-          <label class="block space-y-2"><span class="text-sm font-medium">作者或版权备注</span><textarea v-model="urlForm.copyrightNote" rows="3" class="w-full rounded-md border bg-background px-3 py-2 text-sm" /></label>
-        </div>
-        <DialogFooter><Button variant="outline" @click="urlDialogOpen = false">取消</Button><Button :disabled="saving || !urlForm.url.trim() || !urlForm.name.trim()" @click="submitUrlImport"><Loader2 v-if="saving" class="mr-2 h-4 w-4 animate-spin" />导入</Button></DialogFooter>
-      </DialogContent>
-    </Dialog>
-
     <Dialog v-model:open="editDialogOpen">
       <DialogContent class="max-h-[88vh] max-w-3xl overflow-y-auto">
         <DialogHeader><DialogTitle>编辑资源</DialogTitle><DialogDescription>管理分类、标签、角色包、授权信息和团队权限。</DialogDescription></DialogHeader>
@@ -929,11 +857,17 @@ onMounted(() => void loadAssets())
       </DialogContent>
     </Dialog>
 
-    <Dialog :open="!!previewAsset" @update:open="value => { if (!value) previewAsset = null }">
+    <ImagePreview
+      :open="!!previewImageAsset"
+      :src="previewImageAsset?.url || ''"
+      :alt="previewImageAsset?.name || '图片预览'"
+      @update:open="value => { if (!value) previewAsset = null }"
+    />
+
+    <Dialog :open="!!previewAudioAsset" @update:open="value => { if (!value) previewAsset = null }">
       <DialogContent class="max-w-4xl">
-        <DialogHeader><DialogTitle>{{ previewAsset?.name }}</DialogTitle><DialogDescription>{{ previewAsset ? LIBRARY_CATEGORY_LABELS[previewAsset.category] : '' }}</DialogDescription></DialogHeader>
-        <img v-if="previewAsset?.mediaType === 'image'" :src="previewAsset.url" :alt="previewAsset.name" class="max-h-[70vh] w-full rounded-md bg-muted object-contain">
-        <div v-else-if="previewAsset" class="rounded-md border bg-muted/40 p-6"><audio :src="previewAsset.url" controls autoplay class="w-full" /></div>
+        <DialogHeader><DialogTitle>{{ previewAudioAsset?.name }}</DialogTitle><DialogDescription>{{ previewAudioAsset ? LIBRARY_CATEGORY_LABELS[previewAudioAsset.category] : '' }}</DialogDescription></DialogHeader>
+        <div v-if="previewAudioAsset" class="rounded-md border bg-muted/40 p-6"><audio :src="previewAudioAsset.url" controls autoplay class="w-full" /></div>
       </DialogContent>
     </Dialog>
 

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --bun ./node_modules/nuxt/bin/nuxt.mjs dev --host 127.0.0.1 --port 43200",
+    "dev": "bun --bun ./node_modules/nuxt/bin/nuxt.mjs dev --no-fork --host 127.0.0.1 --port 43200",
     "build": "bun --bun ./node_modules/nuxt/bin/nuxt.mjs build --preset bun",
     "preview": "bun --bun ./node_modules/nuxt/bin/nuxt.mjs preview --host 127.0.0.1 --port 43200",
     "deploy:pm2": "./scripts/deploy-pm2.sh",
