@@ -281,6 +281,9 @@ async fn fetch_xiaohongshu_profile(
             "未读取到小红书笔记数据，请确认链接仍可公开访问",
         )
     })?;
+    if let Some(message) = xiaohongshu_initial_state_error(&state) {
+        return Err(ApiError::new(StatusCode::BAD_GATEWAY, message));
+    }
     let note_id_from_url = extract_note_id(&final_url);
     let note_map = state
         .get("note")
@@ -407,6 +410,41 @@ fn parse_xiaohongshu_initial_state(html: &str) -> Option<Value> {
     let end = rest.find("</script>").unwrap_or(rest.len());
     let raw = rest[..end].trim().trim_end_matches(';');
     serde_json::from_str(&raw.replace("undefined", "null")).ok()
+}
+
+fn xiaohongshu_initial_state_error(state: &Value) -> Option<String> {
+    let request_info = state.get("note")?.get("serverRequestInfo")?;
+    if request_info.get("state").and_then(Value::as_str) != Some("fail") {
+        return None;
+    }
+    let fallback_code = request_info
+        .get("errorCode")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let raw_message = request_info
+        .get("errMsg")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let nested = serde_json::from_str::<Value>(raw_message).ok();
+    let code = nested
+        .as_ref()
+        .and_then(|value| value.get("data"))
+        .and_then(|value| value.get("code"))
+        .and_then(Value::as_i64)
+        .unwrap_or(fallback_code);
+    let message = nested
+        .as_ref()
+        .and_then(|value| value.get("data"))
+        .and_then(|value| value.get("msg"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| (!raw_message.trim().is_empty()).then_some(raw_message))
+        .unwrap_or("当前内容无法展示");
+    if code == 0 {
+        Some(message.to_string())
+    } else {
+        Some(format!("{message}（错误码 {code}）"))
+    }
 }
 
 fn xiaohongshu_original_image_url(image: &Value) -> Option<String> {
@@ -809,6 +847,23 @@ mod tests {
         assert_eq!(
             xiaohongshu_original_image_url(image).as_deref(),
             Some("https://sns-img-qc.xhscdn.com/notes_pre_post/file")
+        );
+    }
+
+    #[test]
+    fn extracts_initial_state_business_error() {
+        let state = json!({
+            "note": {
+                "serverRequestInfo": {
+                    "state": "fail",
+                    "errorCode": -510001,
+                    "errMsg": r#"{"data":{"code":-510001,"msg":"当前内容无法展示"}}"#
+                }
+            }
+        });
+        assert_eq!(
+            xiaohongshu_initial_state_error(&state).as_deref(),
+            Some("当前内容无法展示（错误码 -510001）")
         );
     }
 }

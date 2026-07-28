@@ -19,6 +19,7 @@ const DESKTOP_PORT: u16 = 43127;
 const FRONTEND_DEV_HOST: &str = "localhost";
 const FRONTEND_DEV_PORT: u16 = 3000;
 const STARTUP_TIMEOUT_SECS: u64 = 90;
+const XIAOHONGSHU_SESSION_REQUIRED: &str = "__PLAYLET_XHS_SESSION_REQUIRED__";
 const XIAOHONGSHU_CAPTURE_SCRIPT: &str = r#"
 (() => {
   if (!location.hostname.endsWith('xiaohongshu.com') || window.__PLAYLET_XHS_CAPTURE_READY__) return;
@@ -28,7 +29,11 @@ const XIAOHONGSHU_CAPTURE_SCRIPT: &str = r#"
     if (!String(url).includes('/api/sns/web/v1/feed')) return;
     try {
       const payload = await response.clone().json();
-      window.__PLAYLET_XHS_LAST_FEED__ = payload;
+      window.__PLAYLET_XHS_LAST_FEED__ = {
+        ok: response.ok,
+        httpStatus: response.status,
+        payload
+      };
       if (payload?.data?.items?.length) {
         window.__PLAYLET_XHS_CAPTURED_RESULT__ = payload;
       }
@@ -63,7 +68,11 @@ const XIAOHONGSHU_CAPTURE_SCRIPT: &str = r#"
       this.addEventListener('load', () => {
         try {
           const payload = JSON.parse(this.responseText);
-          window.__PLAYLET_XHS_LAST_FEED__ = payload;
+          window.__PLAYLET_XHS_LAST_FEED__ = {
+            ok: this.status >= 200 && this.status < 300,
+            httpStatus: this.status,
+            payload
+          };
           if (payload?.data?.items?.length) {
             window.__PLAYLET_XHS_CAPTURED_RESULT__ = payload;
           }
@@ -234,10 +243,9 @@ async fn fetch_xiaohongshu_dynamic(
     let window = WebviewWindowBuilder::new(app, label, WebviewUrl::External(external_url))
         .title("小红书解析")
         .inner_size(900.0, 720.0)
-        .position(-10_000.0, -10_000.0)
-        .visible(true)
+        .visible(false)
         .focused(false)
-        .skip_taskbar(true)
+        .skip_taskbar(false)
         .data_directory(parser_data_dir)
         .initialization_script(XIAOHONGSHU_CAPTURE_SCRIPT)
         .on_navigation(|url| {
@@ -260,203 +268,78 @@ async fn fetch_xiaohongshu_dynamic(
         .eval(navigation_script)
         .map_err(|error| format!("打开小红书笔记页面失败: {error}"))?;
     tokio::time::sleep(Duration::from_secs(3)).await;
-    let result = run_xiaohongshu_dynamic_request(&window, &dynamic_page_url, note_id).await;
-    let _ = window.destroy();
-    result
+    let result = run_xiaohongshu_dynamic_request(&window).await;
+    match result {
+        Err(error) if error.starts_with(XIAOHONGSHU_SESSION_REQUIRED) => Err(error
+            .trim_start_matches(XIAOHONGSHU_SESSION_REQUIRED)
+            .to_string()),
+        result => {
+            let _ = window.destroy();
+            result
+        }
+    }
 }
 
-async fn run_xiaohongshu_dynamic_request(
-    window: &WebviewWindow,
-    page_url: &str,
-    note_id: &str,
-) -> Result<Value, String> {
-    let capture_deadline = Instant::now() + Duration::from_secs(10);
+async fn run_xiaohongshu_dynamic_request(window: &WebviewWindow) -> Result<Value, String> {
+    let capture_deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < capture_deadline {
-        let payload = eval_webview_json(
+        let capture = eval_webview_json(
             window,
-            "window.__PLAYLET_XHS_CAPTURED_RESULT__ ? JSON.stringify(window.__PLAYLET_XHS_CAPTURED_RESULT__) : null",
+            "window.__PLAYLET_XHS_LAST_FEED__ ? JSON.stringify(window.__PLAYLET_XHS_LAST_FEED__) : null",
         )
         .await?;
+        let payload = capture.get("payload").unwrap_or(&Value::Null);
         if payload
             .get("data")
             .and_then(|value| value.get("items"))
             .and_then(Value::as_array)
             .is_some_and(|items| !items.is_empty())
         {
-            return Ok(payload);
+            return Ok(payload.clone());
+        }
+        let http_status = capture
+            .get("httpStatus")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        if http_status == 461 {
+            window
+                .set_title("小红书登录或安全验证")
+                .map_err(|error| format!("设置小红书验证窗口失败: {error}"))?;
+            window
+                .show()
+                .map_err(|error| format!("显示小红书验证窗口失败: {error}"))?;
+            let _ = window.center();
+            let _ = window.set_focus();
+            return Err(format!(
+                "{XIAOHONGSHU_SESSION_REQUIRED}小红书浏览器会话需要登录或安全验证，请在弹出的窗口中完成后关闭窗口并重新解析"
+            ));
+        }
+        if http_status != 0 && !capture.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+            return Err(format!("小红书页面请求返回 HTTP {http_status}"));
+        }
+        if payload.get("success").and_then(Value::as_bool) == Some(false) {
+            let code = payload.get("code").and_then(Value::as_i64).unwrap_or(0);
+            let message = payload
+                .get("msg")
+                .or_else(|| payload.get("message"))
+                .and_then(Value::as_str)
+                .unwrap_or("小红书页面请求失败");
+            return Err(format!("{message}（错误码 {code}）"));
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
 
-    let page_url_json = serde_json::to_string(page_url).map_err(|error| error.to_string())?;
-    let note_id_json = serde_json::to_string(note_id).map_err(|error| error.to_string())?;
-    let script = format!(
-        r#"
-        (() => {{
-          if (window.__PLAYLET_XHS_REQUEST_STARTED__) return;
-          window.__PLAYLET_XHS_REQUEST_STARTED__ = true;
-          window.__PLAYLET_XHS_RESULT__ = {{ status: 'pending' }};
-          (async () => {{
-            try {{
-              const deadline = Date.now() + 20000;
-              while (typeof window._webmsxyw !== 'function' && Date.now() < deadline) {{
-                await new Promise(resolve => setTimeout(resolve, 100));
-              }}
-              if (typeof window._webmsxyw !== 'function') {{
-                throw new Error('页面签名函数未就绪');
-              }}
-              const fingerprintDeadline = Date.now() + 12000;
-              while (!localStorage.getItem('b1') && Date.now() < fingerprintDeadline) {{
-                await new Promise(resolve => setTimeout(resolve, 100));
-              }}
-
-              const sharedUrl = new URL({page_url_json});
-              const body = {{
-                source_note_id: {note_id_json},
-                image_formats: ['jpg', 'webp', 'avif'],
-                extra: {{ need_body_topic: 1 }},
-                xsec_source: sharedUrl.searchParams.get('xsec_source') || 'pc_feed',
-                xsec_token: sharedUrl.searchParams.get('xsec_token') || ''
-              }};
-              const path = '/api/sns/web/v1/feed';
-              const signed = await window._webmsxyw(path, body);
-              const crc32 = input => {{
-                const table = Array.from({{ length: 256 }}, (_, index) => {{
-                  let value = index;
-                  for (let bit = 0; bit < 8; bit += 1) {{
-                    value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1);
-                  }}
-                  return value >>> 0;
-                }});
-                let value = -1;
-                for (let index = 0; index < Math.min(57, input.length); index += 1) {{
-                  value = table[(value & 255) ^ input.charCodeAt(index)] ^ (value >>> 8);
-                }}
-                return (value ^ -1 ^ 3988292384) >>> 0;
-              }};
-              const customBase64 = bytes => {{
-                const alphabet = 'ZmserbBoHQtNP+wOcza/LpngG8yJq42KWYj0DSfdikx3VT16IlUAFM97hECvuRX5';
-                let output = '';
-                for (let index = 0; index < bytes.length; index += 3) {{
-                  const first = bytes[index];
-                  const second = bytes[index + 1];
-                  const third = bytes[index + 2];
-                  const triplet = (first << 16) | ((second || 0) << 8) | (third || 0);
-                  output += alphabet[(triplet >>> 18) & 63];
-                  output += alphabet[(triplet >>> 12) & 63];
-                  output += second === undefined ? '=' : alphabet[(triplet >>> 6) & 63];
-                  output += third === undefined ? '=' : alphabet[triplet & 63];
-                }}
-                return output;
-              }};
-              const cookieValue = name => document.cookie
-                .split(';')
-                .map(item => item.trim())
-                .find(item => item.startsWith(`${{name}}=`))
-                ?.slice(name.length + 1) || '';
-              const xS = signed['X-s'] || signed['x-s'];
-              const xT = String(signed['X-t'] || signed['x-t'] || '');
-              const common = {{
-                s0: 5,
-                s1: '',
-                x0: localStorage.getItem('b1b1') || '1',
-                x1: '3.2.0',
-                x2: 'Windows',
-                x3: 'xhs-pc-web',
-                x4: '2.3.1',
-                x5: cookieValue('a1'),
-                x6: xT,
-                x7: xS,
-                x8: localStorage.getItem('b1') || '',
-                x9: crc32(xT + xS),
-                x10: 1
-              }};
-              const headers = {{ 'Content-Type': 'application/json;charset=UTF-8' }};
-              for (const name of ['X-s', 'X-t', 'X-s-common']) {{
-                const value = signed[name] || signed[name.toLowerCase()];
-                if (value) headers[name] = value;
-              }}
-              if (!headers['X-s-common']) {{
-                headers['X-s-common'] = customBase64(new TextEncoder().encode(JSON.stringify(common)));
-              }}
-              if (window.__PLAYLET_XHS_RAP_PARAM__) {{
-                headers['X-Rap-Param'] = window.__PLAYLET_XHS_RAP_PARAM__;
-              }}
-              if (!headers['X-s'] || !headers['X-t']) {{
-                throw new Error('页面未生成完整签名');
-              }}
-
-              const response = await fetch(`https://edith.xiaohongshu.com${{path}}`, {{
-                method: 'POST',
-                credentials: 'include',
-                headers,
-                body: JSON.stringify(body)
-              }});
-              const responseText = await response.text();
-              let payload;
-              try {{
-                payload = JSON.parse(responseText);
-              }} catch {{
-                throw new Error(`动态接口返回非 JSON 数据: ${{responseText.slice(0, 160)}}`);
-              }}
-              window.__PLAYLET_XHS_RESULT__ = {{
-                status: 'done',
-                ok: response.ok,
-                httpStatus: response.status,
-                payload
-              }};
-            }} catch (error) {{
-              window.__PLAYLET_XHS_RESULT__ = {{
-                status: 'error',
-                message: error instanceof Error ? error.message : String(error)
-              }};
-            }}
-          }})();
-        }})();
-        "#
-    );
-    window
-        .eval(script)
-        .map_err(|error| format!("启动小红书动态请求失败: {error}"))?;
-
-    let deadline = Instant::now() + Duration::from_secs(35);
-    while Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(250)).await;
-        let state = eval_webview_json(
-            window,
-            "window.__PLAYLET_XHS_RESULT__ ? JSON.stringify(window.__PLAYLET_XHS_RESULT__) : null",
-        )
-        .await?;
-        match state.get("status").and_then(Value::as_str) {
-            Some("done") => {
-                if !state.get("ok").and_then(Value::as_bool).unwrap_or(false) {
-                    let status = state.get("httpStatus").and_then(Value::as_u64).unwrap_or(0);
-                    return Err(format!(
-                        "动态接口返回 HTTP {status}，当前浏览器会话被小红书限制"
-                    ));
-                }
-                let payload = state.get("payload").cloned().unwrap_or(Value::Null);
-                if payload.get("success").and_then(Value::as_bool) == Some(false) {
-                    let message = payload
-                        .get("msg")
-                        .or_else(|| payload.get("message"))
-                        .and_then(Value::as_str)
-                        .unwrap_or("动态接口返回失败");
-                    return Err(message.to_string());
-                }
-                return Ok(payload);
-            }
-            Some("error") => {
-                return Err(state
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("动态请求执行失败")
-                    .to_string());
-            }
-            _ => {}
-        }
+    let page = eval_webview_json(
+        window,
+        "JSON.stringify({ href: location.href, bodyText: document.body?.innerText?.slice(0, 300) || '' })",
+    )
+    .await?;
+    let body_text = page.get("bodyText").and_then(Value::as_str).unwrap_or("");
+    if body_text.contains("当前内容无法展示") || body_text.contains("该内容暂时无法查看")
+    {
+        return Err("当前内容无法展示，笔记可能已失效、被隐藏或需要登录权限".to_string());
     }
-    Err("等待小红书动态接口超时".to_string())
+    Err("小红书页面未返回笔记数据，请确认分享链接仍然有效".to_string())
 }
 
 async fn eval_webview_json(window: &WebviewWindow, script: &str) -> Result<Value, String> {

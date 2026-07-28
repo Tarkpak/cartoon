@@ -272,14 +272,18 @@ export function useVideoImport() {
     })
   }
 
-  async function retryTask(taskId: string, fromStep: VideoImportRetryStep) {
+  async function retryTask(
+    taskId: string,
+    fromStep: VideoImportRetryStep,
+    detailTaskId = taskId
+  ) {
     await runAction(async () => {
       await $fetch(`/api/import/video/tasks/${taskId}/retry`, {
         method: 'POST',
         body: { fromStep }
       })
-      await fetchTask(taskId)
       await fetchTasks()
+      await fetchTask(detailTaskId)
     })
   }
 

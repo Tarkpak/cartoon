@@ -62,6 +62,7 @@ const createProjectStyleId = ref('')
 const roleNamingDialogOpen = ref(false)
 const roleNamingDraft = ref<Array<VideoImportRoleCandidate & { name: string }>>([])
 const selectedEpisodeNumber = ref<number | null>(null)
+const retryingEpisodeId = ref<string | null>(null)
 let refreshTimer: number | null = null
 const routeTaskId = computed(() => {
   const raw = route.params.id
@@ -337,6 +338,17 @@ async function handleImport() {
 async function handleRetry(step: VideoImportRetryStep) {
   if (!selectedTask.value) return
   await retryTask(selectedTask.value.id, step)
+}
+
+async function handleRetryEpisode(taskId: string) {
+  if (!routeTaskId.value || retryingEpisodeId.value) return
+  retryingEpisodeId.value = taskId
+  try {
+    await retryTask(taskId, 'transcribe', routeTaskId.value)
+    syncRefreshTimer(true)
+  } finally {
+    retryingEpisodeId.value = null
+  }
 }
 
 async function handleCancel() {
@@ -691,10 +703,21 @@ async function handleDeleteTask(taskId: string) {
               <div
                 v-for="episode in seriesEpisodes.filter(item => item.status === 'failed')"
                 :key="episode.id"
-                class="flex gap-2"
+                class="flex items-center gap-2"
               >
                 <span class="shrink-0">第{{ episode.episodeNumber || '-' }}集</span>
-                <span class="min-w-0 truncate">{{ episode.originalFilename }}：{{ friendlyErrorMessage(episode.errorMessage) }}</span>
+                <span class="min-w-0 flex-1 truncate">{{ episode.originalFilename }}：{{ friendlyErrorMessage(episode.errorMessage) }}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="h-7 shrink-0 gap-1.5 border-destructive/40 bg-transparent px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  :disabled="acting"
+                  @click="handleRetryEpisode(episode.id)"
+                >
+                  <Loader2 v-if="retryingEpisodeId === episode.id" class="h-3.5 w-3.5 animate-spin" />
+                  <RotateCcw v-else class="h-3.5 w-3.5" />
+                  {{ retryingEpisodeId === episode.id ? '提交中' : '重新识别' }}
+                </Button>
               </div>
             </div>
           </div>

@@ -96,10 +96,10 @@ const ARK_OPENAPI_VERSION: &str = "2024-01-01";
 
 #[path = "backend/douyin.rs"]
 mod douyin;
-#[path = "backend/model_constraints.rs"]
-mod model_constraints;
 #[path = "backend/library_api.rs"]
 mod library_api;
+#[path = "backend/model_constraints.rs"]
+mod model_constraints;
 #[path = "backend/prompts_api.rs"]
 mod prompts_api;
 #[path = "backend/runtime_api.rs"]
@@ -113,8 +113,8 @@ mod wx_channels;
 #[path = "backend/xiaohongshu.rs"]
 mod xiaohongshu;
 
-use model_constraints::{build_available_model_entry, image_model_config, AvailableModelKind};
 use library_api::*;
+use model_constraints::{build_available_model_entry, image_model_config, AvailableModelKind};
 use prompts_api::*;
 use runtime_api::*;
 use short_video::*;
@@ -12169,8 +12169,7 @@ mod tests {
         default_prompt_director_preferences, merge_prompt_templates_with_defaults,
         merge_style_presets_with_catalog, normalize_character_gender_value,
         normalize_character_role_value, normalize_time_of_day_value,
-        remove_revoked_shared_library_assets,
-        upgrade_style_config_for_catalog,
+        remove_revoked_shared_library_assets, upgrade_style_config_for_catalog,
     };
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};

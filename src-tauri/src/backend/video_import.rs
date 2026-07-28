@@ -23,6 +23,8 @@ const ASR_TOOL_DIR: &str = "asr-tool";
 const ASR_HISTORY_DIR: &str = "history";
 const ASR_POLL_INTERVAL_MS: u64 = 2_000;
 const ASR_TIMEOUT_MS: u64 = 600_000;
+const BCUT_UPLOAD_MAX_ATTEMPTS: usize = 3;
+const BCUT_UPLOAD_RETRY_BASE_DELAY_MS: u64 = 1_000;
 const SERIES_IMPORT_MAX_CONCURRENT_TASKS: usize = 2;
 const SHORT_CLIP_MAX_SECONDS: f64 = 60.0;
 const SHORT_CLIP_MIN_RATIO: f64 = 0.6;
@@ -2583,19 +2585,7 @@ pub(super) async fn transcribe_bcut(audio_path: PathBuf) -> Result<BcutOutput, A
         if start >= end {
             continue;
         }
-        let response = client
-            .put(url)
-            .header(USER_AGENT, BCUT_USER_AGENT)
-            .body(bytes[start..end].to_vec())
-            .send()
-            .await
-            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
-        if !response.status().is_success() {
-            return Err(ApiError::new(
-                StatusCode::BAD_GATEWAY,
-                format!("Bcut ASR 上传分片失败: HTTP {}", response.status()),
-            ));
-        }
+        let response = upload_bcut_part(&client, url, bytes[start..end].to_vec()).await?;
         etags.push(
             response
                 .headers()
@@ -2675,6 +2665,57 @@ pub(super) async fn transcribe_bcut(audio_path: PathBuf) -> Result<BcutOutput, A
             ));
         }
     }
+}
+
+async fn upload_bcut_part(
+    client: &Client,
+    url: &str,
+    body: Vec<u8>,
+) -> Result<reqwest::Response, ApiError> {
+    for attempt in 1..=BCUT_UPLOAD_MAX_ATTEMPTS {
+        let result = client
+            .put(url)
+            .header(USER_AGENT, BCUT_USER_AGENT)
+            .body(body.clone())
+            .send()
+            .await;
+
+        match result {
+            Ok(response) if response.status().is_success() => return Ok(response),
+            Ok(response) => {
+                let status = response.status();
+                if attempt == BCUT_UPLOAD_MAX_ATTEMPTS || !is_transient_bcut_status(status) {
+                    return Err(ApiError::new(
+                        StatusCode::BAD_GATEWAY,
+                        format!("Bcut ASR 上传分片失败: HTTP {status}（已尝试 {attempt} 次）"),
+                    ));
+                }
+            }
+            Err(error) => {
+                if attempt == BCUT_UPLOAD_MAX_ATTEMPTS {
+                    return Err(ApiError::new(
+                        StatusCode::BAD_GATEWAY,
+                        format!("Bcut ASR 上传分片失败（已尝试 {attempt} 次）: {error}"),
+                    ));
+                }
+            }
+        }
+
+        tokio::time::sleep(Duration::from_millis(bcut_upload_retry_delay_ms(attempt))).await;
+    }
+
+    unreachable!("Bcut upload attempts must return a result")
+}
+
+fn is_transient_bcut_status(status: reqwest::StatusCode) -> bool {
+    matches!(
+        status,
+        reqwest::StatusCode::REQUEST_TIMEOUT | reqwest::StatusCode::TOO_MANY_REQUESTS
+    ) || status.is_server_error()
+}
+
+fn bcut_upload_retry_delay_ms(attempt: usize) -> u64 {
+    BCUT_UPLOAD_RETRY_BASE_DELAY_MS * (1_u64 << attempt.saturating_sub(1))
 }
 
 async fn bcut_api<T: serde::de::DeserializeOwned>(
@@ -3772,6 +3813,28 @@ mod tests {
     fn asr_media_kind_distinguishes_audio_and_video() {
         assert_eq!(asr_media_kind("mp3"), "audio");
         assert_eq!(asr_media_kind("mp4"), "video");
+    }
+
+    #[test]
+    fn bcut_upload_retries_only_transient_statuses() {
+        assert!(is_transient_bcut_status(
+            reqwest::StatusCode::REQUEST_TIMEOUT
+        ));
+        assert!(is_transient_bcut_status(
+            reqwest::StatusCode::TOO_MANY_REQUESTS
+        ));
+        assert!(is_transient_bcut_status(
+            reqwest::StatusCode::SERVICE_UNAVAILABLE
+        ));
+        assert!(!is_transient_bcut_status(reqwest::StatusCode::BAD_REQUEST));
+        assert!(!is_transient_bcut_status(reqwest::StatusCode::UNAUTHORIZED));
+    }
+
+    #[test]
+    fn bcut_upload_retry_uses_exponential_backoff() {
+        assert_eq!(bcut_upload_retry_delay_ms(1), 1_000);
+        assert_eq!(bcut_upload_retry_delay_ms(2), 2_000);
+        assert_eq!(bcut_upload_retry_delay_ms(3), 4_000);
     }
 
     #[test]
