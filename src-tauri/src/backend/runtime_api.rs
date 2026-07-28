@@ -25,6 +25,7 @@ const PROMPT_TEMPLATE_ORIGIN_EXPLAINER_VIDEO_GENERATION: &str = "origin_explaine
 const ORIGIN_EXPLAINER_DEFAULT_STYLE_PROMPT: &str = "高精度 3D 科普动画，微距特写、横截面透视与解构拆解图，半透明结晶材质，发光粒子流与高保真流体动力学特效，极简深色石砖平台，中国传统写意远山与云海背景，画面清晰克制、结构精密、无字幕无水印";
 const SCRIPT_PARSE_MIN_DURATION: &str = "2";
 const SCRIPT_PARSE_MAX_DURATION: &str = "15";
+const GPT_TEXT_MAX_COMPLETION_TOKENS: u64 = 65_536;
 const SCRIPT_PARSING_CONTRACT: &str =
     include_str!("../../assets/default-prompts/script_parsing_contract.txt");
 const ENVIRONMENT_CAPTURE_MODE_PROMPT_RULES: &str = "【环境视角打标（必须执行）】\n1. 每个 scenes[i] 必须输出 environmentCaptureMode 字段：单视角或四视角。\n2. 当场景描述存在明确多视角/多机位/镜头切换（含时间轴多段切镜）时，environmentCaptureMode=四视角。\n3. 单一连续视角表达时，environmentCaptureMode=单视角。\n4. 禁止省略该字段。";
@@ -15648,6 +15649,52 @@ mod tests {
             Some("Hello world".to_string())
         );
     }
+
+    #[test]
+    fn gpt_text_request_sets_large_completion_budget() {
+        let body = openai_compatible_text_request_body("gpt-5.6-sol", "整理字幕");
+
+        assert_eq!(
+            body.get("max_completion_tokens"),
+            Some(&json!(GPT_TEXT_MAX_COMPLETION_TOKENS))
+        );
+        assert!(
+            openai_compatible_text_request_body("qwen3.6-plus", "整理字幕")
+                .get("max_completion_tokens")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn openai_text_response_detects_json_length_truncation() {
+        let body = r#"{"choices":[{"message":{"content":"半截内容"},"finish_reason":"length"}]}"#;
+
+        assert_eq!(
+            parse_openai_compatible_truncation_reason(body),
+            Some("length".to_string())
+        );
+    }
+
+    #[test]
+    fn openai_text_response_detects_sse_length_truncation() {
+        let body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"半截内容\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n",
+            "data: [DONE]\n\n"
+        );
+
+        assert_eq!(
+            parse_openai_compatible_truncation_reason(body),
+            Some("length".to_string())
+        );
+    }
+
+    #[test]
+    fn openai_text_response_accepts_normal_stop() {
+        let body = r#"{"choices":[{"message":{"content":"完整内容"},"finish_reason":"stop"}]}"#;
+
+        assert_eq!(parse_openai_compatible_truncation_reason(body), None);
+    }
 }
 
 fn normalize_image_aspect_ratio(value: Option<&str>) -> String {
@@ -16440,6 +16487,57 @@ fn parse_openai_compatible_text_response(body_text: &str) -> Result<Option<Strin
     Ok(parse_openai_compatible_text_result(&payload))
 }
 
+fn openai_compatible_truncation_reason(payload: &Value) -> Option<String> {
+    let reason = payload
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|choice| choice.get("finish_reason"))
+        .and_then(Value::as_str)?
+        .trim();
+    matches!(
+        reason.to_ascii_lowercase().as_str(),
+        "length" | "max_tokens"
+    )
+    .then(|| reason.to_string())
+}
+
+fn parse_openai_compatible_truncation_reason(body_text: &str) -> Option<String> {
+    if body_text
+        .lines()
+        .any(|line| line.trim_start().starts_with("data:"))
+    {
+        return body_text.lines().find_map(|line| {
+            let data = line.trim_start().strip_prefix("data:")?.trim();
+            let payload = serde_json::from_str::<Value>(data).ok()?;
+            openai_compatible_truncation_reason(&payload)
+        });
+    }
+
+    serde_json::from_str::<Value>(body_text)
+        .ok()
+        .as_ref()
+        .and_then(openai_compatible_truncation_reason)
+}
+
+fn is_gpt_text_model(model_id: &str) -> bool {
+    model_id.trim().to_ascii_lowercase().starts_with("gpt-")
+}
+
+fn openai_compatible_text_request_body(model_id: &str, prompt: &str) -> Value {
+    let mut request_body = json!({
+      "model": model_id,
+      "messages": [
+        { "role": "user", "content": prompt }
+      ],
+      "temperature": 0.7
+    });
+    if is_gpt_text_model(model_id) {
+        request_body["max_completion_tokens"] = json!(GPT_TEXT_MAX_COMPLETION_TOKENS);
+    }
+    request_body
+}
+
 fn parse_gemini_text_result(payload: &Value) -> Option<String> {
     let candidate = payload
         .get("candidates")
@@ -16515,13 +16613,7 @@ async fn request_openai_compatible_text_completion(
     );
 
     for api_key in api_keys {
-        let request_body = json!({
-          "model": model.as_str(),
-          "messages": [
-            { "role": "user", "content": prompt }
-          ],
-          "temperature": 0.7
-        });
+        let request_body = openai_compatible_text_request_body(model.as_str(), prompt);
         let response = llm_http_client()
             .post(&endpoint)
             .bearer_auth(api_key)
@@ -16572,6 +16664,25 @@ async fn request_openai_compatible_text_completion(
             );
             last_error = Some(message);
             continue;
+        }
+
+        if let Some(reason) = parse_openai_compatible_truncation_reason(&body_text) {
+            let message = format!(
+                "模型输出达到长度上限（finish_reason={reason}），结果不完整，请缩短输入后重试"
+            );
+            llm_dev_write_db_log(
+                provider,
+                model_id,
+                "generateText",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            return Err(message);
         }
 
         let parsed = parse_openai_compatible_text_response(&body_text).map_err(|error| {
@@ -16765,6 +16876,31 @@ async fn request_gemini_text_completion(
             );
             message
         })?;
+        if let Some(reason) = payload
+            .get("candidates")
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .and_then(|candidate| candidate.get("finishReason"))
+            .and_then(Value::as_str)
+            .filter(|reason| reason.eq_ignore_ascii_case("MAX_TOKENS"))
+        {
+            let message = format!(
+                "模型输出达到长度上限（finishReason={reason}），结果不完整，请缩短输入后重试"
+            );
+            llm_dev_write_db_log(
+                "gemini",
+                model_id,
+                "generateText",
+                "error",
+                _log_started_at,
+                Some(endpoint.as_str()),
+                Some(&request_body),
+                None,
+                Some(body_text.as_str()),
+                Some(message.as_str()),
+            );
+            return Err(message);
+        }
         if let Some(text) = parse_gemini_text_result(&payload) {
             let parsed_response = json!({ "text": text });
             llm_dev_write_db_log(
@@ -17682,12 +17818,13 @@ pub(super) async fn api_script_parse(
     Ok(Json(payload))
 }
 
-pub(super) async fn generate_video_import_script_text(
+async fn generate_video_import_script_text_with_rule(
     state: &BackendState,
     task_title: &str,
     source_filename: &str,
     subtitle_text: &str,
     script_parse_mode: &str,
+    output_rule: Option<&str>,
 ) -> Result<(String, String, String), ApiError> {
     let normalized_subtitle = subtitle_text.trim();
     if normalized_subtitle.is_empty() {
@@ -17702,7 +17839,7 @@ pub(super) async fn generate_video_import_script_text(
         } else {
             ("story", "剧情内容")
         };
-        render_configured_prompt(
+        let mut prompt = render_configured_prompt(
             &conn,
             PROMPT_TEMPLATE_VIDEO_IMPORT_SCRIPT_GENERATION,
             &[
@@ -17712,7 +17849,12 @@ pub(super) async fn generate_video_import_script_text(
                 ("scriptParseModeLabel", content_type_label),
                 ("subtitleText", normalized_subtitle),
             ],
-        )?
+        )?;
+        if let Some(rule) = output_rule.map(str::trim).filter(|value| !value.is_empty()) {
+            prompt.push_str("\n\n【本批次输出协议（最高优先级）】\n");
+            prompt.push_str(rule);
+        }
+        prompt
     };
 
     let context = ModelLogContext {
@@ -17731,6 +17873,111 @@ pub(super) async fn generate_video_import_script_text(
                 format!("视频转换剧本生成失败: {}", error),
             )
         })
+}
+
+pub(super) async fn generate_video_import_script_text(
+    state: &BackendState,
+    task_title: &str,
+    source_filename: &str,
+    subtitle_text: &str,
+    script_parse_mode: &str,
+) -> Result<(String, String, String), ApiError> {
+    generate_video_import_script_text_with_rule(
+        state,
+        task_title,
+        source_filename,
+        subtitle_text,
+        script_parse_mode,
+        None,
+    )
+    .await
+}
+
+pub(super) async fn generate_video_import_series_script_chunk_text(
+    state: &BackendState,
+    task_title: &str,
+    source_filename: &str,
+    subtitle_text: &str,
+    script_parse_mode: &str,
+    first_episode: i64,
+    last_episode: i64,
+    chunk_index: usize,
+    chunk_count: usize,
+    global_context: &str,
+    boundary_context: &str,
+) -> Result<(String, String, String), ApiError> {
+    let output_rule = format!(
+        "当前是完整短片合集的第 {chunk_index}/{chunk_count} 批，范围为第 {first_episode} 段至第 {last_episode} 段。\n\
+         下面的全局剧情档案适用于所有批次，角色编号、当前称呼、身份关系和主线事实必须严格沿用：\n\
+         <global_context>\n{global_context}\n</global_context>\n\
+         下面是相邻批次的少量原字幕，仅用于理解本批开头和结尾的衔接，不得输出其中不属于第 {first_episode}-{last_episode} 段的内容：\n\
+         <boundary_context>\n{boundary_context}\n</boundary_context>\n\
+         1. 必须逐段整理本批输入中的每一段，不得合并、跳过或补写其他批次。\n\
+         2. 每段必须且只能以二级标题 `## 第n段：原段标题` 开始，n 必须沿用输入编号并按顺序连续。\n\
+         3. 每个二级标题下整理该段的角色、剧情梗概和分场剧本；允许使用三级标题。\n\
+         4. 不要输出总标题、批次说明、前言或位于第一个 `## 第n段` 之前的内容。"
+    );
+    generate_video_import_script_text_with_rule(
+        state,
+        task_title,
+        source_filename,
+        subtitle_text,
+        script_parse_mode,
+        Some(&output_rule),
+    )
+    .await
+}
+
+pub(super) async fn generate_video_import_series_context_text(
+    state: &BackendState,
+    task_title: &str,
+    source_filename: &str,
+    subtitle_text: &str,
+    script_parse_mode: &str,
+) -> Result<(String, String, String), ApiError> {
+    let output_rule = "当前输入是完整合集字幕。只生成供后续分批写作共同使用的全局剧情档案，不生成逐场或逐集剧本。\n\
+        1. 输出必须控制在 6000 个汉字以内，并使用“角色与稳定称呼、人物关系、时间线与主线、关键设定、跨集连续性约束、识别存疑项”结构。\n\
+        2. 每个稳定角色分配唯一连续编号，并确定唯一的当前称呼；姓名不明确时不得猜测。\n\
+        3. 覆盖开端、中段和结尾的重要事实，但保持摘要形式，不复述全部字幕。\n\
+        4. 只输出全局剧情档案正文，不要 JSON、前言、剧本或分场内容。";
+    generate_video_import_script_text_with_rule(
+        state,
+        task_title,
+        source_filename,
+        subtitle_text,
+        script_parse_mode,
+        Some(output_rule),
+    )
+    .await
+}
+
+pub(super) async fn generate_video_import_episode_script_text_with_context(
+    state: &BackendState,
+    task_title: &str,
+    source_filename: &str,
+    subtitle_text: &str,
+    script_parse_mode: &str,
+    episode_number: i64,
+    global_context: &str,
+    boundary_context: &str,
+) -> Result<(String, String, String), ApiError> {
+    let output_rule = format!(
+        "当前只生成第 {episode_number} 集剧本。\n\
+         下面的全局剧情档案适用于全部分集，角色编号、当前称呼、身份关系和主线事实必须严格沿用：\n\
+         <global_context>\n{global_context}\n</global_context>\n\
+         下面是相邻分集的少量原字幕，仅用于理解本集开头和结尾的衔接，不得写入不属于本集的事件：\n\
+         <boundary_context>\n{boundary_context}\n</boundary_context>\n\
+         只输出第 {episode_number} 集内容，不得补写其他集；其余格式继续遵守系统输出协议。"
+    );
+    generate_video_import_script_text_with_rule(
+        state,
+        task_title,
+        source_filename,
+        subtitle_text,
+        script_parse_mode,
+        Some(&output_rule),
+    )
+    .await
 }
 
 pub(super) async fn parse_video_import_script(

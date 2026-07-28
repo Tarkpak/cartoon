@@ -3,7 +3,7 @@ use crate::process_util::hidden_command;
 use axum::extract::Multipart;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use chrono::Utc;
-use futures_util::stream;
+use futures_util::{stream, StreamExt, TryStreamExt};
 use reqwest::header::USER_AGENT;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -28,7 +28,24 @@ const BCUT_UPLOAD_RETRY_BASE_DELAY_MS: u64 = 1_000;
 const SERIES_IMPORT_MAX_CONCURRENT_TASKS: usize = 2;
 const SHORT_CLIP_MAX_SECONDS: f64 = 60.0;
 const SHORT_CLIP_MIN_RATIO: f64 = 0.6;
+const SHORT_CLIP_SCRIPT_CHUNK_MAX_CHARS: usize = 6_000;
+const SHORT_CLIP_SCRIPT_CHUNK_MAX_EPISODES: usize = 12;
+const SHORT_CLIP_SCRIPT_BOUNDARY_CONTEXT_CHARS: usize = 800;
+const SERIES_SCRIPT_MAX_CONCURRENT_GENERATIONS: usize = 3;
 const VIDEO_IMPORT_PARSE_TIMEOUT_MS: u64 = 300_000;
+
+#[derive(Debug, Clone)]
+struct SeriesSubtitleSection {
+    episode_number: i64,
+    title: String,
+    subtitle: String,
+}
+
+#[derive(Debug)]
+struct SeriesSubtitleChunk {
+    episode_numbers: Vec<i64>,
+    text: String,
+}
 
 fn normalize_video_import_script_parse_mode(value: Option<&str>) -> &'static str {
     match value.map(str::trim) {
@@ -1032,7 +1049,14 @@ async fn api_video_import_generate_series_script(
     let run_id = start_step_run(&conn, &id, "generate_script", None)?;
     let short_clip_mode = is_short_clip_series_task(&task);
     if short_clip_mode {
-        let subtitle = build_series_subtitle_text(&conn, &id)?;
+        let subtitle_sections = build_series_subtitle_sections(&conn, &id)?;
+        let complete_subtitle = subtitle_sections
+            .iter()
+            .cloned()
+            .map(format_series_subtitle_section)
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let subtitle_chunks = split_series_subtitle_chunks(subtitle_sections);
         drop(conn);
         let title = task_title(&task);
         let script_parse_mode = normalize_video_import_script_parse_mode(
@@ -1040,11 +1064,12 @@ async fn api_video_import_generate_series_script(
                 .get("scriptParseMode")
                 .and_then(Value::as_str),
         );
-        let (script, provider, model_id) = match generate_video_import_script_text(
+        let chunk_count = subtitle_chunks.len();
+        let (global_context, _, _) = match generate_video_import_series_context_text(
             &state,
             &title,
             &task.original_filename,
-            &subtitle,
+            &complete_subtitle,
             script_parse_mode,
         )
         .await
@@ -1058,7 +1083,7 @@ async fn api_video_import_generate_series_script(
                     "failed",
                     None,
                     Some(&error.message),
-                    json!({ "mode": "short_clips" }),
+                    json!({ "mode": "short_clips", "stage": "global_context" }),
                 )?;
                 update_task_status(
                     &conn,
@@ -1071,6 +1096,94 @@ async fn api_video_import_generate_series_script(
                 return Err(error);
             }
         };
+        let chunk_boundaries = (0..subtitle_chunks.len())
+            .map(|chunk_index| {
+                build_series_chunk_boundary_context(
+                    &subtitle_chunks,
+                    chunk_index,
+                    SHORT_CLIP_SCRIPT_BOUNDARY_CONTEXT_CHARS,
+                )
+            })
+            .collect::<Vec<_>>();
+        let chunks_with_boundaries = subtitle_chunks
+            .into_iter()
+            .zip(chunk_boundaries)
+            .enumerate()
+            .map(|(chunk_index, (chunk, boundary_context))| {
+                (chunk_index, chunk, boundary_context)
+            })
+            .collect::<Vec<_>>();
+        let generated_chunks = stream::iter(chunks_with_boundaries)
+            .map(|(chunk_index, chunk, boundary_context)| {
+                let state = &state;
+                let title = &title;
+                let source_filename = &task.original_filename;
+                let global_context = &global_context;
+                async move {
+                    let first_episode = chunk.episode_numbers.first().copied().unwrap_or(1);
+                    let last_episode = chunk
+                        .episode_numbers
+                        .last()
+                        .copied()
+                        .unwrap_or(first_episode);
+                    let result = generate_video_import_series_script_chunk_text(
+                        state,
+                        title,
+                        source_filename,
+                        &chunk.text,
+                        script_parse_mode,
+                        first_episode,
+                        last_episode,
+                        chunk_index + 1,
+                        chunk_count,
+                        global_context,
+                        &boundary_context,
+                    )
+                    .await
+                    .and_then(|(chunk_script, provider, model_id)| {
+                        validate_series_script_chunk(&chunk_script, &chunk.episode_numbers)
+                            .map(|sections| (chunk_index, sections, provider, model_id))
+                            .map_err(|message| ApiError::new(StatusCode::BAD_GATEWAY, message))
+                    });
+                    result.map_err(|error| (chunk_index, error))
+                }
+            })
+            .buffer_unordered(SERIES_SCRIPT_MAX_CONCURRENT_GENERATIONS)
+            .try_collect::<Vec<_>>()
+            .await;
+        let mut generated_chunks = match generated_chunks {
+            Ok(value) => value,
+            Err((chunk_index, error)) => {
+                let conn = db_connection(&state)?;
+                finish_step_run(
+                    &conn,
+                    &run_id,
+                    "failed",
+                    None,
+                    Some(&error.message),
+                    json!({ "mode": "short_clips", "chunkIndex": chunk_index + 1, "chunkCount": chunk_count }),
+                )?;
+                update_task_status(
+                    &conn,
+                    &id,
+                    "failed",
+                    "generate_script",
+                    65,
+                    Some(&error.message),
+                )?;
+                return Err(error);
+            }
+        };
+        generated_chunks.sort_by_key(|(chunk_index, _, _, _)| *chunk_index);
+        let mut generated_sections = Vec::new();
+        let mut last_provider = String::new();
+        let mut last_model_id = String::new();
+        for (_, chunk_sections, provider, model_id) in generated_chunks {
+            generated_sections.extend(chunk_sections);
+            last_provider = provider;
+            last_model_id = model_id;
+        }
+        let script = format!("# {}\n\n{}", title, generated_sections.join("\n\n"));
 
         let conn = db_connection(&state)?;
         write_script_artifact(
@@ -1078,7 +1191,7 @@ async fn api_video_import_generate_series_script(
             &state,
             &id,
             &script,
-            json!({ "provider": provider, "modelId": model_id, "series": true, "mode": "short_clips" }),
+            json!({ "provider": last_provider, "modelId": last_model_id, "series": true, "mode": "short_clips", "chunkCount": chunk_count }),
         )?;
         finish_step_run(
             &conn,
@@ -1086,11 +1199,11 @@ async fn api_video_import_generate_series_script(
             "success",
             None,
             None,
-            json!({ "episodeCount": episodes.len(), "mode": "short_clips" }),
+            json!({ "episodeCount": episodes.len(), "mode": "short_clips", "chunkCount": chunk_count }),
         )?;
         conn.execute(
             "UPDATE video_import_tasks SET status = 'script_ready', current_step = 'script_ready', progress = 80, script_model_id = ?1, error_message = NULL, updated_at = ?2 WHERE id = ?3",
-            params![model_id, now_iso(), id],
+            params![last_model_id, now_iso(), id],
         )
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
@@ -1101,10 +1214,7 @@ async fn api_video_import_generate_series_script(
     }
     drop(conn);
 
-    let mut sections = Vec::new();
-    let mut last_provider = String::new();
-    let mut last_model_id = String::new();
-
+    let mut episode_inputs = Vec::new();
     for episode in episodes {
         let conn = db_connection(&state)?;
         let subtitle =
@@ -1120,47 +1230,156 @@ async fn api_video_import_generate_series_script(
         let existing_script = latest_artifact_text(&conn, &episode.id, "script_edited")?
             .or(latest_artifact_text(&conn, &episode.id, "script_draft")?);
         drop(conn);
+        episode_inputs.push((episode, subtitle, existing_script));
+    }
 
-        let script = if let Some(script) = existing_script {
-            script
-        } else {
-            let title = task_title(&episode);
-            let script_parse_mode = normalize_video_import_script_parse_mode(
-                parse_json_object(&episode.config_json)
-                    .get("scriptParseMode")
-                    .and_then(Value::as_str),
-            );
-            let (script, provider, model_id) = match generate_video_import_script_text(
-                &state,
-                &title,
-                &episode.original_filename,
-                &subtitle,
-                script_parse_mode,
+    let needs_generation = episode_inputs
+        .iter()
+        .any(|(_, _, existing_script)| existing_script.is_none());
+    let complete_subtitle = episode_inputs
+        .iter()
+        .map(|(episode, subtitle, _)| {
+            let episode_number = episode.episode_number.unwrap_or(1).max(1);
+            format!(
+                "## 第{}集：{}\n\n{}",
+                episode_number,
+                episode_title_from_task(episode, episode_number),
+                subtitle.trim()
             )
-            .await
-            {
-                Ok(value) => value,
-                Err(error) => {
-                    let conn = db_connection(&state)?;
-                    finish_step_run(
-                        &conn,
-                        &run_id,
-                        "failed",
-                        None,
-                        Some(&error.message),
-                        json!({ "episodeId": episode.id }),
-                    )?;
-                    update_task_status(
-                        &conn,
-                        &id,
-                        "failed",
-                        "generate_script",
-                        65,
-                        Some(&error.message),
-                    )?;
-                    return Err(error);
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let global_context = if needs_generation {
+        let group_script_parse_mode = normalize_video_import_script_parse_mode(
+            parse_json_object(&task.config_json)
+                .get("scriptParseMode")
+                .and_then(Value::as_str),
+        );
+        match generate_video_import_series_context_text(
+            &state,
+            &task_title(&task),
+            &task.original_filename,
+            &complete_subtitle,
+            group_script_parse_mode,
+        )
+        .await
+        {
+            Ok((context, _, _)) => context,
+            Err(error) => {
+                let conn = db_connection(&state)?;
+                finish_step_run(
+                    &conn,
+                    &run_id,
+                    "failed",
+                    None,
+                    Some(&error.message),
+                    json!({ "mode": "episodes", "stage": "global_context" }),
+                )?;
+                update_task_status(
+                    &conn,
+                    &id,
+                    "failed",
+                    "generate_script",
+                    65,
+                    Some(&error.message),
+                )?;
+                return Err(error);
+            }
+        }
+    } else {
+        String::new()
+    };
+    let episode_boundaries = (0..episode_inputs.len())
+        .map(|episode_index| {
+            let previous = episode_index
+                .checked_sub(1)
+                .and_then(|index| episode_inputs.get(index))
+                .map(|(_, subtitle, _)| subtitle.as_str());
+            let next = episode_inputs
+                .get(episode_index + 1)
+                .map(|(_, subtitle, _)| subtitle.as_str());
+            build_neighbor_text_boundary_context(
+                previous,
+                next,
+                SHORT_CLIP_SCRIPT_BOUNDARY_CONTEXT_CHARS,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let generated_episodes = stream::iter(
+        episode_inputs
+            .into_iter()
+            .zip(episode_boundaries)
+            .enumerate(),
+    )
+        .map(|(episode_index, ((episode, subtitle, existing_script), boundary_context))| {
+            let state = &state;
+            let global_context = &global_context;
+            async move {
+                if let Some(script) = existing_script {
+                    return Ok((episode_index, episode, script, None));
                 }
-            };
+                let title = task_title(&episode);
+                let script_parse_mode = normalize_video_import_script_parse_mode(
+                    parse_json_object(&episode.config_json)
+                        .get("scriptParseMode")
+                        .and_then(Value::as_str),
+                );
+                match generate_video_import_episode_script_text_with_context(
+                    state,
+                    &title,
+                    &episode.original_filename,
+                    &subtitle,
+                    script_parse_mode,
+                    episode.episode_number.unwrap_or(1).max(1),
+                    global_context,
+                    &boundary_context,
+                )
+                .await
+                {
+                    Ok((script, provider, model_id)) => Ok((
+                        episode_index,
+                        episode,
+                        script,
+                        Some((provider, model_id)),
+                    )),
+                    Err(error) => Err((episode.id.clone(), error)),
+                }
+            }
+        })
+        .buffer_unordered(SERIES_SCRIPT_MAX_CONCURRENT_GENERATIONS)
+        .try_collect::<Vec<_>>()
+        .await;
+    let mut generated_episodes = match generated_episodes {
+        Ok(value) => value,
+        Err((episode_id, error)) => {
+            let conn = db_connection(&state)?;
+            finish_step_run(
+                &conn,
+                &run_id,
+                "failed",
+                None,
+                Some(&error.message),
+                json!({ "episodeId": episode_id }),
+            )?;
+            update_task_status(
+                &conn,
+                &id,
+                "failed",
+                "generate_script",
+                65,
+                Some(&error.message),
+            )?;
+            return Err(error);
+        }
+    };
+    generated_episodes.sort_by_key(|(episode_index, _, _, _)| *episode_index);
+
+    let mut sections = Vec::new();
+    let mut last_provider = String::new();
+    let mut last_model_id = String::new();
+    for (_, episode, script, generation) in generated_episodes {
+        if let Some((provider, model_id)) = generation {
             last_provider = provider.clone();
             last_model_id = model_id.clone();
             let conn = db_connection(&state)?;
@@ -1176,8 +1395,7 @@ async fn api_video_import_generate_series_script(
                 params![last_model_id.as_str(), now_iso(), episode.id],
             )
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-            script
-        };
+        }
 
         let episode_number = episode.episode_number.unwrap_or(1).max(1);
         sections.push(format!(
@@ -3205,6 +3423,17 @@ fn refresh_series_group_status(conn: &Connection, id: &str) -> Result<(), ApiErr
 }
 
 fn build_series_subtitle_text(conn: &Connection, series_id: &str) -> Result<String, ApiError> {
+    Ok(build_series_subtitle_sections(conn, series_id)?
+        .into_iter()
+        .map(format_series_subtitle_section)
+        .collect::<Vec<_>>()
+        .join("\n\n"))
+}
+
+fn build_series_subtitle_sections(
+    conn: &Connection,
+    series_id: &str,
+) -> Result<Vec<SeriesSubtitleSection>, ApiError> {
     let episodes = load_series_episode_tasks(conn, series_id)?;
     let mut sections = Vec::new();
     for episode in episodes {
@@ -3212,14 +3441,154 @@ fn build_series_subtitle_text(conn: &Connection, series_id: &str) -> Result<Stri
         let title = episode_title_from_task(&episode, episode_number);
         let subtitle = latest_artifact_text(conn, &episode.id, "subtitle_txt")?
             .unwrap_or_else(|| format!("（{}）", status_label_for_backend(&episode.status)));
-        sections.push(format!(
-            "## 第{}集：{}\n\n{}",
+        sections.push(SeriesSubtitleSection {
             episode_number,
             title,
-            subtitle.trim()
+            subtitle: subtitle.trim().to_string(),
+        });
+    }
+    Ok(sections)
+}
+
+fn format_series_subtitle_section(section: SeriesSubtitleSection) -> String {
+    format!(
+        "## 第{}集：{}\n\n{}",
+        section.episode_number, section.title, section.subtitle
+    )
+}
+
+fn split_series_subtitle_chunks(sections: Vec<SeriesSubtitleSection>) -> Vec<SeriesSubtitleChunk> {
+    let mut chunks = Vec::new();
+    let mut current_numbers = Vec::new();
+    let mut current_sections = Vec::new();
+    let mut current_chars = 0usize;
+
+    for section in sections {
+        let episode_number = section.episode_number;
+        let formatted = format!(
+            "## 第{}段：{}\n\n{}",
+            section.episode_number, section.title, section.subtitle
+        );
+        let formatted_chars = formatted.chars().count();
+        let exceeds_limit = !current_sections.is_empty()
+            && (current_sections.len() >= SHORT_CLIP_SCRIPT_CHUNK_MAX_EPISODES
+                || current_chars + 2 + formatted_chars > SHORT_CLIP_SCRIPT_CHUNK_MAX_CHARS);
+        if exceeds_limit {
+            chunks.push(SeriesSubtitleChunk {
+                episode_numbers: std::mem::take(&mut current_numbers),
+                text: std::mem::take(&mut current_sections).join("\n\n"),
+            });
+            current_chars = 0;
+        }
+        if !current_sections.is_empty() {
+            current_chars += 2;
+        }
+        current_chars += formatted_chars;
+        current_numbers.push(episode_number);
+        current_sections.push(formatted);
+    }
+    if !current_sections.is_empty() {
+        chunks.push(SeriesSubtitleChunk {
+            episode_numbers: current_numbers,
+            text: current_sections.join("\n\n"),
+        });
+    }
+    chunks
+}
+
+fn take_first_chars(value: &str, max_chars: usize) -> String {
+    value.chars().take(max_chars).collect()
+}
+
+fn take_last_chars(value: &str, max_chars: usize) -> String {
+    let chars = value.chars().collect::<Vec<_>>();
+    chars[chars.len().saturating_sub(max_chars)..]
+        .iter()
+        .collect()
+}
+
+fn build_series_chunk_boundary_context(
+    chunks: &[SeriesSubtitleChunk],
+    chunk_index: usize,
+    max_chars_per_side: usize,
+) -> String {
+    let previous = chunk_index
+        .checked_sub(1)
+        .and_then(|index| chunks.get(index))
+        .map(|chunk| chunk.text.as_str());
+    let next = chunks
+        .get(chunk_index + 1)
+        .map(|chunk| chunk.text.as_str());
+    build_neighbor_text_boundary_context(previous, next, max_chars_per_side)
+}
+
+fn build_neighbor_text_boundary_context(
+    previous: Option<&str>,
+    next: Option<&str>,
+    max_chars_per_side: usize,
+) -> String {
+    let mut sections = Vec::new();
+    if let Some(previous) = previous {
+        sections.push(format!(
+            "【上一批结尾】\n{}",
+            take_last_chars(previous, max_chars_per_side)
         ));
     }
-    Ok(sections.join("\n\n"))
+    if let Some(next) = next {
+        sections.push(format!(
+            "【下一批开头】\n{}",
+            take_first_chars(next, max_chars_per_side)
+        ));
+    }
+    if sections.is_empty() {
+        "无相邻批次".to_string()
+    } else {
+        sections.join("\n\n")
+    }
+}
+
+fn series_script_section_episode_number(section: &str) -> Option<i64> {
+    let heading = section.lines().next()?.trim();
+    let suffix = heading.strip_prefix("## 第")?;
+    let digits = suffix
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+fn validate_series_script_chunk(
+    script: &str,
+    expected_episode_numbers: &[i64],
+) -> Result<Vec<String>, String> {
+    let sections = split_series_script_sections(script);
+    let actual_episode_numbers = sections
+        .iter()
+        .filter_map(|section| series_script_section_episode_number(section))
+        .collect::<Vec<_>>();
+    if actual_episode_numbers != expected_episode_numbers {
+        return Err(format!(
+            "合集剧本生成不完整：预期包含第 {} 段，实际包含第 {} 段，请重试",
+            expected_episode_numbers
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("、"),
+            if actual_episode_numbers.is_empty() {
+                "无".to_string()
+            } else {
+                actual_episode_numbers
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("、")
+            }
+        ));
+    }
+    Ok(sections)
 }
 
 fn status_label_for_backend(status: &str) -> &'static str {
@@ -3847,5 +4216,74 @@ mod tests {
         assert!(sections[0].starts_with("## 第1段"));
         assert!(sections[1].starts_with("## 第2集"));
         assert!(!sections[0].contains("## 角色"));
+    }
+
+    fn subtitle_section(episode_number: i64, subtitle: String) -> SeriesSubtitleSection {
+        SeriesSubtitleSection {
+            episode_number,
+            title: format!("片段{episode_number}"),
+            subtitle,
+        }
+    }
+
+    #[test]
+    fn short_clip_script_chunks_limit_episode_count() {
+        let sections = (1..=25)
+            .map(|episode| subtitle_section(episode, "字幕内容".to_string()))
+            .collect();
+
+        let chunks = split_series_subtitle_chunks(sections);
+
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0].episode_numbers, (1..=12).collect::<Vec<_>>());
+        assert_eq!(chunks[1].episode_numbers, (13..=24).collect::<Vec<_>>());
+        assert_eq!(chunks[2].episode_numbers, vec![25]);
+        assert_eq!(SERIES_SCRIPT_MAX_CONCURRENT_GENERATIONS, 3);
+    }
+
+    #[test]
+    fn short_clip_script_chunks_limit_character_count_without_splitting_episode() {
+        let sections = vec![
+            subtitle_section(1, "甲".repeat(3_500)),
+            subtitle_section(2, "乙".repeat(3_500)),
+        ];
+
+        let chunks = split_series_subtitle_chunks(sections);
+
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].episode_numbers, vec![1]);
+        assert_eq!(chunks[1].episode_numbers, vec![2]);
+        assert!(chunks[0].text.contains(&"甲".repeat(3_500)));
+    }
+
+    #[test]
+    fn series_script_chunk_validation_requires_every_expected_episode() {
+        let complete = "## 第9段：开场\n正文9\n\n## 第10段：反转\n正文10";
+        let incomplete = "## 第9段：开场\n正文9";
+
+        assert_eq!(
+            validate_series_script_chunk(complete, &[9, 10])
+                .unwrap()
+                .len(),
+            2
+        );
+        let error = validate_series_script_chunk(incomplete, &[9, 10]).unwrap_err();
+        assert!(error.contains("预期包含第 9、10 段"));
+        assert!(error.contains("实际包含第 9 段"));
+    }
+
+    #[test]
+    fn series_script_chunk_boundary_context_includes_both_neighbors() {
+        let sections = (1..=25)
+            .map(|episode| subtitle_section(episode, format!("第{episode}段字幕")))
+            .collect();
+        let chunks = split_series_subtitle_chunks(sections);
+
+        let context = build_series_chunk_boundary_context(&chunks, 1, 800);
+
+        assert!(context.contains("【上一批结尾】"));
+        assert!(context.contains("第12段字幕"));
+        assert!(context.contains("【下一批开头】"));
+        assert!(context.contains("第25段字幕"));
     }
 }
