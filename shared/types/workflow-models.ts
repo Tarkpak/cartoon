@@ -93,7 +93,7 @@ export const KlingV3OmniVideoOptionsSchema = z.object({
 })
 export type KlingV3OmniVideoOptions = z.infer<typeof KlingV3OmniVideoOptionsSchema>
 
-export const SeedanceVideoQualitySchema = z.enum(['480p', '720p', '1080p'])
+export const SeedanceVideoQualitySchema = z.enum(['480p', '720p', '1080p', '4k'])
 export type SeedanceVideoQuality = z.infer<typeof SeedanceVideoQualitySchema>
 
 export const SeedanceVideoOptionsSchema = z.object({

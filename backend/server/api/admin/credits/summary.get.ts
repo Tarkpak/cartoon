@@ -1,6 +1,6 @@
 import { getDb } from '../../../utils/db'
 import { requireAdmin } from '../../../utils/auth'
-import { creditDateBounds, shanghaiDateString } from '../../../utils/credits'
+import { creditDateBounds, getSeedanceCreditBreakdown, shanghaiDateString } from '../../../utils/credits'
 
 export default defineEventHandler((event) => {
   requireAdmin(event)
@@ -25,5 +25,6 @@ export default defineEventHandler((event) => {
     todayStart,
     monthStartAt
   ) as { today_consumed: number, month_consumed: number }
-  return { success: true, data: { ...account, ...usage } }
+  const monthBreakdown = getSeedanceCreditBreakdown(monthStartAt)
+  return { success: true, data: { ...account, ...usage, month_breakdown: monthBreakdown } }
 })

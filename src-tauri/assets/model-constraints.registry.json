@@ -323,6 +323,25 @@
     },
     {
       "provider": "volcengine",
+      "match": { "type": "exact", "value": "doubao-seedance-2-0-mini-260615" },
+      "modelKind": "video",
+      "displayName": "Doubao Seedance 2.0 Mini",
+      "description": "Seedance 2.0 Mini 视频模型",
+      "docUrl": "https://www.volcengine.com/docs/82379/2291680?lang=zh#50e1b4ea",
+      "video": {
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 9,
+        "supportVideoReference": true,
+        "maxReferenceVideos": 3,
+        "supportAudioReference": true,
+        "maxReferenceAudios": 3
+      }
+    },
+    {
+      "provider": "volcengine",
       "match": { "type": "contains", "value": "seedance-2" },
       "modelKind": "video",
       "description": "Seedance 2 视频模型",

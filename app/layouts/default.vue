@@ -26,7 +26,7 @@ let creditRefreshTimer: ReturnType<typeof setInterval> | null = null
 
 const currentUserCreditBalance = computed(() => {
   const balance = Number(currentUser.value?.creditBalance ?? 0)
-  return Number.isFinite(balance) ? Math.trunc(balance) : 0
+  return Number.isFinite(balance) ? balance : 0
 })
 
 const currentUserTitle = computed(() => {

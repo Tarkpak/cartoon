@@ -35,8 +35,11 @@
               <n-button size="small" type="primary" @click="showCreditRuleCreate = true">新增规则</n-button>
             </div>
             <n-text depth="3" class="settings-help">
-              模型调用成功后按操作类型扣除整数积分；失败调用不扣分。兜底规则用于尚未单独配置的操作。
+              模型调用成功后扣除积分，失败调用不扣分。Seedance 2.0 系列（不含视频输入）按模型、分辨率和输出秒数动态计费，其他模型使用下方的每次调用规则。
             </n-text>
+            <n-alert type="info" :bordered="false" class="settings-help">
+              Seedance 2.0：480p 0.462 / 720p 0.994 / 1080p 2.479 / 4K 5.054；Fast：480p 0.372 / 720p 0.799；Mini：480p 0.231 / 720p 0.497（积分 / 秒）。
+            </n-alert>
             <n-form label-placement="left" label-width="150">
               <n-form-item
                 v-for="rule in creditRules"

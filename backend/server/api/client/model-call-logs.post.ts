@@ -165,7 +165,8 @@ export default defineEventHandler(async (event) => {
           logId,
           operation,
           provider,
-          modelId
+          modelId,
+          request: requestJson
         })
       }
     }

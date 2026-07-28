@@ -11439,13 +11439,20 @@ fn is_seedance_fast_model(model_id: &str) -> bool {
     normalized.contains("seedance") && normalized.contains("fast")
 }
 
+fn is_seedance_limited_resolution_model(model_id: &str) -> bool {
+    let normalized = model_id.trim().to_ascii_lowercase();
+    is_seedance_fast_model(model_id)
+        || (normalized.contains("seedance") && normalized.contains("mini"))
+}
+
 fn normalize_volcengine_resolution(model_id: &str, value: Option<&Value>) -> String {
     let resolution = match value.and_then(Value::as_str).map(str::trim) {
         Some("480p") => "480p",
         Some("1080p") => "1080p",
+        Some("4k") | Some("4K") | Some("2160p") => "4k",
         _ => "720p",
     };
-    if resolution == "1080p" && is_seedance_fast_model(model_id) {
+    if matches!(resolution, "1080p" | "4k") && is_seedance_limited_resolution_model(model_id) {
         "720p".to_string()
     } else {
         resolution.to_string()
@@ -11945,6 +11952,7 @@ async fn poll_volcengine_video_task<F>(
     state: &BackendState,
     model_id: &str,
     upstream_task_id: &str,
+    generation_request: &Value,
     mut on_progress: F,
 ) -> Result<String, String>
 where
@@ -11958,7 +11966,23 @@ where
     let started_at = Utc::now().timestamp_millis();
     let progress_window_ms = 10 * 60 * 1000i64;
     let endpoint = volcengine_task_endpoint(&base_url, upstream_task_id);
-    let request_body = json!({ "taskId": upstream_task_id });
+    let has_video_input = generation_request
+        .get("content")
+        .and_then(Value::as_array)
+        .is_some_and(|content| {
+            content.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some("video_url")
+                    || item.get("video_url").is_some()
+            })
+        });
+    let request_body = json!({
+      "taskId": upstream_task_id,
+      "billing": {
+        "durationSeconds": generation_request.get("duration").cloned().unwrap_or(Value::Null),
+        "resolution": generation_request.get("resolution").cloned().unwrap_or(Value::Null),
+        "hasVideoInput": has_video_input
+      }
+    });
 
     loop {
         tokio::time::sleep(Duration::from_secs(10)).await;
@@ -12196,8 +12220,12 @@ async fn run_volcengine_video_task_background(
             None,
             Some(&metadata),
         )?;
-        let remote_video_url =
-            poll_volcengine_video_task(&state, &model_id, &upstream_task_id, |progress| {
+        let remote_video_url = poll_volcengine_video_task(
+            &state,
+            &model_id,
+            &upstream_task_id,
+            &request_body,
+            |progress| {
                 let _ = update_video_task_progress(
                     &state,
                     &task_id,
@@ -12207,9 +12235,10 @@ async fn run_volcengine_video_task_background(
                     None,
                     None,
                 );
-            })
-            .await
-            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
+            },
+        )
+        .await
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
         update_video_task_progress(
             &state,
             &task_id,
@@ -15403,7 +15432,7 @@ mod tests {
     }
 
     #[test]
-    fn seedance_workflow_resolution_applies_and_fast_1080p_falls_back() {
+    fn seedance_workflow_resolution_applies_and_limited_models_fall_back() {
         let workflow_model_options = json!({
           "video_generation": {
             "seedance": { "quality": "1080p" }
@@ -15422,6 +15451,18 @@ mod tests {
             Some("720p")
         );
 
+        let mut mini_config = json!({});
+        apply_workflow_video_generation_options(
+            &mut mini_config,
+            &json!({ "video_generation": { "seedance": { "quality": "4k" } } }),
+            "volcengine",
+            "doubao-seedance-2-0-mini-260615",
+        );
+        assert_eq!(
+            mini_config.get("resolution").and_then(Value::as_str),
+            Some("720p")
+        );
+
         let mut standard_config = json!({});
         apply_workflow_video_generation_options(
             &mut standard_config,
@@ -15432,6 +15473,11 @@ mod tests {
         assert_eq!(
             standard_config.get("resolution").and_then(Value::as_str),
             Some("1080p")
+        );
+
+        assert_eq!(
+            normalize_volcengine_resolution("doubao-seedance-2-0-260128", Some(&json!("4k")),),
+            "4k"
         );
 
         let request = build_volcengine_video_request(
@@ -19619,7 +19665,7 @@ fn validate_video_generation_config(config: &mut Value) -> Result<(), ApiError> 
         config,
         "resolution",
         Some("720p"),
-        &["480p", "720p", "1080p"],
+        &["480p", "720p", "1080p", "4k"],
     )?;
     validate_enum_or_default(
         config,

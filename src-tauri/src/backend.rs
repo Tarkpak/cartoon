@@ -3068,7 +3068,7 @@ fn validate_workflow_model_options(step: &str, options: &Value) -> Result<(), Ap
                 .and_then(|value| value.get("quality"))
                 .and_then(Value::as_str)
             {
-                if !matches!(quality, "480p" | "720p" | "1080p") {
+                if !matches!(quality, "480p" | "720p" | "1080p" | "4k") {
                     return Err(ApiError::new(
                         StatusCode::BAD_REQUEST,
                         "seedance.quality 无效",
@@ -9218,6 +9218,7 @@ fn manual_provider_seed_available_models(provider: &str) -> Vec<String> {
             "doubao-seedream-5-0-lite-260128".to_string(),
             "doubao-seedance-2-0-260128".to_string(),
             "doubao-seedance-2-0-fast-260128".to_string(),
+            "doubao-seedance-2-0-mini-260615".to_string(),
         ],
         "deepseek" => vec![
             "deepseek-v4-pro".to_string(),

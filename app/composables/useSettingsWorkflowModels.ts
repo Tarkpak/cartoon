@@ -89,7 +89,7 @@ export const WORKFLOW_PANORAMA_SOURCE_MODES: WorkflowPanoramaSourceMode[] = [
   'cubemap_6x1',
   'custom'
 ]
-export const WORKFLOW_SEEDANCE_VIDEO_QUALITIES: SeedanceVideoQuality[] = ['480p', '720p', '1080p']
+export const WORKFLOW_SEEDANCE_VIDEO_QUALITIES: SeedanceVideoQuality[] = ['480p', '720p', '1080p', '4k']
 export const WORKFLOW_CATEGORY_ORDER: WorkflowCategoryKey[] = ['text', 'image', 'video']
 
 const DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS: KlingV3OmniVideoOptions = {

@@ -431,7 +431,7 @@ function toCheckedBoolean(value: unknown): boolean {
           </SelectContent>
         </Select>
         <p class="text-xs text-muted-foreground">
-          Seedance 2.0 支持 480p / 720p / 1080p；Seedance 2.0 Fast 仅支持 480p / 720p，选择 1080p 时会自动回退到 720p。
+          Seedance 2.0 支持 480p / 720p / 1080p / 4K；Seedance 2.0 Fast 与 Mini 仅支持 480p / 720p，选择更高画质时会自动回退到 720p。
         </p>
       </div>
     </div>

@@ -284,7 +284,7 @@ function initSchema(conn: Database) {
       status TEXT NOT NULL,
       duration_ms INTEGER,
       estimated_cost REAL,
-      credits_charged INTEGER NOT NULL DEFAULT 0,
+      credits_charged REAL NOT NULL DEFAULT 0,
       error_message TEXT,
       request_json TEXT,
       response_json TEXT,
@@ -296,9 +296,9 @@ function initSchema(conn: Database) {
 
     CREATE TABLE IF NOT EXISTS credit_accounts (
       user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-      balance INTEGER NOT NULL DEFAULT 0,
-      total_added INTEGER NOT NULL DEFAULT 0,
-      total_consumed INTEGER NOT NULL DEFAULT 0,
+      balance REAL NOT NULL DEFAULT 0,
+      total_added REAL NOT NULL DEFAULT 0,
+      total_consumed REAL NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
     );
 
@@ -318,8 +318,8 @@ function initSchema(conn: Database) {
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       type TEXT NOT NULL,
-      amount INTEGER NOT NULL,
-      balance_after INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      balance_after REAL NOT NULL,
       reason TEXT NOT NULL DEFAULT '',
       operation TEXT,
       provider TEXT,
@@ -431,7 +431,7 @@ function initSchema(conn: Database) {
     CREATE INDEX IF NOT EXISTS idx_library_shares_user ON library_asset_shares(user_id);
   `)
 
-  addColumnIfMissing(conn, 'model_call_logs', 'credits_charged INTEGER NOT NULL DEFAULT 0')
+  addColumnIfMissing(conn, 'model_call_logs', 'credits_charged REAL NOT NULL DEFAULT 0')
   addColumnIfMissing(conn, 'model_call_logs', 'client_event_id TEXT')
   addColumnIfMissing(conn, 'model_call_logs', 'media_refs_json TEXT')
   conn.exec(`
