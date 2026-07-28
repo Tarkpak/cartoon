@@ -30,6 +30,8 @@ export interface AssetImageHistoryEntry {
   viewMode?: EnvironmentCropCaptureMode
   source?: AssetHistorySource
   prompt?: string
+  libraryAssetId?: string
+  libraryAssetVersion?: number
 }
 
 export type ArkVirtualAssetStatus = 'Processing' | 'Active' | 'Failed' | 'Unknown'
@@ -78,6 +80,18 @@ export interface FinalVideoAsset {
 
 export type FinalMergeTransitionType = 'fade' | 'dissolve' | 'wipe' | 'none'
 
+export interface FinalAudioTrack {
+  id: string
+  assetId?: string
+  assetVersion?: number
+  name: string
+  kind: 'bgm' | 'sfx'
+  url: string
+  startTime: number
+  duration?: number
+  volume: number
+}
+
 export interface FinalMergeOptions {
   sceneOrder?: string[]
   transitionType?: FinalMergeTransitionType
@@ -85,6 +99,7 @@ export interface FinalMergeOptions {
   addSubtitles?: boolean
   bgmUrl?: string
   bgmVolume?: number
+  audioTracks?: FinalAudioTrack[]
 }
 
 export interface FinalTimelineScene {

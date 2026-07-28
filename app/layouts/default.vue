@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines } from 'lucide-vue-next'
+import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Library } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import { createClickRipple } from '@/lib/ripple'
 
@@ -54,6 +54,7 @@ const navigation = computed(() => {
   return [
     { name: '首页', path: '/', icon: Home },
     { name: '我的项目', path: '/projects', icon: Folder },
+    { name: '个人资源库', path: '/library', icon: Library },
     { name: '火山素材库', path: '/ark-assets', icon: Database },
     { name: '云端素材', path: '/tos-files', icon: Cloud },
     { name: '日志', path: '/logs', icon: ScrollText },

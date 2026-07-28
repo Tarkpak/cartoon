@@ -1,6 +1,12 @@
 import { getDb, parseJsonText } from '../../utils/db'
 import { requireAuth } from '../../utils/auth'
 import { projectOwnerScope } from '../../utils/admin-resource-scope'
+import {
+  expandLibraryAssetBundleDependencies,
+  LIBRARY_ASSET_SELECT,
+  publicLibraryAsset,
+  type LibraryAssetRow
+} from '../../utils/library-assets'
 
 export default defineEventHandler((event) => {
   const auth = requireAuth(event)
@@ -93,6 +99,18 @@ export default defineEventHandler((event) => {
       `).all() as Array<Record<string, unknown>>
     : []
 
+  const directlyAccessibleLibraryAssets = db.prepare(`
+    ${LIBRARY_ASSET_SELECT}
+    WHERE a.user_id = ? OR s.user_id = ?
+    ORDER BY a.updated_at DESC
+  `).all(
+    auth.user.id,
+    auth.user.id,
+    auth.user.id,
+    auth.user.id
+  ) as LibraryAssetRow[]
+  const libraryAssets = expandLibraryAssetBundleDependencies(db, auth.user.id, directlyAccessibleLibraryAssets)
+
   return {
     success: true,
     data: {
@@ -128,6 +146,7 @@ export default defineEventHandler((event) => {
         modelOptions: parseJsonText(preference.model_options_json, {}),
         updatedAt: preference.updated_at
       })),
+      libraryAssets: libraryAssets.map(asset => publicLibraryAsset(db, asset)),
       modelCallLogs
     }
   }

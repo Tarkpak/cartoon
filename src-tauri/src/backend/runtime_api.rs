@@ -837,7 +837,7 @@ async fn resolve_source_bytes(
     Err(ApiError::new(StatusCode::BAD_REQUEST, "不支持的资源格式"))
 }
 
-async fn persist_image_source(
+pub(super) async fn persist_image_source(
     state: &BackendState,
     source: &str,
     prefix: &str,
@@ -3082,7 +3082,7 @@ async fn persist_audio_bytes_async(
     Ok(url)
 }
 
-async fn persist_audio_source(
+pub(super) async fn persist_audio_source(
     state: &BackendState,
     source: &str,
     prefix: &str,
@@ -20717,6 +20717,45 @@ fn mix_bgm(
     ])
 }
 
+fn mix_sound_effect(
+    input_path: &FsPath,
+    effect_path: &FsPath,
+    output_path: &FsPath,
+    start_time: f64,
+    duration: Option<f64>,
+    volume: f64,
+) -> Result<(), ApiError> {
+    let safe_start_ms = if start_time.is_finite() {
+        (start_time.max(0.0) * 1000.0).round() as u64
+    } else {
+        0
+    };
+    let safe_volume = if volume.is_finite() { volume.clamp(0.0, 1.0) } else { 0.6 };
+    let trim = duration
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .map(|value| format!("atrim=0:{},", value))
+        .unwrap_or_default();
+    run_ffmpeg(&[
+        "-y".to_string(),
+        "-i".to_string(),
+        input_path.to_string_lossy().to_string(),
+        "-i".to_string(),
+        effect_path.to_string_lossy().to_string(),
+        "-filter_complex".to_string(),
+        format!(
+            "[0:a]volume=1[a0];[1:a]{}volume={},adelay={}|{}[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=0[aout]",
+            trim, safe_volume, safe_start_ms, safe_start_ms
+        ),
+        "-map".to_string(),
+        "0:v".to_string(),
+        "-map".to_string(),
+        "[aout]".to_string(),
+        "-c:v".to_string(),
+        "copy".to_string(),
+        output_path.to_string_lossy().to_string(),
+    ])
+}
+
 fn validate_merge_video_scene(scene: &Value, path: &str) -> Result<(), ApiError> {
     if !scene.is_object() {
         return Err(workflow_validation_error(path, "Expected object"));
@@ -20795,6 +20834,33 @@ fn validate_video_merge_options(options: &Value) -> Result<(), ApiError> {
                     "body.options.bgm.volume",
                     "Number must be between 0 and 1",
                 ));
+            }
+        }
+    }
+    if let Some(sound_effects) = options.get("soundEffects").filter(|value| !value.is_null()) {
+        let items = sound_effects.as_array().ok_or_else(|| {
+            workflow_validation_error("body.options.soundEffects", "Expected array")
+        })?;
+        if items.len() > 64 {
+            return Err(workflow_validation_error(
+                "body.options.soundEffects",
+                "Array must contain at most 64 items",
+            ));
+        }
+        for (index, item) in items.iter().enumerate() {
+            let path = format!("body.options.soundEffects.{index}");
+            if !item.is_object() {
+                return Err(workflow_validation_error(path, "Expected object"));
+            }
+            required_json_string(item, "url", &path)?;
+            for field in ["startTime", "duration", "volume"] {
+                workflow_optional_number(item, field, &path)?;
+            }
+            if item.get("startTime").and_then(Value::as_f64).is_some_and(|value| value < 0.0) {
+                return Err(workflow_validation_error(format!("{path}.startTime"), "Number must be greater than or equal to 0"));
+            }
+            if item.get("volume").and_then(Value::as_f64).is_some_and(|value| !(0.0..=1.0).contains(&value)) {
+                return Err(workflow_validation_error(format!("{path}.volume"), "Number must be between 0 and 1"));
             }
         }
     }
@@ -20932,6 +20998,33 @@ pub(super) async fn api_video_merge(
                 let volume = bgm.get("volume").and_then(Value::as_f64).unwrap_or(0.3);
                 mix_bgm(&current_path, &bgm_path, &bgm_output, volume)?;
                 current_path = bgm_output;
+            }
+        }
+
+        if let Some(sound_effects) = options.get("soundEffects").and_then(Value::as_array) {
+            for (index, effect) in sound_effects.iter().enumerate() {
+                let url = effect.get("url").and_then(Value::as_str).map(str::trim).unwrap_or("");
+                if url.is_empty() {
+                    continue;
+                }
+                let effect_path = materialize_media_source(
+                    &state,
+                    url,
+                    &temp_dir,
+                    &format!("sound_effect_{index}"),
+                    100 * 1024 * 1024,
+                )
+                .await?;
+                let effect_output = temp_dir.join(format!("sound_effect_{index}.mp4"));
+                mix_sound_effect(
+                    &current_path,
+                    &effect_path,
+                    &effect_output,
+                    effect.get("startTime").and_then(Value::as_f64).unwrap_or(0.0),
+                    effect.get("duration").and_then(Value::as_f64),
+                    effect.get("volume").and_then(Value::as_f64).unwrap_or(0.6),
+                )?;
+                current_path = effect_output;
             }
         }
 

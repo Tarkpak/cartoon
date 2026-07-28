@@ -5,6 +5,7 @@ import type {
   AssetImageHistoryEntry,
   AssetVideoHistoryEntry,
   EnvironmentPanoramaState,
+  FinalMergeOptions,
   FinalVideoAsset
 } from '~/lib/asset-workbench-types'
 import type {
@@ -46,6 +47,8 @@ export interface PropAsset {
   referenceImage?: string
   voiceAsset?: CharacterVoiceAsset
   assetHistory?: AssetImageHistoryEntry[]
+  libraryAssetId?: string
+  libraryAssetVersion?: number
 }
 
 export interface AssetWorkflowMeta {
@@ -58,6 +61,7 @@ export interface AssetWorkflowMeta {
   environmentPanoramaStates?: Record<string, EnvironmentPanoramaState>
   sceneVideoHistories?: Record<string, AssetVideoHistoryEntry[]>
   finalVideo?: FinalVideoAsset | null
+  finalMergeOptions?: FinalMergeOptions
 }
 
 interface UseAssetWorkflowMetaOptions {
@@ -71,6 +75,7 @@ interface UseAssetWorkflowMetaOptions {
   environmentAssetHistories: Ref<Record<string, AssetImageHistoryEntry[]>>
   environmentPanoramaStates: Ref<Record<string, EnvironmentPanoramaState>>
   finalVideo: Ref<FinalVideoAsset | null>
+  finalMergeOptions?: Ref<FinalMergeOptions>
   resolveProjectStatus: () => 'draft' | 'in_progress' | 'completed'
   onHydrated?: () => void
   debounceMs?: number
@@ -214,7 +219,8 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
       environmentHistories: buildEnvironmentHistoryMap(options.environmentAssetHistories.value),
       environmentPanoramaStates,
       sceneVideoHistories: buildSceneVideoHistoryMap(),
-      finalVideo: options.finalVideo.value
+      finalVideo: options.finalVideo.value,
+      finalMergeOptions: options.finalMergeOptions?.value
     }
   }
 
@@ -240,6 +246,39 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
     }
   }
 
+  function normalizeFinalMergeOptions(rawValue: unknown): FinalMergeOptions | null {
+    if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) return null
+    const item = rawValue as Partial<FinalMergeOptions>
+    const transitionType = ['fade', 'dissolve', 'wipe'].includes(item.transitionType || '')
+      ? item.transitionType as FinalMergeOptions['transitionType']
+      : 'none'
+    const audioTracks = Array.isArray(item.audioTracks)
+      ? item.audioTracks.flatMap((track) => {
+          if (!track || typeof track !== 'object' || !track.id || !track.url) return []
+          return [{
+            id: String(track.id),
+            assetId: typeof track.assetId === 'string' ? track.assetId : undefined,
+            assetVersion: typeof track.assetVersion === 'number' && track.assetVersion > 0 ? track.assetVersion : undefined,
+            name: typeof track.name === 'string' ? track.name : '音频轨道',
+            kind: track.kind === 'bgm' ? 'bgm' as const : 'sfx' as const,
+            url: String(track.url),
+            startTime: Math.max(0, Number(track.startTime) || 0),
+            duration: Number.isFinite(Number(track.duration)) ? Math.max(0.1, Number(track.duration)) : undefined,
+            volume: Math.max(0, Math.min(1, Number(track.volume) || 0.6))
+          }]
+        })
+      : []
+    return {
+      sceneOrder: Array.isArray(item.sceneOrder) ? item.sceneOrder.filter((id): id is string => typeof id === 'string') : [],
+      transitionType,
+      transitionDuration: Math.max(0.1, Math.min(2, Number(item.transitionDuration) || 0.5)),
+      addSubtitles: item.addSubtitles === true,
+      bgmUrl: typeof item.bgmUrl === 'string' ? item.bgmUrl : '',
+      bgmVolume: Math.max(0, Math.min(1, Number(item.bgmVolume) || 0.3)),
+      audioTracks
+    }
+  }
+
   async function loadWorkflowMeta(rawMetaInput?: unknown): Promise<boolean> {
     hydratingWorkflowMeta.value = true
     let hasMeta = false
@@ -254,6 +293,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         environmentMotherAssetSelections?: Record<string, unknown>
         sceneVideoHistories?: Record<string, unknown>
         finalVideo?: unknown
+        finalMergeOptions?: unknown
       } | null = null
 
       if (rawMetaInput && typeof rawMetaInput === 'object' && !Array.isArray(rawMetaInput)) {
@@ -266,6 +306,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
           environmentMotherAssetSelections?: Record<string, unknown>
           sceneVideoHistories?: Record<string, unknown>
           finalVideo?: unknown
+          finalMergeOptions?: unknown
         }
       }
 
@@ -317,6 +358,10 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
                   : undefined,
                 referenceImage: typeof prop.referenceImage === 'string' ? prop.referenceImage : undefined,
                 voiceAsset: normalizedVoiceAsset,
+                libraryAssetId: typeof prop.libraryAssetId === 'string' ? prop.libraryAssetId : undefined,
+                libraryAssetVersion: typeof prop.libraryAssetVersion === 'number' && prop.libraryAssetVersion > 0
+                  ? prop.libraryAssetVersion
+                  : undefined,
                 assetHistory: normalizeAssetHistoryEntries(
                   prop.assetHistory,
                   typeof prop.referenceImage === 'string' ? prop.referenceImage : undefined
@@ -403,6 +448,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         }
       }
       const loadedFinalVideo = normalizeFinalVideo(meta?.finalVideo)
+      const loadedFinalMergeOptions = normalizeFinalMergeOptions(meta?.finalMergeOptions)
       const loadedEnvironmentMotherAssetSelections = Object.fromEntries(
         Object.entries(meta?.environmentMotherAssetSelections || {})
           .filter(([, motherAssetId]) => typeof motherAssetId === 'string' && !!motherAssetId.trim())
@@ -417,12 +463,16 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         || Object.keys(loadedEnvironmentPanoramaStates).length > 0
         || Object.keys(loadedSceneVideoHistories).length > 0
         || !!loadedFinalVideo
+        || !!loadedFinalMergeOptions
       options.sceneConfigs.value = loadedConfigs
       options.propAssets.value = loadedProps
       options.environmentAssetHistories.value = loadedEnvironmentHistories
       options.environmentPanoramaStates.value = loadedEnvironmentPanoramaStates
       options.environmentMotherAssetSelections.value = loadedEnvironmentMotherAssetSelections
       options.finalVideo.value = loadedFinalVideo
+      if (options.finalMergeOptions && loadedFinalMergeOptions) {
+        options.finalMergeOptions.value = loadedFinalMergeOptions
+      }
 
       if (!meta) {
         for (const character of options.characters.value) {

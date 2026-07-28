@@ -60,4 +60,21 @@ describe('asset history view mode', () => {
     expect(history.some(entry => entry.viewMode === '四视角')).toBe(true)
     expect(history.some(entry => !entry.viewMode && entry.image.includes('legacy'))).toBe(true)
   })
+
+  it('preserves the library asset id and version used by a project', () => {
+    const history = ensureAssetHistoryEntry([], 'https://example.com/character-v2.png', {
+      source: 'uploaded',
+      libraryAssetId: 'lib_character',
+      libraryAssetVersion: 2
+    })
+
+    expect(history[0]).toMatchObject({
+      libraryAssetId: 'lib_character',
+      libraryAssetVersion: 2
+    })
+    expect(normalizeAssetHistoryEntries(history)[0]).toMatchObject({
+      libraryAssetId: 'lib_character',
+      libraryAssetVersion: 2
+    })
+  })
 })

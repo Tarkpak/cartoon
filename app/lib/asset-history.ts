@@ -69,6 +69,12 @@ function normalizeHistoryEntry(
     createdAt,
     viewMode,
     source: item.source,
+    libraryAssetId: typeof item.libraryAssetId === 'string' && item.libraryAssetId.trim()
+      ? item.libraryAssetId.trim()
+      : undefined,
+    libraryAssetVersion: typeof item.libraryAssetVersion === 'number' && item.libraryAssetVersion > 0
+      ? item.libraryAssetVersion
+      : undefined,
     prompt: typeof item.prompt === 'string' && item.prompt.trim()
       ? item.prompt.trim()
       : undefined
@@ -137,6 +143,8 @@ export function ensureAssetHistoryEntry(
     viewMode?: EnvironmentCropCaptureMode
     source?: AssetHistorySource
     prompt?: string
+    libraryAssetId?: string
+    libraryAssetVersion?: number
   } = {}
 ): AssetImageHistoryEntry[] {
   const nextImage = normalizeImage(image)
@@ -166,6 +174,12 @@ export function ensureAssetHistoryEntry(
     if (!existing.prompt && input.prompt) {
       existing.prompt = input.prompt
     }
+    if (!existing.libraryAssetId && input.libraryAssetId) {
+      existing.libraryAssetId = input.libraryAssetId
+    }
+    if (!existing.libraryAssetVersion && input.libraryAssetVersion) {
+      existing.libraryAssetVersion = input.libraryAssetVersion
+    }
     return entries
   }
 
@@ -175,7 +189,9 @@ export function ensureAssetHistoryEntry(
     createdAt: input.createdAt,
     viewMode: normalizedViewMode,
     source: input.source,
-    prompt: input.prompt
+    prompt: input.prompt,
+    libraryAssetId: input.libraryAssetId,
+    libraryAssetVersion: input.libraryAssetVersion
   }
 
   return [entry, ...entries].slice(0, MAX_ASSET_HISTORY_ENTRIES)

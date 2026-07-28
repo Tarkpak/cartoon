@@ -155,6 +155,8 @@ export type SpeakingStyle = z.infer<typeof SpeakingStyleSchema>
 /** 角色声音资产 */
 export const CharacterVoiceAssetSchema = z.object({
   audioUrl: z.string().describe('角色声音样本音频 URL'),
+  libraryAssetId: z.preprocess(nullToUndefined, z.string().optional()).describe('资源库素材 ID'),
+  libraryAssetVersion: z.preprocess(nullToUndefined, z.number().int().positive().optional()).describe('使用的资源版本'),
   locked: z.preprocess(nullToUndefined, z.boolean().optional()).describe('是否锁定该音频为参考样本'),
   transcript: z.preprocess(nullToUndefined, z.string().optional()).describe('声音样本文本'),
   sourceSceneId: z.preprocess(nullToUndefined, z.string().optional()).describe('来源场景 ID'),

@@ -194,6 +194,17 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       const addSubtitles = input?.addSubtitles === true
       const bgmUrl = (input?.bgmUrl || '').trim()
       const bgmVolume = Math.max(0, Math.min(1, Number(input?.bgmVolume) || 0.3))
+      const audioTracks = Array.isArray(input?.audioTracks) ? input.audioTracks : []
+      const selectedBgm = audioTracks.find(track => track.kind === 'bgm' && track.url.trim())
+      const soundEffects = audioTracks
+        .filter(track => track.kind === 'sfx' && track.url.trim())
+        .map(track => ({
+          id: track.id,
+          url: track.url.trim(),
+          startTime: Math.max(0, Number(track.startTime) || 0),
+          duration: Number.isFinite(Number(track.duration)) ? Math.max(0.1, Number(track.duration)) : undefined,
+          volume: Math.max(0, Math.min(1, Number(track.volume) || 0.6))
+        }))
 
       const response = await $fetch<{
         success: boolean
@@ -221,12 +232,13 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
               duration: transitionDuration
             },
             addSubtitles,
-            bgm: bgmUrl
+            bgm: selectedBgm?.url || bgmUrl
               ? {
-                  url: bgmUrl,
-                  volume: bgmVolume
+                  url: selectedBgm?.url || bgmUrl,
+                  volume: selectedBgm ? Math.max(0, Math.min(1, Number(selectedBgm.volume) || 0.3)) : bgmVolume
                 }
-              : undefined
+              : undefined,
+            soundEffects
           }
         }
       })

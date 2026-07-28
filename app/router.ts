@@ -6,6 +6,7 @@ import ImportVideoDetailPage from './pages/import/video-detail.vue'
 import ImportVideoPage from './pages/import/video.vue'
 import LoginPage from './pages/login.vue'
 import LogsPage from './pages/logs.vue'
+import LibraryPage from './pages/library.vue'
 import ProjectRedirectPage from './pages/projects/[id].vue'
 import ProjectsPage from './pages/projects/index.vue'
 import SettingsPage from './pages/settings.vue'
@@ -28,6 +29,11 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/projects',
     component: ProjectsPage,
+    meta: { layout: 'default' }
+  },
+  {
+    path: '/library',
+    component: LibraryPage,
     meta: { layout: 'default' }
   },
   {

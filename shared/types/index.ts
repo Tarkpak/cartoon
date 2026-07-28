@@ -23,3 +23,6 @@ export * from './continuity'
 
 // 项目类型
 export * from './project'
+
+// 跨项目个人与团队资源库
+export * from './library'

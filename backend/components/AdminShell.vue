@@ -209,6 +209,7 @@ const menuOptions = [
   { label: '总览', key: '/', icon: () => renderMenuIcon('overview') },
   { label: '用户管理', key: '/users', icon: () => renderMenuIcon('users') },
   { label: '云端素材', key: '/tos-files', icon: () => renderMenuIcon('assets') },
+  { label: '资源库管理', key: '/library-assets', icon: () => renderMenuIcon('assets') },
   { label: '调用日志', key: '/logs', icon: () => renderMenuIcon('logs') },
   { label: '供应商 Key', key: '/providers', icon: () => renderMenuIcon('providers') },
   { label: '客户端版本', key: '/client-versions', icon: () => renderMenuIcon('versions') },
@@ -219,6 +220,7 @@ const selectedKey = computed(() => {
   if (route.path.startsWith('/users')) return '/users'
   if (route.path.startsWith('/providers')) return '/providers'
   if (route.path.startsWith('/tos-files')) return '/tos-files'
+  if (route.path.startsWith('/library-assets')) return '/library-assets'
   if (route.path.startsWith('/client-versions')) return '/client-versions'
   if (route.path.startsWith('/logs')) return '/logs'
   if (route.path.startsWith('/settings')) return '/settings'

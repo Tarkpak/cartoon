@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Loader2 } from 'lucide-vue-next'
+import type { LibraryAsset, LibraryAssetCategory } from '#shared/types/library'
+import { Database, Download, Loader2 } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
 import type {
   PropAsset,
@@ -82,9 +83,26 @@ const emit = defineEmits<{
   'upload-prop-voice': [payload: { propId: string, event: Event }]
   'update-prop-voice-lock': [payload: { propId: string, locked: boolean }]
   'open-prop-history': [propId: string]
+  'import-library-asset': [payload: { asset: LibraryAsset, targetId?: string, createNew: boolean, tab: AssetTab }]
+  'save-assets-to-library': [tab: AssetTab]
 }>()
 
 const assetTab = ref<AssetTab>('characters')
+const libraryPickerOpen = ref(false)
+
+const libraryPickerCategories = computed<LibraryAssetCategory[]>(() => {
+  if (assetTab.value === 'characters') return ['character', 'character_voice']
+  if (assetTab.value === 'environments') return ['environment']
+  if (assetTab.value === 'props') return ['prop']
+  return ['style', 'narration', 'bgm', 'sfx', 'other']
+})
+
+const libraryPickerTargets = computed(() => {
+  if (assetTab.value === 'characters') return props.characters.map(item => ({ id: item.id, name: item.name }))
+  if (assetTab.value === 'environments') return props.environmentAssetCards.map(item => ({ id: item.id, name: item.name }))
+  return (assetTab.value === 'props' ? propAssetsOfType.value : otherAssetsOfType.value)
+    .map(item => ({ id: item.id, name: item.name }))
+})
 
 const propAssetsOfType = computed(() => {
   return props.propAssets.filter(item => item.category !== 'other')
@@ -156,7 +174,25 @@ const hasSeedAssets = computed(() => {
           当前展示的是分集目录提取的资产候选
         </div>
       </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" class="gap-1.5" @click="libraryPickerOpen = true">
+          <Database class="h-3.5 w-3.5" />
+          从资源库选择
+        </Button>
+        <Button size="sm" variant="outline" class="gap-1.5" @click="emit('save-assets-to-library', assetTab)">
+          <Download class="h-3.5 w-3.5" />
+          存入资源库
+        </Button>
+      </div>
     </div>
+
+    <LibraryAssetPickerDialog
+      v-model:open="libraryPickerOpen"
+      :categories="libraryPickerCategories"
+      :targets="libraryPickerTargets"
+      :allow-create="assetTab !== 'environments'"
+      @select="emit('import-library-asset', { ...$event, tab: assetTab })"
+    />
 
     <!-- Asset type tabs (underline style) -->
     <div class="shrink-0 border-b">

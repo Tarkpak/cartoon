@@ -350,6 +350,66 @@ function initSchema(conn: Database) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS library_assets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      local_asset_id TEXT NOT NULL,
+      media_type TEXT NOT NULL,
+      category TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      url TEXT NOT NULL,
+      object_key TEXT,
+      mime_type TEXT,
+      size_bytes INTEGER,
+      width INTEGER,
+      height INTEGER,
+      duration_ms INTEGER,
+      content_hash TEXT,
+      perceptual_hash TEXT,
+      source_type TEXT NOT NULL DEFAULT 'upload',
+      source_url TEXT,
+      source_project_id TEXT,
+      copyright_note TEXT NOT NULL DEFAULT '',
+      license_expires_at TEXT,
+      favorite INTEGER NOT NULL DEFAULT 0,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      use_count INTEGER NOT NULL DEFAULT 0,
+      last_used_at TEXT,
+      bundle_json TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      local_created_at TEXT,
+      local_updated_at TEXT,
+      deleted_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(user_id, local_asset_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS library_asset_versions (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL REFERENCES library_assets(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL,
+      url TEXT NOT NULL,
+      object_key TEXT,
+      mime_type TEXT,
+      size_bytes INTEGER,
+      content_hash TEXT,
+      change_note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      UNIQUE(asset_id, version)
+    );
+
+    CREATE TABLE IF NOT EXISTS library_asset_shares (
+      asset_id TEXT NOT NULL REFERENCES library_assets(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      permission TEXT NOT NULL DEFAULT 'view',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(asset_id, user_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_devices_user_id ON user_devices(user_id);
@@ -365,6 +425,10 @@ function initSchema(conn: Database) {
     CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_client_versions_lookup ON client_versions(app_key, platform, arch, channel, status);
     CREATE INDEX IF NOT EXISTS idx_client_versions_version ON client_versions(version);
+    CREATE INDEX IF NOT EXISTS idx_library_assets_user_updated ON library_assets(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_library_assets_visibility ON library_assets(visibility, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_library_assets_hash ON library_assets(content_hash);
+    CREATE INDEX IF NOT EXISTS idx_library_shares_user ON library_asset_shares(user_id);
   `)
 
   addColumnIfMissing(conn, 'model_call_logs', 'credits_charged INTEGER NOT NULL DEFAULT 0')

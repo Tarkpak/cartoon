@@ -96,6 +96,8 @@ const ARK_OPENAPI_VERSION: &str = "2024-01-01";
 mod douyin;
 #[path = "backend/model_constraints.rs"]
 mod model_constraints;
+#[path = "backend/library_api.rs"]
+mod library_api;
 #[path = "backend/prompts_api.rs"]
 mod prompts_api;
 #[path = "backend/runtime_api.rs"]
@@ -110,6 +112,7 @@ mod wx_channels;
 mod xiaohongshu;
 
 use model_constraints::{build_available_model_entry, image_model_config, AvailableModelKind};
+use library_api::*;
 use prompts_api::*;
 use runtime_api::*;
 use short_video::*;
@@ -712,6 +715,9 @@ fn http_client() -> &'static Client {
         Client::builder()
             .timeout(Duration::from_secs(20))
             .redirect(reqwest::redirect::Policy::limited(5))
+            // Bun's HTTP server may close a keep-alive connection after the
+            // bootstrap response while advertising it as reusable.
+            .pool_max_idle_per_host(0)
             .build()
             .expect("failed to build reqwest client")
     })
@@ -3977,6 +3983,57 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         UNIQUE(category, sha256)
       );
 
+      CREATE TABLE IF NOT EXISTS library_assets (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT,
+        owner_account TEXT,
+        owner_display_name TEXT,
+        media_type TEXT NOT NULL,
+        category TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        url TEXT NOT NULL,
+        object_key TEXT,
+        mime_type TEXT,
+        size_bytes INTEGER,
+        width INTEGER,
+        height INTEGER,
+        duration_ms INTEGER,
+        content_hash TEXT,
+        perceptual_hash TEXT,
+        source_type TEXT NOT NULL DEFAULT 'upload',
+        source_url TEXT,
+        source_project_id TEXT,
+        copyright_note TEXT NOT NULL DEFAULT '',
+        license_expires_at TEXT,
+        favorite INTEGER NOT NULL DEFAULT 0,
+        visibility TEXT NOT NULL DEFAULT 'private',
+        permission TEXT NOT NULL DEFAULT 'edit',
+        use_count INTEGER NOT NULL DEFAULT 0,
+        last_used_at TEXT,
+        bundle_json TEXT,
+        shares_json TEXT NOT NULL DEFAULT '[]',
+        version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS library_asset_versions (
+        id TEXT PRIMARY KEY,
+        asset_id TEXT NOT NULL REFERENCES library_assets(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL,
+        url TEXT NOT NULL,
+        object_key TEXT,
+        mime_type TEXT,
+        size_bytes INTEGER,
+        content_hash TEXT,
+        change_note TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        UNIQUE(asset_id, version)
+      );
+
       CREATE TABLE IF NOT EXISTS wx_channels_history (
         id TEXT PRIMARY KEY,
         share_url TEXT NOT NULL UNIQUE,
@@ -4059,6 +4116,14 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
       CREATE INDEX IF NOT EXISTS idx_image_enhance_tasks_created ON image_enhance_tasks(created_at);
       CREATE INDEX IF NOT EXISTS idx_uploaded_media_cache_category_sha256
         ON uploaded_media_cache(category, sha256);
+      CREATE INDEX IF NOT EXISTS idx_library_assets_category_updated
+        ON library_assets(category, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_library_assets_media_updated
+        ON library_assets(media_type, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_library_assets_hash
+        ON library_assets(content_hash);
+      CREATE INDEX IF NOT EXISTS idx_library_assets_deleted
+        ON library_assets(deleted_at);
       CREATE INDEX IF NOT EXISTS idx_wx_channels_history_updated
         ON wx_channels_history(updated_at);
       CREATE INDEX IF NOT EXISTS idx_douyin_history_updated
@@ -4491,6 +4556,25 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             "/api/asset-workflow/upload-image",
             post(api_asset_upload_image)
                 .layer(DefaultBodyLimit::max(ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES)),
+        )
+        .route(
+            "/api/library/assets",
+            get(api_library_assets_list)
+                .post(api_library_assets_create)
+                .layer(DefaultBodyLimit::max(ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES)),
+        )
+        .route("/api/library/assets/batch", post(api_library_assets_batch))
+        .route("/api/library/members", get(api_library_members))
+        .route(
+            "/api/library/assets/{id}",
+            get(api_library_asset_get)
+                .put(api_library_asset_update)
+                .delete(api_library_asset_delete)
+                .layer(DefaultBodyLimit::max(ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES)),
+        )
+        .route(
+            "/api/library/assets/{id}/mark-used",
+            post(api_library_asset_mark_used),
         )
         .route(
             "/api/ark-assets/virtual/groups",
@@ -10951,12 +11035,15 @@ async fn cloud_pull_account_data(
         apply_cloud_model_preferences(state, data.get("modelPreferences").unwrap_or(&Value::Null))?;
     let model_call_logs_imported =
         apply_cloud_model_call_logs(state, data.get("modelCallLogs").unwrap_or(&Value::Null))?;
+    let library_assets_imported =
+        apply_cloud_library_assets(state, data.get("libraryAssets").unwrap_or(&Value::Null))?;
 
     Ok(json!({
       "success": true,
       "projects": projects,
       "promptsImported": prompts_imported,
       "modelPreferencesImported": model_preferences_imported,
+      "libraryAssetsImported": library_assets_imported,
       "modelCallLogsImported": model_call_logs_imported
     }))
 }
@@ -12072,8 +12159,10 @@ mod tests {
         default_prompt_director_preferences, merge_prompt_templates_with_defaults,
         merge_style_presets_with_catalog, normalize_character_gender_value,
         normalize_character_role_value, normalize_time_of_day_value,
+        remove_revoked_shared_library_assets,
         upgrade_style_config_for_catalog,
     };
+    use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use std::collections::HashSet;
 
@@ -12276,5 +12365,45 @@ mod tests {
             build_scoped_tos_key_prefix_for_user("manju-assets", true, false, None),
             (Some("manju-assets".to_string()), false)
         );
+    }
+
+    #[test]
+    fn cloud_library_sync_removes_only_revoked_shared_assets() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE library_assets (
+               id TEXT PRIMARY KEY,
+               owner_user_id TEXT
+             );",
+        )
+        .unwrap();
+        for (id, owner) in [
+            ("own", "current"),
+            ("shared-kept", "other"),
+            ("shared-revoked", "other"),
+        ] {
+            conn.execute(
+                "INSERT INTO library_assets (id, owner_user_id) VALUES (?1, ?2)",
+                params![id, owner],
+            )
+            .unwrap();
+        }
+
+        let removed = remove_revoked_shared_library_assets(
+            &conn,
+            "current",
+            &HashSet::from(["own".to_string(), "shared-kept".to_string()]),
+        )
+        .unwrap();
+
+        assert_eq!(removed, 1);
+        let remaining = conn
+            .prepare("SELECT id FROM library_assets ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(remaining, vec!["own", "shared-kept"]);
     }
 }
