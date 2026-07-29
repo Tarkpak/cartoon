@@ -11,11 +11,20 @@ default-run = "playlet-desktop"
 
 [lib]
 name = "playlet_desktop_lib"
-# Desktop-only build: dropped "cdylib" because the mingw/GNU linker overflows the
-# DLL export table on this large crate ("export ordinal too large"). The desktop bin
-# links the lib via rlib, so the cdylib DLL is unused here. Re-add "cdylib" if/when
-# targeting mobile (Android/iOS) with the MSVC or a working linker.
-crate-type = ["staticlib", "rlib"]
+# The desktop binaries link this crate through rlib. Avoid producing an additional
+# large static archive; add the mobile crate types back if mobile targets are enabled.
+crate-type = ["rlib"]
+
+[profile.dev]
+# Keep source line information without retaining full debug symbols. Incremental
+# artifacts grow quickly for this large crate on Windows GNU builds.
+debug = 1
+incremental = false
+
+[profile.dev.package."*"]
+# Dependency symbols account for most of target/debug/deps and are rarely useful
+# while debugging application code.
+debug = 0
 
 [build-dependencies]
 tauri-build = { version = "2.6.2", features = [] }
