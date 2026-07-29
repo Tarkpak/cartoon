@@ -4,6 +4,7 @@ import {
   buildSceneAssetMentionCandidates,
   mergeSceneEditAssetReferenceOptions,
   normalizeSceneDescriptionMentionsForSave,
+  replaceSceneCharacterAssetMention,
   restoreSceneDescriptionMentionsForEdit,
   resolveUploadedSceneAssetMentionTokens
 } from './scene-edit-dialog'
@@ -15,6 +16,84 @@ function createAsset(input: DisplayAsset): DisplayAsset {
 }
 
 describe('scene description mention normalization', () => {
+  it('replaces a character mention when switching to another character form', () => {
+    const assets = [
+      createAsset({
+        id: 'char:char_yansheng',
+        name: '燕声',
+        type: 'character'
+      }),
+      createAsset({
+        id: 'char:char_yansheng_swimsuit',
+        name: '燕声-泳装',
+        type: 'character',
+        characterParentId: 'char_yansheng',
+        characterVariantName: '泳装'
+      })
+    ]
+
+    const result = replaceSceneCharacterAssetMention({
+      text: '0-3s：@燕声 走到泳池边。',
+      candidates: buildSceneAssetMentionCandidates(assets),
+      characterAssetIds: assets.map(asset => asset.id),
+      nextAssetId: 'char:char_yansheng_swimsuit'
+    })
+
+    expect(result).toBe('0-3s：@燕声-泳装 走到泳池边。')
+  })
+
+  it('restores a selected variant mention from legacy parent-character text', () => {
+    const assets = [
+      createAsset({
+        id: 'char:char_yansheng',
+        name: '燕声',
+        type: 'character'
+      }),
+      createAsset({
+        id: 'char:char_yansheng_swimsuit',
+        name: '燕声-泳装',
+        type: 'character',
+        characterParentId: 'char_yansheng',
+        characterVariantName: '泳装'
+      })
+    ]
+
+    const result = restoreSceneDescriptionMentionsForEdit({
+      text: '燕声 走到泳池边。',
+      candidates: buildSceneAssetMentionCandidates(assets),
+      selectedAssetReferenceIds: ['char:char_yansheng_swimsuit']
+    })
+
+    expect(result).toBe('@燕声-泳装 走到泳池边。')
+  })
+
+  it('switches directly between variants without rewriting the new token twice', () => {
+    const assets = [
+      createAsset({ id: 'char:char_yansheng', name: '燕声', type: 'character' }),
+      createAsset({
+        id: 'char:char_yansheng_swimsuit',
+        name: '燕声-泳装',
+        type: 'character',
+        characterParentId: 'char_yansheng'
+      }),
+      createAsset({
+        id: 'char:char_yansheng_suit',
+        name: '燕声-西装',
+        type: 'character',
+        characterParentId: 'char_yansheng'
+      })
+    ]
+
+    const result = replaceSceneCharacterAssetMention({
+      text: '@燕声-泳装 走进酒会大厅。',
+      candidates: buildSceneAssetMentionCandidates(assets),
+      characterAssetIds: assets.map(asset => asset.id),
+      nextAssetId: 'char:char_yansheng_suit'
+    })
+
+    expect(result).toBe('@燕声-西装 走进酒会大厅。')
+  })
+
   it('persists editor mentions as readable text plus asset reference block', () => {
     const assets = [
       createAsset({

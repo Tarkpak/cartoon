@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyScopedEntityIds,
   buildLoadedCharacters,
   buildLoadedScenes,
   buildSaveCharactersPayload,
@@ -7,6 +8,48 @@ import {
 } from './asset-workbench-project-serialization'
 
 describe('asset workbench project serialization', () => {
+  it('preserves the selected character form while loading and saving scenes', () => {
+    const scenes = buildLoadedScenes([{
+      id: 'scene_variant',
+      title: '泳池边',
+      description: '燕声走到泳池边。',
+      duration: 8,
+      characters: [{
+        name: '燕声',
+        assetId: 'char:char_yansheng_swimsuit',
+        appearance: '头发沾水'
+      }]
+    }])
+
+    expect(scenes[0]?.characters[0]).toMatchObject({
+      assetId: 'char:char_yansheng_swimsuit',
+      appearance: '头发沾水'
+    })
+    expect(buildSaveScenesPayload(scenes)[0]?.characters[0]).toMatchObject({
+      assetId: 'char:char_yansheng_swimsuit'
+    })
+  })
+
+  it('scopes scene character asset ids together with character ids', () => {
+    const scenes = buildLoadedScenes([{
+      id: 'scene_1',
+      title: '泳池边',
+      description: '燕声走到泳池边。',
+      duration: 8,
+      characters: [{ name: '燕声', assetId: 'char:char_variant' }]
+    }])
+    const characters = buildLoadedCharacters([{
+      id: 'char_variant',
+      name: '燕声-泳装',
+      appearance: '泳装形态'
+    }])
+
+    applyScopedEntityIds('project_1', scenes, characters)
+
+    expect(characters[0]?.id).toBe('char_project_1_char_variant')
+    expect(scenes[0]?.characters[0]?.assetId).toBe('char:char_project_1_char_variant')
+  })
+
   it('loads character baseImage when imageUrl is empty', () => {
     const characters = buildLoadedCharacters([
       {

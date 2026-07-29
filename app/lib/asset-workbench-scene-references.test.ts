@@ -9,6 +9,8 @@ import {
 function createCharacter(input: Partial<CharacterData> & Pick<CharacterData, 'id' | 'name'>): CharacterData {
   return {
     id: input.id,
+    parentCharacterId: input.parentCharacterId,
+    variantName: input.variantName,
     name: input.name,
     appearance: input.appearance || '',
     role: input.role || 'supporting',
@@ -162,6 +164,117 @@ describe('scene video reference assets', () => {
     expect(assets[0]).toMatchObject({
       assetId: 'char:char_qiang',
       source: 'configured'
+    })
+  })
+
+  it('keeps only the default form when a character and its variant are both referenced', () => {
+    const scene = createScene({
+      id: 'scene_variant_default',
+      title: '酒会大厅',
+      description: '燕声站在立柱旁，眼神放空。\n\n[引用资产]\n@燕声\n@燕声-泳装',
+      characters: [{ name: '燕声' }]
+    })
+    const characters = [
+      createCharacter({ id: 'char_yansheng', name: '燕声', baseImage: 'yansheng.png' }),
+      createCharacter({
+        id: 'char_yansheng_swimsuit',
+        parentCharacterId: 'char_yansheng',
+        variantName: '泳装',
+        name: '燕声-泳装',
+        baseImage: 'yansheng-swimsuit.png'
+      })
+    ]
+
+    const assets = resolveSceneVideoReferenceAssets({
+      scene,
+      characters,
+      propAssets: [],
+      sceneConfigs: {
+        [scene.id]: createSceneConfig(scene.id, [
+          'char:char_yansheng',
+          'char:char_yansheng_swimsuit'
+        ])
+      }
+    })
+
+    expect(assets).toHaveLength(1)
+    expect(assets[0]).toMatchObject({
+      assetId: 'char:char_yansheng',
+      image: 'yansheng.png'
+    })
+  })
+
+  it('prefers an explicitly requested variant when both character forms are referenced', () => {
+    const scene = createScene({
+      id: 'scene_variant_swimsuit',
+      title: '泳池边',
+      description: '燕声换上泳装走到泳池边。\n\n[引用资产]\n@燕声\n@燕声-泳装',
+      characters: [{ name: '燕声', appearance: '泳装造型' }]
+    })
+    const characters = [
+      createCharacter({ id: 'char_yansheng', name: '燕声', baseImage: 'yansheng.png' }),
+      createCharacter({
+        id: 'char_yansheng_swimsuit',
+        parentCharacterId: 'char_yansheng',
+        variantName: '泳装',
+        name: '燕声-泳装',
+        baseImage: 'yansheng-swimsuit.png'
+      })
+    ]
+
+    const assets = resolveSceneVideoReferenceAssets({
+      scene,
+      characters,
+      propAssets: [],
+      sceneConfigs: {
+        [scene.id]: createSceneConfig(scene.id, [
+          'char:char_yansheng',
+          'char:char_yansheng_swimsuit'
+        ])
+      }
+    })
+
+    expect(assets).toHaveLength(1)
+    expect(assets[0]).toMatchObject({
+      assetId: 'char:char_yansheng_swimsuit',
+      image: 'yansheng-swimsuit.png'
+    })
+  })
+
+  it('uses the persisted scene character asset even when legacy references point to the default form', () => {
+    const scene = createScene({
+      id: 'scene_persisted_variant',
+      title: '酒会大厅',
+      description: '燕声站在立柱旁。\n\n[引用资产]\n@燕声',
+      characters: [{
+        name: '燕声',
+        assetId: 'char:char_yansheng_swimsuit'
+      }]
+    })
+    const characters = [
+      createCharacter({ id: 'char_yansheng', name: '燕声', baseImage: 'yansheng.png' }),
+      createCharacter({
+        id: 'char_yansheng_swimsuit',
+        parentCharacterId: 'char_yansheng',
+        variantName: '泳装',
+        name: '燕声-泳装',
+        baseImage: 'yansheng-swimsuit.png'
+      })
+    ]
+
+    const assets = resolveSceneVideoReferenceAssets({
+      scene,
+      characters,
+      propAssets: [],
+      sceneConfigs: {
+        [scene.id]: createSceneConfig(scene.id, ['char:char_yansheng'])
+      }
+    })
+
+    expect(assets).toHaveLength(1)
+    expect(assets[0]).toMatchObject({
+      assetId: 'char:char_yansheng_swimsuit',
+      image: 'yansheng-swimsuit.png'
     })
   })
 

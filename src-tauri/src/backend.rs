@@ -6180,6 +6180,7 @@ fn validate_scene_json_fields(scene: &Value, path: &str) -> Result<(), ApiError>
         for (index, item) in items.iter().enumerate() {
             let item_path = format!("{path}.characters.{index}");
             required_string(item, "name", &item_path)?;
+            optional_string(item, "assetId", &item_path)?;
             optional_string(item, "appearance", &item_path)?;
             optional_string(item, "action", &item_path)?;
             optional_string(item, "emotion", &item_path)?;

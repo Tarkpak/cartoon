@@ -301,7 +301,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
             title?: string | null
             description: string
             setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string } | null
-            characters?: Array<{ name: string, appearance?: string, emotion?: string }>
+            characters?: Array<{ name: string, assetId?: string, appearance?: string, emotion?: string }>
             narration?: string | null
             duration: number
             firstFrame?: string | null

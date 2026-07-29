@@ -34,7 +34,7 @@ interface LoadedProjectScene {
   description: string
   dramatic?: SceneDramatic | null
   setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string } | null
-  characters?: Array<{ name: string, appearance?: string, emotion?: string }>
+  characters?: Array<{ name: string, assetId?: string, appearance?: string, emotion?: string }>
   props?: Array<{ name: string, description?: string }> | null
   narration?: string | null
   duration: number
@@ -153,12 +153,31 @@ export function applyScopedEntityIds(
   scenes: SceneData[],
   characters: CharacterData[]
 ) {
+  const characterIdMap = new Map(
+    characters.map(character => [
+      character.id,
+      normalizeScopedEntityId('char', projectId, character.id)
+    ])
+  )
+
   scenes.forEach((scene) => {
     scene.id = normalizeScopedEntityId('scene', projectId, scene.id)
+    scene.characters.forEach((sceneCharacter) => {
+      const assetId = sceneCharacter.assetId?.trim()
+      if (!assetId) return
+
+      const rawCharacterId = assetId.startsWith('char:')
+        ? assetId.slice('char:'.length)
+        : assetId
+      const scopedCharacterId = characterIdMap.get(rawCharacterId)
+        || normalizeScopedEntityId('char', projectId, rawCharacterId)
+      sceneCharacter.assetId = `char:${scopedCharacterId}`
+    })
   })
 
   characters.forEach((character) => {
-    character.id = normalizeScopedEntityId('char', projectId, character.id)
+    character.id = characterIdMap.get(character.id)
+      || normalizeScopedEntityId('char', projectId, character.id)
     if (character.parentCharacterId) {
       character.parentCharacterId = normalizeScopedEntityId('char', projectId, character.parentCharacterId)
     }

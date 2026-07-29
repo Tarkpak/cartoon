@@ -264,6 +264,7 @@ export type SceneSetting = z.infer<typeof SceneSettingSchema>
 /** 场景中的角色 */
 export const SceneCharacterSchema = z.object({
   name: z.string().describe('角色名'),
+  assetId: z.string().optional().describe('本场景选用的角色资产 ID'),
   appearance: z.string().optional().describe('外观描述'),
   action: z.string().optional().describe('动作描述'),
   emotion: EmotionSchema.optional().describe('情绪')

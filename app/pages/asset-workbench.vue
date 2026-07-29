@@ -1167,6 +1167,7 @@ function buildAutoPlanSnapshotKey(): string {
     },
     characters: scene.characters.map(character => ({
       name: character.name || '',
+      assetId: character.assetId || '',
       appearance: character.appearance || '',
       emotion: character.emotion || ''
     })),

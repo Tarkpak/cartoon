@@ -3,6 +3,7 @@ import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWo
 import type { DisplayAsset, SceneVideoReferenceAsset } from '~/lib/asset-workbench-types'
 import {
   extractSceneDescriptionMentionTokens,
+  resolveSceneDescriptionWithoutAssetMentions,
   resolveAssetMentionTokenMap
 } from '~/lib/asset-workbench-mentions'
 import { normalizeToken } from '~/lib/asset-workbench-strings'
@@ -135,12 +136,59 @@ export function findCharacterByAssetRefId(
     || characters.find(character => character.id.endsWith(`_${rawCharacterId}`))
 }
 
+function buildSceneCharacterVariantContext(scene: SceneData): string {
+  return normalizeToken([
+    scene.title,
+    resolveSceneDescriptionWithoutAssetMentions(scene.description),
+    scene.narration || '',
+    ...scene.characters.flatMap(character => [character.name, character.appearance || ''])
+  ].join('\n'))
+}
+
+function characterVariantMatchesContext(character: CharacterData, context: string): boolean {
+  if (!character.parentCharacterId || !context) return false
+
+  const variantName = normalizeToken(character.variantName)
+  const characterName = normalizeToken(character.name)
+  return (!!variantName && context.includes(variantName))
+    || (!!characterName && context.includes(characterName))
+}
+
+function preferSceneCharacterReference(
+  current: CharacterData,
+  candidate: CharacterData,
+  context: string
+): CharacterData {
+  const currentMatches = characterVariantMatchesContext(current, context)
+  const candidateMatches = characterVariantMatchesContext(candidate, context)
+  if (currentMatches !== candidateMatches) {
+    return candidateMatches ? candidate : current
+  }
+
+  // When no variant is explicitly requested, keep the default character form.
+  if (!!current.parentCharacterId !== !!candidate.parentCharacterId) {
+    return candidate.parentCharacterId ? current : candidate
+  }
+
+  return current
+}
+
 export function resolveConfiguredCharacterReferences(
   options: Pick<SceneReferenceOptions, 'scene' | 'characters'> & {
     sceneConfigs?: Record<string, SceneConsistencyConfig>
     propAssets?: PropAsset[]
   }
 ): CharacterData[] {
+  const explicitlySelectedCharacters = options.scene.characters
+    .map(character => character.assetId?.trim() || '')
+    .filter(Boolean)
+    .map((assetId) => {
+      const rawCharacterId = assetId.startsWith('char:')
+        ? assetId.slice('char:'.length)
+        : assetId
+      return findCharacterByAssetRefId(rawCharacterId, options.characters)
+    })
+    .filter((character): character is CharacterData => !!character)
   const mentionedCharacterIds = resolveMentionedSceneAssetIds({
     scene: options.scene,
     characters: options.characters,
@@ -155,15 +203,29 @@ export function resolveConfiguredCharacterReferences(
     ? mentionedCharacterIds
     : configuredCharacterIds
 
-  const matched = new Map<string, CharacterData>()
-  for (const characterId of characterIds) {
-    const character = findCharacterByAssetRefId(characterId, options.characters)
-    if (character) {
-      matched.set(character.id, character)
-    }
+  const context = buildSceneCharacterVariantContext(options.scene)
+  const matchedByFamily = new Map<string, CharacterData>()
+  const explicitlySelectedFamilyIds = new Set<string>()
+  for (const character of explicitlySelectedCharacters) {
+    const familyId = character.parentCharacterId || character.id
+    explicitlySelectedFamilyIds.add(familyId)
+    matchedByFamily.set(familyId, character)
   }
 
-  return Array.from(matched.values())
+  for (const characterId of characterIds) {
+    const character = findCharacterByAssetRefId(characterId, options.characters)
+    if (!character) continue
+
+    const familyId = character.parentCharacterId || character.id
+    if (explicitlySelectedFamilyIds.has(familyId)) continue
+    const current = matchedByFamily.get(familyId)
+    matchedByFamily.set(
+      familyId,
+      current ? preferSceneCharacterReference(current, character, context) : character
+    )
+  }
+
+  return Array.from(matchedByFamily.values())
 }
 
 function resolveConfiguredCharacterReferenceAssets(

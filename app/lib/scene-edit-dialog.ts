@@ -455,10 +455,29 @@ export function restoreSceneDescriptionMentionsForEdit(options: {
     candidates: options.candidates,
     selectedAssetReferenceIds: options.selectedAssetReferenceIds
   })
+  const candidateById = new Map(
+    options.candidates.map(candidate => [candidate.asset.id, candidate] as const)
+  )
+  const parentAliases = inlineCandidates.flatMap((candidate) => {
+    const parentId = candidate.asset.characterParentId?.trim()
+    if (!parentId) return []
+
+    const parentCandidate = candidateById.get(`char:${parentId}`)
+      || candidateById.get(parentId)
+    if (!parentCandidate) return []
+
+    return [{
+      ...candidate,
+      asset: {
+        ...candidate.asset,
+        name: parentCandidate.asset.name
+      }
+    }]
+  })
 
   return normalizeSceneDescriptionCharacterMentions(
     options.text,
-    inlineCandidates
+    [...inlineCandidates, ...parentAliases]
   )
 }
 
@@ -498,6 +517,28 @@ export function replaceSceneDescriptionMentionTokensWithAssetNames(
   }
 
   return nextText
+}
+
+export function replaceSceneCharacterAssetMention(options: {
+  text: string
+  candidates: AssetMentionCandidate[]
+  characterAssetIds: string[]
+  nextAssetId: string
+}): string {
+  const candidateById = new Map(
+    options.candidates.map(candidate => [candidate.asset.id, candidate] as const)
+  )
+  const nextCandidate = candidateById.get(options.nextAssetId)
+  if (!options.text || !nextCandidate) return options.text
+
+  const previousTokens = options.characterAssetIds
+    .map(assetId => candidateById.get(assetId)?.token || '')
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length)
+  if (previousTokens.length === 0) return options.text
+
+  const matcher = new RegExp(previousTokens.map(token => escapeRegExp(token)).join('|'), 'g')
+  return options.text.replace(matcher, nextCandidate.token)
 }
 
 export function normalizeSceneDescriptionMentionsForSave(options: {

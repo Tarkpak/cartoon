@@ -10,6 +10,7 @@ import {
   buildSceneAssetMentionCandidates,
   mergeSceneEditAssetReferenceOptions,
   normalizeSceneDescriptionMentionsForSave,
+  replaceSceneCharacterAssetMention,
   restoreSceneDescriptionMentionsForEdit,
   resolveUploadedSceneAssetMentionTokens,
   uniqueValues
@@ -147,12 +148,18 @@ const sceneCharacterRows = computed(() => {
 
   return editForm.value.characters.map((character, index) => {
     const group = resolveSceneCharacterGroup(character.name)
-    const selectedInGroup = group?.assetIds.find(assetId => selectedIds.has(assetId))
+    const persistedAssetId = character.assetId?.trim()
+    const selectedInGroup = persistedAssetId && group?.assetIds.includes(persistedAssetId)
+      ? persistedAssetId
+      : group?.assetIds.find(assetId => selectedIds.has(assetId))
+    const selectedAsset = group?.options.find(option => option.asset.id === selectedInGroup)?.asset
+      || group?.root
     return {
       character,
       index,
       key: `${normalizeCharacterStateName(character.name) || 'character'}_${index}`,
       group,
+      selectedAsset,
       selectedValue: selectedInGroup || AUTO_CHARACTER_STATE_VALUE
     }
   })
@@ -162,7 +169,7 @@ function addSceneCharacter(asset: AssetReferenceOption) {
   const normalizedName = normalizeCharacterStateName(asset.name)
   if (!normalizedName || sceneCharacterNameSet.value.has(normalizedName)) return
 
-  editForm.value.characters.push({ name: asset.name })
+  editForm.value.characters.push({ name: asset.name, assetId: asset.id })
   selectedAssetReferenceIdsInternal.value = uniqueValues([
     ...selectedAssetReferenceIdsInternal.value,
     asset.id
@@ -284,6 +291,7 @@ function handleSave() {
   editForm.value.characters = editForm.value.characters
     .map(character => ({
       name: character.name.trim(),
+      assetId: character.assetId?.trim() || undefined,
       appearance: character.appearance?.trim() || undefined,
       emotion: character.emotion?.trim() || undefined
     }))
@@ -319,16 +327,36 @@ function handleSave() {
   emit('update:open', false)
 }
 
-function updateCharacterStateReference(characterName: string, nextAssetId: string) {
-  const group = resolveSceneCharacterGroup(characterName)
+function updateCharacterStateReference(characterIndex: number, nextAssetId: string) {
+  const sceneCharacter = editForm.value.characters[characterIndex]
+  if (!sceneCharacter) return
+
+  const group = resolveSceneCharacterGroup(sceneCharacter.name)
   if (!group) return
+
+  const normalizedNextAssetId = nextAssetId && nextAssetId !== AUTO_CHARACTER_STATE_VALUE
+    ? nextAssetId
+    : ''
+  sceneCharacter.assetId = normalizedNextAssetId || undefined
 
   const groupAssetIds = new Set(group.assetIds)
   const nextIds = selectedAssetReferenceIdsInternal.value.filter(assetId => !groupAssetIds.has(assetId))
-  if (nextAssetId && nextAssetId !== AUTO_CHARACTER_STATE_VALUE) {
-    nextIds.push(nextAssetId)
+  if (normalizedNextAssetId) {
+    nextIds.push(normalizedNextAssetId)
   }
   selectedAssetReferenceIdsInternal.value = uniqueValues(nextIds)
+
+  if (normalizedNextAssetId && sceneDescriptionSupportsMention.value) {
+    syncSceneDescriptionFromEditor()
+    const nextDescription = replaceSceneCharacterAssetMention({
+      text: editForm.value.description || '',
+      candidates: buildSceneAssetMentionCandidates(assetReferenceOptions.value),
+      characterAssetIds: group.assetIds,
+      nextAssetId: normalizedNextAssetId
+    })
+    editForm.value.description = nextDescription
+    renderSceneDescriptionEditor(nextDescription)
+  }
 }
 
 // 取消
@@ -621,8 +649,8 @@ function handleSceneAssetUpload(event: Event) {
             >
               <div class="flex items-center gap-3">
                 <img
-                  v-if="row.group?.root.referenceImage"
-                  :src="toImageSrc(row.group.root.referenceImage)"
+                  v-if="row.selectedAsset?.referenceImage"
+                  :src="toImageSrc(row.selectedAsset.referenceImage)"
                   :alt="`${row.character.name} 角色图`"
                   class="h-10 w-10 shrink-0 rounded border object-cover"
                 >
@@ -638,14 +666,14 @@ function handleSceneAssetUpload(event: Event) {
                     {{ row.character.name }}
                   </p>
                   <p class="truncate text-xs text-muted-foreground">
-                    {{ row.group?.root.description || '未关联到现有人物资产' }}
+                    {{ row.selectedAsset?.description || '未关联到现有人物资产' }}
                   </p>
                 </div>
 
                 <Select
                   v-if="row.group"
                   :model-value="row.selectedValue"
-                  @update:model-value="updateCharacterStateReference(row.character.name, String($event))"
+                  @update:model-value="updateCharacterStateReference(row.index, String($event))"
                 >
                   <SelectTrigger class="h-8 w-[160px] text-xs">
                     <SelectValue placeholder="选择人物形态" />

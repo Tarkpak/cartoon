@@ -30,7 +30,7 @@ export interface SceneData {
   title: string
   description: string
   dramatic?: SceneDramatic
-  characters: Array<{ name: string, appearance?: string, emotion?: string }>
+  characters: Array<{ name: string, assetId?: string, appearance?: string, emotion?: string }>
   props?: Array<{ name: string, description?: string }>
   narration?: string
   duration: number
