@@ -79,6 +79,14 @@ function normalizeAssetResponse(asset: ArkAssetResponse | undefined, fallback: P
   }
 }
 
+export function applyArkVirtualAssetBinding(
+  target: { arkAsset?: ArkVirtualAssetBinding, baseImage?: string },
+  asset: ArkVirtualAssetBinding
+) {
+  target.arkAsset = asset
+  target.baseImage = asset.sourceUrl?.trim() || undefined
+}
+
 export async function createArkVirtualAssetGroup(input: {
   name: string
   description?: string

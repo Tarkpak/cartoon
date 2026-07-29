@@ -83,6 +83,7 @@ import {
   type GenerateSceneBaselineOptions
 } from '~/lib/asset-workbench-scene-generation'
 import { uploadAssetImage, uploadImageFile } from '~/lib/asset-workbench-upload'
+import { applyArkVirtualAssetBinding } from '~/lib/ark-virtual-assets'
 import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
 import {
   createLibraryAsset,
@@ -1939,10 +1940,7 @@ async function handleCharacterArkAssetSelect(asset: ArkVirtualAssetBinding) {
 
   const previousArkAsset = target.arkAsset
   const previousBaseImage = target.baseImage
-  target.arkAsset = asset
-  if (!target.baseImage?.trim() && asset.sourceUrl?.trim()) {
-    target.baseImage = asset.sourceUrl.trim()
-  }
+  applyArkVirtualAssetBinding(target, asset)
 
   try {
     await saveProject()
