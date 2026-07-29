@@ -43,6 +43,45 @@ function createProp(input: Partial<PropAsset> & Pick<PropAsset, 'id' | 'name'>):
 }
 
 describe('asset-workbench-auto-plan', () => {
+  it('replaces stale character references while preserving non-character references', () => {
+    const characters = [
+      createCharacter({ id: 'char_protagonist', name: '主人公' }),
+      createCharacter({ id: 'char_owner', name: '老板娘' }),
+      createCharacter({ id: 'char_i', name: '我' })
+    ]
+    const scene = createScene({
+      id: 'scene_first_person_narration',
+      title: '三年的老样子',
+      description: '主人公坐下吃饭。',
+      narration: '我在这儿吃了三年。',
+      characters: [{ name: '主人公' }, { name: '老板娘' }],
+      setting: { location: '炒鸡摊', timeOfDay: '深夜' }
+    })
+
+    const result = applyAutomaticAssetPlan({
+      scenes: [scene],
+      characters,
+      sceneConfigs: {
+        [scene.id]: {
+          sceneId: scene.id,
+          mustReferenceAssetIds: ['char:char_protagonist', 'char:char_owner', 'char:char_i', 'prop:voice'],
+          consistencyLevel: 'lock',
+          continuityNotes: ''
+        }
+      },
+      propAssets: [createProp({ id: 'voice', name: '旁白音色', category: 'other' })],
+      environmentAssetIds: ['env:stall'],
+      resolveSceneEnvironmentAssetId: () => 'env:stall'
+    })
+
+    expect(result.nextSceneConfigs[scene.id]?.mustReferenceAssetIds).toEqual([
+      'char:char_owner',
+      'char:char_protagonist',
+      'env:stall',
+      'prop:voice'
+    ])
+  })
+
   it('uses structured scene characters without matching assets from description text', () => {
     const characters = [
       createCharacter({ id: 'char_chen', name: '陈泽' })

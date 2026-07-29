@@ -560,6 +560,9 @@ const {
 
 function synchronizeSceneDescriptionsWithAssetMentions(): boolean {
   const tokenMap = resolveAssetMentionTokenMap()
+  const assetIdByToken = new Map(
+    Array.from(tokenMap.entries()).map(([assetId, token]) => [token, assetId] as const)
+  )
   let changed = false
 
   for (const scene of scenes.value) {
@@ -569,7 +572,14 @@ function synchronizeSceneDescriptionsWithAssetMentions(): boolean {
     const configuredMentionTokens = uniqueSorted(config.mustReferenceAssetIds)
       .map(assetId => tokenMap.get(assetId) || '')
       .filter(Boolean)
+    const configuredCharacterAssetIds = new Set(
+      config.mustReferenceAssetIds.filter(assetId => assetId.startsWith('char:'))
+    )
     const existingMentionTokens = extractSceneDescriptionMentionTokens(scene.description || '')
+      .filter((token) => {
+        const assetId = assetIdByToken.get(token)
+        return !assetId?.startsWith('char:') || configuredCharacterAssetIds.has(assetId)
+      })
     const mentionTokens = uniqueSorted([
       ...configuredMentionTokens,
       ...existingMentionTokens

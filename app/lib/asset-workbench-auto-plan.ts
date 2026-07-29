@@ -383,7 +383,7 @@ export function applyAutomaticAssetPlan(
       : {
           sceneId: scene.id,
           mustReferenceAssetIds: uniqueSorted([
-            ...existing.mustReferenceAssetIds,
+            ...existing.mustReferenceAssetIds.filter(assetId => !assetId.startsWith('char:')),
             ...autoConfig.mustReferenceAssetIds
           ]),
           consistencyLevel: existing.consistencyLevel === 'lock' || autoConfig.consistencyLevel === 'lock' ? 'lock' : 'soft',

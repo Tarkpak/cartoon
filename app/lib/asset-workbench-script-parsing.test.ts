@@ -42,6 +42,26 @@ describe('asset-workbench-script-parsing', () => {
     expect(characters.map(character => character.name)).toEqual(['白叙', '江沉'])
   })
 
+  it('drops a first-person narrator from global assets when it is not a scene character', () => {
+    const scenes = buildParsedScenes({
+      scenes: [{
+        id: 'scene_1',
+        title: '三年的老样子',
+        description: '主人公坐下吃饭。',
+        narration: '我在这儿吃了三年。',
+        characters: ['主人公', '老板娘'],
+        duration: 13
+      }]
+    })
+    const characters = buildParsedCharacters([
+      { name: '主人公' },
+      { name: '老板娘' },
+      { name: '我' }
+    ], scenes)
+
+    expect(characters.map(character => character.name)).toEqual(['主人公', '老板娘'])
+  })
+
   it('normalizes known metadata and preserves open-ended creative values', () => {
     const scenes = buildParsedScenes({
       scenes: [{

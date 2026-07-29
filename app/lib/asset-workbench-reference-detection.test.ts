@@ -60,6 +60,32 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
 }
 
 describe('scene character reference detection', () => {
+  it('uses the explicitly selected variant instead of its parent character', () => {
+    const scene = createScene({
+      id: 'scene_variant',
+      title: '三年的老样子',
+      description: '主人公-白色体恤走向炒鸡摊。',
+      characters: [{
+        name: '主人公',
+        assetId: 'char:char_protagonist_white'
+      }]
+    })
+    const characters = [
+      createCharacter({ id: 'char_protagonist', name: '主人公' }),
+      createCharacter({
+        id: 'char_protagonist_white',
+        parentCharacterId: 'char_protagonist',
+        variantName: '白色体恤',
+        name: '主人公-白色体恤'
+      })
+    ]
+
+    expect(resolveCharacterRefsFromScene({ scene, characters })).toEqual({
+      refs: ['char:char_protagonist_white'],
+      matchedCharacterNames: ['主人公-白色体恤']
+    })
+  })
+
   it('uses structured scene characters without inferring characters from dialogue text', () => {
     const scene = createScene({
       id: 'scene_1',

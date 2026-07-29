@@ -1,6 +1,10 @@
 import { mergeNarrationTexts } from '~/lib/asset-workbench-scenes'
 import { normalizeCharacterName } from '~/lib/asset-workbench-values'
 import { formatSceneDescriptionTimelineBreaks } from '~/lib/scene-description-format'
+import {
+  isNarrativePronounCharacterName,
+  normalizeToken
+} from '~/lib/asset-workbench-strings'
 import { normalizeCharacterGenderText, normalizeCharacterRoleText } from '#shared/types/character'
 import type {
   SceneCameraMovement,
@@ -519,31 +523,36 @@ export function buildParsedCharacters(
   scenes.forEach((scene) => {
     scene.characters.forEach((character) => {
       if (character.name.trim()) {
-        sceneCharacterNames.add(character.name)
+        sceneCharacterNames.add(normalizeToken(character.name))
       }
     })
   })
 
   if (parsedCharacters && parsedCharacters.length > 0) {
-    return parsedCharacters.map((character, index) => ({
-      id: `char_${index + 1}`,
-      name: character.name,
-      appearance: character.description || '',
-      role: normalizeCharacterRoleText(character.role) || '配角',
-      gender: normalizeCharacterGenderText(character.gender),
-      generating: false,
-      generatingViews: false
-    }))
+    return parsedCharacters
+      .filter((character) => {
+        return !isNarrativePronounCharacterName(character.name)
+          || sceneCharacterNames.has(normalizeToken(character.name))
+      })
+      .map((character, index) => ({
+        id: `char_${index + 1}`,
+        name: character.name,
+        appearance: character.description || '',
+        role: normalizeCharacterRoleText(character.role) || '配角',
+        gender: normalizeCharacterGenderText(character.gender),
+        generating: false,
+        generatingViews: false
+      }))
   }
 
   return Array.from(sceneCharacterNames).map((name, index) => {
     const sceneCharacter = scenes
       .flatMap(scene => scene.characters)
-      .find(character => character.name === name)
+      .find(character => normalizeToken(character.name) === name)
 
     return {
       id: `char_${index + 1}`,
-      name,
+      name: sceneCharacter?.name || name,
       appearance: sceneCharacter?.appearance || '',
       role: '配角',
       generating: false,

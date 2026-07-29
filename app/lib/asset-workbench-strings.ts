@@ -10,3 +10,9 @@ export function normalizeToken(value?: string): string {
     .replace(/[\s\u3000]/g, '')
     .replace(/[^\p{L}\p{N}\u4E00-\u9FFF]/gu, '')
 }
+
+const NARRATIVE_PRONOUN_CHARACTER_NAMES = new Set(['我', '本人', '自己'])
+
+export function isNarrativePronounCharacterName(value?: string): boolean {
+  return NARRATIVE_PRONOUN_CHARACTER_NAMES.has(normalizeToken(value))
+}

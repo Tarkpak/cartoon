@@ -278,6 +278,39 @@ describe('scene video reference assets', () => {
     })
   })
 
+  it('ignores a narrator pronoun asset that is not a structured scene character', () => {
+    const scene = createScene({
+      id: 'scene_first_person_narration',
+      title: '三年的老样子',
+      description: '主人公坐下吃饭。\n\n[引用资产]\n@主人公\n@老板娘\n@我',
+      narration: '我在这儿吃了三年。',
+      characters: [{ name: '主人公' }, { name: '老板娘' }]
+    })
+    const characters = [
+      createCharacter({ id: 'char_protagonist', name: '主人公', baseImage: 'protagonist.png' }),
+      createCharacter({ id: 'char_owner', name: '老板娘', baseImage: 'owner.png' }),
+      createCharacter({ id: 'char_i', name: '我', baseImage: 'narrator.png' })
+    ]
+
+    const assets = resolveSceneVideoReferenceAssets({
+      scene,
+      characters,
+      propAssets: [],
+      sceneConfigs: {
+        [scene.id]: createSceneConfig(scene.id, [
+          'char:char_protagonist',
+          'char:char_owner',
+          'char:char_i'
+        ])
+      }
+    })
+
+    expect(assets.map(asset => asset.assetId)).toEqual([
+      'char:char_protagonist',
+      'char:char_owner'
+    ])
+  })
+
   it('ignores config-only prop references that are not @ mentioned', () => {
     const scene = createScene({
       id: 'scene_3',

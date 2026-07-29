@@ -23,6 +23,7 @@ import {
   buildParsedCharacters,
   buildParsedScenes
 } from '~/lib/asset-workbench-script-parsing'
+import { isNarrativePronounCharacterName } from '~/lib/asset-workbench-strings'
 
 export interface AssetWorkbenchParseProgressLogItem {
   id: string
@@ -327,6 +328,7 @@ export function useAssetWorkbenchGeneration(
       for (const item of episode.episodeAssets?.characters || []) {
         const name = item.name?.trim()
         if (!name) continue
+        if (isNarrativePronounCharacterName(name)) continue
 
         const existing = existingNameMap.get(name)
         const description = item.description?.trim() || ''

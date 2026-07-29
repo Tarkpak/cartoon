@@ -7,6 +7,7 @@ import {
   resolveAssetMentionTokenMap
 } from '~/lib/asset-workbench-mentions'
 import { normalizeToken } from '~/lib/asset-workbench-strings'
+import { resolveCharacterRefsFromScene } from '~/lib/asset-workbench-reference-detection'
 
 interface SceneReferenceOptions {
   scene: SceneData
@@ -206,6 +207,16 @@ export function resolveConfiguredCharacterReferences(
   const context = buildSceneCharacterVariantContext(options.scene)
   const matchedByFamily = new Map<string, CharacterData>()
   const explicitlySelectedFamilyIds = new Set<string>()
+  const structuredCharacterFamilyIds = new Set(
+    resolveCharacterRefsFromScene({
+      scene: options.scene,
+      characters: options.characters
+    }).refs
+      .map(assetId => assetId.slice('char:'.length))
+      .map(characterId => findCharacterByAssetRefId(characterId, options.characters))
+      .filter((character): character is CharacterData => !!character)
+      .map(character => character.parentCharacterId || character.id)
+  )
   for (const character of explicitlySelectedCharacters) {
     const familyId = character.parentCharacterId || character.id
     explicitlySelectedFamilyIds.add(familyId)
@@ -218,6 +229,9 @@ export function resolveConfiguredCharacterReferences(
 
     const familyId = character.parentCharacterId || character.id
     if (explicitlySelectedFamilyIds.has(familyId)) continue
+    if (structuredCharacterFamilyIds.size > 0 && !structuredCharacterFamilyIds.has(familyId)) {
+      continue
+    }
     const current = matchedByFamily.get(familyId)
     matchedByFamily.set(
       familyId,

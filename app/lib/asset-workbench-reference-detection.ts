@@ -280,9 +280,30 @@ export function resolveCharacterRefsFromScene(
 ): { refs: string[], matchedCharacterNames: string[] } {
   const refs = new Set<string>()
   const matchedCharacterNames = new Set<string>()
+  const explicitlySelectedCharacterNames = new Set<string>()
+
+  for (const sceneCharacter of options.scene.characters) {
+    const assetId = sceneCharacter.assetId?.trim() || ''
+    if (!assetId) continue
+
+    const rawCharacterId = assetId.startsWith('char:')
+      ? assetId.slice('char:'.length)
+      : assetId
+    const matched = options.characters.find(character => character.id === rawCharacterId)
+      || options.characters.find(character => character.id.endsWith(`_${rawCharacterId}`))
+    if (!matched) continue
+
+    refs.add(`char:${matched.id}`)
+    matchedCharacterNames.add(matched.name)
+    explicitlySelectedCharacterNames.add(normalizeToken(sceneCharacter.name))
+  }
 
   const candidates = collectSceneCharacterCandidates(options.scene)
   for (const candidate of candidates) {
+    if (explicitlySelectedCharacterNames.has(normalizeToken(candidate.primaryName))) {
+      continue
+    }
+
     let matched: CharacterData | undefined = findCharacterVariantForCandidate(
       candidate,
       options.characters

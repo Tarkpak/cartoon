@@ -51,6 +51,8 @@ const editForm = ref<SceneEditData>({
   transitionDuration: 0.5
 })
 const selectedAssetReferenceIdsInternal = ref<string[]>([])
+const sceneEditScrollContainerRef = ref<HTMLDivElement | null>(null)
+const pendingCharacterSelectScrollTop = ref<number | null>(null)
 const sceneAssetUploadInputRef = ref<HTMLInputElement | null>(null)
 const sceneAssetUploading = ref(false)
 const sceneAssetUploadError = ref<string | null>(null)
@@ -359,6 +361,31 @@ function updateCharacterStateReference(characterIndex: number, nextAssetId: stri
   }
 }
 
+function rememberCharacterSelectScrollPosition() {
+  pendingCharacterSelectScrollTop.value = sceneEditScrollContainerRef.value?.scrollTop ?? null
+}
+
+function restoreCharacterSelectScrollPosition(open: boolean) {
+  if (!open) {
+    pendingCharacterSelectScrollTop.value = null
+    return
+  }
+
+  const scrollTop = pendingCharacterSelectScrollTop.value
+  if (scrollTop === null) return
+
+  const restore = () => {
+    if (sceneEditScrollContainerRef.value) {
+      sceneEditScrollContainerRef.value.scrollTop = scrollTop
+    }
+  }
+
+  nextTick(() => {
+    restore()
+    window.requestAnimationFrame(restore)
+  })
+}
+
 // 取消
 function handleCancel() {
   closeSceneDescriptionMention()
@@ -543,7 +570,10 @@ function handleSceneAssetUpload(event: Event) {
         </DialogDescription>
       </DialogHeader>
 
-      <div class="min-h-0 flex-1 space-y-6 overflow-y-auto py-4 pr-1">
+      <div
+        ref="sceneEditScrollContainerRef"
+        class="min-h-0 flex-1 space-y-6 overflow-y-auto py-4 pr-1"
+      >
         <ScriptSceneEditBasicPanel
           v-model:edit-form="editForm"
           :scene-description-supports-mention="sceneDescriptionSupportsMention"
@@ -673,9 +703,13 @@ function handleSceneAssetUpload(event: Event) {
                 <Select
                   v-if="row.group"
                   :model-value="row.selectedValue"
+                  @update:open="restoreCharacterSelectScrollPosition"
                   @update:model-value="updateCharacterStateReference(row.index, String($event))"
                 >
-                  <SelectTrigger class="h-8 w-[160px] text-xs">
+                  <SelectTrigger
+                    class="h-8 w-[160px] text-xs"
+                    @pointerdown="rememberCharacterSelectScrollPosition"
+                  >
                     <SelectValue placeholder="选择人物形态" />
                   </SelectTrigger>
                   <SelectContent>
