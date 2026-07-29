@@ -53,14 +53,14 @@ export const MODEL_DEBUG_OPERATION_OPTIONS = [
 export const MODEL_DEBUG_ALL_FILTER_VALUE = '__all__'
 
 export function useModelDebugLogs() {
-  const { bootstrap, currentUser, loadStatus } = useCloudAdmin()
+  const { loadStatus } = useCloudAdmin()
   const logs = ref<ModelDebugLogEntry[]>([])
   const activeLogId = ref('')
   const detailOpen = ref(false)
   const loading = ref(false)
   const clearing = ref(false)
   const fetchError = ref('')
-  const autoRefresh = ref(true)
+  const autoRefresh = ref(false)
   const total = ref(0)
   const page = ref(1)
 
@@ -74,7 +74,7 @@ export function useModelDebugLogs() {
     sceneId: '',
     taskId: '',
     keyword: '',
-    limit: 100
+    limit: 50
   })
 
   const activeLog = computed(() => logs.value.find(item => item.id === activeLogId.value) || null)
@@ -84,9 +84,30 @@ export function useModelDebugLogs() {
 
   let refreshTimer: ReturnType<typeof setInterval> | null = null
 
-  function openLogDetail(item: ModelDebugLogEntry) {
+  async function openLogDetail(item: ModelDebugLogEntry) {
     activeLogId.value = item.id
     detailOpen.value = true
+
+    try {
+      const response = await $fetch<{
+        success: boolean
+        data: {
+          logs: ModelDebugLogEntry[]
+        }
+      }>('/api/debug/model-logs', {
+        query: {
+          id: item.id,
+          limit: 1,
+          includeDetails: '1'
+        }
+      })
+      const detail = response.data.logs?.[0]
+      if (!detail) return
+      const index = logs.value.findIndex(log => log.id === item.id)
+      if (index >= 0) logs.value[index] = detail
+    } catch (error) {
+      fetchError.value = error instanceof Error ? error.message : '日志详情加载失败'
+    }
   }
 
   function formatDate(value: string): string {
@@ -294,9 +315,6 @@ export function useModelDebugLogs() {
 
   onMounted(async () => {
     await loadStatus()
-    if (currentUser.value?.role === 'admin') {
-      await bootstrap().catch(error => console.error('管理员日志同步失败:', error))
-    }
     await fetchLogs()
     startAutoRefresh()
   })

@@ -11893,6 +11893,15 @@ async fn api_debug_logs_get(
         }
         None => 0,
     };
+    let include_details = query
+        .get("includeDetails")
+        .or_else(|| query.get("include_details"))
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        });
     let require_non_empty_query = |key: &str| -> Result<Option<String>, ApiError> {
         match query.get(key) {
             None => Ok(None),
@@ -11968,10 +11977,15 @@ async fn api_debug_logs_get(
     let project_id_filter = require_non_empty_alias("projectId", &["projectId", "project_id"])?;
     let scene_id_filter = require_non_empty_alias("sceneId", &["sceneId", "scene_id"])?;
     let task_id_filter = require_non_empty_alias("taskId", &["taskId", "task_id"])?;
+    let id_filter = require_non_empty_alias("id", &["id"])?;
 
     use rusqlite::types::Value as Bind;
     let mut where_parts: Vec<String> = Vec::new();
     let mut binds: Vec<Bind> = Vec::new();
+    if let Some(value) = &id_filter {
+        where_parts.push("lower(id) = ?".to_string());
+        binds.push(Bind::Text(value.clone()));
+    }
     if let Some(value) = &provider_filter {
         where_parts.push("lower(provider) = ?".to_string());
         binds.push(Bind::Text(value.clone()));
@@ -12036,14 +12050,19 @@ async fn api_debug_logs_get(
     binds.push(Bind::Integer(limit as i64));
     binds.push(Bind::Integer(offset as i64));
 
+    let detail_columns = if include_details {
+        "request_json, request_raw_json, response_json, response_raw_json, media_refs_json, error_json"
+    } else {
+        "NULL, NULL, NULL, NULL, NULL, NULL"
+    };
+
     let mut stmt = conn
         .prepare(&format!(
             "SELECT id, timestamp, provider, model, operation, status, duration_ms,
-                    endpoint, request_id, project_id, scene_id, task_id, request_json, request_raw_json,
-                    response_json, response_raw_json, media_refs_json, error_json,
+                    endpoint, request_id, project_id, scene_id, task_id, {},
                     owner_account, owner_display_name
              FROM model_debug_logs{} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-            where_clause
+            detail_columns, where_clause
         ))
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 

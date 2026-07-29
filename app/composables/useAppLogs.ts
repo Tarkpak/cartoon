@@ -24,7 +24,7 @@ export function useAppLogs() {
   const loading = ref(false)
   const clearing = ref(false)
   const fetchError = ref('')
-  const autoRefresh = ref(true)
+  const autoRefresh = ref(false)
   const total = ref(0)
   const page = ref(1)
 
@@ -37,7 +37,7 @@ export function useAppLogs() {
     status: '',
     keyword: '',
     modelOnly: false,
-    limit: 200
+    limit: 50
   })
 
   const activeLog = computed(() => logs.value.find(item => item.id === activeLogId.value) || null)
