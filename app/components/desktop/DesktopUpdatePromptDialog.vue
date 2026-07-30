@@ -15,6 +15,7 @@ import { useDesktopUpdater } from '@/composables/useDesktopUpdater'
 import { clientArchLabel, clientChannelLabel, clientPlatformLabel } from '#shared/utils/display-labels'
 
 const STARTUP_UPDATE_CHECK_DELAY_MS = 1200
+const AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 10 * 60 * 1000
 
 const {
   updateInfo: clientUpdateInfo,
@@ -41,7 +42,9 @@ const {
 const dialogOpen = ref(false)
 const startupCheckStarted = useState<boolean>('desktop-updater-startup-check-started', () => false)
 const dismissedVersion = useState<string>('desktop-updater-dismissed-version', () => '')
+const lastAutomaticCheckAt = useState<number>('desktop-updater-last-automatic-check-at', () => 0)
 let startupCheckTimer: number | null = null
+let automaticCheckTimer: number | null = null
 
 const activeClientUpdate = computed(() => {
   return clientUpdateInfo.value?.hasUpdate ? clientUpdateInfo.value : null
@@ -113,9 +116,10 @@ const downloadStatusLabel = computed(() => {
   return '准备下载'
 })
 
-async function runStartupUpdateCheck() {
+async function runAutomaticUpdateCheck() {
   if (!isDesktopRuntime.value || isChecking.value || installing.value) return
 
+  lastAutomaticCheckAt.value = Date.now()
   const clientUpdate = await checkForClientUpdate()
   if (clientUpdate) {
     dialogOpen.value = true
@@ -126,6 +130,27 @@ async function runStartupUpdateCheck() {
   if (!update || dismissedVersion.value === update.version) return
 
   dialogOpen.value = true
+}
+
+function runAutomaticUpdateCheckIfDue() {
+  if (
+    lastAutomaticCheckAt.value > 0
+    && Date.now() - lastAutomaticCheckAt.value < AUTOMATIC_UPDATE_CHECK_INTERVAL_MS
+  ) {
+    return
+  }
+
+  void runAutomaticUpdateCheck()
+}
+
+function handleWindowFocus() {
+  runAutomaticUpdateCheckIfDue()
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    runAutomaticUpdateCheckIfDue()
+  }
 }
 
 function dismissUpdatePrompt() {
@@ -164,14 +189,27 @@ onMounted(() => {
 
   startupCheckStarted.value = true
   startupCheckTimer = window.setTimeout(() => {
-    void runStartupUpdateCheck()
+    runAutomaticUpdateCheckIfDue()
   }, STARTUP_UPDATE_CHECK_DELAY_MS)
+  automaticCheckTimer = window.setInterval(() => {
+    runAutomaticUpdateCheckIfDue()
+  }, AUTOMATIC_UPDATE_CHECK_INTERVAL_MS)
+  window.addEventListener('focus', handleWindowFocus)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onBeforeUnmount(() => {
-  if (!startupCheckTimer) return
-  window.clearTimeout(startupCheckTimer)
-  startupCheckTimer = null
+  if (startupCheckTimer) {
+    window.clearTimeout(startupCheckTimer)
+    startupCheckTimer = null
+  }
+  if (automaticCheckTimer) {
+    window.clearInterval(automaticCheckTimer)
+    automaticCheckTimer = null
+  }
+  window.removeEventListener('focus', handleWindowFocus)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  startupCheckStarted.value = false
 })
 </script>
 
