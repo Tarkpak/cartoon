@@ -2422,7 +2422,16 @@ pub(super) async fn api_video_import_retry(
                 None,
                 json!({ "fromStep": from_step }),
             )?;
-            update_task_status(&conn, &id, "pending", "retry", 0, None)?;
+            conn.execute(
+                "UPDATE video_import_tasks
+                 SET status = 'pending', current_step = 'retry', progress = 0,
+                     error_message = NULL, cancelled_at = NULL, completed_at = NULL, updated_at = ?1
+                 WHERE id = ?2",
+                params![now_iso(), id],
+            )
+            .map_err(|error| {
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+            })?;
             drop(conn);
             let background_state = state.clone();
             let background_task_id = id.clone();
@@ -2457,13 +2466,20 @@ pub(super) async fn api_video_import_cancel(
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
     ensure_task_exists(&conn, &id)?;
-    let run_id = start_step_run(&conn, &id, "cancel", None)?;
-    conn.execute(
-        "UPDATE video_import_tasks SET status = 'cancelled', current_step = 'cancelled', cancelled_at = ?1, updated_at = ?2 WHERE id = ?3",
-        params![now_iso(), now_iso(), id],
-    )
-    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    finish_step_run(&conn, &run_id, "success", None, None, json!({}))?;
+    let task_ids = expand_task_delete_ids(&conn, &[id])?;
+    let cancelled_at = now_iso();
+    for task_id in task_ids {
+        let run_id = start_step_run(&conn, &task_id, "cancel", None)?;
+        conn.execute(
+            "UPDATE video_import_tasks
+             SET status = 'cancelled', current_step = 'cancelled', cancelled_at = ?1,
+                 completed_at = NULL, updated_at = ?1
+             WHERE id = ?2",
+            params![cancelled_at, task_id],
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        finish_step_run(&conn, &run_id, "success", None, None, json!({}))?;
+    }
     Ok(Json(json!({ "success": true })))
 }
 
@@ -2588,6 +2604,7 @@ pub(super) async fn api_video_import_events(
 
 async fn run_initial_video_import_task(state: BackendState, task_id: &str) -> Result<(), ApiError> {
     let conn = db_connection(&state)?;
+    ensure_video_import_task_active(&conn, task_id)?;
     let task = load_task(&conn, task_id)?;
     update_task_status(&conn, task_id, "extracting", "extract", 10, None)?;
     let extract_run_id = start_step_run(&conn, task_id, "extract", None)?;
@@ -2597,6 +2614,7 @@ async fn run_initial_video_import_task(state: BackendState, task_id: &str) -> Re
     match extract_audio(PathBuf::from(&task.source_path), audio_path.clone()).await {
         Ok(()) => {
             let conn = db_connection(&state)?;
+            ensure_video_import_task_active(&conn, task_id)?;
             insert_artifact(
                 &conn,
                 task_id,
@@ -2631,10 +2649,11 @@ async fn run_initial_video_import_task(state: BackendState, task_id: &str) -> Re
     }
 
     let conn = db_connection(&state)?;
+    ensure_video_import_task_active(&conn, task_id)?;
     let asr_run_id = start_step_run(&conn, task_id, "transcribe", Some("bcut"))?;
     drop(conn);
 
-    let output = match transcribe_bcut(audio_path.clone()).await {
+    let output = match transcribe_bcut_for_import(audio_path.clone(), &state, task_id).await {
         Ok(value) => value,
         Err(error) => {
             let conn = db_connection(&state)?;
@@ -2659,6 +2678,7 @@ async fn run_initial_video_import_task(state: BackendState, task_id: &str) -> Re
     };
 
     let conn = db_connection(&state)?;
+    ensure_video_import_task_active(&conn, task_id)?;
     let raw_path = task_dir(&state, task_id).join("asr-raw.json");
     let txt_path = task_dir(&state, task_id).join("subtitle.txt");
     let srt_path = task_dir(&state, task_id).join("subtitle.srt");
@@ -2742,6 +2762,22 @@ async fn extract_audio(video_path: PathBuf, audio_path: PathBuf) -> Result<(), A
 }
 
 pub(super) async fn transcribe_bcut(audio_path: PathBuf) -> Result<BcutOutput, ApiError> {
+    transcribe_bcut_inner(audio_path, None).await
+}
+
+async fn transcribe_bcut_for_import(
+    audio_path: PathBuf,
+    state: &BackendState,
+    task_id: &str,
+) -> Result<BcutOutput, ApiError> {
+    transcribe_bcut_inner(audio_path, Some((state, task_id))).await
+}
+
+async fn transcribe_bcut_inner(
+    audio_path: PathBuf,
+    cancellation: Option<(&BackendState, &str)>,
+) -> Result<BcutOutput, ApiError> {
+    ensure_video_import_cancellation_state(cancellation)?;
     let mut file = File::open(&audio_path)
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let mut bytes = Vec::new();
@@ -2772,6 +2808,7 @@ pub(super) async fn transcribe_bcut(audio_path: PathBuf) -> Result<BcutOutput, A
         None,
     )
     .await?;
+    ensure_video_import_cancellation_state(cancellation)?;
     let in_boss_key = json_str(&create_payload, "in_boss_key")?;
     let resource_id = json_str(&create_payload, "resource_id")?;
     let upload_id = json_str(&create_payload, "upload_id")?;
@@ -2798,6 +2835,7 @@ pub(super) async fn transcribe_bcut(audio_path: PathBuf) -> Result<BcutOutput, A
 
     let mut etags = Vec::new();
     for (index, url) in upload_urls.iter().enumerate() {
+        ensure_video_import_cancellation_state(cancellation)?;
         let start = index * per_size;
         let end = ((index + 1) * per_size).min(bytes.len());
         if start >= end {
@@ -2828,6 +2866,7 @@ pub(super) async fn transcribe_bcut(audio_path: PathBuf) -> Result<BcutOutput, A
         None,
     )
     .await?;
+    ensure_video_import_cancellation_state(cancellation)?;
     let download_url = json_str(&complete_payload, "download_url")?;
 
     let task_payload = bcut_api::<Value>(
@@ -2838,6 +2877,7 @@ pub(super) async fn transcribe_bcut(audio_path: PathBuf) -> Result<BcutOutput, A
         Some(json!({ "resource": download_url, "model_id": BCUT_MODEL_ID })),
     )
     .await?;
+    ensure_video_import_cancellation_state(cancellation)?;
     let task_id = json_str(&task_payload, "task_id")?;
     let start = Instant::now();
     loop {
@@ -2845,6 +2885,7 @@ pub(super) async fn transcribe_bcut(audio_path: PathBuf) -> Result<BcutOutput, A
             return Err(ApiError::new(StatusCode::BAD_GATEWAY, "Bcut ASR 识别超时"));
         }
         tokio::time::sleep(Duration::from_millis(ASR_POLL_INTERVAL_MS)).await;
+        ensure_video_import_cancellation_state(cancellation)?;
         let url = format!("{BCUT_BASE_URL}/task/result?model_id={BCUT_MODEL_ID}&task_id={task_id}");
         let result_payload =
             bcut_api::<Value>(&client, reqwest::Method::GET, &url, None, None).await?;
@@ -3805,7 +3846,7 @@ fn update_task_status(
         "UPDATE video_import_tasks
          SET status = ?1, current_step = ?2, progress = ?3, error_message = ?4,
              started_at = COALESCE(started_at, ?5), completed_at = ?6, updated_at = ?7
-         WHERE id = ?8",
+         WHERE id = ?8 AND status != 'cancelled'",
         params![
             status,
             current_step,
@@ -3819,6 +3860,32 @@ fn update_task_status(
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(())
+}
+
+fn ensure_video_import_task_active(conn: &Connection, task_id: &str) -> Result<(), ApiError> {
+    let status = conn
+        .query_row(
+            "SELECT status FROM video_import_tasks WHERE id = ?1 LIMIT 1",
+            params![task_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "视频导入任务不存在"))?;
+    if status == "cancelled" {
+        return Err(ApiError::new(StatusCode::CONFLICT, "视频导入任务已取消"));
+    }
+    Ok(())
+}
+
+fn ensure_video_import_cancellation_state(
+    cancellation: Option<(&BackendState, &str)>,
+) -> Result<(), ApiError> {
+    let Some((state, task_id)) = cancellation else {
+        return Ok(());
+    };
+    let conn = db_connection(state)?;
+    ensure_video_import_task_active(&conn, task_id)
 }
 
 fn mark_task_failed(

@@ -32,24 +32,25 @@ Historical prompt workflows are intentionally removed. When updating prompts, AP
 ## Common Commands
 
 ```bash
-bun dev                   # Run Rust backend + Vite frontend in parallel
-bun dev:backend           # Start only the Rust backend (cargo run --example playlet-backend)
-bun dev:frontend          # Start only the Vite frontend
-bun build                 # Production frontend build → .output/public
-bun preview               # Run the Rust backend serving the built frontend
+bun run dev                   # Run Rust backend + Vite frontend in parallel
+bun run dev:backend           # Start only the Rust backend (cargo run --example playlet-backend)
+bun run dev:frontend          # Start only the Vite frontend
+bun run build                 # Production frontend build → .output/public
+bun run preview               # Run the Rust backend serving the built frontend
 
-bun lint                  # vue-tsc --noEmit (alias of typecheck; ESLint config has no active rules)
-bun typecheck             # vue-tsc --noEmit
-bun test                  # Run vitest (watch mode)
-bun test:coverage         # Run vitest with coverage
+bun run lint                  # Run ESLint for Vue, TypeScript, and JavaScript
+bun run typecheck             # vue-tsc --noEmit
+bun run test                  # Run frontend Vitest and backend Bun tests once
+bun run test:watch            # Run frontend Vitest in watch mode
+bun run test:coverage         # Run frontend coverage and backend tests
 
 # Run a single test file or filter by name:
-bun test app/lib/asset-workbench-api.test.ts
-bun test -t "parses script"
+bun run test:watch app/lib/asset-workbench-api.test.ts
+bun run test:watch -t "parses script"
 
 # Desktop (Tauri) build & dev:
-bun desktop:dev           # build frontend then `tauri dev`
-bun desktop:build         # full desktop bundle with updater config
+bun run desktop:dev           # build frontend then `tauri dev`
+bun run desktop:build         # full desktop bundle with updater config
 
 # Rust check without running:
 cargo check --manifest-path src-tauri/Cargo.toml
@@ -57,7 +58,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 Ports: Vite dev server runs on `:3000` and proxies `/api` to the Rust backend at `http://127.0.0.1:43127` (override with `RUST_BACKEND_URL`).
 
-Tests live alongside the code they cover (`app/lib/*.test.ts`, `app/composables/*.test.ts`, `shared/types/*.test.ts`). `bun lint`/`bun lint:fix` are both just `vue-tsc --noEmit` — there is no ESLint-based formatting step despite `eslint.config.mjs` existing (its rule set is empty). Match surrounding style manually; the codebase convention is no trailing commas, 2-space indent.
+Tests live alongside the code they cover (`app/lib/*.test.ts`, `app/composables/*.test.ts`, `shared/types/*.test.ts`). Use `bun run lint` for ESLint and `bun run typecheck` for Vue TypeScript validation. Match surrounding style manually; the codebase convention is no trailing commas, 2-space indent.
 
 ## Architecture
 

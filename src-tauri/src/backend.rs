@@ -905,6 +905,73 @@ fn cloud_user_public(conn: &Connection) -> Option<Value> {
     cloud_session(conn).and_then(|session| session.get("user").cloned())
 }
 
+#[derive(Debug)]
+struct ProjectOwnerContext {
+    user_id: String,
+    account: String,
+    display_name: String,
+    is_admin: bool,
+}
+
+fn current_project_owner_context(conn: &Connection) -> Result<ProjectOwnerContext, ApiError> {
+    let user = cloud_user_public(conn)
+        .filter(Value::is_object)
+        .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "未登录云端账号"))?;
+    let user_id = user
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "云端账号信息缺少用户 ID"))?
+        .to_string();
+
+    Ok(ProjectOwnerContext {
+        user_id,
+        account: user
+            .get("account")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        display_name: user
+            .get("displayName")
+            .or_else(|| user.get("display_name"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        is_admin: user.get("role").and_then(Value::as_str) == Some("admin"),
+    })
+}
+
+fn ensure_project_access(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<ProjectOwnerContext, ApiError> {
+    let owner = current_project_owner_context(conn)?;
+    let accessible = if owner.is_admin {
+        conn.query_row(
+            "SELECT 1 FROM projects WHERE id = ?1 LIMIT 1",
+            params![project_id],
+            |_| Ok(()),
+        )
+    } else {
+        conn.query_row(
+            "SELECT 1 FROM projects WHERE id = ?1 AND owner_user_id = ?2 LIMIT 1",
+            params![project_id, owner.user_id.as_str()],
+            |_| Ok(()),
+        )
+    }
+    .optional()
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .is_some();
+
+    if !accessible {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "项目不存在"));
+    }
+    Ok(owner)
+}
+
 fn cloud_user_is_admin() -> bool {
     config_connection()
         .and_then(|conn| cloud_user_public(&conn))
@@ -5044,8 +5111,13 @@ async fn api_project_list(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
 
+    let owner = current_project_owner_context(&conn)?;
     let mut where_parts = Vec::<String>::new();
     let mut where_params = Vec::<String>::new();
+    if !owner.is_admin {
+        where_parts.push("owner_user_id = ?".to_string());
+        where_params.push(owner.user_id);
+    }
     if status != "all" {
         where_parts.push("status = ?".to_string());
         where_params.push(status.to_string());
@@ -5176,6 +5248,7 @@ async fn api_project_create(
     }
 
     let conn = db_connection(&state)?;
+    let owner = current_project_owner_context(&conn)?;
     let now = now_iso();
     let id = format!("proj_{}", Uuid::new_v4().simple());
     let style_id = body
@@ -5215,8 +5288,8 @@ async fn api_project_create(
     let description = body.description.unwrap_or_default();
 
     conn.execute(
-        "INSERT INTO projects (id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'draft', ?7, ?8)",
+        "INSERT INTO projects (id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'draft', ?7, ?8, ?9, ?10, ?11)",
         params![
             id,
             title,
@@ -5225,7 +5298,10 @@ async fn api_project_create(
             style_id,
             aspect_ratio,
             now,
-            now
+            now,
+            owner.user_id,
+            owner.account,
+            owner.display_name
         ],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -5262,18 +5338,7 @@ async fn api_project_delete(
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "缺少项目ID"));
     }
     let conn = db_connection(&state)?;
-    let exists = conn
-        .query_row(
-            "SELECT 1 FROM projects WHERE id = ?1 LIMIT 1",
-            params![id.as_str()],
-            |_| Ok(()),
-        )
-        .optional()
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-        .is_some();
-    if !exists {
-        return Err(ApiError::new(StatusCode::NOT_FOUND, "项目不存在"));
-    }
+    ensure_project_access(&conn, id.as_str())?;
     remember_deleted_project_tombstone(&conn, id.as_str())?;
 
     let script_ids = {
@@ -5319,6 +5384,7 @@ async fn api_project_get(
     State(state): State<BackendState>,
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
+    ensure_project_access(&conn, id.as_str())?;
     let project = conn
         .query_row(
             "SELECT id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at
@@ -6361,6 +6427,7 @@ async fn api_project_put_inner(
     options: ProjectPutOptions,
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
+    ensure_project_access(&conn, id.as_str())?;
     let now = now_iso();
     let save_updated_at = options
         .preserve_updated_at
@@ -12186,14 +12253,60 @@ mod tests {
     use super::{
         build_scoped_tos_key_prefix_for_user, build_upload_tos_key_prefix_for_user,
         clear_workflow_overrides_for_category, cloud_model_log_identity,
-        default_prompt_director_preferences, merge_prompt_templates_with_defaults,
+        default_prompt_director_preferences, ensure_project_access,
+        merge_prompt_templates_with_defaults,
         merge_style_presets_with_catalog, normalize_character_gender_value,
         normalize_character_role_value, normalize_time_of_day_value,
         remove_revoked_shared_library_assets, upgrade_style_config_for_catalog,
+        CLOUD_ADMIN_SESSION_KEY,
     };
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use std::collections::HashSet;
+
+    fn project_access_test_connection(user: Value) -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             CREATE TABLE projects (id TEXT PRIMARY KEY, owner_user_id TEXT);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO system_config (key, value) VALUES (?1, ?2)",
+            params![
+                CLOUD_ADMIN_SESSION_KEY,
+                json!({ "token": "test-token", "user": user }).to_string()
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO projects (id, owner_user_id) VALUES ('own', 'user-1'), ('other', 'user-2'), ('legacy', NULL)",
+            [],
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn project_access_is_owner_scoped_for_members_and_global_for_admins() {
+        let member_conn = project_access_test_connection(json!({
+          "id": "user-1",
+          "account": "member",
+          "role": "user"
+        }));
+        assert!(ensure_project_access(&member_conn, "own").is_ok());
+        assert!(ensure_project_access(&member_conn, "other").is_err());
+        assert!(ensure_project_access(&member_conn, "legacy").is_err());
+
+        let admin_conn = project_access_test_connection(json!({
+          "id": "admin-1",
+          "account": "admin",
+          "role": "admin"
+        }));
+        assert!(ensure_project_access(&admin_conn, "own").is_ok());
+        assert!(ensure_project_access(&admin_conn, "other").is_ok());
+        assert!(ensure_project_access(&admin_conn, "legacy").is_ok());
+    }
 
     #[test]
     fn project_storage_preserves_open_ended_model_metadata() {

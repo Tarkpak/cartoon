@@ -14704,6 +14704,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn jianying_sound_effect_offsets_preserve_zero_and_validate_ranges() {
+        assert_eq!(to_offset_microseconds(Some(0.0)), 0);
+        assert_eq!(to_offset_microseconds(Some(1.25)), 1_250_000);
+
+        let valid = json!({
+          "scenes": [{ "id": "scene-1", "videoUrl": "/videos/scene-1.mp4" }],
+          "options": {
+            "soundEffects": [{
+              "url": "/audios/hit.wav",
+              "startTime": 0,
+              "duration": 0.5,
+              "volume": 0
+            }]
+          }
+        });
+        assert!(validate_jianying_export_payload(&valid).is_ok());
+
+        let invalid = json!({
+          "scenes": [{ "id": "scene-1", "videoUrl": "/videos/scene-1.mp4" }],
+          "options": {
+            "soundEffects": [{ "url": "/audios/hit.wav", "startTime": -0.1 }]
+          }
+        });
+        assert!(validate_jianying_export_payload(&invalid).is_err());
+    }
+
+    #[test]
     fn model_scene_normalization_preserves_open_ended_creative_values() {
         assert_eq!(
             normalize_model_scene_shot_type(Some(json!("过肩双人构图")), ""),
@@ -21186,18 +21213,7 @@ fn parse_video_merge_request(body: &Value) -> Result<(String, Vec<Value>), ApiEr
 
 fn ensure_project_exists(state: &BackendState, project_id: &str) -> Result<(), ApiError> {
     let conn = db_connection(state)?;
-    let exists = conn
-        .query_row(
-            "SELECT 1 FROM projects WHERE id = ?1 LIMIT 1",
-            params![project_id],
-            |_| Ok(()),
-        )
-        .optional()
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-        .is_some();
-    if !exists {
-        return Err(ApiError::new(StatusCode::NOT_FOUND, "项目不存在"));
-    }
+    super::ensure_project_access(&conn, project_id)?;
     Ok(())
 }
 
@@ -21368,6 +21384,13 @@ fn to_microseconds(value: Option<f64>, fallback_seconds: f64) -> i64 {
     ((seconds * 1_000_000.0).round() as i64).max(100_000)
 }
 
+fn to_offset_microseconds(value: Option<f64>) -> i64 {
+    let seconds = value
+        .filter(|item| item.is_finite() && *item >= 0.0)
+        .unwrap_or(0.0);
+    ((seconds * 1_000_000.0).round() as i64).max(0)
+}
+
 fn create_draft_guid() -> String {
     Uuid::new_v4().to_string().to_ascii_uppercase()
 }
@@ -21508,6 +21531,60 @@ fn validate_jianying_export_payload(body: &Value) -> Result<&Vec<Value>, ApiErro
                 if !(0.0..=1.0).contains(&volume) {
                     return Err(export_validation_error(
                         "options.bgm.volume",
+                        "Number must be between 0 and 1",
+                    ));
+                }
+            }
+        }
+        if let Some(sound_effects) = options.get("soundEffects").filter(|value| !value.is_null()) {
+            let items = sound_effects.as_array().ok_or_else(|| {
+                export_validation_error("options.soundEffects", "Expected array")
+            })?;
+            for (index, item) in items.iter().enumerate() {
+                let path = format!("options.soundEffects.{index}");
+                if !item.is_object() {
+                    return Err(export_validation_error(path, "Expected object"));
+                }
+                match item.get("url") {
+                    Some(Value::String(value)) if !value.trim().is_empty() => {}
+                    _ => {
+                        return Err(export_validation_error(
+                            format!("{path}.url"),
+                            "Expected non-empty string",
+                        ));
+                    }
+                }
+                optional_export_string(item, "id", &path)?;
+                for field in ["startTime", "duration", "volume"] {
+                    optional_export_number(item, field, &path)?;
+                }
+                if item
+                    .get("startTime")
+                    .and_then(Value::as_f64)
+                    .is_some_and(|value| value < 0.0)
+                {
+                    return Err(export_validation_error(
+                        format!("{path}.startTime"),
+                        "Number must be greater than or equal to 0",
+                    ));
+                }
+                if item
+                    .get("duration")
+                    .and_then(Value::as_f64)
+                    .is_some_and(|value| value <= 0.0)
+                {
+                    return Err(export_validation_error(
+                        format!("{path}.duration"),
+                        "Number must be greater than 0",
+                    ));
+                }
+                if item
+                    .get("volume")
+                    .and_then(Value::as_f64)
+                    .is_some_and(|value| !(0.0..=1.0).contains(&value))
+                {
+                    return Err(export_validation_error(
+                        format!("{path}.volume"),
                         "Number must be between 0 and 1",
                     ));
                 }
@@ -21918,6 +21995,11 @@ fn build_jianying_draft(
         .and_then(Value::as_f64)
         .unwrap_or(0.3)
         .clamp(0.0, 1.0);
+    let sound_effects = options
+        .get("soundEffects")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
 
     let mut draft_content = create_draft_content_template(
         &create_draft_guid(),
@@ -21931,6 +22013,7 @@ fn build_jianying_draft(
     let text_track_id = create_draft_entity_id();
     let mut video_segments = Vec::<Value>::new();
     let mut audio_segments = Vec::<Value>::new();
+    let mut sound_effect_tracks = Vec::<Value>::new();
     let mut text_segments = Vec::<Value>::new();
     let mut video_materials = Vec::<Value>::new();
     let mut audio_materials = Vec::<Value>::new();
@@ -22159,6 +22242,94 @@ fn build_jianying_draft(
         audio_segments.push(audio_segment);
     }
 
+    for (index, effect) in sound_effects.iter().enumerate() {
+        let raw_url = effect.get("url").and_then(Value::as_str).unwrap_or("");
+        let start = to_offset_microseconds(effect.get("startTime").and_then(Value::as_f64));
+        if start >= timeline_offset {
+            warnings.push(format!(
+                "音效 {}：开始时间超出成片时长，已跳过",
+                index + 1
+            ));
+            continue;
+        }
+        let remaining = timeline_offset - start;
+        let requested_duration = effect
+            .get("duration")
+            .and_then(Value::as_f64)
+            .map(|value| to_microseconds(Some(value), value))
+            .unwrap_or(remaining);
+        let duration = requested_duration.min(remaining).max(1);
+        let volume = effect
+            .get("volume")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.6)
+            .clamp(0.0, 1.0);
+        let media_path = resolve_jianying_media_path(state, raw_url);
+        match media_path_status(&media_path) {
+            "ok" => {}
+            "remote" => warnings.push(format!(
+                "音效 {}：远程 URL，剪映可能无法直接加载 -> {}",
+                index + 1,
+                raw_url
+            )),
+            "inline" => warnings.push(format!(
+                "音效 {}：内联 data URL 不受支持 -> {}",
+                index + 1,
+                raw_url
+            )),
+            _ => warnings.push(format!(
+                "音效 {}：本地文件不存在 -> {}",
+                index + 1,
+                raw_url
+            )),
+        }
+
+        let material_id = create_draft_entity_id();
+        let speed_id = create_draft_entity_id();
+        let segment_id = create_draft_entity_id();
+        audio_materials.push(json!({
+          "app_id": 0,
+          "category_id": "",
+          "category_name": "local",
+          "check_flag": 3,
+          "copyright_limit_type": "none",
+          "duration": duration,
+          "effect_id": "",
+          "formula_id": "",
+          "id": material_id,
+          "local_material_id": material_id,
+          "music_id": material_id,
+          "name": path_file_name(&media_path, &format!("sound_effect_{}.mp3", index + 1)),
+          "path": media_path,
+          "source_platform": 0,
+          "type": "extract_music",
+          "wave_points": []
+        }));
+        speed_materials.push(create_speed_material(&speed_id));
+        let mut segment = create_segment_base(
+            &segment_id,
+            &material_id,
+            &speed_id,
+            start,
+            duration,
+            volume,
+        );
+        if let Some(object) = segment.as_object_mut() {
+            object.insert("clip".to_string(), Value::Null);
+            object.insert("hdr_settings".to_string(), Value::Null);
+            object.insert("render_index".to_string(), json!(0));
+        }
+        sound_effect_tracks.push(json!({
+          "attribute": 0,
+          "flag": 0,
+          "id": create_draft_entity_id(),
+          "is_default_name": false,
+          "name": format!("音效 {}", index + 1),
+          "segments": [segment],
+          "type": "audio"
+        }));
+    }
+
     if let Some(materials) = draft_content
         .get_mut("materials")
         .and_then(Value::as_object_mut)
@@ -22178,6 +22349,7 @@ fn build_jianying_draft(
     if !audio_segments.is_empty() {
         tracks.push(json!({ "attribute": 0, "flag": 0, "id": audio_track_id, "is_default_name": false, "name": "背景音乐", "segments": audio_segments, "type": "audio" }));
     }
+    tracks.extend(sound_effect_tracks);
     if !text_segments.is_empty() {
         tracks.push(json!({ "attribute": 0, "flag": 0, "id": text_track_id, "is_default_name": false, "name": "字幕", "segments": text_segments, "type": "text" }));
     }
@@ -22203,7 +22375,8 @@ fn build_jianying_draft(
       "options": {
         "addSubtitles": include_subtitles,
         "transition": options.get("transition").cloned().unwrap_or(Value::Null),
-        "bgm": if bgm_url.is_empty() { Value::Null } else { json!({ "url": bgm_url, "volume": bgm_volume }) }
+        "bgm": if bgm_url.is_empty() { Value::Null } else { json!({ "url": bgm_url, "volume": bgm_volume }) },
+        "soundEffects": sound_effects
       },
       "warnings": warnings,
       "scenes": manifest_scenes
@@ -22218,7 +22391,8 @@ fn build_jianying_draft(
       "options": {
         "addSubtitles": include_subtitles,
         "transition": options.get("transition").cloned().unwrap_or(Value::Null),
-        "bgm": if bgm_url.is_empty() { Value::Null } else { json!({ "url": bgm_url, "volume": bgm_volume }) }
+        "bgm": if bgm_url.is_empty() { Value::Null } else { json!({ "url": bgm_url, "volume": bgm_volume }) },
+        "soundEffects": sound_effects
       },
       "warnings": warnings,
       "scenes": manifest_scenes

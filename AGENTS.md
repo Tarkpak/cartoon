@@ -10,16 +10,16 @@
 Use Bun. Node >=20.
 
 - bun install: install dependencies.
-- bun dev: start the Vite frontend and Rust backend.
-- bun dev:frontend: run only the frontend.
-- bun dev:backend: run only the backend on 127.0.0.1:43127.
-- bun build: create the production web build.
-- bun preview: preview output through the Rust backend.
-- bun desktop:dev: run the Tauri app locally.
-- bun desktop:build: build the desktop package.
-- bun lint / bun lint:fix: run or fix ESLint.
-- bun typecheck: run Vue TypeScript checks.
-- bun test / bun test:coverage: run Vitest and coverage.
+- bun run dev: start the Vite frontend and Rust backend.
+- bun run dev:frontend: run only the frontend.
+- bun run dev:backend: run only the backend on 127.0.0.1:43127.
+- bun run build: create the production web build.
+- bun run preview: preview output through the Rust backend.
+- bun run desktop:dev: run the Tauri app locally.
+- bun run desktop:build: build the desktop package.
+- bun run lint / bun run lint:fix: run or fix ESLint.
+- bun run typecheck: run Vue TypeScript checks.
+- bun run test / bun run test:coverage: run the frontend Vitest suite and backend Bun tests.
 - cargo check --manifest-path src-tauri/Cargo.toml: check Rust code.
 
 ## Coding Style & Naming Conventions
@@ -32,14 +32,14 @@ Use Bun. Node >=20.
 - Use Vitest for frontend and shared TypeScript logic.
 - Name tests *.test.ts or *.spec.ts and place them near the tested module.
 - For composables, helpers, and API-facing logic, cover one success path and one edge or error path.
-- Run bun test for normal validation; use bun test:coverage when coverage impact matters.
+- Run bun run test for normal validation; use bun run test:coverage when coverage impact matters.
 
 ## Commit & Pull Request Guidelines
 - Follow the Conventional Commit style used in history: feat:, fix:, refactor:, and chore:.
 - Example: feat: add style preset import validation.
 - PRs should describe purpose, link the issue or task, and include screenshots for UI changes.
 - Note any .env, migration, deployment, or desktop packaging impact.
-- Before merging, run bun lint, bun typecheck, and relevant tests.
+- Before merging, run bun run lint, bun run typecheck, and relevant tests.
 
 ## Security & Configuration Tips
 - Copy .env.example to .env for local setup.

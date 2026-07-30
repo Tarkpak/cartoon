@@ -143,6 +143,13 @@ interface JianyingExportOptions {
       url: string
       volume?: number
     }
+    soundEffects?: Array<{
+      id?: string
+      url: string
+      startTime?: number
+      duration?: number
+      volume?: number
+    }>
   }
 }
 

@@ -187,6 +187,12 @@ export function useProjectsIndexPage() {
       await $fetch(`/api/project/${projectToDelete.value.id}`, {
         method: 'DELETE'
       })
+      if (
+        typeof window !== 'undefined'
+        && window.localStorage.getItem('playlet:last-project-id') === projectToDelete.value.id
+      ) {
+        window.localStorage.removeItem('playlet:last-project-id')
+      }
       showDeleteDialog.value = false
       projectToDelete.value = null
       await fetchProjects(currentPage.value)

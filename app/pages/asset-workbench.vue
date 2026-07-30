@@ -3122,6 +3122,22 @@ async function handleExportJianyingProject() {
   const bgmVolume = Number.isFinite(Number(finalStageMergeOptions.value.bgmVolume))
     ? Math.max(0, Math.min(1, Number(finalStageMergeOptions.value.bgmVolume)))
     : 0.3
+  const audioTracks = Array.isArray(finalStageMergeOptions.value.audioTracks)
+    ? finalStageMergeOptions.value.audioTracks
+    : []
+  const selectedBgm = audioTracks.find(track => track.kind === 'bgm' && track.url.trim())
+  const soundEffects = audioTracks
+    .filter(track => track.kind === 'sfx' && track.url.trim())
+    .map((track) => {
+      const volume = Number(track.volume)
+      return {
+        id: track.id,
+        url: track.url.trim(),
+        startTime: Math.max(0, Number(track.startTime) || 0),
+        duration: Number.isFinite(Number(track.duration)) ? Math.max(0.1, Number(track.duration)) : undefined,
+        volume: Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 0.6
+      }
+    })
 
   exportingJianyingProject.value = true
 
@@ -3144,12 +3160,15 @@ async function handleExportJianyingProject() {
           type: transitionType,
           duration: transitionDuration
         },
-        bgm: bgmUrl
+        bgm: selectedBgm?.url || bgmUrl
           ? {
-              url: bgmUrl,
-              volume: bgmVolume
+              url: selectedBgm?.url || bgmUrl,
+              volume: selectedBgm && Number.isFinite(Number(selectedBgm.volume))
+                ? Math.max(0, Math.min(1, Number(selectedBgm.volume)))
+                : bgmVolume
             }
-          : undefined
+          : undefined,
+        soundEffects
       }
     })
 
