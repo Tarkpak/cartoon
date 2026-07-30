@@ -5743,6 +5743,14 @@ fn provider_images_edits_endpoint(base_url: &str) -> String {
     }
 }
 
+fn provider_image_request_endpoint(base_url: &str, has_reference_images: bool) -> String {
+    if has_reference_images {
+        provider_images_edits_endpoint(base_url)
+    } else {
+        provider_images_generations_endpoint(base_url)
+    }
+}
+
 fn provider_image_task_endpoint(base_url: &str, task_id: &str) -> String {
     let normalized = base_url.trim().trim_end_matches('/');
     let task_id = tos_percent_encode(task_id.trim());
@@ -6066,66 +6074,6 @@ fn reference_image_part(reference: &str, index: usize) -> Result<reqwest::multip
         .map_err(|error| error.to_string())
 }
 
-async fn gpt_image_2_reference_urls(reference_images: &[String]) -> Result<Vec<String>, String> {
-    let mut output = Vec::new();
-    let mut seen = HashSet::new();
-    for reference in reference_images {
-        let trimmed = reference.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if is_http_url(trimmed) {
-            if seen.insert(trimmed.to_string()) {
-                output.push(trimmed.to_string());
-            }
-            continue;
-        }
-
-        let (mime, bytes) = if let Some((mime, bytes)) = parse_data_url(trimmed) {
-            (mime, bytes)
-        } else if let Some(bytes) = decode_base64_bytes(trimmed) {
-            let mime = detect_image_proxy_mime_type(&bytes)
-                .unwrap_or("image/png")
-                .to_string();
-            (mime, bytes)
-        } else {
-            return Err(
-                "gpt-image-2 参考图必须使用公网 URL；本地路径不能直接提交给模型服务".to_string(),
-            );
-        };
-        if bytes.is_empty() {
-            return Err("gpt-image-2 参考图数据为空".to_string());
-        }
-        if bytes.len() > 35 * 1024 * 1024 {
-            return Err("gpt-image-2 参考图超过 35MB 上限".to_string());
-        }
-        if !load_backend_tos_config().enabled {
-            return Err(
-                "gpt-image-2 参考图必须使用公网 URL。请启用 TOS/CDN，或直接传入公网图片 URL"
-                    .to_string(),
-            );
-        }
-
-        let normalized_mime = if mime.starts_with("image/") {
-            mime
-        } else {
-            detect_image_proxy_mime_type(&bytes)
-                .unwrap_or("image/png")
-                .to_string()
-        };
-        let ext = infer_extension_from_mime(&normalized_mime, "png");
-        let filename = build_unique_filename("image2-reference", &ext);
-        let url = upload_media_bytes_to_tos_async("images", filename, bytes)
-            .await
-            .map_err(|error| error.message)?
-            .ok_or_else(|| "TOS 已启用但未返回 gpt-image-2 参考图上传地址".to_string())?;
-        if seen.insert(url.clone()) {
-            output.push(url);
-        }
-    }
-    Ok(output)
-}
-
 async fn poll_openai_compatible_image_task(
     base_url: &str,
     api_key: &str,
@@ -6299,7 +6247,6 @@ async fn request_custom_openai_image_generation(
     let is_gpt_image_2_series = is_gpt_image_2_model(&normalized_model);
     let is_apimart_gpt_image_2 = is_apimart && normalized_model == "gpt-image-2";
     let supports_edit = normalized_model.starts_with("gpt-image") || is_gpt_image_2_series;
-    let use_image_urls_in_generations = is_gpt_image_2_series;
     if !reference_images.is_empty() && !supports_edit {
         return Err(format!("模型 {} 不支持参考图编辑", model));
     }
@@ -6328,14 +6275,10 @@ async fn request_custom_openai_image_generation(
     } else {
         size.replace('*', "x")
     };
-    let image_url_references = if use_image_urls_in_generations {
-        gpt_image_2_reference_urls(reference_images).await?
-    } else {
-        Vec::new()
-    };
-
     let mut last_error = None::<String>;
     let _log_started_at = Utc::now().timestamp_millis();
+    let use_multipart_edit = !reference_images.is_empty();
+    let endpoint = provider_image_request_endpoint(&base_url, use_multipart_edit);
 
     llm_dev_log!(
         "request",
@@ -6343,27 +6286,17 @@ async fn request_custom_openai_image_generation(
         model_id,
         "generateImage",
         None::<i64>,
-        "endpoint" => if !reference_images.is_empty() && !use_image_urls_in_generations {
-            provider_images_edits_endpoint(&base_url)
-        } else {
-            provider_images_generations_endpoint(&base_url)
-        },
+        "endpoint" => endpoint.as_str(),
         "prompt" => llm_dev_log_preview(prompt, 220),
         "size" => resolved_size.as_str(),
         "quality" => quality.as_deref().unwrap_or(""),
         "resolution" => resolution.as_deref().unwrap_or(""),
-        "image_urls" => image_url_references.len(),
-        "referenceImages" => if use_image_urls_in_generations { 0 } else { reference_images.len() },
+        "referenceImages" => reference_images.len(),
         "apiKeys" => api_keys.len()
     );
 
     for api_key in api_keys {
-        let use_multipart_edit = !reference_images.is_empty() && !use_image_urls_in_generations;
-        let endpoint_for_log = if use_multipart_edit {
-            provider_images_edits_endpoint(&base_url)
-        } else {
-            provider_images_generations_endpoint(&base_url)
-        };
+        let endpoint_for_log = endpoint.clone();
         let mut request_log_payload = if use_multipart_edit {
             json!({
               "model": model.as_str(),
@@ -6466,9 +6399,6 @@ async fn request_custom_openai_image_generation(
             }
             if let Some(resolution) = &resolution {
                 request_body["resolution"] = json!(resolution);
-            }
-            if !reference_images.is_empty() && use_image_urls_in_generations {
-                request_body["image_urls"] = json!(image_url_references);
             }
             request_log_payload = request_body.clone();
             llm_http_client()
@@ -15135,7 +15065,7 @@ mod tests {
     }
 
     #[test]
-    fn image_2_variants_use_image_urls_generation_path() {
+    fn image_2_variants_are_detected() {
         for model in [
             "gpt-image-2",
             "gpt-image-2-official",
@@ -15143,10 +15073,25 @@ mod tests {
         ] {
             assert!(
                 is_gpt_image_2_model(model),
-                "expected {model} to use image_urls request format"
+                "expected {model} to be detected as an image-2 model"
             );
         }
         assert!(!is_gpt_image_2_model("gpt-image-1"));
+    }
+
+    #[test]
+    fn image_request_endpoint_depends_on_reference_images() {
+        for base_url in [
+            "http://localhost:8317/v1",
+            "https://api.apimart.ai/v1",
+            "https://api.apib.ai/v1/images/generations",
+        ] {
+            assert!(
+                provider_image_request_endpoint(base_url, false)
+                    .ends_with("/images/generations")
+            );
+            assert!(provider_image_request_endpoint(base_url, true).ends_with("/images/edits"));
+        }
     }
 
     #[test]
