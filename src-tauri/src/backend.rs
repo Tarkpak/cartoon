@@ -53,6 +53,7 @@ const PROMPT_PROFILE_STATE_KEY: &str = "prompt_profile_state_default";
 const PROMPT_DIRECTOR_PREFERENCES_KEY: &str = "prompt_director_preferences_default";
 const PROMPT_DIRECTOR_PREFERENCES_MAX_CHARS: usize = 50_000;
 const ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES: usize = 50 * 1024 * 1024;
+const MODEL_TEST_BODY_LIMIT_BYTES: usize = 50 * 1024 * 1024;
 const VIDEO_IMPORT_UPLOAD_BODY_LIMIT_BYTES: usize = 2 * 1024 * 1024 * 1024;
 const SETTINGS_CONFIG_EXPORT_VERSION: i32 = 1;
 const SETTINGS_CONFIG_TEXT_MAX_CHARS: usize = 16 * 1024;
@@ -4534,7 +4535,10 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             post(api_prompts_single_restore),
         )
         .route("/api/prompts/reset-all", post(api_prompts_reset_all))
-        .route("/api/models/test", post(api_models_test))
+        .route(
+            "/api/models/test",
+            post(api_models_test).layer(DefaultBodyLimit::max(MODEL_TEST_BODY_LIMIT_BYTES)),
+        )
         .route("/api/test", get(api_test))
         .route(
             "/api/cloud/status",
