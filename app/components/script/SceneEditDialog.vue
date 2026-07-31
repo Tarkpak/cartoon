@@ -11,6 +11,7 @@ import {
   mergeSceneEditAssetReferenceOptions,
   normalizeSceneDescriptionMentionsForSave,
   replaceSceneCharacterAssetMention,
+  resolvePreservedSceneAssetReferenceIds,
   restoreSceneDescriptionMentionsForEdit,
   resolveUploadedSceneAssetMentionTokens,
   uniqueValues
@@ -302,10 +303,16 @@ function handleSave() {
   if (sceneDescriptionSupportsMention.value) {
     syncSceneDescriptionFromEditor()
 
+    const mentionCandidates = buildSceneAssetMentionCandidates(assetReferenceOptions.value)
+    const preservedAssetReferenceIds = resolvePreservedSceneAssetReferenceIds({
+      candidates: mentionCandidates,
+      selectedAssetReferenceIds: selectedAssetReferenceIdsInternal.value
+    })
+
     const normalized = normalizeSceneDescriptionMentionsForSave({
       text: editForm.value.description || '',
-      candidates: buildSceneAssetMentionCandidates(assetReferenceOptions.value),
-      selectedAssetReferenceIds: selectedAssetReferenceIdsInternal.value,
+      candidates: mentionCandidates,
+      selectedAssetReferenceIds: preservedAssetReferenceIds,
       preserveSelectedAssetReferenceIds: true
     })
 

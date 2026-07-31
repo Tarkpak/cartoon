@@ -733,6 +733,19 @@ fn http_client() -> &'static Client {
     })
 }
 
+fn cloud_data_http_client() -> &'static Client {
+    static CLIENT: OnceLock<Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        Client::builder()
+            .timeout(Duration::from_secs(120))
+            .http1_only()
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .pool_max_idle_per_host(0)
+            .build()
+            .expect("failed to build cloud data client")
+    })
+}
+
 fn llm_http_client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
@@ -1136,12 +1149,41 @@ async fn cloud_request_json(
     token: Option<&str>,
     body: Option<Value>,
 ) -> Result<Value, ApiError> {
+    cloud_request_json_with_client(http_client(), base_url, method, path, token, body).await
+}
+
+async fn cloud_data_request_json(
+    base_url: &str,
+    method: reqwest::Method,
+    path: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+) -> Result<Value, ApiError> {
+    cloud_request_json_with_client(
+        cloud_data_http_client(),
+        base_url,
+        method,
+        path,
+        token,
+        body,
+    )
+    .await
+}
+
+async fn cloud_request_json_with_client(
+    client: &Client,
+    base_url: &str,
+    method: reqwest::Method,
+    path: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+) -> Result<Value, ApiError> {
     let url = format!(
         "{}/{}",
         base_url.trim_end_matches('/'),
         path.trim_start_matches('/')
     );
-    let mut request = http_client().request(method, url);
+    let mut request = client.request(method, url);
     request = cloud_auth_headers(request, token);
     if let Some(body) = body {
         request = request.json(&body);
@@ -1156,7 +1198,15 @@ async fn cloud_request_json(
         )
     })?;
     let status = response.status();
-    let text = response.text().await.unwrap_or_default();
+    let text = response.text().await.map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!(
+                "读取后台响应失败: {}",
+                build_cloud_transport_error_message(&error)
+            ),
+        )
+    })?;
     let payload =
         serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({ "message": text }));
     if !status.is_success() {
@@ -11138,7 +11188,31 @@ async fn cloud_pull_account_data(
     base_url: &str,
     token: &str,
 ) -> Result<Value, ApiError> {
-    let response = cloud_request_json(
+    match cloud_data_request_json(
+        base_url,
+        reqwest::Method::GET,
+        "/api/client/sync-manifest",
+        Some(token),
+        None,
+    )
+    .await
+    {
+        Ok(response)
+            if response
+                .get("data")
+                .and_then(|value| value.get("syncVersion"))
+                .and_then(Value::as_i64)
+                .unwrap_or(0)
+                >= 2 =>
+        {
+            return cloud_pull_account_data_v2(state, base_url, token).await;
+        }
+        Ok(_) => {}
+        Err(error) if error.status == StatusCode::NOT_FOUND => {}
+        Err(error) => return Err(error),
+    }
+
+    let response = cloud_data_request_json(
         base_url,
         reqwest::Method::GET,
         "/api/client/account-data",
@@ -11164,6 +11238,229 @@ async fn cloud_pull_account_data(
       "modelPreferencesImported": model_preferences_imported,
       "libraryAssetsImported": library_assets_imported,
       "modelCallLogsImported": model_call_logs_imported
+    }))
+}
+
+fn cloud_page_is_complete(
+    page: usize,
+    total_pages: Option<usize>,
+    item_count: usize,
+    page_size: usize,
+) -> bool {
+    total_pages
+        .map(|value| page >= value)
+        .unwrap_or(item_count < page_size)
+}
+
+async fn cloud_pull_paginated_items(
+    base_url: &str,
+    token: &str,
+    endpoint: &str,
+    item_key: &str,
+    page_size: usize,
+) -> Result<Vec<Value>, ApiError> {
+    let mut page = 1usize;
+    let mut items = Vec::new();
+
+    loop {
+        let separator = if endpoint.contains('?') { '&' } else { '?' };
+        let path = format!("{endpoint}{separator}page={page}&pageSize={page_size}");
+        let response = cloud_data_request_json(
+            base_url,
+            reqwest::Method::GET,
+            &path,
+            Some(token),
+            None,
+        )
+        .await?;
+        let data = response.get("data").cloned().unwrap_or_else(|| json!({}));
+        let page_items = data
+            .get(item_key)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let item_count = page_items.len();
+        items.extend(page_items);
+
+        let total_pages = data
+            .get("pagination")
+            .and_then(|value| value.get("totalPages"))
+            .and_then(Value::as_u64)
+            .map(|value| value as usize);
+        if cloud_page_is_complete(page, total_pages, item_count, page_size) {
+            break;
+        }
+        page += 1;
+    }
+
+    Ok(items)
+}
+
+async fn cloud_pull_projects_v2(
+    state: &BackendState,
+    base_url: &str,
+    token: &str,
+) -> Result<Value, ApiError> {
+    let summaries = cloud_pull_paginated_items(
+        base_url,
+        token,
+        "/api/client/projects",
+        "projects",
+        20,
+    )
+    .await?;
+    let mut imported = 0usize;
+    let mut skipped = 0usize;
+    let mut failed = 0usize;
+
+    for summary in summaries {
+        let cloud_project_id = cloud_value_text(&summary, "id");
+        if cloud_project_id.is_empty() {
+            failed += 1;
+            continue;
+        }
+        let path = format!("/api/client/projects/{cloud_project_id}");
+        let project = match cloud_data_request_json(
+            base_url,
+            reqwest::Method::GET,
+            &path,
+            Some(token),
+            None,
+        )
+        .await
+        {
+            Ok(response) => response
+                .get("data")
+                .and_then(|value| value.get("project"))
+                .cloned()
+                .unwrap_or(Value::Null),
+            Err(error) => {
+                failed += 1;
+                eprintln!("[CloudSync] project snapshot pull failed: {}", error.message);
+                continue;
+            }
+        };
+        match apply_cloud_project_snapshot(state, &project).await {
+            Ok(true) => imported += 1,
+            Ok(false) => skipped += 1,
+            Err(error) => {
+                failed += 1;
+                eprintln!("[CloudSync] project import failed: {}", error.message);
+            }
+        }
+    }
+
+    Ok(json!({ "imported": imported, "skipped": skipped, "failed": failed }))
+}
+
+async fn cloud_pull_account_data_v2(
+    state: &BackendState,
+    base_url: &str,
+    token: &str,
+) -> Result<Value, ApiError> {
+    let mut errors = serde_json::Map::new();
+    let projects = match cloud_pull_projects_v2(state, base_url, token).await {
+        Ok(result) => {
+            let failed = result.get("failed").and_then(Value::as_u64).unwrap_or(0);
+            if failed > 0 {
+                errors.insert(
+                    "projects".to_string(),
+                    json!(format!("{failed} 个项目快照同步失败")),
+                );
+            }
+            result
+        }
+        Err(error) => {
+            errors.insert("projects".to_string(), json!(error.message));
+            json!({ "imported": 0, "skipped": 0, "failed": 0 })
+        }
+    };
+
+    let prompts_imported = match cloud_data_request_json(
+        base_url,
+        reqwest::Method::GET,
+        "/api/client/prompt-state",
+        Some(token),
+        None,
+    )
+    .await
+    {
+        Ok(response) => apply_cloud_prompt_state(
+            state,
+            response
+                .get("data")
+                .and_then(|value| value.get("promptState"))
+                .unwrap_or(&Value::Null),
+        )?,
+        Err(error) => {
+            errors.insert("promptState".to_string(), json!(error.message));
+            false
+        }
+    };
+
+    let model_preferences_imported = match cloud_data_request_json(
+        base_url,
+        reqwest::Method::GET,
+        "/api/client/model-preferences",
+        Some(token),
+        None,
+    )
+    .await
+    {
+        Ok(response) => apply_cloud_model_preferences(
+            state,
+            response
+                .get("data")
+                .and_then(|value| value.get("modelPreferences"))
+                .unwrap_or(&Value::Null),
+        )?,
+        Err(error) => {
+            errors.insert("modelPreferences".to_string(), json!(error.message));
+            false
+        }
+    };
+
+    let library_assets_imported = match cloud_pull_paginated_items(
+        base_url,
+        token,
+        "/api/client/library/assets",
+        "libraryAssets",
+        50,
+    )
+    .await
+    {
+        Ok(assets) => apply_cloud_library_assets(state, &Value::Array(assets))?,
+        Err(error) => {
+            errors.insert("libraryAssets".to_string(), json!(error.message));
+            0
+        }
+    };
+
+    let model_call_logs_imported = match cloud_pull_paginated_items(
+        base_url,
+        token,
+        "/api/client/model-call-logs",
+        "modelCallLogs",
+        50,
+    )
+    .await
+    {
+        Ok(logs) => apply_cloud_model_call_logs(state, &Value::Array(logs))?,
+        Err(error) => {
+            errors.insert("modelCallLogs".to_string(), json!(error.message));
+            0
+        }
+    };
+
+    Ok(json!({
+      "success": errors.is_empty(),
+      "syncVersion": 2,
+      "projects": projects,
+      "promptsImported": prompts_imported,
+      "modelPreferencesImported": model_preferences_imported,
+      "libraryAssetsImported": library_assets_imported,
+      "modelCallLogsImported": model_call_logs_imported,
+      "errors": errors
     }))
 }
 
@@ -12294,7 +12591,7 @@ mod tests {
     use super::{
         build_scoped_tos_key_prefix_for_user, build_upload_tos_key_prefix_for_user,
         claim_legacy_projects, clear_workflow_overrides_for_category, cloud_model_log_identity,
-        default_prompt_director_preferences, ensure_project_access,
+        cloud_page_is_complete, default_prompt_director_preferences, ensure_project_access,
         merge_prompt_templates_with_defaults,
         merge_style_presets_with_catalog, normalize_character_gender_value,
         normalize_character_role_value, normalize_time_of_day_value,
@@ -12607,5 +12904,13 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
         assert_eq!(remaining, vec!["own", "shared-kept"]);
+    }
+
+    #[test]
+    fn cloud_pagination_uses_server_page_count_and_legacy_short_page_fallback() {
+        assert!(!cloud_page_is_complete(1, Some(3), 20, 20));
+        assert!(cloud_page_is_complete(3, Some(3), 20, 20));
+        assert!(!cloud_page_is_complete(1, None, 20, 20));
+        assert!(cloud_page_is_complete(2, None, 7, 20));
     }
 }

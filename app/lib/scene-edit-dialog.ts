@@ -500,6 +500,18 @@ export function extractMentionedAssetIdsFromDescription(
   return Array.from(ids)
 }
 
+export function resolvePreservedSceneAssetReferenceIds(options: {
+  candidates: AssetMentionCandidate[]
+  selectedAssetReferenceIds: string[]
+}): string[] {
+  const assetTypeById = new Map(
+    options.candidates.map(candidate => [candidate.asset.id, candidate.asset.type] as const)
+  )
+
+  return uniqueValues(options.selectedAssetReferenceIds)
+    .filter(assetId => assetTypeById.get(assetId) !== 'prop')
+}
+
 export function replaceSceneDescriptionMentionTokensWithAssetNames(
   text: string,
   candidates: AssetMentionCandidate[]

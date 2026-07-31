@@ -19,7 +19,7 @@ import {
 export function useProjectsIndexPage() {
   const router = useRouter()
   const route = useRoute()
-  const { loadStatus } = useCloudAdmin()
+  const { bootstrap: bootstrapCloudData, loadStatus } = useCloudAdmin()
   const {
     presets: availableStylePresets,
     categories: availableStyleCategories,
@@ -234,7 +234,7 @@ export function useProjectsIndexPage() {
   }, 300)
 
   onMounted(async () => {
-    await loadStatus()
+    await bootstrapCloudData().catch(() => loadStatus())
     await Promise.all([
       fetchProjects(),
       loadStylePresets()

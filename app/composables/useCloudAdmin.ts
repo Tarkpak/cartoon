@@ -25,6 +25,7 @@ interface CloudAdminStatus {
 const status = ref<CloudAdminStatus | null>(null)
 const loading = ref(false)
 const error = ref('')
+let bootstrapPromise: Promise<CloudAdminStatus> | null = null
 
 function errorPayload(error: unknown) {
   return error as {
@@ -99,11 +100,18 @@ export function useCloudAdmin() {
   }
 
   async function bootstrap() {
-    const response = await $fetch<{ success: boolean, data: CloudAdminStatus }>('/api/cloud/bootstrap', {
+    if (bootstrapPromise) return bootstrapPromise
+
+    bootstrapPromise = $fetch<{ success: boolean, data: CloudAdminStatus }>('/api/cloud/bootstrap', {
       method: 'POST'
+    }).then((response) => {
+      status.value = response.data
+      return response.data
+    }).finally(() => {
+      bootstrapPromise = null
     })
-    status.value = response.data
-    return response.data
+
+    return bootstrapPromise
   }
 
   async function heartbeat() {

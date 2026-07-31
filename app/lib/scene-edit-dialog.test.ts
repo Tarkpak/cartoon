@@ -4,6 +4,7 @@ import {
   buildSceneAssetMentionCandidates,
   mergeSceneEditAssetReferenceOptions,
   normalizeSceneDescriptionMentionsForSave,
+  resolvePreservedSceneAssetReferenceIds,
   replaceSceneCharacterAssetMention,
   restoreSceneDescriptionMentionsForEdit,
   resolveUploadedSceneAssetMentionTokens
@@ -274,5 +275,50 @@ describe('scene description mention normalization', () => {
     })
 
     expect(result.assetIds).toEqual(['prop:prop_1', 'prop:prop_2'])
+  })
+
+  it('does not preserve a stale prop reference after its mention is removed', () => {
+    const assets = [
+      createAsset({
+        id: 'char:char_1',
+        name: '阿强',
+        type: 'character'
+      }),
+      createAsset({
+        id: 'env:scene_1',
+        name: '医院走廊',
+        type: 'environment'
+      }),
+      createAsset({
+        id: 'prop:prop_1',
+        name: '工作证',
+        type: 'prop'
+      }),
+      createAsset({
+        id: 'prop:narration_voice',
+        name: '旁白音色',
+        type: 'other'
+      })
+    ]
+    const candidates = buildSceneAssetMentionCandidates(assets)
+    const selectedAssetReferenceIds = resolvePreservedSceneAssetReferenceIds({
+      candidates,
+      selectedAssetReferenceIds: assets.map(asset => asset.id)
+    })
+
+    const result = normalizeSceneDescriptionMentionsForSave({
+      text: '0-5s：阿强穿过走廊。',
+      candidates,
+      selectedAssetReferenceIds,
+      preserveSelectedAssetReferenceIds: true
+    })
+
+    expect(selectedAssetReferenceIds).toEqual([
+      'char:char_1',
+      'env:scene_1',
+      'prop:narration_voice'
+    ])
+    expect(result.assetIds).toEqual(selectedAssetReferenceIds)
+    expect(result.assetIds).not.toContain('prop:prop_1')
   })
 })
