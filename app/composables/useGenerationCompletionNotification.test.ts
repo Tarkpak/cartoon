@@ -1,13 +1,14 @@
 import { ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const tauriPermissionGrantedMock = vi.fn(async () => false)
-const tauriRequestPermissionMock = vi.fn(async () => 'default' as NotificationPermission)
 const tauriSendNotificationMock = vi.fn()
+const tauriInvokeMock = vi.fn()
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: tauriInvokeMock
+}))
 
 vi.mock('@tauri-apps/plugin-notification', () => ({
-  isPermissionGranted: tauriPermissionGrantedMock,
-  requestPermission: tauriRequestPermissionMock,
   sendNotification: tauriSendNotificationMock
 }))
 
@@ -32,6 +33,29 @@ describe('useGenerationCompletionNotification', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
+  })
+
+  it('reads native desktop permission after restart instead of the WebView permission', async () => {
+    class NotificationMock {
+      static permission: NotificationPermission = 'denied'
+      static requestPermission = vi.fn(async () => 'denied' as NotificationPermission)
+    }
+
+    vi.stubGlobal('window', {
+      __TAURI_INTERNALS__: {},
+      isSecureContext: true,
+      Notification: NotificationMock
+    })
+    vi.stubGlobal('Notification', NotificationMock)
+    tauriInvokeMock.mockResolvedValueOnce(true)
+
+    const { refreshBrowserNotificationStatus } = await import('./useGenerationCompletionNotification')
+    const status = await refreshBrowserNotificationStatus()
+
+    expect(tauriInvokeMock).toHaveBeenCalledWith('plugin:notification|is_permission_granted')
+    expect(status.permission).toBe('granted')
+    expect(status.canNotify).toBe(true)
+    expect(NotificationMock.requestPermission).not.toHaveBeenCalled()
   })
 
   it('warms permission from a user gesture and keeps completion notifications distinct', async () => {

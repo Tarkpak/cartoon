@@ -1,9 +1,6 @@
 import type { WorkflowCompletionNotificationOptions } from '#shared/types/workflow-models'
-import {
-  isPermissionGranted as isTauriNotificationPermissionGranted,
-  requestPermission as requestTauriNotificationPermission,
-  sendNotification as sendTauriNotification
-} from '@tauri-apps/plugin-notification'
+import { invoke } from '@tauri-apps/api/core'
+import { sendNotification as sendTauriNotification } from '@tauri-apps/plugin-notification'
 
 interface WorkflowModelOptionsResponse {
   success: boolean
@@ -137,10 +134,10 @@ async function resolveDesktopNotificationStatus(
   }
 
   try {
-    const granted = await isTauriNotificationPermissionGranted()
-    const permission: NotificationPermission = granted
+    const granted = await invoke<boolean | null>('plugin:notification|is_permission_granted')
+    const permission: NotificationPermission = granted === true
       ? 'granted'
-      : cachedDesktopNotificationPermission === 'denied'
+      : granted === false
         ? 'denied'
         : 'default'
     cachedDesktopNotificationPermission = permission
@@ -166,15 +163,11 @@ export async function requestBrowserNotificationPermission(): Promise<BrowserNot
     let permission: NotificationPermission = cachedDesktopNotificationPermission || 'default'
 
     try {
-      const granted = await isTauriNotificationPermissionGranted()
-      if (granted) {
-        permission = 'granted'
-      } else if (permission === 'default') {
-        permission = await requestTauriNotificationPermission()
-      }
+      const status = await resolveDesktopNotificationStatus(current)
+      permission = status.permission as NotificationPermission
 
-      if (permission !== 'granted' && await isTauriNotificationPermissionGranted()) {
-        permission = 'granted'
+      if (permission === 'default') {
+        permission = await invoke<NotificationPermission>('plugin:notification|request_permission')
       }
     } catch (error) {
       console.warn('[useGenerationCompletionNotification] 申请桌面系统通知权限失败:', error)
