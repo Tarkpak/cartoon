@@ -5668,6 +5668,9 @@ async fn run_workflow_text_model(
     workflow_step: &str,
     prompt: &str,
 ) -> Result<(String, String, String), String> {
+    cloud_refresh_model_runtime_config(state)
+        .await
+        .map_err(|error| format!("刷新后台模型配置失败: {}", error.message))?;
     let conn = db_connection(state).map_err(|error| error.message)?;
     let creds = load_provider_creds(&conn);
     let model_id = resolve_runtime_workflow_model_id(&conn, workflow_step)?;
@@ -7297,6 +7300,9 @@ async fn run_workflow_image_model(
     prefix: &str,
     reference_images: &[String],
 ) -> Result<(String, String, String), String> {
+    cloud_refresh_model_runtime_config(state)
+        .await
+        .map_err(|error| format!("刷新后台模型配置失败: {}", error.message))?;
     let conn = db_connection(state).map_err(|error| error.message)?;
     let creds = load_provider_creds(&conn);
     let workflow_model_options = workflow_model_options(&conn).map_err(|error| error.message)?;
@@ -17047,6 +17053,7 @@ pub(super) async fn api_models_test(
 ) -> Result<Json<Value>, ApiError> {
     let start = Utc::now().timestamp_millis();
     validate_models_test_payload(&body)?;
+    cloud_refresh_model_runtime_config(&state).await?;
     let model_type = json_string(body.get("modelType"), "text");
     let conn = db_connection(&state)?;
     let selected_models =
@@ -17081,6 +17088,16 @@ pub(super) async fn api_models_test(
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             format!("无法识别模型提供商: {}", model_id),
+        ));
+    }
+    let available = build_available_models(&conn)?;
+    if !available_model_enabled_for_provider(&available, &model_type, &model_id, &provider) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "模型 {} 未在后台启用，或不属于供应商 {}",
+                model_id, provider
+            ),
         ));
     }
     let operation = model_type_to_operation(&model_type);

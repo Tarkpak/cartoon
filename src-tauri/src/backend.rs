@@ -2911,6 +2911,16 @@ fn find_available_model_for_type(
     })
 }
 
+fn available_model_enabled_for_provider(
+    available: &Value,
+    model_type: &str,
+    model_id: &str,
+    provider: &str,
+) -> bool {
+    find_available_model_for_type(available, model_type, model_id)
+        .is_some_and(|model| model.get("provider").and_then(Value::as_str) == Some(provider))
+}
+
 fn workflow_step_category(step_id: &str) -> Option<&'static str> {
     match step_id {
         "script_parsing" | "video_import_script_generation" | "scene_description_refinement" => {
@@ -3116,6 +3126,7 @@ fn workflow_current_selections(conn: &Connection, available: &Value) -> Result<V
         let resolved = overrides
             .get(step_id)
             .and_then(Value::as_str)
+            .filter(|model_id| workflow_model_exists_for_step(available, step_id, model_id))
             .map(str::to_string)
             .or_else(|| workflow_resolved_default_model(available, &selected, step_id))
             .unwrap_or_default();
@@ -8309,10 +8320,10 @@ fn custom_openai_entry_has_model(entry: &Value, model_id: &str) -> bool {
     if target.is_empty() {
         return false;
     }
-    ["textModels", "availableTextModels"]
-        .iter()
-        .filter_map(|key| entry.get(*key))
-        .filter_map(Value::as_array)
+    entry
+        .get("textModels")
+        .and_then(Value::as_array)
+        .into_iter()
         .flatten()
         .filter_map(Value::as_str)
         .any(|candidate| candidate.trim() == target)
@@ -8322,14 +8333,8 @@ fn custom_openai_entry_for_model(model_id: &str, creds: &Value) -> Option<Value>
     let custom = creds.get("custom_openai")?;
     let entries = custom_openai_provider_entries(custom);
     entries
-        .iter()
+        .into_iter()
         .find(|entry| custom_openai_entry_has_model(entry, model_id))
-        .cloned()
-        .or_else(|| {
-            entries
-                .into_iter()
-                .find(|entry| custom_openai_entry_is_configured(entry))
-        })
 }
 
 fn normalize_non_empty_string_list(
@@ -10510,6 +10515,60 @@ async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value
     cloud_status_payload(&conn)
 }
 
+async fn cloud_refresh_model_runtime_config(state: &BackendState) -> Result<(), ApiError> {
+    let (base_url, token) = {
+        let conn = db_connection(state)?;
+        let Some(base_url) = cloud_base_url(&conn) else {
+            return Ok(());
+        };
+        let Some(token) = cloud_token(&conn) else {
+            return Ok(());
+        };
+        (base_url, token)
+    };
+
+    let (bootstrap, credentials) = tokio::try_join!(
+        cloud_request_json(
+            &base_url,
+            reqwest::Method::GET,
+            "/api/client/bootstrap",
+            Some(&token),
+            None,
+        ),
+        cloud_request_secure_json(
+            &base_url,
+            reqwest::Method::GET,
+            "/api/client/provider-credentials",
+            Some(&token),
+            None,
+        )
+    )?;
+    let credentials_data = credentials
+        .get("data")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    set_cloud_runtime_credentials(cloud_provider_credentials_to_local(Some(credentials_data)));
+
+    let conn = db_connection(state)?;
+    let mut session = cloud_session(&conn).unwrap_or_else(|| json!({}));
+    if let Some(obj) = session.as_object_mut() {
+        obj.insert("lastBootstrapAt".to_string(), json!(now_iso()));
+        obj.insert(
+            "bootstrap".to_string(),
+            bootstrap.get("data").cloned().unwrap_or(Value::Null),
+        );
+        if let Some(user) = bootstrap
+            .get("data")
+            .and_then(|data| data.get("user"))
+            .cloned()
+        {
+            obj.insert("user".to_string(), user);
+        }
+    }
+    set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &session)?;
+    Ok(())
+}
+
 async fn cloud_post_client_json(
     state: &BackendState,
     path: &str,
@@ -11647,6 +11706,7 @@ async fn api_cloud_heartbeat(State(state): State<BackendState>) -> Result<Json<V
         })
     };
     let result = cloud_post_client_json(&state, "/api/client/device/heartbeat", body).await?;
+    cloud_refresh_model_runtime_config(&state).await?;
     if let Some(credit_balance) = result
         .get("data")
         .and_then(|data| data.get("creditAccount"))
@@ -12589,18 +12649,132 @@ async fn api_not_implemented(Path(path): Path<String>) -> (StatusCode, Json<Valu
 #[cfg(test)]
 mod tests {
     use super::{
-        build_scoped_tos_key_prefix_for_user, build_upload_tos_key_prefix_for_user,
-        claim_legacy_projects, clear_workflow_overrides_for_category, cloud_model_log_identity,
-        cloud_page_is_complete, default_prompt_director_preferences, ensure_project_access,
-        merge_prompt_templates_with_defaults,
-        merge_style_presets_with_catalog, normalize_character_gender_value,
-        normalize_character_role_value, normalize_time_of_day_value,
-        remove_revoked_shared_library_assets, upgrade_style_config_for_catalog,
-        CLOUD_ADMIN_SESSION_KEY,
+        available_model_enabled_for_provider, build_scoped_tos_key_prefix_for_user,
+        build_upload_tos_key_prefix_for_user, claim_legacy_projects,
+        clear_workflow_overrides_for_category, cloud_model_log_identity, cloud_page_is_complete,
+        cloud_provider_credentials_to_local, custom_openai_entry_for_model,
+        custom_openai_entry_has_model,
+        default_prompt_director_preferences, ensure_project_access,
+        merge_prompt_templates_with_defaults, merge_style_presets_with_catalog,
+        normalize_character_gender_value, normalize_character_role_value,
+        normalize_time_of_day_value, remove_revoked_shared_library_assets,
+        upgrade_style_config_for_catalog, CLOUD_ADMIN_SESSION_KEY,
     };
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use std::collections::HashSet;
+
+    fn configured_custom_openai_entry(
+        id: &str,
+        selected_models: &[&str],
+        available_models: &[&str],
+    ) -> Value {
+        json!({
+          "id": id,
+          "enabled": true,
+          "displayName": id,
+          "baseUrl": format!("https://{id}.example.com/v1"),
+          "apiKey": format!("key-{id}"),
+          "textModels": selected_models,
+          "availableTextModels": available_models
+        })
+    }
+
+    #[test]
+    fn custom_openai_routing_uses_only_selected_models() {
+        let first = configured_custom_openai_entry("first", &[], &["shared-image-model"]);
+        let second = configured_custom_openai_entry(
+            "second",
+            &["shared-image-model"],
+            &["shared-image-model"],
+        );
+        let creds = json!({
+          "custom_openai": {
+            "providers": [first.clone(), second]
+          }
+        });
+
+        assert!(!custom_openai_entry_has_model(&first, "shared-image-model"));
+        assert_eq!(
+            custom_openai_entry_for_model("shared-image-model", &creds)
+                .and_then(|entry| entry.get("id").and_then(Value::as_str).map(str::to_string)),
+            Some("second".to_string())
+        );
+    }
+
+    #[test]
+    fn custom_openai_routing_rejects_unselected_models_without_fallback() {
+        let creds = json!({
+          "custom_openai": {
+            "providers": [configured_custom_openai_entry(
+                "first",
+                &[],
+                &["discovered-but-disabled"]
+            )]
+          }
+        });
+
+        assert!(custom_openai_entry_for_model("discovered-but-disabled", &creds).is_none());
+        assert!(custom_openai_entry_for_model("unknown-model", &creds).is_none());
+    }
+
+    #[test]
+    fn cloud_custom_openai_routing_preserves_per_instance_model_selection() {
+        let creds = cloud_provider_credentials_to_local(Some(json!([
+          {
+            "id": "first",
+            "providerKey": "custom_openai",
+            "displayName": "第一个供应商",
+            "baseUrl": "https://first.example.com/v1",
+            "apiKey": "key-first",
+            "models": ["other-model"],
+            "availableModels": ["gpt-image-2", "other-model"]
+          },
+          {
+            "id": "second",
+            "providerKey": "custom_openai",
+            "displayName": "第二个供应商",
+            "baseUrl": "https://second.example.com/v1",
+            "apiKey": "key-second",
+            "models": ["gpt-image-2"],
+            "availableModels": ["gpt-image-2"]
+          }
+        ])));
+
+        let selected = custom_openai_entry_for_model("gpt-image-2", &creds)
+            .expect("the enabled provider should be selected");
+        assert_eq!(selected["id"], "second");
+        assert_eq!(selected["baseUrl"], "https://second.example.com/v1");
+    }
+
+    #[test]
+    fn enabled_model_check_requires_the_exact_provider() {
+        let available = json!({
+          "image": [{
+            "provider": "custom_openai",
+            "model": "shared-image-model"
+          }]
+        });
+
+        assert!(available_model_enabled_for_provider(
+            &available,
+            "image",
+            "shared-image-model",
+            "custom_openai"
+        ));
+        assert!(!available_model_enabled_for_provider(
+            &available,
+            "image",
+            "shared-image-model",
+            "qwen"
+        ));
+        assert!(!available_model_enabled_for_provider(
+            &available,
+            "image",
+            "disabled-model",
+            "custom_openai"
+        ));
+    }
 
     fn project_access_test_connection(user: Value) -> Connection {
         let conn = Connection::open_in_memory().unwrap();
