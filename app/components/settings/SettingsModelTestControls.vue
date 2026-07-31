@@ -253,7 +253,7 @@ const videoReferenceMaterialReady = computed(() => {
           <div
             :ref="props.setPromptEditorRef"
             contenteditable="true"
-            class="min-h-[60px] whitespace-pre-wrap break-words outline-none"
+            class="max-h-[50vh] min-h-[60px] overflow-x-hidden overflow-y-auto overscroll-contain whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-none"
             @blur="props.handlePromptTextareaBlur"
             @click="props.handlePromptTextareaCursorChange"
             @compositionend="props.handlePromptTextareaCompositionEnd"
