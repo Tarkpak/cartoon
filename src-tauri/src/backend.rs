@@ -945,11 +945,47 @@ fn current_project_owner_context(conn: &Connection) -> Result<ProjectOwnerContex
     })
 }
 
+fn claim_legacy_projects(
+    conn: &Connection,
+    owner: &ProjectOwnerContext,
+) -> Result<usize, ApiError> {
+    if owner.is_admin {
+        return Ok(0);
+    }
+
+    let has_legacy_projects = conn
+        .query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM projects
+               WHERE owner_user_id IS NULL OR trim(owner_user_id) = ''
+             )",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if !has_legacy_projects {
+        return Ok(0);
+    }
+
+    conn.execute(
+        "UPDATE projects
+         SET owner_user_id = ?1, owner_account = ?2, owner_display_name = ?3
+         WHERE owner_user_id IS NULL OR trim(owner_user_id) = ''",
+        params![
+            owner.user_id.as_str(),
+            owner.account.as_str(),
+            owner.display_name.as_str()
+        ],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
 fn ensure_project_access(
     conn: &Connection,
     project_id: &str,
 ) -> Result<ProjectOwnerContext, ApiError> {
     let owner = current_project_owner_context(conn)?;
+    claim_legacy_projects(conn, &owner)?;
     let accessible = if owner.is_admin {
         conn.query_row(
             "SELECT 1 FROM projects WHERE id = ?1 LIMIT 1",
@@ -5116,6 +5152,7 @@ async fn api_project_list(
         .map(str::to_string);
 
     let owner = current_project_owner_context(&conn)?;
+    claim_legacy_projects(&conn, &owner)?;
     let mut where_parts = Vec::<String>::new();
     let mut where_params = Vec::<String>::new();
     if !owner.is_admin {
@@ -12256,7 +12293,7 @@ async fn api_not_implemented(Path(path): Path<String>) -> (StatusCode, Json<Valu
 mod tests {
     use super::{
         build_scoped_tos_key_prefix_for_user, build_upload_tos_key_prefix_for_user,
-        clear_workflow_overrides_for_category, cloud_model_log_identity,
+        claim_legacy_projects, clear_workflow_overrides_for_category, cloud_model_log_identity,
         default_prompt_director_preferences, ensure_project_access,
         merge_prompt_templates_with_defaults,
         merge_style_presets_with_catalog, normalize_character_gender_value,
@@ -12272,7 +12309,12 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
             "CREATE TABLE system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-             CREATE TABLE projects (id TEXT PRIMARY KEY, owner_user_id TEXT);",
+             CREATE TABLE projects (
+               id TEXT PRIMARY KEY,
+               owner_user_id TEXT,
+               owner_account TEXT,
+               owner_display_name TEXT
+             );",
         )
         .unwrap();
         conn.execute(
@@ -12300,7 +12342,15 @@ mod tests {
         }));
         assert!(ensure_project_access(&member_conn, "own").is_ok());
         assert!(ensure_project_access(&member_conn, "other").is_err());
-        assert!(ensure_project_access(&member_conn, "legacy").is_err());
+        assert!(ensure_project_access(&member_conn, "legacy").is_ok());
+        let legacy_owner = member_conn
+            .query_row(
+                "SELECT owner_user_id, owner_account FROM projects WHERE id = 'legacy'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .unwrap();
+        assert_eq!(legacy_owner, ("user-1".to_string(), "member".to_string()));
 
         let admin_conn = project_access_test_connection(json!({
           "id": "admin-1",
@@ -12310,6 +12360,12 @@ mod tests {
         assert!(ensure_project_access(&admin_conn, "own").is_ok());
         assert!(ensure_project_access(&admin_conn, "other").is_ok());
         assert!(ensure_project_access(&admin_conn, "legacy").is_ok());
+        let claimed = claim_legacy_projects(
+            &admin_conn,
+            &super::current_project_owner_context(&admin_conn).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(claimed, 0);
     }
 
     #[test]
