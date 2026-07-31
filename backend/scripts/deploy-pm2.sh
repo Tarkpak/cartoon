@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="${PM2_APP_NAME:-playlet-admin-backend}"
 HOST="${HOST:-127.0.0.1}"
-PORT="${PORT:-43200}"
+APP_PORT="${PLAYLET_ADMIN_PORT:-43200}"
 DATA_DIR="${PLAYLET_ADMIN_DATA_DIR:-$ROOT_DIR/data}"
 
 command_exists() {
@@ -34,9 +34,10 @@ bun run build
 echo "Starting or reloading PM2 app: $APP_NAME"
 export PM2_APP_NAME="$APP_NAME"
 export HOST
-export PORT
+export PLAYLET_ADMIN_PORT="$APP_PORT"
+export PORT="$APP_PORT"
 export NITRO_HOST="$HOST"
-export NITRO_PORT="$PORT"
+export NITRO_PORT="$APP_PORT"
 export PLAYLET_ADMIN_DATA_DIR="$DATA_DIR"
 
 if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
@@ -48,4 +49,4 @@ fi
 pm2 save
 pm2 status "$APP_NAME"
 
-echo "Backend is managed by PM2 at http://$HOST:$PORT"
+echo "Backend is managed by PM2 at http://$HOST:$APP_PORT"
