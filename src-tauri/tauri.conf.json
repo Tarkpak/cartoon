@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Playlet Desktop",
-  "version": "1.0.110",
+  "version": "1.0.111",
   "identifier": "com.playlet.desktop",
   "mainBinaryName": "playlet-desktop",
   "build": {
