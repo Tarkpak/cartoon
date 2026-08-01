@@ -202,7 +202,7 @@
         "example": "电影写实风格"
       }
     ],
-    "isCustomized": true,
+    "isCustomized": false,
     "updatedAt": "2026-05-17T15:03:12.691Z",
     "contentFile": "default-prompts/character_sheet.txt"
   },

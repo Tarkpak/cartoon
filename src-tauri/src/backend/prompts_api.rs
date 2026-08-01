@@ -376,13 +376,15 @@ pub(super) async fn api_prompts_get(
         }
     }
     let templates = get_prompt_templates_config(&conn)?;
+    let director_preferences = get_prompt_director_preferences(&conn)?;
     let profiles = prompt_profile_result(&profile_state);
 
     Ok(Json(json!({
       "success": true,
       "data": {
         "templates": templates,
-        "directorPreferences": get_prompt_director_preferences(&conn)?,
+        "directorPreferences": director_preferences,
+        "directorPreferencesCustomized": is_prompt_director_preferences_customized(&director_preferences),
         "profiles": profiles.get("profiles").cloned().unwrap_or_else(|| json!([])),
         "activeProfileId": profiles.get("activeProfileId").cloned().unwrap_or(json!("default"))
       }
@@ -418,6 +420,7 @@ pub(super) async fn api_prompt_director_preferences_put(
     let conn = db_connection(&state)?;
     assert_active_prompt_profile_writable(&conn)?;
     let content = body.content.trim().to_string();
+    let is_customized = is_prompt_director_preferences_customized(&content);
     set_config_json(&conn, PROMPT_DIRECTOR_PREFERENCES_KEY, &json!(content))?;
     sync_active_prompt_profile_snapshot(&conn)?;
     drop(conn);
@@ -425,7 +428,7 @@ pub(super) async fn api_prompt_director_preferences_put(
 
     Ok(Json(json!({
       "success": true,
-      "data": { "content": content },
+      "data": { "content": content, "isCustomized": is_customized },
       "message": "分镜提示词已保存"
     })))
 }

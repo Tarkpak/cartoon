@@ -33,6 +33,7 @@ const {
   canRenameActivePromptProfile,
   canDeleteActivePromptProfile,
   directorPreferences,
+  directorPreferencesCustomized,
   directorPreferencesSaving,
   directorPreferencesError,
   promptTemplates,
@@ -92,7 +93,7 @@ const promptEditorOptions = computed<PromptEditorOption[]>(() => {
       id: DIRECTOR_EDITOR_ID,
       name: '分镜解析提示词',
       description: '控制剧本拆场、镜头语言、节奏、表演与连续性。',
-      isCustomized: false
+      isCustomized: directorPreferencesCustomized.value
     })
   }
 

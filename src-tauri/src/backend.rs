@@ -3495,6 +3495,11 @@ fn default_prompt_director_preferences() -> &'static str {
     DEFAULT_PROMPT_DIRECTOR_PREFERENCES.trim()
 }
 
+fn is_prompt_director_preferences_customized(content: &str) -> bool {
+    let content = content.trim();
+    !content.is_empty() && content != default_prompt_director_preferences()
+}
+
 fn default_prompt_profiles() -> Value {
     let now = now_iso();
     json!({
@@ -12653,12 +12658,12 @@ mod tests {
         build_upload_tos_key_prefix_for_user, claim_legacy_projects,
         clear_workflow_overrides_for_category, cloud_model_log_identity, cloud_page_is_complete,
         cloud_provider_credentials_to_local, custom_openai_entry_for_model,
-        custom_openai_entry_has_model,
-        default_prompt_director_preferences, ensure_project_access,
-        merge_prompt_templates_with_defaults, merge_style_presets_with_catalog,
-        normalize_character_gender_value, normalize_character_role_value,
-        normalize_time_of_day_value, remove_revoked_shared_library_assets,
-        upgrade_style_config_for_catalog, CLOUD_ADMIN_SESSION_KEY,
+        custom_openai_entry_has_model, default_prompt_director_preferences, ensure_project_access,
+        is_prompt_director_preferences_customized, merge_prompt_templates_with_defaults,
+        merge_style_presets_with_catalog, normalize_character_gender_value,
+        normalize_character_role_value, normalize_time_of_day_value,
+        remove_revoked_shared_library_assets, upgrade_style_config_for_catalog,
+        CLOUD_ADMIN_SESSION_KEY,
     };
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
@@ -12906,6 +12911,17 @@ mod tests {
         assert!(content.contains("资深分镜师"));
         assert!(content.contains("视频生成稳定性"));
         assert!(!content.contains("只输出 JSON"));
+    }
+
+    #[test]
+    fn director_preferences_customization_tracks_changes_from_default() {
+        assert!(!is_prompt_director_preferences_customized(""));
+        assert!(!is_prompt_director_preferences_customized(
+            default_prompt_director_preferences()
+        ));
+        assert!(is_prompt_director_preferences_customized(
+            "使用快速剪辑和手持镜头"
+        ));
     }
 
     #[test]

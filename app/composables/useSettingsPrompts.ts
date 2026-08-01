@@ -26,6 +26,7 @@ interface PromptTemplatesResponse {
   data?: {
     templates: PromptTemplate[]
     directorPreferences?: string
+    directorPreferencesCustomized?: boolean
     profiles?: PromptTemplateProfile[]
     activeProfileId?: string
   }
@@ -82,6 +83,7 @@ export function useSettingsPrompts() {
 
   const promptTemplates = ref<PromptTemplate[]>([])
   const directorPreferences = ref('')
+  const directorPreferencesCustomized = ref(false)
   const directorPreferencesSaving = ref(false)
   const directorPreferencesError = ref('')
   const promptProfiles = ref<PromptTemplateProfile[]>([])
@@ -216,6 +218,7 @@ export function useSettingsPrompts() {
 
       promptTemplates.value = response.data.templates
       directorPreferences.value = response.data.directorPreferences || ''
+      directorPreferencesCustomized.value = response.data.directorPreferencesCustomized === true
       syncSelectedPrompt(response.data.templates)
 
       if (response.data.profiles && response.data.activeProfileId) {
@@ -403,7 +406,7 @@ export function useSettingsPrompts() {
     try {
       const response = await $fetch<{
         success: boolean
-        data: { content: string }
+        data: { content: string, isCustomized: boolean }
       }>('/api/prompts/director-preferences', {
         method: 'PUT',
         body: { content }
@@ -415,6 +418,7 @@ export function useSettingsPrompts() {
       }
 
       directorPreferences.value = normalizeDirectorPreferences(response.data.content)
+      directorPreferencesCustomized.value = response.data.isCustomized
       return true
     } catch (error) {
       console.error('[useSettingsPrompts] 保存分镜提示词失败:', error)
@@ -465,6 +469,7 @@ export function useSettingsPrompts() {
     promptProfileBusy,
     promptTemplates,
     directorPreferences,
+    directorPreferencesCustomized,
     directorPreferencesSaving,
     directorPreferencesError,
     promptProfiles,
