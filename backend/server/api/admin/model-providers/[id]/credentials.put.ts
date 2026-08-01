@@ -12,6 +12,8 @@ export default defineEventHandler(async (event) => {
   const body = await readJsonBody<{
     apiKey?: string
     mediakitApiKey?: string
+    arkAccessKey?: string
+    arkSecretKey?: string
     accessKey?: string
     secretKey?: string
   }>(event)
@@ -33,19 +35,24 @@ export default defineEventHandler(async (event) => {
     )
   } else {
     const existingCredentials = db.prepare(`
-      SELECT encrypted_api_key, encrypted_mediakit_api_key, encrypted_access_key, encrypted_secret_key
+      SELECT encrypted_api_key, encrypted_mediakit_api_key, encrypted_ark_access_key, encrypted_ark_secret_key,
+             encrypted_access_key, encrypted_secret_key
       FROM provider_credentials
       WHERE provider_id = ?
       LIMIT 1
     `).get(providerId) as {
       encrypted_api_key?: string | null
       encrypted_mediakit_api_key?: string | null
+      encrypted_ark_access_key?: string | null
+      encrypted_ark_secret_key?: string | null
       encrypted_access_key?: string | null
       encrypted_secret_key?: string | null
     } | undefined
     const previous = {
       apiKey: decryptText(existingCredentials?.encrypted_api_key),
       mediakitApiKey: decryptText(existingCredentials?.encrypted_mediakit_api_key),
+      arkAccessKey: decryptText(existingCredentials?.encrypted_ark_access_key),
+      arkSecretKey: decryptText(existingCredentials?.encrypted_ark_secret_key),
       accessKey: decryptText(existingCredentials?.encrypted_access_key),
       secretKey: decryptText(existingCredentials?.encrypted_secret_key)
     }
@@ -54,17 +61,26 @@ export default defineEventHandler(async (event) => {
       mediakitApiKey: provider.provider_key === 'volcengine'
         ? (body.mediakitApiKey === undefined ? previous.mediakitApiKey : body.mediakitApiKey)
         : '',
+      arkAccessKey: provider.provider_key === 'volcengine'
+        ? (body.arkAccessKey === undefined ? previous.arkAccessKey : body.arkAccessKey)
+        : '',
+      arkSecretKey: provider.provider_key === 'volcengine'
+        ? (body.arkSecretKey === undefined ? previous.arkSecretKey : body.arkSecretKey)
+        : '',
       accessKey: isKling ? (body.accessKey === undefined ? previous.accessKey : body.accessKey) : '',
       secretKey: isKling ? (body.secretKey === undefined ? previous.secretKey : body.secretKey) : ''
     }
 
     db.prepare(`
     INSERT INTO provider_credentials
-      (provider_id, encrypted_api_key, encrypted_mediakit_api_key, encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+      (provider_id, encrypted_api_key, encrypted_mediakit_api_key, encrypted_ark_access_key, encrypted_ark_secret_key,
+       encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(provider_id) DO UPDATE SET
       encrypted_api_key = excluded.encrypted_api_key,
       encrypted_mediakit_api_key = excluded.encrypted_mediakit_api_key,
+      encrypted_ark_access_key = excluded.encrypted_ark_access_key,
+      encrypted_ark_secret_key = excluded.encrypted_ark_secret_key,
       encrypted_access_key = excluded.encrypted_access_key,
       encrypted_secret_key = excluded.encrypted_secret_key,
       encrypted_security_token = excluded.encrypted_security_token,
@@ -73,6 +89,8 @@ export default defineEventHandler(async (event) => {
       providerId,
       encryptText(next.apiKey),
       encryptText(next.mediakitApiKey),
+      encryptText(next.arkAccessKey),
+      encryptText(next.arkSecretKey),
       encryptText(next.accessKey),
       encryptText(next.secretKey),
       '',
@@ -89,6 +107,8 @@ export default defineEventHandler(async (event) => {
       credentialMode: isKling ? 'access_secret' : 'api_key',
       hasApiKey: !isKling && Boolean(body.apiKey),
       hasMediakitApiKey: provider.provider_key === 'volcengine' && Boolean(body.mediakitApiKey),
+      hasArkAccessKey: provider.provider_key === 'volcengine' && Boolean(body.arkAccessKey),
+      hasArkSecretKey: provider.provider_key === 'volcengine' && Boolean(body.arkSecretKey),
       hasAccessKey: isKling && Boolean(body.accessKey),
       hasSecretKey: isKling && Boolean(body.secretKey)
     }

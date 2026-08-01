@@ -28,6 +28,12 @@ export default defineEventHandler((event) => {
             apiKey: decryptText(row.encrypted_api_key),
             mediakitApiKey: row.provider_key === 'volcengine'
               ? decryptText(row.encrypted_mediakit_api_key)
+              : undefined,
+            arkAccessKey: row.provider_key === 'volcengine'
+              ? decryptText(row.encrypted_ark_access_key)
+              : undefined,
+            arkSecretKey: row.provider_key === 'volcengine'
+              ? decryptText(row.encrypted_ark_secret_key)
               : undefined
           }
       const modelState = resolveProviderModelState({

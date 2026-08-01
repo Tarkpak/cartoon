@@ -92,6 +92,20 @@
           >
             <n-input v-model:value="credentialForm.mediakitApiKey" type="password" show-password-on="click" />
           </n-form-item>
+          <template v-if="credentialProvider?.providerKey === 'volcengine'">
+            <n-divider title-placement="left">
+              Ark OpenAPI（火山素材库）
+            </n-divider>
+            <n-alert type="info" style="margin-bottom: 16px">
+              独立用于 CreateAssetGroup / CreateAsset / GetAsset，不会影响 TOS 云存储。
+            </n-alert>
+            <n-form-item label="Ark Access Key">
+              <n-input v-model:value="credentialForm.arkAccessKey" type="password" show-password-on="click" />
+            </n-form-item>
+            <n-form-item label="Ark Secret Key">
+              <n-input v-model:value="credentialForm.arkSecretKey" type="password" show-password-on="click" />
+            </n-form-item>
+          </template>
           <n-space justify="end">
             <n-button @click="showCredentialModal = false">取消</n-button>
             <n-button type="primary" @click="saveCredentials">保存凭证</n-button>
@@ -201,6 +215,8 @@ interface ProviderRow {
   enabled: boolean
   hasApiKey: boolean
   hasMediakitApiKey: boolean
+  hasArkAccessKey: boolean
+  hasArkSecretKey: boolean
   hasAccessKey: boolean
   hasSecretKey: boolean
   configured: boolean
@@ -265,6 +281,8 @@ const syncingModels = ref(false)
 const credentialForm = reactive({
   apiKey: '',
   mediakitApiKey: '',
+  arkAccessKey: '',
+  arkSecretKey: '',
   accessKey: '',
   secretKey: ''
 })
@@ -362,7 +380,9 @@ const columns = [
           ].filter(Boolean)
         : [
             row.hasApiKey ? 'API Key' : '',
-            row.providerKey === 'volcengine' && row.hasMediakitApiKey ? 'MediaKit Key' : ''
+            row.providerKey === 'volcengine' && row.hasMediakitApiKey ? 'MediaKit Key' : '',
+            row.providerKey === 'volcengine' && row.hasArkAccessKey ? 'Ark AK' : '',
+            row.providerKey === 'volcengine' && row.hasArkSecretKey ? 'Ark SK' : ''
           ].filter(Boolean)
       return tags.length
         ? h(NSpace, { size: 4 }, { default: () => tags.map(tag => h(NTag, { size: 'small' }, { default: () => tag })) })
@@ -419,7 +439,14 @@ function openProvider(row: ProviderRow) {
 function openCredentials(row: ProviderRow) {
   credentialProvider.value = row
   credentialProviderId.value = row.id
-  Object.assign(credentialForm, { apiKey: '', mediakitApiKey: '', accessKey: '', secretKey: '' })
+  Object.assign(credentialForm, {
+    apiKey: '',
+    mediakitApiKey: '',
+    arkAccessKey: '',
+    arkSecretKey: '',
+    accessKey: '',
+    secretKey: ''
+  })
   showCredentialModal.value = true
 }
 
@@ -595,6 +622,12 @@ async function saveCredentials() {
     if (credentialForm.apiKey.trim()) body.apiKey = credentialForm.apiKey
     if (credentialProvider.value?.providerKey === 'volcengine' && credentialForm.mediakitApiKey.trim()) {
       body.mediakitApiKey = credentialForm.mediakitApiKey
+    }
+    if (credentialProvider.value?.providerKey === 'volcengine' && credentialForm.arkAccessKey.trim()) {
+      body.arkAccessKey = credentialForm.arkAccessKey
+    }
+    if (credentialProvider.value?.providerKey === 'volcengine' && credentialForm.arkSecretKey.trim()) {
+      body.arkSecretKey = credentialForm.arkSecretKey
     }
   }
   await $fetch(`/api/admin/model-providers/${credentialProviderId.value}/credentials`, {

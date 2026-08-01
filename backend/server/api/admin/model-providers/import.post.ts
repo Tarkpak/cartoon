@@ -19,6 +19,8 @@ interface ProviderImportPayload extends Record<string, unknown> {
 interface NormalizedCredentials {
   apiKey: string
   mediakitApiKey: string
+  arkAccessKey: string
+  arkSecretKey: string
   accessKey: string
   secretKey: string
 }
@@ -109,6 +111,8 @@ function normalizeProvider(value: unknown, index: number): NormalizedProvider {
       ? {
           apiKey: isKling ? '' : stringValue(credentials.apiKey, 4096),
           mediakitApiKey: providerKey === 'volcengine' ? stringValue(credentials.mediakitApiKey, 4096) : '',
+          arkAccessKey: providerKey === 'volcengine' ? stringValue(credentials.arkAccessKey, 4096) : '',
+          arkSecretKey: providerKey === 'volcengine' ? stringValue(credentials.arkSecretKey, 4096) : '',
           accessKey: isKling ? stringValue(credentials.accessKey, 4096) : '',
           secretKey: isKling ? stringValue(credentials.secretKey, 4096) : ''
         }
@@ -148,11 +152,14 @@ export default defineEventHandler(async (event) => {
   `)
   const upsertCredentials = db.prepare(`
     INSERT INTO provider_credentials
-      (provider_id, encrypted_api_key, encrypted_mediakit_api_key, encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+      (provider_id, encrypted_api_key, encrypted_mediakit_api_key, encrypted_ark_access_key, encrypted_ark_secret_key,
+       encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(provider_id) DO UPDATE SET
       encrypted_api_key = excluded.encrypted_api_key,
       encrypted_mediakit_api_key = excluded.encrypted_mediakit_api_key,
+      encrypted_ark_access_key = excluded.encrypted_ark_access_key,
+      encrypted_ark_secret_key = excluded.encrypted_ark_secret_key,
       encrypted_access_key = excluded.encrypted_access_key,
       encrypted_secret_key = excluded.encrypted_secret_key,
       encrypted_security_token = excluded.encrypted_security_token,
@@ -311,6 +318,8 @@ export default defineEventHandler(async (event) => {
           providerId,
           encryptText(provider.credentials.apiKey),
           encryptText(provider.credentials.mediakitApiKey),
+          encryptText(provider.credentials.arkAccessKey),
+          encryptText(provider.credentials.arkSecretKey),
           encryptText(provider.credentials.accessKey),
           encryptText(provider.credentials.secretKey),
           '',

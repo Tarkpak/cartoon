@@ -34,6 +34,12 @@ export default defineEventHandler((event) => {
       mediakitApiKey: row.provider_key === 'volcengine'
         ? decryptText(row.encrypted_mediakit_api_key)
         : '',
+      arkAccessKey: row.provider_key === 'volcengine'
+        ? decryptText(row.encrypted_ark_access_key)
+        : '',
+      arkSecretKey: row.provider_key === 'volcengine'
+        ? decryptText(row.encrypted_ark_secret_key)
+        : '',
       accessKey: decryptText(row.encrypted_access_key),
       secretKey: decryptText(row.encrypted_secret_key),
       securityToken: decryptText(row.encrypted_security_token),

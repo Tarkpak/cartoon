@@ -370,7 +370,7 @@ onMounted(() => {
             v-model="arkOpenApiBaseUrl"
             class="h-9 text-sm"
             :disabled="cloudAuthenticated"
-            placeholder="https://open.volcengineapi.com"
+            placeholder="https://ark.cn-beijing.volcengineapi.com"
           />
         </div>
       </div>

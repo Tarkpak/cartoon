@@ -111,6 +111,8 @@ function initSchema(conn: Database) {
       provider_id TEXT PRIMARY KEY REFERENCES model_providers(id) ON DELETE CASCADE,
       encrypted_api_key TEXT,
       encrypted_mediakit_api_key TEXT NOT NULL DEFAULT '',
+      encrypted_ark_access_key TEXT NOT NULL DEFAULT '',
+      encrypted_ark_secret_key TEXT NOT NULL DEFAULT '',
       encrypted_access_key TEXT,
       encrypted_secret_key TEXT,
       encrypted_security_token TEXT,
@@ -502,11 +504,14 @@ function ensureDefaultProviders(conn: Database) {
     VALUES (?, ?, ?, ?, 1, ?, ?)
   `)
   addColumnIfMissing(conn, 'provider_credentials', "encrypted_mediakit_api_key TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(conn, 'provider_credentials', "encrypted_ark_access_key TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(conn, 'provider_credentials', "encrypted_ark_secret_key TEXT NOT NULL DEFAULT ''")
 
   const insertCreds = conn.prepare(`
     INSERT OR IGNORE INTO provider_credentials
-      (provider_id, encrypted_api_key, encrypted_mediakit_api_key, encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
-    VALUES (?, '', '', '', '', '', ?)
+      (provider_id, encrypted_api_key, encrypted_mediakit_api_key, encrypted_ark_access_key, encrypted_ark_secret_key,
+       encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
+    VALUES (?, '', '', '', '', '', '', '', ?)
   `)
   const timestamp = nowIso()
   for (const [providerKey, displayName, baseUrl] of providers) {

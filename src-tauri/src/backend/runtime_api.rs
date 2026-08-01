@@ -14640,6 +14640,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ark_asset_openapi_uses_regional_endpoint_and_payload_hash_header() {
+        assert_eq!(
+            ARK_OPENAPI_ENDPOINT,
+            "https://ark.cn-beijing.volcengineapi.com"
+        );
+
+        let payload = br#"{"ProjectName":"default"}"#;
+        let (_, payload_hash, authorization) = ark_signed_headers(
+            ARK_OPENAPI_ENDPOINT,
+            "ListAssetGroups",
+            payload,
+            "test-access-key",
+            "test-secret-key",
+        )
+        .expect("Ark request should be signed");
+
+        assert_eq!(payload_hash, ark_sha256_hex(payload));
+        assert!(authorization.contains("SignedHeaders=content-type;host;x-content-sha256;x-date"));
+        assert!(authorization.contains("/cn-beijing/ark/request"));
+    }
+
+    #[test]
     fn jianying_sound_effect_offsets_preserve_zero_and_validate_ranges() {
         assert_eq!(to_offset_microseconds(Some(0.0)), 0);
         assert_eq!(to_offset_microseconds(Some(1.25)), 1_250_000);
@@ -18611,7 +18633,7 @@ fn ark_signed_headers(
     payload: &[u8],
     access_key: &str,
     secret_key: &str,
-) -> Result<(String, String), ApiError> {
+) -> Result<(String, String, String), ApiError> {
     let parsed = reqwest::Url::parse(endpoint)
         .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "火山 OpenAPI Base URL 配置无效"))?;
     let host = parsed
@@ -18622,9 +18644,10 @@ fn ark_signed_headers(
     let short_date = now.format("%Y%m%d").to_string();
     let canonical_query = format!("Action={action}&Version={ARK_OPENAPI_VERSION}");
     let payload_hash = ark_sha256_hex(payload);
-    let canonical_headers =
-        format!("content-type:application/json\nhost:{host}\nx-date:{x_date}\n");
-    let signed_headers = "content-type;host;x-date";
+    let canonical_headers = format!(
+        "content-type:application/json\nhost:{host}\nx-content-sha256:{payload_hash}\nx-date:{x_date}\n"
+    );
+    let signed_headers = "content-type;host;x-content-sha256;x-date";
     let canonical_request = format!(
         "POST\n/\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
     );
@@ -18642,7 +18665,7 @@ fn ark_signed_headers(
     let authorization = format!(
         "HMAC-SHA256 Credential={access_key}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}"
     );
-    Ok((x_date, authorization))
+    Ok((x_date, payload_hash, authorization))
 }
 
 async fn ark_openapi_call(action: &str, mut body: Value) -> Result<Value, ApiError> {
@@ -18690,13 +18713,14 @@ async fn ark_openapi_call(action: &str, mut body: Value) -> Result<Value, ApiErr
             format!("序列化火山 OpenAPI 请求失败: {error}"),
         )
     })?;
-    let (x_date, authorization) =
+    let (x_date, payload_hash, authorization) =
         ark_signed_headers(&endpoint, action, &payload, &access_key, &secret_key)?;
     let response = http_client()
         .post(&url)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .header(reqwest::header::ACCEPT, "application/json")
         .header("X-Date", x_date)
+        .header("X-Content-Sha256", payload_hash)
         .header(reqwest::header::AUTHORIZATION, authorization)
         .body(payload)
         .send()

@@ -90,7 +90,7 @@ const LEGACY_STYLE_THUMBNAIL_CDN_BASE: &str =
 const DEFAULT_PROMPT_TEMPLATES_JSON: &str = include_str!("../assets/default-prompt-templates.json");
 const DEFAULT_PROMPT_DIRECTOR_PREFERENCES: &str =
     include_str!("../assets/default-prompts/director_preferences.txt");
-const ARK_OPENAPI_ENDPOINT: &str = "https://open.volcengineapi.com";
+const ARK_OPENAPI_ENDPOINT: &str = "https://ark.cn-beijing.volcengineapi.com";
 const ARK_OPENAPI_REGION: &str = "cn-beijing";
 const ARK_OPENAPI_SERVICE: &str = "ark";
 const ARK_OPENAPI_VERSION: &str = "2024-01-01";
@@ -1398,6 +1398,14 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
                 .get("mediakitApiKey")
                 .and_then(Value::as_str)
                 .is_some_and(|value| !value.trim().is_empty());
+            let has_ark_access_key = item
+                .get("arkAccessKey")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty());
+            let has_ark_secret_key = item
+                .get("arkSecretKey")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty());
             let has_access_key = item
                 .get("accessKey")
                 .and_then(Value::as_str)
@@ -1412,6 +1420,8 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
                   "baseUrl": item.get("baseUrl").and_then(Value::as_str).unwrap_or(""),
                   "hasApiKey": has_api_key,
                   "hasMediakitApiKey": has_mediakit_api_key,
+                  "hasArkAccessKey": has_ark_access_key,
+                  "hasArkSecretKey": has_ark_secret_key,
                   "hasAccessKey": has_access_key,
                   "hasSecretKey": has_secret_key
                 }),
@@ -1436,6 +1446,14 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
             .get("mediakitApiKey")
             .and_then(Value::as_str)
             .is_some_and(|value| !value.trim().is_empty());
+        let has_ark_access_key = item
+            .get("arkAccessKey")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty());
+        let has_ark_secret_key = item
+            .get("arkSecretKey")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty());
         let has_access_key = item
             .get("accessKey")
             .and_then(Value::as_str)
@@ -1450,6 +1468,8 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
               "baseUrl": item.get("baseUrl").and_then(Value::as_str).unwrap_or(""),
               "hasApiKey": has_api_key,
               "hasMediakitApiKey": has_mediakit_api_key,
+              "hasArkAccessKey": has_ark_access_key,
+              "hasArkSecretKey": has_ark_secret_key,
               "hasAccessKey": has_access_key,
               "hasSecretKey": has_secret_key
             }),
@@ -1746,6 +1766,16 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
             .and_then(Value::as_str)
             .unwrap_or("")
             .trim();
+        let ark_access_key = item
+            .get("arkAccessKey")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let ark_secret_key = item
+            .get("arkSecretKey")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         let access_key = item
             .get("accessKey")
             .and_then(Value::as_str)
@@ -1804,7 +1834,11 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
                 }),
             );
         } else {
-            if target_provider == "volcengine" && api_key.is_empty() && mediakit_api_key.is_empty()
+            if target_provider == "volcengine"
+                && api_key.is_empty()
+                && mediakit_api_key.is_empty()
+                && ark_access_key.is_empty()
+                && ark_secret_key.is_empty()
             {
                 continue;
             }
@@ -1817,6 +1851,8 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
                     json!({
                       "apiKey": api_key,
                       "mediakitApiKey": mediakit_api_key,
+                      "arkAccessKey": ark_access_key,
+                      "arkSecretKey": ark_secret_key,
                       "baseUrl": base_url
                     })
                 } else {
@@ -12750,6 +12786,33 @@ mod tests {
             .expect("the enabled provider should be selected");
         assert_eq!(selected["id"], "second");
         assert_eq!(selected["baseUrl"], "https://second.example.com/v1");
+    }
+
+    #[test]
+    fn cloud_volcengine_credentials_preserve_ark_keys() {
+        let creds = cloud_provider_credentials_to_local(Some(json!([{
+          "providerKey": "volcengine",
+          "apiKey": "ark-model-key",
+          "mediakitApiKey": "mediakit-key",
+          "arkAccessKey": "ark-access-key",
+          "arkSecretKey": "ark-secret-key",
+          "baseUrl": "https://ark.cn-beijing.volces.com/api/v3"
+        }])));
+
+        assert_eq!(creds["volcengine"]["arkAccessKey"], "ark-access-key");
+        assert_eq!(creds["volcengine"]["arkSecretKey"], "ark-secret-key");
+    }
+
+    #[test]
+    fn cloud_volcengine_credentials_accept_ark_only_configuration() {
+        let creds = cloud_provider_credentials_to_local(Some(json!([{
+          "providerKey": "volcengine",
+          "arkAccessKey": "ark-access-key",
+          "arkSecretKey": "ark-secret-key"
+        }])));
+
+        assert_eq!(creds["volcengine"]["arkAccessKey"], "ark-access-key");
+        assert_eq!(creds["volcengine"]["arkSecretKey"], "ark-secret-key");
     }
 
     #[test]
