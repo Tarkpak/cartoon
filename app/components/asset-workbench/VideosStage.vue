@@ -363,7 +363,7 @@ const parsingEpisodeId = ref('')
 const parseEpisodeError = ref('')
 
 const selectedEpisodeParsing = computed(() => {
-  return props.parsing || parsingEpisodeId.value === selectedEpisodeId.value
+  return parsingEpisodeId.value === selectedEpisodeId.value
 })
 
 const parseSelectedEpisodeButtonLabel = computed(() => {
@@ -650,7 +650,7 @@ watch(episodeDirectoryCollapsed, (value) => {
                 v-if="selectedEpisodePlanItem"
                 size="sm"
                 class="h-8 w-full gap-1.5"
-                :disabled="selectedEpisodeParsing"
+                :disabled="parsing || selectedEpisodeParsing"
                 @click="handleParseSelectedEpisode()"
               >
                 <Loader2

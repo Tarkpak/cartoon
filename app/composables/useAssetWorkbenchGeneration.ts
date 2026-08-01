@@ -1,4 +1,4 @@
-import type { Ref } from 'vue'
+import { watch, type Ref } from 'vue'
 import {
   DEFAULT_SCRIPT_PARSE_MODE,
   type ScriptParseMode
@@ -64,7 +64,7 @@ interface UseAssetWorkbenchGenerationOptions {
   parsing: Ref<boolean>
   parseProgress: Ref<AssetWorkbenchParseProgressState>
   currentStylePrompt: Ref<string>
-  saveProject: () => Promise<unknown>
+  saveProject: (expectedProjectId?: string) => Promise<unknown>
   onModelTaskCompleted?: (payload: {
     title: string
     body?: string
@@ -78,6 +78,32 @@ interface UseAssetWorkbenchGenerationOptions {
 export function useAssetWorkbenchGeneration(
   options: UseAssetWorkbenchGenerationOptions
 ) {
+  let parseOperationSequence = 0
+
+  function beginParseOperation() {
+    return {
+      sequence: ++parseOperationSequence,
+      projectId: options.projectId?.value
+    }
+  }
+
+  function isCurrentParseOperation(operation: {
+    sequence: number
+    projectId?: string
+  }): boolean {
+    return operation.sequence === parseOperationSequence
+      && options.projectId?.value === operation.projectId
+  }
+
+  if (options.projectId) {
+    watch(options.projectId, (nextProjectId, previousProjectId) => {
+      if (nextProjectId === previousProjectId) return
+      parseOperationSequence += 1
+      options.parsing.value = false
+      options.parseProgress.value = createInitialAssetWorkbenchParseProgressState()
+    })
+  }
+
   async function notifyModelTaskCompleted(payload: {
     title: string
     body?: string
@@ -104,8 +130,8 @@ export function useAssetWorkbenchGeneration(
     }
   }
 
-  async function saveProjectOrThrow(context: string): Promise<void> {
-    const saved = await options.saveProject()
+  async function saveProjectOrThrow(context: string, expectedProjectId?: string): Promise<void> {
+    const saved = await options.saveProject(expectedProjectId)
     if (saved === false) {
       throw new Error(`${context}，但项目保存失败，请查看页面顶部的保存错误提示后重试`)
     }
@@ -432,6 +458,7 @@ export function useAssetWorkbenchGeneration(
       return true
     }
 
+    const operation = beginParseOperation()
     options.parsing.value = true
     options.parseProgress.value = {
       ...createInitialAssetWorkbenchParseProgressState(),
@@ -450,9 +477,11 @@ export function useAssetWorkbenchGeneration(
           projectId: options.projectId?.value
         }
       )
+      if (!isCurrentParseOperation(operation)) return false
       options.episodePlan.value = episodes
       mergeCharactersFromEpisodeAssets(episodes)
-      await saveProjectOrThrow('分集目录生成完成')
+      await saveProjectOrThrow('分集目录生成完成', operation.projectId)
+      if (!isCurrentParseOperation(operation)) return false
       options.parseProgress.value.step = 'episode-plan-completed'
       options.parseProgress.value.message = `分集目录已生成，共 ${episodes.length} 集`
       options.parseProgress.value.progress = 100
@@ -465,6 +494,7 @@ export function useAssetWorkbenchGeneration(
       }
       return episodes.length > 0
     } catch (error) {
+      if (!isCurrentParseOperation(operation)) return false
       console.error('[useAssetWorkbench] 生成分集目录失败:', error)
       const message = error instanceof Error ? error.message : '分集目录生成失败'
       options.parseProgress.value.step = 'error'
@@ -476,8 +506,10 @@ export function useAssetWorkbenchGeneration(
       })
       return false
     } finally {
-      options.parsing.value = false
-      options.parseProgress.value.active = false
+      if (isCurrentParseOperation(operation)) {
+        options.parsing.value = false
+        options.parseProgress.value.active = false
+      }
     }
   }
 
@@ -505,6 +537,7 @@ export function useAssetWorkbenchGeneration(
       return false
     }
 
+    const operation = beginParseOperation()
     options.parsing.value = true
     const parseModeText = '分集解析任务已创建，等待模型响应'
     options.parseProgress.value = {
@@ -525,8 +558,14 @@ export function useAssetWorkbenchGeneration(
         scriptParseMode: input?.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
         style: input?.style || options.currentStylePrompt.value || undefined,
         episodePlan: parsePayload.requestEpisodePlan,
-        onProgress: applyProgressEvent
+        onProgress: (event) => {
+          if (isCurrentParseOperation(operation)) {
+            applyProgressEvent(event)
+          }
+        }
       })
+
+      if (!isCurrentParseOperation(operation)) return false
 
       if (!response.success || !response.data?.scenes) {
         const message = '解析失败：模型未返回有效场景数据'
@@ -551,7 +590,8 @@ export function useAssetWorkbenchGeneration(
       options.scenes.value = mergeScenesForEpisode(parsePayload.targetEpisodeId, parsedScenes)
       options.characters.value = mergeCharactersFromPartialParse(parsedCharacters)
 
-      await saveProjectOrThrow(`${parsePayload.targetEpisodeTitle || '当前分集'}解析完成`)
+      await saveProjectOrThrow(`${parsePayload.targetEpisodeTitle || '当前分集'}解析完成`, operation.projectId)
+      if (!isCurrentParseOperation(operation)) return false
       options.parseProgress.value.step = 'completed'
       options.parseProgress.value.message = `已完成 ${parsePayload.targetEpisodeTitle || '当前分集'} 解析`
       options.parseProgress.value.progress = 100
@@ -562,6 +602,7 @@ export function useAssetWorkbenchGeneration(
       })
       return true
     } catch (error) {
+      if (!isCurrentParseOperation(operation)) return false
       console.error('[useAssetWorkbench] 解析剧本失败:', error)
       const message = error instanceof Error ? error.message : '解析失败'
       options.parseProgress.value.step = 'error'
@@ -573,8 +614,10 @@ export function useAssetWorkbenchGeneration(
       })
       return false
     } finally {
-      options.parsing.value = false
-      options.parseProgress.value.active = false
+      if (isCurrentParseOperation(operation)) {
+        options.parsing.value = false
+        options.parseProgress.value.active = false
+      }
     }
   }
 

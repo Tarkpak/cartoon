@@ -3639,7 +3639,7 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
 
         <AssetWorkbenchVideosStage
           v-else
-          key="videos-stage"
+          :key="`videos-stage:${projectId || 'new'}`"
           :scenes="scenes"
           :script-parse-mode="scriptParseMode"
           :episode-plan="episodePlan"

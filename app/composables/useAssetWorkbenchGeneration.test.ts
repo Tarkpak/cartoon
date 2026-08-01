@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_SCRIPT_PARSE_MODE } from '#shared/types/script'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
@@ -30,6 +30,7 @@ function createEpisode(index: number): ScriptEpisodePlanItem {
 }
 
 function createGeneration(initialNovelText = '测试剧本正文') {
+  const projectId = ref<string | undefined>('project_a')
   const projectName = ref('新项目')
   const novelText = ref(initialNovelText)
   const scenes = ref<SceneData[]>([])
@@ -43,6 +44,7 @@ function createGeneration(initialNovelText = '测试剧本正文') {
   const onModelTaskCompleted = vi.fn(async () => undefined)
 
   const generation = useAssetWorkbenchGeneration({
+    projectId,
     projectName,
     novelText,
     scenes,
@@ -58,11 +60,15 @@ function createGeneration(initialNovelText = '测试剧本正文') {
 
   return {
     generation,
+    projectId,
     novelText,
     scriptParseMode,
     scenes,
     episodePlan,
-    onModelTaskCompleted
+    onModelTaskCompleted,
+    parsing,
+    parseProgress,
+    saveProject
   }
 }
 
@@ -174,5 +180,51 @@ describe('useAssetWorkbenchGeneration', () => {
         endOffset: 6
       }]
     })
+  })
+
+  it('ignores an old parse response after switching projects', async () => {
+    let resolveParse: ((value: unknown) => void) | undefined
+    parseScriptMock.mockResolvedValue(new Promise((resolve) => {
+      resolveParse = resolve
+    }))
+    const {
+      generation,
+      projectId,
+      episodePlan,
+      scenes,
+      parsing,
+      parseProgress,
+      saveProject
+    } = createGeneration('项目 A 的剧本')
+    episodePlan.value = [createEpisode(1)]
+
+    const pendingParse = generation.parseScript({
+      targetEpisodeId: 'episode_001',
+      scriptParseMode: DEFAULT_SCRIPT_PARSE_MODE
+    })
+    expect(parsing.value).toBe(true)
+
+    projectId.value = 'project_b'
+    await nextTick()
+
+    expect(parsing.value).toBe(false)
+    expect(parseProgress.value.active).toBe(false)
+
+    resolveParse?.({
+      success: true,
+      data: {
+        scenes: [{
+          id: 'scene_001',
+          title: '项目 A 的场景',
+          description: '不应写入项目 B',
+          duration: 8
+        }],
+        characters: []
+      }
+    })
+
+    await expect(pendingParse).resolves.toBe(false)
+    expect(scenes.value).toEqual([])
+    expect(saveProject).not.toHaveBeenCalled()
   })
 })

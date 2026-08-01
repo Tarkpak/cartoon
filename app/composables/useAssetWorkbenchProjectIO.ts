@@ -371,7 +371,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     }
   }
 
-  async function performSaveProject() {
+  async function performSaveProject(expectedProjectId?: string) {
     saving.value = true
     saveError.value = null
     saveWarning.value = null
@@ -382,6 +382,14 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       }
 
       let id = activeProjectId.value || options.projectId.value
+
+      if (expectedProjectId && id !== expectedProjectId) {
+        return false
+      }
+
+      if (expectedProjectId) {
+        id = expectedProjectId
+      }
 
       if (!id) {
         if (!options.projectStyleId.value) {
@@ -437,7 +445,9 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         saveWarning.value = cloudSyncWarning
         console.warn('[useAssetWorkbenchProjectIO] 云端项目同步未完成:', saveResponse.cloudSync)
       }
-      lastSavedProjectSnapshot = nextSnapshot
+      if ((activeProjectId.value || options.projectId.value) === id) {
+        lastSavedProjectSnapshot = nextSnapshot
+      }
       return true
     } catch (error) {
       const message = getDisplayErrorMessage(error, '未知错误')
@@ -453,8 +463,9 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     }
   }
 
-  function saveProject(): Promise<boolean> {
-    const pendingSave = saveQueue.then(performSaveProject, performSaveProject)
+  function saveProject(expectedProjectId?: string): Promise<boolean> {
+    const runSave = () => performSaveProject(expectedProjectId)
+    const pendingSave = saveQueue.then(runSave, runSave)
     saveQueue = pendingSave.then(
       () => undefined,
       () => undefined
