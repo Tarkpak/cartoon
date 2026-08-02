@@ -4,6 +4,7 @@ import {
   Copy,
   ImageIcon,
   Loader2,
+  Maximize2,
   Pencil,
   Plus,
   RefreshCw,
@@ -62,6 +63,9 @@ const loadingAssets = ref(false)
 const mutatingId = ref<string | null>(null)
 const copiedAssetId = ref<string | null>(null)
 const uploadFileInputRef = ref<HTMLInputElement | null>(null)
+const imagePreviewOpen = ref(false)
+const imagePreviewSrc = ref('')
+const imagePreviewAlt = ref('图片预览')
 
 const groupDialogOpen = ref(false)
 const groupDialogMode = ref<'create' | 'edit'>('create')
@@ -137,6 +141,14 @@ function assetPreviewUrl(asset: ArkVirtualAssetListItem): string {
     return url
   }
   return ''
+}
+
+function openAssetImagePreview(asset: ArkVirtualAssetListItem) {
+  const url = assetPreviewUrl(asset)
+  if (!url) return
+  imagePreviewSrc.value = url
+  imagePreviewAlt.value = asset.Name || asset.Id || '素材图片预览'
+  imagePreviewOpen.value = true
 }
 
 function groupSubtitle(group: ArkVirtualAssetGroup): string {
@@ -746,16 +758,28 @@ onMounted(() => {
                     class="grid min-h-[92px] items-center gap-3 border-b px-3 py-3 transition-colors hover:bg-muted/30 xl:grid-cols-[minmax(260px,1fr)_72px_112px_128px_116px]"
                   >
                     <div class="flex min-w-0 items-center gap-3">
-                      <div class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+                      <button
+                        v-if="assetPreviewUrl(asset)"
+                        type="button"
+                        class="group relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted transition-transform active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        :aria-label="`预览${asset.Name || asset.Id}`"
+                        @click="openAssetImagePreview(asset)"
+                      >
                         <img
-                          v-if="assetPreviewUrl(asset)"
                           :src="assetPreviewUrl(asset)"
                           :alt="asset.Name || asset.Id"
                           class="h-full w-full object-cover"
                           loading="lazy"
                         >
+                        <span class="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition-[background-color,opacity] duration-150 group-hover:bg-black/35 group-hover:opacity-100 group-focus-visible:bg-black/35 group-focus-visible:opacity-100">
+                          <Maximize2 class="h-4 w-4 drop-shadow-sm" />
+                        </span>
+                      </button>
+                      <div
+                        v-else
+                        class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted"
+                      >
                         <ImageIcon
-                          v-else
                           class="h-5 w-5 text-muted-foreground"
                         />
                       </div>
@@ -1122,6 +1146,11 @@ onMounted(() => {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <ImagePreview
+      v-model:open="imagePreviewOpen"
+      :src="imagePreviewSrc"
+      :alt="imagePreviewAlt"
+    />
     </div>
   </TooltipProvider>
 </template>
