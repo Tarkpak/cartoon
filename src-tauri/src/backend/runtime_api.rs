@@ -5813,6 +5813,14 @@ fn is_gpt_image_2_model(normalized_model: &str) -> bool {
     normalized_model == "gpt-image-2" || normalized_model.contains("image-2")
 }
 
+fn uses_apimart_image_urls_generation(
+    base_url: &str,
+    normalized_model: &str,
+    has_reference_images: bool,
+) -> bool {
+    has_reference_images && is_apimart_base_url(base_url) && is_gpt_image_2_model(normalized_model)
+}
+
 fn normalize_apimart_aspect_ratio(value: Option<&str>) -> Option<String> {
     let normalized = value?.replace(char::is_whitespace, "").to_ascii_lowercase();
     if normalized == "auto" {
@@ -6248,7 +6256,7 @@ async fn request_custom_openai_image_generation(
     let normalized_model = model.to_ascii_lowercase();
     let is_apimart = is_apimart_base_url(&base_url);
     let is_gpt_image_2_series = is_gpt_image_2_model(&normalized_model);
-    let is_apimart_gpt_image_2 = is_apimart && normalized_model == "gpt-image-2";
+    let is_apimart_gpt_image_2 = is_apimart && is_gpt_image_2_series;
     let supports_edit = normalized_model.starts_with("gpt-image") || is_gpt_image_2_series;
     if !reference_images.is_empty() && !supports_edit {
         return Err(format!("模型 {} 不支持参考图编辑", model));
@@ -6280,7 +6288,12 @@ async fn request_custom_openai_image_generation(
     };
     let mut last_error = None::<String>;
     let _log_started_at = Utc::now().timestamp_millis();
-    let use_multipart_edit = !reference_images.is_empty();
+    let use_image_urls_in_generations = uses_apimart_image_urls_generation(
+        &base_url,
+        &normalized_model,
+        !reference_images.is_empty(),
+    );
+    let use_multipart_edit = !reference_images.is_empty() && !use_image_urls_in_generations;
     let endpoint = provider_image_request_endpoint(&base_url, use_multipart_edit);
 
     llm_dev_log!(
@@ -6294,6 +6307,7 @@ async fn request_custom_openai_image_generation(
         "size" => resolved_size.as_str(),
         "quality" => quality.as_deref().unwrap_or(""),
         "resolution" => resolution.as_deref().unwrap_or(""),
+        "imageUrls" => if use_image_urls_in_generations { reference_images.len() } else { 0 },
         "referenceImages" => reference_images.len(),
         "apiKeys" => api_keys.len()
     );
@@ -6402,6 +6416,9 @@ async fn request_custom_openai_image_generation(
             }
             if let Some(resolution) = &resolution {
                 request_body["resolution"] = json!(resolution);
+            }
+            if use_image_urls_in_generations {
+                request_body["image_urls"] = json!(reference_images);
             }
             request_log_payload = request_body.clone();
             llm_http_client()
@@ -15135,6 +15152,35 @@ mod tests {
             );
             assert!(provider_image_request_endpoint(base_url, true).ends_with("/images/edits"));
         }
+    }
+
+    #[test]
+    fn apimart_gpt_image_2_references_use_generations_image_urls() {
+        for base_url in [
+            "https://apimart.ai/v1",
+            "https://api.apimart.ai/v1",
+            "https://api.apib.ai/v1/images/generations",
+        ] {
+            for model in ["gpt-image-2", "gpt-image-2-ext"] {
+                assert!(uses_apimart_image_urls_generation(base_url, model, true));
+            }
+        }
+
+        assert!(!uses_apimart_image_urls_generation(
+            "https://api.apimart.ai/v1",
+            "gpt-image-2",
+            false
+        ));
+        assert!(!uses_apimart_image_urls_generation(
+            "https://api.apimart.ai/v1",
+            "gpt-image-1.5",
+            true
+        ));
+        assert!(!uses_apimart_image_urls_generation(
+            "http://localhost:8317/v1",
+            "gpt-image-2",
+            true
+        ));
     }
 
     #[test]
