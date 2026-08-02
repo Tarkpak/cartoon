@@ -5126,6 +5126,24 @@ mod director_preferences_tests {
     }
 
     #[test]
+    fn hidden_contract_delegates_description_format_to_director_prompt() {
+        let prompt = render_runtime_prompt(
+            SCRIPT_PARSING_CONTRACT,
+            &[(
+                "directorPrompt",
+                "每个分镜按【自定义甲】【自定义乙】两个区块输出。",
+            )],
+        );
+
+        assert!(prompt.contains("每个分镜按【自定义甲】【自定义乙】两个区块输出。"));
+        assert!(prompt
+            .contains("分镜提示词可以自由规定 scenes[i].description 的内容结构、标签、顺序和排版"));
+        assert!(prompt.contains("必须逐场遵循该格式，并将完整文本写入 description"));
+        assert!(prompt.contains("不得将自定义字段提升为 JSON 字段"));
+        assert!(prompt.contains("只有当分镜提示词没有规定或展示 description 格式时"));
+    }
+
+    #[test]
     fn placeholders_inside_director_prompt_are_not_rendered() {
         let prompt = render_runtime_prompt(
             SCRIPT_PARSING_CONTRACT,
@@ -17610,7 +17628,7 @@ fn validate_min_text_chars(
     min: usize,
 ) -> Result<(), ApiError> {
     let raw = required_json_string(value, key, path)?;
-    if raw.chars().count() < min {
+    if raw.trim().chars().count() < min {
         return Err(workflow_validation_error(
             format!("{path}.{key}"),
             format!("String must contain at least {min} character(s)"),
@@ -17725,16 +17743,7 @@ fn validate_script_parse_request(body: &Value) -> Result<(), ApiError> {
         return Err(workflow_validation_error("body", "Expected object"));
     }
     validate_script_parse_mode(body.get("scriptParseMode"), "body.scriptParseMode")?;
-    let script_parse_mode = normalize_runtime_script_parse_mode(&json_string(
-        body.get("scriptParseMode"),
-        "premium_drama",
-    ));
-    let min_text_chars = if script_parse_mode == "origin_explainer" {
-        2
-    } else {
-        10
-    };
-    validate_min_text_chars(body, "text", "body", min_text_chars)?;
+    validate_min_text_chars(body, "text", "body", 1)?;
     let text_char_count = required_json_string(body, "text", "body")?
         .trim()
         .chars()
@@ -17794,6 +17803,36 @@ fn validate_script_parse_request(body: &Value) -> Result<(), ApiError> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod script_parse_request_validation_tests {
+    use super::*;
+
+    fn request_with_text(text: &str) -> Value {
+        json!({
+          "text": text,
+          "targetEpisodeId": "episode_002",
+          "scriptParseMode": "premium_drama",
+          "episodePlan": [{
+            "id": "episode_002",
+            "title": "第2集",
+            "index": 2,
+            "startOffset": 21,
+            "endOffset": 30
+          }]
+        })
+    }
+
+    #[test]
+    fn accepts_non_empty_short_episode_text() {
+        assert!(validate_script_parse_request(&request_with_text("她被从镜头抹去")).is_ok());
+    }
+
+    #[test]
+    fn rejects_whitespace_only_episode_text() {
+        assert!(validate_script_parse_request(&request_with_text("   \n\t")).is_err());
+    }
 }
 
 fn validate_episode_plan_request(body: &Value) -> Result<(), ApiError> {

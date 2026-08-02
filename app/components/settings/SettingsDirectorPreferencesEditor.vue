@@ -152,7 +152,7 @@ function save() {
 
     <div class="flex items-start gap-2 border-b bg-muted/30 px-4 py-2.5 text-sm text-muted-foreground md:px-6">
       <ShieldCheck class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-      <span>输入输出格式、资产字段和时长规则由系统保护，这里只控制分镜风格、节奏与镜头表达。</span>
+      <span>外层数据结构、资产字段和时长规则由系统保护；分镜描述的内容结构、标签和排版可由这里自定义。</span>
     </div>
 
     <div
