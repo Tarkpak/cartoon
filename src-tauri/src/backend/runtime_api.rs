@@ -14662,6 +14662,21 @@ mod tests {
     }
 
     #[test]
+    fn ark_credential_fingerprint_is_stable_without_exposing_the_access_key() {
+        let fingerprint = ark_credential_fingerprint(" test-access-key ", " test-secret-key ");
+        assert_eq!(
+            fingerprint,
+            ark_credential_fingerprint("test-access-key", "test-secret-key")
+        );
+        assert!(fingerprint.starts_with("ak1_"));
+        assert!(!fingerprint.contains("test-access-key"));
+        assert_ne!(
+            fingerprint,
+            ark_credential_fingerprint("test-access-key", "other-secret-key")
+        );
+    }
+
+    #[test]
     fn jianying_sound_effect_offsets_preserve_zero_and_validate_ranges() {
         assert_eq!(to_offset_microseconds(Some(0.0)), 0);
         assert_eq!(to_offset_microseconds(Some(1.25)), 1_250_000);
@@ -18616,6 +18631,45 @@ fn ark_openapi_endpoint(creds: &Value) -> String {
         .to_string()
 }
 
+fn ark_credential_fingerprint(access_key: &str, secret_key: &str) -> String {
+    let material = format!("{}\0{}", access_key.trim(), secret_key.trim());
+    let digest = ark_sha256_hex(material.as_bytes());
+    format!("ak1_{}", &digest[..16])
+}
+
+fn ark_current_credential_fingerprint() -> Option<String> {
+    let creds = current_provider_creds();
+    let tos_config = load_backend_tos_config();
+    let access_key = provider_credential_field(&creds, "volcengine", "arkAccessKey")
+        .or_else(|| provider_credential_field(&creds, "volcengine", "accessKey"))
+        .or_else(|| {
+            if tos_config.access_key_id.is_empty() {
+                None
+            } else {
+                Some(tos_config.access_key_id)
+            }
+        })?;
+    let secret_key = provider_credential_field(&creds, "volcengine", "arkSecretKey")
+        .or_else(|| provider_credential_field(&creds, "volcengine", "secretKey"))
+        .or_else(|| {
+            if tos_config.access_key_secret.is_empty() {
+                None
+            } else {
+                Some(tos_config.access_key_secret)
+            }
+        })?;
+    Some(ark_credential_fingerprint(&access_key, &secret_key))
+}
+
+pub(super) async fn api_ark_asset_context() -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+      "success": true,
+      "data": {
+        "credentialFingerprint": ark_current_credential_fingerprint()
+      }
+    })))
+}
+
 fn ark_project_name(creds: &Value, body: &Value) -> String {
     body.get("ProjectName")
         .or_else(|| body.get("projectName"))
@@ -18766,7 +18820,8 @@ fn ark_asset_public_payload(payload: Value) -> Value {
     let status = ark_asset_status(&payload);
     json!({
       "asset": payload,
-      "status": status
+      "status": status,
+      "credentialFingerprint": ark_current_credential_fingerprint()
     })
 }
 
@@ -18987,7 +19042,8 @@ pub(super) async fn api_ark_virtual_asset_upload(
       "success": true,
       "data": {
         "sourceUrl": image_url,
-        "asset": result
+        "asset": result,
+        "credentialFingerprint": ark_current_credential_fingerprint()
       }
     })))
 }
@@ -19026,7 +19082,15 @@ pub(super) async fn api_ark_virtual_assets_list(
     if let Some(project_name) = ark_optional_string(&body, &["projectName", "ProjectName"]) {
         request["ProjectName"] = json!(project_name);
     }
-    let result = ark_openapi_call("ListAssets", request).await?;
+    let mut result = ark_openapi_call("ListAssets", request).await?;
+    if let Some(object) = result.as_object_mut() {
+        object.insert(
+            "CredentialFingerprint".to_string(),
+            ark_current_credential_fingerprint()
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+        );
+    }
     Ok(Json(json!({
       "success": true,
       "data": result

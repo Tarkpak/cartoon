@@ -132,6 +132,7 @@ function resolveArkAssetLabel(char: CharacterData): string {
   if (asset.status === 'Active') return '已入库'
   if (asset.status === 'Failed') return '入库失败'
   if (asset.status === 'Unknown') return '状态未知'
+  if (asset.status === 'Stale') return '账号已变更'
   return '入库处理中'
 }
 
@@ -141,6 +142,7 @@ function resolveArkAssetClass(char: CharacterData): string {
   if (status === 'Failed') return 'border-destructive/25 bg-destructive/5 text-destructive'
   if (status === 'Processing') return 'border-blue-200 bg-blue-50 text-blue-700'
   if (status === 'Unknown') return 'border-amber-200 bg-amber-50 text-amber-700'
+  if (status === 'Stale') return 'border-orange-200 bg-orange-50 text-orange-700'
   return 'border-dashed bg-muted/20 text-muted-foreground'
 }
 

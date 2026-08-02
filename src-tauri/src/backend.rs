@@ -4798,6 +4798,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             "/api/ark-assets/virtual/groups",
             get(api_ark_virtual_asset_groups_list).post(api_ark_virtual_asset_group_create),
         )
+        .route("/api/ark-assets/context", get(api_ark_asset_context))
         .route(
             "/api/ark-assets/virtual/groups/{groupId}",
             put(api_ark_virtual_asset_group_update).delete(api_ark_virtual_asset_group_delete),
@@ -6505,6 +6506,7 @@ fn validate_ark_virtual_asset(
         "name",
         "status",
         "errorMessage",
+        "credentialFingerprint",
         "updatedAt",
     ] {
         if let Some(value) = object.get(key).filter(|value| !value.is_null()) {

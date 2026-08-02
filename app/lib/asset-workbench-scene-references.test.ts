@@ -28,6 +28,7 @@ function createCharacter(input: Partial<CharacterData> & Pick<CharacterData, 'id
     catchphrase: input.catchphrase,
     voiceTone: input.voiceTone,
     voiceAsset: input.voiceAsset,
+    arkAsset: input.arkAsset,
     age: input.age,
     gender: input.gender
   }
@@ -138,6 +139,41 @@ describe('scene video reference assets', () => {
       assetId: 'char:char_ming',
       source: 'configured'
     })
+  })
+
+  it('does not send an old-account Ark asset URI after the binding is marked stale', () => {
+    const scene = createScene({
+      id: 'scene_stale_ark',
+      title: '旧账号素材',
+      description: '[引用资产]\n@阿强'
+    })
+    const character = createCharacter({
+      id: 'char_qiang',
+      name: '阿强',
+      baseImage: 'char_qiang.png',
+      arkAsset: {
+        provider: 'volcengine',
+        libraryType: 'virtual_human',
+        projectName: 'default',
+        groupId: 'old-group',
+        assetId: 'old-account-asset',
+        assetType: 'Image',
+        status: 'Stale'
+      }
+    })
+
+    const assets = resolveSceneVideoReferenceAssets({
+      scene,
+      characters: [character],
+      propAssets: [],
+      sceneConfigs: {
+        [scene.id]: createSceneConfig(scene.id, ['char:char_qiang'])
+      }
+    })
+
+    expect(assets).toHaveLength(1)
+    expect(assets[0]?.arkAssetId).toBeUndefined()
+    expect(assets[0]?.arkAssetStatus).toBe('Stale')
   })
 
   it('falls back to scene-config character references when no character @mention exists', () => {

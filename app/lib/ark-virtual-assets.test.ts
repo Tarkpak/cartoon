@@ -77,4 +77,27 @@ describe('ark virtual assets', () => {
       imageData: 'data:image/png;base64,AAAA'
     })).rejects.toThrow('火山素材库需要公网可访问 URL，请先启用 TOS 云存储配置')
   })
+
+  it('records the credential fingerprint on newly uploaded assets', async () => {
+    fetchMock.mockResolvedValue({
+      success: true,
+      data: {
+        credentialFingerprint: 'ak1_current',
+        asset: {
+          Id: 'asset-new',
+          GroupId: 'group-new',
+          Status: 'Processing',
+          ProjectName: 'default'
+        }
+      }
+    })
+
+    const asset = await uploadArkVirtualAsset({
+      groupId: 'group-new',
+      name: '新账号素材',
+      sourceUrl: 'https://example.com/new.png'
+    })
+
+    expect(asset.credentialFingerprint).toBe('ak1_current')
+  })
 })

@@ -31,6 +31,7 @@ const groups = ref<ArkVirtualAssetGroup[]>([])
 const assets = ref<ArkVirtualAssetListItem[]>([])
 const loadingGroups = ref(false)
 const loadingAssets = ref(false)
+const credentialFingerprint = ref<string>()
 
 const selectedGroup = computed(() => {
   return groups.value.find(group => group.Id === selectedGroupId.value)
@@ -92,6 +93,7 @@ async function refreshAssets() {
       pageSize: 80
     })
     assets.value = page.items.filter(asset => asset.Status === 'Active')
+    credentialFingerprint.value = page.credentialFingerprint
   } catch (error) {
     toast.error('查询素材失败', {
       description: error instanceof Error ? error.message : String(error)
@@ -112,6 +114,7 @@ function selectAsset(asset: ArkVirtualAssetListItem) {
     sourceUrl: asset.URL,
     name: asset.Name || props.characterName,
     status: 'Active',
+    credentialFingerprint: credentialFingerprint.value,
     updatedAt: new Date().toISOString()
   })
   emit('update:open', false)

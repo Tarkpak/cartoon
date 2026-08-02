@@ -30,6 +30,7 @@ export interface ArkVirtualAssetPage<T> {
   totalCount: number
   pageNumber: number
   pageSize: number
+  credentialFingerprint?: string
 }
 
 interface ArkAssetResponse {
@@ -47,6 +48,7 @@ interface ArkListResponse<T> {
   TotalCount?: number
   PageNumber?: number
   PageSize?: number
+  CredentialFingerprint?: string
 }
 
 function normalizePage<T>(data: ArkListResponse<T> | undefined, fallbackPageNumber: number, fallbackPageSize: number): ArkVirtualAssetPage<T> {
@@ -54,12 +56,13 @@ function normalizePage<T>(data: ArkListResponse<T> | undefined, fallbackPageNumb
     items: Array.isArray(data?.Items) ? data.Items : [],
     totalCount: Number(data?.TotalCount || 0),
     pageNumber: Number(data?.PageNumber || fallbackPageNumber),
-    pageSize: Number(data?.PageSize || fallbackPageSize)
+    pageSize: Number(data?.PageSize || fallbackPageSize),
+    credentialFingerprint: data?.CredentialFingerprint
   }
 }
 
 function normalizeStatus(status: unknown): ArkVirtualAssetStatus {
-  if (status === 'Processing' || status === 'Active' || status === 'Failed') return status
+  if (status === 'Processing' || status === 'Active' || status === 'Failed' || status === 'Stale') return status
   return 'Unknown'
 }
 
@@ -75,7 +78,19 @@ function normalizeAssetResponse(asset: ArkAssetResponse | undefined, fallback: P
     name: asset?.Name || fallback.name,
     status: normalizeStatus(asset?.Status || fallback.status || 'Processing'),
     errorMessage: fallback.errorMessage,
+    credentialFingerprint: fallback.credentialFingerprint,
     updatedAt: new Date().toISOString()
+  }
+}
+
+export async function getArkCredentialContext() {
+  const response = await $fetch<{
+    success: boolean
+    data?: { credentialFingerprint?: string }
+  }>('/api/ark-assets/context')
+
+  return {
+    credentialFingerprint: response.data?.credentialFingerprint?.trim() || undefined
   }
 }
 
@@ -200,6 +215,7 @@ export async function uploadArkVirtualAsset(input: {
     data?: {
       sourceUrl?: string
       asset?: ArkAssetResponse
+      credentialFingerprint?: string
     }
     message?: string
   }
@@ -222,6 +238,7 @@ export async function uploadArkVirtualAsset(input: {
     projectName: input.projectName,
     sourceUrl: response.data.sourceUrl || input.sourceUrl,
     name: input.name,
+    credentialFingerprint: response.data.credentialFingerprint,
     status: 'Processing'
   })
 }
@@ -285,6 +302,38 @@ export async function updateArkVirtualAsset(input: {
   return response.data
 }
 
+export async function getArkVirtualAsset(input: {
+  assetId: string
+  projectName?: string
+  fallback?: Partial<ArkVirtualAssetBinding>
+}) {
+  const response = await $fetch<{
+    success: boolean
+    data?: {
+      asset?: ArkAssetResponse
+      status?: string
+      credentialFingerprint?: string
+    }
+    message?: string
+  }>(`/api/ark-assets/virtual/assets/${encodeURIComponent(input.assetId)}`, {
+    query: {
+      projectName: input.projectName || undefined
+    }
+  })
+
+  if (!response.success || !response.data?.asset) {
+    throw new Error(response.message || '当前火山账号无法访问该素材')
+  }
+
+  return normalizeAssetResponse(response.data.asset, {
+    ...input.fallback,
+    assetId: input.assetId,
+    projectName: input.projectName || input.fallback?.projectName,
+    credentialFingerprint: response.data.credentialFingerprint,
+    status: normalizeStatus(response.data.status)
+  })
+}
+
 export async function deleteArkVirtualAsset(input: {
   assetId: string
   projectName?: string
@@ -319,6 +368,7 @@ export async function pollArkVirtualAsset(input: {
     data?: {
       asset?: ArkAssetResponse
       status?: string
+      credentialFingerprint?: string
     }
     timeout?: boolean
     message?: string
@@ -340,6 +390,7 @@ export async function pollArkVirtualAsset(input: {
       ...input.fallback,
       assetId: input.assetId,
       projectName: input.projectName || input.fallback?.projectName,
+      credentialFingerprint: response.data.credentialFingerprint || input.fallback?.credentialFingerprint,
       status: normalizeStatus(response.data.status)
     }),
     timeout: response.timeout === true

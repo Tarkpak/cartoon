@@ -34,7 +34,7 @@ export interface AssetImageHistoryEntry {
   libraryAssetVersion?: number
 }
 
-export type ArkVirtualAssetStatus = 'Processing' | 'Active' | 'Failed' | 'Unknown'
+export type ArkVirtualAssetStatus = 'Processing' | 'Active' | 'Failed' | 'Unknown' | 'Stale'
 
 export interface ArkVirtualAssetBinding {
   provider: 'volcengine'
@@ -47,6 +47,7 @@ export interface ArkVirtualAssetBinding {
   name?: string
   status: ArkVirtualAssetStatus
   errorMessage?: string
+  credentialFingerprint?: string
   updatedAt?: string
 }
 
