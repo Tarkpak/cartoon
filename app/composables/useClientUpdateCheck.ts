@@ -1,3 +1,5 @@
+import { isUpdateSnoozed, snoozeUpdate, UPDATE_SNOOZE_DURATION_MS } from '@/lib/update-snooze'
+
 export interface ClientUpdateInfo {
   hasUpdate: boolean
   forceUpdate: boolean
@@ -28,7 +30,7 @@ interface CloudUpdateCheckResponse {
   }
 }
 
-const DISMISSED_UPDATE_KEY = 'playlet:client-update-dismissed-version'
+const UPDATE_SNOOZE_KEY = 'playlet:client-update-snooze'
 
 function normalizeError(error: unknown) {
   if (typeof error === 'string') return error
@@ -58,11 +60,6 @@ function normalizeUpdateInfo(input: Partial<ClientUpdateInfo>): ClientUpdateInfo
   }
 }
 
-function dismissedVersion() {
-  if (!import.meta.client) return ''
-  return window.localStorage.getItem(DISMISSED_UPDATE_KEY) || ''
-}
-
 export function useClientUpdateCheck() {
   const updateInfo = useState<ClientUpdateInfo | null>('client-update-info', () => null)
   const checking = useState<boolean>('client-update-checking', () => false)
@@ -90,7 +87,7 @@ export function useClientUpdateCheck() {
         return null
       }
 
-      if (!info.forceUpdate && dismissedVersion() === info.latestVersion) {
+      if (!info.forceUpdate && isUpdateSnoozed(window.localStorage, UPDATE_SNOOZE_KEY, info.latestVersion)) {
         updateInfo.value = null
         return null
       }
@@ -106,9 +103,9 @@ export function useClientUpdateCheck() {
     }
   }
 
-  function dismissClientUpdate() {
+  function snoozeClientUpdate(duration = UPDATE_SNOOZE_DURATION_MS) {
     if (!import.meta.client || !updateInfo.value || updateInfo.value.forceUpdate) return
-    window.localStorage.setItem(DISMISSED_UPDATE_KEY, updateInfo.value.latestVersion)
+    snoozeUpdate(window.localStorage, UPDATE_SNOOZE_KEY, updateInfo.value.latestVersion, duration)
     updateInfo.value = null
   }
 
@@ -124,7 +121,7 @@ export function useClientUpdateCheck() {
     lastCheckedAt,
     hasUpdate,
     checkForClientUpdate,
-    dismissClientUpdate,
+    snoozeClientUpdate,
     openClientUpdateDownload
   }
 }

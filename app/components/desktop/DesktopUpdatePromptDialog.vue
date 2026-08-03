@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { Download, ExternalLink, Loader2, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import {
+  ChevronDown,
+  Download,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  Rocket,
+  TriangleAlert,
+  X
+} from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -12,6 +21,7 @@ import {
 import { Progress } from '@/components/ui/progress'
 import { useClientUpdateCheck } from '@/composables/useClientUpdateCheck'
 import { useDesktopUpdater } from '@/composables/useDesktopUpdater'
+import { isUpdateSnoozed, snoozeUpdate } from '@/lib/update-snooze'
 import { clientArchLabel, clientChannelLabel, clientPlatformLabel } from '#shared/utils/display-labels'
 
 const STARTUP_UPDATE_CHECK_DELAY_MS = 1200
@@ -22,7 +32,7 @@ const {
   checking: clientUpdateChecking,
   error: clientUpdateError,
   checkForClientUpdate,
-  dismissClientUpdate,
+  snoozeClientUpdate,
   openClientUpdateDownload
 } = useClientUpdateCheck()
 const {
@@ -39,12 +49,14 @@ const {
   installDesktopUpdate
 } = useDesktopUpdater()
 
-const dialogOpen = ref(false)
+const promptVisible = ref(false)
+const detailsOpen = ref(false)
 const startupCheckStarted = useState<boolean>('desktop-updater-startup-check-started', () => false)
-const dismissedVersion = useState<string>('desktop-updater-dismissed-version', () => '')
 const lastAutomaticCheckAt = useState<number>('desktop-updater-last-automatic-check-at', () => 0)
 let startupCheckTimer: number | null = null
 let automaticCheckTimer: number | null = null
+
+const DESKTOP_UPDATE_SNOOZE_KEY = 'playlet:desktop-update-snooze'
 
 const activeClientUpdate = computed(() => {
   return clientUpdateInfo.value?.hasUpdate ? clientUpdateInfo.value : null
@@ -56,6 +68,8 @@ const isChecking = computed(() => clientUpdateChecking.value || desktopChecking.
 const displayError = computed(() => clientUpdateError.value || desktopError.value)
 const isForceUpdate = computed(() => activeClientUpdate.value?.forceUpdate === true)
 const blocksDismiss = computed(() => isForceUpdate.value && Boolean(activeClientUpdate.value?.downloadUrl))
+const showForceUpdateDialog = computed(() => promptVisible.value && isForceUpdate.value)
+const showUpdateNotice = computed(() => promptVisible.value && !isForceUpdate.value)
 const updateTitle = computed(() => {
   if (activeClientUpdate.value) {
     return `${isForceUpdate.value ? '需要更新客户端' : '发现新版本'} ${activeClientUpdate.value.latestVersion}`
@@ -83,6 +97,12 @@ const versionBadgeLabel = computed(() => {
 const canRunPrimaryAction = computed(() => {
   if (activeClientUpdate.value) return Boolean(activeClientUpdate.value.downloadUrl)
   return Boolean(availableUpdate.value)
+})
+const primaryActionLabel = computed(() => {
+  if (activeClientUpdate.value) return '下载更新'
+  if (installing.value) return '正在更新...'
+  if (desktopError.value) return '重试更新'
+  return '更新并重启'
 })
 
 const formattedUpdateDate = computed(() => {
@@ -122,14 +142,16 @@ async function runAutomaticUpdateCheck() {
   lastAutomaticCheckAt.value = Date.now()
   const clientUpdate = await checkForClientUpdate()
   if (clientUpdate) {
-    dialogOpen.value = true
+    detailsOpen.value = false
+    promptVisible.value = true
     return
   }
 
   const update = await checkDesktopUpdate()
-  if (!update || dismissedVersion.value === update.version) return
+  if (!update || isUpdateSnoozed(window.localStorage, DESKTOP_UPDATE_SNOOZE_KEY, update.version)) return
 
-  dialogOpen.value = true
+  detailsOpen.value = false
+  promptVisible.value = true
 }
 
 function runAutomaticUpdateCheckIfDue() {
@@ -153,27 +175,27 @@ function handleVisibilityChange() {
   }
 }
 
-function dismissUpdatePrompt() {
+function snoozeUpdatePrompt() {
   if (activeClientUpdate.value) {
-    dismissClientUpdate()
-    dialogOpen.value = false
+    snoozeClientUpdate()
+    promptVisible.value = false
     return
   }
 
   if (availableUpdate.value) {
-    dismissedVersion.value = availableUpdate.value.version
+    snoozeUpdate(window.localStorage, DESKTOP_UPDATE_SNOOZE_KEY, availableUpdate.value.version)
   }
-  dialogOpen.value = false
+  promptVisible.value = false
 }
 
 function handleOpenChange(nextOpen: boolean) {
   if (nextOpen) {
-    dialogOpen.value = true
+    promptVisible.value = true
     return
   }
 
   if (installing.value || blocksDismiss.value) return
-  dismissUpdatePrompt()
+  snoozeUpdatePrompt()
 }
 
 function handlePrimaryAction() {
@@ -215,14 +237,14 @@ onBeforeUnmount(() => {
 
 <template>
   <Dialog
-    v-if="isDesktopRuntime && (activeClientUpdate || availableUpdate)"
-    :open="dialogOpen"
+    v-if="isDesktopRuntime && isForceUpdate && activeClientUpdate"
+    :open="showForceUpdateDialog"
     @update:open="handleOpenChange"
   >
     <DialogContent class="max-h-[90vh] overflow-hidden sm:max-w-xl">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
-          <Sparkles class="h-5 w-5 text-primary" />
+          <TriangleAlert class="h-5 w-5 text-amber-500" />
           {{ updateTitle }}
         </DialogTitle>
         <DialogDescription>
@@ -302,13 +324,8 @@ onBeforeUnmount(() => {
       </div>
 
       <DialogFooter class="gap-2 sm:justify-end">
-        <Button
-          v-if="!blocksDismiss"
-          variant="outline"
-          :disabled="installing"
-          @click="dismissUpdatePrompt"
-        >
-          稍后
+        <Button v-if="!blocksDismiss" variant="outline" @click="snoozeUpdatePrompt">
+          24 小时后提醒
         </Button>
         <Button
           :disabled="installing || isChecking || !canRunPrimaryAction"
@@ -331,4 +348,107 @@ onBeforeUnmount(() => {
       </DialogFooter>
     </DialogContent>
   </Dialog>
+
+  <Teleport to="body">
+    <div
+      v-if="isDesktopRuntime"
+      class="pointer-events-none fixed inset-x-4 bottom-4 z-[90] flex justify-end sm:inset-x-6 sm:bottom-6"
+    >
+      <Transition
+        enter-active-class="transition-[transform,opacity] duration-200 ease-out"
+        enter-from-class="translate-y-2 opacity-0"
+        enter-to-class="translate-y-0 opacity-100"
+        leave-active-class="transition-[transform,opacity] duration-150 ease-out"
+        leave-from-class="translate-y-0 opacity-100"
+        leave-to-class="translate-y-1 opacity-0"
+      >
+        <section
+          v-if="showUpdateNotice && (activeClientUpdate || availableUpdate)"
+          role="status"
+          aria-live="polite"
+          class="pointer-events-auto w-[22rem] max-w-full overflow-hidden rounded-lg border border-border/70 bg-popover text-popover-foreground shadow-[0_18px_50px_hsl(var(--foreground)/0.16)]"
+        >
+          <div class="flex items-start gap-3 p-4">
+            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <Loader2 v-if="installing" class="h-4 w-4 animate-spin" />
+              <TriangleAlert v-else-if="desktopError" class="h-4 w-4 text-destructive" />
+              <Rocket v-else class="h-4 w-4" />
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <h2 class="text-sm font-semibold leading-5">
+                {{ desktopError ? '更新未完成' : updateTitle }}
+              </h2>
+              <p class="mt-0.5 text-xs leading-5 text-muted-foreground">
+                {{ desktopError || updateDescription }}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              class="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-150 hover:bg-accent hover:text-foreground active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="24 小时后提醒更新"
+              title="24 小时后提醒"
+              :disabled="installing"
+              @click="snoozeUpdatePrompt"
+            >
+              <X class="h-4 w-4" />
+            </button>
+          </div>
+
+          <div v-if="installing" class="space-y-2 px-4 pb-4">
+            <div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span>{{ statusMessage || '正在下载更新...' }}</span>
+              <span class="shrink-0 tabular-nums">{{ downloadStatusLabel }}</span>
+            </div>
+            <Progress
+              :model-value="downloadProgress ?? 35"
+              :class="downloadProgress === null ? 'animate-pulse' : ''"
+            />
+          </div>
+
+          <div
+            v-if="detailsOpen"
+            class="max-h-48 overflow-y-auto border-t border-border/70 px-4 py-3"
+          >
+            <p class="whitespace-pre-wrap text-xs leading-5 text-muted-foreground">
+              {{ activeUpdateBody || '这个版本没有提供更新说明。' }}
+            </p>
+            <p v-if="formattedUpdateDate" class="mt-2 text-[11px] text-muted-foreground">
+              发布时间：{{ formattedUpdateDate }}
+            </p>
+          </div>
+
+          <div class="flex items-center justify-between gap-2 border-t border-border/70 px-3 py-2.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              class="h-8 gap-1 px-2 text-xs font-medium text-muted-foreground"
+              :aria-expanded="detailsOpen"
+              @click="detailsOpen = !detailsOpen"
+            >
+              更新内容
+              <ChevronDown
+                class="h-3.5 w-3.5 transition-transform duration-150"
+                :class="detailsOpen ? 'rotate-180' : ''"
+              />
+            </Button>
+
+            <Button
+              size="sm"
+              class="h-8 gap-1.5 px-3 text-xs active:scale-[0.96] transition-[background-color,border-color,color,box-shadow,transform]"
+              :disabled="installing || isChecking || !canRunPrimaryAction"
+              @click="handlePrimaryAction"
+            >
+              <Loader2 v-if="installing" class="h-3.5 w-3.5 animate-spin" />
+              <ExternalLink v-else-if="activeClientUpdate" class="h-3.5 w-3.5" />
+              <RefreshCw v-else-if="desktopError" class="h-3.5 w-3.5" />
+              <Download v-else class="h-3.5 w-3.5" />
+              {{ primaryActionLabel }}
+            </Button>
+          </div>
+        </section>
+      </Transition>
+    </div>
+  </Teleport>
 </template>

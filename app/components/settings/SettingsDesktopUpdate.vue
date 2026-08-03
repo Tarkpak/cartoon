@@ -164,7 +164,7 @@ onMounted(() => {
             v-else
             class="h-4 w-4"
           />
-          {{ installing ? '安装中...' : '下载并安装' }}
+          {{ installing ? '更新中...' : '更新并重启' }}
         </Button>
       </div>
 
@@ -185,7 +185,7 @@ onMounted(() => {
         </div>
         <div class="h-2 overflow-hidden rounded-full bg-muted">
           <div
-            class="h-full bg-primary transition-all"
+            class="h-full bg-primary transition-[width] duration-200 ease-out"
             :class="downloadProgress === null ? 'w-1/3 animate-pulse' : ''"
             :style="downloadProgress === null ? undefined : { width: `${downloadProgress}%` }"
           />
