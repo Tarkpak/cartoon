@@ -5,6 +5,11 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const envPath = resolve(root, '.env')
+const downloadTimeoutMs = 120_000
+const multipartThreshold = 5 * 1024 * 1024
+const multipartPartSize = 5 * 1024 * 1024
+const transferConcurrency = 2
+const maxTransferAttempts = 3
 
 function loadEnvFile(path) {
   if (!existsSync(path)) return
@@ -53,6 +58,51 @@ function joinUrl(baseUrl, path) {
     .map(encodeURIComponent)
     .join('/')
   return `${normalizeBaseUrl(baseUrl)}/${encodedPath}`
+}
+
+function formatBytes(bytes) {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function formatDuration(startedAt) {
+  return `${((Date.now() - startedAt) / 1000).toFixed(1)}s`
+}
+
+async function retry(label, operation) {
+  let lastError
+
+  for (let attempt = 1; attempt <= maxTransferAttempts; attempt += 1) {
+    try {
+      return await operation(attempt)
+    }
+    catch (error) {
+      lastError = error
+      if (attempt === maxTransferAttempts) break
+
+      const delayMs = attempt * 1_000
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`${label} failed (attempt ${attempt}/${maxTransferAttempts}): ${message}`)
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
+  }
+
+  throw lastError
+}
+
+async function mapWithConcurrency(items, concurrency, operation) {
+  let nextIndex = 0
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      await operation(items[index])
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
+  )
 }
 
 function buildTosPublicBaseUrl() {
@@ -113,21 +163,24 @@ async function github(path, options = {}) {
 }
 
 async function githubBuffer(url) {
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'application/octet-stream',
-      Authorization: `Bearer ${requiredEnv('GITHUB_TOKEN')}`,
-      'X-GitHub-Api-Version': '2022-11-28'
-    },
-    redirect: 'follow'
+  return retry('GitHub asset download', async () => {
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/octet-stream',
+        Authorization: `Bearer ${requiredEnv('GITHUB_TOKEN')}`,
+        'X-GitHub-Api-Version': '2022-11-28'
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(downloadTimeoutMs)
+    })
+
+    if (!response.ok) {
+      const body = await response.text()
+      throw new Error(`Download release asset failed: ${response.status} ${body}`)
+    }
+
+    return Buffer.from(await response.arrayBuffer())
   })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(`Download release asset failed: ${response.status} ${body}`)
-  }
-
-  return Buffer.from(await response.arrayBuffer())
 }
 
 function contentTypeFor(name) {
@@ -156,6 +209,11 @@ function platformForAsset(name) {
   }
 
   return ''
+}
+
+function isUpdaterAsset(name) {
+  const unsignedName = name.endsWith('.sig') ? name.slice(0, -'.sig'.length) : name
+  return Boolean(platformForAsset(unsignedName))
 }
 
 function buildLatestJson({ release, tag, assetBuffers, cdnUrls }) {
@@ -197,14 +255,43 @@ function buildLatestJson({ release, tag, assetBuffers, cdnUrls }) {
 }
 
 async function uploadObject(client, key, body, name) {
-  await client.putObject({
-    key,
-    body,
-    contentType: contentTypeFor(name),
-    cacheControl: cacheControlFor(name)
+  const startedAt = Date.now()
+  const size = body.length
+  console.log(`uploading ${key} (${formatBytes(size)})`)
+
+  await retry(`TOS upload ${name}`, async (attempt) => {
+    if (attempt > 1) {
+      console.log(`retrying ${key} (attempt ${attempt}/${maxTransferAttempts})`)
+    }
+
+    const input = {
+      key,
+      contentType: contentTypeFor(name),
+      cacheControl: cacheControlFor(name)
+    }
+
+    if (size < multipartThreshold) {
+      await client.putObject({ ...input, body })
+      return
+    }
+
+    let lastLoggedPercent = 0
+    await client.uploadFile({
+      ...input,
+      file: body,
+      partSize: multipartPartSize,
+      taskNum: 4,
+      progress(percent) {
+        const completedPercent = Math.floor(percent * 100)
+        if (completedPercent >= lastLoggedPercent + 25 || completedPercent === 100) {
+          lastLoggedPercent = completedPercent
+          console.log(`upload progress ${name}: ${completedPercent}%`)
+        }
+      }
+    })
   })
 
-  console.log(`uploaded ${key}`)
+  console.log(`uploaded ${key} in ${formatDuration(startedAt)}`)
 }
 
 loadEnvFile(envPath)
@@ -230,18 +317,28 @@ const client = new TosClient({
   region: requiredEnv('TOS_REGION'),
   endpoint: requiredEnv('TOS_ENDPOINT'),
   bucket: requiredEnv('TOS_BUCKET'),
-  isCustomDomain: env('TOS_IS_CUSTOM_DOMAIN').toLowerCase() === 'true'
+  isCustomDomain: env('TOS_IS_CUSTOM_DOMAIN').toLowerCase() === 'true',
+  connectionTimeout: 10_000,
+  requestTimeout: 120_000,
+  maxRetryCount: 0
 })
 
-for (const asset of assets) {
-  if (asset.name === 'latest.json') continue
+const updaterAssets = assets
+  .filter(asset => isUpdaterAsset(asset.name))
+  .sort((left, right) => Number(left.name.endsWith('.sig')) - Number(right.name.endsWith('.sig')))
 
+console.log(`selected ${updaterAssets.length}/${assets.length} release assets for updater publishing`)
+
+await mapWithConcurrency(updaterAssets, transferConcurrency, async (asset) => {
+  const downloadStartedAt = Date.now()
+  console.log(`downloading ${asset.name} (${formatBytes(asset.size)})`)
   const buffer = await githubBuffer(asset.url)
+  console.log(`downloaded ${asset.name} in ${formatDuration(downloadStartedAt)}`)
   const objectPath = joinPath(keyPrefix, manifestDir, asset.name)
   assetBuffers.set(asset.name, buffer)
   cdnUrls.set(asset.name, joinUrl(publicBaseUrl, joinPath(manifestDir, asset.name)))
   await uploadObject(client, objectPath, buffer, asset.name)
-}
+})
 
 const latestJson = buildLatestJson({ release, tag, assetBuffers, cdnUrls })
 const latestBody = Buffer.from(`${JSON.stringify(latestJson, null, 2)}\n`)
