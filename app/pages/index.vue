@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FileText, FolderOpen, Sparkles, Layers3, Film, ScrollText, Settings, History } from 'lucide-vue-next'
 import { createClickRipple } from '@/lib/ripple'
+import { projectLastOpenedStorageKey } from '@/lib/projects-page'
 import { resolveProjectWorkbenchPath } from '#shared/types/project'
 
 definePageMeta({
@@ -8,13 +9,17 @@ definePageMeta({
 })
 
 const router = useRouter()
+const { currentUser } = useCloudAdmin()
 
 const lastProjectId = ref<string | null>(null)
 
-onMounted(() => {
+function loadLastProjectId() {
   if (typeof window === 'undefined') return
-  lastProjectId.value = window.localStorage.getItem('playlet:last-project-id')
-})
+  const storageKey = projectLastOpenedStorageKey(currentUser.value?.id)
+  lastProjectId.value = storageKey ? window.localStorage.getItem(storageKey) : null
+}
+
+watch(() => currentUser.value?.id, loadLastProjectId, { immediate: true })
 
 function navigateTo(path: string) {
   router.push(path)

@@ -5,6 +5,7 @@ interface CloudAdminStatus {
   baseUrl: string
   authenticated: boolean
   user?: {
+    id?: string
     account?: string
     displayName?: string
     role?: string

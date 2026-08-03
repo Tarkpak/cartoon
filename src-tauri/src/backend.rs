@@ -8,7 +8,7 @@ use axum::routing::{any, delete, get, post, put};
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
-use chrono::{SecondsFormat, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use reqwest::Client;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
 use ring::agreement::{self, EphemeralPrivateKey, UnparsedPublicKey};
@@ -72,12 +72,19 @@ const CLOUD_ADMIN_SESSION_KEY: &str = "cloud_admin_session";
 const CLOUD_PROVIDER_CREDENTIALS_KEY: &str = "cloud_provider_credentials";
 const CLOUD_DEVICE_ID_KEY: &str = "cloud_device_id";
 const CLOUD_DELETED_PROJECT_TOMBSTONES_KEY: &str = "cloud_deleted_project_tombstones";
+const CLOUD_MODEL_LOG_CURSOR_KEY_PREFIX: &str = "cloud_model_log_cursor:";
 const CLOUD_SECRET_TRANSPORT_HEADER: &str = "x-playlet-secure-request";
 const CLOUD_SECRET_TRANSPORT_CONTEXT: &[u8] = b"playlet.cloud-secret-transport.v1";
 const CLOUD_SECRET_TRANSPORT_AAD: &[u8] = b"playlet.cloud-secret-response.v1";
 const CLOUD_SECRET_TRANSPORT_NONCE_LEN: usize = 12;
 const DEV_CLOUD_ADMIN_BASE_URL: &str = "http://127.0.0.1:43200";
 const PROD_CLOUD_ADMIN_BASE_URL: &str = "https://admin.tempocc.cn";
+
+static CLOUD_SESSION_OPERATION_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+fn cloud_session_operation_lock() -> &'static tokio::sync::Mutex<()> {
+    CLOUD_SESSION_OPERATION_LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
 
 const DEFAULT_STYLE_PRESETS_JSON: &str = include_str!("../assets/default-style-presets.json");
 const DEFAULT_STYLE_CATEGORIES_JSON: &str = include_str!("../assets/default-style-categories.json");
@@ -131,6 +138,7 @@ struct ModelLogContext {
     project_id: Option<String>,
     scene_id: Option<String>,
     task_id: Option<String>,
+    owner_user_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -476,6 +484,7 @@ fn build_model_log_context(
         project_id: sanitize_model_log_context_value(project_id),
         scene_id: sanitize_model_log_context_value(scene_id),
         task_id: sanitize_model_log_context_value(task_id),
+        owner_user_id: config_connection().and_then(|conn| cloud_user_id(&conn)),
     }
 }
 
@@ -917,6 +926,13 @@ fn cloud_token(conn: &Connection) -> Option<String> {
 
 fn cloud_user_public(conn: &Connection) -> Option<Value> {
     cloud_session(conn).and_then(|session| session.get("user").cloned())
+}
+
+fn cloud_user_id(conn: &Connection) -> Option<String> {
+    cloud_user_public(conn)
+        .and_then(|user| user.get("id").and_then(Value::as_str).map(str::to_string))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 #[derive(Debug)]
@@ -1586,17 +1602,76 @@ fn cloud_project_remote_updated_at(project: &Value, snapshot: &Value) -> String 
     String::new()
 }
 
-fn local_project_updated_at(
+fn cloud_project_summary_updated_at(project: &Value) -> String {
+    for value in [
+        cloud_value_text(project, "localUpdatedAt"),
+        cloud_value_text(project, "updatedAt"),
+        cloud_value_text(project, "lastSyncedAt"),
+    ] {
+        if !value.is_empty() {
+            return value;
+        }
+    }
+    String::new()
+}
+
+fn ensure_cloud_project_owner_available(
     conn: &Connection,
     project_id: &str,
+    owner_user_id: &str,
+) -> Result<(), ApiError> {
+    let existing_owner = conn
+        .query_row(
+            "SELECT owner_user_id FROM projects WHERE id = ?1 LIMIT 1",
+            params![project_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .flatten();
+    if existing_owner
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some_and(|value| value != owner_user_id)
+    {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            format!("项目 ID {project_id} 已属于其他账号，已阻止跨账号覆盖"),
+        ));
+    }
+    Ok(())
+}
+
+fn local_project_updated_at_for_owner(
+    conn: &Connection,
+    project_id: &str,
+    owner_user_id: &str,
 ) -> Result<Option<String>, ApiError> {
+    ensure_cloud_project_owner_available(conn, project_id, owner_user_id)?;
     conn.query_row(
-        "SELECT updated_at FROM projects WHERE id = ?1 LIMIT 1",
-        params![project_id],
+        "SELECT updated_at FROM projects WHERE id = ?1 AND owner_user_id = ?2 LIMIT 1",
+        params![project_id, owner_user_id],
         |row| row.get::<_, String>(0),
     )
     .optional()
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+fn reset_account_scoped_config(conn: &Connection) -> Result<(), ApiError> {
+    for key in [
+        WORKFLOW_MODELS_KEY,
+        WORKFLOW_MODEL_OPTIONS_KEY,
+        PROMPT_TEMPLATES_KEY,
+        PROMPT_PROFILES_KEY,
+        PROMPT_VERSIONS_KEY,
+        PROMPT_PROFILE_STATE_KEY,
+        PROMPT_DIRECTOR_PREFERENCES_KEY,
+    ] {
+        conn.execute("DELETE FROM system_config WHERE key = ?1", params![key])
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    }
+    Ok(())
 }
 
 fn local_config_updated_at(conn: &Connection, key: &str) -> Result<Option<String>, ApiError> {
@@ -1702,8 +1777,16 @@ fn upsert_cloud_project_placeholder(
     } else {
         remote_updated_at.trim().to_string()
     };
+    let owner_user_id = cloud_value_text(project, "ownerUserId");
+    if owner_user_id.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "云端项目缺少 ownerUserId",
+        ));
+    }
+    ensure_cloud_project_owner_available(&conn, project_id, &owner_user_id)?;
 
-    conn.execute(
+    let changed = conn.execute(
         "INSERT INTO projects (id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
          ON CONFLICT(id) DO UPDATE SET
@@ -1727,12 +1810,18 @@ fn upsert_cloud_project_placeholder(
             valid_project_status(&status),
             created_at,
             updated_at,
-            cloud_value_text(project, "ownerUserId"),
+            owner_user_id,
             cloud_value_text(project, "ownerAccount"),
             cloud_value_text(project, "ownerDisplayName")
         ],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if changed != 1 {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "项目归属冲突，已阻止云端快照写入",
+        ));
+    }
     Ok(())
 }
 
@@ -3900,6 +3989,7 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ("cloud_sync_attempts", "INTEGER NOT NULL DEFAULT 0"),
         ("cloud_sync_error", "TEXT"),
         ("cloud_synced_at", "TEXT"),
+        ("owner_user_id", "TEXT"),
         ("owner_account", "TEXT"),
         ("owner_display_name", "TEXT"),
     ] {
@@ -4312,9 +4402,14 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
     ensure_runtime_schema(&conn)?;
     conn.execute_batch(
         "
+      CREATE INDEX IF NOT EXISTS idx_projects_owner_updated
+        ON projects(owner_user_id, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_scripts_project ON scripts(project_id);
+      CREATE INDEX IF NOT EXISTS idx_scenes_script ON scenes(script_id);
       CREATE INDEX IF NOT EXISTS idx_model_debug_logs_timestamp ON model_debug_logs(timestamp);
-      CREATE INDEX IF NOT EXISTS idx_model_debug_logs_cloud_sync
-        ON model_debug_logs(cloud_sync_status, timestamp);
+      DROP INDEX IF EXISTS idx_model_debug_logs_cloud_sync;
+      CREATE INDEX IF NOT EXISTS idx_model_debug_logs_owner_cloud_sync
+        ON model_debug_logs(owner_user_id, cloud_sync_status, timestamp);
       CREATE INDEX IF NOT EXISTS idx_app_logs_timestamp ON app_logs(timestamp);
       CREATE INDEX IF NOT EXISTS idx_video_import_tasks_status ON video_import_tasks(status);
       CREATE INDEX IF NOT EXISTS idx_video_import_tasks_created ON video_import_tasks(created_at);
@@ -5228,7 +5323,7 @@ async fn api_project_list(
         ));
     }
     let requested_page = query.page.unwrap_or(1);
-    let page_size = query.page_size.unwrap_or(20);
+    let page_size = query.page_size.unwrap_or(10);
     let status = query
         .status
         .as_deref()
@@ -5298,13 +5393,16 @@ async fn api_project_list(
         requested_page
     };
     let order_by = match sort_by {
-        "created" => "created_at DESC",
-        "name" => "name ASC",
-        _ => "updated_at DESC",
+        "created" => "p.created_at DESC",
+        "name" => "p.name ASC",
+        _ => "p.updated_at DESC",
     };
 
     let mut list_sql = format!(
-        "SELECT id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name FROM projects{} ORDER BY {}",
+        "WITH paged_projects AS (
+           SELECT p.id, p.name, p.description, p.script_parse_mode, p.style_id, p.aspect_ratio,
+                  p.status, p.created_at, p.updated_at, p.owner_user_id, p.owner_account, p.owner_display_name
+           FROM projects p{} ORDER BY {}",
         where_clause, order_by
     );
     let mut list_params = where_params.clone();
@@ -5314,6 +5412,20 @@ async fn api_project_list(
         list_params.push(page_size.to_string());
         list_params.push(offset.to_string());
     }
+    list_sql.push_str(
+        ")
+         SELECT p.id, p.name, p.description, p.script_parse_mode, p.style_id, p.aspect_ratio,
+                p.status, p.created_at, p.updated_at, p.owner_user_id, p.owner_account, p.owner_display_name,
+                COUNT(s.id),
+                COALESCE(SUM(CASE WHEN s.status = 'video_ready' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(s.duration), 0)
+         FROM paged_projects p
+         LEFT JOIN scripts sc ON sc.project_id = p.id
+         LEFT JOIN scenes s ON s.script_id = sc.id
+         GROUP BY p.id
+         ORDER BY ",
+    );
+    list_sql.push_str(order_by);
 
     let mut stmt = conn
         .prepare(&list_sql)
@@ -5322,19 +5434,6 @@ async fn api_project_list(
     let projects = stmt
         .query_map(rusqlite::params_from_iter(list_params.iter()), |row| {
             let project_id: String = row.get(0)?;
-            let scene_stats = row
-                .get_ref(0)
-                .ok()
-                .and_then(|_| {
-                    conn.query_row(
-                        "SELECT COUNT(s.id), COALESCE(SUM(CASE WHEN s.status = 'video_ready' THEN 1 ELSE 0 END), 0), COALESCE(SUM(s.duration), 0)
-                         FROM scripts sc LEFT JOIN scenes s ON s.script_id = sc.id WHERE sc.project_id = ?1",
-                        params![project_id.as_str()],
-                        |stats_row| Ok((stats_row.get::<_, i64>(0)?, stats_row.get::<_, i64>(1)?, stats_row.get::<_, i64>(2)?)),
-                    )
-                    .ok()
-                })
-                .unwrap_or((0, 0, 0));
             let script_parse_mode: Option<String> = row.get(3)?;
             Ok(json!({
               "id": project_id,
@@ -5344,9 +5443,9 @@ async fn api_project_list(
               "styleId": row.get::<_, String>(4)?,
               "aspectRatio": row.get::<_, String>(5)?,
               "status": row.get::<_, Option<String>>(6)?,
-              "totalScenes": scene_stats.0,
-              "completedScenes": scene_stats.1,
-              "totalDuration": scene_stats.2,
+              "totalScenes": row.get::<_, i64>(12)?,
+              "completedScenes": row.get::<_, i64>(13)?,
+              "totalDuration": row.get::<_, i64>(14)?,
               "createdAt": row.get::<_, String>(7)?,
               "updatedAt": row.get::<_, String>(8)?,
               "ownerUserId": row.get::<_, Option<String>>(9)?,
@@ -10637,13 +10736,21 @@ async fn cloud_post_client_json(
     .await
 }
 
-async fn cloud_upload_model_call_log(log_id: &str, body: Value) -> Result<(), ApiError> {
-    let Some((base_url, token)) =
-        config_connection().and_then(|conn| Some((cloud_base_url(&conn)?, cloud_token(&conn)?)))
+async fn cloud_upload_model_call_log(
+    log_id: &str,
+    body: Value,
+    owner_user_id: &str,
+) -> Result<(), ApiError> {
+    let Some((base_url, token)) = config_connection().and_then(|conn| {
+        if cloud_user_id(&conn).as_deref() != Some(owner_user_id) {
+            return None;
+        }
+        Some((cloud_base_url(&conn)?, cloud_token(&conn)?))
+    })
     else {
         return Err(ApiError::new(
             StatusCode::UNAUTHORIZED,
-            "后台未登录，模型日志等待同步",
+            "模型日志所属账号未登录，等待原账号同步",
         ));
     };
 
@@ -10681,9 +10788,16 @@ async fn cloud_upload_model_call_log(log_id: &str, body: Value) -> Result<(), Ap
     result.map(|_| ())
 }
 
-fn cloud_spawn_model_call_log_upload(log_id: String, body: Value) {
+fn cloud_spawn_model_call_log_upload(
+    log_id: String,
+    body: Value,
+    owner_user_id: Option<String>,
+) {
+    let Some(owner_user_id) = owner_user_id else {
+        return;
+    };
     tokio::spawn(async move {
-        if let Err(error) = cloud_upload_model_call_log(&log_id, body).await {
+        if let Err(error) = cloud_upload_model_call_log(&log_id, body, &owner_user_id).await {
             eprintln!(
                 "[CloudSync] model call log upload failed: {}",
                 error.message
@@ -10692,27 +10806,35 @@ fn cloud_spawn_model_call_log_upload(log_id: String, body: Value) {
     });
 }
 
-fn pending_model_call_logs(limit: i64) -> Vec<(String, Value)> {
+fn pending_model_call_logs(limit: i64) -> Vec<(String, Value, String)> {
     let Some(conn) = config_connection() else {
         return Vec::new();
     };
+    let Some(owner_user_id) = cloud_user_id(&conn) else {
+        return Vec::new();
+    };
     let Ok(mut statement) = conn.prepare(
-        "SELECT id, cloud_payload_json FROM model_debug_logs
-         WHERE cloud_sync_status = 'pending' AND cloud_payload_json IS NOT NULL
-         ORDER BY timestamp ASC LIMIT ?1",
+        "SELECT id, cloud_payload_json, owner_user_id FROM model_debug_logs
+         WHERE owner_user_id = ?1 AND cloud_sync_status = 'pending'
+           AND cloud_payload_json IS NOT NULL
+         ORDER BY timestamp ASC LIMIT ?2",
     ) else {
         return Vec::new();
     };
-    let Ok(rows) = statement.query_map(params![limit], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    let Ok(rows) = statement.query_map(params![owner_user_id, limit], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
     }) else {
         return Vec::new();
     };
     rows.filter_map(Result::ok)
-        .filter_map(|(id, raw)| {
+        .filter_map(|(id, raw, owner_user_id)| {
             serde_json::from_str::<Value>(&raw)
                 .ok()
-                .map(|body| (id, body))
+                .map(|body| (id, body, owner_user_id))
         })
         .collect()
 }
@@ -10722,8 +10844,10 @@ fn spawn_model_call_log_sync_poller() {
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         loop {
             interval.tick().await;
-            for (log_id, body) in pending_model_call_logs(100) {
-                if let Err(error) = cloud_upload_model_call_log(&log_id, body).await {
+            for (log_id, body, owner_user_id) in pending_model_call_logs(100) {
+                if let Err(error) =
+                    cloud_upload_model_call_log(&log_id, body, &owner_user_id).await
+                {
                     eprintln!("[CloudSync] model call log retry failed: {}", error.message);
                     break;
                 }
@@ -10927,6 +11051,13 @@ async fn apply_cloud_project_snapshot(
     if local_project_id.is_empty() {
         return Ok(false);
     }
+    let owner_user_id = cloud_value_text(project, "ownerUserId");
+    if owner_user_id.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "云端项目缺少 ownerUserId",
+        ));
+    }
     {
         let conn = db_connection(state)?;
         if is_deleted_project_tombstone(&conn, &local_project_id)? {
@@ -10939,7 +11070,7 @@ async fn apply_cloud_project_snapshot(
     let remote_updated_at = cloud_project_remote_updated_at(project, snapshot);
     let local_updated_at = {
         let conn = db_connection(state)?;
-        local_project_updated_at(&conn, &local_project_id)?
+        local_project_updated_at_for_owner(&conn, &local_project_id, &owner_user_id)?
     };
     if !should_apply_cloud_update(local_updated_at, &remote_updated_at) {
         return Ok(false);
@@ -11048,8 +11179,8 @@ fn apply_cloud_model_call_logs(state: &BackendState, logs: &Value) -> Result<usi
                id, timestamp, provider, model, operation, status, duration_ms, request_id,
                project_id, scene_id, request_json, request_raw_json, response_json,
                response_raw_json, media_refs_json, error_json, created_at, cloud_sync_status, cloud_synced_at,
-               owner_account, owner_display_name
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?12, ?13, ?14, ?2, 'synced', ?2, ?15, ?16)
+               owner_user_id, owner_account, owner_display_name
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?12, ?13, ?14, ?2, 'synced', ?2, ?15, ?16, ?17)
              ON CONFLICT(id) DO UPDATE SET
                timestamp = excluded.timestamp,
                provider = excluded.provider,
@@ -11078,6 +11209,7 @@ fn apply_cloud_model_call_logs(state: &BackendState, logs: &Value) -> Result<usi
                error_json = excluded.error_json,
                cloud_sync_status = 'synced',
                cloud_synced_at = excluded.cloud_synced_at,
+               owner_user_id = excluded.owner_user_id,
                owner_account = excluded.owner_account,
                owner_display_name = excluded.owner_display_name",
             params![
@@ -11095,6 +11227,7 @@ fn apply_cloud_model_call_logs(state: &BackendState, logs: &Value) -> Result<usi
                 log.get("response_json").and_then(Value::as_str),
                 log.get("media_refs_json").and_then(Value::as_str),
                 log.get("error_json").and_then(Value::as_str),
+                cloud_value_text(log, "user_id"),
                 cloud_value_text(log, "owner_account"),
                 cloud_value_text(log, "owner_display_name")
             ],
@@ -11354,6 +11487,123 @@ fn cloud_page_is_complete(
         .unwrap_or(item_count < page_size)
 }
 
+fn cloud_model_log_timestamp(log: &Value) -> String {
+    ["created_at", "createdAt"]
+        .into_iter()
+        .map(|key| cloud_value_text(log, key))
+        .find(|value| !value.is_empty())
+        .unwrap_or_default()
+}
+
+fn cloud_timestamp_is_newer(candidate: &str, cursor: &str) -> bool {
+    match (
+        DateTime::parse_from_rfc3339(candidate),
+        DateTime::parse_from_rfc3339(cursor),
+    ) {
+        (Ok(candidate), Ok(cursor)) => candidate > cursor,
+        _ => candidate > cursor,
+    }
+}
+
+fn filter_cloud_model_log_page(page_items: Vec<Value>, cursor: Option<&str>) -> (Vec<Value>, bool) {
+    let Some(cursor) = cursor.filter(|value| !value.trim().is_empty()) else {
+        return (page_items, false);
+    };
+    let mut newer_items = Vec::new();
+    for item in page_items {
+        let timestamp = cloud_model_log_timestamp(&item);
+        if !timestamp.is_empty() && !cloud_timestamp_is_newer(&timestamp, cursor) {
+            return (newer_items, true);
+        }
+        newer_items.push(item);
+    }
+    (newer_items, false)
+}
+
+fn cloud_model_log_cursor_key(user_id: &str) -> String {
+    format!("{CLOUD_MODEL_LOG_CURSOR_KEY_PREFIX}{user_id}")
+}
+
+fn latest_synced_model_log_timestamp(
+    conn: &Connection,
+    owner_user_id: &str,
+) -> Result<Option<String>, ApiError> {
+    conn.query_row(
+        "SELECT MAX(timestamp) FROM model_debug_logs
+             WHERE owner_user_id = ?1 AND cloud_sync_status = 'synced'",
+        params![owner_user_id],
+        |row| row.get(0),
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+async fn cloud_pull_model_call_logs(
+    state: &BackendState,
+    base_url: &str,
+    token: &str,
+) -> Result<usize, ApiError> {
+    let (user_id, cursor) = {
+        let conn = db_connection(state)?;
+        let user_id = cloud_user_id(&conn)
+            .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "未登录云端账号"))?;
+        let cursor = get_config_json(&conn, &cloud_model_log_cursor_key(&user_id))
+            .ok()
+            .flatten()
+            .and_then(|value| value.as_str().map(str::to_string))
+            .filter(|value| !value.trim().is_empty())
+            .or(latest_synced_model_log_timestamp(&conn, &user_id)?);
+        (user_id, cursor)
+    };
+    let mut page = 1usize;
+    let page_size = 50usize;
+    let mut items = Vec::new();
+    let mut newest_remote_timestamp = None;
+
+    loop {
+        let path = format!("/api/client/model-call-logs?page={page}&pageSize={page_size}");
+        let response =
+            cloud_data_request_json(base_url, reqwest::Method::GET, &path, Some(token), None)
+                .await?;
+        let data = response.get("data").cloned().unwrap_or_else(|| json!({}));
+        let page_items = data
+            .get("modelCallLogs")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if newest_remote_timestamp.is_none() {
+            newest_remote_timestamp = page_items
+                .iter()
+                .map(cloud_model_log_timestamp)
+                .find(|value| !value.is_empty());
+        }
+        let item_count = page_items.len();
+        let (newer_items, reached_cursor) =
+            filter_cloud_model_log_page(page_items, cursor.as_deref());
+        items.extend(newer_items);
+
+        let total_pages = data
+            .get("pagination")
+            .and_then(|value| value.get("totalPages"))
+            .and_then(Value::as_u64)
+            .map(|value| value as usize);
+        if reached_cursor || cloud_page_is_complete(page, total_pages, item_count, page_size) {
+            break;
+        }
+        page += 1;
+    }
+
+    let imported = apply_cloud_model_call_logs(state, &Value::Array(items))?;
+    if let Some(timestamp) = newest_remote_timestamp {
+        let conn = db_connection(state)?;
+        set_config_json(
+            &conn,
+            &cloud_model_log_cursor_key(&user_id),
+            &json!(timestamp),
+        )?;
+    }
+    Ok(imported)
+}
+
 async fn cloud_pull_paginated_items(
     base_url: &str,
     token: &str,
@@ -11420,6 +11670,35 @@ async fn cloud_pull_projects_v2(
         if cloud_project_id.is_empty() {
             failed += 1;
             continue;
+        }
+        let local_project_id = cloud_value_text(&summary, "localProjectId");
+        let owner_user_id = cloud_value_text(&summary, "ownerUserId");
+        if local_project_id.is_empty() || owner_user_id.is_empty() {
+            failed += 1;
+            continue;
+        }
+        let remote_updated_at = cloud_project_summary_updated_at(&summary);
+        if !remote_updated_at.is_empty() {
+            let local_updated_at = {
+                let conn = db_connection(state)?;
+                match local_project_updated_at_for_owner(
+                    &conn,
+                    &local_project_id,
+                    &owner_user_id,
+                ) {
+                    Ok(value) => value,
+                    Err(error) if error.status == StatusCode::CONFLICT => {
+                        failed += 1;
+                        eprintln!("[CloudSync] project owner conflict: {}", error.message);
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                }
+            };
+            if !should_apply_cloud_update(local_updated_at, &remote_updated_at) {
+                skipped += 1;
+                continue;
+            }
         }
         let path = format!("/api/client/projects/{cloud_project_id}");
         let project = match cloud_data_request_json(
@@ -11538,16 +11817,8 @@ async fn cloud_pull_account_data_v2(
         }
     };
 
-    let model_call_logs_imported = match cloud_pull_paginated_items(
-        base_url,
-        token,
-        "/api/client/model-call-logs",
-        "modelCallLogs",
-        50,
-    )
-    .await
-    {
-        Ok(logs) => apply_cloud_model_call_logs(state, &Value::Array(logs))?,
+    let model_call_logs_imported = match cloud_pull_model_call_logs(state, base_url, token).await {
+        Ok(imported) => imported,
         Err(error) => {
             errors.insert("modelCallLogs".to_string(), json!(error.message));
             0
@@ -11625,6 +11896,7 @@ async fn api_cloud_config_put(
     State(state): State<BackendState>,
     Json(body): Json<CloudConfigPutBody>,
 ) -> Result<Json<Value>, ApiError> {
+    let _session_guard = cloud_session_operation_lock().lock().await;
     let base_url = normalize_cloud_base_url(&body.base_url)?;
     let conn = db_connection(&state)?;
     set_config_json(
@@ -11644,6 +11916,7 @@ async fn api_cloud_login(
     State(state): State<BackendState>,
     Json(body): Json<CloudLoginBody>,
 ) -> Result<Json<Value>, ApiError> {
+    let _session_guard = cloud_session_operation_lock().lock().await;
     let base_url = normalize_cloud_base_url(&body.base_url)?;
     let (device_id, login_body) = {
         let conn = db_connection(&state)?;
@@ -11681,6 +11954,9 @@ async fn api_cloud_login(
         .to_string();
     {
         let conn = db_connection(&state)?;
+        // Prompt and workflow records are a local cache of the authenticated
+        // account. Clear them before pulling the newly authenticated account.
+        reset_account_scoped_config(&conn)?;
         set_config_json(
             &conn,
             CLOUD_ADMIN_CONFIG_KEY,
@@ -11706,6 +11982,7 @@ async fn api_cloud_login(
 }
 
 async fn api_cloud_logout(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let _session_guard = cloud_session_operation_lock().lock().await;
     let (base_url, token) = {
         let conn = db_connection(&state)?;
         (cloud_base_url(&conn), cloud_token(&conn))
@@ -11730,6 +12007,7 @@ async fn api_cloud_logout(State(state): State<BackendState>) -> Result<Json<Valu
 }
 
 async fn api_cloud_bootstrap(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let _session_guard = cloud_session_operation_lock().lock().await;
     let status = cloud_refresh_runtime_credentials(&state).await?;
     Ok(Json(json!({
       "success": true,
@@ -11738,6 +12016,7 @@ async fn api_cloud_bootstrap(State(state): State<BackendState>) -> Result<Json<V
 }
 
 async fn api_cloud_heartbeat(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let _session_guard = cloud_session_operation_lock().lock().await;
     let body = {
         let conn = db_connection(&state)?;
         let device_id = get_or_create_cloud_device_id(&conn)?;
@@ -12372,6 +12651,7 @@ async fn api_debug_logs_get(
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
+    let owner = current_project_owner_context(&conn)?;
     let limit = match query.get("limit") {
         Some(raw) => {
             let parsed = raw
@@ -12491,6 +12771,10 @@ async fn api_debug_logs_get(
     use rusqlite::types::Value as Bind;
     let mut where_parts: Vec<String> = Vec::new();
     let mut binds: Vec<Bind> = Vec::new();
+    if !owner.is_admin {
+        where_parts.push("owner_user_id = ?".to_string());
+        binds.push(Bind::Text(owner.user_id));
+    }
     if let Some(value) = &id_filter {
         where_parts.push("lower(id) = ?".to_string());
         binds.push(Bind::Text(value.clone()));
@@ -12669,10 +12953,18 @@ async fn api_debug_logs_get(
 
 async fn api_debug_logs_delete(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
-    conn.execute("DELETE FROM model_debug_logs", [])
+    let owner = current_project_owner_context(&conn)?;
+    if owner.is_admin {
+        conn.execute("DELETE FROM model_debug_logs", [])
+    } else {
+        conn.execute(
+            "DELETE FROM model_debug_logs WHERE owner_user_id = ?1",
+            params![owner.user_id],
+        )
+    }
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let legacy_dir = state.data_dir.join("llm-debug-logs");
-    if legacy_dir.exists() {
+    if owner.is_admin && legacy_dir.exists() {
         fs::remove_dir_all(&legacy_dir)
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     }
@@ -12695,14 +12987,17 @@ mod tests {
         available_model_enabled_for_provider, build_scoped_tos_key_prefix_for_user,
         build_upload_tos_key_prefix_for_user, claim_legacy_projects,
         clear_workflow_overrides_for_category, cloud_model_log_identity, cloud_page_is_complete,
-        cloud_provider_credentials_to_local, custom_openai_entry_for_model,
-        custom_openai_entry_has_model, default_prompt_director_preferences, ensure_project_access,
+        cloud_project_summary_updated_at, cloud_provider_credentials_to_local,
+        custom_openai_entry_for_model, custom_openai_entry_has_model,
+        default_prompt_director_preferences, ensure_cloud_project_owner_available,
+        ensure_project_access, filter_cloud_model_log_page,
         is_prompt_director_preferences_customized, merge_prompt_templates_with_defaults,
         merge_style_presets_with_catalog, normalize_character_gender_value,
         normalize_character_role_value, normalize_time_of_day_value,
-        remove_revoked_shared_library_assets, upgrade_style_config_for_catalog,
-        CLOUD_ADMIN_SESSION_KEY,
+        remove_revoked_shared_library_assets, reset_account_scoped_config,
+        upgrade_style_config_for_catalog, CLOUD_ADMIN_SESSION_KEY,
     };
+    use axum::http::StatusCode;
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use std::collections::HashSet;
@@ -12907,6 +13202,45 @@ mod tests {
         )
         .unwrap();
         assert_eq!(claimed, 0);
+    }
+
+    #[test]
+    fn cloud_project_sync_rejects_cross_account_id_collisions() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE projects (id TEXT PRIMARY KEY, owner_user_id TEXT);
+             INSERT INTO projects (id, owner_user_id) VALUES ('shared-id', 'user-a');",
+        )
+        .unwrap();
+
+        assert!(ensure_cloud_project_owner_available(&conn, "shared-id", "user-a").is_ok());
+        let error = ensure_cloud_project_owner_available(&conn, "shared-id", "user-b")
+            .expect_err("another account must not reuse the local project row");
+        assert_eq!(error.status, StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn login_reset_removes_only_account_scoped_configuration() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO system_config (key, value) VALUES
+               ('workflow_models', '{}'),
+               ('workflow_model_options', '{}'),
+               ('prompt_profile_state_default', '{}'),
+               ('style_preset_config', '{}');",
+        )
+        .unwrap();
+
+        reset_account_scoped_config(&conn).unwrap();
+        let remaining = conn
+            .prepare("SELECT key FROM system_config ORDER BY key")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(remaining, vec!["style_preset_config"]);
     }
 
     #[test]
@@ -13167,5 +13501,68 @@ mod tests {
         assert!(cloud_page_is_complete(3, Some(3), 20, 20));
         assert!(!cloud_page_is_complete(1, None, 20, 20));
         assert!(cloud_page_is_complete(2, None, 7, 20));
+    }
+
+    #[test]
+    fn cloud_model_log_page_without_cursor_keeps_full_pagination_behavior() {
+        let page = vec![
+            json!({ "id": "newest", "created_at": "2026-08-03T10:00:00Z" }),
+            json!({ "id": "older", "created_at": "2026-08-02T10:00:00Z" }),
+        ];
+
+        let (items, reached_cursor) = filter_cloud_model_log_page(page.clone(), None);
+
+        assert_eq!(items, page);
+        assert!(!reached_cursor);
+    }
+
+    #[test]
+    fn cloud_model_log_page_stops_when_newest_item_matches_cursor() {
+        let page = vec![
+            json!({ "id": "existing", "created_at": "2026-08-03T10:00:00Z" }),
+            json!({ "id": "older", "created_at": "2026-08-02T10:00:00Z" }),
+        ];
+
+        let (items, reached_cursor) =
+            filter_cloud_model_log_page(page, Some("2026-08-03T10:00:00+00:00"));
+
+        assert!(items.is_empty());
+        assert!(reached_cursor);
+    }
+
+    #[test]
+    fn cloud_model_log_page_keeps_only_items_newer_than_cursor() {
+        let page = vec![
+            json!({ "id": "new-2", "created_at": "2026-08-04T11:00:00Z" }),
+            json!({ "id": "new-1", "created_at": "2026-08-04T10:00:00Z" }),
+            json!({ "id": "existing", "created_at": "2026-08-03T10:00:00Z" }),
+            json!({ "id": "older", "created_at": "2026-08-02T10:00:00Z" }),
+        ];
+
+        let (items, reached_cursor) =
+            filter_cloud_model_log_page(page, Some("2026-08-03T10:00:00Z"));
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["id"], "new-2");
+        assert_eq!(items[1]["id"], "new-1");
+        assert!(reached_cursor);
+    }
+
+    #[test]
+    fn cloud_project_summary_prefers_the_local_project_timestamp() {
+        assert_eq!(
+            cloud_project_summary_updated_at(&json!({
+              "localUpdatedAt": "2026-08-01T10:00:00Z",
+              "updatedAt": "2026-08-02T10:00:00Z",
+              "lastSyncedAt": "2026-08-03T10:00:00Z"
+            })),
+            "2026-08-01T10:00:00Z"
+        );
+        assert_eq!(
+            cloud_project_summary_updated_at(&json!({
+              "updatedAt": "2026-08-02T10:00:00Z"
+            })),
+            "2026-08-02T10:00:00Z"
+        );
     }
 }

@@ -44,6 +44,11 @@ export interface ProjectDraft {
 
 export const projectPageSizeOptions = [10, 20, 50]
 
+export function projectLastOpenedStorageKey(userId?: string | null): string | null {
+  const normalizedUserId = userId?.trim()
+  return normalizedUserId ? `playlet:last-project-id:${normalizedUserId}` : null
+}
+
 export const projectAspectRatioOptions = [
   { value: '16:9', label: '16:9 横屏', description: '适合电脑/电视' },
   { value: '9:16', label: '9:16 竖屏', description: '适合手机/短视频' },

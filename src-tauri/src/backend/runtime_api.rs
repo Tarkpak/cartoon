@@ -472,7 +472,7 @@ fn attach_persisted_media_to_latest_model_log(
     };
     let row = conn
         .query_row(
-            "SELECT id, response_json, media_refs_json, cloud_payload_json
+            "SELECT id, response_json, media_refs_json, cloud_payload_json, owner_user_id
              FROM model_debug_logs
              WHERE operation = ?1 AND status = 'success' AND cloud_payload_json IS NOT NULL
                AND ((?2 IS NOT NULL AND request_id = ?2)
@@ -496,12 +496,13 @@ fn attach_persisted_media_to_latest_model_log(
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, Option<String>>(2)?,
                     row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
                 ))
             },
         )
         .optional()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    let Some((log_id, response_json, media_refs_json, cloud_payload_json)) = row else {
+    let Some((log_id, response_json, media_refs_json, cloud_payload_json, owner_user_id)) = row else {
         return Ok(false);
     };
 
@@ -529,7 +530,7 @@ fn attach_persisted_media_to_latest_model_log(
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     drop(conn);
-    cloud_spawn_model_call_log_upload(log_id, cloud_payload);
+    cloud_spawn_model_call_log_upload(log_id, cloud_payload, owner_user_id);
     Ok(true)
 }
 
@@ -622,14 +623,15 @@ fn llm_dev_write_db_log_impl(
       "createdAt": now.to_rfc3339()
     });
 
+    let owner_user_id = context.owner_user_id.clone();
     if let Some(conn) = config_connection() {
         let _ = conn.execute(
             "INSERT INTO model_debug_logs (
           id, timestamp, provider, model, operation, status, duration_ms, endpoint, request_id,
           project_id, scene_id, task_id, request_json, request_raw_json, response_json,
           response_raw_json, media_refs_json, error_json, created_at, cloud_payload_json,
-          cloud_sync_status
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, 'pending')",
+          cloud_sync_status, owner_user_id
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, 'pending', ?21)",
             params![
                 log_id,
                 now.to_rfc3339(),
@@ -654,14 +656,15 @@ fn llm_dev_write_db_log_impl(
                 },
                 error_value.as_ref().map(Value::to_string),
                 now_iso(),
-                log_payload.to_string()
+                log_payload.to_string(),
+                owner_user_id.as_deref()
             ],
         );
         if should_run_log_retention() {
             prune_log_table(&conn, "model_debug_logs", MODEL_DEBUG_LOG_RETENTION_LIMIT);
         }
     }
-    cloud_spawn_model_call_log_upload(log_id, log_payload);
+    cloud_spawn_model_call_log_upload(log_id, log_payload, owner_user_id);
 }
 
 async fn resolve_source_bytes(
@@ -17173,6 +17176,7 @@ fn write_model_debug_log(
     error: Option<&Value>,
 ) -> Result<(), ApiError> {
     let conn = db_connection(state)?;
+    let owner_user_id = current_model_log_context().owner_user_id;
     let now = now_iso();
     let log_id = format!("log_{}", Uuid::new_v4().simple());
     let request_id = current_request_id();
@@ -17203,8 +17207,8 @@ fn write_model_debug_log(
           id, timestamp, provider, model, operation, status, duration_ms, request_id,
           project_id, scene_id, task_id, request_json, request_raw_json, response_json,
           response_raw_json, media_refs_json, error_json, created_at, cloud_payload_json,
-          cloud_sync_status
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, 'pending')",
+          cloud_sync_status, owner_user_id
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, 'pending', ?20)",
         params![
             log_id,
             now,
@@ -17236,14 +17240,15 @@ fn write_model_debug_log(
             },
             error.map(Value::to_string),
             now_iso(),
-            log_payload.to_string()
+            log_payload.to_string(),
+            owner_user_id.as_deref()
         ],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     if should_run_log_retention() {
         prune_log_table(&conn, "model_debug_logs", MODEL_DEBUG_LOG_RETENTION_LIMIT);
     }
-    cloud_spawn_model_call_log_upload(log_id, log_payload);
+    cloud_spawn_model_call_log_upload(log_id, log_payload, owner_user_id);
     Ok(())
 }
 
@@ -18071,6 +18076,7 @@ async fn generate_video_import_script_text_with_rule(
         project_id: None,
         scene_id: None,
         task_id: None,
+        owner_user_id: config_connection().and_then(|conn| cloud_user_id(&conn)),
     };
     CURRENT_MODEL_LOG_CONTEXT
         .scope(context, async {

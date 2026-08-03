@@ -7,6 +7,7 @@ import {
   hasProjectStyle,
   projectAspectRatioOptions,
   projectPageSizeOptions,
+  projectLastOpenedStorageKey,
   projectScriptParseModeOptions,
   projectStatusMap,
   resolveProjectCreateStyleId,
@@ -19,7 +20,7 @@ import {
 export function useProjectsIndexPage() {
   const router = useRouter()
   const route = useRoute()
-  const { bootstrap: bootstrapCloudData, loadStatus } = useCloudAdmin()
+  const { bootstrap: bootstrapCloudData, loadStatus, currentUser } = useCloudAdmin()
   const {
     presets: availableStylePresets,
     categories: availableStyleCategories,
@@ -36,9 +37,10 @@ export function useProjectsIndexPage() {
   const statusFilter = ref<ProjectStatusFilter>('all')
   const sortBy = ref<ProjectSortBy>('updated')
   const currentPage = ref(1)
-  const pageSize = ref(20)
+  const pageSize = ref(10)
   const totalProjects = ref(0)
   const pageSizeOptions = projectPageSizeOptions
+  let mountedUserId: string | undefined
 
   const showCreateDialog = ref(false)
   const newProject = ref(createProjectDraft())
@@ -173,8 +175,9 @@ export function useProjectsIndexPage() {
   }
 
   function openProject(project: Project) {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('playlet:last-project-id', project.id)
+    const storageKey = projectLastOpenedStorageKey(currentUser.value?.id)
+    if (typeof window !== 'undefined' && storageKey) {
+      window.localStorage.setItem(storageKey, project.id)
     }
     router.push(resolveProjectDetailPath(project.id))
   }
@@ -187,11 +190,10 @@ export function useProjectsIndexPage() {
       await $fetch(`/api/project/${projectToDelete.value.id}`, {
         method: 'DELETE'
       })
-      if (
-        typeof window !== 'undefined'
-        && window.localStorage.getItem('playlet:last-project-id') === projectToDelete.value.id
-      ) {
-        window.localStorage.removeItem('playlet:last-project-id')
+      const storageKey = projectLastOpenedStorageKey(currentUser.value?.id)
+      if (typeof window !== 'undefined' && storageKey
+        && window.localStorage.getItem(storageKey) === projectToDelete.value.id) {
+        window.localStorage.removeItem(storageKey)
       }
       showDeleteDialog.value = false
       projectToDelete.value = null
@@ -234,21 +236,37 @@ export function useProjectsIndexPage() {
   }, 300)
 
   onMounted(async () => {
-    await bootstrapCloudData().catch(() => loadStatus())
     await Promise.all([
       fetchProjects(),
       loadStylePresets()
     ])
 
+    // Render local data first because bootstrap may pull large cloud snapshots.
+    void bootstrapCloudData()
+      .then(() => fetchProjects(currentPage.value))
+      .catch(() => loadStatus())
+
     if (!newProject.value.styleId) {
       ensureCreateStyleId(true)
     }
+    mountedUserId = currentUser.value?.id
 
     // 来自首页"开始创作"快捷入口：自动打开新建项目对话框
     const newQuery = Array.isArray(route.query.new) ? route.query.new[0] : route.query.new
     if (newQuery === '1') {
       await openCreateDialog()
     }
+  })
+
+  watch(() => currentUser.value?.id, (userId) => {
+    if (!userId || !mountedUserId || userId === mountedUserId) return
+    mountedUserId = userId
+    projects.value = []
+    currentPage.value = 1
+    void Promise.all([
+      fetchProjects(1),
+      loadStylePresets(true)
+    ])
   })
 
   watch([defaultStyleId, availableStylePresets], () => {
