@@ -297,7 +297,11 @@ export function normalizeSceneEnvironmentCaptureMode(
 }
 
 /** 场景时长（秒） */
-export const SceneDurationSchema = z.coerce.number().min(2).max(15).default(8).describe('视频时长(秒，2-15)')
+export const SceneDurationSchema = z.coerce.number()
+  .transform(value => Math.round(value))
+  .pipe(z.number().int().min(4).max(15))
+  .default(8)
+  .describe('视频时长(整数秒，4-15)')
 export type SceneDuration = z.infer<typeof SceneDurationSchema>
 
 /** 分集定义 */

@@ -141,5 +141,18 @@ describe('asset-workbench-scenes', () => {
     expect(first?.videoHistory).not.toBe(second?.videoHistory)
     expect(first?.videoUrl).toBeUndefined()
     expect(second?.videoUrl).toBeUndefined()
+    expect(first?.duration).toBeGreaterThanOrEqual(4)
+    expect(second?.duration).toBeGreaterThanOrEqual(4)
+  })
+
+  it('does not split a scene that cannot produce two four-second clips', () => {
+    const scene = createScene({
+      id: 'scene_too_short_to_split',
+      title: '短场景',
+      description: '第一句。第二句。',
+      duration: 7
+    })
+
+    expect(splitSceneInList([scene], 0)).toBeNull()
   })
 })

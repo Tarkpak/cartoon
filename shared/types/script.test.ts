@@ -5,9 +5,18 @@ import {
   normalizeTimeOfDayValue,
   resolveTimeOfDayCategoryText,
   SCRIPT_PARSE_MODES,
+  SceneDurationSchema,
   SceneSettingSchema,
   normalizeScriptParseMode
 } from './script'
+
+describe('SceneDurationSchema', () => {
+  it('accepts integer seconds and rounds legacy fractional seconds', () => {
+    expect(SceneDurationSchema.parse(7)).toBe(7)
+    expect(SceneDurationSchema.parse(6.5)).toBe(7)
+    expect(SceneDurationSchema.safeParse(3).success).toBe(false)
+  })
+})
 
 describe('open scene time descriptions', () => {
   it('keeps known aliases compatible while preserving specific descriptions', () => {

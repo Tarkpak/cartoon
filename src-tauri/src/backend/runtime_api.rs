@@ -3927,7 +3927,7 @@ fn normalize_refined_scene_description(
     }
 
     let safe_duration = if duration_hint.is_finite() {
-        duration_hint.round().max(2.0) as i64
+        duration_hint.round().max(4.0) as i64
     } else {
         8
     };
@@ -9720,8 +9720,64 @@ fn normalize_qwen_resolution(value: Option<&Value>) -> String {
 }
 
 fn normalize_video_duration(value: Option<&Value>) -> i64 {
-    let numeric = value.and_then(Value::as_i64).unwrap_or(8);
-    numeric.clamp(2, 15)
+    let numeric = value
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite())
+        .map(|value| value.round() as i64)
+        .unwrap_or(8);
+    numeric.clamp(4, 15)
+}
+
+fn validate_provider_video_duration(
+    config: &Value,
+    provider: &str,
+    model_id: &str,
+) -> Result<(), ApiError> {
+    let duration = normalize_video_duration(config.get("duration"));
+    let (min_duration, max_duration) = match provider {
+        "volcengine" => (4, 15),
+        "kling" => (4, if model_id == "kling-video-o1" { 10 } else { 15 }),
+        "gemini" => (4, 8),
+        "custom_openai"
+            if normalize_model_id_for_remote(model_id)
+                .eq_ignore_ascii_case("grok-imagine-video")
+                && config
+                    .get("referenceImages")
+                    .and_then(Value::as_array)
+                    .is_some_and(|items| !items.is_empty()) =>
+        {
+            (4, 10)
+        }
+        _ => (4, 15),
+    };
+
+    if !(min_duration..=max_duration).contains(&duration) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "当前视频模型 {} 仅支持 {}-{} 秒，设置值为 {} 秒",
+                model_id, min_duration, max_duration, duration
+            ),
+        ));
+    }
+
+    if provider == "gemini"
+        && config
+            .get("lastFrame")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+        && duration != 8
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "当前 Gemini 模型使用首尾帧生成时仅支持 8 秒，设置值为 {} 秒",
+                duration
+            ),
+        ));
+    }
+
+    Ok(())
 }
 
 fn qwen_reference_media_type(url: &str) -> &'static str {
@@ -14673,6 +14729,49 @@ fn models_test_selected_model_key(model_type: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn video_duration_normalization_rounds_legacy_fractional_values() {
+        assert_eq!(normalize_video_duration(Some(&json!(2))), 4);
+        assert_eq!(normalize_video_duration(Some(&json!(6.5))), 7);
+        assert_eq!(normalize_video_duration(Some(&json!(6.4))), 6);
+        assert_eq!(normalize_video_duration(Some(&json!(12))), 12);
+        assert_eq!(normalize_video_duration(None), 8);
+    }
+
+    #[test]
+    fn provider_video_duration_validation_rejects_silent_clamping() {
+        let kling_error = validate_provider_video_duration(
+            &json!({ "duration": 11 }),
+            "kling",
+            "kling-video-o1",
+        )
+        .expect_err("Kling O1 should reject durations above ten seconds");
+        assert!(kling_error.message.contains("4-10 秒"));
+
+        let gemini_error = validate_provider_video_duration(
+            &json!({ "duration": 6, "lastFrame": "https://example.com/last.png" }),
+            "gemini",
+            "veo-3.1-generate-preview",
+        )
+        .expect_err("Gemini first/last frame generation should require eight seconds");
+        assert!(gemini_error.message.contains("仅支持 8 秒"));
+
+        assert!(validate_provider_video_duration(
+            &json!({ "duration": 7 }),
+            "volcengine",
+            "doubao-seedance-2-0-260128",
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn video_generation_config_rejects_new_durations_below_four_seconds() {
+        let mut config = json!({ "prompt": "生成视频", "duration": 3 });
+        let error = validate_video_generation_config(&mut config)
+            .expect_err("New video requests must be at least four seconds");
+        assert!(error.message.contains("between 4 and 15"));
+    }
 
     #[test]
     fn ark_asset_openapi_uses_regional_endpoint_and_payload_hash_header() {
@@ -20056,10 +20155,10 @@ fn validate_video_generation_config(config: &mut Value) -> Result<(), ApiError> 
                 .ok_or_else(|| {
                     workflow_validation_error("body.config.duration", "Expected number")
                 })?;
-            if !(2.0..=15.0).contains(&duration) {
+            if !(4.0..=15.0).contains(&duration) {
                 return Err(workflow_validation_error(
                     "body.config.duration",
-                    "Number must be between 2 and 15",
+                    "Number must be between 4 and 15",
                 ));
             }
         }
@@ -20472,6 +20571,8 @@ pub(super) async fn api_asset_video_generate(
         config["negativePrompt"] = json!(negative_prompt);
     }
     apply_scene_video_reference_inputs(&mut config, &scene, &provider, &model_id);
+    config["duration"] = json!(normalize_video_duration(config.get("duration")));
+    validate_provider_video_duration(&config, &provider, &model_id)?;
     apply_workflow_video_generation_options(
         &mut config,
         &workflow_model_options,

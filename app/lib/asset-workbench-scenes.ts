@@ -214,6 +214,7 @@ export function splitSceneInList(
 ): SceneData[] | null {
   const scene = scenes[sceneIndex]
   if (!scene) return null
+  if (scene.duration < 8) return null
 
   const sentences = scene.description.split(/(?<=[。！？.!?])/g).filter(item => item.trim())
   if (sentences.length < 2) {
@@ -242,7 +243,7 @@ export function splitSceneInList(
     title: `${scene.title} (下)`,
     description: secondHalf,
     narration: secondNarration,
-    duration: Math.max(1, Math.floor(scene.duration / 2)),
+    duration: Math.max(4, Math.floor(scene.duration / 2)),
     active: false,
     videoHistory: scene.videoHistory ? [...scene.videoHistory] : undefined
   })

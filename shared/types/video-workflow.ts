@@ -27,7 +27,7 @@ export const VIDEO_WORKFLOW_PRESETS = [
     planningPromptId: 'script_episode_plan',
     shotVideoPromptId: 'scene_video_generation',
     assetStrategy: 'mixed',
-    defaultDurationRange: { min: 2, max: 15 },
+    defaultDurationRange: { min: 4, max: 15 },
     requiredShotFields: ['title', 'duration', 'description', 'characters', 'narration']
   },
   {

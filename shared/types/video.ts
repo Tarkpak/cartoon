@@ -10,8 +10,10 @@ export type Resolution = z.infer<typeof ResolutionSchema>
 export const AspectRatioSchema = z.enum(['16:9', '9:16', '1:1'])
 export type AspectRatio = z.infer<typeof AspectRatioSchema>
 
-/** 视频时长 (秒) - 支持 2-15 秒 */
-export const DurationSchema = z.number().min(2).max(15)
+/** 视频时长 (整数秒) - 支持 4-15 秒 */
+export const DurationSchema = z.number()
+  .transform(value => Math.round(value))
+  .pipe(z.number().int().min(4).max(15))
 export type Duration = number
 
 /** 视频模型类型 */

@@ -61,6 +61,11 @@ export function useAssetWorkbenchSceneEditing(
     const scene = options.scenes.value[sceneIndex]
     if (!scene) return
 
+    if (scene.duration < 8) {
+      toast.warning('当前场景时长不足，无法拆分', { description: '拆分后的每个分镜至少需要 4 秒。' })
+      return
+    }
+
     const sentences = scene.description.split(/(?<=[。！？.!?])/g).filter(item => item.trim())
     if (sentences.length < 2) {
       toast.warning('场景描述太短，无法拆分', { description: '请先在编辑对话框中添加更多内容。' })

@@ -212,16 +212,16 @@ defineProps<{
       <div class="flex items-center space-x-4">
         <Slider
           :model-value="[editForm.duration]"
-          :min="2"
+          :min="4"
           :max="15"
-          :step="0.5"
+          :step="1"
           class="flex-1"
           @update:model-value="editForm.duration = Number($event?.[0] ?? editForm.duration)"
         />
         <span class="w-16 text-center font-medium">{{ editForm.duration }}秒</span>
       </div>
       <p class="text-xs text-muted-foreground">
-        支持 2-15 秒灵活时长
+        支持 4-15 秒整数时长，具体范围由当前视频模型决定
       </p>
     </div>
   </div>
