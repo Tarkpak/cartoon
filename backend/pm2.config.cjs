@@ -1,7 +1,7 @@
 const path = require('node:path')
 
 const appName = process.env.PM2_APP_NAME || 'playlet-admin-backend'
-const host = process.env.HOST || process.env.NITRO_HOST || '127.0.0.1'
+const host = process.env.HOST || process.env.NITRO_HOST || '0.0.0.0'
 const port = process.env.PLAYLET_ADMIN_PORT || '43200'
 const dataDir = process.env.PLAYLET_ADMIN_DATA_DIR || path.join(__dirname, 'data')
 const bunBin = process.env.BUN_BIN || 'bun'

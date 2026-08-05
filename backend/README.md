@@ -74,10 +74,10 @@ cd backend
 bun run deploy:pm2
 ```
 
-默认使用 PM2 应用名 `playlet-admin-backend`，监听 `127.0.0.1:43200`，数据目录为 `backend/data`。生产服务器可按需覆盖：
+默认使用 PM2 应用名 `playlet-admin-backend`，监听 `0.0.0.0:43200`，数据目录为 `backend/data`。生产服务器可按需覆盖：
 
 ```bash
-HOST=127.0.0.1 PLAYLET_ADMIN_PORT=43200 PLAYLET_ADMIN_DATA_DIR=/var/lib/playlet-admin bun run deploy:pm2
+HOST=0.0.0.0 PLAYLET_ADMIN_PORT=43200 PLAYLET_ADMIN_DATA_DIR=/var/lib/playlet-admin bun run deploy:pm2
 ```
 
 客户端版本管理从后台云存储配置同步，默认读取 `Key Prefix/desktop-updater/latest.json`，并扫描同目录下已上传的桌面安装包；不需要配置 GitHub 仓库或 token。
@@ -93,7 +93,7 @@ pm2 save
 
 ```text
 开发环境：http://127.0.0.1:43200
-生产环境：https://admin.tempocc.cn
+生产环境：http://124.222.189.176:43200
 ```
 
 客户端登录页默认填写该地址。客户端离线或未登录后台时会被路由守卫引导到 `/login`。

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="${PM2_APP_NAME:-playlet-admin-backend}"
-HOST="${HOST:-127.0.0.1}"
+HOST="${HOST:-0.0.0.0}"
 APP_PORT="${PLAYLET_ADMIN_PORT:-43200}"
 DATA_DIR="${PLAYLET_ADMIN_DATA_DIR:-$ROOT_DIR/data}"
 
