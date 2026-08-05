@@ -417,6 +417,8 @@ function initSchema(conn: Database) {
     CREATE INDEX IF NOT EXISTS idx_devices_user_id ON user_devices(user_id);
     CREATE INDEX IF NOT EXISTS idx_projects_user_id ON user_projects(user_id);
     CREATE INDEX IF NOT EXISTS idx_project_snapshots_project_id ON user_project_snapshots(project_id);
+    CREATE INDEX IF NOT EXISTS idx_project_snapshots_project_created
+      ON user_project_snapshots(project_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_prompt_templates_user_id ON user_prompt_templates(user_id);
     CREATE INDEX IF NOT EXISTS idx_model_preferences_user_id ON user_model_preferences(user_id);
     CREATE INDEX IF NOT EXISTS idx_model_call_logs_created_at ON model_call_logs(created_at);
