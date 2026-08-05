@@ -36,13 +36,6 @@ export default defineEventHandler((event) => {
     SELECT workflow_step, model_id, model_options_json, updated_at
     FROM user_model_preferences WHERE user_id = ? ORDER BY workflow_step ASC
   `).all(auth.user.id) as Array<Record<string, string | null>>
-  const modelCallLogs = auth.user.role === 'admin'
-    ? db.prepare(`
-        SELECT l.*, u.account AS owner_account, u.display_name AS owner_display_name
-        FROM model_call_logs l JOIN users u ON u.id = l.user_id
-        WHERE l.archived_at IS NULL ORDER BY l.created_at DESC LIMIT 1000
-      `).all()
-    : []
   const directlyAccessibleLibraryAssets = db.prepare(`
     ${LIBRARY_ASSET_SELECT}
     WHERE a.user_id = ? OR s.user_id = ?
@@ -87,7 +80,8 @@ export default defineEventHandler((event) => {
         updatedAt: preference.updated_at
       })),
       libraryAssets: libraryAssets.map(asset => publicLibraryAsset(db, asset)),
-      modelCallLogs
+      // Legacy clients expect this key. Current clients fetch logs through the paginated sync endpoint.
+      modelCallLogs: []
     }
   }
 })

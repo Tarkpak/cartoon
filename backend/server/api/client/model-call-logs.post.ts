@@ -4,6 +4,7 @@ import { readJsonBody, requireAuth } from '../../utils/auth'
 import { optionalJson, optionalString } from '../../utils/http'
 import { chargeModelCall, isBillableModelCallStatus } from '../../utils/credits'
 import { mergeModelLogMediaRefs, mergeModelLogResponse } from '../../utils/model-call-log-merge'
+import { archiveModelLogsIfNeeded } from '../../utils/model-log-archive'
 
 interface LogPayload {
   eventId?: string
@@ -37,32 +38,6 @@ interface LogPayload {
 function normalizeLogs(body: Record<string, unknown>) {
   if (Array.isArray(body.logs)) return body.logs as LogPayload[]
   return [body as LogPayload]
-}
-
-function archiveLogsIfNeeded() {
-  const db = getDb()
-  const maxRows = getAppSettings().logArchiveMaxRows
-  const count = db.prepare('SELECT COUNT(*) AS count FROM model_call_logs WHERE archived_at IS NULL').get() as { count: number }
-  if (count.count <= maxRows) return
-
-  const overflow = Math.max(1, count.count - maxRows)
-  const rows = db.prepare(`
-    SELECT * FROM model_call_logs
-    WHERE archived_at IS NULL
-    ORDER BY created_at ASC
-    LIMIT ?
-  `).all(overflow)
-  const timestamp = nowIso()
-  db.transaction(() => {
-    db.prepare(`
-      INSERT INTO log_archives (id, archive_type, row_count, payload_json, created_at)
-      VALUES (?, 'model_call_logs', ?, ?, ?)
-    `).run(randomUUID(), rows.length, jsonText(rows), timestamp)
-    const mark = db.prepare('UPDATE model_call_logs SET archived_at = ? WHERE id = ?')
-    for (const row of rows as Array<{ id: string }>) {
-      mark.run(timestamp, row.id)
-    }
-  })()
 }
 
 export default defineEventHandler(async (event) => {
@@ -172,7 +147,7 @@ export default defineEventHandler(async (event) => {
     }
   })(logs)
 
-  archiveLogsIfNeeded()
+  archiveModelLogsIfNeeded(db, getAppSettings().logArchiveMaxRows, nowIso())
 
   return {
     success: true,

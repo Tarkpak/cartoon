@@ -4,6 +4,7 @@ import { getDb, jsonText, nowIso } from '../../../utils/db'
 import { readJsonBody, requireAuth } from '../../../utils/auth'
 import { optionalJson, optionalString } from '../../../utils/http'
 import { projectSyncOwnerId } from '../../../utils/admin-resource-scope'
+import { storeProjectSnapshot } from '../../../utils/project-snapshots'
 
 interface ProjectPayload {
   id?: string
@@ -92,12 +93,6 @@ export default defineEventHandler(async (event) => {
       updated_at = excluded.updated_at
   `)
   const selectProject = db.prepare('SELECT id, local_updated_at FROM user_projects WHERE user_id = ? AND local_project_id = ? LIMIT 1')
-  const insertSnapshot = db.prepare(`
-    INSERT INTO user_project_snapshots
-      (id, user_id, project_id, snapshot_json, snapshot_version, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `)
-
   const synced = db.transaction((items: ProjectPayload[]) => {
     const result: Array<{ localProjectId: string, projectId: string, status: 'synced' | 'skipped', reason?: string }> = []
     for (const project of items) {
@@ -140,7 +135,13 @@ export default defineEventHandler(async (event) => {
         timestamp
       )
 
-      insertSnapshot.run(randomUUID(), ownerUserId, projectId, jsonText(snapshot), 1, timestamp)
+      storeProjectSnapshot(db, {
+        id: randomUUID(),
+        userId: ownerUserId,
+        projectId,
+        snapshotJson: jsonText(snapshot),
+        createdAt: timestamp
+      })
       result.push({ localProjectId, projectId, status: 'synced' })
     }
     return result
