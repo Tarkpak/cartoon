@@ -527,11 +527,14 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
       })
     } catch (error) {
       console.error('[useAssetWorkflowMeta] 保存工作流元数据失败:', error)
+      throw error
     }
   }
 
   const scheduleWorkflowMetaSave = useDebounceFn(() => {
-    void saveWorkflowMeta()
+    void saveWorkflowMeta().catch((error) => {
+      console.error('[useAssetWorkflowMeta] 延迟保存工作流元数据失败:', error)
+    })
   }, options.debounceMs ?? 700)
 
   return {

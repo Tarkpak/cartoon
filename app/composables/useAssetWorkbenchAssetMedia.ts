@@ -400,11 +400,15 @@ export function useAssetWorkbenchAssetMedia(options: {
         prefix: `env_${asset.sceneIds[0] || assetId}`
       })
 
+      // Only real scene IDs receive firstFrame; plan: markers are directory hints.
+      let appliedSceneCount = 0
       for (const sceneId of asset.sceneIds) {
+        if (!sceneId || sceneId.startsWith('plan:')) continue
         const scene = options.scenes.value.find(item => item.id === sceneId)
         if (!scene) continue
 
         applySceneBaselineReference(scene, imageUrl)
+        appliedSceneCount += 1
       }
 
       options.recordEnvironmentHistory?.(
@@ -414,15 +418,31 @@ export function useAssetWorkbenchAssetMedia(options: {
       )
 
       const panoramaCompatible = await isPanoramaFile(file)
+      // Persist an explicit view state so re-entry can restore from assetWorkflow
+      // even when no scene firstFrame was updated (episode-plan-only env assets).
       options.setEnvironmentPanoramaState?.(
         assetId,
         panoramaCompatible
           ? { panoramaImage: imageUrl }
-          : undefined
+          : { singleViewImage: imageUrl }
       )
       options.synchronizeQueueItems()
-      await options.saveProject()
-      useToast().toast.success('环境图片上传成功')
+
+      // Refresh assetWorkflow before project save. saveProject PUTs the full
+      // script payload including assetWorkflow; writing scenes first with a
+      // stale workflow would wipe the just-recorded environment history.
+      await options.saveWorkflowMeta()
+
+      const saved = await options.saveProject()
+      if (saved === false) {
+        throw new Error('环境图片已上传到云端，但项目保存失败，请查看页面顶部的保存错误提示后重试')
+      }
+
+      useToast().toast.success(
+        appliedSceneCount > 0
+          ? '环境图片上传成功'
+          : '环境图片上传成功（已写入素材历史，重新进入项目后可恢复）'
+      )
     } catch (error) {
       const message = options.resolveUiError(error, '环境图片上传失败')
       options.statusError.value = message

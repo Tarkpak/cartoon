@@ -2530,15 +2530,9 @@ async function handleCharacterImageUpload(characterId: string, event: Event) {
 }
 
 async function handleEnvironmentImageUpload(assetId: string, event: Event) {
-  const previousImage = resolveEnvironmentCard(assetId)?.referenceImage?.trim() || ''
-
+  // Core handler already records history, refreshes assetWorkflow, and saves
+  // both workflow meta and scene firstFrame before reporting success.
   await handleEnvironmentImageUploadCore(assetId, event)
-
-  const nextImage = resolveEnvironmentCard(assetId)?.referenceImage?.trim() || ''
-  if (!nextImage || nextImage === previousImage) return
-
-  recordEnvironmentHistory(assetId, nextImage, { source: 'uploaded' })
-  await saveWorkflowMeta()
 }
 
 async function handlePropImageUpload(propId: string, event: Event) {
