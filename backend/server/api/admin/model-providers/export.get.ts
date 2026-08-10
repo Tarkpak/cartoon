@@ -26,6 +26,9 @@ export default defineEventHandler((event) => {
           }
         : {
             apiKey: decryptText(row.encrypted_api_key),
+            speechApiKey: row.provider_key === 'volcengine'
+              ? decryptText(row.encrypted_speech_api_key)
+              : undefined,
             mediakitApiKey: row.provider_key === 'volcengine'
               ? decryptText(row.encrypted_mediakit_api_key)
               : undefined,

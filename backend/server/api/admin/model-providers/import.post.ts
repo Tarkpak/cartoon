@@ -18,6 +18,7 @@ interface ProviderImportPayload extends Record<string, unknown> {
 
 interface NormalizedCredentials {
   apiKey: string
+  speechApiKey: string
   mediakitApiKey: string
   arkAccessKey: string
   arkSecretKey: string
@@ -110,6 +111,7 @@ function normalizeProvider(value: unknown, index: number): NormalizedProvider {
     credentials: credentials
       ? {
           apiKey: isKling ? '' : stringValue(credentials.apiKey, 4096),
+          speechApiKey: providerKey === 'volcengine' ? stringValue(credentials.speechApiKey, 4096) : '',
           mediakitApiKey: providerKey === 'volcengine' ? stringValue(credentials.mediakitApiKey, 4096) : '',
           arkAccessKey: providerKey === 'volcengine' ? stringValue(credentials.arkAccessKey, 4096) : '',
           arkSecretKey: providerKey === 'volcengine' ? stringValue(credentials.arkSecretKey, 4096) : '',
@@ -152,11 +154,12 @@ export default defineEventHandler(async (event) => {
   `)
   const upsertCredentials = db.prepare(`
     INSERT INTO provider_credentials
-      (provider_id, encrypted_api_key, encrypted_mediakit_api_key, encrypted_ark_access_key, encrypted_ark_secret_key,
+      (provider_id, encrypted_api_key, encrypted_speech_api_key, encrypted_mediakit_api_key, encrypted_ark_access_key, encrypted_ark_secret_key,
        encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(provider_id) DO UPDATE SET
       encrypted_api_key = excluded.encrypted_api_key,
+      encrypted_speech_api_key = excluded.encrypted_speech_api_key,
       encrypted_mediakit_api_key = excluded.encrypted_mediakit_api_key,
       encrypted_ark_access_key = excluded.encrypted_ark_access_key,
       encrypted_ark_secret_key = excluded.encrypted_ark_secret_key,
@@ -317,6 +320,7 @@ export default defineEventHandler(async (event) => {
         upsertCredentials.run(
           providerId,
           encryptText(provider.credentials.apiKey),
+          encryptText(provider.credentials.speechApiKey),
           encryptText(provider.credentials.mediakitApiKey),
           encryptText(provider.credentials.arkAccessKey),
           encryptText(provider.credentials.arkSecretKey),

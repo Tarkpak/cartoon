@@ -330,6 +330,28 @@ export function tosFileDownloadUrl(key: string, downloadName?: string) {
   })
 }
 
+export function tosFileAccessUrl(key: string, expires = 3600) {
+  const config = tosStorageClientConfig()
+  assertConfigured(config)
+  const normalizedKey = normalizeObjectPath(key)
+  if (!normalizedKey) {
+    throw createError({ statusCode: 400, statusMessage: '文件 Key 不能为空' })
+  }
+  const { endpoint, secure } = normalizeEndpoint(config.endpoint)
+  return buildPresignedUrl({
+    endpoint,
+    secure,
+    bucket: config.bucket,
+    key: normalizedKey,
+    accessKeyId: config.accessKeyId,
+    secretKey: config.secretKey,
+    securityToken: config.securityToken,
+    region: config.region,
+    isCustomDomain: config.isCustomDomain,
+    expires: Math.min(604800, Math.max(60, Math.floor(expires)))
+  })
+}
+
 function buildPublicUrl(input: {
   endpoint: string
   secure: boolean
@@ -606,6 +628,54 @@ export async function copyTosObject(sourceKey: string, targetKey: string) {
   if (response.status === 409 || response.status === 412) {
     return { copied: false as const, reason: 'target-exists' as const }
   }
+  const error = parseTosError(text)
+  throw createError({
+    statusCode: response.status,
+    statusMessage: tosErrorMessage(response.status, error.code, error.message),
+    data: { code: error.code, requestId: error.requestId }
+  })
+}
+
+export async function putTosObject(
+  key: string,
+  body: Uint8Array,
+  contentType = 'application/octet-stream'
+) {
+  const config = tosStorageClientConfig()
+  assertConfigured(config)
+  const normalizedKey = normalizeObjectPath(key)
+  if (!normalizedKey) {
+    throw createError({ statusCode: 400, statusMessage: '文件 Key 不能为空' })
+  }
+
+  const { endpoint, secure } = normalizeEndpoint(config.endpoint)
+  const requestTarget = objectRequestTarget(config, endpoint, normalizedKey)
+  const signed = signTosRequest({
+    method: 'PUT',
+    path: requestTarget.path,
+    query: '',
+    host: requestTarget.host,
+    accessKeyId: config.accessKeyId,
+    secretKey: config.secretKey,
+    securityToken: config.securityToken,
+    region: config.region,
+    extraHeaders: {
+      'content-type': contentType,
+      'x-tos-forbid-overwrite': 'true'
+    }
+  })
+  const protocol = secure ? 'https' : 'http'
+  const requestBody = new Uint8Array(body).buffer
+  const response = await fetch(`${protocol}://${requestTarget.host}${requestTarget.path}`, {
+    method: 'PUT',
+    headers: signed.headers,
+    body: requestBody
+  })
+  if (response.ok) return { uploaded: true as const, key: normalizedKey }
+  if (response.status === 409 || response.status === 412) {
+    return { uploaded: false as const, reason: 'target-exists' as const, key: normalizedKey }
+  }
+  const text = await response.text()
   const error = parseTosError(text)
   throw createError({
     statusCode: response.status,

@@ -110,6 +110,7 @@ function initSchema(conn: Database) {
     CREATE TABLE IF NOT EXISTS provider_credentials (
       provider_id TEXT PRIMARY KEY REFERENCES model_providers(id) ON DELETE CASCADE,
       encrypted_api_key TEXT,
+      encrypted_speech_api_key TEXT NOT NULL DEFAULT '',
       encrypted_mediakit_api_key TEXT NOT NULL DEFAULT '',
       encrypted_ark_access_key TEXT NOT NULL DEFAULT '',
       encrypted_ark_secret_key TEXT NOT NULL DEFAULT '',
@@ -154,6 +155,20 @@ function initSchema(conn: Database) {
       key_prefix TEXT NOT NULL DEFAULT '',
       public_base_url TEXT NOT NULL DEFAULT '',
       is_custom_domain INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS voice_preset_previews (
+      cache_key TEXT PRIMARY KEY,
+      speaker_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      preview_text_version TEXT NOT NULL,
+      object_key TEXT,
+      status TEXT NOT NULL DEFAULT 'generating',
+      error_message TEXT,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      lease_expires_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -433,6 +448,8 @@ function initSchema(conn: Database) {
     CREATE INDEX IF NOT EXISTS idx_library_assets_visibility ON library_assets(visibility, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_library_assets_hash ON library_assets(content_hash);
     CREATE INDEX IF NOT EXISTS idx_library_shares_user ON library_asset_shares(user_id);
+    CREATE INDEX IF NOT EXISTS idx_voice_preset_previews_speaker
+      ON voice_preset_previews(speaker_id, status);
   `)
 
   addColumnIfMissing(conn, 'model_call_logs', 'credits_charged REAL NOT NULL DEFAULT 0')
@@ -506,14 +523,15 @@ function ensureDefaultProviders(conn: Database) {
     VALUES (?, ?, ?, ?, 1, ?, ?)
   `)
   addColumnIfMissing(conn, 'provider_credentials', "encrypted_mediakit_api_key TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(conn, 'provider_credentials', "encrypted_speech_api_key TEXT NOT NULL DEFAULT ''")
   addColumnIfMissing(conn, 'provider_credentials', "encrypted_ark_access_key TEXT NOT NULL DEFAULT ''")
   addColumnIfMissing(conn, 'provider_credentials', "encrypted_ark_secret_key TEXT NOT NULL DEFAULT ''")
 
   const insertCreds = conn.prepare(`
     INSERT OR IGNORE INTO provider_credentials
-      (provider_id, encrypted_api_key, encrypted_mediakit_api_key, encrypted_ark_access_key, encrypted_ark_secret_key,
+      (provider_id, encrypted_api_key, encrypted_speech_api_key, encrypted_mediakit_api_key, encrypted_ark_access_key, encrypted_ark_secret_key,
        encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
-    VALUES (?, '', '', '', '', '', '', '', ?)
+    VALUES (?, '', '', '', '', '', '', '', '', ?)
   `)
   const timestamp = nowIso()
   for (const [providerKey, displayName, baseUrl] of providers) {

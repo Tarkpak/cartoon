@@ -18,6 +18,7 @@
     "test": "vitest --run app shared && bun test backend",
     "test:watch": "vitest app shared",
     "test:coverage": "vitest --run --coverage app shared && bun test backend",
+    "voice-presets:sync": "bun scripts/sync-volcengine-voice-presets.ts",
     "desktop:dev": "bun run dev:cleanup && bun run --parallel dev:frontend tauri:dev",
     "tauri:dev": "tauri dev",
     "desktop:prepare-updater-config": "node ./scripts/desktop-prepare-updater-config.mjs",

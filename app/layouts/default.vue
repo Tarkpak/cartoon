@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Library } from 'lucide-vue-next'
+import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Library, MicVocal } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import { createClickRipple } from '@/lib/ripple'
 
@@ -48,6 +48,7 @@ const navigation = computed(() => {
     { name: '视频转项目', path: '/import/video', icon: FileVideo },
     { name: '画质增强', path: '/tools/enhance', icon: WandSparkles },
     { name: '语音识别', path: '/tools/asr', icon: AudioLines },
+    { name: '声音工作台', path: '/tools/voice', icon: MicVocal },
     { name: '视频图文下载', path: '/tools/short-video-download', icon: Download }
   ]
 

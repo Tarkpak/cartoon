@@ -11,6 +11,7 @@ export default defineEventHandler(async (event) => {
   const providerId = requiredParam(event, 'id')
   const body = await readJsonBody<{
     apiKey?: string
+    speechApiKey?: string
     mediakitApiKey?: string
     arkAccessKey?: string
     arkSecretKey?: string
@@ -35,13 +36,14 @@ export default defineEventHandler(async (event) => {
     )
   } else {
     const existingCredentials = db.prepare(`
-      SELECT encrypted_api_key, encrypted_mediakit_api_key, encrypted_ark_access_key, encrypted_ark_secret_key,
+      SELECT encrypted_api_key, encrypted_speech_api_key, encrypted_mediakit_api_key, encrypted_ark_access_key, encrypted_ark_secret_key,
              encrypted_access_key, encrypted_secret_key
       FROM provider_credentials
       WHERE provider_id = ?
       LIMIT 1
     `).get(providerId) as {
       encrypted_api_key?: string | null
+      encrypted_speech_api_key?: string | null
       encrypted_mediakit_api_key?: string | null
       encrypted_ark_access_key?: string | null
       encrypted_ark_secret_key?: string | null
@@ -50,6 +52,7 @@ export default defineEventHandler(async (event) => {
     } | undefined
     const previous = {
       apiKey: decryptText(existingCredentials?.encrypted_api_key),
+      speechApiKey: decryptText(existingCredentials?.encrypted_speech_api_key),
       mediakitApiKey: decryptText(existingCredentials?.encrypted_mediakit_api_key),
       arkAccessKey: decryptText(existingCredentials?.encrypted_ark_access_key),
       arkSecretKey: decryptText(existingCredentials?.encrypted_ark_secret_key),
@@ -58,6 +61,9 @@ export default defineEventHandler(async (event) => {
     }
     const next = {
       apiKey: isKling ? '' : (body.apiKey === undefined ? previous.apiKey : body.apiKey),
+      speechApiKey: provider.provider_key === 'volcengine'
+        ? (body.speechApiKey === undefined ? previous.speechApiKey : body.speechApiKey)
+        : '',
       mediakitApiKey: provider.provider_key === 'volcengine'
         ? (body.mediakitApiKey === undefined ? previous.mediakitApiKey : body.mediakitApiKey)
         : '',
@@ -73,11 +79,12 @@ export default defineEventHandler(async (event) => {
 
     db.prepare(`
     INSERT INTO provider_credentials
-      (provider_id, encrypted_api_key, encrypted_mediakit_api_key, encrypted_ark_access_key, encrypted_ark_secret_key,
+      (provider_id, encrypted_api_key, encrypted_speech_api_key, encrypted_mediakit_api_key, encrypted_ark_access_key, encrypted_ark_secret_key,
        encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(provider_id) DO UPDATE SET
       encrypted_api_key = excluded.encrypted_api_key,
+      encrypted_speech_api_key = excluded.encrypted_speech_api_key,
       encrypted_mediakit_api_key = excluded.encrypted_mediakit_api_key,
       encrypted_ark_access_key = excluded.encrypted_ark_access_key,
       encrypted_ark_secret_key = excluded.encrypted_ark_secret_key,
@@ -88,6 +95,7 @@ export default defineEventHandler(async (event) => {
   `).run(
       providerId,
       encryptText(next.apiKey),
+      encryptText(next.speechApiKey),
       encryptText(next.mediakitApiKey),
       encryptText(next.arkAccessKey),
       encryptText(next.arkSecretKey),
@@ -106,6 +114,7 @@ export default defineEventHandler(async (event) => {
     metadata: {
       credentialMode: isKling ? 'access_secret' : 'api_key',
       hasApiKey: !isKling && Boolean(body.apiKey),
+      hasSpeechApiKey: provider.provider_key === 'volcengine' && Boolean(body.speechApiKey),
       hasMediakitApiKey: provider.provider_key === 'volcengine' && Boolean(body.mediakitApiKey),
       hasArkAccessKey: provider.provider_key === 'volcengine' && Boolean(body.arkAccessKey),
       hasArkSecretKey: provider.provider_key === 'volcengine' && Boolean(body.arkSecretKey),

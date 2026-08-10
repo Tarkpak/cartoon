@@ -117,6 +117,8 @@ mod runtime_api;
 mod short_video;
 #[path = "backend/video_import.rs"]
 mod video_import;
+#[path = "backend/voice_api.rs"]
+mod voice_api;
 #[path = "backend/wx_channels.rs"]
 mod wx_channels;
 #[path = "backend/xiaohongshu.rs"]
@@ -128,6 +130,7 @@ use prompts_api::*;
 use runtime_api::*;
 use short_video::*;
 use video_import::*;
+use voice_api::*;
 
 tokio::task_local! {
     static CURRENT_REQUEST_ID: String;
@@ -1417,6 +1420,10 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
                 .get("mediakitApiKey")
                 .and_then(Value::as_str)
                 .is_some_and(|value| !value.trim().is_empty());
+            let has_speech_api_key = item
+                .get("speechApiKey")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty());
             let has_ark_access_key = item
                 .get("arkAccessKey")
                 .and_then(Value::as_str)
@@ -1438,6 +1445,7 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
                 json!({
                   "baseUrl": item.get("baseUrl").and_then(Value::as_str).unwrap_or(""),
                   "hasApiKey": has_api_key,
+                  "hasSpeechApiKey": has_speech_api_key,
                   "hasMediakitApiKey": has_mediakit_api_key,
                   "hasArkAccessKey": has_ark_access_key,
                   "hasArkSecretKey": has_ark_secret_key,
@@ -1465,6 +1473,10 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
             .get("mediakitApiKey")
             .and_then(Value::as_str)
             .is_some_and(|value| !value.trim().is_empty());
+        let has_speech_api_key = item
+            .get("speechApiKey")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty());
         let has_ark_access_key = item
             .get("arkAccessKey")
             .and_then(Value::as_str)
@@ -1486,6 +1498,7 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
             json!({
               "baseUrl": item.get("baseUrl").and_then(Value::as_str).unwrap_or(""),
               "hasApiKey": has_api_key,
+              "hasSpeechApiKey": has_speech_api_key,
               "hasMediakitApiKey": has_mediakit_api_key,
               "hasArkAccessKey": has_ark_access_key,
               "hasArkSecretKey": has_ark_secret_key,
@@ -1858,6 +1871,11 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
             .and_then(Value::as_str)
             .unwrap_or("")
             .trim();
+        let speech_api_key = item
+            .get("speechApiKey")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         let ark_access_key = item
             .get("arkAccessKey")
             .and_then(Value::as_str)
@@ -1928,6 +1946,7 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
         } else {
             if target_provider == "volcengine"
                 && api_key.is_empty()
+                && speech_api_key.is_empty()
                 && mediakit_api_key.is_empty()
                 && ark_access_key.is_empty()
                 && ark_secret_key.is_empty()
@@ -1942,6 +1961,7 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
                 if target_provider == "volcengine" {
                     json!({
                       "apiKey": api_key,
+                      "speechApiKey": speech_api_key,
                       "mediakitApiKey": mediakit_api_key,
                       "arkAccessKey": ark_access_key,
                       "arkSecretKey": ark_secret_key,
@@ -1977,6 +1997,10 @@ fn overlay_cloud_provider_creds(conn: &Connection, creds: &mut Value) {
         return;
     };
     for (provider, value) in cloud_obj {
+        if provider == "custom_openai" {
+            root.insert(provider.clone(), value.clone());
+            continue;
+        }
         root.insert(provider.clone(), value.clone());
     }
 }
@@ -4342,6 +4366,51 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         UNIQUE(asset_id, version)
       );
 
+      CREATE TABLE IF NOT EXISTS voice_profiles (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'volcengine',
+        speaker_id TEXT NOT NULL,
+        custom_speaker_id TEXT,
+        status TEXT NOT NULL DEFAULT 'training',
+        language INTEGER NOT NULL DEFAULT 0,
+        source_asset_id TEXT,
+        source_audio_url TEXT,
+        preview_asset_id TEXT,
+        preview_audio_url TEXT,
+        provider_metadata_json TEXT NOT NULL DEFAULT '{}',
+        error_message TEXT,
+        consent_confirmed_at TEXT NOT NULL,
+        activated_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        archived_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS voice_generation_tasks (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT,
+        name TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        voice_profile_id TEXT,
+        prompt TEXT NOT NULL,
+        references_json TEXT NOT NULL DEFAULT '[]',
+        audio_config_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'queued',
+        progress INTEGER NOT NULL DEFAULT 0,
+        request_id TEXT NOT NULL,
+        result_asset_id TEXT,
+        audio_url TEXT,
+        duration_ms INTEGER,
+        original_duration_ms INTEGER,
+        subtitle_json TEXT,
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+
       CREATE TABLE IF NOT EXISTS wx_channels_history (
         id TEXT PRIMARY KEY,
         share_url TEXT NOT NULL UNIQUE,
@@ -4433,6 +4502,10 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         ON library_assets(category, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_library_assets_media_updated
         ON library_assets(media_type, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_voice_profiles_updated
+        ON voice_profiles(updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_voice_generation_tasks_created
+        ON voice_generation_tasks(created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_library_assets_hash
         ON library_assets(content_hash);
       CREATE INDEX IF NOT EXISTS idx_library_assets_deleted
@@ -4798,6 +4871,40 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route(
             "/api/tools/asr/history/{id}",
             delete(api_asr_history_delete),
+        )
+        .route("/api/voice/health", get(api_voice_health))
+        .route(
+            "/api/voice/presets/{speaker_id}/preview",
+            post(api_voice_preset_preview),
+        )
+        .route(
+            "/api/voice/profiles",
+            get(api_voice_profiles)
+                .post(api_voice_profile_clone)
+                .layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
+        )
+        .route(
+            "/api/voice/profiles/{id}",
+            get(api_voice_profile_get).delete(api_voice_profile_archive),
+        )
+        .route(
+            "/api/voice/profiles/{id}/refresh",
+            post(api_voice_profile_refresh),
+        )
+        .route(
+            "/api/voice/profiles/{id}/activate",
+            post(api_voice_profile_activate),
+        )
+        .route(
+            "/api/voice/generations",
+            get(api_voice_generations)
+                .post(api_voice_generation_create)
+                .layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
+        )
+        .route("/api/voice/generations/{id}", get(api_voice_generation_get))
+        .route(
+            "/api/voice/generations/{id}/retry",
+            post(api_voice_generation_retry),
         )
         .route(
             "/api/import/video/upload",
@@ -10496,6 +10603,7 @@ fn provider_credentials_public(creds: &Value) -> Value {
       "qwen":       { "hasApiKey": mask("qwen", "apiKey"), "baseUrl": base_url("qwen") },
       "volcengine": {
         "hasApiKey": mask("volcengine", "apiKey"),
+        "hasSpeechApiKey": mask("volcengine", "speechApiKey"),
         "hasMediakitApiKey": mask("volcengine", "mediakitApiKey"),
         "hasArkAccessKey": mask("volcengine", "arkAccessKey"),
         "hasArkSecretKey": mask("volcengine", "arkSecretKey"),
@@ -10730,6 +10838,31 @@ async fn cloud_post_client_json(
         (base_url, token)
     };
     cloud_request_json(
+        &base_url,
+        reqwest::Method::POST,
+        path,
+        Some(&token),
+        Some(body),
+    )
+    .await
+}
+
+async fn cloud_post_client_data_json(
+    state: &BackendState,
+    path: &str,
+    body: Value,
+) -> Result<Value, ApiError> {
+    let (base_url, token) = {
+        let conn = db_connection(state)?;
+        let Some(base_url) = cloud_base_url(&conn) else {
+            return Ok(json!({ "success": false, "skipped": "cloud_not_configured" }));
+        };
+        let Some(token) = cloud_token(&conn) else {
+            return Ok(json!({ "success": false, "skipped": "cloud_not_authenticated" }));
+        };
+        (base_url, token)
+    };
+    cloud_data_request_json(
         &base_url,
         reqwest::Method::POST,
         path,
@@ -13093,12 +13226,14 @@ mod tests {
         let creds = cloud_provider_credentials_to_local(Some(json!([{
           "providerKey": "volcengine",
           "apiKey": "ark-model-key",
+          "speechApiKey": "speech-key",
           "mediakitApiKey": "mediakit-key",
           "arkAccessKey": "ark-access-key",
           "arkSecretKey": "ark-secret-key",
           "baseUrl": "https://ark.cn-beijing.volces.com/api/v3"
         }])));
 
+        assert_eq!(creds["volcengine"]["speechApiKey"], "speech-key");
         assert_eq!(creds["volcengine"]["arkAccessKey"], "ark-access-key");
         assert_eq!(creds["volcengine"]["arkSecretKey"], "ark-secret-key");
     }

@@ -92,6 +92,12 @@
           >
             <n-input v-model:value="credentialForm.mediakitApiKey" type="password" show-password-on="click" />
           </n-form-item>
+          <n-form-item
+            v-if="credentialProvider?.providerKey === 'volcengine'"
+            label="豆包语音 API Key"
+          >
+            <n-input v-model:value="credentialForm.speechApiKey" type="password" show-password-on="click" />
+          </n-form-item>
           <template v-if="credentialProvider?.providerKey === 'volcengine'">
             <n-divider title-placement="left">
               Ark OpenAPI（火山素材库）
@@ -214,6 +220,7 @@ interface ProviderRow {
   baseUrl: string
   enabled: boolean
   hasApiKey: boolean
+  hasSpeechApiKey: boolean
   hasMediakitApiKey: boolean
   hasArkAccessKey: boolean
   hasArkSecretKey: boolean
@@ -280,6 +287,7 @@ const savingModels = ref(false)
 const syncingModels = ref(false)
 const credentialForm = reactive({
   apiKey: '',
+  speechApiKey: '',
   mediakitApiKey: '',
   arkAccessKey: '',
   arkSecretKey: '',
@@ -380,6 +388,7 @@ const columns = [
           ].filter(Boolean)
         : [
             row.hasApiKey ? 'API Key' : '',
+            row.providerKey === 'volcengine' && row.hasSpeechApiKey ? '语音 Key' : '',
             row.providerKey === 'volcengine' && row.hasMediakitApiKey ? 'MediaKit Key' : '',
             row.providerKey === 'volcengine' && row.hasArkAccessKey ? 'Ark AK' : '',
             row.providerKey === 'volcengine' && row.hasArkSecretKey ? 'Ark SK' : ''
@@ -441,6 +450,7 @@ function openCredentials(row: ProviderRow) {
   credentialProviderId.value = row.id
   Object.assign(credentialForm, {
     apiKey: '',
+    speechApiKey: '',
     mediakitApiKey: '',
     arkAccessKey: '',
     arkSecretKey: '',
@@ -622,6 +632,9 @@ async function saveCredentials() {
     if (credentialForm.apiKey.trim()) body.apiKey = credentialForm.apiKey
     if (credentialProvider.value?.providerKey === 'volcengine' && credentialForm.mediakitApiKey.trim()) {
       body.mediakitApiKey = credentialForm.mediakitApiKey
+    }
+    if (credentialProvider.value?.providerKey === 'volcengine' && credentialForm.speechApiKey.trim()) {
+      body.speechApiKey = credentialForm.speechApiKey
     }
     if (credentialProvider.value?.providerKey === 'volcengine' && credentialForm.arkAccessKey.trim()) {
       body.arkAccessKey = credentialForm.arkAccessKey
