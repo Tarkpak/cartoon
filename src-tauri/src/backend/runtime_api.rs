@@ -13,6 +13,10 @@ use ve_tos_rust_sdk::tos;
 type HmacSha256 = Hmac<Sha256>;
 
 const PROMPT_TEMPLATE_SCRIPT_EPISODE_PLAN: &str = "script_episode_plan";
+const PROMPT_TEMPLATE_SCRIPT_WRITING_STORY_BIBLE: &str = "script_writing_story_bible";
+const PROMPT_TEMPLATE_SCRIPT_WRITING_OUTLINE: &str = "script_writing_outline";
+const PROMPT_TEMPLATE_SCRIPT_WRITING_EPISODE_DRAFT: &str = "script_writing_episode_draft";
+const PROMPT_TEMPLATE_SCRIPT_WRITING_REVIEW: &str = "script_writing_review";
 const PROMPT_TEMPLATE_ORIGIN_EXPLAINER_PLANNING: &str = "origin_explainer_planning";
 const PROMPT_TEMPLATE_VIDEO_IMPORT_SCRIPT_GENERATION: &str = "video_import_script_generation";
 const PROMPT_TEMPLATE_CHARACTER_SHEET: &str = "character_sheet";
@@ -4676,6 +4680,18 @@ fn configured_prompt_runtime_contract(template_id: &str) -> Option<&'static str>
         PROMPT_TEMPLATE_SCRIPT_EPISODE_PLAN => Some(include_str!(
             "../../assets/default-prompts/script_episode_plan_contract.txt"
         )),
+        PROMPT_TEMPLATE_SCRIPT_WRITING_STORY_BIBLE => Some(include_str!(
+            "../../assets/default-prompts/script_writing_story_bible_contract.txt"
+        )),
+        PROMPT_TEMPLATE_SCRIPT_WRITING_OUTLINE => Some(include_str!(
+            "../../assets/default-prompts/script_writing_outline_contract.txt"
+        )),
+        PROMPT_TEMPLATE_SCRIPT_WRITING_EPISODE_DRAFT => Some(include_str!(
+            "../../assets/default-prompts/script_writing_episode_draft_contract.txt"
+        )),
+        PROMPT_TEMPLATE_SCRIPT_WRITING_REVIEW => Some(include_str!(
+            "../../assets/default-prompts/script_writing_review_contract.txt"
+        )),
         PROMPT_TEMPLATE_ORIGIN_EXPLAINER_PLANNING => Some(include_str!(
             "../../assets/default-prompts/origin_explainer_planning_contract.txt"
         )),
@@ -5723,6 +5739,7 @@ fn resolve_runtime_workflow_model_id(
 
 fn workflow_step_label(workflow_step: &str) -> &'static str {
     match workflow_step {
+        "script_writing" => "AI 剧本创作",
         "script_parsing" => "分集目录规划与剧本解析",
         "video_import_script_generation" => "视频转项目剧本整理",
         "scene_description_refinement" => "场景描述二次改写",
@@ -17946,6 +17963,124 @@ fn validate_episode_plan_request(body: &Value) -> Result<(), ApiError> {
     validate_min_text_chars(body, "text", "body", 10)?;
     validate_script_parse_mode(body.get("scriptParseMode"), "body.scriptParseMode")?;
     Ok(())
+}
+
+fn validate_script_writing_request(body: &Value) -> Result<(&'static str, String), ApiError> {
+    if !body.is_object() {
+        return Err(workflow_validation_error("body", "Expected object"));
+    }
+    let action = match body
+        .get("action")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("")
+    {
+        "story_bible" => PROMPT_TEMPLATE_SCRIPT_WRITING_STORY_BIBLE,
+        "outline" => PROMPT_TEMPLATE_SCRIPT_WRITING_OUTLINE,
+        "episode_draft" => PROMPT_TEMPLATE_SCRIPT_WRITING_EPISODE_DRAFT,
+        "review" => PROMPT_TEMPLATE_SCRIPT_WRITING_REVIEW,
+        _ => return Err(workflow_validation_error("body.action", "Unsupported action")),
+    };
+    let context = body.get("context").cloned().unwrap_or_else(|| json!({}));
+    let context_text = serde_json::to_string_pretty(&context)
+        .map_err(|error| workflow_validation_error("body.context", error.to_string()))?;
+    if context_text.chars().count() > 120_000 {
+        return Err(workflow_validation_error("body.context", "Context is too large"));
+    }
+    Ok((action, context_text))
+}
+
+fn build_script_writing_prompt(
+    conn: &rusqlite::Connection,
+    body: &Value,
+) -> Result<String, ApiError> {
+    let (template_id, context_text) = validate_script_writing_request(body)?;
+    render_configured_prompt(conn, template_id, &[("context", context_text.as_str())])
+}
+
+#[cfg(test)]
+mod script_writing_prompt_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_supported_action_and_serializes_context() {
+        let (template_id, context_text) = validate_script_writing_request(&json!({
+          "action": "story_bible",
+          "context": { "brief": { "idea": "失忆律师追查自己" } }
+        }))
+        .expect("request should be valid");
+        assert_eq!(template_id, PROMPT_TEMPLATE_SCRIPT_WRITING_STORY_BIBLE);
+        assert!(context_text.contains("失忆律师追查自己"));
+    }
+
+    #[test]
+    fn rejects_unknown_action() {
+        assert!(validate_script_writing_request(&json!({
+          "action": "run_anything",
+          "context": {}
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_context() {
+        assert!(validate_script_writing_request(&json!({
+          "action": "review",
+          "context": { "draft": "x".repeat(120_001) }
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn script_writing_contracts_are_registered() {
+        for template_id in [
+            PROMPT_TEMPLATE_SCRIPT_WRITING_STORY_BIBLE,
+            PROMPT_TEMPLATE_SCRIPT_WRITING_OUTLINE,
+            PROMPT_TEMPLATE_SCRIPT_WRITING_EPISODE_DRAFT,
+            PROMPT_TEMPLATE_SCRIPT_WRITING_REVIEW,
+        ] {
+            let contract = configured_prompt_runtime_contract(template_id)
+                .expect("contract should be registered");
+            assert!(contract.contains("{{context}}"));
+            assert!(contract.contains("{{userPrompt}}"));
+        }
+    }
+}
+
+pub(super) async fn api_script_write(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let prompt = {
+        let conn = db_connection(&state)?;
+        build_script_writing_prompt(&conn, &body)?
+    };
+    let context = model_log_context_from_workflow_body(&body, None, None);
+    let (model_text, provider, model_id) = CURRENT_MODEL_LOG_CONTEXT
+        .scope(context, async {
+            run_workflow_text_model(&state, "script_writing", &prompt).await
+        })
+        .await
+        .map_err(|error| ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("剧本创作模型调用失败: {}", error),
+        ))?;
+    let data = extract_json_from_text(&model_text).map_err(|error| ApiError::new(
+        StatusCode::BAD_GATEWAY,
+        format!("剧本创作模型 JSON 解析失败: {}", error),
+    ))?;
+    if !data.is_object() {
+        return Err(ApiError::new(StatusCode::BAD_GATEWAY, "剧本创作模型未返回 JSON 对象"));
+    }
+
+    Ok(Json(json!({
+      "success": true,
+      "data": data,
+      "usage": {
+        "modelProvider": provider,
+        "modelId": model_id
+      }
+    })))
 }
 
 pub(super) async fn api_script_episode_plan(

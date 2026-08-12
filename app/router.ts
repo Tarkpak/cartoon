@@ -15,6 +15,7 @@ import EnhancePage from './pages/tools/enhance.vue'
 import AsrPage from './pages/tools/asr.vue'
 import VoicePage from './pages/tools/voice.vue'
 import ShortVideoDownloadPage from './pages/tools/short-video-download.vue'
+import ScriptWritingPage from './pages/tools/script-writing.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -95,6 +96,11 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/ark-assets',
     component: ArkAssetsPage,
+    meta: { layout: 'default' }
+  },
+  {
+    path: '/tools/script-writing',
+    component: ScriptWritingPage,
     meta: { layout: 'default' }
   },
   {

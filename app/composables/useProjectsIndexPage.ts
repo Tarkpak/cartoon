@@ -136,6 +136,11 @@ export function useProjectsIndexPage() {
 
       const createdId = response?.project?.id
       if (createdId) {
+        const returnTo = Array.isArray(route.query.returnTo) ? route.query.returnTo[0] : route.query.returnTo
+        if (returnTo === 'script-writing') {
+          await router.push({ path: '/tools/script-writing', query: { project: createdId } })
+          return
+        }
         await router.push(resolveProjectDetailPath(createdId))
         return
       }

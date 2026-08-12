@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Library, MicVocal } from 'lucide-vue-next'
+import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Library, MicVocal, PenLine } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import { createClickRipple } from '@/lib/ripple'
 
@@ -45,6 +45,7 @@ function handleWindowFocus() {
 
 const navigation = computed(() => {
   const toolChildren = [
+    { name: 'AI 剧本创作', path: '/tools/script-writing', icon: PenLine },
     { name: '视频转项目', path: '/import/video', icon: FileVideo },
     { name: '画质增强', path: '/tools/enhance', icon: WandSparkles },
     { name: '语音识别', path: '/tools/asr', icon: AudioLines },

@@ -55,6 +55,19 @@ export default defineEventHandler((event) => {
   }
   const providerModels = Array.from(providerModelsByKey.values())
 
+  const promptTemplateDefaults = db
+    .prepare('SELECT template_key, title, content, updated_at FROM system_prompt_templates ORDER BY template_key ASC')
+    .all()
+    .map(row => {
+      const item = row as { template_key: string, title: string | null, content: string, updated_at: string }
+      return {
+        templateKey: item.template_key,
+        title: item.title,
+        content: item.content,
+        updatedAt: item.updated_at
+      }
+    })
+
   return {
     success: true,
     data: {
@@ -85,6 +98,7 @@ export default defineEventHandler((event) => {
         providerModels.map(provider => [provider.providerKey, provider.models])
       ),
       defaultModelPreferences: parseJsonText(defaultModelsRow?.value, {}),
+      promptTemplateDefaults,
       modelPreferences: preferences.map(preference => ({
         workflowStep: preference.workflow_step,
         modelId: preference.model_id,

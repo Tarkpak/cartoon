@@ -270,6 +270,13 @@ function initSchema(conn: Database) {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS system_prompt_templates (
+      template_key TEXT PRIMARY KEY,
+      title TEXT,
+      content TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS user_prompt_snapshots (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

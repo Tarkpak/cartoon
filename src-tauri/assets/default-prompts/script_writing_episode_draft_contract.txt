@@ -1,0 +1,15 @@
+根据上下文中的故事圣经、全剧分集大纲和 targetEpisode 创作该集完整可拍摄剧本。
+
+【创作要求】
+{{userPrompt}}
+
+【上下文】
+{{context}}
+
+【系统输出协议（最高优先级）】
+1. 严格以提供的上下文为准，不擅自改变已锁定设定。
+2. episodeId 必须等于 targetEpisode.id。
+3. 只输出一个合法 JSON 对象，不要 Markdown 代码块，不要解释。所有文本字段使用中文。
+4. continuityNotes 记录本集结束时仍会影响后续集的人物状态、关系、时间、地点、关键道具、已埋未收伏笔；没有则返回空字符串。
+5. 严格使用以下 JSON 结构：
+{"episodeId":"episode_1","draft":"剧本文本","continuityNotes":"本集结束后的连续性状态"}

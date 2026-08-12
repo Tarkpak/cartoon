@@ -1,5 +1,69 @@
 [
   {
+    "id": "script_writing_story_bible",
+    "name": "剧本创作·故事圣经",
+    "category": "text",
+    "description": "根据核心创意生成全剧故事圣经（前提、主题、世界观、人物与设定铁律）",
+    "variables": [
+      {
+        "name": "{{context}}",
+        "description": "创作上下文 JSON（brief）",
+        "example": "{\"brief\":{\"idea\":\"...\"}}"
+      }
+    ],
+    "isCustomized": false,
+    "updatedAt": "2026-08-12T00:00:00.000Z",
+    "contentFile": "default-prompts/script_writing_story_bible.txt"
+  },
+  {
+    "id": "script_writing_outline",
+    "name": "剧本创作·分集大纲",
+    "category": "text",
+    "description": "根据故事圣经规划全剧分集大纲（梗概、钩子与情节节拍）",
+    "variables": [
+      {
+        "name": "{{context}}",
+        "description": "创作上下文 JSON（brief、storyBible）",
+        "example": "{\"brief\":{},\"storyBible\":{}}"
+      }
+    ],
+    "isCustomized": false,
+    "updatedAt": "2026-08-12T00:00:00.000Z",
+    "contentFile": "default-prompts/script_writing_outline.txt"
+  },
+  {
+    "id": "script_writing_episode_draft",
+    "name": "剧本创作·单集成稿",
+    "category": "text",
+    "description": "根据故事圣经、分集大纲与前情创作单集完整可拍摄剧本",
+    "variables": [
+      {
+        "name": "{{context}}",
+        "description": "创作上下文 JSON（brief、storyBible、episodes、previousDrafts、targetEpisode）",
+        "example": "{\"targetEpisode\":{\"id\":\"episode_1\"}}"
+      }
+    ],
+    "isCustomized": false,
+    "updatedAt": "2026-08-12T00:00:00.000Z",
+    "contentFile": "default-prompts/script_writing_episode_draft.txt"
+  },
+  {
+    "id": "script_writing_review",
+    "name": "剧本创作·全剧审校",
+    "category": "text",
+    "description": "审校已成稿剧集的一致性、逻辑、节奏与可拍摄性，输出整体与逐集意见",
+    "variables": [
+      {
+        "name": "{{context}}",
+        "description": "审校上下文 JSON（brief、storyBible、episodes、reviewScope）",
+        "example": "{\"episodes\":[{\"id\":\"episode_1\",\"draft\":\"...\"}]}"
+      }
+    ],
+    "isCustomized": false,
+    "updatedAt": "2026-08-12T00:00:00.000Z",
+    "contentFile": "default-prompts/script_writing_review.txt"
+  },
+  {
     "id": "script_episode_plan",
     "name": "分集目录规划",
     "category": "text",

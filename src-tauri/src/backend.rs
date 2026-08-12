@@ -1735,6 +1735,7 @@ fn build_cloud_project_put_body(snapshot: &Value, fallback: &Value) -> Value {
         "inputMode",
         "episodePlan",
         "assetWorkflow",
+        "writingStudio",
     ] {
         if let Some(value) = script.get(key).filter(|value| !value.is_null()) {
             body.insert(key.to_string(), value.clone());
@@ -2839,6 +2840,14 @@ fn default_selected_models() -> Value {
 fn default_workflow_steps() -> Value {
     json!([
       {
+        "id": "script_writing",
+        "name": "AI 剧本创作",
+        "description": "生成故事圣经、分集大纲、单集剧本并执行连贯性审校",
+        "category": "text",
+        "requiredCapabilities": ["text_generation"],
+        "optionalCapabilities": []
+      },
+      {
         "id": "script_parsing",
         "name": "分集目录规划与剧本解析",
         "description": "解析为结构化场景",
@@ -3075,7 +3084,7 @@ fn available_model_enabled_for_provider(
 
 fn workflow_step_category(step_id: &str) -> Option<&'static str> {
     match step_id {
-        "script_parsing" | "video_import_script_generation" | "scene_description_refinement" => {
+        "script_writing" | "script_parsing" | "video_import_script_generation" | "scene_description_refinement" => {
             Some("text")
         }
         "character_portrait" | "frame_generation" => Some("image"),
@@ -3167,6 +3176,7 @@ fn selected_models_public_view(selected: &Value) -> Value {
 
 fn legacy_workflow_default_model_for_step(step_id: &str) -> Option<&'static str> {
     match step_id {
+        "script_writing" => Some("qwen3.6-plus"),
         "script_parsing" => Some("qwen3.6-plus"),
         "video_import_script_generation" => Some("qwen3.6-plus"),
         "scene_description_refinement" => Some("qwen3.6-plus"),
@@ -3208,6 +3218,7 @@ fn workflow_overrides(conn: &Connection) -> Result<Value, ApiError> {
         return Ok(json!({}));
     };
     let workflow_steps = [
+        "script_writing",
         "script_parsing",
         "video_import_script_generation",
         "scene_description_refinement",
@@ -3268,6 +3279,7 @@ fn workflow_current_selections(conn: &Connection, available: &Value) -> Result<V
     let overrides = workflow_overrides(conn)?;
     let mut output = serde_json::Map::new();
     for step_id in [
+        "script_writing",
         "script_parsing",
         "video_import_script_generation",
         "scene_description_refinement",
@@ -3460,6 +3472,18 @@ fn default_prompt_template_content(content_file: &str) -> Option<&'static str> {
         "default-prompts/script_episode_plan.txt" => Some(include_str!(
             "../assets/default-prompts/script_episode_plan.txt"
         )),
+        "default-prompts/script_writing_story_bible.txt" => Some(include_str!(
+            "../assets/default-prompts/script_writing_story_bible.txt"
+        )),
+        "default-prompts/script_writing_outline.txt" => Some(include_str!(
+            "../assets/default-prompts/script_writing_outline.txt"
+        )),
+        "default-prompts/script_writing_episode_draft.txt" => Some(include_str!(
+            "../assets/default-prompts/script_writing_episode_draft.txt"
+        )),
+        "default-prompts/script_writing_review.txt" => Some(include_str!(
+            "../assets/default-prompts/script_writing_review.txt"
+        )),
         "default-prompts/script_parsing.txt" => {
             Some(include_str!("../assets/default-prompts/script_parsing.txt"))
         }
@@ -3619,10 +3643,71 @@ fn merge_prompt_templates_with_defaults(value: Value) -> Value {
     Value::Array(merged)
 }
 
+fn apply_cloud_prompt_template_defaults(templates: Value, remote_defaults: Option<&Value>) -> Value {
+    let Some(defaults) = remote_defaults.and_then(Value::as_array).filter(|items| !items.is_empty())
+    else {
+        return templates;
+    };
+    let content_by_key: HashMap<&str, &str> = defaults
+        .iter()
+        .filter_map(|item| {
+            let key = item.get("templateKey").and_then(Value::as_str)?;
+            let content = item.get("content").and_then(Value::as_str)?;
+            if content.trim().is_empty() {
+                None
+            } else {
+                Some((key, content))
+            }
+        })
+        .collect();
+    if content_by_key.is_empty() {
+        return templates;
+    }
+    let Value::Array(items) = templates else {
+        return templates;
+    };
+    Value::Array(
+        items
+            .into_iter()
+            .map(|mut item| {
+                let is_customized = item
+                    .get("isCustomized")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                if is_customized {
+                    return item;
+                }
+                let Some(content) = item
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .and_then(|id| content_by_key.get(id).copied())
+                else {
+                    return item;
+                };
+                if let Some(object) = item.as_object_mut() {
+                    object.insert("content".to_string(), json!(content));
+                }
+                item
+            })
+            .collect(),
+    )
+}
+
+fn cloud_prompt_template_defaults(conn: &Connection) -> Option<Value> {
+    cloud_session(conn)?
+        .get("bootstrap")?
+        .get("promptTemplateDefaults")
+        .cloned()
+}
+
 fn get_prompt_templates_config(conn: &Connection) -> Result<Value, ApiError> {
-    Ok(get_config_json(conn, PROMPT_TEMPLATES_KEY)?
+    let templates = get_config_json(conn, PROMPT_TEMPLATES_KEY)?
         .map(merge_prompt_templates_with_defaults)
-        .unwrap_or_else(default_prompt_templates))
+        .unwrap_or_else(default_prompt_templates);
+    Ok(apply_cloud_prompt_template_defaults(
+        templates,
+        cloud_prompt_template_defaults(conn).as_ref(),
+    ))
 }
 
 fn get_prompt_director_preferences(conn: &Connection) -> Result<String, ApiError> {
@@ -4858,6 +4943,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/cloud/bootstrap", post(api_cloud_bootstrap))
         .route("/api/cloud/heartbeat", post(api_cloud_heartbeat))
         .route("/api/cloud/update-check", post(api_cloud_update_check))
+        .route("/api/script/write", post(api_script_write))
         .route("/api/script/episode-plan", post(api_script_episode_plan))
         .route("/api/script/parse", post(api_script_parse))
         .route("/api/script/parse-stream", post(api_script_parse_stream))
@@ -5787,6 +5873,7 @@ async fn api_project_get(
               "scriptParseMode": normalize_script_parse_mode(parsed.get("scriptParseMode").and_then(Value::as_str).or_else(|| project.get("scriptParseMode").and_then(Value::as_str))),
               "episodePlan": parsed.get("episodePlan").cloned().unwrap_or_else(|| json!([])),
               "assetWorkflow": parsed.get("assetWorkflow").cloned().unwrap_or(Value::Null),
+              "writingStudio": parsed.get("writingStudio").cloned().unwrap_or(Value::Null),
               "parsedData": parsed_data.and_then(|value| serde_json::from_str::<Value>(&value).ok()).unwrap_or(Value::Null),
               "totalDuration": total_duration.unwrap_or(0)
             });
@@ -6255,6 +6342,7 @@ fn merge_script_payload(
         "scriptParseMode",
         "episodePlan",
         "assetWorkflow",
+        "writingStudio",
     ] {
         if let Some(value) = body.get(key) {
             merged.insert(key.to_string(), value.clone());
@@ -13120,7 +13208,8 @@ async fn api_not_implemented(Path(path): Path<String>) -> (StatusCode, Json<Valu
 #[cfg(test)]
 mod tests {
     use super::{
-        available_model_enabled_for_provider, build_scoped_tos_key_prefix_for_user,
+        apply_cloud_prompt_template_defaults, available_model_enabled_for_provider,
+        build_scoped_tos_key_prefix_for_user,
         build_upload_tos_key_prefix_for_user, claim_legacy_projects,
         clear_workflow_overrides_for_category, cloud_model_log_identity, cloud_page_is_complete,
         cloud_project_summary_updated_at, cloud_provider_credentials_to_local,
@@ -13137,6 +13226,35 @@ mod tests {
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use std::collections::HashSet;
+
+    #[test]
+    fn cloud_prompt_defaults_override_non_customized_templates_only() {
+        let templates = json!([
+          { "id": "script_writing_story_bible", "content": "内置默认", "isCustomized": false },
+          { "id": "script_writing_outline", "content": "用户自定义", "isCustomized": true },
+          { "id": "character_sheet", "content": "内置默认", "isCustomized": false }
+        ]);
+        let remote = json!([
+          { "templateKey": "script_writing_story_bible", "content": "云端默认" },
+          { "templateKey": "script_writing_outline", "content": "云端默认" },
+          { "templateKey": "character_sheet", "content": "   " }
+        ]);
+
+        let applied = apply_cloud_prompt_template_defaults(templates, Some(&remote));
+        let items = applied.as_array().expect("array");
+        assert_eq!(items[0]["content"], json!("云端默认"));
+        assert_eq!(items[1]["content"], json!("用户自定义"));
+        assert_eq!(items[2]["content"], json!("内置默认"));
+    }
+
+    #[test]
+    fn cloud_prompt_defaults_noop_without_remote_values() {
+        let templates = json!([
+          { "id": "script_writing_story_bible", "content": "内置默认", "isCustomized": false }
+        ]);
+        let applied = apply_cloud_prompt_template_defaults(templates.clone(), None);
+        assert_eq!(applied, templates);
+    }
 
     fn configured_custom_openai_entry(
         id: &str,

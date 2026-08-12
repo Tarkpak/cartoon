@@ -1,0 +1,15 @@
+审校上下文中已成稿的分集剧本。
+
+【审校要求】
+{{userPrompt}}
+
+【上下文】
+{{context}}
+
+【系统输出协议（最高优先级）】
+1. 严格以提供的上下文为准，只报告有依据的问题。
+2. episodeNotes[].episodeId 必须使用上下文中对应集的 id。
+3. 只输出一个合法 JSON 对象，不要 Markdown 代码块，不要解释。所有文本字段使用中文。
+4. tasks 是可执行整改任务；每项必须包含稳定唯一 id、问题类别、对应 episodeId（全局问题可为空）、正文中的具体位置、问题和修改建议。
+5. 严格使用以下 JSON 结构：
+{"review":{"score":0,"summary":"","issues":[""],"suggestions":[""],"episodeNotes":[{"episodeId":"episode_1","notes":""}],"tasks":[{"id":"task_1","category":"连续性","episodeId":"episode_1","location":"第二场结尾","issue":"","suggestion":""}]}}
