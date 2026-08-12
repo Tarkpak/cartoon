@@ -179,8 +179,8 @@ async function handleDrop(event: DragEvent) {
     content-class="flex-1 min-h-0 flex flex-col gap-4 overflow-hidden"
   >
     <div
-      class="relative flex-1 min-h-[280px] rounded-lg border transition-colors"
-      :class="isDraggingTextFile ? 'border-primary bg-primary/5 ring-1 ring-primary/30' : 'border-muted-foreground/20 bg-muted/30'"
+      class="relative flex-1 min-h-[280px] rounded-xl bg-muted/20 transition-colors"
+      :class="isDraggingTextFile ? 'bg-primary/8 ring-2 ring-inset ring-primary/30' : 'bg-muted/20'"
       @dragenter="handleDragEnter"
       @dragover="handleDragOver"
       @dragleave="handleDragLeave"
@@ -249,14 +249,14 @@ async function handleDrop(event: DragEvent) {
 
     <div
       v-if="hasEpisodePlan"
-      class="shrink-0 rounded-md border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground"
+      class="shrink-0 rounded-xl bg-muted/20 p-3 text-xs text-muted-foreground"
     >
       {{ planReadyMessage }}
     </div>
 
     <div
       v-if="parsing"
-      class="shrink-0 rounded-md border border-primary/20 bg-primary/5 p-3"
+      class="shrink-0 rounded-xl border-0 bg-primary/8 p-3"
       role="status"
       aria-live="polite"
     >

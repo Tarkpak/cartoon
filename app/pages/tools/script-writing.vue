@@ -4,6 +4,9 @@ import type { ScriptWritingPublication } from '#shared/types/script-writing'
 import { createProjectDraft, type Project, type ProjectDraft, type ProjectListResponse } from '~/lib/projects-page'
 import ProjectCreateDialog from '@/components/projects/ProjectCreateDialog.vue'
 import ProjectDeleteDialog from '@/components/projects/ProjectDeleteDialog.vue'
+import AppPage from '@/components/layout/AppPage.vue'
+import AppPageContent from '@/components/layout/AppPageContent.vue'
+import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 import { resolveProjectWorkbenchPath } from '#shared/types/project'
 import {
   buildPublishedWritingEpisodePlan,
@@ -308,112 +311,219 @@ onBeforeRouteLeave(async () => {
 
 <template>
   <AppPage>
-    <AppPageHeader title="AI 剧本创作" description="从创意设定到可生产剧本，所有版本都留在项目里。">
+    <AppPageHeader
+      :title="showProjectList || !selectedProject ? 'AI 剧本创作' : selectedProject.title"
+      :description="showProjectList || !selectedProject
+        ? '从创意设定到可生产剧本，项目、版本和分集都保存在同一工作台。'
+        : `${projectProgress} · ${formatProjectRelativeTime(selectedProject.updatedAt)}更新`"
+      :compact="!showProjectList && !!selectedProject"
+    >
       <template #actions>
-        <Button variant="ghost" class="hidden gap-2 sm:inline-flex" @click="router.push({ path: '/tools/script-writing', query: { list: '1' } })">
-          <FolderOpen class="h-4 w-4" />项目总览<ArrowUpRight class="h-3.5 w-3.5 text-muted-foreground" />
+        <Button
+          v-if="!showProjectList && selectedProject"
+          variant="ghost"
+          class="hidden gap-2 sm:inline-flex"
+          @click="openProjectList"
+        >
+          <FolderOpen class="h-4 w-4" />
+          项目总览
         </Button>
-        <Button variant="outline" class="gap-2 transition-transform active:scale-[0.96]" @click="openCreateProjectDialog">
-          <FilePlus2 class="h-4 w-4" />新建项目
+        <Button
+          variant="outline"
+          class="gap-2 transition-transform active:scale-[0.96]"
+          @click="openCreateProjectDialog"
+        >
+          <FilePlus2 class="h-4 w-4" />
+          新建项目
         </Button>
       </template>
     </AppPageHeader>
 
-    <AppPageContent class="h-full overflow-hidden" inner-class="flex h-full min-h-0 flex-col overflow-hidden">
-      <div v-if="saveError" class="shrink-0 border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-sm text-destructive">
+    <AppPageContent
+      class="h-full overflow-hidden"
+      :padded="showProjectList || !selectedProject"
+      inner-class="flex h-full min-h-0 flex-col overflow-hidden"
+    >
+      <div
+        v-if="saveError"
+        class="shrink-0 bg-destructive/5 px-4 py-2.5 text-sm text-destructive"
+      >
         {{ saveError }}
       </div>
-      <div v-if="saveWarning" class="shrink-0 border-b border-amber-500/20 bg-amber-500/5 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
+      <div
+        v-if="saveWarning"
+        class="shrink-0 bg-amber-500/5 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300"
+      >
         {{ saveWarning }}
       </div>
 
-      <div v-if="pageLoading" class="flex min-h-64 flex-1 items-center justify-center text-muted-foreground">
-        <Loader2 class="mr-2 h-5 w-5 animate-spin" />加载创作项目
+      <div
+        v-if="pageLoading"
+        class="flex min-h-64 flex-1 flex-col items-center justify-center gap-3 text-muted-foreground"
+      >
+        <Loader2 class="h-5 w-5 animate-spin" />
+        <p class="text-sm">加载创作项目</p>
       </div>
 
-      <div v-else-if="projectsError" class="flex min-h-64 flex-1 flex-col items-center justify-center text-center">
+      <div
+        v-else-if="projectsError"
+        class="flex min-h-64 flex-1 flex-col items-center justify-center text-center"
+      >
         <p class="text-sm text-destructive">{{ projectsError }}</p>
         <Button variant="outline" class="mt-4" @click="fetchProjects">重新加载</Button>
       </div>
 
-      <section v-else-if="showProjectList" class="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border/80 bg-card/60 p-4 shadow-sm md:p-6">
-        <div class="flex flex-wrap items-end justify-between gap-4 border-b border-border/70 pb-5">
-          <div>
-            <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">AI script studio</p>
-            <h2 class="mt-1 text-2xl font-semibold tracking-tight">选择一个剧本项目</h2>
-            <p class="mt-1 text-sm text-muted-foreground">每个项目独立保存创作设定、故事圣经、分集正文和版本历史。</p>
-          </div>
-          <Button class="gap-2" @click="openCreateProjectDialog"><FilePlus2 class="h-4 w-4" />新建剧本项目</Button>
-        </div>
-        <div class="mt-5 flex items-center gap-2">
-          <div class="relative max-w-sm flex-1">
-            <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input v-model="projectSearch" class="pl-9" placeholder="搜索剧本项目" aria-label="搜索剧本项目" />
-          </div>
-          <span class="text-xs text-muted-foreground">{{ filteredProjects.length }} 个项目</span>
-        </div>
-        <div v-if="filteredProjects.length" class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <article
-            v-for="project in filteredProjects"
-            :key="project.id"
-            role="button"
-            tabindex="0"
-            class="group rounded-lg border border-border/80 bg-background/75 p-4 text-left transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-primary/45 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            @click="handleProjectSelection(project.id)"
-            @keydown.enter="handleProjectSelection(project.id)"
-            @keydown.space.prevent="handleProjectSelection(project.id)"
-          >
-            <div class="flex items-start justify-between gap-3">
-              <span class="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary"><PenLine class="h-4 w-4" /></span>
-              <div class="flex items-center gap-1">
-                <span class="text-xs text-muted-foreground">{{ formatProjectRelativeTime(project.updatedAt) }}</span>
-                <Button size="icon" variant="ghost" class="h-7 w-7 text-muted-foreground hover:text-destructive" title="删除项目" aria-label="删除项目" @click.stop="confirmDeleteProject(project, $event)"><Trash2 class="h-3.5 w-3.5" /></Button>
+      <section
+        v-else-if="showProjectList"
+        class="min-h-0 flex-1 overflow-y-auto"
+      >
+        <div class="mx-auto flex w-full max-w-6xl flex-col gap-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+              <div class="relative min-w-[16rem] max-w-md flex-1">
+                <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  v-model="projectSearch"
+                  class="h-10 border-0 bg-muted/40 pl-9 shadow-none focus-visible:ring-1"
+                  placeholder="搜索项目名称或描述"
+                  aria-label="搜索剧本项目"
+                />
               </div>
+              <span class="rounded-full bg-muted/40 px-3 py-1 text-xs tabular-nums text-muted-foreground">
+                {{ filteredProjects.length }} 个项目
+              </span>
             </div>
-            <h3 class="mt-4 truncate text-base font-semibold">{{ project.title }}</h3>
-            <p class="mt-1 line-clamp-2 min-h-10 text-sm leading-5 text-muted-foreground">{{ project.description || '还没有项目描述' }}</p>
-            <div class="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><span>{{ project.totalScenes ? `${project.totalScenes} 个场景` : '尚未解析' }}</span><span>·</span><span>{{ project.status === 'completed' ? '已完成' : project.status === 'in_progress' ? '进行中' : '草稿' }}</span></div>
-          </article>
-        </div>
-        <div v-else class="flex min-h-64 flex-col items-center justify-center text-center text-muted-foreground">
-          <PenLine class="mb-3 h-9 w-9" :stroke-width="1.5" />
-          <p class="font-medium text-foreground">{{ projectSearch ? '没有匹配的剧本项目' : '还没有 AI 剧本项目' }}</p>
-          <p class="mt-1 text-sm">创建一个项目，开始整理创意和分集正文。</p>
-          <Button class="mt-4 gap-2" @click="openCreateProjectDialog"><FilePlus2 class="h-4 w-4" />新建剧本项目</Button>
+            <Button class="gap-2 shadow-sm sm:hidden" @click="openCreateProjectDialog">
+              <FilePlus2 class="h-4 w-4" />
+              新建剧本项目
+            </Button>
+          </div>
+
+          <div
+            v-if="filteredProjects.length"
+            class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+          >
+            <article
+              v-for="project in filteredProjects"
+              :key="project.id"
+              role="button"
+              tabindex="0"
+              class="group relative flex min-h-[11.5rem] flex-col overflow-hidden rounded-2xl bg-muted/25 p-5 text-left transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-muted/40 hover:shadow-[0_12px_28px_hsl(var(--foreground)/0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              @click="handleProjectSelection(project.id)"
+              @keydown.enter="handleProjectSelection(project.id)"
+              @keydown.space.prevent="handleProjectSelection(project.id)"
+            >
+              <div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
+              <div class="flex items-start justify-between gap-3">
+                <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <PenLine class="h-4 w-4" :stroke-width="1.75" />
+                </span>
+                <div class="flex items-center gap-1">
+                  <span class="text-xs tabular-nums text-muted-foreground">
+                    {{ formatProjectRelativeTime(project.updatedAt) }}
+                  </span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    class="h-8 w-8 text-muted-foreground opacity-70 transition-opacity hover:text-destructive group-hover:opacity-100"
+                    title="删除项目"
+                    aria-label="删除项目"
+                    @click.stop="confirmDeleteProject(project, $event)"
+                  >
+                    <Trash2 class="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+
+              <h3 class="mt-4 truncate text-base font-semibold tracking-tight text-foreground">
+                {{ project.title }}
+              </h3>
+              <p class="mt-1.5 line-clamp-2 min-h-10 flex-1 text-sm leading-5 text-muted-foreground">
+                {{ project.description || '还没有项目描述，打开后可继续故事圣经与分集创作。' }}
+              </p>
+
+              <div class="mt-4 flex flex-wrap items-center gap-2">
+                <span class="rounded-full bg-muted/80 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                  {{ project.totalScenes ? `${project.totalScenes} 个场景` : '尚未解析' }}
+                </span>
+                <span
+                  class="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                  :class="project.status === 'completed'
+                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                    : project.status === 'in_progress'
+                      ? 'bg-primary/10 text-primary'
+                      : 'bg-muted text-muted-foreground'"
+                >
+                  {{ project.status === 'completed' ? '已完成' : project.status === 'in_progress' ? '进行中' : '草稿' }}
+                </span>
+                <span class="ml-auto inline-flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                  打开
+                  <ArrowUpRight class="h-3.5 w-3.5" />
+                </span>
+              </div>
+            </article>
+          </div>
+
+          <div
+            v-else
+            class="flex min-h-72 flex-col items-center justify-center rounded-2xl bg-muted/20 px-6 text-center"
+          >
+            <span class="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <PenLine class="h-5 w-5" :stroke-width="1.5" />
+            </span>
+            <p class="text-base font-semibold text-foreground">
+              {{ projectSearch ? '没有匹配的剧本项目' : '还没有 AI 剧本项目' }}
+            </p>
+            <p class="mt-1.5 max-w-sm text-sm leading-6 text-muted-foreground">
+              {{ projectSearch
+                ? '换个关键词试试，或直接创建一个新项目。'
+                : '创建一个项目，开始整理创意、故事圣经和分集正文。' }}
+            </p>
+            <Button class="mt-5 gap-2" @click="openCreateProjectDialog">
+              <FilePlus2 class="h-4 w-4" />
+              新建剧本项目
+            </Button>
+          </div>
         </div>
       </section>
 
-      <div v-else-if="!selectedProject" class="flex min-h-64 flex-1 flex-col items-center justify-center text-center text-muted-foreground">
-        <PenLine class="mb-3 h-8 w-8" :stroke-width="1.5" />
-        <p class="text-sm font-medium text-foreground">先创建一个项目</p>
-        <p class="mt-1 text-sm">剧本草稿与版本会保存在项目中，便于后续直接进入解析和视频生产。</p>
-        <Button class="mt-4 gap-2 transition-transform active:scale-[0.96]" @click="openCreateProjectDialog"><FilePlus2 class="h-4 w-4" />新建项目</Button>
+      <div
+        v-else-if="!selectedProject"
+        class="flex min-h-64 flex-1 flex-col items-center justify-center rounded-2xl bg-muted/20 px-6 text-center"
+      >
+        <span class="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <PenLine class="h-5 w-5" :stroke-width="1.5" />
+        </span>
+        <p class="text-base font-semibold text-foreground">先创建一个项目</p>
+        <p class="mt-1.5 max-w-md text-sm leading-6 text-muted-foreground">
+          剧本草稿与版本会保存在项目中，便于后续直接进入解析和视频生产。
+        </p>
+        <Button class="mt-5 gap-2 transition-transform active:scale-[0.96]" @click="openCreateProjectDialog">
+          <FilePlus2 class="h-4 w-4" />
+          新建项目
+        </Button>
       </div>
 
       <div v-else class="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-        <section class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <div class="mb-2 flex shrink-0 items-center justify-between gap-3 px-1">
-            <div class="min-w-0">
-              <p class="truncate text-sm font-semibold">{{ selectedProject.title }}</p>
-              <p class="mt-0.5 truncate text-xs text-muted-foreground">{{ projectProgress }} · {{ formatProjectRelativeTime(selectedProject.updatedAt) }}更新</p>
-            </div>
-            <Button variant="ghost" size="sm" class="hidden gap-1.5 text-xs text-muted-foreground sm:inline-flex" @click="router.push({ path: '/tools/script-writing', query: { list: '1' } })">查看全部项目<ArrowUpRight class="h-3.5 w-3.5" /></Button>
-          </div>
-          <AssetWorkbenchWritingStudio
-            ref="writingStudioRef"
-            :key="loadedProjectId"
-            v-model="writingStudio"
-            :project-id="loadedProjectId"
-            :document-title="projectName"
-            :save-project="saveSelectedProject"
-            :loading="pageLoading"
-            @publish="publishWriting"
-            @open-production="openWorkbench"
-          />
-        </section>
+        <AssetWorkbenchWritingStudio
+          ref="writingStudioRef"
+          :key="loadedProjectId"
+          v-model="writingStudio"
+          :project-id="loadedProjectId"
+          :document-title="projectName"
+          :save-project="saveSelectedProject"
+          :loading="pageLoading"
+          @publish="publishWriting"
+          @open-production="openWorkbench"
+        />
       </div>
     </AppPageContent>
-    <ProjectDeleteDialog v-model:open="showDeleteDialog" :project-to-delete="projectToDelete" :deleting="deletingProject" @delete="deleteProject" />
+    <ProjectDeleteDialog
+      v-model:open="showDeleteDialog"
+      :project-to-delete="projectToDelete"
+      :deleting="deletingProject"
+      @delete="deleteProject"
+    />
     <ProjectCreateDialog
       v-model:open="showCreateDialog"
       workspace="writing"

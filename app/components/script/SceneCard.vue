@@ -132,7 +132,7 @@ const transitionLabel = computed(() => {
   <div
     class="border rounded-xl p-4 cursor-pointer transition group"
     :class="[
-      active ? 'border-primary bg-accent shadow-md' : 'hover:border-primary/50 hover:bg-accent/50',
+      active ? 'border-primary bg-accent shadow-md' : 'hover:bg-muted/35 hover:bg-accent/50',
       scene.status === 'failed' ? 'border-red-200' : ''
     ]"
     @click="emit('click', scene)"

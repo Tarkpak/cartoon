@@ -4,25 +4,19 @@ import {
   ScriptWritingEpisodeSchema,
   ScriptWritingReviewSchema,
   applyLockedStoryBibleFields,
-  appendScriptWritingVersion,
   createScriptWritingBriefFingerprint,
   createScriptWritingDraftInputFingerprint,
   createScriptWritingOutlineInputFingerprint,
   createScriptWritingReviewInputFingerprint,
   createScriptWritingSnapshot,
-  deleteScriptWritingVersion,
   ensureScriptWritingReviewTasks,
   ensureScriptWritingCharacterIds,
   ensureScriptWritingEpisodeIds,
-  restoreScriptWritingVersion,
   resolveScriptWritingAudience,
   resolveScriptWritingFreshness,
   resolveScriptWritingGenre,
   serializeScriptWritingContent,
-  setScriptWritingVersionPinned,
   type ScriptWritingAction,
-  type ScriptWritingRestoreScope,
-  type ScriptWritingVersionSource,
   type ScriptStoryBible,
   type ScriptWritingEpisode,
   type ScriptWritingReview,
@@ -186,41 +180,8 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
     }
   }
 
-  function appendProtectionVersion(
-    studio: ScriptWritingStudio,
-    label: string,
-    source: 'brief' | 'bible' | 'outline' | 'episode' | 'review' | 'restore',
-    episodeId?: string
-  ) {
-    return appendScriptWritingVersion(studio, label, {
-      kind: 'protection',
-      pinned: false,
-      source,
-      episodeId
-    })
-  }
-
-  async function createMilestone(
-    label: string,
-    note = '',
-    source: ScriptWritingVersionSource = 'unknown',
-    episodeId?: string
-  ) {
-    const currentStudio = options.studio.value
-    const nextStudio = appendScriptWritingVersion(currentStudio, label, {
-      note,
-      kind: 'milestone',
-      pinned: true,
-      source,
-      episodeId
-    })
-    if (nextStudio === currentStudio) return { created: false, saved: true }
-    options.studio.value = nextStudio
-    return { created: true, saved: await saveCurrent(true) }
-  }
-
   function commitStoryBible(storyBible: ScriptStoryBible) {
-    const nextStudio = appendProtectionVersion(options.studio.value, '生成故事圣经前', 'bible')
+    const nextStudio = options.studio.value
     options.studio.value = {
       ...nextStudio,
       storyBible: ensureScriptWritingCharacterIds(storyBible),
@@ -267,7 +228,7 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
   }
 
   function commitOutline(episodes: ScriptWritingEpisode[]) {
-    const nextStudio = appendProtectionVersion(options.studio.value, '生成分集大纲前', 'outline')
+    const nextStudio = options.studio.value
     options.studio.value = {
       ...nextStudio,
       episodes: ensureScriptWritingEpisodeIds(episodes).map(episode => ({
@@ -323,9 +284,7 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
   ) {
     const target = options.studio.value.episodes.find(item => item.id === episodeId)
     if (!target) return false
-    const nextStudio = createVersion
-      ? appendProtectionVersion(options.studio.value, `重写第${target.index}集前`, 'episode', episodeId)
-      : options.studio.value
+    const nextStudio = options.studio.value
     const draftSource = createScriptWritingDraftInputFingerprint(nextStudio, episodeId)
     options.studio.value = {
       ...nextStudio,
@@ -465,11 +424,6 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
       batchEtaSeconds.value = 0
       batchFailedIndexes.value = []
       batchStartedAt = Date.now()
-      options.studio.value = appendProtectionVersion(
-        options.studio.value,
-        '批量生成未成稿前',
-        'episode'
-      )
     }
     try {
       for (const episode of pendingEpisodes) {
@@ -635,7 +589,7 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
       id: `review_task_${index + 1}`
     }))
     const notesByEpisodeId = new Map(merged.episodeNotes.map(note => [note.episodeId, note.notes]))
-    const nextStudio = appendProtectionVersion(options.studio.value, '执行全剧审校前', 'review')
+    const nextStudio = options.studio.value
     options.studio.value = {
       ...nextStudio,
       episodes: nextStudio.episodes.map(episode => notesByEpisodeId.has(episode.id)
@@ -651,35 +605,11 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
     return saveCurrent(true)
   }
 
-  async function restoreVersion(
-    versionId: string,
-    scope: ScriptWritingRestoreScope = 'all',
-    episodeId?: string
-  ) {
-    const currentStudio = options.studio.value
-    const restored = restoreScriptWritingVersion(currentStudio, versionId, scope, episodeId)
-    if (!restored) return false
-    const versionedStudio = appendProtectionVersion(currentStudio, '恢复历史内容前', 'restore', episodeId)
-    options.studio.value = {
-      ...restored,
-      versions: versionedStudio.versions
-    }
-    return saveCurrent(true)
-  }
-
-  async function setVersionPinned(versionId: string, pinned: boolean) {
-    const nextStudio = setScriptWritingVersionPinned(options.studio.value, versionId, pinned)
-    if (nextStudio === options.studio.value) return false
-    options.studio.value = nextStudio
-    return saveCurrent(true)
-  }
-
-  async function deleteVersion(versionId: string) {
-    const nextStudio = deleteScriptWritingVersion(options.studio.value, versionId)
-    if (nextStudio === options.studio.value) return false
-    options.studio.value = nextStudio
-    return saveCurrent(true)
-  }
+  // Kept for callers compiled against the former versions API. Version actions are no longer part of the studio UI.
+  async function createMilestone(..._args: unknown[]) { return { created: false, saved: true } }
+  async function restoreVersion(..._args: unknown[]) { return false }
+  async function setVersionPinned(..._args: unknown[]) { return false }
+  async function deleteVersion(..._args: unknown[]) { return false }
 
   return {
     activeAction,
@@ -695,7 +625,6 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
     error,
     notice,
     pendingGeneration,
-    createMilestone,
     generateStoryBible,
     generateOutline,
     generateEpisodeDraft,
@@ -707,6 +636,7 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
     cancelGeneration,
     saveCurrent,
     reviewDrafts,
+    createMilestone,
     restoreVersion,
     setVersionPinned,
     deleteVersion

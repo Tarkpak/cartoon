@@ -682,7 +682,7 @@ onMounted(() => void loadAssets())
             <Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input v-model="keyword" class="pl-9" placeholder="搜索名称、标签或来源" />
           </div>
-          <div class="flex rounded-md border bg-muted/50 p-0.5" aria-label="媒体类型">
+          <div class="flex rounded-xl bg-muted/30/50 p-0.5" aria-label="媒体类型">
             <button v-for="option in [['all', '全部'], ['image', '图片'], ['audio', '音频']]" :key="option[0]" type="button" class="h-8 rounded px-3 text-sm" :class="selectedMediaType === option[0] ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground'" @click="selectedMediaType = option[0] as typeof selectedMediaType">
               {{ option[1] }}
             </button>
@@ -699,7 +699,7 @@ onMounted(() => void loadAssets())
           <span class="text-sm text-muted-foreground">已选 {{ selectedIds.length }} 项</span>
           <Button size="sm" variant="outline" class="gap-1.5" @click="batchFavorite"><Heart class="h-3.5 w-3.5" />收藏</Button>
           <Button size="sm" variant="outline" class="gap-1.5" @click="batchDialogOpen = true"><Tags class="h-3.5 w-3.5" />标签</Button>
-          <select v-model="batchCategory" :disabled="batchCategoryOptions.length === 0" class="h-8 rounded-md border bg-background px-2 text-xs">
+          <select v-model="batchCategory" :disabled="batchCategoryOptions.length === 0" class="h-8 rounded-xl bg-muted/25 px-2 text-xs">
             <option v-for="category in batchCategoryOptions" :key="category.id" :value="category.id">{{ category.label }}</option>
           </select>
           <Button size="sm" variant="outline" :disabled="saving || batchCategoryOptions.length === 0" @click="applyBatchCategory">分类</Button>
@@ -707,12 +707,12 @@ onMounted(() => void loadAssets())
           <Button size="sm" variant="ghost" class="ml-auto" @click="selectedIds = []"><X class="mr-1 h-3.5 w-3.5" />取消</Button>
         </div>
 
-        <div v-if="errorMessage" class="m-5 rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+        <div v-if="errorMessage" class="m-5 rounded-xl bg-destructive/10 p-4 text-sm text-destructive">
           {{ errorMessage }}
         </div>
 
         <div v-if="loading && assets.length === 0" class="grid flex-1 auto-rows-max grid-cols-2 gap-3 overflow-hidden p-3 md:grid-cols-3 md:p-5 xl:grid-cols-4 2xl:grid-cols-5">
-          <div v-for="index in 10" :key="index" class="aspect-[4/5] animate-pulse rounded-md border bg-muted/60" />
+          <div v-for="index in 10" :key="index" class="aspect-[4/5] animate-pulse rounded-xl bg-muted/30/60" />
         </div>
 
         <div v-else-if="filteredAssets.length === 0" class="flex flex-1 flex-col items-center justify-center px-6 text-center">
@@ -723,7 +723,7 @@ onMounted(() => void loadAssets())
         </div>
 
         <div v-else class="grid flex-1 auto-rows-max grid-cols-2 gap-3 overflow-y-auto p-3 md:grid-cols-3 md:p-5 xl:grid-cols-4 2xl:grid-cols-5">
-          <article v-for="asset in filteredAssets" :key="asset.id" class="group relative min-w-0 overflow-hidden rounded-md border bg-card transition-colors hover:border-primary/50">
+          <article v-for="asset in filteredAssets" :key="asset.id" class="group relative min-w-0 overflow-hidden rounded-xl bg-muted/25 transition-colors hover:bg-muted/35">
             <button v-if="asset.permission === 'edit'" type="button" class="absolute left-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded border bg-background/90 shadow-sm" :aria-label="selectedIds.includes(asset.id) ? '取消选择' : '选择资源'" @click.stop="toggleSelected(asset.id)">
               <Check v-if="selectedIds.includes(asset.id)" class="h-4 w-4 text-primary" />
             </button>
@@ -770,7 +770,7 @@ onMounted(() => void loadAssets())
         <div v-if="isDragging" class="absolute inset-3 z-30 flex items-center justify-center rounded-md border-2 border-dashed border-primary bg-background/95">
           <div class="text-center"><Upload class="mx-auto h-9 w-9 text-primary" /><p class="mt-3 font-medium">松开即可导入图片或音频</p></div>
         </div>
-        <div v-if="uploading" class="absolute bottom-4 right-4 z-40 w-72 rounded-md border bg-background p-4 shadow-lg">
+        <div v-if="uploading" class="absolute bottom-4 right-4 z-40 w-72 rounded-xl bg-muted/25 p-4 shadow-lg">
           <div class="flex items-center gap-3"><Loader2 class="h-5 w-5 animate-spin text-primary" /><div class="min-w-0"><p class="text-sm font-medium">正在导入 {{ uploadProgress.current }}/{{ uploadProgress.total }}</p><p class="truncate text-xs text-muted-foreground">{{ uploadProgress.name }}</p></div></div>
         </div>
       </main>
@@ -780,9 +780,9 @@ onMounted(() => void loadAssets())
       <DialogContent class="max-h-[88vh] max-w-3xl overflow-y-auto">
         <DialogHeader><DialogTitle>补充素材信息</DialogTitle><DialogDescription>确认名称和分类后再保存原始文件。</DialogDescription></DialogHeader>
         <div class="space-y-3">
-          <div v-for="(item, index) in pendingImports" :key="`${item.fileName}-${index}`" class="grid gap-2 rounded-md border p-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+          <div v-for="(item, index) in pendingImports" :key="`${item.fileName}-${index}`" class="grid gap-2 rounded-xl bg-muted/15 p-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
             <label class="min-w-0 space-y-1"><span class="text-xs text-muted-foreground">素材名称</span><Input v-model="item.name" /></label>
-            <label class="space-y-1"><span class="text-xs text-muted-foreground">分类</span><select v-model="item.category" class="h-10 w-full rounded-md border bg-background px-3 text-sm"><option v-for="category in categories.filter(option => option.id !== 'all' && libraryCategoryMediaType(option.id as LibraryAssetCategory) === item.mediaType)" :key="category.id" :value="category.id">{{ category.label }}</option></select></label>
+            <label class="space-y-1"><span class="text-xs text-muted-foreground">分类</span><select v-model="item.category" class="h-10 w-full rounded-xl bg-muted/25 px-3 text-sm"><option v-for="category in categories.filter(option => option.id !== 'all' && libraryCategoryMediaType(option.id as LibraryAssetCategory) === item.mediaType)" :key="category.id" :value="category.id">{{ category.label }}</option></select></label>
             <p class="truncate text-xs text-muted-foreground sm:col-span-2" :title="item.fileName">{{ item.fileName }} · {{ item.mimeType || '未知格式' }} · {{ (item.sizeBytes / 1024 / 1024).toFixed(2) }} MB<span v-if="item.durationMs"> · {{ formatDuration(item.durationMs) }}</span></p>
           </div>
         </div>
@@ -790,7 +790,7 @@ onMounted(() => void loadAssets())
           <label class="space-y-2"><span class="text-sm font-medium">标签</span><Input v-model="importSharedForm.tagsText" placeholder="用逗号分隔" /></label>
           <label class="space-y-2"><span class="text-sm font-medium">授权到期日</span><Input v-model="importSharedForm.licenseExpiresAt" type="date" /></label>
           <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">原始来源网址</span><Input v-model="importSharedForm.sourceUrl" type="url" placeholder="https://" /></label>
-          <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">作者或版权备注</span><textarea v-model="importSharedForm.copyrightNote" rows="3" class="w-full rounded-md border bg-background px-3 py-2 text-sm" /></label>
+          <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">作者或版权备注</span><textarea v-model="importSharedForm.copyrightNote" rows="3" class="w-full rounded-xl bg-muted/25 px-3 py-2 text-sm" /></label>
         </div>
         <DialogFooter><Button variant="outline" @click="pendingImportDialogOpen = false">取消</Button><Button :disabled="saving || pendingImports.length === 0 || pendingImports.some(item => !item.name.trim())" @click="submitFileImports"><Loader2 v-if="saving" class="mr-2 h-4 w-4 animate-spin" />保存 {{ pendingImports.length }} 个素材</Button></DialogFooter>
       </DialogContent>
@@ -801,13 +801,13 @@ onMounted(() => void loadAssets())
         <DialogHeader><DialogTitle>编辑资源</DialogTitle><DialogDescription>管理分类、标签、角色包、授权信息和团队权限。</DialogDescription></DialogHeader>
         <div class="grid gap-4 md:grid-cols-2">
           <label class="space-y-2"><span class="text-sm font-medium">名称</span><Input v-model="editForm.name" /></label>
-          <label class="space-y-2"><span class="text-sm font-medium">分类</span><select v-model="editForm.category" class="h-10 w-full rounded-md border bg-background px-3 text-sm"><option v-for="category in categories.filter(item => item.id !== 'all')" :key="category.id" :value="category.id">{{ category.label }}</option></select></label>
-          <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">描述</span><textarea v-model="editForm.description" rows="3" class="w-full rounded-md border bg-background px-3 py-2 text-sm" /></label>
+          <label class="space-y-2"><span class="text-sm font-medium">分类</span><select v-model="editForm.category" class="h-10 w-full rounded-xl bg-muted/25 px-3 text-sm"><option v-for="category in categories.filter(item => item.id !== 'all')" :key="category.id" :value="category.id">{{ category.label }}</option></select></label>
+          <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">描述</span><textarea v-model="editForm.description" rows="3" class="w-full rounded-xl bg-muted/25 px-3 py-2 text-sm" /></label>
           <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">标签</span><Input v-model="editForm.tagsText" placeholder="用逗号分隔" /></label>
           <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">原始来源网址</span><Input v-model="editForm.sourceUrl" type="url" placeholder="https://" /></label>
           <label class="space-y-2"><span class="text-sm font-medium">授权到期日</span><Input v-model="editForm.licenseExpiresAt" type="date" /></label>
-          <label class="space-y-2"><span class="text-sm font-medium">可见性</span><select v-model="editForm.visibility" class="h-10 w-full rounded-md border bg-background px-3 text-sm"><option value="private">仅自己</option><option value="shared">指定成员</option></select></label>
-          <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">来源与授权备注</span><textarea v-model="editForm.copyrightNote" rows="3" class="w-full rounded-md border bg-background px-3 py-2 text-sm" /></label>
+          <label class="space-y-2"><span class="text-sm font-medium">可见性</span><select v-model="editForm.visibility" class="h-10 w-full rounded-xl bg-muted/25 px-3 text-sm"><option value="private">仅自己</option><option value="shared">指定成员</option></select></label>
+          <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">来源与授权备注</span><textarea v-model="editForm.copyrightNote" rows="3" class="w-full rounded-xl bg-muted/25 px-3 py-2 text-sm" /></label>
 
           <div v-if="editingAsset?.permission === 'edit'" class="space-y-3 border-t pt-4 md:col-span-2">
             <div class="flex flex-wrap items-center justify-between gap-2">
@@ -815,7 +815,7 @@ onMounted(() => void loadAssets())
               <input ref="replacementInput" type="file" :accept="editingAsset.mediaType === 'image' ? 'image/*' : 'audio/*'" class="hidden" @change="handleReplacementInput">
               <Button type="button" size="sm" variant="outline" class="gap-1.5" @click="replacementInput?.click()"><Upload class="h-3.5 w-3.5" />选择替换文件</Button>
             </div>
-            <div v-if="replacementFile" class="grid gap-2 rounded-md border bg-muted/30 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
+            <div v-if="replacementFile" class="grid gap-2 rounded-xl bg-muted/25 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
               <p class="truncate text-sm font-medium" :title="replacementFile.name">{{ replacementFile.name }}</p>
               <Input v-model="replacementChangeNote" placeholder="版本说明（可选）" />
               <Button type="button" size="sm" :disabled="saving" @click="replaceAssetFile"><Loader2 v-if="saving" class="mr-2 h-3.5 w-3.5 animate-spin" />替换并新增版本</Button>
@@ -834,22 +834,22 @@ onMounted(() => void loadAssets())
           <template v-if="editForm.category === 'character'">
             <div class="md:col-span-2 border-t pt-4"><div class="flex items-center gap-2"><Package class="h-4 w-4" /><h3 class="text-sm font-semibold">角色包</h3></div></div>
             <label class="space-y-2"><span class="text-sm font-medium">角色名</span><Input v-model="editForm.characterName" /></label>
-            <label class="space-y-2"><span class="text-sm font-medium">关联音色</span><select v-model="editForm.voiceAssetId" class="h-10 w-full rounded-md border bg-background px-3 text-sm"><option value="">不关联</option><option v-for="asset in voiceAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
+            <label class="space-y-2"><span class="text-sm font-medium">关联音色</span><select v-model="editForm.voiceAssetId" class="h-10 w-full rounded-xl bg-muted/25 px-3 text-sm"><option value="">不关联</option><option v-for="asset in voiceAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
             <label class="space-y-2"><span class="text-sm font-medium">性别</span><Input v-model="editForm.gender" /></label>
             <label class="space-y-2"><span class="text-sm font-medium">年龄感</span><Input v-model="editForm.age" type="number" min="1" /></label>
             <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">服装</span><Input v-model="editForm.clothing" /></label>
-            <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">外观描述</span><textarea v-model="editForm.appearance" rows="3" class="w-full rounded-md border bg-background px-3 py-2 text-sm" /></label>
-            <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">生成提示词</span><textarea v-model="editForm.generationPrompt" rows="3" class="w-full rounded-md border bg-background px-3 py-2 text-sm" /></label>
-            <label v-for="view in [['frontAssetId', '正面'], ['sideAssetId', '侧面'], ['backAssetId', '背面']]" :key="view[0]" class="space-y-2"><span class="text-sm font-medium">{{ view[1] }}图</span><select v-model="editForm[view[0] as 'frontAssetId']" class="h-10 w-full rounded-md border bg-background px-3 text-sm"><option value="">未设置</option><option v-for="asset in imageAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
-            <label class="space-y-2"><span class="text-sm font-medium">表情参考</span><select v-model="editForm.expressionAssetIds" multiple class="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm"><option v-for="asset in imageAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
-            <label class="space-y-2"><span class="text-sm font-medium">动作参考</span><select v-model="editForm.poseAssetIds" multiple class="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm"><option v-for="asset in imageAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
+            <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">外观描述</span><textarea v-model="editForm.appearance" rows="3" class="w-full rounded-xl bg-muted/25 px-3 py-2 text-sm" /></label>
+            <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">生成提示词</span><textarea v-model="editForm.generationPrompt" rows="3" class="w-full rounded-xl bg-muted/25 px-3 py-2 text-sm" /></label>
+            <label v-for="view in [['frontAssetId', '正面'], ['sideAssetId', '侧面'], ['backAssetId', '背面']]" :key="view[0]" class="space-y-2"><span class="text-sm font-medium">{{ view[1] }}图</span><select v-model="editForm[view[0] as 'frontAssetId']" class="h-10 w-full rounded-xl bg-muted/25 px-3 text-sm"><option value="">未设置</option><option v-for="asset in imageAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
+            <label class="space-y-2"><span class="text-sm font-medium">表情参考</span><select v-model="editForm.expressionAssetIds" multiple class="min-h-28 w-full rounded-xl bg-muted/25 px-3 py-2 text-sm"><option v-for="asset in imageAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
+            <label class="space-y-2"><span class="text-sm font-medium">动作参考</span><select v-model="editForm.poseAssetIds" multiple class="min-h-28 w-full rounded-xl bg-muted/25 px-3 py-2 text-sm"><option v-for="asset in imageAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
           </template>
 
           <div v-if="editingAsset?.permission === 'edit'" class="md:col-span-2 border-t pt-4">
             <div class="mb-3 flex items-center gap-2"><Users class="h-4 w-4" /><h3 class="text-sm font-semibold">团队共享</h3></div>
             <div v-if="members.length === 0" class="text-sm text-muted-foreground">暂无可共享成员</div>
             <div v-else class="grid gap-2 sm:grid-cols-2">
-              <label v-for="member in members" :key="member.id" class="flex items-center gap-3 rounded-md border p-3"><div class="min-w-0 flex-1"><p class="truncate text-sm font-medium">{{ member.displayName }}</p><p class="truncate text-xs text-muted-foreground">{{ member.account }}</p></div><select v-model="memberPermissions[member.id]" class="h-8 rounded border bg-background px-2 text-xs"><option value="">不共享</option><option value="view">查看</option><option value="use">使用</option><option value="edit">编辑</option></select></label>
+              <label v-for="member in members" :key="member.id" class="flex items-center gap-3 rounded-xl bg-muted/15 p-3"><div class="min-w-0 flex-1"><p class="truncate text-sm font-medium">{{ member.displayName }}</p><p class="truncate text-xs text-muted-foreground">{{ member.account }}</p></div><select v-model="memberPermissions[member.id]" class="h-8 rounded-lg border-0 bg-muted/55 px-2 text-xs"><option value="">不共享</option><option value="view">查看</option><option value="use">使用</option><option value="edit">编辑</option></select></label>
             </div>
           </div>
         </div>
@@ -867,7 +867,7 @@ onMounted(() => void loadAssets())
     <Dialog :open="!!previewAudioAsset" @update:open="value => { if (!value) previewAsset = null }">
       <DialogContent class="max-w-4xl">
         <DialogHeader><DialogTitle>{{ previewAudioAsset?.name }}</DialogTitle><DialogDescription>{{ previewAudioAsset ? LIBRARY_CATEGORY_LABELS[previewAudioAsset.category] : '' }}</DialogDescription></DialogHeader>
-        <div v-if="previewAudioAsset" class="rounded-md border bg-muted/40 p-6"><audio :src="previewAudioAsset.url" controls autoplay class="w-full" /></div>
+        <div v-if="previewAudioAsset" class="rounded-xl bg-muted/30 p-6"><audio :src="previewAudioAsset.url" controls autoplay class="w-full" /></div>
       </DialogContent>
     </Dialog>
 

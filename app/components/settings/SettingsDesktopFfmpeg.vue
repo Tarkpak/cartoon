@@ -24,7 +24,7 @@ onMounted(() => {
 <template>
   <div
     v-if="isDesktopRuntime"
-    class="space-y-4 rounded-lg border bg-background p-5"
+    class="space-y-4 rounded-xl bg-muted/25 p-5"
   >
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="min-w-0">
@@ -51,7 +51,7 @@ onMounted(() => {
 
     <div
       v-if="desktopFfmpegStatus?.version || desktopFfmpegStatus?.path || desktopFfmpegStatus?.managedPath"
-      class="space-y-2 rounded-lg border bg-muted/20 p-3 text-xs"
+      class="space-y-2 rounded-xl bg-muted/20 p-3 text-xs"
     >
       <div v-if="desktopFfmpegStatus?.version">
         <span class="text-muted-foreground">版本：</span>

@@ -595,7 +595,7 @@ async function handleDeleteTask(taskId: string) {
     >
       <div
         v-if="error"
-        class="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        class="flex items-center gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive"
       >
         <AlertCircle class="h-4 w-4 shrink-0" />
         {{ error }}
@@ -697,7 +697,7 @@ async function handleDeleteTask(taskId: string) {
             </div>
           </div>
 
-          <div v-if="selectedTask?.isSeriesGroup && seriesEpisodes.some(episode => episode.status === 'failed')" class="mt-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+          <div v-if="selectedTask?.isSeriesGroup && seriesEpisodes.some(episode => episode.status === 'failed')" class="mt-3 rounded-xl bg-destructive/10 p-3 text-xs text-destructive">
             <div class="mb-2 font-medium">失败分集</div>
             <div class="space-y-1">
               <div
@@ -749,7 +749,7 @@ async function handleDeleteTask(taskId: string) {
 
           <section v-show="contentView === 'subtitle'" class="flex min-h-0 flex-1 flex-col pt-3" role="tabpanel">
             <div
-              class="flex min-h-0 flex-1 flex-col overflow-clip rounded-md border bg-background"
+              class="flex min-h-0 flex-1 flex-col overflow-clip rounded-xl bg-muted/25"
               :class="subtitleHasEpisodeSections ? 'lg:grid lg:grid-cols-[9rem_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_auto]' : ''"
             >
               <aside
@@ -821,7 +821,7 @@ async function handleDeleteTask(taskId: string) {
 
           <section v-show="contentView === 'script'" class="flex min-h-0 flex-1 flex-col pt-3" role="tabpanel">
             <div
-              class="flex min-h-0 flex-1 flex-col overflow-clip rounded-md border bg-background"
+              class="flex min-h-0 flex-1 flex-col overflow-clip rounded-xl bg-muted/25"
               :class="scriptHasEpisodeSections ? 'lg:grid lg:grid-cols-[9rem_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_auto]' : ''"
             >
               <aside
@@ -1016,7 +1016,7 @@ async function handleDeleteTask(taskId: string) {
           <div>
             <div
               v-if="selectedTask.status === 'imported'"
-              class="flex items-center justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300"
+              class="flex items-center justify-between gap-3 rounded-xl bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300"
             >
               <div class="flex items-center gap-2">
                 <CheckCircle2 class="h-4 w-4 shrink-0" />
@@ -1034,7 +1034,7 @@ async function handleDeleteTask(taskId: string) {
             </div>
             <div
               v-else-if="selectedTask.errorMessage"
-              class="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              class="flex items-start gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive"
             >
               <AlertCircle class="h-4 w-4 shrink-0 mt-0.5" />
               <span>{{ selectedTask.errorMessage }}</span>
@@ -1158,7 +1158,7 @@ async function handleDeleteTask(taskId: string) {
             </div>
             <div
               v-else-if="availableStylePresets.length === 0"
-              class="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-3 text-sm text-destructive"
+              class="rounded-xl bg-destructive/10 px-3 py-3 text-sm text-destructive"
             >
               {{ styleConfigError || '没有可用画风，请先在设置中启用画风预设。' }}
             </div>

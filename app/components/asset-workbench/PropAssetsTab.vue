@@ -205,7 +205,7 @@ function buildImageLoadKey(prop: PropAsset): string {
   <div class="space-y-4">
     <div
       v-if="showMediaSubTabs"
-      class="rounded-lg border bg-muted/20 p-1"
+      class="rounded-xl bg-muted/20 p-1"
     >
       <div class="grid grid-cols-2 gap-1">
         <Button
@@ -318,7 +318,7 @@ function buildImageLoadKey(prop: PropAsset): string {
     <!-- Empty state -->
     <div
       v-if="displayedPropAssets.length === 0"
-      class="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground"
+      class="flex flex-col items-center justify-center gap-2 rounded-xl bg-muted/15 py-10 text-muted-foreground"
     >
       <Package class="h-8 w-8 opacity-40" />
       <p class="text-sm">
@@ -337,7 +337,7 @@ function buildImageLoadKey(prop: PropAsset): string {
       <div
         v-for="prop in displayedPropAssets"
         :key="prop.id"
-        class="group rounded-lg border bg-card transition-colors hover:border-primary/30"
+        class="group rounded-xl bg-muted/25 transition-colors hover:bg-muted/35"
       >
         <div class="flex items-start gap-3 p-3">
           <!-- Thumbnail -->
@@ -433,7 +433,7 @@ function buildImageLoadKey(prop: PropAsset): string {
           </div>
           <div
             v-else
-            class="mt-2 rounded-md border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+            class="mt-2 rounded-xl bg-muted/15 bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
           >
             上传固定旁白音频后，后续含旁白的镜头将优先复用该音色。
           </div>

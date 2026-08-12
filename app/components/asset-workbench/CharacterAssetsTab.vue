@@ -208,7 +208,7 @@ watch(
 <template>
   <div
     v-if="characters.length === 0"
-    class="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground"
+    class="flex flex-col items-center justify-center gap-2 rounded-xl bg-muted/15 py-10 text-muted-foreground"
   >
     <User class="h-8 w-8 opacity-40" />
     <p class="text-sm">
@@ -225,7 +225,7 @@ watch(
     <div
       v-for="char in rootCharacters"
       :key="char.id"
-      class="group rounded-lg border bg-card transition-colors hover:border-primary/30"
+      class="group rounded-xl bg-muted/25 transition-colors hover:bg-muted/35"
     >
       <!-- Card body -->
       <div class="flex items-start gap-3 p-3">
@@ -390,7 +390,7 @@ watch(
         </div>
         <div
           v-else
-          class="mt-2 rounded-md border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+          class="mt-2 rounded-xl bg-muted/15 bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
         >
           生成带对白的视频后会自动抽取人物声音，也可以直接上传现有配音作为参考。
         </div>
@@ -435,7 +435,7 @@ watch(
               <div
                 v-for="variant in resolveCharacterVariants(char).slice(0, 5)"
                 :key="variant.id"
-                class="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-md border bg-muted ring-2 ring-card"
+                class="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl bg-muted/30 ring-2 ring-card"
                 :title="variant.name"
               >
                 <LazyImage

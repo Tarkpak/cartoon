@@ -22,7 +22,7 @@ const categoryIcon = computed(() => resolveStyleCategoryIcon(props.stylePreset.c
 
 <template>
   <div
-    class="group overflow-hidden rounded-lg border bg-card transition-all duration-200 hover:shadow-md"
+    class="group overflow-hidden rounded-xl bg-muted/25 transition-all duration-200 hover:shadow-md"
     :class="[
       enabled ? 'border-primary/40' : 'border-border',
       isEditing ? 'ring-2 ring-primary/30' : ''

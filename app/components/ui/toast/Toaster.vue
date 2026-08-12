@@ -51,7 +51,7 @@ function resolveAriaLive(variant: ToastVariant): 'assertive' | 'polite' {
           :key="item.id"
           :role="resolveRole(item.variant)"
           :aria-live="resolveAriaLive(item.variant)"
-          class="pointer-events-auto flex w-[22rem] max-w-[calc(100vw-2rem)] items-start gap-3 rounded-lg border bg-popover px-4 py-3 text-popover-foreground shadow-lg"
+          class="pointer-events-auto flex w-[22rem] max-w-[calc(100vw-2rem)] items-start gap-3 rounded-xl border-0 bg-popover px-4 py-3 text-popover-foreground shadow-[0_16px_48px_hsl(var(--foreground)/0.16)]"
         >
           <component
             :is="(iconByVariant[item.variant] as never)"

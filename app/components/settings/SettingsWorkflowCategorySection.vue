@@ -52,7 +52,7 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
     <div
       v-for="workflow in props.workflows"
       :key="workflow.id"
-      class="space-y-3 rounded-lg border bg-background p-4"
+      class="space-y-3 rounded-xl bg-muted/25 p-4"
     >
       <div class="flex items-start justify-between gap-4">
         <div class="min-w-0 flex-1">

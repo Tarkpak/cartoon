@@ -165,7 +165,7 @@ onMounted(() => {
       <template #actions>
         <div
           v-if="activeSection === 'workflow'"
-          class="flex rounded-md border bg-muted/30 p-1"
+          class="flex rounded-xl bg-muted/25 p-1"
         >
           <button
             v-for="tab in workflowCategoryTabs"
@@ -184,7 +184,7 @@ onMounted(() => {
         </div>
         <div
           v-else-if="activeSection === 'test'"
-          class="flex rounded-md border bg-muted/30 p-1"
+          class="flex rounded-xl bg-muted/25 p-1"
         >
           <button
             v-for="tab in SETTINGS_MODEL_TEST_TABS"
@@ -203,7 +203,7 @@ onMounted(() => {
         </div>
         <div
           v-else-if="activeSection === 'prompts'"
-          class="flex rounded-md border bg-muted/30 p-1"
+          class="flex rounded-xl bg-muted/25 p-1"
         >
           <button
             v-for="tab in promptStageTabs"

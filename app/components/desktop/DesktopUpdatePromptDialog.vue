@@ -256,13 +256,13 @@ onBeforeUnmount(() => {
         <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span
             v-if="versionBadgeLabel"
-            class="rounded-md border bg-muted/30 px-2 py-1 font-medium text-foreground"
+            class="rounded-xl bg-muted/25 px-2 py-1 font-medium text-foreground"
           >
             {{ versionBadgeLabel }}
           </span>
           <span
             v-if="activeClientUpdate"
-            class="rounded-md border bg-muted/30 px-2 py-1"
+            class="rounded-xl bg-muted/25 px-2 py-1"
           >
             {{ clientPlatformLabel(activeClientUpdate.platform) }} / {{ clientArchLabel(activeClientUpdate.arch) }} / {{ clientChannelLabel(activeClientUpdate.channel) }}
           </span>
@@ -273,20 +273,20 @@ onBeforeUnmount(() => {
 
         <div
           v-if="activeUpdateBody"
-          class="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/20 p-3 text-xs leading-6 text-muted-foreground"
+          class="max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-muted/20 p-3 text-xs leading-6 text-muted-foreground"
         >
           {{ activeUpdateBody }}
         </div>
         <p
           v-else
-          class="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+          class="rounded-xl bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
         >
           这个版本没有提供更新说明。
         </p>
 
         <div
           v-if="isForceUpdate"
-          class="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300"
+          class="flex items-start gap-2 rounded-xl border-0 bg-amber-500/8 p-3 text-sm text-amber-700 dark:text-amber-300"
         >
           <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
           <span>当前版本低于后台允许的最低版本，需要更新后继续使用。</span>
@@ -294,7 +294,7 @@ onBeforeUnmount(() => {
 
         <div
           v-if="activeClientUpdate && !activeClientUpdate.downloadUrl"
-          class="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300"
+          class="flex items-start gap-2 rounded-xl border-0 bg-amber-500/8 p-3 text-sm text-amber-700 dark:text-amber-300"
         >
           <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
           <span>后台没有配置下载地址，请联系管理员获取安装包。</span>
@@ -302,7 +302,7 @@ onBeforeUnmount(() => {
 
         <div
           v-if="displayError"
-          class="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+          class="flex items-start gap-2 rounded-xl border-0 bg-destructive/8 p-3 text-sm text-destructive"
         >
           <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
           <span>{{ displayError }}</span>
@@ -366,7 +366,7 @@ onBeforeUnmount(() => {
           v-if="showUpdateNotice && (activeClientUpdate || availableUpdate)"
           role="status"
           aria-live="polite"
-          class="pointer-events-auto w-[22rem] max-w-full overflow-hidden rounded-lg border border-border/70 bg-popover text-popover-foreground shadow-[0_18px_50px_hsl(var(--foreground)/0.16)]"
+          class="pointer-events-auto w-[22rem] max-w-full overflow-hidden rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] text-popover-foreground shadow-[0_18px_50px_hsl(var(--foreground)/0.16)]"
         >
           <div class="flex items-start gap-3 p-4">
             <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
@@ -409,7 +409,7 @@ onBeforeUnmount(() => {
 
           <div
             v-if="detailsOpen"
-            class="max-h-48 overflow-y-auto border-t border-border/70 px-4 py-3"
+            class="max-h-48 overflow-y-auto px-4 py-3"
           >
             <p class="whitespace-pre-wrap text-xs leading-5 text-muted-foreground">
               {{ activeUpdateBody || '这个版本没有提供更新说明。' }}
@@ -419,7 +419,7 @@ onBeforeUnmount(() => {
             </p>
           </div>
 
-          <div class="flex items-center justify-between gap-2 border-t border-border/70 px-3 py-2.5">
+          <div class="flex items-center justify-between gap-2 px-3 py-2.5">
             <Button
               variant="ghost"
               size="sm"

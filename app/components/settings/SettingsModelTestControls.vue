@@ -249,7 +249,7 @@ const videoReferenceMaterialReady = computed(() => {
     <!-- Prompt input -->
     <div>
       <template v-if="activeTab === 'image'">
-        <div class="relative min-h-[80px] rounded-lg border border-input bg-muted/20 px-3 py-2 text-sm transition-colors focus-within:bg-background focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring">
+        <div class="relative min-h-[80px] rounded-xl border-0 bg-muted/45 px-3 py-2 text-sm transition-colors focus-within:bg-background focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring">
           <div
             :ref="props.setPromptEditorRef"
             contenteditable="true"
@@ -290,7 +290,7 @@ const videoReferenceMaterialReady = computed(() => {
 
       <div
         v-if="activeTab === 'image' && props.imageMentionOpen"
-        class="mt-2 max-h-48 overflow-y-auto rounded-lg border bg-background shadow-md"
+        class="mt-2 max-h-48 overflow-y-auto rounded-xl bg-muted/25 shadow-md"
       >
         <Button
           v-for="(item, mentionIndex) in props.imageMentionCandidates"
@@ -330,7 +330,7 @@ const videoReferenceMaterialReady = computed(() => {
         <div
           v-for="(img, index) in props.referenceImages"
           :key="index"
-          class="group relative h-14 w-14 cursor-zoom-in overflow-hidden rounded-lg border transition-colors hover:border-primary/50"
+          class="group relative h-14 w-14 cursor-zoom-in overflow-hidden rounded-xl bg-muted/25 transition-colors hover:bg-muted/40"
           @click="props.openReferenceImagePreview(img, index)"
         >
           <img
@@ -355,7 +355,7 @@ const videoReferenceMaterialReady = computed(() => {
           v-if="props.referenceImages.length < props.currentImageModelMaxReferenceImages"
           type="button"
           variant="ghost"
-          class="h-14 w-14 rounded-lg border-2 border-dashed border-muted-foreground/20 p-0 text-muted-foreground/50 transition-colors hover:border-primary/50 hover:text-primary"
+          class="h-14 w-14 rounded-lg border-2 border-dashed border-muted-foreground/20 p-0 text-muted-foreground/50 transition-colors hover:bg-muted/35 hover:text-primary"
           @click="props.triggerFileInput"
         >
           <ImagePlus class="h-4 w-4" />
@@ -378,7 +378,7 @@ const videoReferenceMaterialReady = computed(() => {
     >
       <div
         v-if="props.currentVideoModelSupportsBothImageModes"
-        class="flex items-center gap-2 rounded-lg border bg-muted/30 p-3"
+        class="flex items-center gap-2 rounded-xl bg-muted/25 p-3"
       >
         <label class="text-xs font-medium text-muted-foreground">
           图片输入模式:
@@ -421,7 +421,7 @@ const videoReferenceMaterialReady = computed(() => {
             </p>
             <div
               v-if="props.videoFirstFrame"
-              class="group relative h-24 cursor-zoom-in overflow-hidden rounded-lg border transition-colors hover:border-primary/50"
+              class="group relative h-24 cursor-zoom-in overflow-hidden rounded-xl bg-muted/25 transition-colors hover:bg-muted/40"
               @click="props.openReferenceImagePreview(props.videoFirstFrame, 0)"
             >
               <img
@@ -442,7 +442,7 @@ const videoReferenceMaterialReady = computed(() => {
               v-else
               type="button"
               variant="ghost"
-              class="h-24 w-full rounded-lg border-2 border-dashed border-muted-foreground/20 text-muted-foreground/60 transition-colors hover:border-primary/50 hover:text-primary"
+              class="h-24 w-full rounded-lg border-2 border-dashed border-muted-foreground/20 text-muted-foreground/60 transition-colors hover:bg-muted/35 hover:text-primary"
               @click="triggerVideoFirstFrameInput"
             >
               上传首帧
@@ -455,7 +455,7 @@ const videoReferenceMaterialReady = computed(() => {
             </p>
             <div
               v-if="props.videoLastFrame"
-              class="group relative h-24 cursor-zoom-in overflow-hidden rounded-lg border transition-colors hover:border-primary/50"
+              class="group relative h-24 cursor-zoom-in overflow-hidden rounded-xl bg-muted/25 transition-colors hover:bg-muted/40"
               @click="props.openReferenceImagePreview(props.videoLastFrame, 1)"
             >
               <img
@@ -476,7 +476,7 @@ const videoReferenceMaterialReady = computed(() => {
               v-else
               type="button"
               variant="ghost"
-              class="h-24 w-full rounded-lg border-2 border-dashed border-muted-foreground/20 text-muted-foreground/60 transition-colors hover:border-primary/50 hover:text-primary"
+              class="h-24 w-full rounded-lg border-2 border-dashed border-muted-foreground/20 text-muted-foreground/60 transition-colors hover:bg-muted/35 hover:text-primary"
               @click="triggerVideoLastFrameInput"
             >
               上传尾帧
@@ -517,7 +517,7 @@ const videoReferenceMaterialReady = computed(() => {
           <div
             v-for="(img, index) in props.videoReferenceImages"
             :key="`video_ref_${index}`"
-            class="group relative h-14 w-14 cursor-zoom-in overflow-hidden rounded-lg border transition-colors hover:border-primary/50"
+            class="group relative h-14 w-14 cursor-zoom-in overflow-hidden rounded-xl bg-muted/25 transition-colors hover:bg-muted/40"
             @click="props.openReferenceImagePreview(img, index)"
           >
             <img
@@ -542,7 +542,7 @@ const videoReferenceMaterialReady = computed(() => {
             v-if="props.videoReferenceImages.length < props.currentVideoModelMaxReferenceImages"
             type="button"
             variant="ghost"
-            class="h-14 w-14 rounded-lg border-2 border-dashed border-muted-foreground/20 p-0 text-muted-foreground/50 transition-colors hover:border-primary/50 hover:text-primary"
+            class="h-14 w-14 rounded-lg border-2 border-dashed border-muted-foreground/20 p-0 text-muted-foreground/50 transition-colors hover:bg-muted/35 hover:text-primary"
             @click="triggerVideoReferenceInput"
           >
             <ImagePlus class="h-4 w-4" />
@@ -576,7 +576,7 @@ const videoReferenceMaterialReady = computed(() => {
           <div
             v-for="(videoRef, index) in props.videoReferenceVideos"
             :key="`video_ref_clip_${index}`"
-            class="group relative overflow-hidden rounded-lg border bg-muted/10"
+            class="group relative overflow-hidden rounded-xl bg-muted/15"
           >
             <video
               :src="videoRef"
@@ -607,7 +607,7 @@ const videoReferenceMaterialReady = computed(() => {
             v-if="props.videoReferenceVideos.length < props.currentVideoModelMaxReferenceVideos"
             type="button"
             variant="ghost"
-            class="h-10 w-full rounded-lg border-2 border-dashed border-muted-foreground/20 text-muted-foreground/60 transition-colors hover:border-primary/50 hover:text-primary"
+            class="h-10 w-full rounded-lg border-2 border-dashed border-muted-foreground/20 text-muted-foreground/60 transition-colors hover:bg-muted/35 hover:text-primary"
             @click="triggerVideoReferenceVideoInput"
           >
             上传参考视频
@@ -641,7 +641,7 @@ const videoReferenceMaterialReady = computed(() => {
           <div
             v-for="(audioRef, index) in props.videoAudioReferences"
             :key="`video_ref_audio_${index}`"
-            class="flex items-center justify-between gap-2 rounded-lg border bg-muted/10 px-2 py-1.5"
+            class="flex items-center justify-between gap-2 rounded-xl bg-muted/15 px-2 py-1.5"
           >
             <audio
               :src="audioRef"

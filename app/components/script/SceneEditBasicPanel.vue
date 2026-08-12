@@ -74,7 +74,7 @@ defineProps<{
           <div
             :ref="setSceneDescriptionEditorRef"
             contenteditable="true"
-            class="min-h-[110px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-6 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring whitespace-pre-wrap break-words"
+            class="min-h-[110px] w-full rounded-lg border-0 bg-muted/55 px-3 py-2 text-sm leading-6 outline-none transition-[background-color] hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/55 whitespace-pre-wrap break-words"
             @keydown="handleSceneDescriptionKeydown"
             @beforeinput="handleSceneDescriptionBeforeInput"
             @input="handleSceneDescriptionInput"
@@ -101,7 +101,7 @@ defineProps<{
         <div
           v-if="sceneDescriptionMentionOpen"
           :ref="setSceneDescriptionMentionListRef"
-          class="max-h-44 overflow-y-auto rounded-md border bg-popover p-1 text-sm shadow-sm"
+          class="max-h-44 overflow-y-auto rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] p-1 text-sm shadow-sm"
         >
           <Button
             v-for="(item, mentionIndex) in sceneDescriptionMentionCandidates"

@@ -251,7 +251,7 @@ function handleRunFinal() {
     </div>
 
     <div class="grid grid-cols-1 gap-3 xl:grid-cols-[340px_minmax(0,1fr)]">
-      <div class="space-y-3 rounded-lg border bg-card p-3">
+      <div class="space-y-3 rounded-xl bg-muted/25 p-3">
         <div class="text-xs font-medium text-muted-foreground">
           合成参数
         </div>
@@ -294,7 +294,7 @@ function handleRunFinal() {
           />
         </div>
 
-        <div class="flex items-center justify-between rounded-md border bg-muted/15 px-2.5 py-2">
+        <div class="flex items-center justify-between rounded-xl bg-muted/15 px-2.5 py-2">
           <p class="text-xs text-muted-foreground">
             合成时叠加字幕
           </p>
@@ -334,14 +334,14 @@ function handleRunFinal() {
       </div>
 
       <div class="space-y-3">
-        <div class="rounded-lg border bg-card p-3">
+        <div class="rounded-xl bg-muted/25 p-3">
           <div class="mb-2 text-xs font-medium text-muted-foreground">
             场景顺序（影响最终合成顺序）
           </div>
 
           <div
             v-if="orderedScenes.length === 0"
-            class="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground"
+            class="rounded-xl bg-muted/15 px-3 py-4 text-xs text-muted-foreground"
           >
             暂无可合成场景
           </div>
@@ -352,7 +352,7 @@ function handleRunFinal() {
             <div
               v-for="(scene, index) in orderedScenes"
               :key="`final_scene_order_${scene.id}`"
-              class="flex items-center gap-2 rounded-md border bg-muted/10 px-2 py-1.5"
+              class="flex items-center gap-2 rounded-xl bg-muted/15 px-2 py-1.5"
             >
               <span class="w-5 text-xs text-muted-foreground">{{ index + 1 }}</span>
               <div class="min-w-0 flex-1">
@@ -393,7 +393,7 @@ function handleRunFinal() {
           @update:playing="timelinePlaying = $event"
         />
 
-        <div class="rounded-lg border bg-card p-3">
+        <div class="rounded-xl bg-muted/25 p-3">
           <div class="mb-3 flex items-center justify-between gap-3">
             <div>
               <h3 class="text-xs font-medium">音频时间线</h3>
@@ -401,9 +401,9 @@ function handleRunFinal() {
             </div>
             <Button size="sm" variant="outline" class="gap-1.5" @click="audioPickerOpen = true"><Plus class="h-3.5 w-3.5" />添加音频</Button>
           </div>
-          <div v-if="!mergeOptions.audioTracks?.length" class="rounded-md border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">暂无 BGM 或音效</div>
+          <div v-if="!mergeOptions.audioTracks?.length" class="rounded-xl bg-muted/15 px-3 py-5 text-center text-xs text-muted-foreground">暂无 BGM 或音效</div>
           <div v-else class="space-y-3">
-            <div v-for="track in mergeOptions.audioTracks" :key="track.id" class="rounded-md border p-2.5">
+            <div v-for="track in mergeOptions.audioTracks" :key="track.id" class="rounded-xl bg-muted/15 p-2.5">
               <div class="flex items-center gap-2">
                 <AudioLines class="h-4 w-4 text-primary" />
                 <span class="min-w-0 flex-1 truncate text-xs font-medium">{{ track.name }}</span>
@@ -468,7 +468,7 @@ function handleRunFinal() {
         v-if="finalVideoUrl"
         :href="finalVideoUrl"
         download="final-video.mp4"
-        class="inline-flex h-9 items-center gap-2 rounded-md border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted"
+        class="inline-flex h-9 items-center gap-2 rounded-xl bg-muted/25 px-4 text-sm font-medium transition-colors hover:bg-muted"
       >
         <Download class="h-4 w-4" />
         下载成片
@@ -477,7 +477,7 @@ function handleRunFinal() {
 
     <div
       v-if="finalVideoUrl"
-      class="rounded-lg border bg-muted/5"
+      class="rounded-xl bg-muted/10"
     >
       <div class="px-4 py-3 border-b">
         <div class="text-xs font-medium text-muted-foreground">

@@ -175,7 +175,7 @@ onMounted(async () => {
           :key="style.id"
           type="button"
           class="group relative cursor-pointer overflow-hidden rounded-md border-2 bg-background text-left transition-[border-color,box-shadow,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.98]"
-          :class="modelValue === style.id ? 'border-primary ring-2 ring-primary/20' : 'border-transparent hover:border-primary/50'"
+          :class="modelValue === style.id ? 'border-primary ring-2 ring-primary/20' : 'border-transparent hover:bg-muted/35'"
           :aria-pressed="modelValue === style.id"
           :aria-label="`选择${style.name}画风`"
           :title="style.description"

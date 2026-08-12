@@ -213,7 +213,7 @@ function toSelectString(value: unknown): string {
                       <TooltipContent
                         :side-offset="6"
                         side="top"
-                        class="z-[70] max-w-72 rounded-md border bg-popover px-2.5 py-1.5 text-xs leading-5 text-popover-foreground shadow-md"
+                        class="z-[70] max-w-72 rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] px-2.5 py-1.5 text-xs leading-5 text-popover-foreground shadow-md"
                       >
                         {{ template.description }}
                       </TooltipContent>

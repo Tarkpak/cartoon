@@ -667,7 +667,7 @@ function handleSceneAssetUpload(event: Event) {
 
           <div
             v-if="sceneCharacterRows.length === 0"
-            class="flex min-h-24 flex-col items-center justify-center gap-2 rounded-md border border-dashed px-4 py-5 text-center"
+            class="flex min-h-24 flex-col items-center justify-center gap-2 rounded-xl bg-muted/15 px-4 py-5 text-center"
           >
             <Users class="h-5 w-5 text-muted-foreground" />
             <p class="text-sm text-muted-foreground">
@@ -682,7 +682,7 @@ function handleSceneAssetUpload(event: Event) {
             <div
               v-for="row in sceneCharacterRows"
               :key="`scene_character_${row.key}`"
-              class="space-y-3 rounded-md border bg-background p-3"
+              class="space-y-3 rounded-xl bg-muted/25 p-3"
             >
               <div class="flex items-center gap-3">
                 <img

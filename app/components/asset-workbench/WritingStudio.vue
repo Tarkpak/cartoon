@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  BookOpen,
   Check,
   CheckCircle2,
   CircleAlert,
@@ -11,39 +10,24 @@ import {
   ChevronRight,
   ChevronUp,
   Ellipsis,
-  FileClock,
   FileText,
-  FileUp,
   Focus,
-  History,
   ListPlus,
   ListTree,
   Lock,
   Loader2,
   Pause,
-  PenLine,
-  Pin,
-  PinOff,
   Play,
   Plus,
-  RotateCcw,
   Search,
   Send,
-  ShieldCheck,
   Shrink,
   Sparkles,
   Square,
-  Trash2,
   Type,
   Undo2,
   Unlock
 } from 'lucide-vue-next'
-import {
-  PopoverContent,
-  PopoverPortal,
-  PopoverRoot,
-  PopoverTrigger
-} from 'reka-ui'
 import {
   buildScriptWritingPublication,
   createScriptWritingBriefFingerprint,
@@ -56,7 +40,6 @@ import {
   type ScriptWritingPublication,
   type ScriptWritingLockedField,
   type ScriptWritingReviewTask,
-  type ScriptWritingRestoreScope,
   type ScriptWritingStudio
 } from '#shared/types/script-writing'
 import { useScriptWritingStudio } from '~/composables/useScriptWritingStudio'
@@ -80,84 +63,17 @@ const emit = defineEmits<{
   openProduction: []
 }>()
 
-type WritingView = 'bible' | 'episodes' | 'review' | 'history'
-
-const genreGroups = [
-  {
-    label: '女频热门',
-    options: [
-      '现代甜宠·都市情感',
-      '先婚后爱·契约婚姻',
-      '追妻火葬场·虐恋',
-      '重生复仇·女性逆袭',
-      '双向救赎·治愈',
-      '豪门恩怨·真假千金',
-      '闪婚萌宝·带球跑',
-      '家庭伦理·婚姻成长',
-      '年代爱情·军婚',
-      '古装言情·宅斗宫斗'
-    ]
-  },
-  {
-    label: '男频热门',
-    options: [
-      '都市逆袭·神豪',
-      '战神赘婿·高手下山',
-      '玄幻修仙·异能',
-      '历史穿越·朝堂权谋',
-      '商战职场·创业逆袭',
-      '乡村年代·奋斗致富'
-    ]
-  },
-  {
-    label: '悬疑脑洞',
-    options: [
-      '悬疑推理·刑侦犯罪',
-      '惊悚灵异·规则怪谈',
-      '灾荒求生·末日生存',
-      '科幻脑洞·时空循环'
-    ]
-  },
-  {
-    label: '多元精品',
-    options: [
-      '喜剧·家庭温情',
-      '青春校园·成长',
-      '文旅非遗·地域故事',
-      '现实主义·社会议题',
-      '其他'
-    ]
-  }
-]
-const genreOptions = genreGroups.flatMap(group => group.options)
-const audienceOptions = [
-  '短视频用户',
-  '女性向用户',
-  '男性向用户',
-  '年轻用户（18-24岁）',
-  '泛大众用户',
-  '家庭用户',
-  '儿童与亲子',
-  '其他'
-]
-const SOURCE_MATERIAL_MAX_CHARS = 60_000
+type WritingView = 'bible' | 'episodes' | 'review'
 
 const activeView = ref<WritingView>('bible')
 const selectedEpisodeId = ref('')
-const selectedVersionId = ref('')
-const milestoneDialogOpen = ref(false)
-const milestoneName = ref('')
-const milestoneNote = ref('')
 const exportingDocx = ref(false)
-const genreTreeOpen = ref(false)
-const activeGenreGroup = ref('')
 const storyBibleInstruction = ref('')
 const outlineInstruction = ref('')
 const episodeInstruction = ref('')
 const reviewInstruction = ref('')
 const pendingReviewTaskId = ref('')
-const sourceMaterialInputRef = ref<HTMLInputElement | null>(null)
-const advancedBriefOpen = ref(false)
+const episodeMetaOpen = ref(true)
 const focusMode = ref(false)
 const searchPanelOpen = ref(false)
 const draftSearchText = ref('')
@@ -181,7 +97,6 @@ const {
   error,
   notice,
   pendingGeneration,
-  createMilestone,
   generateStoryBible,
   generateOutline,
   generateEpisodeDraft,
@@ -193,9 +108,6 @@ const {
   cancelGeneration,
   saveCurrent,
   reviewDrafts,
-  restoreVersion,
-  setVersionPinned,
-  deleteVersion
 } = useScriptWritingStudio({
   projectId: props.projectId,
   studio,
@@ -259,22 +171,23 @@ const autoSaveLabel = computed(() => ({
   saving: '保存中',
   error: '自动保存失败'
 }[autoSaveState.value]))
-const legacyGenreOption = computed(() => {
-  const current = studio.value.brief.genre.trim()
-  return current && !genreOptions.includes(current) ? current : ''
+const studioProgress = computed(() => {
+  if (!studio.value.storyBible || freshness.value.storyBibleStale) return 8
+  if (studio.value.episodes.length === 0 || freshness.value.outlineStale) return 28
+  if (!isComplete.value || hasStaleDrafts.value) {
+    const draftRatio = draftedCount.value / Math.max(1, studio.value.episodes.length)
+    return 28 + Math.round(draftRatio * 42)
+  }
+  if (!studio.value.review || freshness.value.reviewStale) return 78
+  if (!reviewProgress.value.passed) return 90
+  return 100
 })
-const selectableGenreGroups = computed(() => {
-  return legacyGenreOption.value
-    ? [{ label: '当前项目', options: [legacyGenreOption.value] }, ...genreGroups]
-    : genreGroups
-})
-const activeGenreOptions = computed(() => {
-  return selectableGenreGroups.value.find(group => group.label === activeGenreGroup.value)?.options || []
-})
-const selectableAudienceOptions = computed(() => {
-  const current = studio.value.brief.audience.trim()
-  return current && !audienceOptions.includes(current) ? [current, ...audienceOptions] : audienceOptions
-})
+const autoSaveTone = computed(() => ({
+  saved: 'bg-emerald-500',
+  dirty: 'bg-amber-500',
+  saving: 'bg-primary animate-pulse',
+  error: 'bg-destructive'
+}[autoSaveState.value]))
 const storyRulesText = computed({
   get: () => studio.value.storyBible?.rules.join('\n') || '',
   set: (value: string) => {
@@ -283,47 +196,10 @@ const storyRulesText = computed({
   }
 })
 
-function setGenreTreeOpen(open: boolean) {
-  genreTreeOpen.value = open
-  if (!open) return
-  activeGenreGroup.value = selectableGenreGroups.value
-    .find(group => group.options.includes(studio.value.brief.genre))?.label
-    || selectableGenreGroups.value[0]?.label
-    || ''
-}
-
-function selectGenre(option: string) {
-  studio.value.brief.genre = option
-  genreTreeOpen.value = false
-}
-
-async function importSourceMaterial(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file) return
-  try {
-    const text = await file.text()
-    const normalized = text.trim()
-    if (!normalized) throw new Error('文件内容为空')
-    const combined = studio.value.brief.sourceMaterial.trim()
-      ? `${studio.value.brief.sourceMaterial.trim()}\n\n${normalized}`
-      : normalized
-    if (combined.length > SOURCE_MATERIAL_MAX_CHARS) {
-      throw new Error(`参考资料合计不能超过 ${SOURCE_MATERIAL_MAX_CHARS.toLocaleString('zh-CN')} 字`)
-    }
-    studio.value.brief.sourceMaterial = combined
-    toast.success('参考资料已导入', { description: file.name })
-  } catch (importError) {
-    toast.error(importError instanceof Error ? importError.message : '参考资料导入失败')
-  }
-}
-
 const views = computed(() => [
-  { key: 'bible' as const, label: '故事圣经', icon: BookOpen, done: !!studio.value.storyBible, stale: freshness.value.storyBibleStale },
-  { key: 'episodes' as const, label: isComplete.value ? '分集创作' : `分集创作 ${draftedCount.value}/${studio.value.episodes.length}`, icon: ListTree, done: isComplete.value, stale: freshness.value.outlineStale || hasStaleDrafts.value },
-  { key: 'review' as const, label: '全剧审校', icon: CheckCircle2, done: !!studio.value.review, stale: freshness.value.reviewStale },
-  { key: 'history' as const, label: '版本与恢复', icon: History, done: studio.value.versions.length > 0, stale: false }
+  { key: 'bible' as const, label: '故事圣经', done: !!studio.value.storyBible, stale: freshness.value.storyBibleStale },
+  { key: 'episodes' as const, label: isComplete.value ? '分集创作' : `分集创作 ${draftedCount.value}/${studio.value.episodes.length}`, done: isComplete.value, stale: freshness.value.outlineStale || hasStaleDrafts.value },
+  { key: 'review' as const, label: '全剧审校', done: !!studio.value.review, stale: freshness.value.reviewStale },
 ])
 
 async function createBible() {
@@ -356,78 +232,6 @@ async function createOutline() {
   }
 }
 
-function openMilestoneDialog() {
-  const nextNumber = studio.value.versions.filter(version => version.kind === 'milestone').length + 1
-  milestoneName.value = `里程碑 ${nextNumber}`
-  milestoneNote.value = ''
-  milestoneDialogOpen.value = true
-}
-
-async function submitMilestone() {
-  if (!milestoneName.value.trim()) return
-  const source = activeView.value === 'history' ? 'unknown' : activeView.value === 'episodes' ? 'episode' : activeView.value
-  const result = await createMilestone(
-    milestoneName.value,
-    milestoneNote.value,
-    source,
-    activeView.value === 'episodes' ? selectedEpisode.value?.id : undefined
-  )
-  if (!result.created) {
-    toast.info('内容与最新版本一致，未重复创建')
-    milestoneDialogOpen.value = false
-    return
-  }
-  if (result.saved) {
-    selectedVersionId.value = studio.value.versions[0]?.id || ''
-    milestoneDialogOpen.value = false
-    toast.success('里程碑已创建')
-  } else {
-    toast.error('里程碑未能保存，请稍后重试')
-  }
-}
-
-async function applyVersion(scope: ScriptWritingRestoreScope) {
-  if (!selectedVersionId.value || !selectedVersion.value) return
-  const episodeId = scope === 'episode' ? selectedEpisode.value?.id : undefined
-  if (scope === 'all') {
-    const confirmed = await useConfirm().confirm({
-      title: '恢复全部内容',
-      description: '创作设定、故事圣经、全部分集正文和审校结果都会替换。恢复前会自动创建保护版本。',
-      confirmText: '恢复全部',
-      variant: 'destructive'
-    })
-    if (!confirmed) return
-  }
-  if (await restoreVersion(selectedVersionId.value, scope, episodeId)) {
-    toast.success(scope === 'all' ? '已恢复全部内容' : '已恢复所选内容')
-  } else {
-    toast.error('该版本没有可恢复的对应内容')
-  }
-}
-
-async function toggleVersionPinned(versionId: string, pinned: boolean) {
-  if (await setVersionPinned(versionId, pinned)) {
-    toast.success(pinned ? '版本已固定' : '版本已取消固定')
-  }
-}
-
-async function removeVersion(versionId: string) {
-  const version = studio.value.versions.find(item => item.id === versionId)
-  if (!version) return
-  const confirmed = await useConfirm().confirm({
-    title: '删除历史版本',
-    description: `“${version.label}”删除后无法恢复，不会影响当前工作内容。`,
-    confirmText: '删除',
-    variant: 'destructive'
-  })
-  if (!confirmed) return
-  if (await deleteVersion(versionId)) {
-    if (selectedVersionId.value === versionId) {
-      selectedVersionId.value = studio.value.versions[0]?.id || ''
-    }
-    toast.success('历史版本已删除')
-  }
-}
 
 async function regenerateEpisode() {
   if (!selectedEpisode.value) return
@@ -739,107 +543,6 @@ function openEpisodeFromReview(episodeId: string) {
   activeView.value = 'episodes'
 }
 
-const selectedVersion = computed(() => studio.value.versions.find(item => item.id === selectedVersionId.value) || null)
-watch([activeView, () => studio.value.versions.length], ([view]) => {
-  if (view === 'history' && !selectedVersion.value) {
-    selectedVersionId.value = studio.value.versions[0]?.id || ''
-  }
-})
-const selectedVersionChanges = computed(() => {
-  if (!selectedVersion.value) return { brief: [], characters: [], episodes: [], review: '' }
-  const snapshot = selectedVersion.value.snapshot
-  const briefLabels: Record<keyof NonNullable<typeof snapshot.brief>, string> = {
-    idea: '核心创意',
-    genre: '类型',
-    customGenre: '自定义类型',
-    audience: '目标观众',
-    customAudience: '自定义观众',
-    episodeCount: '集数',
-    episodeDuration: '单集时长',
-    requirements: '额外要求',
-    sourceMaterial: '参考资料',
-    referenceStyle: '风格参考',
-    protectedContent: '禁止修改'
-  }
-  const brief = snapshot.brief
-    ? (Object.keys(briefLabels) as Array<keyof typeof briefLabels>)
-        .filter(key => snapshot.brief?.[key] !== studio.value.brief[key])
-        .map(key => briefLabels[key])
-    : []
-  const currentCharacters = new Map((studio.value.storyBible?.characters || []).map(character => [character.id, character.name]))
-  const versionCharacters = new Map((snapshot.storyBible?.characters || []).map(character => [character.id, character.name]))
-  const characters = [
-    ...[...versionCharacters].filter(([id]) => !currentCharacters.has(id)).map(([, name]) => `历史版多：${name}`),
-    ...[...currentCharacters].filter(([id]) => !versionCharacters.has(id)).map(([, name]) => `当前版多：${name}`)
-  ]
-  if (characters.length === 0 && JSON.stringify(snapshot.storyBible) !== JSON.stringify(studio.value.storyBible)) {
-    characters.push('人物或世界设定有修改')
-  }
-  const currentEpisodes = new Map(studio.value.episodes.map(episode => [episode.id, episode]))
-  const versionEpisodes = new Map(snapshot.episodes.map(episode => [episode.id, episode]))
-  const episodeIds = new Set([...currentEpisodes.keys(), ...versionEpisodes.keys()])
-  const episodes = [...episodeIds].flatMap((id) => {
-    const current = currentEpisodes.get(id)
-    const version = versionEpisodes.get(id)
-    if (!current && version) return [`第 ${version.index} 集仅历史版存在`]
-    if (current && !version) return [`第 ${current.index} 集仅当前版存在`]
-    if (!current || !version || JSON.stringify(current) === JSON.stringify(version)) return []
-    const changes: string[] = []
-    if (current.title !== version.title) changes.push('标题')
-    if (current.summary !== version.summary || current.hook !== version.hook || JSON.stringify(current.beats) !== JSON.stringify(version.beats)) changes.push('大纲')
-    const delta = version.draft.length - current.draft.length
-    if (delta !== 0) changes.push(`正文 ${delta > 0 ? '+' : ''}${delta} 字`)
-    else if (version.draft !== current.draft) changes.push('正文有修改')
-    return [`第 ${version.index} 集：${changes.join('、')}`]
-  })
-  return {
-    brief,
-    characters,
-    episodes,
-    review: JSON.stringify(snapshot.review) === JSON.stringify(studio.value.review) ? '' : '审校结果有变化'
-  }
-})
-const hasSelectedVersionChanges = computed(() => {
-  const changes = selectedVersionChanges.value
-  return changes.brief.length > 0 || changes.characters.length > 0 || changes.episodes.length > 0 || !!changes.review
-})
-const sourceLabels: Record<string, string> = {
-  brief: '创作设定',
-  bible: '故事圣经',
-  outline: '分集大纲',
-  episode: '分集正文',
-  review: '全剧审校',
-  restore: '恢复操作',
-  unknown: '手动创建'
-}
-
-function versionSourceLabel(source: string) {
-  return sourceLabels[source] || '历史版本'
-}
-
-function versionPreviewText() {
-  if (!selectedVersion.value) return ''
-  const snapshot = selectedVersion.value.snapshot
-  const sections = [
-    `版本：${selectedVersion.value.label}`,
-    selectedVersion.value.note ? `备注：${selectedVersion.value.note}` : '',
-    `核心创意：${snapshot.brief?.idea || '无'}`,
-    `故事圣经：${snapshot.storyBible?.premise || '无'}`,
-    ...snapshot.episodes.map(episode => `第${episode.index}集 ${episode.title}\n${episode.summary}\n${episode.draft}`),
-    snapshot.review ? `审校：${snapshot.review.score} 分\n${snapshot.review.summary}` : ''
-  ]
-  return sections.filter(Boolean).join('\n\n')
-}
-
-async function copySelectedVersion() {
-  if (!selectedVersion.value) return
-  try {
-    await navigator.clipboard.writeText(versionPreviewText())
-    toast.success('版本内容已复制')
-  } catch {
-    toast.error('复制失败，请检查剪贴板权限')
-  }
-}
 const pendingGenerationSummary = computed(() => {
   const pending = pendingGeneration.value
   if (!pending) return null
@@ -1037,6 +740,14 @@ onBeforeUnmount(() => {
   if (generationElapsedTimer) clearInterval(generationElapsedTimer)
 })
 
+watch(
+  () => selectedEpisode.value?.id,
+  (episodeId) => {
+    if (!episodeId || !selectedEpisode.value) return
+    episodeMetaOpen.value = !selectedEpisode.value.draft.trim()
+  }
+)
+
 function formatVersionTime(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
@@ -1051,71 +762,102 @@ function formatVersionTime(value: string) {
 
 <template>
   <div
-    class="grid h-full min-h-0 flex-1 grid-cols-1 overflow-hidden bg-background md:grid-cols-[220px_minmax(0,1fr)]"
-    :class="focusMode ? 'fixed inset-3 z-50 rounded-md border shadow-2xl md:grid-cols-1' : 'rounded-md border'"
+    class="grid h-full min-h-0 flex-1 grid-cols-1 overflow-hidden bg-transparent md:grid-cols-[248px_minmax(0,1fr)]"
+    :class="focusMode
+      ? 'fixed inset-2 z-50 rounded-2xl bg-background shadow-2xl md:grid-cols-1'
+      : 'rounded-2xl bg-transparent'"
   >
-    <aside v-if="!focusMode" class="flex min-h-0 flex-col overflow-hidden border-b bg-muted/20 md:border-b-0 md:border-r">
-      <div class="shrink-0 border-b bg-background/70 px-3 py-3">
-        <div class="flex items-start gap-2.5">
-          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-primary/10 text-primary">
-            <PenLine class="h-4 w-4" :stroke-width="1.9" />
-          </div>
-          <div class="min-w-0">
-            <p class="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">AI 剧本工作台</p>
-            <p class="mt-0.5 truncate text-sm font-semibold text-foreground" :title="documentTitle || '未命名项目'">
-              {{ documentTitle || '未命名项目' }}
-            </p>
-          </div>
+    <aside
+      v-if="!focusMode"
+      class="flex min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,hsl(var(--card)/0.95),hsl(var(--muted)/0.35))] "
+    >
+      <div class="shrink-0 space-y-3 px-4 py-4">
+        <div class="min-w-0">
+          <p class="text-xs font-medium text-muted-foreground">创作进度</p>
+          <p
+            class="mt-1 truncate text-sm font-semibold tracking-tight text-foreground"
+            :title="documentTitle || '未命名项目'"
+          >
+            {{ documentTitle || '未命名项目' }}
+          </p>
         </div>
-        <div class="mt-3 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-          <span class="flex min-w-0 items-center gap-1.5">
-            <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="isDirty ? 'bg-amber-500' : 'bg-emerald-500'" />
-            {{ autoSaveLabel }}
-          </span>
-          <span class="shrink-0 tabular-nums">{{ draftedCount }}/{{ studio.episodes.length }} 集成稿</span>
+        <div>
+          <div class="mb-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <span class="flex min-w-0 items-center gap-1.5">
+              <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="autoSaveTone" />
+              {{ autoSaveLabel }}
+            </span>
+            <span class="shrink-0 tabular-nums">{{ studioProgress }}%</span>
+          </div>
+          <div class="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div
+              class="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
+              :style="{ width: `${studioProgress}%` }"
+            />
+          </div>
+          <p class="mt-2 text-[11px] tabular-nums text-muted-foreground">
+            {{ draftedCount }}/{{ studio.episodes.length || studio.brief.episodeCount || 0 }} 集成稿
+          </p>
         </div>
       </div>
 
-      <nav class="min-h-0 flex-1 gap-1 overflow-x-auto overflow-y-auto p-2 md:block md:space-y-1">
-        <Button
-          v-for="item in views"
+      <nav class="min-h-0 flex-1 space-y-1 overflow-x-auto overflow-y-auto p-3 md:block">
+        <button
+          v-for="(item, index) in views"
           :key="item.key"
           type="button"
-          variant="ghost"
-          class="h-9 w-auto shrink-0 justify-start gap-2 rounded-sm px-2.5 text-sm transition-transform active:scale-[0.96] md:w-full"
-          :class="activeView === item.key ? 'bg-background text-foreground shadow-sm hover:bg-background' : 'text-muted-foreground'"
+          class="group flex w-auto min-w-[9.5rem] shrink-0 items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-[background-color,color,box-shadow,transform] duration-200 active:scale-[0.98] md:w-full"
+          :class="activeView === item.key
+            ? 'bg-background/90 text-foreground shadow-sm'
+            : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'"
           @click="activeView = item.key"
         >
-          <component :is="item.icon" class="h-4 w-4" :stroke-width="1.75" />
-          <span class="min-w-0 flex-1 truncate text-left">{{ item.label }}</span>
-          <CircleAlert v-if="item.stale" class="h-3.5 w-3.5 text-amber-600" :stroke-width="2" />
-          <CheckCircle2 v-else-if="item.done" class="h-3.5 w-3.5 text-emerald-600" :stroke-width="2" />
-        </Button>
+          <span
+            class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-semibold tabular-nums"
+            :class="activeView === item.key
+              ? 'bg-primary text-primary-foreground'
+              : item.done
+                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                : 'bg-muted text-muted-foreground'"
+          >
+            <Check v-if="item.done && !item.stale" class="h-3.5 w-3.5" :stroke-width="2.25" />
+            <template v-else>{{ index + 1 }}</template>
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-medium">{{ item.label }}</span>
+            <span class="mt-0.5 block truncate text-[11px] text-muted-foreground">
+              {{ item.key === 'bible' ? '设定与角色' : item.key === 'episodes' ? '大纲与正文' : item.key === 'review' ? '质检整改' : '里程碑恢复' }}
+            </span>
+          </span>
+          <CircleAlert v-if="item.stale" class="h-3.5 w-3.5 shrink-0 text-amber-600" :stroke-width="2" />
+        </button>
       </nav>
 
-      <div class="mt-auto border-t p-2 md:p-3">
-        <dl class="hidden grid-cols-2 gap-2 border-b pb-3 text-xs md:grid">
+      <div class="mt-auto space-y-2 p-3">
+        <dl class="hidden grid-cols-2 gap-2 rounded-xl bg-background/60 p-3 text-xs md:grid">
           <div>
             <dt class="text-muted-foreground">大纲</dt>
-            <dd class="mt-0.5 font-medium tabular-nums">{{ studio.episodes.length }} 集</dd>
+            <dd class="mt-1 font-semibold tabular-nums text-foreground">{{ studio.episodes.length }} 集</dd>
           </div>
           <div>
             <dt class="text-muted-foreground">已成稿</dt>
-            <dd class="mt-0.5 font-medium tabular-nums">{{ draftedCount }} 集</dd>
+            <dd class="mt-1 font-semibold tabular-nums text-foreground">{{ draftedCount }} 集</dd>
           </div>
         </dl>
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
             <Button
               variant="outline"
-              class="w-full gap-2 transition-transform active:scale-[0.96] md:mt-3"
+              class="w-full justify-between gap-2"
               size="sm"
               :disabled="!publication.text || isBusy || exportingDocx"
             >
-              <Loader2 v-if="exportingDocx" class="h-4 w-4 animate-spin" />
-              <Download v-else class="h-4 w-4" />
-              {{ exportingDocx ? '正在导出' : '导出剧本' }}
-              <ChevronDown v-if="!exportingDocx" class="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+              <span class="inline-flex items-center gap-2">
+                <Loader2 v-if="exportingDocx" class="h-4 w-4 animate-spin" />
+                <Download v-else class="h-4 w-4" />
+                {{ exportingDocx ? '正在导出' : '导出剧本' }}
+              </span>
+              <ChevronDown v-if="!exportingDocx" class="h-3.5 w-3.5 text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" class="w-48">
@@ -1125,346 +867,451 @@ function formatVersionTime(value: string) {
           </DropdownMenuContent>
         </DropdownMenu>
         <Button
-          class="mt-2 w-full gap-2 transition-transform active:scale-[0.96]"
+          class="w-full gap-2"
           size="sm"
           :disabled="!canPublish || isBusy"
           @click="publishStudio()"
-        ><Send class="h-4 w-4" />发布并进入解析</Button>
-        <p v-if="publicationBlockers.length" class="mt-2 text-center text-[11px] leading-4 text-muted-foreground">
+        >
+          <Send class="h-4 w-4" />
+          发布并进入解析
+        </Button>
+        <p v-if="publicationBlockers.length" class="px-1 text-center text-[11px] leading-4 text-muted-foreground">
           {{ publicationBlockers.join(' · ') }}
         </p>
         <Button
           v-if="publication.text && !canPublish"
           variant="ghost"
           size="sm"
-          class="mt-1 w-full text-xs text-muted-foreground hover:text-destructive"
+          class="w-full text-xs text-muted-foreground hover:text-destructive"
           :disabled="isBusy"
           @click="publishStudio(true)"
-        >发布草稿版本</Button>
-        <Button variant="ghost" size="sm" class="mt-1 w-full text-xs text-muted-foreground" :disabled="isBusy" @click="emit('openProduction')">
+        >
+          发布草稿版本
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="w-full text-xs text-muted-foreground"
+          :disabled="isBusy"
+          @click="emit('openProduction')"
+        >
           查看当前解析
         </Button>
       </div>
     </aside>
 
     <main class="flex min-h-0 min-w-0 flex-col overflow-hidden">
-      <div v-if="!focusMode && (studio.storyBible || activeView !== 'bible')" class="flex shrink-0 items-center justify-between gap-3 border-b bg-muted/20 px-5 py-2.5">
+      <div
+        v-if="!focusMode"
+        class="flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"
+      >
         <div class="min-w-0">
-          <div class="flex min-w-0 items-center gap-2">
-            <span class="hidden shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground sm:inline">创作流程</span>
-            <span class="truncate text-sm font-medium">下一步：{{ nextAction.label }}</span>
-          </div>
-          <p v-if="publicationBlockers.length && publication.text" class="truncate text-xs text-muted-foreground">发布前：{{ publicationBlockers.join('、') }}</p>
+          <p class="text-xs text-muted-foreground">下一步</p>
+          <p class="mt-0.5 truncate text-sm font-semibold text-foreground">{{ nextAction.label }}</p>
+          <p
+            v-if="publicationBlockers.length && publication.text"
+            class="mt-0.5 truncate text-xs text-muted-foreground"
+          >
+            发布前：{{ publicationBlockers.join('、') }}
+          </p>
         </div>
-        <Button size="sm" :variant="nextAction.kind === 'publish' ? 'default' : 'outline'" class="shrink-0 gap-2" :disabled="isBusy" @click="runNextAction">
-          {{ nextAction.label }}<ChevronRight class="h-3.5 w-3.5" />
+        <Button
+          size="sm"
+          :variant="nextAction.kind === 'publish' ? 'default' : 'outline'"
+          class="shrink-0 gap-2"
+          :disabled="isBusy"
+          @click="runNextAction"
+        >
+          {{ nextAction.label }}
+          <ChevronRight class="h-3.5 w-3.5" />
         </Button>
       </div>
-      <div v-if="error" class="shrink-0 border-b border-destructive/20 bg-destructive/5 px-5 py-2.5 text-sm text-destructive">
+
+      <div
+        v-if="error"
+        class="shrink-0 bg-destructive/5 px-5 py-2.5 text-sm text-destructive"
+      >
         {{ error }}
       </div>
-      <div v-if="notice" class="shrink-0 border-b border-amber-500/20 bg-amber-500/5 px-5 py-2.5 text-sm text-amber-600 dark:text-amber-400">
+      <div
+        v-if="notice"
+        class="shrink-0 bg-amber-500/5 px-5 py-2.5 text-sm text-amber-700 dark:text-amber-300"
+      >
         {{ notice }}
       </div>
       <div
         v-if="freshness.storyBibleStale || freshness.outlineStale || hasStaleDrafts || freshness.reviewStale"
-        class="flex shrink-0 items-center gap-2 border-b border-amber-500/20 bg-amber-500/5 px-5 py-2.5 text-sm text-amber-700 dark:text-amber-300"
+        class="flex shrink-0 items-center gap-2 bg-amber-500/5 px-5 py-2.5 text-sm text-amber-700 dark:text-amber-300"
       >
         <CircleAlert class="h-4 w-4 shrink-0" />
         上游内容已修改：带橙色标记的步骤需要重新确认或生成。
       </div>
       <div
         v-if="activeAction && !isBatchGenerating"
-        class="flex shrink-0 items-center justify-between gap-3 border-b bg-muted/30 px-5 py-2.5 text-sm"
+        class="flex shrink-0 items-center justify-between gap-3 bg-muted/30 px-5 py-2.5 text-sm"
         aria-live="polite"
       >
-        <span class="flex min-w-0 items-center gap-2"><Loader2 class="h-4 w-4 shrink-0 animate-spin" /><span class="truncate">{{ activeActionLabel }}</span><span class="shrink-0 text-xs tabular-nums text-muted-foreground">已用 {{ formatElapsed(generationElapsedSeconds) }}</span></span>
-        <Button size="sm" variant="outline" class="h-8 gap-2 text-destructive transition-transform active:scale-[0.96]" @click="cancelGeneration">
-          <Square class="h-3.5 w-3.5" />停止生成
+        <span class="flex min-w-0 items-center gap-2">
+          <Loader2 class="h-4 w-4 shrink-0 animate-spin" />
+          <span class="truncate">{{ activeActionLabel }}</span>
+          <span class="shrink-0 text-xs tabular-nums text-muted-foreground">
+            已用 {{ formatElapsed(generationElapsedSeconds) }}
+          </span>
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          class="h-8 gap-2 text-destructive transition-transform active:scale-[0.96]"
+          @click="cancelGeneration"
+        >
+          <Square class="h-3.5 w-3.5" />
+          停止生成
         </Button>
       </div>
 
-      <section v-if="false" class="flex min-h-0 w-full flex-1 flex-col gap-5 overflow-y-auto p-6">
-        <div class="shrink-0 space-y-2">
-          <label class="text-sm font-medium">核心创意</label>
-          <Textarea v-model="studio.brief.idea" rows="5" placeholder="一句话故事、人物困境或想表达的主题" />
+      <!-- Story bible setup is completed in the new-project dialog. -->
+      <section
+        v-if="activeView === 'bible' && !studio.storyBible"
+        class="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-5 overflow-y-auto p-5 text-center sm:p-6"
+      >
+        <div class="max-w-xl">
+          <h2 class="text-xl font-semibold tracking-tight">等待生成故事圣经</h2>
+          <p class="mt-2 text-sm leading-6 text-muted-foreground">
+            项目基础信息已在新建时保存。确认无误后，即可生成故事圣经并进入后续创作。
+          </p>
+          <p v-if="!studio.brief.idea.trim()" class="mt-3 text-sm text-destructive">
+            当前项目缺少核心创意，请返回项目总览后新建项目。
+          </p>
         </div>
-        <div class="grid shrink-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <div class="space-y-2">
-            <label class="text-sm font-medium">类型</label>
-            <PopoverRoot :open="genreTreeOpen" @update:open="setGenreTreeOpen">
-              <PopoverTrigger as-child>
-                <button
-                  type="button"
-                  class="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-left text-sm shadow-sm transition-transform focus:outline-none focus:ring-1 focus:ring-inset focus:ring-ring active:scale-[0.96]"
-                  aria-label="选择故事类型"
-                >
-                  <span class="min-w-0 flex-1 truncate">{{ studio.brief.genre || '选择故事类型' }}</span>
-                  <ChevronDown class="h-4 w-4 shrink-0 text-muted-foreground" :stroke-width="1.75" />
-                </button>
-              </PopoverTrigger>
-              <PopoverPortal>
-                <PopoverContent
-                  align="start"
-                  :side-offset="4"
-                  class="z-50 w-[min(38rem,calc(100vw-2rem))] overflow-hidden rounded-md border bg-popover p-0 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
-                >
-                  <div class="grid h-80 grid-cols-[9rem_minmax(0,1fr)]">
-                    <div role="listbox" aria-label="一级故事类型" class="min-h-0 overflow-y-auto border-r bg-muted/30 p-1.5">
-                      <button
-                        v-for="group in selectableGenreGroups"
-                        :key="group.label"
-                        type="button"
-                        role="option"
-                        :aria-selected="activeGenreGroup === group.label"
-                        class="flex w-full items-center gap-1.5 rounded-sm px-2 py-2 text-left text-sm transition-colors hover:bg-background focus-visible:bg-background focus-visible:outline-none"
-                        :class="activeGenreGroup === group.label ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground'"
-                        @click="activeGenreGroup = group.label"
-                      >
-                        <span class="min-w-0 flex-1 truncate">{{ group.label }}</span>
-                        <span class="text-xs tabular-nums text-muted-foreground">{{ group.options.length }}</span>
-                        <ChevronRight class="h-3.5 w-3.5 shrink-0" :stroke-width="1.75" />
-                      </button>
-                    </div>
-                    <div class="flex min-h-0 min-w-0 flex-col">
-                      <div class="shrink-0 border-b px-3 py-2">
-                        <p class="text-sm font-medium">{{ activeGenreGroup }}</p>
-                        <p class="text-xs text-muted-foreground">选择具体类型</p>
-                      </div>
-                      <div role="listbox" :aria-label="`${activeGenreGroup}二级类型`" class="min-h-0 flex-1 overflow-y-auto p-1.5">
-                        <button
-                          v-for="option in activeGenreOptions"
-                          :key="option"
-                          type="button"
-                          role="option"
-                          :aria-selected="studio.brief.genre === option"
-                          class="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-                          :class="studio.brief.genre === option ? 'bg-accent font-medium text-accent-foreground' : ''"
-                          @click="selectGenre(option)"
-                        >
-                          <Check class="h-4 w-4 shrink-0" :class="studio.brief.genre === option ? 'opacity-100' : 'opacity-0'" />
-                          <span class="min-w-0 flex-1">{{ option }}</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </PopoverContent>
-              </PopoverPortal>
-            </PopoverRoot>
-            <Input v-if="studio.brief.genre === '其他'" v-model="studio.brief.customGenre" placeholder="填写自定义类型" />
-          </div>
-          <div class="space-y-2">
-            <label class="text-sm font-medium">目标观众</label>
-            <Select v-model="studio.brief.audience">
-              <SelectTrigger class="w-full">
-                <SelectValue placeholder="选择目标观众" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="option in selectableAudienceOptions" :key="option" :value="option">
-                  {{ option }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <Input v-if="studio.brief.audience === '其他'" v-model="studio.brief.customAudience" placeholder="填写自定义受众" />
-          </div>
-          <div class="space-y-2">
-            <label class="text-sm font-medium">集数</label>
-            <Input v-model.number="studio.brief.episodeCount" type="number" min="1" max="100" />
-          </div>
-          <div class="space-y-2">
-            <label class="text-sm font-medium">单集时长（秒）</label>
-            <Input v-model.number="studio.brief.episodeDuration" type="number" min="15" max="1800" />
-          </div>
-        </div>
-        <div class="flex min-h-40 flex-1 flex-col gap-2">
-          <label class="text-sm font-medium">额外要求</label>
-          <Textarea v-model="studio.brief.requirements" class="min-h-32 flex-1 resize-none" placeholder="禁用元素、结局方向、必须保留的设定" />
-        </div>
-        <button
-          type="button"
-          class="flex w-full shrink-0 items-center justify-between border-t pt-4 text-left text-sm font-medium"
-          :aria-expanded="advancedBriefOpen"
-          @click="advancedBriefOpen = !advancedBriefOpen"
+        <Button
+          class="gap-2"
+          :disabled="isBusy || !studio.brief.idea.trim()"
+          @click="createBible"
         >
-          <span>高级设定 <span class="ml-1 font-normal text-muted-foreground">参考资料、风格与保护内容</span></span>
-          <ChevronUp v-if="advancedBriefOpen" class="h-4 w-4 text-muted-foreground" />
-          <ChevronDown v-else class="h-4 w-4 text-muted-foreground" />
-        </button>
-        <div v-if="advancedBriefOpen" class="grid shrink-0 grid-cols-1 gap-4 xl:grid-cols-3">
-          <div class="space-y-2">
-            <div class="flex items-center justify-between gap-2"><label class="text-sm font-medium">参考资料</label><Button size="sm" variant="ghost" class="h-7 gap-1.5 px-2 text-xs" @click="sourceMaterialInputRef?.click()"><FileUp class="h-3.5 w-3.5" />导入 TXT / MD</Button></div>
-            <input ref="sourceMaterialInputRef" type="file" accept=".txt,.md,text/plain,text/markdown" class="hidden" @change="importSourceMaterial">
-            <Textarea v-model="studio.brief.sourceMaterial" rows="5" :maxlength="SOURCE_MATERIAL_MAX_CHARS" placeholder="原著梗概、人物资料、事实背景或已有素材" />
-            <p class="text-right text-[11px] tabular-nums text-muted-foreground">{{ studio.brief.sourceMaterial.length.toLocaleString('zh-CN') }} / {{ SOURCE_MATERIAL_MAX_CHARS.toLocaleString('zh-CN') }}</p>
-          </div>
-          <div class="space-y-2">
-            <label class="text-sm font-medium">风格参考</label>
-            <Textarea v-model="studio.brief.referenceStyle" rows="5" maxlength="10000" placeholder="对白气质、叙事节奏、可参考的作品特征" />
-          </div>
-          <div class="space-y-2">
-            <label class="text-sm font-medium">禁止修改</label>
-            <Textarea v-model="studio.brief.protectedContent" rows="5" maxlength="10000" placeholder="必须保留的角色、关系、情节、事实或原文" />
-          </div>
-        </div>
-        <div class="shrink-0 space-y-2">
-          <label class="text-sm font-medium">本次生成要求 <span class="font-normal text-muted-foreground">可选</span></label>
-          <Textarea v-model="storyBibleInstruction" rows="2" placeholder="例如：强化主角的道德困境，减少支线角色" />
-        </div>
-        <div class="mt-auto flex shrink-0 justify-end gap-2 border-t pt-4">
-          <Button variant="outline" class="gap-2 transition-transform active:scale-[0.96]" :disabled="isBusy" @click="openMilestoneDialog">
-            <FileClock class="h-4 w-4" />创建版本
-          </Button>
-          <Button class="gap-2" :disabled="isBusy || !studio.brief.idea.trim()" @click="createBible">
-            <Loader2 v-if="activeAction === 'story_bible'" class="h-4 w-4 animate-spin" />
-            <Sparkles v-else class="h-4 w-4" />
-            生成故事圣经
-          </Button>
-        </div>
+          <Loader2 v-if="activeAction === 'story_bible'" class="h-4 w-4 animate-spin" />
+          <Sparkles v-else class="h-4 w-4" />
+          生成故事圣经
+        </Button>
       </section>
 
-      <section v-else-if="activeView === 'bible'" class="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overscroll-contain p-6">
-        <header class="flex shrink-0 items-center justify-between gap-4">
-          <div><h2 class="text-lg font-semibold">故事圣经</h2><p v-if="freshness.storyBibleStale" class="mt-1 text-xs text-amber-700 dark:text-amber-300">创作设定已变更，请调整内容或重新生成。</p></div>
-          <div v-if="studio.storyBible || freshness.storyBibleStale" class="flex gap-2">
-            <Button v-if="freshness.storyBibleStale" variant="outline" @click="confirmStoryBibleCurrent">确认已调整</Button>
-            <Button v-if="studio.storyBible" class="gap-2" :disabled="isBusy" @click="createOutline">
-              <Loader2 v-if="activeAction === 'outline'" class="h-4 w-4 animate-spin" />
-              <ListTree v-else class="h-4 w-4" />生成分集大纲
-            </Button>
+      <!-- Story bible editor -->
+      <section
+        v-else-if="activeView === 'bible'"
+        class="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overscroll-contain p-5 sm:p-6"
+      >
+        <header class="flex shrink-0 flex-wrap items-start justify-between gap-4">
+          <div class="min-w-0">
+            <h2 class="text-xl font-semibold tracking-tight">故事圣经</h2>
+            <p
+              v-if="freshness.storyBibleStale"
+              class="mt-1 text-xs text-amber-700 dark:text-amber-300"
+            >
+              项目基础信息已变更，请重新生成或确认当前故事圣经。
+            </p>
+            <p v-else class="mt-1 text-sm text-muted-foreground">
+              锁定关键设定后，重新生成会尽量保留这些内容。
+            </p>
           </div>
-        </header>
-        <div class="mt-4 shrink-0 rounded-md border bg-muted/20 px-4 py-3">
-          <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
-            <span class="font-medium text-foreground">项目简报</span>
-            <span>类型：{{ studio.brief.genre || '未设置' }}</span>
-            <span>受众：{{ studio.brief.audience || '未设置' }}</span>
-            <span>{{ studio.brief.episodeCount }} 集 · {{ studio.brief.episodeDuration }} 秒/集</span>
-          </div>
-          <p class="mt-2 line-clamp-2 text-sm text-foreground">{{ studio.brief.idea || '尚未填写核心创意' }}</p>
-        </div>
-        <template v-if="studio.storyBible">
-          <div class="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div v-for="field in ([['premise', '核心命题'], ['theme', '主题'], ['world', '世界设定'], ['tone', '基调']] as const)" :key="field[0]" class="space-y-2">
-              <div class="flex items-center justify-between gap-2"><label class="text-sm font-medium">{{ field[1] }}</label><Button size="icon" variant="ghost" class="h-7 w-7" :title="storyBibleFieldLocked(field[0]) ? '解除锁定' : '锁定该内容'" @click="toggleStoryBibleLock(field[0])"><Lock v-if="storyBibleFieldLocked(field[0])" class="h-3.5 w-3.5 text-primary" /><Unlock v-else class="h-3.5 w-3.5 text-muted-foreground" /></Button></div>
-              <Textarea v-model="studio.storyBible[field[0]]" class="min-h-24 [field-sizing:content]" />
-            </div>
-          </div>
-          <div class="mt-6 border-t pt-5">
-            <div class="flex items-center justify-between gap-4">
-              <div class="flex items-center gap-2"><h3 class="text-sm font-semibold">角色</h3><Button size="icon" variant="ghost" class="h-7 w-7" :title="storyBibleFieldLocked('characters') ? '解除角色锁定' : '锁定全部角色'" @click="toggleStoryBibleLock('characters')"><Lock v-if="storyBibleFieldLocked('characters')" class="h-3.5 w-3.5 text-primary" /><Unlock v-else class="h-3.5 w-3.5 text-muted-foreground" /></Button></div>
-              <div class="flex items-center gap-2">
-                <span class="text-xs tabular-nums text-muted-foreground">{{ studio.storyBible.characters.length }} 位</span>
-                <Button size="sm" variant="outline" class="h-8 gap-1.5" @click="addCharacter"><Plus class="h-3.5 w-3.5" />新增角色</Button>
-              </div>
-            </div>
-            <div class="mt-3 divide-y rounded-md border">
-              <div
-                v-for="(character, index) in studio.storyBible.characters"
-                :key="character.id || `character_${index}`"
-                class="grid grid-cols-1 gap-4 p-4 xl:grid-cols-2"
-              >
-                <div class="flex items-center justify-end gap-1 xl:col-span-2">
-                  <Button size="icon" variant="ghost" class="h-7 w-7" :disabled="index === 0" title="上移角色" @click="moveCharacter(index, -1)"><ChevronUp class="h-3.5 w-3.5" /></Button>
-                  <Button size="icon" variant="ghost" class="h-7 w-7" :disabled="index === studio.storyBible.characters.length - 1" title="下移角色" @click="moveCharacter(index, 1)"><ChevronDown class="h-3.5 w-3.5" /></Button>
-                  <Button size="icon" variant="ghost" class="h-7 w-7 text-destructive" title="删除角色" @click="removeCharacter(index)"><Trash2 class="h-3.5 w-3.5" /></Button>
-                </div>
-                <div class="space-y-2">
-                  <label class="text-xs font-medium text-muted-foreground">角色名</label>
-                  <Input v-model="character.name" />
-                </div>
-                <div class="space-y-2">
-                  <label class="text-xs font-medium text-muted-foreground">角色定位</label>
-                  <Textarea v-model="character.role" class="min-h-9 [field-sizing:content]" />
-                </div>
-                <div class="space-y-2">
-                  <label class="text-xs font-medium text-muted-foreground">角色小传</label>
-                  <Textarea v-model="character.profile" class="min-h-24 [field-sizing:content]" />
-                </div>
-                <div class="space-y-2">
-                  <label class="text-xs font-medium text-muted-foreground">核心动机</label>
-                  <Textarea v-model="character.motivation" class="min-h-24 [field-sizing:content]" />
-                </div>
-                <div class="space-y-2 xl:col-span-2">
-                  <label class="text-xs font-medium text-muted-foreground">人物成长弧</label>
-                  <Textarea v-model="character.arc" class="min-h-20 [field-sizing:content]" />
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="mt-6 space-y-2 border-t pt-5">
-            <div class="flex items-center justify-between"><label class="text-sm font-semibold">创作规则</label><Button size="icon" variant="ghost" class="h-7 w-7" :title="storyBibleFieldLocked('rules') ? '解除规则锁定' : '锁定创作规则'" @click="toggleStoryBibleLock('rules')"><Lock v-if="storyBibleFieldLocked('rules')" class="h-3.5 w-3.5 text-primary" /><Unlock v-else class="h-3.5 w-3.5 text-muted-foreground" /></Button></div>
-            <Textarea
-              v-model="storyRulesText"
-              class="min-h-28 [field-sizing:content]"
-              placeholder="每行一条规则"
-            />
-          </div>
-          <div class="mt-6 space-y-2 border-t pt-5">
-            <label class="text-sm font-semibold">本次大纲要求 <span class="font-normal text-muted-foreground">可选</span></label>
-            <Textarea v-model="outlineInstruction" rows="2" placeholder="例如：第 3 集提前揭露假线索，第 6 集完成第一次反转" />
-          </div>
-          <div class="mt-6 flex justify-end border-t pt-4">
-            <Button variant="outline" class="gap-2 transition-transform active:scale-[0.96]" :disabled="isBusy" @click="openMilestoneDialog"><FileClock class="h-4 w-4" />创建版本</Button>
-          </div>
-        </template>
-        <div v-else class="flex min-h-64 flex-1 flex-col items-center justify-center px-6 text-center text-muted-foreground">
-          <BookOpen class="mb-3 h-8 w-8" :stroke-width="1.5" />
-          <p class="text-sm font-medium text-foreground">尚未生成故事圣经</p>
-          <p class="mt-1 max-w-sm text-sm">该项目创建较早，尚未保存核心创意；补充一次后即可继续生成。</p>
-          <div class="mt-4 w-full max-w-xl space-y-2 text-left">
-            <label class="text-sm font-medium">补充核心创意 <span class="text-destructive">*</span></label>
-            <Textarea v-model="studio.brief.idea" rows="3" placeholder="一句话故事、人物困境或想表达的主题" />
-          </div>
-          <div class="mt-4 flex justify-center">
+          <div class="flex flex-wrap gap-2">
             <Button
-              class="gap-2 transition-transform active:scale-[0.96]"
-              :disabled="isBusy || !studio.brief.idea.trim()"
+              v-if="freshness.storyBibleStale"
+              variant="outline"
+              @click="confirmStoryBibleCurrent"
+            >
+              确认已调整
+            </Button>
+            <Button
+              variant="outline"
+              class="gap-2"
+              :disabled="isBusy"
               @click="createBible"
             >
               <Loader2 v-if="activeAction === 'story_bible'" class="h-4 w-4 animate-spin" />
               <Sparkles v-else class="h-4 w-4" />
-              生成故事圣经
+              重新生成
+            </Button>
+            <Button
+              class="gap-2"
+              :disabled="isBusy"
+              @click="createOutline"
+            >
+              <Loader2 v-if="activeAction === 'outline'" class="h-4 w-4 animate-spin" />
+              <ListTree v-else class="h-4 w-4" />
+              生成分集大纲
             </Button>
           </div>
+        </header>
+
+        <div class="mt-5 shrink-0 rounded-2xl bg-muted/20 p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span class="font-medium text-foreground">项目简报</span>
+                <span>类型：{{ studio.brief.genre || '未设置' }}</span>
+                <span>受众：{{ studio.brief.audience || '未设置' }}</span>
+                <span class="tabular-nums">{{ studio.brief.episodeCount }} 集 · {{ studio.brief.episodeDuration }} 秒/集</span>
+              </div>
+              <p class="mt-2 line-clamp-2 text-sm text-foreground">
+                {{ studio.brief.idea || '尚未填写核心创意' }}
+              </p>
+            </div>
+          </div>
         </div>
+
+        <template v-if="studio.storyBible">
+          <div class="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div
+              v-for="field in ([['premise', '核心命题'], ['theme', '主题'], ['world', '世界设定'], ['tone', '基调']] as const)"
+              :key="field[0]"
+              class="space-y-2 rounded-2xl bg-muted/25 p-4"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <label class="text-sm font-medium">{{ field[1] }}</label>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  class="h-7 w-7"
+                  :title="storyBibleFieldLocked(field[0]) ? '解除锁定' : '锁定该内容'"
+                  @click="toggleStoryBibleLock(field[0])"
+                >
+                  <Lock v-if="storyBibleFieldLocked(field[0])" class="h-3.5 w-3.5 text-primary" />
+                  <Unlock v-else class="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              </div>
+              <Textarea
+                v-model="studio.storyBible[field[0]]"
+                class="min-h-24 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 [field-sizing:content]"
+              />
+            </div>
+          </div>
+
+          <div class="mt-6">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-semibold">角色</h3>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  class="h-7 w-7"
+                  :title="storyBibleFieldLocked('characters') ? '解除角色锁定' : '锁定全部角色'"
+                  @click="toggleStoryBibleLock('characters')"
+                >
+                  <Lock v-if="storyBibleFieldLocked('characters')" class="h-3.5 w-3.5 text-primary" />
+                  <Unlock v-else class="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs tabular-nums text-muted-foreground">
+                  {{ studio.storyBible.characters.length }} 位
+                </span>
+                <Button size="sm" variant="outline" class="h-8 gap-1.5" @click="addCharacter">
+                  <Plus class="h-3.5 w-3.5" />
+                  新增角色
+                </Button>
+              </div>
+            </div>
+
+            <div class="mt-3 space-y-3">
+              <div
+                v-for="(character, index) in studio.storyBible.characters"
+                :key="character.id || `character_${index}`"
+                class="rounded-2xl bg-muted/25 p-4"
+              >
+                <div class="mb-3 flex items-center justify-between gap-2">
+                  <p class="text-xs font-medium tabular-nums text-muted-foreground">
+                    角色 {{ index + 1 }}
+                  </p>
+                  <div class="flex items-center gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      class="h-7 w-7"
+                      :disabled="index === 0"
+                      title="上移角色"
+                      @click="moveCharacter(index, -1)"
+                    >
+                      <ChevronUp class="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      class="h-7 w-7"
+                      :disabled="index === studio.storyBible.characters.length - 1"
+                      title="下移角色"
+                      @click="moveCharacter(index, 1)"
+                    >
+                      <ChevronDown class="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      class="h-7 w-7 text-destructive"
+                      title="删除角色"
+                      @click="removeCharacter(index)"
+                    >
+                      <Trash2 class="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <div class="space-y-2">
+                    <label class="text-xs font-medium text-muted-foreground">角色名</label>
+                    <Input v-model="character.name" />
+                  </div>
+                  <div class="space-y-2">
+                    <label class="text-xs font-medium text-muted-foreground">角色定位</label>
+                    <Textarea v-model="character.role" class="min-h-9 [field-sizing:content]" />
+                  </div>
+                  <div class="space-y-2">
+                    <label class="text-xs font-medium text-muted-foreground">角色小传</label>
+                    <Textarea v-model="character.profile" class="min-h-24 [field-sizing:content]" />
+                  </div>
+                  <div class="space-y-2">
+                    <label class="text-xs font-medium text-muted-foreground">核心动机</label>
+                    <Textarea v-model="character.motivation" class="min-h-24 [field-sizing:content]" />
+                  </div>
+                  <div class="space-y-2 xl:col-span-2">
+                    <label class="text-xs font-medium text-muted-foreground">人物成长弧</label>
+                    <Textarea v-model="character.arc" class="min-h-20 [field-sizing:content]" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-6 space-y-2 rounded-2xl bg-muted/25 p-4">
+            <div class="flex items-center justify-between">
+              <label class="text-sm font-semibold">创作规则</label>
+              <Button
+                size="icon"
+                variant="ghost"
+                class="h-7 w-7"
+                :title="storyBibleFieldLocked('rules') ? '解除规则锁定' : '锁定创作规则'"
+                @click="toggleStoryBibleLock('rules')"
+              >
+                <Lock v-if="storyBibleFieldLocked('rules')" class="h-3.5 w-3.5 text-primary" />
+                <Unlock v-else class="h-3.5 w-3.5 text-muted-foreground" />
+              </Button>
+            </div>
+            <Textarea
+              v-model="storyRulesText"
+              class="min-h-28 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 [field-sizing:content]"
+              placeholder="每行一条规则"
+            />
+          </div>
+
+          <div class="mt-6 space-y-2">
+            <label class="text-sm font-semibold">
+              本次大纲要求
+              <span class="font-normal text-muted-foreground">可选</span>
+            </label>
+            <Textarea
+              v-model="outlineInstruction"
+              rows="2"
+              placeholder="例如：第 3 集提前揭露假线索，第 6 集完成第一次反转"
+            />
+          </div>
+
+        </template>
       </section>
 
-      <section v-else-if="activeView === 'episodes'" class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)] lg:grid-rows-1">
-        <div class="flex min-h-0 flex-col border-b bg-muted/10 lg:border-b-0 lg:border-r">
-          <div class="flex items-center justify-between border-b px-3 py-2">
+      <!-- Episodes -->
+      <section
+        v-else-if="activeView === 'episodes'"
+        class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[272px_minmax(0,1fr)] lg:grid-rows-1"
+      >
+        <div class="flex min-h-0 flex-col bg-muted/10">
+          <div class="flex items-center justify-between px-3 py-2.5">
             <span class="text-xs font-medium text-muted-foreground">分集大纲</span>
-            <Button size="icon" variant="ghost" class="h-7 w-7" title="新增分集" @click="addEpisode"><Plus class="h-3.5 w-3.5" /></Button>
+            <Button size="icon" variant="ghost" class="h-7 w-7" title="新增分集" @click="addEpisode">
+              <Plus class="h-3.5 w-3.5" />
+            </Button>
           </div>
           <div class="flex min-h-0 gap-1 overflow-x-auto p-2 overscroll-contain lg:block lg:overflow-x-hidden lg:overflow-y-auto">
             <div
               v-for="(episode, episodeIndex) in studio.episodes"
               :key="episode.id"
-              class="group mb-1 flex w-60 shrink-0 items-center rounded-sm transition-colors lg:w-full"
-              :class="selectedEpisode?.id === episode.id ? 'bg-muted' : 'hover:bg-muted/60'"
+              class="group mb-1 flex w-64 shrink-0 items-center rounded-xl transition-colors lg:w-full"
+              :class="selectedEpisode?.id === episode.id
+                ? 'bg-background/90 shadow-sm'
+                : 'hover:bg-background/70'"
             >
-              <button type="button" class="min-w-0 flex-1 px-3 py-2.5 text-left" @click="selectedEpisodeId = episode.id">
+              <button
+                type="button"
+                class="min-w-0 flex-1 px-3 py-2.5 text-left"
+                @click="selectedEpisodeId = episode.id"
+              >
                 <span class="flex items-center gap-2 text-sm font-medium">
-                  <span class="tabular-nums text-muted-foreground">{{ episode.index }}</span>
+                  <span
+                    class="flex h-5 w-5 items-center justify-center rounded-md text-[11px] tabular-nums"
+                    :class="episode.draft.trim()
+                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                      : 'bg-muted text-muted-foreground'"
+                  >
+                    {{ episode.index }}
+                  </span>
                   <span class="truncate">{{ episode.title }}</span>
-                  <CircleAlert v-if="freshness.staleDraftIds.includes(episode.id)" class="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                  <CircleAlert
+                    v-if="freshness.staleDraftIds.includes(episode.id)"
+                    class="h-3.5 w-3.5 shrink-0 text-amber-600"
+                  />
                 </span>
-                <span class="mt-1 block truncate text-xs text-muted-foreground">{{ episode.draft.trim() ? '已成稿' : episode.summary || '待完善大纲' }}</span>
+                <span class="mt-1 block truncate pl-7 text-xs text-muted-foreground">
+                  {{ episode.draft.trim() ? '已成稿' : episode.summary || '待完善大纲' }}
+                </span>
               </button>
               <div class="mr-1 hidden shrink-0 items-center group-hover:flex group-focus-within:flex">
-                <Button size="icon" variant="ghost" class="h-7 w-7" :disabled="episodeIndex === 0" title="上移分集" @click="moveEpisode(episodeIndex, -1)"><ChevronUp class="h-3.5 w-3.5" /></Button>
-                <Button size="icon" variant="ghost" class="h-7 w-7" :disabled="episodeIndex === studio.episodes.length - 1" title="下移分集" @click="moveEpisode(episodeIndex, 1)"><ChevronDown class="h-3.5 w-3.5" /></Button>
-                <Button size="icon" variant="ghost" class="h-7 w-7 text-destructive" title="删除分集" @click="removeEpisode(episodeIndex)"><Trash2 class="h-3.5 w-3.5" /></Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  class="h-7 w-7"
+                  :disabled="episodeIndex === 0"
+                  title="上移分集"
+                  @click="moveEpisode(episodeIndex, -1)"
+                >
+                  <ChevronUp class="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  class="h-7 w-7"
+                  :disabled="episodeIndex === studio.episodes.length - 1"
+                  title="下移分集"
+                  @click="moveEpisode(episodeIndex, 1)"
+                >
+                  <ChevronDown class="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  class="h-7 w-7 text-destructive"
+                  title="删除分集"
+                  @click="removeEpisode(episodeIndex)"
+                >
+                  <Trash2 class="h-3.5 w-3.5" />
+                </Button>
               </div>
             </div>
           </div>
         </div>
-        <div v-if="selectedEpisode" class="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto overscroll-contain p-5">
-          <header class="flex shrink-0 flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-            <div class="min-w-0"><p class="text-xs text-muted-foreground">第 {{ selectedEpisode.index }} 集</p><h2 class="truncate text-lg font-semibold">{{ selectedEpisode.title }}</h2></div>
+
+        <div
+          v-if="selectedEpisode"
+          class="flex min-h-0 min-w-0 flex-col overflow-hidden"
+        >
+          <header class="flex shrink-0 flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div class="min-w-0">
+              <p class="text-xs text-muted-foreground">第 {{ selectedEpisode.index }} 集</p>
+              <h2 class="truncate text-lg font-semibold tracking-tight">{{ selectedEpisode.title }}</h2>
+            </div>
             <div class="flex w-full shrink-0 flex-wrap justify-end gap-2 sm:w-auto">
               <template v-if="isBatchGenerating">
-                <Button variant="outline" class="gap-2" @click="pauseBatchGeneration"><Pause class="h-4 w-4" />暂停</Button>
-                <Button variant="outline" class="gap-2 text-destructive" @click="cancelGeneration"><Square class="h-3.5 w-3.5" />停止</Button>
+                <Button variant="outline" class="gap-2" @click="pauseBatchGeneration">
+                  <Pause class="h-4 w-4" />暂停
+                </Button>
+                <Button variant="outline" class="gap-2 text-destructive" @click="cancelGeneration">
+                  <Square class="h-3.5 w-3.5" />停止
+                </Button>
               </template>
               <Button
                 v-else
@@ -1488,121 +1335,404 @@ function formatVersionTime(value: string) {
               </Button>
             </div>
           </header>
-          <div v-if="freshness.outlineStale" class="flex shrink-0 items-center justify-between gap-3 border-l-2 border-amber-500 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300"><span>故事圣经已变更，请逐集调整大纲或重新生成。</span><Button size="sm" variant="outline" class="shrink-0" @click="confirmOutlineCurrent">确认大纲已调整</Button></div>
-          <div v-if="isBatchGenerating" class="shrink-0 space-y-1.5" aria-live="polite">
-            <div class="flex justify-between text-xs text-muted-foreground"><span>剩余 {{ batchTotal - batchCompleted }} 次模型请求</span><span>{{ formatEta(batchEtaSeconds) }}</span></div>
-            <Progress :model-value="batchTotal ? (batchCompleted / batchTotal) * 100 : 0" class="h-1.5" />
-          </div>
-          <div v-else-if="remainingDraftCount > 0" class="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-            <Clock3 class="h-3.5 w-3.5" />批量生成将发起 {{ remainingDraftCount }} 次请求，参考耗时{{ formatEta(estimatedBatchSeconds) }}
-          </div>
-          <div class="grid shrink-0 grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-            <div class="space-y-1.5"><label class="text-xs font-medium text-muted-foreground">标题</label><Input v-model="selectedEpisode.title" /></div>
-            <div class="space-y-1.5"><label class="text-xs font-medium text-muted-foreground">结尾钩子</label><Textarea v-model="selectedEpisode.hook" class="min-h-9 [field-sizing:content]" /></div>
-            <div class="space-y-1.5 sm:col-span-2"><label class="text-xs font-medium text-muted-foreground">本集梗概</label><Textarea v-model="selectedEpisode.summary" class="min-h-16 [field-sizing:content]" /></div>
-            <div class="space-y-1.5 sm:col-span-2">
-              <label class="text-xs font-medium text-muted-foreground">剧情节拍</label>
-              <Textarea :model-value="beatsText(selectedEpisode.id)" class="min-h-20 [field-sizing:content]" placeholder="每行一个可拍摄事件" @update:model-value="updateBeats(selectedEpisode.id, String($event))" />
-            </div>
-          </div>
-          <div v-if="selectedEpisode.review" class="shrink-0 rounded-sm border-l-2 border-amber-500/40 bg-muted/40 p-3 text-sm"><p class="mb-1 text-xs text-muted-foreground">本集审校意见</p>{{ selectedEpisode.review }}</div>
-          <div v-if="freshness.staleDraftIds.includes(selectedEpisode.id)" class="flex shrink-0 flex-col gap-2 border-l-2 border-amber-500 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300 sm:flex-row sm:items-center sm:justify-between">
-            <span>本集正文基于旧的大纲或故事设定。人工修改不会自动解除该状态。</span>
-            <Button size="sm" variant="outline" class="shrink-0" @click="confirmSelectedEpisodeCurrent">确认已适配当前大纲</Button>
-          </div>
-          <div class="shrink-0 space-y-1.5"><label class="text-xs font-medium text-muted-foreground">本次生成 / 修改要求</label><Textarea v-model="episodeInstruction" rows="2" placeholder="例如：保留前三场，只压缩对白并强化结尾反转" /></div>
-          <div class="flex shrink-0 items-center justify-between gap-3 text-xs text-muted-foreground">
-            <span class="flex flex-wrap items-center gap-x-3 gap-y-1 tabular-nums">
-              <span>{{ selectedEpisodeStats.characters }} 字</span>
-              <span v-if="selectedEpisodeStats.characters">预计 {{ formatEta(selectedEpisodeStats.estimatedSeconds) }} / 目标 {{ formatEta(studio.brief.episodeDuration) }}</span>
-              <span v-else>尚无正文</span>
-              <span v-if="selectedEpisodeStats.sceneCount">{{ selectedEpisodeStats.sceneCount }} 场</span>
-            </span>
-            <span class="flex items-center gap-1">
-              <Button size="sm" variant="ghost" class="h-7 gap-1.5 px-2 text-xs" title="查找替换" @click="searchPanelOpen = !searchPanelOpen"><Search class="h-3.5 w-3.5" />查找替换</Button>
-              <Button size="sm" variant="ghost" class="h-7 gap-1.5 px-2 text-xs" :title="focusMode ? '退出专注模式' : '进入专注模式'" @click="focusMode = !focusMode">
-                <Shrink v-if="focusMode" class="h-3.5 w-3.5" /><Focus v-else class="h-3.5 w-3.5" />{{ focusMode ? '退出专注' : '专注写作' }}
+
+          <div class="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-5">
+            <div
+              v-if="freshness.outlineStale"
+              class="flex shrink-0 items-center justify-between gap-3 rounded-xl border-l-2 border-amber-500/50 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300"
+            >
+              <span>故事圣经已变更，请逐集调整大纲或重新生成。</span>
+              <Button size="sm" variant="outline" class="shrink-0" @click="confirmOutlineCurrent">
+                确认大纲已调整
               </Button>
-            </span>
-          </div>
-          <div v-if="searchPanelOpen" class="grid shrink-0 grid-cols-1 gap-2 rounded-sm border bg-muted/20 p-2 sm:grid-cols-[1fr_1fr_auto]">
-            <Input v-model="draftSearchText" placeholder="查找内容" />
-            <Input v-model="draftReplaceText" placeholder="替换为" />
-            <div class="flex items-center justify-end gap-1">
-              <span class="mr-1 whitespace-nowrap text-xs text-muted-foreground">{{ draftSearchMatchCount }} 处</span>
-              <Button variant="outline" :disabled="!draftSearchMatchCount" @click="replaceNextInSelectedDraft">替换下一处</Button>
-              <Button variant="outline" :disabled="!draftSearchMatchCount" @click="replaceAllInSelectedDraft">全部替换</Button>
-              <Button v-if="replaceUndo" size="icon" variant="ghost" title="撤销上次替换" @click="undoDraftReplace"><Undo2 class="h-4 w-4" /></Button>
             </div>
+
+            <div v-if="isBatchGenerating" class="shrink-0 space-y-1.5" aria-live="polite">
+              <div class="flex justify-between text-xs text-muted-foreground">
+                <span>剩余 {{ batchTotal - batchCompleted }} 次模型请求</span>
+                <span>{{ formatEta(batchEtaSeconds) }}</span>
+              </div>
+              <Progress :model-value="batchTotal ? (batchCompleted / batchTotal) * 100 : 0" class="h-1.5" />
+            </div>
+            <div
+              v-else-if="remainingDraftCount > 0"
+              class="flex shrink-0 items-center gap-2 text-xs text-muted-foreground"
+            >
+              <Clock3 class="h-3.5 w-3.5" />
+              批量生成将发起 {{ remainingDraftCount }} 次请求，参考耗时{{ formatEta(estimatedBatchSeconds) }}
+            </div>
+
+            <div class="rounded-2xl bg-muted/20">
+              <button
+                type="button"
+                class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                @click="episodeMetaOpen = !episodeMetaOpen"
+              >
+                <div>
+                  <p class="text-sm font-medium">本集大纲</p>
+                  <p class="mt-0.5 text-xs text-muted-foreground">标题、钩子、梗概与节拍</p>
+                </div>
+                <ChevronUp v-if="episodeMetaOpen" class="h-4 w-4 text-muted-foreground" />
+                <ChevronDown v-else class="h-4 w-4 text-muted-foreground" />
+              </button>
+              <div v-if="episodeMetaOpen" class="grid grid-cols-1 gap-3 p-4 text-sm sm:grid-cols-2">
+                <div class="space-y-1.5">
+                  <label class="text-xs font-medium text-muted-foreground">标题</label>
+                  <Input v-model="selectedEpisode.title" />
+                </div>
+                <div class="space-y-1.5">
+                  <label class="text-xs font-medium text-muted-foreground">结尾钩子</label>
+                  <Textarea v-model="selectedEpisode.hook" class="min-h-9 [field-sizing:content]" />
+                </div>
+                <div class="space-y-1.5 sm:col-span-2">
+                  <label class="text-xs font-medium text-muted-foreground">本集梗概</label>
+                  <Textarea v-model="selectedEpisode.summary" class="min-h-16 [field-sizing:content]" />
+                </div>
+                <div class="space-y-1.5 sm:col-span-2">
+                  <label class="text-xs font-medium text-muted-foreground">剧情节拍</label>
+                  <Textarea
+                    :model-value="beatsText(selectedEpisode.id)"
+                    class="min-h-20 [field-sizing:content]"
+                    placeholder="每行一个可拍摄事件"
+                    @update:model-value="updateBeats(selectedEpisode.id, String($event))"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div
+              v-if="selectedEpisode.review"
+              class="rounded-xl border-l-2 border-amber-500/40 bg-muted/40 px-3 py-2.5 text-sm"
+            >
+              <p class="mb-1 text-xs text-muted-foreground">本集审校意见</p>
+              {{ selectedEpisode.review }}
+            </div>
+
+            <div
+              v-if="freshness.staleDraftIds.includes(selectedEpisode.id)"
+              class="flex flex-col gap-2 rounded-xl border-l-2 border-amber-500/50 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <span>本集正文基于旧的大纲或故事设定。人工修改不会自动解除该状态。</span>
+              <Button size="sm" variant="outline" class="shrink-0" @click="confirmSelectedEpisodeCurrent">
+                确认已适配当前大纲
+              </Button>
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-medium text-muted-foreground">本次生成 / 修改要求</label>
+              <Textarea
+                v-model="episodeInstruction"
+                rows="2"
+                placeholder="例如：保留前三场，只压缩对白并强化结尾反转"
+              />
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span class="flex flex-wrap items-center gap-x-3 gap-y-1 tabular-nums">
+                <span>{{ selectedEpisodeStats.characters }} 字</span>
+                <span v-if="selectedEpisodeStats.characters">
+                  预计 {{ formatEta(selectedEpisodeStats.estimatedSeconds) }} / 目标 {{ formatEta(studio.brief.episodeDuration) }}
+                </span>
+                <span v-else>尚无正文</span>
+                <span v-if="selectedEpisodeStats.sceneCount">{{ selectedEpisodeStats.sceneCount }} 场</span>
+              </span>
+              <span class="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  class="h-7 gap-1.5 px-2 text-xs"
+                  title="查找替换"
+                  @click="searchPanelOpen = !searchPanelOpen"
+                >
+                  <Search class="h-3.5 w-3.5" />
+                  查找替换
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  class="h-7 gap-1.5 px-2 text-xs"
+                  :title="focusMode ? '退出专注模式' : '进入专注模式'"
+                  @click="focusMode = !focusMode"
+                >
+                  <Shrink v-if="focusMode" class="h-3.5 w-3.5" />
+                  <Focus v-else class="h-3.5 w-3.5" />
+                  {{ focusMode ? '退出专注' : '专注写作' }}
+                </Button>
+              </span>
+            </div>
+
+            <div
+              v-if="searchPanelOpen"
+              class="grid grid-cols-1 gap-2 rounded-xl bg-muted/20 p-2 sm:grid-cols-[1fr_1fr_auto]"
+            >
+              <Input v-model="draftSearchText" placeholder="查找内容" />
+              <Input v-model="draftReplaceText" placeholder="替换为" />
+              <div class="flex items-center justify-end gap-1">
+                <span class="mr-1 whitespace-nowrap text-xs text-muted-foreground">
+                  {{ draftSearchMatchCount }} 处
+                </span>
+                <Button variant="outline" :disabled="!draftSearchMatchCount" @click="replaceNextInSelectedDraft">
+                  替换下一处
+                </Button>
+                <Button variant="outline" :disabled="!draftSearchMatchCount" @click="replaceAllInSelectedDraft">
+                  全部替换
+                </Button>
+                <Button
+                  v-if="replaceUndo"
+                  size="icon"
+                  variant="ghost"
+                  title="撤销上次替换"
+                  @click="undoDraftReplace"
+                >
+                  <Undo2 class="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            <div class="rounded-2xl bg-muted/30 p-1 shadow-[inset_0_1px_0_hsl(var(--foreground)/0.03)]">
+              <Textarea
+                :model-value="selectedEpisode.draft"
+                class="min-h-[22rem] resize-y border-0 bg-transparent font-mono leading-7 shadow-none focus-visible:ring-0"
+                placeholder="生成或编辑本集剧本"
+                @update:model-value="updateEpisodeDraft(selectedEpisode.id, String($event))"
+              />
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-medium text-muted-foreground">连续性账本</label>
+              <Textarea
+                v-model="selectedEpisode.continuityNotes"
+                rows="3"
+                placeholder="记录本集结束时的人物状态、时间地点、关键道具和未回收伏笔"
+              />
+            </div>
+
           </div>
-          <Textarea :model-value="selectedEpisode.draft" class="min-h-60 flex-1 resize-none font-mono leading-7" placeholder="生成或编辑本集剧本" @update:model-value="updateEpisodeDraft(selectedEpisode.id, String($event))" />
-          <div class="shrink-0 space-y-1.5"><label class="text-xs font-medium text-muted-foreground">连续性账本</label><Textarea v-model="selectedEpisode.continuityNotes" rows="3" placeholder="记录本集结束时的人物状态、时间地点、关键道具和未回收伏笔" /></div>
-          <div class="flex shrink-0 justify-end"><Button variant="outline" class="gap-2 transition-transform active:scale-[0.96]" @click="openMilestoneDialog"><FileClock class="h-4 w-4" />创建版本</Button></div>
         </div>
-        <div v-else class="flex min-h-64 flex-col items-center justify-center text-muted-foreground lg:col-span-2">
+
+        <div
+          v-else
+          class="flex min-h-64 flex-col items-center justify-center text-muted-foreground lg:col-span-2"
+        >
           <FileText class="mb-3 h-8 w-8" :stroke-width="1.5" />
+          <p class="mb-3 text-sm">还没有分集大纲</p>
           <Button variant="outline" @click="activeView = 'bible'">创建分集大纲</Button>
         </div>
       </section>
 
-      <section v-else-if="activeView === 'review'" class="mx-auto min-h-0 w-full max-w-3xl flex-1 space-y-5 overflow-y-auto p-6">
-        <header class="flex items-center justify-between gap-4"><div><h2 class="text-lg font-semibold">全剧审校</h2><p class="mt-1 text-xs text-muted-foreground">全部分集须成稿且基于当前设定；长剧会额外复核跨批连续性。</p></div><Button class="shrink-0 gap-2" :disabled="isBusy || !isComplete || freshness.outlineStale || hasStaleDrafts" @click="reviewDrafts(reviewInstruction)"><Loader2 v-if="activeAction === 'review'" class="h-4 w-4 animate-spin" /><CheckCircle2 v-else class="h-4 w-4" />开始审校</Button></header>
-        <div class="space-y-2"><label class="text-sm font-medium">本次审校重点 <span class="font-normal text-muted-foreground">可选</span></label><Textarea v-model="reviewInstruction" rows="2" placeholder="例如：重点检查第 4-6 集时间线和母亲遗物的流转" /></div>
+      <!-- Review -->
+      <section
+        v-else-if="activeView === 'review'"
+        class="mx-auto min-h-0 w-full max-w-3xl flex-1 space-y-5 overflow-y-auto p-5 sm:p-6"
+      >
+        <header class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 class="text-xl font-semibold tracking-tight">全剧审校</h2>
+            <p class="mt-1.5 text-sm leading-6 text-muted-foreground">
+              全部分集须成稿且基于当前设定；长剧会额外复核跨批连续性。
+            </p>
+          </div>
+          <Button
+            class="shrink-0 gap-2"
+            :disabled="isBusy || !isComplete || freshness.outlineStale || hasStaleDrafts"
+            @click="reviewDrafts(reviewInstruction)"
+          >
+            <Loader2 v-if="activeAction === 'review'" class="h-4 w-4 animate-spin" />
+            <CheckCircle2 v-else class="h-4 w-4" />
+            开始审校
+          </Button>
+        </header>
+
+        <div class="space-y-2">
+          <label class="text-sm font-medium">
+            本次审校重点
+            <span class="font-normal text-muted-foreground">可选</span>
+          </label>
+          <Textarea
+            v-model="reviewInstruction"
+            rows="2"
+            placeholder="例如：重点检查第 4-6 集时间线和母亲遗物的流转"
+          />
+        </div>
+
         <template v-if="studio.review">
-          <div class="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-end">
-            <div class="flex items-end gap-3"><span class="text-4xl font-semibold tabular-nums">{{ studio.review.score }}</span><span class="pb-1 text-sm text-muted-foreground">/ 100</span></div>
-            <div class="min-w-0 flex-1 pb-1"><div class="flex flex-wrap items-center gap-2"><Badge :variant="reviewProgress.passed ? 'success' : 'warning'" class="rounded-sm">{{ reviewProgress.passed ? '质检通过' : '待整改' }}</Badge><span class="text-xs tabular-nums text-muted-foreground">整改 {{ reviewProgress.completed }}/{{ reviewProgress.tasks.length }} · 通过线 {{ SCRIPT_WRITING_REVIEW_PASS_SCORE }} 分</span></div><p class="mt-2 text-sm">{{ studio.review.summary }}</p></div>
+          <div class="rounded-2xl bg-muted/25 p-5">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-end">
+              <div class="flex items-end gap-2">
+                <span class="text-5xl font-semibold tracking-tight tabular-nums">{{ studio.review.score }}</span>
+                <span class="pb-1 text-sm text-muted-foreground">/ 100</span>
+              </div>
+              <div class="min-w-0 flex-1 pb-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <Badge
+                    :variant="reviewProgress.passed ? 'success' : 'warning'"
+                    class="rounded-md"
+                  >
+                    {{ reviewProgress.passed ? '质检通过' : '待整改' }}
+                  </Badge>
+                  <span class="text-xs tabular-nums text-muted-foreground">
+                    整改 {{ reviewProgress.completed }}/{{ reviewProgress.tasks.length }} · 通过线 {{ SCRIPT_WRITING_REVIEW_PASS_SCORE }} 分
+                  </span>
+                </div>
+                <p class="mt-2 text-sm leading-6">{{ studio.review.summary }}</p>
+              </div>
+            </div>
           </div>
-          <div v-if="studio.review.issues.length || studio.review.suggestions.length" class="rounded-sm bg-muted/30 p-4">
+
+          <div
+            v-if="studio.review.issues.length || studio.review.suggestions.length"
+            class="rounded-2xl bg-muted/20 p-4"
+          >
             <h3 class="text-sm font-semibold">审校摘要</h3>
-            <ul class="mt-2 space-y-1.5 text-sm text-muted-foreground"><li v-for="issue in studio.review.issues" :key="issue">问题：{{ issue }}</li><li v-for="suggestion in studio.review.suggestions" :key="suggestion">建议：{{ suggestion }}</li></ul>
+            <ul class="mt-2 space-y-1.5 text-sm text-muted-foreground">
+              <li v-for="issue in studio.review.issues" :key="issue">问题：{{ issue }}</li>
+              <li v-for="suggestion in studio.review.suggestions" :key="suggestion">建议：{{ suggestion }}</li>
+            </ul>
           </div>
-          <div v-if="studio.review.episodeNotes.length"><h3 class="mb-2 text-sm font-semibold">分集意见</h3><div class="divide-y"><button v-for="note in studio.review.episodeNotes" :key="note.episodeId" type="button" class="flex w-full items-center gap-3 py-2 text-left text-sm hover:text-primary" @click="openEpisodeFromReview(note.episodeId)"><span class="min-w-0 flex-1">{{ note.notes }}</span><ChevronRight class="h-4 w-4 shrink-0" /></button></div></div>
+
+          <div v-if="studio.review.episodeNotes.length">
+            <h3 class="mb-2 text-sm font-semibold">分集意见</h3>
+            <div class="divide-y divide-border/20 overflow-hidden rounded-2xl bg-muted/15">
+              <button
+                v-for="note in studio.review.episodeNotes"
+                :key="note.episodeId"
+                type="button"
+                class="flex w-full items-center gap-3 bg-card/40 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40"
+                @click="openEpisodeFromReview(note.episodeId)"
+              >
+                <span class="min-w-0 flex-1">{{ note.notes }}</span>
+                <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
+            </div>
+          </div>
+
           <div v-if="reviewProgress.tasks.length">
-            <div class="mb-2 flex items-center justify-between gap-3"><h3 class="text-sm font-semibold">整改任务</h3><span class="text-xs tabular-nums text-muted-foreground">剩余 {{ reviewProgress.remaining }} 项</span></div>
-            <div class="divide-y border-y">
-              <article v-for="task in reviewProgress.tasks" :key="task.id" class="flex items-start gap-3 py-3">
-                <Checkbox :model-value="reviewTaskResolved(task)" class="mt-1" @update:model-value="toggleReviewTask(task)" />
+            <div class="mb-3 flex items-center justify-between gap-3">
+              <h3 class="text-sm font-semibold">整改任务</h3>
+              <span class="text-xs tabular-nums text-muted-foreground">剩余 {{ reviewProgress.remaining }} 项</span>
+            </div>
+            <div class="space-y-3">
+              <article
+                v-for="task in reviewProgress.tasks"
+                :key="task.id"
+                class="flex items-start gap-3 rounded-2xl bg-muted/20 p-4"
+              >
+                <Checkbox
+                  :model-value="reviewTaskResolved(task)"
+                  class="mt-1"
+                  @update:model-value="toggleReviewTask(task)"
+                />
                 <div class="min-w-0 flex-1" :class="reviewTaskResolved(task) ? 'opacity-60' : ''">
-                  <div class="flex flex-wrap items-center gap-2"><Badge :variant="task.severity === 'high' ? 'destructive' : task.severity === 'medium' ? 'warning' : 'outline'" class="rounded-sm">{{ task.severity === 'high' ? '严重' : task.severity === 'medium' ? '一般' : '轻微' }}</Badge><Badge variant="outline" class="rounded-sm">{{ task.category }}</Badge><span v-if="task.location" class="text-xs text-muted-foreground">{{ task.location }}</span></div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <Badge
+                      :variant="task.severity === 'high' ? 'destructive' : task.severity === 'medium' ? 'warning' : 'outline'"
+                      class="rounded-md"
+                    >
+                      {{ task.severity === 'high' ? '严重' : task.severity === 'medium' ? '一般' : '轻微' }}
+                    </Badge>
+                    <Badge variant="outline" class="rounded-md">{{ task.category }}</Badge>
+                    <span v-if="task.location" class="text-xs text-muted-foreground">{{ task.location }}</span>
+                  </div>
                   <p class="mt-2 text-sm font-medium">{{ task.issue }}</p>
                   <p class="mt-1 text-sm text-muted-foreground">{{ task.suggestion }}</p>
                 </div>
-                <Button size="sm" variant="outline" class="shrink-0 gap-1.5 transition-transform active:scale-[0.96]" :disabled="isBusy || !task.episodeId" @click="fixReviewTask(task)"><Sparkles class="h-3.5 w-3.5" />AI 修订</Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  class="shrink-0 gap-1.5 transition-transform active:scale-[0.96]"
+                  :disabled="isBusy || !task.episodeId"
+                  @click="fixReviewTask(task)"
+                >
+                  <Sparkles class="h-3.5 w-3.5" />
+                  AI 修订
+                </Button>
               </article>
             </div>
           </div>
-          <div v-if="reviewProgress.remaining === 0 && studio.review.score < SCRIPT_WRITING_REVIEW_PASS_SCORE" class="flex items-center justify-between gap-3 border-l-2 border-amber-500 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300"><span>整改已标记完成，但当前分数仍未达到通过线，请重新审校确认结果。</span><Button size="sm" variant="outline" :disabled="isBusy" @click="reviewDrafts(reviewInstruction)">重新审校</Button></div>
+
+          <div
+            v-if="reviewProgress.remaining === 0 && studio.review.score < SCRIPT_WRITING_REVIEW_PASS_SCORE"
+            class="flex flex-col gap-3 rounded-xl border-l-2 border-amber-500/50 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <span>整改已标记完成，但当前分数仍未达到通过线，请重新审校确认结果。</span>
+            <Button size="sm" variant="outline" :disabled="isBusy" @click="reviewDrafts(reviewInstruction)">
+              重新审校
+            </Button>
+          </div>
         </template>
-        <div v-else class="flex min-h-56 flex-col items-center justify-center text-center text-muted-foreground"><CheckCircle2 class="mb-3 h-8 w-8" :stroke-width="1.5" /><p class="text-sm font-medium text-foreground">尚未执行全剧审校</p><p class="mt-1 text-sm">完成全部 {{ studio.episodes.length }} 集正文后，可检查人物、因果、伏笔和节奏。</p></div>
+
+        <div
+          v-else
+          class="flex min-h-56 flex-col items-center justify-center rounded-2xl bg-muted/15 px-6 text-center text-muted-foreground"
+        >
+          <CheckCircle2 class="mb-3 h-8 w-8" :stroke-width="1.5" />
+          <p class="text-sm font-medium text-foreground">尚未执行全剧审校</p>
+          <p class="mt-1 max-w-sm text-sm leading-6">
+            完成全部 {{ studio.episodes.length }} 集正文后，可检查人物、因果、伏笔和节奏。
+          </p>
+        </div>
       </section>
 
-      <section v-else class="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-        <header class="flex shrink-0 flex-col gap-3 border-b px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+      <section v-else class="flex min-h-0 w-full flex-1 items-center justify-center">
+        <p class="text-sm text-muted-foreground">请选择创作步骤</p>
+      </section>
+      <!-- History removed -->
+      <!--
+        <header class="flex shrink-0 flex-col gap-3 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div>
-            <h2 class="text-lg font-semibold">版本与恢复</h2>
-            <p class="mt-1 text-xs text-muted-foreground">当前内容自动保存；关键操作前创建保护版本。固定版本不会被自动清理。</p>
+            <h2 class="text-xl font-semibold tracking-tight">版本与恢复</h2>
+            <p class="mt-1.5 text-sm text-muted-foreground">
+              当前内容自动保存；关键操作前创建保护版本。固定版本不会被自动清理。
+            </p>
           </div>
-          <Button variant="outline" class="gap-2 transition-transform active:scale-[0.96]" :disabled="isBusy" @click="openMilestoneDialog"><FileClock class="h-4 w-4" />创建里程碑</Button>
+          <Button
+            variant="outline"
+            class="gap-2 transition-transform active:scale-[0.96]"
+            :disabled="isBusy"
+            @click="openMilestoneDialog"
+          >
+            <FileClock class="h-4 w-4" />
+            创建里程碑
+          </Button>
         </header>
-        <div v-if="studio.versions.length" class="grid min-h-0 flex-1 md:grid-cols-[minmax(18rem,0.9fr)_minmax(22rem,1.1fr)]">
-          <div class="min-h-0 space-y-1 overflow-y-auto border-b p-3 md:border-b-0 md:border-r">
+
+        <div
+          v-if="studio.versions.length"
+          class="grid min-h-0 flex-1 md:grid-cols-[minmax(18rem,0.9fr)_minmax(22rem,1.1fr)]"
+        >
+          <div class="min-h-0 space-y-1 overflow-y-auto p-3 ">
             <article
               v-for="version in studio.versions"
               :key="version.id"
-              class="group flex items-start gap-3 rounded-sm px-3 py-3 transition-colors hover:bg-muted/50"
-              :class="selectedVersionId === version.id ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : ''"
+              class="group flex items-start gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-muted/50"
+              :class="selectedVersionId === version.id ? 'bg-primary/8' : ''"
             >
-              <button type="button" class="flex min-w-0 flex-1 items-start gap-3 text-left" @click="selectedVersionId = version.id">
-                <ShieldCheck v-if="version.kind === 'protection'" class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" :stroke-width="1.75" />
-                <FileClock v-else class="mt-0.5 h-4 w-4 shrink-0 text-primary" :stroke-width="1.75" />
+              <button
+                type="button"
+                class="flex min-w-0 flex-1 items-start gap-3 text-left"
+                @click="selectedVersionId = version.id"
+              >
+                <ShieldCheck
+                  v-if="version.kind === 'protection'"
+                  class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                  :stroke-width="1.75"
+                />
+                <FileClock
+                  v-else
+                  class="mt-0.5 h-4 w-4 shrink-0 text-primary"
+                  :stroke-width="1.75"
+                />
                 <span class="min-w-0 flex-1">
                   <span class="flex flex-wrap items-center gap-1.5">
                     <span class="truncate text-sm font-medium">{{ version.label }}</span>
-                    <Badge variant="outline" class="rounded-sm px-1.5 py-0 text-[10px] font-medium">{{ version.kind === 'milestone' ? '里程碑' : '保护版本' }}</Badge>
+                    <Badge variant="outline" class="rounded-md px-1.5 py-0 text-[10px] font-medium">
+                      {{ version.kind === 'milestone' ? '里程碑' : '保护版本' }}
+                    </Badge>
                     <Pin v-if="version.pinned" class="h-3 w-3 text-primary" fill="currentColor" />
                   </span>
-                  <span v-if="version.note" class="mt-1 line-clamp-2 block text-xs text-muted-foreground">{{ version.note }}</span>
+                  <span v-if="version.note" class="mt-1 line-clamp-2 block text-xs text-muted-foreground">
+                    {{ version.note }}
+                  </span>
                   <span class="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
                     <span>{{ versionSourceLabel(version.source) }}</span>
                     <span class="tabular-nums">{{ formatVersionTime(version.createdAt) }}</span>
@@ -1611,7 +1741,14 @@ function formatVersionTime(value: string) {
               </button>
               <DropdownMenu>
                 <DropdownMenuTrigger as-child>
-                  <Button size="icon" variant="ghost" class="h-7 w-7 shrink-0 opacity-70 transition-opacity active:scale-[0.96] sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100" :aria-label="`${version.label}操作`"><Ellipsis class="h-4 w-4" /></Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    class="h-7 w-7 shrink-0 opacity-70 transition-opacity active:scale-[0.96] sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                    :aria-label="`${version.label}操作`"
+                  >
+                    <Ellipsis class="h-4 w-4" />
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem @select="toggleVersionPinned(version.id, !version.pinned)">
@@ -1620,142 +1757,386 @@ function formatVersionTime(value: string) {
                     {{ version.pinned ? '取消固定' : '固定版本' }}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem destructive @select="removeVersion(version.id)"><Trash2 />删除版本</DropdownMenuItem>
+                  <DropdownMenuItem destructive @select="removeVersion(version.id)">
+                    <Trash2 />删除版本
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </article>
           </div>
+
           <aside v-if="selectedVersion" class="min-h-0 overflow-y-auto p-5 text-sm">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <p class="text-xs text-muted-foreground">{{ versionSourceLabel(selectedVersion.source) }}</p>
                 <h3 class="mt-1 truncate font-semibold">{{ selectedVersion.label }}</h3>
-                <p v-if="selectedVersion.note" class="mt-1 text-sm text-muted-foreground">{{ selectedVersion.note }}</p>
+                <p v-if="selectedVersion.note" class="mt-1 text-sm text-muted-foreground">
+                  {{ selectedVersion.note }}
+                </p>
               </div>
-              <Button size="icon" variant="ghost" class="h-8 w-8 shrink-0 transition-transform active:scale-[0.96]" title="复制版本内容" @click="copySelectedVersion"><Copy class="h-4 w-4" /></Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                class="h-8 w-8 shrink-0 transition-transform active:scale-[0.96]"
+                title="复制版本内容"
+                @click="copySelectedVersion"
+              >
+                <Copy class="h-4 w-4" />
+              </Button>
             </div>
-            <dl class="mt-5 grid grid-cols-3 gap-3 border-y py-4 text-muted-foreground">
-              <div><dt class="text-xs">角色</dt><dd class="mt-1 font-medium tabular-nums text-foreground">{{ selectedVersion.snapshot.storyBible?.characters.length || 0 }} 位</dd></div>
-              <div><dt class="text-xs">分集</dt><dd class="mt-1 font-medium tabular-nums text-foreground">{{ selectedVersion.snapshot.episodes.length }} 集</dd></div>
-              <div><dt class="text-xs">已成稿</dt><dd class="mt-1 font-medium tabular-nums text-foreground">{{ selectedVersion.snapshot.episodes.filter(item => item.draft.trim()).length }} 集</dd></div>
+
+            <dl class="mt-5 grid grid-cols-3 gap-3 rounded-2xl bg-muted/20 px-4 py-4 text-muted-foreground">
+              <div>
+                <dt class="text-xs">角色</dt>
+                <dd class="mt-1 font-medium tabular-nums text-foreground">
+                  {{ selectedVersion.snapshot.storyBible?.characters.length || 0 }} 位
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs">分集</dt>
+                <dd class="mt-1 font-medium tabular-nums text-foreground">
+                  {{ selectedVersion.snapshot.episodes.length }} 集
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs">已成稿</dt>
+                <dd class="mt-1 font-medium tabular-nums text-foreground">
+                  {{ selectedVersion.snapshot.episodes.filter(item => item.draft.trim()).length }} 集
+                </dd>
+              </div>
             </dl>
+
             <div class="mt-4">
               <p class="text-xs font-medium text-muted-foreground">版本内容预览</p>
-              <div class="mt-2 space-y-3 rounded-sm bg-muted/35 p-3">
+              <div class="mt-2 space-y-3 rounded-2xl bg-muted/35 p-4">
                 <div>
                   <p class="text-[11px] text-muted-foreground">核心创意</p>
-                  <p class="mt-0.5 line-clamp-3 text-sm">{{ selectedVersion.snapshot.brief?.idea || '未记录' }}</p>
+                  <p class="mt-0.5 line-clamp-3 text-sm">
+                    {{ selectedVersion.snapshot.brief?.idea || '未记录' }}
+                  </p>
                 </div>
                 <div v-if="selectedVersion.snapshot.storyBible">
                   <p class="text-[11px] text-muted-foreground">核心命题</p>
-                  <p class="mt-0.5 line-clamp-3 text-sm">{{ selectedVersion.snapshot.storyBible.premise || '未记录' }}</p>
+                  <p class="mt-0.5 line-clamp-3 text-sm">
+                    {{ selectedVersion.snapshot.storyBible.premise || '未记录' }}
+                  </p>
                 </div>
                 <div v-if="selectedVersion.snapshot.episodes.length">
                   <p class="text-[11px] text-muted-foreground">分集</p>
-                  <p class="mt-0.5 line-clamp-3 text-sm">{{ selectedVersion.snapshot.episodes.slice(0, 5).map(item => `${item.index}. ${item.title}`).join('；') }}{{ selectedVersion.snapshot.episodes.length > 5 ? '…' : '' }}</p>
+                  <p class="mt-0.5 line-clamp-3 text-sm">
+                    {{ selectedVersion.snapshot.episodes.slice(0, 5).map(item => `${item.index}. ${item.title}`).join('；') }}{{ selectedVersion.snapshot.episodes.length > 5 ? '…' : '' }}
+                  </p>
                 </div>
               </div>
             </div>
+
             <div class="mt-4">
               <p class="text-xs font-medium text-muted-foreground">相对当前内容</p>
               <p v-if="!hasSelectedVersionChanges" class="mt-2 text-sm text-foreground">内容一致</p>
               <div v-else class="mt-2 space-y-2 text-sm">
-                <p v-if="selectedVersionChanges.brief.length"><span class="text-muted-foreground">创作设定：</span>{{ selectedVersionChanges.brief.join('、') }}</p>
-                <p v-if="selectedVersionChanges.characters.length"><span class="text-muted-foreground">故事圣经：</span>{{ selectedVersionChanges.characters.join('、') }}</p>
+                <p v-if="selectedVersionChanges.brief.length">
+                  <span class="text-muted-foreground">项目基础信息：</span>{{ selectedVersionChanges.brief.join('、') }}
+                </p>
+                <p v-if="selectedVersionChanges.characters.length">
+                  <span class="text-muted-foreground">故事圣经：</span>{{ selectedVersionChanges.characters.join('、') }}
+                </p>
                 <div v-if="selectedVersionChanges.episodes.length">
                   <p class="text-muted-foreground">分集变化：</p>
-                  <ul class="mt-1 space-y-1"><li v-for="change in selectedVersionChanges.episodes" :key="change">{{ change }}</li></ul>
+                  <ul class="mt-1 space-y-1">
+                    <li v-for="change in selectedVersionChanges.episodes" :key="change">{{ change }}</li>
+                  </ul>
                 </div>
-                <p v-if="selectedVersionChanges.review"><span class="text-muted-foreground">审校：</span>{{ selectedVersionChanges.review }}</p>
+                <p v-if="selectedVersionChanges.review">
+                  <span class="text-muted-foreground">审校：</span>{{ selectedVersionChanges.review }}
+                </p>
               </div>
             </div>
-            <div class="mt-5 border-t pt-4">
+
+            <div class="mt-5 pt-4">
               <p class="mb-2 text-xs font-medium text-muted-foreground">恢复范围</p>
               <div class="grid grid-cols-2 gap-2">
-                <Button variant="outline" size="sm" class="justify-start gap-2 transition-transform active:scale-[0.96]" :disabled="!selectedVersion.snapshot.brief || isBusy" @click="applyVersion('brief')"><RotateCcw class="h-3.5 w-3.5" />创作设定</Button>
-                <Button variant="outline" size="sm" class="justify-start gap-2 transition-transform active:scale-[0.96]" :disabled="isBusy" @click="applyVersion('story_bible')"><RotateCcw class="h-3.5 w-3.5" />故事圣经</Button>
-                <Button variant="outline" size="sm" class="justify-start gap-2 transition-transform active:scale-[0.96]" :disabled="!selectedVersion.snapshot.episodes.length || isBusy" @click="applyVersion('outline')"><RotateCcw class="h-3.5 w-3.5" />分集大纲</Button>
-                <Button variant="outline" size="sm" class="justify-start gap-2 transition-transform active:scale-[0.96]" :disabled="!selectedEpisode || !selectedVersion.snapshot.episodes.some(item => item.id === selectedEpisode?.id) || isBusy" @click="applyVersion('episode')"><RotateCcw class="h-3.5 w-3.5" />当前第 {{ selectedEpisode?.index || '-' }} 集</Button>
-                <Button variant="outline" size="sm" class="justify-start gap-2 transition-transform active:scale-[0.96]" :disabled="!selectedVersion.snapshot.review || isBusy" @click="applyVersion('review')"><RotateCcw class="h-3.5 w-3.5" />审校结果</Button>
-                <Button size="sm" class="justify-start gap-2 transition-transform active:scale-[0.96]" :disabled="isBusy" @click="applyVersion('all')"><History class="h-3.5 w-3.5" />恢复全部</Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="justify-start gap-2 transition-transform active:scale-[0.96]"
+                  :disabled="!selectedVersion.snapshot.brief || isBusy"
+                  @click="applyVersion('brief')"
+                >
+                  <RotateCcw class="h-3.5 w-3.5" />项目基础信息
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="justify-start gap-2 transition-transform active:scale-[0.96]"
+                  :disabled="isBusy"
+                  @click="applyVersion('story_bible')"
+                >
+                  <RotateCcw class="h-3.5 w-3.5" />故事圣经
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="justify-start gap-2 transition-transform active:scale-[0.96]"
+                  :disabled="!selectedVersion.snapshot.episodes.length || isBusy"
+                  @click="applyVersion('outline')"
+                >
+                  <RotateCcw class="h-3.5 w-3.5" />分集大纲
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="justify-start gap-2 transition-transform active:scale-[0.96]"
+                  :disabled="!selectedEpisode || !selectedVersion.snapshot.episodes.some(item => item.id === selectedEpisode?.id) || isBusy"
+                  @click="applyVersion('episode')"
+                >
+                  <RotateCcw class="h-3.5 w-3.5" />当前第 {{ selectedEpisode?.index || '-' }} 集
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="justify-start gap-2 transition-transform active:scale-[0.96]"
+                  :disabled="!selectedVersion.snapshot.review || isBusy"
+                  @click="applyVersion('review')"
+                >
+                  <RotateCcw class="h-3.5 w-3.5" />审校结果
+                </Button>
+                <Button
+                  size="sm"
+                  class="justify-start gap-2 transition-transform active:scale-[0.96]"
+                  :disabled="isBusy"
+                  @click="applyVersion('all')"
+                >
+                  <History class="h-3.5 w-3.5" />恢复全部
+                </Button>
               </div>
-              <p class="mt-2 text-xs text-muted-foreground">局部恢复只替换所选内容；每次恢复前都会创建保护版本。</p>
+              <p class="mt-2 text-xs text-muted-foreground">
+                局部恢复只替换所选内容；每次恢复前都会创建保护版本。
+              </p>
             </div>
           </aside>
         </div>
-        <div v-else class="flex min-h-64 flex-1 flex-col items-center justify-center px-6 text-center text-muted-foreground">
+
+        <div
+          v-else
+          class="flex min-h-64 flex-1 flex-col items-center justify-center px-6 text-center text-muted-foreground"
+        >
           <History class="mb-3 h-8 w-8" :stroke-width="1.5" />
           <p class="text-sm font-medium text-foreground">还没有历史版本</p>
-          <p class="mt-1 max-w-sm text-sm">关键生成和恢复操作前会自动出现保护版本，也可以创建带名称和备注的里程碑。</p>
-          <Button variant="outline" class="mt-4 gap-2 transition-transform active:scale-[0.96]" @click="openMilestoneDialog"><FileClock class="h-4 w-4" />创建首个里程碑</Button>
+          <p class="mt-1 max-w-sm text-sm leading-6">
+            关键生成和恢复操作前会自动出现保护版本，也可以创建带名称和备注的里程碑。
+          </p>
+          <Button
+            variant="outline"
+            class="mt-4 gap-2 transition-transform active:scale-[0.96]"
+            @click="openMilestoneDialog"
+          >
+            <FileClock class="h-4 w-4" />
+            创建首个里程碑
+          </Button>
         </div>
-      </section>
+      </section>-->
     </main>
 
     <Dialog :open="!!pendingGeneration" @update:open="open => { if (!open) discardCandidate() }">
       <DialogContent class="max-h-[90vh] max-w-6xl overflow-hidden">
         <DialogHeader>
           <DialogTitle>{{ pendingGenerationSummary?.title }}</DialogTitle>
-          <DialogDescription>候选稿尚未写入项目。确认内容方向后再替换，当前版本会保留在历史记录中。</DialogDescription>
+          <DialogDescription>
+            候选稿尚未写入项目。确认内容方向后再替换当前内容。
+          </DialogDescription>
         </DialogHeader>
         <div v-if="pendingGenerationChanges.length" class="flex flex-wrap gap-2">
-          <Badge v-for="change in pendingGenerationChanges" :key="change" variant="outline" class="rounded-sm bg-muted/30">{{ change }}</Badge>
+          <Badge
+            v-for="change in pendingGenerationChanges"
+            :key="change"
+            variant="outline"
+            class="rounded-md bg-muted/30"
+          >
+            {{ change }}
+          </Badge>
         </div>
-        <section v-if="pendingGeneration?.kind === 'episode_draft'" class="min-h-0 rounded-sm border bg-muted/20 p-4">
+        <section
+          v-if="pendingGeneration?.kind === 'episode_draft'"
+          class="min-h-0 rounded-xl bg-muted/20 p-4"
+        >
           <h3 class="text-xs font-medium text-muted-foreground">行级差异</h3>
-          <pre class="mt-3 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-sm leading-6"><span v-for="(part, index) in pendingDraftDiff" :key="index" :class="part.added ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300' : part.removed ? 'bg-destructive/10 text-destructive line-through' : 'text-muted-foreground'">{{ part.added ? '+ ' : part.removed ? '- ' : '  ' }}{{ part.value }}</span></pre>
+          <pre class="mt-3 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-sm leading-6"><span
+            v-for="(part, index) in pendingDraftDiff"
+            :key="index"
+            :class="part.added
+              ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+              : part.removed
+                ? 'bg-destructive/10 text-destructive line-through'
+                : 'text-muted-foreground'"
+          >{{ part.added ? '+ ' : part.removed ? '- ' : '  ' }}{{ part.value }}</span></pre>
         </section>
         <div class="grid min-h-0 gap-3 md:grid-cols-2">
-          <section class="flex min-h-0 flex-col rounded-sm bg-muted/40 p-4">
+          <section class="flex min-h-0 flex-col rounded-xl bg-muted/40 p-4">
             <h3 class="text-xs font-medium text-muted-foreground">当前内容</h3>
             <pre class="mt-3 max-h-[55vh] min-h-64 overflow-auto whitespace-pre-wrap font-sans text-sm leading-6">{{ pendingCurrentContent }}</pre>
           </section>
-          <section class="flex min-h-0 flex-col rounded-sm bg-primary/5 p-4 ring-1 ring-inset ring-primary/15">
-            <div class="flex items-center justify-between gap-2"><h3 class="text-xs font-medium text-primary">候选内容</h3><span class="text-xs text-muted-foreground">可编辑后采纳</span></div>
-            <Textarea v-if="pendingGeneration?.kind === 'episode_draft'" v-model="pendingCandidateContent" class="mt-3 min-h-64 max-h-[55vh] flex-1 resize-none overflow-auto font-mono leading-6" />
-            <div v-else-if="pendingGeneration?.kind === 'story_bible'" class="mt-3 max-h-[55vh] min-h-64 space-y-3 overflow-auto pr-1">
-              <div v-for="field in ([['premise', '核心命题'], ['theme', '主题'], ['world', '世界设定'], ['tone', '基调']] as const)" :key="field[0]" class="space-y-1.5"><label class="text-xs text-muted-foreground">{{ field[1] }}</label><Textarea :model-value="pendingGeneration.storyBible[field[0]]" rows="2" @update:model-value="updatePendingStoryBibleField(field[0], String($event))" /></div>
-              <div class="space-y-1.5"><label class="text-xs text-muted-foreground">角色</label><div class="space-y-2"><div v-for="character in pendingGeneration.storyBible.characters" :key="character.id" class="rounded-sm border bg-background/60 p-3"><div class="flex items-center gap-2"><Input v-model="character.name" placeholder="角色名" /><Button size="icon" variant="ghost" class="h-8 w-8 shrink-0 text-destructive" title="不采纳该角色" @click="removePendingCharacter(character.id)"><Trash2 class="h-3.5 w-3.5" /></Button></div><Input v-model="character.role" class="mt-2" placeholder="角色定位" /><Textarea v-model="character.profile" class="mt-2" rows="2" placeholder="角色小传" /><Textarea v-model="character.motivation" class="mt-2" rows="2" placeholder="核心动机" /><Textarea v-model="character.arc" class="mt-2" rows="2" placeholder="人物成长弧" /></div></div></div>
-              <div class="space-y-1.5"><label class="text-xs text-muted-foreground">创作规则</label><Textarea :model-value="pendingGeneration.storyBible.rules.join('\n')" rows="4" @update:model-value="updatePendingStoryRules(String($event))" /></div>
+          <section class="flex min-h-0 flex-col rounded-xl bg-primary/5 p-4 ring-1 ring-inset ring-primary/15">
+            <div class="flex items-center justify-between gap-2">
+              <h3 class="text-xs font-medium text-primary">候选内容</h3>
+              <span class="text-xs text-muted-foreground">可编辑后采纳</span>
             </div>
-            <div v-else-if="pendingGeneration?.kind === 'outline'" class="mt-3 max-h-[55vh] min-h-64 space-y-3 overflow-auto pr-1">
-              <section v-for="episode in pendingGeneration.episodes" :key="episode.id" class="space-y-2 border-b pb-3 last:border-0">
-                <div class="flex items-center gap-2"><span class="w-8 shrink-0 text-xs tabular-nums text-muted-foreground">{{ episode.index }}</span><Input :model-value="episode.title" @update:model-value="updatePendingEpisodeField(episode.id, 'title', String($event))" /><Button size="icon" variant="ghost" class="h-8 w-8 shrink-0 text-destructive" title="不采纳该分集" @click="removePendingEpisode(episode.id)"><Trash2 class="h-3.5 w-3.5" /></Button></div>
-                <Textarea :model-value="episode.summary" rows="2" @update:model-value="updatePendingEpisodeField(episode.id, 'summary', String($event))" />
-                <Textarea :model-value="episode.hook" rows="2" placeholder="结尾钩子" @update:model-value="updatePendingEpisodeField(episode.id, 'hook', String($event))" />
-                <Textarea :model-value="episode.beats.join('\n')" rows="4" placeholder="每行一个剧情节拍" @update:model-value="updatePendingEpisodeField(episode.id, 'beats', String($event))" />
+            <Textarea
+              v-if="pendingGeneration?.kind === 'episode_draft'"
+              v-model="pendingCandidateContent"
+              class="mt-3 min-h-64 max-h-[55vh] flex-1 resize-none overflow-auto font-mono leading-6"
+            />
+            <div
+              v-else-if="pendingGeneration?.kind === 'story_bible'"
+              class="mt-3 max-h-[55vh] min-h-64 space-y-3 overflow-auto pr-1"
+            >
+              <div
+                v-for="field in ([['premise', '核心命题'], ['theme', '主题'], ['world', '世界设定'], ['tone', '基调']] as const)"
+                :key="field[0]"
+                class="space-y-1.5"
+              >
+                <label class="text-xs text-muted-foreground">{{ field[1] }}</label>
+                <Textarea
+                  :model-value="pendingGeneration.storyBible[field[0]]"
+                  rows="2"
+                  @update:model-value="updatePendingStoryBibleField(field[0], String($event))"
+                />
+              </div>
+              <div class="space-y-1.5">
+                <label class="text-xs text-muted-foreground">角色</label>
+                <div class="space-y-2">
+                  <div
+                    v-for="character in pendingGeneration.storyBible.characters"
+                    :key="character.id"
+                    class="rounded-xl bg-background/70 p-3"
+                  >
+                    <div class="flex items-center gap-2">
+                      <Input v-model="character.name" placeholder="角色名" />
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        class="h-8 w-8 shrink-0 text-destructive"
+                        title="不采纳该角色"
+                        @click="removePendingCharacter(character.id)"
+                      >
+                        <Trash2 class="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <Input v-model="character.role" class="mt-2" placeholder="角色定位" />
+                    <Textarea v-model="character.profile" class="mt-2" rows="2" placeholder="角色小传" />
+                    <Textarea v-model="character.motivation" class="mt-2" rows="2" placeholder="核心动机" />
+                    <Textarea v-model="character.arc" class="mt-2" rows="2" placeholder="人物成长弧" />
+                  </div>
+                </div>
+              </div>
+              <div class="space-y-1.5">
+                <label class="text-xs text-muted-foreground">创作规则</label>
+                <Textarea
+                  :model-value="pendingGeneration.storyBible.rules.join('\n')"
+                  rows="4"
+                  @update:model-value="updatePendingStoryRules(String($event))"
+                />
+              </div>
+            </div>
+            <div
+              v-else-if="pendingGeneration?.kind === 'outline'"
+              class="mt-3 max-h-[55vh] min-h-64 space-y-3 overflow-auto pr-1"
+            >
+              <section
+                v-for="episode in pendingGeneration.episodes"
+                :key="episode.id"
+                class="space-y-2 pb-3"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="w-8 shrink-0 text-xs tabular-nums text-muted-foreground">{{ episode.index }}</span>
+                  <Input
+                    :model-value="episode.title"
+                    @update:model-value="updatePendingEpisodeField(episode.id, 'title', String($event))"
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    class="h-8 w-8 shrink-0 text-destructive"
+                    title="不采纳该分集"
+                    @click="removePendingEpisode(episode.id)"
+                  >
+                    <Trash2 class="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <Textarea
+                  :model-value="episode.summary"
+                  rows="2"
+                  @update:model-value="updatePendingEpisodeField(episode.id, 'summary', String($event))"
+                />
+                <Textarea
+                  :model-value="episode.hook"
+                  rows="2"
+                  placeholder="结尾钩子"
+                  @update:model-value="updatePendingEpisodeField(episode.id, 'hook', String($event))"
+                />
+                <Textarea
+                  :model-value="episode.beats.join('\n')"
+                  rows="4"
+                  placeholder="每行一个剧情节拍"
+                  @update:model-value="updatePendingEpisodeField(episode.id, 'beats', String($event))"
+                />
               </section>
             </div>
           </section>
         </div>
         <DialogFooter class="gap-2 sm:gap-2">
           <Button variant="outline" @click="discardCandidate">保留当前内容</Button>
-          <Button :disabled="!pendingCandidateContent.trim()" @click="acceptPendingGeneration">采用候选稿</Button>
+          <Button :disabled="!pendingCandidateContent.trim()" @click="acceptPendingGeneration">
+            采用候选稿
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
 
-    <Dialog v-model:open="milestoneDialogOpen">
+    <!-- Milestone dialog removed -->
+    <!-- <Dialog v-model:open="milestoneDialogOpen">
       <DialogContent class="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>创建里程碑</DialogTitle>
-          <DialogDescription>里程碑保存当前项目的完整内容，并默认固定，不受保护版本轮换影响。</DialogDescription>
+          <DialogDescription>
+            里程碑保存当前项目的完整内容，并默认固定，不受保护版本轮换影响。
+          </DialogDescription>
         </DialogHeader>
         <div class="space-y-4 py-1">
           <div class="space-y-2">
             <label for="milestone-name" class="text-sm font-medium">名称</label>
-            <Input id="milestone-name" v-model="milestoneName" maxlength="80" placeholder="例如：人物关系定稿" @keydown.enter.prevent="submitMilestone" />
+            <Input
+              id="milestone-name"
+              v-model="milestoneName"
+              maxlength="80"
+              placeholder="例如：人物关系定稿"
+              @keydown.enter.prevent="submitMilestone"
+            />
           </div>
           <div class="space-y-2">
-            <label for="milestone-note" class="text-sm font-medium">备注 <span class="font-normal text-muted-foreground">可选</span></label>
-            <Textarea id="milestone-note" v-model="milestoneNote" rows="3" maxlength="300" placeholder="记录这版完成了什么，或后续需要注意的事项" />
+            <label for="milestone-note" class="text-sm font-medium">
+              备注
+              <span class="font-normal text-muted-foreground">可选</span>
+            </label>
+            <Textarea
+              id="milestone-note"
+              v-model="milestoneNote"
+              rows="3"
+              maxlength="300"
+              placeholder="记录这版完成了什么，或后续需要注意的事项"
+            />
           </div>
         </div>
         <DialogFooter class="gap-2 sm:gap-2">
           <Button variant="outline" @click="milestoneDialogOpen = false">取消</Button>
-          <Button class="transition-transform active:scale-[0.96]" :disabled="!milestoneName.trim() || isBusy" @click="submitMilestone">创建里程碑</Button>
+          <Button
+            class="transition-transform active:scale-[0.96]"
+            :disabled="!milestoneName.trim() || isBusy"
+            @click="submitMilestone"
+          >
+            创建里程碑
+          </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
+    </Dialog> -->
   </div>
 </template>

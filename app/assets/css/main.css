@@ -362,3 +362,28 @@
     scaleX(0.48);
   transition-delay: calc((7 - var(--ray-index)) * 8ms);
 }
+
+
+/* Borderless surface system */
+@layer components {
+  .ui-surface {
+    @apply rounded-xl border-0 bg-muted/30 shadow-none;
+  }
+
+  .ui-field {
+    @apply rounded-lg border-0 bg-muted/40 shadow-none transition-[background-color,box-shadow] duration-150;
+  }
+
+  .ui-field:hover {
+    @apply bg-muted/55;
+  }
+
+  .ui-field:focus,
+  .ui-field:focus-visible {
+    @apply outline-none ring-2 ring-inset ring-ring/55;
+  }
+
+  .ui-popover {
+    @apply rounded-xl border-0 bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)];
+  }
+}

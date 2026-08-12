@@ -572,7 +572,7 @@ onMounted(() => {
       :description="isAdmin ? '按成员浏览和管理云端图片、视频素材' : '浏览云端图片和视频素材'"
     >
       <template #actions>
-          <div v-if="!isAdmin" class="flex rounded-md border bg-muted/30 p-1">
+          <div v-if="!isAdmin" class="flex rounded-xl bg-muted/25 p-1">
             <button
               v-for="tab in assetTabs"
               :key="tab.id"
@@ -648,7 +648,7 @@ onMounted(() => {
           </p>
         </div>
 
-        <div class="flex w-fit rounded-md border bg-muted/30 p-1">
+        <div class="flex w-fit rounded-xl bg-muted/25 p-1">
           <button
             v-for="tab in adminCategoryTabs"
             :key="tab.id"
@@ -665,12 +665,12 @@ onMounted(() => {
 
       <div
         v-if="errorMessage"
-        class="shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+        class="shrink-0 rounded-xl bg-destructive/8 p-4 text-sm text-destructive"
       >
         {{ errorMessage }}
       </div>
 
-      <div class="min-h-0 flex-1 overflow-hidden rounded-lg border bg-card flex flex-col">
+      <div class="min-h-0 flex-1 overflow-hidden rounded-xl bg-muted/25 flex flex-col">
         <div class="shrink-0 flex flex-col gap-3 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
           <nav class="flex min-w-0 items-center overflow-x-auto text-sm" aria-label="当前目录">
             <template v-for="(item, index) in breadcrumbItems" :key="item.prefix">
@@ -930,7 +930,7 @@ onMounted(() => {
         class="pointer-events-none fixed z-[70] hidden md:block"
         :style="{ left: `${hoverPreviewPosition.x}px`, top: `${hoverPreviewPosition.y}px` }"
       >
-        <div class="w-80 rounded-lg border bg-card/95 p-2 shadow-2xl backdrop-blur-sm">
+        <div class="w-80 rounded-xl bg-muted/25/95 p-2 shadow-2xl backdrop-blur-sm">
           <video
             v-if="isVideoFile(hoverPreviewFile.key)"
             :src="hoverPreviewFile.url"

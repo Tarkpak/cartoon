@@ -163,7 +163,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-3 rounded-lg border bg-background p-4">
+  <div class="space-y-3 rounded-xl bg-muted/25 p-4">
     <div>
       <h3 class="text-sm font-medium">
         供应商凭证
@@ -175,7 +175,7 @@ onMounted(() => {
 
     <div
       v-if="cloudAuthenticated"
-      class="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary"
+      class="rounded-xl border-0 bg-primary/8 px-3 py-2 text-xs text-primary"
     >
       当前客户端已连接后台，供应商 Key 会在启动时从后台拉取。
     </div>
@@ -297,7 +297,7 @@ onMounted(() => {
 
       <div
         v-if="props.provider === 'volcengine'"
-        class="space-y-3 rounded-md border bg-muted/20 p-3"
+        class="space-y-3 rounded-xl bg-muted/20 p-3"
       >
         <div>
           <p class="text-xs font-medium">

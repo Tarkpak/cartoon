@@ -115,7 +115,7 @@ const videoResultMeta = computed(() => {
       <!-- Text result -->
       <div
         v-if="props.activeTab === 'text' && props.testResults.text.result"
-        class="rounded-lg border bg-muted/20 p-4"
+        class="rounded-xl bg-muted/20 p-4"
       >
         <p class="whitespace-pre-wrap text-sm leading-relaxed">
           {{ props.testResults.text.result }}
@@ -136,7 +136,7 @@ const videoResultMeta = computed(() => {
       <!-- Video result -->
       <div
         v-if="props.activeTab === 'video' && videoResultUrl"
-        class="mx-auto aspect-video w-full max-w-5xl overflow-hidden rounded-lg border bg-black/90"
+        class="mx-auto aspect-video w-full max-w-5xl overflow-hidden rounded-xl bg-black/90"
       >
         <video
           :src="videoResultUrl"
@@ -147,7 +147,7 @@ const videoResultMeta = computed(() => {
       </div>
       <div
         v-if="props.activeTab === 'video' && videoResultUrl"
-        class="rounded-lg border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+        class="rounded-xl bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
       >
         参考图: {{ videoResultMeta.usedReferenceImageCount }} 项 · 参考视频: {{ videoResultMeta.usedReferenceVideoCount }} 项 · 音频参考: {{ videoResultMeta.usedReferenceAudioCount }} 项 · 首帧: {{ videoResultMeta.hasFirstFrame ? '有' : '无' }} · 尾帧: {{ videoResultMeta.hasLastFrame ? '有' : '无' }}
       </div>
@@ -162,7 +162,7 @@ const videoResultMeta = computed(() => {
         />
         <div
           v-else
-          class="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground"
+          class="rounded-xl bg-muted/20 p-3 text-sm text-muted-foreground"
         >
           测试成功，但未获取到可预览的音频地址
         </div>
@@ -172,7 +172,7 @@ const videoResultMeta = computed(() => {
     <!-- Error state -->
     <div
       v-else-if="activeResult.status === 'error'"
-      class="rounded-lg border border-destructive/20 bg-destructive/5 p-4"
+      class="rounded-xl bg-destructive/8 p-4"
     >
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-start gap-2">

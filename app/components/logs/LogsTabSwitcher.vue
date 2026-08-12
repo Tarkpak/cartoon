@@ -26,7 +26,7 @@ const tabs: Array<{
   <div
     role="tablist"
     aria-label="日志类型"
-    class="inline-flex w-fit shrink-0 rounded-md border bg-muted/40 p-1"
+    class="inline-flex w-fit shrink-0 rounded-xl bg-muted/30 p-1"
   >
     <button
       v-for="tab in tabs"

@@ -63,7 +63,7 @@ defineProps<{
     <!-- Empty state -->
     <div
       v-if="filteredStylePresets.length === 0"
-      class="flex flex-col items-center justify-center rounded-xl border border-dashed py-16 text-muted-foreground"
+      class="flex flex-col items-center justify-center rounded-xl bg-muted/15 py-16 text-muted-foreground"
     >
       <Search class="mb-3 h-10 w-10 opacity-20" />
       <p class="text-sm">

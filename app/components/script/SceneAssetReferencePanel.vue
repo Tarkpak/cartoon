@@ -48,8 +48,8 @@ defineProps<{
 
     <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
       <div
-        class="space-y-2 rounded-md border p-2 transition"
-        :class="activeDropZone === 'pool' ? 'border-primary bg-primary/5' : 'border-input'"
+        class="space-y-2 rounded-xl bg-muted/15 p-2 transition"
+        :class="activeDropZone === 'pool' ? 'bg-primary/10 ring-1 ring-inset ring-primary/25' : 'bg-muted/25'"
         @dragover="handleDropZoneDragOver('pool', $event)"
         @dragleave="handleDropZoneDragLeave('pool', $event)"
         @drop="handleDropZoneDrop('pool', $event)"
@@ -60,7 +60,7 @@ defineProps<{
 
         <div
           v-if="assetPoolReferences.length === 0"
-          class="rounded border border-dashed px-2 py-4 text-center text-xs text-muted-foreground"
+          class="rounded-xl bg-muted/15 px-2 py-4 text-center text-xs text-muted-foreground"
         >
           没有可添加的资产
         </div>
@@ -98,8 +98,8 @@ defineProps<{
       </div>
 
       <div
-        class="space-y-2 rounded-md border p-2 transition"
-        :class="activeDropZone === 'selected' ? 'border-primary bg-primary/5' : 'border-input'"
+        class="space-y-2 rounded-xl bg-muted/15 p-2 transition"
+        :class="activeDropZone === 'selected' ? 'bg-primary/10 ring-1 ring-inset ring-primary/25' : 'bg-muted/25'"
         @dragover="handleDropZoneDragOver('selected', $event)"
         @dragleave="handleDropZoneDragLeave('selected', $event)"
         @drop="handleDropZoneDrop('selected', $event)"
@@ -110,7 +110,7 @@ defineProps<{
 
         <div
           v-if="selectedAssetReferenceIds.length === 0"
-          class="rounded border border-dashed px-2 py-4 text-center text-xs text-muted-foreground"
+          class="rounded-xl bg-muted/15 px-2 py-4 text-center text-xs text-muted-foreground"
         >
           暂无引用资产
         </div>
@@ -164,7 +164,7 @@ defineProps<{
 
   <div
     v-else
-    class="rounded-md border border-dashed p-4 text-sm text-muted-foreground"
+    class="rounded-xl bg-muted/15 p-4 text-sm text-muted-foreground"
   >
     当前没有可管理的引用资产，请先在工作流中准备角色/环境/道具资产。
   </div>

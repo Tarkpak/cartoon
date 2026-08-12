@@ -63,7 +63,7 @@ onMounted(() => {
 <template>
   <div
     v-if="isDesktopRuntime"
-    class="space-y-4 rounded-lg border bg-background p-5"
+    class="space-y-4 rounded-xl bg-muted/25 p-5"
   >
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="min-w-0">
@@ -94,7 +94,7 @@ onMounted(() => {
     </div>
 
     <div class="grid grid-cols-1 gap-3 text-sm @sm:grid-cols-2">
-      <div class="rounded-md border bg-muted/20 p-3">
+      <div class="rounded-xl bg-muted/20 p-3">
         <div class="text-xs text-muted-foreground">
           当前版本
         </div>
@@ -102,7 +102,7 @@ onMounted(() => {
           {{ currentVersion || '未知' }}
         </div>
       </div>
-      <div class="rounded-md border bg-muted/20 p-3">
+      <div class="rounded-xl bg-muted/20 p-3">
         <div class="text-xs text-muted-foreground">
           上次检查
         </div>
@@ -114,7 +114,7 @@ onMounted(() => {
 
     <div
       v-if="error"
-      class="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+      class="flex items-start gap-2 rounded-xl bg-destructive/8 p-3 text-sm text-destructive"
     >
       <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
       {{ error }}
@@ -122,7 +122,7 @@ onMounted(() => {
 
     <div
       v-else-if="statusMessage && !hasUpdate"
-      class="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-700 dark:text-emerald-400"
+      class="flex items-start gap-2 rounded-xl bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-400"
     >
       <CheckCircle2 class="mt-0.5 h-4 w-4 shrink-0" />
       {{ statusMessage }}
@@ -130,7 +130,7 @@ onMounted(() => {
 
     <div
       v-if="hasUpdate && availableUpdate"
-      class="space-y-3 rounded-lg border bg-muted/20 p-4"
+      class="space-y-3 rounded-xl bg-muted/20 p-4"
     >
       <div class="flex flex-col gap-3 @xl:flex-row @xl:items-start @xl:justify-between">
         <div class="min-w-0">
@@ -170,7 +170,7 @@ onMounted(() => {
 
       <div
         v-if="availableUpdate.body"
-        class="whitespace-pre-wrap rounded-md border bg-background p-3 text-xs leading-6 text-muted-foreground"
+        class="whitespace-pre-wrap rounded-xl bg-muted/25 p-3 text-xs leading-6 text-muted-foreground"
       >
         {{ availableUpdate.body }}
       </div>

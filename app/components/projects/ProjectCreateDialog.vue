@@ -168,8 +168,8 @@ function applyDefaultStyle() {
               :key="option.value"
               type="button"
               variant="ghost"
-              class="h-auto rounded-md border p-3 text-left transition whitespace-normal"
-              :class="newProject.scriptParseMode === option.value ? 'border-primary bg-primary/10' : 'border-input hover:border-primary/50'"
+              class="h-auto rounded-xl bg-muted/20 p-3 text-left transition whitespace-normal"
+              :class="newProject.scriptParseMode === option.value ? 'border-primary bg-primary/10' : 'border-input hover:bg-muted/35'"
               @click="setScriptParseMode(option.value)"
             >
               <div class="text-sm font-medium">
@@ -189,8 +189,8 @@ function applyDefaultStyle() {
               :key="option.value"
               type="button"
               variant="ghost"
-              class="h-auto rounded-md border p-3 text-center transition whitespace-normal"
-              :class="newProject.aspectRatio === option.value ? 'border-primary bg-primary/10' : 'border-input hover:border-primary/50'"
+              class="h-auto rounded-xl bg-muted/20 p-3 text-center transition whitespace-normal"
+              :class="newProject.aspectRatio === option.value ? 'border-primary bg-primary/10' : 'border-input hover:bg-muted/35'"
               @click="setAspectRatio(option.value)"
             >
               <div class="text-sm font-medium">
@@ -250,7 +250,7 @@ function applyDefaultStyle() {
       >
         <div
           v-if="defaultStyleLabel"
-          class="flex shrink-0 items-center gap-3 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2"
+          class="flex shrink-0 items-center gap-3 rounded-xl border-0 bg-amber-500/10 px-3 py-2"
         >
           <Star class="h-4 w-4 shrink-0 fill-amber-500 text-amber-500" />
           <div class="min-w-0 flex-1">

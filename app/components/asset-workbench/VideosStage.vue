@@ -583,9 +583,9 @@ watch(episodeDirectoryCollapsed, (value) => {
             : 'translate-x-0 opacity-100'"
         >
           <aside
-            class="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border/70 bg-muted/10"
+            class="flex h-full min-h-0 flex-col overflow-hidden rounded-xl bg-muted/15"
           >
-            <div class="shrink-0 border-b border-border/60 px-2 py-2">
+            <div class="shrink-0 px-2 py-2">
               <div class="flex items-start justify-between gap-2">
                 <div>
                   <div class="text-xs font-medium text-foreground">
@@ -604,10 +604,10 @@ watch(episodeDirectoryCollapsed, (value) => {
                 :key="episode.id"
                 type="button"
                 variant="ghost"
-                class="h-auto w-full justify-start rounded-md border px-2 py-1.5 text-left text-xs transition-colors"
+                class="h-auto w-full justify-start rounded-xl bg-muted/15 px-2 py-1.5 text-left text-xs transition-colors"
                 :title="resolveEpisodeDisplayTitle(episode)"
                 :class="selectedEpisodeId === episode.id
-                  ? 'border-foreground bg-muted text-foreground shadow-sm'
+                  ? 'bg-background/90 text-foreground shadow-sm'
                   : 'border-border/70 bg-background text-foreground/80 hover:border-foreground/30 hover:bg-muted/60'"
                 @click="handleSelectEpisode(episode.id)"
               >
@@ -665,13 +665,13 @@ watch(episodeDirectoryCollapsed, (value) => {
               </Button>
               <p
                 v-if="selectedEpisodeParsing"
-                class="rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs text-muted-foreground"
+                class="rounded-xl bg-muted/20 px-2 py-1.5 text-xs text-muted-foreground"
               >
                 {{ parseProgressMessage || '本集解析任务已创建，等待模型响应' }}
               </p>
               <p
                 v-else-if="parseEpisodeError"
-                class="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs text-destructive"
+                class="rounded-xl border-0 bg-destructive/8 px-2 py-1.5 text-xs text-destructive"
               >
                 {{ parseEpisodeError }}
               </p>
@@ -682,7 +682,7 @@ watch(episodeDirectoryCollapsed, (value) => {
 
       <div class="order-2 relative min-h-0 flex flex-col gap-2 overflow-hidden pr-1">
         <div
-          class="flex shrink-0 items-center gap-2 rounded-md border border-border/60 bg-background px-3 py-2 text-xs text-muted-foreground"
+          class="flex shrink-0 items-center gap-2 rounded-xl bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
         >
           <Button
             v-if="episodeCount > 0"
@@ -706,7 +706,7 @@ watch(episodeDirectoryCollapsed, (value) => {
         <div class="min-h-0 flex-1 space-y-2 overflow-y-auto">
           <div
             v-if="selectedEpisodeScenes.length === 0"
-            class="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-4 text-xs text-muted-foreground"
+            class="rounded-xl bg-muted/15 bg-muted/20 px-3 py-4 text-xs text-muted-foreground"
           >
             {{ emptySelectedEpisodeMessage }}
           </div>
@@ -777,7 +777,7 @@ watch(episodeDirectoryCollapsed, (value) => {
       </div>
 
       <!-- Video preview panel -->
-      <div class="order-3 min-h-0 flex flex-col rounded-lg border bg-muted/5">
+      <div class="order-3 min-h-0 flex flex-col rounded-xl bg-muted/10">
         <template v-if="selectedScene">
           <div class="space-y-2 border-b px-4 py-3">
             <div class="text-xs font-medium text-muted-foreground">

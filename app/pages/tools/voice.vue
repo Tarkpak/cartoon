@@ -615,7 +615,7 @@ onBeforeUnmount(() => {
     >
       <template #actions>
         <div
-          class="flex rounded-md border bg-muted/30 p-1"
+          class="flex rounded-xl bg-muted/25 p-1"
           role="tablist"
           aria-label="声音工作台页面"
         >
@@ -641,7 +641,7 @@ onBeforeUnmount(() => {
       class="flex shrink-0 flex-wrap items-center gap-3 border-b bg-muted/10 px-4 py-3 sm:px-6"
     >
       <span class="hidden text-xs font-medium text-muted-foreground sm:inline">生成方式</span>
-      <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1 rounded-md border bg-background p-0.5 sm:flex-none" role="tablist" aria-label="声音生成方式">
+      <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1 rounded-xl bg-muted/25 p-0.5 sm:flex-none" role="tablist" aria-label="声音生成方式">
         <button
           v-for="item in modeOptions"
           :key="item.value"
@@ -713,7 +713,7 @@ onBeforeUnmount(() => {
                     v-if="presetVoiceComboboxOpen"
                     id="preset-voice-options"
                     role="listbox"
-                    class="absolute z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+                    class="absolute z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] p-1 text-popover-foreground shadow-md"
                   >
                     <div
                       v-for="(voice, index) in filteredPresetVoiceOptions"
@@ -794,7 +794,7 @@ onBeforeUnmount(() => {
             <div v-if="generationMode === 'reference_audio' || generationMode === 'reference_image'" class="space-y-2">
               <label class="text-sm font-medium">{{ generationMode === 'reference_image' ? '参考图片' : '参考音频' }}</label>
               <input ref="referenceInput" type="file" class="hidden" :accept="referenceAccept" :multiple="generationMode === 'reference_audio'" @change="handleReferenceFiles">
-              <button type="button" class="flex min-h-24 w-full items-center justify-center gap-2 border border-dashed text-sm text-muted-foreground transition-[border-color,color,background-color,transform] hover:border-primary/50 hover:bg-primary/5 hover:text-foreground active:scale-[0.96]" @click="referenceInput?.click()">
+              <button type="button" class="flex min-h-24 w-full items-center justify-center gap-2 border border-dashed text-sm text-muted-foreground transition-[border-color,color,background-color,transform] hover:bg-muted/35 hover:bg-primary/5 hover:text-foreground active:scale-[0.96]" @click="referenceInput?.click()">
                 <Upload class="h-4 w-4" />
                 {{ references.length ? `已选择 ${references.length} 个文件` : '选择参考文件' }}
               </button>
@@ -857,7 +857,7 @@ onBeforeUnmount(() => {
             <div class="space-y-2">
               <label class="text-sm font-medium">声音样本</label>
               <input id="clone-audio-file" type="file" class="hidden" accept="audio/mp3,audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac" @change="handleCloneFile">
-              <label for="clone-audio-file" class="flex min-h-24 cursor-pointer items-center justify-center gap-2 border border-dashed text-sm text-muted-foreground transition-[border-color,color,background-color,transform] hover:border-primary/50 hover:bg-primary/5 hover:text-foreground active:scale-[0.96]"><Upload class="h-4 w-4" />{{ cloneFile?.name || '选择不超过 10 MB 的音频' }}</label>
+              <label for="clone-audio-file" class="flex min-h-24 cursor-pointer items-center justify-center gap-2 border border-dashed text-sm text-muted-foreground transition-[border-color,color,background-color,transform] hover:bg-muted/35 hover:bg-primary/5 hover:text-foreground active:scale-[0.96]"><Upload class="h-4 w-4" />{{ cloneFile?.name || '选择不超过 10 MB 的音频' }}</label>
               <audio v-if="clonePreviewUrl" class="h-10 w-full" controls :src="clonePreviewUrl" />
             </div>
             <div class="space-y-2"><label class="text-sm font-medium">样本对应文本</label><Textarea v-model="cloneReferenceText" class="min-h-20" placeholder="填写样本中实际朗读的文字，可提高训练校验准确度。" /></div>
@@ -909,7 +909,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div v-if="tasks.length === 0" class="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed bg-muted/10 p-8 text-center">
+          <div v-if="tasks.length === 0" class="flex min-h-56 flex-col items-center justify-center rounded-xl bg-muted/15 bg-muted/10 p-8 text-center">
             <div class="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
               <History class="h-6 w-6" />
             </div>
@@ -920,7 +920,7 @@ onBeforeUnmount(() => {
             </Button>
           </div>
 
-          <div v-else class="overflow-hidden rounded-lg border bg-background">
+          <div v-else class="overflow-hidden rounded-xl bg-muted/25">
             <div class="hidden grid-cols-[minmax(0,1.5fr)_minmax(220px,1fr)_120px_150px] gap-4 border-b bg-muted/30 px-4 py-2.5 text-xs font-medium text-muted-foreground lg:grid">
               <div>任务</div>
               <div>音频结果</div>

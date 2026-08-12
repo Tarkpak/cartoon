@@ -406,7 +406,7 @@ function handleThemeToggle(event: MouseEvent) {
 
           <div
             v-if="item.path === '/settings' && visualSidebarCollapsed"
-            class="theme-surface absolute left-full top-0 z-30 w-48 rounded-md border bg-popover p-1 shadow-md opacity-0 pointer-events-none transition-[background-color,border-color,box-shadow,opacity] duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
+            class="theme-surface absolute left-full top-0 z-30 w-48 rounded-xl border-0 bg-popover p-1 shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] opacity-0 pointer-events-none transition-[background-color,box-shadow,opacity] duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
           >
             <NuxtLink
               v-for="sub in settingsSubNavigation"
@@ -428,7 +428,7 @@ function handleThemeToggle(event: MouseEvent) {
 
           <div
             v-if="'children' in item && item.children?.length && visualSidebarCollapsed"
-            class="theme-surface absolute left-full top-0 z-30 w-48 rounded-md border bg-popover p-1 shadow-md opacity-0 pointer-events-none transition-[background-color,border-color,box-shadow,opacity] duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
+            class="theme-surface absolute left-full top-0 z-30 w-48 rounded-xl border-0 bg-popover p-1 shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] opacity-0 pointer-events-none transition-[background-color,box-shadow,opacity] duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
           >
             <NuxtLink
               v-for="sub in item.children"
@@ -455,7 +455,7 @@ function handleThemeToggle(event: MouseEvent) {
         :class="visualSidebarCollapsed ? 'px-2' : 'px-4'"
       >
         <div
-          class="theme-surface rounded-md border bg-background"
+          class="theme-surface rounded-xl border-0 bg-muted/30"
           :class="visualSidebarCollapsed ? 'grid gap-1 p-1' : 'p-2'"
         >
           <template v-if="authenticated && !visualSidebarCollapsed">
@@ -472,7 +472,7 @@ function handleThemeToggle(event: MouseEvent) {
                 </span>
               </div>
             </div>
-            <div class="flex items-center justify-between border-t px-0.5 pt-1">
+            <div class="flex items-center justify-between px-0.5 pt-1">
               <Button
                 type="button"
                 variant="ghost"

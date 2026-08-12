@@ -89,7 +89,7 @@ const heroStats = computed(() => [
 <template>
   <div class="min-h-screen bg-background py-5 pr-5 sm:pr-8 lg:pr-10">
     <section class="grid items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-      <div class="relative flex min-h-[23rem] flex-col justify-between overflow-hidden rounded-lg border border-border/60 bg-card/65 px-6 py-7 shadow-[0_20px_58px_hsl(var(--foreground)/0.055)] sm:px-9 sm:py-9">
+      <div class="relative flex min-h-[23rem] flex-col justify-between overflow-hidden rounded-xl bg-muted/25 px-6 py-7 shadow-[0_20px_58px_hsl(var(--foreground)/0.055)] sm:px-9 sm:py-9">
         <div class="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_16%_18%,hsl(var(--primary)/0.11),transparent_32%),radial-gradient(circle_at_86%_8%,hsl(var(--warning)/0.08),transparent_24%)]" />
         <div class="relative max-w-3xl">
           <p class="mb-4 inline-flex rounded-sm bg-primary/10 px-2.5 py-1 text-xs font-semibold tracking-[0.14em] text-primary">
@@ -125,7 +125,7 @@ const heroStats = computed(() => [
           <div
             v-for="stat in heroStats"
             :key="stat.label"
-            class="flex min-h-24 flex-col justify-center rounded-md border border-border/60 bg-background/65 p-3.5"
+            class="flex min-h-24 flex-col justify-center rounded-xl bg-muted/20/65 p-3.5"
           >
             <p class="text-xl font-semibold text-foreground">
               {{ stat.value }}
@@ -149,7 +149,7 @@ const heroStats = computed(() => [
               v-for="action in quickActions"
               :key="action.label"
               type="button"
-              class="group relative flex min-h-12 items-center gap-3 overflow-hidden rounded-md border border-transparent bg-transparent px-3 py-2 text-left transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              class="group relative flex min-h-12 items-center gap-3 overflow-hidden rounded-xl border-0 bg-transparent px-3 py-2 text-left transition-[background-color] duration-200 hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               @pointerdown="handleQuickActionPointerDown"
               @click="action.handler()"
             >
