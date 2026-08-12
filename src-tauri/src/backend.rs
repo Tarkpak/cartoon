@@ -197,6 +197,7 @@ struct ProjectListQuery {
     #[serde(rename = "sortBy")]
     sort_by: Option<String>,
     keyword: Option<String>,
+    workspace: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -209,6 +210,8 @@ struct CreateProjectBody {
     style_id: Option<String>,
     #[serde(rename = "aspectRatio")]
     aspect_ratio: Option<String>,
+    #[serde(rename = "projectType")]
+    project_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1770,6 +1773,12 @@ fn upsert_cloud_project_placeholder(
     let now = now_iso();
     let name = cloud_value_text_from([snapshot_project, project], "name");
     let description = cloud_value_text_from([snapshot_project, project], "description");
+    let project_type = cloud_value_text_from([snapshot_project, project], "projectType");
+    let project_type = if matches!(project_type.as_str(), "video" | "script_writing") {
+        project_type
+    } else {
+        "video".to_string()
+    };
     let script_parse_mode_raw =
         cloud_value_text_from([snapshot_project, project], "scriptParseMode");
     let script_parse_mode = normalize_script_parse_mode(if script_parse_mode_raw.is_empty() {
@@ -1804,11 +1813,12 @@ fn upsert_cloud_project_placeholder(
     ensure_cloud_project_owner_available(&conn, project_id, &owner_user_id)?;
 
     let changed = conn.execute(
-        "INSERT INTO projects (id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+        "INSERT INTO projects (id, name, description, project_type, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            description = excluded.description,
+           project_type = excluded.project_type,
            script_parse_mode = excluded.script_parse_mode,
            style_id = excluded.style_id,
            aspect_ratio = excluded.aspect_ratio,
@@ -1821,6 +1831,7 @@ fn upsert_cloud_project_placeholder(
             project_id,
             if name.is_empty() { "未命名项目" } else { name.as_str() },
             description,
+            project_type,
             script_parse_mode,
             style_id,
             valid_project_aspect_ratio(&aspect_ratio),
@@ -4010,6 +4021,7 @@ fn ensure_column(
 
 fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
     for (column, definition) in [
+        ("project_type", "TEXT NOT NULL DEFAULT 'video'"),
         ("script_parse_mode", "TEXT NOT NULL DEFAULT 'premium_drama'"),
         ("style_id", "TEXT NOT NULL DEFAULT ''"),
         ("aspect_ratio", "TEXT NOT NULL DEFAULT '16:9'"),
@@ -5544,6 +5556,14 @@ async fn api_project_list(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
+    let workspace = query
+        .workspace
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if workspace.is_some_and(|value| !matches!(value, "writing" | "video")) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "无效项目工作区"));
+    }
 
     let owner = current_project_owner_context(&conn)?;
     claim_legacy_projects(&conn, &owner)?;
@@ -5567,6 +5587,13 @@ async fn api_project_list(
             where_params.push(pattern.clone());
         }
     }
+    if let Some(workspace) = workspace {
+        match workspace {
+            "writing" => where_parts.push("(p.project_type = 'script_writing' OR (p.project_type = 'video' AND EXISTS (SELECT 1 FROM scripts writing_sc WHERE writing_sc.project_id = p.id AND writing_sc.raw_text LIKE '%\\\"writingStudio\\\"%')))".to_string()),
+            "video" => where_parts.push("p.project_type = 'video' AND NOT EXISTS (SELECT 1 FROM scripts writing_sc WHERE writing_sc.project_id = p.id AND writing_sc.raw_text LIKE '%\\\"writingStudio\\\"%')".to_string()),
+            _ => {}
+        }
+    }
     let where_clause = if where_parts.is_empty() {
         String::new()
     } else {
@@ -5574,7 +5601,7 @@ async fn api_project_list(
     };
 
     let mut count_stmt = conn
-        .prepare(&format!("SELECT COUNT(*) FROM projects{}", where_clause))
+        .prepare(&format!("SELECT COUNT(*) FROM projects p{}", where_clause))
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let total: i64 = count_stmt
         .query_row(rusqlite::params_from_iter(where_params.iter()), |row| {
@@ -5596,7 +5623,7 @@ async fn api_project_list(
 
     let mut list_sql = format!(
         "WITH paged_projects AS (
-           SELECT p.id, p.name, p.description, p.script_parse_mode, p.style_id, p.aspect_ratio,
+           SELECT p.id, p.name, p.description, p.project_type, p.script_parse_mode, p.style_id, p.aspect_ratio,
                   p.status, p.created_at, p.updated_at, p.owner_user_id, p.owner_account, p.owner_display_name
            FROM projects p{} ORDER BY {}",
         where_clause, order_by
@@ -5610,7 +5637,7 @@ async fn api_project_list(
     }
     list_sql.push_str(
         ")
-         SELECT p.id, p.name, p.description, p.script_parse_mode, p.style_id, p.aspect_ratio,
+         SELECT p.id, p.name, p.description, p.project_type, p.script_parse_mode, p.style_id, p.aspect_ratio,
                 p.status, p.created_at, p.updated_at, p.owner_user_id, p.owner_account, p.owner_display_name,
                 COUNT(s.id),
                 COALESCE(SUM(CASE WHEN s.status = 'video_ready' THEN 1 ELSE 0 END), 0),
@@ -5630,23 +5657,25 @@ async fn api_project_list(
     let projects = stmt
         .query_map(rusqlite::params_from_iter(list_params.iter()), |row| {
             let project_id: String = row.get(0)?;
-            let script_parse_mode: Option<String> = row.get(3)?;
+            let project_type: Option<String> = row.get(3)?;
+            let script_parse_mode: Option<String> = row.get(4)?;
             Ok(json!({
               "id": project_id,
               "title": row.get::<_, String>(1)?,
               "description": row.get::<_, Option<String>>(2)?,
+              "projectType": project_type.unwrap_or_else(|| "video".to_string()),
               "scriptParseMode": normalize_script_parse_mode(script_parse_mode.as_deref()),
-              "styleId": row.get::<_, String>(4)?,
-              "aspectRatio": row.get::<_, String>(5)?,
-              "status": row.get::<_, Option<String>>(6)?,
-              "totalScenes": row.get::<_, i64>(12)?,
-              "completedScenes": row.get::<_, i64>(13)?,
-              "totalDuration": row.get::<_, i64>(14)?,
-              "createdAt": row.get::<_, String>(7)?,
-              "updatedAt": row.get::<_, String>(8)?,
-              "ownerUserId": row.get::<_, Option<String>>(9)?,
-              "ownerAccount": row.get::<_, Option<String>>(10)?,
-              "ownerDisplayName": row.get::<_, Option<String>>(11)?
+              "styleId": row.get::<_, String>(5)?,
+              "aspectRatio": row.get::<_, String>(6)?,
+              "status": row.get::<_, Option<String>>(7)?,
+              "totalScenes": row.get::<_, i64>(13)?,
+              "completedScenes": row.get::<_, i64>(14)?,
+              "totalDuration": row.get::<_, i64>(15)?,
+              "createdAt": row.get::<_, String>(8)?,
+              "updatedAt": row.get::<_, String>(9)?,
+              "ownerUserId": row.get::<_, Option<String>>(10)?,
+              "ownerAccount": row.get::<_, Option<String>>(11)?,
+              "ownerDisplayName": row.get::<_, Option<String>>(12)?
             }))
         })
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -5690,19 +5719,24 @@ async fn api_project_create(
     let owner = current_project_owner_context(&conn)?;
     let now = now_iso();
     let id = format!("proj_{}", Uuid::new_v4().simple());
+    let project_type = body
+        .project_type
+        .as_deref()
+        .unwrap_or("video")
+        .trim()
+        .to_string();
+    if !matches!(project_type.as_str(), "video" | "script_writing") {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "projectType 无效"));
+    }
     let style_id = body
         .style_id
-        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "styleId 不能为空"))?
+        .unwrap_or_default()
         .trim()
         .to_string();
-    if style_id.is_empty() {
+    if project_type == "video" && style_id.is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "styleId 不能为空"));
     }
-    let aspect_ratio = body
-        .aspect_ratio
-        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "aspectRatio 不能为空"))?
-        .trim()
-        .to_string();
+    let aspect_ratio = body.aspect_ratio.unwrap_or_else(|| "16:9".to_string()).trim().to_string();
     if !matches!(aspect_ratio.as_str(), "16:9" | "9:16" | "1:1") {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "aspectRatio 无效"));
     }
@@ -5718,21 +5752,21 @@ async fn api_project_create(
     }
     let script_parse_mode =
         normalize_script_parse_mode(Some(requested_script_parse_mode)).to_string();
-    if !is_style_id_enabled(&conn, &style_id)? {
+    if project_type == "video" && !is_style_id_enabled(&conn, &style_id)? {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             format!("当前后台配置未启用该画风: {style_id}"),
         ));
     }
     let description = body.description.unwrap_or_default();
-
     conn.execute(
-        "INSERT INTO projects (id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'draft', ?7, ?8, ?9, ?10, ?11)",
+        "INSERT INTO projects (id, name, description, project_type, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'draft', ?8, ?9, ?10, ?11, ?12)",
         params![
             id,
             title,
             description,
+            project_type,
             script_parse_mode,
             style_id,
             aspect_ratio,
@@ -5752,10 +5786,11 @@ async fn api_project_create(
 
     Ok(Json(json!({
       "success": true,
-      "project": {
+        "project": {
         "id": id,
         "title": title,
         "description": description,
+        "projectType": project_type,
         "scriptParseMode": script_parse_mode,
         "styleId": style_id,
         "aspectRatio": aspect_ratio,
@@ -6879,11 +6914,11 @@ async fn api_project_put_inner(
         .unwrap_or(now.as_str())
         .to_string();
 
-    let existing_project: (String, Option<String>, Option<String>, String, String, String) = conn
+    let existing_project: (String, Option<String>, Option<String>, String, String, String, String) = conn
         .query_row(
-            "SELECT name, description, status, style_id, aspect_ratio, script_parse_mode FROM projects WHERE id = ?1 LIMIT 1",
+            "SELECT name, description, status, style_id, aspect_ratio, script_parse_mode, project_type FROM projects WHERE id = ?1 LIMIT 1",
             params![id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
         )
         .optional()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -6916,7 +6951,7 @@ async fn api_project_put_inner(
         .unwrap_or(&existing_project.3)
         .trim()
         .to_string();
-    if body.get("styleId").is_some() && !is_style_id_enabled(&conn, &style_id)? {
+    if existing_project.6 != "script_writing" && body.get("styleId").is_some() && !is_style_id_enabled(&conn, &style_id)? {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             format!("当前后台配置未启用该画风: {style_id}"),

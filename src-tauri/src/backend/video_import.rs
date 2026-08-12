@@ -1509,6 +1509,7 @@ pub(super) async fn api_video_import_import_project(
             script_parse_mode: Some(script_parse_mode.clone()),
             style_id: Some(style_id.clone()),
             aspect_ratio: Some(aspect_ratio.clone()),
+            project_type: Some("video".to_string()),
         }),
     )
     .await;
@@ -1801,6 +1802,7 @@ async fn api_video_import_import_series_project(
             script_parse_mode: Some(script_parse_mode.clone()),
             style_id: Some(style_id.clone()),
             aspect_ratio: Some(aspect_ratio.clone()),
+            project_type: Some("video".to_string()),
         }),
     )
     .await;

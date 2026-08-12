@@ -80,7 +80,7 @@ const emit = defineEmits<{
   openProduction: []
 }>()
 
-type WritingView = 'brief' | 'bible' | 'episodes' | 'review' | 'history'
+type WritingView = 'bible' | 'episodes' | 'review' | 'history'
 
 const genreGroups = [
   {
@@ -142,7 +142,7 @@ const audienceOptions = [
 ]
 const SOURCE_MATERIAL_MAX_CHARS = 60_000
 
-const activeView = ref<WritingView>('brief')
+const activeView = ref<WritingView>('bible')
 const selectedEpisodeId = ref('')
 const selectedVersionId = ref('')
 const milestoneDialogOpen = ref(false)
@@ -246,8 +246,7 @@ const activeActionLabel = computed(() => {
   return ''
 })
 const nextAction = computed(() => {
-  if (!studio.value.brief.idea.trim()) return { kind: 'navigate' as const, view: 'brief' as const, label: '填写核心创意' }
-  if (!studio.value.storyBible || freshness.value.storyBibleStale) return { kind: 'bible' as const, view: 'brief' as const, label: '生成故事圣经' }
+  if (!studio.value.storyBible || freshness.value.storyBibleStale) return { kind: 'bible' as const, view: 'bible' as const, label: '生成故事圣经' }
   if (studio.value.episodes.length === 0 || freshness.value.outlineStale) return { kind: 'outline' as const, view: 'bible' as const, label: '生成分集大纲' }
   if (!isComplete.value || hasStaleDrafts.value) return { kind: 'episodes' as const, view: 'episodes' as const, label: `完成分集正文 ${draftedCount.value}/${studio.value.episodes.length}` }
   if (!studio.value.review || freshness.value.reviewStale) return { kind: 'review' as const, view: 'review' as const, label: '执行全剧审校' }
@@ -321,7 +320,6 @@ async function importSourceMaterial(event: Event) {
 }
 
 const views = computed(() => [
-  { key: 'brief' as const, label: '创作设定', icon: PenLine, done: !!studio.value.brief.idea.trim(), stale: false },
   { key: 'bible' as const, label: '故事圣经', icon: BookOpen, done: !!studio.value.storyBible, stale: freshness.value.storyBibleStale },
   { key: 'episodes' as const, label: isComplete.value ? '分集创作' : `分集创作 ${draftedCount.value}/${studio.value.episodes.length}`, icon: ListTree, done: isComplete.value, stale: freshness.value.outlineStale || hasStaleDrafts.value },
   { key: 'review' as const, label: '全剧审校', icon: CheckCircle2, done: !!studio.value.review, stale: freshness.value.reviewStale },
@@ -1053,11 +1051,32 @@ function formatVersionTime(value: string) {
 
 <template>
   <div
-    class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden bg-background md:grid-cols-[220px_minmax(0,1fr)]"
+    class="grid h-full min-h-0 flex-1 grid-cols-1 overflow-hidden bg-background md:grid-cols-[220px_minmax(0,1fr)]"
     :class="focusMode ? 'fixed inset-3 z-50 rounded-md border shadow-2xl md:grid-cols-1' : 'rounded-md border'"
   >
-    <aside v-if="!focusMode" class="flex min-h-0 flex-col border-b bg-muted/20 md:border-b-0 md:border-r">
-      <nav class="flex gap-1 overflow-x-auto p-2 md:block md:space-y-1">
+    <aside v-if="!focusMode" class="flex min-h-0 flex-col overflow-hidden border-b bg-muted/20 md:border-b-0 md:border-r">
+      <div class="shrink-0 border-b bg-background/70 px-3 py-3">
+        <div class="flex items-start gap-2.5">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-primary/10 text-primary">
+            <PenLine class="h-4 w-4" :stroke-width="1.9" />
+          </div>
+          <div class="min-w-0">
+            <p class="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">AI 剧本工作台</p>
+            <p class="mt-0.5 truncate text-sm font-semibold text-foreground" :title="documentTitle || '未命名项目'">
+              {{ documentTitle || '未命名项目' }}
+            </p>
+          </div>
+        </div>
+        <div class="mt-3 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+          <span class="flex min-w-0 items-center gap-1.5">
+            <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="isDirty ? 'bg-amber-500' : 'bg-emerald-500'" />
+            {{ autoSaveLabel }}
+          </span>
+          <span class="shrink-0 tabular-nums">{{ draftedCount }}/{{ studio.episodes.length }} 集成稿</span>
+        </div>
+      </div>
+
+      <nav class="min-h-0 flex-1 gap-1 overflow-x-auto overflow-y-auto p-2 md:block md:space-y-1">
         <Button
           v-for="item in views"
           :key="item.key"
@@ -1075,7 +1094,7 @@ function formatVersionTime(value: string) {
       </nav>
 
       <div class="mt-auto border-t p-2 md:p-3">
-        <dl class="hidden grid-cols-2 gap-2 text-xs md:grid">
+        <dl class="hidden grid-cols-2 gap-2 border-b pb-3 text-xs md:grid">
           <div>
             <dt class="text-muted-foreground">大纲</dt>
             <dd class="mt-0.5 font-medium tabular-nums">{{ studio.episodes.length }} 集</dd>
@@ -1125,20 +1144,16 @@ function formatVersionTime(value: string) {
         <Button variant="ghost" size="sm" class="mt-1 w-full text-xs text-muted-foreground" :disabled="isBusy" @click="emit('openProduction')">
           查看当前解析
         </Button>
-        <p
-          class="mt-2 text-center text-[11px]"
-          :class="autoSaveState === 'error' ? 'text-destructive' : isDirty ? 'text-amber-600' : 'text-muted-foreground'"
-          aria-live="polite"
-        >
-          {{ autoSaveLabel }}
-        </p>
       </div>
     </aside>
 
-    <main class="flex min-h-0 flex-col overflow-hidden">
-      <div v-if="!focusMode" class="flex shrink-0 items-center justify-between gap-3 border-b bg-muted/20 px-5 py-2.5">
+    <main class="flex min-h-0 min-w-0 flex-col overflow-hidden">
+      <div v-if="!focusMode && (studio.storyBible || activeView !== 'bible')" class="flex shrink-0 items-center justify-between gap-3 border-b bg-muted/20 px-5 py-2.5">
         <div class="min-w-0">
-          <p class="truncate text-sm font-medium">下一步：{{ nextAction.label }}</p>
+          <div class="flex min-w-0 items-center gap-2">
+            <span class="hidden shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground sm:inline">创作流程</span>
+            <span class="truncate text-sm font-medium">下一步：{{ nextAction.label }}</span>
+          </div>
           <p v-if="publicationBlockers.length && publication.text" class="truncate text-xs text-muted-foreground">发布前：{{ publicationBlockers.join('、') }}</p>
         </div>
         <Button size="sm" :variant="nextAction.kind === 'publish' ? 'default' : 'outline'" class="shrink-0 gap-2" :disabled="isBusy" @click="runNextAction">
@@ -1169,10 +1184,7 @@ function formatVersionTime(value: string) {
         </Button>
       </div>
 
-      <section v-if="activeView === 'brief'" class="flex min-h-0 w-full flex-1 flex-col gap-5 overflow-y-auto p-6">
-        <header class="shrink-0">
-          <h2 class="text-lg font-semibold">创作设定</h2>
-        </header>
+      <section v-if="false" class="flex min-h-0 w-full flex-1 flex-col gap-5 overflow-y-auto p-6">
         <div class="shrink-0 space-y-2">
           <label class="text-sm font-medium">核心创意</label>
           <Textarea v-model="studio.brief.idea" rows="5" placeholder="一句话故事、人物困境或想表达的主题" />
@@ -1313,11 +1325,23 @@ function formatVersionTime(value: string) {
       <section v-else-if="activeView === 'bible'" class="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overscroll-contain p-6">
         <header class="flex shrink-0 items-center justify-between gap-4">
           <div><h2 class="text-lg font-semibold">故事圣经</h2><p v-if="freshness.storyBibleStale" class="mt-1 text-xs text-amber-700 dark:text-amber-300">创作设定已变更，请调整内容或重新生成。</p></div>
-          <div class="flex gap-2"><Button v-if="freshness.storyBibleStale" variant="outline" @click="confirmStoryBibleCurrent">确认已调整</Button><Button class="gap-2" :disabled="isBusy || !studio.storyBible" @click="createOutline">
-            <Loader2 v-if="activeAction === 'outline'" class="h-4 w-4 animate-spin" />
-            <ListTree v-else class="h-4 w-4" />生成分集大纲
-          </Button></div>
+          <div v-if="studio.storyBible || freshness.storyBibleStale" class="flex gap-2">
+            <Button v-if="freshness.storyBibleStale" variant="outline" @click="confirmStoryBibleCurrent">确认已调整</Button>
+            <Button v-if="studio.storyBible" class="gap-2" :disabled="isBusy" @click="createOutline">
+              <Loader2 v-if="activeAction === 'outline'" class="h-4 w-4 animate-spin" />
+              <ListTree v-else class="h-4 w-4" />生成分集大纲
+            </Button>
+          </div>
         </header>
+        <div class="mt-4 shrink-0 rounded-md border bg-muted/20 px-4 py-3">
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
+            <span class="font-medium text-foreground">项目简报</span>
+            <span>类型：{{ studio.brief.genre || '未设置' }}</span>
+            <span>受众：{{ studio.brief.audience || '未设置' }}</span>
+            <span>{{ studio.brief.episodeCount }} 集 · {{ studio.brief.episodeDuration }} 秒/集</span>
+          </div>
+          <p class="mt-2 line-clamp-2 text-sm text-foreground">{{ studio.brief.idea || '尚未填写核心创意' }}</p>
+        </div>
         <template v-if="studio.storyBible">
           <div class="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div v-for="field in ([['premise', '核心命题'], ['theme', '主题'], ['world', '世界设定'], ['tone', '基调']] as const)" :key="field[0]" class="space-y-2">
@@ -1386,9 +1410,12 @@ function formatVersionTime(value: string) {
         <div v-else class="flex min-h-64 flex-1 flex-col items-center justify-center px-6 text-center text-muted-foreground">
           <BookOpen class="mb-3 h-8 w-8" :stroke-width="1.5" />
           <p class="text-sm font-medium text-foreground">尚未生成故事圣经</p>
-          <p class="mt-1 max-w-sm text-sm">返回完善创作设定，或使用当前设定生成故事圣经。</p>
-          <div class="mt-4 flex flex-wrap justify-center gap-2">
-            <Button variant="outline" @click="activeView = 'brief'">返回创作设定</Button>
+          <p class="mt-1 max-w-sm text-sm">该项目创建较早，尚未保存核心创意；补充一次后即可继续生成。</p>
+          <div class="mt-4 w-full max-w-xl space-y-2 text-left">
+            <label class="text-sm font-medium">补充核心创意 <span class="text-destructive">*</span></label>
+            <Textarea v-model="studio.brief.idea" rows="3" placeholder="一句话故事、人物困境或想表达的主题" />
+          </div>
+          <div class="mt-4 flex justify-center">
             <Button
               class="gap-2 transition-transform active:scale-[0.96]"
               :disabled="isBusy || !studio.brief.idea.trim()"
@@ -1514,7 +1541,7 @@ function formatVersionTime(value: string) {
         </div>
         <div v-else class="flex min-h-64 flex-col items-center justify-center text-muted-foreground lg:col-span-2">
           <FileText class="mb-3 h-8 w-8" :stroke-width="1.5" />
-          <Button variant="outline" @click="activeView = studio.storyBible ? 'bible' : 'brief'">创建分集大纲</Button>
+          <Button variant="outline" @click="activeView = 'bible'">创建分集大纲</Button>
         </div>
       </section>
 

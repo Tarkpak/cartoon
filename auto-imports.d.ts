@@ -127,6 +127,7 @@ declare global {
   const useSceneAssetReferences: typeof import('./app/composables/useSceneAssetReferences')['useSceneAssetReferences']
   const useSceneDescriptionMentionEditor: typeof import('./app/composables/useSceneDescriptionMentionEditor')['useSceneDescriptionMentionEditor']
   const useSceneDescriptionMentionEditorActions: typeof import('./app/composables/useSceneDescriptionMentionEditorActions')['useSceneDescriptionMentionEditorActions']
+  const useScriptWritingStudio: typeof import('./app/composables/useScriptWritingStudio')['useScriptWritingStudio']
   const useSeoMeta: typeof import('./app/composables/useNuxtCompat')['useSeoMeta']
   const useSettingsModelCatalog: typeof import('./app/composables/useSettingsModelCatalog')['useSettingsModelCatalog']
   const useSettingsModelTest: typeof import('./app/composables/useSettingsModelTest')['useSettingsModelTest']
@@ -327,6 +328,7 @@ declare module 'vue' {
     readonly useSceneAssetReferences: UnwrapRef<typeof import('./app/composables/useSceneAssetReferences')['useSceneAssetReferences']>
     readonly useSceneDescriptionMentionEditor: UnwrapRef<typeof import('./app/composables/useSceneDescriptionMentionEditor')['useSceneDescriptionMentionEditor']>
     readonly useSceneDescriptionMentionEditorActions: UnwrapRef<typeof import('./app/composables/useSceneDescriptionMentionEditorActions')['useSceneDescriptionMentionEditorActions']>
+    readonly useScriptWritingStudio: UnwrapRef<typeof import('./app/composables/useScriptWritingStudio')['useScriptWritingStudio']>
     readonly useSeoMeta: UnwrapRef<typeof import('./app/composables/useNuxtCompat')['useSeoMeta']>
     readonly useSettingsModelCatalog: UnwrapRef<typeof import('./app/composables/useSettingsModelCatalog')['useSettingsModelCatalog']>
     readonly useSettingsModelTest: UnwrapRef<typeof import('./app/composables/useSettingsModelTest')['useSettingsModelTest']>

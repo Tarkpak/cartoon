@@ -21,6 +21,7 @@ export interface Project {
   updatedAt: string
   ownerAccount?: string | null
   ownerDisplayName?: string | null
+  projectType?: 'video' | 'script_writing' | string
 }
 
 export interface ProjectListResponse {
@@ -40,6 +41,14 @@ export interface ProjectDraft {
   scriptParseMode: ScriptParseMode
   styleId: string
   aspectRatio: ProjectAspectRatio
+  idea: string
+  genre: string
+  customGenre: string
+  audience: string
+  customAudience: string
+  episodeCount: number
+  episodeDuration: number
+  requirements: string
 }
 
 export const projectPageSizeOptions = [10, 20, 50]
@@ -80,7 +89,15 @@ export function createProjectDraft(styleId = ''): ProjectDraft {
     description: '',
     scriptParseMode: DEFAULT_SCRIPT_PARSE_MODE,
     styleId,
-    aspectRatio: '9:16'
+    aspectRatio: '9:16',
+    idea: '',
+    genre: '现代甜宠·都市情感',
+    customGenre: '',
+    audience: '短视频用户',
+    customAudience: '',
+    episodeCount: 8,
+    episodeDuration: 90,
+    requirements: ''
   }
 }
 

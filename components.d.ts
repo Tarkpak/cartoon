@@ -30,6 +30,7 @@ declare module 'vue' {
     AssetWorkbenchStagePanel: typeof import('./app/components/asset-workbench/StagePanel.vue')['default']
     AssetWorkbenchStageSwitcher: typeof import('./app/components/asset-workbench/StageSwitcher.vue')['default']
     AssetWorkbenchVideosStage: typeof import('./app/components/asset-workbench/VideosStage.vue')['default']
+    AssetWorkbenchWritingStudio: typeof import('./app/components/asset-workbench/WritingStudio.vue')['default']
     Badge: typeof import('./app/components/ui/badge/Badge.vue')['default']
     Button: typeof import('./app/components/ui/button/Button.vue')['default']
     Card: typeof import('./app/components/ui/card/Card.vue')['default']
