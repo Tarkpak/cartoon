@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowUpRight, FilePlus2, FolderOpen, Loader2, PenLine, Search, Trash2 } from 'lucide-vue-next'
+import { ArrowUpRight, FilePlus2, Loader2, PenLine, Search, Trash2 } from 'lucide-vue-next'
 import type { ScriptWritingPublication } from '#shared/types/script-writing'
 import { createProjectDraft, type Project, type ProjectDraft, type ProjectListResponse } from '~/lib/projects-page'
 import ProjectCreateDialog from '@/components/projects/ProjectCreateDialog.vue'
@@ -65,10 +65,6 @@ const filteredProjects = computed(() => {
   })
 })
 
-const projectProgress = computed(() => {
-  const total = selectedProject.value?.totalScenes || 0
-  return total > 0 ? `${total} 个场景` : '尚未解析'
-})
 const showProjectList = computed(() => !queryProjectId() || route.query.list === '1')
 
 function queryProjectId() {
@@ -312,22 +308,11 @@ onBeforeRouteLeave(async () => {
 <template>
   <AppPage>
     <AppPageHeader
-      :title="showProjectList || !selectedProject ? 'AI 剧本创作' : selectedProject.title"
-      :description="showProjectList || !selectedProject
-        ? '从创意设定到可生产剧本，项目、版本和分集都保存在同一工作台。'
-        : `${projectProgress} · ${formatProjectRelativeTime(selectedProject.updatedAt)}更新`"
-      :compact="!showProjectList && !!selectedProject"
+      v-if="showProjectList || !selectedProject"
+      title="AI 剧本创作"
+      description="从创意设定到可生产剧本，项目、版本和分集都保存在同一工作台。"
     >
       <template #actions>
-        <Button
-          v-if="!showProjectList && selectedProject"
-          variant="ghost"
-          class="hidden gap-2 sm:inline-flex"
-          @click="openProjectList"
-        >
-          <FolderOpen class="h-4 w-4" />
-          项目总览
-        </Button>
         <Button
           variant="outline"
           class="gap-2 transition-transform active:scale-[0.96]"
@@ -515,6 +500,8 @@ onBeforeRouteLeave(async () => {
           :loading="pageLoading"
           @publish="publishWriting"
           @open-production="openWorkbench"
+          @open-list="openProjectList"
+          @create-project="openCreateProjectDialog"
         />
       </div>
     </AppPageContent>

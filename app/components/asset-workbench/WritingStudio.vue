@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import {
+  ArrowLeft,
   Check,
   CheckCircle2,
   CircleAlert,
-  Clock3,
   Copy,
   Download,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Ellipsis,
+  FilePlus2,
   FileText,
   Focus,
   ListPlus,
@@ -24,6 +25,7 @@ import {
   Shrink,
   Sparkles,
   Square,
+  Trash2,
   Type,
   Undo2,
   Unlock
@@ -61,6 +63,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   publish: [publication: ScriptWritingPublication]
   openProduction: []
+  openList: []
+  createProject: []
 }>()
 
 type WritingView = 'bible' | 'episodes' | 'review'
@@ -73,7 +77,8 @@ const outlineInstruction = ref('')
 const episodeInstruction = ref('')
 const reviewInstruction = ref('')
 const pendingReviewTaskId = ref('')
-const episodeMetaOpen = ref(true)
+const episodeMetaOpen = ref(false)
+const episodeInstructionOpen = ref(false)
 const focusMode = ref(false)
 const searchPanelOpen = ref(false)
 const draftSearchText = ref('')
@@ -157,13 +162,17 @@ const activeActionLabel = computed(() => {
   }
   return ''
 })
-const nextAction = computed(() => {
-  if (!studio.value.storyBible || freshness.value.storyBibleStale) return { kind: 'bible' as const, view: 'bible' as const, label: '生成故事圣经' }
-  if (studio.value.episodes.length === 0 || freshness.value.outlineStale) return { kind: 'outline' as const, view: 'bible' as const, label: '生成分集大纲' }
-  if (!isComplete.value || hasStaleDrafts.value) return { kind: 'episodes' as const, view: 'episodes' as const, label: `完成分集正文 ${draftedCount.value}/${studio.value.episodes.length}` }
-  if (!studio.value.review || freshness.value.reviewStale) return { kind: 'review' as const, view: 'review' as const, label: '执行全剧审校' }
-  if (!reviewProgress.value.passed) return { kind: 'navigate' as const, view: 'review' as const, label: '处理审校整改' }
-  return { kind: 'publish' as const, view: 'review' as const, label: '发布并进入解析' }
+const episodeCount = computed(() => studio.value.episodes.length || studio.value.brief.episodeCount || 0)
+const selectedEpisodeOutlineSummary = computed(() => {
+  const episode = selectedEpisode.value
+  if (!episode) return '尚未填写大纲'
+  const hook = episode.hook.trim()
+  const parts = [
+    episode.title.trim() || '未命名',
+    hook ? (hook.length > 24 ? `${hook.slice(0, 24)}…` : hook) : '未写钩子',
+    episode.beats.length ? `${episode.beats.length} 个节拍` : '未写节拍'
+  ]
+  return parts.join(' · ')
 })
 const autoSaveLabel = computed(() => ({
   saved: '已自动保存',
@@ -171,17 +180,6 @@ const autoSaveLabel = computed(() => ({
   saving: '保存中',
   error: '自动保存失败'
 }[autoSaveState.value]))
-const studioProgress = computed(() => {
-  if (!studio.value.storyBible || freshness.value.storyBibleStale) return 8
-  if (studio.value.episodes.length === 0 || freshness.value.outlineStale) return 28
-  if (!isComplete.value || hasStaleDrafts.value) {
-    const draftRatio = draftedCount.value / Math.max(1, studio.value.episodes.length)
-    return 28 + Math.round(draftRatio * 42)
-  }
-  if (!studio.value.review || freshness.value.reviewStale) return 78
-  if (!reviewProgress.value.passed) return 90
-  return 100
-})
 const autoSaveTone = computed(() => ({
   saved: 'bg-emerald-500',
   dirty: 'bg-amber-500',
@@ -423,15 +421,6 @@ async function startBatchGeneration() {
   await generateRemainingEpisodeDrafts()
 }
 
-async function runNextAction() {
-  activeView.value = nextAction.value.view
-  if (nextAction.value.kind === 'bible') await createBible()
-  else if (nextAction.value.kind === 'outline') await createOutline()
-  else if (nextAction.value.kind === 'episodes' && remainingDraftCount.value > 0) await startBatchGeneration()
-  else if (nextAction.value.kind === 'review') await reviewDrafts(reviewInstruction.value)
-  else if (nextAction.value.kind === 'publish') await publishStudio()
-}
-
 function rememberDraftForUndo() {
   if (!selectedEpisode.value) return
   replaceUndo.value = { episodeId: selectedEpisode.value.id, draft: selectedEpisode.value.draft }
@@ -523,6 +512,7 @@ async function fixReviewTask(task: ScriptWritingReviewTask) {
     `修改建议：${task.suggestion}`,
     '保留未涉及的问题和已有有效内容。'
   ].filter(Boolean).join('\n')
+  episodeInstructionOpen.value = true
   activeView.value = 'episodes'
   pendingReviewTaskId.value = task.id
   await nextTick()
@@ -742,9 +732,8 @@ onBeforeUnmount(() => {
 
 watch(
   () => selectedEpisode.value?.id,
-  (episodeId) => {
-    if (!episodeId || !selectedEpisode.value) return
-    episodeMetaOpen.value = !selectedEpisode.value.draft.trim()
+  () => {
+    episodeMetaOpen.value = false
   }
 )
 
@@ -762,58 +751,73 @@ function formatVersionTime(value: string) {
 
 <template>
   <div
-    class="grid h-full min-h-0 flex-1 grid-cols-1 overflow-hidden bg-transparent md:grid-cols-[248px_minmax(0,1fr)]"
+    class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-transparent"
     :class="focusMode
-      ? 'fixed inset-2 z-50 rounded-2xl bg-background shadow-2xl md:grid-cols-1'
-      : 'rounded-2xl bg-transparent'"
+      ? 'fixed inset-2 z-50 rounded-2xl bg-background shadow-2xl'
+      : ''"
   >
+    <header
+      v-if="!focusMode"
+      class="flex h-10 shrink-0 items-center justify-between gap-3 px-2"
+    >
+      <div class="flex min-w-0 items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-8 w-8 shrink-0"
+          title="返回项目总览"
+          aria-label="返回项目总览"
+          @click="emit('openList')"
+        >
+          <ArrowLeft class="h-4 w-4" />
+        </Button>
+        <h1
+          class="truncate text-sm font-semibold tracking-tight"
+          :title="documentTitle || '未命名项目'"
+        >
+          {{ documentTitle || '未命名项目' }}
+        </h1>
+        <span class="hidden h-3 w-px shrink-0 bg-border sm:block" />
+        <span class="hidden min-w-0 items-center gap-2 text-xs text-muted-foreground sm:flex">
+          <span class="tabular-nums">{{ draftedCount }}/{{ episodeCount }} 成稿</span>
+          <span class="inline-flex items-center gap-1.5">
+            <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="autoSaveTone" />
+            {{ autoSaveLabel }}
+          </span>
+        </span>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        class="h-8 shrink-0 gap-1.5 px-2.5"
+        @click="emit('createProject')"
+      >
+        <FilePlus2 class="h-3.5 w-3.5" />
+        <span class="hidden sm:inline">新建</span>
+      </Button>
+    </header>
+
+    <div
+      class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden"
+      :class="focusMode ? 'grid-cols-1' : 'md:grid-cols-[200px_minmax(0,1fr)]'"
+    >
     <aside
       v-if="!focusMode"
-      class="flex min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,hsl(var(--card)/0.95),hsl(var(--muted)/0.35))] "
+      class="flex min-h-0 flex-col overflow-hidden bg-muted/20"
     >
-      <div class="shrink-0 space-y-3 px-4 py-4">
-        <div class="min-w-0">
-          <p class="text-xs font-medium text-muted-foreground">创作进度</p>
-          <p
-            class="mt-1 truncate text-sm font-semibold tracking-tight text-foreground"
-            :title="documentTitle || '未命名项目'"
-          >
-            {{ documentTitle || '未命名项目' }}
-          </p>
-        </div>
-        <div>
-          <div class="mb-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-            <span class="flex min-w-0 items-center gap-1.5">
-              <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="autoSaveTone" />
-              {{ autoSaveLabel }}
-            </span>
-            <span class="shrink-0 tabular-nums">{{ studioProgress }}%</span>
-          </div>
-          <div class="h-1.5 overflow-hidden rounded-full bg-muted">
-            <div
-              class="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
-              :style="{ width: `${studioProgress}%` }"
-            />
-          </div>
-          <p class="mt-2 text-[11px] tabular-nums text-muted-foreground">
-            {{ draftedCount }}/{{ studio.episodes.length || studio.brief.episodeCount || 0 }} 集成稿
-          </p>
-        </div>
-      </div>
-
-      <nav class="min-h-0 flex-1 space-y-1 overflow-x-auto overflow-y-auto p-3 md:block">
+      <nav class="min-h-0 flex-1 space-y-0.5 overflow-x-auto overflow-y-auto p-2 md:block">
         <button
           v-for="(item, index) in views"
           :key="item.key"
           type="button"
-          class="group flex w-auto min-w-[9.5rem] shrink-0 items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-[background-color,color,box-shadow,transform] duration-200 active:scale-[0.98] md:w-full"
+          class="group flex w-auto min-w-[8.5rem] shrink-0 items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-[background-color,color,box-shadow,transform] duration-200 active:scale-[0.98] md:w-full"
           :class="activeView === item.key
-            ? 'bg-background/90 text-foreground shadow-sm'
+            ? 'bg-background text-foreground shadow-sm'
             : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'"
           @click="activeView = item.key"
         >
           <span
-            class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-semibold tabular-nums"
+            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold tabular-nums"
             :class="activeView === item.key
               ? 'bg-primary text-primary-foreground'
               : item.done
@@ -823,27 +827,12 @@ function formatVersionTime(value: string) {
             <Check v-if="item.done && !item.stale" class="h-3.5 w-3.5" :stroke-width="2.25" />
             <template v-else>{{ index + 1 }}</template>
           </span>
-          <span class="min-w-0 flex-1">
-            <span class="block truncate text-sm font-medium">{{ item.label }}</span>
-            <span class="mt-0.5 block truncate text-[11px] text-muted-foreground">
-              {{ item.key === 'bible' ? '设定与角色' : item.key === 'episodes' ? '大纲与正文' : item.key === 'review' ? '质检整改' : '里程碑恢复' }}
-            </span>
-          </span>
+          <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ item.label }}</span>
           <CircleAlert v-if="item.stale" class="h-3.5 w-3.5 shrink-0 text-amber-600" :stroke-width="2" />
         </button>
       </nav>
 
-      <div class="mt-auto space-y-2 p-3">
-        <dl class="hidden grid-cols-2 gap-2 rounded-xl bg-background/60 p-3 text-xs md:grid">
-          <div>
-            <dt class="text-muted-foreground">大纲</dt>
-            <dd class="mt-1 font-semibold tabular-nums text-foreground">{{ studio.episodes.length }} 集</dd>
-          </div>
-          <div>
-            <dt class="text-muted-foreground">已成稿</dt>
-            <dd class="mt-1 font-semibold tabular-nums text-foreground">{{ draftedCount }} 集</dd>
-          </div>
-        </dl>
+      <div class="mt-auto space-y-2 p-2">
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
             <Button
@@ -901,32 +890,6 @@ function formatVersionTime(value: string) {
     </aside>
 
     <main class="flex min-h-0 min-w-0 flex-col overflow-hidden">
-      <div
-        v-if="!focusMode"
-        class="flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"
-      >
-        <div class="min-w-0">
-          <p class="text-xs text-muted-foreground">下一步</p>
-          <p class="mt-0.5 truncate text-sm font-semibold text-foreground">{{ nextAction.label }}</p>
-          <p
-            v-if="publicationBlockers.length && publication.text"
-            class="mt-0.5 truncate text-xs text-muted-foreground"
-          >
-            发布前：{{ publicationBlockers.join('、') }}
-          </p>
-        </div>
-        <Button
-          size="sm"
-          :variant="nextAction.kind === 'publish' ? 'default' : 'outline'"
-          class="shrink-0 gap-2"
-          :disabled="isBusy"
-          @click="runNextAction"
-        >
-          {{ nextAction.label }}
-          <ChevronRight class="h-3.5 w-3.5" />
-        </Button>
-      </div>
-
       <div
         v-if="error"
         class="shrink-0 bg-destructive/5 px-5 py-2.5 text-sm text-destructive"
@@ -1218,49 +1181,46 @@ function formatVersionTime(value: string) {
       <!-- Episodes -->
       <section
         v-else-if="activeView === 'episodes'"
-        class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[272px_minmax(0,1fr)] lg:grid-rows-1"
+        class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[220px_minmax(0,1fr)] lg:grid-rows-1"
       >
         <div class="flex min-h-0 flex-col bg-muted/10">
-          <div class="flex items-center justify-between px-3 py-2.5">
-            <span class="text-xs font-medium text-muted-foreground">分集大纲</span>
+          <div class="flex h-10 shrink-0 items-center justify-between px-2.5">
+            <span class="text-xs font-medium text-muted-foreground">分集</span>
             <Button size="icon" variant="ghost" class="h-7 w-7" title="新增分集" @click="addEpisode">
               <Plus class="h-3.5 w-3.5" />
             </Button>
           </div>
-          <div class="flex min-h-0 gap-1 overflow-x-auto p-2 overscroll-contain lg:block lg:overflow-x-hidden lg:overflow-y-auto">
+          <div class="flex min-h-0 gap-1 overflow-x-auto p-1.5 overscroll-contain lg:block lg:overflow-x-hidden lg:overflow-y-auto">
             <div
               v-for="(episode, episodeIndex) in studio.episodes"
               :key="episode.id"
-              class="group mb-1 flex w-64 shrink-0 items-center rounded-xl transition-colors lg:w-full"
+              class="group mb-0.5 flex w-52 shrink-0 items-center rounded-lg transition-colors lg:w-full"
               :class="selectedEpisode?.id === episode.id
-                ? 'bg-background/90 shadow-sm'
+                ? 'bg-background shadow-sm'
                 : 'hover:bg-background/70'"
             >
               <button
                 type="button"
-                class="min-w-0 flex-1 px-3 py-2.5 text-left"
+                class="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left"
                 @click="selectedEpisodeId = episode.id"
               >
-                <span class="flex items-center gap-2 text-sm font-medium">
-                  <span
-                    class="flex h-5 w-5 items-center justify-center rounded-md text-[11px] tabular-nums"
-                    :class="episode.draft.trim()
-                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                      : 'bg-muted text-muted-foreground'"
-                  >
-                    {{ episode.index }}
-                  </span>
-                  <span class="truncate">{{ episode.title }}</span>
-                  <CircleAlert
-                    v-if="freshness.staleDraftIds.includes(episode.id)"
-                    class="h-3.5 w-3.5 shrink-0 text-amber-600"
-                  />
+                <span
+                  class="h-1.5 w-1.5 shrink-0 rounded-full"
+                  :class="episode.draft.trim() ? 'bg-emerald-500' : 'bg-muted-foreground/30'"
+                />
+                <span class="w-4 shrink-0 text-[11px] tabular-nums text-muted-foreground">{{ episode.index }}</span>
+                <span
+                  class="min-w-0 truncate text-sm"
+                  :class="selectedEpisode?.id === episode.id ? 'font-medium text-foreground' : 'text-foreground/80'"
+                >
+                  {{ episode.title }}
                 </span>
-                <span class="mt-1 block truncate pl-7 text-xs text-muted-foreground">
-                  {{ episode.draft.trim() ? '已成稿' : episode.summary || '待完善大纲' }}
-                </span>
+                <CircleAlert
+                  v-if="freshness.staleDraftIds.includes(episode.id)"
+                  class="h-3.5 w-3.5 shrink-0 text-amber-600"
+                />
               </button>
-              <div class="mr-1 hidden shrink-0 items-center group-hover:flex group-focus-within:flex">
+              <div class="mr-0.5 hidden shrink-0 items-center group-hover:flex group-focus-within:flex">
                 <Button
                   size="icon"
                   variant="ghost"
@@ -1299,214 +1259,228 @@ function formatVersionTime(value: string) {
           v-if="selectedEpisode"
           class="flex min-h-0 min-w-0 flex-col overflow-hidden"
         >
-          <header class="flex shrink-0 flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div class="min-w-0">
-              <p class="text-xs text-muted-foreground">第 {{ selectedEpisode.index }} 集</p>
-              <h2 class="truncate text-lg font-semibold tracking-tight">{{ selectedEpisode.title }}</h2>
-            </div>
-            <div class="flex w-full shrink-0 flex-wrap justify-end gap-2 sm:w-auto">
+          <header class="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-2 px-3 py-1">
+            <h2 class="min-w-0 truncate text-sm font-semibold tracking-tight">
+              <span class="font-normal text-muted-foreground">第 {{ selectedEpisode.index }} 集</span>
+              {{ selectedEpisode.title }}
+            </h2>
+            <div class="flex shrink-0 items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                class="h-8 gap-1.5 px-2"
+                :class="episodeMetaOpen ? 'bg-muted text-foreground' : 'text-muted-foreground'"
+                @click="episodeMetaOpen = !episodeMetaOpen"
+              >
+                <ListTree class="h-3.5 w-3.5" />
+                大纲
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                class="h-8 gap-1.5 px-2"
+                :class="episodeInstructionOpen || episodeInstruction.trim() ? 'bg-muted text-foreground' : 'text-muted-foreground'"
+                @click="episodeInstructionOpen = !episodeInstructionOpen"
+              >
+                要求
+                <span
+                  v-if="episodeInstruction.trim()"
+                  class="h-1.5 w-1.5 rounded-full bg-primary"
+                />
+              </Button>
               <template v-if="isBatchGenerating">
-                <Button variant="outline" class="gap-2" @click="pauseBatchGeneration">
-                  <Pause class="h-4 w-4" />暂停
+                <Button size="sm" variant="outline" class="h-8 gap-1.5" @click="pauseBatchGeneration">
+                  <Pause class="h-3.5 w-3.5" />暂停
                 </Button>
-                <Button variant="outline" class="gap-2 text-destructive" @click="cancelGeneration">
+                <Button size="sm" variant="outline" class="h-8 gap-1.5 text-destructive" @click="cancelGeneration">
                   <Square class="h-3.5 w-3.5" />停止
                 </Button>
               </template>
               <Button
                 v-else
+                size="sm"
                 variant="outline"
-                class="gap-2 transition-transform active:scale-[0.96]"
+                class="h-8 gap-1.5 transition-transform active:scale-[0.96]"
                 :disabled="isBusy || (remainingDraftCount === 0 && !isBatchPaused)"
+                :title="remainingDraftCount > 0 ? `将发起 ${remainingDraftCount} 次请求，参考耗时${formatEta(estimatedBatchSeconds)}` : undefined"
                 @click="startBatchGeneration"
               >
-                <Play v-if="isBatchPaused" class="h-4 w-4" />
-                <ListPlus v-else class="h-4 w-4" />
-                {{ isBatchPaused ? `继续生成 ${batchCompleted}/${batchTotal}` : `批量生成（${remainingDraftCount}）` }}
+                <Play v-if="isBatchPaused" class="h-3.5 w-3.5" />
+                <ListPlus v-else class="h-3.5 w-3.5" />
+                {{ isBatchPaused ? `继续 ${batchCompleted}/${batchTotal}` : `批量（${remainingDraftCount}）` }}
               </Button>
               <Button
-                class="gap-2 transition-transform active:scale-[0.96]"
+                size="sm"
+                class="h-8 gap-1.5 transition-transform active:scale-[0.96]"
                 :disabled="isBusy"
                 @click="regenerateEpisode"
               >
-                <Loader2 v-if="activeEpisodeId === selectedEpisode.id" class="h-4 w-4 animate-spin" />
-                <Sparkles v-else class="h-4 w-4" />
+                <Loader2 v-if="activeEpisodeId === selectedEpisode.id" class="h-3.5 w-3.5 animate-spin" />
+                <Sparkles v-else class="h-3.5 w-3.5" />
                 {{ selectedEpisode.draft.trim() ? '重新生成' : '生成本集' }}
               </Button>
             </div>
           </header>
 
-          <div class="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-5">
-            <div
-              v-if="freshness.outlineStale"
-              class="flex shrink-0 items-center justify-between gap-3 rounded-xl border-l-2 border-amber-500/50 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300"
-            >
-              <span>故事圣经已变更，请逐集调整大纲或重新生成。</span>
-              <Button size="sm" variant="outline" class="shrink-0" @click="confirmOutlineCurrent">
-                确认大纲已调整
-              </Button>
-            </div>
+          <div
+            v-if="freshness.outlineStale"
+            class="flex shrink-0 items-center justify-between gap-3 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300"
+          >
+            <span>故事圣经已变更，请逐集调整大纲或重新生成。</span>
+            <Button size="sm" variant="outline" class="h-7 shrink-0" @click="confirmOutlineCurrent">
+              确认大纲已调整
+            </Button>
+          </div>
 
-            <div v-if="isBatchGenerating" class="shrink-0 space-y-1.5" aria-live="polite">
-              <div class="flex justify-between text-xs text-muted-foreground">
-                <span>剩余 {{ batchTotal - batchCompleted }} 次模型请求</span>
-                <span>{{ formatEta(batchEtaSeconds) }}</span>
+          <div v-if="isBatchGenerating" class="shrink-0 space-y-1.5 px-3 py-2" aria-live="polite">
+            <div class="flex justify-between text-xs text-muted-foreground">
+              <span>剩余 {{ batchTotal - batchCompleted }} 次模型请求</span>
+              <span>{{ formatEta(batchEtaSeconds) }}</span>
+            </div>
+            <Progress :model-value="batchTotal ? (batchCompleted / batchTotal) * 100 : 0" class="h-1.5" />
+          </div>
+
+          <div
+            v-if="selectedEpisode.review"
+            class="shrink-0 bg-muted/40 px-3 py-2 text-sm"
+          >
+            <p class="mb-0.5 text-xs text-muted-foreground">本集审校意见</p>
+            {{ selectedEpisode.review }}
+          </div>
+
+          <div
+            v-if="freshness.staleDraftIds.includes(selectedEpisode.id)"
+            class="flex shrink-0 flex-col gap-2 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <span>本集正文基于旧的大纲或故事设定。人工修改不会自动解除该状态。</span>
+            <Button size="sm" variant="outline" class="h-7 shrink-0" @click="confirmSelectedEpisodeCurrent">
+              确认已适配当前大纲
+            </Button>
+          </div>
+
+          <div
+            v-if="episodeMetaOpen"
+            class="shrink-0 max-h-[42%] overflow-y-auto bg-muted/15 px-3 py-3"
+          >
+            <div class="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+              <div class="space-y-1.5">
+                <label class="text-xs font-medium text-muted-foreground">标题</label>
+                <Input v-model="selectedEpisode.title" />
               </div>
-              <Progress :model-value="batchTotal ? (batchCompleted / batchTotal) * 100 : 0" class="h-1.5" />
+              <div class="space-y-1.5">
+                <label class="text-xs font-medium text-muted-foreground">结尾钩子</label>
+                <Textarea v-model="selectedEpisode.hook" class="min-h-9 [field-sizing:content]" />
+              </div>
+              <div class="space-y-1.5 sm:col-span-2">
+                <label class="text-xs font-medium text-muted-foreground">本集梗概</label>
+                <Textarea v-model="selectedEpisode.summary" class="min-h-16 [field-sizing:content]" />
+              </div>
+              <div class="space-y-1.5 sm:col-span-2">
+                <label class="text-xs font-medium text-muted-foreground">剧情节拍</label>
+                <Textarea
+                  :model-value="beatsText(selectedEpisode.id)"
+                  class="min-h-16 [field-sizing:content]"
+                  placeholder="每行一个可拍摄事件"
+                  @update:model-value="updateBeats(selectedEpisode.id, String($event))"
+                />
+              </div>
+              <div class="space-y-1.5 sm:col-span-2">
+                <label class="text-xs font-medium text-muted-foreground">连续性账本</label>
+                <Textarea
+                  v-model="selectedEpisode.continuityNotes"
+                  rows="2"
+                  placeholder="记录本集结束时的人物状态、时间地点、关键道具和未回收伏笔"
+                />
+              </div>
             </div>
-            <div
-              v-else-if="remainingDraftCount > 0"
-              class="flex shrink-0 items-center gap-2 text-xs text-muted-foreground"
-            >
-              <Clock3 class="h-3.5 w-3.5" />
-              批量生成将发起 {{ remainingDraftCount }} 次请求，参考耗时{{ formatEta(estimatedBatchSeconds) }}
-            </div>
+          </div>
+          <button
+            v-else
+            type="button"
+            class="flex shrink-0 items-center gap-2 px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/30"
+            @click="episodeMetaOpen = true"
+          >
+            <ListTree class="h-3.5 w-3.5 shrink-0" />
+            <span class="truncate">{{ selectedEpisodeOutlineSummary }}</span>
+          </button>
 
-            <div class="rounded-2xl bg-muted/20">
-              <button
-                type="button"
-                class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-                @click="episodeMetaOpen = !episodeMetaOpen"
+          <div v-if="episodeInstructionOpen" class="shrink-0 px-3 pb-2">
+            <Textarea
+              v-model="episodeInstruction"
+              rows="2"
+              placeholder="例如：保留前三场，只压缩对白并强化结尾反转"
+            />
+          </div>
+
+          <div
+            v-if="searchPanelOpen"
+            class="grid shrink-0 grid-cols-1 gap-2 px-3 pb-2 sm:grid-cols-[1fr_1fr_auto]"
+          >
+            <Input v-model="draftSearchText" placeholder="查找内容" />
+            <Input v-model="draftReplaceText" placeholder="替换为" />
+            <div class="flex items-center justify-end gap-1">
+              <span class="mr-1 whitespace-nowrap text-xs text-muted-foreground">
+                {{ draftSearchMatchCount }} 处
+              </span>
+              <Button size="sm" variant="outline" :disabled="!draftSearchMatchCount" @click="replaceNextInSelectedDraft">
+                替换下一处
+              </Button>
+              <Button size="sm" variant="outline" :disabled="!draftSearchMatchCount" @click="replaceAllInSelectedDraft">
+                全部替换
+              </Button>
+              <Button
+                v-if="replaceUndo"
+                size="icon"
+                variant="ghost"
+                title="撤销上次替换"
+                @click="undoDraftReplace"
               >
-                <div>
-                  <p class="text-sm font-medium">本集大纲</p>
-                  <p class="mt-0.5 text-xs text-muted-foreground">标题、钩子、梗概与节拍</p>
-                </div>
-                <ChevronUp v-if="episodeMetaOpen" class="h-4 w-4 text-muted-foreground" />
-                <ChevronDown v-else class="h-4 w-4 text-muted-foreground" />
-              </button>
-              <div v-if="episodeMetaOpen" class="grid grid-cols-1 gap-3 p-4 text-sm sm:grid-cols-2">
-                <div class="space-y-1.5">
-                  <label class="text-xs font-medium text-muted-foreground">标题</label>
-                  <Input v-model="selectedEpisode.title" />
-                </div>
-                <div class="space-y-1.5">
-                  <label class="text-xs font-medium text-muted-foreground">结尾钩子</label>
-                  <Textarea v-model="selectedEpisode.hook" class="min-h-9 [field-sizing:content]" />
-                </div>
-                <div class="space-y-1.5 sm:col-span-2">
-                  <label class="text-xs font-medium text-muted-foreground">本集梗概</label>
-                  <Textarea v-model="selectedEpisode.summary" class="min-h-16 [field-sizing:content]" />
-                </div>
-                <div class="space-y-1.5 sm:col-span-2">
-                  <label class="text-xs font-medium text-muted-foreground">剧情节拍</label>
-                  <Textarea
-                    :model-value="beatsText(selectedEpisode.id)"
-                    class="min-h-20 [field-sizing:content]"
-                    placeholder="每行一个可拍摄事件"
-                    @update:model-value="updateBeats(selectedEpisode.id, String($event))"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div
-              v-if="selectedEpisode.review"
-              class="rounded-xl border-l-2 border-amber-500/40 bg-muted/40 px-3 py-2.5 text-sm"
-            >
-              <p class="mb-1 text-xs text-muted-foreground">本集审校意见</p>
-              {{ selectedEpisode.review }}
-            </div>
-
-            <div
-              v-if="freshness.staleDraftIds.includes(selectedEpisode.id)"
-              class="flex flex-col gap-2 rounded-xl border-l-2 border-amber-500/50 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <span>本集正文基于旧的大纲或故事设定。人工修改不会自动解除该状态。</span>
-              <Button size="sm" variant="outline" class="shrink-0" @click="confirmSelectedEpisodeCurrent">
-                确认已适配当前大纲
+                <Undo2 class="h-4 w-4" />
               </Button>
             </div>
+          </div>
 
-            <div class="space-y-1.5">
-              <label class="text-xs font-medium text-muted-foreground">本次生成 / 修改要求</label>
-              <Textarea
-                v-model="episodeInstruction"
-                rows="2"
-                placeholder="例如：保留前三场，只压缩对白并强化结尾反转"
-              />
-            </div>
+          <div class="relative min-h-0 flex-1 px-3 pb-1">
+            <Textarea
+              :model-value="selectedEpisode.draft"
+              class="absolute inset-0 h-full min-h-0 resize-none border-0 bg-muted/25 font-mono leading-7 shadow-none focus-visible:ring-0"
+              placeholder="生成或编辑本集剧本"
+              @update:model-value="updateEpisodeDraft(selectedEpisode.id, String($event))"
+            />
+          </div>
 
-            <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-              <span class="flex flex-wrap items-center gap-x-3 gap-y-1 tabular-nums">
-                <span>{{ selectedEpisodeStats.characters }} 字</span>
-                <span v-if="selectedEpisodeStats.characters">
-                  预计 {{ formatEta(selectedEpisodeStats.estimatedSeconds) }} / 目标 {{ formatEta(studio.brief.episodeDuration) }}
-                </span>
-                <span v-else>尚无正文</span>
-                <span v-if="selectedEpisodeStats.sceneCount">{{ selectedEpisodeStats.sceneCount }} 场</span>
+          <div class="flex shrink-0 flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-xs text-muted-foreground">
+            <span class="flex flex-wrap items-center gap-x-3 gap-y-1 tabular-nums">
+              <span>{{ selectedEpisodeStats.characters }} 字</span>
+              <span v-if="selectedEpisodeStats.characters">
+                预计 {{ formatEta(selectedEpisodeStats.estimatedSeconds) }} / 目标 {{ formatEta(studio.brief.episodeDuration) }}
               </span>
-              <span class="flex items-center gap-1">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  class="h-7 gap-1.5 px-2 text-xs"
-                  title="查找替换"
-                  @click="searchPanelOpen = !searchPanelOpen"
-                >
-                  <Search class="h-3.5 w-3.5" />
-                  查找替换
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  class="h-7 gap-1.5 px-2 text-xs"
-                  :title="focusMode ? '退出专注模式' : '进入专注模式'"
-                  @click="focusMode = !focusMode"
-                >
-                  <Shrink v-if="focusMode" class="h-3.5 w-3.5" />
-                  <Focus v-else class="h-3.5 w-3.5" />
-                  {{ focusMode ? '退出专注' : '专注写作' }}
-                </Button>
-              </span>
-            </div>
-
-            <div
-              v-if="searchPanelOpen"
-              class="grid grid-cols-1 gap-2 rounded-xl bg-muted/20 p-2 sm:grid-cols-[1fr_1fr_auto]"
-            >
-              <Input v-model="draftSearchText" placeholder="查找内容" />
-              <Input v-model="draftReplaceText" placeholder="替换为" />
-              <div class="flex items-center justify-end gap-1">
-                <span class="mr-1 whitespace-nowrap text-xs text-muted-foreground">
-                  {{ draftSearchMatchCount }} 处
-                </span>
-                <Button variant="outline" :disabled="!draftSearchMatchCount" @click="replaceNextInSelectedDraft">
-                  替换下一处
-                </Button>
-                <Button variant="outline" :disabled="!draftSearchMatchCount" @click="replaceAllInSelectedDraft">
-                  全部替换
-                </Button>
-                <Button
-                  v-if="replaceUndo"
-                  size="icon"
-                  variant="ghost"
-                  title="撤销上次替换"
-                  @click="undoDraftReplace"
-                >
-                  <Undo2 class="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-
-            <div class="rounded-2xl bg-muted/30 p-1 shadow-[inset_0_1px_0_hsl(var(--foreground)/0.03)]">
-              <Textarea
-                :model-value="selectedEpisode.draft"
-                class="min-h-[22rem] resize-y border-0 bg-transparent font-mono leading-7 shadow-none focus-visible:ring-0"
-                placeholder="生成或编辑本集剧本"
-                @update:model-value="updateEpisodeDraft(selectedEpisode.id, String($event))"
-              />
-            </div>
-
-            <div class="space-y-1.5">
-              <label class="text-xs font-medium text-muted-foreground">连续性账本</label>
-              <Textarea
-                v-model="selectedEpisode.continuityNotes"
-                rows="3"
-                placeholder="记录本集结束时的人物状态、时间地点、关键道具和未回收伏笔"
-              />
-            </div>
-
+              <span v-else>尚无正文</span>
+              <span v-if="selectedEpisodeStats.sceneCount">{{ selectedEpisodeStats.sceneCount }} 场</span>
+            </span>
+            <span class="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                class="h-7 gap-1.5 px-2 text-xs"
+                title="查找替换"
+                @click="searchPanelOpen = !searchPanelOpen"
+              >
+                <Search class="h-3.5 w-3.5" />
+                查找替换
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                class="h-7 gap-1.5 px-2 text-xs"
+                :title="focusMode ? '退出专注模式' : '进入专注模式'"
+                @click="focusMode = !focusMode"
+              >
+                <Shrink v-if="focusMode" class="h-3.5 w-3.5" />
+                <Focus v-else class="h-3.5 w-3.5" />
+                {{ focusMode ? '退出专注' : '专注写作' }}
+              </Button>
+            </span>
           </div>
         </div>
 
@@ -2138,5 +2112,6 @@ function formatVersionTime(value: string) {
         </DialogFooter>
       </DialogContent>
     </Dialog> -->
+    </div>
   </div>
 </template>
