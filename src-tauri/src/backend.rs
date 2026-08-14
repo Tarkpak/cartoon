@@ -4837,7 +4837,12 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             "/api/project/{id}",
             get(api_project_get)
                 .put(api_project_put)
-                .delete(api_project_delete),
+                .delete(api_project_delete)
+                // assetWorkflow may contain legacy Base64 image history while
+                // a newly generated asset is being saved. Keep this aligned
+                // with the dedicated image upload limit instead of Axum's
+                // small default request limit.
+                .layer(DefaultBodyLimit::max(ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES)),
         )
         .route("/api/styles", get(api_styles))
         .route("/api/styles/index", get(api_styles))

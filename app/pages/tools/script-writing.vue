@@ -106,7 +106,9 @@ async function fetchProjects() {
 }
 
 async function switchProject(nextProjectId: string, saveCurrent = true) {
-  if (!nextProjectId || nextProjectId === loadedProjectId.value) return
+  // Returning to the list keeps the loaded id for persistence, but selecting
+  // that same project must still leave list mode and restore the editor.
+  if (!nextProjectId || (nextProjectId === loadedProjectId.value && !showProjectList.value)) return
   switchingProject.value = true
   const previousProjectId = loadedProjectId.value
   try {
