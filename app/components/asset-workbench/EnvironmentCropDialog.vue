@@ -424,20 +424,20 @@ onBeforeUnmount(() => {
 
       <div class="shrink-0 border-t bg-background/95 px-4 py-3 backdrop-blur">
         <div class="flex flex-wrap items-center gap-2">
-          <div class="h-9 min-w-0 max-w-[320px] shrink-0 rounded-md border bg-muted/25 px-3">
+          <div class="h-9 min-w-0 max-w-[320px] shrink-0 rounded-xl bg-muted/25 px-3">
             <p class="truncate text-sm font-semibold leading-9 tracking-tight">
               {{ targetLabel || '环境取景区域' }}
             </p>
           </div>
 
-          <div class="flex h-9 shrink-0 items-center rounded-md border bg-muted/20 px-3 text-xs text-muted-foreground">
+          <div class="flex h-9 shrink-0 items-center rounded-xl bg-muted/20 px-3 text-xs text-muted-foreground">
             当前输出：
             <span class="ml-1 font-medium text-foreground">
               {{ captureMode === '四视角' ? '四视图' : '单视图' }}
             </span>
           </div>
 
-          <div class="flex h-9 min-w-[260px] flex-1 items-center gap-2 rounded-md border bg-muted/20 px-3">
+          <div class="flex h-9 min-w-[260px] flex-1 items-center gap-2 rounded-xl bg-muted/20 px-3">
             <span class="w-8 shrink-0 text-xs text-muted-foreground">缩放</span>
             <Slider
               :model-value="[zoomFovDegrees]"

@@ -5,6 +5,7 @@
 
 // 剧本/场景类型
 export * from './script'
+export * from './script-writing'
 
 // 角色类型
 export * from './character'

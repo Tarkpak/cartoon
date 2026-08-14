@@ -58,7 +58,7 @@ function triggerUpload() {
 
 <template>
   <div
-    class="absolute right-2 top-12 z-30 w-[min(92vw,420px)] rounded-md border bg-background/95 p-3 shadow-xl backdrop-blur"
+    class="absolute right-2 top-12 z-30 w-[min(92vw,420px)] rounded-xl bg-muted/25/95 p-3 shadow-xl backdrop-blur"
     @click.stop
   >
     <div class="flex items-center justify-between gap-2 border-b pb-2">
@@ -87,7 +87,7 @@ function triggerUpload() {
         :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'"
       >
         <div
-          class="max-w-[92%] space-y-1 rounded-md border px-2 py-1.5 text-xs"
+          class="max-w-[92%] space-y-1 rounded-xl bg-muted/15 px-2 py-1.5 text-xs"
           :class="msg.role === 'user' ? 'border-primary/40 bg-primary/10' : 'bg-muted/40'"
         >
           <p class="whitespace-pre-wrap leading-relaxed">
@@ -172,7 +172,7 @@ function triggerUpload() {
       <div
         v-if="mentionOpen && mentionCandidates.length > 0"
         :ref="setMentionListElement"
-        class="absolute bottom-full left-0 right-0 mb-1 max-h-40 overflow-y-auto rounded-md border bg-popover p-1 shadow-md"
+        class="absolute bottom-full left-0 right-0 mb-1 max-h-40 overflow-y-auto rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] p-1 shadow-md"
       >
         <Button
           v-for="(item, mentionIndex) in mentionCandidates"

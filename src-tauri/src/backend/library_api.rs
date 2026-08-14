@@ -307,6 +307,57 @@ async fn sync_library_asset_to_cloud(
     }
 }
 
+pub(super) async fn create_generated_audio_library_asset(
+    state: &BackendState,
+    name: &str,
+    description: &str,
+    category: &str,
+    url: &str,
+    duration_ms: Option<i64>,
+    bundle: Option<Value>,
+) -> Result<Value, ApiError> {
+    if !matches!(category, "character_voice" | "narration" | "sfx" | "bgm") {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "音频素材分类无效"));
+    }
+    let id = format!("lib_{}", Uuid::new_v4().simple());
+    let now = now_iso();
+    let conn = db_connection(state)?;
+    let (owner_user_id, owner_account, owner_display_name) = local_library_owner(&conn);
+    conn.execute(
+        "INSERT INTO library_assets
+          (id, owner_user_id, owner_account, owner_display_name, media_type, category, name,
+           description, tags_json, url, mime_type, duration_ms, source_type, copyright_note,
+           favorite, visibility, permission, use_count, bundle_json, shares_json, version,
+           created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, 'audio', ?5, ?6, ?7, '[]', ?8, 'audio/mpeg', ?9,
+                 'generated', '', 0, 'private', 'edit', 0, ?10, '[]', 1, ?11, ?12)",
+        params![
+            id,
+            owner_user_id,
+            owner_account,
+            owner_display_name,
+            category,
+            name.trim(),
+            description.trim(),
+            url,
+            duration_ms,
+            bundle.unwrap_or(Value::Null).to_string(),
+            now,
+            now,
+        ],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let version_body = json!({ "mimeType": "audio/mpeg", "durationMs": duration_ms });
+    insert_library_version(&conn, &id, 1, &version_body, url, &now)?;
+    let asset = library_asset_by_id(&conn, &id)?.ok_or_else(|| {
+        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "语音素材创建后读取失败")
+    })?;
+    let versions = library_asset_versions(&conn, &id)?;
+    drop(conn);
+    sync_library_asset_to_cloud(state, asset.clone(), Some(versions)).await;
+    Ok(asset)
+}
+
 pub(super) async fn api_library_assets_create(
     State(state): State<BackendState>,
     Json(body): Json<Value>,

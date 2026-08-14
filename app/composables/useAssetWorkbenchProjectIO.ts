@@ -15,6 +15,11 @@ import {
   buildSaveScenesPayload
 } from '~/lib/asset-workbench-project-serialization'
 import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
+import {
+  createEmptyScriptWritingStudio,
+  normalizeScriptWritingStudio,
+  type ScriptWritingStudio
+} from '#shared/types/script-writing'
 
 interface UseAssetWorkbenchProjectIOOptions {
   route: ReturnType<typeof useRoute>
@@ -28,6 +33,7 @@ interface UseAssetWorkbenchProjectIOOptions {
   scriptParseMode: Ref<ScriptParseMode>
   selectedStyleId: Ref<string>
   novelText: Ref<string>
+  writingStudio?: Ref<ScriptWritingStudio>
   scenes: Ref<SceneData[]>
   characters: Ref<CharacterData[]>
   episodePlan: Ref<ScriptEpisodePlanItem[]>
@@ -58,6 +64,7 @@ function resolveCloudSyncWarning(cloudSync?: ProjectCloudSyncResult): string | n
 }
 
 export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOptions) {
+  const writingStudio = options.writingStudio || ref(createEmptyScriptWritingStudio())
   const saving = ref(false)
   const saveError = ref<string | null>(null)
   const saveWarning = ref<string | null>(null)
@@ -103,6 +110,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       styleId: options.projectStyleId.value,
       aspectRatio: options.projectAspectRatio.value,
       novelText: options.novelText.value,
+      writingStudio: writingStudio.value,
       selectedStyleId: options.selectedStyleId.value || options.projectStyleId.value,
       scriptParseMode: options.scriptParseMode.value,
       episodePlan: options.episodePlan.value,
@@ -297,6 +305,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
             scriptParseMode?: ScriptParseMode
             episodePlan?: ScriptEpisodePlanItem[]
             assetWorkflow?: unknown
+            writingStudio?: unknown
           } | null
           scenes: Array<{
             id: string
@@ -354,6 +363,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       options.projectAspectRatio.value = response.data.project.aspectRatio || '16:9'
       options.selectedStyleId.value = response.data.script?.selectedStyleId || response.data.project.styleId || ''
       options.novelText.value = response.data.script?.novelText || response.data.script?.rawText || ''
+      writingStudio.value = normalizeScriptWritingStudio(response.data.script?.writingStudio)
       options.scriptParseMode.value = response.data.project.scriptParseMode || response.data.script?.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE
       options.episodePlan.value = response.data.script?.episodePlan || []
       options.projectAssetWorkflow.value = response.data.script?.assetWorkflow ?? null
@@ -404,6 +414,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
           body: {
             title: options.projectName.value || '未命名项目',
             description: options.projectDescription.value,
+            projectType: 'script_writing',
             scriptParseMode: options.scriptParseMode.value,
             styleId: options.projectStyleId.value,
             aspectRatio: options.projectAspectRatio.value

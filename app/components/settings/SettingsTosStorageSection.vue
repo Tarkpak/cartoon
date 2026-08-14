@@ -138,7 +138,7 @@ onMounted(() => {
       </div>
 
       <template v-else>
-        <div class="flex items-center justify-between rounded-lg border bg-background p-4">
+        <div class="flex items-center justify-between rounded-xl bg-muted/25 p-4">
           <div>
             <h3 class="text-sm font-medium">
               启用 TOS 云存储
@@ -154,7 +154,7 @@ onMounted(() => {
           />
         </div>
 
-        <div class="grid grid-cols-1 gap-3 rounded-lg border bg-background p-4 @lg:grid-cols-2">
+        <div class="grid grid-cols-1 gap-3 rounded-xl bg-muted/25 p-4 @lg:grid-cols-2">
           <div class="space-y-1.5">
             <label class="text-xs text-muted-foreground">Access Key ID</label>
             <Input
@@ -254,7 +254,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="flex items-center justify-between rounded-lg border bg-background p-4">
+        <div class="flex items-center justify-between rounded-xl bg-muted/25 p-4">
           <div>
             <h3 class="text-sm font-medium">
               自定义域名

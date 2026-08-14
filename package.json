@@ -1,6 +1,6 @@
 {
   "name": "playlet-ai-manga",
-  "version": "1.0.117",
+  "version": "1.0.120",
   "private": true,
   "type": "module",
   "description": "AI影视自动化生成系统 - 基于Vue 3 + Vite + Rust后端",
@@ -18,6 +18,7 @@
     "test": "vitest --run app shared && bun test backend",
     "test:watch": "vitest app shared",
     "test:coverage": "vitest --run --coverage app shared && bun test backend",
+    "voice-presets:sync": "bun scripts/sync-volcengine-voice-presets.ts",
     "desktop:dev": "bun run dev:cleanup && bun run --parallel dev:frontend tauri:dev",
     "tauri:dev": "tauri dev",
     "desktop:prepare-updater-config": "node ./scripts/desktop-prepare-updater-config.mjs",

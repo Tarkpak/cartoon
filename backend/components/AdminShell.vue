@@ -212,6 +212,7 @@ const menuOptions = [
   { label: '资源库管理', key: '/library-assets', icon: () => renderMenuIcon('assets') },
   { label: '调用日志', key: '/logs', icon: () => renderMenuIcon('logs') },
   { label: '供应商 Key', key: '/providers', icon: () => renderMenuIcon('providers') },
+  { label: '默认提示词', key: '/prompt-templates', icon: () => renderMenuIcon('settings') },
   { label: '客户端版本', key: '/client-versions', icon: () => renderMenuIcon('versions') },
   { label: '系统设置', key: '/settings', icon: () => renderMenuIcon('settings') }
 ]

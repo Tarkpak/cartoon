@@ -60,6 +60,10 @@ export interface PromptVersion {
 }
 
 export const PROMPT_TEMPLATE_IDS = {
+  SCRIPT_WRITING_STORY_BIBLE: 'script_writing_story_bible',
+  SCRIPT_WRITING_OUTLINE: 'script_writing_outline',
+  SCRIPT_WRITING_EPISODE_DRAFT: 'script_writing_episode_draft',
+  SCRIPT_WRITING_REVIEW: 'script_writing_review',
   SCRIPT_PARSING: 'script_parsing',
   SCRIPT_EPISODE_PLAN: 'script_episode_plan',
   SCRIPT_PARSING_EPISODE_DRAMA_CONTEXT: 'script_parsing_episode_drama_context',
@@ -101,6 +105,10 @@ type RawPromptVariable = {
 }
 
 const PROMPT_TEMPLATE_STAGES: Record<PromptTemplateId, PromptFlowStage> = {
+  script_writing_story_bible: 'parse',
+  script_writing_outline: 'parse',
+  script_writing_episode_draft: 'parse',
+  script_writing_review: 'parse',
   script_episode_plan: 'parse',
   script_parsing: 'parse',
   script_parsing_episode_drama_context: 'parse',

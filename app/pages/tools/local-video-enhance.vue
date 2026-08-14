@@ -291,7 +291,7 @@ async function submitLocalEnhance() {
                 v-for="option in presetOptions"
                 :key="option.value"
                 type="button"
-                class="rounded-md border p-3 text-left transition-colors hover:bg-accent"
+                class="rounded-xl bg-muted/20 p-3 text-left transition-colors hover:bg-muted/35"
                 :class="preset === option.value ? 'border-primary bg-primary/5' : 'border-border'"
                 @click="preset = option.value"
               >
@@ -343,7 +343,7 @@ async function submitLocalEnhance() {
             </div>
 
             <div
-              class="rounded-md border border-dashed bg-muted/30 p-4 transition-colors"
+              class="rounded-xl bg-muted/15 bg-muted/30 p-4 transition-colors"
               :class="draggingFiles ? 'border-primary bg-primary/5' : 'border-border'"
               @dragenter.prevent="handleDragEnter"
               @dragover.prevent
@@ -363,7 +363,7 @@ async function submitLocalEnhance() {
                 <div
                   v-for="item in queue"
                   :key="item.id"
-                  class="rounded-md border bg-background p-3"
+                  class="rounded-xl bg-muted/25 p-3"
                 >
                   <div class="flex items-start gap-3">
                     <FileVideo class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -447,7 +447,7 @@ async function submitLocalEnhance() {
 
             <div
               v-if="errorMessage"
-              class="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm leading-6 text-destructive"
+              class="rounded-xl bg-destructive/10 p-3 text-sm leading-6 text-destructive"
             >
               {{ errorMessage }}
             </div>

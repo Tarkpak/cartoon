@@ -440,7 +440,7 @@ function getErrorMessage(error: unknown) {
         <Card class="border-0 bg-transparent shadow-none backdrop-blur-none">
           <CardContent class="flex flex-col gap-6 p-0">
             <form
-              class="order-1 rounded-lg border border-border/70 bg-card p-3 shadow-[0_12px_34px_hsl(var(--foreground)/0.05)] sm:p-4"
+              class="order-1 rounded-xl bg-muted/25 p-3 shadow-[0_12px_34px_hsl(var(--foreground)/0.05)] sm:p-4"
               @submit.prevent="parseShareUrl"
             >
               <label
@@ -479,7 +479,7 @@ function getErrorMessage(error: unknown) {
             <div
               v-if="errorMessage"
               role="alert"
-              class="order-2 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+              class="order-2 flex items-start gap-2 rounded-xl border-0 bg-destructive/8 px-3 py-2.5 text-sm text-destructive"
             >
               <span class="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-destructive" />
               {{ errorMessage }}
@@ -487,7 +487,7 @@ function getErrorMessage(error: unknown) {
 
             <section
               v-if="parsing && !profile"
-              class="order-3 grid animate-pulse gap-6 rounded-lg border border-border/60 bg-card/60 p-5 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)]"
+              class="order-3 grid animate-pulse gap-6 rounded-xl bg-muted/20 p-5 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)]"
               aria-label="正在解析视频"
             >
               <div class="mx-auto aspect-[9/16] h-[min(52vh,520px)] rounded-md bg-muted" />
@@ -504,7 +504,7 @@ function getErrorMessage(error: unknown) {
 
             <div
               v-if="historyItems.length > 0"
-              class="order-5 space-y-3 border-t border-border/70 pt-5"
+              class="order-5 space-y-3 pt-5"
             >
               <div class="flex items-center justify-between gap-3">
                 <div class="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -519,12 +519,12 @@ function getErrorMessage(error: unknown) {
                 </span>
               </div>
 
-              <div class="overflow-hidden rounded-md border border-border/70 bg-card/55">
+              <div class="overflow-hidden rounded-xl bg-muted/20">
                 <article
                   v-for="item in historyItems"
                   :key="`${item.platform}:${item.id}`"
                   tabindex="0"
-                  class="group flex cursor-pointer items-center gap-3 border-b border-border/60 px-3 py-3 transition-colors last:border-b-0 hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:gap-4 sm:px-4"
+                  class="group flex cursor-pointer items-center gap-3 px-3 py-3 transition-colors last:border-b-0 hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:gap-4 sm:px-4"
                   :class="profile?.historyId === item.id && profile.platform === item.platform ? 'bg-accent/35' : ''"
                   @click="openHistoryDrawer(item)"
                   @keydown.enter.prevent="openHistoryDrawer(item)"
@@ -572,7 +572,7 @@ function getErrorMessage(error: unknown) {
 
             <section
               v-else-if="!loadingHistory"
-              class="order-5 flex items-center gap-3 border-t border-border/70 py-6 text-muted-foreground"
+              class="order-5 flex items-center gap-3 py-6 text-muted-foreground"
               aria-label="解析历史为空"
             >
               <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
@@ -586,7 +586,7 @@ function getErrorMessage(error: unknown) {
 
             <div
               v-if="profile"
-              class="order-3 grid gap-6 rounded-lg border border-border/70 bg-card p-4 shadow-[0_16px_42px_hsl(var(--foreground)/0.055)] sm:p-5 lg:grid-cols-[minmax(260px,0.82fr)_minmax(0,1.18fr)] lg:gap-8"
+              class="order-3 grid gap-6 rounded-xl bg-muted/25 p-4 shadow-[0_16px_42px_hsl(var(--foreground)/0.055)] sm:p-5 lg:grid-cols-[minmax(260px,0.82fr)_minmax(0,1.18fr)] lg:gap-8"
             >
               <div class="flex min-w-0 items-center justify-center rounded-md bg-[hsl(224_18%_9%)] p-3 sm:p-4">
                 <div
@@ -725,7 +725,7 @@ function getErrorMessage(error: unknown) {
                   </div>
                 </div>
 
-                <div class="space-y-4 border-t border-border/70 pt-5">
+                <div class="space-y-4 pt-5">
                   <div class="grid grid-cols-3 gap-3 text-sm">
                     <div>
                       <p class="text-xs text-muted-foreground">格式</p>
@@ -771,7 +771,7 @@ function getErrorMessage(error: unknown) {
 
                 <div
                   v-if="result"
-                  class="space-y-3 rounded-md border border-success/25 bg-success/5 p-3.5"
+                  class="space-y-3 rounded-xl bg-success/10 p-3.5"
                 >
                   <div class="flex items-start gap-2">
                     <CheckCircle2 class="mt-0.5 h-4 w-4 shrink-0 text-success" />
@@ -839,7 +839,7 @@ function getErrorMessage(error: unknown) {
           :class="imagePreviewOpen ? 'overflow-hidden' : 'overflow-auto'"
         >
           <div class="space-y-5">
-            <div class="group relative overflow-hidden rounded-md border bg-black">
+            <div class="group relative overflow-hidden rounded-xl bg-black">
               <div
                 v-if="selectedHistoryItem.profile.mediaType === 'image'"
                 class="space-y-3 p-2"
@@ -1002,7 +1002,7 @@ function getErrorMessage(error: unknown) {
                 </p>
               </div>
 
-              <div class="space-y-2 border-t border-border/70 pt-4">
+              <div class="space-y-2 pt-4">
                 <label for="history-video-filename" class="text-sm font-semibold text-foreground">
                   保存文件名
                 </label>
@@ -1016,7 +1016,7 @@ function getErrorMessage(error: unknown) {
 
               <div
                 v-if="selectedHistoryItem.path"
-                class="space-y-2 rounded-md border border-success/25 bg-success/5 p-3"
+                class="space-y-2 rounded-xl bg-success/10 p-3"
               >
                 <div class="flex items-center gap-2 text-sm font-medium text-foreground">
                   <CheckCircle2 class="h-4 w-4 text-success" />

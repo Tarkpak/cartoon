@@ -38,7 +38,7 @@ function switchType(type: TaskType) {
       class="h-16"
     >
       <template #actions>
-        <div class="flex rounded-lg border bg-muted/40 p-1 shadow-sm">
+        <div class="flex rounded-xl bg-muted/35 p-1 shadow-none">
           <button
             type="button"
             class="inline-flex h-9 items-center rounded-md px-4 text-sm font-semibold transition-colors"

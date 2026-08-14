@@ -422,7 +422,7 @@ onMounted(() => {
           @click="selectProvider(provider.provider)"
         >
           <div
-            class="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-background"
+            class="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted/25"
             :class="provider.provider === activeProviderSummary?.provider ? 'border-primary/40' : 'border-border'"
           >
             <SettingsProviderLogo
@@ -455,7 +455,7 @@ onMounted(() => {
         <div class="flex flex-col gap-4 @2xl:flex-row @2xl:items-start @2xl:justify-between">
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
-              <div class="flex h-7 w-7 items-center justify-center rounded-md border bg-background">
+              <div class="flex h-7 w-7 items-center justify-center rounded-xl bg-muted/25">
                 <SettingsProviderLogo
                   :provider="activeProviderSummary.provider"
                   size-class="h-4 w-4"
@@ -553,14 +553,14 @@ onMounted(() => {
 
           <div
             v-if="errorMessage"
-            class="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+            class="flex items-start gap-2 rounded-xl bg-destructive/8 p-3 text-sm text-destructive"
           >
             <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
             {{ errorMessage }}
           </div>
 
           <div
-            class="rounded-lg border bg-background p-4"
+            class="rounded-xl bg-muted/25 p-4"
           >
             <div class="flex flex-col gap-4 @2xl:flex-row @2xl:items-start @2xl:justify-between">
               <div class="min-w-0 flex-1">
@@ -615,7 +615,7 @@ onMounted(() => {
                     <section
                       v-for="group in activeProviderModelGroups"
                       :key="`${activeProviderSummary.provider}_${group.key}`"
-                      class="rounded-md border bg-background/80 p-2"
+                      class="rounded-xl bg-muted/25/80 p-2"
                     >
                       <div class="flex items-start justify-between gap-2">
                         <div class="min-w-0">
@@ -658,7 +658,7 @@ onMounted(() => {
         v-else-if="errorMessage"
         class="flex flex-1 items-center justify-center p-6"
       >
-        <div class="max-w-md rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+        <div class="max-w-md rounded-xl bg-destructive/8 p-4 text-sm text-destructive">
           <div class="flex items-start gap-2">
             <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
             <div class="min-w-0 flex-1">

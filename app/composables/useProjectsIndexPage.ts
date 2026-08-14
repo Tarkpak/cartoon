@@ -54,6 +54,15 @@ export function useProjectsIndexPage() {
   const statusMap = projectStatusMap
   const effectiveDefaultStyleId = computed(() => resolveDefaultStyleId())
 
+  function getReturnTo(): string {
+    const value = route.query.returnTo
+    return Array.isArray(value) ? value[0] || '' : value || ''
+  }
+
+  const isWritingWorkspace = computed(() => {
+    return route.path === '/tools/script-writing' || getReturnTo() === 'script-writing'
+  })
+
   function resolveDefaultStyleId(): string {
     return defaultStyleId.value || availableStylePresets.value[0]?.id || ''
   }
@@ -93,7 +102,8 @@ export function useProjectsIndexPage() {
           pageSize: pageSize.value,
           status: statusFilter.value,
           sortBy: sortBy.value,
-          keyword: keyword || undefined
+          keyword: keyword || undefined,
+          workspace: isWritingWorkspace.value ? 'writing' : 'video'
         }
       })
       projects.value = data.projects
@@ -125,6 +135,7 @@ export function useProjectsIndexPage() {
         body: {
           title: newProject.value.title,
           description: newProject.value.description || undefined,
+          projectType: isWritingWorkspace.value ? 'script_writing' : 'video',
           scriptParseMode: newProject.value.scriptParseMode,
           styleId,
           aspectRatio: newProject.value.aspectRatio
@@ -136,6 +147,11 @@ export function useProjectsIndexPage() {
 
       const createdId = response?.project?.id
       if (createdId) {
+        const returnTo = getReturnTo()
+        if (isWritingWorkspace.value || returnTo === 'script-writing') {
+          await router.push({ path: '/tools/script-writing', query: { project: createdId } })
+          return
+        }
         await router.push(resolveProjectDetailPath(createdId))
         return
       }
@@ -178,6 +194,10 @@ export function useProjectsIndexPage() {
     const storageKey = projectLastOpenedStorageKey(currentUser.value?.id)
     if (typeof window !== 'undefined' && storageKey) {
       window.localStorage.setItem(storageKey, project.id)
+    }
+    if (isWritingWorkspace.value) {
+      router.push({ path: '/tools/script-writing', query: { project: project.id } })
+      return
     }
     router.push(resolveProjectDetailPath(project.id))
   }
@@ -313,6 +333,7 @@ export function useProjectsIndexPage() {
     totalPages,
     hasActiveFilters,
     statusMap,
+    isWritingWorkspace,
     fetchProjects,
     createProject,
     openCreateDialog,

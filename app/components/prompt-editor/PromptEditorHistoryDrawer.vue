@@ -58,7 +58,7 @@ const emit = defineEmits<{
           <div
             v-for="version in versions"
             :key="version.id"
-            class="p-3 rounded-lg border hover:bg-muted/50 transition-colors"
+            class="p-3 rounded-xl bg-muted/15 hover:bg-muted/30 transition-colors"
           >
             <div class="flex items-start justify-between gap-2">
               <div class="flex-1 min-w-0">

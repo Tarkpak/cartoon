@@ -13,7 +13,9 @@ import SettingsPage from './pages/settings.vue'
 import TosFilesPage from './pages/tos-files.vue'
 import EnhancePage from './pages/tools/enhance.vue'
 import AsrPage from './pages/tools/asr.vue'
+import VoicePage from './pages/tools/voice.vue'
 import ShortVideoDownloadPage from './pages/tools/short-video-download.vue'
+import ScriptWritingPage from './pages/tools/script-writing.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -97,6 +99,11 @@ const routes: RouteRecordRaw[] = [
     meta: { layout: 'default' }
   },
   {
+    path: '/tools/script-writing',
+    component: ScriptWritingPage,
+    meta: { layout: 'default' }
+  },
+  {
     path: '/tools/video-enhance',
     redirect: to => ({
       path: '/tools/enhance',
@@ -116,6 +123,11 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/tools/asr',
     component: AsrPage,
+    meta: { layout: 'default' }
+  },
+  {
+    path: '/tools/voice',
+    component: VoicePage,
     meta: { layout: 'default' }
   },
   {

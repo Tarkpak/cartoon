@@ -361,7 +361,7 @@ async function submitTask() {
             >
             <div
               v-if="queue.length === 0"
-              class="flex min-h-[280px] items-center justify-center rounded-md border border-dashed bg-muted/30 p-4"
+              class="flex min-h-[280px] items-center justify-center rounded-xl bg-muted/15 bg-muted/30 p-4"
             >
               <div class="text-center">
                 <FileImage class="mx-auto h-10 w-10 text-muted-foreground" />
@@ -377,7 +377,7 @@ async function submitTask() {
               <div
                 v-for="item in queue"
                 :key="item.id"
-                class="overflow-hidden rounded-md border bg-background"
+                class="overflow-hidden rounded-xl bg-muted/25"
               >
                 <div class="flex aspect-video items-center justify-center bg-muted/30">
                   <img
@@ -485,7 +485,7 @@ async function submitTask() {
                   v-for="option in kindOptions"
                   :key="option.value"
                   type="button"
-                  class="w-full rounded-md border p-3 text-left transition-colors hover:bg-accent"
+                  class="w-full rounded-xl bg-muted/20 p-3 text-left transition-colors hover:bg-muted/35"
                   :class="kind === option.value ? 'border-primary bg-primary/5' : 'border-border'"
                   @click="kind = option.value"
                 >

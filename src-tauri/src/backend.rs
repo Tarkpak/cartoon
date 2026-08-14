@@ -117,6 +117,8 @@ mod runtime_api;
 mod short_video;
 #[path = "backend/video_import.rs"]
 mod video_import;
+#[path = "backend/voice_api.rs"]
+mod voice_api;
 #[path = "backend/wx_channels.rs"]
 mod wx_channels;
 #[path = "backend/xiaohongshu.rs"]
@@ -128,6 +130,7 @@ use prompts_api::*;
 use runtime_api::*;
 use short_video::*;
 use video_import::*;
+use voice_api::*;
 
 tokio::task_local! {
     static CURRENT_REQUEST_ID: String;
@@ -194,6 +197,7 @@ struct ProjectListQuery {
     #[serde(rename = "sortBy")]
     sort_by: Option<String>,
     keyword: Option<String>,
+    workspace: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -206,6 +210,8 @@ struct CreateProjectBody {
     style_id: Option<String>,
     #[serde(rename = "aspectRatio")]
     aspect_ratio: Option<String>,
+    #[serde(rename = "projectType")]
+    project_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1417,6 +1423,10 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
                 .get("mediakitApiKey")
                 .and_then(Value::as_str)
                 .is_some_and(|value| !value.trim().is_empty());
+            let has_speech_api_key = item
+                .get("speechApiKey")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty());
             let has_ark_access_key = item
                 .get("arkAccessKey")
                 .and_then(Value::as_str)
@@ -1438,6 +1448,7 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
                 json!({
                   "baseUrl": item.get("baseUrl").and_then(Value::as_str).unwrap_or(""),
                   "hasApiKey": has_api_key,
+                  "hasSpeechApiKey": has_speech_api_key,
                   "hasMediakitApiKey": has_mediakit_api_key,
                   "hasArkAccessKey": has_ark_access_key,
                   "hasArkSecretKey": has_ark_secret_key,
@@ -1465,6 +1476,10 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
             .get("mediakitApiKey")
             .and_then(Value::as_str)
             .is_some_and(|value| !value.trim().is_empty());
+        let has_speech_api_key = item
+            .get("speechApiKey")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty());
         let has_ark_access_key = item
             .get("arkAccessKey")
             .and_then(Value::as_str)
@@ -1486,6 +1501,7 @@ fn cloud_provider_credentials_public(raw: Option<Value>) -> Value {
             json!({
               "baseUrl": item.get("baseUrl").and_then(Value::as_str).unwrap_or(""),
               "hasApiKey": has_api_key,
+              "hasSpeechApiKey": has_speech_api_key,
               "hasMediakitApiKey": has_mediakit_api_key,
               "hasArkAccessKey": has_ark_access_key,
               "hasArkSecretKey": has_ark_secret_key,
@@ -1722,6 +1738,7 @@ fn build_cloud_project_put_body(snapshot: &Value, fallback: &Value) -> Value {
         "inputMode",
         "episodePlan",
         "assetWorkflow",
+        "writingStudio",
     ] {
         if let Some(value) = script.get(key).filter(|value| !value.is_null()) {
             body.insert(key.to_string(), value.clone());
@@ -1756,6 +1773,12 @@ fn upsert_cloud_project_placeholder(
     let now = now_iso();
     let name = cloud_value_text_from([snapshot_project, project], "name");
     let description = cloud_value_text_from([snapshot_project, project], "description");
+    let project_type = cloud_value_text_from([snapshot_project, project], "projectType");
+    let project_type = if matches!(project_type.as_str(), "video" | "script_writing") {
+        project_type
+    } else {
+        "video".to_string()
+    };
     let script_parse_mode_raw =
         cloud_value_text_from([snapshot_project, project], "scriptParseMode");
     let script_parse_mode = normalize_script_parse_mode(if script_parse_mode_raw.is_empty() {
@@ -1790,11 +1813,12 @@ fn upsert_cloud_project_placeholder(
     ensure_cloud_project_owner_available(&conn, project_id, &owner_user_id)?;
 
     let changed = conn.execute(
-        "INSERT INTO projects (id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+        "INSERT INTO projects (id, name, description, project_type, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            description = excluded.description,
+           project_type = excluded.project_type,
            script_parse_mode = excluded.script_parse_mode,
            style_id = excluded.style_id,
            aspect_ratio = excluded.aspect_ratio,
@@ -1807,6 +1831,7 @@ fn upsert_cloud_project_placeholder(
             project_id,
             if name.is_empty() { "未命名项目" } else { name.as_str() },
             description,
+            project_type,
             script_parse_mode,
             style_id,
             valid_project_aspect_ratio(&aspect_ratio),
@@ -1855,6 +1880,11 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
             .trim();
         let mediakit_api_key = item
             .get("mediakitApiKey")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let speech_api_key = item
+            .get("speechApiKey")
             .and_then(Value::as_str)
             .unwrap_or("")
             .trim();
@@ -1928,6 +1958,7 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
         } else {
             if target_provider == "volcengine"
                 && api_key.is_empty()
+                && speech_api_key.is_empty()
                 && mediakit_api_key.is_empty()
                 && ark_access_key.is_empty()
                 && ark_secret_key.is_empty()
@@ -1942,6 +1973,7 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
                 if target_provider == "volcengine" {
                     json!({
                       "apiKey": api_key,
+                      "speechApiKey": speech_api_key,
                       "mediakitApiKey": mediakit_api_key,
                       "arkAccessKey": ark_access_key,
                       "arkSecretKey": ark_secret_key,
@@ -1977,6 +2009,10 @@ fn overlay_cloud_provider_creds(conn: &Connection, creds: &mut Value) {
         return;
     };
     for (provider, value) in cloud_obj {
+        if provider == "custom_openai" {
+            root.insert(provider.clone(), value.clone());
+            continue;
+        }
         root.insert(provider.clone(), value.clone());
     }
 }
@@ -2815,6 +2851,14 @@ fn default_selected_models() -> Value {
 fn default_workflow_steps() -> Value {
     json!([
       {
+        "id": "script_writing",
+        "name": "AI 剧本创作",
+        "description": "生成故事圣经、分集大纲、单集剧本并执行连贯性审校",
+        "category": "text",
+        "requiredCapabilities": ["text_generation"],
+        "optionalCapabilities": []
+      },
+      {
         "id": "script_parsing",
         "name": "分集目录规划与剧本解析",
         "description": "解析为结构化场景",
@@ -3051,7 +3095,7 @@ fn available_model_enabled_for_provider(
 
 fn workflow_step_category(step_id: &str) -> Option<&'static str> {
     match step_id {
-        "script_parsing" | "video_import_script_generation" | "scene_description_refinement" => {
+        "script_writing" | "script_parsing" | "video_import_script_generation" | "scene_description_refinement" => {
             Some("text")
         }
         "character_portrait" | "frame_generation" => Some("image"),
@@ -3143,6 +3187,7 @@ fn selected_models_public_view(selected: &Value) -> Value {
 
 fn legacy_workflow_default_model_for_step(step_id: &str) -> Option<&'static str> {
     match step_id {
+        "script_writing" => Some("qwen3.6-plus"),
         "script_parsing" => Some("qwen3.6-plus"),
         "video_import_script_generation" => Some("qwen3.6-plus"),
         "scene_description_refinement" => Some("qwen3.6-plus"),
@@ -3184,6 +3229,7 @@ fn workflow_overrides(conn: &Connection) -> Result<Value, ApiError> {
         return Ok(json!({}));
     };
     let workflow_steps = [
+        "script_writing",
         "script_parsing",
         "video_import_script_generation",
         "scene_description_refinement",
@@ -3244,6 +3290,7 @@ fn workflow_current_selections(conn: &Connection, available: &Value) -> Result<V
     let overrides = workflow_overrides(conn)?;
     let mut output = serde_json::Map::new();
     for step_id in [
+        "script_writing",
         "script_parsing",
         "video_import_script_generation",
         "scene_description_refinement",
@@ -3436,6 +3483,18 @@ fn default_prompt_template_content(content_file: &str) -> Option<&'static str> {
         "default-prompts/script_episode_plan.txt" => Some(include_str!(
             "../assets/default-prompts/script_episode_plan.txt"
         )),
+        "default-prompts/script_writing_story_bible.txt" => Some(include_str!(
+            "../assets/default-prompts/script_writing_story_bible.txt"
+        )),
+        "default-prompts/script_writing_outline.txt" => Some(include_str!(
+            "../assets/default-prompts/script_writing_outline.txt"
+        )),
+        "default-prompts/script_writing_episode_draft.txt" => Some(include_str!(
+            "../assets/default-prompts/script_writing_episode_draft.txt"
+        )),
+        "default-prompts/script_writing_review.txt" => Some(include_str!(
+            "../assets/default-prompts/script_writing_review.txt"
+        )),
         "default-prompts/script_parsing.txt" => {
             Some(include_str!("../assets/default-prompts/script_parsing.txt"))
         }
@@ -3595,10 +3654,71 @@ fn merge_prompt_templates_with_defaults(value: Value) -> Value {
     Value::Array(merged)
 }
 
+fn apply_cloud_prompt_template_defaults(templates: Value, remote_defaults: Option<&Value>) -> Value {
+    let Some(defaults) = remote_defaults.and_then(Value::as_array).filter(|items| !items.is_empty())
+    else {
+        return templates;
+    };
+    let content_by_key: HashMap<&str, &str> = defaults
+        .iter()
+        .filter_map(|item| {
+            let key = item.get("templateKey").and_then(Value::as_str)?;
+            let content = item.get("content").and_then(Value::as_str)?;
+            if content.trim().is_empty() {
+                None
+            } else {
+                Some((key, content))
+            }
+        })
+        .collect();
+    if content_by_key.is_empty() {
+        return templates;
+    }
+    let Value::Array(items) = templates else {
+        return templates;
+    };
+    Value::Array(
+        items
+            .into_iter()
+            .map(|mut item| {
+                let is_customized = item
+                    .get("isCustomized")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                if is_customized {
+                    return item;
+                }
+                let Some(content) = item
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .and_then(|id| content_by_key.get(id).copied())
+                else {
+                    return item;
+                };
+                if let Some(object) = item.as_object_mut() {
+                    object.insert("content".to_string(), json!(content));
+                }
+                item
+            })
+            .collect(),
+    )
+}
+
+fn cloud_prompt_template_defaults(conn: &Connection) -> Option<Value> {
+    cloud_session(conn)?
+        .get("bootstrap")?
+        .get("promptTemplateDefaults")
+        .cloned()
+}
+
 fn get_prompt_templates_config(conn: &Connection) -> Result<Value, ApiError> {
-    Ok(get_config_json(conn, PROMPT_TEMPLATES_KEY)?
+    let templates = get_config_json(conn, PROMPT_TEMPLATES_KEY)?
         .map(merge_prompt_templates_with_defaults)
-        .unwrap_or_else(default_prompt_templates))
+        .unwrap_or_else(default_prompt_templates);
+    Ok(apply_cloud_prompt_template_defaults(
+        templates,
+        cloud_prompt_template_defaults(conn).as_ref(),
+    ))
 }
 
 fn get_prompt_director_preferences(conn: &Connection) -> Result<String, ApiError> {
@@ -3901,6 +4021,7 @@ fn ensure_column(
 
 fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
     for (column, definition) in [
+        ("project_type", "TEXT NOT NULL DEFAULT 'video'"),
         ("script_parse_mode", "TEXT NOT NULL DEFAULT 'premium_drama'"),
         ("style_id", "TEXT NOT NULL DEFAULT ''"),
         ("aspect_ratio", "TEXT NOT NULL DEFAULT '16:9'"),
@@ -4342,6 +4463,51 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         UNIQUE(asset_id, version)
       );
 
+      CREATE TABLE IF NOT EXISTS voice_profiles (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'volcengine',
+        speaker_id TEXT NOT NULL,
+        custom_speaker_id TEXT,
+        status TEXT NOT NULL DEFAULT 'training',
+        language INTEGER NOT NULL DEFAULT 0,
+        source_asset_id TEXT,
+        source_audio_url TEXT,
+        preview_asset_id TEXT,
+        preview_audio_url TEXT,
+        provider_metadata_json TEXT NOT NULL DEFAULT '{}',
+        error_message TEXT,
+        consent_confirmed_at TEXT NOT NULL,
+        activated_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        archived_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS voice_generation_tasks (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT,
+        name TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        voice_profile_id TEXT,
+        prompt TEXT NOT NULL,
+        references_json TEXT NOT NULL DEFAULT '[]',
+        audio_config_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'queued',
+        progress INTEGER NOT NULL DEFAULT 0,
+        request_id TEXT NOT NULL,
+        result_asset_id TEXT,
+        audio_url TEXT,
+        duration_ms INTEGER,
+        original_duration_ms INTEGER,
+        subtitle_json TEXT,
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+
       CREATE TABLE IF NOT EXISTS wx_channels_history (
         id TEXT PRIMARY KEY,
         share_url TEXT NOT NULL UNIQUE,
@@ -4433,6 +4599,10 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         ON library_assets(category, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_library_assets_media_updated
         ON library_assets(media_type, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_voice_profiles_updated
+        ON voice_profiles(updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_voice_generation_tasks_created
+        ON voice_generation_tasks(created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_library_assets_hash
         ON library_assets(content_hash);
       CREATE INDEX IF NOT EXISTS idx_library_assets_deleted
@@ -4785,6 +4955,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/cloud/bootstrap", post(api_cloud_bootstrap))
         .route("/api/cloud/heartbeat", post(api_cloud_heartbeat))
         .route("/api/cloud/update-check", post(api_cloud_update_check))
+        .route("/api/script/write", post(api_script_write))
         .route("/api/script/episode-plan", post(api_script_episode_plan))
         .route("/api/script/parse", post(api_script_parse))
         .route("/api/script/parse-stream", post(api_script_parse_stream))
@@ -4798,6 +4969,40 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route(
             "/api/tools/asr/history/{id}",
             delete(api_asr_history_delete),
+        )
+        .route("/api/voice/health", get(api_voice_health))
+        .route(
+            "/api/voice/presets/{speaker_id}/preview",
+            post(api_voice_preset_preview),
+        )
+        .route(
+            "/api/voice/profiles",
+            get(api_voice_profiles)
+                .post(api_voice_profile_clone)
+                .layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
+        )
+        .route(
+            "/api/voice/profiles/{id}",
+            get(api_voice_profile_get).delete(api_voice_profile_archive),
+        )
+        .route(
+            "/api/voice/profiles/{id}/refresh",
+            post(api_voice_profile_refresh),
+        )
+        .route(
+            "/api/voice/profiles/{id}/activate",
+            post(api_voice_profile_activate),
+        )
+        .route(
+            "/api/voice/generations",
+            get(api_voice_generations)
+                .post(api_voice_generation_create)
+                .layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
+        )
+        .route("/api/voice/generations/{id}", get(api_voice_generation_get))
+        .route(
+            "/api/voice/generations/{id}/retry",
+            post(api_voice_generation_retry),
         )
         .route(
             "/api/import/video/upload",
@@ -5351,6 +5556,14 @@ async fn api_project_list(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
+    let workspace = query
+        .workspace
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if workspace.is_some_and(|value| !matches!(value, "writing" | "video")) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "无效项目工作区"));
+    }
 
     let owner = current_project_owner_context(&conn)?;
     claim_legacy_projects(&conn, &owner)?;
@@ -5374,6 +5587,13 @@ async fn api_project_list(
             where_params.push(pattern.clone());
         }
     }
+    if let Some(workspace) = workspace {
+        match workspace {
+            "writing" => where_parts.push("(p.project_type = 'script_writing' OR (p.project_type = 'video' AND EXISTS (SELECT 1 FROM scripts writing_sc WHERE writing_sc.project_id = p.id AND writing_sc.raw_text LIKE '%\\\"writingStudio\\\"%')))".to_string()),
+            "video" => where_parts.push("p.project_type = 'video' AND NOT EXISTS (SELECT 1 FROM scripts writing_sc WHERE writing_sc.project_id = p.id AND writing_sc.raw_text LIKE '%\\\"writingStudio\\\"%')".to_string()),
+            _ => {}
+        }
+    }
     let where_clause = if where_parts.is_empty() {
         String::new()
     } else {
@@ -5381,7 +5601,7 @@ async fn api_project_list(
     };
 
     let mut count_stmt = conn
-        .prepare(&format!("SELECT COUNT(*) FROM projects{}", where_clause))
+        .prepare(&format!("SELECT COUNT(*) FROM projects p{}", where_clause))
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let total: i64 = count_stmt
         .query_row(rusqlite::params_from_iter(where_params.iter()), |row| {
@@ -5403,7 +5623,7 @@ async fn api_project_list(
 
     let mut list_sql = format!(
         "WITH paged_projects AS (
-           SELECT p.id, p.name, p.description, p.script_parse_mode, p.style_id, p.aspect_ratio,
+           SELECT p.id, p.name, p.description, p.project_type, p.script_parse_mode, p.style_id, p.aspect_ratio,
                   p.status, p.created_at, p.updated_at, p.owner_user_id, p.owner_account, p.owner_display_name
            FROM projects p{} ORDER BY {}",
         where_clause, order_by
@@ -5417,7 +5637,7 @@ async fn api_project_list(
     }
     list_sql.push_str(
         ")
-         SELECT p.id, p.name, p.description, p.script_parse_mode, p.style_id, p.aspect_ratio,
+         SELECT p.id, p.name, p.description, p.project_type, p.script_parse_mode, p.style_id, p.aspect_ratio,
                 p.status, p.created_at, p.updated_at, p.owner_user_id, p.owner_account, p.owner_display_name,
                 COUNT(s.id),
                 COALESCE(SUM(CASE WHEN s.status = 'video_ready' THEN 1 ELSE 0 END), 0),
@@ -5437,23 +5657,25 @@ async fn api_project_list(
     let projects = stmt
         .query_map(rusqlite::params_from_iter(list_params.iter()), |row| {
             let project_id: String = row.get(0)?;
-            let script_parse_mode: Option<String> = row.get(3)?;
+            let project_type: Option<String> = row.get(3)?;
+            let script_parse_mode: Option<String> = row.get(4)?;
             Ok(json!({
               "id": project_id,
               "title": row.get::<_, String>(1)?,
               "description": row.get::<_, Option<String>>(2)?,
+              "projectType": project_type.unwrap_or_else(|| "video".to_string()),
               "scriptParseMode": normalize_script_parse_mode(script_parse_mode.as_deref()),
-              "styleId": row.get::<_, String>(4)?,
-              "aspectRatio": row.get::<_, String>(5)?,
-              "status": row.get::<_, Option<String>>(6)?,
-              "totalScenes": row.get::<_, i64>(12)?,
-              "completedScenes": row.get::<_, i64>(13)?,
-              "totalDuration": row.get::<_, i64>(14)?,
-              "createdAt": row.get::<_, String>(7)?,
-              "updatedAt": row.get::<_, String>(8)?,
-              "ownerUserId": row.get::<_, Option<String>>(9)?,
-              "ownerAccount": row.get::<_, Option<String>>(10)?,
-              "ownerDisplayName": row.get::<_, Option<String>>(11)?
+              "styleId": row.get::<_, String>(5)?,
+              "aspectRatio": row.get::<_, String>(6)?,
+              "status": row.get::<_, Option<String>>(7)?,
+              "totalScenes": row.get::<_, i64>(13)?,
+              "completedScenes": row.get::<_, i64>(14)?,
+              "totalDuration": row.get::<_, i64>(15)?,
+              "createdAt": row.get::<_, String>(8)?,
+              "updatedAt": row.get::<_, String>(9)?,
+              "ownerUserId": row.get::<_, Option<String>>(10)?,
+              "ownerAccount": row.get::<_, Option<String>>(11)?,
+              "ownerDisplayName": row.get::<_, Option<String>>(12)?
             }))
         })
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -5497,19 +5719,24 @@ async fn api_project_create(
     let owner = current_project_owner_context(&conn)?;
     let now = now_iso();
     let id = format!("proj_{}", Uuid::new_v4().simple());
+    let project_type = body
+        .project_type
+        .as_deref()
+        .unwrap_or("video")
+        .trim()
+        .to_string();
+    if !matches!(project_type.as_str(), "video" | "script_writing") {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "projectType 无效"));
+    }
     let style_id = body
         .style_id
-        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "styleId 不能为空"))?
+        .unwrap_or_default()
         .trim()
         .to_string();
-    if style_id.is_empty() {
+    if project_type == "video" && style_id.is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "styleId 不能为空"));
     }
-    let aspect_ratio = body
-        .aspect_ratio
-        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "aspectRatio 不能为空"))?
-        .trim()
-        .to_string();
+    let aspect_ratio = body.aspect_ratio.unwrap_or_else(|| "16:9".to_string()).trim().to_string();
     if !matches!(aspect_ratio.as_str(), "16:9" | "9:16" | "1:1") {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "aspectRatio 无效"));
     }
@@ -5525,21 +5752,21 @@ async fn api_project_create(
     }
     let script_parse_mode =
         normalize_script_parse_mode(Some(requested_script_parse_mode)).to_string();
-    if !is_style_id_enabled(&conn, &style_id)? {
+    if project_type == "video" && !is_style_id_enabled(&conn, &style_id)? {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             format!("当前后台配置未启用该画风: {style_id}"),
         ));
     }
     let description = body.description.unwrap_or_default();
-
     conn.execute(
-        "INSERT INTO projects (id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'draft', ?7, ?8, ?9, ?10, ?11)",
+        "INSERT INTO projects (id, name, description, project_type, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'draft', ?8, ?9, ?10, ?11, ?12)",
         params![
             id,
             title,
             description,
+            project_type,
             script_parse_mode,
             style_id,
             aspect_ratio,
@@ -5559,10 +5786,11 @@ async fn api_project_create(
 
     Ok(Json(json!({
       "success": true,
-      "project": {
+        "project": {
         "id": id,
         "title": title,
         "description": description,
+        "projectType": project_type,
         "scriptParseMode": script_parse_mode,
         "styleId": style_id,
         "aspectRatio": aspect_ratio,
@@ -5680,6 +5908,7 @@ async fn api_project_get(
               "scriptParseMode": normalize_script_parse_mode(parsed.get("scriptParseMode").and_then(Value::as_str).or_else(|| project.get("scriptParseMode").and_then(Value::as_str))),
               "episodePlan": parsed.get("episodePlan").cloned().unwrap_or_else(|| json!([])),
               "assetWorkflow": parsed.get("assetWorkflow").cloned().unwrap_or(Value::Null),
+              "writingStudio": parsed.get("writingStudio").cloned().unwrap_or(Value::Null),
               "parsedData": parsed_data.and_then(|value| serde_json::from_str::<Value>(&value).ok()).unwrap_or(Value::Null),
               "totalDuration": total_duration.unwrap_or(0)
             });
@@ -6148,6 +6377,7 @@ fn merge_script_payload(
         "scriptParseMode",
         "episodePlan",
         "assetWorkflow",
+        "writingStudio",
     ] {
         if let Some(value) = body.get(key) {
             merged.insert(key.to_string(), value.clone());
@@ -6684,11 +6914,11 @@ async fn api_project_put_inner(
         .unwrap_or(now.as_str())
         .to_string();
 
-    let existing_project: (String, Option<String>, Option<String>, String, String, String) = conn
+    let existing_project: (String, Option<String>, Option<String>, String, String, String, String) = conn
         .query_row(
-            "SELECT name, description, status, style_id, aspect_ratio, script_parse_mode FROM projects WHERE id = ?1 LIMIT 1",
+            "SELECT name, description, status, style_id, aspect_ratio, script_parse_mode, project_type FROM projects WHERE id = ?1 LIMIT 1",
             params![id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
         )
         .optional()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -6721,7 +6951,7 @@ async fn api_project_put_inner(
         .unwrap_or(&existing_project.3)
         .trim()
         .to_string();
-    if body.get("styleId").is_some() && !is_style_id_enabled(&conn, &style_id)? {
+    if existing_project.6 != "script_writing" && body.get("styleId").is_some() && !is_style_id_enabled(&conn, &style_id)? {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             format!("当前后台配置未启用该画风: {style_id}"),
@@ -10496,6 +10726,7 @@ fn provider_credentials_public(creds: &Value) -> Value {
       "qwen":       { "hasApiKey": mask("qwen", "apiKey"), "baseUrl": base_url("qwen") },
       "volcengine": {
         "hasApiKey": mask("volcengine", "apiKey"),
+        "hasSpeechApiKey": mask("volcengine", "speechApiKey"),
         "hasMediakitApiKey": mask("volcengine", "mediakitApiKey"),
         "hasArkAccessKey": mask("volcengine", "arkAccessKey"),
         "hasArkSecretKey": mask("volcengine", "arkSecretKey"),
@@ -10730,6 +10961,31 @@ async fn cloud_post_client_json(
         (base_url, token)
     };
     cloud_request_json(
+        &base_url,
+        reqwest::Method::POST,
+        path,
+        Some(&token),
+        Some(body),
+    )
+    .await
+}
+
+async fn cloud_post_client_data_json(
+    state: &BackendState,
+    path: &str,
+    body: Value,
+) -> Result<Value, ApiError> {
+    let (base_url, token) = {
+        let conn = db_connection(state)?;
+        let Some(base_url) = cloud_base_url(&conn) else {
+            return Ok(json!({ "success": false, "skipped": "cloud_not_configured" }));
+        };
+        let Some(token) = cloud_token(&conn) else {
+            return Ok(json!({ "success": false, "skipped": "cloud_not_authenticated" }));
+        };
+        (base_url, token)
+    };
+    cloud_data_request_json(
         &base_url,
         reqwest::Method::POST,
         path,
@@ -12987,7 +13243,8 @@ async fn api_not_implemented(Path(path): Path<String>) -> (StatusCode, Json<Valu
 #[cfg(test)]
 mod tests {
     use super::{
-        available_model_enabled_for_provider, build_scoped_tos_key_prefix_for_user,
+        apply_cloud_prompt_template_defaults, available_model_enabled_for_provider,
+        build_scoped_tos_key_prefix_for_user,
         build_upload_tos_key_prefix_for_user, claim_legacy_projects,
         clear_workflow_overrides_for_category, cloud_model_log_identity, cloud_page_is_complete,
         cloud_project_summary_updated_at, cloud_provider_credentials_to_local,
@@ -13004,6 +13261,35 @@ mod tests {
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use std::collections::HashSet;
+
+    #[test]
+    fn cloud_prompt_defaults_override_non_customized_templates_only() {
+        let templates = json!([
+          { "id": "script_writing_story_bible", "content": "内置默认", "isCustomized": false },
+          { "id": "script_writing_outline", "content": "用户自定义", "isCustomized": true },
+          { "id": "character_sheet", "content": "内置默认", "isCustomized": false }
+        ]);
+        let remote = json!([
+          { "templateKey": "script_writing_story_bible", "content": "云端默认" },
+          { "templateKey": "script_writing_outline", "content": "云端默认" },
+          { "templateKey": "character_sheet", "content": "   " }
+        ]);
+
+        let applied = apply_cloud_prompt_template_defaults(templates, Some(&remote));
+        let items = applied.as_array().expect("array");
+        assert_eq!(items[0]["content"], json!("云端默认"));
+        assert_eq!(items[1]["content"], json!("用户自定义"));
+        assert_eq!(items[2]["content"], json!("内置默认"));
+    }
+
+    #[test]
+    fn cloud_prompt_defaults_noop_without_remote_values() {
+        let templates = json!([
+          { "id": "script_writing_story_bible", "content": "内置默认", "isCustomized": false }
+        ]);
+        let applied = apply_cloud_prompt_template_defaults(templates.clone(), None);
+        assert_eq!(applied, templates);
+    }
 
     fn configured_custom_openai_entry(
         id: &str,
@@ -13093,12 +13379,14 @@ mod tests {
         let creds = cloud_provider_credentials_to_local(Some(json!([{
           "providerKey": "volcengine",
           "apiKey": "ark-model-key",
+          "speechApiKey": "speech-key",
           "mediakitApiKey": "mediakit-key",
           "arkAccessKey": "ark-access-key",
           "arkSecretKey": "ark-secret-key",
           "baseUrl": "https://ark.cn-beijing.volces.com/api/v3"
         }])));
 
+        assert_eq!(creds["volcengine"]["speechApiKey"], "speech-key");
         assert_eq!(creds["volcengine"]["arkAccessKey"], "ark-access-key");
         assert_eq!(creds["volcengine"]["arkSecretKey"], "ark-secret-key");
     }

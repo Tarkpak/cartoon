@@ -87,7 +87,7 @@ function switchMode(mode: EnhanceMode) {
     >
       <template #actions>
         <div
-          class="flex rounded-md border bg-muted/30 p-1"
+          class="flex rounded-xl bg-muted/25 p-1"
           role="tablist"
           aria-label="画质增强页面"
         >
@@ -121,7 +121,7 @@ function switchMode(mode: EnhanceMode) {
       <div class="flex items-center gap-3">
         <span class="hidden text-xs font-medium text-muted-foreground sm:inline">素材类型</span>
         <div
-          class="flex rounded-md border bg-background p-0.5"
+          class="flex rounded-xl bg-muted/25 p-0.5"
           role="tablist"
           aria-label="素材类型"
         >
@@ -159,7 +159,7 @@ function switchMode(mode: EnhanceMode) {
         </span>
         <span class="hidden text-xs font-medium text-muted-foreground sm:inline">处理方式</span>
         <div
-          class="flex rounded-md border bg-background p-0.5"
+          class="flex rounded-xl bg-muted/25 p-0.5"
           role="tablist"
           aria-label="处理方式"
         >

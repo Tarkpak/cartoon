@@ -194,7 +194,7 @@ function toCheckedBoolean(value: unknown): boolean {
 </script>
 
 <template>
-  <div class="space-y-3 rounded-lg border bg-background p-4">
+  <div class="space-y-3 rounded-xl bg-muted/25 p-4">
     <div>
       <h3 class="text-sm font-medium">
         全局默认模型
@@ -227,7 +227,7 @@ function toCheckedBoolean(value: unknown): boolean {
 
     <div
       v-if="props.activeCategory === 'image'"
-      class="space-y-3 rounded-lg border bg-muted/30 p-3"
+      class="space-y-3 rounded-xl bg-muted/25 p-3"
     >
       <div>
         <h5 class="text-xs font-medium">
@@ -296,7 +296,7 @@ function toCheckedBoolean(value: unknown): boolean {
     <!-- 视频类：默认音频配置 -->
     <div
       v-if="props.activeCategory === 'video'"
-      class="space-y-3 rounded-lg border bg-muted/30 p-3"
+      class="space-y-3 rounded-xl bg-muted/25 p-3"
     >
       <div>
         <h5 class="text-xs font-medium">
@@ -308,7 +308,7 @@ function toCheckedBoolean(value: unknown): boolean {
       </div>
 
       <div class="space-y-2">
-        <label class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+        <label class="flex items-center justify-between gap-3 rounded-xl bg-muted/25 px-3 py-2">
           <span class="text-xs text-foreground">千问（Qwen）默认生成音频</span>
           <Switch
             :checked="props.videoAudioDefaults.qwen"
@@ -317,7 +317,7 @@ function toCheckedBoolean(value: unknown): boolean {
           />
         </label>
 
-        <label class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+        <label class="flex items-center justify-between gap-3 rounded-xl bg-muted/25 px-3 py-2">
           <span class="text-xs text-foreground">可灵（Kling）默认生成音频</span>
           <Switch
             :checked="props.videoAudioDefaults.kling"
@@ -326,7 +326,7 @@ function toCheckedBoolean(value: unknown): boolean {
           />
         </label>
 
-        <label class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+        <label class="flex items-center justify-between gap-3 rounded-xl bg-muted/25 px-3 py-2">
           <span class="text-xs text-foreground">Seedance 默认生成音频</span>
           <Switch
             :checked="props.videoAudioDefaults.seedance"
@@ -340,7 +340,7 @@ function toCheckedBoolean(value: unknown): boolean {
     <!-- 视频类：Kling V3 Omni 额外配置 -->
     <div
       v-if="hasKlingV3OmniInUse"
-      class="space-y-3 rounded-lg border bg-muted/30 p-3"
+      class="space-y-3 rounded-xl bg-muted/25 p-3"
     >
       <div>
         <h5 class="text-xs font-medium">
@@ -399,7 +399,7 @@ function toCheckedBoolean(value: unknown): boolean {
     <!-- 视频类：Seedance 额外配置 -->
     <div
       v-if="hasSeedanceInUse"
-      class="space-y-3 rounded-lg border bg-muted/30 p-3"
+      class="space-y-3 rounded-xl bg-muted/25 p-3"
     >
       <div>
         <h5 class="text-xs font-medium">
@@ -439,7 +439,7 @@ function toCheckedBoolean(value: unknown): boolean {
     <!-- 图片类：模型画质配置 -->
     <div
       v-if="hasGeminiImageInUse || hasOpenAIImageInUse"
-      class="space-y-3 rounded-lg border bg-muted/30 p-3"
+      class="space-y-3 rounded-xl bg-muted/25 p-3"
     >
       <div>
         <h5 class="text-xs font-medium">

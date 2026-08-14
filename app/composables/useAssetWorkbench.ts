@@ -14,6 +14,10 @@ import {
 import { useAssetWorkbenchSceneEditing } from '~/composables/useAssetWorkbenchSceneEditing'
 import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
 import { formatWorkflowStylePrompt } from '~/lib/workflow-style-prompt'
+import {
+  createEmptyScriptWritingStudio,
+  type ScriptWritingStudio
+} from '#shared/types/script-writing'
 
 export type {
   AssetWorkbenchTransitionType,
@@ -49,6 +53,7 @@ export function useAssetWorkbench() {
   const scriptParseMode = ref<ScriptParseMode>(DEFAULT_SCRIPT_PARSE_MODE)
   const selectedStyleId = ref('')
   const novelText = ref('')
+  const writingStudio = ref<ScriptWritingStudio>(createEmptyScriptWritingStudio())
 
   const scenes = ref<SceneData[]>([])
   const characters = ref<CharacterData[]>([])
@@ -81,6 +86,7 @@ export function useAssetWorkbench() {
     scriptParseMode,
     selectedStyleId,
     novelText,
+    writingStudio,
     scenes,
     characters,
     episodePlan
@@ -135,6 +141,7 @@ export function useAssetWorkbench() {
     scriptParseMode,
     selectedStyleId,
     novelText,
+    writingStudio,
     scenes,
     characters,
     episodePlan,

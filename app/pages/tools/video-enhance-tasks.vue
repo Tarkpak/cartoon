@@ -342,7 +342,7 @@ function taskStatusVariant(value: TaskStatus | string) {
 
         <div
           v-if="pollingActive"
-          class="mt-4 flex items-center justify-between rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm"
+          class="mt-4 flex items-center justify-between rounded-xl border-0 bg-primary/8 px-3 py-2 text-sm"
         >
           <div class="flex items-center gap-2 text-primary">
             <Loader2 class="h-4 w-4 animate-spin" />
@@ -359,7 +359,7 @@ function taskStatusVariant(value: TaskStatus | string) {
 
         <div
           v-if="errorMessage"
-          class="mt-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm leading-6 text-destructive"
+          class="mt-4 rounded-xl bg-destructive/10 p-3 text-sm leading-6 text-destructive"
         >
           {{ errorMessage }}
         </div>
@@ -444,7 +444,7 @@ function taskStatusVariant(value: TaskStatus | string) {
 
         <div
           v-if="recentTasks.length === 0"
-          class="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed bg-muted/10 p-8 text-center"
+          class="flex min-h-56 flex-col items-center justify-center rounded-xl bg-muted/15 bg-muted/10 p-8 text-center"
         >
           <div class="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
             <FileVideo class="h-6 w-6" />
@@ -467,7 +467,7 @@ function taskStatusVariant(value: TaskStatus | string) {
         </div>
         <div
           v-else
-          class="overflow-hidden rounded-lg border bg-background"
+          class="overflow-hidden rounded-xl bg-muted/25"
         >
           <div class="hidden grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_120px_120px_160px] gap-4 border-b bg-muted/30 px-4 py-2.5 text-xs font-medium text-muted-foreground lg:grid">
             <div>文件</div>

@@ -7,6 +7,7 @@ import { z } from 'zod'
 
 export const WorkflowStepSchema = z.enum([
   // 文本流程
+  'script_writing',
   'script_parsing',
   'video_import_script_generation',
   'scene_description_refinement',
@@ -42,6 +43,7 @@ export const WorkflowStepConfigSchema = z.object({
 export type WorkflowStepConfig = z.infer<typeof WorkflowStepConfigSchema>
 
 export const WorkflowModelsSchema = z.object({
+  script_writing: z.string().optional(),
   script_parsing: z.string().optional(),
   video_import_script_generation: z.string().optional(),
   scene_description_refinement: z.string().optional(),
@@ -160,6 +162,14 @@ export const WorkflowModelOptionsSchema = z.object({
 export type WorkflowModelOptions = z.infer<typeof WorkflowModelOptionsSchema>
 
 export const WORKFLOW_STEP_CONFIGS: WorkflowStepConfig[] = [
+  {
+    id: 'script_writing',
+    name: 'AI 剧本创作',
+    description: '根据创作设定生成故事圣经、分集大纲、单集剧本并执行连贯性审校',
+    category: 'text',
+    requiredCapabilities: ['text_generation'],
+    tips: '优先选择长上下文、结构化输出和中文创作能力稳定的模型'
+  },
   {
     id: 'script_parsing',
     name: '分集目录规划与剧本解析',

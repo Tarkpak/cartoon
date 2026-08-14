@@ -218,7 +218,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-3 rounded-lg border bg-background p-4">
+  <div class="space-y-3 rounded-xl bg-muted/25 p-4">
     <div class="flex items-start justify-between gap-4">
       <div>
         <h3 class="text-sm font-medium">
@@ -269,7 +269,7 @@ onMounted(() => {
       <section
         v-for="provider in providers"
         :key="provider.id"
-        class="space-y-3 rounded-md border bg-muted/20 p-3"
+        class="space-y-3 rounded-xl bg-muted/20 p-3"
       >
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">

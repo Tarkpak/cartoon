@@ -447,7 +447,7 @@ onMounted(() => {
   <TooltipProvider :delay-duration="180">
     <div class="flex h-full min-h-0 w-full flex-1 flex-col">
       <div class="grid h-full min-h-0 flex-1 gap-3 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <section class="flex h-full min-h-0 flex-col rounded-md border bg-background shadow-sm">
+        <section class="flex h-full min-h-0 flex-col rounded-xl bg-muted/25 shadow-none">
           <div class="border-b px-3 py-2.5">
             <div class="flex items-center justify-between">
               <div>
@@ -478,7 +478,7 @@ onMounted(() => {
                     <TooltipContent
                       side="top"
                       :side-offset="6"
-                      class="z-[70] rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+                      class="z-[70] rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] px-2 py-1 text-xs text-popover-foreground shadow-md"
                     >
                       刷新素材组
                     </TooltipContent>
@@ -498,7 +498,7 @@ onMounted(() => {
                     <TooltipContent
                       side="top"
                       :side-offset="6"
-                      class="z-[70] rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+                      class="z-[70] rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] px-2 py-1 text-xs text-popover-foreground shadow-md"
                     >
                       新建素材组
                     </TooltipContent>
@@ -575,7 +575,7 @@ onMounted(() => {
                     <TooltipContent
                       side="top"
                       :side-offset="6"
-                      class="z-[70] rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+                      class="z-[70] rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] px-2 py-1 text-xs text-popover-foreground shadow-md"
                     >
                       编辑素材组
                     </TooltipContent>
@@ -604,7 +604,7 @@ onMounted(() => {
                     <TooltipContent
                       side="top"
                       :side-offset="6"
-                      class="z-[70] rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+                      class="z-[70] rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] px-2 py-1 text-xs text-popover-foreground shadow-md"
                     >
                       删除素材组
                     </TooltipContent>
@@ -649,7 +649,7 @@ onMounted(() => {
           </div>
         </section>
 
-        <section class="flex h-full min-w-0 flex-col overflow-hidden rounded-md border bg-background shadow-sm">
+        <section class="flex h-full min-w-0 flex-col overflow-hidden rounded-xl bg-muted/25 shadow-none">
           <div class="border-b px-3 py-2.5 xl:min-h-[116px]">
             <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div class="min-w-0">
@@ -677,7 +677,7 @@ onMounted(() => {
                 />
                 <select
                   v-model="assetStatusFilter"
-                  class="h-8 rounded-md border bg-background px-2 text-xs"
+                  class="h-8 rounded-xl bg-muted/25 px-2 text-xs"
                 >
                   <option value="">全部状态</option>
                   <option value="Active">已启用</option>
@@ -761,7 +761,7 @@ onMounted(() => {
                       <button
                         v-if="assetPreviewUrl(asset)"
                         type="button"
-                        class="group relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted transition-transform active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        class="group relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted/30 transition-transform active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         :aria-label="`预览${asset.Name || asset.Id}`"
                         @click="openAssetImagePreview(asset)"
                       >
@@ -777,7 +777,7 @@ onMounted(() => {
                       </button>
                       <div
                         v-else
-                        class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted"
+                        class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted/30"
                       >
                         <ImageIcon
                           class="h-5 w-5 text-muted-foreground"
@@ -793,7 +793,7 @@ onMounted(() => {
                     <div class="hidden text-sm xl:block">{{ assetTypeLabel(asset.AssetType) }}</div>
                     <div>
                       <span
-                        class="inline-flex rounded-md border px-2 py-0.5 text-xs font-medium"
+                        class="inline-flex rounded-md bg-muted/50 px-2 py-0.5 text-xs font-medium"
                         :class="statusClass(asset.Status)"
                       >
                         {{ statusLabel(asset.Status) }}
@@ -825,7 +825,7 @@ onMounted(() => {
                           <TooltipContent
                             side="top"
                             :side-offset="6"
-                            class="z-[70] rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+                            class="z-[70] rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] px-2 py-1 text-xs text-popover-foreground shadow-md"
                           >
                             复制 asset URI
                           </TooltipContent>
@@ -847,7 +847,7 @@ onMounted(() => {
                           <TooltipContent
                             side="top"
                             :side-offset="6"
-                            class="z-[70] rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+                            class="z-[70] rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] px-2 py-1 text-xs text-popover-foreground shadow-md"
                           >
                             编辑素材
                           </TooltipContent>
@@ -876,7 +876,7 @@ onMounted(() => {
                           <TooltipContent
                             side="top"
                             :side-offset="6"
-                            class="z-[70] rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+                            class="z-[70] rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] px-2 py-1 text-xs text-popover-foreground shadow-md"
                           >
                             删除素材
                           </TooltipContent>
@@ -993,7 +993,7 @@ onMounted(() => {
           </DialogDescription>
         </DialogHeader>
         <div class="grid gap-4 lg:grid-cols-[220px_1fr]">
-          <div class="flex min-h-56 items-center justify-center overflow-hidden rounded-md border bg-muted/40">
+          <div class="flex min-h-56 items-center justify-center overflow-hidden rounded-xl bg-muted/30">
             <img
               v-if="uploadPreviewUrl"
               :src="uploadPreviewUrl"

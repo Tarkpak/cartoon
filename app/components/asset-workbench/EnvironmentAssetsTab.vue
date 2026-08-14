@@ -118,7 +118,7 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
       <div
         v-for="(asset, idx) in environmentAssetCards"
         :key="`asset_env_${asset.id}`"
-        class="group overflow-hidden rounded-lg border bg-card transition-colors hover:border-primary/30"
+        class="group overflow-hidden rounded-xl bg-muted/25 transition-colors hover:bg-muted/35"
       >
         <!-- Image area -->
         <div class="relative overflow-hidden bg-muted/30">

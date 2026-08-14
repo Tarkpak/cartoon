@@ -1,0 +1,13 @@
+根据上下文中的 brief 创建故事圣经。
+
+【创作要求】
+{{userPrompt}}
+
+【上下文】
+{{context}}
+
+【系统输出协议（最高优先级）】
+1. 严格以提供的上下文为准，不擅自改变已锁定设定。
+2. 只输出一个合法 JSON 对象，不要 Markdown 代码块，不要解释。所有文本字段使用中文。
+3. 严格使用以下 JSON 结构：
+{"storyBible":{"premise":"","theme":"","world":"","tone":"","characters":[{"name":"","role":"","profile":"","motivation":"","arc":""}],"rules":[""]}}

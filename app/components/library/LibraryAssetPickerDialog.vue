@@ -83,7 +83,7 @@ watch(() => props.open, (open) => {
       <div v-if="loading" class="flex min-h-64 items-center justify-center"><Loader2 class="h-6 w-6 animate-spin text-primary" /></div>
       <div v-else-if="filteredAssets.length === 0" class="flex min-h-64 items-center justify-center text-sm text-muted-foreground">资源库中没有可使用的匹配素材</div>
       <div v-else class="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">
-        <button v-for="asset in filteredAssets" :key="asset.id" type="button" class="relative overflow-hidden rounded-md border bg-card text-left transition-colors" :class="selectedId === asset.id ? 'border-primary ring-2 ring-primary/20' : 'hover:border-primary/50'" @click="selectedId = asset.id">
+        <button v-for="asset in filteredAssets" :key="asset.id" type="button" class="relative overflow-hidden rounded-xl bg-muted/25 text-left transition-colors" :class="selectedId === asset.id ? 'bg-primary/8 ring-2 ring-primary/20' : 'hover:bg-muted/30'" @click="selectedId = asset.id">
           <div class="aspect-square overflow-hidden bg-muted">
             <img v-if="asset.mediaType === 'image'" :src="asset.url" :alt="asset.name" class="h-full w-full object-cover">
             <div v-else class="flex h-full items-center justify-center"><AudioLines class="h-9 w-9 text-muted-foreground" /></div>
@@ -93,8 +93,8 @@ watch(() => props.open, (open) => {
         </button>
       </div>
       <div v-if="selectedAsset && targets.length" class="grid gap-3 border-t pt-4 sm:grid-cols-[auto_1fr] sm:items-center">
-        <label v-if="allowCreate" class="flex items-center gap-2 text-sm"><input v-model="createNew" type="checkbox" class="h-4 w-4 rounded border"> 作为新资产加入</label>
-        <select v-if="!createNew" v-model="targetId" class="h-9 rounded-md border bg-background px-3 text-sm"><option v-for="target in targets" :key="target.id" :value="target.id">替换：{{ target.name }}</option></select>
+        <label v-if="allowCreate" class="flex items-center gap-2 text-sm"><input v-model="createNew" type="checkbox" class="h-4 w-4 rounded border-0 bg-muted"> 作为新资产加入</label>
+        <select v-if="!createNew" v-model="targetId" class="h-9 rounded-xl bg-muted/25 px-3 text-sm"><option v-for="target in targets" :key="target.id" :value="target.id">替换：{{ target.name }}</option></select>
       </div>
       <DialogFooter>
         <Button variant="outline" @click="emit('update:open', false)">取消</Button>

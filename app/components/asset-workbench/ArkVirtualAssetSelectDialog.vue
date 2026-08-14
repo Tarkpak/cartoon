@@ -258,7 +258,7 @@ watch(
                 :class="currentAssetId === asset.Id ? 'bg-primary/10' : ''"
                 @click="selectAsset(asset)"
               >
-                <div class="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border bg-muted">
+                <div class="flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl bg-muted/30">
                   <img
                     v-if="assetPreviewUrl(asset)"
                     :src="assetPreviewUrl(asset)"

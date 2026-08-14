@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Library } from 'lucide-vue-next'
+import { Home, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Library, MicVocal, PenLine } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import { createClickRipple } from '@/lib/ripple'
 
@@ -45,9 +45,11 @@ function handleWindowFocus() {
 
 const navigation = computed(() => {
   const toolChildren = [
+    { name: 'AI 剧本创作', path: '/tools/script-writing', icon: PenLine },
     { name: '视频转项目', path: '/import/video', icon: FileVideo },
     { name: '画质增强', path: '/tools/enhance', icon: WandSparkles },
     { name: '语音识别', path: '/tools/asr', icon: AudioLines },
+    { name: '声音工作台', path: '/tools/voice', icon: MicVocal },
     { name: '视频图文下载', path: '/tools/short-video-download', icon: Download }
   ]
 
@@ -404,7 +406,7 @@ function handleThemeToggle(event: MouseEvent) {
 
           <div
             v-if="item.path === '/settings' && visualSidebarCollapsed"
-            class="theme-surface absolute left-full top-0 z-30 w-48 rounded-md border bg-popover p-1 shadow-md opacity-0 pointer-events-none transition-[background-color,border-color,box-shadow,opacity] duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
+            class="theme-surface absolute left-full top-0 z-30 w-48 rounded-xl border-0 bg-popover p-1 shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] opacity-0 pointer-events-none transition-[background-color,box-shadow,opacity] duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
           >
             <NuxtLink
               v-for="sub in settingsSubNavigation"
@@ -426,7 +428,7 @@ function handleThemeToggle(event: MouseEvent) {
 
           <div
             v-if="'children' in item && item.children?.length && visualSidebarCollapsed"
-            class="theme-surface absolute left-full top-0 z-30 w-48 rounded-md border bg-popover p-1 shadow-md opacity-0 pointer-events-none transition-[background-color,border-color,box-shadow,opacity] duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
+            class="theme-surface absolute left-full top-0 z-30 w-48 rounded-xl border-0 bg-popover p-1 shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] opacity-0 pointer-events-none transition-[background-color,box-shadow,opacity] duration-150 group-hover:opacity-100 group-hover:pointer-events-auto"
           >
             <NuxtLink
               v-for="sub in item.children"
@@ -453,7 +455,7 @@ function handleThemeToggle(event: MouseEvent) {
         :class="visualSidebarCollapsed ? 'px-2' : 'px-4'"
       >
         <div
-          class="theme-surface rounded-md border bg-background"
+          class="theme-surface rounded-xl border-0 bg-muted/30"
           :class="visualSidebarCollapsed ? 'grid gap-1 p-1' : 'p-2'"
         >
           <template v-if="authenticated && !visualSidebarCollapsed">
@@ -470,7 +472,7 @@ function handleThemeToggle(event: MouseEvent) {
                 </span>
               </div>
             </div>
-            <div class="flex items-center justify-between border-t px-0.5 pt-1">
+            <div class="flex items-center justify-between px-0.5 pt-1">
               <Button
                 type="button"
                 variant="ghost"

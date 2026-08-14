@@ -238,7 +238,7 @@ function handlePromptKeydown(event: KeyboardEvent) {
           <div
             v-if="mentionOpen"
             :ref="setMentionListElement"
-            class="absolute bottom-full left-0 right-0 mb-1 max-h-44 overflow-y-auto rounded-md border bg-popover p-1 shadow-md"
+            class="absolute bottom-full left-0 right-0 mb-1 max-h-44 overflow-y-auto rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] p-1 shadow-md"
           >
             <Button
               v-for="(item, mentionIndex) in mentionCandidates"

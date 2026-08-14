@@ -2177,6 +2177,8 @@ onBeforeRouteLeave(async () => {
   clearNovelTextAutoSaveTimer()
   await waitUntilProjectSaveIdle()
   await persistNovelTextIfNeeded()
+  await waitUntilProjectSaveIdle()
+  if (!loading.value) await saveProject()
 })
 
 const environmentCropTarget = computed(() => {

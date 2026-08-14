@@ -116,16 +116,16 @@ async function confirmResetStylePresets() {
           <span class="shrink-0 text-sm font-medium text-muted-foreground">
             画风范围
           </span>
-          <span class="rounded-md border bg-muted/30 px-2.5 py-1 text-sm text-muted-foreground">
+          <span class="rounded-xl bg-muted/25 px-2.5 py-1 text-sm text-muted-foreground">
             总预设
             <span class="ml-1 font-semibold tabular-nums text-foreground">{{ allStylePresets.length }}</span>
           </span>
-          <span class="rounded-md border bg-muted/30 px-2.5 py-1 text-sm text-muted-foreground">
+          <span class="rounded-xl bg-muted/25 px-2.5 py-1 text-sm text-muted-foreground">
             已启用
             <span class="ml-1 font-semibold tabular-nums text-foreground">{{ enabledStyleCount }}</span>
             <span class="text-muted-foreground/70"> / {{ allStylePresets.length }}</span>
           </span>
-          <span class="min-w-0 rounded-md border bg-muted/30 px-2.5 py-1 text-sm text-muted-foreground">
+          <span class="min-w-0 rounded-xl bg-muted/25 px-2.5 py-1 text-sm text-muted-foreground">
             默认
             <span class="ml-1 font-medium text-foreground">{{ currentDefaultStyle?.name || '未设置' }}</span>
           </span>
@@ -229,7 +229,7 @@ async function confirmResetStylePresets() {
 
       <div
         v-else-if="styleConfigError && allStylePresets.length === 0"
-        class="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+        class="flex items-start gap-2 rounded-xl bg-destructive/8 p-4 text-sm text-destructive"
       >
         <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
         <div class="min-w-0 flex-1">
@@ -256,7 +256,7 @@ async function confirmResetStylePresets() {
       >
         <div
           v-if="styleConfigError || styleActionError"
-          class="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+          class="flex items-start gap-2 rounded-xl bg-destructive/8 p-3 text-sm text-destructive"
         >
           <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
           <span class="min-w-0 flex-1 break-words">{{ styleActionError || styleConfigError }}</span>

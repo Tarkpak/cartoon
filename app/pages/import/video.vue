@@ -300,7 +300,7 @@ function formatSeconds(value?: number | null) {
     <AppPageContent inner-class="flex h-full min-h-0 flex-col gap-4">
       <div
         v-if="error"
-        class="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        class="flex items-center gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive"
       >
         <AlertCircle class="h-4 w-4 shrink-0" />
         {{ error }}
@@ -352,7 +352,7 @@ function formatSeconds(value?: number | null) {
               <Upload class="mr-2 h-4 w-4" />
               {{ selectedFile ? '重新选择视频' : '选择视频文件' }}
             </Button>
-            <div v-if="selectedFile" class="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <div v-if="selectedFile" class="rounded-xl bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               <div class="break-all">{{ selectedFile.name }}</div>
             </div>
           </div>
@@ -366,7 +366,7 @@ function formatSeconds(value?: number | null) {
               <FolderInput class="mr-2 h-4 w-4" />
               {{ selectedFolder ? '重新选择文件夹' : '选择剧集文件夹' }}
             </Button>
-            <div v-if="selectedFolder" class="rounded-md border bg-muted/40 px-3 py-2 text-xs">
+            <div v-if="selectedFolder" class="rounded-xl bg-muted/30 px-3 py-2 text-xs">
               <div class="break-all text-muted-foreground">
                 {{ selectedFolder }}
               </div>

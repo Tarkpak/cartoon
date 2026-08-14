@@ -17,7 +17,7 @@ const {
 </script>
 
 <template>
-  <div class="space-y-4 rounded-lg border bg-background p-5">
+  <div class="space-y-4 rounded-xl bg-muted/25 p-5">
     <div>
       <h3 class="text-sm font-medium">
         生成完成提醒
@@ -28,7 +28,7 @@ const {
     </div>
 
     <div class="space-y-2">
-      <label class="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2.5">
+      <label class="flex items-center justify-between gap-3 rounded-xl bg-muted/20 px-3 py-2.5">
         <span class="text-sm text-foreground">播放提示音</span>
         <Switch
           :checked="completionNotificationOptions.sound"
@@ -37,7 +37,7 @@ const {
         />
       </label>
 
-      <label class="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2.5">
+      <label class="flex items-center justify-between gap-3 rounded-xl bg-muted/20 px-3 py-2.5">
         <span class="text-sm text-foreground">系统通知</span>
         <Switch
           :checked="completionNotificationOptions.systemNotification"

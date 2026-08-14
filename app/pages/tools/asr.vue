@@ -394,7 +394,7 @@ function downloadResult(format: 'txt' | 'srt') {
             </div>
           </div>
 
-          <section class="flex min-w-0 flex-col justify-between gap-6 border-t border-border/70 p-5 sm:p-6 lg:border-l lg:border-t-0 lg:p-8">
+          <section class="flex min-w-0 flex-col justify-between gap-6 p-5 sm:p-6 lg:border-l lg:border-t-0 lg:p-8">
             <div class="space-y-6">
               <div class="flex min-w-0 items-start gap-3">
                 <div class="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-muted">
@@ -449,7 +449,7 @@ function downloadResult(format: 'txt' | 'srt') {
               <div
                 v-if="errorMessage"
                 role="alert"
-                class="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm leading-6 text-destructive"
+                class="rounded-xl border-0 bg-destructive/8 p-3 text-sm leading-6 text-destructive"
               >
                 {{ errorMessage }}
               </div>
@@ -500,7 +500,7 @@ function downloadResult(format: 'txt' | 'srt') {
           </div>
         </CardHeader>
         <CardContent class="pt-6">
-          <div class="mb-4 flex w-fit rounded-md border bg-muted/30 p-1" role="tablist" aria-label="识别结果格式">
+          <div class="mb-4 flex w-fit rounded-xl bg-muted/25 p-1" role="tablist" aria-label="识别结果格式">
             <button
               v-for="option in ([['text', '纯文本'], ['srt', 'SRT 字幕'], ['segments', '时间轴']] as const)"
               :key="option[0]"
@@ -544,7 +544,7 @@ function downloadResult(format: 'txt' | 'srt') {
         </Card>
       </section>
 
-      <section class="space-y-3 border-t border-border/70 pt-5">
+      <section class="space-y-3 pt-5">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2 text-sm font-semibold text-foreground">
             <History class="h-4 w-4" />
@@ -555,13 +555,13 @@ function downloadResult(format: 'txt' | 'srt') {
 
         <div
           v-if="historyItems.length > 0"
-          class="overflow-hidden rounded-md border border-border/70 bg-card/55"
+          class="overflow-hidden rounded-xl bg-muted/20"
         >
           <article
             v-for="item in historyItems"
             :key="item.id"
             tabindex="0"
-            class="group flex cursor-pointer items-center gap-3 border-b border-border/60 px-3 py-3 transition-colors last:border-b-0 hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:gap-4 sm:px-4"
+            class="group flex cursor-pointer items-center gap-3 px-3 py-3 transition-colors last:border-b-0 hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:gap-4 sm:px-4"
             @click="openHistoryDrawer(item)"
             @keydown.enter.prevent="openHistoryDrawer(item)"
           >
@@ -613,7 +613,7 @@ function downloadResult(format: 'txt' | 'srt') {
           class="min-h-0 flex-1 overflow-auto px-5 py-4"
         >
           <div class="space-y-5">
-            <div class="grid grid-cols-3 gap-3 border-b border-border/70 pb-4 text-sm">
+            <div class="grid grid-cols-3 gap-3 pb-4 text-sm">
               <div>
                 <p class="text-xs text-muted-foreground">媒体类型</p>
                 <p class="mt-1 font-medium">{{ selectedHistoryItem.mediaKind === 'video' ? '视频' : '音频' }}</p>
@@ -628,7 +628,7 @@ function downloadResult(format: 'txt' | 'srt') {
               </div>
             </div>
 
-            <div class="flex w-fit rounded-md border bg-muted/30 p-1" role="tablist" aria-label="历史识别结果格式">
+            <div class="flex w-fit rounded-xl bg-muted/25 p-1" role="tablist" aria-label="历史识别结果格式">
               <button
                 v-for="option in ([['text', '纯文本'], ['srt', 'SRT 字幕'], ['segments', '时间轴']] as const)"
                 :key="option[0]"

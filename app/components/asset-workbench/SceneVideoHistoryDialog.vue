@@ -183,7 +183,7 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
 
       <div
         v-if="entries.length === 0"
-        class="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground"
+        class="rounded-xl bg-muted/15 py-10 text-center text-sm text-muted-foreground"
       >
         暂无历史记录
       </div>
@@ -193,7 +193,7 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
         class="grid max-h-[68vh] min-h-0 grid-cols-1 gap-3 lg:grid-cols-[300px_minmax(0,1fr)]"
       >
         <div
-          class="min-h-0 overflow-y-auto rounded-lg border bg-card"
+          class="min-h-0 overflow-y-auto rounded-xl bg-muted/25"
         >
           <Button
             v-for="(entry, index) in entries"
@@ -238,7 +238,7 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
 
         <div
           v-if="previewEntry"
-          class="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-card"
+          class="flex min-h-0 flex-col overflow-hidden rounded-xl bg-muted/25"
         >
           <div class="relative min-h-[260px] flex-1 overflow-hidden bg-black">
             <video

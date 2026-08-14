@@ -168,8 +168,8 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
 
 <template>
   <div
-    class="relative cursor-pointer rounded-md border p-3 transition group"
-    :class="selected ? 'border-primary bg-primary/5' : 'hover:border-primary/50'"
+    class="relative cursor-pointer rounded-xl bg-muted/15 p-3 transition group"
+    :class="selected ? 'bg-primary/8 ring-1 ring-inset ring-primary/25' : 'hover:bg-muted/30'"
     title="单击选中，双击编辑场景详情"
     @click="onSelectScene(scene.id)"
     @dblclick.stop="onOpenSceneEdit(scene)"
@@ -325,7 +325,7 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
     </div>
 
     <div
-      class="mt-2 overflow-hidden rounded-md border bg-muted/15"
+      class="mt-2 overflow-hidden rounded-xl bg-muted/15"
       @click.stop
     >
       <div
@@ -446,7 +446,7 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
               </SelectItem>
             </SelectContent>
           </Select>
-          <div class="inline-flex h-7 shrink-0 overflow-hidden rounded-md border bg-background p-0.5">
+          <div class="inline-flex h-7 shrink-0 overflow-hidden rounded-xl bg-muted/25 p-0.5">
             <Button
               size="sm"
               variant="ghost"

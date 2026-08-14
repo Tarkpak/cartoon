@@ -36,7 +36,7 @@ function switchType(type: LocalEnhanceType) {
       class="h-16"
     >
       <template #actions>
-        <div class="flex rounded-md border bg-muted/30 p-1">
+        <div class="flex rounded-xl bg-muted/25 p-1">
           <button
             type="button"
             class="inline-flex items-center rounded-sm px-3 py-1.5 text-sm transition-colors"

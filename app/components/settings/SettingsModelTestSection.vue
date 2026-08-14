@@ -149,7 +149,7 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
       v-else-if="!models && modelCatalogError"
       class="flex flex-1 items-center justify-center p-6"
     >
-      <div class="max-w-md rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+      <div class="max-w-md rounded-xl bg-destructive/8 p-4 text-sm text-destructive">
         <div class="flex items-start gap-2">
           <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
           <div class="min-w-0 flex-1">
@@ -184,7 +184,7 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
                 v-if="currentSelectedModelMeta"
                 class="mt-1 flex min-w-0 items-center gap-2"
               >
-                <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-muted/30">
+                <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-muted/25">
                   <SettingsProviderLogo
                     :provider="currentSelectedModelMeta.provider"
                     size-class="h-4 w-4"

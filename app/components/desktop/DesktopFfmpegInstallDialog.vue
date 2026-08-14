@@ -63,7 +63,7 @@ function handleOpenChange(nextOpen: boolean) {
       </DialogHeader>
 
       <div class="space-y-3 text-sm">
-        <div class="rounded-lg border bg-muted/30 p-3">
+        <div class="rounded-xl bg-muted/25 p-3">
           <p class="font-medium text-foreground">
             安装后会自动接管视频处理能力
           </p>
@@ -75,7 +75,7 @@ function handleOpenChange(nextOpen: boolean) {
 
         <div
           v-if="managedPathLabel"
-          class="rounded-lg border bg-background p-3"
+          class="rounded-xl bg-muted/25 p-3"
         >
           <p class="text-xs font-medium text-foreground">安装位置</p>
           <p class="mt-1 break-all font-mono text-xs text-muted-foreground">
@@ -85,7 +85,7 @@ function handleOpenChange(nextOpen: boolean) {
 
         <p
           v-if="error"
-          class="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+          class="rounded-xl border-0 bg-destructive/8 px-3 py-2 text-xs text-destructive"
         >
           {{ error }}
         </p>

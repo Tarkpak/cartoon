@@ -40,6 +40,7 @@ const {
   totalPages,
   hasActiveFilters,
   statusMap,
+  isWritingWorkspace,
   openCreateDialog,
   createProject,
   goToStyleStep,
@@ -55,13 +56,14 @@ const {
 const aspectRatioOptions = projectAspectRatioOptions
 const { currentUser } = useCloudAdmin()
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
+const isWritingProject = isWritingWorkspace
 </script>
 
 <template>
   <AppPage>
     <AppPageHeader
-      :title="isAdmin ? '全部项目' : '我的项目'"
-      :description="isAdmin ? '管理所有成员创建的项目' : '管理剧本解析、分镜资产和视频生成项目'"
+      :title="isWritingProject ? 'AI 剧本项目' : (isAdmin ? '全部项目' : '我的项目')"
+      :description="isWritingProject ? '创建并管理 AI 剧本创作项目' : (isAdmin ? '管理所有成员创建的项目' : '管理剧本解析、分镜资产和视频生成项目')"
     >
       <template #actions>
       <Button
@@ -69,7 +71,7 @@ const isAdmin = computed(() => currentUser.value?.role === 'admin')
         @click="openCreateDialog"
       >
         <Plus class="h-4 w-4" />
-        新建项目
+        {{ isWritingProject ? '新建 AI 剧本项目' : '新建视频项目' }}
       </Button>
       </template>
     </AppPageHeader>

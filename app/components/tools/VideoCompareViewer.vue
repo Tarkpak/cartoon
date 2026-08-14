@@ -223,13 +223,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="overflow-hidden rounded-md border bg-background">
+  <div class="overflow-hidden rounded-xl bg-muted/25">
     <div class="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 p-2">
       <div class="flex items-center gap-2 text-sm font-medium text-foreground">
         <Columns2 class="h-4 w-4 text-primary" />
         对比预览
       </div>
-      <div class="flex rounded-md border bg-background p-1">
+      <div class="flex rounded-xl bg-muted/25 p-1">
         <button
           type="button"
           class="inline-flex h-8 items-center rounded-sm px-2.5 text-xs transition-colors disabled:pointer-events-none disabled:opacity-45"

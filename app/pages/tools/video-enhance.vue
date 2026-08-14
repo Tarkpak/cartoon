@@ -412,7 +412,7 @@ async function submitTask() {
               v-for="option in kindOptions"
               :key="option.value"
               type="button"
-              class="rounded-md border p-3 text-left transition-colors hover:bg-accent"
+              class="rounded-xl bg-muted/20 p-3 text-left transition-colors hover:bg-muted/35"
               :class="kind === option.value ? 'border-primary bg-primary/5' : 'border-border'"
               @click="kind = option.value"
             >
@@ -444,7 +444,7 @@ async function submitTask() {
           </div>
 
           <div
-            class="rounded-md border border-dashed bg-muted/30 p-4 transition-colors"
+            class="rounded-xl bg-muted/15 bg-muted/30 p-4 transition-colors"
             :class="draggingFiles ? 'border-primary bg-primary/5' : 'border-border'"
             @dragenter.prevent="handleDragEnter"
             @dragover.prevent
@@ -485,7 +485,7 @@ async function submitTask() {
               <div
                 v-for="item in queue"
                 :key="item.id"
-                class="rounded-md border bg-background px-3 py-3"
+                class="rounded-xl bg-muted/25 px-3 py-3"
               >
                 <div class="flex items-start gap-3">
                   <FileVideo class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -553,7 +553,7 @@ async function submitTask() {
             </div>
             <div
               v-else
-              class="mt-3 rounded-md border border-dashed bg-background/60 p-6 text-center text-sm text-muted-foreground"
+              class="mt-3 rounded-xl bg-muted/15 bg-background/60 p-6 text-center text-sm text-muted-foreground"
             >
               拖拽视频到这里，或点击“选择视频”
             </div>
@@ -561,7 +561,7 @@ async function submitTask() {
 
           <div
             v-if="selectedKindOption"
-            class="rounded-md border bg-background p-3 text-sm"
+            class="rounded-xl bg-muted/25 p-3 text-sm"
           >
             <div class="flex items-center justify-between gap-4">
               <div>
@@ -682,14 +682,14 @@ async function submitTask() {
 
           <div
             v-if="kind === 'generative'"
-            class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
+            class="rounded-xl bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
           >
             大模型版本输入最高支持 1080p：短边需在 360-1080 像素之间，长边需在 360-1920 像素之间，且仅支持 SDR 视频。
           </div>
 
           <div
             v-if="errorMessage"
-            class="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm leading-6 text-destructive"
+            class="rounded-xl bg-destructive/10 p-3 text-sm leading-6 text-destructive"
           >
             {{ errorMessage }}
           </div>

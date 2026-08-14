@@ -13,7 +13,7 @@ defineProps<{
 <template>
   <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
     <!-- Total presets -->
-    <div class="group relative overflow-hidden rounded-xl border bg-card p-5 transition-colors hover:border-primary/30">
+    <div class="group relative overflow-hidden rounded-xl bg-muted/25 p-5 transition-colors hover:bg-muted/35">
       <div class="flex items-center gap-4">
         <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Layers class="h-5 w-5" />
@@ -30,7 +30,7 @@ defineProps<{
     </div>
 
     <!-- Enabled count -->
-    <div class="group relative overflow-hidden rounded-xl border bg-card p-5 transition-colors hover:border-green-500/30">
+    <div class="group relative overflow-hidden rounded-xl bg-muted/25 p-5 transition-colors hover:border-green-500/30">
       <div class="flex items-center gap-4">
         <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-green-500/10 text-green-600 dark:text-green-400">
           <ToggleRight class="h-5 w-5" />
@@ -48,7 +48,7 @@ defineProps<{
     </div>
 
     <!-- Default style -->
-    <div class="group relative overflow-hidden rounded-xl border bg-card p-5 transition-colors hover:border-yellow-500/30">
+    <div class="group relative overflow-hidden rounded-xl bg-muted/25 p-5 transition-colors hover:border-yellow-500/30">
       <div class="flex items-center gap-4">
         <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
           <Star class="h-5 w-5" />
@@ -70,7 +70,7 @@ defineProps<{
 
         <div
           v-if="currentDefaultStyle?.thumbnail"
-          class="h-14 w-10 shrink-0 overflow-hidden rounded-lg border bg-muted/30"
+          class="h-14 w-10 shrink-0 overflow-hidden rounded-xl bg-muted/25"
         >
           <img
             :src="currentDefaultStyle.thumbnail"

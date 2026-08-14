@@ -54,6 +54,10 @@ const REPLACED_SCRIPT_TEMPLATE_IDS = new Set([
   'script_parsing_episode_drama_context'
 ])
 const PROMPT_EDITOR_ORDER: Record<string, number> = {
+  script_writing_story_bible: 1,
+  script_writing_outline: 2,
+  script_writing_episode_draft: 3,
+  script_writing_review: 4,
   script_episode_plan: 10,
   director_preferences: 20,
   scene_description_refinement: 30,
