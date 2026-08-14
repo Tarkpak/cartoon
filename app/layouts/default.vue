@@ -279,8 +279,8 @@ function handleThemeToggle(event: MouseEvent) {
     <!-- 左侧菜单栏 -->
     <aside
       v-if="!hideSidebar"
-      class="theme-surface relative flex min-h-0 flex-col overflow-hidden bg-background transition-[width,background-color,border-color,box-shadow] duration-300 ease-out"
-      :class="visualSidebarCollapsed ? 'w-14' : 'w-48'"
+      class="theme-surface relative z-20 flex min-h-0 flex-col bg-background transition-[width,background-color,border-color,box-shadow] duration-300 ease-out"
+      :class="visualSidebarCollapsed ? 'w-14 overflow-visible' : 'w-48 overflow-hidden'"
     >
       <!-- Logo with collapse toggle -->
       <div
@@ -318,7 +318,7 @@ function handleThemeToggle(event: MouseEvent) {
 
       <!-- 导航菜单 -->
       <nav
-        class="min-h-0 flex-1 space-y-0.5 p-3"
+        class="min-h-0 flex-1 space-y-0.5 p-3 [scrollbar-width:thin] [scrollbar-color:transparent_transparent] hover:[scrollbar-color:hsl(var(--border))_transparent]"
         :class="visualSidebarCollapsed ? 'overflow-visible' : 'overflow-y-auto overflow-x-hidden overscroll-contain'"
       >
         <div
@@ -548,7 +548,10 @@ function handleThemeToggle(event: MouseEvent) {
     </aside>
 
     <!-- 右侧内容区 -->
-    <main class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    <main
+      class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+      :class="hideSidebar ? '' : 'pl-4'"
+    >
       <div class="min-h-0 flex-1 overflow-y-auto">
         <slot />
       </div>
