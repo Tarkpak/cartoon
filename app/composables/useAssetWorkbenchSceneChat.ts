@@ -5,9 +5,6 @@ import type {
   DisplayAsset,
   SceneChatMessage
 } from '~/lib/asset-workbench-types'
-import {
-  createSceneChatWelcomeMessage
-} from '~/lib/asset-workbench-scene-chat'
 import { useAssetWorkbenchSceneChatActions } from '~/composables/useAssetWorkbenchSceneChatActions'
 
 interface UseAssetWorkbenchSceneChatOptions {
@@ -103,9 +100,7 @@ export function useAssetWorkbenchSceneChat(options: UseAssetWorkbenchSceneChatOp
     if (!sceneId) return
     if (sceneChatMessages.value[sceneId]) return
 
-    sceneChatMessages.value[sceneId] = [
-      createSceneChatWelcomeMessage()
-    ]
+    sceneChatMessages.value[sceneId] = []
   })
 
   function setSceneChatComposerText(value: string) {

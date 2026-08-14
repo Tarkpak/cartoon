@@ -8,7 +8,8 @@ import type {
 import type {
   ArkVirtualAssetBinding,
   AssetImageHistoryEntry,
-  AssetVideoHistoryEntry
+  AssetVideoHistoryEntry,
+  SceneDescriptionVersion
 } from '~/lib/asset-workbench-types'
 
 export type AssetWorkbenchTransitionType
@@ -29,6 +30,7 @@ export interface SceneData {
   episodeIndex?: number
   title: string
   description: string
+  descriptionHistory?: SceneDescriptionVersion[]
   dramatic?: SceneDramatic
   characters: Array<{ name: string, assetId?: string, appearance?: string, emotion?: string }>
   props?: Array<{ name: string, description?: string }>

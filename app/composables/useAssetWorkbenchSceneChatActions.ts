@@ -4,7 +4,8 @@ import type { PropAsset } from '~/composables/useAssetWorkflowMeta'
 import {
   createPropAssetId,
   type DisplayAsset,
-  type SceneChatMessage
+  type SceneChatMessage,
+  type SceneDescriptionVersion
 } from '~/lib/asset-workbench-types'
 import {
   resetFileInput,
@@ -55,6 +56,15 @@ interface UseAssetWorkbenchSceneChatActionsOptions {
     title: string
     body?: string
   }) => Promise<unknown> | unknown
+}
+
+function createSceneDescriptionVersion(description: string, label: string): SceneDescriptionVersion {
+  return {
+    id: `scene_desc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    description,
+    createdAt: Date.now(),
+    label
+  }
 }
 
 export function useAssetWorkbenchSceneChatActions(
@@ -210,6 +220,14 @@ export function useAssetWorkbenchSceneChatActions(
         buildAssetWorkflowScenePayload: options.buildAssetWorkflowScenePayload
       })
       const descriptionChanged = previousBaseDescription !== rewrittenDescription
+      if (descriptionChanged) {
+        const existingHistory = Array.isArray(scene.descriptionHistory) ? scene.descriptionHistory : []
+        if (existingHistory.length === 0 && previousBaseDescription) {
+          existingHistory.push(createSceneDescriptionVersion(previousBaseDescription, '初始版本'))
+        }
+        existingHistory.push(createSceneDescriptionVersion(rewrittenDescription, `修改 ${existingHistory.length}`))
+        scene.descriptionHistory = existingHistory.slice(-20)
+      }
       scene.description = rewrittenDescription
       if (descriptionChanged) {
         invalidateSceneGenerationState(scene)

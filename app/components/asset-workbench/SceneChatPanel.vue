@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { Loader2, Sparkles, Upload, X } from 'lucide-vue-next'
+import { History, Info, Loader2, Sparkles, Upload, X } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
-import type { DisplayAsset, SceneChatMentionCandidate, SceneChatMessage } from '~/lib/asset-workbench-types'
+import type { DisplayAsset, SceneChatMentionCandidate, SceneChatMessage, SceneDescriptionVersion } from '~/lib/asset-workbench-types'
 
 const props = defineProps<{
   sceneId: string
   sceneTitle: string
   messages: SceneChatMessage[]
+  description: string
+  descriptionHistory: SceneDescriptionVersion[]
   composerAssets: DisplayAsset[]
   composerText: string
   mentionOpen: boolean
@@ -29,10 +31,14 @@ const props = defineProps<{
   onHandleUpload: (event: Event) => void
   onSubmit: (sceneId: string) => void
   onClose: () => void
+  onSelectDescriptionVersion: (versionId: string) => void
   onPreviewImage: (src: string | undefined, alt: string) => void
 }>()
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const historyOpen = ref(false)
+
+const sortedHistory = computed(() => [...props.descriptionHistory].sort((a, b) => b.createdAt - a.createdAt))
 
 const composerTextModel = computed({
   get: () => props.composerText,
@@ -54,6 +60,10 @@ function resolveMessageAsset(assetId: string) {
 function triggerUpload() {
   fileInputRef.value?.click()
 }
+
+function formatVersionTime(timestamp: number) {
+  return new Date(timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+}
 </script>
 
 <template>
@@ -61,7 +71,7 @@ function triggerUpload() {
     class="absolute right-2 top-12 z-30 w-[min(92vw,420px)] rounded-xl bg-muted/25/95 p-3 shadow-xl backdrop-blur"
     @click.stop
   >
-    <div class="flex items-center justify-between gap-2 border-b pb-2">
+    <div class="flex items-center justify-between gap-2 pb-2">
       <div class="min-w-0">
         <p class="truncate text-xs font-medium">
           对话修改场景
@@ -70,13 +80,46 @@ function triggerUpload() {
           {{ sceneTitle }}
         </p>
       </div>
+      <div class="flex items-center gap-1">
+        <Button
+          v-if="descriptionHistory.length > 0"
+          size="sm"
+          variant="ghost"
+          class="h-7 gap-1 px-1.5 text-[11px]"
+          :class="historyOpen ? 'bg-accent' : ''"
+          @click.stop="historyOpen = !historyOpen"
+        >
+          <History class="h-3.5 w-3.5" />
+          历史 {{ descriptionHistory.length }}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          class="h-7 w-7 p-0"
+          @click.stop="onClose()"
+        >
+          <X class="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+
+    <div
+      v-if="historyOpen"
+      class="mt-2 rounded-lg border bg-background/80 p-1.5 shadow-sm"
+      @click.stop
+    >
+      <p class="px-1.5 pb-1 text-[11px] text-muted-foreground">选择一个描述版本恢复</p>
       <Button
-        size="sm"
+        v-for="version in sortedHistory"
+        :key="version.id"
+        type="button"
         variant="ghost"
-        class="h-7 w-7 p-0"
-        @click.stop="onClose()"
+        class="h-auto w-full justify-start gap-2 rounded-md px-1.5 py-1.5 text-left text-xs"
+        :class="version.description === description ? 'bg-primary/10 text-primary' : ''"
+        @click.stop="onSelectDescriptionVersion(version.id); historyOpen = false"
       >
-        <X class="h-3.5 w-3.5" />
+        <span class="min-w-0 flex-1 truncate">{{ version.label || '描述版本' }}</span>
+        <span class="shrink-0 text-[10px] text-muted-foreground">{{ formatVersionTime(version.createdAt) }}</span>
       </Button>
     </div>
 
@@ -132,7 +175,7 @@ function triggerUpload() {
       </div>
     </div>
 
-    <div class="relative mt-2 space-y-2 border-t pt-2">
+    <div class="relative mt-2 space-y-2 pt-2">
       <div
         v-if="composerAssets.length > 0"
         class="flex flex-wrap items-center gap-1"
@@ -206,9 +249,17 @@ function triggerUpload() {
       </div>
 
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <p class="text-xs text-muted-foreground">
-          可 @角色/@环境/@道具/@其他，上传图片后会自动归类到“其他”并加入可引用资产。
-        </p>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          class="h-7 w-7 text-muted-foreground"
+          title="请输入二次改写指令，支持 @资产引用，也可以上传图片资产（自动归类到“其他”）后一起调整场景。"
+          aria-label="查看场景二次改写提示"
+          @click.stop
+        >
+          <Info class="h-3.5 w-3.5" />
+        </Button>
         <div class="flex items-center gap-1.5">
           <Button
             size="sm"

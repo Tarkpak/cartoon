@@ -17,7 +17,7 @@ import type {
   CharacterData,
   SceneData
 } from '~/composables/useAssetWorkbench'
-import type { ArkVirtualAssetBinding } from '~/lib/asset-workbench-types'
+import type { ArkVirtualAssetBinding, SceneDescriptionVersion } from '~/lib/asset-workbench-types'
 import {
   toOptionalNumber,
   toOptionalString,
@@ -32,6 +32,7 @@ interface LoadedProjectScene {
   episodeIndex?: number | null
   title?: string | null
   description: string
+  descriptionHistory?: SceneDescriptionVersion[] | null
   dramatic?: SceneDramatic | null
   setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string } | null
   characters?: Array<{ name: string, assetId?: string, appearance?: string, emotion?: string }>
@@ -82,6 +83,7 @@ export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
     episodeIndex: typeof scene.episodeIndex === 'number' ? scene.episodeIndex : undefined,
     title: scene.title || `场景 ${index + 1}`,
     description: scene.description,
+    descriptionHistory: Array.isArray(scene.descriptionHistory) ? scene.descriptionHistory : undefined,
     dramatic: scene.dramatic || undefined,
     characters: scene.characters || [],
     props: scene.props || [],
@@ -192,6 +194,7 @@ export function buildSaveScenesPayload(scenes: SceneData[]) {
     episodeIndex: scene.episodeIndex,
     title: scene.title,
     description: scene.description,
+    descriptionHistory: Array.isArray(scene.descriptionHistory) ? scene.descriptionHistory : undefined,
     dramatic: scene.dramatic,
     setting: scene.setting
       ? {

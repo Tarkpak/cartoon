@@ -179,6 +179,13 @@ export interface SceneChatMessage {
   createdAt: number
 }
 
+export interface SceneDescriptionVersion {
+  id: string
+  description: string
+  createdAt: number
+  label?: string
+}
+
 export interface SceneVideoBadge {
   variant: 'secondary' | 'destructive' | 'default' | 'outline'
   label: string

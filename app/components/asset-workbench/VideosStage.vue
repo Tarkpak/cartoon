@@ -138,6 +138,7 @@ const props = defineProps<{
   onRemoveSceneChatComposerAsset: (assetId: string) => void
   onHandleSceneChatImageUpload: (event: Event) => void
   onSubmitSceneChat: (sceneId: string) => void
+  onSelectSceneDescriptionVersion: (sceneId: string, versionId: string) => void
 }>()
 
 const readySceneCount = computed(() => {
@@ -772,6 +773,7 @@ watch(episodeDirectoryCollapsed, (value) => {
             :on-remove-scene-chat-composer-asset="onRemoveSceneChatComposerAsset"
             :on-handle-scene-chat-image-upload="onHandleSceneChatImageUpload"
             :on-submit-scene-chat="onSubmitSceneChat"
+            :on-select-scene-description-version="onSelectSceneDescriptionVersion"
           />
         </div>
       </div>

@@ -85,6 +85,7 @@ const props = defineProps<{
   onRemoveSceneChatComposerAsset: (assetId: string) => void
   onHandleSceneChatImageUpload: (event: Event) => void
   onSubmitSceneChat: (sceneId: string) => void
+  onSelectSceneDescriptionVersion: (sceneId: string, versionId: string) => void
 }>()
 
 const videoBadge = computed(() => props.resolveSceneVideoBadge(props.scene))
@@ -526,6 +527,8 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       v-if="chatOpen"
       :scene-id="scene.id"
       :scene-title="scene.title"
+      :description="scene.description"
+      :description-history="scene.descriptionHistory || []"
       :messages="chatMessages"
       :composer-assets="chatComposerAssets"
       :composer-text="chatComposerText"
@@ -548,6 +551,7 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       :on-remove-composer-asset="onRemoveSceneChatComposerAsset"
       :on-handle-upload="onHandleSceneChatImageUpload"
       :on-submit="onSubmitSceneChat"
+      :on-select-description-version="(versionId) => onSelectSceneDescriptionVersion(scene.id, versionId)"
       :on-close="onCloseSceneChat"
       :on-preview-image="onPreviewImage"
     />

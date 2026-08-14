@@ -2672,6 +2672,26 @@ const {
   onModelTaskFailed: notifyGenerationFailed
 })
 
+async function selectSceneDescriptionVersion(sceneId: string, versionId: string) {
+  const scene = scenes.value.find(item => item.id === sceneId)
+  const version = scene?.descriptionHistory?.find(item => item.id === versionId)
+  if (!scene || !version || version.description === scene.description) return
+
+  const history = Array.isArray(scene.descriptionHistory) ? scene.descriptionHistory : []
+  if (!history.some(item => item.description === scene.description)) {
+    history.push({
+      id: `scene_desc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      description: scene.description,
+      createdAt: Date.now(),
+      label: '切换前版本'
+    })
+    scene.descriptionHistory = history.slice(-20)
+  }
+  scene.description = version.description
+  invalidateSceneGenerationState(scene)
+  await saveProject()
+}
+
 let previousCharacterDependencySnapshot = buildCharacterDependencySnapshot()
 
 watch(
@@ -3806,6 +3826,7 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
           :on-remove-scene-chat-composer-asset="removeSceneChatComposerAsset"
           :on-handle-scene-chat-image-upload="handleSceneChatImageUpload"
           :on-submit-scene-chat="submitSceneChat"
+          :on-select-scene-description-version="selectSceneDescriptionVersion"
           :normalize-workflow-text="normalizeWorkflowText"
         />
       </KeepAlive>
