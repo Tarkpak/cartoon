@@ -503,7 +503,6 @@ onBeforeRouteLeave(async () => {
           @publish="publishWriting"
           @open-production="openWorkbench"
           @open-list="openProjectList"
-          @create-project="openCreateProjectDialog"
         />
       </div>
     </AppPageContent>

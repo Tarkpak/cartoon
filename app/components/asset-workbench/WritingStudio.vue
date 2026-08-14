@@ -10,7 +10,6 @@ import {
   ChevronRight,
   ChevronUp,
   Ellipsis,
-  FilePlus2,
   FileText,
   Focus,
   ListPlus,
@@ -64,7 +63,6 @@ const emit = defineEmits<{
   publish: [publication: ScriptWritingPublication]
   openProduction: []
   openList: []
-  createProject: []
 }>()
 
 type WritingView = 'bible' | 'episodes' | 'review'
@@ -786,15 +784,6 @@ function formatVersionTime(value: string) {
           </span>
         </span>
       </div>
-      <Button
-        variant="outline"
-        size="sm"
-        class="h-8 shrink-0 gap-1.5 px-2.5"
-        @click="emit('createProject')"
-      >
-        <FilePlus2 class="h-3.5 w-3.5" />
-        <span class="hidden sm:inline">新建</span>
-      </Button>
     </header>
 
     <div
