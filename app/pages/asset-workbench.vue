@@ -232,8 +232,7 @@ const {
   generateCharacter: generateCharacterCore,
   mergeAllVideos,
   mergeStatus,
-  finalVideo,
-  resolveProjectStatus
+  finalVideo
 } = useAssetWorkbench()
 
 const selectedSceneId = ref<string>('')
@@ -653,7 +652,7 @@ const {
   environmentPanoramaStates,
   finalVideo,
   finalMergeOptions: finalStageMergeOptions,
-  resolveProjectStatus,
+  saveProject,
   onHydrated: () => {
     synchronizeSceneConfigs()
     synchronizeQueueItems()

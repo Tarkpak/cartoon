@@ -76,7 +76,7 @@ interface UseAssetWorkflowMetaOptions {
   environmentPanoramaStates: Ref<Record<string, EnvironmentPanoramaState>>
   finalVideo: Ref<FinalVideoAsset | null>
   finalMergeOptions?: Ref<FinalMergeOptions>
-  resolveProjectStatus: () => 'draft' | 'in_progress' | 'completed'
+  saveProject: () => Promise<unknown>
   onHydrated?: () => void
   debounceMs?: number
 }
@@ -518,13 +518,12 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
     }
 
     try {
-      await $fetch(`/api/project/${currentProjectId}`, {
-        method: 'PUT',
-        body: {
-          status: options.resolveProjectStatus(),
-          assetWorkflow: payload
-        }
-      })
+      // Use the same queue as full project saves. Independent PUT requests can
+      // otherwise race and let an older full snapshot overwrite this payload.
+      const saved = await options.saveProject()
+      if (saved === false) {
+        throw new Error('项目工作流元数据保存失败')
+      }
     } catch (error) {
       console.error('[useAssetWorkflowMeta] 保存工作流元数据失败:', error)
       throw error

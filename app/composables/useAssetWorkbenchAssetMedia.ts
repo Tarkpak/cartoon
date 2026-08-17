@@ -583,12 +583,18 @@ export function useAssetWorkbenchAssetMedia(options: {
         throw new Error('道具图生成失败')
       }
 
-      target.referenceImage = response.imageUrl
+      // The workflow can be re-hydrated while generation is in flight, which
+      // replaces the props array and makes the pre-request object stale.
+      const currentTarget = options.propAssets.value.find(item => item.id === propId)
+      if (!currentTarget) {
+        throw new Error('道具图已生成，但项目中的道具资产已不存在')
+      }
+      currentTarget.referenceImage = response.imageUrl
       await options.saveWorkflowMeta()
       if (!generationOptions.skipCompletionNotice) {
         await notifyModelTaskCompleted({
           title: '道具图生成完成',
-          body: `道具：${target.name || target.id}`
+          body: `道具：${currentTarget.name || currentTarget.id}`
         })
       }
       return response.imageUrl

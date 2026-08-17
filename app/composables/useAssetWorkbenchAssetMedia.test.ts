@@ -112,6 +112,51 @@ describe('useAssetWorkbenchAssetMedia environment upload', () => {
     }
   })
 
+  it('writes a generated prop image to the current asset after workflow re-hydration', async () => {
+    const originalProp: PropAsset = {
+      id: 'prop_1',
+      name: '打火机',
+      description: '银灰色金属打火机',
+      category: 'prop'
+    }
+    const hydratedProp = { ...originalProp }
+    const propAssets = ref<PropAsset[]>([originalProp])
+    const saveWorkflowMeta = vi.fn(async () => undefined)
+    const fetchMock = vi.fn(async () => {
+      propAssets.value = [hydratedProp]
+      return {
+        success: true,
+        imageUrl: 'https://example.com/generated-prop.png'
+      }
+    })
+    vi.stubGlobal('$fetch', fetchMock)
+
+    const media = useAssetWorkbenchAssetMedia({
+      maxAssetUploadSize: 10 * 1024 * 1024,
+      maxVoiceUploadSize: 10 * 1024 * 1024,
+      statusError: ref<string | null>(null),
+      scenes: ref<SceneData[]>([]),
+      characters: ref<CharacterData[]>([]),
+      propAssets,
+      workflowStylePrompt: ref('3D 国创'),
+      saveProject: vi.fn(async () => true),
+      saveWorkflowMeta,
+      resolveUiError: error => error instanceof Error ? error.message : 'error',
+      synchronizeQueueItems: vi.fn(),
+      resolveSceneReferenceImage: () => undefined,
+      resolveEnvironmentCard: () => undefined,
+      resolveEnvironmentRepresentativeScene: () => undefined,
+      generateSceneBaseline: vi.fn(async () => undefined)
+    })
+
+    const imageUrl = await media.generatePropImage('prop_1')
+
+    expect(imageUrl).toBe('https://example.com/generated-prop.png')
+    expect(originalProp.referenceImage).toBeUndefined()
+    expect(hydratedProp.referenceImage).toBe(imageUrl)
+    expect(saveWorkflowMeta).toHaveBeenCalledTimes(1)
+  })
+
   it('saves workflow meta before project and rejects save failures', async () => {
     const scene = createScene({
       id: 'scene_1',
