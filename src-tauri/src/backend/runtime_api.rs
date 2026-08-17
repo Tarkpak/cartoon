@@ -8056,6 +8056,7 @@ struct VoiceCharacterRecord {
 
 #[derive(Debug)]
 struct SceneVoiceContext {
+    project_id: String,
     dialogues: Vec<(String, String)>,
     characters: Vec<VoiceCharacterRecord>,
     narration: Option<NarrationVoiceContext>,
@@ -8485,6 +8486,7 @@ fn load_scene_voice_context(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(Some(SceneVoiceContext {
+        project_id,
         dialogues,
         characters,
         narration,
@@ -8601,6 +8603,7 @@ async fn extract_character_voice_assets_from_scene_video(
     fs::create_dir_all(&temp_dir)
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let result = async {
+        let mut project_changed = false;
         let video_path = if let Some(path) =
             resolve_video_source_path(state, video_url).filter(|path| path.exists())
         {
@@ -8688,6 +8691,7 @@ async fn extract_character_voice_assets_from_scene_video(
                 "updatedAt": now_iso()
             });
             if apply_character_voice_asset(state, &voice_match.character_id, next_asset)? {
+                project_changed = true;
                 eprintln!(
                     "[VoiceAsset] 已更新角色声音资产: {} ({:.3})",
                     voice_match.character_name, voice_match.match_score
@@ -8739,9 +8743,18 @@ async fn extract_character_voice_assets_from_scene_video(
                 "updatedAt": now_iso()
             });
             if apply_narration_voice_asset(state, target, next_asset)? {
+                project_changed = true;
                 eprintln!(
                     "[VoiceAsset] 已更新旁白声音资产: {} ({:.3})",
                     target.prop_name, voice_match.match_score
+                );
+            }
+        }
+        if project_changed {
+            if let Err(error) = cloud_sync_project_by_id(state, &context.project_id).await {
+                eprintln!(
+                    "[VoiceAsset] 声音资产云同步失败: projectId={}, error={}",
+                    context.project_id, error.message
                 );
             }
         }
@@ -15021,6 +15034,7 @@ mod tests {
     #[test]
     fn character_voice_dialogues_match_asr_segments_in_order() {
         let context = SceneVoiceContext {
+            project_id: "project_1".to_string(),
             dialogues: vec![
                 ("阿青".to_string(), "你终于来了".to_string()),
                 ("老周".to_string(), "别废话，快走".to_string()),
@@ -15066,6 +15080,7 @@ mod tests {
     #[test]
     fn character_voice_accepts_exact_minimum_clip_duration() {
         let context = SceneVoiceContext {
+            project_id: "project_1".to_string(),
             dialogues: vec![("阿青".to_string(), "你终于来了".to_string())],
             characters: vec![VoiceCharacterRecord {
                 id: "char_1".to_string(),

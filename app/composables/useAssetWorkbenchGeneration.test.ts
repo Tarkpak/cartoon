@@ -7,6 +7,7 @@ import {
   useAssetWorkbenchGeneration
 } from './useAssetWorkbenchGeneration'
 import {
+  generateAssetWorkbenchCharacter,
   parseAssetWorkbenchScript,
   prepareAssetWorkbenchEpisodePlan,
   type ScriptEpisodePlanItem
@@ -64,6 +65,7 @@ function createGeneration(initialNovelText = '测试剧本正文') {
     novelText,
     scriptParseMode,
     scenes,
+    characters,
     episodePlan,
     onModelTaskCompleted,
     parsing,
@@ -84,10 +86,15 @@ describe('useAssetWorkbenchGeneration', () => {
       calls: Array<[Record<string, unknown>]>
     }
   }
+  const generateCharacterMock = generateAssetWorkbenchCharacter as unknown as {
+    mockReset: () => void
+    mockImplementation: (implementation: () => Promise<unknown>) => void
+  }
 
   beforeEach(() => {
     prepareEpisodePlanMock.mockReset()
     parseScriptMock.mockReset()
+    generateCharacterMock.mockReset()
   })
 
   it('notifies completion after generating episode plan', async () => {
@@ -226,5 +233,33 @@ describe('useAssetWorkbenchGeneration', () => {
     await expect(pendingParse).resolves.toBe(false)
     expect(scenes.value).toEqual([])
     expect(saveProject).not.toHaveBeenCalled()
+  })
+
+  it('writes a generated image to the current character after re-hydration', async () => {
+    const originalCharacter: CharacterData = {
+      id: 'char_1',
+      name: '主角',
+      appearance: '黑色风衣',
+      role: 'protagonist',
+      generating: false,
+      generatingViews: false
+    }
+    const currentCharacter = { ...originalCharacter }
+    const { generation, characters, saveProject } = createGeneration()
+    characters.value = [originalCharacter]
+    generateCharacterMock.mockImplementation(async () => {
+      characters.value = [currentCharacter]
+      return {
+        success: true,
+        asset: { baseImage: 'https://example.com/generated-character.png' }
+      }
+    })
+
+    await generation.generateCharacter(originalCharacter)
+
+    expect(originalCharacter.baseImage).toBeUndefined()
+    expect(currentCharacter.baseImage).toBe('https://example.com/generated-character.png')
+    expect(currentCharacter.generating).toBe(false)
+    expect(saveProject).toHaveBeenCalledTimes(1)
   })
 })

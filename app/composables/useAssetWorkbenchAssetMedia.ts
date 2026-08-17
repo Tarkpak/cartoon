@@ -196,8 +196,15 @@ export function useAssetWorkbenchAssetMedia(options: {
         maxFileSize: options.maxAssetUploadSize,
         prefix: `char_${target.id}`
       })
-      target.baseImage = imageUrl
-      await options.saveProject()
+      const currentTarget = options.characters.value.find(char => char.id === characterId)
+      if (!currentTarget) {
+        throw new Error('角色图片已上传，但项目中的角色资产已不存在')
+      }
+      currentTarget.baseImage = imageUrl
+      const saved = await options.saveProject()
+      if (saved === false) {
+        throw new Error('角色图片已上传，但项目保存失败')
+      }
     } catch (error) {
       options.statusError.value = options.resolveUiError(error, '角色图片上传失败')
     } finally {
@@ -229,13 +236,20 @@ export function useAssetWorkbenchAssetMedia(options: {
         prefix: `voice_${target.id}`
       })
 
-      target.voiceAsset = {
+      const currentTarget = options.characters.value.find(char => char.id === characterId)
+      if (!currentTarget) {
+        throw new Error('角色音频已上传，但项目中的角色资产已不存在')
+      }
+      currentTarget.voiceAsset = {
         audioUrl,
-        locked: target.voiceAsset?.locked ?? false,
+        locked: currentTarget.voiceAsset?.locked ?? false,
         updatedAt: new Date().toISOString()
       }
 
-      await options.saveProject()
+      const saved = await options.saveProject()
+      if (saved === false) {
+        throw new Error('角色音频已上传，但项目保存失败')
+      }
     } catch (error) {
       options.statusError.value = options.resolveUiError(error, '角色音频上传失败')
     } finally {
@@ -477,9 +491,13 @@ export function useAssetWorkbenchAssetMedia(options: {
         maxFileSize: options.maxAssetUploadSize,
         prefix: `prop_${target.id}`
       })
-      target.referenceImage = imageUrl
-      if (target.category === 'other' && target.mediaType !== 'voice') {
-        target.mediaType = 'image'
+      const currentTarget = options.propAssets.value.find(item => item.id === propId)
+      if (!currentTarget) {
+        throw new Error('道具图片已上传，但项目中的道具资产已不存在')
+      }
+      currentTarget.referenceImage = imageUrl
+      if (currentTarget.category === 'other' && currentTarget.mediaType !== 'voice') {
+        currentTarget.mediaType = 'image'
       }
       await options.saveWorkflowMeta()
     } catch (error) {
@@ -512,12 +530,16 @@ export function useAssetWorkbenchAssetMedia(options: {
         maxFileSize: options.maxVoiceUploadSize,
         prefix: `voice_${target.id}`
       })
-      target.voiceAsset = {
+      const currentTarget = options.propAssets.value.find(item => item.id === propId)
+      if (!currentTarget || currentTarget.category !== 'other') {
+        throw new Error('旁白音频已上传，但项目中的声音资产已不存在')
+      }
+      currentTarget.voiceAsset = {
         audioUrl,
-        locked: target.voiceAsset?.locked ?? true,
+        locked: currentTarget.voiceAsset?.locked ?? true,
         updatedAt: new Date().toISOString()
       }
-      target.mediaType = 'voice'
+      currentTarget.mediaType = 'voice'
       await options.saveWorkflowMeta()
     } catch (error) {
       options.statusError.value = options.resolveUiError(error, '旁白音频上传失败')

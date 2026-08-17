@@ -652,14 +652,18 @@ export function useAssetWorkbenchGeneration(
         throw new Error(response.error || '角色图生成失败')
       }
 
-      char.baseImage = response.asset.baseImage
-      await saveProjectOrThrow(`角色 ${char.name} 生成完成`)
+      const currentCharacter = options.characters.value.find(item => item.id === char.id)
+      if (!currentCharacter) {
+        throw new Error('角色图已生成，但项目中的角色资产已不存在')
+      }
+      currentCharacter.baseImage = response.asset.baseImage
+      await saveProjectOrThrow(`角色 ${currentCharacter.name} 生成完成`)
 
-      const generatedImage = char.baseImage?.trim() || ''
+      const generatedImage = currentCharacter.baseImage?.trim() || ''
       if (generatedImage && generatedImage !== previousImage && !input?.skipCompletionNotice) {
         await notifyModelTaskCompleted({
           title: regenerationPrompt ? '角色二次生成完成' : '角色图生成完成',
-          body: `角色：${char.name}`
+          body: `角色：${currentCharacter.name}`
         })
       }
     } catch (error) {
@@ -674,6 +678,8 @@ export function useAssetWorkbenchGeneration(
       throw error
     } finally {
       char.generating = false
+      const currentCharacter = options.characters.value.find(item => item.id === char.id)
+      if (currentCharacter) currentCharacter.generating = false
     }
   }
 

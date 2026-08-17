@@ -5,11 +5,14 @@ import type { PropAsset } from '~/composables/useAssetWorkflowMeta'
 import type { EnvironmentAssetCard, EnvironmentPanoramaState } from '~/lib/asset-workbench-types'
 import { useAssetWorkbenchAssetMedia } from './useAssetWorkbenchAssetMedia'
 
-const uploadImageFileMock = vi.hoisted(() => vi.fn())
+const { uploadAudioFileMock, uploadImageFileMock } = vi.hoisted(() => ({
+  uploadAudioFileMock: vi.fn(),
+  uploadImageFileMock: vi.fn()
+}))
 
 vi.mock('~/lib/asset-workbench-upload', () => ({
   resetFileInput: vi.fn(),
-  uploadAudioFile: vi.fn(),
+  uploadAudioFile: uploadAudioFileMock,
   uploadImageFile: uploadImageFileMock
 }))
 
@@ -80,6 +83,8 @@ describe('useAssetWorkbenchAssetMedia environment upload', () => {
     toastError.mockReset()
     uploadImageFileMock.mockReset()
     uploadImageFileMock.mockResolvedValue('https://example.com/env-uploaded.png')
+    uploadAudioFileMock.mockReset()
+    uploadAudioFileMock.mockResolvedValue('https://example.com/uploaded-voice.mp3')
 
     // Avoid real image decoding while still exercising the non-panorama path.
     vi.stubGlobal('URL', {
@@ -154,6 +159,139 @@ describe('useAssetWorkbenchAssetMedia environment upload', () => {
     expect(imageUrl).toBe('https://example.com/generated-prop.png')
     expect(originalProp.referenceImage).toBeUndefined()
     expect(hydratedProp.referenceImage).toBe(imageUrl)
+    expect(saveWorkflowMeta).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes uploaded character and narration voices to current assets after re-hydration', async () => {
+    const originalCharacter: CharacterData = {
+      id: 'char_1',
+      name: '主角',
+      appearance: '黑色风衣',
+      role: 'protagonist',
+      generating: false,
+      generatingViews: false
+    }
+    const currentCharacter = { ...originalCharacter }
+    const originalNarration: PropAsset = {
+      id: 'voice_1',
+      name: '旁白',
+      description: '旁白音色',
+      category: 'other',
+      mediaType: 'voice'
+    }
+    const currentNarration = { ...originalNarration }
+    const characters = ref<CharacterData[]>([originalCharacter])
+    const propAssets = ref<PropAsset[]>([originalNarration])
+    const saveProject = vi.fn(async () => true)
+    const saveWorkflowMeta = vi.fn(async () => undefined)
+    uploadAudioFileMock
+      .mockImplementationOnce(async () => {
+        characters.value = [currentCharacter]
+        return 'https://example.com/character-voice.mp3'
+      })
+      .mockImplementationOnce(async () => {
+        propAssets.value = [currentNarration]
+        return 'https://example.com/narration-voice.mp3'
+      })
+
+    const media = useAssetWorkbenchAssetMedia({
+      maxAssetUploadSize: 10 * 1024 * 1024,
+      maxVoiceUploadSize: 10 * 1024 * 1024,
+      statusError: ref<string | null>(null),
+      scenes: ref<SceneData[]>([]),
+      characters,
+      propAssets,
+      workflowStylePrompt: ref(''),
+      saveProject,
+      saveWorkflowMeta,
+      resolveUiError: error => error instanceof Error ? error.message : 'error',
+      synchronizeQueueItems: vi.fn(),
+      resolveSceneReferenceImage: () => undefined,
+      resolveEnvironmentCard: () => undefined,
+      resolveEnvironmentRepresentativeScene: () => undefined,
+      generateSceneBaseline: vi.fn(async () => undefined)
+    })
+
+    await media.handleCharacterVoiceUpload(
+      originalCharacter.id,
+      createFileChangeEvent(new File(['voice'], 'voice.mp3', { type: 'audio/mpeg' }))
+    )
+    await media.handlePropVoiceUpload(
+      originalNarration.id,
+      createFileChangeEvent(new File(['voice'], 'narration.mp3', { type: 'audio/mpeg' }))
+    )
+
+    expect(originalCharacter.voiceAsset).toBeUndefined()
+    expect(currentCharacter.voiceAsset?.audioUrl).toBe('https://example.com/character-voice.mp3')
+    expect(originalNarration.voiceAsset).toBeUndefined()
+    expect(currentNarration.voiceAsset?.audioUrl).toBe('https://example.com/narration-voice.mp3')
+    expect(saveProject).toHaveBeenCalledTimes(1)
+    expect(saveWorkflowMeta).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes uploaded character and prop images to current assets after re-hydration', async () => {
+    const originalCharacter: CharacterData = {
+      id: 'char_1',
+      name: '主角',
+      appearance: '黑色风衣',
+      role: 'protagonist',
+      generating: false,
+      generatingViews: false
+    }
+    const currentCharacter = { ...originalCharacter }
+    const originalProp: PropAsset = {
+      id: 'prop_1',
+      name: '打火机',
+      description: '银灰色金属打火机',
+      category: 'prop'
+    }
+    const currentProp = { ...originalProp }
+    const characters = ref<CharacterData[]>([originalCharacter])
+    const propAssets = ref<PropAsset[]>([originalProp])
+    const saveProject = vi.fn(async () => true)
+    const saveWorkflowMeta = vi.fn(async () => undefined)
+    uploadImageFileMock
+      .mockImplementationOnce(async () => {
+        characters.value = [currentCharacter]
+        return 'https://example.com/character.png'
+      })
+      .mockImplementationOnce(async () => {
+        propAssets.value = [currentProp]
+        return 'https://example.com/prop.png'
+      })
+
+    const media = useAssetWorkbenchAssetMedia({
+      maxAssetUploadSize: 10 * 1024 * 1024,
+      maxVoiceUploadSize: 10 * 1024 * 1024,
+      statusError: ref<string | null>(null),
+      scenes: ref<SceneData[]>([]),
+      characters,
+      propAssets,
+      workflowStylePrompt: ref(''),
+      saveProject,
+      saveWorkflowMeta,
+      resolveUiError: error => error instanceof Error ? error.message : 'error',
+      synchronizeQueueItems: vi.fn(),
+      resolveSceneReferenceImage: () => undefined,
+      resolveEnvironmentCard: () => undefined,
+      resolveEnvironmentRepresentativeScene: () => undefined,
+      generateSceneBaseline: vi.fn(async () => undefined)
+    })
+
+    await media.handleCharacterImageUpload(
+      originalCharacter.id,
+      createFileChangeEvent(new File(['image'], 'character.png', { type: 'image/png' }))
+    )
+    await media.handlePropImageUpload(
+      originalProp.id,
+      createFileChangeEvent(new File(['image'], 'prop.png', { type: 'image/png' }))
+    )
+
+    expect(originalCharacter.baseImage).toBeUndefined()
+    expect(currentCharacter.baseImage).toBe('https://example.com/character.png')
+    expect(originalProp.referenceImage).toBeUndefined()
+    expect(currentProp.referenceImage).toBe('https://example.com/prop.png')
+    expect(saveProject).toHaveBeenCalledTimes(1)
     expect(saveWorkflowMeta).toHaveBeenCalledTimes(1)
   })
 

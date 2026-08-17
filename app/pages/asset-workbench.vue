@@ -1060,12 +1060,13 @@ async function generateCharacter(
 
   await generateCharacterCore(character, input)
 
-  const nextImage = character.baseImage?.trim() || ''
+  const currentCharacter = characters.value.find(item => item.id === character.id)
+  const nextImage = currentCharacter?.baseImage?.trim() || ''
   if (!nextImage || nextImage === previousImage) return
 
   const saved = await saveProject()
   if (saved === false) {
-    throw new Error(`角色 ${character.name} 图片已生成，但项目保存失败，请查看页面顶部的保存错误提示后重试`)
+    throw new Error(`角色 ${currentCharacter?.name || character.name} 图片已生成，但项目保存失败，请查看页面顶部的保存错误提示后重试`)
   }
 
   recordCharacterHistory(character.id, nextImage, {
@@ -2523,7 +2524,7 @@ async function handleCharacterImageUpload(characterId: string, event: Event) {
 
   await handleCharacterImageUploadCore(characterId, event)
 
-  const nextImage = target?.baseImage?.trim() || ''
+  const nextImage = characters.value.find(item => item.id === characterId)?.baseImage?.trim() || ''
   if (!nextImage || nextImage === previousImage) return
 
   recordCharacterHistory(characterId, nextImage, { source: 'uploaded' })
@@ -2542,7 +2543,7 @@ async function handlePropImageUpload(propId: string, event: Event) {
 
   await handlePropImageUploadCore(propId, event)
 
-  const nextImage = target?.referenceImage?.trim() || ''
+  const nextImage = propAssets.value.find(item => item.id === propId)?.referenceImage?.trim() || ''
   if (!nextImage || nextImage === previousImage) return
 
   recordPropHistory(propId, nextImage, { source: 'uploaded' })
