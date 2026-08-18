@@ -222,9 +222,21 @@ const episodeCount = computed(() => {
 })
 
 const sceneGridClass = computed(() => {
-  if (episodeCount.value <= 0) return 'xl:grid-cols-2 xl:gap-x-4'
-  if (episodeDirectoryCollapsed.value) return 'xl:grid-cols-[0px_minmax(0,1fr)_minmax(0,1fr)] xl:gap-x-0'
-  return 'xl:grid-cols-[300px_minmax(0,1fr)_minmax(0,1fr)] xl:gap-x-4'
+  if (episodeCount.value <= 0) {
+    return previewAspectRatio.value.portrait
+      ? 'xl:grid-cols-[minmax(0,1fr)_clamp(340px,30vw,520px)] xl:gap-x-4'
+      : 'xl:grid-cols-2 xl:gap-x-4'
+  }
+
+  if (episodeDirectoryCollapsed.value) {
+    return previewAspectRatio.value.portrait
+      ? 'xl:grid-cols-[0px_minmax(0,1fr)_clamp(340px,30vw,520px)] xl:gap-x-0'
+      : 'xl:grid-cols-[0px_minmax(0,1fr)_minmax(0,1fr)] xl:gap-x-0'
+  }
+
+  return previewAspectRatio.value.portrait
+    ? 'xl:grid-cols-[300px_minmax(0,1fr)_clamp(340px,30vw,520px)] xl:gap-x-4'
+    : 'xl:grid-cols-[300px_minmax(0,1fr)_minmax(0,1fr)] xl:gap-x-4'
 })
 
 const sceneEpisodeGroupMap = computed(() => {
