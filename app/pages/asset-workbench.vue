@@ -3759,6 +3759,7 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
           v-else
           :key="`videos-stage:${projectId || 'new'}`"
           :scenes="scenes"
+          :project-aspect-ratio="projectAspectRatio"
           :script-parse-mode="scriptParseMode"
           :episode-plan="episodePlan"
           :episode-overviews="episodeOverviewById"
@@ -3835,6 +3836,7 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
     <AssetWorkbenchFinalStage
       v-else
       :hint="stageHints.final"
+      :project-aspect-ratio="projectAspectRatio"
       :queue-done="queueSummary.done"
       :auto-running="autoRunning"
       :auto-run-current-stage="autoRunCurrentStage"
@@ -3851,6 +3853,7 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
     />
 
     <AssetWorkbenchDialogs
+      :project-aspect-ratio="projectAspectRatio"
       :character-regenerate-dialog-open="characterRegenerateDialogOpen"
       :character-regenerate-prompt="characterRegeneratePrompt"
       :character-regenerate-error="characterRegenerateError"

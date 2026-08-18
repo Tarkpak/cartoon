@@ -2,14 +2,18 @@
 import { Check, Loader2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import type { AssetVideoHistoryEntry } from '~/lib/asset-workbench-types'
+import { resolveVideoPreviewAspectRatio } from '~/lib/video-preview-aspect-ratio'
 
 const props = defineProps<{
   open: boolean
+  projectAspectRatio: string
   targetLabel: string
   currentVideoUrl?: string
   entries: AssetVideoHistoryEntry[]
   loading?: boolean
 }>()
+
+const previewAspectRatio = computed(() => resolveVideoPreviewAspectRatio(props.projectAspectRatio))
 
 const emit = defineEmits<{
   'update:open': [open: boolean]
@@ -240,14 +244,20 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
           v-if="previewEntry"
           class="flex min-h-0 flex-col overflow-hidden rounded-xl bg-muted/25"
         >
-          <div class="relative min-h-[260px] flex-1 overflow-hidden bg-black">
-            <video
-              :src="previewEntry.videoUrl"
-              class="h-full w-full object-contain"
-              controls
-              preload="auto"
-              playsinline
-            />
+          <div class="relative flex min-h-[260px] flex-1 items-center justify-center overflow-hidden bg-black/90 p-3">
+            <div
+              class="max-h-full max-w-full overflow-hidden bg-black outline outline-1 outline-white/10"
+              :class="previewAspectRatio.portrait ? 'h-full w-auto' : 'h-auto w-full'"
+              :style="{ aspectRatio: previewAspectRatio.cssValue }"
+            >
+              <video
+                :src="previewEntry.videoUrl"
+                class="h-full w-full object-contain"
+                controls
+                preload="auto"
+                playsinline
+              />
+            </div>
             <div
               v-if="previewSwitching && pendingPreviewEntry"
               class="absolute inset-0 flex items-center justify-center bg-black/45"

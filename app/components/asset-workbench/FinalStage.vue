@@ -8,6 +8,7 @@ import type {
 } from '~/lib/asset-workbench-types'
 import Timeline from '~/components/video/Timeline.vue'
 import { markLibraryAssetUsed } from '~/lib/library-api'
+import { resolveVideoPreviewAspectRatio } from '~/lib/video-preview-aspect-ratio'
 
 interface FinalStageSceneItem {
   id: string
@@ -19,6 +20,7 @@ interface FinalStageSceneItem {
 
 const props = defineProps<{
   hint: string
+  projectAspectRatio: string
   queueDone: number
   autoRunning: boolean
   autoRunCurrentStage: AutoStageKey | null
@@ -29,6 +31,8 @@ const props = defineProps<{
   sceneOrder: string[]
   mergeOptions: FinalMergeOptions
 }>()
+
+const previewAspectRatio = computed(() => resolveVideoPreviewAspectRatio(props.projectAspectRatio))
 
 const emit = defineEmits<{
   (e: 'run-final', payload?: FinalMergeOptions): void
@@ -484,12 +488,17 @@ function handleRunFinal() {
           成片预览
         </div>
       </div>
-      <div class="p-4">
-        <div class="aspect-video overflow-hidden rounded-lg bg-black/90">
+      <div class="flex max-h-[70vh] min-h-[280px] items-center justify-center p-4">
+        <div
+          class="max-h-[calc(70vh-2rem)] max-w-full overflow-hidden rounded-lg bg-black/90 outline outline-1 outline-white/10"
+          :class="previewAspectRatio.portrait ? 'h-[calc(70vh-2rem)] w-auto' : 'h-auto w-full'"
+          :style="{ aspectRatio: previewAspectRatio.cssValue }"
+        >
           <video
             :src="finalVideoUrl"
             controls
-            class="h-full w-full"
+            class="h-full w-full object-contain"
+            playsinline
           />
         </div>
       </div>

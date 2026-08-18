@@ -61,6 +61,7 @@ defineProps<{
   assetHistoryApplying?: boolean
   handleAssetHistorySelect: (entry: AssetImageHistoryEntry) => void | Promise<void>
   sceneVideoHistoryDialogOpen: boolean
+  projectAspectRatio: string
   setSceneVideoHistoryDialogOpen: (open: boolean) => void
   sceneVideoHistoryTargetLabel: string
   sceneVideoHistoryCurrentVideoUrl?: string
@@ -150,6 +151,7 @@ defineProps<{
 
   <SceneVideoHistoryDialog
     :open="sceneVideoHistoryDialogOpen"
+    :project-aspect-ratio="projectAspectRatio"
     :target-label="sceneVideoHistoryTargetLabel"
     :current-video-url="sceneVideoHistoryCurrentVideoUrl"
     :entries="sceneVideoHistoryEntries"

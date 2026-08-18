@@ -12,6 +12,7 @@ import type {
   SceneVideoBadge,
   SceneVoiceReferenceSummary
 } from '~/lib/asset-workbench-types'
+import { resolveVideoPreviewAspectRatio } from '~/lib/video-preview-aspect-ratio'
 
 interface SceneEpisodeGroup {
   id: string
@@ -57,6 +58,7 @@ interface EpisodeDirectoryItem {
 
 const props = defineProps<{
   scenes: SceneData[]
+  projectAspectRatio: string
   scriptParseMode?: ScriptParseMode
   episodePlan: EpisodePlanItemForVideoStage[]
   episodeOverviews?: Record<string, string>
@@ -140,6 +142,8 @@ const props = defineProps<{
   onSubmitSceneChat: (sceneId: string) => void
   onSelectSceneDescriptionVersion: (sceneId: string, versionId: string) => void
 }>()
+
+const previewAspectRatio = computed(() => resolveVideoPreviewAspectRatio(props.projectAspectRatio))
 
 const readySceneCount = computed(() => {
   return props.scenes.filter(scene => scene.referenceStatus === 'done').length
@@ -795,13 +799,18 @@ watch(episodeDirectoryCollapsed, (value) => {
               <AssetWorkbenchSceneVoiceReferenceSummary :summary="selectedSceneVoiceReferenceSummary" />
             </div>
           </div>
-          <div class="flex-1 flex items-center justify-center p-4">
-            <div class="w-full aspect-video overflow-hidden rounded-lg bg-black/90">
+          <div class="min-h-0 flex flex-1 items-center justify-center p-4">
+            <div
+              class="max-h-full max-w-full overflow-hidden rounded-lg bg-black/90 outline outline-1 outline-white/10"
+              :class="previewAspectRatio.portrait ? 'h-full w-auto' : 'h-auto w-full'"
+              :style="{ aspectRatio: previewAspectRatio.cssValue }"
+            >
               <video
                 v-if="selectedScene.videoUrl"
                 :src="selectedScene.videoUrl"
                 controls
-                class="h-full w-full"
+                class="h-full w-full object-contain"
+                playsinline
               />
               <div
                 v-else
