@@ -94,13 +94,14 @@ export async function fileToAudioDataUrl(file: File): Promise<string> {
   })
 }
 
-export async function uploadAssetImage(source: string, prefix: string): Promise<string> {
+export async function uploadAssetImage(source: string, prefix: string, projectId: string): Promise<string> {
   const response = await $fetch<{
     success: boolean
     imageUrl?: string
   }>('/api/asset-workflow/upload-image', {
     method: 'POST',
     body: {
+      projectId,
       imageData: source,
       prefix
     }
@@ -116,19 +117,21 @@ export async function uploadAssetImage(source: string, prefix: string): Promise<
 export async function uploadImageFile(file: File, options: {
   maxFileSize: number
   prefix: string
+  projectId: string
 }) {
   assertValidImageFile(file, options.maxFileSize)
   const dataUrl = await fileToDataUrl(file)
-  return await uploadAssetImage(dataUrl, options.prefix)
+  return await uploadAssetImage(dataUrl, options.prefix, options.projectId)
 }
 
-export async function uploadAssetAudio(source: string, prefix: string): Promise<string> {
+export async function uploadAssetAudio(source: string, prefix: string, projectId: string): Promise<string> {
   const response = await $fetch<{
     success: boolean
     audioUrl?: string
   }>('/api/character/voice/upload', {
     method: 'POST',
     body: {
+      projectId,
       audioData: source,
       prefix
     }
@@ -144,8 +147,9 @@ export async function uploadAssetAudio(source: string, prefix: string): Promise<
 export async function uploadAudioFile(file: File, options: {
   maxFileSize: number
   prefix: string
+  projectId: string
 }) {
   assertValidAudioFile(file, options.maxFileSize)
   const dataUrl = await fileToAudioDataUrl(file)
-  return await uploadAssetAudio(dataUrl, options.prefix)
+  return await uploadAssetAudio(dataUrl, options.prefix, options.projectId)
 }

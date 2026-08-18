@@ -83,6 +83,7 @@ declare module 'vue' {
     ProjectsFiltersBar: typeof import('./app/components/projects/ProjectsFiltersBar.vue')['default']
     ProjectsProjectCreateDialog: typeof import('./app/components/projects/ProjectCreateDialog.vue')['default']
     ProjectsProjectDeleteDialog: typeof import('./app/components/projects/ProjectDeleteDialog.vue')['default']
+    ProjectsProjectMembersDialog: typeof import('./app/components/projects/ProjectMembersDialog.vue')['default']
     ProjectsTable: typeof import('./app/components/projects/ProjectsTable.vue')['default']
     PromptEditor: typeof import('./app/components/PromptEditor.vue')['default']
     PromptEditorHeader: typeof import('./app/components/prompt-editor/PromptEditorHeader.vue')['default']

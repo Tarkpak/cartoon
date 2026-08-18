@@ -8,6 +8,7 @@ import type {
 import { useAssetWorkbenchSceneChatActions } from '~/composables/useAssetWorkbenchSceneChatActions'
 
 interface UseAssetWorkbenchSceneChatOptions {
+  projectId: ComputedRef<string | undefined>
   scenes: Ref<SceneData[]>
   propAssets: Ref<PropAsset[]>
   allAssets: ComputedRef<DisplayAsset[]>
@@ -130,6 +131,7 @@ export function useAssetWorkbenchSceneChat(options: UseAssetWorkbenchSceneChatOp
     submitSceneChat,
     syncSceneChatValidScenes: filterValidSceneChats
   } = useAssetWorkbenchSceneChatActions({
+    projectId: options.projectId,
     scenes: options.scenes,
     propAssets: options.propAssets,
     workflowStylePrompt: options.workflowStylePrompt,

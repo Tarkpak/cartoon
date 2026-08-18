@@ -3,6 +3,7 @@ import { useDebounceFn } from '@vueuse/core'
 import type { CharacterVoiceAsset } from '#shared/types/character'
 import type { LibraryAsset } from '#shared/types/library'
 import { libraryPermissionCanUse } from '#shared/types/library'
+import { projectAccessCan } from '#shared/types/project'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import type {
@@ -221,6 +222,7 @@ const {
   saving,
   saveError,
   saveWarning,
+  projectAccess,
   saveProject,
   loadProject,
   deleteScene,
@@ -234,6 +236,9 @@ const {
   mergeStatus,
   finalVideo
 } = useAssetWorkbench()
+
+const canEditProject = computed(() => !projectAccess.value || projectAccessCan(projectAccess.value, 'edit'))
+const canExportProject = computed(() => !projectAccess.value || projectAccessCan(projectAccess.value, 'export'))
 
 const selectedSceneId = ref<string>('')
 const lastArkBindingReconcileKey = ref('')
@@ -969,8 +974,8 @@ async function createEnvironmentCropImage(options: {
   })
   const normalizedCrop = singleViewResult.crop
   const uploadPrefix = buildEnvironmentCropUploadPrefix(options.assetId)
-  const singleViewImage = await uploadAssetImage(singleViewResult.imageData, `${uploadPrefix}_single`)
-  const fourViewImage = await uploadAssetImage(fourViewResult.imageData, `${uploadPrefix}_four`)
+  const singleViewImage = await uploadAssetImage(singleViewResult.imageData, `${uploadPrefix}_single`, projectId.value || '')
+  const fourViewImage = await uploadAssetImage(fourViewResult.imageData, `${uploadPrefix}_four`, projectId.value || '')
   const imageUrl = captureMode === '四视角' ? fourViewImage : singleViewImage
 
   return {
@@ -2591,7 +2596,8 @@ async function uploadSceneEditOtherAssets(options: {
     for (const [index, file] of files.entries()) {
       const imageUrl = await uploadImageFile(file, {
         maxFileSize: MAX_ASSET_UPLOAD_SIZE,
-        prefix: `scene_edit_${sceneId}`
+        prefix: `scene_edit_${sceneId}`,
+        projectId: projectId.value || ''
       })
 
       const preferredName = (names[index] || '').trim()
@@ -2650,6 +2656,7 @@ const {
   submitSceneChat,
   syncSceneChatValidScenes
 } = useAssetWorkbenchSceneChat({
+  projectId,
   scenes,
   propAssets,
   allAssets,
@@ -3261,6 +3268,7 @@ async function handleExportJianyingProject() {
 
   try {
     const { blob, fileName } = await exportAssetWorkbenchJianyingProject({
+      projectId: projectId.value,
       projectName: projectName.value,
       aspectRatio: projectAspectRatio.value,
       sceneOrder: orderedScenes.map(scene => scene.id),
@@ -3306,6 +3314,7 @@ async function handleExportFormattedScriptDocx() {
 
   try {
     const { blob, fileName } = await exportAssetWorkbenchScriptDocx({
+      projectId: projectId.value,
       projectName: projectName.value,
       scenes: scenes.value.map(scene => ({
         title: scene.title,
@@ -3676,8 +3685,16 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
       @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
     />
 
+    <div
+      v-if="projectAccess && !canEditProject"
+      class="shrink-0 rounded-md bg-muted/45 px-3 py-2 text-xs text-muted-foreground"
+    >
+      当前以只读权限打开项目。你可以查看内容{{ canExportProject ? '并导出结果' : '' }}，修改和生成操作已受限。
+    </div>
+
     <AssetWorkbenchParseStage
       v-if="activeAutoStage === 'parse'"
+      :inert="!canEditProject"
       v-model:novel-text="novelText"
       :script-parse-mode="scriptParseMode"
       :parsing="parsing"
@@ -3695,6 +3712,7 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
       <KeepAlive>
         <AssetWorkbenchAssetsStage
           v-if="activeAutoStage === 'assets'"
+          :inert="!canEditProject"
           key="assets-stage"
           :scenes-count="scenes.length"
           :characters="characters"
@@ -3756,6 +3774,7 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
         />
 
         <AssetWorkbenchVideosStage
+          :inert="!canEditProject"
           v-else
           :key="`videos-stage:${projectId || 'new'}`"
           :scenes="scenes"
@@ -3834,6 +3853,7 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
     </AssetWorkbenchStagePanel>
 
     <AssetWorkbenchFinalStage
+      :inert="!canEditProject && !canExportProject"
       v-else
       :hint="stageHints.final"
       :project-aspect-ratio="projectAspectRatio"

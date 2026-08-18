@@ -305,6 +305,7 @@ function buildSceneChatRewriteAssets(mentionedAssets: DisplayAsset[]) {
 }
 
 export async function requestSceneChatDescriptionRewrite(options: {
+  projectId: string
   scene: SceneData
   userMessage: string
   history: SceneChatMessage[]
@@ -319,6 +320,7 @@ export async function requestSceneChatDescriptionRewrite(options: {
   }>('/api/asset-workflow/scene/description-refinement', {
     method: 'POST',
     body: {
+      projectId: options.projectId,
       scene: options.buildAssetWorkflowScenePayload(options.scene),
       userMessage: options.userMessage,
       history: buildSceneChatRewriteHistory(options.history),

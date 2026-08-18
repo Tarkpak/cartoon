@@ -229,6 +229,16 @@ function initSchema(conn: Database) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS project_members (
+      project_id TEXT NOT NULL REFERENCES user_projects(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      permissions_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, user_id)
+    );
+
     CREATE TABLE IF NOT EXISTS user_prompt_profiles (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -441,6 +451,8 @@ function initSchema(conn: Database) {
     CREATE INDEX IF NOT EXISTS idx_project_snapshots_project_id ON user_project_snapshots(project_id);
     CREATE INDEX IF NOT EXISTS idx_project_snapshots_project_created
       ON user_project_snapshots(project_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_project_members_user
+      ON project_members(user_id, project_id);
     CREATE INDEX IF NOT EXISTS idx_prompt_templates_user_id ON user_prompt_templates(user_id);
     CREATE INDEX IF NOT EXISTS idx_model_preferences_user_id ON user_model_preferences(user_id);
     CREATE INDEX IF NOT EXISTS idx_model_call_logs_created_at ON model_call_logs(created_at);

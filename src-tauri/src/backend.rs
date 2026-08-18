@@ -215,6 +215,15 @@ struct CreateProjectBody {
 }
 
 #[derive(Deserialize)]
+struct PutProjectMemberBody {
+    role: String,
+    permissions: Option<Vec<String>>,
+    account: Option<String>,
+    #[serde(rename = "displayName")]
+    display_name: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct SaveStyleConfigBody {
     #[serde(rename = "enabledStyleIds")]
     enabled_style_ids: Vec<String>,
@@ -952,6 +961,86 @@ struct ProjectOwnerContext {
     is_admin: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProjectPermission {
+    View,
+    Edit,
+    Generate,
+    Export,
+    Delete,
+    ManageMembers,
+}
+
+impl ProjectPermission {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::View => "view",
+            Self::Edit => "edit",
+            Self::Generate => "generate",
+            Self::Export => "export",
+            Self::Delete => "delete",
+            Self::ManageMembers => "manage_members",
+        }
+    }
+}
+
+const ALL_PROJECT_PERMISSIONS: [ProjectPermission; 6] = [
+    ProjectPermission::View,
+    ProjectPermission::Edit,
+    ProjectPermission::Generate,
+    ProjectPermission::Export,
+    ProjectPermission::Delete,
+    ProjectPermission::ManageMembers,
+];
+
+fn project_role_permissions(role: &str, custom_permissions_json: Option<&str>) -> Vec<String> {
+    let values = match role {
+        "manager" => vec!["view", "edit", "generate", "export", "manage_members"],
+        "editor" => vec!["view", "edit", "generate", "export"],
+        "viewer" => vec!["view"],
+        "custom" => {
+            let requested = custom_permissions_json
+                .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
+                .unwrap_or_default();
+            let includes_generate = requested.iter().any(|value| value == "generate");
+            return ALL_PROJECT_PERMISSIONS
+                .iter()
+                .map(|permission| permission.as_str())
+                .filter(|permission| {
+                    *permission == "view"
+                        || (*permission == "edit" && includes_generate)
+                        || requested.iter().any(|value| value == permission)
+                })
+                .map(str::to_string)
+                .collect();
+        }
+        _ => Vec::new(),
+    };
+    values.into_iter().map(str::to_string).collect()
+}
+
+fn validate_project_member_role(role: &str) -> Result<(), ApiError> {
+    if matches!(role, "manager" | "editor" | "viewer" | "custom") {
+        Ok(())
+    } else {
+        Err(ApiError::new(StatusCode::BAD_REQUEST, "无效项目成员角色"))
+    }
+}
+
+fn validate_project_member_removal(
+    current_user_id: &str,
+    target_user_id: &str,
+) -> Result<(), ApiError> {
+    if current_user_id == target_user_id {
+        Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "不能移除自己的项目成员身份",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn current_project_owner_context(conn: &Connection) -> Result<ProjectOwnerContext, ApiError> {
     let user = cloud_user_public(conn)
         .filter(Value::is_object)
@@ -1022,29 +1111,84 @@ fn ensure_project_access(
     conn: &Connection,
     project_id: &str,
 ) -> Result<ProjectOwnerContext, ApiError> {
+    ensure_project_permission(conn, project_id, ProjectPermission::View)
+}
+
+fn ensure_project_permission(
+    conn: &Connection,
+    project_id: &str,
+    permission: ProjectPermission,
+) -> Result<ProjectOwnerContext, ApiError> {
     let owner = current_project_owner_context(conn)?;
     claim_legacy_projects(conn, &owner)?;
-    let accessible = if owner.is_admin {
-        conn.query_row(
-            "SELECT 1 FROM projects WHERE id = ?1 LIMIT 1",
-            params![project_id],
-            |_| Ok(()),
-        )
-    } else {
-        conn.query_row(
-            "SELECT 1 FROM projects WHERE id = ?1 AND owner_user_id = ?2 LIMIT 1",
+    let access = conn
+        .query_row(
+            "SELECT p.owner_user_id, pm.role, pm.permissions_json
+             FROM projects p
+             LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?2
+             WHERE p.id = ?1 LIMIT 1",
             params![project_id, owner.user_id.as_str()],
-            |_| Ok(()),
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
         )
-    }
     .optional()
-    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-    .is_some();
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    let accessible = access.is_some_and(|(owner_user_id, role, permissions_json)| {
+        owner.is_admin
+            || owner_user_id.as_deref() == Some(owner.user_id.as_str())
+            || role.is_some_and(|role| {
+                project_role_permissions(&role, permissions_json.as_deref())
+                    .iter()
+                    .any(|value| value == permission.as_str())
+            })
+    });
 
     if !accessible {
         return Err(ApiError::new(StatusCode::NOT_FOUND, "项目不存在"));
     }
     Ok(owner)
+}
+
+fn project_access_payload(
+    conn: &Connection,
+    project_id: &str,
+    owner: &ProjectOwnerContext,
+) -> Result<Value, ApiError> {
+    let row = conn
+        .query_row(
+            "SELECT p.owner_user_id, pm.role, pm.permissions_json
+             FROM projects p
+             LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?2
+             WHERE p.id = ?1 LIMIT 1",
+            params![project_id, owner.user_id.as_str()],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?)),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "项目不存在"))?;
+    let is_owner = row.0.as_deref() == Some(owner.user_id.as_str());
+    let role = if is_owner {
+        "owner"
+    } else if owner.is_admin {
+        "admin"
+    } else {
+        row.1.as_deref().unwrap_or("viewer")
+    };
+    let permissions: Vec<String> = if is_owner || owner.is_admin {
+        ALL_PROJECT_PERMISSIONS
+            .iter()
+            .map(|value| value.as_str().to_string())
+            .collect()
+    } else {
+        project_role_permissions(role, row.2.as_deref())
+    };
+    Ok(json!({ "role": role, "permissions": permissions, "isOwner": is_owner }))
 }
 
 fn cloud_user_is_admin() -> bool {
@@ -1759,6 +1903,59 @@ fn build_cloud_project_put_body(snapshot: &Value, fallback: &Value) -> Value {
     }
 
     Value::Object(body)
+}
+
+fn apply_cloud_project_members(
+    state: &BackendState,
+    project_id: &str,
+    snapshot: &Value,
+) -> Result<(), ApiError> {
+    let Some(members) = snapshot.get("members").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    let mut conn = db_connection(state)?;
+    let transaction = conn
+        .transaction()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    transaction
+        .execute("DELETE FROM project_members WHERE project_id = ?1", params![project_id])
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    for member in members {
+        let user_id = cloud_value_text(member, "userId");
+        let role = cloud_value_text(member, "role");
+        if user_id.is_empty() || validate_project_member_role(&role).is_err() {
+            continue;
+        }
+        let permissions = member
+            .get("permissions")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let permissions_json = serde_json::to_string(&permissions)
+            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+        let created_at = cloud_value_text(member, "createdAt");
+        let updated_at = cloud_value_text(member, "updatedAt");
+        transaction
+            .execute(
+                "INSERT INTO project_members
+                   (project_id, user_id, account, display_name, role, permissions_json, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    project_id,
+                    user_id,
+                    cloud_value_text(member, "account"),
+                    cloud_value_text(member, "displayName"),
+                    role,
+                    permissions_json,
+                    if created_at.is_empty() { now_iso() } else { created_at },
+                    if updated_at.is_empty() { now_iso() } else { updated_at }
+                ],
+            )
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    }
+    transaction
+        .commit()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
 
 fn upsert_cloud_project_placeholder(
@@ -4152,6 +4349,18 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         updated_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS project_members (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL,
+        account TEXT NOT NULL DEFAULT '',
+        display_name TEXT NOT NULL DEFAULT '',
+        role TEXT NOT NULL,
+        permissions_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(project_id, user_id)
+      );
+
       CREATE TABLE IF NOT EXISTS scripts (
         id TEXT PRIMARY KEY,
         project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
@@ -4573,6 +4782,8 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         "
       CREATE INDEX IF NOT EXISTS idx_projects_owner_updated
         ON projects(owner_user_id, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_project_members_user
+        ON project_members(user_id, project_id);
       CREATE INDEX IF NOT EXISTS idx_scripts_project ON scripts(project_id);
       CREATE INDEX IF NOT EXISTS idx_scenes_script ON scenes(script_id);
       CREATE INDEX IF NOT EXISTS idx_model_debug_logs_timestamp ON model_debug_logs(timestamp);
@@ -4833,6 +5044,11 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
     let router = Router::new()
         .route("/api/project/list", get(api_project_list))
         .route("/api/project/create", post(api_project_create))
+        .route("/api/project/{id}/members", get(api_project_members))
+        .route(
+            "/api/project/{id}/members/{user_id}",
+            put(api_project_member_put).delete(api_project_member_delete),
+        )
         .route(
             "/api/project/{id}",
             get(api_project_get)
@@ -5575,8 +5791,16 @@ async fn api_project_list(
     let mut where_parts = Vec::<String>::new();
     let mut where_params = Vec::<String>::new();
     if !owner.is_admin {
-        where_parts.push("owner_user_id = ?".to_string());
-        where_params.push(owner.user_id);
+        where_parts.push(
+            "(p.owner_user_id = ? OR EXISTS (
+               SELECT 1 FROM project_members access_pm
+               WHERE access_pm.project_id = p.id AND access_pm.user_id = ?
+                 AND (access_pm.role IN ('manager', 'editor', 'viewer') OR instr(access_pm.permissions_json, 'view') > 0)
+             ))"
+            .to_string(),
+        );
+        where_params.push(owner.user_id.clone());
+        where_params.push(owner.user_id.clone());
     }
     if status != "all" {
         where_parts.push("status = ?".to_string());
@@ -5646,7 +5870,9 @@ async fn api_project_list(
                 p.status, p.created_at, p.updated_at, p.owner_user_id, p.owner_account, p.owner_display_name,
                 COUNT(s.id),
                 COALESCE(SUM(CASE WHEN s.status = 'video_ready' THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(s.duration), 0)
+                COALESCE(SUM(s.duration), 0),
+                (SELECT role FROM project_members current_pm WHERE current_pm.project_id = p.id AND current_pm.user_id = ?),
+                (SELECT permissions_json FROM project_members current_pm WHERE current_pm.project_id = p.id AND current_pm.user_id = ?)
          FROM paged_projects p
          LEFT JOIN scripts sc ON sc.project_id = p.id
          LEFT JOIN scenes s ON s.script_id = sc.id
@@ -5654,6 +5880,8 @@ async fn api_project_list(
          ORDER BY ",
     );
     list_sql.push_str(order_by);
+    list_params.push(owner.user_id.clone());
+    list_params.push(owner.user_id.clone());
 
     let mut stmt = conn
         .prepare(&list_sql)
@@ -5664,6 +5892,22 @@ async fn api_project_list(
             let project_id: String = row.get(0)?;
             let project_type: Option<String> = row.get(3)?;
             let script_parse_mode: Option<String> = row.get(4)?;
+            let owner_user_id: Option<String> = row.get(10)?;
+            let member_role: Option<String> = row.get(16)?;
+            let member_permissions: Option<String> = row.get(17)?;
+            let is_owner = owner_user_id.as_deref() == Some(owner.user_id.as_str());
+            let access_role = if is_owner {
+                "owner"
+            } else if owner.is_admin {
+                "admin"
+            } else {
+                member_role.as_deref().unwrap_or("viewer")
+            };
+            let access_permissions = if is_owner || owner.is_admin {
+                ALL_PROJECT_PERMISSIONS.iter().map(|value| value.as_str().to_string()).collect::<Vec<_>>()
+            } else {
+                project_role_permissions(access_role, member_permissions.as_deref())
+            };
             Ok(json!({
               "id": project_id,
               "title": row.get::<_, String>(1)?,
@@ -5678,9 +5922,14 @@ async fn api_project_list(
               "totalDuration": row.get::<_, i64>(15)?,
               "createdAt": row.get::<_, String>(8)?,
               "updatedAt": row.get::<_, String>(9)?,
-              "ownerUserId": row.get::<_, Option<String>>(10)?,
+              "ownerUserId": owner_user_id,
               "ownerAccount": row.get::<_, Option<String>>(11)?,
-              "ownerDisplayName": row.get::<_, Option<String>>(12)?
+              "ownerDisplayName": row.get::<_, Option<String>>(12)?,
+              "access": {
+                "role": access_role,
+                "permissions": access_permissions,
+                "isOwner": is_owner
+              }
             }))
         })
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -5809,6 +6058,149 @@ async fn api_project_create(
     })))
 }
 
+fn read_project_members(conn: &Connection, project_id: &str) -> Result<Vec<Value>, ApiError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT user_id, account, display_name, role, permissions_json, created_at, updated_at
+             FROM project_members WHERE project_id = ?1 ORDER BY display_name, account",
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let members = stmt.query_map(params![project_id], |row| {
+        let role: String = row.get(3)?;
+        let raw_permissions: String = row.get(4)?;
+        Ok(json!({
+          "userId": row.get::<_, String>(0)?,
+          "account": row.get::<_, String>(1)?,
+          "displayName": row.get::<_, String>(2)?,
+          "role": role,
+          "permissions": project_role_permissions(&role, Some(&raw_permissions)),
+          "createdAt": row.get::<_, String>(5)?,
+          "updatedAt": row.get::<_, String>(6)?
+        }))
+    })
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(members)
+}
+
+async fn api_project_members(
+    Path(id): Path<String>,
+    State(state): State<BackendState>,
+) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let owner = ensure_project_access(&conn, &id)?;
+    let access = project_access_payload(&conn, &id, &owner)?;
+    let project_owner = conn
+        .query_row(
+            "SELECT owner_user_id, owner_account, owner_display_name FROM projects WHERE id = ?1",
+            params![id],
+            |row| Ok(json!({
+              "userId": row.get::<_, Option<String>>(0)?,
+              "account": row.get::<_, Option<String>>(1)?,
+              "displayName": row.get::<_, Option<String>>(2)?,
+              "role": "owner",
+              "permissions": ALL_PROJECT_PERMISSIONS.iter().map(|value| value.as_str()).collect::<Vec<_>>()
+            })),
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let members = read_project_members(&conn, &id)?;
+    Ok(Json(json!({
+      "success": true,
+      "data": {
+        "owner": project_owner,
+        "members": members,
+        "access": access,
+        "currentUserId": owner.user_id
+      }
+    })))
+}
+
+async fn api_project_member_put(
+    Path((id, user_id)): Path<(String, String)>,
+    State(state): State<BackendState>,
+    Json(body): Json<PutProjectMemberBody>,
+) -> Result<Json<Value>, ApiError> {
+    let role = body.role.trim();
+    validate_project_member_role(role)?;
+    if user_id.trim().is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "缺少成员用户 ID"));
+    }
+    let conn = db_connection(&state)?;
+    ensure_project_permission(&conn, &id, ProjectPermission::ManageMembers)?;
+    let project_owner_id = conn
+        .query_row("SELECT owner_user_id FROM projects WHERE id = ?1", params![id], |row| row.get::<_, Option<String>>(0))
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if project_owner_id.as_deref() == Some(user_id.as_str()) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "项目所有者不能作为普通成员添加"));
+    }
+    let requested_permissions = body.permissions.unwrap_or_default();
+    let custom_json = serde_json::to_string(&requested_permissions)
+        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
+    let mut permissions = project_role_permissions(role, Some(&custom_json));
+    if role == "custom" && !permissions.iter().any(|value| value == "view") {
+        permissions.insert(0, "view".to_string());
+    }
+    let permissions_json = serde_json::to_string(&permissions)
+        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
+    let now = now_iso();
+    conn.execute(
+        "INSERT INTO project_members
+           (project_id, user_id, account, display_name, role, permissions_json, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT(project_id, user_id) DO UPDATE SET
+           account = excluded.account, display_name = excluded.display_name,
+           role = excluded.role, permissions_json = excluded.permissions_json, updated_at = excluded.updated_at",
+        params![
+            id,
+            user_id,
+            body.account.unwrap_or_default().trim(),
+            body.display_name.unwrap_or_default().trim(),
+            role,
+            permissions_json,
+            now,
+            now
+        ],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    conn.execute(
+        "UPDATE projects SET updated_at = ?1 WHERE id = ?2",
+        params![now_iso(), id],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    drop(conn);
+    let cloud_sync = match cloud_sync_project_by_id(&state, &id).await {
+        Ok(()) => json!({ "status": "synced" }),
+        Err(error) => json!({ "status": "error", "message": error.message }),
+    };
+    Ok(Json(json!({ "success": true, "cloudSync": cloud_sync })))
+}
+
+async fn api_project_member_delete(
+    Path((id, user_id)): Path<(String, String)>,
+    State(state): State<BackendState>,
+) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let current_user = ensure_project_permission(&conn, &id, ProjectPermission::ManageMembers)?;
+    validate_project_member_removal(&current_user.user_id, &user_id)?;
+    conn.execute(
+        "DELETE FROM project_members WHERE project_id = ?1 AND user_id = ?2",
+        params![id, user_id],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    conn.execute(
+        "UPDATE projects SET updated_at = ?1 WHERE id = ?2",
+        params![now_iso(), id],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    drop(conn);
+    let cloud_sync = match cloud_sync_project_by_id(&state, &id).await {
+        Ok(()) => json!({ "status": "synced" }),
+        Err(error) => json!({ "status": "error", "message": error.message }),
+    };
+    Ok(Json(json!({ "success": true, "cloudSync": cloud_sync })))
+}
+
 async fn api_project_delete(
     Path(id): Path<String>,
     State(state): State<BackendState>,
@@ -5817,7 +6209,7 @@ async fn api_project_delete(
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "缺少项目ID"));
     }
     let conn = db_connection(&state)?;
-    ensure_project_access(&conn, id.as_str())?;
+    ensure_project_permission(&conn, id.as_str(), ProjectPermission::Delete)?;
     remember_deleted_project_tombstone(&conn, id.as_str())?;
 
     let script_ids = {
@@ -5863,7 +6255,7 @@ async fn api_project_get(
     State(state): State<BackendState>,
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
-    ensure_project_access(&conn, id.as_str())?;
+    let owner = ensure_project_access(&conn, id.as_str())?;
     let project = conn
         .query_row(
             "SELECT id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at
@@ -6196,13 +6588,17 @@ async fn api_project_get(
         }
     }
 
+    let access = project_access_payload(&conn, &id, &owner)?;
+    let members = read_project_members(&conn, &id)?;
     Ok(Json(json!({
       "success": true,
       "data": {
         "project": project,
         "script": script_payload,
         "scenes": scenes,
-        "characters": characters
+        "characters": characters,
+        "members": members,
+        "access": access
       }
     })))
 }
@@ -6885,6 +7281,7 @@ fn normalize_script_parse_mode(value: Option<&str>) -> &'static str {
 #[derive(Default)]
 struct ProjectPutOptions {
     skip_cloud_sync: bool,
+    skip_access_check: bool,
     preserve_updated_at: Option<String>,
 }
 
@@ -6909,7 +7306,9 @@ async fn api_project_put_inner(
     options: ProjectPutOptions,
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
-    ensure_project_access(&conn, id.as_str())?;
+    if !options.skip_access_check {
+        ensure_project_permission(&conn, id.as_str(), ProjectPermission::Edit)?;
+    }
     let now = now_iso();
     let save_updated_at = options
         .preserve_updated_at
@@ -11155,6 +11554,7 @@ async fn cloud_sync_project_by_id(state: &BackendState, project_id: &str) -> Res
         "sceneCount": data.get("scenes").and_then(Value::as_array).map(Vec::len).unwrap_or(0),
         "characterCount": data.get("characters").and_then(Value::as_array).map(Vec::len).unwrap_or(0)
       },
+      "members": data.get("members").cloned().unwrap_or_else(|| json!([])),
       "snapshot": data
     });
     let response = cloud_post_client_json(state, "/api/client/projects/sync", body).await?;
@@ -11347,6 +11747,7 @@ async fn apply_cloud_project_snapshot(
         snapshot,
         &remote_updated_at,
     )?;
+    apply_cloud_project_members(state, &local_project_id, snapshot)?;
     let body = build_cloud_project_put_body(snapshot, project);
     let _ = api_project_put_inner(
         Path(local_project_id),
@@ -11354,6 +11755,7 @@ async fn apply_cloud_project_snapshot(
         Json(body),
         ProjectPutOptions {
             skip_cloud_sync: true,
+            skip_access_check: true,
             preserve_updated_at: (!remote_updated_at.trim().is_empty())
                 .then(|| remote_updated_at.trim().to_string()),
         },
@@ -11925,6 +12327,11 @@ async fn cloud_pull_projects_v2(
         20,
     )
     .await?;
+    let received_local_project_ids = summaries
+        .iter()
+        .map(|summary| cloud_value_text(summary, "localProjectId"))
+        .filter(|value| !value.is_empty())
+        .collect::<HashSet<_>>();
     let mut imported = 0usize;
     let mut skipped = 0usize;
     let mut failed = 0usize;
@@ -11991,6 +12398,39 @@ async fn cloud_pull_projects_v2(
             Err(error) => {
                 failed += 1;
                 eprintln!("[CloudSync] project import failed: {}", error.message);
+            }
+        }
+    }
+
+    if let Some(user) = config_connection().and_then(|conn| cloud_user_public(&conn)) {
+        let user_id = cloud_value_text(&user, "id");
+        let is_admin = user.get("role").and_then(Value::as_str) == Some("admin");
+        if !is_admin && !user_id.is_empty() {
+            let conn = db_connection(state)?;
+            let memberships = {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT pm.project_id
+                         FROM project_members pm
+                         JOIN projects p ON p.id = pm.project_id
+                         WHERE pm.user_id = ?1 AND p.owner_user_id <> ?1",
+                    )
+                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+                let project_ids = stmt.query_map(params![user_id.as_str()], |row| row.get::<_, String>(0))
+                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+                project_ids
+            };
+            for project_id in memberships {
+                if received_local_project_ids.contains(&project_id) {
+                    continue;
+                }
+                conn.execute(
+                    "DELETE FROM project_members WHERE project_id = ?1 AND user_id = ?2",
+                    params![project_id, user_id.as_str()],
+                )
+                .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
             }
         }
     }
@@ -13255,12 +13695,13 @@ mod tests {
         cloud_project_summary_updated_at, cloud_provider_credentials_to_local,
         custom_openai_entry_for_model, custom_openai_entry_has_model,
         default_prompt_director_preferences, ensure_cloud_project_owner_available,
-        ensure_project_access, filter_cloud_model_log_page,
+        ensure_project_access, ensure_project_permission, filter_cloud_model_log_page,
         is_prompt_director_preferences_customized, merge_prompt_templates_with_defaults,
         merge_style_presets_with_catalog, normalize_character_gender_value,
         normalize_character_role_value, normalize_time_of_day_value,
         remove_revoked_shared_library_assets, reset_account_scoped_config,
-        upgrade_style_config_for_catalog, CLOUD_ADMIN_SESSION_KEY,
+        upgrade_style_config_for_catalog, validate_project_member_removal, ProjectPermission,
+        CLOUD_ADMIN_SESSION_KEY,
     };
     use axum::http::StatusCode;
     use rusqlite::{params, Connection};
@@ -13446,6 +13887,12 @@ mod tests {
                owner_user_id TEXT,
                owner_account TEXT,
                owner_display_name TEXT
+             );
+             CREATE TABLE project_members (
+               project_id TEXT NOT NULL,
+               user_id TEXT NOT NULL,
+               role TEXT NOT NULL,
+               permissions_json TEXT NOT NULL DEFAULT '[]'
              );",
         )
         .unwrap();
@@ -13498,6 +13945,49 @@ mod tests {
         )
         .unwrap();
         assert_eq!(claimed, 0);
+    }
+
+    #[test]
+    fn project_member_permissions_are_enforced_per_action() {
+        let conn = project_access_test_connection(json!({
+          "id": "user-3",
+          "account": "viewer",
+          "role": "user"
+        }));
+        conn.execute(
+            "INSERT INTO project_members (project_id, user_id, role, permissions_json)
+             VALUES ('other', 'user-3', 'viewer', '[]')",
+            [],
+        )
+        .unwrap();
+
+        assert!(ensure_project_permission(&conn, "other", ProjectPermission::View).is_ok());
+        assert!(ensure_project_permission(&conn, "other", ProjectPermission::Edit).is_err());
+
+        conn.execute(
+            "UPDATE project_members SET role = 'custom', permissions_json = '[\"view\",\"export\"]'
+             WHERE project_id = 'other' AND user_id = 'user-3'",
+            [],
+        )
+        .unwrap();
+        assert!(ensure_project_permission(&conn, "other", ProjectPermission::Export).is_ok());
+        assert!(ensure_project_permission(&conn, "other", ProjectPermission::Generate).is_err());
+
+        conn.execute(
+            "UPDATE project_members SET permissions_json = '[\"generate\"]'
+             WHERE project_id = 'other' AND user_id = 'user-3'",
+            [],
+        )
+        .unwrap();
+        assert!(ensure_project_permission(&conn, "other", ProjectPermission::View).is_ok());
+        assert!(ensure_project_permission(&conn, "other", ProjectPermission::Edit).is_ok());
+        assert!(ensure_project_permission(&conn, "other", ProjectPermission::Generate).is_ok());
+    }
+
+    #[test]
+    fn project_members_cannot_remove_themselves() {
+        assert!(validate_project_member_removal("user-1", "user-1").is_err());
+        assert!(validate_project_member_removal("user-1", "user-2").is_ok());
     }
 
     #[test]

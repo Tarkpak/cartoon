@@ -14764,6 +14764,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn project_permission_requests_require_project_id() {
+        let missing = required_permission_project_id(&json!({}))
+            .expect_err("projectId must be required for project operations");
+        assert_eq!(missing.status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            required_permission_project_id(&json!({ "projectId": " project-1 " })).unwrap(),
+            "project-1"
+        );
+    }
+
+    #[test]
     fn video_duration_normalization_rounds_legacy_fractional_values() {
         assert_eq!(normalize_video_duration(Some(&json!(2))), 4);
         assert_eq!(normalize_video_duration(Some(&json!(6.5))), 7);
@@ -18066,6 +18077,7 @@ pub(super) async fn api_script_write(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
     let prompt = {
         let conn = db_connection(&state)?;
         build_script_writing_prompt(&conn, &body)?
@@ -18102,6 +18114,7 @@ pub(super) async fn api_script_episode_plan(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
     validate_episode_plan_request(&body)?;
     let context = model_log_context_from_workflow_body(&body, None, None);
     let text = body
@@ -18145,6 +18158,7 @@ pub(super) async fn api_script_parse(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
     validate_script_parse_request(&body)?;
     let context = model_log_context_from_workflow_body(&body, None, None);
     let prompt = {
@@ -18834,7 +18848,11 @@ fn script_docx_file_name(project_name: &str) -> String {
     format!("{}-格式化剧本-{}.docx", base, Utc::now().format("%Y-%m-%d"))
 }
 
-pub(super) async fn api_script_export_docx(Json(body): Json<Value>) -> Result<Response, ApiError> {
+pub(super) async fn api_script_export_docx(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Response, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Export)?;
     let scenes = validate_script_docx_payload(&body)?.clone();
     let project_name = json_string(body.get("projectName"), "剧本检视稿");
     let include_dialogues_from_description = body
@@ -18929,6 +18947,7 @@ pub(super) async fn api_asset_upload_image(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Edit)?;
     let image_data = body
         .get("imageData")
         .and_then(Value::as_str)
@@ -19545,6 +19564,7 @@ pub(super) async fn api_character_voice_upload(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Edit)?;
     let audio_data = body
         .get("audioData")
         .and_then(Value::as_str)
@@ -19701,6 +19721,7 @@ pub(super) async fn api_character_generate(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
     let start = Utc::now().timestamp_millis();
     validate_character_generate_payload(&body)?;
     let character = body
@@ -20392,6 +20413,7 @@ pub(super) async fn api_asset_prop_generate(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
     let start = Utc::now().timestamp_millis();
     validate_prop_generate_payload(&body)?;
     let prop = body.get("prop").expect("validated prop object");
@@ -20452,6 +20474,7 @@ pub(super) async fn api_asset_reference_generate(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
     let start = Utc::now().timestamp_millis();
     validate_reference_generate_payload(&body)?;
     let scene = body.get("scene").cloned().expect("validated scene object");
@@ -20617,6 +20640,7 @@ pub(super) async fn api_asset_scene_description_refinement(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
     validate_scene_refinement_payload(&body)?;
     let scene = body.get("scene").cloned().expect("validated scene object");
     let user_message = json_string(body.get("userMessage"), "");
@@ -20688,6 +20712,7 @@ pub(super) async fn api_asset_video_generate(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
     let start = Utc::now().timestamp_millis();
     validate_video_generate_payload(&body)?;
     let scene = body.get("scene").cloned().expect("validated scene object");
@@ -20871,6 +20896,7 @@ pub(super) async fn api_video_generate(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
     let start = Utc::now().timestamp_millis();
     let (scene_id, mut config) = parse_video_generate_request(&body)?;
     let project_id = body.get("projectId").and_then(trimmed_json_string);
@@ -21603,10 +21629,22 @@ fn parse_video_merge_request(body: &Value) -> Result<(String, Vec<Value>), ApiEr
     Ok((project_id, scenes.clone()))
 }
 
-fn ensure_project_exists(state: &BackendState, project_id: &str) -> Result<(), ApiError> {
+fn ensure_project_permission_from_body(
+    state: &BackendState,
+    body: &Value,
+    permission: super::ProjectPermission,
+) -> Result<(), ApiError> {
+    let project_id = required_permission_project_id(body)?;
     let conn = db_connection(state)?;
-    super::ensure_project_access(&conn, project_id)?;
+    super::ensure_project_permission(&conn, &project_id, permission)?;
     Ok(())
+}
+
+fn required_permission_project_id(body: &Value) -> Result<String, ApiError> {
+    body
+        .get("projectId")
+        .and_then(trimmed_json_string)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "projectId 不能为空"))
 }
 
 pub(super) async fn api_video_merge(
@@ -21615,7 +21653,9 @@ pub(super) async fn api_video_merge(
 ) -> Result<Json<Value>, ApiError> {
     let start = Utc::now().timestamp_millis();
     let (project_id, scenes) = parse_video_merge_request(&body)?;
-    ensure_project_exists(&state, &project_id)?;
+    let conn = db_connection(&state)?;
+    super::ensure_project_permission(&conn, &project_id, super::ProjectPermission::Export)?;
+    drop(conn);
 
     let temp_dir = std::env::temp_dir().join(format!(
         "playlet_merge_{}_{}",
@@ -22821,6 +22861,7 @@ pub(super) async fn api_video_export_jianying(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Response, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Export)?;
     let project_name = json_string(body.get("projectName"), "资产工作台项目");
     let (draft_content, draft_info, draft_meta, manifest, warnings) =
         build_jianying_draft(&state, &body)?;

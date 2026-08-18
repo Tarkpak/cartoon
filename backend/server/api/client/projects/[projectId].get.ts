@@ -2,13 +2,17 @@ import { createError } from 'h3'
 import { getDb, parseJsonText } from '../../../utils/db'
 import { requireAuth } from '../../../utils/auth'
 import { requiredParam } from '../../../utils/http'
+import {
+  canonicalCloudProjectMembers,
+  canonicalizeCloudProjectSnapshot,
+  requireCloudProjectPermission
+} from '../../../utils/project-permissions'
 
 export default defineEventHandler((event) => {
   const auth = requireAuth(event)
   const projectId = requiredParam(event, 'projectId')
   const db = getDb()
-  const ownerFilter = auth.user.role === 'admin' ? '' : 'AND p.user_id = ?'
-  const params = auth.user.role === 'admin' ? [projectId] : [projectId, auth.user.id]
+  requireCloudProjectPermission({ db, auth, projectId, permission: 'view' })
   const project = db.prepare(`
     SELECT p.id, p.user_id, u.account AS owner_account, u.display_name AS owner_display_name,
            p.local_project_id, p.name, p.description, p.script_parse_mode, p.style_id,
@@ -21,13 +25,17 @@ export default defineEventHandler((event) => {
       WHERE latest.project_id = p.id
       ORDER BY latest.created_at DESC LIMIT 1
     )
-    WHERE p.id = ? ${ownerFilter}
+    WHERE p.id = ?
     LIMIT 1
-  `).get(...params) as Record<string, unknown> | undefined
+  `).get(projectId) as Record<string, unknown> | undefined
 
   if (!project) {
     throw createError({ statusCode: 404, statusMessage: 'Project not found' })
   }
+  const snapshot = canonicalizeCloudProjectSnapshot(
+    parseJsonText(project.snapshot_json as string | null, null),
+    canonicalCloudProjectMembers(db, projectId)
+  )
 
   return {
     success: true,
@@ -49,7 +57,7 @@ export default defineEventHandler((event) => {
         lastSyncedAt: project.last_synced_at,
         updatedAt: project.updated_at,
         snapshotCreatedAt: project.snapshot_created_at,
-        snapshot: parseJsonText(project.snapshot_json as string | null, null)
+        snapshot
       }
     }
   }

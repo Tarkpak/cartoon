@@ -7,6 +7,7 @@ import {
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
 import type { FinalMergeOptions, FinalVideoAsset } from '~/lib/asset-workbench-types'
+import { projectAccessCan, type ProjectAccess } from '#shared/types/project'
 import {
   applyScopedEntityIds,
   buildLoadedCharacters,
@@ -69,6 +70,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   const saveError = ref<string | null>(null)
   const saveWarning = ref<string | null>(null)
   const loading = ref(false)
+  const projectAccess = ref<ProjectAccess | null>(null)
   const activeProjectId = ref(options.projectId.value || '')
   let lastSavedProjectSnapshot: string | null = null
   let saveQueue: Promise<void> = Promise.resolve()
@@ -193,6 +195,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
 
     mergeStatus.value = { running: true, progress: 10 }
     finalVideo.value = null
+    projectAccess.value = null
 
     try {
       mergeStatus.value.progress = 30
@@ -351,6 +354,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
             expressions?: Record<string, string> | null
             views?: Partial<Record<CharacterView, string>> | null
           }>
+          access?: ProjectAccess
         }
       }>(`/api/project/${id}`)
 
@@ -370,6 +374,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
 
       options.scenes.value = buildLoadedScenes(response.data.scenes)
       options.characters.value = buildLoadedCharacters(response.data.characters)
+      projectAccess.value = response.data.access || null
       lastSavedProjectSnapshot = buildNormalizedProjectSaveSnapshot(id)
     } catch (error) {
       if (requestSequence !== loadRequestSequence) return
@@ -382,6 +387,9 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   }
 
   async function performSaveProject(expectedProjectId?: string) {
+    if (projectAccess.value && !projectAccessCan(projectAccess.value, 'edit')) {
+      return true
+    }
     saving.value = true
     saveError.value = null
     saveWarning.value = null
@@ -538,6 +546,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     saving,
     saveError,
     saveWarning,
+    projectAccess,
     saveProject,
     loadProject,
     refreshCharacterVoiceAssets,

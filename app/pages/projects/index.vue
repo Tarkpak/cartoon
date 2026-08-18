@@ -3,6 +3,7 @@ import { Plus } from 'lucide-vue-next'
 import { projectAspectRatioOptions } from '~/lib/projects-page'
 import ProjectCreateDialog from '@/components/projects/ProjectCreateDialog.vue'
 import ProjectDeleteDialog from '@/components/projects/ProjectDeleteDialog.vue'
+import ProjectMembersDialog from '@/components/projects/ProjectMembersDialog.vue'
 import ProjectsFiltersBar from '@/components/projects/ProjectsFiltersBar.vue'
 import ProjectsTable from '@/components/projects/ProjectsTable.vue'
 import AppPage from '@/components/layout/AppPage.vue'
@@ -57,13 +58,20 @@ const aspectRatioOptions = projectAspectRatioOptions
 const { currentUser } = useCloudAdmin()
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
 const isWritingProject = isWritingWorkspace
+const projectMembersDialogOpen = ref(false)
+const projectMembersProjectId = ref('')
+
+function openProjectMembers(project: { id: string }) {
+  projectMembersProjectId.value = project.id
+  projectMembersDialogOpen.value = true
+}
 </script>
 
 <template>
   <AppPage>
     <AppPageHeader
-      :title="isWritingProject ? 'AI 剧本项目' : (isAdmin ? '全部项目' : '我的项目')"
-      :description="isWritingProject ? '创建并管理 AI 剧本创作项目' : (isAdmin ? '管理所有成员创建的项目' : '管理剧本解析、分镜资产和视频生成项目')"
+      :title="isWritingProject ? 'AI 剧本项目' : (isAdmin ? '全部项目' : '我的项目与协作')"
+      :description="isWritingProject ? '创建并管理 AI 剧本创作项目' : (isAdmin ? '管理所有成员创建的项目' : '管理自己创建及其他成员共享的项目')"
     >
       <template #actions>
       <Button
@@ -101,6 +109,7 @@ const isWritingProject = isWritingWorkspace
         :get-style-name="getStyleName"
         @open-create="openCreateDialog"
         @open-project="openProject"
+        @manage-members="openProjectMembers"
         @confirm-delete="confirmDelete"
         @page-change="goToPage"
         @page-size-change="handlePageSizeChange"
@@ -131,5 +140,11 @@ const isWritingProject = isWritingWorkspace
       @create="createProject"
     >
     </ProjectCreateDialog>
+
+    <ProjectMembersDialog
+      v-if="projectMembersProjectId"
+      v-model:open="projectMembersDialogOpen"
+      :project-id="projectMembersProjectId"
+    />
   </AppPage>
 </template>

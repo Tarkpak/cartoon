@@ -194,7 +194,8 @@ export function useAssetWorkbenchAssetMedia(options: {
     try {
       const imageUrl = await uploadImageFile(file, {
         maxFileSize: options.maxAssetUploadSize,
-        prefix: `char_${target.id}`
+        prefix: `char_${target.id}`,
+        projectId: options.projectId?.value || ''
       })
       const currentTarget = options.characters.value.find(char => char.id === characterId)
       if (!currentTarget) {
@@ -233,7 +234,8 @@ export function useAssetWorkbenchAssetMedia(options: {
     try {
       const audioUrl = await uploadAudioFile(file, {
         maxFileSize: options.maxVoiceUploadSize,
-        prefix: `voice_${target.id}`
+        prefix: `voice_${target.id}`,
+        projectId: options.projectId?.value || ''
       })
 
       const currentTarget = options.characters.value.find(char => char.id === characterId)
@@ -411,7 +413,8 @@ export function useAssetWorkbenchAssetMedia(options: {
     try {
       const imageUrl = await uploadImageFile(file, {
         maxFileSize: options.maxAssetUploadSize,
-        prefix: `env_${asset.sceneIds[0] || assetId}`
+        prefix: `env_${asset.sceneIds[0] || assetId}`,
+        projectId: options.projectId?.value || ''
       })
 
       // Only real scene IDs receive firstFrame; plan: markers are directory hints.
@@ -489,7 +492,8 @@ export function useAssetWorkbenchAssetMedia(options: {
     try {
       const imageUrl = await uploadImageFile(file, {
         maxFileSize: options.maxAssetUploadSize,
-        prefix: `prop_${target.id}`
+        prefix: `prop_${target.id}`,
+        projectId: options.projectId?.value || ''
       })
       const currentTarget = options.propAssets.value.find(item => item.id === propId)
       if (!currentTarget) {
@@ -528,7 +532,8 @@ export function useAssetWorkbenchAssetMedia(options: {
     try {
       const audioUrl = await uploadAudioFile(file, {
         maxFileSize: options.maxVoiceUploadSize,
-        prefix: `voice_${target.id}`
+        prefix: `voice_${target.id}`,
+        projectId: options.projectId?.value || ''
       })
       const currentTarget = options.propAssets.value.find(item => item.id === propId)
       if (!currentTarget || currentTarget.category !== 'other') {

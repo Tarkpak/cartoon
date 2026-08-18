@@ -23,6 +23,7 @@ import {
 import { invalidateSceneGenerationState } from '~/lib/asset-workbench-scenes'
 
 interface UseAssetWorkbenchSceneChatActionsOptions {
+  projectId: ComputedRef<string | undefined>
   scenes: Ref<SceneData[]>
   propAssets: Ref<PropAsset[]>
   workflowStylePrompt: ComputedRef<string>
@@ -129,7 +130,8 @@ export function useAssetWorkbenchSceneChatActions(
       for (const file of files) {
         const imageUrl = await uploadImageFile(file, {
           maxFileSize: options.maxAssetUploadSize,
-          prefix: `scene_chat_${sceneId}`
+          prefix: `scene_chat_${sceneId}`,
+          projectId: options.projectId.value || ''
         })
         const name = resolveChatUploadAssetName(
           file.name,
@@ -212,6 +214,7 @@ export function useAssetWorkbenchSceneChatActions(
     try {
       const previousBaseDescription = options.resolveSceneDescriptionWithoutAssetMentions(scene.description || '')
       const rewrittenDescription = await requestSceneChatDescriptionRewrite({
+        projectId: options.projectId.value || '',
         scene,
         userMessage: submitPayload.normalizedMessage,
         history: historyBeforeSubmit,

@@ -109,6 +109,7 @@ interface ScriptDocxExportSceneInput {
 }
 
 interface ScriptDocxExportOptions {
+  projectId?: string
   projectName?: string
   scenes: ScriptDocxExportSceneInput[]
   includeDialoguesFromDescription?: boolean
@@ -129,6 +130,7 @@ interface JianyingExportSceneInput {
 }
 
 interface JianyingExportOptions {
+  projectId?: string
   projectName?: string
   aspectRatio?: '16:9' | '9:16' | '1:1'
   sceneOrder?: string[]
@@ -383,6 +385,7 @@ export async function exportAssetWorkbenchScriptDocx(
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
+      projectId: options.projectId,
       projectName: options.projectName,
       scenes: options.scenes,
       includeDialoguesFromDescription: options.includeDialoguesFromDescription

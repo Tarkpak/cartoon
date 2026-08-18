@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Loader2, Trash2, Video } from 'lucide-vue-next'
+import { Loader2, Trash2, Users, Video } from 'lucide-vue-next'
 import { cn } from '@/lib/utils'
+import { projectAccessCan, PROJECT_ROLE_LABELS } from '#shared/types/project'
 import {
   formatProjectDateTime,
   formatProjectRelativeTime,
@@ -30,6 +31,7 @@ defineProps<{
 const emit = defineEmits<{
   (event: 'open-create'): void
   (event: 'open-project', project: Project): void
+  (event: 'manage-members', project: Project): void
   (event: 'confirm-delete', project: Project, domEvent: Event): void
   (event: 'page-change', page: number): void
   (event: 'page-size-change', value: string): void
@@ -76,6 +78,9 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
               <h3 class="line-clamp-2 text-base font-semibold leading-6 text-foreground">
                 {{ project.title }}
               </h3>
+              <Badge v-if="project.access && !project.access.isOwner" variant="outline" class="mt-1">
+                {{ PROJECT_ROLE_LABELS[project.access.role] }}
+              </Badge>
               <p class="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
                 {{ project.description || '暂无描述' }}
               </p>
@@ -152,6 +157,18 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
 
           <div class="mt-4 flex items-center justify-end gap-2">
             <Button
+              v-if="projectAccessCan(project.access, 'manage_members')"
+              variant="ghost"
+              size="icon"
+              class="h-8 w-8 text-muted-foreground transition-transform hover:text-foreground active:scale-[0.96]"
+              title="分配项目权限"
+              aria-label="分配项目权限"
+              @click.stop="emit('manage-members', project)"
+            >
+              <Users class="h-4 w-4" />
+            </Button>
+            <Button
+              v-if="projectAccessCan(project.access, 'delete')"
               variant="ghost"
               size="icon"
               class="h-8 w-8 text-muted-foreground hover:text-destructive"
@@ -183,7 +200,7 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
     </div>
 
     <Table
-      class="min-w-[1430px]"
+      class="min-w-[1454px]"
       container-class="hidden min-h-0 flex-1 lg:block"
     >
       <TableHeader>
@@ -218,7 +235,7 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
           <TableHead class="w-[180px] whitespace-nowrap">
             更新时间
           </TableHead>
-          <TableHead class="sticky right-0 top-0 z-30 w-[72px] whitespace-nowrap bg-background text-center shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
+          <TableHead class="sticky right-0 top-0 z-30 w-[96px] whitespace-nowrap bg-background text-center shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
             操作
           </TableHead>
         </TableRow>
@@ -231,7 +248,12 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
           @click="emit('open-project', project)"
         >
           <TableCell class="font-medium">
-            {{ project.title }}
+            <div class="flex items-center gap-2">
+              <span>{{ project.title }}</span>
+              <Badge v-if="project.access && !project.access.isOwner" variant="outline">
+                {{ PROJECT_ROLE_LABELS[project.access.role] }}
+              </Badge>
+            </div>
           </TableCell>
           <TableCell class="max-w-[300px] truncate text-muted-foreground">
             {{ project.description || '暂无描述' }}
@@ -279,9 +301,21 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
               </span>
             </div>
           </TableCell>
-          <TableCell class="sticky right-0 z-20 w-[72px] whitespace-nowrap bg-background text-center shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
+          <TableCell class="sticky right-0 z-20 w-[96px] whitespace-nowrap bg-background text-center shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
             <div class="inline-flex items-center justify-center gap-1">
               <Button
+                v-if="projectAccessCan(project.access, 'manage_members')"
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8 text-muted-foreground transition-transform hover:text-foreground active:scale-[0.96]"
+                title="分配项目权限"
+                aria-label="分配项目权限"
+                @click.stop="emit('manage-members', project)"
+              >
+                <Users class="h-4 w-4" />
+              </Button>
+              <Button
+                v-if="projectAccessCan(project.access, 'delete')"
                 variant="ghost"
                 size="icon"
                 class="h-8 w-8 text-muted-foreground hover:text-destructive"

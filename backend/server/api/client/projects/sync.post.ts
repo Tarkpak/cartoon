@@ -5,6 +5,14 @@ import { readJsonBody, requireAuth } from '../../../utils/auth'
 import { optionalJson, optionalString } from '../../../utils/http'
 import { projectSyncOwnerId } from '../../../utils/admin-resource-scope'
 import { storeProjectSnapshot } from '../../../utils/project-snapshots'
+import {
+  canonicalCloudProjectMembers,
+  canonicalizeCloudProjectSnapshot,
+  normalizeProjectMemberRole,
+  normalizeProjectPermissions,
+  permissionsForProjectRole,
+  projectMemberCan
+} from '../../../utils/project-permissions'
 
 interface ProjectPayload {
   id?: string
@@ -31,6 +39,11 @@ interface ProjectPayload {
   summary?: unknown
   snapshot?: unknown
   ownerUserId?: string
+  members?: Array<{
+    userId?: string
+    role?: string
+    permissions?: unknown
+  }>
 }
 
 function normalizeProjects(body: Record<string, unknown>) {
@@ -61,19 +74,83 @@ export default defineEventHandler(async (event) => {
   }
 
   const db = getDb()
-  const resolveOwnerUserId = (project: ProjectPayload) => {
+  const resolveProjectAccess = (project: ProjectPayload, localProjectId: string) => {
     const requestedOwnerId = optionalString(project.ownerUserId, 128)
-    const ownerUserId = projectSyncOwnerId({
+    const defaultOwnerId = projectSyncOwnerId({
       role: auth.user.role,
       authenticatedUserId: auth.user.id,
       requestedOwnerId
     })
-    if (ownerUserId === auth.user.id) return ownerUserId
-    const owner = db.prepare('SELECT id FROM users WHERE id = ? LIMIT 1').get(ownerUserId)
-    if (!owner) throw createError({ statusCode: 400, statusMessage: 'project.ownerUserId is invalid' })
-    return ownerUserId
+    const ownerUserId = requestedOwnerId || defaultOwnerId
+    const existing = db.prepare(`
+      SELECT p.id, p.user_id, pm.role, pm.permissions_json
+      FROM user_projects p
+      LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?
+      WHERE p.user_id = ? AND p.local_project_id = ?
+      LIMIT 1
+    `).get(auth.user.id, ownerUserId, localProjectId) as {
+      id: string
+      user_id: string
+      role: string | null
+      permissions_json: string | null
+    } | undefined
+    const isOwnerOrAdmin = auth.user.role === 'admin' || ownerUserId === auth.user.id
+    const canEdit = isOwnerOrAdmin || !!existing?.role && projectMemberCan({
+      role: existing.role,
+      permissions_json: existing.permissions_json
+    }, 'edit')
+    const canManageMembers = isOwnerOrAdmin || !!existing?.role && projectMemberCan({
+      role: existing.role,
+      permissions_json: existing.permissions_json
+    }, 'manage_members')
+    if (existing && !isOwnerOrAdmin) {
+      if (!canEdit && !(Array.isArray(project.members) && canManageMembers)) {
+        throw createError({ statusCode: 403, statusMessage: 'Project edit permission required' })
+      }
+    } else if (!existing && !isOwnerOrAdmin) {
+      throw createError({ statusCode: 403, statusMessage: 'Project owner is invalid' })
+    }
+    if (ownerUserId !== auth.user.id) {
+      const owner = db.prepare('SELECT id FROM users WHERE id = ? LIMIT 1').get(ownerUserId)
+      if (!owner) throw createError({ statusCode: 400, statusMessage: 'project.ownerUserId is invalid' })
+    }
+    return { ownerUserId, existing, canEdit, canManageMembers }
   }
   const timestamp = nowIso()
+  const syncProjectMembers = (
+    projectId: string,
+    ownerUserId: string,
+    members: NonNullable<ProjectPayload['members']>
+  ) => {
+    const keepUserIds: string[] = []
+    const upsertMember = db.prepare(`
+      INSERT INTO project_members
+        (project_id, user_id, role, permissions_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, user_id) DO UPDATE SET
+        role = excluded.role,
+        permissions_json = excluded.permissions_json,
+        updated_at = excluded.updated_at
+    `)
+    for (const member of members) {
+      const userId = optionalString(member.userId, 128)
+      if (!userId || userId === ownerUserId) continue
+      const userExists = db.prepare(`SELECT 1 FROM users WHERE id = ? AND status = 'active'`).get(userId)
+      if (!userExists) continue
+      const role = normalizeProjectMemberRole(member.role)
+      const permissions = permissionsForProjectRole(role, normalizeProjectPermissions(member.permissions))
+      if (role === 'custom' && !permissions.includes('view')) permissions.unshift('view')
+      upsertMember.run(projectId, userId, role, jsonText(permissions), timestamp, timestamp)
+      keepUserIds.push(userId)
+    }
+    if (keepUserIds.length === 0) {
+      db.prepare('DELETE FROM project_members WHERE project_id = ?').run(projectId)
+    } else {
+      const placeholders = keepUserIds.map(() => '?').join(', ')
+      db.prepare(`DELETE FROM project_members WHERE project_id = ? AND user_id NOT IN (${placeholders})`)
+        .run(projectId, ...keepUserIds)
+    }
+  }
   const upsertProject = db.prepare(`
     INSERT INTO user_projects
       (id, user_id, local_project_id, name, description, script_parse_mode, style_id, aspect_ratio, status,
@@ -96,10 +173,24 @@ export default defineEventHandler(async (event) => {
   const synced = db.transaction((items: ProjectPayload[]) => {
     const result: Array<{ localProjectId: string, projectId: string, status: 'synced' | 'skipped', reason?: string }> = []
     for (const project of items) {
-      const ownerUserId = resolveOwnerUserId(project)
       const localProjectId = optionalString(project.localProjectId || project.id, 128)
       if (!localProjectId) {
         throw createError({ statusCode: 400, statusMessage: 'project.localProjectId is required' })
+      }
+      const access = resolveProjectAccess(project, localProjectId)
+      const { ownerUserId } = access
+      if (!access.canEdit) {
+        if (!access.existing || !Array.isArray(project.members) || !access.canManageMembers) {
+          throw createError({ statusCode: 403, statusMessage: 'Project edit permission required' })
+        }
+        syncProjectMembers(access.existing.id, ownerUserId, project.members)
+        db.prepare(`
+          UPDATE user_projects
+          SET last_synced_at = ?, updated_at = ?
+          WHERE id = ?
+        `).run(timestamp, timestamp, access.existing.id)
+        result.push({ localProjectId, projectId: access.existing.id, status: 'synced' })
+        continue
       }
       const name = optionalString(project.name || project.title, 256) || '未命名项目'
       const existing = selectProject.get(ownerUserId, localProjectId) as { id: string, local_updated_at: string | null } | undefined
@@ -135,11 +226,18 @@ export default defineEventHandler(async (event) => {
         timestamp
       )
 
+      if (Array.isArray(project.members) && access.canManageMembers) {
+        syncProjectMembers(projectId, ownerUserId, project.members)
+      }
+      const canonicalSnapshot = canonicalizeCloudProjectSnapshot(
+        snapshot,
+        canonicalCloudProjectMembers(db, projectId)
+      )
       storeProjectSnapshot(db, {
         id: randomUUID(),
         userId: ownerUserId,
         projectId,
-        snapshotJson: jsonText(snapshot),
+        snapshotJson: jsonText(canonicalSnapshot),
         createdAt: timestamp
       })
       result.push({ localProjectId, projectId, status: 'synced' })

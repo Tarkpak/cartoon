@@ -3,6 +3,7 @@ import {
   type ScriptParseMode
 } from '#shared/types/script'
 import { VIDEO_WORKFLOW_PRESETS } from '#shared/types/video-workflow'
+import type { ProjectAccess } from '#shared/types/project'
 
 export type ProjectStatusFilter = 'all' | 'in_progress' | 'completed' | 'draft'
 export type ProjectSortBy = 'updated' | 'created' | 'name'
@@ -21,6 +22,8 @@ export interface Project {
   updatedAt: string
   ownerAccount?: string | null
   ownerDisplayName?: string | null
+  ownerUserId?: string | null
+  access?: ProjectAccess
   projectType?: 'video' | 'script_writing' | string
 }
 
