@@ -6,11 +6,12 @@ import {
   normalizeToken
 } from '~/lib/asset-workbench-strings'
 import { normalizeCharacterGenderText, normalizeCharacterRoleText } from '#shared/types/character'
-import type {
-  SceneCameraMovement,
-  SceneDramatic,
-  SceneEnvironmentCaptureMode,
-  SceneShotType
+import {
+  SceneDurationSchema,
+  type SceneCameraMovement,
+  type SceneDramatic,
+  type SceneEnvironmentCaptureMode,
+  type SceneShotType
 } from '#shared/types/script'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 
@@ -133,6 +134,11 @@ function normalizeOptionalString(raw: unknown): string | undefined {
 
   const value = raw.trim()
   return value || undefined
+}
+
+function normalizeParsedSceneDuration(raw: unknown): number {
+  const result = SceneDurationSchema.safeParse(raw)
+  return result.success ? result.data : 8
 }
 
 function normalizeEnumValue<T extends string>(
@@ -490,7 +496,7 @@ export function buildParsedScenes(options: {
       characters,
       props,
       narration: mergeNarrationTexts(normalizeParsedSceneNarration(scene.narration), narrationFromDialogues),
-      duration: scene.duration || 8,
+      duration: normalizeParsedSceneDuration(scene.duration),
       setting: scene.setting,
       active: index === 0,
       shotType: normalizeParsedSceneShotType(scene.shotType, true)

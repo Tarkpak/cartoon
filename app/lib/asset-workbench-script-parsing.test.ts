@@ -2,6 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { buildParsedCharacters, buildParsedScenes } from './asset-workbench-script-parsing'
 
 describe('asset-workbench-script-parsing', () => {
+  it('normalizes fractional model durations before project save', () => {
+    const scenes = buildParsedScenes({
+      scenes: [{
+        id: 'scene_fractional',
+        description: '杨巅峰推门进入出租屋。',
+        duration: 4.5
+      }]
+    })
+
+    expect(scenes[0]?.duration).toBe(5)
+  })
+
   it('normalizes model scenes with string characters and speaker dialogues', () => {
     const scenes = buildParsedScenes({
       scenes: [{

@@ -27,7 +27,7 @@ const PROMPT_TEMPLATE_SCENE_DESCRIPTION_REFINEMENT: &str = "scene_description_re
 const PROMPT_TEMPLATE_SCENE_VIDEO_GENERATION: &str = "scene_video_generation";
 const PROMPT_TEMPLATE_ORIGIN_EXPLAINER_VIDEO_GENERATION: &str = "origin_explainer_video_generation";
 const ORIGIN_EXPLAINER_DEFAULT_STYLE_PROMPT: &str = "高精度 3D 科普动画，微距特写、横截面透视与解构拆解图，半透明结晶材质，发光粒子流与高保真流体动力学特效，极简深色石砖平台，中国传统写意远山与云海背景，画面清晰克制、结构精密、无字幕无水印";
-const SCRIPT_PARSE_MIN_DURATION: &str = "2";
+const SCRIPT_PARSE_MIN_DURATION: &str = "4";
 const SCRIPT_PARSE_MAX_DURATION: &str = "15";
 const GPT_TEXT_MAX_COMPLETION_TOKENS: u64 = 65_536;
 const SCRIPT_PARSING_CONTRACT: &str =
@@ -4550,9 +4550,8 @@ fn normalize_model_script_result(model_value: Value, fallback_body: &Value) -> V
             {
                 scene_obj.insert("id".to_string(), json!(format!("scene_{:03}", index + 1)));
             }
-            if !scene_obj.contains_key("duration") {
-                scene_obj.insert("duration".to_string(), json!(8));
-            }
+            let duration = normalize_video_duration(scene_obj.get("duration"));
+            scene_obj.insert("duration".to_string(), json!(duration));
             let characters = normalize_model_scene_characters(scene_obj.remove("characters"));
             scene_obj.insert("characters".to_string(), characters);
             let (dialogue_lines, legacy_narration_lines) =
@@ -14781,6 +14780,29 @@ mod tests {
         assert_eq!(normalize_video_duration(Some(&json!(6.4))), 6);
         assert_eq!(normalize_video_duration(Some(&json!(12))), 12);
         assert_eq!(normalize_video_duration(None), 8);
+    }
+
+    #[test]
+    fn script_result_normalizes_scene_durations_before_save() {
+        let result = normalize_model_script_result(
+            json!({
+              "scenes": [
+                { "id": "fractional", "duration": 4.5 },
+                { "id": "below_minimum", "duration": 2 },
+                { "id": "above_maximum", "duration": 20 },
+                { "id": "missing" }
+              ]
+            }),
+            &json!({}),
+        );
+        let durations = result["data"]["scenes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|scene| scene["duration"].as_i64().unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(durations, vec![5, 4, 15, 8]);
     }
 
     #[test]

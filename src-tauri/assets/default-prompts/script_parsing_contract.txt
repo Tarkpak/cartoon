@@ -11,7 +11,7 @@
 
 【输入规模与模式】
 - 文本长度：约 {{textLength}} 字
-- 单场时长：{{sceneDurationMin}}-{{sceneDurationMax}} 秒
+- 单场时长：{{sceneDurationMin}}-{{sceneDurationMax}} 整数秒
 - 场景数量参考：{{recommendedMinScenes}}
 - 解析模式：{{scriptParseModeLabel}}
 
@@ -37,7 +37,7 @@
 10. scenes[i].characters[].emotion 使用符合当前表演状态的中文情绪描述，不限制固定词表。
 11. 顶层 characters[].role 使用简洁中文描述角色在故事中的定位，可参考主角、反派、配角、龙套，但不限制固定词表；gender 使用符合原文设定的简洁中文描述，不限制固定词表。
 12. scenes[i].dramatic.function 使用简洁中文概括本场戏剧功能，不限制固定词表。
-13. 每个 duration 必须是数字并处于规定时长范围；totalDuration 必须严格等于所有 duration 之和。若 description 内也展示时长，两处必须一致。
+13. 每个 duration 必须是整数并处于规定时长范围；禁止输出小数；totalDuration 必须严格等于所有 duration 之和。若 description 内也展示时长，两处必须一致。
 14. 第一场 usePreviousLastFrameAsFirstFrame 必须为 false；只有时空、人物和动作连续时才可为 true。为 true 时填写 continuityLinkReason，否则使用空字符串。
 15. 旁白同时写入 narration，并出现在 description 的用户自定义格式或默认时间轴中；真实角色对白只写入 description。
 16. scenes[i].props 只包含需要维持视觉一致的真实道具；characters、setting、props、narration、duration 等系统字段不得因分镜提示词而缺失。
