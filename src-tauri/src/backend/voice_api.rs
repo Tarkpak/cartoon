@@ -306,10 +306,7 @@ pub(super) async fn api_voice_preset_preview(
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'));
     if !valid_speaker_id {
-        return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "官方音色 ID 无效",
-        ));
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "官方音色 ID 无效"));
     }
     let path = format!("/api/client/voice/previews/{speaker_id}");
     let payload = cloud_post_client_data_json(&state, &path, json!({})).await?;

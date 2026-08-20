@@ -11,6 +11,43 @@ import {
   timeOfDayOptions
 } from '~/lib/scene-edit-dialog'
 
+const shotTypeOptions = ['大远景', '全景', '中全景', '中景', '中近景', '近景', '特写', '大特写', '细节镜头'] as const
+const cameraAngleOptions = [
+  { value: 'eye_level', label: '平视' },
+  { value: 'low_angle', label: '仰拍' },
+  { value: 'high_angle', label: '俯拍' },
+  { value: 'top_down', label: '俯瞰' },
+  { value: 'side_view', label: '侧面机位' },
+  { value: 'front_view', label: '正面机位' },
+  { value: 'rear_view', label: '背后机位' },
+  { value: 'over_shoulder', label: '过肩镜头' },
+  { value: 'pov', label: '主观视角' },
+  { value: 'three_quarter', label: '三分之四侧前机位' }
+] as const
+const cameraMovementOptions = [
+  '固定镜头', '推进', '拉远', '左摇', '右摇', '上摇', '下摇', '跟拍', '轨道移动',
+  '变焦推进', '变焦拉远', '升降', '手持', '环绕', '甩镜', '荷兰角', '旋转', '焦点转移'
+] as const
+const speedEffectOptions = [
+  { value: 'normal', label: '正常速度' },
+  { value: 'slow_motion', label: '慢镜头' },
+  { value: 'fast_motion', label: '快镜头 / 延时' },
+  { value: 'freeze_frame', label: '定格' }
+] as const
+const transitionOptions = [
+  { value: 'cut', label: '硬切' },
+  { value: 'fade_to_black', label: '黑场转场' },
+  { value: 'dissolve', label: '叠化' },
+  { value: 'match_cut', label: '匹配剪辑' },
+  { value: 'fade', label: '淡变' },
+  { value: 'wipe', label: '划变' },
+  { value: 'slide', label: '滑动' },
+  { value: 'zoom', label: '缩放' },
+  { value: 'blur', label: '模糊' },
+  { value: 'flash', label: '闪白' },
+  { value: 'none', label: '无' }
+] as const
+
 const editForm = defineModel<SceneEditData>('editForm', { required: true })
 
 defineProps<{
@@ -204,6 +241,67 @@ defineProps<{
             :value="opt.value"
           />
         </datalist>
+      </div>
+    </div>
+
+    <div class="space-y-3">
+      <label class="text-sm font-medium">镜头参数</label>
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div class="space-y-1.5">
+          <label class="text-xs text-muted-foreground">景别</label>
+          <Select v-model="editForm.shotType">
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="option in shotTypeOptions" :key="option" :value="option">
+                {{ option }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-xs text-muted-foreground">机位角度</label>
+          <Select v-model="editForm.cameraAngle">
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="option in cameraAngleOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-xs text-muted-foreground">运镜</label>
+          <Select v-model="editForm.cameraMovement">
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="option in cameraMovementOptions" :key="option" :value="option">
+                {{ option }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-xs text-muted-foreground">速度效果</label>
+          <Select v-model="editForm.speedEffect">
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="option in speedEffectOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="space-y-1.5 sm:col-span-2">
+          <label class="text-xs text-muted-foreground">入场转场</label>
+          <Select v-model="editForm.transitionIn">
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="option in transitionOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
     </div>
 

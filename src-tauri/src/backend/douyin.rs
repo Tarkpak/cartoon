@@ -77,19 +77,17 @@ pub(super) async fn api_tools_douyin_download(
             }
         });
     let target_path = if let Some(image_index) = body.image_index {
-        let image_url = profile.image_urls.get(image_index).ok_or_else(|| {
-            ApiError::new(StatusCode::BAD_REQUEST, "要下载的图片序号无效")
-        })?;
+        let image_url = profile
+            .image_urls
+            .get(image_index)
+            .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "要下载的图片序号无效"))?;
         let single_filename = format!(
             "{}-{:02}",
             strip_download_extension(filename),
             image_index + 1
         );
-        let target_path = unique_douyin_file_path(
-            &dir,
-            &single_filename,
-            image_url_extension(image_url),
-        );
+        let target_path =
+            unique_douyin_file_path(&dir, &single_filename, image_url_extension(image_url));
         download_douyin_image(image_url, &target_path, image_index).await?;
         target_path
     } else {
@@ -630,7 +628,11 @@ async fn download_douyin_image(
 }
 
 fn image_url_extension(image_url: &str) -> &'static str {
-    let path = image_url.split('?').next().unwrap_or(image_url).to_ascii_lowercase();
+    let path = image_url
+        .split('?')
+        .next()
+        .unwrap_or(image_url)
+        .to_ascii_lowercase();
     if path.ends_with(".png") {
         "png"
     } else if path.ends_with(".webp") {

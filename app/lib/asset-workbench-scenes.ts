@@ -85,7 +85,9 @@ function buildSceneGenerationInputSnapshot(scene: Pick<
   | 'duration'
   | 'setting'
   | 'shotType'
+  | 'cameraAngle'
   | 'cameraMovement'
+  | 'speedEffect'
   | 'cameraNote'
   | 'environmentCaptureMode'
 >) {
@@ -98,7 +100,9 @@ function buildSceneGenerationInputSnapshot(scene: Pick<
     duration: scene.duration,
     setting: scene.setting || null,
     shotType: scene.shotType || null,
+    cameraAngle: scene.cameraAngle || null,
     cameraMovement: scene.cameraMovement || null,
+    speedEffect: scene.speedEffect || null,
     cameraNote: scene.cameraNote || '',
     environmentCaptureMode: scene.environmentCaptureMode || null
   }
@@ -195,7 +199,9 @@ export function mergeScenesInList(
     setting: currentScene.setting || nextScene.setting,
     active: currentScene.active || nextScene.active,
     shotType: currentScene.shotType || nextScene.shotType,
+    cameraAngle: currentScene.cameraAngle || nextScene.cameraAngle,
     cameraMovement: currentScene.cameraMovement || nextScene.cameraMovement,
+    speedEffect: currentScene.speedEffect || nextScene.speedEffect,
     cameraNote: [currentScene.cameraNote, nextScene.cameraNote].filter(Boolean).join('；') || undefined,
     transitionIn: currentScene.transitionIn || 'cut',
     transitionOut: nextScene.transitionOut || currentScene.transitionOut || 'cut',

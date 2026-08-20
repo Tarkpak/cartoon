@@ -1109,9 +1109,7 @@ async fn api_video_import_generate_series_script(
             .into_iter()
             .zip(chunk_boundaries)
             .enumerate()
-            .map(|(chunk_index, (chunk, boundary_context))| {
-                (chunk_index, chunk, boundary_context)
-            })
+            .map(|(chunk_index, (chunk, boundary_context))| (chunk_index, chunk, boundary_context))
             .collect::<Vec<_>>();
         let generated_chunks = stream::iter(chunks_with_boundaries)
             .map(|(chunk_index, chunk, boundary_context)| {
@@ -1312,7 +1310,8 @@ async fn api_video_import_generate_series_script(
             .zip(episode_boundaries)
             .enumerate(),
     )
-        .map(|(episode_index, ((episode, subtitle, existing_script), boundary_context))| {
+    .map(
+        |(episode_index, ((episode, subtitle, existing_script), boundary_context))| {
             let state = &state;
             let global_context = &global_context;
             async move {
@@ -1337,19 +1336,17 @@ async fn api_video_import_generate_series_script(
                 )
                 .await
                 {
-                    Ok((script, provider, model_id)) => Ok((
-                        episode_index,
-                        episode,
-                        script,
-                        Some((provider, model_id)),
-                    )),
+                    Ok((script, provider, model_id)) => {
+                        Ok((episode_index, episode, script, Some((provider, model_id))))
+                    }
                     Err(error) => Err((episode.id.clone(), error)),
                 }
             }
-        })
-        .buffer_unordered(SERIES_SCRIPT_MAX_CONCURRENT_GENERATIONS)
-        .try_collect::<Vec<_>>()
-        .await;
+        },
+    )
+    .buffer_unordered(SERIES_SCRIPT_MAX_CONCURRENT_GENERATIONS)
+    .try_collect::<Vec<_>>()
+    .await;
     let mut generated_episodes = match generated_episodes {
         Ok(value) => value,
         Err((episode_id, error)) => {
@@ -2431,9 +2428,7 @@ pub(super) async fn api_video_import_retry(
                  WHERE id = ?2",
                 params![now_iso(), id],
             )
-            .map_err(|error| {
-                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-            })?;
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
             drop(conn);
             let background_state = state.clone();
             let background_task_id = id.clone();
@@ -3559,9 +3554,7 @@ fn build_series_chunk_boundary_context(
         .checked_sub(1)
         .and_then(|index| chunks.get(index))
         .map(|chunk| chunk.text.as_str());
-    let next = chunks
-        .get(chunk_index + 1)
-        .map(|chunk| chunk.text.as_str());
+    let next = chunks.get(chunk_index + 1).map(|chunk| chunk.text.as_str());
     build_neighbor_text_boundary_context(previous, next, max_chars_per_side)
 }
 

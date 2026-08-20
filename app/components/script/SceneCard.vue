@@ -10,10 +10,16 @@ import {
   Users,
   GripVertical,
   Camera,
+  Gauge,
   Move,
   Layers
 } from 'lucide-vue-next'
-import type { SceneShotType, SceneCameraMovement } from '#shared/types/script'
+import type {
+  SceneCameraAngle,
+  SceneCameraMovement,
+  SceneShotType,
+  SceneSpeedEffect
+} from '#shared/types/script'
 import type { AssetWorkbenchTransitionType } from '~/lib/asset-workbench-models'
 import { formatSceneDescriptionTimelineBreaks } from '~/lib/scene-description-format'
 
@@ -27,7 +33,9 @@ interface SceneCardProps {
     characters?: string[]
     thumbnail?: string
     shotType?: SceneShotType
+    cameraAngle?: SceneCameraAngle
     cameraMovement?: SceneCameraMovement
+    speedEffect?: SceneSpeedEffect
     transitionIn?: AssetWorkbenchTransitionType
     transitionOut?: AssetWorkbenchTransitionType
   }
@@ -63,6 +71,7 @@ const shotTypeLabels: Record<string, string> = {
   中景: '中景',
   中近景: '中近景',
   近景: '近景',
+  特写: '特写',
   大特写: '大特写',
   细节镜头: '细节镜头'
 }
@@ -85,7 +94,8 @@ const cameraMovementLabels: Record<string, string> = {
   环绕: '环绕',
   甩镜: '甩镜',
   荷兰角: '荷兰角',
-  旋转: '旋转'
+  旋转: '旋转',
+  焦点转移: '焦点转移'
 }
 
 // 转场标签映射
@@ -98,7 +108,29 @@ const transitionLabels: Record<AssetWorkbenchTransitionType, string> = {
   zoom: '缩放',
   blur: '模糊',
   flash: '闪白',
+  fade_to_black: '黑场',
+  match_cut: '匹配剪辑',
   none: '无'
+}
+
+const cameraAngleLabels: Record<SceneCameraAngle, string> = {
+  eye_level: '平视',
+  low_angle: '仰拍',
+  high_angle: '俯拍',
+  top_down: '俯瞰',
+  side_view: '侧面机位',
+  front_view: '正面机位',
+  rear_view: '背后机位',
+  over_shoulder: '过肩镜头',
+  pov: '主观视角',
+  three_quarter: '三分之四侧前机位'
+}
+
+const speedEffectLabels: Record<SceneSpeedEffect, string> = {
+  normal: '正常速度',
+  slow_motion: '慢镜头',
+  fast_motion: '快镜头',
+  freeze_frame: '定格'
 }
 
 const currentStatus = computed(() => statusConfig[props.scene.status] || statusConfig.pending)
@@ -116,6 +148,14 @@ const cameraMovementLabel = computed(() => {
   return props.scene.cameraMovement
     ? cameraMovementLabels[props.scene.cameraMovement] || props.scene.cameraMovement
     : null
+})
+
+const cameraAngleLabel = computed(() => {
+  return props.scene.cameraAngle ? cameraAngleLabels[props.scene.cameraAngle] : null
+})
+
+const speedEffectLabel = computed(() => {
+  return props.scene.speedEffect ? speedEffectLabels[props.scene.speedEffect] : null
 })
 
 // 获取转场标签
@@ -236,6 +276,22 @@ const transitionLabel = computed(() => {
       >
         <Move class="w-3 h-3 mr-1" />
         {{ cameraMovementLabel }}
+      </Badge>
+      <Badge
+        v-if="cameraAngleLabel && scene.cameraAngle !== 'eye_level'"
+        variant="outline"
+        class="text-xs bg-cyan-50 border-cyan-200 text-cyan-700"
+      >
+        <Camera class="w-3 h-3 mr-1" />
+        {{ cameraAngleLabel }}
+      </Badge>
+      <Badge
+        v-if="speedEffectLabel && scene.speedEffect !== 'normal'"
+        variant="outline"
+        class="text-xs bg-amber-50 border-amber-200 text-amber-700"
+      >
+        <Gauge class="w-3 h-3 mr-1" />
+        {{ speedEffectLabel }}
       </Badge>
       <Badge
         v-if="transitionLabel && transitionLabel !== '硬切'"

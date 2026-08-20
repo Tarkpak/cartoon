@@ -52,6 +52,10 @@ const PROMPT_VERSIONS_KEY: &str = "prompt_versions_default";
 const PROMPT_PROFILE_STATE_KEY: &str = "prompt_profile_state_default";
 const PROMPT_DIRECTOR_PREFERENCES_KEY: &str = "prompt_director_preferences_default";
 const PROMPT_DIRECTOR_PREFERENCES_MAX_CHARS: usize = 50_000;
+const PROMPT_DEFAULT_PROFILE_ID: &str = "default";
+const PROMPT_ADVANCED_PROFILE_ID: &str = "default_advanced_storyboard";
+const PROMPT_CONTRACT_VARIANT_DEFAULT: &str = "default";
+const PROMPT_CONTRACT_VARIANT_ADVANCED: &str = "advanced_storyboard";
 const ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES: usize = 50 * 1024 * 1024;
 const MODEL_TEST_BODY_LIMIT_BYTES: usize = 50 * 1024 * 1024;
 const VIDEO_IMPORT_UPLOAD_BODY_LIMIT_BYTES: usize = 2 * 1024 * 1024 * 1024;
@@ -98,6 +102,8 @@ const LEGACY_STYLE_THUMBNAIL_CDN_BASE: &str =
 const DEFAULT_PROMPT_TEMPLATES_JSON: &str = include_str!("../assets/default-prompt-templates.json");
 const DEFAULT_PROMPT_DIRECTOR_PREFERENCES: &str =
     include_str!("../assets/default-prompts/director_preferences.txt");
+const ADVANCED_PROMPT_DIRECTOR_PREFERENCES: &str =
+    include_str!("../assets/default-prompts/director_preferences_advanced.txt");
 const ARK_OPENAPI_ENDPOINT: &str = "https://ark.cn-beijing.volcengineapi.com";
 const ARK_OPENAPI_REGION: &str = "cn-beijing";
 const ARK_OPENAPI_SERVICE: &str = "ark";
@@ -317,7 +323,9 @@ struct ProjectSceneRow {
     duration: i64,
     narration: Option<String>,
     shot_type: Option<String>,
+    camera_angle: Option<String>,
     camera_movement: Option<String>,
+    speed_effect: Option<String>,
     camera_note: Option<String>,
     environment_capture_mode: Option<String>,
     transition_in: Option<String>,
@@ -1136,8 +1144,8 @@ fn ensure_project_permission(
                 ))
             },
         )
-    .optional()
-    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     let accessible = access.is_some_and(|(owner_user_id, role, permissions_json)| {
         owner.is_admin
@@ -1167,7 +1175,13 @@ fn project_access_payload(
              LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?2
              WHERE p.id = ?1 LIMIT 1",
             params![project_id, owner.user_id.as_str()],
-            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?)),
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
         )
         .optional()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -1918,7 +1932,10 @@ fn apply_cloud_project_members(
         .transaction()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     transaction
-        .execute("DELETE FROM project_members WHERE project_id = ?1", params![project_id])
+        .execute(
+            "DELETE FROM project_members WHERE project_id = ?1",
+            params![project_id],
+        )
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     for member in members {
         let user_id = cloud_value_text(member, "userId");
@@ -3292,9 +3309,10 @@ fn available_model_enabled_for_provider(
 
 fn workflow_step_category(step_id: &str) -> Option<&'static str> {
     match step_id {
-        "script_writing" | "script_parsing" | "video_import_script_generation" | "scene_description_refinement" => {
-            Some("text")
-        }
+        "script_writing"
+        | "script_parsing"
+        | "video_import_script_generation"
+        | "scene_description_refinement" => Some("text"),
         "character_portrait" | "frame_generation" => Some("image"),
         "video_generation" => Some("video"),
         _ => None,
@@ -3851,8 +3869,13 @@ fn merge_prompt_templates_with_defaults(value: Value) -> Value {
     Value::Array(merged)
 }
 
-fn apply_cloud_prompt_template_defaults(templates: Value, remote_defaults: Option<&Value>) -> Value {
-    let Some(defaults) = remote_defaults.and_then(Value::as_array).filter(|items| !items.is_empty())
+fn apply_cloud_prompt_template_defaults(
+    templates: Value,
+    remote_defaults: Option<&Value>,
+) -> Value {
+    let Some(defaults) = remote_defaults
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty())
     else {
         return templates;
     };
@@ -3918,16 +3941,54 @@ fn get_prompt_templates_config(conn: &Connection) -> Result<Value, ApiError> {
     ))
 }
 
-fn get_prompt_director_preferences(conn: &Connection) -> Result<String, ApiError> {
-    let active_profile_id = get_config_json(conn, PROMPT_PROFILE_STATE_KEY)?
+fn get_active_prompt_profile_id(conn: &Connection) -> Result<String, ApiError> {
+    Ok(get_config_json(conn, PROMPT_PROFILE_STATE_KEY)?
         .and_then(|state| {
             state
                 .get("activeProfileId")
                 .and_then(Value::as_str)
                 .map(str::to_string)
         })
-        .unwrap_or_else(|| "default".to_string());
-    if matches!(active_profile_id.as_str(), "default" | "default_seedance") {
+        .unwrap_or_else(|| PROMPT_DEFAULT_PROFILE_ID.to_string()))
+}
+
+fn get_prompt_contract_variant(conn: &Connection) -> Result<String, ApiError> {
+    let state = get_config_json(conn, PROMPT_PROFILE_STATE_KEY)?.unwrap_or_else(|| json!({}));
+    let active_profile_id = state
+        .get("activeProfileId")
+        .and_then(Value::as_str)
+        .unwrap_or(PROMPT_DEFAULT_PROFILE_ID);
+    let snapshot_variant = state
+        .get("snapshots")
+        .and_then(|snapshots| snapshots.get(active_profile_id))
+        .and_then(|snapshot| snapshot.get("scriptParsingContract"))
+        .and_then(Value::as_str);
+
+    Ok(snapshot_variant
+        .unwrap_or(if active_profile_id == PROMPT_ADVANCED_PROFILE_ID {
+            PROMPT_CONTRACT_VARIANT_ADVANCED
+        } else {
+            PROMPT_CONTRACT_VARIANT_DEFAULT
+        })
+        .to_string())
+}
+
+fn is_builtin_prompt_profile(profile_id: &str) -> bool {
+    matches!(
+        profile_id,
+        PROMPT_DEFAULT_PROFILE_ID | PROMPT_ADVANCED_PROFILE_ID
+    )
+}
+
+fn get_prompt_director_preferences(conn: &Connection) -> Result<String, ApiError> {
+    let active_profile_id = get_active_prompt_profile_id(conn)?;
+    if active_profile_id == PROMPT_ADVANCED_PROFILE_ID {
+        return Ok(advanced_prompt_director_preferences().to_string());
+    }
+    if matches!(
+        active_profile_id.as_str(),
+        PROMPT_DEFAULT_PROFILE_ID | "default_seedance"
+    ) {
         return Ok(default_prompt_director_preferences().to_string());
     }
 
@@ -3940,9 +4001,15 @@ fn default_prompt_director_preferences() -> &'static str {
     DEFAULT_PROMPT_DIRECTOR_PREFERENCES.trim()
 }
 
+fn advanced_prompt_director_preferences() -> &'static str {
+    ADVANCED_PROMPT_DIRECTOR_PREFERENCES.trim()
+}
+
 fn is_prompt_director_preferences_customized(content: &str) -> bool {
     let content = content.trim();
-    !content.is_empty() && content != default_prompt_director_preferences()
+    !content.is_empty()
+        && content != default_prompt_director_preferences()
+        && content != advanced_prompt_director_preferences()
 }
 
 fn default_prompt_profiles() -> Value {
@@ -3950,14 +4017,21 @@ fn default_prompt_profiles() -> Value {
     json!({
       "profiles": [
         {
-          "id": "default",
+          "id": PROMPT_DEFAULT_PROFILE_ID,
           "name": "默认方案",
           "description": "系统默认提示词方案",
           "createdAt": now,
           "updatedAt": now
+        },
+        {
+          "id": PROMPT_ADVANCED_PROFILE_ID,
+          "name": "增强分镜配置",
+          "description": "包含精细景别、机位、运镜、速度与转场规则的内置方案",
+          "createdAt": now,
+          "updatedAt": now
         }
       ],
-      "activeProfileId": "default"
+      "activeProfileId": PROMPT_DEFAULT_PROFILE_ID
     })
 }
 
@@ -4236,7 +4310,9 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ("dramatic", "TEXT"),
         ("props", "TEXT"),
         ("shot_type", "TEXT"),
+        ("camera_angle", "TEXT"),
         ("camera_movement", "TEXT"),
+        ("speed_effect", "TEXT"),
         ("camera_note", "TEXT"),
         ("environment_capture_mode", "TEXT"),
         ("transition_in", "TEXT"),
@@ -4388,7 +4464,9 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         duration INTEGER DEFAULT 8,
         narration TEXT,
         shot_type TEXT,
+        camera_angle TEXT,
         camera_movement TEXT,
+        speed_effect TEXT,
         camera_note TEXT,
         environment_capture_mode TEXT,
         transition_in TEXT,
@@ -4983,11 +5061,21 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
     if get_config_json(&conn, PROMPT_PROFILE_STATE_KEY)?.is_none() {
         let mut snapshots = serde_json::Map::new();
         snapshots.insert(
-            "default".to_string(),
+            PROMPT_DEFAULT_PROFILE_ID.to_string(),
             json!({
               "templates": default_prompt_templates(),
               "versions": [],
-              "directorPreferences": default_prompt_director_preferences()
+              "directorPreferences": default_prompt_director_preferences(),
+              "scriptParsingContract": PROMPT_CONTRACT_VARIANT_DEFAULT
+            }),
+        );
+        snapshots.insert(
+            PROMPT_ADVANCED_PROFILE_ID.to_string(),
+            json!({
+              "templates": default_prompt_templates(),
+              "versions": [],
+              "directorPreferences": advanced_prompt_director_preferences(),
+              "scriptParsingContract": PROMPT_CONTRACT_VARIANT_ADVANCED
             }),
         );
         set_config_json(
@@ -5904,7 +5992,10 @@ async fn api_project_list(
                 member_role.as_deref().unwrap_or("viewer")
             };
             let access_permissions = if is_owner || owner.is_admin {
-                ALL_PROJECT_PERMISSIONS.iter().map(|value| value.as_str().to_string()).collect::<Vec<_>>()
+                ALL_PROJECT_PERMISSIONS
+                    .iter()
+                    .map(|value| value.as_str().to_string())
+                    .collect::<Vec<_>>()
             } else {
                 project_role_permissions(access_role, member_permissions.as_deref())
             };
@@ -5982,15 +6073,15 @@ async fn api_project_create(
     if !matches!(project_type.as_str(), "video" | "script_writing") {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "projectType 无效"));
     }
-    let style_id = body
-        .style_id
-        .unwrap_or_default()
-        .trim()
-        .to_string();
+    let style_id = body.style_id.unwrap_or_default().trim().to_string();
     if project_type == "video" && style_id.is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "styleId 不能为空"));
     }
-    let aspect_ratio = body.aspect_ratio.unwrap_or_else(|| "16:9".to_string()).trim().to_string();
+    let aspect_ratio = body
+        .aspect_ratio
+        .unwrap_or_else(|| "16:9".to_string())
+        .trim()
+        .to_string();
     if !matches!(aspect_ratio.as_str(), "16:9" | "9:16" | "1:1") {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "aspectRatio 无效"));
     }
@@ -6065,22 +6156,23 @@ fn read_project_members(conn: &Connection, project_id: &str) -> Result<Vec<Value
              FROM project_members WHERE project_id = ?1 ORDER BY display_name, account",
         )
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    let members = stmt.query_map(params![project_id], |row| {
-        let role: String = row.get(3)?;
-        let raw_permissions: String = row.get(4)?;
-        Ok(json!({
-          "userId": row.get::<_, String>(0)?,
-          "account": row.get::<_, String>(1)?,
-          "displayName": row.get::<_, String>(2)?,
-          "role": role,
-          "permissions": project_role_permissions(&role, Some(&raw_permissions)),
-          "createdAt": row.get::<_, String>(5)?,
-          "updatedAt": row.get::<_, String>(6)?
-        }))
-    })
-    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let members = stmt
+        .query_map(params![project_id], |row| {
+            let role: String = row.get(3)?;
+            let raw_permissions: String = row.get(4)?;
+            Ok(json!({
+              "userId": row.get::<_, String>(0)?,
+              "account": row.get::<_, String>(1)?,
+              "displayName": row.get::<_, String>(2)?,
+              "role": role,
+              "permissions": project_role_permissions(&role, Some(&raw_permissions)),
+              "createdAt": row.get::<_, String>(5)?,
+              "updatedAt": row.get::<_, String>(6)?
+            }))
+        })
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(members)
 }
 
@@ -6129,10 +6221,17 @@ async fn api_project_member_put(
     let conn = db_connection(&state)?;
     ensure_project_permission(&conn, &id, ProjectPermission::ManageMembers)?;
     let project_owner_id = conn
-        .query_row("SELECT owner_user_id FROM projects WHERE id = ?1", params![id], |row| row.get::<_, Option<String>>(0))
+        .query_row(
+            "SELECT owner_user_id FROM projects WHERE id = ?1",
+            params![id],
+            |row| row.get::<_, Option<String>>(0),
+        )
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     if project_owner_id.as_deref() == Some(user_id.as_str()) {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "项目所有者不能作为普通成员添加"));
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "项目所有者不能作为普通成员添加",
+        ));
     }
     let requested_permissions = body.permissions.unwrap_or_default();
     let custom_json = serde_json::to_string(&requested_permissions)
@@ -6318,8 +6417,9 @@ async fn api_project_get(
         let mut stmt = conn
             .prepare(
                 "SELECT id, order_index, episode_id, episode_title, episode_index, title, description,
-                        dramatic, setting, characters, props, duration, narration, shot_type, camera_movement,
-                        camera_note, environment_capture_mode, transition_in, transition_out, transition_duration,
+                        dramatic, setting, characters, props, duration, narration, shot_type, camera_angle,
+                        camera_movement, speed_effect, camera_note, environment_capture_mode,
+                        transition_in, transition_out, transition_duration,
                         first_frame, last_frame, video_url, status
                  FROM scenes WHERE script_id = ?1 ORDER BY order_index ASC",
             )
@@ -6332,8 +6432,8 @@ async fn api_project_get(
                         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
                         .unwrap_or(Value::Null)
                 };
-                let video_url: Option<String> = row.get(22)?;
-                let status: Option<String> = row.get(23)?;
+                let video_url: Option<String> = row.get(24)?;
+                let status: Option<String> = row.get(25)?;
                 Ok(json!({
                   "id": row.get::<_, String>(0)?,
                   "orderIndex": row.get::<_, i64>(1)?,
@@ -6349,14 +6449,16 @@ async fn api_project_get(
                   "duration": row.get::<_, Option<i64>>(11)?.unwrap_or(8),
                   "narration": row.get::<_, Option<String>>(12)?,
                   "shotType": normalize_scene_shot_type_value(row.get::<_, Option<String>>(13)?.as_deref()),
-                  "cameraMovement": normalize_scene_camera_movement_value(row.get::<_, Option<String>>(14)?.as_deref()),
-                  "cameraNote": row.get::<_, Option<String>>(15)?,
-                  "environmentCaptureMode": normalize_scene_environment_capture_mode_value(row.get::<_, Option<String>>(16)?.as_deref()),
-                  "transitionIn": row.get::<_, Option<String>>(17)?,
-                  "transitionOut": row.get::<_, Option<String>>(18)?,
-                  "transitionDuration": row.get::<_, Option<f64>>(19)?,
-                  "firstFrame": row.get::<_, Option<String>>(20)?,
-                  "lastFrame": row.get::<_, Option<String>>(21)?,
+                  "cameraAngle": normalize_scene_camera_angle_value(row.get::<_, Option<String>>(14)?.as_deref()),
+                  "cameraMovement": normalize_scene_camera_movement_value(row.get::<_, Option<String>>(15)?.as_deref()),
+                  "speedEffect": normalize_scene_speed_effect_value(row.get::<_, Option<String>>(16)?.as_deref()),
+                  "cameraNote": row.get::<_, Option<String>>(17)?,
+                  "environmentCaptureMode": normalize_scene_environment_capture_mode_value(row.get::<_, Option<String>>(18)?.as_deref()),
+                  "transitionIn": row.get::<_, Option<String>>(19)?,
+                  "transitionOut": row.get::<_, Option<String>>(20)?,
+                  "transitionDuration": row.get::<_, Option<f64>>(21)?,
+                  "firstFrame": row.get::<_, Option<String>>(22)?,
+                  "lastFrame": row.get::<_, Option<String>>(23)?,
                   "videoUrl": video_url,
                   "status": if video_url.as_ref().is_some_and(|value| !value.trim().is_empty()) {
                     "video_ready".to_string()
@@ -6930,11 +7032,19 @@ fn normalize_scene_shot_type_value(raw: Option<&str>) -> Option<String> {
         "medium" => "中景",
         "medium_close" => "中近景",
         "close" => "近景",
-        "extreme_close" => "大特写",
-        "detail" => "细节镜头",
+        "extreme_close" => "特写",
+        "detail" => "大特写",
         _ if matches!(
             value,
-            "大远景" | "全景" | "中全景" | "中景" | "中近景" | "近景" | "大特写" | "细节镜头"
+            "大远景"
+                | "全景"
+                | "中全景"
+                | "中景"
+                | "中近景"
+                | "近景"
+                | "特写"
+                | "大特写"
+                | "细节镜头"
         ) =>
         {
             value
@@ -6964,6 +7074,7 @@ fn normalize_scene_camera_movement_value(raw: Option<&str>) -> Option<String> {
         "whip_pan" => "甩镜",
         "dutch_tilt" => "荷兰角",
         "roll" => "旋转",
+        "rack_focus" => "焦点转移",
         _ if matches!(
             value,
             "固定镜头"
@@ -6983,6 +7094,7 @@ fn normalize_scene_camera_movement_value(raw: Option<&str>) -> Option<String> {
                 | "甩镜"
                 | "荷兰角"
                 | "旋转"
+                | "焦点转移"
         ) =>
         {
             value
@@ -6990,6 +7102,35 @@ fn normalize_scene_camera_movement_value(raw: Option<&str>) -> Option<String> {
         _ => value,
     };
     Some(normalized.to_string())
+}
+
+fn normalize_scene_camera_angle_value(raw: Option<&str>) -> Option<String> {
+    let value = raw.map(str::trim).filter(|value| !value.is_empty())?;
+    let normalized = value.to_ascii_lowercase().replace([' ', '-'], "_");
+    matches!(
+        normalized.as_str(),
+        "eye_level"
+            | "low_angle"
+            | "high_angle"
+            | "top_down"
+            | "side_view"
+            | "front_view"
+            | "rear_view"
+            | "over_shoulder"
+            | "pov"
+            | "three_quarter"
+    )
+    .then_some(normalized)
+}
+
+fn normalize_scene_speed_effect_value(raw: Option<&str>) -> Option<String> {
+    let value = raw.map(str::trim).filter(|value| !value.is_empty())?;
+    let normalized = value.to_ascii_lowercase().replace([' ', '-'], "_");
+    matches!(
+        normalized.as_str(),
+        "normal" | "slow_motion" | "fast_motion" | "freeze_frame"
+    )
+    .then_some(normalized)
 }
 
 fn normalize_scene_environment_capture_mode_value(raw: Option<&str>) -> Option<String> {
@@ -7355,7 +7496,10 @@ async fn api_project_put_inner(
         .unwrap_or(&existing_project.3)
         .trim()
         .to_string();
-    if existing_project.6 != "script_writing" && body.get("styleId").is_some() && !is_style_id_enabled(&conn, &style_id)? {
+    if existing_project.6 != "script_writing"
+        && body.get("styleId").is_some()
+        && !is_style_id_enabled(&conn, &style_id)?
+    {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             format!("当前后台配置未启用该画风: {style_id}"),
@@ -7501,6 +7645,22 @@ async fn api_project_put_inner(
                     "Invalid enum value",
                 ));
             }
+            let raw_camera_angle = optional_string(scene, "cameraAngle", &path)?;
+            let camera_angle = normalize_scene_camera_angle_value(raw_camera_angle);
+            if raw_camera_angle.is_some() && camera_angle.is_none() {
+                return Err(validation_error(
+                    format!("{path}.cameraAngle"),
+                    "Invalid enum value",
+                ));
+            }
+            let raw_speed_effect = optional_string(scene, "speedEffect", &path)?;
+            let speed_effect = normalize_scene_speed_effect_value(raw_speed_effect);
+            if raw_speed_effect.is_some() && speed_effect.is_none() {
+                return Err(validation_error(
+                    format!("{path}.speedEffect"),
+                    "Invalid enum value",
+                ));
+            }
             let raw_environment_capture_mode =
                 optional_string(scene, "environmentCaptureMode", &path)?;
             let environment_capture_mode =
@@ -7516,7 +7676,17 @@ async fn api_project_put_inner(
                 "transitionIn",
                 &path,
                 &[
-                    "cut", "fade", "dissolve", "wipe", "slide", "zoom", "blur", "flash", "none",
+                    "cut",
+                    "fade",
+                    "fade_to_black",
+                    "dissolve",
+                    "match_cut",
+                    "wipe",
+                    "slide",
+                    "zoom",
+                    "blur",
+                    "flash",
+                    "none",
                 ],
             )?
             .map(str::to_string);
@@ -7525,7 +7695,17 @@ async fn api_project_put_inner(
                 "transitionOut",
                 &path,
                 &[
-                    "cut", "fade", "dissolve", "wipe", "slide", "zoom", "blur", "flash", "none",
+                    "cut",
+                    "fade",
+                    "fade_to_black",
+                    "dissolve",
+                    "match_cut",
+                    "wipe",
+                    "slide",
+                    "zoom",
+                    "blur",
+                    "flash",
+                    "none",
                 ],
             )?
             .map(str::to_string);
@@ -7561,7 +7741,9 @@ async fn api_project_put_inner(
                 duration,
                 narration: optional_string(scene, "narration", &path)?.map(str::to_string),
                 shot_type,
+                camera_angle,
                 camera_movement,
+                speed_effect,
                 camera_note: optional_string(scene, "cameraNote", &path)?.map(str::to_string),
                 environment_capture_mode,
                 transition_in,
@@ -7584,13 +7766,14 @@ async fn api_project_put_inner(
             conn.execute(
                 "INSERT INTO scenes (
                   id, script_id, order_index, episode_id, episode_title, episode_index, title, description,
-                  dramatic, setting, characters, props, duration, narration, shot_type, camera_movement,
-                  camera_note, environment_capture_mode, transition_in, transition_out, transition_duration,
+                  dramatic, setting, characters, props, duration, narration, shot_type, camera_angle,
+                  camera_movement, speed_effect, camera_note, environment_capture_mode,
+                  transition_in, transition_out, transition_duration,
                   first_frame, last_frame, video_url, status, created_at, updated_at
                 ) VALUES (
                   ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
-                  ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-                  ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27
+                  ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                  ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29
                 )",
                 params![
                     scene_row.id,
@@ -7608,7 +7791,9 @@ async fn api_project_put_inner(
                     scene_row.duration,
                     scene_row.narration,
                     scene_row.shot_type,
+                    scene_row.camera_angle,
                     scene_row.camera_movement,
+                    scene_row.speed_effect,
                     scene_row.camera_note,
                     scene_row.environment_capture_mode,
                     scene_row.transition_in,
@@ -11409,8 +11594,7 @@ async fn cloud_upload_model_call_log(
             return None;
         }
         Some((cloud_base_url(&conn)?, cloud_token(&conn)?))
-    })
-    else {
+    }) else {
         return Err(ApiError::new(
             StatusCode::UNAUTHORIZED,
             "模型日志所属账号未登录，等待原账号同步",
@@ -11451,11 +11635,7 @@ async fn cloud_upload_model_call_log(
     result.map(|_| ())
 }
 
-fn cloud_spawn_model_call_log_upload(
-    log_id: String,
-    body: Value,
-    owner_user_id: Option<String>,
-) {
+fn cloud_spawn_model_call_log_upload(log_id: String, body: Value, owner_user_id: Option<String>) {
     let Some(owner_user_id) = owner_user_id else {
         return;
     };
@@ -11508,8 +11688,7 @@ fn spawn_model_call_log_sync_poller() {
         loop {
             interval.tick().await;
             for (log_id, body, owner_user_id) in pending_model_call_logs(100) {
-                if let Err(error) =
-                    cloud_upload_model_call_log(&log_id, body, &owner_user_id).await
+                if let Err(error) = cloud_upload_model_call_log(&log_id, body, &owner_user_id).await
                 {
                     eprintln!("[CloudSync] model call log retry failed: {}", error.message);
                     break;
@@ -11949,15 +12128,23 @@ fn apply_cloud_prompt_state(state: &BackendState, prompt_state: &Value) -> Resul
         .filter(|value| !value.is_empty())
         .unwrap_or("default")
         .to_string();
-    let director_preferences = if active_profile_id == "default" {
-        default_prompt_director_preferences().to_string()
-    } else {
-        snapshot
+    let director_preferences = match active_profile_id.as_str() {
+        PROMPT_DEFAULT_PROFILE_ID => default_prompt_director_preferences().to_string(),
+        PROMPT_ADVANCED_PROFILE_ID => advanced_prompt_director_preferences().to_string(),
+        _ => snapshot
             .get("directorPreferences")
             .and_then(Value::as_str)
             .unwrap_or_default()
-            .to_string()
+            .to_string(),
     };
+    let script_parsing_contract = snapshot
+        .get("scriptParsingContract")
+        .and_then(Value::as_str)
+        .unwrap_or(if active_profile_id == PROMPT_ADVANCED_PROFILE_ID {
+            PROMPT_CONTRACT_VARIANT_ADVANCED
+        } else {
+            PROMPT_CONTRACT_VARIANT_DEFAULT
+        });
     let profiles_value = json!({
       "profiles": profiles,
       "activeProfileId": active_profile_id
@@ -11965,11 +12152,21 @@ fn apply_cloud_prompt_state(state: &BackendState, prompt_state: &Value) -> Resul
 
     let mut snapshots = serde_json::Map::new();
     snapshots.insert(
-        "default".to_string(),
+        PROMPT_DEFAULT_PROFILE_ID.to_string(),
         json!({
           "templates": default_prompt_templates(),
           "versions": [],
-          "directorPreferences": default_prompt_director_preferences()
+          "directorPreferences": default_prompt_director_preferences(),
+          "scriptParsingContract": PROMPT_CONTRACT_VARIANT_DEFAULT
+        }),
+    );
+    snapshots.insert(
+        PROMPT_ADVANCED_PROFILE_ID.to_string(),
+        json!({
+          "templates": default_prompt_templates(),
+          "versions": [],
+          "directorPreferences": advanced_prompt_director_preferences(),
+          "scriptParsingContract": PROMPT_CONTRACT_VARIANT_ADVANCED
         }),
     );
     snapshots.insert(
@@ -11977,7 +12174,8 @@ fn apply_cloud_prompt_state(state: &BackendState, prompt_state: &Value) -> Resul
         json!({
           "templates": templates.clone(),
           "versions": versions.clone(),
-          "directorPreferences": director_preferences.clone()
+          "directorPreferences": director_preferences.clone(),
+          "scriptParsingContract": script_parsing_contract
         }),
     );
     if let Some(profile_items) = profiles_value.get("profiles").and_then(Value::as_array) {
@@ -11989,7 +12187,16 @@ fn apply_cloud_prompt_state(state: &BackendState, prompt_state: &Value) -> Resul
                 json!({
                   "templates": default_prompt_templates(),
                   "versions": [],
-                  "directorPreferences": default_prompt_director_preferences()
+                  "directorPreferences": if profile_id == PROMPT_ADVANCED_PROFILE_ID {
+                      advanced_prompt_director_preferences()
+                  } else {
+                      default_prompt_director_preferences()
+                  },
+                  "scriptParsingContract": if profile_id == PROMPT_ADVANCED_PROFILE_ID {
+                      PROMPT_CONTRACT_VARIANT_ADVANCED
+                  } else {
+                      PROMPT_CONTRACT_VARIANT_DEFAULT
+                  }
                 })
             });
         }
@@ -12283,14 +12490,9 @@ async fn cloud_pull_paginated_items(
     loop {
         let separator = if endpoint.contains('?') { '&' } else { '?' };
         let path = format!("{endpoint}{separator}page={page}&pageSize={page_size}");
-        let response = cloud_data_request_json(
-            base_url,
-            reqwest::Method::GET,
-            &path,
-            Some(token),
-            None,
-        )
-        .await?;
+        let response =
+            cloud_data_request_json(base_url, reqwest::Method::GET, &path, Some(token), None)
+                .await?;
         let data = response.get("data").cloned().unwrap_or_else(|| json!({}));
         let page_items = data
             .get(item_key)
@@ -12319,14 +12521,8 @@ async fn cloud_pull_projects_v2(
     base_url: &str,
     token: &str,
 ) -> Result<Value, ApiError> {
-    let summaries = cloud_pull_paginated_items(
-        base_url,
-        token,
-        "/api/client/projects",
-        "projects",
-        20,
-    )
-    .await?;
+    let summaries =
+        cloud_pull_paginated_items(base_url, token, "/api/client/projects", "projects", 20).await?;
     let received_local_project_ids = summaries
         .iter()
         .map(|summary| cloud_value_text(summary, "localProjectId"))
@@ -12352,11 +12548,7 @@ async fn cloud_pull_projects_v2(
         if !remote_updated_at.is_empty() {
             let local_updated_at = {
                 let conn = db_connection(state)?;
-                match local_project_updated_at_for_owner(
-                    &conn,
-                    &local_project_id,
-                    &owner_user_id,
-                ) {
+                match local_project_updated_at_for_owner(&conn, &local_project_id, &owner_user_id) {
                     Ok(value) => value,
                     Err(error) if error.status == StatusCode::CONFLICT => {
                         failed += 1;
@@ -12372,26 +12564,24 @@ async fn cloud_pull_projects_v2(
             }
         }
         let path = format!("/api/client/projects/{cloud_project_id}");
-        let project = match cloud_data_request_json(
-            base_url,
-            reqwest::Method::GET,
-            &path,
-            Some(token),
-            None,
-        )
-        .await
-        {
-            Ok(response) => response
-                .get("data")
-                .and_then(|value| value.get("project"))
-                .cloned()
-                .unwrap_or(Value::Null),
-            Err(error) => {
-                failed += 1;
-                eprintln!("[CloudSync] project snapshot pull failed: {}", error.message);
-                continue;
-            }
-        };
+        let project =
+            match cloud_data_request_json(base_url, reqwest::Method::GET, &path, Some(token), None)
+                .await
+            {
+                Ok(response) => response
+                    .get("data")
+                    .and_then(|value| value.get("project"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                Err(error) => {
+                    failed += 1;
+                    eprintln!(
+                        "[CloudSync] project snapshot pull failed: {}",
+                        error.message
+                    );
+                    continue;
+                }
+            };
         match apply_cloud_project_snapshot(state, &project).await {
             Ok(true) => imported += 1,
             Ok(false) => skipped += 1,
@@ -12415,11 +12605,18 @@ async fn cloud_pull_projects_v2(
                          JOIN projects p ON p.id = pm.project_id
                          WHERE pm.user_id = ?1 AND p.owner_user_id <> ?1",
                     )
-                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-                let project_ids = stmt.query_map(params![user_id.as_str()], |row| row.get::<_, String>(0))
-                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+                    .map_err(|error| {
+                        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                    })?;
+                let project_ids = stmt
+                    .query_map(params![user_id.as_str()], |row| row.get::<_, String>(0))
+                    .map_err(|error| {
+                        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                    })?
                     .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+                    .map_err(|error| {
+                        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                    })?;
                 project_ids
             };
             for project_id in memberships {
@@ -12430,7 +12627,9 @@ async fn cloud_pull_projects_v2(
                     "DELETE FROM project_members WHERE project_id = ?1 AND user_id = ?2",
                     params![project_id, user_id.as_str()],
                 )
-                .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+                .map_err(|error| {
+                    ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                })?;
             }
         }
     }
@@ -13666,7 +13865,7 @@ async fn api_debug_logs_delete(State(state): State<BackendState>) -> Result<Json
             params![owner.user_id],
         )
     }
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let legacy_dir = state.data_dir.join("llm-debug-logs");
     if owner.is_admin && legacy_dir.exists() {
         fs::remove_dir_all(&legacy_dir)
@@ -13688,8 +13887,8 @@ async fn api_not_implemented(Path(path): Path<String>) -> (StatusCode, Json<Valu
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_cloud_prompt_template_defaults, available_model_enabled_for_provider,
-        build_scoped_tos_key_prefix_for_user,
+        advanced_prompt_director_preferences, apply_cloud_prompt_template_defaults,
+        available_model_enabled_for_provider, build_scoped_tos_key_prefix_for_user,
         build_upload_tos_key_prefix_for_user, claim_legacy_projects,
         clear_workflow_overrides_for_category, cloud_model_log_identity, cloud_page_is_complete,
         cloud_project_summary_updated_at, cloud_provider_credentials_to_local,
@@ -13698,7 +13897,9 @@ mod tests {
         ensure_project_access, ensure_project_permission, filter_cloud_model_log_page,
         is_prompt_director_preferences_customized, merge_prompt_templates_with_defaults,
         merge_style_presets_with_catalog, normalize_character_gender_value,
-        normalize_character_role_value, normalize_time_of_day_value,
+        normalize_character_role_value, normalize_scene_camera_angle_value,
+        normalize_scene_camera_movement_value, normalize_scene_shot_type_value,
+        normalize_scene_speed_effect_value, normalize_time_of_day_value,
         remove_revoked_shared_library_assets, reset_account_scoped_config,
         upgrade_style_config_for_catalog, validate_project_member_removal, ProjectPermission,
         CLOUD_ADMIN_SESSION_KEY,
@@ -13707,6 +13908,32 @@ mod tests {
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use std::collections::HashSet;
+
+    #[test]
+    fn enhanced_scene_protocol_values_are_normalized_for_storage() {
+        assert_eq!(
+            normalize_scene_shot_type_value(Some("extreme_close")).as_deref(),
+            Some("特写")
+        );
+        assert_eq!(
+            normalize_scene_shot_type_value(Some("detail")).as_deref(),
+            Some("大特写")
+        );
+        assert_eq!(
+            normalize_scene_camera_angle_value(Some("low-angle")).as_deref(),
+            Some("low_angle")
+        );
+        assert_eq!(
+            normalize_scene_speed_effect_value(Some("slow motion")).as_deref(),
+            Some("slow_motion")
+        );
+        assert_eq!(
+            normalize_scene_camera_movement_value(Some("rack_focus")).as_deref(),
+            Some("焦点转移")
+        );
+        assert!(normalize_scene_camera_angle_value(Some("worm_eye")).is_none());
+        assert!(normalize_scene_speed_effect_value(Some("reverse")).is_none());
+    }
 
     #[test]
     fn cloud_prompt_defaults_override_non_customized_templates_only() {
@@ -14103,6 +14330,9 @@ mod tests {
         assert!(!is_prompt_director_preferences_customized(""));
         assert!(!is_prompt_director_preferences_customized(
             default_prompt_director_preferences()
+        ));
+        assert!(!is_prompt_director_preferences_customized(
+            advanced_prompt_director_preferences()
         ));
         assert!(is_prompt_director_preferences_customized(
             "使用快速剪辑和手持镜头"

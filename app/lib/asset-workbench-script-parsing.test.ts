@@ -54,6 +54,35 @@ describe('asset-workbench-script-parsing', () => {
     expect(characters.map(character => character.name)).toEqual(['白叙', '江沉'])
   })
 
+  it('preserves enhanced storyboard protocol fields', () => {
+    const scenes = buildParsedScenes({
+      scenes: [{
+        id: 'scene_enhanced',
+        description: '证据落在桌面上，焦点从手指转移到文件。',
+        duration: 8,
+        shotType: 'detail',
+        cameraAngle: 'low-angle',
+        cameraMovement: 'rack_focus',
+        speedEffect: 'slow motion',
+        transitionIn: 'match-cut'
+      }, {
+        id: 'scene_extreme_close',
+        description: '泪水停在眼睫上。',
+        duration: 4,
+        shotType: 'extreme_close'
+      }]
+    })
+
+    expect(scenes[0]).toMatchObject({
+      shotType: '大特写',
+      cameraAngle: 'low_angle',
+      cameraMovement: '焦点转移',
+      speedEffect: 'slow_motion',
+      transitionIn: 'match_cut'
+    })
+    expect(scenes[1]?.shotType).toBe('特写')
+  })
+
   it('drops a first-person narrator from global assets when it is not a scene character', () => {
     const scenes = buildParsedScenes({
       scenes: [{

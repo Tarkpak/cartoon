@@ -32,6 +32,8 @@ const SCRIPT_PARSE_MAX_DURATION: &str = "15";
 const GPT_TEXT_MAX_COMPLETION_TOKENS: u64 = 65_536;
 const SCRIPT_PARSING_CONTRACT: &str =
     include_str!("../../assets/default-prompts/script_parsing_contract.txt");
+const ADVANCED_SCRIPT_PARSING_CONTRACT: &str =
+    include_str!("../../assets/default-prompts/script_parsing_contract_advanced.txt");
 const ENVIRONMENT_CAPTURE_MODE_PROMPT_RULES: &str = "【环境视角打标（必须执行）】\n1. 每个 scenes[i] 必须输出 environmentCaptureMode 字段：单视角或四视角。\n2. 当场景描述存在明确多视角/多机位/镜头切换（含时间轴多段切镜）时，environmentCaptureMode=四视角。\n3. 单一连续视角表达时，environmentCaptureMode=单视角。\n4. 禁止省略该字段。";
 const MEDIAKIT_BASE_URL: &str = "https://mediakit.cn-beijing.volces.com";
 pub(super) const VIDEO_ENHANCE_UPLOAD_LIMIT_BYTES: usize = 2 * 1024 * 1024 * 1024;
@@ -43,6 +45,14 @@ fn render_runtime_prompt(template: &str, variables: &[(&str, &str)]) -> String {
         output = output.replace(&format!("{{{{{key}}}}}"), value);
     }
     output
+}
+
+fn script_parsing_contract_for_variant(variant: &str) -> &'static str {
+    if variant == PROMPT_CONTRACT_VARIANT_ADVANCED {
+        ADVANCED_SCRIPT_PARSING_CONTRACT
+    } else {
+        SCRIPT_PARSING_CONTRACT
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -506,7 +516,8 @@ fn attach_persisted_media_to_latest_model_log(
         )
         .optional()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    let Some((log_id, response_json, media_refs_json, cloud_payload_json, owner_user_id)) = row else {
+    let Some((log_id, response_json, media_refs_json, cloud_payload_json, owner_user_id)) = row
+    else {
         return Ok(false);
     };
 
@@ -602,8 +613,8 @@ fn llm_dev_write_db_log_impl(
     if let Some(value) = response {
         collect_model_log_media_refs(value, "response", &mut media_refs);
     } else if let Some(raw) = response_raw {
-        let raw_value = serde_json::from_str::<Value>(raw)
-            .unwrap_or_else(|_| Value::String(raw.to_string()));
+        let raw_value =
+            serde_json::from_str::<Value>(raw).unwrap_or_else(|_| Value::String(raw.to_string()));
         collect_model_log_media_refs(&raw_value, "response", &mut media_refs);
     }
     let log_payload = json!({
@@ -4204,8 +4215,8 @@ fn infer_model_scene_shot_type_from_text(text: &str) -> Option<String> {
         "medium" | "medium shot" => "中景",
         "medium_close" | "medium close" | "medium close-up" | "medium closeup" => "中近景",
         "close" | "close-up" | "closeup" | "close shot" => "近景",
-        "extreme_close" | "extreme close-up" | "extreme closeup" => "大特写",
-        "detail" | "detail shot" | "insert shot" => "细节镜头",
+        "extreme_close" | "extreme close-up" | "extreme closeup" => "特写",
+        "detail" | "detail shot" | "insert shot" => "大特写",
         _ if text.contains("细节") || text.contains("插入镜头") => "细节镜头",
         _ if text.contains("大远景") || text.contains("超远景") => "大远景",
         _ if text.contains("中全景") => "中全景",
@@ -4213,7 +4224,8 @@ fn infer_model_scene_shot_type_from_text(text: &str) -> Option<String> {
         _ if text.contains("中景") => "中景",
         _ if text.contains("全景") || text.contains("远景") => "全景",
         _ if text.contains("近景") => "近景",
-        _ if text.contains("大特写") || text.contains("特写") => "大特写",
+        _ if text.contains("大特写") => "大特写",
+        _ if text.contains("特写") => "特写",
         _ => return None,
     };
 
@@ -4259,6 +4271,7 @@ fn infer_model_scene_camera_movement_from_text(text: &str) -> Option<String> {
         "whip_pan" | "whip pan" => "甩镜",
         "dutch_tilt" | "dutch tilt" => "荷兰角",
         "roll" => "旋转",
+        "rack_focus" | "rack focus" => "焦点转移",
         _ if text.contains("固定") || text.contains("定镜") || text.contains("静止") => {
             "固定镜头"
         }
@@ -4282,6 +4295,9 @@ fn infer_model_scene_camera_movement_from_text(text: &str) -> Option<String> {
         _ if text.contains("甩镜") => "甩镜",
         _ if text.contains("荷兰角") || text.contains("倾斜构图") => "荷兰角",
         _ if text.contains("旋转") || text.contains("滚转") => "旋转",
+        _ if text.contains("焦点转移") || text.contains("移焦") || text.contains("拉焦") => {
+            "焦点转移"
+        }
         _ => return None,
     };
 
@@ -4301,6 +4317,82 @@ fn normalize_model_scene_camera_movement(value: Option<Value>, fallback_text: &s
 
     infer_model_scene_camera_movement_from_text(fallback_text)
         .unwrap_or_else(|| "固定镜头".to_string())
+}
+
+fn normalize_model_scene_camera_angle(value: Option<Value>) -> String {
+    let Some(Value::String(raw)) = value else {
+        return "eye_level".to_string();
+    };
+    let text = raw.trim();
+    let normalized = text.to_ascii_lowercase().replace([' ', '-'], "_");
+    if matches!(
+        normalized.as_str(),
+        "eye_level"
+            | "low_angle"
+            | "high_angle"
+            | "top_down"
+            | "side_view"
+            | "front_view"
+            | "rear_view"
+            | "over_shoulder"
+            | "pov"
+            | "three_quarter"
+    ) {
+        return normalized;
+    }
+
+    match text {
+        "平视" => "eye_level",
+        "仰拍" | "低机位" => "low_angle",
+        "俯拍" | "高机位" => "high_angle",
+        "俯瞰" => "top_down",
+        "侧面机位" => "side_view",
+        "正面机位" => "front_view",
+        "背后机位" => "rear_view",
+        "过肩镜头" => "over_shoulder",
+        "主观视角" => "pov",
+        "三分之四侧前机位" => "three_quarter",
+        _ => "eye_level",
+    }
+    .to_string()
+}
+
+fn normalize_model_scene_speed_effect(value: Option<Value>) -> String {
+    let Some(Value::String(raw)) = value else {
+        return "normal".to_string();
+    };
+    let text = raw.trim();
+    let normalized = text.to_ascii_lowercase().replace([' ', '-'], "_");
+    if matches!(
+        normalized.as_str(),
+        "normal" | "slow_motion" | "fast_motion" | "freeze_frame"
+    ) {
+        return normalized;
+    }
+
+    match text {
+        "正常速度" => "normal",
+        "慢镜头" => "slow_motion",
+        "快镜头" | "延时" => "fast_motion",
+        "定格" => "freeze_frame",
+        _ => "normal",
+    }
+    .to_string()
+}
+
+fn normalize_model_scene_transition_in(value: Option<Value>) -> String {
+    let Some(Value::String(raw)) = value else {
+        return "cut".to_string();
+    };
+    let normalized = raw.trim().to_ascii_lowercase().replace([' ', '-'], "_");
+    if matches!(
+        normalized.as_str(),
+        "cut" | "fade_to_black" | "dissolve" | "match_cut"
+    ) {
+        normalized
+    } else {
+        "cut".to_string()
+    }
 }
 
 fn normalize_model_scene_environment_capture_mode_value(value: Option<Value>) -> Option<String> {
@@ -4577,6 +4669,12 @@ fn normalize_model_script_result(model_value: Value, fallback_body: &Value) -> V
                 &fallback_text,
             );
             scene_obj.insert("shotType".to_string(), json!(shot_type));
+            let camera_angle = normalize_model_scene_camera_angle(
+                scene_obj
+                    .remove("cameraAngle")
+                    .or_else(|| scene_obj.remove("camera_angle")),
+            );
+            scene_obj.insert("cameraAngle".to_string(), json!(camera_angle));
             let camera_movement = normalize_model_scene_camera_movement(
                 scene_obj
                     .remove("cameraMovement")
@@ -4584,6 +4682,18 @@ fn normalize_model_script_result(model_value: Value, fallback_body: &Value) -> V
                 &fallback_text,
             );
             scene_obj.insert("cameraMovement".to_string(), json!(camera_movement));
+            let speed_effect = normalize_model_scene_speed_effect(
+                scene_obj
+                    .remove("speedEffect")
+                    .or_else(|| scene_obj.remove("speed_effect")),
+            );
+            scene_obj.insert("speedEffect".to_string(), json!(speed_effect));
+            let transition_in = normalize_model_scene_transition_in(
+                scene_obj
+                    .remove("transitionIn")
+                    .or_else(|| scene_obj.remove("transition_in")),
+            );
+            scene_obj.insert("transitionIn".to_string(), json!(transition_in));
             let environment_capture_mode = normalize_model_scene_environment_capture_mode(
                 scene_obj
                     .remove("environmentCaptureMode")
@@ -4794,7 +4904,9 @@ fn runtime_script_parse_mode_label(mode: &str) -> &'static str {
 
 fn runtime_script_parse_mode_rules(mode: &str) -> &'static str {
     match mode {
-        "origin_explainer" => "当前为科普拆解视频。请把主题拆成多镜头原理演示，不需要剧情冲突、角色对白或戏剧爆点。",
+        "origin_explainer" => {
+            "当前为科普拆解视频。请把主题拆成多镜头原理演示，不需要剧情冲突、角色对白或戏剧爆点。"
+        }
         _ => "根据剧情节奏与情绪起伏安排场景密度，保证每集叙事完整。",
     }
 }
@@ -5081,6 +5193,7 @@ fn build_script_parse_prompt(
     }
 
     let episode_context_brief = build_episode_context_brief(&episode_plan);
+    let contract_variant = get_prompt_contract_variant(conn)?;
     let director_preferences = get_prompt_director_preferences(conn)?;
     let director_prompt = if director_preferences.trim().is_empty() {
         default_prompt_director_preferences()
@@ -5088,7 +5201,7 @@ fn build_script_parse_prompt(
         director_preferences.trim()
     };
     Ok(render_runtime_prompt(
-        SCRIPT_PARSING_CONTRACT,
+        script_parsing_contract_for_variant(&contract_variant),
         &[
             ("novelText", text.as_str()),
             ("style", style.as_str()),
@@ -5141,6 +5254,24 @@ mod director_preferences_tests {
         assert!(preference_position < guard_position);
         assert!(prompt.trim_end().ends_with("只输出 JSON，不要附加解释。"));
         assert!(prompt.contains("严格使用以下 JSON 结构"));
+    }
+
+    #[test]
+    fn advanced_profile_uses_advanced_contract() {
+        let contract = script_parsing_contract_for_variant(PROMPT_CONTRACT_VARIANT_ADVANCED);
+
+        assert!(contract.contains("scenes[i].cameraAngle"));
+        assert!(contract.contains("scenes[i].speedEffect"));
+        assert!(contract.contains("scenes[i].transitionIn"));
+        assert!(contract.contains("\"cameraMovement\": \"static\""));
+    }
+
+    #[test]
+    fn custom_profiles_keep_the_standard_contract() {
+        assert_eq!(
+            script_parsing_contract_for_variant(PROMPT_CONTRACT_VARIANT_DEFAULT),
+            SCRIPT_PARSING_CONTRACT
+        );
     }
 
     #[test]
@@ -7790,6 +7921,22 @@ fn bind_scene_video_reference_numbers_to_text(value: &str, config: &Value) -> St
 
 fn build_scene_video_execution_constraints(scene: &Value, config: &Value) -> String {
     let mut lines = Vec::new();
+    for (key, label) in [
+        ("shotType", "景别"),
+        ("cameraAngle", "机位角度"),
+        ("cameraMovement", "运镜"),
+        ("speedEffect", "速度效果"),
+        ("transitionIn", "入场转场"),
+    ] {
+        if let Some(value) = scene
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            lines.push(format!("{label}：{value}"));
+        }
+    }
     if let Some(camera_note) = scene
         .get("cameraNote")
         .and_then(Value::as_str)
@@ -14807,12 +14954,9 @@ mod tests {
 
     #[test]
     fn provider_video_duration_validation_rejects_silent_clamping() {
-        let kling_error = validate_provider_video_duration(
-            &json!({ "duration": 11 }),
-            "kling",
-            "kling-video-o1",
-        )
-        .expect_err("Kling O1 should reject durations above ten seconds");
+        let kling_error =
+            validate_provider_video_duration(&json!({ "duration": 11 }), "kling", "kling-video-o1")
+                .expect_err("Kling O1 should reject durations above ten seconds");
         assert!(kling_error.message.contains("4-10 秒"));
 
         let gemini_error = validate_provider_video_duration(
@@ -14906,6 +15050,14 @@ mod tests {
     #[test]
     fn model_scene_normalization_preserves_open_ended_creative_values() {
         assert_eq!(
+            normalize_model_scene_shot_type(Some(json!("extreme_close")), ""),
+            "特写"
+        );
+        assert_eq!(
+            normalize_model_scene_shot_type(Some(json!("detail")), ""),
+            "大特写"
+        );
+        assert_eq!(
             normalize_model_scene_shot_type(Some(json!("过肩双人构图")), ""),
             "过肩双人构图"
         );
@@ -14917,6 +15069,42 @@ mod tests {
             normalize_model_scene_dramatic(Some(json!({ "function": "误导与信息遮蔽" })), "")
                 .expect("dramatic metadata should be preserved");
         assert_eq!(dramatic["function"], "误导与信息遮蔽");
+        assert_eq!(
+            normalize_model_scene_camera_movement(Some(json!("rack_focus")), ""),
+            "焦点转移"
+        );
+        assert_eq!(
+            normalize_model_scene_camera_angle(Some(json!("high-angle"))),
+            "high_angle"
+        );
+        assert_eq!(
+            normalize_model_scene_speed_effect(Some(json!("slow motion"))),
+            "slow_motion"
+        );
+        assert_eq!(
+            normalize_model_scene_transition_in(Some(json!("match-cut"))),
+            "match_cut"
+        );
+    }
+
+    #[test]
+    fn scene_video_constraints_include_enhanced_protocol_fields() {
+        let constraints = build_scene_video_execution_constraints(
+            &json!({
+              "shotType": "细节镜头",
+              "cameraAngle": "high_angle",
+              "cameraMovement": "焦点转移",
+              "speedEffect": "slow_motion",
+              "transitionIn": "match_cut"
+            }),
+            &json!({}),
+        );
+
+        assert!(constraints.contains("景别：细节镜头"));
+        assert!(constraints.contains("机位角度：high_angle"));
+        assert!(constraints.contains("运镜：焦点转移"));
+        assert!(constraints.contains("速度效果：slow_motion"));
+        assert!(constraints.contains("入场转场：match_cut"));
     }
 
     #[test]
@@ -15332,8 +15520,7 @@ mod tests {
             "https://api.apib.ai/v1/images/generations",
         ] {
             assert!(
-                provider_image_request_endpoint(base_url, false)
-                    .ends_with("/images/generations")
+                provider_image_request_endpoint(base_url, false).ends_with("/images/generations")
             );
             assert!(provider_image_request_endpoint(base_url, true).ends_with("/images/edits"));
         }
@@ -18027,13 +18214,21 @@ fn validate_script_writing_request(body: &Value) -> Result<(&'static str, String
         "outline" => PROMPT_TEMPLATE_SCRIPT_WRITING_OUTLINE,
         "episode_draft" => PROMPT_TEMPLATE_SCRIPT_WRITING_EPISODE_DRAFT,
         "review" => PROMPT_TEMPLATE_SCRIPT_WRITING_REVIEW,
-        _ => return Err(workflow_validation_error("body.action", "Unsupported action")),
+        _ => {
+            return Err(workflow_validation_error(
+                "body.action",
+                "Unsupported action",
+            ))
+        }
     };
     let context = body.get("context").cloned().unwrap_or_else(|| json!({}));
     let context_text = serde_json::to_string_pretty(&context)
         .map_err(|error| workflow_validation_error("body.context", error.to_string()))?;
     if context_text.chars().count() > 120_000 {
-        return Err(workflow_validation_error("body.context", "Context is too large"));
+        return Err(workflow_validation_error(
+            "body.context",
+            "Context is too large",
+        ));
     }
     Ok((action, context_text))
 }
@@ -18110,16 +18305,23 @@ pub(super) async fn api_script_write(
             run_workflow_text_model(&state, "script_writing", &prompt).await
         })
         .await
-        .map_err(|error| ApiError::new(
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                format!("剧本创作模型调用失败: {}", error),
+            )
+        })?;
+    let data = extract_json_from_text(&model_text).map_err(|error| {
+        ApiError::new(
             StatusCode::BAD_GATEWAY,
-            format!("剧本创作模型调用失败: {}", error),
-        ))?;
-    let data = extract_json_from_text(&model_text).map_err(|error| ApiError::new(
-        StatusCode::BAD_GATEWAY,
-        format!("剧本创作模型 JSON 解析失败: {}", error),
-    ))?;
+            format!("剧本创作模型 JSON 解析失败: {}", error),
+        )
+    })?;
     if !data.is_object() {
-        return Err(ApiError::new(StatusCode::BAD_GATEWAY, "剧本创作模型未返回 JSON 对象"));
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "剧本创作模型未返回 JSON 对象",
+        ));
     }
 
     Ok(Json(json!({
@@ -18204,8 +18406,7 @@ pub(super) async fn api_script_parse(
             format!("剧本解析模型 JSON 解析失败: {}", error),
         )
     })?;
-    let mut payload =
-        normalize_model_script_result(value, &body);
+    let mut payload = normalize_model_script_result(value, &body);
     if let Some(object) = payload.as_object_mut() {
         object.insert(
             "usage".to_string(),
@@ -21490,7 +21691,11 @@ fn mix_sound_effect(
     } else {
         0
     };
-    let safe_volume = if volume.is_finite() { volume.clamp(0.0, 1.0) } else { 0.6 };
+    let safe_volume = if volume.is_finite() {
+        volume.clamp(0.0, 1.0)
+    } else {
+        0.6
+    };
     let trim = duration
         .filter(|value| value.is_finite() && *value > 0.0)
         .map(|value| format!("atrim=0:{},", value))
@@ -21616,11 +21821,25 @@ fn validate_video_merge_options(options: &Value) -> Result<(), ApiError> {
             for field in ["startTime", "duration", "volume"] {
                 workflow_optional_number(item, field, &path)?;
             }
-            if item.get("startTime").and_then(Value::as_f64).is_some_and(|value| value < 0.0) {
-                return Err(workflow_validation_error(format!("{path}.startTime"), "Number must be greater than or equal to 0"));
+            if item
+                .get("startTime")
+                .and_then(Value::as_f64)
+                .is_some_and(|value| value < 0.0)
+            {
+                return Err(workflow_validation_error(
+                    format!("{path}.startTime"),
+                    "Number must be greater than or equal to 0",
+                ));
             }
-            if item.get("volume").and_then(Value::as_f64).is_some_and(|value| !(0.0..=1.0).contains(&value)) {
-                return Err(workflow_validation_error(format!("{path}.volume"), "Number must be between 0 and 1"));
+            if item
+                .get("volume")
+                .and_then(Value::as_f64)
+                .is_some_and(|value| !(0.0..=1.0).contains(&value))
+            {
+                return Err(workflow_validation_error(
+                    format!("{path}.volume"),
+                    "Number must be between 0 and 1",
+                ));
             }
         }
     }
@@ -21663,8 +21882,7 @@ fn ensure_project_permission_from_body(
 }
 
 fn required_permission_project_id(body: &Value) -> Result<String, ApiError> {
-    body
-        .get("projectId")
+    body.get("projectId")
         .and_then(trimmed_json_string)
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "projectId 不能为空"))
 }
@@ -21766,7 +21984,11 @@ pub(super) async fn api_video_merge(
 
         if let Some(sound_effects) = options.get("soundEffects").and_then(Value::as_array) {
             for (index, effect) in sound_effects.iter().enumerate() {
-                let url = effect.get("url").and_then(Value::as_str).map(str::trim).unwrap_or("");
+                let url = effect
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or("");
                 if url.is_empty() {
                     continue;
                 }
@@ -21783,7 +22005,10 @@ pub(super) async fn api_video_merge(
                     &current_path,
                     &effect_path,
                     &effect_output,
-                    effect.get("startTime").and_then(Value::as_f64).unwrap_or(0.0),
+                    effect
+                        .get("startTime")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0),
                     effect.get("duration").and_then(Value::as_f64),
                     effect.get("volume").and_then(Value::as_f64).unwrap_or(0.6),
                 )?;
@@ -21991,9 +22216,9 @@ fn validate_jianying_export_payload(body: &Value) -> Result<&Vec<Value>, ApiErro
             }
         }
         if let Some(sound_effects) = options.get("soundEffects").filter(|value| !value.is_null()) {
-            let items = sound_effects.as_array().ok_or_else(|| {
-                export_validation_error("options.soundEffects", "Expected array")
-            })?;
+            let items = sound_effects
+                .as_array()
+                .ok_or_else(|| export_validation_error("options.soundEffects", "Expected array"))?;
             for (index, item) in items.iter().enumerate() {
                 let path = format!("options.soundEffects.{index}");
                 if !item.is_object() {
@@ -22700,10 +22925,7 @@ fn build_jianying_draft(
         let raw_url = effect.get("url").and_then(Value::as_str).unwrap_or("");
         let start = to_offset_microseconds(effect.get("startTime").and_then(Value::as_f64));
         if start >= timeline_offset {
-            warnings.push(format!(
-                "音效 {}：开始时间超出成片时长，已跳过",
-                index + 1
-            ));
+            warnings.push(format!("音效 {}：开始时间超出成片时长，已跳过", index + 1));
             continue;
         }
         let remaining = timeline_offset - start;
@@ -22731,11 +22953,7 @@ fn build_jianying_draft(
                 index + 1,
                 raw_url
             )),
-            _ => warnings.push(format!(
-                "音效 {}：本地文件不存在 -> {}",
-                index + 1,
-                raw_url
-            )),
+            _ => warnings.push(format!("音效 {}：本地文件不存在 -> {}", index + 1, raw_url)),
         }
 
         let material_id = create_draft_entity_id();

@@ -32,8 +32,10 @@ export interface PromptTemplate {
 }
 
 export const PROMPT_DEFAULT_PROFILE_ID = 'default'
+export const PROMPT_ADVANCED_PROFILE_ID = 'default_advanced_storyboard'
 export const PROMPT_READONLY_PROFILE_IDS = [
-  PROMPT_DEFAULT_PROFILE_ID
+  PROMPT_DEFAULT_PROFILE_ID,
+  PROMPT_ADVANCED_PROFILE_ID
 ] as const
 
 export function isPromptReadonlyProfile(

@@ -7,8 +7,10 @@ import {
 import {
   normalizeSceneEnvironmentCaptureMode,
   normalizeTimeOfDayValue,
+  type SceneCameraAngle,
   type SceneDramatic,
   type SceneCameraMovement,
+  type SceneSpeedEffect,
   type SceneShotType
 } from '#shared/types/script'
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
@@ -43,7 +45,9 @@ interface LoadedProjectScene {
   lastFrame?: string | null
   videoUrl?: string | null
   shotType?: SceneShotType | null
+  cameraAngle?: SceneCameraAngle | null
   cameraMovement?: SceneCameraMovement | null
+  speedEffect?: SceneSpeedEffect | null
   cameraNote?: string | null
   environmentCaptureMode?: string | null
   transitionIn?: AssetWorkbenchTransitionType | null
@@ -97,7 +101,9 @@ export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
       : undefined,
     active: index === 0,
     shotType: scene.shotType || '中景',
+    cameraAngle: scene.cameraAngle || 'eye_level',
     cameraMovement: scene.cameraMovement || '固定镜头',
+    speedEffect: scene.speedEffect || 'normal',
     cameraNote: scene.cameraNote || '',
     environmentCaptureMode: normalizeSceneEnvironmentCaptureMode(scene.environmentCaptureMode),
     transitionIn: scene.transitionIn || 'cut',
@@ -207,7 +213,9 @@ export function buildSaveScenesPayload(scenes: SceneData[]) {
     narration: scene.narration,
     duration: scene.duration,
     shotType: scene.shotType,
+    cameraAngle: scene.cameraAngle,
     cameraMovement: scene.cameraMovement,
+    speedEffect: scene.speedEffect,
     cameraNote: scene.cameraNote,
     environmentCaptureMode: scene.environmentCaptureMode,
     transitionIn: scene.transitionIn,

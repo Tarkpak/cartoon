@@ -1,8 +1,10 @@
 import type { CharacterView, CharacterVoiceAsset } from '#shared/types/character'
 import type {
   SceneCameraMovement,
+  SceneCameraAngle,
   SceneDramatic,
   SceneEnvironmentCaptureMode,
+  SceneSpeedEffect,
   SceneShotType
 } from '#shared/types/script'
 import type {
@@ -21,6 +23,8 @@ export type AssetWorkbenchTransitionType
     | 'zoom'
     | 'blur'
     | 'flash'
+    | 'fade_to_black'
+    | 'match_cut'
     | 'none'
 
 export interface SceneData {
@@ -39,7 +43,9 @@ export interface SceneData {
   setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string }
   active: boolean
   shotType?: SceneShotType
+  cameraAngle?: SceneCameraAngle
   cameraMovement?: SceneCameraMovement
+  speedEffect?: SceneSpeedEffect
   cameraNote?: string
   environmentCaptureMode?: SceneEnvironmentCaptureMode
   transitionIn?: AssetWorkbenchTransitionType

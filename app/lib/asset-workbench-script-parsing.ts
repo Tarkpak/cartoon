@@ -8,11 +8,16 @@ import {
 import { normalizeCharacterGenderText, normalizeCharacterRoleText } from '#shared/types/character'
 import {
   SceneDurationSchema,
+  SCENE_CAMERA_ANGLE_VALUES,
+  SCENE_SPEED_EFFECT_VALUES,
+  type SceneCameraAngle,
   type SceneCameraMovement,
   type SceneDramatic,
   type SceneEnvironmentCaptureMode,
-  type SceneShotType
+  type SceneShotType,
+  type SceneSpeedEffect
 } from '#shared/types/script'
+import type { AssetWorkbenchTransitionType } from '~/lib/asset-workbench-models'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 
 const SCENE_SHOT_TYPE_SET = new Set<SceneShotType>([
@@ -22,6 +27,7 @@ const SCENE_SHOT_TYPE_SET = new Set<SceneShotType>([
   '中景',
   '中近景',
   '近景',
+  '特写',
   '大特写',
   '细节镜头'
 ])
@@ -43,7 +49,14 @@ const SCENE_CAMERA_MOVEMENT_SET = new Set<SceneCameraMovement>([
   '环绕',
   '甩镜',
   '荷兰角',
-  '旋转'
+  '旋转',
+  '焦点转移'
+])
+
+const SCENE_CAMERA_ANGLE_SET = new Set<SceneCameraAngle>(SCENE_CAMERA_ANGLE_VALUES)
+const SCENE_SPEED_EFFECT_SET = new Set<SceneSpeedEffect>(SCENE_SPEED_EFFECT_VALUES)
+const SCENE_TRANSITION_SET = new Set<AssetWorkbenchTransitionType>([
+  'cut', 'fade', 'fade_to_black', 'dissolve', 'match_cut', 'wipe', 'slide', 'zoom', 'blur', 'flash', 'none'
 ])
 
 const SCENE_ENVIRONMENT_CAPTURE_MODE_SET = new Set<SceneEnvironmentCaptureMode>([
@@ -108,7 +121,10 @@ interface ParsedScriptScene {
   episodeIndex?: number
   title?: string
   shotType?: unknown
+  cameraAngle?: unknown
   cameraMovement?: unknown
+  speedEffect?: unknown
+  transitionIn?: unknown
   environmentCaptureMode?: unknown
   dramatic?: unknown
   description: string
@@ -182,8 +198,8 @@ function normalizeParsedSceneShotType(raw: unknown, preserveUnknown = false): Sc
   if (lower === 'medium' || lower === 'medium shot') return '中景'
   if (lower === 'medium_close' || lower === 'medium close' || lower === 'medium close-up' || lower === 'medium closeup') return '中近景'
   if (lower === 'close' || lower === 'close-up' || lower === 'closeup' || lower === 'close shot') return '近景'
-  if (lower === 'extreme_close' || lower === 'extreme close-up' || lower === 'extreme closeup') return '大特写'
-  if (lower === 'detail' || lower === 'detail shot' || lower === 'insert shot') return '细节镜头'
+  if (lower === 'extreme_close' || lower === 'extreme close-up' || lower === 'extreme closeup') return '特写'
+  if (lower === 'detail' || lower === 'detail shot' || lower === 'insert shot') return '大特写'
 
   if (/细节|插入镜头/u.test(value)) return '细节镜头'
   if (/大远景|超远景/u.test(value)) return '大远景'
@@ -192,7 +208,8 @@ function normalizeParsedSceneShotType(raw: unknown, preserveUnknown = false): Sc
   if (/中景/u.test(value)) return '中景'
   if (/全景|远景/u.test(value)) return '全景'
   if (/近景/u.test(value)) return '近景'
-  if (/大特写|特写/u.test(value)) return '大特写'
+  if (/大特写/u.test(value)) return '大特写'
+  if (/特写/u.test(value)) return '特写'
 
   return preserveUnknown ? value : undefined
 }
@@ -214,7 +231,8 @@ function normalizeParsedSceneCameraMovement(raw: unknown, preserveUnknown = fals
     track: '跟拍', tracking: '跟拍', 'tracking shot': '跟拍', dolly: '轨道移动',
     zoom_in: '变焦推进', 'zoom in': '变焦推进', zoom_out: '变焦拉远', 'zoom out': '变焦拉远',
     crane: '升降', handheld: '手持', 'handheld shot': '手持', arc: '环绕', orbit: '环绕', 'arc shot': '环绕',
-    whip_pan: '甩镜', 'whip pan': '甩镜', dutch_tilt: '荷兰角', 'dutch tilt': '荷兰角', roll: '旋转'
+    whip_pan: '甩镜', 'whip pan': '甩镜', dutch_tilt: '荷兰角', 'dutch tilt': '荷兰角', roll: '旋转',
+    rack_focus: '焦点转移', 'rack focus': '焦点转移'
   }
   if (englishAliases[lower]) return englishAliases[lower]
 
@@ -235,8 +253,29 @@ function normalizeParsedSceneCameraMovement(raw: unknown, preserveUnknown = fals
   if (/甩镜/u.test(value)) return '甩镜'
   if (/荷兰角|倾斜构图/u.test(value)) return '荷兰角'
   if (/旋转|滚转/u.test(value)) return '旋转'
+  if (/焦点转移|移焦|拉焦/u.test(value)) return '焦点转移'
 
   return preserveUnknown ? value : undefined
+}
+
+function normalizeParsedSceneCameraAngle(raw: unknown): SceneCameraAngle | undefined {
+  const value = normalizeOptionalString(raw)?.toLowerCase().replace(/[ -]+/g, '_')
+  if (!value) return undefined
+  return SCENE_CAMERA_ANGLE_SET.has(value as SceneCameraAngle) ? value as SceneCameraAngle : undefined
+}
+
+function normalizeParsedSceneSpeedEffect(raw: unknown): SceneSpeedEffect | undefined {
+  const value = normalizeOptionalString(raw)?.toLowerCase().replace(/[ -]+/g, '_')
+  if (!value) return undefined
+  return SCENE_SPEED_EFFECT_SET.has(value as SceneSpeedEffect) ? value as SceneSpeedEffect : undefined
+}
+
+function normalizeParsedSceneTransition(raw: unknown): AssetWorkbenchTransitionType | undefined {
+  const value = normalizeOptionalString(raw)?.toLowerCase().replace(/[ -]+/g, '_')
+  if (!value) return undefined
+  return SCENE_TRANSITION_SET.has(value as AssetWorkbenchTransitionType)
+    ? value as AssetWorkbenchTransitionType
+    : undefined
 }
 
 function inferParsedEnvironmentCaptureMode(options: {
@@ -502,13 +541,15 @@ export function buildParsedScenes(options: {
       shotType: normalizeParsedSceneShotType(scene.shotType, true)
         || normalizeParsedSceneShotType(fallbackText)
       || '中景',
+      cameraAngle: normalizeParsedSceneCameraAngle(scene.cameraAngle) || 'eye_level',
       cameraMovement: normalizeParsedSceneCameraMovement(scene.cameraMovement, true)
         || normalizeParsedSceneCameraMovement(fallbackText)
       || '固定镜头',
+      speedEffect: normalizeParsedSceneSpeedEffect(scene.speedEffect) || 'normal',
       cameraNote: '',
       environmentCaptureMode: normalizeParsedEnvironmentCaptureMode(scene.environmentCaptureMode)
         || inferParsedEnvironmentCaptureMode({ description: scene.description, cameraNote: '' }),
-      transitionIn: 'cut',
+      transitionIn: normalizeParsedSceneTransition(scene.transitionIn) || 'cut',
       transitionOut: 'cut',
       transitionDuration: 0.5,
       usePreviousLastFrameAsFirstFrame: scene.usePreviousLastFrameAsFirstFrame === true,

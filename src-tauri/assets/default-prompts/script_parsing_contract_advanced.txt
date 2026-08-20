@@ -1,0 +1,135 @@
+你需要根据以下输入生成结构化分镜数据。
+
+【输入文本】
+{{novelText}}
+
+【项目画风】
+{{style}}
+
+【时代推断提示】
+{{eraHint}}
+
+【输入规模与模式】
+- 文本长度：约 {{textLength}} 字
+- 单场时长：{{sceneDurationMin}}-{{sceneDurationMax}} 整数秒
+- 场景数量参考：{{recommendedMinScenes}}
+- 解析模式：{{scriptParseModeLabel}}
+
+【解析模式策略】
+{{scriptParseModeRules}}
+
+【本集规划补充】
+{{episodeDramaBrief}}
+
+【当前方案的分镜提示词】
+{{directorPrompt}}
+
+【系统 JSON 协议（最高优先级）】
+1. 只输出合法 JSON，不要 Markdown 代码块、解释、标题或额外文本。
+2. 必须保留下方根结构与字段，不得因分镜提示词改变外层 JSON 数据结构。
+3. 分镜提示词可以自由规定 scenes[i].description 的内容结构、标签、顺序和排版。如果提示词明确规定或通过示例展示了每个分镜的文本格式，必须逐场遵循该格式，并将完整文本写入 description；不得将自定义字段提升为 JSON 字段。
+4. 只有当分镜提示词没有规定或展示 description 格式时，才使用系统默认的完整时间轴镜头描述。
+5. scenes[i].shotType 只能是 extreme_wide、wide、medium_wide、medium、medium_close、close、extreme_close、detail。选择最能代表该镜头景别的值。中文对照：extreme_wide=大远景，wide=全景，medium=中景，medium_close=中近景，close=近景，extreme_close=特写，detail=大特写（道具/证据/眼神级细节）。构图信息不写入本字段，写入 description。
+6. scenes[i].cameraAngle 只能是 eye_level、low_angle、high_angle、top_down、side_view、front_view、rear_view、over_shoulder、pov、three_quarter。选择最能代表该场景主机位的值；若无明显特殊机位，默认使用 eye_level。中文对照：eye_level=平视（默认），high_angle=轻微俯视（弱势/被压迫），low_angle=轻微仰拍（强势/掌控），side_view=侧面机位，three_quarter=三分之四侧前机位，rear_view=背后机位，pov=门外视角（偷窥/旁观），over_shoulder=过肩镜头。top_down（俯瞰）、front_view（正面机位）本剧暂不启用，除非剧情有特殊需要。
+7. scenes[i].cameraMovement 只能是 static、push、pull、pan_left、pan_right、tilt_up、tilt_down、track、dolly、zoom_in、zoom_out、crane、handheld、arc、whip_pan、dutch_tilt、roll、rack_focus。选择最能代表该场景主运镜方式的值。中文对照：static=固定镜头，push=缓慢推近，pull=缓慢拉远，handheld=轻微手持，track=跟随镜头，pan_left/pan_right=横移，crane=升降镜头，arc=环绕镜头，dolly=移动车镜头，zoom_in/zoom_out=变焦推近/拉远，whip_pan=甩镜，dutch_tilt=斜角镜头，roll=旋转镜头，rack_focus=焦点转移。
+
+运镜选择依据 dramatic.function 与叙事需要：
+- 日常对话/家常场景：优先 static，避免无差别使用复杂运镜；复杂运镜的表现力应保留给真正的关键时刻。
+- 钩子/爽点/关键反转场景：可使用 crane、arc、push、pull 等有明确表现力的运镜强化情绪。
+
+【组合技巧参考】
+子弹时间：cameraMovement 选 arc，同时该镜头的连续动作描述采用近乎静止的措辞（“动作近乎凝固，仅有极细微的呼吸起伏，摄影机高速环绕”），已验证生成稳定。多用于动作/悬疑类题材的关键爆点瞬间；剧情向/生活流题材需结合具体场景的 dramatic.function 判断，非默认选项。
+
+8. scenes[i].speedEffect 只能是 normal、slow_motion、fast_motion、freeze_frame。选择最能代表该镜头时间流速处理的值；默认使用 normal。中文对照：normal=正常速度（默认），slow_motion=慢镜头（关键动作/情绪爆点，如摔倒瞬间、摔筷子、落泪瞬间），fast_motion=快镜头/延时（蒙太奇、时间流逝、忙碌感），freeze_frame=定格（单集结尾或全剧结尾需要强调的最后一帧）。
+
+选择依据：dramatic.function 为“爆点”或极强情绪瞬间时，使用 slow_motion 并在 description 中配合“缓慢/轻柔/连贯/自然”等描述词；场景需要明快节奏时，使用 fast_motion 并配合“明快/利落/连贯”等描述词；蒙太奇/多个动作组接的场景，可直接使用 fast_motion 表现整体节奏，也可按 normal 速度分别生成交由剪辑处理；freeze_frame 可直接在生成中定格关键瞬间，也可在剪辑阶段实现。
+
+9. scenes[i].transitionIn 只能是 cut、fade_to_black、dissolve、match_cut。选择最能代表该场景与上一场景衔接方式的值；默认使用 cut。中文对照：cut=硬切（默认，最常用），fade_to_black=黑场转场（时间跳跃/情绪沉淀），dissolve=叠化（回忆/联想过渡），match_cut=匹配剪辑（靠视觉相似性衔接）。
+
+选择依据：闪回/回忆场景使用 dissolve；跨大段时间跳跃使用 fade_to_black；视觉意象强关联的场景（反复出现的关键道具、动作前后呼应）使用 match_cut；其余场景使用 cut。fade_to_black、dissolve 可直接写入生成提示词，由 AI 在镜头首尾呈现转场效果。
+
+【shotType / cameraAngle 叙事驱动规则】
+1. 根据 dramatic.powerShift 取值调整 cameraAngle：
+   - 压迫/弱势状态：cameraAngle 优先选 high_angle。
+   - 反击/揭露状态：cameraAngle 优先选 low_angle 或 eye_level。
+   - 其余日常场景：eye_level。
+2. 涉及证据/道具/泪水/眼神的关键细节镜头：shotType 选 extreme_close 或 detail。
+3. 多人对话默认：shotType 选 medium 或 medium_close，cameraAngle 选 three_quarter。
+
+10. scenes[i].environmentCaptureMode 只能是单视角或四视角；存在多视角、多机位或时间轴切镜时使用四视角，单一连续视角使用单视角。
+11. scenes[i].setting.timeOfDay 使用准确的中文自然语言描述场景时段与光照状态，可参考黎明、早晨、白天、中午、下午、傍晚、夜晚，但不限制于这些值。
+12. scenes[i].setting.era 使用准确的中文时代描述，可参考古代、民国、现代、近未来、架空；原文有明确朝代或世界观时直接使用更具体的描述。
+13. scenes[i].characters[].emotion 使用符合当前表演状态的中文情绪描述，不限制固定词表。
+14. 顶层 characters[].role 使用简洁中文描述角色在故事中的定位，可参考主角、反派、配角、龙套，但不限制固定词表；gender 使用符合原文设定的简洁中文描述，不限制固定词表。
+15. scenes[i].dramatic.function 使用简洁中文概括本场戏剧功能，不限制固定词表。
+16. 每个 duration 必须是数字并处于规定时长范围；totalDuration 必须严格等于所有 duration 之和。若 description 内也展示时长，两处必须一致。
+17. 第一场 usePreviousLastFrameAsFirstFrame 必须为 false；只有时空、人物和动作连续时才可为 true。为 true 时填写 continuityLinkReason，否则使用空字符串。
+18. 旁白同时写入 narration，并出现在 description 的用户自定义格式或默认时间轴中；真实角色对白只写入 description。
+19. scenes[i].props 只包含需要维持视觉一致的真实道具；characters、setting、props、narration、duration 等系统字段不得因分镜提示词而缺失。
+20. 若本集规划补充包含角色、环境或道具锚点，必须优先沿用；冲突优先级为：原文事实 > 本集规划补充 > 分镜提示词。
+21. 禁止自行生成 @图片N、[图片N] 或其他引用编号。
+
+严格使用以下 JSON 结构：
+{
+  "title": "剧本标题",
+  "scenes": [
+    {
+      "id": "scene_001",
+      "title": "场景标题",
+      "shotType": "medium",
+      "cameraAngle": "eye_level",
+      "cameraMovement": "static",
+      "speedEffect": "normal",
+      "transitionIn": "cut",
+      "environmentCaptureMode": "单视角",
+      "dramatic": {
+        "function": "钩子",
+        "conflict": "本场核心冲突",
+        "emotionalCurve": "情绪变化",
+        "audienceHook": "继续观看的理由",
+        "painPoint": "共情或愤怒点",
+        "payoff": "爽点或回报点",
+        "powerShift": "权力关系变化",
+        "antagonistPressure": "施压方式",
+        "protagonistCounter": "反击或铺垫",
+        "cliffhanger": "结尾钩子"
+      },
+      "description": "遵循分镜提示词自定义格式的完整场景说明；未指定格式时使用完整时间轴描述",
+      "setting": {
+        "location": "主环境-子空间",
+        "timeOfDay": "夜晚",
+        "era": "现代",
+        "mood": "情绪氛围",
+        "weather": "天气，可为空"
+      },
+      "characters": [
+        {
+          "name": "角色名",
+          "appearance": "本场外观说明",
+          "emotion": "中性"
+        }
+      ],
+      "props": [
+        {
+          "name": "道具名",
+          "description": "外观或用途"
+        }
+      ],
+      "narration": "旁白或画外音，可为空",
+      "usePreviousLastFrameAsFirstFrame": false,
+      "continuityLinkReason": "",
+      "duration": 8
+    }
+  ],
+  "characters": [
+    {
+      "name": "角色名",
+      "description": "稳定可复用的角色资产描述",
+      "role": "主角",
+      "gender": "男"
+    }
+  ],
+  "totalDuration": 8
+}
+
+只输出 JSON，不要附加解释。

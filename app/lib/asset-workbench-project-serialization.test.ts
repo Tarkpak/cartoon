@@ -184,4 +184,24 @@ describe('asset workbench project serialization', () => {
 
     expect(scenes[0]?.environmentCaptureMode).toBe('四视角')
   })
+
+  it('round-trips enhanced storyboard fields', () => {
+    const scenes = buildLoadedScenes([{
+      id: 'scene_enhanced',
+      title: '关键证据',
+      description: '证据落在桌面上。',
+      duration: 8,
+      cameraAngle: 'high_angle',
+      cameraMovement: '焦点转移',
+      speedEffect: 'freeze_frame',
+      transitionIn: 'fade_to_black'
+    }])
+
+    expect(buildSaveScenesPayload(scenes)[0]).toMatchObject({
+      cameraAngle: 'high_angle',
+      cameraMovement: '焦点转移',
+      speedEffect: 'freeze_frame',
+      transitionIn: 'fade_to_black'
+    })
+  })
 })

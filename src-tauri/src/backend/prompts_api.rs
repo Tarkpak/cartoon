@@ -88,7 +88,17 @@ fn prompt_default_snapshot() -> Value {
     json!({
       "templates": default_prompt_templates(),
       "versions": [],
-      "directorPreferences": default_prompt_director_preferences()
+      "directorPreferences": default_prompt_director_preferences(),
+      "scriptParsingContract": PROMPT_CONTRACT_VARIANT_DEFAULT
+    })
+}
+
+fn prompt_advanced_snapshot() -> Value {
+    json!({
+      "templates": default_prompt_templates(),
+      "versions": [],
+      "directorPreferences": advanced_prompt_director_preferences(),
+      "scriptParsingContract": PROMPT_CONTRACT_VARIANT_ADVANCED
     })
 }
 
@@ -96,7 +106,8 @@ fn build_prompt_snapshot(conn: &Connection) -> Result<Value, ApiError> {
     Ok(json!({
       "templates": get_prompt_templates_config(conn)?,
       "versions": Value::Array(get_all_prompt_versions(conn)?),
-      "directorPreferences": get_prompt_director_preferences(conn)?
+      "directorPreferences": get_prompt_director_preferences(conn)?,
+      "scriptParsingContract": get_prompt_contract_variant(conn)?
     }))
 }
 
@@ -135,19 +146,17 @@ fn save_prompt_profile_state(conn: &Connection, state: &Value) -> Result<(), Api
 }
 
 fn ensure_prompt_profile_state(conn: &Connection) -> Result<Value, ApiError> {
-    let now = now_iso();
     let fallback_snapshot = build_prompt_snapshot(conn)?;
     let mut state = get_config_json(conn, PROMPT_PROFILE_STATE_KEY)?.unwrap_or_else(|| {
         let mut snapshots = serde_json::Map::new();
-        snapshots.insert("default".to_string(), prompt_default_snapshot());
+        snapshots.insert(PROMPT_DEFAULT_PROFILE_ID.to_string(), prompt_default_snapshot());
+        snapshots.insert(
+            PROMPT_ADVANCED_PROFILE_ID.to_string(),
+            prompt_advanced_snapshot(),
+        );
         json!({
-          "activeProfileId": "default",
-          "profiles": [{
-            "id": "default",
-            "name": "默认配置",
-            "createdAt": now,
-            "updatedAt": now
-          }],
+          "activeProfileId": PROMPT_DEFAULT_PROFILE_ID,
+          "profiles": default_prompt_profiles().get("profiles").cloned().unwrap_or_else(|| json!([])),
           "snapshots": snapshots
         })
     });
@@ -169,15 +178,28 @@ fn ensure_prompt_profile_state(conn: &Connection) -> Result<Value, ApiError> {
         profiles.retain(|profile| {
             profile.get("id").and_then(Value::as_str) != Some("default_seedance")
         });
-        if !profiles
-            .iter()
-            .any(|profile| profile.get("id").and_then(Value::as_str) == Some("default"))
-        {
+        if !profiles.iter().any(|profile| {
+            profile.get("id").and_then(Value::as_str) == Some(PROMPT_DEFAULT_PROFILE_ID)
+        }) {
             profiles.insert(
                 0,
                 json!({
-                  "id": "default",
+                  "id": PROMPT_DEFAULT_PROFILE_ID,
                   "name": "默认配置",
+                  "createdAt": now_iso(),
+                  "updatedAt": now_iso()
+                }),
+            );
+        }
+        if !profiles.iter().any(|profile| {
+            profile.get("id").and_then(Value::as_str) == Some(PROMPT_ADVANCED_PROFILE_ID)
+        }) {
+            profiles.insert(
+                1,
+                json!({
+                  "id": PROMPT_ADVANCED_PROFILE_ID,
+                  "name": "增强分镜配置",
+                  "description": "包含精细景别、机位、运镜、速度与转场规则的内置方案",
                   "createdAt": now_iso(),
                   "updatedAt": now_iso()
                 }),
@@ -198,8 +220,10 @@ fn ensure_prompt_profile_state(conn: &Connection) -> Result<Value, ApiError> {
                     .and_then(Value::as_str)
                     .and_then(normalize_profile_name)
                     .unwrap_or_else(|| {
-                        if id == "default" {
+                        if id == PROMPT_DEFAULT_PROFILE_ID {
                             "默认配置"
+                        } else if id == PROMPT_ADVANCED_PROFILE_ID {
+                            "增强分镜配置"
                         } else {
                             "未命名配置"
                         }
@@ -218,12 +242,10 @@ fn ensure_prompt_profile_state(conn: &Connection) -> Result<Value, ApiError> {
                 }
             }
         }
-        profiles.sort_by_key(|profile| {
-            if profile.get("id").and_then(Value::as_str) == Some("default") {
-                0
-            } else {
-                1
-            }
+        profiles.sort_by_key(|profile| match profile.get("id").and_then(Value::as_str) {
+            Some(PROMPT_DEFAULT_PROFILE_ID) => 0,
+            Some(PROMPT_ADVANCED_PROFILE_ID) => 1,
+            _ => 2,
         });
         profiles
             .iter()
@@ -244,7 +266,14 @@ fn ensure_prompt_profile_state(conn: &Connection) -> Result<Value, ApiError> {
             ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "snapshots 数据结构错误")
         })?;
     snapshots.remove("default_seedance");
-    snapshots.insert("default".to_string(), prompt_default_snapshot());
+    snapshots.insert(
+        PROMPT_DEFAULT_PROFILE_ID.to_string(),
+        prompt_default_snapshot(),
+    );
+    snapshots.insert(
+        PROMPT_ADVANCED_PROFILE_ID.to_string(),
+        prompt_advanced_snapshot(),
+    );
     for profile_id in &profile_ids {
         snapshots
             .entry(profile_id.clone())
@@ -264,11 +293,15 @@ fn ensure_prompt_profile_state(conn: &Connection) -> Result<Value, ApiError> {
             snapshot_object
                 .entry("directorPreferences".to_string())
                 .or_insert_with(|| json!(default_prompt_director_preferences()));
+            snapshot_object
+                .entry("scriptParsingContract".to_string())
+                .or_insert_with(|| json!(PROMPT_CONTRACT_VARIANT_DEFAULT));
         } else {
             *snapshot = json!({
               "templates": templates,
               "versions": [],
-              "directorPreferences": default_prompt_director_preferences()
+              "directorPreferences": default_prompt_director_preferences(),
+              "scriptParsingContract": PROMPT_CONTRACT_VARIANT_DEFAULT
             });
         }
     }
@@ -278,12 +311,12 @@ fn ensure_prompt_profile_state(conn: &Connection) -> Result<Value, ApiError> {
         .and_then(Value::as_str)
         .map(|value| {
             if value == "default_seedance" {
-                "default"
+                PROMPT_DEFAULT_PROFILE_ID
             } else {
                 value
             }
         })
-        .unwrap_or("default")
+        .unwrap_or(PROMPT_DEFAULT_PROFILE_ID)
         .to_string();
     let active_exists = profile_ids.iter().any(|profile_id| profile_id == &active);
     object.insert(
@@ -291,7 +324,7 @@ fn ensure_prompt_profile_state(conn: &Connection) -> Result<Value, ApiError> {
         json!(if active_exists {
             active
         } else {
-            "default".to_string()
+            PROMPT_DEFAULT_PROFILE_ID.to_string()
         }),
     );
 
@@ -329,7 +362,7 @@ fn sync_active_prompt_profile_snapshot(conn: &Connection) -> Result<(), ApiError
         .and_then(Value::as_str)
         .unwrap_or("default")
         .to_string();
-    if active == "default" {
+    if is_builtin_prompt_profile(&active) {
         return Ok(());
     }
     let snapshot = build_prompt_snapshot(conn)?;
@@ -352,7 +385,11 @@ fn sync_active_prompt_profile_snapshot(conn: &Connection) -> Result<(), ApiError
 
 fn assert_active_prompt_profile_writable(conn: &Connection) -> Result<(), ApiError> {
     let state = ensure_prompt_profile_state(conn)?;
-    if state.get("activeProfileId").and_then(Value::as_str) == Some("default") {
+    if state
+        .get("activeProfileId")
+        .and_then(Value::as_str)
+        .is_some_and(is_builtin_prompt_profile)
+    {
         Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "内置默认配置不可修改，请先新建并切换到其他配置方案",
@@ -367,16 +404,19 @@ pub(super) async fn api_prompts_get(
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
     let profile_state = ensure_prompt_profile_state(&conn)?;
-    if profile_state.get("activeProfileId").and_then(Value::as_str) == Some("default") {
-        if let Some(snapshot) = profile_state
-            .get("snapshots")
-            .and_then(|value| value.get("default"))
-        {
-            apply_prompt_snapshot(&conn, snapshot)?;
+    if let Some(active_profile_id) = profile_state.get("activeProfileId").and_then(Value::as_str) {
+        if is_builtin_prompt_profile(active_profile_id) {
+            if let Some(snapshot) = profile_state
+                .get("snapshots")
+                .and_then(|value| value.get(active_profile_id))
+            {
+                apply_prompt_snapshot(&conn, snapshot)?;
+            }
         }
     }
     let templates = get_prompt_templates_config(&conn)?;
     let director_preferences = get_prompt_director_preferences(&conn)?;
+    let script_parsing_contract = get_prompt_contract_variant(&conn)?;
     let profiles = prompt_profile_result(&profile_state);
 
     Ok(Json(json!({
@@ -385,6 +425,7 @@ pub(super) async fn api_prompts_get(
         "templates": templates,
         "directorPreferences": director_preferences,
         "directorPreferencesCustomized": is_prompt_director_preferences_customized(&director_preferences),
+        "scriptParsingContract": script_parsing_contract,
         "profiles": profiles.get("profiles").cloned().unwrap_or_else(|| json!([])),
         "activeProfileId": profiles.get("activeProfileId").cloned().unwrap_or(json!("default"))
       }
@@ -681,18 +722,144 @@ pub(super) async fn api_prompt_profiles_get(
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
     let state = ensure_prompt_profile_state(&conn)?;
-    if state.get("activeProfileId").and_then(Value::as_str) == Some("default") {
-        if let Some(snapshot) = state
-            .get("snapshots")
-            .and_then(|value| value.get("default"))
-        {
-            apply_prompt_snapshot(&conn, snapshot)?;
+    if let Some(active_profile_id) = state.get("activeProfileId").and_then(Value::as_str) {
+        if is_builtin_prompt_profile(active_profile_id) {
+            if let Some(snapshot) = state
+                .get("snapshots")
+                .and_then(|value| value.get(active_profile_id))
+            {
+                apply_prompt_snapshot(&conn, snapshot)?;
+            }
         }
     }
     Ok(Json(json!({
       "success": true,
       "data": prompt_profile_result(&state)
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn prompt_test_connection() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory database");
+        conn.execute_batch(
+            "CREATE TABLE system_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );",
+        )
+        .expect("create system_config");
+        conn
+    }
+
+    #[test]
+    fn ensure_profiles_injects_advanced_builtin_without_replacing_custom_profiles() {
+        let conn = prompt_test_connection();
+        let custom_snapshot = json!({
+          "templates": default_prompt_templates(),
+          "versions": [],
+          "directorPreferences": "保留我的自定义提示词"
+        });
+        set_config_json(
+            &conn,
+            PROMPT_PROFILE_STATE_KEY,
+            &json!({
+              "activeProfileId": "profile_custom",
+              "profiles": [
+                {
+                  "id": PROMPT_DEFAULT_PROFILE_ID,
+                  "name": "默认配置",
+                  "createdAt": "2026-01-01T00:00:00Z",
+                  "updatedAt": "2026-01-01T00:00:00Z"
+                },
+                {
+                  "id": "profile_custom",
+                  "name": "我的配置",
+                  "createdAt": "2026-01-02T00:00:00Z",
+                  "updatedAt": "2026-01-02T00:00:00Z"
+                }
+              ],
+              "snapshots": {
+                PROMPT_DEFAULT_PROFILE_ID: prompt_default_snapshot(),
+                "profile_custom": custom_snapshot
+              }
+            }),
+        )
+        .expect("seed profile state");
+
+        let state = ensure_prompt_profile_state(&conn).expect("ensure profile state");
+        let profile_ids = state["profiles"]
+            .as_array()
+            .expect("profiles")
+            .iter()
+            .filter_map(|profile| profile["id"].as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(state["activeProfileId"], json!("profile_custom"));
+        assert_eq!(
+            profile_ids,
+            vec![
+                PROMPT_DEFAULT_PROFILE_ID,
+                PROMPT_ADVANCED_PROFILE_ID,
+                "profile_custom"
+            ]
+        );
+        assert_eq!(
+            state["snapshots"]["profile_custom"]["directorPreferences"],
+            json!("保留我的自定义提示词")
+        );
+        assert_eq!(
+            state["snapshots"][PROMPT_ADVANCED_PROFILE_ID]["directorPreferences"],
+            json!(advanced_prompt_director_preferences())
+        );
+    }
+
+    #[test]
+    fn builtin_profile_guard_covers_both_system_profiles() {
+        assert!(is_builtin_prompt_profile(PROMPT_DEFAULT_PROFILE_ID));
+        assert!(is_builtin_prompt_profile(PROMPT_ADVANCED_PROFILE_ID));
+        assert!(!is_builtin_prompt_profile("profile_custom"));
+    }
+
+    #[test]
+    fn custom_profile_can_retain_the_advanced_contract_variant() {
+        let conn = prompt_test_connection();
+        set_config_json(
+            &conn,
+            PROMPT_PROFILE_STATE_KEY,
+            &json!({
+              "activeProfileId": "profile_advanced_copy",
+              "profiles": [{
+                "id": "profile_advanced_copy",
+                "name": "增强配置副本",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-01-01T00:00:00Z"
+              }],
+              "snapshots": {
+                "profile_advanced_copy": {
+                  "templates": default_prompt_templates(),
+                  "versions": [],
+                  "directorPreferences": advanced_prompt_director_preferences(),
+                  "scriptParsingContract": PROMPT_CONTRACT_VARIANT_ADVANCED
+                }
+              }
+            }),
+        )
+        .expect("seed advanced copy");
+
+        let state = ensure_prompt_profile_state(&conn).expect("ensure profile state");
+        assert_eq!(
+            state["snapshots"]["profile_advanced_copy"]["scriptParsingContract"],
+            json!(PROMPT_CONTRACT_VARIANT_ADVANCED)
+        );
+        assert_eq!(
+            get_prompt_contract_variant(&conn).expect("contract variant"),
+            PROMPT_CONTRACT_VARIANT_ADVANCED
+        );
+    }
 }
 
 pub(super) async fn api_prompt_profiles_post(
@@ -744,13 +911,13 @@ pub(super) async fn api_prompt_profiles_post(
                 .and_then(Value::as_str)
                 .map(str::to_string)
         })
-        .unwrap_or_else(|| "default".to_string());
+        .unwrap_or_else(|| PROMPT_DEFAULT_PROFILE_ID.to_string());
     let mut snapshot = profiles_payload
         .get("snapshots")
         .and_then(|snapshots| snapshots.get(&source_id))
         .cloned()
         .unwrap_or_else(prompt_default_snapshot);
-    if source_id == "default" {
+    if is_builtin_prompt_profile(&source_id) {
         if let Some(templates) = snapshot.get_mut("templates").and_then(Value::as_array_mut) {
             for template in templates {
                 if let Some(obj) = template.as_object_mut() {
@@ -811,7 +978,7 @@ pub(super) async fn api_prompt_profiles_put(
     if id.trim().is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "缺少配置 ID"));
     }
-    if id == "default" {
+    if is_builtin_prompt_profile(&id) {
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "内置默认配置不可修改，请先新建并切换到其他配置方案",
@@ -895,7 +1062,7 @@ pub(super) async fn api_prompt_profiles_delete(
     if id.trim().is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "缺少配置 ID"));
     }
-    if id == "default" {
+    if is_builtin_prompt_profile(&id) {
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "内置默认配置不可修改，请先新建并切换到其他配置方案",

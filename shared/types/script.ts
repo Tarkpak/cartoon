@@ -279,6 +279,34 @@ export type SceneShotType = z.infer<typeof SceneShotTypeSchema>
 export const SceneCameraMovementSchema = z.string().trim().min(1).describe('运镜方式')
 export type SceneCameraMovement = z.infer<typeof SceneCameraMovementSchema>
 
+/** 场景主机位角度（与分镜 JSON 协议保持一致） */
+export const SCENE_CAMERA_ANGLE_VALUES = [
+  'eye_level',
+  'low_angle',
+  'high_angle',
+  'top_down',
+  'side_view',
+  'front_view',
+  'rear_view',
+  'over_shoulder',
+  'pov',
+  'three_quarter'
+] as const
+export const SceneCameraAngleSchema = z.enum(SCENE_CAMERA_ANGLE_VALUES)
+  .describe('场景主机位角度')
+export type SceneCameraAngle = z.infer<typeof SceneCameraAngleSchema>
+
+/** 场景时间流速效果（与分镜 JSON 协议保持一致） */
+export const SCENE_SPEED_EFFECT_VALUES = [
+  'normal',
+  'slow_motion',
+  'fast_motion',
+  'freeze_frame'
+] as const
+export const SceneSpeedEffectSchema = z.enum(SCENE_SPEED_EFFECT_VALUES)
+  .describe('场景时间流速效果')
+export type SceneSpeedEffect = z.infer<typeof SceneSpeedEffectSchema>
+
 /** 环境参考取景模式（用于环境资产引用） */
 export const SceneEnvironmentCaptureModeSchema = z.enum([
   '单视角',
@@ -336,7 +364,9 @@ export const SceneSchema = z.object({
   episodeIndex: z.number().int().min(1).optional().describe('所属分集序号（从1开始）'),
   title: z.string().optional().describe('场景标题'),
   shotType: SceneShotTypeSchema.optional(),
+  cameraAngle: SceneCameraAngleSchema.optional(),
   cameraMovement: SceneCameraMovementSchema.optional(),
+  speedEffect: SceneSpeedEffectSchema.optional(),
   environmentCaptureMode: SceneEnvironmentCaptureModeSchema.optional()
     .describe('环境参考取景模式：单视角或四视角'),
   description: z.string().describe('场景描述'),

@@ -57,6 +57,10 @@ export interface ParseScriptResponse {
       episodeIndex?: number
       title?: string
       shotType?: SceneData['shotType']
+      cameraAngle?: SceneData['cameraAngle']
+      cameraMovement?: SceneData['cameraMovement']
+      speedEffect?: SceneData['speedEffect']
+      transitionIn?: SceneData['transitionIn']
       environmentCaptureMode?: SceneData['environmentCaptureMode']
       description: string
       dramatic?: SceneDramatic

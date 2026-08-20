@@ -325,7 +325,9 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
             lastFrame?: string | null
             videoUrl?: string | null
             shotType?: SceneData['shotType'] | null
+            cameraAngle?: SceneData['cameraAngle'] | null
             cameraMovement?: SceneData['cameraMovement'] | null
+            speedEffect?: SceneData['speedEffect'] | null
             cameraNote?: string | null
             transitionIn?: SceneData['transitionIn'] | null
             transitionOut?: SceneData['transitionOut'] | null

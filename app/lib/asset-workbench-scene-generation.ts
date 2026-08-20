@@ -27,6 +27,11 @@ export interface AssetWorkflowScenePayload {
   sceneIndex?: number
   description: string
   dramatic?: SceneData['dramatic']
+  shotType?: SceneData['shotType']
+  cameraAngle?: SceneData['cameraAngle']
+  cameraMovement?: SceneData['cameraMovement']
+  speedEffect?: SceneData['speedEffect']
+  transitionIn?: SceneData['transitionIn']
   cameraNote?: string
   duration: number
   setting?: SceneData['setting']
@@ -170,6 +175,11 @@ export function buildAssetWorkflowScenePayload(
     sceneIndex: sceneIndex >= 0 ? sceneIndex + 1 : undefined,
     description: options.resolveSceneDescriptionWithoutAssetMentions(options.scene.description),
     dramatic: options.scene.dramatic,
+    shotType: options.scene.shotType,
+    cameraAngle: options.scene.cameraAngle,
+    cameraMovement: options.scene.cameraMovement,
+    speedEffect: options.scene.speedEffect,
+    transitionIn: options.scene.transitionIn,
     cameraNote: buildSceneGenerationCameraNote(options),
     duration: options.scene.duration,
     setting: options.scene.setting,

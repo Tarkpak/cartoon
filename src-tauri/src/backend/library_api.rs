@@ -44,17 +44,9 @@ fn library_optional_string(value: Option<&Value>) -> Option<String> {
         .map(str::to_string)
 }
 
-fn library_required_choice(
-    body: &Value,
-    key: &str,
-    allowed: &[&str],
-) -> Result<String, ApiError> {
-    let value = library_optional_string(body.get(key)).ok_or_else(|| {
-        ApiError::new(
-            StatusCode::BAD_REQUEST,
-            format!("{key} 不能为空"),
-        )
-    })?;
+fn library_required_choice(body: &Value, key: &str, allowed: &[&str]) -> Result<String, ApiError> {
+    let value = library_optional_string(body.get(key))
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, format!("{key} 不能为空")))?;
     if !allowed.contains(&value.as_str()) {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -72,10 +64,7 @@ fn library_category_media_type(category: &str) -> &'static str {
     }
 }
 
-fn validate_library_category_media_type(
-    category: &str,
-    media_type: &str,
-) -> Result<(), ApiError> {
+fn validate_library_category_media_type(category: &str, media_type: &str) -> Result<(), ApiError> {
     if library_category_media_type(category) != media_type {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -169,9 +158,9 @@ fn library_search_matches(asset: &Value, keyword: &str) -> bool {
             .get("tags")
             .and_then(Value::as_array)
             .is_some_and(|tags| {
-                tags.iter().filter_map(Value::as_str).any(|tag| {
-                    tag.to_lowercase().contains(&keyword)
-                })
+                tags.iter()
+                    .filter_map(Value::as_str)
+                    .any(|tag| tag.to_lowercase().contains(&keyword))
             })
 }
 
@@ -181,7 +170,9 @@ pub(super) async fn api_library_assets_list(
 ) -> Result<Json<Value>, ApiError> {
     let conn = db_connection(&state)?;
     let mut stmt = conn
-        .prepare(&format!("{LIBRARY_ASSET_SELECT} ORDER BY favorite DESC, updated_at DESC"))
+        .prepare(&format!(
+            "{LIBRARY_ASSET_SELECT} ORDER BY favorite DESC, updated_at DESC"
+        ))
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let assets = stmt
         .query_map([], library_asset_from_row)
@@ -192,7 +183,9 @@ pub(super) async fn api_library_assets_list(
     let filtered = assets
         .into_iter()
         .filter(|asset| {
-            if query.include_deleted != Some(true) && !asset.get("deletedAt").unwrap_or(&Value::Null).is_null() {
+            if query.include_deleted != Some(true)
+                && !asset.get("deletedAt").unwrap_or(&Value::Null).is_null()
+            {
                 return false;
             }
             if let Some(media_type) = &query.media_type {
@@ -210,7 +203,10 @@ pub(super) async fn api_library_assets_list(
                     return false;
                 }
             }
-            query.keyword.as_deref().map_or(true, |keyword| library_search_matches(asset, keyword))
+            query
+                .keyword
+                .as_deref()
+                .map_or(true, |keyword| library_search_matches(asset, keyword))
         })
         .collect::<Vec<_>>();
     let total = filtered.len();
@@ -302,7 +298,9 @@ async fn sync_library_asset_to_cloud(
     if let Some(versions) = versions {
         payload["versions"] = Value::Array(versions);
     }
-    if let Err(error) = cloud_post_client_json(state, "/api/client/library/assets/sync", payload).await {
+    if let Err(error) =
+        cloud_post_client_json(state, "/api/client/library/assets/sync", payload).await
+    {
         eprintln!("[CloudSync] library asset sync failed: {}", error.message);
     }
 }
@@ -365,8 +363,14 @@ pub(super) async fn api_library_assets_create(
     let media_type = library_required_choice(&body, "mediaType", LIBRARY_MEDIA_TYPES)?;
     let category = library_required_choice(&body, "category", LIBRARY_CATEGORIES)?;
     validate_library_category_media_type(&category, &media_type)?;
-    let source_type = library_optional_string(body.get("sourceType"))
-        .unwrap_or_else(|| if body.get("sourceUrl").is_some() { "url" } else { "upload" }.to_string());
+    let source_type = library_optional_string(body.get("sourceType")).unwrap_or_else(|| {
+        if body.get("sourceUrl").is_some() {
+            "url"
+        } else {
+            "upload"
+        }
+        .to_string()
+    });
     if !LIBRARY_SOURCE_TYPES.contains(&source_type.as_str()) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "sourceType 无效"));
     }
@@ -378,7 +382,8 @@ pub(super) async fn api_library_assets_create(
     let now = now_iso();
     let conn = db_connection(&state)?;
     let (owner_user_id, owner_account, owner_display_name) = local_library_owner(&conn);
-    let visibility = library_optional_string(body.get("visibility")).unwrap_or_else(|| "private".to_string());
+    let visibility =
+        library_optional_string(body.get("visibility")).unwrap_or_else(|| "private".to_string());
     if !LIBRARY_VISIBILITIES.contains(&visibility.as_str()) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "visibility 无效"));
     }
@@ -416,7 +421,9 @@ pub(super) async fn api_library_assets_create(
             library_optional_string(body.get("sourceProjectId")),
             library_optional_string(body.get("copyrightNote")).unwrap_or_default(),
             library_optional_string(body.get("licenseExpiresAt")),
-            body.get("favorite").and_then(Value::as_bool).unwrap_or(false) as i64,
+            body.get("favorite")
+                .and_then(Value::as_bool)
+                .unwrap_or(false) as i64,
             visibility,
             library_json_text(body.get("bundle"), "null"),
             library_json_text(body.get("shares"), "[]"),
@@ -426,9 +433,8 @@ pub(super) async fn api_library_assets_create(
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     insert_library_version(&conn, &id, 1, &body, &url, &now)?;
-    let asset = library_asset_by_id(&conn, &id)?.ok_or_else(|| {
-        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "资源创建后读取失败")
-    })?;
+    let asset = library_asset_by_id(&conn, &id)?
+        .ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "资源创建后读取失败"))?;
     let versions = library_asset_versions(&conn, &id)?;
     drop(conn);
     sync_library_asset_to_cloud(&state, asset.clone(), Some(versions)).await;
@@ -443,7 +449,9 @@ pub(super) async fn api_library_asset_get(
     let asset = library_asset_by_id(&conn, &id)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "资源不存在"))?;
     let versions = library_asset_versions(&conn, &id)?;
-    Ok(Json(json!({ "success": true, "data": { "asset": asset, "versions": versions } })))
+    Ok(Json(
+        json!({ "success": true, "data": { "asset": asset, "versions": versions } }),
+    ))
 }
 
 pub(super) async fn api_library_asset_update(
@@ -455,21 +463,42 @@ pub(super) async fn api_library_asset_update(
     let existing = library_asset_by_id(&conn, &id)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "资源不存在"))?;
     if existing.get("permission").and_then(Value::as_str) != Some("edit") {
-        return Err(ApiError::new(StatusCode::FORBIDDEN, "当前资源只能查看或使用"));
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "当前资源只能查看或使用",
+        ));
     }
-    let name = library_optional_string(body.get("name"))
-        .unwrap_or_else(|| existing.get("name").and_then(Value::as_str).unwrap_or("未命名资源").to_string());
-    let category = library_optional_string(body.get("category"))
-        .unwrap_or_else(|| existing.get("category").and_then(Value::as_str).unwrap_or("other").to_string());
+    let name = library_optional_string(body.get("name")).unwrap_or_else(|| {
+        existing
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("未命名资源")
+            .to_string()
+    });
+    let category = library_optional_string(body.get("category")).unwrap_or_else(|| {
+        existing
+            .get("category")
+            .and_then(Value::as_str)
+            .unwrap_or("other")
+            .to_string()
+    });
     if !LIBRARY_CATEGORIES.contains(&category.as_str()) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "category 无效"));
     }
     validate_library_category_media_type(
         &category,
-        existing.get("mediaType").and_then(Value::as_str).unwrap_or("image"),
+        existing
+            .get("mediaType")
+            .and_then(Value::as_str)
+            .unwrap_or("image"),
     )?;
-    let visibility = library_optional_string(body.get("visibility"))
-        .unwrap_or_else(|| existing.get("visibility").and_then(Value::as_str).unwrap_or("private").to_string());
+    let visibility = library_optional_string(body.get("visibility")).unwrap_or_else(|| {
+        existing
+            .get("visibility")
+            .and_then(Value::as_str)
+            .unwrap_or("private")
+            .to_string()
+    });
     if !LIBRARY_VISIBILITIES.contains(&visibility.as_str()) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "visibility 无效"));
     }
@@ -481,16 +510,34 @@ pub(super) async fn api_library_asset_update(
             .unwrap_or("image")
             .to_string();
         drop(conn);
-        let persisted = persist_library_media(&state, &body, &media_type, &format!("library_{id}_replacement")).await?;
+        let persisted = persist_library_media(
+            &state,
+            &body,
+            &media_type,
+            &format!("library_{id}_replacement"),
+        )
+        .await?;
         conn = db_connection(&state)?;
         persisted
     } else {
-        library_optional_string(body.get("url"))
-            .unwrap_or_else(|| existing.get("url").and_then(Value::as_str).unwrap_or_default().to_string())
+        library_optional_string(body.get("url")).unwrap_or_else(|| {
+            existing
+                .get("url")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        })
     };
-    let previous_url = existing.get("url").and_then(Value::as_str).unwrap_or_default();
+    let previous_url = existing
+        .get("url")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let previous_version = existing.get("version").and_then(Value::as_i64).unwrap_or(1);
-    let next_version = if next_url != previous_url { previous_version + 1 } else { previous_version };
+    let next_version = if next_url != previous_url {
+        previous_version + 1
+    } else {
+        previous_version
+    };
     let now = now_iso();
     conn.execute(
         "UPDATE library_assets SET name = ?1, category = ?2, description = ?3, tags_json = ?4,
@@ -499,26 +546,70 @@ pub(super) async fn api_library_asset_update(
            license_expires_at = ?15, favorite = ?16, visibility = ?17, bundle_json = ?18,
            shares_json = ?19, version = ?20, updated_at = ?21, deleted_at = ?22 WHERE id = ?23",
         params![
-            name, category,
-            library_optional_string(body.get("description")).or_else(|| library_optional_string(existing.get("description"))).unwrap_or_default(),
-            body.get("tags").map(Value::to_string).unwrap_or_else(|| existing.get("tags").cloned().unwrap_or_else(|| json!([])).to_string()),
+            name,
+            category,
+            library_optional_string(body.get("description"))
+                .or_else(|| library_optional_string(existing.get("description")))
+                .unwrap_or_default(),
+            body.get("tags")
+                .map(Value::to_string)
+                .unwrap_or_else(|| existing
+                    .get("tags")
+                    .cloned()
+                    .unwrap_or_else(|| json!([]))
+                    .to_string()),
             next_url,
-            library_optional_string(body.get("mimeType")).or_else(|| library_optional_string(existing.get("mimeType"))),
-            body.get("sizeBytes").and_then(Value::as_i64).or_else(|| existing.get("sizeBytes").and_then(Value::as_i64)),
-            body.get("width").and_then(Value::as_i64).or_else(|| existing.get("width").and_then(Value::as_i64)),
-            body.get("height").and_then(Value::as_i64).or_else(|| existing.get("height").and_then(Value::as_i64)),
-            body.get("durationMs").and_then(Value::as_i64).or_else(|| existing.get("durationMs").and_then(Value::as_i64)),
-            library_optional_string(body.get("contentHash")).or_else(|| library_optional_string(existing.get("contentHash"))),
-            library_optional_string(body.get("perceptualHash")).or_else(|| library_optional_string(existing.get("perceptualHash"))),
-            library_optional_string(body.get("sourceUrl")).or_else(|| library_optional_string(existing.get("sourceUrl"))),
-            library_optional_string(body.get("copyrightNote")).or_else(|| library_optional_string(existing.get("copyrightNote"))).unwrap_or_default(),
-            library_optional_string(body.get("licenseExpiresAt")).or_else(|| library_optional_string(existing.get("licenseExpiresAt"))),
-            body.get("favorite").and_then(Value::as_bool).or_else(|| existing.get("favorite").and_then(Value::as_bool)).unwrap_or(false) as i64,
+            library_optional_string(body.get("mimeType"))
+                .or_else(|| library_optional_string(existing.get("mimeType"))),
+            body.get("sizeBytes")
+                .and_then(Value::as_i64)
+                .or_else(|| existing.get("sizeBytes").and_then(Value::as_i64)),
+            body.get("width")
+                .and_then(Value::as_i64)
+                .or_else(|| existing.get("width").and_then(Value::as_i64)),
+            body.get("height")
+                .and_then(Value::as_i64)
+                .or_else(|| existing.get("height").and_then(Value::as_i64)),
+            body.get("durationMs")
+                .and_then(Value::as_i64)
+                .or_else(|| existing.get("durationMs").and_then(Value::as_i64)),
+            library_optional_string(body.get("contentHash"))
+                .or_else(|| library_optional_string(existing.get("contentHash"))),
+            library_optional_string(body.get("perceptualHash"))
+                .or_else(|| library_optional_string(existing.get("perceptualHash"))),
+            library_optional_string(body.get("sourceUrl"))
+                .or_else(|| library_optional_string(existing.get("sourceUrl"))),
+            library_optional_string(body.get("copyrightNote"))
+                .or_else(|| library_optional_string(existing.get("copyrightNote")))
+                .unwrap_or_default(),
+            library_optional_string(body.get("licenseExpiresAt"))
+                .or_else(|| library_optional_string(existing.get("licenseExpiresAt"))),
+            body.get("favorite")
+                .and_then(Value::as_bool)
+                .or_else(|| existing.get("favorite").and_then(Value::as_bool))
+                .unwrap_or(false) as i64,
             visibility,
-            body.get("bundle").map(Value::to_string).unwrap_or_else(|| existing.get("bundle").cloned().unwrap_or(Value::Null).to_string()),
-            body.get("shares").map(Value::to_string).unwrap_or_else(|| existing.get("shares").cloned().unwrap_or_else(|| json!([])).to_string()),
-            next_version, now,
-            if body.get("restore").and_then(Value::as_bool) == Some(true) { None::<String> } else { library_optional_string(existing.get("deletedAt")) },
+            body.get("bundle")
+                .map(Value::to_string)
+                .unwrap_or_else(|| existing
+                    .get("bundle")
+                    .cloned()
+                    .unwrap_or(Value::Null)
+                    .to_string()),
+            body.get("shares")
+                .map(Value::to_string)
+                .unwrap_or_else(|| existing
+                    .get("shares")
+                    .cloned()
+                    .unwrap_or_else(|| json!([]))
+                    .to_string()),
+            next_version,
+            now,
+            if body.get("restore").and_then(Value::as_bool) == Some(true) {
+                None::<String>
+            } else {
+                library_optional_string(existing.get("deletedAt"))
+            },
             id,
         ],
     )
@@ -559,48 +650,82 @@ pub(super) async fn api_library_assets_batch(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let ids = body.get("ids").and_then(Value::as_array).ok_or_else(|| {
-        ApiError::new(StatusCode::BAD_REQUEST, "ids 不能为空")
-    })?;
-    let ids = ids.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>();
+    let ids = body
+        .get("ids")
+        .and_then(Value::as_array)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "ids 不能为空"))?;
+    let ids = ids
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
     if ids.is_empty() || ids.len() > 200 {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "ids 数量必须在 1-200 之间"));
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "ids 数量必须在 1-200 之间",
+        ));
     }
     let conn = db_connection(&state)?;
     let now = now_iso();
     let action = library_optional_string(body.get("action")).unwrap_or_default();
     let mut changed = Vec::new();
     for id in ids {
-        let Some(existing) = library_asset_by_id(&conn, &id)? else { continue };
-        if existing.get("permission").and_then(Value::as_str) != Some("edit") { continue; }
+        let Some(existing) = library_asset_by_id(&conn, &id)? else {
+            continue;
+        };
+        if existing.get("permission").and_then(Value::as_str) != Some("edit") {
+            continue;
+        }
         match action.as_str() {
             "favorite" => {
-                let favorite = body.get("favorite").and_then(Value::as_bool).unwrap_or(true) as i64;
-                conn.execute("UPDATE library_assets SET favorite = ?1, updated_at = ?2 WHERE id = ?3", params![favorite, now, id])
+                let favorite = body
+                    .get("favorite")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true) as i64;
+                conn.execute(
+                    "UPDATE library_assets SET favorite = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![favorite, now, id],
+                )
             }
             "tags" => {
                 let tags = library_json_text(body.get("tags"), "[]");
-                conn.execute("UPDATE library_assets SET tags_json = ?1, updated_at = ?2 WHERE id = ?3", params![tags, now, id])
+                conn.execute(
+                    "UPDATE library_assets SET tags_json = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![tags, now, id],
+                )
             }
             "category" => {
                 let category = library_required_choice(&body, "category", LIBRARY_CATEGORIES)?;
                 validate_library_category_media_type(
                     &category,
-                    existing.get("mediaType").and_then(Value::as_str).unwrap_or("image"),
+                    existing
+                        .get("mediaType")
+                        .and_then(Value::as_str)
+                        .unwrap_or("image"),
                 )?;
-                conn.execute("UPDATE library_assets SET category = ?1, updated_at = ?2 WHERE id = ?3", params![category, now, id])
+                conn.execute(
+                    "UPDATE library_assets SET category = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![category, now, id],
+                )
             }
-            "delete" => conn.execute("UPDATE library_assets SET deleted_at = ?1, updated_at = ?2 WHERE id = ?3", params![now, now, id]),
+            "delete" => conn.execute(
+                "UPDATE library_assets SET deleted_at = ?1, updated_at = ?2 WHERE id = ?3",
+                params![now, now, id],
+            ),
             _ => return Err(ApiError::new(StatusCode::BAD_REQUEST, "action 无效")),
         }
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-        if let Some(asset) = library_asset_by_id(&conn, &id)? { changed.push(asset); }
+        if let Some(asset) = library_asset_by_id(&conn, &id)? {
+            changed.push(asset);
+        }
     }
     drop(conn);
     for asset in &changed {
         sync_library_asset_to_cloud(&state, asset.clone(), None).await;
     }
-    Ok(Json(json!({ "success": true, "data": { "items": changed } })))
+    Ok(Json(
+        json!({ "success": true, "data": { "items": changed } }),
+    ))
 }
 
 pub(super) async fn api_library_asset_mark_used(
@@ -647,7 +772,10 @@ pub(super) fn remove_revoked_shared_library_assets(
             continue;
         }
         removed += conn
-            .execute("DELETE FROM library_assets WHERE id = ?1", params![asset_id])
+            .execute(
+                "DELETE FROM library_assets WHERE id = ?1",
+                params![asset_id],
+            )
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     }
     Ok(removed)
@@ -670,11 +798,21 @@ pub(super) fn apply_cloud_library_assets(
     let mut imported = 0usize;
     let mut received_asset_ids = HashSet::new();
     for asset in items {
-        let Some(id) = library_optional_string(asset.get("id")) else { continue };
-        let Some(media_type) = library_optional_string(asset.get("mediaType")) else { continue };
-        let Some(category) = library_optional_string(asset.get("category")) else { continue };
-        let Some(name) = library_optional_string(asset.get("name")) else { continue };
-        let Some(url) = library_optional_string(asset.get("url")) else { continue };
+        let Some(id) = library_optional_string(asset.get("id")) else {
+            continue;
+        };
+        let Some(media_type) = library_optional_string(asset.get("mediaType")) else {
+            continue;
+        };
+        let Some(category) = library_optional_string(asset.get("category")) else {
+            continue;
+        };
+        let Some(name) = library_optional_string(asset.get("name")) else {
+            continue;
+        };
+        let Some(url) = library_optional_string(asset.get("url")) else {
+            continue;
+        };
         if !LIBRARY_MEDIA_TYPES.contains(&media_type.as_str())
             || !LIBRARY_CATEGORIES.contains(&category.as_str())
             || library_category_media_type(&category) != media_type
@@ -682,8 +820,8 @@ pub(super) fn apply_cloud_library_assets(
             continue;
         }
         received_asset_ids.insert(id.clone());
-        let remote_updated_at = library_optional_string(asset.get("updatedAt"))
-            .unwrap_or_else(now_iso);
+        let remote_updated_at =
+            library_optional_string(asset.get("updatedAt")).unwrap_or_else(now_iso);
         let local_updated_at = transaction
             .query_row(
                 "SELECT updated_at FROM library_assets WHERE id = ?1 LIMIT 1",
@@ -692,7 +830,10 @@ pub(super) fn apply_cloud_library_assets(
             )
             .optional()
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-        if local_updated_at.as_deref().is_some_and(|local| local > remote_updated_at.as_str()) {
+        if local_updated_at
+            .as_deref()
+            .is_some_and(|local| local > remote_updated_at.as_str())
+        {
             continue;
         }
         transaction.execute(
@@ -760,8 +901,12 @@ pub(super) fn apply_cloud_library_assets(
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
         if let Some(versions) = asset.get("versions").and_then(Value::as_array) {
             for version in versions {
-                let Some(version_number) = version.get("version").and_then(Value::as_i64) else { continue };
-                let Some(version_url) = library_optional_string(version.get("url")) else { continue };
+                let Some(version_number) = version.get("version").and_then(Value::as_i64) else {
+                    continue;
+                };
+                let Some(version_url) = library_optional_string(version.get("url")) else {
+                    continue;
+                };
                 if version_number < 1 {
                     continue;
                 }
@@ -808,10 +953,9 @@ pub(super) async fn api_library_members() -> Result<Json<Value>, ApiError> {
             .ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "读取本地配置失败"))?;
         (cloud_base_url(&conn), cloud_token(&conn))
     };
-    let base_url = base_url
-        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "未配置云端后台地址"))?;
-    let token = token
-        .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "未登录云端账号"))?;
+    let base_url =
+        base_url.ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "未配置云端后台地址"))?;
+    let token = token.ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "未登录云端账号"))?;
     let response = cloud_request_json(
         &base_url,
         reqwest::Method::GET,

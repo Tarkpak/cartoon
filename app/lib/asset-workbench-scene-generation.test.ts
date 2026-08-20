@@ -18,7 +18,9 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
     setting: input.setting,
     active: input.active ?? false,
     shotType: input.shotType,
+    cameraAngle: input.cameraAngle,
     cameraMovement: input.cameraMovement,
+    speedEffect: input.speedEffect,
     cameraNote: input.cameraNote,
     environmentCaptureMode: input.environmentCaptureMode,
     transitionIn: input.transitionIn,
@@ -110,5 +112,39 @@ describe('asset-workbench-scene-generation', () => {
     expect(payload.cameraNote).toContain('引用资产：白叙')
     expect(payload.cameraNote).not.toContain('烧烤三轮车')
     expect(payload.cameraNote).not.toContain('旁白音色')
+  })
+
+  it('passes enhanced storyboard controls to generation payloads', () => {
+    const scene = createScene({
+      id: 'scene_enhanced',
+      title: '关键证据',
+      description: '证据落下。',
+      shotType: '细节镜头',
+      cameraAngle: 'high_angle',
+      cameraMovement: '焦点转移',
+      speedEffect: 'slow_motion',
+      transitionIn: 'match_cut'
+    })
+
+    const payload = buildAssetWorkflowScenePayload({
+      scene,
+      scenes: [scene],
+      sceneConfig: {
+        sceneId: scene.id,
+        mustReferenceAssetIds: [],
+        consistencyLevel: 'lock',
+        continuityNotes: ''
+      },
+      resolveAssetName: assetId => assetId,
+      resolveSceneDescriptionWithoutAssetMentions: raw => raw || ''
+    })
+
+    expect(payload).toMatchObject({
+      shotType: '细节镜头',
+      cameraAngle: 'high_angle',
+      cameraMovement: '焦点转移',
+      speedEffect: 'slow_motion',
+      transitionIn: 'match_cut'
+    })
   })
 })
