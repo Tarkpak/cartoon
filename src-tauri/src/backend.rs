@@ -2562,6 +2562,31 @@ fn normalize_tos_proxy(raw: &str) -> Option<TosProxyConfig> {
     Some(TosProxyConfig { host, port })
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn windows_registry_value(output: &[u8], value_name: &str) -> Option<String> {
+    let text = String::from_utf8_lossy(output);
+    text.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        let name = parts.next()?;
+        if !name.eq_ignore_ascii_case(value_name) {
+            return None;
+        }
+        parts.next()?;
+        parts.next().map(str::to_string)
+    })
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_proxy_is_enabled(output: &[u8]) -> bool {
+    let Some(raw) = windows_registry_value(output, "ProxyEnable") else {
+        return false;
+    };
+    raw.strip_prefix("0x")
+        .and_then(|value| u32::from_str_radix(value, 16).ok())
+        .or_else(|| raw.parse::<u32>().ok())
+        == Some(1)
+}
+
 fn resolve_tos_proxy_config() -> Option<TosProxyConfig> {
     for key in ["TOS_PROXY", "tos_proxy"] {
         if let Ok(value) = std::env::var(key) {
@@ -2573,6 +2598,19 @@ fn resolve_tos_proxy_config() -> Option<TosProxyConfig> {
 
     #[cfg(target_os = "windows")]
     {
+        let enabled = hidden_command("reg")
+            .args([
+                "query",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings",
+                "/v",
+                "ProxyEnable",
+            ])
+            .output()
+            .ok()?;
+        if !enabled.status.success() || !windows_proxy_is_enabled(&enabled.stdout) {
+            return None;
+        }
+
         let output = hidden_command("reg")
             .args([
                 "query",
@@ -2585,16 +2623,8 @@ fn resolve_tos_proxy_config() -> Option<TosProxyConfig> {
         if !output.status.success() {
             return None;
         }
-        let text = String::from_utf8_lossy(&output.stdout);
-        for line in text.lines() {
-            if !line.contains("ProxyServer") {
-                continue;
-            }
-            let parts = line.split_whitespace().collect::<Vec<_>>();
-            if let Some(value) = parts.last() {
-                return normalize_tos_proxy(value);
-            }
-        }
+        return windows_registry_value(&output.stdout, "ProxyServer")
+            .and_then(|value| normalize_tos_proxy(&value));
     }
 
     None
@@ -13901,7 +13931,8 @@ mod tests {
         normalize_scene_camera_movement_value, normalize_scene_shot_type_value,
         normalize_scene_speed_effect_value, normalize_time_of_day_value,
         remove_revoked_shared_library_assets, reset_account_scoped_config,
-        upgrade_style_config_for_catalog, validate_project_member_removal, ProjectPermission,
+        upgrade_style_config_for_catalog, validate_project_member_removal,
+        windows_proxy_is_enabled, windows_registry_value, ProjectPermission,
         CLOUD_ADMIN_SESSION_KEY,
     };
     use axum::http::StatusCode;
@@ -14444,6 +14475,27 @@ mod tests {
             build_scoped_tos_key_prefix_for_user("manju-assets", true, true, None),
             (Some("manju-assets".to_string()), true)
         );
+    }
+
+    #[test]
+    fn windows_tos_proxy_requires_enabled_registry_flag() {
+        assert!(windows_proxy_is_enabled(
+            b"ProxyEnable    REG_DWORD    0x1\r\n"
+        ));
+        assert!(!windows_proxy_is_enabled(
+            b"ProxyEnable    REG_DWORD    0x0\r\n"
+        ));
+        assert!(!windows_proxy_is_enabled(b""));
+    }
+
+    #[test]
+    fn windows_tos_proxy_reads_exact_registry_value() {
+        let output = b"HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\r\n    ProxyServer    REG_SZ    127.0.0.1:7890\r\n";
+        assert_eq!(
+            windows_registry_value(output, "ProxyServer").as_deref(),
+            Some("127.0.0.1:7890")
+        );
+        assert_eq!(windows_registry_value(output, "ProxyEnable"), None);
     }
 
     #[test]
