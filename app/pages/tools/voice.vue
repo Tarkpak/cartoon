@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Search,
   Settings,
+  Square,
   Sparkles,
   Upload,
   UserRound
@@ -123,11 +124,18 @@ const disableVolumeNormalization = ref(false)
 const consentConfirmed = ref(false)
 const cloning = ref(false)
 const cloneError = ref('')
+const recording = ref(false)
+const recordingSeconds = ref(0)
+let recordingTimer: ReturnType<typeof setInterval> | null = null
+let mediaRecorder: MediaRecorder | null = null
+let recordingStream: MediaStream | null = null
+let recordingChunks: Blob[] = []
 const refreshingProfileId = ref('')
 const activatingProfileId = ref('')
 
 const modeOptions: Array<{ value: GenerationMode, label: string, icon: typeof Sparkles }> = [
   { value: 'preset', label: '官方音色', icon: UserRound },
+  { value: 'profile', label: '我的音色', icon: MicVocal },
   { value: 'prompt', label: '自由生成', icon: Sparkles },
   { value: 'reference_audio', label: '临时参考音频', icon: FileAudio },
   { value: 'reference_image', label: '参考图片', icon: FileImage }
@@ -135,6 +143,7 @@ const modeOptions: Array<{ value: GenerationMode, label: string, icon: typeof Sp
 
 const viewOptions: Array<{ value: View, label: string, icon: typeof Sparkles }> = [
   { value: 'generate', label: '声音生成', icon: Sparkles },
+  { value: 'clone', label: '我的音色', icon: MicVocal },
   { value: 'tasks', label: '任务记录', icon: ListChecks }
 ]
 
@@ -496,6 +505,79 @@ async function handleCloneFile(event: Event) {
   if (!cloneName.value) cloneName.value = file.name.replace(/\.[^.]+$/, '')
 }
 
+function stopRecordingStream() {
+  recordingStream?.getTracks().forEach(track => track.stop())
+  recordingStream = null
+  if (recordingTimer) clearInterval(recordingTimer)
+  recordingTimer = null
+}
+
+function recordingLabel(): string {
+  const minutes = Math.floor(recordingSeconds.value / 60).toString().padStart(2, '0')
+  const seconds = (recordingSeconds.value % 60).toString().padStart(2, '0')
+  return `${minutes}:${seconds}`
+}
+
+async function useCloneAudioBlob(blob: Blob) {
+  if (blob.size > 10 * 1024 * 1024) {
+    cloneError.value = '录音超过 10 MB，请缩短录制时间'
+    return
+  }
+  const mimeType = blob.type || 'audio/webm'
+  const extension = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'm4a' : 'webm'
+  const file = new File([blob], `麦克风录音-${Date.now()}.${extension}`, { type: mimeType })
+  if (clonePreviewUrl.value) URL.revokeObjectURL(clonePreviewUrl.value)
+  cloneFile.value = file
+  cloneAudioData.value = await fileToDataUrl(file)
+  clonePreviewUrl.value = URL.createObjectURL(file)
+  if (!cloneName.value) cloneName.value = '我的音色'
+}
+
+async function startRecording() {
+  cloneError.value = ''
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    cloneError.value = '当前环境不支持麦克风录音，请改为上传音频文件'
+    return
+  }
+  try {
+    recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const preferredType = ['audio/mp4', 'audio/ogg;codecs=opus']
+      .find(type => MediaRecorder.isTypeSupported(type))
+    if (!preferredType) {
+      stopRecordingStream()
+      cloneError.value = '当前浏览器无法录制兼容格式，请改为上传 MP3、WAV、M4A 或 OGG 音频'
+      return
+    }
+    mediaRecorder = new MediaRecorder(recordingStream, { mimeType: preferredType })
+    recordingChunks = []
+    mediaRecorder.addEventListener('dataavailable', (event) => {
+      if (event.data.size > 0) recordingChunks.push(event.data)
+    })
+    mediaRecorder.addEventListener('stop', () => {
+      const blob = new Blob(recordingChunks, { type: mediaRecorder?.mimeType || preferredType || 'audio/webm' })
+      recording.value = false
+      stopRecordingStream()
+      if (blob.size > 0) void useCloneAudioBlob(blob)
+    }, { once: true })
+    mediaRecorder.start(1000)
+    recordingSeconds.value = 0
+    recording.value = true
+    recordingTimer = setInterval(() => {
+      recordingSeconds.value += 1
+      if (recordingSeconds.value >= 60) stopRecording()
+    }, 1000)
+  } catch (error) {
+    stopRecordingStream()
+    cloneError.value = error instanceof DOMException && error.name === 'NotAllowedError'
+      ? '没有麦克风权限，请在系统设置中允许访问后重试'
+      : readableError(error)
+  }
+}
+
+function stopRecording() {
+  if (mediaRecorder?.state === 'recording') mediaRecorder.stop()
+}
+
 async function submitClone() {
   cloneError.value = ''
   if (!cloneName.value.trim() || !cloneAudioData.value) {
@@ -604,6 +686,8 @@ onBeforeUnmount(() => {
   presetPreviewRequestId += 1
   presetPreviewAudio?.pause()
   presetPreviewAudio = null
+  if (mediaRecorder?.state === 'recording') mediaRecorder.stop()
+  stopRecordingStream()
 })
 </script>
 
@@ -852,13 +936,32 @@ onBeforeUnmount(() => {
 
         <div v-else-if="activeView === 'clone'" class="grid gap-5 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)]">
           <section class="space-y-5 border bg-background p-5 shadow-sm">
-            <div><h2 class="text-base font-semibold">创建固定音色</h2><p class="mt-1 text-xs text-muted-foreground">上传清晰单人声音样本，先训练试听，确认效果后再付费启用。</p></div>
+            <div><h2 class="text-base font-semibold">创建固定音色</h2><p class="mt-1 text-xs text-muted-foreground">录制或上传清晰的单人声音样本，先训练试听，确认效果后再付费启用。</p></div>
             <div class="space-y-2"><label class="text-sm font-medium">音色名称</label><Input v-model="cloneName" maxlength="80" placeholder="例如：旁白女声、角色阿澈" /></div>
             <div class="space-y-2">
               <label class="text-sm font-medium">声音样本</label>
               <input id="clone-audio-file" type="file" class="hidden" accept="audio/mp3,audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac" @change="handleCloneFile">
-              <label for="clone-audio-file" class="flex min-h-24 cursor-pointer items-center justify-center gap-2 border border-dashed text-sm text-muted-foreground transition-[border-color,color,background-color,transform] hover:bg-muted/35 hover:bg-primary/5 hover:text-foreground active:scale-[0.96]"><Upload class="h-4 w-4" />{{ cloneFile?.name || '选择不超过 10 MB 的音频' }}</label>
+              <div class="grid min-h-24 grid-cols-2 divide-x border border-dashed">
+                <button
+                  type="button"
+                  class="flex min-w-0 flex-col items-center justify-center gap-2 px-3 text-sm text-muted-foreground transition-[color,background-color,transform] hover:bg-primary/5 hover:text-foreground active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
+                  :disabled="recording"
+                  @click="startRecording"
+                >
+                  <MicVocal class="h-5 w-5" />
+                  <span>麦克风录制</span>
+                </button>
+                <label for="clone-audio-file" class="flex min-w-0 cursor-pointer flex-col items-center justify-center gap-2 px-3 text-sm text-muted-foreground transition-[color,background-color,transform] hover:bg-primary/5 hover:text-foreground active:scale-[0.96]">
+                  <Upload class="h-5 w-5" />
+                  <span class="max-w-full truncate">{{ cloneFile?.name || '上传音频' }}</span>
+                </label>
+              </div>
+              <div v-if="recording" class="flex items-center justify-between border bg-destructive/5 px-3 py-2.5">
+                <span class="inline-flex items-center gap-2 text-sm font-medium text-destructive"><span class="h-2 w-2 rounded-full bg-destructive" />正在录音 {{ recordingLabel() }}</span>
+                <Button size="sm" variant="outline" class="gap-1.5 transition-transform active:scale-[0.96]" @click="stopRecording"><Square class="h-3.5 w-3.5 fill-current" />停止</Button>
+              </div>
               <audio v-if="clonePreviewUrl" class="h-10 w-full" controls :src="clonePreviewUrl" />
+              <p class="text-xs text-muted-foreground">建议录制 10–60 秒安静环境下的单人语音。提交后原始录音不会保存到个人资源库。</p>
             </div>
             <div class="space-y-2"><label class="text-sm font-medium">样本对应文本</label><Textarea v-model="cloneReferenceText" class="min-h-20" placeholder="填写样本中实际朗读的文字，可提高训练校验准确度。" /></div>
             <div class="space-y-2"><label class="text-sm font-medium">试听文本</label><Textarea v-model="cloneDemoText" class="min-h-20" maxlength="300" /></div>

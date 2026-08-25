@@ -399,17 +399,6 @@ pub(super) async fn api_voice_profile_clone(
         request["extra_params"]["demo_text"] = json!(demo_text);
     }
     let response = volcengine_voice_request("/api/v3/tts/voice_clone", &request).await?;
-    let source_url = persist_audio_source(&state, &audio_data, "voice_profile_source").await?;
-    let source_asset = super::library_api::create_generated_audio_library_asset(
-        &state,
-        &format!("{name} · 训练样本"),
-        "豆包语音复刻训练样本",
-        "character_voice",
-        &source_url,
-        None,
-        Some(json!({ "voiceProfileId": id, "speakerId": custom_speaker_id })),
-    )
-    .await?;
     let status = voice_profile_status(response.get("status").and_then(Value::as_i64).unwrap_or(1));
     let now = now_iso();
     let conn = db_connection(&state)?;
@@ -427,8 +416,8 @@ pub(super) async fn api_voice_profile_clone(
             custom_speaker_id,
             status,
             language,
-            source_asset.get("id").and_then(Value::as_str),
-            source_url,
+            None::<String>,
+            None::<String>,
             response.to_string(),
             now,
             now,
