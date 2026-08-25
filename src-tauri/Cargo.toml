@@ -1,6 +1,6 @@
 [package]
 name = "playlet-desktop"
-version = "1.0.128"
+version = "1.0.129"
 description = "Playlet desktop client powered by Tauri + local Nitro sidecar"
 authors = ["Playlet Team"]
 license = ""
