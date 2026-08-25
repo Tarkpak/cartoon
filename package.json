@@ -1,6 +1,6 @@
 {
   "name": "playlet-ai-manga",
-  "version": "1.0.126",
+  "version": "1.0.127",
   "private": true,
   "type": "module",
   "description": "AI影视自动化生成系统 - 基于Vue 3 + Vite + Rust后端",
