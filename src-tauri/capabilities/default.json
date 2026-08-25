@@ -21,6 +21,7 @@
     "allow-install-ffmpeg",
     "allow-open-local-path",
     "allow-open-local-directory",
+    "allow-open-external-url",
     "allow-save-settings-config-export",
     "notification:default",
     "process:default",

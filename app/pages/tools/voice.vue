@@ -135,6 +135,25 @@ let recordingChunks: Blob[] = []
 const refreshingProfileId = ref('')
 const activatingProfileId = ref('')
 
+async function openVoiceBillingDoc() {
+  try {
+    const runtime = window as typeof window & {
+      __TAURI__?: unknown
+      __TAURI_INTERNALS__?: unknown
+    }
+    if (runtime.__TAURI__ || runtime.__TAURI_INTERNALS__) {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('open_external_url', { url: VOICE_BILLING_DOC_URL })
+      return
+    }
+
+    const opened = window.open(VOICE_BILLING_DOC_URL, '_blank', 'noopener,noreferrer')
+    if (!opened) throw new Error('浏览器阻止了新窗口')
+  } catch (error) {
+    toast.error('无法打开计费说明', { description: readableError(error) })
+  }
+}
+
 const modeOptions: Array<{ value: GenerationMode, label: string, icon: typeof Sparkles }> = [
   { value: 'preset', label: '官方音色', icon: UserRound },
   { value: 'profile', label: '我的音色', icon: MicVocal },
@@ -945,7 +964,7 @@ onBeforeUnmount(() => {
                 <div class="min-w-0">
                   <p class="font-medium text-foreground">后付费音色：¥138 / 个</p>
                   <p class="mt-1 text-muted-foreground">提交训练不会立即收取槽位费；首次正式生成语音时收费，生成内容另按用量计费。正式调用后音色会锁定，不能再次训练；试听音色 7 天内未正式调用会由火山引擎删除。</p>
-                  <a :href="VOICE_BILLING_DOC_URL" target="_blank" rel="noreferrer" class="mt-1.5 inline-flex items-center gap-1 font-medium text-primary hover:underline">查看火山引擎计费说明<ExternalLink class="h-3 w-3" /></a>
+                  <button type="button" class="mt-1.5 inline-flex items-center gap-1 font-medium text-primary hover:underline" @click="openVoiceBillingDoc">查看火山引擎计费说明<ExternalLink class="h-3 w-3" /></button>
                 </div>
               </div>
             </div>

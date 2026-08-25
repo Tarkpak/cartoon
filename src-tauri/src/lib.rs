@@ -422,6 +422,21 @@ async fn open_local_directory(app: tauri::AppHandle, path: String) -> Result<(),
     open_path_with_fallback(&app, &target).map_err(|error| format!("打开目录失败: {}", error))
 }
 
+#[tauri::command]
+async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let target = url
+        .trim()
+        .parse::<tauri::Url>()
+        .map_err(|error| format!("外部链接无效: {}", error))?;
+    if !matches!(target.scheme(), "http" | "https") {
+        return Err("仅允许打开 HTTP 或 HTTPS 链接".to_string());
+    }
+
+    tauri_plugin_opener::OpenerExt::opener(&app)
+        .open_url(target.as_str(), None::<&str>)
+        .map_err(|error| format!("打开外部链接失败: {}", error))
+}
+
 fn open_path_with_fallback(app: &tauri::AppHandle, target: &PathBuf) -> Result<(), String> {
     let path = target.to_string_lossy().to_string();
     if tauri_plugin_opener::OpenerExt::opener(app)
@@ -504,6 +519,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_local_path,
             open_local_directory,
+            open_external_url,
             desktop_ffmpeg::check_ffmpeg_status,
             desktop_ffmpeg::install_ffmpeg
         ])
