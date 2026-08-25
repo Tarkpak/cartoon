@@ -82,7 +82,7 @@ const CLOUD_SECRET_TRANSPORT_CONTEXT: &[u8] = b"playlet.cloud-secret-transport.v
 const CLOUD_SECRET_TRANSPORT_AAD: &[u8] = b"playlet.cloud-secret-response.v1";
 const CLOUD_SECRET_TRANSPORT_NONCE_LEN: usize = 12;
 const DEV_CLOUD_ADMIN_BASE_URL: &str = "http://127.0.0.1:43200";
-const PROD_CLOUD_ADMIN_BASE_URL: &str = "http://124.222.189.176:43200";
+const PROD_CLOUD_ADMIN_BASE_URL: &str = "http://42.192.62.105:43200";
 const LEGACY_PROD_CLOUD_ADMIN_BASE_URL: &str = "https://admin.tempocc.cn";
 
 static CLOUD_SESSION_OPERATION_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();

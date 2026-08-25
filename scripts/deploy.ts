@@ -8,7 +8,7 @@ import { $ } from 'bun'
 
 // ========== 配置 ==========
 const config = {
-  host: process.env.DEPLOY_HOST || '124.222.189.176',
+  host: process.env.DEPLOY_HOST || '42.192.62.105',
   user: process.env.DEPLOY_USER || 'root',
   port: process.env.DEPLOY_PORT || '22',
   path: process.env.DEPLOY_PATH || '~/project/cartoon',
