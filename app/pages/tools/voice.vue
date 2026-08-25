@@ -6,6 +6,7 @@ import {
   CircleAlert,
   Clock3,
   Download,
+  ExternalLink,
   FileAudio,
   FileImage,
   History,
@@ -73,6 +74,7 @@ interface VoiceWorkbenchPreferences {
 }
 
 const VOICE_WORKBENCH_PREFERENCES_KEY = 'playlet:voice-workbench:preferences:v1'
+const VOICE_BILLING_DOC_URL = 'https://www.volcengine.com/docs/6561/1359370'
 
 const { toast } = useToast()
 const { confirm } = useConfirm()
@@ -630,9 +632,9 @@ async function refreshProfile(profile: VoiceProfile) {
 
 async function activateProfile(profile: VoiceProfile) {
   const accepted = await confirm({
-    title: `启用“${profile.name}”？`,
-    description: '将立即生成一段正式音频，并按火山规则收取 138 元音色槽位费。启用后音色会锁定，不能再次训练。',
-    confirmText: '确认启用并付费'
+    title: `支付 ¥138 并启用“${profile.name}”？`,
+    description: '此操作会首次正式调用该复刻音色。火山引擎将收取后付费音色槽位费 ¥138/音色；生成内容另按语音合成用量计费。正式调用后音色会锁定，不能再次训练。价格以火山引擎控制台为准。',
+    confirmText: '确认支付 ¥138 并启用'
   })
   if (!accepted) return
   activatingProfileId.value = profile.id
@@ -936,7 +938,17 @@ onBeforeUnmount(() => {
 
         <div v-else-if="activeView === 'clone'" class="grid gap-5 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)]">
           <section class="space-y-5 border bg-background p-5 shadow-sm">
-            <div><h2 class="text-base font-semibold">创建固定音色</h2><p class="mt-1 text-xs text-muted-foreground">录制或上传清晰的单人声音样本，先训练试听，确认效果后再付费启用。</p></div>
+            <div><h2 class="text-base font-semibold">创建固定音色</h2><p class="mt-1 text-xs text-muted-foreground">录制或上传清晰的单人声音样本，先训练试听，确认效果后再决定是否付费启用。</p></div>
+            <div class="border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-xs leading-5">
+              <div class="flex items-start gap-2">
+                <CircleAlert class="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                <div class="min-w-0">
+                  <p class="font-medium text-foreground">后付费音色：¥138 / 个</p>
+                  <p class="mt-1 text-muted-foreground">提交训练不会立即收取槽位费；首次正式生成语音时收费，生成内容另按用量计费。正式调用后音色会锁定，不能再次训练；试听音色 7 天内未正式调用会由火山引擎删除。</p>
+                  <a :href="VOICE_BILLING_DOC_URL" target="_blank" rel="noreferrer" class="mt-1.5 inline-flex items-center gap-1 font-medium text-primary hover:underline">查看火山引擎计费说明<ExternalLink class="h-3 w-3" /></a>
+                </div>
+              </div>
+            </div>
             <div class="space-y-2"><label class="text-sm font-medium">音色名称</label><Input v-model="cloneName" maxlength="80" placeholder="例如：旁白女声、角色阿澈" /></div>
             <div class="space-y-2">
               <label class="text-sm font-medium">声音样本</label>
@@ -985,7 +997,7 @@ onBeforeUnmount(() => {
                 <div class="flex items-center justify-between gap-3 border-t pt-3">
                   <span class="text-xs text-muted-foreground">{{ formatDate(profile.updatedAt) }}</span>
                   <div class="flex items-center gap-1">
-                    <Button v-if="(profile.status === 'ready' || profile.status === 'active') && !profile.activatedAt" size="sm" class="gap-1.5 transition-transform active:scale-[0.96]" :disabled="activatingProfileId === profile.id" @click="activateProfile(profile)"><Loader2 v-if="activatingProfileId === profile.id" class="h-3.5 w-3.5 animate-spin" /><Check v-else class="h-3.5 w-3.5" />启用音色</Button>
+                    <Button v-if="(profile.status === 'ready' || profile.status === 'active') && !profile.activatedAt" size="sm" class="gap-1.5 transition-transform active:scale-[0.96]" :disabled="activatingProfileId === profile.id" @click="activateProfile(profile)"><Loader2 v-if="activatingProfileId === profile.id" class="h-3.5 w-3.5 animate-spin" /><Check v-else class="h-3.5 w-3.5" />¥138 启用</Button>
                     <span v-else-if="profile.activatedAt" class="inline-flex items-center gap-1 text-xs text-emerald-600"><Check class="h-3.5 w-3.5" />已启用</span>
                     <Button size="icon" variant="ghost" class="h-8 w-8 active:scale-[0.96] transition-transform" title="刷新状态" @click="refreshProfile(profile)"><Loader2 v-if="refreshingProfileId === profile.id" class="h-4 w-4 animate-spin" /><RefreshCw v-else class="h-4 w-4" /></Button>
                     <Button size="icon" variant="ghost" class="h-8 w-8 text-muted-foreground hover:text-destructive active:scale-[0.96] transition-transform" title="归档" @click="archiveProfile(profile)"><Archive class="h-4 w-4" /></Button>

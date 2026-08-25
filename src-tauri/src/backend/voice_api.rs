@@ -38,7 +38,7 @@ fn voice_provider_error_message(message: &str) -> String {
             .to_ascii_lowercase()
             .contains("resource not granted")
     {
-        return "当前项目尚未开通后付费音色服务（volc.megatts.timbre）。请前往豆包语音控制台的“开通管理”，在“音色槽位”中开通后付费音色服务后重试；首次使用复刻音色进行正式语音合成可能产生槽位费用。".to_string();
+        return "当前项目尚未开通后付费音色服务（volc.megatts.timbre）。请前往豆包语音控制台的“开通管理”，在“音色槽位”中开通后付费音色服务后重试；首次使用复刻音色正式生成语音时，将按火山引擎规则收取 138 元/个后付费音色槽位费，生成内容另按用量计费。".to_string();
     }
     message.to_string()
 }
@@ -756,7 +756,7 @@ pub(super) async fn api_voice_profile_activate(
     if body.get("confirmCharge").and_then(Value::as_bool) != Some(true) {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
-            "请确认 138 元/个音色的槽位费用后再启用",
+            "请确认支付 138 元/个后付费音色槽位费后再启用",
         ));
     }
     let profile = {
@@ -921,7 +921,9 @@ mod tests {
         );
         assert!(message.contains("尚未开通后付费音色服务"));
         assert!(message.contains("音色槽位"));
-        assert!(message.contains("首次使用复刻音色进行正式语音合成可能产生槽位费用"));
+        assert!(message.contains("首次使用复刻音色正式生成语音"));
+        assert!(message.contains("138 元/个"));
+        assert!(message.contains("另按用量计费"));
     }
 
     #[test]
