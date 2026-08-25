@@ -5,12 +5,9 @@ import { useCloudAdmin } from '@/composables/useCloudAdmin'
 const router = useRouter()
 const route = useRoute()
 const { login, loadStatus, loading, error } = useCloudAdmin()
-const DEFAULT_CLOUD_ADMIN_BASE_URL = import.meta.env.DEV
-  ? 'http://127.0.0.1:43200'
-  : 'http://42.192.62.105:43200'
 
 const form = reactive({
-  baseUrl: DEFAULT_CLOUD_ADMIN_BASE_URL,
+  baseUrl: '',
   account: '',
   password: ''
 })

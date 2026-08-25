@@ -82,7 +82,9 @@ const CLOUD_SECRET_TRANSPORT_CONTEXT: &[u8] = b"playlet.cloud-secret-transport.v
 const CLOUD_SECRET_TRANSPORT_AAD: &[u8] = b"playlet.cloud-secret-response.v1";
 const CLOUD_SECRET_TRANSPORT_NONCE_LEN: usize = 12;
 const DEV_CLOUD_ADMIN_BASE_URL: &str = "http://127.0.0.1:43200";
-const PROD_CLOUD_ADMIN_BASE_URL: &str = "http://42.192.62.105:43200";
+const PROD_CLOUD_ADMIN_BASE_URL: &str = "https://playlet-admin.alinovel.cn";
+const PREVIOUS_PROD_CLOUD_ADMIN_BASE_URL: &str = "http://42.192.62.105:43200";
+const OLDER_PROD_CLOUD_ADMIN_BASE_URL: &str = "http://124.222.189.176:43200";
 const LEGACY_PROD_CLOUD_ADMIN_BASE_URL: &str = "https://admin.tempocc.cn";
 
 static CLOUD_SESSION_OPERATION_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
@@ -907,10 +909,15 @@ fn should_use_default_cloud_admin_base_url(value: &str) -> bool {
         return true;
     }
     if cfg!(debug_assertions) {
-        normalized == PROD_CLOUD_ADMIN_BASE_URL || normalized == LEGACY_PROD_CLOUD_ADMIN_BASE_URL
+        normalized == PROD_CLOUD_ADMIN_BASE_URL
+            || normalized == PREVIOUS_PROD_CLOUD_ADMIN_BASE_URL
+            || normalized == OLDER_PROD_CLOUD_ADMIN_BASE_URL
+            || normalized == LEGACY_PROD_CLOUD_ADMIN_BASE_URL
     } else {
         normalized == DEV_CLOUD_ADMIN_BASE_URL
             || normalized == "http://localhost:43200"
+            || normalized == PREVIOUS_PROD_CLOUD_ADMIN_BASE_URL
+            || normalized == OLDER_PROD_CLOUD_ADMIN_BASE_URL
             || normalized == LEGACY_PROD_CLOUD_ADMIN_BASE_URL
     }
 }
@@ -13931,14 +13938,34 @@ mod tests {
         normalize_scene_camera_movement_value, normalize_scene_shot_type_value,
         normalize_scene_speed_effect_value, normalize_time_of_day_value,
         remove_revoked_shared_library_assets, reset_account_scoped_config,
-        upgrade_style_config_for_catalog, validate_project_member_removal,
-        windows_proxy_is_enabled, windows_registry_value, ProjectPermission,
-        CLOUD_ADMIN_SESSION_KEY,
+        should_use_default_cloud_admin_base_url, upgrade_style_config_for_catalog,
+        validate_project_member_removal, windows_proxy_is_enabled, windows_registry_value,
+        ProjectPermission, CLOUD_ADMIN_SESSION_KEY,
     };
     use axum::http::StatusCode;
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use std::collections::HashSet;
+
+    #[test]
+    fn cloud_base_url_migration_recognizes_previous_production_endpoints() {
+        assert!(should_use_default_cloud_admin_base_url(
+            "http://42.192.62.105:43200"
+        ));
+        assert!(should_use_default_cloud_admin_base_url(
+            "  http://124.222.189.176:43200/  "
+        ));
+        assert!(should_use_default_cloud_admin_base_url(
+            "https://admin.tempocc.cn"
+        ));
+    }
+
+    #[test]
+    fn cloud_base_url_migration_preserves_custom_endpoints() {
+        assert!(!should_use_default_cloud_admin_base_url(
+            "https://admin.example.com"
+        ));
+    }
 
     #[test]
     fn enhanced_scene_protocol_values_are_normalized_for_storage() {
