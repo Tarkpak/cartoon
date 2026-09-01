@@ -781,10 +781,19 @@ fn cloud_data_http_client() -> &'static Client {
     })
 }
 
+const LLM_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
+
+fn llm_default_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::USER_AGENT, HeaderValue::from_static(LLM_USER_AGENT));
+    headers
+}
+
 fn llm_http_client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         Client::builder()
+            .default_headers(llm_default_headers())
             .redirect(reqwest::redirect::Policy::limited(5))
             .build()
             .expect("failed to build llm reqwest client")
@@ -13932,20 +13941,31 @@ mod tests {
         custom_openai_entry_for_model, custom_openai_entry_has_model,
         default_prompt_director_preferences, ensure_cloud_project_owner_available,
         ensure_project_access, ensure_project_permission, filter_cloud_model_log_page,
-        is_prompt_director_preferences_customized, merge_prompt_templates_with_defaults,
-        merge_style_presets_with_catalog, normalize_character_gender_value,
-        normalize_character_role_value, normalize_scene_camera_angle_value,
-        normalize_scene_camera_movement_value, normalize_scene_shot_type_value,
-        normalize_scene_speed_effect_value, normalize_time_of_day_value,
-        remove_revoked_shared_library_assets, reset_account_scoped_config,
-        should_use_default_cloud_admin_base_url, upgrade_style_config_for_catalog,
-        validate_project_member_removal, windows_proxy_is_enabled, windows_registry_value,
-        ProjectPermission, CLOUD_ADMIN_SESSION_KEY,
+        is_prompt_director_preferences_customized, llm_default_headers,
+        merge_prompt_templates_with_defaults, merge_style_presets_with_catalog,
+        normalize_character_gender_value, normalize_character_role_value,
+        normalize_scene_camera_angle_value, normalize_scene_camera_movement_value,
+        normalize_scene_shot_type_value, normalize_scene_speed_effect_value,
+        normalize_time_of_day_value, remove_revoked_shared_library_assets,
+        reset_account_scoped_config, should_use_default_cloud_admin_base_url,
+        upgrade_style_config_for_catalog, validate_project_member_removal,
+        windows_proxy_is_enabled, windows_registry_value, ProjectPermission,
+        CLOUD_ADMIN_SESSION_KEY, LLM_USER_AGENT,
     };
     use axum::http::StatusCode;
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use std::collections::HashSet;
+
+    #[test]
+    fn llm_http_client_default_headers_include_user_agent() {
+        assert_eq!(
+            llm_default_headers()
+                .get(reqwest::header::USER_AGENT)
+                .and_then(|value| value.to_str().ok()),
+            Some(LLM_USER_AGENT)
+        );
+    }
 
     #[test]
     fn cloud_base_url_migration_recognizes_previous_production_endpoints() {
