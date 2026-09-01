@@ -62,7 +62,7 @@ const navigation = computed(() => {
     { name: '日志', path: '/logs', icon: ScrollText },
     {
       name: '工具',
-      path: '/import/video',
+      path: toolChildren[0].path,
       icon: Wrench,
       children: toolChildren
     },
